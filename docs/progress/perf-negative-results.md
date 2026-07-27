@@ -1246,12 +1246,14 @@ resolves no current FNX-vs-NetworkX difference. Cross-invocation movement on a d
 state cannot be assigned causally to the cutover. The cutover's own fixed-binary causal benchmark
 (`45cb1925e`, 4.735x store-kernel row) remains its admissible evidence.
 
-**2. MultiDiGraph is now the laggard sibling at 0.6958x.** `br-r37-c1-thp6w` cut over MultiGraph
-ONLY. MDG still carries the String-keyed store the cutover replaced, and it is now the worst
-multi-type construction row while its undirected sibling sits at parity. This is the
-directed/undirected mirror-the-laggard pattern that has paid repeatedly in this repo. Filed as
-`br-r37-c1-4c29a`. The prototype, the gauntlets, the trap list, and the slab layout are all already
-written and proven for MultiGraph — this is a port, not a design.
+**2. MultiDiGraph is the strongest contextual construction lead at 0.6958x, but the mechanism is
+not yet attributed.** `br-r37-c1-thp6w` cut over MultiGraph only, while MDG still carries the
+String-keyed store it replaced. That makes the storage port a plausible hypothesis, not a result:
+the undirected `0.9364-0.9540x` rows were unresolved inside their null rather than proven parity,
+and this working-tree invocation did not profile the MDG store. `br-r37-c1-4c29a` therefore now
+requires a clean exact-ELF construction profile and computed ceiling before any port. The existing
+MultiGraph prototype, gauntlets, trap list, and slab layout become reusable only if that profile
+names the same removable mechanism.
 
 **3. `Graph incremental add_edge` at 0.2605x is a decisive public loss, but its cause was not
 profiled by this invocation.**
@@ -1262,6 +1264,11 @@ speedup. Treat the shim explanation as a hypothesis subject to the profile predi
 a result of this row.
 
 RETRY PREDICATES.
+* **`MultiDiGraph(edge stream, weight)` 0.6958x:** first reproduce from a named clean source whose
+  loaded extension self-reports its full SHA-256 in-process, then profile the exact MDG
+  construction path and compute the removable-mechanism ceiling. Port the stable-slot storage only
+  if that profile attributes the loss to the String-keyed store; gate the one-lever A/B on a
+  same-invocation A/A and the complete candidate median CI.
 * **`Graph incremental add_edge` (0.2605x):** retry with the wrapper-removal mechanism already
   landing for the read side (`br-r37-c1-qmi5w` family) applied to the mutation entry points. Gate:
   re-run only when a profile attributes >=40% of per-call `add_edge` self-time to Python shim frames

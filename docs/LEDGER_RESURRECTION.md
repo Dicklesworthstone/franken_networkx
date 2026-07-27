@@ -159,9 +159,9 @@ the check sits at **1.7% VOID**; repos that audited once and banked the wins sit
 **25-91%**. This repo's own 2026-07-10 partial audit (§3) proves the point locally — it was
 correct, and it decayed because nothing enforced it.
 
-Landed with this audit:
+Landed with this audit and hardened by the 2026-07-27 model-integrity closeout:
 
-* **`scripts/perf_ledger_preflight.py`** — five modes, frankensqlite's exit-2-means-BLOCKED
+* **`scripts/perf_ledger_preflight.py`** — six modes, frankensqlite's exit-2-means-BLOCKED
   convention:
   * `--check [REF]` — every rejection row added since REF must carry an A/A null **or** a
     counted mechanism. Exit 2 otherwise.
@@ -174,9 +174,31 @@ Landed with this audit:
     the rejection is not evidence and may be re-run — the new row must say so and cite it.
   * `--audit` — re-classifies every rejection row and prints the void rate. **A rising void
     rate is how decay is detected.** Run it periodically.
+  * `--selfcheck` — exercises every taxonomy class, in-process ELF provenance, and six
+    hand-selected rows from this repository. It includes the exact escaped defect class:
+    proposed allocation prose plus an unrelated `unchanged` token must remain
+    `VOID-NONULL`, and a `perf.flat.txt` filename must not masquerade as a flat counted
+    result. `--check-staged` runs this self-check first and blocks if the gate has regressed.
 * **`tests/python/test_perf_ledger_gate.py`** — wires `--check` into the test suite, so a
   rejection row recording neither a null nor a counted mechanism **fails the suite**. That is
   the difference between discouraged and impossible.
+
+### Gate self-check result
+
+On the final remediation source, `python3 scripts/perf_ledger_preflight.py --selfcheck`
+reported:
+
+`gate selfcheck: PASS (13 checks; own_ledger_sentinels=6/6)`
+
+The live full-ledger audit then classified 172 rejection rows as 30 `VALID-AB`, 9
+`VALID-PROFILE`, 7 `VOID-CV`, 122 `VOID-NONULL`, and 4 `VOID-ZEROSELF`
+(`133/172 = 77.3%` VOID), while retaining **zero `VOID-ISA` rows**. In particular, the
+AVX2 dense-linalg prior-art row remains the explicit `VOID-NONULL` sentinel described in
+§4. During development, the first hardened implementation still misclassified that row
+because the filename `perf.flat.txt` satisfied a loose `flat` expression; the self-check
+caught the cosmetic hardening, and the final parser now requires a measurement marker,
+named metric, and locally grammatical unchanged result in one evidence sentence or table
+row.
 
 ## 6. Full audit table
 

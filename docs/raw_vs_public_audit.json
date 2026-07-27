@@ -13464,7 +13464,7 @@
     "name": "is_eulerian",
     "raw_callable": true,
     "public_callable": true,
-    "classification": "identical",
+    "classification": "wrapper-misalign",
     "notes": [],
     "rows": [
       {
@@ -13632,9 +13632,9 @@
       {
         "fixture": "multigraph-path-5",
         "raw": {
-          "ok": true,
-          "value": false,
-          "error_type": null
+          "ok": false,
+          "value": null,
+          "error_type": "RuntimeError"
         },
         "public": {
           "ok": true,
@@ -13650,14 +13650,14 @@
       {
         "fixture": "multidigraph-chain-5",
         "raw": {
-          "ok": true,
-          "value": false,
-          "error_type": null
+          "ok": false,
+          "value": null,
+          "error_type": "RuntimeError"
         },
         "public": {
-          "ok": true,
-          "value": false,
-          "error_type": null
+          "ok": false,
+          "value": null,
+          "error_type": "RuntimeError"
         },
         "nx": {
           "ok": true,

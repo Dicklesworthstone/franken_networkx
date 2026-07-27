@@ -28,6 +28,8 @@ Modes
                    campaign's HARD GATE ("grep the ledger before you propose a lever").
 --audit            Re-classify all rejection rows under the six-class taxonomy and print
                    the void rate. Run it periodically: a rising void rate IS the decay.
+--selfcheck        Exercise all six classes, loaded-ELF provenance, and known historical
+                   escape rows from this repository. This also runs inside --check-staged.
 
 Verdict taxonomy (frankenfs, adopted fleet-wide 2026-07-25)
   VALID-PROFILE    rejected pre-edit on a named frame with non-zero self-time + a ceiling
@@ -70,15 +72,22 @@ NULL_TOKEN = re.compile(
     r"same-?binary (?:forced )?control",
     re.I,
 )
-COUNTED_UNCHANGED = re.compile(
-    r"(?:\binstructions?\b|\bcycles?\b|\bsyscalls?\b|\ballocations?\b|\bfaults?\b)"
+COUNTED_EVIDENCE = re.compile(
+    r"\b(?:count(?:ed|er|ers|ing|s)?|measur(?:ed|ement|ements|ing)|"
+    r"record(?:ed|ing)|observ(?:ed|ation|ations|ing)|perf(?:\s+stat)?)\b",
+    re.I,
+)
+COUNTED_METRIC = re.compile(
+    r"\b(?:instructions?|cycles?|syscalls?|allocations?|faults?)\b",
+    re.I,
+)
+COUNTED_RESULT = re.compile(
+    r"\b(?:instructions?|cycles?|syscalls?|allocations?|faults?)\b"
     r"[^.\n]{0,120}"
-    r"(?:\bunchanged\b|\bidentical\b|\bflat\b|\bno reduction\b|"
-    r"\bdid not (?:change|drop|fall)\b|\bzero difference\b)|"
-    r"(?:\bunchanged\b|\bidentical\b|\bflat\b|\bno reduction\b|"
-    r"\bdid not (?:change|drop|fall)\b|\bzero difference\b)"
-    r"[^.\n]{0,120}"
-    r"(?:\binstructions?\b|\bcycles?\b|\bsyscalls?\b|\ballocations?\b|\bfaults?\b)",
+    r"(?:\b(?:was|were|remained|stayed)\s+(?:unchanged|identical|flat)\b|"
+    r"\bno reduction\b|\bdid not (?:change|drop|fall)\b|\bzero difference\b)|"
+    r"\b(?:unchanged|identical)\b[^.\n]{0,60}"
+    r"\b(?:instructions?|cycles?|syscalls?|allocations?|faults?)\b",
     re.I,
 )
 ZERO_SELF = re.compile(
@@ -185,12 +194,8 @@ def is_keep(heading: str) -> bool:
     return not is_rejection(heading) and bool(KEEP_VERDICT_HEAD.search(heading))
 
 
-def has_recorded_null(body: str) -> bool:
-    """Require positive measurement evidence, not merely the word ``null``.
-
-    ``no A/A null`` and a retry sentence saying that a future run *needs* a
-    null must not make an undecidable rejection pass the gate.
-    """
+def logical_evidence_units(body: str) -> list[str]:
+    """Join wrapped prose while keeping Markdown table rows independently decidable."""
     logical_lines = []
     paragraph = []
     for physical_line in body.splitlines():
@@ -208,8 +213,17 @@ def has_recorded_null(body: str) -> bool:
             paragraph.append(stripped)
     if paragraph:
         logical_lines.append(" ".join(paragraph))
+    return logical_lines
 
-    for logical_line in logical_lines:
+
+def has_recorded_null(body: str) -> bool:
+    """Require positive measurement evidence, not merely the word ``null``.
+
+    ``no A/A null`` and a retry sentence saying that a future run *needs* a
+    null must not make an undecidable rejection pass the gate.
+    """
+
+    for logical_line in logical_evidence_units(body):
         if not NULL_TOKEN.search(logical_line):
             continue
         if NEGATED_NULL.search(logical_line) or FUTURE_NULL.search(logical_line):
@@ -220,8 +234,23 @@ def has_recorded_null(body: str) -> bool:
 
 
 def has_counted_mechanism(body: str) -> bool:
-    """The fleet taxonomy's VALID-MECHANISM rule, verbatim and conservative."""
-    return bool(COUNTED_UNCHANGED.search(body))
+    """Require a locally recorded counter result, not a proposed mechanism.
+
+    The escaped classifier matched a word such as ``allocations`` in proposed
+    work and an unrelated ``unchanged`` elsewhere in the section.  A genuine
+    VALID-MECHANISM row must put a counting/measurement marker, the named
+    metric, and its unchanged result in one evidence sentence or table row.
+    """
+    for unit in logical_evidence_units(body):
+        sentences = re.split(r"(?<=[.!?])\s+", unit)
+        for sentence in sentences:
+            if (
+                COUNTED_EVIDENCE.search(sentence)
+                and COUNTED_METRIC.search(sentence)
+                and COUNTED_RESULT.search(sentence)
+            ):
+                return True
+    return False
 
 
 def has_valid_profile_rejection(heading: str, body: str) -> bool:
@@ -457,7 +486,143 @@ def cmd_check(ref: str) -> int:
     return cmd_check_rows(added_sections(ref), f"since {ref}")
 
 
+def cmd_selfcheck(*, quiet: bool = False) -> int:
+    """Prove the gate rejects its historical escape class on this repository."""
+    failures: list[str] = []
+    checks = 0
+
+    synthetic_rows = [
+        (
+            "escaped proposed-allocation prose",
+            (
+                "The candidate sought to remove allocations, but the unchanged source "
+                "then ran at 1.001x. No A/A null control was recorded."
+            ),
+            "VOID-NONULL",
+            False,
+        ),
+        (
+            "profile filename is not a flat counter result",
+            (
+                "perf record -e cycles:u wrote perf.flat.txt for the unchanged source. "
+                "No A/A null control was recorded."
+            ),
+            "VOID-NONULL",
+            False,
+        ),
+        (
+            "genuine counted mechanism",
+            (
+                "perf stat counted allocation totals: baseline 1024, candidate 1024; "
+                "allocations were unchanged between arms."
+            ),
+            "VALID-MECHANISM",
+            True,
+        ),
+        (
+            "positive same-invocation null",
+            (
+                "The same-invocation A/A null measured 1.001x with bootstrap "
+                "CI [0.995,1.008]; the candidate effect sat inside it."
+            ),
+            "VALID-AB",
+            True,
+        ),
+        (
+            "profile-only historical row",
+            (
+                "RESULT: VALID-PROFILE / NO SOURCE EDIT. Rejected before any source "
+                "edit. The named frame `Graph::neighbors` carried 3.2% self-time. "
+                "The computed Amdahl ceiling was 1.033x."
+            ),
+            "VALID-PROFILE",
+            False,
+        ),
+    ]
+    heading = "2026-07-27 REJECT selfcheck"
+    for label, body, expected_class, expected_falsifiable in synthetic_rows:
+        checks += 1
+        actual_class = classify(heading, body)
+        actual_falsifiable, _ = falsifiable(heading, body)
+        if (actual_class, actual_falsifiable) != (
+            expected_class,
+            expected_falsifiable,
+        ):
+            failures.append(
+                f"{label}: expected {(expected_class, expected_falsifiable)}, "
+                f"got {(actual_class, actual_falsifiable)}"
+            )
+
+    digest = "a" * 64
+    checks += 2
+    if has_loaded_elf_sha(
+        f"Adjacent shell step reported binary sha256={digest}; process printed no identity."
+    ):
+        failures.append("adjacent shell SHA incorrectly satisfies KEEP provenance")
+    if not has_loaded_elf_sha(
+        f"bench_elf_sha256={digest} (13155240 bytes) /tmp/pkg/_fnx.abi3.so"
+    ):
+        failures.append("in-process bench_elf_sha256 does not satisfy KEEP provenance")
+
+    own_sentinels = [
+        ("pre-size durability envelope JSON", "VALID-AB"),
+        ("core-laggard display-key probes", "VOID-NONULL"),
+        ("REJECT (br-r37-c1-2zn1u): AVX2 dense-linalg", "VOID-NONULL"),
+        (
+            "LEDGER-INTEGRITY CORRECTION: the StackCanon REJECT itself is INVALID",
+            "VOID-ZEROSELF",
+        ),
+        ("corrected long-warm retry hit a contended worker", "VOID-CV"),
+        (
+            "VALID-PROFILE ADMISSION REJECT (`Graph.has_edge` exact-string",
+            "VALID-PROFILE",
+        ),
+    ]
+    own_rows = []
+    for path in LEDGERS:
+        if path.exists():
+            own_rows.extend(
+                (path.name, row_heading, body)
+                for row_heading, body in sections(
+                    path.read_text(encoding="utf-8", errors="replace")
+                )
+            )
+    for fragment, expected_class in own_sentinels:
+        checks += 1
+        matches = [
+            (fname, row_heading, body)
+            for fname, row_heading, body in own_rows
+            if fragment in row_heading
+        ]
+        if len(matches) != 1:
+            failures.append(
+                f"own-ledger sentinel {fragment!r}: expected one row, found {len(matches)}"
+            )
+            continue
+        fname, row_heading, body = matches[0]
+        actual_class = classify(row_heading, body)
+        if actual_class != expected_class:
+            failures.append(
+                f"{fname}: {fragment!r}: expected {expected_class}, got {actual_class}"
+            )
+
+    if failures:
+        print(f"gate selfcheck: FAIL ({len(failures)} defect(s), {checks} checks)")
+        for failure in failures:
+            print(f"  - {failure}")
+        return 2
+    if not quiet:
+        print(
+            f"gate selfcheck: PASS ({checks} checks; "
+            f"own_ledger_sentinels={len(own_sentinels)}/{len(own_sentinels)})"
+        )
+    return 0
+
+
 def cmd_check_staged() -> int:
+    if cmd_selfcheck(quiet=True) != 0:
+        print("BLOCKED: the staged gate failed its own defect-class selfcheck.")
+        return 2
     return cmd_check_rows(staged_sections(), "in the staged index")
 
 
@@ -640,6 +805,8 @@ def main(argv: list[str]) -> int:
             return cmd_prior_art(argv[2:])
         if mode == "--audit":
             return cmd_audit()
+        if mode == "--selfcheck":
+            return cmd_selfcheck()
         if mode in {"-h", "--help"}:
             print(__doc__)
             return 0

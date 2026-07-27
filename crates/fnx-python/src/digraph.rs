@@ -180,12 +180,104 @@ impl PyDiGraph {
     }
 
     fn __traverse__(&self, visit: PyVisit<'_>) -> Result<(), PyTraverseError> {
-        self.instance_dict_gc.traverse(visit)
+        self.instance_dict_gc.traverse(visit.clone())?;
+        self.traverse_python_refs(&visit)
     }
 
     fn __clear__(slf: &Bound<'_, Self>) {
         let py = slf.py();
-        slf.borrow_mut().instance_dict_gc.clear(py);
+        slf.borrow_mut().clear_python_refs(py);
+    }
+}
+
+impl PyDiGraph {
+    fn traverse_python_refs(&self, visit: &PyVisit<'_>) -> Result<(), PyTraverseError> {
+        for key in self.node_key_map.values() {
+            visit.call(key)?;
+        }
+        for attrs in self.node_py_attrs.values() {
+            visit.call(attrs)?;
+        }
+        for attrs in self.edge_py_attrs.values() {
+            visit.call(attrs)?;
+        }
+        for key in self.succ_py_keys.values() {
+            visit.call(key)?;
+        }
+        for key in self.pred_py_keys.values() {
+            visit.call(key)?;
+        }
+        for row in self.succ_row_py.values() {
+            visit.call(row)?;
+        }
+        for row in self.pred_row_py.values() {
+            visit.call(row)?;
+        }
+        visit.call(&self.graph_attrs)?;
+        {
+            let cache = self.node_keys_cache.lock().unwrap();
+            if let Some((_, keys)) = cache.as_ref() {
+                visit.call(keys)?;
+            }
+        }
+        {
+            let mirror = self.node_data_mirror.lock().unwrap();
+            if let Some((_, data)) = mirror.as_ref() {
+                visit.call(data)?;
+            }
+        }
+        if let Some(cache) = &self.dict_of_dicts_cache {
+            cache.traverse(visit)?;
+        }
+        if let Some((_, _, tuples)) = &self.edges_with_data_cache {
+            for tuple in tuples {
+                visit.call(tuple)?;
+            }
+        }
+        if let Some((_, _, tuples)) = &self.in_edges_with_data_cache {
+            for tuple in tuples {
+                visit.call(tuple)?;
+            }
+        }
+        {
+            let cache = self.in_edges_data_attr_cache.lock().unwrap();
+            if let Some((_, _, _, default, tuples)) = cache.as_ref() {
+                visit.call(default)?;
+                for tuple in tuples {
+                    visit.call(tuple)?;
+                }
+            }
+        }
+        if let Some((_, _, dicts)) = &self.edges_attr_dicts_cache {
+            for dict in dicts {
+                visit.call(dict)?;
+            }
+        }
+        {
+            let mirror = self.node_iter_mirror.lock().unwrap();
+            visit.call(mirror.as_ref())?;
+        }
+        Ok(())
+    }
+
+    fn clear_python_refs(&mut self, py: Python<'_>) {
+        self.instance_dict_gc.clear(py);
+        self.node_key_map.clear();
+        self.node_py_attrs.clear();
+        self.edge_py_attrs.clear();
+        self.succ_py_keys.clear();
+        self.pred_py_keys.clear();
+        self.succ_row_py.clear();
+        self.pred_row_py.clear();
+        self.graph_attrs.bind(py).clear();
+        *self.node_keys_cache.get_mut().unwrap() = None;
+        *self.node_data_mirror.get_mut().unwrap() = None;
+        self.dict_of_dicts_cache = None;
+        self.edges_with_data_cache = None;
+        self.in_edges_with_data_cache = None;
+        *self.in_edges_data_attr_cache.get_mut().unwrap() = None;
+        self.edges_attr_dicts_cache = None;
+        *self.node_iter_mirror.get_mut().unwrap() = None;
     }
 }
 
@@ -275,16 +367,113 @@ impl PyMultiDiGraph {
     }
 
     fn __traverse__(&self, visit: PyVisit<'_>) -> Result<(), PyTraverseError> {
-        self.instance_dict_gc.traverse(visit)
+        self.instance_dict_gc.traverse(visit.clone())?;
+        self.traverse_python_refs(&visit)
     }
 
     fn __clear__(slf: &Bound<'_, Self>) {
         let py = slf.py();
-        slf.borrow_mut().instance_dict_gc.clear(py);
+        slf.borrow_mut().clear_python_refs(py);
     }
 }
 
 impl PyMultiDiGraph {
+    fn traverse_python_refs(&self, visit: &PyVisit<'_>) -> Result<(), PyTraverseError> {
+        for key in self.node_key_map.values() {
+            visit.call(key)?;
+        }
+        for key in self.succ_py_keys.values() {
+            visit.call(key)?;
+        }
+        for key in self.pred_py_keys.values() {
+            visit.call(key)?;
+        }
+        for attrs in self.node_py_attrs.values() {
+            visit.call(attrs)?;
+        }
+        for attrs in self.edge_py_attrs.values() {
+            visit.call(attrs)?;
+        }
+        for key in self.edge_py_keys.values() {
+            visit.call(key)?;
+        }
+        visit.call(&self.graph_attrs)?;
+        {
+            let cache = self.node_keys_cache.lock().unwrap();
+            if let Some((_, keys, key_set)) = cache.as_ref() {
+                visit.call(keys)?;
+                visit.call(key_set)?;
+            }
+        }
+        {
+            let mirror = self.node_data_mirror.lock().unwrap();
+            if let Some((_, data)) = mirror.as_ref() {
+                visit.call(data)?;
+            }
+        }
+        if let Some(cache) = &self.dict_of_dicts_cache {
+            cache.traverse(visit)?;
+        }
+        if let Some((_, _, _, tuples)) = &self.edges_with_data_cache {
+            for tuple in tuples {
+                visit.call(tuple)?;
+            }
+        }
+        if let Some((_, _, _, tuples)) = &self.in_edges_with_data_cache {
+            for tuple in tuples {
+                visit.call(tuple)?;
+            }
+        }
+        {
+            let cache = self.in_edges_data_attr_cache.lock().unwrap();
+            if let Some((_, _, _, _, default, tuples)) = cache.as_ref() {
+                visit.call(default)?;
+                for tuple in tuples {
+                    visit.call(tuple)?;
+                }
+            }
+        }
+        {
+            let cache = self.edges_data_attr_cache.lock().unwrap();
+            if let Some((_, _, _, _, default, tuples)) = cache.as_ref() {
+                visit.call(default)?;
+                for tuple in tuples {
+                    visit.call(tuple)?;
+                }
+            }
+        }
+        if let Some((_, _, tuples)) = &self.edges_with_keys_cache {
+            for tuple in tuples {
+                visit.call(tuple)?;
+            }
+        }
+        {
+            let mirror = self.node_iter_mirror.lock().unwrap();
+            visit.call(mirror.as_ref())?;
+        }
+        Ok(())
+    }
+
+    fn clear_python_refs(&mut self, py: Python<'_>) {
+        self.instance_dict_gc.clear(py);
+        self.node_key_map.clear();
+        self.succ_py_keys.clear();
+        self.pred_py_keys.clear();
+        self.node_py_attrs.clear();
+        self.edge_py_attrs.clear();
+        self.edge_py_keys.clear();
+        self.graph_attrs.bind(py).clear();
+        *self.node_keys_cache.get_mut().unwrap() = None;
+        *self.node_data_mirror.get_mut().unwrap() = None;
+        self.dict_of_dicts_cache = None;
+        self.edges_with_data_cache = None;
+        self.in_edges_with_data_cache = None;
+        *self.in_edges_data_attr_cache.get_mut().unwrap() = None;
+        *self.edges_data_attr_cache.get_mut().unwrap() = None;
+        self.edges_with_keys_cache = None;
+        *self.node_iter_mirror.get_mut().unwrap() = None;
+    }
+
     /// br-r37-c1-qwqvn: cache the immutable no-data keyed edge tuples for the
     /// common all-edge view. Nodes/key display objects are the same first-wins
     /// objects the uncached path would clone; graph mutation bumps a sequence and

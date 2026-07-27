@@ -113,10 +113,12 @@ Ownership/lifetime story, precisely:
   participates in GC. If Python-visible objects can reference back into the owner, implement
   complete `__traverse__` / `__clear__` coverage or they leak. **Model-integrity correction,
   2026-07-27:** franken_networkx accepts arbitrary Python attribute values; the original claim
-  that its attr dicts hold only scalars was false. The immediate correction makes the graph
-  classes GC-track their instance dictionaries, closing cycles introduced by cached public views
-  and cached bound predicates. Traversal of every Rust-held Python attribute/cache reference is
-  separately tracked as correctness bug `br-r37-c1-43vf9`.
+  that its attr dicts hold only scalars was false. The completed correction makes all four graph
+  classes GC-track their instance dictionaries **and every Rust-held Python reference**: public
+  display keys, graph/node/edge attribute dicts, row mirrors, tuple/list caches, and mutex-backed
+  snapshots. Their `__clear__` paths drop the same references. Regressions cover graph, node, edge,
+  node-key, multiedge-key, cached-view, and cached-default owner cycles across the applicable graph
+  classes. This closes `br-r37-c1-43vf9`; a partial instance-dictionary traversal is not sufficient.
 
 Use when: the payload is a Python object the caller may mutate and expects to be *the same
 object* next time. Cost model: `O(payload)` once, `O(1)` refcount thereafter.

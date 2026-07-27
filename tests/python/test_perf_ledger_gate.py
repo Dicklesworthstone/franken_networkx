@@ -100,6 +100,13 @@ def test_audit_mode_reports_a_void_rate():
     assert "missing ELF sha" in result.stdout
 
 
+def test_gate_selfcheck_covers_its_historical_escape_classes():
+    result = _run("--selfcheck")
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "gate selfcheck: PASS" in result.stdout
+    assert "own_ledger_sentinels=6/6" in result.stdout
+
+
 def test_staged_mode_is_the_bare_and_explicit_precommit_default():
     explicit = _run("--check-staged")
     bare = _run()
@@ -177,6 +184,24 @@ def test_counted_mechanism_requires_the_metric_and_result_to_be_local():
         "Counted allocation totals were unchanged between the two arms.",
     ) == (True, "VALID-MECHANISM")
 
+    same_sentence_false_positive = (
+        "The candidate sought to remove allocations, but the unchanged source "
+        "then ran at 1.001x. No A/A null control was recorded."
+    )
+    assert ledger_gate.falsifiable(heading, same_sentence_false_positive) == (
+        False,
+        "VOID-NONULL",
+    )
+
+    profile_filename_false_positive = (
+        "perf record -e cycles:u wrote perf.flat.txt for the unchanged source. "
+        "No A/A null control was recorded."
+    )
+    assert ledger_gate.falsifiable(heading, profile_filename_false_positive) == (
+        False,
+        "VOID-NONULL",
+    )
+
     unrelated_null_value = (
         "Null node values were preserved. The A/B wall ratio was 1.001x "
         "with CI [0.995,1.008], but no control was recorded."
@@ -238,10 +263,11 @@ def test_candidate_mode_accepts_lever_and_surface_and_prints_retry_predicate():
 
 
 def test_prior_art_mode_blocks_on_a_known_closed_lever():
-    """`--prior-art` must surface an existing REJECT so levers are not re-derived.
+    """`--prior-art` must surface an existing row so levers are adjudicated.
 
-    Uses the AVX2 dense-linalg row (br-r37-c1-2zn1u), which is a real, permanent
-    rejection in this ledger.
+    The AVX2 dense-linalg row is VOID-NONULL, not permanent evidence. The command
+    still blocks blind proposal so the caller reads its retry predicate and says
+    explicitly why a VOID row is being reopened.
     """
     result = _run("--prior-art", "avx2", "dense")
     assert result.returncode == 2, (

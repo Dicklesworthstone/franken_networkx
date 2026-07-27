@@ -1217,6 +1217,15 @@ impl NodeIndexLookupCache {
     fn insert(&self, py: Python<'_>, public_key: &Bound<'_, PyAny>, index: usize) -> PyResult<()> {
         self.entries.bind(py).set_item(public_key, index)
     }
+
+    fn traverse(&self, visit: &PyVisit<'_>) -> Result<(), PyTraverseError> {
+        visit.call(&self.entries)
+    }
+
+    fn clear(&self, py: Python<'_>) {
+        self.entries.bind(py).clear();
+        self.nodes_seq.store(u64::MAX, Ordering::Relaxed);
+    }
 }
 
 pub(crate) fn edge_key_lookup_string(_py: Python<'_>, key: &Bound<'_, PyAny>) -> PyResult<String> {
@@ -1383,6 +1392,22 @@ pub(crate) fn py_value_to_cgse(v: &Bound<'_, PyAny>) -> PyResult<CgseValue> {
         // Oversized int: fall through to the chain (which yields Float via f64).
     } else if v.is_exact_instance_of::<PyString>() {
         return Ok(CgseValue::String(v.extract::<String>()?));
+    }
+
+    // Graphs may be stored as arbitrary Python attribute values, including a
+    // graph storing itself.  The generic extraction chain below invokes
+    // Python protocols (`__bool__`, `__float__`, then `__str__`), which would
+    // re-enter the same pyclass while `add_node` / `add_edge` holds its mutable
+    // borrow.  The Python mirror remains authoritative and retains the exact
+    // object; the inner CGSE store needs only an opaque fallback for this
+    // otherwise-unrepresentable value.
+    if v.is_instance_of::<PyGraph>()
+        || v.is_instance_of::<PyMultiGraph>()
+        || v.is_instance_of::<crate::digraph::PyDiGraph>()
+        || v.is_instance_of::<crate::digraph::PyMultiDiGraph>()
+    {
+        let type_name = v.get_type().name()?.to_string_lossy().into_owned();
+        return Ok(CgseValue::String(format!("<{type_name}>")));
     }
 
     if let Ok(d) = v.downcast::<PyDict>() {
@@ -1693,6 +1718,17 @@ pub(crate) struct DictOfDictsCache {
     pub(crate) shared_outer: std::sync::Mutex<Option<Py<PyDict>>>,
 }
 
+impl DictOfDictsCache {
+    fn traverse(&self, visit: &PyVisit<'_>) -> Result<(), PyTraverseError> {
+        for (node, row) in &self.rows {
+            visit.call(node)?;
+            visit.call(row)?;
+        }
+        let shared_outer = self.shared_outer.lock().unwrap();
+        visit.call(shared_outer.as_ref())
+    }
+}
+
 /// Makes a ``#[pyclass(dict)]`` instance's Python dictionary visible to CPython GC.
 ///
 /// PyO3 does not traverse a pyclass instance dictionary automatically. Cached
@@ -1784,16 +1820,70 @@ impl PyGraph {
     }
 
     fn __traverse__(&self, visit: PyVisit<'_>) -> Result<(), PyTraverseError> {
-        self.instance_dict_gc.traverse(visit)
+        self.instance_dict_gc.traverse(visit.clone())?;
+        self.traverse_python_refs(&visit)
     }
 
     fn __clear__(slf: &Bound<'_, Self>) {
         let py = slf.py();
-        slf.borrow_mut().instance_dict_gc.clear(py);
+        slf.borrow_mut().clear_python_refs(py);
     }
 }
 
 impl PyGraph {
+    fn traverse_python_refs(&self, visit: &PyVisit<'_>) -> Result<(), PyTraverseError> {
+        for key in self.node_key_map.values() {
+            visit.call(key)?;
+        }
+        for key in self.adj_py_keys.values() {
+            visit.call(key)?;
+        }
+        for attrs in self.node_py_attrs.values() {
+            visit.call(attrs)?;
+        }
+        for attrs in self.edge_py_attrs.values() {
+            visit.call(attrs)?;
+        }
+        if let Some(cache) = &self.dict_of_dicts_cache {
+            cache.traverse(visit)?;
+        }
+        for row in self.adj_row_py.values() {
+            visit.call(row)?;
+        }
+        visit.call(&self.graph_attrs)?;
+        {
+            let cache = self.node_keys_cache.lock().unwrap();
+            if let Some((_, keys)) = cache.as_ref() {
+                visit.call(keys)?;
+            }
+        }
+        {
+            let mirror = self.node_iter_mirror.lock().unwrap();
+            visit.call(mirror.as_ref())?;
+        }
+        {
+            let mirror = self.node_data_mirror.lock().unwrap();
+            if let Some((_, data)) = mirror.as_ref() {
+                visit.call(data)?;
+            }
+        }
+        Ok(())
+    }
+
+    fn clear_python_refs(&mut self, py: Python<'_>) {
+        self.instance_dict_gc.clear(py);
+        self.node_key_map.clear();
+        self.adj_py_keys.clear();
+        self.node_py_attrs.clear();
+        self.edge_py_attrs.clear();
+        self.dict_of_dicts_cache = None;
+        self.adj_row_py.clear();
+        self.graph_attrs.bind(py).clear();
+        *self.node_keys_cache.get_mut().unwrap() = None;
+        *self.node_iter_mirror.get_mut().unwrap() = None;
+        *self.node_data_mirror.get_mut().unwrap() = None;
+    }
+
     /// Get the canonical edge key tuple (left <= right for undirected).
     pub(crate) fn edge_key(u: &str, v: &str) -> (String, String) {
         if u <= v {
@@ -3951,16 +4041,93 @@ impl PyMultiGraph {
     }
 
     fn __traverse__(&self, visit: PyVisit<'_>) -> Result<(), PyTraverseError> {
-        self.instance_dict_gc.traverse(visit)
+        self.instance_dict_gc.traverse(visit.clone())?;
+        self.traverse_python_refs(&visit)
     }
 
     fn __clear__(slf: &Bound<'_, Self>) {
         let py = slf.py();
-        slf.borrow_mut().instance_dict_gc.clear(py);
+        slf.borrow_mut().clear_python_refs(py);
     }
 }
 
 impl PyMultiGraph {
+    fn traverse_python_refs(&self, visit: &PyVisit<'_>) -> Result<(), PyTraverseError> {
+        for key in self.node_key_map.values() {
+            visit.call(key)?;
+        }
+        for key in self.adj_py_keys.values() {
+            visit.call(key)?;
+        }
+        for attrs in self.node_py_attrs.values() {
+            visit.call(attrs)?;
+        }
+        for attrs in self.edge_py_attrs.values() {
+            visit.call(attrs)?;
+        }
+        for key in self.edge_py_keys.values() {
+            visit.call(key)?;
+        }
+        visit.call(&self.graph_attrs)?;
+        {
+            let cache = self.node_keys_cache.lock().unwrap();
+            if let Some((_, keys)) = cache.as_ref() {
+                visit.call(keys)?;
+            }
+        }
+        {
+            let mirror = self.node_data_mirror.lock().unwrap();
+            if let Some((_, data)) = mirror.as_ref() {
+                visit.call(data)?;
+            }
+        }
+        if let Some(cache) = &self.dict_of_dicts_cache {
+            cache.traverse(visit)?;
+        }
+        if let Some((_, _, _, tuples)) = &self.edges_with_data_cache {
+            for tuple in tuples {
+                visit.call(tuple)?;
+            }
+        }
+        {
+            let cache = self.edges_data_attr_cache.lock().unwrap();
+            if let Some((_, _, _, _, default, tuples)) = cache.as_ref() {
+                visit.call(default)?;
+                for tuple in tuples {
+                    visit.call(tuple)?;
+                }
+            }
+        }
+        if let Some((_, _, tuples)) = &self.edges_with_keys_cache {
+            for tuple in tuples {
+                visit.call(tuple)?;
+            }
+        }
+        {
+            let mirror = self.node_iter_mirror.lock().unwrap();
+            visit.call(mirror.as_ref())?;
+        }
+        self.has_edge_node_index_cache.traverse(visit)
+    }
+
+    fn clear_python_refs(&mut self, py: Python<'_>) {
+        self.instance_dict_gc.clear(py);
+        self.node_key_map.clear();
+        self.adj_py_keys.clear();
+        self.node_py_attrs.clear();
+        self.edge_py_attrs.clear();
+        self.edge_py_keys.clear();
+        self.graph_attrs.bind(py).clear();
+        *self.node_keys_cache.get_mut().unwrap() = None;
+        *self.node_data_mirror.get_mut().unwrap() = None;
+        self.dict_of_dicts_cache = None;
+        self.edges_with_data_cache = None;
+        *self.edges_data_attr_cache.get_mut().unwrap() = None;
+        self.edges_with_keys_cache = None;
+        *self.node_iter_mirror.get_mut().unwrap() = None;
+        self.has_edge_node_index_cache.clear(py);
+    }
+
     /// br-r37-c1-3oc6v: cache the immutable no-data keyed edge tuples for the
     /// common all-edge MultiGraph view. The tuple content is exactly the same
     /// as `_native_edge_view_list(data=False, keys=True)`: edge orientation is

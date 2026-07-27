@@ -27839,11 +27839,16 @@ CORRECTIONS:
 * Cached public view descriptors, cached multigraph row views, cached class
   predicates, and private-storage method shadows retained their owner through an uncollectable
   `graph -> instance __dict__ -> view/bound method -> graph` cycle. All four
-  graph classes now participate in CPython GC for their instance dictionaries;
-  every cached accessor family has a weak-reference collection regression
-  lock. The false design-note claim that graph attributes contain only scalars
-  is retracted. Complete traversal of Rust-held Python attribute/cache
-  references is tracked separately as `br-r37-c1-43vf9`.
+  graph classes now participate in CPython GC for their instance dictionaries
+  and every Rust-held Python reference: display-key maps, graph/node/edge
+  attribute dicts, row mirrors, tuple/list caches, and mutex-backed snapshots.
+  Matching `__clear__` paths drop those references. Graph, node, edge,
+  node-key, multiedge-key, cached-view, and cached-default owner cycles have
+  weak-reference collection regression locks across the applicable graph
+  classes. Direct self-reference insertion no longer triggers a re-entrant
+  PyO3 borrow. The false design-note claim that graph attributes contain only
+  scalars is retracted and corrected in `docs/ZERO_COPY_VIEW_PRIMITIVE.md`;
+  this closes `br-r37-c1-43vf9`.
 * User assignment after warming any cached accessor now removes that name from
   the internal-cache marker, so deepcopy and pickle preserve the user-owned
   value rather than discarding it as an internal bound object.
@@ -27853,6 +27858,57 @@ independent causal rows whose complete median CIs clear their same-invocation
 floors. Narrow public claims that did not clear are no longer used as evidence.
 The construction rows remain only routing context. The GC defect and cached
 assignment defect are fixed rather than accepted as proof debt.
+
+### Final verdict-to-fix reconciliation
+
+The final pass reconciled all **64** verdicts: **44 SOUND, 20 CORRECTED, 0
+RETRACTED**. Every CORRECTED verdict now has a landed correction in the
+original remediation commit or in this closeout; none is represented only by
+a follow-up bead.
+
+| corrected commit | defect found under sol-max re-audit | corresponding landed correction |
+|---|---|---|
+| `0f8fd82b3` | cached class predicates could retain their graph owner | complete four-class GC traversal/clear plus owner-cycle regressions |
+| `fbce67433` | counted-mechanism matching joined unrelated prose | sentence/table-local recorded-counter grammar plus `--selfcheck` escape cases |
+| `5b118cc91` | README promoted contextual construction rows to causal evidence | README wording corrected; stale `br-r37-c1-5opn5` close claim corrected here |
+| `351fe4518` | working-tree construction snapshot over-attributed the stable-slot cutover | ledger row marked contextual; `br-r37-c1-4c29a` premise corrected here |
+| `934356595` | captured multiedge-key cache added another owner-retention surface | key/cache traversal plus multiedge-key owner-cycle regression |
+| `ab31b1445` | first six-class audit invented 25 `VALID-MECHANISM` rows and a `VOID-ISA` framing | hand-adjudicated `130/159` snapshot, zero `VOID-ISA`, and live six-class self-check |
+| `8bc99ab11` | cached `get_edge_data` bound objects were not covered by GC | complete traversal/clear plus cached-bound-owner regression |
+| `b5490ed8d` | cached `has_edge` bound objects were not covered by GC | complete traversal/clear plus cached-bound-owner regression |
+| `b88ac82c4` | warm multigraph row views could retain the owner | row-cache traversal/clear plus row owner-cycle regression |
+| `aa9165a6f` | MultiDiGraph cached descriptors could retain the owner and shadow assignment | complete traversal plus user-assignment cache-marker invalidation regressions |
+| `ac9e43592` | directed cached descriptors could retain the owner and shadow assignment | complete traversal plus user-assignment cache-marker invalidation regressions |
+| `ed775f108` | cached `Graph.adj` could retain the owner | complete traversal/clear plus `Graph.adj` owner-cycle regression |
+| `724f273c3` | bare `G.nodes[n]` public row did not clear its null floor | ledger and README narrowed to causal/immediate-consumer evidence; `br-r37-c1-yere4` corrected here |
+| `2319a6c86` | `dict(G[u])` and directed public rows did not clear their null floors | ledger narrowed to token-loop/keys evidence; `br-r37-c1-v9auw` corrected here |
+| `08456fc93` | private-storage method shadows added uncovered owner references | complete traversal/clear plus private-shadow owner-cycle regression |
+| `19466f653` | design note falsely assumed scalar-only attrs and left arbitrary self-references open | design corrected; graph/node/edge/key/default cycles now collect; direct insertion fixed |
+| `6f0301b6c` | initial institutional gate could pass cosmetic counted-mechanism prose | staged preflight now first runs the 13-case self-check and exits 2 on regression |
+| `6258267b4` | directed cached accessors lacked complete lifetime and assignment proof | complete traversal/clear plus directed identity/assignment/collection regressions |
+| `0db7b7345` | fundamental cached views lacked complete lifetime and assignment proof | complete traversal/clear plus all-four-class descriptor collection regressions |
+| `8436b60ac` | bench helper gated a point estimate rather than the complete candidate median CI | whole-CI decision rule and accept/reject boundary tests |
+
+DOWNSTREAM-CITATION SWEEP: the performance ledgers, README, release scorecards,
+and bead bodies were searched for every corrected or retracted claim. There
+are no RETRACTED commit conclusions and therefore no surviving
+retraction-dependent citation. Five stale corrected-claim dependents were
+found and fixed: bead records `br-r37-c1-5opn5`,
+`br-r37-c1-4c29a`, `br-r37-c1-v9auw`, and
+`br-r37-c1-yere4`, plus the progress-ledger finding that still called the
+unresolved MultiGraph row “parity” and treated the MultiDiGraph storage port
+as already attributed. The README construction/public-row claims were
+already corrected in the first remediation commit; no scorecard carried the
+invalid claims.
+
+GATE SELFCHECK: `python3 scripts/perf_ledger_preflight.py --selfcheck` passes
+**13/13**, including six own-ledger class sentinels. It rejects the exact
+escaped class (proposed allocations plus unrelated unchanged prose), rejects
+`perf.flat.txt` as counted evidence, distinguishes positive from
+negated/future A/A prose, refuses adjacent-shell SHA provenance, and accepts
+only an in-process `bench_elf_sha256`. The full live audit reports 172
+rejection rows: 30 `VALID-AB`, 9 `VALID-PROFILE`, 7 `VOID-CV`, 122
+`VOID-NONULL`, and 4 `VOID-ZEROSELF` — **133/172 = 77.3% VOID**.
 
 RETRY PREDICATES:
 
@@ -27866,12 +27922,11 @@ RETRY PREDICATES:
 * Do not classify `VALID-MECHANISM` from prose about expected work; require an
   actually recorded instruction/cycle/syscall/allocation/fault count and an
   unchanged result. Otherwise require A/A or leave the row VOID.
-* Do not add another owner-retaining cached Python object without a
-  weak-reference `gc.collect()` proof for every owning graph class. Close
-  `br-r37-c1-43vf9` only when graph/node/edge arbitrary-object
-  self-backreferences also collect, direct self-reference insertion no longer
-  hits a re-entrant PyO3 borrow, and live/detached attribute identity stays
-  NetworkX-equivalent.
+* Do not add another Rust-held Python reference or owner-retaining cache
+  without updating the owning class's traversal **and** clear helpers plus a
+  weak-reference `gc.collect()` proof. Direct and post-insertion
+  graph/node/edge/key/default self-references, live identity, and detached-dict
+  semantics must remain NetworkX-equivalent.
 
 ## 2026-07-27 CloudyTurtle VALID-PROFILE ADMISSION REJECT (`Graph.has_edge` exact-string node-index interning): **`2.0318x` executable ceiling**, but unchanged A/A floor is **`1.0610x`** — **NO SOURCE EDIT** (`br-r37-c1-e2uqr`)
 

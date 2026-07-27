@@ -38,6 +38,24 @@ DIRECTED_ACCESSORS = ["in_degree", "out_degree", "in_edges", "out_edges"]
 EDGES = [("n0", "n1"), ("n1", "n2"), ("n2", "n3"), ("n0", "n3"), ("n1", "n1")]
 
 
+class _OwnerKey:
+    """Identity-hashed Python key which deliberately retains its graph owner."""
+
+    def __init__(self, owner):
+        self.owner = owner
+
+
+def _owner_cycle_reference(graph):
+    reference = weakref.ref(graph)
+    assert gc.is_tracked(graph)
+    return reference
+
+
+def _assert_reference_collects(reference):
+    gc.collect()
+    assert reference() is None
+
+
 def _build(lib, cls_name):
     graph = getattr(lib, cls_name)()
     graph.add_nodes_from([(f"n{i}", {"w": i}) for i in range(4)])
@@ -190,6 +208,82 @@ def test_cached_multigraph_row_owner_cycle_is_collectable(cls_name):
     del graph
     gc.collect()
     assert reference() is None
+
+
+@pytest.mark.parametrize("cls_name", CLASS_NAMES)
+def test_graph_attribute_self_reference_is_collectable(cls_name):
+    graph = getattr(fnx, cls_name)()
+    graph.graph["owner"] = graph
+    assert graph.graph["owner"] is graph
+    reference = _owner_cycle_reference(graph)
+    del graph
+    _assert_reference_collects(reference)
+
+
+@pytest.mark.parametrize("cls_name", CLASS_NAMES)
+def test_direct_node_attribute_self_reference_is_stored_and_collectable(cls_name):
+    graph = getattr(fnx, cls_name)()
+    graph.add_node("n", owner=graph)
+    assert graph.nodes["n"]["owner"] is graph
+    reference = _owner_cycle_reference(graph)
+    del graph
+    _assert_reference_collects(reference)
+
+
+@pytest.mark.parametrize("cls_name", CLASS_NAMES)
+def test_direct_edge_attribute_self_reference_is_stored_and_collectable(cls_name):
+    graph = getattr(fnx, cls_name)()
+    graph.add_edge("left", "right", owner=graph)
+    if "Multi" in cls_name:
+        assert graph["left"]["right"][0]["owner"] is graph
+    else:
+        assert graph["left"]["right"]["owner"] is graph
+    reference = _owner_cycle_reference(graph)
+    del graph
+    _assert_reference_collects(reference)
+
+
+@pytest.mark.parametrize("cls_name", CLASS_NAMES)
+def test_public_node_key_owner_cycle_is_collectable(cls_name):
+    graph = getattr(fnx, cls_name)()
+    key = _OwnerKey(graph)
+    graph.add_node(key)
+    assert next(iter(graph)) is key
+    del key
+    reference = _owner_cycle_reference(graph)
+    del graph
+    _assert_reference_collects(reference)
+
+
+@pytest.mark.parametrize("cls_name", ["MultiGraph", "MultiDiGraph"])
+def test_public_multiedge_key_owner_cycle_is_collectable(cls_name):
+    graph = getattr(fnx, cls_name)()
+    key = _OwnerKey(graph)
+    graph.add_edge("left", "right", key=key)
+    assert next(iter(graph["left"]["right"])) is key
+    del key
+    reference = _owner_cycle_reference(graph)
+    del graph
+    _assert_reference_collects(reference)
+
+
+@pytest.mark.parametrize(
+    ("cls_name", "accessor"),
+    [
+        ("MultiGraph", "edges"),
+        ("DiGraph", "in_edges"),
+        ("MultiDiGraph", "in_edges"),
+    ],
+)
+def test_scalar_edge_cache_default_owner_cycle_is_collectable(cls_name, accessor):
+    graph = getattr(fnx, cls_name)()
+    graph.add_edge("left", "right")
+    rows = list(getattr(graph, accessor)(data="missing", default=graph))
+    assert rows[0][-1] is graph
+    reference = _owner_cycle_reference(graph)
+    del rows
+    del graph
+    _assert_reference_collects(reference)
 
 
 def test_private_override_installed_after_a_plain_access_redispatches():
