@@ -27893,6 +27893,80 @@ serialization.
 QUALITY / CLOSEOUT: after the source revert, `git diff --check` passed. No
 candidate source is being shipped from this rejected resurrection.
 
+## 2026-07-27 CloudyTurtle VALID-PROFILE ADMISSION REJECT (`Graph` `DegreeView.__getitem__` exact-string index interning): executable ceiling **`1.4181x`**, but clean-HEAD A/A floor **`1.049105x`** — **NO SOURCE EDIT** (`br-r37-c1-a4nkr`)
+
+NEGATIVE-LEDGER-FIRST / RETRY ADJUDICATION: the institutional preflight for
+`DegreeView exact-string node-index interning` was run before any source edit,
+then direct searches for `G.degree[n]`, `DegreeView.__getitem__`, degree-view
+cache, and public-key-to-index interning were read by hand. The governing
+`br-r37-c1-knvl7` HOLD and `br-r37-c1-zea7e` frontier sweep explicitly forbid
+another degree-value cache or inferred key interner. They permit reopening
+only if a pre-measurement worker screen has one-minute load below `0.25` and
+steal below `0.5%`, then the unchanged raw/raw doubled A/A floor is below
+`1.02x`; a separately justified C-level replacement remains a different
+alternative.
+
+EXACT-CURRENT PROFILE / COMPUTED CEILING: the clean `44eef0648` source was
+rebuilt strict-remote before this screen. On the resulting exact ELF, 300,000
+warm public `view[node]` calls took `0.110965933s` under cProfile. The named
+Python `_WeightAwareDegreeView.__getitem__` frame carried `0.088660127s`
+self-time (**79.9%**) and built-in `hash` carried the remaining
+`0.022271556s` (**20.1%**). Eliminating the named wrapper frame entirely has a
+computed Amdahl ceiling of **`4.97x`** for this synthetic loop. The stricter
+same-ELF executable upper bound—public wrapper versus captured raw Rust
+`DegreeView.__getitem__`, both preserving the same degree value—was
+**`1.4181x`** with median CI `1.3775-1.5111x`; its own same-invocation A/A CI
+was `0.9696-1.0671x`, yielding a `1.1387x` doubled-null floor. Thus the frame
+is genuinely hot and removable work exists, but neither profile nor ceiling
+overrides the admission predicate.
+
+EXACT LOADED ARTIFACT / ADMISSION NULL: the process ran on drained
+`vmi1293453`, pinned to core 5. Immediately before measurement the worker
+screen showed one-minute load **`0.23`** and steal **`0.0%`**, satisfying the
+governing prerequisite. The required two-second frequency warm-up raised the
+in-process header load to `0.3882/0.4336/1.1626`; this is recorded rather than
+hidden. Line one self-reported:
+
+`bench_elf_sha256=e8b227edade176d0c8e194d46415fbb10ce45e0903e54738d5650702622972ac
+(13230024 bytes)
+/tmp/fnx-degree-admission-e8b227/franken_networkx/_fnx.abi3.so`
+
+The wrapper SHA-256 was
+`d6530c2c6ff432ba355b494a99fa506cef803ea3ae102f93080e48c6938ada48`;
+Python was 3.13.7 and NetworkX was 3.6.1. The unchanged raw/raw arm performed
+512 exact-string scalar lookups per sample, 21 interleaved rounds, and
+`min_of=3`. Its positively recorded same-invocation A/A null measured
+**`1.0029x`** with bootstrap median CI **`[0.9921,1.0243]`**. The doubled
+log-space floor is therefore **`1.049105x`**, which fails the preregistered
+strict-inequality requirement `<1.020000x`. CV (`7.92%/9.91%`) is provenance
+only and did not govern.
+
+RESULT / TAXONOMY: **VALID-PROFILE ADMISSION REJECT; NO SOURCE EDIT.** The
+target frame has substantial non-zero measured self-time and both a computed
+Amdahl ceiling and executable upper bound, so this is not `VOID-ZEROSELF`.
+The loaded ELF and numeric same-invocation null are recorded, so it is not
+`VOID-NONULL` or `VOID-CV`. The first required null failed; no second run can
+make this attempt satisfy the requirement, and no DegreeView cache, key
+interner, harness, or test source was added. The worker was immediately
+re-enabled.
+
+RETRY PREDICATE: do not rerun this Python-level DegreeView key/index cache in
+the current campaign. Reopen only for a genuinely C-level compatibility
+replacement that removes the named Python frame while preserving exact
+unhashable `TypeError`, missing-node `KeyError(node)`, equal-but-nonidentical
+Python key semantics, live edge-mutation degree values, node-removal index
+invalidation, subclasses, private storage, and directed siblings. Before
+editing even that replacement, require two consecutive unchanged raw/raw
+A/A-only invocations on a pre-screened worker below **`0.15`** one-minute load
+and **`0.5%`** steal, with each doubled floor below **`1.02x`**. Every final
+process must self-report the loaded ELF and gate only on the bootstrap median
+CI beyond its same-invocation null. Until all predicates hold, switch away
+from DegreeView and node-key interning.
+
+QUALITY / CLOSEOUT: no source code changed. The exact clean-HEAD release build
+used strict remote execution with no local fallback. Ledger and bead closeout
+are the only retained files.
+
 ## 2026-07-27 CloudyTurtle MODEL-INTEGRITY CORRECTION (64-commit re-audit): CI verdicts, ledger taxonomy, construction attribution, and cached-view lifetime
 
 SCOPE: re-read all 64 commits in the provider-downgrade window
