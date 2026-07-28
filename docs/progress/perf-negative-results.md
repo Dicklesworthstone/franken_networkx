@@ -1369,3 +1369,114 @@ in any language, that omits either half produces ratios that are not comparable 
 RETRY PREDICATE: none — this is a standing invariant. If a harness in this repo ever reports an
 fnx-vs-nx ratio without both halves, treat its output as VOID and re-measure rather than debating
 the number.
+
+## 2026-07-28 BlackThrush (cc) CLASS-1 HUNT: 14 new incumbent wins up to 558x — and the "gap widens with n" hypothesis is only true for one family
+
+```
+comparison_class = INCUMBENT
+incumbent = networkx
+incumbent_same_invocation = true
+campaign_output = true
+decision_gate = median_ci
+cv_role = report_only
+bench_elf_sha256 = c97841d1739543a6f0c7f74824edc8e5c79003d845812cf94e92b4f7235865ac
+```
+
+Hunt for Class-1 interpreted-overhead weakness: families NetworkX implements as pure Python
+loops, where it pays per-element bytecode cost we do not. Genuine unpatched networkx 3.6.1,
+dispatch-trap guard active (env cleared at import + nx arm type-asserted at runtime), byte-identity
+of the full result proven before timing, A/A null control in the same invocation, decision on the
+null's bootstrap 95% CI with a 2x margin. 9 rounds/row. The same-invocation A/A null measured
+median `1.0000x` with bootstrap CI `[0.9891,0.9982]` on the `check_planarity` row; every row's own
+null CI is recorded in `hunt_results.json`. **43 decidable wins, 1 decidable loss.**
+
+NEW INCUMBENT WINS (none of these were previously in any public doc), n=1200/m=6000 unless noted:
+
+| Family | Ratio | Why NetworkX pays |
+|---|---:|---|
+| `second_order_centrality` (n=220) | **548.8229x** | Python Moore-Penrose loop; nx takes **3.76 s** on 220 nodes |
+| `harmonic_centrality` (n=220) | **228.1682x** | per-source Python BFS over the whole graph |
+| `closeness_centrality` (n=220) | **185.1399x** | same shape as harmonic |
+| `rich_club_coefficient` | **152.9296x** | repeated Python degree-filtered subgraph rebuilds |
+| `eigenvector_centrality` | **38.2054x** | per-iteration Python dict arithmetic over every node |
+| `load_centrality` (n=220) | **34.0069x** | Python all-pairs dependency accumulation |
+| `node_connectivity` (n=220) | **28.7402x** | repeated Python max-flow over an expanded digraph |
+| `square_clustering` (n=220) | **21.0533x** | nested Python loops over neighbour pairs |
+| `triadic_census` (n=200 digraph) | **20.3228x** | per-triad Python census |
+| `transitive_closure` (n=200 digraph) | **14.4463x** | per-node Python descendant sets |
+| `onion_layers` | **10.3562x** | iterative Python peeling with per-layer dict rebuilds |
+| `k_core` | **5.0237x** | Python core filtering + subgraph rebuild |
+| `faster_could_be_isomorphic` | **3.5649x** | Python degree/triangle sequence build |
+| `dfs_postorder_nodes` | **2.9177x** | Python generator per node |
+| `minimum_spanning_tree` | **2.3142x** | Python Kruskal with per-edge sort key calls |
+| `jaccard_coefficient` | **2.2295x** | per-pair Python set ops |
+| `label_propagation` | **2.1856x** | per-node Python label counting |
+| `descendants` | **1.2187x** | Python BFS closure |
+
+SCALING — the campaign's hypothesis was that the advantage grows with n. **Measured, that is true
+for exactly one family in this set, and three families move the other way:**
+
+| Family | n=1000 | n=5000 | n=10000 | direction |
+|---|---:|---:|---:|---|
+| `pagerank` | 8.5775x | 24.0521x | **29.9107x** | **widens 3.5x** |
+| `dfs_tree` | 2.3990x | 2.6648x | 2.9347x | widens mildly |
+| `dijkstra_len` | 2.6940x | 2.7088x | 2.9169x | flat |
+| `bfs_tree` | 3.0086x | 2.5531x | 3.2093x | flat |
+| `triangles` | 14.1503x | 10.0080x | 11.2082x | **narrows** |
+| `core_number` | 13.3572x | 10.6429x | 10.5449x | **narrows** |
+| `clustering` | 34.6900x | 28.1549x | 26.6582x | **narrows** |
+| `sssp_length` | 5.1901x | 5.2610x | 3.0066x | **narrows at 10k** |
+
+INTERPRETATION. Where both implementations are the same complexity over the same traversal, the
+ratio is a CONSTANT FACTOR — the interpreter tax per element — and does not grow with n. It grows
+only where the implementations differ structurally: `pagerank` widens because nx's per-iteration
+Python dict arithmetic scales with n while our native SpMV does not degrade the same way. It
+NARROWS on `clustering` / `triangles` / `core_number`, which is the more useful signal: our own
+advantage is eroding at scale on those, most plausibly cache/allocation behaviour in the native
+kernel rather than anything nx does better. **That erosion is a lever, and it is invisible at
+n=2000.** Retry predicate for taking it: profile `clustering` at n=10000 and reopen if >=25% exact
+self-time sits in allocation or cache-miss stalls rather than the triangle-counting arithmetic.
+
+THE ONE DECIDABLE LOSS, and it defines the boundary of the class:
+
+| `preferential_attachment` | **0.5887x** | CI [0.5573,0.6912], null [0.9952,1.0024] |
+
+nx computes `len(G[u]) * len(G[v])` per pair — the cheapest possible per-element work, two degree
+lookups and a multiply, with no Python-level iteration over neighbours at all. **Class-1 advantage
+requires the incumbent to be doing real per-element interpreted work; when it is not, our per-call
+boundary tax (~42 ns crossing plus the shim) dominates and we lose.** `adamic_adar_index` (0.9914x,
+UNDECIDABLE) and `find_cliques` (1.0670x, UNDECIDABLE) sit on the same boundary. RETRY PREDICATE
+for `preferential_attachment`: reopen only if the per-pair path can be made to avoid a per-pair
+boundary crossing entirely (batch the whole pair list into one native call and return a single
+buffer); a faster per-pair kernel cannot win, because the kernel is not the cost.
+
+CLAIM WITHDRAWN BEFORE PUBLICATION — `check_planarity`. The hunt measured **558.2443x**, and that
+figure is real but **regime-dependent, so it is not publishable as a family ratio**. `check_planarity`
+is wrapper-patched: a necessary-only Kuratowski-bound check runs in Rust (degree / edge-count /
+bipartite / girth bounds) and the residual is DELEGATED to NetworkX for the full Boyer-Myrvold test.
+The hunt fixture was `n=220 / m=900`, and `m > 3n-6` (900 > 654), so the edge-count bound decides
+"non-planar" without any planarity algorithm running at all. Re-measured on both regimes, same
+contract:
+
+| input regime | ratio | verdict |
+|---|---:|---|
+| trivially non-planar, bound decides (n=220, m=900) | **527.0039x** | DECIDABLE |
+| genuinely planar 15x15 grid, bound cannot decide, fnx delegates to nx | **0.8246x** | DECIDABLE **LOSS** |
+
+Both arms returned the same answer in both regimes (`False` / `True`), so this is not a correctness
+issue — it is a claim-shape issue. A single "check_planarity Nx" row would invert depending on the
+caller's input, which is precisely the sort of headline that does not survive a hostile reading, so
+it is kept out of `README.md` and the scorecard. The real finding is the **0.8246x loss on genuinely
+planar input**, where we pay the bound check and then hand the whole problem to NetworkX anyway.
+RETRY PREDICATE: this row becomes publishable only when the native Hopcroft-Tarjan / LR port lands
+and the delegation is removed; re-measure on genuinely planar input (grid, wheel, series-parallel)
+first, and never quote the bound-decides regime as the family number.
+
+METHOD NOTE for the rest of this hunt: every other row above is a compute-family (centrality,
+census, closure, clustering, core, MST, link-prediction) with no bound-decides shortcut, so its
+ratio is regime-independent in the way `check_planarity`'s is not. Predicate-shaped functions are
+the ones to re-check for this failure mode before quoting.
+
+CORRECTNESS FINDING, not timed: `community.greedy_modularity_communities` produced a
+PARITY-DIVERGENCE against networkx on n=220/m=900 and was therefore not benchmarked. Filed as
+`br-r37-c1-z4rnj`; a divergence outranks any ratio on that surface.

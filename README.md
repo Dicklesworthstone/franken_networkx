@@ -1032,8 +1032,25 @@ margin; reproduce with `python3 scripts/perf_harness.py marshaling`):
 
 | Family | fnx vs nx | Notes |
 |--------|-----------|-------|
+| second_order_centrality | **548.8229× faster** | Native kernel; nx takes 3.8 s on 220 nodes |
+| harmonic_centrality | **228.1682× faster** | Native bit-parallel multi-source BFS |
+| closeness_centrality | **185.1399× faster** | Native bit-parallel multi-source BFS |
+| rich_club_coefficient | **152.9296× faster** | Native degree-filtered scan, no subgraph rebuild |
+| eigenvector_centrality | **38.2054× faster** | Native power iteration |
 | clustering (all nodes) | **36.1146× faster** | Native triangle counting |
+| load_centrality | **34.0069× faster** | Native dependency accumulation |
+| node_connectivity | **28.7402× faster** | Native max-flow |
+| square_clustering | **21.0533× faster** | Native neighbour-pair scan |
+| triadic_census | **20.3228× faster** | Native census |
+| transitive_closure | **14.4463× faster** | Native descendant closure |
 | triangles | **14.3397× faster** | Native triangle counting |
+| onion_layers | **10.3562× faster** | Native peeling |
+| k_core | **5.0237× faster** | Native core filter |
+| faster_could_be_isomorphic | **3.5649× faster** | Native degree/triangle sequence |
+| dfs_postorder_nodes | **2.9177× faster** | Native traversal |
+| minimum_spanning_tree | **2.3142× faster** | Native Kruskal |
+| jaccard_coefficient | **2.2295× faster** | Native neighbour-set intersection |
+| label_propagation_communities | **2.1856× faster** | Native label counting |
 | dijkstra_path (weighted) | **7.6077× faster** | Native bidirectional kernel + persistent dense node ids |
 | single_source_shortest_path_length | **5.5005× faster** | Native BFS, dict returned from Rust |
 | all_pairs_shortest_path_length (n=300) | **4.5647× faster** | Algorithmic work dominates |
@@ -1069,6 +1086,9 @@ median-CI gate; reproduce with
 |--------|-----------|-------|
 | `G.adj` (bare accessor) | **0.82×** | Public descriptor access |
 | `G.has_node(n)` | **0.41×** | Key conversion and native lookup |
+| `check_planarity`, genuinely planar input | **0.82×** | Kuratowski bounds run natively; the residual delegates to NetworkX for Boyer-Myrvold |
+| `preferential_attachment` | **0.59×** | nx's per-pair work is two degree lookups and a multiply — below our per-call boundary cost |
+| `Graph` incremental `add_edge` | **0.26×** | Per-call Python shim; batch constructors are ~3× better per edge |
 
 If you can keep the graph on the fnx side (don't reconstruct per call), the marshaling chunk vanishes. The backend-dispatch path automatically caches the converted graph for repeat calls.
 

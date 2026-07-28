@@ -48,6 +48,34 @@ bench_elf_sha256 = 26c802ed8013d16182f869323c7c05b2e894c8d2e93588d7aacd99ef5d665
 | `all_pairs_shortest_path` (n=300) | **1.7624x** | 0.9870-1.0005 |
 | `edges(data=True)` | **1.6085x** | 0.9958-1.0114 |
 
+Families where NetworkX runs a pure-Python per-element loop (2026-07-28, `n=1200/m=6000`; `n=220`
+for the all-pairs-shaped rows, `n=200` digraph for the census rows), same contract, same guard:
+
+| Workload | Ratio vs NetworkX 3.6.1 | A/A null CI |
+| --- | ---: | --- |
+| `second_order_centrality` | **548.8229x** | 0.7777-1.8285 |
+| `harmonic_centrality` | **228.1682x** | 0.9907-1.1144 |
+| `closeness_centrality` | **185.1399x** | 0.9943-1.0991 |
+| `rich_club_coefficient` | **152.9296x** | 0.9520-1.0665 |
+| `eigenvector_centrality` | **38.2054x** | 0.9823-1.0097 |
+| `load_centrality` | **34.0069x** | 0.9722-1.0046 |
+| `node_connectivity` | **28.7402x** | 0.9873-1.0135 |
+| `square_clustering` | **21.0533x** | 0.9949-1.2079 |
+| `triadic_census` | **20.3228x** | 0.9940-1.0228 |
+| `transitive_closure` | **14.4463x** | 0.9915-1.0058 |
+| `onion_layers` | **10.3562x** | 0.9749-1.2533 |
+| `k_core` | **5.0237x** | 0.9458-1.0268 |
+| `faster_could_be_isomorphic` | **3.5649x** | 0.9942-1.0060 |
+| `dfs_postorder_nodes` | **2.9177x** | 0.9999-1.0047 |
+| `minimum_spanning_tree` | **2.3142x** | 0.9608-1.0235 |
+| `jaccard_coefficient` | **2.2295x** | 0.9948-1.0084 |
+| `label_propagation_communities` | **2.1856x** | 0.9880-1.0104 |
+
+At scale (`n=1000 / 5000 / 10000`, `m=4n`): `pagerank` **8.58x / 24.05x / 29.91x`;
+`clustering` **34.69x / 28.15x / 26.66x**; `triangles` **14.15x / 10.01x / 11.21x**;
+`core_number` **13.36x / 10.64x / 10.55x**; `bfs_tree` **3.01x / 2.55x / 3.21x**;
+`dfs_tree` **2.40x / 2.66x / 2.93x**.
+
 Validity of the NetworkX arm rests on the dispatch-trap guard in `scripts/perf_harness.py`: the
 backend-dispatch environment (`NETWORKX_AUTOMATIC_BACKENDS`, `NETWORKX_BACKEND_PRIORITY`,
 `NETWORKX_FALLBACK_TO_NX`) is cleared at import, and the nx arm's graph type is asserted at runtime
