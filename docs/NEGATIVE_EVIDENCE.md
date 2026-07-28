@@ -133,6 +133,78 @@ and a computed Amdahl ceiling of at least `2.0x`. Any competitive result must
 then preserve complete output bytes and pass the same loaded-ELF,
 same-invocation A/A median-CI gate; never reopen from CV.
 
+## 2026-07-28 CloudyTurtle LANE M INCUMBENT WIN RE-GATE: 21 exact pure-loop wins plus one **0.5949x** boundary loss (`br-r37-c1-04z53.9185`)
+
+**LEDGER-FIRST / CLAIM-INTEGRITY AUDIT.** The preceding scratch hunt had a real
+NetworkX arm and useful routing results, but its KEEP machinery was
+inadmissible: it decided from `cand.ratio_p50` instead of requiring the complete
+candidate CI to clear the doubled-null threshold, rounded all floats to nine
+decimals before hashing, emitted JSON instead of the required line-one ELF
+identity, and left its result artifact outside the repository. The permanent
+`class1-frontier` suite re-ran only exact candidates for 21 alternating-order
+rounds with a per-row same-invocation A/A control.
+
+Line one self-reported
+`bench_elf_sha256=348a684395d0d7cbace8b40a1c411643f6a8e01a661ef125078f2cd8fe68b899`
+(`13,230,088` bytes) at
+`/data/projects/franken_networkx/target/release/lib_fnx.so`. Genuine unpatched
+NetworkX 3.6.1 and FrankenNetworkX ran in the same pinned Python 3.13.7
+process. All 22 rows proved exact order-preserving complete-output bytes before
+timing. The complete candidate CI, never CV or the point estimate, made every
+decision.
+
+At n=1,000 / 5,000 / 10,000 with `m=4n`, incumbent/FNX medians were:
+
+| pure-Python-loop family | n=1,000 | n=5,000 | n=10,000 |
+|---|---:|---:|---:|
+| `rich_club_coefficient(normalized=False)` | `142.2388x` | `115.5965x` | `117.3619x` |
+| `onion_layers` | `8.4203x` | `11.1869x` | `11.9454x` |
+| `square_clustering` | `19.7771x` | `19.1291x` | `18.4067x` |
+| `k_core` | `41.6911x` | `45.8818x` | `49.3962x` |
+
+Nine additional exact wins span **`1.9947x–194.3093x`**:
+`closeness_centrality 194.3093x`, `transitive_closure 92.3164x`,
+`node_connectivity 30.1588x`, `triadic_census 20.4715x`,
+`faster_could_be_isomorphic 3.4961x`, `dfs_postorder_nodes 3.0811x`,
+`jaccard_coefficient 2.4536x`, `label_propagation_communities 2.1485x`,
+and `minimum_spanning_tree 1.9947x`. The exact candidate CIs and every adjacent
+A/A CI are recorded in
+`docs/progress/perf-negative-results.md` and the current scorecard.
+
+The n=10,000 NetworkX profiles attribute the intended interpreted work:
+`square_clustering` has `81.2397%` self-time and a computed `239.0537x`
+whole-frame Amdahl ceiling; `onion_layers` has `34.6844%` self-time and a
+`67.8641x` ceiling; `_compute_rc` has `9.1622%` self-time,
+`97.9847%` cumulative time, and a `49.6200x` ceiling.
+
+Four scratch headlines failed strict parity before timing:
+`harmonic_centrality` (`3.979039320256561e-13` maximum drift),
+`eigenvector_centrality` (`4.85722573273506e-17`), `load_centrality`
+(`6.938893903907228e-18`), and `second_order_centrality`
+(`5.5706550483591855e-12`). Public `nx.pagerank` was not admitted as Class-1
+because NetworkX 3.6.1 calls `_pagerank_scipy`, not a Python-dict loop.
+
+comparison_class=INCUMBENT
+incumbent=networkx
+incumbent_same_invocation=true
+incumbent_ratio=1.9947x
+campaign_output=true
+decision_gate=median_ci
+cv_role=report_only
+
+**RESULT: KEEP / CAMPAIGN OUTPUT, PLUS ONE VALID-AB LOSS.** All 21 exact wins
+clear their own doubled-null floors. `preferential_attachment` is the honest
+boundary result: **`0.5949x`**, candidate CI **`[0.5918,0.6006]`**, A/A CI
+**`[0.9974,1.0016]`**, and 21/21 paired losses. NetworkX performs only two
+degree lookups and a multiply, so boundary/result-construction cost dominates.
+
+RETRY PREDICATE: do not time the four drifting float families until complete
+canonical bytes match exactly; never use rounded digests. Preserve the current
+21 win rows until their implementation, wrapper, fixture, or toolchain changes.
+Reopen `preferential_attachment` only for a whole-pair-list native batch that
+crosses the Python boundary once and returns one result buffer; do not retry a
+faster per-pair kernel, eager degree vector, or pair memo.
+
 ## 2026-07-27 CloudyTurtle LANE M KEEP / INCUMBENT WIN: cache the live raw base for scalar multigraph degree — **1.4714x MultiGraph / 2.1967x MultiDiGraph vs NetworkX** (`br-r37-c1-ylunk`)
 
 **LEDGER-FIRST / RIGHT-PATH PROFILE.** The prior-art scan read the governing

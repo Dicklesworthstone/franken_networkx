@@ -48,33 +48,50 @@ bench_elf_sha256 = 26c802ed8013d16182f869323c7c05b2e894c8d2e93588d7aacd99ef5d665
 | `all_pairs_shortest_path` (n=300) | **1.7624x** | 0.9870-1.0005 |
 | `edges(data=True)` | **1.6085x** | 0.9958-1.0114 |
 
-Families where NetworkX runs a pure-Python per-element loop (2026-07-28, `n=1200/m=6000`; `n=220`
-for the all-pairs-shaped rows, `n=200` digraph for the census rows), same contract, same guard:
+### Pure-Python-loop incumbent gate (2026-07-28)
 
-| Workload | Ratio vs NetworkX 3.6.1 | A/A null CI |
-| --- | ---: | --- |
-| `second_order_centrality` | **548.8229x** | 0.7777-1.8285 |
-| `harmonic_centrality` | **228.1682x** | 0.9907-1.1144 |
-| `closeness_centrality` | **185.1399x** | 0.9943-1.0991 |
-| `rich_club_coefficient` | **152.9296x** | 0.9520-1.0665 |
-| `eigenvector_centrality` | **38.2054x** | 0.9823-1.0097 |
-| `load_centrality` | **34.0069x** | 0.9722-1.0046 |
-| `node_connectivity` | **28.7402x** | 0.9873-1.0135 |
-| `square_clustering` | **21.0533x** | 0.9949-1.2079 |
-| `triadic_census` | **20.3228x** | 0.9940-1.0228 |
-| `transitive_closure` | **14.4463x** | 0.9915-1.0058 |
-| `onion_layers` | **10.3562x** | 0.9749-1.2533 |
-| `k_core` | **5.0237x** | 0.9458-1.0268 |
-| `faster_could_be_isomorphic` | **3.5649x** | 0.9942-1.0060 |
-| `dfs_postorder_nodes` | **2.9177x** | 0.9999-1.0047 |
-| `minimum_spanning_tree` | **2.3142x** | 0.9608-1.0235 |
-| `jaccard_coefficient` | **2.2295x** | 0.9948-1.0084 |
-| `label_propagation_communities` | **2.1856x** | 0.9880-1.0104 |
+These rows use `python3 scripts/perf_harness.py class1-frontier`: genuine unpatched
+NetworkX 3.6.1 and FrankenNetworkX run side-by-side for 21 alternating-order rounds, with
+exact complete-output bytes checked before timing and one adjacent A/A null per row. The
+complete candidate bootstrap CI must clear twice the null CI's maximum log-distance from
+1.0; CV is report-only.
 
-At scale (`n=1000 / 5000 / 10000`, `m=4n`): `pagerank` **8.58x / 24.05x / 29.91x`;
-`clustering` **34.69x / 28.15x / 26.66x**; `triangles` **14.15x / 10.01x / 11.21x**;
-`core_number` **13.36x / 10.64x / 10.55x**; `bfs_tree` **3.01x / 2.55x / 3.21x**;
-`dfs_tree` **2.40x / 2.66x / 2.93x**.
+```
+comparison_class = INCUMBENT
+incumbent = networkx
+incumbent_same_invocation = true
+campaign_output = true
+decision_gate = median_ci
+cv_role = report_only
+bench_elf_sha256 = 348a684395d0d7cbace8b40a1c411643f6a8e01a661ef125078f2cd8fe68b899
+```
+
+| Exact workload | Ratio vs NetworkX 3.6.1 | Candidate 95% CI | A/A null 95% CI |
+| --- | ---: | ---: | ---: |
+| `rich_club_coefficient`, n=1,000 / m=4,000 | **142.2388x** | 141.3628-142.6769 | 0.9960-1.0031 |
+| `rich_club_coefficient`, n=5,000 / m=20,000 | **115.5965x** | 114.0077-120.6073 | 0.9809-1.0435 |
+| `rich_club_coefficient`, n=10,000 / m=40,000 | **117.3619x** | 110.3323-124.2176 | 0.9143-1.0410 |
+| `onion_layers`, n=1,000 / m=4,000 | **8.4203x** | 8.3775-8.5677 | 0.9987-1.0100 |
+| `onion_layers`, n=5,000 / m=20,000 | **11.1869x** | 10.8447-11.3614 | 0.9842-1.0135 |
+| `onion_layers`, n=10,000 / m=40,000 | **11.9454x** | 11.6765-12.2297 | 0.9703-0.9966 |
+| `square_clustering`, n=1,000 / m=4,000 | **19.7771x** | 19.4047-19.8667 | 0.9962-1.0023 |
+| `square_clustering`, n=5,000 / m=20,000 | **19.1291x** | 18.9200-19.3847 | 0.9846-1.0014 |
+| `square_clustering`, n=10,000 / m=40,000 | **18.4067x** | 17.7816-18.8440 | 0.9813-1.0470 |
+| `k_core`, n=1,000 / m=4,000 | **41.6911x** | 41.1215-42.4176 | 0.9959-1.0109 |
+| `k_core`, n=5,000 / m=20,000 | **45.8818x** | 44.3019-47.0189 | 0.9855-1.0637 |
+| `k_core`, n=10,000 / m=40,000 | **49.3962x** | 48.0447-51.7681 | 0.9417-1.0017 |
+| `closeness_centrality`, n=220 / m=900 | **194.3093x** | 193.1339-194.6684 | 0.9952-1.0108 |
+| `transitive_closure`, directed n=200 / m=800 | **92.3164x** | 89.7257-93.9751 | 0.9906-1.0020 |
+| `node_connectivity`, n=220 / m=900 | **30.1588x** | 30.0507-30.4738 | 1.0008-1.0128 |
+| `triadic_census`, directed n=200 / m=800 | **20.4715x** | 20.3525-20.5954 | 0.9949-1.0043 |
+| `faster_could_be_isomorphic`, n=1,200 / m=6,000 | **3.4961x** | 3.4871-3.5106 | 0.9944-1.0024 |
+| `dfs_postorder_nodes`, n=1,200 / m=6,000 | **3.0811x** | 3.0753-3.1089 | 0.9977-1.0056 |
+| `jaccard_coefficient`, 300 pairs | **2.4536x** | 2.4407-2.5141 | 0.9985-1.0012 |
+| `label_propagation_communities`, n=1,200 / m=6,000 | **2.1485x** | 2.1316-2.1863 | 0.9941-1.0008 |
+| `minimum_spanning_tree`, n=1,200 / m=6,000 | **1.9947x** | 1.8140-2.0711 | 0.9962-1.0136 |
+
+The same invocation records `preferential_attachment` as a current loss:
+**0.5949x**, candidate CI **0.5918-0.6006**, A/A null CI **0.9974-1.0016**.
 
 Validity of the NetworkX arm rests on the dispatch-trap guard in `scripts/perf_harness.py`: the
 backend-dispatch environment (`NETWORKX_AUTOMATIC_BACKENDS`, `NETWORKX_BACKEND_PRIORITY`,

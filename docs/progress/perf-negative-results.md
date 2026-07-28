@@ -1370,13 +1370,23 @@ RETRY PREDICATE: none — this is a standing invariant. If a harness in this rep
 fnx-vs-nx ratio without both halves, treat its output as VOID and re-measure rather than debating
 the number.
 
-## 2026-07-28 BlackThrush (cc) CLASS-1 HUNT: 14 new incumbent wins up to 558x — and the "gap widens with n" hypothesis is only true for one family
+## 2026-07-28 BlackThrush (cc) RETRACTED / OUTSIDE SIX-CLASS TAXONOMY: scratch Class-1 gate did not satisfy the verdict or exact-parity contracts
+
+**STATUS: RETRACTED AS CLAIM EVIDENCE.** The scratch harness did run a live
+NetworkX arm and adjacent A/A controls, so the rows below remain useful routing
+evidence. They cannot support a campaign verdict or public number: `decidable()` compared
+only `cand.ratio_p50` with the doubled-null threshold instead of requiring the
+complete candidate CI to clear it; `canon()` rounded every float to nine
+decimals before hashing; the provenance header emitted JSON instead of the
+required line-one `bench_elf_sha256=<hash> (<bytes>) <path>` identity; and the
+result artifact remained outside the repository. The strict permanent-harness
+gate immediately following this section supersedes every ratio below.
 
 ```
 comparison_class = INCUMBENT
 incumbent = networkx
 incumbent_same_invocation = true
-campaign_output = true
+campaign_output = false
 decision_gate = median_ci
 cv_role = report_only
 bench_elf_sha256 = c97841d1739543a6f0c7f74824edc8e5c79003d845812cf94e92b4f7235865ac
@@ -1480,3 +1490,172 @@ the ones to re-check for this failure mode before quoting.
 CORRECTNESS FINDING, not timed: `community.greedy_modularity_communities` produced a
 PARITY-DIVERGENCE against networkx on n=220/m=900 and was therefore not benchmarked. Filed as
 `br-r37-c1-z4rnj`; a divergence outranks any ratio on that surface.
+
+## 2026-07-28 CloudyTurtle STRICT INCUMBENT WIN GATE: 21 exact Class-1 wins and one exact boundary loss (`br-r37-c1-04z53.9185`)
+
+The checked-in `class1-frontier` suite re-ran the admissible pure-Python-loop
+families for 21 alternating-order rounds. Genuine unpatched NetworkX 3.6.1 and
+FrankenNetworkX ran in one pinned process; every row first proved exact
+order-preserving complete-output bytes, then measured its own adjacent A/A
+control. The verdict requires the complete candidate bootstrap CI—not its point
+estimate—to clear twice the null CI's maximum log-distance from 1.0. CV is
+report-only.
+
+Line one of the process self-reported
+`bench_elf_sha256=348a684395d0d7cbace8b40a1c411643f6a8e01a661ef125078f2cd8fe68b899`
+(`13,230,088` bytes) at
+`/data/projects/franken_networkx/target/release/lib_fnx.so`. The measured
+harness SHA-256 was
+`92917fa41376111f6490278651545d465c8d726dce21037facd1a3f29e0e36c0`;
+the wrapper SHA-256 was
+`8740cc56899d6934d947009e95a3c587635cd2cc1f0e402aaea6d07794283c71`.
+
+The large-graph rows use exact-string undirected Graphs with `m=4n`:
+
+| exact public row | n=1,000 | n=5,000 | n=10,000 |
+|---|---:|---:|---:|
+| `rich_club_coefficient(normalized=False)` | `142.2388x` `[141.3628,142.6769]` | `115.5965x` `[114.0077,120.6073]` | `117.3619x` `[110.3323,124.2176]` |
+| `onion_layers` | `8.4203x` `[8.3775,8.5677]` | `11.1869x` `[10.8447,11.3614]` | `11.9454x` `[11.6765,12.2297]` |
+| `square_clustering` | `19.7771x` `[19.4047,19.8667]` | `19.1291x` `[18.9200,19.3847]` | `18.4067x` `[17.7816,18.8440]` |
+| `k_core` | `41.6911x` `[41.1215,42.4176]` | `45.8818x` `[44.3019,47.0189]` | `49.3962x` `[48.0447,51.7681]` |
+
+Their same-invocation A/A CIs were, in the same table order:
+`[0.9960,1.0031]`, `[0.9809,1.0435]`, `[0.9143,1.0410]`;
+`[0.9987,1.0100]`, `[0.9842,1.0135]`, `[0.9703,0.9966]`;
+`[0.9962,1.0023]`, `[0.9846,1.0014]`, `[0.9813,1.0470]`;
+and `[0.9959,1.0109]`, `[0.9855,1.0637]`, `[0.9417,1.0017]`.
+
+The additional exact families measured:
+
+| exact public row | incumbent/FNX median | candidate 95% CI | A/A 95% CI |
+|---|---:|---:|---:|
+| `closeness_centrality`, n=220 / m=900 | `194.3093x` | `[193.1339,194.6684]` | `[0.9952,1.0108]` |
+| `transitive_closure`, directed n=200 / m=800 | `92.3164x` | `[89.7257,93.9751]` | `[0.9906,1.0020]` |
+| `node_connectivity`, n=220 / m=900 | `30.1588x` | `[30.0507,30.4738]` | `[1.0008,1.0128]` |
+| `triadic_census`, directed n=200 / m=800 | `20.4715x` | `[20.3525,20.5954]` | `[0.9949,1.0043]` |
+| `faster_could_be_isomorphic`, n=1,200 / m=6,000 | `3.4961x` | `[3.4871,3.5106]` | `[0.9944,1.0024]` |
+| `dfs_postorder_nodes`, n=1,200 / m=6,000 | `3.0811x` | `[3.0753,3.1089]` | `[0.9977,1.0056]` |
+| `jaccard_coefficient`, 300 pairs | `2.4536x` | `[2.4407,2.5141]` | `[0.9985,1.0012]` |
+| `label_propagation_communities`, n=1,200 / m=6,000 | `2.1485x` | `[2.1316,2.1863]` | `[0.9941,1.0008]` |
+| `minimum_spanning_tree`, n=1,200 / m=6,000 | `1.9947x` | `[1.8140,2.0711]` | `[0.9962,1.0136]` |
+
+The n=10,000 NetworkX profiles verify the intended Class-1 surface.
+`square_clustering` carried `1.344243s` self-time (`81.2397%`) and
+`99.5817%` cumulative time, for a computed `239.0537x` whole-frame Amdahl
+ceiling. `onion_layers` carried `0.220209s` self-time (`34.6844%`) and
+`98.5265%` cumulative time, for a `67.8641x` ceiling. `_compute_rc` carried
+`0.132050s` self-time (`9.1622%`) and `97.9847%` cumulative time, for a
+`49.6200x` ceiling.
+
+The exact-parity screen rejected four scratch headline rows before timing:
+`harmonic_centrality` drifted by up to `3.979039320256561e-13`,
+`eigenvector_centrality` by `4.85722573273506e-17`, `load_centrality` by
+`6.938893903907228e-18`, and `second_order_centrality` by
+`5.5706550483591855e-12`. Rounding to nine decimals had hidden all four.
+Public `nx.pagerank` was also excluded from this Class-1 set because NetworkX
+3.6.1 calls `_pagerank_scipy`, not the claimed Python-dict iteration path.
+
+comparison_class=INCUMBENT
+incumbent=networkx
+incumbent_same_invocation=true
+incumbent_ratio=1.9947x
+campaign_output=true
+decision_gate=median_ci
+cv_role=report_only
+
+**RESULT: KEEP / CAMPAIGN OUTPUT.** Twenty-one exact incumbent wins survive.
+`k_core` and `onion_layers` widen from n=1,000 to n=10,000; rich-club and
+square clustering remain large constant-factor wins but do not widen.
+
+RETRY PREDICATE: preserve the strict suite and current public numbers until the
+corresponding implementation, wrapper, Python/NetworkX toolchain, or benchmark
+fixture changes. Do not time the four floating-result families above until
+their complete canonical bytes match exactly; never substitute rounded
+digests. Admit another Class-1 family only after its actual public NetworkX
+source shows an interpreted per-element loop and a named workload profile has
+non-zero self-time plus a computed Amdahl ceiling of at least `2.0x`.
+
+## 2026-07-28 CloudyTurtle VALID-AB INCUMBENT LOSS: `preferential_attachment` remains **0.5949x** (`br-r37-c1-04z53.9185`)
+
+The same exact loaded-ELF invocation measured 300 explicit pairs on the
+n=1,200 / m=6,000 graph. The complete outputs were byte-identical. The
+NetworkX/FNX median was **`0.5949x`**, bootstrap 95% CI
+**`[0.5918,0.6006]`**, against its same-invocation A/A null
+**`[0.9974,1.0016]`** and doubled-null slowdown ceiling **`0.9947x`**.
+All 21 paired rounds were losses. CV was report-only.
+
+comparison_class=INCUMBENT
+incumbent=networkx
+incumbent_same_invocation=true
+incumbent_ratio=0.5949x
+campaign_output=false
+decision_gate=median_ci
+cv_role=report_only
+
+**RESULT: VALID-AB LOSS / NO-SHIP.** NetworkX performs only two degree lookups
+and a multiply per pair, so the FrankenNetworkX boundary and result-building
+cost dominate.
+
+RETRY PREDICATE: do not retry a faster per-pair kernel, eager whole-graph
+degree vectors, or pair-score memoization. Reopen only when one public call can
+batch the complete pair list across the Python/native boundary and return one
+result buffer, then require exact bytes and the same incumbent/A/A complete-CI
+gate.
+
+## 2026-07-28 BlackThrush (cc) UNMEASURED-SURFACE AUDIT: 198 of 733 shared callables had never been compared to the incumbent — measuring 28 of them found 5 losses, 14 wins and 1 parity divergence
+
+```
+comparison_class = INCUMBENT
+incumbent = networkx
+incumbent_same_invocation = true
+campaign_output = true
+decision_gate = median_ci
+cv_role = report_only
+bench_elf_sha256 = c97841d1739543a6f0c7f74824edc8e5c79003d845812cf94e92b4f7235865ac
+```
+
+WHY THIS AUDIT EXISTS. frankensearch shipped ~90 commits while all ten of its quality gates read
+`unmeasured`; its first real gate came back **8.7x SLOWER than Tantivy**. The analogue here is any
+surface we expose, and name in our own README, that has never been compared to NetworkX. Counted
+mechanically: of **733 callables both libraries expose**, **535 carry an incumbent ratio somewhere
+in the ledgers or scorecard and 198 do not**. **47 of those 198 are named in our README**, i.e. we
+publicly imply they are good without ever having measured them. The same-invocation A/A null for
+this run measured median `1.0000x` with bootstrap CI `[0.9957,1.0010]` on the
+`all_simple_edge_paths` row.
+
+**FIVE DECIDABLE LOSSES, none of which anyone knew about:**
+
+| Surface | Ratio | 95% CI | A/A null | Mechanism |
+|---|---:|---|---|---|
+| `karate_club_graph` | **0.3812x** | [0.3588,0.3885] | 0.9795-1.0211 | 34-node fixed literal; nx just builds an edge list, we pay construction overhead |
+| `read_multiline_adjlist` | **0.7002x** | [0.5067,0.7223] | 0.9708-1.0205 | parser is not native |
+| `tutte_graph` | **0.7594x** | [0.7306,0.8543] | 0.9659-1.0171 | 46-node fixed literal, same shape as karate |
+| `read_gml` | **0.9247x** | [0.9188,0.9385] | 0.9807-0.9999 | GML parse path |
+| `navigable_small_world_graph` | **0.9550x** | [0.9374,0.9805] | 0.9853-1.0159 | generator loop |
+
+The two fixed-literal generators repeat the boundary already found for `preferential_attachment`:
+when the incumbent's work per call is trivial — build a hard-coded 34-edge list — our per-call cost
+dominates and we lose. **Class-1 advantage requires the incumbent to be doing real per-element
+interpreted work.** RETRY PREDICATE for `karate_club_graph` / `tutte_graph`: these are constant
+graphs; reopen only with a cached prebuilt native graph returned by clone, and only if construction
+still exceeds nx's literal-list build; a faster builder cannot win.
+
+WINS, previously unmeasured: `erdos_renyi_graph(n=1500)` **14.1755x**, `k_corona` **9.3853x**,
+`k_crust` **5.8664x**, `kosaraju_strongly_connected_components` **4.6519x**, `minimum_branching`
+**3.9768x**, `partition_spanning_tree` **2.4612x**, `dfs_successors` **2.1456x**,
+`partial_duplication_graph` **2.1114x**, `read_graph6` **1.7174x**, `read_sparse6` **1.6869x**,
+`all_simple_edge_paths` **1.3466x**, `attribute_assortativity_coefficient` **1.2885x**,
+`petersen_graph` **1.1205x**, `to_edgelist` **1.0431x**.
+
+STRUCTURAL FINDING — the layout family is NOT a Class-1 seam. `circular_layout` **1.0008x**,
+`random_layout` **1.0004x**, `shell_layout` **1.0075x**, `spring_layout` **1.0095x**, every one
+UNDECIDABLE against its own null. NetworkX implements layouts on top of NumPy, so it is not paying
+per-element interpreted cost — there is no interpreter tax to remove, and the two implementations
+are doing the same vectorised work. Do not propose layout levers on Class-1 grounds. RETRY
+PREDICATE: reopen only if a profile shows >=20% exact self-time in Python-level coordinate loops
+rather than in NumPy kernels.
+
+CORRECTNESS FINDING, not timed: `maximum_branching` produced a PARITY-DIVERGENCE against networkx
+on an 800-node weighted DiGraph. `minimum_branching` on the SAME fixture agrees exactly and is
+3.9768x, which localises the defect to the maximisation path rather than to shared branching
+machinery. Filed `br-r37-c1-kb9hm`.

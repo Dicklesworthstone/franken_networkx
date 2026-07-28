@@ -56,6 +56,7 @@ Usage:
     python3 scripts/perf_harness.py multigraph-compose
     python3 scripts/perf_harness.py marshaling
     python3 scripts/perf_harness.py class1-scaling
+    python3 scripts/perf_harness.py class1-frontier
 
 Point `PYTHONPATH` at the package tree under test; the header records which one ran.
 Set `FNX_EXTENSION_PATH` to preload an exact freshly built `_fnx` shared object
@@ -2279,6 +2280,126 @@ def suite_class1_scaling():
     return rows
 
 
+def suite_class1_frontier():
+    """Strictly revalidate pure-Python-loop incumbent families."""
+    import networkx as nx
+    import franken_networkx as fnx
+
+    raw_sizes = os.environ.get("FNX_CLASS1_SIZES", "1000,5000,10000")
+    try:
+        sizes = tuple(int(part) for part in raw_sizes.split(","))
+    except ValueError as error:
+        raise ValueError("FNX_CLASS1_SIZES must be comma-separated integers") from error
+    if not sizes or any(size < 2 for size in sizes):
+        raise ValueError("FNX_CLASS1_SIZES must contain integers >= 2")
+
+    rows = []
+    for size in sizes:
+        gnx, gfx = _build_pair(
+            size,
+            4 * size,
+            seed=92_840 + size,
+            weighted=False,
+        )
+        rows.extend(
+            [
+                (
+                    f"rich_club_coefficient n={size} m={4 * size}",
+                    lambda graph=gnx: nx.rich_club_coefficient(
+                        graph,
+                        normalized=False,
+                    ),
+                    lambda graph=gfx: fnx.rich_club_coefficient(
+                        graph,
+                        normalized=False,
+                    ),
+                ),
+                (
+                    f"onion_layers n={size} m={4 * size}",
+                    lambda graph=gnx: nx.onion_layers(graph),
+                    lambda graph=gfx: fnx.onion_layers(graph),
+                ),
+                (
+                    f"square_clustering n={size} m={4 * size}",
+                    lambda graph=gnx: nx.square_clustering(graph),
+                    lambda graph=gfx: fnx.square_clustering(graph),
+                ),
+                (
+                    f"k_core n={size} m={4 * size}",
+                    lambda graph=gnx: nx.k_core(graph),
+                    lambda graph=gfx: fnx.k_core(graph),
+                ),
+            ]
+        )
+
+    gnx, gfx = _build_pair(1_200, 6_000, seed=11, weighted=False)
+    wnx, wfx = _build_pair(1_200, 6_000, seed=11, weighted=True)
+    small_nx, small_fx = _build_pair(220, 900, seed=13, weighted=False)
+    directed_nx, directed_fx = _build_pair(
+        200,
+        800,
+        seed=13,
+        weighted=False,
+        directed=True,
+    )
+    pairs = [(str(index), str(index + 3)) for index in range(0, 600, 2)]
+    rows.extend(
+        [
+            (
+                "closeness_centrality n=220 m=900",
+                lambda: nx.closeness_centrality(small_nx),
+                lambda: fnx.closeness_centrality(small_fx),
+            ),
+            (
+                "triadic_census n=200 m=800 directed",
+                lambda: nx.triadic_census(directed_nx),
+                lambda: fnx.triadic_census(directed_fx),
+            ),
+            (
+                "node_connectivity n=220 m=900",
+                lambda: nx.node_connectivity(small_nx),
+                lambda: fnx.node_connectivity(small_fx),
+            ),
+            (
+                "faster_could_be_isomorphic n=1200 m=6000",
+                lambda: nx.faster_could_be_isomorphic(gnx, gnx),
+                lambda: fnx.faster_could_be_isomorphic(gfx, gfx),
+            ),
+            (
+                "dfs_postorder_nodes n=1200 m=6000",
+                lambda: list(nx.dfs_postorder_nodes(gnx, "0")),
+                lambda: list(fnx.dfs_postorder_nodes(gfx, "0")),
+            ),
+            (
+                "minimum_spanning_tree n=1200 m=6000",
+                lambda: nx.minimum_spanning_tree(wnx),
+                lambda: fnx.minimum_spanning_tree(wfx),
+            ),
+            (
+                "jaccard_coefficient n=1200 pairs=300",
+                lambda: list(nx.jaccard_coefficient(gnx, pairs)),
+                lambda: list(fnx.jaccard_coefficient(gfx, pairs)),
+            ),
+            (
+                "label_propagation n=1200 m=6000",
+                lambda: list(nx.community.label_propagation_communities(gnx)),
+                lambda: list(fnx.community.label_propagation_communities(gfx)),
+            ),
+            (
+                "transitive_closure n=200 m=800 directed",
+                lambda: nx.transitive_closure(directed_nx),
+                lambda: fnx.transitive_closure(directed_fx),
+            ),
+            (
+                "preferential_attachment n=1200 pairs=300",
+                lambda: list(nx.preferential_attachment(gnx, pairs)),
+                lambda: list(fnx.preferential_attachment(gfx, pairs)),
+            ),
+        ]
+    )
+    return rows
+
+
 SUITES = {
     "view-accessors": suite_view_accessors,
     "adj-descriptor": suite_adj_descriptor,
@@ -2309,6 +2430,7 @@ SUITES = {
     "multigraph-compose": suite_multigraph_compose,
     "marshaling": suite_marshaling,
     "class1-scaling": suite_class1_scaling,
+    "class1-frontier": suite_class1_frontier,
 }
 
 

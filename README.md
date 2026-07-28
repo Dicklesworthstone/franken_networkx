@@ -1025,32 +1025,40 @@ The cost of a `fnx.algorithm(G)` call decomposes into four chunks:
 | Rust → Python return marshaling | O(output size) | A `PyDict::set_item` per entry plus an arc-bumped node label string. Measured 2026-07-25: **~452 ns per `edges(data=True)` entry** and **~27 ns per `nodes(data=True)` / `adjacency()` entry**. NetworkX pays more per entry on the same shapes (758 ns/edge; 1690 ns/node for `to_dict_of_lists`), because it builds the same containers in interpreted code. |
 | Wrapper-side post-processing (if any) | O(output size) | The 25 wrapper-patched functions add a single pass over the output for iteration-order normalization. Skipped for the 731 - 25 = 706 functions that don't need it. |
 
-**Per-family performance — remeasured 2026-07-25** (n=2000 / m=8000 random graph, genuine
-unpatched networkx 3.6.1, byte-identity of the full result proven *before* timing, A/A null
-control in the same invocation, decidability gated on the null's bootstrap 95% CI with a 2×
-margin; reproduce with `python3 scripts/perf_harness.py marshaling`):
+**Per-family performance — current exact incumbent gates.** The 2026-07-25 baseline uses an
+n=2000 / m=8000 random graph and is reproduced with
+`python3 scripts/perf_harness.py marshaling`. Rows whose notes carry another size are from the
+2026-07-28 pure-Python-loop gate and are reproduced with
+`python3 scripts/perf_harness.py class1-frontier`. Both gates run genuine unpatched NetworkX
+3.6.1 in the same invocation, prove exact complete-output bytes before timing, record an adjacent
+A/A null, and decide only on the complete bootstrap median CI with a 2× log-space margin.
 
 | Family | fnx vs nx | Notes |
 |--------|-----------|-------|
-| second_order_centrality | **548.8229× faster** | Native kernel; nx takes 3.8 s on 220 nodes |
-| harmonic_centrality | **228.1682× faster** | Native bit-parallel multi-source BFS |
-| closeness_centrality | **185.1399× faster** | Native bit-parallel multi-source BFS |
-| rich_club_coefficient | **152.9296× faster** | Native degree-filtered scan, no subgraph rebuild |
-| eigenvector_centrality | **38.2054× faster** | Native power iteration |
+| closeness_centrality | **194.3093× faster** | Native multi-source BFS; n=220 / m=900 |
+| rich_club_coefficient | **117.3619× faster** | Native degree scan; n=10,000 / m=40,000 |
+| transitive_closure | **92.3164× faster** | Native descendant closure; directed n=200 / m=800 |
+| k_core | **49.3962× faster** | Native core filter; n=10,000 / m=40,000 |
 | clustering (all nodes) | **36.1146× faster** | Native triangle counting |
-| load_centrality | **34.0069× faster** | Native dependency accumulation |
-| node_connectivity | **28.7402× faster** | Native max-flow |
-| square_clustering | **21.0533× faster** | Native neighbour-pair scan |
-| triadic_census | **20.3228× faster** | Native census |
-| transitive_closure | **14.4463× faster** | Native descendant closure |
+| node_connectivity | **30.1588× faster** | Native max-flow; n=220 / m=900 |
+| triadic_census | **20.4715× faster** | Native census; directed n=200 / m=800 |
+| square_clustering | **18.4067× faster** | Native neighbour-pair scan; n=10,000 / m=40,000 |
 | triangles | **14.3397× faster** | Native triangle counting |
-| onion_layers | **10.3562× faster** | Native peeling |
-| k_core | **5.0237× faster** | Native core filter |
-| faster_could_be_isomorphic | **3.5649× faster** | Native degree/triangle sequence |
-| dfs_postorder_nodes | **2.9177× faster** | Native traversal |
-| minimum_spanning_tree | **2.3142× faster** | Native Kruskal |
-| jaccard_coefficient | **2.2295× faster** | Native neighbour-set intersection |
-| label_propagation_communities | **2.1856× faster** | Native label counting |
+| onion_layers | **11.9454× faster** | Native peeling; n=10,000 / m=40,000 |
+| faster_could_be_isomorphic | **3.4961× faster** | Native degree/triangle sequence; n=1,200 / m=6,000 |
+| dfs_postorder_nodes | **3.0811× faster** | Native traversal; n=1,200 / m=6,000 |
+| jaccard_coefficient | **2.4536× faster** | Native neighbour-set intersection; 300 pairs |
+| label_propagation_communities | **2.1485× faster** | Native label counting; n=1,200 / m=6,000 |
+| minimum_spanning_tree | **1.9947× faster** | Native Kruskal; n=1,200 / m=6,000 |
+| erdos_renyi_graph (n=1500) | **14.1755× faster** | Native generator |
+| k_corona | **9.3853× faster** | Native core filter |
+| k_crust | **5.8664× faster** | Native core filter |
+| kosaraju_strongly_connected_components | **4.6519× faster** | Native SCC |
+| minimum_branching | **3.9768× faster** | Native branching |
+| partition_spanning_tree | **2.4612× faster** | Native Kruskal with partition constraints |
+| dfs_successors | **2.1456× faster** | Native traversal |
+| read_graph6 / read_sparse6 | **1.72× / 1.69× faster** | Native decoders |
+| all_simple_edge_paths | **1.3466× faster** | Native path enumeration |
 | dijkstra_path (weighted) | **7.6077× faster** | Native bidirectional kernel + persistent dense node ids |
 | single_source_shortest_path_length | **5.5005× faster** | Native BFS, dict returned from Rust |
 | all_pairs_shortest_path_length (n=300) | **4.5647× faster** | Algorithmic work dominates |
@@ -1086,9 +1094,11 @@ median-CI gate; reproduce with
 |--------|-----------|-------|
 | `G.adj` (bare accessor) | **0.82×** | Public descriptor access |
 | `G.has_node(n)` | **0.41×** | Key conversion and native lookup |
-| `check_planarity`, genuinely planar input | **0.82×** | Kuratowski bounds run natively; the residual delegates to NetworkX for Boyer-Myrvold |
-| `preferential_attachment` | **0.59×** | nx's per-pair work is two degree lookups and a multiply — below our per-call boundary cost |
+| `preferential_attachment` | **0.5949×** | nx's per-pair work is two degree lookups and a multiply — below our per-call boundary cost |
 | `Graph` incremental `add_edge` | **0.26×** | Per-call Python shim; batch constructors are ~3× better per edge |
+| `karate_club_graph`, `tutte_graph` | **0.38× / 0.76×** | Fixed small literals; nx builds a hard-coded edge list, we pay graph construction |
+| `read_multiline_adjlist` | **0.70×** | Parser is not native |
+| `read_gml` | **0.92×** | GML parse path |
 
 If you can keep the graph on the fnx side (don't reconstruct per call), the marshaling chunk vanishes. The backend-dispatch path automatically caches the converted graph for repeat calls.
 
