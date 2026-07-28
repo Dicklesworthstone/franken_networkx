@@ -23,6 +23,116 @@ documentation carries only current supported incumbent figures; correction histo
 stays in this ledger, `docs/LEDGER_RESURRECTION.md`,
 `docs/progress/perf-negative-results.md`, and bead bodies.
 
+## 2026-07-28 CloudyTurtle LANE M INCUMBENT WIN MATRIX: Class-1 Python-loop scaling stays **4.3199x–110.4305x** ahead at n=1,000–10,000 (`br-r37-c1-04z53.9184`)
+
+**LEDGER-FIRST / RIGHT-WORKLOAD SCREEN.** Before adding a row, the mechanical
+candidate preflight searched this ledger for the proposed simple-Graph
+`triangles`, `clustering`, `transitivity`, `core_number`,
+`connected_components`, and weighted `dijkstra_path` surfaces at n=1,000,
+5,000, and 10,000. The manual review then read the prior large-scale sweep,
+the direct-scalar transitivity keep, the edgeless core-number bypass rejection,
+and the shortest-path rows. Those records establish that the isolated-node
+core bypass must not be retried and that historical separate-process or
+contract-incomplete numbers are not substitutes for a current loaded-ELF,
+same-invocation incumbent matrix.
+
+The permanent `class1-scaling` suite constructs an undirected exact-string
+Graph with `m=4n`, preserves identical node/edge insertion order and integer
+weights in both arms, and asserts at runtime that the incumbent arm's concrete
+type comes from `networkx`. For weighted Dijkstra, it selects the node with
+maximum genuine-NetworkX weighted distance from source `"0"` before timing, so
+the workload cannot collapse into a near-source dispatch check. All 18 complete
+outputs produced identical order-preserving canonical bytes before any row was
+timed: node-keyed triangle/clustering dictionaries, the transitivity scalar,
+the core dictionary, the ordered component list, and the weighted path.
+
+**EXACT LOADED ARTIFACT / SAME-INVOCATION INCUMBENT GATE.** A strict-remote
+release build produced the candidate extension, and line one of the benchmark
+process self-reported
+`bench_elf_sha256=348a684395d0d7cbace8b40a1c411643f6a8e01a661ef125078f2cd8fe68b899`
+(`13,230,088` bytes) at
+`/data/projects/franken_networkx/target/release/lib_fnx.so`. The measured
+harness SHA-256 was
+`15b7fb3d59121a04ceb413d50b9ced189002220c1a20929954f1ebab90bcf9ce`;
+the wrapper SHA-256 was
+`8740cc56899d6934d947009e95a3c587635cd2cc1f0e402aaea6d07794283c71`.
+The exact extension was preloaded by absolute path before importing the wrapper.
+Genuine unpatched NetworkX 3.6.1 from
+`/home/ubuntu/.local/lib/python3.13/site-packages/networkx/__init__.py` and
+FrankenNetworkX ran side-by-side in one Python 3.13.7 process pinned to core 3,
+with Rayon and BLAS restricted to one thread.
+After the decision run, the dispatch guard was hardened from an optimization-
+removable `assert` to an unconditional runtime error outside every timed region;
+a focused loaded-ELF smoke invocation re-proved all six n=1,000 output digests
+and gates with that permanent form.
+
+Each row ran 21 alternating-order rounds after calibration and warmup. Its
+adjacent A/A arm used the same NetworkX callable in the same invocation. The
+decision is the bootstrap 95% CI of the median of paired per-round ratios
+against twice the A/A CI's maximum log-distance from 1.0. CV is recorded by the
+harness as provenance only and never enters the decision.
+
+| exact public row | incumbent/FNX median | bootstrap 95% CI | same-invocation A/A 95% CI | doubled-null floor |
+|---|---:|---:|---:|---:|
+| `triangles`, n=1,000, m=4,000 | **`17.6846x`** | **`[17.1726,17.8648]`** | `[0.9991,1.0248]` | `1.0501x` |
+| `triangles`, n=5,000, m=20,000 | **`15.1779x`** | **`[14.7394,16.8200]`** | `[0.9483,1.0077]` | `1.1121x` |
+| `triangles`, n=10,000, m=40,000 | **`14.7813x`** | **`[14.2137,15.3416]`** | `[0.9819,1.0520]` | `1.1068x` |
+| `clustering`, n=1,000, m=4,000 | **`38.1113x`** | **`[37.7792,38.4255]`** | `[0.9780,0.9968]` | `1.0454x` |
+| `clustering`, n=5,000, m=20,000 | **`34.4429x`** | **`[33.7370,35.6844]`** | `[0.9847,1.0165]` | `1.0332x` |
+| `clustering`, n=10,000, m=40,000 | **`33.0909x`** | **`[32.1820,34.7570]`** | `[0.9768,1.0221]` | `1.0481x` |
+| `transitivity`, n=1,000, m=4,000 | **`110.4305x`** | **`[108.3450,112.4582]`** | `[0.9840,1.0055]` | `1.0328x` |
+| `transitivity`, n=5,000, m=20,000 | **`87.8452x`** | **`[87.1479,89.8326]`** | `[0.9550,1.0325]` | `1.0964x` |
+| `transitivity`, n=10,000, m=40,000 | **`82.3386x`** | **`[81.6680,83.0631]`** | `[0.9928,1.0206]` | `1.0417x` |
+| `core_number`, n=1,000, m=4,000 | **`14.7371x`** | **`[14.5980,14.9797]`** | `[0.9919,1.0076]` | `1.0164x` |
+| `core_number`, n=5,000, m=20,000 | **`14.1222x`** | **`[13.8682,14.3473]`** | `[0.9816,1.0007]` | `1.0379x` |
+| `core_number`, n=10,000, m=40,000 | **`14.7099x`** | **`[14.2341,15.2034]`** | `[0.9802,1.0090]` | `1.0408x` |
+| `connected_components`, n=1,000, m=4,000 | **`6.0218x`** | **`[5.9806,6.0656]`** | `[1.0001,1.0080]` | `1.0161x` |
+| `connected_components`, n=5,000, m=20,000 | **`5.3411x`** | **`[4.3924,5.3876]`** | `[0.9878,1.0211]` | `1.0426x` |
+| `connected_components`, n=10,000, m=40,000 | **`5.9320x`** | **`[5.7930,6.3816]`** | `[0.9675,1.0238]` | `1.0683x` |
+| weighted `dijkstra_path`, n=1,000, m=4,000 | **`6.3424x`** | **`[6.1528,6.5747]`** | `[0.9918,1.0148]` | `1.0299x` |
+| weighted `dijkstra_path`, n=5,000, m=20,000 | **`5.9386x`** | **`[5.8686,6.5123]`** | `[0.9334,1.0680]` | `1.1479x` |
+| weighted `dijkstra_path`, n=10,000, m=40,000 | **`4.3199x`** | **`[3.6784,5.0469]`** | `[0.9901,1.0661]` | `1.1365x` |
+
+**PROFILE ATTRIBUTION / AMDAHL CHECK.** The strongest family is not a wrapper
+or dispatch artifact. On the same n=10,000, m=40,000, seed=101,840 graph, ten
+NetworkX `transitivity` calls under cProfile took `5.071738142s`. The named
+pure-Python `_triangles_and_degree_iter` frame at `cluster.py:98` was resumed
+100,010 times, carried `0.461446302s` non-zero self-time (`9.0984%`), and owned
+`5.015189647s` cumulative time (`98.8850%`). Its computed whole-frame Amdahl
+ceiling is **`89.6883x`**. The set-intersection generator at line 114 alone was
+resumed 900,000 times and consumed `2.313167667s` self-time (`45.6090%`).
+NetworkX source performs the neighbor loop, set construction/intersection,
+`Counter` update, and triangle reduction in Python; the observed `82.3386x`
+ratio is below and close to the measured ceiling.
+
+comparison_class=INCUMBENT
+incumbent=networkx
+incumbent_same_invocation=true
+incumbent_ratio=4.3199x
+campaign_output=true
+decision_gate=median_ci
+cv_role=report_only
+
+**RESULT: KEEP / CAMPAIGN OUTPUT.** All 18 current-HEAD rows are exact,
+same-invocation incumbent wins: every lower candidate CI bound clears its own
+doubled-null floor. The scaling hypothesis needs one correction in the internal
+lab record: at fixed sparse density (`m=4n`), most ratios are flat or decrease
+from n=1,000 to n=10,000 rather than widening. The Class-1 advantage persists
+at 4.3199x–82.3386x at n=10,000, but size alone does not amplify it when average
+degree stays constant. The permanent harness and this matrix ship; there is no
+algorithm source edit in this row.
+
+RETRY PREDICATE: do not repeat this fixed-`m=4n` size sweep. Reopen the scaling
+question only by changing the work-per-element axis (for example, preregistered
+average degrees 32 and 128) or by naming a new NetworkX 3.6.1 family whose
+checked-in source contains a per-element Python loop. Before adding that family,
+the candidate preflight must find no governing rejection or show that its
+concrete predicate is met, and a fresh exact-workload profile must attribute at
+least 50% cumulative time to a named interpreted frame with non-zero self-time
+and a computed Amdahl ceiling of at least `2.0x`. Any competitive result must
+then preserve complete output bytes and pass the same loaded-ELF,
+same-invocation A/A median-CI gate; never reopen from CV.
+
 ## 2026-07-27 CloudyTurtle LANE M KEEP / INCUMBENT WIN: cache the live raw base for scalar multigraph degree — **1.4714x MultiGraph / 2.1967x MultiDiGraph vs NetworkX** (`br-r37-c1-ylunk`)
 
 **LEDGER-FIRST / RIGHT-PATH PROFILE.** The prior-art scan read the governing

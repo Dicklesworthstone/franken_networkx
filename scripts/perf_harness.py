@@ -55,13 +55,17 @@ Usage:
     python3 scripts/perf_harness.py multidigraph-string-attr-construction
     python3 scripts/perf_harness.py multigraph-compose
     python3 scripts/perf_harness.py marshaling
+    python3 scripts/perf_harness.py class1-scaling
 
 Point `PYTHONPATH` at the package tree under test; the header records which one ran.
+Set `FNX_EXTENSION_PATH` to preload an exact freshly built `_fnx` shared object
+instead of accepting whichever installed extension happens to be importable.
 """
 
 from __future__ import annotations
 
 import hashlib
+import importlib.util
 import json
 import math
 import os
@@ -79,6 +83,25 @@ ROUNDS = int(os.environ.get("FNX_PERF_ROUNDS", "21"))
 # genuine NetworkX turned out to be 1.88x FASTER. Clear the dispatch env first.
 for _var in ("NETWORKX_AUTOMATIC_BACKENDS", "NETWORKX_BACKEND_PRIORITY", "NETWORKX_FALLBACK_TO_NX"):
     os.environ.pop(_var, None)
+
+
+def preload_requested_extension() -> None:
+    """Load the exact `_fnx` ELF requested by the benchmark invocation."""
+    requested = os.environ.get("FNX_EXTENSION_PATH")
+    if requested is None:
+        return
+    path = os.path.realpath(requested)
+    if not os.path.isfile(path):
+        raise FileNotFoundError(f"FNX_EXTENSION_PATH is not a file: {path}")
+    spec = importlib.util.spec_from_file_location("franken_networkx._fnx", path)
+    if spec is None or spec.loader is None:
+        raise ImportError(f"cannot create an extension loader for {path}")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules["franken_networkx._fnx"] = module
+    spec.loader.exec_module(module)
+
+
+preload_requested_extension()
 
 
 # --------------------------------------------------------------------------- #
@@ -331,7 +354,11 @@ def _build_pair(n, m, seed, weighted, directed=False):
     gfx.add_nodes_from(nodes)
     gnx.add_edges_from([(u, v, dict(d)) for u, v, d in stream])
     gfx.add_edges_from([(u, v, dict(d)) for u, v, d in stream])
-    assert type(gnx).__module__.startswith("networkx"), "nx arm must be genuine upstream"
+    incumbent_module = type(gnx).__module__
+    if not incumbent_module.startswith("networkx"):
+        raise RuntimeError(
+            f"nx arm must be genuine upstream, got module {incumbent_module!r}"
+        )
     return gnx, gfx
 
 
@@ -2178,6 +2205,80 @@ def suite_marshaling():
     ]
 
 
+def suite_class1_scaling():
+    """Scale exact-output native kernels against NetworkX's Python loops."""
+    import networkx as nx
+    import franken_networkx as fnx
+
+    raw_sizes = os.environ.get("FNX_CLASS1_SIZES", "1000,5000,10000")
+    try:
+        sizes = tuple(int(part) for part in raw_sizes.split(","))
+    except ValueError as error:
+        raise ValueError("FNX_CLASS1_SIZES must be comma-separated integers") from error
+    if not sizes or any(size < 2 for size in sizes):
+        raise ValueError("FNX_CLASS1_SIZES must contain integers >= 2")
+
+    rows = []
+    for size in sizes:
+        gnx, gfx = _build_pair(size, 4 * size, seed=91_840 + size, weighted=True)
+        source = "0"
+        distances = nx.single_source_dijkstra_path_length(
+            gnx,
+            source,
+            weight="weight",
+        )
+        target = max(distances, key=distances.__getitem__)
+        if nx.dijkstra_path(
+            gnx, source, target, weight="weight"
+        ) != fnx.dijkstra_path(gfx, source, target, weight="weight"):
+            raise RuntimeError("weighted Dijkstra target-selection parity failed")
+        rows.extend(
+            [
+                (
+                    f"triangles n={size} m={4 * size}",
+                    lambda graph=gnx: nx.triangles(graph),
+                    lambda graph=gfx: fnx.triangles(graph),
+                ),
+                (
+                    f"clustering n={size} m={4 * size}",
+                    lambda graph=gnx: nx.clustering(graph),
+                    lambda graph=gfx: fnx.clustering(graph),
+                ),
+                (
+                    f"transitivity n={size} m={4 * size}",
+                    lambda graph=gnx: nx.transitivity(graph),
+                    lambda graph=gfx: fnx.transitivity(graph),
+                ),
+                (
+                    f"core_number n={size} m={4 * size}",
+                    lambda graph=gnx: nx.core_number(graph),
+                    lambda graph=gfx: fnx.core_number(graph),
+                ),
+                (
+                    f"connected_components n={size} m={4 * size}",
+                    lambda graph=gnx: list(nx.connected_components(graph)),
+                    lambda graph=gfx: list(fnx.connected_components(graph)),
+                ),
+                (
+                    f"dijkstra_path n={size} m={4 * size}",
+                    lambda graph=gnx, goal=target: nx.dijkstra_path(
+                        graph,
+                        source,
+                        goal,
+                        weight="weight",
+                    ),
+                    lambda graph=gfx, goal=target: fnx.dijkstra_path(
+                        graph,
+                        source,
+                        goal,
+                        weight="weight",
+                    ),
+                ),
+            ]
+        )
+    return rows
+
+
 SUITES = {
     "view-accessors": suite_view_accessors,
     "adj-descriptor": suite_adj_descriptor,
@@ -2207,6 +2308,7 @@ SUITES = {
     "multidigraph-string-attr-construction": suite_multidigraph_string_attr_construction,
     "multigraph-compose": suite_multigraph_compose,
     "marshaling": suite_marshaling,
+    "class1-scaling": suite_class1_scaling,
 }
 
 
