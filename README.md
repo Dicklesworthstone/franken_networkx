@@ -1021,7 +1021,7 @@ The cost of a `fnx.algorithm(G)` call decomposes into four chunks:
 | Chunk | Typical scale | Notes |
 |---|---|---|
 | Python → Rust marshaling | ~5–50 μs base + O(n + m) for graph conversion when a *new* graph is constructed | Reusing an existing fnx graph: ~5 μs total per call (attribute lookup only). Constructing a fresh fnx graph from an nx graph at call time: O(n + m) plus a constant ~5 μs/node, ~3 μs/edge for dict→IndexMap conversion. |
-| Native algorithm execution | algorithm-dependent | Performance varies by family and workload. The dated incumbent comparison below ranges from 1.6× to 36.1× on the listed winning rows. |
+| Native algorithm execution | algorithm-dependent | Performance varies by family and workload. The dated incumbent comparison below ranges from 1.6085× to 36.1146× on the listed winning rows. |
 | Rust → Python return marshaling | O(output size) | A `PyDict::set_item` per entry plus an arc-bumped node label string. Measured 2026-07-25: **~452 ns per `edges(data=True)` entry** and **~27 ns per `nodes(data=True)` / `adjacency()` entry**. NetworkX pays more per entry on the same shapes (758 ns/edge; 1690 ns/node for `to_dict_of_lists`), because it builds the same containers in interpreted code. |
 | Wrapper-side post-processing (if any) | O(output size) | The 25 wrapper-patched functions add a single pass over the output for iteration-order normalization. Skipped for the 731 - 25 = 706 functions that don't need it. |
 
@@ -1032,23 +1032,25 @@ margin; reproduce with `python3 scripts/perf_harness.py marshaling`):
 
 | Family | fnx vs nx | Notes |
 |--------|-----------|-------|
-| clustering (all nodes) | **36.1× faster** | Native triangle counting |
-| triangles | **14.3× faster** | Native triangle counting |
-| dijkstra_path (weighted) | **7.6× faster** | Native bidirectional kernel + persistent dense node ids |
-| single_source_shortest_path_length | **5.5× faster** | Native BFS, dict returned from Rust |
-| all_pairs_shortest_path_length | **4.6× faster** | Algorithmic work dominates |
-| single_source_shortest_path | **3.9× faster** | Native BFS |
-| all_pairs_dijkstra_path_length | **3.7× faster** | Algorithmic work dominates |
-| subgraph(view) → edges | **3.6× faster** | Native induced-subgraph walk |
-| dfs_tree | **3.3× faster** | Native traversal + native result construction |
-| bfs_tree | **3.2× faster** | Native traversal + native result construction |
-| single_pair_shortest_path | **3.2× faster** | Native BFS |
-| pagerank | **2.6× faster** | Native power iteration |
-| to_scipy_sparse_array | **2.4× faster** | Native CSR assembly |
-| to_dict_of_lists | **2.0× faster** | Native row walk |
-| bidirectional_dijkstra / shortest_path(weighted) | **1.8× faster** | Native kernel |
-| all_pairs_shortest_path | **1.8× faster** | Result construction dilutes the kernel win |
-| edges(data=True) | **1.6× faster** | 452 ns/edge vs nx's 758 ns/edge |
+| clustering (all nodes) | **36.1146× faster** | Native triangle counting |
+| triangles | **14.3397× faster** | Native triangle counting |
+| dijkstra_path (weighted) | **7.6077× faster** | Native bidirectional kernel + persistent dense node ids |
+| single_source_shortest_path_length | **5.5005× faster** | Native BFS, dict returned from Rust |
+| all_pairs_shortest_path_length (n=300) | **4.5647× faster** | Algorithmic work dominates |
+| single_source_shortest_path | **3.8952× faster** | Native BFS |
+| all_pairs_dijkstra_path_length (n=300) | **3.6658× faster** | Algorithmic work dominates |
+| subgraph(view) → edges | **3.5719× faster** | Native induced-subgraph walk |
+| dfs_tree | **3.3439× faster** | Native traversal + native result construction |
+| single_source_dijkstra_path_length | **3.3325× faster** | Native Dijkstra |
+| bfs_tree | **3.2403× faster** | Native traversal + native result construction |
+| single_pair_shortest_path | **3.1614× faster** | Native BFS |
+| pagerank | **2.6361× faster** | Native power iteration |
+| to_scipy_sparse_array | **2.4073× faster** | Native CSR assembly |
+| to_dict_of_lists | **1.9662× faster** | Native row walk |
+| bidirectional_dijkstra | **1.8125× faster** | Native bidirectional kernel |
+| shortest_path (weighted) | **1.7684× faster** | Native weighted-path kernel |
+| all_pairs_shortest_path (n=300) | **1.7624× faster** | Result construction dilutes the kernel win |
+| edges(data=True) | **1.6085× faster** | 452 ns/edge vs nx's 758 ns/edge |
 
 **Scalar multigraph degree access — measured 2026-07-27** (2,000 nodes / 1,999
 path-shaped edges, 512 exact-string lookups per sample, genuine unpatched NetworkX
