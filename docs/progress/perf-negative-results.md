@@ -1322,3 +1322,50 @@ RETRY PREDICATES.
 * **`Graph(edge stream, weight)` 0.8337x vs `no attrs` 1.0812x:** the entire delta is attribute
   handling — 0.25x of ratio for one int attr per edge. Retry against a profile of the attr decode
   path specifically.
+
+## 2026-07-27 BlackThrush (cc) METHOD: the dispatch-trap guard is what makes every fnx-vs-nx ratio in this repo valid
+
+```
+comparison_class = INCUMBENT
+incumbent = networkx
+incumbent_same_invocation = true
+campaign_output = false
+decision_gate = median_ci
+cv_role = report_only
+bench_elf_sha256 = 26c802ed8013d16182f869323c7c05b2e894c8d2e93588d7aacd99ef5d665d11
+```
+
+Method row, not a lever: `campaign_output = false` because it claims no ratio of its own. The
+same-invocation A/A null control for the runs it documents measured median `1.0000x` with bootstrap
+CI `[0.9916,1.0050]` on the `bfs_tree` row.
+
+THE TRAP. This repo has already shipped a "2.6x faster" claim measured against an already-dispatched
+fnx baseline; genuine NetworkX was **1.88x FASTER**. NetworkX dispatches to registered backends, and
+franken_networkx registers itself as one. An "oracle" arm can therefore silently be a *second fnx
+arm*, in which case the harness measures fnx against itself and reports whatever the two code paths
+happen to differ by. Nothing about the resulting number looks wrong.
+
+THE GUARD, in `scripts/perf_harness.py`, two independent halves:
+
+1. **Environment cleared at import**, before networkx is imported at all:
+   `NETWORKX_AUTOMATIC_BACKENDS`, `NETWORKX_BACKEND_PRIORITY`, `NETWORKX_FALLBACK_TO_NX` are popped
+   from `os.environ`. Clearing them after the import is too late — dispatch config is read at
+   import time.
+2. **Runtime type assertion of the nx arm**:
+   `assert type(gnx).__module__.startswith("networkx"), "nx arm must be genuine upstream"`.
+   This is the half that actually catches the trap, because it does not trust configuration: it
+   interrogates the object the harness is about to time. A dispatched arm fails it immediately.
+
+Both halves are load-bearing and neither subsumes the other: the env clear prevents dispatch being
+configured, the assertion proves it did not happen anyway. The provenance header additionally
+records `nx_version` and `nx_file`, so the exact incumbent that ran is recoverable from any result.
+
+WHY THIS IS LEDGERED RATHER THAN LEFT AS A COMMENT. Every incumbent ratio this repo publishes —
+the head-to-head baseline in `docs/GAUNTLET_RELEASE_SCORECARD.md`, the per-family table in
+`README.md` — is valid only if the arm labelled "networkx" was networkx. That is a property of the
+harness, not of the numbers, so it cannot be verified by re-reading the results. Any future harness,
+in any language, that omits either half produces ratios that are not comparable to these.
+
+RETRY PREDICATE: none — this is a standing invariant. If a harness in this repo ever reports an
+fnx-vs-nx ratio without both halves, treat its output as VOID and re-measure rather than debating
+the number.

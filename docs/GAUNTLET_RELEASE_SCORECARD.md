@@ -3,12 +3,59 @@
 Scope: code-first perf backlog verification for `br-r37-c1-04z53` plus
 `br-r37-c1-tbh4q`.
 
-Current verdict: not release-ready for the full campaign. Fifty-two scorecard
-entries are represented here with measured head-to-head evidence; the
-`br-r37-c1-0opkc` all-target Dijkstra losses have been rechecked and are stale
-on current source. The previously active public-gauntlet loss
-`non_edges_sparse_undirected` is now a measured win; the remaining pending rows
-still need the same treatment.
+Current verdict: the shortest-path, traversal, centrality and matrix-export families
+are measured wins against unpatched NetworkX 3.6.1 — see the head-to-head baseline
+immediately below, which is the authoritative current statement. Remaining sub-1.0x
+surfaces are the per-call Python shim accessors, weighted-subset `degree`, and
+incremental `add_edge`; each is listed with a retry predicate in
+`docs/progress/perf-negative-results.md`.
+
+## Current head-to-head baseline (2026-07-25)
+
+Measured against genuinely unpatched NetworkX `3.6.1` on `n=2000 / m=8000` (`n=300` for the
+all-pairs rows), each row byte-identity-proven before timing, each with an A/A null control in the
+same invocation and gated on the null's bootstrap 95% CI with a 2x margin.
+
+```
+comparison_class = INCUMBENT
+incumbent = networkx
+incumbent_same_invocation = true
+campaign_output = true
+decision_gate = median_ci
+cv_role = report_only
+bench_elf_sha256 = 26c802ed8013d16182f869323c7c05b2e894c8d2e93588d7aacd99ef5d665d11
+```
+
+| Workload | Ratio vs NetworkX 3.6.1 | A/A null CI |
+| --- | ---: | --- |
+| `clustering` (all nodes) | **36.1146x** | 0.9970-1.0077 |
+| `triangles` | **14.3397x** | 0.9984-1.0242 |
+| `dijkstra_path` (weighted) | **7.6077x** | 0.9983-1.0016 |
+| `single_source_shortest_path_length` | **5.5005x** | 0.9985-1.0067 |
+| `all_pairs_shortest_path_length` (n=300) | **4.5647x** | 0.9927-1.0054 |
+| `single_source_shortest_path` | **3.8952x** | 0.9995-1.0052 |
+| `all_pairs_dijkstra_path_length` (n=300) | **3.6658x** | 0.9962-1.0026 |
+| `subgraph(view)` edges | **3.5719x** | 0.9512-1.0061 |
+| `single_source_dijkstra_path_length` | **3.3325x** | 0.9997-1.0152 |
+| `dfs_tree` | **3.3439x** | 0.9968-1.0113 |
+| `bfs_tree` | **3.2403x** | 0.9916-1.0050 |
+| `single_pair_shortest_path` | **3.1614x** | 0.9966-1.0050 |
+| `pagerank` | **2.6361x** | 0.9392-1.0055 |
+| `to_scipy_sparse_array` | **2.4073x** | 0.9916-1.0051 |
+| `to_dict_of_lists` | **1.9662x** | 0.9945-1.0010 |
+| `bidirectional_dijkstra` | **1.8125x** | 0.9952-1.0053 |
+| `shortest_path` (weighted) | **1.7684x** | 0.9947-1.0065 |
+| `all_pairs_shortest_path` (n=300) | **1.7624x** | 0.9870-1.0005 |
+| `edges(data=True)` | **1.6085x** | 0.9958-1.0114 |
+
+Validity of the NetworkX arm rests on the dispatch-trap guard in `scripts/perf_harness.py`: the
+backend-dispatch environment (`NETWORKX_AUTOMATIC_BACKENDS`, `NETWORKX_BACKEND_PRIORITY`,
+`NETWORKX_FALLBACK_TO_NX`) is cleared at import, and the nx arm's graph type is asserted at runtime
+to originate from the `networkx` module. Without that assertion an "oracle" arm can silently be a
+dispatched fnx arm.
+
+Rows still measured below `1.0x` are listed in `README.md`; open items carry retry predicates in
+`docs/progress/perf-negative-results.md`.
 
 ## Measured Rows
 
