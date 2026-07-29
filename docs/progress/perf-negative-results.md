@@ -1864,3 +1864,54 @@ wins; the Phase-2 realistic gate is `14` wins / `0` losses / `1` undecidable.
 RETRY PREDICATE: preserve the narrow default simple-graph route. Reopen after
 writer/workload/toolchain changes, or independently prove exact bytes and a
 whole-job incumbent gate before extending it to other writer configurations.
+
+## 2026-07-29 CloudyTurtle KEEP: average-degree-32 Class-1 scale shape (`br-r37-c1-l39pb`)
+
+The earlier strict row forbade repeating fixed `m=4n`; this gate changes work
+per element to `m=16n` (average degree 32) and extends exact
+`onion_layers`/`k_core` rows through n=50,000. The permanent harness now
+supports explicit scale sizes, edge multipliers, and job selection without
+changing its old default fixtures or seeds.
+
+| exact row | NetworkX/FNX median | candidate CI | NetworkX A/A CI | FNX A/A CI |
+|---|---:|---:|---:|---:|
+| `onion_layers`, n=10,000 / m=160,000 | `18.6596x` | `18.5117-19.6383` | `0.9886-1.0271` | `0.9814-1.0183` |
+| `onion_layers`, n=25,000 / m=400,000 | `22.7257x` | `22.0767-23.4342` | `0.9837-1.0208` | `0.9717-1.0254` |
+| `onion_layers`, n=50,000 / m=800,000 | `26.7646x` | `26.5285-26.9716` | `0.9927-1.0049` | `0.9965-1.0022` |
+| `k_core`, n=10,000 / m=160,000 | `128.4077x` | `124.3977-130.5018` | `0.9823-1.0054` | `0.9915-1.0008` |
+| `k_core`, n=25,000 / m=400,000 | `123.8164x` | `120.9178-125.7322` | `0.9932-1.0269` | `0.9777-1.0076` |
+| `k_core`, n=50,000 / m=800,000 | `127.6491x` | `126.8319-128.2286` | `0.9878-1.0057` | `0.9982-1.0056` |
+
+The widest recorded same-invocation A/A null was FNX
+`[0.9717,1.0254]`; every candidate CI clears twice its own wider null edge.
+Every complete output is byte-identical and every row wins `21/21` paired
+rounds. The shape localizes two different incumbent costs:
+`onion_layers` widens `18.6596x -> 22.7257x -> 26.7646x`, while `k_core`
+stays flat around `124-128x`. The flat `k_core` gap is constant per-edge
+Python result-copy work, not coordination; the widening onion gap is growing
+interpreted peeling/list-removal cost.
+
+The exact profile at n=10,000 / m=160,000 records NetworkX
+`Graph.add_edges_from` at `28.6857%` self / `88.0657%` cumulative time with
+an `8.3792x` Amdahl ceiling for `k_core`, and public `onion_layers` at
+`37.3581%` self / `99.0630%` cumulative with a `106.7292x` ceiling.
+Line one self-reported
+`bench_elf_sha256=348a684395d0d7cbace8b40a1c411643f6a8e01a661ef125078f2cd8fe68b899 (13230088 bytes) /data/projects/franken_networkx/target/release/lib_fnx.so`;
+harness SHA-256 was
+`e80ba9f8d4e113a348fb9249620f8f19fe7ffb790e4f636fded7e6cd2139db87`.
+
+comparison_class=INCUMBENT
+incumbent=networkx
+incumbent_same_invocation=true
+incumbent_ratio=18.6596x
+campaign_output=true
+decision_gate=median_ci
+cv_role=report_only
+
+RESULT: **KEEP / CAMPAIGN OUTPUT.** Six higher-work-per-element incumbent
+wins extend the Class-1 evidence without using `trj`.
+
+RETRY PREDICATE: do not repeat the average-degree-32 curves. Reopen `k_core`
+only after its result-copy route or retained-edge distribution changes.
+Reopen `onion_layers` only at preregistered average degree 128 or on a named
+real graph; otherwise profile and admit a new pure-Python-loop family.

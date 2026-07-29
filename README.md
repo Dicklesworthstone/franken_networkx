@@ -1047,8 +1047,11 @@ divided by FNX wall time; values above 1 favor FNX. Reproduce with
 **Per-family performance — current exact incumbent gates.** The 2026-07-25 baseline uses an
 n=2000 / m=8000 random graph and is reproduced with
 `python3 scripts/perf_harness.py marshaling`. Rows whose notes carry another size are from the
-2026-07-28 pure-Python-loop gate and are reproduced with
-`python3 scripts/perf_harness.py class1-frontier`. Both gates run genuine unpatched NetworkX
+pure-Python-loop gates and are reproduced with
+`python3 scripts/perf_harness.py class1-frontier`. The n=50,000 rows use
+`FNX_CLASS1_SIZES=10000,25000,50000`,
+`FNX_CLASS1_EDGE_MULTIPLIERS=16`, and
+`FNX_CLASS1_FRONTIER_JOBS=onion_layers,k_core`. All gates run genuine unpatched NetworkX
 3.6.1 in the same invocation, prove exact complete-output bytes before timing, record an adjacent
 A/A null, and decide only on the complete bootstrap median CI with a 2× log-space margin.
 
@@ -1057,13 +1060,13 @@ A/A null, and decide only on the complete bootstrap median CI with a 2× log-spa
 | closeness_centrality | **194.3093× faster** | Native multi-source BFS; n=220 / m=900 |
 | rich_club_coefficient | **117.3619× faster** | Native degree scan; n=10,000 / m=40,000 |
 | transitive_closure | **92.3164× faster** | Native descendant closure; directed n=200 / m=800 |
-| k_core | **49.3962× faster** | Native core filter; n=10,000 / m=40,000 |
+| k_core | **127.6491× faster** | Native core filter; n=50,000 / m=800,000 |
 | clustering (all nodes) | **36.1146× faster** | Native triangle counting |
 | node_connectivity | **30.1588× faster** | Native max-flow; n=220 / m=900 |
 | triadic_census | **20.4715× faster** | Native census; directed n=200 / m=800 |
 | square_clustering | **18.4067× faster** | Native neighbour-pair scan; n=10,000 / m=40,000 |
 | triangles | **14.3397× faster** | Native triangle counting |
-| onion_layers | **11.9454× faster** | Native peeling; n=10,000 / m=40,000 |
+| onion_layers | **26.7646× faster** | Native peeling; n=50,000 / m=800,000 |
 | faster_could_be_isomorphic | **3.4961× faster** | Native degree/triangle sequence; n=1,200 / m=6,000 |
 | dfs_postorder_nodes | **3.0811× faster** | Native traversal; n=1,200 / m=6,000 |
 | jaccard_coefficient | **2.4536× faster** | Native neighbour-set intersection; 300 pairs |

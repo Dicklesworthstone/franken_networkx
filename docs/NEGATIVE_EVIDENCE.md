@@ -23,6 +23,96 @@ documentation carries only current supported incumbent figures; correction histo
 stays in this ledger, `docs/LEDGER_RESURRECTION.md`,
 `docs/progress/perf-negative-results.md`, and bead bodies.
 
+## 2026-07-29 CloudyTurtle STRICT INCUMBENT WIN GATE: higher-density Class-1 scaling reaches **26.7646x** for `onion_layers` and **127.6491x** for `k_core` (`br-r37-c1-l39pb`)
+
+**NEGATIVE-LEDGER FIRST / RETRY PREDICATE SATISFIED.** The prior strict
+Class-1 row explicitly forbade another fixed-`m=4n` size sweep and allowed the
+scaling question to reopen only by changing work per element. This gate uses
+simple exact-string Graphs with `m=16n`, average degree 32, at n=10,000,
+25,000, and 50,000. It restricts the permanent `class1-frontier` suite to the
+two families that widened in the earlier sparse gate: `onion_layers` and
+`k_core`. The harness now accepts explicit size, edge-multiplier, and scale-job
+selectors while preserving the old default sizes, `m=4n` fixtures, seeds, and
+full-suite behavior.
+
+**RIGHT FRAME / AMDAHL SCREEN.** On the exact n=10,000 / m=160,000 fixture,
+the loaded-ELF NetworkX profile attributes `k_core` to
+`Graph.add_edges_from` at `graph.py:986`: one call, `0.407059466s` self-time,
+`1.249679340s` cumulative time, `88.0657%` of `1.419030733s` total profiled
+time, and an **8.3792x** whole-frame Amdahl ceiling. NetworkX constructs the
+filtered result graph edge by edge in Python. Public `onion_layers` at
+`core.py:491` carries `0.063673494s` self-time (`37.3581%`) and
+`0.168843861s` cumulative time (`99.0630%`) out of `0.170440807s`, for a
+**106.7292x** ceiling. Its interpreted loop performs 160,000 Python
+`list.remove` calls on this fixture. Both named frames therefore have non-zero
+self-time, at least 50% cumulative time, and a computed ceiling above 2x.
+
+**EXACT LOADED ARTIFACT / SAME-INVOCATION INCUMBENT GATE.** Line one of the
+21-round process self-reported:
+
+`bench_elf_sha256=348a684395d0d7cbace8b40a1c411643f6a8e01a661ef125078f2cd8fe68b899 (13230088 bytes) /data/projects/franken_networkx/target/release/lib_fnx.so`
+
+Genuine unpatched NetworkX 3.6.1 and FrankenNetworkX ran side-by-side in one
+Python 3.13.7 process pinned to CPU 3, with Rayon and BLAS restricted to one
+thread. `PYTHONHASHSEED=0` was fixed before startup. Every complete graph or
+layer dictionary was byte-identical before timing. Each row ran 21
+alternating-order rounds with separate NetworkX/NetworkX and FNX/FNX adjacent
+nulls. The complete bootstrap median CI had to clear twice the wider null's
+maximum log-distance from 1.0; CV remained provenance only.
+
+| exact public row | NetworkX/FNX median | candidate 95% CI | NetworkX A/A 95% CI | FNX A/A 95% CI | complete-output SHA-256 |
+|---|---:|---:|---:|---:|---|
+| `onion_layers`, n=10,000 / m=160,000 | **`18.6596x`** | `18.5117-19.6383` | `0.9886-1.0271` | `0.9814-1.0183` | `9187d1d9b56903e0d0495ae681d822c724d79fb0e6a1367409f8c4a9fe3eeeab` |
+| `onion_layers`, n=25,000 / m=400,000 | **`22.7257x`** | `22.0767-23.4342` | `0.9837-1.0208` | `0.9717-1.0254` | `4388b44547ed91d7fbd7d47051b2cdd9fa354fe885856261afa9a1d188424bc2` |
+| `onion_layers`, n=50,000 / m=800,000 | **`26.7646x`** | `26.5285-26.9716` | `0.9927-1.0049` | `0.9965-1.0022` | `716c1334b9958bf6277b7b54ee47e7cac1b2154cd494c92425aa174b81456858` |
+| `k_core`, n=10,000 / m=160,000 | **`128.4077x`** | `124.3977-130.5018` | `0.9823-1.0054` | `0.9915-1.0008` | `218b34c6409726891b3dd8935031375edbe6bae9c19cd2288b9a9ca17be932c6` |
+| `k_core`, n=25,000 / m=400,000 | **`123.8164x`** | `120.9178-125.7322` | `0.9932-1.0269` | `0.9777-1.0076` | `a532fa5d2079537968ce3ed758caeb07ef177fb9fb9229107f30b81e6eab8c7f` |
+| `k_core`, n=50,000 / m=800,000 | **`127.6491x`** | `126.8319-128.2286` | `0.9878-1.0057` | `0.9982-1.0056` | `b7a58b37933830bfea62186a4510b0ef3b2014bee792a841f25fc80819aa345f` |
+
+The widest recorded same-invocation A/A null was FNX
+`[0.9717,1.0254]`; every candidate CI clears twice its own wider null edge.
+All six candidate rows won `21/21` paired rounds. The largest reported CV was
+`7.60%` on the n=25,000 onion FNX arm, yet its candidate CI remained decisive;
+this is another direct proof that CV is provenance, not the acceptance gate.
+
+**SCALING SHAPE.** Density is the decisive axis for both families. At
+n=10,000, raising average degree from 8 to 32 moves `onion_layers` from
+`11.9454x` to `18.6596x` and `k_core` from `49.3962x` to `128.4077x`.
+Holding average degree 32 while increasing N separates the mechanisms:
+`onion_layers` widens `18.6596x -> 22.7257x -> 26.7646x`, while `k_core`
+stays effectively flat at `128.4077x -> 123.8164x -> 127.6491x`. The flat
+`k_core` shape identifies a constant per-edge incumbent cost in one hot
+result-copy path, not contention or coordination. The widening onion curve
+identifies growing interpreted peeling/list-removal cost. Neither is a
+FrankenNetworkX product deficit, so no product source lever is warranted.
+
+Harness SHA-256 was
+`e80ba9f8d4e113a348fb9249620f8f19fe7ffb790e4f636fded7e6cd2139db87`;
+wrapper SHA-256 was
+`6cad8ae642282e8a51fe5bcf944a217978405a266a9887b6a1ede590dff80174`.
+
+comparison_class=INCUMBENT
+incumbent=networkx
+incumbent_same_invocation=true
+incumbent_ratio=18.6596x
+campaign_output=true
+decision_gate=median_ci
+cv_role=report_only
+
+**RESULT: KEEP / CAMPAIGN OUTPUT.** The higher-work-per-element gate adds six
+current exact incumbent wins and resolves the scale-shape question without
+using `trj`.
+
+**RETRY PREDICATE:** do not repeat these average-degree-32 curves. Preserve
+the claims while the harness, implementation, fixture generator, loaded ELF,
+Python, and NetworkX version remain unchanged. Reopen `k_core` only after a
+change to the result-copy path or with a different graph distribution that
+changes the retained-edge fraction. Reopen `onion_layers` only at a
+preregistered average degree 128 or on a named real graph distribution.
+Otherwise admit a new pure-Python-loop family only after exact parity and a
+profile showing non-zero self-time, at least 50% cumulative time, and a
+computed ceiling of at least 2x.
+
 ## 2026-07-28 CloudyTurtle LANE M INCUMBENT WIN MATRIX: Class-1 Python-loop scaling stays **4.3199x–110.4305x** ahead at n=1,000–10,000 (`br-r37-c1-04z53.9184`)
 
 **LEDGER-FIRST / RIGHT-WORKLOAD SCREEN.** Before adding a row, the mechanical

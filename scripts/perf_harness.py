@@ -2315,7 +2315,7 @@ def suite_class1_scaling():
 
 
 def suite_class1_frontier():
-    """Strictly revalidate pure-Python-loop incumbent families."""
+    """Strictly revalidate pure-Python-loop incumbent families across scale."""
     import networkx as nx
     import franken_networkx as fnx
 
@@ -2327,18 +2327,68 @@ def suite_class1_frontier():
     if not sizes or any(size < 2 for size in sizes):
         raise ValueError("FNX_CLASS1_SIZES must contain integers >= 2")
 
-    rows = []
-    for size in sizes:
-        gnx, gfx = _build_pair(
-            size,
-            4 * size,
-            seed=92_840 + size,
-            weighted=False,
+    raw_edge_multipliers = os.environ.get("FNX_CLASS1_EDGE_MULTIPLIERS", "4")
+    try:
+        edge_multipliers = tuple(
+            int(part)
+            for part in raw_edge_multipliers.split(",")
         )
-        rows.extend(
-            [
-                (
-                    f"rich_club_coefficient n={size} m={4 * size}",
+    except ValueError as error:
+        raise ValueError(
+            "FNX_CLASS1_EDGE_MULTIPLIERS must be comma-separated integers"
+        ) from error
+    if not edge_multipliers or any(multiplier < 1 for multiplier in edge_multipliers):
+        raise ValueError("FNX_CLASS1_EDGE_MULTIPLIERS must contain integers >= 1")
+
+    available_scale_jobs = (
+        "rich_club_coefficient",
+        "onion_layers",
+        "square_clustering",
+        "k_core",
+    )
+    requested_scale_jobs = os.environ.get("FNX_CLASS1_FRONTIER_JOBS")
+    if requested_scale_jobs is None:
+        scale_jobs = available_scale_jobs
+    else:
+        selected = {
+            name.strip()
+            for name in requested_scale_jobs.split(",")
+            if name.strip()
+        }
+        unknown = selected - set(available_scale_jobs)
+        if not selected or unknown:
+            raise ValueError(
+                "FNX_CLASS1_FRONTIER_JOBS must select known comma-separated jobs; "
+                f"unknown={sorted(unknown)} known={list(available_scale_jobs)}"
+            )
+        scale_jobs = tuple(
+            name
+            for name in available_scale_jobs
+            if name in selected
+        )
+
+    EXTRA_PROVENANCE["class1_sizes"] = list(sizes)
+    EXTRA_PROVENANCE["class1_edge_multipliers"] = list(edge_multipliers)
+    EXTRA_PROVENANCE["class1_frontier_jobs"] = list(scale_jobs)
+
+    rows = []
+    for edge_multiplier in edge_multipliers:
+        for size in sizes:
+            edge_count = edge_multiplier * size
+            seed = (
+                92_840 + size
+                if edge_multiplier == 4
+                else 9_284_000 + size + 1_000_000 * edge_multiplier
+            )
+            gnx, gfx = _build_pair(
+                size,
+                edge_count,
+                seed=seed,
+                weighted=False,
+            )
+            scale_rows = {
+                "rich_club_coefficient": (
+                    f"rich_club_coefficient n={size} m={edge_count}",
                     lambda graph=gnx: nx.rich_club_coefficient(
                         graph,
                         normalized=False,
@@ -2348,23 +2398,26 @@ def suite_class1_frontier():
                         normalized=False,
                     ),
                 ),
-                (
-                    f"onion_layers n={size} m={4 * size}",
+                "onion_layers": (
+                    f"onion_layers n={size} m={edge_count}",
                     lambda graph=gnx: nx.onion_layers(graph),
                     lambda graph=gfx: fnx.onion_layers(graph),
                 ),
-                (
-                    f"square_clustering n={size} m={4 * size}",
+                "square_clustering": (
+                    f"square_clustering n={size} m={edge_count}",
                     lambda graph=gnx: nx.square_clustering(graph),
                     lambda graph=gfx: fnx.square_clustering(graph),
                 ),
-                (
-                    f"k_core n={size} m={4 * size}",
+                "k_core": (
+                    f"k_core n={size} m={edge_count}",
                     lambda graph=gnx: nx.k_core(graph),
                     lambda graph=gfx: fnx.k_core(graph),
                 ),
-            ]
-        )
+            }
+            rows.extend(scale_rows[name] for name in scale_jobs)
+
+    if requested_scale_jobs is not None:
+        return rows
 
     gnx, gfx = _build_pair(1_200, 6_000, seed=11, weighted=False)
     wnx, wfx = _build_pair(1_200, 6_000, seed=11, weighted=True)
