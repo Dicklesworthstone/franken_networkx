@@ -99,8 +99,9 @@ MIN_OF = 3
 ROUNDS = int(os.environ.get("FNX_PERF_ROUNDS", "21"))
 HOST_WIDE_CPU_SAMPLE_S = 0.3
 HOST_WIDE_MAX_BUSY_FRACTION = 0.20
-HOST_WIDE_ADMISSION_CLEAR_WINDOWS = 2
-HOST_WIDE_ADMISSION_MAX_WINDOWS = 40
+HOST_WIDE_ADMISSION_SAMPLE_S = 1.0
+HOST_WIDE_ADMISSION_CLEAR_WINDOWS = 5
+HOST_WIDE_ADMISSION_MAX_WINDOWS = 300
 HOST_WIDE_CONSECUTIVE_BUSY_WINDOWS = 2
 EXTRA_PROVENANCE: dict[str, object] = {}
 _MEASUREMENT_EXCLUSIVITY = None
@@ -245,9 +246,12 @@ def _read_cpu_ticks() -> dict[int, tuple[int, int]]:
     return ticks
 
 
-def _sample_cpu_busy(cpu_scope: set[int]) -> dict[int, float]:
+def _sample_cpu_busy(
+    cpu_scope: set[int],
+    sample_s: float = HOST_WIDE_CPU_SAMPLE_S,
+) -> dict[int, float]:
     before = _read_cpu_ticks()
-    sleep(HOST_WIDE_CPU_SAMPLE_S)
+    sleep(sample_s)
     after = _read_cpu_ticks()
     return _cpu_busy_between(before, after, cpu_scope)
 
@@ -368,7 +372,7 @@ def require_host_wide_quiescence(stage: str) -> dict:
     accepted_windows = []
     busy = {}
     for window_index in range(1, HOST_WIDE_ADMISSION_MAX_WINDOWS + 1):
-        busy = _sample_cpu_busy(cpu_scope)
+        busy = _sample_cpu_busy(cpu_scope, HOST_WIDE_ADMISSION_SAMPLE_S)
         offenders = {
             cpu: fraction
             for cpu, fraction in busy.items()
@@ -425,9 +429,10 @@ def require_host_wide_quiescence(stage: str) -> dict:
         "scope_cpus": sorted(cpu_scope),
         "scope_cpu_count": len(cpu_scope),
         "process_affinity": process_affinity,
-        "sample_interval_s": HOST_WIDE_CPU_SAMPLE_S,
+        "sample_interval_s": HOST_WIDE_ADMISSION_SAMPLE_S,
         "maximum_busy_fraction": HOST_WIDE_MAX_BUSY_FRACTION,
         "clear_windows_required": HOST_WIDE_ADMISSION_CLEAR_WINDOWS,
+        "maximum_windows": HOST_WIDE_ADMISSION_MAX_WINDOWS,
         "windows_sampled": len(windows),
         "settle_elapsed_s": perf_counter() - started,
         "rejected_window_count": sum(
