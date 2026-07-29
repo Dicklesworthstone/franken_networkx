@@ -92,6 +92,24 @@ bench_elf_sha256 = 348a684395d0d7cbace8b40a1c411643f6a8e01a661ef125078f2cd8fe68b
 The same invocation records `preferential_attachment` as a current loss:
 **0.5949x**, candidate CI **0.5918-0.6006**, A/A null CI **0.9974-1.0016**.
 
+#### Average-degree-128 onion scale gate (2026-07-29)
+
+Exact-string simple Graphs with `m=64n` exercise the incumbent's interpreted
+peeling path. All three complete layer dictionaries are byte-identical; each
+row ran 21 alternating-order rounds with separate NetworkX and FNX A/A
+controls.
+
+| Exact workload | Ratio vs NetworkX 3.6.1 | Candidate 95% CI | NetworkX A/A 95% CI | FNX A/A 95% CI |
+| --- | ---: | ---: | ---: | ---: |
+| `onion_layers`, n=1,000 / m=64,000 | **47.2303x** | 45.7553-49.7326 | 0.9933-1.0041 | 0.9981-1.0034 |
+| `onion_layers`, n=5,000 / m=320,000 | **90.3145x** | 88.1029-92.4663 | 0.9816-1.0221 | 1.0008-1.0309 |
+| `onion_layers`, n=10,000 / m=640,000 | **122.7680x** | 119.3252-126.5651 | 0.9944-1.0105 | 0.9923-1.0123 |
+
+The n=10,000 NetworkX profile records 640,000 Python `list.remove` calls at
+79.83% self-time. The ratio widens with N at fixed average degree 128,
+identifying an interpreted per-edge path whose aggregate cost scales with the
+job rather than coordination.
+
 #### Higher-density Class-1 scale gate (2026-07-29)
 
 The average-degree-32 extension uses exact-string simple Graphs with `m=16n`
@@ -295,11 +313,11 @@ Rows still measured below `1.0x` are listed in `README.md`; open items carry ret
 
 | Pillar | Score | Notes |
 | --- | ---: | --- |
-| Performance evidence | Phase 2: 14 wins / 0 losses / 1 undecidable across 15 realistic whole-job rows; six additional higher-density Class-1 wins | Collaboration-core export is `1.2039-1.4898x`; rich-club/onion export is `1.8392-2.1765x`; hub routing is `1.1885-1.5457x`; community detection/export is `1.3622-1.6538x`. At n=50,000 / m=800,000, `onion_layers` is `26.7646x` and `k_core` is `127.6491x`. |
+| Performance evidence | Phase 2: 14 wins / 0 losses / 1 undecidable across 15 realistic whole-job rows; nine additional higher-density Class-1 wins | Collaboration-core export is `1.2039-1.4898x`; rich-club/onion export is `1.8392-2.1765x`; hub routing is `1.1885-1.5457x`; community detection/export is `1.3622-1.6538x`. `onion_layers` reaches `122.7680x` at n=10,000 / m=640,000; `k_core` is `127.6491x` at n=50,000 / m=800,000. |
 | Conformance evidence | focused guards green for kept rows and rejects; one baseline fixture drift fixed | The cod-b `non_edges_sparse_undirected` row-cache keep reports focused order/cache/mutation conformance `48 passed`, `py_compile`, RCH release build, and RCH Criterion proof. `br-r37-c1-04z53.9160` reports direct helper/public parity for in-place and copy behavior, dirty live edge-dict sync, source isolation, missing weights, bool weights, and nonnumeric fallback, plus `py_compile`, `cargo fmt --check`, `fnx-classes` check/clippy/test, `fnx-python` check/clippy/build/test-compatible Rust tests, and direct preloaded release-extension conformance. `br-r37-c1-04z53.9159` reports parity OK for copy/in-place behavior, missing weights, bool weights, zero row sums, `MultiDiGraph` fallback, and string-weight exception fallback, plus `py_compile`, `cargo fmt --check`, and RCH `fnx-python` check/clippy/test/build. The cod-b borrowed dirty-key sparse-export row reports sorted-coordinate sparse payload parity, focused sparse parity `304 passed`, final-source RCH `fnx-python` clippy/build, `cargo fmt --check`, and UBS with no new critical finding. Existing rows retain the focused guards recorded above. Separate broad graph-metrics `edge_boundary` overlap-order drift is filed as `br-r37-c1-c4ou2`; the broad directed Dijkstra finalize-order drift exposed during the BFS closeout is filed as `br-r37-c1-syrw5`. |
 | Negative-evidence discipline | Phase 2: 15 / 15 ledgered; preflight self-check 19 / 19 | Every realistic row records exact output identity, candidate and dual-null median CIs, loaded-ELF identity, dataset identity, verdict, and a concrete retry predicate. |
-| Backlog conversion | Phase-2 gate complete; Class-1 density/size shape resolved for two widening families | `onion_layers` widens with N at average degree 32; `k_core` stays flat, localizing constant per-edge incumbent copy work rather than coordination. |
+| Backlog conversion | Phase-2 gate complete; Class-1 density/size shape resolved through average degree 128 | `onion_layers` widens to `122.7680x` with N at average degree 128; `k_core` stays flat at average degree 32, localizing constant per-edge incumbent copy work rather than coordination. |
 
 Next required row: admit a new exact pure-Python-loop family after a named
-non-zero-self-time profile, or run the preregistered average-degree-128 /
-named-real-graph predicate for `onion_layers`.
+non-zero-self-time profile, or use a named real-graph distribution whose
+structure differs materially from the existing synthetic scale curves.

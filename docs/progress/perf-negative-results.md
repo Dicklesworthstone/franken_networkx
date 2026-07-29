@@ -1915,3 +1915,52 @@ RETRY PREDICATE: do not repeat the average-degree-32 curves. Reopen `k_core`
 only after its result-copy route or retained-edge distribution changes.
 Reopen `onion_layers` only at preregistered average degree 128 or on a named
 real graph; otherwise profile and admit a new pure-Python-loop family.
+
+## 2026-07-29 CloudyTurtle KEEP: preregistered average-degree-128 `onion_layers` curve (`br-r37-c1-04z53.9188`)
+
+The prior row's explicit retry predicate authorized this `m=64n` gate.
+NetworkX 3.6.1 and FrankenNetworkX ran side-by-side on ordinary CPU 3 in one
+Python 3.13.7 invocation with exact complete layer dictionaries, 21
+alternating-order rounds, and separate arm-specific A/A nulls.
+
+| exact row | NetworkX/FNX median | candidate CI | NetworkX A/A CI | FNX A/A CI |
+|---|---:|---:|---:|---:|
+| `onion_layers`, n=1,000 / m=64,000 | `47.2303x` | `45.7553-49.7326` | `0.9933-1.0041` | `0.9981-1.0034` |
+| `onion_layers`, n=5,000 / m=320,000 | `90.3145x` | `88.1029-92.4663` | `0.9816-1.0221` | `1.0008-1.0309` |
+| `onion_layers`, n=10,000 / m=640,000 | `122.7680x` | `119.3252-126.5651` | `0.9944-1.0105` | `0.9923-1.0123` |
+
+The widest recorded same-invocation A/A null was FNX
+`[1.0008,1.0309]`; each complete candidate CI clears twice its own wider null
+edge and every row wins `21/21`. CV is report-only.
+
+The exact n=10,000 profile records public NetworkX `onion_layers` at
+`15.7712%` self / `99.6194%` cumulative time with a `262.7437x` Amdahl
+ceiling. Exactly 640,000 Python `list.remove` calls consume `79.8263%`
+self-time. This counted mechanism explains the strong density response at
+n=10,000. The fixed-density N curve (`47.2303x -> 122.7680x`) establishes
+that the advantage does not narrow with scale, without over-attributing the
+widening to a single cause.
+
+Line one self-reported
+`bench_elf_sha256=348a684395d0d7cbace8b40a1c411643f6a8e01a661ef125078f2cd8fe68b899 (13230088 bytes) /data/projects/franken_networkx/target/release/lib_fnx.so`;
+harness SHA-256 was
+`e80ba9f8d4e113a348fb9249620f8f19fe7ffb790e4f636fded7e6cd2139db87`;
+raw-log SHA-256 was
+`1cc08b429c8c4092bced1481ad4a1bf08ae13296826e2d7fed9a728f9c78018f`.
+
+comparison_class=INCUMBENT
+incumbent=networkx
+incumbent_same_invocation=true
+incumbent_ratio=47.2303x
+campaign_output=true
+decision_gate=median_ci
+cv_role=report_only
+
+RESULT: **KEEP / CAMPAIGN OUTPUT.** Three exact incumbent wins extend the
+non-trj Class-1 evidence and set the current `onion_layers` headline to
+`122.7680x`.
+
+RETRY PREDICATE: do not repeat the average-degree-128 synthetic curve. Reopen
+only on a named real graph with a materially different degree distribution or
+after the peeling implementation changes; otherwise switch to a newly
+profile-attributed pure-Python-loop family.

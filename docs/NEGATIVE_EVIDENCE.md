@@ -23,6 +23,91 @@ documentation carries only current supported incumbent figures; correction histo
 stays in this ledger, `docs/LEDGER_RESURRECTION.md`,
 `docs/progress/perf-negative-results.md`, and bead bodies.
 
+## 2026-07-29 CloudyTurtle STRICT INCUMBENT WIN GATE: preregistered average-degree-128 `onion_layers` reaches **122.7680x** (`br-r37-c1-04z53.9188`)
+
+**NEGATIVE-LEDGER FIRST / RETRY PREDICATE SATISFIED.** The immediately prior
+Class-1 row forbids repeating its average-degree-32 curves and permits
+`onion_layers` to reopen only at preregistered average degree 128 or on a named
+real graph distribution. This gate takes the first allowed path: simple
+exact-string Graphs with `m=64n` at n=1,000, 5,000, and 10,000. The permanent
+harness's size, edge-multiplier, and job selectors reproduce this row without
+changing source or the default `m=4n` fixtures.
+
+**RIGHT FRAME / COUNTED MECHANISM / AMDAHL SCREEN.** On the exact n=10,000 /
+m=640,000 fixture, seed 73,294,000, the loaded-ELF NetworkX profile records
+public `onion_layers` at `core.py:491` with `0.307357760s` self-time
+(`15.7712%`) and `1.941434170s` cumulative time (`99.6194%`) out of
+`1.948851480s`, for a **262.7437x** whole-frame Amdahl ceiling. The profile
+counts exactly **640,000** Python `list.remove` calls. They alone consume
+`1.555696239s` self-time (`79.8263%`) and have a **4.9570x** removal-only
+ceiling. The workload therefore routes through the named public frame, and the
+density-sensitive interpreted mechanism is measured rather than inferred from
+wall time.
+
+**EXACT LOADED ARTIFACT / SAME-INVOCATION INCUMBENT GATE.** Line one of the
+21-round process self-reported:
+
+`bench_elf_sha256=348a684395d0d7cbace8b40a1c411643f6a8e01a661ef125078f2cd8fe68b899 (13230088 bytes) /data/projects/franken_networkx/target/release/lib_fnx.so`
+
+Genuine unpatched NetworkX 3.6.1 and FrankenNetworkX ran side-by-side in one
+Python 3.13.7 process pinned to ordinary CPU 3, with `PYTHONHASHSEED=0` and
+Rayon, BLAS, OpenMP, and MKL restricted to one thread. Every complete layer
+dictionary was byte-identical before timing. Each row ran 21 alternating-order
+rounds with separate NetworkX/NetworkX and FNX/FNX adjacent nulls. The
+bootstrap median CI had to clear twice the wider null's maximum log-distance
+from 1.0; CV remained report-only.
+
+| exact public row | NetworkX/FNX median | candidate 95% CI | NetworkX A/A 95% CI | FNX A/A 95% CI | complete-output SHA-256 |
+|---|---:|---:|---:|---:|---|
+| `onion_layers`, n=1,000 / m=64,000 | **`47.2303x`** | `45.7553-49.7326` | `0.9933-1.0041` | `0.9981-1.0034` | `f48657fd0a752e749eebe4043c8860ba14357a19d23d3d8c81ebe3a6164bed4d` |
+| `onion_layers`, n=5,000 / m=320,000 | **`90.3145x`** | `88.1029-92.4663` | `0.9816-1.0221` | `1.0008-1.0309` | `58a02c3f30c562e8325d0970e0362af924c406f1bb47de7e6ed6d49941653840` |
+| `onion_layers`, n=10,000 / m=640,000 | **`122.7680x`** | `119.3252-126.5651` | `0.9944-1.0105` | `0.9923-1.0123` | `d8759da5b578dc811e6aa82eba45e81df48a876c2fc1e492a23d8e5a7714f5d2` |
+
+The widest recorded same-invocation A/A null was FNX
+`[1.0008,1.0309]`; every candidate CI clears twice its own wider null edge.
+All three candidate rows won `21/21` paired rounds. The largest reported CV
+was `4.68%` on the n=10,000 FNX arm and was not used in the decision.
+
+**SCALING SHAPE.** At fixed average degree 128, the incumbent gap widens
+`47.2303x -> 90.3145x -> 122.7680x` from n=1,000 to n=10,000. At n=10,000,
+raising average degree 8 -> 32 -> 128 moves the ratio
+`11.9454x -> 18.6596x -> 122.7680x`. The counted `list.remove` mechanism
+explains the strong density response: NetworkX performs one linear-list
+removal per edge in Python, while FrankenNetworkX uses its native peeling
+implementation. The fixed-density N curve establishes that the advantage does
+not narrow with scale; it does not by itself distinguish native fixed-cost
+amortization from cache-scale effects. This is an incumbent Class-1 weakness,
+not a product-source deficit, so no FrankenNetworkX implementation lever is
+warranted.
+
+Harness SHA-256 was
+`e80ba9f8d4e113a348fb9249620f8f19fe7ffb790e4f636fded7e6cd2139db87`;
+wrapper SHA-256 was
+`6cad8ae642282e8a51fe5bcf944a217978405a266a9887b6a1ede590dff80174`;
+raw-log SHA-256 was
+`1cc08b429c8c4092bced1481ad4a1bf08ae13296826e2d7fed9a728f9c78018f`.
+
+comparison_class=INCUMBENT
+incumbent=networkx
+incumbent_same_invocation=true
+incumbent_ratio=47.2303x
+campaign_output=true
+decision_gate=median_ci
+cv_role=report_only
+
+**RESULT: KEEP / CAMPAIGN OUTPUT.** The predicate-compliant density gate adds
+three exact incumbent wins and raises the current supported `onion_layers`
+headline to `122.7680x`, without using `trj`.
+
+**RETRY PREDICATE:** do not repeat the average-degree-128 synthetic curve.
+Preserve these claims while the harness, implementation, fixture construction,
+loaded ELF, Python, and NetworkX version remain unchanged. Reopen
+`onion_layers` only on a named real graph whose degree distribution differs
+materially from these fixed-average-degree fixtures, or after a change to the
+peeling implementation. Otherwise switch veins to a new pure-Python-loop
+family only after exact parity and a profile showing non-zero self-time, at
+least 50% cumulative time, and a computed ceiling of at least 2x.
+
 ## 2026-07-29 CloudyTurtle STRICT INCUMBENT WIN GATE: higher-density Class-1 scaling reaches **26.7646x** for `onion_layers` and **127.6491x** for `k_core` (`br-r37-c1-l39pb`)
 
 **NEGATIVE-LEDGER FIRST / RETRY PREDICATE SATISFIED.** The prior strict

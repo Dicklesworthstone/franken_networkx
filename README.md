@@ -1051,7 +1051,10 @@ pure-Python-loop gates and are reproduced with
 `python3 scripts/perf_harness.py class1-frontier`. The n=50,000 rows use
 `FNX_CLASS1_SIZES=10000,25000,50000`,
 `FNX_CLASS1_EDGE_MULTIPLIERS=16`, and
-`FNX_CLASS1_FRONTIER_JOBS=onion_layers,k_core`. All gates run genuine unpatched NetworkX
+`FNX_CLASS1_FRONTIER_JOBS=onion_layers,k_core`; the average-degree-128
+`onion_layers` row uses `FNX_CLASS1_SIZES=1000,5000,10000`,
+`FNX_CLASS1_EDGE_MULTIPLIERS=64`, and
+`FNX_CLASS1_FRONTIER_JOBS=onion_layers`. All gates run genuine unpatched NetworkX
 3.6.1 in the same invocation, prove exact complete-output bytes before timing, record an adjacent
 A/A null, and decide only on the complete bootstrap median CI with a 2× log-space margin.
 
@@ -1066,7 +1069,7 @@ A/A null, and decide only on the complete bootstrap median CI with a 2× log-spa
 | triadic_census | **20.4715× faster** | Native census; directed n=200 / m=800 |
 | square_clustering | **18.4067× faster** | Native neighbour-pair scan; n=10,000 / m=40,000 |
 | triangles | **14.3397× faster** | Native triangle counting |
-| onion_layers | **26.7646× faster** | Native peeling; n=50,000 / m=800,000 |
+| onion_layers | **122.7680× faster** | Native peeling; n=10,000 / m=640,000 |
 | faster_could_be_isomorphic | **3.4961× faster** | Native degree/triangle sequence; n=1,200 / m=6,000 |
 | dfs_postorder_nodes | **3.0811× faster** | Native traversal; n=1,200 / m=6,000 |
 | jaccard_coefficient | **2.4536× faster** | Native neighbour-set intersection; 300 pairs |
