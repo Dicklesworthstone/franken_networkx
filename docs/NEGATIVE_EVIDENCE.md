@@ -23,6 +23,13 @@ documentation carries only current supported incumbent figures; correction histo
 stays in this ledger, `docs/LEDGER_RESURRECTION.md`,
 `docs/progress/perf-negative-results.md`, and bead bodies.
 
+New harness invocations additionally require two host-wide quiescence samples:
+one before suite construction and one immediately before measurement. Every CPU
+in the effective cgroup cpuset must remain at or below 20% busy, even when the
+benchmark process has a narrow `taskset` affinity. A failed sample aborts before
+an admissible result is emitted; successful provenance records both full-CPU
+busy maps, the host, scope source, and process affinity.
+
 ## 2026-07-29 CloudyTurtle STRICT INCUMBENT WIN GATE: preregistered average-degree-128 `onion_layers` reaches **122.7680x** (`br-r37-c1-04z53.9188`)
 
 **NEGATIVE-LEDGER FIRST / RETRY PREDICATE SATISFIED.** The immediately prior

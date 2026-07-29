@@ -24,6 +24,13 @@ Adopted 2026-07-25 (br-r37-c1-wbwkb, cc lane) from the fleet-wide contract in
    `0.9947-1.0065` — a 30x spread in `cv` for a sub-2x spread in the decidable
    floor, ranked in the opposite order.
 
+4. **Require host-wide benchmark exclusivity.** The harness samples every CPU
+   in the effective cgroup cpuset before suite setup and again immediately
+   before measurement. If any CPU is more than 20% busy during either 300 ms
+   sample, the invocation fails closed before emitting an admissible result.
+   Pinning the benchmark process to one quiet CPU cannot hide co-tenancy
+   elsewhere on the host.
+
 Knobs follow §2.4: `min_sample ~2 ms`, `min_of = 3` inner replicates keeping the
 minimum (the dominant knob; longer samples are a bigger target for preemption).
 
@@ -80,11 +87,13 @@ import sys
 import urllib.request
 from dataclasses import dataclass, field
 from pathlib import Path
-from time import perf_counter
+from time import perf_counter, sleep
 
 MIN_SAMPLE_S = 0.002
 MIN_OF = 3
 ROUNDS = int(os.environ.get("FNX_PERF_ROUNDS", "21"))
+HOST_WIDE_CPU_SAMPLE_S = 0.3
+HOST_WIDE_MAX_BUSY_FRACTION = 0.20
 EXTRA_PROVENANCE: dict[str, object] = {}
 
 # The nx arm must be genuinely unpatched upstream: a "2.6x faster" claim in this
@@ -160,6 +169,109 @@ def provenance_header(tag: str) -> dict:
     info.update(EXTRA_PROVENANCE)
     print(json.dumps(info), flush=True)
     return info
+
+
+def _parse_cpu_list(value: str) -> set[int]:
+    cpus: set[int] = set()
+    for part in value.strip().split(","):
+        if not part:
+            continue
+        if "-" in part:
+            start_text, end_text = part.split("-", maxsplit=1)
+            start, end = int(start_text), int(end_text)
+            if start > end:
+                raise RuntimeError(f"descending CPU range in host scope: {part}")
+            cpus.update(range(start, end + 1))
+        else:
+            cpus.add(int(part))
+    if not cpus:
+        raise RuntimeError("host-wide CPU scope is empty")
+    return cpus
+
+
+def _host_wide_cpu_scope() -> tuple[set[int], str]:
+    """Return the cgroup-effective host CPU scope, independent of taskset."""
+    candidates = (
+        Path("/sys/fs/cgroup/cpuset.cpus.effective"),
+        Path("/sys/fs/cgroup/cpuset/cpuset.effective_cpus"),
+        Path("/sys/devices/system/cpu/online"),
+    )
+    for path in candidates:
+        try:
+            value = path.read_text().strip()
+        except OSError:
+            continue
+        if value:
+            return _parse_cpu_list(value), str(path)
+    raise RuntimeError("cannot determine host-wide CPU scope")
+
+
+def _read_cpu_ticks() -> dict[int, tuple[int, int]]:
+    ticks: dict[int, tuple[int, int]] = {}
+    for line in Path("/proc/stat").read_text().splitlines():
+        fields = line.split()
+        if not fields:
+            continue
+        label = fields[0]
+        suffix = label.removeprefix("cpu")
+        if label == suffix or not suffix.isdigit():
+            continue
+        values = [int(value) for value in fields[1:]]
+        if len(values) < 5:
+            raise RuntimeError(f"{label} /proc/stat row is too short")
+        ticks[int(suffix)] = (sum(values), values[3] + values[4])
+    if not ticks:
+        raise RuntimeError("no per-CPU rows in /proc/stat")
+    return ticks
+
+
+def _sample_cpu_busy(cpu_scope: set[int]) -> dict[int, float]:
+    before = _read_cpu_ticks()
+    sleep(HOST_WIDE_CPU_SAMPLE_S)
+    after = _read_cpu_ticks()
+    busy: dict[int, float] = {}
+    for cpu in sorted(cpu_scope):
+        if cpu not in before or cpu not in after:
+            raise RuntimeError(f"host-wide cpu{cpu} disappeared during load sample")
+        total = max(0, after[cpu][0] - before[cpu][0])
+        idle = max(0, after[cpu][1] - before[cpu][1])
+        busy[cpu] = 1.0 if total == 0 else max(0, total - idle) / total
+    return busy
+
+
+def require_host_wide_quiescence(stage: str) -> dict:
+    """Fail closed unless the entire effective host cpuset is quiet."""
+    cpu_scope, scope_source = _host_wide_cpu_scope()
+    busy = _sample_cpu_busy(cpu_scope)
+    offenders = {
+        cpu: fraction
+        for cpu, fraction in busy.items()
+        if fraction > HOST_WIDE_MAX_BUSY_FRACTION
+    }
+    if offenders:
+        detail = ", ".join(
+            f"cpu{cpu}={fraction * 100.0:.1f}%"
+            for cpu, fraction in sorted(offenders.items())
+        )
+        raise RuntimeError(
+            f"host-wide benchmark exclusivity failed at {stage}; CPUs above "
+            f"{HOST_WIDE_MAX_BUSY_FRACTION * 100.0:.1f}% busy: {detail}"
+        )
+    process_affinity = sorted(os.sched_getaffinity(0))
+    return {
+        "stage": stage,
+        "verdict": "clear",
+        "host": os.uname().nodename,
+        "scope_source": scope_source,
+        "scope_cpus": sorted(cpu_scope),
+        "scope_cpu_count": len(cpu_scope),
+        "process_affinity": process_affinity,
+        "sample_interval_s": HOST_WIDE_CPU_SAMPLE_S,
+        "maximum_busy_fraction": HOST_WIDE_MAX_BUSY_FRACTION,
+        "maximum_observed_busy_fraction": max(busy.values()),
+        "busy_cpu_count_above_limit": 0,
+        "busy_fractions": {str(cpu): fraction for cpu, fraction in busy.items()},
+    }
 
 
 # --------------------------------------------------------------------------- #
@@ -330,6 +442,12 @@ def canonical_bytes(obj) -> bytes:
 
 def run_rows(tag: str, rows, rounds: int = ROUNDS) -> list[dict]:
     """Prove byte-identity, then gate against both arm-specific A/A nulls."""
+    quiescence = EXTRA_PROVENANCE.get("host_wide_quiescence")
+    if not isinstance(quiescence, dict) or "pre_setup" not in quiescence:
+        raise RuntimeError("host-wide pre-setup quiescence proof is missing")
+    quiescence["pre_measurement"] = require_host_wide_quiescence(
+        "pre_measurement",
+    )
     provenance_header(tag)
     results = []
     for label, arm_nx, arm_fnx in rows:
@@ -2921,6 +3039,10 @@ def main(argv):
         print(f"usage: {argv[0]} {{{'|'.join(SUITES)}}}", file=sys.stderr)
         return 2
     name = argv[1]
+    EXTRA_PROVENANCE["host_wide_quiescence"] = {
+        "contract": "required",
+        "pre_setup": require_host_wide_quiescence("pre_setup"),
+    }
     results = run_rows(f"suite={name}", SUITES[name]())
     losses = [r for r in results if r.get("ratio_p50", 1) < 1.0 and r.get("decidable")]
     if losses:
