@@ -32,7 +32,9 @@ Adopted 2026-07-25 (br-r37-c1-wbwkb, cc lane) from the fleet-wide contract in
    in consecutive windows and aborts if the same CPU exceeds 20% busy in two
    consecutive windows. That distinguishes sustained co-tenancy from one
    recorded control-plane wakeup without letting a task that starts after the
-   two admission stages hide behind the benchmark's narrow affinity.
+   two admission stages hide behind the benchmark's narrow affinity. Linux
+   guest counters are excluded from the total because they are already included
+   in user/nice; steal remains busy because it is host-level contention.
 
 Knobs follow §2.4: `min_sample ~2 ms`, `min_of = 3` inner replicates keeping the
 minimum (the dominant knob; longer samples are a bigger target for preemption).
@@ -213,6 +215,16 @@ def _host_wide_cpu_scope() -> tuple[set[int], str]:
     raise RuntimeError("cannot determine host-wide CPU scope")
 
 
+def _cpu_tick_totals(values: list[int]) -> tuple[int, int]:
+    """Return Linux CPU total and idle ticks without double-counting guests."""
+    if len(values) < 8:
+        raise RuntimeError("/proc/stat CPU row is too short")
+    # Linux fields 0..7 are user, nice, system, idle, iowait, irq, softirq,
+    # and steal. Later guest/guest_nice fields are already included in
+    # user/nice, so summing the full row would count guest work twice.
+    return sum(values[:8]), values[3] + values[4]
+
+
 def _read_cpu_ticks() -> dict[int, tuple[int, int]]:
     ticks: dict[int, tuple[int, int]] = {}
     for line in Path("/proc/stat").read_text().splitlines():
@@ -224,9 +236,10 @@ def _read_cpu_ticks() -> dict[int, tuple[int, int]]:
         if label == suffix or not suffix.isdigit():
             continue
         values = [int(value) for value in fields[1:]]
-        if len(values) < 5:
-            raise RuntimeError(f"{label} /proc/stat row is too short")
-        ticks[int(suffix)] = (sum(values), values[3] + values[4])
+        try:
+            ticks[int(suffix)] = _cpu_tick_totals(values)
+        except RuntimeError as error:
+            raise RuntimeError(f"{label} {error}") from error
     if not ticks:
         raise RuntimeError("no per-CPU rows in /proc/stat")
     return ticks
