@@ -23,18 +23,19 @@ documentation carries only current supported incumbent figures; correction histo
 stays in this ledger, `docs/LEDGER_RESURRECTION.md`,
 `docs/progress/perf-negative-results.md`, and bead bodies.
 
-New harness invocations additionally require host-wide exclusivity: two
-consecutive clear 300 ms windows before suite construction, the same admission
-again immediately before measurement, and continuous accounting of every
-non-affinity CPU throughout timing. The bounded admission loop records rejected
-windows so compile tail may drain without admitting sustained work. Every CPU
-in the effective cgroup cpuset must remain at or below 20% busy during accepted
-admission windows, even when the benchmark process has a narrow `taskset`
-affinity; during timing, the same CPU crossing 20% in two consecutive windows
-is sustained co-tenancy and aborts the invocation. Successful provenance
-records the admission history, host, scope source, process affinity, monitored
-CPU set, checked-window count, maximum observed busy fraction, and maximum
-consecutive busy-window count.
+New harness invocations additionally require host-wide exclusivity: five
+consecutive clear one-second windows before suite construction, the same
+five-window admission again immediately before measurement, and continuous
+accounting of every non-affinity CPU throughout timing in 300 ms windows. The
+bounded 300-window admission loop records rejected windows so compile tail may
+drain without admitting sustained work. Every CPU in the effective cgroup
+cpuset must remain at or below 20% busy during accepted admission windows,
+even when the benchmark process has a narrow `taskset` affinity; during
+timing, the same CPU crossing 20% in two consecutive windows is sustained
+co-tenancy and aborts the invocation. Successful provenance records the
+admission history, host, scope source, process affinity, monitored CPU set,
+checked-window count, maximum observed busy fraction, and maximum consecutive
+busy-window count.
 
 ## 2026-07-29 CloudyTurtle NO-VERDICT: non-exclusive hosts block full ca-AstroPh measurement (`br-r37-c1-04z53.9190`)
 
@@ -73,6 +74,9 @@ ratio:
 | `ovh-b`, full configured 3/3 lease, setup retry | staged `target/release/lib_fnx.so` was absent before Python harness entry; no admission or timing started | `0b00c38e87c8275591dab155715621996d769106ff006101be00a7406cdcd1a6` |
 | `ovh-b`, requested full 3/3 lease after restaging the ELF outside `target` | strict RCH queue timeout behind a live peer job; no remote process started | `54d4059d58ea083db78662a1755450d2ccc43560fc3f148b6689977593ab85a8` |
 | `ovh-b`, full configured 3/3 lease with root-staged ELF | pre-setup rejected after all 40 settle windows; final blockers `cpu0=25.0%`, `cpu7=100.0%` | `1c901bb2dc9ce24654d2c0acf921c68f6f704a87c80a51ac20e4f5d3e4e7acbd` |
+| `ovh-a`, full configured 8/8 lease, pre-canonical admission wait | pre-setup rejected after all 40 settle windows; final blockers `cpu3=30.0%`, `cpu11=70.0%` | `0ce82385eca5e4ae3241bcce588764f86d1c528b979929b3254fa9100cf0cccd` |
+| `ovh-a`, full configured 8/8 lease, canonical wait retry 1 | both five-window admissions cleared at accepted maxima `4.0%` and `9.0%`; collaboration NetworkX A/A aborted at `cpu9=100.0%` for two 300 ms windows | `a8a655693ebab5642e1ad65a0f1d6711f5591c8833d3a654cef05240525d04b7` |
+| `ovh-a`, full configured 8/8 lease, canonical wait retry 2 | both five-window admissions cleared at accepted maxima `7.92%` and `3.0%`; collaboration NetworkX A/A aborted at `cpu1=38.2%` for two 300 ms windows | `7765a8e02c6875ac269ae73118b5edae5223431b90fdcf3ff26a46e6022561d8` |
 
 The admitted processes self-reported the intended ELF
 `348a684395d0d7cbace8b40a1c411643f6a8e01a661ef125078f2cd8fe68b899`
@@ -104,10 +108,10 @@ admission and prevented a contaminated number from entering the scorecard.
 
 **RETRY PREDICATE:** rerun only on a non-`trj` worker through the Cargo proxy
 so the benchmark itself holds the worker's full RCH slot capacity for the
-entire invocation, and require both two-window admissions plus continuous
-timing accounting to pass despite any capability probe. Stage the executing
-ELF outside a directory named `target`, require at least 120G free before the
-build, then preserve the exact
+entire invocation, and require both five-consecutive-one-second-window
+admissions plus continuous 300 ms timing accounting to pass despite any
+capability probe. Stage the executing ELF outside a directory named `target`,
+require at least 120G free before the build, then preserve the exact
 source/fixture hashes, loaded-ELF line one, NetworkX runtime dispatch trap,
 complete byte identity, dual A/A nulls, interleaving, and median-CI decision
 gate. Any exclusivity abort remains NO-VERDICT; do not publish or average its

@@ -1973,20 +1973,33 @@ ca-AstroPh fixture: 198,110 unique undirected rows, 60 self-loops removed,
 `dec07c93f05a48e2c843b5675cbc39758b1a3bb837b640142ed4cc5f3c467a15`,
 and cleaned degree p50/p90/p99/max `9/53/142/504`.
 
-Nineteen placement attempts produced no performance verdict. Admission,
-affinity, or continuous timing checks rejected twelve before any candidate
-ratio. Seven more never reached a timed harness: three strict RCH queue timeouts,
-one refused no-build shortcut, two workers rejected because their checkout
-alias resolved to `/data`, and one `ovh-b` setup retry whose staged
+Twenty-two placement attempts produced no performance verdict. Admission,
+affinity, or continuous timing checks rejected fifteen before any candidate
+ratio. Seven more never reached a timed harness: three strict RCH queue
+timeouts, one refused no-build shortcut, two workers rejected because their
+checkout alias resolved to `/data`, and one `ovh-b` setup retry whose staged
 `target/release/lib_fnx.so` had disappeared before Python entry. The final
-admitted `vmi1227854` community
-attempt held all 8/8 scheduler slots,
-cleared both two-window admissions at maximum accepted CPU busy fractions
+admitted `vmi1227854` community attempt held all 8/8 scheduler slots, cleared
+both pre-canonical two-window admissions at maximum accepted CPU busy fractions
 `3.23%` and `6.90%`, then aborted its NetworkX A/A when `cpu8` exceeded 20%
 for two consecutive windows and reached `76.1%`. Raw-log SHA-256 was
 `928a1df565a971069f606de97075abe2bb16133159fc7bf0100dbead96e4b2e8`;
 its reservation artifact SHA-256 was
 `d8bfcbab37c4543397b99a24e103bc3e2e0946f6951ce42897ab9648664eaa3c`.
+
+The latest full-slot `ovh-a` retries exercised the permanent canonical
+admission contract. Retry 1 cleared both five-consecutive-one-second-window
+admissions at accepted maxima `4.0%` and `9.0%`, then the collaboration
+NetworkX A/A aborted when `cpu9` reached `100.0%` for two 300 ms windows;
+raw-log SHA-256 was
+`a8a655693ebab5642e1ad65a0f1d6711f5591c8833d3a654cef05240525d04b7`.
+Retry 2 cleared both admissions at accepted maxima `7.92%` and `3.0%`, then
+the same null arm aborted when `cpu1` reached `38.2%` for two 300 ms windows;
+raw-log SHA-256 was
+`7765a8e02c6875ac269ae73118b5edae5223431b90fdcf3ff26a46e6022561d8`.
+The preceding 40-window `ovh-a` admission attempt never entered the harness;
+its raw-log SHA-256 was
+`0ce82385eca5e4ae3241bcce588764f86d1c528b979929b3254fa9100cf0cccd`.
 Every admitted process self-reported the intended ELF as line one:
 `348a684395d0d7cbace8b40a1c411643f6a8e01a661ef125078f2cd8fe68b899`.
 
@@ -2008,10 +2021,10 @@ these invalidations; steal remains classified as host contention.
 RESULT: **NO-VERDICT / HARNESS WORKED.**
 
 RETRY PREDICATE: rerun through the Cargo proxy so the benchmark holds every
-worker slot for its whole invocation, and require the final two-window
-admission plus continuous timing contract to pass despite any capability
-probe. Stage the executing ELF outside a directory named `target`; keep the
-exact source/fixture hashes, loaded-ELF line one, NetworkX runtime type
-assertion, complete output identity, interleaved incumbent arm, both A/A
-nulls, and median-CI-only decision. Any host-exclusivity abort remains
-NO-VERDICT.
+worker slot for its whole invocation, and require both
+five-consecutive-one-second-window admissions plus continuous 300 ms timing
+accounting to pass despite any capability probe. Stage the executing ELF
+outside a directory named `target`; keep the exact source/fixture hashes,
+loaded-ELF line one, NetworkX runtime type assertion, complete output identity,
+interleaved incumbent arm, both A/A nulls, and median-CI-only decision. Any
+host-exclusivity abort remains NO-VERDICT.

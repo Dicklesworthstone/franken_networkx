@@ -25,16 +25,17 @@ Adopted 2026-07-25 (br-r37-c1-wbwkb, cc lane) from the fleet-wide contract in
    floor, ranked in the opposite order.
 
 4. **Require host-wide benchmark exclusivity.** Before suite setup and again
-   immediately before measurement, the harness requires two consecutive clear
-   samples of every CPU in the effective cgroup cpuset. A bounded settle loop
-   records rejected windows, allowing compile tail to drain without admitting
-   sustained work. During timing it also accounts for every non-affinity CPU
-   in consecutive windows and aborts if the same CPU exceeds 20% busy in two
-   consecutive windows. That distinguishes sustained co-tenancy from one
-   recorded control-plane wakeup without letting a task that starts after the
-   two admission stages hide behind the benchmark's narrow affinity. Linux
-   guest counters are excluded from the total because they are already included
-   in user/nice; steal remains busy because it is host-level contention.
+   immediately before measurement, the harness requires five consecutive clear
+   one-second samples of every CPU in the effective cgroup cpuset. A bounded
+   300-window settle loop records rejected windows, allowing compile tail to
+   drain without admitting sustained work. During timing it also accounts for
+   every non-affinity CPU in 300 ms windows and aborts if the same CPU exceeds
+   20% busy in two consecutive windows. That distinguishes sustained co-tenancy
+   from one recorded control-plane wakeup without letting a task that starts
+   after the two admission stages hide behind the benchmark's narrow affinity.
+   Linux guest counters are excluded from the total because they are already
+   included in user/nice; steal remains busy because it is host-level
+   contention.
 
 Knobs follow §2.4: `min_sample ~2 ms`, `min_of = 3` inner replicates keeping the
 minimum (the dominant knob; longer samples are a bigger target for preemption).
