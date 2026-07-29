@@ -23,16 +23,18 @@ documentation carries only current supported incumbent figures; correction histo
 stays in this ledger, `docs/LEDGER_RESURRECTION.md`,
 `docs/progress/perf-negative-results.md`, and bead bodies.
 
-New harness invocations additionally require host-wide exclusivity: one
-quiescence sample before suite construction, another immediately before
-measurement, and continuous accounting of every non-affinity CPU throughout
-timing. Every CPU in the effective cgroup cpuset must remain at or below 20%
-busy during admission, even when the benchmark process has a narrow `taskset`
+New harness invocations additionally require host-wide exclusivity: two
+consecutive clear 300 ms windows before suite construction, the same admission
+again immediately before measurement, and continuous accounting of every
+non-affinity CPU throughout timing. The bounded admission loop records rejected
+windows so compile tail may drain without admitting sustained work. Every CPU
+in the effective cgroup cpuset must remain at or below 20% busy during accepted
+admission windows, even when the benchmark process has a narrow `taskset`
 affinity; during timing, the same CPU crossing 20% in two consecutive windows
 is sustained co-tenancy and aborts the invocation. Successful provenance
-records both full-CPU admission maps, the host, scope source, process affinity,
-monitored CPU set, checked-window count, maximum observed busy fraction, and
-maximum consecutive busy-window count.
+records the admission history, host, scope source, process affinity, monitored
+CPU set, checked-window count, maximum observed busy fraction, and maximum
+consecutive busy-window count.
 
 ## 2026-07-29 CloudyTurtle STRICT INCUMBENT WIN GATE: preregistered average-degree-128 `onion_layers` reaches **122.7680x** (`br-r37-c1-04z53.9188`)
 

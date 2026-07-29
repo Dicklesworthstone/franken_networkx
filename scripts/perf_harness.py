@@ -24,13 +24,15 @@ Adopted 2026-07-25 (br-r37-c1-wbwkb, cc lane) from the fleet-wide contract in
    `0.9947-1.0065` — a 30x spread in `cv` for a sub-2x spread in the decidable
    floor, ranked in the opposite order.
 
-4. **Require host-wide benchmark exclusivity.** The harness samples every CPU
-   in the effective cgroup cpuset before suite setup and again immediately
-   before measurement. During timing it also accounts for every non-affinity
-   CPU in consecutive windows and aborts if the same CPU exceeds 20% busy in
-   two consecutive windows. That distinguishes sustained co-tenancy from one
+4. **Require host-wide benchmark exclusivity.** Before suite setup and again
+   immediately before measurement, the harness requires two consecutive clear
+   samples of every CPU in the effective cgroup cpuset. A bounded settle loop
+   records rejected windows, allowing compile tail to drain without admitting
+   sustained work. During timing it also accounts for every non-affinity CPU
+   in consecutive windows and aborts if the same CPU exceeds 20% busy in two
+   consecutive windows. That distinguishes sustained co-tenancy from one
    recorded control-plane wakeup without letting a task that starts after the
-   two admission samples hide behind the benchmark's narrow affinity.
+   two admission stages hide behind the benchmark's narrow affinity.
 
 Knobs follow §2.4: `min_sample ~2 ms`, `min_of = 3` inner replicates keeping the
 minimum (the dominant knob; longer samples are a bigger target for preemption).
@@ -95,6 +97,8 @@ MIN_OF = 3
 ROUNDS = int(os.environ.get("FNX_PERF_ROUNDS", "21"))
 HOST_WIDE_CPU_SAMPLE_S = 0.3
 HOST_WIDE_MAX_BUSY_FRACTION = 0.20
+HOST_WIDE_ADMISSION_CLEAR_WINDOWS = 2
+HOST_WIDE_ADMISSION_MAX_WINDOWS = 40
 HOST_WIDE_CONSECUTIVE_BUSY_WINDOWS = 2
 EXTRA_PROVENANCE: dict[str, object] = {}
 _MEASUREMENT_EXCLUSIVITY = None
@@ -345,22 +349,61 @@ class MeasurementExclusivity:
 def require_host_wide_quiescence(stage: str) -> dict:
     """Fail closed unless the entire effective host cpuset is quiet."""
     cpu_scope, scope_source = _host_wide_cpu_scope()
-    busy = _sample_cpu_busy(cpu_scope)
-    offenders = {
-        cpu: fraction
-        for cpu, fraction in busy.items()
-        if fraction > HOST_WIDE_MAX_BUSY_FRACTION
-    }
-    if offenders:
-        detail = ", ".join(
-            f"cpu{cpu}={fraction * 100.0:.1f}%"
-            for cpu, fraction in sorted(offenders.items())
+    started = perf_counter()
+    clear_streak = 0
+    windows = []
+    accepted_windows = []
+    busy = {}
+    for window_index in range(1, HOST_WIDE_ADMISSION_MAX_WINDOWS + 1):
+        busy = _sample_cpu_busy(cpu_scope)
+        offenders = {
+            cpu: fraction
+            for cpu, fraction in busy.items()
+            if fraction > HOST_WIDE_MAX_BUSY_FRACTION
+        }
+        windows.append(
+            {
+                "window": window_index,
+                "maximum_observed_busy_fraction": max(busy.values()),
+                "offenders": {
+                    str(cpu): fraction
+                    for cpu, fraction in sorted(offenders.items())
+                },
+            }
+        )
+        if offenders:
+            clear_streak = 0
+            accepted_windows.clear()
+            continue
+        clear_streak += 1
+        accepted_windows.append(busy)
+        if clear_streak >= HOST_WIDE_ADMISSION_CLEAR_WINDOWS:
+            break
+    else:
+        last_offenders = windows[-1]["offenders"]
+        detail = (
+            ", ".join(
+                f"cpu{cpu}={fraction * 100.0:.1f}%"
+                for cpu, fraction in last_offenders.items()
+            )
+            if last_offenders
+            else (
+                f"only {clear_streak}/"
+                f"{HOST_WIDE_ADMISSION_CLEAR_WINDOWS} final clear windows"
+            )
         )
         raise RuntimeError(
-            f"host-wide benchmark exclusivity failed at {stage}; CPUs above "
-            f"{HOST_WIDE_MAX_BUSY_FRACTION * 100.0:.1f}% busy: {detail}"
+            f"host-wide benchmark exclusivity failed at {stage} after "
+            f"{HOST_WIDE_ADMISSION_MAX_WINDOWS} windows; required "
+            f"{HOST_WIDE_ADMISSION_CLEAR_WINDOWS} consecutive clear windows: "
+            f"{detail}"
         )
     process_affinity = sorted(os.sched_getaffinity(0))
+    accepted_maximum = max(
+        fraction
+        for accepted in accepted_windows
+        for fraction in accepted.values()
+    )
     return {
         "stage": stage,
         "verdict": "clear",
@@ -371,9 +414,32 @@ def require_host_wide_quiescence(stage: str) -> dict:
         "process_affinity": process_affinity,
         "sample_interval_s": HOST_WIDE_CPU_SAMPLE_S,
         "maximum_busy_fraction": HOST_WIDE_MAX_BUSY_FRACTION,
-        "maximum_observed_busy_fraction": max(busy.values()),
+        "clear_windows_required": HOST_WIDE_ADMISSION_CLEAR_WINDOWS,
+        "windows_sampled": len(windows),
+        "settle_elapsed_s": perf_counter() - started,
+        "rejected_window_count": sum(
+            bool(window["offenders"])
+            for window in windows
+        ),
+        "rejected_windows": [
+            window
+            for window in windows
+            if window["offenders"]
+        ],
+        "maximum_observed_busy_fraction": accepted_maximum,
+        "settle_maximum_observed_busy_fraction": max(
+            window["maximum_observed_busy_fraction"]
+            for window in windows
+        ),
         "busy_cpu_count_above_limit": 0,
         "busy_fractions": {str(cpu): fraction for cpu, fraction in busy.items()},
+        "accepted_clear_busy_fractions": [
+            {
+                str(cpu): fraction
+                for cpu, fraction in accepted.items()
+            }
+            for accepted in accepted_windows
+        ],
     }
 
 
