@@ -1025,7 +1025,7 @@ The cost of a `fnx.algorithm(G)` call decomposes into four chunks:
 | Rust → Python return marshaling | O(output size) | A `PyDict::set_item` per entry plus an arc-bumped node label string. Measured 2026-07-25: **~452 ns per `edges(data=True)` entry** and **~27 ns per `nodes(data=True)` / `adjacency()` entry**. NetworkX pays more per entry on the same shapes (758 ns/edge; 1690 ns/node for `to_dict_of_lists`), because it builds the same containers in interpreted code. |
 | Wrapper-side post-processing (if any) | O(output size) | The 25 wrapper-patched functions add a single pass over the output for iteration-order normalization. Skipped for the 731 - 25 = 706 functions that don't need it. |
 
-**Real-world end-to-end performance — current 2026-07-28 gate.** Four whole jobs
+**Real-world end-to-end performance — current 2026-07-29 gate.** Five whole jobs
 start by loading and cleaning deterministic induced prefixes of the
 [SNAP Astro Physics collaboration graph](https://snap.stanford.edu/data/ca-AstroPh.html),
 run multiple analysis and subgraph stages, and finish by serializing the result.
@@ -1034,14 +1034,15 @@ nodes/edges. NetworkX 3.6.1 and FNX run in one pinned invocation for 21
 alternating-order rounds, with exact complete-output bytes, loaded-ELF identity,
 and separate NetworkX/NetworkX and FNX/FNX nulls. Ratios are NetworkX wall time
 divided by FNX wall time; values above 1 favor FNX. Reproduce with
-`python3 scripts/perf_harness.py realistic-workloads`.
+`PYTHONHASHSEED=0 python3 scripts/perf_harness.py realistic-workloads`.
 
 | Whole job | n=1,000 | n=5,000 | n=10,000 | What it means for a user |
 |---|---:|---:|---:|---|
 | Collaboration cohesion: load → components/core → cohort subgraph → export | **1.4898×** | **1.3232×** | **1.2039×** | FNX finishes this analysis/export pipeline sooner at all three sizes. |
-| Hub routing: load → hub rank → SSSP/BFS tree → radius-2 subgraph → export | **0.7811×** | **0.5482×** | **0.5742×** | NetworkX finishes this output-heavy routing pipeline sooner. |
+| Hub routing: load → hub rank → SSSP/BFS tree → radius-2 subgraph → export | **1.5457×** | **1.1885×** | **1.2159×** | FNX finishes this routing and two-graph export pipeline sooner at all three sizes. |
 | Rich-club analysis: load → rich-club/onion layers → leader subgraph → export | **2.1765×** | **1.8585×** | **1.8392×** | FNX roughly halves the wall time of this compute-heavy pipeline. |
 | Link recommendations: load → core rank → Jaccard/preferential scores → export | **1.0973×** | undecidable | **1.2422×** | FNX wins at 1,000 and 10,000 nodes; the 5,000-node gate has no stable separation. |
+| Community detection: load → label propagation → largest-community subgraph → assignments/export | **1.6538×** | **1.3622×** | **1.4318×** | FNX completes community detection and result export sooner at all three sizes. |
 
 **Per-family performance — current exact incumbent gates.** The 2026-07-25 baseline uses an
 n=2000 / m=8000 random graph and is reproduced with
@@ -1117,11 +1118,10 @@ median-CI gate; reproduce with
 | `karate_club_graph`, `tutte_graph` | **0.38× / 0.76×** | Fixed small literals; nx builds a hard-coded edge list, we pay graph construction |
 | `read_multiline_adjlist` | **0.70×** | Parser is not native |
 | `read_gml` | **0.92×** | GML parse path |
-| Real hub-routing export, n=1,000 / 5,000 / 10,000 | **0.7811× / 0.5482× / 0.5742×** | `write_edgelist(data=False)` converts the native result graphs back to NetworkX before writing |
 
-Keeping the graph on the FNX side avoids conversion between algorithm calls. Delegated output
-formats can still pay a final conversion during serialization; the hub-routing row above measures
-that cost directly.
+Default simple-graph `write_edgelist(data=False)` writes directly from FNX edge
+iteration while preserving exact NetworkX bytes. Non-default and multigraph
+writer configurations retain their compatibility routes.
 
 ---
 

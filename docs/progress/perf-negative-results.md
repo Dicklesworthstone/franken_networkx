@@ -1778,3 +1778,89 @@ RETRY PREDICATE: do not rerun unchanged to select noise. Reopen after a
 workload, implementation, dataset, or toolchain change, or after two
 preregistered dual-null-only invocations on the same pinned CPU each keep
 both null CIs within `0.97-1.03`; then run one 21-round candidate gate.
+
+## 2026-07-29 CloudyTurtle VALID-AB LOSS: real community export crosses from `1.3774x` to `0.8214x` (`br-r37-c1-zgcfy`)
+
+The fifth Phase-2 job reads and cleans the fixed ca-AstroPh input, runs exact
+`label_propagation_communities`, emits deterministic assignments, extracts
+the largest-community subgraph, and writes it. `PYTHONHASHSEED=0` is required
+and recorded; an unseeded setup invocation was excluded after its n=1,000
+checksum varied across processes.
+
+| n | NetworkX/FNX median | candidate CI | NetworkX A/A CI | FNX A/A CI | verdict |
+|---:|---:|---:|---:|---:|---|
+| 1,000 | `1.3774x` | `1.3670-1.3860` | `0.9954-1.0035` | `0.9957-1.0058` | win |
+| 5,000 | `0.8944x` | `0.8831-0.9038` | `0.9950-1.0099` | `0.9796-1.0121` | loss |
+| 10,000 | `0.8214x` | `0.8139-0.8266` | `0.9241-1.0415` | `0.9935-1.0070` | loss |
+
+The community kernel itself widens `1.8023x -> 1.9266x -> 2.1247x`, while
+whole-job output grows to `210.545ms` and `587.180ms` for FNX at 5,000 and
+10,000 nodes versus `24.320ms` and `52.934ms` for NetworkX. At n=10,000 the
+output stage is `39.5209%` of FNX summed wall, and matching it alone predicts
+a `1.3365x` complete-job win. The named mechanism is
+`write_edgelist(data=False)` delegating through whole-graph `_to_nx`.
+
+The loaded ELF was
+`348a684395d0d7cbace8b40a1c411643f6a8e01a661ef125078f2cd8fe68b899`;
+the seeded raw log was
+`acdcd417cf9b149e40ba81947b36e544bd001482611323dafd1a45ceb1eb7d09`.
+
+comparison_class=INCUMBENT
+incumbent=networkx
+incumbent_same_invocation=true
+incumbent_ratio=0.8214x
+campaign_output=false
+decision_gate=median_ci
+cv_role=report_only
+
+RESULT: **VALID-AB LOSS.** The loss worsens with size because integration
+cost grows, not because the Class-1 community kernel has a flat deficit.
+
+RETRY PREDICATE: keep the community kernel; remove only the default simple
+`data=False` writer conversion, then rerun all three complete rows with exact
+bytes, fixed hash seed, loaded-ELF identity, and dual-null median-CI gates.
+
+## 2026-07-29 CloudyTurtle KEEP: direct `data=False` generation flips hub and community whole jobs (`br-r37-c1-04z53.9187`, `br-r37-c1-zgcfy`)
+
+Default simple `Graph`/`DiGraph` `write_edgelist(data=False)` now uses the
+existing byte-identical generate/write loop rather than `_to_nx`. All other
+writer surfaces retain their routes. Focused exact I/O reports `33 passed`.
+
+| whole job | n | NetworkX/FNX median | candidate CI | NetworkX A/A CI | FNX A/A CI |
+|---|---:|---:|---:|---:|---:|
+| hub routing/export | 1,000 | `1.5457x` | `1.5343-1.5530` | `0.9945-1.0081` | `0.9953-1.0038` |
+| hub routing/export | 5,000 | `1.1885x` | `1.1609-1.1984` | `0.9925-1.0082` | `0.9861-1.0055` |
+| hub routing/export | 10,000 | `1.2159x` | `1.2079-1.2488` | `0.9963-1.0095` | `0.9891-1.0191` |
+| community detection/export | 1,000 | `1.6538x` | `1.6410-1.6797` | `0.9924-1.0046` | `0.9819-1.0338` |
+| community detection/export | 5,000 | `1.3622x` | `1.3424-1.3954` | `0.9935-1.0036` | `0.9890-1.0018` |
+| community detection/export | 10,000 | `1.4318x` | `1.4026-1.4438` | `0.9457-1.0323` | `0.9967-1.0145` |
+
+The widest recorded same-invocation A/A null was NetworkX
+`[0.9457,1.0323]`; every complete candidate CI clears its own doubled wider
+null edge. CV is report-only, including the decisive n=5,000 community row's
+`16.33%` NetworkX CV.
+
+Counted output stages confirm the mechanism: community n=10,000 falls
+`587.180ms -> 36.333ms`, and hub n=10,000 falls
+`570.136ms -> 30.158ms`, with exact unchanged complete-output checksums.
+The process self-reported
+`bench_elf_sha256=348a684395d0d7cbace8b40a1c411643f6a8e01a661ef125078f2cd8fe68b899 (13230088 bytes) /data/projects/franken_networkx/target/release/lib_fnx.so`;
+wrapper SHA-256 was
+`46158e297b7908d8f2973beaeefdd14c312fc03e3f39cbd9c7a34393f9b426bf`;
+raw-log SHA-256 was
+`5cb3a348cf4ee9678920714d1e0c777bfec35bd0b5f24fba922f92684f18cc7f`.
+
+comparison_class=INCUMBENT
+incumbent=networkx
+incumbent_same_invocation=true
+incumbent_ratio=1.1885x
+campaign_output=true
+decision_gate=median_ci
+cv_role=report_only
+
+RESULT: **KEEP / CAMPAIGN OUTPUT.** The six rows are exact current incumbent
+wins; the Phase-2 realistic gate is `14` wins / `0` losses / `1` undecidable.
+
+RETRY PREDICATE: preserve the narrow default simple-graph route. Reopen after
+writer/workload/toolchain changes, or independently prove exact bytes and a
+whole-job incumbent gate before extending it to other writer configurations.

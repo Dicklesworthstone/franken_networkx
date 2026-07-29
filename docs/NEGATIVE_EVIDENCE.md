@@ -28195,6 +28195,157 @@ QUALITY / CLOSEOUT: `git diff --check` covers this ledger-only result. No
 Cargo command ran. UBS has no Markdown/JSONL scanner, so no scanner pass is
 claimed.
 
+## 2026-07-29 CloudyTurtle VALID-AB INCUMBENT LOSS: real community pipeline narrows from `1.3774x` to `0.8214x` as output integration grows (`br-r37-c1-zgcfy`)
+
+NEGATIVE-LEDGER-FIRST: the candidate preflight found no prior complete
+`label_propagation_communities` plus real-input/subgraph/assignment/export
+row. The component ledger did show an exact `2.1485x` generated-graph
+label-propagation win and the writer-delegation family, so the new job
+deliberately retained its output boundary.
+
+The fifth Phase-2 job loads and cleans the fixed SNAP ca-AstroPh fixtures,
+computes exact label-propagation communities, emits a deterministic node-to-
+community assignment, extracts the largest-community subgraph, and writes
+that graph. `PYTHONHASHSEED=0` is fixed before startup because the community
+algorithm's valid tie resolution is hash-order-sensitive. An earlier
+unseeded full invocation, raw-log SHA-256
+`cc0cbc27195b4b5cc1fa001c7ee352dde4f6ce454e661f3857a7409e262013e1`,
+was excluded from claims after its n=1,000 output checksum changed across
+processes. The harness now refuses an unset or `random` hash seed and records
+the value in provenance.
+
+The authoritative baseline used 21 alternating-order rounds, `min_of=3`,
+direct complete-byte equality, both arm-specific A/A nulls, and the complete
+bootstrap median-CI gate:
+
+| n | NetworkX/FNX median | candidate 95% CI | NetworkX A/A 95% CI | FNX A/A 95% CI | rounds won | full output SHA-256 |
+|---:|---:|---:|---:|---:|---:|---|
+| 1,000 | `1.3774x` | `1.3670-1.3860` | `0.9954-1.0035` | `0.9957-1.0058` | `21/21` | `db89153bb0cf56579d578d376bbecaacb2804800d0cb1d8dfc1b27ac64b0e716` |
+| 5,000 | **`0.8944x`** | `0.8831-0.9038` | `0.9950-1.0099` | `0.9796-1.0121` | `0/21` | `7b737ac972df4219f568fb94a193e4d8b46b635549732768c22bdc70dff06a59` |
+| 10,000 | **`0.8214x`** | `0.8139-0.8266` | `0.9241-1.0415` | `0.9935-1.0070` | `0/21` | `5b1df4076c1fa78ff2651471e53e9f19a6de81e5d14d38f9a0dfafbb2bdf9314` |
+
+The shape localizes the loss. Exact-output stage medians show NetworkX/FNX
+community detection widening from `34.636/19.217ms = 1.8023x` at n=1,000 to
+`281.225/145.968ms = 1.9266x` at n=5,000 and
+`716.198/337.087ms = 2.1247x` at n=10,000. The complete job moves the other
+way because FNX output grows from `6.762ms` to `210.545ms` to `587.180ms`,
+versus NetworkX `1.615ms`, `24.320ms`, and `52.934ms`. At n=10,000 output is
+`39.5209%` of FNX summed stage wall; matching only NetworkX's output stage
+predicts a `1.3365x` whole-job win, while matching only load/cleanup still
+predicts a `0.9025x` loss. Inspection identifies the counted work:
+`write_edgelist(data=False)` misses `_write_edgelist_generate_fast` and first
+copies the entire native result through `_to_nx`.
+
+The process self-reported line one:
+
+`bench_elf_sha256=348a684395d0d7cbace8b40a1c411643f6a8e01a661ef125078f2cd8fe68b899 (13230088 bytes) /data/projects/franken_networkx/target/release/lib_fnx.so`
+
+Harness SHA-256 was
+`59f94f2dc3011468ed524a771ae2d71c09a2296ee197e39124e4f0f6dd59ff7d`;
+wrapper SHA-256 was
+`8740cc56899d6934d947009e95a3c587635cd2cc1f0e402aaea6d07794283c71`;
+raw-log SHA-256 was
+`acdcd417cf9b149e40ba81947b36e544bd001482611323dafd1a45ceb1eb7d09`.
+
+comparison_class=INCUMBENT
+incumbent=networkx
+incumbent_same_invocation=true
+incumbent_ratio=0.8214x
+campaign_output=false
+decision_gate=median_ci
+cv_role=report_only
+
+RESULT: **VALID-AB LOSS / NO-SHIP.** The per-community interpreted-overhead
+advantage widens, but the complete user job loses at 5,000 and 10,000 nodes
+because a separate output conversion grows with the exported subgraph.
+
+RETRY PREDICATE: do not optimize label propagation for this loss. Route
+default simple `Graph`/`DiGraph` `write_edgelist(data=False)` through the
+already byte-identical generate/write loop without `_to_nx`, preserve exact
+assignment and graph bytes, then require all three complete candidate CIs to
+clear their wider dual-null envelopes.
+
+## 2026-07-29 CloudyTurtle KEEP: `write_edgelist(data=False)` direct generation flips six real whole-job rows (`br-r37-c1-04z53.9187`, `br-r37-c1-zgcfy`)
+
+LEVER: for default-argument simple `Graph` and `DiGraph` calls with
+`data is False`, dispatch directly to `_write_edgelist_generate_fast`.
+NetworkX's public writer is the same `generate_edgelist` loop, and FNX's
+generator was already exact. `data=True`, list-valued data selectors,
+multigraphs, and non-default delimiter/comments/encoding retain their
+existing routes.
+
+ISOMORPHISM PROOF:
+
+- Ordering preserved: yes; both arms iterate the same FNX public edge order,
+  and every final whole-job byte sequence matches the incumbent arm.
+- Tie-breaking unchanged: N/A; the writer only emits the existing edge order.
+- Floating-point unchanged: N/A for `data=False`; edge attributes are omitted.
+- Labels and direction preserved: exact string endpoints and directed
+  orientation flow through `str(u), str(v)` exactly as in NetworkX.
+- File contract preserved: the existing `open_file(mode="wb")` wrapper still
+  handles filenames and binary file objects; non-default surfaces are
+  untouched.
+- Golden outputs: all six complete output SHA-256 values below are unchanged
+  from their pre-lever invocations.
+
+The exact loaded-ELF final invocation produced:
+
+| whole job | n | NetworkX/FNX median | candidate 95% CI | NetworkX A/A 95% CI | FNX A/A 95% CI | full output SHA-256 |
+|---|---:|---:|---:|---:|---:|---|
+| hub routing/export | 1,000 | **`1.5457x`** | `1.5343-1.5530` | `0.9945-1.0081` | `0.9953-1.0038` | `98db1c4d67b29ddefaa8688b03c21a6924bf081c341560de82616d359e35923e` |
+| hub routing/export | 5,000 | **`1.1885x`** | `1.1609-1.1984` | `0.9925-1.0082` | `0.9861-1.0055` | `23a232c058386673998fe426ff650842efb1f37206c0ef66c852c9f3a5120332` |
+| hub routing/export | 10,000 | **`1.2159x`** | `1.2079-1.2488` | `0.9963-1.0095` | `0.9891-1.0191` | `788fc63b846399065ce6c506fae284ec68b0d8b49992a0b4a8f9cc1613e49eb3` |
+| community detection/export | 1,000 | **`1.6538x`** | `1.6410-1.6797` | `0.9924-1.0046` | `0.9819-1.0338` | `db89153bb0cf56579d578d376bbecaacb2804800d0cb1d8dfc1b27ac64b0e716` |
+| community detection/export | 5,000 | **`1.3622x`** | `1.3424-1.3954` | `0.9935-1.0036` | `0.9890-1.0018` | `7b737ac972df4219f568fb94a193e4d8b46b635549732768c22bdc70dff06a59` |
+| community detection/export | 10,000 | **`1.4318x`** | `1.4026-1.4438` | `0.9457-1.0323` | `0.9967-1.0145` | `5b1df4076c1fa78ff2651471e53e9f19a6de81e5d14d38f9a0dfafbb2bdf9314` |
+
+The widest same-invocation A/A null was NetworkX
+`[0.9457,1.0323]` on community detection/export n=10,000. Every complete
+candidate CI clears twice that row's wider log-space null edge. CV remains
+report-only; community n=5,000 had NetworkX CV `16.33%` and still produced a
+decisive candidate CI.
+
+Counted stage attribution confirms the removed work. Community output falls
+from `210.545ms` to `16.597ms` at n=5,000 and from `587.180ms` to `36.333ms`
+at n=10,000; its FNX wall share falls from `39.5209%` to `4.0614%` at
+n=10,000. Hub n=10,000 output falls from `570.136ms` to `30.158ms`, from
+`52.469%` to `6.408%` of FNX summed stages. Post-fix output itself is faster
+than NetworkX (`1.469x` community, `1.531x` hub), and the full exact-output
+stage profiles retain checksums
+`5b1df4076c1fa78ff2651471e53e9f19a6de81e5d14d38f9a0dfafbb2bdf9314`
+and
+`788fc63b846399065ce6c506fae284ec68b0d8b49992a0b4a8f9cc1613e49eb3`.
+
+The process self-reported line one:
+
+`bench_elf_sha256=348a684395d0d7cbace8b40a1c411643f6a8e01a661ef125078f2cd8fe68b899 (13230088 bytes) /data/projects/franken_networkx/target/release/lib_fnx.so`
+
+Wrapper SHA-256 was
+`46158e297b7908d8f2973beaeefdd14c312fc03e3f39cbd9c7a34393f9b426bf`;
+harness SHA-256 was
+`59f94f2dc3011468ed524a771ae2d71c09a2296ee197e39124e4f0f6dd59ff7d`;
+raw-log SHA-256 was
+`5cb3a348cf4ee9678920714d1e0c777bfec35bd0b5f24fba922f92684f18cc7f`.
+
+comparison_class=INCUMBENT
+incumbent=networkx
+incumbent_same_invocation=true
+incumbent_ratio=1.1885x
+campaign_output=true
+decision_gate=median_ci
+cv_role=report_only
+
+RESULT: **KEEP / CAMPAIGN OUTPUT.** Six current whole-job rows beat the actual
+NetworkX 3.6.1 incumbent in the same invocation. Phase 2 now stands at
+fourteen wins, zero losses, and one undecidable row across fifteen real jobs.
+
+RETRY PREDICATE: retain these claims while the dataset/fixtures, workload
+stages, writer dispatch, wrapper, loaded ELF, and Python/NetworkX toolchain
+remain unchanged. Re-measure after any of those change. Do not generalize the
+fast route to multigraphs, list-valued data selectors, or non-default writer
+configuration without independent exact-byte parity and a same-invocation
+whole-job gate.
+
 ## 2026-07-28 CloudyTurtle PHASE-2 REALISTIC INCUMBENT WIN GATE: eight whole-job wins on the real ca-AstroPh graph (`br-r37-c1-04z53.9186`)
 
 NEGATIVE-LEDGER-FIRST: the required candidate preflight for `read_edgelist`,

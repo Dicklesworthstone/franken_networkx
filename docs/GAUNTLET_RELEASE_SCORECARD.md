@@ -5,9 +5,8 @@ Scope: code-first perf backlog verification for `br-r37-c1-04z53` plus
 
 Current verdict: the compute-heavy shortest-path, centrality, core and rich-club
 families are measured wins against unpatched NetworkX 3.6.1. In the realistic
-whole-job gate, cohesion, rich-club and two link-recommendation rows win; the
-output-heavy hub-routing pipeline is a measured loss at all three sizes. Remaining
-sub-1.0x surfaces and their retry predicates are listed in
+whole-job gate, fourteen of fifteen rows win and the remaining
+link-recommendation row is undecidable. Remaining sub-1.0x surfaces and their retry predicates are listed in
 `docs/progress/perf-negative-results.md`.
 
 ## Current head-to-head baseline (2026-07-25)
@@ -93,9 +92,9 @@ bench_elf_sha256 = 348a684395d0d7cbace8b40a1c411643f6a8e01a661ef125078f2cd8fe68b
 The same invocation records `preferential_attachment` as a current loss:
 **0.5949x**, candidate CI **0.5918-0.6006**, A/A null CI **0.9974-1.0016**.
 
-### Realistic end-to-end incumbent gate (2026-07-28)
+### Realistic end-to-end incumbent gate (2026-07-29)
 
-Four recognizable user jobs run from compressed real-graph input through cleanup,
+Five recognizable user jobs run from compressed real-graph input through cleanup,
 multiple analysis/subgraph stages, and serialized output. The source is the
 [SNAP Astro Physics collaboration graph](https://snap.stanford.edu/data/ca-AstroPh.html),
 archive SHA-256
@@ -106,7 +105,8 @@ Deterministic induced fixtures contain `1,000 / 13,410`, `5,000 / 77,598`, and
 `c22b731f7b7f67c91a3bfdc7451d008d06d0ba8472d39a27d843472d5a6fbe34`,
 and `54cdfebe7b0de78e96f7c7ee298b148ab1433c3a1ca8dd19ca5dbd9332cca2ff`.
 
-The pinned process ran 21 alternating-order rounds per row. It compared complete
+The pinned process ran 21 alternating-order rounds per row, with
+`PYTHONHASHSEED=0` for the community-sensitive rows. It compared complete
 canonical bytes directly before timing, measured separate NetworkX/NetworkX and
 FNX/FNX adjacent nulls, and required the complete candidate median CI to clear
 twice the wider null's maximum log-distance from 1.0. CV is report-only.
@@ -126,23 +126,28 @@ bench_elf_sha256 = 348a684395d0d7cbace8b40a1c411643f6a8e01a661ef125078f2cd8fe68b
 | Collaboration cohesion/export, n=1,000 | **1.4898x** | 1.4670-1.5107 | 0.9929-1.0058 | 0.9860-1.0110 | win |
 | Collaboration cohesion/export, n=5,000 | **1.3232x** | 1.2894-1.3587 | 0.9961-1.0150 | 0.9785-1.0353 | win |
 | Collaboration cohesion/export, n=10,000 | **1.2039x** | 1.1684-1.2366 | 0.9461-0.9784 | 0.9798-1.0087 | win |
-| Hub routing/export, n=1,000 | **0.7811x** | 0.7774-0.7920 | 1.0011-1.0099 | 0.9925-1.0131 | loss |
-| Hub routing/export, n=5,000 | **0.5482x** | 0.5217-0.5665 | 0.9938-1.0136 | 0.9593-1.0175 | loss |
-| Hub routing/export, n=10,000 | **0.5742x** | 0.4677-0.6017 | 0.9845-1.0005 | 0.9955-1.0104 | loss |
+| Hub routing/export, n=1,000 | **1.5457x** | 1.5343-1.5530 | 0.9945-1.0081 | 0.9953-1.0038 | win |
+| Hub routing/export, n=5,000 | **1.1885x** | 1.1609-1.1984 | 0.9925-1.0082 | 0.9861-1.0055 | win |
+| Hub routing/export, n=10,000 | **1.2159x** | 1.2079-1.2488 | 0.9963-1.0095 | 0.9891-1.0191 | win |
 | Rich-club/onion export, n=1,000 | **2.1765x** | 2.1579-2.2033 | 0.9939-1.0082 | 0.9934-1.0162 | win |
 | Rich-club/onion export, n=5,000 | **1.8585x** | 1.8015-1.8993 | 0.9856-1.0062 | 0.9885-1.0662 | win |
 | Rich-club/onion export, n=10,000 | **1.8392x** | 1.7798-1.8949 | 0.9920-1.0117 | 0.9523-1.0675 | win |
 | Link-recommendation export, n=1,000 | **1.0973x** | 1.0908-1.0999 | 0.9980-1.0026 | 0.9911-1.0100 | win |
 | Link-recommendation export, n=5,000 | 1.2480x | 1.2104-1.3284 | 0.9756-0.9993 | 0.8965-1.1146 | undecidable |
 | Link-recommendation export, n=10,000 | **1.2422x** | 1.2036-1.2538 | 0.9863-1.0133 | 0.9971-1.0422 | win |
+| Community detection/export, n=1,000 | **1.6538x** | 1.6410-1.6797 | 0.9924-1.0046 | 0.9819-1.0338 | win |
+| Community detection/export, n=5,000 | **1.3622x** | 1.3424-1.3954 | 0.9935-1.0036 | 0.9890-1.0018 | win |
+| Community detection/export, n=10,000 | **1.4318x** | 1.4026-1.4438 | 0.9457-1.0323 | 0.9967-1.0145 | win |
 
 - Collaboration cohesion: FNX finishes component/core analysis plus cohort export
   sooner at every measured size.
-- Hub routing: NetworkX finishes the full routing/tree/subgraph export sooner at
-  every measured size.
+- Hub routing: FNX finishes traversal, result-graph extraction, and two-graph
+  export sooner at every measured size.
 - Rich-club/onion: FNX cuts this compute-heavy job to roughly half the wall time.
 - Link recommendation: FNX wins at 1,000 and 10,000 nodes; the 5,000-node row has
   no stable separation under its dual-null gate.
+- Community detection: FNX finishes label propagation, largest-community
+  extraction, assignment emission, and graph export sooner at every measured size.
 
 Validity of the NetworkX arm rests on the dispatch-trap guard in `scripts/perf_harness.py`: the
 backend-dispatch environment (`NETWORKX_AUTOMATIC_BACKENDS`, `NETWORKX_BACKEND_PRIORITY`,
@@ -268,10 +273,10 @@ Rows still measured below `1.0x` are listed in `README.md`; open items carry ret
 
 | Pillar | Score | Notes |
 | --- | ---: | --- |
-| Performance evidence | Phase 2: 8 wins / 3 losses / 1 undecidable across 12 realistic whole-job rows | Collaboration-core export is `1.2039-1.4898x`; rich-club/onion export is `1.8392-2.1765x`; link recommendation is `1.0973x` at n=1,000 and `1.2422x` at n=10,000. Hub-routing export is `0.5482-0.7811x`; its native shortest-path and BFS stages are faster, but `write_edgelist(data=False)` converts native graphs back to NetworkX and dominates the complete job. |
+| Performance evidence | Phase 2: 14 wins / 0 losses / 1 undecidable across 15 realistic whole-job rows | Collaboration-core export is `1.2039-1.4898x`; rich-club/onion export is `1.8392-2.1765x`; hub routing is `1.1885-1.5457x`; community detection/export is `1.3622-1.6538x`; link recommendation wins at n=1,000 and n=10,000. |
 | Conformance evidence | focused guards green for kept rows and rejects; one baseline fixture drift fixed | The cod-b `non_edges_sparse_undirected` row-cache keep reports focused order/cache/mutation conformance `48 passed`, `py_compile`, RCH release build, and RCH Criterion proof. `br-r37-c1-04z53.9160` reports direct helper/public parity for in-place and copy behavior, dirty live edge-dict sync, source isolation, missing weights, bool weights, and nonnumeric fallback, plus `py_compile`, `cargo fmt --check`, `fnx-classes` check/clippy/test, `fnx-python` check/clippy/build/test-compatible Rust tests, and direct preloaded release-extension conformance. `br-r37-c1-04z53.9159` reports parity OK for copy/in-place behavior, missing weights, bool weights, zero row sums, `MultiDiGraph` fallback, and string-weight exception fallback, plus `py_compile`, `cargo fmt --check`, and RCH `fnx-python` check/clippy/test/build. The cod-b borrowed dirty-key sparse-export row reports sorted-coordinate sparse payload parity, focused sparse parity `304 passed`, final-source RCH `fnx-python` clippy/build, `cargo fmt --check`, and UBS with no new critical finding. Existing rows retain the focused guards recorded above. Separate broad graph-metrics `edge_boundary` overlap-order drift is filed as `br-r37-c1-c4ou2`; the broad directed Dijkstra finalize-order drift exposed during the BFS closeout is filed as `br-r37-c1-syrw5`. |
-| Negative-evidence discipline | Phase 2: 12 / 12 ledgered; preflight self-check 19 / 19 | Every realistic row records exact output identity, candidate and dual-null median CIs, loaded-ELF identity, dataset identity, verdict, and a concrete retry predicate. |
-| Backlog conversion | Phase-2 gate complete; one profile-attributed follow-up open | `br-r37-c1-04z53.9187` owns the measured `write_edgelist(data=False)` integration-cost loss. |
+| Negative-evidence discipline | Phase 2: 15 / 15 ledgered; preflight self-check 19 / 19 | Every realistic row records exact output identity, candidate and dual-null median CIs, loaded-ELF identity, dataset identity, verdict, and a concrete retry predicate. |
+| Backlog conversion | Phase-2 gate complete; no active realistic loss | The next Class-1 hunt starts from scale shape and a named non-zero-self-time profile rather than accessor microbench assumptions. |
 
-Next required row: `br-r37-c1-04z53.9187`, the profile-attributed
-`write_edgelist(data=False)` conversion cost in the realistic hub-routing job.
+Next required row: continue the profile-attributed Class-1 scale hunt on a
+new pure-Python-loop family; the realistic whole-job gate has no active loss.

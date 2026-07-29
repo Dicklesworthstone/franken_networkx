@@ -23026,18 +23026,30 @@ def _write_adjlist_generate_fast(G, path, comments, delimiter, encoding):
 def write_edgelist(G, path, comments="#", delimiter=" ", data=True, encoding="utf-8"):
     """Write a graph as a list of edges.
 
-    The default simple-graph surface uses the Rust-native writer, which emits
-    NetworkX-compatible Python-dict-repr edge data. Multigraphs and non-default
-    formatting kwargs delegate to NetworkX so their public semantics remain
-    exact.
+    The default simple-graph surface uses either the Rust-native writer or the
+    exact local generate/write loop. Multigraphs and non-default formatting
+    kwargs delegate to NetworkX so their public semantics remain exact.
     """
     if (
         comments == "#"
         and delimiter == " "
-        and data is True
         and encoding == "utf-8"
         and not G.is_multigraph()
     ):
+        if data is False:
+            # br-r37-c1-04z53.9187: omitting attrs needs only the exact local
+            # generate/write loop; converting the whole graph through `_to_nx`
+            # made real output-heavy jobs lose increasingly badly with size.
+            return _write_edgelist_generate_fast(G, path, delimiter, data, encoding)
+        if data is not True:
+            return _write_edgelist_via_nx(
+                G,
+                path,
+                comments=comments,
+                delimiter=delimiter,
+                data=data,
+                encoding=encoding,
+            )
         if _edgelist_native_writer_preserves_node_labels(
             G
         ) and not _edgelist_has_multiattr_edge(G):

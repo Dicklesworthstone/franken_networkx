@@ -153,6 +153,7 @@ def provenance_header(tag: str) -> dict:
         "nx_version": nx.__version__,
         "nx_file": nx.__file__,
         "python": sys.version.split()[0],
+        "pythonhashseed": os.environ.get("PYTHONHASHSEED"),
         "pid": os.getpid(),
         "loadavg": os.getloadavg(),
     }
@@ -2729,10 +2730,51 @@ def _workload_link_recommendation(module, path: Path, size: int) -> bytes:
     )
 
 
+def _workload_community_detection(module, path: Path, size: int) -> bytes:
+    """Load, detect collaboration communities, extract the largest, and export."""
+    graph, self_loops_removed = _load_real_graph(module, path, size)
+    communities = [
+        sorted(community)
+        for community in module.community.label_propagation_communities(graph)
+    ]
+    communities.sort(
+        key=lambda nodes: (-len(nodes), nodes[0] if nodes else ""),
+    )
+    if not communities:
+        raise RuntimeError("realistic community workload returned no communities")
+    largest = graph.subgraph(communities[0]).copy()
+    assignments = sorted(
+        (node, community_index)
+        for community_index, nodes in enumerate(communities)
+        for node in nodes
+    )
+    summary = {
+        "job": "community-detection-export",
+        "nodes": graph.number_of_nodes(),
+        "edges": graph.number_of_edges(),
+        "self_loops_removed": self_loops_removed,
+        "community_count": len(communities),
+        "community_sizes": [len(nodes) for nodes in communities],
+        "assignments": assignments,
+        "largest_community_nodes": largest.number_of_nodes(),
+        "largest_community_edges": largest.number_of_edges(),
+    }
+    return _pack_realistic_result(
+        summary,
+        _write_edgelist_bytes(module, largest),
+    )
+
+
 def suite_realistic_workloads():
     """Phase 2: whole real-world jobs, from compressed input to output bytes."""
     import networkx as nx
     import franken_networkx as fnx
+
+    hash_seed = os.environ.get("PYTHONHASHSEED")
+    if hash_seed is None or hash_seed.lower() == "random":
+        raise RuntimeError(
+            "realistic-workloads requires a fixed PYTHONHASHSEED set before Python starts"
+        )
 
     raw_sizes = os.environ.get("FNX_REALISTIC_SIZES", "1000,5000,10000")
     try:
@@ -2743,12 +2785,35 @@ def suite_realistic_workloads():
         raise ValueError("FNX_REALISTIC_SIZES must contain integers >= 2")
 
     fixture_paths = _prepare_realistic_fixtures(sizes)
-    workloads = (
+    available_workloads = (
         ("collaboration-core-export", _workload_collaboration_core),
         ("hub-routing-export", _workload_hub_routing),
         ("rich-club-onion-export", _workload_rich_club),
         ("link-recommendation-export", _workload_link_recommendation),
+        ("community-detection-export", _workload_community_detection),
     )
+    requested_names = os.environ.get("FNX_REALISTIC_JOBS")
+    if requested_names is None:
+        workloads = available_workloads
+    else:
+        selected = {
+            name.strip()
+            for name in requested_names.split(",")
+            if name.strip()
+        }
+        known = {name for name, _ in available_workloads}
+        unknown = selected - known
+        if not selected or unknown:
+            raise ValueError(
+                "FNX_REALISTIC_JOBS must select known comma-separated jobs; "
+                f"unknown={sorted(unknown)} known={sorted(known)}"
+            )
+        workloads = tuple(
+            item
+            for item in available_workloads
+            if item[0] in selected
+        )
+    EXTRA_PROVENANCE["realistic_jobs"] = [name for name, _ in workloads]
     rows = []
     for workload_name, workload in workloads:
         for size in sizes:
