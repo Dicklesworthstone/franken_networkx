@@ -26,10 +26,10 @@ Adopted 2026-07-25 (br-r37-c1-wbwkb, cc lane) from the fleet-wide contract in
 
 4. **Require host-wide benchmark exclusivity.** The harness samples every CPU
    in the effective cgroup cpuset before suite setup and again immediately
-   before measurement. If any CPU is more than 20% busy during either 300 ms
-   sample, the invocation fails closed before emitting an admissible result.
-   Pinning the benchmark process to one quiet CPU cannot hide co-tenancy
-   elsewhere on the host.
+   before measurement. During timing it also accounts for every non-affinity
+   CPU in consecutive windows and aborts if any exceeds 20% busy. Pinning the
+   benchmark process to one quiet CPU cannot hide co-tenancy elsewhere on the
+   host, including a task that starts after the two admission samples.
 
 Knobs follow §2.4: `min_sample ~2 ms`, `min_of = 3` inner replicates keeping the
 minimum (the dominant knob; longer samples are a bigger target for preemption).
@@ -95,6 +95,7 @@ ROUNDS = int(os.environ.get("FNX_PERF_ROUNDS", "21"))
 HOST_WIDE_CPU_SAMPLE_S = 0.3
 HOST_WIDE_MAX_BUSY_FRACTION = 0.20
 EXTRA_PROVENANCE: dict[str, object] = {}
+_MEASUREMENT_EXCLUSIVITY = None
 
 # The nx arm must be genuinely unpatched upstream: a "2.6x faster" claim in this
 # repo's history was once measured against an already-dispatched fnx baseline and
@@ -229,6 +230,14 @@ def _sample_cpu_busy(cpu_scope: set[int]) -> dict[int, float]:
     before = _read_cpu_ticks()
     sleep(HOST_WIDE_CPU_SAMPLE_S)
     after = _read_cpu_ticks()
+    return _cpu_busy_between(before, after, cpu_scope)
+
+
+def _cpu_busy_between(
+    before: dict[int, tuple[int, int]],
+    after: dict[int, tuple[int, int]],
+    cpu_scope: set[int],
+) -> dict[int, float]:
     busy: dict[int, float] = {}
     for cpu in sorted(cpu_scope):
         if cpu not in before or cpu not in after:
@@ -237,6 +246,78 @@ def _sample_cpu_busy(cpu_scope: set[int]) -> dict[int, float]:
         idle = max(0, after[cpu][1] - before[cpu][1])
         busy[cpu] = 1.0 if total == 0 else max(0, total - idle) / total
     return busy
+
+
+class MeasurementExclusivity:
+    """Continuously account for work outside the benchmark's pinned CPUs."""
+
+    def __init__(self) -> None:
+        cpu_scope, scope_source = _host_wide_cpu_scope()
+        process_affinity = set(os.sched_getaffinity(0))
+        monitored_cpus = cpu_scope - process_affinity
+        if not monitored_cpus:
+            raise RuntimeError(
+                "host-wide measurement exclusivity requires a taskset affinity "
+                "strictly smaller than the effective host CPU scope"
+            )
+        self.cpu_scope = cpu_scope
+        self.scope_source = scope_source
+        self.process_affinity = process_affinity
+        self.monitored_cpus = monitored_cpus
+        self.context = "measurement"
+        self.checked_windows = 0
+        self.maximum_observed_busy_fraction = 0.0
+        self._window_started = perf_counter()
+        self._window_before = _read_cpu_ticks()
+
+    def checkpoint(self, *, finish: bool = False) -> None:
+        elapsed = perf_counter() - self._window_started
+        if not finish and elapsed < HOST_WIDE_CPU_SAMPLE_S:
+            return
+        if finish and elapsed < HOST_WIDE_CPU_SAMPLE_S:
+            sleep(HOST_WIDE_CPU_SAMPLE_S - elapsed)
+        after = _read_cpu_ticks()
+        busy = _cpu_busy_between(
+            self._window_before,
+            after,
+            self.monitored_cpus,
+        )
+        self.checked_windows += 1
+        self.maximum_observed_busy_fraction = max(
+            self.maximum_observed_busy_fraction,
+            max(busy.values()),
+        )
+        offenders = {
+            cpu: fraction
+            for cpu, fraction in busy.items()
+            if fraction > HOST_WIDE_MAX_BUSY_FRACTION
+        }
+        self._window_started = perf_counter()
+        self._window_before = after
+        if offenders:
+            detail = ", ".join(
+                f"cpu{cpu}={fraction * 100.0:.1f}%"
+                for cpu, fraction in sorted(offenders.items())
+            )
+            raise RuntimeError(
+                "host-wide benchmark exclusivity failed during "
+                f"{self.context}; non-affinity CPUs above "
+                f"{HOST_WIDE_MAX_BUSY_FRACTION * 100.0:.1f}% busy: {detail}"
+            )
+
+    def provenance(self) -> dict:
+        return {
+            "verdict": "clear",
+            "host": os.uname().nodename,
+            "scope_source": self.scope_source,
+            "scope_cpus": sorted(self.cpu_scope),
+            "process_affinity": sorted(self.process_affinity),
+            "monitored_non_affinity_cpus": sorted(self.monitored_cpus),
+            "sample_window_s": HOST_WIDE_CPU_SAMPLE_S,
+            "maximum_busy_fraction": HOST_WIDE_MAX_BUSY_FRACTION,
+            "checked_windows": self.checked_windows,
+            "maximum_observed_busy_fraction": self.maximum_observed_busy_fraction,
+        }
 
 
 def require_host_wide_quiescence(stage: str) -> dict:
@@ -281,7 +362,10 @@ def _time_batch(fn, inner: int) -> float:
     start = perf_counter()
     for _ in range(inner):
         fn()
-    return (perf_counter() - start) / inner
+    elapsed = perf_counter() - start
+    if _MEASUREMENT_EXCLUSIVITY is not None:
+        _MEASUREMENT_EXCLUSIVITY.checkpoint()
+    return elapsed / inner
 
 
 def calibrate(fn, target_s: float = MIN_SAMPLE_S) -> int:
@@ -331,6 +415,8 @@ def paired(label: str, arm_a, arm_b, rounds: int = ROUNDS, min_of: int = MIN_OF)
     and arm_b = franken_networkx this reads as "fnx is Nx faster", matching the
     ledger convention.
     """
+    if _MEASUREMENT_EXCLUSIVITY is not None:
+        _MEASUREMENT_EXCLUSIVITY.context = label
     inner_a, inner_b = calibrate(arm_a), calibrate(arm_b)
     _sample(arm_a, inner_a, 1)
     _sample(arm_b, inner_b, 1)
@@ -442,12 +528,14 @@ def canonical_bytes(obj) -> bytes:
 
 def run_rows(tag: str, rows, rounds: int = ROUNDS) -> list[dict]:
     """Prove byte-identity, then gate against both arm-specific A/A nulls."""
+    global _MEASUREMENT_EXCLUSIVITY
     quiescence = EXTRA_PROVENANCE.get("host_wide_quiescence")
     if not isinstance(quiescence, dict) or "pre_setup" not in quiescence:
         raise RuntimeError("host-wide pre-setup quiescence proof is missing")
     quiescence["pre_measurement"] = require_host_wide_quiescence(
         "pre_measurement",
     )
+    _MEASUREMENT_EXCLUSIVITY = MeasurementExclusivity()
     provenance_header(tag)
     results = []
     for label, arm_nx, arm_fnx in rows:
@@ -479,6 +567,18 @@ def run_rows(tag: str, rows, rounds: int = ROUNDS) -> list[dict]:
             "cv": [cand.cv_a, cand.cv_b],
             "p50_us": [cand.p50_a * 1e6, cand.p50_b * 1e6],
         })
+    _MEASUREMENT_EXCLUSIVITY.context = "measurement closeout"
+    _MEASUREMENT_EXCLUSIVITY.checkpoint(finish=True)
+    print(
+        "host_wide_measurement_exclusivity_json="
+        + json.dumps(
+            _MEASUREMENT_EXCLUSIVITY.provenance(),
+            sort_keys=True,
+            separators=(",", ":"),
+        ),
+        flush=True,
+    )
+    _MEASUREMENT_EXCLUSIVITY = None
     return results
 
 

@@ -872,7 +872,30 @@ if target_dir:
 
 criterion_group!(benches, bench_public_api_gauntlet);
 
+fn run_python_perf_harness_if_requested() -> Option<i32> {
+    let suite = std::env::var_os("FNX_PYTHON_PERF_SUITE")?;
+    let cpu = std::env::var_os("FNX_PYTHON_PERF_CPU")
+        .expect("FNX_PYTHON_PERF_CPU must pin the Python harness to one CPU");
+    let repo_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .and_then(std::path::Path::parent)
+        .expect("fnx-python crate must live under crates/");
+    let status = std::process::Command::new("taskset")
+        .arg("--cpu-list")
+        .arg(cpu)
+        .arg("python3")
+        .arg(repo_root.join("scripts/perf_harness.py"))
+        .arg(suite)
+        .current_dir(repo_root)
+        .status()
+        .expect("failed to launch the Python performance harness through taskset");
+    Some(status.code().unwrap_or(1))
+}
+
 fn main() {
+    if let Some(exit_code) = run_python_perf_harness_if_requested() {
+        std::process::exit(exit_code);
+    }
     println!("bench_elf_sha256={}", self_identity());
     benches();
     Criterion::default().configure_from_args().final_summary();
