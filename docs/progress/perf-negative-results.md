@@ -1659,3 +1659,122 @@ CORRECTNESS FINDING, not timed: `maximum_branching` produced a PARITY-DIVERGENCE
 on an 800-node weighted DiGraph. `minimum_branching` on the SAME fixture agrees exactly and is
 3.9768x, which localises the defect to the maximisation path rather than to shared branching
 machinery. Filed `br-r37-c1-kb9hm`.
+
+## 2026-07-28 CloudyTurtle PHASE-2 REALISTIC INCUMBENT WIN GATE: eight exact whole-job wins (`br-r37-c1-04z53.9186`)
+
+The permanent `realistic-workloads` suite measures four complete jobs on
+deterministic induced prefixes of the real SNAP ca-AstroPh collaboration
+graph. Each timed arm reads the compressed file, removes self-loops, performs
+multiple analysis/subgraph stages, and serializes the result. The source
+archive SHA-256 is
+`51bf1e2cace269b884481a8502474efa67c0fd01d998ff7f5a154d7d3e527f27`;
+the n=1,000 / 5,000 / 10,000 fixture SHA-256 values are
+`d0d78495aa4731b0cef3898b68455b9b67c46074321fda14f93839b9fa8b31a4`,
+`c22b731f7b7f67c91a3bfdc7451d008d06d0ba8472d39a27d843472d5a6fbe34`,
+and `54cdfebe7b0de78e96f7c7ee298b148ab1433c3a1ca8dd19ca5dbd9332cca2ff`.
+
+Genuine NetworkX 3.6.1 and FNX ran in one process pinned to CPU 28 for 21
+alternating-order `min_of=3` rounds. Complete canonical bytes were compared
+directly before timing. Every row measured separate NetworkX/NetworkX and
+FNX/FNX adjacent nulls, and the complete candidate bootstrap median CI had to
+clear twice the wider null's maximum log-distance from 1.0. CV was
+report-only.
+
+Line one self-reported
+`bench_elf_sha256=348a684395d0d7cbace8b40a1c411643f6a8e01a661ef125078f2cd8fe68b899`
+(`13,230,088` bytes) at
+`/data/projects/franken_networkx/target/release/lib_fnx.so`. Wrapper SHA-256
+was `8740cc56899d6934d947009e95a3c587635cd2cc1f0e402aaea6d07794283c71`;
+harness SHA-256 was
+`c8e04175a1513068d0cdd3e2f373be4db4c8133abf0305af80dc1aca5eb63cd0`;
+raw log SHA-256 was
+`066715bd0ccc7db1694e922928c58cfd009efecc071998d2db5370ca7660a4d0`.
+
+| whole job | n | NetworkX/FNX median | candidate CI | NetworkX A/A CI | FNX A/A CI | verdict |
+|---|---:|---:|---:|---:|---:|---|
+| collaboration cohesion/export | 1,000 | `1.4898x` | `1.4670-1.5107` | `0.9929-1.0058` | `0.9860-1.0110` | win |
+| collaboration cohesion/export | 5,000 | `1.3232x` | `1.2894-1.3587` | `0.9961-1.0150` | `0.9785-1.0353` | win |
+| collaboration cohesion/export | 10,000 | `1.2039x` | `1.1684-1.2366` | `0.9461-0.9784` | `0.9798-1.0087` | win |
+| rich-club/onion export | 1,000 | `2.1765x` | `2.1579-2.2033` | `0.9939-1.0082` | `0.9934-1.0162` | win |
+| rich-club/onion export | 5,000 | `1.8585x` | `1.8015-1.8993` | `0.9856-1.0062` | `0.9885-1.0662` | win |
+| rich-club/onion export | 10,000 | `1.8392x` | `1.7798-1.8949` | `0.9920-1.0117` | `0.9523-1.0675` | win |
+| link-recommendation export | 1,000 | `1.0973x` | `1.0908-1.0999` | `0.9980-1.0026` | `0.9911-1.0100` | win |
+| link-recommendation export | 10,000 | `1.2422x` | `1.2036-1.2538` | `0.9863-1.0133` | `0.9971-1.0422` | win |
+
+The widest kept-row same-invocation A/A null was FNX
+`[0.9523,1.0675]` at rich-club/onion n=10,000.
+
+comparison_class=INCUMBENT
+incumbent=networkx
+incumbent_same_invocation=true
+incumbent_ratio=1.0973x
+campaign_output=true
+decision_gate=median_ci
+cv_role=report_only
+
+RESULT: **KEEP / CAMPAIGN OUTPUT.** A user sees lower complete-job wall time
+for all three cohesion and rich-club inputs, and for recommendation at n=1,000
+and n=10,000.
+
+RETRY PREDICATE: keep these exact rows until the source/fixture, workload
+stages, implementation, wrapper, or Python/NetworkX toolchain changes. Any
+new claim must retain exact source and fixture hashes, direct complete-byte
+comparison, runtime NetworkX graph-type assertion, loaded-ELF line one, both
+arm-specific A/A nulls, and complete median-CI gating.
+
+## 2026-07-28 CloudyTurtle VALID-AB INCUMBENT LOSS: whole hub-routing export loses at all three real sizes (`br-r37-c1-04z53.9186`)
+
+| n | NetworkX/FNX median | candidate CI | NetworkX A/A CI | FNX A/A CI | rounds won |
+|---:|---:|---:|---:|---:|---:|
+| 1,000 | `0.7811x` | `0.7774-0.7920` | `1.0011-1.0099` | `0.9925-1.0131` | `0/21` |
+| 5,000 | `0.5482x` | `0.5217-0.5665` | `0.9938-1.0136` | `0.9593-1.0175` | `0/21` |
+| 10,000 | `0.5742x` | `0.4677-0.6017` | `0.9845-1.0005` | `0.9955-1.0104` | `0/21` |
+
+The exact loaded-ELF n=10,000 stage profile attributes the loss:
+NetworkX/FNX median milliseconds were load/clean `206.284/274.169`, hub rank
+`6.001/9.348`, SSSP `17.486/1.783`, BFS tree `30.440/3.892`, radius-two
+subgraph copy `257.236/227.276`, and two-graph serialization
+`40.419/570.136`. FNX's native traversals win, but
+`write_edgelist(data=False)` delegates through `_to_nx`; serialization is
+`52.469%` of FNX's summed stage wall, a `2.1039x` whole-job Amdahl ceiling.
+
+comparison_class=INCUMBENT
+incumbent=networkx
+incumbent_same_invocation=true
+incumbent_ratio=0.5482x
+campaign_output=false
+decision_gate=median_ci
+cv_role=report_only
+
+RESULT: **VALID-AB LOSS / NO-SHIP.** NetworkX finishes this output-heavy
+routing job sooner at every measured size.
+
+RETRY PREDICATE: do not optimize BFS, SSSP, or subgraph copy for this loss.
+Route exact simple `Graph`/`DiGraph` `write_edgelist(data=False)` through the
+byte-identical `generate_edgelist` writer without `_to_nx`, preserving every
+path/file, encoding, delimiter/comments, label, direction, order, and byte
+contract. Then re-run all three complete jobs with both same-invocation A/A
+nulls and require each complete candidate CI to clear its wider envelope.
+
+## 2026-07-28 CloudyTurtle VALID-AB UNDECIDABLE: link-recommendation export n=5,000 (`br-r37-c1-04z53.9186`)
+
+The point estimate was `1.2480x`, candidate CI `1.2104-1.3284`, NetworkX A/A
+CI `0.9756-0.9993`, and FNX A/A CI `0.8965-1.1146`. The wider FNX null made
+the doubled-log decision floor `1.2443x`; the candidate's complete CI did not
+clear it.
+
+comparison_class=INCUMBENT
+incumbent=networkx
+incumbent_same_invocation=true
+incumbent_ratio=1.2480x
+campaign_output=false
+decision_gate=median_ci
+cv_role=report_only
+
+RESULT: **VALID-AB / UNDECIDABLE.** The n=5,000 point estimate is not a
+competitive claim.
+
+RETRY PREDICATE: do not rerun unchanged to select noise. Reopen after a
+workload, implementation, dataset, or toolchain change, or after two
+preregistered dual-null-only invocations on the same pinned CPU each keep
+both null CIs within `0.97-1.03`; then run one 21-round candidate gate.

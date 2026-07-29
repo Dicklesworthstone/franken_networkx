@@ -9,11 +9,12 @@ Adopted 2026-07-25 (br-r37-c1-wbwkb, cc lane) from the fleet-wide contract in
    shell step *next to* the run proves nothing about which ELF executed, and rch
    compiles into an opaque per-worker pool target dir.
 
-2. **A/A null control in the same invocation.** Every row is measured twice:
-   `paired(base, base)` establishes the noise floor, then `paired(base, cand)`.
-   Both arms are timed INTERLEAVED inside one round with the order alternating per
-   round, and the statistic is the **median of per-round ratios** — not a ratio of
-   medians, which lets drift in either arm leak into the result.
+2. **A/A null controls in the same invocation.** Every row measures both
+   `paired(nx, nx)` and `paired(fnx, fnx)` before `paired(nx, fnx)`. The wider
+   arm-specific null establishes the noise floor. Both arms are timed INTERLEAVED
+   inside one round with the order alternating per round, and the statistic is the
+   **median of per-round ratios** — not a ratio of medians, which lets drift in
+   either arm leak into the result.
 
 3. **Gate on the median-CI, never on `cv`.** A claim is decidable iff its entire
    bootstrap 95% CI of the median lies outside the A/A null's bootstrap 95% CI
@@ -57,6 +58,7 @@ Usage:
     python3 scripts/perf_harness.py marshaling
     python3 scripts/perf_harness.py class1-scaling
     python3 scripts/perf_harness.py class1-frontier
+    python3 scripts/perf_harness.py realistic-workloads
 
 Point `PYTHONPATH` at the package tree under test; the header records which one ran.
 Set `FNX_EXTENSION_PATH` to preload an exact freshly built `_fnx` shared object
@@ -65,19 +67,25 @@ instead of accepting whichever installed extension happens to be importable.
 
 from __future__ import annotations
 
+import gzip
 import hashlib
+import hmac
 import importlib.util
+import io
 import json
 import math
 import os
 import statistics
 import sys
+import urllib.request
 from dataclasses import dataclass, field
+from pathlib import Path
 from time import perf_counter
 
 MIN_SAMPLE_S = 0.002
 MIN_OF = 3
 ROUNDS = int(os.environ.get("FNX_PERF_ROUNDS", "21"))
+EXTRA_PROVENANCE: dict[str, object] = {}
 
 # The nx arm must be genuinely unpatched upstream: a "2.6x faster" claim in this
 # repo's history was once measured against an already-dispatched fnx baseline and
@@ -148,6 +156,7 @@ def provenance_header(tag: str) -> dict:
         "pid": os.getpid(),
         "loadavg": os.getloadavg(),
     }
+    info.update(EXTRA_PROVENANCE)
     print(json.dumps(info), flush=True)
     return info
 
@@ -245,27 +254,45 @@ def paired(label: str, arm_a, arm_b, rounds: int = ROUNDS, min_of: int = MIN_OF)
     )
 
 
-def decidable(cand: PairedResult, null: PairedResult, margin: float = 2.0) -> tuple[bool, str]:
-    edge = max(abs(math.log(null.ratio_ci[0])), abs(math.log(null.ratio_ci[1])))
+def decidable(
+    cand: PairedResult,
+    *nulls: PairedResult,
+    margin: float = 2.0,
+) -> tuple[bool, str]:
+    if not nulls:
+        raise ValueError("at least one A/A null is required")
+    edge = max(
+        abs(math.log(bound))
+        for null in nulls
+        for bound in null.ratio_ci
+    )
     need = margin * edge
     lower_log = math.log(cand.ratio_ci[0])
     upper_log = math.log(cand.ratio_ci[1])
+    null_text = ", ".join(
+        f"{null.label.split(']')[0].lstrip('[')} "
+        f"{null.ratio_ci[0]:.4f}-{null.ratio_ci[1]:.4f}"
+        for null in nulls
+    )
     return lower_log > need or upper_log < -need, (
         f"speedup_floor={math.exp(need):.4f}x "
         f"slowdown_ceiling={math.exp(-need):.4f}x "
-        f"(null CI {null.ratio_ci[0]:.4f}-{null.ratio_ci[1]:.4f}, {margin:g}x margin)"
+        f"(null CIs {null_text}, {margin:g}x margin)"
     )
 
 
-def report(result: PairedResult, null: PairedResult | None = None) -> str:
+def report(
+    result: PairedResult,
+    nulls: tuple[PairedResult, ...] = (),
+) -> str:
     line = (
         f"{result.label:<54} ratio_p50={result.ratio_p50:9.4f}x "
         f"CI=[{result.ratio_ci[0]:.4f},{result.ratio_ci[1]:.4f}] "
         f"a={result.p50_a * 1e6:9.2f}us b={result.p50_b * 1e6:9.2f}us "
         f"cv={result.cv_a:5.2f}/{result.cv_b:5.2f}% wins={result.wins}"
     )
-    if null is not None:
-        ok, why = decidable(result, null)
+    if nulls:
+        ok, why = decidable(result, *nulls)
         line += f"  -> {'DECIDABLE' if ok else 'UNDECIDABLE'} {why}"
     print(line, flush=True)
     return line
@@ -295,37 +322,43 @@ def canon(obj):
     return obj
 
 
-def digest(obj) -> str:
-    return hashlib.sha256(
-        json.dumps(canon(obj), sort_keys=False, default=str).encode()
-    ).hexdigest()[:16]
+def canonical_bytes(obj) -> bytes:
+    """Complete canonical bytes; equality never relies on a truncated digest."""
+    return json.dumps(canon(obj), sort_keys=False, default=str).encode()
 
 
 def run_rows(tag: str, rows, rounds: int = ROUNDS) -> list[dict]:
-    """Prove byte-identity, then measure each row against its own A/A null."""
+    """Prove byte-identity, then gate against both arm-specific A/A nulls."""
     provenance_header(tag)
     results = []
     for label, arm_nx, arm_fnx in rows:
         left, right = arm_nx(), arm_fnx()
-        da, db = digest(left), digest(right)
-        if da != db:
+        left_bytes = canonical_bytes(left)
+        right_bytes = canonical_bytes(right)
+        da = hashlib.sha256(left_bytes).hexdigest()
+        db = hashlib.sha256(right_bytes).hexdigest()
+        if left_bytes != right_bytes:
             print(f"{label:<54} PARITY-DIVERGENCE nx={da} fnx={db} — NOT TIMED", flush=True)
             results.append({"label": label, "parity": "DIVERGENT"})
             continue
-        null = paired(f"[A/A null] {label}", arm_nx, arm_nx, rounds=rounds)
+        null_nx = paired(f"[A/A nx] {label}", arm_nx, arm_nx, rounds=rounds)
+        null_fnx = paired(f"[A/A fnx] {label}", arm_fnx, arm_fnx, rounds=rounds)
         cand = paired(label, arm_nx, arm_fnx, rounds=rounds)
-        report(null)
-        report(cand, null)
-        ok, _ = decidable(cand, null)
+        report(null_nx)
+        report(null_fnx)
+        report(cand, (null_nx, null_fnx))
+        ok, _ = decidable(cand, null_nx, null_fnx)
         results.append({
             "label": label,
             "parity": "IDENTICAL",
             "checksum": da,
             "ratio_p50": cand.ratio_p50,
             "ratio_ci": list(cand.ratio_ci),
-            "null_ci": list(null.ratio_ci),
+            "null_nx_ci": list(null_nx.ratio_ci),
+            "null_fnx_ci": list(null_fnx.ratio_ci),
             "decidable": ok,
             "cv": [cand.cv_a, cand.cv_b],
+            "p50_us": [cand.p50_a * 1e6, cand.p50_b * 1e6],
         })
     return results
 
@@ -2400,6 +2433,336 @@ def suite_class1_frontier():
     return rows
 
 
+REALISTIC_DATASET_URL = "https://snap.stanford.edu/data/ca-AstroPh.txt.gz"
+REALISTIC_DATASET_PAGE = "https://snap.stanford.edu/data/ca-AstroPh.html"
+REALISTIC_DATASET_SHA256 = (
+    "51bf1e2cace269b884481a8502474efa67c0fd01d998ff7f5a154d7d3e527f27"
+)
+
+
+def _prepare_realistic_fixtures(sizes: tuple[int, ...]) -> dict[int, Path]:
+    """Materialize deterministic induced prefixes of the real SNAP graph."""
+    cache_dir = Path(
+        os.environ.get(
+            "FNX_REALISTIC_CACHE_DIR",
+            "/data/tmp/franken_networkx-realistic",
+        )
+    )
+    source_override = os.environ.get("FNX_REALISTIC_DATASET")
+    source_path = (
+        Path(source_override)
+        if source_override is not None
+        else cache_dir / "ca-AstroPh.txt.gz"
+    )
+    if not source_path.exists():
+        if source_override is not None:
+            raise FileNotFoundError(f"FNX_REALISTIC_DATASET does not exist: {source_path}")
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        request = urllib.request.Request(
+            REALISTIC_DATASET_URL,
+            headers={"User-Agent": "franken-networkx-perf-harness/1"},
+        )
+        # The URL is a module constant with an HTTPS scheme and fixed SNAP host.
+        with urllib.request.urlopen(request, timeout=60) as response:  # nosec B310
+            downloaded = response.read()
+        downloaded_sha = hashlib.sha256(downloaded).hexdigest()
+        if not hmac.compare_digest(downloaded_sha, REALISTIC_DATASET_SHA256):
+            raise RuntimeError(
+                "downloaded ca-AstroPh archive has unexpected SHA-256: "
+                f"{downloaded_sha}"
+            )
+        with source_path.open("xb") as handle:
+            handle.write(downloaded)
+
+    source_payload = source_path.read_bytes()
+    source_sha = hashlib.sha256(source_payload).hexdigest()
+    if not hmac.compare_digest(source_sha, REALISTIC_DATASET_SHA256):
+        raise RuntimeError(
+            f"ca-AstroPh source SHA-256 mismatch at {source_path}: {source_sha}"
+        )
+
+    node_order: list[str] = []
+    seen_nodes: set[str] = set()
+    seen_edges: set[tuple[str, str]] = set()
+    unique_rows: list[tuple[str, str]] = []
+    source_text = gzip.decompress(source_payload).decode("ascii")
+    for line in source_text.splitlines():
+        if not line or line.startswith("#"):
+            continue
+        u, v = line.split()[:2]
+        for node in (u, v):
+            if node not in seen_nodes:
+                seen_nodes.add(node)
+                node_order.append(node)
+        edge_key = (u, v) if u <= v else (v, u)
+        if edge_key not in seen_edges:
+            seen_edges.add(edge_key)
+            unique_rows.append((u, v))
+
+    if max(sizes) > len(node_order):
+        raise ValueError(
+            f"requested n={max(sizes)} exceeds ca-AstroPh's {len(node_order)} nodes"
+        )
+
+    fixture_paths: dict[int, Path] = {}
+    fixture_metadata = []
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    for size in sizes:
+        selected = set(node_order[:size])
+        edges = [
+            (u, v)
+            for u, v in unique_rows
+            if u in selected and v in selected
+        ]
+        header = (
+            f"# SNAP ca-AstroPh induced prefix n={size}\n"
+            f"# source_sha256={source_sha}\n"
+            f"# nodes={size} undirected_edges={len(edges)}\n"
+        )
+        raw = (
+            header + "".join(f"{u} {v}\n" for u, v in edges)
+        ).encode("ascii")
+        payload = gzip.compress(raw, compresslevel=9, mtime=0)
+        fixture_path = cache_dir / f"ca-AstroPh-n{size}.txt.gz"
+        if fixture_path.exists():
+            if fixture_path.read_bytes() != payload:
+                raise RuntimeError(
+                    f"existing realistic fixture differs: {fixture_path}"
+                )
+        else:
+            with fixture_path.open("xb") as handle:
+                handle.write(payload)
+        fixture_sha = hashlib.sha256(payload).hexdigest()
+        fixture_paths[size] = fixture_path
+        fixture_metadata.append(
+            {
+                "n": size,
+                "undirected_edges": len(edges),
+                "bytes": len(payload),
+                "sha256": fixture_sha,
+                "path": str(fixture_path),
+            }
+        )
+
+    EXTRA_PROVENANCE.update(
+        {
+            "realistic_dataset_page": REALISTIC_DATASET_PAGE,
+            "realistic_dataset_url": REALISTIC_DATASET_URL,
+            "realistic_dataset_source_path": str(source_path),
+            "realistic_dataset_source_sha256": source_sha,
+            "realistic_dataset_fixtures": fixture_metadata,
+        }
+    )
+    return fixture_paths
+
+
+def _load_real_graph(module, path: Path, expected_nodes: int):
+    graph = module.read_edgelist(
+        str(path),
+        comments="#",
+        create_using=module.Graph,
+        nodetype=str,
+        data=False,
+    )
+    expected_module = module.__name__.split(".", maxsplit=1)[0]
+    actual_module = type(graph).__module__
+    if not actual_module.startswith(expected_module):
+        raise RuntimeError(
+            f"{module.__name__} arm dispatch trap: got graph type {actual_module}"
+        )
+    if graph.number_of_nodes() != expected_nodes:
+        raise RuntimeError(
+            f"{path} loaded {graph.number_of_nodes()} nodes, expected {expected_nodes}"
+        )
+    self_loops = list(module.selfloop_edges(graph))
+    graph.remove_edges_from(self_loops)
+    return graph, len(self_loops)
+
+
+def _write_edgelist_bytes(module, graph) -> bytes:
+    output = io.BytesIO()
+    module.write_edgelist(graph, output, data=False)
+    return output.getvalue()
+
+
+def _pack_realistic_result(summary: dict, *serialized_graphs: bytes) -> bytes:
+    summary_bytes = json.dumps(
+        summary,
+        sort_keys=True,
+        separators=(",", ":"),
+        allow_nan=False,
+    ).encode()
+    return summary_bytes + b"\n--serialized-graph--\n" + (
+        b"\n--serialized-graph--\n".join(serialized_graphs)
+    )
+
+
+def _workload_collaboration_core(module, path: Path, size: int) -> bytes:
+    """Load, find components/cores, extract a cohort, and export it."""
+    from collections import Counter
+
+    graph, self_loops_removed = _load_real_graph(module, path, size)
+    components = [sorted(component) for component in module.connected_components(graph)]
+    components.sort(key=lambda nodes: (-len(nodes), nodes[0] if nodes else ""))
+    cores = module.core_number(graph)
+    ranked = sorted(graph, key=lambda node: (-cores[node], node))
+    cohort_nodes = ranked[: max(50, size // 10)]
+    cohort = graph.subgraph(cohort_nodes).copy()
+    summary = {
+        "job": "collaboration-core-export",
+        "nodes": graph.number_of_nodes(),
+        "edges": graph.number_of_edges(),
+        "self_loops_removed": self_loops_removed,
+        "component_count": len(components),
+        "largest_component_nodes": len(components[0]),
+        "component_sizes_top10": [len(nodes) for nodes in components[:10]],
+        "max_core": max(cores.values()),
+        "core_histogram": sorted(Counter(cores.values()).items()),
+        "cohort_nodes": cohort.number_of_nodes(),
+        "cohort_edges": cohort.number_of_edges(),
+    }
+    return _pack_realistic_result(
+        summary,
+        _write_edgelist_bytes(module, cohort),
+    )
+
+
+def _workload_hub_routing(module, path: Path, size: int) -> bytes:
+    """Load, route from the busiest author, extract its radius, and export."""
+    from collections import Counter
+
+    graph, self_loops_removed = _load_real_graph(module, path, size)
+    ranked = sorted(
+        graph,
+        key=lambda node: (-int(graph.degree[node]), node),
+    )
+    hub = ranked[0]
+    lengths = dict(module.single_source_shortest_path_length(graph, hub))
+    tree = module.bfs_tree(graph, hub)
+    local_nodes = sorted(node for node, distance in lengths.items() if distance <= 2)
+    local = graph.subgraph(local_nodes).copy()
+    summary = {
+        "job": "hub-routing-export",
+        "nodes": graph.number_of_nodes(),
+        "edges": graph.number_of_edges(),
+        "self_loops_removed": self_loops_removed,
+        "hub": hub,
+        "hub_degree": int(graph.degree[hub]),
+        "reachable_nodes": len(lengths),
+        "distance_histogram": sorted(Counter(lengths.values()).items()),
+        "bfs_tree_edges": tree.number_of_edges(),
+        "radius2_nodes": local.number_of_nodes(),
+        "radius2_edges": local.number_of_edges(),
+    }
+    return _pack_realistic_result(
+        summary,
+        _write_edgelist_bytes(module, tree),
+        _write_edgelist_bytes(module, local),
+    )
+
+
+def _workload_rich_club(module, path: Path, size: int) -> bytes:
+    """Load, compute rich-club/onion structure, extract leaders, and export."""
+    from collections import Counter
+
+    graph, self_loops_removed = _load_real_graph(module, path, size)
+    rich_club = module.rich_club_coefficient(graph, normalized=False)
+    layers = module.onion_layers(graph)
+    ranked = sorted(graph, key=lambda node: (-layers[node], node))
+    cohort_nodes = ranked[: max(50, size // 10)]
+    cohort = graph.subgraph(cohort_nodes).copy()
+    summary = {
+        "job": "rich-club-onion-export",
+        "nodes": graph.number_of_nodes(),
+        "edges": graph.number_of_edges(),
+        "self_loops_removed": self_loops_removed,
+        "rich_club": sorted((int(degree), value) for degree, value in rich_club.items()),
+        "max_onion_layer": max(layers.values()),
+        "onion_histogram": sorted(Counter(layers.values()).items()),
+        "cohort_nodes": cohort.number_of_nodes(),
+        "cohort_edges": cohort.number_of_edges(),
+    }
+    return _pack_realistic_result(
+        summary,
+        _write_edgelist_bytes(module, cohort),
+    )
+
+
+def _workload_link_recommendation(module, path: Path, size: int) -> bytes:
+    """Load, rank a core cohort, score missing links, and export the report."""
+    graph, self_loops_removed = _load_real_graph(module, path, size)
+    cores = module.core_number(graph)
+    ranked = sorted(
+        graph,
+        key=lambda node: (-cores[node], -int(graph.degree[node]), node),
+    )
+    cohort_nodes = ranked[: min(384, size)]
+    pair_limit = min(2_000, max(500, size // 2))
+    pairs = []
+    for index, u in enumerate(cohort_nodes):
+        for v in cohort_nodes[index + 1 :]:
+            if not graph.has_edge(u, v):
+                pairs.append((u, v))
+                if len(pairs) == pair_limit:
+                    break
+        if len(pairs) == pair_limit:
+            break
+    if not pairs:
+        raise RuntimeError("realistic recommendation cohort contains no missing links")
+    jaccard = list(module.jaccard_coefficient(graph, pairs))
+    preferential = list(module.preferential_attachment(graph, pairs))
+    cohort = graph.subgraph(cohort_nodes).copy()
+    summary = {
+        "job": "link-recommendation-export",
+        "nodes": graph.number_of_nodes(),
+        "edges": graph.number_of_edges(),
+        "self_loops_removed": self_loops_removed,
+        "cohort_nodes": cohort.number_of_nodes(),
+        "cohort_edges": cohort.number_of_edges(),
+        "pair_count": len(pairs),
+        "jaccard": jaccard,
+        "preferential_attachment": preferential,
+    }
+    return _pack_realistic_result(
+        summary,
+        _write_edgelist_bytes(module, cohort),
+    )
+
+
+def suite_realistic_workloads():
+    """Phase 2: whole real-world jobs, from compressed input to output bytes."""
+    import networkx as nx
+    import franken_networkx as fnx
+
+    raw_sizes = os.environ.get("FNX_REALISTIC_SIZES", "1000,5000,10000")
+    try:
+        sizes = tuple(int(part) for part in raw_sizes.split(","))
+    except ValueError as error:
+        raise ValueError("FNX_REALISTIC_SIZES must be comma-separated integers") from error
+    if not sizes or any(size < 2 for size in sizes):
+        raise ValueError("FNX_REALISTIC_SIZES must contain integers >= 2")
+
+    fixture_paths = _prepare_realistic_fixtures(sizes)
+    workloads = (
+        ("collaboration-core-export", _workload_collaboration_core),
+        ("hub-routing-export", _workload_hub_routing),
+        ("rich-club-onion-export", _workload_rich_club),
+        ("link-recommendation-export", _workload_link_recommendation),
+    )
+    rows = []
+    for workload_name, workload in workloads:
+        for size in sizes:
+            path = fixture_paths[size]
+            rows.append(
+                (
+                    f"real/{workload_name} n={size}",
+                    lambda job=workload, fixture=path, n=size: job(nx, fixture, n),
+                    lambda job=workload, fixture=path, n=size: job(fnx, fixture, n),
+                )
+            )
+    return rows
+
+
 SUITES = {
     "view-accessors": suite_view_accessors,
     "adj-descriptor": suite_adj_descriptor,
@@ -2431,6 +2794,7 @@ SUITES = {
     "marshaling": suite_marshaling,
     "class1-scaling": suite_class1_scaling,
     "class1-frontier": suite_class1_frontier,
+    "realistic-workloads": suite_realistic_workloads,
 }
 
 
@@ -2445,6 +2809,11 @@ def main(argv):
         print("\ndecidable losses (fnx slower):", flush=True)
         for row in sorted(losses, key=lambda r: r["ratio_p50"]):
             print(f"  {row['ratio_p50']:7.4f}x  {row['label']}", flush=True)
+    print(
+        "benchmark_results_json="
+        + json.dumps(results, sort_keys=True, separators=(",", ":")),
+        flush=True,
+    )
     return 0
 
 

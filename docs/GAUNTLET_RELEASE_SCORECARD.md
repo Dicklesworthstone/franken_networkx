@@ -3,11 +3,11 @@
 Scope: code-first perf backlog verification for `br-r37-c1-04z53` plus
 `br-r37-c1-tbh4q`.
 
-Current verdict: the shortest-path, traversal, centrality and matrix-export families
-are measured wins against unpatched NetworkX 3.6.1 — see the head-to-head baseline
-immediately below, which is the authoritative current statement. Remaining sub-1.0x
-surfaces are the per-call Python shim accessors, weighted-subset `degree`, and
-incremental `add_edge`; each is listed with a retry predicate in
+Current verdict: the compute-heavy shortest-path, centrality, core and rich-club
+families are measured wins against unpatched NetworkX 3.6.1. In the realistic
+whole-job gate, cohesion, rich-club and two link-recommendation rows win; the
+output-heavy hub-routing pipeline is a measured loss at all three sizes. Remaining
+sub-1.0x surfaces and their retry predicates are listed in
 `docs/progress/perf-negative-results.md`.
 
 ## Current head-to-head baseline (2026-07-25)
@@ -92,6 +92,57 @@ bench_elf_sha256 = 348a684395d0d7cbace8b40a1c411643f6a8e01a661ef125078f2cd8fe68b
 
 The same invocation records `preferential_attachment` as a current loss:
 **0.5949x**, candidate CI **0.5918-0.6006**, A/A null CI **0.9974-1.0016**.
+
+### Realistic end-to-end incumbent gate (2026-07-28)
+
+Four recognizable user jobs run from compressed real-graph input through cleanup,
+multiple analysis/subgraph stages, and serialized output. The source is the
+[SNAP Astro Physics collaboration graph](https://snap.stanford.edu/data/ca-AstroPh.html),
+archive SHA-256
+`51bf1e2cace269b884481a8502474efa67c0fd01d998ff7f5a154d7d3e527f27`.
+Deterministic induced fixtures contain `1,000 / 13,410`, `5,000 / 77,598`, and
+`10,000 / 143,680` nodes/undirected edges, with SHA-256
+`d0d78495aa4731b0cef3898b68455b9b67c46074321fda14f93839b9fa8b31a4`,
+`c22b731f7b7f67c91a3bfdc7451d008d06d0ba8472d39a27d843472d5a6fbe34`,
+and `54cdfebe7b0de78e96f7c7ee298b148ab1433c3a1ca8dd19ca5dbd9332cca2ff`.
+
+The pinned process ran 21 alternating-order rounds per row. It compared complete
+canonical bytes directly before timing, measured separate NetworkX/NetworkX and
+FNX/FNX adjacent nulls, and required the complete candidate median CI to clear
+twice the wider null's maximum log-distance from 1.0. CV is report-only.
+
+```
+comparison_class = INCUMBENT
+incumbent = networkx
+incumbent_same_invocation = true
+campaign_output = true
+decision_gate = median_ci
+cv_role = report_only
+bench_elf_sha256 = 348a684395d0d7cbace8b40a1c411643f6a8e01a661ef125078f2cd8fe68b899
+```
+
+| Whole job and size | NetworkX/FNX median | Candidate 95% CI | NetworkX A/A 95% CI | FNX A/A 95% CI | Verdict |
+|---|---:|---:|---:|---:|---|
+| Collaboration cohesion/export, n=1,000 | **1.4898x** | 1.4670-1.5107 | 0.9929-1.0058 | 0.9860-1.0110 | win |
+| Collaboration cohesion/export, n=5,000 | **1.3232x** | 1.2894-1.3587 | 0.9961-1.0150 | 0.9785-1.0353 | win |
+| Collaboration cohesion/export, n=10,000 | **1.2039x** | 1.1684-1.2366 | 0.9461-0.9784 | 0.9798-1.0087 | win |
+| Hub routing/export, n=1,000 | **0.7811x** | 0.7774-0.7920 | 1.0011-1.0099 | 0.9925-1.0131 | loss |
+| Hub routing/export, n=5,000 | **0.5482x** | 0.5217-0.5665 | 0.9938-1.0136 | 0.9593-1.0175 | loss |
+| Hub routing/export, n=10,000 | **0.5742x** | 0.4677-0.6017 | 0.9845-1.0005 | 0.9955-1.0104 | loss |
+| Rich-club/onion export, n=1,000 | **2.1765x** | 2.1579-2.2033 | 0.9939-1.0082 | 0.9934-1.0162 | win |
+| Rich-club/onion export, n=5,000 | **1.8585x** | 1.8015-1.8993 | 0.9856-1.0062 | 0.9885-1.0662 | win |
+| Rich-club/onion export, n=10,000 | **1.8392x** | 1.7798-1.8949 | 0.9920-1.0117 | 0.9523-1.0675 | win |
+| Link-recommendation export, n=1,000 | **1.0973x** | 1.0908-1.0999 | 0.9980-1.0026 | 0.9911-1.0100 | win |
+| Link-recommendation export, n=5,000 | 1.2480x | 1.2104-1.3284 | 0.9756-0.9993 | 0.8965-1.1146 | undecidable |
+| Link-recommendation export, n=10,000 | **1.2422x** | 1.2036-1.2538 | 0.9863-1.0133 | 0.9971-1.0422 | win |
+
+- Collaboration cohesion: FNX finishes component/core analysis plus cohort export
+  sooner at every measured size.
+- Hub routing: NetworkX finishes the full routing/tree/subgraph export sooner at
+  every measured size.
+- Rich-club/onion: FNX cuts this compute-heavy job to roughly half the wall time.
+- Link recommendation: FNX wins at 1,000 and 10,000 nodes; the 5,000-node row has
+  no stable separation under its dual-null gate.
 
 Validity of the NetworkX arm rests on the dispatch-trap guard in `scripts/perf_harness.py`: the
 backend-dispatch environment (`NETWORKX_AUTOMATIC_BACKENDS`, `NETWORKX_BACKEND_PRIORITY`,
@@ -217,11 +268,10 @@ Rows still measured below `1.0x` are listed in `README.md`; open items carry ret
 
 | Pillar | Score | Notes |
 | --- | ---: | --- |
-| Performance evidence | 87 wins / 0 active loss areas / 0 neutral vs NetworkX across 87 deduped current workload rows, represented by 52 scorecard entries | The cod-b `non_edges_sparse_undirected` row-cache route adds `1` win / `0` losses / `0` neutral (`1.111x`) and closes the final active public-gauntlet loss. The cod-b ubizp borrowed-frontier/Fx route adds `1` win / `0` losses / `0` neutral (`1.060x`) and closes the remaining ubizp path-returning proof; the four-row ubizp fixture now stands at `4` wins / `0` losses / `0` neutral. The cod-b tree `from_nested_tuple` row adds `2` wins / `0` losses / `0` neutral (`15.824x`, `18.020x`) and closes the previously pending nested-tuple constructor proof. The cod-b `non_edges` native-row recheck is recorded as additional negative evidence and is not counted as a keep; it improved neither domination nor current loss count, and the native-row block regressed the active public row from the fallback `0.983x` measurement to `0.887x`. The cod-b `ubizp` parent-copy path-emission attempt is recorded as additional negative evidence and is not counted as a keep; it worsened the active path-returning loss from a pre-lever `0.803x` row to `0.354x` and was reverted. The cod-a exact `MultiDiGraph.stochastic_graph(copy=True)` row adds `5` wins / `0` losses / `0` neutral and closes the previous `MultiDiGraph.stochastic_graph` residual; the final n=1000/e=5000 row moves from pre-lever `0.249x` loss to `1.362x` win. The cod-a exact `DiGraph.stochastic_graph` native normalizer row adds `3` wins / `0` losses / `0` neutral and flips the fresh n=1000/e=3200 baseline from `0.888x` loss to `1.704x` win. The cod-b borrowed dirty-key sparse-export row flips the dirty/live high-unique `MultiDiGraph` residual to `2` wins / `0` losses (`1.323x`, `1.742x`) on a float64 parity fixture. The cod-a exact-int lazy `non_edges` iterator no-ship is recorded as additional negative evidence and is not counted as a keep. The cod-b public-gauntlet sweep previously recorded `non_edges_sparse_undirected` as the active gap; the accepted token-keyed row cache now replaces that gap with a win. Existing keeps remain represented above: tuple lattice generators, indexed bytearray CSR, default-order matrix exporters, BFS, keyed MST, DAG closeout, biconnected-family rows, `MultiDiGraph.reverse(copy=True)`, SCC stale-loss closeout, edge expansion, weighted flow hierarchy, degree mixing, average degree connectivity, CCPA, sampled betweenness, repeated-pair raw link prediction, raw Soundarajan-Hopcroft, attr-heavy `to_undirected`, direct `convert_matrix` builders, ubizp length/has_path, `j5u29` Dijkstra path/length, all-target `0opkc` Dijkstra, and all three `0opkc` Bellman-Ford rows. |
+| Performance evidence | Phase 2: 8 wins / 3 losses / 1 undecidable across 12 realistic whole-job rows | Collaboration-core export is `1.2039-1.4898x`; rich-club/onion export is `1.8392-2.1765x`; link recommendation is `1.0973x` at n=1,000 and `1.2422x` at n=10,000. Hub-routing export is `0.5482-0.7811x`; its native shortest-path and BFS stages are faster, but `write_edgelist(data=False)` converts native graphs back to NetworkX and dominates the complete job. |
 | Conformance evidence | focused guards green for kept rows and rejects; one baseline fixture drift fixed | The cod-b `non_edges_sparse_undirected` row-cache keep reports focused order/cache/mutation conformance `48 passed`, `py_compile`, RCH release build, and RCH Criterion proof. `br-r37-c1-04z53.9160` reports direct helper/public parity for in-place and copy behavior, dirty live edge-dict sync, source isolation, missing weights, bool weights, and nonnumeric fallback, plus `py_compile`, `cargo fmt --check`, `fnx-classes` check/clippy/test, `fnx-python` check/clippy/build/test-compatible Rust tests, and direct preloaded release-extension conformance. `br-r37-c1-04z53.9159` reports parity OK for copy/in-place behavior, missing weights, bool weights, zero row sums, `MultiDiGraph` fallback, and string-weight exception fallback, plus `py_compile`, `cargo fmt --check`, and RCH `fnx-python` check/clippy/test/build. The cod-b borrowed dirty-key sparse-export row reports sorted-coordinate sparse payload parity, focused sparse parity `304 passed`, final-source RCH `fnx-python` clippy/build, `cargo fmt --check`, and UBS with no new critical finding. Existing rows retain the focused guards recorded above. Separate broad graph-metrics `edge_boundary` overlap-order drift is filed as `br-r37-c1-c4ou2`; the broad directed Dijkstra finalize-order drift exposed during the BFS closeout is filed as `br-r37-c1-syrw5`. |
-| Negative-evidence discipline | 52 / 52 updated | The ledger records keep, partial keep, reject, noisy, contaminated, remote-runtime, post-analysis-crash, direct-loop, combined-evidence, raw-array subattempt, invalid-output measurement attempts, stale-loss rebaseline, unrelated baseline conformance drift, reverted regression attempts, the cod-b `non_edges_sparse_undirected` token-keyed row-cache keep with the failed remote import setup attempt, the cod-b ubizp borrowed-frontier/Fx keep with rejected subattempt ratios and RCH bench import-failure notes, the cod-b tree `from_nested_tuple` keep, the cod-b `non_edges` native-row regression recheck, the cod-b `ubizp` parent-copy path-emission no-ship, the cod-a exact `MultiDiGraph.stochastic_graph(copy=True)` keep with rejected normalizer-only, fresh-topology, and clone-plus-per-edge lookup subattempts, the cod-a exact `DiGraph.stochastic_graph` native normalizer keep with the rejected Python successor-row micro-probe, the cod-b borrowed dirty-key sparse-export keep with RCH bench import-failure notes, the cod-a exact-int lazy `non_edges` iterator no-ship, the cod-b public-gauntlet `non_edges` set-pop no-ship, the tree-submodule route rejection plus cod-a superseded diagnostic bench and setup-failure notes, and the prior keep/no-ship rows represented above. |
-| Backlog conversion | 52 scorecard entries represented here; pending rows remain | Campaign remains red until the rest of the pending code-first rows are measured or reverted. |
+| Negative-evidence discipline | Phase 2: 12 / 12 ledgered; preflight self-check 19 / 19 | Every realistic row records exact output identity, candidate and dual-null median CIs, loaded-ELF identity, dataset identity, verdict, and a concrete retry predicate. |
+| Backlog conversion | Phase-2 gate complete; one profile-attributed follow-up open | `br-r37-c1-04z53.9187` owns the measured `write_edgelist(data=False)` integration-cost loss. |
 
-Next required rows: continue the rest of the June pending rows in
-`docs/progress/perf-negative-results.md`; the current deduped public-gauntlet
-active-loss count is `0`.
+Next required row: `br-r37-c1-04z53.9187`, the profile-attributed
+`write_edgelist(data=False)` conversion cost in the realistic hub-routing job.

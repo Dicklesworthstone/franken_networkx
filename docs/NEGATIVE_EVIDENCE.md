@@ -28195,6 +28195,154 @@ QUALITY / CLOSEOUT: `git diff --check` covers this ledger-only result. No
 Cargo command ran. UBS has no Markdown/JSONL scanner, so no scanner pass is
 claimed.
 
+## 2026-07-28 CloudyTurtle PHASE-2 REALISTIC INCUMBENT WIN GATE: eight whole-job wins on the real ca-AstroPh graph (`br-r37-c1-04z53.9186`)
+
+NEGATIVE-LEDGER-FIRST: the required candidate preflight for `read_edgelist`,
+components/core, subgraph extraction, link prediction, and output
+serialization found no prior whole-job row on this exact surface. The
+per-operation ledgers did identify the output boundary as a risk, so the
+workloads deliberately include serialization rather than ending at a native
+kernel.
+
+REAL INPUT / WHOLE-JOB CONTRACT: `scripts/perf_harness.py
+realistic-workloads` downloads the official SNAP Astro Physics collaboration
+archive only when absent and rejects any source whose SHA-256 is not
+`51bf1e2cace269b884481a8502474efa67c0fd01d998ff7f5a154d7d3e527f27`.
+It deterministically de-duplicates the undirected edge stream and prepares
+encounter-order induced inputs:
+
+| n | undirected edges | gzip bytes | fixture SHA-256 |
+|---:|---:|---:|---|
+| 1,000 | 13,410 | 45,902 | `d0d78495aa4731b0cef3898b68455b9b67c46074321fda14f93839b9fa8b31a4` |
+| 5,000 | 77,598 | 278,415 | `c22b731f7b7f67c91a3bfdc7451d008d06d0ba8472d39a27d843472d5a6fbe34` |
+| 10,000 | 143,680 | 526,867 | `54cdfebe7b0de78e96f7c7ee298b148ab1433c3a1ca8dd19ca5dbd9332cca2ff` |
+
+Every timed arm starts at compressed `read_edgelist`, removes the real
+self-loops, performs multiple analysis/subgraph stages, and ends with exact
+serialized bytes. Genuine unpatched NetworkX 3.6.1 and FNX ran in one process
+pinned to CPU 28 for 21 alternating-order rounds with `min_of=3`. Each row
+compared the complete canonical bytes directly—not a truncated digest—before
+timing, then measured separate adjacent NetworkX/NetworkX and FNX/FNX nulls.
+The complete candidate bootstrap median CI must clear twice the wider null's
+maximum log-distance from 1.0. CV is report-only.
+
+The process self-reported line one:
+
+`bench_elf_sha256=348a684395d0d7cbace8b40a1c411643f6a8e01a661ef125078f2cd8fe68b899
+(13230088 bytes)
+/data/projects/franken_networkx/target/release/lib_fnx.so`
+
+Wrapper SHA-256 was
+`8740cc56899d6934d947009e95a3c587635cd2cc1f0e402aaea6d07794283c71`.
+Measured harness SHA-256 was
+`c8e04175a1513068d0cdd3e2f373be4db4c8133abf0305af80dc1aca5eb63cd0`;
+raw log SHA-256 was
+`066715bd0ccc7db1694e922928c58cfd009efecc071998d2db5370ca7660a4d0`.
+
+| whole job | n | NetworkX/FNX median | candidate 95% CI | NetworkX A/A 95% CI | FNX A/A 95% CI | full output SHA-256 |
+|---|---:|---:|---:|---:|---:|---|
+| collaboration cohesion/export | 1,000 | **`1.4898x`** | `1.4670-1.5107` | `0.9929-1.0058` | `0.9860-1.0110` | `fb8286619dca35a2581c96b78dc5bb5802cd89c0eb378d1cff1165b98edddc81` |
+| collaboration cohesion/export | 5,000 | **`1.3232x`** | `1.2894-1.3587` | `0.9961-1.0150` | `0.9785-1.0353` | `814a1d9c86850d7319fc6697e0b6784a27b9f0df0a2647152b59f1381391908a` |
+| collaboration cohesion/export | 10,000 | **`1.2039x`** | `1.1684-1.2366` | `0.9461-0.9784` | `0.9798-1.0087` | `c67b695c7ab889021f4cadec5821958a2e33fb73c9ea18715d6bf2ef18cd149f` |
+| rich-club/onion export | 1,000 | **`2.1765x`** | `2.1579-2.2033` | `0.9939-1.0082` | `0.9934-1.0162` | `414be3352e785aecded4ddcd1ca235b6f476e30bc2e7eacc3a8d08381ccd399c` |
+| rich-club/onion export | 5,000 | **`1.8585x`** | `1.8015-1.8993` | `0.9856-1.0062` | `0.9885-1.0662` | `a72a804d8303bb35bd5ab38689483921cafea33172ba7a7e5cde39d657d92a16` |
+| rich-club/onion export | 10,000 | **`1.8392x`** | `1.7798-1.8949` | `0.9920-1.0117` | `0.9523-1.0675` | `294fbf8db90aa60457f6117ceba3f1aa06e14e546b5b5a521c5f9a80c2be9c57` |
+| link-recommendation export | 1,000 | **`1.0973x`** | `1.0908-1.0999` | `0.9980-1.0026` | `0.9911-1.0100` | `02425789f26a28a2720748b33fc0ad825fa9b310509fd2faac8f426f99654504` |
+| link-recommendation export | 10,000 | **`1.2422x`** | `1.2036-1.2538` | `0.9863-1.0133` | `0.9971-1.0422` | `5725ef289ed4df1f5eb5a03d83e5bb87122f7ce678077cf2ae61adc8e47115f0` |
+
+The widest kept-row same-invocation A/A null was FNX
+`[0.9523,1.0675]` at rich-club/onion n=10,000.
+
+comparison_class=INCUMBENT
+incumbent=networkx
+incumbent_same_invocation=true
+incumbent_ratio=1.0973x
+campaign_output=true
+decision_gate=median_ci
+cv_role=report_only
+
+RESULT: **KEEP / CAMPAIGN OUTPUT.** FNX finishes the full cohesion pipeline
+sooner at all three sizes, roughly halves the rich-club/onion job, and wins the
+recommendation job at 1,000 and 10,000 nodes. These are incumbent comparisons
+of complete user jobs, not self-speedups or component-level extrapolations.
+
+RETRY PREDICATE: retain these exact claims until the source archive or fixture
+derivation, workload stages, NetworkX/Python toolchain, wrapper, or native
+implementation changes. Any replacement run must preserve the source and
+fixture SHA-256 checks, exact direct byte comparison, runtime NetworkX type
+trap, loaded-ELF line one, both arm-specific A/A nulls, and the complete
+median-CI decision rule.
+
+## 2026-07-28 CloudyTurtle VALID-AB INCUMBENT LOSS: real hub-routing export is `0.5482-0.7811x` (`br-r37-c1-04z53.9186`)
+
+The hub-routing job loads and cleans the compressed graph, ranks the busiest
+author, computes single-source distances and a BFS tree, extracts the
+radius-two subgraph, and serializes both result graphs with
+`write_edgelist(data=False)`.
+
+| n | NetworkX/FNX median | candidate 95% CI | NetworkX A/A 95% CI | FNX A/A 95% CI | rounds won | full output SHA-256 |
+|---:|---:|---:|---:|---:|---:|---|
+| 1,000 | **`0.7811x`** | `0.7774-0.7920` | `1.0011-1.0099` | `0.9925-1.0131` | `0/21` | `98db1c4d67b29ddefaa8688b03c21a6924bf081c341560de82616d359e35923e` |
+| 5,000 | **`0.5482x`** | `0.5217-0.5665` | `0.9938-1.0136` | `0.9593-1.0175` | `0/21` | `23a232c058386673998fe426ff650842efb1f37206c0ef66c852c9f3a5120332` |
+| 10,000 | **`0.5742x`** | `0.4677-0.6017` | `0.9845-1.0005` | `0.9955-1.0104` | `0/21` | `788fc63b846399065ce6c506fae284ec68b0d8b49992a0b4a8f9cc1613e49eb3` |
+
+The same loaded-ELF n=10,000 stage profile explains the loss. Median FNX
+stages were: load/clean `274.169ms`, hub rank `9.348ms`, SSSP lengths
+`1.783ms`, BFS tree `3.892ms`, radius-two subgraph copy `227.276ms`, and
+serialization `570.136ms`. The two native traversal stages beat NetworkX
+(`17.486ms` SSSP and `30.440ms` BFS tree), but FNX serialization is `52.469%`
+of its summed `1086.605ms` stage wall versus NetworkX's `40.419ms`.
+Inspection confirms `write_edgelist(data=False)` misses the existing
+generate-edgelist fast path and delegates through a full `_to_nx` conversion.
+Eliminating that named stage entirely has a computed `2.1039x` Amdahl ceiling;
+merely matching NetworkX's writer stage predicts about `1.1129x` end-to-end.
+
+comparison_class=INCUMBENT
+incumbent=networkx
+incumbent_same_invocation=true
+incumbent_ratio=0.5482x
+campaign_output=false
+decision_gate=median_ci
+cv_role=report_only
+
+RESULT: **VALID-AB LOSS / NO-SHIP.** A user choosing the library for this
+output-heavy routing job finishes sooner with NetworkX today. Fast native
+traversal kernels do not compensate for the final result-graph conversion.
+
+RETRY PREDICATE: do not retry BFS, SSSP, radius-two subgraph construction, or
+another traversal kernel. Reopen only by routing exact simple
+`Graph`/`DiGraph` `write_edgelist(data=False)` through the byte-identical
+`generate_edgelist` writer without `_to_nx`. Preserve filename/file-object
+behavior, encoding, delimiter/comments, node labels, directed orientation,
+edge order, and exact output bytes. Then re-run all three complete hub jobs in
+the same loaded-ELF invocation with both A/A nulls; a campaign result requires
+each complete candidate CI to clear its own wider dual-null envelope.
+
+## 2026-07-28 CloudyTurtle VALID-AB UNDECIDABLE: real link-recommendation export at n=5,000 (`br-r37-c1-04z53.9186`)
+
+The point estimate was `1.2480x`, candidate CI `1.2104-1.3284`, NetworkX A/A
+CI `0.9756-0.9993`, and FNX A/A CI `0.8965-1.1146`. The wider FNX null raised
+the doubled-log decision floor to `1.2443x`; the complete candidate CI did not
+clear it. The complete output SHA-256 was
+`6642ed3680e6255ac6dc520f904bad1540820323e654b3e384d924e9bdbcfdb9`.
+
+comparison_class=INCUMBENT
+incumbent=networkx
+incumbent_same_invocation=true
+incumbent_ratio=1.2480x
+campaign_output=false
+decision_gate=median_ci
+cv_role=report_only
+
+RESULT: **VALID-AB / UNDECIDABLE.** No competitive claim is attached to the
+n=5,000 point estimate.
+
+RETRY PREDICATE: do not repeat this unchanged row to select a favorable
+sample. Reopen after a workload, implementation, dataset, or toolchain change,
+or after two preregistered dual-null-only invocations on the same pinned CPU
+each keep both null CIs inside `0.97-1.03`; then run one full 21-round
+candidate gate and decide only on its complete median CI.
+
 ## 2026-07-27 CloudyTurtle VALID-AB REJECT (`node_link_data_simple` store-backed resurrection): Graph inside null; DiGraph **`0.5729x`** decisive regression — **SOURCE REVERTED** (`br-r37-c1-b3kaq`)
 
 NEGATIVE-LEDGER-FIRST / RESURRECTION BASIS: before editing,
