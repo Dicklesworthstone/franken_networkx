@@ -1964,3 +1964,54 @@ RETRY PREDICATE: do not repeat the average-degree-128 synthetic curve. Reopen
 only on a named real graph with a materially different degree distribution or
 after the peeling implementation changes; otherwise switch to a newly
 profile-attributed pure-Python-loop family.
+
+## 2026-07-29 CloudyTurtle NO-VERDICT: natural-size ca-AstroPh host-exclusivity audit (`br-r37-c1-04z53.9190`)
+
+The authorized real-distribution retry uses the full 18,772-node SNAP
+ca-AstroPh fixture: 198,110 unique undirected rows, 60 self-loops removed,
+198,050 analyzed edges, compressed fixture SHA-256
+`dec07c93f05a48e2c843b5675cbc39758b1a3bb837b640142ed4cc5f3c467a15`,
+and cleaned degree p50/p90/p99/max `9/53/142/504`.
+
+Nineteen placement attempts produced no performance verdict. Admission,
+affinity, or continuous timing checks rejected twelve before any candidate
+ratio. Seven more never reached a timed harness: three strict RCH queue timeouts,
+one refused no-build shortcut, two workers rejected because their checkout
+alias resolved to `/data`, and one `ovh-b` setup retry whose staged
+`target/release/lib_fnx.so` had disappeared before Python entry. The final
+admitted `vmi1227854` community
+attempt held all 8/8 scheduler slots,
+cleared both two-window admissions at maximum accepted CPU busy fractions
+`3.23%` and `6.90%`, then aborted its NetworkX A/A when `cpu8` exceeded 20%
+for two consecutive windows and reached `76.1%`. Raw-log SHA-256 was
+`928a1df565a971069f606de97075abe2bb16133159fc7bf0100dbead96e4b2e8`;
+its reservation artifact SHA-256 was
+`d8bfcbab37c4543397b99a24e103bc3e2e0946f6951ce42897ab9648664eaa3c`.
+Every admitted process self-reported the intended ELF as line one:
+`348a684395d0d7cbace8b40a1c411643f6a8e01a661ef125078f2cd8fe68b899`.
+
+Timestamp reconciliation shows that the FrankenSQLite RCH job inspected after
+that abort started about 52 seconds after the benchmark log closed, so it was
+not the contaminant. A separate scheduler-disabled attribution run then
+identified four RCH `npm --version` capability probes on non-affinity CPUs at
+`39-100%` of a core. Its `pidstat` artifact SHA-256 is
+`7292c71c36814c27b76e20a2b94e8d48aa4a3170a1cbcfb56411ddc865a122e2`;
+a raw CPU-field trace with SHA-256
+`e47b6cb4c7b076670c3aa466723af3398cde724a44776a2d523adb52ecb27554`
+recorded no guest or steal ticks in the flagged windows. The conclusion is
+limited to what the harness proved: scheduler disable and full RCH slot
+ownership do not suppress capability probes, and the continuous in-process
+gate correctly kept contaminated partial timing out of the verdict count.
+Commit `b1e5f5bd4` corrected guest-counter double counting without changing
+these invalidations; steal remains classified as host contention.
+
+RESULT: **NO-VERDICT / HARNESS WORKED.**
+
+RETRY PREDICATE: rerun through the Cargo proxy so the benchmark holds every
+worker slot for its whole invocation, and require the final two-window
+admission plus continuous timing contract to pass despite any capability
+probe. Stage the executing ELF outside a directory named `target`; keep the
+exact source/fixture hashes, loaded-ELF line one, NetworkX runtime type
+assertion, complete output identity, interleaved incumbent arm, both A/A
+nulls, and median-CI-only decision. Any host-exclusivity abort remains
+NO-VERDICT.

@@ -36,6 +36,83 @@ records the admission history, host, scope source, process affinity, monitored
 CPU set, checked-window count, maximum observed busy fraction, and maximum
 consecutive busy-window count.
 
+## 2026-07-29 CloudyTurtle NO-VERDICT: non-exclusive hosts block full ca-AstroPh measurement (`br-r37-c1-04z53.9190`)
+
+**NEGATIVE-LEDGER FIRST / AUTHORIZED RETRY.** The average-degree-128
+`onion_layers` row permits a retry on a named real graph with a materially
+different degree distribution. The natural SNAP ca-AstroPh fixture satisfies
+that predicate: 18,772 nodes, 198,110 unique undirected input rows, 60
+self-loops removed before analysis, and 198,050 analyzed edges. Its compressed
+fixture is 737,751 bytes with SHA-256
+`dec07c93f05a48e2c843b5675cbc39758b1a3bb837b640142ed4cc5f3c467a15`;
+the cleaned degree p50/p90/p99/max is `9/53/142/504`.
+
+**HARNESS INVALIDATIONS, NOT PERFORMANCE VERDICTS.** The natural-size
+community whole job exposed host co-tenancy while the permanent exclusivity
+contract was being hardened. None of these invocations emitted a candidate
+ratio:
+
+| attempt | gate outcome | raw-log SHA-256 |
+|---|---|---|
+| original Lane M worker, admission-only contract | pre-setup rejected `cpu8=40.0%` | `c0042a47e68471bc0596e40927119e5709ee6cdbbd80e460f3b48da756b19af9` |
+| original Lane M worker, continuous first-window contract | NetworkX A/A aborted at `cpu8=42.4%` | `df9ef2306c5bd14430839a31199abab7478ed147308fe682e65e21573867b296` |
+| `vmi1227854`, full 8/8 RCH slot lease, continuous first-window contract | NetworkX A/A aborted at `cpu8=29.7%` | `eda524ef445a26eb9fb9cb7916f627f812e4fa7c0cdf3f457e6215fdad887320` |
+| `vmi1227854`, full 8/8 lease, two-window timing contract | pre-setup rejected `cpu1=63.3%` | `00718f3bad382505401ac154a605a884953836aee201d4b1e0af46471adebaf9` |
+| `vmi1227854`, full 8/8 lease, two-window retry | pre-setup rejected `cpu7=90.3%`, `cpu8=69.0%` | `4aeda3b309b6e33f1bfc9913e7a92f1992a73b23c63e9787e474a4b638620918` |
+| `vmi1227854`, final settle-and-sustained contract | both two-window admissions cleared; NetworkX A/A aborted at `cpu8=76.1%` for two consecutive windows | `928a1df565a971069f606de97075abe2bb16133159fc7bf0100dbead96e4b2e8` |
+| `vmi1153651`, requested full 8/8 lease | strict RCH queue timeout; no remote process started | `45a94cdbaf630b59672553233189f1b66e89e598ea214b5a8ed54a84fbc6b18e` |
+| `vmi1293453`, requested no-build full-slot execution | strict RCH rejected a non-compilation command; no remote process started | `c2e9c235835d88fcc29deb6159689a6476200647defd12728a780a75e5356f07` |
+| `vmi1293453`, scheduler disabled, direct Python without `taskset` | process rejected its full-host affinity before setup; no timing started | `ed3c3d15fc894e5b81d3ca1e017df9975355778e57574d11a4af38380c848822` |
+| `vmi1293453`, scheduler disabled, pinned retry | both admissions cleared; collaboration NetworkX A/A aborted at `cpu1=43.4%` for two windows | `280277d0af2d9c5cb9e848f6f1212d3f58b756bc0e9bd0940c1007b657e10064` |
+| `vmi1227854`, scheduler disabled after stale child processes drained | both admissions cleared; collaboration NetworkX A/A aborted at `cpu4=24.6%` and `cpu6=23.5%` for two windows | `ba85364520d57337a7c700514c6dd3a3a9fa8a02892c8e7d425710000b2415e7` |
+| `vmi1152480`, scheduler disabled | both admissions cleared; collaboration NetworkX A/A aborted at `cpu8=30.4%` for two windows | `c7c32b9f26add8721266924beeba234231957780022037e7f16794bcb9c61f9f` |
+| `vmi1152480`, requested full-slot Cargo proxy | strict RCH rejected the worker's `alias_wrong_target:/data` preflight; no remote process started | `95309a7f7a5f206348536377da5b0e288227e3131cf1d0c37464657eac84d87c` |
+| `vmi1153651`, requested full 8/8 Cargo-proxy retry | strict RCH queue timeout; no remote process started | `45a94cdbaf630b59672553233189f1b66e89e598ea214b5a8ed54a84fbc6b18e` |
+| `vmi1149989`, requested full 8/8 Cargo-proxy retry | strict RCH rejected the worker's `alias_wrong_target:/data` preflight; no remote process started | `1a64f9e0af5dcfaf6780835b8a0c6fbb2f1c9a1ffe2302d5236f9d305eac2f10` |
+| `ovh-b`, full configured 3/3 RCH slot lease | pre-setup rejected after all 40 settle windows; final blockers `cpu4=43.3%`, `cpu6=100.0%` | `b04cabe95b6f12dbbd91b485fa2045b84fcff9f856c23e012e89afa45ba409e8` |
+| `ovh-b`, full configured 3/3 lease, setup retry | staged `target/release/lib_fnx.so` was absent before Python harness entry; no admission or timing started | `0b00c38e87c8275591dab155715621996d769106ff006101be00a7406cdcd1a6` |
+| `ovh-b`, requested full 3/3 lease after restaging the ELF outside `target` | strict RCH queue timeout behind a live peer job; no remote process started | `54d4059d58ea083db78662a1755450d2ccc43560fc3f148b6689977593ab85a8` |
+| `ovh-b`, full configured 3/3 lease with root-staged ELF | pre-setup rejected after all 40 settle windows; final blockers `cpu0=25.0%`, `cpu7=100.0%` | `1c901bb2dc9ce24654d2c0acf921c68f6f704a87c80a51ac20e4f5d3e4e7acbd` |
+
+The admitted processes self-reported the intended ELF
+`348a684395d0d7cbace8b40a1c411643f6a8e01a661ef125078f2cd8fe68b899`
+as line one. The final `vmi1227854` community attempt recorded accepted
+admission maxima of `3.23%` and `6.90%`; its RCH reservation artifact
+SHA-256 is
+`d8bfcbab37c4543397b99a24e103bc3e2e0946f6951ce42897ab9648664eaa3c`.
+Timestamp reconciliation rules out the FrankenSQLite job first inspected
+after that attempt because it started after the benchmark closed.
+
+**CONTAMINANT ATTRIBUTION.** A separate scheduler-disabled diagnostic on
+`vmi1152480` ran eight collaboration jobs pinned to `cpu3` while `pidstat`
+accounted for every process. Four distinct RCH capability probes executed
+`npm --version` on non-affinity CPUs at `47%`, `78-100%`, `73%`, and `39%`
+of one core. The process-attribution log SHA-256 is
+`7292c71c36814c27b76e20a2b94e8d48aa4a3170a1cbcfb56411ddc865a122e2`.
+A parallel raw `/proc/stat` component trace (SHA-256
+`e47b6cb4c7b076670c3aa466723af3398cde724a44776a2d523adb52ecb27554`)
+recorded zero steal and zero guest ticks in every flagged window. Thus the
+aborts are real guest co-tenancy, not a CPU-accounting artifact. Commit
+`b1e5f5bd4` separately corrected Linux guest-counter double counting in the
+permanent gate while deliberately retaining steal as contention; that
+correction does not change any invalidation above.
+
+**RESULT: NO-VERDICT / HARNESS WORKED.** Full scheduler-slot ownership is
+necessary but does not establish host exclusivity by itself. The in-process
+continuous check detected activity outside the benchmark affinity after clean
+admission and prevented a contaminated number from entering the scorecard.
+
+**RETRY PREDICATE:** rerun only on a non-`trj` worker through the Cargo proxy
+so the benchmark itself holds the worker's full RCH slot capacity for the
+entire invocation, and require both two-window admissions plus continuous
+timing accounting to pass despite any capability probe. Stage the executing
+ELF outside a directory named `target`, require at least 120G free before the
+build, then preserve the exact
+source/fixture hashes, loaded-ELF line one, NetworkX runtime dispatch trap,
+complete byte identity, dual A/A nulls, interleaving, and median-CI decision
+gate. Any exclusivity abort remains NO-VERDICT; do not publish or average its
+partial timing.
+
 ## 2026-07-29 CloudyTurtle STRICT INCUMBENT WIN GATE: preregistered average-degree-128 `onion_layers` reaches **122.7680x** (`br-r37-c1-04z53.9188`)
 
 **NEGATIVE-LEDGER FIRST / RETRY PREDICATE SATISFIED.** The immediately prior
