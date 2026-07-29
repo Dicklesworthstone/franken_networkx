@@ -27,9 +27,10 @@ Adopted 2026-07-25 (br-r37-c1-wbwkb, cc lane) from the fleet-wide contract in
 4. **Require host-wide benchmark exclusivity.** The harness samples every CPU
    in the effective cgroup cpuset before suite setup and again immediately
    before measurement. During timing it also accounts for every non-affinity
-   CPU in consecutive windows and aborts if any exceeds 20% busy. Pinning the
-   benchmark process to one quiet CPU cannot hide co-tenancy elsewhere on the
-   host, including a task that starts after the two admission samples.
+   CPU in consecutive windows and aborts if the same CPU exceeds 20% busy in
+   two consecutive windows. That distinguishes sustained co-tenancy from one
+   recorded control-plane wakeup without letting a task that starts after the
+   two admission samples hide behind the benchmark's narrow affinity.
 
 Knobs follow §2.4: `min_sample ~2 ms`, `min_of = 3` inner replicates keeping the
 minimum (the dominant knob; longer samples are a bigger target for preemption).
@@ -94,6 +95,7 @@ MIN_OF = 3
 ROUNDS = int(os.environ.get("FNX_PERF_ROUNDS", "21"))
 HOST_WIDE_CPU_SAMPLE_S = 0.3
 HOST_WIDE_MAX_BUSY_FRACTION = 0.20
+HOST_WIDE_CONSECUTIVE_BUSY_WINDOWS = 2
 EXTRA_PROVENANCE: dict[str, object] = {}
 _MEASUREMENT_EXCLUSIVITY = None
 
@@ -267,6 +269,8 @@ class MeasurementExclusivity:
         self.context = "measurement"
         self.checked_windows = 0
         self.maximum_observed_busy_fraction = 0.0
+        self.maximum_consecutive_busy_windows = 0
+        self._busy_streaks = {cpu: 0 for cpu in monitored_cpus}
         self._window_started = perf_counter()
         self._window_before = _read_cpu_ticks()
 
@@ -287,22 +291,34 @@ class MeasurementExclusivity:
             self.maximum_observed_busy_fraction,
             max(busy.values()),
         )
+        for cpu, fraction in busy.items():
+            self._busy_streaks[cpu] = (
+                self._busy_streaks[cpu] + 1
+                if fraction > HOST_WIDE_MAX_BUSY_FRACTION
+                else 0
+            )
+        self.maximum_consecutive_busy_windows = max(
+            self.maximum_consecutive_busy_windows,
+            max(self._busy_streaks.values()),
+        )
         offenders = {
-            cpu: fraction
+            cpu: (fraction, self._busy_streaks[cpu])
             for cpu, fraction in busy.items()
-            if fraction > HOST_WIDE_MAX_BUSY_FRACTION
+            if self._busy_streaks[cpu] >= HOST_WIDE_CONSECUTIVE_BUSY_WINDOWS
         }
         self._window_started = perf_counter()
         self._window_before = after
         if offenders:
             detail = ", ".join(
-                f"cpu{cpu}={fraction * 100.0:.1f}%"
-                for cpu, fraction in sorted(offenders.items())
+                f"cpu{cpu}={fraction * 100.0:.1f}% streak={streak}"
+                for cpu, (fraction, streak) in sorted(offenders.items())
             )
             raise RuntimeError(
                 "host-wide benchmark exclusivity failed during "
                 f"{self.context}; non-affinity CPUs above "
-                f"{HOST_WIDE_MAX_BUSY_FRACTION * 100.0:.1f}% busy: {detail}"
+                f"{HOST_WIDE_MAX_BUSY_FRACTION * 100.0:.1f}% busy in "
+                f"{HOST_WIDE_CONSECUTIVE_BUSY_WINDOWS} consecutive windows: "
+                f"{detail}"
             )
 
     def provenance(self) -> dict:
@@ -315,8 +331,14 @@ class MeasurementExclusivity:
             "monitored_non_affinity_cpus": sorted(self.monitored_cpus),
             "sample_window_s": HOST_WIDE_CPU_SAMPLE_S,
             "maximum_busy_fraction": HOST_WIDE_MAX_BUSY_FRACTION,
+            "consecutive_busy_windows_required": (
+                HOST_WIDE_CONSECUTIVE_BUSY_WINDOWS
+            ),
             "checked_windows": self.checked_windows,
             "maximum_observed_busy_fraction": self.maximum_observed_busy_fraction,
+            "maximum_consecutive_busy_windows": (
+                self.maximum_consecutive_busy_windows
+            ),
         }
 
 

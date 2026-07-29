@@ -1057,8 +1057,10 @@ pure-Python-loop gates and are reproduced with
 `FNX_CLASS1_FRONTIER_JOBS=onion_layers`. All gates run genuine unpatched NetworkX
 3.6.1 in the same invocation, prove exact complete-output bytes before timing, record an adjacent
 A/A null, and decide only on the complete bootstrap median CI with a 2× log-space margin. The
-harness also fails closed unless every CPU in the effective host cpuset stays at or below 20% busy
-during both a pre-setup and immediate pre-measurement sample; a narrow `taskset` affinity cannot
+harness also fails closed unless every CPU in the effective host cpuset stays at
+or below 20% busy during both a pre-setup and immediate pre-measurement sample,
+then continuously accounts for every non-affinity CPU throughout timing and
+rejects sustained two-window contention; a narrow `taskset` affinity cannot
 hide co-tenancy elsewhere on the host.
 
 | Family | fnx vs nx | Notes |
