@@ -41,6 +41,11 @@ def _load_conformance_dashboard_script():
     return run_path(str(script_path))
 
 
+def _load_behavioral_oracle_script():
+    script_path = _repo_root() / "scripts" / "generate_behavioral_oracle.py"
+    return run_path(str(script_path))
+
+
 def _load_perf_slo_gate_script():
     script_path = _repo_root() / "scripts" / "run_perf_slo_gate.py"
     return run_path(str(script_path))
@@ -239,6 +244,52 @@ def test_conformance_dashboard_generation_is_deterministic():
     assert first == second
     assert first["deterministic"]
     assert first["run_id"].startswith("conformance-dashboard-")
+
+
+@needs_nx
+def test_behavioral_oracle_pins_and_restores_gexf_metadata_date():
+    oracle = _load_behavioral_oracle_script()
+    time_module = oracle["sys"].modules["time"]
+    spec = oracle["graph_case_specs"]()[0]
+    recipe = {
+        "required": [
+            {
+                "name": "G",
+                "value": {"kind": "graph", "role": "primary"},
+            }
+        ],
+        "optional_overrides": {},
+    }
+    original_strftime = time_module.strftime
+
+    outcome = oracle["run_target"](
+        nx.generate_gexf,
+        module=nx,
+        spec=spec,
+        recipe=recipe,
+        policy="auto",
+        function_name="networkx.generate_gexf",
+    )
+    normalized = oracle["stable_json"](outcome.normalized)
+
+    assert 'lastmodifieddate=\\"2000-01-01\\"' in normalized
+    assert time_module.strftime is original_strftime
+
+
+@needs_nx
+def test_behavioral_oracle_canonicalizes_graph_order_but_preserves_paths():
+    oracle = _load_behavioral_oracle_script()
+    left = nx.Graph()
+    left.add_nodes_from([(1, {"color": "red"}), (2, {"color": "blue"}), (3, {})])
+    left.add_edges_from([(1, 2, {"weight": 4}), (2, 3, {"weight": 5})])
+    right = nx.Graph()
+    right.add_nodes_from([(3, {}), (2, {"color": "blue"}), (1, {"color": "red"})])
+    right.add_edges_from([(3, 2, {"weight": 5}), (2, 1, {"weight": 4})])
+
+    assert oracle["canonical_graph"](left) == oracle["canonical_graph"](right)
+    assert oracle["canonicalize"]([1, 2, 3], "path") != oracle[
+        "canonicalize"
+    ]([3, 2, 1], "path")
 
 
 # ---------------------------------------------------------------------------

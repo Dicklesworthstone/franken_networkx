@@ -56,6 +56,7 @@ CORPUS_SEED = 0xF36_100D
 CASES_PER_GROUP = 2
 MAX_CASE_ATTEMPTS = 8
 CALL_TIMEOUT_SECONDS = 1.5
+FIXED_GEXF_LASTMODIFIED_DATE = "2000-01-01"
 REQUIRED_RUNTIME_ENVIRONMENT = {
     "MKL_NUM_THREADS": "1",
     "OMP_NUM_THREADS": "1",
@@ -209,6 +210,10 @@ NONDETERMINISTIC_RESULT_NAMES = {
     "eigenvector_centrality_numpy",
     "random_regular_expander_graph",
     "sigma",
+}
+GEXF_DATE_FUNCTIONS = {
+    "generate_gexf",
+    "write_gexf",
 }
 
 
@@ -1552,6 +1557,28 @@ def reset_runtime_randomness(seed: int) -> None:
     np.random.seed(seed % (1 << 32))
 
 
+@contextlib.contextmanager
+def deterministic_volatile_metadata(function_name: str) -> Iterable[None]:
+    """Pin known runtime metadata while preserving exact output comparison."""
+    if function_name.rsplit(".", 1)[-1] not in GEXF_DATE_FUNCTIONS:
+        yield
+        return
+
+    time_module = sys.modules["time"]
+    original_strftime = time_module.strftime
+
+    def deterministic_strftime(format_string: str, *args: Any) -> str:
+        if format_string == "%Y-%m-%d" and not args:
+            return FIXED_GEXF_LASTMODIFIED_DATE
+        return original_strftime(format_string, *args)
+
+    time_module.strftime = deterministic_strftime
+    try:
+        yield
+    finally:
+        time_module.strftime = original_strftime
+
+
 def run_target(
     target: Any,
     *,
@@ -1575,25 +1602,26 @@ def run_target(
                 temp_root=temp_root,
                 function_name=function_name,
             )
-            with (
-                contextlib.redirect_stdout(stdout),
-                contextlib.redirect_stderr(stderr),
-                bounded_call(),
-            ):
-                result = target(*args, **kwargs)
-            directed = bool(spec["directed"])
-            normalized = {
-                "return": canonicalize(result, policy, directed=directed),
-                "graph_arguments_after": [
-                    canonical_graph(graph) for graph in graph_arguments
-                ],
-                "receiver_after": (
-                    canonical_graph(receiver)
-                    if receiver is not None and is_graph_like(receiver)
-                    else None
-                ),
-                "temp_files_after": canonical_temp_files(temp_root),
-            }
+            with deterministic_volatile_metadata(function_name):
+                with (
+                    contextlib.redirect_stdout(stdout),
+                    contextlib.redirect_stderr(stderr),
+                    bounded_call(),
+                ):
+                    result = target(*args, **kwargs)
+                directed = bool(spec["directed"])
+                normalized = {
+                    "return": canonicalize(result, policy, directed=directed),
+                    "graph_arguments_after": [
+                        canonical_graph(graph) for graph in graph_arguments
+                    ],
+                    "receiver_after": (
+                        canonical_graph(receiver)
+                        if receiver is not None and is_graph_like(receiver)
+                        else None
+                    ),
+                    "temp_files_after": canonical_temp_files(temp_root),
+                }
             return Outcome("ok", normalized, stdout.getvalue(), stderr.getvalue())
         except InputUnsupported as exc:
             return Outcome(
@@ -2306,6 +2334,9 @@ def build_corpus(repo_root: Path, *, bridge: str) -> dict[str, Any]:
             "floats": "exact IEEE-754 hexadecimal form; NaN/Inf tagged",
             "exceptions": "exact class name and message",
             "mutations": "post-call graph arguments and receiver state included",
+            "volatile_metadata": (
+                "GEXF lastmodifieddate pinned to 2000-01-01 during each call"
+            ),
         },
         "generated_inputs": specs,
         "summary": summary,

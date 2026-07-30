@@ -443798,7 +443798,7 @@
           "franken_status": "ok",
           "input_id": "connected-255201293",
           "networkx_status": "ok",
-          "outcome_sha256": "45d37e2340b82eb75090415cb1598192dcd97a6a12a0e020b5f5c193f719ec44"
+          "outcome_sha256": "f6c7e800c20adea279e20d7b9ae4ea12a021be792fffb27969e73c0d6c7a2204"
         },
         {
           "agreement": true,
@@ -443817,7 +443817,7 @@
           "franken_status": "ok",
           "input_id": "disconnected-255201394",
           "networkx_status": "ok",
-          "outcome_sha256": "ec31f70f9c0604d29ba68a9aa1744347334ce730c40c397282d01795e0e2f029"
+          "outcome_sha256": "9016fe52967f2d4ba1cf0eae90070c1487986054a2e42a5fe050d3c6afed09cf"
         }
       ],
       "family": "readwrite",
@@ -520590,7 +520590,7 @@
           "franken_status": "ok",
           "input_id": "connected-255201293",
           "networkx_status": "ok",
-          "outcome_sha256": "1a06dc3dd1afdd7bdb834430dd0bfddb80a1d9194d7559ab712f16daceba4bfd"
+          "outcome_sha256": "e9a6cd4883adf21692531b0025f983b74563261209db4c0a4d667bfafc64a95a"
         },
         {
           "agreement": true,
@@ -520617,7 +520617,7 @@
           "franken_status": "ok",
           "input_id": "disconnected-255201394",
           "networkx_status": "ok",
-          "outcome_sha256": "700021984f8922d94a4f0e4620ea0a60398e43fa1758b6aad7e8460a38daa91d"
+          "outcome_sha256": "a89a236eef6aa5e462508fe4431bb896450462452cca8d884a4ae094791bf4f9"
         }
       ],
       "family": "readwrite",
@@ -551484,7 +551484,8 @@
     "mutations": "post-call graph arguments and receiver state included",
     "node_collections": "canonical tagged values sorted by stable JSON",
     "partitions": "members and groups independently sorted",
-    "paths": "node order preserved; collections of paths sorted"
+    "paths": "node order preserved; collections of paths sorted",
+    "volatile_metadata": "GEXF lastmodifieddate pinned to 2000-01-01 during each call"
   },
   "per_family": {
     "algorithms.approximation": {
