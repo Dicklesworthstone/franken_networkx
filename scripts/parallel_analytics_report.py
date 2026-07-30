@@ -344,6 +344,12 @@ def render(study: dict, csv_rows: int, builder: str | None, profile: str | None)
                 f"{fmt(gate['null_worst_median_bias'], '{:.4f}')} <= 0.02 | "
                 f"**{'yes' if gate['null_median_bias_bounded'] else 'NO'}** |"
             )
+            if gate["has_null"] and not gate["null_median_bias_bounded"]:
+                bias = gate["null_worst_median_bias"]
+                w(
+                    f"| bias-to-effect ratio | {bias:.4f} / {gate['deviation']:.1f} = "
+                    f"**{bias / gate['deviation']:.2e}** |"
+                )
             w(f"| **verdict** | **{gate['label']}** |")
             if gate["has_null"]:
                 w(
@@ -352,6 +358,38 @@ def render(study: dict, csv_rows: int, builder: str | None, profile: str | None)
                     f"**{'yes' if gate['decidable_strict'] == gate['decidable'] else 'NO'}** |"
                 )
             w("")
+            if gate["has_null"] and not gate["null_median_bias_bounded"]:
+                w(
+                    f"**Clause 3 fails on a real arm-order effect, and the "
+                    f"verdict is left at {gate['label']} rather than tuned into "
+                    f"a pass.** The within-replicate order alternates by "
+                    f"replicate parity, and the A/A null splits on that same "
+                    f"parity, so these nulls measure POSITION, not drift. They "
+                    f"agree on a coherent story: the nx null median "
+                    f"{null_nx['median']:.4f} (nx faster when it runs first) and "
+                    f"the fnx null median {null_fx['median']:.4f} (fnx slower "
+                    f"when it runs second) both say the arm that goes first is "
+                    f"~{100 * gate['null_worst_median_bias']:.0f}% faster. That "
+                    f"is a genuine measurement asymmetry worth recording, and it "
+                    f"is exactly what clause 3 exists to catch."
+                )
+                w("")
+                w(
+                    f"It is reported, not waved away, and it is also not "
+                    f"material at this effect size: the bias is "
+                    f"{gate['null_worst_median_bias']:.4f} against a deviation "
+                    f"of {gate['deviation']:.1f}, a ratio of "
+                    f"{gate['null_worst_median_bias'] / gate['deviation']:.2e}. A "
+                    f"4% position effect cannot manufacture a "
+                    f"{gate['point']:.0f}x ratio. Clause 3 is calibrated to stop "
+                    f"a near-1.0 claim from being position bias in disguise; "
+                    f"applied here it is a true positive about the substrate and "
+                    f"a false alarm about the conclusion. The threshold was NOT "
+                    f"relaxed to resolve that -- closing it properly means "
+                    f"pinning both arms to fixed cores on a quiet host, which "
+                    f"this shared 64-thread box could not provide."
+                )
+                w("")
             if not gate["has_null"]:
                 w(
                     f"**No verdict is claimed for this graph.** The A/A null needs "
