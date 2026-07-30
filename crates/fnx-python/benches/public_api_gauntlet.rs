@@ -880,13 +880,33 @@ fn run_python_perf_harness_if_requested() -> Option<i32> {
         .parent()
         .and_then(std::path::Path::parent)
         .expect("fnx-python crate must live under crates/");
-    let status = std::process::Command::new("taskset")
+    let mut command = std::process::Command::new("taskset");
+    command
         .arg("--cpu-list")
         .arg(cpu)
         .arg("python3")
         .arg(repo_root.join("scripts/perf_harness.py"))
         .arg(suite)
-        .current_dir(repo_root)
+        .current_dir(repo_root);
+    if std::env::var_os("FNX_EXTENSION_PATH").is_none() {
+        let bench_executable =
+            std::env::current_exe().expect("Python performance bench executable must have a path");
+        let extension = bench_executable
+            .parent()
+            .expect("Python performance bench executable must have a parent")
+            .join(format!(
+                "{}_fnx{}",
+                std::env::consts::DLL_PREFIX,
+                std::env::consts::DLL_SUFFIX
+            ));
+        assert!(
+            extension.is_file(),
+            "same-build Python extension is missing: {}",
+            extension.display()
+        );
+        command.env("FNX_EXTENSION_PATH", extension);
+    }
+    let status = command
         .status()
         .expect("failed to launch the Python performance harness through taskset");
     Some(status.code().unwrap_or(1))

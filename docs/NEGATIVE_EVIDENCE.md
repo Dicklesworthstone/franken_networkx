@@ -77,6 +77,8 @@ ratio:
 | `ovh-a`, full configured 8/8 lease, pre-canonical admission wait | pre-setup rejected after all 40 settle windows; final blockers `cpu3=30.0%`, `cpu11=70.0%` | `0ce82385eca5e4ae3241bcce588764f86d1c528b979929b3254fa9100cf0cccd` |
 | `ovh-a`, full configured 8/8 lease, canonical wait retry 1 | both five-window admissions cleared at accepted maxima `4.0%` and `9.0%`; collaboration NetworkX A/A aborted at `cpu9=100.0%` for two 300 ms windows | `a8a655693ebab5642e1ad65a0f1d6711f5591c8833d3a654cef05240525d04b7` |
 | `ovh-a`, full configured 8/8 lease, canonical wait retry 2 | both five-window admissions cleared at accepted maxima `7.92%` and `3.0%`; collaboration NetworkX A/A aborted at `cpu1=38.2%` for two 300 ms windows | `7765a8e02c6875ac269ae73118b5edae5223431b90fdcf3ff26a46e6022561d8` |
+| `vmi1153651`, requested full 8/8 Cargo-proxy retry after canonical wait landed | strict RCH queue timeout; no remote process started | `45a94cdbaf630b59672553233189f1b66e89e598ea214b5a8ed54a84fbc6b18e` |
+| `vmi1153651`, full configured 8/8 lease, canonical wait retry 3 | both five-window admissions cleared after seven pre-setup and one pre-measurement rejected windows; collaboration NetworkX A/A aborted at `cpu5=71.8%` and `cpu7=26.1%` for two 300 ms windows | `bf01a7e65b3149ae6cab83788cf48aa0bb09b2492823a4516ef1ff4c0f318fca` |
 
 The admitted processes self-reported the intended ELF
 `348a684395d0d7cbace8b40a1c411643f6a8e01a661ef125078f2cd8fe68b899`
@@ -106,16 +108,16 @@ necessary but does not establish host exclusivity by itself. The in-process
 continuous check detected activity outside the benchmark affinity after clean
 admission and prevented a contaminated number from entering the scorecard.
 
-**RETRY PREDICATE:** rerun only on a non-`trj` worker through the Cargo proxy
-so the benchmark itself holds the worker's full RCH slot capacity for the
-entire invocation, and require both five-consecutive-one-second-window
-admissions plus continuous 300 ms timing accounting to pass despite any
-capability probe. Stage the executing ELF outside a directory named `target`,
-require at least 120G free before the build, then preserve the exact
-source/fixture hashes, loaded-ELF line one, NetworkX runtime dispatch trap,
-complete byte identity, dual A/A nulls, interleaving, and median-CI decision
-gate. Any exclusivity abort remains NO-VERDICT; do not publish or average its
-partial timing.
+**RETRY PREDICATE:** rerun only after the RCH owner supplies a non-`trj`
+worker window in which host tasks and capability probes are suppressed for the
+entire invocation. The benchmark must hold the worker's full RCH slot capacity
+through the Cargo proxy and pass both five-consecutive-one-second-window
+admissions plus continuous 300 ms timing accounting. Stage the executing ELF
+outside a directory named `target`, require at least 120G free before the
+build, then preserve the exact source/fixture hashes, loaded-ELF line one,
+NetworkX runtime dispatch trap, complete byte identity, dual A/A nulls,
+interleaving, and median-CI decision gate. Any exclusivity abort remains
+NO-VERDICT; do not publish or average its partial timing.
 
 ## 2026-07-29 CloudyTurtle STRICT INCUMBENT WIN GATE: preregistered average-degree-128 `onion_layers` reaches **122.7680x** (`br-r37-c1-04z53.9188`)
 

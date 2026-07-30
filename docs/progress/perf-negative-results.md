@@ -1973,9 +1973,9 @@ ca-AstroPh fixture: 198,110 unique undirected rows, 60 self-loops removed,
 `dec07c93f05a48e2c843b5675cbc39758b1a3bb837b640142ed4cc5f3c467a15`,
 and cleaned degree p50/p90/p99/max `9/53/142/504`.
 
-Twenty-two placement attempts produced no performance verdict. Admission,
-affinity, or continuous timing checks rejected fifteen before any candidate
-ratio. Seven more never reached a timed harness: three strict RCH queue
+Twenty-four placement attempts produced no performance verdict. Admission,
+affinity, or continuous timing checks rejected sixteen before any candidate
+ratio. Eight more never reached a timed harness: four strict RCH queue
 timeouts, one refused no-build shortcut, two workers rejected because their
 checkout alias resolved to `/data`, and one `ovh-b` setup retry whose staged
 `target/release/lib_fnx.so` had disappeared before Python entry. The final
@@ -2000,6 +2000,13 @@ raw-log SHA-256 was
 The preceding 40-window `ovh-a` admission attempt never entered the harness;
 its raw-log SHA-256 was
 `0ce82385eca5e4ae3241bcce588764f86d1c528b979929b3254fa9100cf0cccd`.
+The next `vmi1153651` request timed out before remote start (raw-log SHA-256
+`45a94cdbaf630b59672553233189f1b66e89e598ea214b5a8ed54a84fbc6b18e`).
+Its full 8/8 retry later cleared both canonical admissions after seven
+pre-setup and one pre-measurement rejected windows, then aborted the
+collaboration NetworkX A/A at `cpu5=71.8%` and `cpu7=26.1%` for two windows;
+raw-log SHA-256 was
+`bf01a7e65b3149ae6cab83788cf48aa0bb09b2492823a4516ef1ff4c0f318fca`.
 Every admitted process self-reported the intended ELF as line one:
 `348a684395d0d7cbace8b40a1c411643f6a8e01a661ef125078f2cd8fe68b899`.
 
@@ -2020,11 +2027,12 @@ these invalidations; steal remains classified as host contention.
 
 RESULT: **NO-VERDICT / HARNESS WORKED.**
 
-RETRY PREDICATE: rerun through the Cargo proxy so the benchmark holds every
-worker slot for its whole invocation, and require both
+RETRY PREDICATE: rerun only after the RCH owner supplies a non-`trj` worker
+window with host tasks and capability probes suppressed for the whole
+invocation. Hold every worker slot through the Cargo proxy and require both
 five-consecutive-one-second-window admissions plus continuous 300 ms timing
-accounting to pass despite any capability probe. Stage the executing ELF
-outside a directory named `target`; keep the exact source/fixture hashes,
-loaded-ELF line one, NetworkX runtime type assertion, complete output identity,
-interleaved incumbent arm, both A/A nulls, and median-CI-only decision. Any
-host-exclusivity abort remains NO-VERDICT.
+accounting to pass. Stage the executing ELF outside a directory named
+`target`; keep the exact source/fixture hashes, loaded-ELF line one, NetworkX
+runtime type assertion, complete output identity, interleaved incumbent arm,
+both A/A nulls, and median-CI-only decision. Any host-exclusivity abort remains
+NO-VERDICT.
