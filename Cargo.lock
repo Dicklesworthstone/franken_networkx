@@ -865,6 +865,7 @@ dependencies = [
  "fnx-runtime",
  "fnx-views",
  "proptest",
+ "pyo3",
  "serde",
  "serde_json",
 ]
