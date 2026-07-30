@@ -67,6 +67,95 @@ def test_generated_coverage_matrix_document_is_current():
     assert coverage_path.read_text(encoding="utf-8") == rendered
 
 
+def test_feature_universe_is_derived_from_pinned_networkx_361():
+    coverage_matrix = _load_coverage_matrix_script()
+    reference = coverage_matrix["load_feature_universe_reference"]()
+
+    assert reference["networkx_version"] == "3.6.1"
+    assert reference["networkx_python_source_sha256"] == (
+        "078c247dde263d696a86f6a2551bab277e16171bc38e797322ce8318755b1fc5"
+    )
+    assert reference["discovered_module_count"] == 578
+    assert reference["included_module_count"] == 287
+    assert reference["excluded_module_count"] == 292
+    assert len(reference["rows"]) == 4926
+
+
+def test_feature_universe_classifies_every_path_without_rounding_partial_up():
+    coverage_matrix = _load_coverage_matrix_script()
+    reference = coverage_matrix["load_feature_universe_reference"]()
+    rows = coverage_matrix["classify_feature_universe"](reference)
+    statuses = Counter(row["status"] for row in rows)
+    by_path = {row["path"]: row for row in rows}
+
+    assert len(by_path) == len(rows) == 4926
+    assert set(statuses) == {"present", "partial", "missing", "n/a", "excluded"}
+    assert statuses == {
+        "present": 3399,
+        "partial": 700,
+        "missing": 30,
+        "n/a": 1,
+        "excluded": 796,
+    }
+    assert by_path["networkx.shortest_path"]["status"] == "present"
+    assert by_path["networkx.algorithms.shortest_path"]["status"] == "partial"
+    assert (
+        by_path["networkx.algorithms.shortest_path"]["detail"]
+        == "signature differs: NetworkX `(G, source=None, target=None, "
+        "weight=None, method='dijkstra', *, backend=None, **backend_kwargs)`; "
+        "FrankenNetworkX `(*args, **kwargs)`"
+    )
+    assert by_path["networkx.Graph"]["status"] == "partial"
+    assert by_path["networkx.readwrite.GraphMLReader.add_edge"]["status"] == (
+        "missing"
+    )
+
+    applicable = (
+        statuses["present"] + statuses["partial"] + statuses["missing"]
+    )
+    assert applicable == 4129
+    assert statuses["present"] / applicable == pytest.approx(
+        0.8232017437636232
+    )
+
+
+def test_feature_universe_exclusions_and_partials_always_state_exact_reason():
+    coverage_matrix = _load_coverage_matrix_script()
+    rows = coverage_matrix["classify_feature_universe"](
+        coverage_matrix["load_feature_universe_reference"]()
+    )
+
+    partials = [row for row in rows if row["status"] == "partial"]
+    exclusions = [row for row in rows if row["status"] == "excluded"]
+    assert partials
+    assert exclusions
+    assert all(row["detail"].strip() for row in partials)
+    assert all(row["detail"].strip() for row in exclusions)
+    assert all(row["kind"] == "module" for row in exclusions)
+    assert any(
+        row["path"].endswith(".tests")
+        and row["detail"].startswith("test-only module")
+        for row in exclusions
+    )
+
+
+def test_feature_universe_reports_every_family_not_only_a_headline():
+    coverage_matrix = _load_coverage_matrix_script()
+    reference = coverage_matrix["load_feature_universe_reference"]()
+    rows = coverage_matrix["classify_feature_universe"](reference)
+    rendered = "\n".join(
+        coverage_matrix["render_feature_universe"](reference, rows)
+    )
+    families = {row["family"] for row in rows}
+
+    assert "## Per-family strict surface coverage" in rendered
+    assert all(f"| `{family}` |" in rendered for family in families)
+    assert (
+        "a real user can port **3399 of 4129 applicable NetworkX feature "
+        "paths today (82.3%)**"
+    ) in rendered
+
+
 def test_coverage_matrix_tracks_networkx_helper_routes():
     coverage_matrix = _load_coverage_matrix_script()
     analysis = coverage_matrix["analyze_export"]("shortest_path", fnx.shortest_path)
