@@ -90,6 +90,7 @@ import math
 import os
 import statistics
 import sys
+import threading
 import urllib.request
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -150,6 +151,195 @@ def binary_sha256() -> tuple[str, str, int]:
     return path, digest.hexdigest(), byte_count
 
 
+def _read_text(path: Path) -> str | None:
+    try:
+        return path.read_text().strip()
+    except OSError:
+        return None
+
+
+def _cpu_flags() -> set[str]:
+    cpuinfo = _read_text(Path("/proc/cpuinfo")) or ""
+    for line in cpuinfo.splitlines():
+        if line.lower().startswith(("flags", "features")) and ":" in line:
+            return set(line.split(":", 1)[1].split())
+    return set()
+
+
+def _process_thread_count() -> int:
+    status = _read_text(Path("/proc/self/status")) or ""
+    for line in status.splitlines():
+        if line.startswith("Threads:"):
+            return int(line.split(":", 1)[1].strip())
+    raise RuntimeError("cannot read the process thread count from /proc/self/status")
+
+
+def _thread_cpu_ticks() -> dict[int, int]:
+    ticks: dict[int, int] = {}
+    for task_dir in Path("/proc/self/task").glob("[0-9]*"):
+        stat = _read_text(task_dir / "stat")
+        if not stat:
+            continue
+        close_paren = stat.rfind(")")
+        if close_paren < 0:
+            continue
+        fields = stat[close_paren + 1 :].split()
+        if len(fields) <= 12:
+            continue
+        try:
+            ticks[int(task_dir.name)] = int(fields[11]) + int(fields[12])
+        except ValueError:
+            continue
+    if not ticks:
+        raise RuntimeError("cannot read per-thread CPU ticks from /proc/self/task")
+    return ticks
+
+
+def probe_operation_threads(fn) -> dict[str, int]:
+    """Observe one untimed call and report the threads that actually execute."""
+    runtime_available_parallelism = len(os.sched_getaffinity(0))
+    process_threads_before_probe = _process_thread_count()
+    ticks_before = _thread_cpu_ticks()
+    peak_process_threads = process_threads_before_probe
+    ready = threading.Event()
+    stop = threading.Event()
+
+    def monitor() -> None:
+        nonlocal peak_process_threads
+        ready.set()
+        while not stop.is_set():
+            peak_process_threads = max(
+                peak_process_threads,
+                _process_thread_count(),
+            )
+            sleep(0.000_020)
+        peak_process_threads = max(
+            peak_process_threads,
+            _process_thread_count(),
+        )
+
+    monitor_thread = threading.Thread(
+        target=monitor,
+        name="fnx-bench-thread-probe",
+        daemon=True,
+    )
+    monitor_thread.start()
+    ready.wait()
+    monitor_native_id = monitor_thread.native_id
+    try:
+        fn()
+    finally:
+        stop.set()
+        monitor_thread.join()
+
+    ticks_after = _thread_cpu_ticks()
+    cpu_active_threads = sum(
+        ticks > ticks_before.get(tid, 0)
+        for tid, ticks in ticks_after.items()
+        if tid != monitor_native_id
+    )
+    newly_spawned_workers = max(
+        0,
+        peak_process_threads - process_threads_before_probe - 1,
+    )
+    return {
+        "runtime_available_parallelism": runtime_available_parallelism,
+        "process_threads_before_probe": process_threads_before_probe,
+        "peak_process_threads": peak_process_threads,
+        "thread_count_actually_used": max(
+            1,
+            cpu_active_threads,
+            newly_spawned_workers,
+        ),
+    }
+
+
+def host_fingerprint() -> dict[str, object]:
+    """Capture the mandatory host, topology, governor, and ISA provenance."""
+    cpu_scope, scope_source = _host_wide_cpu_scope()
+    physical_cores: set[tuple[str, str]] = set()
+    governor_by_cpu = {}
+    missing_topology = []
+    missing_governor = []
+    for cpu in sorted(cpu_scope):
+        topology = Path(f"/sys/devices/system/cpu/cpu{cpu}/topology")
+        package = _read_text(topology / "physical_package_id")
+        core = _read_text(topology / "core_id")
+        if package is None or core is None:
+            missing_topology.append(cpu)
+        else:
+            physical_cores.add((package, core))
+        governor = _read_text(
+            Path(
+                f"/sys/devices/system/cpu/cpu{cpu}/cpufreq/"
+                "scaling_governor"
+            )
+        )
+        if governor is None:
+            missing_governor.append(cpu)
+        else:
+            governor_by_cpu[str(cpu)] = governor
+
+    flags = _cpu_flags()
+    if missing_topology:
+        raise RuntimeError(
+            "baseline provenance is missing package/core topology for CPUs "
+            f"{missing_topology}"
+        )
+    if missing_governor:
+        raise RuntimeError(
+            "baseline provenance is missing scaling governors for CPUs "
+            f"{missing_governor}"
+        )
+    if not physical_cores:
+        raise RuntimeError("baseline provenance found no physical CPU cores")
+    if not flags:
+        raise RuntimeError("baseline provenance found no runtime ISA flags")
+
+    tracked_isa = (
+        "sse2",
+        "avx",
+        "avx2",
+        "fma",
+        "bmi1",
+        "bmi2",
+        "aes",
+        "vaes",
+        "avx512f",
+    )
+    thread_limit_names = (
+        "RAYON_NUM_THREADS",
+        "OMP_NUM_THREADS",
+        "OPENBLAS_NUM_THREADS",
+        "MKL_NUM_THREADS",
+        "NUMEXPR_NUM_THREADS",
+        "VECLIB_MAXIMUM_THREADS",
+        "BLIS_NUM_THREADS",
+    )
+    return {
+        "host_identity": os.uname().nodename,
+        "architecture": os.uname().machine,
+        "cpu_scope_source": scope_source,
+        "cpu_scope": sorted(cpu_scope),
+        "physical_cores": len(physical_cores),
+        "logical_threads": len(cpu_scope),
+        "threads_per_core": len(cpu_scope) / len(physical_cores),
+        "process_affinity": sorted(os.sched_getaffinity(0)),
+        "requested_thread_limits": {
+            name: os.environ.get(name)
+            for name in thread_limit_names
+        },
+        "cpu_governors": sorted(set(governor_by_cpu.values())),
+        "cpu_governor_by_cpu": governor_by_cpu,
+        "isa_flags": sorted(flags),
+        "runtime_detected_isa_features": [
+            feature
+            for feature in tracked_isa
+            if feature in flags
+        ],
+    }
+
+
 def provenance_header(tag: str) -> dict:
     import networkx as nx
     import franken_networkx as fnx
@@ -176,6 +366,7 @@ def provenance_header(tag: str) -> dict:
         "pythonhashseed": os.environ.get("PYTHONHASHSEED"),
         "pid": os.getpid(),
         "loadavg": os.getloadavg(),
+        "host_fingerprint": host_fingerprint(),
     }
     info.update(EXTRA_PROVENANCE)
     print(json.dumps(info), flush=True)
@@ -655,6 +846,10 @@ def run_rows(tag: str, rows, rounds: int = ROUNDS) -> list[dict]:
             print(f"{label:<54} PARITY-DIVERGENCE nx={da} fnx={db} — NOT TIMED", flush=True)
             results.append({"label": label, "parity": "DIVERGENT"})
             continue
+        thread_provenance = {
+            "networkx": probe_operation_threads(arm_nx),
+            "franken_networkx": probe_operation_threads(arm_fnx),
+        }
         null_nx = paired(f"[A/A nx] {label}", arm_nx, arm_nx, rounds=rounds)
         null_fnx = paired(f"[A/A fnx] {label}", arm_fnx, arm_fnx, rounds=rounds)
         cand = paired(label, arm_nx, arm_fnx, rounds=rounds)
@@ -673,6 +868,7 @@ def run_rows(tag: str, rows, rounds: int = ROUNDS) -> list[dict]:
             "decidable": ok,
             "cv": [cand.cv_a, cand.cv_b],
             "p50_us": [cand.p50_a * 1e6, cand.p50_b * 1e6],
+            "thread_provenance": thread_provenance,
         })
     _MEASUREMENT_EXCLUSIVITY.context = "measurement closeout"
     _MEASUREMENT_EXCLUSIVITY.checkpoint(finish=True)
@@ -2670,6 +2866,7 @@ def suite_class1_frontier():
         "onion_layers",
         "square_clustering",
         "k_core",
+        "enumerate_all_cliques",
     )
     requested_scale_jobs = os.environ.get("FNX_CLASS1_FRONTIER_JOBS")
     if requested_scale_jobs is None:
@@ -2737,6 +2934,11 @@ def suite_class1_frontier():
                     f"k_core n={size} m={edge_count}",
                     lambda graph=gnx: nx.k_core(graph),
                     lambda graph=gfx: fnx.k_core(graph),
+                ),
+                "enumerate_all_cliques": (
+                    f"enumerate_all_cliques n={size} m={edge_count}",
+                    lambda graph=gnx: list(nx.enumerate_all_cliques(graph)),
+                    lambda graph=gfx: list(fnx.enumerate_all_cliques(graph)),
                 ),
             }
             rows.extend(scale_rows[name] for name in scale_jobs)

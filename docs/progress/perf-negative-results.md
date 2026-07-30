@@ -1965,6 +1965,66 @@ only on a named real graph with a materially different degree distribution or
 after the peeling implementation changes; otherwise switch to a newly
 profile-attributed pure-Python-loop family.
 
+## 2026-07-29 BlackThrush NO-VERDICT: dense `enumerate_all_cliques` host-exclusivity gate (`br-r37-c1-36dy9`)
+
+The permanent `class1-frontier` suite now has a selectable
+`enumerate_all_cliques` row. The preregistered `m=64n` fixtures produced equal
+complete ordered streams in both engines:
+
+| exact row | equal ordered cliques | complete-output SHA-256 |
+|---|---:|---|
+| n=1,000 / m=64,000 | 602,114 | `5e71d018a4d774bb9cd8c2249bbf317813aac7ef8051536d7dd72f42ed951d93` |
+| n=5,000 / m=320,000 | 681,803 | `cc80d77da6b9c05cbc821f4ffdeb20a3805728316e28af2899b20ffeb8b2c054` |
+| n=10,000 / m=640,000 | 1,002,024 | `0e524be2241f9bd5029e2e33902bab2d1a8f3836575b22c0b193d02325a775cd` |
+
+The n=1,000 NetworkX 3.6.1 profile attributed `3.095417549s` self and
+`3.201455156s` cumulative out of `3.201978996s` total to public
+`enumerate_all_cliques`, with 602,115 frame calls, `99.9836401%` cumulative
+share, and a `6112.5134x` Amdahl ceiling. Local one-shot diagnostics were about
+`4.37-4.68x`, but they lacked A/A controls and are not verdicts.
+
+The harness now fails closed unless an admitted baseline records host identity,
+physical cores, logical threads, process affinity, governors, ISA, configured
+thread limits, and per-arm observed threads actually used. The harness SHA-256
+is `26d892a6caec40a91929b756077257d2e723b59d086fb0b64b3e2ed9ecacd5ca`.
+
+Three guarded attempts produced no timing:
+
+- strict-remote `vmi1153651` job `j-29953484325388321`, full 8/8 lease:
+  pre-setup rejected after 300 windows with the final CPUs roughly `87-100%`
+  busy; captured failure-output SHA-256
+  `d2adcac8b8390117bff1f0b2314ef63d0c253f025318233b9373df0a9e34be30`;
+- strict-remote `hz2` job `j-29953568312131605`, full 8/8 lease: pre-setup
+  rejected after 300 windows with `cpu12=91.0%` and four other CPUs above the
+  20% limit; captured failure-output SHA-256
+  `357b0c0ea75548e9372a3229ecdf442db18be66e312b7e22e13e3728e10c2f6f`;
+- `thinkstation1`, ordinary CPU 3: pre-setup eventually cleared, but the
+  independent pre-measurement gate rejected after 300 windows with `cpu8`,
+  `cpu15`, and `cpu22` at `100.0%`; raw-log SHA-256
+  `589d62e10f021667475b271a7920d7a321de1f7bbef880ecf09f4cf0fe7f4905`.
+
+comparison_class=NO-VERDICT
+incumbent=networkx
+incumbent_same_invocation=false
+campaign_output=false
+decision_gate=not_reached
+cv_role=not_computed
+
+RESULT: **NO-VERDICT / HARNESS WORKED.** No A/A arm, candidate ratio, median
+CI, or campaign number was emitted.
+
+The dedicated-host retry is tracked as `br-r37-c1-04z53.9191`.
+
+RETRY PREDICATE: rerun only in a dedicated worker window with scheduler jobs,
+leaked descendants, host tasks, and RCH capability probes suppressed for the
+whole process. For `trj`, wait for all prior claims to release, then post
+`[trj] CLAIM franken_networkx` and always finish with `[trj] RELEASE`. Keep the
+same fixtures, exact complete-output proof, genuine NetworkX 3.6.1 incumbent
+in the same invocation, loaded-ELF identity, both A/A nulls, 21 alternating
+rounds, full host/core/thread/governor/ISA/actual-thread provenance, continuous
+host accounting, and median-CI-only gating. Any exclusivity abort remains
+NO-VERDICT.
+
 ## 2026-07-29 CloudyTurtle NO-VERDICT: natural-size ca-AstroPh host-exclusivity audit (`br-r37-c1-04z53.9190`)
 
 The authorized real-distribution retry uses the full 18,772-node SNAP

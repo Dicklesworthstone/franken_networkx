@@ -37,6 +37,84 @@ admission history, host, scope source, process affinity, monitored CPU set,
 checked-window count, maximum observed busy fraction, and maximum consecutive
 busy-window count.
 
+## 2026-07-29 BlackThrush NO-VERDICT: dense `enumerate_all_cliques` gate blocked by host exclusivity (`br-r37-c1-36dy9`)
+
+**NEW FAMILY / WORK-COUNT SCREEN.** This gate adds
+`enumerate_all_cliques` to the permanent selectable `class1-frontier` rows and
+uses the already-preregistered average-degree-128 fixtures, `m=64n`, at
+n=1,000, 5,000, and 10,000. Before timing, both engines materialized the
+complete ordered clique stream. Counts, size histograms, and canonical bytes
+were identical:
+
+| exact fixture | ordered clique count | clique-size histogram | complete-output SHA-256 |
+|---|---:|---|---|
+| n=1,000 / m=64,000 / seed 73,285,000 | 602,114 | `1:1000, 2:64000, 3:348182, 4:179629, 5:9258, 6:45` | `5e71d018a4d774bb9cd8c2249bbf317813aac7ef8051536d7dd72f42ed951d93` |
+| n=5,000 / m=320,000 / seed 73,289,000 | 681,803 | `1:5000, 2:320000, 3:349448, 4:7352, 5:3` | `cc80d77da6b9c05cbc821f4ffdeb20a3805728316e28af2899b20ffeb8b2c054` |
+| n=10,000 / m=640,000 / seed 73,294,000 | 1,002,024 | `1:10000, 2:640000, 3:350205, 4:1819` | `0e524be2241f9bd5029e2e33902bab2d1a8f3836575b22c0b193d02325a775cd` |
+
+The equal complete streams rule out an output-cardinality or iteration-count
+discrepancy between the incumbent and candidate. One-shot local wall times
+placed FrankenNetworkX about `4.37-4.68x` ahead, but those diagnostics had no
+A/A controls or median CI and are **routing evidence only**.
+
+**RIGHT FRAME / PROFILE ADMISSION.** On the exact n=1,000 / m=64,000 fixture,
+genuine NetworkX 3.6.1 attributed 602,115 calls to public
+`algorithms/clique.py:29(enumerate_all_cliques)`. That frame carried
+`3.095417549s` non-zero self-time and `3.201455156s` cumulative time out of
+`3.201978996s` total, or `99.9836401%`, for a computed **6112.5134x**
+whole-frame Amdahl ceiling. The family therefore clears the non-zero-self,
+at-least-50%-cumulative, and at-least-2x-ceiling screens. This is a
+measurement/harness lane, not authorization for a product-source change.
+
+**MANDATORY PROVENANCE HARDENING.** The harness change also makes every
+admitted baseline fail closed unless it can report host identity, physical
+core count, logical thread count, process affinity, per-CPU governor, runtime
+ISA flags, configured thread limits, and an untimed per-arm observation of
+threads actually used. Isolated validation on `thinkstation1` reported 32
+physical cores, 64 logical threads, `powersave`, the expected x86 ISA set, and
+one actually used thread for a pinned scalar probe. Syntax compilation,
+`git diff --check`, and `ubs scripts/perf_harness.py` passed.
+
+**HOST INVALIDATIONS, NOT PERFORMANCE VERDICTS.** Three guarded invocations
+reached no timing and emitted no candidate ratio:
+
+| placement | gate outcome | captured failure evidence |
+|---|---|---|
+| `vmi1153651`, strict remote full 8/8 lease, job `j-29953484325388321` | pre-setup rejected after all 300 windows; final per-CPU busy fractions were roughly `87-100%` | session-captured failure-output SHA-256 `d2adcac8b8390117bff1f0b2314ef63d0c253f025318233b9373df0a9e34be30` |
+| `hz2`, strict remote full 8/8 lease, job `j-29953568312131605` | pre-setup rejected after all 300 windows; `cpu2=32.7%`, `cpu3=25.7%`, `cpu6=23.8%`, `cpu12=91.0%`, `cpu15=23.0%` | session-captured failure-output SHA-256 `357b0c0ea75548e9372a3229ecdf442db18be66e312b7e22e13e3728e10c2f6f` |
+| `thinkstation1`, ordinary CPU 3, exact requested ELF `348a6843...b899` | pre-setup eventually cleared, but pre-measurement rejected after all 300 windows; `cpu8=100.0%`, `cpu15=100.0%`, `cpu16=29.7%`, `cpu22=100.0%` | raw-log SHA-256 `589d62e10f021667475b271a7920d7a321de1f7bbef880ecf09f4cf0fe7f4905` |
+
+The edited harness SHA-256 is
+`26d892a6caec40a91929b756077257d2e723b59d086fb0b64b3e2ed9ecacd5ca`;
+the unchanged Cargo wrapper SHA-256 is
+`613782fd7438777344b08358587f9b406a661f0cf52de7c3f5804f5ff18f78ea`.
+Because every invocation stopped before the provenance header or first A/A
+arm, none establishes a baseline, incumbent ratio, or campaign claim.
+
+comparison_class=NO-VERDICT
+incumbent=networkx
+incumbent_same_invocation=false
+campaign_output=false
+decision_gate=not_reached
+cv_role=not_computed
+
+**RESULT: NO-VERDICT / HARNESS WORKED.** Keep the selectable row and mandatory
+provenance fields so the authorized retry is reproducible. Do not publish,
+average, or promote the diagnostic `4.37-4.68x` range.
+
+The dedicated-host retry is tracked as `br-r37-c1-04z53.9191`.
+
+**RETRY PREDICATE:** rerun only in a dedicated worker window where scheduler
+jobs, leaked descendants, host tasks, and RCH capability probes are suppressed
+for the entire invocation. For `trj`, wait for all predecessors to release,
+post a fresh `[trj] CLAIM franken_networkx`, and post `[trj] RELEASE` on
+success or failure. Preserve the exact fixtures, complete ordered-output
+identity, genuine NetworkX 3.6.1 in the same invocation, loaded-ELF
+self-identification, both arm-specific A/A nulls, 21 alternating rounds,
+host/core/thread/governor/ISA/actual-thread provenance, continuous
+exclusivity accounting, and the median-CI-only decision gate. Any admission or
+continuous-accounting abort remains NO-VERDICT.
+
 ## 2026-07-29 CloudyTurtle NO-VERDICT: non-exclusive hosts block full ca-AstroPh measurement (`br-r37-c1-04z53.9190`)
 
 **NEGATIVE-LEDGER FIRST / AUTHORIZED RETRY.** The average-degree-128
