@@ -28544,6 +28544,71 @@ QUALITY / CLOSEOUT: `git diff --check` covers this ledger-only result. No
 Cargo command ran. UBS has no Markdown/JSONL scanner, so no scanner pass is
 claimed.
 
+## 2026-07-31 BlackThrush (cod) BEHAVIORAL DIVERGENCE FIXED: `is_simple_path` accepts NetworkX-compatible sized iterables (`br-r37-c1-oe0kq`)
+
+EXACT GENERATED-ORACLE INPUT: behavioral-oracle identities
+`bab35d2fb2cac8e62687` (`networkx.is_simple_path`) and
+`375276c849aae6e79a54`
+(`networkx.algorithms.simple_paths.is_simple_path`) both use fixture
+`connected-255201293`: a seven-node undirected Graph with its exact 11
+attributed edges and the required node-set argument produced from indices
+`[0,1,2]`. Under `PYTHONHASHSEED=0`, that set iterates
+`['n0','n1','n2']`. Live NetworkX 3.6.1 returned boolean `True` through both
+paths; current FNX instead raised
+`TypeError: argument 'path': 'set' object is not an instance of 'Sequence'`.
+Thus the stored corpus contained two present-path divergences caused by this
+one exact input.
+
+ROOT CAUSE / ONE LEVER: the native PyO3 binding extracts its path as
+`Vec<PyAny>`, which requires Python's sequence protocol. NetworkX's public
+implementation accepts any sized iterable when it contains more than one
+node, iterating it in a specific observable order for membership, duplicate,
+and adjacent-edge checks. The public wrapper retains the unchanged native
+fast path for the common `list` and `tuple` inputs. For other containers it
+now replays NetworkX's exact operation order, including its otherwise odd
+singleton behavior: a singleton `set` still reaches `nodes[0]` and raises
+the same built-in `TypeError`.
+
+EXACT RESULT: the original `PYTHONHASHSEED=0` fixture now returns `True`
+through both FNX import paths, matching both NetworkX paths. A deterministic
+follow-up corpus exercised `set`, `frozenset`, insertion-ordered `dict`, and
+`dict_keys` inputs over Graph, DiGraph, MultiGraph, and MultiDiGraph, with
+empty, singleton, repeated, missing, valid, and non-path node collections.
+Each of `PYTHONHASHSEED=0,1,7,42` produced **512 agree / 0 diverge**, for
+**2,048 agree / 0 diverge** total on exact return type/value or exact
+exception class/message. Focused existing and new path suites passed
+`363/363`.
+
+ARTIFACT / HOST PROVENANCE: this is a Python-wrapper-only repair; no Rust
+source or native ABI changed and no Cargo command ran. The validating process
+ran on host `thinkstation1` against NetworkX 3.6.1 and self-reported its
+actually loaded 13,229,816-byte extension SHA-256 as
+`2b49eaafc74803306e25b4d39672547d4ac969c6c805862a0297b3097e1145df`.
+The edited wrapper SHA-256 was
+`ab6639c04c3ed0fda24135223a6728a858db1f702ec3b75b14e5c9a97832efbd`.
+The repository freshness guard correctly refused the ordinary pytest entry
+because unrelated committed Rust sources are newer than the in-tree
+extension; the self-contained focused files were therefore run with
+`--noconftest`, still loading that real extension behind the edited wrapper.
+No target directory was created.
+
+RESULT: **KEEP THE CORRECTNESS FIX.** The prior 1.90x/1.89x self-speedup row
+measured list input, whose native route is unchanged, but this row makes no
+new speed claim and no incumbent-ratio verdict. The timing-only requirements
+for A/A nulls, the corrected three-clause median gate, actual observed
+threads, continuous accounting, and `rch exec --base/--clean-overlay` are
+therefore not applicable.
+
+RETRY PREDICATE: do not replace the public fallback with a blanket `list()`
+conversion: that would incorrectly turn NetworkX's singleton-set TypeError
+into a boolean. A future native general-iterable extractor must first match
+both exact oracle identities plus the 2,048-case four-hash-seed corpus with
+zero divergence, preserving container iteration order and exception
+class/message. Any timed claim must then add live NetworkX 3.6.1, actual
+observed threads, in-process host and loaded-ELF identity, continuous
+accounting, both A/A nulls, and all three corrected median clauses under
+`rch exec --base <commit> --clean-overlay` while reusing the single target.
+
 ## 2026-07-31 BlackThrush (cod) BEHAVIORAL DIVERGENCE FIXED: `harmonic_centrality` now preserves NetworkX source-order float accumulation (`br-r37-c1-4l10m`)
 
 EXACT PRODUCING INPUT / DIVERGENCE: under `PYTHONHASHSEED=0`, the public

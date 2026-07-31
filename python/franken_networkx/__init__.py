@@ -19120,7 +19120,23 @@ def is_simple_path(G, nodes):
     networkx's public signature ``is_simple_path(G, nodes)``.
     """
     G = _coerce_arg_to_fnx_graph(G)
-    return _raw_is_simple_path(G, nodes)
+    if isinstance(nodes, (list, tuple)):
+        return _raw_is_simple_path(G, nodes)
+
+    # br-r37-c1-oe0kq: PyO3's Vec extractor requires a Sequence, while
+    # NetworkX accepts any sized iterable for paths longer than one node.
+    # Replay NetworkX's observable operation order for non-list containers.
+    # In particular, a singleton set must still raise its native
+    # "'set' object is not subscriptable" TypeError at nodes[0].
+    if len(nodes) == 0:
+        return False
+    if len(nodes) == 1:
+        return nodes[0] in G
+    if not all(node in G for node in nodes):
+        return False
+    if len(set(nodes)) != len(nodes):
+        return False
+    return all(v in G[u] for u, v in _itertools.pairwise(nodes))
 
 
 def is_matching(G, matching):
