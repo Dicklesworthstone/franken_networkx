@@ -3200,6 +3200,7 @@ def suite_claim_incumbent():
         "k_crust",
         "kosaraju_strongly_connected_components",
         "minimum_branching",
+        "single_pair_shortest_path",
         "single_source_shortest_path_length",
         "subgraph_view_edges",
     )
@@ -3920,6 +3921,105 @@ def suite_claim_incumbent():
                 "n=800 m=4000 seed=11 weights=1..20 directed=True [nx/fnx]",
                 lambda: nx.minimum_branching(branching_nx),
                 lambda: fnx.minimum_branching(branching_fnx),
+            )
+        )
+    if "single_pair_shortest_path" in jobs:
+        if os.environ.get("PYTHONHASHSEED") != "0":
+            raise RuntimeError(
+                "the single_pair_shortest_path claim fixture requires "
+                "PYTHONHASHSEED=0 because tie-selected path order is part "
+                "of the public contract"
+            )
+        node_count = 2_000
+        edge_count = 8_000
+        seed = 7
+        source = "0"
+        target = "1999"
+        expected_input_bytes = 273_938
+        expected_input_sha256 = (
+            "03635cb95fcf023b79a245e0dc38125225ba216e6eb77a9270ef5121024f6164"
+        )
+        expected_path = ("0", "192", "496", "1859", "1999")
+        expected_output_bytes = 35
+        expected_output_sha256 = (
+            "3d12fd29fa77af06bee45cffb008230978741861778d85719ec5936635d6749b"
+        )
+        single_pair_nx, single_pair_fnx = _build_pair(
+            node_count,
+            edge_count,
+            seed=seed,
+            weighted=False,
+        )
+        input_nx_bytes = canonical_bytes(single_pair_nx)
+        input_fnx_bytes = canonical_bytes(single_pair_fnx)
+        input_sha256 = hashlib.sha256(input_nx_bytes).hexdigest()
+        if input_nx_bytes != input_fnx_bytes:
+            raise RuntimeError(
+                "single_pair_shortest_path claim input graphs diverged"
+            )
+        if (
+            len(input_nx_bytes) != expected_input_bytes
+            or not hmac.compare_digest(input_sha256, expected_input_sha256)
+        ):
+            raise RuntimeError(
+                "single_pair_shortest_path claim input no longer matches "
+                "its preregistered canonical byte count and SHA-256"
+            )
+
+        preflight_nx = nx.shortest_path(
+            single_pair_nx,
+            source,
+            target,
+        )
+        preflight_fnx = fnx.shortest_path(
+            single_pair_fnx,
+            source,
+            target,
+        )
+        preflight_nx_bytes = canonical_bytes(preflight_nx)
+        preflight_fnx_bytes = canonical_bytes(preflight_fnx)
+        output_sha256 = hashlib.sha256(preflight_nx_bytes).hexdigest()
+        if preflight_nx_bytes != preflight_fnx_bytes:
+            raise RuntimeError(
+                "single_pair_shortest_path complete ordered path diverged"
+            )
+        if (
+            tuple(preflight_nx) != expected_path
+            or len(preflight_nx_bytes) != expected_output_bytes
+            or not hmac.compare_digest(output_sha256, expected_output_sha256)
+        ):
+            raise RuntimeError(
+                "single_pair_shortest_path claim fixture no longer matches "
+                "its preregistered complete ordered path"
+            )
+        EXTRA_PROVENANCE["claim_single_pair_shortest_path_fixture"] = {
+            "nodes": node_count,
+            "edges": edge_count,
+            "seed": seed,
+            "weighted": False,
+            "source": source,
+            "target": target,
+            "weight": None,
+            "method": "omitted (NetworkX default=dijkstra)",
+            "python_hash_seed": 0,
+            "input_canonical_bytes": expected_input_bytes,
+            "input_sha256": expected_input_sha256,
+            "path": list(expected_path),
+            "path_edges": len(expected_path) - 1,
+            "output_canonical_bytes": expected_output_bytes,
+            "complete_output_sha256": expected_output_sha256,
+        }
+        rows.append(
+            (
+                "claim/single_pair_shortest_path "
+                'n=2000 m=8000 seed=7 source="0" target="1999" '
+                "weight=None method=default [nx/fnx]",
+                lambda graph=single_pair_nx, src=source, dst=target: (
+                    nx.shortest_path(graph, src, dst)
+                ),
+                lambda graph=single_pair_fnx, src=source, dst=target: (
+                    fnx.shortest_path(graph, src, dst)
+                ),
             )
         )
     if "single_source_shortest_path_length" in jobs:

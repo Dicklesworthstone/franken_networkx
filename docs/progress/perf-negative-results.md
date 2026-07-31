@@ -2380,3 +2380,29 @@ managed physical target path, then retain all artifact, selector, input,
 view, and edge-list hashes, live incumbent, all provenance, 21 rounds,
 continuous accounting, dual A/A nulls, and the corrected three-clause median
 gate.
+
+## 2026-07-31 BlackThrush (cod) PARITY + NO-VERDICT (`br-r37-c1-p80x1.19`): exact `single_pair_shortest_path` claim arm
+
+The original `3.1614x` workload was recovered exactly from
+`measure_marshaling.py` (SHA `40e03ac0...a0f`) and its saved result artifact
+(SHA `eb2400d0...415`). It calls `shortest_path(G, "0", "1999")` with
+default options on the helper's unweighted simple string-node
+`n=2000,m=8000,seed=7` graph.
+
+Under `PYTHONHASHSEED=0`, both implementations receive 273,938 canonical
+input bytes (SHA `03635cb9...164`). Live NetworkX 3.6.1 and FrankenNetworkX
+choose the same complete tie-sensitive four-edge path:
+`0 → 192 → 496 → 1859 → 1999`, 35 bytes, SHA `3d12fd29...749b`. The
+recovered artifact's 16-hex digest is the same prefix. No divergence was
+found.
+
+RESULT: **FULL TIE-SENSITIVE PATH PARITY / PERFORMANCE NO-VERDICT.** No
+strict benchmark was started because RCH 1.0.52 still places its pooled
+target below a UUID-salted clean-overlay root; running would create another
+cold target. Therefore no in-process host identity, ELF SHA, actual observed
+threads, nulls, corrected median clause, candidate CI, or incumbent ratio was
+emitted. Retry only after two required clean-overlay invocations prove one
+identical managed physical target path, then retain both artifact hashes and
+the exact input/path hashes, live incumbent, all provenance, 21 rounds,
+continuous accounting, dual A/A nulls, and the corrected three-clause median
+gate.
