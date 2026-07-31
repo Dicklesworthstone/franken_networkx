@@ -2326,3 +2326,29 @@ emitted. Retry this exact empty-edge row only after two required clean-overlay
 invocations prove one identical managed target path. Any claim about a
 non-empty minimum branching requires a separate preregistered fixture with at
 least one selected edge and cannot reuse the old `3.9768x`.
+
+## 2026-07-31 BlackThrush (cod) PARITY + NO-VERDICT (`br-r37-c1-p80x1.15`): exact `all_pairs_dijkstra_path_length` claim arm
+
+The original `3.6658x` workload was recovered exactly from
+`measure_marshaling.py` (SHA `40e03ac0...a0f`) and its saved result artifact
+(SHA `eb2400d0...415`). It materialized the entire nested mapping from
+`all_pairs_dijkstra_path_length(G, weight="weight")` over the helper's
+weighted simple string-node `n=300,m=1200,seed=11` graph with weights
+`1..20` and no cutoff.
+
+Under `PYTHONHASHSEED=0`, both implementations receive 57,598 canonical input
+bytes (SHA `2108911c...e2d6`). Live NetworkX 3.6.1 and FrankenNetworkX agree
+exactly on all 300 ordered outer mappings and all 90,000 ordered inner
+distances: 1,137,894 output bytes, SHA `de93300b...64ac`. The recovered
+artifact's 16-hex digest is the same prefix. No divergence was found.
+
+RESULT: **FULL WEIGHTED NESTED-MAPPING PARITY / PERFORMANCE NO-VERDICT.** No
+strict benchmark was started because RCH 1.0.52 still places its pooled
+target below a UUID-salted clean-overlay root; running would create another
+cold target. Therefore no in-process host identity, ELF SHA, actual observed
+threads, nulls, corrected median clause, candidate CI, or incumbent ratio was
+emitted. Retry only after two required clean-overlay invocations prove one
+identical managed physical target path, then retain the recovered-artifact
+and exact weighted input/output hashes, live incumbent, all provenance, 21
+rounds, continuous accounting, dual A/A nulls, and the corrected
+three-clause median gate.

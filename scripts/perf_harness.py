@@ -3193,6 +3193,7 @@ def suite_claim_incumbent():
         )
 
     available_jobs = (
+        "all_pairs_dijkstra_path_length",
         "all_pairs_shortest_path_length",
         "erdos_renyi_graph",
         "k_corona",
@@ -3220,6 +3221,116 @@ def suite_claim_incumbent():
     jobs = tuple(name for name in available_jobs if name in selected)
     EXTRA_PROVENANCE["claim_incumbent_jobs"] = list(jobs)
     rows = []
+    if "all_pairs_dijkstra_path_length" in jobs:
+        if os.environ.get("PYTHONHASHSEED") != "0":
+            raise RuntimeError(
+                "the all_pairs_dijkstra_path_length claim fixture requires "
+                "PYTHONHASHSEED=0 because nested mapping order is part of "
+                "the public contract"
+            )
+        node_count = 300
+        edge_count = 1_200
+        seed = 11
+        weight = "weight"
+        expected_input_bytes = 57_598
+        expected_input_sha256 = (
+            "2108911c9c11fa2afdda9d5d010f21288f95bd012730d3810ee3c13fa46de2d6"
+        )
+        expected_outer_items = 300
+        expected_inner_items = 90_000
+        expected_output_bytes = 1_137_894
+        expected_output_sha256 = (
+            "de93300bb2abf14f69ef6ed4c3097799ef34f2c69c6272ea2457a426e53364ac"
+        )
+        all_pairs_dijkstra_nx, all_pairs_dijkstra_fnx = _build_pair(
+            node_count,
+            edge_count,
+            seed=seed,
+            weighted=True,
+        )
+        input_nx_bytes = canonical_bytes(all_pairs_dijkstra_nx)
+        input_fnx_bytes = canonical_bytes(all_pairs_dijkstra_fnx)
+        input_sha256 = hashlib.sha256(input_nx_bytes).hexdigest()
+        if input_nx_bytes != input_fnx_bytes:
+            raise RuntimeError(
+                "all_pairs_dijkstra_path_length claim input graphs diverged"
+            )
+        if (
+            len(input_nx_bytes) != expected_input_bytes
+            or not hmac.compare_digest(input_sha256, expected_input_sha256)
+        ):
+            raise RuntimeError(
+                "all_pairs_dijkstra_path_length claim input no longer "
+                "matches its preregistered canonical byte count and SHA-256"
+            )
+
+        preflight_nx = {
+            source: dict(lengths)
+            for source, lengths in nx.all_pairs_dijkstra_path_length(
+                all_pairs_dijkstra_nx,
+                weight=weight,
+            )
+        }
+        preflight_fnx = {
+            source: dict(lengths)
+            for source, lengths in fnx.all_pairs_dijkstra_path_length(
+                all_pairs_dijkstra_fnx,
+                weight=weight,
+            )
+        }
+        preflight_nx_bytes = canonical_bytes(preflight_nx)
+        preflight_fnx_bytes = canonical_bytes(preflight_fnx)
+        output_sha256 = hashlib.sha256(preflight_nx_bytes).hexdigest()
+        if preflight_nx_bytes != preflight_fnx_bytes:
+            raise RuntimeError(
+                "all_pairs_dijkstra_path_length claim complete ordered "
+                "output diverged"
+            )
+        if (
+            len(preflight_nx) != expected_outer_items
+            or sum(map(len, preflight_nx.values())) != expected_inner_items
+            or len(preflight_nx_bytes) != expected_output_bytes
+            or not hmac.compare_digest(output_sha256, expected_output_sha256)
+        ):
+            raise RuntimeError(
+                "all_pairs_dijkstra_path_length claim fixture no longer "
+                "matches its preregistered complete ordered output"
+            )
+        EXTRA_PROVENANCE["claim_all_pairs_dijkstra_path_length_fixture"] = {
+            "nodes": node_count,
+            "edges": edge_count,
+            "seed": seed,
+            "weight": weight,
+            "cutoff": None,
+            "weight_range_inclusive": [1, 20],
+            "python_hash_seed": 0,
+            "input_canonical_bytes": expected_input_bytes,
+            "input_sha256": expected_input_sha256,
+            "outer_items": expected_outer_items,
+            "inner_items": expected_inner_items,
+            "output_canonical_bytes": expected_output_bytes,
+            "complete_output_sha256": expected_output_sha256,
+        }
+        rows.append(
+            (
+                "claim/all_pairs_dijkstra_path_length "
+                "n=300 m=1200 seed=11 weight=\"weight\" cutoff=None [nx/fnx]",
+                lambda graph=all_pairs_dijkstra_nx, weight_name=weight: {
+                    source: dict(lengths)
+                    for source, lengths in nx.all_pairs_dijkstra_path_length(
+                        graph,
+                        weight=weight_name,
+                    )
+                },
+                lambda graph=all_pairs_dijkstra_fnx, weight_name=weight: {
+                    source: dict(lengths)
+                    for source, lengths in fnx.all_pairs_dijkstra_path_length(
+                        graph,
+                        weight=weight_name,
+                    )
+                },
+            )
+        )
     if "all_pairs_shortest_path_length" in jobs:
         if os.environ.get("PYTHONHASHSEED") != "0":
             raise RuntimeError(
