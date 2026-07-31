@@ -28674,6 +28674,69 @@ either producing input. The two exact fixtures are now permanent focused
 regressions, so a future surface corpus can no longer summarize this hole
 away.
 
+## 2026-07-31 BlackThrush (cod) BEHAVIORAL DIVERGENCE FIXED: `maximum_branching` equal-weight edge selection (`br-r37-c1-kb9hm`)
+
+REAL DIVERGENCE / EXACT INPUT: the original Class-1 fixture was recovered
+from `hunt_unmeasured.py` and reproduced against live NetworkX 3.6.1. It
+starts with ordered string nodes `"0"` through `"799"`, then uses
+`random.Random(11)` to draw ordered directed endpoint pairs until 4,000
+non-loop, non-duplicate arcs have been accepted. Each accepted arc consumes
+one additional `randint(1, 20)` draw for its integer `weight`. Under
+`PYTHONHASHSEED=0`, the complete ordered input is 189,843 canonical bytes,
+SHA-256
+`5d7c003cd5c7507408804b01e266bb81d7cfb2fe6546c58dfebff60f621ea89b`.
+
+Before the fix, both implementations returned 800 nodes, 795 edges, and
+total weight `13367`, but that objective-value agreement concealed five
+observable edge-set differences. NetworkX selected
+`58->157@12`, `374->24@12`, `500->41@7`, `395->560@20`, and
+`508->700@9`; FNX instead selected `209->157@12`, `396->24@12`,
+`273->41@7`, `425->560@20`, and `481->700@9`. The complete NetworkX result
+was 51,419 canonical bytes, SHA-256
+`3e2d711691f803c474be4f3dbd1a74d2f19edf45b47459be59f31c7005e8adfc`;
+the FNX result was 51,420 bytes, SHA-256
+`cd65ffbbdcae8150629ff09d03478d6fb3bb1de8698825851022b3e2bb1fd5e4`.
+The timing row was correctly withheld: equal optimum weight is not behavioral
+parity when the public API returns the chosen graph.
+
+ROOT CAUSE: NetworkX's Edmonds implementation assigns edge keys from public
+`DiGraph.edges(data=True)` order and retains the first incoming edge when
+weights tie. The native kernel rebuilds and contracts an internal graph whose
+incoming-edge traversal is not proven to preserve that public order through
+every contraction. Local inspection of only the original incoming edges
+cannot make a safe dispatch gate because contractions adjust weights and can
+create later ties.
+
+ONE CORRECTNESS LEVER: the public `maximum_branching` wrapper now uses the
+existing in-process NetworkX parity route for every graph shape, then converts
+the exact result back to an FNX graph. This deliberately gives up the
+unproven native speed path instead of selectively hiding the known fixture.
+`minimum_branching` remains native on its proven simple-DiGraph route; the
+same exact input already establishes that its complete empty-edge result
+matches NetworkX.
+
+PROOF: the permanent regression rebuilds the exact 800-node/4,000-arc input,
+compares complete ordered node and edge payloads, pins all five NetworkX tie
+choices and all five formerly selected native alternatives, and checks the
+795-edge / weight-13,367 invariants. The post-fix complete output is exactly
+51,419 bytes with NetworkX's SHA above. The focused regression passes 1/1;
+the branching, constructor, tree-submodule, and spanning/branching suite
+passes 32/32, and all 11 Python files that mention `maximum_branching` pass
+838/838. A fresh 64-case differential matrix over 16 seeds, tie-rich integer
+versus unique weights, missing-weight defaults, negative weights, and
+`preserve_attrs` on/off reports **64 agreements / 0 divergences**.
+
+RESULT: **DIVERGENCE FIXED; NO PERFORMANCE CLAIM.** No Cargo command, native
+build, timing row, or target directory was needed. The prior `maximum_branching`
+row remains untimed and no incumbent ratio is reported. Reopen the native
+route only after it matches a preregistered corpus that includes the exact
+fixture above, cycle contractions, equal adjusted weights, partitions,
+positive/negative/default weights, attribute preservation, and multiple
+`PYTHONHASHSEED` values byte-for-byte. A later performance claim must then use
+the live NetworkX 3.6.1 incumbent in the same invocation and satisfy the
+standing loaded-ELF, actual-thread, host, continuous-exclusivity, dual-null,
+and corrected three-clause median gate.
+
 ## 2026-07-31 BlackThrush CONTRACT LANDED / PERFORMANCE NO-VERDICT: parallel analytics whole-job contract (`br-r37-c1-04z53.9193`)
 
 TARGET: preserve the already-landed structural comparison against live

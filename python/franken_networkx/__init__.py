@@ -11627,7 +11627,6 @@ from franken_networkx._fnx import (
     is_regular as _raw_is_regular,
     is_forest as _raw_is_forest,
     is_tree as _raw_is_tree,
-    maximum_branching as _raw_maximum_branching,
     maximum_spanning_arborescence as _raw_maximum_spanning_arborescence,
     number_of_spanning_trees as _raw_number_of_spanning_trees,
     minimum_spanning_edges as _raw_minimum_spanning_edges,
@@ -12050,21 +12049,21 @@ def maximum_branching(G, attr="weight", default=1, preserve_attrs=False, partiti
 
     br-r37-c1-s8x7z: also delegate MultiDiGraph; the Rust kernel
     rejects MultiDiGraph but nx accepts it.
+
+    br-r37-c1-kb9hm: the native Edmonds kernel does not preserve
+    NetworkX's incoming-edge iteration order through tie-rich cycle
+    contractions. Equal-weight optimums can therefore return a
+    different observable edge set. Delegate until the native kernel
+    has a full tie-break proof corpus.
     """
     G = _coerce_arg_to_fnx_graph(G)
-    if partition is not None or not G.is_directed() or G.is_multigraph():
-        from franken_networkx.readwrite import _from_nx_graph
-        nx_result = _call_networkx_for_parity(
-            "maximum_branching", _branching_partition_graph_for_networkx(G, partition),
-            attr=attr, default=default,
-            preserve_attrs=preserve_attrs, partition=partition,
-        )
-        return _from_nx_graph(nx_result)
-    result = _raw_maximum_branching(
-        G, attr=attr, default=default, preserve_attrs=preserve_attrs, partition=partition,
+    from franken_networkx.readwrite import _from_nx_graph
+    nx_result = _call_networkx_for_parity(
+        "maximum_branching", _branching_partition_graph_for_networkx(G, partition),
+        attr=attr, default=default,
+        preserve_attrs=preserve_attrs, partition=partition,
     )
-    _restore_branching_edge_attrs(result, G, attr, default, preserve_attrs)
-    return result
+    return _from_nx_graph(nx_result)
 
 
 def minimum_spanning_arborescence(G, attr="weight", default=1, preserve_attrs=False, partition=None):
