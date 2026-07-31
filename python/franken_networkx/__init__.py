@@ -26459,7 +26459,11 @@ def k_corona(G, k, core_number=None):
         raise NetworkXNotImplemented(_self_loop_guard_for_core_family())
     core_nodes = {n for n, c in core_number.items() if c >= k}
     corona_nodes = []
-    for n in core_nodes:
+    # br-r37-c1-p80x1.3: NetworkX evaluates the filter in core-number
+    # dictionary order. Iterating core_nodes instead changed the insertion
+    # history of the sparse selected-node set, so isolated corona results
+    # exposed a different public node iteration order.
+    for n in core_number:
         if core_number[n] == k:
             nbrs_in_core = sum(1 for nb in G.neighbors(n) if nb in core_nodes)
             if nbrs_in_core == k:
