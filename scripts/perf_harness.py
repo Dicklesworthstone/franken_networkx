@@ -16,13 +16,12 @@ Adopted 2026-07-25 (br-r37-c1-wbwkb, cc lane) from the fleet-wide contract in
    **median of per-round ratios** — not a ratio of medians, which lets drift in
    either arm leak into the result.
 
-3. **Gate on the median-CI, never on `cv`.** A claim is decidable iff its entire
-   bootstrap 95% CI of the median lies outside the A/A null's bootstrap 95% CI
-   with a 2x margin in log space. `cv` is reported as provenance only. On this
-   hardware `cv` does not track decidability: rows measured here at
-   `cv 17.06%/5.52%` and `cv 0.44%/0.79%` had null CIs of `0.9997-1.0152` and
-   `0.9947-1.0065` — a 30x spread in `cv` for a sub-2x spread in the decidable
-   floor, ranked in the opposite order.
+3. **Use the corrected three-clause median gate, never `cv`.** A claim is
+   decidable iff its bootstrap 95% CI of the median excludes 1.0, its median
+   deviation from 1.0 exceeds twice the larger A/A null-CI half-width, and every
+   A/A null median is within 2% of 1.0. The median clause bounds arm-order bias
+   without incorrectly requiring a precise null CI to straddle 1.0. `cv` is
+   reported as provenance only.
 
 4. **Require host-wide benchmark exclusivity.** Before suite setup and again
    immediately before measurement, the harness requires five consecutive clear
@@ -71,6 +70,7 @@ Usage:
     python3 scripts/perf_harness.py marshaling
     python3 scripts/perf_harness.py class1-scaling
     python3 scripts/perf_harness.py class1-frontier
+    python3 scripts/perf_harness.py cold-after-mutation-cc
     python3 scripts/perf_harness.py realistic-workloads
 
 Point `PYTHONPATH` at the package tree under test; the header records which one ran.
@@ -86,7 +86,6 @@ import hmac
 import importlib.util
 import io
 import json
-import math
 import os
 import statistics
 import sys
@@ -99,6 +98,7 @@ from time import perf_counter, sleep
 MIN_SAMPLE_S = 0.002
 MIN_OF = 3
 ROUNDS = int(os.environ.get("FNX_PERF_ROUNDS", "21"))
+MAX_NULL_MEDIAN_BIAS = 0.02
 HOST_WIDE_CPU_SAMPLE_S = 0.3
 HOST_WIDE_MAX_BUSY_FRACTION = 0.20
 HOST_WIDE_ADMISSION_SAMPLE_S = 1.0
@@ -107,6 +107,17 @@ HOST_WIDE_ADMISSION_MAX_WINDOWS = 300
 HOST_WIDE_CONSECUTIVE_BUSY_WINDOWS = 2
 EXTRA_PROVENANCE: dict[str, object] = {}
 _MEASUREMENT_EXCLUSIVITY = None
+NETWORKX_361_WHEEL_URL = (
+    "https://files.pythonhosted.org/packages/9e/c9/"
+    "b2622292ea83fbb4ec318f5b9ab867d0a28ab43c5717bb85b0a5f6b3b0a4/"
+    "networkx-3.6.1-py3-none-any.whl"
+)
+NETWORKX_361_WHEEL_SHA256 = (
+    "d47fbf302e7d9cbbb9e2555a0d267983d2aa476bac30e90dfbe5669bd57f3762"
+)
+NETWORKX_361_WHEEL_FILENAME = (
+    "networkx-3.6.1-py3-none-any-d47fbf302e7d9cbb.whl"
+)
 
 # The nx arm must be genuinely unpatched upstream: a "2.6x faster" claim in this
 # repo's history was once measured against an already-dispatched fnx baseline and
@@ -115,11 +126,87 @@ for _var in ("NETWORKX_AUTOMATIC_BACKENDS", "NETWORKX_BACKEND_PRIORITY", "NETWOR
     os.environ.pop(_var, None)
 
 
+def ensure_networkx_361() -> None:
+    """Make the exact incumbent importable before PyO3 imports its exceptions."""
+    try:
+        import networkx as nx
+    except ModuleNotFoundError:
+        nx = None
+
+    if nx is not None:
+        if nx.__version__ != "3.6.1":
+            raise RuntimeError(
+                "the installed NetworkX is not the required live 3.6.1: "
+                f"{nx.__version__} from {nx.__file__}"
+            )
+        EXTRA_PROVENANCE["networkx_dependency"] = {
+            "source": "preinstalled",
+            "version": nx.__version__,
+            "path": nx.__file__,
+        }
+        return
+
+    cache_root = Path(
+        os.environ.get(
+            "FNX_DEPENDENCY_CACHE_DIR",
+            "/tmp/franken-networkx-dependency-cache",
+        )
+    )
+    cache_root.mkdir(parents=True, exist_ok=True)
+    wheel_path = cache_root / NETWORKX_361_WHEEL_FILENAME
+    if not wheel_path.exists():
+        with urllib.request.urlopen(NETWORKX_361_WHEEL_URL, timeout=60) as response:
+            wheel_bytes = response.read()
+        wheel_sha256 = hashlib.sha256(wheel_bytes).hexdigest()
+        if not hmac.compare_digest(wheel_sha256, NETWORKX_361_WHEEL_SHA256):
+            raise RuntimeError(
+                "NetworkX 3.6.1 wheel SHA-256 mismatch: "
+                f"expected {NETWORKX_361_WHEEL_SHA256}, got {wheel_sha256}"
+            )
+        try:
+            with wheel_path.open("xb") as target:
+                target.write(wheel_bytes)
+        except FileExistsError:
+            # Another benchmark populated the one shared cache concurrently.
+            pass
+
+    wheel_digest = hashlib.sha256()
+    with wheel_path.open("rb") as wheel_file:
+        for chunk in iter(lambda: wheel_file.read(1 << 20), b""):
+            wheel_digest.update(chunk)
+    wheel_sha256 = wheel_digest.hexdigest()
+    if not hmac.compare_digest(wheel_sha256, NETWORKX_361_WHEEL_SHA256):
+        raise RuntimeError(
+            "cached NetworkX 3.6.1 wheel SHA-256 mismatch: "
+            f"expected {NETWORKX_361_WHEEL_SHA256}, got {wheel_sha256} "
+            f"at {wheel_path}"
+        )
+
+    sys.path.insert(0, str(wheel_path))
+    import networkx as nx
+
+    if nx.__version__ != "3.6.1":
+        raise RuntimeError(
+            "hash-pinned wheel did not import NetworkX 3.6.1: "
+            f"{nx.__version__} from {nx.__file__}"
+        )
+    EXTRA_PROVENANCE["networkx_dependency"] = {
+        "source": "hash_pinned_pypi_wheel",
+        "version": nx.__version__,
+        "path": nx.__file__,
+        "wheel_url": NETWORKX_361_WHEEL_URL,
+        "wheel_sha256": wheel_sha256,
+        "wheel_path": str(wheel_path),
+        "wheel_bytes": wheel_path.stat().st_size,
+    }
+
+
 def preload_requested_extension() -> None:
     """Load the exact `_fnx` ELF requested by the benchmark invocation."""
     requested = os.environ.get("FNX_EXTENSION_PATH")
     if requested is None:
         return
+    ensure_networkx_361()
     path = os.path.realpath(requested)
     if not os.path.isfile(path):
         raise FileNotFoundError(f"FNX_EXTENSION_PATH is not a file: {path}")
@@ -286,11 +373,6 @@ def host_fingerprint() -> dict[str, object]:
             "baseline provenance is missing package/core topology for CPUs "
             f"{missing_topology}"
         )
-    if missing_governor:
-        raise RuntimeError(
-            "baseline provenance is missing scaling governors for CPUs "
-            f"{missing_governor}"
-        )
     if not physical_cores:
         raise RuntimeError("baseline provenance found no physical CPU cores")
     if not flags:
@@ -329,8 +411,13 @@ def host_fingerprint() -> dict[str, object]:
             name: os.environ.get(name)
             for name in thread_limit_names
         },
-        "cpu_governors": sorted(set(governor_by_cpu.values())),
+        "cpu_governors": (
+            sorted(set(governor_by_cpu.values()))
+            if governor_by_cpu
+            else ["unavailable"]
+        ),
         "cpu_governor_by_cpu": governor_by_cpu,
+        "cpu_governor_unavailable_cpus": missing_governor,
         "isa_flags": sorted(flags),
         "runtime_detected_isa_features": [
             feature
@@ -364,6 +451,8 @@ def provenance_header(tag: str) -> dict:
         "nx_file": nx.__file__,
         "python": sys.version.split()[0],
         "pythonhashseed": os.environ.get("PYTHONHASHSEED"),
+        "source_base": os.environ.get("FNX_SOURCE_BASE"),
+        "rch_clean_overlay": os.environ.get("FNX_RCH_CLEAN_OVERLAY"),
         "pid": os.getpid(),
         "loadavg": os.getloadavg(),
         "host_fingerprint": host_fingerprint(),
@@ -751,30 +840,64 @@ def paired(label: str, arm_a, arm_b, rounds: int = ROUNDS, min_of: int = MIN_OF)
     )
 
 
+def gate_decision(
+    cand: PairedResult,
+    *nulls: PairedResult,
+) -> dict[str, object]:
+    if not nulls:
+        raise ValueError("at least one A/A null is required")
+    null_half_width = max(
+        (null.ratio_ci[1] - null.ratio_ci[0]) / 2.0
+        for null in nulls
+    )
+    null_worst_median_bias = max(
+        abs(null.ratio_p50 - 1.0)
+        for null in nulls
+    )
+    effect_deviation = abs(cand.ratio_p50 - 1.0)
+    ci_excludes_one = (
+        cand.ratio_ci[0] > 1.0
+        or cand.ratio_ci[1] < 1.0
+    )
+    clears_2x_half_width = effect_deviation > 2.0 * null_half_width
+    null_median_bias_bounded = (
+        null_worst_median_bias <= MAX_NULL_MEDIAN_BIAS
+    )
+    return {
+        "contract": "corrected_three_clause_median_gate",
+        "ci_excludes_one": ci_excludes_one,
+        "effect_deviation": effect_deviation,
+        "null_half_width": null_half_width,
+        "clears_2x_half_width": clears_2x_half_width,
+        "null_worst_median_bias": null_worst_median_bias,
+        "max_null_median_bias": MAX_NULL_MEDIAN_BIAS,
+        "null_median_bias_bounded": null_median_bias_bounded,
+        "decidable": (
+            ci_excludes_one
+            and clears_2x_half_width
+            and null_median_bias_bounded
+        ),
+    }
+
+
 def decidable(
     cand: PairedResult,
     *nulls: PairedResult,
-    margin: float = 2.0,
 ) -> tuple[bool, str]:
-    if not nulls:
-        raise ValueError("at least one A/A null is required")
-    edge = max(
-        abs(math.log(bound))
-        for null in nulls
-        for bound in null.ratio_ci
-    )
-    need = margin * edge
-    lower_log = math.log(cand.ratio_ci[0])
-    upper_log = math.log(cand.ratio_ci[1])
+    gate = gate_decision(cand, *nulls)
     null_text = ", ".join(
-        f"{null.label.split(']')[0].lstrip('[')} "
-        f"{null.ratio_ci[0]:.4f}-{null.ratio_ci[1]:.4f}"
+        f"{null.label.split(']')[0].lstrip('[')} median={null.ratio_p50:.4f} "
+        f"CI={null.ratio_ci[0]:.4f}-{null.ratio_ci[1]:.4f}"
         for null in nulls
     )
-    return lower_log > need or upper_log < -need, (
-        f"speedup_floor={math.exp(need):.4f}x "
-        f"slowdown_ceiling={math.exp(-need):.4f}x "
-        f"(null CIs {null_text}, {margin:g}x margin)"
+    return bool(gate["decidable"]), (
+        f"clauses=CI_excludes_1:{gate['ci_excludes_one']} "
+        f"effect_dev={gate['effect_deviation']:.4f}"
+        f">2x_null_half_width={2.0 * gate['null_half_width']:.4f}:"
+        f"{gate['clears_2x_half_width']} "
+        f"worst_null_median_bias={gate['null_worst_median_bias']:.4f}"
+        f"<=0.0200:{gate['null_median_bias_bounded']} "
+        f"({null_text})"
     )
 
 
@@ -856,16 +979,22 @@ def run_rows(tag: str, rows, rounds: int = ROUNDS) -> list[dict]:
         report(null_nx)
         report(null_fnx)
         report(cand, (null_nx, null_fnx))
-        ok, _ = decidable(cand, null_nx, null_fnx)
+        gate = gate_decision(cand, null_nx, null_fnx)
         results.append({
             "label": label,
             "parity": "IDENTICAL",
             "checksum": da,
             "ratio_p50": cand.ratio_p50,
             "ratio_ci": list(cand.ratio_ci),
+            "ratio_samples": cand.ratios,
+            "null_nx_median": null_nx.ratio_p50,
             "null_nx_ci": list(null_nx.ratio_ci),
+            "null_nx_samples": null_nx.ratios,
+            "null_fnx_median": null_fnx.ratio_p50,
             "null_fnx_ci": list(null_fnx.ratio_ci),
-            "decidable": ok,
+            "null_fnx_samples": null_fnx.ratios,
+            "decision_gate": gate,
+            "decidable": gate["decidable"],
             "cv": [cand.cv_a, cand.cv_b],
             "p50_us": [cand.p50_a * 1e6, cand.p50_b * 1e6],
             "thread_provenance": thread_provenance,
@@ -3014,6 +3143,101 @@ def suite_class1_frontier():
     return rows
 
 
+def suite_cold_after_mutation_cc():
+    """Re-measure thp6w S4's whole public operation against live NetworkX."""
+    import networkx as nx
+    import franken_networkx as fnx
+
+    if nx.__version__ != "3.6.1":
+        raise RuntimeError(
+            "cold-after-mutation-cc requires live NetworkX 3.6.1; "
+            f"loaded {nx.__version__} from {nx.__file__}"
+        )
+
+    node_count = 20_000
+    chord_count = 3 * node_count
+    parallel_count = 1_000
+    mutation = (0, node_count // 2, (1 << 63) - 1)
+    edges = [
+        (node, (node + 1) % node_count)
+        for node in range(node_count)
+    ]
+    for index in range(chord_count):
+        left = (index * 7_919 + 17) % node_count
+        right = (index * 15_407 + 6_119) % node_count
+        if left == right:
+            right = (right + 1) % node_count
+        edges.append((left, right))
+    edges.extend(
+        (node, (node + 1) % node_count)
+        for node in range(parallel_count)
+    )
+
+    edge_bytes = json.dumps(
+        edges,
+        separators=(",", ":"),
+    ).encode()
+    EXTRA_PROVENANCE["cold_after_mutation_fixture"] = {
+        "nodes": node_count,
+        "cycle_edges": node_count,
+        "chord_edges": chord_count,
+        "parallel_edges": parallel_count,
+        "total_edges": len(edges),
+        "chord_formula": {
+            "left": "(index * 7919 + 17) % 20000",
+            "right": "(index * 15407 + 6119) % 20000; +1 if self-loop",
+        },
+        "edge_stream_sha256": hashlib.sha256(edge_bytes).hexdigest(),
+        "mutation_edge": list(mutation),
+        "operation": (
+            "add explicit-key edge; remove the same edge; "
+            "materialize connected_components"
+        ),
+    }
+
+    def build_pair():
+        graph_nx = nx.MultiGraph()
+        graph_fnx = fnx.MultiGraph()
+        nodes = range(node_count)
+        graph_nx.add_nodes_from(nodes)
+        graph_fnx.add_nodes_from(nodes)
+        graph_nx.add_edges_from(edges)
+        graph_fnx.add_edges_from(edges)
+        if graph_nx.number_of_edges() != len(edges):
+            raise RuntimeError("NetworkX fixture edge count changed")
+        if graph_fnx.number_of_edges() != len(edges):
+            raise RuntimeError("FrankenNetworkX fixture edge count changed")
+        return graph_nx, graph_fnx
+
+    graph_nx, graph_fnx = build_pair()
+
+    def whole_job(module, graph):
+        left, right, key = mutation
+        graph.add_edge(left, right, key=key)
+        graph.remove_edge(left, right, key=key)
+        return list(module.connected_components(graph))
+
+    arm_nx = lambda: whole_job(nx, graph_nx)
+    arm_fnx = lambda: whole_job(fnx, graph_fnx)
+
+    # The measured state is explicitly warm before the single-edge mutation.
+    # S4's mechanism is retaining that warm integer-adjacency memo through the
+    # add/remove pair; its pre-S4 comparator rebuilt it after the revision bump.
+    list(nx.connected_components(graph_nx))
+    list(fnx.connected_components(graph_fnx))
+    if canonical_bytes(arm_nx()) != canonical_bytes(arm_fnx()):
+        raise RuntimeError("cold-after-mutation fixture parity failed")
+
+    return [
+        (
+            "MultiGraph add+remove then connected_components "
+            "n=20000 m=81000 [nx/fnx]",
+            arm_nx,
+            arm_fnx,
+        ),
+    ]
+
+
 REALISTIC_DATASET_URL = "https://snap.stanford.edu/data/ca-AstroPh.txt.gz"
 REALISTIC_DATASET_PAGE = "https://snap.stanford.edu/data/ca-AstroPh.html"
 REALISTIC_DATASET_SHA256 = (
@@ -3439,6 +3663,7 @@ SUITES = {
     "marshaling": suite_marshaling,
     "class1-scaling": suite_class1_scaling,
     "class1-frontier": suite_class1_frontier,
+    "cold-after-mutation-cc": suite_cold_after_mutation_cc,
     "realistic-workloads": suite_realistic_workloads,
 }
 

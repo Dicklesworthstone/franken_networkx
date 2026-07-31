@@ -2096,3 +2096,33 @@ accounting to pass. Stage the executing ELF outside a directory named
 runtime type assertion, complete output identity, interleaved incumbent arm,
 both A/A nulls, and median-CI-only decision. Any host-exclusivity abort remains
 NO-VERDICT.
+
+## 2026-07-31 BlackThrush (cod) NO-VERDICT (`br-r37-c1-1jo5g`): S4 cold-after-mutation retry reached no timed row
+
+The stale-index predicate is satisfied and the post-S4 source builds remotely.
+The permanent `cold-after-mutation-cc` suite now reproduces the exact
+20,000-node/81,000-edge `MultiGraph` whole job, asserts complete ordered-output
+identity, imports hash-pinned live NetworkX 3.6.1, retains raw candidate and
+dual-null samples, applies the corrected three-clause median gate, records
+host/topology/ISA/governor state, probes actual rather than requested threads,
+and self-reports its loaded ELF. Every build used strict
+`rch exec --base 71ff895de0704da73d98a221fb6b742c94f0d188
+--clean-overlay --overlay-path scripts/perf_harness.py`; no fresh target
+directory was requested.
+
+Three clean remote attempts emitted no timing. `ovh-a` first exposed a missing
+NetworkX dependency before setup. `vmi1264463` then self-reported ELF
+`1f36022e2771b33eb5b3ac594e0ff8e8a4a3f55417488c26d21f1a8a99ba0d76`
+but stopped before thread/timing probes because cpufreq governors are
+unavailable. After both provenance defects were corrected, `ovh-a` rejected
+host-wide pre-setup admission after 300 windows with all 16 logical CPUs at
+100.0%. Therefore actual observed threads, both nulls, the candidate CI, and
+the incumbent ratio were all **not reached**.
+
+RESULT: **NO-VERDICT / HARNESS WORKED.** Do not replace the old `0.566x` with
+the local parity diagnostic or an informal probe. Retry only in a dedicated
+non-co-tenanted remote window with host probes and scheduler work suppressed
+for the entire process; preserve the exact fixture/wheel/source hashes,
+in-process ELF line, actual-thread probes, 21 rounds, both A/A nulls,
+continuous accounting, and corrected three-clause gate. Any abort remains
+NO-VERDICT.

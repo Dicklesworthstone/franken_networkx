@@ -9298,3 +9298,85 @@ REMAINING RED (3): the review_mode_regression_lock trio (write_gexf classificati
 true-iterator two-epoch parity, attr-snapshot aliasing) — suspected to need the peer's stashed
 `br-r37-c1-ctorskip` implementation (stash@{1}, note: "correct-by-analysis; needs pyo3 two-build
 bench cycle to ship"). Next lever.
+
+## 2026-07-31 BlackThrush (cod) NO-VERDICT: S4 cold-after-mutation incumbent retry (`br-r37-c1-1jo5g`)
+
+The stale-index retry predicate is satisfied: a clean strict-remote build can
+now compile the post-S4 source. A permanent `cold-after-mutation-cc` row was
+added to `scripts/perf_harness.py` for the exact public whole operation that
+was previously reported at `0.566x`: construct matching 20,000-node
+`MultiGraph`s with a 20,000-edge cycle, 60,000 deterministic chords, and 1,000
+parallel edges; warm `connected_components`; add and remove explicit-key edge
+`(0, 10000, 9223372036854775807)`; then fully materialize
+`connected_components`. The 81,000-edge stream SHA-256 is
+`bed61d247c137cc6248e4ab72a7a9131190435903987a30c623598258990aa28`.
+A non-campaign local routing check established complete ordered-output
+identity, 128,901 canonical bytes, and output SHA-256
+`793c880b65ecd0450c506a6ac4688eabf5967af188ce60676d5834aa130c8ff9`;
+it is correctness evidence only and contributes no timing.
+
+The harness now bootstraps the exact NetworkX 3.6.1 incumbent before loading
+PyO3 on workers without NetworkX. It downloads the PyPI wheel from its fixed
+URL, verifies SHA-256
+`d47fbf302e7d9cbbb9e2555a0d267983d2aa476bac30e90dfbe5669bd57f3762`,
+stores it once in a stable hash-named per-host cache instead of minting a
+per-run extraction directory, asserts `nx.__version__ == "3.6.1"`, and records
+the URL, cache path, hash, byte count, and imported path. The decision contract
+was corrected to the required three clauses: the candidate bootstrap-median
+95% CI must exclude 1.0, its median deviation must exceed twice the larger A/A
+null-CI half-width, and every A/A null median must remain within 2% of 1.0.
+Raw candidate and null ratios are retained; CV remains provenance only.
+Workers that legitimately expose no cpufreq governor now record
+`["unavailable"]` plus the exact affected CPUs instead of fabricating a value
+or aborting an otherwise complete host identity.
+
+Every compilation invocation used strict remote execution with source base
+`71ff895de0704da73d98a221fb6b742c94f0d188`,
+`rch exec --base 71ff895de0704da73d98a221fb6b742c94f0d188
+--clean-overlay --overlay-path scripts/perf_harness.py`, 21 rounds, both A/A
+nulls, `PYTHONHASHSEED=0`, and all declared thread-library limits set to one.
+No per-run `CARGO_TARGET_DIR` was minted. The admissible attempts were:
+
+- `ovh-a`, job `j-29954019132703041`: the clean release build completed in
+  4m20s, then stopped before setup or timing because NetworkX was absent. This
+  exposed and motivated the hash-pinned incumbent bootstrap; it is not
+  evidence.
+- `vmi1264463`, job `j-29954019132703054`: the process passed setup far enough
+  to self-report loaded ELF SHA-256
+  `1f36022e2771b33eb5b3ac594e0ff8e8a4a3f55417488c26d21f1a8a99ba0d76`
+  and size 13,223,832 bytes, then stopped before the thread probe, A/A nulls,
+  or timing because CPUs 0-7 expose no scaling-governor files. This exposed
+  and motivated explicit governor-unavailable provenance; it is not evidence.
+- `ovh-a`, job `j-29954019132703080`: the corrected clean release invocation
+  loaded exact NetworkX 3.6.1 and accepted governor-unavailable provenance, but
+  host-wide `pre_setup` admission rejected after all 300 one-second windows:
+  every logical CPU 0-15 was 100.0% busy. It stopped before the in-process ELF
+  line, parity gate, observed-thread probe, either A/A null, or candidate
+  timing.
+
+The requested CPU was 2 only as an affinity request. **Actual observed threads
+are not available for a campaign row because every remote attempt stopped
+before the thread probe.** Host identities are the RCH workers named above;
+the final attempted host exposed 16 logical CPUs. No ratio, raw timing sample,
+null median, candidate CI, or gate decision exists.
+
+comparison_class=NO-VERDICT
+incumbent=networkx-3.6.1
+incumbent_same_invocation=false
+campaign_output=false
+decision_gate=not_reached
+actual_observed_threads=not_reached
+cv_role=not_computed
+
+RESULT: **NO-VERDICT / HARNESS WORKED.** The old `0.566x` is not replaced by
+the local diagnostic or by the earlier informal `6.06x` probe.
+
+RETRY PREDICATE: rerun this exact source base, fixture, incumbent wheel, and
+permanent suite only in a dedicated non-co-tenanted remote window with
+scheduler jobs, host probes, and leaked descendants suppressed for the full
+process. Require both five-consecutive-clear-window admissions and continuous
+300ms accounting, complete ordered-output identity, the in-process ELF
+SHA-256 line, actual observed thread counts for both arms, 21 interleaved
+rounds, both A/A nulls, and the corrected three-clause median gate. Any
+admission, provenance, parity, or continuous-accounting abort remains
+NO-VERDICT.
