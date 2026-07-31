@@ -102,7 +102,7 @@ def write_csv(study: dict, path: str) -> int:
     ]
     count = 0
     with open(path, "w", newline="") as handle:
-        writer = csv.DictWriter(handle, fieldnames=fields)
+        writer = csv.DictWriter(handle, fieldnames=fields, lineterminator="\n")
         writer.writeheader()
         for run in study["runs"]:
             prov = run.get("provenance", {})
