@@ -28621,6 +28621,78 @@ directory or Cargo target was created. Python byte-compilation, the ledger
 contract tests, diff checks, and UBS are recorded at commit closeout. No
 Cargo command ran.
 
+## 2026-07-31 BlackThrush (cod) PARITY + NO-VERDICT: exact `G.has_node(n)` loss arms (`br-r37-c1-p80x1.47`)
+
+The published `0.41x` loss was traced to the exact permanent
+`br-r37-c1-qmi5w` workload at measurement commit
+`08456fc932a0d1622660e117d55af79cb3283148` and publishing commit
+`85bb7263662f2c4f2d0b2c553d9b00c76d19f209`. The recovered harness has
+SHA-256
+`b30318548a7190e3d1f16767c7f5aeea5e94927aee9954e455511d3a4d3277dd`;
+the contemporaneous ledger has SHA-256
+`515932b66c8b533e0949471c4dfa5652951096f79c79bd2ea2c1dd5ca7040627`.
+Both rows perform 512 positional `Graph.has_node` calls on the same
+unweighted undirected simple string-node `n=2000,m=8000,seed=7` graph and
+sum their Boolean results. The present keys are `str(0)..str(511)`; the
+missing keys are `missing-0..missing-511`.
+
+Under `PYTHONHASHSEED=0`, both implementations receive the same 273,938-byte
+graph, SHA-256
+`03635cb95fcf023b79a245e0dc38125225ba216e6eb77a9270ef5121024f6164`.
+The ordered present-key list is 3,474 bytes, SHA-256
+`6fbb25288e6fcf809d85064c41486f60b1c7c2361b486d6f7db7a1bd2fd09ea3`;
+the ordered missing-key list is 7,570 bytes, SHA-256
+`74c9abc0810cfa51f233b1b95679963dbf2e5f1825e72fe04c3b5de21f9e84ed`.
+
+The permanent preflight compares all 512 ordered per-key Boolean results
+before allowing the historical summed projection. Live NetworkX 3.6.1 and
+FrankenNetworkX agree exactly: every present probe is `True` (3,072
+canonical bytes, SHA-256
+`717355d2676c36a4dda6d9018d9e63347323e7d7d9931cc844973b68491f443f`)
+and every missing probe is `False` (3,584 canonical bytes, SHA-256
+`772cc368dffbbc3ab66c244cc1da8c8d32f32ceb57c3eca2eae212bd450ba546`).
+The timed sums are therefore exactly `512` and `0`. No divergence was found.
+
+The historical same-process rows reported present median `0.4101x`, 95%
+median CI `0.3944..0.4309x`, and missing median `0.4073x`, 95% median CI
+`0.3945..0.4277x`, over 21 rounds. They self-reported loaded-ELF SHA-256
+`ba240617dd113d195b7d8930441c6a7c12c1b69b4c5bbe61407f0cc1855eef44`.
+Those rows remain historical evidence, not a current loss verdict: they
+record only one same-invocation A/A control per candidate row and lack the
+current dual arm-specific nulls, continuous whole-host accounting, and
+actual observed thread counts. They also predate the corrected null-median
+clause.
+
+RESULT: **FULL GRAPH + ORDERED QUERY + PER-KEY OUTPUT PARITY / CURRENT
+PERFORMANCE NO-VERDICT.** No strict benchmark was started because RCH 1.0.52
+still puts its pooled target below a UUID-salted `--clean-overlay` root.
+Running the required command would mint another cold physical target,
+violating the one-target storage rule. Machine-readable outcome:
+`benchmark_started=false`, `performance_verdict=NO-VERDICT`,
+`host_identity=not_observed`, `elf_sha256_in_process=not_observed`,
+`networkx_actual_threads=not_observed`, and
+`franken_networkx_actual_threads=not_observed`. No current loss ratio, null,
+or timing claim is reported.
+
+RETRY PREDICATE: retry only after two required
+`rch exec --base <commit> --clean-overlay` invocations prove the same managed
+physical target path without creating a new directory. Keep the exact graph,
+ordered present/missing keys, complete per-key outputs and summed projections,
+live NetworkX 3.6.1, 21 interleaved rounds, in-process host and ELF identity,
+actual observed threads for both arms, continuous whole-host accounting, raw
+candidate samples, and dual A/A nulls. A verdict additionally requires all
+three corrected median clauses: each null median within 2% of `1.0`, the
+candidate median deviation beyond twice the larger null-CI half-width, and
+the candidate median CI wholly on one side of `1.0`. CV remains provenance
+only.
+
+QUALITY / CLOSEOUT: the two focused exact probes passed `2/2`, and the full
+claim-incumbent parity sweep passed `26/26`. Harness SHA-256 is
+`d4cf780c815b69d23747387b1e82a64cab5ef1cd3b7e872b810bab0e72922f5c`.
+No scratch file, directory, Cargo command, or target was created. Python
+byte-compilation, the ledger contract tests, diff checks, and UBS are
+recorded at commit closeout.
+
 ## 2026-07-31 BlackThrush (cod) PARITY + NO-VERDICT: exact `bidirectional_dijkstra` claim arm (`br-r37-c1-p80x1.31`)
 
 The published `1.8125x` workload was recovered exactly from commit

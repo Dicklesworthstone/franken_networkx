@@ -58,8 +58,8 @@ It also has 5 whole-job pipeline rows. Cross-referencing each family row against
 a paired `(label, nx_arm, fnx_arm)` job in the contract harness across **all 33
 suites** (the harness exposes **51 distinct NetworkX functions** with a paired arm):
 
-- **44 of 45** README family rows have a paired incumbent arm in the contract harness.
-- **1 of 45** does not.
+- **45 of 45** README family rows have a paired incumbent arm in the contract harness.
+- **0 of 45** do not.
 - **24 of 45** still lack a current admissible ratio. The
   `erdos_renyi_graph` and `k_corona` arms reached no timed verdict because host
   exclusivity rejected their runnable placements. The `k_crust` and
@@ -77,12 +77,12 @@ suites** (the harness exposes **51 distinct NetworkX functions** with a paired a
   weighted `shortest_path`, `all_pairs_shortest_path`, `read_graph6`, and
   `read_sparse6`, plus `edges(data=True)` and `all_simple_edge_paths`.
   The exact `read_gml` and `read_multiline_adjlist` loss arms are blocked by
-  the same predicate.
+  the same predicate, as are both exact 512-call `G.has_node` probes.
 
 ### Tier 1 — published in the README, no current admissible contract ratio
 
-Rows 1-23 now have permanent arms but remain in this queue until they reach an
-admissible verdict. Row 24 still has no permanent arm.
+Rows 1-24 now have permanent arms but remain in this queue until they reach an
+admissible verdict.
 
 | # | Claim | Published | README |
 |--:|---|---:|---:|
@@ -139,15 +139,14 @@ NetworkX 3.6.1; being a drop-in replacement is the whole premise. Adding an arm 
 (`edges(data=True)`, `G.has_node`, `subgraph(view) → edges`) need a bound-method arm, which the
 harness already supports (`getattr(nx_graph, name)`, `perf_harness.py:2580`).
 
-So the honest characterisation is **"measured but not attested; one public
-case is not reproducible by the contract harness, and 23 more now have
-permanent arms but no admissible verdict"** — not "unmeasurable". That is a
-better position than the raw 2.0% suggests, and a worse one than the README
-implies.
+So the honest characterisation is **"measured but not attested; every public
+family row is now reproducible by the contract harness, while 24 still have
+no current admissible verdict"** — not "unmeasurable". That is a better
+position than the raw 2.0% suggests, and a worse one than the README implies.
 
 ## What this audit does not claim
 
 It does not claim the 579 unattested rows are wrong. It claims we cannot
-currently demonstrate they are right to the standard we have adopted, and
-that one number a user reads in the README has no arm in the harness it
-points them at; 23 more now have arms but no admissible timed verdict.
+currently demonstrate they are right to the standard we have adopted. All
+45 README family rows now have permanent arms; 24 still have no current
+admissible timed verdict.

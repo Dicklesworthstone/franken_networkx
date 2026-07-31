@@ -3225,6 +3225,7 @@ def suite_claim_incumbent():
         "dfs_successors",
         "edges_data_true",
         "erdos_renyi_graph",
+        "graph_has_node",
         "k_corona",
         "k_crust",
         "kosaraju_strongly_connected_components",
@@ -4212,6 +4213,200 @@ def suite_claim_incumbent():
                     n,
                     p,
                     seed=s,
+                ),
+            )
+        )
+    if "graph_has_node" in jobs:
+        if os.environ.get("PYTHONHASHSEED") != "0":
+            raise RuntimeError(
+                "the G.has_node claim fixture requires PYTHONHASHSEED=0 "
+                "because graph order is part of the public contract"
+            )
+        node_count = 2_000
+        edge_count = 8_000
+        seed = 7
+        query_count = 512
+        expected_input_bytes = 273_938
+        expected_input_sha256 = (
+            "03635cb95fcf023b79a245e0dc38125225ba216e6eb77a9270ef5121024f6164"
+        )
+        expected_present_keys_bytes = 3_474
+        expected_present_keys_sha256 = (
+            "6fbb25288e6fcf809d85064c41486f60b1c7c2361b486d6f7db7a1bd2fd09ea3"
+        )
+        expected_missing_keys_bytes = 7_570
+        expected_missing_keys_sha256 = (
+            "74c9abc0810cfa51f233b1b95679963dbf2e5f1825e72fe04c3b5de21f9e84ed"
+        )
+        expected_present_output_bytes = 3_072
+        expected_present_output_sha256 = (
+            "717355d2676c36a4dda6d9018d9e63347323e7d7d9931cc844973b68491f443f"
+        )
+        expected_missing_output_bytes = 3_584
+        expected_missing_output_sha256 = (
+            "772cc368dffbbc3ab66c244cc1da8c8d32f32ceb57c3eca2eae212bd450ba546"
+        )
+        has_node_nx, has_node_fnx = _build_pair(
+            node_count,
+            edge_count,
+            seed=seed,
+            weighted=False,
+        )
+        present = [str(index) for index in range(query_count)]
+        missing = [f"missing-{index}" for index in range(query_count)]
+        input_nx_bytes = canonical_bytes(has_node_nx)
+        input_fnx_bytes = canonical_bytes(has_node_fnx)
+        input_sha256 = hashlib.sha256(input_nx_bytes).hexdigest()
+        present_keys_bytes = canonical_bytes(present)
+        missing_keys_bytes = canonical_bytes(missing)
+        present_keys_sha256 = hashlib.sha256(
+            present_keys_bytes
+        ).hexdigest()
+        missing_keys_sha256 = hashlib.sha256(
+            missing_keys_bytes
+        ).hexdigest()
+        if input_nx_bytes != input_fnx_bytes:
+            raise RuntimeError("G.has_node claim input graphs diverged")
+        if (
+            len(input_nx_bytes) != expected_input_bytes
+            or not hmac.compare_digest(input_sha256, expected_input_sha256)
+            or len(present_keys_bytes) != expected_present_keys_bytes
+            or not hmac.compare_digest(
+                present_keys_sha256,
+                expected_present_keys_sha256,
+            )
+            or len(missing_keys_bytes) != expected_missing_keys_bytes
+            or not hmac.compare_digest(
+                missing_keys_sha256,
+                expected_missing_keys_sha256,
+            )
+        ):
+            raise RuntimeError(
+                "G.has_node claim input no longer matches its "
+                "preregistered graph and ordered query keys"
+            )
+
+        present_nx = [
+            has_node_nx.has_node(node)
+            for node in present
+        ]
+        present_fnx = [
+            has_node_fnx.has_node(node)
+            for node in present
+        ]
+        missing_nx = [
+            has_node_nx.has_node(node)
+            for node in missing
+        ]
+        missing_fnx = [
+            has_node_fnx.has_node(node)
+            for node in missing
+        ]
+        present_nx_bytes = canonical_bytes(present_nx)
+        present_fnx_bytes = canonical_bytes(present_fnx)
+        missing_nx_bytes = canonical_bytes(missing_nx)
+        missing_fnx_bytes = canonical_bytes(missing_fnx)
+        present_output_sha256 = hashlib.sha256(
+            present_nx_bytes
+        ).hexdigest()
+        missing_output_sha256 = hashlib.sha256(
+            missing_nx_bytes
+        ).hexdigest()
+        if (
+            present_nx_bytes != present_fnx_bytes
+            or missing_nx_bytes != missing_fnx_bytes
+        ):
+            raise RuntimeError(
+                "G.has_node claim ordered per-key results diverged"
+            )
+        if (
+            any(type(result) is not bool for result in present_nx)
+            or any(type(result) is not bool for result in missing_nx)
+            or sum(present_nx) != query_count
+            or sum(missing_nx) != 0
+            or len(present_nx_bytes) != expected_present_output_bytes
+            or not hmac.compare_digest(
+                present_output_sha256,
+                expected_present_output_sha256,
+            )
+            or len(missing_nx_bytes) != expected_missing_output_bytes
+            or not hmac.compare_digest(
+                missing_output_sha256,
+                expected_missing_output_sha256,
+            )
+        ):
+            raise RuntimeError(
+                "G.has_node claim fixture no longer matches its "
+                "preregistered complete ordered outputs"
+            )
+        EXTRA_PROVENANCE["claim_graph_has_node_fixture"] = {
+            "publishing_commit": "85bb7263662f2c4f2d0b2c553d9b00c76d19f209",
+            "measurement_commit": "08456fc932a0d1622660e117d55af79cb3283148",
+            "recovered_harness_sha256": (
+                "b30318548a7190e3d1f16767c7f5aeea5e94927aee9954e455511d3a4d3277dd"
+            ),
+            "recovered_ledger_sha256": (
+                "515932b66c8b533e0949471c4dfa5652951096f79c79bd2ea2c1dd5ca7040627"
+            ),
+            "nodes": node_count,
+            "edges": edge_count,
+            "seed": seed,
+            "weighted": False,
+            "directed": False,
+            "query_count_per_row": query_count,
+            "present_query": "str(index) for index in range(512)",
+            "missing_query": (
+                "f'missing-{index}' for index in range(512)"
+            ),
+            "parameters": "node positional",
+            "python_hash_seed": 0,
+            "input_canonical_bytes": expected_input_bytes,
+            "input_sha256": expected_input_sha256,
+            "present_keys_canonical_bytes": expected_present_keys_bytes,
+            "present_keys_sha256": expected_present_keys_sha256,
+            "missing_keys_canonical_bytes": expected_missing_keys_bytes,
+            "missing_keys_sha256": expected_missing_keys_sha256,
+            "present_complete_output_canonical_bytes": (
+                expected_present_output_bytes
+            ),
+            "present_complete_output_sha256": (
+                expected_present_output_sha256
+            ),
+            "present_true_count": query_count,
+            "missing_complete_output_canonical_bytes": (
+                expected_missing_output_bytes
+            ),
+            "missing_complete_output_sha256": (
+                expected_missing_output_sha256
+            ),
+            "missing_true_count": 0,
+            "timed_projection": "sum(512 ordered has_node results)",
+        }
+        rows.extend(
+            (
+                (
+                    "claim/G.has_node(present) x512 "
+                    "n=2000 m=8000 seed=7 [nx/fnx]",
+                    lambda graph=has_node_nx, keys=present: sum(
+                        graph.has_node(node)
+                        for node in keys
+                    ),
+                    lambda graph=has_node_fnx, keys=present: sum(
+                        graph.has_node(node)
+                        for node in keys
+                    ),
+                ),
+                (
+                    "claim/G.has_node(missing) x512 "
+                    "n=2000 m=8000 seed=7 [nx/fnx]",
+                    lambda graph=has_node_nx, keys=missing: sum(
+                        graph.has_node(node)
+                        for node in keys
+                    ),
+                    lambda graph=has_node_fnx, keys=missing: sum(
+                        graph.has_node(node)
+                        for node in keys
+                    ),
                 ),
             )
         )

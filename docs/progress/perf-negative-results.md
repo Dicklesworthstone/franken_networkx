@@ -2731,6 +2731,32 @@ then retain the exact path input and outputs, live incumbent, 21 rounds,
 in-process host/ELF identity, actual threads, continuous accounting, dual A/A
 nulls, and the corrected three-clause median gate.
 
+## 2026-07-31 BlackThrush (cod) PARITY + NO-VERDICT (`br-r37-c1-p80x1.47`): exact `G.has_node(n)` loss arms
+
+The published `0.41x` loss was recovered from the permanent
+`br-r37-c1-qmi5w` workload: 512 present and 512 missing exact-string probes
+on an unweighted simple `n=2000,m=8000,seed=7` graph, with each timed row
+summing its Boolean results.
+
+Both implementations receive the same 273,938-byte graph (SHA
+`03635cb9...6164`). The ordered present keys are 3,474 bytes (SHA
+`6fbb2528...9ea3`); missing keys are 7,570 bytes (SHA
+`74c9abc0...84ed`). Live NetworkX 3.6.1 and FrankenNetworkX agree on every
+probe: 512 `True` results (3,072 bytes, SHA `717355d2...443f`) and 512
+`False` results (3,584 bytes, SHA `772cc368...a546`), yielding exact timed
+sums `512` and `0`. No divergence was found.
+
+RESULT: **FULL GRAPH + ORDERED QUERY + PER-KEY PARITY / CURRENT PERFORMANCE
+NO-VERDICT.** Historical present/missing rows reported `0.4101x` and
+`0.4073x`, but they lack dual arm-specific nulls, actual observed threads,
+continuous accounting, and the corrected null-median clause. No strict
+benchmark was started because RCH 1.0.52 would place the pooled target under
+another UUID-salted clean-overlay root. Retry only after two required
+clean-overlay invocations prove one identical managed physical target path,
+then retain all exact inputs and per-key outputs, live incumbent, 21 rounds,
+in-process host/ELF identity, actual threads, continuous accounting, dual A/A
+nulls, and the corrected three-clause median gate.
+
 ## 2026-07-31 BlackThrush (cod) PARITY + NO-VERDICT (`br-r37-c1-p80x1.35`): exact `all_pairs_shortest_path` claim arm
 
 The published `1.7624x` row was recovered from
