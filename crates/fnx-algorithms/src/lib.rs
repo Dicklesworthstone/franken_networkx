@@ -5813,6 +5813,34 @@ fn betweenness_centrality_sampled_generic<G: GraphView>(
     }
 }
 
+/// Which reduction the parallel Brandes arm uses to fold per-source deltas into
+/// the global score. Both are order-preserving and produce byte-identical
+/// results; they differ only in how the fold is scheduled.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[doc(hidden)]
+pub enum BrandesReduce {
+    /// Threshold on `n` (the default production behaviour).
+    Auto,
+    /// One thread walks every source's delta row in source order.
+    Serial,
+    /// Disjoint node blocks folded concurrently; each block still sees its
+    /// sources in increasing order, so no f64 sum is reassociated.
+    Parallel,
+}
+
+/// Bench/test-only entry point pinning one reduction arm. Results are identical
+/// across arms; see `brandes_reduce_ab`.
+#[doc(hidden)]
+#[must_use]
+pub fn betweenness_centrality_reduce_arm(
+    graph: &Graph,
+    normalized: bool,
+    endpoints: bool,
+    reduce: BrandesReduce,
+) -> BetweennessCentralityResult {
+    betweenness_centrality_brandes_arm(graph, normalized, endpoints, reduce)
+}
+
 fn betweenness_centrality_generic<G: GraphView>(
     graph: &G,
     normalized: bool,
@@ -5846,6 +5874,15 @@ fn betweenness_centrality_brandes<G: GraphView>(
     graph: &G,
     normalized: bool,
     endpoints: bool,
+) -> BetweennessCentralityResult {
+    betweenness_centrality_brandes_arm(graph, normalized, endpoints, BrandesReduce::Auto)
+}
+
+fn betweenness_centrality_brandes_arm<G: GraphView>(
+    graph: &G,
+    normalized: bool,
+    endpoints: bool,
+    reduce: BrandesReduce,
 ) -> BetweennessCentralityResult {
     let nodes = graph.nodes_ordered();
     let n = nodes.len();
@@ -5916,29 +5953,63 @@ fn betweenness_centrality_brandes<G: GraphView>(
                 )
                 .collect();
 
-            // Reduce in source order (the collected Vec is already ordered by s).
+            // Fold the chunk's per-source deltas into the global score IN SOURCE
+            // ORDER (the collected Vec is already ordered by s), so the f64
+            // summation order — and therefore the result — matches the sequential
+            // path byte for byte.
             //
-            // br-r37-c1-bcsr tried replacing this loop with a slab-backed delta
-            // (one `chunk * n` allocation reused across chunks, one row per
-            // source) PLUS a rayon reduction over disjoint node blocks. Both are
-            // order-preserving and the bit-identity gate passed, but the combined
-            // candidate measured 36.5 ms against 29.4 ms for the plain loop below
-            // (n=3000, m=15000, cross-binary, three interleaved rounds) — a 24%
-            // regression, so it was reverted. Caveat for whoever retries: that
-            // candidate moved BOTH variables at once and carried no A/A null, so
-            // it does not establish WHICH one cost the time. Separate them and
-            // run an in-binary A/B with a null before concluding anything.
+            // Two schedulings, identical arithmetic. The serial fold walks whole
+            // rows one source at a time. The parallel fold splits the NODE axis
+            // into disjoint blocks: for any fixed target `w` the addends still
+            // arrive in increasing source order, only independent `w`s go to
+            // different threads, so nothing is reassociated. Blocking also keeps
+            // the accumulator slice resident while the source rows stream past it.
             //
-            // What is solid: this reduction was never the bottleneck. The
-            // pre-change kernel already ran at cpu/wall 42 at load 23-30, so
-            // there is little serial fraction here to recover.
-            for (delta, src_edges, src_touched, src_peak) in chunk_results {
-                for (acc, contribution) in centrality.iter_mut().zip(delta.iter()) {
-                    *acc += *contribution;
+            // br-r37-c1-bcsr measured the parallel fold at n=3000 and it LOST
+            // (delta row 24 KiB, allocator-recycled and L2-resident; the fold is a
+            // negligible slice of a kernel already running at cpu/wall 42). The
+            // retry predicate recorded then was "reopen when the delta rows exceed
+            // last-level cache anyway", and the ca-AstroPh whole-job profile
+            // satisfies it: n=17903 makes each row 143 KiB and the fold 320M adds.
+            // Hence the threshold rather than a flat choice — see `brandes_reduce_ab`.
+            const REDUCE_PARALLEL_MIN_N: usize = 8192;
+            const REDUCE_BLOCK: usize = 2048;
+            let parallel_reduce = match reduce {
+                BrandesReduce::Auto => n >= REDUCE_PARALLEL_MIN_N,
+                BrandesReduce::Serial => false,
+                BrandesReduce::Parallel => true,
+            };
+
+            if parallel_reduce {
+                let rows = &chunk_results;
+                centrality
+                    .par_chunks_mut(REDUCE_BLOCK)
+                    .enumerate()
+                    .for_each(|(block_idx, block)| {
+                        let base = block_idx * REDUCE_BLOCK;
+                        let width = block.len();
+                        for (delta, _, _, _) in rows.iter() {
+                            for (acc, contribution) in
+                                block.iter_mut().zip(&delta[base..base + width])
+                            {
+                                *acc += *contribution;
+                            }
+                        }
+                    });
+                for (_, src_edges, src_touched, src_peak) in &chunk_results {
+                    edges_scanned += *src_edges;
+                    total_nodes_touched += *src_touched;
+                    queue_peak = queue_peak.max(*src_peak);
                 }
-                edges_scanned += src_edges;
-                total_nodes_touched += src_touched;
-                queue_peak = queue_peak.max(src_peak);
+            } else {
+                for (delta, src_edges, src_touched, src_peak) in chunk_results {
+                    for (acc, contribution) in centrality.iter_mut().zip(delta.iter()) {
+                        *acc += *contribution;
+                    }
+                    edges_scanned += src_edges;
+                    total_nodes_touched += src_touched;
+                    queue_peak = queue_peak.max(src_peak);
+                }
             }
             start = end;
         }
@@ -67977,6 +68048,149 @@ mod tests {
             }
         }
         println!("betweenness_csr_predecessor_scan_is_bit_identical_to_stored_lists: OK");
+    }
+
+    /// br-r37-c1-bcsr2: the parallel node-block reduction must be BIT-identical
+    /// to the serial source-order fold, not merely close. Sizes straddle
+    /// `REDUCE_PARALLEL_MIN_N` so `Auto` is exercised on both sides of its own
+    /// threshold, and the pinned arms are compared directly.
+    #[test]
+    fn brandes_parallel_reduction_is_bit_identical_to_serial() {
+        use super::{BrandesReduce, betweenness_centrality_reduce_arm};
+        for &n in &[600usize, 2000, 9000] {
+            let mut graph = Graph::strict();
+            for i in 0..n {
+                let _ = graph.add_node(i.to_string());
+            }
+            for i in 0..n {
+                for step in [1usize, 3, 7] {
+                    let _ = graph.add_edge(i.to_string(), ((i + step) % n).to_string());
+                }
+            }
+            for &(normalized, endpoints) in
+                &[(true, false), (false, false), (true, true), (false, true)]
+            {
+                let serial = betweenness_centrality_reduce_arm(
+                    &graph,
+                    normalized,
+                    endpoints,
+                    BrandesReduce::Serial,
+                );
+                let parallel = betweenness_centrality_reduce_arm(
+                    &graph,
+                    normalized,
+                    endpoints,
+                    BrandesReduce::Parallel,
+                );
+                let auto = betweenness_centrality_with_params(&graph, normalized, endpoints);
+                assert_eq!(serial.scores.len(), parallel.scores.len());
+                for ((s, p), a) in serial
+                    .scores
+                    .iter()
+                    .zip(parallel.scores.iter())
+                    .zip(auto.scores.iter())
+                {
+                    assert_eq!(
+                        s.score.to_bits(),
+                        p.score.to_bits(),
+                        "n={n} normalized={normalized} endpoints={endpoints} node={} \
+                         serial={} parallel={}",
+                        s.node,
+                        s.score,
+                        p.score
+                    );
+                    assert_eq!(
+                        s.score.to_bits(),
+                        a.score.to_bits(),
+                        "Auto diverged from Serial at n={n} node={}",
+                        s.node
+                    );
+                }
+                // The witness must not depend on how the fold was scheduled.
+                assert_eq!(serial.witness.edges_scanned, parallel.witness.edges_scanned);
+                assert_eq!(serial.witness.nodes_touched, parallel.witness.nodes_touched);
+                assert_eq!(serial.witness.queue_peak, parallel.witness.queue_peak);
+            }
+        }
+        println!("brandes_parallel_reduction_is_bit_identical_to_serial: OK");
+    }
+
+    /// br-r37-c1-bcsr2: paired-interleaved median A/B for the Brandes delta
+    /// reduction, serial source-order fold vs disjoint node blocks, in ONE binary
+    /// with an A/A null control. `#[ignore]` (measurement); run with
+    /// `cargo test --release -p fnx-algorithms --lib brandes_reduce_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with --release --ignored --nocapture"]
+    fn brandes_reduce_ab() {
+        use super::{BrandesReduce, betweenness_centrality_reduce_arm};
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        for &n in &[3000usize, 9000, 18000] {
+            let mut graph = Graph::strict();
+            for i in 0..n {
+                let _ = graph.add_node(i.to_string());
+            }
+            for i in 0..n {
+                for step in [1usize, 5, 11] {
+                    let _ = graph.add_edge(i.to_string(), ((i + step) % n).to_string());
+                }
+            }
+
+            let run = |arm: BrandesReduce| {
+                black_box(betweenness_centrality_reduce_arm(&graph, true, false, arm))
+            };
+            // Warm the rayon pool and the allocator before any timing.
+            let _ = run(BrandesReduce::Serial);
+            let _ = run(BrandesReduce::Parallel);
+
+            // Arms INTERLEAVED inside one round, order alternating per round; the
+            // statistic is the median of per-round ratios, not a ratio of medians.
+            let rounds = if n >= 18000 { 5 } else { 9 };
+            let mut ab: Vec<f64> = Vec::new();
+            let mut null: Vec<f64> = Vec::new();
+            for round in 0..rounds {
+                let (a, b) = if round % 2 == 0 {
+                    let t0 = Instant::now();
+                    let _ = run(BrandesReduce::Serial);
+                    let a = t0.elapsed().as_secs_f64();
+                    let t1 = Instant::now();
+                    let _ = run(BrandesReduce::Parallel);
+                    (a, t1.elapsed().as_secs_f64())
+                } else {
+                    let t1 = Instant::now();
+                    let _ = run(BrandesReduce::Parallel);
+                    let b = t1.elapsed().as_secs_f64();
+                    let t0 = Instant::now();
+                    let _ = run(BrandesReduce::Serial);
+                    (t0.elapsed().as_secs_f64(), b)
+                };
+                ab.push(a / b);
+                // A/A null: the SAME arm twice, same interleaving discipline.
+                let t2 = Instant::now();
+                let _ = run(BrandesReduce::Serial);
+                let c = t2.elapsed().as_secs_f64();
+                let t3 = Instant::now();
+                let _ = run(BrandesReduce::Serial);
+                null.push(c / t3.elapsed().as_secs_f64());
+            }
+            let median = |v: &mut Vec<f64>| {
+                v.sort_by(|x, y| x.partial_cmp(y).unwrap());
+                v[v.len() / 2]
+            };
+            let wins = ab.iter().filter(|r| **r > 1.0).count();
+            let (lo, hi) = {
+                let mut s = ab.clone();
+                s.sort_by(|x, y| x.partial_cmp(y).unwrap());
+                (s[0], s[s.len() - 1])
+            };
+            println!(
+                "BRANDES_REDUCE_AB n={n} serial/parallel median={:.4} (>1 = parallel faster) \
+                 range=[{lo:.4}, {hi:.4}] wins={wins}/{rounds} A/A_null={:.4}",
+                median(&mut ab.clone()),
+                median(&mut null.clone()),
+            );
+        }
     }
 
     #[test]
