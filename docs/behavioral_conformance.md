@@ -14,8 +14,8 @@
 
 | Status | Paths | Identity groups | Meaning |
 |--------|------:|----------------:|---------|
-| `agree` | 1870 | 1245 | At least one generated successful case canonically agrees. |
-| `diverge` | 166 | 114 | A generated case produced a genuine canonical mismatch. |
+| `agree` | 1874 | 1249 | At least one generated successful case canonically agrees. |
+| `diverge` | 162 | 110 | A generated case produced a genuine canonical mismatch. |
 | `error_only_agreement` | 183 | 103 | Fully-bound generated calls agree only on errors; no successful value is claimed. |
 | `unexercised` | 1025 | 396 | No meaningful bounded generated invocation completed. |
 | `non_behavioral` | 155 | 68 | Structural descriptor/property/attribute binding, not a callable result. |
@@ -38,7 +38,7 @@
 | `algorithms.link_analysis` | 9 | 0 | 0 | 0 | 0 |
 | `algorithms.minors` | 14 | 0 | 0 | 0 | 0 |
 | `algorithms.operators` | 43 | 2 | 6 | 12 | 0 |
-| `algorithms.other` | 278 | 57 | 10 | 66 | 0 |
+| `algorithms.other` | 282 | 53 | 10 | 66 | 0 |
 | `algorithms.shortest_paths` | 132 | 0 | 6 | 0 | 0 |
 | `algorithms.traversal` | 34 | 0 | 0 | 4 | 0 |
 | `algorithms.tree` | 46 | 5 | 6 | 18 | 3 |
@@ -56,7 +56,7 @@
 
 ## Honest current sentence
 
-Of 3399 surface-present NetworkX paths, generated in-process differential cases currently prove 1870 behaviorally agreeing and 166 diverging; 183 have error-only agreement, 1025 remain unexercised, and 155 are non-behavioral bindings.
+Of 3399 surface-present NetworkX paths, generated in-process differential cases currently prove 1874 behaviorally agreeing and 162 diverging; 183 have error-only agreement, 1025 remain unexercised, and 155 are non-behavioral bindings.
 
 ## Genuine divergences
 
@@ -209,26 +209,6 @@ Of 3399 surface-present NetworkX paths, generated in-process differential cases 
 
 - Paths: `networkx.algorithms.community.leiden.leiden_partitions`, `networkx.algorithms.community.leiden_partitions`
 - Exact reproducer: see `divergences` entry `a6fb0e57a0bd54e87d59` in the JSON corpus.
-
-### `359751343936e909c7a3`
-
-- Paths: `networkx.algorithms.core.k_core`
-- Exact reproducer: see `divergences` entry `359751343936e909c7a3` in the JSON corpus.
-
-### `eddba56481099f0ef5b1`
-
-- Paths: `networkx.algorithms.core.k_corona`
-- Exact reproducer: see `divergences` entry `eddba56481099f0ef5b1` in the JSON corpus.
-
-### `62e1470e55a907e9125d`
-
-- Paths: `networkx.algorithms.core.k_crust`
-- Exact reproducer: see `divergences` entry `62e1470e55a907e9125d` in the JSON corpus.
-
-### `435bea6240e8600b14a9`
-
-- Paths: `networkx.algorithms.core.k_shell`
-- Exact reproducer: see `divergences` entry `435bea6240e8600b14a9` in the JSON corpus.
 
 ### `241ee3c2d7c49ee178d9`
 
