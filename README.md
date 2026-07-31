@@ -1077,17 +1077,17 @@ co-tenancy elsewhere on the host.
 | jaccard_coefficient | **2.4536× faster** | Native neighbour-set intersection; 300 pairs |
 | label_propagation_communities | **2.1485× faster** | Native label counting; n=1,200 / m=6,000 |
 | minimum_spanning_tree | **1.9947× faster** | Native Kruskal; n=1,200 / m=6,000 |
-| erdos_renyi_graph (n=1500) | **14.1755× faster** | Native generator |
+| erdos_renyi_graph (n=1500) | **12.87–13.15× faster** | Native generator; re-measured 2026-07-31 vs live nx 3.6.1 (was 14.1755×, not reproducible) |
 | k_corona | no current admissible ratio | Complete-result incumbent gate awaiting an exclusive host window |
-| k_crust | **5.8664× faster** | Native core filter |
-| kosaraju_strongly_connected_components | **4.6519× faster** | Native SCC |
+| k_crust | **13.2556× faster** | Native core filter; re-measured 2026-07-31 vs live nx 3.6.1 (was 5.8664×, understated) |
+| kosaraju_strongly_connected_components | **4.8474× faster** | Native SCC; re-measured 2026-07-31 vs live nx 3.6.1 (was 4.6519×) |
 | minimum_branching | **3.9768× faster** | Native branching |
 | partition_spanning_tree | **2.4612× faster** | Native Kruskal with partition constraints |
-| dfs_successors | **2.1456× faster** | Native traversal |
+| dfs_successors | **2.3223× faster** | Native traversal; re-measured 2026-07-31 vs live nx 3.6.1 (was 2.1456×) |
 | read_graph6 / read_sparse6 | **1.72× / 1.69× faster** | Native decoders |
 | all_simple_edge_paths | **1.3466× faster** | Native path enumeration |
 | dijkstra_path (weighted) | **7.6077× faster** | Native bidirectional kernel + persistent dense node ids |
-| single_source_shortest_path_length | **5.5005× faster** | Native BFS, dict returned from Rust |
+| single_source_shortest_path_length | **5.1868× faster** | Native BFS, dict returned from Rust; re-measured 2026-07-31 vs live nx 3.6.1 (was 5.5005×, overstated) |
 | all_pairs_shortest_path_length (n=300) | **4.5647× faster** | Algorithmic work dominates |
 | single_source_shortest_path | **3.8952× faster** | Native BFS |
 | all_pairs_dijkstra_path_length (n=300) | **3.6658× faster** | Algorithmic work dominates |

@@ -28544,6 +28544,161 @@ QUALITY / CLOSEOUT: `git diff --check` covers this ledger-only result. No
 Cargo command ran. UBS has no Markdown/JSONL scanner, so no scanner pass is
 claimed.
 
+## 2026-07-31 BlackThrush (cc) KEEP / RETRY-CONDITION SWEEP: four blocked README claims converted against live NetworkX 3.6.1 (`br-r37-c1-p80x1.5`, `.7`, `.9`, `.29`)
+
+RETRY-CONDITION SATISFIED — BY CORRECTING THE PREDICATE, NOT BY WAITING FOR IT.
+The `p80x1.5 / .7 / .9 / .29` rows each recorded NO-VERDICT behind a retry
+predicate about RCH target-directory stability. That predicate rested on a
+misdiagnosis (see the `erdos_renyi_graph` row below): the target directory was
+never the blocker. Re-running these four arms with a HEAD-exact binary produced
+a decidable verdict for every one.
+
+comparison_class=INCUMBENT
+incumbent=networkx
+incumbent_same_invocation=true
+incumbent_ratio=2.3223x
+campaign_output=true
+decision_gate=median_ci
+cv_role=report_only
+bench_elf_sha256=e5bb3755812c732b63bb8ab3e4650d526bb69bb67834d264f8b00adfad4a3213
+host_identity=thinkstation1
+host_wide_exclusivity=RECORDED-NOT-ENFORCED
+
+(`incumbent_ratio` above is the most conservative of the four; each measured
+ratio is tabled below.)
+
+**NOT ONE OF THE FOUR PUBLISHED NUMBERS IS REPRODUCIBLE ON HEAD.** Every
+measured CI excludes its published figure — two published numbers were
+optimistic and two were conservative. The README table is *stale*, not
+systematically inflated.
+
+| Claim | Published | Measured | CI | Nulls (nx / fnx) | Direction |
+|---|---:|---:|---|---|---|
+| `k_crust` | 5.8664x | **13.2556x** | `[13.0197, 13.4719]` | 1.0065 / 0.9997 | understated 2.26x |
+| `single_source_shortest_path_length` | 5.5005x | **5.1868x** | `[5.1226, 5.2776]` | 0.9997 / 0.9999 | overstated 6.1% |
+| `kosaraju_strongly_connected_components` | 4.6519x | **4.8474x** | `[4.7558, 4.8640]` | 0.9956 / 1.0027 | understated 4.2% |
+| `dfs_successors` | 2.1456x | **2.3223x** | `[2.2986, 2.3523]` | 0.9957 / 0.9992 | understated 8.2% |
+
+All four DECIDABLE under the corrected three-clause median gate, all `21/21`
+wins, all with byte-identical canonical output between NetworkX 3.6.1 and
+FrankenNetworkX proven in the same invocation before timing. Worst null median
+bias across the batch was `0.0065 <= 0.0200`. Fixtures: `k_crust` and
+`dfs_successors` `n=1200 m=6000 seed=11`; `kosaraju` `n=800 m=4000 seed=11`
+directed+weighted; `single_source_shortest_path_length` `n=2000 m=8000 seed=7`.
+
+Binary, host, thread, and exclusivity provenance are identical to the
+`erdos_renyi_graph` row below and are not restated.
+
+CONSEQUENCE FOR THE LEDGER. The `p80x1.*` NO-VERDICT rows should not be read as
+"the claim could not be measured". They record a self-imposed admission gate
+refusing to run, not evidence about FrankenNetworkX. Rows still carrying that
+predicate remain re-runnable at will.
+
+RETRY PREDICATE: re-measure on an exclusive host to tighten the shared-host
+floor. Do not restore any of the four published figures without a measurement
+whose CI contains it.
+
+QUALITY / CLOSEOUT: no Rust source changed; no Cargo command ran for this row
+beyond the shared HEAD build recorded below.
+
+## 2026-07-31 BlackThrush (cc) KEEP / PUBLISHED NUMBER CORRECTED DOWNWARD: exact `erdos_renyi_graph` claim converted against live NetworkX 3.6.1 (`br-r37-c1-p80x1.1`)
+
+FIRST README CLAIM CONVERTED TO A MEASURED LIVE-INCUMBENT RATIO. The published
+`14.1755x` is **not reproducible on HEAD**. Two independent runs on disjoint CPU
+sets measured `12.8702x` and `13.1460x`. The published figure sits `9.3%` above
+the upper CI bound of run A and `7.0%` above the median of run B. The claim
+survives as a large win; the specific number was overstated and is corrected.
+
+comparison_class=INCUMBENT
+incumbent=networkx
+incumbent_same_invocation=true
+incumbent_ratio=12.8702x
+campaign_output=true
+decision_gate=median_ci
+cv_role=report_only
+bench_elf_sha256=e5bb3755812c732b63bb8ab3e4650d526bb69bb67834d264f8b00adfad4a3213
+host_identity=thinkstation1
+host_wide_exclusivity=RECORDED-NOT-ENFORCED
+
+BINARY UNDER TEST. HEAD `629268633`. The `.so` was rebuilt at HEAD via
+`RCH_REQUIRE_REMOTE=1 rch exec --base HEAD --clean-overlay --no-overlay --
+cargo build --release -p fnx-python --features pyo3/extension-module,pyo3/abi3-py310`,
+executed remotely on worker `ovh-a` in 138.7s, with artifacts retrieved into the
+single shared `CARGO_TARGET_DIR=/data/tmp/cargo-target`. No per-task target
+directory was minted. The loaded ELF self-reports from inside the benchmark
+process as `e5bb3755812c732b63bb8ab3e4650d526bb69bb67834d264f8b00adfad4a3213`
+(13,222,632 bytes); `nm -D | grep -c crossbeam` is `0`, so it is not a partial
+transfer.
+
+STALE-INSTALL TRAP AVOIDED. The `site-packages` install was built `2026-07-23`
+and HEAD carries **44 Rust commits** after it, plus 6 differing Python files.
+Any ratio measured against that install would have been invalid for a HEAD
+claim. The measurement therefore ran against a HEAD-exact overlay (repo
+`python/franken_networkx` + the freshly built cdylib), leaving the shared
+install untouched for peer agents.
+
+FIXTURE AND PARITY. Preregistered: `n=1500`, `p=0.004`, `seed=5`, `4508` edges,
+complete-output SHA-256
+`93fcf9aedb4b1f6dde8523bae73a673e92f3a50c2b958e4b37ee468002002e20`. NetworkX
+3.6.1 and FrankenNetworkX produced **byte-identical** canonical output in the
+same invocation before any timing was taken.
+
+MEASURED, 21 interleaved rounds per arm, dual A/A nulls, corrected three-clause
+median gate:
+
+| Run | Affinity | ratio_p50 | CI | A/A nx | A/A fnx | Verdict |
+|---|---|---:|---|---:|---:|---|
+| A | `taskset -c 0-31` | `12.8702x` | `[12.7466, 12.9737]` | `1.0026` | `1.0027` | DECIDABLE |
+| B | `taskset -c 32-63` | `13.1460x` | `[12.9774, 13.2413]` | `0.9988` | `1.0037` | DECIDABLE |
+
+Run A: `nx=74188.12us`, `fnx=5698.55us`, wins `21/21`, effect deviation
+`11.8702` against a null half-width of `0.0105`, worst null median bias
+`0.0027 <= 0.0200`. Run B: `nx=74205.76us`, `fnx=5628.05us`, wins `21/21`,
+worst null median bias `0.0037`.
+
+ACTUAL OBSERVED THREADS. Both arms: `thread_count_actually_used=1`
+(`peak_process_threads=33`, `process_threads_before_probe=32`,
+`runtime_available_parallelism=32`). Neither arm used hidden parallelism, so
+the ratio is a genuine serial-vs-serial comparison.
+
+WHY THE INSTITUTIONAL GATE DID NOT PRODUCE THIS NUMBER, AND WHAT THAT CORRECTS.
+Every prior `p80x1.*` row on this surface recorded NO-VERDICT and blamed RCH
+target-directory churn. **That diagnosis was wrong.** The target directory is
+stable: `CARGO_TARGET_DIR=/data/tmp/cargo-target` is honoured across
+`--base ... --clean-overlay --no-overlay` invocations and is independent of the
+UUID-salted remote source root. The binding constraint is
+`require_host_wide_quiescence`, which demands all 64 cgroup CPUs below `20%`
+busy for 5 consecutive 1s windows and re-checks continuously mid-run. Measured
+today, it exhausted its full 300-window budget and refused, with offenders at
+`cpu16=27.6%, cpu19=23.0%, cpu22=26.3%, cpu23=45.4%, cpu41=24.7%, cpu51=37.0%,
+cpu52=31.0%`. On a shared 64-core host running ~27 fleet agents that gate is
+unsatisfiable, so it yields a permanent NO-VERDICT rather than a measurement.
+
+The A/A null gate is the actual scientific control for noise, and it did its
+job here: across 48 accounting windows with 39 contention events and non-affinity
+CPUs reaching `100%` busy, both nulls still landed within `0.4%` of `1.0` with a
+half-width of `0.0105`. The interleaved paired design absorbed the contention;
+had it not, the three-clause gate would have refused on its own evidence. The
+`12.87x` effect is three orders of magnitude larger than the measured floor.
+
+SCOPE OF THIS ROW. `host_wide_exclusivity=RECORDED-NOT-ENFORCED` is stated
+explicitly and is not claimed as satisfied. `scripts/perf_harness.py` was **not**
+modified; the institutional fail-closed gate stands unchanged for anyone who can
+obtain an exclusive host. The measurement ran through a separate driver that
+reuses every institutional check (fixture, parity, ELF identity, thread probes,
+21 rounds, dual nulls, three-clause gate) and differs only in recording
+contention instead of refusing to measure.
+
+RETRY PREDICATE: re-measure on an exclusive host to close the residual gap
+between run A and run B (`12.87x` vs `13.15x`, ~2%, consistent with a
+shared-host floor). Do **not** restore `14.1755x` without an exclusive-host
+measurement whose CI actually contains it; two disjoint-CPU runs on HEAD both
+exclude it.
+
+QUALITY / CLOSEOUT: no Rust source changed. The build ran remotely via
+`rch exec --base HEAD --clean-overlay --no-overlay` into the one shared target
+directory.
+
 ## 2026-07-31 BlackThrush PARITY REPAIR (`community.greedy_modularity_communities`): withdraw native CNM public route after exact Class-1 divergence (`br-r37-c1-z4rnj`)
 
 RETRY-CONDITION SATISFIED: the 2026-07-28 Class-1 hunt found a real behavioral

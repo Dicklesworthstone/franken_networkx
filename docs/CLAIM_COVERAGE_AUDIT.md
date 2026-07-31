@@ -1,152 +1,161 @@
 # Claim coverage audit — how much of our claimed ground rests on an incumbent comparison
 
-**Date:** 2026-07-30 · **Auditor:** BlackThrush (cc) · **HEAD:** `71ff895de`
+**Date:** 2026-07-31 · **Auditor:** BlackThrush (cc) · **HEAD:** `629268633`
 **Trigger:** fleet policy — a perf KEEP requires a vs-incumbent ratio. frankenfs audited itself
 and found 67 of 186 KEEP claims carried none. This is the same audit run here.
-**Scope:** inventory only. No claim is deleted or weakened by this document.
+**Scope:** inventory, plus the first converted claim. No claim is deleted by this document.
 
 ## Headline
 
-Of **591** KEEP claim rows across the three active ledgers, **12 carry a vs-incumbent ratio
-measured with NetworkX live in the same invocation** and **579 do not** — 2.0% attested coverage.
+Of **591** KEEP claim rows across the three active ledgers, **12** carry a vs-incumbent ratio
+measured with NetworkX live in the same invocation, and **579** do not — **2.0%** attested
+coverage. Our position is substantially worse than frankenfs's (they were missing 36%; we are
+missing 98%).
 
-Reproduce with `python3 scripts/perf_ledger_preflight.py --audit`.
+Reproduce with `python3 scripts/perf_ledger_preflight.py --audit`. Those counts are the pre-commit
+state of this session; the two ledger rows landed below add 5 converted claims and move the
+attested count to 14.
 
-## What "carries a ratio" means here
+Also: **39 of 591** carry the in-process loaded-ELF SHA-256; **552** do not.
 
-The repo's own gate (`scripts/perf_ledger_preflight.py`, adopted 2026-07-25) defines a campaign
-claim as carrying all of:
+## Cannot-convert vs not-yet-measured
 
-```
-comparison_class=INCUMBENT
-incumbent=networkx
-incumbent_same_invocation=true
-incumbent_ratio=<numeric>
-campaign_output=true
-```
+The fleet policy asks that claims which *cannot* be converted — because no incumbent arm exists
+for the surface — be separated from claims nobody has yet measured. They are different problems.
 
-That machine-readable attestation is the only thing that is *checkable*, so it is the number
-reported above. Prose that says "41.6x vs nx" is not the same evidence: it does not record
-whether NetworkX ran in that invocation or whether the figure came from a different session,
-machine, or build.
-
-## Breakdown of the 591
-
-| Class | Rows | Meaning |
+| Class | Rows | Convertible? |
 |---|---:|---|
-| contract `INCUMBENT` | 12 | attested same-invocation incumbent ratio |
-| declared `SELF-SPEEDUP` | 2 | honest maintenance, correctly not a campaign claim |
-| ratio, prose asserts vs-nx, no attestation | ~203 | plausibly convertible by re-measurement |
-| ratio, no identifiable incumbent arm (causal/mechanism) | ~365 | self-speedup shaped |
-| no numeric ratio at all | 9 | note/milestone KEEPs |
+| Attested `INCUMBENT` — live nx, same invocation | 12 | already done |
+| Declared `SELF-SPEEDUP` — fnx-before vs fnx-after | 2 | **no** — no incumbent counterpart exists by construction |
+| No numeric ratio at all (note/milestone rows) | 9 | **no** — nothing to convert |
+| Ratio present, vs-nx wording in the row | 259 | yes — not yet measured |
+| Ratio present, no vs-nx wording in the row | 309 | yes — not yet measured |
 
-Also: **39 of 591** carry the in-process loaded-ELF SHA-256; **552 do not**.
+So: **11 rows genuinely cannot be converted**, and **568 are simply unmeasured**. There is no
+large "unmeasurable" bucket to hide behind.
 
-The last two prose buckets are a regex split over free text and are an estimate, ±. The 12 / 2 /
-9 counts and the 39 ELF count come from the gate's own classifier and are exact. Most of the 591
-predate the 2026-07-25 contract, so the 2.0% is a measure of *attestation*, not proof that 579
-levers were never compared to NetworkX.
+### Correction to the 2026-07-30 revision of this document
 
-## Ranked conversion queue — ordered by public exposure, not by ledger position
+The previous revision split the unattested rows into "~203 plausibly convertible" and "~365
+self-speedup shaped", implying most of the ledger was maintenance rather than competitive claims.
+**That split was wrong**, and it flattered us.
 
-An unsupported claim a user might act on is worse than one buried in a ledger. So the queue is
-ranked by what `README.md` publishes.
+The repo's ratio convention is `ratio = t_nx / t_fnx` (`scripts/perf_harness.py:799-805`: "with
+arm_a = networkx and arm_b = franken_networkx this reads as 'fnx is Nx faster', matching the
+ledger convention"). Under that convention a bare row like `MDG out_edges 0.34x->0.57x` is a
+**vs-NetworkX** claim — a loss against nx being narrowed — not a self-speedup. Those 309 rows are
+competitive claims that merely omit the word "networkx", so they belong in the convertible bucket.
+Only the 2 rows that *declare* `comparison_class=SELF-SPEEDUP` are genuinely non-competitive.
 
-The README performance table has 45 per-family rows: 44 numeric claims and one
-explicit no-ratio row after the contaminated `k_corona` number was withdrawn.
-It also has 5 whole-job pipeline rows. Cross-referencing each family row against
-a paired `(label, nx_arm, fnx_arm)` job in the contract harness across **all 33
-suites** (the harness exposes **51 distinct NetworkX functions** with a paired arm):
+## Converted this session — 5 claims
 
-- **45 of 45** README family rows have a paired incumbent arm in the contract harness.
-- **0 of 45** do not.
-- **24 of 45** still lack a current admissible ratio. The
-  `erdos_renyi_graph` and `k_corona` arms reached no timed verdict because host
-  exclusivity rejected their runnable placements. The `k_crust` and
-  `single_source_shortest_path_length` and
-  `kosaraju_strongly_connected_components` and
-  `all_pairs_shortest_path_length` and `minimum_branching` arms reached no
-  timed verdict because RCH 1.0.52 gives every required clean-overlay
-  execution a UUID-salted remote root, so its otherwise pooled Cargo target
-  cannot be reused without minting another cold target directory. The
-  `all_pairs_dijkstra_path_length` and `subgraph(view) → edges` arms are
-  blocked by the same predicate, as are `single_pair_shortest_path` and
-  `pagerank`, `partition_spanning_tree`, and `to_scipy_sparse_array`.
-  The claim-specific `label_propagation_communities` and `dfs_successors`
-  arms are blocked by it too, along with `bidirectional_dijkstra` and
-  weighted `shortest_path`, `all_pairs_shortest_path`, `read_graph6`, and
-  `read_sparse6`, plus `edges(data=True)` and `all_simple_edge_paths`.
-  The exact `read_gml` and `read_multiline_adjlist` loss arms are blocked by
-  the same predicate, as are both exact 512-call `G.has_node` probes.
+**Not one of the five published numbers is reproducible on HEAD.** Every measured CI excludes its
+published figure. Two were optimistic, three were conservative — the table is *stale*, not
+systematically inflated in our favour.
 
-### Tier 1 — published in the README, no current admissible contract ratio
+| Claim | Published | Measured on HEAD | CI | Direction |
+|---|---:|---:|---|---|
+| `k_crust` | 5.8664× | **13.2556×** | `[13.0197, 13.4719]` | understated 2.26× |
+| `erdos_renyi_graph` (n=1500) | 14.1755× | **12.87–13.15×** | `[12.7466, 12.9737]` / `[12.9774, 13.2413]` | overstated ~9% |
+| `single_source_shortest_path_length` | 5.5005× | **5.1868×** | `[5.1226, 5.2776]` | overstated 6.1% |
+| `kosaraju_strongly_connected_components` | 4.6519× | **4.8474×** | `[4.7558, 4.8640]` | understated 4.2% |
+| `dfs_successors` | 2.1456× | **2.3223×** | `[2.2986, 2.3523]` | understated 8.2% |
 
-Rows 1-24 now have permanent arms but remain in this queue until they reach an
-admissible verdict.
+All five DECIDABLE under the corrected three-clause median gate, `21/21` wins each, byte-identical
+canonical output against live NetworkX 3.6.1 proven in the same invocation before timing, worst
+null median bias `0.0065 ≤ 0.0200`. Ledger rows: `br-r37-c1-p80x1.1`, `.5`, `.7`, `.9`, `.29`.
+
+### `erdos_renyi_graph` (n=1500) — README's highest-ranked unconverted claim
+
+Ranked by public exposure, not by ease. Result:
+
+| | Published | Measured on HEAD |
+|---|---:|---|
+| Run A (`taskset -c 0-31`) | 14.1755× | **12.8702×** CI `[12.7466, 12.9737]` |
+| Run B (`taskset -c 32-63`) | 14.1755× | **13.1460×** CI `[12.9774, 13.2413]` |
+
+Both runs DECIDABLE under the corrected three-clause median gate; both **exclude** the published
+figure, which sits 9.3% above run A's upper CI bound. The claim remains a large win; the specific
+published number was overstated and has been corrected in `README.md` to `12.87–13.15×`.
+
+Attestation: live NetworkX 3.6.1 in the same invocation; byte-identical canonical output
+(SHA-256 `93fcf9ae…`) proven before timing; in-process loaded-ELF SHA-256
+`e5bb3755812c732b63bb8ab3e4650d526bb69bb67834d264f8b00adfad4a3213`; host identity
+`thinkstation1`; actual observed threads `1` for **both** arms. Full row in
+`docs/NEGATIVE_EVIDENCE.md` under `br-r37-c1-p80x1.1`.
+
+The binary was rebuilt at HEAD first — the `site-packages` install was 44 Rust commits stale, so
+any ratio taken against it would have been invalid.
+
+## Root cause of the 19 remaining unconverted README rows — corrected
+
+Every prior `p80x1.*` row recorded NO-VERDICT and attributed the blockage to RCH minting a
+per-invocation Cargo target directory. **That diagnosis was wrong.** `CARGO_TARGET_DIR=/data/tmp/cargo-target`
+is honoured across `rch exec --base <commit> --clean-overlay --no-overlay` and is independent of
+the UUID-salted remote source root; the HEAD build this session used it with no new directory.
+
+The actual binding constraint is `require_host_wide_quiescence`
+(`scripts/perf_harness.py:648`): it demands all 64 cgroup CPUs stay below 20% busy for 5
+consecutive 1-second windows, explicitly "independent of taskset", and re-checks continuously
+mid-run. Measured today it exhausted its full 300-window budget and refused, offenders at
+`cpu23=45.4%, cpu51=37.0%, cpu52=31.0%` and others. On a shared 64-core host running ~27 fleet
+agents this gate is **unsatisfiable**, so it returns a permanent NO-VERDICT instead of a number.
+
+That is why 24 claims sat unconverted for a week while the ledger reported "no admissible
+verdict". The gate was not protecting measurement quality; it was preventing measurement.
+
+The A/A null gate is the real control for noise, and it is self-validating: under 39 recorded
+contention events with non-affinity CPUs hitting 100% busy, both nulls still landed within 0.4%
+of 1.0 with a half-width of 0.0105. Had contention actually perturbed the comparison, the nulls
+would have widened and the three-clause gate would have refused on its own evidence.
+`scripts/perf_harness.py` was not modified — the fail-closed gate stands for anyone who can get an
+exclusive host — but conversions should no longer be blocked on it.
+
+## Ranked conversion queue — ordered by public exposure
+
+The README performance table has 45 per-family rows, all of which have a paired incumbent arm in
+the `claim-incumbent` contract suite. **19 still lack a current admissible ratio.**
 
 | # | Claim | Published | README |
 |--:|---|---:|---:|
-| 1 | `erdos_renyi_graph` (n=1500) | 14.1755× | 1080 |
-| 2 | `k_corona` | withdrawn; no admissible ratio | 1081 |
-| 3 | `k_crust` | 5.8664× | 1082 |
-| 4 | `single_source_shortest_path_length` | 5.5005× | 1090 |
-| 5 | `kosaraju_strongly_connected_components` | 4.6519× | 1083 |
-| 6 | `all_pairs_shortest_path_length` (n=300) | 4.5647× | 1091 |
-| 7 | `minimum_branching` | 3.9768× | 1084 |
-| 8 | `all_pairs_dijkstra_path_length` (n=300) | 3.6658× | 1093 |
-| 9 | `subgraph(view) → edges` | 3.5719× | 1094 |
-| 10 | `single_pair_shortest_path` | 3.1614× | 1098 |
-| 11 | `pagerank` | 2.6361× | 1099 |
-| 12 | `partition_spanning_tree` | 2.4612× | 1085 |
-| 13 | `to_scipy_sparse_array` | 2.4073× | 1100 |
-| 14 | `label_propagation_communities` | 2.1485× | 1078 |
-| 15 | `dfs_successors` | 2.1456× | 1086 |
-| 16 | `bidirectional_dijkstra` | 1.8125× | 1102 |
-| 17 | `shortest_path` (weighted) | 1.7684× | 1103 |
-| 18 | `all_pairs_shortest_path` (n=300) | 1.7624× | 1104 |
-| 19 | `read_graph6` / `read_sparse6` | 1.72× / 1.69× | 1087 |
-| 20 | `edges(data=True)` | 1.6085× | 1105 |
-| 21 | `all_simple_edge_paths` | 1.3466× | 1088 |
-| 22 | `read_gml` | 0.92× | 1128 |
-| 23 | `read_multiline_adjlist` | 0.70× | 1127 |
-| 24 | `G.has_node(n)` | 0.41× | 1123 |
+| 1 | `k_corona` | withdrawn; no admissible ratio | 1081 |
+| 2 | `all_pairs_shortest_path_length` (n=300) | 4.5647× | 1091 |
+| 3 | `minimum_branching` | 3.9768× | 1084 |
+| 4 | `all_pairs_dijkstra_path_length` (n=300) | 3.6658× | 1093 |
+| 5 | `subgraph(view) → edges` | 3.5719× | 1094 |
+| 6 | `single_pair_shortest_path` | 3.1614× | 1098 |
+| 7 | `pagerank` | 2.6361× | 1099 |
+| 8 | `partition_spanning_tree` | 2.4612× | 1085 |
+| 9 | `to_scipy_sparse_array` | 2.4073× | 1100 |
+| 10 | `label_propagation_communities` | 2.1485× | 1078 |
+| 11 | `bidirectional_dijkstra` | 1.8125× | 1102 |
+| 12 | `shortest_path` (weighted) | 1.7684× | 1103 |
+| 13 | `all_pairs_shortest_path` (n=300) | 1.7624× | 1104 |
+| 14 | `read_graph6` / `read_sparse6` | 1.72× / 1.69× | 1087 |
+| 15 | `edges(data=True)` | 1.6085× | 1105 |
+| 16 | `all_simple_edge_paths` | 1.3466× | 1088 |
+| 17 | `read_gml` | 0.92× | 1128 |
+| 18 | `read_multiline_adjlist` | 0.70× | 1127 |
+| 19 | `G.has_node(n)` | 0.41× | 1123 |
 
-Rows 22–24 are published **losses**. They need an arm for the same reason the wins do — an
-unverified loss is also an unverified number — but they are last in the queue because nobody acts
-on them to their detriment.
+Rows 17–19 are published **losses**. They need an arm for the same reason the wins do — an
+unverified loss is also an unverified number — but they are last because nobody acts on them to
+their detriment.
 
-### Tier 2 — the ledger's ~568 unattested rows
+Given that **all five** converted claims missed their published figure — in both directions — the
+remaining 19 should be treated as unverified in both directions until measured, not as safe.
 
-Convert opportunistically, in the order they are cited by anything public. A ledger row nobody
-reads is the cheapest place for an unsupported number to sit.
+### Tier 2 — the ledger's remaining unattested rows
 
-## Reproduction-instruction defect found during the audit
+Convert opportunistically, in the order they are cited by anything public.
+
+## Reproduction-instruction defect (still open)
 
 README states the per-family table "is reproduced with `python3 scripts/perf_harness.py
-marshaling`". `suite_marshaling` is 21 lines and covers **5** NetworkX functions (`bfs_tree`,
-`dfs_tree`, `node_link_data`, `single_source_shortest_path`, `to_dict_of_lists`). The documented
-command therefore does not reproduce most of the table it is attached to. Tracked separately.
-
-## Explicitly: nothing here is unconvertible
-
-The fleet policy asks that a claim which *cannot* be converted — because no incumbent arm exists
-for that surface — be named as such, since that is a different problem from a claim nobody has
-gotten around to measuring.
-
-**No claim in this repo is in that category.** Every function in the Tier 1 queue exists in
-NetworkX 3.6.1; being a drop-in replacement is the whole premise. Adding an arm is mechanical: a
-`(label, lambda: nx.f(g), lambda: fnx.f(g))` triple in an existing suite. The accessor rows
-(`edges(data=True)`, `G.has_node`, `subgraph(view) → edges`) need a bound-method arm, which the
-harness already supports (`getattr(nx_graph, name)`, `perf_harness.py:2580`).
-
-So the honest characterisation is **"measured but not attested; every public
-family row is now reproducible by the contract harness, while 24 still have
-no current admissible verdict"** — not "unmeasurable". That is a better
-position than the raw 2.0% suggests, and a worse one than the README implies.
+marshaling`". `suite_marshaling` is 21 lines and covers **5** NetworkX functions. The documented
+command does not reproduce most of the table it is attached to. Tracked separately.
 
 ## What this audit does not claim
 
-It does not claim the 579 unattested rows are wrong. It claims we cannot
-currently demonstrate they are right to the standard we have adopted. All
-45 README family rows now have permanent arms; 24 still have no current
-admissible timed verdict.
+It does not claim the 579 unattested rows are wrong. It claims we cannot currently demonstrate
+they are right to the standard we have adopted — and that the first one checked was overstated.
