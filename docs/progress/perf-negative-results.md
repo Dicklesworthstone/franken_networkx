@@ -2406,3 +2406,28 @@ identical managed physical target path, then retain both artifact hashes and
 the exact input/path hashes, live incumbent, all provenance, 21 rounds,
 continuous accounting, dual A/A nulls, and the corrected three-clause median
 gate.
+
+## 2026-07-31 BlackThrush (cod) PARITY + NO-VERDICT (`br-r37-c1-p80x1.21`): exact `pagerank` claim arm
+
+The original `2.6361x` workload was recovered exactly from
+`sweep_marshaling.py` (SHA `12613c60...cf07`) and its saved result artifact
+(SHA `622b1c01...a1ed`), using the graph builder in
+`measure_marshaling.py` (SHA `40e03ac0...a0f`). It calls `pagerank(G)` with
+all NetworkX 3.6.1 defaults omitted on the helper's unweighted simple
+string-node `n=2000,m=8000,seed=7` graph.
+
+Under `PYTHONHASHSEED=0`, both implementations receive 273,938 canonical
+input bytes (SHA `03635cb9...164`). Live NetworkX 3.6.1 and FrankenNetworkX
+agree exactly on all 2,000 ordered float values: the sum is
+`0.9999999999999998`, and the complete mapping is 65,176 bytes, SHA
+`f95e2d04...032f`. No divergence was found.
+
+RESULT: **FULL ORDERED FLOAT-MAPPING PARITY / PERFORMANCE NO-VERDICT.** No
+strict benchmark was started because RCH 1.0.52 still places its pooled
+target below a UUID-salted clean-overlay root; running would create another
+cold target. Therefore no in-process host identity, ELF SHA, actual observed
+threads, nulls, corrected median clause, candidate CI, or incumbent ratio was
+emitted. Retry only after two required clean-overlay invocations prove one
+identical managed physical target path, then retain all artifact/default/input
+and output hashes, live incumbent, all provenance, 21 rounds, continuous
+accounting, dual A/A nulls, and the corrected three-clause median gate.

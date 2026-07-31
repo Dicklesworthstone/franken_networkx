@@ -3200,6 +3200,7 @@ def suite_claim_incumbent():
         "k_crust",
         "kosaraju_strongly_connected_components",
         "minimum_branching",
+        "pagerank",
         "single_pair_shortest_path",
         "single_source_shortest_path_length",
         "subgraph_view_edges",
@@ -3921,6 +3922,93 @@ def suite_claim_incumbent():
                 "n=800 m=4000 seed=11 weights=1..20 directed=True [nx/fnx]",
                 lambda: nx.minimum_branching(branching_nx),
                 lambda: fnx.minimum_branching(branching_fnx),
+            )
+        )
+    if "pagerank" in jobs:
+        if os.environ.get("PYTHONHASHSEED") != "0":
+            raise RuntimeError(
+                "the pagerank claim fixture requires PYTHONHASHSEED=0 "
+                "because float mapping order is part of the public contract"
+            )
+        node_count = 2_000
+        edge_count = 8_000
+        seed = 7
+        expected_input_bytes = 273_938
+        expected_input_sha256 = (
+            "03635cb95fcf023b79a245e0dc38125225ba216e6eb77a9270ef5121024f6164"
+        )
+        expected_output_items = 2_000
+        expected_output_sum = 0.9999999999999998
+        expected_output_bytes = 65_176
+        expected_output_sha256 = (
+            "f95e2d04fb5164b372aeba0fc78ff7563c2fd295ee994152f47c2e3c4a62032f"
+        )
+        pagerank_nx, pagerank_fnx = _build_pair(
+            node_count,
+            edge_count,
+            seed=seed,
+            weighted=False,
+        )
+        input_nx_bytes = canonical_bytes(pagerank_nx)
+        input_fnx_bytes = canonical_bytes(pagerank_fnx)
+        input_sha256 = hashlib.sha256(input_nx_bytes).hexdigest()
+        if input_nx_bytes != input_fnx_bytes:
+            raise RuntimeError("pagerank claim input graphs diverged")
+        if (
+            len(input_nx_bytes) != expected_input_bytes
+            or not hmac.compare_digest(input_sha256, expected_input_sha256)
+        ):
+            raise RuntimeError(
+                "pagerank claim input no longer matches its preregistered "
+                "canonical byte count and SHA-256"
+            )
+
+        preflight_nx = nx.pagerank(pagerank_nx)
+        preflight_fnx = fnx.pagerank(pagerank_fnx)
+        preflight_nx_bytes = canonical_bytes(preflight_nx)
+        preflight_fnx_bytes = canonical_bytes(preflight_fnx)
+        output_sha256 = hashlib.sha256(preflight_nx_bytes).hexdigest()
+        if preflight_nx_bytes != preflight_fnx_bytes:
+            raise RuntimeError(
+                "pagerank claim complete ordered float mapping diverged"
+            )
+        if (
+            len(preflight_nx) != expected_output_items
+            or sum(preflight_nx.values()) != expected_output_sum
+            or len(preflight_nx_bytes) != expected_output_bytes
+            or not hmac.compare_digest(output_sha256, expected_output_sha256)
+        ):
+            raise RuntimeError(
+                "pagerank claim fixture no longer matches its preregistered "
+                "complete ordered float mapping"
+            )
+        EXTRA_PROVENANCE["claim_pagerank_fixture"] = {
+            "nodes": node_count,
+            "edges": edge_count,
+            "seed": seed,
+            "weighted_graph": False,
+            "alpha": 0.85,
+            "personalization": None,
+            "max_iter": 100,
+            "tol": 1e-6,
+            "nstart": None,
+            "weight": "weight",
+            "dangling": None,
+            "parameters": "all omitted (NetworkX 3.6.1 defaults)",
+            "python_hash_seed": 0,
+            "input_canonical_bytes": expected_input_bytes,
+            "input_sha256": expected_input_sha256,
+            "output_items": expected_output_items,
+            "output_sum": expected_output_sum,
+            "output_canonical_bytes": expected_output_bytes,
+            "complete_output_sha256": expected_output_sha256,
+        }
+        rows.append(
+            (
+                "claim/pagerank "
+                "n=2000 m=8000 seed=7 parameters=defaults [nx/fnx]",
+                lambda graph=pagerank_nx: nx.pagerank(graph),
+                lambda graph=pagerank_fnx: fnx.pagerank(graph),
             )
         )
     if "single_pair_shortest_path" in jobs:
