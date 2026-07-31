@@ -2488,3 +2488,30 @@ identical managed physical target path, then retain all artifact, input,
 CSR-state/component, dense-output, and default-parameter hashes, live
 incumbent, all provenance, 21 rounds, continuous accounting, dual A/A nulls,
 and the corrected three-clause median gate.
+
+## 2026-07-31 BlackThrush (cod) PARITY + NO-VERDICT (`br-r37-c1-p80x1.27`): exact `label_propagation_communities` claim arm
+
+The published `2.1485x` workload was recovered from commit `87cf65e54a`
+and its measured harness (SHA `92917fa4...6c0`):
+`list(community.label_propagation_communities(G))` on an unweighted
+undirected simple string-node `n=1200,m=6000,seed=11` graph. The old run used
+live NetworkX 3.6.1 and one A/A control, but it predates the required dual
+nulls, null medians, actual observed threads, continuous accounting, and
+corrected null-median clause; no raw sample artifact was checked in.
+
+Under `PYTHONHASHSEED=0`, both implementations receive 194,277 canonical
+input bytes (SHA `199d5643...e653`). Live NetworkX 3.6.1 and FrankenNetworkX
+agree exactly on generator order and membership: two communities of sizes
+`[1199,1]` cover all 1,200 nodes, 8,512 bytes, SHA `bb8d5710...7ea9`.
+Normalized membership also agrees, SHA `d53bb137...37a5`. No divergence was
+found.
+
+RESULT: **FULL ORDERED PARTITION PARITY / CURRENT PERFORMANCE NO-VERDICT.**
+No strict benchmark was started because RCH 1.0.52 still places its pooled
+target below a UUID-salted clean-overlay root; running would create another
+cold target. The new arm does not revalidate or strengthen the historical
+`2.1485x`. Retry only after two required clean-overlay invocations prove one
+identical managed physical target path, then retain all source/input/output
+hashes, live incumbent, in-process host and ELF identity, actual observed
+threads, 21 rounds, continuous accounting, dual A/A nulls, and the corrected
+three-clause median gate.

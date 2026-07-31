@@ -3199,6 +3199,7 @@ def suite_claim_incumbent():
         "k_corona",
         "k_crust",
         "kosaraju_strongly_connected_components",
+        "label_propagation_communities",
         "minimum_branching",
         "pagerank",
         "partition_spanning_tree",
@@ -3660,6 +3661,144 @@ def suite_claim_incumbent():
                 "claim/k_crust n=1200 m=6000 seed=11 k=None [nx/fnx]",
                 lambda: nx.k_crust(crust_nx),
                 lambda: fnx.k_crust(crust_fnx),
+            )
+        )
+    if "label_propagation_communities" in jobs:
+        if os.environ.get("PYTHONHASHSEED") != "0":
+            raise RuntimeError(
+                "the label_propagation_communities claim fixture requires "
+                "PYTHONHASHSEED=0 because community generator order is "
+                "part of the public contract"
+            )
+        node_count = 1_200
+        edge_count = 6_000
+        seed = 11
+        expected_input_bytes = 194_277
+        expected_input_sha256 = (
+            "199d564350ec6f70885e8f8236fad28d6620b44e3e7917a470f6fba73024e653"
+        )
+        expected_communities = 2
+        expected_community_sizes = (1_199, 1)
+        expected_covered_nodes = 1_200
+        expected_output_bytes = 8_512
+        expected_output_sha256 = (
+            "bb8d5710d2f0eb09435f865e9561438c2c54bac87c02c2b41fd92f2406687ea9"
+        )
+        expected_normalized_output_bytes = 8_494
+        expected_normalized_output_sha256 = (
+            "d53bb137b4413e187056ed1d85c987bb20da30e4910d2c0fbfe1e203487e37a5"
+        )
+        label_nx, label_fnx = _build_pair(
+            node_count,
+            edge_count,
+            seed=seed,
+            weighted=False,
+        )
+        input_nx_bytes = canonical_bytes(label_nx)
+        input_fnx_bytes = canonical_bytes(label_fnx)
+        input_sha256 = hashlib.sha256(input_nx_bytes).hexdigest()
+        if input_nx_bytes != input_fnx_bytes:
+            raise RuntimeError(
+                "label_propagation_communities claim input graphs diverged"
+            )
+        if (
+            len(input_nx_bytes) != expected_input_bytes
+            or not hmac.compare_digest(input_sha256, expected_input_sha256)
+        ):
+            raise RuntimeError(
+                "label_propagation_communities claim input no longer "
+                "matches its preregistered canonical byte count and SHA-256"
+            )
+
+        preflight_nx = list(
+            nx.community.label_propagation_communities(label_nx)
+        )
+        preflight_fnx = list(
+            fnx.community.label_propagation_communities(label_fnx)
+        )
+        preflight_nx_bytes = canonical_bytes(preflight_nx)
+        preflight_fnx_bytes = canonical_bytes(preflight_fnx)
+        output_sha256 = hashlib.sha256(preflight_nx_bytes).hexdigest()
+        if preflight_nx_bytes != preflight_fnx_bytes:
+            raise RuntimeError(
+                "label_propagation_communities complete ordered output "
+                "diverged"
+            )
+        if (
+            len(preflight_nx) != expected_communities
+            or tuple(map(len, preflight_nx)) != expected_community_sizes
+            or sum(map(len, preflight_nx)) != expected_covered_nodes
+            or set().union(*preflight_nx) != set(label_nx)
+            or len(preflight_nx_bytes) != expected_output_bytes
+            or not hmac.compare_digest(output_sha256, expected_output_sha256)
+        ):
+            raise RuntimeError(
+                "label_propagation_communities claim fixture no longer "
+                "matches its preregistered complete ordered partition"
+            )
+
+        normalized_nx_bytes = canonical_bytes(
+            sorted(sorted(community) for community in preflight_nx)
+        )
+        normalized_fnx_bytes = canonical_bytes(
+            sorted(sorted(community) for community in preflight_fnx)
+        )
+        normalized_output_sha256 = hashlib.sha256(
+            normalized_nx_bytes
+        ).hexdigest()
+        if normalized_nx_bytes != normalized_fnx_bytes:
+            raise RuntimeError(
+                "label_propagation_communities normalized partition diverged"
+            )
+        if (
+            len(normalized_nx_bytes) != expected_normalized_output_bytes
+            or not hmac.compare_digest(
+                normalized_output_sha256,
+                expected_normalized_output_sha256,
+            )
+        ):
+            raise RuntimeError(
+                "label_propagation_communities normalized partition no "
+                "longer matches its preregistered output"
+            )
+        EXTRA_PROVENANCE[
+            "claim_label_propagation_communities_fixture"
+        ] = {
+            "source_commit": "87cf65e54a4e13a72a12c2bc7458655c7d4b3ac1",
+            "measured_harness_sha256": (
+                "92917fa41376111f6490278651545d465c8d726dce21037facd1a3f29e0e36c0"
+            ),
+            "nodes": node_count,
+            "edges": edge_count,
+            "seed": seed,
+            "weighted": False,
+            "directed": False,
+            "parameters": "none",
+            "python_hash_seed": 0,
+            "input_canonical_bytes": expected_input_bytes,
+            "input_sha256": expected_input_sha256,
+            "communities": expected_communities,
+            "community_sizes_in_order": list(expected_community_sizes),
+            "covered_nodes": expected_covered_nodes,
+            "output_canonical_bytes": expected_output_bytes,
+            "complete_ordered_output_sha256": expected_output_sha256,
+            "normalized_output_canonical_bytes": (
+                expected_normalized_output_bytes
+            ),
+            "normalized_output_sha256": (
+                expected_normalized_output_sha256
+            ),
+        }
+        rows.append(
+            (
+                "claim/label_propagation_communities "
+                "n=1200 m=6000 seed=11 [nx/fnx]",
+                lambda graph=label_nx: list(
+                    nx.community.label_propagation_communities(graph)
+                ),
+                lambda graph=label_fnx: list(
+                    fnx.community.label_propagation_communities(graph)
+                ),
             )
         )
     if "kosaraju_strongly_connected_components" in jobs:
