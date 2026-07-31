@@ -5455,22 +5455,56 @@ pub fn betweenness_centrality_sampled_directed_with_params(
     betweenness_centrality_sampled_generic(graph, sources, normalized, endpoints)
 }
 
+/// Transpose a `u32` CSR: row `w` of the result lists every `v` whose forward row
+/// contains `w`, with multiplicity. On an undirected graph that reproduces the
+/// same neighbour multiset; on a directed one it yields in-neighbours. Counting
+/// sort, O(|V| + |E|), so one uniform construction serves both — no
+/// `is_directed` branch, and no second walk over the graph API.
+fn transpose_u32_csr(offsets: &[u32], targets: &[u32], n: usize) -> (Vec<u32>, Vec<u32>) {
+    let mut counts = vec![0u32; n + 1];
+    for &t in targets {
+        counts[t as usize + 1] += 1;
+    }
+    for i in 0..n {
+        counts[i + 1] += counts[i];
+    }
+    let rev_offsets = counts.clone();
+    let mut cursor = counts;
+    let mut rev_targets = vec![0u32; targets.len()];
+    for v in 0..n {
+        let lo = offsets[v] as usize;
+        let hi = offsets[v + 1] as usize;
+        for &w in &targets[lo..hi] {
+            let slot = &mut cursor[w as usize];
+            rev_targets[*slot as usize] = v as u32;
+            *slot += 1;
+        }
+    }
+    (rev_offsets, rev_targets)
+}
+
 /// Reusable per-worker scratch buffers for one Brandes single-source pass.
 /// Allocated once per rayon worker (via `map_init`) and cleared per source so
 /// the parallel path matches the sequential path's allocation profile.
+///
+/// br-r37-c1-bcsr: there is deliberately **no predecessor structure** here. The
+/// classical Brandes formulation keeps a `Vec<Vec<usize>>` of per-node
+/// predecessor lists, which costs `n` heap rows cleared on every one of the `n`
+/// sources (`n^2` pointer-chasing clears) plus a push per tree edge. The
+/// dependency phase re-derives the same predecessor set instead, by scanning
+/// `w`'s reverse CSR row for `distance[v] == distance[w] - 1` — a contiguous
+/// array scan that allocates nothing. See `brandes_source_delta`.
 struct BrandesScratch {
-    predecessors: Vec<Vec<usize>>,
     sigma: Vec<f64>,
     distance: Vec<i64>,
     dependency: Vec<f64>,
-    stack: Vec<usize>,
-    queue: Vec<usize>,
+    stack: Vec<u32>,
+    queue: Vec<u32>,
 }
 
 impl BrandesScratch {
     fn new(n: usize) -> Self {
         Self {
-            predecessors: std::iter::repeat_with(Vec::<usize>::new).take(n).collect(),
             sigma: vec![0.0; n],
             distance: vec![-1i64; n],
             dependency: vec![0.0; n],
@@ -5488,13 +5522,15 @@ impl BrandesScratch {
 /// queue_peak)`.
 fn brandes_source_delta(
     scratch: &mut BrandesScratch,
-    adjacency: &[Vec<usize>],
+    out_offsets: &[u32],
+    out_targets: &[u32],
+    in_offsets: &[u32],
+    in_targets: &[u32],
     s: usize,
     endpoints: bool,
     n: usize,
 ) -> (Vec<f64>, usize, usize, usize) {
     let BrandesScratch {
-        predecessors,
         sigma,
         distance,
         dependency,
@@ -5503,9 +5539,6 @@ fn brandes_source_delta(
     } = scratch;
 
     stack.clear();
-    for predecessor_list in predecessors.iter_mut() {
-        predecessor_list.clear();
-    }
     sigma.fill(0.0);
     distance.fill(-1);
     dependency.fill(0.0);
@@ -5518,26 +5551,30 @@ fn brandes_source_delta(
     distance[s] = 0;
 
     let mut queue_head = 0usize;
-    queue.push(s);
+    queue.push(s as u32);
     queue_peak = queue_peak.max(queue.len());
 
+    // BFS over the forward CSR. The row order is exactly the order the previous
+    // `Vec<Vec<usize>>` build produced, so `sigma[w] += sigma_v` accumulates in
+    // an unchanged sequence and the counts stay bit-identical.
     while queue_head < queue.len() {
-        let v = queue[queue_head];
+        let v = queue[queue_head] as usize;
         queue_head += 1;
-        stack.push(v);
+        stack.push(v as u32);
         let next_dist = distance[v] + 1;
         let sigma_v = sigma[v];
-        for &w in &adjacency[v] {
+        let lo = out_offsets[v] as usize;
+        let hi = out_offsets[v + 1] as usize;
+        for &target in &out_targets[lo..hi] {
+            let w = target as usize;
             edges_scanned += 1;
             if distance[w] < 0 {
                 distance[w] = next_dist;
-                queue.push(w);
+                queue.push(w as u32);
                 queue_peak = queue_peak.max(queue.len() - queue_head);
                 sigma[w] += sigma_v;
-                predecessors[w].push(v);
             } else if distance[w] == next_dist {
                 sigma[w] += sigma_v;
-                predecessors[w].push(v);
             }
         }
     }
@@ -5547,12 +5584,33 @@ fn brandes_source_delta(
     if endpoints {
         delta[s] += stack.len().saturating_sub(1) as f64;
     }
-    while let Some(w) = stack.pop() {
+    while let Some(popped) = stack.pop() {
+        let w = popped as usize;
         let sigma_w = sigma[w];
         let delta_w = dependency[w];
-        if sigma_w > 0.0 {
-            for &v in &predecessors[w] {
-                dependency[v] += (sigma[v] / sigma_w) * (1.0 + delta_w);
+        let dist_w = distance[w];
+        // Predecessors of `w` are exactly its in-neighbours one BFS level up.
+        // Recovering them by scan rather than by stored list is bit-exact: for a
+        // fixed `w` every `v` in the row is a DISTINCT accumulator (and a repeated
+        // `v` from a parallel edge contributes an identical addend), so the order
+        // within the row cannot change any sum. What DOES matter is the order the
+        // `w`s are popped, and that is untouched.
+        //
+        // `dist_w > 0` excludes the source, whose predecessor list is empty, and
+        // stops the `dist_w - 1 == -1` probe from matching unreached nodes, which
+        // carry `distance == -1`.
+        if sigma_w > 0.0 && dist_w > 0 {
+            let pred_dist = dist_w - 1;
+            let lo = in_offsets[w] as usize;
+            let hi = in_offsets[w + 1] as usize;
+            for &source in &in_targets[lo..hi] {
+                let v = source as usize;
+                if distance[v] == pred_dist {
+                    // Keep this expression literally as-is: hoisting the division
+                    // to `sigma[v] * ((1.0 + delta_w) / sigma_w)` is a different
+                    // f64 rounding and would break byte-identity with NetworkX.
+                    dependency[v] += (sigma[v] / sigma_w) * (1.0 + delta_w);
+                }
             }
         }
         if w != s {
@@ -5561,6 +5619,34 @@ fn brandes_source_delta(
     }
 
     (delta, edges_scanned, nodes_touched, queue_peak)
+}
+
+/// Build the forward CSR Brandes traverses plus the reverse CSR its dependency
+/// phase scans, from the same `neighbors_iter` + `get_node_index` walk the
+/// `Vec<Vec<usize>>` adjacency used. Building the forward rows from the identical
+/// source keeps the BFS neighbour order — and therefore the float summation
+/// order — provably unchanged.
+fn brandes_build_csr<G: GraphView>(
+    graph: &G,
+    nodes: &[&str],
+) -> (Vec<u32>, Vec<u32>, Vec<u32>, Vec<u32>) {
+    let n = nodes.len();
+    let mut offsets = Vec::with_capacity(n + 1);
+    let mut targets: Vec<u32> = Vec::new();
+    offsets.push(0u32);
+    for &node in nodes {
+        if let Some(neighbors) = graph.neighbors_iter(node) {
+            for neighbor in neighbors {
+                let idx = graph
+                    .get_node_index(neighbor)
+                    .expect("graph neighbor must exist in node index");
+                targets.push(idx as u32);
+            }
+        }
+        offsets.push(targets.len() as u32);
+    }
+    let (in_offsets, in_targets) = transpose_u32_csr(&offsets, &targets, n);
+    (offsets, targets, in_offsets, in_targets)
 }
 
 fn betweenness_centrality_sampled_generic<G: GraphView>(
@@ -5590,22 +5676,7 @@ fn betweenness_centrality_sampled_generic<G: GraphView>(
         .filter_map(|source| graph.get_node_index(source))
         .collect();
 
-    let adjacency = nodes
-        .iter()
-        .map(|&node| {
-            let mut indexed_neighbors = Vec::with_capacity(graph.neighbor_count(node));
-            if let Some(neighbors) = graph.neighbors_iter(node) {
-                for neighbor in neighbors {
-                    indexed_neighbors.push(
-                        graph
-                            .get_node_index(neighbor)
-                            .expect("graph neighbor must exist in node index"),
-                    );
-                }
-            }
-            indexed_neighbors
-        })
-        .collect::<Vec<Vec<usize>>>();
+    let (out_offsets, out_targets, in_offsets, in_targets) = brandes_build_csr(graph, &nodes);
 
     let mut centrality = vec![0.0; n];
     let mut total_nodes_touched = 0usize;
@@ -5626,7 +5697,16 @@ fn betweenness_centrality_sampled_generic<G: GraphView>(
                 .map_init(
                     || BrandesScratch::new(n),
                     |scratch, &source| {
-                        brandes_source_delta(scratch, &adjacency, source, endpoints, n)
+                        brandes_source_delta(
+                            scratch,
+                            &out_offsets,
+                            &out_targets,
+                            &in_offsets,
+                            &in_targets,
+                            source,
+                            endpoints,
+                            n,
+                        )
                     },
                 )
                 .collect();
@@ -5644,8 +5724,16 @@ fn betweenness_centrality_sampled_generic<G: GraphView>(
     } else {
         let mut scratch = BrandesScratch::new(n);
         for &source in &source_idx {
-            let (delta, src_edges, src_touched, src_peak) =
-                brandes_source_delta(&mut scratch, &adjacency, source, endpoints, n);
+            let (delta, src_edges, src_touched, src_peak) = brandes_source_delta(
+                &mut scratch,
+                &out_offsets,
+                &out_targets,
+                &in_offsets,
+                &in_targets,
+                source,
+                endpoints,
+                n,
+            );
             for (acc, contribution) in centrality.iter_mut().zip(delta.iter()) {
                 *acc += *contribution;
             }
@@ -5787,22 +5875,7 @@ fn betweenness_centrality_brandes<G: GraphView>(
     let mut accum_ns: u128 = 0;
     let mut alloc_ns: u128 = 0;
 
-    let adjacency = nodes
-        .iter()
-        .map(|&node| {
-            let mut indexed_neighbors = Vec::with_capacity(graph.neighbor_count(node));
-            if let Some(neighbors) = graph.neighbors_iter(node) {
-                for neighbor in neighbors {
-                    indexed_neighbors.push(
-                        graph
-                            .get_node_index(neighbor)
-                            .expect("graph neighbor must exist in node index"),
-                    );
-                }
-            }
-            indexed_neighbors
-        })
-        .collect::<Vec<Vec<usize>>>();
+    let (out_offsets, out_targets, in_offsets, in_targets) = brandes_build_csr(graph, &nodes);
 
     // Parallel Brandes: for large graphs, fan the per-source O(|E|) passes out
     // over rayon workers, then reduce the per-source delta vectors into the
@@ -5818,6 +5891,9 @@ fn betweenness_centrality_brandes<G: GraphView>(
         let bytes_per_delta = n.max(1).saturating_mul(std::mem::size_of::<f64>());
         let chunk = (64 * 1024 * 1024 / bytes_per_delta).clamp(1, n);
 
+        // One slab for the whole call, reused chunk to chunk: the per-source
+        // `vec![0.0; n]` is gone, so the allocator sees O(1) requests instead of
+        // O(n).
         let mut start = 0usize;
         while start < n {
             let end = (start + chunk).min(n);
@@ -5825,11 +5901,37 @@ fn betweenness_centrality_brandes<G: GraphView>(
                 .into_par_iter()
                 .map_init(
                     || BrandesScratch::new(n),
-                    |scratch, s| brandes_source_delta(scratch, &adjacency, s, endpoints, n),
+                    |scratch, s| {
+                        brandes_source_delta(
+                            scratch,
+                            &out_offsets,
+                            &out_targets,
+                            &in_offsets,
+                            &in_targets,
+                            s,
+                            endpoints,
+                            n,
+                        )
+                    },
                 )
                 .collect();
 
             // Reduce in source order (the collected Vec is already ordered by s).
+            //
+            // br-r37-c1-bcsr tried replacing this loop with a slab-backed delta
+            // (one `chunk * n` allocation reused across chunks, one row per
+            // source) PLUS a rayon reduction over disjoint node blocks. Both are
+            // order-preserving and the bit-identity gate passed, but the combined
+            // candidate measured 36.5 ms against 29.4 ms for the plain loop below
+            // (n=3000, m=15000, cross-binary, three interleaved rounds) — a 24%
+            // regression, so it was reverted. Caveat for whoever retries: that
+            // candidate moved BOTH variables at once and carried no A/A null, so
+            // it does not establish WHICH one cost the time. Separate them and
+            // run an in-binary A/B with a null before concluding anything.
+            //
+            // What is solid: this reduction was never the bottleneck. The
+            // pre-change kernel already ran at cpu/wall 42 at load 23-30, so
+            // there is little serial fraction here to recover.
             for (delta, src_edges, src_touched, src_peak) in chunk_results {
                 for (acc, contribution) in centrality.iter_mut().zip(delta.iter()) {
                     *acc += *contribution;
@@ -5842,9 +5944,6 @@ fn betweenness_centrality_brandes<G: GraphView>(
         }
     } else {
         let mut stack = Vec::<usize>::with_capacity(n);
-        let mut predecessors = std::iter::repeat_with(Vec::<usize>::new)
-            .take(n)
-            .collect::<Vec<_>>();
         let mut sigma = vec![0.0; n];
         let mut distance = vec![-1i64; n];
         let mut dependency = vec![0.0; n];
@@ -5857,9 +5956,6 @@ fn betweenness_centrality_brandes<G: GraphView>(
                 None
             };
             stack.clear();
-            for predecessor_list in &mut predecessors {
-                predecessor_list.clear();
-            }
             sigma.fill(0.0);
             distance.fill(-1);
             dependency.fill(0.0);
@@ -5887,7 +5983,10 @@ fn betweenness_centrality_brandes<G: GraphView>(
                 let dist_v = distance[v];
                 let next_dist = dist_v + 1;
                 let sigma_v = sigma[v];
-                for &w in &adjacency[v] {
+                let lo = out_offsets[v] as usize;
+                let hi = out_offsets[v + 1] as usize;
+                for &target in &out_targets[lo..hi] {
+                    let w = target as usize;
                     edges_scanned += 1;
 
                     if distance[w] < 0 {
@@ -5895,10 +5994,8 @@ fn betweenness_centrality_brandes<G: GraphView>(
                         queue.push(w);
                         queue_peak = queue_peak.max(queue.len() - queue_head);
                         sigma[w] += sigma_v;
-                        predecessors[w].push(v);
                     } else if distance[w] == next_dist {
                         sigma[w] += sigma_v;
-                        predecessors[w].push(v);
                     }
                 }
             }
@@ -5918,9 +6015,18 @@ fn betweenness_centrality_brandes<G: GraphView>(
             while let Some(w) = stack.pop() {
                 let sigma_w = sigma[w];
                 let delta_w = dependency[w];
-                if sigma_w > 0.0 {
-                    for &v in &predecessors[w] {
-                        dependency[v] += (sigma[v] / sigma_w) * (1.0 + delta_w);
+                let dist_w = distance[w];
+                // Same predecessor-by-scan recovery as `brandes_source_delta`; see
+                // the correctness note there.
+                if sigma_w > 0.0 && dist_w > 0 {
+                    let pred_dist = dist_w - 1;
+                    let lo = in_offsets[w] as usize;
+                    let hi = in_offsets[w + 1] as usize;
+                    for &source in &in_targets[lo..hi] {
+                        let v = source as usize;
+                        if distance[v] == pred_dist {
+                            dependency[v] += (sigma[v] / sigma_w) * (1.0 + delta_w);
+                        }
                     }
                 }
                 if w != s {
@@ -67673,6 +67779,204 @@ mod tests {
         for score in pair_result.scores {
             assert!((score.score - 0.0).abs() <= TEST_TOLERANCE);
         }
+    }
+
+    /// br-r37-c1-bcsr: the CSR + predecessor-by-scan Brandes must be BIT-identical
+    /// to the stored-predecessor-list formulation it replaces, not merely close.
+    ///
+    /// The reference below is the exact pre-change kernel: `Vec<Vec<usize>>`
+    /// adjacency built from `neighbors_iter` + `get_node_index`, per-node
+    /// predecessor lists pushed during the BFS, and the same
+    /// `(sigma[v] / sigma_w) * (1.0 + delta_w)` accumulation. Sizes straddle
+    /// `BRANDES_PARALLEL_THRESHOLD` (500) so both the rayon-chunked arm and the
+    /// sequential arm are covered, and the directed cases are what prove the
+    /// reverse-CSR transpose really recovers in-neighbours.
+    #[test]
+    fn betweenness_csr_predecessor_scan_is_bit_identical_to_stored_lists() {
+        use super::GraphView;
+
+        fn reference<G: GraphView>(graph: &G, normalized: bool, endpoints: bool) -> Vec<f64> {
+            let nodes = graph.nodes_ordered();
+            let n = nodes.len();
+            if n == 0 {
+                return Vec::new();
+            }
+            let adjacency = nodes
+                .iter()
+                .map(|&node| {
+                    let mut row = Vec::new();
+                    if let Some(neighbors) = graph.neighbors_iter(node) {
+                        for neighbor in neighbors {
+                            row.push(graph.get_node_index(neighbor).expect("indexed"));
+                        }
+                    }
+                    row
+                })
+                .collect::<Vec<Vec<usize>>>();
+
+            let mut centrality = vec![0.0f64; n];
+            let mut predecessors = vec![Vec::<usize>::new(); n];
+            let mut sigma = vec![0.0f64; n];
+            let mut distance = vec![-1i64; n];
+            let mut dependency = vec![0.0f64; n];
+            let mut stack = Vec::<usize>::new();
+            let mut queue = Vec::<usize>::new();
+
+            for s in 0..n {
+                stack.clear();
+                for row in &mut predecessors {
+                    row.clear();
+                }
+                sigma.fill(0.0);
+                distance.fill(-1);
+                dependency.fill(0.0);
+                queue.clear();
+
+                sigma[s] = 1.0;
+                distance[s] = 0;
+                let mut head = 0usize;
+                queue.push(s);
+                while head < queue.len() {
+                    let v = queue[head];
+                    head += 1;
+                    stack.push(v);
+                    let next_dist = distance[v] + 1;
+                    let sigma_v = sigma[v];
+                    for &w in &adjacency[v] {
+                        if distance[w] < 0 {
+                            distance[w] = next_dist;
+                            queue.push(w);
+                            sigma[w] += sigma_v;
+                            predecessors[w].push(v);
+                        } else if distance[w] == next_dist {
+                            sigma[w] += sigma_v;
+                            predecessors[w].push(v);
+                        }
+                    }
+                }
+
+                if endpoints {
+                    centrality[s] += stack.len().saturating_sub(1) as f64;
+                }
+                while let Some(w) = stack.pop() {
+                    let sigma_w = sigma[w];
+                    let delta_w = dependency[w];
+                    if sigma_w > 0.0 {
+                        for &v in &predecessors[w] {
+                            dependency[v] += (sigma[v] / sigma_w) * (1.0 + delta_w);
+                        }
+                    }
+                    if w != s {
+                        centrality[w] += if endpoints { delta_w + 1.0 } else { delta_w };
+                    }
+                }
+            }
+
+            let pair_base = if endpoints { n } else { n.saturating_sub(1) };
+            let scale = if pair_base < 2 {
+                1.0
+            } else if normalized {
+                1.0 / ((pair_base * (pair_base - 1)) as f64)
+            } else if graph.is_directed() {
+                1.0
+            } else {
+                0.5
+            };
+            if scale != 1.0 {
+                for score in &mut centrality {
+                    *score *= scale;
+                }
+            }
+            centrality
+        }
+
+        // Sizes on both sides of the 500-source parallel threshold. `step` > 1
+        // gives multiple shortest paths, so `sigma` genuinely branches and the
+        // predecessor sets have more than one member.
+        for &n in &[64usize, 499, 500, 700, 1100] {
+            for &(normalized, endpoints) in
+                &[(true, false), (false, false), (true, true), (false, true)]
+            {
+                let mut undirected = Graph::strict();
+                for i in 0..n {
+                    let _ = undirected.add_node(i.to_string());
+                }
+                for i in 0..n {
+                    for step in [1usize, 3, 7] {
+                        let _ = undirected.add_edge(i.to_string(), ((i + step) % n).to_string());
+                    }
+                }
+                let got = betweenness_centrality_with_params(&undirected, normalized, endpoints);
+                let want = reference(&undirected, normalized, endpoints);
+                assert_eq!(got.scores.len(), want.len());
+                for (score, expected) in got.scores.iter().zip(want.iter()) {
+                    assert_eq!(
+                        score.score.to_bits(),
+                        expected.to_bits(),
+                        "undirected n={n} normalized={normalized} endpoints={endpoints} \
+                         node={} got={} want={expected}",
+                        score.node,
+                        score.score
+                    );
+                }
+
+                let mut directed = DiGraph::strict();
+                for i in 0..n {
+                    let _ = directed.add_node(i.to_string());
+                }
+                for i in 0..n {
+                    for step in [1usize, 3, 7] {
+                        let _ = directed.add_edge(i.to_string(), ((i + step) % n).to_string());
+                    }
+                }
+                let got_d =
+                    betweenness_centrality_directed_with_params(&directed, normalized, endpoints);
+                let want_d = reference(&directed, normalized, endpoints);
+                assert_eq!(got_d.scores.len(), want_d.len());
+                for (score, expected) in got_d.scores.iter().zip(want_d.iter()) {
+                    assert_eq!(
+                        score.score.to_bits(),
+                        expected.to_bits(),
+                        "directed n={n} normalized={normalized} endpoints={endpoints} \
+                         node={} got={} want={expected}",
+                        score.node,
+                        score.score
+                    );
+                }
+            }
+        }
+
+        // Disconnected: unreached nodes keep `distance == -1`, which is exactly
+        // what the `dist_w > 0` guard has to stop the predecessor scan from
+        // matching at the source.
+        for &n in &[600usize, 900] {
+            let mut split = Graph::strict();
+            for i in 0..n {
+                let _ = split.add_node(i.to_string());
+            }
+            // Three disjoint components plus a scatter of isolates.
+            for i in 0..n {
+                if i % 5 == 4 {
+                    continue;
+                }
+                let j = (i + 3) % n;
+                if j % 5 != 4 && i % 3 == j % 3 {
+                    let _ = split.add_edge(i.to_string(), j.to_string());
+                }
+            }
+            let got = betweenness_centrality(&split);
+            let want = reference(&split, true, false);
+            for (score, expected) in got.scores.iter().zip(want.iter()) {
+                assert_eq!(
+                    score.score.to_bits(),
+                    expected.to_bits(),
+                    "disconnected n={n} node={} got={} want={expected}",
+                    score.node,
+                    score.score
+                );
+            }
+        }
+        println!("betweenness_csr_predecessor_scan_is_bit_identical_to_stored_lists: OK");
     }
 
     #[test]
