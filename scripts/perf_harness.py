@@ -3195,6 +3195,7 @@ def suite_claim_incumbent():
     available_jobs = (
         "all_pairs_dijkstra_path_length",
         "all_pairs_shortest_path_length",
+        "bidirectional_dijkstra",
         "dfs_successors",
         "erdos_renyi_graph",
         "k_corona",
@@ -3439,6 +3440,152 @@ def suite_claim_incumbent():
                         all_pairs_fnx
                     )
                 },
+            )
+        )
+    if "bidirectional_dijkstra" in jobs:
+        if os.environ.get("PYTHONHASHSEED") != "0":
+            raise RuntimeError(
+                "the bidirectional_dijkstra claim fixture requires "
+                "PYTHONHASHSEED=0 because the selected equal-cost path is "
+                "part of the public contract"
+            )
+        node_count = 2_000
+        edge_count = 8_000
+        seed = 7
+        source = "0"
+        target = "1999"
+        weight = "weight"
+        expected_input_bytes = 398_318
+        expected_input_sha256 = (
+            "03c62edb3bc632ec6fedf20e7a7061e42688aa1d655e9128dbc4980c2af54de0"
+        )
+        expected_distance = 19
+        expected_path = (
+            "0",
+            "1610",
+            "1531",
+            "1102",
+            "184",
+            "452",
+            "1999",
+        )
+        expected_edge_weights = (4, 1, 4, 5, 3, 2)
+        expected_output_bytes = 57
+        expected_output_sha256 = (
+            "84ecf9bc779cbb276688ce9745bb7637609808b51b7d7a4d8de03cead8532516"
+        )
+        bidirectional_nx, bidirectional_fnx = _build_pair(
+            node_count,
+            edge_count,
+            seed=seed,
+            weighted=True,
+        )
+        input_nx_bytes = canonical_bytes(bidirectional_nx)
+        input_fnx_bytes = canonical_bytes(bidirectional_fnx)
+        input_sha256 = hashlib.sha256(input_nx_bytes).hexdigest()
+        if input_nx_bytes != input_fnx_bytes:
+            raise RuntimeError(
+                "bidirectional_dijkstra claim input graphs diverged"
+            )
+        if (
+            len(input_nx_bytes) != expected_input_bytes
+            or not hmac.compare_digest(input_sha256, expected_input_sha256)
+        ):
+            raise RuntimeError(
+                "bidirectional_dijkstra claim input no longer matches its "
+                "preregistered canonical byte count and SHA-256"
+            )
+
+        preflight_nx = nx.bidirectional_dijkstra(
+            bidirectional_nx,
+            source,
+            target,
+            weight=weight,
+        )
+        preflight_fnx = fnx.bidirectional_dijkstra(
+            bidirectional_fnx,
+            source,
+            target,
+            weight=weight,
+        )
+        preflight_nx_bytes = canonical_bytes(preflight_nx)
+        preflight_fnx_bytes = canonical_bytes(preflight_fnx)
+        output_sha256 = hashlib.sha256(preflight_nx_bytes).hexdigest()
+        distance, path = preflight_nx
+        edge_weights = tuple(
+            bidirectional_nx[u][v][weight]
+            for u, v in zip(path, path[1:])
+        )
+        if preflight_nx_bytes != preflight_fnx_bytes:
+            raise RuntimeError(
+                "bidirectional_dijkstra claim complete distance/path "
+                "tuple diverged"
+            )
+        if (
+            type(distance) is not int
+            or distance != expected_distance
+            or tuple(path) != expected_path
+            or edge_weights != expected_edge_weights
+            or sum(edge_weights) != distance
+            or len(preflight_nx_bytes) != expected_output_bytes
+            or not hmac.compare_digest(output_sha256, expected_output_sha256)
+        ):
+            raise RuntimeError(
+                "bidirectional_dijkstra claim fixture no longer matches "
+                "its preregistered complete distance/path result"
+            )
+        EXTRA_PROVENANCE["claim_bidirectional_dijkstra_fixture"] = {
+            "publishing_commit": "87cf65e54a4e13a72a12c2bc7458655c7d4b3ac1",
+            "recovered_harness_sha256": (
+                "40e03ac078cff1d930e5e3fa8232688becf1c1a67ab1cda6da93b88109e47a0f"
+            ),
+            "recovered_result_sha256": (
+                "eb2400d0a022d02325310ade2fb97beeff35f90ccc35170bd094f0492564a415"
+            ),
+            "nodes": node_count,
+            "edges": edge_count,
+            "seed": seed,
+            "weighted": True,
+            "directed": False,
+            "source": source,
+            "target": target,
+            "weight": weight,
+            "parameters": (
+                "source and target positional; weight=\"weight\"; "
+                "all remaining parameters omitted"
+            ),
+            "weight_range_inclusive": [1, 20],
+            "python_hash_seed": 0,
+            "input_canonical_bytes": expected_input_bytes,
+            "input_sha256": expected_input_sha256,
+            "distance": expected_distance,
+            "distance_type": "int",
+            "path": list(expected_path),
+            "path_nodes": len(expected_path),
+            "path_edges": len(expected_edge_weights),
+            "path_edge_weights": list(expected_edge_weights),
+            "output_canonical_bytes": expected_output_bytes,
+            "complete_distance_path_sha256": expected_output_sha256,
+        }
+        rows.append(
+            (
+                "claim/bidirectional_dijkstra "
+                "n=2000 m=8000 seed=7 source=\"0\" target=\"1999\" "
+                "weight=\"weight\" [nx/fnx]",
+                lambda graph=bidirectional_nx, src=source, dst=target,
+                weight_name=weight: nx.bidirectional_dijkstra(
+                    graph,
+                    src,
+                    dst,
+                    weight=weight_name,
+                ),
+                lambda graph=bidirectional_fnx, src=source, dst=target,
+                weight_name=weight: fnx.bidirectional_dijkstra(
+                    graph,
+                    src,
+                    dst,
+                    weight=weight_name,
+                ),
             )
         )
     if "dfs_successors" in jobs:

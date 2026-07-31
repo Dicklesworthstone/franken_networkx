@@ -2543,3 +2543,29 @@ managed physical target path, then retain every recovered artifact and exact
 input/output hash, live incumbent, in-process host and ELF identity, actual
 observed threads, 21 rounds, continuous accounting, dual A/A nulls, and the
 corrected three-clause median gate.
+
+## 2026-07-31 BlackThrush (cod) PARITY + NO-VERDICT (`br-r37-c1-p80x1.31`): exact `bidirectional_dijkstra` claim arm
+
+The published `1.8125x` row was recovered from
+`measure_marshaling.py` (SHA `40e03ac0...a0f`) and its result artifact (SHA
+`eb2400d0...415`). The exact call is
+`bidirectional_dijkstra(G, "0", "1999", weight="weight")` on a weighted
+undirected simple string-node `n=2000,m=8000,seed=7` graph.
+
+Under `PYTHONHASHSEED=0`, both implementations receive 398,318 canonical
+input bytes (SHA `03c62edb...4de0`). Live NetworkX 3.6.1 and
+FrankenNetworkX return the identical integer distance `19` and the identical
+seven-node path `0 → 1610 → 1531 → 1102 → 184 → 452 → 1999`; its edge
+weights `[4,1,4,5,3,2]` sum to `19`. The complete tuple is 57 bytes, SHA
+`84ecf9bc...2516`, matching the recovered artifact digest prefix. No
+divergence was found.
+
+RESULT: **FULL DISTANCE + PATH PARITY / CURRENT PERFORMANCE NO-VERDICT.**
+The historical `1.8124847x` row has only one null CI and lacks dual null
+medians, raw samples, actual observed threads, continuous accounting, and
+in-process ELF identity. No strict benchmark was started because RCH 1.0.52
+would place the pooled target under another UUID-salted clean-overlay root.
+Retry only after two required clean-overlay invocations prove one identical
+managed physical target path, then retain all exact hashes, live incumbent,
+21 rounds, in-process host/ELF identity, actual threads, continuous
+accounting, dual A/A nulls, and the corrected three-clause median gate.

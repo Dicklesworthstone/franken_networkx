@@ -28544,6 +28544,68 @@ QUALITY / CLOSEOUT: `git diff --check` covers this ledger-only result. No
 Cargo command ran. UBS has no Markdown/JSONL scanner, so no scanner pass is
 claimed.
 
+## 2026-07-31 BlackThrush (cod) PARITY + NO-VERDICT: exact `bidirectional_dijkstra` claim arm (`br-r37-c1-p80x1.31`)
+
+The published `1.8125x` workload was recovered exactly from commit
+`87cf65e54a4e13a72a12c2bc7458655c7d4b3ac1`,
+`measure_marshaling.py` (SHA-256
+`40e03ac078cff1d930e5e3fa8232688becf1c1a67ab1cda6da93b88109e47a0f`),
+and its saved results artifact (SHA-256
+`eb2400d0a022d02325310ade2fb97beeff35f90ccc35170bd094f0492564a415`).
+It calls
+`bidirectional_dijkstra(G, "0", "1999", weight="weight")` on the helper's
+weighted undirected simple string-node `n=2000,m=8000,seed=7` graph, with
+integer weights in `1..20`.
+
+Under `PYTHONHASHSEED=0`, both implementations receive 398,318 canonical
+input bytes (SHA-256
+`03c62edb3bc632ec6fedf20e7a7061e42688aa1d655e9128dbc4980c2af54de0`).
+Live NetworkX 3.6.1 and FrankenNetworkX agree exactly on the complete return
+tuple: integer distance `19` and path
+`["0","1610","1531","1102","184","452","1999"]`. Its six edge weights are
+`[4,1,4,5,3,2]`, which sum to `19`. The tuple is 57 canonical bytes with
+SHA-256
+`84ecf9bc779cbb276688ce9745bb7637609808b51b7d7a4d8de03cead8532516`;
+the recovered artifact's 16-hex checksum is the same prefix. No divergence
+was found.
+
+The recovered historical row reported median `1.8124847175627485x`, 95%
+median CI `1.8092118439128857..1.8248727467023393x`, `21/21` paired wins,
+and one A/A CI `0.995241233907986..1.005281634871569x`. That artifact is
+useful recovery evidence, not a current campaign verdict: it has no second
+arm-specific null, null medians, raw samples, actual observed thread counts,
+continuous whole-host accounting, or in-process loaded-ELF identity, and it
+predates the corrected null-median clause.
+
+RESULT: **FULL DISTANCE + TIE-SENSITIVE PATH PARITY / CURRENT PERFORMANCE
+NO-VERDICT.** No strict benchmark was started because RCH 1.0.52 still puts
+its pooled target below a UUID-salted `--clean-overlay` root. Running the
+required command would mint another cold physical target, violating the
+one-target storage rule. Machine-readable outcome:
+`benchmark_started=false`, `performance_verdict=NO-VERDICT`,
+`host_identity=not_observed`, `elf_sha256_in_process=not_observed`,
+`networkx_actual_threads=not_observed`, and
+`franken_networkx_actual_threads=not_observed`. No candidate ratio, null, or
+timing claim is reported.
+
+RETRY PREDICATE: retry only after two required
+`rch exec --base <commit> --clean-overlay` invocations prove the same managed
+physical target path without creating a new directory. Keep this exact
+input/output registration, live NetworkX 3.6.1, 21 interleaved rounds,
+in-process host and ELF identity, actual observed threads for both arms,
+continuous whole-host accounting, raw candidate samples, and dual A/A
+nulls. A verdict additionally requires all three corrected median clauses:
+each null median within 2% of `1.0`, the candidate median deviation beyond
+twice the larger null-CI half-width, and the candidate median CI wholly on
+one side of `1.0`. CV remains provenance only.
+
+QUALITY / CLOSEOUT: the focused exact-input preflight passed, and the full
+claim-incumbent parity sweep passed `16/16`. Harness SHA-256 is
+`705bec00f5dffa113298011046919a9cff51ef003cebff19e0bf5263adca380a`.
+Python byte-compilation, the ledger contract tests, diff checks, and UBS are
+recorded at commit closeout. No Cargo command ran and no target directory was
+created.
+
 ## 2026-07-31 BlackThrush (cod) PARITY + NO-VERDICT: complete `k_crust` claim arm exposes clean-overlay target-reuse blocker (`br-r37-c1-p80x1.5`)
 
 **CLAIM-GAP FIRST, COMPLETE OUTPUT FIRST.** README publishes `k_crust` at
