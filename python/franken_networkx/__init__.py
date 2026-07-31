@@ -23097,6 +23097,24 @@ def read_edgelist(
     honoured. The Rust-native ``read_edgelist`` only accepts ``(path,)``.
     """
     _validate_backend_dispatch_keywords("read_edgelist", backend, backend_kwargs)
+    if (
+        comments == "#"
+        and delimiter is None
+        and (create_using is None or create_using is Graph)
+        and nodetype is None
+        and (data is True or data is False)
+        and edgetype is None
+        and encoding == "utf-8"
+        and isinstance(path, str)
+    ):
+        native = _read_edgelist_simple_via_open_file(
+            path,
+            encoding,
+            "data_true" if data is True else "data_false",
+        )
+        if native is not None:
+            return native
+
     # br-r37-c1-rdedgenative: route to the native parse_edgelist (bulk build,
     # byte-exact incl edge data) instead of the nx parse+convert delegation
     # (0.67x). parse_edgelist covers comments/delimiter/create_using/nodetype/data
@@ -23140,6 +23158,21 @@ def _read_decoded_lines_via_open_file(path, encoding, parse):
     @_open_file(0, mode="rb")
     def _read(path):
         return parse(line.decode(encoding) for line in path)
+
+    return _read(path)
+
+
+def _read_edgelist_simple_via_open_file(path, encoding, mode):
+    """Bulk-decode a default edge list and hand one payload to Rust.
+
+    ``networkx.utils.open_file`` retains the public gzip/bzip2/path contract;
+    the parser itself crosses Python once instead of once per input line.
+    """
+    from networkx.utils import open_file as _open_file
+
+    @_open_file(0, mode="rb")
+    def _read(path):
+        return _fnx.parse_edgelist_simple_text(path.read().decode(encoding), mode)
 
     return _read(path)
 
@@ -25173,6 +25206,13 @@ except ImportError:  # pragma: no cover — defensive for partial builds
 
 try:
     from franken_networkx._fnx import (
+        adjacency_csr_bytes_default_order_unweighted as _native_adjacency_csr_bytes_default_order_unweighted,
+    )
+except ImportError:  # pragma: no cover — defensive for partial builds
+    _native_adjacency_csr_bytes_default_order_unweighted = None
+
+try:
+    from franken_networkx._fnx import (
         adjacency_csr_bytes_multidigraph_default_order_live_finite_checked as _native_adjacency_csr_bytes_multidigraph_default_order_live_checked,
     )
 except ImportError:  # pragma: no cover — defensive for partial builds
@@ -25328,15 +25368,57 @@ def _pagerank_scipy(G, alpha, max_iter, tol, weight):
             native_weight = weight if isinstance(weight, str) else None
             native_result = None
             native_index_used = False
-            if native_weight is None and _native_adjacency_index_arrays is not None:
+            native_csr_normalized = False
+            if native_weight is None and (
+                _native_adjacency_csr_bytes_default_order_unweighted is not None
+                or _native_adjacency_index_arrays is not None
+            ):
+                # br-r37-c1-g3z4d: keep simple unweighted adjacency in CSR from
+                # Rust storage through SciPy. The former COO handoff allocated
+                # two Python integers per edge, copied both lists into NumPy,
+                # converted COO->CSR, then multiplied by a diagonal sparse
+                # matrix. Native byte buffers make the NumPy views O(1), while
+                # direct row normalization deletes both sparse conversions.
+                native_csr_result = None
+                if _native_adjacency_csr_bytes_default_order_unweighted is not None:
+                    native_csr_result = (
+                        _native_adjacency_csr_bytes_default_order_unweighted(G, None)
+                    )
+                if native_csr_result is not None:
+                    indptr_buffer, indices_buffer = native_csr_result
+                    indptr = np.frombuffer(indptr_buffer, dtype=np.intp)
+                    indices = np.frombuffer(indices_buffer, dtype=np.intp)
+                    degrees = np.diff(indptr)
+                    inverse_degree = np.zeros(N, dtype=float)
+                    np.divide(
+                        1.0,
+                        degrees,
+                        out=inverse_degree,
+                        where=degrees != 0,
+                    )
+                    data = np.repeat(inverse_degree, degrees)
+                    A = sp.csr_array(
+                        (data, indices, indptr), shape=(N, N), dtype=float
+                    )
+                    is_dangling = np.flatnonzero(degrees == 0)
+                    native_index_used = True
+                    native_csr_normalized = True
+
                 # br-r37-c1-prdir: prefer the default-order index COO (directed +
                 # undirected) — it skips the Python nodelist canonicalisation; nodelist
                 # == list(G) so the index-ordered (rows, cols) align. Fall back to the
                 # nodelist builder if unavailable.
                 native_index_result = None
-                if _native_adjacency_default_order_index_arrays is not None:
+                if (
+                    not native_index_used
+                    and _native_adjacency_default_order_index_arrays is not None
+                ):
                     native_index_result = _native_adjacency_default_order_index_arrays(G, None)
-                if native_index_result is None:
+                if (
+                    not native_index_used
+                    and native_index_result is None
+                    and _native_adjacency_index_arrays is not None
+                ):
                     native_index_result = _native_adjacency_index_arrays(G, nodelist, None)
                 if native_index_result is not None:
                     rows, cols = native_index_result
@@ -25347,7 +25429,7 @@ def _pagerank_scipy(G, alpha, max_iter, tol, weight):
                         (data, (rows, cols)), shape=(N, N), dtype=float
                     ).tocsr()
                     native_index_used = True
-                else:
+                elif not native_index_used:
                     native_result = _native_adjacency_arrays(
                         G, nodelist, native_weight, 1.0
                     )
@@ -25375,12 +25457,14 @@ def _pagerank_scipy(G, alpha, max_iter, tol, weight):
             elif not native_index_used:
                 A = to_scipy_sparse_array(G, nodelist=nodelist, weight=weight, dtype=float)
         else:
+            native_csr_normalized = False
             A = to_scipy_sparse_array(G, nodelist=nodelist, weight=weight, dtype=float)
-        S = np.asarray(A.sum(axis=1)).flatten()
-        S[S != 0] = 1.0 / S[S != 0]
-        Q = sp.dia_array((S, 0), shape=A.shape).tocsr()
-        A = Q @ A
-        is_dangling = np.where(S == 0)[0]
+        if not native_csr_normalized:
+            S = np.asarray(A.sum(axis=1)).flatten()
+            S[S != 0] = 1.0 / S[S != 0]
+            Q = sp.dia_array((S, 0), shape=A.shape).tocsr()
+            A = Q @ A
+            is_dangling = np.where(S == 0)[0]
         if cache_key is not None:
             vars(G)["_fnx_pagerank_scipy_matrix_cache"] = (
                 cache_key,

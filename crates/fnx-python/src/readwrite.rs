@@ -867,13 +867,11 @@ fn read_adjlist_simple(py: Python<'_>, path: &str) -> PyResult<Option<PyGraph>> 
 /// separators, so any token containing `_` bails to the delegated
 /// path. Returns None (caller falls back to nx) for missing or
 /// non-UTF-8 files so nx defines those error surfaces exactly.
-#[pyfunction]
-#[pyo3(signature = (path, mode))]
-fn read_edgelist_simple(py: Python<'_>, path: &str, mode: &str) -> PyResult<Option<PyGraph>> {
-    let Ok(content) = std::fs::read_to_string(path) else {
-        return Ok(None);
-    };
-
+fn parse_edgelist_simple_content(
+    py: Python<'_>,
+    content: &str,
+    mode: &str,
+) -> PyResult<Option<PyGraph>> {
     let mut node_key_map: HashMap<String, PyObject> = HashMap::new();
     let mut node_py_attrs: HashMap<String, Py<PyDict>> = HashMap::new();
     let mut edge_py_attrs: HashMap<(String, String), Py<PyDict>> = HashMap::new();
@@ -942,12 +940,14 @@ fn read_edgelist_simple(py: Python<'_>, path: &str, mode: &str) -> PyResult<Opti
             &mut node_key_map,
             &mut node_py_attrs,
         );
-        let mirror = edge_py_attrs
-            .entry(PyGraph::edge_key(&cu, &cv))
-            .or_insert_with(|| PyDict::new(py).unbind());
         // weighted: duplicate edges overwrite, matching nx's per-line
-        // datadict.update on the live edge dict.
+        // datadict.update on the live edge dict. Unweighted rows deliberately
+        // allocate no empty Python edge dict: PyGraph materializes that live
+        // mirror lazily if Python later asks for or mutates edge attributes.
         if let Some((k, fnx_runtime::CgseValue::Float(f))) = attrs.iter().next() {
+            let mirror = edge_py_attrs
+                .entry(PyGraph::edge_key(&cu, &cv))
+                .or_insert_with(|| PyDict::new(py).unbind());
             mirror.bind(py).set_item(k, *f)?;
         }
         edges.push((cu, cv, attrs));
@@ -975,6 +975,29 @@ fn read_edgelist_simple(py: Python<'_>, path: &str, mode: &str) -> PyResult<Opti
         instance_dict_gc: crate::InstanceDictGc::new(),
         node_data_mirror: std::sync::Mutex::new(None),
     }))
+}
+
+#[pyfunction]
+#[pyo3(signature = (path, mode))]
+fn read_edgelist_simple(py: Python<'_>, path: &str, mode: &str) -> PyResult<Option<PyGraph>> {
+    let Ok(content) = std::fs::read_to_string(path) else {
+        return Ok(None);
+    };
+    parse_edgelist_simple_content(py, &content, mode)
+}
+
+/// Parse an already-decoded edge-list payload through the same native bulk
+/// builder as `read_edgelist_simple`. Python's `open_file` layer handles gzip,
+/// bzip2, and path-like semantics; one string boundary replaces per-line Python
+/// tokenization for the common default reader.
+#[pyfunction]
+#[pyo3(signature = (content, mode))]
+fn parse_edgelist_simple_text(
+    py: Python<'_>,
+    content: &str,
+    mode: &str,
+) -> PyResult<Option<PyGraph>> {
+    parse_edgelist_simple_content(py, content, mode)
 }
 
 #[pyfunction]
@@ -2524,6 +2547,75 @@ impl CsrDataBytes {
     }
 }
 
+/// Byte-backed CSR handoff for an unweighted simple Graph or DiGraph.
+///
+/// The tuple-valued adjacency helper crosses the PyO3 boundary as two Python
+/// lists, allocating one Python integer per endpoint before NumPy copies them
+/// back into contiguous storage. PageRank only needs insertion-order CSR, so
+/// emit native-endian `intp` buffers directly. Sorting each integer row matches
+/// SciPy's COO-to-CSR canonical column order without paying that conversion.
+#[pyfunction]
+#[pyo3(signature = (g, absent_weight_attr=None))]
+pub fn adjacency_csr_bytes_default_order_unweighted(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    absent_weight_attr: Option<&str>,
+) -> PyResult<Option<(Py<PyByteArray>, Py<PyByteArray>)>> {
+    let gr = extract_graph(g)?;
+    let (node_count, edge_capacity, mut rows) = match &gr {
+        GraphRef::Undirected(pg) => {
+            if let Some(attr) = absent_weight_attr {
+                for dict in pg.edge_py_attrs.values() {
+                    if dict.bind(py).contains(attr)? {
+                        return Ok(None);
+                    }
+                }
+            }
+            let inner = &pg.inner;
+            let mut rows = Vec::with_capacity(inner.node_count());
+            for row in 0..inner.node_count() {
+                rows.push(inner.neighbors_indices(row).unwrap_or_default().to_vec());
+            }
+            (inner.node_count(), inner.edge_count() * 2, rows)
+        }
+        GraphRef::Directed { dg, .. } => {
+            if let Some(attr) = absent_weight_attr {
+                for dict in dg.edge_py_attrs.values() {
+                    if dict.bind(py).contains(attr)? {
+                        return Ok(None);
+                    }
+                }
+            }
+            let inner = &dg.inner;
+            let mut rows = Vec::with_capacity(inner.node_count());
+            for row in 0..inner.node_count() {
+                rows.push(inner.successors_indices(row).unwrap_or_default().to_vec());
+            }
+            (inner.node_count(), inner.edge_count(), rows)
+        }
+        GraphRef::MultiUndirected { .. } | GraphRef::MultiDirected { .. } => return Ok(None),
+    };
+
+    let intp_width = std::mem::size_of::<isize>();
+    let mut indptr = Vec::with_capacity((node_count + 1) * intp_width);
+    let mut indices = Vec::with_capacity(edge_capacity * intp_width);
+    let mut emitted = 0usize;
+    append_csr_intp_bytes(&mut indptr, emitted)?;
+    for row in &mut rows {
+        row.sort_unstable();
+        for &column in row.iter() {
+            append_csr_intp_bytes(&mut indices, column)?;
+            emitted += 1;
+        }
+        append_csr_intp_bytes(&mut indptr, emitted)?;
+    }
+
+    Ok(Some((
+        PyByteArray::new(py, &indptr).unbind(),
+        PyByteArray::new(py, &indices).unbind(),
+    )))
+}
+
 /// br-r37-c1-q2w4t: byte-backed CSR handoff for default-order MultiDiGraph.
 ///
 /// The tuple-valued CSR helper is already native, but PyO3 still materializes
@@ -3161,6 +3253,10 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
         m
     )?)?;
     m.add_function(wrap_pyfunction!(
+        adjacency_csr_bytes_default_order_unweighted,
+        m
+    )?)?;
+    m.add_function(wrap_pyfunction!(
         adjacency_csr_bytes_multidigraph_default_order_live_finite_checked,
         m
     )?)?;
@@ -3180,6 +3276,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(read_adjlist, m)?)?;
     m.add_function(wrap_pyfunction!(read_adjlist_simple, m)?)?;
     m.add_function(wrap_pyfunction!(read_edgelist_simple, m)?)?;
+    m.add_function(wrap_pyfunction!(parse_edgelist_simple_text, m)?)?;
     m.add_function(wrap_pyfunction!(digraph_absorb_graph_bidirected, m)?)?;
     m.add_function(wrap_pyfunction!(multigraph_absorb_graph, m)?)?;
     m.add_function(wrap_pyfunction!(write_adjlist, m)?)?;
