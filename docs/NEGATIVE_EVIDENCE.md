@@ -28629,6 +28629,83 @@ thread probes, 21 rounds, both A/A nulls, continuous 300ms accounting, and
 the corrected three-clause gate. Any build-artifact, admission, provenance,
 parity, or accounting abort remains NO-VERDICT.
 
+## 2026-07-31 BlackThrush (cod) DIVERGENCE FIX + NO-VERDICT: `k_corona` claim hid all 13 result nodes (`br-r37-c1-p80x1.3`)
+
+**A REAL DIVERGENCE BEFORE TIMING.** The recovered source of README's
+`9.3853x` row built the deterministic simple string-node graph
+`n=1200, m=6000, seed=11`, then compared only
+`sorted(k_corona(G, 3).edges())`. Under `PYTHONHASHSEED=0`, the exact paired
+input is 194,277 canonical bytes, SHA-256
+`199d564350ec6f70885e8f8236fad28d6620b44e3e7917a470f6fba73024e653`.
+Both edge-only outputs were empty, but the actual public graph contained 13
+isolated nodes. Live NetworkX 3.6.1 returned
+`[530,24,943,357,667,454,313,944,1059,1182,104,330,1082]`, complete-output
+SHA-256
+`1be0290d66f0db36835be1959777317a207acedba5567ace56f385e129d36819`;
+pre-fix FrankenNetworkX returned
+`[330,530,24,943,357,667,454,1182,1059,944,313,104,1082]`, SHA-256
+`82e27e55f5f8200ab5b99fc7e88345eb710fa82341d79c0ba5382dfbcc65a115`.
+The exact input and both divergent outputs are retained in the bead.
+
+The cause was `k_corona` iterating a selected-node `set`, while NetworkX
+evaluates the filter in core-number dictionary order. Commit `63b29ed6c`
+uses that ordered source and adds a deterministic isolated-result regression.
+The full 268-test core-decomposition file passes. The exact complete result
+now agrees byte-for-byte: 13 nodes, 0 edges, 292 canonical bytes, SHA-256
+`1be0290d66f0db36835be1959777317a207acedba5567ace56f385e129d36819`.
+
+The permanent `claim-incumbent` arm preregisters the input and output byte
+counts, hashes, node order, seed, and `k`; it times the whole public
+`k_corona` call rather than an empty edge projection. Harness SHA-256 is
+`3f15663a9e576f9d695f795b9cc1aa14840d81919b46a5ba19cffcbc825b5589`.
+Its decision contract is the corrected three-clause median gate: candidate
+bootstrap-median CI excludes 1.0, candidate median deviation exceeds twice
+the wider A/A null-CI half-width, and every A/A null median is within 2% of
+1.0. It retains both nulls and raw samples, treats CV as provenance, probes
+actual observed threads, records in-process host identity, and self-hashes
+the executing ELF.
+
+The strict run used source base
+`63b29ed6ceedffb253f402c2cee3e7416938f1d3` through
+`rch exec --base 63b29ed6c --clean-overlay --overlay-path
+scripts/perf_harness.py`, with only that harness overlaid. RCH reserved all
+8/8 slots on `vmi1153651`, rewrote Cargo to its worker-scoped pooled target,
+and received no per-run `CARGO_TARGET_DIR` override. The release artifact
+built, but `pre_setup` rejected after all 300 one-second windows. Its final
+busy fractions were `cpu0=92.9%`, `cpu1=63.6%`, `cpu2=35.7%`,
+`cpu3=94.9%`, `cpu4=74.5%`, `cpu5=52.5%`, `cpu6=36.7%`,
+`cpu7=35.1%`, and `cpu8=99.0%`.
+
+Because admission stopped before the provenance header, `vmi1153651` is only
+the scheduler placement, not an in-process host identity. The loaded ELF
+SHA-256, actual observed arm threads, both A/A nulls, candidate samples,
+median CI, median-bias clause, and incumbent ratio were not reached.
+
+comparison_class=NO-VERDICT
+incumbent=networkx-3.6.1
+incumbent_same_invocation=false
+campaign_output=false
+decision_gate=not_reached
+null_median_clause=not_reached
+host_identity=not_reached
+bench_elf_sha256=not_reached
+actual_observed_threads=not_reached
+cv_role=not_computed
+
+RESULT: **DIVERGENCE FIX SHIPPED / PERFORMANCE NO-VERDICT.** README's
+`9.3853x` is withdrawn because its empty-edge comparator omitted every result
+node and concealed a real behavioral mismatch. No replacement ratio is
+claimed.
+
+RETRY PREDICATE: rerun only in a dedicated non-co-tenanted remote window with
+scheduler jobs, host probes, and leaked descendants suppressed for the whole
+process. Reuse the exact source base and harness SHA above through
+`--base` plus `--clean-overlay`; preserve `PYTHONHASHSEED=0`, the input and
+complete-output hashes, live NetworkX 3.6.1, all worker slots, in-process host
+identity and ELF SHA, actual observed threads, 21 rounds, both A/A nulls,
+continuous 300 ms accounting, and all three median-gate clauses. Any
+admission, provenance, parity, or accounting abort remains NO-VERDICT.
+
 ## 2026-07-29 CloudyTurtle VALID-AB INCUMBENT LOSS: real community pipeline narrows from `1.3774x` to `0.8214x` as output integration grows (`br-r37-c1-zgcfy`)
 
 NEGATIVE-LEDGER-FIRST: the candidate preflight found no prior complete

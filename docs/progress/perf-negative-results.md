@@ -2163,3 +2163,31 @@ ratio were not reached; do not replace or strengthen README's unsupported
 `14.1755x` with any local diagnostic. Retry only in a dedicated
 non-co-tenanted remote window with the exact fixture/source/incumbent hashes,
 full provenance, continuous accounting, and corrected three-clause gate.
+
+## 2026-07-31 BlackThrush (cod) DIVERGENCE FIX + NO-VERDICT (`br-r37-c1-p80x1.3`): complete `k_corona` claim arm
+
+The recovered `9.3853x` scratch row compared
+`sorted(k_corona(G,3).edges())` on the exact simple string-node
+`n=1200,m=6000,seed=11` graph. Both projected edge lists were empty, but the
+public results contained 13 isolated nodes in different orders. With
+`PYTHONHASHSEED=0`, input SHA-256 was
+`199d564350ec6f70885e8f8236fad28d6620b44e3e7917a470f6fba73024e653`;
+NetworkX 3.6.1 output SHA was `1be0290d...819`, while pre-fix FNX was
+`82e27e55...115`. Commit `63b29ed6c` replaces set iteration with core-number
+dictionary order and adds a deterministic regression; the full 13-node,
+0-edge, 292-byte output now agrees exactly.
+
+The permanent arm times the complete public operation and preregisters both
+full hashes. Strict RCH used base `63b29ed6c`, only
+`scripts/perf_harness.py` as a clean overlay (SHA `3f15663a...589`), no
+per-run target override, and all 8/8 `vmi1153651` slots. After the same-build
+release artifact completed, `pre_setup` rejected all 300 windows; final
+`cpu0-8` busy fractions ranged from 35.1% to 99.0%. Therefore in-process host
+identity, ELF SHA, actual observed threads, both nulls, the corrected median
+clause, candidate CI, and incumbent ratio were not reached.
+
+RESULT: **DIVERGENCE FIX SHIPPED / PERFORMANCE NO-VERDICT.** The old
+`9.3853x` is withdrawn because its empty-edge output hid every result node.
+Retry only in a dedicated host window with the same hashes, live NetworkX
+3.6.1, complete parity, all required provenance, 21 rounds, continuous
+accounting, dual A/A nulls, and the corrected three-clause median gate.

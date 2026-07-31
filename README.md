@@ -1078,7 +1078,7 @@ co-tenancy elsewhere on the host.
 | label_propagation_communities | **2.1485× faster** | Native label counting; n=1,200 / m=6,000 |
 | minimum_spanning_tree | **1.9947× faster** | Native Kruskal; n=1,200 / m=6,000 |
 | erdos_renyi_graph (n=1500) | **14.1755× faster** | Native generator |
-| k_corona | **9.3853× faster** | Native core filter |
+| k_corona | no current admissible ratio | Complete-result incumbent gate awaiting an exclusive host window |
 | k_crust | **5.8664× faster** | Native core filter |
 | kosaraju_strongly_connected_components | **4.6519× faster** | Native SCC |
 | minimum_branching | **3.9768× faster** | Native branching |

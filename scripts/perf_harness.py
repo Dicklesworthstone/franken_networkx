@@ -3155,7 +3155,7 @@ def suite_claim_incumbent():
             f"loaded {nx.__version__} from {nx.__file__}"
         )
 
-    available_jobs = ("erdos_renyi_graph",)
+    available_jobs = ("erdos_renyi_graph", "k_corona")
     requested_jobs = os.environ.get(
         "FNX_CLAIM_INCUMBENT_JOBS",
         ",".join(available_jobs),
@@ -3230,6 +3230,96 @@ def suite_claim_incumbent():
                     probability,
                     seed=seed,
                 ),
+            )
+        )
+    if "k_corona" in jobs:
+        if os.environ.get("PYTHONHASHSEED") != "0":
+            raise RuntimeError(
+                "the k_corona claim fixture requires PYTHONHASHSEED=0 "
+                "because output node order is part of the public contract"
+            )
+        node_count = 1_200
+        edge_count = 6_000
+        seed = 11
+        k = 3
+        expected_input_bytes = 194_277
+        expected_input_sha256 = (
+            "199d564350ec6f70885e8f8236fad28d6620b44e3e7917a470f6fba73024e653"
+        )
+        expected_output_nodes = (
+            "530",
+            "24",
+            "943",
+            "357",
+            "667",
+            "454",
+            "313",
+            "944",
+            "1059",
+            "1182",
+            "104",
+            "330",
+            "1082",
+        )
+        expected_output_bytes = 292
+        expected_output_sha256 = (
+            "1be0290d66f0db36835be1959777317a207acedba5567ace56f385e129d36819"
+        )
+        corona_nx, corona_fnx = _build_pair(
+            node_count,
+            edge_count,
+            seed=seed,
+            weighted=False,
+        )
+        input_nx_bytes = canonical_bytes(corona_nx)
+        input_fnx_bytes = canonical_bytes(corona_fnx)
+        input_sha256 = hashlib.sha256(input_nx_bytes).hexdigest()
+        if input_nx_bytes != input_fnx_bytes:
+            raise RuntimeError("k_corona claim input graphs diverged")
+        if (
+            len(input_nx_bytes) != expected_input_bytes
+            or not hmac.compare_digest(input_sha256, expected_input_sha256)
+        ):
+            raise RuntimeError(
+                "k_corona claim input no longer matches its preregistered "
+                "canonical byte count and SHA-256"
+            )
+
+        preflight_nx = nx.k_corona(corona_nx, k)
+        preflight_fnx = fnx.k_corona(corona_fnx, k)
+        preflight_nx_bytes = canonical_bytes(preflight_nx)
+        preflight_fnx_bytes = canonical_bytes(preflight_fnx)
+        output_sha256 = hashlib.sha256(preflight_nx_bytes).hexdigest()
+        if preflight_nx_bytes != preflight_fnx_bytes:
+            raise RuntimeError("k_corona claim fixture complete output diverged")
+        if (
+            tuple(preflight_nx) != expected_output_nodes
+            or preflight_nx.number_of_edges() != 0
+            or len(preflight_nx_bytes) != expected_output_bytes
+            or not hmac.compare_digest(output_sha256, expected_output_sha256)
+        ):
+            raise RuntimeError(
+                "k_corona claim fixture no longer matches its preregistered "
+                "complete ordered output"
+            )
+        EXTRA_PROVENANCE["claim_k_corona_fixture"] = {
+            "nodes": node_count,
+            "edges": edge_count,
+            "seed": seed,
+            "k": k,
+            "python_hash_seed": 0,
+            "input_canonical_bytes": expected_input_bytes,
+            "input_sha256": expected_input_sha256,
+            "output_nodes": list(expected_output_nodes),
+            "output_edges": 0,
+            "output_canonical_bytes": expected_output_bytes,
+            "complete_output_sha256": expected_output_sha256,
+        }
+        rows.append(
+            (
+                "claim/k_corona n=1200 m=6000 seed=11 k=3 [nx/fnx]",
+                lambda: nx.k_corona(corona_nx, k),
+                lambda: fnx.k_corona(corona_fnx, k),
             )
         )
     return rows

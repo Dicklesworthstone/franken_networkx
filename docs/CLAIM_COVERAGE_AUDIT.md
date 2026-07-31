@@ -52,25 +52,27 @@ levers were never compared to NetworkX.
 An unsupported claim a user might act on is worse than one buried in a ledger. So the queue is
 ranked by what `README.md` publishes.
 
-README publishes 45 numeric per-family claims plus 5 whole-job pipeline rows. Cross-referencing
-each against a paired `(label, nx_arm, fnx_arm)` job in the contract harness across **all 33
-suites** (the harness exposes **31 distinct NetworkX functions** with a paired arm):
+The README performance table has 45 per-family rows: 44 numeric claims and one
+explicit no-ratio row after the contaminated `k_corona` number was withdrawn.
+It also has 5 whole-job pipeline rows. Cross-referencing each family row against
+a paired `(label, nx_arm, fnx_arm)` job in the contract harness across **all 33
+suites** (the harness exposes **32 distinct NetworkX functions** with a paired arm):
 
-- **22 of 45** README family claims have a paired incumbent arm in the contract harness.
-- **23 of 45** do not.
-- **24 of 45** still lack a current admissible ratio: the new
-  `erdos_renyi_graph` arm reached no timed verdict because host exclusivity
-  rejected both runnable placements.
+- **23 of 45** README family rows have a paired incumbent arm in the contract harness.
+- **22 of 45** do not.
+- **24 of 45** still lack a current admissible ratio: the
+  `erdos_renyi_graph` and `k_corona` arms both reached no timed verdict because
+  host exclusivity rejected their runnable placements.
 
 ### Tier 1 — published in the README, no current admissible contract ratio
 
-Row 1 now has a permanent arm but remains in this queue until it reaches a
-host-exclusive verdict. Rows 2-24 still have no permanent arm.
+Rows 1-2 now have permanent arms but remain in this queue until they reach a
+host-exclusive verdict. Rows 3-24 still have no permanent arm.
 
 | # | Claim | Published | README |
 |--:|---|---:|---:|
 | 1 | `erdos_renyi_graph` (n=1500) | 14.1755× | 1080 |
-| 2 | `k_corona` | 9.3853× | 1081 |
+| 2 | `k_corona` | withdrawn; no admissible ratio | 1081 |
 | 3 | `k_crust` | 5.8664× | 1082 |
 | 4 | `single_source_shortest_path_length` | 5.5005× | 1090 |
 | 5 | `kosaraju_strongly_connected_components` | 4.6519× | 1083 |
