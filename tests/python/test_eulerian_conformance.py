@@ -228,6 +228,28 @@ def test_is_eulerian_multigraph_matches_networkx(name, edges, nodes):
     assert fnx.is_eulerian(fg) == nx.is_eulerian(ng)
 
 
+@pytest.mark.parametrize(
+    "fg,ng",
+    [
+        _pair_undirected(
+            [(0, 1), (1, 2), (2, 3), (3, 4), (0, 1)],
+            list(range(5)),
+            multi=True,
+        ),
+        _pair_directed(
+            [(0, 1), (1, 2), (2, 3), (3, 4)],
+            list(range(5)),
+            multi=True,
+        ),
+    ],
+    ids=["audit-multigraph-path-5", "audit-multidigraph-chain-5"],
+)
+def test_raw_and_public_is_eulerian_multigraph_audit_parity(fg, ng):
+    expected = nx.is_eulerian(ng)
+    assert fnx._raw_is_eulerian(fg) is expected
+    assert fnx.is_eulerian(fg) is expected
+
+
 @pytest.mark.parametrize("name,edges,nodes", DIRECTED,
                          ids=[fx[0] for fx in DIRECTED])
 def test_is_eulerian_directed_matches_networkx(name, edges, nodes):

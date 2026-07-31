@@ -10536,17 +10536,14 @@ pub fn is_eulerian(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<bool> {
         // like 0->1, 1->2, 0->2 (each undirected degree is 2 → even,
         // so the undirected K3 check passed) even though those are not
         // Eulerian.
-        if gr.is_multigraph() {
-            // For MultiDiGraph, parallel edges affect in/out-degree; ask
-            // Python's degree views so parallel-edge counting matches NX.
-            let nodes_method = g.call_method0("nodes")?;
-            let nodes: Vec<Bound<'_, PyAny>> =
-                nodes_method.try_iter()?.collect::<PyResult<Vec<_>>>()?;
-            let in_deg_view = g.getattr("in_degree")?;
-            let out_deg_view = g.getattr("out_degree")?;
-            for node in &nodes {
-                let in_d: usize = in_deg_view.get_item(node)?.extract()?;
-                let out_d: usize = out_deg_view.get_item(node)?.extract()?;
+        if let GraphRef::MultiDirected { mdg, .. } = &gr {
+            // br-r37-c1-msown: read multiplicity-aware degrees from the
+            // borrowed native store. Calling Python degree descriptors while
+            // `extract_graph` holds this PyRef re-borrows the same object and
+            // raises `RuntimeError: Already borrowed`.
+            for node in mdg.inner.nodes_ordered() {
+                let in_d = mdg.inner.in_degree(node);
+                let out_d = mdg.inner.out_degree(node);
                 if in_d != out_d {
                     return Ok(false);
                 }
@@ -10571,17 +10568,13 @@ pub fn is_eulerian(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<bool> {
     }
     let inner = gr.undirected();
     // For multigraphs, the simple-graph conversion collapses parallel edges
-    // which changes degree parity. Check multigraph degree directly via Python.
-    if gr.is_multigraph() {
+    // which changes degree parity. Read the original native multigraph store.
+    if let GraphRef::MultiUndirected { mg, .. } = &gr {
         if inner.node_count() > 1 && inner.nodes_ordered().iter().any(|n| inner.degree(n) == 0) {
             return Ok(false);
         }
-        let nodes_method = g.call_method0("nodes")?;
-        let nodes: Vec<Bound<'_, PyAny>> =
-            nodes_method.try_iter()?.collect::<PyResult<Vec<_>>>()?;
-        let degree_view = g.getattr("degree")?;
-        for node in &nodes {
-            let deg: usize = degree_view.get_item(node)?.extract()?;
+        for node in mg.inner.nodes_ordered() {
+            let deg = mg.inner.degree(node);
             if !deg.is_multiple_of(2) {
                 return Ok(false);
             }

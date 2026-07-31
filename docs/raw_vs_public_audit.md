@@ -8,12 +8,11 @@ Functions audited: **51**
 
 | classification | count | meaning |
 |----------------|-------|---------|
-| `identical` | 19 | raw and public agree on every fixture, both match nx — public could call raw directly |
+| `identical` | 20 | raw and public agree on every fixture, both match nx — public could call raw directly |
 | `untestable-not-exposed` | 7 | raw or public not exposed in the audited shape; manual review |
 | `wrapper-corrected` | 24 | raw and public disagree, public matches nx — wrapper is necessary |
-| `wrapper-misalign` | 1 | neither raw nor public match nx on at least one fixture — needs investigation |
 
-## identical (19)
+## identical (20)
 
 ### `articulation_points`
 
@@ -266,6 +265,27 @@ Functions audited: **51**
 | selfloop-path | `True` | `True` | `True` |
 | two-components | `False` | `False` | `False` |
 | negative-weights-digraph | raises NetworkXNotImplemented | raises NetworkXNotImplemented | raises NetworkXNotImplemented |
+
+### `is_eulerian`
+
+| fixture | raw | public | nx |
+|---------|-----|--------|-----|
+| path-5 | `False` | `False` | `False` |
+| cycle-6 | `True` | `True` | `True` |
+| star-5 | `False` | `False` | `False` |
+| complete-4 | `False` | `False` | `False` |
+| weighted-path-5 | `False` | `False` | `False` |
+| weighted-postmut-5 | `False` | `False` | `False` |
+| bipartite-3-3 | `False` | `False` | `False` |
+| petersen | `False` | `False` | `False` |
+| digraph-chain-5 | `False` | `False` | `False` |
+| multigraph-path-5 | `False` | `False` | `False` |
+| multidigraph-chain-5 | `False` | `False` | `False` |
+| empty | raises NetworkXPointlessConcept | raises NetworkXPointlessConcept | raises NetworkXPointlessConcept |
+| single-node | `True` | `True` | `True` |
+| selfloop-path | `False` | `False` | `False` |
+| two-components | `False` | `False` | `False` |
+| negative-weights-digraph | `False` | `False` | `False` |
 
 ### `load_centrality`
 
@@ -950,26 +970,3 @@ Functions audited: **51**
 | selfloop-path | `0.0` | `0` | `0` |
 | two-components | `0.0` | `0` | `0` |
 | negative-weights-digraph | raises NetworkXNotImplemented | `0` | `0` |
-
-## wrapper-misalign (1)
-
-### `is_eulerian`
-
-| fixture | raw | public | nx |
-|---------|-----|--------|-----|
-| path-5 | `False` | `False` | `False` |
-| cycle-6 | `True` | `True` | `True` |
-| star-5 | `False` | `False` | `False` |
-| complete-4 | `False` | `False` | `False` |
-| weighted-path-5 | `False` | `False` | `False` |
-| weighted-postmut-5 | `False` | `False` | `False` |
-| bipartite-3-3 | `False` | `False` | `False` |
-| petersen | `False` | `False` | `False` |
-| digraph-chain-5 | `False` | `False` | `False` |
-| multigraph-path-5 | raises RuntimeError | `False` | `False` |
-| multidigraph-chain-5 | raises RuntimeError | raises RuntimeError | `False` |
-| empty | raises NetworkXPointlessConcept | raises NetworkXPointlessConcept | raises NetworkXPointlessConcept |
-| single-node | `True` | `True` | `True` |
-| selfloop-path | `False` | `False` | `False` |
-| two-components | `False` | `False` | `False` |
-| negative-weights-digraph | `False` | `False` | `False` |
