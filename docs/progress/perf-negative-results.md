@@ -2276,3 +2276,27 @@ managed physical target path, then retain the recovered-artifact, exact
 input, and both output hashes, live incumbent, all provenance, 21 rounds,
 continuous accounting, dual A/A nulls, and the corrected three-clause median
 gate.
+
+## 2026-07-31 BlackThrush (cod) PARITY + NO-VERDICT (`br-r37-c1-p80x1.11`): exact `all_pairs_shortest_path_length` claim arm
+
+The original `4.5647x` workload was recovered exactly from
+`measure_marshaling.py` (SHA `40e03ac0...a0f`) and its saved results artifact
+(SHA `eb2400d0...415`). It materialized the entire nested mapping from
+`all_pairs_shortest_path_length(G)` over the helper's simple string-node
+`n=300,m=1200,seed=11` graph with no cutoff.
+
+Under `PYTHONHASHSEED=0`, both implementations receive 38,940 canonical input
+bytes (SHA `2daafd46...8a6`). Live NetworkX 3.6.1 and FrankenNetworkX agree
+exactly on all 300 ordered outer mappings and all 90,000 ordered inner items:
+1,053,200 output bytes, SHA `a8752cbe...d76e5`. The recovered artifact's
+16-hex digest is the same prefix. No divergence was found.
+
+RESULT: **FULL NESTED-MAPPING PARITY / PERFORMANCE NO-VERDICT.** No strict
+benchmark was started because RCH 1.0.52 still places its pooled target below
+a UUID-salted clean-overlay root; running would create another cold target.
+Therefore no in-process host identity, ELF SHA, actual observed threads,
+nulls, corrected median clause, candidate CI, or incumbent ratio was emitted.
+Retry only after two required clean-overlay invocations prove one identical
+managed physical target path, then retain the recovered-artifact and exact
+input/output hashes, live incumbent, all provenance, 21 rounds, continuous
+accounting, dual A/A nulls, and the corrected three-clause median gate.

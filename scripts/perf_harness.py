@@ -3156,6 +3156,7 @@ def suite_claim_incumbent():
         )
 
     available_jobs = (
+        "all_pairs_shortest_path_length",
         "erdos_renyi_graph",
         "k_corona",
         "k_crust",
@@ -3181,6 +3182,109 @@ def suite_claim_incumbent():
     jobs = tuple(name for name in available_jobs if name in selected)
     EXTRA_PROVENANCE["claim_incumbent_jobs"] = list(jobs)
     rows = []
+    if "all_pairs_shortest_path_length" in jobs:
+        if os.environ.get("PYTHONHASHSEED") != "0":
+            raise RuntimeError(
+                "the all_pairs_shortest_path_length claim fixture requires "
+                "PYTHONHASHSEED=0 because nested mapping order is part of "
+                "the public contract"
+            )
+        node_count = 300
+        edge_count = 1_200
+        seed = 11
+        expected_input_bytes = 38_940
+        expected_input_sha256 = (
+            "2daafd467b5e6398ec112e760ee67e0dcb66fe02af6eb87816b2efd8f5fbc8a6"
+        )
+        expected_outer_items = 300
+        expected_inner_items = 90_000
+        expected_output_bytes = 1_053_200
+        expected_output_sha256 = (
+            "a8752cbe5fe30288b7de8354511cd509392dd2fa95f1dbb0ba0d8c923e7d76e5"
+        )
+        all_pairs_nx, all_pairs_fnx = _build_pair(
+            node_count,
+            edge_count,
+            seed=seed,
+            weighted=False,
+        )
+        input_nx_bytes = canonical_bytes(all_pairs_nx)
+        input_fnx_bytes = canonical_bytes(all_pairs_fnx)
+        input_sha256 = hashlib.sha256(input_nx_bytes).hexdigest()
+        if input_nx_bytes != input_fnx_bytes:
+            raise RuntimeError(
+                "all_pairs_shortest_path_length claim input graphs diverged"
+            )
+        if (
+            len(input_nx_bytes) != expected_input_bytes
+            or not hmac.compare_digest(input_sha256, expected_input_sha256)
+        ):
+            raise RuntimeError(
+                "all_pairs_shortest_path_length claim input no longer "
+                "matches its preregistered canonical byte count and SHA-256"
+            )
+
+        preflight_nx = {
+            source: dict(lengths)
+            for source, lengths in nx.all_pairs_shortest_path_length(
+                all_pairs_nx
+            )
+        }
+        preflight_fnx = {
+            source: dict(lengths)
+            for source, lengths in fnx.all_pairs_shortest_path_length(
+                all_pairs_fnx
+            )
+        }
+        preflight_nx_bytes = canonical_bytes(preflight_nx)
+        preflight_fnx_bytes = canonical_bytes(preflight_fnx)
+        output_sha256 = hashlib.sha256(preflight_nx_bytes).hexdigest()
+        if preflight_nx_bytes != preflight_fnx_bytes:
+            raise RuntimeError(
+                "all_pairs_shortest_path_length claim complete ordered "
+                "output diverged"
+            )
+        if (
+            len(preflight_nx) != expected_outer_items
+            or sum(map(len, preflight_nx.values())) != expected_inner_items
+            or len(preflight_nx_bytes) != expected_output_bytes
+            or not hmac.compare_digest(output_sha256, expected_output_sha256)
+        ):
+            raise RuntimeError(
+                "all_pairs_shortest_path_length claim fixture no longer "
+                "matches its preregistered complete ordered output"
+            )
+        EXTRA_PROVENANCE["claim_all_pairs_shortest_path_length_fixture"] = {
+            "nodes": node_count,
+            "edges": edge_count,
+            "seed": seed,
+            "cutoff": None,
+            "python_hash_seed": 0,
+            "input_canonical_bytes": expected_input_bytes,
+            "input_sha256": expected_input_sha256,
+            "outer_items": expected_outer_items,
+            "inner_items": expected_inner_items,
+            "output_canonical_bytes": expected_output_bytes,
+            "complete_output_sha256": expected_output_sha256,
+        }
+        rows.append(
+            (
+                "claim/all_pairs_shortest_path_length "
+                "n=300 m=1200 seed=11 cutoff=None [nx/fnx]",
+                lambda: {
+                    source: dict(lengths)
+                    for source, lengths in nx.all_pairs_shortest_path_length(
+                        all_pairs_nx
+                    )
+                },
+                lambda: {
+                    source: dict(lengths)
+                    for source, lengths in fnx.all_pairs_shortest_path_length(
+                        all_pairs_fnx
+                    )
+                },
+            )
+        )
     if "erdos_renyi_graph" in jobs:
         node_count = 1_500
         probability = 0.004
