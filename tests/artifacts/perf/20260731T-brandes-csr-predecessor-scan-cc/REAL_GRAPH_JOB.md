@@ -41,9 +41,9 @@ by the running process as line 1 of each run. Load average recorded in each head
 
 ## ca-AstroPh — n=17903, m=196972 (giant component)
 
-**Run in progress at the time of writing** — the five geodesic stages each recompute
-all-pairs independently in nx (~13 min apiece), so the full 14-stage pass costs
-roughly two more hours of nx wall time. Stages completed so far, all byte-identical:
+**Run in progress at the time of writing** — the five remaining geodesic stages each
+recompute all-pairs independently in nx (~13 min apiece). Stages completed so far,
+all byte-identical:
 
     stage                            nx ms    fnx ms     ratio   nx c/w  fnx c/w  parity
     connected_components              45.5       6.1      7.4x     1.00     1.00  IDENTICAL
@@ -53,9 +53,20 @@ roughly two more hours of nx wall time. Stages completed so far, all byte-identi
     degree_assortativity             344.6       4.8     71.1x     1.00     1.00  IDENTICAL
     pagerank                         288.8      10.2     28.2x     1.00     1.00  IDENTICAL
     closeness_centrality          805408.9      49.3  16332.9x     1.00    31.10  IDENTICAL
+    harmonic_centrality           668760.0     374.9   1783.6x     1.00    55.82  IDENTICAL
+    betweenness_centrality       1741102.8    1233.8   1411.1x     1.00    45.99  IDENTICAL
 
-**`closeness_centrality`: nx 805.4 s (13.4 min) → fnx 49.3 ms = 16,333x**, exact and
-byte-identical, at `cpu/wall` 31.10.
+Three rows carry the whole argument:
+
+- **`closeness_centrality`: nx 805.4 s (13.4 min) → fnx 49.3 ms = 16,333x**, `cpu/wall` 31.10.
+- **`harmonic_centrality`: nx 668.8 s (11.1 min) → fnx 374.9 ms = 1,784x**, `cpu/wall` 55.82.
+- **`betweenness_centrality`: nx 1741.1 s (29.0 min) → fnx 1.234 s = 1,411x**, `cpu/wall` 45.99.
+
+That betweenness row is this beadword's own target measured at realistic scale. Exact
+Brandes on a real 17,903-node collaboration network costs NetworkX **twenty-nine
+minutes**; it costs FrankenNetworkX **1.2 seconds**, and the two results are
+byte-identical. The betweenness and harmonic rows were taken at load 2.3-5.3, so their
+`cpu/wall` of 46.0 and 55.8 are honest readings rather than contended ones.
 
 Load during this run ranged **2.5 to 87.3** on 64 logical cores (peer `rustc` storms
 and a parallel shard job). That matters asymmetrically and in the *conservative*
@@ -109,10 +120,19 @@ is — it is *what you are forced to do without it*:
 
 - At **n≈4k** (facebook_combined) exact betweenness costs nx **73 seconds**. That is
   merely annoying; you would run it and wait.
-- At **n≈18k** (ca-AstroPh) the same exact computation costs nx **minutes to tens of
-  minutes**, which is where people start reaching for `k`-sampled approximation and
-  accepting sampling error into their result.
-- fnx returns the **exact, byte-identical** answer for both in well under a second.
+- At **n≈18k** (ca-AstroPh) the same exact computation costs nx **1741 seconds — 29
+  minutes**. That is the point where people stop running it: they switch to
+  `k`-sampled approximation and accept sampling error into the result, or they drop
+  the metric from the pipeline.
+- fnx returns the **exact, byte-identical** answer in **1.2 seconds**. Closeness on
+  the same graph goes from 13.4 minutes to 49 ms.
+
+Note the scaling direction, because it is what makes this a capability argument rather
+than a constant-factor one: going from n≈4k to n≈18k costs nx **24x more wall time on
+betweenness** (73 s → 1741 s) and fnx **20x** (62.6 ms → 1234 ms). Both obey the same
+O(|V|·|E|) growth — fnx has not changed the complexity. What it changes is the
+*constant*, by roughly three orders of magnitude, and that is enough to move exact
+betweenness from "overnight batch job" to "interactive".
 
 So the rule: **if you are choosing an approximation because the exact algorithm is
 too slow, that is the signal to switch** — you can have the exact answer instead of
