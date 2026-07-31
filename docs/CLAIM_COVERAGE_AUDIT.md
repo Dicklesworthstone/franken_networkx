@@ -56,10 +56,10 @@ The README performance table has 45 per-family rows: 44 numeric claims and one
 explicit no-ratio row after the contaminated `k_corona` number was withdrawn.
 It also has 5 whole-job pipeline rows. Cross-referencing each family row against
 a paired `(label, nx_arm, fnx_arm)` job in the contract harness across **all 33
-suites** (the harness exposes **48 distinct NetworkX functions** with a paired arm):
+suites** (the harness exposes **49 distinct NetworkX functions** with a paired arm):
 
-- **41 of 45** README family rows have a paired incumbent arm in the contract harness.
-- **4 of 45** do not.
+- **42 of 45** README family rows have a paired incumbent arm in the contract harness.
+- **3 of 45** do not.
 - **24 of 45** still lack a current admissible ratio. The
   `erdos_renyi_graph` and `k_corona` arms reached no timed verdict because host
   exclusivity rejected their runnable placements. The `k_crust` and
@@ -75,12 +75,12 @@ suites** (the harness exposes **48 distinct NetworkX functions** with a paired a
   The claim-specific `label_propagation_communities` and `dfs_successors`
   arms are blocked by it too, along with `bidirectional_dijkstra` and
   weighted `shortest_path`, `all_pairs_shortest_path`, `read_graph6`, and
-  `read_sparse6`, plus `edges(data=True)`.
+  `read_sparse6`, plus `edges(data=True)` and `all_simple_edge_paths`.
 
 ### Tier 1 — published in the README, no current admissible contract ratio
 
-Rows 1-20 now have permanent arms but remain in this queue until they reach an
-admissible verdict. Rows 21-24 still have no permanent arm.
+Rows 1-21 now have permanent arms but remain in this queue until they reach an
+admissible verdict. Rows 22-24 still have no permanent arm.
 
 | # | Claim | Published | README |
 |--:|---|---:|---:|

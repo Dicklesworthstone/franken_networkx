@@ -2623,6 +2623,34 @@ target path, then retain every exact input/output hash, live incumbent, 21
 rounds, in-process host/ELF identity, actual threads, continuous accounting,
 dual A/A nulls, and the corrected three-clause median gate.
 
+## 2026-07-31 BlackThrush (cod) PARITY + NO-VERDICT (`br-r37-c1-p80x1.41`): exact `all_simple_edge_paths` claim arm
+
+The published `1.3466x` row was recovered from
+`hunt_unmeasured.py` (SHA `1114f244...11e3`), its result artifact (SHA
+`40040b7b...f249`), and the `hunt_class1.py` builder (SHA
+`fb051cf4...cba1`). It computes
+`len(list(all_simple_edge_paths(G, "0", "5", cutoff=4)))` on an unweighted
+undirected simple string-node `n=200,m=800,seed=13` graph.
+
+Under `PYTHONHASHSEED=0`, both implementations receive 25,609 canonical
+input bytes (SHA `c80713ae...05cc`). The timed projection is `41`, while the
+permanent preflight proves all 41 ordered paths and 156 edge occurrences:
+eight three-edge paths and 33 four-edge paths. Live NetworkX 3.6.1 and
+FrankenNetworkX agree on the complete 2,266-byte output, SHA
+`e0fc4294...ba86`. No divergence was found.
+
+RESULT: **FULL ORDERED EDGE-PATH GENERATOR PARITY / CURRENT PERFORMANCE
+NO-VERDICT.** The historical `1.3465696x` row used only 9 rounds, one null
+CI, and empty checksums; it lacks dual null medians, raw samples, actual
+observed threads, continuous accounting, and in-process ELF identity. No
+strict benchmark was started because RCH 1.0.52 would place the pooled
+target under another UUID-salted clean-overlay root. Retry only after two
+required clean-overlay invocations prove one identical managed physical
+target path, then retain the exact full generator output and count
+projection, live incumbent, 21 rounds, in-process host/ELF identity, actual
+threads, continuous accounting, dual A/A nulls, and the corrected
+three-clause median gate.
+
 ## 2026-07-31 BlackThrush (cod) PARITY + NO-VERDICT (`br-r37-c1-p80x1.33`): exact weighted `shortest_path` claim arm
 
 The published `1.7684x` row was recovered from

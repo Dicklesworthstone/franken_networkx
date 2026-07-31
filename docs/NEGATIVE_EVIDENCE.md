@@ -28864,6 +28864,70 @@ Python byte-compilation, the ledger contract tests, diff checks, and UBS are
 recorded at commit closeout. No Cargo command ran and no target directory was
 created.
 
+## 2026-07-31 BlackThrush (cod) PARITY + NO-VERDICT: exact `all_simple_edge_paths` claim arm (`br-r37-c1-p80x1.41`)
+
+The published `1.3466x` workload was recovered exactly from commit
+`87cf65e54a4e13a72a12c2bc7458655c7d4b3ac1`,
+`hunt_unmeasured.py` (SHA-256
+`1114f244b93787b9e1d6a900633ccd93f3a09c91de8d669bde9ba75df5a611e3`),
+its saved result artifact (SHA-256
+`40040b7b90de11721263864fff0e3e79f260ca2779e16c8252784dc9236ef249`),
+and `hunt_class1.py`'s builder (SHA-256
+`fb051cf48508ad56ee0c64103335090bd7866b12d65cb2e29d522cfa33b4cba1`).
+It computes
+`len(list(all_simple_edge_paths(G, "0", "5", cutoff=4)))` on the helper's
+unweighted undirected simple string-node `n=200,m=800,seed=13` graph.
+
+Under `PYTHONHASHSEED=0`, both implementations receive 25,609 canonical
+input bytes (SHA-256
+`c80713ae36d3b7ddc46899d9b4691edc1ccdfd6df61722ae0e03a246a65705cc`).
+The historical timed projection is the integer `41`, but the permanent
+preflight now proves the complete hidden generator result: live NetworkX
+3.6.1 and FrankenNetworkX agree exactly on all 41 ordered paths and their
+156 ordered edge occurrences. Eight paths contain three edges and 33 contain
+four. The complete generator output is 2,266 canonical bytes with SHA-256
+`e0fc4294e336f7edaef6bdb9900e8a48ebefabb28204801cab809d92df67ba86`.
+No divergence was found.
+
+The recovered historical row reported median `1.346569573240439x`, 95%
+median CI `1.339148599711666..1.3569599070670935x`, `9/9` paired wins,
+and one A/A CI `0.9957022657461443..1.0009732249839254x`. Its checksum
+fields are empty. It is recovery evidence, not a current campaign verdict:
+it used only 9 rounds and has no second arm-specific null, null medians, raw
+samples, actual observed thread counts, continuous whole-host accounting, or
+in-process loaded-ELF identity, and predates the corrected null-median
+clause.
+
+RESULT: **FULL ORDERED EDGE-PATH GENERATOR PARITY / CURRENT PERFORMANCE
+NO-VERDICT.** No strict benchmark was started because RCH 1.0.52 still puts
+its pooled target below a UUID-salted `--clean-overlay` root. Running the
+required command would mint another cold physical target, violating the
+one-target storage rule. Machine-readable outcome:
+`benchmark_started=false`, `performance_verdict=NO-VERDICT`,
+`host_identity=not_observed`, `elf_sha256_in_process=not_observed`,
+`networkx_actual_threads=not_observed`, and
+`franken_networkx_actual_threads=not_observed`. No candidate ratio, null, or
+timing claim is reported.
+
+RETRY PREDICATE: retry only after two required
+`rch exec --base <commit> --clean-overlay` invocations prove the same managed
+physical target path without creating a new directory. Keep the exact input,
+complete ordered generator output, and original count projection, live
+NetworkX 3.6.1, 21 interleaved rounds, in-process host and ELF identity,
+actual observed threads for both arms, continuous whole-host accounting, raw
+candidate samples, and dual A/A nulls. A verdict additionally requires all
+three corrected median clauses: each null median within 2% of `1.0`, the
+candidate median deviation beyond twice the larger null-CI half-width, and
+the candidate median CI wholly on one side of `1.0`. CV remains provenance
+only.
+
+QUALITY / CLOSEOUT: the focused exact-input preflight passed, and the full
+claim-incumbent parity sweep passed `22/22`. Harness SHA-256 is
+`27f132b362f88acb35f38c849361bffa1a16e0047fd99b510976f9b7c01623d9`.
+Python byte-compilation, the ledger contract tests, diff checks, and UBS are
+recorded at commit closeout. No Cargo command ran and no target directory was
+created.
+
 ## 2026-07-31 BlackThrush (cod) PARITY + NO-VERDICT: complete `k_crust` claim arm exposes clean-overlay target-reuse blocker (`br-r37-c1-p80x1.5`)
 
 **CLAIM-GAP FIRST, COMPLETE OUTPUT FIRST.** README publishes `k_crust` at

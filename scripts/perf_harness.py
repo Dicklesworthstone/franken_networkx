@@ -3220,6 +3220,7 @@ def suite_claim_incumbent():
         "all_pairs_dijkstra_path_length",
         "all_pairs_shortest_path",
         "all_pairs_shortest_path_length",
+        "all_simple_edge_paths",
         "bidirectional_dijkstra",
         "dfs_successors",
         "edges_data_true",
@@ -3596,6 +3597,159 @@ def suite_claim_incumbent():
                     source: dict(paths)
                     for source, paths in fnx.all_pairs_shortest_path(graph)
                 },
+            )
+        )
+    if "all_simple_edge_paths" in jobs:
+        if os.environ.get("PYTHONHASHSEED") != "0":
+            raise RuntimeError(
+                "the all_simple_edge_paths claim fixture requires "
+                "PYTHONHASHSEED=0 because generator and edge order are "
+                "part of the public contract"
+            )
+        node_count = 200
+        edge_count = 800
+        seed = 13
+        source = "0"
+        target = "5"
+        cutoff = 4
+        expected_input_bytes = 25_609
+        expected_input_sha256 = (
+            "c80713ae36d3b7ddc46899d9b4691edc1ccdfd6df61722ae0e03a246a65705cc"
+        )
+        expected_output_paths = 41
+        expected_edge_occurrences = 156
+        expected_path_edge_histogram = {3: 8, 4: 33}
+        expected_output_bytes = 2_266
+        expected_output_sha256 = (
+            "e0fc4294e336f7edaef6bdb9900e8a48ebefabb28204801cab809d92df67ba86"
+        )
+        simple_paths_nx, simple_paths_fnx = _build_pair(
+            node_count,
+            edge_count,
+            seed=seed,
+            weighted=False,
+        )
+        input_nx_bytes = canonical_bytes(simple_paths_nx)
+        input_fnx_bytes = canonical_bytes(simple_paths_fnx)
+        input_sha256 = hashlib.sha256(input_nx_bytes).hexdigest()
+        if input_nx_bytes != input_fnx_bytes:
+            raise RuntimeError(
+                "all_simple_edge_paths claim input graphs diverged"
+            )
+        if (
+            len(input_nx_bytes) != expected_input_bytes
+            or not hmac.compare_digest(input_sha256, expected_input_sha256)
+        ):
+            raise RuntimeError(
+                "all_simple_edge_paths claim input no longer matches its "
+                "preregistered canonical byte count and SHA-256"
+            )
+
+        preflight_nx = list(
+            nx.all_simple_edge_paths(
+                simple_paths_nx,
+                source,
+                target,
+                cutoff=cutoff,
+            )
+        )
+        preflight_fnx = list(
+            fnx.all_simple_edge_paths(
+                simple_paths_fnx,
+                source,
+                target,
+                cutoff=cutoff,
+            )
+        )
+        preflight_nx_bytes = canonical_bytes(preflight_nx)
+        preflight_fnx_bytes = canonical_bytes(preflight_fnx)
+        output_sha256 = hashlib.sha256(preflight_nx_bytes).hexdigest()
+        path_edge_histogram = {}
+        for path in preflight_nx:
+            path_edges = len(path)
+            path_edge_histogram[path_edges] = (
+                path_edge_histogram.get(path_edges, 0) + 1
+            )
+        if preflight_nx_bytes != preflight_fnx_bytes:
+            raise RuntimeError(
+                "all_simple_edge_paths claim complete ordered generator "
+                "output diverged"
+            )
+        if (
+            len(preflight_nx) != expected_output_paths
+            or sum(map(len, preflight_nx)) != expected_edge_occurrences
+            or path_edge_histogram != expected_path_edge_histogram
+            or len(preflight_nx_bytes) != expected_output_bytes
+            or not hmac.compare_digest(output_sha256, expected_output_sha256)
+        ):
+            raise RuntimeError(
+                "all_simple_edge_paths claim fixture no longer matches "
+                "its preregistered complete ordered generator output"
+            )
+        EXTRA_PROVENANCE["claim_all_simple_edge_paths_fixture"] = {
+            "publishing_commit": "87cf65e54a4e13a72a12c2bc7458655c7d4b3ac1",
+            "recovered_harness_sha256": (
+                "1114f244b93787b9e1d6a900633ccd93f3a09c91de8d669bde9ba75df5a611e3"
+            ),
+            "recovered_result_sha256": (
+                "40040b7b90de11721263864fff0e3e79f260ca2779e16c8252784dc9236ef249"
+            ),
+            "recovered_builder_sha256": (
+                "fb051cf48508ad56ee0c64103335090bd7866b12d65cb2e29d522cfa33b4cba1"
+            ),
+            "nodes": node_count,
+            "edges": edge_count,
+            "seed": seed,
+            "weighted": False,
+            "directed": False,
+            "source": source,
+            "target": target,
+            "cutoff": cutoff,
+            "parameters": (
+                "source and target positional; cutoff=4; "
+                "all remaining parameters omitted"
+            ),
+            "timed_projection": "len(list(result_generator))",
+            "python_hash_seed": 0,
+            "input_canonical_bytes": expected_input_bytes,
+            "input_sha256": expected_input_sha256,
+            "output_paths": expected_output_paths,
+            "edge_occurrences": expected_edge_occurrences,
+            "path_edge_histogram": expected_path_edge_histogram,
+            "complete_generator_output_canonical_bytes": (
+                expected_output_bytes
+            ),
+            "complete_ordered_generator_output_sha256": (
+                expected_output_sha256
+            ),
+        }
+        rows.append(
+            (
+                "claim/all_simple_edge_paths "
+                "n=200 m=800 seed=13 source=\"0\" target=\"5\" "
+                "cutoff=4 then=len(list) [nx/fnx]",
+                lambda graph=simple_paths_nx, src=source, dst=target,
+                limit=cutoff: len(
+                    list(
+                        nx.all_simple_edge_paths(
+                            graph,
+                            src,
+                            dst,
+                            cutoff=limit,
+                        )
+                    )
+                ),
+                lambda graph=simple_paths_fnx, src=source, dst=target,
+                limit=cutoff: len(
+                    list(
+                        fnx.all_simple_edge_paths(
+                            graph,
+                            src,
+                            dst,
+                            cutoff=limit,
+                        )
+                    )
+                ),
             )
         )
     if "bidirectional_dijkstra" in jobs:
