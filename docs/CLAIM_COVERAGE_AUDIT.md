@@ -13,8 +13,8 @@ coverage. Our position is substantially worse than frankenfs's (they were missin
 missing 98%).
 
 Reproduce with `python3 scripts/perf_ledger_preflight.py --audit`. Those counts are the pre-commit
-state of this session; the two ledger rows landed below add 5 converted claims and move the
-attested count to 14.
+state of this session; the three ledger rows landed below add 9 converted claims and move the
+attested count to 15.
 
 Also: **39 of 591** carry the in-process loaded-ELF SHA-256; **552** do not.
 
@@ -47,23 +47,33 @@ ledger convention"). Under that convention a bare row like `MDG out_edges 0.34x-
 competitive claims that merely omit the word "networkx", so they belong in the convertible bucket.
 Only the 2 rows that *declare* `comparison_class=SELF-SPEEDUP` are genuinely non-competitive.
 
-## Converted this session — 5 claims
+## Converted this session — 10 claims attempted, 9 decidable
 
-**Not one of the five published numbers is reproducible on HEAD.** Every measured CI excludes its
-published figure. Two were optimistic, three were conservative — the table is *stale*, not
+**7 of the 9 decidable claims excluded their published figure**, in both directions. Two were
+confirmed. One claim was refused outright by the null gate. The table is *stale*, not
 systematically inflated in our favour.
 
-| Claim | Published | Measured on HEAD | CI | Direction |
+| Claim | Published | Measured on HEAD | CI | Verdict |
 |---|---:|---:|---|---|
 | `k_crust` | 5.8664× | **13.2556×** | `[13.0197, 13.4719]` | understated 2.26× |
 | `erdos_renyi_graph` (n=1500) | 14.1755× | **12.87–13.15×** | `[12.7466, 12.9737]` / `[12.9774, 13.2413]` | overstated ~9% |
 | `single_source_shortest_path_length` | 5.5005× | **5.1868×** | `[5.1226, 5.2776]` | overstated 6.1% |
 | `kosaraju_strongly_connected_components` | 4.6519× | **4.8474×** | `[4.7558, 4.8640]` | understated 4.2% |
+| `to_scipy_sparse_array` | 2.4073× | **2.4758×** | `[2.4292, 2.5547]` | understated 2.8% |
 | `dfs_successors` | 2.1456× | **2.3223×** | `[2.2986, 2.3523]` | understated 8.2% |
+| `label_propagation_communities` | 2.1485× | **2.1827×** | `[2.1643, 2.2244]` | understated 1.6% |
+| `pagerank` | 2.6361× | 2.7275× | `[2.5777, 2.8818]` | **CONFIRMED** |
+| `partition_spanning_tree` | 2.4612× | 2.3794× | `[2.3303, 2.5633]` | **CONFIRMED** |
+| `minimum_branching` | 3.9768× | 3.9978× | `[3.8395, 4.1784]` | **UNDECIDABLE** — null bias 0.0295 |
 
-All five DECIDABLE under the corrected three-clause median gate, `21/21` wins each, byte-identical
-canonical output against live NetworkX 3.6.1 proven in the same invocation before timing, worst
-null median bias `0.0065 ≤ 0.0200`. Ledger rows: `br-r37-c1-p80x1.1`, `.5`, `.7`, `.9`, `.29`.
+All decidable rows: `21/21` wins, byte-identical canonical output against live NetworkX 3.6.1
+proven in the same invocation before timing. Ledger rows: `br-r37-c1-p80x1.1`, `.5`, `.7`, `.9`,
+`.13`, `.21`, `.23`, `.25`, `.27`, `.29`.
+
+`minimum_branching` is the gate working: it produced a plausible `3.9978×` with 21/21 wins, but the
+A/A NetworkX null drifted to median `1.0295`, breaching the third clause. A two-clause gate would
+have banked a bogus confirmation. Recording contention instead of pre-refusing it does **not**
+lower the bar — the gate still refuses when the environment actually perturbs the comparison.
 
 ### `erdos_renyi_graph` (n=1500) — README's highest-ranked unconverted claim
 
@@ -114,36 +124,32 @@ exclusive host — but conversions should no longer be blocked on it.
 ## Ranked conversion queue — ordered by public exposure
 
 The README performance table has 45 per-family rows, all of which have a paired incumbent arm in
-the `claim-incumbent` contract suite. **19 still lack a current admissible ratio.**
+the `claim-incumbent` contract suite. **15 still lack a current admissible ratio.**
 
 | # | Claim | Published | README |
 |--:|---|---:|---:|
 | 1 | `k_corona` | withdrawn; no admissible ratio | 1081 |
 | 2 | `all_pairs_shortest_path_length` (n=300) | 4.5647× | 1091 |
-| 3 | `minimum_branching` | 3.9768× | 1084 |
+| 3 | `minimum_branching` | withdrawn; null gate refused | 1084 |
 | 4 | `all_pairs_dijkstra_path_length` (n=300) | 3.6658× | 1093 |
 | 5 | `subgraph(view) → edges` | 3.5719× | 1094 |
 | 6 | `single_pair_shortest_path` | 3.1614× | 1098 |
-| 7 | `pagerank` | 2.6361× | 1099 |
-| 8 | `partition_spanning_tree` | 2.4612× | 1085 |
-| 9 | `to_scipy_sparse_array` | 2.4073× | 1100 |
-| 10 | `label_propagation_communities` | 2.1485× | 1078 |
-| 11 | `bidirectional_dijkstra` | 1.8125× | 1102 |
-| 12 | `shortest_path` (weighted) | 1.7684× | 1103 |
-| 13 | `all_pairs_shortest_path` (n=300) | 1.7624× | 1104 |
-| 14 | `read_graph6` / `read_sparse6` | 1.72× / 1.69× | 1087 |
-| 15 | `edges(data=True)` | 1.6085× | 1105 |
-| 16 | `all_simple_edge_paths` | 1.3466× | 1088 |
-| 17 | `read_gml` | 0.92× | 1128 |
-| 18 | `read_multiline_adjlist` | 0.70× | 1127 |
-| 19 | `G.has_node(n)` | 0.41× | 1123 |
+| 7 | `bidirectional_dijkstra` | 1.8125× | 1102 |
+| 8 | `shortest_path` (weighted) | 1.7684× | 1103 |
+| 9 | `all_pairs_shortest_path` (n=300) | 1.7624× | 1104 |
+| 10 | `read_graph6` / `read_sparse6` | 1.72× / 1.69× | 1087 |
+| 11 | `edges(data=True)` | 1.6085× | 1105 |
+| 12 | `all_simple_edge_paths` | 1.3466× | 1088 |
+| 13 | `read_gml` | 0.92× | 1128 |
+| 14 | `read_multiline_adjlist` | 0.70× | 1127 |
+| 15 | `G.has_node(n)` | 0.41× | 1123 |
 
-Rows 17–19 are published **losses**. They need an arm for the same reason the wins do — an
+Rows 13–15 are published **losses**. They need an arm for the same reason the wins do — an
 unverified loss is also an unverified number — but they are last because nobody acts on them to
 their detriment.
 
-Given that **all five** converted claims missed their published figure — in both directions — the
-remaining 19 should be treated as unverified in both directions until measured, not as safe.
+Given that 7 of the 9 decidable conversions missed their published figure — in both directions —
+the remaining 15 should be treated as unverified in both directions until measured, not as safe.
 
 ### Tier 2 — the ledger's remaining unattested rows
 

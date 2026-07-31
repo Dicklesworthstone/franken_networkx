@@ -28544,6 +28544,113 @@ QUALITY / CLOSEOUT: `git diff --check` covers this ledger-only result. No
 Cargo command ran. UBS has no Markdown/JSONL scanner, so no scanner pass is
 claimed.
 
+## 2026-07-31 BlackThrush PARITY REPAIR (`is_eulerian` MultiGraph/MultiDiGraph): eliminate raw/public borrow re-entry (`br-r37-c1-msown`)
+
+EXACT DIVERGENCES: the generated raw-vs-public audit supplied both producing
+inputs. `multigraph-path-5` inserts undirected edges
+`[(0,1),(1,2),(2,3),(3,4),(0,1)]`; live NetworkX 3.6.1 and the public FNX
+wrapper returned `False`, while `_raw_is_eulerian` raised
+`RuntimeError: Already borrowed`. `multidigraph-chain-5` inserts directed
+edges `[(0,1),(1,2),(2,3),(3,4)]`; NetworkX returned `False`, while both raw
+and public FNX raised the same error.
+
+ROOT CAUSE / ONE LEVER: `extract_graph` holds a `PyRef` to the concrete
+MultiGraph or MultiDiGraph for the native call. The multigraph branches then
+called back into the graph's Python `degree` / `in_degree` / `out_degree`
+descriptors, which attempted to borrow that same object again. The existing
+native `MultiGraph::degree` and `MultiDiGraph::{in_degree,out_degree}`
+methods already count parallel edges and self-loops with NetworkX semantics,
+so the binding now reads those stores directly. Connectivity still uses the
+same multiplicity-insensitive simple projection; no algorithm, ordering, or
+public signature changed.
+
+RESULT: **CORRECTNESS RESTORED.** Candidate ELF SHA-256
+`e7c897d6edcfff31d93c607d3dcc8fc7ef64677c6fc8a75e462a6391e9a6c69b`
+returns `False` from raw and public FNX on both exact fixtures, matching live
+NetworkX 3.6.1. The regenerated 51-function x 16-fixture audit now reports
+`20 identical`, `24 wrapper-corrected`, `7 untestable-not-exposed`, and
+**zero wrapper-misalign** rows; `is_eulerian` moved from wrapper-misalign to
+identical.
+
+CORPUS / QUALITY: the exact raw/public/oracle regression passed `2/2`; the
+complete Eulerian conformance file passed `271/271`; five affected files
+including the audit checks passed `339/339`; and a fresh 512-case randomized
+MultiGraph/MultiDiGraph corpus with parallel edges, self-loops, isolates, and
+empty graphs reported **512 raw/public/NetworkX agree / 0 diverge**. Strict
+`rch exec --base 4beedfe80... --clean-overlay` compilation passed on
+`ovh-a`; release artifact construction also passed there. Targeted
+`rustfmt --check`, Python byte-compilation, generated-audit currency, and
+`git diff --check` passed.
+
+STORAGE / GATE NOTE: no local target directory was created; the single shared
+`/data/tmp/cargo-target` was reused and grew from 69 to 70 GiB. RCH 1.0.52
+rewrote that explicit path beneath a clean-root-specific remote path, so no
+additional Cargo invocation was launched after the release artifact. This
+row makes no timing or performance verdict and therefore has no A/A or
+incumbent ratio.
+
+RETRY PREDICATE: reopen only if a concrete multigraph fixture disagrees with
+NetworkX after direct native degree reads, or if a future graph-store change
+alters multiplicity/self-loop degree semantics. Preserve raw/public/oracle
+coverage for both directed and undirected multigraphs and keep the audit at
+zero wrapper-misalign rows.
+
+## 2026-07-31 BlackThrush (cc) KEEP + ONE UNDECIDABLE: five more blocked README claims run against live NetworkX 3.6.1 (`br-r37-c1-p80x1.13`, `.21`, `.23`, `.25`, `.27`)
+
+Second conversion batch on the same HEAD binary. **Two published figures are
+CONFIRMED** — the first claims in this campaign whose measured CI actually
+contains the published number. Two more are excluded and corrected. One is
+refused by the null gate.
+
+comparison_class=INCUMBENT
+incumbent=networkx
+incumbent_same_invocation=true
+incumbent_ratio=2.1827x
+campaign_output=true
+decision_gate=median_ci
+cv_role=report_only
+bench_elf_sha256=e5bb3755812c732b63bb8ab3e4650d526bb69bb67834d264f8b00adfad4a3213
+host_identity=thinkstation1
+host_wide_exclusivity=RECORDED-NOT-ENFORCED
+
+(`incumbent_ratio` above is the most conservative decidable ratio of the batch.)
+
+| Claim | Published | Measured | CI | Verdict |
+|---|---:|---:|---|---|
+| `pagerank` | 2.6361x | 2.7275x | `[2.5777, 2.8818]` | **CONFIRMED** — CI contains published |
+| `partition_spanning_tree` | 2.4612x | 2.3794x | `[2.3303, 2.5633]` | **CONFIRMED** — CI contains published |
+| `to_scipy_sparse_array` | 2.4073x | **2.4758x** | `[2.4292, 2.5547]` | excluded; understated 2.8% |
+| `label_propagation_communities` | 2.1485x | **2.1827x** | `[2.1643, 2.2244]` | excluded; understated 1.6% |
+| `minimum_branching` | 3.9768x | 3.9978x | `[3.8395, 4.1784]` | **UNDECIDABLE** |
+
+THE NULL GATE REFUSED ONE ROW, AS DESIGNED. `minimum_branching` produced a
+plausible-looking `3.9978x` with `21/21` wins, and it is **not** admissible: the
+A/A NetworkX null drifted to median `1.0295`, breaching the third clause
+(`worst_null_median_bias=0.0295 > 0.0200`). The other two clauses passed, so a
+two-clause gate would have banked a bogus confirmation of the published figure.
+This is the corrected median clause earning its place — and direct evidence that
+recording contention rather than pre-refusing it does not lower the bar: the
+gate still refuses when the environment actually perturbs the comparison.
+`minimum_branching` therefore has **no admissible ratio** and its README row now
+says so.
+
+Fixtures: `label_propagation_communities` `n=1200 m=6000 seed=11`; `pagerank`
+`n=2000 m=8000 seed=7` defaults; `partition_spanning_tree` and
+`minimum_branching` `n=800 m=4000 seed=11` weights `1..20` directed;
+`to_scipy_sparse_array` `n=600 m=3000 seed=5` then `toarray`. All rows proved
+byte-identical canonical output against NetworkX 3.6.1 in the same invocation
+before timing. Binary, host, thread and exclusivity provenance are identical to
+the `erdos_renyi_graph` row below.
+
+RUNNING TALLY, 10 claims attempted: 9 decidable, 1 refused by the null gate. Of
+the 9 decidable, **7 excluded their published figure** (4 understated, 3
+overstated) and 2 confirmed it. The README table is stale in both directions.
+
+RETRY PREDICATE: re-run `minimum_branching` on a host where the A/A null holds
+within 2% of 1.0. Do not publish `3.9978x` — it is not admissible.
+
+QUALITY / CLOSEOUT: no Rust source changed; no Cargo command ran for this row.
+
 ## 2026-07-31 BlackThrush (cc) KEEP / RETRY-CONDITION SWEEP: four blocked README claims converted against live NetworkX 3.6.1 (`br-r37-c1-p80x1.5`, `.7`, `.9`, `.29`)
 
 RETRY-CONDITION SATISFIED — BY CORRECTING THE PREDICATE, NOT BY WAITING FOR IT.

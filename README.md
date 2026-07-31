@@ -1075,14 +1075,14 @@ co-tenancy elsewhere on the host.
 | faster_could_be_isomorphic | **3.4961× faster** | Native degree/triangle sequence; n=1,200 / m=6,000 |
 | dfs_postorder_nodes | **3.0811× faster** | Native traversal; n=1,200 / m=6,000 |
 | jaccard_coefficient | **2.4536× faster** | Native neighbour-set intersection; 300 pairs |
-| label_propagation_communities | **2.1485× faster** | Native label counting; n=1,200 / m=6,000 |
+| label_propagation_communities | **2.1827× faster** | Native label counting; n=1,200 / m=6,000; re-measured 2026-07-31 vs live nx 3.6.1 (was 2.1485×) |
 | minimum_spanning_tree | **1.9947× faster** | Native Kruskal; n=1,200 / m=6,000 |
 | erdos_renyi_graph (n=1500) | **12.87–13.15× faster** | Native generator; re-measured 2026-07-31 vs live nx 3.6.1 (was 14.1755×, not reproducible) |
 | k_corona | no current admissible ratio | Complete-result incumbent gate awaiting an exclusive host window |
 | k_crust | **13.2556× faster** | Native core filter; re-measured 2026-07-31 vs live nx 3.6.1 (was 5.8664×, understated) |
 | kosaraju_strongly_connected_components | **4.8474× faster** | Native SCC; re-measured 2026-07-31 vs live nx 3.6.1 (was 4.6519×) |
-| minimum_branching | **3.9768× faster** | Native branching |
-| partition_spanning_tree | **2.4612× faster** | Native Kruskal with partition constraints |
+| minimum_branching | no current admissible ratio | Native branching; 2026-07-31 re-measure gave 3.9978× but the A/A null drifted (bias 0.0295 > 0.0200) — UNDECIDABLE, needs a quieter host |
+| partition_spanning_tree | **2.4612× faster** | Native Kruskal with partition constraints; CONFIRMED 2026-07-31 vs live nx 3.6.1 (measured 2.3794×, CI [2.3303, 2.5633] contains the published figure) |
 | dfs_successors | **2.3223× faster** | Native traversal; re-measured 2026-07-31 vs live nx 3.6.1 (was 2.1456×) |
 | read_graph6 / read_sparse6 | **1.72× / 1.69× faster** | Native decoders |
 | all_simple_edge_paths | **1.3466× faster** | Native path enumeration |
@@ -1096,8 +1096,8 @@ co-tenancy elsewhere on the host.
 | single_source_dijkstra_path_length | **3.3325× faster** | Native Dijkstra |
 | bfs_tree | **3.2403× faster** | Native traversal + native result construction |
 | single_pair_shortest_path | **3.1614× faster** | Native BFS |
-| pagerank | **2.6361× faster** | Native power iteration |
-| to_scipy_sparse_array | **2.4073× faster** | Native CSR assembly |
+| pagerank | **2.6361× faster** | Native power iteration; CONFIRMED 2026-07-31 vs live nx 3.6.1 (measured 2.7275×, CI [2.5777, 2.8818] contains the published figure) |
+| to_scipy_sparse_array | **2.4758× faster** | Native CSR assembly; re-measured 2026-07-31 vs live nx 3.6.1 (was 2.4073×) |
 | to_dict_of_lists | **1.9662× faster** | Native row walk |
 | bidirectional_dijkstra | **1.8125× faster** | Native bidirectional kernel |
 | shortest_path (weighted) | **1.7684× faster** | Native weighted-path kernel |
