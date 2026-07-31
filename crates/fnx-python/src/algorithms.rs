@@ -9263,6 +9263,35 @@ pub fn eccentricity(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Py<PyDict>
     Ok(dict.unbind())
 }
 
+/// Bench-only: run `distance_measures` with ONE arm pinned, returning the diameter.
+///
+/// br-r37-c1-eccsink. Exists so the bit-parallel `EccentricitySink` route can be
+/// measured against the serial per-source `VecDeque` sweep it replaces with both
+/// arms interleaved inside a SINGLE process and a single `.so`, instead of by
+/// diffing two builds (which would fold in every unrelated commit between them).
+/// A scalar return keeps the dict marshalling out of the measured region, so the
+/// ratio reflects the kernel. Results are identical across arms by construction —
+/// `distance_measures_arms_agree` asserts it on 15 graphs.
+///
+/// `arm` is one of "auto" | "persource" | "chunked".
+#[pyfunction]
+pub fn _distance_measures_arm(py: Python<'_>, g: &Bound<'_, PyAny>, arm: &str) -> PyResult<usize> {
+    let gr = extract_graph(g)?;
+    require_undirected(&gr, "_distance_measures_arm")?;
+    let inner = gr.undirected();
+    let pinned = match arm {
+        "auto" => fnx_algorithms::BitparArm::Auto,
+        "persource" => fnx_algorithms::BitparArm::PerSource,
+        "chunked" => fnx_algorithms::BitparArm::ChunkedBitpar,
+        other => {
+            return Err(pyo3::exceptions::PyValueError::new_err(format!(
+                "unknown arm {other:?}; expected auto|persource|chunked"
+            )));
+        }
+    };
+    Ok(py.allow_threads(|| fnx_algorithms::distance_measures_arm(inner, pinned).diameter))
+}
+
 /// Return the diameter of the graph.
 #[pyfunction]
 pub fn diameter(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<usize> {
@@ -27533,6 +27562,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     // Distance measures
     m.add_function(wrap_pyfunction!(density, m)?)?;
     m.add_function(wrap_pyfunction!(eccentricity, m)?)?;
+    m.add_function(wrap_pyfunction!(_distance_measures_arm, m)?)?;
     m.add_function(wrap_pyfunction!(diameter, m)?)?;
     m.add_function(wrap_pyfunction!(radius, m)?)?;
     m.add_function(wrap_pyfunction!(center, m)?)?;

@@ -41,8 +41,59 @@ def stages(engine, graph, skip_slow):
         ("betweenness_centrality", lambda: {k: round(v, 12) for k, v in engine.betweenness_centrality(graph).items()}, True),
         ("eccentricity", lambda: engine.eccentricity(graph), True),
         ("diameter", lambda: engine.diameter(graph), True),
+        ("radius", lambda: engine.radius(graph), True),
+        # center/periphery are compared as SORTED lists, not as returned: nx emits
+        # them in node-iteration order while fnx returns them sorted. That is a
+        # real (cosmetic) API-order difference, called out here rather than hidden
+        # -- the SET of center/periphery nodes is the mathematical content, and
+        # that is what is being gated.
+        ("center", lambda: sorted(engine.center(graph)), True),
+        ("periphery", lambda: sorted(engine.periphery(graph)), True),
     ]
     return [(n, f) for (n, f, slow) in items if not (slow and skip_slow)]
+
+
+def max_rel_delta(a, b):
+    """Largest relative delta over matching numeric leaves, or None if the two
+    results are not even structurally comparable.
+
+    Used only to CLASSIFY a stage that already failed the byte-identity gate, so a
+    divergence gets reported as the size it actually is instead of a bare
+    DIVERGENT. Never used to pass a stage that should be byte-identical.
+    """
+    if isinstance(a, dict) and isinstance(b, dict):
+        if a.keys() != b.keys():
+            return None
+        vals = [max_rel_delta(a[k], b[k]) for k in a]
+    elif isinstance(a, (list, tuple)) and isinstance(b, (list, tuple)):
+        if len(a) != len(b):
+            return None
+        vals = [max_rel_delta(x, y) for x, y in zip(a, b)]
+    elif isinstance(a, bool) or isinstance(b, bool):
+        return None if a != b else 0.0
+    elif isinstance(a, (int, float)) and isinstance(b, (int, float)):
+        if a == b:
+            return 0.0
+        scale = max(abs(a), abs(b))
+        return abs(a - b) / scale if scale else abs(a - b)
+    else:
+        return None if a != b else 0.0
+    return None if any(v is None for v in vals) else max(vals, default=0.0)
+
+
+# Stages allowed to miss byte-identity, mapped to the relative bound they must
+# stay inside.
+#
+# DELIBERATELY EMPTY. Every stage in this pass is byte-identical to nx 3.6.1 on
+# HEAD, including harmonic_centrality -- `br-r37-c1-4l10m` replays nx's `set`
+# iteration order through a source-ordered kernel, so the f64 sums associate the
+# same way. An earlier run of this pass reported harmonic as DIVERGENT (2993/3000
+# nodes, max 3.92e-11); that was measured against a stale .so and is void on HEAD.
+#
+# Keep this empty unless a divergence is genuinely unfixable: the machinery below
+# reports the SIZE of any divergence either way, which is the useful part. A
+# standing tolerance here would silently absorb a real regression.
+ULP_EXACT_STAGES = {}
 
 
 def main(argv):
@@ -79,22 +130,43 @@ def main(argv):
     nx_stages = dict(stages(nx, g_nx, skip_slow))
     fnx_stages = dict(stages(fnx, g_fnx, skip_slow))
 
+    def timed(fn):
+        """Wall AND process CPU time. cpu/wall is MEASURED parallelism: a
+        single-threaded stage pins at ~1.0 no matter what it claims."""
+        w0, c0 = time.perf_counter(), time.process_time()
+        fn()
+        return time.perf_counter() - w0, time.process_time() - c0
+
     total_nx = total_fnx = 0.0
-    print(f"{'stage':<26}{'nx ms':>11}{'fnx ms':>11}{'ratio':>10}  parity")
+    print(f"{'stage':<26}{'nx ms':>11}{'fnx ms':>11}{'ratio':>10}"
+          f"{'nx c/w':>9}{'fnx c/w':>9}  parity")
     for name in nx_stages:
         a_fn, b_fn = nx_stages[name], fnx_stages[name]
         a, b = a_fn(), b_fn()
-        parity = ph.canonical_bytes(a) == ph.canonical_bytes(b)
-        t0 = time.perf_counter(); a_fn(); ta = time.perf_counter() - t0
-        t0 = time.perf_counter(); b_fn(); tb = time.perf_counter() - t0
+        identical = ph.canonical_bytes(a) == ph.canonical_bytes(b)
+        rel = None if identical else max_rel_delta(a, b)
+        bound = ULP_EXACT_STAGES.get(name)
+        if identical:
+            verdict, ok = "IDENTICAL", True
+        elif bound is not None and rel is not None and rel <= bound:
+            verdict, ok = f"ULP-EXACT rel<={rel:.1e}", True
+        else:
+            verdict, ok = (f"DIVERGENT rel={rel:.1e}" if rel is not None
+                           else "DIVERGENT"), False
+
+        ta, ca = timed(a_fn)
+        tb, cb = timed(b_fn)
         total_nx += ta
         total_fnx += tb
         rows.append({"stage": name, "nx_s": ta, "fnx_s": tb,
-                     "ratio": ta / tb if tb else None, "parity": parity})
-        print(f"{name:<26}{ta*1000:11.1f}{tb*1000:11.1f}{ta/tb:9.1f}x  "
-              f"{'IDENTICAL' if parity else 'DIVERGENT'}")
+                     "ratio": ta / tb if tb else None,
+                     "nx_cpu_wall": ca / ta if ta else None,
+                     "fnx_cpu_wall": cb / tb if tb else None,
+                     "identical": identical, "rel_delta": rel, "parity_ok": ok})
+        print(f"{name:<26}{ta*1000:11.1f}{tb*1000:11.1f}{ta/tb:9.1f}x"
+              f"{ca/ta:9.2f}{cb/tb:9.2f}  {verdict}")
 
-    print("-" * 70)
+    print("-" * 88)
     print(f"{'WHOLE JOB':<26}{total_nx*1000:11.1f}{total_fnx*1000:11.1f}"
           f"{total_nx/total_fnx:9.1f}x")
     print()
@@ -103,9 +175,17 @@ def main(argv):
     share = slowest["fnx_s"] / total_fnx * 100.0
     print(f"fnx bottleneck: {slowest['stage']} = {share:.1f}% of fnx job time "
           f"(ratio {slowest['ratio']:.1f}x)")
-    divergent = [r["stage"] for r in rows if not r["parity"]]
-    print(f"parity: {len(rows) - len(divergent)}/{len(rows)} stages byte-identical"
+    n_ident = sum(1 for r in rows if r["identical"])
+    ulp = [r["stage"] for r in rows if not r["identical"] and r["parity_ok"]]
+    divergent = [r["stage"] for r in rows if not r["parity_ok"]]
+    print(f"parity: {n_ident}/{len(rows)} stages byte-identical"
+          + (f"; ULP-exact: {ulp}" if ulp else "")
           + (f"; DIVERGENT: {divergent}" if divergent else ""))
+    peak = max((r["fnx_cpu_wall"] or 0) for r in rows)
+    print(f"parallelism: nx peak cpu/wall = "
+          f"{max((r['nx_cpu_wall'] or 0) for r in rows):.2f}, "
+          f"fnx peak cpu/wall = {peak:.2f}"
+          f"  (1.00 = single-threaded; nx has no path above it)")
     print("analytics_pass_json=" + json.dumps(
         {"nodes": n, "edges": g_nx.number_of_edges(), "seed": seed,
          "elf_sha256": sha, "host": os.uname().nodename,

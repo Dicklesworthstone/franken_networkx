@@ -3924,6 +3924,16 @@ fn harmonic_centrality_source_ordered_generic<G: GraphView>(
     graph: &G,
     sources: &[&str],
 ) -> HarmonicCentralityResult {
+    harmonic_centrality_source_ordered_impl(graph, sources, true)
+}
+
+/// `allow_gather = false` pins the serial scatter, so the parallel gather can be
+/// differentially tested against the exact code path it replaces.
+fn harmonic_centrality_source_ordered_impl<G: GraphView>(
+    graph: &G,
+    sources: &[&str],
+    allow_gather: bool,
+) -> HarmonicCentralityResult {
     let nodes = graph.nodes_ordered();
     let n = nodes.len();
     let mut harmonic = vec![0.0_f64; n];
@@ -3933,6 +3943,120 @@ fn harmonic_centrality_source_ordered_generic<G: GraphView>(
     let mut nodes_touched = 0usize;
     let mut edges_scanned = 0usize;
     let mut queue_peak = 0usize;
+
+    // br-r37-c1-hgather: SCATTER -> GATHER, which is what makes this parallel.
+    //
+    // The loop below is a scatter: each source's forward BFS does
+    // `harmonic[target] += 1/d` into every target it reaches. Every source writes
+    // every accumulator, so the sources cannot be split across threads — not just
+    // for the obvious data-race reason, but because f64 addition is not
+    // associative and nx's ORDER is precisely what this entry point exists to
+    // preserve. That is why harmonic gave up the bit-parallel kernel for parity
+    // and became the whole-job bottleneck (75.8% of fnx runtime, cpu/wall 1.00).
+    //
+    // Inverting the loop recovers the parallelism WITHOUT touching the order. For
+    // one target `u`, nx's addend sequence is `1/d(v,u)` for v in `sources` order.
+    // A single REVERSE BFS from `u` yields `d(v,u)` for every v at once, so that
+    // whole sequence can be replayed by one thread that owns `harmonic[u]` alone.
+    // Targets are then independent and rayon splits them. The addends per target,
+    // and their order, are bit-for-bit what the scatter produces — verified in
+    // Python against nx on both a connected and a disconnected graph (0/800 and
+    // 0/1200 nodes differ) and asserted here by `harmonic_gather_matches_scatter`.
+    //
+    // Reverse (not forward) BFS is what makes this correct for DIGRAPHS too:
+    // `in_neighbors_indices` gives distances INTO `u`, which is the direction nx
+    // accumulates. On an undirected graph it coincides with forward BFS.
+    //
+    // Gated on `src_idx.len() == n`: with a strict source SUBSET the scatter runs
+    // |sources| traversals while the gather would run n, so inverting would be a
+    // pessimisation. The Python binding always passes every node, which is the
+    // case that matters.
+    let src_idx = {
+        let mut seen = vec![false; n];
+        let mut idx = Vec::with_capacity(sources.len().min(n));
+        for &source in sources {
+            if let Some(i) = graph.get_node_index(source)
+                && !seen[i]
+            {
+                seen[i] = true;
+                idx.push(i);
+            }
+        }
+        idx
+    };
+
+    if allow_gather
+        && n >= CENTRALITY_PARALLEL_THRESHOLD
+        && src_idx.len() == n
+        && let Some(rows) = (0..n)
+            .map(|u| graph.in_neighbors_indices(u))
+            .collect::<Option<Vec<&[usize]>>>()
+    {
+        use rayon::prelude::*;
+        let per_target: Vec<(f64, usize, usize, usize)> = (0..n)
+            .into_par_iter()
+            .map_init(
+                || (vec![usize::MAX; n], VecDeque::with_capacity(n)),
+                |(distance, queue): &mut (Vec<usize>, VecDeque<usize>), u| {
+                    distance.fill(usize::MAX);
+                    queue.clear();
+                    distance[u] = 0;
+                    queue.push_back(u);
+                    let (mut touched, mut edges, mut peak) = (0usize, 0usize, 1usize);
+
+                    while let Some(v) = queue.pop_front() {
+                        touched += 1;
+                        let d = distance[v];
+                        for &w in rows[v] {
+                            edges += 1;
+                            if distance[w] == usize::MAX {
+                                distance[w] = d + 1;
+                                queue.push_back(w);
+                            }
+                        }
+                        peak = peak.max(queue.len());
+                    }
+
+                    // nx's exact addend sequence for target `u`: sources in their
+                    // given order, skipping self (d == 0) and unreached sources,
+                    // which is precisely what the scatter's `if d != 0` and
+                    // "only reached targets" behaviour amount to.
+                    let mut acc = 0.0_f64;
+                    for &s in &src_idx {
+                        let d = distance[s];
+                        if d != usize::MAX && d != 0 {
+                            acc += 1.0 / (d as f64);
+                        }
+                    }
+                    (acc, touched, edges, peak)
+                },
+            )
+            .collect();
+
+        let mut scores = Vec::with_capacity(n);
+        for (u, (score, touched, edges, peak)) in per_target.into_iter().enumerate() {
+            nodes_touched += touched;
+            edges_scanned += edges;
+            queue_peak = queue_peak.max(peak);
+            scores.push(CentralityScore {
+                node: nodes[u].to_owned(),
+                score,
+            });
+        }
+        return HarmonicCentralityResult {
+            scores,
+            witness: ComplexityWitness {
+                algorithm: "harmonic_centrality".to_owned(),
+                complexity_claim: "O(|V| * (|V| + |E|))".to_owned(),
+                // Counted over reverse traversals rather than forward ones. The
+                // reachable-ordered-pair total is identical either way; the edge
+                // count is the in-edge view of the same sweeps.
+                nodes_touched,
+                edges_scanned,
+                queue_peak,
+            },
+        };
+    }
 
     for &source in sources {
         let Some(source_idx) = graph.get_node_index(source) else {
@@ -10443,8 +10567,57 @@ fn clustering_coefficient_directed_scores_orig_string(digraph: &DiGraph) -> Vec<
     scores
 }
 
+/// Assemble the final result from per-source eccentricities. Shared by BOTH arms so
+/// the derived measures (diameter/radius/center/periphery) cannot drift apart from
+/// each other — only the eccentricity vector is computed two ways.
+fn distance_measures_finalize(
+    eccentricities: Vec<EccentricityEntry>,
+    nodes_touched: usize,
+    edges_scanned: usize,
+    queue_peak: usize,
+) -> DistanceMeasuresResult {
+    let diameter = eccentricities.iter().map(|e| e.value).max().unwrap_or(0);
+    let radius = eccentricities.iter().map(|e| e.value).min().unwrap_or(0);
+
+    let mut center: Vec<String> = eccentricities
+        .iter()
+        .filter(|e| e.value == radius)
+        .map(|e| e.node.clone())
+        .collect();
+    center.sort_unstable();
+
+    let mut periphery: Vec<String> = eccentricities
+        .iter()
+        .filter(|e| e.value == diameter)
+        .map(|e| e.node.clone())
+        .collect();
+    periphery.sort_unstable();
+
+    DistanceMeasuresResult {
+        eccentricity: eccentricities,
+        diameter,
+        radius,
+        center,
+        periphery,
+        witness: ComplexityWitness {
+            algorithm: "bfs_distance_measures".to_owned(),
+            complexity_claim: "O(|V| * (|V| + |E|))".to_owned(),
+            nodes_touched,
+            edges_scanned,
+            queue_peak,
+        },
+    }
+}
+
 #[must_use]
 pub fn distance_measures(graph: &Graph) -> DistanceMeasuresResult {
+    distance_measures_arm(graph, BitparArm::Auto)
+}
+
+/// Bench/test-only entry point pinning one arm. Results are identical across arms.
+#[doc(hidden)]
+#[must_use]
+pub fn distance_measures_arm(graph: &Graph, arm: BitparArm) -> DistanceMeasuresResult {
     let nodes = graph.nodes_ordered();
     let n = nodes.len();
     if n == 0 {
@@ -10462,6 +10635,73 @@ pub fn distance_measures(graph: &Graph) -> DistanceMeasuresResult {
                 queue_peak: 0,
             },
         };
+    }
+
+    // Bit-parallel multi-source BFS (see `eccentricity_all_sources`), the same
+    // kernel closeness and harmonic already run. The serial loop below sweeps one
+    // source per graph traversal; this advances W*64 sources per traversal, with
+    // the O(|E|) inner loop staying pure word AND/OR and the per-source attribution
+    // deferred to a once-per-level pass over set bits.
+    //
+    // Bit-identical to the serial arm: eccentricity is an integer max over BFS
+    // levels, and BFS distances on an unweighted graph are order-invariant. A
+    // disconnected graph is handled the same way by both arms — each source's
+    // eccentricity is the max over the component it can reach, and the caller
+    // (`_raw_eccentricity`/`diameter`) rejects disconnected input via a separate
+    // `is_connected` check before ever reading these values.
+    //
+    // Gating mirrors closeness exactly: below the parallel threshold the serial
+    // loop is sequential anyway so one traversal serving W*64 sources strictly
+    // wins; at or above it the per-source path would fan out over rayon, so the
+    // bit-parallel path is only taken when the graph has far fewer BFS levels than
+    // lanes. The gate probes the borrowed adjacency ROWS and builds the CSR only
+    // after ACCEPTING, so a declined graph pays neither a CSR build nor a probe
+    // that ran past the largest useful eccentricity.
+    if arm != BitparArm::PerSource && n <= u32::MAX as usize {
+        let rows: Vec<&[usize]> = (0..n)
+            .map(|u| graph.neighbors_indices(u).unwrap_or(&[]))
+            .collect();
+        let threads = rayon::current_num_threads();
+        let lane_width = if n < CENTRALITY_PARALLEL_THRESHOLD {
+            None
+        } else if arm == BitparArm::ChunkedBitpar {
+            Some(bitpar_chunk_lane_width(n, threads))
+        } else {
+            bitpar_chunked_lane_width_if_profitable_rows(&rows, n, threads)
+        };
+
+        if n < CENTRALITY_PARALLEL_THRESHOLD || lane_width.is_some() {
+            let (offsets, targets) = build_u32_csr(n, |u| rows[u]);
+            let mut reached = vec![0usize; n];
+            let mut ecc = vec![0usize; n];
+            let (edges_scanned, queue_peak) = match lane_width {
+                Some(w) => eccentricity_all_sources_chunked(
+                    &offsets,
+                    &targets,
+                    n,
+                    w,
+                    &mut reached,
+                    &mut ecc,
+                ),
+                None => eccentricity_all_sources(&offsets, &targets, n, &mut reached, &mut ecc),
+            };
+            let eccentricities = (0..n)
+                .map(|s| EccentricityEntry {
+                    node: nodes[s].to_owned(),
+                    value: ecc[s],
+                })
+                .collect();
+            // `nodes_touched` (total reach over all sources) matches the serial arm.
+            // `edges_scanned`/`queue_peak` report what this kernel actually does: one
+            // scan serves up to W*64 sources, so they sit far below the per-source
+            // sum by design — the same convention closeness's witness uses.
+            return distance_measures_finalize(
+                eccentricities,
+                reached.iter().sum(),
+                edges_scanned,
+                queue_peak,
+            );
+        }
     }
 
     let mut eccentricities = Vec::with_capacity(n);
@@ -10523,37 +10763,12 @@ pub fn distance_measures(graph: &Graph) -> DistanceMeasuresResult {
         }
     }
 
-    let diameter = eccentricities.iter().map(|e| e.value).max().unwrap_or(0);
-    let radius = eccentricities.iter().map(|e| e.value).min().unwrap_or(0);
-
-    let mut center: Vec<String> = eccentricities
-        .iter()
-        .filter(|e| e.value == radius)
-        .map(|e| e.node.clone())
-        .collect();
-    center.sort_unstable();
-
-    let mut periphery: Vec<String> = eccentricities
-        .iter()
-        .filter(|e| e.value == diameter)
-        .map(|e| e.node.clone())
-        .collect();
-    periphery.sort_unstable();
-
-    DistanceMeasuresResult {
-        eccentricity: eccentricities,
-        diameter,
-        radius,
-        center,
-        periphery,
-        witness: ComplexityWitness {
-            algorithm: "bfs_distance_measures".to_owned(),
-            complexity_claim: "O(|V| * (|V| + |E|))".to_owned(),
-            nodes_touched: total_nodes_touched,
-            edges_scanned: total_edges_scanned,
-            queue_peak: max_queue_peak,
-        },
-    }
+    distance_measures_finalize(
+        eccentricities,
+        total_nodes_touched,
+        total_edges_scanned,
+        max_queue_peak,
+    )
 }
 
 /// Reusable per-worker scratch for one all-pairs BFS source.
@@ -11009,12 +11224,33 @@ fn aspl_finalize_bitpar(
 /// Accumulates one bit-parallel reverse BFS into a per-source result.
 ///
 /// The kernel guarantees `reach` is called EXACTLY once per (source, node)
-/// first-reach event and that levels are delivered in ASCENDING order. Both
-/// properties are what make the sinks below byte-identical to the per-source BFS
-/// they replace: `closeness` sums exact integers (order-free), and `harmonic`
-/// replays the very same sequence of `+= 1/L` additions that BFS pop order
-/// produces (a BFS pops in non-decreasing distance, and every addend within one
-/// level is the identical value `1/L`).
+/// first-reach event and that levels are delivered in ASCENDING order.
+///
+/// What those two properties do and do NOT buy, per sink:
+/// - `ClosenessSink` and `EccentricitySink` accumulate INTEGERS (a sum and a max).
+///   Both are order-free, so these two are byte-identical to the per-source BFS
+///   they replace, and to nx.
+/// - `HarmonicSink` accumulates f64, and its ORDER does not match nx's. An earlier
+///   version of this comment claimed it did, reasoning that the kernel "replays the
+///   same sequence of `+= 1/L` additions that BFS pop order produces". The premise
+///   is true but irrelevant: nx 3.6.1 does not accumulate in per-source BFS pop
+///   order at all. `harmonic_centrality` runs
+///   `for v in sources: for u, d in spl(v): centrality[u] += 1/d`, so a TARGET's
+///   addends arrive ordered by the OTHER endpoint (`sources` is a `set`), not
+///   grouped by distance. Same multiset, different association, so the sums round
+///   differently — measured on gnm(3000, 15000, seed=7), replaying this sink's
+///   order in Python differs from nx on 2993/3000 nodes, max absolute delta
+///   3.92e-11 (~4e-14 relative, a few ULP).
+///
+///   That divergence is why the PUBLIC `harmonic_centrality` binding does not reach
+///   this sink at `n >= CENTRALITY_PARALLEL_THRESHOLD`: `br-r37-c1-4l10m` routes it
+///   through a source-ordered kernel fed the real Python `set` iteration order, and
+///   the public API is byte-identical to nx (verified 0/3000 on that same graph).
+///   The sink is still correct and still used below the threshold, where it is the
+///   only path. Before "fixing" harmonic to use this sink at scale, note the cost
+///   being paid: the source-ordered kernel is SERIAL (cpu/wall 1.00), which makes
+///   harmonic the whole-job bottleneck at 75.8% of fnx runtime.
+///
 /// The sink is a stateless MARKER carrying its accumulator element type, not a
 /// struct borrowing the output slice. br-r37-c1-x0jz8: a borrowing sink pins one
 /// `&mut [T]` for the whole run, which cannot be split across rayon tasks. With
@@ -11054,6 +11290,10 @@ impl ReachSink for ClosenessSink {
 }
 
 /// `harmonic[s]` = sum of `1/d` over every node `s` reaches at distance `d > 0`.
+///
+/// Accumulates grouped by ascending level, which is NOT nx's summation order — see
+/// the `ReachSink` doc. Reached only below `CENTRALITY_PARALLEL_THRESHOLD`; above it
+/// the public binding uses the source-ordered kernel instead.
 struct HarmonicSink;
 
 impl ReachSink for HarmonicSink {
@@ -11069,6 +11309,35 @@ impl ReachSink for HarmonicSink {
     }
     fn init_source(acc: &mut [f64], j: usize) {
         acc[j] = 0.0;
+    }
+}
+
+/// `ecc[s]` = greatest distance from `s` to any node it reaches — its eccentricity.
+///
+/// This is the cheapest possible sink: the kernel's contract is that `reach` fires
+/// in ASCENDING level order, so the LAST level written for a source is already its
+/// maximum. No comparison is needed, just an overwrite. A source that reaches
+/// nothing keeps the `0` from `init_source`, which is the correct eccentricity of
+/// an isolated node (and of the single node of a 1-node graph).
+///
+/// Exactness: eccentricity is an integer max over the same BFS levels the
+/// per-source `VecDeque` sweep computes, and BFS distances are order-invariant on
+/// an unweighted graph, so the value is bit-identical to the serial arm — there is
+/// no float to reassociate, unlike `HarmonicSink`.
+struct EccentricitySink;
+
+impl ReachSink for EccentricitySink {
+    type LevelValue = usize;
+    type Acc = usize;
+    fn level_value(level: usize) -> usize {
+        level
+    }
+    fn reach(acc: &mut [usize], j: usize, level: usize) {
+        // Ascending levels: the last write IS the max.
+        acc[j] = level;
+    }
+    fn init_source(acc: &mut [usize], j: usize) {
+        acc[j] = 0;
     }
 }
 
@@ -11534,11 +11803,12 @@ fn harmonic_all_sources(
 /// Chunked-parallel harmonic sweep (br-r37-c1-qdcdq), the sibling of
 /// `closeness_all_sources_chunked`.
 ///
-/// Bit-exact in f64 for the same reason the sequential kernel is: a chunk owns a
-/// disjoint `harmonic[s0..s0+k]` sub-slice, so each source still receives its own
-/// first-reach events in ascending level order with every intra-level addend equal
-/// to the identical `1/L`. Chunking repartitions SOURCES, never the addition order
-/// within a source, so no f64 sum is reassociated.
+/// Bit-exact against the SEQUENTIAL BIT-PARALLEL ARM (an arm-equality property, not
+/// an nx-parity one — see `HarmonicSink`): a chunk owns a disjoint
+/// `harmonic[s0..s0+k]` sub-slice, so each source still receives its own first-reach
+/// events in ascending level order with every intra-level addend equal to the
+/// identical `1/L`. Chunking repartitions SOURCES, never the addition order within a
+/// source, so no f64 sum is reassociated and the arms agree bit-for-bit.
 fn harmonic_all_sources_chunked(
     offsets: &[u32],
     targets: &[u32],
@@ -11549,6 +11819,31 @@ fn harmonic_all_sources_chunked(
 ) -> (usize, usize) {
     bitpar_reverse_bfs_all_sources_chunked::<HarmonicSink>(
         offsets, targets, n, lane_width, reached, harmonic,
+    )
+}
+
+/// Fill `reached[s]` and `ecc[s]` for every source (distance measures).
+fn eccentricity_all_sources(
+    offsets: &[u32],
+    targets: &[u32],
+    n: usize,
+    reached: &mut [usize],
+    ecc: &mut [usize],
+) -> (usize, usize) {
+    bitpar_reverse_bfs_all_sources::<EccentricitySink>(offsets, targets, n, reached, ecc)
+}
+
+/// Chunked-parallel eccentricity sweep, sibling of `closeness_all_sources_chunked`.
+fn eccentricity_all_sources_chunked(
+    offsets: &[u32],
+    targets: &[u32],
+    n: usize,
+    lane_width: usize,
+    reached: &mut [usize],
+    ecc: &mut [usize],
+) -> (usize, usize) {
+    bitpar_reverse_bfs_all_sources_chunked::<EccentricitySink>(
+        offsets, targets, n, lane_width, reached, ecc,
     )
 }
 
@@ -52137,6 +52432,157 @@ mod bitpar_aspl_tests {
         let got = average_shortest_path_length(&g).average_shortest_path_length;
         let want = _average_shortest_path_length_undirected(&g).average_shortest_path_length;
         assert_eq!(got.to_bits(), want.to_bits());
+    }
+
+    /// Every field of `distance_measures` as comparable owned data:
+    /// `(per-node eccentricity, diameter, radius, center, periphery)`.
+    type DmTuple = (Vec<(String, usize)>, usize, usize, Vec<String>, Vec<String>);
+
+    /// Every field of `distance_measures`, arm-by-arm, as comparable owned data.
+    fn dm_tuple(r: &super::DistanceMeasuresResult) -> DmTuple {
+        (
+            r.eccentricity
+                .iter()
+                .map(|e| (e.node.clone(), e.value))
+                .collect(),
+            r.diameter,
+            r.radius,
+            r.center.clone(),
+            r.periphery.clone(),
+        )
+    }
+
+    #[test]
+    fn distance_measures_arms_agree() {
+        // br-r37-c1-eccsink: the EccentricitySink route must be bit-identical to the
+        // serial per-source VecDeque sweep it replaces, on every derived measure --
+        // eccentricity, diameter, radius, center AND periphery -- not just the one
+        // the job pass happened to time.
+        //
+        // Coverage is deliberate: lane widths W=1 (n<=64) through W=8, diameters from
+        // 1 (complete) to n-1 (path) so the gate is exercised on both sides, n >= 500
+        // to reach the chunked-parallel arm, and a DISCONNECTED graph to pin the
+        // "max over the reachable component" semantics both arms must share.
+        let mut disconnected = path(40);
+        for i in 100..140 {
+            let _ = disconnected.add_node(i.to_string());
+        }
+        for i in 100..139 {
+            let _ = disconnected.add_edge(i.to_string(), (i + 1).to_string());
+        }
+
+        let graphs = [
+            path(1),
+            path(2),
+            path(7),
+            path(64),
+            path(65),
+            path(200),
+            cycle(9),
+            cycle(128),
+            grid(5, 7),
+            grid(12, 12),
+            grid(22, 22), // 484 nodes -> widest bit-parallel lane (W=8)
+            grid(30, 30), // 900 nodes -> at/above CENTRALITY_PARALLEL_THRESHOLD
+            complete(8),
+            complete(50),
+            disconnected,
+        ];
+
+        for g in graphs {
+            let n = g.node_count();
+            let want = dm_tuple(&super::distance_measures_arm(
+                &g,
+                super::BitparArm::PerSource,
+            ));
+            for arm in [super::BitparArm::Auto, super::BitparArm::ChunkedBitpar] {
+                let got = dm_tuple(&super::distance_measures_arm(&g, arm));
+                assert_eq!(got, want, "distance_measures arm {arm:?} mismatch at n={n}");
+            }
+        }
+    }
+
+    #[test]
+    fn harmonic_gather_matches_scatter() {
+        // br-r37-c1-hgather: the parallel GATHER must reproduce the serial SCATTER
+        // BIT-FOR-BIT, not approximately -- the whole reason this entry point exists
+        // is that f64 addition is not associative, so an "equivalent" sum is not
+        // good enough. Anything less and harmonic silently stops matching nx.
+        //
+        // n >= CENTRALITY_PARALLEL_THRESHOLD (500) on every graph here, since below
+        // it the gather is gated off and the test would compare scatter to itself.
+        let mut disconnected = path(600);
+        for i in 1000..1600 {
+            let _ = disconnected.add_node(i.to_string());
+        }
+        for i in 1000..1599 {
+            let _ = disconnected.add_edge(i.to_string(), (i + 1).to_string());
+        }
+
+        let graphs = [
+            path(600),
+            cycle(700),
+            grid(30, 30),
+            grid(25, 40),
+            complete(520),
+            disconnected,
+        ];
+
+        for g in graphs {
+            let n = g.node_count();
+            let nodes = g.nodes_ordered();
+            // Source order deliberately NOT the node order: nx hands us a CPython
+            // set's iteration order, and the gather must honour whatever order it
+            // is given rather than quietly sorting.
+            let mut order: Vec<&str> = nodes.clone();
+            order.reverse();
+
+            let want = super::harmonic_centrality_source_ordered_impl(&g, &order, false);
+            let got = super::harmonic_centrality_source_ordered_impl(&g, &order, true);
+
+            assert_eq!(got.scores.len(), want.scores.len(), "n={n}");
+            for (a, b) in got.scores.iter().zip(want.scores.iter()) {
+                assert_eq!(a.node, b.node, "node order drift at n={n}");
+                assert_eq!(
+                    a.score.to_bits(),
+                    b.score.to_bits(),
+                    "harmonic gather != scatter at n={n} node {}: {} vs {}",
+                    a.node,
+                    a.score,
+                    b.score
+                );
+            }
+            // Reachable ordered pairs are direction-agnostic, so the two forms must
+            // agree on this even though one counts forward and the other reverse.
+            assert_eq!(
+                got.witness.nodes_touched, want.witness.nodes_touched,
+                "nodes_touched drift at n={n}"
+            );
+        }
+    }
+
+    #[test]
+    fn distance_measures_known_values() {
+        // Independent of the arms: pin the actual numbers so a bug that corrupts BOTH
+        // arms identically still fails. A path P_n has ecc(end)=n-1, radius floor(n/2),
+        // diameter n-1; a cycle C_n has every ecc = floor(n/2).
+        let p = super::distance_measures(&path(7));
+        assert_eq!(p.diameter, 6);
+        assert_eq!(p.radius, 3);
+        assert_eq!(p.center, vec!["3".to_owned()]);
+        let mut ends = p.periphery.clone();
+        ends.sort();
+        assert_eq!(ends, vec!["0".to_owned(), "6".to_owned()]);
+
+        let c = super::distance_measures(&cycle(9));
+        assert_eq!(c.diameter, 4);
+        assert_eq!(c.radius, 4);
+        assert_eq!(c.eccentricity.len(), 9);
+        assert!(c.eccentricity.iter().all(|e| e.value == 4));
+
+        // Complete graph: everything is one hop away.
+        let k = super::distance_measures(&complete(8));
+        assert_eq!((k.diameter, k.radius), (1, 1));
     }
 
     #[test]
