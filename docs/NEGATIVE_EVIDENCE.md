@@ -28878,6 +28878,80 @@ alters multiplicity/self-loop degree semantics. Preserve raw/public/oracle
 coverage for both directed and undirected multigraphs and keep the audit at
 zero wrapper-misalign rows.
 
+## 2026-07-31 BlackThrush (cc) REJECT / REVERTED: rayon-parallel CSR mat-vec for PageRank (`br-r37-c1-prspmv`)
+
+Built, proved bit-exact, measured, reverted the same turn. Do not retry the
+parallel-matvec shape.
+
+comparison_class=SELF-SPEEDUP
+campaign_output=false
+decision_gate=median_ci
+cv_role=report_only
+
+LEVER: `pagerank` reduces to `x @ A`, which both nx and fnx execute through
+**single-threaded scipy**, so we tie the incumbent on the one kernel that
+dominates the run. Replaced it with a rayon gather over `A.T` (CSR, sorted
+indices), fanned out across 64 threads.
+
+BIT-EXACT BY CONSTRUCTION, AND IT HELD. scipy's `x @ A` scatter gives each
+output its addends in ascending row order; a gather over `A.T` replays that
+exact sequence, and parallelism is across output rows only, so no row's
+summation order changes. `np.array_equal` (never `allclose`) held on every
+probe, at `n=200/2k/5k/20k`, on both sides of the fan-out threshold, and
+end-to-end against `nx.pagerank`.
+
+COUNTED MECHANISM — WHY IT STILL LOST. The kernel is **memory-bandwidth
+bound, not compute bound**. Per mat-vec at `nnz=2e6` it streams 8 MB of
+indices + 16 MB of values = 24 MB; the arithmetic is one multiply-add per
+entry. Extra cores cannot buy what bandwidth will not supply.
+
+A second lever removed the value array outright: after row-normalisation
+every stored value equals `1/deg` of its **column**, so `A.T`'s values are a
+pure function of the column index (verified exactly, entry by entry). That
+cut traffic from 24 MB to 8 MB. It did not rescue the ratio.
+
+MEASURED, `n=100k m=1e6` (`nnz=2e6`). The kernel **does** beat scipy when it
+gets cores to itself — this is not a kernel failure, it is an Amdahl failure:
+
+A/A null control, same invocation, 21 interleaved rounds, `taskset -c 0-31`:
+scipy-vs-scipy median `1.0209x`, CI `[0.9711, 1.0422]`. Candidate
+scipy-vs-rust median `2.9005x`, CI `[2.7537, 3.1624]`, `21/21` wins,
+`3494.84us` → `1226.93us`. **UNDECIDABLE**: the null median bias `0.0209`
+exceeds the `0.0200` third-clause bound, so the `2.9x` is reported and not
+banked.
+
+Unpinned across all 64 threads under peak fleet contention the same kernel
+measured `0.87-0.89x` (scipy `6.234 ms`, rust `7.042-7.148 ms`) — fanning out
+to 64 threads on a box running ~27 agents loses to single-threaded scipy.
+On a quieter host at 64 threads it measured `1.70x`.
+
+THE DISQUALIFYING NUMBER IS END-TO-END, NOT THE KERNEL: contribution to
+`pagerank` with the matrix cache warm is **1.08x**. `err < N*tol` at
+`tol=1e-6` converges in ~6 iterations, so the mat-vec is a minority of the
+cached path. A `2.9x` kernel on a ~40% term cannot produce the multiple this
+campaign is after, and it is not worth a new Rust module, a `bytes`
+marshaling layer, and a fourth element in the matrix-cache tuple.
+
+The 18.6–20.7x wall-clock seen against `nx.pagerank` on the same fixture is
+**pre-existing** — fnx caches the normalised matrix across calls while nx
+rebuilds it every call. That number is not attributable to this lever and was
+not claimed.
+
+RETRY PREDICATE: do not retry this kernel *for `pagerank`* — the ceiling is
+Amdahl, not the kernel, and a faster mat-vec cannot move a term that is ~40%
+of an already-cached path. **Do** reuse the construction for a workload where
+the mat-vec is the whole job and the output stays `O(V)` — repeated
+personalised PageRank, Katz, HITS, or a spectral iteration with a tight
+`tol` and many iterations. Any retry must pin threads (unpinned 64-way lost
+to scipy) and clear the A/A null, which failed here at `1.0209`. The
+bit-parity construction — gather over `A.T`, parallel across output rows
+only, value array dropped because `A.T`'s values are a pure function of the
+column — is sound, held bitwise everywhere it was probed, and is preserved at
+`scratchpad/reverted_spmv_lever/`.
+
+QUALITY / CLOSEOUT: reverted to HEAD in the working tree; `pagerank` re-verified
+bitwise identical to NetworkX 3.6.1 after the revert. No Rust source ships.
+
 ## 2026-07-31 BlackThrush (cc) KEEP: reader and path-enumeration claims converted; three published figures CONFIRMED (`br-r37-c1-p80x1.37`, `.41`, `.43`, `.45`)
 
 Fourth conversion batch on the same HEAD binary. All five rows decidable.
