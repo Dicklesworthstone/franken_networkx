@@ -3205,6 +3205,7 @@ def suite_claim_incumbent():
         "single_pair_shortest_path",
         "single_source_shortest_path_length",
         "subgraph_view_edges",
+        "to_scipy_sparse_array",
     )
     requested_jobs = os.environ.get(
         "FNX_CLAIM_INCUMBENT_JOBS",
@@ -4463,6 +4464,216 @@ def suite_claim_incumbent():
                 ),
                 lambda graph=subgraph_fnx, nodes=selected_nodes: list(
                     graph.subgraph(nodes).edges()
+                ),
+            )
+        )
+    if "to_scipy_sparse_array" in jobs:
+        if os.environ.get("PYTHONHASHSEED") != "0":
+            raise RuntimeError(
+                "the to_scipy_sparse_array claim fixture requires "
+                "PYTHONHASHSEED=0 because default node order is part of "
+                "the public contract"
+            )
+        node_count = 600
+        edge_count = 3_000
+        seed = 5
+        expected_input_bytes = 142_062
+        expected_input_sha256 = (
+            "593355561a9d5fcaf7a4a9673eb5fd1a9164531173724078bc504d1300233470"
+        )
+        expected_sparse_shape = (600, 600)
+        expected_sparse_format = "csr"
+        expected_sparse_dtype = "<i8"
+        expected_sparse_nnz = 6_000
+        expected_sparse_state_bytes = 202_028
+        expected_sparse_state_sha256 = (
+            "5d073aa0f7ae5016b49ca26e24d85947af97c603475dfe8800e3b0807311c4dd"
+        )
+        expected_data_bytes = 48_000
+        expected_data_sha256 = (
+            "a6359e5cc9a2eab1c8da1ba91fc12524c670d12312de39a8b4cd9628f8c25c5f"
+        )
+        expected_indices_bytes = 48_000
+        expected_indices_sha256 = (
+            "ddd0b3fead65ceb09fbc3a4cc267006da27f0e84c51e41d71ebfae8a4ac8b729"
+        )
+        expected_indptr_bytes = 4_808
+        expected_indptr_sha256 = (
+            "c546597694cb1dd52923ead2c7577e6cbf823aa59c3ec5e2ae7dd81c431f5b71"
+        )
+        expected_dense_dtype = "<i8"
+        expected_dense_elements = 360_000
+        expected_dense_sum = 62_592
+        expected_dense_raw_bytes = 2_880_000
+        expected_dense_raw_sha256 = (
+            "339a92a60ca9a406b7815b9b01d6b1b1b335e4530665930be5d215be9ddfa7f1"
+        )
+        expected_output_bytes = 1_804_464
+        expected_output_sha256 = (
+            "dbb685fac46c14ffdf75e8801021f07e086a6e8bba0d64f91d9669cfa16a49b0"
+        )
+        sparse_nx, sparse_fnx = _build_pair(
+            node_count,
+            edge_count,
+            seed=seed,
+            weighted=True,
+        )
+        input_nx_bytes = canonical_bytes(sparse_nx)
+        input_fnx_bytes = canonical_bytes(sparse_fnx)
+        input_sha256 = hashlib.sha256(input_nx_bytes).hexdigest()
+        if input_nx_bytes != input_fnx_bytes:
+            raise RuntimeError(
+                "to_scipy_sparse_array claim input graphs diverged"
+            )
+        if (
+            len(input_nx_bytes) != expected_input_bytes
+            or not hmac.compare_digest(input_sha256, expected_input_sha256)
+        ):
+            raise RuntimeError(
+                "to_scipy_sparse_array claim input no longer matches its "
+                "preregistered canonical byte count and SHA-256"
+            )
+
+        preflight_sparse_nx = nx.to_scipy_sparse_array(sparse_nx)
+        preflight_sparse_fnx = fnx.to_scipy_sparse_array(sparse_fnx)
+
+        def sparse_state(matrix):
+            return {
+                "module": type(matrix).__module__,
+                "type": type(matrix).__name__,
+                "format": matrix.format,
+                "shape": list(matrix.shape),
+                "dtype": matrix.dtype.str,
+                "nnz": matrix.nnz,
+                "has_sorted_indices": matrix.has_sorted_indices,
+                "has_canonical_format": matrix.has_canonical_format,
+                "data_dtype": matrix.data.dtype.str,
+                "data_shape": list(matrix.data.shape),
+                "data_hex": matrix.data.tobytes().hex(),
+                "indices_dtype": matrix.indices.dtype.str,
+                "indices_shape": list(matrix.indices.shape),
+                "indices_hex": matrix.indices.tobytes().hex(),
+                "indptr_dtype": matrix.indptr.dtype.str,
+                "indptr_shape": list(matrix.indptr.shape),
+                "indptr_hex": matrix.indptr.tobytes().hex(),
+            }
+
+        sparse_nx_bytes = canonical_bytes(sparse_state(preflight_sparse_nx))
+        sparse_fnx_bytes = canonical_bytes(sparse_state(preflight_sparse_fnx))
+        sparse_state_sha256 = hashlib.sha256(sparse_nx_bytes).hexdigest()
+        data_bytes = preflight_sparse_nx.data.tobytes()
+        indices_bytes = preflight_sparse_nx.indices.tobytes()
+        indptr_bytes = preflight_sparse_nx.indptr.tobytes()
+        if sparse_nx_bytes != sparse_fnx_bytes:
+            raise RuntimeError(
+                "to_scipy_sparse_array complete CSR state diverged"
+            )
+        if (
+            preflight_sparse_nx.shape != expected_sparse_shape
+            or preflight_sparse_nx.format != expected_sparse_format
+            or preflight_sparse_nx.dtype.str != expected_sparse_dtype
+            or preflight_sparse_nx.nnz != expected_sparse_nnz
+            or not preflight_sparse_nx.has_sorted_indices
+            or not preflight_sparse_nx.has_canonical_format
+            or len(sparse_nx_bytes) != expected_sparse_state_bytes
+            or not hmac.compare_digest(
+                sparse_state_sha256,
+                expected_sparse_state_sha256,
+            )
+            or len(data_bytes) != expected_data_bytes
+            or not hmac.compare_digest(
+                hashlib.sha256(data_bytes).hexdigest(),
+                expected_data_sha256,
+            )
+            or len(indices_bytes) != expected_indices_bytes
+            or not hmac.compare_digest(
+                hashlib.sha256(indices_bytes).hexdigest(),
+                expected_indices_sha256,
+            )
+            or len(indptr_bytes) != expected_indptr_bytes
+            or not hmac.compare_digest(
+                hashlib.sha256(indptr_bytes).hexdigest(),
+                expected_indptr_sha256,
+            )
+        ):
+            raise RuntimeError(
+                "to_scipy_sparse_array claim fixture no longer matches its "
+                "preregistered complete CSR state"
+            )
+
+        preflight_nx = preflight_sparse_nx.toarray()
+        preflight_fnx = preflight_sparse_fnx.toarray()
+        preflight_nx_bytes = canonical_bytes(preflight_nx)
+        preflight_fnx_bytes = canonical_bytes(preflight_fnx)
+        output_sha256 = hashlib.sha256(preflight_nx_bytes).hexdigest()
+        dense_raw_bytes = preflight_nx.tobytes()
+        if preflight_nx_bytes != preflight_fnx_bytes:
+            raise RuntimeError(
+                "to_scipy_sparse_array claim complete dense output diverged"
+            )
+        if (
+            preflight_nx.shape != expected_sparse_shape
+            or preflight_nx.dtype.str != expected_dense_dtype
+            or preflight_nx.size != expected_dense_elements
+            or preflight_nx.sum() != expected_dense_sum
+            or len(dense_raw_bytes) != expected_dense_raw_bytes
+            or not hmac.compare_digest(
+                hashlib.sha256(dense_raw_bytes).hexdigest(),
+                expected_dense_raw_sha256,
+            )
+            or len(preflight_nx_bytes) != expected_output_bytes
+            or not hmac.compare_digest(output_sha256, expected_output_sha256)
+        ):
+            raise RuntimeError(
+                "to_scipy_sparse_array claim fixture no longer matches its "
+                "preregistered complete dense output"
+            )
+        EXTRA_PROVENANCE["claim_to_scipy_sparse_array_fixture"] = {
+            "nodes": node_count,
+            "edges": edge_count,
+            "seed": seed,
+            "weighted": True,
+            "directed": False,
+            "weight_range_inclusive": [1, 20],
+            "nodelist": None,
+            "dtype": None,
+            "weight": "weight",
+            "format": "csr",
+            "parameters": "all omitted (NetworkX 3.6.1 defaults)",
+            "timed_projection": "to_scipy_sparse_array(graph).toarray()",
+            "python_hash_seed": 0,
+            "input_canonical_bytes": expected_input_bytes,
+            "input_sha256": expected_input_sha256,
+            "sparse_shape": list(expected_sparse_shape),
+            "sparse_format": expected_sparse_format,
+            "sparse_dtype": expected_sparse_dtype,
+            "sparse_nnz": expected_sparse_nnz,
+            "sparse_state_canonical_bytes": expected_sparse_state_bytes,
+            "complete_sparse_state_sha256": expected_sparse_state_sha256,
+            "sparse_data_bytes": expected_data_bytes,
+            "sparse_data_sha256": expected_data_sha256,
+            "sparse_indices_bytes": expected_indices_bytes,
+            "sparse_indices_sha256": expected_indices_sha256,
+            "sparse_indptr_bytes": expected_indptr_bytes,
+            "sparse_indptr_sha256": expected_indptr_sha256,
+            "dense_dtype": expected_dense_dtype,
+            "dense_elements": expected_dense_elements,
+            "dense_sum": expected_dense_sum,
+            "dense_raw_bytes": expected_dense_raw_bytes,
+            "dense_raw_sha256": expected_dense_raw_sha256,
+            "output_canonical_bytes": expected_output_bytes,
+            "complete_output_sha256": expected_output_sha256,
+        }
+        rows.append(
+            (
+                "claim/to_scipy_sparse_array "
+                "n=600 m=3000 seed=5 weights=1..20 "
+                "parameters=defaults then=toarray [nx/fnx]",
+                lambda graph=sparse_nx: (
+                    nx.to_scipy_sparse_array(graph).toarray()
+                ),
+                lambda graph=sparse_fnx: (
+                    fnx.to_scipy_sparse_array(graph).toarray()
                 ),
             )
         )

@@ -29315,6 +29315,99 @@ passed. UBS on all staged files exited 0 with zero critical findings and the
 same one pre-existing whole-harness warning. No Cargo command ran: no Rust
 source changed, and the required RCH mode would have created a fresh target.
 
+## 2026-07-31 BlackThrush (cod) PARITY + NO-VERDICT: exact `to_scipy_sparse_array` claim arm (`br-r37-c1-p80x1.25`)
+
+**EXACT ARTIFACT RECOVERY BEFORE CONVERSION.** README's published `2.4073x`
+row came from `sweep_marshaling.py`, SHA-256
+`12613c60217d14798a75558b18230afba6282547e48e6d89caaf9cafd083cf07`,
+and `sweep_results.json`, SHA-256
+`622b1c016891f709aad9fd545b41a08f51ca73f9b7be46393cf8415b4b11a1ed`.
+The source imports its graph builder from `measure_marshaling.py`, SHA-256
+`40e03ac078cff1d930e5e3fa8232688becf1c1a67ab1cda6da93b88109e47a0f`.
+The exact timed calls are
+`to_scipy_sparse_array(G).toarray()`, with every sparse-export parameter
+omitted, on the helper's weighted undirected simple string-node graph with
+`n=600, m=3000, seed=5` and integer weights in `[1,20]`. Thus the live
+NetworkX 3.6.1 sparse defaults are `nodelist=None`, `dtype=None`,
+`weight="weight"`, and `format="csr"`.
+
+Under `PYTHONHASHSEED=0`, both implementations receive 142,062 canonical
+input bytes, SHA-256
+`593355561a9d5fcaf7a4a9673eb5fd1a9164531173724078bc504d1300233470`.
+Before the recovered dense conversion, both return the same SciPy
+`csr_array`: shape `600×600`, dtype little-endian `int64`, 6,000 canonical
+nonzeros, sorted indices, and canonical format. The complete CSR state
+(metadata plus raw `data`, `indices`, and `indptr`) is 202,028 canonical
+bytes, SHA-256
+`5d073aa0f7ae5016b49ca26e24d85947af97c603475dfe8800e3b0807311c4dd`.
+Its component hashes are:
+
+- `data`: 48,000 bytes, SHA-256
+  `a6359e5cc9a2eab1c8da1ba91fc12524c670d12312de39a8b4cd9628f8c25c5f`;
+- `indices`: 48,000 bytes, SHA-256
+  `ddd0b3fead65ceb09fbc3a4cc267006da27f0e84c51e41d71ebfae8a4ac8b729`;
+- `indptr`: 4,808 bytes, SHA-256
+  `c546597694cb1dd52923ead2c7577e6cbf823aa59c3ec5e2ae7dd81c431f5b71`.
+
+The complete recovered dense outputs also agree byte-for-byte with live
+NetworkX 3.6.1: 360,000 little-endian `int64` elements summing to 62,592,
+2,880,000 raw bytes, SHA-256
+`339a92a60ca9a406b7815b9b01d6b1b1b335e4530665930be5d215be9ddfa7f1`.
+Their order-preserving canonical form is 1,804,464 bytes, SHA-256
+`dbb685fac46c14ffdf75e8801021f07e086a6e8bba0d64f91d9669cfa16a49b0`.
+The recovered result artifact left its checksum fields empty. No behavioral
+divergence was found.
+
+The permanent `claim-incumbent` arm preregisters all omitted/default
+parameters, input bytes/hash, complete CSR metadata and state hash, each raw
+CSR component byte count/hash, and complete dense shape/dtype/count/sum/raw
+and canonical hashes. It rejects a sparse layout or dense-value change before
+timing the exact recovered whole operation. Harness SHA-256 is
+`a53b724502e0e464b060dfce4f785fa19e5301b1f1136d8204b0865f13a5690b`.
+
+No strict benchmark was started. The shared stable-target retry predicate is
+still false: installed RCH 1.0.52 commit `65294dcda0e0` salts every required
+clean-overlay remote root with a fresh UUID and nests the pooled Cargo target
+below that unique root. Starting this row would therefore mint another cold
+target directory, which is forbidden. No per-run target directory was
+requested or created.
+
+comparison_class=NO-VERDICT
+incumbent=networkx-3.6.1
+incumbent_same_invocation=false
+campaign_output=false
+decision_gate=not_reached
+null_median_clause=not_reached
+host_identity=not_reached
+bench_elf_sha256=not_reached
+actual_observed_threads=not_reached
+cv_role=not_computed
+
+RESULT: **FULL CSR + DENSE-MATRIX PARITY / PERFORMANCE NO-VERDICT.** The
+recovered exact complete outputs agree with NetworkX 3.6.1, but the permanent
+arm supplies no new support for the published `2.4073x`; do not replace or
+strengthen that number from the local correctness diagnostic.
+
+RETRY PREDICATE: retry only after RCH exposes a managed target directory whose
+physical path is stable across two otherwise identical `--base` plus
+`--clean-overlay` invocations, or moves its pooled target outside the
+UUID-salted clean source root. Reuse that one target without a cold copy and
+preserve all recovered-artifact, input, CSR-state/component, dense-output,
+and default-parameter hashes, live NetworkX 3.6.1, all worker slots,
+in-process host identity and ELF SHA-256, actual observed threads, 21 rounds,
+both A/A nulls, continuous 300 ms accounting, and the corrected three-clause
+median gate. Any target-path change, admission, provenance, parity, or
+accounting abort remains NO-VERDICT.
+
+QUALITY / CLOSEOUT: the focused sparse-export arm preflight passed, and the
+complete thirteen-row claim suite passed with every row asserted against its
+preregistered complete-output byte count and SHA-256.
+`python3 -m py_compile scripts/perf_harness.py`,
+`tests/python/test_perf_ledger_gate.py` (21/21), and `git diff --check`
+passed. UBS on all staged files exited 0 with zero critical findings and the
+same one pre-existing whole-harness warning. No Cargo command ran: no Rust
+source changed, and the required RCH mode would have created a fresh target.
+
 ## 2026-07-31 BlackThrush (cod) NO-VERDICT: published `erdos_renyi_graph` claim gets a permanent incumbent arm (`br-r37-c1-p80x1.1`)
 
 **CLAIM-GAP FIRST.** `README.md` publishes

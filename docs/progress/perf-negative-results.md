@@ -2459,3 +2459,32 @@ managed physical target path, then retain all artifact, input, projection,
 complete-output, and default-parameter hashes, live incumbent, all
 provenance, 21 rounds, continuous accounting, dual A/A nulls, and the
 corrected three-clause median gate.
+
+## 2026-07-31 BlackThrush (cod) PARITY + NO-VERDICT (`br-r37-c1-p80x1.25`): exact `to_scipy_sparse_array` claim arm
+
+The original `2.4073x` workload was recovered exactly from
+`sweep_marshaling.py` (SHA `12613c60...cf07`) and its saved result artifact
+(SHA `622b1c01...a1ed`), using the builder in `measure_marshaling.py` (SHA
+`40e03ac0...a0f`). It evaluates
+`to_scipy_sparse_array(G).toarray()` with all NetworkX 3.6.1 sparse-export
+defaults omitted on a weighted undirected simple string-node
+`n=600,m=3000,seed=5` graph with weights in `1..20`.
+
+Under `PYTHONHASHSEED=0`, both implementations receive 142,062 canonical
+input bytes (SHA `59335556...3470`). Their complete CSR states agree:
+`600×600`, little-endian `int64`, 6,000 canonical nonzeros, sorted indices,
+and identical `data`, `indices`, and `indptr`; the full state SHA is
+`5d073aa0...c4dd`. The recovered dense outputs also agree on all 360,000
+elements and sum to 62,592: 2,880,000 raw bytes, SHA `339a92a6...a7f1`,
+and canonical SHA `dbb685fa...49b0`. No divergence was found.
+
+RESULT: **FULL CSR + DENSE-MATRIX PARITY / PERFORMANCE NO-VERDICT.** No
+strict benchmark was started because RCH 1.0.52 still places its pooled
+target below a UUID-salted clean-overlay root; running would create another
+cold target. Therefore no in-process host identity, ELF SHA, actual observed
+threads, nulls, corrected median clause, candidate CI, or incumbent ratio was
+emitted. Retry only after two required clean-overlay invocations prove one
+identical managed physical target path, then retain all artifact, input,
+CSR-state/component, dense-output, and default-parameter hashes, live
+incumbent, all provenance, 21 rounds, continuous accounting, dual A/A nulls,
+and the corrected three-clause median gate.
