@@ -2614,6 +2614,42 @@ managed physical target path, then retain all exact hashes, live incumbent,
 21 rounds, in-process host/ELF identity, actual threads, continuous
 accounting, dual A/A nulls, and the corrected three-clause median gate.
 
+## 2026-07-31 BlackThrush (cod) CONTRACT + NO-VERDICT (`br-r37-c1-04z53.9194`): giant-component mean geodesic
+
+The existing hardened whole-job harness now supports the recognizable
+`read_edgelist -> remove_self_loops -> connected_components -> giant
+component copy -> exact average_shortest_path_length` workflow. Live
+NetworkX 3.6.1 core exposes no `n_jobs`, `threads`, or `workers` parameter,
+so its many-core arm is structurally unavailable. A valid comparison must
+observe one CPU-active NetworkX thread and more than one FNX thread rather
+than treating requested Rayon size as evidence.
+
+Every row now carries exact input identity, in-process host and ELF identity,
+remote builder/profile, `rch --base`, `--clean-overlay`, requested
+`/data/tmp/cargo-target`, the target path actually observed after RCH
+rewriting, actual threads, both host admissions, and continuous exclusivity.
+The report requires exact ten-field parity in every paired replicate and
+records any divergence with the exact replicate, values, path, and input
+SHA. The incumbent ratio remains gated by dual A/A nulls and all three
+corrected median clauses, including the 2% null-median bound.
+
+A correctness-only full-job probe on bundled
+`hartford_drug.edgelist` (SHA
+`370ce8f0...6999`) agreed exactly: 212 input nodes, 284 edges, 9 components,
+193 giant-component nodes, 273 giant-component edges, giant-node SHA
+`5865a480...c2aa`, and mean geodesic `7.034002590673575`.
+
+RESULT: **CONTRACT LANDED / CURRENT PERFORMANCE NO-VERDICT / CHOOSE
+NETWORKX 3.6.1.** No strict build or timing was started. RCH 1.0.52 still
+salts each clean-overlay remote root with a fresh UUID and nests the managed
+target below it, so a run would violate the one-target rule. Retry only
+after two consecutive required `--base` plus `--clean-overlay` probes report
+the same physical target outside the UUID-salted root. Then run 21
+interleaved `facebook_combined` whole-job replicates plus FNX 1-thread and
+physical-core rows, retaining exact input/output parity, in-process
+host/ELF/observed-target identity, actual threads, continuous accounting,
+both A/A nulls, and the corrected three-clause median gate.
+
 ## 2026-07-31 BlackThrush (cod) PARITY + NO-VERDICT (`br-r37-c1-p80x1.37`): exact `read_graph6` / `read_sparse6` claim arms
 
 The published `1.72x / 1.69x` rows were recovered from

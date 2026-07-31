@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
-"""Render the parallel-analytics-pass study into a report + row-level CSV.
+"""Render a parallel whole-job study into a report + row-level CSV.
 
 Reads the `study.json` written by `scripts/parallel_analytics_pass.py --role
 driver` and emits:
 
-  * analytics_pass_report.md -- provenance, per-stage tables, the thread sweep,
-                  the bootstrap median CI gated on a same-engine A/A null, the
-                  cross-engine parity digest, and a chooser statement.
-  * rows.csv   -- one row per (engine, graph, threads, rep, stage) carrying
-                  host identity, requested threads, CPU-active threads actually
-                  observed, ELF identity, and exclusivity evidence on EVERY row.
+  * analytics_pass_report.md or mean_geodesic_report.md -- provenance,
+                  per-stage tables, a thread sweep, the corrected median gate,
+                  exact parity, and a chooser statement.
+  * rows.csv   -- one row per (job, engine, graph, threads, rep, stage) carrying
+                  input identity, host identity, requested and actually observed
+                  threads, ELF/build identity, and exclusivity evidence.
 
 Statistics contract: significance is a bootstrap percentile CI on the median
 ratio, gated by all three corrected clauses: effect CI excludes 1, effect
@@ -43,6 +43,15 @@ STAGE_ORDER = [
     "pagerank",
     "betweenness_exact",
     "closeness",
+    "TOTAL",
+]
+
+MEAN_GEODESIC_STAGE_ORDER = [
+    "read_edgelist",
+    "remove_self_loops",
+    "connected_components",
+    "giant_component_copy",
+    "average_shortest_path_length",
     "TOTAL",
 ]
 
@@ -82,10 +91,534 @@ def fmt(value, spec="{:.3f}") -> str:
     return spec.format(value)
 
 
+def _contract_failures(run: dict) -> list[str]:
+    """Return every evidence-contract reason that makes a run inadmissible."""
+    failures: list[str] = []
+    prov = run.get("provenance", {})
+    quiescence = run.get("host_wide_quiescence", {})
+    exclusivity = run.get("measurement_exclusivity", {})
+    if run.get("status") != "ok":
+        failures.append(f"status={run.get('status')}")
+    if not run.get("replicates"):
+        failures.append("no completed replicates")
+    if not prov.get("host"):
+        failures.append("missing in-process host identity")
+    if not prov.get("fnx_elf_sha256"):
+        failures.append("missing in-process fnx ELF SHA-256")
+    if prov.get("networkx_version") != "3.6.1":
+        failures.append(
+            f"live NetworkX is {prov.get('networkx_version')!r}, not 3.6.1"
+        )
+    if prov.get("networkx_backend_env") not in ("<unset>", ""):
+        failures.append("NetworkX automatic backend dispatch was enabled")
+    if not prov.get("rch_base"):
+        failures.append("missing rch exec --base provenance")
+    if not prov.get("rch_clean_overlay"):
+        failures.append("missing rch exec --clean-overlay provenance")
+    if prov.get("build_builder") in (None, "<unrecorded>", "local"):
+        failures.append("missing actual remote build-worker identity")
+    if prov.get("build_profile") in (None, "<unrecorded>"):
+        failures.append("missing cargo build profile")
+    if os.path.realpath(prov.get("cargo_target_dir_requested") or "") != (
+        "/data/tmp/cargo-target"
+    ):
+        failures.append("did not request the one /data/tmp/cargo-target")
+    if not prov.get("cargo_target_dir_observed"):
+        failures.append("missing in-process observed CARGO_TARGET_DIR")
+    for stage in ("pre_setup", "pre_measurement"):
+        if quiescence.get(stage, {}).get("verdict") != "clear":
+            failures.append(f"host-wide {stage} admission not clear")
+    if exclusivity.get("verdict") != "clear":
+        failures.append("continuous measurement exclusivity not clear")
+    if not exclusivity.get("checked_windows"):
+        failures.append("continuous measurement accounting has no windows")
+    if not run.get("input", {}).get("sha256"):
+        failures.append("missing exact graph-input SHA-256")
+    if any(
+        timing.get("thread_count_actually_used") is None
+        for rep in run.get("replicates", [])
+        for timing in rep["timings"]
+    ):
+        failures.append("missing actual CPU-active thread observation")
+    return failures
+
+
+def _mean_geodesic_divergences(nxrun: dict, fnxrun: dict) -> list[dict]:
+    """Exact digest comparison with the producing input attached."""
+    if not nxrun.get("replicates") or not fnxrun.get("replicates"):
+        return [
+            {
+                "rep": None,
+                "field": "replicates",
+                "nx": "missing",
+                "fnx": "missing",
+                "input": nxrun.get("input", {}),
+            }
+        ]
+    nx_reps = {rep["rep"]: rep["digest"] for rep in nxrun["replicates"]}
+    fnx_reps = {rep["rep"]: rep["digest"] for rep in fnxrun["replicates"]}
+    divergences = []
+    for rep in sorted(set(nx_reps) | set(fnx_reps)):
+        left = nx_reps.get(rep)
+        right = fnx_reps.get(rep)
+        if left is None or right is None:
+            divergences.append(
+                {
+                    "rep": rep,
+                    "field": "replicate",
+                    "nx": "present" if left is not None else "missing",
+                    "fnx": "present" if right is not None else "missing",
+                    "input": nxrun.get("input", {}),
+                }
+            )
+            continue
+        for field in (
+            "nodes",
+            "edges_raw",
+            "self_loops_removed",
+            "edges",
+            "n_components",
+            "largest_cc_size",
+            "largest_cc_node_sha256",
+            "giant_nodes",
+            "giant_edges",
+            "average_shortest_path_length",
+        ):
+            if left.get(field) != right.get(field):
+                divergences.append(
+                    {
+                        "rep": rep,
+                        "field": field,
+                        "nx": left.get(field),
+                        "fnx": right.get(field),
+                        "input": nxrun.get("input", {}),
+                    }
+                )
+    return divergences
+
+
+def render_mean_geodesic(
+    study: dict,
+    csv_rows: int,
+    builder: str | None,
+    profile: str | None,
+) -> str:
+    """Render the giant-component mean-geodesic whole-job study."""
+    runs = study["runs"]
+    prov = next(
+        (
+            run.get("provenance", {})
+            for run in runs
+            if run.get("provenance", {}).get("fnx_elf_sha256")
+        ),
+        {},
+    )
+    nxprov = next(
+        (run.get("provenance", {}) for run in runs if run["engine"] == "nx"),
+        {},
+    )
+    capability = next(
+        (run.get("capability", {}) for run in runs if run.get("capability")),
+        {},
+    )
+    graphs = list(dict.fromkeys(run["graph"] for run in runs))
+    out: list[str] = []
+    w = out.append
+
+    w("# Giant-component mean geodesic: FrankenNetworkX vs NetworkX 3.6.1")
+    w("")
+    w(
+        "Target class: **MISSING CAPABILITY**. This is the whole job a network "
+        "analyst runs to report mean geodesic separation on the giant connected "
+        "component, including parsing, cleanup, component discovery, component "
+        "materialisation, and the exact all-sources distance calculation."
+    )
+    w("")
+    w("## Why the incumbent target is unavailable")
+    w("")
+    w(
+        f"Live NetworkX {nxprov.get('networkx_version')} exposes "
+        f"`average_shortest_path_length"
+        f"{capability.get('networkx_core_signature')}`. With automatic backend "
+        "dispatch disabled, that core signature has **no `n_jobs`, `threads`, "
+        "or `workers` control**. Its all-sources Python traversal therefore has "
+        "no many-core arm to select. This is an absent target, not a slower "
+        "setting: there can be no honest `nx@N` timing row."
+    )
+    w("")
+    w(
+        "FNX has a Rayon source-parallel traversal. The artifact does not infer "
+        "that capability from a requested pool size: it counts the process "
+        "threads whose Linux scheduler CPU counters actually advance during the "
+        "distance stage. A structural verdict requires exactly one active "
+        "NetworkX thread and more than one active FNX thread in the admitted "
+        "head-to-head."
+    )
+    w("")
+
+    w("## Measurement provenance")
+    w("")
+    w("| field | value |")
+    w("| --- | --- |")
+    w(f"| study started | `{study.get('started')}` |")
+    w(f"| study finished | `{study.get('finished')}` |")
+    w(f"| host | `{prov.get('host')}` |")
+    w(f"| CPU | `{prov.get('cpu_model')}` |")
+    w(
+        f"| cores | {prov.get('cpu_physical_cores')} physical / "
+        f"{prov.get('cpu_smt_threads')} SMT; affinity "
+        f"{prov.get('sched_affinity')} |"
+    )
+    w(
+        f"| live NetworkX | `{nxprov.get('networkx_version')}` at "
+        f"`{nxprov.get('networkx_path')}` |"
+    )
+    w(f"| NetworkX auto-backend env | `{nxprov.get('networkx_backend_env')}` |")
+    w(f"| in-process fnx ELF | `{prov.get('fnx_elf_path')}` |")
+    w(f"| **in-process fnx ELF SHA-256** | `{prov.get('fnx_elf_sha256')}` |")
+    w(f"| build worker | `{builder or prov.get('build_builder')}` |")
+    w(f"| cargo profile | `{profile or prov.get('build_profile')}` |")
+    w(f"| rch `--base` | `{prov.get('rch_base')}` |")
+    w(f"| rch `--clean-overlay` | `{prov.get('rch_clean_overlay')}` |")
+    w(
+        f"| requested target | "
+        f"`{prov.get('cargo_target_dir_requested')}` |"
+    )
+    w(
+        f"| in-process observed target | "
+        f"`{prov.get('cargo_target_dir_observed')}` |"
+    )
+    w(f"| emitted timing rows | {csv_rows} |")
+    w("")
+    for graph in graphs:
+        example = next(run for run in runs if run["graph"] == graph)
+        input_record = example.get("input", {})
+        w(
+            f"- `{graph}` exact input: `{input_record.get('path')}`, "
+            f"{input_record.get('bytes')} bytes, SHA-256 "
+            f"`{input_record.get('sha256')}`."
+        )
+    if graphs:
+        w("")
+    w(
+        "Every CSV row repeats the job, exact input identity, host, actual "
+        "CPU-active threads, live NetworkX version, in-process ELF hash, build "
+        "worker/profile, `rch --base`, `--clean-overlay`, requested and "
+        "in-process observed target paths, both admission verdicts, and the "
+        "continuous exclusivity verdict."
+    )
+    w("")
+
+    aborted = [run for run in runs if _contract_failures(run)]
+    if aborted:
+        w("## Fail-closed attempts")
+        w("")
+        w("| graph | engine | requested threads | no-verdict reasons |")
+        w("| --- | --- | --- | --- |")
+        for run in aborted:
+            reasons = list(_contract_failures(run))
+            if run.get("abort_reason"):
+                reasons.insert(0, str(run["abort_reason"]))
+            clean = "; ".join(dict.fromkeys(reasons))
+            clean = clean.replace("\n", " ").replace("|", "\\|")
+            w(
+                f"| `{run.get('graph')}` | {run.get('engine')} | "
+                f"{run.get('threads_requested')} | {clean} |"
+            )
+        w("")
+        w(
+            "These attempts contribute no chooser fact. A worker abort clears "
+            "all partial replicates, so contaminated numbers cannot leak into "
+            "a ratio."
+        )
+        w("")
+
+    w("## The whole job")
+    w("")
+    w("```text")
+    w("read_edgelist -> remove_self_loops -> connected_components")
+    w("  -> giant_component.subgraph(...).copy()")
+    w("  -> average_shortest_path_length (exact, every source)")
+    w("```")
+    w("")
+    w(
+        "The graph read and giant-component copy remain inside the timed job. "
+        "Removing either would turn a user workflow into a kernel benchmark."
+    )
+    w("")
+
+    admitted_facts = []
+    parity_rows = []
+    for graph in graphs:
+        nxrun = next(
+            (
+                run
+                for run in runs
+                if run["engine"] == "nx"
+                and run["graph"] == graph
+                and run.get("interleaved")
+            ),
+            None,
+        )
+        fnxrun = next(
+            (
+                run
+                for run in runs
+                if run["engine"] == "fnx"
+                and run["graph"] == graph
+                and run.get("interleaved")
+            ),
+            None,
+        )
+        if not (nxrun and fnxrun and totals(nxrun) and totals(fnxrun)):
+            continue
+        threads = fnxrun.get("threads_requested")
+        nx_digest = nxrun["replicates"][0]["digest"]
+        w(
+            f"## `{graph}` -- {nx_digest.get('nodes')} input nodes, "
+            f"{nx_digest.get('giant_nodes')} giant-component nodes"
+        )
+        w("")
+        w(
+            f"| stage | nx wall (s) | nx actual threads | "
+            f"fnx@{threads} wall (s) | fnx actual threads | speedup |"
+        )
+        w("| --- | --- | --- | --- | --- | --- |")
+        for stage in MEAN_GEODESIC_STAGE_ORDER:
+            nx_wall = stage_median(nxrun, stage)
+            fnx_wall = stage_median(fnxrun, stage)
+            nx_active = stage_median(
+                nxrun, stage, "thread_count_actually_used"
+            )
+            fnx_active = stage_median(
+                fnxrun, stage, "thread_count_actually_used"
+            )
+            if nx_wall is None and fnx_wall is None:
+                continue
+            ratio = (
+                nx_wall / fnx_wall
+                if nx_wall is not None and fnx_wall not in (None, 0)
+                else None
+            )
+            bold = "**" if stage == "TOTAL" else ""
+            w(
+                f"| {bold}{stage}{bold} | {bold}{fmt(nx_wall)}{bold} | "
+                f"{fmt(nx_active, '{:.1f}')} | "
+                f"{bold}{fmt(fnx_wall)}{bold} | "
+                f"{fmt(fnx_active, '{:.1f}')} | "
+                f"{bold}{fmt(ratio, '{:.2f}x')}{bold} |"
+            )
+        w("")
+
+        slow = totals(nxrun)
+        fast = totals(fnxrun)
+        gate = None
+        if len(slow) >= 2 and len(fast) >= 2:
+            nx_null = aa_null_stats(slow)
+            fnx_null = aa_null_stats(fast)
+            gate = decide(
+                bootstrap_ratio_ci(slow, fast),
+                [nx_null, fnx_null],
+            )
+            lo, hi = gate["ci"]
+            w("### Corrected three-clause median gate")
+            w("")
+            w("| clause | observation | pass |")
+            w("| --- | --- | --- |")
+            w(
+                f"| effect | median nx/fnx **{gate['point']:.3f}x**, "
+                f"95% bootstrap CI [{lo:.3f}, {hi:.3f}] | "
+                f"{'yes' if gate['ci_excludes_one'] else '**NO**'} |"
+            )
+            w(
+                f"| resolution | deviation {gate['deviation']:.4f} > 2 x "
+                f"larger null half-width "
+                f"{fmt(2 * gate['null_half_width'], '{:.4f}')} | "
+                f"{'yes' if gate['clears_2x_half_width'] else '**NO**'} |"
+            )
+            w(
+                f"| null medians | worst bias "
+                f"{fmt(gate['null_worst_median_bias'], '{:.4f}')} <= 0.0200 | "
+                f"{'yes' if gate['null_median_bias_bounded'] else '**NO**'} |"
+            )
+            w(f"| **verdict** | **{gate['label']}** | |")
+            w("")
+            for label, null in (("NetworkX", nx_null), ("FNX", fnx_null)):
+                if null is None:
+                    w(f"- {label} A/A null: unavailable (too few replicates).")
+                else:
+                    w(
+                        f"- {label} A/A null median {null['median']:.4f}, "
+                        f"CI [{null['lo']:.4f}, {null['hi']:.4f}], "
+                        f"half-width {null['half_width']:.4f}."
+                    )
+            w("")
+
+        divergences = _mean_geodesic_divergences(nxrun, fnxrun)
+        parity_rows.append((graph, nxrun, fnxrun, divergences))
+        nx_active = stage_median(
+            nxrun,
+            "average_shortest_path_length",
+            "thread_count_actually_used",
+        )
+        fnx_active = stage_median(
+            fnxrun,
+            "average_shortest_path_length",
+            "thread_count_actually_used",
+        )
+        if (
+            gate
+            and gate["decidable"]
+            and not _contract_failures(nxrun)
+            and not _contract_failures(fnxrun)
+            and not divergences
+            and nxrun["provenance"].get("cargo_target_dir_observed")
+            == fnxrun["provenance"].get("cargo_target_dir_observed")
+            and nx_active == 1
+            and fnx_active is not None
+            and fnx_active > 1
+        ):
+            admitted_facts.append(
+                {
+                    "graph": graph,
+                    "nodes": nx_digest.get("giant_nodes"),
+                    "nx_s": statistics.median(slow),
+                    "fnx_s": statistics.median(fast),
+                    "ratio": gate["point"],
+                    "nx_active": nx_active,
+                    "fnx_active": fnx_active,
+                    "input": nxrun.get("input", {}),
+                }
+            )
+
+    w("## Exact cross-engine parity")
+    w("")
+    if not parity_rows:
+        w("No completed head-to-head pair is available; parity is unproven.")
+        w("")
+    else:
+        for graph, nxrun, fnxrun, divergences in parity_rows:
+            input_record = nxrun.get("input", {})
+            if not divergences:
+                digest = nxrun["replicates"][0]["digest"]
+                w(
+                    f"- `{graph}`: **AGREE** on all ten digest fields in all "
+                    f"{len(nxrun['replicates'])} paired replicates, including "
+                    f"exact mean geodesic "
+                    f"`{digest.get('average_shortest_path_length')}`; input "
+                    f"SHA-256 `{input_record.get('sha256')}`."
+                )
+                continue
+            for divergence in divergences:
+                w(
+                    f"- `{graph}`: **DIVERGE** at "
+                    f"rep `{divergence['rep']}`, "
+                    f"`{divergence['field']}`: NetworkX "
+                    f"`{divergence['nx']}`, FNX `{divergence['fnx']}`; exact "
+                    f"input `{input_record.get('path')}`, SHA-256 "
+                    f"`{input_record.get('sha256')}`."
+                )
+        w("")
+    w(
+        "Any divergence vetoes the speed claim. The exact producing input is "
+        "attached to each divergent field rather than summarized away."
+    )
+    w("")
+
+    sweeps: dict[str, list[dict]] = {}
+    for run in runs:
+        if run["engine"] == "fnx" and totals(run):
+            sweeps.setdefault(run["graph"], []).append(run)
+    for graph, group in sweeps.items():
+        base = next(
+            (run for run in group if run.get("threads_requested") == 1),
+            None,
+        )
+        if base is None or len(group) < 2:
+            continue
+        group.sort(key=lambda run: run.get("threads_requested") or 0)
+        base_wall = stage_median(base, "average_shortest_path_length")
+        w(f"## FNX thread sweep -- `{graph}`")
+        w("")
+        w("| requested | actual active | distance wall (s) | scaling vs 1 |")
+        w("| --- | --- | --- | --- |")
+        for run in group:
+            wall = stage_median(run, "average_shortest_path_length")
+            active = stage_median(
+                run,
+                "average_shortest_path_length",
+                "thread_count_actually_used",
+            )
+            scaling = (
+                base_wall / wall
+                if base_wall is not None and wall not in (None, 0)
+                else None
+            )
+            w(
+                f"| {run.get('threads_requested')} | "
+                f"{fmt(active, '{:.1f}')} | {fmt(wall)} | "
+                f"{fmt(scaling, '{:.2f}x')} |"
+            )
+        w("")
+        w(
+            "The requested column is configuration; the active column is the "
+            "observed capability evidence."
+        )
+        w("")
+
+    w("## CHOOSER STATEMENT")
+    w("")
+    winning = [fact for fact in admitted_facts if fact["ratio"] > 1.0]
+    losing = [fact for fact in admitted_facts if fact["ratio"] < 1.0]
+    if winning:
+        for fact in winning:
+            w(
+                f"- Choose **FrankenNetworkX** for this giant-component mean-"
+                f"geodesic job at the `{fact['graph']}` scale "
+                f"({fact['nodes']} giant-component nodes): live NetworkX "
+                f"3.6.1 took {fact['nx_s']:.3f}s and FNX took "
+                f"{fact['fnx_s']:.3f}s, an admitted **{fact['ratio']:.2f}x** "
+                f"whole-job ratio. The dominant stage observed "
+                f"{fact['nx_active']:.0f} versus {fact['fnx_active']:.0f} "
+                f"CPU-active threads."
+            )
+        w(
+            "- Choose **NetworkX 3.6.1** when API breadth, arbitrary Python "
+            "objects, or backend interoperability matters more than this exact "
+            "all-sources workflow."
+        )
+    elif losing:
+        for fact in losing:
+            w(
+                f"- Choose **NetworkX 3.6.1** for `{fact['graph']}`: the "
+                f"admitted whole-job ratio is {fact['ratio']:.2f}x nx/fnx, so "
+                "FNX is slower despite owning the many-core execution target."
+            )
+    else:
+        w(
+            "- **Choose NetworkX 3.6.1 for now.** No row simultaneously clears "
+            "exact parity, both A/A controls, all three median-gate clauses, "
+            "host-wide admission and continuous accounting, strict RCH "
+            "provenance with one observed physical target for both arms, and "
+            "an observed one-vs-many thread split."
+        )
+        w(
+            "- Revisit only after one clean invocation produces that complete "
+            "evidence chain; a requested Rayon size or a self-speedup alone is "
+            "not a campaign win."
+        )
+    w("")
+    return "\n".join(out) + "\n"
+
+
 def write_csv(study: dict, path: str) -> int:
     fields = [
+        "job",
         "engine",
         "graph",
+        "input_path",
+        "input_sha256",
+        "input_bytes",
         "threads_requested",
         "rep",
         "stage",
@@ -104,6 +637,12 @@ def write_csv(study: dict, path: str) -> int:
         "rayon_num_threads_env",
         "networkx_version",
         "fnx_elf_sha256",
+        "build_builder",
+        "build_profile",
+        "rch_base",
+        "rch_clean_overlay",
+        "cargo_target_dir_requested",
+        "cargo_target_dir_observed",
         "host_wide_pre_setup_verdict",
         "host_wide_pre_measurement_verdict",
         "measurement_exclusivity_verdict",
@@ -116,14 +655,19 @@ def write_csv(study: dict, path: str) -> int:
         writer.writeheader()
         for run in study["runs"]:
             prov = run.get("provenance", {})
+            input_record = run.get("input", {})
             quiescence = run.get("host_wide_quiescence", {})
             exclusivity = run.get("measurement_exclusivity", {})
             for rep in run.get("replicates", []):
                 for timing in rep["timings"]:
                     writer.writerow(
                         {
+                            "job": run.get("job", "analytics"),
                             "engine": run["engine"],
                             "graph": run["graph"],
+                            "input_path": input_record.get("path"),
+                            "input_sha256": input_record.get("sha256"),
+                            "input_bytes": input_record.get("bytes"),
                             "threads_requested": run.get("threads_requested"),
                             "rep": rep["rep"],
                             "stage": timing["stage"],
@@ -150,6 +694,16 @@ def write_csv(study: dict, path: str) -> int:
                             "rayon_num_threads_env": prov.get("rayon_num_threads_env"),
                             "networkx_version": prov.get("networkx_version"),
                             "fnx_elf_sha256": prov.get("fnx_elf_sha256"),
+                            "build_builder": prov.get("build_builder"),
+                            "build_profile": prov.get("build_profile"),
+                            "rch_base": prov.get("rch_base"),
+                            "rch_clean_overlay": prov.get("rch_clean_overlay"),
+                            "cargo_target_dir_requested": prov.get(
+                                "cargo_target_dir_requested"
+                            ),
+                            "cargo_target_dir_observed": prov.get(
+                                "cargo_target_dir_observed"
+                            ),
                             "host_wide_pre_setup_verdict": quiescence.get(
                                 "pre_setup", {}
                             ).get("verdict"),
@@ -171,6 +725,14 @@ def write_csv(study: dict, path: str) -> int:
 
 def render(study: dict, csv_rows: int, builder: str | None, profile: str | None) -> str:
     runs = study["runs"]
+    jobs = {run.get("job", "analytics") for run in runs}
+    if len(jobs) > 1:
+        raise ValueError(
+            "one report may contain only one whole-job kind; observed "
+            f"{sorted(jobs)}"
+        )
+    if jobs == {"mean_geodesic_giant_component"}:
+        return render_mean_geodesic(study, csv_rows, builder, profile)
     has_actual_thread_evidence = any(
         timing.get("thread_count_actually_used") is not None
         for run in runs
@@ -908,6 +1470,7 @@ def main(argv=None) -> int:
         for run in loaded["runs"]:
             merged[
                 (
+                    run.get("job", "analytics"),
                     run["engine"],
                     run["graph"],
                     run.get("threads_requested"),
@@ -920,7 +1483,13 @@ def main(argv=None) -> int:
     csv_path = os.path.join(args.out, "rows.csv")
     rows = write_csv(study, csv_path)
     report = render(study, rows, args.builder, args.profile)
-    report_path = os.path.join(args.out, "analytics_pass_report.md")
+    jobs = {run.get("job", "analytics") for run in study["runs"]}
+    report_name = (
+        "mean_geodesic_report.md"
+        if jobs == {"mean_geodesic_giant_component"}
+        else "analytics_pass_report.md"
+    )
+    report_path = os.path.join(args.out, report_name)
     with open(report_path, "w") as handle:
         handle.write(report)
     print(f"wrote {report_path} ({len(report)} bytes) and {csv_path} ({rows} rows)")

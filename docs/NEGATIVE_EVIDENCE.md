@@ -28544,6 +28544,94 @@ QUALITY / CLOSEOUT: `git diff --check` covers this ledger-only result. No
 Cargo command ran. UBS has no Markdown/JSONL scanner, so no scanner pass is
 claimed.
 
+## 2026-07-31 BlackThrush (cod) CONTRACT LANDED / PERFORMANCE NO-VERDICT: giant-component mean-geodesic whole job (`br-r37-c1-04z53.9194`)
+
+TARGET: add the next realistic structural-weakness workload to the existing
+parallel whole-job harness:
+
+`read_edgelist -> remove_self_loops -> connected_components ->
+giant_component.subgraph(...).copy() -> average_shortest_path_length`.
+
+This is the complete workflow a network analyst uses to report mean geodesic
+separation on a real network's giant component, not an isolated ASPL kernel.
+The live NetworkX 3.6.1 callable reports the signature
+`(G, weight=None, method=None, *, backend=None, **backend_kwargs)`. With
+automatic backend dispatch disabled, core NetworkX has no `n_jobs`,
+`threads`, or `workers` setting for its Python all-sources traversal. The
+many-core target is therefore unavailable to the incumbent rather than a
+slower incumbent configuration.
+
+ONE HARNESS LEVER: `parallel_analytics_pass.py` now accepts
+`--job mean_geodesic_giant_component` and times every boundary above. Each
+replicate emits ten exact digest fields: input node/edge counts, removed
+self-loops, component count, largest-component size and ordered-node
+SHA-256, copied giant-component node/edge counts, and the exact mean
+geodesic. `parallel_analytics_report.py` compares every field in every paired
+replicate. Any mismatch vetoes the ratio and is rendered against the exact
+input path and SHA-256 that produced it.
+
+The row contract is fail-closed. Every timing row carries the exact job/input
+identity, in-process host identity and loaded FNX ELF SHA-256, live NetworkX
+version, requested and CPU-active threads actually observed, remote build
+worker/profile, `rch --base`, `--clean-overlay`, the requested shared
+`/data/tmp/cargo-target`, the `CARGO_TARGET_DIR` actually observed inside the
+remote process after RCH rewriting, both host-wide admission verdicts, and
+continuous exclusivity accounting. A chooser additionally requires the
+paired arms to report the same observed target path, exact output parity,
+one active NetworkX thread versus more than one active FNX thread on ASPL,
+both arm-specific A/A nulls, and all three corrected median-gate clauses:
+the effect CI excludes 1, effect deviation clears twice the wider null
+half-width, and every null median is within 2% of 1.
+
+CORRECTNESS PROBE ONLY: live NetworkX 3.6.1 and the currently installed FNX
+ELF ran the complete new job on bundled
+`legacy_networkx_code/networkx/examples/algorithms/hartford_drug.edgelist`
+(2,335 bytes, SHA-256
+`370ce8f0fd5b58dab57bf244a1d4cb160502c7cd1ba648383e1b527771bc6999`).
+Both produced 212 input nodes, 284 edges, 9 components, a 193-node /
+273-edge giant component, ordered giant-node SHA-256
+`5865a480e9af85fea655a7ee0d8da791b9663eecbdaa3c2888fd31ef55a3c2aa`,
+and exact mean geodesic `7.034002590673575`. This proves the workflow and
+digest contract, not performance.
+
+RESULT: **CONTRACT LANDED / CURRENT PERFORMANCE NO-VERDICT / CHOOSE
+NETWORKX 3.6.1.** No strict timing run was started and no incumbent ratio is
+reported. RCH remains 1.0.52, commit `65294dcda0e0`; its clean-overlay
+orchestration hashes a fresh UUID into each remote root and then places the
+managed Cargo target beneath that root. Starting the build would therefore
+mint another cold target, violating the one-target directive. A local
+diagnostic process self-reported host `thinkstation1` and loaded ELF
+`3d877bb18e8adfc9ff91dbbf3606c4ed4b3c0b0b0a769cac71deada8b83a1be8`
+as its first emitted line, then correctly banked zero replicates and
+`NO-VERDICT` when the required `--base` provenance was omitted. Synthetic
+admitted and divergent studies proved that an exact divergence names its
+replicate, field, values, path, and input SHA and suppresses the FNX chooser.
+
+RETRY PREDICATE: do not build or time until two consecutive required
+`rch exec --base <same-full-commit> --clean-overlay` probes report one
+identical managed physical `CARGO_TARGET_DIR`, outside any per-invocation
+UUID-salted root, while requesting only `/data/tmp/cargo-target`. Then run
+the unchanged `facebook_combined` whole job for 21 interleaved live NetworkX
+3.6.1/FNX replicates plus FNX 1-thread and physical-core rows on a pinned,
+drained worker. Preserve the runtime input SHA, same observed target path,
+in-process host/ELF identity, actual threads, both admissions, continuous
+accounting, exact ten-field parity across every replicate, dual A/A nulls,
+and the corrected three-clause median gate. End with the generated chooser;
+any missing field, divergence, contamination, or failed gate remains
+NO-VERDICT.
+
+SCRATCH / QUALITY: no Cargo command ran and no target directory was created.
+The shared `/data/tmp/cargo-target` remained live at 69 GiB and was left
+untouched. The named superseded directories `cargo-target-h2-receipts`,
+`cargo-target-h1-continuous`, and `cargo-target-p8-retry` were already
+absent, so reclaimed space was **0 bytes**. Python byte-compilation,
+statistical/thread selfcheck, bundled-graph full-job parity, legacy analytics
+rendering, synthetic admission/divergence vetoes, a real fail-closed worker
+and report, and `git diff --check` passed. Harness/report SHA-256 values are
+`0332107379788e682f295495693b3e2ef2260e80bdb59f403c778e44fabaa37b`
+and
+`e0ae0ae1d1206a4ca2ee23672b8405730384c40371e740c3fb7d7cd6a3c11b28`.
+
 ## 2026-07-31 BlackThrush CONTRACT LANDED / PERFORMANCE NO-VERDICT: parallel analytics whole-job contract (`br-r37-c1-04z53.9193`)
 
 TARGET: preserve the already-landed structural comparison against live

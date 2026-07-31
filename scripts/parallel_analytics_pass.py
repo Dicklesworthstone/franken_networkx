@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
-"""End-to-end parallel analytics-pass benchmark: FrankenNetworkX vs NetworkX.
+"""End-to-end parallel graph jobs: FrankenNetworkX vs NetworkX.
 
 This harness targets the MISSING CAPABILITY class rather than constant-factor
-overhead. The measured job is a whole analytics pass over a real graph -- the
-sequence a user actually runs to profile a network -- not a single algorithm
-call:
+overhead. Each measured job is a whole workflow over a real graph, not a
+single algorithm call. Available jobs are:
 
-    read_edgelist -> largest connected component -> degree assortativity
-    -> average clustering -> k-core numbers -> PageRank
-    -> EXACT betweenness centrality -> closeness centrality
+  * `analytics`: read, clean, connected components, degree assortativity,
+    clustering, k-core numbers, PageRank, exact betweenness, and closeness.
+  * `mean_geodesic_giant_component`: read, clean, connected components,
+    materialise the giant component, and compute its exact mean geodesic.
 
 Why the parallel arm is structurally unavailable to NetworkX 3.6.1
 -----------------------------------------------------------------
@@ -20,8 +20,8 @@ which is textbook embarrassingly parallel. NetworkX cannot exploit that:
      yields ~1x, not Nx. NetworkX ships no thread pool and no `n_jobs`.
   2. The `multiprocessing` escape hatch requires pickling the graph into every
      worker. A dict-of-dict adjacency with a per-edge attribute dict is a large
-     Python object graph, so that costs both the pickle round-trip and an
-     N-fold memory blowup -- it does not survive contact with a real graph.
+     Python object graph, so that costs both the pickle round-trip and
+     worker-replicated memory.
   3. Parallel NetworkX lives in a separate `nx-parallel` backend project, not
      in core 3.6.1, and it too pays the pickling cost.
 
@@ -62,6 +62,7 @@ Usage
 
     # one engine, one thread setting; emits a JSON record on stdout
     python3 scripts/parallel_analytics_pass.py --role worker \
+        --job mean_geodesic_giant_component \
         --engine fnx --graph ca-AstroPh --threads 32
 
     # full study: interleaved head-to-head + fnx thread sweep
@@ -77,6 +78,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import inspect
 import json
 import os
 import platform
@@ -276,7 +278,15 @@ class ContinuousExclusivityMonitor:
         self.accounting.checkpoint(finish=True)
 
 
-def provenance(engine: str, builder: str | None = None, profile: str | None = None) -> dict:
+def provenance(
+    engine: str,
+    builder: str | None = None,
+    profile: str | None = None,
+    *,
+    rch_base: str | None = None,
+    rch_clean_overlay: bool = False,
+    target_dir: str | None = None,
+) -> dict:
     """Host/build identity, self-reported from inside this process.
 
     `builder` names the machine that COMPILED the extension (an rch remote
@@ -323,6 +333,10 @@ def provenance(engine: str, builder: str | None = None, profile: str | None = No
     record["build_profile"] = profile or os.environ.get(
         "FNX_BUILD_PROFILE", "<unrecorded>"
     )
+    record["rch_base"] = rch_base
+    record["rch_clean_overlay"] = rch_clean_overlay
+    record["cargo_target_dir_requested"] = target_dir
+    record["cargo_target_dir_observed"] = os.environ.get("CARGO_TARGET_DIR")
     elf = getattr(_fnx, "__file__", None)
     record["fnx_version"] = getattr(franken_networkx, "__version__", "unknown")
     record["fnx_path"] = franken_networkx.__file__
@@ -350,28 +364,60 @@ def resolved_impls(mod) -> dict:
     """
     out = {}
     for name in (
+        "average_shortest_path_length",
         "betweenness_centrality",
         "closeness_centrality",
+        "connected_components",
         "pagerank",
         "core_number",
+        "read_edgelist",
     ):
         fn = getattr(mod, name, None)
+        try:
+            signature = str(inspect.signature(fn)) if fn is not None else None
+        except (TypeError, ValueError):
+            signature = None
         out[name] = {
             "module": getattr(fn, "__module__", None),
             "qualname": getattr(fn, "__qualname__", None),
             "file": getattr(getattr(fn, "__code__", None), "co_filename", None),
+            "signature": signature,
         }
     return out
+
+
+def mean_geodesic_capability() -> dict:
+    """Live NetworkX-core API evidence for the structural target."""
+    import networkx as networkx_core
+
+    signature = inspect.signature(networkx_core.average_shortest_path_length)
+    parallel_names = [
+        name
+        for name in ("n_jobs", "threads", "workers")
+        if name in signature.parameters
+    ]
+    return {
+        "target": "parallel all-sources shortest-path traversal",
+        "networkx_core_signature": str(signature),
+        "networkx_core_parallel_parameters": parallel_names,
+        "networkx_core_backend_dispatch": "disabled",
+        "unavailable_reason": (
+            "NetworkX 3.6.1 core exposes no n_jobs, threads, or workers "
+            "parameter; its Python all-sources loop has no many-core arm"
+        ),
+        "fnx_parallel_runtime": "rayon source-parallel traversal",
+    }
 
 
 def run_pass(
     mod,
     graph_path: str,
     *,
+    job: str,
     engine_label: str,
     accounting: ContinuousExclusivityMonitor | None = None,
 ) -> tuple[list[dict], dict]:
-    """Run the identical analytics pass against `mod` (networkx or fnx).
+    """Run the selected whole job against `mod` (networkx or fnx).
 
     Returns (stage timings, result digest). The digest lets the report prove
     both engines computed the same thing.
@@ -442,27 +488,51 @@ def run_pass(
     digest["n_components"] = len(components)
     digest["largest_cc_size"] = len(components[0]) if components else 0
 
-    digest["assortativity"] = stage(
-        "degree_assortativity",
-        lambda: mod.degree_assortativity_coefficient(graph),
-    )
-    digest["average_clustering"] = stage(
-        "average_clustering", lambda: mod.average_clustering(graph)
-    )
+    if job == "mean_geodesic_giant_component":
+        if not components:
+            raise RuntimeError("mean-geodesic job requires a non-empty graph")
+        giant_nodes = components[0]
+        digest["largest_cc_node_sha256"] = hashlib.sha256(
+            json.dumps(
+                sorted(str(node) for node in giant_nodes),
+                ensure_ascii=True,
+                separators=(",", ":"),
+            ).encode()
+        ).hexdigest()
+        giant = stage(
+            "giant_component_copy",
+            lambda: graph.subgraph(giant_nodes).copy(),
+        )
+        digest["giant_nodes"] = giant.number_of_nodes()
+        digest["giant_edges"] = giant.number_of_edges()
+        digest["average_shortest_path_length"] = stage(
+            "average_shortest_path_length",
+            lambda: mod.average_shortest_path_length(giant),
+        )
+    elif job == "analytics":
+        digest["assortativity"] = stage(
+            "degree_assortativity",
+            lambda: mod.degree_assortativity_coefficient(graph),
+        )
+        digest["average_clustering"] = stage(
+            "average_clustering", lambda: mod.average_clustering(graph)
+        )
 
-    cores = stage("core_number", lambda: mod.core_number(graph))
-    digest["max_core"] = max(cores.values()) if cores else 0
+        cores = stage("core_number", lambda: mod.core_number(graph))
+        digest["max_core"] = max(cores.values()) if cores else 0
 
-    pagerank = stage("pagerank", lambda: mod.pagerank(graph))
-    digest["pagerank_top"] = _top(pagerank)
+        pagerank = stage("pagerank", lambda: mod.pagerank(graph))
+        digest["pagerank_top"] = _top(pagerank)
 
-    betweenness = stage(
-        "betweenness_exact", lambda: mod.betweenness_centrality(graph)
-    )
-    digest["betweenness_top"] = _top(betweenness)
+        betweenness = stage(
+            "betweenness_exact", lambda: mod.betweenness_centrality(graph)
+        )
+        digest["betweenness_top"] = _top(betweenness)
 
-    closeness = stage("closeness", lambda: mod.closeness_centrality(graph))
-    digest["closeness_top"] = _top(closeness)
+        closeness = stage("closeness", lambda: mod.closeness_centrality(graph))
+        digest["closeness_top"] = _top(closeness)
+    else:  # pragma: no cover - argparse constrains this in normal use
+        raise RuntimeError(f"unknown whole job {job!r}")
 
     total_wall = sum(t["wall_s"] for t in timings)
     total_cpu = sum(t["cpu_s"] for t in timings)
@@ -530,24 +600,46 @@ def role_worker(args) -> int:
     """
     engines = ["nx", "fnx"] if args.engine == "both" else [args.engine]
     graph_path = os.path.join(args.graph_dir, f"{args.graph}.txt.gz")
+    input_record = {
+        "path": os.path.abspath(graph_path),
+        "sha256": _sha256(graph_path),
+        "bytes": (
+            os.path.getsize(graph_path) if os.path.exists(graph_path) else None
+        ),
+    }
 
     # Successful benchmark processes report the ELF identity before any other
     # output. The hash is computed here, inside the process that will time the
     # job, and is also repeated on every CSV timing row.
-    identity = provenance("fnx", args.builder, args.profile)
+    identity = provenance(
+        "fnx",
+        args.builder,
+        args.profile,
+        rch_base=args.rch_base,
+        rch_clean_overlay=args.rch_clean_overlay,
+        target_dir=args.target_dir,
+    )
     print(
         f"bench_elf_sha256={identity.get('fnx_elf_sha256')} "
         f"bench_elf_path={identity.get('fnx_elf_path')}",
         file=sys.stderr,
         flush=True,
     )
+    capability = (
+        mean_geodesic_capability()
+        if args.job == "mean_geodesic_giant_component"
+        else None
+    )
 
     records = {
         name: {
             "engine": name,
+            "job": args.job,
             "graph": args.graph,
             "threads_requested": args.threads,
+            "input": input_record,
             "provenance": {**identity, "measured_engine": name},
+            "capability": capability,
             "resolved_impls": {},
             "interleaved": args.engine == "both",
             "replicates": [],
@@ -571,6 +663,32 @@ def role_worker(args) -> int:
             )
         if not identity.get("fnx_elf_sha256"):
             raise RuntimeError("measuring process could not self-hash the fnx ELF")
+        if not input_record["sha256"]:
+            raise RuntimeError(
+                f"measuring process could not hash graph input {graph_path!r}"
+            )
+        if not args.rch_base:
+            raise RuntimeError("strict remote provenance requires rch exec --base")
+        if not args.rch_clean_overlay:
+            raise RuntimeError(
+                "strict remote provenance requires rch exec --clean-overlay"
+            )
+        if identity.get("build_builder") in (None, "<unrecorded>", "local"):
+            raise RuntimeError(
+                "strict remote provenance requires the actual remote build worker"
+            )
+        if identity.get("build_profile") in (None, "<unrecorded>"):
+            raise RuntimeError("strict remote provenance requires the cargo profile")
+        if os.path.realpath(args.target_dir or "") != "/data/tmp/cargo-target":
+            raise RuntimeError(
+                "benchmark builds must reuse the one repo target directory "
+                "/data/tmp/cargo-target"
+            )
+        if not identity.get("cargo_target_dir_observed"):
+            raise RuntimeError(
+                "measuring process did not observe the RCH-rewritten "
+                "CARGO_TARGET_DIR"
+            )
         # Construct this first so a full-host affinity fails immediately rather
         # than waiting through an admission scan it can never continuously
         # account for. Valid runs pin to a strict subset of the host cpuset.
@@ -579,6 +697,14 @@ def role_worker(args) -> int:
         mods = {name: _load_engine(name) for name in engines}
         for name in engines:
             records[name]["resolved_impls"] = resolved_impls(mods[name])
+        if (
+            capability is not None
+            and capability["networkx_core_parallel_parameters"]
+        ):
+            raise RuntimeError(
+                "NetworkX core unexpectedly exposes parallel ASPL controls: "
+                f"{capability['networkx_core_parallel_parameters']}"
+            )
         quiescence["pre_measurement"] = require_host_wide_quiescence(
             "pre_measurement"
         )
@@ -599,6 +725,7 @@ def role_worker(args) -> int:
                 timings, digest = run_pass(
                     mods[name],
                     graph_path,
+                    job=args.job,
                     engine_label=f"rep={rep}:{name}",
                     accounting=continuous_monitor,
                 )
@@ -789,7 +916,14 @@ def decide(
 # --------------------------------------------------------------------------
 
 
-def _spawn(args, engine: str, graph: str, threads: int | None, reps: int) -> list[dict]:
+def _spawn(
+    args,
+    job: str,
+    engine: str,
+    graph: str,
+    threads: int | None,
+    reps: int,
+) -> list[dict]:
     env = dict(os.environ)
     if threads is None:
         env.pop("RAYON_NUM_THREADS", None)
@@ -802,6 +936,8 @@ def _spawn(args, engine: str, graph: str, threads: int | None, reps: int) -> lis
         "worker",
         "--engine",
         engine,
+        "--job",
+        job,
         "--graph",
         graph,
         "--graph-dir",
@@ -815,6 +951,12 @@ def _spawn(args, engine: str, graph: str, threads: int | None, reps: int) -> lis
         cmd += ["--builder", args.builder]
     if args.profile:
         cmd += ["--profile", args.profile]
+    if args.rch_base:
+        cmd += ["--rch-base", args.rch_base]
+    if args.rch_clean_overlay:
+        cmd.append("--rch-clean-overlay")
+    if args.target_dir:
+        cmd += ["--target-dir", args.target_dir]
     proc = subprocess.run(
         cmd,
         env=env,
@@ -850,21 +992,23 @@ def role_driver(args) -> int:
 
     plan = json.loads(args.plan)
     for step in plan:
+        job = step.get("job", args.job)
         engine = step["engine"]
         graph = step["graph"]
         threads = step.get("threads")
         reps = step["reps"]
-        label = f"{engine}/{graph}/threads={threads}/reps={reps}"
+        label = f"{job}/{engine}/{graph}/threads={threads}/reps={reps}"
         print(f"[driver] {label} ...", flush=True)
         started = time.perf_counter()
         try:
-            records = _spawn(args, engine, graph, threads, reps)
+            records = _spawn(args, job, engine, graph, threads, reps)
             for record in records:
                 record.setdefault("status", "ok")
         except subprocess.TimeoutExpired:
             records = [
                 {
                     "engine": engine,
+                    "job": job,
                     "graph": graph,
                     "threads_requested": threads,
                     "status": "TIMEOUT",
@@ -877,6 +1021,7 @@ def role_driver(args) -> int:
             records = [
                 {
                     "engine": engine,
+                    "job": job,
                     "graph": graph,
                     "threads_requested": threads,
                     "status": "NO-VERDICT",
@@ -1110,7 +1255,27 @@ def main(argv=None) -> int:
     parser.add_argument(
         "--profile", default=None, help="cargo profile the extension was built with"
     )
+    parser.add_argument(
+        "--rch-base",
+        default=None,
+        help="exact base passed to the enclosing rch exec --base invocation",
+    )
+    parser.add_argument(
+        "--rch-clean-overlay",
+        action="store_true",
+        help="record that the enclosing rch exec used --clean-overlay",
+    )
+    parser.add_argument(
+        "--target-dir",
+        default=None,
+        help="single reused CARGO_TARGET_DIR used for this repo's remote build",
+    )
     parser.add_argument("--engine", choices=["nx", "fnx", "both"])
+    parser.add_argument(
+        "--job",
+        choices=["analytics", "mean_geodesic_giant_component"],
+        default="analytics",
+    )
     parser.add_argument("--graph")
     parser.add_argument("--graph-dir", default="graphs")
     parser.add_argument("--threads", type=int, default=-1)
@@ -1120,7 +1285,10 @@ def main(argv=None) -> int:
     parser.add_argument(
         "--plan",
         default="[]",
-        help="JSON list of {engine, graph, threads, reps} steps, run in order.",
+        help=(
+            "JSON list of {engine, graph, threads, reps, optional job} steps, "
+            "run in order."
+        ),
     )
     args = parser.parse_args(argv)
     if args.role == "selfcheck":
