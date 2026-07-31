@@ -28544,6 +28544,85 @@ QUALITY / CLOSEOUT: `git diff --check` covers this ledger-only result. No
 Cargo command ran. UBS has no Markdown/JSONL scanner, so no scanner pass is
 claimed.
 
+## 2026-07-31 BlackThrush (cod) BEHAVIORAL DIVERGENCE FIXED: `set_edge_attributes` preserves malformed-key errors and partial mutation (`br-r37-c1-2sggo`)
+
+EXACT GENERATED-ORACLE INPUT: identities `ea577605dc16a1d94095`
+(`networkx.set_edge_attributes`) and `79096fbbc3416739bfb9`
+(`networkx.classes.function.set_edge_attributes`) both use fixture
+`disconnected-255201394`: an undirected Graph with graph attribute
+`case_id="disconnected-255201394"`, nodes `0..5` carrying alternating
+`color="even"/"odd"` and `value=1..6`, and these exact attributed edges:
+`(0,1,capacity=1,color="warm",weight=5)`,
+`(1,2,capacity=2,color="cool",weight=8)`,
+`(3,4,capacity=3,color="warm",weight=2)`,
+`(4,5,capacity=4,color="cool",weight=5)`,
+`(0,3,capacity=5,color="warm",weight=8)`,
+`(1,5,capacity=6,color="cool",weight=2)`, and
+`(1,3,capacity=7,color="warm",weight=5)`. The generated `node_mapping`
+argument is exactly
+`{0:"mapped-0",1:"mapped-1",2:"mapped-2",3:"mapped-3",4:"mapped-4",5:"mapped-5"}`;
+`name` is omitted. Live NetworkX 3.6.1 raises built-in
+`TypeError("cannot unpack non-iterable int object")` through both paths and
+leaves the graph unchanged. FNX instead returned `None` through both paths
+and also left the graph unchanged, silently accepting invalid edge keys.
+
+ROOT CAUSE / ONE LEVER: the public wrapper sent every built-in dictionary to
+the native bulk setter, whose non-tuple and wrong-arity branches skip keys.
+The Python fallback independently swallowed `ValueError`, although NetworkX
+catches only missing-edge `KeyError`; tuple-unpacking failures are observable
+and occur after any earlier entries have already mutated the graph. Native
+bulk dispatch is now admitted only for a plain built-in `dict` whose keys are
+plain built-in tuples of the exact graph-family arity (two for Graph/DiGraph,
+three for MultiGraph/MultiDiGraph). Every other mapping follows the ordered
+Python loop, which now catches only `KeyError`. The prescan chooses a route
+but does not mutate or raise, so fallback iteration still preserves
+NetworkX's partial-mutation and exception order. Exact-tuple native behavior
+is unchanged.
+
+EXACT RESULT: both original present paths now raise exactly
+`TypeError("cannot unpack non-iterable int object")`, with the complete graph
+state unchanged. A deterministic follow-up differential corpus exercised 64
+shuffled insertion orders over Graph, DiGraph, MultiGraph, and MultiDiGraph,
+both dict-of-dicts and named-scalar modes, existing and missing edges,
+integer keys, short and long tuple keys, and mutations preceding the first
+malformed key: **512 agree / 0 diverge** on exact return/exception
+class/message and complete post-call node/edge attributes. Dedicated tests
+also retain valid non-tuple iterable-key behavior. The full focused
+attribute-access file passed **176/176**; ten edge-attribute consumer and
+regression files passed **858/858**. Separate staged UBS scans of the
+61k-line wrapper and focused test completed with exit 0 and zero critical
+findings after the test's two trusted in-memory pickle round trips received
+the repository's standard scanner annotations.
+
+ARTIFACT / HOST PROVENANCE: this is a Python-wrapper-only repair; no Rust
+source or native ABI changed and no Cargo command ran. The validating process
+ran on host `thinkstation1` against NetworkX 3.6.1 and self-reported the
+actually loaded 13,229,816-byte extension SHA-256 as
+`2b49eaafc74803306e25b4d39672547d4ac969c6c805862a0297b3097e1145df`.
+The edited wrapper SHA-256 was
+`987b110b65381c30eb6bd6bfec7620123bfce23e40e9d1b546d18ee563c7ddd8`.
+The self-contained focused file ran with `--noconftest` because the
+repository freshness guard correctly detects unrelated newer committed Rust
+sources. No target directory was created.
+
+RESULT: **KEEP THE CORRECTNESS FIX.** This row makes no timing claim and no
+incumbent-ratio verdict. The timing-only requirements for paired A/A nulls,
+the corrected three-clause median gate, actual observed threads, continuous
+host accounting, and `rch exec --base/--clean-overlay` are therefore not
+applicable.
+
+RETRY PREDICATE: do not widen native bulk admission to tuple subclasses,
+non-tuple iterables, malformed arities, or arbitrary mapping subclasses
+without first matching the two exact oracle identities plus the 512-case
+post-mutation corpus with zero divergence. Any replacement must preserve
+dictionary insertion order, mutations before the first failing key, exact
+built-in exception class/message, missing-edge suppression, directed and
+multigraph arity, and valid iterable-key behavior. Any timed claim must then
+add live NetworkX 3.6.1, actual observed threads, in-process host and loaded
+ELF identity, continuous accounting, dual A/A nulls, all three corrected
+median clauses, and `rch exec --base <commit> --clean-overlay` while reusing
+the single repository target.
+
 ## 2026-07-31 BlackThrush (cod) BEHAVIORAL DIVERGENCE FIXED: d-separation guards cyclic digraphs on all four import paths (`br-r37-c1-iea1p`)
 
 EXACT GENERATED-ORACLE INPUT: four present paths diverged on fixture

@@ -23636,6 +23636,13 @@ def _edge_attribute_dict(G, edge):
         return G[v][u]
 
 
+def _native_edge_mapping_has_exact_tuple_keys(values, arity):
+    """Whether *values* is safe for the native bulk edge-attribute path."""
+    return type(values) is dict and all(
+        type(edge) is tuple and len(edge) == arity for edge in values
+    )
+
+
 def set_node_attributes(G, values, name=None):
     """_Set node attributes from a dictionary or scalar.
 
@@ -23747,8 +23754,9 @@ def set_edge_attributes(G, values, name=None):
             # the edge_py_attrs mirror + marks edges dirty so the lazy
             # inner flush reaches the kernels. Simple graphs only (Multi
             # edge keys are 3-tuples); others fall back.
-            if isinstance(values, dict):
-                if not G.is_multigraph():
+            arity = 3 if G.is_multigraph() else 2
+            if _native_edge_mapping_has_exact_tuple_keys(values, arity):
+                if arity == 2:
                     native = getattr(G, "_native_set_edge_attribute_scalar", None)
                     if native is not None:
                         native(values, name)
@@ -23761,7 +23769,7 @@ def set_edge_attributes(G, values, name=None):
             for edge, value in values.items():
                 try:
                     _edge_attribute_dict(G, edge)[name] = value
-                except (KeyError, ValueError):
+                except KeyError:
                     continue
             return
 
@@ -23769,7 +23777,10 @@ def set_edge_attributes(G, values, name=None):
         # form. The loop below resolves `G[u][v]` (a full EdgeAttrDict VIEW)
         # per edge (~0.06x vs nx's plain `G._adj[u][v].update`). Simple graphs
         # only (Multi edge keys are 3-tuples; others keep the loop).
-        if isinstance(values, dict) and not G.is_multigraph():
+        if (
+            not G.is_multigraph()
+            and _native_edge_mapping_has_exact_tuple_keys(values, 2)
+        ):
             native = getattr(G, "_native_set_edge_attributes_dict", None)
             if native is not None:
                 native(values)
@@ -23777,7 +23788,7 @@ def set_edge_attributes(G, values, name=None):
         for edge, attrs in values.items():
             try:
                 _edge_attribute_dict(G, edge).update(attrs)
-            except (KeyError, ValueError):
+            except KeyError:
                 continue
         return
 
