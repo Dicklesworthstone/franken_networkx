@@ -1185,7 +1185,8 @@ The `fnx.community` submodule mirrors `nx.algorithms.community`. Most algorithms
 
 - **Louvain (`louvain_communities`).** Currently routes through `nx.algorithms.community.louvain_communities` against a converted graph. Bead `br-r37-c1-louvainsubmod` documents the conversion path; nx's multi-level Louvain produces wrong partitions against a raw fnx graph. Native Rust port is planned.
 - **Label propagation (`label_propagation_communities`).** Same routing today (bead `br-r37-c1-cy2me`). Earlier had a native fast path that was retired pending a parity fix.
-- **Greedy modularity, k-clique communities, Girvan-Newman, asyn_fluidc, Kernighan-Lin bisection.** Mixed: some native, some delegated. Check `docs/delegation_ledger.md` for the canonical state of each.
+- **Greedy modularity (`greedy_modularity_communities`).** Currently routes through NetworkX against a converted graph. The former native CNM public route was retired after an insertion-order-sensitive partition divergence (`br-r37-c1-z4rnj`).
+- **K-clique communities, Girvan-Newman, asyn_fluidc, Kernighan-Lin bisection.** Mixed: some native, some delegated. Check `docs/delegation_ledger.md` for the canonical state of each.
 - **`community.modularity`.** Computed natively against fnx adjacency.
 
 ### Isomorphism
@@ -2138,7 +2139,7 @@ The conformance gate guarantees that an analysis published last year and rerun t
 ### Recommendation systems and social analytics
 
 - **Link prediction:** `adamic_adar_index`, `preferential_attachment`, `resource_allocation_index` over user-item bipartite graphs.
-- **Community detection at scale:** Louvain / greedy modularity over follower graphs (with the caveat that Louvain currently routes through nx).
+- **Community detection at scale:** Louvain / greedy modularity over follower graphs (both currently route through nx for exact behavioral parity).
 - **Pagerank-style ranking:** personalized PageRank for content recommendation.
 
 ### Compiler and program analysis

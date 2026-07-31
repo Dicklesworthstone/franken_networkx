@@ -11,6 +11,8 @@ No mocks: real fnx and real networkx on random graphs + partitions.
 
 from __future__ import annotations
 
+import hashlib
+import json
 import random
 
 import pytest
@@ -57,6 +59,36 @@ def test_greedy_modularity_communities_parity(seed):
     fc = sorted(sorted(c) for c in fcom.greedy_modularity_communities(fg))
     nc = sorted(sorted(c) for c in ncom.greedy_modularity_communities(ng))
     assert fc == nc
+
+
+def test_greedy_modularity_communities_class1_hunt_regression():
+    """Pin the exact ordered graph that invalidated the native CNM route."""
+    rng = random.Random(13)
+    nodes = [str(i) for i in range(220)]
+    seen = set()
+    edges = []
+    while len(edges) < 900:
+        u, v = rng.randrange(220), rng.randrange(220)
+        if u == v:
+            continue
+        key = (min(u, v), max(u, v))
+        if key in seen:
+            continue
+        seen.add(key)
+        edges.append((str(u), str(v)))
+
+    fg = fnx.Graph()
+    ng = nx.Graph()
+    for graph in (fg, ng):
+        graph.add_nodes_from(nodes)
+        graph.add_edges_from(edges)
+
+    fc = sorted(sorted(c) for c in fcom.greedy_modularity_communities(fg))
+    nc = sorted(sorted(c) for c in ncom.greedy_modularity_communities(ng))
+    assert fc == nc
+    assert hashlib.sha256(
+        json.dumps(fc, separators=(",", ":")).encode()
+    ).hexdigest() == "ab5539dbda21bdcf824b9360f49cecec829bf89d6f8d5170b214f97a051432b4"
 
 
 @pytest.mark.parametrize("seed", range(20))
