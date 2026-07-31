@@ -26571,6 +26571,39 @@ def make_max_clique_graph(G, create_using=None):
     return graph
 
 
+def _canonical_node_key(node):
+    """Python mirror of Rust ``node_key_to_string`` (crates/fnx-python/src/lib.rs).
+
+    Native kernels that hand node keys back as strings emit this canonical form.
+    Anything decoding such a result must key its reverse map with THIS function:
+    ``str(node)`` only coincides with the canonical form for ints and all-int
+    tuples, so using it silently mislabels str/float/bool nodes (br-r37-c1-zeivc).
+    """
+    if isinstance(node, str):
+        return f"str:{len(node)}:{node}"
+    # bool before int: bool is an int subclass and canonicalizes to "1"/"0".
+    if isinstance(node, bool):
+        return "1" if node else "0"
+    if isinstance(node, int):
+        return str(node)
+    if isinstance(node, float):
+        # Integral floats collide with their int counterparts by hash and ==,
+        # so Rust folds them to the integer spelling; others fall back to repr.
+        if (
+            _math.isfinite(node)
+            and node.is_integer()
+            and -(2**63) <= node < 2**63
+        ):
+            return str(int(node))
+        return repr(node)
+    if isinstance(node, tuple) and node:
+        # Exact-int elements only; bool is excluded because repr("True") differs.
+        if all(type(item) is int for item in node):
+            body = ", ".join(str(item) for item in node)
+            return f"({body},)" if len(node) == 1 else f"({body})"
+    return repr(node)
+
+
 def power(G, k):
     """Return the k-th power of *G*.
 
@@ -26592,7 +26625,17 @@ def power(G, k):
     G = _coerce_arg_to_fnx_graph(G)
     if isinstance(k, _numbers.Integral):
         raw_graph = _fnx.power_rust(G, int(k))
-        canonical_to_node = {str(node): node for node in G.nodes()}
+        # br-r37-c1-zeivc: ``power_rust`` emits CANONICAL node keys, so the
+        # reverse map must be keyed by the canonical form, not by ``str(node)``.
+        # Keying it by ``str(node)`` matched only int and all-int-tuple nodes
+        # (where the two forms coincide); str/float/bool nodes missed, and the
+        # ``.get(raw, raw)`` fallback then leaked the raw canonical key straight
+        # into the returned labels -- ``'a'`` came back as ``'str:1:a'`` and
+        # ``1.0``/``True`` came back as the STRING ``'1'``. Silent: the edge
+        # structure was right, so only the labels were wrong.
+        canonical_to_node = {
+            _canonical_node_key(node): node for node in G.nodes()
+        }
 
         # br-r37-c1-fi1qe: bulk add_nodes_from / add_edges_from instead of one
         # PyO3 add_node/add_edge call per element. The rebuild of power_rust's
