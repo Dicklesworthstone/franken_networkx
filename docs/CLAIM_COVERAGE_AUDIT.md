@@ -56,10 +56,10 @@ The README performance table has 45 per-family rows: 44 numeric claims and one
 explicit no-ratio row after the contaminated `k_corona` number was withdrawn.
 It also has 5 whole-job pipeline rows. Cross-referencing each family row against
 a paired `(label, nx_arm, fnx_arm)` job in the contract harness across **all 33
-suites** (the harness exposes **41 distinct NetworkX functions** with a paired arm):
+suites** (the harness exposes **42 distinct NetworkX functions** with a paired arm):
 
-- **32 of 45** README family rows have a paired incumbent arm in the contract harness.
-- **13 of 45** do not.
+- **33 of 45** README family rows have a paired incumbent arm in the contract harness.
+- **12 of 45** do not.
 - **24 of 45** still lack a current admissible ratio. The
   `erdos_renyi_graph` and `k_corona` arms reached no timed verdict because host
   exclusivity rejected their runnable placements. The `k_crust` and
@@ -71,12 +71,12 @@ suites** (the harness exposes **41 distinct NetworkX functions** with a paired a
   cannot be reused without minting another cold target directory. The
   `all_pairs_dijkstra_path_length` and `subgraph(view) → edges` arms are
   blocked by the same predicate, as are `single_pair_shortest_path` and
-  `pagerank`.
+  `pagerank` and `partition_spanning_tree`.
 
 ### Tier 1 — published in the README, no current admissible contract ratio
 
-Rows 1-11 now have permanent arms but remain in this queue until they reach an
-admissible verdict. Rows 12-24 still have no permanent arm.
+Rows 1-12 now have permanent arms but remain in this queue until they reach an
+admissible verdict. Rows 13-24 still have no permanent arm.
 
 | # | Claim | Published | README |
 |--:|---|---:|---:|
@@ -133,8 +133,8 @@ NetworkX 3.6.1; being a drop-in replacement is the whole premise. Adding an arm 
 (`edges(data=True)`, `G.has_node`, `subgraph(view) → edges`) need a bound-method arm, which the
 harness already supports (`getattr(nx_graph, name)`, `perf_harness.py:2580`).
 
-So the honest characterisation is **"measured but not attested; 13 public
-cases are not reproducible by the contract harness, and eleven more now have
+So the honest characterisation is **"measured but not attested; 12 public
+cases are not reproducible by the contract harness, and twelve more now have
 permanent arms but no admissible verdict"** — not "unmeasurable". That is a
 better position than the raw 2.0% suggests, and a worse one than the README
 implies.
@@ -143,5 +143,5 @@ implies.
 
 It does not claim the 579 unattested rows are wrong. It claims we cannot
 currently demonstrate they are right to the standard we have adopted, and
-that 13 numbers a user reads in the README have no arm in the harness it
-points them at; eleven more now have arms but no admissible timed verdict.
+that 12 numbers a user reads in the README have no arm in the harness it
+points them at; twelve more now have arms but no admissible timed verdict.

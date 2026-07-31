@@ -29234,6 +29234,87 @@ passed. UBS on all staged files exited 0 with zero critical findings and the
 same one pre-existing whole-harness warning. No Cargo command ran: no Rust
 source changed, and the required RCH mode would have created a fresh target.
 
+## 2026-07-31 BlackThrush (cod) PARITY + NO-VERDICT: exact `partition_spanning_tree` claim arm (`br-r37-c1-p80x1.23`)
+
+**EXACT ARTIFACT RECOVERY BEFORE CONVERSION.** README's published `2.4612x`
+row came from `hunt_unmeasured.py`, SHA-256
+`1114f244b93787b9e1d6a900633ccd93f3a09c91de8d669bde9ba75df5a611e3`,
+and `unmeasured_results.json`, SHA-256
+`40040b7b90de11721263864fff0e3e79f260ca2779e16c8252784dc9236ef249`.
+Its imported builder is in `hunt_class1.py`, SHA-256
+`fb051cf48508ad56ee0c64103335090bd7866b12d65cb2e29d522cfa33b4cba1`.
+The exact public projection is
+`sorted(partition_spanning_tree(G).edges())`, with every algorithm parameter
+omitted, on the helper's weighted undirected simple string-node graph with
+`n=800, m=4000, seed=11` and integer weights in `[1,20]`. Thus the live
+NetworkX 3.6.1 defaults are `minimum=True`, `weight="weight"`,
+`partition="partition"`, and `ignore_nan=False`.
+
+Under `PYTHONHASHSEED=0`, both implementations receive 189,846 canonical
+input bytes, SHA-256
+`584eb6bafa6fb460a577fdc11478c50bbd8c0238c9f2f9b8552252fb6cb624c4`.
+The recovered sorted projections agree byte-for-byte with live NetworkX
+3.6.1: 799 edges, 12,546 canonical bytes, SHA-256
+`13186f9d9ff25bc03b54d572af8e9b4d2e3d2221f08374ce8b3bd9922fb2a9e5`.
+The recovered result artifact left its checksum fields empty.
+
+That projection hides every output node and edge attribute, so the permanent
+preflight also checks the complete returned graph. Both implementations
+produce all 800 nodes and the same 799 weighted edges, attributes, and
+iteration order: 50,835 canonical bytes, SHA-256
+`43826cfdd7e7f3c42220eafa49be7f64eb0c18ae7bb27b3ef9f4fd9b0592628b`.
+No behavioral divergence was found.
+
+The permanent `claim-incumbent` arm preregisters the recovered projection,
+all omitted/default parameters, weight range, input byte count and hash,
+projected edge count/bytes/hash, and complete output node/edge counts,
+bytes, and hash. It rejects a topology, attribute, or order change before
+timing the complete public operation. Harness SHA-256 is
+`dc667bc3aa40467036d2c162205882903b85fca196fe5b44370bf9d03857c6c6`.
+
+No strict benchmark was started. The shared stable-target retry predicate is
+still false: installed RCH 1.0.52 commit `65294dcda0e0` salts every required
+clean-overlay remote root with a fresh UUID and nests the pooled Cargo target
+below that unique root. Starting this row would therefore mint another cold
+target directory, which is forbidden. No per-run target directory was
+requested or created.
+
+comparison_class=NO-VERDICT
+incumbent=networkx-3.6.1
+incumbent_same_invocation=false
+campaign_output=false
+decision_gate=not_reached
+null_median_clause=not_reached
+host_identity=not_reached
+bench_elf_sha256=not_reached
+actual_observed_threads=not_reached
+cv_role=not_computed
+
+RESULT: **FULL WEIGHTED GRAPH PARITY / PERFORMANCE NO-VERDICT.** The
+recovered exact complete output agrees with NetworkX 3.6.1, but the permanent
+arm supplies no new support for the published `2.4612x`; do not replace or
+strengthen that number from the local correctness diagnostic.
+
+RETRY PREDICATE: retry only after RCH exposes a managed target directory whose
+physical path is stable across two otherwise identical `--base` plus
+`--clean-overlay` invocations, or moves its pooled target outside the
+UUID-salted clean source root. Reuse that one target without a cold copy and
+preserve all recovered-artifact, input, projection, complete-output, and
+default-parameter hashes, live NetworkX 3.6.1, all worker slots, in-process
+host identity and ELF SHA-256, actual observed threads, 21 rounds, both A/A
+nulls, continuous 300 ms accounting, and the corrected three-clause median
+gate. Any target-path change, admission, provenance, parity, or accounting
+abort remains NO-VERDICT.
+
+QUALITY / CLOSEOUT: the focused partition-spanning-tree arm preflight passed,
+and the complete twelve-row claim suite passed with every row asserted
+against its preregistered complete-output byte count and SHA-256.
+`python3 -m py_compile scripts/perf_harness.py`,
+`tests/python/test_perf_ledger_gate.py` (21/21), and `git diff --check`
+passed. UBS on all staged files exited 0 with zero critical findings and the
+same one pre-existing whole-harness warning. No Cargo command ran: no Rust
+source changed, and the required RCH mode would have created a fresh target.
+
 ## 2026-07-31 BlackThrush (cod) NO-VERDICT: published `erdos_renyi_graph` claim gets a permanent incumbent arm (`br-r37-c1-p80x1.1`)
 
 **CLAIM-GAP FIRST.** `README.md` publishes

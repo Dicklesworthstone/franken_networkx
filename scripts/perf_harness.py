@@ -3201,6 +3201,7 @@ def suite_claim_incumbent():
         "kosaraju_strongly_connected_components",
         "minimum_branching",
         "pagerank",
+        "partition_spanning_tree",
         "single_pair_shortest_path",
         "single_source_shortest_path_length",
         "subgraph_view_edges",
@@ -4009,6 +4010,131 @@ def suite_claim_incumbent():
                 "n=2000 m=8000 seed=7 parameters=defaults [nx/fnx]",
                 lambda graph=pagerank_nx: nx.pagerank(graph),
                 lambda graph=pagerank_fnx: fnx.pagerank(graph),
+            )
+        )
+    if "partition_spanning_tree" in jobs:
+        if os.environ.get("PYTHONHASHSEED") != "0":
+            raise RuntimeError(
+                "the partition_spanning_tree claim fixture requires "
+                "PYTHONHASHSEED=0 because complete graph order is part of "
+                "the public contract"
+            )
+        node_count = 800
+        edge_count = 4_000
+        seed = 11
+        expected_input_bytes = 189_846
+        expected_input_sha256 = (
+            "584eb6bafa6fb460a577fdc11478c50bbd8c0238c9f2f9b8552252fb6cb624c4"
+        )
+        expected_projected_output_edges = 799
+        expected_projected_output_bytes = 12_546
+        expected_projected_output_sha256 = (
+            "13186f9d9ff25bc03b54d572af8e9b4d2e3d2221f08374ce8b3bd9922fb2a9e5"
+        )
+        expected_output_nodes = 800
+        expected_output_edges = 799
+        expected_output_bytes = 50_835
+        expected_output_sha256 = (
+            "43826cfdd7e7f3c42220eafa49be7f64eb0c18ae7bb27b3ef9f4fd9b0592628b"
+        )
+        spanning_nx, spanning_fnx = _build_pair(
+            node_count,
+            edge_count,
+            seed=seed,
+            weighted=True,
+        )
+        input_nx_bytes = canonical_bytes(spanning_nx)
+        input_fnx_bytes = canonical_bytes(spanning_fnx)
+        input_sha256 = hashlib.sha256(input_nx_bytes).hexdigest()
+        if input_nx_bytes != input_fnx_bytes:
+            raise RuntimeError(
+                "partition_spanning_tree claim input graphs diverged"
+            )
+        if (
+            len(input_nx_bytes) != expected_input_bytes
+            or not hmac.compare_digest(input_sha256, expected_input_sha256)
+        ):
+            raise RuntimeError(
+                "partition_spanning_tree claim input no longer matches its "
+                "preregistered canonical byte count and SHA-256"
+        )
+
+        preflight_nx = nx.partition_spanning_tree(spanning_nx)
+        preflight_fnx = fnx.partition_spanning_tree(spanning_fnx)
+        projected_nx = sorted(preflight_nx.edges())
+        projected_fnx = sorted(preflight_fnx.edges())
+        projected_nx_bytes = canonical_bytes(projected_nx)
+        projected_fnx_bytes = canonical_bytes(projected_fnx)
+        projected_output_sha256 = hashlib.sha256(
+            projected_nx_bytes
+        ).hexdigest()
+        if projected_nx_bytes != projected_fnx_bytes:
+            raise RuntimeError(
+                "partition_spanning_tree recovered edge projection diverged"
+            )
+        if (
+            len(projected_nx) != expected_projected_output_edges
+            or len(projected_nx_bytes) != expected_projected_output_bytes
+            or not hmac.compare_digest(
+                projected_output_sha256,
+                expected_projected_output_sha256,
+            )
+        ):
+            raise RuntimeError(
+                "partition_spanning_tree recovered edge projection no "
+                "longer matches its preregistered result"
+            )
+
+        preflight_nx_bytes = canonical_bytes(preflight_nx)
+        preflight_fnx_bytes = canonical_bytes(preflight_fnx)
+        output_sha256 = hashlib.sha256(preflight_nx_bytes).hexdigest()
+        if preflight_nx_bytes != preflight_fnx_bytes:
+            raise RuntimeError(
+                "partition_spanning_tree complete ordered output diverged"
+            )
+        if (
+            preflight_nx.number_of_nodes() != expected_output_nodes
+            or preflight_nx.number_of_edges() != expected_output_edges
+            or len(preflight_nx_bytes) != expected_output_bytes
+            or not hmac.compare_digest(output_sha256, expected_output_sha256)
+        ):
+            raise RuntimeError(
+                "partition_spanning_tree claim fixture no longer matches "
+                "its preregistered complete ordered output"
+            )
+        EXTRA_PROVENANCE["claim_partition_spanning_tree_fixture"] = {
+            "nodes": node_count,
+            "edges": edge_count,
+            "seed": seed,
+            "weighted": True,
+            "directed": False,
+            "weight_range_inclusive": [1, 20],
+            "minimum": True,
+            "weight": "weight",
+            "partition": "partition",
+            "ignore_nan": False,
+            "parameters": "all omitted (NetworkX 3.6.1 defaults)",
+            "python_hash_seed": 0,
+            "input_canonical_bytes": expected_input_bytes,
+            "input_sha256": expected_input_sha256,
+            "recovered_projection": "sorted(result.edges())",
+            "projected_output_edges": expected_projected_output_edges,
+            "projected_output_canonical_bytes": (
+                expected_projected_output_bytes
+            ),
+            "projected_output_sha256": expected_projected_output_sha256,
+            "output_nodes": expected_output_nodes,
+            "output_edges": expected_output_edges,
+            "output_canonical_bytes": expected_output_bytes,
+            "complete_output_sha256": expected_output_sha256,
+        }
+        rows.append(
+            (
+                "claim/partition_spanning_tree "
+                "n=800 m=4000 seed=11 weights=1..20 "
+                "parameters=defaults [nx/fnx]",
+                lambda graph=spanning_nx: nx.partition_spanning_tree(graph),
+                lambda graph=spanning_fnx: fnx.partition_spanning_tree(graph),
             )
         )
     if "single_pair_shortest_path" in jobs:

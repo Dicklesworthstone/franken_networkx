@@ -2431,3 +2431,31 @@ emitted. Retry only after two required clean-overlay invocations prove one
 identical managed physical target path, then retain all artifact/default/input
 and output hashes, live incumbent, all provenance, 21 rounds, continuous
 accounting, dual A/A nulls, and the corrected three-clause median gate.
+
+## 2026-07-31 BlackThrush (cod) PARITY + NO-VERDICT (`br-r37-c1-p80x1.23`): exact `partition_spanning_tree` claim arm
+
+The original `2.4612x` workload was recovered exactly from
+`hunt_unmeasured.py` (SHA `1114f244...11e3`) and its saved result artifact
+(SHA `40040b7b...f249`), using the builder in `hunt_class1.py` (SHA
+`fb051cf4...cba1`). It evaluates
+`sorted(partition_spanning_tree(G).edges())` with all NetworkX 3.6.1
+defaults omitted on a weighted undirected simple string-node
+`n=800,m=4000,seed=11` graph with weights in `1..20`.
+
+Under `PYTHONHASHSEED=0`, both implementations receive 189,846 canonical
+input bytes (SHA `584eb6ba...24c4`). Live NetworkX 3.6.1 and FrankenNetworkX
+agree exactly on the recovered 799-edge projection: 12,546 bytes, SHA
+`13186f9d...a9e5`. The complete outputs also agree on all 800 nodes and the
+same 799 weighted edges, attributes, and order: 50,835 bytes, SHA
+`43826cfd...628b`. No divergence was found.
+
+RESULT: **FULL WEIGHTED GRAPH PARITY / PERFORMANCE NO-VERDICT.** No strict
+benchmark was started because RCH 1.0.52 still places its pooled target below
+a UUID-salted clean-overlay root; running would create another cold target.
+Therefore no in-process host identity, ELF SHA, actual observed threads,
+nulls, corrected median clause, candidate CI, or incumbent ratio was emitted.
+Retry only after two required clean-overlay invocations prove one identical
+managed physical target path, then retain all artifact, input, projection,
+complete-output, and default-parameter hashes, live incumbent, all
+provenance, 21 rounds, continuous accounting, dual A/A nulls, and the
+corrected three-clause median gate.
