@@ -3232,6 +3232,7 @@ def suite_claim_incumbent():
         "minimum_branching",
         "pagerank",
         "partition_spanning_tree",
+        "read_gml",
         "read_graph6",
         "read_sparse6",
         "shortest_path_weighted",
@@ -4991,6 +4992,142 @@ def suite_claim_incumbent():
                 "parameters=defaults [nx/fnx]",
                 lambda graph=spanning_nx: nx.partition_spanning_tree(graph),
                 lambda graph=spanning_fnx: fnx.partition_spanning_tree(graph),
+            )
+        )
+    if "read_gml" in jobs:
+        if os.environ.get("PYTHONHASHSEED") != "0":
+            raise RuntimeError(
+                "the read_gml claim fixture requires PYTHONHASHSEED=0 "
+                "because decoded graph and projection order are part of "
+                "the public contract"
+            )
+        source_node_count = 1_200
+        source_edge_count = 6_000
+        source_seed = 11
+        expected_payload_bytes = 307_162
+        expected_payload_sha256 = (
+            "e750bdb0901f2da65fe9b8809c84d5e254bf26525a24026ea28a62f9664d85ce"
+        )
+        expected_output_nodes = 1_200
+        expected_output_edges = 6_000
+        expected_output_bytes = 194_277
+        expected_output_sha256 = (
+            "199d564350ec6f70885e8f8236fad28d6620b44e3e7917a470f6fba73024e653"
+        )
+        expected_projection_items = 6_000
+        expected_projection_bytes = 108_972
+        expected_projection_sha256 = (
+            "2f54f4c0b59355453688e92a940bfa0c702ceb99046bdcc3c246cb7ac20f3295"
+        )
+        gml_source_nx, _gml_source_fnx = _build_pair(
+            source_node_count,
+            source_edge_count,
+            seed=source_seed,
+            weighted=False,
+        )
+        gml_source_nx = nx.convert_node_labels_to_integers(gml_source_nx)
+        gml_output = io.BytesIO()
+        nx.write_gml(gml_source_nx, gml_output)
+        gml_payload = gml_output.getvalue()
+        payload_sha256 = hashlib.sha256(gml_payload).hexdigest()
+        if (
+            len(gml_payload) != expected_payload_bytes
+            or not hmac.compare_digest(
+                payload_sha256,
+                expected_payload_sha256,
+            )
+        ):
+            raise RuntimeError(
+                "read_gml claim payload no longer matches its "
+                "preregistered byte count and SHA-256"
+            )
+        gml_path = _materialize_claim_payload(
+            "franken_networkx-claim-read_gml-e750bdb0901f2da6.gml",
+            gml_payload,
+        )
+        preflight_nx = nx.read_gml(gml_path)
+        preflight_fnx = fnx.read_gml(gml_path)
+        preflight_nx_bytes = canonical_bytes(preflight_nx)
+        preflight_fnx_bytes = canonical_bytes(preflight_fnx)
+        output_sha256 = hashlib.sha256(preflight_nx_bytes).hexdigest()
+        projected_nx = sorted(map(str, preflight_nx.edges()))
+        projected_fnx = sorted(map(str, preflight_fnx.edges()))
+        projected_nx_bytes = canonical_bytes(projected_nx)
+        projected_fnx_bytes = canonical_bytes(projected_fnx)
+        projection_sha256 = hashlib.sha256(projected_nx_bytes).hexdigest()
+        if preflight_nx_bytes != preflight_fnx_bytes:
+            raise RuntimeError("read_gml claim complete decoded graph diverged")
+        if projected_nx_bytes != projected_fnx_bytes:
+            raise RuntimeError(
+                "read_gml claim recovered sorted string-edge projection "
+                "diverged"
+            )
+        if (
+            type(preflight_nx).__name__ != "Graph"
+            or type(preflight_fnx).__name__ != "Graph"
+            or preflight_nx.is_directed()
+            or preflight_nx.is_multigraph()
+            or preflight_nx.number_of_nodes() != expected_output_nodes
+            or preflight_nx.number_of_edges() != expected_output_edges
+            or len(preflight_nx_bytes) != expected_output_bytes
+            or not hmac.compare_digest(output_sha256, expected_output_sha256)
+            or len(projected_nx) != expected_projection_items
+            or len(projected_nx_bytes) != expected_projection_bytes
+            or not hmac.compare_digest(
+                projection_sha256,
+                expected_projection_sha256,
+            )
+        ):
+            raise RuntimeError(
+                "read_gml claim fixture no longer matches its "
+                "preregistered decoded graph and projection"
+            )
+        EXTRA_PROVENANCE["claim_read_gml_fixture"] = {
+            "publishing_commit": "87cf65e54a4e13a72a12c2bc7458655c7d4b3ac1",
+            "recovered_harness_sha256": (
+                "1114f244b93787b9e1d6a900633ccd93f3a09c91de8d669bde9ba75df5a611e3"
+            ),
+            "recovered_result_sha256": (
+                "40040b7b90de11721263864fff0e3e79f260ca2779e16c8252784dc9236ef249"
+            ),
+            "recovered_builder_sha256": (
+                "fb051cf48508ad56ee0c64103335090bd7866b12d65cb2e29d522cfa33b4cba1"
+            ),
+            "source_nodes": source_node_count,
+            "source_edges": source_edge_count,
+            "source_seed": source_seed,
+            "source_weighted": False,
+            "source_directed": False,
+            "source_relabel": "networkx.convert_node_labels_to_integers",
+            "writer": "networkx.write_gml",
+            "writer_parameters": "all omitted (NetworkX 3.6.1 defaults)",
+            "reader_input": "path",
+            "reader_parameters": "path positional; all others omitted",
+            "fixture_path": gml_path,
+            "python_hash_seed": 0,
+            "payload_bytes": expected_payload_bytes,
+            "payload_sha256": expected_payload_sha256,
+            "output_type": "Graph",
+            "output_nodes": expected_output_nodes,
+            "output_edges": expected_output_edges,
+            "output_canonical_bytes": expected_output_bytes,
+            "complete_decoded_graph_sha256": expected_output_sha256,
+            "timed_projection": "sorted(map(str, result.edges()))",
+            "projection_items": expected_projection_items,
+            "projection_canonical_bytes": expected_projection_bytes,
+            "projection_sha256": expected_projection_sha256,
+        }
+        rows.append(
+            (
+                "claim/read_gml "
+                "source_n=1200 source_m=6000 source_seed=11 "
+                "input=path then=sorted(map(str,edges)) [nx/fnx]",
+                lambda path=gml_path: sorted(
+                    map(str, nx.read_gml(path).edges())
+                ),
+                lambda path=gml_path: sorted(
+                    map(str, fnx.read_gml(path).edges())
+                ),
             )
         )
     if "read_graph6" in jobs or "read_sparse6" in jobs:
