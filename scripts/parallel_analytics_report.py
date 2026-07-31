@@ -8,11 +8,13 @@ driver` and emits:
                   the bootstrap median CI gated on a same-engine A/A null, the
                   cross-engine parity digest, and a chooser statement.
   * rows.csv   -- one row per (engine, graph, threads, rep, stage) carrying
-                  host identity and thread count on EVERY row, as required.
+                  host identity, requested threads, CPU-active threads actually
+                  observed, ELF identity, and exclusivity evidence on EVERY row.
 
 Statistics contract: significance is a bootstrap percentile CI on the median
-ratio, gated against a same-engine A/A null margin (observed effect must clear
-2x the null). Coefficient of variation is never computed or used.
+ratio, gated by all three corrected clauses: effect CI excludes 1, effect
+deviation clears 2x the wider same-engine A/A half-width, and every A/A median
+is within 2% of 1. Coefficient of variation is never computed or used.
 """
 
 from __future__ import annotations
@@ -90,6 +92,10 @@ def write_csv(study: dict, path: str) -> int:
         "wall_s",
         "cpu_s",
         "cpu_wall_ratio",
+        "process_threads_before",
+        "process_threads_after",
+        "thread_count_actually_used",
+        "accounting_thread_ids_excluded",
         "host",
         "cpu_model",
         "cpu_physical_cores",
@@ -98,6 +104,10 @@ def write_csv(study: dict, path: str) -> int:
         "rayon_num_threads_env",
         "networkx_version",
         "fnx_elf_sha256",
+        "host_wide_pre_setup_verdict",
+        "host_wide_pre_measurement_verdict",
+        "measurement_exclusivity_verdict",
+        "exclusivity_checked_windows",
         "status",
     ]
     count = 0
@@ -106,6 +116,8 @@ def write_csv(study: dict, path: str) -> int:
         writer.writeheader()
         for run in study["runs"]:
             prov = run.get("provenance", {})
+            quiescence = run.get("host_wide_quiescence", {})
+            exclusivity = run.get("measurement_exclusivity", {})
             for rep in run.get("replicates", []):
                 for timing in rep["timings"]:
                     writer.writerow(
@@ -118,6 +130,18 @@ def write_csv(study: dict, path: str) -> int:
                             "wall_s": f"{timing['wall_s']:.6f}",
                             "cpu_s": f"{timing['cpu_s']:.6f}",
                             "cpu_wall_ratio": fmt(timing.get("cpu_wall_ratio")),
+                            "process_threads_before": timing.get(
+                                "process_threads_before"
+                            ),
+                            "process_threads_after": timing.get(
+                                "process_threads_after"
+                            ),
+                            "thread_count_actually_used": timing.get(
+                                "thread_count_actually_used"
+                            ),
+                            "accounting_thread_ids_excluded": json.dumps(
+                                timing.get("accounting_thread_ids_excluded", [])
+                            ),
                             "host": prov.get("host"),
                             "cpu_model": prov.get("cpu_model"),
                             "cpu_physical_cores": prov.get("cpu_physical_cores"),
@@ -126,6 +150,18 @@ def write_csv(study: dict, path: str) -> int:
                             "rayon_num_threads_env": prov.get("rayon_num_threads_env"),
                             "networkx_version": prov.get("networkx_version"),
                             "fnx_elf_sha256": prov.get("fnx_elf_sha256"),
+                            "host_wide_pre_setup_verdict": quiescence.get(
+                                "pre_setup", {}
+                            ).get("verdict"),
+                            "host_wide_pre_measurement_verdict": quiescence.get(
+                                "pre_measurement", {}
+                            ).get("verdict"),
+                            "measurement_exclusivity_verdict": exclusivity.get(
+                                "verdict"
+                            ),
+                            "exclusivity_checked_windows": exclusivity.get(
+                                "checked_windows"
+                            ),
                             "status": run.get("status"),
                         }
                     )
@@ -135,11 +171,20 @@ def write_csv(study: dict, path: str) -> int:
 
 def render(study: dict, csv_rows: int, builder: str | None, profile: str | None) -> str:
     runs = study["runs"]
+    has_actual_thread_evidence = any(
+        timing.get("thread_count_actually_used") is not None
+        for run in runs
+        for rep in run.get("replicates", [])
+        for timing in rep["timings"]
+    )
     prov = next(
         (r["provenance"] for r in runs if r.get("provenance", {}).get("fnx_elf_sha256")),
         {},
     )
-    nxprov = next((r["provenance"] for r in runs if r["engine"] == "nx"), {})
+    nxprov = next(
+        (r.get("provenance", {}) for r in runs if r["engine"] == "nx"),
+        {},
+    )
     graphs = []
     for run in runs:
         if run["graph"] not in graphs:
@@ -158,6 +203,14 @@ def render(study: dict, csv_rows: int, builder: str | None, profile: str | None)
         "therefore structural rather than a constant factor."
     )
     w("")
+    if not has_actual_thread_evidence:
+        w(
+            "**Legacy-evidence warning:** these input studies predate measured "
+            "CPU-active thread counts. Their wall times and cpu/wall values remain "
+            "historical diagnostics, but this renderer will not promote them to "
+            "a current one-vs-many structural verdict."
+        )
+        w("")
 
     # ---------------- provenance ----------------
     w("## Measurement provenance")
@@ -197,8 +250,9 @@ def render(study: dict, csv_rows: int, builder: str | None, profile: str | None)
         "The ELF SHA-256, host identity, core topology and NetworkX version are "
         "all read from inside the measuring process (`provenance()` in "
         "`scripts/parallel_analytics_pass.py`), not from the shell that launched "
-        "it. `rows.csv` repeats host identity and thread count on every one of "
-        f"its {csv_rows} rows."
+        "it. `rows.csv` repeats host identity, the ELF hash, requested threads, "
+        "CPU-active threads actually observed, and exclusivity verdicts on every "
+        f"one of its {csv_rows} rows."
     )
     w("")
     w(
@@ -218,6 +272,36 @@ def render(study: dict, csv_rows: int, builder: str | None, profile: str | None)
         "implementations."
     )
     w("")
+
+    # ---------------- fail-closed attempts ----------------
+    aborted = [run for run in runs if run.get("status") not in (None, "ok")]
+    if aborted:
+        w("## Fail-closed no-verdict attempts")
+        w("")
+        w("| graph | engine | requested threads | status | exact reason |")
+        w("| --- | --- | --- | --- | --- |")
+        for run in aborted:
+            reason = str(
+                run.get("abort_reason")
+                or (
+                    f"worker exceeded the {run.get('timeout_s')}s deadline"
+                    if run.get("status") == "TIMEOUT"
+                    else "unspecified"
+                )
+            )
+            reason = reason.replace("\n", " ").replace("|", "\\|")
+            w(
+                f"| `{run.get('graph')}` | {run.get('engine')} | "
+                f"{run.get('threads_requested')} | **{run.get('status')}** | "
+                f"{reason} |"
+            )
+        w("")
+        w(
+            "These attempts contribute no timing rows and no ratio: the worker "
+            "clears every partial replicate when admission or continuous "
+            "host-wide accounting fails."
+        )
+        w("")
 
     # ---------------- the job ----------------
     w("## The job")
@@ -278,13 +362,16 @@ def render(study: dict, csv_rows: int, builder: str | None, profile: str | None)
             )
             w("")
         w(
-            f"| stage | nx wall (s) | nx cpu/wall | fnx@{nthr} wall (s) | "
+            f"| stage | nx wall (s) | nx actual threads | nx cpu/wall | "
+            f"fnx@{nthr} wall (s) | fnx actual threads | "
             f"fnx@{nthr} cpu/wall | speedup |"
         )
-        w("| --- | --- | --- | --- | --- | --- |")
+        w("| --- | --- | --- | --- | --- | --- | --- | --- |")
         for stage in STAGE_ORDER:
             a = stage_median(nxrun, stage)
             b = stage_median(best, stage)
+            at = stage_median(nxrun, stage, "thread_count_actually_used")
+            bt = stage_median(best, stage, "thread_count_actually_used")
             ar = stage_median(nxrun, stage, "cpu_wall_ratio")
             br = stage_median(best, stage, "cpu_wall_ratio")
             if a is None and b is None:
@@ -292,8 +379,10 @@ def render(study: dict, csv_rows: int, builder: str | None, profile: str | None)
             ratio = (a / b) if (a and b) else None
             bold = "**" if stage == "TOTAL" else ""
             w(
-                f"| {bold}{stage}{bold} | {bold}{fmt(a)}{bold} | {fmt(ar, '{:.2f}')} | "
-                f"{bold}{fmt(b)}{bold} | {fmt(br, '{:.2f}')} | "
+                f"| {bold}{stage}{bold} | {bold}{fmt(a)}{bold} | "
+                f"{fmt(at, '{:.1f}')} | {fmt(ar, '{:.2f}')} | "
+                f"{bold}{fmt(b)}{bold} | {fmt(bt, '{:.1f}')} | "
+                f"{fmt(br, '{:.2f}')} | "
                 f"{bold}{fmt(ratio, '{:.1f}x')}{bold} |"
             )
         w("")
@@ -437,29 +526,59 @@ def render(study: dict, csv_rows: int, builder: str | None, profile: str | None)
         w(f"## Thread sweep -- `{graph}` (fnx, `RAYON_NUM_THREADS`)")
         w("")
         w(
-            "| threads | betweenness wall (s) | betweenness cpu/wall | "
+            "| requested threads | actual CPU-active threads | "
+            "betweenness wall (s) | betweenness cpu/wall | "
             "TOTAL wall (s) | scaling vs 1 thread | vs NetworkX |"
         )
-        w("| --- | --- | --- | --- | --- | --- |")
+        w("| --- | --- | --- | --- | --- | --- | --- |")
         base_bt = stage_median(base, "betweenness_exact") if base else None
+        nx_observed = (
+            stage_median(
+                nxrun,
+                "betweenness_exact",
+                "thread_count_actually_used",
+            )
+            if nxrun
+            else None
+        )
         for run in group:
             thr = run.get("threads_requested")
             bt = stage_median(run, "betweenness_exact")
+            observed = stage_median(
+                run,
+                "betweenness_exact",
+                "thread_count_actually_used",
+            )
             btr = stage_median(run, "betweenness_exact", "cpu_wall_ratio")
             tot = statistics.median(totals(run))
             scaling = (base_bt / bt) if (base_bt and bt) else None
             versus = (nx_tot / tot) if nx_tot else None
             w(
-                f"| {thr} | {fmt(bt)} | {fmt(btr, '{:.2f}')} | {fmt(tot)} | "
+                f"| {thr} | {fmt(observed, '{:.1f}')} | {fmt(bt)} | "
+                f"{fmt(btr, '{:.2f}')} | {fmt(tot)} | "
                 f"{fmt(scaling, '{:.2f}x')} | {fmt(versus, '{:.0f}x')} |"
             )
         w("")
-        w(
-            "`cpu/wall` is measured, not declared: it is this process's own CPU "
-            "time over its wall time for that stage. NetworkX's betweenness stage "
-            "sits at ~1.0 on the same host -- that flat 1.0 *is* the missing "
-            "capability, observed rather than argued."
-        )
+        if nx_observed is not None:
+            w(
+                "`actual CPU-active threads` counts "
+                "`/proc/self/task/*/schedstat` counters that advanced during the "
+                "timed stage; it is observed, not copied from "
+                "`RAYON_NUM_THREADS`. The dedicated host-accounting thread is "
+                "identified and excluded from that count and CPU sum. "
+                "`cpu/wall` independently records the remaining process-thread "
+                "CPU time over wall time. NetworkX's betweenness stage uses "
+                f"{nx_observed:.1f} active thread(s) on the same host; that "
+                "observed one-vs-many split is the missing capability."
+            )
+        else:
+            w(
+                "This legacy sweep records requested threads and aggregate "
+                "cpu/wall but not per-thread CPU counters. It is retained as "
+                "historical scaling telemetry only; rerun under the hardened "
+                "contract before claiming an observed one-vs-many capability "
+                "split."
+            )
         w("")
 
         # decomposition
@@ -467,6 +586,11 @@ def render(study: dict, csv_rows: int, builder: str | None, profile: str | None)
             fastest = min(group, key=lambda r: statistics.median(totals(r)))
             b1 = statistics.median(totals(base))
             bn = statistics.median(totals(fastest))
+            fastest_observed = stage_median(
+                fastest,
+                "betweenness_exact",
+                "thread_count_actually_used",
+            )
             w("### Decomposing the win")
             w("")
             w("| factor | ratio | what it is |")
@@ -477,11 +601,21 @@ def render(study: dict, csv_rows: int, builder: str | None, profile: str | None)
                 "generality tax; a NetworkX user could in principle get this from "
                 "a compiled single-threaded library |"
             )
+            if nx_observed == 1 and fastest_observed and fastest_observed > 1:
+                capability_text = (
+                    f"using {fastest_observed:.1f} CPU-active threads actually "
+                    "observed; **this factor has no NetworkX-side equivalent at "
+                    "all**"
+                )
+            else:
+                capability_text = (
+                    "historical scaling diagnostic only; actual one-vs-many "
+                    "thread evidence is absent"
+                )
             w(
                 f"| fnx @ 1 thread -> fnx @ "
                 f"{fastest.get('threads_requested')} threads | "
-                f"**{b1 / bn:.1f}x** | using the machine's cores; **this factor "
-                "has no NetworkX-side equivalent at all** |"
+                f"**{b1 / bn:.1f}x** | {capability_text} |"
             )
             w(f"| combined | **{nx_tot / bn:.0f}x** | whole-job wall clock |")
             w("")
@@ -603,7 +737,9 @@ def render(study: dict, csv_rows: int, builder: str | None, profile: str | None)
     # ---------------- chooser statement ----------------
     w("## CHOOSER STATEMENT")
     w("")
-    facts: list[tuple[str, float, float, int | None]] = []
+    facts: list[
+        tuple[str, float, float, int | None, float | None, float | None]
+    ] = []
     for graph in graphs:
         nxrun = find(runs, "nx", graph)
         if not (nxrun and totals(nxrun)):
@@ -622,13 +758,33 @@ def render(study: dict, csv_rows: int, builder: str | None, profile: str | None)
         )
         if best is None:
             continue
+        slow = totals(nxrun)
+        fast = totals(best)
+        if len(slow) < 2 or len(fast) < 2:
+            continue
+        gate = decide(
+            bootstrap_ratio_ci(slow, fast),
+            [aa_null_stats(slow), aa_null_stats(fast)],
+        )
+        if not gate["decidable"]:
+            continue
         nodes = nxrun["replicates"][0]["digest"]["nodes"]
         facts.append(
             (
                 graph,
-                statistics.median(totals(nxrun)),
-                statistics.median(totals(best)),
+                statistics.median(slow),
+                statistics.median(fast),
                 nodes,
+                stage_median(
+                    nxrun,
+                    "betweenness_exact",
+                    "thread_count_actually_used",
+                ),
+                stage_median(
+                    best,
+                    "betweenness_exact",
+                    "thread_count_actually_used",
+                ),
             )
         )
 
@@ -650,43 +806,66 @@ def render(study: dict, csv_rows: int, builder: str | None, profile: str | None)
     w("")
     w("**Use FrankenNetworkX when:**")
     w("")
-    for graph, slow, fast, nodes in facts:
+    for graph, slow, fast, nodes, _, _ in facts:
         w(
             f"- The dominant stage is an exact all-sources centrality on a graph "
             f"of this scale. On `{graph}` ({nodes} nodes) the same pass is "
             f"**{slow:.0f}s under NetworkX and {fast:.2f}s under fnx "
             f"({slow / fast:.0f}x)** on this host."
         )
-    w(
-        "- You are running the pass more than once -- a parameter sweep, a "
-        "temporal sequence of snapshots, a CI check. A 30-minute pass is a batch "
-        "job you schedule; a 4-second pass is a question you ask interactively, "
-        "and that changes what analyses you are willing to attempt."
-    )
-    w(
-        "- You have more than one core. This is the load-bearing point: the "
-        "parallel factor in the decomposition table above has **no NetworkX-side "
-        "equivalent at any graph size**, because CPython's GIL serialises the "
-        "source loop and NetworkX ships no thread pool. It is not a gap "
-        "NetworkX closes by being tuned; it is a capability that is absent."
-    )
+    structural_facts = [
+        fact
+        for fact in facts
+        if fact[4] == 1 and fact[5] is not None and fact[5] > 1
+    ]
+    if facts:
+        w(
+            "- You are running the pass more than once -- a parameter sweep, a "
+            "temporal sequence of snapshots, or a CI check -- and the admitted "
+            "whole-job ratio above changes the analysis from a scheduled batch "
+            "job into an interactive operation."
+        )
+    else:
+        w(
+            "- **No current FNX chooser row is admitted from these studies.** "
+            "Their head-to-head rows fail the null gate or lack its controls; "
+            "keep NetworkX as the default until a hardened rerun passes."
+        )
+    if structural_facts:
+        _, _, _, _, nx_active, fnx_active = structural_facts[0]
+        w(
+            "- You have more than one core. On the admitted dominant stage, "
+            f"NetworkX used {nx_active:.1f} CPU-active thread while FNX used "
+            f"{fnx_active:.1f}; this observed parallel factor has no "
+            "NetworkX-core setting to select."
+        )
+    else:
+        w(
+            "- **No structural one-vs-many chooser verdict is admitted yet.** "
+            "Requested pool sizes and aggregate cpu/wall are diagnostics only; "
+            "the rerun must observe one NetworkX CPU-active thread and more than "
+            "one FNX thread on the dominant stage."
+        )
     w("")
     w("**The crossover rule:**")
     w("")
-    w(
-        "Pick by the *dominant stage*, not by graph size alone. If the pass is "
-        "dominated by exact betweenness, closeness, harmonic, load or "
-        "percolation centrality -- the kernels fnx fans out over rayon -- fnx "
-        "wins by a margin that grows with core count and is unavailable to "
-        "NetworkX in principle. If the pass is dominated by materialising Python "
-        "objects (edge/attribute iteration into user code), the two are close "
-        "and NetworkX may edge ahead; see the losses table. Everything measured "
-        "here is on one host with 32 physical cores, and the thread sweep shows "
-        "where the returns flatten: scaling is near-linear to 16 threads, then "
-        "bends, and the last doubling from 32 to 64 (SMT siblings rather than "
-        "new cores) buys only a few percent on this compute-bound integer "
-        "kernel. Size the pool to physical cores and expect the sub-linear tail."
-    )
+    if structural_facts:
+        w(
+            "Pick by the *dominant stage*, not graph size alone. Choose FNX when "
+            "the admitted pass is dominated by the exact all-source stage whose "
+            "one-vs-many active-thread split is shown above; choose NetworkX when "
+            "Python-object materialisation or API breadth dominates. Size the "
+            "FNX pool to physical cores and expect sub-linear returns at the SMT "
+            "tail."
+        )
+    else:
+        w(
+            "Until the hardened rerun admits both the incumbent ratio and the "
+            "one-vs-many thread observation, **choose NetworkX 3.6.1**. Revisit "
+            "only when the dominant exact all-source stage passes parity, both "
+            "A/A controls, the three-clause median gate, host accounting, and "
+            "actual-thread evidence in one invocation."
+        )
     w("")
 
     return "\n".join(out) + "\n"

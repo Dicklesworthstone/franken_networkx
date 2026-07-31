@@ -2192,6 +2192,50 @@ Retry only in a dedicated host window with the same hashes, live NetworkX
 3.6.1, complete parity, all required provenance, 21 rounds, continuous
 accounting, dual A/A nulls, and the corrected three-clause median gate.
 
+## 2026-07-31 BlackThrush (cod) CONTRACT LANDED + PERFORMANCE NO-VERDICT (`br-r37-c1-04z53.9193`): parallel analytics whole-job contract
+
+The existing recognizable full analytics pass against live NetworkX 3.6.1
+now records CPU-active threads actually observed per stage from
+`/proc/self/task/*/schedstat`; requested rayon threads remain provenance only.
+Every future CSV timing row also repeats in-process host/ELF identity, both
+host-wide admission verdicts, and continuous non-affinity CPU-accounting
+evidence.
+
+The worker now fails closed: it requires a taskset subset, host-wide quiet
+windows before setup and measurement, and clean continuous accounting through
+the final stage. The dedicated accounting thread is excluded from the
+CPU-active-thread count and CPU sum. An abort clears all partial replicates,
+the driver preserves `NO-VERDICT`, and the report prints the exact reason with
+zero timing rows and no ratio. A wrong incumbent version, automatic backend
+dispatch, or missing ELF hash also fails closed. The corrected gate still
+requires an effect CI excluding 1, an
+effect deviation beyond twice the wider null half-width, and both A/A medians
+within 2%.
+
+On full-affinity `thinkstation1`, a diagnostic invocation proved the behavior:
+the process emitted ELF SHA
+`3d877bb18e8adfc9ff91dbbf3606c4ed4b3c0b0b0a769cac71deada8b83a1be8`
+as line one, then returned `NO-VERDICT`, zero replicates, and the exact
+taskset-affinity rejection. A prior NetworkX backend-discovery warning is
+retained in provenance without preceding the ELF line. Historical artifacts
+still render as diagnostics but now choose NetworkX because their rows are
+unadmitted and lack actual-thread evidence; a synthetic contaminated study
+emits no timing row or ratio.
+
+RESULT: **CONTRACT LANDED / CURRENT PERFORMANCE NO-VERDICT.** No strict
+benchmark and no Cargo command ran. RCH 1.0.52 still UUID-salts the
+clean-overlay root above the pooled target, so the identical physical
+target-path predicate remains unsatisfied. Retry only after two strict
+`rch exec --base <commit> --clean-overlay` probes reuse one physical target;
+then pin a quiet worker subset, require 21 interleaved live incumbent/FNX
+replicates, dual A/A nulls, digest parity, actual one-vs-many active-thread
+evidence on the dominant stage, continuous accounting, and the corrected
+three-clause median gate.
+
+No target was minted. The shared `/data/tmp/cargo-target` was live at 69 GiB
+and untouched; the three named superseded target directories were already
+absent, so reclaimed space was **0 bytes**.
+
 ## 2026-07-31 BlackThrush (cod) PARITY + NO-VERDICT (`br-r37-c1-p80x1.5`): complete `k_crust` claim arm
 
 The recovered `5.8664x` scratch row compared only

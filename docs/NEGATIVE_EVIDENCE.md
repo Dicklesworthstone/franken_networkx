@@ -28544,6 +28544,81 @@ QUALITY / CLOSEOUT: `git diff --check` covers this ledger-only result. No
 Cargo command ran. UBS has no Markdown/JSONL scanner, so no scanner pass is
 claimed.
 
+## 2026-07-31 BlackThrush CONTRACT LANDED / PERFORMANCE NO-VERDICT: parallel analytics whole-job contract (`br-r37-c1-04z53.9193`)
+
+TARGET: preserve the already-landed structural comparison against live
+NetworkX 3.6.1, while closing its measurement-contract gaps before another
+expensive run. The job remains the recognizable full pass
+`read_edgelist -> remove_self_loops -> connected_components ->
+degree_assortativity -> average_clustering -> core_number -> pagerank ->
+exact betweenness -> closeness`. NetworkX core exposes no `threads` or
+`n_jobs` control for these pure-Python all-source kernels, so the target is a
+missing many-core capability rather than a merely slower setting.
+
+ONE HARNESS LEVER: each timed stage now snapshots
+`/proc/self/task/*/schedstat` and records the number of CPU-active threads
+whose counters actually advanced, plus before/after process-thread counts.
+Requested `RAYON_NUM_THREADS` remains provenance and can no longer stand in
+for observed concurrency. The same measuring process self-hashes the loaded
+`_fnx` ELF before emitting any other line and repeats that hash, host
+identity, requested threads, actual threads, pre-setup/pre-measurement
+host-wide admission verdicts, and continuous-exclusivity verdict on every
+CSV timing row.
+
+FAIL-CLOSED CONTRACT: the worker requires five clear one-second host-wide
+windows before setup and again before measurement, requires taskset affinity
+strictly smaller than the effective host cpuset, and continuously checkpoints
+non-affinity CPU work through final accounting from a dedicated monitor
+thread. That harness thread is identified and excluded from the benchmark's
+CPU-active-thread count and CPU sum. Any admission or continuous accounting
+failure clears every partial replicate and emits `NO-VERDICT`;
+the driver preserves that status, and the report lists the exact abort
+without producing a timing row or ratio. It also rejects any live incumbent
+other than NetworkX 3.6.1, automatic backend dispatch, or a missing ELF hash.
+The existing corrected significance gate remains all three clauses: effect CI
+excludes 1, effect deviation clears twice the wider A/A half-width, and every
+A/A median is within 2% of 1.
+
+MECHANICAL PROOF: on `thinkstation1` (32 physical / 64 SMT, full 64-thread
+affinity), the diagnostic worker emitted the loaded ELF hash
+`3d877bb18e8adfc9ff91dbbf3606c4ed4b3c0b0b0a769cac71deada8b83a1be8`
+as line one, then banked `NO-VERDICT` with zero replicates and the exact
+reason `host-wide measurement exclusivity requires a taskset affinity
+strictly smaller than the effective host CPU scope`. A NetworkX backend
+discovery warning that formerly preceded the ELF line is now captured in
+structured provenance rather than discarded. A synthetic contaminated study
+rendered zero CSV rows and no whole-job ratio, while the two historical study
+artifacts still rendered 340 diagnostic rows but correctly ended with
+NetworkX as the chooser because neither historical head-to-head row passes the
+current gate and neither contains actual per-thread evidence.
+
+RESULT: **CONTRACT LANDED / CURRENT PERFORMANCE NO-VERDICT.** No whole job was
+timed and no incumbent ratio was refreshed. RCH 1.0.52 still places the pooled
+target below a UUID-salted clean-overlay root, so the standing identical
+physical target-path predicate is unsatisfied. Starting the multi-hour
+NetworkX arm would therefore create an inadmissible cold rebuild and could
+only yield another banked no-verdict.
+
+RETRY PREDICATE: run only after two strict
+`rch exec --base <commit> --clean-overlay` probes resolve to one identical
+managed physical target directory. Then pin the benchmark to a strict CPU
+subset on a drained worker, require both admission scans and continuous
+accounting to stay clear, run 21 interleaved live NetworkX 3.6.1/FNX
+replicates with both arm-specific A/A nulls, prove digest parity, and accept a
+ratio only if the corrected three-clause median gate passes. The structural
+claim additionally requires NetworkX to show one CPU-active thread and FNX
+to show more than one on the dominant exact all-source stage.
+
+SCRATCH / QUALITY: no target directory was created and no Cargo command ran.
+The shared `/data/tmp/cargo-target` was live at 69 GiB and was left untouched.
+The three named superseded directories
+`cargo-target-h2-receipts`, `cargo-target-h1-continuous`, and
+`cargo-target-p8-retry` were already absent; reclaimed space was **0 bytes**.
+Python byte-compilation, the statistical/thread selfcheck, legacy-artifact
+rendering, fail-closed worker proof, synthetic no-verdict rendering, and
+`git diff --check` passed. Harness/report SHA-256 values are
+`3b161c84...2bc1` and `a74aac0e...266f`.
+
 ## 2026-07-31 BlackThrush (cod) PARITY + NO-VERDICT: exact `read_multiline_adjlist` loss arm (`br-r37-c1-p80x1.45`)
 
 The published `0.70x` loss workload was recovered exactly from commit

@@ -40,12 +40,16 @@ Measurement contract
   * NetworkX 3.6.1 is imported and executed live in the same invocation as fnx;
     no archived or quoted baseline is used.
   * Every row records host identity, CPU model, physical/SMT core counts,
-    scheduler affinity, the requested rayon thread count, and the SHA-256 of
-    the loaded `_fnx` ELF -- all self-reported from inside the measuring
-    process.
-  * Concurrency is MEASURED, not asserted: each stage records CPU time and wall
-    time, so cpu/wall is the observed parallelism. NetworkX pins to ~1.0 by
-    construction; that ratio is the missing-capability evidence.
+    scheduler affinity, requested rayon threads, CPU-active threads actually
+    observed, and the SHA-256 of the loaded `_fnx` ELF -- all self-reported
+    from inside the measuring process.
+  * Concurrency is MEASURED, not asserted: each stage records per-thread CPU
+    deltas as well as process CPU time and wall time. NetworkX uses one
+    CPU-active thread while rayon uses several; that observed count is the
+    missing-capability evidence.
+  * Host-wide quiescence is required before setup and before measurement. Work
+    on every non-affinity CPU is then continuously accounted through the last
+    stage; contamination discards every partial replicate as a no-verdict.
   * Arms are interleaved inside a single replicate loop so machine drift hits
     both engines equally.
   * Significance uses a bootstrap CI on the median ratio, gated against a
@@ -81,7 +85,15 @@ import socket
 import statistics
 import subprocess
 import sys
+import threading
 import time
+import warnings
+
+from perf_harness import (
+    HOST_WIDE_CPU_SAMPLE_S,
+    MeasurementExclusivity,
+    require_host_wide_quiescence,
+)
 
 # --------------------------------------------------------------------------
 # provenance -- everything here is computed inside the measuring process
@@ -132,6 +144,138 @@ def _sha256(path: str) -> str | None:
         return None
 
 
+def _thread_cpu_ns() -> dict[int, int]:
+    """Per-thread CPU nanoseconds from Linux schedstat.
+
+    Unlike a requested pool size or aggregate cpu/wall ratio, these counters
+    identify how many threads actually executed during the stage. Rayon keeps
+    its process-global workers alive, so before/after snapshots cover the
+    parallel workers without injecting a sampling thread into the timed job.
+    """
+    cpu_ns: dict[int, int] = {}
+    try:
+        entries = os.scandir("/proc/self/task")
+    except OSError as error:
+        raise RuntimeError("cannot enumerate /proc/self/task") from error
+    with entries:
+        for entry in entries:
+            if not entry.name.isdigit():
+                continue
+            try:
+                with open(os.path.join(entry.path, "schedstat")) as handle:
+                    fields = handle.read().split()
+                if fields:
+                    cpu_ns[int(entry.name)] = int(fields[0])
+            except (OSError, ValueError):
+                continue
+    if not cpu_ns:
+        raise RuntimeError("cannot read per-thread CPU time from /proc/self/task")
+    return cpu_ns
+
+
+def _thread_cpu_deltas(
+    before: dict[int, int],
+    after: dict[int, int],
+    *,
+    excluded_thread_ids: set[int] | None = None,
+) -> dict[int, int]:
+    excluded = excluded_thread_ids or set()
+    return {
+        tid: cpu_ns - before.get(tid, 0)
+        for tid, cpu_ns in after.items()
+        if tid not in excluded and cpu_ns > before.get(tid, 0)
+    }
+
+
+def _active_thread_count(
+    before: dict[int, int],
+    after: dict[int, int],
+    *,
+    excluded_thread_ids: set[int] | None = None,
+) -> int:
+    """Count threads whose CPU counter advanced across a measured stage."""
+    return max(
+        1,
+        len(
+            _thread_cpu_deltas(
+                before,
+                after,
+                excluded_thread_ids=excluded_thread_ids,
+            )
+        ),
+    )
+
+
+class ContinuousExclusivityMonitor:
+    """Drive host-wide accounting while a long analytics stage is running.
+
+    `MeasurementExclusivity.checkpoint()` is deliberately synchronous. A
+    checkpoint only after a 50-minute stage would average the whole stage into
+    one window, so a short-lived co-tenant could evade the consecutive-window
+    rule. This monitor calls it throughout the stage and propagates any failure
+    at the next benchmark boundary. Its own thread ID is excluded from the
+    measured worker count and CPU total.
+    """
+
+    def __init__(
+        self,
+        accounting: MeasurementExclusivity,
+        *,
+        poll_interval_s: float = HOST_WIDE_CPU_SAMPLE_S / 4.0,
+    ) -> None:
+        self.accounting = accounting
+        self.poll_interval_s = poll_interval_s
+        self._stop = threading.Event()
+        self._ready = threading.Event()
+        self._failure: RuntimeError | None = None
+        self._started = False
+        self._thread = threading.Thread(
+            target=self._run,
+            name="fnx-host-exclusivity",
+            daemon=True,
+        )
+
+    def start(self) -> None:
+        self._thread.start()
+        self._started = True
+        self._ready.wait()
+
+    @property
+    def excluded_thread_ids(self) -> set[int]:
+        native_id = self._thread.native_id
+        return {native_id} if native_id is not None else set()
+
+    def _run(self) -> None:
+        self._ready.set()
+        while not self._stop.wait(self.poll_interval_s):
+            try:
+                self.accounting.checkpoint()
+            # This is the fail-closed boundary for a daemon thread: any
+            # unexpected accounting failure must invalidate the run rather
+            # than disappear with the thread.
+            except Exception as error:  # noqa: BLE001
+                self._failure = RuntimeError(str(error))
+                return
+
+    def check(self, context: str) -> None:
+        self.accounting.context = context
+        if self._failure is not None:
+            raise self._failure
+
+    def stop(self) -> None:
+        if not self._started:
+            return
+        self._stop.set()
+        self._thread.join()
+
+    def finish(self) -> None:
+        self.stop()
+        if self._failure is not None:
+            raise self._failure
+        self.accounting.context = "final-accounting"
+        self.accounting.checkpoint(finish=True)
+
+
 def provenance(engine: str, builder: str | None = None, profile: str | None = None) -> dict:
     """Host/build identity, self-reported from inside this process.
 
@@ -141,7 +285,14 @@ def provenance(engine: str, builder: str | None = None, profile: str | None = No
     close the chain: builder -> cargo profile -> ELF SHA-256 -> the digest this
     process reports at run time.
     """
-    import networkx
+    # NetworkX backend discovery can emit an environment-specific warning while
+    # importing. Capture it into provenance so it cannot precede the mandatory
+    # first-line ELF identity, but do not erase the diagnostic.
+    with warnings.catch_warnings(record=True) as import_warnings:
+        warnings.simplefilter("always")
+        import franken_networkx
+        import networkx
+        from franken_networkx import _fnx
 
     record = {
         "host": socket.gethostname(),
@@ -155,32 +306,33 @@ def provenance(engine: str, builder: str | None = None, profile: str | None = No
         "rayon_num_threads_env": os.environ.get("RAYON_NUM_THREADS", "<unset>"),
         "networkx_version": networkx.__version__,
         "networkx_path": networkx.__file__,
+        "import_warnings": [str(item.message) for item in import_warnings],
     }
     # The NetworkX arm must be a genuine pure-Python NetworkX run, not a
     # dispatch into a backend. Record enough to prove it.
     record["networkx_backend_env"] = os.environ.get(
         "NETWORKX_AUTOMATIC_BACKENDS", "<unset>"
     )
-    if engine == "fnx":
-        import franken_networkx
-        from franken_networkx import _fnx
-
-        record["build_builder"] = builder or os.environ.get(
-            "FNX_BUILD_BUILDER", "<unrecorded>"
-        )
-        record["build_profile"] = profile or os.environ.get(
-            "FNX_BUILD_PROFILE", "<unrecorded>"
-        )
-        elf = getattr(_fnx, "__file__", None)
-        record["fnx_version"] = getattr(franken_networkx, "__version__", "unknown")
-        record["fnx_path"] = franken_networkx.__file__
-        record["fnx_elf_path"] = elf
-        record["fnx_elf_sha256"] = _sha256(elf) if elf else None
-        record["fnx_elf_mtime"] = (
-            time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime(os.path.getmtime(elf)))
-            if elf and os.path.exists(elf)
-            else None
-        )
+    # The same measuring process loads both competitors. Repeat the timed fnx
+    # ELF identity on the NetworkX rows too, so no row relies on shell-side
+    # provenance or an inferred binary.
+    record["measured_engine"] = engine
+    record["build_builder"] = builder or os.environ.get(
+        "FNX_BUILD_BUILDER", "<unrecorded>"
+    )
+    record["build_profile"] = profile or os.environ.get(
+        "FNX_BUILD_PROFILE", "<unrecorded>"
+    )
+    elf = getattr(_fnx, "__file__", None)
+    record["fnx_version"] = getattr(franken_networkx, "__version__", "unknown")
+    record["fnx_path"] = franken_networkx.__file__
+    record["fnx_elf_path"] = elf
+    record["fnx_elf_sha256"] = _sha256(elf) if elf else None
+    record["fnx_elf_mtime"] = (
+        time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime(os.path.getmtime(elf)))
+        if elf and os.path.exists(elf)
+        else None
+    )
     return record
 
 
@@ -212,7 +364,13 @@ def resolved_impls(mod) -> dict:
     return out
 
 
-def run_pass(mod, graph_path: str) -> tuple[list[dict], dict]:
+def run_pass(
+    mod,
+    graph_path: str,
+    *,
+    engine_label: str,
+    accounting: ContinuousExclusivityMonitor | None = None,
+) -> tuple[list[dict], dict]:
     """Run the identical analytics pass against `mod` (networkx or fnx).
 
     Returns (stage timings, result digest). The digest lets the report prove
@@ -222,19 +380,40 @@ def run_pass(mod, graph_path: str) -> tuple[list[dict], dict]:
     digest: dict = {}
 
     def stage(name, fn):
-        # CPU time across ALL threads of this process (rayon workers included),
-        # so cpu/wall is the observed parallelism of the stage.
-        cpu0 = time.process_time()
+        # Record both aggregate CPU/wall and the number of per-thread CPU
+        # counters that actually advanced. The latter is the contract field;
+        # requested pool size alone is never accepted as parallelism evidence.
+        context = f"{engine_label}:{name}"
+        if accounting is not None:
+            accounting.check(context)
+        excluded = accounting.excluded_thread_ids if accounting is not None else set()
+        threads_before = _thread_cpu_ns()
         wall0 = time.perf_counter()
         value = fn()
         wall = time.perf_counter() - wall0
-        cpu = time.process_time() - cpu0
+        threads_after = _thread_cpu_ns()
+        deltas = _thread_cpu_deltas(
+            threads_before,
+            threads_after,
+            excluded_thread_ids=excluded,
+        )
+        cpu = sum(deltas.values()) / 1_000_000_000.0
+        if accounting is not None:
+            accounting.check(context)
         timings.append(
             {
                 "stage": name,
                 "wall_s": wall,
                 "cpu_s": cpu,
                 "cpu_wall_ratio": (cpu / wall) if wall > 0 else None,
+                "process_threads_before": len(threads_before),
+                "process_threads_after": len(threads_after),
+                "thread_count_actually_used": _active_thread_count(
+                    threads_before,
+                    threads_after,
+                    excluded_thread_ids=excluded,
+                ),
+                "accounting_thread_ids_excluded": sorted(excluded),
             }
         )
         return value
@@ -287,12 +466,27 @@ def run_pass(mod, graph_path: str) -> tuple[list[dict], dict]:
 
     total_wall = sum(t["wall_s"] for t in timings)
     total_cpu = sum(t["cpu_s"] for t in timings)
+    active_threads = max(t["thread_count_actually_used"] for t in timings)
     timings.append(
         {
             "stage": "TOTAL",
             "wall_s": total_wall,
             "cpu_s": total_cpu,
             "cpu_wall_ratio": (total_cpu / total_wall) if total_wall > 0 else None,
+            "process_threads_before": min(
+                t["process_threads_before"] for t in timings
+            ),
+            "process_threads_after": max(
+                t["process_threads_after"] for t in timings
+            ),
+            "thread_count_actually_used": active_threads,
+            "accounting_thread_ids_excluded": sorted(
+                {
+                    tid
+                    for timing in timings
+                    for tid in timing["accounting_thread_ids_excluded"]
+                }
+            ),
         }
     )
     return timings, digest
@@ -335,40 +529,117 @@ def role_worker(args) -> int:
     far noisier than the 2% bias bound it is checked against.
     """
     engines = ["nx", "fnx"] if args.engine == "both" else [args.engine]
-    mods = {name: _load_engine(name) for name in engines}
     graph_path = os.path.join(args.graph_dir, f"{args.graph}.txt.gz")
 
-    records = {}
-    for name in engines:
-        records[name] = {
+    # Successful benchmark processes report the ELF identity before any other
+    # output. The hash is computed here, inside the process that will time the
+    # job, and is also repeated on every CSV timing row.
+    identity = provenance("fnx", args.builder, args.profile)
+    print(
+        f"bench_elf_sha256={identity.get('fnx_elf_sha256')} "
+        f"bench_elf_path={identity.get('fnx_elf_path')}",
+        file=sys.stderr,
+        flush=True,
+    )
+
+    records = {
+        name: {
             "engine": name,
             "graph": args.graph,
             "threads_requested": args.threads,
-            "provenance": provenance(name, args.builder, args.profile),
-            "resolved_impls": resolved_impls(mods[name]),
+            "provenance": {**identity, "measured_engine": name},
+            "resolved_impls": {},
             "interleaved": args.engine == "both",
             "replicates": [],
         }
+        for name in engines
+    }
 
-    for rep in range(args.reps):
-        # Alternate which engine goes first each replicate. Running one arm
-        # always-first is a real arm-order bias source (page cache, turbo
-        # residency, allocator state), and it is exactly what the A/A null's
-        # median clause is meant to bound -- so remove it at the source rather
-        # than absorb it into the null.
-        order = engines if rep % 2 == 0 else list(reversed(engines))
-        for name in order:
-            timings, digest = run_pass(mods[name], graph_path)
-            records[name]["replicates"].append(
-                {"rep": rep, "timings": timings, "digest": digest}
+    exclusivity = None
+    continuous_monitor = None
+    quiescence = {}
+    try:
+        if identity.get("networkx_version") != "3.6.1":
+            raise RuntimeError(
+                "live incumbent must be NetworkX 3.6.1, observed "
+                f"{identity.get('networkx_version')!r}"
             )
-            total = next(t for t in timings if t["stage"] == "TOTAL")
-            print(
-                f"[worker] rep={rep} {name} TOTAL={total['wall_s']:.3f}s "
-                f"cpu/wall={total['cpu_wall_ratio']:.2f}",
-                file=sys.stderr,
-                flush=True,
+        if identity.get("networkx_backend_env") not in ("<unset>", ""):
+            raise RuntimeError(
+                "NetworkX automatic backend dispatch must be unset, observed "
+                f"{identity.get('networkx_backend_env')!r}"
             )
+        if not identity.get("fnx_elf_sha256"):
+            raise RuntimeError("measuring process could not self-hash the fnx ELF")
+        # Construct this first so a full-host affinity fails immediately rather
+        # than waiting through an admission scan it can never continuously
+        # account for. Valid runs pin to a strict subset of the host cpuset.
+        exclusivity = MeasurementExclusivity()
+        quiescence["pre_setup"] = require_host_wide_quiescence("pre_setup")
+        mods = {name: _load_engine(name) for name in engines}
+        for name in engines:
+            records[name]["resolved_impls"] = resolved_impls(mods[name])
+        quiescence["pre_measurement"] = require_host_wide_quiescence(
+            "pre_measurement"
+        )
+        # Begin continuous windows after admission so the first accounting
+        # window contains measurement only, not the setup/admission interval.
+        exclusivity = MeasurementExclusivity()
+        continuous_monitor = ContinuousExclusivityMonitor(exclusivity)
+        continuous_monitor.start()
+
+        for rep in range(args.reps):
+            # Alternate which engine goes first each replicate. Running one arm
+            # always-first is a real arm-order bias source (page cache, turbo
+            # residency, allocator state), and it is exactly what the A/A null's
+            # median clause is meant to bound -- so remove it at the source
+            # rather than absorb it into the null.
+            order = engines if rep % 2 == 0 else list(reversed(engines))
+            for name in order:
+                timings, digest = run_pass(
+                    mods[name],
+                    graph_path,
+                    engine_label=f"rep={rep}:{name}",
+                    accounting=continuous_monitor,
+                )
+                records[name]["replicates"].append(
+                    {"rep": rep, "timings": timings, "digest": digest}
+                )
+                total = next(t for t in timings if t["stage"] == "TOTAL")
+                print(
+                    f"[worker] rep={rep} {name} TOTAL={total['wall_s']:.3f}s "
+                    f"cpu/wall={total['cpu_wall_ratio']:.2f} "
+                    f"actual_threads={total['thread_count_actually_used']}",
+                    file=sys.stderr,
+                    flush=True,
+                )
+
+        continuous_monitor.finish()
+    # This outer worker boundary intentionally converts every ordinary stage,
+    # provenance, or accounting exception into a structured no-verdict record.
+    except Exception as error:  # noqa: BLE001
+        if continuous_monitor is not None:
+            continuous_monitor.stop()
+        # Partial timings are contaminated evidence. Bank the exact abort but
+        # make a ratio mechanically impossible by clearing every replicate.
+        for record in records.values():
+            record["status"] = "NO-VERDICT"
+            record["abort_reason"] = str(error)
+            record["discarded_replicates"] = len(record["replicates"])
+            record["replicates"] = []
+            record["host_wide_quiescence"] = quiescence
+            if exclusivity is not None:
+                record["measurement_exclusivity"] = {
+                    **exclusivity.provenance(),
+                    "verdict": "aborted",
+                    "abort_reason": str(error),
+                }
+        print(f"[worker] NO-VERDICT: {error}", file=sys.stderr, flush=True)
+    else:
+        for record in records.values():
+            record["status"] = "ok"
+            record["host_wide_quiescence"] = quiescence
+            record["measurement_exclusivity"] = exclusivity.provenance()
 
     for name in engines:
         print("@@RESULT@@" + json.dumps(records[name]))
@@ -545,7 +816,12 @@ def _spawn(args, engine: str, graph: str, threads: int | None, reps: int) -> lis
     if args.profile:
         cmd += ["--profile", args.profile]
     proc = subprocess.run(
-        cmd, env=env, capture_output=True, text=True, timeout=args.timeout
+        cmd,
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=args.timeout,
+        check=False,
     )
     if proc.returncode != 0:
         raise RuntimeError(
@@ -584,7 +860,7 @@ def role_driver(args) -> int:
         try:
             records = _spawn(args, engine, graph, threads, reps)
             for record in records:
-                record["status"] = "ok"
+                record.setdefault("status", "ok")
         except subprocess.TimeoutExpired:
             records = [
                 {
@@ -597,6 +873,18 @@ def role_driver(args) -> int:
                 }
             ]
             print(f"[driver] {label} TIMEOUT after {args.timeout}s", flush=True)
+        except RuntimeError as error:
+            records = [
+                {
+                    "engine": engine,
+                    "graph": graph,
+                    "threads_requested": threads,
+                    "status": "NO-VERDICT",
+                    "abort_reason": str(error),
+                    "replicates": [],
+                }
+            ]
+            print(f"[driver] {label} NO-VERDICT: {error}", flush=True)
         elapsed = time.perf_counter() - started
         for record in records:
             record["driver_wall_s"] = elapsed
@@ -633,6 +921,45 @@ def role_selfcheck(args) -> int:
     inside the null must be rejected.
     """
     failures: list[str] = []
+
+    if _active_thread_count({11: 100, 12: 200}, {11: 101, 12: 200, 13: 1}) != 2:
+        failures.append("actual-thread counter did not identify advancing/new threads")
+    if _active_thread_count({11: 100}, {11: 100}) != 1:
+        failures.append("actual-thread counter did not preserve the one-thread floor")
+    if (
+        _active_thread_count(
+            {11: 100, 12: 40, 99: 5},
+            {11: 101, 12: 41, 99: 6},
+            excluded_thread_ids={99},
+        )
+        != 2
+    ):
+        failures.append("actual-thread counter included the accounting thread")
+
+    class FakeAccounting:
+        def __init__(self) -> None:
+            self.context = "selfcheck"
+            self.checked_windows = 0
+
+        def checkpoint(self, *, finish: bool = False) -> None:
+            self.checked_windows += 1
+
+    fake_accounting = FakeAccounting()
+    monitor = ContinuousExclusivityMonitor(
+        fake_accounting,
+        poll_interval_s=0.001,
+    )
+    monitor.start()
+    time.sleep(0.02)
+    monitor.finish()
+    if fake_accounting.checked_windows < 2:
+        failures.append("continuous accounting monitor did not checkpoint during work")
+    live_before = _thread_cpu_ns()
+    sum(value * value for value in range(200_000))
+    live_after = _thread_cpu_ns()
+    main_tid = os.getpid()
+    if live_after.get(main_tid, 0) <= live_before.get(main_tid, 0):
+        failures.append("live schedstat counter did not advance for the main thread")
 
     point, lo, hi = bootstrap_ratio_ci([10.0] * 6, [1.0] * 6)
     if not (abs(point - 10) < 1e-9 and abs(lo - 10) < 1e-9 and abs(hi - 10) < 1e-9):
@@ -734,7 +1061,9 @@ def role_selfcheck(args) -> int:
         f"three-clause gate returns UNDECIDABLE for a no-effect pair and for a "
         f"marginal effect inside the null, decides a genuine regression AS a "
         f"loss, and does not veto a large effect on a tight null whose CI "
-        f"excludes 1.0 (no CI-straddle defect)."
+        f"excludes 1.0 (no CI-straddle defect); actual-thread accounting "
+        f"identifies advancing per-thread CPU counters and the continuous "
+        f"monitor checkpoints during a running stage."
     )
     return 0
 
