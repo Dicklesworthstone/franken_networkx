@@ -1048,6 +1048,30 @@ def _build_pair(n, m, seed, weighted, directed=False):
     return gnx, gfx
 
 
+def _materialize_claim_payload(filename: str, payload: bytes) -> str:
+    """Reuse one content-addressed scratch file for path-based reader claims."""
+    fixture_root = Path(
+        os.environ.get("FNX_CLAIM_FIXTURE_DIR", "/data/tmp")
+    )
+    if not fixture_root.is_dir():
+        raise RuntimeError(
+            "claim fixture root must already exist; refusing to mint a "
+            f"directory: {fixture_root}"
+        )
+    path = fixture_root / filename
+    if path.exists():
+        existing = path.read_bytes()
+        if existing != payload:
+            raise RuntimeError(
+                f"existing claim fixture has unexpected content: {path}"
+            )
+    else:
+        path.write_bytes(payload)
+    if path.read_bytes() != payload:
+        raise RuntimeError(f"claim fixture write verification failed: {path}")
+    return str(path)
+
+
 def _build_ordered_arc_pair(n, m, seed, weighted):
     """Same directed arc insertion order with ordered-pair deduplication."""
     import random
@@ -3206,6 +3230,8 @@ def suite_claim_incumbent():
         "minimum_branching",
         "pagerank",
         "partition_spanning_tree",
+        "read_graph6",
+        "read_sparse6",
         "shortest_path_weighted",
         "single_pair_shortest_path",
         "single_source_shortest_path_length",
@@ -4670,6 +4696,267 @@ def suite_claim_incumbent():
                 "parameters=defaults [nx/fnx]",
                 lambda graph=spanning_nx: nx.partition_spanning_tree(graph),
                 lambda graph=spanning_fnx: fnx.partition_spanning_tree(graph),
+            )
+        )
+    if "read_graph6" in jobs or "read_sparse6" in jobs:
+        source_node_count = 200
+        source_edge_count = 800
+        source_seed = 13
+        reader_source_nx, _reader_source_fnx = _build_pair(
+            source_node_count,
+            source_edge_count,
+            seed=source_seed,
+            weighted=False,
+        )
+        reader_source_nx = nx.convert_node_labels_to_integers(
+            reader_source_nx
+        )
+    if "read_graph6" in jobs:
+        if os.environ.get("PYTHONHASHSEED") != "0":
+            raise RuntimeError(
+                "the read_graph6 claim fixture requires PYTHONHASHSEED=0 "
+                "because decoded graph and edge order are part of the "
+                "public contract"
+            )
+        expected_payload_bytes = 3_332
+        expected_payload_sha256 = (
+            "0512c5270c4fead9ee7017e54dd8f9cd8f241a48b01f10460eccf07203c57f16"
+        )
+        expected_output_nodes = 200
+        expected_output_edges = 800
+        expected_output_bytes = 22_009
+        expected_output_sha256 = (
+            "ea60802d53f9e77b41646c010b9178468d3e9ca8442307cf576687e0ba333c73"
+        )
+        expected_projection_bytes = 8_704
+        expected_projection_sha256 = (
+            "ed01731bc0e1c3142752f78ca678da69ccb2599730ba059a6b1d2f52e18ee151"
+        )
+        graph6_output = io.BytesIO()
+        nx.write_graph6(reader_source_nx, graph6_output)
+        graph6_payload = graph6_output.getvalue()
+        payload_sha256 = hashlib.sha256(graph6_payload).hexdigest()
+        if (
+            len(graph6_payload) != expected_payload_bytes
+            or not hmac.compare_digest(
+                payload_sha256,
+                expected_payload_sha256,
+            )
+        ):
+            raise RuntimeError(
+                "read_graph6 claim payload no longer matches its "
+                "preregistered byte count and SHA-256"
+            )
+        graph6_path = _materialize_claim_payload(
+            "franken_networkx-claim-read_graph6-0512c5270c4fead9.g6",
+            graph6_payload,
+        )
+        preflight_nx = nx.read_graph6(graph6_path)
+        preflight_fnx = fnx.read_graph6(graph6_path)
+        preflight_nx_bytes = canonical_bytes(preflight_nx)
+        preflight_fnx_bytes = canonical_bytes(preflight_fnx)
+        output_sha256 = hashlib.sha256(preflight_nx_bytes).hexdigest()
+        projected_nx = sorted(preflight_nx.edges())
+        projected_fnx = sorted(preflight_fnx.edges())
+        projected_nx_bytes = canonical_bytes(projected_nx)
+        projected_fnx_bytes = canonical_bytes(projected_fnx)
+        projection_sha256 = hashlib.sha256(projected_nx_bytes).hexdigest()
+        if preflight_nx_bytes != preflight_fnx_bytes:
+            raise RuntimeError(
+                "read_graph6 claim complete decoded graph diverged"
+            )
+        if projected_nx_bytes != projected_fnx_bytes:
+            raise RuntimeError(
+                "read_graph6 claim recovered sorted-edge projection diverged"
+            )
+        if (
+            type(preflight_nx).__name__ != "Graph"
+            or type(preflight_fnx).__name__ != "Graph"
+            or preflight_nx.is_directed()
+            or preflight_nx.is_multigraph()
+            or preflight_nx.number_of_nodes() != expected_output_nodes
+            or preflight_nx.number_of_edges() != expected_output_edges
+            or len(preflight_nx_bytes) != expected_output_bytes
+            or not hmac.compare_digest(output_sha256, expected_output_sha256)
+            or len(projected_nx_bytes) != expected_projection_bytes
+            or not hmac.compare_digest(
+                projection_sha256,
+                expected_projection_sha256,
+            )
+        ):
+            raise RuntimeError(
+                "read_graph6 claim fixture no longer matches its "
+                "preregistered decoded graph and projection"
+            )
+        EXTRA_PROVENANCE["claim_read_graph6_fixture"] = {
+            "publishing_commit": "87cf65e54a4e13a72a12c2bc7458655c7d4b3ac1",
+            "recovered_harness_sha256": (
+                "1114f244b93787b9e1d6a900633ccd93f3a09c91de8d669bde9ba75df5a611e3"
+            ),
+            "recovered_result_sha256": (
+                "40040b7b90de11721263864fff0e3e79f260ca2779e16c8252784dc9236ef249"
+            ),
+            "recovered_builder_sha256": (
+                "fb051cf48508ad56ee0c64103335090bd7866b12d65cb2e29d522cfa33b4cba1"
+            ),
+            "source_nodes": source_node_count,
+            "source_edges": source_edge_count,
+            "source_seed": source_seed,
+            "source_weighted": False,
+            "source_directed": False,
+            "source_relabel": "networkx.convert_node_labels_to_integers",
+            "writer": "networkx.write_graph6",
+            "writer_parameters": "all omitted (NetworkX 3.6.1 defaults)",
+            "reader_input": "path",
+            "reader_parameters": "path positional; all others omitted",
+            "fixture_path": graph6_path,
+            "python_hash_seed": 0,
+            "payload_bytes": expected_payload_bytes,
+            "payload_sha256": expected_payload_sha256,
+            "output_type": "Graph",
+            "output_nodes": expected_output_nodes,
+            "output_edges": expected_output_edges,
+            "output_canonical_bytes": expected_output_bytes,
+            "complete_decoded_graph_sha256": expected_output_sha256,
+            "timed_projection": "sorted(result.edges())",
+            "projection_canonical_bytes": expected_projection_bytes,
+            "projection_sha256": expected_projection_sha256,
+        }
+        rows.append(
+            (
+                "claim/read_graph6 "
+                "source_n=200 source_m=800 source_seed=13 "
+                "input=path then=sorted(edges) [nx/fnx]",
+                lambda path=graph6_path: sorted(
+                    nx.read_graph6(path).edges()
+                ),
+                lambda path=graph6_path: sorted(
+                    fnx.read_graph6(path).edges()
+                ),
+            )
+        )
+    if "read_sparse6" in jobs:
+        if os.environ.get("PYTHONHASHSEED") != "0":
+            raise RuntimeError(
+                "the read_sparse6 claim fixture requires PYTHONHASHSEED=0 "
+                "because decoded graph and edge order are part of the "
+                "public contract"
+            )
+        expected_payload_bytes = 1_238
+        expected_payload_sha256 = (
+            "3d6752e3c198cbfc2a21911408653a8682da3affc3c5850512baef0a5b09bdf7"
+        )
+        expected_output_nodes = 200
+        expected_output_edges = 800
+        expected_output_bytes = 22_009
+        expected_output_sha256 = (
+            "ea60802d53f9e77b41646c010b9178468d3e9ca8442307cf576687e0ba333c73"
+        )
+        expected_projection_bytes = 8_704
+        expected_projection_sha256 = (
+            "ed01731bc0e1c3142752f78ca678da69ccb2599730ba059a6b1d2f52e18ee151"
+        )
+        sparse6_output = io.BytesIO()
+        nx.write_sparse6(reader_source_nx, sparse6_output)
+        sparse6_payload = sparse6_output.getvalue()
+        payload_sha256 = hashlib.sha256(sparse6_payload).hexdigest()
+        if (
+            len(sparse6_payload) != expected_payload_bytes
+            or not hmac.compare_digest(
+                payload_sha256,
+                expected_payload_sha256,
+            )
+        ):
+            raise RuntimeError(
+                "read_sparse6 claim payload no longer matches its "
+                "preregistered byte count and SHA-256"
+            )
+        sparse6_path = _materialize_claim_payload(
+            "franken_networkx-claim-read_sparse6-3d6752e3c198cbfc.s6",
+            sparse6_payload,
+        )
+        preflight_nx = nx.read_sparse6(sparse6_path)
+        preflight_fnx = fnx.read_sparse6(sparse6_path)
+        preflight_nx_bytes = canonical_bytes(preflight_nx)
+        preflight_fnx_bytes = canonical_bytes(preflight_fnx)
+        output_sha256 = hashlib.sha256(preflight_nx_bytes).hexdigest()
+        projected_nx = sorted(preflight_nx.edges())
+        projected_fnx = sorted(preflight_fnx.edges())
+        projected_nx_bytes = canonical_bytes(projected_nx)
+        projected_fnx_bytes = canonical_bytes(projected_fnx)
+        projection_sha256 = hashlib.sha256(projected_nx_bytes).hexdigest()
+        if preflight_nx_bytes != preflight_fnx_bytes:
+            raise RuntimeError(
+                "read_sparse6 claim complete decoded graph diverged"
+            )
+        if projected_nx_bytes != projected_fnx_bytes:
+            raise RuntimeError(
+                "read_sparse6 claim recovered sorted-edge projection diverged"
+            )
+        if (
+            type(preflight_nx).__name__ != "Graph"
+            or type(preflight_fnx).__name__ != "Graph"
+            or preflight_nx.is_directed()
+            or preflight_nx.is_multigraph()
+            or preflight_nx.number_of_nodes() != expected_output_nodes
+            or preflight_nx.number_of_edges() != expected_output_edges
+            or len(preflight_nx_bytes) != expected_output_bytes
+            or not hmac.compare_digest(output_sha256, expected_output_sha256)
+            or len(projected_nx_bytes) != expected_projection_bytes
+            or not hmac.compare_digest(
+                projection_sha256,
+                expected_projection_sha256,
+            )
+        ):
+            raise RuntimeError(
+                "read_sparse6 claim fixture no longer matches its "
+                "preregistered decoded graph and projection"
+            )
+        EXTRA_PROVENANCE["claim_read_sparse6_fixture"] = {
+            "publishing_commit": "87cf65e54a4e13a72a12c2bc7458655c7d4b3ac1",
+            "recovered_harness_sha256": (
+                "1114f244b93787b9e1d6a900633ccd93f3a09c91de8d669bde9ba75df5a611e3"
+            ),
+            "recovered_result_sha256": (
+                "40040b7b90de11721263864fff0e3e79f260ca2779e16c8252784dc9236ef249"
+            ),
+            "recovered_builder_sha256": (
+                "fb051cf48508ad56ee0c64103335090bd7866b12d65cb2e29d522cfa33b4cba1"
+            ),
+            "source_nodes": source_node_count,
+            "source_edges": source_edge_count,
+            "source_seed": source_seed,
+            "source_weighted": False,
+            "source_directed": False,
+            "source_relabel": "networkx.convert_node_labels_to_integers",
+            "writer": "networkx.write_sparse6",
+            "writer_parameters": "all omitted (NetworkX 3.6.1 defaults)",
+            "reader_input": "path",
+            "reader_parameters": "path positional; all others omitted",
+            "fixture_path": sparse6_path,
+            "python_hash_seed": 0,
+            "payload_bytes": expected_payload_bytes,
+            "payload_sha256": expected_payload_sha256,
+            "output_type": "Graph",
+            "output_nodes": expected_output_nodes,
+            "output_edges": expected_output_edges,
+            "output_canonical_bytes": expected_output_bytes,
+            "complete_decoded_graph_sha256": expected_output_sha256,
+            "timed_projection": "sorted(result.edges())",
+            "projection_canonical_bytes": expected_projection_bytes,
+            "projection_sha256": expected_projection_sha256,
+        }
+        rows.append(
+            (
+                "claim/read_sparse6 "
+                "source_n=200 source_m=800 source_seed=13 "
+                "input=path then=sorted(edges) [nx/fnx]",
+                lambda path=sparse6_path: sorted(
+                    nx.read_sparse6(path).edges()
+                ),
+                lambda path=sparse6_path: sorted(
+                    fnx.read_sparse6(path).edges()
+                ),
             )
         )
     if "shortest_path_weighted" in jobs:

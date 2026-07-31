@@ -2570,6 +2570,33 @@ managed physical target path, then retain all exact hashes, live incumbent,
 21 rounds, in-process host/ELF identity, actual threads, continuous
 accounting, dual A/A nulls, and the corrected three-clause median gate.
 
+## 2026-07-31 BlackThrush (cod) PARITY + NO-VERDICT (`br-r37-c1-p80x1.37`): exact `read_graph6` / `read_sparse6` claim arms
+
+The published `1.72x / 1.69x` rows were recovered from
+`hunt_unmeasured.py` (SHA `1114f244...11e3`), its result artifact (SHA
+`40040b7b...f249`), and the `hunt_class1.py` builder (SHA
+`fb051cf4...cba1`). An unweighted undirected simple string-node
+`n=200,m=800,seed=13` graph is relabeled to integers and written once by
+NetworkX; each timed call reads the exact path then sorts its edges.
+
+The graph6 payload is 3,332 bytes (SHA `0512c527...7f16`); sparse6 is 1,238
+bytes (SHA `3d6752e3...bdf7`). Live NetworkX 3.6.1 and FrankenNetworkX
+decode both to the same simple 200-node/800-edge graph: 22,009 bytes, SHA
+`ea60802d...3c73`. Both recovered sorted-edge projections are 8,704 bytes,
+SHA `ed01731b...e151`. No divergence was found.
+
+RESULT: **FULL PAYLOAD + GRAPH + PROJECTION PARITY / CURRENT PERFORMANCE
+NO-VERDICT.** The historical `1.7173597x` and `1.6869442x` rows used only
+9 rounds, one null CI each, and empty checksums; they lack dual null medians,
+raw samples, actual observed threads, continuous accounting, and in-process
+ELF identity. No strict benchmark was started because RCH 1.0.52 would place
+the pooled target under another UUID-salted clean-overlay root. Retry only
+after two required clean-overlay invocations prove one identical managed
+physical target path, then retain both exact path-based inputs and outputs,
+live incumbent, 21 rounds per reader, in-process host/ELF identity, actual
+threads, continuous accounting, dual A/A nulls, and the corrected
+three-clause median gate.
+
 ## 2026-07-31 BlackThrush (cod) PARITY + NO-VERDICT (`br-r37-c1-p80x1.33`): exact weighted `shortest_path` claim arm
 
 The published `1.7684x` row was recovered from

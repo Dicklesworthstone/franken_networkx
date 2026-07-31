@@ -28728,6 +28728,79 @@ Python byte-compilation, the ledger contract tests, diff checks, and UBS are
 recorded at commit closeout. No Cargo command ran and no target directory was
 created.
 
+## 2026-07-31 BlackThrush (cod) PARITY + NO-VERDICT: exact `read_graph6` / `read_sparse6` claim arms (`br-r37-c1-p80x1.37`)
+
+The published `1.72x / 1.69x` reader workloads were recovered exactly from
+commit `87cf65e54a4e13a72a12c2bc7458655c7d4b3ac1`,
+`hunt_unmeasured.py` (SHA-256
+`1114f244b93787b9e1d6a900633ccd93f3a09c91de8d669bde9ba75df5a611e3`),
+its saved results artifact (SHA-256
+`40040b7b90de11721263864fff0e3e79f260ca2779e16c8252784dc9236ef249`),
+and `hunt_class1.py`'s builder (SHA-256
+`fb051cf48508ad56ee0c64103335090bd7866b12d65cb2e29d522cfa33b4cba1`).
+The source is an unweighted undirected simple string-node
+`n=200,m=800,seed=13` graph, relabeled with
+`convert_node_labels_to_integers`. NetworkX 3.6.1 writes each format once;
+the timed public calls read the resulting path and return
+`sorted(result.edges())`.
+
+The exact graph6 file is 3,332 bytes (SHA-256
+`0512c5270c4fead9ee7017e54dd8f9cd8f241a48b01f10460eccf07203c57f16`);
+the exact sparse6 file is 1,238 bytes (SHA-256
+`3d6752e3c198cbfc2a21911408653a8682da3affc3c5850512baef0a5b09bdf7`).
+Under `PYTHONHASHSEED=0`, live NetworkX 3.6.1 and FrankenNetworkX decode
+each payload to the same simple undirected `Graph`: 200 nodes, 800 edges,
+22,009 canonical bytes, SHA-256
+`ea60802d53f9e77b41646c010b9178468d3e9ca8442307cf576687e0ba333c73`.
+The recovered sorted-edge projection also agrees exactly for both readers:
+8,704 bytes, SHA-256
+`ed01731bc0e1c3142752f78ca678da69ccb2599730ba059a6b1d2f52e18ee151`.
+No divergence was found.
+
+The recovered historical `read_graph6` row reported median
+`1.717359672323254x`, CI `1.6624650778185892..1.7617735995823363x`, and
+one A/A CI `0.9840227396690919..1.0201227806418323x`. `read_sparse6`
+reported median `1.6869442334559563x`, CI
+`1.6544609699742816..1.730547462164776x`, and one A/A CI
+`1.0000708668105194..1.010382421637611x`. Both used only 9 rounds and
+stored empty checksum fields. They are recovery evidence, not current
+campaign verdicts: neither has dual arm-specific nulls, null medians, raw
+samples, actual observed threads, continuous whole-host accounting, or
+in-process loaded-ELF identity, and both predate the corrected null-median
+clause.
+
+RESULT: **FULL PAYLOAD + DECODED-GRAPH + PROJECTION PARITY / CURRENT
+PERFORMANCE NO-VERDICT.** No strict benchmark was started because RCH 1.0.52
+still puts its pooled target below a UUID-salted `--clean-overlay` root.
+Running the required command would mint another cold physical target,
+violating the one-target storage rule. Machine-readable outcome:
+`benchmark_started=false`, `performance_verdict=NO-VERDICT`,
+`host_identity=not_observed`, `elf_sha256_in_process=not_observed`,
+`networkx_actual_threads=not_observed`, and
+`franken_networkx_actual_threads=not_observed` for both rows. No candidate
+ratio, null, or timing claim is reported.
+
+RETRY PREDICATE: retry only after two required
+`rch exec --base <commit> --clean-overlay` invocations prove the same managed
+physical target path without creating a new directory. Keep both exact
+path-based payloads, full decoded-graph and projection hashes, live NetworkX
+3.6.1, 21 interleaved rounds per reader, in-process host and ELF identity,
+actual observed threads for both arms, continuous whole-host accounting, raw
+candidate samples, and dual A/A nulls. A verdict additionally requires all
+three corrected median clauses: each null median within 2% of `1.0`, the
+candidate median deviation beyond twice the larger null-CI half-width, and
+the candidate median CI wholly on one side of `1.0`. CV remains provenance
+only.
+
+QUALITY / CLOSEOUT: the focused two-reader preflight passed, and the full
+claim-incumbent parity sweep passed `20/20`. Harness SHA-256 is
+`c243785decf4b0bcb2217d26ec3c7aacbdded534dc9959c311eb6e4783866200`.
+The path-based contract reuses two content-addressed live scratch files in
+`/data/tmp`, totaling 4,570 bytes; they remain required and were left in
+place. No directory or Cargo target was created. Python byte-compilation,
+the ledger contract tests, diff checks, and UBS are recorded at commit
+closeout. No Cargo command ran.
+
 ## 2026-07-31 BlackThrush (cod) PARITY + NO-VERDICT: complete `k_crust` claim arm exposes clean-overlay target-reuse blocker (`br-r37-c1-p80x1.5`)
 
 **CLAIM-GAP FIRST, COMPLETE OUTPUT FIRST.** README publishes `k_crust` at
