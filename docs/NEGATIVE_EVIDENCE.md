@@ -28544,6 +28544,74 @@ QUALITY / CLOSEOUT: `git diff --check` covers this ledger-only result. No
 Cargo command ran. UBS has no Markdown/JSONL scanner, so no scanner pass is
 claimed.
 
+## 2026-07-31 BlackThrush (cod) NO-VERDICT: published `erdos_renyi_graph` claim gets a permanent incumbent arm (`br-r37-c1-p80x1.1`)
+
+**CLAIM-GAP FIRST.** `README.md` publishes
+`erdos_renyi_graph(n=1500)` at `14.1755x`, but the claim-coverage audit found
+no permanent contract-harness arm capable of reproducing it. The new
+`claim-incumbent` suite adds the exact public call
+`erdos_renyi_graph(1500, 0.01, seed=42)` for both live NetworkX 3.6.1 and
+FrankenNetworkX. It preregisters 11,176 edges and proves complete node/edge
+order identity over 302,895 canonical bytes with SHA-256
+`acf3cd10f204abcd30dabeb66488b11918a3a026b84565bf38a675b5693bd2ac`
+before timing.
+
+The permanent row inherits the corrected three-clause median gate: candidate
+bootstrap-median CI excludes 1.0; candidate median deviation exceeds twice
+the larger A/A null-CI half-width; every null median is within 2% of 1.0.
+It retains raw candidate and dual-null samples, treats CV as provenance only,
+records host identity/topology/ISA/governor state, probes actual rather than
+requested threads for both arms, continuously accounts for whole-host
+contention, and self-reports the executing ELF SHA-256 inside the process.
+
+A local routing diagnostic established exact output parity and actual
+one-thread execution for both arms. Its seven-round candidate median was
+about `15.03x`, but it is **not campaign evidence**: it was not the required
+strict-remote, host-exclusive invocation and supplies no replacement for the
+published `14.1755x`.
+
+All remote attempts used source base
+`28a1387b06319e53d3acb018ecdd77e8c137c141` through
+`rch exec --base 28a1387b06319e53d3acb018ecdd77e8c137c141
+--clean-overlay --overlay-path scripts/perf_harness.py`, 21 rounds, exact
+NetworkX 3.6.1, and all declared thread-library limits set to one. No
+per-run target directory was requested.
+
+- `ovh-b`, job `j-29954019132703107`: the release build completed, but RCH
+  placed the bench executable under a build-output directory without the
+  adjacent same-build `lib_fnx.so` required by the Cargo wrapper. Execution
+  stopped before Python, host admission, or timing.
+- `ovh-a`, job `j-29954019132703120`: the same clean source reached Python,
+  then host-wide `pre_setup` rejected after all 300 one-second windows. The
+  final blockers were `cpu0=66.3%`, `cpu1=68.0%`, `cpu2=35.7%`,
+  `cpu9=32.0%`, and `cpu11=71.4%`.
+- `ovh-a`, job `j-29954019132703131`: the exact retry again rejected at
+  `pre_setup` after 300 windows, with every logical CPU 0-15 at 100.0%.
+
+Because both admissible workers stopped before the provenance header, the
+requested CPU 2 is not reported as an observed thread count. The in-process
+ELF line, actual arm thread probes, both A/A nulls, candidate samples, median
+CI, and incumbent ratio were all not reached.
+
+comparison_class=NO-VERDICT
+incumbent=networkx-3.6.1
+incumbent_same_invocation=false
+campaign_output=false
+decision_gate=not_reached
+actual_observed_threads=not_reached
+cv_role=not_computed
+
+RESULT: **NO-VERDICT / PERMANENT ARM SHIPPED.** The README number is neither
+strengthened nor replaced by the local routing diagnostic.
+
+RETRY PREDICATE: rerun the unchanged permanent row only in a dedicated
+non-co-tenanted remote window with scheduler jobs, host probes, and leaked
+descendants suppressed for the entire process. Preserve the exact
+source/fixture/incumbent hashes, in-process ELF line, complete output
+identity, actual thread probes, 21 rounds, both A/A nulls, continuous 300ms
+accounting, and corrected three-clause gate. Any build-artifact, admission,
+provenance, parity, or accounting abort remains NO-VERDICT.
+
 ## 2026-07-29 CloudyTurtle VALID-AB INCUMBENT LOSS: real community pipeline narrows from `1.3774x` to `0.8214x` as output integration grows (`br-r37-c1-zgcfy`)
 
 NEGATIVE-LEDGER-FIRST: the candidate preflight found no prior complete

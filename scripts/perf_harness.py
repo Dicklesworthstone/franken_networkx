@@ -70,6 +70,7 @@ Usage:
     python3 scripts/perf_harness.py marshaling
     python3 scripts/perf_harness.py class1-scaling
     python3 scripts/perf_harness.py class1-frontier
+    python3 scripts/perf_harness.py claim-incumbent
     python3 scripts/perf_harness.py cold-after-mutation-cc
     python3 scripts/perf_harness.py realistic-workloads
 
@@ -3143,6 +3144,97 @@ def suite_class1_frontier():
     return rows
 
 
+def suite_claim_incumbent():
+    """Convert published claims into permanent live-incumbent contract rows."""
+    import networkx as nx
+    import franken_networkx as fnx
+
+    if nx.__version__ != "3.6.1":
+        raise RuntimeError(
+            "claim-incumbent requires live NetworkX 3.6.1; "
+            f"loaded {nx.__version__} from {nx.__file__}"
+        )
+
+    available_jobs = ("erdos_renyi_graph",)
+    requested_jobs = os.environ.get(
+        "FNX_CLAIM_INCUMBENT_JOBS",
+        ",".join(available_jobs),
+    )
+    selected = {
+        name.strip()
+        for name in requested_jobs.split(",")
+        if name.strip()
+    }
+    unknown = selected - set(available_jobs)
+    if not selected or unknown:
+        raise ValueError(
+            "FNX_CLAIM_INCUMBENT_JOBS must select known comma-separated jobs; "
+            f"unknown={sorted(unknown)} known={list(available_jobs)}"
+        )
+
+    jobs = tuple(name for name in available_jobs if name in selected)
+    EXTRA_PROVENANCE["claim_incumbent_jobs"] = list(jobs)
+    rows = []
+    if "erdos_renyi_graph" in jobs:
+        node_count = 1_500
+        probability = 0.01
+        seed = 42
+        expected_edges = 11_176
+        expected_output_sha256 = (
+            "acf3cd10f204abcd30dabeb66488b11918a3a026b84565bf38a675b5693bd2ac"
+        )
+        preflight_nx = nx.erdos_renyi_graph(
+            node_count,
+            probability,
+            seed=seed,
+        )
+        preflight_fnx = fnx.erdos_renyi_graph(
+            node_count,
+            probability,
+            seed=seed,
+        )
+        preflight_nx_bytes = canonical_bytes(preflight_nx)
+        preflight_fnx_bytes = canonical_bytes(preflight_fnx)
+        if preflight_nx_bytes != preflight_fnx_bytes:
+            raise RuntimeError(
+                "erdos_renyi_graph claim fixture complete output diverged"
+            )
+        fixture_sha256 = hashlib.sha256(preflight_nx_bytes).hexdigest()
+        if (
+            preflight_nx.number_of_edges() != expected_edges
+            or preflight_fnx.number_of_edges() != expected_edges
+            or not hmac.compare_digest(fixture_sha256, expected_output_sha256)
+        ):
+            raise RuntimeError(
+                "erdos_renyi_graph claim fixture no longer matches its "
+                "preregistered edge count and output SHA-256"
+            )
+        EXTRA_PROVENANCE["claim_erdos_renyi_graph_fixture"] = {
+            "nodes": node_count,
+            "probability": probability,
+            "seed": seed,
+            "directed": False,
+            "expected_edges": expected_edges,
+            "complete_output_sha256": expected_output_sha256,
+        }
+        rows.append(
+            (
+                "claim/erdos_renyi_graph n=1500 p=0.01 seed=42 [nx/fnx]",
+                lambda: nx.erdos_renyi_graph(
+                    node_count,
+                    probability,
+                    seed=seed,
+                ),
+                lambda: fnx.erdos_renyi_graph(
+                    node_count,
+                    probability,
+                    seed=seed,
+                ),
+            )
+        )
+    return rows
+
+
 def suite_cold_after_mutation_cc():
     """Re-measure thp6w S4's whole public operation against live NetworkX."""
     import networkx as nx
@@ -3663,6 +3755,7 @@ SUITES = {
     "marshaling": suite_marshaling,
     "class1-scaling": suite_class1_scaling,
     "class1-frontier": suite_class1_frontier,
+    "claim-incumbent": suite_claim_incumbent,
     "cold-after-mutation-cc": suite_cold_after_mutation_cc,
     "realistic-workloads": suite_realistic_workloads,
 }

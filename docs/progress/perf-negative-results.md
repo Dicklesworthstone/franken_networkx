@@ -2126,3 +2126,29 @@ for the entire process; preserve the exact fixture/wheel/source hashes,
 in-process ELF line, actual-thread probes, 21 rounds, both A/A nulls,
 continuous accounting, and corrected three-clause gate. Any abort remains
 NO-VERDICT.
+
+## 2026-07-31 BlackThrush (cod) NO-VERDICT (`br-r37-c1-p80x1.1`): permanent `erdos_renyi_graph` incumbent arm
+
+The highest exposed claim gap now has a permanent contract row:
+`erdos_renyi_graph(1500, 0.01, seed=42)` against live NetworkX 3.6.1.
+Complete node/edge order matches over 11,176 edges and 302,895 canonical
+bytes, SHA-256
+`acf3cd10f204abcd30dabeb66488b11918a3a026b84565bf38a675b5693bd2ac`.
+A local routing check observed one thread in each arm and a directional
+~`15.03x`, but it is not campaign output.
+
+Three strict clean remote placements emitted zero timing. `ovh-b`
+`j-29954019132703107` built but lacked the same-build extension adjacent to
+the relocated bench executable. `ovh-a` `j-29954019132703120` rejected
+pre-setup after 300 windows with five CPUs at 32-71% busy. Exact retry
+`j-29954019132703131` rejected after 300 windows with all 16 CPUs at 100%.
+All used base `28a1387b06319e53d3acb018ecdd77e8c137c141`,
+`--clean-overlay --overlay-path scripts/perf_harness.py`, 21 rounds, and no
+requested per-run target directory.
+
+RESULT: **NO-VERDICT / PERMANENT ARM SHIPPED.** In-process ELF identity,
+actual remote thread probes, both nulls, candidate CI, and the incumbent
+ratio were not reached; do not replace or strengthen README's unsupported
+`14.1755x` with the local diagnostic. Retry only in a dedicated
+non-co-tenanted remote window with the exact fixture/source/incumbent hashes,
+full provenance, continuous accounting, and corrected three-clause gate.

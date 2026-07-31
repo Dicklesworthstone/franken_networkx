@@ -53,13 +53,19 @@ An unsupported claim a user might act on is worse than one buried in a ledger. S
 ranked by what `README.md` publishes.
 
 README publishes 45 numeric per-family claims plus 5 whole-job pipeline rows. Cross-referencing
-each against a paired `(label, nx_arm, fnx_arm)` job in the contract harness across **all 32
-suites** (the harness exposes only **30 distinct NetworkX functions** with a paired arm):
+each against a paired `(label, nx_arm, fnx_arm)` job in the contract harness across **all 33
+suites** (the harness exposes **31 distinct NetworkX functions** with a paired arm):
 
-- **21 of 45** README family claims have a paired incumbent arm in the contract harness.
-- **24 of 45** do not.
+- **22 of 45** README family claims have a paired incumbent arm in the contract harness.
+- **23 of 45** do not.
+- **24 of 45** still lack a current admissible ratio: the new
+  `erdos_renyi_graph` arm reached no timed verdict because host exclusivity
+  rejected both runnable placements.
 
-### Tier 1 — published in the README, no arm in the contract harness
+### Tier 1 — published in the README, no current admissible contract ratio
+
+Row 1 now has a permanent arm but remains in this queue until it reaches a
+host-exclusive verdict. Rows 2-24 still have no permanent arm.
 
 | # | Claim | Published | README |
 |--:|---|---:|---:|
@@ -116,12 +122,15 @@ NetworkX 3.6.1; being a drop-in replacement is the whole premise. Adding an arm 
 (`edges(data=True)`, `G.has_node`, `subgraph(view) → edges`) need a bound-method arm, which the
 harness already supports (`getattr(nx_graph, name)`, `perf_harness.py:2580`).
 
-So the honest characterisation is **"measured but not attested, and in 24 public cases not
-currently reproducible by the contract harness"** — not "unmeasurable". That is a better position
-than the raw 2.0% suggests, and a worse one than the README implies.
+So the honest characterisation is **"measured but not attested; 23 public
+cases are not reproducible by the contract harness, and one more now has a
+permanent arm but no host-exclusive verdict"** — not "unmeasurable". That is
+a better position than the raw 2.0% suggests, and a worse one than the README
+implies.
 
 ## What this audit does not claim
 
 It does not claim the 579 unattested rows are wrong. It claims we cannot currently demonstrate
-they are right to the standard we have adopted, and that 24 numbers a user reads in the README
-have no arm in the harness the README points them at.
+they are right to the standard we have adopted, and that 23 numbers a user
+reads in the README have no arm in the harness it points them at; the
+twenty-fourth now has an arm but no admissible timed verdict.
