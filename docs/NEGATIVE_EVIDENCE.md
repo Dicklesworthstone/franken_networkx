@@ -28549,12 +28549,13 @@ claimed.
 **CLAIM-GAP FIRST.** `README.md` publishes
 `erdos_renyi_graph(n=1500)` at `14.1755x`, but the claim-coverage audit found
 no permanent contract-harness arm capable of reproducing it. The new
-`claim-incumbent` suite adds the exact public call
-`erdos_renyi_graph(1500, 0.01, seed=42)` for both live NetworkX 3.6.1 and
-FrankenNetworkX. It preregisters 11,176 edges and proves complete node/edge
-order identity over 302,895 canonical bytes with SHA-256
-`acf3cd10f204abcd30dabeb66488b11918a3a026b84565bf38a675b5693bd2ac`
-before timing.
+`claim-incumbent` suite adds the exact original hunt call
+`erdos_renyi_graph(1500, 0.004, seed=5)` for both live NetworkX 3.6.1 and
+FrankenNetworkX. It preregisters 4,508 edges and proves complete node/edge
+order identity over 139,359 canonical bytes with SHA-256
+`93fcf9aedb4b1f6dde8523bae73a673e92f3a50c2b958e4b37ee468002002e20`
+before timing. The original scratch harness and result were recovered before
+closeout; they are the source of the published `14.1755x`.
 
 The permanent row inherits the corrected three-clause median gate: candidate
 bootstrap-median CI excludes 1.0; candidate median deviation exceeds twice
@@ -28564,13 +28565,14 @@ records host identity/topology/ISA/governor state, probes actual rather than
 requested threads for both arms, continuously accounts for whole-host
 contention, and self-reports the executing ELF SHA-256 inside the process.
 
-A local routing diagnostic established exact output parity and actual
-one-thread execution for both arms. Its seven-round candidate median was
-about `15.03x`, but it is **not campaign evidence**: it was not the required
-strict-remote, host-exclusive invocation and supplies no replacement for the
-published `14.1755x`.
+A local correctness-only preflight established exact output parity for the
+recovered input. It emitted no admissible timing or remote thread provenance
+and supplies no replacement for the published `14.1755x`.
 
-All remote attempts used source base
+Before the original scratch artifact was recovered, three remote attempts
+used a provisional `p=0.01, seed=42` fixture. That fixture did not generate
+the public claim, so those attempts are invalidated independently of their
+zero-timing outcomes. They used source base
 `28a1387b06319e53d3acb018ecdd77e8c137c141` through
 `rch exec --base 28a1387b06319e53d3acb018ecdd77e8c137c141
 --clean-overlay --overlay-path scripts/perf_harness.py`, 21 rounds, exact
@@ -28588,10 +28590,22 @@ per-run target directory was requested.
 - `ovh-a`, job `j-29954019132703131`: the exact retry again rejected at
   `pre_setup` after 300 windows, with every logical CPU 0-15 at 100.0%.
 
-Because both admissible workers stopped before the provenance header, the
+The corrected exact fixture then ran through
+`rch exec --base 62ea7fadd66d4799fdc82f178293c44e48c8358d
+--clean-overlay --overlay-path scripts/perf_harness.py` on a full 4/4-slot
+`vmi1167313` placement, again without a requested target-directory override.
+The first build mistakenly enabled PyO3's `extension-module` feature and
+failed while linking the benchmark executable against the Python C API,
+before Python. The corrected default-feature retry built successfully and
+entered Python, but `pre_setup` rejected after all 300 windows; its final
+blockers were `cpu0=35.4%`, `cpu1=30.2%`, `cpu2=32.0%`, `cpu3=69.7%`, and
+`cpu4=27.6%`.
+
+Because every runnable attempt stopped before the provenance header, the
 requested CPU 2 is not reported as an observed thread count. The in-process
 ELF line, actual arm thread probes, both A/A nulls, candidate samples, median
-CI, and incumbent ratio were all not reached.
+CI, and incumbent ratio were all not reached. `vmi1167313` is the scheduler
+placement ID, not a substitute for the in-process host-identity field.
 
 comparison_class=NO-VERDICT
 incumbent=networkx-3.6.1
@@ -28602,15 +28616,18 @@ actual_observed_threads=not_reached
 cv_role=not_computed
 
 RESULT: **NO-VERDICT / PERMANENT ARM SHIPPED.** The README number is neither
-strengthened nor replaced by the local routing diagnostic.
+strengthened nor replaced.
 
 RETRY PREDICATE: rerun the unchanged permanent row only in a dedicated
 non-co-tenanted remote window with scheduler jobs, host probes, and leaked
 descendants suppressed for the entire process. Preserve the exact
-source/fixture/incumbent hashes, in-process ELF line, complete output
-identity, actual thread probes, 21 rounds, both A/A nulls, continuous 300ms
-accounting, and corrected three-clause gate. Any build-artifact, admission,
-provenance, parity, or accounting abort remains NO-VERDICT.
+source base `62ea7fadd66d4799fdc82f178293c44e48c8358d`, the clean corrected
+harness overlay, fixture SHA
+`93fcf9aedb4b1f6dde8523bae73a673e92f3a50c2b958e4b37ee468002002e20`,
+exact NetworkX 3.6.1, in-process ELF line, complete output identity, actual
+thread probes, 21 rounds, both A/A nulls, continuous 300ms accounting, and
+the corrected three-clause gate. Any build-artifact, admission, provenance,
+parity, or accounting abort remains NO-VERDICT.
 
 ## 2026-07-29 CloudyTurtle VALID-AB INCUMBENT LOSS: real community pipeline narrows from `1.3774x` to `0.8214x` as output integration grows (`br-r37-c1-zgcfy`)
 

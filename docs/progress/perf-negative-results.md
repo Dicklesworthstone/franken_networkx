@@ -2129,15 +2129,19 @@ NO-VERDICT.
 
 ## 2026-07-31 BlackThrush (cod) NO-VERDICT (`br-r37-c1-p80x1.1`): permanent `erdos_renyi_graph` incumbent arm
 
-The highest exposed claim gap now has a permanent contract row:
-`erdos_renyi_graph(1500, 0.01, seed=42)` against live NetworkX 3.6.1.
-Complete node/edge order matches over 11,176 edges and 302,895 canonical
+The highest exposed claim gap now has a permanent contract row reproducing
+the recovered original hunt input:
+`erdos_renyi_graph(1500, 0.004, seed=5)` against live NetworkX 3.6.1.
+Complete node/edge order matches over 4,508 edges and 139,359 canonical
 bytes, SHA-256
-`acf3cd10f204abcd30dabeb66488b11918a3a026b84565bf38a675b5693bd2ac`.
-A local routing check observed one thread in each arm and a directional
-~`15.03x`, but it is not campaign output.
+`93fcf9aedb4b1f6dde8523bae73a673e92f3a50c2b958e4b37ee468002002e20`.
+A local correctness-only check proved parity but emitted no admissible timing
+or remote thread provenance.
 
-Three strict clean remote placements emitted zero timing. `ovh-b`
+Three strict clean remote placements on a provisional `p=0.01, seed=42`
+fixture emitted zero timing. The recovered scratch harness proved that input
+did not generate the public claim, so all three attempts are invalidated
+independently of their aborts. `ovh-b`
 `j-29954019132703107` built but lacked the same-build extension adjacent to
 the relocated bench executable. `ovh-a` `j-29954019132703120` rejected
 pre-setup after 300 windows with five CPUs at 32-71% busy. Exact retry
@@ -2146,9 +2150,16 @@ All used base `28a1387b06319e53d3acb018ecdd77e8c137c141`,
 `--clean-overlay --overlay-path scripts/perf_harness.py`, 21 rounds, and no
 requested per-run target directory.
 
+The corrected exact input then received a full 4/4-slot strict placement on
+`vmi1167313`, base `62ea7fadd66d4799fdc82f178293c44e48c8358d`,
+with only the corrected harness overlaid. An initial build with the wrong
+PyO3 executable feature failed at link time before Python. The default-feature
+retry built and entered `pre_setup`, then rejected after 300 windows with
+`cpu0-4` at 27.6-69.7% busy. It emitted no provenance or timing.
+
 RESULT: **NO-VERDICT / PERMANENT ARM SHIPPED.** In-process ELF identity,
 actual remote thread probes, both nulls, candidate CI, and the incumbent
 ratio were not reached; do not replace or strengthen README's unsupported
-`14.1755x` with the local diagnostic. Retry only in a dedicated
+`14.1755x` with any local diagnostic. Retry only in a dedicated
 non-co-tenanted remote window with the exact fixture/source/incumbent hashes,
 full provenance, continuous accounting, and corrected three-clause gate.

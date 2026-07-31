@@ -3177,11 +3177,11 @@ def suite_claim_incumbent():
     rows = []
     if "erdos_renyi_graph" in jobs:
         node_count = 1_500
-        probability = 0.01
-        seed = 42
-        expected_edges = 11_176
+        probability = 0.004
+        seed = 5
+        expected_edges = 4_508
         expected_output_sha256 = (
-            "acf3cd10f204abcd30dabeb66488b11918a3a026b84565bf38a675b5693bd2ac"
+            "93fcf9aedb4b1f6dde8523bae73a673e92f3a50c2b958e4b37ee468002002e20"
         )
         preflight_nx = nx.erdos_renyi_graph(
             node_count,
@@ -3219,7 +3219,7 @@ def suite_claim_incumbent():
         }
         rows.append(
             (
-                "claim/erdos_renyi_graph n=1500 p=0.01 seed=42 [nx/fnx]",
+                "claim/erdos_renyi_graph n=1500 p=0.004 seed=5 [nx/fnx]",
                 lambda: nx.erdos_renyi_graph(
                     node_count,
                     probability,
