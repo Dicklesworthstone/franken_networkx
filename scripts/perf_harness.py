@@ -3205,6 +3205,7 @@ def suite_claim_incumbent():
         "minimum_branching",
         "pagerank",
         "partition_spanning_tree",
+        "shortest_path_weighted",
         "single_pair_shortest_path",
         "single_source_shortest_path_length",
         "subgraph_view_edges",
@@ -4541,6 +4542,149 @@ def suite_claim_incumbent():
                 "parameters=defaults [nx/fnx]",
                 lambda graph=spanning_nx: nx.partition_spanning_tree(graph),
                 lambda graph=spanning_fnx: fnx.partition_spanning_tree(graph),
+            )
+        )
+    if "shortest_path_weighted" in jobs:
+        if os.environ.get("PYTHONHASHSEED") != "0":
+            raise RuntimeError(
+                "the weighted shortest_path claim fixture requires "
+                "PYTHONHASHSEED=0 because the selected equal-cost path is "
+                "part of the public contract"
+            )
+        node_count = 2_000
+        edge_count = 8_000
+        seed = 7
+        source = "0"
+        target = "1999"
+        weight = "weight"
+        expected_input_bytes = 398_318
+        expected_input_sha256 = (
+            "03c62edb3bc632ec6fedf20e7a7061e42688aa1d655e9128dbc4980c2af54de0"
+        )
+        expected_path = (
+            "0",
+            "1610",
+            "1531",
+            "1102",
+            "184",
+            "452",
+            "1999",
+        )
+        expected_edge_weights = (4, 1, 4, 5, 3, 2)
+        expected_total_weight = 19
+        expected_output_bytes = 51
+        expected_output_sha256 = (
+            "52a956a6868cbe0c02c56c5b963e2739aeb19a60b4d876fe747111db192676bb"
+        )
+        weighted_shortest_nx, weighted_shortest_fnx = _build_pair(
+            node_count,
+            edge_count,
+            seed=seed,
+            weighted=True,
+        )
+        input_nx_bytes = canonical_bytes(weighted_shortest_nx)
+        input_fnx_bytes = canonical_bytes(weighted_shortest_fnx)
+        input_sha256 = hashlib.sha256(input_nx_bytes).hexdigest()
+        if input_nx_bytes != input_fnx_bytes:
+            raise RuntimeError(
+                "weighted shortest_path claim input graphs diverged"
+            )
+        if (
+            len(input_nx_bytes) != expected_input_bytes
+            or not hmac.compare_digest(input_sha256, expected_input_sha256)
+        ):
+            raise RuntimeError(
+                "weighted shortest_path claim input no longer matches its "
+                "preregistered canonical byte count and SHA-256"
+            )
+
+        preflight_nx = nx.shortest_path(
+            weighted_shortest_nx,
+            source,
+            target,
+            weight=weight,
+        )
+        preflight_fnx = fnx.shortest_path(
+            weighted_shortest_fnx,
+            source,
+            target,
+            weight=weight,
+        )
+        preflight_nx_bytes = canonical_bytes(preflight_nx)
+        preflight_fnx_bytes = canonical_bytes(preflight_fnx)
+        output_sha256 = hashlib.sha256(preflight_nx_bytes).hexdigest()
+        edge_weights = tuple(
+            weighted_shortest_nx[u][v][weight]
+            for u, v in zip(preflight_nx, preflight_nx[1:])
+        )
+        if preflight_nx_bytes != preflight_fnx_bytes:
+            raise RuntimeError(
+                "weighted shortest_path claim complete ordered path diverged"
+            )
+        if (
+            type(preflight_nx) is not list
+            or tuple(preflight_nx) != expected_path
+            or edge_weights != expected_edge_weights
+            or sum(edge_weights) != expected_total_weight
+            or len(preflight_nx_bytes) != expected_output_bytes
+            or not hmac.compare_digest(output_sha256, expected_output_sha256)
+        ):
+            raise RuntimeError(
+                "weighted shortest_path claim fixture no longer matches "
+                "its preregistered complete ordered path"
+            )
+        EXTRA_PROVENANCE["claim_shortest_path_weighted_fixture"] = {
+            "publishing_commit": "87cf65e54a4e13a72a12c2bc7458655c7d4b3ac1",
+            "recovered_harness_sha256": (
+                "40e03ac078cff1d930e5e3fa8232688becf1c1a67ab1cda6da93b88109e47a0f"
+            ),
+            "recovered_result_sha256": (
+                "eb2400d0a022d02325310ade2fb97beeff35f90ccc35170bd094f0492564a415"
+            ),
+            "nodes": node_count,
+            "edges": edge_count,
+            "seed": seed,
+            "weighted": True,
+            "directed": False,
+            "source": source,
+            "target": target,
+            "weight": weight,
+            "method": "omitted (NetworkX default=dijkstra)",
+            "parameters": (
+                "source and target positional; weight=\"weight\"; "
+                "method omitted"
+            ),
+            "weight_range_inclusive": [1, 20],
+            "python_hash_seed": 0,
+            "input_canonical_bytes": expected_input_bytes,
+            "input_sha256": expected_input_sha256,
+            "path": list(expected_path),
+            "path_nodes": len(expected_path),
+            "path_edges": len(expected_edge_weights),
+            "path_edge_weights": list(expected_edge_weights),
+            "path_total_weight": expected_total_weight,
+            "output_canonical_bytes": expected_output_bytes,
+            "complete_ordered_path_sha256": expected_output_sha256,
+        }
+        rows.append(
+            (
+                "claim/shortest_path(weighted) "
+                "n=2000 m=8000 seed=7 source=\"0\" target=\"1999\" "
+                "weight=\"weight\" method=default [nx/fnx]",
+                lambda graph=weighted_shortest_nx, src=source, dst=target,
+                weight_name=weight: nx.shortest_path(
+                    graph,
+                    src,
+                    dst,
+                    weight=weight_name,
+                ),
+                lambda graph=weighted_shortest_fnx, src=source, dst=target,
+                weight_name=weight: fnx.shortest_path(
+                    graph,
+                    src,
+                    dst,
+                    weight=weight_name,
+                ),
             )
         )
     if "single_pair_shortest_path" in jobs:

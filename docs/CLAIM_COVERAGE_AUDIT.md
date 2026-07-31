@@ -58,8 +58,8 @@ It also has 5 whole-job pipeline rows. Cross-referencing each family row against
 a paired `(label, nx_arm, fnx_arm)` job in the contract harness across **all 33
 suites** (the harness exposes **45 distinct NetworkX functions** with a paired arm):
 
-- **37 of 45** README family rows have a paired incumbent arm in the contract harness.
-- **8 of 45** do not.
+- **38 of 45** README family rows have a paired incumbent arm in the contract harness.
+- **7 of 45** do not.
 - **24 of 45** still lack a current admissible ratio. The
   `erdos_renyi_graph` and `k_corona` arms reached no timed verdict because host
   exclusivity rejected their runnable placements. The `k_crust` and
@@ -73,12 +73,13 @@ suites** (the harness exposes **45 distinct NetworkX functions** with a paired a
   blocked by the same predicate, as are `single_pair_shortest_path` and
   `pagerank`, `partition_spanning_tree`, and `to_scipy_sparse_array`.
   The claim-specific `label_propagation_communities` and `dfs_successors`
-  arms are blocked by it too, along with `bidirectional_dijkstra`.
+  arms are blocked by it too, along with `bidirectional_dijkstra` and
+  weighted `shortest_path`.
 
 ### Tier 1 — published in the README, no current admissible contract ratio
 
-Rows 1-16 now have permanent arms but remain in this queue until they reach an
-admissible verdict. Rows 17-24 still have no permanent arm.
+Rows 1-17 now have permanent arms but remain in this queue until they reach an
+admissible verdict. Rows 18-24 still have no permanent arm.
 
 | # | Claim | Published | README |
 |--:|---|---:|---:|
