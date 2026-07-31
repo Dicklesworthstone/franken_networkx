@@ -3222,6 +3222,7 @@ def suite_claim_incumbent():
         "all_pairs_shortest_path_length",
         "bidirectional_dijkstra",
         "dfs_successors",
+        "edges_data_true",
         "erdos_renyi_graph",
         "k_corona",
         "k_crust",
@@ -3858,6 +3859,146 @@ def suite_claim_incumbent():
                 lambda graph=successors_fnx, root=source: fnx.dfs_successors(
                     graph,
                     root,
+                ),
+            )
+        )
+    if "edges_data_true" in jobs:
+        if os.environ.get("PYTHONHASHSEED") != "0":
+            raise RuntimeError(
+                "the edges(data=True) claim fixture requires "
+                "PYTHONHASHSEED=0 because edge and attribute order are "
+                "part of the public contract"
+            )
+        node_count = 2_000
+        edge_count = 8_000
+        seed = 7
+        expected_input_bytes = 398_318
+        expected_input_sha256 = (
+            "03c62edb3bc632ec6fedf20e7a7061e42688aa1d655e9128dbc4980c2af54de0"
+        )
+        expected_output_items = 8_000
+        expected_weight_sum = 83_411
+        expected_weight_histogram = {
+            1: 400,
+            2: 416,
+            3: 404,
+            4: 395,
+            5: 442,
+            6: 360,
+            7: 399,
+            8: 443,
+            9: 392,
+            10: 385,
+            11: 416,
+            12: 395,
+            13: 370,
+            14: 399,
+            15: 415,
+            16: 380,
+            17: 440,
+            18: 389,
+            19: 397,
+            20: 363,
+        }
+        expected_output_bytes = 355_413
+        expected_output_sha256 = (
+            "fe91930c1b22fc69497a50bea3d7850dc6cc854f9388bf7675865b96349cbdc8"
+        )
+        edges_data_nx, edges_data_fnx = _build_pair(
+            node_count,
+            edge_count,
+            seed=seed,
+            weighted=True,
+        )
+        input_nx_bytes = canonical_bytes(edges_data_nx)
+        input_fnx_bytes = canonical_bytes(edges_data_fnx)
+        input_sha256 = hashlib.sha256(input_nx_bytes).hexdigest()
+        if input_nx_bytes != input_fnx_bytes:
+            raise RuntimeError(
+                "edges(data=True) claim input graphs diverged"
+            )
+        if (
+            len(input_nx_bytes) != expected_input_bytes
+            or not hmac.compare_digest(input_sha256, expected_input_sha256)
+        ):
+            raise RuntimeError(
+                "edges(data=True) claim input no longer matches its "
+                "preregistered canonical byte count and SHA-256"
+            )
+
+        preflight_nx = list(edges_data_nx.edges(data=True))
+        preflight_fnx = list(edges_data_fnx.edges(data=True))
+        preflight_nx_bytes = canonical_bytes(preflight_nx)
+        preflight_fnx_bytes = canonical_bytes(preflight_fnx)
+        output_sha256 = hashlib.sha256(preflight_nx_bytes).hexdigest()
+        weight_histogram = {}
+        weight_sum = 0
+        for _left, _right, attributes in preflight_nx:
+            weight = attributes["weight"]
+            weight_sum += weight
+            weight_histogram[weight] = weight_histogram.get(weight, 0) + 1
+        if preflight_nx_bytes != preflight_fnx_bytes:
+            raise RuntimeError(
+                "edges(data=True) claim complete ordered edge/attribute "
+                "list diverged"
+            )
+        if (
+            type(preflight_nx) is not list
+            or any(
+                type(edge) is not tuple
+                or len(edge) != 3
+                or type(edge[2]) is not dict
+                for edge in preflight_nx
+            )
+            or len(preflight_nx) != expected_output_items
+            or weight_sum != expected_weight_sum
+            or weight_histogram != expected_weight_histogram
+            or len(preflight_nx_bytes) != expected_output_bytes
+            or not hmac.compare_digest(output_sha256, expected_output_sha256)
+        ):
+            raise RuntimeError(
+                "edges(data=True) claim fixture no longer matches its "
+                "preregistered complete ordered edge/attribute list"
+            )
+        EXTRA_PROVENANCE["claim_edges_data_true_fixture"] = {
+            "publishing_commit": "87cf65e54a4e13a72a12c2bc7458655c7d4b3ac1",
+            "recovered_harness_sha256": (
+                "12613c60217d14798a75558b18230afba6282547e48e6d89caaf9cafd083cf07"
+            ),
+            "recovered_result_sha256": (
+                "622b1c016891f709aad9fd545b41a08f51ca73f9b7be46393cf8415b4b11a1ed"
+            ),
+            "recovered_builder_sha256": (
+                "40e03ac078cff1d930e5e3fa8232688becf1c1a67ab1cda6da93b88109e47a0f"
+            ),
+            "nodes": node_count,
+            "edges": edge_count,
+            "seed": seed,
+            "weighted": True,
+            "directed": False,
+            "data": True,
+            "default": None,
+            "nbunch": None,
+            "parameters": "data=True; all remaining parameters omitted",
+            "weight_range_inclusive": [1, 20],
+            "python_hash_seed": 0,
+            "input_canonical_bytes": expected_input_bytes,
+            "input_sha256": expected_input_sha256,
+            "output_items": expected_output_items,
+            "weight_sum": expected_weight_sum,
+            "weight_histogram": expected_weight_histogram,
+            "output_canonical_bytes": expected_output_bytes,
+            "complete_ordered_output_sha256": expected_output_sha256,
+        }
+        rows.append(
+            (
+                "claim/edges(data=True)->list "
+                "n=2000 m=8000 seed=7 weights=1..20 [nx/fnx]",
+                lambda graph=edges_data_nx: list(
+                    graph.edges(data=True)
+                ),
+                lambda graph=edges_data_fnx: list(
+                    graph.edges(data=True)
                 ),
             )
         )

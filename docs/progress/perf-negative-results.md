@@ -2597,6 +2597,32 @@ live incumbent, 21 rounds per reader, in-process host/ELF identity, actual
 threads, continuous accounting, dual A/A nulls, and the corrected
 three-clause median gate.
 
+## 2026-07-31 BlackThrush (cod) PARITY + NO-VERDICT (`br-r37-c1-p80x1.39`): exact `edges(data=True)` claim arm
+
+The published `1.6085x` row was recovered from
+`sweep_marshaling.py` (SHA `12613c60...cf07`), its result artifact (SHA
+`622b1c01...a1ed`), and the builder in `measure_marshaling.py` (SHA
+`40e03ac0...a0f`). It materializes `list(G.edges(data=True))` on a weighted
+undirected simple string-node `n=2000,m=8000,seed=7` graph.
+
+Under `PYTHONHASHSEED=0`, both implementations receive 398,318 canonical
+input bytes (SHA `03c62edb...4de0`). Live NetworkX 3.6.1 and
+FrankenNetworkX agree exactly on all 8,000 ordered edge triples and every
+attribute dictionary. Integer weights span `1..20` and sum to 83,411. The
+complete output is 355,413 bytes, SHA `fe91930c...bdc8`. No divergence was
+found.
+
+RESULT: **FULL ORDERED EDGE + ATTRIBUTE PARITY / CURRENT PERFORMANCE
+NO-VERDICT.** The historical `1.6084814x` row used only 11 rounds, one null
+CI, and empty checksums; it lacks dual null medians, raw samples, actual
+observed threads, continuous accounting, and in-process ELF identity. No
+strict benchmark was started because RCH 1.0.52 would place the pooled
+target under another UUID-salted clean-overlay root. Retry only after two
+required clean-overlay invocations prove one identical managed physical
+target path, then retain every exact input/output hash, live incumbent, 21
+rounds, in-process host/ELF identity, actual threads, continuous accounting,
+dual A/A nulls, and the corrected three-clause median gate.
+
 ## 2026-07-31 BlackThrush (cod) PARITY + NO-VERDICT (`br-r37-c1-p80x1.33`): exact weighted `shortest_path` claim arm
 
 The published `1.7684x` row was recovered from

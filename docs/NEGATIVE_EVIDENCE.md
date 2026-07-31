@@ -28801,6 +28801,69 @@ place. No directory or Cargo target was created. Python byte-compilation,
 the ledger contract tests, diff checks, and UBS are recorded at commit
 closeout. No Cargo command ran.
 
+## 2026-07-31 BlackThrush (cod) PARITY + NO-VERDICT: exact `edges(data=True)` claim arm (`br-r37-c1-p80x1.39`)
+
+The published `1.6085x` workload was recovered exactly from commit
+`87cf65e54a4e13a72a12c2bc7458655c7d4b3ac1`,
+`sweep_marshaling.py` (SHA-256
+`12613c60217d14798a75558b18230afba6282547e48e6d89caaf9cafd083cf07`),
+its saved result artifact (SHA-256
+`622b1c016891f709aad9fd545b41a08f51ca73f9b7be46393cf8415b4b11a1ed`),
+and `measure_marshaling.py`'s builder (SHA-256
+`40e03ac078cff1d930e5e3fa8232688becf1c1a67ab1cda6da93b88109e47a0f`).
+It materializes `list(G.edges(data=True))` on the helper's weighted
+undirected simple string-node `n=2000,m=8000,seed=7` graph.
+
+Under `PYTHONHASHSEED=0`, both implementations receive 398,318 canonical
+input bytes (SHA-256
+`03c62edb3bc632ec6fedf20e7a7061e42688aa1d655e9128dbc4980c2af54de0`).
+Live NetworkX 3.6.1 and FrankenNetworkX agree exactly on all 8,000 ordered
+three-tuples, both endpoint objects, and every ordered attribute dictionary.
+All items contain one integer `weight` in `1..20`; the complete weight sum is
+83,411, and the permanent fixture records the count of every value. The
+complete output is 355,413 canonical bytes with SHA-256
+`fe91930c1b22fc69497a50bea3d7850dc6cc854f9388bf7675865b96349cbdc8`.
+No divergence was found.
+
+The recovered historical row reported median `1.6084813787700116x`, 95%
+median CI `1.5795027161278523..1.6340104568227798x`, `11/11` paired wins,
+and one A/A CI `0.9957978117557726..1.0114475668678122x`. Its checksum
+fields are empty. It is recovery evidence, not a current campaign verdict:
+it used only 11 rounds and has no second arm-specific null, null medians, raw
+samples, actual observed thread counts, continuous whole-host accounting, or
+in-process loaded-ELF identity, and predates the corrected null-median
+clause.
+
+RESULT: **FULL ORDERED EDGE + ATTRIBUTE PARITY / CURRENT PERFORMANCE
+NO-VERDICT.** No strict benchmark was started because RCH 1.0.52 still puts
+its pooled target below a UUID-salted `--clean-overlay` root. Running the
+required command would mint another cold physical target, violating the
+one-target storage rule. Machine-readable outcome:
+`benchmark_started=false`, `performance_verdict=NO-VERDICT`,
+`host_identity=not_observed`, `elf_sha256_in_process=not_observed`,
+`networkx_actual_threads=not_observed`, and
+`franken_networkx_actual_threads=not_observed`. No candidate ratio, null, or
+timing claim is reported.
+
+RETRY PREDICATE: retry only after two required
+`rch exec --base <commit> --clean-overlay` invocations prove the same managed
+physical target path without creating a new directory. Keep the exact input,
+complete edge/attribute output and weight-distribution registration, live
+NetworkX 3.6.1, 21 interleaved rounds, in-process host and ELF identity,
+actual observed threads for both arms, continuous whole-host accounting, raw
+candidate samples, and dual A/A nulls. A verdict additionally requires all
+three corrected median clauses: each null median within 2% of `1.0`, the
+candidate median deviation beyond twice the larger null-CI half-width, and
+the candidate median CI wholly on one side of `1.0`. CV remains provenance
+only.
+
+QUALITY / CLOSEOUT: the focused exact-input preflight passed, and the full
+claim-incumbent parity sweep passed `21/21`. Harness SHA-256 is
+`bfb54693d08ce6462cb70082d4f9d57f34822b4c91025237e6716c37f6a100bc`.
+Python byte-compilation, the ledger contract tests, diff checks, and UBS are
+recorded at commit closeout. No Cargo command ran and no target directory was
+created.
+
 ## 2026-07-31 BlackThrush (cod) PARITY + NO-VERDICT: complete `k_crust` claim arm exposes clean-overlay target-reuse blocker (`br-r37-c1-p80x1.5`)
 
 **CLAIM-GAP FIRST, COMPLETE OUTPUT FIRST.** README publishes `k_crust` at
