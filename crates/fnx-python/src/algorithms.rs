@@ -7399,22 +7399,46 @@ fn closeness_centrality_kernel_baseline(
 #[pyfunction]
 pub fn harmonic_centrality(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Py<PyDict>> {
     let gr = extract_graph(g)?;
+    // br-r37-c1-4l10m: NetworkX initializes `sources = set(G.nodes)` and
+    // accumulates one forward BFS at a time in that set's iteration order.
+    // Replaying distances grouped by target/level changes low f64 bits. Build
+    // the same Python set from the same display keys, then pass its exact order
+    // into the native source-ordered kernel.
+    let py_nodes: Vec<PyObject> = gr
+        .nodes_ordered()
+        .iter()
+        .map(|node| gr.py_node_key(py, node))
+        .collect();
+    let source_set = PySet::new(py, &py_nodes)?;
+    let source_order: Vec<String> = source_set
+        .iter()
+        .map(|node| node_key_to_string(py, &node))
+        .collect::<PyResult<_>>()?;
+    let source_refs: Vec<&str> = source_order.iter().map(String::as_str).collect();
     let result = match &gr {
         GraphRef::Undirected(pg) => {
             let inner = &pg.inner;
-            py.allow_threads(|| fnx_algorithms::harmonic_centrality(inner))
+            py.allow_threads(|| {
+                fnx_algorithms::harmonic_centrality_source_ordered(inner, &source_refs)
+            })
         }
         GraphRef::Directed { dg, .. } => {
             let inner = &dg.inner;
-            py.allow_threads(|| fnx_algorithms::harmonic_centrality_directed(inner))
+            py.allow_threads(|| {
+                fnx_algorithms::harmonic_centrality_directed_source_ordered(inner, &source_refs)
+            })
         }
         _ => {
             if gr.is_directed() {
                 let inner = gr.digraph().expect("is_directed checked above");
-                py.allow_threads(|| fnx_algorithms::harmonic_centrality_directed(inner))
+                py.allow_threads(|| {
+                    fnx_algorithms::harmonic_centrality_directed_source_ordered(inner, &source_refs)
+                })
             } else {
                 let inner = gr.undirected();
-                py.allow_threads(|| fnx_algorithms::harmonic_centrality(inner))
+                py.allow_threads(|| {
+                    fnx_algorithms::harmonic_centrality_source_ordered(inner, &source_refs)
+                })
             }
         }
     };

@@ -3657,6 +3657,108 @@ pub fn harmonic_centrality_directed(graph: &DiGraph) -> HarmonicCentralityResult
     harmonic_centrality_generic(graph)
 }
 
+/// Compute harmonic centrality while replaying sources in an explicit order.
+///
+/// NetworkX accumulates each target's score in its outer `sources` set order:
+/// one forward BFS per source, then `centrality[target] += 1 / distance`.
+/// Floating-point addition is not associative, so the level-grouped kernels
+/// below can differ by one ULP even though they discover identical distances.
+/// Python bindings use this entry point with the exact CPython set iteration
+/// order to preserve observable NetworkX values.
+#[must_use]
+pub fn harmonic_centrality_source_ordered(
+    graph: &Graph,
+    sources: &[&str],
+) -> HarmonicCentralityResult {
+    harmonic_centrality_source_ordered_generic(graph, sources)
+}
+
+/// Directed counterpart of [`harmonic_centrality_source_ordered`].
+#[must_use]
+pub fn harmonic_centrality_directed_source_ordered(
+    graph: &DiGraph,
+    sources: &[&str],
+) -> HarmonicCentralityResult {
+    harmonic_centrality_source_ordered_generic(graph, sources)
+}
+
+fn harmonic_centrality_source_ordered_generic<G: GraphView>(
+    graph: &G,
+    sources: &[&str],
+) -> HarmonicCentralityResult {
+    let nodes = graph.nodes_ordered();
+    let n = nodes.len();
+    let mut harmonic = vec![0.0_f64; n];
+    let mut seen_source = vec![false; n];
+    let mut distance = vec![usize::MAX; n];
+    let mut queue = VecDeque::new();
+    let mut nodes_touched = 0usize;
+    let mut edges_scanned = 0usize;
+    let mut queue_peak = 0usize;
+
+    for &source in sources {
+        let Some(source_idx) = graph.get_node_index(source) else {
+            continue;
+        };
+        if seen_source[source_idx] {
+            continue;
+        }
+        seen_source[source_idx] = true;
+        distance.fill(usize::MAX);
+        queue.clear();
+        distance[source_idx] = 0;
+        queue.push_back(source_idx);
+        queue_peak = queue_peak.max(1);
+
+        while let Some(u) = queue.pop_front() {
+            nodes_touched += 1;
+            let d = distance[u];
+            if d != 0 {
+                harmonic[u] += 1.0 / (d as f64);
+            }
+
+            if let Some(neighbors) = graph.neighbors_indices(u) {
+                for &v in neighbors {
+                    edges_scanned += 1;
+                    if distance[v] == usize::MAX {
+                        distance[v] = d + 1;
+                        queue.push_back(v);
+                    }
+                }
+            } else if let Some(neighbors) = graph.neighbors_iter(nodes[u]) {
+                for neighbor in neighbors {
+                    edges_scanned += 1;
+                    if let Some(v) = graph.get_node_index(neighbor)
+                        && distance[v] == usize::MAX
+                    {
+                        distance[v] = d + 1;
+                        queue.push_back(v);
+                    }
+                }
+            }
+            queue_peak = queue_peak.max(queue.len());
+        }
+    }
+
+    HarmonicCentralityResult {
+        scores: nodes
+            .into_iter()
+            .zip(harmonic)
+            .map(|(node, score)| CentralityScore {
+                node: node.to_owned(),
+                score,
+            })
+            .collect(),
+        witness: ComplexityWitness {
+            algorithm: "harmonic_centrality".to_owned(),
+            complexity_claim: "O(|V| * (|V| + |E|))".to_owned(),
+            nodes_touched,
+            edges_scanned,
+            queue_peak,
+        },
+    }
+}
+
 /// Bench/test-only entry point pinning one arm. Results are identical across arms.
 #[doc(hidden)]
 #[must_use]

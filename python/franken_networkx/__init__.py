@@ -10605,7 +10605,11 @@ def harmonic_centrality(
     # hash-randomized. The Rust path emits in insertion order. Re-key
     # through ``set(G.nodes)`` so drop-in code that does e.g.
     # ``next(iter(harmonic_centrality(G)))`` matches nx exactly.
-    return {u: raw[u] for u in set(G.nodes)}
+    # NetworkX initializes every target with integer ``0`` and only promotes
+    # it to float when at least one nonzero-distance source contributes.
+    # Preserve that observable value type for isolates and directed sources
+    # with no predecessors.
+    return {u: (0 if raw[u] == 0.0 else raw[u]) for u in set(G.nodes)}
 
 
 def degree_centrality(G, *, backend=None, **backend_kwargs):

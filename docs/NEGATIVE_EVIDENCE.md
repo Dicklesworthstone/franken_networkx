@@ -28544,6 +28544,85 @@ QUALITY / CLOSEOUT: `git diff --check` covers this ledger-only result. No
 Cargo command ran. UBS has no Markdown/JSONL scanner, so no scanner pass is
 claimed.
 
+## 2026-07-31 BlackThrush (cod) BEHAVIORAL DIVERGENCE FIXED: `harmonic_centrality` now preserves NetworkX source-order float accumulation (`br-r37-c1-4l10m`)
+
+EXACT PRODUCING INPUT / DIVERGENCE: under `PYTHONHASHSEED=0`, the public
+`harmonic_centrality` result for `path_graph(600)` disagreed with live
+NetworkX 3.6.1 at **490/600** nodes for `Graph` and at **504/600** nodes for
+`DiGraph`. The directed total is the union of 503 float-bit mismatches and
+one observable value-type mismatch: node 0 was FNX `float 0.0` versus
+NetworkX integer `0`. The first undirected mismatch was node 3, NetworkX
+`0x1.19a6f0830a7afp+3` versus FNX `0x1.19a6f0830a7b0p+3`; the first directed
+float mismatch was node 6, NetworkX `0x1.399999999999ap+1` versus FNX
+`0x1.3999999999999p+1`. These are exact `(type(value),
+float(value).hex())` comparisons, not approximate numerical checks.
+
+ROOT CAUSE / ONE LEVER: NetworkX constructs `sources = set(G.nodes)` and
+finishes one source BFS before accumulating the next source's reciprocal
+distances into every target. FNX's native kernels found the same distances
+but grouped additions by target and BFS level. Floating-point addition is
+not associative, so changing that order changed observable low bits. The
+public Python binding now constructs the same CPython set from the original
+node objects, captures its actual iteration order, and calls one new native
+source-ordered BFS entry point. The existing grouped/bit-parallel internal
+kernels remain available for internal experimentation, but the public route
+no longer uses them. The wrapper also retains NetworkX's integer `0` for
+nodes that receive no contribution.
+
+BEHAVIORAL RESULT: the two exact producing inputs now agree at **600/600**
+nodes each, including dict key order, Python value type, and every float hex
+value. A deterministic randomized corpus then exercised 512 Graph, DiGraph,
+MultiGraph, and MultiDiGraph inputs across `PYTHONHASHSEED=0,1,7,42`, with
+integer and string nodes, isolates, self-loops, and parallel edges:
+**512 agree / 0 diverge**. Its input SHA-256 was
+`a46af41169aa73bb048502979a6ef2319610328c61276d4b8a7bbd685835ab9e`;
+the four seed-specific NetworkX-oracle output SHA-256 values were,
+respectively,
+`f74bc800eea3c713e4ba2324294a7b2d8e057c085552186a7dfc12e2bd56cfa0`,
+`0569219360c432ed1dd0a2e393d06b486138216eade206aec1d0a554ad145b9d`,
+`3d2516acfbcf75ec5e96287b4036415ead7975c37b964df2d1214aedc61cb7ea`,
+and
+`e8bd0168b8bacf5337441161ea888866ed77621201fe0b445b7d65a7174a0991`.
+
+STRICT-REMOTE ARTIFACT: the release extension was built through
+`RCH_REQUIRE_REMOTE=1 RCH_NO_SELF_HEALING=1 rch exec --base
+00d76c0789f6a8ee31365666cb26e904b15c28fc --clean-overlay`, overlaying only
+the two edited Rust files and reusing `CARGO_TARGET_DIR=/data/tmp/cargo-target`.
+Worker `vmi1152480` completed the build; the retrieved candidate process
+loaded the 13,077,840-byte ELF with SHA-256
+`40e30984148191cb44ba1329c0fad19cd8c8fbfd36d5980e03c5d8f01a6a79f9`.
+No local Cargo fallback occurred and no per-run local target directory was
+created. RCH internally selected its worker-scoped clean-overlay target, so
+no further Cargo command was run for this deliverable.
+
+QUALITY: the exact regression passed `2/2`. All non-fixture-dependent Python
+files that mention `harmonic_centrality` passed `3028` tests with 132 skips
+and one XPASS against the candidate; the two fixture-dependent files passed
+another `35/35` with their repository fixtures enabled. Direct Rust format
+checking and Python byte-compilation passed. The release build is the
+compiler gate for this narrow change; a second check/clippy build was not
+minted because RCH's clean-overlay target isolation would cold-build another
+worker target.
+
+RESULT: **KEEP THE CORRECTNESS FIX; RETIRE THE PUBLIC BIT-PARALLEL SPEED
+CLAIM.** This row deliberately makes no timing verdict, self-speedup, or
+incumbent ratio. Consequently the timing-only requirements for paired A/A
+nulls, the corrected three-clause median gate, actual observed worker
+threads, and continuous timing-window host accounting are not applicable.
+A real exact behavioral divergence is worth more than the withdrawn speed
+claim.
+
+RETRY PREDICATE: do not restore a grouped, level-batched, target-batched, or
+parallel public harmonic accumulator. Reopen performance only when a
+candidate can replay the exact CPython `set(G.nodes)` source order and, for
+every target, the exact NetworkX per-source addition sequence; it must first
+pass the two path-600 producing inputs plus the 512-case four-hash-seed
+exact-type/float-hex corpus with zero divergence. Only then may a strict
+same-invocation NetworkX 3.6.1 comparison run under the corrected
+three-clause median gate, with actual observed threads, in-process host and
+loaded-ELF SHA-256, continuous host accounting, and `rch exec --base
+<commit> --clean-overlay` while reusing the single repository target.
+
 ## 2026-07-31 BlackThrush PARITY REPAIR (`is_eulerian` MultiGraph/MultiDiGraph): eliminate raw/public borrow re-entry (`br-r37-c1-msown`)
 
 EXACT DIVERGENCES: the generated raw-vs-public audit supplied both producing
