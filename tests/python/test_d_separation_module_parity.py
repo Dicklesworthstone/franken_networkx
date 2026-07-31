@@ -26,6 +26,40 @@ def _build_diamond_pair():
     return fnx_graph, nx_graph
 
 
+def _build_oracle_strongly_connected_255201798_pair():
+    """Recreate behavioral-oracle input ``strongly_connected-255201798``."""
+    nodes = [
+        (0, {"color": "even", "value": 1}),
+        (1, {"color": "odd", "value": 2}),
+        (2, {"color": "even", "value": 3}),
+        (3, {"color": "odd", "value": 4}),
+        (4, {"color": "even", "value": 5}),
+        (5, {"color": "odd", "value": 6}),
+    ]
+    edges = [
+        (0, 1, {"capacity": 6, "color": "warm", "weight": 4}),
+        (1, 2, {"capacity": 7, "color": "cool", "weight": 7}),
+        (2, 3, {"capacity": 1, "color": "warm", "weight": 1}),
+        (3, 4, {"capacity": 2, "color": "cool", "weight": 4}),
+        (4, 5, {"capacity": 3, "color": "warm", "weight": 7}),
+        (5, 0, {"capacity": 4, "color": "cool", "weight": 1}),
+        (2, 1, {"capacity": 5, "color": "warm", "weight": 4}),
+        (4, 1, {"capacity": 7, "color": "warm", "weight": 1}),
+        (3, 0, {"capacity": 1, "color": "cool", "weight": 4}),
+        (3, 5, {"capacity": 2, "color": "warm", "weight": 7}),
+        (1, 3, {"capacity": 3, "color": "cool", "weight": 1}),
+    ]
+    fnx_graph = fnx.DiGraph(case_id="strongly_connected-255201798")
+    nx_graph = nx.DiGraph(case_id="strongly_connected-255201798")
+    for node, attrs in nodes:
+        fnx_graph.add_node(node, **attrs)
+        nx_graph.add_node(node, **attrs)
+    for u, v, attrs in edges:
+        fnx_graph.add_edge(u, v, **attrs)
+        nx_graph.add_edge(u, v, **attrs)
+    return fnx_graph, nx_graph
+
+
 def test_direct_d_separation_module_import_exposes_wrappers():
     module = importlib.import_module("franken_networkx.d_separation")
 
@@ -89,6 +123,60 @@ def test_is_minimal_d_separator_matches_networkx(z):
     assert module.is_minimal_d_separator(fnx_graph, x, y, z) == (
         nx.is_minimal_d_separator(nx_graph, x, y, z)
     )
+
+
+@pytest.mark.parametrize(
+    "name",
+    ["is_d_separator", "is_minimal_d_separator"],
+)
+def test_cyclic_oracle_input_raises_exact_networkx_error(name):
+    """Four oracle paths formerly returned False instead of rejecting cycles."""
+    module = importlib.import_module("franken_networkx.d_separation")
+    nx_module = importlib.import_module("networkx.algorithms.d_separation")
+    fnx_graph, nx_graph = _build_oracle_strongly_connected_255201798_pair()
+    args = ({0}, {1}, {2})
+
+    for fnx_function, nx_function in (
+        (getattr(fnx, name), getattr(nx, name)),
+        (getattr(module, name), getattr(nx_module, name)),
+    ):
+        with pytest.raises(nx.NetworkXError) as fnx_exc:
+            fnx_function(fnx_graph, *args)
+        with pytest.raises(nx.NetworkXError) as nx_exc:
+            nx_function(nx_graph, *args)
+
+        assert type(fnx_exc.value) is type(nx_exc.value)
+        assert str(fnx_exc.value) == "graph should be directed acyclic"
+        assert str(fnx_exc.value) == str(nx_exc.value)
+
+
+def test_d_separator_guard_order_matches_networkx():
+    undirected_fnx = fnx.Graph([(0, 1)])
+    undirected_nx = nx.Graph([(0, 1)])
+    cyclic_fnx = fnx.DiGraph([(0, 1), (1, 0)])
+    cyclic_nx = nx.DiGraph([(0, 1), (1, 0)])
+
+    for name in ("is_d_separator", "is_minimal_d_separator"):
+        with pytest.raises(nx.NetworkXNotImplemented) as fnx_exc:
+            getattr(fnx, name)(undirected_fnx, {99}, {1}, set())
+        with pytest.raises(nx.NetworkXNotImplemented) as nx_exc:
+            getattr(nx, name)(undirected_nx, {99}, {1}, set())
+        assert type(fnx_exc.value) is type(nx_exc.value)
+        assert str(fnx_exc.value) == str(nx_exc.value)
+
+    with pytest.raises(nx.NodeNotFound) as fnx_exc:
+        fnx.is_d_separator(cyclic_fnx, {99}, {1}, set())
+    with pytest.raises(nx.NodeNotFound) as nx_exc:
+        nx.is_d_separator(cyclic_nx, {99}, {1}, set())
+    assert type(fnx_exc.value) is type(nx_exc.value)
+    assert str(fnx_exc.value) == str(nx_exc.value)
+
+    with pytest.raises(nx.NetworkXError) as fnx_exc:
+        fnx.is_minimal_d_separator(cyclic_fnx, {99}, {1}, set())
+    with pytest.raises(nx.NetworkXError) as nx_exc:
+        nx.is_minimal_d_separator(cyclic_nx, {99}, {1}, set())
+    assert type(fnx_exc.value) is type(nx_exc.value)
+    assert str(fnx_exc.value) == str(nx_exc.value)
 
 
 def test_find_minimal_d_separator_matches_networkx():

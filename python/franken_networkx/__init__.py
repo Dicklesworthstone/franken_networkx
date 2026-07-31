@@ -36882,6 +36882,11 @@ def is_d_separator(G, x, y, z):
     """Check if node set *z* d-separates *x* from *y* in a DAG (Rust)."""
     from franken_networkx._fnx import is_d_separator_rust as _rust_dsep
 
+    # NetworkX's not_implemented_for decorator rejects undirected inputs
+    # before it validates the node sets.
+    if not G.is_directed():
+        raise NetworkXNotImplemented("not implemented for undirected type")
+
     # br-r37-c1-dsepscalar: nx accepts scalar nodes for x/y/z
     # (``is_d_separator(G, 0, 2, 1)``) and normalizes via
     # ``{x} if x in G else x``.  fnx's bare ``set(x)`` raised
@@ -36910,13 +36915,10 @@ def is_d_separator(G, x, y, z):
         raise NodeNotFound(
             "One of x, y, or z is not a node or a set of nodes in G"
         )
-    # br-r37-c1-dsepudt: nx is decorated with
-    # ``@not_implemented_for('undirected')`` so undirected input
-    # raises NetworkXNotImplemented.  fnx's Rust binding raised a
-    # plain NetworkXError ('is_d_separator requires a DiGraph')
-    # which broke drop-in callers catching the upstream class.
-    if not G.is_directed():
-        raise NetworkXNotImplemented("not implemented for undirected type")
+    # br-r37-c1-iea1p: the native Bayes-ball kernel accepts cyclic digraphs,
+    # but NetworkX rejects them after node-set validation.
+    if not is_directed_acyclic_graph(G):
+        raise NetworkXError("graph should be directed acyclic")
     return _rust_dsep(G, list(x), list(y), list(z))
 
 
@@ -36934,6 +36936,13 @@ def is_minimal_d_separator(G, x, y, z, *, included=None, restricted=None):
     When either constraint is given fnx delegates to networkx for
     correctness; the standalone path keeps the simple O(|z|) reducer.
     """
+    if not G.is_directed():
+        raise NetworkXNotImplemented("not implemented for undirected type")
+    # NetworkX checks the DAG contract before validating any node set or
+    # included/restricted constraint.
+    if not is_directed_acyclic_graph(G):
+        raise NetworkXError("graph should be directed acyclic")
+
     if included is not None or restricted is not None:
         # br-cc-dsepinproc: the included/restricted form delegated via the full
         # O(V+E) fnx->nx conversion (~0.18x). Run nx's EXACT criteria algorithm
@@ -36943,8 +36952,6 @@ def is_minimal_d_separator(G, x, y, z, *, included=None, restricted=None):
         # to nx (0/425 adversarial incl. valid/perturbed/empty z + included +
         # restricted; error contracts match). Plain DiGraph only; others delegate.
         if type(G) is DiGraph:
-            if not is_directed_acyclic_graph(G):
-                raise NetworkXError("graph should be directed acyclic")
             try:
                 x = {x} if x in G else x
                 y = {y} if y in G else y

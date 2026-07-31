@@ -28544,6 +28544,66 @@ QUALITY / CLOSEOUT: `git diff --check` covers this ledger-only result. No
 Cargo command ran. UBS has no Markdown/JSONL scanner, so no scanner pass is
 claimed.
 
+## 2026-07-31 BlackThrush (cod) BEHAVIORAL DIVERGENCE FIXED: d-separation guards cyclic digraphs on all four import paths (`br-r37-c1-iea1p`)
+
+EXACT GENERATED-ORACLE INPUT: four present paths diverged on fixture
+`strongly_connected-255201798`, an exact six-node DiGraph with 11 attributed
+edges and arguments `x={0}`, `y={1}`, `z={2}`:
+`networkx.algorithms.d_separation.is_d_separator`
+(`241ee3c2d7c49ee178d9`), top-level `networkx.is_d_separator`
+(`dfba59f188b59b678292`),
+`networkx.algorithms.d_separation.is_minimal_d_separator`
+(`69ce3b3e42ad83b47862`), and top-level
+`networkx.is_minimal_d_separator` (`d6382f33214c98983f09`). Live NetworkX
+3.6.1 raised `NetworkXError: graph should be directed acyclic` on all four.
+FNX returned boolean `False` on all four, incorrectly treating a cyclic
+directed graph as a valid Bayesian-network input.
+
+ROOT CAUSE / ONE LEVER: the native Bayes-ball kernel did not enforce the DAG
+precondition. The public `is_d_separator` wrapper now preserves NetworkX's
+precise guard order—undirected decorator rejection first, node-set validation
+next, DAG rejection last—before entering Rust. `is_minimal_d_separator`
+matches its different upstream order: undirected rejection, then DAG
+rejection before any node-set or included/restricted validation. The existing
+valid-DAG native algorithms are unchanged.
+
+EXACT RESULT: all four original paths now raise exactly
+`NetworkXError("graph should be directed acyclic")`. A deterministic
+follow-up corpus exercised 256 cyclic DiGraph/MultiDiGraph inputs against
+both predicates, including scalar/set forms, missing nodes, overlapping
+sets, empty separators, cycles of varying size, and random chords:
+**512 agree / 0 diverge** on exact return type/value or exception
+class/message. Focused d-separation suites passed `28/28` with 588 unrelated
+tests deselected.
+
+ARTIFACT / HOST PROVENANCE: this is a Python-wrapper-only repair; no Rust
+source or native ABI changed and no Cargo command ran. The validating process
+ran on host `thinkstation1` against NetworkX 3.6.1 and self-reported the
+actually loaded 13,229,816-byte extension SHA-256 as
+`2b49eaafc74803306e25b4d39672547d4ac969c6c805862a0297b3097e1145df`.
+The edited wrapper SHA-256 was
+`16e6387b40dfcd0e195efc690146ab18ad97914515f1c835937c0def43ec6ab6`.
+The self-contained focused files ran with `--noconftest` because the
+repository freshness guard correctly detects unrelated newer committed Rust
+sources. No target directory was created.
+
+RESULT: **KEEP THE CORRECTNESS FIX.** This row makes no timing claim and no
+incumbent-ratio verdict. The timing-only requirements for paired A/A nulls,
+the corrected three-clause median gate, actual observed threads, continuous
+host accounting, and `rch exec --base/--clean-overlay` are therefore not
+applicable.
+
+RETRY PREDICATE: do not remove or move these guards without an exact
+error-order corpus. Any replacement must preserve the four producing paths,
+the 512-case cyclic corpus, undirected-before-node-validation behavior for
+both predicates, node-validation-before-DAG behavior for `is_d_separator`,
+and DAG-before-node-validation behavior for `is_minimal_d_separator`, all
+with exact class/message parity. Any timed claim must additionally use live
+NetworkX 3.6.1, actual observed threads, in-process host and loaded-ELF
+identity, continuous accounting, dual A/A nulls, all three corrected median
+clauses, and `rch exec --base <commit> --clean-overlay` with the single
+reused target.
+
 ## 2026-07-31 BlackThrush (cod) BEHAVIORAL DIVERGENCE FIXED: `is_simple_path` accepts NetworkX-compatible sized iterables (`br-r37-c1-oe0kq`)
 
 EXACT GENERATED-ORACLE INPUT: behavioral-oracle identities
