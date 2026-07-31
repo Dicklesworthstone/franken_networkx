@@ -3194,6 +3194,7 @@ def suite_claim_incumbent():
 
     available_jobs = (
         "all_pairs_dijkstra_path_length",
+        "all_pairs_shortest_path",
         "all_pairs_shortest_path_length",
         "bidirectional_dijkstra",
         "dfs_successors",
@@ -3440,6 +3441,133 @@ def suite_claim_incumbent():
                     for source, lengths in fnx.all_pairs_shortest_path_length(
                         all_pairs_fnx
                     )
+                },
+            )
+        )
+    if "all_pairs_shortest_path" in jobs:
+        if os.environ.get("PYTHONHASHSEED") != "0":
+            raise RuntimeError(
+                "the all_pairs_shortest_path claim fixture requires "
+                "PYTHONHASHSEED=0 because nested mapping and path order "
+                "are part of the public contract"
+            )
+        node_count = 300
+        edge_count = 1_200
+        seed = 11
+        expected_input_bytes = 38_940
+        expected_input_sha256 = (
+            "2daafd467b5e6398ec112e760ee67e0dcb66fe02af6eb87816b2efd8f5fbc8a6"
+        )
+        expected_outer_items = 300
+        expected_inner_items = 90_000
+        expected_total_path_nodes = 356_164
+        expected_path_node_histogram = {
+            1: 300,
+            2: 2_400,
+            3: 16_650,
+            4: 52_420,
+            5: 17_946,
+            6: 284,
+        }
+        expected_output_bytes = 3_327_168
+        expected_output_sha256 = (
+            "8bdcf4bfa5352c827c87113147911d192ce9b3c3d1b2a8ec8370682d88043e5a"
+        )
+        all_paths_nx, all_paths_fnx = _build_pair(
+            node_count,
+            edge_count,
+            seed=seed,
+            weighted=False,
+        )
+        input_nx_bytes = canonical_bytes(all_paths_nx)
+        input_fnx_bytes = canonical_bytes(all_paths_fnx)
+        input_sha256 = hashlib.sha256(input_nx_bytes).hexdigest()
+        if input_nx_bytes != input_fnx_bytes:
+            raise RuntimeError(
+                "all_pairs_shortest_path claim input graphs diverged"
+            )
+        if (
+            len(input_nx_bytes) != expected_input_bytes
+            or not hmac.compare_digest(input_sha256, expected_input_sha256)
+        ):
+            raise RuntimeError(
+                "all_pairs_shortest_path claim input no longer matches "
+                "its preregistered canonical byte count and SHA-256"
+            )
+
+        preflight_nx = {
+            source: dict(paths)
+            for source, paths in nx.all_pairs_shortest_path(all_paths_nx)
+        }
+        preflight_fnx = {
+            source: dict(paths)
+            for source, paths in fnx.all_pairs_shortest_path(all_paths_fnx)
+        }
+        preflight_nx_bytes = canonical_bytes(preflight_nx)
+        preflight_fnx_bytes = canonical_bytes(preflight_fnx)
+        output_sha256 = hashlib.sha256(preflight_nx_bytes).hexdigest()
+        path_node_histogram = {}
+        total_path_nodes = 0
+        for paths in preflight_nx.values():
+            for path in paths.values():
+                path_nodes = len(path)
+                total_path_nodes += path_nodes
+                path_node_histogram[path_nodes] = (
+                    path_node_histogram.get(path_nodes, 0) + 1
+                )
+        if preflight_nx_bytes != preflight_fnx_bytes:
+            raise RuntimeError(
+                "all_pairs_shortest_path claim complete ordered nested "
+                "path mapping diverged"
+            )
+        if (
+            len(preflight_nx) != expected_outer_items
+            or sum(map(len, preflight_nx.values())) != expected_inner_items
+            or total_path_nodes != expected_total_path_nodes
+            or path_node_histogram != expected_path_node_histogram
+            or len(preflight_nx_bytes) != expected_output_bytes
+            or not hmac.compare_digest(output_sha256, expected_output_sha256)
+        ):
+            raise RuntimeError(
+                "all_pairs_shortest_path claim fixture no longer matches "
+                "its preregistered complete ordered nested path mapping"
+            )
+        EXTRA_PROVENANCE["claim_all_pairs_shortest_path_fixture"] = {
+            "publishing_commit": "87cf65e54a4e13a72a12c2bc7458655c7d4b3ac1",
+            "recovered_harness_sha256": (
+                "40e03ac078cff1d930e5e3fa8232688becf1c1a67ab1cda6da93b88109e47a0f"
+            ),
+            "recovered_result_sha256": (
+                "eb2400d0a022d02325310ade2fb97beeff35f90ccc35170bd094f0492564a415"
+            ),
+            "nodes": node_count,
+            "edges": edge_count,
+            "seed": seed,
+            "weighted": False,
+            "directed": False,
+            "cutoff": None,
+            "parameters": "all omitted (NetworkX 3.6.1 defaults)",
+            "python_hash_seed": 0,
+            "input_canonical_bytes": expected_input_bytes,
+            "input_sha256": expected_input_sha256,
+            "outer_items": expected_outer_items,
+            "inner_items": expected_inner_items,
+            "total_path_nodes": expected_total_path_nodes,
+            "path_node_histogram": expected_path_node_histogram,
+            "output_canonical_bytes": expected_output_bytes,
+            "complete_ordered_nested_output_sha256": expected_output_sha256,
+        }
+        rows.append(
+            (
+                "claim/all_pairs_shortest_path "
+                "n=300 m=1200 seed=11 cutoff=None [nx/fnx]",
+                lambda graph=all_paths_nx: {
+                    source: dict(paths)
+                    for source, paths in nx.all_pairs_shortest_path(graph)
+                },
+                lambda graph=all_paths_fnx: {
+                    source: dict(paths)
+                    for source, paths in fnx.all_pairs_shortest_path(graph)
                 },
             )
         )

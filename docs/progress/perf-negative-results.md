@@ -2595,3 +2595,29 @@ after two required clean-overlay invocations prove one identical managed
 physical target path, then retain all exact hashes, live incumbent, 21
 rounds, in-process host/ELF identity, actual threads, continuous accounting,
 dual A/A nulls, and the corrected three-clause median gate.
+
+## 2026-07-31 BlackThrush (cod) PARITY + NO-VERDICT (`br-r37-c1-p80x1.35`): exact `all_pairs_shortest_path` claim arm
+
+The published `1.7624x` row was recovered from
+`measure_marshaling.py` (SHA `40e03ac0...a0f`) and its result artifact (SHA
+`eb2400d0...415`). It materializes the complete nested mapping from
+`all_pairs_shortest_path(G)` on an unweighted undirected simple string-node
+`n=300,m=1200,seed=11` graph with `cutoff=None`.
+
+Under `PYTHONHASHSEED=0`, both implementations receive 38,940 canonical
+input bytes (SHA `2daafd46...8a6`). Live NetworkX 3.6.1 and
+FrankenNetworkX agree exactly on all 300 ordered outer mappings, 90,000
+ordered inner paths, and 356,164 path-node occurrences. Path sizes `1..6`
+occur `{1:300,2:2400,3:16650,4:52420,5:17946,6:284}` times. The complete
+output is 3,327,168 bytes, SHA `8bdcf4bf...3e5a`, matching the recovered
+artifact digest prefix. No divergence was found.
+
+RESULT: **FULL ORDERED NESTED-PATH PARITY / CURRENT PERFORMANCE NO-VERDICT.**
+The historical `1.7624500x` row has only one null CI and lacks dual null
+medians, raw samples, actual observed threads, continuous accounting, and
+in-process ELF identity. No strict benchmark was started because RCH 1.0.52
+would place the pooled target under another UUID-salted clean-overlay root.
+Retry only after two required clean-overlay invocations prove one identical
+managed physical target path, then retain all exact hashes, live incumbent,
+21 rounds, in-process host/ELF identity, actual threads, continuous
+accounting, dual A/A nulls, and the corrected three-clause median gate.
