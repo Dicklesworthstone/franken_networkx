@@ -1091,18 +1091,18 @@ co-tenancy elsewhere on the host.
 | all_pairs_shortest_path_length (n=300) | **4.5647× faster** | Algorithmic work dominates |
 | single_source_shortest_path | **3.8952× faster** | Native BFS |
 | all_pairs_dijkstra_path_length (n=300) | **3.6658× faster** | Algorithmic work dominates |
-| subgraph(view) → edges | **3.5719× faster** | Native induced-subgraph walk |
+| subgraph(view) → edges | **3.5212× faster** | Native induced-subgraph walk; re-measured 2026-07-31 vs live nx 3.6.1 (was 3.5719×) |
 | dfs_tree | **3.3439× faster** | Native traversal + native result construction |
 | single_source_dijkstra_path_length | **3.3325× faster** | Native Dijkstra |
 | bfs_tree | **3.2403× faster** | Native traversal + native result construction |
-| single_pair_shortest_path | **3.1614× faster** | Native BFS |
+| single_pair_shortest_path | **3.3313× faster** | Native BFS; re-measured 2026-07-31 vs live nx 3.6.1 (was 3.1614×) |
 | pagerank | **2.6361× faster** | Native power iteration; CONFIRMED 2026-07-31 vs live nx 3.6.1 (measured 2.7275×, CI [2.5777, 2.8818] contains the published figure) |
 | to_scipy_sparse_array | **2.4758× faster** | Native CSR assembly; re-measured 2026-07-31 vs live nx 3.6.1 (was 2.4073×) |
 | to_dict_of_lists | **1.9662× faster** | Native row walk |
-| bidirectional_dijkstra | **1.8125× faster** | Native bidirectional kernel |
-| shortest_path (weighted) | **1.7684× faster** | Native weighted-path kernel |
+| bidirectional_dijkstra | **1.7916× faster** | Native bidirectional kernel; re-measured 2026-07-31 vs live nx 3.6.1 (was 1.8125×) |
+| shortest_path (weighted) | **1.8343× faster** | Native weighted-path kernel; re-measured 2026-07-31 vs live nx 3.6.1 (was 1.7684×) |
 | all_pairs_shortest_path (n=300) | **1.7624× faster** | Result construction dilutes the kernel win |
-| edges(data=True) | **1.6085× faster** | 452 ns/edge vs nx's 758 ns/edge |
+| edges(data=True) | **1.5555× faster** | re-measured 2026-07-31 vs live nx 3.6.1 (was 1.6085×) |
 
 **Scalar multigraph degree access — measured 2026-07-27** (2,000 nodes / 1,999
 path-shaped edges, 512 exact-string lookups per sample, genuine unpatched NetworkX
@@ -1120,7 +1120,7 @@ median-CI gate; reproduce with
 | Surface | fnx vs nx | Cause |
 |--------|-----------|-------|
 | `G.adj` (bare accessor) | **0.82×** | Public descriptor access |
-| `G.has_node(n)` | **0.41×** | Key conversion and native lookup |
+| `G.has_node(n)` | **0.4596×** | Key conversion and native lookup; still a loss, re-measured 2026-07-31 vs live nx 3.6.1 (was 0.41×) |
 | `preferential_attachment` | **0.5949×** | nx's per-pair work is two degree lookups and a multiply — below our per-call boundary cost |
 | `Graph` incremental `add_edge` | **0.26×** | Per-call Python shim; batch constructors are ~3× better per edge |
 | `karate_club_graph`, `tutte_graph` | **0.38× / 0.76×** | Fixed small literals; nx builds a hard-coded edge list, we pay graph construction |

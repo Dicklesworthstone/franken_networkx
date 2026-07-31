@@ -28595,6 +28595,62 @@ alters multiplicity/self-loop degree semantics. Preserve raw/public/oracle
 coverage for both directed and undirected multigraphs and keep the audit at
 zero wrapper-misalign rows.
 
+## 2026-07-31 BlackThrush (cc) KEEP: six more blocked README claims converted, including the published `G.has_node` loss (`br-r37-c1-p80x1.17`, `.19`, `.31`, `.33`, `.39`, `.47`)
+
+Third conversion batch on the same HEAD binary. **All seven rows decidable, and
+all seven exclude their published figure.** Three were optimistic, four
+conservative.
+
+comparison_class=INCUMBENT
+incumbent=networkx
+incumbent_same_invocation=true
+incumbent_ratio=1.5555x
+campaign_output=true
+decision_gate=median_ci
+cv_role=report_only
+bench_elf_sha256=e5bb3755812c732b63bb8ab3e4650d526bb69bb67834d264f8b00adfad4a3213
+host_identity=thinkstation1
+host_wide_exclusivity=RECORDED-NOT-ENFORCED
+
+(`incumbent_ratio` above is the most conservative winning ratio of the batch;
+the `G.has_node` rows are losses and are tabled below, not promoted.)
+
+| Claim | Published | Measured | CI | A/A null nx / fnx | Direction |
+|---|---:|---:|---|---|---|
+| `subgraph(view) -> edges` | 3.5719x | **3.5212x** | `[3.4753, 3.5666]` | 1.0013 / 0.9984 | overstated 1.4% |
+| `single_pair_shortest_path` | 3.1614x | **3.3313x** | `[3.2524, 3.3537]` | 1.0016 / 1.0024 | understated 5.4% |
+| `shortest_path` (weighted) | 1.7684x | **1.8343x** | `[1.7978, 1.8603]` | 1.0024 / 1.0015 | understated 3.7% |
+| `bidirectional_dijkstra` | 1.8125x | **1.7916x** | `[1.7790, 1.7963]` | 0.9986 / 1.0008 | overstated 1.2% |
+| `edges(data=True)` | 1.6085x | **1.5555x** | `[1.5485, 1.5701]` | 1.0023 / 0.9993 | overstated 3.4% |
+| `G.has_node(present)` x512 | 0.41x | **0.4596x** | `[0.4577, 0.4611]` | 1.0014 / 0.9992 | loss, less severe |
+| `G.has_node(missing)` x512 | 0.41x | **0.4598x** | `[0.4579, 0.4626]` | 0.9989 / 0.9989 | loss, less severe |
+
+A/A null control, same invocation, both arms, 21 interleaved rounds: the worst
+null median in this batch is `1.0024x` with CI `[0.9928, 1.0124]`, and every
+null median above sits within `0.24%` of `1.0x` — well inside the `0.0200`
+third-clause bound.
+
+A PUBLISHED LOSS IS ALSO AN UNVERIFIED NUMBER. Both `G.has_node` probes remain
+**genuine losses** — FrankenNetworkX is ~2.2x slower than NetworkX 3.6.1 on a
+512-key exact-string membership sweep — and nothing here promotes them. But the
+published `0.41x` was wrong in the direction that flatters nobody: the real
+figure is `0.4596x`. The row is corrected because an unverified loss is as
+unverified as an unverified win, not because the loss got smaller.
+
+Fixtures: all rows `n=2000 m=8000 seed=7` except
+`subgraph(view)` which selects `range(0, 2000, 4)`. All rows proved
+byte-identical canonical output against NetworkX 3.6.1 in the same invocation
+before timing. Binary, host, thread and exclusivity provenance are identical to
+the `erdos_renyi_graph` row below.
+
+RUNNING TALLY, 17 claims attempted: 16 decidable, 1 refused by the null gate. Of
+the 16 decidable, **14 excluded their published figure** and 2 confirmed it.
+
+RETRY PREDICATE: none of these need a retry. Re-measure on an exclusive host
+only to tighten the shared-host floor.
+
+QUALITY / CLOSEOUT: no Rust source changed; no Cargo command ran for this row.
+
 ## 2026-07-31 BlackThrush (cc) KEEP + ONE UNDECIDABLE: five more blocked README claims run against live NetworkX 3.6.1 (`br-r37-c1-p80x1.13`, `.21`, `.23`, `.25`, `.27`)
 
 Second conversion batch on the same HEAD binary. **Two published figures are
