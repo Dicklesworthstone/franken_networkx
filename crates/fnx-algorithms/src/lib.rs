@@ -2931,6 +2931,244 @@ pub fn single_source_shortest_path_length_directed_with_parents(
         .collect()
 }
 
+// ---------------------------------------------------------------------------
+// Parallel indexed all-pairs unweighted shortest-path lengths
+// ---------------------------------------------------------------------------
+
+/// Flat immutable adjacency shared by every all-pairs BFS source.
+///
+/// The graph classes intentionally preserve insertion-ordered neighbor rows.
+/// Concatenating those rows into CSR therefore changes only their physical
+/// layout, not the order in which any source discovers nodes.
+struct AllPairsBfsCsr {
+    offsets: Vec<usize>,
+    targets: Vec<usize>,
+}
+
+impl AllPairsBfsCsr {
+    fn from_rows<'a>(rows: impl Iterator<Item = &'a [usize]>, node_count: usize) -> Self {
+        let mut offsets = Vec::with_capacity(node_count + 1);
+        let mut targets = Vec::new();
+        offsets.push(0);
+        for row in rows {
+            targets.extend_from_slice(row);
+            offsets.push(targets.len());
+        }
+        debug_assert_eq!(offsets.len(), node_count + 1);
+        Self { offsets, targets }
+    }
+
+    #[inline]
+    fn neighbors(&self, node: usize) -> &[usize] {
+        &self.targets[self.offsets[node]..self.offsets[node + 1]]
+    }
+}
+
+/// Per-rayon-worker state for ordered BFS. Epoch marks avoid clearing an O(V)
+/// visited bitmap before every source; a worker pays that clear only after
+/// roughly four billion sources.
+struct AllPairsBfsScratch {
+    seen_epoch: Vec<u32>,
+    epoch: u32,
+    frontier: Vec<usize>,
+    next_frontier: Vec<usize>,
+}
+
+impl AllPairsBfsScratch {
+    fn new(node_count: usize) -> Self {
+        Self {
+            seen_epoch: vec![0; node_count],
+            epoch: 0,
+            frontier: Vec::with_capacity(node_count),
+            next_frontier: Vec::with_capacity(node_count),
+        }
+    }
+
+    fn next_epoch(&mut self) -> u32 {
+        if self.epoch == u32::MAX {
+            self.seen_epoch.fill(0);
+            self.epoch = 1;
+        } else {
+            self.epoch += 1;
+        }
+        self.epoch
+    }
+}
+
+fn all_pairs_bfs_source(
+    scratch: &mut AllPairsBfsScratch,
+    csr: &AllPairsBfsCsr,
+    source: usize,
+    cutoff: Option<usize>,
+) -> (usize, Vec<(usize, usize)>) {
+    let epoch = scratch.next_epoch();
+    scratch.frontier.clear();
+    scratch.next_frontier.clear();
+    scratch.seen_epoch[source] = epoch;
+    scratch.frontier.push(source);
+
+    // NetworkX inserts the source first, then each newly discovered level in
+    // frontier order and neighbor insertion order. Each source stays serial,
+    // so source-parallel execution preserves this sequence exactly.
+    let mut lengths = Vec::with_capacity(csr.offsets.len().saturating_sub(1));
+    lengths.push((source, 0));
+    let mut level = 0usize;
+    'search: while !scratch.frontier.is_empty() {
+        if cutoff.is_some_and(|limit| level >= limit) {
+            break;
+        }
+        scratch.next_frontier.clear();
+        for &node in &scratch.frontier {
+            for &neighbor in csr.neighbors(node) {
+                if scratch.seen_epoch[neighbor] != epoch {
+                    scratch.seen_epoch[neighbor] = epoch;
+                    lengths.push((neighbor, level + 1));
+                    scratch.next_frontier.push(neighbor);
+                    // Once every node has been discovered, all distances and
+                    // insertion positions are final. Do not drain the rest of
+                    // this row/frontier or rescan every edge from the last
+                    // level merely to prove that no unseen node remains.
+                    if lengths.len() == csr.offsets.len() - 1 {
+                        break 'search;
+                    }
+                }
+            }
+        }
+        std::mem::swap(&mut scratch.frontier, &mut scratch.next_frontier);
+        level += 1;
+    }
+    (source, lengths)
+}
+
+fn all_pairs_shortest_path_length_indexed_csr(
+    csr: &AllPairsBfsCsr,
+    node_count: usize,
+    cutoff: Option<usize>,
+) -> Vec<(usize, Vec<(usize, usize)>)> {
+    // Below this work floor rayon setup costs more than the edge scans it can
+    // remove. Cutoff zero never traverses an edge and is always kept serial.
+    const PARALLEL_MIN_SOURCES: usize = 128;
+    const PARALLEL_MIN_EDGE_SCANS: usize = 1 << 18;
+    let estimated_edge_scans = csr.targets.len().saturating_mul(node_count);
+    if node_count >= PARALLEL_MIN_SOURCES
+        && cutoff != Some(0)
+        && estimated_edge_scans >= PARALLEL_MIN_EDGE_SCANS
+    {
+        use rayon::prelude::*;
+        (0..node_count)
+            .into_par_iter()
+            .map_init(
+                || AllPairsBfsScratch::new(node_count),
+                |scratch, source| all_pairs_bfs_source(scratch, csr, source, cutoff),
+            )
+            .collect()
+    } else {
+        let mut scratch = AllPairsBfsScratch::new(node_count);
+        (0..node_count)
+            .map(|source| all_pairs_bfs_source(&mut scratch, csr, source, cutoff))
+            .collect()
+    }
+}
+
+/// One source's distance histogram plus exact work counters. A histogram is
+/// enough for scalar distance analytics: BFS emits targets level-by-level, so
+/// replaying `count[level]` identical addends retains the original floating
+/// addition sequence without materializing an O(V^2) distance matrix.
+fn all_pairs_bfs_histogram_source(
+    scratch: &mut AllPairsBfsScratch,
+    csr: &AllPairsBfsCsr,
+    source: usize,
+) -> (Vec<usize>, usize, usize) {
+    let node_count = csr.offsets.len().saturating_sub(1);
+    let epoch = scratch.next_epoch();
+    scratch.frontier.clear();
+    scratch.next_frontier.clear();
+    scratch.seen_epoch[source] = epoch;
+    scratch.frontier.push(source);
+
+    let mut histogram = vec![1usize];
+    let mut reached = 1usize;
+    let mut edges_scanned = 0usize;
+    let mut queue_peak = 1usize;
+    while !scratch.frontier.is_empty() && reached < node_count {
+        scratch.next_frontier.clear();
+        'level: for &node in &scratch.frontier {
+            for &neighbor in csr.neighbors(node) {
+                edges_scanned += 1;
+                if scratch.seen_epoch[neighbor] != epoch {
+                    scratch.seen_epoch[neighbor] = epoch;
+                    scratch.next_frontier.push(neighbor);
+                    reached += 1;
+                    if reached == node_count {
+                        break 'level;
+                    }
+                }
+            }
+        }
+        if scratch.next_frontier.is_empty() {
+            break;
+        }
+        queue_peak = queue_peak.max(scratch.next_frontier.len());
+        histogram.push(scratch.next_frontier.len());
+        std::mem::swap(&mut scratch.frontier, &mut scratch.next_frontier);
+    }
+    (histogram, edges_scanned, queue_peak)
+}
+
+fn all_sources_bfs_histograms(
+    csr: &AllPairsBfsCsr,
+    node_count: usize,
+) -> Vec<(Vec<usize>, usize, usize)> {
+    const PARALLEL_MIN_SOURCES: usize = 128;
+    const PARALLEL_MIN_EDGE_SCANS: usize = 1 << 18;
+    let estimated_edge_scans = csr.targets.len().saturating_mul(node_count);
+    if node_count >= PARALLEL_MIN_SOURCES && estimated_edge_scans >= PARALLEL_MIN_EDGE_SCANS {
+        use rayon::prelude::*;
+        (0..node_count)
+            .into_par_iter()
+            .map_init(
+                || AllPairsBfsScratch::new(node_count),
+                |scratch, source| all_pairs_bfs_histogram_source(scratch, csr, source),
+            )
+            .collect()
+    } else {
+        let mut scratch = AllPairsBfsScratch::new(node_count);
+        (0..node_count)
+            .map(|source| all_pairs_bfs_histogram_source(&mut scratch, csr, source))
+            .collect()
+    }
+}
+
+/// All-pairs unweighted distances indexed by graph insertion order.
+///
+/// Outer sources and each inner row retain exact NetworkX BFS insertion order.
+#[must_use]
+pub fn all_pairs_shortest_path_length_indexed(
+    graph: &Graph,
+    cutoff: Option<usize>,
+) -> Vec<(usize, Vec<(usize, usize)>)> {
+    let node_count = graph.node_count();
+    let csr = AllPairsBfsCsr::from_rows(
+        (0..node_count).map(|node| graph.neighbors_indices(node).unwrap_or(&[])),
+        node_count,
+    );
+    all_pairs_shortest_path_length_indexed_csr(&csr, node_count, cutoff)
+}
+
+/// Directed counterpart of [`all_pairs_shortest_path_length_indexed`].
+#[must_use]
+pub fn all_pairs_shortest_path_length_directed_indexed(
+    digraph: &DiGraph,
+    cutoff: Option<usize>,
+) -> Vec<(usize, Vec<(usize, usize)>)> {
+    let node_count = digraph.node_count();
+    let csr = AllPairsBfsCsr::from_rows(
+        (0..node_count).map(|node| digraph.successors_indices(node).unwrap_or(&[])),
+        node_count,
+    );
+    all_pairs_shortest_path_length_indexed_csr(&csr, node_count, cutoff)
+}
+
 #[must_use]
 pub fn connected_components(graph: &Graph) -> ComponentsResult {
     connected_components_arm(graph, ConnectedComponentsQueueArm::VecHead)
@@ -19763,8 +20001,7 @@ pub fn efficiency(graph: &Graph, source: &str, target: &str) -> Option<f64> {
 /// Edge weights are ignored (unweighted shortest paths).
 #[must_use]
 pub fn global_efficiency(graph: &Graph) -> GlobalEfficiencyResult {
-    let nodes = graph.nodes_ordered();
-    let n = nodes.len();
+    let n = graph.node_count();
     if n < 2 {
         return GlobalEfficiencyResult {
             efficiency: 0.0,
@@ -19779,44 +20016,29 @@ pub fn global_efficiency(graph: &Graph) -> GlobalEfficiencyResult {
     }
 
     let denom = n * (n - 1);
+    let csr = AllPairsBfsCsr::from_rows(
+        (0..n).map(|node| graph.neighbors_indices(node).unwrap_or(&[])),
+        n,
+    );
+    let per_source = all_sources_bfs_histograms(&csr, n);
+
     let mut total_eff = 0.0f64;
     let mut total_edges_scanned = 0usize;
     let mut max_queue_peak = 0usize;
-
-    // br-r37-c1-geffcsr: integer-CSR BFS from every source over the graph's
-    // index adjacency, replacing the per-source `HashMap<&str, usize>` +
-    // `nbrs.sort_unstable()` String tax (the same lever that made
-    // average_shortest_path_length / distance_measures ~16x faster). The
-    // neighbour visit order does not change BFS distances, so the sort is
-    // dropped. 1/d is accumulated at discovery for each reached target (d>0);
-    // a disconnected graph contributes only its reachable pairs, exactly like
-    // nx's `all_pairs_shortest_path_length` (which yields only reachable
-    // targets). Same O(|V|*(|V|+|E|)) class, far smaller constant factor.
-    let mut dist = vec![0usize; n];
-    let mut seen_stamp = vec![0u32; n];
-    let mut queue: VecDeque<usize> = VecDeque::new();
-    for s in 0..n {
-        let stamp = (s as u32) + 1;
-        seen_stamp[s] = stamp;
-        dist[s] = 0;
-        queue.clear();
-        queue.push_back(s);
-
-        while let Some(u) = queue.pop_front() {
-            let d = dist[u];
-            if let Some(nbrs) = graph.neighbors_indices(u) {
-                for &v in nbrs {
-                    total_edges_scanned += 1;
-                    if seen_stamp[v] != stamp {
-                        seen_stamp[v] = stamp;
-                        dist[v] = d + 1;
-                        total_eff += 1.0 / (d + 1) as f64;
-                        queue.push_back(v);
-                    }
-                }
+    // Sources are collected in insertion order. Within a source, ordinary BFS
+    // discovers every distance-L target before distance L+1. Replaying each
+    // level's identical `1/L` addend therefore preserves the exact sequential
+    // floating-point addition order while the expensive graph walks run in
+    // parallel.
+    for (histogram, edges_scanned, queue_peak) in per_source {
+        for (distance, &count) in histogram.iter().enumerate().skip(1) {
+            let contribution = 1.0 / distance as f64;
+            for _ in 0..count {
+                total_eff += contribution;
             }
-            max_queue_peak = max_queue_peak.max(queue.len());
         }
+        total_edges_scanned += edges_scanned;
+        max_queue_peak = max_queue_peak.max(queue_peak);
     }
 
     let efficiency = total_eff / denom as f64;
@@ -53117,6 +53339,8 @@ mod tests {
         all_pairs_lowest_common_ancestor,
         all_pairs_shortest_path,
         all_pairs_shortest_path_length,
+        all_pairs_shortest_path_length_directed_indexed,
+        all_pairs_shortest_path_length_indexed,
         all_shortest_paths,
         all_shortest_paths_directed,
         all_shortest_paths_weighted,
@@ -65953,6 +66177,52 @@ mod tests {
     }
 
     #[test]
+    fn parallel_indexed_all_pairs_bfs_preserves_exact_order_and_cutoffs() {
+        let node_count = 160usize;
+        let names: Vec<String> = (0..node_count).map(|i| format!("node-{i:03}")).collect();
+        let mut graph = Graph::strict();
+        let mut digraph = DiGraph::strict();
+        for name in &names {
+            graph.add_node(name);
+            digraph.add_node(name);
+        }
+        for source in 0..node_count {
+            for offset in [1usize, 2, 3, 5, 8, 13, 21, 34, 55, 89, 97, 127] {
+                let target = (source + offset) % node_count;
+                graph
+                    .add_edge(&names[source], &names[target])
+                    .expect("undirected edge add should succeed");
+                digraph
+                    .add_edge(&names[source], &names[target])
+                    .expect("directed edge add should succeed");
+            }
+        }
+
+        let one_thread = rayon::ThreadPoolBuilder::new()
+            .num_threads(1)
+            .build()
+            .expect("one-thread pool");
+        let four_threads = rayon::ThreadPoolBuilder::new()
+            .num_threads(4)
+            .build()
+            .expect("four-thread pool");
+
+        for cutoff in [None, Some(0), Some(1), Some(3)] {
+            let undirected_reference =
+                one_thread.install(|| all_pairs_shortest_path_length_indexed(&graph, cutoff));
+            let undirected_parallel =
+                four_threads.install(|| all_pairs_shortest_path_length_indexed(&graph, cutoff));
+            assert_eq!(undirected_parallel, undirected_reference);
+
+            let directed_reference = one_thread
+                .install(|| all_pairs_shortest_path_length_directed_indexed(&digraph, cutoff));
+            let directed_parallel = four_threads
+                .install(|| all_pairs_shortest_path_length_directed_indexed(&digraph, cutoff));
+            assert_eq!(directed_parallel, directed_reference);
+        }
+    }
+
+    #[test]
     fn connected_components_vec_head_matches_frozen_vec_deque_arm() {
         let mut disconnected = Graph::strict();
         let _ = disconnected.add_node("isolated");
@@ -68824,6 +69094,57 @@ mod tests {
             "disconnected graph global efficiency should be {expected}, got {}",
             result.efficiency
         );
+    }
+
+    #[test]
+    fn global_efficiency_parallel_histograms_are_bit_exact() {
+        let node_count = 160usize;
+        let names: Vec<String> = (0..node_count).map(|i| format!("ge-{i:03}")).collect();
+        let mut graph = Graph::strict();
+        for name in &names {
+            graph.add_node(name);
+        }
+        for source in 0..node_count {
+            for offset in [1usize, 2, 3, 5, 8, 13, 21, 34, 55, 89, 97, 127] {
+                graph
+                    .add_edge(&names[source], &names[(source + offset) % node_count])
+                    .expect("edge add");
+            }
+        }
+
+        // Frozen pre-parallel accumulation: source order, then BFS discovery
+        // order. This is the exact floating-point sequence the histogram replay
+        // must retain.
+        let mut dist = vec![0usize; node_count];
+        let mut seen_stamp = vec![0u32; node_count];
+        let mut queue = std::collections::VecDeque::with_capacity(node_count);
+        let mut reference_total = 0.0f64;
+        for source in 0..node_count {
+            let stamp = source as u32 + 1;
+            seen_stamp[source] = stamp;
+            dist[source] = 0;
+            queue.clear();
+            queue.push_back(source);
+            while let Some(node) = queue.pop_front() {
+                let distance = dist[node];
+                for &neighbor in graph.neighbors_indices(node).unwrap_or(&[]) {
+                    if seen_stamp[neighbor] != stamp {
+                        seen_stamp[neighbor] = stamp;
+                        dist[neighbor] = distance + 1;
+                        reference_total += 1.0 / (distance + 1) as f64;
+                        queue.push_back(neighbor);
+                    }
+                }
+            }
+        }
+        let reference = reference_total / (node_count * (node_count - 1)) as f64;
+
+        let pool = rayon::ThreadPoolBuilder::new()
+            .num_threads(4)
+            .build()
+            .expect("parallel pool");
+        let candidate = pool.install(|| global_efficiency(&graph).efficiency);
+        assert_eq!(candidate.to_bits(), reference.to_bits());
     }
 
     #[test]

@@ -13827,14 +13827,15 @@ pub fn all_pairs_shortest_path_length(
         let inner = gr.digraph().expect("is_directed checked above");
         let nodes = inner.nodes_ordered();
         let result = py.allow_threads(|| {
-            all_pairs_shortest_path_length_directed_ordered(inner, &nodes, cutoff)
+            fnx_algorithms::all_pairs_shortest_path_length_directed_indexed(inner, cutoff)
         });
         (nodes, result)
     } else {
         let inner = gr.undirected();
         let nodes = inner.nodes_ordered();
-        let result =
-            py.allow_threads(|| all_pairs_shortest_path_length_ordered(inner, &nodes, cutoff));
+        let result = py.allow_threads(|| {
+            fnx_algorithms::all_pairs_shortest_path_length_indexed(inner, cutoff)
+        });
         (nodes, result)
     };
     let outer_dict = pyo3::types::PyDict::new(py);
@@ -13848,123 +13849,48 @@ pub fn all_pairs_shortest_path_length(
     Ok(outer_dict.into_any().unbind())
 }
 
-fn all_pairs_shortest_path_length_ordered(
-    graph: &fnx_classes::Graph,
-    nodes: &[&str],
-    cutoff: Option<usize>,
-) -> Vec<(usize, Vec<(usize, usize)>)> {
-    let adjacency = graph_shortest_path_adjacency_indices(graph, nodes);
-    all_pairs_shortest_path_length_from_adjacency(&adjacency, cutoff)
-}
-
+/// Snapshot insertion-ordered native neighbor indices for algorithms that need
+/// owned rows beyond one graph borrow. All-pairs path length itself now uses the
+/// shared flat-CSR kernel in `fnx-algorithms`; these helpers remain for the path,
+/// barycenter, resistance, and distance-measure consumers below.
 fn graph_shortest_path_adjacency_indices(
     graph: &fnx_classes::Graph,
     nodes: &[&str],
 ) -> Vec<Vec<usize>> {
-    // br-r37-c1-ny6ly (cc): every caller passes `nodes == nodes_ordered()`, so
-    // position i in `nodes` is the native node index i. Read the native integer
-    // neighbor rows (`neighbors_indices`) directly instead of round-tripping
-    // int→name→int through a per-call `HashMap<&str,usize>` + `neighbors_iter`
-    // (which yields names from those same rows only to hash each back). The native
-    // row order equals the `neighbors_iter` order, so the adjacency is byte-identical.
     debug_assert!(
         nodes
             .iter()
             .enumerate()
-            .all(|(i, &n)| graph.get_node_index(n) == Some(i)),
+            .all(|(i, &node)| graph.get_node_index(node) == Some(i)),
         "graph_shortest_path_adjacency_indices requires nodes == nodes_ordered()"
     );
     (0..nodes.len())
-        .map(|idx| {
+        .map(|index| {
             graph
-                .neighbors_indices(idx)
+                .neighbors_indices(index)
                 .map_or_else(Vec::new, <[usize]>::to_vec)
         })
         .collect()
-}
-
-fn all_pairs_shortest_path_length_directed_ordered(
-    digraph: &fnx_classes::digraph::DiGraph,
-    nodes: &[&str],
-    cutoff: Option<usize>,
-) -> Vec<(usize, Vec<(usize, usize)>)> {
-    let adjacency = digraph_shortest_path_adjacency_indices(digraph, nodes);
-    all_pairs_shortest_path_length_from_adjacency(&adjacency, cutoff)
 }
 
 fn digraph_shortest_path_adjacency_indices(
     digraph: &fnx_classes::digraph::DiGraph,
     nodes: &[&str],
 ) -> Vec<Vec<usize>> {
-    // br-r37-c1-ny6ly (cc): mirror of the undirected builder — callers pass
-    // `nodes == nodes_ordered()`, so read the native integer successor rows
-    // (`successors_indices`) directly instead of the int→name→int
-    // `HashMap<&str,usize>` + `successors_iter` round-trip. Byte-identical rows.
     debug_assert!(
         nodes
             .iter()
             .enumerate()
-            .all(|(i, &n)| digraph.get_node_index(n) == Some(i)),
+            .all(|(i, &node)| digraph.get_node_index(node) == Some(i)),
         "digraph_shortest_path_adjacency_indices requires nodes == nodes_ordered()"
     );
     (0..nodes.len())
-        .map(|idx| {
+        .map(|index| {
             digraph
-                .successors_indices(idx)
+                .successors_indices(index)
                 .map_or_else(Vec::new, <[usize]>::to_vec)
         })
         .collect()
-}
-
-fn all_pairs_shortest_path_length_from_adjacency(
-    adjacency: &[Vec<usize>],
-    cutoff: Option<usize>,
-) -> Vec<(usize, Vec<(usize, usize)>)> {
-    let node_count = adjacency.len();
-    let mut result = Vec::with_capacity(node_count);
-    let mut seen_epoch = vec![0usize; node_count];
-    let mut frontier = Vec::with_capacity(node_count);
-    let mut next_frontier = Vec::with_capacity(node_count);
-    let mut epoch = 1usize;
-
-    for source in 0..node_count {
-        let mut lengths = Vec::with_capacity(node_count);
-        frontier.clear();
-        next_frontier.clear();
-        seen_epoch[source] = epoch;
-        frontier.push(source);
-        lengths.push((source, 0));
-
-        let mut level = 0usize;
-        while !frontier.is_empty() {
-            if let Some(c) = cutoff
-                && level >= c
-            {
-                break;
-            }
-            next_frontier.clear();
-            for &node in &frontier {
-                for &neighbor in &adjacency[node] {
-                    if seen_epoch[neighbor] != epoch {
-                        seen_epoch[neighbor] = epoch;
-                        lengths.push((neighbor, level + 1));
-                        next_frontier.push(neighbor);
-                    }
-                }
-            }
-            std::mem::swap(&mut frontier, &mut next_frontier);
-            level += 1;
-        }
-
-        result.push((source, lengths));
-        epoch = epoch.saturating_add(1);
-        if epoch == usize::MAX {
-            seen_epoch.fill(0);
-            epoch = 1;
-        }
-    }
-
-    result
 }
 
 // ===========================================================================
