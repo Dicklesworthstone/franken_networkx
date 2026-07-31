@@ -3155,7 +3155,12 @@ def suite_claim_incumbent():
             f"loaded {nx.__version__} from {nx.__file__}"
         )
 
-    available_jobs = ("erdos_renyi_graph", "k_corona", "k_crust")
+    available_jobs = (
+        "erdos_renyi_graph",
+        "k_corona",
+        "k_crust",
+        "single_source_shortest_path_length",
+    )
     requested_jobs = os.environ.get(
         "FNX_CLAIM_INCUMBENT_JOBS",
         ",".join(available_jobs),
@@ -3396,6 +3401,95 @@ def suite_claim_incumbent():
                 "claim/k_crust n=1200 m=6000 seed=11 k=None [nx/fnx]",
                 lambda: nx.k_crust(crust_nx),
                 lambda: fnx.k_crust(crust_fnx),
+            )
+        )
+    if "single_source_shortest_path_length" in jobs:
+        if os.environ.get("PYTHONHASHSEED") != "0":
+            raise RuntimeError(
+                "the single_source_shortest_path_length claim fixture requires "
+                "PYTHONHASHSEED=0 because output mapping order is part of the "
+                "public contract"
+            )
+        node_count = 2_000
+        edge_count = 8_000
+        seed = 7
+        source = "0"
+        expected_input_bytes = 273_938
+        expected_input_sha256 = (
+            "03635cb95fcf023b79a245e0dc38125225ba216e6eb77a9270ef5121024f6164"
+        )
+        expected_output_items = 1_999
+        expected_output_bytes = 24_887
+        expected_output_sha256 = (
+            "86b41dbb4e78476d3551f6775092cb2170b44a8333bfd2ac5e489f7b13edc453"
+        )
+        lengths_nx, lengths_fnx = _build_pair(
+            node_count,
+            edge_count,
+            seed=seed,
+            weighted=False,
+        )
+        input_nx_bytes = canonical_bytes(lengths_nx)
+        input_fnx_bytes = canonical_bytes(lengths_fnx)
+        input_sha256 = hashlib.sha256(input_nx_bytes).hexdigest()
+        if input_nx_bytes != input_fnx_bytes:
+            raise RuntimeError(
+                "single_source_shortest_path_length claim input graphs diverged"
+            )
+        if (
+            len(input_nx_bytes) != expected_input_bytes
+            or not hmac.compare_digest(input_sha256, expected_input_sha256)
+        ):
+            raise RuntimeError(
+                "single_source_shortest_path_length claim input no longer "
+                "matches its preregistered canonical byte count and SHA-256"
+            )
+
+        preflight_nx = dict(
+            nx.single_source_shortest_path_length(lengths_nx, source)
+        )
+        preflight_fnx = dict(
+            fnx.single_source_shortest_path_length(lengths_fnx, source)
+        )
+        preflight_nx_bytes = canonical_bytes(preflight_nx)
+        preflight_fnx_bytes = canonical_bytes(preflight_fnx)
+        output_sha256 = hashlib.sha256(preflight_nx_bytes).hexdigest()
+        if preflight_nx_bytes != preflight_fnx_bytes:
+            raise RuntimeError(
+                "single_source_shortest_path_length claim complete output diverged"
+            )
+        if (
+            len(preflight_nx) != expected_output_items
+            or len(preflight_nx_bytes) != expected_output_bytes
+            or not hmac.compare_digest(output_sha256, expected_output_sha256)
+        ):
+            raise RuntimeError(
+                "single_source_shortest_path_length claim fixture no longer "
+                "matches its preregistered complete ordered output"
+            )
+        EXTRA_PROVENANCE["claim_single_source_shortest_path_length_fixture"] = {
+            "nodes": node_count,
+            "edges": edge_count,
+            "seed": seed,
+            "source": source,
+            "cutoff": None,
+            "python_hash_seed": 0,
+            "input_canonical_bytes": expected_input_bytes,
+            "input_sha256": expected_input_sha256,
+            "output_items": expected_output_items,
+            "output_canonical_bytes": expected_output_bytes,
+            "complete_output_sha256": expected_output_sha256,
+        }
+        rows.append(
+            (
+                "claim/single_source_shortest_path_length "
+                'n=2000 m=8000 seed=7 source="0" cutoff=None [nx/fnx]',
+                lambda: dict(
+                    nx.single_source_shortest_path_length(lengths_nx, source)
+                ),
+                lambda: dict(
+                    fnx.single_source_shortest_path_length(lengths_fnx, source)
+                ),
             )
         )
     return rows

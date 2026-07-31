@@ -2217,3 +2217,28 @@ managed physical target path across two required clean-overlay invocations;
 then preserve the exact hashes, live incumbent, all provenance, 21 rounds,
 continuous accounting, dual A/A nulls, and the corrected three-clause median
 gate.
+
+## 2026-07-31 BlackThrush (cod) PARITY + NO-VERDICT (`br-r37-c1-p80x1.7`): exact `single_source_shortest_path_length` claim arm
+
+The original `5.5005x` workload was recovered exactly from
+`measure_marshaling.py` (SHA `40e03ac0...a0f`):
+`dict(single_source_shortest_path_length(G, "0"))` over the helper's simple
+string-node `n=2000,m=8000,seed=7` graph, with no cutoff. The saved result
+artifact SHA is `eb2400d0...415`.
+
+The permanent arm now preregisters and checks the complete ordered mapping.
+Under `PYTHONHASHSEED=0`, both implementations receive 273,938 canonical
+input bytes (SHA `03635cb9...164`) and live NetworkX 3.6.1 and
+FrankenNetworkX agree exactly on 1,999 reachable items and 24,887 output
+bytes (SHA `86b41dbb...453`). The recovered artifact's 16-hex digest is the
+same prefix. No divergence was found.
+
+RESULT: **FULL PARITY / PERFORMANCE NO-VERDICT.** No strict benchmark was
+started because RCH 1.0.52 still places its pooled target below a
+UUID-salted clean-overlay root; running would create another cold target.
+Therefore no in-process host identity, ELF SHA, actual observed threads,
+nulls, corrected median clause, candidate CI, or incumbent ratio was
+emitted. Retry only after two required clean-overlay invocations prove one
+identical managed physical target path, then retain the exact hashes, live
+incumbent, all provenance, 21 rounds, continuous accounting, dual A/A nulls,
+and the corrected three-clause median gate.

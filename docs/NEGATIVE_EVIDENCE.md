@@ -28622,6 +28622,74 @@ pre-existing whole-harness warning. No Cargo command ran: no Rust source
 changed, and the required clean-overlay implementation would have created a
 fresh target directory.
 
+## 2026-07-31 BlackThrush (cod) PARITY + NO-VERDICT: exact `single_source_shortest_path_length` claim arm (`br-r37-c1-p80x1.7`)
+
+**EXACT ARTIFACT RECOVERY BEFORE CONVERSION.** The source of README's
+`5.5005x` row is the recovered `measure_marshaling.py`, SHA-256
+`40e03ac078cff1d930e5e3fa8232688becf1c1a67ab1cda6da93b88109e47a0f`.
+Its saved results artifact has SHA-256
+`eb2400d0a022d02325310ade2fb97beeff35f90ccc35170bd094f0492564a415`.
+The exact public operation is
+`dict(single_source_shortest_path_length(G, "0"))` on the simple string-node
+graph produced by the recovered helper with `n=2000, m=8000, seed=7` and no
+cutoff.
+
+Under `PYTHONHASHSEED=0`, both implementations receive 273,938 canonical
+input bytes, SHA-256
+`03635cb95fcf023b79a245e0dc38125225ba216e6eb77a9270ef5121024f6164`.
+The complete ordered mappings agree byte-for-byte with live NetworkX 3.6.1:
+1,999 reachable items, 24,887 canonical bytes, SHA-256
+`86b41dbb4e78476d3551f6775092cb2170b44a8333bfd2ac5e489f7b13edc453`.
+That full digest extends and matches the recovered artifact's recorded
+16-hex checksum `86b41dbb4e78476d`. No behavioral divergence was found.
+
+The permanent `claim-incumbent` arm preregisters the exact source, cutoff,
+input and output byte counts and hashes, reachable-item count, seed, and hash
+seed. It rejects an incomplete or reordered mapping before timing. Harness
+SHA-256 is
+`cd2788d1b9f7d2e58cc55bff588c4ab30312967cbc14a176f12afba81373bb87`.
+
+No strict benchmark was started. The retry predicate established by
+`br-r37-c1-p80x1.6` is still false: installed RCH 1.0.52 commit
+`65294dcda0e0` salts every required clean-overlay remote root with a fresh
+UUID and nests the pooled Cargo target below that unique root. Starting this
+row would therefore mint another cold target directory, which is forbidden.
+No per-run target directory was requested or created.
+
+comparison_class=NO-VERDICT
+incumbent=networkx-3.6.1
+incumbent_same_invocation=false
+campaign_output=false
+decision_gate=not_reached
+null_median_clause=not_reached
+host_identity=not_reached
+bench_elf_sha256=not_reached
+actual_observed_threads=not_reached
+cv_role=not_computed
+
+RESULT: **FULL PARITY / PERFORMANCE NO-VERDICT.** The recovered exact
+complete mapping agrees with NetworkX 3.6.1, but the permanent arm supplies
+no new support for the published `5.5005x`; do not replace or strengthen
+that number from the local correctness diagnostic.
+
+RETRY PREDICATE: retry only after RCH exposes a managed target directory whose
+physical path is stable across two otherwise identical `--base` plus
+`--clean-overlay` invocations, or moves its pooled target outside the
+UUID-salted clean source root. Reuse that one target without a cold copy and
+preserve the exact source/input/output hashes, live NetworkX 3.6.1, all worker
+slots, in-process host identity and ELF SHA-256, actual observed threads, 21
+rounds, both A/A nulls, continuous 300 ms accounting, and the corrected
+three-clause median gate. Any target-path change, admission, provenance,
+parity, or accounting abort remains NO-VERDICT.
+
+QUALITY / CLOSEOUT: the focused SSSP arm preflight passed, and the complete
+four-row claim suite passed against the repository wrapper and its existing
+shared extension. `python3 -m py_compile scripts/perf_harness.py`,
+`tests/python/test_perf_ledger_gate.py` (21/21), and `git diff --check`
+passed. UBS on all staged files exited 0 with zero critical findings and the
+same one pre-existing whole-harness warning. No Cargo command ran: no Rust
+source changed, and the required RCH mode would have created a fresh target.
+
 ## 2026-07-31 BlackThrush (cod) NO-VERDICT: published `erdos_renyi_graph` claim gets a permanent incumbent arm (`br-r37-c1-p80x1.1`)
 
 **CLAIM-GAP FIRST.** `README.md` publishes
