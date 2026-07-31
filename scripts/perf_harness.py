@@ -3159,6 +3159,7 @@ def suite_claim_incumbent():
         "erdos_renyi_graph",
         "k_corona",
         "k_crust",
+        "kosaraju_strongly_connected_components",
         "single_source_shortest_path_length",
     )
     requested_jobs = os.environ.get(
@@ -3225,15 +3226,15 @@ def suite_claim_incumbent():
         rows.append(
             (
                 "claim/erdos_renyi_graph n=1500 p=0.004 seed=5 [nx/fnx]",
-                lambda: nx.erdos_renyi_graph(
-                    node_count,
-                    probability,
-                    seed=seed,
+                lambda n=node_count, p=probability, s=seed: nx.erdos_renyi_graph(
+                    n,
+                    p,
+                    seed=s,
                 ),
-                lambda: fnx.erdos_renyi_graph(
-                    node_count,
-                    probability,
-                    seed=seed,
+                lambda n=node_count, p=probability, s=seed: fnx.erdos_renyi_graph(
+                    n,
+                    p,
+                    seed=s,
                 ),
             )
         )
@@ -3401,6 +3402,185 @@ def suite_claim_incumbent():
                 "claim/k_crust n=1200 m=6000 seed=11 k=None [nx/fnx]",
                 lambda: nx.k_crust(crust_nx),
                 lambda: fnx.k_crust(crust_fnx),
+            )
+        )
+    if "kosaraju_strongly_connected_components" in jobs:
+        if os.environ.get("PYTHONHASHSEED") != "0":
+            raise RuntimeError(
+                "the kosaraju_strongly_connected_components claim fixture "
+                "requires PYTHONHASHSEED=0 because component order is part "
+                "of the public contract"
+            )
+        import random
+
+        node_count = 800
+        edge_count = 4_000
+        seed = 11
+        expected_input_bytes = 189_843
+        expected_input_sha256 = (
+            "5d7c003cd5c7507408804b01e266bb81d7cfb2fe6546c58dfebff60f621ea89b"
+        )
+        expected_components = 11
+        expected_component_sizes = (1, 1, 1, 1, 1, 790, 1, 1, 1, 1, 1)
+        expected_ordered_output_bytes = 5_512
+        expected_ordered_output_sha256 = (
+            "d75eb49951307e7288928ee8174a752851f4e53c84c0739ed1e3292ddf7f6b60"
+        )
+        expected_normalized_output_sha256 = (
+            "8a2d25bce721d744f9d57470cf21a9c82890d0c5181f24b426cd35090eb73995"
+        )
+
+        # Preserve the recovered claim fixture exactly. Unlike `_build_pair`,
+        # its directed builder deduplicates ordered arcs, so (u, v) and
+        # (v, u) may both be present.
+        rng = random.Random(seed)
+        seen_arcs = set()
+        arc_stream = []
+        while len(arc_stream) < edge_count:
+            source_index = rng.randrange(node_count)
+            target_index = rng.randrange(node_count)
+            if source_index == target_index:
+                continue
+            arc = (source_index, target_index)
+            if arc in seen_arcs:
+                continue
+            seen_arcs.add(arc)
+            arc_stream.append(
+                (
+                    str(source_index),
+                    str(target_index),
+                    {"weight": rng.randint(1, 20)},
+                )
+            )
+        nodes = [str(index) for index in range(node_count)]
+        kosaraju_nx = nx.DiGraph()
+        kosaraju_fnx = fnx.DiGraph()
+        for graph in (kosaraju_nx, kosaraju_fnx):
+            graph.add_nodes_from(nodes)
+            graph.add_edges_from(
+                (source, target, dict(attrs))
+                for source, target, attrs in arc_stream
+            )
+        if not type(kosaraju_nx).__module__.startswith("networkx"):
+            raise RuntimeError(
+                "kosaraju incumbent arm must be genuine upstream NetworkX"
+            )
+
+        input_nx_bytes = canonical_bytes(kosaraju_nx)
+        input_fnx_bytes = canonical_bytes(kosaraju_fnx)
+        input_sha256 = hashlib.sha256(input_nx_bytes).hexdigest()
+        if input_nx_bytes != input_fnx_bytes:
+            raise RuntimeError(
+                "kosaraju_strongly_connected_components claim input graphs "
+                "diverged"
+            )
+        if (
+            len(input_nx_bytes) != expected_input_bytes
+            or not hmac.compare_digest(input_sha256, expected_input_sha256)
+        ):
+            raise RuntimeError(
+                "kosaraju_strongly_connected_components claim input no "
+                "longer matches its preregistered canonical byte count and "
+                "SHA-256"
+            )
+
+        ordered_nx = [
+            sorted(component)
+            for component in nx.kosaraju_strongly_connected_components(
+                kosaraju_nx
+            )
+        ]
+        ordered_fnx = [
+            sorted(component)
+            for component in fnx.kosaraju_strongly_connected_components(
+                kosaraju_fnx
+            )
+        ]
+        ordered_nx_bytes = canonical_bytes(ordered_nx)
+        ordered_fnx_bytes = canonical_bytes(ordered_fnx)
+        ordered_output_sha256 = hashlib.sha256(ordered_nx_bytes).hexdigest()
+        if ordered_nx_bytes != ordered_fnx_bytes:
+            raise RuntimeError(
+                "kosaraju_strongly_connected_components complete ordered "
+                "output diverged"
+            )
+        if (
+            len(ordered_nx) != expected_components
+            or tuple(map(len, ordered_nx)) != expected_component_sizes
+            or len(ordered_nx_bytes) != expected_ordered_output_bytes
+            or not hmac.compare_digest(
+                ordered_output_sha256,
+                expected_ordered_output_sha256,
+            )
+        ):
+            raise RuntimeError(
+                "kosaraju_strongly_connected_components claim fixture no "
+                "longer matches its preregistered complete ordered output"
+            )
+
+        normalized_nx_bytes = canonical_bytes(sorted(ordered_nx))
+        normalized_fnx_bytes = canonical_bytes(sorted(ordered_fnx))
+        normalized_output_sha256 = hashlib.sha256(
+            normalized_nx_bytes
+        ).hexdigest()
+        if normalized_nx_bytes != normalized_fnx_bytes:
+            raise RuntimeError(
+                "kosaraju_strongly_connected_components published normalized "
+                "output diverged"
+            )
+        if (
+            len(normalized_nx_bytes) != expected_ordered_output_bytes
+            or not hmac.compare_digest(
+                normalized_output_sha256,
+                expected_normalized_output_sha256,
+            )
+        ):
+            raise RuntimeError(
+                "kosaraju_strongly_connected_components claim fixture no "
+                "longer matches its preregistered normalized output"
+            )
+        EXTRA_PROVENANCE[
+            "claim_kosaraju_strongly_connected_components_fixture"
+        ] = {
+            "nodes": node_count,
+            "edges": edge_count,
+            "seed": seed,
+            "weighted": True,
+            "directed": True,
+            "ordered_arc_deduplication": True,
+            "python_hash_seed": 0,
+            "input_canonical_bytes": expected_input_bytes,
+            "input_sha256": expected_input_sha256,
+            "components": expected_components,
+            "component_sizes_in_order": list(expected_component_sizes),
+            "ordered_output_canonical_bytes": expected_ordered_output_bytes,
+            "complete_ordered_output_sha256": (
+                expected_ordered_output_sha256
+            ),
+            "published_normalized_output_sha256": (
+                expected_normalized_output_sha256
+            ),
+        }
+        rows.append(
+            (
+                "claim/kosaraju_strongly_connected_components "
+                "n=800 m=4000 seed=11 weighted=True directed=True [nx/fnx]",
+                lambda: sorted(
+                    map(
+                        sorted,
+                        nx.kosaraju_strongly_connected_components(
+                            kosaraju_nx
+                        ),
+                    )
+                ),
+                lambda: sorted(
+                    map(
+                        sorted,
+                        fnx.kosaraju_strongly_connected_components(
+                            kosaraju_fnx
+                        ),
+                    )
+                ),
             )
         )
     if "single_source_shortest_path_length" in jobs:

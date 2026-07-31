@@ -2242,3 +2242,37 @@ emitted. Retry only after two required clean-overlay invocations prove one
 identical managed physical target path, then retain the exact hashes, live
 incumbent, all provenance, 21 rounds, continuous accounting, dual A/A nulls,
 and the corrected three-clause median gate.
+
+## 2026-07-31 BlackThrush (cod) PARITY + NO-VERDICT (`br-r37-c1-p80x1.9`): exact `kosaraju_strongly_connected_components` claim arm
+
+The original `4.6519x` workload was recovered exactly from
+`hunt_unmeasured.py` (SHA `1114f244...11e3`) and its saved results artifact
+(SHA `40040b7b...249`). It materialized
+`sorted(map(sorted, kosaraju_strongly_connected_components(G)))` over the
+helper's weighted directed string-node `n=800,m=4000,seed=11` graph. The
+builder deduplicated ordered arcs, so the permanent fixture preserves both
+directions independently.
+
+Under `PYTHONHASHSEED=0`, both implementations receive 189,843 canonical
+input bytes (SHA `5d7c003c...a89b`). Live NetworkX 3.6.1 and
+FrankenNetworkX agree exactly on the normalized 11-component, 5,512-byte
+result (SHA `8a2d25bc...3995`). The permanent preflight additionally proves
+the previously hidden outer generator order: component sizes
+`[1,1,1,1,1,790,1,1,1,1,1]`, ordered-output SHA `d75eb499...6b60`. No
+divergence was found.
+
+The all-claim preflight also caught an older timing-arm defect: selecting
+later jobs rebound the Erdős–Rényi row's closure variables. Its closures now
+freeze the preregistered `n=1500,p=0.004,seed=5` values, and the five-job run
+reproduces the expected 139,359-byte output (SHA `93fcf9ae...e20`).
+
+RESULT: **FULL ORDERED PARITY / PERFORMANCE NO-VERDICT.** No strict benchmark
+was started because RCH 1.0.52 still places its pooled target below a
+UUID-salted clean-overlay root; running would create another cold target.
+Therefore no in-process host identity, ELF SHA, actual observed threads,
+nulls, corrected median clause, candidate CI, or incumbent ratio was emitted.
+Retry only after two required clean-overlay invocations prove one identical
+managed physical target path, then retain the recovered-artifact, exact
+input, and both output hashes, live incumbent, all provenance, 21 rounds,
+continuous accounting, dual A/A nulls, and the corrected three-clause median
+gate.

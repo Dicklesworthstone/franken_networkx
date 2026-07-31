@@ -28690,6 +28690,92 @@ passed. UBS on all staged files exited 0 with zero critical findings and the
 same one pre-existing whole-harness warning. No Cargo command ran: no Rust
 source changed, and the required RCH mode would have created a fresh target.
 
+## 2026-07-31 BlackThrush (cod) PARITY + NO-VERDICT: exact `kosaraju_strongly_connected_components` claim arm (`br-r37-c1-p80x1.9`)
+
+**EXACT ARTIFACT RECOVERY BEFORE CONVERSION.** README's published `4.6519x`
+row came from `hunt_unmeasured.py`, SHA-256
+`1114f244b93787b9e1d6a900633ccd93f3a09c91de8d669bde9ba75df5a611e3`.
+Its saved `unmeasured_results.json` has SHA-256
+`40040b7b90de11721263864fff0e3e79f260ca2779e16c8252784dc9236ef249`.
+The exact timed operation was
+`sorted(map(sorted, kosaraju_strongly_connected_components(G)))` on a
+weighted directed string-node graph with `n=800, m=4000, seed=11`. The
+recovered builder deduplicates ordered arcs, so `(u,v)` and `(v,u)` may both
+exist; substituting the harness's undirected-pair helper would silently
+change the input.
+
+Under `PYTHONHASHSEED=0`, both implementations receive 189,843 canonical
+input bytes, SHA-256
+`5d7c003cd5c7507408804b01e266bb81d7cfb2fe6546c58dfebff60f621ea89b`.
+The originally timed normalized result agrees byte-for-byte with live
+NetworkX 3.6.1: 11 components, 5,512 canonical bytes, SHA-256
+`8a2d25bce721d744f9d57470cf21a9c82890d0c5181f24b426cd35090eb73995`.
+The original normalization concealed outer generator order, so the permanent
+preflight also checks the complete ordered result. It agrees exactly, with
+component sizes `[1,1,1,1,1,790,1,1,1,1,1]` and ordered-output SHA-256
+`d75eb49951307e7288928ee8174a752851f4e53c84c0739ed1e3292ddf7f6b60`.
+No behavioral divergence was found.
+
+The permanent `claim-incumbent` arm preregisters the source artifacts, exact
+directed construction semantics, input and output byte counts and hashes,
+component count and ordered sizes, seed, weights, and hash seed. It rejects
+an input substitution, incomplete membership, or reordered public result
+before timing the recovered normalized operation. Harness SHA-256 is
+`2927bbff4c91aa46e487e896b99762ce0fe1c1517ed000efc46b773e7e1b71c4`.
+
+The five-row preflight also caught and fixed an older multi-job harness
+contamination before commit: the `erdos_renyi_graph` timing closures captured
+`node_count` and `seed` by reference, so later selected claim blocks could
+silently replace its preregistered `n=1500, seed=5` call. The closures now
+freeze `n`, `p`, and `seed` when the row is constructed. With all five jobs
+selected, that row again emits its exact preregistered 139,359 bytes and
+SHA-256
+`93fcf9aedb4b1f6dde8523bae73a673e92f3a50c2b958e4b37ee468002002e20`.
+
+No strict benchmark was started. The retry predicate established by
+`br-r37-c1-p80x1.6` is still false: installed RCH 1.0.52 commit
+`65294dcda0e0` salts every required clean-overlay remote root with a fresh
+UUID and nests the pooled Cargo target below that unique root. Starting this
+row would therefore mint another cold target directory, which is forbidden.
+No per-run target directory was requested or created.
+
+comparison_class=NO-VERDICT
+incumbent=networkx-3.6.1
+incumbent_same_invocation=false
+campaign_output=false
+decision_gate=not_reached
+null_median_clause=not_reached
+host_identity=not_reached
+bench_elf_sha256=not_reached
+actual_observed_threads=not_reached
+cv_role=not_computed
+
+RESULT: **FULL ORDERED PARITY / PERFORMANCE NO-VERDICT.** The recovered exact
+complete output agrees with NetworkX 3.6.1, but the permanent arm supplies no
+new support for the published `4.6519x`; do not replace or strengthen that
+number from the local correctness diagnostic.
+
+RETRY PREDICATE: retry only after RCH exposes a managed target directory whose
+physical path is stable across two otherwise identical `--base` plus
+`--clean-overlay` invocations, or moves its pooled target outside the
+UUID-salted clean source root. Reuse that one target without a cold copy and
+preserve both recovered-artifact hashes, the exact ordered-arc input and both
+output hashes, live NetworkX 3.6.1, all worker slots, in-process host identity
+and ELF SHA-256, actual observed threads, 21 rounds, both A/A nulls,
+continuous 300 ms accounting, and the corrected three-clause median gate.
+Any target-path change, admission, provenance, parity, or accounting abort
+remains NO-VERDICT.
+
+QUALITY / CLOSEOUT: the focused Kosaraju arm preflight passed, and the complete
+five-row claim suite passed with every row asserted against its preregistered
+complete-output byte count and SHA-256. It also proves the Erdős–Rényi
+late-binding repair against the repository wrapper and its existing shared
+extension. `python3 -m py_compile scripts/perf_harness.py`,
+`tests/python/test_perf_ledger_gate.py` (21/21), and `git diff --check`
+passed. UBS on all staged files exited 0 with zero critical findings and the
+same one pre-existing whole-harness warning. No Cargo command ran: no Rust
+source changed, and the required RCH mode would have created a fresh target.
+
 ## 2026-07-31 BlackThrush (cod) NO-VERDICT: published `erdos_renyi_graph` claim gets a permanent incumbent arm (`br-r37-c1-p80x1.1`)
 
 **CLAIM-GAP FIRST.** `README.md` publishes
