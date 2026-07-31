@@ -3234,6 +3234,7 @@ def suite_claim_incumbent():
         "partition_spanning_tree",
         "read_gml",
         "read_graph6",
+        "read_multiline_adjlist",
         "read_sparse6",
         "shortest_path_weighted",
         "single_pair_shortest_path",
@@ -5264,6 +5265,167 @@ def suite_claim_incumbent():
                 ),
                 lambda path=graph6_path: sorted(
                     fnx.read_graph6(path).edges()
+                ),
+            )
+        )
+    if "read_multiline_adjlist" in jobs:
+        if os.environ.get("PYTHONHASHSEED") != "0":
+            raise RuntimeError(
+                "the read_multiline_adjlist claim fixture requires "
+                "PYTHONHASHSEED=0 because decoded graph and edge order "
+                "are part of the public contract"
+            )
+        source_node_count = 1_200
+        source_edge_count = 6_000
+        source_seed = 11
+        expected_payload_bytes = 51_331
+        expected_payload_sha256 = (
+            "80bc7e583290c22464518fb7c1b5372a5933fc89809591d5e9c50aff3785f725"
+        )
+        expected_output_nodes = 1_200
+        expected_output_edges = 6_000
+        expected_output_bytes = 194_277
+        expected_output_sha256 = (
+            "46bb7cc108e04fc72c658ae0cd44d54736ad0709ee78ace906b3594cae89c9d1"
+        )
+        expected_projection_items = 6_000
+        expected_projection_bytes = 96_972
+        expected_projection_sha256 = (
+            "acc5ea16612d9cb19e0fe90a20bdf75b5403ccec804dc1d1609aa2e562e6e457"
+        )
+        multiline_source_nx, _multiline_source_fnx = _build_pair(
+            source_node_count,
+            source_edge_count,
+            seed=source_seed,
+            weighted=False,
+        )
+        multiline_output = io.BytesIO()
+        nx.write_multiline_adjlist(multiline_source_nx, multiline_output)
+        generated_lines = multiline_output.getvalue().splitlines(
+            keepends=True
+        )
+        if len(generated_lines) < 4:
+            raise RuntimeError(
+                "read_multiline_adjlist writer emitted an incomplete payload"
+            )
+        recovered_header = (
+            b"#hunt_unmeasured.py\n"
+            b"# GMT Tue Jul 28 22:49:34 2026\n"
+            b"# \n"
+        )
+        multiline_payload = recovered_header + b"".join(generated_lines[3:])
+        payload_sha256 = hashlib.sha256(multiline_payload).hexdigest()
+        if (
+            len(multiline_payload) != expected_payload_bytes
+            or not hmac.compare_digest(
+                payload_sha256,
+                expected_payload_sha256,
+            )
+        ):
+            raise RuntimeError(
+                "read_multiline_adjlist claim payload no longer matches "
+                "its preregistered byte count and SHA-256"
+            )
+        multiline_path = _materialize_claim_payload(
+            (
+                "franken_networkx-claim-read_multiline_adjlist-"
+                "80bc7e583290c224.mla"
+            ),
+            multiline_payload,
+        )
+        preflight_nx = nx.read_multiline_adjlist(multiline_path)
+        preflight_fnx = fnx.read_multiline_adjlist(multiline_path)
+        preflight_nx_bytes = canonical_bytes(preflight_nx)
+        preflight_fnx_bytes = canonical_bytes(preflight_fnx)
+        output_sha256 = hashlib.sha256(preflight_nx_bytes).hexdigest()
+        projected_nx = sorted(preflight_nx.edges())
+        projected_fnx = sorted(preflight_fnx.edges())
+        projected_nx_bytes = canonical_bytes(projected_nx)
+        projected_fnx_bytes = canonical_bytes(projected_fnx)
+        projection_sha256 = hashlib.sha256(projected_nx_bytes).hexdigest()
+        if preflight_nx_bytes != preflight_fnx_bytes:
+            raise RuntimeError(
+                "read_multiline_adjlist claim complete decoded graph "
+                "diverged"
+            )
+        if projected_nx_bytes != projected_fnx_bytes:
+            raise RuntimeError(
+                "read_multiline_adjlist claim recovered sorted-edge "
+                "projection diverged"
+            )
+        if (
+            type(preflight_nx).__name__ != "Graph"
+            or type(preflight_fnx).__name__ != "Graph"
+            or preflight_nx.is_directed()
+            or preflight_nx.is_multigraph()
+            or preflight_nx.number_of_nodes() != expected_output_nodes
+            or preflight_nx.number_of_edges() != expected_output_edges
+            or len(preflight_nx_bytes) != expected_output_bytes
+            or not hmac.compare_digest(output_sha256, expected_output_sha256)
+            or len(projected_nx) != expected_projection_items
+            or len(projected_nx_bytes) != expected_projection_bytes
+            or not hmac.compare_digest(
+                projection_sha256,
+                expected_projection_sha256,
+            )
+        ):
+            raise RuntimeError(
+                "read_multiline_adjlist claim fixture no longer matches "
+                "its preregistered decoded graph and projection"
+            )
+        EXTRA_PROVENANCE["claim_read_multiline_adjlist_fixture"] = {
+            "publishing_commit": "87cf65e54a4e13a72a12c2bc7458655c7d4b3ac1",
+            "recovered_harness_sha256": (
+                "1114f244b93787b9e1d6a900633ccd93f3a09c91de8d669bde9ba75df5a611e3"
+            ),
+            "recovered_result_sha256": (
+                "40040b7b90de11721263864fff0e3e79f260ca2779e16c8252784dc9236ef249"
+            ),
+            "recovered_builder_sha256": (
+                "fb051cf48508ad56ee0c64103335090bd7866b12d65cb2e29d522cfa33b4cba1"
+            ),
+            "source_nodes": source_node_count,
+            "source_edges": source_edge_count,
+            "source_seed": source_seed,
+            "source_weighted": False,
+            "source_directed": False,
+            "writer": "networkx.write_multiline_adjlist",
+            "writer_parameters": "all omitted (NetworkX 3.6.1 defaults)",
+            "recovered_writer_header": (
+                "#hunt_unmeasured.py\\n"
+                "# GMT Tue Jul 28 22:49:34 2026\\n"
+                "# \\n"
+            ),
+            "payload_reconstruction": (
+                "exact recovered three-line writer header plus unchanged "
+                "NetworkX 3.6.1 writer body"
+            ),
+            "reader_input": "path",
+            "reader_parameters": "path positional; all others omitted",
+            "fixture_path": multiline_path,
+            "python_hash_seed": 0,
+            "payload_bytes": expected_payload_bytes,
+            "payload_sha256": expected_payload_sha256,
+            "output_type": "Graph",
+            "output_nodes": expected_output_nodes,
+            "output_edges": expected_output_edges,
+            "output_canonical_bytes": expected_output_bytes,
+            "complete_decoded_graph_sha256": expected_output_sha256,
+            "timed_projection": "sorted(result.edges())",
+            "projection_items": expected_projection_items,
+            "projection_canonical_bytes": expected_projection_bytes,
+            "projection_sha256": expected_projection_sha256,
+        }
+        rows.append(
+            (
+                "claim/read_multiline_adjlist "
+                "source_n=1200 source_m=6000 source_seed=11 "
+                "input=path then=sorted(edges) [nx/fnx]",
+                lambda path=multiline_path: sorted(
+                    nx.read_multiline_adjlist(path).edges()
+                ),
+                lambda path=multiline_path: sorted(
+                    fnx.read_multiline_adjlist(path).edges()
                 ),
             )
         )

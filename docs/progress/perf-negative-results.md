@@ -2704,6 +2704,33 @@ physical target path, then retain all exact hashes, live incumbent, 21
 rounds, in-process host/ELF identity, actual threads, continuous accounting,
 dual A/A nulls, and the corrected three-clause median gate.
 
+## 2026-07-31 BlackThrush (cod) PARITY + NO-VERDICT (`br-r37-c1-p80x1.45`): exact `read_multiline_adjlist` loss arm
+
+The published `0.70x` loss row was recovered from
+`hunt_unmeasured.py` (SHA `1114f244...11e3`), its result artifact (SHA
+`40040b7b...f249`), and the `hunt_class1.py` builder (SHA
+`fb051cf4...cba1`). It writes an unweighted undirected simple string-node
+`n=1200,m=6000,seed=11` graph once with NetworkX, then reads that exact path
+and sorts its edges.
+
+The original multiline-adjacency payload survived: 51,331 bytes, SHA
+`80bc7e58...f725`. Its volatile three-line writer header is recovered
+exactly; the graph body still matches a current NetworkX 3.6.1 writer.
+NetworkX and FrankenNetworkX decode the file to the same 1,200-node/6,000-edge
+graph: 194,277 bytes, SHA `46bb7cc1...9d1`. The 6,000-item projection is
+96,972 bytes, SHA `acc5ea16...e457`. No divergence was found.
+
+RESULT: **FULL PAYLOAD + GRAPH + PROJECTION PARITY / CURRENT PERFORMANCE
+NO-VERDICT.** The historical `0.7002494x` row used only 9 rounds, one null
+CI, and empty checksums; it lacks dual null medians, raw samples, actual
+observed threads, continuous accounting, and in-process ELF identity. No
+strict benchmark was started because RCH 1.0.52 would place the pooled target
+under another UUID-salted clean-overlay root. Retry only after two required
+clean-overlay invocations prove one identical managed physical target path,
+then retain the exact path input and outputs, live incumbent, 21 rounds,
+in-process host/ELF identity, actual threads, continuous accounting, dual A/A
+nulls, and the corrected three-clause median gate.
+
 ## 2026-07-31 BlackThrush (cod) PARITY + NO-VERDICT (`br-r37-c1-p80x1.35`): exact `all_pairs_shortest_path` claim arm
 
 The published `1.7624x` row was recovered from

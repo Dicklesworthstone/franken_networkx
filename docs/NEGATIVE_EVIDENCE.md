@@ -28544,6 +28544,83 @@ QUALITY / CLOSEOUT: `git diff --check` covers this ledger-only result. No
 Cargo command ran. UBS has no Markdown/JSONL scanner, so no scanner pass is
 claimed.
 
+## 2026-07-31 BlackThrush (cod) PARITY + NO-VERDICT: exact `read_multiline_adjlist` loss arm (`br-r37-c1-p80x1.45`)
+
+The published `0.70x` loss workload was recovered exactly from commit
+`87cf65e54a4e13a72a12c2bc7458655c7d4b3ac1`,
+`hunt_unmeasured.py` (SHA-256
+`1114f244b93787b9e1d6a900633ccd93f3a09c91de8d669bde9ba75df5a611e3`),
+its saved result artifact (SHA-256
+`40040b7b90de11721263864fff0e3e79f260ca2779e16c8252784dc9236ef249`),
+and `hunt_class1.py`'s builder (SHA-256
+`fb051cf48508ad56ee0c64103335090bd7866b12d65cb2e29d522cfa33b4cba1`).
+The source is an unweighted undirected simple string-node
+`n=1200,m=6000,seed=11` graph. NetworkX 3.6.1 writes it once with
+`write_multiline_adjlist`; the timed public call reads that path and returns
+`sorted(result.edges())`.
+
+The original generated file survived at the recovered scratch location. Its
+51,331 bytes have SHA-256
+`80bc7e583290c22464518fb7c1b5372a5933fc89809591d5e9c50aff3785f725`.
+NetworkX's writer embeds the script name and generation time in its first
+three comment lines, so regenerating without preserving those lines changes
+the payload hash even though the graph body is identical. The permanent arm
+reconstructs the original three-line header exactly and verifies that the
+remaining writer body is unchanged through the complete payload hash.
+
+Under `PYTHONHASHSEED=0`, live NetworkX 3.6.1 and FrankenNetworkX decode that
+exact path to the same simple undirected `Graph`: 1,200 string nodes, 6,000
+edges, 194,277 canonical bytes, SHA-256
+`46bb7cc108e04fc72c658ae0cd44d54736ad0709ee78ace906b3594cae89c9d1`.
+The recovered 6,000-item sorted-edge projection also agrees exactly: 96,972
+bytes, SHA-256
+`acc5ea16612d9cb19e0fe90a20bdf75b5403ccec804dc1d1609aa2e562e6e457`.
+No divergence was found.
+
+The recovered historical row reported median `0.7002494144639227x`, 95%
+median CI `0.506736021395535..0.7223293628572208x`, `0/9` paired wins,
+and one A/A CI `0.970827678480538..1.020452680535193x`. Its checksum fields
+are empty. It is recovery evidence, not a current loss verdict: it used only
+9 rounds and has no second arm-specific null, null medians, raw samples,
+actual observed thread counts, continuous whole-host accounting, or
+in-process loaded-ELF identity, and predates the corrected null-median
+clause.
+
+RESULT: **FULL PAYLOAD + DECODED-GRAPH + PROJECTION PARITY / CURRENT
+PERFORMANCE NO-VERDICT.** No strict benchmark was started because RCH 1.0.52
+still puts its pooled target below a UUID-salted `--clean-overlay` root.
+Running the required command would mint another cold physical target,
+violating the one-target storage rule. Machine-readable outcome:
+`benchmark_started=false`, `performance_verdict=NO-VERDICT`,
+`host_identity=not_observed`, `elf_sha256_in_process=not_observed`,
+`networkx_actual_threads=not_observed`, and
+`franken_networkx_actual_threads=not_observed`. No current loss ratio, null,
+or timing claim is reported.
+
+RETRY PREDICATE: retry only after two required
+`rch exec --base <commit> --clean-overlay` invocations prove the same managed
+physical target path without creating a new directory. Keep the exact
+path-based payload, complete decoded graph and projection hashes, live
+NetworkX 3.6.1, 21 interleaved rounds, in-process host and ELF identity,
+actual observed threads for both arms, continuous whole-host accounting, raw
+candidate samples, and dual A/A nulls. A verdict additionally requires all
+three corrected median clauses: each null median within 2% of `1.0`, the
+candidate median deviation beyond twice the larger null-CI half-width, and
+the candidate median CI wholly on one side of `1.0`. CV remains provenance
+only.
+
+QUALITY / CLOSEOUT: the focused exact-reader preflight passed, and the full
+claim-incumbent parity sweep passed `24/24`. Harness SHA-256 is
+`14085354df6a3777c600a63c9edb0ba1520dab940785bef9ee2ebc26aff8567c`.
+The exact path contract added one 51,331-byte content-addressed live scratch
+file in `/data/tmp`; it remains required and was left in place. The
+timestamp diagnostic also created a superseded 51,314-byte file; it was left
+in place because this repository forbids deleting files without a separate
+explicit authorization. Known live claim inputs now total 363,063 bytes. No
+directory or Cargo target was created. Python byte-compilation, the ledger
+contract tests, diff checks, and UBS are recorded at commit closeout. No
+Cargo command ran.
+
 ## 2026-07-31 BlackThrush (cod) PARITY + NO-VERDICT: exact `bidirectional_dijkstra` claim arm (`br-r37-c1-p80x1.31`)
 
 The published `1.8125x` workload was recovered exactly from commit
