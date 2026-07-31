@@ -3195,6 +3195,7 @@ def suite_claim_incumbent():
     available_jobs = (
         "all_pairs_dijkstra_path_length",
         "all_pairs_shortest_path_length",
+        "dfs_successors",
         "erdos_renyi_graph",
         "k_corona",
         "k_crust",
@@ -3438,6 +3439,124 @@ def suite_claim_incumbent():
                         all_pairs_fnx
                     )
                 },
+            )
+        )
+    if "dfs_successors" in jobs:
+        if os.environ.get("PYTHONHASHSEED") != "0":
+            raise RuntimeError(
+                "the dfs_successors claim fixture requires PYTHONHASHSEED=0 "
+                "because parent-key and child-list order are part of the "
+                "public contract"
+            )
+        node_count = 1_200
+        edge_count = 6_000
+        seed = 11
+        source = "0"
+        expected_input_bytes = 194_277
+        expected_input_sha256 = (
+            "199d564350ec6f70885e8f8236fad28d6620b44e3e7917a470f6fba73024e653"
+        )
+        expected_parent_items = 1_068
+        expected_tree_edges = 1_198
+        expected_reached_nodes = 1_199
+        expected_unreached_nodes = ("135",)
+        expected_output_bytes = 20_319
+        expected_output_sha256 = (
+            "cd00bea96de613a14e82b48cf29f3d7beedf2dac8e3b22102bfe4c875e01829b"
+        )
+        successors_nx, successors_fnx = _build_pair(
+            node_count,
+            edge_count,
+            seed=seed,
+            weighted=False,
+        )
+        input_nx_bytes = canonical_bytes(successors_nx)
+        input_fnx_bytes = canonical_bytes(successors_fnx)
+        input_sha256 = hashlib.sha256(input_nx_bytes).hexdigest()
+        if input_nx_bytes != input_fnx_bytes:
+            raise RuntimeError("dfs_successors claim input graphs diverged")
+        if (
+            len(input_nx_bytes) != expected_input_bytes
+            or not hmac.compare_digest(input_sha256, expected_input_sha256)
+        ):
+            raise RuntimeError(
+                "dfs_successors claim input no longer matches its "
+                "preregistered canonical byte count and SHA-256"
+            )
+
+        preflight_nx = nx.dfs_successors(successors_nx, source)
+        preflight_fnx = fnx.dfs_successors(successors_fnx, source)
+        preflight_nx_bytes = canonical_bytes(preflight_nx)
+        preflight_fnx_bytes = canonical_bytes(preflight_fnx)
+        output_sha256 = hashlib.sha256(preflight_nx_bytes).hexdigest()
+        reached_nodes = {source}
+        reached_nodes.update(
+            child
+            for children in preflight_nx.values()
+            for child in children
+        )
+        unreached_nodes = tuple(
+            node for node in successors_nx if node not in reached_nodes
+        )
+        if preflight_nx_bytes != preflight_fnx_bytes:
+            raise RuntimeError(
+                "dfs_successors claim complete ordered mapping diverged"
+            )
+        if (
+            len(preflight_nx) != expected_parent_items
+            or sum(map(len, preflight_nx.values())) != expected_tree_edges
+            or len(reached_nodes) != expected_reached_nodes
+            or unreached_nodes != expected_unreached_nodes
+            or len(preflight_nx_bytes) != expected_output_bytes
+            or not hmac.compare_digest(output_sha256, expected_output_sha256)
+        ):
+            raise RuntimeError(
+                "dfs_successors claim fixture no longer matches its "
+                "preregistered complete ordered output"
+            )
+        EXTRA_PROVENANCE["claim_dfs_successors_fixture"] = {
+            "publishing_commit": "87cf65e54a4e13a72a12c2bc7458655c7d4b3ac1",
+            "recovered_harness_sha256": (
+                "1114f244b93787b9e1d6a900633ccd93f3a09c91de8d669bde9ba75df5a611e3"
+            ),
+            "recovered_result_sha256": (
+                "40040b7b90de11721263864fff0e3e79f260ca2779e16c8252784dc9236ef249"
+            ),
+            "recovered_builder_sha256": (
+                "fb051cf48508ad56ee0c64103335090bd7866b12d65cb2e29d522cfa33b4cba1"
+            ),
+            "nodes": node_count,
+            "edges": edge_count,
+            "seed": seed,
+            "weighted": False,
+            "directed": False,
+            "source": source,
+            "depth_limit": None,
+            "sort_neighbors": None,
+            "parameters": "source positional; all remaining parameters omitted",
+            "python_hash_seed": 0,
+            "input_canonical_bytes": expected_input_bytes,
+            "input_sha256": expected_input_sha256,
+            "parent_items": expected_parent_items,
+            "tree_edges": expected_tree_edges,
+            "reached_nodes_including_source": expected_reached_nodes,
+            "unreached_nodes": list(expected_unreached_nodes),
+            "output_canonical_bytes": expected_output_bytes,
+            "complete_ordered_output_sha256": expected_output_sha256,
+        }
+        rows.append(
+            (
+                "claim/dfs_successors "
+                "n=1200 m=6000 seed=11 source=\"0\" "
+                "depth_limit=None sort_neighbors=None [nx/fnx]",
+                lambda graph=successors_nx, root=source: nx.dfs_successors(
+                    graph,
+                    root,
+                ),
+                lambda graph=successors_fnx, root=source: fnx.dfs_successors(
+                    graph,
+                    root,
+                ),
             )
         )
     if "erdos_renyi_graph" in jobs:

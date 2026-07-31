@@ -29490,6 +29490,91 @@ passed. UBS on all staged files exited 0 with zero critical findings and the
 same one pre-existing whole-harness warning. No Cargo command ran: no Rust
 source changed, and the required RCH mode would have created a fresh target.
 
+## 2026-07-31 BlackThrush (cod) PARITY + NO-VERDICT: exact `dfs_successors` claim arm (`br-r37-c1-p80x1.29`)
+
+**EXACT ARTIFACT RECOVERY BEFORE CONVERSION.** README's published `2.1456x`
+row came from `hunt_unmeasured.py`, SHA-256
+`1114f244b93787b9e1d6a900633ccd93f3a09c91de8d669bde9ba75df5a611e3`,
+and `unmeasured_results.json`, SHA-256
+`40040b7b90de11721263864fff0e3e79f260ca2779e16c8252784dc9236ef249`,
+published by commit `87cf65e54a4e13a72a12c2bc7458655c7d4b3ac1`. The source
+imports its graph builder from `hunt_class1.py`, SHA-256
+`fb051cf48508ad56ee0c64103335090bd7866b12d65cb2e29d522cfa33b4cba1`.
+The exact call is `dfs_successors(G, "0")` on the helper's unweighted,
+undirected, simple string-node graph with `n=1200, m=6000, seed=11`.
+`depth_limit` and `sort_neighbors` are omitted and therefore use the
+NetworkX 3.6.1 defaults `None`.
+
+The saved historical row reports median `2.145591x`, candidate CI
+`[2.107853,2.186181]`, one A/A CI `[0.998457,1.007987]`, and 9 paired rounds.
+Its checksum fields are empty. The invocation used live NetworkX 3.6.1 and
+self-reported its loaded ELF, but predates the current dual A/A controls,
+null medians, actual observed threads, continuous host accounting, 21-round
+requirement, and corrected null-median clause. It cannot satisfy today's gate
+without a fresh run.
+
+Under `PYTHONHASHSEED=0`, both implementations receive 194,277 canonical
+input bytes, SHA-256
+`199d564350ec6f70885e8f8236fad28d6620b44e3e7917a470f6fba73024e653`.
+Live NetworkX 3.6.1 and FrankenNetworkX agree byte-for-byte on the complete
+ordered parent-to-children mapping: 1,068 parent keys and 1,198 DFS-tree
+edges reach 1,199 nodes including source `"0"`; only node `"135"` is
+unreached. The output is 20,319 canonical bytes, SHA-256
+`cd00bea96de613a14e82b48cf29f3d7beedf2dac8e3b22102bfe4c875e01829b`.
+This comparison retains both dictionary insertion order and every child-list
+order. No behavioral divergence was found.
+
+The permanent `claim-incumbent` arm preregisters all three recovered
+artifact hashes, the exact input bytes/hash and omitted parameters, parent,
+tree-edge, reached, and unreached counts, plus the complete ordered-output
+bytes/hash. It rejects a traversal, mapping-order, or child-order change
+before timing the exact recovered operation. Current harness SHA-256 is
+`1274ba8680a1538f44b88a4b863835e115e04ecbd2c452766477518d4be9b113`.
+
+No strict benchmark was started. The shared stable-target retry predicate is
+still false: installed RCH 1.0.52 commit `65294dcda0e0` salts every required
+clean-overlay remote root with a fresh UUID and nests the pooled Cargo target
+below that unique root. Starting this row would therefore mint another cold
+target directory, which is forbidden. No per-run target directory was
+requested or created.
+
+comparison_class=NO-VERDICT
+incumbent=networkx-3.6.1
+incumbent_same_invocation=false
+campaign_output=false
+decision_gate=not_reached
+null_median_clause=not_reached
+host_identity=not_reached
+bench_elf_sha256=not_reached
+actual_observed_threads=not_reached
+cv_role=not_computed
+
+RESULT: **FULL ORDERED DFS-MAPPING PARITY / CURRENT PERFORMANCE NO-VERDICT.**
+The recovered exact complete output agrees with NetworkX 3.6.1. The new arm
+does not revalidate or strengthen the published `2.1456x`; that older
+same-incumbent result remains historical evidence under its then-current
+gate, not a result under today's stricter contract.
+
+RETRY PREDICATE: retry only after RCH exposes a managed target directory whose
+physical path is stable across two otherwise identical `--base` plus
+`--clean-overlay` invocations, or moves its pooled target outside the
+UUID-salted clean source root. Reuse that one target without a cold copy and
+preserve the recovered artifact, exact input, omitted-parameter, and complete
+ordered-output hashes, live NetworkX 3.6.1, all worker slots, in-process host
+identity and ELF SHA-256, actual observed threads, 21 rounds, both A/A nulls,
+continuous 300 ms accounting, and the corrected three-clause median gate.
+Any target-path change, admission, provenance, parity, or accounting abort
+remains NO-VERDICT.
+
+QUALITY / CLOSEOUT: the focused DFS-successor arm preflight passed, and the
+complete fifteen-row claim suite passed with every row asserted against its
+preregistered complete-output byte count and SHA-256.
+`python3 -m py_compile scripts/perf_harness.py`,
+`tests/python/test_perf_ledger_gate.py` (21/21), and `git diff --check`
+passed. UBS on all staged files exited 0 with zero critical findings and the
+same one pre-existing whole-harness warning. No Cargo command ran: no Rust
+source changed, and the required RCH mode would have created a fresh target.
+
 ## 2026-07-31 BlackThrush (cod) NO-VERDICT: published `erdos_renyi_graph` claim gets a permanent incumbent arm (`br-r37-c1-p80x1.1`)
 
 **CLAIM-GAP FIRST.** `README.md` publishes

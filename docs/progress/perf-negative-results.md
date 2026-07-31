@@ -2515,3 +2515,31 @@ identical managed physical target path, then retain all source/input/output
 hashes, live incumbent, in-process host and ELF identity, actual observed
 threads, 21 rounds, continuous accounting, dual A/A nulls, and the corrected
 three-clause median gate.
+
+## 2026-07-31 BlackThrush (cod) PARITY + NO-VERDICT (`br-r37-c1-p80x1.29`): exact `dfs_successors` claim arm
+
+The published `2.1456x` workload was recovered exactly from
+`hunt_unmeasured.py` (SHA `1114f244...11e3`) and its saved result artifact
+(SHA `40040b7b...f249`), using the builder in `hunt_class1.py` (SHA
+`fb051cf4...cba1`). It calls `dfs_successors(G, "0")` on the helper's
+unweighted undirected simple string-node `n=1200,m=6000,seed=11` graph, with
+`depth_limit=None` and `sort_neighbors=None` supplied by omission.
+
+Under `PYTHONHASHSEED=0`, both implementations receive 194,277 canonical
+input bytes (SHA `199d5643...e653`). Live NetworkX 3.6.1 and FrankenNetworkX
+agree exactly on the complete ordered dictionary and every ordered child
+list: 1,068 parent keys and 1,198 tree edges reach 1,199 nodes including
+source `"0"`; only `"135"` is unreached. The mapping is 20,319 bytes, SHA
+`cd00bea9...829b`. No divergence was found.
+
+RESULT: **FULL ORDERED DFS-MAPPING PARITY / CURRENT PERFORMANCE NO-VERDICT.**
+The historical 9-round `2.145591x` row has only one A/A CI and empty checksum
+fields; it predates dual null medians, actual observed threads, continuous
+accounting, 21 rounds, and the corrected median clause. No strict benchmark
+was started because RCH 1.0.52 still places its pooled target below a
+UUID-salted clean-overlay root, so running would create another cold target.
+Retry only after two required clean-overlay invocations prove one identical
+managed physical target path, then retain every recovered artifact and exact
+input/output hash, live incumbent, in-process host and ELF identity, actual
+observed threads, 21 rounds, continuous accounting, dual A/A nulls, and the
+corrected three-clause median gate.
