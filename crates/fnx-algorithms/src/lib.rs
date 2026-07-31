@@ -25541,15 +25541,17 @@ pub fn all_pairs_shortest_path_length(
     graph: &Graph,
     cutoff: Option<usize>,
 ) -> HashMap<String, HashMap<String, usize>> {
-    let mut result = HashMap::new();
-    for node in graph.nodes_ordered() {
-        let lengths: HashMap<String, usize> =
-            single_source_shortest_path_length(graph, node, cutoff)
+    let nodes = graph.nodes_ordered();
+    all_pairs_shortest_path_length_indexed(graph, cutoff)
+        .into_iter()
+        .map(|(source, row)| {
+            let lengths = row
                 .into_iter()
+                .map(|(target, distance)| (nodes[target].to_owned(), distance))
                 .collect();
-        result.insert(node.to_owned(), lengths);
-    }
-    result
+            (nodes[source].to_owned(), lengths)
+        })
+        .collect()
 }
 
 /// Return shortest path lengths between all pairs of nodes in a directed graph.
@@ -25561,15 +25563,17 @@ pub fn all_pairs_shortest_path_length_directed(
     digraph: &DiGraph,
     cutoff: Option<usize>,
 ) -> HashMap<String, HashMap<String, usize>> {
-    let mut result = HashMap::new();
-    for node in digraph.nodes_ordered() {
-        let lengths: HashMap<String, usize> =
-            single_source_shortest_path_length_directed(digraph, node, cutoff)
+    let nodes = digraph.nodes_ordered();
+    all_pairs_shortest_path_length_directed_indexed(digraph, cutoff)
+        .into_iter()
+        .map(|(source, row)| {
+            let lengths = row
                 .into_iter()
+                .map(|(target, distance)| (nodes[target].to_owned(), distance))
                 .collect();
-        result.insert(node.to_owned(), lengths);
-    }
-    result
+            (nodes[source].to_owned(), lengths)
+        })
+        .collect()
 }
 
 // ===========================================================================
