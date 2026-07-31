@@ -47989,6 +47989,11 @@ def k_truss(G, k):
         raise NetworkXNotImplemented("not implemented for multigraph type")
     if G.is_directed():
         raise NetworkXNotImplemented("not implemented for directed type")
+    if number_of_selfloops(G) > 0:
+        raise NetworkXNotImplemented(
+            "Input graph has self loops which is not permitted; "
+            "Consider using G.remove_edges_from(nx.selfloop_edges(G))."
+        )
     return _k_truss_via_parity(G, k)
 
 
@@ -48008,8 +48013,12 @@ def _k_truss_via_parity(G, k):
     """
     G = _coerce_arg_to_fnx_graph(G)
     res = _fnx.k_truss_rust(G, k)
-    node_set = set(res["nodes"])
     edge_set = {frozenset(e) for e in res["edges"]}
+    # NetworkX removes isolates even when k < 2 and no edge-peeling round
+    # changes the graph. The native k<2 fast path intentionally returns every
+    # input node, so derive the public result nodes from surviving edge
+    # endpoints instead. A k-truss never contains an isolated node.
+    node_set = {node for edge in res["edges"] for node in edge}
     # br-r37-c1-at6zf: adaptive rebuild. The old path rebuilt the whole
     # result edge-by-edge via ``R.add_edge(u, v, **data)`` -- for low ``k``
     # (e.g. k=2, where most/all edges survive) that pays the per-edge

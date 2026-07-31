@@ -28632,6 +28632,48 @@ and report, and `git diff --check` passed. Harness/report SHA-256 values are
 and
 `e0ae0ae1d1206a4ca2ee23672b8405730384c40371e740c3fb7d7cd6a3c11b28`.
 
+## 2026-07-31 BlackThrush (cod) BEHAVIORAL DIVERGENCE FIXED: `k_truss` self-loops and low-k isolates (`br-r37-c1-1vbnx`)
+
+REAL DIVERGENCE: on the exact simple graph
+`[("a","a"), ("a","b"), ("b","c")]`, live NetworkX 3.6.1 rejects every
+`k_truss(G, k)` for `k in {0,1,2,3}` with
+`NetworkXNotImplemented("Input graph has self loops which is not permitted;
+Consider using G.remove_edges_from(nx.selfloop_edges(G)).")`. FNX instead
+returned a graph: all three self-loop/path edges at `k=0/1`, the two
+non-loop edges at `k=2`, and an empty graph at `k=3`. That silent answer
+concealed an out-of-contract input. Separately, for an edgeless graph with
+ordered nodes `["a","b","c"]`, NetworkX returns an empty graph at `k=0/1`
+while FNX retained all three isolated nodes.
+
+ROOT CAUSE: the public FNX wrapper guarded directed and multigraph inputs but
+never applied NetworkX's self-loop precondition. Its native `k < 2` fast path
+correctly retained every edge but also returned every input node, whereas
+NetworkX always removes isolates after copying the graph.
+
+ONE CORRECTNESS LEVER: the public wrapper now checks self-loop count before
+native dispatch and raises NetworkX 3.6.1's exact type and message. The
+parity rebuild derives result nodes from surviving edge endpoints instead of
+the native low-k node list. This encodes the defining invariant that a
+k-truss contains no isolated node while preserving graph, node, and edge
+attributes and the established input-order rebuild.
+
+PROOF: the focused node/order/error suite passes 19/19; all four focused
+k-truss/native/adaptive/core-routing files pass 49/49. A fresh 192-case
+differential matrix over eight shapes (`empty`, `edgeless`, `path`,
+`triangle`, `triangle-pendant`, `two-triangles`, `selfloop`,
+`edge-isolate`), `Graph`/`DiGraph`/`MultiGraph`, attributed/unattributed
+inputs, and `k=0..3` reports **192 agreements / 0 divergences** against live
+NetworkX 3.6.1. The exact self-loop exception text, ordered nodes/edges,
+graph/node/edge attributes, and isolate removal are compared directly.
+
+RESULT: **DIVERGENCE FIXED; NO PERFORMANCE CLAIM.** No Cargo command and no
+target directory were needed because this is a verified public-Python
+contract correction over the existing native result. The previously
+generated oracle's generic `agree` mark was under-covered: it did not contain
+either producing input. The two exact fixtures are now permanent focused
+regressions, so a future surface corpus can no longer summarize this hole
+away.
+
 ## 2026-07-31 BlackThrush CONTRACT LANDED / PERFORMANCE NO-VERDICT: parallel analytics whole-job contract (`br-r37-c1-04z53.9193`)
 
 TARGET: preserve the already-landed structural comparison against live
