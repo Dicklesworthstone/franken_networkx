@@ -41,10 +41,6 @@ by the running process as line 1 of each run. Load average recorded in each head
 
 ## ca-AstroPh — n=17903, m=196972 (giant component)
 
-**Run in progress at the time of writing** — the five remaining geodesic stages each
-recompute all-pairs independently in nx (~13 min apiece). Stages completed so far,
-all byte-identical:
-
     stage                            nx ms    fnx ms     ratio   nx c/w  fnx c/w  parity
     connected_components              45.5       6.1      7.4x     1.00     1.00  IDENTICAL
     core_number                      232.6       9.5     24.4x     1.00     1.00  IDENTICAL
@@ -55,28 +51,54 @@ all byte-identical:
     closeness_centrality          805408.9      49.3  16332.9x     1.00    31.10  IDENTICAL
     harmonic_centrality           668760.0     374.9   1783.6x     1.00    55.82  IDENTICAL
     betweenness_centrality       1741102.8    1233.8   1411.1x     1.00    45.99  IDENTICAL
+    eccentricity                  559826.8      43.2  12952.1x     1.00    35.24  IDENTICAL
+    diameter                      591197.3      42.7  13835.3x     1.00    33.00  IDENTICAL
+    radius                        572426.1      40.0  14296.9x     1.00    37.85  IDENTICAL
+    center                        550575.2      42.4  12972.4x     1.00    35.84  IDENTICAL
+    periphery                     564025.2      43.6  12941.7x     1.00    34.49  IDENTICAL
+    ----------------------------------------------------------------------------------------
+    WHOLE JOB                    6056756.9    1940.1   3121.9x
 
-Three rows carry the whole argument:
+    parity: 14/14 stages byte-identical
+    parallelism: nx peak cpu/wall = 1.00, fnx peak cpu/wall = 55.82
+    nx wall total = 6056.8s (100.9 min); fnx wall total = 1.94s
+
+**The whole 14-stage job: NetworkX 100.9 minutes, FrankenNetworkX 1.94 seconds, every
+stage byte-identical.**
+
+Three rows carry the argument:
 
 - **`closeness_centrality`: nx 805.4 s (13.4 min) → fnx 49.3 ms = 16,333x**, `cpu/wall` 31.10.
-- **`harmonic_centrality`: nx 668.8 s (11.1 min) → fnx 374.9 ms = 1,784x**, `cpu/wall` 55.82.
 - **`betweenness_centrality`: nx 1741.1 s (29.0 min) → fnx 1.234 s = 1,411x**, `cpu/wall` 45.99.
+- the whole eccentricity family (`eccentricity`/`diameter`/`radius`/`center`/`periphery`),
+  each ~9-10 min in nx and ~42 ms in fnx, **12,900-14,300x** apiece.
 
-That betweenness row is this beadword's own target measured at realistic scale. Exact
+The betweenness row is this beadword's own target measured at realistic scale. Exact
 Brandes on a real 17,903-node collaboration network costs NetworkX **twenty-nine
-minutes**; it costs FrankenNetworkX **1.2 seconds**, and the two results are
-byte-identical. The betweenness and harmonic rows were taken at load 2.3-5.3, so their
-`cpu/wall` of 46.0 and 55.8 are honest readings rather than contended ones.
+minutes** and FrankenNetworkX **1.2 seconds**, byte-identical.
 
-Load during this run ranged **2.5 to 87.3** on 64 logical cores (peer `rustc` storms
-and a parallel shard job). That matters asymmetrically and in the *conservative*
-direction: nx's stages are single-threaded and barely notice core contention, while
-fnx's are 32-way parallel and are throttled by it. So these ratios are **lower
-bounds**, not inflated ones. The `closeness` row happens to have landed in a quiet
-window, which is why its `cpu/wall` reads a healthy 31.10; a per-stage `cpu/wall`
-from a contended moment in this run should not be quoted as a property of the code.
-The `facebook_combined` table above was taken end-to-end at load 6.4-7.8 and is the
-clean reference.
+### On load, and why these rows are trustworthy
+
+Load was sampled every 30 s for the whole run. It was **not** uniform, and the
+distinction matters:
+
+- **Early stages** (`connected_components` through `closeness_centrality`): load
+  **2.5-87.3**, from peer `rustc` storms and a parallel shard job.
+- **`harmonic_centrality` onward**: load **1.8-14.0**.
+- **Final four geodesic stages**: load **1.5-4.7**.
+
+So every expensive row — harmonic, betweenness, and all five geodesic stages — was
+measured in a quiet window, which is why their `cpu/wall` reads 33-56 rather than
+collapsing toward 1. Only the six cheap early stages (fnx 4.8-49.3 ms) overlapped the
+contended window, and contention there biases their ratios **downward**: nx's stages
+are single-threaded and barely notice core contention, while fnx's are 32-way parallel
+and get throttled. Those six are lower bounds; the rest are clean.
+
+This is worth stating precisely rather than waving at, because a `cpu/wall` figure
+taken under oversubscription is not evidence about code at all — it deflates toward
+1.0 regardless of what the code does. Quoting one as a property of the implementation
+is a mistake that was actually made and corrected during this beadword (see
+`RESULT.md`).
 
 ## Reading these numbers honestly
 
@@ -125,7 +147,12 @@ is — it is *what you are forced to do without it*:
   `k`-sampled approximation and accept sampling error into the result, or they drop
   the metric from the pipeline.
 - fnx returns the **exact, byte-identical** answer in **1.2 seconds**. Closeness on
-  the same graph goes from 13.4 minutes to 49 ms.
+  the same graph goes from 13.4 minutes to 49 ms, and the whole 14-stage pipeline
+  from **100.9 minutes to 1.94 seconds**.
+
+The whole-job ratio itself grows with graph size — **1461.6x** at n≈4k, **3121.9x** at
+n≈18k — because the pipeline's time is increasingly dominated by exactly the stages nx
+cannot parallelise.
 
 Note the scaling direction, because it is what makes this a capability argument rather
 than a constant-factor one: going from n≈4k to n≈18k costs nx **24x more wall time on
