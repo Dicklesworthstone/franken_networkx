@@ -1084,8 +1084,8 @@ co-tenancy elsewhere on the host.
 | minimum_branching | no current admissible ratio | Native branching; 2026-07-31 re-measure gave 3.9978× but the A/A null drifted (bias 0.0295 > 0.0200) — UNDECIDABLE, needs a quieter host |
 | partition_spanning_tree | **2.4612× faster** | Native Kruskal with partition constraints; CONFIRMED 2026-07-31 vs live nx 3.6.1 (measured 2.3794×, CI [2.3303, 2.5633] contains the published figure) |
 | dfs_successors | **2.3223× faster** | Native traversal; re-measured 2026-07-31 vs live nx 3.6.1 (was 2.1456×) |
-| read_graph6 / read_sparse6 | **1.72× / 1.69× faster** | Native decoders |
-| all_simple_edge_paths | **1.3466× faster** | Native path enumeration |
+| read_graph6 / read_sparse6 | **1.72× / 1.69× faster** | Native decoders; CONFIRMED 2026-07-31 vs live nx 3.6.1 (measured 1.7202× / 1.7069×, both CIs contain the published figures) |
+| all_simple_edge_paths | **1.3384× faster** | Native path enumeration; re-measured 2026-07-31 vs live nx 3.6.1 (was 1.3466×) |
 | dijkstra_path (weighted) | **7.6077× faster** | Native bidirectional kernel + persistent dense node ids |
 | single_source_shortest_path_length | **5.1868× faster** | Native BFS, dict returned from Rust; re-measured 2026-07-31 vs live nx 3.6.1 (was 5.5005×, overstated) |
 | all_pairs_shortest_path_length (n=300) | **4.5647× faster** | Algorithmic work dominates |
@@ -1124,8 +1124,8 @@ median-CI gate; reproduce with
 | `preferential_attachment` | **0.5949×** | nx's per-pair work is two degree lookups and a multiply — below our per-call boundary cost |
 | `Graph` incremental `add_edge` | **0.26×** | Per-call Python shim; batch constructors are ~3× better per edge |
 | `karate_club_graph`, `tutte_graph` | **0.38× / 0.76×** | Fixed small literals; nx builds a hard-coded edge list, we pay graph construction |
-| `read_multiline_adjlist` | **0.70×** | Parser is not native |
-| `read_gml` | **0.92×** | GML parse path |
+| `read_multiline_adjlist` | **0.7981×** | Parser is not native; still a loss, re-measured 2026-07-31 vs live nx 3.6.1 (was 0.70×) |
+| `read_gml` | **0.92×** | GML parse path; CONFIRMED 2026-07-31 vs live nx 3.6.1 (measured 0.9234×, CI [0.9169, 0.9253] contains the published figure) |
 
 Default simple-graph `write_edgelist(data=False)` writes directly from FNX edge
 iteration while preserving exact NetworkX bytes. Non-default and multigraph

@@ -13,8 +13,8 @@ coverage. Our position is substantially worse than frankenfs's (they were missin
 missing 98%).
 
 Reproduce with `python3 scripts/perf_ledger_preflight.py --audit`. Those counts are the pre-commit
-state of this session; the four ledger rows landed below add 16 converted claims and move the
-attested count to 16.
+state of this session; the five ledger rows landed below add 21 converted claims and move the
+attested count to 17.
 
 Also: **39 of 591** carry the in-process loaded-ELF SHA-256; **552** do not.
 
@@ -47,9 +47,9 @@ ledger convention"). Under that convention a bare row like `MDG out_edges 0.34x-
 competitive claims that merely omit the word "networkx", so they belong in the convertible bucket.
 Only the 2 rows that *declare* `comparison_class=SELF-SPEEDUP` are genuinely non-competitive.
 
-## Converted this session — 17 claims attempted, 16 decidable
+## Converted this session — 22 claims attempted, 21 decidable
 
-**14 of the 16 decidable claims excluded their published figure**, in both directions. Two were
+**16 of the 21 decidable claims excluded their published figure**, in both directions. Five were
 confirmed. One claim was refused outright by the null gate. The table is *stale*, not
 systematically inflated in our favour.
 
@@ -71,10 +71,16 @@ systematically inflated in our favour.
 | `bidirectional_dijkstra` | 1.8125× | **1.7916×** | `[1.7790, 1.7963]` | overstated 1.2% |
 | `edges(data=True)` | 1.6085× | **1.5555×** | `[1.5485, 1.5701]` | overstated 3.4% |
 | `G.has_node(n)` x512 | 0.41× | **0.4596×** | `[0.4577, 0.4611]` | loss, less severe |
+| `read_graph6` | 1.72× | 1.7202× | `[1.7101, 1.7377]` | **CONFIRMED** |
+| `read_sparse6` | 1.69× | 1.7069× | `[1.6837, 1.7192]` | **CONFIRMED** |
+| `read_gml` | 0.92× | 0.9234× | `[0.9169, 0.9253]` | **CONFIRMED** (loss) |
+| `all_simple_edge_paths` | 1.3466× | **1.3384×** | `[1.3342, 1.3422]` | overstated 0.6% |
+| `read_multiline_adjlist` | 0.70× | **0.7981×** | `[0.7889, 0.8103]` | loss, less severe |
 
 All decidable rows: `21/21` wins, byte-identical canonical output against live NetworkX 3.6.1
 proven in the same invocation before timing. Ledger rows: `br-r37-c1-p80x1.1`, `.5`, `.7`, `.9`,
-`.13`, `.17`, `.19`, `.21`, `.23`, `.25`, `.27`, `.29`, `.31`, `.33`, `.39`, `.47`.
+`.13`, `.17`, `.19`, `.21`, `.23`, `.25`, `.27`, `.29`, `.31`, `.33`, `.37`, `.39`,
+`.41`, `.43`, `.45`, `.47`.
 
 `minimum_branching` is the gate working: it produced a plausible `3.9978×` with 21/21 wins, but the
 A/A NetworkX null drifted to median `1.0295`, breaching the third clause. A two-clause gate would
@@ -103,7 +109,7 @@ Attestation: live NetworkX 3.6.1 in the same invocation; byte-identical canonica
 The binary was rebuilt at HEAD first — the `site-packages` install was 44 Rust commits stale, so
 any ratio taken against it would have been invalid.
 
-## Root cause of the 9 remaining unconverted README rows — corrected
+## Root cause of the 5 remaining unconverted README rows — corrected
 
 Every prior `p80x1.*` row recorded NO-VERDICT and attributed the blockage to RCH minting a
 per-invocation Cargo target directory. **That diagnosis was wrong.** `CARGO_TARGET_DIR=/data/tmp/cargo-target`
@@ -130,7 +136,7 @@ exclusive host — but conversions should no longer be blocked on it.
 ## Ranked conversion queue — ordered by public exposure
 
 The README performance table has 45 per-family rows, all of which have a paired incumbent arm in
-the `claim-incumbent` contract suite. **9 still lack a current admissible ratio.**
+the `claim-incumbent` contract suite. **5 still lack a current admissible ratio** — all four remaining measurable rows are the expensive n=300 all-pairs families.
 
 | # | Claim | Published | README |
 |--:|---|---:|---:|
@@ -139,17 +145,13 @@ the `claim-incumbent` contract suite. **9 still lack a current admissible ratio.
 | 3 | `minimum_branching` | withdrawn; null gate refused | 1084 |
 | 4 | `all_pairs_dijkstra_path_length` (n=300) | 3.6658× | 1093 |
 | 5 | `all_pairs_shortest_path` (n=300) | 1.7624× | 1104 |
-| 6 | `read_graph6` / `read_sparse6` | 1.72× / 1.69× | 1087 |
-| 7 | `all_simple_edge_paths` | 1.3466× | 1088 |
-| 8 | `read_gml` | 0.92× | 1128 |
-| 9 | `read_multiline_adjlist` | 0.70× | 1127 |
 
 Rows 8–9 are published **losses**. They need an arm for the same reason the wins do — an
 unverified loss is also an unverified number — but they are last because nobody acts on them to
 their detriment.
 
 Given that 7 of the 9 decidable conversions missed their published figure — in both directions —
-the remaining 9 should be treated as unverified in both directions until measured, not as safe.
+the remaining 5 should be treated as unverified in both directions until measured, not as safe.
 
 ### Tier 2 — the ledger's remaining unattested rows
 

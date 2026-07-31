@@ -28595,6 +28595,59 @@ alters multiplicity/self-loop degree semantics. Preserve raw/public/oracle
 coverage for both directed and undirected multigraphs and keep the audit at
 zero wrapper-misalign rows.
 
+## 2026-07-31 BlackThrush (cc) KEEP: reader and path-enumeration claims converted; three published figures CONFIRMED (`br-r37-c1-p80x1.37`, `.41`, `.43`, `.45`)
+
+Fourth conversion batch on the same HEAD binary. All five rows decidable.
+**Three published figures are CONFIRMED** — `read_graph6`, `read_sparse6` and
+the `read_gml` loss all have measured CIs containing their published number.
+
+comparison_class=INCUMBENT
+incumbent=networkx
+incumbent_same_invocation=true
+incumbent_ratio=1.3384x
+campaign_output=true
+decision_gate=median_ci
+cv_role=report_only
+bench_elf_sha256=e5bb3755812c732b63bb8ab3e4650d526bb69bb67834d264f8b00adfad4a3213
+host_identity=thinkstation1
+host_wide_exclusivity=RECORDED-NOT-ENFORCED
+
+(`incumbent_ratio` above is the most conservative winning ratio; the two reader
+losses are tabled below and are not promoted.)
+
+| Claim | Published | Measured | CI | A/A null nx / fnx | Verdict |
+|---|---:|---:|---|---|---|
+| `read_graph6` | 1.72x | 1.7202x | `[1.7101, 1.7377]` | 0.9957 / 0.9997 | **CONFIRMED** |
+| `read_sparse6` | 1.69x | 1.7069x | `[1.6837, 1.7192]` | 0.9948 / 1.0004 | **CONFIRMED** |
+| `all_simple_edge_paths` | 1.3466x | **1.3384x** | `[1.3342, 1.3422]` | 0.9998 / 0.9982 | overstated 0.6% |
+| `read_gml` | 0.92x | 0.9234x | `[0.9169, 0.9253]` | 1.0002 / 1.0001 | **CONFIRMED** (loss) |
+| `read_multiline_adjlist` | 0.70x | **0.7981x** | `[0.7889, 0.8103]` | 0.9938 / 1.0026 | loss, less severe |
+
+A/A null control, same invocation, both arms, 21 interleaved rounds: the worst
+null median in this batch is `1.0026x` with CI `[0.9895, 1.0180]`, and every
+null median sits within `0.62%` of `1.0x` — well inside the `0.0200`
+third-clause bound.
+
+BOTH READER LOSSES REMAIN LOSSES. `read_gml` at `0.9234x` and
+`read_multiline_adjlist` at `0.7981x` are still slower than NetworkX 3.6.1;
+neither is promoted. `read_gml` is the first published **loss** this campaign
+has confirmed exactly as written.
+
+Fixtures: `read_graph6` / `read_sparse6` / `all_simple_edge_paths` from
+`n=200 m=800 seed=13`; `read_gml` and `read_multiline_adjlist` from
+`n=1200 m=6000 seed=11`. All rows proved byte-identical canonical output
+against NetworkX 3.6.1 in the same invocation before timing. Binary, host,
+thread and exclusivity provenance are identical to the `erdos_renyi_graph` row
+below.
+
+RUNNING TALLY, 22 claims attempted: 21 decidable, 1 refused by the null gate. Of
+the 21 decidable, **16 excluded their published figure** and 5 confirmed it.
+
+RETRY PREDICATE: none needed. Re-measure on an exclusive host only to tighten
+the shared-host floor.
+
+QUALITY / CLOSEOUT: no Rust source changed; no Cargo command ran for this row.
+
 ## 2026-07-31 BlackThrush (cc) KEEP: six more blocked README claims converted, including the published `G.has_node` loss (`br-r37-c1-p80x1.17`, `.19`, `.31`, `.33`, `.39`, `.47`)
 
 Third conversion batch on the same HEAD binary. **All seven rows decidable, and
