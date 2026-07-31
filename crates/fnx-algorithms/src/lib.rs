@@ -32198,6 +32198,9 @@ type OrderedPaths = Vec<(String, Vec<String>)>;
 type DijkstraFull = (OrderedDistances, OrderedPaths);
 /// Ordered `(node, distance, all-int-distance, predecessor)` entries.
 type OrderedTypedPredDistances = Vec<(String, f64, bool, Option<String>)>;
+/// Index-space form of [`OrderedTypedPredDistances`]. A predecessor of
+/// `u32::MAX` denotes the source row's root.
+pub type IndexedTypedPredDistances = Vec<(u32, f64, bool, u32)>;
 /// Ordered `(node, distance, all-int-distance)` entries.
 type OrderedTypedDistances = Vec<(String, f64, bool)>;
 /// Ordered `(node, predecessor-list)` entries for NetworkX predecessor dicts.
@@ -33020,7 +33023,37 @@ fn single_source_dijkstra_typed_csr(
     weight_is_int: &[bool],
     cutoff: Option<f64>,
 ) -> OrderedTypedPredDistances {
-    let n = names.len();
+    single_source_dijkstra_typed_csr_indexed(
+        source_idx,
+        names.len(),
+        offsets,
+        targets,
+        weights,
+        weight_is_int,
+        cutoff,
+    )
+    .into_iter()
+    .map(|(idx, distance, all_int, predecessor)| {
+        (
+            names[idx as usize].to_owned(),
+            distance,
+            all_int,
+            (predecessor != u32::MAX).then(|| names[predecessor as usize].to_owned()),
+        )
+    })
+    .collect()
+}
+
+fn single_source_dijkstra_typed_csr_indexed(
+    source_idx: usize,
+    node_count: usize,
+    offsets: &[usize],
+    targets: &[u32],
+    weights: &[f64],
+    weight_is_int: &[bool],
+    cutoff: Option<f64>,
+) -> IndexedTypedPredDistances {
+    let n = node_count;
     let mut distances: Vec<f64> = vec![f64::INFINITY; n];
     let mut predecessors: Vec<u32> = vec![u32::MAX; n];
     let mut all_int_paths = vec![false; n];
@@ -33078,12 +33111,11 @@ fn single_source_dijkstra_typed_csr(
         .into_iter()
         .map(|idx| {
             let idx_usize = idx as usize;
-            let pred = predecessors[idx_usize];
             (
-                names[idx_usize].to_owned(),
+                idx,
                 distances[idx_usize],
                 all_int_paths[idx_usize],
-                (pred != u32::MAX).then(|| names[pred as usize].to_owned()),
+                predecessors[idx_usize],
             )
         })
         .collect()
@@ -33905,6 +33937,31 @@ pub fn all_pairs_dijkstra_path_length_directed(
         .collect()
 }
 
+const ALL_PAIRS_DIJKSTRA_PARALLEL_THRESHOLD: usize = 128;
+
+fn name_indexed_dijkstra_rows(
+    names: &[&str],
+    rows: Vec<IndexedTypedPredDistances>,
+) -> Vec<(String, OrderedTypedPredDistances)> {
+    rows.into_iter()
+        .enumerate()
+        .map(|(source_idx, row)| {
+            let named = row
+                .into_iter()
+                .map(|(target, distance, all_int, predecessor)| {
+                    (
+                        names[target as usize].to_owned(),
+                        distance,
+                        all_int,
+                        (predecessor != u32::MAX).then(|| names[predecessor as usize].to_owned()),
+                    )
+                })
+                .collect();
+            (names[source_idx].to_owned(), named)
+        })
+        .collect()
+}
+
 /// All-pairs Dijkstra returning distance rows plus predecessor metadata.
 #[must_use]
 pub fn all_pairs_dijkstra_path_length_with_pred(
@@ -33912,7 +33969,21 @@ pub fn all_pairs_dijkstra_path_length_with_pred(
     weight_attr: &str,
 ) -> Vec<(String, OrderedTypedPredDistances)> {
     let names = graph.nodes_ordered();
-    let n = names.len();
+    name_indexed_dijkstra_rows(
+        &names,
+        all_pairs_dijkstra_path_length_indexed_with_pred(graph, weight_attr),
+    )
+}
+
+/// Index-space all-pairs Dijkstra rows. Sources are implicit by row index;
+/// targets and predecessors stay as graph indices so bindings can avoid two
+/// temporary `String` allocations for every reachable pair.
+#[must_use]
+pub fn all_pairs_dijkstra_path_length_indexed_with_pred(
+    graph: &Graph,
+    weight_attr: &str,
+) -> Vec<IndexedTypedPredDistances> {
+    let n = graph.node_count();
     let mut offsets = Vec::with_capacity(n + 1);
     let mut targets: Vec<u32> = Vec::new();
     let mut weights: Vec<f64> = Vec::new();
@@ -33931,22 +34002,24 @@ pub fn all_pairs_dijkstra_path_length_with_pred(
         offsets.push(targets.len());
     }
 
-    (0..n)
-        .map(|source_idx| {
-            (
-                names[source_idx].to_owned(),
-                single_source_dijkstra_typed_csr(
-                    source_idx,
-                    &names,
-                    &offsets,
-                    &targets,
-                    &weights,
-                    &weight_is_int,
-                    None,
-                ),
-            )
-        })
-        .collect()
+    let solve_source = |source_idx: usize| {
+        single_source_dijkstra_typed_csr_indexed(
+            source_idx,
+            n,
+            &offsets,
+            &targets,
+            &weights,
+            &weight_is_int,
+            None,
+        )
+    };
+
+    if n >= ALL_PAIRS_DIJKSTRA_PARALLEL_THRESHOLD {
+        use rayon::prelude::*;
+        (0..n).into_par_iter().map(solve_source).collect()
+    } else {
+        (0..n).map(solve_source).collect()
+    }
 }
 
 /// Directed all-pairs Dijkstra returning distance rows plus predecessor metadata.
@@ -33955,11 +34028,24 @@ pub fn all_pairs_dijkstra_path_length_with_pred_directed(
     digraph: &DiGraph,
     weight_attr: &str,
 ) -> Vec<(String, OrderedTypedPredDistances)> {
-    let csr = digraph.csr();
     let names = digraph.nodes_ordered();
+    name_indexed_dijkstra_rows(
+        &names,
+        all_pairs_dijkstra_path_length_indexed_with_pred_directed(digraph, weight_attr),
+    )
+}
+
+/// Directed twin of [`all_pairs_dijkstra_path_length_indexed_with_pred`].
+#[must_use]
+pub fn all_pairs_dijkstra_path_length_indexed_with_pred_directed(
+    digraph: &DiGraph,
+    weight_attr: &str,
+) -> Vec<IndexedTypedPredDistances> {
+    let csr = digraph.csr();
+    let node_count = digraph.node_count();
     let mut weights: Vec<f64> = Vec::with_capacity(csr.succ_targets.len());
     let mut weight_is_int: Vec<bool> = Vec::with_capacity(csr.succ_targets.len());
-    for u in 0..names.len() {
+    for u in 0..node_count {
         for &v in csr.successors(u) {
             let (weight, is_int) =
                 digraph_edge_weight_or_default_idx_typed(digraph, u, v as usize, weight_attr);
@@ -33968,22 +34054,24 @@ pub fn all_pairs_dijkstra_path_length_with_pred_directed(
         }
     }
 
-    (0..names.len())
-        .map(|source_idx| {
-            (
-                names[source_idx].to_owned(),
-                single_source_dijkstra_typed_csr(
-                    source_idx,
-                    &names,
-                    &csr.succ_offsets,
-                    &csr.succ_targets,
-                    &weights,
-                    &weight_is_int,
-                    None,
-                ),
-            )
-        })
-        .collect()
+    let solve_source = |source_idx: usize| {
+        single_source_dijkstra_typed_csr_indexed(
+            source_idx,
+            node_count,
+            &csr.succ_offsets,
+            &csr.succ_targets,
+            &weights,
+            &weight_is_int,
+            None,
+        )
+    };
+
+    if node_count >= ALL_PAIRS_DIJKSTRA_PARALLEL_THRESHOLD {
+        use rayon::prelude::*;
+        (0..node_count).into_par_iter().map(solve_source).collect()
+    } else {
+        (0..node_count).map(solve_source).collect()
+    }
 }
 
 /// All-pairs Dijkstra returning paths only.
@@ -75457,6 +75545,55 @@ mod tests {
         assert_eq!(dists["a"]["c"], 3.0);
         assert_eq!(dists["a"]["a"], 0.0);
         assert!(!dists["c"].contains_key("a"));
+    }
+
+    #[test]
+    fn all_pairs_dijkstra_parallel_rows_match_sequential_sources_exactly() {
+        let node_count = super::ALL_PAIRS_DIJKSTRA_PARALLEL_THRESHOLD;
+        let mut graph = Graph::strict();
+        let mut digraph = DiGraph::strict();
+        for node in 0..node_count {
+            let next = (node + 1) % node_count;
+            let chord = (node + 17) % node_count;
+            let _ = graph.add_edge(node.to_string(), next.to_string());
+            let _ = graph.add_edge(node.to_string(), chord.to_string());
+            let _ = digraph.add_edge(node.to_string(), next.to_string());
+            let _ = digraph.add_edge(node.to_string(), chord.to_string());
+        }
+
+        let graph_expected = graph
+            .nodes_ordered()
+            .into_iter()
+            .map(|source| {
+                (
+                    source.to_owned(),
+                    super::single_source_dijkstra_path_length_typed_with_pred(
+                        &graph, source, "weight", None,
+                    ),
+                )
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(
+            super::all_pairs_dijkstra_path_length_with_pred(&graph, "weight"),
+            graph_expected
+        );
+
+        let digraph_expected = digraph
+            .nodes_ordered()
+            .into_iter()
+            .map(|source| {
+                (
+                    source.to_owned(),
+                    super::single_source_dijkstra_path_length_typed_with_pred_directed(
+                        &digraph, source, "weight", None,
+                    ),
+                )
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(
+            super::all_pairs_dijkstra_path_length_with_pred_directed(&digraph, "weight"),
+            digraph_expected
+        );
     }
 
     // -----------------------------------------------------------------------

@@ -22235,13 +22235,9 @@ def all_pairs_dijkstra_path_length(G, cutoff=None, weight="weight"):
         raw = _raw_all_pairs_dijkstra_path_length(G, weight=weight)
         for node in G.nodes():
             if node in raw:
-                # raw[node] is already in nx's Dijkstra finalize order;
-                # br-r37-c1-k9q6q: stable sort by distance preserves the
-                # kernel's push-seq tie-break (BFS-hop order diverged).
-                inner = dict(raw[node])
-                order = _reorder_by_distance(inner)
-                inner = {k: inner[k] for k in order}
-                yield (node, _sp_coerce_dist_to_int(inner))
+                # The native row already has exact Dijkstra finalize order and
+                # int/float path provenance, so yield it without an O(V) copy.
+                yield (node, raw[node])
         return
     # br-apdfloat (cc): all-float weights — no distance can be int (except the
     # source seed, which nx keeps as int 0), so the length-only kernel is exact
@@ -22252,11 +22248,9 @@ def all_pairs_dijkstra_path_length(G, cutoff=None, weight="weight"):
         raw = _raw_all_pairs_dijkstra_path_length(G, weight=weight)
         for node in G.nodes():
             if node in raw:
-                inner = dict(raw[node])
-                if node in inner:
-                    inner[node] = 0  # nx seeds dist[source] as int 0
-                order = _reorder_by_distance(inner)
-                yield (node, {k: inner[k] for k in order})
+                # The native all-int provenance is true only for the source in
+                # an all-float graph, so its seed is already the required int 0.
+                yield (node, raw[node])
         return
     # mixed/float weights: nx preserves an int distance only where EVERY
     # weight along the chosen path is int (int+int=int, any float taints), so

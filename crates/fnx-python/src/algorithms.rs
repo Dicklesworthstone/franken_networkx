@@ -22372,36 +22372,61 @@ fn all_pairs_dijkstra_path_length(
 ) -> PyResult<PyObject> {
     sync_rust_attrs_if_available(g)?;
     let gr = extract_graph(g)?;
-    let result = if gr.is_directed() {
+    let (nodes, result) = if gr.is_directed() {
         let dg = gr
             .weighted_digraph_projection(weight)
             .expect("is_directed checked above");
-        py.allow_threads(|| {
-            fnx_algorithms::all_pairs_dijkstra_path_length_with_pred_directed(dg.as_ref(), weight)
-        })
+        let nodes: Vec<String> = dg
+            .as_ref()
+            .nodes_ordered()
+            .into_iter()
+            .map(str::to_owned)
+            .collect();
+        let result = py.allow_threads(|| {
+            fnx_algorithms::all_pairs_dijkstra_path_length_indexed_with_pred_directed(
+                dg.as_ref(),
+                weight,
+            )
+        });
+        (nodes, result)
     } else {
         let weighted_projection = gr.weighted_undirected_projection(weight);
-        {
-            let __wp = weighted_projection.as_ref();
-            py.allow_threads(|| {
-                fnx_algorithms::all_pairs_dijkstra_path_length_with_pred(__wp, weight)
-            })
-        }
+        let nodes: Vec<String> = weighted_projection
+            .as_ref()
+            .nodes_ordered()
+            .into_iter()
+            .map(str::to_owned)
+            .collect();
+        let result = py.allow_threads(|| {
+            fnx_algorithms::all_pairs_dijkstra_path_length_indexed_with_pred(
+                weighted_projection.as_ref(),
+                weight,
+            )
+        });
+        (nodes, result)
     };
     let outer_dict = PyDict::new(py);
-    for (source, dists) in &result {
-        let mut disp: std::collections::HashMap<String, PyObject> =
-            std::collections::HashMap::with_capacity(dists.len());
-        for (node, _distance, _all_int, predecessor) in dists {
-            if let Some(pred) = predecessor {
-                disp.insert(node.clone(), gr.py_row_key(py, pred, node));
+    for (source_idx, dists) in result.iter().enumerate() {
+        let inner_dict = PyDict::new(py);
+        for &(target, distance, all_int, predecessor) in dists {
+            let target = target as usize;
+            let display_key = if predecessor == u32::MAX {
+                gr.py_node_key(py, &nodes[target])
+            } else {
+                gr.py_row_key(py, &nodes[predecessor as usize], &nodes[target])
+            };
+            if all_int
+                && distance.is_finite()
+                && distance.fract() == 0.0
+                && distance >= i128::MIN as f64
+                && distance <= i128::MAX as f64
+            {
+                inner_dict.set_item(display_key, PyInt::new(py, distance as i128))?;
+            } else {
+                inner_dict.set_item(display_key, distance)?;
             }
         }
-        let inner_dict = PyDict::new(py);
-        for (target, d, _all_int, _predecessor) in dists {
-            inner_dict.set_item(gr.disp_or_node_key(py, &disp, target), d)?;
-        }
-        outer_dict.set_item(gr.py_node_key(py, source), inner_dict)?;
+        outer_dict.set_item(gr.py_node_key(py, &nodes[source_idx]), inner_dict)?;
     }
     Ok(outer_dict.into_any().unbind())
 }
