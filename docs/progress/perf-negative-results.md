@@ -2191,3 +2191,29 @@ RESULT: **DIVERGENCE FIX SHIPPED / PERFORMANCE NO-VERDICT.** The old
 Retry only in a dedicated host window with the same hashes, live NetworkX
 3.6.1, complete parity, all required provenance, 21 rounds, continuous
 accounting, dual A/A nulls, and the corrected three-clause median gate.
+
+## 2026-07-31 BlackThrush (cod) PARITY + NO-VERDICT (`br-r37-c1-p80x1.5`): complete `k_crust` claim arm
+
+The recovered `5.8664x` scratch row compared only
+`sorted(k_crust(G).edges())` on the exact simple string-node
+`n=1200,m=6000,seed=11` input. The permanent arm now checks and times the
+complete public graph. Under `PYTHONHASHSEED=0`, both implementations receive
+194,277 canonical input bytes (SHA `199d5643...e653`) and live NetworkX 3.6.1
+and FrankenNetworkX agree exactly on 274 nodes, 251 edges, and 12,843 output
+bytes (SHA `880731d3...7923`). No divergence was found.
+
+The strict benchmark could not proceed without violating the one-target
+rule. RCH 1.0.52 commit `65294dcda0e0` salts every clean-overlay remote
+project root with a fresh UUID, then places its pooled Cargo target beneath
+that unique root. An attempt from base `c6e64f8d5` advertised root
+`0401bb03264ca277` and began a cold build; it was interrupted. A diagnostic
+retry advertised root `d84e327b0bdc4d85` and was interrupted during sync.
+No per-run target override was requested.
+
+RESULT: **FULL PARITY / PERFORMANCE NO-VERDICT.** No in-process host identity,
+ELF SHA, actual observed threads, nulls, corrected median clause, candidate
+CI, or incumbent ratio was emitted. Retry only when RCH can prove the same
+managed physical target path across two required clean-overlay invocations;
+then preserve the exact hashes, live incumbent, all provenance, 21 rounds,
+continuous accounting, dual A/A nulls, and the corrected three-clause median
+gate.

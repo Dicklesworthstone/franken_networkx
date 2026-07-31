@@ -56,18 +56,21 @@ The README performance table has 45 per-family rows: 44 numeric claims and one
 explicit no-ratio row after the contaminated `k_corona` number was withdrawn.
 It also has 5 whole-job pipeline rows. Cross-referencing each family row against
 a paired `(label, nx_arm, fnx_arm)` job in the contract harness across **all 33
-suites** (the harness exposes **32 distinct NetworkX functions** with a paired arm):
+suites** (the harness exposes **33 distinct NetworkX functions** with a paired arm):
 
-- **23 of 45** README family rows have a paired incumbent arm in the contract harness.
-- **22 of 45** do not.
-- **24 of 45** still lack a current admissible ratio: the
-  `erdos_renyi_graph` and `k_corona` arms both reached no timed verdict because
-  host exclusivity rejected their runnable placements.
+- **24 of 45** README family rows have a paired incumbent arm in the contract harness.
+- **21 of 45** do not.
+- **24 of 45** still lack a current admissible ratio. The
+  `erdos_renyi_graph` and `k_corona` arms reached no timed verdict because host
+  exclusivity rejected their runnable placements. The `k_crust` arm reached no
+  timed verdict because RCH 1.0.52 gives every required clean-overlay execution
+  a UUID-salted remote root, so its otherwise pooled Cargo target cannot be
+  reused without minting another cold target directory.
 
 ### Tier 1 — published in the README, no current admissible contract ratio
 
-Rows 1-2 now have permanent arms but remain in this queue until they reach a
-host-exclusive verdict. Rows 3-24 still have no permanent arm.
+Rows 1-3 now have permanent arms but remain in this queue until they reach an
+admissible verdict. Rows 4-24 still have no permanent arm.
 
 | # | Claim | Published | README |
 |--:|---|---:|---:|
@@ -124,15 +127,15 @@ NetworkX 3.6.1; being a drop-in replacement is the whole premise. Adding an arm 
 (`edges(data=True)`, `G.has_node`, `subgraph(view) → edges`) need a bound-method arm, which the
 harness already supports (`getattr(nx_graph, name)`, `perf_harness.py:2580`).
 
-So the honest characterisation is **"measured but not attested; 23 public
-cases are not reproducible by the contract harness, and one more now has a
-permanent arm but no host-exclusive verdict"** — not "unmeasurable". That is
-a better position than the raw 2.0% suggests, and a worse one than the README
+So the honest characterisation is **"measured but not attested; 21 public
+cases are not reproducible by the contract harness, and three more now have
+permanent arms but no admissible verdict"** — not "unmeasurable". That is a
+better position than the raw 2.0% suggests, and a worse one than the README
 implies.
 
 ## What this audit does not claim
 
-It does not claim the 579 unattested rows are wrong. It claims we cannot currently demonstrate
-they are right to the standard we have adopted, and that 23 numbers a user
-reads in the README have no arm in the harness it points them at; the
-twenty-fourth now has an arm but no admissible timed verdict.
+It does not claim the 579 unattested rows are wrong. It claims we cannot
+currently demonstrate they are right to the standard we have adopted, and
+that 21 numbers a user reads in the README have no arm in the harness it
+points them at; three more now have arms but no admissible timed verdict.

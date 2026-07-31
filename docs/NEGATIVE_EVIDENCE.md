@@ -28544,6 +28544,84 @@ QUALITY / CLOSEOUT: `git diff --check` covers this ledger-only result. No
 Cargo command ran. UBS has no Markdown/JSONL scanner, so no scanner pass is
 claimed.
 
+## 2026-07-31 BlackThrush (cod) PARITY + NO-VERDICT: complete `k_crust` claim arm exposes clean-overlay target-reuse blocker (`br-r37-c1-p80x1.5`)
+
+**CLAIM-GAP FIRST, COMPLETE OUTPUT FIRST.** README publishes `k_crust` at
+`5.8664x`, but the recovered scratch row compared only
+`sorted(k_crust(G).edges())` on the deterministic simple string-node graph
+`n=1200, m=6000, seed=11`. Under `PYTHONHASHSEED=0`, the exact paired input is
+194,277 canonical bytes, SHA-256
+`199d564350ec6f70885e8f8236fad28d6620b44e3e7917a470f6fba73024e653`.
+The edge projection agrees, and the previously unchecked complete public
+graph also agrees byte-for-byte with live NetworkX 3.6.1: 274 nodes, 251
+edges, 12,843 canonical bytes, SHA-256
+`880731d3c6d28201e49e92b745cd767810574aa250b627f8751de9b135817923`.
+No behavioral divergence was found.
+
+The permanent `claim-incumbent` arm preregisters the full input and output
+byte counts, hashes, node/edge counts, seed, default `k=None`, and hash seed.
+It rejects any incomplete or reordered result and times the whole public
+`k_crust` call. Harness SHA-256 is
+`3a32f87f22bd92387fe88364deb407d578d5ddee2f91e893a727c0ee41bfe1cb`.
+A local correctness-only preflight proved the exact parity above; it emitted
+no admissible timing or remote provenance.
+
+No strict remote benchmark was allowed to create another cold target. The
+installed RCH is 1.0.52, commit `65294dcda0e0`. Its clean-overlay execution
+path computes each remote root from the immutable base, overlay fingerprint,
+and a fresh UUID, while the pooled Cargo target remains a child of that root.
+The first strict attempt used base `c6e64f8d5` with only
+`scripts/perf_harness.py` overlaid and selected `vmi1153651`; it advertised
+remote root
+`/data/tmp/rch/franken_networkx/0401bb03264ca277` and began a cold dependency
+build before being interrupted. A diagnostic retry using base `63b29ed6c`
+advertised a different root,
+`/data/tmp/rch/franken_networkx/d84e327b0bdc4d85`, and was interrupted during
+sync. Neither invocation requested `CARGO_TARGET_DIR`. Repeating even an
+identical `--base` plus `--clean-overlay` invocation cannot reuse one physical
+target under this implementation because the parent root is deliberately
+unique.
+
+Because execution stopped before the harness provenance header,
+`vmi1153651` is only a scheduler placement, not an in-process host identity.
+The executing ELF SHA-256, actual observed threads, both A/A nulls, candidate
+samples, bootstrap-median CI, median-bias clause, and incumbent ratio were
+not reached.
+
+comparison_class=NO-VERDICT
+incumbent=networkx-3.6.1
+incumbent_same_invocation=false
+campaign_output=false
+decision_gate=not_reached
+null_median_clause=not_reached
+host_identity=not_reached
+bench_elf_sha256=not_reached
+actual_observed_threads=not_reached
+cv_role=not_computed
+
+RESULT: **FULL PARITY / PERFORMANCE NO-VERDICT.** The recovered exact
+complete result agrees with NetworkX 3.6.1, but the permanent arm supplies no
+new support for the published `5.8664x`; do not replace or strengthen that
+number from the local diagnostic.
+
+RETRY PREDICATE: retry only after RCH exposes a managed target directory whose
+physical path is stable across two otherwise identical `--base` plus
+`--clean-overlay` invocations, or moves its pooled target outside the
+UUID-salted clean source root. The retry must reuse that one target without a
+cold copy and preserve the exact input/output hashes, live NetworkX 3.6.1,
+all worker slots, in-process host identity and ELF SHA-256, actual observed
+threads, 21 rounds, both A/A nulls, continuous 300 ms accounting, and the
+corrected three-clause median gate. Any target-path change, admission,
+provenance, parity, or accounting abort remains NO-VERDICT.
+
+QUALITY / CLOSEOUT: the exact `k_crust` arm-construction preflight passed,
+`python3 -m py_compile scripts/perf_harness.py` passed,
+`tests/python/test_perf_ledger_gate.py` passed 21/21, and `git diff --check`
+passed. UBS on all staged files exited 0 with zero critical findings and one
+pre-existing whole-harness warning. No Cargo command ran: no Rust source
+changed, and the required clean-overlay implementation would have created a
+fresh target directory.
+
 ## 2026-07-31 BlackThrush (cod) NO-VERDICT: published `erdos_renyi_graph` claim gets a permanent incumbent arm (`br-r37-c1-p80x1.1`)
 
 **CLAIM-GAP FIRST.** `README.md` publishes
