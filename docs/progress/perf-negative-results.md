@@ -2300,3 +2300,29 @@ Retry only after two required clean-overlay invocations prove one identical
 managed physical target path, then retain the recovered-artifact and exact
 input/output hashes, live incumbent, all provenance, 21 rounds, continuous
 accounting, dual A/A nulls, and the corrected three-clause median gate.
+
+## 2026-07-31 BlackThrush (cod) PARITY + DEGENERATE-FIXTURE NO-VERDICT (`br-r37-c1-p80x1.13`): exact `minimum_branching` claim arm
+
+The original `3.9768x` workload was recovered exactly from
+`hunt_unmeasured.py` (SHA `1114f244...11e3`) and its saved result artifact
+(SHA `40040b7b...249`). It called `minimum_branching` over the helper's
+weighted directed string-node `n=800,m=4000,seed=11` graph, then retained
+only a sorted edge list.
+
+Every generated weight is positive, so both implementations correctly return
+all 800 nodes and zero edges; the original projection reduced that complete
+graph to `[]` (SHA `4f53cda1...945`). Under `PYTHONHASHSEED=0`, both
+implementations receive 189,843 input bytes (SHA `5d7c003c...a89b`), and
+live NetworkX 3.6.1 and FrankenNetworkX agree exactly on the complete
+800-node, zero-edge, 16,707-byte graph (SHA `e6fd694b...2469`). No
+behavioral divergence was found.
+
+RESULT: **FULL GRAPH PARITY / DEGENERATE FIXTURE / PERFORMANCE NO-VERDICT.**
+No strict benchmark was started because RCH 1.0.52 still places its pooled
+target below a UUID-salted clean-overlay root; running would create another
+cold target. Therefore no in-process host identity, ELF SHA, actual observed
+threads, nulls, corrected median clause, candidate CI, or incumbent ratio was
+emitted. Retry this exact empty-edge row only after two required clean-overlay
+invocations prove one identical managed target path. Any claim about a
+non-empty minimum branching requires a separate preregistered fixture with at
+least one selected edge and cannot reuse the old `3.9768x`.

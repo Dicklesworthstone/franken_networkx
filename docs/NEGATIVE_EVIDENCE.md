@@ -28848,6 +28848,90 @@ passed. UBS on all staged files exited 0 with zero critical findings and the
 same one pre-existing whole-harness warning. No Cargo command ran: no Rust
 source changed, and the required RCH mode would have created a fresh target.
 
+## 2026-07-31 BlackThrush (cod) PARITY + DEGENERATE-FIXTURE NO-VERDICT: exact `minimum_branching` claim arm (`br-r37-c1-p80x1.13`)
+
+**EXACT ARTIFACT RECOVERY BEFORE CONVERSION.** README's published `3.9768x`
+row came from `hunt_unmeasured.py`, SHA-256
+`1114f244b93787b9e1d6a900633ccd93f3a09c91de8d669bde9ba75df5a611e3`.
+Its saved `unmeasured_results.json` has SHA-256
+`40040b7b90de11721263864fff0e3e79f260ca2779e16c8252784dc9236ef249`.
+The exact operation was `sorted(minimum_branching(G).edges())` on the
+recovered helper's weighted directed string-node graph with
+`n=800, m=4000, seed=11`, ordered-arc deduplication, and integer weights in
+`[1,20]`.
+
+That fixture is behaviorally valid but structurally degenerate. Every edge
+weight is positive, while a minimum branching may omit edges, so both
+implementations correctly return all 800 nodes and zero edges. The recovered
+projection then discarded every node and reduced the complete result to the
+two bytes `[]`, SHA-256
+`4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945`.
+The published `3.9768x` therefore describes an empty-edge result, not a
+non-empty minimum branching.
+
+Under `PYTHONHASHSEED=0`, both implementations receive 189,843 canonical
+input bytes, SHA-256
+`5d7c003cd5c7507408804b01e266bb81d7cfb2fe6546c58dfebff60f621ea89b`.
+The permanent preflight checks the complete public graph rather than the
+empty edge projection. Live NetworkX 3.6.1 and FrankenNetworkX agree exactly
+on 800 ordered nodes, zero edges, 16,707 canonical bytes, SHA-256
+`e6fd694bc8cd85ad2b23c9bc1ed6a76292330fde172c0f2f6beb6f48ebdf2469`.
+No behavioral divergence was found.
+
+The permanent `claim-incumbent` arm preregisters both recovered-artifact
+hashes, ordered-arc semantics, weight range, input hash, empty projected
+result, and complete graph counts/hash. It rejects an input substitution or
+lost/reordered result node before timing the complete public
+`minimum_branching` operation. Harness SHA-256 is
+`dc2af819f531415f251d16e9630f804b8e516acfd9fae0dff13c3ddfa3dfb98c`.
+
+No strict benchmark was started. The shared stable-target retry predicate is
+still false: installed RCH 1.0.52 commit `65294dcda0e0` salts every required
+clean-overlay remote root with a fresh UUID and nests the pooled Cargo target
+below that unique root. Starting this row would therefore mint another cold
+target directory, which is forbidden. No per-run target directory was
+requested or created.
+
+comparison_class=NO-VERDICT
+incumbent=networkx-3.6.1
+incumbent_same_invocation=false
+campaign_output=false
+decision_gate=not_reached
+null_median_clause=not_reached
+host_identity=not_reached
+bench_elf_sha256=not_reached
+actual_observed_threads=not_reached
+cv_role=not_computed
+
+RESULT: **FULL GRAPH PARITY / DEGENERATE FIXTURE / PERFORMANCE NO-VERDICT.**
+The recovered exact complete output agrees with NetworkX 3.6.1, but the old
+edge projection was empty and the permanent arm supplies no new support for
+the published `3.9768x`. Do not describe that number as performance on a
+non-empty minimum branching, and do not replace or strengthen it from the
+local correctness diagnostic.
+
+RETRY PREDICATE: retry only after RCH exposes a managed target directory whose
+physical path is stable across two otherwise identical `--base` plus
+`--clean-overlay` invocations, or moves its pooled target outside the
+UUID-salted clean source root. Reuse that one target without a cold copy and
+preserve the recovered artifacts and exact full-result hashes, live NetworkX
+3.6.1, all worker slots, in-process host identity and ELF SHA-256, actual
+observed threads, 21 rounds, both A/A nulls, continuous 300 ms accounting,
+and the corrected three-clause median gate. Separately, any claim about a
+non-empty branching requires a preregistered fixture with at least one
+selected edge and its own full parity proof; it cannot reuse this row's
+ratio. Any target-path change, admission, provenance, parity, or accounting
+abort remains NO-VERDICT.
+
+QUALITY / CLOSEOUT: the focused minimum-branching and refactored Kosaraju
+preflights passed, and the complete seven-row claim suite passed with every
+row asserted against its preregistered complete-output byte count and
+SHA-256. `python3 -m py_compile scripts/perf_harness.py`,
+`tests/python/test_perf_ledger_gate.py` (21/21), and `git diff --check`
+passed. UBS on all staged files exited 0 with zero critical findings and the
+same one pre-existing whole-harness warning. No Cargo command ran: no Rust
+source changed, and the required RCH mode would have created a fresh target.
+
 ## 2026-07-31 BlackThrush (cod) NO-VERDICT: published `erdos_renyi_graph` claim gets a permanent incumbent arm (`br-r37-c1-p80x1.1`)
 
 **CLAIM-GAP FIRST.** `README.md` publishes

@@ -1048,6 +1048,43 @@ def _build_pair(n, m, seed, weighted, directed=False):
     return gnx, gfx
 
 
+def _build_ordered_arc_pair(n, m, seed, weighted):
+    """Same directed arc insertion order with ordered-pair deduplication."""
+    import random
+
+    import networkx as nx
+    import franken_networkx as fnx
+
+    rng = random.Random(seed)
+    seen, stream = set(), []
+    while len(stream) < m:
+        u, v = rng.randrange(n), rng.randrange(n)
+        if u == v or (u, v) in seen:
+            continue
+        seen.add((u, v))
+        stream.append(
+            (
+                str(u),
+                str(v),
+                {"weight": rng.randint(1, 20)} if weighted else {},
+            )
+        )
+    nodes = [str(index) for index in range(n)]
+    gnx, gfx = nx.DiGraph(), fnx.DiGraph()
+    for graph in (gnx, gfx):
+        graph.add_nodes_from(nodes)
+        graph.add_edges_from(
+            (source, target, dict(attrs))
+            for source, target, attrs in stream
+        )
+    incumbent_module = type(gnx).__module__
+    if not incumbent_module.startswith("networkx"):
+        raise RuntimeError(
+            f"nx arm must be genuine upstream, got module {incumbent_module!r}"
+        )
+    return gnx, gfx
+
+
 def suite_view_accessors():
     """br-r37-c1-wbwkb: the accessor-descriptor surface."""
     gnx, gfx = _build_pair(2000, 8000, seed=7, weighted=True)
@@ -3161,6 +3198,7 @@ def suite_claim_incumbent():
         "k_corona",
         "k_crust",
         "kosaraju_strongly_connected_components",
+        "minimum_branching",
         "single_source_shortest_path_length",
     )
     requested_jobs = os.environ.get(
@@ -3515,8 +3553,6 @@ def suite_claim_incumbent():
                 "requires PYTHONHASHSEED=0 because component order is part "
                 "of the public contract"
             )
-        import random
-
         node_count = 800
         edge_count = 4_000
         seed = 11
@@ -3537,38 +3573,12 @@ def suite_claim_incumbent():
         # Preserve the recovered claim fixture exactly. Unlike `_build_pair`,
         # its directed builder deduplicates ordered arcs, so (u, v) and
         # (v, u) may both be present.
-        rng = random.Random(seed)
-        seen_arcs = set()
-        arc_stream = []
-        while len(arc_stream) < edge_count:
-            source_index = rng.randrange(node_count)
-            target_index = rng.randrange(node_count)
-            if source_index == target_index:
-                continue
-            arc = (source_index, target_index)
-            if arc in seen_arcs:
-                continue
-            seen_arcs.add(arc)
-            arc_stream.append(
-                (
-                    str(source_index),
-                    str(target_index),
-                    {"weight": rng.randint(1, 20)},
-                )
-            )
-        nodes = [str(index) for index in range(node_count)]
-        kosaraju_nx = nx.DiGraph()
-        kosaraju_fnx = fnx.DiGraph()
-        for graph in (kosaraju_nx, kosaraju_fnx):
-            graph.add_nodes_from(nodes)
-            graph.add_edges_from(
-                (source, target, dict(attrs))
-                for source, target, attrs in arc_stream
-            )
-        if not type(kosaraju_nx).__module__.startswith("networkx"):
-            raise RuntimeError(
-                "kosaraju incumbent arm must be genuine upstream NetworkX"
-            )
+        kosaraju_nx, kosaraju_fnx = _build_ordered_arc_pair(
+            node_count,
+            edge_count,
+            seed=seed,
+            weighted=True,
+        )
 
         input_nx_bytes = canonical_bytes(kosaraju_nx)
         input_fnx_bytes = canonical_bytes(kosaraju_fnx)
@@ -3685,6 +3695,119 @@ def suite_claim_incumbent():
                         ),
                     )
                 ),
+            )
+        )
+    if "minimum_branching" in jobs:
+        if os.environ.get("PYTHONHASHSEED") != "0":
+            raise RuntimeError(
+                "the minimum_branching claim fixture requires "
+                "PYTHONHASHSEED=0 because output node order is part of the "
+                "public contract"
+            )
+        node_count = 800
+        edge_count = 4_000
+        seed = 11
+        expected_input_bytes = 189_843
+        expected_input_sha256 = (
+            "5d7c003cd5c7507408804b01e266bb81d7cfb2fe6546c58dfebff60f621ea89b"
+        )
+        expected_projected_output_bytes = 2
+        expected_projected_output_sha256 = (
+            "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+        )
+        expected_output_nodes = 800
+        expected_output_edges = 0
+        expected_output_bytes = 16_707
+        expected_output_sha256 = (
+            "e6fd694bc8cd85ad2b23c9bc1ed6a76292330fde172c0f2f6beb6f48ebdf2469"
+        )
+        branching_nx, branching_fnx = _build_ordered_arc_pair(
+            node_count,
+            edge_count,
+            seed=seed,
+            weighted=True,
+        )
+        input_nx_bytes = canonical_bytes(branching_nx)
+        input_fnx_bytes = canonical_bytes(branching_fnx)
+        input_sha256 = hashlib.sha256(input_nx_bytes).hexdigest()
+        if input_nx_bytes != input_fnx_bytes:
+            raise RuntimeError("minimum_branching claim input graphs diverged")
+        if (
+            len(input_nx_bytes) != expected_input_bytes
+            or not hmac.compare_digest(input_sha256, expected_input_sha256)
+        ):
+            raise RuntimeError(
+                "minimum_branching claim input no longer matches its "
+                "preregistered canonical byte count and SHA-256"
+            )
+
+        preflight_nx = nx.minimum_branching(branching_nx)
+        preflight_fnx = fnx.minimum_branching(branching_fnx)
+        projected_nx_bytes = canonical_bytes(sorted(preflight_nx.edges()))
+        projected_fnx_bytes = canonical_bytes(sorted(preflight_fnx.edges()))
+        projected_output_sha256 = hashlib.sha256(
+            projected_nx_bytes
+        ).hexdigest()
+        if projected_nx_bytes != projected_fnx_bytes:
+            raise RuntimeError(
+                "minimum_branching claim recovered edge projection diverged"
+            )
+        if (
+            len(projected_nx_bytes) != expected_projected_output_bytes
+            or not hmac.compare_digest(
+                projected_output_sha256,
+                expected_projected_output_sha256,
+            )
+        ):
+            raise RuntimeError(
+                "minimum_branching claim recovered edge projection no "
+                "longer matches its preregistered empty result"
+            )
+
+        preflight_nx_bytes = canonical_bytes(preflight_nx)
+        preflight_fnx_bytes = canonical_bytes(preflight_fnx)
+        output_sha256 = hashlib.sha256(preflight_nx_bytes).hexdigest()
+        if preflight_nx_bytes != preflight_fnx_bytes:
+            raise RuntimeError(
+                "minimum_branching claim complete ordered output diverged"
+            )
+        if (
+            preflight_nx.number_of_nodes() != expected_output_nodes
+            or preflight_nx.number_of_edges() != expected_output_edges
+            or len(preflight_nx_bytes) != expected_output_bytes
+            or not hmac.compare_digest(output_sha256, expected_output_sha256)
+        ):
+            raise RuntimeError(
+                "minimum_branching claim fixture no longer matches its "
+                "preregistered complete ordered output"
+            )
+        EXTRA_PROVENANCE["claim_minimum_branching_fixture"] = {
+            "nodes": node_count,
+            "edges": edge_count,
+            "seed": seed,
+            "weighted": True,
+            "directed": True,
+            "ordered_arc_deduplication": True,
+            "weight_range_inclusive": [1, 20],
+            "python_hash_seed": 0,
+            "input_canonical_bytes": expected_input_bytes,
+            "input_sha256": expected_input_sha256,
+            "recovered_projection": "sorted(result.edges())",
+            "projected_output_canonical_bytes": (
+                expected_projected_output_bytes
+            ),
+            "projected_output_sha256": expected_projected_output_sha256,
+            "output_nodes": expected_output_nodes,
+            "output_edges": expected_output_edges,
+            "output_canonical_bytes": expected_output_bytes,
+            "complete_output_sha256": expected_output_sha256,
+        }
+        rows.append(
+            (
+                "claim/minimum_branching "
+                "n=800 m=4000 seed=11 weights=1..20 directed=True [nx/fnx]",
+                lambda: nx.minimum_branching(branching_nx),
+                lambda: fnx.minimum_branching(branching_fnx),
             )
         )
     if "single_source_shortest_path_length" in jobs:
