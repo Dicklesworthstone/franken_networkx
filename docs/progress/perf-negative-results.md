@@ -2352,3 +2352,31 @@ identical managed physical target path, then retain the recovered-artifact
 and exact weighted input/output hashes, live incumbent, all provenance, 21
 rounds, continuous accounting, dual A/A nulls, and the corrected
 three-clause median gate.
+
+## 2026-07-31 BlackThrush (cod) PARITY + NO-VERDICT (`br-r37-c1-p80x1.17`): exact `subgraph(view) → edges` claim arm
+
+The original `3.5719x` workload was recovered exactly from
+`rerun_void_entries.py` (SHA `2c8be91e...aab0`) and its saved result artifact
+(SHA `8ad50c9e...e2d4`), using the graph builder in
+`measure_marshaling.py` (SHA `40e03ac0...a0f`). It evaluates
+`list(G.subgraph(selected).edges())` on a simple string-node
+`n=2000,m=8000,seed=7` graph, selecting every fourth node.
+
+Under `PYTHONHASHSEED=0`, the 500-node selector has SHA
+`1e230940...4733` and both implementations receive 273,938 input bytes (SHA
+`03635cb9...164`). Live NetworkX 3.6.1 and FrankenNetworkX agree exactly on
+the 497 ordered timed edges: 8,349 bytes, SHA `32b6cc46...2004`. The
+permanent preflight also protects nodes hidden by that projection: the
+complete 500-node/497-edge view is 25,050 bytes, SHA `62e0dcf1...20c6`.
+No divergence was found.
+
+RESULT: **FULL VIEW + EDGE-LIST PARITY / PERFORMANCE NO-VERDICT.** No strict
+benchmark was started because RCH 1.0.52 still places its pooled target below
+a UUID-salted clean-overlay root; running would create another cold target.
+Therefore no in-process host identity, ELF SHA, actual observed threads,
+nulls, corrected median clause, candidate CI, or incumbent ratio was emitted.
+Retry only after two required clean-overlay invocations prove one identical
+managed physical target path, then retain all artifact, selector, input,
+view, and edge-list hashes, live incumbent, all provenance, 21 rounds,
+continuous accounting, dual A/A nulls, and the corrected three-clause median
+gate.

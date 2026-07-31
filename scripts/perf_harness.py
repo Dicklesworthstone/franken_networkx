@@ -3201,6 +3201,7 @@ def suite_claim_incumbent():
         "kosaraju_strongly_connected_components",
         "minimum_branching",
         "single_source_shortest_path_length",
+        "subgraph_view_edges",
     )
     requested_jobs = os.environ.get(
         "FNX_CLAIM_INCUMBENT_JOBS",
@@ -4007,6 +4008,147 @@ def suite_claim_incumbent():
                 ),
                 lambda: dict(
                     fnx.single_source_shortest_path_length(lengths_fnx, source)
+                ),
+            )
+        )
+    if "subgraph_view_edges" in jobs:
+        if os.environ.get("PYTHONHASHSEED") != "0":
+            raise RuntimeError(
+                "the subgraph_view_edges claim fixture requires "
+                "PYTHONHASHSEED=0 because view and edge order are part of "
+                "the public contract"
+            )
+        node_count = 2_000
+        edge_count = 8_000
+        seed = 7
+        selected_nodes = [
+            str(index)
+            for index in range(0, node_count, 4)
+        ]
+        expected_selected_items = 500
+        expected_selector_bytes = 3_722
+        expected_selector_sha256 = (
+            "1e2309408844387cafef1e27da619296d79adec5550e8fb4d7ba3a7ec6d04733"
+        )
+        expected_input_bytes = 273_938
+        expected_input_sha256 = (
+            "03635cb95fcf023b79a245e0dc38125225ba216e6eb77a9270ef5121024f6164"
+        )
+        expected_view_nodes = 500
+        expected_view_edges = 497
+        expected_view_bytes = 25_050
+        expected_view_sha256 = (
+            "62e0dcf1d54a45ec2083479afccda5f25ed87751a94a0792c2ba0f14b86720c6"
+        )
+        expected_output_edges = 497
+        expected_output_bytes = 8_349
+        expected_output_sha256 = (
+            "32b6cc468804d8ec28717da2e85bce6bdb45cca399b214461cd09134db122004"
+        )
+        subgraph_nx, subgraph_fnx = _build_pair(
+            node_count,
+            edge_count,
+            seed=seed,
+            weighted=False,
+        )
+        selector_bytes = canonical_bytes(selected_nodes)
+        selector_sha256 = hashlib.sha256(selector_bytes).hexdigest()
+        if (
+            len(selected_nodes) != expected_selected_items
+            or len(selector_bytes) != expected_selector_bytes
+            or not hmac.compare_digest(
+                selector_sha256,
+                expected_selector_sha256,
+            )
+        ):
+            raise RuntimeError(
+                "subgraph_view_edges selector no longer matches its "
+                "preregistered item count, byte count, and SHA-256"
+            )
+
+        input_nx_bytes = canonical_bytes(subgraph_nx)
+        input_fnx_bytes = canonical_bytes(subgraph_fnx)
+        input_sha256 = hashlib.sha256(input_nx_bytes).hexdigest()
+        if input_nx_bytes != input_fnx_bytes:
+            raise RuntimeError(
+                "subgraph_view_edges claim input graphs diverged"
+            )
+        if (
+            len(input_nx_bytes) != expected_input_bytes
+            or not hmac.compare_digest(input_sha256, expected_input_sha256)
+        ):
+            raise RuntimeError(
+                "subgraph_view_edges claim input no longer matches its "
+                "preregistered canonical byte count and SHA-256"
+            )
+
+        preflight_view_nx = subgraph_nx.subgraph(selected_nodes)
+        preflight_view_fnx = subgraph_fnx.subgraph(selected_nodes)
+        view_nx_bytes = canonical_bytes(preflight_view_nx)
+        view_fnx_bytes = canonical_bytes(preflight_view_fnx)
+        view_sha256 = hashlib.sha256(view_nx_bytes).hexdigest()
+        if view_nx_bytes != view_fnx_bytes:
+            raise RuntimeError(
+                "subgraph_view_edges complete ordered view diverged"
+            )
+        if (
+            preflight_view_nx.number_of_nodes() != expected_view_nodes
+            or preflight_view_nx.number_of_edges() != expected_view_edges
+            or len(view_nx_bytes) != expected_view_bytes
+            or not hmac.compare_digest(view_sha256, expected_view_sha256)
+        ):
+            raise RuntimeError(
+                "subgraph_view_edges claim fixture no longer matches its "
+                "preregistered complete ordered view"
+            )
+
+        preflight_nx = list(preflight_view_nx.edges())
+        preflight_fnx = list(preflight_view_fnx.edges())
+        preflight_nx_bytes = canonical_bytes(preflight_nx)
+        preflight_fnx_bytes = canonical_bytes(preflight_fnx)
+        output_sha256 = hashlib.sha256(preflight_nx_bytes).hexdigest()
+        if preflight_nx_bytes != preflight_fnx_bytes:
+            raise RuntimeError(
+                "subgraph_view_edges complete ordered edge list diverged"
+            )
+        if (
+            len(preflight_nx) != expected_output_edges
+            or len(preflight_nx_bytes) != expected_output_bytes
+            or not hmac.compare_digest(output_sha256, expected_output_sha256)
+        ):
+            raise RuntimeError(
+                "subgraph_view_edges claim fixture no longer matches its "
+                "preregistered complete ordered edge list"
+            )
+        EXTRA_PROVENANCE["claim_subgraph_view_edges_fixture"] = {
+            "nodes": node_count,
+            "edges": edge_count,
+            "seed": seed,
+            "weighted": False,
+            "selection": "str(index) for index in range(0, 2000, 4)",
+            "selected_items": expected_selected_items,
+            "selector_canonical_bytes": expected_selector_bytes,
+            "selector_sha256": expected_selector_sha256,
+            "python_hash_seed": 0,
+            "input_canonical_bytes": expected_input_bytes,
+            "input_sha256": expected_input_sha256,
+            "view_nodes": expected_view_nodes,
+            "view_edges": expected_view_edges,
+            "view_canonical_bytes": expected_view_bytes,
+            "complete_view_sha256": expected_view_sha256,
+            "output_edges": expected_output_edges,
+            "output_canonical_bytes": expected_output_bytes,
+            "complete_output_sha256": expected_output_sha256,
+        }
+        rows.append(
+            (
+                "claim/subgraph(view)->edges "
+                "n=2000 m=8000 seed=7 selected=range(0,2000,4) [nx/fnx]",
+                lambda graph=subgraph_nx, nodes=selected_nodes: list(
+                    graph.subgraph(nodes).edges()
+                ),
+                lambda graph=subgraph_fnx, nodes=selected_nodes: list(
+                    graph.subgraph(nodes).edges()
                 ),
             )
         )
