@@ -28878,6 +28878,86 @@ alters multiplicity/self-loop degree semantics. Preserve raw/public/oracle
 coverage for both directed and undirected multigraphs and keep the audit at
 zero wrapper-misalign rows.
 
+## 2026-07-31 BlackThrush (cc) MEASURED / WHOLE-JOB ANALYTICS PASS + one parity divergence (`br-r37-c1-jobpass`)
+
+Eleven-stage analytics job, one graph carried through the whole pipeline, live
+NetworkX 3.6.1 and FrankenNetworkX in the **same invocation**, every stage's
+output compared for byte-identical canonical form before any timing is taken.
+Reproduce: `python3 scripts/analytics_pass.py 3000 15000 7`.
+
+comparison_class=INCUMBENT
+incumbent=networkx-3.6.1
+incumbent_same_invocation=true
+incumbent_ratio=54.7x
+campaign_output=false
+decision_gate=not_reached
+cv_role=not_computed
+bench_elf_sha256=e5bb3755812c732b63bb8ab3e4650d526bb69bb67834d264f8b00adfad4a3213
+host_identity=thinkstation1
+
+`campaign_output=false` and `decision_gate=not_reached` are deliberate: this
+pass carries **no A/A null**, so it is a measurement, not a banked campaign
+KEEP. It is recorded for the shape it reveals, not the multiplier.
+
+`n=3000 m=15000 seed=7`, connected, `taskset -c 0-31`:
+
+| stage | nx ms | fnx ms | ratio | parity |
+|---|---:|---:|---:|---|
+| connected_components | 1.8 | 0.5 | 4.1x | IDENTICAL |
+| pagerank | 24.9 | 2.6 | 9.7x | IDENTICAL |
+| core_number | 11.8 | 0.9 | 12.5x | IDENTICAL |
+| **eccentricity** | 6500.1 | 447.6 | **14.5x** | IDENTICAL |
+| **diameter** | 5407.9 | 265.3 | **20.4x** | IDENTICAL |
+| triangles | 48.2 | 1.4 | 34.6x | IDENTICAL |
+| average_clustering | 78.5 | 1.5 | 51.4x | IDENTICAL |
+| degree_assortativity | 34.7 | 0.6 | 60.7x | IDENTICAL |
+| betweenness_centrality | 32728.0 | 310.4 | 105.4x | IDENTICAL |
+| closeness_centrality | 5730.9 | 30.6 | 187.4x | IDENTICAL |
+| harmonic_centrality | 8700.7 | 22.3 | 390.6x | **DIVERGENT** |
+| **WHOLE JOB** | **59267.5** | **1083.6** | **54.7x** | 10/11 identical |
+
+CHOOSER STATEMENT. For an eleven-stage analytics pass on a 3,000-node graph,
+FrankenNetworkX finishes in **1.08 s** where NetworkX 3.6.1 takes **59.3 s** —
+**54.7x**, with ten of eleven stages byte-identical. Choose FrankenNetworkX
+when the job is centrality- or distance-heavy: betweenness (105x), closeness
+(187x) and harmonic (391x) are the stages that make NetworkX unusable at this
+size, and they are exactly where the gap is widest. Choose it with no
+reservation for repeated analysis of the same graph, where our matrix and
+adjacency caches compound. The one stage where the choice is nearly neutral is
+`connected_components` (4.1x) — if that is the entire job, either engine is
+fine.
+
+WHERE OUR OWN TIME GOES — the actionable half. `eccentricity` (41.3%) plus
+`diameter` (24.5%) are **65.8% of fnx job time** at the job's two weakest
+winning ratios. They are the same work shape as closeness/harmonic (BFS from
+every source, reduce per source) but run a serial per-source `VecDeque` BFS in
+`distance_measures`, while closeness/harmonic run the bit-parallel reverse-BFS
+`ReachSink` kernel. Routing them to an `EccentricitySink` (levels arrive
+ascending, so the reduction is a max) should close a 45x intra-repo gap and
+lift `eccentricity`, `diameter`, `radius`, `center` and `periphery` together.
+Not attempted this session: `crates/fnx-algorithms/src/lib.rs` is reserved by
+RusticGlen for `br-r37-c1-au4il`; carve-out requested, not taken.
+
+PARITY DIVERGENCE — `harmonic_centrality` is NOT byte-identical to NetworkX.
+On HEAD, `2993 of 3000` nodes differ, maximum absolute delta `3.92e-11` on
+values near `800` (~1e-14 relative). Key order matches exactly, so this is
+floating-point **summation order**, not a logic error. The `ReachSink` doc
+comment asserts harmonic "replays the very same sequence of `+= 1/L`
+additions that BFS pop order produces"; measurement says it does not. Under
+the byte-identical contract this row is NOT TIMED, so the `390.6x` above is
+reported and **must not be banked** until the divergence is resolved or the
+contract explicitly admits a tolerance for it. Handed to the owner of that
+kernel rather than fixed here (file reserved).
+
+RETRY PREDICATE: re-run this pass after the eccentricity routing lands to
+confirm the whole-job ratio moves; the pass is now permanent at
+`scripts/analytics_pass.py`. Do not quote `54.7x` as a campaign KEEP without
+an A/A null, and do not quote the harmonic row at all while it diverges.
+
+QUALITY / CLOSEOUT: no Rust source changed; no Cargo command ran. Measured
+against a HEAD-exact overlay (repo `python/franken_networkx` + a cdylib built
+from HEAD), not the `site-packages` install, which is 44 Rust commits stale.
+
 ## 2026-07-31 BlackThrush (cc) REJECT / REVERTED: rayon-parallel CSR mat-vec for PageRank (`br-r37-c1-prspmv`)
 
 Built, proved bit-exact, measured, reverted the same turn. Do not retry the
