@@ -10512,6 +10512,46 @@ fn stable_hash_hex(input: &[u8]) -> String {
     format!("{hash:016x}")
 }
 
+/// One node's contribution to the `u < v < w` triangle census.
+///
+/// Split out of [`clustering_coefficient`] so the serial and fanned-out scans
+/// run byte-identical inner logic; `in_neighborhood` is left all-false on
+/// return so a worker can reuse one mark array across its whole range.
+#[inline]
+fn clustering_census_node(
+    graph: &Graph,
+    u: usize,
+    tri: &mut [usize],
+    in_neighborhood: &mut [bool],
+    edges_scanned: &mut usize,
+) {
+    let nbrs_u = graph.neighbors_indices(u).unwrap_or(&[]);
+    for &x in nbrs_u {
+        if x != u {
+            in_neighborhood[x] = true;
+        }
+    }
+    for &v in nbrs_u {
+        if v > u
+            && let Some(nbrs_v) = graph.neighbors_indices(v)
+        {
+            for &w in nbrs_v {
+                if w > v && in_neighborhood[w] {
+                    *edges_scanned += 1;
+                    tri[u] += 1;
+                    tri[v] += 1;
+                    tri[w] += 1;
+                }
+            }
+        }
+    }
+    for &x in nbrs_u {
+        if x != u {
+            in_neighborhood[x] = false;
+        }
+    }
+}
+
 #[must_use]
 pub fn clustering_coefficient(graph: &Graph) -> ClusteringCoefficientResult {
     let nodes = graph.nodes_ordered();
@@ -10550,36 +10590,61 @@ pub fn clustering_coefficient(graph: &Graph) -> ClusteringCoefficientResult {
     for &d in &deg {
         total_triples += d * d.saturating_sub(1);
     }
-    let mut tri = vec![0usize; n];
-    let mut in_neighborhood = vec![false; n];
-    let mut edges_scanned = 0usize;
-    for u in 0..n {
-        let nbrs_u = graph.neighbors_indices(u).unwrap_or(&[]);
-        for &x in nbrs_u {
-            if x != u {
-                in_neighborhood[x] = true;
-            }
-        }
-        for &v in nbrs_u {
-            if v > u
-                && let Some(nbrs_v) = graph.neighbors_indices(v)
-            {
-                for &w in nbrs_v {
-                    if w > v && in_neighborhood[w] {
-                        edges_scanned += 1;
-                        tri[u] += 1;
-                        tri[v] += 1;
-                        tri[w] += 1;
-                    }
+    // The census is a scatter over INTEGER counters, so splitting the `u` range
+    // across workers and summing the per-worker count vectors is bit-identical
+    // to the serial scan — integer addition is associative and exact. Only the
+    // census fans out: `scores` and `average_clustering` are still built in
+    // index order below, so the f64 summation order that defines the public
+    // value is untouched. NetworkX cannot take this path at all; its triangle
+    // census is a Python loop serialised by the GIL.
+    let (tri, edges_scanned) = if n >= CENTRALITY_PARALLEL_THRESHOLD {
+        use rayon::prelude::*;
+        // Each worker owns a full-width count vector plus a mark array; cap the
+        // worker count so that scratch stays bounded on very large graphs.
+        let bytes_per_worker = n
+            .saturating_mul(std::mem::size_of::<usize>() + 1)
+            .max(1);
+        let workers = rayon::current_num_threads()
+            .min((256 * 1024 * 1024 / bytes_per_worker).max(1))
+            .max(1);
+        let span = n.div_ceil(workers);
+        (0..workers)
+            .into_par_iter()
+            .map(|worker| {
+                let lo = worker.saturating_mul(span);
+                let hi = lo.saturating_add(span).min(n);
+                let mut tri_local = vec![0usize; n];
+                let mut in_neighborhood = vec![false; n];
+                let mut scanned = 0usize;
+                for u in lo..hi {
+                    clustering_census_node(
+                        graph,
+                        u,
+                        &mut tri_local,
+                        &mut in_neighborhood,
+                        &mut scanned,
+                    );
                 }
-            }
+                (tri_local, scanned)
+            })
+            .reduce(
+                || (vec![0usize; n], 0usize),
+                |(mut acc_tri, acc_scanned), (part_tri, part_scanned)| {
+                    for (acc, part) in acc_tri.iter_mut().zip(part_tri.iter()) {
+                        *acc += *part;
+                    }
+                    (acc_tri, acc_scanned + part_scanned)
+                },
+            )
+    } else {
+        let mut tri = vec![0usize; n];
+        let mut in_neighborhood = vec![false; n];
+        let mut scanned = 0usize;
+        for u in 0..n {
+            clustering_census_node(graph, u, &mut tri, &mut in_neighborhood, &mut scanned);
         }
-        for &x in nbrs_u {
-            if x != u {
-                in_neighborhood[x] = false;
-            }
-        }
-    }
+        (tri, scanned)
+    };
     let mut total_triangles = 0usize;
     let mut scores = Vec::with_capacity(n);
     for (idx, node) in nodes.iter().enumerate() {
@@ -10622,6 +10687,40 @@ pub fn clustering_coefficient(graph: &Graph) -> ClusteringCoefficientResult {
     }
 }
 
+/// Triangles incident on `u` under the `u < v < w` ordering, counted three
+/// times (once per vertex) so the caller's total matches the materializing
+/// kernel's `sum(tri)` exactly.
+///
+/// `in_neighborhood` is left all-false on return so one worker can reuse a
+/// single mark array across its whole range.
+#[inline]
+fn transitivity_census_node(graph: &Graph, u: usize, in_neighborhood: &mut [bool]) -> usize {
+    let neighbors_u = graph.neighbors_indices(u).unwrap_or(&[]);
+    for &neighbor in neighbors_u {
+        if neighbor != u {
+            in_neighborhood[neighbor] = true;
+        }
+    }
+    let mut found = 0usize;
+    for &v in neighbors_u {
+        if v > u
+            && let Some(neighbors_v) = graph.neighbors_indices(v)
+        {
+            for &w in neighbors_v {
+                if w > v && in_neighborhood[w] {
+                    found += 3;
+                }
+            }
+        }
+    }
+    for &neighbor in neighbors_u {
+        if neighbor != u {
+            in_neighborhood[neighbor] = false;
+        }
+    }
+    found
+}
+
 /// Return the transitivity (global clustering coefficient) of an undirected graph.
 ///
 /// This scalar kernel preserves the exact triangle and connected-triple arithmetic
@@ -10647,32 +10746,39 @@ pub fn transitivity(graph: &Graph) -> f64 {
         return 0.0;
     }
 
-    let mut total_triangles = 0usize;
-    let mut in_neighborhood = vec![false; n];
-    for u in 0..n {
-        let neighbors_u = graph.neighbors_indices(u).unwrap_or(&[]);
-        for &neighbor in neighbors_u {
-            if neighbor != u {
-                in_neighborhood[neighbor] = true;
-            }
-        }
-        for &v in neighbors_u {
-            if v > u
-                && let Some(neighbors_v) = graph.neighbors_indices(v)
-            {
-                for &w in neighbors_v {
-                    if w > v && in_neighborhood[w] {
-                        total_triangles += 3;
-                    }
+    // Same fan-out as `clustering_coefficient`'s census, and bit-exact for the
+    // same reason: the accumulator is an integer, so worker order cannot change
+    // the total. Only the final division is floating point, and it sees the
+    // identical operands.
+    let total_triangles: usize = if n >= CENTRALITY_PARALLEL_THRESHOLD {
+        use rayon::prelude::*;
+        // Scratch is one mark byte per node per worker; cap the worker count so
+        // it stays bounded on very large graphs.
+        let workers = rayon::current_num_threads()
+            .min((256 * 1024 * 1024 / n.max(1)).max(1))
+            .max(1);
+        let span = n.div_ceil(workers);
+        (0..workers)
+            .into_par_iter()
+            .map(|worker| {
+                let lo = worker.saturating_mul(span);
+                let hi = lo.saturating_add(span).min(n);
+                let mut in_neighborhood = vec![false; n];
+                let mut local = 0usize;
+                for u in lo..hi {
+                    local += transitivity_census_node(graph, u, &mut in_neighborhood);
                 }
-            }
+                local
+            })
+            .sum()
+    } else {
+        let mut in_neighborhood = vec![false; n];
+        let mut serial = 0usize;
+        for u in 0..n {
+            serial += transitivity_census_node(graph, u, &mut in_neighborhood);
         }
-        for &neighbor in neighbors_u {
-            if neighbor != u {
-                in_neighborhood[neighbor] = false;
-            }
-        }
-    }
+        serial
+    };
 
     (2.0 * total_triangles as f64) / total_triples as f64
 }
@@ -15290,6 +15396,44 @@ pub fn minimum_spanning_arborescence(
     is_arborescence(&arborescence).then_some(result)
 }
 
+/// One node's contribution to [`triangles`]' `u < v < w` census.
+///
+/// Distinct from `clustering_census_node`: this marks the full neighbour row
+/// (self-loops included) and counts `edges_scanned` per `u < v` edge rather
+/// than per triangle, which is the witness contract `triangles` has always
+/// reported. `in_neighborhood` is left all-false on return so one worker can
+/// reuse a single mark array across its whole range.
+#[inline]
+fn triangles_census_node(
+    graph: &Graph,
+    u: usize,
+    tri_count: &mut [usize],
+    in_neighborhood: &mut [bool],
+    edges_scanned: &mut usize,
+) {
+    let nbrs_u = graph.neighbors_indices(u).unwrap_or(&[]);
+    for &x in nbrs_u {
+        in_neighborhood[x] = true;
+    }
+    for &v in nbrs_u {
+        if v > u {
+            *edges_scanned += 1;
+            if let Some(nbrs_v) = graph.neighbors_indices(v) {
+                for &w in nbrs_v {
+                    if w > v && in_neighborhood[w] {
+                        tri_count[u] += 1;
+                        tri_count[v] += 1;
+                        tri_count[w] += 1;
+                    }
+                }
+            }
+        }
+    }
+    for &x in nbrs_u {
+        in_neighborhood[x] = false;
+    }
+}
+
 /// Counts the number of triangles each node participates in.
 ///
 /// A triangle is a 3-clique. Each triangle is counted once per participating node.
@@ -15319,33 +15463,55 @@ pub fn triangles(graph: &Graph) -> TrianglesResult {
     // with O(1) array lookups and cache-sequential neighbour scans. Byte-identical:
     // both enumerate exactly the w in N(u)∩N(v) with w>v for each edge u<v, and
     // increment all three vertices; `edges_scanned` stays |E| (each u<v edge once).
-    let mut tri_count: Vec<usize> = vec![0; n];
-    let mut in_neighborhood = vec![false; n];
-    let mut edges_scanned = 0usize;
-
-    for u in 0..n {
-        let nbrs_u = graph.neighbors_indices(u).unwrap_or(&[]);
-        for &x in nbrs_u {
-            in_neighborhood[x] = true;
-        }
-        for &v in nbrs_u {
-            if v > u {
-                edges_scanned += 1;
-                if let Some(nbrs_v) = graph.neighbors_indices(v) {
-                    for &w in nbrs_v {
-                        if w > v && in_neighborhood[w] {
-                            tri_count[u] += 1;
-                            tri_count[v] += 1;
-                            tri_count[w] += 1;
-                        }
-                    }
+    // Same fan-out as `clustering_coefficient`'s census: the counters are
+    // integers, so splitting the `u` range across workers and summing the
+    // per-worker vectors is bit-identical to the serial scan.
+    let (tri_count, edges_scanned) = if n >= CENTRALITY_PARALLEL_THRESHOLD {
+        use rayon::prelude::*;
+        let bytes_per_worker = n
+            .saturating_mul(std::mem::size_of::<usize>() + 1)
+            .max(1);
+        let workers = rayon::current_num_threads()
+            .min((256 * 1024 * 1024 / bytes_per_worker).max(1))
+            .max(1);
+        let span = n.div_ceil(workers);
+        (0..workers)
+            .into_par_iter()
+            .map(|worker| {
+                let lo = worker.saturating_mul(span);
+                let hi = lo.saturating_add(span).min(n);
+                let mut tri_local: Vec<usize> = vec![0; n];
+                let mut in_neighborhood = vec![false; n];
+                let mut scanned = 0usize;
+                for u in lo..hi {
+                    triangles_census_node(
+                        graph,
+                        u,
+                        &mut tri_local,
+                        &mut in_neighborhood,
+                        &mut scanned,
+                    );
                 }
-            }
+                (tri_local, scanned)
+            })
+            .reduce(
+                || (vec![0usize; n], 0usize),
+                |(mut acc_tri, acc_scanned), (part_tri, part_scanned)| {
+                    for (acc, part) in acc_tri.iter_mut().zip(part_tri.iter()) {
+                        *acc += *part;
+                    }
+                    (acc_tri, acc_scanned + part_scanned)
+                },
+            )
+    } else {
+        let mut tri_count: Vec<usize> = vec![0; n];
+        let mut in_neighborhood = vec![false; n];
+        let mut scanned = 0usize;
+        for u in 0..n {
+            triangles_census_node(graph, u, &mut tri_count, &mut in_neighborhood, &mut scanned);
         }
-        for &x in nbrs_u {
-            in_neighborhood[x] = false;
-        }
-    }
+        (tri_count, scanned)
+    };
 
     // Return in nodes_ordered() order (insertion order), matching G.nodes()
     let result: Vec<NodeTriangleCount> = nodes
