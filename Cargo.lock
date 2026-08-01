@@ -932,6 +932,7 @@ dependencies = [
  "proptest",
  "pyo3",
  "pyo3-log",
+ "rayon",
  "rustc-hash 2.1.2",
  "serde_json",
  "sha2 0.10.9",

@@ -1466,10 +1466,15 @@ impl Graph {
             if let Some(existing) = self.edges.get_mut(&edge_key) {
                 // Duplicate edge (pre-existing or earlier in this batch):
                 // merge attrs, matching add_edge_with_attrs' `extend`.
-                if !attrs.is_empty()
-                    && attrs
-                        .iter()
-                        .any(|(key, value)| existing.get(key) != Some(value))
+                // An empty attr map merges to a no-op; returning early avoids
+                // building and dropping a BTreeMap iterator per duplicate edge,
+                // which dominates unweighted bulk loads.
+                if attrs.is_empty() {
+                    continue;
+                }
+                if attrs
+                    .iter()
+                    .any(|(key, value)| existing.get(key) != Some(value))
                 {
                     merged_changed = true;
                 }
@@ -1547,10 +1552,15 @@ impl Graph {
 
             let edge_key = Self::canon_pair(left_idx, right_idx);
             if let Some(existing) = self.edges.get_mut(&edge_key) {
-                if !attrs.is_empty()
-                    && attrs
-                        .iter()
-                        .any(|(key, value)| existing.get(key) != Some(value))
+                // An empty attr map merges to a no-op; returning early avoids
+                // building and dropping a BTreeMap iterator per duplicate edge,
+                // which dominates unweighted bulk loads.
+                if attrs.is_empty() {
+                    continue;
+                }
+                if attrs
+                    .iter()
+                    .any(|(key, value)| existing.get(key) != Some(value))
                 {
                     merged_changed = true;
                 }

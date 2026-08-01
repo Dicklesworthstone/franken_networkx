@@ -1225,10 +1225,15 @@ impl DiGraph {
                 self.nodes.get_index_of(&target).expect("created above"),
             );
             if let Some(existing) = self.edges.get_mut(&edge_key) {
-                if !attrs.is_empty()
-                    && attrs
-                        .iter()
-                        .any(|(key, value)| existing.get(key) != Some(value))
+                // An empty attr map merges to a no-op; returning early avoids
+                // building and dropping a BTreeMap iterator per duplicate edge,
+                // which dominates unweighted bulk loads.
+                if attrs.is_empty() {
+                    continue;
+                }
+                if attrs
+                    .iter()
+                    .any(|(key, value)| existing.get(key) != Some(value))
                 {
                     merged_changed = true;
                 }
@@ -1300,10 +1305,15 @@ impl DiGraph {
                 self.nodes.get_index_of(&target).expect("created above"),
             );
             if let Some(existing) = self.edges.get_mut(&edge_key) {
-                if !attrs.is_empty()
-                    && attrs
-                        .iter()
-                        .any(|(key, value)| existing.get(key) != Some(value))
+                // An empty attr map merges to a no-op; returning early avoids
+                // building and dropping a BTreeMap iterator per duplicate edge,
+                // which dominates unweighted bulk loads.
+                if attrs.is_empty() {
+                    continue;
+                }
+                if attrs
+                    .iter()
+                    .any(|(key, value)| existing.get(key) != Some(value))
                 {
                     merged_changed = true;
                 }
@@ -1379,10 +1389,15 @@ impl DiGraph {
             debug_assert!(source_idx < node_count && target_idx < node_count);
             let edge_key = (source_idx, target_idx);
             if let Some(existing) = self.edges.get_mut(&edge_key) {
-                if !attrs.is_empty()
-                    && attrs
-                        .iter()
-                        .any(|(key, value)| existing.get(key) != Some(value))
+                // An empty attr map merges to a no-op; returning early avoids
+                // building and dropping a BTreeMap iterator per duplicate edge,
+                // which dominates unweighted bulk loads.
+                if attrs.is_empty() {
+                    continue;
+                }
+                if attrs
+                    .iter()
+                    .any(|(key, value)| existing.get(key) != Some(value))
                 {
                     merged_changed = true;
                 }
@@ -1438,10 +1453,15 @@ impl DiGraph {
             }
             let edge_key = (source_idx, target_idx);
             if let Some(existing) = self.edges.get_mut(&edge_key) {
-                if !attrs.is_empty()
-                    && attrs
-                        .iter()
-                        .any(|(key, value)| existing.get(key) != Some(value))
+                // An empty attr map merges to a no-op; returning early avoids
+                // building and dropping a BTreeMap iterator per duplicate edge,
+                // which dominates unweighted bulk loads.
+                if attrs.is_empty() {
+                    continue;
+                }
+                if attrs
+                    .iter()
+                    .any(|(key, value)| existing.get(key) != Some(value))
                 {
                     merged_changed = true;
                 }
