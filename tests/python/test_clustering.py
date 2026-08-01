@@ -53,6 +53,54 @@ class TestClustering:
         # Path graph has 0 clustering everywhere
         assert abs(fnx.transitivity(G_fnx) - nx.transitivity(G_nx)) < 1e-9
 
+    def test_triangle_census_reused_by_clustering_family(
+        self, monkeypatch, fnx, nx
+    ):
+        edges = [(0, 1), (1, 2), (2, 0), (2, 3), (3, 4), (4, 2)]
+        G_fnx = fnx.Graph()
+        G_nx = nx.Graph()
+        G_fnx.add_edges_from(edges)
+        G_nx.add_edges_from(edges)
+        G_fnx.add_edge(4, 4)
+        G_nx.add_edge(4, 4)
+
+        raw_triangles = fnx._raw_triangles
+        calls = 0
+
+        def counted_triangles(graph):
+            nonlocal calls
+            calls += 1
+            return raw_triangles(graph)
+
+        def duplicate_census(*_args, **_kwargs):
+            raise AssertionError("triangle census should be reused")
+
+        monkeypatch.setattr(fnx, "_raw_triangles", counted_triangles)
+        monkeypatch.setattr(fnx, "_raw_clustering", duplicate_census)
+        monkeypatch.setattr(fnx, "_raw_transitivity", duplicate_census)
+
+        triangle_result = fnx.triangles(G_fnx)
+        assert triangle_result == nx.triangles(G_nx)
+        triangle_result[0] = 999
+        assert fnx.average_clustering(G_fnx) == nx.average_clustering(G_nx)
+        assert fnx.transitivity(G_fnx) == nx.transitivity(G_nx)
+        clustering_result = fnx.clustering(G_fnx)
+        assert clustering_result == nx.clustering(G_nx)
+        clustering_result[0] = 999
+        assert fnx.triangles(G_fnx) == nx.triangles(G_nx)
+        assert fnx.clustering(G_fnx) == nx.clustering(G_nx)
+        assert calls == 1
+
+        # A topology mutation invalidates the snapshot and exactly one new
+        # census repopulates the whole family.
+        G_fnx.add_edge(0, 4)
+        G_nx.add_edge(0, 4)
+        assert fnx.triangles(G_fnx) == nx.triangles(G_nx)
+        assert fnx.average_clustering(G_fnx) == nx.average_clustering(G_nx)
+        assert fnx.transitivity(G_fnx) == nx.transitivity(G_nx)
+        assert fnx.clustering(G_fnx) == nx.clustering(G_nx)
+        assert calls == 2
+
 
 def _build_clustering_case(graph, case_name):
     if case_name == "empty":

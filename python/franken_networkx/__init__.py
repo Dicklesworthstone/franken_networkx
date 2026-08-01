@@ -46976,6 +46976,93 @@ def _directed_weighted_triangles_and_degree_iter_local(G, nodes=None, weight="we
         yield (node, total_degree, reciprocal_degree, directed_triangle_sum)
 
 
+# A whole-graph triangle census is sufficient for the unweighted undirected
+# clustering family.  The realistic analytics pass asks for ``triangles`` and
+# then ``average_clustering`` on the same graph; recomputing every wedge is pure
+# duplicate work.  Keep the exact integer census plus its derived scalars in an
+# immutable, topology-revision-keyed snapshot.  Every mapping returned to the
+# caller is rebuilt, so caller mutation cannot poison later answers.
+_TRIANGLE_CENSUS_CACHE_ATTR = "_fnx_triangle_census_cache_v1"
+_TRIANGLE_CENSUS_CACHE_SENTINEL = object()
+
+
+def _triangle_census_cache_key(G):
+    try:
+        if G.is_directed() or G.is_multigraph():
+            return None
+        return (G.nodes_seq, G.edges_seq)
+    except AttributeError:
+        return None
+
+
+def _cached_triangle_census_snapshot(G):
+    key = _triangle_census_cache_key(G)
+    if key is None:
+        return None
+    try:
+        snapshot = G.__dict__.get(_TRIANGLE_CENSUS_CACHE_ATTR)
+    except AttributeError:
+        return None
+    if (
+        isinstance(snapshot, tuple)
+        and len(snapshot) == 7
+        and snapshot[0] is _TRIANGLE_CENSUS_CACHE_SENTINEL
+        and snapshot[1:3] == key
+    ):
+        return snapshot
+    return None
+
+
+def _store_triangle_census_snapshot(G, triangle_counts, start_key):
+    # The native census releases the GIL.  Refuse to join counts from one
+    # topology with degrees from another if a concurrent mutator raced it.
+    if start_key is None or _triangle_census_cache_key(G) != start_key:
+        return None
+
+    degree_by_node = dict(G.degree)
+    selfloop_nodes = set(nodes_with_selfloops(G))
+    items = tuple(triangle_counts.items())
+    clustering_items = []
+    total_triangle_incidences = 0
+    total_ordered_triples = 0
+    for node, count in items:
+        degree = degree_by_node[node]
+        # NetworkX excludes self-loops from the clustering neighborhood while
+        # DegreeView counts one undirected self-loop twice.
+        if node in selfloop_nodes:
+            degree -= 2
+        total_triangle_incidences += count
+        total_ordered_triples += degree * max(degree - 1, 0)
+        coefficient = 0 if count == 0 else count / (degree * (degree - 1) / 2)
+        clustering_items.append((node, coefficient))
+
+    if _triangle_census_cache_key(G) != start_key:
+        return None
+
+    clustering_items = tuple(clustering_items)
+    average = (
+        sum(value for _, value in clustering_items) / len(clustering_items)
+        if clustering_items
+        else None
+    )
+    transitivity_value = (
+        0
+        if total_triangle_incidences == 0
+        else (2 * total_triangle_incidences) / total_ordered_triples
+    )
+    snapshot = (
+        _TRIANGLE_CENSUS_CACHE_SENTINEL,
+        start_key[0],
+        start_key[1],
+        items,
+        clustering_items,
+        average,
+        transitivity_value,
+    )
+    G.__dict__[_TRIANGLE_CENSUS_CACHE_ATTR] = snapshot
+    return snapshot
+
+
 def clustering(G, nodes=None, weight=None):
     """Compute the clustering coefficient for nodes."""
     if G.is_multigraph():
@@ -46996,6 +47083,9 @@ def clustering(G, nodes=None, weight=None):
         and weight is None
         and nodes is None
     ):
+        snapshot = _cached_triangle_census_snapshot(G)
+        if snapshot is not None:
+            return dict(snapshot[4])
         try:
             raw = _raw_clustering(G)
         except Exception:
@@ -47046,6 +47136,10 @@ def clustering(G, nodes=None, weight=None):
 
 def average_clustering(G, nodes=None, weight=None, count_zeros=True):
     """Compute the average clustering coefficient for the graph."""
+    if nodes is None and weight is None and count_zeros:
+        snapshot = _cached_triangle_census_snapshot(G)
+        if snapshot is not None and snapshot[5] is not None:
+            return snapshot[5]
     # br-r37-c1-2q49i: keep nx's public aggregation contract exactly.
     # ``_raw_average_clustering`` computes the same mathematical value,
     # but its summation order can change the final float bit. Reuse the
@@ -47067,6 +47161,9 @@ def transitivity(G):
     # the clustering/average_clustering fast paths use, and it matches
     # nx bit-exactly.
     if not G.is_directed():
+        snapshot = _cached_triangle_census_snapshot(G)
+        if snapshot is not None:
+            return snapshot[6]
         try:
             value = _raw_transitivity(G)
         except Exception:
@@ -47194,8 +47291,14 @@ def triangles(G, nodes=None):
     # br-r37-c1-nwkg0: accept nx-typed inputs.
     G = _coerce_arg_to_fnx_graph(G)
     if nodes is None:
-        # Rust returns results in node-insertion order (matching G.nodes())
-        return _raw_triangles(G)
+        snapshot = _cached_triangle_census_snapshot(G)
+        if snapshot is not None:
+            return dict(snapshot[3])
+        # Rust returns results in node-insertion order (matching G.nodes()).
+        start_key = _triangle_census_cache_key(G)
+        result = _raw_triangles(G)
+        _store_triangle_census_snapshot(G, result, start_key)
+        return result
 
     # br-r37-c1-mnziq: nx decorator order makes 'directed' fire first
     # on MultiDiGraph.
