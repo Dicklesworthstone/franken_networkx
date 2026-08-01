@@ -11313,6 +11313,66 @@ from franken_networkx._fnx import (
 )
 
 
+# A successful unweighted undirected eccentricity sweep already computes every
+# value needed by diameter/radius/center/periphery.  NetworkX's public API makes
+# callers materialize those results separately, but repeating the all-sources
+# traversal four more times is not observable behavior.  Keep one immutable
+# snapshot on the graph, keyed by the native topology revisions.  Public dicts
+# and lists are rebuilt on every call so mutating a returned value can never
+# poison a later result.
+_DISTANCE_MEASURES_CACHE_ATTR = "_fnx_unweighted_distance_measures_cache_v1"
+_DISTANCE_MEASURES_CACHE_SENTINEL = object()
+
+
+def _distance_measures_cache_key(G):
+    try:
+        return (G.nodes_seq, G.edges_seq)
+    except AttributeError:
+        return None
+
+
+def _cached_distance_measures_snapshot(G):
+    key = _distance_measures_cache_key(G)
+    if key is None:
+        return None
+    try:
+        snapshot = G.__dict__.get(_DISTANCE_MEASURES_CACHE_ATTR)
+    except AttributeError:
+        return None
+    if (
+        isinstance(snapshot, tuple)
+        and len(snapshot) == 8
+        and snapshot[0] is _DISTANCE_MEASURES_CACHE_SENTINEL
+        and snapshot[1:3] == key
+    ):
+        return snapshot
+    return None
+
+
+def _store_distance_measures_snapshot(G, eccentricities, start_key):
+    # The Rust sweep releases the GIL.  Do not retain its result if another
+    # thread changed the topology while it was running.
+    if start_key is None or _distance_measures_cache_key(G) != start_key:
+        return None
+    items = tuple(eccentricities.items())
+    if not items:
+        return None
+    diameter_value = max(value for _, value in items)
+    radius_value = min(value for _, value in items)
+    snapshot = (
+        _DISTANCE_MEASURES_CACHE_SENTINEL,
+        start_key[0],
+        start_key[1],
+        items,
+        diameter_value,
+        radius_value,
+        tuple(node for node, value in items if value == radius_value),
+        tuple(node for node, value in items if value == diameter_value),
+    )
+    G.__dict__[_DISTANCE_MEASURES_CACHE_ATTR] = snapshot
+    return snapshot
+
+
 def density(G):
     r"""Returns the density of a graph."""
     n = G.number_of_nodes()
@@ -11391,6 +11451,9 @@ def diameter(G, e=None, usebounds=False, weight=None):
     if G.is_directed():
         ecc = eccentricity(G)
         return max(ecc.values())
+    snapshot = _cached_distance_measures_snapshot(G)
+    if snapshot is not None:
+        return snapshot[4]
     return _raw_diameter(G)
 
 
@@ -11429,6 +11492,9 @@ def radius(G, e=None, usebounds=False, weight=None):
     if G.is_directed():
         ecc = eccentricity(G)
         return min(ecc.values())
+    snapshot = _cached_distance_measures_snapshot(G)
+    if snapshot is not None:
+        return snapshot[5]
     return _raw_radius(G)
 
 
@@ -11474,8 +11540,12 @@ def center(G, e=None, usebounds=False, weight=None):
     # safety; fnx.eccentricity now handles directed inputs natively
     # (verified on cycle3 and 5-cycle+chord against nx 3.6.1) so we
     # can drop the delegate and stay on the native path.
-    if not G.is_directed() and is_tree(G):
-        return _tree_center_unweighted(G)
+    if not G.is_directed():
+        snapshot = _cached_distance_measures_snapshot(G)
+        if snapshot is not None:
+            return list(snapshot[6])
+        if is_tree(G):
+            return _tree_center_unweighted(G)
     ecc = eccentricity(G)
     if not ecc:
         return []
@@ -11524,6 +11594,10 @@ def periphery(G, e=None, usebounds=False, weight=None):
     # br-r37-c1-bnzab: directed-graph case used to delegate to nx for
     # safety; fnx.eccentricity now handles directed inputs natively
     # so we can drop the delegate and stay on the native path.
+    if not G.is_directed():
+        snapshot = _cached_distance_measures_snapshot(G)
+        if snapshot is not None:
+            return list(snapshot[7])
     ecc = eccentricity(G)
     if not ecc:
         return []
@@ -11569,7 +11643,13 @@ def eccentricity(G, v=None, sp=None, weight=None):
     # directed case to NX; mirror that here so the family stays
     # internally consistent and matches NX.
     if v is None and sp is None and weight is None and not G.is_directed():
-        return _raw_eccentricity(G)
+        snapshot = _cached_distance_measures_snapshot(G)
+        if snapshot is not None:
+            return dict(snapshot[3])
+        start_key = _distance_measures_cache_key(G)
+        result = _raw_eccentricity(G)
+        _store_distance_measures_snapshot(G, result, start_key)
+        return result
 
     order = G.order()
     eccentricities = {}

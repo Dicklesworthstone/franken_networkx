@@ -486,6 +486,54 @@ def test_eccentricity_on_disconnected_returns_per_node_inf_or_raises():
         fnx.eccentricity(fg)
 
 
+def test_unweighted_family_reuses_immutable_eccentricity_snapshot(monkeypatch):
+    edges = [(i, (i + 1) % 6) for i in range(6)] + [(0, 2), (2, 5)]
+    fg, ng = _pair(edges, list(range(6)))
+
+    raw_eccentricity = fnx._raw_eccentricity
+    calls = 0
+
+    def counted_eccentricity(graph):
+        nonlocal calls
+        calls += 1
+        return raw_eccentricity(graph)
+
+    monkeypatch.setattr(fnx, "_raw_eccentricity", counted_eccentricity)
+    first = fnx.eccentricity(fg)
+    expected = nx.eccentricity(ng)
+    assert first == expected
+    assert calls == 1
+
+    # Every public return remains fresh even though the expensive native sweep
+    # is shared. Mutating this dict must not contaminate the cached snapshot.
+    first[0] = 999
+    assert fnx.eccentricity(fg) == expected
+    assert calls == 1
+
+    monkeypatch.setattr(
+        fnx,
+        "_raw_diameter",
+        lambda graph: pytest.fail("diameter repeated the cached all-sources sweep"),
+    )
+    monkeypatch.setattr(
+        fnx,
+        "_raw_radius",
+        lambda graph: pytest.fail("radius repeated the cached all-sources sweep"),
+    )
+    assert fnx.diameter(fg) == nx.diameter(ng)
+    assert fnx.radius(fg) == nx.radius(ng)
+    assert fnx.center(fg) == nx.center(ng)
+    assert fnx.periphery(fg) == nx.periphery(ng)
+    assert calls == 1
+
+    # Topology revisions invalidate the snapshot; the next eccentricity call
+    # must perform exactly one new sweep and repopulate it.
+    fg.add_edge(1, 4)
+    ng.add_edge(1, 4)
+    assert fnx.eccentricity(fg) == nx.eccentricity(ng)
+    assert calls == 2
+
+
 # ---------------------------------------------------------------------------
 # Cross-relation: diameter == max(eccentricity), radius == min(eccentricity)
 # ---------------------------------------------------------------------------
