@@ -3993,39 +3993,65 @@ fn harmonic_centrality_source_ordered_impl<G: GraphView>(
             .collect::<Option<Vec<&[usize]>>>()
     {
         use rayon::prelude::*;
+
+        // br-r37-c1-harmbp: this reverse BFS only ACQUIRES distances; the
+        // accumulation below is what owns nx parity. So the traversal can be made
+        // cache-friendly without touching a single f64 addition:
+        //
+        //   * `rows` is a `Vec<&[usize]>` — one pointer chase per node visited.
+        //     Flatten it once into a u32 CSR and the inner loop becomes a
+        //     contiguous array scan. Same rows, same order, so the BFS visits
+        //     neighbours in an unchanged sequence.
+        //   * `distance` was `Vec<usize>` and is refilled for every target: at
+        //     n=17903 that is a 143 KiB memset per target, ~2.6 GiB across the
+        //     run. u32 halves it and halves the traffic of every probe.
+        //   * `VecDeque` becomes a `Vec` with a head index, matching the Brandes
+        //     kernel — BFS never needs to push at the front.
+        //
+        // Same treatment that took Brandes 1.37-1.54x (br-r37-c1-bcsr); the
+        // harmonic gather had the identical shape.
+        let (csr_offsets, csr_targets) = build_u32_csr(n, |u| rows[u]);
+        const UNREACHED: u32 = u32::MAX;
         let per_target: Vec<(f64, usize, usize, usize)> = (0..n)
             .into_par_iter()
             .map_init(
-                || (vec![usize::MAX; n], VecDeque::with_capacity(n)),
-                |(distance, queue): &mut (Vec<usize>, VecDeque<usize>), u| {
-                    distance.fill(usize::MAX);
+                || (vec![UNREACHED; n], Vec::<u32>::with_capacity(n)),
+                |(distance, queue): &mut (Vec<u32>, Vec<u32>), u| {
+                    distance.fill(UNREACHED);
                     queue.clear();
                     distance[u] = 0;
-                    queue.push_back(u);
+                    queue.push(u as u32);
                     let (mut touched, mut edges, mut peak) = (0usize, 0usize, 1usize);
 
-                    while let Some(v) = queue.pop_front() {
+                    let mut head = 0usize;
+                    while head < queue.len() {
+                        let v = queue[head] as usize;
+                        head += 1;
                         touched += 1;
                         let d = distance[v];
-                        for &w in rows[v] {
+                        let lo = csr_offsets[v] as usize;
+                        let hi = csr_offsets[v + 1] as usize;
+                        for &target in &csr_targets[lo..hi] {
+                            let w = target as usize;
                             edges += 1;
-                            if distance[w] == usize::MAX {
+                            if distance[w] == UNREACHED {
                                 distance[w] = d + 1;
-                                queue.push_back(w);
+                                queue.push(w as u32);
                             }
                         }
-                        peak = peak.max(queue.len());
+                        peak = peak.max(queue.len() - head);
                     }
 
                     // nx's exact addend sequence for target `u`: sources in their
                     // given order, skipping self (d == 0) and unreached sources,
                     // which is precisely what the scatter's `if d != 0` and
-                    // "only reached targets" behaviour amount to.
+                    // "only reached targets" behaviour amount to. UNCHANGED — the
+                    // whole point of the rewrite above is that it stops here.
                     let mut acc = 0.0_f64;
                     for &s in &src_idx {
                         let d = distance[s];
-                        if d != usize::MAX && d != 0 {
-                            acc += 1.0 / (d as f64);
+                        if d != UNREACHED && d != 0 {
+                            acc += 1.0 / (f64::from(d));
                         }
                     }
                     (acc, touched, edges, peak)
