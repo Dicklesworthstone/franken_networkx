@@ -6767,27 +6767,90 @@ pub fn edge_betweenness_centrality_directed(graph: &DiGraph) -> EdgeBetweennessC
 }
 
 /// Reusable per-worker scratch for one edge-Brandes single-source pass.
-/// `predecessors[w]` holds `(v, edge_index)` pairs so the dependency loop has the
-/// canonical edge index in hand — no per-step string build / hash lookup.
+/// br-r37-c1-ebcsr: like `BrandesScratch`, this carries NO predecessor structure.
+/// The dependency phase re-derives `w`'s predecessors by scanning its reverse-CSR
+/// row for `distance[v] == distance[w] - 1`, which removes `n` heap rows cleared
+/// on each of `n` sources plus a push per tree edge. See `edge_brandes_source`.
 struct EdgeBrandesScratch {
-    predecessors: Vec<Vec<(usize, usize)>>,
     sigma: Vec<f64>,
     distance: Vec<i64>,
     dependency: Vec<f64>,
-    stack: Vec<usize>,
-    queue: VecDeque<usize>,
+    stack: Vec<u32>,
+    queue: Vec<u32>,
 }
 
 impl EdgeBrandesScratch {
     fn new(n: usize) -> Self {
         Self {
-            predecessors: std::iter::repeat_with(Vec::new).take(n).collect(),
             sigma: vec![0.0; n],
             distance: vec![-1i64; n],
             dependency: vec![0.0; n],
             stack: Vec::with_capacity(n),
-            queue: VecDeque::new(),
+            queue: Vec::with_capacity(n),
         }
+    }
+}
+
+/// Flatten `(neighbor, edge_index)` adjacency into a CSR carrying the edge-index
+/// payload, plus its transpose. Row order is preserved exactly, so the BFS visits
+/// neighbours in an unchanged sequence and `sigma[w] += sigma[v]` associates
+/// identically. The transpose is a counting sort, O(|V| + |E|); on an undirected
+/// graph it reproduces the same neighbour multiset, on a directed one it yields
+/// in-neighbours — the direction the dependency phase needs.
+struct EdgeBrandesCsr {
+    /// Forward rows: `out_targets[k]` is a neighbour, `out_eidx[k]` its canonical
+    /// edge id, in the graph's own neighbour-iteration order.
+    out_offsets: Vec<u32>,
+    out_targets: Vec<u32>,
+    /// Reverse rows carrying the same edge-id payload, so the dependency phase
+    /// has `(v, eidx)` in hand without a stored predecessor list.
+    in_offsets: Vec<u32>,
+    in_sources: Vec<u32>,
+    in_eidx: Vec<u32>,
+}
+
+fn edge_brandes_build_csr(adjacency: &[Vec<(usize, usize)>], n: usize) -> EdgeBrandesCsr {
+    let total: usize = adjacency.iter().map(Vec::len).sum();
+    let mut out_offsets = Vec::with_capacity(n + 1);
+    let mut out_targets: Vec<u32> = Vec::with_capacity(total);
+    let mut out_eidx: Vec<u32> = Vec::with_capacity(total);
+    out_offsets.push(0u32);
+    for row in adjacency.iter().take(n) {
+        for &(w, eidx) in row {
+            out_targets.push(w as u32);
+            out_eidx.push(eidx as u32);
+        }
+        out_offsets.push(out_targets.len() as u32);
+    }
+
+    let mut counts = vec![0u32; n + 1];
+    for &t in &out_targets {
+        counts[t as usize + 1] += 1;
+    }
+    for i in 0..n {
+        counts[i + 1] += counts[i];
+    }
+    let in_offsets = counts.clone();
+    let mut cursor = counts;
+    let mut in_sources = vec![0u32; total];
+    let mut in_eidx = vec![0u32; total];
+    for v in 0..n {
+        let lo = out_offsets[v] as usize;
+        let hi = out_offsets[v + 1] as usize;
+        for k in lo..hi {
+            let w = out_targets[k] as usize;
+            let slot = &mut cursor[w];
+            in_sources[*slot as usize] = v as u32;
+            in_eidx[*slot as usize] = out_eidx[k];
+            *slot += 1;
+        }
+    }
+    EdgeBrandesCsr {
+        out_offsets,
+        out_targets,
+        in_offsets,
+        in_sources,
+        in_eidx,
     }
 }
 
@@ -6799,12 +6862,18 @@ impl EdgeBrandesScratch {
 /// Returns `(delta, edges_scanned, nodes_touched, queue_peak)`.
 fn edge_brandes_source(
     scratch: &mut EdgeBrandesScratch,
-    adjacency: &[Vec<(usize, usize)>],
+    csr: &EdgeBrandesCsr,
     n_edges: usize,
     s: usize,
 ) -> (Vec<f64>, usize, usize, usize) {
+    let EdgeBrandesCsr {
+        out_offsets,
+        out_targets,
+        in_offsets,
+        in_sources,
+        in_eidx,
+    } = csr;
     let EdgeBrandesScratch {
-        predecessors,
         sigma,
         distance,
         dependency,
@@ -6813,9 +6882,6 @@ fn edge_brandes_source(
     } = scratch;
 
     stack.clear();
-    for predecessor_list in predecessors.iter_mut() {
-        predecessor_list.clear();
-    }
     sigma.fill(0.0);
     distance.fill(-1);
     dependency.fill(0.0);
@@ -6826,36 +6892,57 @@ fn edge_brandes_source(
 
     sigma[s] = 1.0;
     distance[s] = 0;
-    queue.push_back(s);
+    queue.push(s as u32);
     queue_peak = queue_peak.max(queue.len());
 
-    while let Some(v) = queue.pop_front() {
-        stack.push(v);
+    let mut head = 0usize;
+    while head < queue.len() {
+        let v = queue[head] as usize;
+        head += 1;
+        stack.push(v as u32);
         let dist_v = distance[v];
-        for &(w, eidx) in &adjacency[v] {
+        let lo = out_offsets[v] as usize;
+        let hi = out_offsets[v + 1] as usize;
+        for &target in &out_targets[lo..hi] {
+            let w = target as usize;
             edges_scanned += 1;
             if distance[w] < 0 {
                 distance[w] = dist_v + 1;
-                queue.push_back(w);
-                queue_peak = queue_peak.max(queue.len());
+                queue.push(w as u32);
+                queue_peak = queue_peak.max(queue.len() - head);
             }
             if distance[w] == dist_v + 1 {
                 sigma[w] += sigma[v];
-                predecessors[w].push((v, eidx));
             }
         }
     }
 
     let nodes_touched = stack.len();
     let mut delta = vec![0.0f64; n_edges];
-    while let Some(w) = stack.pop() {
+    while let Some(popped) = stack.pop() {
+        let w = popped as usize;
         let sigma_w = sigma[w];
         let delta_w = dependency[w];
-        if sigma_w > 0.0 {
-            for &(v, eidx) in &predecessors[w] {
-                let contribution = (sigma[v] / sigma_w) * (1.0 + delta_w);
-                delta[eidx] += contribution;
-                dependency[v] += contribution;
+        let dist_w = distance[w];
+        // Predecessors of `w` are its in-neighbours one BFS level up, recovered by
+        // scan instead of from a stored list. Bit-exact: for a fixed `w` the
+        // distinct predecessors carry distinct `v` AND distinct `eidx`, so both
+        // accumulators are written once each and the order within the row cannot
+        // change either sum. Parallel edges repeat a `v` with an identical addend,
+        // which is likewise order-invariant. `dist_w > 0` excludes the source
+        // (empty predecessor list) and stops the `dist_w - 1 == -1` probe from
+        // matching unreached nodes.
+        if sigma_w > 0.0 && dist_w > 0 {
+            let pred_dist = dist_w - 1;
+            let lo = in_offsets[w] as usize;
+            let hi = in_offsets[w + 1] as usize;
+            for k in lo..hi {
+                let v = in_sources[k] as usize;
+                if distance[v] == pred_dist {
+                    let contribution = (sigma[v] / sigma_w) * (1.0 + delta_w);
+                    delta[in_eidx[k] as usize] += contribution;
+                    dependency[v] += contribution;
+                }
             }
         }
     }
@@ -6936,6 +7023,7 @@ fn edge_betweenness_centrality_brandes<G: GraphView>(graph: &G) -> EdgeBetweenne
         adjacency.push(row);
     }
     let n_edges = edge_endpoints.len();
+    let edge_csr = edge_brandes_build_csr(&adjacency, n);
 
     let mut edge_total = vec![0.0f64; n_edges];
     let mut nodes_touched = 0usize;
@@ -6959,7 +7047,7 @@ fn edge_betweenness_centrality_brandes<G: GraphView>(graph: &G) -> EdgeBetweenne
                 .into_par_iter()
                 .map_init(
                     || EdgeBrandesScratch::new(n),
-                    |scratch, s| edge_brandes_source(scratch, &adjacency, n_edges, s),
+                    |scratch, s| edge_brandes_source(scratch, &edge_csr, n_edges, s),
                 )
                 .collect();
             for (delta, src_edges, src_touched, src_peak) in chunk_results {
@@ -6976,7 +7064,7 @@ fn edge_betweenness_centrality_brandes<G: GraphView>(graph: &G) -> EdgeBetweenne
         let mut scratch = EdgeBrandesScratch::new(n);
         for s in 0..n {
             let (delta, src_edges, src_touched, src_peak) =
-                edge_brandes_source(&mut scratch, &adjacency, n_edges, s);
+                edge_brandes_source(&mut scratch, &edge_csr, n_edges, s);
             for (acc, contribution) in edge_total.iter_mut().zip(delta.iter()) {
                 *acc += *contribution;
             }
@@ -68217,6 +68305,160 @@ mod tests {
                 median(&mut null.clone()),
             );
         }
+    }
+
+    /// br-r37-c1-ebcsr: edge betweenness with predecessors recovered by scan must
+    /// be BIT-identical to the stored `(v, edge_index)` list formulation. The
+    /// reference below is the exact pre-change kernel; sizes straddle
+    /// `EDGE_BRANDES_PARALLEL_THRESHOLD` (500) so both arms are covered, and the
+    /// directed cases are what prove the payload-carrying transpose really
+    /// recovers in-edges rather than out-edges.
+    #[test]
+    fn edge_betweenness_predecessor_scan_is_bit_identical_to_stored_lists() {
+        use super::{
+            EdgeBetweennessCentralityResult, GraphView, edge_betweenness_centrality,
+            edge_betweenness_centrality_directed,
+        };
+        use std::collections::HashMap;
+
+        fn reference<G: GraphView>(graph: &G) -> Vec<((String, String), f64)> {
+            let nodes = graph.nodes_ordered();
+            let n = nodes.len();
+            let is_directed = graph.is_directed();
+            let canon = |a: usize, b: usize| -> (usize, usize) {
+                if is_directed || nodes[a] <= nodes[b] {
+                    (a, b)
+                } else {
+                    (b, a)
+                }
+            };
+            let mut edge_index: HashMap<(usize, usize), usize> = HashMap::new();
+            let mut edge_endpoints: Vec<(usize, usize)> = Vec::new();
+            let mut adjacency: Vec<Vec<(usize, usize)>> = Vec::with_capacity(n);
+            for u in 0..n {
+                let mut row = Vec::new();
+                if let Some(neighbors) = graph.neighbors_iter(nodes[u]) {
+                    for w_name in neighbors {
+                        let w = graph.get_node_index(w_name).expect("indexed");
+                        let key = canon(u, w);
+                        let eidx = *edge_index.entry(key).or_insert_with(|| {
+                            let e = edge_endpoints.len();
+                            edge_endpoints.push(key);
+                            e
+                        });
+                        row.push((w, eidx));
+                    }
+                }
+                adjacency.push(row);
+            }
+            let n_edges = edge_endpoints.len();
+            let mut total = vec![0.0f64; n_edges];
+
+            let mut predecessors: Vec<Vec<(usize, usize)>> = vec![Vec::new(); n];
+            let mut sigma = vec![0.0f64; n];
+            let mut distance = vec![-1i64; n];
+            let mut dependency = vec![0.0f64; n];
+            let mut stack: Vec<usize> = Vec::new();
+            let mut queue: std::collections::VecDeque<usize> = Default::default();
+
+            for s in 0..n {
+                stack.clear();
+                for row in &mut predecessors {
+                    row.clear();
+                }
+                sigma.fill(0.0);
+                distance.fill(-1);
+                dependency.fill(0.0);
+                queue.clear();
+                sigma[s] = 1.0;
+                distance[s] = 0;
+                queue.push_back(s);
+                while let Some(v) = queue.pop_front() {
+                    stack.push(v);
+                    let dist_v = distance[v];
+                    for &(w, eidx) in &adjacency[v] {
+                        if distance[w] < 0 {
+                            distance[w] = dist_v + 1;
+                            queue.push_back(w);
+                        }
+                        if distance[w] == dist_v + 1 {
+                            sigma[w] += sigma[v];
+                            predecessors[w].push((v, eidx));
+                        }
+                    }
+                }
+                while let Some(w) = stack.pop() {
+                    let sigma_w = sigma[w];
+                    let delta_w = dependency[w];
+                    if sigma_w > 0.0 {
+                        for &(v, eidx) in &predecessors[w] {
+                            let contribution = (sigma[v] / sigma_w) * (1.0 + delta_w);
+                            total[eidx] += contribution;
+                            dependency[v] += contribution;
+                        }
+                    }
+                }
+            }
+            // Same scaling the production path applies, so the comparison is on
+            // the values users actually see.
+            let scale = if n > 1 {
+                1.0 / ((n * (n - 1)) as f64)
+            } else {
+                0.0
+            };
+            edge_endpoints
+                .iter()
+                .enumerate()
+                .map(|(e, &(a, b))| ((nodes[a].to_owned(), nodes[b].to_owned()), total[e] * scale))
+                .collect()
+        }
+
+        for &n in &[64usize, 499, 500, 700] {
+            let mut undirected = Graph::strict();
+            let mut directed = DiGraph::strict();
+            for i in 0..n {
+                let _ = undirected.add_node(i.to_string());
+                let _ = directed.add_node(i.to_string());
+            }
+            for i in 0..n {
+                for step in [1usize, 3, 7] {
+                    let _ = undirected.add_edge(i.to_string(), ((i + step) % n).to_string());
+                    let _ = directed.add_edge(i.to_string(), ((i + step) % n).to_string());
+                }
+            }
+
+            let check = |label: &str,
+                         want: Vec<((String, String), f64)>,
+                         got: &EdgeBetweennessCentralityResult| {
+                let mut want_map: HashMap<(String, String), f64> = want.into_iter().collect();
+                assert_eq!(got.scores.len(), want_map.len(), "{label} n={n}");
+                for score in &got.scores {
+                    let key = (score.left.clone(), score.right.clone());
+                    let expected = want_map
+                        .remove(&key)
+                        .unwrap_or_else(|| panic!("{label} n={n}: unexpected edge {key:?}"));
+                    assert_eq!(
+                        score.score.to_bits(),
+                        expected.to_bits(),
+                        "{label} n={n} edge={key:?} got={} want={expected}",
+                        score.score
+                    );
+                }
+                assert!(want_map.is_empty(), "{label} n={n}: missing edges");
+            };
+
+            check(
+                "undirected",
+                reference(&undirected),
+                &edge_betweenness_centrality(&undirected),
+            );
+            check(
+                "directed",
+                reference(&directed),
+                &edge_betweenness_centrality_directed(&directed),
+            );
+        }
+        println!("edge_betweenness_predecessor_scan_is_bit_identical_to_stored_lists: OK");
     }
 
     #[test]
