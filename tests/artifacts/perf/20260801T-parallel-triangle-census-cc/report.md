@@ -65,6 +65,38 @@ is capped so per-worker scratch (one count vector + one mark array per worker) s
   are environmental (the coverage generator spawns a subprocess whose interpreter has no
   `networkx`) and are identical to the pre-change baseline.
 
+## Whole job, on this binary — `facebook_combined`, 8 interleaved replicates, live nx 3.6.1
+
+Run at a genuinely quiet load (5.68 → 2.68), unlike the earlier passes in this session.
+
+| stage | nx wall | nx cpu/wall | fnx wall | fnx cpu/wall | fnx threads | speedup |
+|---|--:|--:|--:|--:|--:|--:|
+| read_edgelist | 0.120 s | 1.02 | 0.0143 s | 1.19 | 1 | 8.4x |
+| remove_self_loops | 0.000 s | 8.37 | 0.0001 s | 26.73 | 1 | 2.9x |
+| connected_components | 0.008 s | 1.32 | 0.0006 s | 4.08 | 1 | 12.9x |
+| degree_assortativity | 0.116 s | 1.02 | 0.0005 s | 5.86 | 1 | 226.1x |
+| **average_clustering** | 1.228 s | 1.00 | **0.0036 s** | **16.81** | **65** | **341.7x** |
+| core_number | 0.077 s | 1.04 | 0.0014 s | 2.68 | 1 | 53.9x |
+| pagerank | 0.069 s | 1.04 | 0.0036 s | 1.67 | 1 | 19.3x |
+| betweenness_exact | 78.855 s | 1.00 | 0.0573 s | 44.10 | 65 | 1377.1x |
+| closeness | 24.710 s | 1.00 | 0.0046 s | 29.61 | 65 | 5379.9x |
+| **TOTAL** | **105.436 s** | **1.00** | **0.0869 s** | **31.56** | **65** | **1212.9x** |
+
+Median of the eight per-replicate ratios: **1208.5x**, CI **[1159.7, 1237.9]**.
+`average_clustering` is the visible change: **cpu/wall 1.17 on one thread before, 16.81 on 65
+after**. Whole-job cpu/wall rose 25.34 → 31.56.
+
+The headline ratio did **not** rise despite fnx getting faster (0.105 s → 0.087 s), because the
+same quieter box also sped the nx arm up (131.0 s → 105.4 s). A ratio is a joint measurement of
+both arms; that is exactly why the arms are interleaved and why absolute walls are reported
+alongside it rather than the ratio alone.
+
+`degree_assortativity` still differs between engines by 2 ULP
+(`0.06357722918564918` vs `...943`). That is pre-existing float-summation order in the
+assortativity kernel — the 2026-07-30 study JSON already contains both values, and rebuilding
+fnx's graph as a native `nx.Graph` and running nx's own kernel returns nx's value exactly. Every
+other digest key matches, including the top-10 lists for pagerank, betweenness and closeness.
+
 ## Measurement note
 
 `triangles` is reported **cold — one freshly-read graph per call**. Measured warm inside a loop
