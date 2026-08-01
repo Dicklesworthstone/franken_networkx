@@ -44881,24 +44881,31 @@ Graph.__setattr__ = _graph_setattr_with_cached_public_adj
 Graph.adj = _CachedViewDescriptor(_GRAPH_PUBLIC_ADJ_PROPERTY.fget, "adj")
 
 
-# MultiGraph is an independent PyO3 class rather than a Graph subclass and has
-# no public-adjacency setattr shim. It still needs to distinguish a user
-# predicate assignment from the internally memoized raw bound method.
-_MULTIGRAPH_SETATTR_BEFORE_PREDICATE_CACHE = MultiGraph.__setattr__
+# MultiGraph is an independent PyO3 class rather than a Graph subclass, so it
+# does not inherit Graph's cached public-adjacency descriptor.  Preserve the
+# load-bearing ``_adj`` property above, but make ordinary warm ``adj`` reads
+# instance-dict hits exactly like the other three graph classes.
+_MULTIGRAPH_PUBLIC_ADJ_PROPERTY = MultiGraph.__dict__["adj"]
+_MULTIGRAPH_SETATTR_BEFORE_PUBLIC_ADJ_CACHE = MultiGraph.__setattr__
 
 
-def _multigraph_setattr_with_cached_predicates(self, name, value):
+def _multigraph_setattr_with_cached_public_adj(self, name, value):
+    if name == "adj" and isinstance(self, _FilteredGraphView):
+        return _MULTIGRAPH_PUBLIC_ADJ_PROPERTY.__set__(self, value)
+
     if (
-        name in _COMMON_CACHED_PUBLIC_NAMES
+        name == "adj"
+        or name in _COMMON_CACHED_PUBLIC_NAMES
         or name in _CLASS_PREDICATE_NAMES
     ):
         _discard_cached_descriptor_marker(self, name)
-    result = _MULTIGRAPH_SETATTR_BEFORE_PREDICATE_CACHE(self, name, value)
+    result = _MULTIGRAPH_SETATTR_BEFORE_PUBLIC_ADJ_CACHE(self, name, value)
     self._fnx_register_gc_dict(vars(self))
     return result
 
 
-MultiGraph.__setattr__ = _multigraph_setattr_with_cached_predicates
+MultiGraph.__setattr__ = _multigraph_setattr_with_cached_public_adj
+MultiGraph.adj = _CachedViewDescriptor(_MULTIGRAPH_PUBLIC_ADJ_PROPERTY.fget, "adj")
 
 
 # br-r37-c1-dyuzb: the directed public siblings had the same repeated data-

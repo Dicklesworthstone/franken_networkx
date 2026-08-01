@@ -981,6 +981,41 @@ def test_graph_adj_public_descriptor_is_cached_and_live():
     assert list(fnx_view["n0"]) == list(nx_view["n0"])
 
 
+def test_multigraph_adj_public_descriptor_is_cached_assignable_and_live():
+    """MultiGraph gets the same warm instance-dict path as every sibling."""
+    gnx, gfx = _pair("MultiGraph")
+    assert isinstance(fnx.MultiGraph.__dict__["adj"], fnx._CachedViewDescriptor)
+    assert "adj" not in vars(gfx)
+
+    nx_view, fnx_view = gnx.adj, gfx.adj
+    assert vars(gfx)["adj"] is fnx_view
+    assert gfx.adj is fnx_view
+    assert {
+        node: {neighbor: list(keys) for neighbor, keys in row.items()}
+        for node, row in fnx_view.items()
+    } == {
+        node: {neighbor: list(keys) for neighbor, keys in row.items()}
+        for node, row in nx_view.items()
+    }
+
+    gnx.add_edge("n0", "later", key="live", weight=9)
+    gfx.add_edge("n0", "later", key="live", weight=9)
+    assert list(fnx_view["n0"]["later"]) == list(nx_view["n0"]["later"])
+
+    sub_nx = nx.subgraph_view(gnx, filter_node=lambda node: node != "n1")
+    sub_fx = fnx.subgraph_view(gfx, filter_node=lambda node: node != "n1")
+    assert list(sub_fx.nodes) == list(sub_nx.nodes)
+    assert list(sub_fx.edges(keys=True)) == list(sub_nx.edges(keys=True))
+
+    nx_value = {"public": {"nx": {0: 1}}}
+    fnx_value = {"public": {"nx": {0: 1}}}
+    gnx.adj = nx_value
+    gfx.adj = fnx_value
+    assert gfx.adj is fnx_value
+    assert "adj" not in vars(gfx).get(fnx._DESCRIPTOR_CACHED_VIEWS, ())
+    assert list(gfx.neighbors("n0")) == list(gnx.neighbors("n0"))
+
+
 def test_graph_adj_user_assignment_clears_internal_cache_marker():
     """A real public value must survive deepcopy/pickle as user state."""
     gnx, gfx = _pair("Graph")
