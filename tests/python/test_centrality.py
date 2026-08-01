@@ -66,6 +66,60 @@ class TestCentrality:
         nx_kc = nx.katz_centrality(G_nx)
         assert_dicts_close(fnx_kc, nx_kc, atol=1e-3, label="katz_centrality")
 
+    def test_katz_centrality_many(self, fnx, nx):
+        G_fnx = fnx.DiGraph()
+        G_nx = nx.DiGraph()
+        edges = [
+            (0, 1, 0.5),
+            (1, 2, 1.25),
+            (2, 0, 0.75),
+            (2, 3, 1.5),
+            (3, 1, 0.25),
+        ]
+        G_fnx.add_weighted_edges_from(edges)
+        G_nx.add_weighted_edges_from(edges)
+        betas = [
+            1.0,
+            {node: 0.5 + node / 10 for node in G_nx},
+            {node: 1.5 - node / 10 for node in G_nx},
+        ]
+        kwargs = {
+            "alpha": 0.05,
+            "max_iter": 1000,
+            "tol": 1.0e-10,
+            "normalized": True,
+            "weight": "weight",
+        }
+
+        actual = fnx.katz_centrality_many(G_fnx, betas, workers=2, **kwargs)
+        expected = [nx.katz_centrality(G_nx, beta=beta, **kwargs) for beta in betas]
+        serial = fnx.katz_centrality_many(G_fnx, betas, workers=1, **kwargs)
+
+        assert len(actual) == len(betas)
+        for index, (actual_vector, expected_vector, serial_vector) in enumerate(
+            zip(actual, expected, serial)
+        ):
+            assert_dicts_close(
+                actual_vector,
+                expected_vector,
+                atol=1e-12,
+                label=f"katz_centrality_many[{index}]",
+            )
+            assert actual_vector == serial_vector
+
+    def test_katz_centrality_many_edges(self, fnx):
+        assert fnx.katz_centrality_many(fnx.Graph(), [1.0, 2.0]) == [{}, {}]
+        assert fnx.katz_centrality_many(fnx.path_graph(3), []) == []
+        with pytest.raises(ValueError, match="workers must be greater than 0"):
+            fnx.katz_centrality_many(fnx.path_graph(3), [1.0], workers=0)
+        with pytest.raises(
+            fnx.NetworkXError,
+            match="beta dictionary must have a value for every node",
+        ):
+            fnx.katz_centrality_many(fnx.path_graph(3), [{0: 1.0}], workers=1)
+        with pytest.raises(fnx.NetworkXNotImplemented):
+            fnx.katz_centrality_many(fnx.MultiGraph([(0, 1)]), [1.0])
+
     def test_edge_betweenness_centrality(self, fnx, nx, path_graph):
         G_fnx, G_nx = path_graph
         fnx_ebc = fnx.edge_betweenness_centrality(G_fnx)
