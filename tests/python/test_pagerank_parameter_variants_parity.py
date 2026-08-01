@@ -11,9 +11,9 @@ from __future__ import annotations
 
 import random
 
-import pytest
-import networkx as nx
 import franken_networkx as fnx
+import networkx as nx
+import pytest
 
 
 def _weighted_digraph(seed, p=0.4):
@@ -74,3 +74,59 @@ def test_pagerank_combined_personalization_dangling_weight(seed):
         fnx.pagerank(fg, personalization=vec, dangling=dangling, weight="weight"),
         nx.pagerank(ng, personalization=vec, dangling=dangling, weight="weight"),
     )
+
+
+@pytest.mark.parametrize("workers", [None, 1, 4])
+@pytest.mark.parametrize("weight", [None, "weight"])
+def test_pagerank_many_is_byte_identical_to_separate_networkx_calls(
+    workers, weight
+):
+    fg, ng, n, _ = _weighted_digraph(917, p=0.55)
+    rng = random.Random(1229)
+    personalizations = [
+        {node: rng.random() + 0.01 for node in rng.sample(range(n), 3)}
+        for _ in range(8)
+    ]
+
+    actual = fnx.pagerank_many(
+        fg,
+        personalizations,
+        alpha=0.9,
+        max_iter=250,
+        tol=1.0e-9,
+        weight=weight,
+        workers=workers,
+    )
+    expected = [
+        nx.pagerank(
+            ng,
+            personalization=personalization,
+            alpha=0.9,
+            max_iter=250,
+            tol=1.0e-9,
+            weight=weight,
+        )
+        for personalization in personalizations
+    ]
+    assert actual == expected
+
+
+def test_pagerank_many_preserves_query_order_and_degenerate_shapes():
+    fg, ng, n, _ = _weighted_digraph(41)
+    personalizations = [{node: 1.0} for node in range(n)]
+    actual = fnx.pagerank_many(fg, personalizations, weight=None, workers=3)
+    expected = [
+        nx.pagerank(ng, personalization=p, weight=None)
+        for p in personalizations
+    ]
+    assert actual == expected
+    assert fnx.pagerank_many(fg, [], workers=3) == []
+    assert fnx.pagerank_many(fnx.DiGraph(), [None, {}], workers=2) == [{}, {}]
+
+
+def test_pagerank_many_rejects_zero_sum_personalization_and_bad_workers():
+    graph = fnx.path_graph(4, create_using=fnx.DiGraph)
+    with pytest.raises(ZeroDivisionError):
+        fnx.pagerank_many(graph, [{0: 0.0}], workers=1)
+    with pytest.raises(ValueError, match="workers must be greater than 0"):
+        fnx.pagerank_many(graph, [{0: 1.0}], workers=0)

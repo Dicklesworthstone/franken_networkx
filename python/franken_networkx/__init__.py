@@ -25617,6 +25617,100 @@ def _pagerank_scipy_personalized(
     raise PowerIterationFailedConvergence(max_iter)
 
 
+def pagerank_many(
+    G,
+    personalizations,
+    alpha=0.85,
+    max_iter=100,
+    tol=1.0e-6,
+    weight="weight",
+    *,
+    workers=None,
+):
+    """Compute many personalized PageRank vectors over one shared CSR matrix.
+
+    This is the batched equivalent of::
+
+        [pagerank(G, personalization=p, ...) for p in personalizations]
+
+    The graph-to-CSR conversion and row normalization happen once.  Independent
+    power iterations then run on a persistent worker pool; each worker owns one
+    rank vector and therefore preserves NetworkX's exact floating-point
+    association order.  Results are returned in personalization input order.
+
+    ``workers=None`` uses two workers when the batch has at least two queries;
+    sparse matvec is memory-bandwidth-bound, so this measured default avoids
+    oversubscribing the shared matrix.  Pass an explicit worker count to tune a
+    dedicated host, or ``workers=1`` for deterministic single-worker scheduling.
+    """
+    import concurrent.futures as _concurrent_futures
+
+    import numpy as _np
+    import scipy.sparse as _sp
+
+    G = _coerce_arg_to_fnx_graph(G)
+    max_iter = _coerce_index_arg(max_iter, "max_iter")
+    queries = list(personalizations)
+    if not queries:
+        return []
+
+    N = len(G)
+    if N == 0:
+        return [{} for _ in queries]
+
+    if isinstance(weight, str):
+        _sync_rust_edge_attrs(G, edge_only=True)
+
+    nodelist = list(G)
+    A = to_scipy_sparse_array(G, nodelist=nodelist, weight=weight, dtype=float)
+    S = _np.asarray(A.sum(axis=1)).ravel()
+    S[S != 0] = 1.0 / S[S != 0]
+    Q = _sp.csr_array(_sp.spdiags(S.T, 0, *A.shape))
+    A = Q @ A
+    is_dangling = _np.where(S == 0)[0]
+
+    def _solve(personalization):
+        x = _np.repeat(1.0 / N, N)
+        if personalization is None:
+            p = _np.repeat(1.0 / N, N)
+        else:
+            p = _np.array(
+                [personalization.get(node, 0) for node in nodelist],
+                dtype=float,
+            )
+            if p.sum() == 0:
+                raise ZeroDivisionError
+            p /= p.sum()
+
+        for _ in range(max_iter):
+            xlast = x
+            x = alpha * (x @ A + sum(x[is_dangling]) * p) + (1 - alpha) * p
+            err = _np.absolute(x - xlast).sum()
+            if err < N * tol:
+                return dict(zip(nodelist, map(float, x)))
+        raise PowerIterationFailedConvergence(max_iter)
+
+    if workers is None:
+        # All workers stream the same CSR arrays.  Two saturate this host's
+        # useful memory-level parallelism; fanning to every visible core slows
+        # the whole job by competing for bandwidth.  Keep the explicit knob for
+        # hosts with a different memory topology.
+        worker_count = min(2, len(queries))
+    else:
+        worker_count = _coerce_index_arg(workers, "workers")
+        if worker_count < 1:
+            raise ValueError("workers must be greater than 0")
+    worker_count = min(worker_count, len(queries))
+
+    if worker_count == 1:
+        return [_solve(personalization) for personalization in queries]
+    with _concurrent_futures.ThreadPoolExecutor(
+        max_workers=worker_count,
+        thread_name_prefix="fnx-pagerank",
+    ) as executor:
+        return list(executor.map(_solve, queries))
+
+
 def pagerank(
     G,
     alpha=0.85,
@@ -60540,6 +60634,7 @@ __all__ = [
     "hits",
     "katz_centrality",
     "pagerank",
+    "pagerank_many",
     "voterank",
     # Algorithms — clustering
     "average_clustering",
