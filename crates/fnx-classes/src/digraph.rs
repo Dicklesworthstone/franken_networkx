@@ -244,6 +244,70 @@ impl DiGraph {
         }
     }
 
+    /// br-r37-c1-indsub: directed twin of `Graph::induced_subgraph_ordered` —
+    /// build the induced subgraph over `order` (parent node indices, already in
+    /// the caller's output order) with no node-name hashing.
+    ///
+    /// `add_edge_with_attrs` costs two `String` allocations, four name hashes
+    /// and TWO `record_decision` ledger entries per arc (the second carrying
+    /// four `EvidenceTerm`s, eight more String allocations). Everything it
+    /// re-derives is already known here. Invariants reproduced directly:
+    /// `edges` keyed by the ORIENTED new-index pair (direction is identity for
+    /// a directed edge, so no canonicalization), and a succ/pred row records
+    /// its endpoint when the arc is emitted, so both row orders are the walk
+    /// order — matching nx's `add_edges_from` over the induced walk.
+    ///
+    /// `order` must contain distinct, in-range parent indices.
+    #[must_use]
+    pub fn induced_subgraph_ordered(&self, order: &[usize], runtime_policy: RuntimePolicy) -> Self {
+        let mut position = vec![usize::MAX; self.nodes.len()];
+        for (slot, &parent_idx) in order.iter().enumerate() {
+            position[parent_idx] = slot;
+        }
+
+        let mut nodes = crate::FxIndexMap::default();
+        nodes.reserve(order.len());
+        for &parent_idx in order {
+            let (name, attrs) = self
+                .nodes
+                .get_index(parent_idx)
+                .expect("induced subgraph order must hold valid parent node indices");
+            nodes.insert(name.clone(), attrs.clone());
+        }
+
+        let mut succ_indices = vec![Vec::new(); order.len()];
+        let mut pred_indices = vec![Vec::new(); order.len()];
+        let mut edges = crate::FxIndexMap::default();
+        for (slot, &parent_idx) in order.iter().enumerate() {
+            for &parent_target in &self.succ_indices[parent_idx] {
+                let other = position[parent_target];
+                if other == usize::MAX {
+                    continue;
+                }
+                let attrs = self
+                    .edges
+                    .get(&(parent_idx, parent_target))
+                    .cloned()
+                    .unwrap_or_default();
+                edges.insert((slot, other), attrs);
+                succ_indices[slot].push(other);
+                pred_indices[other].push(slot);
+            }
+        }
+
+        Self {
+            mode: runtime_policy.mode(),
+            revision: 0,
+            nodes,
+            succ_indices,
+            pred_indices,
+            edges,
+            runtime_policy,
+            csr_cache: std::sync::Arc::default(),
+            all_int_cache: std::sync::Arc::default(),
+        }
+    }
+
     #[must_use]
     pub fn strict() -> Self {
         Self::new(CompatibilityMode::Strict)

@@ -26807,7 +26807,13 @@ def k_core(G, k=None, core_number=None):
         # masking the empty-input case.  Match nx's contract.
         k = max(core_number.values())
     nodes = [n for n, c in core_number.items() if c >= k]
-    return subgraph(G, nodes)
+    # br-r37-c1-indsub: nx's _core_subgraph returns ``G.subgraph(nodes).copy()``
+    # — an INDEPENDENT graph. fnx returned the live view, so a later mutation of
+    # G retroactively changed an already-returned k-core (K6, k=5: nx keeps
+    # (6, 15) after ``G.remove_node(0)``, fnx reported (5, 10)), and every count
+    # on the result re-ran the O(|V|) Python node filter (``len()`` 6.1ms vs
+    # nx's 3.5us). The copy is native (``_copy_induced_simple_fast``).
+    return subgraph(G, nodes).copy()
 
 
 def k_shell(G, k=None, core_number=None):
@@ -26838,7 +26844,8 @@ def k_shell(G, k=None, core_number=None):
         # masking the empty-input case.  Match nx's contract.
         k = max(core_number.values())
     nodes = [n for n, c in core_number.items() if c == k]
-    return subgraph(G, nodes)
+    # br-r37-c1-indsub: nx returns an independent copy — see k_core.
+    return subgraph(G, nodes).copy()
 
 
 def k_crust(G, k=None, core_number=None):
@@ -26871,7 +26878,8 @@ def k_crust(G, k=None, core_number=None):
         # non-trivial input.
         k = max(core_number.values()) - 1
     nodes = [n for n, c in core_number.items() if c <= k]
-    return subgraph(G, nodes)
+    # br-r37-c1-indsub: nx returns an independent copy — see k_core.
+    return subgraph(G, nodes).copy()
 
 
 def k_corona(G, k, core_number=None):
@@ -26905,7 +26913,8 @@ def k_corona(G, k, core_number=None):
             nbrs_in_core = sum(1 for nb in G.neighbors(n) if nb in core_nodes)
             if nbrs_in_core == k:
                 corona_nodes.append(n)
-    return subgraph(G, corona_nodes)
+    # br-r37-c1-indsub: nx returns an independent copy — see k_core.
+    return subgraph(G, corona_nodes).copy()
 
 
 def line_graph(G, create_using=None):
@@ -43241,6 +43250,24 @@ class _FilteredGraphView:
             return MultiDiGraph if self.is_multigraph() else DiGraph
         return MultiGraph if self.is_multigraph() else Graph
 
+    def _induced_node_order(self, filter_nodes):
+        """nx's ``FilterAtlas.__iter__`` node order, resolved at C speed.
+
+        Mirrors ``__iter__`` exactly — keep-set iteration order when the keep
+        set is under half the parent, else parent order — but tests membership
+        against a materialized ``set(parent)`` so neither branch pays fnx's
+        Python-level ``__contains__`` (~0.8us) once per node.
+        """
+        parent = self._graph
+        try:
+            keep_shorter = 2 * len(filter_nodes) < len(parent)
+        except TypeError:
+            return None
+        if keep_shorter:
+            parent_nodes = set(parent)
+            return [node for node in filter_nodes if node in parent_nodes]
+        return [node for node in parent if node in filter_nodes]
+
     def _copy_induced_simple_fast(self):
         # br-r37-c1-esgfast: handle a non-default filter_edge too (e.g.
         # edge_subgraph) — apply the edge predicate directly in the
@@ -43251,6 +43278,28 @@ class _FilteredGraphView:
         raw_neighbors = _raw_neighbors_dispatch(self._graph)
         if raw_neighbors is None:
             return None
+
+        # br-r37-c1-indsub: fully native induced-subgraph materialization for
+        # the pure node-set filter (``G.subgraph(nbunch).copy()``, and the whole
+        # k_core/k_shell/k_crust/k_corona family). The Python builder below still
+        # crosses the PyO3 boundary once per node (attr dict) and twice per EDGE
+        # (get_edge_data + the add_edges_from tuple) — 395ms for the 158k-edge
+        # k=10 core of ca-AstroPh. Hand Rust the resolved node order instead and
+        # let it walk the adjacency itself.
+        #
+        # Only the O(|V|) ORDER is resolved here: nx's node order is CPython
+        # set-iteration order whenever ``2 * len(keep) < len(G)`` (the common
+        # case — a k-core keeps well under half the graph), and that is not
+        # reproducible from Rust. The inner row order needs no such handoff,
+        # since nx's ``FilterAdjacency.__getitem__`` wraps the row filter in a
+        # plain closure with no ``.nodes`` attribute and so always iterates the
+        # parent's row.
+        if self._filter_edge_is_default and isinstance(self._filter_node, _NodeSetFilter):
+            native_induced = getattr(self._graph, "_native_induced_subgraph_copy", None)
+            if native_induced is not None:
+                order = self._induced_node_order(self._filter_node.nodes)
+                if order is not None:
+                    return native_induced(order)
 
         nodes = list(self)
         node_set = set(nodes)

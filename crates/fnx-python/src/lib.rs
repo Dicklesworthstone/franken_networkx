@@ -13657,6 +13657,111 @@ impl PyGraph {
         Ok(new_graph)
     }
 
+    /// Materialize `G.subgraph(nodes).copy()` natively, in nx's exact order.
+    ///
+    /// `order` is the node sequence ALREADY resolved by the caller under nx's
+    /// `FilterAtlas.__iter__` rule — keep-set iteration order when
+    /// `2 * len(keep) < len(G)`, else G order filtered. That rule can land on
+    /// CPython set-iteration order, which cannot be reproduced from Rust, so
+    /// the O(|V|) ordering stays in Python (C-speed set/dict walks) and only
+    /// the O(|E|) adjacency walk crosses the boundary.
+    ///
+    /// The inner row order needs no such rule: nx's
+    /// `FilterAdjacency.__getitem__` wraps the row filter in a plain closure
+    /// with no `.nodes` attribute, so the inner `FilterAtlas` always falls
+    /// through to iterating the parent's adjacency row.
+    ///
+    /// Undirected dedup mirrors `add_edges_from` over the induced walk: a pair
+    /// is emitted at whichever endpoint comes FIRST in `order`, which fixes the
+    /// stored orientation exactly as nx's first-write does.
+    fn _native_induced_subgraph_copy(
+        &self,
+        py: Python<'_>,
+        order: &Bound<'_, PyAny>,
+    ) -> PyResult<Self> {
+        let node_count = self.inner.node_count();
+        let iter = PyIterator::from_object(order)?;
+        let mut names: Vec<String> = Vec::new();
+        let mut indices: Vec<usize> = Vec::new();
+        let mut position = vec![usize::MAX; node_count];
+        for item in iter {
+            let item = item?;
+            let canonical = node_key_to_string(py, &item)?;
+            let Some(idx) = self.inner.get_node_index(&canonical) else {
+                // Caller guarantees membership; a miss means the fast-path gate
+                // was wrong, so refuse rather than emit a divergent graph.
+                return Err(PyValueError::new_err(
+                    "induced subgraph order contains a node absent from the graph",
+                ));
+            };
+            position[idx] = names.len();
+            indices.push(idx);
+            names.push(canonical);
+        }
+
+        // Structure + Rust-side attrs in one index-only pass: no node-name
+        // hashing, no per-edge ledger entry.
+        let mut new_graph = Self {
+            inner: self
+                .inner
+                .induced_subgraph_ordered(&indices, self.inner.runtime_policy().clone()),
+            node_key_map: HashMap::new(),
+            lazy_int_node_stop: 0,
+            node_py_attrs: HashMap::new(),
+            edge_py_attrs: HashMap::new(),
+            adj_py_keys: HashMap::new(),
+            dict_of_dicts_cache: None,
+            adj_row_py: HashMap::new(),
+            graph_attrs: self.graph_attrs.bind(py).copy()?.unbind(),
+            nodes_seq: 0,
+            edges_seq: 0,
+            edges_dirty: AtomicBool::new(false),
+            node_keys_cache: std::sync::Mutex::new(None),
+            node_iter_mirror: std::sync::Mutex::new(None),
+            instance_dict_gc: InstanceDictGc::new(),
+            node_data_mirror: std::sync::Mutex::new(None),
+        };
+
+        for canonical in &names {
+            new_graph
+                .node_key_map
+                .insert(canonical.clone(), self.py_node_key(py, canonical));
+        }
+
+        // Where a Python attr mirror exists it is AUTHORITATIVE (the Rust store
+        // can be stale behind `edges_dirty`), so replay it over the copied Rust
+        // attrs. Both loops are sized by the MIRROR, not by |V| / |E| — a
+        // batch-built graph leaves them empty and pays nothing.
+        for (canonical, attrs) in &self.node_py_attrs {
+            if self.inner.get_node_index(canonical).is_none_or(|idx| {
+                idx >= position.len() || position[idx] == usize::MAX
+            }) {
+                continue;
+            }
+            let (rust_attrs, mirror) = py_dict_to_attr_map_with_mirror(py, attrs.bind(py))?;
+            new_graph
+                .inner
+                .replace_node_attrs(canonical.as_str(), rust_attrs);
+            new_graph.node_py_attrs.insert(canonical.clone(), mirror);
+        }
+        for (key, attrs) in &self.edge_py_attrs {
+            let (u, v) = key;
+            if !new_graph.inner.has_edge(u, v) {
+                continue;
+            }
+            let (rust_attrs, mirror) = py_dict_to_attr_map_with_mirror(py, attrs.bind(py))?;
+            new_graph
+                .inner
+                .replace_edge_attrs(u.as_str(), v.as_str(), rust_attrs);
+            new_graph.edge_py_attrs.insert(key.clone(), mirror);
+        }
+
+        if !self.adj_py_keys.is_empty() {
+            new_graph.adj_py_keys = self.derive_copy_adj_py_keys(py, &new_graph.inner);
+        }
+        Ok(new_graph)
+    }
+
     /// Return a subgraph containing only the specified edges.
     fn edge_subgraph(&self, py: Python<'_>, edges: &Bound<'_, PyAny>) -> PyResult<Self> {
         let iter = PyIterator::from_object(edges)?;

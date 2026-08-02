@@ -703,6 +703,88 @@ impl Graph {
         if l <= r { (l, r) } else { (r, l) }
     }
 
+    /// br-r37-c1-indsub: build the induced subgraph over `order` (parent node
+    /// indices, already in the caller's output order) without hashing a single
+    /// node name.
+    ///
+    /// The per-edge `add_edge_with_attrs` path costs two `String` allocations,
+    /// four name hashes and a `record_decision` ledger entry (which itself
+    /// allocates two Strings and a Vec) — ~2.5us/edge, so materializing the
+    /// 158k-edge k=10 core of ca-AstroPh took 393ms. Everything that loop
+    /// re-derives is already known here: the surviving rows come straight out
+    /// of `adj_indices`, and the new index of a kept node is its slot in
+    /// `order`. All the invariants `add_edge_with_attrs` maintains are
+    /// reproduced directly:
+    ///
+    ///  * `edges` is keyed by the INDEX-canonical pair of the NEW indices;
+    ///  * `edge_index_endpoints` keeps the STRING-canonical orientation
+    ///    (`left <= right` on names), matching the per-edge path;
+    ///  * a row records its neighbor when the pair is first emitted, so
+    ///    adjacency order is the walk order — which is exactly what nx's
+    ///    `add_edges_from` over the induced walk produces;
+    ///  * a self-loop appears once in its row.
+    ///
+    /// A pair is emitted from whichever endpoint comes FIRST in `order`, so
+    /// each undirected edge is visited once. `order` must contain distinct,
+    /// in-range parent indices.
+    #[must_use]
+    pub fn induced_subgraph_ordered(&self, order: &[usize], runtime_policy: RuntimePolicy) -> Self {
+        let mut position = vec![usize::MAX; self.nodes.len()];
+        for (slot, &parent_idx) in order.iter().enumerate() {
+            position[parent_idx] = slot;
+        }
+
+        let mut nodes = FxIndexMap::default();
+        nodes.reserve(order.len());
+        for &parent_idx in order {
+            let (name, attrs) = self
+                .nodes
+                .get_index(parent_idx)
+                .expect("induced subgraph order must hold valid parent node indices");
+            nodes.insert(name.clone(), attrs.clone());
+        }
+
+        let mut adj_indices = vec![Vec::new(); order.len()];
+        let mut edges = FxIndexMap::default();
+        let mut edge_index_endpoints = Vec::new();
+        for (slot, &parent_idx) in order.iter().enumerate() {
+            for &parent_neighbor in &self.adj_indices[parent_idx] {
+                let other = position[parent_neighbor];
+                if other == usize::MAX || other < slot {
+                    continue;
+                }
+                let attrs = self
+                    .edges
+                    .get(&Self::canon_pair(parent_idx, parent_neighbor))
+                    .cloned()
+                    .unwrap_or_default();
+                edges.insert(Self::canon_pair(slot, other), attrs);
+                let left_name = nodes.get_index(slot).expect("slot inserted above").0;
+                let right_name = nodes.get_index(other).expect("slot inserted above").0;
+                if left_name <= right_name {
+                    edge_index_endpoints.push((slot, other));
+                } else {
+                    edge_index_endpoints.push((other, slot));
+                }
+                adj_indices[slot].push(other);
+                if slot != other {
+                    adj_indices[other].push(slot);
+                }
+            }
+        }
+
+        Self {
+            mode: runtime_policy.mode(),
+            revision: 0,
+            nodes,
+            adj_indices,
+            all_int_cache: std::sync::Arc::default(),
+            edge_index_endpoints,
+            edges,
+            runtime_policy,
+        }
+    }
+
     #[must_use]
     pub fn has_edge(&self, left: &str, right: &str) -> bool {
         self.edge_pair_key(left, right)
