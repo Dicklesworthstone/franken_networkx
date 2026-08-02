@@ -10601,9 +10601,7 @@ pub fn clustering_coefficient(graph: &Graph) -> ClusteringCoefficientResult {
         use rayon::prelude::*;
         // Each worker owns a full-width count vector plus a mark array; cap the
         // worker count so that scratch stays bounded on very large graphs.
-        let bytes_per_worker = n
-            .saturating_mul(std::mem::size_of::<usize>() + 1)
-            .max(1);
+        let bytes_per_worker = n.saturating_mul(std::mem::size_of::<usize>() + 1).max(1);
         let workers = rayon::current_num_threads()
             .min((256 * 1024 * 1024 / bytes_per_worker).max(1))
             .max(1);
@@ -15468,9 +15466,7 @@ pub fn triangles(graph: &Graph) -> TrianglesResult {
     // per-worker vectors is bit-identical to the serial scan.
     let (tri_count, edges_scanned) = if n >= CENTRALITY_PARALLEL_THRESHOLD {
         use rayon::prelude::*;
-        let bytes_per_worker = n
-            .saturating_mul(std::mem::size_of::<usize>() + 1)
-            .max(1);
+        let bytes_per_worker = n.saturating_mul(std::mem::size_of::<usize>() + 1).max(1);
         let workers = rayon::current_num_threads()
             .min((256 * 1024 * 1024 / bytes_per_worker).max(1))
             .max(1);

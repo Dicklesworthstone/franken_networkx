@@ -1033,7 +1033,10 @@ fn parse_edgelist_simple_content(
     // out over the rayon pool. This is the step NetworkX has no path to: its
     // parser is a per-line Python generator serialised by the GIL.
     let scanned: Vec<Option<EdgelistChunk<'_>>> = if bounds.len() == 1 {
-        vec![parse_edgelist_chunk(&content[bounds[0].0..bounds[0].1], mode)]
+        vec![parse_edgelist_chunk(
+            &content[bounds[0].0..bounds[0].1],
+            mode,
+        )]
     } else {
         use rayon::prelude::*;
         bounds
