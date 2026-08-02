@@ -2342,6 +2342,21 @@ impl PyGraph {
             .collect();
         let mut node_bumps = 0_u64;
         let mut batch_first: HashMap<String, PyObject> = HashMap::new(); // br-r37-c1-z6uka
+        // br-r37-c1-batchintmemo: canonical-key memo keyed by the node's integer
+        // VALUE. This loop ran `node_key_to_string` — plus a display-conflict
+        // probe and two `seen_nodes` probes — once per endpoint OCCURRENCE, so a
+        // graph of average degree d formatted and re-hashed every node d times:
+        // 792k formats over 18.7k distinct nodes for ca-AstroPh. An
+        // identity-keyed memo cannot fix that (CPython only interns small ints,
+        // so every SNAP-style id is a fresh object); keying on the value gives
+        // O(unique nodes) work instead of O(2|E|).
+        //
+        // Only exact `int` endpoints enter the memo, and only on the FIRST
+        // occurrence — which is the one that runs the conflict check and
+        // registers the object in `batch_first`. A later hash-equal endpoint of
+        // a DIFFERENT type (28.0 against 28) never hits the int memo, so it
+        // still reaches `plain_batch_display_conflict` and still bails.
+        let mut int_memo: HashMap<i64, String> = HashMap::new();
 
         for item in items {
             let Ok(tuple) = item.downcast::<PyTuple>() else {
@@ -2357,29 +2372,71 @@ impl PyGraph {
                 return Ok(None);
             }
 
-            let u_canonical = node_key_to_string(py, &u)?;
-            let v_canonical = node_key_to_string(py, &v)?;
-            // br-r37-c1-z6uka: hash-equal mixed-type keys (28 vs 28.0)
-            // need per-adjacency-row display objects — bail to the
-            // per-edge path, which records them.
-            if self.plain_batch_display_conflict(py, &u_canonical, &u, &mut batch_first)
-                || self.plain_batch_display_conflict(py, &v_canonical, &v, &mut batch_first)
-            {
-                return Ok(None);
-            }
-            if !seen_nodes.contains(&u_canonical) || !seen_nodes.contains(&v_canonical) {
+            // Resolve both canonical keys first. A memo hit means this exact
+            // integer node was already admitted by an earlier occurrence — the
+            // one that ran the conflict check and put the key in `seen_nodes` —
+            // so `seen_nodes.contains` is necessarily true for it and both the
+            // membership probe and the insert below can be skipped.
+            let u_key = Self::int_value_for_memo(&u);
+            let (u_canonical, u_hit) = match u_key.as_ref().and_then(|k| int_memo.get(k)) {
+                Some(cached) => (cached.clone(), true),
+                None => {
+                    let canonical = node_key_to_string(py, &u)?;
+                    // br-r37-c1-z6uka: hash-equal mixed-type keys (28 vs 28.0)
+                    // need per-adjacency-row display objects — bail to the
+                    // per-edge path, which records them.
+                    if self.plain_batch_display_conflict(py, &canonical, &u, &mut batch_first) {
+                        return Ok(None);
+                    }
+                    if let Some(key) = u_key {
+                        int_memo.insert(key, canonical.clone());
+                    }
+                    (canonical, false)
+                }
+            };
+            let v_key = Self::int_value_for_memo(&v);
+            let (v_canonical, v_hit) = match v_key.as_ref().and_then(|k| int_memo.get(k)) {
+                Some(cached) => (cached.clone(), true),
+                None => {
+                    let canonical = node_key_to_string(py, &v)?;
+                    if self.plain_batch_display_conflict(py, &canonical, &v, &mut batch_first) {
+                        return Ok(None);
+                    }
+                    if let Some(key) = v_key {
+                        int_memo.insert(key, canonical.clone());
+                    }
+                    (canonical, false)
+                }
+            };
+
+            // Verbatim the original accounting: BOTH membership tests are
+            // evaluated before EITHER insert, and an edge bumps at most once.
+            let u_absent = !u_hit && !seen_nodes.contains(&u_canonical);
+            let v_absent = !v_hit && !seen_nodes.contains(&v_canonical);
+            if u_absent || v_absent {
                 node_bumps = node_bumps.wrapping_add(1);
             }
-            if seen_nodes.insert(u_canonical.clone()) {
+            if !u_hit && seen_nodes.insert(u_canonical.clone()) {
                 new_nodes.push((u_canonical.clone(), u.clone().unbind()));
             }
-            if seen_nodes.insert(v_canonical.clone()) {
+            if !v_hit && seen_nodes.insert(v_canonical.clone()) {
                 new_nodes.push((v_canonical.clone(), v.clone().unbind()));
             }
             edges.push((u_canonical, v_canonical));
         }
 
         Ok(Some((edges, new_nodes, node_bumps)))
+    }
+
+    /// br-r37-c1-batchintmemo: memo key for an endpoint whose canonical node key
+    /// is exactly its decimal form. `bool` is excluded — it subclasses `int` in
+    /// Python but canonicalizes to `True`/`False` — as is any int too wide for
+    /// `i64`, so the memo can never alias two distinct nodes.
+    fn int_value_for_memo(node: &Bound<'_, PyAny>) -> Option<i64> {
+        if !node.is_exact_instance_of::<pyo3::types::PyInt>() {
+            return None;
+        }
+        node.extract::<i64>().ok()
     }
 
     fn add_plain_edge_batch(
