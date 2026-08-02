@@ -2328,18 +2328,28 @@ impl PyGraph {
         py: Python<'py>,
         items: I,
         len: usize,
-    ) -> PyResult<Option<(Vec<(String, String)>, Vec<(String, PyObject)>, u64)>>
+    ) -> PyResult<Option<(Vec<(usize, usize)>, Vec<(String, PyObject)>, u64)>>
     where
         I: IntoIterator<Item = Bound<'py, PyAny>>,
     {
-        let mut edges = Vec::with_capacity(len);
+        // br-r37-c1-batchidxedges: emit endpoints in INDEX space. The batch used
+        // to hand `extend_edges_unrecorded` a `Vec<(String, String)>`, which
+        // meant two owned Strings per edge here and then two more name hashes
+        // per edge there (`nodes.get_index_of` on each endpoint) — 396k clones
+        // and ~800k hashes for ca-AstroPh, none of which networkx pays. A node's
+        // index is knowable at collect time: existing nodes keep their position
+        // in the IndexMap, and a new node takes the next slot, because the
+        // commit inserts `new_nodes` in this same first-appearance order.
+        let mut edges: Vec<(usize, usize)> = Vec::with_capacity(len);
         let mut new_nodes = Vec::new();
-        let mut seen_nodes: HashSet<String> = self
+        let mut node_index: HashMap<String, usize> = self
             .inner
             .nodes_ordered()
             .into_iter()
-            .map(str::to_owned)
+            .enumerate()
+            .map(|(index, name)| (name.to_owned(), index))
             .collect();
+        let mut next_index = node_index.len();
         let mut node_bumps = 0_u64;
         let mut batch_first: HashMap<String, PyObject> = HashMap::new(); // br-r37-c1-z6uka
         // br-r37-c1-batchintmemo: canonical-key memo keyed by the node's integer
@@ -2356,7 +2366,9 @@ impl PyGraph {
         // registers the object in `batch_first`. A later hash-equal endpoint of
         // a DIFFERENT type (28.0 against 28) never hits the int memo, so it
         // still reaches `plain_batch_display_conflict` and still bails.
-        let mut int_memo: HashMap<i64, String> = HashMap::new();
+        // Memo straight to the node INDEX: a hit needs no canonical String at
+        // all, so a repeat endpoint costs one integer hash.
+        let mut int_memo: HashMap<i64, usize> = HashMap::new();
 
         for item in items {
             let Ok(tuple) = item.downcast::<PyTuple>() else {
@@ -2372,14 +2384,18 @@ impl PyGraph {
                 return Ok(None);
             }
 
-            // Resolve both canonical keys first. A memo hit means this exact
-            // integer node was already admitted by an earlier occurrence — the
-            // one that ran the conflict check and put the key in `seen_nodes` —
-            // so `seen_nodes.contains` is necessarily true for it and both the
-            // membership probe and the insert below can be skipped.
+            // A memo hit means this exact integer node was already admitted by
+            // an earlier occurrence — the one that ran the conflict check and
+            // claimed its index — so it is never "absent" for bump accounting.
+            //
+            // Resolving `u` can claim a new index before `v` is resolved, but
+            // that matches the original: it tested BOTH endpoints for presence
+            // before inserting either, and the only case where the two differ
+            // is a self-loop (u and v the same canonical), where the original
+            // also counted one bump and pushed one node.
             let u_key = Self::int_value_for_memo(&u);
-            let (u_canonical, u_hit) = match u_key.as_ref().and_then(|k| int_memo.get(k)) {
-                Some(cached) => (cached.clone(), true),
+            let (u_idx, u_absent) = match u_key.and_then(|k| int_memo.get(&k).copied()) {
+                Some(index) => (index, false),
                 None => {
                     let canonical = node_key_to_string(py, &u)?;
                     // br-r37-c1-z6uka: hash-equal mixed-type keys (28 vs 28.0)
@@ -2388,41 +2404,51 @@ impl PyGraph {
                     if self.plain_batch_display_conflict(py, &canonical, &u, &mut batch_first) {
                         return Ok(None);
                     }
+                    let (index, absent) = match node_index.get(&canonical) {
+                        Some(&index) => (index, false),
+                        None => {
+                            let index = next_index;
+                            next_index += 1;
+                            node_index.insert(canonical.clone(), index);
+                            new_nodes.push((canonical, u.clone().unbind()));
+                            (index, true)
+                        }
+                    };
                     if let Some(key) = u_key {
-                        int_memo.insert(key, canonical.clone());
+                        int_memo.insert(key, index);
                     }
-                    (canonical, false)
+                    (index, absent)
                 }
             };
             let v_key = Self::int_value_for_memo(&v);
-            let (v_canonical, v_hit) = match v_key.as_ref().and_then(|k| int_memo.get(k)) {
-                Some(cached) => (cached.clone(), true),
+            let (v_idx, v_absent) = match v_key.and_then(|k| int_memo.get(&k).copied()) {
+                Some(index) => (index, false),
                 None => {
                     let canonical = node_key_to_string(py, &v)?;
                     if self.plain_batch_display_conflict(py, &canonical, &v, &mut batch_first) {
                         return Ok(None);
                     }
+                    let (index, absent) = match node_index.get(&canonical) {
+                        Some(&index) => (index, false),
+                        None => {
+                            let index = next_index;
+                            next_index += 1;
+                            node_index.insert(canonical.clone(), index);
+                            new_nodes.push((canonical, v.clone().unbind()));
+                            (index, true)
+                        }
+                    };
                     if let Some(key) = v_key {
-                        int_memo.insert(key, canonical.clone());
+                        int_memo.insert(key, index);
                     }
-                    (canonical, false)
+                    (index, absent)
                 }
             };
 
-            // Verbatim the original accounting: BOTH membership tests are
-            // evaluated before EITHER insert, and an edge bumps at most once.
-            let u_absent = !u_hit && !seen_nodes.contains(&u_canonical);
-            let v_absent = !v_hit && !seen_nodes.contains(&v_canonical);
             if u_absent || v_absent {
                 node_bumps = node_bumps.wrapping_add(1);
             }
-            if !u_hit && seen_nodes.insert(u_canonical.clone()) {
-                new_nodes.push((u_canonical.clone(), u.clone().unbind()));
-            }
-            if !v_hit && seen_nodes.insert(v_canonical.clone()) {
-                new_nodes.push((v_canonical.clone(), v.clone().unbind()));
-            }
-            edges.push((u_canonical, v_canonical));
+            edges.push((u_idx, v_idx));
         }
 
         Ok(Some((edges, new_nodes, node_bumps)))
@@ -2442,7 +2468,7 @@ impl PyGraph {
     fn add_plain_edge_batch(
         &mut self,
         py: Python<'_>,
-        edges: Vec<(String, String)>,
+        edges: Vec<(usize, usize)>,
         new_nodes: Vec<(String, PyObject)>,
         node_bumps: u64,
     ) -> PyResult<()> {
@@ -2450,6 +2476,18 @@ impl PyGraph {
             .unwrap_or(u64::MAX)
             .wrapping_add(1);
 
+        // br-r37-c1-batchidxedges: create the inner nodes FIRST, in the same
+        // first-appearance order the collect phase assigned indices in, so the
+        // provisional indices it emitted are exactly the IndexMap positions.
+        // `extend_edges_unrecorded` used to auto-create them while walking the
+        // edges (same order, since it also saw left-then-right per edge).
+        if !new_nodes.is_empty() {
+            let _created = self.inner.extend_nodes_with_attrs_unrecorded(
+                new_nodes
+                    .iter()
+                    .map(|(canonical, _)| (canonical.clone(), AttrMap::new())),
+            );
+        }
         for (canonical, node) in new_nodes {
             self.node_key_map.entry(canonical.clone()).or_insert(node);
             self.node_iter_mirror_insert(py, &canonical)?;
@@ -2459,7 +2497,7 @@ impl PyGraph {
         // observationally identical to an empty dict. ~6700 PyDict allocs
         // saved per 5217-edge build.
 
-        let _inserted = self.inner.extend_edges_unrecorded(edges);
+        let _inserted = self.inner.extend_existing_index_edges_unrecorded(edges);
         self.nodes_seq = self.nodes_seq.wrapping_add(node_bumps);
         self.edges_seq = self.edges_seq.wrapping_add(edge_bumps);
         Ok(())
