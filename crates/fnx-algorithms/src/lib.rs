@@ -3070,6 +3070,89 @@ fn all_pairs_shortest_path_length_indexed_csr(
     }
 }
 
+fn shortest_path_length_matrix_source(
+    scratch: &mut AllPairsBfsScratch,
+    csr: &AllPairsBfsCsr,
+    source: usize,
+    cutoff: Option<usize>,
+    row: &mut [i32],
+) {
+    let node_count = row.len();
+    debug_assert!(source < node_count);
+    let epoch = scratch.next_epoch();
+    scratch.frontier.clear();
+    scratch.next_frontier.clear();
+    scratch.seen_epoch[source] = epoch;
+    scratch.frontier.push(source);
+    row[source] = 0;
+
+    let mut reached = 1usize;
+    let mut level = 0usize;
+    'search: while !scratch.frontier.is_empty() && reached < node_count {
+        if cutoff.is_some_and(|limit| level >= limit) {
+            break;
+        }
+        scratch.next_frontier.clear();
+        let next_distance = i32::try_from(level + 1).unwrap_or(i32::MAX);
+        for &node in &scratch.frontier {
+            for &neighbor in csr.neighbors(node) {
+                if scratch.seen_epoch[neighbor] != epoch {
+                    scratch.seen_epoch[neighbor] = epoch;
+                    row[neighbor] = next_distance;
+                    scratch.next_frontier.push(neighbor);
+                    reached += 1;
+                    if reached == node_count {
+                        break 'search;
+                    }
+                }
+            }
+        }
+        std::mem::swap(&mut scratch.frontier, &mut scratch.next_frontier);
+        level += 1;
+    }
+}
+
+fn shortest_path_length_matrix_indexed_csr(
+    csr: &AllPairsBfsCsr,
+    node_count: usize,
+    sources: &[usize],
+    cutoff: Option<usize>,
+) -> Vec<i32> {
+    if node_count == 0 || sources.is_empty() {
+        return Vec::new();
+    }
+    debug_assert!(sources.iter().all(|&source| source < node_count));
+
+    let mut matrix = vec![-1; sources.len().saturating_mul(node_count)];
+    // Dense output makes even modest source batches worth distributing: every
+    // worker writes an independent cache-contiguous row while sharing one
+    // immutable CSR. Cutoff zero performs no edge scan and stays serial.
+    const PARALLEL_MIN_SOURCES: usize = 4;
+    const PARALLEL_MIN_EDGE_SCANS: usize = 1 << 17;
+    let estimated_edge_scans = csr.targets.len().saturating_mul(sources.len());
+    if sources.len() >= PARALLEL_MIN_SOURCES
+        && cutoff != Some(0)
+        && estimated_edge_scans >= PARALLEL_MIN_EDGE_SCANS
+    {
+        use rayon::prelude::*;
+        matrix
+            .par_chunks_mut(node_count)
+            .zip(sources.par_iter().copied())
+            .for_each_init(
+                || AllPairsBfsScratch::new(node_count),
+                |scratch, (row, source)| {
+                    shortest_path_length_matrix_source(scratch, csr, source, cutoff, row);
+                },
+            );
+    } else {
+        let mut scratch = AllPairsBfsScratch::new(node_count);
+        for (row, &source) in matrix.chunks_mut(node_count).zip(sources) {
+            shortest_path_length_matrix_source(&mut scratch, csr, source, cutoff, row);
+        }
+    }
+    matrix
+}
+
 /// One source's distance histogram plus exact work counters. A histogram is
 /// enough for scalar distance analytics: BFS emits targets level-by-level, so
 /// replaying `count[level]` identical addends retains the original floating
@@ -3167,6 +3250,40 @@ pub fn all_pairs_shortest_path_length_directed_indexed(
         node_count,
     );
     all_pairs_shortest_path_length_indexed_csr(&csr, node_count, cutoff)
+}
+
+/// Dense multi-source unweighted distances indexed by graph insertion order.
+///
+/// Rows follow `sources`, columns follow `Graph::nodes_ordered`, and `-1`
+/// denotes an unreachable node. Every source is independent, so sufficiently
+/// large batches run in parallel over one shared immutable CSR.
+#[must_use]
+pub fn shortest_path_length_matrix_indexed(
+    graph: &Graph,
+    sources: &[usize],
+    cutoff: Option<usize>,
+) -> Vec<i32> {
+    let node_count = graph.node_count();
+    let csr = AllPairsBfsCsr::from_rows(
+        (0..node_count).map(|node| graph.neighbors_indices(node).unwrap_or(&[])),
+        node_count,
+    );
+    shortest_path_length_matrix_indexed_csr(&csr, node_count, sources, cutoff)
+}
+
+/// Directed counterpart of [`shortest_path_length_matrix_indexed`].
+#[must_use]
+pub fn shortest_path_length_matrix_directed_indexed(
+    digraph: &DiGraph,
+    sources: &[usize],
+    cutoff: Option<usize>,
+) -> Vec<i32> {
+    let node_count = digraph.node_count();
+    let csr = AllPairsBfsCsr::from_rows(
+        (0..node_count).map(|node| digraph.successors_indices(node).unwrap_or(&[])),
+        node_count,
+    );
+    shortest_path_length_matrix_indexed_csr(&csr, node_count, sources, cutoff)
 }
 
 #[must_use]
@@ -54590,6 +54707,8 @@ mod tests {
         second_order_centrality,
         sedgewick_maze_graph,
         selfloop_edges,
+        shortest_path_length_matrix_directed_indexed,
+        shortest_path_length_matrix_indexed,
         shortest_path_unweighted,
         shortest_path_weighted,
         shortest_simple_paths,
@@ -67109,6 +67228,7 @@ mod tests {
             .num_threads(4)
             .build()
             .expect("four-thread pool");
+        let matrix_sources: Vec<usize> = (0..node_count).step_by(2).collect();
 
         for cutoff in [None, Some(0), Some(1), Some(3)] {
             let undirected_reference =
@@ -67122,6 +67242,41 @@ mod tests {
             let directed_parallel = four_threads
                 .install(|| all_pairs_shortest_path_length_directed_indexed(&digraph, cutoff));
             assert_eq!(directed_parallel, directed_reference);
+
+            let undirected_matrix_reference = one_thread
+                .install(|| shortest_path_length_matrix_indexed(&graph, &matrix_sources, cutoff));
+            let undirected_matrix_parallel = four_threads
+                .install(|| shortest_path_length_matrix_indexed(&graph, &matrix_sources, cutoff));
+            assert_eq!(undirected_matrix_parallel, undirected_matrix_reference);
+
+            let directed_matrix_reference = one_thread.install(|| {
+                shortest_path_length_matrix_directed_indexed(&digraph, &matrix_sources, cutoff)
+            });
+            let directed_matrix_parallel = four_threads.install(|| {
+                shortest_path_length_matrix_directed_indexed(&digraph, &matrix_sources, cutoff)
+            });
+            assert_eq!(directed_matrix_parallel, directed_matrix_reference);
+
+            for (matrix_row, &source) in undirected_matrix_parallel
+                .chunks(node_count)
+                .zip(&matrix_sources)
+            {
+                let mut expected = vec![-1; node_count];
+                for &(target, distance) in &undirected_reference[source].1 {
+                    expected[target] = i32::try_from(distance).expect("test distance fits i32");
+                }
+                assert_eq!(matrix_row, expected);
+            }
+            for (matrix_row, &source) in directed_matrix_parallel
+                .chunks(node_count)
+                .zip(&matrix_sources)
+            {
+                let mut expected = vec![-1; node_count];
+                for &(target, distance) in &directed_reference[source].1 {
+                    expected[target] = i32::try_from(distance).expect("test distance fits i32");
+                }
+                assert_eq!(matrix_row, expected);
+            }
         }
     }
 

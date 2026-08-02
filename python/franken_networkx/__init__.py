@@ -14580,6 +14580,7 @@ def condensation(G, scc=None):
 from franken_networkx._fnx import (
     all_pairs_shortest_path as _raw_all_pairs_shortest_path,
     all_pairs_shortest_path_length as _raw_all_pairs_shortest_path_length,
+    shortest_path_length_matrix as _raw_shortest_path_length_matrix,
 )
 
 
@@ -14622,6 +14623,39 @@ def all_pairs_shortest_path_length(G, cutoff=None, *, backend=None, **backend_kw
         if source in lengths:
             # The Rust binding inserts each inner dict in BFS-visit order.
             yield source, lengths[source]
+
+
+def shortest_path_length_matrix(G, sources=None, cutoff=None):
+    """Return dense unweighted shortest-path lengths for many sources.
+
+    Rows follow ``sources`` (all graph nodes by default), columns follow
+    ``list(G)``, and unreachable pairs contain ``-1``.  The returned
+    ``numpy.int32`` array is a read-only view over the native packed result;
+    call ``copy()`` only when a writable matrix is required.
+
+    Unlike repeated :func:`single_source_shortest_path_length` calls, this
+    builds one cache-friendly CSR adjacency and fills independent source rows
+    in parallel without constructing a Python dict or integer object per pair.
+    """
+    G = _coerce_arg_to_fnx_graph(G)
+    nodelist = list(G)
+    source_nodes = nodelist if sources is None else list(sources)
+    for source in source_nodes:
+        if source not in G:
+            raise NodeNotFound(f"Source {source} is not in G")
+    if cutoff is not None:
+        try:
+            if int(cutoff) < 0:
+                cutoff = 0
+        except (TypeError, ValueError):
+            pass
+
+    import numpy as _np
+
+    packed = _raw_shortest_path_length_matrix(G, source_nodes, cutoff)
+    return _np.frombuffer(packed, dtype=_np.int32).reshape(
+        (len(source_nodes), len(nodelist))
+    )
 
 # Algorithm functions — graph predicates & utilities
 from franken_networkx._fnx import (
@@ -60837,6 +60871,7 @@ __all__ = [
     # Algorithms — all-pairs shortest paths
     "all_pairs_shortest_path",
     "all_pairs_shortest_path_length",
+    "shortest_path_length_matrix",
     # Algorithms — graph predicates & utilities
     "is_empty",
     "non_neighbors",

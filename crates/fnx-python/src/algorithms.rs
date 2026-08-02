@@ -16,7 +16,9 @@ use pyo3::exceptions::{
     PyIndexError, PyKeyError, PyRuntimeError, PyTypeError, PyValueError, PyZeroDivisionError,
 };
 use pyo3::prelude::*;
-use pyo3::types::{PyBool, PyDict, PyFloat, PyInt, PyIterator, PyList, PySet, PyString, PyTuple};
+use pyo3::types::{
+    PyBool, PyBytes, PyDict, PyFloat, PyInt, PyIterator, PyList, PySet, PyString, PyTuple,
+};
 use std::cell::{OnceCell, RefCell};
 use std::collections::{BTreeSet, BinaryHeap, HashMap, HashSet, VecDeque};
 use std::sync::{
@@ -13878,6 +13880,67 @@ pub fn all_pairs_shortest_path_length(
     Ok(outer_dict.into_any().unbind())
 }
 
+/// Return a packed dense multi-source unweighted distance matrix.
+///
+/// The Python wrapper exposes the bytes as a zero-copy NumPy `int32` view.
+/// Rows follow `sources`, columns follow graph insertion order, and `-1`
+/// denotes an unreachable node.
+#[pyfunction]
+#[pyo3(signature = (g, sources, cutoff=None))]
+pub fn shortest_path_length_matrix(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    sources: &Bound<'_, PyAny>,
+    cutoff: Option<usize>,
+) -> PyResult<Py<PyBytes>> {
+    let gr = extract_graph(g)?;
+    let source_keys: Vec<String> = sources
+        .try_iter()?
+        .map(|item| node_key_to_string(py, &item?))
+        .collect::<PyResult<Vec<_>>>()?;
+
+    let distances = if gr.is_directed() {
+        let inner = gr.digraph().expect("is_directed checked above");
+        let source_indices = source_keys
+            .iter()
+            .map(|source| {
+                inner
+                    .get_node_index(source)
+                    .ok_or_else(|| NodeNotFound::new_err(format!("Source {source} is not in G")))
+            })
+            .collect::<PyResult<Vec<_>>>()?;
+        py.allow_threads(|| {
+            fnx_algorithms::shortest_path_length_matrix_directed_indexed(
+                inner,
+                &source_indices,
+                cutoff,
+            )
+        })
+    } else {
+        let inner = gr.undirected();
+        let source_indices = source_keys
+            .iter()
+            .map(|source| {
+                inner
+                    .get_node_index(source)
+                    .ok_or_else(|| NodeNotFound::new_err(format!("Source {source} is not in G")))
+            })
+            .collect::<PyResult<Vec<_>>>()?;
+        py.allow_threads(|| {
+            fnx_algorithms::shortest_path_length_matrix_indexed(inner, &source_indices, cutoff)
+        })
+    };
+
+    let packed = py.allow_threads(|| {
+        let mut bytes = Vec::with_capacity(distances.len().saturating_mul(size_of::<i32>()));
+        for distance in distances {
+            bytes.extend_from_slice(&distance.to_ne_bytes());
+        }
+        bytes
+    });
+    Ok(PyBytes::new(py, &packed).unbind())
+}
+
 /// Snapshot insertion-ordered native neighbor indices for algorithms that need
 /// owned rows beyond one graph borrow. All-pairs path length itself now uses the
 /// shared flat-CSR kernel in `fnx-algorithms`; these helpers remain for the path,
@@ -27680,6 +27743,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     // All-pairs shortest paths
     m.add_function(wrap_pyfunction!(all_pairs_shortest_path, m)?)?;
     m.add_function(wrap_pyfunction!(all_pairs_shortest_path_length, m)?)?;
+    m.add_function(wrap_pyfunction!(shortest_path_length_matrix, m)?)?;
     // Graph predicates & utilities
     m.add_function(wrap_pyfunction!(is_empty, m)?)?;
     m.add_function(wrap_pyfunction!(non_neighbors, m)?)?;
