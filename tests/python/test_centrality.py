@@ -93,6 +93,7 @@ class TestCentrality:
 
         actual = fnx.katz_centrality_many(G_fnx, betas, workers=2, **kwargs)
         expected = [nx.katz_centrality(G_nx, beta=beta, **kwargs) for beta in betas]
+        single = [fnx.katz_centrality(G_fnx, beta=beta, **kwargs) for beta in betas]
         serial = fnx.katz_centrality_many(G_fnx, betas, workers=1, **kwargs)
 
         assert len(actual) == len(betas)
@@ -105,7 +106,31 @@ class TestCentrality:
                 atol=1e-12,
                 label=f"katz_centrality_many[{index}]",
             )
+            assert actual_vector == single[index]
             assert actual_vector == serial_vector
+
+    def test_katz_centrality_many_preserves_first_convergence(self, fnx):
+        graph = fnx.DiGraph([(0, 1), (1, 2), (2, 0), (2, 3), (3, 1)])
+        betas = [
+            1.0e-3,
+            1.0e3,
+            {node: 0.25 + node for node in graph},
+            {node: 4.0 - node / 2 for node in graph},
+        ]
+        kwargs = {
+            "alpha": 0.05,
+            "max_iter": 1000,
+            "tol": 1.0e-10,
+            "normalized": False,
+            "weight": None,
+        }
+        expected = [
+            fnx.katz_centrality(graph, beta=beta, **kwargs) for beta in betas
+        ]
+
+        assert fnx.katz_centrality_many(
+            graph, betas, workers=4, **kwargs
+        ) == expected
 
     def test_katz_centrality_many_edges(self, fnx):
         assert fnx.katz_centrality_many(fnx.Graph(), [1.0, 2.0]) == [{}, {}]

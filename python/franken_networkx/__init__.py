@@ -26199,15 +26199,16 @@ def katz_centrality_many(
 
         [katz_centrality(G, beta=beta, ...) for beta in betas]
 
-    The graph is materialized as sparse adjacency once. Independent power
-    iterations then share that immutable representation and run on a persistent
-    worker pool. Results retain the input order of ``betas``.
+    The graph is materialized as sparse adjacency once. Beta vectors are packed
+    into dense blocks, so each sparse traversal advances many independent power
+    iterations. Blocks share the immutable sparse representation and run on a
+    persistent worker pool. Results retain the input order of ``betas``.
 
     ``workers=None`` uses four workers when the batch has at least four queries.
-    Sparse matrix-vector multiplication is memory-bandwidth-bound, so callers
-    can use the explicit knob to tune a host without oversubscribing its memory
-    channels. ``workers=1`` keeps execution serial while still eliminating
-    repeated graph materialization.
+    Sparse matrix multiplication is memory-bandwidth-bound, so callers can use
+    the explicit knob to tune a host without oversubscribing its memory channels.
+    ``workers=1`` keeps block execution serial while still eliminating repeated
+    graph materialization and per-query sparse scans.
     """
     import concurrent.futures as _concurrent_futures
 
@@ -26241,35 +26242,65 @@ def katz_centrality_many(
 
     A = to_scipy_sparse_array(G, nodelist=nodelist, weight=weight, dtype=float)
     a_t = A.T.tocsr()
+    node_set = set(nodelist)
 
-    def _solve(beta):
-        x = _np.zeros(N)
-        if isinstance(beta, dict):
-            if set(beta) != set(nodelist):
-                raise NetworkXError("beta dictionary must have a value for every node")
-            b = _np.array([beta[node] for node in nodelist], dtype=float)
-        else:
-            b = _np.full(N, float(beta))
+    # Balance one block per worker for ordinary batches. Very large batches are
+    # capped at 32 columns per block so temporary dense storage stays bounded;
+    # the persistent pool consumes later blocks in input order.
+    block_width = min(32, (len(queries) + worker_count - 1) // worker_count)
+    blocks = [
+        (start, min(start + block_width, len(queries)))
+        for start in range(0, len(queries), block_width)
+    ]
 
+    def _solve_block(bounds):
+        start, end = bounds
+        width = end - start
+        b = _np.empty((N, width), dtype=float)
+        for local_query, beta in enumerate(queries[start:end]):
+            if isinstance(beta, dict):
+                if set(beta) != node_set:
+                    raise NetworkXError(
+                        "beta dictionary must have a value for every node"
+                    )
+                b[:, local_query] = [beta[node] for node in nodelist]
+            else:
+                b[:, local_query].fill(float(beta))
+
+        x = _np.zeros_like(b)
+        answers = [None] * width
+        active = _np.ones(width, dtype=bool)
         for _ in range(max_iter):
             xlast = x
             x = alpha * (a_t @ xlast) + b
-            if _np.absolute(x - xlast).sum() < N * tol:
+            errors = _np.absolute(x - xlast).sum(axis=0)
+            converged = _np.flatnonzero(active & (errors < N * tol))
+            for local_query in converged:
+                # Sparse-times-dense preserves each column's edge accumulation
+                # order. Copy the strided column before normalization so the
+                # reduction order also matches the single-vector implementation.
+                vector = _np.ascontiguousarray(x[:, local_query])
                 if normalized:
-                    norm = _np.hypot.reduce(x)
+                    norm = _np.hypot.reduce(vector)
                     if norm == 0:
                         norm = 1.0
-                    x = x / norm
-                return dict(zip(nodelist, map(float, x)))
+                    vector /= norm
+                answers[local_query] = dict(zip(nodelist, map(float, vector)))
+            active[converged] = False
+            if not active.any():
+                return answers
         raise PowerIterationFailedConvergence(max_iter)
 
-    if worker_count == 1:
-        return [_solve(beta) for beta in queries]
+    effective_workers = min(worker_count, len(blocks))
+    if effective_workers == 1:
+        solved_blocks = [_solve_block(block) for block in blocks]
+        return [answer for block in solved_blocks for answer in block]
     with _concurrent_futures.ThreadPoolExecutor(
-        max_workers=worker_count,
+        max_workers=effective_workers,
         thread_name_prefix="fnx-katz",
     ) as executor:
-        return list(executor.map(_solve, queries))
+        solved_blocks = executor.map(_solve_block, blocks)
+        return [answer for block in solved_blocks for answer in block]
 
 
 def katz_centrality(
