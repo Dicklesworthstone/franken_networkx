@@ -22087,6 +22087,9 @@ def single_source_dijkstra_path_length(G, source, cutoff=None, weight="weight"):
         return _raw_single_source_dijkstra_path_length(
             _simple, source, weight=weight, cutoff=cutoff
         )
+    # br-r37-c1-dijknone: weight=None means "every edge weighs 1", which the
+    # native kernel already computes for any attribute no edge carries.
+    weight = _dijkstra_weight_for_none(G, weight)
     if _should_delegate_dijkstra_to_networkx(G, weight):
         return _call_networkx_for_parity(
             "single_source_dijkstra_path_length",
@@ -25380,6 +25383,49 @@ try:
     )
 except ImportError:  # pragma: no cover — defensive for partial builds
     _native_has_edge_attr = None
+
+try:
+    from franken_networkx._fnx import (
+        graph_has_none_edge_attr_key as _native_has_none_edge_attr_key,
+    )
+except ImportError:  # pragma: no cover — defensive for partial builds
+    _native_has_none_edge_attr_key = None
+
+
+# br-r37-c1-dijknone: an attribute name no edge can carry, used to express
+# "every weight is 1" to a kernel whose binding requires a `str` weight.
+_UNWEIGHTED_WEIGHT_SENTINEL = "\x00__fnx_unweighted__"
+
+
+def _dijkstra_weight_for_none(G, weight):
+    """Rewrite ``weight=None`` to an absent attribute name when that is exact.
+
+    nx resolves each edge weight as ``data.get(weight, 1)``, so ``weight=None``
+    is the unweighted case — every edge weighs 1 — UNLESS some edge really
+    carries the literal ``None`` as an attribute key (``G.edges[u, v][None] = 5``
+    is legal and nx honours it). Naming an attribute that no edge carries makes
+    the native kernel compute exactly that, instead of delegating: the
+    delegation path converts the whole graph to nx and then runs nx, which
+    measured 0.088x — an order of magnitude SLOWER than simply calling nx.
+
+    Returns the original ``weight`` (keeping today's delegation) whenever the
+    rewrite cannot be proven safe.
+    """
+    if weight is not None or _native_has_none_edge_attr_key is None:
+        return weight
+    if G.is_multigraph():
+        return weight
+    try:
+        has_none_key = _native_has_none_edge_attr_key(G)
+    except Exception:
+        return weight
+    if has_none_key is not False:
+        return weight
+    # Paranoia: the sentinel must itself be absent, or it would be read as a
+    # real weight.
+    if _graph_has_edge_attribute(G, _UNWEIGHTED_WEIGHT_SENTINEL):
+        return weight
+    return _UNWEIGHTED_WEIGHT_SENTINEL
 
 try:
     from franken_networkx._fnx import (

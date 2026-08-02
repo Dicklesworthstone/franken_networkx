@@ -4257,6 +4257,37 @@ pub fn graph_has_edge_attr(
     Ok(has_attr)
 }
 
+/// br-r37-c1-dijknone: does any simple-graph edge carry the literal Python
+/// `None` as an attribute KEY?
+///
+/// `nx`'s `weight=None` resolves each edge weight as `data.get(None, 1)`, so it
+/// is the unweighted case UNLESS some edge really does have a `None` key —
+/// `G.edges[u, v][None] = 5` is legal and nx honours it. Only the
+/// `edge_py_attrs` mirror can hold such a key; the Rust `inner` attr store is
+/// String-keyed and cannot represent it. Cost is O(materialized mirrors), not
+/// O(|E|): a batch-built graph has an empty mirror and answers immediately.
+///
+/// Multigraphs return `None` so callers keep their existing fallback.
+#[pyfunction]
+pub fn graph_has_none_edge_attr_key(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Option<bool>> {
+    let gr = extract_graph(g)?;
+    let none_key = py.None();
+    let scan = |dicts: &mut dyn Iterator<Item = &Py<PyDict>>| -> PyResult<bool> {
+        for dict in dicts {
+            if dict.bind(py).contains(none_key.bind(py))? {
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    };
+    let found = match &gr {
+        GraphRef::Undirected(pg) => Some(scan(&mut pg.edge_py_attrs.values())?),
+        GraphRef::Directed { dg, .. } => Some(scan(&mut dg.edge_py_attrs.values())?),
+        GraphRef::MultiUndirected { .. } | GraphRef::MultiDirected { .. } => None,
+    };
+    Ok(found)
+}
+
 /// Return whether any simple graph node or edge has a Python-visible attr.
 ///
 /// ``graph`` attributes are intentionally ignored: product and relabel fast
@@ -27531,6 +27562,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(adjacency_nodelist_typed_arrays, m)?)?;
     m.add_function(wrap_pyfunction!(fnx_to_nx_adjacency, m)?)?;
     m.add_function(wrap_pyfunction!(graph_has_edge_attr, m)?)?;
+    m.add_function(wrap_pyfunction!(graph_has_none_edge_attr_key, m)?)?;
     m.add_function(wrap_pyfunction!(graph_has_any_attrs, m)?)?;
     m.add_function(wrap_pyfunction!(graph_has_any_edge_attrs, m)?)?;
     m.add_function(wrap_pyfunction!(bellman_ford_path, m)?)?;
