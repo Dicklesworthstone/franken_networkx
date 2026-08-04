@@ -2039,6 +2039,23 @@ def suite_node_primitives():
     ).__get__(gfx, type(gfx))
 
     return [
+        # br-r37-c1-padm6: `n in G` is the membership spelling that could not use
+        # the per-instance method shadow `has_node` gets — a dunder is looked up on
+        # the TYPE — so it carried a Python-level private-override probe that every
+        # ordinary graph paid. The probe now lives in native `__contains__` behind a
+        # Rust flag. These two rows are the vs-nx claim; the `[contains/has_node]`
+        # row below is the internal target (the dunder should now cost what the
+        # method costs, both live arms of the same build).
+        (
+            "n in G (present) x512 [nx/fnx]",
+            lambda: sum(node in gnx for node in present),
+            lambda: sum(node in gfx for node in present),
+        ),
+        (
+            "n in G (missing) x512 [nx/fnx]",
+            lambda: sum(node in gnx for node in missing),
+            lambda: sum(node in gfx for node in missing),
+        ),
         (
             "G.has_node(present) x512 [nx/fnx]",
             lambda: sum(gnx.has_node(node) for node in present),
@@ -2052,6 +2069,11 @@ def suite_node_primitives():
         (
             "G.has_node(present) x512 [wrapper/raw]",
             lambda: sum(wrapped_has_node(node) for node in present),
+            lambda: sum(gfx.has_node(node) for node in present),
+        ),
+        (
+            "membership x512 [contains/has_node]",
+            lambda: sum(node in gfx for node in present),
             lambda: sum(gfx.has_node(node) for node in present),
         ),
         (
