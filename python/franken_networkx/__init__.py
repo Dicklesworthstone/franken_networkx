@@ -57841,6 +57841,7 @@ def to_numpy_array(
     # populate matrix[u, v] and matrix[v, u] without the explicit
     # symmetric write (an overwrite of the same value is harmless,
     # but doubles work on a write-heavy path).
+    index = {node: i for i, node in enumerate(nodelist)}
     is_directed = G.is_directed()
     weight_is_none = weight is None
     for u, nbrs in G._adj.items():
@@ -58146,6 +58147,7 @@ def to_scipy_sparse_array(G, nodelist=None, dtype=None, weight="weight", format=
             first_missing = next(n for n in nodelist if n not in G)
             raise NetworkXError(f"Node {first_missing} in nodelist is not in G")
 
+    index = {node: i for i, node in enumerate(nodelist)}
     is_directed = G.is_directed()
     weight_is_none = weight is None
     # br-r37-c1-lqlx2: native Rust COO builder for non-multigraph.
@@ -58382,6 +58384,43 @@ def to_scipy_sparse_array(G, nodelist=None, dtype=None, weight="weight", format=
     #                               weight so we fall through to the exact Python
     #                               loop. The body reproduces nx's int/float
     #                               inference (array_equal(data, data.astype int)).
+    # COO exposes duplicate coordinates, so it must retain NetworkX's exact
+    # per-edge ordering rather than taking the native multigraph builder.  For
+    # an undirected multigraph NetworkX emits all stored edges first, then the
+    # reverse entries, and finally a negative self-loop correction.  Other
+    # sparse formats canonicalize duplicates, so their native path remains
+    # equivalent and faster.
+    if G.is_multigraph() and format == "coo":
+        rows = []
+        cols = []
+        data = []
+        self_loops = []
+        for u, v, _, edge_attrs in G.edges(keys=True, data=True):
+            ui = index.get(u)
+            vi = index.get(v)
+            if ui is None or vi is None:
+                continue
+            edge_value = 1 if weight_is_none else edge_attrs.get(weight, 1)
+            rows.append(ui)
+            cols.append(vi)
+            data.append(edge_value)
+            if not is_directed and u == v:
+                self_loops.append((ui, edge_value))
+        if not is_directed:
+            rows.extend(cols)
+            cols.extend(rows[: len(cols)])
+            data.extend(data)
+            for ui, edge_value in self_loops:
+                rows.append(ui)
+                cols.append(ui)
+                data.append(-edge_value)
+        matrix = scipy.sparse.coo_array(
+            (data, (rows, cols)),
+            shape=(len(nodelist), len(nodelist)),
+            dtype=dtype,
+        )
+        return matrix
+
     _mg_native = None
     if G.is_multigraph() and isinstance(G, (MultiGraph, MultiDiGraph)):
         if weight is None and _native_adjacency_arrays_multigraph is not None:

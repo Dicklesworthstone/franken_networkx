@@ -943,18 +943,28 @@ impl DiGraph {
             0.08
         };
 
-        let action = self.record_decision(
-            "add_edge",
-            incompatibility_probability,
-            unknown_feature,
-            vec![EvidenceTerm {
-                signal: "unknown_incompatible_feature".to_owned(),
-                observed_value: unknown_feature.to_string(),
-                log_likelihood_ratio: 12.0,
-            }],
-        );
+        // br-r37-c1-eo88t: the gate decision earns a ledger record only when it
+        // REFUSES. A refusal returns from here, so the outcome record at the end
+        // of this function never runs and the gate record is the whole audit
+        // trail for the rejected mutation. On the allow path the outcome record
+        // carries the same operation/mode/action/incompatibility_probability
+        // plus strictly richer evidence, so recording the gate as well wrote two
+        // near-identical records for every edge on the hottest mutation path.
+        let action = self
+            .runtime_policy
+            .action_for(incompatibility_probability, unknown_feature);
 
         if action == DecisionAction::FailClosed || action == DecisionAction::FullValidate {
+            self.record_decision(
+                "add_edge",
+                incompatibility_probability,
+                unknown_feature,
+                vec![EvidenceTerm {
+                    signal: "unknown_incompatible_feature".to_owned(),
+                    observed_value: unknown_feature.to_string(),
+                    log_likelihood_ratio: 12.0,
+                }],
+            );
             return Err(GraphError::FailClosed {
                 operation: "add_edge",
                 reason: "incompatible edge metadata".to_owned(),
@@ -2710,18 +2720,28 @@ impl MultiDiGraph {
             0.08
         };
 
-        let action = self.record_decision(
-            "add_edge",
-            incompatibility_probability,
-            unknown_feature,
-            vec![EvidenceTerm {
-                signal: "unknown_incompatible_feature".to_owned(),
-                observed_value: unknown_feature.to_string(),
-                log_likelihood_ratio: 12.0,
-            }],
-        );
+        // br-r37-c1-eo88t: the gate decision earns a ledger record only when it
+        // REFUSES. A refusal returns from here, so the outcome record at the end
+        // of this function never runs and the gate record is the whole audit
+        // trail for the rejected mutation. On the allow path the outcome record
+        // carries the same operation/mode/action/incompatibility_probability
+        // plus strictly richer evidence, so recording the gate as well wrote two
+        // near-identical records for every edge on the hottest mutation path.
+        let action = self
+            .runtime_policy
+            .action_for(incompatibility_probability, unknown_feature);
 
         if action == DecisionAction::FailClosed || action == DecisionAction::FullValidate {
+            self.record_decision(
+                "add_edge",
+                incompatibility_probability,
+                unknown_feature,
+                vec![EvidenceTerm {
+                    signal: "unknown_incompatible_feature".to_owned(),
+                    observed_value: unknown_feature.to_string(),
+                    log_likelihood_ratio: 12.0,
+                }],
+            );
             return Err(GraphError::FailClosed {
                 operation: "add_edge",
                 reason: "incompatible edge metadata".to_owned(),
@@ -4231,6 +4251,95 @@ mod tests {
         assert_eq!(g.runtime_policy().mode(), CompatibilityMode::Hardened);
         assert!(!g.runtime_policy().decision_log().records().is_empty());
         assert!(g.runtime_policy().posterior().observation_count >= 1);
+    }
+
+    /// br-r37-c1-eo88t: directed mirror of the simple/multi pairing in
+    /// `fnx-classes/src/lib.rs`. An ALLOWED edge add writes exactly one
+    /// `add_edge` ledger record and it is the outcome one; a REFUSED add still
+    /// writes its gate record, which is the rejected mutation's only audit
+    /// trail because the outcome record never runs.
+    fn add_edge_evidence_signals(records: &[DecisionRecord]) -> Vec<Vec<&str>> {
+        records
+            .iter()
+            .filter(|record| record.operation == "add_edge")
+            .map(|record| {
+                record
+                    .evidence
+                    .iter()
+                    .map(|term| term.signal.as_str())
+                    .collect()
+            })
+            .collect()
+    }
+
+    #[test]
+    fn allowed_digraph_add_edge_records_only_the_outcome_decision() {
+        let mut g = DiGraph::strict();
+        g.add_edge_with_attrs("a", "b", AttrMap::new())
+            .expect("edge add should succeed");
+
+        assert_eq!(
+            add_edge_evidence_signals(g.evidence_ledger().records()),
+            vec![vec![
+                "self_loop",
+                "edge_attr_count",
+                "source_autocreated",
+                "target_autocreated",
+            ]]
+        );
+        assert_eq!(
+            g.evidence_ledger()
+                .records()
+                .iter()
+                .filter(|record| record.operation == "add_edge")
+                .map(|record| record.action)
+                .collect::<Vec<_>>(),
+            vec![DecisionAction::Allow]
+        );
+    }
+
+    #[test]
+    fn allowed_multidigraph_add_edge_records_only_the_outcome_decision() {
+        let mut g = MultiDiGraph::strict();
+        let _ = g
+            .add_edge_with_attrs("a", "b", AttrMap::new())
+            .expect("edge add should succeed");
+
+        assert_eq!(
+            add_edge_evidence_signals(g.evidence_ledger().records()),
+            vec![vec![
+                "edge_key",
+                "edge_attr_count",
+                "source_autocreated",
+                "target_autocreated",
+            ]]
+        );
+    }
+
+    #[test]
+    fn refused_multidigraph_add_edge_still_records_its_gate_decision() {
+        let mut g = MultiDiGraph::strict();
+        let mut attrs = AttrMap::new();
+        attrs.insert("__fnx_incompatible_decoder".to_owned(), "v2".into());
+        let err = g
+            .add_edge_with_attrs("a", "b", attrs)
+            .expect_err("strict mode should fail closed");
+        assert_eq!(
+            err,
+            GraphError::FailClosed {
+                operation: "add_edge",
+                reason: "incompatible edge metadata".to_owned(),
+            }
+        );
+
+        assert_eq!(
+            add_edge_evidence_signals(g.evidence_ledger().records()),
+            vec![vec!["unknown_incompatible_feature"]]
+        );
+        assert_eq!(
+            g.evidence_ledger().records().last().map(|r| r.action),
+            Some(DecisionAction::FailClosed)
+        );
     }
 
     #[test]

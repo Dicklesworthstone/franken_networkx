@@ -15405,37 +15405,6 @@ class FnxMultiGraphCtorEdgeIterable:
     }
 
     #[test]
-    fn node_lookup_cache_bounds_missing_keys_and_invalidates_on_node_change() {
-        ensure_python();
-        Python::attach(|py| -> PyResult<()> {
-            let cache = NodeLookupCache::new(py);
-            let key = 17_i64.into_py_any(py)?;
-            let key = key.bind(py);
-
-            assert!(cache.get(py, 0, key)?.is_none());
-            assert!(!cache.is_known_missing(py, key)?);
-            cache.insert_missing(py, key)?;
-            assert!(cache.is_known_missing(py, key)?);
-
-            assert!(cache.get(py, 1, key)?.is_none());
-            assert!(!cache.is_known_missing(py, key)?);
-
-            let probes = (0_i64..9)
-                .map(|probe| probe.into_py_any(py))
-                .collect::<PyResult<Vec<_>>>()?;
-            for probe in &probes[..8] {
-                cache.insert_missing(py, probe.bind(py))?;
-            }
-            assert!(!cache.is_known_missing(py, probes[8].bind(py))?);
-
-            let unhashable = PyList::empty(py);
-            assert!(cache.get(py, 1, &unhashable).is_err());
-            Ok(())
-        })
-        .expect("node lookup cache must preserve Python mapping semantics");
-    }
-
-    #[test]
     fn multigraph_true_iterator_ctor_matches_streaming_route() {
         ensure_python();
         Python::attach(|py| -> PyResult<()> {
@@ -16935,3 +16904,33 @@ fn _fnx(m: &Bound<'_, PyModule>) -> PyResult<()> {
 
     Ok(())
 }
+    #[test]
+    fn node_lookup_cache_bounds_missing_keys_and_invalidates_on_node_change() {
+        ensure_python();
+        Python::attach(|py| -> PyResult<()> {
+            let cache = NodeLookupCache::new(py);
+            let key = 17_i64.into_py_any(py)?;
+            let key = key.bind(py);
+
+            assert!(cache.get(py, 0, key)?.is_none());
+            assert!(!cache.is_known_missing(py, key)?);
+            cache.insert_missing(py, key)?;
+            assert!(cache.is_known_missing(py, key)?);
+
+            assert!(cache.get(py, 1, key)?.is_none());
+            assert!(!cache.is_known_missing(py, key)?);
+
+            let probes = (0_i64..9)
+                .map(|probe| probe.into_py_any(py))
+                .collect::<PyResult<Vec<_>>>()?;
+            for probe in &probes[..8] {
+                cache.insert_missing(py, probe.bind(py))?;
+            }
+            assert!(!cache.is_known_missing(py, probes[8].bind(py))?);
+
+            let unhashable = PyList::empty(py);
+            assert!(cache.get(py, 1, &unhashable).is_err());
+            Ok(())
+        })
+        .expect("node lookup cache must preserve Python mapping semantics");
+    }

@@ -148,6 +148,28 @@ def test_to_scipy_sparse_array_matches_networkx_multigraph_contract():
     assert np.array_equal(actual.toarray(), wanted.toarray())
 
 
+def test_to_scipy_sparse_array_multigraph_coo_preserves_networkx_duplicates():
+    pytest.importorskip("scipy")
+
+    graph = fnx.MultiGraph()
+    expected = nx.MultiGraph()
+    for candidate in (graph, expected):
+        candidate.add_edge("a", "b", key="first", weight=2)
+        candidate.add_edge("a", "b", key="second", weight=3)
+        candidate.add_edge("a", "a", key="loop", weight=5)
+
+    actual = fnx.to_scipy_sparse_array(
+        graph, nodelist=["a", "b"], dtype=float, format="coo"
+    )
+    wanted = nx.to_scipy_sparse_array(
+        expected, nodelist=["a", "b"], dtype=float, format="coo"
+    )
+
+    assert actual.row.tolist() == wanted.row.tolist()
+    assert actual.col.tolist() == wanted.col.tolist()
+    assert actual.data.tolist() == wanted.data.tolist()
+
+
 def test_matrix_exports_honor_post_construction_weight_mutation():
     np = pytest.importorskip("numpy")
     pytest.importorskip("scipy")

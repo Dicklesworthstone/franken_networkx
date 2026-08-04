@@ -1709,18 +1709,28 @@ impl Graph {
             0.08
         };
 
-        let action = self.record_decision(
-            "add_edge",
-            incompatibility_probability,
-            unknown_feature,
-            vec![EvidenceTerm {
-                signal: "unknown_incompatible_feature".to_owned(),
-                observed_value: unknown_feature.to_string(),
-                log_likelihood_ratio: 12.0,
-            }],
-        );
+        // br-r37-c1-eo88t: the gate decision earns a ledger record only when it
+        // REFUSES. A refusal returns from here, so the outcome record at the end
+        // of this function never runs and the gate record is the whole audit
+        // trail for the rejected mutation. On the allow path the outcome record
+        // carries the same operation/mode/action/incompatibility_probability
+        // plus strictly richer evidence, so recording the gate as well wrote two
+        // near-identical records for every edge on the hottest mutation path.
+        let action = self
+            .runtime_policy
+            .action_for(incompatibility_probability, unknown_feature);
 
         if action == DecisionAction::FailClosed || action == DecisionAction::FullValidate {
+            self.record_decision(
+                "add_edge",
+                incompatibility_probability,
+                unknown_feature,
+                vec![EvidenceTerm {
+                    signal: "unknown_incompatible_feature".to_owned(),
+                    observed_value: unknown_feature.to_string(),
+                    log_likelihood_ratio: 12.0,
+                }],
+            );
             return Err(GraphError::FailClosed {
                 operation: "add_edge",
                 reason: "incompatible edge metadata".to_owned(),
@@ -4655,18 +4665,28 @@ impl MultiGraph {
             0.08
         };
 
-        let action = self.record_decision(
-            "add_edge",
-            incompatibility_probability,
-            unknown_feature,
-            vec![EvidenceTerm {
-                signal: "unknown_incompatible_feature".to_owned(),
-                observed_value: unknown_feature.to_string(),
-                log_likelihood_ratio: 12.0,
-            }],
-        );
+        // br-r37-c1-eo88t: the gate decision earns a ledger record only when it
+        // REFUSES. A refusal returns from here, so the outcome record at the end
+        // of this function never runs and the gate record is the whole audit
+        // trail for the rejected mutation. On the allow path the outcome record
+        // carries the same operation/mode/action/incompatibility_probability
+        // plus strictly richer evidence, so recording the gate as well wrote two
+        // near-identical records for every edge on the hottest mutation path.
+        let action = self
+            .runtime_policy
+            .action_for(incompatibility_probability, unknown_feature);
 
         if action == DecisionAction::FailClosed || action == DecisionAction::FullValidate {
+            self.record_decision(
+                "add_edge",
+                incompatibility_probability,
+                unknown_feature,
+                vec![EvidenceTerm {
+                    signal: "unknown_incompatible_feature".to_owned(),
+                    observed_value: unknown_feature.to_string(),
+                    log_likelihood_ratio: 12.0,
+                }],
+            );
             return Err(GraphError::FailClosed {
                 operation: "add_edge",
                 reason: "incompatible edge metadata".to_owned(),
@@ -8283,6 +8303,27 @@ mod tests {
             elapsed
         };
 
+        // Arm A1: the shipped path after br-r37-c1-eo88t — the gate decision is
+        // taken without a record, so an allowed edge writes only the outcome
+        // record. Same bounded ledger as arm A, half the traffic.
+        let recorded_single = || {
+            let mut policy = RuntimePolicy::strict();
+            let start = Instant::now();
+            for index in 0..EDGES {
+                let action = policy.action_for(0.08, false);
+                policy.record(
+                    "add_edge",
+                    action,
+                    0.08,
+                    RATIONALE,
+                    outcome_terms(index & 3),
+                );
+            }
+            let elapsed = start.elapsed();
+            assert_eq!(policy.decision_log().total_recorded(), EDGES as u64);
+            elapsed
+        };
+
         // Arm A0: the pre-br-r37-c1-8n3j3 ledger — the identical records pushed
         // into an unbounded `Vec` that is never retired. This is the incumbent
         // arm for the bound, run in the SAME invocation as arm A.
@@ -8404,6 +8445,7 @@ mod tests {
         };
 
         let mut record_ns = Vec::with_capacity(ROUNDS);
+        let mut single_ns = Vec::with_capacity(ROUNDS);
         let mut unbounded_ns = Vec::with_capacity(ROUNDS);
         let mut discard_ns = Vec::with_capacity(ROUNDS);
         let mut clock_ns = Vec::with_capacity(ROUNDS);
@@ -8411,6 +8453,7 @@ mod tests {
         let mut full_ns = Vec::with_capacity(ROUNDS);
         for _ in 0..ROUNDS {
             record_ns.push(recorded().as_nanos() as f64 / EDGES as f64);
+            single_ns.push(recorded_single().as_nanos() as f64 / EDGES as f64);
             unbounded_ns.push(unbounded().as_nanos() as f64 / EDGES as f64);
             discard_ns.push(discarded().as_nanos() as f64 / EDGES as f64);
             clock_ns.push(clocked().as_nanos() as f64 / EDGES as f64);
@@ -8422,13 +8465,15 @@ mod tests {
             samples[samples.len() / 2]
         };
         let recorded_ns = median(&mut record_ns);
+        let single_median_ns = median(&mut single_ns);
         let unbounded_median_ns = median(&mut unbounded_ns);
         let discarded_ns = median(&mut discard_ns);
         let clocked_ns = median(&mut clock_ns);
         let materialized_ns = median(&mut material_ns);
         let full = median(&mut full_ns);
         println!("ledger_record_cost_ab n={EDGES} rounds={ROUNDS} (2 records/edge)");
-        println!("  A  bounded ledger           : {recorded_ns:8.1} ns/edge");
+        println!("  A  bounded ledger, 2 records: {recorded_ns:8.1} ns/edge");
+        println!("  A1 bounded ledger, 1 record : {single_median_ns:8.1} ns/edge  (shipped)");
         println!("  A0 unbounded Vec (incumbent): {unbounded_median_ns:8.1} ns/edge");
         println!("  B  build terms only         : {discarded_ns:8.1} ns/edge");
         println!("  C  terms + clock            : {clocked_ns:8.1} ns/edge");
@@ -8455,8 +8500,16 @@ mod tests {
             unbounded_median_ns / recorded_ns
         );
         println!(
+            "  -> single-record (A/A1)     : {:8.4}x",
+            recorded_ns / single_median_ns
+        );
+        println!(
+            "  -> both levers (A0/A1)      : {:8.4}x",
+            unbounded_median_ns / single_median_ns
+        );
+        println!(
             "  -> ledger share of add_edge : {:6.1}%",
-            recorded_ns / full * 100.0
+            single_median_ns / full * 100.0
         );
     }
 
@@ -8681,6 +8734,104 @@ mod tests {
                 .evidence
                 .iter()
                 .any(|term| term.signal == "unknown_incompatible_feature")
+        );
+    }
+
+    /// br-r37-c1-eo88t: an ALLOWED edge add writes exactly one `add_edge`
+    /// ledger record, and it is the outcome record. Asserting the surviving
+    /// record's evidence is the point: an implementation that kept the gate
+    /// record instead of the outcome one would still pass a bare count check
+    /// but would have thrown away the richer decision.
+    fn add_edge_records(graph_records: &[DecisionRecord]) -> Vec<Vec<&str>> {
+        graph_records
+            .iter()
+            .filter(|record| record.operation == "add_edge")
+            .map(|record| {
+                record
+                    .evidence
+                    .iter()
+                    .map(|term| term.signal.as_str())
+                    .collect()
+            })
+            .collect()
+    }
+
+    #[test]
+    fn allowed_add_edge_records_only_the_outcome_decision() {
+        let mut graph = Graph::strict();
+        graph
+            .add_edge_with_attrs("a", "b", AttrMap::new())
+            .expect("edge add should succeed");
+
+        assert_eq!(
+            add_edge_records(graph.evidence_ledger().records()),
+            vec![vec![
+                "self_loop",
+                "edge_attr_count",
+                "left_autocreated",
+                "right_autocreated",
+            ]]
+        );
+        assert_eq!(
+            graph
+                .evidence_ledger()
+                .records()
+                .iter()
+                .filter(|record| record.operation == "add_edge")
+                .map(|record| record.action)
+                .collect::<Vec<_>>(),
+            vec![DecisionAction::Allow]
+        );
+    }
+
+    #[test]
+    fn allowed_multigraph_add_edge_records_only_the_outcome_decision() {
+        let mut graph = MultiGraph::strict();
+        let _ = graph
+            .add_edge_with_attrs("a", "b", AttrMap::new())
+            .expect("edge add should succeed");
+
+        assert_eq!(
+            add_edge_records(graph.evidence_ledger().records()),
+            vec![vec![
+                "edge_key",
+                "edge_attr_count",
+                "left_autocreated",
+                "right_autocreated",
+            ]]
+        );
+    }
+
+    #[test]
+    fn refused_multigraph_add_edge_still_records_its_gate_decision() {
+        // The negative case for the pairing above: a refusal returns before the
+        // outcome record runs, so dropping the gate record unconditionally would
+        // leave a rejected mutation with no audit trail at all.
+        let mut graph = MultiGraph::strict();
+        let mut attrs = AttrMap::new();
+        attrs.insert("__fnx_incompatible_decoder".to_owned(), "v2".into());
+        let err = graph
+            .add_edge_with_attrs("a", "b", attrs)
+            .expect_err("strict mode should fail closed");
+        assert_eq!(
+            err,
+            GraphError::FailClosed {
+                operation: "add_edge",
+                reason: "incompatible edge metadata".to_owned(),
+            }
+        );
+
+        assert_eq!(
+            add_edge_records(graph.evidence_ledger().records()),
+            vec![vec!["unknown_incompatible_feature"]]
+        );
+        assert_eq!(
+            graph
+                .evidence_ledger()
+                .records()
+                .last()
+                .map(|record| record.action),
+            Some(DecisionAction::FailClosed)
         );
     }
 
