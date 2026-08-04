@@ -437,6 +437,14 @@ Different policies on the same algorithm give different, but reproducible, answe
 
 # Dijkstra under WeightThenInsertionOrder (the default, matching NetworkX):
 # equal-weight frontier entries pop in the order they were inserted (FIFO).
+import franken_networkx as fnx
+
+G = fnx.Graph()
+G.add_weighted_edges_from([
+    ("a", "b", 1.0),
+    ("b", "z", 1.0),
+    ("a", "z", 3.0),
+])
 fnx.shortest_path(G, "a", "z", weight="w")
 
 # Under a hypothetical WeightThenLex policy, equal-weight alternatives would
@@ -510,11 +518,18 @@ diam = nx.diameter(G)                        # routes to FrankenNetworkX
 
 ```python
 import franken_networkx as fnx
+from pathlib import Path
+from tempfile import TemporaryDirectory
 
 G = fnx.path_graph(5)
-fnx.write_graphml(G, "graph.xml")
-H = fnx.read_graphml("graph.xml")
-assert sorted(H.edges()) == sorted(G.edges())
+with TemporaryDirectory() as directory:
+    path = Path(directory) / "graph.xml"
+    fnx.write_graphml(G, path)
+    H = fnx.read_graphml(path)
+    assert sorted(map(str, H.nodes())) == sorted(map(str, G.nodes()))
+    assert sorted(tuple(map(str, edge)) for edge in H.edges()) == sorted(
+        tuple(map(str, edge)) for edge in G.edges()
+    )
 ```
 
 ---

@@ -68,3 +68,51 @@ def test_docs_verifier_times_out_markdown_blocks(tmp_path: Path) -> None:
 
     if "markdown execution timed out after 0.1s" not in failure_text:
         raise AssertionError(f"expected timeout failure, got: {failure_text}")
+
+
+def _run_documented_block(
+    verify_docs: dict[str, object], doc: Path, marker: str, tmp_path: Path
+) -> list[str]:
+    blocks = verify_docs["python_blocks"](doc)
+    block = next(block for block in blocks if marker in block)
+    isolated = tmp_path / f"{doc.stem}-{marker}.md"
+    isolated.write_text(f"```python\n{block}```\n", encoding="utf-8")
+    return verify_docs["run_markdown"](isolated, sys.executable)
+
+
+def test_public_social_network_examples_use_the_community_namespace(tmp_path: Path) -> None:
+    verify_docs = _load_verify_docs_script()
+    root = _repo_root()
+
+    readme_failures = _run_documented_block(
+        verify_docs, root / "README.md", "WeightThenInsertionOrder", tmp_path
+    )
+    if readme_failures:
+        raise AssertionError(f"README tie-break example failed: {readme_failures!r}")
+
+    graphml_failures = _run_documented_block(
+        verify_docs, root / "README.md", "TemporaryDirectory", tmp_path
+    )
+    if graphml_failures:
+        raise AssertionError(f"README GraphML round-trip example failed: {graphml_failures!r}")
+
+    quickstart_failures = _run_documented_block(
+        verify_docs, root / "docs" / "quickstart.md", "community.girvan_newman", tmp_path
+    )
+    if quickstart_failures:
+        raise AssertionError(f"quickstart social-network example failed: {quickstart_failures!r}")
+
+    example_failures = verify_docs["run_example"](
+        root / "examples" / "social_network.py", sys.executable
+    )
+    if example_failures:
+        raise AssertionError(f"social network example failed: {example_failures!r}")
+
+
+def test_negative_evidence_dimension_probes_are_not_relative_links() -> None:
+    verify_docs = _load_verify_docs_script()
+    path = _repo_root() / "docs" / "NEGATIVE_EVIDENCE_cc.md"
+    failures = verify_docs["validate_links"](path)
+    unexpected = [failure for failure in failures if "missing relative link target" in failure]
+    if unexpected:
+        raise AssertionError(f"dimension probes must not be parsed as links: {unexpected!r}")

@@ -57,9 +57,11 @@ assert len(components) == 1
 ## Social Network Analysis
 
 ```python
+import franken_networkx as fnx
+
 club = fnx.karate_club_graph()
 leaders = sorted(fnx.pagerank(club).items(), key=lambda item: item[1], reverse=True)[:5]
-first_split = tuple(sorted(group) for group in next(fnx.girvan_newman(club)))
+first_split = tuple(sorted(group) for group in next(fnx.community.girvan_newman(club)))
 
 assert len(leaders) == 5
 assert len(first_split) >= 2

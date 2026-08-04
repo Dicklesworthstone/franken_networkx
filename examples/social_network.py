@@ -11,7 +11,9 @@ import franken_networkx as fnx
 def main() -> int:
     graph = fnx.karate_club_graph()
     leaders = sorted(fnx.pagerank(graph).items(), key=lambda item: item[1], reverse=True)[:5]
-    communities = [sorted(group) for group in next(fnx.girvan_newman(graph))]
+    communities = [
+        sorted(group) for group in next(fnx.community.girvan_newman(graph))
+    ]
 
     if len(leaders) != 5:
         raise RuntimeError(f"unexpected leader set: {leaders}")
