@@ -101,6 +101,30 @@ def test_tree_center_directed_guard_matches_networkx():
     assert str(fnx_exc.value) == str(nx_exc.value)
 
 
+@pytest.mark.parametrize(
+    ("builder", "exception_type"),
+    [
+        (lambda lib: lib.Graph(), nx.NotATree),
+        (lambda lib: lib.DiGraph([(0, 1), (1, 2)]), nx.NetworkXNotImplemented),
+    ],
+)
+def test_algorithms_tree_center_guard_matches_tree_namespace(builder, exception_type):
+    """The lazy ``algorithms.tree`` alias keeps ``center`` guard parity too."""
+    from franken_networkx.algorithms import tree as algorithms_tree
+
+    graph = builder(fnx)
+    expected = builder(nx)
+
+    with pytest.raises(exception_type) as direct_exc:
+        fnx_tree.center(graph)
+    with pytest.raises(exception_type) as alias_exc:
+        algorithms_tree.center(graph)
+    with pytest.raises(exception_type) as nx_exc:
+        nx.algorithms.tree.center(expected)
+
+    assert str(alias_exc.value) == str(direct_exc.value) == str(nx_exc.value)
+
+
 def test_edge_partition_class_routed():
     # EdgePartition is fnx's enum (used as a parameter); class identity matters.
     assert fnx_tree.EdgePartition is fnx.EdgePartition
