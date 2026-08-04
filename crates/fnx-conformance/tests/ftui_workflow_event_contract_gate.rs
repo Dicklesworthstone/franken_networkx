@@ -1555,8 +1555,17 @@ fn ftui_workflow_event_contract_is_complete_and_deterministic() {
         "fnx-runtime Cargo.toml should expose ftui-integration feature"
     );
     assert!(
-        runtime_cargo.contains("ftui = { path = \"/dp/frankentui/crates/ftui\""),
-        "fnx-runtime Cargo.toml should pin local ftui dependency path"
+        runtime_cargo
+            .contains("ftui = { version = \"0.5.0\", optional = true, default-features = false }"),
+        "fnx-runtime Cargo.toml should pin the registry ftui dependency"
+    );
+    assert!(
+        runtime_cargo.contains("[patch.crates-io] ftui = { path = ... }"),
+        "fnx-runtime Cargo.toml should document the local patch contract"
+    );
+    assert!(
+        !runtime_cargo.contains("ftui = { path = \"/dp/frankentui/crates/ftui\""),
+        "fnx-runtime Cargo.toml must not require an author's local ftui path"
     );
 
     assert!(
