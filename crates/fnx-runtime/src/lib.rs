@@ -1898,9 +1898,49 @@ impl CgsePolicyEvaluator for CgsePolicyEngine {
 /// Current schema version for decision ledger serialization.
 pub const DECISION_LEDGER_SCHEMA_VERSION: &str = "1.0.0";
 
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+/// Number of decision records the ledger keeps resident before it starts
+/// retiring the oldest `Allow` decisions.
+///
+/// br-r37-c1-8n3j3: the ledger is written on the per-element mutation path —
+/// `Graph::add_edge_with_attrs` records twice for every single edge — so an
+/// unbounded backing `Vec` made the cost of a mutation grow with the number of
+/// records already retained. Measured on a 20,000-edge incremental build, the
+/// push and the memory it kept resident were **46.7%** of the whole
+/// `add_edge_with_attrs` call (612.9 ns/edge of 1676.1 ns/edge), because a
+/// build retains a record — and the five heap strings hanging off it — for
+/// every mutation it ever performed, and the allocator has to fault in fresh
+/// pages for all of it. Capping residency keeps the audit window warm in
+/// already-faulted memory and makes graph construction O(1) in ledger state
+/// rather than O(mutations).
+pub const DECISION_LEDGER_RETAINED_RECORDS: usize = 8192;
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct EvidenceLedger {
     records: Vec<DecisionRecord>,
+    /// Count of records retired to keep residency bounded. Retirement is never
+    /// silent: `total_recorded()` stays exact regardless of the window size.
+    #[serde(default)]
+    retired_records: u64,
+    /// Residency high-water mark. Raised only when the retained window is
+    /// dominated by audit-critical (non-`Allow`) decisions, which are never
+    /// retired — that keeps the retention scan amortized O(1) per record
+    /// instead of degenerating into a rescan on every push.
+    #[serde(default = "default_retained_capacity")]
+    retained_capacity: usize,
+}
+
+fn default_retained_capacity() -> usize {
+    DECISION_LEDGER_RETAINED_RECORDS
+}
+
+impl Default for EvidenceLedger {
+    fn default() -> Self {
+        Self {
+            records: Vec::new(),
+            retired_records: 0,
+            retained_capacity: DECISION_LEDGER_RETAINED_RECORDS,
+        }
+    }
 }
 
 impl EvidenceLedger {
@@ -1910,12 +1950,59 @@ impl EvidenceLedger {
     }
 
     pub fn record(&mut self, decision: DecisionRecord) {
+        if self.records.len() >= self.retained_capacity {
+            self.retire_oldest_allow_records();
+        }
         self.records.push(decision);
+    }
+
+    /// Retire the oldest half of the window, keeping every audit-critical
+    /// decision in it.
+    ///
+    /// `FullValidate` and `FailClosed` are the recoveries and policy overrides
+    /// the security doctrine requires a durable log of, so they survive
+    /// retirement; only `Allow` decisions — which are the ones the hot mutation
+    /// path emits by the million — are dropped. If the window is dominated by
+    /// audit-critical records there is nothing to retire, so the capacity is
+    /// doubled instead: residency then tracks the number of genuine policy
+    /// events rather than the number of mutations, and the scan stays amortized
+    /// O(1) per recorded decision.
+    fn retire_oldest_allow_records(&mut self) {
+        let oldest_half = self.records.len() / 2;
+        let mut index = 0usize;
+        let mut retired = 0usize;
+        self.records.retain(|record| {
+            let keep = index >= oldest_half || record.action != DecisionAction::Allow;
+            index += 1;
+            if !keep {
+                retired += 1;
+            }
+            keep
+        });
+        if retired == 0 {
+            self.retained_capacity = self.retained_capacity.saturating_mul(2);
+            return;
+        }
+        self.retired_records = self.retired_records.saturating_add(retired as u64);
+        self.retained_capacity = DECISION_LEDGER_RETAINED_RECORDS.max(self.records.len() * 2);
     }
 
     #[must_use]
     pub fn records(&self) -> &[DecisionRecord] {
         &self.records
+    }
+
+    /// Decisions retired from the resident window to bound memory.
+    #[must_use]
+    pub const fn retired_records(&self) -> u64 {
+        self.retired_records
+    }
+
+    /// Every decision this ledger has ever been handed, retired or resident.
+    #[must_use]
+    pub fn total_recorded(&self) -> u64 {
+        self.retired_records
+            .saturating_add(self.records.len() as u64)
     }
 
     #[must_use]
@@ -6800,6 +6887,115 @@ mod tests {
     // -----------------------------------------------------------------------
     // Versioned Decision Ledger tests
     // -----------------------------------------------------------------------
+
+    // br-r37-c1-8n3j3: residency-bound contract for the decision ledger.
+    fn ledger_decision(operation: &str, action: DecisionAction) -> super::DecisionRecord {
+        super::DecisionRecord {
+            ts_unix_ms: 0,
+            operation: operation.to_owned(),
+            mode: CompatibilityMode::Strict,
+            action,
+            incompatibility_probability: 0.08,
+            rationale: "test".to_owned(),
+            evidence: vec![],
+        }
+    }
+
+    #[test]
+    fn evidence_ledger_bounds_resident_allow_records_and_keeps_the_newest() {
+        let cap = super::DECISION_LEDGER_RETAINED_RECORDS;
+        let total = cap * 3;
+        let mut ledger = super::EvidenceLedger::new();
+        for index in 0..total {
+            ledger.record(ledger_decision(&index.to_string(), DecisionAction::Allow));
+        }
+
+        assert!(
+            ledger.records().len() <= cap,
+            "resident window {} exceeded the {cap} cap",
+            ledger.records().len()
+        );
+        // Accounting stays exact even though residency is bounded.
+        assert_eq!(ledger.total_recorded(), total as u64);
+        assert_eq!(
+            ledger.retired_records() + ledger.records().len() as u64,
+            total as u64
+        );
+        // The window that survives is the NEWEST one, in order — a naive
+        // implementation that truncated the tail (or reordered on retirement)
+        // would fail both of these.
+        let resident = ledger.records();
+        assert_eq!(
+            resident.last().map(|record| record.operation.as_str()),
+            Some((total - 1).to_string().as_str())
+        );
+        let mut previous: Option<usize> = None;
+        for record in resident {
+            let current: usize = record.operation.parse().expect("numeric marker");
+            if let Some(previous) = previous {
+                assert_eq!(current, previous + 1, "resident window is not contiguous");
+            }
+            previous = Some(current);
+        }
+    }
+
+    #[test]
+    fn evidence_ledger_never_retires_audit_critical_records() {
+        let cap = super::DECISION_LEDGER_RETAINED_RECORDS;
+        let mut ledger = super::EvidenceLedger::new();
+        let mut expected_critical = Vec::new();
+        for index in 0..(cap * 4) {
+            // A recovery or policy override every 1000 decisions, oldest first.
+            if index % 1000 == 0 {
+                let marker = format!("override-{index}");
+                expected_critical.push(marker.clone());
+                ledger.record(ledger_decision(&marker, DecisionAction::FailClosed));
+            } else {
+                ledger.record(ledger_decision("mutate", DecisionAction::Allow));
+            }
+        }
+
+        let survived = ledger
+            .records()
+            .iter()
+            .filter(|record| record.action != DecisionAction::Allow)
+            .map(|record| record.operation.clone())
+            .collect::<Vec<_>>();
+        // Every FailClosed decision is still resident, including the very
+        // oldest, which plain FIFO retirement would have evicted long ago.
+        assert_eq!(survived, expected_critical);
+        assert_eq!(ledger.total_recorded(), (cap * 4) as u64);
+    }
+
+    #[test]
+    fn evidence_ledger_stays_bounded_when_every_record_is_audit_critical() {
+        // Degenerate input: nothing is retirable, so residency must grow — but
+        // the retention scan must not rerun on every push (that would make a
+        // hostile stream of policy failures quadratic).
+        let cap = super::DECISION_LEDGER_RETAINED_RECORDS;
+        let total = cap * 4;
+        let mut ledger = super::EvidenceLedger::new();
+        for _ in 0..total {
+            ledger.record(ledger_decision("reject", DecisionAction::FailClosed));
+        }
+        assert_eq!(ledger.records().len(), total);
+        assert_eq!(ledger.retired_records(), 0);
+        assert_eq!(ledger.total_recorded(), total as u64);
+    }
+
+    #[test]
+    fn evidence_ledger_round_trips_a_retired_window() {
+        let cap = super::DECISION_LEDGER_RETAINED_RECORDS;
+        let mut ledger = super::EvidenceLedger::new();
+        for index in 0..(cap * 2) {
+            ledger.record(ledger_decision(&index.to_string(), DecisionAction::Allow));
+        }
+        let json = ledger.to_json_pretty().expect("ledger serializes");
+        let restored: super::EvidenceLedger =
+            serde_json::from_str(&json).expect("ledger deserializes");
+        assert_eq!(restored, ledger);
+        assert_eq!(restored.total_recorded(), ledger.total_recorded());
+    }
 
     #[test]
     fn versioned_ledger_has_correct_schema_version() {

@@ -8208,6 +8208,258 @@ mod tests {
         assert_eq!(graph.edge_count(), 0);
     }
 
+    /// br-r37-c1-8n3j3: attribution bench for the per-mutation CGSE decision
+    /// record. `Graph::add_edge_with_attrs` calls `record_decision` twice per
+    /// edge (5 `EvidenceTerm`s total), and every field of a `DecisionRecord`
+    /// that comes from a `&'static str` is materialised as an owned `String`.
+    /// This measures, in one invocation and interleaved, how much of a single
+    /// `add_edge_with_attrs` is the ledger: arm A records the exact terms
+    /// `add_edge_with_attrs` builds, arm B builds the identical terms and
+    /// discards them. `add_edge_full` is the denominator the ratio is against.
+    /// `#[ignore]`; run with
+    /// `cargo test --release -p fnx-classes --lib ledger_record_cost_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with --release --ignored --nocapture"]
+    fn ledger_record_cost_ab() {
+        use fnx_runtime::{EvidenceTerm, RuntimePolicy};
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        const EDGES: usize = 20_000;
+        const ROUNDS: usize = 21;
+        const RATIONALE: &str = "argmin expected loss over {allow,full_validate,fail_closed}";
+
+        // The exact evidence `add_edge_with_attrs` builds for a fresh
+        // non-self-loop edge between two autocreated nodes.
+        fn gate_terms() -> Vec<EvidenceTerm> {
+            vec![EvidenceTerm {
+                signal: "unknown_incompatible_feature".to_owned(),
+                observed_value: false.to_string(),
+                log_likelihood_ratio: 12.0,
+            }]
+        }
+        fn outcome_terms(edge_attr_count: usize) -> Vec<EvidenceTerm> {
+            vec![
+                EvidenceTerm {
+                    signal: "self_loop".to_owned(),
+                    observed_value: false.to_string(),
+                    log_likelihood_ratio: -0.5,
+                },
+                EvidenceTerm {
+                    signal: "edge_attr_count".to_owned(),
+                    observed_value: edge_attr_count.to_string(),
+                    log_likelihood_ratio: -2.0,
+                },
+                EvidenceTerm {
+                    signal: "left_autocreated".to_owned(),
+                    observed_value: true.to_string(),
+                    log_likelihood_ratio: -1.25,
+                },
+                EvidenceTerm {
+                    signal: "right_autocreated".to_owned(),
+                    observed_value: true.to_string(),
+                    log_likelihood_ratio: -1.25,
+                },
+            ]
+        }
+
+        // Arm A: build the terms AND record them (the shipped behaviour).
+        let recorded = || {
+            let mut policy = RuntimePolicy::strict();
+            let start = Instant::now();
+            for index in 0..EDGES {
+                let action = policy.action_for(0.08, false);
+                policy.record("add_edge", action, 0.08, RATIONALE, gate_terms());
+                policy.record(
+                    "add_edge",
+                    action,
+                    0.08,
+                    RATIONALE,
+                    outcome_terms(index & 3),
+                );
+            }
+            let elapsed = start.elapsed();
+            assert_eq!(policy.decision_log().total_recorded(), (EDGES * 2) as u64);
+            elapsed
+        };
+
+        // Arm A0: the pre-br-r37-c1-8n3j3 ledger — the identical records pushed
+        // into an unbounded `Vec` that is never retired. This is the incumbent
+        // arm for the bound, run in the SAME invocation as arm A.
+        let unbounded = || {
+            let policy = RuntimePolicy::strict();
+            let mode = policy.mode();
+            let mut records: Vec<DecisionRecord> = Vec::new();
+            let start = Instant::now();
+            for index in 0..EDGES {
+                let action = policy.action_for(0.08, false);
+                records.push(DecisionRecord {
+                    ts_unix_ms: fnx_runtime::unix_time_ms(),
+                    operation: "add_edge".to_owned(),
+                    mode,
+                    action,
+                    incompatibility_probability: 0.08,
+                    rationale: RATIONALE.to_owned(),
+                    evidence: gate_terms(),
+                });
+                records.push(DecisionRecord {
+                    ts_unix_ms: fnx_runtime::unix_time_ms(),
+                    operation: "add_edge".to_owned(),
+                    mode,
+                    action,
+                    incompatibility_probability: 0.08,
+                    rationale: RATIONALE.to_owned(),
+                    evidence: outcome_terms(index & 3),
+                });
+            }
+            let elapsed = start.elapsed();
+            assert_eq!(records.len(), EDGES * 2);
+            elapsed
+        };
+
+        // Arm B: build the identical terms, skip only the recording.
+        let discarded = || {
+            let policy = RuntimePolicy::strict();
+            let start = Instant::now();
+            for index in 0..EDGES {
+                let action = policy.action_for(0.08, false);
+                black_box((action, "add_edge", 0.08, RATIONALE, gate_terms()));
+                black_box((
+                    action,
+                    "add_edge",
+                    0.08,
+                    RATIONALE,
+                    outcome_terms(index & 3),
+                ));
+            }
+            let elapsed = start.elapsed();
+            assert!(policy.decision_log().records().is_empty());
+            elapsed
+        };
+
+        // Arm C: terms + the clock read, discarded. Isolates `unix_time_ms`.
+        let clocked = || {
+            let policy = RuntimePolicy::strict();
+            let start = Instant::now();
+            for index in 0..EDGES {
+                let action = policy.action_for(0.08, false);
+                black_box((action, fnx_runtime::unix_time_ms(), gate_terms()));
+                black_box((
+                    action,
+                    fnx_runtime::unix_time_ms(),
+                    outcome_terms(index & 3),
+                ));
+            }
+            start.elapsed()
+        };
+
+        // Arm D: terms + clock + the two owned `&'static str` clones + the whole
+        // `DecisionRecord`, discarded instead of pushed. Isolates the ledger Vec
+        // push and its growth memcpy from the per-record materialisation cost.
+        let materialized = || {
+            let policy = RuntimePolicy::strict();
+            let mode = policy.mode();
+            let start = Instant::now();
+            for index in 0..EDGES {
+                let action = policy.action_for(0.08, false);
+                black_box(DecisionRecord {
+                    ts_unix_ms: fnx_runtime::unix_time_ms(),
+                    operation: "add_edge".to_owned(),
+                    mode,
+                    action,
+                    incompatibility_probability: 0.08,
+                    rationale: RATIONALE.to_owned(),
+                    evidence: gate_terms(),
+                });
+                black_box(DecisionRecord {
+                    ts_unix_ms: fnx_runtime::unix_time_ms(),
+                    operation: "add_edge".to_owned(),
+                    mode,
+                    action,
+                    incompatibility_probability: 0.08,
+                    rationale: RATIONALE.to_owned(),
+                    evidence: outcome_terms(index & 3),
+                });
+            }
+            start.elapsed()
+        };
+
+        // Denominator: the whole shipped add_edge_with_attrs path.
+        let add_edge_full = || {
+            let mut graph = Graph::strict();
+            let keys = (0..=EDGES).map(|n| n.to_string()).collect::<Vec<_>>();
+            let start = Instant::now();
+            for index in 0..EDGES {
+                graph
+                    .add_edge_with_attrs(
+                        keys[index].clone(),
+                        keys[index + 1].clone(),
+                        AttrMap::new(),
+                    )
+                    .expect("edge add should succeed");
+            }
+            let elapsed = start.elapsed();
+            assert_eq!(graph.edge_count(), EDGES);
+            elapsed
+        };
+
+        let mut record_ns = Vec::with_capacity(ROUNDS);
+        let mut unbounded_ns = Vec::with_capacity(ROUNDS);
+        let mut discard_ns = Vec::with_capacity(ROUNDS);
+        let mut clock_ns = Vec::with_capacity(ROUNDS);
+        let mut material_ns = Vec::with_capacity(ROUNDS);
+        let mut full_ns = Vec::with_capacity(ROUNDS);
+        for _ in 0..ROUNDS {
+            record_ns.push(recorded().as_nanos() as f64 / EDGES as f64);
+            unbounded_ns.push(unbounded().as_nanos() as f64 / EDGES as f64);
+            discard_ns.push(discarded().as_nanos() as f64 / EDGES as f64);
+            clock_ns.push(clocked().as_nanos() as f64 / EDGES as f64);
+            material_ns.push(materialized().as_nanos() as f64 / EDGES as f64);
+            full_ns.push(add_edge_full().as_nanos() as f64 / EDGES as f64);
+        }
+        let median = |samples: &mut Vec<f64>| {
+            samples.sort_by(f64::total_cmp);
+            samples[samples.len() / 2]
+        };
+        let recorded_ns = median(&mut record_ns);
+        let unbounded_median_ns = median(&mut unbounded_ns);
+        let discarded_ns = median(&mut discard_ns);
+        let clocked_ns = median(&mut clock_ns);
+        let materialized_ns = median(&mut material_ns);
+        let full = median(&mut full_ns);
+        println!("ledger_record_cost_ab n={EDGES} rounds={ROUNDS} (2 records/edge)");
+        println!("  A  bounded ledger           : {recorded_ns:8.1} ns/edge");
+        println!("  A0 unbounded Vec (incumbent): {unbounded_median_ns:8.1} ns/edge");
+        println!("  B  build terms only         : {discarded_ns:8.1} ns/edge");
+        println!("  C  terms + clock            : {clocked_ns:8.1} ns/edge");
+        println!("  D  terms + clock + record   : {materialized_ns:8.1} ns/edge");
+        println!("  add_edge_with_attrs (total) : {full:8.1} ns/edge");
+        println!(
+            "  -> clock (C-B)              : {:8.1} ns/edge",
+            clocked_ns - discarded_ns
+        );
+        println!(
+            "  -> static str clones (D-C)  : {:8.1} ns/edge",
+            materialized_ns - clocked_ns
+        );
+        println!(
+            "  -> unbounded retention (A0-D): {:8.1} ns/edge",
+            unbounded_median_ns - materialized_ns
+        );
+        println!(
+            "  -> bounded retention (A-D)  : {:8.1} ns/edge",
+            recorded_ns - materialized_ns
+        );
+        println!(
+            "  -> bound speedup (A0/A)     : {:8.4}x",
+            unbounded_median_ns / recorded_ns
+        );
+        println!(
+            "  -> ledger share of add_edge : {:6.1}%",
+            recorded_ns / full * 100.0
+        );
+    }
+
     // br-r37-c1-p6bxu: A/B substrate bench for MultiGraph::remove_node
     // (O(degree) swap_remove vs the old O(|E|) retain). Ignored by default;
     // run with `cargo test -p fnx-classes --release ab_bench_multigraph_remove_node
