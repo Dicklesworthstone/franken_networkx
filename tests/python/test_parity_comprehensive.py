@@ -1417,3 +1417,63 @@ class TestEdgeSwapping:
         orig = sorted(d for _, d in G.degree)
         fnx.double_edge_swap(G, nswap=5, seed=42)
         assert sorted(d for _, d in G.degree) == orig
+
+
+# ---------------------------------------------------------------------------
+# API-health scalar smoke parity
+# ---------------------------------------------------------------------------
+
+@needs_nx
+@pytest.mark.parametrize(
+    ("name", "args"),
+    [
+        ("density", ()),
+        ("transitivity", ()),
+        ("average_clustering", ()),
+        ("diameter", ()),
+        ("radius", ()),
+        ("is_connected", ()),
+        ("node_connectivity", ()),
+        ("edge_connectivity", ()),
+        ("average_node_connectivity", ()),
+        ("global_efficiency", ()),
+        ("local_efficiency", ()),
+        ("harmonic_diameter", ()),
+        ("wiener_index", ()),
+        ("hyper_wiener_index", ()),
+        ("is_tree", ()),
+        ("is_bipartite", ()),
+        ("is_chordal", ()),
+        ("is_regular", ()),
+        ("is_k_regular", (2,)),
+        ("is_distance_regular", ()),
+        ("is_strongly_regular", ()),
+        ("is_planar", ()),
+        ("is_pseudographical", ()),
+        ("is_eulerian", ()),
+        ("is_semieulerian", ()),
+        ("algebraic_connectivity", ()),
+        ("degree_assortativity_coefficient", ()),
+        ("estrada_index", ()),
+        ("non_randomness", ()),
+    ],
+)
+def test_api_health_scalar_smoke_matches_networkx(name, args):
+    """Representative public scalar APIs run and agree on a fresh graph.
+
+    A barbell has clique, bridge, and path structure, so this compact smoke
+    surface exercises graph metrics, connectivity, predicates, spectral
+    routines, randomness, and small-world-adjacent measures without relying
+    on mocks or a shared graph instance.
+    """
+    actual_graph = fnx.barbell_graph(4, 2)
+    expected_graph = nx.barbell_graph(4, 2)
+    actual = getattr(fnx, name)(actual_graph, *args)
+    expected = getattr(nx, name)(expected_graph, *args)
+
+    if isinstance(expected, tuple):
+        assert actual == pytest.approx(expected, rel=1e-9, abs=1e-12)
+    elif isinstance(expected, float):
+        assert actual == pytest.approx(expected, rel=1e-9, abs=1e-12)
+    else:
+        assert actual == expected
