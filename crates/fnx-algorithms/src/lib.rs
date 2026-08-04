@@ -41731,7 +41731,10 @@ fn local_constraint_inner(graph: &Graph, u: &str, v: &str, u_nbrs: &[&str]) -> f
         // p_uw * p_wv
         let p_uw = 1.0 / deg_u;
         if v_set.contains(w) {
-            let deg_w = graph.neighbors(w).unwrap_or_default().len() as f64;
+            // `w` came from `u_nbrs`, so it is an existing node.  Counting its
+            // neighbors through the graph avoids allocating a temporary Vec only
+            // to discard it after taking its length.
+            let deg_w = graph.neighbor_count(w) as f64;
             if deg_w > 0.0 {
                 let p_wv = 1.0 / deg_w;
                 indirect += p_uw * p_wv;
@@ -44335,7 +44338,7 @@ pub fn connected_dominating_set(graph: &Graph) -> Vec<String> {
     // Start with the highest-degree node
     let start = nodes
         .iter()
-        .max_by_key(|&&n| graph.neighbors(n).unwrap_or_default().len())
+        .max_by_key(|&&n| graph.neighbor_count(n))
         .unwrap();
 
     let mut dom_set: std::collections::HashSet<String> = std::collections::HashSet::new();
@@ -54439,6 +54442,7 @@ mod tests {
         connected_components,
         connected_dominating_set,
         constraint,
+        local_constraint,
         could_be_isomorphic,
         cubical_graph,
         current_flow_betweenness_centrality,
@@ -80995,6 +80999,17 @@ mod tests {
         let _ = g.add_edge("c", "l2");
         let c = constraint(&g);
         assert!((c["l1"] - 1.0).abs() < TEST_TOLERANCE);
+    }
+
+    #[test]
+    fn test_local_constraint_triangle_includes_indirect_investment() {
+        let mut g = Graph::strict();
+        let _ = g.add_edge("a", "b");
+        let _ = g.add_edge("a", "c");
+        let _ = g.add_edge("b", "c");
+
+        // a invests 1/2 directly in b and 1/4 indirectly through c.
+        assert!((local_constraint(&g, "a", "b") - 0.5625).abs() < TEST_TOLERANCE);
     }
 
     #[test]
