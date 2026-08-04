@@ -74,6 +74,35 @@ def test_get_node_attributes_includes_default_for_missing_nodes():
     )
 
 
+def test_node_view_missing_lookup_cache_invalidates_after_node_addition():
+    """A failed lookup must not survive the node-set mutation that makes it valid."""
+    graph = fnx.Graph()
+    expected = nx.Graph()
+    nodes = graph.nodes
+
+    for candidate in (17, "later"):
+        with pytest.raises(KeyError) as fnx_error:
+            nodes[candidate]
+        with pytest.raises(KeyError) as nx_error:
+            expected.nodes[candidate]
+        assert fnx_error.value.args == nx_error.value.args
+
+        graph.add_node(candidate, payload=candidate)
+        expected.add_node(candidate, payload=candidate)
+        assert nodes[candidate] == expected.nodes[candidate]
+
+
+def test_node_view_missing_lookup_preserves_unhashable_type_error():
+    graph = fnx.Graph()
+    expected = nx.Graph()
+
+    for candidate in ([], {"node": 1}):
+        with pytest.raises(TypeError, match="unhashable type"):
+            graph.nodes[candidate]
+        with pytest.raises(TypeError, match="unhashable type"):
+            expected.nodes[candidate]
+
+
 def test_set_edge_attributes_dict_with_name():
     graph = fnx.Graph()
     graph.add_edge(0, 1)

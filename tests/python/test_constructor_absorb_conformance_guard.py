@@ -90,3 +90,27 @@ def test_absorb_independent_of_source(ft, nt, fs, ns, seed):
     assert _nattrs(fres) == before_n
     assert _eattrs(fres) == before_e
     assert "brand_new" not in set(fres.nodes())
+
+
+@pytest.mark.parametrize(
+    "rows",
+    [
+        [(1, 2, "")] * 8,
+        [(1, 2, f"key-{index}") for index in range(8)] + [(1, 2, "")],
+        [(1, 2, "", {"explicit": True})] * 8,
+    ],
+)
+def test_multidigraph_true_iterator_empty_string_key_or_edge_data_matches_networkx(rows):
+    """NetworkX consumes an empty string in a 3-tuple as edge data.
+
+    This uses a genuine one-shot iterator so the typed constructor staging is
+    exercised, including the case where it must abandon an already-staged
+    explicit-key prefix. A 4-tuple instead keeps the empty string as an
+    explicit key, matching NetworkX's arity-sensitive interpretation.
+    """
+    fnx_graph = fnx.MultiDiGraph(edge for edge in rows)
+    nx_graph = nx.MultiDiGraph(edge for edge in rows)
+
+    assert list(fnx_graph.edges(keys=True, data=True)) == list(
+        nx_graph.edges(keys=True, data=True)
+    )
