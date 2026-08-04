@@ -43792,6 +43792,10 @@ def _set_private_override(self, attr_name, value):
     if register_gc_dict is not None:
         register_gc_dict(storage)
     setattr(self, attr_name, value)
+    if attr_name == _PRIVATE_NODE_OVERRIDE:
+        mark_private_node_override = getattr(self, "_fnx_set_private_node_override", None)
+        if mark_private_node_override is not None:
+            mark_private_node_override()
     _install_private_method_shadows(self, storage)
 
 
@@ -44996,10 +45000,6 @@ Graph.__len__ = _private_aware_len(_GRAPH_PRIVATE_AWARE_LEN)
 DiGraph.__len__ = _private_aware_len(_DIGRAPH_PRIVATE_AWARE_LEN)
 MultiGraph.__len__ = _private_aware_len(_MULTIGRAPH_PRIVATE_AWARE_LEN)
 MultiDiGraph.__len__ = _private_aware_len(_MULTIDIGRAPH_PRIVATE_AWARE_LEN)
-Graph.__contains__ = _private_aware_contains(_GRAPH_PRIVATE_AWARE_CONTAINS)
-DiGraph.__contains__ = _private_aware_contains(_DIGRAPH_PRIVATE_AWARE_CONTAINS)
-MultiGraph.__contains__ = _private_aware_contains(_MULTIGRAPH_PRIVATE_AWARE_CONTAINS)
-MultiDiGraph.__contains__ = _private_aware_contains(_MULTIDIGRAPH_PRIVATE_AWARE_CONTAINS)
 
 Graph.nodes = _private_aware_nodes(_GRAPH_PRIVATE_AWARE_NODES)
 DiGraph.nodes = _private_aware_nodes(_DIGRAPH_PRIVATE_AWARE_NODES)

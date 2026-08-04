@@ -1780,11 +1780,15 @@ impl DictOfDictsCache {
 /// both strong references.
 pub(crate) struct InstanceDictGc {
     dict: Option<Py<PyDict>>,
+    private_node_override: bool,
 }
 
 impl InstanceDictGc {
     pub(crate) const fn new() -> Self {
-        Self { dict: None }
+        Self {
+            dict: None,
+            private_node_override: false,
+        }
     }
 
     pub(crate) fn register(&mut self, dict: &Bound<'_, PyDict>) {
@@ -1801,6 +1805,31 @@ impl InstanceDictGc {
     pub(crate) fn clear(&mut self, py: Python<'_>) {
         if let Some(dict) = self.dict.take() {
             dict.bind(py).clear();
+        }
+    }
+
+    pub(crate) fn set_private_node_override(&mut self) {
+        self.private_node_override = true;
+    }
+
+    pub(crate) fn private_node_contains(
+        &self,
+        py: Python<'_>,
+        node: &Bound<'_, PyAny>,
+    ) -> PyResult<Option<bool>> {
+        if !self.private_node_override {
+            return Ok(None);
+        }
+        let Some(dict) = self.dict.as_ref() else {
+            return Ok(None);
+        };
+        let Some(mapping) = dict.bind(py).get_item("_fnx_private_node_override")? else {
+            return Ok(None);
+        };
+        match mapping.contains(node) {
+            Ok(contains) => Ok(Some(contains)),
+            Err(error) if error.is_instance_of::<PyTypeError>(py) => Ok(Some(false)),
+            Err(error) => Err(error),
         }
     }
 }
@@ -1859,6 +1888,10 @@ pub(crate) struct PyGraph {
 impl PyGraph {
     fn _fnx_register_gc_dict(&mut self, dict: &Bound<'_, PyDict>) {
         self.instance_dict_gc.register(dict);
+    }
+
+    fn _fnx_set_private_node_override(&mut self) {
+        self.instance_dict_gc.set_private_node_override();
     }
 
     fn __traverse__(&self, visit: PyVisit<'_>) -> Result<(), PyTraverseError> {
@@ -4175,6 +4208,10 @@ pub(crate) struct PyMultiGraph {
 impl PyMultiGraph {
     fn _fnx_register_gc_dict(&mut self, dict: &Bound<'_, PyDict>) {
         self.instance_dict_gc.register(dict);
+    }
+
+    fn _fnx_set_private_node_override(&mut self) {
+        self.instance_dict_gc.set_private_node_override();
     }
 
     fn __traverse__(&self, visit: PyVisit<'_>) -> Result<(), PyTraverseError> {
@@ -8987,6 +9024,9 @@ impl PyMultiGraph {
     }
 
     fn __contains__(&self, py: Python<'_>, n: &Bound<'_, PyAny>) -> PyResult<bool> {
+        if let Some(contains) = self.instance_dict_gc.private_node_contains(py, n)? {
+            return Ok(contains);
+        }
         // br-r37-c1-04z53 (cc): identity-int membership fast path. An exact int
         // (bool excluded) that fits usize AND sits at its own index IS present —
         // `node_index_matches_int` is the whole answer, so we skip both the
@@ -13501,6 +13541,9 @@ impl PyGraph {
 
     /// Membership test (called by ``n in G``).
     fn __contains__(&self, py: Python<'_>, n: &Bound<'_, PyAny>) -> PyResult<bool> {
+        if let Some(contains) = self.instance_dict_gc.private_node_contains(py, n)? {
+            return Ok(contains);
+        }
         // br-r37-c1-04z53 (cc): identity-int membership fast path. An exact int
         // (bool excluded) that fits usize AND sits at its own index IS present —
         // `node_index_matches_int` is the whole answer, so we skip both the
@@ -16597,6 +16640,52 @@ class FnxMultiGraphCtorEdgeIterable:
                 .expect("state import should succeed");
 
             assert_eq!(restored.inner.runtime_policy(), &expected_policy);
+        });
+    }
+
+    #[test]
+    fn private_node_override_membership_uses_mapping_and_suppresses_unhashable_keys() {
+        ensure_python();
+        Python::attach(|py| {
+            let storage = PyDict::new(py);
+            let mapping = PyDict::new(py);
+            mapping
+                .set_item("private", PyDict::new(py))
+                .expect("private mapping setup should succeed");
+            storage
+                .set_item("_fnx_private_node_override", mapping)
+                .expect("private override setup should succeed");
+
+            let mut state = InstanceDictGc::new();
+            state.register(&storage);
+            state.set_private_node_override();
+
+            let present = "private"
+                .into_py_any(py)
+                .expect("present key conversion should succeed");
+            let missing = "missing"
+                .into_py_any(py)
+                .expect("missing key conversion should succeed");
+            let unhashable = PyList::empty(py);
+
+            assert_eq!(
+                state
+                    .private_node_contains(py, present.bind(py))
+                    .expect("present lookup should succeed"),
+                Some(true)
+            );
+            assert_eq!(
+                state
+                    .private_node_contains(py, missing.bind(py))
+                    .expect("missing lookup should succeed"),
+                Some(false)
+            );
+            assert_eq!(
+                state
+                    .private_node_contains(py, &unhashable)
+                    .expect("unhashable lookup should be suppressed"),
+                Some(false)
+            );
         });
     }
 }

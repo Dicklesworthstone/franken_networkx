@@ -179,6 +179,10 @@ impl PyDiGraph {
         self.instance_dict_gc.register(dict);
     }
 
+    fn _fnx_set_private_node_override(&mut self) {
+        self.instance_dict_gc.set_private_node_override();
+    }
+
     fn __traverse__(&self, visit: PyVisit<'_>) -> Result<(), PyTraverseError> {
         self.instance_dict_gc.traverse(visit.clone())?;
         self.traverse_python_refs(&visit)
@@ -364,6 +368,10 @@ pub struct PyMultiDiGraph {
 impl PyMultiDiGraph {
     fn _fnx_register_gc_dict(&mut self, dict: &Bound<'_, PyDict>) {
         self.instance_dict_gc.register(dict);
+    }
+
+    fn _fnx_set_private_node_override(&mut self) {
+        self.instance_dict_gc.set_private_node_override();
     }
 
     fn __traverse__(&self, visit: PyVisit<'_>) -> Result<(), PyTraverseError> {
@@ -5430,6 +5438,9 @@ impl PyMultiDiGraph {
     }
 
     fn __contains__(&self, py: Python<'_>, n: &Bound<'_, PyAny>) -> PyResult<bool> {
+        if let Some(contains) = self.instance_dict_gc.private_node_contains(py, n)? {
+            return Ok(contains);
+        }
         // br-r37-c1-04z53 (cc): identity-int membership fast path. An exact int
         // (bool excluded) that fits usize AND sits at its own index IS present —
         // `node_index_matches_int` is the whole answer, so we skip both the
@@ -14825,6 +14836,9 @@ impl PyDiGraph {
     }
 
     fn __contains__(&self, py: Python<'_>, n: &Bound<'_, PyAny>) -> PyResult<bool> {
+        if let Some(contains) = self.instance_dict_gc.private_node_contains(py, n)? {
+            return Ok(contains);
+        }
         // br-r37-c1-04z53 (cc): identity-int membership fast path. An exact int
         // (bool excluded) that fits usize AND sits at its own index IS present —
         // `node_index_matches_int` is the whole answer, so we skip both the

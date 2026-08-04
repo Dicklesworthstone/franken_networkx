@@ -5665,7 +5665,7 @@ fn emit_paths_dict_discovery_parent_index(
 ) -> PyResult<pyo3::Py<PyDict>> {
     let mut disp: Vec<Option<PyObject>> =
         std::iter::repeat_with(|| None).take(nodes.len()).collect();
-    disp[source_idx] = Some(source_obj);
+    disp[source_idx] = Some(source_obj.clone_ref(py));
     for &node_idx in discovery {
         if node_idx != source_idx {
             let parent_idx = predecessor[node_idx];
@@ -5674,29 +5674,41 @@ fn emit_paths_dict_discovery_parent_index(
     }
 
     let dict = PyDict::new(py);
-    let mut stack = Vec::new();
+    // Every parent precedes its children in BFS discovery order.  Keeping the
+    // already-materialized parent path lets Python's C-level list copy create
+    // the required independent child list without rebuilding the entire
+    // predecessor chain through Rust for every target.  This matters most for
+    // deep graphs, where the output itself is necessarily quadratic but the
+    // temporary Rust stack traversal was an additional full pass over it.
+    let mut path_cache: Vec<Option<Py<PyList>>> =
+        std::iter::repeat_with(|| None).take(nodes.len()).collect();
     for &node_idx in discovery {
-        stack.clear();
-        let mut current = node_idx;
-        loop {
-            stack.push(current);
-            if current == source_idx {
-                break;
-            }
-            current = predecessor[current];
-        }
-        let py_path = PyList::new(
-            py,
-            stack.iter().rev().map(|&idx| match &disp[idx] {
+        let py_path = if node_idx == source_idx {
+            PyList::new(py, [source_obj.clone_ref(py)])?
+        } else {
+            let parent_idx = predecessor[node_idx];
+            let Some(parent_path) = path_cache.get(parent_idx).and_then(Option::as_ref) else {
+                return Err(PyRuntimeError::new_err(
+                    "single_source_shortest_path parent path missing",
+                ));
+            };
+            let copied = parent_path
+                .bind(py)
+                .call_method0("copy")?
+                .downcast_into::<PyList>()?;
+            let node_obj = match &disp[node_idx] {
                 Some(obj) => obj.clone_ref(py),
-                None => gr.py_node_key(py, nodes[idx]),
-            }),
-        )?;
+                None => gr.py_node_key(py, nodes[node_idx]),
+            };
+            copied.append(node_obj)?;
+            copied
+        };
         let key = match &disp[node_idx] {
             Some(obj) => obj.clone_ref(py),
             None => gr.py_node_key(py, nodes[node_idx]),
         };
         dict.set_item(key, py_path)?;
+        path_cache[node_idx] = Some(py_path.unbind());
     }
     Ok(dict.unbind())
 }
@@ -28369,9 +28381,71 @@ mod tests {
     use fnx_classes::digraph::MultiDiGraph;
     use fnx_classes::{AttrMap, MultiGraph};
     use fnx_runtime::CompatibilityMode;
+    use pyo3::types::PyString;
 
     fn ensure_python() {
         Python::initialize();
+    }
+
+    #[test]
+    fn single_source_shortest_path_deep_paths_are_independent_and_ordered() {
+        ensure_python();
+        Python::attach(|py| {
+            let mut graph = PyGraph::new_empty(py).expect("graph should initialize");
+            for node in 0..32 {
+                graph
+                    .inner
+                    .add_edge(node.to_string(), (node + 1).to_string())
+                    .expect("path edge should add");
+            }
+            let graph = Py::new(py, graph).expect("graph should initialize");
+            let source = PyString::new(py, "0");
+            let result =
+                single_source_shortest_path(py, graph.bind(py).as_any(), source.as_any(), None)
+                    .expect("single-source paths should emit");
+            let paths = result
+                .bind(py)
+                .downcast::<PyDict>()
+                .expect("result should be a dict");
+
+            let rendered: Vec<(String, Vec<String>)> = paths
+                .iter()
+                .map(|(key, value)| {
+                    (
+                        key.extract::<String>().expect("string key"),
+                        value.extract::<Vec<String>>().expect("string path"),
+                    )
+                })
+                .collect();
+            assert_eq!(rendered.len(), 33);
+            assert_eq!(
+                rendered.first(),
+                Some(&("0".to_owned(), vec!["0".to_owned()]))
+            );
+            assert_eq!(
+                rendered.last(),
+                Some(&(
+                    "32".to_owned(),
+                    (0..=32).map(|node| node.to_string()).collect(),
+                )),
+            );
+
+            let tail = paths
+                .get_item("32")
+                .expect("dict lookup should work")
+                .expect("tail path should exist")
+                .downcast_into::<PyList>()
+                .expect("tail should be a list");
+            tail.set_item(0, "changed")
+                .expect("tail mutation should work");
+            let source_path: Vec<String> = paths
+                .get_item("0")
+                .expect("dict lookup should work")
+                .expect("source path should exist")
+                .extract()
+                .expect("source path should be a string list");
+            assert_eq!(source_path, vec!["0"]);
+        });
     }
 
     #[test]

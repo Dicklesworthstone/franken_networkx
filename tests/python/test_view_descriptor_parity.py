@@ -844,6 +844,34 @@ def test_private_node_method_shadows_do_not_alias_copy_or_pickle(cls_name):
         assert not internal_method_names & vars(other).keys()
 
 
+@pytest.mark.parametrize("cls_name", CLASS_NAMES)
+def test_native_contains_switches_to_private_node_mapping_and_resets_on_copies(cls_name):
+    graph = getattr(fnx, cls_name)()
+    graph.add_node("native")
+
+    assert "native" in graph
+    assert "missing" not in graph
+    assert [] not in graph
+
+    graph._node = {"private": {"tag": 1}}
+
+    assert "private" in graph
+    assert "native" not in graph
+    assert [] not in graph
+
+    for other in (
+        graph.copy(),
+        copy.copy(graph),
+        copy.deepcopy(graph),
+        graph.subgraph(["native"]).copy(),
+    ):
+        # Private NetworkX storage remains an ephemeral compatibility override;
+        # copies and materialized subgraphs return to canonical native storage.
+        assert "native" in other
+        assert "private" not in other
+        assert [] not in other
+
+
 def test_private_node_install_preserves_user_instance_methods():
     graph = fnx.Graph()
 
