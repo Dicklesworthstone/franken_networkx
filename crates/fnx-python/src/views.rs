@@ -152,9 +152,14 @@ impl NodeView {
         if let Some(attrs) = self.lookup_cache.get(py, nodes_seq, n)? {
             return Ok(attrs);
         }
+        if self.lookup_cache.is_known_missing(py, n)? {
+            return Err(crate::missing_key_error(n));
+        }
         let mut g = self.graph.borrow_mut(py);
         let canonical = node_key_to_string(py, n)?;
         if !g.inner.has_node(&canonical) {
+            drop(g);
+            self.lookup_cache.insert_missing(py, n)?;
             return Err(crate::missing_key_error(n));
         }
         let public_key = g.py_node_key(py, &canonical);

@@ -17190,6 +17190,26 @@ mod tests {
             assert_multidigraph_ctor_same(py, &candidate, &string_stage)?;
             assert_multidigraph_ctor_same(py, &candidate, &baseline)?;
 
+            // NetworkX tries ``dict.update(third)`` before treating a 3-tuple's
+            // third field as an explicit key. An empty string is a successful
+            // no-op update, so this true-iterator corpus must retain automatic
+            // integer keys even though it otherwise qualifies for typed staging.
+            let empty_key_edges = PyList::empty(py);
+            for source in 0_i64..8 {
+                empty_key_edges.append(PyTuple::new(
+                    py,
+                    [
+                        source.into_py_any(py)?,
+                        (source + 1).into_py_any(py)?,
+                        "".into_py_any(py)?,
+                    ],
+                )?)?;
+            }
+            let candidate = multidigraph_from_keyed_true_iterator(py, &empty_key_edges, false)?;
+            let baseline = multidigraph_from_keyed_true_iterator(py, &empty_key_edges, true)?;
+            assert_multidigraph_ctor_same(py, &candidate, &baseline)?;
+            assert!(candidate.edge_py_keys.is_empty());
+
             let attributed_edges = PyList::empty(py);
             for source in 0_i64..256 {
                 let attrs = PyDict::new(py);

@@ -25,7 +25,7 @@ use pyo3::prelude::*;
 use pyo3::types::{PyAny, PyBool, PyDict, PyFloat, PyInt, PyIterator, PyList, PyString, PyTuple};
 use std::collections::{HashMap, HashSet};
 use std::convert::Infallible;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 
 pub(crate) type PyObject = Py<PyAny>;
 
@@ -313,9 +313,15 @@ impl MultiDiGraphExactIntStrKeyedStage {
             && tuple
                 .get_item(1)
                 .is_ok_and(|v| v.is_exact_instance_of::<PyInt>())
-            && tuple
-                .get_item(2)
-                .is_ok_and(|key| key.is_exact_instance_of::<PyString>());
+            // NetworkX first tries ``dict.update(third)`` for a 3-tuple.
+            // An empty string is a successful no-op update, so it is edge
+            // data and must receive an automatic integer key rather than be
+            // staged as an explicit string key.
+            && tuple.get_item(2).is_ok_and(|key| {
+                key.is_exact_instance_of::<PyString>()
+                    && (tuple.len() == 4
+                        || key.extract::<String>().is_ok_and(|value| !value.is_empty()))
+            });
         keyed
             && (tuple.len() == 3
                 || tuple.get_item(3).is_ok_and(|attrs| {
@@ -1136,6 +1142,8 @@ pub(crate) fn missing_key_error(key: &Bound<'_, PyAny>) -> PyErr {
 pub(crate) struct NodeLookupCache {
     nodes_seq: AtomicU64,
     entries: Py<PyDict>,
+    missing_entries: Py<PyDict>,
+    missing_count: AtomicUsize,
 }
 
 impl NodeLookupCache {
@@ -1143,6 +1151,8 @@ impl NodeLookupCache {
         Self {
             nodes_seq: AtomicU64::new(u64::MAX),
             entries: PyDict::new(py).unbind(),
+            missing_entries: PyDict::new(py).unbind(),
+            missing_count: AtomicUsize::new(0),
         }
     }
 
@@ -1154,6 +1164,8 @@ impl NodeLookupCache {
     ) -> PyResult<Option<Py<PyDict>>> {
         if self.nodes_seq.load(Ordering::Relaxed) != nodes_seq {
             self.entries.bind(py).clear();
+            self.missing_entries.bind(py).clear();
+            self.missing_count.store(0, Ordering::Relaxed);
             self.nodes_seq.store(nodes_seq, Ordering::Relaxed);
         }
         let Some(value) = self.entries.bind(py).get_item(key)? else {
@@ -1171,8 +1183,38 @@ impl NodeLookupCache {
         self.entries.bind(py).set_item(public_key, attrs.bind(py))
     }
 
+    /// Remember a bounded number of absent probes for this node-set generation.
+    ///
+    /// A normal Python dict lookup is already exact for hash/equality and raises
+    /// the native ``TypeError`` for unhashable keys. Keeping this separate from
+    /// the positive map leaves successful lookups at their existing single-dict
+    /// probe while repeated missing keys skip string canonicalisation and a
+    /// native-store lookup. The cap prevents a long-lived view from retaining an
+    /// unbounded stream of failed user queries.
+    pub(crate) fn is_known_missing(
+        &self,
+        py: Python<'_>,
+        key: &Bound<'_, PyAny>,
+    ) -> PyResult<bool> {
+        self.missing_entries.bind(py).contains(key)
+    }
+
+    pub(crate) fn insert_missing(&self, py: Python<'_>, key: &Bound<'_, PyAny>) -> PyResult<()> {
+        const MAX_MISSING_ENTRIES: usize = 8;
+        if self.missing_count.load(Ordering::Relaxed) >= MAX_MISSING_ENTRIES {
+            return Ok(());
+        }
+        let entries = self.missing_entries.bind(py);
+        if !entries.contains(key)? {
+            entries.set_item(key, py.None())?;
+            self.missing_count.fetch_add(1, Ordering::Relaxed);
+        }
+        Ok(())
+    }
+
     pub(crate) fn traverse(&self, visit: PyVisit<'_>) -> Result<(), PyTraverseError> {
-        visit.call(&self.entries)
+        visit.call(&self.entries)?;
+        visit.call(&self.missing_entries)
     }
 }
 
@@ -15362,6 +15404,37 @@ class FnxMultiGraphCtorEdgeIterable:
         let mut graph = MultiGraph::new(CompatibilityMode::Hardened);
         graph.add_node("seed".to_owned());
         graph.runtime_policy().clone()
+    }
+
+    #[test]
+    fn node_lookup_cache_bounds_missing_keys_and_invalidates_on_node_change() {
+        ensure_python();
+        Python::attach(|py| -> PyResult<()> {
+            let cache = NodeLookupCache::new(py);
+            let key = 17_i64.into_py_any(py)?;
+            let key = key.bind(py);
+
+            assert!(cache.get(py, 0, key)?.is_none());
+            assert!(!cache.is_known_missing(py, key)?);
+            cache.insert_missing(py, key)?;
+            assert!(cache.is_known_missing(py, key)?);
+
+            assert!(cache.get(py, 1, key)?.is_none());
+            assert!(!cache.is_known_missing(py, key)?);
+
+            let probes = (0_i64..9)
+                .map(|probe| probe.into_py_any(py))
+                .collect::<PyResult<Vec<_>>>()?;
+            for probe in &probes[..8] {
+                cache.insert_missing(py, probe.bind(py))?;
+            }
+            assert!(!cache.is_known_missing(py, probes[8].bind(py))?);
+
+            let unhashable = PyList::empty(py);
+            assert!(cache.get(py, 1, &unhashable).is_err());
+            Ok(())
+        })
+        .expect("node lookup cache must preserve Python mapping semantics");
     }
 
     #[test]

@@ -2558,6 +2558,18 @@ def suite_nodeview_getitem():
     def interned_lookup():
         return [raw_getitem(fnx_view, node) for node in nodes]
 
+    def absent_lookup(view):
+        # A repeated absent probe is a normal mapping workload (for example,
+        # optional-node filtering). It must still raise KeyError each time;
+        # only the native lookup work after that Python-visible decision may be
+        # cached by the candidate.
+        for _ in range(512):
+            try:
+                view["missing-node"]
+            except KeyError:
+                continue
+            raise AssertionError("absent NodeView lookup unexpectedly succeeded")
+
     # Stabilize worker frequency before the first A/A round. This is benchmark
     # setup, outside every timed region, and warms both control and candidate.
     warm_deadline = perf_counter() + 2.0
@@ -2575,6 +2587,11 @@ def suite_nodeview_getitem():
             "G.nodes[n] x512 [nx/fnx]",
             lambda: [gnx.nodes[node] for node in nodes],
             lambda: [gfx.nodes[node] for node in nodes],
+        ),
+        (
+            "G.nodes[missing] x512 [nx/fnx]",
+            lambda: absent_lookup(nx_view),
+            lambda: absent_lookup(fnx_view),
         ),
         (
             "sum(G.nodes[n]['weight']) x512 [nx/fnx]",
