@@ -1081,7 +1081,7 @@ co-tenancy elsewhere on the host.
 | k_corona | no current admissible ratio | Complete-result incumbent gate awaiting an exclusive host window |
 | k_crust | **13.2556× faster** | Native core filter; re-measured 2026-07-31 vs live nx 3.6.1 (was 5.8664×, understated) |
 | kosaraju_strongly_connected_components | **4.8474× faster** | Native SCC; re-measured 2026-07-31 vs live nx 3.6.1 (was 4.6519×) |
-| minimum_branching | no current admissible ratio | Native branching; 2026-07-31 re-measure gave 3.9978× but the A/A null drifted (bias 0.0295 > 0.0200) — UNDECIDABLE, needs a quieter host |
+| minimum_branching | no current admissible ratio | Native branching; the 2026-07-31 re-measure gave 3.9978× but was vetoed by A/A null bias 0.0295 > 0.0200. Re-run 8× on HEAD 2026-08-04 (`br-r37-c1-p80x1.14`) against the same preregistered fixture, with input and complete-output SHA-256 both matching: the effect is stable at 4.2831–4.4494× (median 4.4119×, 3.9% spread) and **6 of 8 runs clear all three clauses**. The 2 vetoes were clause 3 only, once from each arm's null — a single-draw null flake, not a property of the workload. Still not converted: those runs could not carry the host-wide exclusivity proof. |
 | partition_spanning_tree | **2.4612× faster** | Native Kruskal with partition constraints; CONFIRMED 2026-07-31 vs live nx 3.6.1 (measured 2.3794×, CI [2.3303, 2.5633] contains the published figure) |
 | dfs_successors | **2.3223× faster** | Native traversal; re-measured 2026-07-31 vs live nx 3.6.1 (was 2.1456×) |
 | read_graph6 / read_sparse6 | **1.72× / 1.69× faster** | Native decoders; CONFIRMED 2026-07-31 vs live nx 3.6.1 (measured 1.7202× / 1.7069×, both CIs contain the published figures) |
