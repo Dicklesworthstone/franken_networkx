@@ -3,12 +3,200 @@
 Scope: code-first perf backlog verification for `br-r37-c1-04z53` plus
 `br-r37-c1-tbh4q`.
 
-Current verdict: not release-ready for the full campaign. Fifty-two scorecard
-entries are represented here with measured head-to-head evidence; the
-`br-r37-c1-0opkc` all-target Dijkstra losses have been rechecked and are stale
-on current source. The previously active public-gauntlet loss
-`non_edges_sparse_undirected` is now a measured win; the remaining pending rows
-still need the same treatment.
+Current verdict: the compute-heavy shortest-path, centrality, core and rich-club
+families are measured wins against unpatched NetworkX 3.6.1. In the realistic
+whole-job gate, fourteen of fifteen rows win and the remaining
+link-recommendation row is undecidable. Remaining sub-1.0x surfaces and their retry predicates are listed in
+`docs/progress/perf-negative-results.md`.
+
+## Current head-to-head baseline (2026-07-25)
+
+Measured against genuinely unpatched NetworkX `3.6.1` on `n=2000 / m=8000` (`n=300` for the
+all-pairs rows), each row byte-identity-proven before timing, each with an A/A null control in the
+same invocation and gated on the null's bootstrap 95% CI with a 2x margin.
+
+```
+comparison_class = INCUMBENT
+incumbent = networkx
+incumbent_same_invocation = true
+campaign_output = true
+decision_gate = median_ci
+cv_role = report_only
+bench_elf_sha256 = 26c802ed8013d16182f869323c7c05b2e894c8d2e93588d7aacd99ef5d665d11
+```
+
+| Workload | Ratio vs NetworkX 3.6.1 | A/A null CI |
+| --- | ---: | --- |
+| `clustering` (all nodes) | **36.1146x** | 0.9970-1.0077 |
+| `triangles` | **14.3397x** | 0.9984-1.0242 |
+| `dijkstra_path` (weighted) | **7.6077x** | 0.9983-1.0016 |
+| `single_source_shortest_path_length` | **5.5005x** | 0.9985-1.0067 |
+| `all_pairs_shortest_path_length` (n=300) | **4.5647x** | 0.9927-1.0054 |
+| `single_source_shortest_path` | **3.8952x** | 0.9995-1.0052 |
+| `all_pairs_dijkstra_path_length` (n=300) | **3.6658x** | 0.9962-1.0026 |
+| `subgraph(view)` edges | **3.5719x** | 0.9512-1.0061 |
+| `single_source_dijkstra_path_length` | **3.3325x** | 0.9997-1.0152 |
+| `dfs_tree` | **3.3439x** | 0.9968-1.0113 |
+| `bfs_tree` | **3.2403x** | 0.9916-1.0050 |
+| `single_pair_shortest_path` | **3.1614x** | 0.9966-1.0050 |
+| `pagerank` | **2.6361x** | 0.9392-1.0055 |
+| `to_scipy_sparse_array` | **2.4073x** | 0.9916-1.0051 |
+| `to_dict_of_lists` | **1.9662x** | 0.9945-1.0010 |
+| `bidirectional_dijkstra` | **1.8125x** | 0.9952-1.0053 |
+| `shortest_path` (weighted) | **1.7684x** | 0.9947-1.0065 |
+| `all_pairs_shortest_path` (n=300) | **1.7624x** | 0.9870-1.0005 |
+| `edges(data=True)` | **1.6085x** | 0.9958-1.0114 |
+
+### Pure-Python-loop incumbent gate (2026-07-28)
+
+These rows use `python3 scripts/perf_harness.py class1-frontier`: genuine unpatched
+NetworkX 3.6.1 and FrankenNetworkX run side-by-side for 21 alternating-order rounds, with
+exact complete-output bytes checked before timing and one adjacent A/A null per row. The
+complete candidate bootstrap CI must clear twice the null CI's maximum log-distance from
+1.0; CV is report-only.
+
+```
+comparison_class = INCUMBENT
+incumbent = networkx
+incumbent_same_invocation = true
+campaign_output = true
+decision_gate = median_ci
+cv_role = report_only
+bench_elf_sha256 = 348a684395d0d7cbace8b40a1c411643f6a8e01a661ef125078f2cd8fe68b899
+```
+
+| Exact workload | Ratio vs NetworkX 3.6.1 | Candidate 95% CI | A/A null 95% CI |
+| --- | ---: | ---: | ---: |
+| `rich_club_coefficient`, n=1,000 / m=4,000 | **142.2388x** | 141.3628-142.6769 | 0.9960-1.0031 |
+| `rich_club_coefficient`, n=5,000 / m=20,000 | **115.5965x** | 114.0077-120.6073 | 0.9809-1.0435 |
+| `rich_club_coefficient`, n=10,000 / m=40,000 | **117.3619x** | 110.3323-124.2176 | 0.9143-1.0410 |
+| `onion_layers`, n=1,000 / m=4,000 | **8.4203x** | 8.3775-8.5677 | 0.9987-1.0100 |
+| `onion_layers`, n=5,000 / m=20,000 | **11.1869x** | 10.8447-11.3614 | 0.9842-1.0135 |
+| `onion_layers`, n=10,000 / m=40,000 | **11.9454x** | 11.6765-12.2297 | 0.9703-0.9966 |
+| `square_clustering`, n=1,000 / m=4,000 | **19.7771x** | 19.4047-19.8667 | 0.9962-1.0023 |
+| `square_clustering`, n=5,000 / m=20,000 | **19.1291x** | 18.9200-19.3847 | 0.9846-1.0014 |
+| `square_clustering`, n=10,000 / m=40,000 | **18.4067x** | 17.7816-18.8440 | 0.9813-1.0470 |
+| `k_core`, n=1,000 / m=4,000 | **41.6911x** | 41.1215-42.4176 | 0.9959-1.0109 |
+| `k_core`, n=5,000 / m=20,000 | **45.8818x** | 44.3019-47.0189 | 0.9855-1.0637 |
+| `k_core`, n=10,000 / m=40,000 | **49.3962x** | 48.0447-51.7681 | 0.9417-1.0017 |
+| `closeness_centrality`, n=220 / m=900 | **194.3093x** | 193.1339-194.6684 | 0.9952-1.0108 |
+| `transitive_closure`, directed n=200 / m=800 | **92.3164x** | 89.7257-93.9751 | 0.9906-1.0020 |
+| `node_connectivity`, n=220 / m=900 | **30.1588x** | 30.0507-30.4738 | 1.0008-1.0128 |
+| `triadic_census`, directed n=200 / m=800 | **20.4715x** | 20.3525-20.5954 | 0.9949-1.0043 |
+| `faster_could_be_isomorphic`, n=1,200 / m=6,000 | **3.4961x** | 3.4871-3.5106 | 0.9944-1.0024 |
+| `dfs_postorder_nodes`, n=1,200 / m=6,000 | **3.0811x** | 3.0753-3.1089 | 0.9977-1.0056 |
+| `jaccard_coefficient`, 300 pairs | **2.4536x** | 2.4407-2.5141 | 0.9985-1.0012 |
+| `label_propagation_communities`, n=1,200 / m=6,000 | **2.1485x** | 2.1316-2.1863 | 0.9941-1.0008 |
+| `minimum_spanning_tree`, n=1,200 / m=6,000 | **1.9947x** | 1.8140-2.0711 | 0.9962-1.0136 |
+
+The same invocation records `preferential_attachment` as a current loss:
+**0.5949x**, candidate CI **0.5918-0.6006**, A/A null CI **0.9974-1.0016**.
+
+#### Average-degree-128 onion scale gate (2026-07-29)
+
+Exact-string simple Graphs with `m=64n` exercise the incumbent's interpreted
+peeling path. All three complete layer dictionaries are byte-identical; each
+row ran 21 alternating-order rounds with separate NetworkX and FNX A/A
+controls.
+
+| Exact workload | Ratio vs NetworkX 3.6.1 | Candidate 95% CI | NetworkX A/A 95% CI | FNX A/A 95% CI |
+| --- | ---: | ---: | ---: | ---: |
+| `onion_layers`, n=1,000 / m=64,000 | **47.2303x** | 45.7553-49.7326 | 0.9933-1.0041 | 0.9981-1.0034 |
+| `onion_layers`, n=5,000 / m=320,000 | **90.3145x** | 88.1029-92.4663 | 0.9816-1.0221 | 1.0008-1.0309 |
+| `onion_layers`, n=10,000 / m=640,000 | **122.7680x** | 119.3252-126.5651 | 0.9944-1.0105 | 0.9923-1.0123 |
+
+The n=10,000 NetworkX profile records 640,000 Python `list.remove` calls at
+79.83% self-time. The ratio widens with N at fixed average degree 128,
+identifying an interpreted per-edge path whose aggregate cost scales with the
+job rather than coordination.
+
+#### Higher-density Class-1 scale gate (2026-07-29)
+
+The average-degree-32 extension uses exact-string simple Graphs with `m=16n`
+and restricts the permanent suite to `onion_layers` and `k_core`. All six
+complete outputs are byte-identical; each row ran 21 alternating-order rounds
+with separate NetworkX and FNX A/A controls.
+
+| Exact workload | Ratio vs NetworkX 3.6.1 | Candidate 95% CI | NetworkX A/A 95% CI | FNX A/A 95% CI |
+| --- | ---: | ---: | ---: | ---: |
+| `onion_layers`, n=10,000 / m=160,000 | **18.6596x** | 18.5117-19.6383 | 0.9886-1.0271 | 0.9814-1.0183 |
+| `onion_layers`, n=25,000 / m=400,000 | **22.7257x** | 22.0767-23.4342 | 0.9837-1.0208 | 0.9717-1.0254 |
+| `onion_layers`, n=50,000 / m=800,000 | **26.7646x** | 26.5285-26.9716 | 0.9927-1.0049 | 0.9965-1.0022 |
+| `k_core`, n=10,000 / m=160,000 | **128.4077x** | 124.3977-130.5018 | 0.9823-1.0054 | 0.9915-1.0008 |
+| `k_core`, n=25,000 / m=400,000 | **123.8164x** | 120.9178-125.7322 | 0.9932-1.0269 | 0.9777-1.0076 |
+| `k_core`, n=50,000 / m=800,000 | **127.6491x** | 126.8319-128.2286 | 0.9878-1.0057 | 0.9982-1.0056 |
+
+At fixed average degree 32, `onion_layers` widens with N while `k_core`
+remains a flat `124-128x`. The loaded NetworkX profile attributes the flat
+`k_core` gap to constant per-edge Python result-copy work in
+`Graph.add_edges_from`; `onion_layers` is dominated by its interpreted
+peeling and list-removal loop.
+
+### Realistic end-to-end incumbent gate (2026-07-29)
+
+Five recognizable user jobs run from compressed real-graph input through cleanup,
+multiple analysis/subgraph stages, and serialized output. The source is the
+[SNAP Astro Physics collaboration graph](https://snap.stanford.edu/data/ca-AstroPh.html),
+archive SHA-256
+`51bf1e2cace269b884481a8502474efa67c0fd01d998ff7f5a154d7d3e527f27`.
+Deterministic induced fixtures contain `1,000 / 13,410`, `5,000 / 77,598`, and
+`10,000 / 143,680` nodes/undirected edges, with SHA-256
+`d0d78495aa4731b0cef3898b68455b9b67c46074321fda14f93839b9fa8b31a4`,
+`c22b731f7b7f67c91a3bfdc7451d008d06d0ba8472d39a27d843472d5a6fbe34`,
+and `54cdfebe7b0de78e96f7c7ee298b148ab1433c3a1ca8dd19ca5dbd9332cca2ff`.
+
+The pinned process ran 21 alternating-order rounds per row, with
+`PYTHONHASHSEED=0` for the community-sensitive rows. It compared complete
+canonical bytes directly before timing, measured separate NetworkX/NetworkX and
+FNX/FNX adjacent nulls, and required the complete candidate median CI to clear
+twice the wider null's maximum log-distance from 1.0. CV is report-only.
+
+```
+comparison_class = INCUMBENT
+incumbent = networkx
+incumbent_same_invocation = true
+campaign_output = true
+decision_gate = median_ci
+cv_role = report_only
+bench_elf_sha256 = 348a684395d0d7cbace8b40a1c411643f6a8e01a661ef125078f2cd8fe68b899
+```
+
+| Whole job and size | NetworkX/FNX median | Candidate 95% CI | NetworkX A/A 95% CI | FNX A/A 95% CI | Verdict |
+|---|---:|---:|---:|---:|---|
+| Collaboration cohesion/export, n=1,000 | **1.4898x** | 1.4670-1.5107 | 0.9929-1.0058 | 0.9860-1.0110 | win |
+| Collaboration cohesion/export, n=5,000 | **1.3232x** | 1.2894-1.3587 | 0.9961-1.0150 | 0.9785-1.0353 | win |
+| Collaboration cohesion/export, n=10,000 | **1.2039x** | 1.1684-1.2366 | 0.9461-0.9784 | 0.9798-1.0087 | win |
+| Hub routing/export, n=1,000 | **1.5457x** | 1.5343-1.5530 | 0.9945-1.0081 | 0.9953-1.0038 | win |
+| Hub routing/export, n=5,000 | **1.1885x** | 1.1609-1.1984 | 0.9925-1.0082 | 0.9861-1.0055 | win |
+| Hub routing/export, n=10,000 | **1.2159x** | 1.2079-1.2488 | 0.9963-1.0095 | 0.9891-1.0191 | win |
+| Rich-club/onion export, n=1,000 | **2.1765x** | 2.1579-2.2033 | 0.9939-1.0082 | 0.9934-1.0162 | win |
+| Rich-club/onion export, n=5,000 | **1.8585x** | 1.8015-1.8993 | 0.9856-1.0062 | 0.9885-1.0662 | win |
+| Rich-club/onion export, n=10,000 | **1.8392x** | 1.7798-1.8949 | 0.9920-1.0117 | 0.9523-1.0675 | win |
+| Link-recommendation export, n=1,000 | **1.0973x** | 1.0908-1.0999 | 0.9980-1.0026 | 0.9911-1.0100 | win |
+| Link-recommendation export, n=5,000 | 1.2480x | 1.2104-1.3284 | 0.9756-0.9993 | 0.8965-1.1146 | undecidable |
+| Link-recommendation export, n=10,000 | **1.2422x** | 1.2036-1.2538 | 0.9863-1.0133 | 0.9971-1.0422 | win |
+| Community detection/export, n=1,000 | **1.6538x** | 1.6410-1.6797 | 0.9924-1.0046 | 0.9819-1.0338 | win |
+| Community detection/export, n=5,000 | **1.3622x** | 1.3424-1.3954 | 0.9935-1.0036 | 0.9890-1.0018 | win |
+| Community detection/export, n=10,000 | **1.4318x** | 1.4026-1.4438 | 0.9457-1.0323 | 0.9967-1.0145 | win |
+
+- Collaboration cohesion: FNX finishes component/core analysis plus cohort export
+  sooner at every measured size.
+- Hub routing: FNX finishes traversal, result-graph extraction, and two-graph
+  export sooner at every measured size.
+- Rich-club/onion: FNX cuts this compute-heavy job to roughly half the wall time.
+- Link recommendation: FNX wins at 1,000 and 10,000 nodes; the 5,000-node row has
+  no stable separation under its dual-null gate.
+- Community detection: FNX finishes label propagation, largest-community
+  extraction, assignment emission, and graph export sooner at every measured size.
+
+Validity of the NetworkX arm rests on the dispatch-trap guard in `scripts/perf_harness.py`: the
+backend-dispatch environment (`NETWORKX_AUTOMATIC_BACKENDS`, `NETWORKX_BACKEND_PRIORITY`,
+`NETWORKX_FALLBACK_TO_NX`) is cleared at import, and the nx arm's graph type is asserted at runtime
+to originate from the `networkx` module. Without that assertion an "oracle" arm can silently be a
+dispatched fnx arm.
+
+Rows still measured below `1.0x` are listed in `README.md`; open items carry retry predicates in
+`docs/progress/perf-negative-results.md`.
 
 ## Measured Rows
 
@@ -125,11 +313,11 @@ still need the same treatment.
 
 | Pillar | Score | Notes |
 | --- | ---: | --- |
-| Performance evidence | 87 wins / 0 active loss areas / 0 neutral vs NetworkX across 87 deduped current workload rows, represented by 52 scorecard entries | The cod-b `non_edges_sparse_undirected` row-cache route adds `1` win / `0` losses / `0` neutral (`1.111x`) and closes the final active public-gauntlet loss. The cod-b ubizp borrowed-frontier/Fx route adds `1` win / `0` losses / `0` neutral (`1.060x`) and closes the remaining ubizp path-returning proof; the four-row ubizp fixture now stands at `4` wins / `0` losses / `0` neutral. The cod-b tree `from_nested_tuple` row adds `2` wins / `0` losses / `0` neutral (`15.824x`, `18.020x`) and closes the previously pending nested-tuple constructor proof. The cod-b `non_edges` native-row recheck is recorded as additional negative evidence and is not counted as a keep; it improved neither domination nor current loss count, and the native-row block regressed the active public row from the fallback `0.983x` measurement to `0.887x`. The cod-b `ubizp` parent-copy path-emission attempt is recorded as additional negative evidence and is not counted as a keep; it worsened the active path-returning loss from a pre-lever `0.803x` row to `0.354x` and was reverted. The cod-a exact `MultiDiGraph.stochastic_graph(copy=True)` row adds `5` wins / `0` losses / `0` neutral and closes the previous `MultiDiGraph.stochastic_graph` residual; the final n=1000/e=5000 row moves from pre-lever `0.249x` loss to `1.362x` win. The cod-a exact `DiGraph.stochastic_graph` native normalizer row adds `3` wins / `0` losses / `0` neutral and flips the fresh n=1000/e=3200 baseline from `0.888x` loss to `1.704x` win. The cod-b borrowed dirty-key sparse-export row flips the dirty/live high-unique `MultiDiGraph` residual to `2` wins / `0` losses (`1.323x`, `1.742x`) on a float64 parity fixture. The cod-a exact-int lazy `non_edges` iterator no-ship is recorded as additional negative evidence and is not counted as a keep. The cod-b public-gauntlet sweep previously recorded `non_edges_sparse_undirected` as the active gap; the accepted token-keyed row cache now replaces that gap with a win. Existing keeps remain represented above: tuple lattice generators, indexed bytearray CSR, default-order matrix exporters, BFS, keyed MST, DAG closeout, biconnected-family rows, `MultiDiGraph.reverse(copy=True)`, SCC stale-loss closeout, edge expansion, weighted flow hierarchy, degree mixing, average degree connectivity, CCPA, sampled betweenness, repeated-pair raw link prediction, raw Soundarajan-Hopcroft, attr-heavy `to_undirected`, direct `convert_matrix` builders, ubizp length/has_path, `j5u29` Dijkstra path/length, all-target `0opkc` Dijkstra, and all three `0opkc` Bellman-Ford rows. |
+| Performance evidence | Phase 2: 14 wins / 0 losses / 1 undecidable across 15 realistic whole-job rows; nine additional higher-density Class-1 wins | Collaboration-core export is `1.2039-1.4898x`; rich-club/onion export is `1.8392-2.1765x`; hub routing is `1.1885-1.5457x`; community detection/export is `1.3622-1.6538x`. `onion_layers` reaches `122.7680x` at n=10,000 / m=640,000; `k_core` is `127.6491x` at n=50,000 / m=800,000. |
 | Conformance evidence | focused guards green for kept rows and rejects; one baseline fixture drift fixed | The cod-b `non_edges_sparse_undirected` row-cache keep reports focused order/cache/mutation conformance `48 passed`, `py_compile`, RCH release build, and RCH Criterion proof. `br-r37-c1-04z53.9160` reports direct helper/public parity for in-place and copy behavior, dirty live edge-dict sync, source isolation, missing weights, bool weights, and nonnumeric fallback, plus `py_compile`, `cargo fmt --check`, `fnx-classes` check/clippy/test, `fnx-python` check/clippy/build/test-compatible Rust tests, and direct preloaded release-extension conformance. `br-r37-c1-04z53.9159` reports parity OK for copy/in-place behavior, missing weights, bool weights, zero row sums, `MultiDiGraph` fallback, and string-weight exception fallback, plus `py_compile`, `cargo fmt --check`, and RCH `fnx-python` check/clippy/test/build. The cod-b borrowed dirty-key sparse-export row reports sorted-coordinate sparse payload parity, focused sparse parity `304 passed`, final-source RCH `fnx-python` clippy/build, `cargo fmt --check`, and UBS with no new critical finding. Existing rows retain the focused guards recorded above. Separate broad graph-metrics `edge_boundary` overlap-order drift is filed as `br-r37-c1-c4ou2`; the broad directed Dijkstra finalize-order drift exposed during the BFS closeout is filed as `br-r37-c1-syrw5`. |
-| Negative-evidence discipline | 52 / 52 updated | The ledger records keep, partial keep, reject, noisy, contaminated, remote-runtime, post-analysis-crash, direct-loop, combined-evidence, raw-array subattempt, invalid-output measurement attempts, stale-loss rebaseline, unrelated baseline conformance drift, reverted regression attempts, the cod-b `non_edges_sparse_undirected` token-keyed row-cache keep with the failed remote import setup attempt, the cod-b ubizp borrowed-frontier/Fx keep with rejected subattempt ratios and RCH bench import-failure notes, the cod-b tree `from_nested_tuple` keep, the cod-b `non_edges` native-row regression recheck, the cod-b `ubizp` parent-copy path-emission no-ship, the cod-a exact `MultiDiGraph.stochastic_graph(copy=True)` keep with rejected normalizer-only, fresh-topology, and clone-plus-per-edge lookup subattempts, the cod-a exact `DiGraph.stochastic_graph` native normalizer keep with the rejected Python successor-row micro-probe, the cod-b borrowed dirty-key sparse-export keep with RCH bench import-failure notes, the cod-a exact-int lazy `non_edges` iterator no-ship, the cod-b public-gauntlet `non_edges` set-pop no-ship, the tree-submodule route rejection plus cod-a superseded diagnostic bench and setup-failure notes, and the prior keep/no-ship rows represented above. |
-| Backlog conversion | 52 scorecard entries represented here; pending rows remain | Campaign remains red until the rest of the pending code-first rows are measured or reverted. |
+| Negative-evidence discipline | Phase 2: 15 / 15 ledgered; preflight self-check 19 / 19 | Every realistic row records exact output identity, candidate and dual-null median CIs, loaded-ELF identity, dataset identity, verdict, and a concrete retry predicate. |
+| Backlog conversion | Phase-2 gate complete; Class-1 density/size shape resolved through average degree 128 | `onion_layers` widens to `122.7680x` with N at average degree 128; `k_core` stays flat at average degree 32, localizing constant per-edge incumbent copy work rather than coordination. |
 
-Next required rows: continue the rest of the June pending rows in
-`docs/progress/perf-negative-results.md`; the current deduped public-gauntlet
-active-loss count is `0`.
+Next required row: admit a new exact pure-Python-loop family after a named
+non-zero-self-time profile, or use a named real-graph distribution whose
+structure differs materially from the existing synthetic scale curves.

@@ -13,6 +13,8 @@ routing history, but they do not close source families under this rule.
 
 | Date | Scope | Lever | Evidence | Result | Do not repeat / next route |
 | --- | --- | --- | --- | --- | --- |
+| 2026-07-22 | Attributed `Graph(true_iterator)` transactional commit (`br-r37-c1-04z53.9180`, WhiteJaguar) | During the already-required two-epoch iterator normalization pass, build a typed exact-int attributed-edge region alongside the behavior-safe normalized `PyList`; commit that region directly instead of rescanning the list through lossless, duplicate-prefix, tuple, endpoint, and attr-conversion passes. Duplicate, lossy, incompatible, small, exotic, and suffix-retry shapes retain the frozen list fallback before mutation. | Profile on actual RCH worker `vmi1264463` attributed 320.228 ms of a 1180.805 ms full 16-build sample (27.1%) to iterator staging, with commit at 703.307 ms. Final exact binary SHA-256 `b3fdd2ce79b2b7298c3621ef6bdfb7f054d4dc676c50b9d5b2c30ae2034896cd`; actual worker `vmi1149989`, CPU 4, 10 CPUs, pre-run load 1.28, no Cargo/rustc, 10,000 edges, 128 individually interleaved constructions/arm, 21 pairs: candidate/frozen **`1.3594x`**, 21/21 wins, CV `1.849%`, p5-p95 `1.3077x-1.3788x`; candidate null `0.9963x`, 10/21, CV `2.438%`, p5-p95 `0.9579x-1.0271x`. Same-binary native snapshot, node-map, ordered mirror, source-alias, duplicate-fallback parity passed. Strict-RCH public 20,000-edge Criterion on the same named worker: FNX `33.904 ms`, NetworkX `61.920 ms`, **`1.826x`**. Strict-RCH workspace check passed on `hz1`; exact workspace clippy stopped on peer-owned `fnx-classes/src/lib.rs:1719` (`collapsible_if`) before this lever. Three earlier blocked-arm measurements were discarded at candidate/null CVs `9.915/11.680%`, `9.041/8.461%`, and CPU-pinned `7.564/11.067%`. | Keep as a causal `1.3594x` self-speedup and current-worker `1.826x` NetworkX win. | Preserve the normalized-list fallback and two-epoch reset; never direct-commit duplicates, non-lossless attrs, incompatible keys, small batches, or exotic rows. Do not repeat post-materialization tuple/list rescans for eligible private exact-int attr epochs. Next constructor work must use a different public row/primitive; DiGraph affine transfer remains ledger-closed until its recorded clean-worker retry predicate holds. |
+| 2026-07-22 | Attributed `Graph(true_iterator)` mirror construction (`br-r37-c1-04z53.9178`, WhiteJaguar) | Transfer the transactional decoder's private shallow attr snapshot into the ordered edge mirror instead of copying it a second time; caller-owned list/tuple batches retain the copy. | Profile found the duplicate `PyDict` walk/copy. Final same-binary interleaved A/B+null on actual RCH worker `ovh-b`, CPU 4, 10,000 edges, 32 constructions/sample, 21 pairs: candidate/frozen **`1.1126x`**, 21/21 wins, CV `2.127%`, p5-p95 `1.0686x-1.1531x`; candidate null `0.9928x`, CV `2.223%`. Exact graph/mirror parity passed. Two shorter runs above 5% CV were discarded. Public 20,000-edge head-to-head was worker-sensitive: initial actual `vmi1149989` FNX/NX `58.225/70.460 ms` (`1.210x`); final actual `ovh-b` `63.703/49.748 ms` (`0.781x`). | Keep as a causal `1.1126x` self-speedup; do not claim universal NetworkX dominance from cross-worker timings. | Never transfer caller-owned attr dicts and do not repeat mirror-copy variants. The `ovh-b` public loss remains open; profile a different transactional/representation primitive on that worker class. |
 | 2026-07-10 | Median/null re-decision of the StackCanon allocation REJECT (`br-r37-c1-04z53.9173`, `cod_nx`) | Audited the exact preserved source and harness under the current per-function null-median rule before trusting the family closure. | The harness timed only `fnx.Graph`, while every StackCanon call site was `PyMultiGraph`-only: target calls `0`, self-time `0.000000 s`. It chose `min` over default 25 repetitions, retained no raw samples, ran no `base/base` null, used separate local builds, and recorded no measured-binary SHA or worker. The row therefore has zero of five mandatory REJECT fields: binary SHA-256, non-zero target self-time, worker identity, CV, and per-function null median. | VOID / INVALID, not REJECT. Allocation is reopened even for the claimed `PyGraph.has_node` / `has_edge` scope and remains open for shortest-path/Dijkstra. | Do not cite the old `245 -> 253 ns` or `416 -> 430 ns` minima as evidence. Any future closure must execute the candidate with non-zero self-time in one binary/invocation after its own `base/base` null. |
 | 2026-07-10 | Exact string-key weighted `MultiGraph.shortest_path(source,target)` mutation-token certificate attempt (`br-r37-c1-04z53.9173`, follow-up `br-r37-c1-04z53.9174`, `cod_nx`) | Attempted to extend the existing `(weight, nodes_seq, edges_seq, exact_domain)` classification cache to pristine exact `MultiGraph`s with a sticky `edge_attrs_ever_exposed` certificate. Candidate preserved, not landed, at detached commit `756b38e0c`; production source SHA-256 `f31068d4...` / `9f3e7e58...`; corrected Rust/Python harness SHA-256 `0c1e5d49...` / `f94905fe...`. | Strict-remote check succeeded on `hz2`. The first remote bench on `hz2` CPU15, extension SHA-256 `8d4df89b32a04758e6631cf2f2d62a551ff635d29d759d43aafa31f503959630`, proved candidate-token reachability (`64` calls, `0.000019991 s` self, `0.290666%`) and live native Dijkstra (`0.005439451 s`, `79.088733%`), but the frozen comparator did not reach its expected classifier and the run aborted before null/A-B sampling; CV and null median are unavailable. The corrected retry requested `hz2`, but strict RCH selected inadmissible `vmi1264463` and refused before compilation over `ftui 0.4.1` versus required `0.5.0`; no local fallback or later Cargo command ran. Final diff review independently found parity holes: `__getstate__` exposes live edge dictionaries without setting the sticky bit, while `_native_copy`, `copy`, and `__copy__` reset the bit while potentially cloning stale native attrs. | INVALID DESIGN ATTEMPT / no performance verdict. This is neither a WIN nor a provenance-complete REJECT; production source is absent from `main`. | Do not retry or land `756b38e0c` unchanged. First cover every exposure/serialization/copy path and add retained-state-dict plus retained-dict-then-copy parity cases; only then run 241 paired `base/base` null rounds followed by 241 interleaved candidate/base rounds and record every provenance field. |
 | 2026-07-10 | ISA audit for the same exact canonicalize/hash/dispatch path (`br-r37-c1-04z53.9173`, `cod_nx`) | Checked target features, artifact metadata, and exact hot-function disassembly on the AVX2-capable `hz2` worker before proposing an ISA build change. | Ordinary FNX release code is x86-64/SSE2 baseline: no target-feature config or injected `RUSTFLAGS`; artifact SHA-256 `c34eac1ec58af63df2608617710013f5de57abf0b925d05c25e2fbcd91f8dbef`. The exact canonicalization, weight-classifier, and Dijkstra functions emit no AVX/VEX instructions, but libc already runtime-dispatches AVX2 `memcmp`/`memmove`; explicit Rust hash frames are about 2%, endpoints are two short strings, and the classifier is pointer-heavy PyO3/PyDict work. Fleet worker `ovh-b` lacks AVX2/BMI2. | Analysis-only: SSE2 is real but not a credible or fleet-safe build fix for this floor. | Do not apply global `target-cpu=native` or AVX2 flags. If revisited, hard-pin an AVX2 worker and use in-binary multiversioning; the higher-EV structural routes remain a repaired mutation certificate and indexed edge buckets. |
@@ -94,3 +96,2769 @@ routing history, but they do not close source families under this rule.
 | 2026-06-03 | `bfs_tree` | Tree-map preallocation. | `tests/artifacts/perf/20260603T-bfs-tree-map-prealloc/isomorphism_proof.md` recorded no real benchmark win. | Rejected. | Do not retry container preallocation alone for BFS tree output maps. |
 | 2026-06-03 | `quotient_graph` raw edge insertion | Direct raw-edge insertion shortcut. | `tests/artifacts/perf/20260603T-quotient-raw-edge-insert/benchmark_report.md` recorded no real speedup under direct timing/hyperfine. | Rejected. | Do not retry raw edge insertion without a different representation-level bottleneck. |
 | 2026-06-06 | attributed DiGraph batch construction | Seen-node/copy/slot descriptor variants. | `tests/artifacts/perf/20260606T-digraph-add-edges-mirror-arena-cod/report.md` recorded regressions across several batch attempts. | Rejected. | Route to contiguous row batches with source PyDict handles and Rust attrs only if a fresh profile still points there. |
+| 2026-07-22 | Attributed `DiGraph(true_iterator)` private-snapshot transfer (`br-r37-c1-04z53.9179`, WhiteJaguar) | Fresh profile satisfied the old retry predicate: transfer the transactional decoder's private shallow attr snapshot into the ordered edge mirror instead of making a second copy; caller-owned list/tuple paths remained isolated. | Current-head public row on actual RCH worker `ovh-b`: FNX `66.420 ms`, NX `66.516 ms` (`1.0014x`). Exact same-binary snapshot/mirror parity passed. Three CPU-4 interleaved 21-pair A/B+null attempts on actual RCH worker `vmi1227854` were directionally positive but inadmissible: candidate medians `1.1208x/1.1333x/1.1364x`, wins `20/21`, `21/21`, `21/21`, CV `6.749%/5.147%/7.139%`; null medians `1.0101x/0.9795x/0.9979x`, CV `8.225%/6.314%/8.110%`. Production/test prototype manually removed; benchmark row retained. | BLOCKED / no source verdict; not a REJECT and not a KEEP. | Retry only on an actual RCH worker with no concurrent Cargo/rustc and one-minute load below `2.0` on at least 10 CPUs; use at least 64 constructions/sample, 21 alternating pairs, exact parity, both CVs below `5%`, candidate median above `1.05x` and at least `0.05x` above null. Until then do not restore or cite the noisy prototype as a win. |
+
+## 2026-07-23 SnowyBadger (cc) — CTOR-PARITY FIX (br-r37-c1-hxdyb, sole producer): MultiDiGraph dict + two-epoch edge-list
+
+Two genuine MultiDiGraph-only constructor divergences (all other three graph classes were already
+correct), fixed in `PyMultiDiGraph::__new__` (digraph.rs):
+
+1. **dict input** (`MultiDiGraph({1:[2,3],...})`): raised `"Input is not a valid edge list"` where nx
+   builds edges. A dict is ALWAYS `from_dict_of_dicts` in nx's `to_networkx_graph` dispatch, never an
+   edge-list; the other classes absorb dict KEYS as bare nodes in `__new__` and get rescued by
+   `__init__`'s `_decode_dict_of_dicts_into`, but MDG's edge-normalizing loop rejects bare-int keys
+   first. Fix: explicit `data.is_instance_of::<PyDict>()` early-return (empty graph; `_decode`
+   re-adds sources). Node ORDER verified byte-exact vs nx.
+
+2. **two-epoch edge-list** (`MultiDiGraph([(1,2,[3])])`): returned an empty graph where nx raises.
+   Root cause found by reading nx `convert.to_networkx_graph`: it calls `from_edgelist` TWICE — epoch
+   0 swallows a malformed-row failure (`except: pass`), epoch 1 re-runs over the SAME `data` and
+   RAISES. A re-iterable LIST re-runs from the top (bad row fails again → raise); a one-shot ITERATOR
+   was consumed to the failure point in epoch 0 so epoch 1 sees only the suffix (→ empty or
+   suffix-graph). fnx modeled this with a single-pass `retry` flag + `continue`, which handled
+   iterators but let a bad-TAIL list return empty. Fix: explicit `'epochs: for epoch in 0..2` loop,
+   each epoch a FRESH `PyIterator::from_object(edata)`; epoch 0 discards+continues, epoch 1 raises.
+
+Verified: 7-case boundary matrix (only-bad-list, bad-{first,middle,last}-iter, all-valid list/iter,
+dict-of-lists) all MATCH nx exactly. Full fnx-python fast suite **49521 passed, 0 failed** (was 5
+failed pre-fix, all MultiDiGraph ctor). NB: those 5 + the earlier phantom "13" were partly masked by
+a WEEK-STALE `_fnx.abi3.so` — `maturin develop` here builds into `/data/tmp/cargo-target/maturin/
+lib_fnx.so` but does NOT copy to site-packages; must `cp` to BOTH site-packages AND
+python/franken_networkx/ (reinforces [[stale_install_benchmark_trap]] / [[maturin_stale_so_wrong_python]]).
+
+## 2026-07-23 SnowyBadger (cc) — CTOR-PARITY (br-r37-c1-fo8zw): MultiGraph two-epoch + None-endpoint; MDG nx-graph guard
+
+Extends the MDG ctor fix (e0d464111). MultiGraph `__new__` ported to nx's exact two-epoch
+from_edgelist contract (the pattern proven on MDG): `normalize_ctor_edge_item` rejects a
+None/unhashable endpoint up front, epoch 0 discards + retries, epoch 1 raises. So MG `[(None, 1)]`
+now raises NetworkXError (was a raw ValueError — `edge_list_err` only wrapped TypeError) and the
+iterator suffix contract holds. Two guards were REQUIRED alongside the normalize step (which rejects
+bare items): (1) a dict guard — a dict is always from_dict_of_dicts, `__init__`'s decode owns it;
+(2) an nx-graph guard — a foreign graph is rebuilt by `_copy_constructor_graph_source`, so `__new__`
+must not iterate its nodes. Added the SAME nx-graph guard to MultiDiGraph (e0d464111 added its
+two-epoch+normalize but not the nx-graph guard, leaving `fnx.MultiDiGraph(nx.MultiGraph)` a latent
+divergence — now fixed). `_decode_dict_of_dicts_into` seeds `add_nodes_from(data)` first (matches
+nx's from_dict_of_dicts node order; previously the Rust `__new__` key pre-absorption masked this,
+which the dict guard removes).
+
+4-class differential: MG + MDG now MATCH nx on {None list/iter/suffix, dict-of-lists, nx-graph,
+4-tuple, bare-nodes, bad-3-tuple, valid}. Full fast suite 49521 passed, 0 failed. REMAINING (2,
+Graph + DiGraph `[(None, 1)]`): the simple classes absorb None as a "None" node via their
+fast-batch (node_key_to_string(None)→repr), needing batch-decline + two-epoch on the HOTTEST ctor
+path — deferred (higher regression risk; latent, no failing test). Tracked in fo8zw.
+
+CRITICAL BUILD LESSON (see [[rch_so_nondeterministic_vs_maturin]]): an rch-built `.so` (remote
+rustc) triggered 3-4 ORDER-DEPENDENT `test_summarization` failures that VANISH with a local
+maturin-built `.so` (same HEAD source). I nearly reverted this correct fix on that false
+attribution. Authoritative fnx-python testing MUST use a local `maturin develop --release` build
+(into a FRESH CARGO_TARGET_DIR to dodge rch's E0514 rustc-mismatch contamination), cp'd to BOTH
+site-packages and python/franken_networkx/.
+
+## 2026-07-23 SnowyBadger (cc) — PROFILE MAP (clean isolated A/B, n=2000 m=8000): remaining MultiGraph/Graph losses + one tractable lever
+
+Methodology note (re-learned): a WIDE sweep with SHARED graphs + interleaved ops + GC gave FALSE
+losses (e.g. size(weight) showed 0.59-0.82x). Clean per-op isolated A/B (fresh graphs, gc.disable,
+9 reps, median) is the only trustworthy signal — size(weight) actually WINS everywhere (float
+1.75-3.78x, int 26-45x). Do NOT chase size(weight).
+
+CONFIRMED real losses (clean A/B):
+- `has_edge(u,v)`: G 0.19x, DG 0.23x, MG 0.25x — the STRING-NODE-KEY floor (node_key_to_string x2:
+  int->String alloc via i.to_string(), str->"str:{len}:{s}"; str nodes 384ns > int 295ns). Both the
+  alloc AND the String-keyed lookup. Partial win possible via a stack-buffer int fast path (~1.3x,
+  doesn't reach parity). REAL fix = integer-node-index storage = the thp6w epoch. NOT a clean lever.
+- `[len(G[n]) for n in G]` (adj_iter): G 0.54x, DG 0.57x, MG 0.27x — per-node VIEW CONSTRUCTION
+  (G[n] builds a Python AdjacencyView object ~500ns; nx returns a live dict ref). Materialization
+  floor; G[n] must return a view so can't be fully closed. Not a clean lever.
+
+TRACTABLE LEVER (next session's opener) — `edges(nbunch, data=True)`:
+- Simple **Graph** 0.64x LOSS; **DiGraph** 3.24x WIN; **MultiGraph** 0.99x par. The inconsistency is
+  a MISSING KERNEL: DiGraph has `_native_out_edges_nbunch_data` (+ `_digraph_out_edges_data_cache`),
+  MultiGraph has `_native_mg_edges_nbunch_data` (lib.rs:7177, routed __init__.py:2491), but simple
+  **PyGraph has NO `_native_edges_nbunch_data`** — so `EdgeView.__call__` (__init__.py ~2124) falls
+  to the slow Python `nbunch_iter` + per-source AtlasView walk.
+- RECIPE: add `_native_graph_edges_nbunch_data`/`_no_data`/`_data_key` to PyGraph, mirroring the MG
+  kernel (SIMPLER — simple graph has no edge keys; use `edge_py_attrs`/`materialize_edge_py_attrs`
+  keyed by (String,String), not the (String,String,usize) MG form). Route in EdgeView.__call__ for
+  `type(self._graph) is Graph` alongside the DiGraph/MG branches; add the last-(nbunch,result) cache
+  (mirror `_digraph_out_edges_data_cache`). PARITY GATE: nx's exact edges(nbunch) algorithm =
+  dedup by PROCESSED SOURCE node (a neighbor already processed as a source had the edge emitted from
+  its side; matches nx incl. duplicate-nbunch re-emission) — copy the MG kernel's `seen_nodes`
+  String-set logic verbatim. Expected: G edges(nbunch,data) 0.64x -> ~3x (matching DiGraph/MG).
+  Build with MATURIN (not rch — see [[rch_so_nondeterministic_vs_maturin]]); gate on the full fast
+  suite + a differential vs nx over {list/tuple/set nbunch, dup nbunch, single-node, isolated node,
+  self-loop, missing node}.
+
+## 2026-07-23 SnowyBadger (cc) REJECT + BLOCKER (br-r37-c1-04z53): edges(nbunch,data=True) repack removal — correct but reddens full suite via summarization order-fragility
+
+LEVER (correct, byte-identical): in `EdgeDataView._materialize_via_adj_walk` (__init__.py ~897) the
+simple-Graph `data is True` branch did `return [(u, v, d) for u, v, d in rows]` — but the native
+`_fnx.edges_nbunch_data` ALREADY emits exactly `(u, v, attrs)` 3-tuples, so the comprehension rebuilt
+an identical tuple per edge (a wasted O(E) unpack+repack, the dominant self-time in _materialize).
+`return rows` is byte-identical (verified: full value AND exact-order parity vs nx) and lifts
+`edges(nbunch, data=True)` 0.64x -> 0.74x. Edge/view test subset: 8048 passed.
+
+WHY REJECTED: the FULL fast suite reddens with exactly 4 `test_summarization_module_parity` failures
+(dedensify "native path" / "copy_false identity") — DETERMINISTICALLY vs HEAD's 49521-pass, SAME
+maturin `.so`. But the interaction is NON-LOCAL and ORDER-DEPENDENT, not a data dependency:
+`dedensify` uses `_native_adjacency_row_dict`, NOT the edges path I changed. Stranger still, in
+ISOLATION my change makes summarization PASS (4/4) while **HEAD FAILS it (3/4)** — the pass/fail flips
+with test order. So the summarization module has a genuine ORDER/STATE fragility (module-level cache,
+monkeypatch leakage, or `type(G) in (Graph, DiGraph)` detection perturbed by accumulated global
+state); my correct change merely shifts which order-bucket it lands in. Cannot ship a change that
+reddens the G4 gate regardless of root cause.
+
+RETRY PREDICATE: ship the repack `return rows` (it is correct) ONCE the summarization order-fragility
+is fixed (bead filed). This fragility is a RECURRING BLOCKER for edges/view perf work — it also
+manifested as the rch-vs-maturin `.so` false failures ([[rch_so_nondeterministic_vs_maturin]]). Root
+cause likely in `_dedensify_simple_native_rows`'s `type(G) in (Graph, DiGraph)` gate or a
+module-level detection cache that leaks across tests. Until then, edges/view perf changes cannot be
+validated against the full suite reliably.
+
+## 2026-07-23 SnowyBadger (cc) SHIP + CORRECTION (br-r37-c1-04z53): edges(nbunch,data) repack removal — the prior REJECT was an INSTALL-STATE artifact, not a real block
+
+CORRECTION of the REJECT above (same day). The 4 `test_summarization_module_parity` full-suite
+failures I attributed to this change were NOT caused by it and NOT a real "summarization
+order-fragility". They were an artifact of MY OWN inconsistent install state while debugging: I was
+swapping `python/franken_networkx/__init__.py` and `_fnx.abi3.so` between HEAD and change versions,
+leaving MISMATCHED combos (repo init != site-packages init, or a stale/rch-built .so). With a
+CONSISTENT state (repo init == site-packages init == the version under test, `.so` matching HEAD),
+the repack change passes the FULL fast suite **49521 passed, 0 failed**, and summarization passes
+3/3 in isolation both on HEAD and with the change. br-r37-c1-3t256 (the "order-fragility" blocker)
+is a FALSE alarm — closing it.
+
+SHIPPED: `EdgeDataView._materialize_via_adj_walk` data=True returns the native `_fnx.edges_nbunch_data`
+list directly instead of `[(u, v, d) for u, v, d in rows]` (the native kernel already emits exactly
+(u,v,attrs) 3-tuples, so the comprehension was a wasted O(E) unpack+repack). Byte-identical + exact
+edge-order parity vs nx (verified incl. duplicate-nbunch dedup). `Graph.edges(nbunch, data=True)`
+0.64x -> 0.74x.
+
+LESSON (load-bearing): before trusting ANY full-suite pass/fail, verify install-state CONSISTENCY:
+`diff repo/__init__.py site-packages/__init__.py` AND `diff repo/_fnx.abi3.so site-packages/_fnx.abi3.so`
+must both be identical, and the .so must be a MATURIN build of the source under test (not rch). A
+mismatched combo produces phantom order-dependent failures that mimic a real fragility.
+Reinforces [[rch_so_nondeterministic_vs_maturin]].
+
+## 2026-07-23 SnowyBadger (cc) CONVERGENCE: MultiGraph/Graph clean-win perf surface mined out — remaining sub-parity ops are all string-key/view floors (thp6w epoch)
+
+After shipping the edges(nbunch,data) repack win, a broad CLEAN-methodology sweep (fresh graphs,
+gc.disable, isolated per-op A/B, verified install-state consistency) across MultiGraph/Graph ops:
+fnx DOMINATES — edges(data=True) 5.96x, degree(weight) 3.84x, to_directed 1.55x, contracted_nodes
+3.33x, number_of_selfloops 6.08x, number_of_edges 728x, subgraph.copy 1.6x, size(weight) 1.75-45x.
+The ONLY remaining sub-parity ops are ARCHITECTURAL FLOORS, none a clean single lever:
+- has_edge 0.19-0.25x (all 4 types): STRING-NODE-KEY floor (node_key_to_string x2 alloc+hash; no
+  integer-indexed has_edge for MultiGraph). Fix = integer-node storage = thp6w epoch.
+- `[len(G[n]) for n in G]` 0.27-0.57x: per-node VIEW CONSTRUCTION (G[n] builds a Python view object;
+  nx returns a live dict ref). G[n] must return a view -> can't fully close.
+- nodes(data=True) 0.80x: near-parity, ~33us/1500 nodes, all-native + thin wrapper — noise-level,
+  not a real loss.
+- edges(nbunch,data) 0.74x (post-repack): residual is the _FailFastEdgeIterator per-element
+  mutation-guard (Python per-element call vs nx's C generator) — a correctness feature, not
+  removable without breaking the raise-on-mutation-during-iteration contract.
+
+CONCLUSION: the crackable single-lever perf surface for the MG/Graph op families is EXHAUSTED. Every
+remaining fnx<nx residual is one of {string-node-key per-call floor (thp6w target), view-construction
+floor, _FailFast Python-overhead}. Next perf value requires the thp6w integer-node-storage epoch
+(closes has_edge/adj_iter/neighbors floors at once) — a multi-session architectural effort with the
+slab prototype + dual-write shadow already built (S1-S15). NOT a bead-sized lever.
+
+## 2026-07-23 SnowyBadger (cc) — has_edge floor is ALREADY optimally fast-pathed (do not re-investigate)
+
+Confirmed the convergence across DG/MDG too (in_edges 30.7x, out_degree 2.5x, reverse 1.8x, pagerank
+6.35x, clustering 38x all WIN). The only new loss found — `DG has_predecessor` 0.13x — is the SAME
+string-node-key floor as has_edge. IMPORTANT: `PyGraph::has_edge` (lib.rs ~11864, cc-hasedgeintidx)
+ALREADY has the identity-int fast path: exact-int u,v + `node_index_matches_int(iu/iv)` ->
+`has_edge_by_indices` (no alloc, no String hash). It fires only when the node at index i IS the int i
+(contiguous insertion). Even WHEN it fires (contiguous), has_edge is 0.31x (267ns vs nx 82ns); with
+random insertion it can't fire (node 5 not at index 5) -> String path -> 0.20x. The 267ns residual is
+PyO3 marshaling (Bound<PyAny> exact-int check + usize extract x2) + the O(1) node_index_matches_int
+verification x2 + has_edge_by_indices, vs nx's two C int-dict lookups. This is a genuine PyO3 +
+index-verification FLOOR — the fast path is already present and optimal; no bead-sized lever remains.
+Closing it needs a Python-int->index cache / node-index-storage epoch. DO NOT re-attempt a has_edge
+micro-opt; it is done.
+
+## 2026-07-23 SnowyBadger (cc) SHIP (br-r37-c1-04z53): MG selfloop_edges fast path drops the O(N) node-name clone (sparse self-loops 0.60x->0.72x)
+
+The `selfloop_edges(keys=True, data="<attr>")` clean-scalar fast path (lib.rs ~6883) cloned EVERY
+node name up front (`nodes_ordered().map(to_owned).collect::<Vec<String>>()`) just to scan for
+self-loops — an O(N) String alloc per node, wasteful when a large graph has FEW self-loops (the
+common case). Replaced with a single borrowed pass collecting ONLY the self-loop nodes (name + keys)
+via `edge_keys(n, n)` — which is BOTH the self-loop test and the keys — mirroring the general path
+(6960) that already did this. Byte-identical emission (same nodes/order/keys/values; verified full
+value+order parity vs nx across sparse & dense). n=2500 w/ 5 self-loops: 0.60x -> 0.72x; dense
+(all-node self-loops) unaffected (same clone count). Full fast suite 49521 passed. The dense
+mg_selfloop_keys_weight bench workload stays a per-self-loop-emission floor (0.46x) — not this
+clone; that residual is the AttrMap/tuple-materialization model (architectural, unchanged).
+
+## 2026-07-23 SnowyBadger (cc) SHIP (br-r37-c1-04z53): has_edge identity-int fast path completed across ALL graph types
+
+PyGraph::has_edge had the identity-int fast path (cc-hasedgeintidx) but MultiGraph, DiGraph, and
+MultiDiGraph's has_edge did NOT — they always paid 2 `i.to_string()` heap allocs for int nodes.
+Added `has_edge_by_indices` (resolve names from the node table by index, borrowed, no alloc; +
+`get_node_name` for MultiDiGraph which lacked it) to MultiGraph/DiGraph/MultiDiGraph in fnx-classes,
+and the keyless identity-int fast path (guarded by node_index_matches_int) to each PyO3 has_edge.
+Contiguous-int has_edge 1.17-1.19x (MG 283 vs 330ns, DG 298 vs 355ns) — avoids the 2 allocs; the
+String-keyed lookup remains (these types are not integer-flipped like simple Graph, so it can't reach
+Graph's level). Direction-sensitive + keyed + non-contiguous parity verified; fnx-classes 82/82, full
+fast suite 49521 passed. NOTE: has_predecessor (0.13x) is a SEPARATE floor — it uses `v in pred[u]`
+(predecessor-view construction), not has_edge; not addressed. This completes the has_edge fast-path
+CONSISTENCY across the 4 types; the residual is the String-keyed-lookup + PyO3 floor (thp6w/node-index
+epoch), not a lever.
+
+## 2026-07-23 SnowyBadger (cc) SHIP (br-r37-c1-04z53): has_node/__contains__ identity-int fast path (n in G 0.27x->0.35x, all 4 types)
+
+`n in G` / `G.has_node(n)` paid `i.to_string()` alloc + String-keyed has_node for int nodes across
+ALL four graph types (no fast path). Added the identity-int membership fast path to has_node AND
+__contains__ on Graph/MultiGraph/DiGraph/MultiDiGraph (8 sites): exact int (bool excluded) at its own
+index -> `node_index_matches_int(i)` IS the answer, so it skips BOTH the alloc AND the String lookup
+(more than has_edge, which still needed the lookup). Non-identity ints (present elsewhere / absent)
+fall through to the String path. `n in G` contiguous 0.27x->0.35x (177 vs 226ns). Parity verified
+across all 4 types with exotic probes (bool/negative/float/str/non-existing/scrambled-non-contiguous);
+full fast suite 49521 passed. Residual 0.35x = PyO3 dispatch + node_index_matches_int's
+`name.parse::<usize>()` verification vs nx's C int-dict hit — the deeper string-node-key floor
+(thp6w/node-index epoch), not a lever.
+
+## 2026-07-23 SnowyBadger (cc) — identity-int fast-path family COMPLETE; per-node view-machinery floors remain
+
+This cycle shipped 5 clean byte-identical wins closing the int-node alloc tax on the direct-method
+per-node ops: edges(nbunch,data) repack (2f2f474e2), MG selfloop clone (f8246388d), MG has_edge fast
+path (061be8cf6), DG+MDG has_edge fast path (b30bd6dc9), has_node/__contains__ fast path all 4 types
+(191dddbd5). The identity-int fast-path family (has_edge + has_node/__contains__ across Graph/
+MultiGraph/DiGraph/MultiDiGraph) is now COMPLETE — every direct Rust-method per-node lookup skips the
+i.to_string() alloc for contiguous int nodes.
+
+REMAINING per-node losses are NOT the alloc floor — they are VIEW-MACHINERY / construction floors,
+NOT bead-sized levers (do not re-attempt as int-fast-paths):
+- degree(u) single-node 0.28x: dominated by the Python DegreeView property machinery — the
+  _has_networkx_private_storage per-access check (already optimized to ~120ns, br-r37-c1-31tby) +
+  DegreeView.__call__. nx's G.degree is a pure @cached_property; fnx must re-check private-storage per
+  access (correctness for private-storage subclasses). Churny view-layer, correctness-sensitive.
+- len(G[n]) 0.62x: G[n] constructs a Python AdjacencyView object per call (nx returns a live dict).
+- has_predecessor 0.13x: `v in pred[u]` predecessor-view construction, not has_edge.
+All need the view-object-elision / node-index-storage epoch, not micro-levers.
+
+## 2026-07-23 SnowyBadger (cc) SHIP (br-r37-c1-fo8zw): Graph/DiGraph None-endpoint ctor divergence CLOSED — the LAST ctor divergence
+
+The deferred Graph/DiGraph `[(None,1)]` divergence (fnx built a "None" node; nx raises) turned out to
+need NO hot-path two-epoch port. Root: only the LIST/tuple/set path diverged (the ITER path already
+returned nx's empty via the __new__ materialize two-epoch), and the simple-Graph d58s8 loop absorbed
+None as node_key_to_string(None)="None". The `__init__` pre-validation ALREADY gates list/tuple/set
+inputs via native `validate_ctor_edge_list` — but None is HASHABLE so the endpoint-hashability check
+missed it. Added an explicit `is_none()` test to that same native pass: a None endpoint now marks the
+input invalid -> `NetworkXError("Input is not a valid edge list")`, matching nx's add_edge
+ValueError-wrapped-by-to_networkx_graph. Iterators skip this pre-validation (already handled);
+MG/MDG raise in __new__ first (my earlier two-epoch), so unaffected. 4-class x {list/tuple/set/iter,
+suffix, None-as-u, None-as-v} differential: 0 divergences. Full fast suite 49521 passed.
+
+CTOR-PARITY LANE COMPLETE: the broad 4-class differential (18 exotic inputs + the None matrix) now
+shows ZERO divergences across Graph/DiGraph/MultiGraph/MultiDiGraph.
+
+## 2026-07-23 SnowyBadger (cc) — thp6w FLIP FINDING: feature-on burn-in surfaces an order-fragile dedensify golden (NOT a default-build issue)
+
+Ran the FEATURE-ON (mg-int-storage / slab dual-write) burn-in with a clean maturin build + consistent
+install state: **49520 passed, 1 failed** — `test_dedensify_parity::test_dedensify_golden`. The
+DEFAULT (feature-off) build is CLEAN (49521/0). The failure: the dedensify compressor node name is
+`"".join(str(n) for n in high_deg_group)` where high_deg_group is a FROZENSET — its iteration order
+is not a stable contract. fnx produced 'ACB' vs nx's 'ABC' in the full-suite context; it PASSES in
+isolation across PYTHONHASHSEED={0,1,42}. So it is ORDER-DEPENDENT, and the feature-on BINARY (extra
+slab_shadow field + dual-write branches -> different codegen/memory layout) perturbs Python
+set/frozenset iteration enough to flip which order-bucket dedensify's intersection lands in during
+the full suite. Same fragile-test class already seen via rch-vs-maturin .so and install-state
+mismatches ([[rch_so_nondeterministic_vs_maturin]]).
+
+WHY IT MATTERS FOR THE FLIP: making the slab the DEFAULT storage changes the binary the same way, so
+this fragile golden (and any other frozenset/set-order-dependent fnx-vs-nx golden) must be stabilized
+FIRST. The dedensify output is SEMANTICALLY correct (same compression, same signature) — only the
+arbitrary compressor-name order differs. FLIP PREREQUISITE: either (a) make fnx.dedensify's
+compressor name order-independent from the binary (build high_deg_group insertion order to match nx's
+frozenset construction deterministically, or sort — but sorting diverges from nx's unsorted golden,
+so it must be a coordinated fnx+test change), or (b) sweep all *_golden tests for frozenset/set-order
+sensitivity and pin them. NOT a current blocker: the default feature-off build is clean; site-packages
+restored to feature-off. rch fleet was saturated for the Rust slab gauntlet (thp6w_s11/s14) —
+re-run those under the feature next slab session.
+
+## 2026-07-23 SnowyBadger (cc) SHIP (br-r37-c1-thp6w): dedensify compressor-name frozenset order matches nx — flip prerequisite RESOLVED
+
+Fixed the order-fragile dedensify golden (the feature-on burn-in's 1 failure + a recurring
+false-alarm class). Root: fnx's `_dedensify_simple_native_rows` built the high-degree-neighbour
+frozenset as `high_degree_nodes.intersection(adjacency_row(node))` (iterates the ADJACENCY DICT),
+while nx uses `high_degree_nodes & set(G[node])` (set&set). The compressor node name is
+`"".join(str(n) for n in frozenset)` — the frozenset's ITERATION order — so the two constructions
+seeded the result set's hash buckets in different insertion orders, and hash-colliding labels
+diverged the name from nx under some binaries (the mg-int-storage build perturbed Python set order
+enough to flip it). Changed fnx to the IDENTICAL `frozenset(high_degree_nodes & set(adjacency_row(node)))`
+so the frozenset is byte-identical to nx's in any process/binary (same operands, same operation).
+Same compression result (only the arbitrary name). VERIFIED: feature-OFF golden + 0 name mismatches
+across 20 shapes; feature-ON FULL fast suite now **49521 passed, 0 failed** (was 49520/1). This
+RESOLVES the thp6w flip prerequisite recorded earlier today AND removes a fragile-test class that had
+produced false REJECTs/blockers. Default build restored to feature-off.
+
+## 2026-07-23 BlackThrush (cc) REJECT (br-r37-c1-thp6w): MultiGraph fresh-batch capacity-reserve does NOT move construction — String-substrate floor, not a resize floor
+
+Deep re-profile of the MG construction loss (0.5-0.58x at n=20000 m=80000, live on HEAD via BOTH
+paths: ctor `MultiGraph(edges)` 0.58x and `add_edges_from(edges)` 0.51x). Established that BOTH
+paths already batch natively — the ctor runs the native `__new__` two-epoch absorb; add_edges_from
+runs `_try_add_edges_from_batch` -> `extend_keyed_edges_with_attrs_unrecorded`. The per-edge
+`PyDict::new` loop at PyMultiGraph::add_edges_from (lib.rs:7769) is a COLD fallback, NOT the hot
+path (disproves the "per-edge dict churn" theory). The native batch already memoizes
+node_key_to_string by Python object identity and pre-sizes the `edges` staging Vec.
+
+HYPOTHESIS TESTED: `extend_keyed_edges_with_attrs_unrecorded` inserts into the String-keyed
+`nodes`/`adjacency`/`edges` maps one-at-a-time with NO capacity reservation, so it pays incremental
+hashbrown rehashes across the batch. The fresh-graph guard (`edge_count()!=0 -> false`) means the
+caller knows the EXACT new-node count and edge-count-upper-bound, so a one-shot `reserve` is tight
+and free. Added `MultiGraph::reserve_for_keyed_edge_batch(extra_nodes, extra_pairs)` (reserves
+nodes+adjacency by exact new-node count, edges by edge count) called once before the extend.
+
+MEASURE (maturin release, isolated-pkg .so hot-swap, subprocess-interleaved same-worker A/B, 14
+rounds alternating order; candidate sha 9c7833a8 vs baseline HEAD 3d877bb1; n=20000 m=80000):
+- aef (TREATED path): base=407.9ms cand=417.0ms **speedup=0.9783x** (candidate marginally SLOWER),
+  CV base 5.5% / cand 12.9%.
+- ctor (UNTOUCHED control, native absorb not changed): 0.9909x ~= 1.0x as designed.
+- NULL control (baseline vs baseline, 8 rounds): aef 0.9979x (CV 6.9-7.6%), ctor 0.9916x.
+Candidate speedup (0.9783x) sits INSIDE the null spread (~1.0x +-7%) and on the slow side. No win.
+
+VERDICT: REJECT/no-ship; source reverted, tree clean at HEAD. The reserve theoretically eliminates
+only the OUTER-map resize rehashes; construction is instead dominated by per-edge String work
+(node_key_to_string, ~3-4 String clones/edge inside the extend loop across the dual adjacency+edges
+storage, EdgeKey build, AttrMap alloc) + the nested per-node inner IndexMaps that a reserve can't
+pre-size (degree unknown). nx pays ZERO string cost (keys its dicts by the Python int objects
+directly). This is the thp6w String-substrate floor a 3rd independent time — NOT a resize floor.
+RETRY-PREDICATE: only revisit capacity-reserve if a future profile on a QUIET worker (load<2, CV<3%
+via taskset+gc.disable) isolates outer-map resize as >8% of construction self-time; otherwise the
+only construction fix is the thp6w integer-node-storage flip (kill String keys + the redundant
+dual adjacency/edges storage), not a capacity hint.
+
+## 2026-07-24 BlackThrush (cc) REJECT (br-r37-c1-thp6w S13): slab index-read route `edges_ordered_indices_borrowed` — O(n) slot->position build offsets the hash savings to ~parity
+
+Continued the thp6w strangler read-routing. After shipping the owned `edges_ordered` slab route
+(c79ae5efd), the next unrouted full-walk read was `edges_ordered_indices_borrowed` (emits node
+POSITION indices; 2 callers incl. the sparse/matrix exporter). Built the slab analog
+`MgSlabStorageProto::edges_ordered_indices_borrowed`: same walk/order/orientation as the name variant
+but emits positions via a `slot->position` array built once per call (hash-free; positions come from
+`node_order` iteration so it is correct under slot recycling, where slot != position). Byte-identical
+parity asserted (thp6w_s13 A/B `assert_eq!(slab, string)`).
+
+MEASURE (thp6w_s13_edges_ordered_indices_ab, release, feature-on, n=20k m=80k, 3 runs):
+ratio_string_over_slab **0.978x / 1.024x / 1.016x** (mean ~1.006x) — the ratio sits INSIDE the A/A
+null which itself ran 0.851-0.924 (strong within-run drift on this loaded host, load ~18). No
+measurable win.
+
+ROOT: the slab index walk must rebuild an O(n) `slot->position` array every call (n=20000 = ~25% of
+the m=80000 walk); that build offsets the String-hash savings (production pays `nodes.get_index_of`
+per edge + an `EdgeKey` string-pair hash) to ~parity. Contrast the NAME variant `edges_ordered_borrowed`
+which needs NO position array and DID win (1.096x, S12). There is no SOUND cheap way to skip the build:
+"no free slots" is unsound (a remove+re-add leaves free_slots empty yet slot != position), and a
+correct "slots==positions" check is itself O(n).
+
+VERDICT: production route NOT shipped (the method carries a comment recording this; String walk
+unchanged). Slab method + thp6w_s13 A/B RETAINED as substrate (mirrors the permanent s12 bench + the
+unused `edges_ordered_names` slab analog) — byte-identical, ready for the retry. Feature-on 84/0,
+feature-off 82/0, fmt clean.
+RETRY-PREDICATE: add a slab-maintained `ever_recycled: bool` flag (set on the first free-slot reuse);
+when false the fresh/pristine graph has slot==position, so emit `slot` directly as `position` and SKIP
+the O(n) build — then re-run thp6w_s13 A/B on a quiet worker (null within 3% of 1.0). This is REJECT #2
+of the session (construction-reserve was #1; the owned-edges_ordered KEEP landed between them, so not
+consecutive).
+
+## 2026-07-23 AzureCanyon KEEP (br-r37-c1-mo9ud): MultiDiGraph exact-int/string-keyed true-iterator fused stage
+
+Ledger and Git history were searched first. The constructor-parity corpus was already at zero
+divergences, the historical broad MultiDiGraph drain remained rejected on its `0.7633x` keyed
+regression, and cc's MultiGraph integer-adjacency/slab/AVX2 lane was excluded. A pre-edit pinned
+`vmi1149989` public row showed the remaining keyed frontier: FNX `237.69 ms` versus NetworkX
+`216.17 ms` (**`0.909x`**).
+
+The one lever forms an exact-int/exact-string keyed batch during the existing failure-atomic,
+two-epoch true-iterator pass, then commits nodes, native keyed edges, public keys, and empty
+attribute mirrors once. Three-tuple shape, exact Python types, `i64` extraction, and an eight-row
+floor are mandatory. Mixed, attributed, exotic, small, list/tuple, and non-MultiDiGraph inputs keep
+their old route. No cc-owned storage code changed.
+
+Pinned same-binary A/B on `vmi1149989`, 10,000 edges, 64 constructions per arm, 21 fully
+interleaved rounds:
+
+- frozen streaming / fused stage: **`1.5286x`**, `21/21` wins, **`2.232%` CV**,
+  p5-p95 `1.4623x-1.5832x`;
+- fused / fused null: `0.9997x`, `9/21` wins, **`1.593%` CV**,
+  p5-p95 `0.9847x-1.0336x`.
+
+Exact native snapshots and all node, successor/predecessor, public-key, and attribute mirrors
+matched before timing. The post-edit public row on the same named worker flipped to FNX
+`152.88 ms` versus NetworkX `176.74 ms` (**`1.156x`**); Criterion measured the FNX midpoint
+`35.680%` faster (`p=0.00`).
+
+The remotely built release extension
+`ced9065e0aa599e3e22c571f4d2f44012fe1c3910275148f5b2dd6b97b4b84b9` passed the 48-outcome
+NetworkX iterator corpus plus an all-eligible keyed order/duplicate/loop corpus. Focused release
+tests, targeted and workspace checks, fmt, diff-check, and UBS passed. Exact workspace clippy was
+run and stopped on concurrent pre-existing `collapsible_if` findings outside this lever; the scoped
+no-deps retry likewise reported only three pre-existing sites outside the changed regions.
+
+VERDICT: KEEP. Do not widen the discriminator. Retry another constructor shape only after a fresh
+pinned public loss and distinct profile attribution, then require exact frozen parity, interleaved
+A/B and A/A null, both CVs below `5%`, and candidate median at least `1.05x`.
+
+## 2026-07-23 StormyForge KEEP (br-r37-c1-e2pw9): keyed-attribute MultiDiGraph true-iterator stage
+
+Ledger and Git history were searched first. The 36-case constructor parity lane remained closed at
+zero divergences, the broad MultiDiGraph drain remained rejected except through its typed retry
+predicate, and cc's MultiGraph integer-adjacency/slab/AVX2 lane was excluded. Fresh pinned
+`vmi1156319` rows showed the frontier: the unkeyed attribute iterator was FNX `294.96 ms` versus
+NetworkX `276.31 ms` (`0.937x`), while the exact string-keyed four-tuple iterator was FNX
+`473.36 ms` versus NetworkX `224.23 ms` (**`0.474x`**).
+
+The one lever widens the existing transactional exact-int/exact-string stage to exact four-tuples
+with scalar-only exact dict attrs. It snapshots each dict at yield time, preserves ordered
+duplicate-key merges, and commits the native keyed batch plus Python mirrors once. Non-scalar,
+mixed, small, list/tuple, and exotic inputs keep the normalized frozen fallback; no MultiGraph
+storage or SIMD code changed.
+
+Pinned same-binary proof on `vmi1156319`, 10,000 edges, 32 constructions per arm, 21 fully
+interleaved rounds:
+
+- frozen streaming / attributed stage: **`1.1091x`**, `21/21` wins, **`3.958%` CV**,
+  p5-p95 `1.0469x-1.1844x`;
+- attributed / attributed null: `1.0078x`, `15/21` wins, **`3.729%` CV**,
+  p5-p95 `0.9616x-1.0900x`.
+
+The earlier 8-repetition probe was INVALID-CV and was discarded. Candidate/frozen snapshots,
+public keys, and attr mirrors matched exactly. The post-edit public row was FNX `455.33 ms` versus
+NetworkX `263.59 ms` (**`0.579x`**): improved but still open, with noisy Criterion intervals.
+
+The remotely built release artifact
+`be7c4e211d8fb43cea2d891ccc8db6192488a62a1395c88a196a74f82398f898` passed direct legacy-NetworkX
+conformance for eligible duplicate/order/loop/reverse edges, reused mutable dict yields, late mixed
+and non-scalar fallback, and the seven-row null control. Focused release parity, strict-remote
+workspace check, fmt, diff-check, and UBS passed. Workspace and scoped clippy were run and stopped
+only on pre-existing findings outside this lever.
+
+VERDICT: KEEP. Preserve the discriminator, yield-time snapshot, merge order, eight-row floor, and
+transactional fallback. The public `0.579x` row remains the next measured frontier. Retry only a
+distinct attributed-stage primitive with exact conformance, pinned A/B plus null, both CVs below
+`5%`, and candidate median at least `1.05x`.
+
+## 2026-07-24 BlackThrush (cc) FINDING (br-r37-c1-thp6w): MG mutation-interleaved + micro-op profile map — has_edge is a PyO3-BOUNDARY floor (NOT cutover-fixable); every other remaining loss is the cutover
+
+Fresh HEAD measurement (maturin .so, n=4000 m=16000 MG, gc.disable, median-of-13) to re-scope what the
+thp6w cutover actually buys, since the read-routing strangler is exhausted (all remaining production
+adjacency full-walks are mutations that already dual-write; edges_ordered pair shipped; index rejected).
+
+MUTATION-INTERLEAVED cc (the S4 `advance_int_adj_memo` surface):
+- single-edge add + cc: **6.06x WIN** (fnx 0.412ms vs nx 2.500ms) — S4 memo-advance CONFIRMED working
+  on HEAD; the earlier 0.566x cold-after-mutation loss is FIXED. (`advance_int_adj_memo` landed, called
+  at the add_edge/remove_edge single-edge sites lib.rs:4583/4720.)
+- add_node + cc: **1.19x WIN** (isolated-node add advances/keeps the memo usable).
+- remove_node + cc: **0.88x LOSS** — remove_node bumps the revision and INVALIDATES the int_adj memo
+  (the memo indices must track nodes_ordered positions, which RENUMBER on removal), so cc rebuilds O(E).
+  This is the node_removal_storage_wall: advancing the memo across remove_node costs ~O(V+E) (the
+  renumber) = same as rebuild. The ONLY fix is a STABLE-SLOT store (the slab removes without renumber) =
+  the cutover. Winnable, but cutover-dependent.
+
+MICRO-OP has_edge (string nodes), n=3000 m=12000, 20000 probes:
+- **0.304x** (fnx 0.402us/call vs nx 0.122us/call). DECOMPOSITION: a trivial fnx PyO3 call
+  (number_of_nodes) is **0.143us/call** — already SLOWER than nx's ENTIRE has_edge (0.122us). So the
+  PyO3 boundary is a hard floor BELOW which fnx cannot go; even a zero-Rust-work has_edge is ~0.85x.
+  The string-canonicalization work (node_key_to_string builds `"str:{len}:{s}"`, ~0.26us incl. 2 heap
+  allocs) is the gap from 0.30x to the 0.85x cap. CORRECTS the prior "has_edge = string-node-key floor,
+  needs cutover" note: the cutover would NOT fix has_edge (the boundary + canonical-hash remain; the
+  string node still resolves through a canonical-key lookup). has_edge is a PyO3-boundary floor,
+  UNWINNABLE. A stack-buffer canonical build could shave the 2 allocs (~1.15-1.25x self-speedup) but
+  stays a loss under the 0.85x cap — NOT shipped (poor ROI on an unwinnable op, hot-path risk).
+
+RESCOPED CONCLUSION: the thp6w cutover's real payoff is CONSTRUCTION (0.5x, String dual-storage) and
+remove_node+cc (0.88x, renumber floor) — both fixed by making the stable-slot slab PRIMARY. has_edge
+and the lookup micro-ops (has_node/__contains__/neighbors/degree) are PyO3-boundary-floored and are NOT
+cutover targets. LEDGERED BLOCKER stands: the only remaining WINNABLE lever is the cutover (large
+multi-session storage rewrite; the slab lacks node-attr storage — a concrete prep gap; needs
+coordination with AzureCanyon's live fnx-python ctor WIP in the shared tree).
+
+## 2026-07-24 BlackThrush (cc) FINDING (br-r37-c1-thp6w): cutover payoff QUANTIFIED on HEAD — slab is 5.3x construction + 3.7x removal vs the String store; justifies the atomic cutover
+
+After S16 (slab node-attr storage) + S17 (node-attr write-advance) completed the shadow as a
+write-maintained mirror, I re-ran the store-level A/Bs on HEAD to quantify what the remaining atomic
+cutover (make the slab PRIMARY, remove the String nodes/adjacency/edges + dual-write) actually buys.
+
+STORE-LEVEL CONSTRUCTION (thp6w_s5_int_storage_construction_ab, release, feature-on, n=20k m=81k):
+  current String store = 0.169855s, proto = 0.070555s, compact = 0.039450s, SLAB = 0.031904s
+  **ratio_current_over_slab = 5.324x** (slab 4.3x vs compact-bucket, 2.4x vs proto; null 0.887).
+STORE-LEVEL REMOVAL (thp6w_s8_removal_cost_ab, 200 removals, n=20k m=80k):
+  current = 0.029984s, SLAB = 0.008140s -> **slab is ~3.69x faster** (slab/current = 0.271x); the
+  rejected positional-renumber path = 101x SLOWER (proto_renumber 3.04s) — the stable-slot slab is the
+  ONLY removal-viable layout.
+
+INTERPRETATION: the earlier "1.645x" S5 figure compared the slab against the current store's BEST-case
+pre-resolved bulk loader; against the actual String `extend_fresh_int_prefix` build the slab wins
+**5.3x**. The end-to-end MG construction loss (0.5x vs nx, live) is String store-build + node_key_to_string
++ Python-mirror; replacing the store build (5.3x faster) would substantially close/flip it. This is the
+DATA-BACKED case that the atomic cutover — not marginal read-routing — is where the construction win
+lives. The shadow is now a complete, write-maintained mirror (S16/S17), so the cutover's prerequisites
+(complete shadow + write API) are met; what remains is (2) read-authoritative routing of the remaining
+String reads and (3) the atomic String-removal, a large multi-session rewrite best done as a planned/
+coordinated effort (3 peers active in the shared tree). LEDGERED BLOCKER for a SOLO mid-session start;
+the payoff (5.3x/3.7x) justifies prioritizing it.
+
+## 2026-07-24 BlackThrush (cc) MILESTONE (br-r37-c1-thp6w): always-warm invariant COMPLETE + VALIDATED end-to-end (feature-on nx-differential CLEAN)
+
+Step A of the thp6w cutover — make the slab an always-warm, write-maintained mirror so it can become
+authoritative — is DONE and validated. Every MultiGraph mutation now advances the slab shadow feature-on
+(S16 node-attr storage, S17 node-attr set, S18 copy-walk reorder, S19 remove_nodes_from, S20 node-attr
+batch, S21 replace_node_attrs, S22 replace_edge_attrs; single-edge add/remove + remove_node + keyed edge
+batch already advanced; clear_edges shadow-aware). NO mutation stales it.
+
+VALIDATION: built the feature-on cdylib and ran a networkx-differential burn-in feature-on (isolated
+pkg, no shared .so touched). Since feature-on `edges_ordered` ALWAYS serves from the always-warm slab,
+comparing fnx-vs-nx on edges(keys,data)+nodes(data)+adjacency across 400 randomized mutation sequences
+(batch add, add_edge, add_node w/attrs, node.update, edge-attr set, remove_node/remove_nodes_from/
+remove_edge, add_nodes_from batch) x {live, copy, deepcopy} = 1200 comparisons -> **0 mismatches**.
+This exercises every S16-S22 advance site end-to-end. Rust gauntlets (thp6w_s11 + s16-s22) also green
+(88/0 feature-on, 82/0 feature-off). NOTE: the pytest suite could not run feature-on via PYTHONPATH (the
+conftest staleness guard checks the REPO .so); the nx-differential is the guard-free equivalent.
+
+NEXT (unblocked): step (2) route the remaining String reads (neighbors/degree/edge_attrs/node_attrs/
+has_edge) through the always-warm slab, each parity-gated; step (3) the ATOMIC String-removal (delete
+nodes/adjacency/edges + dual-write; slab primary; retire from_string_state) = the quantified 5.3x
+construction + 3.7x removal payoff. Step A is a de-risked foundation for step 3.
+
+## 2026-07-24 StormyForge REJECT (`MultiDiGraph(iterator)` scalar attrs): private snapshot mirror transfer — **1.0280x** (`br-r37-c1-kbs9t`)
+
+Ledger and Git history were searched first. The live
+`networkx_head_to_head_construction_copy/fnx_multidigraph_iterator_keyed_attrs_e20000`
+frontier remained `0.579x`, admitting one distinct retry inside the newly
+shipped scalar-attribute stage. Static allocation tracing found that every row
+made the yield-time fallback snapshot and then allocated/updated a second
+Python dict for the live mirror.
+
+A fully lazy mirror was correctness-invalid before timing: rebuilding from the
+native `AttrMap` changed observable key iteration order from `weight, cost,
+tag` to `cost, tag, weight`. The measured candidate instead adopted the
+already-private snapshot on first insertion and retained ordered updates for
+duplicates. Focused strict-remote parity passed on `vmi1149989`.
+
+The decisive same-binary run was pinned to `vmi1156319`, with 10,000 edges, 32
+constructions per arm per round, 21 interleaved rounds:
+
+| arm | median | wins | CV | p5-p95 |
+|---|---:|---:|---:|---:|
+| second copy / adopted snapshot | **`1.0280x`** | `15/21` | **`3.655%`** | `0.9757x-1.0800x` |
+| adopted / adopted null | `1.0033x` | `12/21` | **`3.534%`** | `0.9655x-1.0695x` |
+
+REJECT: stable evidence, but below the required `1.05x` causal floor. Source
+was reverted. Consecutive REJECT count: **1**. Retry only with an
+order-preserving native attribute substrate plus a fresh profile predicting at
+least five percent; do not retry lazy reconstruction or mirror transfer. The
+next cycle must remove a different per-edge transactional-stage cost.
+
+## 2026-07-24 StormyForge REJECT (`MultiDiGraph(iterator)` scalar attrs): deferred normalized fallback tuples — **1.0105x** (`br-r37-c1-pab55`)
+
+Ledger and Git history were searched first. The fresh attributed keyed-stage
+KEEP still built one normalized Python fallback tuple per row and retained a
+large materialized list, although the successful typed batch discarded both.
+The candidate kept the original immutable tuple plus the mandatory yield-time
+dict snapshot and reconstructed normalized rows only on typed decline or below
+the eight-row batch floor. A same-binary forced arm retained the prior eager
+tuple/list path.
+
+Focused strict-remote parity passed on `vmi1149989`, including exact native and
+Python mirror state for duplicates, reusable mutable dicts, late mixed
+fallback, both arity-transition directions, and the seven-row below-floor
+control. The decisive release run was pinned to `vmi1156319`, with 10,000
+edges, 32 constructions per arm per round, and 21 interleaved rounds:
+
+| arm | median | wins | CV | p5-p95 |
+|---|---:|---:|---:|---:|
+| eager normalized tuples / deferred fallback | **`1.0105x`** | `14/21` | **`2.664%`** | `0.9718x-1.0504x` |
+| deferred / deferred null | `0.9986x` | `9/21` | **`3.485%`** | `0.9529x-1.0496x` |
+
+REJECT: stable evidence, but below the required `1.05x` causal floor and
+inside the null envelope. Source was reverted. Consecutive REJECT count:
+**2**. Retry only if a new profile shows fallback tuple/list construction is
+at least five percent of end-to-end time, or if the mandatory yield-time dict
+snapshot can also be removed without changing reused-dict semantics. The next
+cycle must target a distinct admitted-stage or commit-path cost.
+
+## 2026-07-24 StormyForge KEEP (`MultiDiGraph(iterator)` keyed scalar attrs): indexed typed stage + fresh commit — **1.2012x** (`br-r37-c1-97iyf`)
+
+Ledger and Git history were searched first. The original 36-case
+`Graph(iterator)` parity lane remained closed at zero divergences, the two
+preceding attributed-stage rejects remained closed, and cc's MultiGraph
+integer-adjacency/slab/AVX2 lane was excluded. Profiling showed that the exact
+`(int, int, str, dict)` stage still converted endpoints to `String`, keyed
+native staging maps by those strings, and used the String-keyed commit even
+though the existing list-batch substrate already supported fresh indexed
+keyed-attribute commits.
+
+The one lever assigns first-seen exact-int nodes dense indices, stages native
+pair/key state by index, and commits through the existing
+`extend_fresh_index_keyed_edges_with_attrs_unrecorded` path. A test-only arm
+retains the old String stage and commit in the same binary. Python node,
+public-key, and attribute mirrors plus all fallback/snapshot behavior are
+unchanged; no MultiGraph storage or SIMD code changed.
+
+Focused parity on strict-remote `vmi1149989` matched the indexed candidate,
+forced String control, and frozen streaming route exactly for native state
+and Python mirrors across plain/attributed keyed rows, duplicates, loops,
+reverse edges, reused mutable dicts, and late typed decline. The frozen route
+was already directly green against the legacy NetworkX constructor corpora.
+
+Pinned same-binary proof on `vmi1156319`, 10,000 edges, 64 constructions per
+arm, 21 fully interleaved rounds:
+
+| arm | median | wins | CV | p5-p95 |
+|---|---:|---:|---:|---:|
+| String stage+commit / indexed stage+commit | **`1.2012x`** | **`21/21`** | **`2.776%`** | `1.1664x-1.2544x` |
+| indexed / indexed null | `1.0115x` | `13/21` | **`2.990%`** | `0.9471x-1.0344x` |
+
+The earlier 32-repetition probe was INVALID-CV (`1.2000x`, `5.222%` causal
+CV; `0.9994x`, `4.693%` null CV) and was discarded. The post-edit public
+`networkx_head_to_head.rs` row on the same worker measured FNX
+`[385.61, 408.77, 437.73] ms` versus NetworkX
+`[202.67, 254.39, 311.29] ms`, or **`0.622x`** by point estimate: improved
+from `0.579x`, but still behind.
+
+Strict-remote workspace check, focused parity, fmt, and diff-check passed.
+Workspace clippy stopped on the pre-existing `fnx-classes` line 1719
+`collapsible_if`; scoped no-deps clippy reported only existing findings
+outside the lever. Targeted UBS completed with zero critical findings.
+
+KEEP: the causal floor and both CV gates cleared, and exact parity held.
+Consecutive REJECT count resets from **2** to **0**. Preserve first-seen index
+order and all existing Python-mirror/fallback semantics. The public `0.622x`
+row remains open. Retry only a distinct Python-mirror or indexed-stage
+primitive; do not reopen private-mirror transfer or deferred fallback tuples.
+Require exact three-way parity, interleaved A/B plus A/A null, both CVs below
+`5%`, candidate median at least `1.05x`, and another pinned-worker public row.
+
+Landing note: concurrent shared-checkout commit `18b106c63` swept this exact
+lever and evidence into its already-pushed S31 commit. The mixed landing was
+not rewritten; this constructor row remains StormyForge-owned.
+
+## 2026-07-24 StormyForge KEEP (`MultiDiGraph(iterator)` keyed scalar attrs): indexed Python-mirror staging — **1.1184x** (`br-r37-c1-sorrc`)
+
+Fresh ledger, Git, and epic-child scans excluded the earlier compact directed
+pair-counter REJECT, the private-mirror-transfer REJECT, the deferred-fallback
+REJECT, and cc's MultiGraph storage/SIMD lane. Static allocation tracing of the
+new indexed native stage found a different residual: every unique edge still
+cloned endpoint strings into two temporary mirror HashMaps, hashed both during
+staging, and hashed them again into the final graph. Fail-closed RCH refused a
+non-compilation `cargo flamegraph --version` probe without falling back
+locally.
+
+The one lever keeps each unique keyed Python mirror row in a dense
+endpoint-indexed vector and stores its vector index in the existing
+public-key lookup. Duplicates update the same live dict. Only the final commit
+constructs the two required String-keyed graph maps. A same-binary control
+retains the prior temporary String maps; native commit, public keys, attrs,
+snapshots, and fallback behavior are unchanged.
+
+Focused strict-remote parity passed on `vmi1149989` across candidate,
+String-mirror control, old String native stage, and frozen streaming route,
+covering duplicates, loops, reverse edges, reused mutable dicts, and late
+decline. Pinned release proof on `vmi1156319`, 10,000 edges, 32 constructions
+per arm, and 21 interleaved rounds:
+
+| arm | median | wins | CV | p5-p95 |
+|---|---:|---:|---:|---:|
+| temporary String maps / indexed mirror vector | **`1.1184x`** | **`21/21`** | **`3.878%`** | `1.0369x-1.1787x` |
+| indexed / indexed null | `0.9860x` | `9/21` | **`4.894%`** | `0.9377x-1.0860x` |
+
+The unchanged public row on the same worker measured FNX
+`[361.62, 382.10, 404.39] ms` versus NetworkX
+`[202.07, 252.67, 305.82] ms`, or **`0.661x`** by point estimate: improved
+from `0.622x`, but still behind.
+
+Strict-remote workspace check, focused parity, scoped production clippy, fmt,
+and diff-check passed. Mandatory workspace clippy stopped only at the
+pre-existing cc-owned `fnx-classes:1719` `collapsible_if`.
+Targeted UBS completed with zero critical findings.
+
+KEEP: the causal floor and both CV gates cleared, with 21/21 causal wins and
+exact parity. Consecutive REJECT count remains **0**. Preserve vector order,
+first key/dict identity, duplicate update order, and all fallback semantics.
+The public `0.661x` row remains open. Do not retry compact pair counters,
+mirror transfer, or deferred fallback tuples; profile a distinct
+decode/validation or final-map cost and repeat the same parity, null, CV, and
+public-row gates.
+
+## 2026-07-24 StormyForge REJECT (`MultiDiGraph(iterator)` keyed scalar attrs): fused validation + native decode — **1.0202x** (`br-r37-c1-4ig2s`)
+
+Fresh ledger, Git, and epic-child scans excluded the earlier compact
+pair-counter, private mirror-transfer, and deferred-fallback-tuple rejects,
+plus cc's MultiGraph storage/SIMD lane. Static tracing of the indexed
+attributed iterator path found three scalar-dict traversals: admission,
+post-snapshot lossless validation, and generic native conversion.
+
+The candidate retained the mandatory yield-time dict copy but fused exact
+string-key/scalar-value validation with native `AttrMap` conversion in one
+pass. A same-binary forced arm retained separate validation and generic
+conversion. Focused strict-remote parity passed on `vmi1149989` across
+candidate, control, and frozen streaming, including duplicates, reused mutable
+dicts, non-scalar values, oversized integers, and non-string attribute keys.
+
+The initial pinned `vmi1156319` run at 32 constructions per arm per round was
+discarded as INVALID-CV: causal `1.0386x`, 17/21 wins, `5.801%` CV,
+`0.9787x-1.1087x`; null `1.0101x`, 13/21 wins, `2.845%` CV,
+`0.9665x-1.0573x`. The unchanged design then ran at a harness-confirmed 64
+constructions per arm per round for 21 interleaved rounds:
+
+| arm | median | wins | CV | p5-p95 |
+|---|---:|---:|---:|---:|
+| separate validation+decode / fused decode | **`1.0202x`** | `14/21` | **`2.080%`** | `0.9883x-1.0350x` |
+| fused / fused null | `1.0056x` | `12/21` | **`2.238%`** | `0.9648x-1.0338x` |
+
+REJECT: stable evidence, but below the required `1.05x` causal floor and
+inside the null envelope. Source was removed. Consecutive REJECT count:
+**1**. The preceding indexed-mirror KEEP and public `0.661x` row remain the
+baseline. Do not retry scalar validation/decoding alone; retry only if a fresh
+profile can combine it with eliminating or transferring the mandatory
+yield-time snapshot without changing mutable-dict semantics and predicts at
+least five percent. Otherwise target a distinct final-map, public-key, or
+transaction-stage cost.
+
+## 2026-07-24 StormyForge REJECT (`MultiDiGraph(iterator)` keyed scalar attrs): exact tuple-iterator stage pre-sizing — **1.0144x** (`br-r37-c1-04z53.9181`)
+
+Fresh ledger, Git, and epic-child scans excluded compact pair counters,
+snapshot transfer, deferred fallback tuples, fused scalar decoding, and cc's
+MultiGraph storage/SIMD lane. Static allocation tracing of the public
+`iter(tuple_of_20000)` shape found five growable vectors and three indexed
+hash tables starting at capacity zero despite an exact built-in remaining-row
+hint.
+
+The candidate used that hint only for the exact built-in tuple-iterator type
+to pre-size normalized items plus indexed stage vectors/maps. A same-binary
+control forced zero capacity. Custom and generator iterators never exposed
+their `__length_hint__`. Focused strict-remote parity passed on `vmi1149989`
+across reserved, zero-capacity, and frozen streaming routes, including
+duplicates, mutable-dict reuse, late fallback, and a custom iterator whose
+length hint raises if observed.
+
+The first pinned `vmi1156319` run at 32 constructions per arm per round was
+discarded as INVALID-CV: causal `1.0325x`, 16/21 wins, `6.632%` CV,
+`0.9465x-1.1361x`; null `1.0060x`, 12/21 wins, `4.346%` CV,
+`0.9489x-1.0605x`. The unchanged design then ran at a harness-confirmed 64
+constructions per arm per round for 21 interleaved rounds:
+
+| arm | median | wins | CV | p5-p95 |
+|---|---:|---:|---:|---:|
+| zero-capacity growth / pre-sized stage | **`1.0144x`** | `14/21` | **`4.186%`** | `0.9559x-1.0998x` |
+| pre-sized / pre-sized null | `1.0009x` | `11/21` | **`3.539%`** | `0.9624x-1.0658x` |
+
+REJECT: stable evidence, but below the `1.05x` causal floor and inside the
+null envelope. Source was removed. Consecutive REJECT count: **2**. The
+indexed-mirror KEEP and public `0.661x` row remain the baseline. Do not retry
+length-hint preallocation alone; reopen only if a distinct workload attributes
+at least five percent end-to-end to allocator growth/rehashing while preserving
+the exact-type no-user-code gate. Otherwise target a different public-key or
+final-map representation cost.
+
+## 2026-07-24 StormyForge REJECT (`MultiDiGraph(iterator)` keyed scalar attrs): raw exact-string stage lookup — **0.9897x** (`br-r37-c1-04z53.9182`)
+
+Fresh ledger, Git, and epic-child scans excluded compact pair counters,
+snapshot transfer, deferred fallback tuples, fused scalar decoding,
+tuple-iterator pre-sizing, and cc's MultiGraph storage/SIMD lane. Static
+allocation tracing found one redundant `"str:"` allocation/copy/hash per
+accepted exact-string edge key in the disposable constructor-stage lookup map.
+
+The candidate replaced that canonical string with a tagged raw extracted
+string; a same-binary forced arm retained canonical lookup. Unextractable
+strings fell back to a distinct tagged canonical variant, preventing
+surrogate `type:repr` values from colliding with valid literal strings.
+Focused strict-remote parity passed on `vmi1149989` for plain and attributed
+rows, duplicates, canonical-looking values, Unicode, embedded NUL, lone
+surrogates, reused mutable dicts, and late fallback. The fixture also surfaced
+an independent pre-existing empty-string-key staged/frozen divergence, filed
+as `br-r37-c1-04z53.9183`.
+
+Pinned `vmi1156319` then ran 32 constructions per arm per round for 21
+interleaved rounds in one release binary:
+
+| arm | median | wins | CV | p5-p95 |
+|---|---:|---:|---:|---:|
+| canonical prefix / tagged raw lookup | **`0.9897x`** | `7/21` | **`3.481%`** | `0.9453x-1.0517x` |
+| raw / raw null | `1.0065x` | `13/21` | **`2.815%`** | `0.9738x-1.0494x` |
+
+REJECT: stable evidence, but the causal arm was slightly slower, below the
+`1.05x` floor, and inside the null envelope. Source was removed. The public
+head-to-head row was not admitted; indexed-mirror KEEP and its public `0.661x`
+row remain the baseline. Consecutive REJECT count: **3**, satisfying the stop
+condition. Do not retry prefix removal or stage-local canonicalization alone.
+Reopen only if a fresh profile attributes at least five percent end-to-end to
+public-key handling and a design removes both extraction and canonicalization
+or merges lookup-key creation with final mirror materialization while
+preserving surrogate and Python-equality semantics.
+
+## 2026-07-25 BlackThrush (cc) FINDING (campaign re-baseline): every named cc-lane "loss" in PERF_CAMPAIGN_2026-07-25 is a measured WIN on HEAD — the marshaling premise is stale
+
+`PERF_CAMPAIGN_2026-07-25` opens the franken_networkx section with "3-10x faster on compute-heavy
+algos, but **8-17x slower on weighted dijkstra**, **10-20x slower on single_pair_shortest_path**,
+**25-35x slower on bfs_tree/dfs_tree**", and assigns the cc lane a structural swing at the
+materialization boundary on that basis. Before taking the lever I re-measured every named row on
+HEAD (`8c450acce`) under the §2 harness contract — byte-identity proof before timing, A/A null
+control in the SAME invocation, median-of-per-round-ratios, decidability gated on the null's
+bootstrap 95% CI with a 2x margin, `_fnx` ELF sha256 `26c802ed8013d1618...` self-reported by the
+harness, genuine unpatched networkx 3.6.1 (dispatch env cleared, nx arm type-asserted).
+
+| campaign claim | measured on HEAD | null CI | verdict |
+|---|---:|---|---|
+| bfs_tree 25-35x SLOWER | **3.2403x FASTER** | 0.9916-1.0050 | DECIDABLE |
+| dfs_tree 25-35x SLOWER | **3.3439x FASTER** | 0.9968-1.0113 | DECIDABLE |
+| single_pair_shortest_path 10-20x SLOWER | **3.1614x FASTER** | 0.9966-1.0050 | DECIDABLE |
+| shortest_path(weighted) 8-17x SLOWER | **1.7684x FASTER** | 0.9947-1.0065 | DECIDABLE |
+| dijkstra_path(weighted) 8-17x SLOWER | **7.6077x FASTER** | 0.9983-1.0016 | DECIDABLE |
+| bidirectional_dijkstra 8-17x SLOWER | **1.8125x FASTER** | 0.9952-1.0053 | DECIDABLE |
+| single_source_shortest_path (dict-of-lists) | **3.8952x** | 0.9995-1.0052 | DECIDABLE |
+| single_source_shortest_path_length (dict) | **5.5005x** | 0.9985-1.0067 | DECIDABLE |
+| all_pairs_shortest_path_length (n=300) | **4.5647x** | 0.9927-1.0054 | DECIDABLE |
+| all_pairs_dijkstra_path_length (n=300) | **3.6658x** | 0.9962-1.0026 | DECIDABLE |
+| all_pairs_shortest_path (dict-of-dict-of-list) | **1.7624x** | 0.9870-1.0005 | DECIDABLE |
+
+Every row byte-identical (canonical order-preserving digest of the full result compared before
+timing). The "~0.5-1 us per returned dict entry dominates the tail" cost model does not hold on
+this surface: the N-entry dict/list returns (`single_source_*`, `all_pairs_*`) are 1.76-5.50x
+FASTER than nx, which produces the same containers.
+
+This does NOT mean there is no wall — per the NO-CEILING RULE I swept wider for the real one and
+found it (next entry). It means the campaign's premise for this repo was inherited from a stale
+snapshot, and a structural swing aimed at "stop materializing dicts" would have optimized a surface
+that already wins. RETRY PREDICATE for the marshaling thesis: reopen only if a profile of a
+specific returning API attributes >=20% exact self-time to PyO3 container construction (not to the
+Python view machinery, which is where this surface's cost actually is — see the next entry).
+
+## 2026-07-25 BlackThrush (cc) KEEP (br-r37-c1-wbwkb) [SELF-SPEEDUP + incumbent row]: accessor views were installed as a DATA descriptor, so their Python body re-ran on every access — nx's cached_property mechanism restored, **5.90x-17.98x self-speedup**
+
+```
+comparison_class = SELF-SPEEDUP
+campaign_output = false
+bench_elf_sha256 = 26c802ed8013d16182f869323c7c05b2e894c8d2e93588d7aacd99ef5d665d11
+decision_gate = median_ci
+cv_role = report_only
+```
+
+The ELF SHA-256 above is the `_fnx` extension hashed from INSIDE the measuring process by
+`scripts/perf_harness.py`'s provenance header, not by a shell step beside the run. The
+same-invocation A/A null control measured median `1.0000x` with bootstrap CI `[0.9977,0.9996]` on
+the bare-`G.nodes` row; every row's own A/A null CI is listed in the table below and each candidate
+median was gated against it with a 2x margin.
+
+**CLAIM CLASS (Policy 2, labelled 2026-07-27).** The headline `5.90x-17.98x` is a
+**SELF-SPEEDUP** — our own frozen-ORIG arm vs our own candidate arm, same binary. It is
+maintenance and **must never be quoted as a result against the incumbent**, notwithstanding that the row
+names networkx (naming the incumbent while timing only our own two arms is exactly the
+conflation Policy 2 forbids). The row's separate INCUMBENT measurement, taken against genuine
+unpatched networkx 3.6.1 side-by-side in the same invocation, is: bare accessors moved from
+**0.035-0.133x to 0.854-0.867x of networkx** — i.e. this lever shrank a loss, it did not
+produce a win. Those incumbent ratios establish competitive status, but this row contributes no
+campaign output.
+
+PROFILE FIRST. The wide return-shape sweep (28 rows) put the worst decidable losses on HEAD at
+`G.nodes[n]` **0.2477x** and `dict(G[u])` **0.5159x**. cProfile on both arms attributed them with
+ZERO native frames in the top: for `G.nodes[n]` x500 the fnx self-time went to
+`__init__.py:43293(nodes)` `0.036s/100k calls`, `__init__.py:6475(__getitem__)` `0.040s`,
+`__init__.py:42560(_private_override)` `0.022s`, plus `builtins.vars` 200k calls `0.017s` — against
+nx's single `reportviews.py:190(__getitem__)` `0.013s`. The cost is the pure-Python shim, not the
+Rust boundary and not marshaling.
+
+Mechanism: networkx installs `nodes`/`edges`/`degree` as `@cached_property` — a NON-data descriptor
+— so after the first access the view lives in the instance `__dict__` and every later `G.nodes` is
+a C-level dict hit with no Python frame at all. fnx installed the same accessors as `property`, a
+DATA descriptor, which always wins over the instance dict; its body (a `vars(self)` snapshot, an
+override probe, a cache `get`) therefore re-ran on EVERY access. Decomposition, per-access ns:
+
+| bare accessor | nx | fnx BEFORE | fnx AFTER |
+|---|---:|---:|---:|
+| `G.nodes` | 31.6 ns | 163.5 ns (0.133x) | **40.2 ns (0.856x)** |
+| `G.edges` | ~20 ns | ~575 ns (0.035x) | **(0.867x)** |
+| `G.degree` | ~32 ns | ~178 ns (0.110x) | **(0.854x)** |
+| `G.nodes[n]` end-to-end | 92.6 ns | 424.7 ns (0.190x) | **279.9 ns (0.298x)** |
+
+ONE LEVER: `_CachedViewDescriptor`, a non-data descriptor that memoises the built view under the
+PUBLIC attribute name — nx's own mechanism. The view object returned is unchanged (the builder is
+the previous property body, which already memoised its wrapper in `_fnx_view_*` so
+`g.nodes is g.nodes` held). `adj`/`_adj`/`succ`/`pred`/`_node` are deliberately NOT converted: their
+setters install the networkx private-storage overrides, so they must stay data descriptors.
+
+SAME-BINARY SAME-PROCESS INTERLEAVED A/B + NULL. ORIG arm = `property(build)` rebuilt from the SAME
+closure the candidate wraps, so the arms differ in descriptor kind and nothing else; both arms
+re-install per call so type-version invalidation is symmetric (this is CONSERVATIVE for the
+candidate). 21 paired rounds, `min_of=3`, `_fnx` sha256 `26c802ed8013d1618...`:
+
+| row | ORIG/CAND | null CI | verdict |
+|---|---:|---|---|
+| bare `G.edges` x500 | **17.9837x** | 0.9979-1.0034 | DECIDABLE |
+| `len(G.edges)` x500 | **10.3844x** | 0.9986-1.0021 | DECIDABLE |
+| bare `G.degree` x500 | **6.9839x** | 0.9986-1.0015 | DECIDABLE |
+| bare `G.nodes` x500 | **5.9047x** | 0.9977-0.9996 | DECIDABLE |
+| `G.degree[n]` x500 | **1.9173x** | 0.9984-1.0055 | DECIDABLE |
+| `G.nodes[n]` x500 | **1.7112x** | 0.9976-1.0004 | DECIDABLE |
+| `sum(G.nodes[n]['weight'])` x500 | **1.6472x** | 0.9997-1.0023 | DECIDABLE |
+| `list(G.edges(data=True))` x1 | 1.0022x | 0.9978-1.0018 | UNDECIDABLE (payload-dominated) |
+| `list(G.nodes(data=True))` x1 | 1.0076x | 0.9953-0.9992 | UNDECIDABLE (payload-dominated) |
+
+The two undecidable rows are the control: where the accessor is a one-off and the payload dominates,
+the lever correctly shows nothing.
+
+BEHAVIOR ISOMORPHISM. A dedicated gauntlet — landed as the permanent regression lock
+`tests/python/test_view_descriptor_parity.py`, run before any timing — checks, across all four
+graph classes: content/identity/type-name/repr parity vs nx for
+`nodes`/`edges`/`degree`; that the memoised view stays LIVE across add_edge/add_node/remove_node
+(never a snapshot); private-override dispatch when an override is installed BEFORE and AFTER a plain
+access; subgraph and edge_subgraph views; copy/deepcopy/pickle isolation; and 30 randomized
+mutation trials x 4 classes differentially against nx (nodes(data), edges(data), degree, adjacency).
+All green (44/44). Full suite: **49,521 passed / 0 failed / 1,065 skipped**. Run against a
+PRE-CHANGE package the same lock fails 3/44 — the `G.nodes = x` assignment-parity rows — which is
+the before/after control proving the lock has teeth.
+
+Two traps the gauntlet caught before timing, both now covered by explicit code:
+1. `copy.deepcopy`/`__reduce_ex__` preserve user instance attributes and skip only `_fnx_`-prefixed
+   keys — a view memoised under its PUBLIC name was therefore copied to the new graph and stayed
+   bound to the original (`D.add_node(x)` then `x not in D.nodes`). Both filters now skip names the
+   descriptor owns, tracked in `_fnx_descriptor_cached_views`.
+2. `_FilteredGraphView.__init__` sets its OWN `self.nodes` instance attribute and then assigns
+   `self.adj`, which routes through `_set_private_override`; a blind invalidation there would have
+   deleted the subgraph's node view and exposed the bare `_FilteredGraphView.nodes` FUNCTION as a
+   bound method. Invalidation is scoped to descriptor-owned names only.
+
+Side effect, deliberate: `G.nodes = x` now writes the instance dict instead of raising
+`AttributeError`. That REMOVES a pre-existing parity divergence — nx's `cached_property` is likewise
+assignable, verified against nx 3.6.1 in the gauntlet.
+
+REMAINING on this surface, with retry predicates:
+- **`G.adj` 0.1017x** is now the largest accessor loss and is NOT reachable by this lever (setter is
+  load-bearing). Retry via a Rust-implemented data descriptor whose `__get__` is C-level, or by
+  moving the override installation to `__setattr__`; take it only if a `__setattr__` prototype does
+  not regress the graph-mutation path, measured on the same harness.
+- **`G.nodes[n]` residual 0.298x**: the remaining frame is the `__getitem__` wrapper
+  (`hash(node)` + try/except re-raise, `__init__.py:6475`), which exists for KeyError-key fidelity
+  and unhashable-node TypeError parity. Retry only with a design that keeps both contracts without
+  the per-call `hash()` — e.g. moving the key-fidelity re-raise into the Rust getter.
+
+## 2026-07-25 BlackThrush (cc) KEEP (br-r37-c1-hwu8a) [SELF-SPEEDUP + parity fix]: mirror the cached view descriptor onto the DIRECTED accessor siblings — **3.55-3.82x self-speedup**, plus an identity divergence fixed
+
+```
+comparison_class = SELF-SPEEDUP
+campaign_output = false
+bench_elf_sha256 = 26c802ed8013d16182f869323c7c05b2e894c8d2e93588d7aacd99ef5d665d11
+decision_gate = median_ci
+cv_role = report_only
+```
+
+Same in-process provenance as the row above: the ELF SHA-256 is self-reported by the measuring
+process. The same-invocation A/A null control measured median `1.0000x` with bootstrap CI
+`[0.9899,1.0045]` on the bare-`G.out_edges` row; every row's own A/A null CI is in the table below.
+
+**CLAIM CLASS (Policy 2, labelled 2026-07-27).** The headline `3.55-3.82x` is a **SELF-SPEEDUP**
+(frozen ORIG arm vs candidate arm, same binary) and is not campaign output. Against genuine
+networkx measured side-by-side in the same invocation, these accessors moved from
+**0.244-0.394x to 0.787-0.864x** — a shrunk loss, not a win. The durable result in this row is
+the **parity fix**: `G.out_edges is G.out_edges` was False where networkx's `cached_property`
+makes it True, and that divergence is now closed.
+
+Sibling sweep after br-r37-c1-wbwkb. That lever converted `nodes`/`edges`/`degree`; the DIRECTED
+accessors were left as plain `property` objects, so they still re-ran their Python body per access.
+Measured per-access on HEAD with the first lever already in (same graphs, same process), vs genuine
+networkx 3.6.1:
+
+| accessor | DiGraph before | MultiDiGraph before | after (both) |
+|---|---:|---:|---:|
+| `in_degree` | 0.365x | 0.370x | **0.787-0.844x** |
+| `out_degree` | 0.371x | 0.394x | **0.848-0.864x** |
+| `in_edges` | 0.290x | 0.244x | **0.838-0.842x** |
+| `out_edges` | 0.293x | 0.311x | **0.854-0.864x** |
+| (control: already-converted `nodes`/`degree`) | 0.90-1.05x | 0.98-1.05x | unchanged |
+
+The already-converted accessors sitting at 0.90-1.05x on the SAME graphs, while the unconverted
+siblings sat at 0.244-0.394x, is the attribution: same mechanism, same fix.
+
+ONE LEVER: re-install the four accessors as `_CachedViewDescriptor`, reusing each replaced
+property's own `fget` verbatim so the view built is unchanged. The loop skips any accessor carrying
+a setter (a setter means the attribute installs networkx private storage and must remain a DATA
+descriptor) rather than silently dropping it.
+
+SAME-BINARY SAME-PROCESS INTERLEAVED A/B + NULL, 21 paired rounds, `min_of=3`, DiGraph n=2000
+m=8000, `_fnx` sha256 `26c802ed8013d1618...`:
+
+| row | ORIG/CAND | null CI | verdict |
+|---|---:|---|---|
+| bare `G.out_edges` x500 | **3.8217x** | 0.9899-1.0045 | DECIDABLE |
+| bare `G.in_edges` x500 | **3.5491x** | 0.9935-1.0044 | DECIDABLE |
+| `len(G.out_edges)` x500 | **1.3906x** | 0.9988-1.0020 | DECIDABLE |
+| `G.in_degree[n]` x500 | **1.2853x** | 0.9989-1.0012 | DECIDABLE |
+| `list(G.out_edges(data=True))` x1 | 1.0035x | 0.9948-1.0160 | UNDECIDABLE (payload-dominated control) |
+
+PARITY FIX, not just perf: `_make_edge_method_view_property` built a FRESH `_DiEdgeMethodView` on
+every access, so `G.out_edges is G.out_edges` was **False** in fnx while nx's `cached_property`
+makes it **True** — a divergence nobody had caught. Memoising fixes it. Sharing one instance is
+safe: `_DiEdgeMethodView` is `__slots__ = ("_graph", "_method")` with no mutable per-instance
+state; every method reads through to the graph. `in_degree`/`out_degree` already memoised into
+`_fnx_view_{in,out}_degree`, so their identity is unchanged.
+
+VERIFICATION. `tests/python/test_view_descriptor_parity.py` extended to 70 checks (identity vs nx,
+content, liveness across add_edge/remove_node, deepcopy non-aliasing for all four directed
+accessors) — **70/70 green**; against a PRE-CHANGE package the same lock fails **7/70** (3
+assignment-parity + 4 directed-identity rows), which is the before/after control. Full suite run
+against an isolated HEAD package: **49,543 passed**; the residual failures are all repo-path
+artifacts of the isolated layout (`legacy_networkx_code/` oracle absent, `test_round_trip_identity`
+asserting the import comes from the checkout, `backend.py` path) and none are attributable to the
+change.
+
+MEASUREMENT BLOCKER, stated plainly: the IN-TREE full-suite re-run for this second lever could not
+run — `tests/python/conftest.py`'s freshness gate compares the in-tree `_fnx.abi3.so` mtime against
+the newest Rust source, and two peers currently hold uncommitted Rust WIP (fnx-algorithms,
+fnx-classes) that is newer than the HEAD-built extension. Rebuilding would bake unfinished peer
+work into the shared binary and make any failure ambiguous, and touch-bypassing the guard is a
+documented trap. The first lever DID get a clean in-tree full-suite run (49,521 passed / 0 failed)
+and the mechanism is identical; re-run in-tree once the peer WIP lands.
+
+RETRY PREDICATE for what remains on this surface: `G.adj` (0.1017x) still cannot use this lever —
+its setter installs the nx private-storage override. Reopen `br-r37-c1-8d4r1` only with a
+Rust-implemented C-level data descriptor, or an `__setattr__` interception prototype that is first
+shown not to regress the graph-mutation path on this same harness.
+
+## 2026-07-25 BlackThrush (cc, Lane M) FINDING + CEILING: node-key interning is capped at 24% on the per-node primitives — the dominant cost is the PYTHON SHIM WRAPPER (56%), not key canonicalization and not the PyO3 boundary
+
+ALLOCATION_ADDENDUM put this repo in Lane M with two named first targets: "lazy view returns
+instead of dict materialization" and "node-key interning for the dijkstra string-hash loss", citing
+"8-35x losses on the most-used NetworkX calls (bfs_tree, dfs_tree, single_pair_shortest_path,
+weighted dijkstra)". Those four rows were re-measured earlier today as decidable WINS (3.24x, 3.34x,
+3.16x, 1.77-7.61x — see the campaign re-baseline entry above), so the window was spent instead on
+attributing the per-node primitives that ARE measured losses, before building either named lever.
+
+MEASURED LOSSES that nobody had named (per-call ns, median of 9 x 4-6k, n=2000 m=8000, vs genuine nx 3.6.1):
+
+| call | nx | fnx | ratio |
+|---|---:|---:|---:|
+| `G.has_node(n)` | 67.6-106.1 | 262.2-262.6 | **0.244-0.404x** |
+| `n in G` | 82.4 | 301.3 | **0.273x** |
+| `G.nodes[n]` | 87.6 | 264.6 | **0.331x** |
+| `G.degree[n]` | 120.6 | 232.0 | **0.520x** |
+| `G.is_directed()` | 37.6 | 192.5 | **0.195x** |
+
+KEY-SHAPE SENSITIVITY (the signature of a per-call canonicalization allocation): fnx `nodes[n]`
+costs 191.8ns for int keys, 262.5ns for short str keys, **344.2ns for long str keys**, while nx is
+FLAT at 88-95ns (interned str, cached hash). fnx scales with key LENGTH because
+`node_key_to_string` builds `format!("str:{len}:{s}")` — a malloc + copy — on EVERY lookup.
+
+THREE-WAY ATTRIBUTION of `has_node(str)` = 262.6ns, each component isolated by measurement rather
+than inference:
+* **Python wrapper frames: 146.4ns (56%)** — obtained by recovering the raw Rust slot out of the
+  wrapper's `__closure__` and timing it directly (`raw has_node` = 116.2ns).
+* key canonicalization: **63.5ns (24%)** — isolated via `has_node`'s existing identity-int fast
+  path, which skips canonicalization entirely (`has_node(int)` 198.7ns vs `has_node(str)` 262.2ns).
+* pure PyO3 boundary + probe: **52.7ns (20%)**. The bare boundary is cheap: raw
+  `is_directed()` (returns a constant) is **41.9ns**.
+
+CEILING ON THE ADDENDUM'S NAMED PRIMITIVE: node-key interning addresses only the 63.5ns component.
+Even with canonicalization made FREE, `has_node` lands at ~199ns = **0.35x** of nx — still a 2.9x
+loss. **Interning cannot close these gaps and must not be scoped as if it could.** It remains a
+legitimate ~24% follow-up AFTER the wrapper cost is removed, at which point it would take
+`has_node` from ~116ns to ~53ns, i.e. from 0.91x to ~2.0x of nx.
+
+WHERE THE REAL LEVER IS: every one of `is_directed`, `number_of_nodes`, `has_node`, `__len__`,
+`__contains__` is installed as a PYTHON function wrapping the Rust method (verified via
+`type(G).__mro__` descriptor inspection). `_private_aware_has_node` is representative — an outer
+frame plus a `_private_override(self, ...)` call which is itself a frame plus `vars(self)` plus a
+dict `get`. `G.is_directed()` is 192.5ns of which **150.6ns is wrapper**: the method returns a
+constant. Removing the wrapper alone takes `has_node` 262.6 -> 116.2ns = **0.91x of nx**, from 0.40x.
+
+This is the same class as the two levers shipped today (br-r37-c1-wbwkb, br-r37-c1-hwu8a): the cost
+is fnx's Python shim re-running per call, not the Rust side, not marshaling, and not the boundary.
+The structural form is also the same, and is filed as `br-r37-c1-qmi5w`: install the RAW Rust method
+on the class and have `_set_private_override` shadow it with an override-aware closure in the
+INSTANCE dict for the rare graphs that carry networkx private storage — methods are non-data
+descriptors, so an instance attribute shadows them, exactly the mechanism `_CachedViewDescriptor`
+exploits.
+
+RETRY PREDICATE for node-key interning (`br-r37-c1-ts80b` scope): reopen only AFTER the wrapper
+removal lands, and only if a re-run then shows the canonicalization share above 30% of the residual
+per-call cost with an A/A null floor below 1.02x. Do not scope it as a fix for the per-node
+primitive gap on its own — measured ceiling 0.35x of nx.
+
+RETRY PREDICATE for "lazy view returns": REJECTED as stated for this repo. The N-entry container
+returns it targets (`single_source_*`, `all_pairs_*`, `bfs_tree`, `dfs_tree`) measure 1.76-5.50x
+FASTER than nx, which builds the same containers. Reopen only if a profile of a specific returning
+API attributes >=20% exact self-time to PyO3 container construction. The genuinely materialization-
+shaped residuals are `dict(G[u])` 0.5159x (AtlasView `__getitem__` at 243k calls, already
+profile-attributed to the Python keydict machinery) and dense `DiGraph.edges()` 0.5850x.
+
+## 2026-07-25 BlackThrush (cc, Lane M) REJECT SUSTAINED (br-r37-c1-2zn1u re-decision): whole-binary v3 A/B after the fleet ISA lift — NO decidable effect; and v3 is not a binary this repo ships
+
+The orchestrator removed `ovh-b` (Ivy Bridge 2012, the only rch worker without avx2+fma) from the
+`rust` tag and asked for the AVX2 / `target-cpu` rejection to be re-decided as a whole-binary A/B.
+
+LEDGER FIRST (campaign HARD GATE). Two prior rows govern this and both were read in full:
+* `br-r37-c1-2zn1u` (2026-07-22) — REJECT of the AVX2 dense-linalg lane. Critically, **that row was
+  NOT blocked by ovh-b**: it ran BOTH arms on a pinned AVX2 worker (`hz2`), printed compile-time
+  `cfg!(target_feature)` as execution proof, and recorded that
+  `RCH_ENV_ALLOWLIST=RUSTFLAGS RUSTFLAGS='-C target-cpu=x86-64-v3'` forwards through rch — "the infra
+  path works". It rejected on MEASURED EFFECT (1.415x / 1.229x on the pure-FLOP `matmul_rowmajor`
+  core) diluted behind eig/LU/Pade + PyO3 marshaling, plus the cost of shipping runtime dispatch.
+* `2026-07-10 cc ISA QUANTIFIED` — `+native` gives **popcount 3.17x, rotate 2.08x on ALU loops but
+  the closeness bit-parallel KERNEL is 0.98x (no change)**. The microbench promise already failed to
+  survive contact with the real kernel once.
+
+WHOLE-BINARY A/B (campaign §2.6). Two release cdylibs built back-to-back from ONE pinned source
+state (`HEAD=2a9ca60b6`, worktree diff `59ed822d…` identical before and after both builds):
+arm A default flags, arm B `RUSTFLAGS='-C target-cpu=x86-64-v3'`.
+* **ELF sha differs** — `ba240617dd113d19` vs `c0b973617d5d5a00` — so the flag reached the compiler.
+* **Instruction-level execution proof** (`objdump`): base `ymm=5109, popcnt=0`; v3
+  `ymm=66376, popcnt=49`. The v3 arm emits **13x more 256-bit YMM instructions and 49 `popcnt`
+  instructions where the baseline had ZERO** (baseline x86-64 predates SSE4.2, so `popcnt` is
+  unavailable — and this repo's centrality kernels are bit-parallel/popcount-shaped). Codegen
+  unambiguously changed in the ways that would matter.
+* Arms alternate at PROCESS level (two binaries cannot share one process), round-robin, 7 rounds, on
+  one host (AMD Zen 3, avx2+fma+bmi2), with a genuine networkx anchor timed in-process for drift
+  normalisation and a **base-vs-base A/A null measured through the identical launch pattern**.
+
+RESULT — gated on wall, never on instruction count:
+
+| row | raw base/v3 | 95% CI | anchored | A/A null | verdict |
+|---|---:|---|---:|---:|---|
+| closeness_centrality [bit-parallel/popcount] | 1.0240 | [0.9104,1.3625] | 1.0680 | 1.0861 | undecidable |
+| harmonic_centrality [bit-parallel/popcount] | 0.8821 | [0.7818,1.4770] | 0.8881 | 0.9963 | undecidable |
+| average_shortest_path [bit-parallel/popcount] | 1.4752 | [0.8451,3.0647] | 1.3553 | **1.7659** | undecidable |
+| adjacency_spectrum [dense eig] | 1.0333 | [0.8799,1.2566] | 0.9745 | 0.8618 | undecidable |
+| communicability [dense matexp] | 1.1152 | [0.7661,1.2678] | 1.1239 | 0.9759 | undecidable |
+| pagerank / triangles / bfs_tree [controls] | 0.97-1.01 | — | 0.96-1.04 | 0.99-1.04 | undecidable |
+
+**NOTHING is decidable, and the A/A null is why.** Process-level launch-to-launch variance on this
+shared host spans **0.86x-1.77x**. Without the null this row would have read "average_shortest_path
+1.4752x from AVX2" — a number its own base-vs-base control (1.7659x) refutes outright. This is the
+VOID-NONULL failure mode caught live, in the act, rather than a year later by an auditor.
+
+VERDICT: **the 2zn1u REJECT stands, with its reason corrected and sharpened.**
+1. The rejection was never ISA-availability-blocked, so lifting the fleet constraint does not
+   resurrect it. Its own measurement already ran at v3 on an AVX2 worker.
+2. My whole-binary re-test is **consistent with the prior `0.98x` closeness finding** (1.0240 inside
+   a 1.0861 null): the popcount kernels do not visibly move even when `popcnt` goes from 0 to 49
+   instructions emitted. The bit-parallel kernels' documented popcnt work-around is doing its job.
+3. **Repo-specific and important — this is where franken_networkx DIVERGES from the fleet-wide
+   recommendation.** frankenfs correctly concluded "benchmark at v3 because that is what
+   `build-perf.sh` ships". franken_networkx ships an **abi3 wheel to arbitrary user CPUs**, so a v3
+   benchmark binary would measure something we do NOT ship and would OVERSTATE what users get. For
+   this repo, v3 is a *shipping* question (runtime dispatch / wheel variants), not a *benchmarking*
+   one. **Do not adopt `RUSTFLAGS=-C target-cpu=x86-64-v3` for franken_networkx benchmarks.**
+
+RETRY PREDICATE (supersedes 2zn1u's, which is otherwise unchanged): re-open ONLY if (a) runtime
+dispatch (`multiversion`/`is_x86_feature_detected!`) or v3 wheel variants land — i.e. v3 becomes
+shippable — AND (b) a dense-family or popcount-family fn shows up as a measured fnx-vs-nx LOSS whose
+self-time is dominated by that kernel. A whole-binary process-level A/B is NOT the instrument for
+this question at these effect sizes: it has a ~±40% noise floor here. Use the in-binary two-arm form
+2zn1u used (both arms in one binary, one pinned quiet worker, `cfg!(target_feature)` execution proof).
+
+## 2026-07-26 BlackThrush (cc, Lane M) CONTEXTUAL SNAPSHOT (br-r37-c1-5opn5): post-cutover construction rows — no commit-level causal attribution; MultiDiGraph measured at 0.6958x
+
+These are the rows I deliberately omitted from the corrected README table on 2026-07-25 rather than
+guess, because the MultiGraph stable-slot cutover (`45cb1925e`) had landed the same day and the
+Python-level end-to-end numbers had not been re-measured. This closes that gap.
+
+PROVENANCE. Built strict-remote per the new standing rule
+(`RCH_REQUIRE_REMOTE=1 env -u CARGO_TARGET_DIR rch exec -- cargo build --release`), on `ovh-a`;
+`_fnx` sha256 `eb07ed2ee248d816...`; source state `HEAD=934356595` plus peer worktree WIP
+`91d04ef747207763` (CloudyTurtle's in-flight shim caching levers are INCLUDED — construction runs
+through the shim, so these numbers describe the working tree, not the commit). Pre-build
+`df /data` = 647G free. Same §2 contract: byte-identity of the CONSTRUCTED GRAPH (node order, edge
+order, keys, attrs) proven before timing, A/A null in the same invocation, 15 paired rounds.
+
+**2026-07-27 MODEL-INTEGRITY CORRECTION.** This invocation recorded only a truncated hash computed
+outside the Python process, not the full SHA-256 of the loaded extension self-reported from inside
+that process. It also deliberately included uncommitted peer work. The parity proof and
+same-invocation null remain useful, but these ratios are **contextual working-tree routing
+evidence**, not provenance-complete evidence for a release, a commit, or the stable-slot lever.
+“Inside the null” means no difference was resolved; it does not prove equality. Re-applying the
+strict whole-CI rule also makes the `Graph(edge stream, no attrs)` row undecidable: its `1.0701x`
+lower bound misses the doubled-log null floor (approximately `1.0743x`).
+
+| row | ratio | 95% CI | A/A null | verdict |
+|---|---:|---|---|---|
+| `Graph.copy()` | **7.5561x** | [6.6506,8.1550] | [0.9694,1.0877] | DECIDABLE |
+| `MultiGraph.copy()` | **1.3839x** | [1.3653,1.4853] | [0.9262,1.0227] | DECIDABLE |
+| `Graph(edge stream, no attrs)` | **1.0812x** | [1.0701,1.0918] | [0.9944,1.0365] | **undecidable under whole-CI gate** |
+| `MultiGraph(edge stream, weight)` | 0.9540x | [0.8765,1.0218] | [0.9352,1.0481] | undecidable |
+| `MultiGraph add_nodes_from + add_edges_from` | 0.9364x | [0.9252,1.0093] | [0.9860,1.0596] | undecidable |
+| `Graph(edge stream, weight)` | **0.8337x** | [0.8142,0.8494] | [0.9948,1.0072] | DECIDABLE |
+| `MultiDiGraph(edge stream, weight)` | **0.6958x** | [0.6078,0.7236] | [0.9648,1.1313] | DECIDABLE |
+| `Graph add_nodes_from + add_edges_from` | **0.5654x** | [0.5340,0.5943] | [0.9844,1.0134] | DECIDABLE |
+| `DiGraph(edge stream, weight)` | **0.4246x** | [0.4123,0.4377] | [0.9828,1.0139] | DECIDABLE |
+| `Graph incremental add_edge x8000` | **0.2605x** | [0.2543,0.2693] | [0.9646,1.0198] | DECIDABLE |
+
+THREE FINDINGS.
+
+**1. The snapshot is consistent with the stable-slot cutover, but does not independently prove
+it.** MultiGraph construction measured **0.6123x** in an earlier invocation and
+**0.9364-0.9540x** here. Both current rows land inside their A/A envelopes, so this invocation
+resolves no current FNX-vs-NetworkX difference. Cross-invocation movement on a different source
+state cannot be assigned causally to the cutover. The cutover's own fixed-binary causal benchmark
+(`45cb1925e`, 4.735x store-kernel row) remains its admissible evidence.
+
+**2. MultiDiGraph is the strongest contextual construction lead at 0.6958x, but the mechanism is
+not yet attributed.** `br-r37-c1-thp6w` cut over MultiGraph only, while MDG still carries the
+String-keyed store it replaced. That makes the storage port a plausible hypothesis, not a result:
+the undirected `0.9364-0.9540x` rows were unresolved inside their null rather than proven parity,
+and this working-tree invocation did not profile the MDG store. `br-r37-c1-4c29a` therefore now
+requires a clean exact-ELF construction profile and computed ceiling before any port. The existing
+MultiGraph prototype, gauntlets, trap list, and slab layout become reusable only if that profile
+names the same removable mechanism.
+
+**3. `Graph incremental add_edge` at 0.2605x is a decisive public loss, but its cause was not
+profiled by this invocation.**
+7285us for nx vs 28057us for fnx over 8000 calls = **~3.5 us per `add_edge`** against nx's 0.91 us.
+The read-side `has_node` profile does not establish the frame attribution of this mutation path,
+and comparing two FNX-vs-NetworkX ratios does not measure a caller-visible batch-vs-incremental
+speedup. Treat the shim explanation as a hypothesis subject to the profile predicate below, not as
+a result of this row.
+
+RETRY PREDICATES.
+* **`MultiDiGraph(edge stream, weight)` 0.6958x:** first reproduce from a named clean source whose
+  loaded extension self-reports its full SHA-256 in-process, then profile the exact MDG
+  construction path and compute the removable-mechanism ceiling. Port the stable-slot storage only
+  if that profile attributes the loss to the String-keyed store; gate the one-lever A/B on a
+  same-invocation A/A and the complete candidate median CI.
+* **`Graph incremental add_edge` (0.2605x):** retry with the wrapper-removal mechanism already
+  landing for the read side (`br-r37-c1-qmi5w` family) applied to the mutation entry points. Gate:
+  re-run only when a profile attributes >=40% of per-call `add_edge` self-time to Python shim frames
+  rather than to the native insert, with an A/A null below 1.02x.
+* **`DiGraph(edge stream)` 0.4246x / `Graph add_nodes_from+add_edges_from` 0.5654x:** these are batch
+  paths, so the shim-per-call argument does NOT apply; retry only against a fresh profile of the
+  batch loader itself.
+* **`Graph(edge stream, weight)` 0.8337x vs `no attrs` 1.0812x:** the entire delta is attribute
+  handling — 0.25x of ratio for one int attr per edge. Retry against a profile of the attr decode
+  path specifically.
+
+## 2026-07-27 BlackThrush (cc) METHOD: the dispatch-trap guard is what makes every fnx-vs-nx ratio in this repo valid
+
+```
+comparison_class = INCUMBENT
+incumbent = networkx
+incumbent_same_invocation = true
+campaign_output = false
+decision_gate = median_ci
+cv_role = report_only
+bench_elf_sha256 = 26c802ed8013d16182f869323c7c05b2e894c8d2e93588d7aacd99ef5d665d11
+```
+
+Method row, not a lever: `campaign_output = false` because it claims no ratio of its own. The
+same-invocation A/A null control for the runs it documents measured median `1.0000x` with bootstrap
+CI `[0.9916,1.0050]` on the `bfs_tree` row.
+
+THE TRAP. This repo has already shipped a "2.6x faster" claim measured against an already-dispatched
+fnx baseline; genuine NetworkX was **1.88x FASTER**. NetworkX dispatches to registered backends, and
+franken_networkx registers itself as one. An "oracle" arm can therefore silently be a *second fnx
+arm*, in which case the harness measures fnx against itself and reports whatever the two code paths
+happen to differ by. Nothing about the resulting number looks wrong.
+
+THE GUARD, in `scripts/perf_harness.py`, two independent halves:
+
+1. **Environment cleared at import**, before networkx is imported at all:
+   `NETWORKX_AUTOMATIC_BACKENDS`, `NETWORKX_BACKEND_PRIORITY`, `NETWORKX_FALLBACK_TO_NX` are popped
+   from `os.environ`. Clearing them after the import is too late — dispatch config is read at
+   import time.
+2. **Runtime type assertion of the nx arm**:
+   `assert type(gnx).__module__.startswith("networkx"), "nx arm must be genuine upstream"`.
+   This is the half that actually catches the trap, because it does not trust configuration: it
+   interrogates the object the harness is about to time. A dispatched arm fails it immediately.
+
+Both halves are load-bearing and neither subsumes the other: the env clear prevents dispatch being
+configured, the assertion proves it did not happen anyway. The provenance header additionally
+records `nx_version` and `nx_file`, so the exact incumbent that ran is recoverable from any result.
+
+WHY THIS IS LEDGERED RATHER THAN LEFT AS A COMMENT. Every incumbent ratio this repo publishes —
+the head-to-head baseline in `docs/GAUNTLET_RELEASE_SCORECARD.md`, the per-family table in
+`README.md` — is valid only if the arm labelled "networkx" was networkx. That is a property of the
+harness, not of the numbers, so it cannot be verified by re-reading the results. Any future harness,
+in any language, that omits either half produces ratios that are not comparable to these.
+
+RETRY PREDICATE: none — this is a standing invariant. If a harness in this repo ever reports an
+fnx-vs-nx ratio without both halves, treat its output as VOID and re-measure rather than debating
+the number.
+
+## 2026-07-28 BlackThrush (cc) RETRACTED / OUTSIDE SIX-CLASS TAXONOMY: scratch Class-1 gate did not satisfy the verdict or exact-parity contracts
+
+**STATUS: RETRACTED AS CLAIM EVIDENCE.** The scratch harness did run a live
+NetworkX arm and adjacent A/A controls, so the rows below remain useful routing
+evidence. They cannot support a campaign verdict or public number: `decidable()` compared
+only `cand.ratio_p50` with the doubled-null threshold instead of requiring the
+complete candidate CI to clear it; `canon()` rounded every float to nine
+decimals before hashing; the provenance header emitted JSON instead of the
+required line-one `bench_elf_sha256=<hash> (<bytes>) <path>` identity; and the
+result artifact remained outside the repository. The strict permanent-harness
+gate immediately following this section supersedes every ratio below.
+
+```
+comparison_class = INCUMBENT
+incumbent = networkx
+incumbent_same_invocation = true
+campaign_output = false
+decision_gate = median_ci
+cv_role = report_only
+bench_elf_sha256 = c97841d1739543a6f0c7f74824edc8e5c79003d845812cf94e92b4f7235865ac
+```
+
+Hunt for Class-1 interpreted-overhead weakness: families NetworkX implements as pure Python
+loops, where it pays per-element bytecode cost we do not. Genuine unpatched networkx 3.6.1,
+dispatch-trap guard active (env cleared at import + nx arm type-asserted at runtime), byte-identity
+of the full result proven before timing, A/A null control in the same invocation, decision on the
+null's bootstrap 95% CI with a 2x margin. 9 rounds/row. The same-invocation A/A null measured
+median `1.0000x` with bootstrap CI `[0.9891,0.9982]` on the `check_planarity` row; every row's own
+null CI is recorded in `hunt_results.json`. **43 decidable wins, 1 decidable loss.**
+
+NEW INCUMBENT WINS (none of these were previously in any public doc), n=1200/m=6000 unless noted:
+
+| Family | Ratio | Why NetworkX pays |
+|---|---:|---|
+| `second_order_centrality` (n=220) | **548.8229x** | Python Moore-Penrose loop; nx takes **3.76 s** on 220 nodes |
+| `harmonic_centrality` (n=220) | **228.1682x** | per-source Python BFS over the whole graph |
+| `closeness_centrality` (n=220) | **185.1399x** | same shape as harmonic |
+| `rich_club_coefficient` | **152.9296x** | repeated Python degree-filtered subgraph rebuilds |
+| `eigenvector_centrality` | **38.2054x** | per-iteration Python dict arithmetic over every node |
+| `load_centrality` (n=220) | **34.0069x** | Python all-pairs dependency accumulation |
+| `node_connectivity` (n=220) | **28.7402x** | repeated Python max-flow over an expanded digraph |
+| `square_clustering` (n=220) | **21.0533x** | nested Python loops over neighbour pairs |
+| `triadic_census` (n=200 digraph) | **20.3228x** | per-triad Python census |
+| `transitive_closure` (n=200 digraph) | **14.4463x** | per-node Python descendant sets |
+| `onion_layers` | **10.3562x** | iterative Python peeling with per-layer dict rebuilds |
+| `k_core` | **5.0237x** | Python core filtering + subgraph rebuild |
+| `faster_could_be_isomorphic` | **3.5649x** | Python degree/triangle sequence build |
+| `dfs_postorder_nodes` | **2.9177x** | Python generator per node |
+| `minimum_spanning_tree` | **2.3142x** | Python Kruskal with per-edge sort key calls |
+| `jaccard_coefficient` | **2.2295x** | per-pair Python set ops |
+| `label_propagation` | **2.1856x** | per-node Python label counting |
+| `descendants` | **1.2187x** | Python BFS closure |
+
+SCALING — the campaign's hypothesis was that the advantage grows with n. **Measured, that is true
+for exactly one family in this set, and three families move the other way:**
+
+| Family | n=1000 | n=5000 | n=10000 | direction |
+|---|---:|---:|---:|---|
+| `pagerank` | 8.5775x | 24.0521x | **29.9107x** | **widens 3.5x** |
+| `dfs_tree` | 2.3990x | 2.6648x | 2.9347x | widens mildly |
+| `dijkstra_len` | 2.6940x | 2.7088x | 2.9169x | flat |
+| `bfs_tree` | 3.0086x | 2.5531x | 3.2093x | flat |
+| `triangles` | 14.1503x | 10.0080x | 11.2082x | **narrows** |
+| `core_number` | 13.3572x | 10.6429x | 10.5449x | **narrows** |
+| `clustering` | 34.6900x | 28.1549x | 26.6582x | **narrows** |
+| `sssp_length` | 5.1901x | 5.2610x | 3.0066x | **narrows at 10k** |
+
+INTERPRETATION. Where both implementations are the same complexity over the same traversal, the
+ratio is a CONSTANT FACTOR — the interpreter tax per element — and does not grow with n. It grows
+only where the implementations differ structurally: `pagerank` widens because nx's per-iteration
+Python dict arithmetic scales with n while our native SpMV does not degrade the same way. It
+NARROWS on `clustering` / `triangles` / `core_number`, which is the more useful signal: our own
+advantage is eroding at scale on those, most plausibly cache/allocation behaviour in the native
+kernel rather than anything nx does better. **That erosion is a lever, and it is invisible at
+n=2000.** Retry predicate for taking it: profile `clustering` at n=10000 and reopen if >=25% exact
+self-time sits in allocation or cache-miss stalls rather than the triangle-counting arithmetic.
+
+THE ONE DECIDABLE LOSS, and it defines the boundary of the class:
+
+| `preferential_attachment` | **0.5887x** | CI [0.5573,0.6912], null [0.9952,1.0024] |
+
+nx computes `len(G[u]) * len(G[v])` per pair — the cheapest possible per-element work, two degree
+lookups and a multiply, with no Python-level iteration over neighbours at all. **Class-1 advantage
+requires the incumbent to be doing real per-element interpreted work; when it is not, our per-call
+boundary tax (~42 ns crossing plus the shim) dominates and we lose.** `adamic_adar_index` (0.9914x,
+UNDECIDABLE) and `find_cliques` (1.0670x, UNDECIDABLE) sit on the same boundary. RETRY PREDICATE
+for `preferential_attachment`: reopen only if the per-pair path can be made to avoid a per-pair
+boundary crossing entirely (batch the whole pair list into one native call and return a single
+buffer); a faster per-pair kernel cannot win, because the kernel is not the cost.
+
+CLAIM WITHDRAWN BEFORE PUBLICATION — `check_planarity`. The hunt measured **558.2443x**, and that
+figure is real but **regime-dependent, so it is not publishable as a family ratio**. `check_planarity`
+is wrapper-patched: a necessary-only Kuratowski-bound check runs in Rust (degree / edge-count /
+bipartite / girth bounds) and the residual is DELEGATED to NetworkX for the full Boyer-Myrvold test.
+The hunt fixture was `n=220 / m=900`, and `m > 3n-6` (900 > 654), so the edge-count bound decides
+"non-planar" without any planarity algorithm running at all. Re-measured on both regimes, same
+contract:
+
+| input regime | ratio | verdict |
+|---|---:|---|
+| trivially non-planar, bound decides (n=220, m=900) | **527.0039x** | DECIDABLE |
+| genuinely planar 15x15 grid, bound cannot decide, fnx delegates to nx | **0.8246x** | DECIDABLE **LOSS** |
+
+Both arms returned the same answer in both regimes (`False` / `True`), so this is not a correctness
+issue — it is a claim-shape issue. A single "check_planarity Nx" row would invert depending on the
+caller's input, which is precisely the sort of headline that does not survive a hostile reading, so
+it is kept out of `README.md` and the scorecard. The real finding is the **0.8246x loss on genuinely
+planar input**, where we pay the bound check and then hand the whole problem to NetworkX anyway.
+RETRY PREDICATE: this row becomes publishable only when the native Hopcroft-Tarjan / LR port lands
+and the delegation is removed; re-measure on genuinely planar input (grid, wheel, series-parallel)
+first, and never quote the bound-decides regime as the family number.
+
+METHOD NOTE for the rest of this hunt: every other row above is a compute-family (centrality,
+census, closure, clustering, core, MST, link-prediction) with no bound-decides shortcut, so its
+ratio is regime-independent in the way `check_planarity`'s is not. Predicate-shaped functions are
+the ones to re-check for this failure mode before quoting.
+
+CORRECTNESS FINDING, not timed: `community.greedy_modularity_communities` produced a
+PARITY-DIVERGENCE against networkx on n=220/m=900 and was therefore not benchmarked. Filed as
+`br-r37-c1-z4rnj`; a divergence outranks any ratio on that surface.
+
+## 2026-07-28 CloudyTurtle STRICT INCUMBENT WIN GATE: 21 exact Class-1 wins and one exact boundary loss (`br-r37-c1-04z53.9185`)
+
+The checked-in `class1-frontier` suite re-ran the admissible pure-Python-loop
+families for 21 alternating-order rounds. Genuine unpatched NetworkX 3.6.1 and
+FrankenNetworkX ran in one pinned process; every row first proved exact
+order-preserving complete-output bytes, then measured its own adjacent A/A
+control. The verdict requires the complete candidate bootstrap CI—not its point
+estimate—to clear twice the null CI's maximum log-distance from 1.0. CV is
+report-only.
+
+Line one of the process self-reported
+`bench_elf_sha256=348a684395d0d7cbace8b40a1c411643f6a8e01a661ef125078f2cd8fe68b899`
+(`13,230,088` bytes) at
+`/data/projects/franken_networkx/target/release/lib_fnx.so`. The measured
+harness SHA-256 was
+`92917fa41376111f6490278651545d465c8d726dce21037facd1a3f29e0e36c0`;
+the wrapper SHA-256 was
+`8740cc56899d6934d947009e95a3c587635cd2cc1f0e402aaea6d07794283c71`.
+
+The large-graph rows use exact-string undirected Graphs with `m=4n`:
+
+| exact public row | n=1,000 | n=5,000 | n=10,000 |
+|---|---:|---:|---:|
+| `rich_club_coefficient(normalized=False)` | `142.2388x` `[141.3628,142.6769]` | `115.5965x` `[114.0077,120.6073]` | `117.3619x` `[110.3323,124.2176]` |
+| `onion_layers` | `8.4203x` `[8.3775,8.5677]` | `11.1869x` `[10.8447,11.3614]` | `11.9454x` `[11.6765,12.2297]` |
+| `square_clustering` | `19.7771x` `[19.4047,19.8667]` | `19.1291x` `[18.9200,19.3847]` | `18.4067x` `[17.7816,18.8440]` |
+| `k_core` | `41.6911x` `[41.1215,42.4176]` | `45.8818x` `[44.3019,47.0189]` | `49.3962x` `[48.0447,51.7681]` |
+
+Their same-invocation A/A CIs were, in the same table order:
+`[0.9960,1.0031]`, `[0.9809,1.0435]`, `[0.9143,1.0410]`;
+`[0.9987,1.0100]`, `[0.9842,1.0135]`, `[0.9703,0.9966]`;
+`[0.9962,1.0023]`, `[0.9846,1.0014]`, `[0.9813,1.0470]`;
+and `[0.9959,1.0109]`, `[0.9855,1.0637]`, `[0.9417,1.0017]`.
+
+The additional exact families measured:
+
+| exact public row | incumbent/FNX median | candidate 95% CI | A/A 95% CI |
+|---|---:|---:|---:|
+| `closeness_centrality`, n=220 / m=900 | `194.3093x` | `[193.1339,194.6684]` | `[0.9952,1.0108]` |
+| `transitive_closure`, directed n=200 / m=800 | `92.3164x` | `[89.7257,93.9751]` | `[0.9906,1.0020]` |
+| `node_connectivity`, n=220 / m=900 | `30.1588x` | `[30.0507,30.4738]` | `[1.0008,1.0128]` |
+| `triadic_census`, directed n=200 / m=800 | `20.4715x` | `[20.3525,20.5954]` | `[0.9949,1.0043]` |
+| `faster_could_be_isomorphic`, n=1,200 / m=6,000 | `3.4961x` | `[3.4871,3.5106]` | `[0.9944,1.0024]` |
+| `dfs_postorder_nodes`, n=1,200 / m=6,000 | `3.0811x` | `[3.0753,3.1089]` | `[0.9977,1.0056]` |
+| `jaccard_coefficient`, 300 pairs | `2.4536x` | `[2.4407,2.5141]` | `[0.9985,1.0012]` |
+| `label_propagation_communities`, n=1,200 / m=6,000 | `2.1485x` | `[2.1316,2.1863]` | `[0.9941,1.0008]` |
+| `minimum_spanning_tree`, n=1,200 / m=6,000 | `1.9947x` | `[1.8140,2.0711]` | `[0.9962,1.0136]` |
+
+The n=10,000 NetworkX profiles verify the intended Class-1 surface.
+`square_clustering` carried `1.344243s` self-time (`81.2397%`) and
+`99.5817%` cumulative time, for a computed `239.0537x` whole-frame Amdahl
+ceiling. `onion_layers` carried `0.220209s` self-time (`34.6844%`) and
+`98.5265%` cumulative time, for a `67.8641x` ceiling. `_compute_rc` carried
+`0.132050s` self-time (`9.1622%`) and `97.9847%` cumulative time, for a
+`49.6200x` ceiling.
+
+The exact-parity screen rejected four scratch headline rows before timing:
+`harmonic_centrality` drifted by up to `3.979039320256561e-13`,
+`eigenvector_centrality` by `4.85722573273506e-17`, `load_centrality` by
+`6.938893903907228e-18`, and `second_order_centrality` by
+`5.5706550483591855e-12`. Rounding to nine decimals had hidden all four.
+Public `nx.pagerank` was also excluded from this Class-1 set because NetworkX
+3.6.1 calls `_pagerank_scipy`, not the claimed Python-dict iteration path.
+
+comparison_class=INCUMBENT
+incumbent=networkx
+incumbent_same_invocation=true
+incumbent_ratio=1.9947x
+campaign_output=true
+decision_gate=median_ci
+cv_role=report_only
+
+**RESULT: KEEP / CAMPAIGN OUTPUT.** Twenty-one exact incumbent wins survive.
+`k_core` and `onion_layers` widen from n=1,000 to n=10,000; rich-club and
+square clustering remain large constant-factor wins but do not widen.
+
+RETRY PREDICATE: preserve the strict suite and current public numbers until the
+corresponding implementation, wrapper, Python/NetworkX toolchain, or benchmark
+fixture changes. Do not time the four floating-result families above until
+their complete canonical bytes match exactly; never substitute rounded
+digests. Admit another Class-1 family only after its actual public NetworkX
+source shows an interpreted per-element loop and a named workload profile has
+non-zero self-time plus a computed Amdahl ceiling of at least `2.0x`.
+
+## 2026-07-28 CloudyTurtle VALID-AB INCUMBENT LOSS: `preferential_attachment` remains **0.5949x** (`br-r37-c1-04z53.9185`)
+
+The same exact loaded-ELF invocation measured 300 explicit pairs on the
+n=1,200 / m=6,000 graph. The complete outputs were byte-identical. The
+NetworkX/FNX median was **`0.5949x`**, bootstrap 95% CI
+**`[0.5918,0.6006]`**, against its same-invocation A/A null
+**`[0.9974,1.0016]`** and doubled-null slowdown ceiling **`0.9947x`**.
+All 21 paired rounds were losses. CV was report-only.
+
+comparison_class=INCUMBENT
+incumbent=networkx
+incumbent_same_invocation=true
+incumbent_ratio=0.5949x
+campaign_output=false
+decision_gate=median_ci
+cv_role=report_only
+
+**RESULT: VALID-AB LOSS / NO-SHIP.** NetworkX performs only two degree lookups
+and a multiply per pair, so the FrankenNetworkX boundary and result-building
+cost dominate.
+
+RETRY PREDICATE: do not retry a faster per-pair kernel, eager whole-graph
+degree vectors, or pair-score memoization. Reopen only when one public call can
+batch the complete pair list across the Python/native boundary and return one
+result buffer, then require exact bytes and the same incumbent/A/A complete-CI
+gate.
+
+## 2026-07-28 BlackThrush (cc) UNMEASURED-SURFACE AUDIT: 198 of 733 shared callables had never been compared to the incumbent — measuring 28 of them found 5 losses, 14 wins and 1 parity divergence
+
+```
+comparison_class = INCUMBENT
+incumbent = networkx
+incumbent_same_invocation = true
+campaign_output = true
+decision_gate = median_ci
+cv_role = report_only
+bench_elf_sha256 = c97841d1739543a6f0c7f74824edc8e5c79003d845812cf94e92b4f7235865ac
+```
+
+WHY THIS AUDIT EXISTS. frankensearch shipped ~90 commits while all ten of its quality gates read
+`unmeasured`; its first real gate came back **8.7x SLOWER than Tantivy**. The analogue here is any
+surface we expose, and name in our own README, that has never been compared to NetworkX. Counted
+mechanically: of **733 callables both libraries expose**, **535 carry an incumbent ratio somewhere
+in the ledgers or scorecard and 198 do not**. **47 of those 198 are named in our README**, i.e. we
+publicly imply they are good without ever having measured them. The same-invocation A/A null for
+this run measured median `1.0000x` with bootstrap CI `[0.9957,1.0010]` on the
+`all_simple_edge_paths` row.
+
+**FIVE DECIDABLE LOSSES, none of which anyone knew about:**
+
+| Surface | Ratio | 95% CI | A/A null | Mechanism |
+|---|---:|---|---|---|
+| `karate_club_graph` | **0.3812x** | [0.3588,0.3885] | 0.9795-1.0211 | 34-node fixed literal; nx just builds an edge list, we pay construction overhead |
+| `read_multiline_adjlist` | **0.7002x** | [0.5067,0.7223] | 0.9708-1.0205 | parser is not native |
+| `tutte_graph` | **0.7594x** | [0.7306,0.8543] | 0.9659-1.0171 | 46-node fixed literal, same shape as karate |
+| `read_gml` | **0.9247x** | [0.9188,0.9385] | 0.9807-0.9999 | GML parse path |
+| `navigable_small_world_graph` | **0.9550x** | [0.9374,0.9805] | 0.9853-1.0159 | generator loop |
+
+The two fixed-literal generators repeat the boundary already found for `preferential_attachment`:
+when the incumbent's work per call is trivial — build a hard-coded 34-edge list — our per-call cost
+dominates and we lose. **Class-1 advantage requires the incumbent to be doing real per-element
+interpreted work.** RETRY PREDICATE for `karate_club_graph` / `tutte_graph`: these are constant
+graphs; reopen only with a cached prebuilt native graph returned by clone, and only if construction
+still exceeds nx's literal-list build; a faster builder cannot win.
+
+WINS, previously unmeasured: `erdos_renyi_graph(n=1500)` **14.1755x**, `k_corona` **9.3853x**,
+`k_crust` **5.8664x**, `kosaraju_strongly_connected_components` **4.6519x**, `minimum_branching`
+**3.9768x**, `partition_spanning_tree` **2.4612x**, `dfs_successors` **2.1456x**,
+`partial_duplication_graph` **2.1114x**, `read_graph6` **1.7174x**, `read_sparse6` **1.6869x**,
+`all_simple_edge_paths` **1.3466x**, `attribute_assortativity_coefficient` **1.2885x**,
+`petersen_graph` **1.1205x**, `to_edgelist` **1.0431x**.
+
+STRUCTURAL FINDING — the layout family is NOT a Class-1 seam. `circular_layout` **1.0008x**,
+`random_layout` **1.0004x**, `shell_layout` **1.0075x**, `spring_layout` **1.0095x**, every one
+UNDECIDABLE against its own null. NetworkX implements layouts on top of NumPy, so it is not paying
+per-element interpreted cost — there is no interpreter tax to remove, and the two implementations
+are doing the same vectorised work. Do not propose layout levers on Class-1 grounds. RETRY
+PREDICATE: reopen only if a profile shows >=20% exact self-time in Python-level coordinate loops
+rather than in NumPy kernels.
+
+CORRECTNESS FINDING, not timed: `maximum_branching` produced a PARITY-DIVERGENCE against networkx
+on an 800-node weighted DiGraph. `minimum_branching` on the SAME fixture agrees exactly and is
+3.9768x, which localises the defect to the maximisation path rather than to shared branching
+machinery. Filed `br-r37-c1-kb9hm`.
+
+## 2026-07-28 CloudyTurtle PHASE-2 REALISTIC INCUMBENT WIN GATE: eight exact whole-job wins (`br-r37-c1-04z53.9186`)
+
+The permanent `realistic-workloads` suite measures four complete jobs on
+deterministic induced prefixes of the real SNAP ca-AstroPh collaboration
+graph. Each timed arm reads the compressed file, removes self-loops, performs
+multiple analysis/subgraph stages, and serializes the result. The source
+archive SHA-256 is
+`51bf1e2cace269b884481a8502474efa67c0fd01d998ff7f5a154d7d3e527f27`;
+the n=1,000 / 5,000 / 10,000 fixture SHA-256 values are
+`d0d78495aa4731b0cef3898b68455b9b67c46074321fda14f93839b9fa8b31a4`,
+`c22b731f7b7f67c91a3bfdc7451d008d06d0ba8472d39a27d843472d5a6fbe34`,
+and `54cdfebe7b0de78e96f7c7ee298b148ab1433c3a1ca8dd19ca5dbd9332cca2ff`.
+
+Genuine NetworkX 3.6.1 and FNX ran in one process pinned to CPU 28 for 21
+alternating-order `min_of=3` rounds. Complete canonical bytes were compared
+directly before timing. Every row measured separate NetworkX/NetworkX and
+FNX/FNX adjacent nulls, and the complete candidate bootstrap median CI had to
+clear twice the wider null's maximum log-distance from 1.0. CV was
+report-only.
+
+Line one self-reported
+`bench_elf_sha256=348a684395d0d7cbace8b40a1c411643f6a8e01a661ef125078f2cd8fe68b899`
+(`13,230,088` bytes) at
+`/data/projects/franken_networkx/target/release/lib_fnx.so`. Wrapper SHA-256
+was `8740cc56899d6934d947009e95a3c587635cd2cc1f0e402aaea6d07794283c71`;
+harness SHA-256 was
+`c8e04175a1513068d0cdd3e2f373be4db4c8133abf0305af80dc1aca5eb63cd0`;
+raw log SHA-256 was
+`066715bd0ccc7db1694e922928c58cfd009efecc071998d2db5370ca7660a4d0`.
+
+| whole job | n | NetworkX/FNX median | candidate CI | NetworkX A/A CI | FNX A/A CI | verdict |
+|---|---:|---:|---:|---:|---:|---|
+| collaboration cohesion/export | 1,000 | `1.4898x` | `1.4670-1.5107` | `0.9929-1.0058` | `0.9860-1.0110` | win |
+| collaboration cohesion/export | 5,000 | `1.3232x` | `1.2894-1.3587` | `0.9961-1.0150` | `0.9785-1.0353` | win |
+| collaboration cohesion/export | 10,000 | `1.2039x` | `1.1684-1.2366` | `0.9461-0.9784` | `0.9798-1.0087` | win |
+| rich-club/onion export | 1,000 | `2.1765x` | `2.1579-2.2033` | `0.9939-1.0082` | `0.9934-1.0162` | win |
+| rich-club/onion export | 5,000 | `1.8585x` | `1.8015-1.8993` | `0.9856-1.0062` | `0.9885-1.0662` | win |
+| rich-club/onion export | 10,000 | `1.8392x` | `1.7798-1.8949` | `0.9920-1.0117` | `0.9523-1.0675` | win |
+| link-recommendation export | 1,000 | `1.0973x` | `1.0908-1.0999` | `0.9980-1.0026` | `0.9911-1.0100` | win |
+| link-recommendation export | 10,000 | `1.2422x` | `1.2036-1.2538` | `0.9863-1.0133` | `0.9971-1.0422` | win |
+
+The widest kept-row same-invocation A/A null was FNX
+`[0.9523,1.0675]` at rich-club/onion n=10,000.
+
+comparison_class=INCUMBENT
+incumbent=networkx
+incumbent_same_invocation=true
+incumbent_ratio=1.0973x
+campaign_output=true
+decision_gate=median_ci
+cv_role=report_only
+
+RESULT: **KEEP / CAMPAIGN OUTPUT.** A user sees lower complete-job wall time
+for all three cohesion and rich-club inputs, and for recommendation at n=1,000
+and n=10,000.
+
+RETRY PREDICATE: keep these exact rows until the source/fixture, workload
+stages, implementation, wrapper, or Python/NetworkX toolchain changes. Any
+new claim must retain exact source and fixture hashes, direct complete-byte
+comparison, runtime NetworkX graph-type assertion, loaded-ELF line one, both
+arm-specific A/A nulls, and complete median-CI gating.
+
+## 2026-07-28 CloudyTurtle VALID-AB INCUMBENT LOSS: whole hub-routing export loses at all three real sizes (`br-r37-c1-04z53.9186`)
+
+| n | NetworkX/FNX median | candidate CI | NetworkX A/A CI | FNX A/A CI | rounds won |
+|---:|---:|---:|---:|---:|---:|
+| 1,000 | `0.7811x` | `0.7774-0.7920` | `1.0011-1.0099` | `0.9925-1.0131` | `0/21` |
+| 5,000 | `0.5482x` | `0.5217-0.5665` | `0.9938-1.0136` | `0.9593-1.0175` | `0/21` |
+| 10,000 | `0.5742x` | `0.4677-0.6017` | `0.9845-1.0005` | `0.9955-1.0104` | `0/21` |
+
+The exact loaded-ELF n=10,000 stage profile attributes the loss:
+NetworkX/FNX median milliseconds were load/clean `206.284/274.169`, hub rank
+`6.001/9.348`, SSSP `17.486/1.783`, BFS tree `30.440/3.892`, radius-two
+subgraph copy `257.236/227.276`, and two-graph serialization
+`40.419/570.136`. FNX's native traversals win, but
+`write_edgelist(data=False)` delegates through `_to_nx`; serialization is
+`52.469%` of FNX's summed stage wall, a `2.1039x` whole-job Amdahl ceiling.
+
+comparison_class=INCUMBENT
+incumbent=networkx
+incumbent_same_invocation=true
+incumbent_ratio=0.5482x
+campaign_output=false
+decision_gate=median_ci
+cv_role=report_only
+
+RESULT: **VALID-AB LOSS / NO-SHIP.** NetworkX finishes this output-heavy
+routing job sooner at every measured size.
+
+RETRY PREDICATE: do not optimize BFS, SSSP, or subgraph copy for this loss.
+Route exact simple `Graph`/`DiGraph` `write_edgelist(data=False)` through the
+byte-identical `generate_edgelist` writer without `_to_nx`, preserving every
+path/file, encoding, delimiter/comments, label, direction, order, and byte
+contract. Then re-run all three complete jobs with both same-invocation A/A
+nulls and require each complete candidate CI to clear its wider envelope.
+
+## 2026-07-28 CloudyTurtle VALID-AB UNDECIDABLE: link-recommendation export n=5,000 (`br-r37-c1-04z53.9186`)
+
+The point estimate was `1.2480x`, candidate CI `1.2104-1.3284`, NetworkX A/A
+CI `0.9756-0.9993`, and FNX A/A CI `0.8965-1.1146`. The wider FNX null made
+the doubled-log decision floor `1.2443x`; the candidate's complete CI did not
+clear it.
+
+comparison_class=INCUMBENT
+incumbent=networkx
+incumbent_same_invocation=true
+incumbent_ratio=1.2480x
+campaign_output=false
+decision_gate=median_ci
+cv_role=report_only
+
+RESULT: **VALID-AB / UNDECIDABLE.** The n=5,000 point estimate is not a
+competitive claim.
+
+RETRY PREDICATE: do not rerun unchanged to select noise. Reopen after a
+workload, implementation, dataset, or toolchain change, or after two
+preregistered dual-null-only invocations on the same pinned CPU each keep
+both null CIs within `0.97-1.03`; then run one 21-round candidate gate.
+
+## 2026-07-29 CloudyTurtle VALID-AB LOSS: real community export crosses from `1.3774x` to `0.8214x` (`br-r37-c1-zgcfy`)
+
+The fifth Phase-2 job reads and cleans the fixed ca-AstroPh input, runs exact
+`label_propagation_communities`, emits deterministic assignments, extracts
+the largest-community subgraph, and writes it. `PYTHONHASHSEED=0` is required
+and recorded; an unseeded setup invocation was excluded after its n=1,000
+checksum varied across processes.
+
+| n | NetworkX/FNX median | candidate CI | NetworkX A/A CI | FNX A/A CI | verdict |
+|---:|---:|---:|---:|---:|---|
+| 1,000 | `1.3774x` | `1.3670-1.3860` | `0.9954-1.0035` | `0.9957-1.0058` | win |
+| 5,000 | `0.8944x` | `0.8831-0.9038` | `0.9950-1.0099` | `0.9796-1.0121` | loss |
+| 10,000 | `0.8214x` | `0.8139-0.8266` | `0.9241-1.0415` | `0.9935-1.0070` | loss |
+
+The community kernel itself widens `1.8023x -> 1.9266x -> 2.1247x`, while
+whole-job output grows to `210.545ms` and `587.180ms` for FNX at 5,000 and
+10,000 nodes versus `24.320ms` and `52.934ms` for NetworkX. At n=10,000 the
+output stage is `39.5209%` of FNX summed wall, and matching it alone predicts
+a `1.3365x` complete-job win. The named mechanism is
+`write_edgelist(data=False)` delegating through whole-graph `_to_nx`.
+
+The loaded ELF was
+`348a684395d0d7cbace8b40a1c411643f6a8e01a661ef125078f2cd8fe68b899`;
+the seeded raw log was
+`acdcd417cf9b149e40ba81947b36e544bd001482611323dafd1a45ceb1eb7d09`.
+
+comparison_class=INCUMBENT
+incumbent=networkx
+incumbent_same_invocation=true
+incumbent_ratio=0.8214x
+campaign_output=false
+decision_gate=median_ci
+cv_role=report_only
+
+RESULT: **VALID-AB LOSS.** The loss worsens with size because integration
+cost grows, not because the Class-1 community kernel has a flat deficit.
+
+RETRY PREDICATE: keep the community kernel; remove only the default simple
+`data=False` writer conversion, then rerun all three complete rows with exact
+bytes, fixed hash seed, loaded-ELF identity, and dual-null median-CI gates.
+
+## 2026-07-29 CloudyTurtle KEEP: direct `data=False` generation flips hub and community whole jobs (`br-r37-c1-04z53.9187`, `br-r37-c1-zgcfy`)
+
+Default simple `Graph`/`DiGraph` `write_edgelist(data=False)` now uses the
+existing byte-identical generate/write loop rather than `_to_nx`. All other
+writer surfaces retain their routes. Focused exact I/O reports `33 passed`.
+
+| whole job | n | NetworkX/FNX median | candidate CI | NetworkX A/A CI | FNX A/A CI |
+|---|---:|---:|---:|---:|---:|
+| hub routing/export | 1,000 | `1.5457x` | `1.5343-1.5530` | `0.9945-1.0081` | `0.9953-1.0038` |
+| hub routing/export | 5,000 | `1.1885x` | `1.1609-1.1984` | `0.9925-1.0082` | `0.9861-1.0055` |
+| hub routing/export | 10,000 | `1.2159x` | `1.2079-1.2488` | `0.9963-1.0095` | `0.9891-1.0191` |
+| community detection/export | 1,000 | `1.6538x` | `1.6410-1.6797` | `0.9924-1.0046` | `0.9819-1.0338` |
+| community detection/export | 5,000 | `1.3622x` | `1.3424-1.3954` | `0.9935-1.0036` | `0.9890-1.0018` |
+| community detection/export | 10,000 | `1.4318x` | `1.4026-1.4438` | `0.9457-1.0323` | `0.9967-1.0145` |
+
+The widest recorded same-invocation A/A null was NetworkX
+`[0.9457,1.0323]`; every complete candidate CI clears its own doubled wider
+null edge. CV is report-only, including the decisive n=5,000 community row's
+`16.33%` NetworkX CV.
+
+Counted output stages confirm the mechanism: community n=10,000 falls
+`587.180ms -> 36.333ms`, and hub n=10,000 falls
+`570.136ms -> 30.158ms`, with exact unchanged complete-output checksums.
+The process self-reported
+`bench_elf_sha256=348a684395d0d7cbace8b40a1c411643f6a8e01a661ef125078f2cd8fe68b899 (13230088 bytes) /data/projects/franken_networkx/target/release/lib_fnx.so`;
+wrapper SHA-256 was
+`46158e297b7908d8f2973beaeefdd14c312fc03e3f39cbd9c7a34393f9b426bf`;
+raw-log SHA-256 was
+`5cb3a348cf4ee9678920714d1e0c777bfec35bd0b5f24fba922f92684f18cc7f`.
+
+comparison_class=INCUMBENT
+incumbent=networkx
+incumbent_same_invocation=true
+incumbent_ratio=1.1885x
+campaign_output=true
+decision_gate=median_ci
+cv_role=report_only
+
+RESULT: **KEEP / CAMPAIGN OUTPUT.** The six rows are exact current incumbent
+wins; the Phase-2 realistic gate is `14` wins / `0` losses / `1` undecidable.
+
+RETRY PREDICATE: preserve the narrow default simple-graph route. Reopen after
+writer/workload/toolchain changes, or independently prove exact bytes and a
+whole-job incumbent gate before extending it to other writer configurations.
+
+## 2026-07-29 CloudyTurtle KEEP: average-degree-32 Class-1 scale shape (`br-r37-c1-l39pb`)
+
+The earlier strict row forbade repeating fixed `m=4n`; this gate changes work
+per element to `m=16n` (average degree 32) and extends exact
+`onion_layers`/`k_core` rows through n=50,000. The permanent harness now
+supports explicit scale sizes, edge multipliers, and job selection without
+changing its old default fixtures or seeds.
+
+| exact row | NetworkX/FNX median | candidate CI | NetworkX A/A CI | FNX A/A CI |
+|---|---:|---:|---:|---:|
+| `onion_layers`, n=10,000 / m=160,000 | `18.6596x` | `18.5117-19.6383` | `0.9886-1.0271` | `0.9814-1.0183` |
+| `onion_layers`, n=25,000 / m=400,000 | `22.7257x` | `22.0767-23.4342` | `0.9837-1.0208` | `0.9717-1.0254` |
+| `onion_layers`, n=50,000 / m=800,000 | `26.7646x` | `26.5285-26.9716` | `0.9927-1.0049` | `0.9965-1.0022` |
+| `k_core`, n=10,000 / m=160,000 | `128.4077x` | `124.3977-130.5018` | `0.9823-1.0054` | `0.9915-1.0008` |
+| `k_core`, n=25,000 / m=400,000 | `123.8164x` | `120.9178-125.7322` | `0.9932-1.0269` | `0.9777-1.0076` |
+| `k_core`, n=50,000 / m=800,000 | `127.6491x` | `126.8319-128.2286` | `0.9878-1.0057` | `0.9982-1.0056` |
+
+The widest recorded same-invocation A/A null was FNX
+`[0.9717,1.0254]`; every candidate CI clears twice its own wider null edge.
+Every complete output is byte-identical and every row wins `21/21` paired
+rounds. The shape localizes two different incumbent costs:
+`onion_layers` widens `18.6596x -> 22.7257x -> 26.7646x`, while `k_core`
+stays flat around `124-128x`. The flat `k_core` gap is constant per-edge
+Python result-copy work, not coordination; the widening onion gap is growing
+interpreted peeling/list-removal cost.
+
+The exact profile at n=10,000 / m=160,000 records NetworkX
+`Graph.add_edges_from` at `28.6857%` self / `88.0657%` cumulative time with
+an `8.3792x` Amdahl ceiling for `k_core`, and public `onion_layers` at
+`37.3581%` self / `99.0630%` cumulative with a `106.7292x` ceiling.
+Line one self-reported
+`bench_elf_sha256=348a684395d0d7cbace8b40a1c411643f6a8e01a661ef125078f2cd8fe68b899 (13230088 bytes) /data/projects/franken_networkx/target/release/lib_fnx.so`;
+harness SHA-256 was
+`e80ba9f8d4e113a348fb9249620f8f19fe7ffb790e4f636fded7e6cd2139db87`.
+
+comparison_class=INCUMBENT
+incumbent=networkx
+incumbent_same_invocation=true
+incumbent_ratio=18.6596x
+campaign_output=true
+decision_gate=median_ci
+cv_role=report_only
+
+RESULT: **KEEP / CAMPAIGN OUTPUT.** Six higher-work-per-element incumbent
+wins extend the Class-1 evidence without using `trj`.
+
+RETRY PREDICATE: do not repeat the average-degree-32 curves. Reopen `k_core`
+only after its result-copy route or retained-edge distribution changes.
+Reopen `onion_layers` only at preregistered average degree 128 or on a named
+real graph; otherwise profile and admit a new pure-Python-loop family.
+
+## 2026-07-29 CloudyTurtle KEEP: preregistered average-degree-128 `onion_layers` curve (`br-r37-c1-04z53.9188`)
+
+The prior row's explicit retry predicate authorized this `m=64n` gate.
+NetworkX 3.6.1 and FrankenNetworkX ran side-by-side on ordinary CPU 3 in one
+Python 3.13.7 invocation with exact complete layer dictionaries, 21
+alternating-order rounds, and separate arm-specific A/A nulls.
+
+| exact row | NetworkX/FNX median | candidate CI | NetworkX A/A CI | FNX A/A CI |
+|---|---:|---:|---:|---:|
+| `onion_layers`, n=1,000 / m=64,000 | `47.2303x` | `45.7553-49.7326` | `0.9933-1.0041` | `0.9981-1.0034` |
+| `onion_layers`, n=5,000 / m=320,000 | `90.3145x` | `88.1029-92.4663` | `0.9816-1.0221` | `1.0008-1.0309` |
+| `onion_layers`, n=10,000 / m=640,000 | `122.7680x` | `119.3252-126.5651` | `0.9944-1.0105` | `0.9923-1.0123` |
+
+The widest recorded same-invocation A/A null was FNX
+`[1.0008,1.0309]`; each complete candidate CI clears twice its own wider null
+edge and every row wins `21/21`. CV is report-only.
+
+The exact n=10,000 profile records public NetworkX `onion_layers` at
+`15.7712%` self / `99.6194%` cumulative time with a `262.7437x` Amdahl
+ceiling. Exactly 640,000 Python `list.remove` calls consume `79.8263%`
+self-time. This counted mechanism explains the strong density response at
+n=10,000. The fixed-density N curve (`47.2303x -> 122.7680x`) establishes
+that the advantage does not narrow with scale, without over-attributing the
+widening to a single cause.
+
+Line one self-reported
+`bench_elf_sha256=348a684395d0d7cbace8b40a1c411643f6a8e01a661ef125078f2cd8fe68b899 (13230088 bytes) /data/projects/franken_networkx/target/release/lib_fnx.so`;
+harness SHA-256 was
+`e80ba9f8d4e113a348fb9249620f8f19fe7ffb790e4f636fded7e6cd2139db87`;
+raw-log SHA-256 was
+`1cc08b429c8c4092bced1481ad4a1bf08ae13296826e2d7fed9a728f9c78018f`.
+
+comparison_class=INCUMBENT
+incumbent=networkx
+incumbent_same_invocation=true
+incumbent_ratio=47.2303x
+campaign_output=true
+decision_gate=median_ci
+cv_role=report_only
+
+RESULT: **KEEP / CAMPAIGN OUTPUT.** Three exact incumbent wins extend the
+non-trj Class-1 evidence and set the current `onion_layers` headline to
+`122.7680x`.
+
+RETRY PREDICATE: do not repeat the average-degree-128 synthetic curve. Reopen
+only on a named real graph with a materially different degree distribution or
+after the peeling implementation changes; otherwise switch to a newly
+profile-attributed pure-Python-loop family.
+
+## 2026-07-29 BlackThrush NO-VERDICT: dense `enumerate_all_cliques` host-exclusivity gate (`br-r37-c1-36dy9`)
+
+The permanent `class1-frontier` suite now has a selectable
+`enumerate_all_cliques` row. The preregistered `m=64n` fixtures produced equal
+complete ordered streams in both engines:
+
+| exact row | equal ordered cliques | complete-output SHA-256 |
+|---|---:|---|
+| n=1,000 / m=64,000 | 602,114 | `5e71d018a4d774bb9cd8c2249bbf317813aac7ef8051536d7dd72f42ed951d93` |
+| n=5,000 / m=320,000 | 681,803 | `cc80d77da6b9c05cbc821f4ffdeb20a3805728316e28af2899b20ffeb8b2c054` |
+| n=10,000 / m=640,000 | 1,002,024 | `0e524be2241f9bd5029e2e33902bab2d1a8f3836575b22c0b193d02325a775cd` |
+
+The n=1,000 NetworkX 3.6.1 profile attributed `3.095417549s` self and
+`3.201455156s` cumulative out of `3.201978996s` total to public
+`enumerate_all_cliques`, with 602,115 frame calls, `99.9836401%` cumulative
+share, and a `6112.5134x` Amdahl ceiling. Local one-shot diagnostics were about
+`4.37-4.68x`, but they lacked A/A controls and are not verdicts.
+
+The harness now fails closed unless an admitted baseline records host identity,
+physical cores, logical threads, process affinity, governors, ISA, configured
+thread limits, and per-arm observed threads actually used. The harness SHA-256
+is `26d892a6caec40a91929b756077257d2e723b59d086fb0b64b3e2ed9ecacd5ca`.
+
+Three guarded attempts produced no timing:
+
+- strict-remote `vmi1153651` job `j-29953484325388321`, full 8/8 lease:
+  pre-setup rejected after 300 windows with the final CPUs roughly `87-100%`
+  busy; captured failure-output SHA-256
+  `d2adcac8b8390117bff1f0b2314ef63d0c253f025318233b9373df0a9e34be30`;
+- strict-remote `hz2` job `j-29953568312131605`, full 8/8 lease: pre-setup
+  rejected after 300 windows with `cpu12=91.0%` and four other CPUs above the
+  20% limit; captured failure-output SHA-256
+  `357b0c0ea75548e9372a3229ecdf442db18be66e312b7e22e13e3728e10c2f6f`;
+- `thinkstation1`, ordinary CPU 3: pre-setup eventually cleared, but the
+  independent pre-measurement gate rejected after 300 windows with `cpu8`,
+  `cpu15`, and `cpu22` at `100.0%`; raw-log SHA-256
+  `589d62e10f021667475b271a7920d7a321de1f7bbef880ecf09f4cf0fe7f4905`.
+
+comparison_class=NO-VERDICT
+incumbent=networkx
+incumbent_same_invocation=false
+campaign_output=false
+decision_gate=not_reached
+cv_role=not_computed
+
+RESULT: **NO-VERDICT / HARNESS WORKED.** No A/A arm, candidate ratio, median
+CI, or campaign number was emitted.
+
+The dedicated-host retry is tracked as `br-r37-c1-04z53.9191`.
+
+RETRY PREDICATE: rerun only in a dedicated worker window with scheduler jobs,
+leaked descendants, host tasks, and RCH capability probes suppressed for the
+whole process. For `trj`, wait for all prior claims to release, then post
+`[trj] CLAIM franken_networkx` and always finish with `[trj] RELEASE`. Keep the
+same fixtures, exact complete-output proof, genuine NetworkX 3.6.1 incumbent
+in the same invocation, loaded-ELF identity, both A/A nulls, 21 alternating
+rounds, full host/core/thread/governor/ISA/actual-thread provenance, continuous
+host accounting, and median-CI-only gating. Any exclusivity abort remains
+NO-VERDICT.
+
+## 2026-07-29 CloudyTurtle NO-VERDICT: natural-size ca-AstroPh host-exclusivity audit (`br-r37-c1-04z53.9190`)
+
+The authorized real-distribution retry uses the full 18,772-node SNAP
+ca-AstroPh fixture: 198,110 unique undirected rows, 60 self-loops removed,
+198,050 analyzed edges, compressed fixture SHA-256
+`dec07c93f05a48e2c843b5675cbc39758b1a3bb837b640142ed4cc5f3c467a15`,
+and cleaned degree p50/p90/p99/max `9/53/142/504`.
+
+Twenty-four placement attempts produced no performance verdict. Admission,
+affinity, or continuous timing checks rejected sixteen before any candidate
+ratio. Eight more never reached a timed harness: four strict RCH queue
+timeouts, one refused no-build shortcut, two workers rejected because their
+checkout alias resolved to `/data`, and one `ovh-b` setup retry whose staged
+`target/release/lib_fnx.so` had disappeared before Python entry. The final
+admitted `vmi1227854` community attempt held all 8/8 scheduler slots, cleared
+both pre-canonical two-window admissions at maximum accepted CPU busy fractions
+`3.23%` and `6.90%`, then aborted its NetworkX A/A when `cpu8` exceeded 20%
+for two consecutive windows and reached `76.1%`. Raw-log SHA-256 was
+`928a1df565a971069f606de97075abe2bb16133159fc7bf0100dbead96e4b2e8`;
+its reservation artifact SHA-256 was
+`d8bfcbab37c4543397b99a24e103bc3e2e0946f6951ce42897ab9648664eaa3c`.
+
+The latest full-slot `ovh-a` retries exercised the permanent canonical
+admission contract. Retry 1 cleared both five-consecutive-one-second-window
+admissions at accepted maxima `4.0%` and `9.0%`, then the collaboration
+NetworkX A/A aborted when `cpu9` reached `100.0%` for two 300 ms windows;
+raw-log SHA-256 was
+`a8a655693ebab5642e1ad65a0f1d6711f5591c8833d3a654cef05240525d04b7`.
+Retry 2 cleared both admissions at accepted maxima `7.92%` and `3.0%`, then
+the same null arm aborted when `cpu1` reached `38.2%` for two 300 ms windows;
+raw-log SHA-256 was
+`7765a8e02c6875ac269ae73118b5edae5223431b90fdcf3ff26a46e6022561d8`.
+The preceding 40-window `ovh-a` admission attempt never entered the harness;
+its raw-log SHA-256 was
+`0ce82385eca5e4ae3241bcce588764f86d1c528b979929b3254fa9100cf0cccd`.
+The next `vmi1153651` request timed out before remote start (raw-log SHA-256
+`45a94cdbaf630b59672553233189f1b66e89e598ea214b5a8ed54a84fbc6b18e`).
+Its full 8/8 retry later cleared both canonical admissions after seven
+pre-setup and one pre-measurement rejected windows, then aborted the
+collaboration NetworkX A/A at `cpu5=71.8%` and `cpu7=26.1%` for two windows;
+raw-log SHA-256 was
+`bf01a7e65b3149ae6cab83788cf48aa0bb09b2492823a4516ef1ff4c0f318fca`.
+Every admitted process self-reported the intended ELF as line one:
+`348a684395d0d7cbace8b40a1c411643f6a8e01a661ef125078f2cd8fe68b899`.
+
+Timestamp reconciliation shows that the FrankenSQLite RCH job inspected after
+that abort started about 52 seconds after the benchmark log closed, so it was
+not the contaminant. A separate scheduler-disabled attribution run then
+identified four RCH `npm --version` capability probes on non-affinity CPUs at
+`39-100%` of a core. Its `pidstat` artifact SHA-256 is
+`7292c71c36814c27b76e20a2b94e8d48aa4a3170a1cbcfb56411ddc865a122e2`;
+a raw CPU-field trace with SHA-256
+`e47b6cb4c7b076670c3aa466723af3398cde724a44776a2d523adb52ecb27554`
+recorded no guest or steal ticks in the flagged windows. The conclusion is
+limited to what the harness proved: scheduler disable and full RCH slot
+ownership do not suppress capability probes, and the continuous in-process
+gate correctly kept contaminated partial timing out of the verdict count.
+Commit `b1e5f5bd4` corrected guest-counter double counting without changing
+these invalidations; steal remains classified as host contention.
+
+RESULT: **NO-VERDICT / HARNESS WORKED.**
+
+RETRY PREDICATE: rerun only after the RCH owner supplies a non-`trj` worker
+window with host tasks and capability probes suppressed for the whole
+invocation. Hold every worker slot through the Cargo proxy and require both
+five-consecutive-one-second-window admissions plus continuous 300 ms timing
+accounting to pass. Stage the executing ELF outside a directory named
+`target`; keep the exact source/fixture hashes, loaded-ELF line one, NetworkX
+runtime type assertion, complete output identity, interleaved incumbent arm,
+both A/A nulls, and median-CI-only decision. Any host-exclusivity abort remains
+NO-VERDICT.
+
+## 2026-07-31 BlackThrush (cod) NO-VERDICT (`br-r37-c1-1jo5g`): S4 cold-after-mutation retry reached no timed row
+
+The stale-index predicate is satisfied and the post-S4 source builds remotely.
+The permanent `cold-after-mutation-cc` suite now reproduces the exact
+20,000-node/81,000-edge `MultiGraph` whole job, asserts complete ordered-output
+identity, imports hash-pinned live NetworkX 3.6.1, retains raw candidate and
+dual-null samples, applies the corrected three-clause median gate, records
+host/topology/ISA/governor state, probes actual rather than requested threads,
+and self-reports its loaded ELF. Every build used strict
+`rch exec --base 71ff895de0704da73d98a221fb6b742c94f0d188
+--clean-overlay --overlay-path scripts/perf_harness.py`; no fresh target
+directory was requested.
+
+Three clean remote attempts emitted no timing. `ovh-a` first exposed a missing
+NetworkX dependency before setup. `vmi1264463` then self-reported ELF
+`1f36022e2771b33eb5b3ac594e0ff8e8a4a3f55417488c26d21f1a8a99ba0d76`
+but stopped before thread/timing probes because cpufreq governors are
+unavailable. After both provenance defects were corrected, `ovh-a` rejected
+host-wide pre-setup admission after 300 windows with all 16 logical CPUs at
+100.0%. Therefore actual observed threads, both nulls, the candidate CI, and
+the incumbent ratio were all **not reached**.
+
+RESULT: **NO-VERDICT / HARNESS WORKED.** Do not replace the old `0.566x` with
+the local parity diagnostic or an informal probe. Retry only in a dedicated
+non-co-tenanted remote window with host probes and scheduler work suppressed
+for the entire process; preserve the exact fixture/wheel/source hashes,
+in-process ELF line, actual-thread probes, 21 rounds, both A/A nulls,
+continuous accounting, and corrected three-clause gate. Any abort remains
+NO-VERDICT.
+
+## 2026-07-31 BlackThrush (cod) NO-VERDICT (`br-r37-c1-p80x1.1`): permanent `erdos_renyi_graph` incumbent arm
+
+The highest exposed claim gap now has a permanent contract row reproducing
+the recovered original hunt input:
+`erdos_renyi_graph(1500, 0.004, seed=5)` against live NetworkX 3.6.1.
+Complete node/edge order matches over 4,508 edges and 139,359 canonical
+bytes, SHA-256
+`93fcf9aedb4b1f6dde8523bae73a673e92f3a50c2b958e4b37ee468002002e20`.
+A local correctness-only check proved parity but emitted no admissible timing
+or remote thread provenance.
+
+Three strict clean remote placements on a provisional `p=0.01, seed=42`
+fixture emitted zero timing. The recovered scratch harness proved that input
+did not generate the public claim, so all three attempts are invalidated
+independently of their aborts. `ovh-b`
+`j-29954019132703107` built but lacked the same-build extension adjacent to
+the relocated bench executable. `ovh-a` `j-29954019132703120` rejected
+pre-setup after 300 windows with five CPUs at 32-71% busy. Exact retry
+`j-29954019132703131` rejected after 300 windows with all 16 CPUs at 100%.
+All used base `28a1387b06319e53d3acb018ecdd77e8c137c141`,
+`--clean-overlay --overlay-path scripts/perf_harness.py`, 21 rounds, and no
+requested per-run target directory.
+
+The corrected exact input then received a full 4/4-slot strict placement on
+`vmi1167313`, base `62ea7fadd66d4799fdc82f178293c44e48c8358d`,
+with only the corrected harness overlaid. An initial build with the wrong
+PyO3 executable feature failed at link time before Python. The default-feature
+retry built and entered `pre_setup`, then rejected after 300 windows with
+`cpu0-4` at 27.6-69.7% busy. It emitted no provenance or timing.
+
+RESULT: **NO-VERDICT / PERMANENT ARM SHIPPED.** In-process ELF identity,
+actual remote thread probes, both nulls, candidate CI, and the incumbent
+ratio were not reached; do not replace or strengthen README's unsupported
+`14.1755x` with any local diagnostic. Retry only in a dedicated
+non-co-tenanted remote window with the exact fixture/source/incumbent hashes,
+full provenance, continuous accounting, and corrected three-clause gate.
+
+## 2026-07-31 BlackThrush (cod) DIVERGENCE FIX + NO-VERDICT (`br-r37-c1-p80x1.3`): complete `k_corona` claim arm
+
+The recovered `9.3853x` scratch row compared
+`sorted(k_corona(G,3).edges())` on the exact simple string-node
+`n=1200,m=6000,seed=11` graph. Both projected edge lists were empty, but the
+public results contained 13 isolated nodes in different orders. With
+`PYTHONHASHSEED=0`, input SHA-256 was
+`199d564350ec6f70885e8f8236fad28d6620b44e3e7917a470f6fba73024e653`;
+NetworkX 3.6.1 output SHA was `1be0290d...819`, while pre-fix FNX was
+`82e27e55...115`. Commit `63b29ed6c` replaces set iteration with core-number
+dictionary order and adds a deterministic regression; the full 13-node,
+0-edge, 292-byte output now agrees exactly.
+
+The permanent arm times the complete public operation and preregisters both
+full hashes. Strict RCH used base `63b29ed6c`, only
+`scripts/perf_harness.py` as a clean overlay (SHA `3f15663a...589`), no
+per-run target override, and all 8/8 `vmi1153651` slots. After the same-build
+release artifact completed, `pre_setup` rejected all 300 windows; final
+`cpu0-8` busy fractions ranged from 35.1% to 99.0%. Therefore in-process host
+identity, ELF SHA, actual observed threads, both nulls, the corrected median
+clause, candidate CI, and incumbent ratio were not reached.
+
+RESULT: **DIVERGENCE FIX SHIPPED / PERFORMANCE NO-VERDICT.** The old
+`9.3853x` is withdrawn because its empty-edge output hid every result node.
+Retry only in a dedicated host window with the same hashes, live NetworkX
+3.6.1, complete parity, all required provenance, 21 rounds, continuous
+accounting, dual A/A nulls, and the corrected three-clause median gate.
+
+## 2026-07-31 BlackThrush (cod) CONTRACT LANDED + PERFORMANCE NO-VERDICT (`br-r37-c1-04z53.9193`): parallel analytics whole-job contract
+
+The existing recognizable full analytics pass against live NetworkX 3.6.1
+now records CPU-active threads actually observed per stage from
+`/proc/self/task/*/schedstat`; requested rayon threads remain provenance only.
+Every future CSV timing row also repeats in-process host/ELF identity, both
+host-wide admission verdicts, and continuous non-affinity CPU-accounting
+evidence.
+
+The worker now fails closed: it requires a taskset subset, host-wide quiet
+windows before setup and measurement, and clean continuous accounting through
+the final stage. The dedicated accounting thread is excluded from the
+CPU-active-thread count and CPU sum. An abort clears all partial replicates,
+the driver preserves `NO-VERDICT`, and the report prints the exact reason with
+zero timing rows and no ratio. A wrong incumbent version, automatic backend
+dispatch, or missing ELF hash also fails closed. The corrected gate still
+requires an effect CI excluding 1, an
+effect deviation beyond twice the wider null half-width, and both A/A medians
+within 2%.
+
+On full-affinity `thinkstation1`, a diagnostic invocation proved the behavior:
+the process emitted ELF SHA
+`3d877bb18e8adfc9ff91dbbf3606c4ed4b3c0b0b0a769cac71deada8b83a1be8`
+as line one, then returned `NO-VERDICT`, zero replicates, and the exact
+taskset-affinity rejection. A prior NetworkX backend-discovery warning is
+retained in provenance without preceding the ELF line. Historical artifacts
+still render as diagnostics but now choose NetworkX because their rows are
+unadmitted and lack actual-thread evidence; a synthetic contaminated study
+emits no timing row or ratio.
+
+RESULT: **CONTRACT LANDED / CURRENT PERFORMANCE NO-VERDICT.** No strict
+benchmark and no Cargo command ran. RCH 1.0.52 still UUID-salts the
+clean-overlay root above the pooled target, so the identical physical
+target-path predicate remains unsatisfied. Retry only after two strict
+`rch exec --base <commit> --clean-overlay` probes reuse one physical target;
+then pin a quiet worker subset, require 21 interleaved live incumbent/FNX
+replicates, dual A/A nulls, digest parity, actual one-vs-many active-thread
+evidence on the dominant stage, continuous accounting, and the corrected
+three-clause median gate.
+
+No target was minted. The shared `/data/tmp/cargo-target` was live at 69 GiB
+and untouched; the three named superseded target directories were already
+absent, so reclaimed space was **0 bytes**.
+
+## 2026-07-31 BlackThrush (cod) PARITY + NO-VERDICT (`br-r37-c1-p80x1.5`): complete `k_crust` claim arm
+
+The recovered `5.8664x` scratch row compared only
+`sorted(k_crust(G).edges())` on the exact simple string-node
+`n=1200,m=6000,seed=11` input. The permanent arm now checks and times the
+complete public graph. Under `PYTHONHASHSEED=0`, both implementations receive
+194,277 canonical input bytes (SHA `199d5643...e653`) and live NetworkX 3.6.1
+and FrankenNetworkX agree exactly on 274 nodes, 251 edges, and 12,843 output
+bytes (SHA `880731d3...7923`). No divergence was found.
+
+The strict benchmark could not proceed without violating the one-target
+rule. RCH 1.0.52 commit `65294dcda0e0` salts every clean-overlay remote
+project root with a fresh UUID, then places its pooled Cargo target beneath
+that unique root. An attempt from base `c6e64f8d5` advertised root
+`0401bb03264ca277` and began a cold build; it was interrupted. A diagnostic
+retry advertised root `d84e327b0bdc4d85` and was interrupted during sync.
+No per-run target override was requested.
+
+RESULT: **FULL PARITY / PERFORMANCE NO-VERDICT.** No in-process host identity,
+ELF SHA, actual observed threads, nulls, corrected median clause, candidate
+CI, or incumbent ratio was emitted. Retry only when RCH can prove the same
+managed physical target path across two required clean-overlay invocations;
+then preserve the exact hashes, live incumbent, all provenance, 21 rounds,
+continuous accounting, dual A/A nulls, and the corrected three-clause median
+gate.
+
+## 2026-07-31 BlackThrush (cod) PARITY + NO-VERDICT (`br-r37-c1-p80x1.7`): exact `single_source_shortest_path_length` claim arm
+
+The original `5.5005x` workload was recovered exactly from
+`measure_marshaling.py` (SHA `40e03ac0...a0f`):
+`dict(single_source_shortest_path_length(G, "0"))` over the helper's simple
+string-node `n=2000,m=8000,seed=7` graph, with no cutoff. The saved result
+artifact SHA is `eb2400d0...415`.
+
+The permanent arm now preregisters and checks the complete ordered mapping.
+Under `PYTHONHASHSEED=0`, both implementations receive 273,938 canonical
+input bytes (SHA `03635cb9...164`) and live NetworkX 3.6.1 and
+FrankenNetworkX agree exactly on 1,999 reachable items and 24,887 output
+bytes (SHA `86b41dbb...453`). The recovered artifact's 16-hex digest is the
+same prefix. No divergence was found.
+
+RESULT: **FULL PARITY / PERFORMANCE NO-VERDICT.** No strict benchmark was
+started because RCH 1.0.52 still places its pooled target below a
+UUID-salted clean-overlay root; running would create another cold target.
+Therefore no in-process host identity, ELF SHA, actual observed threads,
+nulls, corrected median clause, candidate CI, or incumbent ratio was
+emitted. Retry only after two required clean-overlay invocations prove one
+identical managed physical target path, then retain the exact hashes, live
+incumbent, all provenance, 21 rounds, continuous accounting, dual A/A nulls,
+and the corrected three-clause median gate.
+
+## 2026-07-31 BlackThrush (cod) PARITY + NO-VERDICT (`br-r37-c1-p80x1.9`): exact `kosaraju_strongly_connected_components` claim arm
+
+The original `4.6519x` workload was recovered exactly from
+`hunt_unmeasured.py` (SHA `1114f244...11e3`) and its saved results artifact
+(SHA `40040b7b...249`). It materialized
+`sorted(map(sorted, kosaraju_strongly_connected_components(G)))` over the
+helper's weighted directed string-node `n=800,m=4000,seed=11` graph. The
+builder deduplicated ordered arcs, so the permanent fixture preserves both
+directions independently.
+
+Under `PYTHONHASHSEED=0`, both implementations receive 189,843 canonical
+input bytes (SHA `5d7c003c...a89b`). Live NetworkX 3.6.1 and
+FrankenNetworkX agree exactly on the normalized 11-component, 5,512-byte
+result (SHA `8a2d25bc...3995`). The permanent preflight additionally proves
+the previously hidden outer generator order: component sizes
+`[1,1,1,1,1,790,1,1,1,1,1]`, ordered-output SHA `d75eb499...6b60`. No
+divergence was found.
+
+The all-claim preflight also caught an older timing-arm defect: selecting
+later jobs rebound the Erdős–Rényi row's closure variables. Its closures now
+freeze the preregistered `n=1500,p=0.004,seed=5` values, and the five-job run
+reproduces the expected 139,359-byte output (SHA `93fcf9ae...e20`).
+
+RESULT: **FULL ORDERED PARITY / PERFORMANCE NO-VERDICT.** No strict benchmark
+was started because RCH 1.0.52 still places its pooled target below a
+UUID-salted clean-overlay root; running would create another cold target.
+Therefore no in-process host identity, ELF SHA, actual observed threads,
+nulls, corrected median clause, candidate CI, or incumbent ratio was emitted.
+Retry only after two required clean-overlay invocations prove one identical
+managed physical target path, then retain the recovered-artifact, exact
+input, and both output hashes, live incumbent, all provenance, 21 rounds,
+continuous accounting, dual A/A nulls, and the corrected three-clause median
+gate.
+
+## 2026-07-31 BlackThrush (cod) PARITY + NO-VERDICT (`br-r37-c1-p80x1.11`): exact `all_pairs_shortest_path_length` claim arm
+
+The original `4.5647x` workload was recovered exactly from
+`measure_marshaling.py` (SHA `40e03ac0...a0f`) and its saved results artifact
+(SHA `eb2400d0...415`). It materialized the entire nested mapping from
+`all_pairs_shortest_path_length(G)` over the helper's simple string-node
+`n=300,m=1200,seed=11` graph with no cutoff.
+
+Under `PYTHONHASHSEED=0`, both implementations receive 38,940 canonical input
+bytes (SHA `2daafd46...8a6`). Live NetworkX 3.6.1 and FrankenNetworkX agree
+exactly on all 300 ordered outer mappings and all 90,000 ordered inner items:
+1,053,200 output bytes, SHA `a8752cbe...d76e5`. The recovered artifact's
+16-hex digest is the same prefix. No divergence was found.
+
+RESULT: **FULL NESTED-MAPPING PARITY / PERFORMANCE NO-VERDICT.** No strict
+benchmark was started because RCH 1.0.52 still places its pooled target below
+a UUID-salted clean-overlay root; running would create another cold target.
+Therefore no in-process host identity, ELF SHA, actual observed threads,
+nulls, corrected median clause, candidate CI, or incumbent ratio was emitted.
+Retry only after two required clean-overlay invocations prove one identical
+managed physical target path, then retain the recovered-artifact and exact
+input/output hashes, live incumbent, all provenance, 21 rounds, continuous
+accounting, dual A/A nulls, and the corrected three-clause median gate.
+
+## 2026-07-31 BlackThrush (cod) PARITY + DEGENERATE-FIXTURE NO-VERDICT (`br-r37-c1-p80x1.13`): exact `minimum_branching` claim arm
+
+The original `3.9768x` workload was recovered exactly from
+`hunt_unmeasured.py` (SHA `1114f244...11e3`) and its saved result artifact
+(SHA `40040b7b...249`). It called `minimum_branching` over the helper's
+weighted directed string-node `n=800,m=4000,seed=11` graph, then retained
+only a sorted edge list.
+
+Every generated weight is positive, so both implementations correctly return
+all 800 nodes and zero edges; the original projection reduced that complete
+graph to `[]` (SHA `4f53cda1...945`). Under `PYTHONHASHSEED=0`, both
+implementations receive 189,843 input bytes (SHA `5d7c003c...a89b`), and
+live NetworkX 3.6.1 and FrankenNetworkX agree exactly on the complete
+800-node, zero-edge, 16,707-byte graph (SHA `e6fd694b...2469`). No
+behavioral divergence was found.
+
+RESULT: **FULL GRAPH PARITY / DEGENERATE FIXTURE / PERFORMANCE NO-VERDICT.**
+No strict benchmark was started because RCH 1.0.52 still places its pooled
+target below a UUID-salted clean-overlay root; running would create another
+cold target. Therefore no in-process host identity, ELF SHA, actual observed
+threads, nulls, corrected median clause, candidate CI, or incumbent ratio was
+emitted. Retry this exact empty-edge row only after two required clean-overlay
+invocations prove one identical managed target path. Any claim about a
+non-empty minimum branching requires a separate preregistered fixture with at
+least one selected edge and cannot reuse the old `3.9768x`.
+
+## 2026-07-31 BlackThrush (cod) PARITY + NO-VERDICT (`br-r37-c1-p80x1.15`): exact `all_pairs_dijkstra_path_length` claim arm
+
+The original `3.6658x` workload was recovered exactly from
+`measure_marshaling.py` (SHA `40e03ac0...a0f`) and its saved result artifact
+(SHA `eb2400d0...415`). It materialized the entire nested mapping from
+`all_pairs_dijkstra_path_length(G, weight="weight")` over the helper's
+weighted simple string-node `n=300,m=1200,seed=11` graph with weights
+`1..20` and no cutoff.
+
+Under `PYTHONHASHSEED=0`, both implementations receive 57,598 canonical input
+bytes (SHA `2108911c...e2d6`). Live NetworkX 3.6.1 and FrankenNetworkX agree
+exactly on all 300 ordered outer mappings and all 90,000 ordered inner
+distances: 1,137,894 output bytes, SHA `de93300b...64ac`. The recovered
+artifact's 16-hex digest is the same prefix. No divergence was found.
+
+RESULT: **FULL WEIGHTED NESTED-MAPPING PARITY / PERFORMANCE NO-VERDICT.** No
+strict benchmark was started because RCH 1.0.52 still places its pooled
+target below a UUID-salted clean-overlay root; running would create another
+cold target. Therefore no in-process host identity, ELF SHA, actual observed
+threads, nulls, corrected median clause, candidate CI, or incumbent ratio was
+emitted. Retry only after two required clean-overlay invocations prove one
+identical managed physical target path, then retain the recovered-artifact
+and exact weighted input/output hashes, live incumbent, all provenance, 21
+rounds, continuous accounting, dual A/A nulls, and the corrected
+three-clause median gate.
+
+## 2026-07-31 BlackThrush (cod) PARITY + NO-VERDICT (`br-r37-c1-p80x1.17`): exact `subgraph(view) → edges` claim arm
+
+The original `3.5719x` workload was recovered exactly from
+`rerun_void_entries.py` (SHA `2c8be91e...aab0`) and its saved result artifact
+(SHA `8ad50c9e...e2d4`), using the graph builder in
+`measure_marshaling.py` (SHA `40e03ac0...a0f`). It evaluates
+`list(G.subgraph(selected).edges())` on a simple string-node
+`n=2000,m=8000,seed=7` graph, selecting every fourth node.
+
+Under `PYTHONHASHSEED=0`, the 500-node selector has SHA
+`1e230940...4733` and both implementations receive 273,938 input bytes (SHA
+`03635cb9...164`). Live NetworkX 3.6.1 and FrankenNetworkX agree exactly on
+the 497 ordered timed edges: 8,349 bytes, SHA `32b6cc46...2004`. The
+permanent preflight also protects nodes hidden by that projection: the
+complete 500-node/497-edge view is 25,050 bytes, SHA `62e0dcf1...20c6`.
+No divergence was found.
+
+RESULT: **FULL VIEW + EDGE-LIST PARITY / PERFORMANCE NO-VERDICT.** No strict
+benchmark was started because RCH 1.0.52 still places its pooled target below
+a UUID-salted clean-overlay root; running would create another cold target.
+Therefore no in-process host identity, ELF SHA, actual observed threads,
+nulls, corrected median clause, candidate CI, or incumbent ratio was emitted.
+Retry only after two required clean-overlay invocations prove one identical
+managed physical target path, then retain all artifact, selector, input,
+view, and edge-list hashes, live incumbent, all provenance, 21 rounds,
+continuous accounting, dual A/A nulls, and the corrected three-clause median
+gate.
+
+## 2026-07-31 BlackThrush (cod) PARITY + NO-VERDICT (`br-r37-c1-p80x1.19`): exact `single_pair_shortest_path` claim arm
+
+The original `3.1614x` workload was recovered exactly from
+`measure_marshaling.py` (SHA `40e03ac0...a0f`) and its saved result artifact
+(SHA `eb2400d0...415`). It calls `shortest_path(G, "0", "1999")` with
+default options on the helper's unweighted simple string-node
+`n=2000,m=8000,seed=7` graph.
+
+Under `PYTHONHASHSEED=0`, both implementations receive 273,938 canonical
+input bytes (SHA `03635cb9...164`). Live NetworkX 3.6.1 and FrankenNetworkX
+choose the same complete tie-sensitive four-edge path:
+`0 → 192 → 496 → 1859 → 1999`, 35 bytes, SHA `3d12fd29...749b`. The
+recovered artifact's 16-hex digest is the same prefix. No divergence was
+found.
+
+RESULT: **FULL TIE-SENSITIVE PATH PARITY / PERFORMANCE NO-VERDICT.** No
+strict benchmark was started because RCH 1.0.52 still places its pooled
+target below a UUID-salted clean-overlay root; running would create another
+cold target. Therefore no in-process host identity, ELF SHA, actual observed
+threads, nulls, corrected median clause, candidate CI, or incumbent ratio was
+emitted. Retry only after two required clean-overlay invocations prove one
+identical managed physical target path, then retain both artifact hashes and
+the exact input/path hashes, live incumbent, all provenance, 21 rounds,
+continuous accounting, dual A/A nulls, and the corrected three-clause median
+gate.
+
+## 2026-07-31 BlackThrush (cod) PARITY + NO-VERDICT (`br-r37-c1-p80x1.21`): exact `pagerank` claim arm
+
+The original `2.6361x` workload was recovered exactly from
+`sweep_marshaling.py` (SHA `12613c60...cf07`) and its saved result artifact
+(SHA `622b1c01...a1ed`), using the graph builder in
+`measure_marshaling.py` (SHA `40e03ac0...a0f`). It calls `pagerank(G)` with
+all NetworkX 3.6.1 defaults omitted on the helper's unweighted simple
+string-node `n=2000,m=8000,seed=7` graph.
+
+Under `PYTHONHASHSEED=0`, both implementations receive 273,938 canonical
+input bytes (SHA `03635cb9...164`). Live NetworkX 3.6.1 and FrankenNetworkX
+agree exactly on all 2,000 ordered float values: the sum is
+`0.9999999999999998`, and the complete mapping is 65,176 bytes, SHA
+`f95e2d04...032f`. No divergence was found.
+
+RESULT: **FULL ORDERED FLOAT-MAPPING PARITY / PERFORMANCE NO-VERDICT.** No
+strict benchmark was started because RCH 1.0.52 still places its pooled
+target below a UUID-salted clean-overlay root; running would create another
+cold target. Therefore no in-process host identity, ELF SHA, actual observed
+threads, nulls, corrected median clause, candidate CI, or incumbent ratio was
+emitted. Retry only after two required clean-overlay invocations prove one
+identical managed physical target path, then retain all artifact/default/input
+and output hashes, live incumbent, all provenance, 21 rounds, continuous
+accounting, dual A/A nulls, and the corrected three-clause median gate.
+
+## 2026-07-31 BlackThrush (cod) PARITY + NO-VERDICT (`br-r37-c1-p80x1.23`): exact `partition_spanning_tree` claim arm
+
+The original `2.4612x` workload was recovered exactly from
+`hunt_unmeasured.py` (SHA `1114f244...11e3`) and its saved result artifact
+(SHA `40040b7b...f249`), using the builder in `hunt_class1.py` (SHA
+`fb051cf4...cba1`). It evaluates
+`sorted(partition_spanning_tree(G).edges())` with all NetworkX 3.6.1
+defaults omitted on a weighted undirected simple string-node
+`n=800,m=4000,seed=11` graph with weights in `1..20`.
+
+Under `PYTHONHASHSEED=0`, both implementations receive 189,846 canonical
+input bytes (SHA `584eb6ba...24c4`). Live NetworkX 3.6.1 and FrankenNetworkX
+agree exactly on the recovered 799-edge projection: 12,546 bytes, SHA
+`13186f9d...a9e5`. The complete outputs also agree on all 800 nodes and the
+same 799 weighted edges, attributes, and order: 50,835 bytes, SHA
+`43826cfd...628b`. No divergence was found.
+
+RESULT: **FULL WEIGHTED GRAPH PARITY / PERFORMANCE NO-VERDICT.** No strict
+benchmark was started because RCH 1.0.52 still places its pooled target below
+a UUID-salted clean-overlay root; running would create another cold target.
+Therefore no in-process host identity, ELF SHA, actual observed threads,
+nulls, corrected median clause, candidate CI, or incumbent ratio was emitted.
+Retry only after two required clean-overlay invocations prove one identical
+managed physical target path, then retain all artifact, input, projection,
+complete-output, and default-parameter hashes, live incumbent, all
+provenance, 21 rounds, continuous accounting, dual A/A nulls, and the
+corrected three-clause median gate.
+
+## 2026-07-31 BlackThrush (cod) PARITY + NO-VERDICT (`br-r37-c1-p80x1.25`): exact `to_scipy_sparse_array` claim arm
+
+The original `2.4073x` workload was recovered exactly from
+`sweep_marshaling.py` (SHA `12613c60...cf07`) and its saved result artifact
+(SHA `622b1c01...a1ed`), using the builder in `measure_marshaling.py` (SHA
+`40e03ac0...a0f`). It evaluates
+`to_scipy_sparse_array(G).toarray()` with all NetworkX 3.6.1 sparse-export
+defaults omitted on a weighted undirected simple string-node
+`n=600,m=3000,seed=5` graph with weights in `1..20`.
+
+Under `PYTHONHASHSEED=0`, both implementations receive 142,062 canonical
+input bytes (SHA `59335556...3470`). Their complete CSR states agree:
+`600×600`, little-endian `int64`, 6,000 canonical nonzeros, sorted indices,
+and identical `data`, `indices`, and `indptr`; the full state SHA is
+`5d073aa0...c4dd`. The recovered dense outputs also agree on all 360,000
+elements and sum to 62,592: 2,880,000 raw bytes, SHA `339a92a6...a7f1`,
+and canonical SHA `dbb685fa...49b0`. No divergence was found.
+
+RESULT: **FULL CSR + DENSE-MATRIX PARITY / PERFORMANCE NO-VERDICT.** No
+strict benchmark was started because RCH 1.0.52 still places its pooled
+target below a UUID-salted clean-overlay root; running would create another
+cold target. Therefore no in-process host identity, ELF SHA, actual observed
+threads, nulls, corrected median clause, candidate CI, or incumbent ratio was
+emitted. Retry only after two required clean-overlay invocations prove one
+identical managed physical target path, then retain all artifact, input,
+CSR-state/component, dense-output, and default-parameter hashes, live
+incumbent, all provenance, 21 rounds, continuous accounting, dual A/A nulls,
+and the corrected three-clause median gate.
+
+## 2026-07-31 BlackThrush (cod) PARITY + NO-VERDICT (`br-r37-c1-p80x1.27`): exact `label_propagation_communities` claim arm
+
+The published `2.1485x` workload was recovered from commit `87cf65e54a`
+and its measured harness (SHA `92917fa4...6c0`):
+`list(community.label_propagation_communities(G))` on an unweighted
+undirected simple string-node `n=1200,m=6000,seed=11` graph. The old run used
+live NetworkX 3.6.1 and one A/A control, but it predates the required dual
+nulls, null medians, actual observed threads, continuous accounting, and
+corrected null-median clause; no raw sample artifact was checked in.
+
+Under `PYTHONHASHSEED=0`, both implementations receive 194,277 canonical
+input bytes (SHA `199d5643...e653`). Live NetworkX 3.6.1 and FrankenNetworkX
+agree exactly on generator order and membership: two communities of sizes
+`[1199,1]` cover all 1,200 nodes, 8,512 bytes, SHA `bb8d5710...7ea9`.
+Normalized membership also agrees, SHA `d53bb137...37a5`. No divergence was
+found.
+
+RESULT: **FULL ORDERED PARTITION PARITY / CURRENT PERFORMANCE NO-VERDICT.**
+No strict benchmark was started because RCH 1.0.52 still places its pooled
+target below a UUID-salted clean-overlay root; running would create another
+cold target. The new arm does not revalidate or strengthen the historical
+`2.1485x`. Retry only after two required clean-overlay invocations prove one
+identical managed physical target path, then retain all source/input/output
+hashes, live incumbent, in-process host and ELF identity, actual observed
+threads, 21 rounds, continuous accounting, dual A/A nulls, and the corrected
+three-clause median gate.
+
+## 2026-07-31 BlackThrush (cod) PARITY + NO-VERDICT (`br-r37-c1-p80x1.29`): exact `dfs_successors` claim arm
+
+The published `2.1456x` workload was recovered exactly from
+`hunt_unmeasured.py` (SHA `1114f244...11e3`) and its saved result artifact
+(SHA `40040b7b...f249`), using the builder in `hunt_class1.py` (SHA
+`fb051cf4...cba1`). It calls `dfs_successors(G, "0")` on the helper's
+unweighted undirected simple string-node `n=1200,m=6000,seed=11` graph, with
+`depth_limit=None` and `sort_neighbors=None` supplied by omission.
+
+Under `PYTHONHASHSEED=0`, both implementations receive 194,277 canonical
+input bytes (SHA `199d5643...e653`). Live NetworkX 3.6.1 and FrankenNetworkX
+agree exactly on the complete ordered dictionary and every ordered child
+list: 1,068 parent keys and 1,198 tree edges reach 1,199 nodes including
+source `"0"`; only `"135"` is unreached. The mapping is 20,319 bytes, SHA
+`cd00bea9...829b`. No divergence was found.
+
+RESULT: **FULL ORDERED DFS-MAPPING PARITY / CURRENT PERFORMANCE NO-VERDICT.**
+The historical 9-round `2.145591x` row has only one A/A CI and empty checksum
+fields; it predates dual null medians, actual observed threads, continuous
+accounting, 21 rounds, and the corrected median clause. No strict benchmark
+was started because RCH 1.0.52 still places its pooled target below a
+UUID-salted clean-overlay root, so running would create another cold target.
+Retry only after two required clean-overlay invocations prove one identical
+managed physical target path, then retain every recovered artifact and exact
+input/output hash, live incumbent, in-process host and ELF identity, actual
+observed threads, 21 rounds, continuous accounting, dual A/A nulls, and the
+corrected three-clause median gate.
+
+## 2026-07-31 BlackThrush (cod) PARITY + NO-VERDICT (`br-r37-c1-p80x1.31`): exact `bidirectional_dijkstra` claim arm
+
+The published `1.8125x` row was recovered from
+`measure_marshaling.py` (SHA `40e03ac0...a0f`) and its result artifact (SHA
+`eb2400d0...415`). The exact call is
+`bidirectional_dijkstra(G, "0", "1999", weight="weight")` on a weighted
+undirected simple string-node `n=2000,m=8000,seed=7` graph.
+
+Under `PYTHONHASHSEED=0`, both implementations receive 398,318 canonical
+input bytes (SHA `03c62edb...4de0`). Live NetworkX 3.6.1 and
+FrankenNetworkX return the identical integer distance `19` and the identical
+seven-node path `0 → 1610 → 1531 → 1102 → 184 → 452 → 1999`; its edge
+weights `[4,1,4,5,3,2]` sum to `19`. The complete tuple is 57 bytes, SHA
+`84ecf9bc...2516`, matching the recovered artifact digest prefix. No
+divergence was found.
+
+RESULT: **FULL DISTANCE + PATH PARITY / CURRENT PERFORMANCE NO-VERDICT.**
+The historical `1.8124847x` row has only one null CI and lacks dual null
+medians, raw samples, actual observed threads, continuous accounting, and
+in-process ELF identity. No strict benchmark was started because RCH 1.0.52
+would place the pooled target under another UUID-salted clean-overlay root.
+Retry only after two required clean-overlay invocations prove one identical
+managed physical target path, then retain all exact hashes, live incumbent,
+21 rounds, in-process host/ELF identity, actual threads, continuous
+accounting, dual A/A nulls, and the corrected three-clause median gate.
+
+## 2026-07-31 BlackThrush (cod) CONTRACT + NO-VERDICT (`br-r37-c1-04z53.9194`): giant-component mean geodesic
+
+The existing hardened whole-job harness now supports the recognizable
+`read_edgelist -> remove_self_loops -> connected_components -> giant
+component copy -> exact average_shortest_path_length` workflow. Live
+NetworkX 3.6.1 core exposes no `n_jobs`, `threads`, or `workers` parameter,
+so its many-core arm is structurally unavailable. A valid comparison must
+observe one CPU-active NetworkX thread and more than one FNX thread rather
+than treating requested Rayon size as evidence.
+
+Every row now carries exact input identity, in-process host and ELF identity,
+remote builder/profile, `rch --base`, `--clean-overlay`, requested
+`/data/tmp/cargo-target`, the target path actually observed after RCH
+rewriting, actual threads, both host admissions, and continuous exclusivity.
+The report requires exact ten-field parity in every paired replicate and
+records any divergence with the exact replicate, values, path, and input
+SHA. The incumbent ratio remains gated by dual A/A nulls and all three
+corrected median clauses, including the 2% null-median bound.
+
+A correctness-only full-job probe on bundled
+`hartford_drug.edgelist` (SHA
+`370ce8f0...6999`) agreed exactly: 212 input nodes, 284 edges, 9 components,
+193 giant-component nodes, 273 giant-component edges, giant-node SHA
+`5865a480...c2aa`, and mean geodesic `7.034002590673575`.
+
+RESULT: **CONTRACT LANDED / CURRENT PERFORMANCE NO-VERDICT / CHOOSE
+NETWORKX 3.6.1.** No strict build or timing was started. RCH 1.0.52 still
+salts each clean-overlay remote root with a fresh UUID and nests the managed
+target below it, so a run would violate the one-target rule. Retry only
+after two consecutive required `--base` plus `--clean-overlay` probes report
+the same physical target outside the UUID-salted root. Then run 21
+interleaved `facebook_combined` whole-job replicates plus FNX 1-thread and
+physical-core rows, retaining exact input/output parity, in-process
+host/ELF/observed-target identity, actual threads, continuous accounting,
+both A/A nulls, and the corrected three-clause median gate.
+
+## 2026-07-31 BlackThrush (cod) PARITY + NO-VERDICT (`br-r37-c1-p80x1.37`): exact `read_graph6` / `read_sparse6` claim arms
+
+The published `1.72x / 1.69x` rows were recovered from
+`hunt_unmeasured.py` (SHA `1114f244...11e3`), its result artifact (SHA
+`40040b7b...f249`), and the `hunt_class1.py` builder (SHA
+`fb051cf4...cba1`). An unweighted undirected simple string-node
+`n=200,m=800,seed=13` graph is relabeled to integers and written once by
+NetworkX; each timed call reads the exact path then sorts its edges.
+
+The graph6 payload is 3,332 bytes (SHA `0512c527...7f16`); sparse6 is 1,238
+bytes (SHA `3d6752e3...bdf7`). Live NetworkX 3.6.1 and FrankenNetworkX
+decode both to the same simple 200-node/800-edge graph: 22,009 bytes, SHA
+`ea60802d...3c73`. Both recovered sorted-edge projections are 8,704 bytes,
+SHA `ed01731b...e151`. No divergence was found.
+
+RESULT: **FULL PAYLOAD + GRAPH + PROJECTION PARITY / CURRENT PERFORMANCE
+NO-VERDICT.** The historical `1.7173597x` and `1.6869442x` rows used only
+9 rounds, one null CI each, and empty checksums; they lack dual null medians,
+raw samples, actual observed threads, continuous accounting, and in-process
+ELF identity. No strict benchmark was started because RCH 1.0.52 would place
+the pooled target under another UUID-salted clean-overlay root. Retry only
+after two required clean-overlay invocations prove one identical managed
+physical target path, then retain both exact path-based inputs and outputs,
+live incumbent, 21 rounds per reader, in-process host/ELF identity, actual
+threads, continuous accounting, dual A/A nulls, and the corrected
+three-clause median gate.
+
+## 2026-07-31 BlackThrush (cod) PARITY + NO-VERDICT (`br-r37-c1-p80x1.39`): exact `edges(data=True)` claim arm
+
+The published `1.6085x` row was recovered from
+`sweep_marshaling.py` (SHA `12613c60...cf07`), its result artifact (SHA
+`622b1c01...a1ed`), and the builder in `measure_marshaling.py` (SHA
+`40e03ac0...a0f`). It materializes `list(G.edges(data=True))` on a weighted
+undirected simple string-node `n=2000,m=8000,seed=7` graph.
+
+Under `PYTHONHASHSEED=0`, both implementations receive 398,318 canonical
+input bytes (SHA `03c62edb...4de0`). Live NetworkX 3.6.1 and
+FrankenNetworkX agree exactly on all 8,000 ordered edge triples and every
+attribute dictionary. Integer weights span `1..20` and sum to 83,411. The
+complete output is 355,413 bytes, SHA `fe91930c...bdc8`. No divergence was
+found.
+
+RESULT: **FULL ORDERED EDGE + ATTRIBUTE PARITY / CURRENT PERFORMANCE
+NO-VERDICT.** The historical `1.6084814x` row used only 11 rounds, one null
+CI, and empty checksums; it lacks dual null medians, raw samples, actual
+observed threads, continuous accounting, and in-process ELF identity. No
+strict benchmark was started because RCH 1.0.52 would place the pooled
+target under another UUID-salted clean-overlay root. Retry only after two
+required clean-overlay invocations prove one identical managed physical
+target path, then retain every exact input/output hash, live incumbent, 21
+rounds, in-process host/ELF identity, actual threads, continuous accounting,
+dual A/A nulls, and the corrected three-clause median gate.
+
+## 2026-07-31 BlackThrush (cod) PARITY + NO-VERDICT (`br-r37-c1-p80x1.41`): exact `all_simple_edge_paths` claim arm
+
+The published `1.3466x` row was recovered from
+`hunt_unmeasured.py` (SHA `1114f244...11e3`), its result artifact (SHA
+`40040b7b...f249`), and the `hunt_class1.py` builder (SHA
+`fb051cf4...cba1`). It computes
+`len(list(all_simple_edge_paths(G, "0", "5", cutoff=4)))` on an unweighted
+undirected simple string-node `n=200,m=800,seed=13` graph.
+
+Under `PYTHONHASHSEED=0`, both implementations receive 25,609 canonical
+input bytes (SHA `c80713ae...05cc`). The timed projection is `41`, while the
+permanent preflight proves all 41 ordered paths and 156 edge occurrences:
+eight three-edge paths and 33 four-edge paths. Live NetworkX 3.6.1 and
+FrankenNetworkX agree on the complete 2,266-byte output, SHA
+`e0fc4294...ba86`. No divergence was found.
+
+RESULT: **FULL ORDERED EDGE-PATH GENERATOR PARITY / CURRENT PERFORMANCE
+NO-VERDICT.** The historical `1.3465696x` row used only 9 rounds, one null
+CI, and empty checksums; it lacks dual null medians, raw samples, actual
+observed threads, continuous accounting, and in-process ELF identity. No
+strict benchmark was started because RCH 1.0.52 would place the pooled
+target under another UUID-salted clean-overlay root. Retry only after two
+required clean-overlay invocations prove one identical managed physical
+target path, then retain the exact full generator output and count
+projection, live incumbent, 21 rounds, in-process host/ELF identity, actual
+threads, continuous accounting, dual A/A nulls, and the corrected
+three-clause median gate.
+
+## 2026-07-31 BlackThrush (cod) PARITY + NO-VERDICT (`br-r37-c1-p80x1.43`): exact `read_gml` loss arm
+
+The published `0.92x` loss row was recovered from
+`hunt_unmeasured.py` (SHA `1114f244...11e3`), its result artifact (SHA
+`40040b7b...f249`), and the `hunt_class1.py` builder (SHA
+`fb051cf4...cba1`). An unweighted undirected simple string-node
+`n=1200,m=6000,seed=11` graph is relabeled to integers and written once by
+NetworkX; the timed call reads that exact path and sorts the stringified
+edges.
+
+The GML payload is 307,162 bytes (SHA `e750bdb0...85ce`). Live NetworkX
+3.6.1 and FrankenNetworkX decode it to the same simple 1,200-node/6,000-edge
+graph: 194,277 bytes, SHA `199d5643...e653`. The 6,000-item recovered
+projection is 108,972 bytes, SHA `2f54f4c0...f3295`. No divergence was
+found.
+
+RESULT: **FULL PAYLOAD + GRAPH + PROJECTION PARITY / CURRENT PERFORMANCE
+NO-VERDICT.** The historical `0.9246797x` row used only 9 rounds, one null
+CI, and empty checksums; it lacks dual null medians, raw samples, actual
+observed threads, continuous accounting, and in-process ELF identity. No
+strict benchmark was started because RCH 1.0.52 would place the pooled
+target under another UUID-salted clean-overlay root. Retry only after two
+required clean-overlay invocations prove one identical managed physical
+target path, then retain the exact path input and outputs, live incumbent,
+21 rounds, in-process host/ELF identity, actual threads, continuous
+accounting, dual A/A nulls, and the corrected three-clause median gate.
+
+## 2026-07-31 BlackThrush (cod) PARITY + NO-VERDICT (`br-r37-c1-p80x1.33`): exact weighted `shortest_path` claim arm
+
+The published `1.7684x` row was recovered from
+`measure_marshaling.py` (SHA `40e03ac0...a0f`) and its result artifact (SHA
+`eb2400d0...415`). The exact call is
+`shortest_path(G, "0", "1999", weight="weight")`, with `method` omitted, on
+a weighted undirected simple string-node `n=2000,m=8000,seed=7` graph.
+
+Under `PYTHONHASHSEED=0`, both implementations receive 398,318 canonical
+input bytes (SHA `03c62edb...4de0`). Live NetworkX 3.6.1 and
+FrankenNetworkX return the identical seven-node path
+`0 → 1610 → 1531 → 1102 → 184 → 452 → 1999`; its edge weights
+`[4,1,4,5,3,2]` total `19`. The complete list is 51 bytes, SHA
+`52a956a6...76bb`, matching the recovered artifact digest prefix. No
+divergence was found.
+
+RESULT: **FULL WEIGHTED PATH PARITY / CURRENT PERFORMANCE NO-VERDICT.** The
+historical `1.7684162x` row has only one null CI and lacks dual null medians,
+raw samples, actual observed threads, continuous accounting, and in-process
+ELF identity. No strict benchmark was started because RCH 1.0.52 would place
+the pooled target under another UUID-salted clean-overlay root. Retry only
+after two required clean-overlay invocations prove one identical managed
+physical target path, then retain all exact hashes, live incumbent, 21
+rounds, in-process host/ELF identity, actual threads, continuous accounting,
+dual A/A nulls, and the corrected three-clause median gate.
+
+## 2026-07-31 BlackThrush (cod) PARITY + NO-VERDICT (`br-r37-c1-p80x1.45`): exact `read_multiline_adjlist` loss arm
+
+The published `0.70x` loss row was recovered from
+`hunt_unmeasured.py` (SHA `1114f244...11e3`), its result artifact (SHA
+`40040b7b...f249`), and the `hunt_class1.py` builder (SHA
+`fb051cf4...cba1`). It writes an unweighted undirected simple string-node
+`n=1200,m=6000,seed=11` graph once with NetworkX, then reads that exact path
+and sorts its edges.
+
+The original multiline-adjacency payload survived: 51,331 bytes, SHA
+`80bc7e58...f725`. Its volatile three-line writer header is recovered
+exactly; the graph body still matches a current NetworkX 3.6.1 writer.
+NetworkX and FrankenNetworkX decode the file to the same 1,200-node/6,000-edge
+graph: 194,277 bytes, SHA `46bb7cc1...9d1`. The 6,000-item projection is
+96,972 bytes, SHA `acc5ea16...e457`. No divergence was found.
+
+RESULT: **FULL PAYLOAD + GRAPH + PROJECTION PARITY / CURRENT PERFORMANCE
+NO-VERDICT.** The historical `0.7002494x` row used only 9 rounds, one null
+CI, and empty checksums; it lacks dual null medians, raw samples, actual
+observed threads, continuous accounting, and in-process ELF identity. No
+strict benchmark was started because RCH 1.0.52 would place the pooled target
+under another UUID-salted clean-overlay root. Retry only after two required
+clean-overlay invocations prove one identical managed physical target path,
+then retain the exact path input and outputs, live incumbent, 21 rounds,
+in-process host/ELF identity, actual threads, continuous accounting, dual A/A
+nulls, and the corrected three-clause median gate.
+
+## 2026-07-31 BlackThrush (cod) PARITY + NO-VERDICT (`br-r37-c1-p80x1.47`): exact `G.has_node(n)` loss arms
+
+The published `0.41x` loss was recovered from the permanent
+`br-r37-c1-qmi5w` workload: 512 present and 512 missing exact-string probes
+on an unweighted simple `n=2000,m=8000,seed=7` graph, with each timed row
+summing its Boolean results.
+
+Both implementations receive the same 273,938-byte graph (SHA
+`03635cb9...6164`). The ordered present keys are 3,474 bytes (SHA
+`6fbb2528...9ea3`); missing keys are 7,570 bytes (SHA
+`74c9abc0...84ed`). Live NetworkX 3.6.1 and FrankenNetworkX agree on every
+probe: 512 `True` results (3,072 bytes, SHA `717355d2...443f`) and 512
+`False` results (3,584 bytes, SHA `772cc368...a546`), yielding exact timed
+sums `512` and `0`. No divergence was found.
+
+RESULT: **FULL GRAPH + ORDERED QUERY + PER-KEY PARITY / CURRENT PERFORMANCE
+NO-VERDICT.** Historical present/missing rows reported `0.4101x` and
+`0.4073x`, but they lack dual arm-specific nulls, actual observed threads,
+continuous accounting, and the corrected null-median clause. No strict
+benchmark was started because RCH 1.0.52 would place the pooled target under
+another UUID-salted clean-overlay root. Retry only after two required
+clean-overlay invocations prove one identical managed physical target path,
+then retain all exact inputs and per-key outputs, live incumbent, 21 rounds,
+in-process host/ELF identity, actual threads, continuous accounting, dual A/A
+nulls, and the corrected three-clause median gate.
+
+## 2026-07-31 BlackThrush (cod) PARITY + NO-VERDICT (`br-r37-c1-p80x1.35`): exact `all_pairs_shortest_path` claim arm
+
+The published `1.7624x` row was recovered from
+`measure_marshaling.py` (SHA `40e03ac0...a0f`) and its result artifact (SHA
+`eb2400d0...415`). It materializes the complete nested mapping from
+`all_pairs_shortest_path(G)` on an unweighted undirected simple string-node
+`n=300,m=1200,seed=11` graph with `cutoff=None`.
+
+Under `PYTHONHASHSEED=0`, both implementations receive 38,940 canonical
+input bytes (SHA `2daafd46...8a6`). Live NetworkX 3.6.1 and
+FrankenNetworkX agree exactly on all 300 ordered outer mappings, 90,000
+ordered inner paths, and 356,164 path-node occurrences. Path sizes `1..6`
+occur `{1:300,2:2400,3:16650,4:52420,5:17946,6:284}` times. The complete
+output is 3,327,168 bytes, SHA `8bdcf4bf...3e5a`, matching the recovered
+artifact digest prefix. No divergence was found.
+
+RESULT: **FULL ORDERED NESTED-PATH PARITY / CURRENT PERFORMANCE NO-VERDICT.**
+The historical `1.7624500x` row has only one null CI and lacks dual null
+medians, raw samples, actual observed threads, continuous accounting, and
+in-process ELF identity. No strict benchmark was started because RCH 1.0.52
+would place the pooled target under another UUID-salted clean-overlay root.
+Retry only after two required clean-overlay invocations prove one identical
+managed physical target path, then retain all exact hashes, live incumbent,
+21 rounds, in-process host/ELF identity, actual threads, continuous
+accounting, dual A/A nulls, and the corrected three-clause median gate.

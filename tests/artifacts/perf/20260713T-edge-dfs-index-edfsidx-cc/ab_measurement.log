@@ -1,0 +1,8 @@
+  [2m2026-07-13T02:41:15.246516Z[0m [32m INFO[0m [1;32mrch::hook::transfer_orchestration[0m[32m: [32mExecuting command remotely: cargo test --release -p fnx-algorithms --lib edge_dfs -- --include-ignored --nocapture[0m
+test tests::test_edge_dfs_path ... ok
+test tests::test_edge_dfs_directed ... ok
+EDFSIDX_AB edge_dfs 2000-node deg40 rounds=61 (>1 = index faster)
+EDFSIDX_AB INDEX_vs_string: median=7.8588x win_rate=61/61 p5_p95=[5.7016,9.8727]
+EDFSIDX_AB NULL_index_vs_index: median=0.9907x win_rate=28/61 p5_p95=[0.8113,1.2263]
+test tests::edge_dfs_idx_ab ... ok
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 1039 filtered out; finished in 4.87s

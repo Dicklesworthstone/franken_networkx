@@ -244,6 +244,70 @@ impl DiGraph {
         }
     }
 
+    /// br-r37-c1-indsub: directed twin of `Graph::induced_subgraph_ordered` —
+    /// build the induced subgraph over `order` (parent node indices, already in
+    /// the caller's output order) with no node-name hashing.
+    ///
+    /// `add_edge_with_attrs` costs two `String` allocations, four name hashes
+    /// and TWO `record_decision` ledger entries per arc (the second carrying
+    /// four `EvidenceTerm`s, eight more String allocations). Everything it
+    /// re-derives is already known here. Invariants reproduced directly:
+    /// `edges` keyed by the ORIENTED new-index pair (direction is identity for
+    /// a directed edge, so no canonicalization), and a succ/pred row records
+    /// its endpoint when the arc is emitted, so both row orders are the walk
+    /// order — matching nx's `add_edges_from` over the induced walk.
+    ///
+    /// `order` must contain distinct, in-range parent indices.
+    #[must_use]
+    pub fn induced_subgraph_ordered(&self, order: &[usize], runtime_policy: RuntimePolicy) -> Self {
+        let mut position = vec![usize::MAX; self.nodes.len()];
+        for (slot, &parent_idx) in order.iter().enumerate() {
+            position[parent_idx] = slot;
+        }
+
+        let mut nodes = crate::FxIndexMap::default();
+        nodes.reserve(order.len());
+        for &parent_idx in order {
+            let (name, attrs) = self
+                .nodes
+                .get_index(parent_idx)
+                .expect("induced subgraph order must hold valid parent node indices");
+            nodes.insert(name.clone(), attrs.clone());
+        }
+
+        let mut succ_indices = vec![Vec::new(); order.len()];
+        let mut pred_indices = vec![Vec::new(); order.len()];
+        let mut edges = crate::FxIndexMap::default();
+        for (slot, &parent_idx) in order.iter().enumerate() {
+            for &parent_target in &self.succ_indices[parent_idx] {
+                let other = position[parent_target];
+                if other == usize::MAX {
+                    continue;
+                }
+                let attrs = self
+                    .edges
+                    .get(&(parent_idx, parent_target))
+                    .cloned()
+                    .unwrap_or_default();
+                edges.insert((slot, other), attrs);
+                succ_indices[slot].push(other);
+                pred_indices[other].push(slot);
+            }
+        }
+
+        Self {
+            mode: runtime_policy.mode(),
+            revision: 0,
+            nodes,
+            succ_indices,
+            pred_indices,
+            edges,
+            runtime_policy,
+            csr_cache: std::sync::Arc::default(),
+            all_int_cache: std::sync::Arc::default(),
+        }
+    }
+
     #[must_use]
     pub fn strict() -> Self {
         Self::new(CompatibilityMode::Strict)
@@ -394,6 +458,22 @@ impl DiGraph {
     pub fn has_edge(&self, source: &str, target: &str) -> bool {
         self.edge_pair_key(source, target)
             .is_some_and(|k| self.edges.contains_key(&k))
+    }
+
+    /// br-r37-c1-04z53 (cc): directed `has_edge` straight from insertion-order
+    /// indices (source-major), skipping the `i.to_string()` heap alloc for int
+    /// nodes. Names come from the node table by index (borrowed); the caller
+    /// guards each index with `node_index_matches_int`. Mirror of
+    /// `Graph::has_edge_by_indices`.
+    #[must_use]
+    pub fn has_edge_by_indices(&self, source_idx: usize, target_idx: usize) -> bool {
+        match (
+            self.get_node_name(source_idx),
+            self.get_node_name(target_idx),
+        ) {
+            (Some(source), Some(target)) => self.has_edge(source, target),
+            _ => false,
+        }
     }
 
     #[must_use]
@@ -589,7 +669,12 @@ impl DiGraph {
     /// Total degree: in_degree + out_degree.
     #[must_use]
     pub fn degree(&self, node: &str) -> usize {
-        self.in_degree(node) + self.out_degree(node)
+        // br-r37-c1-3gt4y: both rows share the same contiguous node index.
+        // Resolve the name once instead of paying the IndexMap lookup in both
+        // in_degree() and out_degree(). Missing nodes still report degree zero.
+        self.nodes.get_index_of(node).map_or(0, |idx| {
+            self.pred_indices[idx].len() + self.succ_indices[idx].len()
+        })
     }
 
     /// br-r37-c1-degidx: index-based degree accessors — O(1), zero
@@ -680,6 +765,24 @@ impl DiGraph {
     #[must_use]
     pub fn any_edge_has_attr(&self, key: &str) -> bool {
         self.edges.values().any(|attrs| attrs.contains_key(key))
+    }
+
+    /// Directed twin of `Graph::all_edge_attr_values_scalar`: true if EVERY inner
+    /// edge attr value is a faithful scalar (Int/Float/Bool). No-alloc scan over
+    /// the edge store values — contrast `edges_ordered_borrowed`, which allocates
+    /// an O(E) Vec and resolves node names per edge. Used by the reverse gate.
+    #[must_use]
+    pub fn all_edge_attr_values_scalar(&self) -> bool {
+        self.edges.values().all(|attrs| {
+            attrs.values().all(|v| {
+                matches!(
+                    v,
+                    fnx_runtime::CgseValue::Int(_)
+                        | fnx_runtime::CgseValue::Float(_)
+                        | fnx_runtime::CgseValue::Bool(_)
+                )
+            })
+        })
     }
 
     /// br-r37-c1-hasanyattrlazyfix: any node / any edge carries a Python-visible attr per
@@ -1026,6 +1129,54 @@ impl DiGraph {
         inserted
     }
 
+    /// br-r37-c1-tcidx: bulk-add directed edges by EXISTING node index — the directed sibling of
+    /// `Graph::extend_existing_index_edges_unrecorded`. All endpoints MUST already exist (callers
+    /// gate on all nodes being pre-added). A new edge takes an empty AttrMap; a duplicate
+    /// `(source_idx, target_idx)` pair is skipped. Emits the IDENTICAL succ/pred adjacency,
+    /// revision bump, and batch ledger summary as `extend_edges_unrecorded` given the same
+    /// resolved index sequence — but with ZERO String hashing (endpoints arrive as integer
+    /// indices). Unblocks the O(|V|²)-closure `transitive_closure` from paying a per-edge
+    /// `get_index_of` on both endpoints.
+    pub fn extend_existing_index_edges_unrecorded<I>(&mut self, edges: I) -> usize
+    where
+        I: IntoIterator<Item = (usize, usize)>,
+    {
+        let iterator = edges.into_iter();
+        self.edges.reserve(iterator.size_hint().0);
+
+        let mut inserted = 0usize;
+        for (s_idx, t_idx) in iterator {
+            debug_assert!(s_idx < self.nodes.len());
+            debug_assert!(t_idx < self.nodes.len());
+            let edge_key = (s_idx, t_idx);
+            if self.edges.contains_key(&edge_key) {
+                continue;
+            }
+            self.edges.insert(edge_key, AttrMap::new());
+            self.succ_indices[s_idx].push(t_idx);
+            self.pred_indices[t_idx].push(s_idx);
+            inserted += 1;
+        }
+
+        if inserted > 0 {
+            self.revision = self
+                .revision
+                .saturating_add(u64::try_from(inserted).unwrap_or(u64::MAX));
+            self.record_decision(
+                "extend_edges_unrecorded",
+                0.0,
+                false,
+                vec![EvidenceTerm {
+                    signal: "batch_edge_count".to_owned(),
+                    observed_value: inserted.to_string(),
+                    log_likelihood_ratio: -1.0,
+                }],
+            );
+        }
+
+        inserted
+    }
+
     /// br-r37-c1-digbatch: bulk-add plain nodes (no attrs), one summary ledger
     /// record — the directed sibling of `Graph::extend_nodes_unrecorded`, backing
     /// PyDiGraph's fast integer-node path (`add_nodes_from(range)` / int list).
@@ -1138,10 +1289,15 @@ impl DiGraph {
                 self.nodes.get_index_of(&target).expect("created above"),
             );
             if let Some(existing) = self.edges.get_mut(&edge_key) {
-                if !attrs.is_empty()
-                    && attrs
-                        .iter()
-                        .any(|(key, value)| existing.get(key) != Some(value))
+                // An empty attr map merges to a no-op; returning early avoids
+                // building and dropping a BTreeMap iterator per duplicate edge,
+                // which dominates unweighted bulk loads.
+                if attrs.is_empty() {
+                    continue;
+                }
+                if attrs
+                    .iter()
+                    .any(|(key, value)| existing.get(key) != Some(value))
                 {
                     merged_changed = true;
                 }
@@ -1213,10 +1369,15 @@ impl DiGraph {
                 self.nodes.get_index_of(&target).expect("created above"),
             );
             if let Some(existing) = self.edges.get_mut(&edge_key) {
-                if !attrs.is_empty()
-                    && attrs
-                        .iter()
-                        .any(|(key, value)| existing.get(key) != Some(value))
+                // An empty attr map merges to a no-op; returning early avoids
+                // building and dropping a BTreeMap iterator per duplicate edge,
+                // which dominates unweighted bulk loads.
+                if attrs.is_empty() {
+                    continue;
+                }
+                if attrs
+                    .iter()
+                    .any(|(key, value)| existing.get(key) != Some(value))
                 {
                     merged_changed = true;
                 }
@@ -1292,10 +1453,15 @@ impl DiGraph {
             debug_assert!(source_idx < node_count && target_idx < node_count);
             let edge_key = (source_idx, target_idx);
             if let Some(existing) = self.edges.get_mut(&edge_key) {
-                if !attrs.is_empty()
-                    && attrs
-                        .iter()
-                        .any(|(key, value)| existing.get(key) != Some(value))
+                // An empty attr map merges to a no-op; returning early avoids
+                // building and dropping a BTreeMap iterator per duplicate edge,
+                // which dominates unweighted bulk loads.
+                if attrs.is_empty() {
+                    continue;
+                }
+                if attrs
+                    .iter()
+                    .any(|(key, value)| existing.get(key) != Some(value))
                 {
                     merged_changed = true;
                 }
@@ -1351,10 +1517,15 @@ impl DiGraph {
             }
             let edge_key = (source_idx, target_idx);
             if let Some(existing) = self.edges.get_mut(&edge_key) {
-                if !attrs.is_empty()
-                    && attrs
-                        .iter()
-                        .any(|(key, value)| existing.get(key) != Some(value))
+                // An empty attr map merges to a no-op; returning early avoids
+                // building and dropping a BTreeMap iterator per duplicate edge,
+                // which dominates unweighted bulk loads.
+                if attrs.is_empty() {
+                    continue;
+                }
+                if attrs
+                    .iter()
+                    .any(|(key, value)| existing.get(key) != Some(value))
                 {
                     merged_changed = true;
                 }
@@ -2076,9 +2247,32 @@ impl MultiDiGraph {
             .is_some_and(|edge_bucket| !edge_bucket.is_empty())
     }
 
+    /// br-r37-c1-04z53 (cc): directed `has_edge` straight from insertion-order
+    /// indices (source-major), skipping the `i.to_string()` heap alloc for int
+    /// nodes. Names come from the node table by index (borrowed); the caller
+    /// guards each index with `node_index_matches_int`. Mirror of
+    /// `Graph::has_edge_by_indices`.
+    #[must_use]
+    pub fn has_edge_by_indices(&self, source_idx: usize, target_idx: usize) -> bool {
+        match (
+            self.get_node_name(source_idx),
+            self.get_node_name(target_idx),
+        ) {
+            (Some(source), Some(target)) => self.has_edge(source, target),
+            _ => false,
+        }
+    }
+
     #[must_use]
     pub fn nodes_ordered(&self) -> Vec<&str> {
         self.nodes.keys().map(String::as_str).collect()
+    }
+
+    /// Resolve the current node name for an insertion-order index.
+    #[must_use]
+    #[inline]
+    pub fn get_node_name(&self, index: usize) -> Option<&str> {
+        self.nodes.get_index(index).map(|(name, _)| name.as_str())
     }
 
     /// br-cc-nbunchbulk: int membership fast path for `_nbunch_present` — see the
@@ -3445,6 +3639,20 @@ mod tests {
         assert_eq!(g.in_degree("a"), 1);
         assert_eq!(g.degree("a"), 3);
         assert_digraph_core_invariants(&g);
+    }
+
+    #[test]
+    fn degree_single_lookup_preserves_missing_and_self_loop_semantics() {
+        let mut g = DiGraph::strict();
+        g.add_edge("a", "a").expect("self-loop add should succeed");
+        g.add_edge("a", "b").expect("edge add should succeed");
+        g.add_edge("c", "a").expect("edge add should succeed");
+
+        for node in ["a", "b", "c", "missing"] {
+            assert_eq!(g.degree(node), g.in_degree(node) + g.out_degree(node));
+        }
+        assert_eq!(g.degree("a"), 4);
+        assert_eq!(g.degree("missing"), 0);
     }
 
     #[test]

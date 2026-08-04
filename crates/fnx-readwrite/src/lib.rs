@@ -57,6 +57,41 @@ struct JsonGraphPayload {
     pub edges: Vec<fnx_classes::EdgeSnapshot>,
 }
 
+#[derive(Debug, Serialize)]
+struct BorrowedJsonEdge<'a> {
+    left: &'a str,
+    right: &'a str,
+    attrs: &'a AttrMap,
+}
+
+#[derive(Debug, Serialize)]
+struct BorrowedJsonGraphPayload<'a> {
+    mode: CompatibilityMode,
+    directed: Option<bool>,
+    graph_attrs: &'a AttrMap,
+    nodes: Vec<&'a str>,
+    edges: Vec<BorrowedJsonEdge<'a>>,
+}
+
+fn serialize_digraph_json_graph(
+    graph: &DiGraph,
+    graph_attrs: &AttrMap,
+) -> Result<String, serde_json::Error> {
+    let edges = graph
+        .edges_ordered_borrowed()
+        .into_iter()
+        .map(|(left, right, attrs)| BorrowedJsonEdge { left, right, attrs })
+        .collect();
+    let payload = BorrowedJsonGraphPayload {
+        mode: graph.mode(),
+        directed: Some(true),
+        graph_attrs,
+        nodes: graph.nodes_ordered(),
+        edges,
+    };
+    serde_json::to_string_pretty(&payload)
+}
+
 #[derive(Debug, Clone)]
 struct GraphmlKeyDef {
     scope: String,
@@ -251,21 +286,7 @@ impl EdgeListEngine {
             unknown_incompatible_feature: false,
         })?;
 
-        let mut lines = Vec::new();
-        let mut seen = std::collections::HashSet::new();
-        for node in graph.nodes_ordered() {
-            let mut tokens = Vec::new();
-            tokens.push(node.to_owned());
-            if let Some(neighbors) = graph.neighbors(node) {
-                for neighbor in neighbors {
-                    if !seen.contains(neighbor) {
-                        tokens.push(neighbor.to_owned());
-                    }
-                }
-            }
-            lines.push(tokens.join(" "));
-            seen.insert(node.to_owned());
-        }
+        let text = encode_adjlist_graph(graph);
 
         self.record(
             "write_adjlist",
@@ -274,7 +295,7 @@ impl EdgeListEngine {
             0.02,
         );
 
-        Ok(lines.join("\n"))
+        Ok(text)
     }
 
     pub fn write_digraph_adjlist(&mut self, graph: &DiGraph) -> Result<String, ReadWriteError> {
@@ -286,17 +307,7 @@ impl EdgeListEngine {
             unknown_incompatible_feature: false,
         })?;
 
-        let mut lines = Vec::new();
-        for node in graph.nodes_ordered() {
-            let mut tokens = Vec::new();
-            tokens.push(node.to_owned());
-            if let Some(successors) = graph.successors(node) {
-                for succ in successors {
-                    tokens.push(succ.to_owned());
-                }
-            }
-            lines.push(tokens.join(" "));
-        }
+        let text = encode_adjlist_digraph(graph);
 
         self.record(
             "write_adjlist",
@@ -305,7 +316,7 @@ impl EdgeListEngine {
             0.02,
         );
 
-        Ok(lines.join("\n"))
+        Ok(text)
     }
 
     pub fn read_edgelist(&mut self, input: &str) -> Result<ReadWriteReport, ReadWriteError> {
@@ -473,6 +484,32 @@ impl EdgeListEngine {
         let mut graph = Graph::new(self.mode);
         let mut warnings = Vec::new();
 
+        self.populate_adjlist_indexed(&mut graph, &mut warnings, input)?;
+
+        self.record(
+            "read_adjlist",
+            DecisionAction::Allow,
+            "adjlist parse completed",
+            0.04,
+        );
+
+        Ok(self.finish_graph_report(graph, AttrMap::new(), warnings))
+    }
+
+    /// Parse an undirected adjacency list into first-touch node indices before
+    /// mutating the graph. This preserves the former node/neighbor encounter
+    /// order while replacing per-neighbor owned endpoint clones, graph-map
+    /// lookups, and transient policy records with two ordered batch inserts.
+    fn populate_adjlist_indexed(
+        &mut self,
+        graph: &mut Graph,
+        warnings: &mut Vec<String>,
+        input: &str,
+    ) -> Result<(), ReadWriteError> {
+        let mut node_indices: HashMap<&str, usize> = HashMap::new();
+        let mut ordered_nodes: Vec<&str> = Vec::new();
+        let mut indexed_edges = Vec::new();
+
         for (line_no, raw_line) in input.lines().enumerate() {
             let line = raw_line
                 .split_once('#')
@@ -501,21 +538,30 @@ impl EdgeListEngine {
                 continue;
             }
 
-            let node = node.to_owned();
-            let _ = graph.add_node(node.clone());
+            let node_index = if let Some(&index) = node_indices.get(node) {
+                index
+            } else {
+                let index = ordered_nodes.len();
+                node_indices.insert(node, index);
+                ordered_nodes.push(node);
+                index
+            };
             for neighbor in parts {
-                graph.add_edge(node.clone(), neighbor.to_owned())?;
+                let neighbor_index = if let Some(&index) = node_indices.get(neighbor) {
+                    index
+                } else {
+                    let index = ordered_nodes.len();
+                    node_indices.insert(neighbor, index);
+                    ordered_nodes.push(neighbor);
+                    index
+                };
+                indexed_edges.push((node_index, neighbor_index));
             }
         }
 
-        self.record(
-            "read_adjlist",
-            DecisionAction::Allow,
-            "adjlist parse completed",
-            0.04,
-        );
-
-        Ok(self.finish_graph_report(graph, AttrMap::new(), warnings))
+        let _ = graph.extend_nodes_unrecorded(ordered_nodes);
+        let _ = graph.extend_existing_index_edges_unrecorded(indexed_edges);
+        Ok(())
     }
 
     pub fn read_digraph_adjlist(
@@ -533,6 +579,32 @@ impl EdgeListEngine {
         let mut graph = DiGraph::new(self.mode);
         let mut warnings = Vec::new();
 
+        self.populate_digraph_adjlist_indexed(&mut graph, &mut warnings, input)?;
+
+        self.record(
+            "read_adjlist",
+            DecisionAction::Allow,
+            "digraph adjlist parse completed",
+            0.04,
+        );
+
+        Ok(self.finish_digraph_report(graph, AttrMap::new(), warnings))
+    }
+
+    /// Parse a directed adjacency list into first-touch node indices before
+    /// mutating the graph. Directed pairs retain token order while avoiding
+    /// per-neighbor owned endpoint clones, graph-map lookups, and transient
+    /// policy records.
+    fn populate_digraph_adjlist_indexed(
+        &mut self,
+        graph: &mut DiGraph,
+        warnings: &mut Vec<String>,
+        input: &str,
+    ) -> Result<(), ReadWriteError> {
+        let mut node_indices: HashMap<&str, usize> = HashMap::new();
+        let mut ordered_nodes: Vec<&str> = Vec::new();
+        let mut indexed_edges = Vec::new();
+
         for (line_no, raw_line) in input.lines().enumerate() {
             let line = raw_line
                 .split_once('#')
@@ -561,21 +633,30 @@ impl EdgeListEngine {
                 continue;
             }
 
-            let node = node.to_owned();
-            let _ = graph.add_node(node.clone());
+            let node_index = if let Some(&index) = node_indices.get(node) {
+                index
+            } else {
+                let index = ordered_nodes.len();
+                node_indices.insert(node, index);
+                ordered_nodes.push(node);
+                index
+            };
             for neighbor in parts {
-                graph.add_edge(node.clone(), neighbor.to_owned())?;
+                let neighbor_index = if let Some(&index) = node_indices.get(neighbor) {
+                    index
+                } else {
+                    let index = ordered_nodes.len();
+                    node_indices.insert(neighbor, index);
+                    ordered_nodes.push(neighbor);
+                    index
+                };
+                indexed_edges.push((node_index, neighbor_index));
             }
         }
 
-        self.record(
-            "read_adjlist",
-            DecisionAction::Allow,
-            "digraph adjlist parse completed",
-            0.04,
-        );
-
-        Ok(self.finish_digraph_report(graph, AttrMap::new(), warnings))
+        let _ = graph.extend_nodes_unrecorded(ordered_nodes);
+        let _ = graph.extend_existing_index_edges_unrecorded(indexed_edges);
+        Ok(())
     }
 
     pub fn write_json_graph(&mut self, graph: &Graph) -> Result<String, ReadWriteError> {
@@ -635,19 +716,12 @@ impl EdgeListEngine {
             unknown_incompatible_feature: false,
         })?;
 
-        let snapshot = graph.snapshot();
-        let payload = JsonGraphPayload {
-            mode: snapshot.mode,
-            directed: Some(true),
-            graph_attrs: graph_attrs.clone(),
-            nodes: snapshot.nodes,
-            edges: snapshot.edges,
-        };
-        let serialized =
-            serde_json::to_string_pretty(&payload).map_err(|err| ReadWriteError::FailClosed {
+        let serialized = serialize_digraph_json_graph(graph, graph_attrs).map_err(|err| {
+            ReadWriteError::FailClosed {
                 operation: "write_json_graph",
                 reason: format!("json serialization failed: {err}"),
-            })?;
+            }
+        })?;
 
         self.record(
             "write_json_graph",
@@ -4951,14 +5025,26 @@ impl GraphLike for DiGraph {
 }
 
 fn attr_escape(s: &str) -> String {
-    s.replace('%', "%25")
-        .replace('#', "%23")
-        .replace('=', "%3D")
-        .replace(';', "%3B")
-        .replace(' ', "%20")
-        .replace('\t', "%09")
-        .replace('\n', "%0A")
-        .replace('\r', "%0D")
+    let mut escaped = String::with_capacity(s.len());
+    let mut literal_start = 0usize;
+    for (index, byte) in s.bytes().enumerate() {
+        let replacement = match byte {
+            b'%' => "%25",
+            b'#' => "%23",
+            b'=' => "%3D",
+            b';' => "%3B",
+            b' ' => "%20",
+            b'\t' => "%09",
+            b'\n' => "%0A",
+            b'\r' => "%0D",
+            _ => continue,
+        };
+        escaped.push_str(&s[literal_start..index]);
+        escaped.push_str(replacement);
+        literal_start = index + 1;
+    }
+    escaped.push_str(&s[literal_start..]);
+    escaped
 }
 
 fn attr_unescape(s: &str) -> String {
@@ -4999,6 +5085,68 @@ fn encode_edgelist_edges(edges: &[(&str, &str, &AttrMap)]) -> String {
         output.push_str(right);
         output.push(' ');
         output.push_str(&encode_attrs(attrs));
+    }
+    output
+}
+
+fn encode_adjlist_graph(graph: &Graph) -> String {
+    let mut output = String::with_capacity(
+        graph
+            .node_count()
+            .saturating_add(graph.edge_count())
+            .saturating_mul(16),
+    );
+    for node_index in 0..graph.node_count() {
+        if node_index > 0 {
+            output.push('\n');
+        }
+        output.push_str(
+            graph
+                .get_node_name(node_index)
+                .expect("ordered node index is valid"),
+        );
+        if let Some(neighbor_indices) = graph.neighbors_indices(node_index) {
+            for &neighbor_index in neighbor_indices {
+                if neighbor_index >= node_index {
+                    output.push(' ');
+                    output.push_str(
+                        graph
+                            .get_node_name(neighbor_index)
+                            .expect("adjacency node index is valid"),
+                    );
+                }
+            }
+        }
+    }
+    output
+}
+
+fn encode_adjlist_digraph(graph: &DiGraph) -> String {
+    let mut output = String::with_capacity(
+        graph
+            .node_count()
+            .saturating_add(graph.edge_count())
+            .saturating_mul(16),
+    );
+    for node_index in 0..graph.node_count() {
+        if node_index > 0 {
+            output.push('\n');
+        }
+        output.push_str(
+            graph
+                .get_node_name(node_index)
+                .expect("ordered node index is valid"),
+        );
+        if let Some(successor_indices) = graph.successors_indices(node_index) {
+            for &successor_index in successor_indices {
+                output.push(' ');
+                output.push_str(
+                    graph
+                        .get_node_name(successor_index)
+                        .expect("successor node index is valid"),
+                );
+            }
+        }
     }
     output
 }
@@ -5645,6 +5793,34 @@ mod tests {
     use proptest::prelude::*;
     use std::collections::BTreeMap;
 
+    fn attr_escape_frozen(s: &str) -> String {
+        s.replace('%', "%25")
+            .replace('#', "%23")
+            .replace('=', "%3D")
+            .replace(';', "%3B")
+            .replace(' ', "%20")
+            .replace('\t', "%09")
+            .replace('\n', "%0A")
+            .replace('\r', "%0D")
+    }
+
+    fn encode_attrs_frozen(attrs: &BTreeMap<String, CgseValue>) -> String {
+        if attrs.is_empty() {
+            return "-".to_owned();
+        }
+        attrs
+            .iter()
+            .map(|(key, value)| {
+                format!(
+                    "{}={}",
+                    attr_escape_frozen(key),
+                    attr_escape_frozen(&value.as_str())
+                )
+            })
+            .collect::<Vec<_>>()
+            .join(";")
+    }
+
     fn packet_006_forensics_bundle(
         run_id: &str,
         test_id: &str,
@@ -5705,6 +5881,32 @@ mod tests {
             snapshot.edges.len(),
             edge_signature.join("|")
         )
+    }
+
+    fn serialize_digraph_json_graph_frozen(
+        graph: &DiGraph,
+        graph_attrs: &BTreeMap<String, CgseValue>,
+    ) -> Result<String, serde_json::Error> {
+        let snapshot = graph.snapshot();
+        let payload = super::JsonGraphPayload {
+            mode: snapshot.mode,
+            directed: Some(true),
+            graph_attrs: graph_attrs.clone(),
+            nodes: snapshot.nodes,
+            edges: snapshot.edges,
+        };
+        serde_json::to_string_pretty(&payload)
+    }
+
+    fn assert_digraph_json_payload_parity(
+        graph: &DiGraph,
+        graph_attrs: &BTreeMap<String, CgseValue>,
+    ) {
+        let frozen = serialize_digraph_json_graph_frozen(graph, graph_attrs)
+            .map_err(|error| error.to_string());
+        let borrowed = super::serialize_digraph_json_graph(graph, graph_attrs)
+            .map_err(|error| error.to_string());
+        assert_eq!(borrowed, frozen);
     }
 
     fn packet_006_contract_graph() -> Graph {
@@ -5802,6 +6004,127 @@ mod tests {
     }
 
     #[test]
+    fn attr_escape_single_scan_preserves_exact_encoding() {
+        let exhaustive_ascii = String::from_utf8((0u8..=127).collect())
+            .expect("the exhaustive ASCII fixture is valid UTF-8");
+        for input in [
+            "",
+            "plain",
+            "%20",
+            "%2520",
+            "#=; \t\n\r",
+            "café-東京-🦀",
+            exhaustive_ascii.as_str(),
+        ] {
+            assert_eq!(
+                super::attr_escape(input),
+                attr_escape_frozen(input),
+                "escaping drifted for {input:?}"
+            );
+        }
+        assert_eq!(super::attr_escape("%20"), "%2520");
+
+        let attrs = BTreeMap::from([
+            (
+                "z key%=#;".to_owned(),
+                CgseValue::String("line 1\tline 2\nend\r".to_owned()),
+            ),
+            (
+                "unicode-é".to_owned(),
+                CgseValue::String("東京-🦀-%20".to_owned()),
+            ),
+        ]);
+        assert_eq!(super::encode_attrs(&attrs), encode_attrs_frozen(&attrs));
+    }
+
+    /// Same-binary paired A/B for edge-list attribute encoding. The frozen
+    /// arm retains the former eight-replacement escape chain, while the
+    /// candidate scans each key and value once into one output buffer.
+    #[test]
+    #[ignore = "measurement; run with --profile release --ignored --nocapture"]
+    fn attr_escape_single_scan_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        let attrs = (0..4_096usize)
+            .map(|index| {
+                (
+                    format!("key-{index:05} % # = ; spaces\tline\ncarriage\r unicode-é"),
+                    CgseValue::String(format!(
+                        "value-{index:05} % # = ; spaces\tline\ncarriage\r unicode-東京-🦀"
+                    )),
+                )
+            })
+            .collect::<BTreeMap<_, _>>();
+
+        assert_eq!(
+            super::encode_attrs(&attrs),
+            encode_attrs_frozen(&attrs),
+            "complete encoded attribute bytes drifted"
+        );
+
+        let time = |candidate: bool| {
+            let started = Instant::now();
+            let output = if candidate {
+                super::encode_attrs(&attrs)
+            } else {
+                encode_attrs_frozen(&attrs)
+            };
+            black_box(output);
+            started.elapsed().as_nanos()
+        };
+
+        for _ in 0..3 {
+            black_box(time(false));
+            black_box(time(true));
+        }
+
+        let rounds = 15usize;
+        let paired = |candidate: bool, baseline: bool| {
+            let mut baseline_ns = Vec::with_capacity(rounds);
+            let mut candidate_ns = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (base, cand) = if round % 2 == 0 {
+                    (time(baseline), time(candidate))
+                } else {
+                    let cand = time(candidate);
+                    let base = time(baseline);
+                    (base, cand)
+                };
+                baseline_ns.push(base);
+                candidate_ns.push(cand);
+            }
+            (baseline_ns, candidate_ns)
+        };
+        let median = |samples: &[u128]| {
+            let mut sorted = samples.to_vec();
+            sorted.sort_unstable();
+            sorted[sorted.len() / 2]
+        };
+        let report = |name: &str, baseline_ns: &[u128], candidate_ns: &[u128]| {
+            let baseline_median = median(baseline_ns);
+            let candidate_median = median(candidate_ns);
+            let wins = baseline_ns
+                .iter()
+                .zip(candidate_ns)
+                .filter(|(baseline, candidate)| baseline > candidate)
+                .count();
+            println!(
+                "ATTR_ESCAPE_SINGLE_SCAN_AB {name}: attrs={} baseline_median_ns={baseline_median} \
+                 candidate_median_ns={candidate_median} ratio={:.4}x wins={wins}/{rounds} \
+                 exact_bytes=true",
+                attrs.len(),
+                baseline_median as f64 / candidate_median as f64,
+            );
+        };
+
+        let (baseline_ns, candidate_ns) = paired(true, false);
+        report("replace_chain_vs_single_scan", &baseline_ns, &candidate_ns);
+        let (null_a_ns, null_b_ns) = paired(true, true);
+        report("single_scan_vs_single_scan_null", &null_a_ns, &null_b_ns);
+    }
+
+    #[test]
     fn adjlist_round_trip_is_deterministic() {
         let mut graph = Graph::strict();
         graph.add_edge("a", "b").expect("edge add should succeed");
@@ -5819,6 +6142,566 @@ mod tests {
             .expect("adjlist parse should succeed")
             .graph;
         assert_eq!(graph.snapshot(), parsed.snapshot());
+    }
+
+    fn populate_adjlist_frozen_valid(graph: &mut Graph, input: &str) {
+        for raw_line in input.lines() {
+            let line = raw_line
+                .split_once('#')
+                .map_or(raw_line, |(prefix, _)| prefix)
+                .trim();
+            if line.is_empty() {
+                continue;
+            }
+
+            let mut parts = line.split_whitespace();
+            let Some(node) = parts.next() else {
+                continue;
+            };
+            let node = node.to_owned();
+            let _ = graph.add_node(node.clone());
+            for neighbor in parts {
+                graph
+                    .add_edge(node.clone(), neighbor.to_owned())
+                    .expect("valid adjacency-list edge should insert");
+            }
+        }
+    }
+
+    #[test]
+    fn read_adjlist_index_batch_preserves_first_touch_order_and_revision() {
+        let input = "# leading comment\nz q a\nm z\nq a z\nb a\nisolated\nz z q # duplicates\n";
+        let mut frozen = Graph::strict();
+        populate_adjlist_frozen_valid(&mut frozen, input);
+
+        let mut engine = EdgeListEngine::strict();
+        let report = engine
+            .read_adjlist(input)
+            .expect("valid adjacency list should parse");
+
+        assert!(report.warnings.is_empty());
+        assert_eq!(report.graph.snapshot(), frozen.snapshot());
+        assert_eq!(report.graph.revision(), frozen.revision());
+    }
+
+    /// Same-binary paired A/B for the undirected adjacency-list population
+    /// kernel. The frozen arm retains the former per-node/per-neighbor graph
+    /// mutation loop; the candidate resolves first-touch indices while parsing
+    /// and submits nodes and edges through ordered batches.
+    #[test]
+    #[ignore = "measurement; run with --profile release --ignored --nocapture"]
+    fn read_adjlist_index_batch_ab() {
+        use std::fmt::Write as _;
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        let n = 2_048usize;
+        let mut input = String::with_capacity(n * 64);
+        for node in 0..n {
+            write!(&mut input, "node-{node:05}").expect("String write should succeed");
+            for offset in [1usize, 17, 97, 257] {
+                write!(&mut input, " node-{:05}", (node + offset) % n)
+                    .expect("String write should succeed");
+            }
+            if node == 0 {
+                write!(&mut input, " node-{node:05}").expect("String write should succeed");
+            }
+            input.push('\n');
+        }
+
+        let mut frozen = Graph::strict();
+        populate_adjlist_frozen_valid(&mut frozen, &input);
+        let mut candidate_engine = EdgeListEngine::strict();
+        let mut candidate = Graph::strict();
+        let mut candidate_warnings = Vec::new();
+        candidate_engine
+            .populate_adjlist_indexed(&mut candidate, &mut candidate_warnings, &input)
+            .expect("valid adjacency list should batch");
+        assert!(candidate_warnings.is_empty());
+        assert_eq!(candidate.snapshot(), frozen.snapshot());
+        assert_eq!(candidate.revision(), frozen.revision());
+
+        let rounds = 15usize;
+        let time = |batch: bool| {
+            let started = Instant::now();
+            let mut engine = EdgeListEngine::strict();
+            let mut graph = Graph::strict();
+            let mut warnings = Vec::new();
+            if batch {
+                engine
+                    .populate_adjlist_indexed(&mut graph, &mut warnings, &input)
+                    .expect("valid adjacency list should batch");
+            } else {
+                populate_adjlist_frozen_valid(&mut graph, &input);
+            }
+            black_box((engine, graph, warnings));
+            started.elapsed().as_nanos()
+        };
+        for _ in 0..3 {
+            black_box(time(false));
+            black_box(time(true));
+        }
+
+        let paired = |candidate: bool, baseline: bool| {
+            let mut baseline_ns = Vec::with_capacity(rounds);
+            let mut candidate_ns = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (base, cand) = if round % 2 == 0 {
+                    (time(baseline), time(candidate))
+                } else {
+                    let cand = time(candidate);
+                    let base = time(baseline);
+                    (base, cand)
+                };
+                baseline_ns.push(base);
+                candidate_ns.push(cand);
+            }
+            (baseline_ns, candidate_ns)
+        };
+        let median = |samples: &[u128]| {
+            let mut sorted = samples.to_vec();
+            sorted.sort_unstable();
+            sorted[sorted.len() / 2]
+        };
+        let report = |name: &str, baseline_ns: &[u128], candidate_ns: &[u128]| {
+            let baseline_median = median(baseline_ns);
+            let candidate_median = median(candidate_ns);
+            let wins = baseline_ns
+                .iter()
+                .zip(candidate_ns)
+                .filter(|(baseline, candidate)| baseline > candidate)
+                .count();
+            println!(
+                "READ_ADJLIST_INDEX_BATCH_AB {name}: baseline_median_ns={baseline_median} \
+                 candidate_median_ns={candidate_median} ratio={:.4}x wins={wins}/{rounds}",
+                baseline_median as f64 / candidate_median as f64,
+            );
+        };
+
+        let (baseline_ns, candidate_ns) = paired(true, false);
+        report("frozen_vs_index_batch", &baseline_ns, &candidate_ns);
+        let (null_a_ns, null_b_ns) = paired(true, true);
+        report("index_batch_vs_index_batch_null", &null_a_ns, &null_b_ns);
+    }
+
+    fn populate_digraph_adjlist_frozen_valid(graph: &mut DiGraph, input: &str) {
+        for raw_line in input.lines() {
+            let line = raw_line
+                .split_once('#')
+                .map_or(raw_line, |(prefix, _)| prefix)
+                .trim();
+            if line.is_empty() {
+                continue;
+            }
+
+            let mut parts = line.split_whitespace();
+            let Some(node) = parts.next() else {
+                continue;
+            };
+            let node = node.to_owned();
+            let _ = graph.add_node(node.clone());
+            for neighbor in parts {
+                graph
+                    .add_edge(node.clone(), neighbor.to_owned())
+                    .expect("valid directed adjacency-list edge should insert");
+            }
+        }
+    }
+
+    #[test]
+    fn read_digraph_adjlist_index_batch_preserves_order_and_revision() {
+        let input = "# leading comment\nz q a\nm z\nq a z\nb a\nisolated\nz z q # duplicates\n";
+        let mut frozen = DiGraph::strict();
+        populate_digraph_adjlist_frozen_valid(&mut frozen, input);
+
+        let mut engine = EdgeListEngine::strict();
+        let report = engine
+            .read_digraph_adjlist(input)
+            .expect("valid directed adjacency list should parse");
+
+        assert!(report.warnings.is_empty());
+        assert_eq!(report.graph.snapshot(), frozen.snapshot());
+        assert_eq!(report.graph.revision(), frozen.revision());
+    }
+
+    /// Same-binary paired A/B for the directed adjacency-list population
+    /// kernel. The frozen arm retains the former per-node/per-neighbor graph
+    /// mutation loop; the candidate resolves first-touch indices while parsing
+    /// and submits nodes and directed pairs through ordered batches.
+    #[test]
+    #[ignore = "measurement; run with --profile release --ignored --nocapture"]
+    fn read_digraph_adjlist_index_batch_ab() {
+        use std::fmt::Write as _;
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        let n = 2_048usize;
+        let mut input = String::with_capacity(n * 64);
+        for node in 0..n {
+            write!(&mut input, "node-{node:05}").expect("String write should succeed");
+            for offset in [1usize, 17, 97, 257] {
+                write!(&mut input, " node-{:05}", (node + offset) % n)
+                    .expect("String write should succeed");
+            }
+            if node == 0 {
+                write!(&mut input, " node-{node:05}").expect("String write should succeed");
+            }
+            input.push('\n');
+        }
+
+        let mut frozen = DiGraph::strict();
+        populate_digraph_adjlist_frozen_valid(&mut frozen, &input);
+        let mut candidate_engine = EdgeListEngine::strict();
+        let mut candidate = DiGraph::strict();
+        let mut candidate_warnings = Vec::new();
+        candidate_engine
+            .populate_digraph_adjlist_indexed(&mut candidate, &mut candidate_warnings, &input)
+            .expect("valid directed adjacency list should batch");
+        assert!(candidate_warnings.is_empty());
+        assert_eq!(candidate.snapshot(), frozen.snapshot());
+        assert_eq!(candidate.revision(), frozen.revision());
+
+        let rounds = 15usize;
+        let time = |batch: bool| {
+            let started = Instant::now();
+            let mut engine = EdgeListEngine::strict();
+            let mut graph = DiGraph::strict();
+            let mut warnings = Vec::new();
+            if batch {
+                engine
+                    .populate_digraph_adjlist_indexed(&mut graph, &mut warnings, &input)
+                    .expect("valid directed adjacency list should batch");
+            } else {
+                populate_digraph_adjlist_frozen_valid(&mut graph, &input);
+            }
+            black_box((engine, graph, warnings));
+            started.elapsed().as_nanos()
+        };
+        for _ in 0..3 {
+            black_box(time(false));
+            black_box(time(true));
+        }
+
+        let paired = |candidate: bool, baseline: bool| {
+            let mut baseline_ns = Vec::with_capacity(rounds);
+            let mut candidate_ns = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (base, cand) = if round % 2 == 0 {
+                    (time(baseline), time(candidate))
+                } else {
+                    let cand = time(candidate);
+                    let base = time(baseline);
+                    (base, cand)
+                };
+                baseline_ns.push(base);
+                candidate_ns.push(cand);
+            }
+            (baseline_ns, candidate_ns)
+        };
+        let median = |samples: &[u128]| {
+            let mut sorted = samples.to_vec();
+            sorted.sort_unstable();
+            sorted[sorted.len() / 2]
+        };
+        let report = |name: &str, baseline_ns: &[u128], candidate_ns: &[u128]| {
+            let baseline_median = median(baseline_ns);
+            let candidate_median = median(candidate_ns);
+            let wins = baseline_ns
+                .iter()
+                .zip(candidate_ns)
+                .filter(|(baseline, candidate)| baseline > candidate)
+                .count();
+            println!(
+                "READ_DIGRAPH_ADJLIST_INDEX_BATCH_AB {name}: baseline_median_ns={baseline_median} \
+                 candidate_median_ns={candidate_median} ratio={:.4}x wins={wins}/{rounds}",
+                baseline_median as f64 / candidate_median as f64,
+            );
+        };
+
+        let (baseline_ns, candidate_ns) = paired(true, false);
+        report("frozen_vs_index_batch", &baseline_ns, &candidate_ns);
+        let (null_a_ns, null_b_ns) = paired(true, true);
+        report("index_batch_vs_index_batch_null", &null_a_ns, &null_b_ns);
+    }
+
+    #[test]
+    fn digraph_adjlist_preserves_order_self_loops_and_isolates() {
+        let mut graph = DiGraph::strict();
+        for node in ["z", "a", "m", "q", "b", "isolated"] {
+            graph.add_node(node);
+        }
+        let inserted = graph.extend_existing_index_edges_unrecorded([
+            (0, 0),
+            (0, 3),
+            (4, 1),
+            (2, 4),
+            (3, 1),
+            (3, 0),
+        ]);
+        assert_eq!(inserted, 6);
+
+        let mut engine = EdgeListEngine::strict();
+        let text = engine
+            .write_digraph_adjlist(&graph)
+            .expect("directed adjlist serialization should succeed");
+        assert_eq!(text, "z z q\na\nm b\nq a z\nb a\nisolated");
+    }
+
+    /// Paired same-binary A/B for undirected adjacency-list encoding. The
+    /// frozen arm retains the former owned token/line/seen representation; the
+    /// candidate streams the same insertion-index rows into one buffer.
+    #[test]
+    #[ignore = "measurement; run with --profile release --ignored --nocapture"]
+    fn write_adjlist_index_stream_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        let encode_frozen = |graph: &Graph| {
+            let mut lines = Vec::new();
+            let mut seen = std::collections::HashSet::new();
+            for node in graph.nodes_ordered() {
+                let mut tokens = vec![node.to_owned()];
+                if let Some(neighbors) = graph.neighbors(node) {
+                    for neighbor in neighbors {
+                        if !seen.contains(neighbor) {
+                            tokens.push(neighbor.to_owned());
+                        }
+                    }
+                }
+                lines.push(tokens.join(" "));
+                seen.insert(node.to_owned());
+            }
+            lines.join("\n")
+        };
+
+        let mut boundary = Graph::strict();
+        for node in ["z", "a", "m", "q", "b"] {
+            boundary.add_node(node);
+        }
+        for (left, right) in [(0, 0), (0, 3), (4, 1), (2, 4), (3, 1)] {
+            let inserted = boundary.extend_existing_index_edges_unrecorded([(left, right)]);
+            assert_eq!(inserted, 1);
+        }
+        assert_eq!(
+            encode_frozen(&Graph::strict()),
+            super::encode_adjlist_graph(&Graph::strict())
+        );
+        assert_eq!(
+            encode_frozen(&boundary),
+            super::encode_adjlist_graph(&boundary),
+            "indexed stream must preserve node, neighbor, self-loop, and isolate order"
+        );
+
+        let n = 4_096usize;
+        let mut graph = Graph::strict();
+        for node in 0..n {
+            graph.add_node(format!("node-{node:05}"));
+        }
+        let mut edges = Vec::with_capacity(n * 4 + 1);
+        for node in 0..n {
+            for offset in [1usize, 17, 97, 257] {
+                edges.push((node, (node + offset) % n));
+            }
+        }
+        edges.push((0, 0));
+        let _ = graph.extend_existing_index_edges_unrecorded(edges);
+        assert_eq!(
+            encode_frozen(&graph),
+            super::encode_adjlist_graph(&graph),
+            "timed fixture output must be byte-identical"
+        );
+
+        let calls = 4usize;
+        let rounds = 15usize;
+        let time = |stream: bool| {
+            let started = Instant::now();
+            for _ in 0..calls {
+                if stream {
+                    black_box(super::encode_adjlist_graph(&graph));
+                } else {
+                    black_box(encode_frozen(&graph));
+                }
+            }
+            started.elapsed().as_nanos()
+        };
+        for _ in 0..3 {
+            black_box(time(false));
+            black_box(time(true));
+        }
+
+        let paired = |candidate: bool, baseline: bool| {
+            let mut baseline_ns = Vec::with_capacity(rounds);
+            let mut candidate_ns = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (base, cand) = if round % 2 == 0 {
+                    (time(baseline), time(candidate))
+                } else {
+                    let cand = time(candidate);
+                    let base = time(baseline);
+                    (base, cand)
+                };
+                baseline_ns.push(base);
+                candidate_ns.push(cand);
+            }
+            (baseline_ns, candidate_ns)
+        };
+        let median = |samples: &[u128]| {
+            let mut sorted = samples.to_vec();
+            sorted.sort_unstable();
+            sorted[sorted.len() / 2]
+        };
+        let report = |name: &str, baseline_ns: &[u128], candidate_ns: &[u128]| {
+            let base_median = median(baseline_ns);
+            let candidate_median = median(candidate_ns);
+            let wins = baseline_ns
+                .iter()
+                .zip(candidate_ns)
+                .filter(|(base, candidate)| base > candidate)
+                .count();
+            println!(
+                "ADJLIST_INDEX_STREAM_AB {name}: baseline_median_ns={base_median} \
+                 candidate_median_ns={candidate_median} ratio={:.4}x wins={wins}/{rounds}",
+                base_median as f64 / candidate_median as f64,
+            );
+        };
+
+        let (baseline_ns, candidate_ns) = paired(true, false);
+        report("frozen_vs_stream", &baseline_ns, &candidate_ns);
+        let (null_a_ns, null_b_ns) = paired(true, true);
+        report("stream_vs_stream_null", &null_a_ns, &null_b_ns);
+    }
+
+    /// Paired same-binary A/B for directed adjacency-list encoding. The
+    /// frozen arm retains the former owned token/line representation; the
+    /// candidate streams the same insertion-index rows into one buffer.
+    #[test]
+    #[ignore = "measurement; run with --profile release --ignored --nocapture"]
+    fn write_digraph_adjlist_index_stream_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        let encode_frozen = |graph: &DiGraph| {
+            let mut lines = Vec::new();
+            for node in graph.nodes_ordered() {
+                let mut tokens = vec![node.to_owned()];
+                if let Some(successors) = graph.successors(node) {
+                    for successor in successors {
+                        tokens.push(successor.to_owned());
+                    }
+                }
+                lines.push(tokens.join(" "));
+            }
+            lines.join("\n")
+        };
+
+        let mut boundary = DiGraph::strict();
+        for node in ["z", "a", "m", "q", "b", "isolated"] {
+            boundary.add_node(node);
+        }
+        let inserted = boundary.extend_existing_index_edges_unrecorded([
+            (0, 0),
+            (0, 3),
+            (4, 1),
+            (2, 4),
+            (3, 1),
+            (3, 0),
+        ]);
+        assert_eq!(inserted, 6);
+        assert_eq!(
+            encode_frozen(&DiGraph::strict()),
+            super::encode_adjlist_digraph(&DiGraph::strict())
+        );
+        assert_eq!(
+            encode_frozen(&boundary),
+            super::encode_adjlist_digraph(&boundary),
+            "indexed stream must preserve node, successor, self-loop, and isolate order"
+        );
+
+        let n = 4_096usize;
+        let mut graph = DiGraph::strict();
+        for node in 0..n {
+            graph.add_node(format!("node-{node:05}"));
+        }
+        let mut edges = Vec::with_capacity(n * 4 + 1);
+        for node in 0..n {
+            for offset in [1usize, 17, 97, 257] {
+                edges.push((node, (node + offset) % n));
+            }
+        }
+        edges.push((0, 0));
+        assert_eq!(
+            graph.extend_existing_index_edges_unrecorded(edges),
+            n * 4 + 1
+        );
+        assert_eq!(
+            encode_frozen(&graph),
+            super::encode_adjlist_digraph(&graph),
+            "timed fixture output must be byte-identical"
+        );
+
+        let calls = 4usize;
+        let rounds = 15usize;
+        let time = |stream: bool| {
+            let started = Instant::now();
+            for _ in 0..calls {
+                if stream {
+                    black_box(super::encode_adjlist_digraph(&graph));
+                } else {
+                    black_box(encode_frozen(&graph));
+                }
+            }
+            started.elapsed().as_nanos()
+        };
+        for _ in 0..3 {
+            black_box(time(false));
+            black_box(time(true));
+        }
+
+        let paired = |candidate: bool, baseline: bool| {
+            let mut baseline_ns = Vec::with_capacity(rounds);
+            let mut candidate_ns = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (base, cand) = if round % 2 == 0 {
+                    (time(baseline), time(candidate))
+                } else {
+                    let cand = time(candidate);
+                    let base = time(baseline);
+                    (base, cand)
+                };
+                baseline_ns.push(base);
+                candidate_ns.push(cand);
+            }
+            (baseline_ns, candidate_ns)
+        };
+        let median = |samples: &[u128]| {
+            let mut sorted = samples.to_vec();
+            sorted.sort_unstable();
+            sorted[sorted.len() / 2]
+        };
+        let report = |name: &str, baseline_ns: &[u128], candidate_ns: &[u128]| {
+            let base_median = median(baseline_ns);
+            let candidate_median = median(candidate_ns);
+            let wins = baseline_ns
+                .iter()
+                .zip(candidate_ns)
+                .filter(|(base, candidate)| base > candidate)
+                .count();
+            println!(
+                "DIGRAPH_ADJLIST_INDEX_STREAM_AB {name}: baseline_median_ns={base_median} \
+                 candidate_median_ns={candidate_median} ratio={:.4}x wins={wins}/{rounds}",
+                base_median as f64 / candidate_median as f64,
+            );
+        };
+
+        println!(
+            "DIGRAPH_ADJLIST_INDEX_STREAM_AB fixture: nodes={} edges={} calls={calls}",
+            graph.node_count(),
+            graph.edge_count()
+        );
+        let (baseline_ns, candidate_ns) = paired(true, false);
+        report("frozen_vs_stream", &baseline_ns, &candidate_ns);
+        let (null_a_ns, null_b_ns) = paired(true, true);
+        report("stream_vs_stream_null", &null_a_ns, &null_b_ns);
     }
 
     #[test]
@@ -5922,6 +6805,196 @@ mod tests {
             .expect("json read should succeed")
             .graph;
         assert_eq!(graph.snapshot(), parsed.snapshot());
+    }
+
+    #[test]
+    fn borrowed_digraph_json_payload_is_byte_identical() {
+        assert_digraph_json_payload_parity(&DiGraph::strict(), &BTreeMap::new());
+
+        let mut graph = DiGraph::hardened();
+        graph.add_node_with_attrs(
+            "isolated-\"é\n".to_owned(),
+            BTreeMap::from([(
+                "currently-omitted-node-attr".to_owned(),
+                CgseValue::String("must remain omitted".to_owned()),
+            )]),
+        );
+        graph
+            .add_edge_with_attrs(
+                "z-last".to_owned(),
+                "a-first".to_owned(),
+                BTreeMap::from([
+                    ("bool".to_owned(), CgseValue::Bool(true)),
+                    ("float".to_owned(), CgseValue::Float(-0.0)),
+                    ("int".to_owned(), CgseValue::Int(-7)),
+                    (
+                        "map".to_owned(),
+                        CgseValue::Map(BTreeMap::from([(
+                            "nested".to_owned(),
+                            CgseValue::String("line\nquote\"".to_owned()),
+                        )])),
+                    ),
+                ]),
+            )
+            .expect("edge add should succeed");
+        graph
+            .add_edge_with_attrs(
+                "a-first".to_owned(),
+                "z-last".to_owned(),
+                BTreeMap::from([(
+                    "string".to_owned(),
+                    CgseValue::String("antiparallel".to_owned()),
+                )]),
+            )
+            .expect("antiparallel edge add should succeed");
+        graph
+            .add_edge_with_attrs("z-last".to_owned(), "z-last".to_owned(), BTreeMap::new())
+            .expect("self-loop add should succeed");
+        let graph_attrs = BTreeMap::from([
+            (
+                "name".to_owned(),
+                CgseValue::String("demo\n\"graph".to_owned()),
+            ),
+            (
+                "nested".to_owned(),
+                CgseValue::Map(BTreeMap::from([(
+                    "enabled".to_owned(),
+                    CgseValue::Bool(false),
+                )])),
+            ),
+        ]);
+        assert_digraph_json_payload_parity(&graph, &graph_attrs);
+
+        let mut strict_engine = EdgeListEngine::strict();
+        let public = strict_engine
+            .write_digraph_json_graph_with_graph_attrs(&graph, &graph_attrs)
+            .expect("engine mode must not replace graph mode");
+        let frozen = serialize_digraph_json_graph_frozen(&graph, &graph_attrs)
+            .expect("frozen serializer should succeed");
+        assert_eq!(public, frozen);
+    }
+
+    /// Same-binary paired A/B for directed JSON serialization. The frozen arm
+    /// snapshots and deep-clones the graph; the candidate serializes borrowed
+    /// labels and attribute maps in the identical node/edge order.
+    #[test]
+    #[ignore = "measurement; run with --profile release --ignored --nocapture"]
+    fn digraph_json_borrowed_payload_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        let node_count = 2_048usize;
+        let offsets = 8usize;
+        let labels = (0..node_count)
+            .map(|index| format!("node-{index:04}-payload"))
+            .collect::<Vec<_>>();
+        let mut graph = DiGraph::strict();
+        for label in &labels {
+            graph.add_node(label.clone());
+        }
+        for source in 0..node_count {
+            for offset in 1..=offsets {
+                let target = (source + offset) % node_count;
+                graph
+                    .add_edge_with_attrs(
+                        labels[source].clone(),
+                        labels[target].clone(),
+                        BTreeMap::from([
+                            (
+                                "kind".to_owned(),
+                                CgseValue::String("payload-edge".to_owned()),
+                            ),
+                            (
+                                "weight".to_owned(),
+                                CgseValue::Int(((source + offset) % 97) as i64),
+                            ),
+                        ]),
+                    )
+                    .expect("fixture edge add should succeed");
+            }
+        }
+        let graph_attrs = BTreeMap::from([
+            (
+                "fixture".to_owned(),
+                CgseValue::String("borrowed-json".to_owned()),
+            ),
+            ("version".to_owned(), CgseValue::Int(1)),
+        ]);
+        let frozen = serialize_digraph_json_graph_frozen(&graph, &graph_attrs)
+            .expect("frozen serialization should succeed");
+        let borrowed = super::serialize_digraph_json_graph(&graph, &graph_attrs)
+            .expect("borrowed serialization should succeed");
+        assert_eq!(borrowed, frozen, "timed fixture JSON bytes drifted");
+
+        let calls = 2usize;
+        let rounds = 15usize;
+        let time = |candidate: bool| {
+            let started = Instant::now();
+            for _ in 0..calls {
+                let output = if candidate {
+                    super::serialize_digraph_json_graph(&graph, &graph_attrs)
+                } else {
+                    serialize_digraph_json_graph_frozen(&graph, &graph_attrs)
+                }
+                .expect("timed serialization should succeed");
+                black_box(output);
+            }
+            started.elapsed().as_nanos()
+        };
+        for _ in 0..3 {
+            black_box(time(false));
+            black_box(time(true));
+        }
+
+        let paired = |candidate: bool, baseline: bool| {
+            let mut baseline_ns = Vec::with_capacity(rounds);
+            let mut candidate_ns = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (base, cand) = if round % 2 == 0 {
+                    (time(baseline), time(candidate))
+                } else {
+                    let cand = time(candidate);
+                    let base = time(baseline);
+                    (base, cand)
+                };
+                baseline_ns.push(base);
+                candidate_ns.push(cand);
+            }
+            (baseline_ns, candidate_ns)
+        };
+        let median = |samples: &[u128]| {
+            let mut sorted = samples.to_vec();
+            sorted.sort_unstable();
+            sorted[sorted.len() / 2]
+        };
+        let report = |name: &str, baseline_ns: &[u128], candidate_ns: &[u128]| {
+            let baseline_median = median(baseline_ns);
+            let candidate_median = median(candidate_ns);
+            let wins = baseline_ns
+                .iter()
+                .zip(candidate_ns)
+                .filter(|(baseline, candidate)| baseline > candidate)
+                .count();
+            println!(
+                "DIGRAPH_JSON_BORROWED_AB {name}: baseline_median_ns={baseline_median} \
+                 candidate_median_ns={candidate_median} ratio={:.4}x wins={wins}/{rounds}",
+                baseline_median as f64 / candidate_median as f64,
+            );
+        };
+
+        println!(
+            "DIGRAPH_JSON_BORROWED_AB fixture: nodes={} edges={} output_bytes={} \
+             baseline_label_clones={} baseline_edge_attr_clones={} calls={calls}",
+            graph.node_count(),
+            graph.edge_count(),
+            borrowed.len(),
+            graph.node_count() + 2 * graph.edge_count(),
+            graph.edge_count(),
+        );
+        let (baseline_ns, candidate_ns) = paired(true, false);
+        report("owned_snapshot_vs_borrowed", &baseline_ns, &candidate_ns);
+        let (null_a_ns, null_b_ns) = paired(true, true);
+        report("borrowed_vs_borrowed_null", &null_a_ns, &null_b_ns);
     }
 
     #[test]

@@ -1,0 +1,138 @@
+diff --git a/crates/fnx-algorithms/src/lib.rs b/crates/fnx-algorithms/src/lib.rs
+index 605716519..7f490484e 100644
+--- a/crates/fnx-algorithms/src/lib.rs
++++ b/crates/fnx-algorithms/src/lib.rs
+@@ -40424,16 +40424,21 @@ pub fn node_degree_xy_directed(
+     // undirected `node_degree_xy` twin's comment claimed this was already done — it
+     // was only done for the "out" arm.)
+     let mut result = Vec::with_capacity(digraph.edge_count());
+-    for edge in digraph.edges_ordered() {
++    // br-r37-c1-ndxydirborrow (cc): edges_ordered_borrowed() yields (&str, &str, &AttrMap) — zero
++    // per-edge allocation — instead of edges_ordered() which clones two owned Strings + an AttrMap per
++    // edge into an EdgeSnapshot. This loop only reads the endpoint NAMES (in_degree/neighbor_count) and
++    // never keeps the owned data, so the borrow is byte-identical (same edges, same walk order, same
++    // names → same (du, dv) pairs). Directed twin of br-r37-c1-ndxyborrow.
++    for (left, right, _attrs) in digraph.edges_ordered_borrowed() {
+         let du = match x_type {
+-            "in" => digraph.in_degree(&edge.left),
+-            "out" => digraph.neighbor_count(&edge.left),
+-            _ => digraph.neighbor_count(&edge.left) + digraph.in_degree(&edge.left),
++            "in" => digraph.in_degree(left),
++            "out" => digraph.neighbor_count(left),
++            _ => digraph.neighbor_count(left) + digraph.in_degree(left),
+         };
+         let dv = match y_type {
+-            "in" => digraph.in_degree(&edge.right),
+-            "out" => digraph.neighbor_count(&edge.right),
+-            _ => digraph.neighbor_count(&edge.right) + digraph.in_degree(&edge.right),
++            "in" => digraph.in_degree(right),
++            "out" => digraph.neighbor_count(right),
++            _ => digraph.neighbor_count(right) + digraph.in_degree(right),
+         };
+         result.push((du, dv));
+     }
+@@ -48968,6 +48973,104 @@ mod tests {
+         report("NULL_borrowed_vs_borrowed", &paired(true, true));
+     }
+ 
++    /// br-r37-c1-ndxydirborrow: paired-interleaved median A/B for `node_degree_xy_directed`'s
++    /// edges_ordered() → edges_ordered_borrowed() swap, isolated (BOTH arms use in_degree/neighbor_count;
++    /// they differ ONLY in owned vs borrowed edge iteration). Times the whole (pure-O(E)) function with
++    /// x_type=y_type="both" (both degree lookups per endpoint) on a dense directed circulant so the
++    /// per-edge EdgeSnapshot clone dominates. Output-Vec parity asserted first. `#[ignore]`; run with
++    /// `cargo test --release -p fnx-algorithms --lib node_degree_xy_directed_borrow_ab -- --ignored --nocapture`.
++    #[test]
++    #[ignore = "measurement; run with --release --ignored --nocapture"]
++    fn node_degree_xy_directed_borrow_ab() {
++        use std::hint::black_box;
++        use std::time::Instant;
++
++        // Dense directed circulant: 8000 nodes, out-degree 25 → ~200k directed edges.
++        let n_nodes = 8000usize;
++        let mut g = DiGraph::strict();
++        for i in 0..n_nodes {
++            let _ = g.add_node(i.to_string());
++        }
++        for i in 0..n_nodes {
++            for step in 1..=25usize {
++                let _ = g.add_edge(i.to_string(), ((i + step) % n_nodes).to_string());
++            }
++        }
++
++        let old_fn = |g: &DiGraph| -> Vec<(usize, usize)> {
++            let mut result = Vec::with_capacity(g.edge_count());
++            for edge in g.edges_ordered() {
++                let du = g.neighbor_count(&edge.left) + g.in_degree(&edge.left);
++                let dv = g.neighbor_count(&edge.right) + g.in_degree(&edge.right);
++                result.push((du, dv));
++            }
++            result
++        };
++        let new_fn = |g: &DiGraph| -> Vec<(usize, usize)> {
++            let mut result = Vec::with_capacity(g.edge_count());
++            for (left, right, _attrs) in g.edges_ordered_borrowed() {
++                let du = g.neighbor_count(left) + g.in_degree(left);
++                let dv = g.neighbor_count(right) + g.in_degree(right);
++                result.push((du, dv));
++            }
++            result
++        };
++
++        assert_eq!(
++            old_fn(&g),
++            new_fn(&g),
++            "node_degree_xy_directed owned vs borrowed must be byte-identical"
++        );
++
++        let time = |cand: bool| -> f64 {
++            let t0 = Instant::now();
++            let r = if cand { new_fn(&g) } else { old_fn(&g) };
++            black_box(&r);
++            t0.elapsed().as_secs_f64()
++        };
++        for _ in 0..3 {
++            black_box(time(true));
++            black_box(time(false));
++        }
++        let median = |v: &[f64]| {
++            let mut s = v.to_vec();
++            s.sort_by(|a, b| a.partial_cmp(b).unwrap());
++            s[s.len() / 2]
++        };
++        let rounds = 61usize;
++        let paired = |cand: bool, base_arm: bool| -> Vec<f64> {
++            let mut v = Vec::with_capacity(rounds);
++            for round in 0..rounds {
++                let (tb, tc) = if round.is_multiple_of(2) {
++                    let bt = time(base_arm);
++                    let ct = time(cand);
++                    (bt, ct)
++                } else {
++                    let ct = time(cand);
++                    let bt = time(base_arm);
++                    (bt, ct)
++                };
++                v.push(tb / tc);
++            }
++            v
++        };
++        let report = |name: &str, ratios: &[f64]| {
++            let wins = ratios.iter().filter(|&&r| r > 1.0).count();
++            let mut sorted = ratios.to_vec();
++            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
++            println!(
++                "NDXYDIRBORROW_AB {name}: median={:.4}x win_rate={wins}/{rounds} \
++                 p5_p95=[{:.4},{:.4}]",
++                median(ratios),
++                sorted[rounds * 5 / 100],
++                sorted[rounds * 95 / 100],
++            );
++        };
++        println!("NDXYDIRBORROW_AB node_degree_xy_directed 8k/200k rounds={rounds} (>1 = borrowed faster)");
++        report("BORROWED_vs_owned", &paired(true, false));
++        report("NULL_borrowed_vs_borrowed", &paired(true, true));
++    }
++
+     /// br-r37-c1-ra004: paired-interleaved median A/B for the `neighbor_count`
+     /// no-alloc lever on `bfs_beam_edges` (one per-candidate-neighbor `Vec<&str>`
+     /// degree allocation removed from the BFS inner loop), against its exact

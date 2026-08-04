@@ -1,5 +1,642 @@
 # Measured Head-to-Head Evidence — cc (CopperCliff)
 
+## SHIPPED WIN (cod, 2026-07-13): `group_out_degree_centrality` integer successor union **11.5666x** raw-kernel self-time (br-r37-c1-8wr40)
+
+NEGATIVE-LEDGER FIRST / HOLD CORRECTION: the broad degree/centrality profile at
+the prior `Kernels are converged` HOLD enumerated scalar in/out/undirected
+degree centrality but omitted all three group-degree set-union kernels. No
+specific keep or reject targeted `group_out_degree_centrality`; old commits
+only established native Python routing. This row corrects that blanket HOLD
+for this one missed kernel while leaving the in-degree and undirected siblings
+for separate measurements.
+
+ONE LEVER / EXACT PARITY: resolve group names once to stable node indices, mark
+group membership, walk `successors_indices`, and count the distinct outside
+successors in a second mark array. Production still retains `group.len()` as
+the denominator input, so duplicate and missing group entries keep their exact
+legacy denominator behavior; missing nodes simply retain their old no-op
+traversal. Internal arcs and self-loops are excluded by the identical group
+membership predicate, and duplicate group entries or shared successors still
+contribute once. The same integer cardinality is divided once by the same
+integer denominator, so the returned `f64` bits are identical. There is no
+ordering, tie, RNG, or accumulation surface.
+
+Before timing, the frozen full String-set function and production asserted
+exact `to_bits()` parity on empty and nonlexical directed graphs, including
+empty, duplicate, missing, all-node, oversized, self-loop, internal-arc, and
+shared-successor group cases, plus the timed graph.
+
+STRICT-REMOTE MEDIAN GATE: release full-function A/B on worker `vmi1153651`,
+31 paired interleaved rounds over a prebuilt 50,000-node directed graph with a
+10,000-node group and fanout 16, followed by a mark/mark null:
+
+| arm | paired median | wins | p5-p95 |
+| --- | ---: | ---: | ---: |
+| index marks / String sets | **11.5666x** | 31/31 | 9.0707-13.1366 |
+| index marks / index marks null | 1.0019x | 16/31 | 0.7816-1.1286 |
+
+The candidate p5 clears the null p95 by 8.04x. The fixture forces 10,000
+successor-`Vec` allocations and 160,000 outside-successor visits in the frozen
+arm; each visit hashes the successor for both group membership and the output
+set. Production scans the same 160,000 arcs through stable integer slices and
+fixed-size marks. The valid invocation selected and passed exactly one ignored
+measurement test under
+`RCH_REQUIRE_REMOTE=1 env -u CARGO_TARGET_DIR rch exec -- cargo ...`; no local
+Cargo fallback occurred.
+
+This is Rust-kernel self-time, not a universal public-call ratio. The public
+Python `group_out_degree_centrality` route does enter this kernel directly, but
+Python iteration and node-key conversion remain outside the A/B and will dilute
+the end-to-end ratio.
+
+VALIDATION: the strict-remote focused non-measurement
+`test_group_out_degree_centrality` filter passed, as did workspace
+`cargo check --workspace --all-targets`. Exact workspace `-D warnings` Clippy
+reproduced only the concurrently landed `aspidx` benchmark's pre-existing
+unused-variable warning; the rerun allowing that one Rust lint plus the three
+established main-wide Clippy classes (`collapsible_if`,
+`doc_lazy_continuation`, and `manual_is_multiple_of`) passed with no `8wr40`
+finding. Direct nightly rustfmt still reports existing file-wide drift but no
+diff at either owned hunk; cached-diff checks passed, and staged UBS reported
+zero critical issues.
+
+RESULT: SHIP. Preserve `group.len()` denominator semantics for duplicate and
+unknown group entries. Do not fold the in-degree or undirected twins into this
+commit or generalize 11.57x to tiny groups dominated by wrapper overhead.
+
+## SHIPPED WIN (cod, 2026-07-13): `global_minimum_node_cut` indexed neighbor-pair screen **49.8775x** dense-clique self-time (br-r37-c1-lmyth)
+
+NEGATIVE-LEDGER FIRST: the sibling `global_node_connectivity` row proved this
+predicate shape, but no prior keep or reject targeted the separate global
+minimum-node-cut implementation. Its neighbor-pair loop still rebuilt a
+`HashSet` containing all neighbors of `x` for every candidate `(x, y)`, then
+consumed only the single membership bit for `y`.
+
+ONE LEVER / EXACT PARITY: replace that temporary row materialization with the
+graph's authoritative indexed `has_edge(x, y)` probe. Here `x` and `y` are
+distinct existing nodes in the same simple undirected graph, so both predicates
+are equivalent. Sorted pair order, skipped pairs, `minimum_node_cut` calls, cut
+replacement and tie policy, final sorted cut, and all complexity-witness fields
+are unchanged. There are no floats or RNG. Before timing, the frozen old full
+function and production asserted exact `MinimumNodeCutResult` equality on K4,
+self-looped K4, a five-node path, a deliberately nonlexical fixture, and K256.
+
+STRICT-REMOTE MEDIAN GATE: release full-function A/B on worker `vmi1153651`, 31
+paired interleaved rounds over K256, followed by an indexed/indexed null:
+
+| arm | paired median | wins | p5-p95 |
+| --- | ---: | ---: | ---: |
+| indexed `has_edge` / per-pair `HashSet` | **49.8775x** | 31/31 | 26.0746-73.4330 |
+| indexed / indexed null | 0.9781x | 11/31 | 0.6541-1.2066 |
+
+The candidate p5 clears the null p95 by 21.6x. K256 deliberately isolates the
+screen: all 32,385 neighbor pairs are adjacent, so both arms execute zero flow
+calls and return the same 255-node cut with zero `edges_scanned` and
+`queue_peak`. The old screen performs 8,258,175 temporary neighbor insertions
+plus 32,385 allocations; the candidate performs 32,385 indexed probes. This
+changes the clique screen from O(V^3) temporary-row work to O(V^2) probes,
+without changing the flow-dominated general-case complexity.
+
+The valid invocation selected and passed exactly one ignored measurement test
+under `RCH_REQUIRE_REMOTE=1 env -u CARGO_TARGET_DIR rch exec -- cargo ...`; no
+local Cargo fallback occurred. This is full Rust-kernel K256 self-time, not a
+universal graph or Python-call ratio. The canonical Python global
+`minimum_node_cut(G)` path currently delegates rather than entering this native
+kernel, so the result applies to Rust/raw-kernel callers; directed, local, and
+multigraph routes remain separate.
+
+VALIDATION: the strict-remote focused filter passed both non-measurement global
+minimum-node-cut tests (the A/B remained ignored), and workspace
+`cargo check --workspace --all-targets` passed. Workspace Clippy passed with
+only the three established main-wide lint classes allowed (`collapsible_if`,
+`doc_lazy_continuation`, and `manual_is_multiple_of`); no new finding was
+admitted. Direct rustfmt still reports unrelated file-wide drift, with no diff
+at either changed hunk. `git diff --cached --check` passes, and staged UBS
+reported zero critical issues.
+
+RESULT: SHIP. Preserve indexed undirected edge semantics and the unchanged
+sorted neighbor-pair order. Do not generalize 49.88x beyond dense graphs whose
+pair screen dominates and whose flow work is absent or small.
+
+## SHIPPED WIN (cod, 2026-07-12): `chordal_graph_cliques` incremental MCS buckets **93.2248x** on a 1,200-node fourth-power path (br-r37-c1-6rzwp)
+
+NEGATIVE-LEDGER FIRST: existing chordal rows establish broad NetworkX-facing
+speedups and sister keeps for `is_chordal` and `chordal_graph_treewidth`, but no
+keep or reject measured this function's residual selector. The frozen production
+loop recomputed `|N(v) ∩ numbered|` for both sides of every `max_by` comparison,
+giving sparse inputs quadratic candidate scans plus repeated neighbor walks.
+
+ONE LEVER / EXACT PARITY: maintain each component-local lexicographic rank's MCS
+weight in `BTreeSet` buckets. Selecting the first rank in the highest nonempty
+bucket is exactly the old maximum numbered-neighbor count, then minimum sorted
+component-rank tie policy. Start-neighbor weights are seeded before selection;
+after choosing a node, each still-unnumbered neighbor moves up one bucket. The
+forced start, clique-completeness checks, partial-output behavior, clique sorting,
+component order, and all returned strings are unchanged. There are no floats or
+RNG. The frozen full function and production matched exact ordered
+`Vec<Vec<String>>` output on nonlexical path, diamond, disconnected star plus
+singleton, C4, and timed fourth-power-path fixtures.
+
+STRICT-REMOTE MEDIAN GATE: release full-function A/B on worker `vmi1153651`, 31
+paired interleaved rounds over a prebuilt 1,200-node fourth-power path, followed
+by a bucket/bucket null:
+
+| arm | paired median | wins | p5-p95 |
+| --- | ---: | ---: | ---: |
+| incremental buckets / frozen rescans | **93.2248x** | 31/31 | 76.6314-117.0564 |
+| incremental buckets / incremental buckets null | 0.9899x | 14/31 | 0.8819-1.2321 |
+
+The candidate p5 clears the null p95 by 62.2x. The ignored A/B ran exactly one
+test and passed under `RCH_REQUIRE_REMOTE=1`; no local Cargo fallback occurred.
+The production hunk was concurrently swept into `22c0cdb3e` while its isolated
+proof harness remained staged; this row and the harness preserve the lever's
+actual proof boundary rather than attributing the adjacent shortest-path work to
+the result.
+
+VALIDATION: strict-remote workspace `cargo check --workspace --all-targets`
+passed, as did all four focused non-measurement chordal-clique tests. Workspace
+Clippy passed with only the three established main-wide lint classes allowed
+(`collapsible_if`, `doc_lazy_continuation`, and `manual_is_multiple_of`); no new
+finding was admitted. Staged UBS reported zero critical issues. Direct rustfmt
+still reports unrelated filewide drift; its one initially reported harness line
+was corrected, and `git diff --cached --check` passes.
+
+RESULT: SHIP. This is native kernel self-time on a sparse chordal interval graph;
+do not generalize 93.2248x to tiny inputs, wrapper overhead, multigraph routing,
+or non-chordal inputs that bypass the public native clique path.
+
+## SHIPPED WIN (cod, 2026-07-12): `is_planar_lr` ordered edge indices **1.8621x** on a 120x120 planar grid (br-r37-c1-bndaf)
+
+NEGATIVE-LEDGER FIRST: existing planarity rows cover the Python certificate
+boundary and the native LR boolean dispatch, but no prior keep or reject measured
+the LR kernel's edge-materialization setup. The frozen production path cloned an
+`EdgeSnapshot` (two endpoint `String`s plus the `AttrMap`) for every edge, then
+hashed both endpoint names through a fresh node-index map before building the LR
+adjacency.
+
+ONE LEVER / EXACT PARITY: consume `Graph::edges_ordered_indices()`, the documented
+index-space twin of `edges_ordered()`. It preserves the same node-major edge order
+and orientation, so self-loop skips, simple-edge dedup, both adjacency insertion
+orders, Euler rejection, LR DFS ordering, conflict-stack behavior, and the final
+boolean are unchanged. There are no floats, RNG, returned witnesses, or altered
+tie policies. The frozen old full function and production matched exactly on K4,
+K5, K2,4, K3,3, self-looped K5, a nonlexical insertion-order graph, and 8x8 plus
+120x120 planar grids.
+
+STRICT-REMOTE MEDIAN GATE: release full-function A/B on worker `vmi1149989`,
+31 paired interleaved rounds over a prebuilt 120x120 grid (14,400 nodes, 28,560
+edges), followed by an edge-index/edge-index null:
+
+| arm | paired median | wins | p5-p95 |
+| --- | ---: | ---: | ---: |
+| ordered indices / snapshots + endpoint rehash | **1.8621x** | 31/31 | 1.5521-2.2348 |
+| ordered indices / ordered indices null | 0.9801x | 12/31 | 0.8087-1.1697 |
+
+The candidate p5 clears the null p95 by 1.327x. The ignored A/B ran exactly one
+test and passed under `RCH_REQUIRE_REMOTE=1`; no local Cargo fallback occurred.
+Two earlier remote release invocations built successfully but selected zero tests
+because the shared source file advanced and replaced the then-unstaged harness;
+they are INVALID selector evidence and do not contribute to this verdict. A later
+remote compile caught and fixed the test-only `super::LrState` qualification before
+the valid run.
+
+VALIDATION: strict-remote workspace `cargo check --workspace --all-targets`
+passed, and the four focused non-measurement LR tests passed. Exact workspace
+clippy reproduced the known 11 filewide findings (one `collapsible_if`, ten
+`doc_lazy_continuation`), then the concurrently landed `bipidx` benchmark added
+two unrelated `manual_is_multiple_of` findings. With those three known lint
+classes allowed, strict-remote workspace clippy passed; no finding was in the
+staged `bndaf` hunks. Staged UBS reported zero critical issues.
+Direct rustfmt still reports unrelated filewide drift and no diff at either
+staged planarity hunk; `git diff --cached --check` passes.
+
+RESULT: SHIP. This is LR self-time evidence on a large planar grid; do not
+generalize 1.8621x to the Python certificate-producing path or tiny/Euler-rejected
+graphs where setup is diluted or skipped.
+
+## SHIPPED WIN (cod, 2026-07-12): `local_bridges_list` ordered edge indices **35.0456x** over the post-`f1run` kernel on dense K384 (br-r37-c1-xuvu2)
+
+NEGATIVE-LEDGER FIRST / DISTINCT SECOND LEVER: `br-r37-c1-f1run` deliberately
+held `edges_ordered()` and endpoint-name handling constant while replacing the
+common-neighbor sets. Its ledger row explicitly reserved edge-index iteration
+for a separate measurement. After that 49.76x keep, the dense no-output profile
+was dominated by `EdgeSnapshot` materialization and immediate name-to-index
+round trips. No prior keep or reject measured this post-`f1run` residual.
+
+ONE LEVER / EXACT PARITY: consume `edges_ordered_indices()`, the documented
+index-space twin of `edges_ordered()`, and resolve names only when emitting a
+local bridge. The common-neighbor predicate from `f1run` is unchanged.
+`edges_ordered_indices()` preserves the same node-major edge order and
+orientation, so loop skips, every common-neighbor decision, and the exact
+returned `(String, String)` sequence are identical. Edge attributes were never
+read. There are no floats, RNG, tie breaks, spans, or witness fields.
+
+STRICT-REMOTE MEDIAN GATE: release full-function A/B on worker `vmi1153651`,
+31 paired interleaved rounds over K384, comparing the frozen post-`f1run`
+snapshot arm against production:
+
+| arm | paired median | wins | p5-p95 |
+| --- | ---: | ---: | ---: |
+| ordered indices / snapshots + endpoint rehash | **35.0456x** | 31/31 | 22.6241-50.4188 |
+| ordered indices / ordered indices null | 1.0511x | 19/31 | 0.6684-1.2585 |
+
+The candidate p5 clears the null p95 by 17.98x. K384 has 73,536 edges and no
+local bridges, so the baseline creates 73,536 `EdgeSnapshot`s, clones 147,072
+endpoint `String`s and 73,536 attribute maps, then hashes 147,072 endpoint names
+back to indices without emitting output. Before timing, the frozen post-`f1run`
+function and production asserted exact ordered-`Vec` parity on a path, a cycle,
+a triangle with a tail, endpoint self-loop cases, K6, and a deliberately
+non-lexical node/edge insertion-order fixture. The valid invocation ran exactly
+one ignored test under
+`RCH_REQUIRE_REMOTE=1 env -u CARGO_TARGET_DIR rch exec -- cargo ...`; no local
+Cargo fallback occurred.
+
+VALIDATION: strict-remote workspace `cargo check --workspace --all-targets`
+passed, as did the focused non-ignored `test_local_bridges_list_path`. Exact
+workspace Clippy reproduced only the established one `collapsible_if` and ten
+`doc_lazy_continuation` findings elsewhere in the shared algorithms file; the
+same strict-remote gate passed with only those two legacy lint classes allowed.
+UBS reported zero critical issues. Direct rustfmt still reports unrelated
+filewide drift, with no formatting diff in either changed hunk; `git diff
+--check` passes.
+
+RESULT: SHIP. This is K384 loop-free raw-kernel self-time against the already
+optimized `f1run` baseline, not a universal Python-call ratio and not a license
+to multiply the two headline ratios. The wrapper routing and indexed
+common-neighbor algorithm are unchanged.
+
+## SHIPPED WIN (cod, 2026-07-12): `local_bridges_list` indexed common-neighbor probe **49.7564x** dense-complete self-time (br-r37-c1-f1run)
+
+NEGATIVE-LEDGER FIRST: the only prior `local_bridges` evidence is a broad
+6.3-6.6x comparison against NetworkX. No keep or reject targeted the raw Rust
+kernel's per-edge construction of two neighbor `Vec`s and two `HashSet<&str>`
+values. The Python surface reaches this kernel for loop-free
+`local_bridges(G, with_span=False, weight=None)`; span, weight, callable-weight,
+multigraph, directed, and self-loop wrapper routes remain unchanged.
+
+ONE LEVER / EXACT PARITY: for each ordered edge `(u, v)`, walk the existing
+integer `N(u)` row and ask the index-keyed edge map whether `(v, w)` exists.
+Skipping `w == u || w == v` is exactly the old predicate
+`(N(u) - {v}) intersect (N(v) - {u})`, including the raw Rust helper's endpoint
+self-loop behavior. Edge iteration, orientation, and output cloning remain
+unchanged. There are no floats, RNG, tie breaks, ordering choices, spans, or
+witness fields.
+
+STRICT-REMOTE MEDIAN GATE: release full-function A/B on worker `vmi1152480`,
+31 paired interleaved rounds over K192:
+
+| arm | paired median | wins | p5-p95 |
+| --- | ---: | ---: | ---: |
+| indexed probe / neighbor sets | **49.7564x** | 31/31 | 8.4241-60.2775 |
+| indexed probe / indexed probe null | 1.0106x | 19/31 | 0.8480-1.1994 |
+
+The candidate p5 clears the null p95 by 7.02x. K192 has 18,336 edges and no
+local bridges, so the frozen old function performs 36,672 neighbor-vector
+allocations, 36,672 temporary set allocations, and 6,967,680 String-set insert
+attempts per call without output-clone dilution. Before timing, the frozen old
+function and production asserted exact ordered-`Vec` parity on a path, a cycle,
+a triangle with a tail, one- and two-endpoint self-loop cases, and K6. The valid
+invocation ran exactly one ignored test under
+`RCH_REQUIRE_REMOTE=1 env -u CARGO_TARGET_DIR rch exec -- cargo ...`; no local
+Cargo fallback occurred.
+
+VALIDATION: strict-remote workspace `cargo check --workspace --all-targets`
+passed, as did the focused non-ignored `test_local_bridges_list_path`. Exact
+workspace Clippy reproduced only the established one `collapsible_if` and ten
+`doc_lazy_continuation` findings elsewhere in the shared algorithms file; the
+same strict-remote gate passed with only those two legacy lint classes allowed.
+UBS reported zero critical issues. Direct rustfmt still reports unrelated
+filewide drift, with no formatting diff in either changed hunk; `git diff
+--check` passes.
+
+RESULT: SHIP. This is K192 loop-free raw-kernel self-time, not a universal
+Python-call ratio. Preserve the wrapper's correctness-first routing for spans,
+weights, and self-loop graphs; measure edge-index iteration separately rather
+than folding it into this allocation-removal commit.
+
+## SHIPPED WIN (cod, 2026-07-12): `is_distance_regular` native neighbor-index walk **18.8461x** dense-complete self-time (br-r37-c1-bgaxx)
+
+NEGATIVE-LEDGER FIRST: the existing distance-regular rows cover the exact
+regular/connected wrapper precheck and the degree-2 cycle fast path. Neither
+targets the residual native kernel reached by regular connected graphs of
+degree greater than two. That kernel's all-source BFS and intersection-array
+pass both walked `neighbors_iter`, converting each stored adjacency index to a
+node name, then immediately hashed that name through `node_to_idx` to recover
+the same index. No prior keep or reject measured this representation round trip.
+
+ONE LEVER / EXACT PARITY: walk `neighbors_indices` directly in both stages and
+remove the now-unused name-to-index map. `neighbors_iter(nodes[i])` is the same
+`adj_indices[i]` row mapped through the node table; the old lookup maps every
+name back to its original index. The replacement therefore preserves the exact
+integer stream and adjacency order. BFS discovery and queue order, every
+distance-matrix cell, `b_count` / `c_count`, mismatch short-circuits, self-loop
+behavior, and the final boolean are identical. There are no floats, RNG, output
+ordering, tie breaks, or witness fields.
+
+STRICT-REMOTE MEDIAN GATE: release full-function A/B on worker `vmi1167313`,
+31 paired interleaved rounds over K160:
+
+| arm | paired median | wins | p5-p95 |
+| --- | ---: | ---: | ---: |
+| native indices / name rehash | **18.8461x** | 31/31 | 7.7604-25.1915 |
+| indices / indices null | 0.9860x | 13/31 | 0.5205-1.1594 |
+
+The candidate p5 clears the null p95 by 6.69x. K160 is connected,
+distance-regular, and degree 159, so it forces both full stages and performs
+8,140,800 old name-to-index hashes per call. Before timing, the frozen old full
+function and production asserted exact parity on complete graphs with and
+without self-loops, Petersen, a non-distance-regular triangular prism, a path,
+and a singleton. The valid invocation executed exactly one ignored test under
+`RCH_REQUIRE_REMOTE=1 env -u CARGO_TARGET_DIR rch exec -- cargo ...`; no local
+Cargo fallback occurred.
+
+This is full Rust-kernel K160 self-time, not a universal graph or Python-call
+ratio. The public wrapper reaches this kernel only after its regular,
+connected, degree-greater-than-two gates; its earlier fast rejects and correct
+O(1) degree-2 cycle path are unchanged.
+
+VALIDATION: strict-remote workspace `cargo check --workspace --all-targets`
+passed, as did both focused non-ignored `test_is_distance_regular` tests. Exact
+workspace Clippy reproduced only the established one `collapsible_if` and ten
+`doc_lazy_continuation` findings elsewhere in this shared file; the same
+strict-remote gate passed with only those two legacy lint classes allowed. UBS
+reported zero critical issues in the changed Rust file. Direct rustfmt still
+reports unrelated filewide drift, with no formatting diff in either changed
+hunk; `git diff --check` passes.
+
+RESULT: SHIP. Preserve adjacency-row order and the wrapper's correctness-first
+cycle behavior. Do not generalize 18.85x to sparse, early-reject, or wrapper-
+dominated inputs.
+
+## SHIPPED WIN (cod, 2026-07-12): `global_node_connectivity` indexed neighbor-pair screen **44.1664x** dense-clique self-time (br-r37-c1-r7e4g)
+
+NEGATIVE-LEDGER FIRST: no prior keep or reject targeted the adjacency predicate
+inside the global node-connectivity neighbor-pair loop. Earlier connectivity
+rows cover residual-template reuse and flow kernels; the matching-family
+`has_edge` row covers a separate boolean validator. The remaining global loop
+rebuilt a `HashSet` containing all neighbors of `x` for every candidate pair
+`(x, y)`, even though it consumed only one membership bit.
+
+ONE LEVER / EXACT PARITY: replace that temporary row materialization with the
+graph's authoritative indexed `has_edge(x, y)` probe. For the existing,
+distinct nodes in this simple undirected graph, both predicates are equivalent.
+Pair ordering, skipped pairs, flow calls, cutoff updates, early exits, returned
+value, and complexity-witness counters are unchanged. Before timing, the frozen
+old full function and production asserted exact `NodeConnectivityResult`
+equality on K4, K4 with self-loops, and a five-node path.
+
+STRICT-REMOTE MEDIAN GATE: release A/B on worker `vmi1153651`, 31 paired
+interleaved rounds over K256:
+
+| arm | paired median | wins | p5-p95 |
+| --- | ---: | ---: | ---: |
+| indexed `has_edge` / per-pair `HashSet` | **44.1664x** | 31/31 | 16.0947-68.6562 |
+| indexed / indexed null | 1.0114x | 17/31 | 0.5573-2.0470 |
+
+The candidate p5 clears the null p95 by nearly 8x. K256 deliberately isolates
+the screen: all 32,385 neighbor pairs are adjacent, so both arms execute zero
+max-flow calls and return value 255 with zero `edges_scanned` and `queue_peak`.
+On this dense-clique stage, the old screen performs 8,258,175 temporary
+neighbor insertions plus 32,385 allocations; the candidate performs 32,385
+indexed probes. This changes the clique screen from O(V^3) temporary-row work
+to O(V^2) probes, without changing the flow-dominated general-case complexity.
+
+This is full Rust-kernel K256 self-time, not a universal graph or Python-call
+ratio. Canonical simple-undirected Python `node_connectivity` reaches this
+kernel; directed, local, multigraph, self-loop, and custom-flow routes remain
+separate. The valid invocation ran exactly one ignored measurement test under
+`RCH_REQUIRE_REMOTE=1 env -u CARGO_TARGET_DIR rch exec -- cargo ...`; no local
+Cargo fallback occurred.
+
+VALIDATION: the strict-remote workspace all-targets check and the focused
+global-connectivity regression passed. Exact workspace `-D warnings` clippy
+reproduced only the crate's 11 pre-existing `collapsible_if` /
+`doc_lazy_continuation` findings; the rerun allowing exactly those two known
+classes passed. Direct `rustfmt --check` reported unrelated existing file-wide
+format drift, with no finding at either changed hunk. UBS reported zero
+critical issues.
+
+RESULT: SHIP. Preserve indexed undirected edge semantics and the unchanged
+sorted neighbor-pair order. Do not generalize 44.17x beyond dense graphs whose
+pair screen dominates and whose flow work is absent or small.
+
+## REJECT (cod, 2026-07-12): declined `closeness_centrality` per-source CSR fallback does not clear its null (br-r37-c1-yy0rp)
+
+NEGATIVE-LEDGER FIRST: the earlier `x0jz8` row left one explicit residual:
+when the bit-parallel gate declines `grid_1600`, production discards the
+borrowed integer rows, rebuilds a String-indexed reverse adjacency, and runs
+the per-source rayon BFS. That row proposed retaining a compact `u32` CSR for
+the otherwise-identical fallback; no prior keep or reject measured that exact
+full-function lever.
+
+ONE LEVER / EXACT PARITY: the trial built the existing order-preserving reverse
+CSR and changed only the declined closeness arm's per-source neighbor walk from
+String rows to CSR slices. A frozen String arm and the candidate asserted exact
+node order, every `f64::to_bits()` score, and `nodes_touched`, `edges_scanned`,
+and `queue_peak` witness counts before timing. No harmonic, ASPL, gate decision,
+or bit-parallel kernel was changed.
+
+STRICT-REMOTE MEDIAN GATE: release A/B on worker `vmi1167313`, 31 paired
+interleaved rounds over the canonical 40x40 `grid_1600` decline fixture:
+
+| arm | paired median | wins | p5-p95 |
+| --- | ---: | ---: | ---: |
+| CSR / String rows | 1.1534x | 23/31 | 0.8082-2.2140 |
+| CSR / CSR null | 1.0852x | 19/31 | 0.7009-3.1453 |
+
+The apparent candidate lift is only about 6% beyond the skewed null median,
+and the candidate's entire tail overlaps the much wider null (candidate p5
+0.8082 versus null p95 3.1453). It therefore does not clear the same-binary
+noise floor and cannot justify a production change. A first release invocation
+on `vmi1149989` compiled but matched zero tests; it is VOID/INVALID and provides
+no timing evidence. Both invocations were fail-closed `RCH_REQUIRE_REMOTE=1`
+runs with no local fallback.
+
+RESULT: REJECT / NO SHIP. The production code and measurement harness were
+removed. Do not retry this exact `grid_1600` per-source CSR fallback without a
+measurement substrate whose CSR/CSR null is materially tighter; route instead
+to a different algorithmic stage or fixture with an effect above that floor.
+
+## SHIPPED WIN (cod, 2026-07-12): `from_prufer_sequence` monotone leaf pointer **502.3567x** worst-case self-time (br-r37-c1-uxbg8)
+
+NEGATIVE-LEDGER FIRST: no prior row targeted the Rust decoder's repeated
+smallest-leaf search. The separate Python `tree.from_prufer_sequence` path
+already used the standard pointer algorithm, and the Rust random-tree helper
+had independently adopted the same technique, but the top-level native
+`from_prufer_sequence` kernel still rescanned `0..n` for every code element.
+The earlier Prüfer rows cover encoding and native graph construction, not this
+decoder loop.
+
+PROFILE / ONE LEVER: retain the current smallest leaf in a monotone pointer.
+When removing a leaf, only its just-decremented parent can become a new leaf
+below the pointer; otherwise the next smallest leaf is the first degree-one
+node above it. This changes worst-case leaf selection from O(n²) to O(n) while
+leaving validation, normalized endpoint orientation, emission order, and final
+edge construction unchanged.
+
+EXACT PARITY: before timing, the frozen old decoder and production asserted
+exact `Result<PruferResult, String>` equality, including ordered edge vectors,
+for empty, singleton, repeated-parent, mixed-parent, and invalid sequences, plus
+the timed 10,000-node star. An exhaustive development oracle also compared all
+280,392 valid sequences for n=2..8 with no mismatch.
+
+MEDIAN GATE: strict-remote release A/B on worker `vmi1227854`, 31 paired
+interleaved rounds over a 10,000-node star centered at node 9,999:
+
+| arm | paired median | wins | p5-p95 |
+| --- | ---: | ---: | ---: |
+| pointer / full rescan | **502.3567x** | 31/31 | 391.4818-769.4725 |
+| pointer / pointer null | 0.9865x | 12/31 | 0.7859-1.4328 |
+
+The candidate p5 is hundreds of times above the null p95. This is isolated
+Rust-kernel worst-case self-time, not a whole Python-call or typical-input
+ratio. The top-level Python binding calls this kernel directly; do not
+generalize the 502x figure to the already-linear `franken_networkx.tree`
+implementation. Two earlier strict-remote attempts on `ovh-b` are VOID/INVALID:
+that worker's stale sibling `ftui` checkout failed dependency resolution before
+this crate compiled, so neither produced timing and neither fell back locally.
+Removing the two-job cap made that three-slot worker inadmissible; the valid
+rerun compiled and executed one test remotely.
+
+The dedicated non-ignored ordered-decode regression passed remotely, as did
+the scoped all-targets check. Exact `-D warnings` clippy reproduced only the
+crate's 11 pre-existing `collapsible_if` / `doc_lazy_continuation` findings;
+the scoped rerun allowing exactly those two known lint classes passed.
+
+RESULT: SHIP. Preserve the monotone-pointer invariant, exact smallest-leaf tie
+choice, ordered normalized edges, and existing invalid-value error text.
+
+## SHIPPED WIN (cod, 2026-07-12): `is_edge_cover` indexed existence probe **2.2267x** on dense rows (br-r37-c1-4pchn)
+
+NEGATIVE-LEDGER FIRST: the matching-family HOLD entries protect minimum-cover
+construction because NetworkX tie choice and returned edge orientation are
+observable. They do not cover `is_edge_cover`, which only validates a supplied
+edge set and returns one boolean. No prior keep or reject targeted this
+predicate.
+
+PROFILE / ONE LEVER: for every supplied cover edge `(u, v)`, the validator used
+`neighbors_iter(u).any(|n| n == v)`, linearly scanning `u`'s row. It now calls
+the graph's existing indexed undirected `has_edge(u, v)` predicate. Cover-set
+construction, invalid-edge early return, empty-graph behavior, and final
+all-nodes-covered check are unchanged. The hot existence work changes from
+O(sum degree(u)) to O(number of supplied edges).
+
+EXACT PARITY: the one-binary harness compared the frozen neighbor-scan baseline
+against production on valid, reversed, invalid, missing-endpoint, empty-cover,
+and self-loop cases before timing. Both predicates return false for an unknown
+endpoint and treat undirected orientation and self-loops identically.
+
+MEDIAN GATE: strict-remote release A/B on worker `vmi1293453`, 61 paired
+interleaved rounds over a valid 4,000-edge cover. Each source row has 512
+earlier-inserted filler neighbors and the covered partner last:
+
+| arm | paired median | wins | p5-p95 |
+| --- | ---: | ---: | ---: |
+| indexed `has_edge` / neighbor scan | **2.2267x** | 61/61 | 1.5089-4.1159 |
+| indexed / indexed null | 0.9941x | 27/61 | 0.6518-1.2480 |
+
+The candidate p5 clears the null p95. A first 10,000-pair fixture with only 64
+filler neighbors was deliberately not used for the verdict: it measured just
+1.0681x (47/61) against a badly skewed 0.9394x null with overlapping tails.
+That run establishes density-sensitive crossover rather than a universal
+2.23x claim. The kept number is isolated Rust-kernel self-time, not a whole
+Python-call ratio. The public PyO3 `is_edge_cover` binding calls this kernel
+directly. Every Cargo invocation used `RCH_REQUIRE_REMOTE=1 env -u
+CARGO_TARGET_DIR rch exec -- cargo ...`; refused capacity attempts did not fall
+back locally. The scoped production suite passed 3/3, strict-remote all-targets
+check passed, and scoped clippy passed while allowing only the repository's 11
+pre-existing `collapsible_if` / `doc_lazy_continuation` findings reproduced by
+the exact `-D warnings` run outside this lever.
+
+RESULT: SHIP. Preserve the boolean-only scope and the existing indexed
+undirected edge semantics. Do not generalize this result to minimum-cover
+construction or sparse-row speedups.
+
+## SHIPPED WIN (cod, 2026-07-12): `to_prufer_sequence` borrowed edge scan **1.5550x** self-time (br-r37-c1-8vjja)
+
+NEGATIVE-LEDGER FIRST: the 2026-06-25 entry below already established and
+shipped the large O(n²) -> O(n) Prüfer algorithmic correction. This pass did
+not retry that exhausted family. It profiled the residual O(E) adjacency-build
+seam and found `edges_ordered()` still cloned both endpoint `String`s and the
+entire `AttrMap` for every tree edge, even though Prüfer only parses endpoint
+labels.
+
+ONE LEVER: build the existing mutable adjacency from
+`edges_ordered_borrowed()` instead. The degree array, smallest-leaf tie break,
+monotonic pointer, validation, errors, and output construction are unchanged.
+The borrowed iterator has the same insertion order and endpoint values as the
+owned iterator; edge attributes remain intentionally unused.
+
+EXACT PARITY + MEDIAN GATE: strict-remote release A/B on worker `vmi1227854`,
+61 paired interleaved rounds over the ordered edge scan of a 100,000-node path:
+
+| arm | paired median | wins | p5-p95 |
+| --- | ---: | ---: | ---: |
+| borrowed / owned | **1.5550x** | 61/61 | 1.2245-1.8531 |
+| borrowed / borrowed null | 1.0154x | 36/61 | 0.8542-1.2144 |
+
+The same binary first asserted exact equality of the complete ordered parsed
+edge vector, then ran both arms and the null control. The candidate clears the
+null-median floor decisively. This is an isolated adjacency-build self-time
+claim, not a whole Python-call ratio. The first remote invocation compiled but
+matched zero tests; it is VOID/INVALID and is not part of the result. The exact
+fully-qualified rerun executed one test and passed. Every Cargo command used
+`RCH_REQUIRE_REMOTE=1 env -u CARGO_TARGET_DIR rch exec -- cargo ...`; no local
+Cargo ran. Strict-remote `cargo check -p fnx-algorithms --all-targets` passed.
+Scoped clippy passed with only the repository's 11 pre-existing
+`collapsible_if` / `doc_lazy_continuation` findings allowed after the exact
+`-D warnings` run reproduced them outside this lever. A separate non-release
+Prüfer-suite request was fail-closed before execution because no admissible
+eight-slot worker was available; it did not fall back locally.
+
+RESULT: SHIP. Preserve borrowed edge order, numeric-label parsing behavior, and
+the existing O(n) smallest-leaf algorithm. Reachable through the native
+`to_prufer_sequence` Python binding.
+
+## SHIPPED WIN (cc, 2026-07-12): `ego_graph` borrowed induced-edge copy **1.1820x** self-time (br-r37-c1-vngrp)
+
+NEGATIVE-LEDGER / PROFILE FIRST: the immediately preceding `ego_graph` BFS
+integer-walk trial was correctly rejected below its null floor. Its profile and
+paired A/B identified the unchanged post-BFS `edges_ordered()` materialization
+as the dominant tail: it cloned every input edge's two endpoint Strings and
+`AttrMap` before the induced-edge batch cloned retained values a second time.
+
+ONE LEVER: the undirected `ego_graph` induced-edge loop now walks
+`edges_ordered_borrowed()`. It retains the same `idx` and `ego_set` membership
+checks and clones each selected endpoint and attribute map exactly once into the
+existing batch. The directed twin, BFS traversal, node order, and batch inserter
+are unchanged.
+
+BIT-IDENTICAL: `edges_ordered_borrowed()` exposes the same edges in the same
+order with the same endpoint names and `AttrMap` values as `edges_ordered()`.
+The one-binary A/B asserted exact equality of the complete ordered
+`Vec<(String, String, AttrMap)>` before timing.
+
+MEDIAN GATE: strict-remote release A/B on worker `vmi1149989`, 61 paired
+interleaved rounds over an 8,000-node / 200,000-edge all-node ego fixture:
+
+| arm | paired median | wins | p5-p95 |
+| --- | ---: | ---: | ---: |
+| borrowed / owned | **1.1820x** | 57/61 | 0.9349-1.8026 |
+| borrowed / borrowed null | 1.0106x | 33/61 | 0.9057-1.2270 |
+
+The candidate median clears the current per-function null-median floor. This is
+an isolated changed-loop self-time claim, not a whole-Python-surface ratio.
+Every authoritative Cargo command used `RCH_REQUIRE_REMOTE=1 env -u
+CARGO_TARGET_DIR rch exec -- cargo ...`; no local Cargo ran. A scoped test retry
+was fail-closed refused for no admissible eight-slot worker, and a remote
+all-targets check on `vmi1264463` was invalidated before compilation by that
+worker's stale sibling `ftui` 0.4.1 checkout failing the workspace's 0.5.0
+requirement. The release A/B itself compiled the final source and passed its
+exact parity assertion. A strict-remote retry on `vmi1149989` passed
+`cargo check -p fnx-algorithms --all-targets`; scoped clippy passed while
+allowing only the 11 pre-existing `collapsible_if` / `doc_lazy_continuation`
+findings that the exact `-D warnings` run surfaced outside this change.
+
+RESULT: SHIP. Preserve undirected-only scope, borrowed edge order, exact
+attribute cloning, and the existing batch insertion path. Do not fold the
+rejected BFS integer-walk trial or the directed twin into this commit.
+
 ## SHIPPED WIN (cc, 2026-07-12): `complement_edges_directed` O(V²) has_edge → bool-row **3.1313x** (br-r37-c1-compedgedirint)
 
 Directed sibling of compedgeidx (3rd has_edge-in-nested-loop win). complement_edges_directed: for u, for v, if
@@ -8322,3 +8959,424 @@ node store. NET (definitive): every remaining fnx-vs-nx gap is now one of {strin
 multigraph nested-bucket construction ~0.80x, edge-attr product pairing kernel, node-removal renumber} —
 all ARCHITECTURAL. The value + correctness + crackable-perf surfaces are exhausted; the frontier is a
 deliberate multi-session storage-model primitive, not a single-turn lever.
+
+## 2026-07-22 SnowyBadger (cc) SURFACE + SLICE: MultiGraph mutation surface was MISSED by the convergence sweeps — construction 0.49x + cold-after-mutation traversal 0.57x are live losses on HEAD; implemented thp6w S4 (incremental memo advance)
+
+HEAD `8b7dff824` (installed .so 2026-07-16 21:34; no MG-affecting Rust commits after it — only the
+fnx-runtime ftui source fix). The two exotic-sweep convergence confirmations (br-r37-c1-5rfeo /
+br-r37-c1-li8qa, "fnx dominates ~40 ops") did NOT measure MultiGraph BATCH CONSTRUCTION or
+MUTATION-INTERLEAVED traversal. Fresh interleaved same-process A/B (randomized arm order, gc off,
+A/A null per op, n=20000 cycle+3n chords+1000 parallel; TRIALS=9):
+
+| op | nx/fnx | fnx | nx | cv | A/A null | verdict |
+|---|---|---|---|---|---|---|
+| MG add_edges_from construct (mixed) | 0.492x | 402.8ms | 198.3ms | 4.3% | 0.999 | LOSS |
+| MG construct dup-free | 0.547x | 317.9ms | 174.0ms | 11.6% | — | LOSS |
+| MG construct attributed (40k) | 0.738x | 130.5ms | 96.3ms | 11.1% | — | LOSS |
+| connected_components COLD (add+remove edge, then cc) | 0.566x | 10.89ms | 6.17ms | 15.9% | 1.005 | LOSS |
+| connected_components WARM | 2.503x | 2.39ms | 5.98ms | — | 1.645(noisy) | win |
+| shortest_path_length far (cycle) | 1.259x | — | — | 16.7% | 1.367(noisy) | win |
+| has_path close (early-exit) | 4.069x | 2.2us | 8.8us | high | 1.000 | win |
+| MG edges(keys=True) drain | 5.671x | 8.5ms | 48.2ms | 0.8% | 1.004 | win |
+| has_edge single | 0.260x | 0.42us | 0.11us | 9.7% | 0.992 | LOSS (string-node-key floor, NOT thp6w) |
+| degree(u) single | 0.913x | — | — | 11.0% | 0.994 | parity-ish (same floor) |
+
+THREE distinct root causes, two in the thp6w lane:
+1. **MG batch construction 0.49-0.55x (dup-free too, so NOT the parallel-key path):** the String
+   nested-bucket store tax — per edge: 2 String row-cell inserts + EdgeKey(String,String) + per-pair
+   IndexSet<usize> + IndexMap<usize,AttrMap> allocs. This is exactly what Graph's d58s8 flip removed
+   ("zero String allocs/hashes per insert"). Fix = the FULL MultiGraph index-keyed storage flip
+   (d58s8 pattern: rows + edges keyed by node index, String views derive through the name table).
+   MULTI-SESSION epoch (50 `self.adjacency` sites in fnx-classes alone + fnx-python callers).
+   RETRY PREDICATE: take as slice-by-slice epoch with the d58s8 template, NOT a one-session lever.
+2. **cold-after-mutation traversal 0.566x:** the lazy `IntAdjCache` memo pays a full O(E) rebuild
+   after EVERY revision bump — mutate-one-edge-then-traverse loses to nx. NEW evidence vs the prior
+   "cold ≈ neutral" claims (those measured FRESH-graph one-shot cold, where build ≈ 1 traversal; the
+   mutation-interleaved pattern pays build + traversal vs nx's traversal). IMPLEMENTED THIS SESSION as
+   **thp6w S4**: `advance_int_adj_memo` — single-edge `add_edge_impl`/`remove_edge` now ADVANCE a
+   warm memo across the mutation (append new distinct neighbors / push fresh rows / shift-remove
+   emptied pairs, mirroring the String-row edit byte-for-byte) and re-key it to the new revision;
+   parallel-key adds and attr-only changes become re-key-only (they never change distinct rows but
+   previously invalidated). Monotone-safe: every OTHER mutation path (batches, remove_node renumber,
+   clear_edges, apply_row_orders) leaves the memo stale-keyed and `with_int_adjacency` lazily
+   rebuilds exactly as before — unhandled sites cannot corrupt, only miss the fast path. Proof
+   harness: existing `thp6w_int_adjacency_invariant_across_mutations` (read-warm before EVERY
+   mutation kind, fresh-derivation compare after) now exercises the advance paths, plus new
+   `thp6w_s4_single_edge_mutations_advance_warm_memo` asserting the memo stays WARM (advanced, not
+   rebuilt) across add/parallel-add/attr-only/self-loop/partial-remove/last-key-remove/middle-of-row
+   remove, and goes STALE on remove_node.
+3. **has_edge 0.26x / degree(u) 0.91x:** the string-node-key per-call floor (node_key_to_string +
+   String hash vs nx's int dict hit) — confirmed unchanged from CopperCliff's 2026-07-02 profile.
+   NOT addressable by thp6w (adjacency-side); needs the int-node-index storage epoch.
+
+BENCH-INFRA BLOCKER (recorded): rch fleet fully saturated by peer projects (insufficient_slots=9,
+hard_preflight=2) AND the local cargo registry index is too stale to resolve the lockfile (serde
+locked 1.0.228; local index tops out at 1.0.219/1.0.223, `--offline` fails too) — so LOCAL builds of
+this workspace are impossible on this box until the index refreshes. fnx-classes test verification
++ the .so rebuild for the cc_cold after-measurement ran through a background remote-slot retry loop.
+
+### 2026-07-22 addendum (SnowyBadger): thp6w S4 VERIFIED + COMMITTED
+
+`cargo test -p fnx-classes` on a remote worker (ovh-a, attempt 6 after fleet saturation cleared a
+slot): **78 passed / 0 failed**, including the existing thp6w invariant gauntlet and the two new S4
+tests (`thp6w_s4_single_edge_mutations_advance_warm_memo`, name confirmed in run output per the
+stale-test-binary discipline). Zero compiler warnings in my regions. NOTE: `cargo clippy -p
+fnx-classes --all-targets -- -D warnings` fails on clean HEAD under the current FLOATED nightly
+(rust-toolchain pins bare `channel = "nightly"`): two NEW-lint hits on PRE-EXISTING committed code —
+`collapsible_if` at the br-r37-c1-addedgenewedge Graph::add_edge site (~1719) and
+`if_same_then_else` on that lever's intentional A/B test (~3701/3864) — both predate this session's
+change (verified: both regions exist in HEAD 8b7dff824's lib.rs). Filed as a separate bead; not
+fixed in the S4 commit (one lever per commit). Python-level after-measurement of cc_cold remains
+BLOCKED on the stale local crates.io index (maturin builds locally only); the before-numbers and
+the monotone-safety argument are recorded above — re-measure cc_cold when a fresh .so lands.
+
+## 2026-07-22 SnowyBadger (cc) KEEP (thp6w S5): index-keyed MultiGraph storage prototype — the String-row/key tax is 1.65x of the store build, parity gates all green
+
+The storage-flip epoch's first measured justification. Behind `fnx-classes` cargo feature
+`mg-int-storage-proto` (+ cfg(test)): `MgIntStorageProto` — the d58s8-pattern MG layout
+(`rows: Vec<IndexMap<usize, IndexSet<usize>>>`, edges keyed `(min_idx, max_idx)`, String node-name
+table retained) with insert semantics mirroring `extend_keyed_edges_with_attrs_unrecorded`.
+
+**PARITY GATES (all green, 79/79 suite):** from one shared insert stream containing lex-vs-numeric
+divergent names ("10" < "2" lex, 2 < 10 numeric — the internal canonicalization DIVERGES by design),
+reversed re-adds, self-loops, sparse explicit keys, dup-(pair,key) attr merges, late node
+introduction: node order, per-row distinct-neighbor order, per-pair parallel-key order, edge_count,
+and merged cell attrs are all byte-identical to the real String-keyed MultiGraph. Pair-key
+orientation is NOT observable (every public ordering derives from the rows walk + key sets), so
+(min_idx,max_idx) internal canonical is parity-safe. Tie-break risk of the flip: LOW on these axes;
+snapshot/pickle orientation derivation (`edge_index_endpoints` analog) is the remaining axis to gate
+in the real flip.
+
+**A/B (pure storage tax, same-worker paired-interleaved, 9 rounds, release):** current store's BEST
+case (`extend_fresh_int_prefix_keyed_edges_unrecorded` — indices pre-resolved, no canonicalization,
+no per-edge ledger) vs `bulk_load_int_prefix` on the identical (u,v,key) stream, n=20000 m=81000
+(cycle + LCG chords + parallels + self-loops), structural-agreement asserts inside the test:
+run 1 `current 85.6ms / proto 52.0ms = 1.645x (null 0.976)`; run 2 `84.8ms / 51.3ms = 1.653x
+(null 1.003)`. VERDICT: the String rows + String pair keys cost ~39% of the store build even with
+canonicalization already paid; the flip recovers **1.65x kernel-level** on batch construction and
+compounds with hash-free row reads everywhere else. The proto's 52ms residual is the nested-bucket
+alloc floor (per-pair `IndexMap<usize, AttrMap>` + per-cell `IndexSet<usize>`, singleton in the
+common case) — NEXT measured sub-target of the flip design: a compact One/Many bucket enum, measure
+before building.
+
+**Epoch slice plan (updated):** S5 (this) = layout + gates + measured justification. S6 = compact
+bucket A/B on the same harness. S7+ = the real flip slice-by-slice (rows first, edges map second,
+snapshot/pickle orientation gates, node-removal renumber last — Graph's d58s8 remap as template).
+CAVEAT: final suite re-run after a one-token lint fix (`let mut draw` -> `let draw` in the ignored
+A/B) was blocked by renewed fleet saturation; the 79/79 green run covered all substantive code and
+the A/B ran green twice after that line existed. Re-confirm in the background/next session.
+
+## 2026-07-22 SnowyBadger (cc) KEEP (thp6w S6+S7): compact One/Many buckets 2.3x over plain index proto — combined 3.5x over the String store; removal/renumber parity gauntlet green
+
+**S6 (compact buckets, measured KEEP).** Added `CompactKeys` (One(usize) | Many(IndexSet)) and
+`CompactBucket` (One(key, AttrMap) | Many(IndexMap)) singleton-optimized enums +
+`MgIntStorageProtoCompact` — same layout as the S5 proto but ZERO per-pair/per-cell allocations in
+the singleton case (the dominant one). Same parity gates as S5 (node/row/key order + merged attrs vs
+real MG, lex-divergent names) ALL GREEN. Three-arm paired-interleaved A/B (current store best-case
+bulk loader / S5 index proto / S6 compact), n=20000 m=81000, two runs on different workers (paired
+ratios worker-stable, absolute times not):
+run 1: current 106.1ms / proto 68.5ms / compact 29.8ms -> current/compact **3.558x**, proto/compact
+**2.297x** (null 0.994); run 2: 61.7/40.3/17.8ms -> **3.475x** / **2.270x** (null 1.020).
+VERDICT: the nested-bucket alloc floor was REAL and bigger than the String tax itself. The flip's
+target layout = index-keyed rows/edges + compact One/Many buckets: **~3.5x kernel-level** on MG
+batch construction (the Python-measured 0.49x loss has ~2x headroom to become a win). S5's 1.65x
+current/proto reproduced as 1.55/1.53 on these workers — ratio worker-variance ~7%, direction
+unchanged.
+
+**S7 (removal/renumber semantics, parity-gated).** Prototype `remove_edge` (key=None -> LAST bucket
+key via next_back; survivor key order shift-preserved; emptied pair -> outer swap_remove + row cell
+shift_remove) and `remove_node` (d58s8-pattern fused positional renumber: row drop + one
+drop+decrement pass per row + order-preserving edges rebuild with uniform pair decrement — preserves
+the index-canonical invariant since both members decrement). Gauntlet
+`thp6w_s7_removal_renumber_parity_gauntlet` green: byte-identical orderings after every step incl.
+partial/last-key/self-loop removals, missing-pair/key refusals, TWO renumbers, and re-adds AFTER a
+renumber. Suite 80/80.
+
+**NEXT (S8, queued):** measure the flip's cost side — positional-renumber removal (O(V+E) per
+remove_node) vs the real String store's O(degree) removal — to decide whether the real flip needs
+the slab/stable-slot + tombstone design (alien graveyard: Slab stable indices + Swiss-table
+tombstone/compaction discipline; recorded in the bead). Decision predicate: take slab only if the
+removal A/B shows positional renumber losing badly AND slab preserves the 3.5x construction win.
+
+## 2026-07-22 SnowyBadger (cc) S8 MEASURED VERDICT: positional renumber REJECTED for the real flip — 190-203x slower than the String store on removals; slab/stable-slot design REQUIRED
+
+`thp6w_s8_removal_cost_ab` (removal phase timed alone; build excluded; 200 spread removals on the
+n=20000 m=80000 mixed graph; post-removal structural agreement asserted): current String store
+21.4ms/23.3ms vs index-proto positional renumber (d58s8-fused: per-row drop+decrement + full
+edges-map rebuild per removal) **4.34s/4.43s = 203.3x/190.3x SLOWER** (nulls 0.960/0.898). The
+String store's removal is O(V + degree) (shift_remove memmoves, swap_remove buckets, NO edge
+rekey); positional renumber is O(V + E) per removal with a full edges-map REBUILD — at 200
+removals that is ~16M rekeyed entries. Simple Graph absorbed this cost in d58s8 only because its
+removal was ALREADY renumber-bound; MultiGraph's String store is NOT, so the flip would regress
+removal-heavy workloads by two orders of magnitude.
+
+**DESIGN DECISION (measured, binding for S9+):** the real MG flip must key rows/edges by STABLE
+SLOTS (slab + free-list + tombstones; nx-observable insertion order in a separate order list whose
+removal is a cheap O(V) memmove; compaction only when tombstone burden crosses a threshold —
+alien-graveyard Slab + Swiss-table discipline). Positional renumber is retryable ONLY as a
+deferred/batched compaction inside that design, never per-removal. NEXT (S9): slab-variant
+prototype + same parity gates/gauntlet + BOTH A/Bs — must hold ~3.5x construction AND beat the
+String store's O(V + degree) removal (or at least stay within small constants of it).
+
+## 2026-07-22 SnowyBadger (cc) KEEP (thp6w S9): slab/stable-slot layout WINS EVERY AXIS — construction 3.60x, removal 2.9-3.2x FASTER than the String store; epoch target layout fully pinned
+
+`MgSlabStorageProto` = S6 compact buckets + S8-mandated stable slots (free-list + tombstoned rows;
+nx insertion order carried by the name->slot IndexMap itself — same O(V) shift_remove the String
+store already pays; NO renumber, NO edges rekey ever). Suite **81/81** incl. the new
+`thp6w_s9_slab_recycling_parity_gauntlet`: S7 removal shapes + slab-specific hazards — slot reuse
+by a FRESH name, re-add of the REMOVED name, double-recycle — all byte-identical to the real
+MultiGraph (order append-at-end under recycling, zero phantom adjacency, free-slot hygiene
+asserts).
+
+**Construction A/B (5 arms, structural agreement asserted):** current 204.5ms / proto 112.2 /
+compact 57.8 / slab 56.7ms -> current/slab **3.604x**, compact/slab 1.018 (slab HOLDS the compact
+win; Option<String>+free-list overhead is noise), null 1.022.
+**Removal A/B (two runs):** current 22.6/26.1ms vs slab 7.9/8.1ms -> slab/current **0.351/0.309**
+(slab ~2.9-3.2x FASTER — swap_remove of slot-keyed buckets + row shift beats the String store's
+per-neighbor String hashing), renumber arm 186.3x/177.6x slower (S8 confirmed third+fourth time),
+nulls 0.974/0.926.
+
+**EPOCH DESIGN NOW CLOSED ON MEASUREMENT:** the real MG flip targets slab slots + compact One/Many
+buckets — faster on BOTH construction (3.6x) and removal (~3x), parity-gated on ordering incl.
+recycling. NO measured tradeoff remains at the storage-kernel level. Remaining pre-production gate
+axes for the real flip (S10+): `reorder_rows_for_nx_copy_walk` (copy-walk row reorder under slot
+storage), `edges_ordered`/snapshot orientation derivation, and pickle/`apply_row_orders`
+round-trips; then the production strangler slices. BENCH-INFRA NOTE: long background rch loops get
+killed by the runtime — run verification FOREGROUND when the fleet has slots (it did this hour).
+
+## 2026-07-22 SnowyBadger (cc) KEEP (thp6w S10): copy-walk reorder + snapshot orientation gates green on the slab — ALL pre-production tie-break axes now closed
+
+The two remaining flip-risk axes, prototyped and gated (suite 82/82):
+1. `edges_ordered` (the ONLY observed edge order): walk = node insertion order x row order x bucket
+   key order, first-touch dedup, emitted orientation = STRING-LEX canonical derived from names at
+   emission (internal pair keys stay slot-canonical). Byte-equal to `edges_ordered_borrowed` on the
+   real MultiGraph in every gauntlet state.
+2. `reorder_rows_for_nx_copy_walk` (the MultiGraph.copy row-order contract): two-phase like the
+   real one (ALL new orders computed against pre-reorder rows; sort key (pos, idx-of-u-in-row-v,
+   slot) equivalent to the real (pos, idx, name) since pos is unique). Gauntlet covers reorder,
+   IDEMPOTENT re-reorder, post-reorder appends, removal + slot recycling, and reorder-again on the
+   recycled state — all byte-identical.
+
+**EPOCH STATUS: the slab + compact-bucket target layout is now fully measured (construction 3.60x,
+removal ~3x faster) AND fully parity-gated (node/row/key order, attrs, recycling, copy-walk,
+snapshot orientation). Next stage = production strangler slices (S11+): introduce the layout into
+fnx-classes MultiGraph behind the feature flag, route construction first (the measured 0.49x
+Python-level loss), derived views second, then flip the default after the fnx-python suite goes
+green both ways.**
+
+## 2026-07-22 SnowyBadger (cc) REJECT (br-r37-c1-2zn1u): AVX2 dense-linalg — the pure-FLOP core moves only 1.2-1.4x; below shipping threshold
+
+Probe `zn1u_avx2_matmul_probe` (fnx-algorithms): times `matmul_rowmajor` n=384 (the matrix-exp /
+communicability-family FLOP core, dense-positive so the zero-skip never fires) and prints
+compile-time `cfg!(target_feature)` as EXECUTION PROOF. Both arms on the SAME pinned worker (hz2),
+two rounds:
+- round 1: baseline `avx2_compiled=false` 8.915ms vs v3 `avx2_compiled=true fma_compiled=true`
+  6.301ms -> **1.415x**
+- round 2 (worker under load; within-round pairing is the signal): 13.289ms vs 10.810ms -> **1.229x**
+`RCH_ENV_ALLOWLIST=RUSTFLAGS RUSTFLAGS='-C target-cpu=x86-64-v3'` DOES forward through rch (the
+cfg print flips) — the infra path works.
+
+VERDICT: REJECT the AVX2 dense-linalg lane at current priorities. The BEST-case, pure-FLOP,
+cache-friendly kernel gains only 1.2-1.4x from avx2+fma (LLVM already autovectorizes the i-k-j
+kernel to SSE2 at ~12.7 GFLOP/s; the c_row read-modify-write is store-bound); every public dense
+fn dilutes that behind eig/LU/Padé + PyO3 marshaling (Amdahl), and shipping needs runtime dispatch
+(multiversion dep or v3 wheel variants) for a <=1.3x niche-family end-to-end effect. This closes
+the 2zn1u "pursue on dense-linalg" branch WITH numbers — the 3.17x ALU-microbench promise does not
+survive contact with the real kernel. RETRY PREDICATE: (a) a dense-family fn shows up as a measured
+fnx-vs-nx LOSS whose self-time is dominated by matmul/eig cores (then multiversion the ONE kernel),
+or (b) v3 wheel/dispatch infrastructure lands for free, or (c) a blocked/tiled GEMM rewrite (the
+04z53 cache-blocked-GEMM directive) changes the kernel from store-bound to FLOP-bound — re-probe
+THEN.
+
+## 2026-07-22 SnowyBadger (cc) KEEP (thp6w S11 slice 1): production slab shadow behind `mg-int-storage` — dual-write green both ways
+
+The strangler's first production step. New fnx-classes feature `mg-int-storage`: MultiGraph gains a
+revision-keyed `slab_shadow: Option<Box<(u64, MgSlabStorageProto)>>` (cfg'd field — NO code or
+storage when off; default suite 82/82 unchanged). Instrumented mutations advance it in place:
+single-edge add (autocreate/parallel/self-loop/attr-merge; attrs captured pre-consumption only when
+warm), remove_edge (store-resolved key, never the None default), remove_node (slab tombstone +
+recycle), and the keyed batch (take-out/write-through/re-key pattern). `apply_row_orders` DROPS it
+(arbitrary row orders unmirrored in slice 1); every other mutation leaves it stale by revision key —
+the S4 monotone-safety argument, now for the full store. `sync_slab_shadow()` rebuilds from ANY
+reachable String state via the new `from_string_state` (direct order reproduction — valid even
+post-reorder, where no insert stream could reproduce row orders). Feature-ON suite **83/83** incl.
+`thp6w_s11_slab_shadow_dual_write_gauntlet` (warm+parity after every instrumented op; stale/dropped
+— never wrong — after uninstrumented ones). fnx-algorithms suite also confirmed green post-fmt
+(1149-test crate, background loop).
+
+NEXT (S12): route the FIRST production read through a warm shadow behind the same feature — the
+fresh-batch construction path stays the end goal, but the first read candidate is
+`with_int_adjacency`-family traversals or `edge_keys_vec`/`edges_ordered` derivations, measured
+before shipping. The dual-write burn-in must then run under the fnx-python suite (feature-on wheel)
+before any default flip.
+
+## 2026-07-22 SnowyBadger (cc) KEEP (thp6w S12+S13): first production READ routed through the slab shadow — edges_ordered walk 2.56-2.76x
+
+**S12 (measured):** slab `edges_ordered_borrowed` (attrs-carrying walk via a new allocation-free
+`CompactBucketIter`; usize hashing throughout) vs the String store's walk (per-cell `EdgeKeyRef`
+String-pair hash + String-pair seen-set probes): **2.558x / 2.758x** (nulls 0.990/0.973, n=20k
+m=80k, full-output equality asserted outside timing). The S9/S10 gauntlets now gate the FULL
+attrs-carrying walk (not just (l,r,k) triples).
+
+**S13 (routed):** production `MultiGraph::edges_ordered_borrowed` serves from a WARM shadow under
+`mg-int-storage` (stale/absent -> String walk unchanged; feature off -> zero code). Non-circular
+route gate in the dual-write gauntlet: the String-walk sequence captured while the shadow is STALE
+must equal the shadow-served sequence after sync. Feature-on 83/83, feature-off 82/82.
+
+The strangler now has its first live read. NEXT read candidates (same pattern: measure on the
+harness, then route behind warmth): `edges_ordered_indices_borrowed` / snapshot derivation,
+`edge_keys_vec`, and the traversal family (needs the position<->slot mapping decision recorded in
+the bead). Python-visible payoff arrives when the fnx-python edges()/serialization paths run on a
+feature-on wheel — the burn-in gate before any default flip.
+
+## 2026-07-22 SnowyBadger (cc) KEEP (thp6w S14): fresh bulk graphs born WARM — the slab co-builds during construction behind the feature
+
+`extend_fresh_int_prefix_keyed_edges_unrecorded` (the production fresh-batch path) now co-builds the
+slab per edge (feature-on only) and installs it as the shadow keyed at the final revision. Cost when
+on: the slab build rides along at ~+28% of the String build (slab is 3.5x cheaper than the store it
+accompanies); payoff: every routed read serves the slab FROM BIRTH and dual-write keeps it warm
+through instrumented mutations — the shape a feature-on fnx-python burn-in needs. New gauntlet
+`thp6w_s14_fresh_bulk_graph_is_warm_from_birth` (born warm + parity + stays warm through
+add/remove_edge/remove_node) — using only UNROUTED ground-truth accessors, since
+`edges_ordered_borrowed` is now routed and would be circular (recorded as a standing rule for
+future route gates). Feature-on 84/84, feature-off 82/82.
+
+INFRA: the local crates.io sparse-index staleness HEALED (~3h) — local cargo builds and therefore
+maturin wheels work again; the fnx-python feature-on burn-in is now UNBLOCKED as the next stage
+after the attributed fresh-batch variant gets the same co-build.
+
+## 2026-07-22 SnowyBadger (cc) MILESTONE (thp6w burn-in): fnx-python fast suite CLEAN on the feature-on wheel — zero shadow-attributable failures in 49,508 passing tests
+
+Local index healed -> built the feature-on wheel (`maturin develop --release --features
+"pyo3/abi3-py310,fnx-classes/mg-int-storage"`) and ran `pytest tests/python -m "not slow"`:
+**49508 passed, 13 failed, 1065 skipped (3m44s)**. CONTROL: rebuilt feature-OFF from the SAME tree
+and re-ran exactly those 13 — **identical failure set** (peer ctor-WIP in the shared tree
+[MultiDiGraph ctor/dict-of-* tests — the hxdyb lane] + docs-freshness locks
+[coverage/review-mode/unused-raw]). The slab shadow — dual-write, warm-from-birth construction,
+and the routed edges_ordered read — is invisible to the entire Python parity surface, as the
+gates predicted. Default state restored to feature-off in site-packages. Remaining before any
+default flip: co-build in the attributed fresh variant, more read routes, and a FULL (incl. slow)
+suite pass on a clean tree.
+
+## 2026-07-22 SnowyBadger (cc) KEEP (thp6w S15): attributed fresh path co-builds the slab — both fresh constructors now born warm
+
+`extend_fresh_index_keyed_edges_with_attrs_unrecorded` gets the S14 co-build with its OWN semantics
+mirrored exactly: arbitrary labels, out-of-bounds edge skips (both sides skip identically),
+dup-(pair,key) attr MERGE (CompactBucket::merge == store's extend), edge_count parity via
+merge-is-new. Gauntlet extended (attributed born-warm + merged-attrs cell + skip parity).
+Feature-on 84/84, feature-off 82/82, re-verified after ff to f38840cf3 (peer landed their
+iterator-ctor work before the codex weekly cap; their leftover tree WIP was byte-identical to
+origin and cleared via explicit-ref stash/pull/pop). Python subset on the feature-on wheel:
+2508 passed, 3 failed — the SAME pre-existing dict_of ctor failures from the control set (peer
+lane, now MINE: cod capped until Jul 29). Peer also left stash@{1} "br-r37-c1-ctorskip" with a
+handoff note — ctor-lane inheritance to triage.
+
+## 2026-07-22 SnowyBadger (cc) FIX BATCH (sole-producer frontier): stale-.so phantom failures unmasked; find_induced_nodes restored native; reader classification + raw triage healed
+
+**METHODOLOGY CORRECTION:** the "13 fnx-python failures" carried since the burn-in were mostly
+PHANTOM — pytest imports `python/franken_networkx/` whose `_fnx.abi3.so` was STALE (20:37, predating
+the peer's landed ctor fixes). Fresh .so into the repo package dir -> all 5 MultiDiGraph ctor
+failures VANISH (the peer's landed hxdyb work was already correct). The feature-on/off burn-in
+CONTROL stays valid (both arms used the same stale .so) but the failures' cause was staleness, not
+WIP. RULE (re-learned, now twice): install the .so to BOTH site-packages AND python/franken_networkx/.
+
+Real fixes in this batch (10 -> 3 remaining):
+1. **find_induced_nodes restored native (3 tests green):** the fin-convdeleg change (17040bd66)
+   called `_nx.find_induced_nodes` on an nx copy for ~2x self-speed on a NICHE fn — breaking the
+   without-fallback parity locks AND flipping the classifier to NX_DELEGATED. Restored the exact
+   nx algorithm on fnx primitives (byte-identical set). The 0.478x residual is the price of the
+   parity contract; proper fix = native-Rust chordality-breaker kernel (bead filed).
+2. **read_adjlist/read_edgelist reclassified PY_WRAPPER (1 test green):** their only networkx
+   reference was nx's `open_file` path/gzip contract used INLINE; hoisted into a private
+   module-level `_read_decoded_lines_via_open_file` (pure code motion, behavior identical,
+   397 reader tests green). NX_DELEGATED list now [].
+3. **`_raw_out_degree_centrality` triaged (2 tests green):** keep-public-api — the idcnative
+   wrapper's Python dict-comp is byte-exact + 1.23x vs the ULP-drifting PyO3 dict-build.
+4. Coverage matrix + unused-raw report regenerated (freshness pair green).
+
+REMAINING RED (3): the review_mode_regression_lock trio (write_gexf classification,
+true-iterator two-epoch parity, attr-snapshot aliasing) — suspected to need the peer's stashed
+`br-r37-c1-ctorskip` implementation (stash@{1}, note: "correct-by-analysis; needs pyo3 two-build
+bench cycle to ship"). Next lever.
+
+## 2026-07-31 BlackThrush (cod) NO-VERDICT: S4 cold-after-mutation incumbent retry (`br-r37-c1-1jo5g`)
+
+The stale-index retry predicate is satisfied: a clean strict-remote build can
+now compile the post-S4 source. A permanent `cold-after-mutation-cc` row was
+added to `scripts/perf_harness.py` for the exact public whole operation that
+was previously reported at `0.566x`: construct matching 20,000-node
+`MultiGraph`s with a 20,000-edge cycle, 60,000 deterministic chords, and 1,000
+parallel edges; warm `connected_components`; add and remove explicit-key edge
+`(0, 10000, 9223372036854775807)`; then fully materialize
+`connected_components`. The 81,000-edge stream SHA-256 is
+`bed61d247c137cc6248e4ab72a7a9131190435903987a30c623598258990aa28`.
+A non-campaign local routing check established complete ordered-output
+identity, 128,901 canonical bytes, and output SHA-256
+`793c880b65ecd0450c506a6ac4688eabf5967af188ce60676d5834aa130c8ff9`;
+it is correctness evidence only and contributes no timing.
+
+The harness now bootstraps the exact NetworkX 3.6.1 incumbent before loading
+PyO3 on workers without NetworkX. It downloads the PyPI wheel from its fixed
+URL, verifies SHA-256
+`d47fbf302e7d9cbbb9e2555a0d267983d2aa476bac30e90dfbe5669bd57f3762`,
+stores it once in a stable hash-named per-host cache instead of minting a
+per-run extraction directory, asserts `nx.__version__ == "3.6.1"`, and records
+the URL, cache path, hash, byte count, and imported path. The decision contract
+was corrected to the required three clauses: the candidate bootstrap-median
+95% CI must exclude 1.0, its median deviation must exceed twice the larger A/A
+null-CI half-width, and every A/A null median must remain within 2% of 1.0.
+Raw candidate and null ratios are retained; CV remains provenance only.
+Workers that legitimately expose no cpufreq governor now record
+`["unavailable"]` plus the exact affected CPUs instead of fabricating a value
+or aborting an otherwise complete host identity.
+
+Every compilation invocation used strict remote execution with source base
+`71ff895de0704da73d98a221fb6b742c94f0d188`,
+`rch exec --base 71ff895de0704da73d98a221fb6b742c94f0d188
+--clean-overlay --overlay-path scripts/perf_harness.py`, 21 rounds, both A/A
+nulls, `PYTHONHASHSEED=0`, and all declared thread-library limits set to one.
+No per-run `CARGO_TARGET_DIR` was minted. The admissible attempts were:
+
+- `ovh-a`, job `j-29954019132703041`: the clean release build completed in
+  4m20s, then stopped before setup or timing because NetworkX was absent. This
+  exposed and motivated the hash-pinned incumbent bootstrap; it is not
+  evidence.
+- `vmi1264463`, job `j-29954019132703054`: the process passed setup far enough
+  to self-report loaded ELF SHA-256
+  `1f36022e2771b33eb5b3ac594e0ff8e8a4a3f55417488c26d21f1a8a99ba0d76`
+  and size 13,223,832 bytes, then stopped before the thread probe, A/A nulls,
+  or timing because CPUs 0-7 expose no scaling-governor files. This exposed
+  and motivated explicit governor-unavailable provenance; it is not evidence.
+- `ovh-a`, job `j-29954019132703080`: the corrected clean release invocation
+  loaded exact NetworkX 3.6.1 and accepted governor-unavailable provenance, but
+  host-wide `pre_setup` admission rejected after all 300 one-second windows:
+  every logical CPU 0-15 was 100.0% busy. It stopped before the in-process ELF
+  line, parity gate, observed-thread probe, either A/A null, or candidate
+  timing.
+
+The requested CPU was 2 only as an affinity request. **Actual observed threads
+are not available for a campaign row because every remote attempt stopped
+before the thread probe.** Host identities are the RCH workers named above;
+the final attempted host exposed 16 logical CPUs. No ratio, raw timing sample,
+null median, candidate CI, or gate decision exists.
+
+comparison_class=NO-VERDICT
+incumbent=networkx-3.6.1
+incumbent_same_invocation=false
+campaign_output=false
+decision_gate=not_reached
+actual_observed_threads=not_reached
+cv_role=not_computed
+
+RESULT: **NO-VERDICT / HARNESS WORKED.** The old `0.566x` is not replaced by
+the local diagnostic or by the earlier informal `6.06x` probe.
+
+RETRY PREDICATE: rerun this exact source base, fixture, incumbent wheel, and
+permanent suite only in a dedicated non-co-tenanted remote window with
+scheduler jobs, host probes, and leaked descendants suppressed for the full
+process. Require both five-consecutive-clear-window admissions and continuous
+300ms accounting, complete ordered-output identity, the in-process ELF
+SHA-256 line, actual observed thread counts for both arms, 21 interleaved
+rounds, both A/A nulls, and the corrected three-clause median gate. Any
+admission, provenance, parity, or continuous-accounting abort remains
+NO-VERDICT.

@@ -4,12 +4,31 @@
 //! raw Rust helpers. The Python setup builds identical NetworkX/FNX graphs once;
 //! Criterion times only repeated algorithm calls.
 
-use criterion::{Criterion, criterion_group, criterion_main};
+use criterion::{Criterion, criterion_group};
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyList};
+use sha2::{Digest, Sha256};
 use std::ffi::CString;
 use std::path::Path;
 use std::time::{Duration, Instant};
+
+/// SHA-256 of this benchmark executable, reported by the process that runs it.
+fn self_identity() -> String {
+    let Ok(path) = std::env::current_exe() else {
+        return "unavailable".to_owned();
+    };
+    let Ok(bytes) = std::fs::read(&path) else {
+        return "unavailable".to_owned();
+    };
+    let mut hasher = Sha256::new();
+    hasher.update(&bytes);
+    format!(
+        "{:x} ({} bytes) {}",
+        hasher.finalize(),
+        bytes.len(),
+        path.display()
+    )
+}
 
 fn cstring(source: &str) -> CString {
     CString::new(source).expect("Python snippets must not contain NUL bytes")
@@ -140,6 +159,27 @@ struct VoronoiWorkloads {
 struct ConstructionCopyWorkloads {
     fnx_graph_to_directed_scalar_attrs: Py<PyAny>,
     nx_graph_to_directed_scalar_attrs: Py<PyAny>,
+    fnx_graph_iterator_tuples: Py<PyAny>,
+    nx_graph_iterator_tuples: Py<PyAny>,
+    fnx_graph_iterator_lists_normalized: Py<PyAny>,
+    fnx_graph_iterator_lists: Py<PyAny>,
+    nx_graph_iterator_lists: Py<PyAny>,
+    fnx_graph_iterator_attrs: Py<PyAny>,
+    nx_graph_iterator_attrs: Py<PyAny>,
+    fnx_digraph_iterator_lists: Py<PyAny>,
+    nx_digraph_iterator_lists: Py<PyAny>,
+    fnx_digraph_iterator_attrs: Py<PyAny>,
+    nx_digraph_iterator_attrs: Py<PyAny>,
+    fnx_multigraph_iterator_lists: Py<PyAny>,
+    nx_multigraph_iterator_lists: Py<PyAny>,
+    fnx_multidigraph_iterator_lists: Py<PyAny>,
+    nx_multidigraph_iterator_lists: Py<PyAny>,
+    fnx_multidigraph_iterator_attrs: Py<PyAny>,
+    nx_multidigraph_iterator_attrs: Py<PyAny>,
+    fnx_multidigraph_iterator_keyed: Py<PyAny>,
+    nx_multidigraph_iterator_keyed: Py<PyAny>,
+    fnx_multidigraph_iterator_keyed_attrs: Py<PyAny>,
+    nx_multidigraph_iterator_keyed_attrs: Py<PyAny>,
 }
 
 struct ClearEdgesWorkloads {
@@ -449,6 +489,59 @@ _assert_to_directed_contract(scalar_fnx, scalar_nx)
 
 fnx_graph_to_directed_scalar_attrs = lambda: scalar_fnx.to_directed()
 nx_graph_to_directed_scalar_attrs = lambda: scalar_nx.to_directed()
+
+iterator_edge_count = 20_000
+tuple_edges = tuple((i, i + 1) for i in range(iterator_edge_count))
+list_edges = tuple([i, i + 1] for i in range(iterator_edge_count))
+attr_edges = tuple(
+    [
+        i,
+        i + 1,
+        {"weight": i % 97, "cost": i / 17.0, "tag": f"e{i % 11}"},
+    ]
+    for i in range(iterator_edge_count)
+)
+
+fnx_graph_iterator_tuples = lambda: fnx.Graph(iter(tuple_edges))
+nx_graph_iterator_tuples = lambda: nx.Graph(iter(tuple_edges))
+# Frozen behavior-isomorphic baseline for the pre-fix implementation, which
+# cannot absorb list rows from a true iterator directly.
+fnx_graph_iterator_lists_normalized = lambda: fnx.Graph(
+    tuple(row) for row in list_edges
+)
+fnx_graph_iterator_lists = lambda: fnx.Graph(iter(list_edges))
+nx_graph_iterator_lists = lambda: nx.Graph(iter(list_edges))
+fnx_graph_iterator_attrs = lambda: fnx.Graph(iter(attr_edges))
+nx_graph_iterator_attrs = lambda: nx.Graph(iter(attr_edges))
+fnx_digraph_iterator_lists = lambda: fnx.DiGraph(iter(list_edges))
+nx_digraph_iterator_lists = lambda: nx.DiGraph(iter(list_edges))
+fnx_digraph_iterator_attrs = lambda: fnx.DiGraph(iter(attr_edges))
+nx_digraph_iterator_attrs = lambda: nx.DiGraph(iter(attr_edges))
+fnx_multigraph_iterator_lists = lambda: fnx.MultiGraph(iter(list_edges))
+nx_multigraph_iterator_lists = lambda: nx.MultiGraph(iter(list_edges))
+fnx_multidigraph_iterator_lists = lambda: fnx.MultiDiGraph(iter(list_edges))
+nx_multidigraph_iterator_lists = lambda: nx.MultiDiGraph(iter(list_edges))
+fnx_multidigraph_iterator_attrs = lambda: fnx.MultiDiGraph(iter(attr_edges))
+nx_multidigraph_iterator_attrs = lambda: nx.MultiDiGraph(iter(attr_edges))
+
+keyed_edges = tuple((i, i + 1, f"k{i}") for i in range(iterator_edge_count))
+fnx_multidigraph_iterator_keyed = lambda: fnx.MultiDiGraph(iter(keyed_edges))
+nx_multidigraph_iterator_keyed = lambda: nx.MultiDiGraph(iter(keyed_edges))
+keyed_attr_edges = tuple(
+    (
+        i,
+        i + 1,
+        f"k{i}",
+        {"weight": i % 97, "cost": i / 17.0, "tag": f"e{i % 11}"},
+    )
+    for i in range(iterator_edge_count)
+)
+fnx_multidigraph_iterator_keyed_attrs = lambda: fnx.MultiDiGraph(
+    iter(keyed_attr_edges)
+)
+nx_multidigraph_iterator_keyed_attrs = lambda: nx.MultiDiGraph(
+    iter(keyed_attr_edges)
+)
 "#,
         )
         .as_c_str(),
@@ -466,6 +559,27 @@ nx_graph_to_directed_scalar_attrs = lambda: scalar_nx.to_directed()
     Ok(ConstructionCopyWorkloads {
         fnx_graph_to_directed_scalar_attrs: callable("fnx_graph_to_directed_scalar_attrs")?,
         nx_graph_to_directed_scalar_attrs: callable("nx_graph_to_directed_scalar_attrs")?,
+        fnx_graph_iterator_tuples: callable("fnx_graph_iterator_tuples")?,
+        nx_graph_iterator_tuples: callable("nx_graph_iterator_tuples")?,
+        fnx_graph_iterator_lists_normalized: callable("fnx_graph_iterator_lists_normalized")?,
+        fnx_graph_iterator_lists: callable("fnx_graph_iterator_lists")?,
+        nx_graph_iterator_lists: callable("nx_graph_iterator_lists")?,
+        fnx_graph_iterator_attrs: callable("fnx_graph_iterator_attrs")?,
+        nx_graph_iterator_attrs: callable("nx_graph_iterator_attrs")?,
+        fnx_digraph_iterator_lists: callable("fnx_digraph_iterator_lists")?,
+        nx_digraph_iterator_lists: callable("nx_digraph_iterator_lists")?,
+        fnx_digraph_iterator_attrs: callable("fnx_digraph_iterator_attrs")?,
+        nx_digraph_iterator_attrs: callable("nx_digraph_iterator_attrs")?,
+        fnx_multigraph_iterator_lists: callable("fnx_multigraph_iterator_lists")?,
+        nx_multigraph_iterator_lists: callable("nx_multigraph_iterator_lists")?,
+        fnx_multidigraph_iterator_lists: callable("fnx_multidigraph_iterator_lists")?,
+        nx_multidigraph_iterator_lists: callable("nx_multidigraph_iterator_lists")?,
+        fnx_multidigraph_iterator_attrs: callable("fnx_multidigraph_iterator_attrs")?,
+        nx_multidigraph_iterator_attrs: callable("nx_multidigraph_iterator_attrs")?,
+        fnx_multidigraph_iterator_keyed: callable("fnx_multidigraph_iterator_keyed")?,
+        nx_multidigraph_iterator_keyed: callable("nx_multidigraph_iterator_keyed")?,
+        fnx_multidigraph_iterator_keyed_attrs: callable("fnx_multidigraph_iterator_keyed_attrs")?,
+        nx_multidigraph_iterator_keyed_attrs: callable("nx_multidigraph_iterator_keyed_attrs")?,
     })
 }
 
@@ -2335,6 +2449,111 @@ fn construction_copy_head_to_head(c: &mut Criterion) {
         "nx_graph_to_directed_scalar_attrs_n2000",
         &workloads.nx_graph_to_directed_scalar_attrs,
     );
+    bench_python_callable(
+        &mut group,
+        "fnx_graph_iterator_tuples_e20000",
+        &workloads.fnx_graph_iterator_tuples,
+    );
+    bench_python_callable(
+        &mut group,
+        "nx_graph_iterator_tuples_e20000",
+        &workloads.nx_graph_iterator_tuples,
+    );
+    bench_python_callable(
+        &mut group,
+        "fnx_graph_iterator_lists_normalized_e20000",
+        &workloads.fnx_graph_iterator_lists_normalized,
+    );
+    bench_python_callable(
+        &mut group,
+        "fnx_graph_iterator_lists_e20000",
+        &workloads.fnx_graph_iterator_lists,
+    );
+    bench_python_callable(
+        &mut group,
+        "nx_graph_iterator_lists_e20000",
+        &workloads.nx_graph_iterator_lists,
+    );
+    bench_python_callable(
+        &mut group,
+        "fnx_graph_iterator_attrs_e20000",
+        &workloads.fnx_graph_iterator_attrs,
+    );
+    bench_python_callable(
+        &mut group,
+        "nx_graph_iterator_attrs_e20000",
+        &workloads.nx_graph_iterator_attrs,
+    );
+    bench_python_callable(
+        &mut group,
+        "fnx_digraph_iterator_lists_e20000",
+        &workloads.fnx_digraph_iterator_lists,
+    );
+    bench_python_callable(
+        &mut group,
+        "nx_digraph_iterator_lists_e20000",
+        &workloads.nx_digraph_iterator_lists,
+    );
+    bench_python_callable(
+        &mut group,
+        "fnx_digraph_iterator_attrs_e20000",
+        &workloads.fnx_digraph_iterator_attrs,
+    );
+    bench_python_callable(
+        &mut group,
+        "nx_digraph_iterator_attrs_e20000",
+        &workloads.nx_digraph_iterator_attrs,
+    );
+    bench_python_callable(
+        &mut group,
+        "fnx_multigraph_iterator_lists_e20000",
+        &workloads.fnx_multigraph_iterator_lists,
+    );
+    bench_python_callable(
+        &mut group,
+        "nx_multigraph_iterator_lists_e20000",
+        &workloads.nx_multigraph_iterator_lists,
+    );
+    bench_python_callable(
+        &mut group,
+        "fnx_multidigraph_iterator_lists_e20000",
+        &workloads.fnx_multidigraph_iterator_lists,
+    );
+    bench_python_callable(
+        &mut group,
+        "nx_multidigraph_iterator_lists_e20000",
+        &workloads.nx_multidigraph_iterator_lists,
+    );
+    bench_python_callable(
+        &mut group,
+        "fnx_multidigraph_iterator_attrs_e20000",
+        &workloads.fnx_multidigraph_iterator_attrs,
+    );
+    bench_python_callable(
+        &mut group,
+        "nx_multidigraph_iterator_attrs_e20000",
+        &workloads.nx_multidigraph_iterator_attrs,
+    );
+    bench_python_callable(
+        &mut group,
+        "fnx_multidigraph_iterator_keyed_e20000",
+        &workloads.fnx_multidigraph_iterator_keyed,
+    );
+    bench_python_callable(
+        &mut group,
+        "nx_multidigraph_iterator_keyed_e20000",
+        &workloads.nx_multidigraph_iterator_keyed,
+    );
+    bench_python_callable(
+        &mut group,
+        "fnx_multidigraph_iterator_keyed_attrs_e20000",
+        &workloads.fnx_multidigraph_iterator_keyed_attrs,
+    );
+    bench_python_callable(
+        &mut group,
+        "nx_multidigraph_iterator_keyed_attrs_e20000",
+        &workloads.nx_multidigraph_iterator_keyed_attrs,
+    );
 
     group.finish();
 }
@@ -2572,8 +2791,447 @@ fn voronoi_head_to_head(c: &mut Criterion) {
     group.finish();
 }
 
+struct KCoreWorkloads {
+    fnx_kcore: Py<PyAny>,
+    nx_kcore: Py<PyAny>,
+}
+
+fn prepare_kcore_workloads(py: Python<'_>) -> PyResult<KCoreWorkloads> {
+    let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let repo_root = manifest_dir
+        .parent()
+        .and_then(Path::parent)
+        .expect("fnx-python crate must live under crates/");
+    let python_dir = repo_root.join("python");
+    let legacy_dir = repo_root.join("legacy_networkx_code").join("networkx");
+
+    let sys = py.import("sys")?;
+    let path = sys.getattr("path")?;
+    let path = path.cast::<PyList>()?;
+    path.insert(0, repo_root.to_str().expect("repo path must be UTF-8"))?;
+    path.insert(0, python_dir.to_str().expect("repo path must be UTF-8"))?;
+    path.insert(0, legacy_dir.to_str().expect("repo path must be UTF-8"))?;
+
+    let locals = PyDict::new(py);
+    py.run(
+        cstring(
+            r#"
+import glob
+import importlib.util
+import os
+import sys
+
+target_dir = os.environ.get("CARGO_TARGET_DIR")
+if target_dir and "franken_networkx._fnx" not in sys.modules:
+    candidates = [
+        os.path.join(target_dir, "release", "lib_fnx.so"),
+        *glob.glob(os.path.join(target_dir, "release", "deps", "lib_fnx*.so")),
+    ]
+    for path in candidates:
+        if os.path.exists(path):
+            spec = importlib.util.spec_from_file_location("franken_networkx._fnx", path)
+            module = importlib.util.module_from_spec(spec)
+            sys.modules["franken_networkx._fnx"] = module
+            spec.loader.exec_module(module)
+            break
+
+for _name in list(sys.modules):
+    if _name == "networkx" or _name.startswith("networkx."):
+        del sys.modules[_name]
+
+import networkx as nx
+import franken_networkx as fnx
+import franken_networkx._fnx as _raw
+
+if "legacy_networkx_code" not in getattr(nx, "__file__", ""):
+    raise AssertionError(f"expected vendored NetworkX oracle, got {nx.__file__!r}")
+
+def _paired_attr_graph(n, m, seed):
+    base = nx.barabasi_albert_graph(n, m, seed=seed)
+    gf = fnx.Graph()
+    gn = nx.Graph()
+    for i in base.nodes():
+        gf.add_node(i, color=(i % 5), tag="v")
+        gn.add_node(i, color=(i % 5), tag="v")
+    for j, (u, v) in enumerate(base.edges()):
+        w = (u * 7 + v * 11 + j) % 13
+        gf.add_edge(u, v, weight=w)
+        gn.add_edge(u, v, weight=w)
+    return gf, gn
+
+gf, gn = _paired_attr_graph(4000, 4, 7)
+
+def _canon_edges(G):
+    return sorted(tuple(sorted((u, v))) for u, v in G.edges())
+
+def _edge_attr_map(G):
+    return {tuple(sorted((u, v))): dict(d) for u, v, d in G.edges(data=True)}
+
+def _assert_parity(k):
+    rf = fnx.k_core(gf, k)
+    rn = nx.k_core(gn, k)
+    assert list(rf.nodes()) == list(rn.nodes()), f"k_core node order mismatch k={k}"
+    assert _canon_edges(rf) == _canon_edges(rn), f"k_core edge set mismatch k={k}"
+    assert dict(rf.nodes(data=True)) == dict(rn.nodes(data=True)), f"k_core node attrs mismatch k={k}"
+    assert _edge_attr_map(rf) == _edge_attr_map(rn), f"k_core edge attrs mismatch k={k}"
+
+for _k in (None, 2, 3, 5):
+    _assert_parity(_k)
+
+# Confirm fnx.k_core actually routes to the NATIVE kernel (not the nx fallback):
+# its result must equal the direct native binding for the same input.
+assert list(fnx.k_core(gf, 3).nodes()) == list(_raw.k_core_rust(gf, 3).nodes())
+
+fnx_kcore = lambda: fnx.k_core(gf, 3).number_of_nodes()
+nx_kcore = lambda: nx.k_core(gn, 3).number_of_nodes()
+"#,
+        )
+        .as_c_str(),
+        Some(&locals),
+        Some(&locals),
+    )?;
+
+    let callable = |name: &str| -> PyResult<Py<PyAny>> {
+        let callable = locals.get_item(name)?.ok_or_else(|| {
+            pyo3::exceptions::PyKeyError::new_err(format!("missing Python callable {name}"))
+        })?;
+        Ok(callable.unbind())
+    };
+
+    Ok(KCoreWorkloads {
+        fnx_kcore: callable("fnx_kcore")?,
+        nx_kcore: callable("nx_kcore")?,
+    })
+}
+
+fn kcore_head_to_head(c: &mut Criterion) {
+    Python::initialize();
+    let workloads =
+        Python::attach(prepare_kcore_workloads).expect("failed to prepare k_core Python workloads");
+    let mut group = c.benchmark_group("networkx_head_to_head_kcore");
+    group.sample_size(20);
+    bench_python_callable(&mut group, "fnx_k_core_ba4000_k3", &workloads.fnx_kcore);
+    bench_python_callable(&mut group, "nx_k_core_ba4000_k3", &workloads.nx_kcore);
+    group.finish();
+}
+
+struct KCoreFamilyWorkloads {
+    fnx_kshell: Py<PyAny>,
+    nx_kshell: Py<PyAny>,
+    fnx_kcrust: Py<PyAny>,
+    nx_kcrust: Py<PyAny>,
+    fnx_kcorona: Py<PyAny>,
+    nx_kcorona: Py<PyAny>,
+}
+
+fn prepare_kcore_family_workloads(py: Python<'_>) -> PyResult<KCoreFamilyWorkloads> {
+    let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let repo_root = manifest_dir
+        .parent()
+        .and_then(Path::parent)
+        .expect("fnx-python crate must live under crates/");
+    let python_dir = repo_root.join("python");
+    let legacy_dir = repo_root.join("legacy_networkx_code").join("networkx");
+
+    let sys = py.import("sys")?;
+    let path = sys.getattr("path")?;
+    let path = path.cast::<PyList>()?;
+    path.insert(0, repo_root.to_str().expect("repo path must be UTF-8"))?;
+    path.insert(0, python_dir.to_str().expect("repo path must be UTF-8"))?;
+    path.insert(0, legacy_dir.to_str().expect("repo path must be UTF-8"))?;
+
+    let locals = PyDict::new(py);
+    py.run(
+        cstring(
+            r#"
+import glob
+import importlib.util
+import os
+import sys
+
+target_dir = os.environ.get("CARGO_TARGET_DIR")
+if target_dir and "franken_networkx._fnx" not in sys.modules:
+    candidates = [
+        os.path.join(target_dir, "release", "lib_fnx.so"),
+        *glob.glob(os.path.join(target_dir, "release", "deps", "lib_fnx*.so")),
+    ]
+    for path in candidates:
+        if os.path.exists(path):
+            spec = importlib.util.spec_from_file_location("franken_networkx._fnx", path)
+            module = importlib.util.module_from_spec(spec)
+            sys.modules["franken_networkx._fnx"] = module
+            spec.loader.exec_module(module)
+            break
+
+for _name in list(sys.modules):
+    if _name == "networkx" or _name.startswith("networkx."):
+        del sys.modules[_name]
+
+import networkx as nx
+import franken_networkx as fnx
+
+if "legacy_networkx_code" not in getattr(nx, "__file__", ""):
+    raise AssertionError(f"expected vendored NetworkX oracle, got {nx.__file__!r}")
+
+def _paired_attr_graph(n, m, seed):
+    base = nx.barabasi_albert_graph(n, m, seed=seed)
+    gf = fnx.Graph()
+    gn = nx.Graph()
+    for i in base.nodes():
+        gf.add_node(i, color=(i % 5), tag="v")
+        gn.add_node(i, color=(i % 5), tag="v")
+    for j, (u, v) in enumerate(base.edges()):
+        w = (u * 7 + v * 11 + j) % 13
+        gf.add_edge(u, v, weight=w)
+        gn.add_edge(u, v, weight=w)
+    return gf, gn
+
+gf, gn = _paired_attr_graph(4000, 4, 7)
+
+def _canon_edges(G):
+    return sorted(tuple(sorted((u, v))) for u, v in G.edges())
+
+def _edge_attr_map(G):
+    return {tuple(sorted((u, v))): dict(d) for u, v, d in G.edges(data=True)}
+
+def _assert_pair(rf, rn, label):
+    assert list(rf.nodes()) == list(rn.nodes()), f"{label}: node order mismatch"
+    assert _canon_edges(rf) == _canon_edges(rn), f"{label}: edge set mismatch"
+    assert dict(rf.nodes(data=True)) == dict(rn.nodes(data=True)), f"{label}: node attrs mismatch"
+    assert _edge_attr_map(rf) == _edge_attr_map(rn), f"{label}: edge attrs mismatch"
+
+for _k in (None, 2, 3, 4, 5):
+    _assert_pair(fnx.k_shell(gf, _k), nx.k_shell(gn, _k), f"k_shell k={_k}")
+for _k in (None, 1, 2, 3, 4):
+    _assert_pair(fnx.k_crust(gf, _k), nx.k_crust(gn, _k), f"k_crust k={_k}")
+for _k in (1, 2, 3, 4):
+    _assert_pair(fnx.k_corona(gf, _k), nx.k_corona(gn, _k), f"k_corona k={_k}")
+
+# Edge-case parity: the native route must DELEGATE (not silently compute) where nx raises, so the
+# same exception surfaces. Empty graph with k=None -> nx max([]) ValueError; any self loop ->
+# nx.core_number NetworkXNotImplemented.
+def _both_raise(fn_f, fn_n, gf_, gn_, *a):
+    try:
+        fn_n(gn_, *a)
+        raised_n = False
+    except Exception:
+        raised_n = True
+    try:
+        fn_f(gf_, *a)
+        raised_f = False
+    except Exception:
+        raised_f = True
+    assert raised_n and raised_f, f"raise parity mismatch: nx={raised_n} fnx={raised_f}"
+
+ef, en = fnx.Graph(), nx.Graph()
+_both_raise(fnx.k_shell, nx.k_shell, ef, en)
+_both_raise(fnx.k_crust, nx.k_crust, ef, en)
+
+sf, sn = fnx.Graph(), nx.Graph()
+for _g in (sf, sn):
+    _g.add_edge(0, 0)
+    _g.add_edge(0, 1)
+    _g.add_edge(1, 2)
+_both_raise(fnx.k_shell, nx.k_shell, sf, sn)
+_both_raise(fnx.k_crust, nx.k_crust, sf, sn)
+_both_raise(fnx.k_core, nx.k_core, sf, sn)
+_both_raise(fnx.k_corona, nx.k_corona, sf, sn, 2)
+
+fnx_kshell = lambda: fnx.k_shell(gf, 3).number_of_nodes()
+nx_kshell = lambda: nx.k_shell(gn, 3).number_of_nodes()
+fnx_kcrust = lambda: fnx.k_crust(gf, 2).number_of_nodes()
+nx_kcrust = lambda: nx.k_crust(gn, 2).number_of_nodes()
+fnx_kcorona = lambda: fnx.k_corona(gf, 2).number_of_nodes()
+nx_kcorona = lambda: nx.k_corona(gn, 2).number_of_nodes()
+"#,
+        )
+        .as_c_str(),
+        Some(&locals),
+        Some(&locals),
+    )?;
+
+    let callable = |name: &str| -> PyResult<Py<PyAny>> {
+        let callable = locals.get_item(name)?.ok_or_else(|| {
+            pyo3::exceptions::PyKeyError::new_err(format!("missing Python callable {name}"))
+        })?;
+        Ok(callable.unbind())
+    };
+
+    Ok(KCoreFamilyWorkloads {
+        fnx_kshell: callable("fnx_kshell")?,
+        nx_kshell: callable("nx_kshell")?,
+        fnx_kcrust: callable("fnx_kcrust")?,
+        nx_kcrust: callable("nx_kcrust")?,
+        fnx_kcorona: callable("fnx_kcorona")?,
+        nx_kcorona: callable("nx_kcorona")?,
+    })
+}
+
+fn kcore_family_head_to_head(c: &mut Criterion) {
+    Python::initialize();
+    let workloads = Python::attach(prepare_kcore_family_workloads)
+        .expect("failed to prepare k_core-family Python workloads");
+    let mut group = c.benchmark_group("networkx_head_to_head_kcore_family");
+    group.sample_size(15);
+    bench_python_callable(&mut group, "fnx_k_shell_ba4000_k3", &workloads.fnx_kshell);
+    bench_python_callable(&mut group, "nx_k_shell_ba4000_k3", &workloads.nx_kshell);
+    bench_python_callable(&mut group, "fnx_k_crust_ba4000_k2", &workloads.fnx_kcrust);
+    bench_python_callable(&mut group, "nx_k_crust_ba4000_k2", &workloads.nx_kcrust);
+    bench_python_callable(&mut group, "fnx_k_corona_ba4000_k2", &workloads.fnx_kcorona);
+    bench_python_callable(&mut group, "nx_k_corona_ba4000_k2", &workloads.nx_kcorona);
+    group.finish();
+}
+
+struct IndegBindingWorkloads {
+    old_binding: Py<PyAny>,
+    new_binding: Py<PyAny>,
+    old_total: Py<PyAny>,
+    new_total: Py<PyAny>,
+    old_core: Py<PyAny>,
+    new_core: Py<PyAny>,
+}
+
+fn prepare_indeg_binding_workloads(py: Python<'_>) -> PyResult<IndegBindingWorkloads> {
+    let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let repo_root = manifest_dir
+        .parent()
+        .and_then(Path::parent)
+        .expect("fnx-python crate must live under crates/");
+    let python_dir = repo_root.join("python");
+    let legacy_dir = repo_root.join("legacy_networkx_code").join("networkx");
+
+    let sys = py.import("sys")?;
+    let path = sys.getattr("path")?;
+    let path = path.cast::<PyList>()?;
+    path.insert(0, repo_root.to_str().expect("repo path must be UTF-8"))?;
+    path.insert(0, python_dir.to_str().expect("repo path must be UTF-8"))?;
+    path.insert(0, legacy_dir.to_str().expect("repo path must be UTF-8"))?;
+
+    let locals = PyDict::new(py);
+    py.run(
+        cstring(
+            r#"
+import glob
+import importlib.util
+import os
+import sys
+
+target_dir = os.environ.get("CARGO_TARGET_DIR")
+if target_dir and "franken_networkx._fnx" not in sys.modules:
+    candidates = [
+        os.path.join(target_dir, "release", "lib_fnx.so"),
+        *glob.glob(os.path.join(target_dir, "release", "deps", "lib_fnx*.so")),
+    ]
+    for path in candidates:
+        if os.path.exists(path):
+            spec = importlib.util.spec_from_file_location("franken_networkx._fnx", path)
+            module = importlib.util.module_from_spec(spec)
+            sys.modules["franken_networkx._fnx"] = module
+            spec.loader.exec_module(module)
+            break
+
+for _name in list(sys.modules):
+    if _name == "networkx" or _name.startswith("networkx."):
+        del sys.modules[_name]
+
+import networkx as nx
+import franken_networkx as fnx
+import franken_networkx._fnx as _raw
+
+# Directed graph, ~20k nodes so the O(V) dict build (not the O(V+E) degree scan) is timed.
+_base = nx.scale_free_graph(20000, seed=11)
+gd = fnx.DiGraph()
+gd.add_nodes_from(range(20000))
+for _u, _v in _base.edges():
+    gd.add_edge(_u, _v)
+
+# Confirm the live inline `in_degree_centrality` is BYTE-IDENTICAL to the preserved OLD
+# kernel+centrality_to_dict baseline: same {node: score} mapping AND same key insertion order.
+_old = _raw.in_degree_centrality_kernel_ab(gd)
+_new = _raw.in_degree_centrality(gd)
+assert list(_old.items()) == list(_new.items()), "in_degree_centrality inline parity (order+values)"
+
+# br-r37-c1-tdcbind: directed TOTAL degree_centrality — same throwaway-String lever, multiplication
+# formula. Assert the routed inline degree_centrality == the preserved kernel baseline byte-for-byte.
+_old_t = _raw.degree_centrality_directed_kernel_ab(gd)
+_new_t = _raw.degree_centrality(gd)
+assert list(_old_t.items()) == list(_new_t.items()), "degree_centrality (total) inline parity (order+values)"
+
+# br-r37-c1-corenumsl: core_number self-loop guard. Undirected simple Graph, NO self-loops (the
+# common case where the old per-node neighbors() Vec-alloc scan iterates all V nodes). Assert the
+# new alloc-free number_of_selfloops() guard gives the byte-identical {node: core} result.
+_ba = nx.barabasi_albert_graph(20000, 8, seed=13)
+gu = fnx.Graph()
+gu.add_nodes_from(range(20000))
+for _u, _v in _ba.edges():
+    gu.add_edge(_u, _v)
+_old_c = _raw.core_number_selfloopscan_ab(gu)
+_new_c = _raw.core_number(gu)
+assert list(_old_c.items()) == list(_new_c.items()), "core_number self-loop-guard parity (order+values)"
+
+old_binding = lambda: _raw.in_degree_centrality_kernel_ab(gd)
+new_binding = lambda: _raw.in_degree_centrality(gd)
+old_total = lambda: _raw.degree_centrality_directed_kernel_ab(gd)
+new_total = lambda: _raw.degree_centrality(gd)
+old_core = lambda: _raw.core_number_selfloopscan_ab(gu)
+new_core = lambda: _raw.core_number(gu)
+"#,
+        )
+        .as_c_str(),
+        Some(&locals),
+        Some(&locals),
+    )?;
+
+    let callable = |name: &str| -> PyResult<Py<PyAny>> {
+        let callable = locals.get_item(name)?.ok_or_else(|| {
+            pyo3::exceptions::PyKeyError::new_err(format!("missing Python callable {name}"))
+        })?;
+        Ok(callable.unbind())
+    };
+
+    Ok(IndegBindingWorkloads {
+        old_binding: callable("old_binding")?,
+        new_binding: callable("new_binding")?,
+        old_total: callable("old_total")?,
+        new_total: callable("new_total")?,
+        old_core: callable("old_core")?,
+        new_core: callable("new_core")?,
+    })
+}
+
+// br-r37-c1-idcbind: with-GIL binding-layer A/B. Both arms build the SAME {node: score} PyDict for
+// the same 20k-node DiGraph; the only difference is the old arm materializes an n-element
+// Vec<CentralityScore> (throwaway node.to_owned() Strings) in the kernel, while the new inline arm
+// walks indices → get_node_name → py_node_key directly. Measures whether removing the String churn
+// clears the shared PyDict-build floor (py_node_key + set_item per node, common to both arms).
+fn indeg_binding_head_to_head(c: &mut Criterion) {
+    Python::initialize();
+    let workloads = Python::attach(prepare_indeg_binding_workloads)
+        .expect("failed to prepare in_degree_centrality binding A/B workloads");
+    let mut group = c.benchmark_group("networkx_head_to_head_indeg_binding");
+    group.sample_size(30);
+    bench_python_callable(
+        &mut group,
+        "old_centrality_to_dict_20k",
+        &workloads.old_binding,
+    );
+    bench_python_callable(&mut group, "new_inline_20k", &workloads.new_binding);
+    bench_python_callable(
+        &mut group,
+        "old_total_centrality_to_dict_20k",
+        &workloads.old_total,
+    );
+    bench_python_callable(&mut group, "new_total_inline_20k", &workloads.new_total);
+    bench_python_callable(&mut group, "old_core_selfloopscan_20k", &workloads.old_core);
+    bench_python_callable(&mut group, "new_core_numselfloops_20k", &workloads.new_core);
+    group.finish();
+}
+
 criterion_group!(
     benches,
+    kcore_head_to_head,
+    kcore_family_head_to_head,
+    indeg_binding_head_to_head,
     voronoi_head_to_head,
     tsp_head_to_head,
     construction_copy_head_to_head,
@@ -2592,4 +3250,9 @@ criterion_group!(
     adjacency_outer_cache_head_to_head,
     multidigraph_weighted_degree_head_to_head
 );
-criterion_main!(benches);
+
+fn main() {
+    println!("bench_elf_sha256={}", self_identity());
+    benches();
+    Criterion::default().configure_from_args().final_summary();
+}

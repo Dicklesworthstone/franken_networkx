@@ -2663,8 +2663,9 @@ fn run_fixture(
     }
 
     if let Some(expected_graph) = &fixture.expected.graph {
-        compare_nodes(&context.graph.snapshot(), expected_graph, &mut mismatches);
-        compare_edges(&context.graph.snapshot(), expected_graph, &mut mismatches);
+        let snapshot = context.graph.snapshot();
+        compare_nodes(&snapshot, expected_graph, &mut mismatches);
+        compare_edges(&snapshot, expected_graph, &mut mismatches);
     }
 
     if let Some(expected_path) = fixture.expected.shortest_path_unweighted
@@ -5805,6 +5806,118 @@ mod tests {
         compare_edges(&snapshot, &expected, &mut mismatches);
 
         assert!(mismatches.is_empty());
+    }
+
+    /// Same-binary paired A/B for expected-graph validation. The frozen arm
+    /// retains the former independent node/edge snapshots, while the candidate
+    /// reuses one immutable snapshot for both unchanged comparisons.
+    #[test]
+    #[ignore = "measurement; run with --profile release --ignored --nocapture"]
+    fn expected_graph_snapshot_reuse_ab() {
+        use fnx_runtime::CgseValue;
+        use std::hint::black_box;
+
+        let node_count = 2_048usize;
+        let edge_count = 16_384usize;
+        let mut graph = Graph::strict();
+        for node in 0..node_count {
+            let attrs = AttrMap::from([(
+                "label".to_owned(),
+                CgseValue::String(format!("profile-node-{node:05}")),
+            )]);
+            graph.add_node_with_attrs(node.to_string(), attrs);
+        }
+        for edge in 0..edge_count {
+            let left = edge % node_count;
+            let right = (left + 1 + edge / node_count) % node_count;
+            let attrs = AttrMap::from([
+                ("weight".to_owned(), CgseValue::Int(edge as i64)),
+                (
+                    "label".to_owned(),
+                    CgseValue::String(format!("profile-edge-{edge:05}")),
+                ),
+            ]);
+            graph
+                .add_edge_with_attrs(left.to_string(), right.to_string(), attrs)
+                .expect("profile edge should be accepted");
+        }
+
+        let expected_snapshot = graph.snapshot();
+        let expected = GraphSnapshotExpectation {
+            nodes: expected_snapshot.nodes.clone(),
+            edges: expected_snapshot.edges.clone(),
+        };
+        let validate = |reuse_snapshot: bool| {
+            let mut mismatches = Vec::new();
+            if reuse_snapshot {
+                let snapshot = graph.snapshot();
+                compare_nodes(&snapshot, &expected, &mut mismatches);
+                compare_edges(&snapshot, &expected, &mut mismatches);
+            } else {
+                compare_nodes(&graph.snapshot(), &expected, &mut mismatches);
+                compare_edges(&graph.snapshot(), &expected, &mut mismatches);
+            }
+            mismatches
+        };
+
+        assert_eq!(
+            validate(false),
+            validate(true),
+            "A/B mismatch vectors drifted"
+        );
+
+        let time = |reuse_snapshot: bool| {
+            let started = Instant::now();
+            black_box(validate(reuse_snapshot));
+            started.elapsed().as_nanos()
+        };
+        for _ in 0..3 {
+            black_box(time(false));
+            black_box(time(true));
+        }
+
+        let rounds = 15usize;
+        let paired = |candidate: bool, baseline: bool| {
+            let mut baseline_ns = Vec::with_capacity(rounds);
+            let mut candidate_ns = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (base, cand) = if round % 2 == 0 {
+                    (time(baseline), time(candidate))
+                } else {
+                    let cand = time(candidate);
+                    let base = time(baseline);
+                    (base, cand)
+                };
+                baseline_ns.push(base);
+                candidate_ns.push(cand);
+            }
+            (baseline_ns, candidate_ns)
+        };
+        let median = |samples: &[u128]| {
+            let mut sorted = samples.to_vec();
+            sorted.sort_unstable();
+            sorted[sorted.len() / 2]
+        };
+        let report = |name: &str, baseline_ns: &[u128], candidate_ns: &[u128]| {
+            let baseline_median = median(baseline_ns);
+            let candidate_median = median(candidate_ns);
+            let wins = baseline_ns
+                .iter()
+                .zip(candidate_ns)
+                .filter(|(baseline, candidate)| baseline > candidate)
+                .count();
+            println!(
+                "EXPECTED_GRAPH_SNAPSHOT_REUSE_AB {name}: nodes={node_count} edges={edge_count} \
+                 baseline_median_ns={baseline_median} candidate_median_ns={candidate_median} \
+                 ratio={:.4}x wins={wins}/{rounds} exact_mismatches=true",
+                baseline_median as f64 / candidate_median as f64,
+            );
+        };
+
+        let (baseline_ns, candidate_ns) = paired(true, false);
+        report("two_snapshots_vs_one_snapshot", &baseline_ns, &candidate_ns);
+        let (null_a_ns, null_b_ns) = paired(true, true);
+        report("one_snapshot_vs_one_snapshot_null", &null_a_ns, &null_b_ns);
     }
 
     #[test]

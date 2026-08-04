@@ -1,7 +1,7 @@
 #![forbid(unsafe_code)]
 
 use serde::{Deserialize, Serialize};
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 pub const STRUCTURED_TEST_LOG_SCHEMA_VERSION_V1: &str = "1.0.0";
@@ -2101,6 +2101,50 @@ pub struct DriftAnalyzer {
     threshold: f64,
 }
 
+fn group_weekly_summaries(
+    records: &[DecisionRecord],
+    threshold: f64,
+) -> BTreeMap<u128, WeeklySummary> {
+    let min_ts = records
+        .iter()
+        .map(|record| record.ts_unix_ms)
+        .min()
+        .unwrap_or(0);
+    let mut weekly_map = BTreeMap::new();
+
+    for record in records {
+        let week_number = (record.ts_unix_ms - min_ts) / MILLIS_PER_WEEK;
+        let week_start = min_ts + (week_number * MILLIS_PER_WEEK);
+
+        let summary = weekly_map
+            .entry(week_start)
+            .or_insert_with(|| WeeklySummary {
+                week_start_unix_ms: week_start,
+                total_decisions: 0,
+                under_confident_count: 0,
+                // `Iterator::sum::<f64>` starts at -0.0; retain that identity so
+                // a week containing only -0.0 keeps the exact historical bits.
+                avg_probability: -0.0,
+                fail_closed_count: 0,
+            });
+
+        summary.total_decisions += 1;
+        summary.avg_probability += record.incompatibility_probability;
+        if record.incompatibility_probability >= threshold {
+            summary.under_confident_count += 1;
+        }
+        if record.action == DecisionAction::FailClosed {
+            summary.fail_closed_count += 1;
+        }
+    }
+
+    for summary in weekly_map.values_mut() {
+        summary.avg_probability /= summary.total_decisions as f64;
+    }
+
+    weekly_map
+}
+
 impl DriftAnalyzer {
     /// Create a new analyzer with the default threshold.
     #[must_use]
@@ -2139,52 +2183,7 @@ impl DriftAnalyzer {
             .filter(|r| r.incompatibility_probability >= self.threshold)
             .collect();
 
-        // Group by week
-        let min_ts = records.iter().map(|r| r.ts_unix_ms).min().unwrap_or(0);
-        let mut weekly_map: std::collections::BTreeMap<u128, WeeklySummary> =
-            std::collections::BTreeMap::new();
-
-        for record in records {
-            let week_number = (record.ts_unix_ms - min_ts) / MILLIS_PER_WEEK;
-            let week_start = min_ts + (week_number * MILLIS_PER_WEEK);
-
-            let summary = weekly_map
-                .entry(week_start)
-                .or_insert_with(|| WeeklySummary {
-                    week_start_unix_ms: week_start,
-                    total_decisions: 0,
-                    under_confident_count: 0,
-                    avg_probability: 0.0,
-                    fail_closed_count: 0,
-                });
-
-            summary.total_decisions += 1;
-            if record.incompatibility_probability >= self.threshold {
-                summary.under_confident_count += 1;
-            }
-            if record.action == DecisionAction::FailClosed {
-                summary.fail_closed_count += 1;
-            }
-        }
-
-        // Calculate averages
-        for (week_start, summary) in &mut weekly_map {
-            let week_records: Vec<_> = records
-                .iter()
-                .filter(|r| {
-                    let week_number = (r.ts_unix_ms - min_ts) / MILLIS_PER_WEEK;
-                    min_ts + (week_number * MILLIS_PER_WEEK) == *week_start
-                })
-                .collect();
-
-            if !week_records.is_empty() {
-                summary.avg_probability = week_records
-                    .iter()
-                    .map(|r| r.incompatibility_probability)
-                    .sum::<f64>()
-                    / week_records.len() as f64;
-            }
-        }
+        let weekly_map = group_weekly_summaries(records, self.threshold);
 
         // Find top operations by under-confidence
         let mut op_counts: std::collections::HashMap<String, usize> =
@@ -3291,20 +3290,34 @@ impl BrierScoreTracker {
         }
 
         let brier = self.brier_score();
-        let base_rate = self
-            .predictions
-            .iter()
-            .map(|p| p.actual_outcome)
-            .sum::<f64>()
-            / n as f64;
+        let mut actual_total = 0.0;
+        let mut bin_counts = [0usize; 10];
+        let mut bin_actual_totals = [0.0f64; 10];
+        for prediction in &self.predictions {
+            actual_total += prediction.actual_outcome;
+            let bin_index = (prediction.predicted_probability * 10.0).floor().min(9.0) as usize;
+            bin_counts[bin_index] += 1;
+            bin_actual_totals[bin_index] += prediction.actual_outcome;
+        }
 
-        // Reliability: how well do predicted probabilities match observed frequencies?
-        // Lower is better. This is a simplified version.
-        let reliability = self.compute_reliability();
-
-        // Resolution: ability to separate positive and negative cases
-        // Higher is better.
-        let resolution = self.compute_resolution(base_rate);
+        let n_float = n as f64;
+        let base_rate = actual_total / n_float;
+        let mut reliability = 0.0;
+        let mut resolution = 0.0;
+        for (bin_index, (&bin_count, &bin_actual_total)) in
+            bin_counts.iter().zip(&bin_actual_totals).enumerate()
+        {
+            if bin_count == 0 {
+                continue;
+            }
+            let actual_frequency = bin_actual_total / bin_count as f64;
+            let bin_probability = (bin_index as f64 + 0.5) / 10.0;
+            let reliability_error = bin_probability - actual_frequency;
+            reliability += (bin_count as f64 / n_float) * reliability_error * reliability_error;
+            let resolution_deviation = actual_frequency - base_rate;
+            resolution +=
+                (bin_count as f64 / n_float) * resolution_deviation * resolution_deviation;
+        }
 
         BrierScoreMetrics {
             brier_score: brier,
@@ -3313,62 +3326,6 @@ impl BrierScoreTracker {
             resolution,
             base_rate,
         }
-    }
-
-    fn compute_reliability(&self) -> f64 {
-        if self.predictions.is_empty() {
-            return 0.0;
-        }
-
-        // Bin predictions into 10 bins and compute reliability
-        let mut bins: [Vec<&PredictionOutcome>; 10] = Default::default();
-        for pred in &self.predictions {
-            let bin_idx = (pred.predicted_probability * 10.0).floor().min(9.0) as usize;
-            bins[bin_idx].push(pred);
-        }
-
-        let mut reliability = 0.0;
-        let n = self.predictions.len() as f64;
-
-        for (i, bin) in bins.iter().enumerate() {
-            if bin.is_empty() {
-                continue;
-            }
-            let bin_prob = (i as f64 + 0.5) / 10.0; // Bin center
-            let actual_freq = bin.iter().map(|p| p.actual_outcome).sum::<f64>() / bin.len() as f64;
-            let error = bin_prob - actual_freq;
-            reliability += (bin.len() as f64 / n) * error * error;
-        }
-
-        reliability
-    }
-
-    fn compute_resolution(&self, base_rate: f64) -> f64 {
-        if self.predictions.is_empty() {
-            return 0.0;
-        }
-
-        // Resolution measures how much predictions deviate from base rate
-        let mut resolution = 0.0;
-        let n = self.predictions.len() as f64;
-
-        // Bin predictions and compute resolution
-        let mut bins: [Vec<&PredictionOutcome>; 10] = Default::default();
-        for pred in &self.predictions {
-            let bin_idx = (pred.predicted_probability * 10.0).floor().min(9.0) as usize;
-            bins[bin_idx].push(pred);
-        }
-
-        for bin in &bins {
-            if bin.is_empty() {
-                continue;
-            }
-            let actual_freq = bin.iter().map(|p| p.actual_outcome).sum::<f64>() / bin.len() as f64;
-            let deviation = actual_freq - base_rate;
-            resolution += (bin.len() as f64 / n) * deviation * deviation;
-        }
-
-        resolution
     }
 }
 
@@ -3557,7 +3514,7 @@ impl TailStabilityConfig {
 pub struct TailStabilityTracker {
     config: TailStabilityConfig,
     baseline: Vec<TailSample>,
-    window: Vec<TailSample>,
+    window: VecDeque<TailSample>,
     baseline_p99: Option<f64>,
     baseline_locked: bool,
 }
@@ -3581,7 +3538,7 @@ impl TailStabilityTracker {
         Self {
             config,
             baseline: Vec::new(),
-            window: Vec::new(),
+            window: VecDeque::new(),
             baseline_p99: None,
             baseline_locked: false,
         }
@@ -3602,9 +3559,9 @@ impl TailStabilityTracker {
             }
         } else {
             // Baseline locked, update sliding window
-            self.window.push(sample);
+            self.window.push_back(sample);
             if self.window.len() > self.config.window_samples {
-                self.window.remove(0);
+                let _ = self.window.pop_front();
             }
         }
     }
@@ -3615,7 +3572,7 @@ impl TailStabilityTracker {
             return;
         }
         self.baseline_p99 = Some(Self::compute_percentile(
-            &self.baseline,
+            self.baseline.iter(),
             self.config.percentile,
         ));
         self.baseline_locked = true;
@@ -3629,11 +3586,14 @@ impl TailStabilityTracker {
     }
 
     /// Compute percentile of samples.
-    fn compute_percentile(samples: &[TailSample], percentile: f64) -> f64 {
-        if samples.is_empty() {
+    fn compute_percentile<'a>(
+        samples: impl IntoIterator<Item = &'a TailSample>,
+        percentile: f64,
+    ) -> f64 {
+        let mut values: Vec<f64> = samples.into_iter().map(|sample| sample.value).collect();
+        if values.is_empty() {
             return 0.0;
         }
-        let mut values: Vec<f64> = samples.iter().map(|s| s.value).collect();
         values.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
 
         let idx = (values.len() as f64 * percentile).floor() as usize;
@@ -3648,7 +3608,7 @@ impl TailStabilityTracker {
             return None;
         }
         Some(Self::compute_percentile(
-            &self.window,
+            self.window.iter(),
             self.config.percentile,
         ))
     }
@@ -3680,14 +3640,23 @@ impl TailStabilityTracker {
     /// Get status of the tracker.
     #[must_use]
     pub fn status(&self) -> TailStabilityStatus {
+        let window_p99 = self.window_p99();
+        let p99_ratio = match (self.baseline_p99, window_p99) {
+            (Some(base), Some(current)) if base > 0.0 => Some(current / base),
+            _ => None,
+        };
+        let has_shift = match (self.baseline_p99, window_p99) {
+            (Some(base), Some(current)) if base > 0.0 => current / base > self.config.max_p99_ratio,
+            _ => false,
+        };
         TailStabilityStatus {
             baseline_samples: self.baseline.len(),
             window_samples: self.window.len(),
             baseline_locked: self.baseline_locked,
             baseline_p99: self.baseline_p99,
-            window_p99: self.window_p99(),
-            p99_ratio: self.p99_ratio(),
-            has_shift: self.has_shift(),
+            window_p99,
+            p99_ratio,
+            has_shift,
         }
     }
 
@@ -4864,22 +4833,27 @@ impl EffectTrace {
     /// Convert to a summary for logging.
     #[must_use]
     pub fn summary(&self) -> EffectTraceSummary {
-        let mut by_kind = std::collections::HashMap::new();
+        let mut warnings = 0;
+        let mut failures = 0;
+        let mut coercions = 0;
+        let mut max_risk = 0.0_f64;
         for effect in &self.effects {
-            *by_kind.entry(effect.kind).or_insert(0) += 1;
+            match effect.kind {
+                ParserEffectKind::Warning => warnings += 1,
+                ParserEffectKind::FailClosed => failures += 1,
+                ParserEffectKind::Coercion => coercions += 1,
+                _ => {}
+            }
+            max_risk = f64::max(max_risk, effect.risk_probability);
         }
 
         EffectTraceSummary {
             total_effects: self.effects.len(),
-            warnings: self.count_kind(ParserEffectKind::Warning),
-            failures: self.count_kind(ParserEffectKind::FailClosed),
-            coercions: self.count_kind(ParserEffectKind::Coercion),
+            warnings,
+            failures,
+            coercions,
             is_terminated: self.is_terminated(),
-            max_risk: self
-                .effects
-                .iter()
-                .map(|e| e.risk_probability)
-                .fold(0.0_f64, f64::max),
+            max_risk,
         }
     }
 }
@@ -6997,6 +6971,252 @@ mod tests {
     // Drift Analysis tests
     // -----------------------------------------------------------------------
 
+    fn group_weekly_summaries_frozen(
+        records: &[super::DecisionRecord],
+        threshold: f64,
+    ) -> BTreeMap<u128, super::WeeklySummary> {
+        let min_ts = records
+            .iter()
+            .map(|record| record.ts_unix_ms)
+            .min()
+            .unwrap_or(0);
+        let mut weekly_map = BTreeMap::new();
+
+        for record in records {
+            let week_number = (record.ts_unix_ms - min_ts) / super::MILLIS_PER_WEEK;
+            let week_start = min_ts + (week_number * super::MILLIS_PER_WEEK);
+            let summary = weekly_map
+                .entry(week_start)
+                .or_insert_with(|| super::WeeklySummary {
+                    week_start_unix_ms: week_start,
+                    total_decisions: 0,
+                    under_confident_count: 0,
+                    avg_probability: 0.0,
+                    fail_closed_count: 0,
+                });
+
+            summary.total_decisions += 1;
+            if record.incompatibility_probability >= threshold {
+                summary.under_confident_count += 1;
+            }
+            if record.action == DecisionAction::FailClosed {
+                summary.fail_closed_count += 1;
+            }
+        }
+
+        for (week_start, summary) in &mut weekly_map {
+            let week_records: Vec<_> = records
+                .iter()
+                .filter(|record| {
+                    let week_number = (record.ts_unix_ms - min_ts) / super::MILLIS_PER_WEEK;
+                    min_ts + (week_number * super::MILLIS_PER_WEEK) == *week_start
+                })
+                .collect();
+
+            if !week_records.is_empty() {
+                summary.avg_probability = week_records
+                    .iter()
+                    .map(|record| record.incompatibility_probability)
+                    .sum::<f64>()
+                    / week_records.len() as f64;
+            }
+        }
+
+        weekly_map
+    }
+
+    fn assert_weekly_summaries_bit_exact(
+        frozen: &BTreeMap<u128, super::WeeklySummary>,
+        candidate: &BTreeMap<u128, super::WeeklySummary>,
+    ) {
+        assert_eq!(frozen.len(), candidate.len());
+        for ((frozen_week, frozen_summary), (candidate_week, candidate_summary)) in
+            frozen.iter().zip(candidate)
+        {
+            assert_eq!(frozen_week, candidate_week);
+            assert_eq!(
+                frozen_summary.week_start_unix_ms,
+                candidate_summary.week_start_unix_ms
+            );
+            assert_eq!(
+                frozen_summary.total_decisions,
+                candidate_summary.total_decisions
+            );
+            assert_eq!(
+                frozen_summary.under_confident_count,
+                candidate_summary.under_confident_count
+            );
+            assert_eq!(
+                frozen_summary.avg_probability.to_bits(),
+                candidate_summary.avg_probability.to_bits()
+            );
+            assert_eq!(
+                frozen_summary.fail_closed_count,
+                candidate_summary.fail_closed_count
+            );
+        }
+    }
+
+    fn drift_record(
+        ts_unix_ms: u128,
+        incompatibility_probability: f64,
+        action: DecisionAction,
+    ) -> super::DecisionRecord {
+        super::DecisionRecord {
+            ts_unix_ms,
+            operation: "drift_fixture".to_owned(),
+            mode: CompatibilityMode::Strict,
+            action,
+            incompatibility_probability,
+            rationale: "weekly aggregation parity".to_owned(),
+            evidence: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn drift_weekly_accumulator_matches_frozen_bits() {
+        let base = 1_000_u128;
+        let cases = [
+            Vec::new(),
+            vec![drift_record(base, -0.0, DecisionAction::Allow)],
+            vec![
+                drift_record(base, 1.0, DecisionAction::Allow),
+                drift_record(base + 1, f64::EPSILON, DecisionAction::FullValidate),
+                drift_record(base + 2, 1.0 / 3.0, DecisionAction::FailClosed),
+            ],
+            vec![
+                drift_record(
+                    base + 2 * super::MILLIS_PER_WEEK + 7,
+                    0.91,
+                    DecisionAction::FailClosed,
+                ),
+                drift_record(base, 0.11, DecisionAction::Allow),
+                drift_record(
+                    base + super::MILLIS_PER_WEEK - 1,
+                    0.29,
+                    DecisionAction::FullValidate,
+                ),
+                drift_record(
+                    base + super::MILLIS_PER_WEEK,
+                    0.31,
+                    DecisionAction::FullValidate,
+                ),
+                drift_record(base + 3, 0.17, DecisionAction::Allow),
+                drift_record(
+                    base + 2 * super::MILLIS_PER_WEEK,
+                    0.73,
+                    DecisionAction::FailClosed,
+                ),
+            ],
+        ];
+
+        for records in cases {
+            let frozen = group_weekly_summaries_frozen(&records, 0.3);
+            let candidate = super::group_weekly_summaries(&records, 0.3);
+            assert_weekly_summaries_bit_exact(&frozen, &candidate);
+        }
+    }
+
+    #[test]
+    #[ignore = "measurement; run with --profile release --ignored --nocapture"]
+    fn drift_weekly_accumulation_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        const WEEKS: usize = 256;
+        const RECORDS_PER_WEEK: usize = 32;
+        const ROUNDS: usize = 15;
+        const ITERATIONS: usize = 4;
+
+        let base = 10_000_u128;
+        let mut records = Vec::with_capacity(WEEKS * RECORDS_PER_WEEK);
+        for week in 0..WEEKS {
+            for offset in 0..RECORDS_PER_WEEK {
+                let probability = ((week * 37 + offset * 19) % 101) as f64 / 100.0;
+                let action = if (week + offset) % 7 == 0 {
+                    DecisionAction::FailClosed
+                } else {
+                    DecisionAction::Allow
+                };
+                records.push(drift_record(
+                    base + week as u128 * super::MILLIS_PER_WEEK + offset as u128 * 1_000,
+                    probability,
+                    action,
+                ));
+            }
+        }
+
+        let frozen = group_weekly_summaries_frozen(&records, 0.3);
+        let candidate = super::group_weekly_summaries(&records, 0.3);
+        assert_weekly_summaries_bit_exact(&frozen, &candidate);
+        println!(
+            "drift_weekly_fixture records={} weeks={} baseline_bucket_tests={} baseline_temp_vectors={}",
+            records.len(),
+            WEEKS,
+            records.len() * WEEKS,
+            WEEKS
+        );
+
+        let time = |frozen_arm: bool| {
+            let started = Instant::now();
+            for _ in 0..ITERATIONS {
+                let summaries = if frozen_arm {
+                    group_weekly_summaries_frozen(black_box(&records), 0.3)
+                } else {
+                    super::group_weekly_summaries(black_box(&records), 0.3)
+                };
+                black_box(summaries);
+            }
+            started.elapsed().as_nanos()
+        };
+
+        for _ in 0..3 {
+            black_box(time(true));
+            black_box(time(false));
+        }
+
+        let paired = |baseline_frozen: bool, candidate_frozen: bool| {
+            let mut baseline_ns = Vec::with_capacity(ROUNDS);
+            let mut candidate_ns = Vec::with_capacity(ROUNDS);
+            for round in 0..ROUNDS {
+                let (baseline, candidate) = if round % 2 == 0 {
+                    (time(baseline_frozen), time(candidate_frozen))
+                } else {
+                    let candidate = time(candidate_frozen);
+                    let baseline = time(baseline_frozen);
+                    (baseline, candidate)
+                };
+                baseline_ns.push(baseline);
+                candidate_ns.push(candidate);
+            }
+            (baseline_ns, candidate_ns)
+        };
+        let median = |samples: &[u128]| {
+            let mut sorted = samples.to_vec();
+            sorted.sort_unstable();
+            sorted[sorted.len() / 2]
+        };
+        let report = |name: &str, baseline_ns: &[u128], candidate_ns: &[u128]| {
+            let baseline_median = median(baseline_ns);
+            let candidate_median = median(candidate_ns);
+            let wins = baseline_ns
+                .iter()
+                .zip(candidate_ns)
+                .filter(|(baseline, candidate)| baseline > candidate)
+                .count();
+            println!(
+                "drift_weekly_accumulation_ab {name}: baseline_median_ns={baseline_median} \
+                 candidate_median_ns={candidate_median} ratio={:.4}x wins={wins}/{ROUNDS}",
+                baseline_median as f64 / candidate_median as f64
+            );
+        };
+
+        let (baseline_ns, candidate_ns) = paired(true, false);
+        report("rescan_vs_single_pass", &baseline_ns, &candidate_ns);
+        let (null_a_ns, null_b_ns) = paired(false, false);
+        report("single_pass_vs_single_pass_null", &null_a_ns, &null_b_ns);
+    }
+
     #[test]
     fn drift_analyzer_empty_ledger() {
         let ledger = super::VersionedDecisionLedger::new("empty");
@@ -7667,6 +7887,176 @@ mod tests {
         assert_eq!(metrics.sample_count, 10);
     }
 
+    /// Paired same-binary A/B for calibration metric aggregation. The frozen
+    /// arm retains the former five traversals and two arrays of bin vectors;
+    /// the candidate accumulates fixed-bin counts and sums once.
+    #[test]
+    #[ignore = "measurement; run with --profile release --ignored --nocapture"]
+    fn brier_metrics_fused_aggregation_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        fn frozen_metrics(tracker: &super::BrierScoreTracker) -> super::BrierScoreMetrics {
+            let n = tracker.predictions.len();
+            if n == 0 {
+                return super::BrierScoreMetrics {
+                    brier_score: 0.5,
+                    sample_count: 0,
+                    reliability: 0.0,
+                    resolution: 0.0,
+                    base_rate: 0.5,
+                };
+            }
+
+            let base_rate = tracker
+                .predictions
+                .iter()
+                .map(|prediction| prediction.actual_outcome)
+                .sum::<f64>()
+                / n as f64;
+            let mut reliability_bins: [Vec<&super::PredictionOutcome>; 10] = Default::default();
+            for prediction in &tracker.predictions {
+                let bin_index = (prediction.predicted_probability * 10.0).floor().min(9.0) as usize;
+                reliability_bins[bin_index].push(prediction);
+            }
+            let mut reliability = 0.0;
+            for (bin_index, bin) in reliability_bins.iter().enumerate() {
+                if bin.is_empty() {
+                    continue;
+                }
+                let bin_probability = (bin_index as f64 + 0.5) / 10.0;
+                let actual_frequency = bin
+                    .iter()
+                    .map(|prediction| prediction.actual_outcome)
+                    .sum::<f64>()
+                    / bin.len() as f64;
+                let error = bin_probability - actual_frequency;
+                reliability += (bin.len() as f64 / n as f64) * error * error;
+            }
+
+            let mut resolution_bins: [Vec<&super::PredictionOutcome>; 10] = Default::default();
+            for prediction in &tracker.predictions {
+                let bin_index = (prediction.predicted_probability * 10.0).floor().min(9.0) as usize;
+                resolution_bins[bin_index].push(prediction);
+            }
+            let mut resolution = 0.0;
+            for bin in &resolution_bins {
+                if bin.is_empty() {
+                    continue;
+                }
+                let actual_frequency = bin
+                    .iter()
+                    .map(|prediction| prediction.actual_outcome)
+                    .sum::<f64>()
+                    / bin.len() as f64;
+                let deviation = actual_frequency - base_rate;
+                resolution += (bin.len() as f64 / n as f64) * deviation * deviation;
+            }
+
+            super::BrierScoreMetrics {
+                brier_score: tracker.brier_score(),
+                sample_count: n,
+                reliability,
+                resolution,
+                base_rate,
+            }
+        }
+
+        let assert_exact = |frozen: super::BrierScoreMetrics, fused: super::BrierScoreMetrics| {
+            assert_eq!(frozen.sample_count, fused.sample_count);
+            assert_eq!(frozen.brier_score.to_bits(), fused.brier_score.to_bits());
+            assert_eq!(frozen.base_rate.to_bits(), fused.base_rate.to_bits());
+            assert_eq!(frozen.reliability.to_bits(), fused.reliability.to_bits());
+            assert_eq!(frozen.resolution.to_bits(), fused.resolution.to_bits());
+        };
+
+        let empty = super::BrierScoreTracker::new();
+        assert_exact(frozen_metrics(&empty), empty.metrics());
+        let mut boundary = super::BrierScoreTracker::new();
+        for (probability, incompatible) in [
+            (0.0, false),
+            (0.09, true),
+            (0.1, false),
+            (0.49, true),
+            (0.5, false),
+            (0.89, true),
+            (0.9, false),
+            (1.0, true),
+        ] {
+            boundary.record(probability, incompatible);
+        }
+        assert_exact(frozen_metrics(&boundary), boundary.metrics());
+
+        let sample_count = 65_536usize;
+        let mut tracker = super::BrierScoreTracker::new();
+        for sample in 0..sample_count {
+            let probability = ((sample * 37) % 1_000) as f64 / 999.0;
+            let incompatible = ((sample * 13 + 7) % 17) < 6;
+            tracker.record(probability, incompatible);
+        }
+        assert_exact(frozen_metrics(&tracker), tracker.metrics());
+
+        let calls = 4usize;
+        let rounds = 15usize;
+        let time = |frozen: bool| {
+            let started = Instant::now();
+            for _ in 0..calls {
+                if frozen {
+                    black_box(frozen_metrics(black_box(&tracker)));
+                } else {
+                    black_box(black_box(&tracker).metrics());
+                }
+            }
+            started.elapsed().as_nanos()
+        };
+        for _ in 0..3 {
+            black_box(time(true));
+            black_box(time(false));
+        }
+
+        let paired = |candidate_frozen: bool, baseline_frozen: bool| {
+            let mut baseline_ns = Vec::with_capacity(rounds);
+            let mut candidate_ns = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (baseline, candidate) = if round % 2 == 0 {
+                    (time(baseline_frozen), time(candidate_frozen))
+                } else {
+                    let candidate = time(candidate_frozen);
+                    let baseline = time(baseline_frozen);
+                    (baseline, candidate)
+                };
+                baseline_ns.push(baseline);
+                candidate_ns.push(candidate);
+            }
+            (baseline_ns, candidate_ns)
+        };
+        let median = |samples: &[u128]| {
+            let mut sorted = samples.to_vec();
+            sorted.sort_unstable();
+            sorted[sorted.len() / 2]
+        };
+        let report = |name: &str, baseline_ns: &[u128], candidate_ns: &[u128]| {
+            let baseline_median = median(baseline_ns);
+            let candidate_median = median(candidate_ns);
+            let wins = baseline_ns
+                .iter()
+                .zip(candidate_ns)
+                .filter(|(baseline, candidate)| baseline > candidate)
+                .count();
+            println!(
+                "BRIER_METRICS_FUSED_AB {name}: baseline_median_ns={baseline_median} \
+                 candidate_median_ns={candidate_median} ratio={:.4}x wins={wins}/{rounds}",
+                baseline_median as f64 / candidate_median as f64,
+            );
+        };
+
+        println!("BRIER_METRICS_FUSED_AB fixture: samples={sample_count} calls={calls} bins=10");
+        let (baseline_ns, candidate_ns) = paired(false, true);
+        report("frozen_vs_fused", &baseline_ns, &candidate_ns);
+        let (null_a_ns, null_b_ns) = paired(false, false);
+        report("fused_vs_fused_null", &null_a_ns, &null_b_ns);
+    }
+
     #[test]
     fn brier_gate_open_with_insufficient_samples() {
         let gate = super::BrierScoreGate::new();
@@ -7867,6 +8257,266 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "profile counter; run with --profile release --ignored --nocapture"]
+    fn tail_window_front_shift_profile() {
+        use std::hint::black_box;
+
+        const WINDOW: usize = 4_096;
+        const STEADY_RECORDS: usize = 8_192;
+
+        let mut window: Vec<super::TailSample> = (0..WINDOW)
+            .map(|sample| super::TailSample {
+                value: sample as f64,
+                ts_unix_ms: sample as u128,
+            })
+            .collect();
+        let mut front_removals = 0usize;
+        let mut payload_relocations = 0usize;
+        for sample in 0..STEADY_RECORDS {
+            window.push(super::TailSample {
+                value: black_box(sample as f64),
+                ts_unix_ms: sample as u128,
+            });
+            if window.len() > WINDOW {
+                front_removals += 1;
+                payload_relocations += window.len() - 1;
+                black_box(window.remove(0));
+            }
+        }
+
+        println!(
+            "TAIL_WINDOW_SHIFT_PROFILE window={WINDOW} steady_records={STEADY_RECORDS} front_removals={front_removals} payload_relocations={payload_relocations}"
+        );
+        assert_eq!(window.len(), WINDOW);
+        assert_eq!(front_removals, STEADY_RECORDS);
+        assert_eq!(payload_relocations, WINDOW * STEADY_RECORDS);
+        black_box(window);
+    }
+
+    #[test]
+    fn tail_window_deque_preserves_frozen_semantics() {
+        use std::collections::VecDeque;
+
+        let samples = [
+            super::TailSample {
+                value: 0.0,
+                ts_unix_ms: 1,
+            },
+            super::TailSample {
+                value: -0.0,
+                ts_unix_ms: 2,
+            },
+            super::TailSample {
+                value: f64::INFINITY,
+                ts_unix_ms: 3,
+            },
+            super::TailSample {
+                value: f64::NEG_INFINITY,
+                ts_unix_ms: 4,
+            },
+            super::TailSample {
+                value: f64::from_bits(0x7ff8_0000_0000_0042),
+                ts_unix_ms: 5,
+            },
+            super::TailSample {
+                value: 17.25,
+                ts_unix_ms: 6,
+            },
+        ];
+
+        for limit in [0usize, 1, 3, 8] {
+            let mut frozen = Vec::new();
+            let mut candidate = VecDeque::new();
+            for sample in samples {
+                frozen.push(sample);
+                if frozen.len() > limit {
+                    frozen.remove(0);
+                }
+                candidate.push_back(sample);
+                if candidate.len() > limit {
+                    let _ = candidate.pop_front();
+                }
+            }
+
+            let frozen_bits: Vec<_> = frozen
+                .iter()
+                .map(|sample| (sample.value.to_bits(), sample.ts_unix_ms))
+                .collect();
+            let candidate_bits: Vec<_> = candidate
+                .iter()
+                .map(|sample| (sample.value.to_bits(), sample.ts_unix_ms))
+                .collect();
+            assert_eq!(candidate_bits, frozen_bits, "window limit {limit}");
+
+            for percentile in [0.0, 0.5, 0.99, 1.0] {
+                let mut frozen_values: Vec<f64> =
+                    frozen.iter().map(|sample| sample.value).collect();
+                frozen_values.sort_by(|left, right| {
+                    left.partial_cmp(right).unwrap_or(std::cmp::Ordering::Equal)
+                });
+                let frozen_percentile = if frozen_values.is_empty() {
+                    0.0
+                } else {
+                    let index = ((frozen_values.len() as f64 * percentile).floor() as usize)
+                        .min(frozen_values.len() - 1);
+                    frozen_values[index]
+                };
+                let candidate_percentile =
+                    super::TailStabilityTracker::compute_percentile(candidate.iter(), percentile);
+                assert_eq!(
+                    candidate_percentile.to_bits(),
+                    frozen_percentile.to_bits(),
+                    "percentile {percentile} with window limit {limit}"
+                );
+            }
+        }
+
+        let zero_window = super::TailStabilityConfig {
+            baseline_samples: 1,
+            window_samples: 0,
+            max_p99_ratio: 1.2,
+            percentile: 0.99,
+        };
+        let mut tracker = super::TailStabilityTracker::with_config(zero_window);
+        tracker.record(10.0);
+        tracker.record(20.0);
+        assert_eq!(tracker.window_count(), 0);
+        assert_eq!(tracker.window_p99(), None);
+        assert!(!tracker.has_shift());
+    }
+
+    #[test]
+    #[ignore = "measurement; run with --profile release --ignored --nocapture"]
+    fn tail_window_deque_ab() {
+        use std::collections::VecDeque;
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        const WINDOW: usize = 4_096;
+        const STEADY_RECORDS: usize = 8_192;
+        const ROUNDS: usize = 15;
+
+        let seed: Vec<super::TailSample> = (0..WINDOW)
+            .map(|sample| super::TailSample {
+                value: sample as f64,
+                ts_unix_ms: sample as u128,
+            })
+            .collect();
+        let stream: Vec<super::TailSample> = (0..STEADY_RECORDS)
+            .map(|sample| super::TailSample {
+                value: ((sample * 7_919) % 10_007) as f64,
+                ts_unix_ms: (WINDOW + sample) as u128,
+            })
+            .collect();
+
+        let time_frozen = |window: &mut Vec<super::TailSample>| {
+            let started = Instant::now();
+            for &sample in black_box(&stream) {
+                window.push(black_box(sample));
+                if window.len() > WINDOW {
+                    black_box(window.remove(0));
+                }
+            }
+            black_box(&*window);
+            started.elapsed().as_nanos()
+        };
+        let time_candidate = |window: &mut VecDeque<super::TailSample>| {
+            let started = Instant::now();
+            for &sample in black_box(&stream) {
+                window.push_back(black_box(sample));
+                if window.len() > WINDOW {
+                    let _ = black_box(window.pop_front());
+                }
+            }
+            black_box(&*window);
+            started.elapsed().as_nanos()
+        };
+        let median = |mut values: Vec<u128>| {
+            values.sort_unstable();
+            values[values.len() / 2]
+        };
+        let assert_exact = |frozen: &[super::TailSample],
+                            candidate: &VecDeque<super::TailSample>| {
+            assert_eq!(frozen.len(), candidate.len());
+            for (frozen_sample, candidate_sample) in frozen.iter().zip(candidate) {
+                assert_eq!(
+                    frozen_sample.value.to_bits(),
+                    candidate_sample.value.to_bits()
+                );
+                assert_eq!(frozen_sample.ts_unix_ms, candidate_sample.ts_unix_ms);
+            }
+        };
+
+        for _ in 0..3 {
+            let mut frozen = seed.clone();
+            let mut candidate: VecDeque<_> = seed.iter().copied().collect();
+            black_box(time_frozen(&mut frozen));
+            black_box(time_candidate(&mut candidate));
+            assert_exact(&frozen, &candidate);
+        }
+
+        let mut frozen = seed.clone();
+        let mut candidate: VecDeque<_> = seed.iter().copied().collect();
+        let mut baseline_ns = Vec::with_capacity(ROUNDS);
+        let mut candidate_ns = Vec::with_capacity(ROUNDS);
+        let mut candidate_wins = 0usize;
+        for round in 0..ROUNDS {
+            let (baseline, candidate_time) = if round % 2 == 0 {
+                (time_frozen(&mut frozen), time_candidate(&mut candidate))
+            } else {
+                let candidate_time = time_candidate(&mut candidate);
+                (time_frozen(&mut frozen), candidate_time)
+            };
+            candidate_wins += usize::from(candidate_time < baseline);
+            baseline_ns.push(baseline);
+            candidate_ns.push(candidate_time);
+            assert_exact(&frozen, &candidate);
+        }
+        let baseline_median = median(baseline_ns);
+        let candidate_median = median(candidate_ns);
+        println!(
+            "TAIL_WINDOW_DEQUE_AB vec_remove_vs_deque_pop baseline_median_ns={baseline_median} candidate_median_ns={candidate_median} ratio={:.4}x candidate_wins={candidate_wins}/{ROUNDS}",
+            baseline_median as f64 / candidate_median as f64
+        );
+
+        let mut null_left: VecDeque<_> = seed.iter().copied().collect();
+        let mut null_right: VecDeque<_> = seed.iter().copied().collect();
+        let mut null_left_ns = Vec::with_capacity(ROUNDS);
+        let mut null_right_ns = Vec::with_capacity(ROUNDS);
+        let mut null_right_wins = 0usize;
+        for round in 0..ROUNDS {
+            let (left, right) = if round % 2 == 0 {
+                (
+                    time_candidate(&mut null_left),
+                    time_candidate(&mut null_right),
+                )
+            } else {
+                let right = time_candidate(&mut null_right);
+                (time_candidate(&mut null_left), right)
+            };
+            null_right_wins += usize::from(right < left);
+            null_left_ns.push(left);
+            null_right_ns.push(right);
+            assert_eq!(
+                null_left
+                    .iter()
+                    .map(|sample| (sample.value.to_bits(), sample.ts_unix_ms))
+                    .collect::<Vec<_>>(),
+                null_right
+                    .iter()
+                    .map(|sample| (sample.value.to_bits(), sample.ts_unix_ms))
+                    .collect::<Vec<_>>()
+            );
+        }
+        let null_left_median = median(null_left_ns);
+        let null_right_median = median(null_right_ns);
+        println!(
+            "TAIL_WINDOW_DEQUE_AB deque_vs_deque_null left_median_ns={null_left_median} right_median_ns={null_right_median} ratio={:.4}x right_wins={null_right_wins}/{ROUNDS}",
+            null_left_median as f64 / null_right_median as f64
+        );
+    }
+
+    #[test]
     fn tail_tracker_reset() {
         let mut tracker = super::TailStabilityTracker::new();
 
@@ -7958,6 +8608,129 @@ mod tests {
         assert!(status.baseline_locked);
         assert!(status.baseline_p99.is_some());
         assert!(status.p99_ratio.is_some());
+    }
+
+    /// Paired same-binary A/B for tail-status snapshots. The frozen arm asks
+    /// for the same window percentile three times; the candidate reuses one
+    /// immutable percentile across the reported fields.
+    #[test]
+    #[ignore = "measurement; run with --profile release --ignored --nocapture"]
+    fn tail_status_single_percentile_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        let frozen_status = |tracker: &super::TailStabilityTracker| super::TailStabilityStatus {
+            baseline_samples: tracker.baseline.len(),
+            window_samples: tracker.window.len(),
+            baseline_locked: tracker.baseline_locked,
+            baseline_p99: tracker.baseline_p99,
+            window_p99: tracker.window_p99(),
+            p99_ratio: tracker.p99_ratio(),
+            has_shift: tracker.has_shift(),
+        };
+        let assert_exact = |frozen: super::TailStabilityStatus,
+                            reused: super::TailStabilityStatus| {
+            assert_eq!(frozen.baseline_samples, reused.baseline_samples);
+            assert_eq!(frozen.window_samples, reused.window_samples);
+            assert_eq!(frozen.baseline_locked, reused.baseline_locked);
+            assert_eq!(
+                frozen.baseline_p99.map(f64::to_bits),
+                reused.baseline_p99.map(f64::to_bits)
+            );
+            assert_eq!(
+                frozen.window_p99.map(f64::to_bits),
+                reused.window_p99.map(f64::to_bits)
+            );
+            assert_eq!(
+                frozen.p99_ratio.map(f64::to_bits),
+                reused.p99_ratio.map(f64::to_bits)
+            );
+            assert_eq!(frozen.has_shift, reused.has_shift);
+        };
+
+        let empty = super::TailStabilityTracker::new();
+        assert_exact(frozen_status(&empty), empty.status());
+
+        let baseline_samples = 256usize;
+        let window_samples = 4_096usize;
+        let config = super::TailStabilityConfig {
+            baseline_samples,
+            window_samples,
+            max_p99_ratio: 1.2,
+            percentile: 0.99,
+        };
+        let mut tracker = super::TailStabilityTracker::with_config(config);
+        for sample in 0..baseline_samples {
+            tracker.record(10.0 + ((sample * 37) % 101) as f64 / 100.0);
+        }
+        assert_exact(frozen_status(&tracker), tracker.status());
+        for sample in 0..window_samples {
+            tracker.record(11.0 + ((sample * 7_919) % 10_007) as f64 / 1_000.0);
+        }
+        assert_exact(frozen_status(&tracker), tracker.status());
+
+        let calls = 8usize;
+        let rounds = 15usize;
+        let time = |reused: bool| {
+            let started = Instant::now();
+            for _ in 0..calls {
+                if reused {
+                    black_box(black_box(&tracker).status());
+                } else {
+                    black_box(frozen_status(black_box(&tracker)));
+                }
+            }
+            started.elapsed().as_nanos()
+        };
+        for _ in 0..3 {
+            black_box(time(false));
+            black_box(time(true));
+        }
+
+        let paired = |candidate_reused: bool, baseline_reused: bool| {
+            let mut baseline_ns = Vec::with_capacity(rounds);
+            let mut candidate_ns = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (baseline, candidate) = if round % 2 == 0 {
+                    (time(baseline_reused), time(candidate_reused))
+                } else {
+                    let candidate = time(candidate_reused);
+                    let baseline = time(baseline_reused);
+                    (baseline, candidate)
+                };
+                baseline_ns.push(baseline);
+                candidate_ns.push(candidate);
+            }
+            (baseline_ns, candidate_ns)
+        };
+        let median = |samples: &[u128]| {
+            let mut sorted = samples.to_vec();
+            sorted.sort_unstable();
+            sorted[sorted.len() / 2]
+        };
+        let report = |name: &str, baseline_ns: &[u128], candidate_ns: &[u128]| {
+            let baseline_median = median(baseline_ns);
+            let candidate_median = median(candidate_ns);
+            let wins = baseline_ns
+                .iter()
+                .zip(candidate_ns)
+                .filter(|(baseline, candidate)| baseline > candidate)
+                .count();
+            println!(
+                "TAIL_STATUS_SINGLE_PERCENTILE_AB {name}: baseline_median_ns={baseline_median} \
+                 candidate_median_ns={candidate_median} ratio={:.4}x wins={wins}/{rounds}",
+                baseline_median as f64 / candidate_median as f64,
+            );
+        };
+
+        println!(
+            "TAIL_STATUS_SINGLE_PERCENTILE_AB fixture: baseline={baseline_samples} \
+             window={window_samples} calls={calls} percentile=0.99"
+        );
+        let (baseline_ns, candidate_ns) = paired(true, false);
+        report("triple_sort_vs_single_sort", &baseline_ns, &candidate_ns);
+        let (null_a_ns, null_b_ns) = paired(true, true);
+        report("single_sort_vs_single_sort_null", &null_a_ns, &null_b_ns);
     }
 
     #[test]
@@ -8590,7 +9363,19 @@ mod tests {
 
     #[test]
     fn effect_trace_summary() {
-        use super::{CompatibilityMode, EffectTrace, ParserEffect};
+        use super::{CompatibilityMode, EffectTrace, EffectTraceSummary, ParserEffect};
+
+        assert_eq!(
+            EffectTrace::new().summary(),
+            EffectTraceSummary {
+                total_effects: 0,
+                warnings: 0,
+                failures: 0,
+                coercions: 0,
+                is_terminated: false,
+                max_risk: 0.0,
+            }
+        );
 
         let mut trace = EffectTrace::new();
         trace.record(ParserEffect::warning("a", "m1", CompatibilityMode::Strict));

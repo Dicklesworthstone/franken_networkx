@@ -8,6 +8,7 @@ delegation gates (extra tokens, underscore floats, non-default kwargs),
 float parity (inf/nan/exp), duplicate-edge overwrite, and error parity.
 """
 
+import gzip
 import random
 
 import networkx as nx
@@ -36,6 +37,26 @@ def test_fast_path_engaged(tmp_path):
     native = fnx._fnx.read_edgelist_simple(p, "data_true")
     assert native is not None
     assert _canon(fnx.read_edgelist(p)) == _canon(native)
+
+
+def test_compressed_fast_path_is_exact_and_keeps_empty_attrs_lazy(tmp_path, monkeypatch):
+    p = tmp_path / "graph.edgelist.gz"
+    with gzip.open(p, "wt", encoding="utf-8") as stream:
+        stream.write("# SNAP-style header\na b\nb c\na c\n")
+
+    import franken_networkx.readwrite as readwrite
+
+    def fail_python_parser(*args, **kwargs):
+        raise AssertionError("compressed default edge list fell back to Python parsing")
+
+    monkeypatch.setattr(readwrite, "parse_edgelist", fail_python_parser)
+    actual = fnx.read_edgelist(str(p))
+    expected = nx.read_edgelist(str(p))
+    assert _canon(actual) == _canon(expected)
+
+    attrs = actual["a"]["b"]
+    assert attrs == {}
+    assert actual["a"]["b"] is attrs
 
 
 def test_nodata_corpus_matches_nx(tmp_path):

@@ -17,12 +17,46 @@ use fnx_classes::digraph::{DiGraph, MultiDiGraph};
 use fnx_runtime::{CgseValue, CompatibilityMode, RuntimePolicy};
 use pyo3::IntoPyObjectExt;
 use pyo3::exceptions::{PyKeyError, PyRuntimeError, PyTypeError, PyValueError};
+use pyo3::gc::{PyTraverseError, PyVisit};
 use pyo3::prelude::*;
 use pyo3::types::{
     PyAny, PyBool, PyDict, PyFloat, PyInt, PyIterator, PyList, PySet, PyString, PyTuple,
 };
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::atomic::{AtomicBool, Ordering};
+
+#[cfg(test)]
+static FORCE_DIGRAPH_CTOR_ROW_KEY_PROBES: AtomicBool = AtomicBool::new(false);
+#[cfg(test)]
+static FORCE_MULTIDIGRAPH_STRING_ATTR_GENERAL: AtomicBool = AtomicBool::new(false);
+
+pub(crate) fn exact_int_str_keyed_ctor_tuple(item: &Bound<'_, PyAny>) -> bool {
+    let Ok(tuple) = item.downcast::<PyTuple>() else {
+        return false;
+    };
+    let exact_endpoint = |value: &Bound<'_, PyAny>| {
+        value.is_exact_instance_of::<PyInt>() || value.is_exact_instance_of::<PyString>()
+    };
+    let Ok(u) = tuple.get_item(0) else {
+        return false;
+    };
+    let Ok(v) = tuple.get_item(1) else {
+        return false;
+    };
+    if !exact_endpoint(&u) || !exact_endpoint(&v) {
+        return false;
+    }
+    match tuple.len() {
+        3 => tuple.get_item(2).is_ok_and(|key| exact_endpoint(&key)),
+        4 => {
+            tuple.get_item(2).is_ok_and(|key| exact_endpoint(&key))
+                && tuple
+                    .get_item(3)
+                    .is_ok_and(|attrs| attrs.is_exact_instance_of::<PyDict>())
+        }
+        _ => false,
+    }
+}
 
 fn single_weight_float_attr_map(attrs: &Bound<'_, PyDict>) -> PyResult<Option<AttrMap>> {
     if attrs.len() != 1 {
@@ -136,6 +170,115 @@ pub struct PyDiGraph {
     /// remove / clear hook so mutation-during-iteration raises CPython's native
     /// "dictionary changed size during iteration" exactly as nx does.
     pub(crate) node_iter_mirror: std::sync::Mutex<Option<Py<PyDict>>>,
+    pub(crate) instance_dict_gc: crate::InstanceDictGc,
+}
+
+#[pymethods]
+impl PyDiGraph {
+    fn _fnx_register_gc_dict(&mut self, dict: &Bound<'_, PyDict>) {
+        self.instance_dict_gc.register(dict);
+    }
+
+    fn __traverse__(&self, visit: PyVisit<'_>) -> Result<(), PyTraverseError> {
+        self.instance_dict_gc.traverse(visit.clone())?;
+        self.traverse_python_refs(&visit)
+    }
+
+    fn __clear__(slf: &Bound<'_, Self>) {
+        let py = slf.py();
+        slf.borrow_mut().clear_python_refs(py);
+    }
+}
+
+impl PyDiGraph {
+    fn traverse_python_refs(&self, visit: &PyVisit<'_>) -> Result<(), PyTraverseError> {
+        for key in self.node_key_map.values() {
+            visit.call(key)?;
+        }
+        for attrs in self.node_py_attrs.values() {
+            visit.call(attrs)?;
+        }
+        for attrs in self.edge_py_attrs.values() {
+            visit.call(attrs)?;
+        }
+        for key in self.succ_py_keys.values() {
+            visit.call(key)?;
+        }
+        for key in self.pred_py_keys.values() {
+            visit.call(key)?;
+        }
+        for row in self.succ_row_py.values() {
+            visit.call(row)?;
+        }
+        for row in self.pred_row_py.values() {
+            visit.call(row)?;
+        }
+        visit.call(&self.graph_attrs)?;
+        {
+            let cache = self.node_keys_cache.lock().unwrap();
+            if let Some((_, keys)) = cache.as_ref() {
+                visit.call(keys)?;
+            }
+        }
+        {
+            let mirror = self.node_data_mirror.lock().unwrap();
+            if let Some((_, data)) = mirror.as_ref() {
+                visit.call(data)?;
+            }
+        }
+        if let Some(cache) = &self.dict_of_dicts_cache {
+            cache.traverse(visit)?;
+        }
+        if let Some((_, _, tuples)) = &self.edges_with_data_cache {
+            for tuple in tuples {
+                visit.call(tuple)?;
+            }
+        }
+        if let Some((_, _, tuples)) = &self.in_edges_with_data_cache {
+            for tuple in tuples {
+                visit.call(tuple)?;
+            }
+        }
+        {
+            let cache = self.in_edges_data_attr_cache.lock().unwrap();
+            if let Some((_, _, _, default, tuples)) = cache.as_ref() {
+                visit.call(default)?;
+                for tuple in tuples {
+                    visit.call(tuple)?;
+                }
+            }
+        }
+        if let Some((_, _, dicts)) = &self.edges_attr_dicts_cache {
+            for dict in dicts {
+                visit.call(dict)?;
+            }
+        }
+        {
+            let mirror = self.node_iter_mirror.lock().unwrap();
+            visit.call(mirror.as_ref())?;
+        }
+        Ok(())
+    }
+
+    fn clear_python_refs(&mut self, py: Python<'_>) {
+        self.instance_dict_gc.clear(py);
+        self.node_key_map.clear();
+        self.node_py_attrs.clear();
+        self.edge_py_attrs.clear();
+        self.succ_py_keys.clear();
+        self.pred_py_keys.clear();
+        self.succ_row_py.clear();
+        self.pred_row_py.clear();
+        self.graph_attrs.bind(py).clear();
+        *self.node_keys_cache.get_mut().unwrap() = None;
+        *self.node_data_mirror.get_mut().unwrap() = None;
+        self.dict_of_dicts_cache = None;
+        self.edges_with_data_cache = None;
+        self.in_edges_with_data_cache = None;
+        *self.in_edges_data_attr_cache.get_mut().unwrap() = None;
+        self.edges_attr_dicts_cache = None;
+        *self.node_iter_mirror.get_mut().unwrap() = None;
+    }
 }
 
 #[pyclass(
@@ -214,9 +357,123 @@ pub struct PyMultiDiGraph {
     /// Live `{node: None}` dict serving iter(G)/list(G.nodes()) as a
     /// dict_keyiterator, mutated in place by node add/remove/clear hooks.
     pub(crate) node_iter_mirror: std::sync::Mutex<Option<Py<PyDict>>>,
+    pub(crate) instance_dict_gc: crate::InstanceDictGc,
+}
+
+#[pymethods]
+impl PyMultiDiGraph {
+    fn _fnx_register_gc_dict(&mut self, dict: &Bound<'_, PyDict>) {
+        self.instance_dict_gc.register(dict);
+    }
+
+    fn __traverse__(&self, visit: PyVisit<'_>) -> Result<(), PyTraverseError> {
+        self.instance_dict_gc.traverse(visit.clone())?;
+        self.traverse_python_refs(&visit)
+    }
+
+    fn __clear__(slf: &Bound<'_, Self>) {
+        let py = slf.py();
+        slf.borrow_mut().clear_python_refs(py);
+    }
 }
 
 impl PyMultiDiGraph {
+    fn traverse_python_refs(&self, visit: &PyVisit<'_>) -> Result<(), PyTraverseError> {
+        for key in self.node_key_map.values() {
+            visit.call(key)?;
+        }
+        for key in self.succ_py_keys.values() {
+            visit.call(key)?;
+        }
+        for key in self.pred_py_keys.values() {
+            visit.call(key)?;
+        }
+        for attrs in self.node_py_attrs.values() {
+            visit.call(attrs)?;
+        }
+        for attrs in self.edge_py_attrs.values() {
+            visit.call(attrs)?;
+        }
+        for key in self.edge_py_keys.values() {
+            visit.call(key)?;
+        }
+        visit.call(&self.graph_attrs)?;
+        {
+            let cache = self.node_keys_cache.lock().unwrap();
+            if let Some((_, keys, key_set)) = cache.as_ref() {
+                visit.call(keys)?;
+                visit.call(key_set)?;
+            }
+        }
+        {
+            let mirror = self.node_data_mirror.lock().unwrap();
+            if let Some((_, data)) = mirror.as_ref() {
+                visit.call(data)?;
+            }
+        }
+        if let Some(cache) = &self.dict_of_dicts_cache {
+            cache.traverse(visit)?;
+        }
+        if let Some((_, _, _, tuples)) = &self.edges_with_data_cache {
+            for tuple in tuples {
+                visit.call(tuple)?;
+            }
+        }
+        if let Some((_, _, _, tuples)) = &self.in_edges_with_data_cache {
+            for tuple in tuples {
+                visit.call(tuple)?;
+            }
+        }
+        {
+            let cache = self.in_edges_data_attr_cache.lock().unwrap();
+            if let Some((_, _, _, _, default, tuples)) = cache.as_ref() {
+                visit.call(default)?;
+                for tuple in tuples {
+                    visit.call(tuple)?;
+                }
+            }
+        }
+        {
+            let cache = self.edges_data_attr_cache.lock().unwrap();
+            if let Some((_, _, _, _, default, tuples)) = cache.as_ref() {
+                visit.call(default)?;
+                for tuple in tuples {
+                    visit.call(tuple)?;
+                }
+            }
+        }
+        if let Some((_, _, tuples)) = &self.edges_with_keys_cache {
+            for tuple in tuples {
+                visit.call(tuple)?;
+            }
+        }
+        {
+            let mirror = self.node_iter_mirror.lock().unwrap();
+            visit.call(mirror.as_ref())?;
+        }
+        Ok(())
+    }
+
+    fn clear_python_refs(&mut self, py: Python<'_>) {
+        self.instance_dict_gc.clear(py);
+        self.node_key_map.clear();
+        self.succ_py_keys.clear();
+        self.pred_py_keys.clear();
+        self.node_py_attrs.clear();
+        self.edge_py_attrs.clear();
+        self.edge_py_keys.clear();
+        self.graph_attrs.bind(py).clear();
+        *self.node_keys_cache.get_mut().unwrap() = None;
+        *self.node_data_mirror.get_mut().unwrap() = None;
+        self.dict_of_dicts_cache = None;
+        self.edges_with_data_cache = None;
+        self.in_edges_with_data_cache = None;
+        *self.in_edges_data_attr_cache.get_mut().unwrap() = None;
+        *self.edges_data_attr_cache.get_mut().unwrap() = None;
+        self.edges_with_keys_cache = None;
+        *self.node_iter_mirror.get_mut().unwrap() = None;
+    }
+
     /// br-r37-c1-qwqvn: cache the immutable no-data keyed edge tuples for the
     /// common all-edge view. Nodes/key display objects are the same first-wins
     /// objects the uncached path would clone; graph mutation bumps a sequence and
@@ -1810,6 +2067,20 @@ impl PyMultiDiGraph {
         v: &str,
         key: &Bound<'_, PyAny>,
     ) -> PyResult<Option<usize>> {
+        // br-r37-c1-d0afg: directed sibling of the pristine identity-int
+        // resolver.  The conservative remap flag already proves that an exact
+        // nonnegative PyInt is the internal key; all other public-key shapes
+        // preserve the canonical Python-equality scan.
+        if !self.has_remapped_int_key
+            && key.is_exact_instance_of::<PyInt>()
+            && let Ok(internal_key) = key.extract::<usize>()
+        {
+            return Ok(self
+                .inner
+                .edge_attrs(u, v, internal_key)
+                .is_some()
+                .then_some(internal_key));
+        }
         let requested = edge_key_lookup_string(py, key)?;
         for internal_key in self.inner.edge_keys(u, v).unwrap_or_default() {
             let stored_key = self.py_edge_key(py, u, v, internal_key);
@@ -1857,6 +2128,7 @@ impl PyMultiDiGraph {
             in_edges_with_data_cache: None,
             edges_with_keys_cache: None,
             node_iter_mirror: std::sync::Mutex::new(None),
+            instance_dict_gc: crate::InstanceDictGc::new(),
         })
     }
 
@@ -2046,6 +2318,100 @@ impl PyMultiDiGraph {
             self.bump_edges_seq();
         }
         Ok(true)
+    }
+
+    fn absorb_exact_int_str_keyed_ctor_batch(
+        &mut self,
+        py: Python<'_>,
+        batch: crate::MultiDiGraphExactIntStrKeyedBatch,
+    ) -> PyResult<()> {
+        let crate::MultiDiGraphExactIntStrKeyedBatch { native, mirrors } = batch;
+        let mirror_active = self.node_iter_mirror_active();
+        let (inserted_nodes, inserted_edges, edge_attrs, edge_keys) = match native {
+            crate::MultiDiGraphExactIntStrKeyedNativeBatch::String {
+                node_entries,
+                edges,
+            } => {
+                let crate::MultiDiGraphExactIntStrKeyedMirrorBatch::String {
+                    edge_attrs,
+                    edge_keys,
+                } = mirrors
+                else {
+                    unreachable!("String native stage must retain String-keyed mirrors");
+                };
+                let inserted_nodes = !node_entries.is_empty();
+                for (canonical, node) in node_entries {
+                    self.node_key_map.entry(canonical.clone()).or_insert(node);
+                    self.node_py_attrs
+                        .entry(canonical.clone())
+                        .or_insert_with(|| PyDict::new(py).unbind());
+                    if mirror_active {
+                        self.node_iter_mirror_insert(py, &canonical)?;
+                    }
+                }
+                (
+                    inserted_nodes,
+                    self.inner.extend_keyed_edges_with_attrs_unrecorded(edges),
+                    edge_attrs,
+                    edge_keys,
+                )
+            }
+            crate::MultiDiGraphExactIntStrKeyedNativeBatch::Indexed {
+                node_labels,
+                node_objects,
+                edges,
+            } => {
+                let (edge_attrs, edge_keys) = match mirrors {
+                    crate::MultiDiGraphExactIntStrKeyedMirrorBatch::String {
+                        edge_attrs,
+                        edge_keys,
+                    } => (edge_attrs, edge_keys),
+                    crate::MultiDiGraphExactIntStrKeyedMirrorBatch::Indexed(entries) => {
+                        let mut edge_attrs = HashMap::with_capacity(entries.len());
+                        let mut edge_keys = HashMap::with_capacity(entries.len());
+                        for entry in entries {
+                            let edge = (
+                                node_labels[entry.u_index].clone(),
+                                node_labels[entry.v_index].clone(),
+                                entry.internal_key,
+                            );
+                            edge_attrs.insert(edge.clone(), entry.attrs);
+                            edge_keys.insert(edge, entry.key);
+                        }
+                        (edge_attrs, edge_keys)
+                    }
+                };
+                let inserted_nodes = !node_labels.is_empty();
+                for (canonical, node) in node_labels.iter().zip(node_objects) {
+                    self.node_key_map.entry(canonical.clone()).or_insert(node);
+                    self.node_py_attrs
+                        .entry(canonical.clone())
+                        .or_insert_with(|| PyDict::new(py).unbind());
+                    if mirror_active {
+                        self.node_iter_mirror_insert(py, canonical)?;
+                    }
+                }
+                (
+                    inserted_nodes,
+                    self.inner
+                        .extend_fresh_index_keyed_edges_with_attrs_unrecorded(node_labels, edges),
+                    edge_attrs,
+                    edge_keys,
+                )
+            }
+        };
+        self.edge_py_attrs.extend(edge_attrs);
+        for (edge, key) in &edge_keys {
+            self.note_public_key_value(edge.2, key.bind(py));
+        }
+        self.edge_py_keys.extend(edge_keys);
+        if inserted_nodes {
+            self.bump_nodes_seq();
+        }
+        if inserted_edges > 0 {
+            self.bump_edges_seq();
+        }
+        Ok(())
     }
 
     /// br-r37-c1-nodebatch: collect a batch of attributed nodes for a FRESH
@@ -2322,6 +2688,156 @@ impl PyMultiDiGraph {
                 return Ok(false);
             }
             self.collect_fresh_exact_int_attr_edge_batch(py, tuple.iter(), tuple.len())?
+        } else {
+            return Ok(false);
+        };
+
+        let Some((node_labels, node_objects, edges, node_bumps)) = collected else {
+            return Ok(false);
+        };
+        self.add_fresh_exact_int_attr_edge_batch(py, node_labels, node_objects, edges, node_bumps)?;
+        Ok(true)
+    }
+
+    /// br-r37-c1-z9f09: fresh unkeyed attributed MultiDiGraph batches with
+    /// exact-string endpoints. The general collector formats an owned
+    /// canonical `String` for both endpoints of every edge, then hashes and
+    /// clones those Strings through its seen-node and per-pair auto-key maps.
+    /// Intern raw string contents to a dense index while collecting, format
+    /// each canonical label only on first touch, and reuse the exact-int
+    /// indexed commit.
+    ///
+    /// Keep the admission deliberately narrow: fresh graph, list/tuple batch,
+    /// exact `str` endpoints, losslessly convertible attr dicts. String
+    /// subclasses, unextractable strings, global attrs, and unsupported rows
+    /// decline transactionally to the general path.
+    fn collect_fresh_exact_string_attr_edge_batch<'py, I>(
+        &self,
+        py: Python<'py>,
+        items: I,
+        len: usize,
+    ) -> PyResult<Option<MultiDiIndexedAttrEdgeBatch>>
+    where
+        I: IntoIterator<Item = Bound<'py, PyAny>>,
+    {
+        let node_capacity = len.saturating_mul(2);
+        let mut node_indices: HashMap<String, usize> = HashMap::with_capacity(node_capacity);
+        let mut node_labels: Vec<String> = Vec::with_capacity(node_capacity);
+        let mut node_objects: Vec<PyObject> = Vec::with_capacity(node_capacity);
+        let mut pair_count: HashMap<(usize, usize), usize> = HashMap::with_capacity(len);
+        let mut edges: Vec<(usize, usize, usize, AttrMap, Py<PyDict>)> = Vec::with_capacity(len);
+        let mut node_bumps = 0_u64;
+
+        for item in items {
+            let Ok(tuple) = item.downcast::<PyTuple>() else {
+                return Ok(None);
+            };
+            if tuple.len() != 3 {
+                return Ok(None);
+            }
+
+            let u = tuple.get_item(0)?;
+            let v = tuple.get_item(1)?;
+            let Ok(u_string) = u.cast_exact::<PyString>() else {
+                return Ok(None);
+            };
+            let Ok(v_string) = v.cast_exact::<PyString>() else {
+                return Ok(None);
+            };
+            let u_text = u_string.to_str()?;
+            let v_text = v_string.to_str()?;
+
+            let third = tuple.get_item(2)?;
+            let Ok(dict) = third.downcast::<PyDict>() else {
+                return Ok(None);
+            };
+            let fast_weight = match single_weight_float_attr_map_with_mirror(py, dict) {
+                Ok(converted) => converted,
+                Err(_) => return Ok(None),
+            };
+            let (attrs, mirror) = match fast_weight {
+                Some(converted) => converted,
+                None => match py_dict_to_attr_map_with_mirror(py, dict) {
+                    Ok(converted) => converted,
+                    Err(_) => return Ok(None),
+                },
+            };
+            if attrs
+                .keys()
+                .any(|key| key.starts_with("__fnx_incompatible"))
+            {
+                return Ok(None);
+            }
+
+            let mut edge_added_node = false;
+            let u_index = match node_indices.get(u_text).copied() {
+                Some(index) => index,
+                None => {
+                    let index = node_labels.len();
+                    node_indices.insert(u_text.to_owned(), index);
+                    node_labels.push(format!("str:{}:{u_text}", u_text.len()));
+                    node_objects.push(u.clone().unbind());
+                    edge_added_node = true;
+                    index
+                }
+            };
+            let v_index = match node_indices.get(v_text).copied() {
+                Some(index) => index,
+                None => {
+                    let index = node_labels.len();
+                    node_indices.insert(v_text.to_owned(), index);
+                    node_labels.push(format!("str:{}:{v_text}", v_text.len()));
+                    node_objects.push(v.clone().unbind());
+                    edge_added_node = true;
+                    index
+                }
+            };
+            if edge_added_node {
+                node_bumps = node_bumps.wrapping_add(1);
+            }
+
+            let counter = pair_count.entry((u_index, v_index)).or_insert(0);
+            let key = *counter;
+            *counter += 1;
+            edges.push((u_index, v_index, key, attrs, mirror));
+        }
+
+        Ok(Some((node_labels, node_objects, edges, node_bumps)))
+    }
+
+    fn try_add_fresh_exact_string_attr_edge_batch(
+        &mut self,
+        py: Python<'_>,
+        ebunch_to_add: &Bound<'_, PyAny>,
+    ) -> PyResult<bool> {
+        #[cfg(test)]
+        if FORCE_MULTIDIGRAPH_STRING_ATTR_GENERAL.load(Ordering::Relaxed) {
+            return Ok(false);
+        }
+
+        const ATTR_EDGE_BATCH_MIN: usize = 8;
+        if self.inner.node_count() != 0
+            || self.inner.edge_count() != 0
+            || !self.node_key_map.is_empty()
+            || !self.node_py_attrs.is_empty()
+            || !self.edge_py_attrs.is_empty()
+            || !self.edge_py_keys.is_empty()
+            || !self.succ_py_keys.is_empty()
+            || !self.pred_py_keys.is_empty()
+        {
+            return Ok(false);
+        }
+
+        let collected = if let Ok(list) = ebunch_to_add.downcast::<PyList>() {
+            if list.len() < ATTR_EDGE_BATCH_MIN {
+                return Ok(false);
+            }
+            self.collect_fresh_exact_string_attr_edge_batch(py, list.iter(), list.len())?
+        } else if let Ok(tuple) = ebunch_to_add.downcast::<PyTuple>() {
+            if tuple.len() < ATTR_EDGE_BATCH_MIN {
+                return Ok(false);
+            }
+            self.collect_fresh_exact_string_attr_edge_batch(py, tuple.iter(), tuple.len())?
         } else {
             return Ok(false);
         };
@@ -2694,12 +3210,12 @@ impl MultiDiAtlasView {
         match self.kind {
             MultiDiAdjKind::Successors => g
                 .inner
-                .successors(&self.node)
-                .map_or(0, |successors| successors.len()),
+                .successors_iter(&self.node)
+                .map_or(0, Iterator::count),
             MultiDiAdjKind::Predecessors => g
                 .inner
-                .predecessors(&self.node)
-                .map_or(0, |predecessors| predecessors.len()),
+                .predecessors_iter(&self.node)
+                .map_or(0, Iterator::count),
         }
     }
 
@@ -2887,8 +3403,8 @@ impl MultiDiKeyDictView {
         self.graph
             .borrow(py)
             .inner
-            .edge_keys(&self.source, &self.target)
-            .map_or(0, |keys| keys.len())
+            .edge_keys_iter(&self.source, &self.target)
+            .map_or(0, Iterator::count)
     }
 
     fn __iter__(&self, py: Python<'_>) -> PyResult<Py<crate::NodeIterator>> {
@@ -3021,6 +3537,36 @@ impl PyMultiDiGraph {
                 g.inner = MultiDiGraph::new(mode);
                 return Ok(g);
             }
+            // br-r37-c1-hxdyb: a dict is ALWAYS from_dict_of_dicts in nx's
+            // to_networkx_graph dispatch (never an edge-list), so `__init__`'s
+            // `_decode_dict_of_dicts_into` owns it — skip absorption. Without
+            // this, iterating the dict yields bare-int KEYS, which the
+            // edge-normalizing loop below rejects as "Input is not a valid edge
+            // list" (MultiGraph/Graph/DiGraph absorb keys as bare nodes and get
+            // rescued by the same `__init__` decode; MultiDiGraph's loop raises
+            // first). Leaving an empty graph is correct: `_decode` re-adds every
+            // source node itself.
+            if data.is_instance_of::<PyDict>() {
+                return Ok(g);
+            }
+            // br-r37-c1-fo8zw: a FOREIGN graph object (nx.Graph / nx.MultiGraph
+            // — fnx-native graphs were caught by `fnx_graph_instance_mode`) is
+            // rebuilt by `__init__`'s `_copy_constructor_graph_source` via the
+            // public edge iterator. Skip absorption: the two-epoch loop below
+            // iterates the graph's NODES and `normalize` rejects a bare node as
+            // an invalid edge. Mirrors the PyMultiGraph guard.
+            if data.hasattr("is_multigraph")? && data.hasattr("nodes")? && data.hasattr("edges")? {
+                return Ok(g);
+            }
+            let mut materialized =
+                crate::materialize_iterator_edge_list(py, data, true, true, false)?;
+            let multidigraph_exact_int_str_keyed_batch = materialized
+                .as_mut()
+                .and_then(|decoded| decoded.multidigraph_exact_int_str_keyed_batch.take());
+            let edata: &Bound<'_, PyAny> = materialized
+                .as_ref()
+                .map(|decoded| &decoded.items)
+                .unwrap_or(data);
             if let Ok(other) = data.extract::<PyRef<'_, PyMultiDiGraph>>() {
                 g.inner = MultiDiGraph::with_runtime_policy(other.inner.runtime_policy().clone());
                 for (canonical, py_key) in &other.node_key_map {
@@ -3082,15 +3628,17 @@ impl PyMultiDiGraph {
                     g.remember_edge_key(py, u, v, key, None);
                 }
                 g.graph_attrs = other.graph_attrs.bind(py).copy()?.unbind();
-            } else if g.try_absorb_exact_int_str_keyed_ctor_edges(py, data)? {
+            } else if let Some(batch) = multidigraph_exact_int_str_keyed_batch {
+                g.absorb_exact_int_str_keyed_ctor_batch(py, batch)?;
+            } else if g.try_absorb_exact_int_str_keyed_ctor_edges(py, edata)? {
                 // Constructor-only batch path for exact int endpoints + exact str keys.
-            } else if g._try_add_attr_edges_from_batch(py, data, None)? {
+            } else if g._try_add_attr_edges_from_batch(py, edata, None)? {
                 // br-r37-c1-ctorbatch (cc): (u,v,attr_dict) 3-tuples route through
                 // the add_edges_from fast batch (lazy mirrors); try_absorb above
                 // only handles (u,v)/(u,v,key_string)/(u,v,key,dict), so weighted
                 // 3-tuples fell to the per-edge loop (~0.49x). Mutation-free on
                 // false -> the iterator loop below still owns declined inputs.
-            } else if let Ok(iter) = PyIterator::from_object(data) {
+            } else if edata.try_iter().is_ok() {
                 // br-r37-c1-baqyi: nx's to_networkx_graph wraps every
                 // from_edgelist failure in NetworkXError("Input is not a
                 // valid edge list") — unhashable keys raise TypeError from
@@ -3103,25 +3651,48 @@ impl PyMultiDiGraph {
                         e
                     }
                 };
-                for item in iter {
-                    let item = item?;
-                    if let Ok(tuple) = item.downcast::<PyTuple>() {
-                        let merged = PyDict::new(py);
-                        match tuple.len() {
-                            2 => {
-                                g.add_edge(
-                                    py,
-                                    &tuple.get_item(0)?,
-                                    &tuple.get_item(1)?,
-                                    None,
-                                    Some(&merged),
-                                )
-                                .map_err(edge_list_err)?;
+                // br-r37-c1-hxdyb: replicate nx `to_networkx_graph`'s TWO-EPOCH
+                // from_edgelist contract exactly. Epoch 0 tries to build; on a
+                // malformed row it discards the partial graph and drops to
+                // epoch 1 (nx's `except: pass`). Epoch 1 re-runs `from_edgelist`
+                // over a FRESH iterator of the SAME `edata` and RAISES on the
+                // next malformed row. This is why a re-iterable LIST with a bad
+                // last row raises (epoch 1 restarts from the top and fails
+                // again) while a one-shot ITERATOR yields the post-failure
+                // suffix (epoch 0 consumed up to the failure, so epoch 1 sees
+                // only what remains). A single-pass retry flag conflated the two
+                // and let a bad-tail LIST return an empty graph instead of
+                // raising (`[(1, 2, [3])]`).
+                'epochs: for epoch in 0..2 {
+                    let Ok(iter) = PyIterator::from_object(edata) else {
+                        break;
+                    };
+                    for item in iter {
+                        let normalized = item.and_then(|item| {
+                            if exact_int_str_keyed_ctor_tuple(&item) {
+                                Ok(item)
+                            } else {
+                                crate::normalize_ctor_edge_item(py, &item, true)
                             }
-                            3 => {
-                                let third = tuple.get_item(2)?;
-                                if let Ok(d) = third.downcast::<PyDict>() {
-                                    merged.update(d.as_mapping())?;
+                        });
+                        let item = match normalized {
+                            Ok(item) => item,
+                            Err(_) if epoch == 0 => {
+                                let graph_attrs = g.graph_attrs.clone_ref(py);
+                                g = Self::new_empty_with_mode(py, CompatibilityMode::Strict)?;
+                                g.graph_attrs = graph_attrs;
+                                continue 'epochs;
+                            }
+                            Err(_) => {
+                                return Err(NetworkXError::new_err(
+                                    "Input is not a valid edge list",
+                                ));
+                            }
+                        };
+                        if let Ok(tuple) = item.downcast::<PyTuple>() {
+                            let merged = PyDict::new(py);
+                            match tuple.len() {
+                                2 => {
                                     g.add_edge(
                                         py,
                                         &tuple.get_item(0)?,
@@ -3130,73 +3701,89 @@ impl PyMultiDiGraph {
                                         Some(&merged),
                                     )
                                     .map_err(edge_list_err)?;
-                                } else {
-                                    // br-r37-c1-baqyi: nx tries
-                                    // ddd.update(dd) FIRST; only a
-                                    // TypeError/ValueError makes the third
-                                    // element the key. Dict-able iterables
-                                    // of pairs are DATA.
-                                    let throwaway = PyDict::new(py);
-                                    match throwaway.call_method1("update", (&third,)) {
-                                        Ok(_) => {
-                                            merged.update(throwaway.as_mapping())?;
-                                            g.add_edge(
-                                                py,
-                                                &tuple.get_item(0)?,
-                                                &tuple.get_item(1)?,
-                                                None,
-                                                Some(&merged),
-                                            )
-                                            .map_err(edge_list_err)?;
+                                }
+                                3 => {
+                                    let third = tuple.get_item(2)?;
+                                    if let Ok(d) = third.downcast::<PyDict>() {
+                                        merged.update(d.as_mapping())?;
+                                        g.add_edge(
+                                            py,
+                                            &tuple.get_item(0)?,
+                                            &tuple.get_item(1)?,
+                                            None,
+                                            Some(&merged),
+                                        )
+                                        .map_err(edge_list_err)?;
+                                    } else {
+                                        // br-r37-c1-baqyi: nx tries
+                                        // ddd.update(dd) FIRST; only a
+                                        // TypeError/ValueError makes the third
+                                        // element the key. Dict-able iterables
+                                        // of pairs are DATA.
+                                        let throwaway = PyDict::new(py);
+                                        match throwaway.call_method1("update", (&third,)) {
+                                            Ok(_) => {
+                                                merged.update(throwaway.as_mapping())?;
+                                                g.add_edge(
+                                                    py,
+                                                    &tuple.get_item(0)?,
+                                                    &tuple.get_item(1)?,
+                                                    None,
+                                                    Some(&merged),
+                                                )
+                                                .map_err(edge_list_err)?;
+                                            }
+                                            Err(err)
+                                                if err.is_instance_of::<PyTypeError>(py)
+                                                    || err.is_instance_of::<PyValueError>(py) =>
+                                            {
+                                                g.add_edge(
+                                                    py,
+                                                    &tuple.get_item(0)?,
+                                                    &tuple.get_item(1)?,
+                                                    Some(&third),
+                                                    Some(&merged),
+                                                )
+                                                .map_err(edge_list_err)?;
+                                            }
+                                            Err(err) => return Err(err),
                                         }
-                                        Err(err)
-                                            if err.is_instance_of::<PyTypeError>(py)
-                                                || err.is_instance_of::<PyValueError>(py) =>
-                                        {
-                                            g.add_edge(
-                                                py,
-                                                &tuple.get_item(0)?,
-                                                &tuple.get_item(1)?,
-                                                Some(&third),
-                                                Some(&merged),
-                                            )
-                                            .map_err(edge_list_err)?;
-                                        }
-                                        Err(err) => return Err(err),
                                     }
                                 }
-                            }
-                            4 => {
-                                let edge_key = tuple.get_item(2)?;
-                                let fourth = tuple.get_item(3)?;
-                                if let Ok(d) = fourth.downcast::<PyDict>() {
-                                    merged.update(d.as_mapping())?;
-                                } else {
-                                    // br-r37-c1-baqyi: nx's ddd.update(dd)
-                                    // runs BEFORE add_edge — a non-dict
-                                    // 4th raises with NOTHING created (the
-                                    // ctor wraps it as an invalid edge
-                                    // list, like nx to_networkx_graph).
-                                    let throwaway = PyDict::new(py);
-                                    throwaway
-                                        .call_method1("update", (&fourth,))
-                                        .map_err(edge_list_err)?;
-                                    merged.update(throwaway.as_mapping())?;
+                                4 => {
+                                    let edge_key = tuple.get_item(2)?;
+                                    let fourth = tuple.get_item(3)?;
+                                    if let Ok(d) = fourth.downcast::<PyDict>() {
+                                        merged.update(d.as_mapping())?;
+                                    } else {
+                                        // br-r37-c1-baqyi: nx's ddd.update(dd)
+                                        // runs BEFORE add_edge — a non-dict
+                                        // 4th raises with NOTHING created (the
+                                        // ctor wraps it as an invalid edge
+                                        // list, like nx to_networkx_graph).
+                                        let throwaway = PyDict::new(py);
+                                        throwaway
+                                            .call_method1("update", (&fourth,))
+                                            .map_err(edge_list_err)?;
+                                        merged.update(throwaway.as_mapping())?;
+                                    }
+                                    g.add_edge(
+                                        py,
+                                        &tuple.get_item(0)?,
+                                        &tuple.get_item(1)?,
+                                        Some(&edge_key),
+                                        Some(&merged),
+                                    )
+                                    .map_err(edge_list_err)?;
                                 }
-                                g.add_edge(
-                                    py,
-                                    &tuple.get_item(0)?,
-                                    &tuple.get_item(1)?,
-                                    Some(&edge_key),
-                                    Some(&merged),
-                                )
-                                .map_err(edge_list_err)?;
+                                _ => g.add_node(py, &item, None)?,
                             }
-                            _ => g.add_node(py, &item, None)?,
+                        } else {
+                            g.add_node(py, &item, None)?;
                         }
-                    } else {
-                        g.add_node(py, &item, None)?;
                     }
+                    // Epoch finished with no malformed row — accept this graph.
+                    break;
                 }
             }
         }
@@ -3659,6 +4246,11 @@ impl PyMultiDiGraph {
         }
         if global_attr.is_none_or(|attrs| attrs.is_empty())
             && self.try_add_fresh_exact_int_attr_edge_batch(py, ebunch_to_add)?
+        {
+            return Ok(true);
+        }
+        if global_attr.is_none_or(|attrs| attrs.is_empty())
+            && self.try_add_fresh_exact_string_attr_edge_batch(py, ebunch_to_add)?
         {
             return Ok(true);
         }
@@ -4721,6 +5313,27 @@ impl PyMultiDiGraph {
         v: &Bound<'_, PyAny>,
         key: Option<&Bound<'_, PyAny>>,
     ) -> PyResult<bool> {
+        // br-r37-c1-6q4wl: preserve the former wrapper's eager hash contract in
+        // the raw descriptor, including custom __hash__ exceptions for key=.
+        u.hash()?;
+        v.hash()?;
+        if let Some(edge_key) = key {
+            edge_key.hash()?;
+        }
+        // br-r37-c1-04z53 (cc): identity-int fast path (mirror PyGraph::has_edge
+        // cc-hasedgeintidx) for the keyless directed `has_edge(u, v)` — exact
+        // int u,v at their own index resolve straight by index, skipping 2
+        // `i.to_string()` heap allocs. Any key argument falls through.
+        if key.is_none()
+            && u.is_exact_instance_of::<PyInt>()
+            && v.is_exact_instance_of::<PyInt>()
+            && let Ok(iu) = u.extract::<usize>()
+            && let Ok(iv) = v.extract::<usize>()
+            && self.inner.node_index_matches_int(iu)
+            && self.inner.node_index_matches_int(iv)
+        {
+            return Ok(self.inner.has_edge_by_indices(iu, iv));
+        }
         let u_c = node_key_to_string(py, u)?;
         let v_c = node_key_to_string(py, v)?;
         Ok(match key {
@@ -4796,6 +5409,18 @@ impl PyMultiDiGraph {
     }
 
     fn has_node(&self, py: Python<'_>, n: &Bound<'_, PyAny>) -> PyResult<bool> {
+        // br-r37-c1-04z53 (cc): identity-int membership fast path. An exact int
+        // (bool excluded) that fits usize AND sits at its own index IS present —
+        // `node_index_matches_int` is the whole answer, so we skip both the
+        // `i.to_string()` heap alloc and the String-keyed `has_node` lookup.
+        // A non-identity int (present at another index / absent) falls through
+        // to the String path, which stays correct.
+        if n.is_exact_instance_of::<PyInt>()
+            && let Ok(i) = n.extract::<usize>()
+            && self.inner.node_index_matches_int(i)
+        {
+            return Ok(true);
+        }
         let canonical = node_key_to_string(py, n)?;
         Ok(self.inner.has_node(&canonical))
     }
@@ -4805,6 +5430,18 @@ impl PyMultiDiGraph {
     }
 
     fn __contains__(&self, py: Python<'_>, n: &Bound<'_, PyAny>) -> PyResult<bool> {
+        // br-r37-c1-04z53 (cc): identity-int membership fast path. An exact int
+        // (bool excluded) that fits usize AND sits at its own index IS present —
+        // `node_index_matches_int` is the whole answer, so we skip both the
+        // `i.to_string()` heap alloc and the String-keyed `has_node` lookup.
+        // A non-identity int (present at another index / absent) falls through
+        // to the String path, which stays correct.
+        if n.is_exact_instance_of::<PyInt>()
+            && let Ok(i) = n.extract::<usize>()
+            && self.inner.node_index_matches_int(i)
+        {
+            return Ok(true);
+        }
         let canonical = node_key_to_string(py, n)?;
         Ok(self.inner.has_node(&canonical))
     }
@@ -5047,7 +5684,13 @@ impl PyMultiDiGraph {
     fn nodes(slf: PyRef<'_, Self>) -> PyResult<Py<MultiDiGraphNodeView>> {
         let py = slf.py();
         let graph_py: Py<PyMultiDiGraph> = Py::from(slf);
-        Py::new(py, MultiDiGraphNodeView { graph: graph_py })
+        Py::new(
+            py,
+            MultiDiGraphNodeView {
+                graph: graph_py,
+                lookup_cache: crate::NodeLookupCache::new(py),
+            },
+        )
     }
 
     #[getter]
@@ -6457,6 +7100,7 @@ impl PyMultiDiGraph {
             in_edges_with_data_cache: None,
             edges_with_keys_cache: None,
             node_iter_mirror: std::sync::Mutex::new(None),
+            instance_dict_gc: crate::InstanceDictGc::new(),
         };
         // br-r37-c1-s0d4x: pred rows in nx's u-major copy-walk order (the inner
         // clone above is in edge INSERTION order).
@@ -6489,6 +7133,7 @@ impl PyMultiDiGraph {
             in_edges_with_data_cache: None,
             edges_with_keys_cache: None,
             node_iter_mirror: std::sync::Mutex::new(None),
+            instance_dict_gc: crate::InstanceDictGc::new(),
         };
         for node in self.inner.nodes_ordered() {
             let py_attrs = self.node_py_attrs.get(node).map_or_else(
@@ -6556,6 +7201,8 @@ impl PyMultiDiGraph {
             edges_with_data_cache: None,
             edges_with_keys_cache: None,
             node_iter_mirror: std::sync::Mutex::new(None),
+            instance_dict_gc: crate::InstanceDictGc::new(),
+            has_edge_node_index_cache: crate::NodeIndexLookupCache::new(py),
         };
         let mut node_batch: Vec<(String, fnx_classes::AttrMap)> =
             Vec::with_capacity(self.inner.node_count());
@@ -6797,6 +7444,7 @@ impl PyMultiDiGraph {
             in_edges_with_data_cache: None,
             edges_with_keys_cache: None,
             node_iter_mirror: std::sync::Mutex::new(None),
+            instance_dict_gc: crate::InstanceDictGc::new(),
         };
         // br-r37-c1-s0d4x: nx's MultiDiGraph.copy() walk fills PRED rows
         // in u-major order (succ rows keep original order); the verbatim
@@ -6887,6 +7535,7 @@ impl PyMultiDiGraph {
             in_edges_with_data_cache: None,
             edges_with_keys_cache: None,
             node_iter_mirror: std::sync::Mutex::new(None),
+            instance_dict_gc: crate::InstanceDictGc::new(),
         })
     }
 
@@ -6973,6 +7622,7 @@ impl PyMultiDiGraph {
             in_edges_with_data_cache: None,
             edges_with_keys_cache: None,
             node_iter_mirror: std::sync::Mutex::new(None),
+            instance_dict_gc: crate::InstanceDictGc::new(),
         };
 
         for canonical in &keep {
@@ -7057,6 +7707,7 @@ impl PyMultiDiGraph {
             in_edges_with_data_cache: None,
             edges_with_keys_cache: None,
             node_iter_mirror: std::sync::Mutex::new(None),
+            instance_dict_gc: crate::InstanceDictGc::new(),
         };
 
         for item in iter {
@@ -7171,6 +7822,8 @@ impl PyMultiDiGraph {
             edges_with_data_cache: None,
             edges_with_keys_cache: None,
             node_iter_mirror: std::sync::Mutex::new(None),
+            instance_dict_gc: crate::InstanceDictGc::new(),
+            has_edge_node_index_cache: crate::NodeIndexLookupCache::new(py),
         };
 
         for (canonical, py_key) in &self.node_key_map {
@@ -7251,6 +7904,7 @@ impl PyMultiDiGraph {
             in_edges_with_data_cache: None,
             edges_with_keys_cache: None,
             node_iter_mirror: std::sync::Mutex::new(None),
+            instance_dict_gc: crate::InstanceDictGc::new(),
         };
 
         for canonical in self.inner.nodes_ordered() {
@@ -7480,6 +8134,13 @@ impl PyMultiDiGraph {
         key: Option<&Bound<'_, PyAny>>,
         default: Option<PyObject>,
     ) -> PyResult<PyObject> {
+        // br-r37-c1-57ba1: preserve the former wrapper's eager endpoint/key
+        // hash contract inside the raw descriptor.
+        u.hash()?;
+        v.hash()?;
+        if let Some(key_obj) = key {
+            key_obj.hash()?;
+        }
         let u_c = node_key_to_string(py, u)?;
         let v_c = node_key_to_string(py, v)?;
         if let Some(key_obj) = key {
@@ -7661,10 +8322,16 @@ impl PyMultiDiGraph {
 #[pyclass]
 pub struct MultiDiGraphNodeView {
     graph: Py<PyMultiDiGraph>,
+    lookup_cache: crate::NodeLookupCache,
 }
 
 #[pymethods]
 impl MultiDiGraphNodeView {
+    fn __traverse__(&self, visit: PyVisit<'_>) -> Result<(), PyTraverseError> {
+        visit.call(&self.graph)?;
+        self.lookup_cache.traverse(visit)
+    }
+
     fn __len__(&self, py: Python<'_>) -> usize {
         self.graph.borrow(py).inner.node_count()
     }
@@ -7716,6 +8383,10 @@ impl MultiDiGraphNodeView {
     }
 
     fn __getitem__(&self, py: Python<'_>, n: &Bound<'_, PyAny>) -> PyResult<Py<PyDict>> {
+        let nodes_seq = self.graph.borrow(py).nodes_seq;
+        if let Some(attrs) = self.lookup_cache.get(py, nodes_seq, n)? {
+            return Ok(attrs);
+        }
         // br-r37-c1-mdgnodeget (cc): MATERIALIZE + cache the live mirror dict, as
         // DiGraph (br-r37-c1-d58s8) and MultiGraph already do. The old
         // `node_py_attrs.get().map_or_else(|| PyDict::new(py), ..)` returned a FRESH
@@ -7731,7 +8402,11 @@ impl MultiDiGraphNodeView {
         if !g.inner.has_node(&canonical) {
             return Err(crate::missing_key_error(n));
         }
-        Ok(g.materialize_node_py_attrs(py, &canonical))
+        let public_key = g.py_node_key(py, &canonical);
+        let attrs = g.materialize_node_py_attrs(py, &canonical);
+        drop(g);
+        self.lookup_cache.insert(py, public_key.bind(py), &attrs)?;
+        Ok(attrs)
     }
 
     #[pyo3(signature = (n, default=None))]
@@ -8124,6 +8799,10 @@ pub struct MultiDiGraphDegreeView {
 
 #[pymethods]
 impl MultiDiGraphDegreeView {
+    fn __traverse__(&self, visit: PyVisit<'_>) -> Result<(), PyTraverseError> {
+        visit.call(&self.graph)
+    }
+
     fn __len__(&self, py: Python<'_>) -> usize {
         self.graph.borrow(py).inner.node_count()
     }
@@ -8297,6 +8976,92 @@ impl PyDiGraph {
             }
             if all_int {
                 return Ok(int_pairs);
+            }
+        }
+
+        // br-r37-c1-wdegfnbdi (bt): FLOAT-store fast path — the directed nbunch twin of
+        // the Graph subset float block (br-r37-c1-wdegfnb) and PyDiGraph's full
+        // `weighted_degree_float_store_values`. Per-group Neumaier (Kahan-Babuska) sums
+        // straight from the CgseValue store (out = successors_indices, in =
+        // predecessors_indices), combined per `kind` EXACTLY as the exact path's arms
+        // (Total = sum(out).add(sum(in)) — a directed self-loop sits in each group once,
+        // so Total counts it twice = nx). Bit-identical to `builtins.sum` with NO
+        // per-edge PyObject/PyList. Gated on `!edges_dirty`; bails (whole subset) to the
+        // exact path on any non-float / missing weight; an nbunch node with no
+        // contributing float edge yields nx's int 0 (`sum(())`).
+        if !self.edges_dirty.load(Ordering::Relaxed) {
+            let mut float_pairs: Vec<(PyObject, PyObject)> = Vec::with_capacity(items.len());
+            let mut all_float = true;
+            'fnodes: for (node, canonical) in &items {
+                let Some(idx) = self.inner.get_node_index(canonical) else {
+                    all_float = false;
+                    break;
+                };
+                let mut fo = 0.0f64;
+                let mut co = 0.0f64;
+                let mut fi = 0.0f64;
+                let mut ci = 0.0f64;
+                let mut saw = false;
+                if build_out && let Some(succs) = self.inner.successors_indices(idx) {
+                    for &j in succs {
+                        let x = match self
+                            .inner
+                            .edge_attrs_by_indices(idx, j)
+                            .map(|a| a.get(weight))
+                        {
+                            Some(Some(CgseValue::Float(v))) => *v,
+                            _ => {
+                                all_float = false;
+                                break 'fnodes;
+                            }
+                        };
+                        saw = true;
+                        let t = fo + x;
+                        if fo.abs() >= x.abs() {
+                            co += (fo - t) + x;
+                        } else {
+                            co += (x - t) + fo;
+                        }
+                        fo = t;
+                    }
+                }
+                if build_in && let Some(preds) = self.inner.predecessors_indices(idx) {
+                    for &j in preds {
+                        let x = match self
+                            .inner
+                            .edge_attrs_by_indices(j, idx)
+                            .map(|a| a.get(weight))
+                        {
+                            Some(Some(CgseValue::Float(v))) => *v,
+                            _ => {
+                                all_float = false;
+                                break 'fnodes;
+                            }
+                        };
+                        saw = true;
+                        let t = fi + x;
+                        if fi.abs() >= x.abs() {
+                            ci += (fi - t) + x;
+                        } else {
+                            ci += (x - t) + fi;
+                        }
+                        fi = t;
+                    }
+                }
+                let value_obj = if !saw {
+                    0i64.into_py_any(py)?
+                } else {
+                    let deg = match kind {
+                        DegreeKind::Total => (fo + co) + (fi + ci),
+                        DegreeKind::Out => fo + co,
+                        DegreeKind::In => fi + ci,
+                    };
+                    pyo3::types::PyFloat::new(py, deg).into_any().unbind()
+                };
+                float_pairs.push((node.clone().unbind(), value_obj));
+            }
+            if all_float {
+                return Ok(float_pairs);
             }
         }
 
@@ -9280,6 +10045,159 @@ impl PyDiGraph {
         Ok(true)
     }
 
+    /// br-r37-c1-cu8me: fresh attributed DiGraph batches with exact-string
+    /// endpoints. The general collector formats a fresh canonical `String` for
+    /// both endpoints of every edge and then commits through the String-keyed
+    /// store, which repeats the node-table lookup for both endpoints. Intern raw
+    /// string contents to a dense index while collecting, format the canonical
+    /// label only on first touch, and reuse the exact-int indexed commit.
+    ///
+    /// The gate is deliberately narrow: fresh graph, list/tuple batch, exact
+    /// `str` endpoints, unique directed pairs, and losslessly convertible attrs.
+    /// Equal-but-nonidentical strings resolve to the first display object because
+    /// the content map follows Python string equality. Duplicates and every
+    /// unsupported shape decline to the merge-aware general path.
+    fn collect_fresh_exact_string_attr_edge_batch<'py, I>(
+        &self,
+        py: Python<'py>,
+        items: I,
+        len: usize,
+    ) -> PyResult<Option<DiIndexedAttrEdgeBatch>>
+    where
+        I: IntoIterator<Item = Bound<'py, PyAny>>,
+    {
+        let node_capacity = len.saturating_mul(2);
+        let mut node_indices: HashMap<String, usize> = HashMap::with_capacity(node_capacity);
+        let mut node_labels: Vec<String> = Vec::with_capacity(node_capacity);
+        let mut node_objects: Vec<PyObject> = Vec::with_capacity(node_capacity);
+        let mut edges: Vec<(usize, usize, AttrMap, Option<Py<PyDict>>)> = Vec::with_capacity(len);
+        let mut seen_edges: HashSet<(usize, usize)> = HashSet::with_capacity(len);
+        let mut node_bumps = 0_u64;
+
+        for item in items {
+            let Ok(tuple) = item.downcast::<PyTuple>() else {
+                return Ok(None);
+            };
+            if tuple.len() != 3 {
+                return Ok(None);
+            }
+
+            let u = tuple.get_item(0)?;
+            let v = tuple.get_item(1)?;
+            let Ok(u_string) = u.cast_exact::<PyString>() else {
+                return Ok(None);
+            };
+            let Ok(v_string) = v.cast_exact::<PyString>() else {
+                return Ok(None);
+            };
+            let u_text = u_string.to_str()?;
+            let v_text = v_string.to_str()?;
+
+            let third = tuple.get_item(2)?;
+            let Ok(dict) = third.downcast::<PyDict>() else {
+                return Ok(None);
+            };
+            let (attrs, mirror) = if dict.len() >= 2 {
+                let Ok((attrs, mirror)) = py_dict_to_attr_map_with_mirror(py, dict) else {
+                    return Ok(None);
+                };
+                (attrs, Some(mirror))
+            } else {
+                let Ok(attrs) = py_dict_to_attr_map(dict) else {
+                    return Ok(None);
+                };
+                (attrs, None)
+            };
+            if attrs
+                .keys()
+                .any(|key| key.starts_with("__fnx_incompatible"))
+            {
+                return Ok(None);
+            }
+
+            let mut edge_added_node = false;
+            let u_index = match node_indices.get(u_text).copied() {
+                Some(index) => index,
+                None => {
+                    let index = node_labels.len();
+                    node_indices.insert(u_text.to_owned(), index);
+                    node_labels.push(format!("str:{}:{u_text}", u_text.len()));
+                    node_objects.push(u.clone().unbind());
+                    edge_added_node = true;
+                    index
+                }
+            };
+            let v_index = match node_indices.get(v_text).copied() {
+                Some(index) => index,
+                None => {
+                    let index = node_labels.len();
+                    node_indices.insert(v_text.to_owned(), index);
+                    node_labels.push(format!("str:{}:{v_text}", v_text.len()));
+                    node_objects.push(v.clone().unbind());
+                    edge_added_node = true;
+                    index
+                }
+            };
+            if edge_added_node {
+                node_bumps = node_bumps.wrapping_add(1);
+            }
+            if !seen_edges.insert((u_index, v_index)) {
+                return Ok(None);
+            }
+            edges.push((u_index, v_index, attrs, mirror));
+        }
+
+        Ok(Some((node_labels, node_objects, edges, node_bumps)))
+    }
+
+    fn try_add_fresh_exact_string_attr_edge_batch(
+        &mut self,
+        py: Python<'_>,
+        ebunch_to_add: &Bound<'_, PyAny>,
+        final_edge_bump: bool,
+    ) -> PyResult<bool> {
+        const ATTR_EDGE_BATCH_MIN: usize = 8;
+        if self.inner.node_count() != 0
+            || self.inner.edge_count() != 0
+            || !self.node_key_map.is_empty()
+            || !self.node_py_attrs.is_empty()
+            || !self.edge_py_attrs.is_empty()
+            || !self.succ_py_keys.is_empty()
+            || !self.pred_py_keys.is_empty()
+            || !self.succ_row_py.is_empty()
+            || !self.pred_row_py.is_empty()
+        {
+            return Ok(false);
+        }
+
+        let collected = if let Ok(list) = ebunch_to_add.downcast::<PyList>() {
+            if list.len() < ATTR_EDGE_BATCH_MIN {
+                return Ok(false);
+            }
+            self.collect_fresh_exact_string_attr_edge_batch(py, list.iter(), list.len())?
+        } else if let Ok(tuple) = ebunch_to_add.downcast::<PyTuple>() {
+            if tuple.len() < ATTR_EDGE_BATCH_MIN {
+                return Ok(false);
+            }
+            self.collect_fresh_exact_string_attr_edge_batch(py, tuple.iter(), tuple.len())?
+        } else {
+            return Ok(false);
+        };
+
+        let Some((node_labels, node_objects, edges, node_bumps)) = collected else {
+            return Ok(false);
+        };
+        self.add_fresh_exact_int_attr_edge_batch(
+            py,
+            node_labels,
+            node_objects,
+            edges,
+            node_bumps,
+            final_edge_bump,
+        )?;
+        Ok(true)
+    }
+
     /// br-r37-c1-dodattrbatch: every node display key is a plain int matching its
     /// canonical label, and no per-row display overrides — the precondition for
     /// resolving int edge endpoints by label.
@@ -9526,6 +10444,9 @@ impl PyDiGraph {
         if self.try_add_fresh_exact_int_attr_edge_batch(py, ebunch_to_add, final_edge_bump)? {
             return Ok(true);
         }
+        if self.try_add_fresh_exact_string_attr_edge_batch(py, ebunch_to_add, final_edge_bump)? {
+            return Ok(true);
+        }
         // br-r37-c1-dodattrbatch: attributed edges onto a DiGraph whose int nodes
         // were pre-added (relabel / convert_node_labels / from_dict_of_dicts) —
         // the fresh path bails (node_count != 0), so resolve endpoints by int
@@ -9706,6 +10627,7 @@ impl PyDiGraph {
             in_edges_data_attr_cache: std::sync::Mutex::new(None),
             edges_attr_dicts_cache: None,
             node_iter_mirror: std::sync::Mutex::new(None),
+            instance_dict_gc: crate::InstanceDictGc::new(),
         })
     }
 
@@ -10169,6 +11091,12 @@ impl PyDiGraph {
                 g.inner = DiGraph::new(mode);
                 return Ok(g);
             }
+            let materialized =
+                crate::materialize_iterator_edge_list(py, data, false, false, false)?;
+            let edata: &Bound<'_, PyAny> = materialized
+                .as_ref()
+                .map(|decoded| &decoded.items)
+                .unwrap_or(data);
             // Copy from another PyDiGraph.
             if let Ok(other) = data.extract::<PyRef<'_, PyDiGraph>>() {
                 g.inner = DiGraph::with_runtime_policy(other.inner.runtime_policy().clone());
@@ -10221,10 +11149,10 @@ impl PyDiGraph {
                     }
                 }
                 g.graph_attrs = other.graph_attrs.bind(py).copy()?.unbind();
-            } else if g.try_add_plain_edge_batch(py, data, false)?
-                || g.try_add_attr_edge_batch(py, data, false)?
+            } else if g.try_add_plain_edge_batch(py, edata, false)?
+                || g.try_add_attr_edge_batch(py, edata, false)?
             {
-            } else if let Ok(iter) = PyIterator::from_object(data) {
+            } else if let Ok(iter) = PyIterator::from_object(edata) {
                 // br-r37-c1-d58s8 ctor lever 2 (directed twin): batch the
                 // edge-tuple stream through ONE
                 // extend_edges_with_attrs_unrecorded call, replicating
@@ -10238,6 +11166,20 @@ impl PyDiGraph {
                 // oracle; no separate pending set (see PyGraph::new).
                 let mut pending_cells: std::collections::HashSet<(String, String)> =
                     std::collections::HashSet::new();
+                // br-r37-c1-b4rfz: exact int/string endpoints cannot need a
+                // per-row display override on a fresh graph. Keep their common
+                // all-uniform prefix out of pending_cells (two String clones +
+                // an inner lookup + a hash probe/insert per edge). If a later
+                // float/bool/custom key can collide with an earlier canonical,
+                // rebuild the first-touch set once from the pending bulk batch
+                // before processing it. That preserves duplicate-edge display
+                // semantics while making the uniform iterator path allocation-
+                // free apart from the edge batch itself.
+                #[cfg(test)]
+                let mut row_key_probes_required =
+                    FORCE_DIGRAPH_CTOR_ROW_KEY_PROBES.load(Ordering::Relaxed);
+                #[cfg(not(test))]
+                let mut row_key_probes_required = false;
                 macro_rules! flush_batch {
                     () => {
                         if !edge_batch.is_empty() {
@@ -10267,24 +11209,38 @@ impl PyDiGraph {
                                 if let (Ok(u_canonical), Ok(v_canonical)) =
                                     (node_key_to_string(py, &u), node_key_to_string(py, &v))
                                 {
+                                    if !row_key_probes_required
+                                        && (!(u.is_exact_instance_of::<PyInt>()
+                                            || u.is_exact_instance_of::<PyString>())
+                                            || !(v.is_exact_instance_of::<PyInt>()
+                                                || v.is_exact_instance_of::<PyString>()))
+                                    {
+                                        row_key_probes_required = true;
+                                        pending_cells.reserve(edge_batch.len());
+                                        pending_cells.extend(edge_batch.iter().map(
+                                            |(source, target, _)| (source.clone(), target.clone()),
+                                        ));
+                                    }
                                     g.node_key_map
                                         .entry(u_canonical.clone())
                                         .or_insert_with(|| u.clone().unbind());
                                     g.node_key_map
                                         .entry(v_canonical.clone())
                                         .or_insert_with(|| v.clone().unbind());
-                                    let cell = (u_canonical.clone(), v_canonical.clone());
-                                    if !g.inner.has_edge(&u_canonical, &v_canonical)
-                                        && !pending_cells.contains(&cell)
-                                    {
-                                        g.maybe_store_row_keys(
-                                            py,
-                                            &u_canonical,
-                                            &v_canonical,
-                                            &u,
-                                            &v,
-                                        );
-                                        pending_cells.insert(cell);
+                                    if row_key_probes_required {
+                                        let cell = (u_canonical.clone(), v_canonical.clone());
+                                        if !g.inner.has_edge(&u_canonical, &v_canonical)
+                                            && !pending_cells.contains(&cell)
+                                        {
+                                            g.maybe_store_row_keys(
+                                                py,
+                                                &u_canonical,
+                                                &v_canonical,
+                                                &u,
+                                                &v,
+                                            );
+                                            pending_cells.insert(cell);
+                                        }
                                     }
                                     let mut rust_attrs = fnx_classes::AttrMap::new();
                                     if let Some(d) = &dict3
@@ -10688,6 +11644,31 @@ impl PyDiGraph {
                 self.node_iter_mirror_remove_key(py, py_key.bind(py));
             }
         }
+        // br-r37-c1-v9auw: remove neighbor cells while the node-key maps and
+        // per-row display-key overrides still exist. Doing this after dropping
+        // those maps rendered an integer node's canonical "1" as Python "1",
+        // so del_item silently missed the live row's integer key and left a
+        // captured AtlasView stale. Skip rows whose owner is itself removed:
+        // nx detaches those inner dicts without clearing them, so an already
+        // captured row remains readable with its old contents.
+        for (owner, row) in &self.succ_row_py {
+            if present.contains(owner) {
+                continue;
+            }
+            for canonical in &present {
+                let py_node = self.py_succ_key(py, owner, canonical);
+                let _ = row.bind(py).del_item(py_node);
+            }
+        }
+        for (owner, row) in &self.pred_row_py {
+            if present.contains(owner) {
+                continue;
+            }
+            for canonical in &present {
+                let py_node = self.py_pred_key(py, owner, canonical);
+                let _ = row.bind(py).del_item(py_node);
+            }
+        }
         for canonical in &present {
             self.node_key_map.remove(canonical);
             self.node_py_attrs.remove(canonical);
@@ -10702,18 +11683,6 @@ impl PyDiGraph {
         for canonical in &present {
             self.succ_row_py.remove(canonical);
             self.pred_row_py.remove(canonical);
-        }
-        for (owner, row) in &self.succ_row_py {
-            for canonical in &present {
-                let py_node = self.py_succ_key(py, owner, canonical);
-                let _ = row.bind(py).del_item(py_node);
-            }
-        }
-        for (owner, row) in &self.pred_row_py {
-            for canonical in &present {
-                let py_node = self.py_pred_key(py, owner, canonical);
-                let _ = row.bind(py).del_item(py_node);
-            }
         }
         self.bump_nodes_seq();
         if removed_edges > 0 || removed_py_edge_attrs {
@@ -11041,21 +12010,21 @@ impl PyDiGraph {
 
     // ---- Directed-specific queries ----
 
-    /// Return a list of successors of node n.
-    fn successors(&self, py: Python<'_>, n: &Bound<'_, PyAny>) -> PyResult<Vec<PyObject>> {
+    /// Return a live successor-key iterator for node n.
+    fn successors(&mut self, py: Python<'_>, n: &Bound<'_, PyAny>) -> PyResult<PyObject> {
+        // br-r37-c1-heyxu: ordinary DiGraph instances expose this raw
+        // descriptor directly. Preserve the eager Python hash contract and
+        // reuse the persistent live successor row without a Python wrapper.
+        n.hash()?;
         let canonical = node_key_to_string(py, n)?;
-        match self.inner.successors(&canonical) {
-            Some(succs) => Ok(succs
-                .into_iter()
-                .map(
-                    |s| self.py_succ_key(py, &canonical, s), /* br-r37-c1-z6uka */
-                )
-                .collect()),
-            None => Err(NodeNotFound::new_err(format!(
-                "The node {} is not in the graph.",
-                n.repr()?
-            ))),
+        if !self.inner.has_node(&canonical) {
+            return Err(NetworkXError::new_err(format!(
+                "The node {} is not in the digraph.",
+                n.str()?
+            )));
         }
+        let row = self.successor_row_dict_by_canonical(py, &canonical)?;
+        Ok(row.bind(py).call_method0("__iter__")?.unbind())
     }
 
     /// Return a list of predecessors of node n.
@@ -11077,7 +12046,7 @@ impl PyDiGraph {
     }
 
     /// Neighbors = successors (matches NetworkX ``DiGraph.neighbors()``).
-    fn neighbors(&self, py: Python<'_>, n: &Bound<'_, PyAny>) -> PyResult<Vec<PyObject>> {
+    fn neighbors(&mut self, py: Python<'_>, n: &Bound<'_, PyAny>) -> PyResult<PyObject> {
         self.successors(py, n)
     }
 
@@ -11221,6 +12190,18 @@ impl PyDiGraph {
     }
 
     fn has_node(&self, py: Python<'_>, n: &Bound<'_, PyAny>) -> PyResult<bool> {
+        // br-r37-c1-04z53 (cc): identity-int membership fast path. An exact int
+        // (bool excluded) that fits usize AND sits at its own index IS present —
+        // `node_index_matches_int` is the whole answer, so we skip both the
+        // `i.to_string()` heap alloc and the String-keyed `has_node` lookup.
+        // A non-identity int (present at another index / absent) falls through
+        // to the String path, which stays correct.
+        if n.is_exact_instance_of::<PyInt>()
+            && let Ok(i) = n.extract::<usize>()
+            && self.inner.node_index_matches_int(i)
+        {
+            return Ok(true);
+        }
         let canonical = node_key_to_string(py, n)?;
         Ok(self.inner.has_node(&canonical))
     }
@@ -11232,6 +12213,22 @@ impl PyDiGraph {
         u: &Bound<'_, PyAny>,
         v: &Bound<'_, PyAny>,
     ) -> PyResult<bool> {
+        // br-r37-c1-6q4wl: preserve NetworkX's hashability contract inside the
+        // raw descriptor so the ordinary call path needs no Python shim.
+        u.hash()?;
+        v.hash()?;
+        // br-r37-c1-04z53 (cc): identity-int fast path (mirror PyGraph::has_edge
+        // cc-hasedgeintidx) — exact int u,v at their own index resolve straight
+        // by index (source-major), skipping 2 `i.to_string()` heap allocs.
+        if u.is_exact_instance_of::<PyInt>()
+            && v.is_exact_instance_of::<PyInt>()
+            && let Ok(iu) = u.extract::<usize>()
+            && let Ok(iv) = v.extract::<usize>()
+            && self.inner.node_index_matches_int(iu)
+            && self.inner.node_index_matches_int(iv)
+        {
+            return Ok(self.inner.has_edge_by_indices(iu, iv));
+        }
         let u_c = node_key_to_string(py, u)?;
         let v_c = node_key_to_string(py, v)?;
         Ok(self.inner.has_edge(&u_c, &v_c))
@@ -11256,8 +12253,23 @@ impl PyDiGraph {
         // empty iff its mirror dict is empty). Any non-empty mirror dict (a real
         // attr, possibly an unsynced post-creation mutation) falls back to the
         // proven per-edge rebuild below.
-        let mirrors_all_empty = self.node_py_attrs.values().all(|d| d.bind(py).is_empty())
-            && self.edge_py_attrs.values().all(|d| d.bind(py).is_empty());
+        // Node attrs have NO dirty bit, so a materialized non-empty node dict may
+        // be an unsynced mutation the inner store misses -> keep the strict
+        // all-empty gate for nodes.
+        let node_mirrors_empty = self.node_py_attrs.values().all(|d| d.bind(py).is_empty());
+        // Edge attrs DO have a dirty bit. br-r37-c1-41boc (products) insight: even
+        // with a materialized edge mirror, when the graph is CLEAN (no unsynced
+        // Python-dict mutations) AND every inner edge attr value is a faithful
+        // scalar (Int/Float/Bool), the inner store is authoritative and
+        // `reversed()` transposes it losslessly. A String/Map value is ambiguous
+        // (the py->inner boundary coerces None/list/dict to their repr/JSON String,
+        // indistinguishable from a genuine str) so it keeps the per-edge rebuild.
+        let edge_store_authoritative = self.edge_py_attrs.values().all(|d| d.bind(py).is_empty())
+            || (!self.edges_dirty.load(Ordering::Relaxed)
+                // no-alloc scan (not edges_ordered_borrowed, whose O(E) Vec +
+                // per-edge node-name resolution diluted the reverse win at scale).
+                && self.inner.all_edge_attr_values_scalar());
+        let mirrors_all_empty = node_mirrors_empty && edge_store_authoritative;
         if mirrors_all_empty {
             let mut rev = Self {
                 inner: self.inner.reversed(),
@@ -11280,6 +12292,7 @@ impl PyDiGraph {
                 in_edges_data_attr_cache: std::sync::Mutex::new(None),
                 edges_attr_dicts_cache: None,
                 node_iter_mirror: std::sync::Mutex::new(None),
+                instance_dict_gc: crate::InstanceDictGc::new(),
             };
             for canonical in self.inner.nodes_ordered() {
                 rev.node_key_map
@@ -11308,6 +12321,7 @@ impl PyDiGraph {
             in_edges_data_attr_cache: std::sync::Mutex::new(None),
             edges_attr_dicts_cache: None,
             node_iter_mirror: std::sync::Mutex::new(None),
+            instance_dict_gc: crate::InstanceDictGc::new(),
         };
         // br-r37-c1-revbulk: node + edge BATCHES through the unrecorded
         // path (one ledger record vs per-edge add_edge_with_attrs +
@@ -11552,6 +12566,7 @@ impl PyDiGraph {
             in_edges_data_attr_cache: std::sync::Mutex::new(None),
             edges_attr_dicts_cache: None,
             node_iter_mirror: std::sync::Mutex::new(None),
+            instance_dict_gc: crate::InstanceDictGc::new(),
         };
         // br-r37-c1-0ek49: nx's DiGraph.copy() rebuild walk recreates succ
         // rows in original order but fills PRED rows in u-major walk order;
@@ -11625,6 +12640,7 @@ impl PyDiGraph {
             in_edges_data_attr_cache: std::sync::Mutex::new(None),
             edges_attr_dicts_cache: None,
             node_iter_mirror: std::sync::Mutex::new(None),
+            instance_dict_gc: crate::InstanceDictGc::new(),
         };
 
         for canonical in &keep {
@@ -11674,6 +12690,108 @@ impl PyDiGraph {
         Ok(new_graph)
     }
 
+    /// Materialize `G.subgraph(nodes).copy()` natively, in nx's exact order.
+    /// Directed twin of `PyGraph::_native_induced_subgraph_copy` — see there for
+    /// why the node ordering is resolved by the caller and only the O(|E|)
+    /// successor walk crosses into Rust. No undirected dedup here: every arc
+    /// with both endpoints kept is emitted once, in successor-row order.
+    fn _native_induced_subgraph_copy(
+        &self,
+        py: Python<'_>,
+        order: &Bound<'_, PyAny>,
+    ) -> PyResult<Self> {
+        let node_count = self.inner.node_count();
+        let iter = PyIterator::from_object(order)?;
+        let mut names: Vec<String> = Vec::new();
+        let mut indices: Vec<usize> = Vec::new();
+        let mut position = vec![usize::MAX; node_count];
+        for item in iter {
+            let item = item?;
+            let canonical = node_key_to_string(py, &item)?;
+            let Some(idx) = self.inner.get_node_index(&canonical) else {
+                return Err(PyValueError::new_err(
+                    "induced subgraph order contains a node absent from the graph",
+                ));
+            };
+            position[idx] = names.len();
+            indices.push(idx);
+            names.push(canonical);
+        }
+
+        // Structure + Rust-side attrs in one index-only pass: no node-name
+        // hashing, no per-arc ledger entries.
+        let mut new_graph = Self {
+            inner: self
+                .inner
+                .induced_subgraph_ordered(&indices, self.inner.runtime_policy().clone()),
+            node_key_map: HashMap::new(),
+            node_py_attrs: HashMap::new(),
+            edge_py_attrs: HashMap::new(),
+            succ_py_keys: HashMap::new(),
+            pred_py_keys: HashMap::new(),
+            succ_row_py: HashMap::new(),
+            pred_row_py: HashMap::new(),
+            graph_attrs: self.graph_attrs.bind(py).copy()?.unbind(),
+            nodes_seq: 0,
+            edges_seq: 0,
+            edges_dirty: AtomicBool::new(false),
+            node_keys_cache: std::sync::Mutex::new(None),
+            node_data_mirror: std::sync::Mutex::new(None),
+            dict_of_dicts_cache: None,
+            edges_with_data_cache: None,
+            in_edges_with_data_cache: None,
+            in_edges_data_attr_cache: std::sync::Mutex::new(None),
+            edges_attr_dicts_cache: None,
+            node_iter_mirror: std::sync::Mutex::new(None),
+            instance_dict_gc: crate::InstanceDictGc::new(),
+        };
+
+        for canonical in &names {
+            new_graph
+                .node_key_map
+                .insert(canonical.clone(), self.py_node_key(py, canonical));
+        }
+
+        // A Python attr mirror, where present, is AUTHORITATIVE (the Rust store
+        // can be stale behind `edges_dirty`), so replay it over the copied Rust
+        // attrs. Both loops are sized by the MIRROR, not by |V| / |E|.
+        for (canonical, attrs) in &self.node_py_attrs {
+            if self
+                .inner
+                .get_node_index(canonical)
+                .is_none_or(|idx| idx >= position.len() || position[idx] == usize::MAX)
+            {
+                continue;
+            }
+            let (rust_attrs, mirror) = crate::py_dict_to_attr_map_with_mirror(py, attrs.bind(py))?;
+            new_graph
+                .inner
+                .replace_node_attrs(canonical.as_str(), rust_attrs);
+            new_graph.node_py_attrs.insert(canonical.clone(), mirror);
+        }
+        for (key, attrs) in &self.edge_py_attrs {
+            let (u, v) = key;
+            if !new_graph.inner.has_edge(u, v) {
+                continue;
+            }
+            let (rust_attrs, mirror) = crate::py_dict_to_attr_map_with_mirror(py, attrs.bind(py))?;
+            new_graph
+                .inner
+                .replace_edge_attrs(u.as_str(), v.as_str(), rust_attrs);
+            new_graph.edge_py_attrs.insert(key.clone(), mirror);
+        }
+
+        if !self.succ_py_keys.is_empty() {
+            new_graph.succ_py_keys = self
+                .succ_py_keys
+                .iter()
+                .filter(|((a, b), _)| new_graph.inner.has_edge(a, b))
+                .map(|(k, v)| (k.clone(), v.clone_ref(py)))
+                .collect();
+        }
+        Ok(new_graph)
+    }
+
     fn edge_subgraph(&self, py: Python<'_>, edges: &Bound<'_, PyAny>) -> PyResult<Self> {
         let iter = PyIterator::from_object(edges)?;
         let mut keep_edges: Vec<(String, String)> = Vec::new();
@@ -11710,6 +12828,7 @@ impl PyDiGraph {
             in_edges_data_attr_cache: std::sync::Mutex::new(None),
             edges_attr_dicts_cache: None,
             node_iter_mirror: std::sync::Mutex::new(None),
+            instance_dict_gc: crate::InstanceDictGc::new(),
         };
 
         let mut nodes_needed: std::collections::HashSet<String> = std::collections::HashSet::new();
@@ -11818,6 +12937,10 @@ impl PyDiGraph {
         v: &Bound<'_, PyAny>,
         default: Option<PyObject>,
     ) -> PyResult<PyObject> {
+        // br-r37-c1-57ba1: preserve NetworkX's endpoint hashability contract
+        // inside the raw descriptor so ordinary graphs need no Python shim.
+        u.hash()?;
+        v.hash()?;
         let u_c = node_key_to_string(py, u)?;
         let v_c = node_key_to_string(py, v)?;
         // br-r37-c1-d58s8: gate on the INNER edge, not mirror presence —
@@ -11919,6 +13042,7 @@ impl PyDiGraph {
             DiNodeView {
                 graph: graph_py,
                 data: ViewData::NoData,
+                lookup_cache: crate::NodeLookupCache::new(py),
             },
         )
     }
@@ -12601,6 +13725,97 @@ impl PyDiGraph {
         Ok(Some(out))
     }
 
+    /// br-r37-c1-wdegfvaldi (bt): FLOAT sibling of `weighted_degree_int_store_values`.
+    /// Values-only weighted degree summed straight from the CgseValue store with
+    /// CPython's Neumaier (Kahan-Babuska) compensation — bit-identical to the exact
+    /// path's `builtins.sum(succ) [+ builtins.sum(pred)]` but with NO per-edge
+    /// PyObject, PyList, or per-node `builtins.sum` call (which kept float
+    /// degree/size(weight) ~0.64-0.66x nx). Directional via inc_out/inc_in; the total
+    /// (both) sums the succ and pred groups with SEPARATE compensated accumulators
+    /// then adds the two group totals, exactly reproducing the exact path's
+    /// `o.add(i)` (a directed self-loop is in BOTH succ and pred, so it is counted
+    /// twice, matching nx's in+out total). Gated on `!edges_dirty` (store
+    /// authoritative); returns None (-> the exact PyList path) on any non-float
+    /// weight or ANY missing weight (nx's default int 1 would mix an int into the
+    /// float sum). A node with no contributing float edge yields nx's int `0`
+    /// (matching `sum(())`), not float `0.0`. Undirected twin lives in lib.rs
+    /// (`PyGraph::_native_weighted_degree_float_values`).
+    fn weighted_degree_float_store_values(
+        &self,
+        py: Python<'_>,
+        weight: &str,
+        inc_out: bool,
+        inc_in: bool,
+    ) -> PyResult<Option<Vec<PyObject>>> {
+        if self.edges_dirty.load(Ordering::Relaxed) {
+            return Ok(None);
+        }
+        let n = self.inner.node_count();
+        let mut out: Vec<PyObject> = Vec::with_capacity(n);
+        for i in 0..n {
+            let mut fo = 0.0f64;
+            let mut co = 0.0f64;
+            let mut fi = 0.0f64;
+            let mut ci = 0.0f64;
+            let mut saw = false;
+            if inc_out && let Some(succs) = self.inner.successors_indices(i) {
+                for &j in succs {
+                    let x = match self
+                        .inner
+                        .edge_attrs_by_indices(i, j)
+                        .map(|a| a.get(weight))
+                    {
+                        Some(Some(CgseValue::Float(v))) => *v,
+                        _ => return Ok(None),
+                    };
+                    saw = true;
+                    let t = fo + x;
+                    if fo.abs() >= x.abs() {
+                        co += (fo - t) + x;
+                    } else {
+                        co += (x - t) + fo;
+                    }
+                    fo = t;
+                }
+            }
+            if inc_in && let Some(preds) = self.inner.predecessors_indices(i) {
+                for &j in preds {
+                    let x = match self
+                        .inner
+                        .edge_attrs_by_indices(j, i)
+                        .map(|a| a.get(weight))
+                    {
+                        Some(Some(CgseValue::Float(v))) => *v,
+                        _ => return Ok(None),
+                    };
+                    saw = true;
+                    let t = fi + x;
+                    if fi.abs() >= x.abs() {
+                        ci += (fi - t) + x;
+                    } else {
+                        ci += (x - t) + fi;
+                    }
+                    fi = t;
+                }
+            }
+            if !saw {
+                // No contributing float edge: nx `sum(())` is int 0, not 0.0.
+                out.push(0i64.into_py_any(py)?);
+                continue;
+            }
+            // Combine per (inc_out, inc_in) EXACTLY as the exact path's match arms:
+            // total -> o.add(i); out-only -> o; in-only -> i.
+            let deg = match (inc_out, inc_in) {
+                (true, true) => (fo + co) + (fi + ci),
+                (true, false) => fo + co,
+                (false, true) => fi + ci,
+                (false, false) => 0.0,
+            };
+            out.push(pyo3::types::PyFloat::new(py, deg).into_any().unbind());
+        }
+        Ok(Some(out))
+    }
+
     /// Values-only total weighted degree in node-index order (NO per-node
     /// `py_node_key` rebuild). The Python `DiDegreeView` zips these with the cached
     /// node list (`list(G)` via node_iter_mirror) — the same win the unweighted
@@ -12707,6 +13922,9 @@ impl PyDiGraph {
         if let Some(v) = self.weighted_degree_int_store_values(py, weight, true, true)? {
             return Ok(v);
         }
+        if let Some(v) = self.weighted_degree_float_store_values(py, weight, true, true)? {
+            return Ok(v);
+        }
         self.weighted_degree_exact_values(py, weight, true, true)
     }
 
@@ -12719,6 +13937,9 @@ impl PyDiGraph {
         if let Some(v) = self.weighted_degree_int_store_values(py, weight, true, false)? {
             return Ok(v);
         }
+        if let Some(v) = self.weighted_degree_float_store_values(py, weight, true, false)? {
+            return Ok(v);
+        }
         self.weighted_degree_exact_values(py, weight, true, false)
     }
 
@@ -12729,6 +13950,9 @@ impl PyDiGraph {
         weight: &str,
     ) -> PyResult<Vec<PyObject>> {
         if let Some(v) = self.weighted_degree_int_store_values(py, weight, false, true)? {
+            return Ok(v);
+        }
+        if let Some(v) = self.weighted_degree_float_store_values(py, weight, false, true)? {
             return Ok(v);
         }
         self.weighted_degree_exact_values(py, weight, false, true)
@@ -13601,6 +14825,18 @@ impl PyDiGraph {
     }
 
     fn __contains__(&self, py: Python<'_>, n: &Bound<'_, PyAny>) -> PyResult<bool> {
+        // br-r37-c1-04z53 (cc): identity-int membership fast path. An exact int
+        // (bool excluded) that fits usize AND sits at its own index IS present —
+        // `node_index_matches_int` is the whole answer, so we skip both the
+        // `i.to_string()` heap alloc and the String-keyed `has_node` lookup.
+        // A non-identity int (present at another index / absent) falls through
+        // to the String path, which stays correct.
+        if n.is_exact_instance_of::<PyInt>()
+            && let Ok(i) = n.extract::<usize>()
+            && self.inner.node_index_matches_int(i)
+        {
+            return Ok(true);
+        }
         let canonical = node_key_to_string(py, n)?;
         Ok(self.inner.has_node(&canonical))
     }
@@ -13784,6 +15020,7 @@ impl PyDiGraph {
             in_edges_data_attr_cache: std::sync::Mutex::new(None),
             edges_attr_dicts_cache: None,
             node_iter_mirror: std::sync::Mutex::new(None),
+            instance_dict_gc: crate::InstanceDictGc::new(),
         })
     }
 
@@ -14102,10 +15339,20 @@ fn parse_edge_nbunch_for_multidigraph(
 pub struct DiNodeView {
     graph: Py<PyDiGraph>,
     data: ViewData,
+    lookup_cache: crate::NodeLookupCache,
 }
 
 #[pymethods]
 impl DiNodeView {
+    fn __traverse__(&self, visit: PyVisit<'_>) -> Result<(), PyTraverseError> {
+        visit.call(&self.graph)?;
+        self.lookup_cache.traverse(visit.clone())?;
+        if let ViewData::AttrWithDefault(_, default) = &self.data {
+            visit.call(default)?;
+        }
+        Ok(())
+    }
+
     fn __len__(&self, py: Python<'_>) -> usize {
         self.graph.borrow(py).inner.node_count()
     }
@@ -14183,6 +15430,10 @@ impl DiNodeView {
     }
 
     fn __getitem__(&self, py: Python<'_>, n: &Bound<'_, PyAny>) -> PyResult<Py<PyDict>> {
+        let nodes_seq = self.graph.borrow(py).nodes_seq;
+        if let Some(attrs) = self.lookup_cache.get(py, nodes_seq, n)? {
+            return Ok(attrs);
+        }
         let mut g = self.graph.borrow_mut(py);
         let canonical = node_key_to_string(py, n)?;
         if !g.inner.has_node(&canonical) {
@@ -14190,10 +15441,15 @@ impl DiNodeView {
         }
         // br-r37-c1-d58s8: MATERIALIZE absent mirrors (lazy-mirror paths
         // produce none) — a fresh unstored dict silently loses writes.
-        Ok(g.node_py_attrs
+        let public_key = g.py_node_key(py, &canonical);
+        let attrs = g
+            .node_py_attrs
             .entry(canonical)
             .or_insert_with(|| PyDict::new(py).unbind())
-            .clone_ref(py))
+            .clone_ref(py);
+        drop(g);
+        self.lookup_cache.insert(py, public_key.bind(py), &attrs)?;
+        Ok(attrs)
     }
 
     #[pyo3(signature = (n, default=None))]
@@ -14236,6 +15492,7 @@ impl DiNodeView {
             DiNodeView {
                 graph: self.graph.clone_ref(py),
                 data: view_data,
+                lookup_cache: crate::NodeLookupCache::new(py),
             },
         )
     }
@@ -14305,6 +15562,7 @@ impl DiNodeView {
             DiNodeView {
                 graph: self.graph.clone_ref(py),
                 data: view_data,
+                lookup_cache: crate::NodeLookupCache::new(py),
             },
         )
     }
@@ -14611,6 +15869,10 @@ impl DiDegreeView {
 
 #[pymethods]
 impl DiDegreeView {
+    fn __traverse__(&self, visit: PyVisit<'_>) -> Result<(), PyTraverseError> {
+        visit.call(&self.graph)
+    }
+
     fn __len__(&self, py: Python<'_>) -> usize {
         self.graph.borrow(py).inner.node_count()
     }
@@ -15201,6 +16463,1311 @@ mod tests {
         Python::initialize();
     }
 
+    fn digraph_from_true_iterator(
+        py: Python<'_>,
+        edges: &Bound<'_, PyList>,
+        force_row_key_probes: bool,
+    ) -> PyResult<PyDiGraph> {
+        FORCE_DIGRAPH_CTOR_ROW_KEY_PROBES.store(force_row_key_probes, Ordering::Relaxed);
+        let iter = edges.call_method0("__iter__")?;
+        let graph = PyDiGraph::new(py, Some(&iter), None);
+        FORCE_DIGRAPH_CTOR_ROW_KEY_PROBES.store(false, Ordering::Relaxed);
+        graph
+    }
+
+    fn display_map_snapshot(
+        py: Python<'_>,
+        map: &HashMap<(String, String), PyObject>,
+    ) -> PyResult<Vec<(String, String, String, String)>> {
+        let mut snapshot = map
+            .iter()
+            .map(|((source, target), object)| {
+                let object = object.bind(py);
+                Ok((
+                    source.clone(),
+                    target.clone(),
+                    object.get_type().name()?.to_str()?.to_owned(),
+                    object.repr()?.to_string(),
+                ))
+            })
+            .collect::<PyResult<Vec<_>>>()?;
+        snapshot.sort();
+        Ok(snapshot)
+    }
+
+    fn node_map_snapshot(
+        py: Python<'_>,
+        map: &HashMap<String, PyObject>,
+    ) -> PyResult<Vec<(String, String, String)>> {
+        let mut snapshot = map
+            .iter()
+            .map(|(canonical, object)| {
+                let object = object.bind(py);
+                Ok((
+                    canonical.clone(),
+                    object.get_type().name()?.to_str()?.to_owned(),
+                    object.repr()?.to_string(),
+                ))
+            })
+            .collect::<PyResult<Vec<_>>>()?;
+        snapshot.sort();
+        Ok(snapshot)
+    }
+
+    fn assert_digraph_ctor_same(
+        py: Python<'_>,
+        candidate: &PyDiGraph,
+        baseline: &PyDiGraph,
+    ) -> PyResult<()> {
+        assert_eq!(
+            candidate.inner.nodes_ordered(),
+            baseline.inner.nodes_ordered()
+        );
+        assert_eq!(
+            candidate.inner.edges_ordered(),
+            baseline.inner.edges_ordered()
+        );
+        assert_eq!(
+            node_map_snapshot(py, &candidate.node_key_map)?,
+            node_map_snapshot(py, &baseline.node_key_map)?
+        );
+        assert_eq!(
+            display_map_snapshot(py, &candidate.succ_py_keys)?,
+            display_map_snapshot(py, &baseline.succ_py_keys)?
+        );
+        assert_eq!(
+            display_map_snapshot(py, &candidate.pred_py_keys)?,
+            display_map_snapshot(py, &baseline.pred_py_keys)?
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn fresh_exact_string_attr_batch_matches_general_commit() {
+        ensure_python();
+        Python::attach(|py| -> PyResult<()> {
+            let rows = PyList::empty(py);
+            for source in 0_i64..12 {
+                let attrs = PyDict::new(py);
+                attrs.set_item("weight", source)?;
+                if source % 2 == 0 {
+                    attrs.set_item("label", format!("edge-{source}"))?;
+                }
+                rows.append(PyTuple::new(
+                    py,
+                    [
+                        format!("node-{source}").into_py_any(py)?,
+                        format!("node-{}", source + 1).into_py_any(py)?,
+                        attrs.into_any().unbind(),
+                    ],
+                )?)?;
+            }
+
+            let mut candidate = PyDiGraph::new(py, None, None)?;
+            assert!(candidate.try_add_attr_edge_batch(py, rows.as_any(), false)?);
+
+            let mut baseline = PyDiGraph::new(py, None, None)?;
+            let Some((edges, new_nodes, node_bumps)) =
+                baseline.collect_attr_edge_batch(py, rows.iter(), rows.len())?
+            else {
+                return Err(PyRuntimeError::new_err(
+                    "general attributed-edge collector should accept fixture",
+                ));
+            };
+            baseline.add_attr_edge_batch(py, edges, new_nodes, node_bumps, false)?;
+
+            assert_eq!(candidate.inner.snapshot(), baseline.inner.snapshot());
+            assert_eq!(
+                node_map_snapshot(py, &candidate.node_key_map)?,
+                node_map_snapshot(py, &baseline.node_key_map)?
+            );
+            assert_eq!(candidate.nodes_seq, baseline.nodes_seq);
+            assert_eq!(candidate.edges_seq, baseline.edges_seq);
+
+            for edge in candidate.inner.edges_ordered() {
+                let candidate_attrs =
+                    candidate.materialize_edge_py_attrs(py, &edge.left, &edge.right);
+                let baseline_attrs =
+                    baseline.materialize_edge_py_attrs(py, &edge.left, &edge.right);
+                assert_eq!(
+                    candidate_attrs.bind(py).repr()?.to_string(),
+                    baseline_attrs.bind(py).repr()?.to_string()
+                );
+            }
+            Ok(())
+        })
+        .expect("exact-string indexed batch should match the general commit");
+    }
+
+    /// `br-r37-c1-cu8me`: same-binary causal A/B for the exact-string indexed
+    /// collector versus the frozen String-keyed general collector. The executed
+    /// test ELF self-identifies before Python initialization; both the A/A null
+    /// and causal arms run interleaved in this invocation, and decidability is
+    /// computed only from a fixed-seed bootstrap median CI.
+    #[test]
+    #[ignore = "measurement; run with release profile, --ignored, and --nocapture"]
+    fn digraph_exact_string_attr_batch_indexed_ab() {
+        use sha2::{Digest, Sha256};
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        let exe = std::env::current_exe().expect("benchmark executable path");
+        let bytes = std::fs::read(&exe).expect("benchmark executable bytes");
+        let sha = hex::encode(Sha256::digest(&bytes));
+        println!(
+            "bench_elf_sha256={sha} ({} bytes) {}",
+            bytes.len(),
+            exe.display()
+        );
+
+        fn median(values: &[f64]) -> f64 {
+            let mut sorted = values.to_vec();
+            sorted.sort_by(f64::total_cmp);
+            sorted[sorted.len() / 2]
+        }
+
+        fn median_ci(values: &[f64]) -> (f64, f64) {
+            const BOOTSTRAPS: usize = 2_000;
+            let mut state = 12_345_u64;
+            let mut medians = Vec::with_capacity(BOOTSTRAPS);
+            let mut sample = Vec::with_capacity(values.len());
+            for _ in 0..BOOTSTRAPS {
+                sample.clear();
+                for _ in values {
+                    // Fixed-seed xorshift64*: deterministic bootstrap indices.
+                    state ^= state >> 12;
+                    state ^= state << 25;
+                    state ^= state >> 27;
+                    let random = state.wrapping_mul(0x2545_f491_4f6c_dd1d);
+                    let index = usize::try_from(random % values.len() as u64)
+                        .expect("bootstrap index fits usize");
+                    sample.push(values[index]);
+                }
+                medians.push(median(&sample));
+            }
+            medians.sort_by(f64::total_cmp);
+            (
+                medians[BOOTSTRAPS * 25 / 1_000],
+                medians[BOOTSTRAPS * 975 / 1_000],
+            )
+        }
+
+        fn cv(values: &[f64]) -> f64 {
+            let mean = values.iter().sum::<f64>() / values.len() as f64;
+            let variance = values
+                .iter()
+                .map(|value| {
+                    let delta = value - mean;
+                    delta * delta
+                })
+                .sum::<f64>()
+                / values.len() as f64;
+            variance.sqrt() / mean * 100.0
+        }
+
+        ensure_python();
+        Python::attach(|py| -> PyResult<()> {
+            const EDGE_COUNT: usize = 8_000;
+            const REPETITIONS: usize = 8;
+            const ROUNDS: usize = 21;
+            const MIN_OF: usize = 3;
+
+            let rows = PyList::empty(py);
+            for source in 0..EDGE_COUNT {
+                let attrs = PyDict::new(py);
+                attrs.set_item("weight", source)?;
+                rows.append(PyTuple::new(
+                    py,
+                    [
+                        format!("node-{source}").into_py_any(py)?,
+                        format!("node-{}", source + 1).into_py_any(py)?,
+                        attrs.into_any().unbind(),
+                    ],
+                )?)?;
+            }
+
+            let build = |indexed: bool| -> PyResult<PyDiGraph> {
+                let mut graph = PyDiGraph::new(py, None, None)?;
+                if indexed {
+                    let Some((labels, objects, edges, node_bumps)) = graph
+                        .collect_fresh_exact_string_attr_edge_batch(
+                            py,
+                            rows.iter(),
+                            rows.len(),
+                        )?
+                    else {
+                        return Err(PyRuntimeError::new_err(
+                            "indexed exact-string collector declined benchmark fixture",
+                        ));
+                    };
+                    graph.add_fresh_exact_int_attr_edge_batch(
+                        py, labels, objects, edges, node_bumps, false,
+                    )?;
+                } else {
+                    let Some((edges, new_nodes, node_bumps)) =
+                        graph.collect_attr_edge_batch(py, rows.iter(), rows.len())?
+                    else {
+                        return Err(PyRuntimeError::new_err(
+                            "general attributed-edge collector declined benchmark fixture",
+                        ));
+                    };
+                    graph.add_attr_edge_batch(py, edges, new_nodes, node_bumps, false)?;
+                }
+                black_box(graph.inner.node_count());
+                black_box(graph.inner.edge_count());
+                Ok(graph)
+            };
+
+            let baseline = build(false)?;
+            let candidate = build(true)?;
+            assert_eq!(candidate.inner.snapshot(), baseline.inner.snapshot());
+            assert_eq!(
+                node_map_snapshot(py, &candidate.node_key_map)?,
+                node_map_snapshot(py, &baseline.node_key_map)?
+            );
+
+            let time = |indexed: bool| -> PyResult<f64> {
+                let start = Instant::now();
+                for _ in 0..REPETITIONS {
+                    black_box(build(indexed)?);
+                }
+                Ok(start.elapsed().as_secs_f64())
+            };
+            let sample = |indexed: bool| -> PyResult<f64> {
+                let mut best = f64::INFINITY;
+                for _ in 0..MIN_OF {
+                    best = best.min(time(indexed)?);
+                }
+                Ok(best)
+            };
+            black_box(sample(false)?);
+            black_box(sample(true)?);
+
+            let paired = |left_indexed: bool,
+                          right_indexed: bool|
+             -> PyResult<(Vec<f64>, Vec<f64>, Vec<f64>)> {
+                    let mut ratios = Vec::with_capacity(ROUNDS);
+                    let mut left_times = Vec::with_capacity(ROUNDS);
+                    let mut right_times = Vec::with_capacity(ROUNDS);
+                    for round in 0..ROUNDS {
+                        let (left, right) = if round.is_multiple_of(2) {
+                            (sample(left_indexed)?, sample(right_indexed)?)
+                        } else {
+                            let right = sample(right_indexed)?;
+                            let left = sample(left_indexed)?;
+                            (left, right)
+                        };
+                        left_times.push(left);
+                        right_times.push(right);
+                        ratios.push(left / right);
+                    }
+                    Ok((ratios, left_times, right_times))
+                };
+
+            let (null_ratios, null_left, null_right) = paired(true, true)?;
+            let (causal_ratios, causal_left, causal_right) = paired(false, true)?;
+            let null_ci = median_ci(&null_ratios);
+            let causal_ci = median_ci(&causal_ratios);
+            let null_median = median(&null_ratios);
+            let causal_median = median(&causal_ratios);
+            let null_edge = null_ci.0.ln().abs().max(null_ci.1.ln().abs());
+            let doubled_floor = (2.0 * null_edge).exp();
+            let doubled_ceiling = (-2.0 * null_edge).exp();
+            let decidable =
+                causal_ci.0 > doubled_floor || causal_ci.1 < doubled_ceiling;
+
+            println!(
+                "[A/A null] DiGraph string attr batch indexed/indexed ratio_p50={null_median:.4}x CI=[{:.4},{:.4}] cv={:.2}/{:.2}% floor={doubled_floor:.4}x",
+                null_ci.0,
+                null_ci.1,
+                cv(&null_left),
+                cv(&null_right),
+            );
+            println!(
+                "DiGraph string attr batch general/indexed ratio_p50={causal_median:.4}x CI=[{:.4},{:.4}] cv={:.2}/{:.2}% decision={} floor={doubled_floor:.4}x ceiling={doubled_ceiling:.4}x",
+                causal_ci.0,
+                causal_ci.1,
+                cv(&causal_left),
+                cv(&causal_right),
+                if decidable { "DECIDABLE" } else { "UNDECIDABLE" },
+            );
+            Ok(())
+        })
+        .expect("exact-string attributed-batch A/B should run");
+    }
+
+    fn multidigraph_from_keyed_true_iterator(
+        py: Python<'_>,
+        edges: &Bound<'_, PyList>,
+        force_streaming: bool,
+    ) -> PyResult<PyMultiDiGraph> {
+        multidigraph_from_keyed_true_iterator_with_controls(py, edges, force_streaming, false)
+    }
+
+    fn multidigraph_from_keyed_true_iterator_with_controls(
+        py: Python<'_>,
+        edges: &Bound<'_, PyList>,
+        force_streaming: bool,
+        force_string_stage: bool,
+    ) -> PyResult<PyMultiDiGraph> {
+        multidigraph_from_keyed_true_iterator_with_all_controls(
+            py,
+            edges,
+            force_streaming,
+            force_string_stage,
+            false,
+        )
+    }
+
+    fn multidigraph_from_keyed_true_iterator_with_all_controls(
+        py: Python<'_>,
+        edges: &Bound<'_, PyList>,
+        force_streaming: bool,
+        force_string_stage: bool,
+        force_string_mirrors: bool,
+    ) -> PyResult<PyMultiDiGraph> {
+        let iter = edges.call_method0("__iter__")?;
+        multidigraph_from_keyed_iterator_with_all_controls(
+            py,
+            &iter,
+            force_streaming,
+            force_string_stage,
+            force_string_mirrors,
+        )
+    }
+
+    fn multidigraph_from_keyed_iterator(
+        py: Python<'_>,
+        iter: &Bound<'_, PyAny>,
+        force_streaming: bool,
+    ) -> PyResult<PyMultiDiGraph> {
+        multidigraph_from_keyed_iterator_with_controls(py, iter, force_streaming, false)
+    }
+
+    fn multidigraph_from_keyed_iterator_with_controls(
+        py: Python<'_>,
+        iter: &Bound<'_, PyAny>,
+        force_streaming: bool,
+        force_string_stage: bool,
+    ) -> PyResult<PyMultiDiGraph> {
+        multidigraph_from_keyed_iterator_with_all_controls(
+            py,
+            iter,
+            force_streaming,
+            force_string_stage,
+            false,
+        )
+    }
+
+    fn multidigraph_from_keyed_iterator_with_all_controls(
+        py: Python<'_>,
+        iter: &Bound<'_, PyAny>,
+        force_streaming: bool,
+        force_string_stage: bool,
+        force_string_mirrors: bool,
+    ) -> PyResult<PyMultiDiGraph> {
+        crate::FORCE_MULTIDIGRAPH_CTOR_KEYED_STREAMING.store(force_streaming, Ordering::Relaxed);
+        crate::FORCE_MULTIDIGRAPH_CTOR_KEYED_STRING_STAGE
+            .store(force_string_stage, Ordering::Relaxed);
+        crate::FORCE_MULTIDIGRAPH_CTOR_KEYED_STRING_MIRRORS
+            .store(force_string_mirrors, Ordering::Relaxed);
+        let graph = PyMultiDiGraph::new(py, Some(iter), None);
+        crate::FORCE_MULTIDIGRAPH_CTOR_KEYED_STREAMING.store(false, Ordering::Relaxed);
+        crate::FORCE_MULTIDIGRAPH_CTOR_KEYED_STRING_STAGE.store(false, Ordering::Relaxed);
+        crate::FORCE_MULTIDIGRAPH_CTOR_KEYED_STRING_MIRRORS.store(false, Ordering::Relaxed);
+        graph
+    }
+
+    fn multidigraph_edge_key_snapshot(
+        py: Python<'_>,
+        map: &HashMap<(String, String, usize), PyObject>,
+    ) -> PyResult<Vec<(String, String, usize, String, String)>> {
+        let mut snapshot = map
+            .iter()
+            .map(|((source, target, key), object)| {
+                let object = object.bind(py);
+                Ok((
+                    source.clone(),
+                    target.clone(),
+                    *key,
+                    object.get_type().name()?.to_str()?.to_owned(),
+                    object.repr()?.to_string(),
+                ))
+            })
+            .collect::<PyResult<Vec<_>>>()?;
+        snapshot.sort();
+        Ok(snapshot)
+    }
+
+    fn multidigraph_edge_attr_snapshot(
+        py: Python<'_>,
+        map: &HashMap<(String, String, usize), Py<PyDict>>,
+    ) -> PyResult<Vec<(String, String, usize, String)>> {
+        let mut snapshot = map
+            .iter()
+            .map(|((source, target, key), attrs)| {
+                Ok((
+                    source.clone(),
+                    target.clone(),
+                    *key,
+                    attrs.bind(py).repr()?.to_string(),
+                ))
+            })
+            .collect::<PyResult<Vec<_>>>()?;
+        snapshot.sort();
+        Ok(snapshot)
+    }
+
+    fn assert_multidigraph_ctor_same(
+        py: Python<'_>,
+        candidate: &PyMultiDiGraph,
+        baseline: &PyMultiDiGraph,
+    ) -> PyResult<()> {
+        assert_eq!(candidate.inner.snapshot(), baseline.inner.snapshot());
+        assert_eq!(
+            node_map_snapshot(py, &candidate.node_key_map)?,
+            node_map_snapshot(py, &baseline.node_key_map)?
+        );
+        assert_eq!(
+            display_map_snapshot(py, &candidate.succ_py_keys)?,
+            display_map_snapshot(py, &baseline.succ_py_keys)?
+        );
+        assert_eq!(
+            display_map_snapshot(py, &candidate.pred_py_keys)?,
+            display_map_snapshot(py, &baseline.pred_py_keys)?
+        );
+        assert_eq!(
+            multidigraph_edge_key_snapshot(py, &candidate.edge_py_keys)?,
+            multidigraph_edge_key_snapshot(py, &baseline.edge_py_keys)?
+        );
+        assert_eq!(
+            multidigraph_edge_attr_snapshot(py, &candidate.edge_py_attrs)?,
+            multidigraph_edge_attr_snapshot(py, &baseline.edge_py_attrs)?
+        );
+        Ok(())
+    }
+
+    fn multidigraph_from_string_attr_batch(
+        py: Python<'_>,
+        rows: &Bound<'_, PyList>,
+        force_general: bool,
+    ) -> PyResult<PyMultiDiGraph> {
+        let mut graph = PyMultiDiGraph::new(py, None, None)?;
+        FORCE_MULTIDIGRAPH_STRING_ATTR_GENERAL.store(force_general, Ordering::Relaxed);
+        let added = graph._try_add_attr_edges_from_batch(py, rows.as_any(), None);
+        FORCE_MULTIDIGRAPH_STRING_ATTR_GENERAL.store(false, Ordering::Relaxed);
+        if !added? {
+            return Err(PyRuntimeError::new_err(
+                "attributed MultiDiGraph batch declined test fixture",
+            ));
+        }
+        Ok(graph)
+    }
+
+    #[test]
+    fn multidigraph_fresh_exact_string_attr_batch_matches_general_route() {
+        ensure_python();
+        Python::attach(|py| -> PyResult<()> {
+            let rows = PyList::empty(py);
+            for edge in 0_i64..20 {
+                let source = edge % 5;
+                let target = (source + 1) % 5;
+                let attrs = PyDict::new(py);
+                attrs.set_item("weight", edge as f64)?;
+                attrs.set_item("tag", format!("edge-{edge}"))?;
+                rows.append(PyTuple::new(
+                    py,
+                    [
+                        format!("node-{source}").into_py_any(py)?,
+                        format!("node-{target}").into_py_any(py)?,
+                        attrs.into_any().unbind(),
+                    ],
+                )?)?;
+            }
+
+            let candidate = multidigraph_from_string_attr_batch(py, &rows, false)?;
+            let general = multidigraph_from_string_attr_batch(py, &rows, true)?;
+            assert_multidigraph_ctor_same(py, &candidate, &general)?;
+            assert_eq!(candidate.nodes_seq, general.nodes_seq);
+            assert_eq!(candidate.edges_seq, general.edges_seq);
+            assert_eq!(
+                candidate.inner.edge_keys("str:6:node-0", "str:6:node-1"),
+                Some(vec![0, 1, 2, 3])
+            );
+            Ok(())
+        })
+        .expect("indexed exact-string MultiDiGraph batch should match general route");
+    }
+
+    /// `br-r37-c1-z9f09`: same-binary causal A/B for the exact-string indexed
+    /// MultiDiGraph collector against the frozen String-keyed general route.
+    /// The executed test ELF self-identifies before Python initialization; the
+    /// A/A null and causal arms run interleaved in this invocation, and only
+    /// the fixed-seed bootstrap median CI can declare the result decidable.
+    #[test]
+    #[ignore = "measurement; run with release profile, --ignored, and --nocapture"]
+    fn multidigraph_exact_string_attr_batch_indexed_ab() {
+        use sha2::{Digest, Sha256};
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        let exe = std::env::current_exe().expect("benchmark executable path");
+        let bytes = std::fs::read(&exe).expect("benchmark executable bytes");
+        let sha = hex::encode(Sha256::digest(&bytes));
+        println!(
+            "bench_elf_sha256={sha} ({} bytes) {}",
+            bytes.len(),
+            exe.display()
+        );
+
+        fn median(values: &[f64]) -> f64 {
+            let mut sorted = values.to_vec();
+            sorted.sort_by(f64::total_cmp);
+            sorted[sorted.len() / 2]
+        }
+
+        fn median_ci(values: &[f64]) -> (f64, f64) {
+            const BOOTSTRAPS: usize = 2_000;
+            let mut state = 86_753_099_u64;
+            let mut medians = Vec::with_capacity(BOOTSTRAPS);
+            let mut sample = Vec::with_capacity(values.len());
+            for _ in 0..BOOTSTRAPS {
+                sample.clear();
+                for _ in values {
+                    state ^= state >> 12;
+                    state ^= state << 25;
+                    state ^= state >> 27;
+                    let random = state.wrapping_mul(0x2545_f491_4f6c_dd1d);
+                    let index = usize::try_from(random % values.len() as u64)
+                        .expect("bootstrap index fits usize");
+                    sample.push(values[index]);
+                }
+                medians.push(median(&sample));
+            }
+            medians.sort_by(f64::total_cmp);
+            (
+                medians[BOOTSTRAPS * 25 / 1_000],
+                medians[BOOTSTRAPS * 975 / 1_000],
+            )
+        }
+
+        ensure_python();
+        Python::attach(|py| -> PyResult<()> {
+            const EDGE_COUNT: usize = 8_000;
+            const REPETITIONS: usize = 8;
+            const ROUNDS: usize = 21;
+            const MIN_OF: usize = 3;
+
+            let rows = PyList::empty(py);
+            for source in 0..EDGE_COUNT {
+                let attrs = PyDict::new(py);
+                attrs.set_item("weight", source as f64)?;
+                rows.append(PyTuple::new(
+                    py,
+                    [
+                        format!("node-{source}").into_py_any(py)?,
+                        format!("node-{}", source + 1).into_py_any(py)?,
+                        attrs.into_any().unbind(),
+                    ],
+                )?)?;
+            }
+
+            let build = |indexed: bool| -> PyResult<PyMultiDiGraph> {
+                let graph = multidigraph_from_string_attr_batch(py, &rows, !indexed)?;
+                black_box(graph.inner.node_count());
+                black_box(graph.inner.edge_count());
+                Ok(graph)
+            };
+
+            let baseline = build(false)?;
+            let candidate = build(true)?;
+            assert_multidigraph_ctor_same(py, &candidate, &baseline)?;
+
+            let time = |indexed: bool| -> PyResult<f64> {
+                let start = Instant::now();
+                for _ in 0..REPETITIONS {
+                    black_box(build(indexed)?);
+                }
+                Ok(start.elapsed().as_secs_f64())
+            };
+            let sample = |indexed: bool| -> PyResult<f64> {
+                let mut best = f64::INFINITY;
+                for _ in 0..MIN_OF {
+                    best = best.min(time(indexed)?);
+                }
+                Ok(best)
+            };
+            black_box(sample(false)?);
+            black_box(sample(true)?);
+
+            let paired = |left_indexed: bool,
+                          right_indexed: bool|
+             -> PyResult<(Vec<f64>, Vec<f64>, Vec<f64>)> {
+                let mut ratios = Vec::with_capacity(ROUNDS);
+                let mut left_times = Vec::with_capacity(ROUNDS);
+                let mut right_times = Vec::with_capacity(ROUNDS);
+                for round in 0..ROUNDS {
+                    let (left, right) = if round.is_multiple_of(2) {
+                        (sample(left_indexed)?, sample(right_indexed)?)
+                    } else {
+                        let right = sample(right_indexed)?;
+                        let left = sample(left_indexed)?;
+                        (left, right)
+                    };
+                    left_times.push(left);
+                    right_times.push(right);
+                    ratios.push(left / right);
+                }
+                Ok((ratios, left_times, right_times))
+            };
+
+            let (null_ratios, null_left, null_right) = paired(true, true)?;
+            let (causal_ratios, causal_left, causal_right) = paired(false, true)?;
+            let null_ci = median_ci(&null_ratios);
+            let causal_ci = median_ci(&causal_ratios);
+            let null_median = median(&null_ratios);
+            let causal_median = median(&causal_ratios);
+            let null_edge = null_ci.0.ln().abs().max(null_ci.1.ln().abs());
+            let doubled_floor = (2.0 * null_edge).exp();
+            let doubled_ceiling = (-2.0 * null_edge).exp();
+            let decidable = causal_ci.0 > doubled_floor || causal_ci.1 < doubled_ceiling;
+
+            println!(
+                "[A/A null] MultiDiGraph string attr batch indexed/indexed ratio_p50={null_median:.4}x CI=[{:.4},{:.4}] left_p50={:.6}s right_p50={:.6}s floor={doubled_floor:.4}x",
+                null_ci.0,
+                null_ci.1,
+                median(&null_left),
+                median(&null_right),
+            );
+            println!(
+                "MultiDiGraph string attr batch general/indexed ratio_p50={causal_median:.4}x CI=[{:.4},{:.4}] left_p50={:.6}s right_p50={:.6}s decision={} floor={doubled_floor:.4}x ceiling={doubled_ceiling:.4}x",
+                causal_ci.0,
+                causal_ci.1,
+                median(&causal_left),
+                median(&causal_right),
+                if decidable { "DECIDABLE" } else { "UNDECIDABLE" },
+            );
+            Ok(())
+        })
+        .expect("exact-string attributed MultiDiGraph A/B should run");
+    }
+
+    #[test]
+    fn multidigraph_keyed_iterator_fused_stage_matches_streaming_route() {
+        ensure_python();
+        Python::attach(|py| -> PyResult<()> {
+            let edges = PyList::empty(py);
+            for source in 0_i64..256 {
+                let target = (source * 17 + 11) % 97;
+                let key = format!("k{}", source % 13);
+                edges.append(PyTuple::new(
+                    py,
+                    [
+                        source.into_py_any(py)?,
+                        target.into_py_any(py)?,
+                        key.into_py_any(py)?,
+                    ],
+                )?)?;
+            }
+            for (source, target, key) in [(1_i64, 1_i64, "loop"), (1, 2, "dup"), (1, 2, "dup")] {
+                edges.append(PyTuple::new(
+                    py,
+                    [
+                        source.into_py_any(py)?,
+                        target.into_py_any(py)?,
+                        key.into_py_any(py)?,
+                    ],
+                )?)?;
+            }
+            let candidate = multidigraph_from_keyed_true_iterator(py, &edges, false)?;
+            let string_mirrors = multidigraph_from_keyed_true_iterator_with_all_controls(
+                py, &edges, false, false, true,
+            )?;
+            let string_stage =
+                multidigraph_from_keyed_true_iterator_with_controls(py, &edges, false, true)?;
+            let baseline = multidigraph_from_keyed_true_iterator(py, &edges, true)?;
+            assert_multidigraph_ctor_same(py, &candidate, &string_mirrors)?;
+            assert_multidigraph_ctor_same(py, &candidate, &string_stage)?;
+            assert_multidigraph_ctor_same(py, &candidate, &baseline)?;
+
+            let attributed_edges = PyList::empty(py);
+            for source in 0_i64..256 {
+                let attrs = PyDict::new(py);
+                attrs.set_item("weight", source as f64 * 0.25)?;
+                attrs.set_item("cost", source % 11)?;
+                attrs.set_item("tag", format!("e{source}"))?;
+                attributed_edges.append(PyTuple::new(
+                    py,
+                    [
+                        source.into_py_any(py)?,
+                        ((source * 17 + 11) % 97).into_py_any(py)?,
+                        format!("k{}", source % 13).into_py_any(py)?,
+                        attrs.into_any().unbind(),
+                    ],
+                )?)?;
+            }
+            for (weight, cost) in [(1.5_f64, 2_i64), (3.5, 7)] {
+                let attrs = PyDict::new(py);
+                attrs.set_item("weight", weight)?;
+                attrs.set_item("cost", cost)?;
+                attributed_edges.append(PyTuple::new(
+                    py,
+                    [
+                        1_i64.into_py_any(py)?,
+                        2_i64.into_py_any(py)?,
+                        "duplicate".into_py_any(py)?,
+                        attrs.into_any().unbind(),
+                    ],
+                )?)?;
+            }
+            let candidate = multidigraph_from_keyed_true_iterator(py, &attributed_edges, false)?;
+            let string_mirrors = multidigraph_from_keyed_true_iterator_with_all_controls(
+                py,
+                &attributed_edges,
+                false,
+                false,
+                true,
+            )?;
+            let string_stage = multidigraph_from_keyed_true_iterator_with_controls(
+                py,
+                &attributed_edges,
+                false,
+                true,
+            )?;
+            let baseline = multidigraph_from_keyed_true_iterator(py, &attributed_edges, true)?;
+            assert_multidigraph_ctor_same(py, &candidate, &string_mirrors)?;
+            assert_multidigraph_ctor_same(py, &candidate, &string_stage)?;
+            assert_multidigraph_ctor_same(py, &candidate, &baseline)?;
+
+            // A real generator may reuse and mutate one dict between yields.
+            // Candidate staging must retain one shallow snapshot per row, both
+            // when the typed batch commits and when a late mixed row forces
+            // replay through the frozen route.
+            let locals = PyDict::new(py);
+            py.run(
+                pyo3::ffi::c_str!(
+                    r#"
+def fnx_keyed_attr_edges(mixed):
+    attrs = {}
+    for source in range(32):
+        attrs.clear()
+        attrs["weight"] = source * 0.25
+        attrs["cost"] = source % 11
+        attrs["tag"] = f"e{source}"
+        yield (source, source + 1, f"k{source}", attrs)
+    if mixed:
+        yield ("left", "right", "mixed")
+"#
+                ),
+                None,
+                Some(&locals),
+            )?;
+            let make_edges = locals
+                .get_item("fnx_keyed_attr_edges")?
+                .expect("generator factory must populate locals");
+            for mixed in [false, true] {
+                let candidate_iter = make_edges.call1((mixed,))?;
+                let string_mirrors_iter = make_edges.call1((mixed,))?;
+                let string_stage_iter = make_edges.call1((mixed,))?;
+                let baseline_iter = make_edges.call1((mixed,))?;
+                let candidate = multidigraph_from_keyed_iterator(py, &candidate_iter, false)?;
+                let string_mirrors = multidigraph_from_keyed_iterator_with_all_controls(
+                    py,
+                    &string_mirrors_iter,
+                    false,
+                    false,
+                    true,
+                )?;
+                let string_stage = multidigraph_from_keyed_iterator_with_controls(
+                    py,
+                    &string_stage_iter,
+                    false,
+                    true,
+                )?;
+                let baseline = multidigraph_from_keyed_iterator(py, &baseline_iter, true)?;
+                assert_multidigraph_ctor_same(py, &candidate, &string_mirrors)?;
+                assert_multidigraph_ctor_same(py, &candidate, &string_stage)?;
+                assert_multidigraph_ctor_same(py, &candidate, &baseline)?;
+            }
+
+            // If a later row leaves the exact-int/string-key region, the
+            // materializer must retain the frozen one-shot streaming semantics.
+            let mixed = PyList::empty(py);
+            let first_attrs = PyDict::new(py);
+            first_attrs.set_item("weight", 1.25)?;
+            mixed.append(PyTuple::new(
+                py,
+                [
+                    1_i64.into_py_any(py)?,
+                    2_i64.into_py_any(py)?,
+                    "first".into_py_any(py)?,
+                    first_attrs.into_any().unbind(),
+                ],
+            )?)?;
+            mixed.append(PyTuple::new(
+                py,
+                [
+                    "left".into_py_any(py)?,
+                    "right".into_py_any(py)?,
+                    "second".into_py_any(py)?,
+                ],
+            )?)?;
+            let candidate = multidigraph_from_keyed_true_iterator(py, &mixed, false)?;
+            let baseline = multidigraph_from_keyed_true_iterator(py, &mixed, true)?;
+            assert_multidigraph_ctor_same(py, &candidate, &baseline)
+        })
+        .expect("fused MultiDiGraph keyed iterator staging must preserve the streaming route");
+    }
+
+    /// `br-r37-c1-mo9ud`: same-binary proof for fusing exact-int/string-keyed
+    /// true-iterator staging with the MultiDiGraph batch commit. The frozen arm
+    /// retains the current one-item-peek plus per-edge streaming route.
+    #[test]
+    #[ignore = "measurement; run with release profile, --ignored, and --nocapture"]
+    fn multidigraph_keyed_iterator_fused_stage_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        ensure_python();
+        Python::attach(|py| -> PyResult<()> {
+            let edge_count = 10_000usize;
+            let attributed = std::env::var_os("FNX_CTOR_KEYED_ATTRS").is_some();
+            let repetitions = std::env::var("FNX_CTOR_REPETITIONS")
+                .ok()
+                .and_then(|value| value.parse().ok())
+                .unwrap_or(32usize);
+            let rounds = 21usize;
+            let edges = PyList::empty(py);
+            for source in 0..edge_count {
+                if attributed {
+                    let attrs = PyDict::new(py);
+                    attrs.set_item("weight", source as f64 * 0.25)?;
+                    attrs.set_item("cost", source % 11)?;
+                    attrs.set_item("tag", format!("e{source}"))?;
+                    edges.append(PyTuple::new(
+                        py,
+                        [
+                            source.into_py_any(py)?,
+                            (source + 1).into_py_any(py)?,
+                            format!("k{source}").into_py_any(py)?,
+                            attrs.into_any().unbind(),
+                        ],
+                    )?)?;
+                } else {
+                    edges.append(PyTuple::new(
+                        py,
+                        [
+                            source.into_py_any(py)?,
+                            (source + 1).into_py_any(py)?,
+                            format!("k{source}").into_py_any(py)?,
+                        ],
+                    )?)?;
+                }
+            }
+
+            let build = |force_streaming: bool| -> PyResult<PyMultiDiGraph> {
+                let graph =
+                    multidigraph_from_keyed_true_iterator(py, &edges, force_streaming)?;
+                black_box(graph.inner.edge_count());
+                black_box(graph.edge_py_keys.len());
+                black_box(graph.edge_py_attrs.len());
+                Ok(graph)
+            };
+            let time = |force_streaming: bool| -> PyResult<f64> {
+                let start = Instant::now();
+                for _ in 0..repetitions {
+                    black_box(build(force_streaming)?);
+                }
+                Ok(start.elapsed().as_secs_f64())
+            };
+
+            let frozen = build(true)?;
+            let candidate = build(false)?;
+            assert_multidigraph_ctor_same(py, &candidate, &frozen)?;
+            black_box(time(true)?);
+            black_box(time(false)?);
+
+            let paired = |baseline_is_candidate: bool| -> PyResult<Vec<f64>> {
+                let mut ratios = Vec::with_capacity(rounds);
+                for round in 0..rounds {
+                    let mut baseline_time = 0.0;
+                    let mut candidate_time = 0.0;
+                    for repetition in 0..repetitions {
+                        let baseline_first = (round + repetition).is_multiple_of(2);
+                        if baseline_first {
+                            let start = Instant::now();
+                            black_box(build(baseline_is_candidate)?);
+                            baseline_time += start.elapsed().as_secs_f64();
+                            let start = Instant::now();
+                            black_box(build(false)?);
+                            candidate_time += start.elapsed().as_secs_f64();
+                        } else {
+                            let start = Instant::now();
+                            black_box(build(false)?);
+                            candidate_time += start.elapsed().as_secs_f64();
+                            let start = Instant::now();
+                            black_box(build(baseline_is_candidate)?);
+                            baseline_time += start.elapsed().as_secs_f64();
+                        }
+                    }
+                    ratios.push(baseline_time / candidate_time);
+                }
+                Ok(ratios)
+            };
+            let report = |name: &str, ratios: &[f64]| {
+                let wins = ratios.iter().filter(|&&ratio| ratio > 1.0).count();
+                let mean = ratios.iter().sum::<f64>() / ratios.len() as f64;
+                let variance = ratios
+                    .iter()
+                    .map(|ratio| (ratio - mean).powi(2))
+                    .sum::<f64>()
+                    / (ratios.len() - 1) as f64;
+                let cv_pct = variance.sqrt() / mean * 100.0;
+                let mut sorted = ratios.to_vec();
+                sorted.sort_by(f64::total_cmp);
+                println!(
+                    "MULTIDIGRAPH_KEYED_ITER_FUSED_AB {name}: median={:.4}x wins={wins}/{rounds} cv={cv_pct:.3}% p5_p95=[{:.4},{:.4}]",
+                    sorted[rounds / 2],
+                    sorted[rounds * 5 / 100],
+                    sorted[rounds * 95 / 100],
+                );
+            };
+
+            println!(
+                "MULTIDIGRAPH_KEYED_ITER_FUSED_AB edges={edge_count} attributed={attributed} repetitions={repetitions} rounds={rounds} (>1 = fused keyed stage faster)"
+            );
+            report("candidate_vs_streaming", &paired(true)?);
+            report("candidate_null", &paired(false)?);
+            Ok(())
+        })
+        .expect("MultiDiGraph keyed iterator fused-stage A/B should run");
+    }
+
+    /// `br-r37-c1-97iyf`: same-binary proof for replacing the exact-int keyed
+    /// iterator's String endpoint/pair stage and String-keyed native commit
+    /// with the existing fresh indexed keyed-attribute substrate.
+    #[test]
+    #[ignore = "measurement; run with release profile, --ignored, and --nocapture"]
+    fn multidigraph_keyed_attr_iterator_indexed_commit_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        ensure_python();
+        Python::attach(|py| -> PyResult<()> {
+            let edge_count = 10_000usize;
+            let repetitions = std::env::var("FNX_CTOR_REPETITIONS")
+                .ok()
+                .and_then(|value| value.parse().ok())
+                .unwrap_or(32usize);
+            let rounds = 21usize;
+            let edges = PyList::empty(py);
+            for source in 0..edge_count {
+                let attrs = PyDict::new(py);
+                attrs.set_item("weight", source as f64 * 0.25)?;
+                attrs.set_item("cost", source % 11)?;
+                attrs.set_item("tag", format!("e{source}"))?;
+                edges.append(PyTuple::new(
+                    py,
+                    [
+                        source.into_py_any(py)?,
+                        (source + 1).into_py_any(py)?,
+                        format!("k{source}").into_py_any(py)?,
+                        attrs.into_any().unbind(),
+                    ],
+                )?)?;
+            }
+
+            let build = |force_string_stage: bool| -> PyResult<PyMultiDiGraph> {
+                let graph = multidigraph_from_keyed_true_iterator_with_controls(
+                    py,
+                    &edges,
+                    false,
+                    force_string_stage,
+                )?;
+                black_box(graph.inner.edge_count());
+                black_box(graph.edge_py_keys.len());
+                black_box(graph.edge_py_attrs.len());
+                Ok(graph)
+            };
+
+            let string_stage = build(true)?;
+            let indexed = build(false)?;
+            assert_multidigraph_ctor_same(py, &indexed, &string_stage)?;
+            black_box(build(true)?);
+            black_box(build(false)?);
+
+            let paired = |baseline_forced_string: bool| -> PyResult<Vec<f64>> {
+                let mut ratios = Vec::with_capacity(rounds);
+                for round in 0..rounds {
+                    let mut baseline_time = 0.0;
+                    let mut candidate_time = 0.0;
+                    for repetition in 0..repetitions {
+                        let baseline_first = (round + repetition).is_multiple_of(2);
+                        if baseline_first {
+                            let start = Instant::now();
+                            black_box(build(baseline_forced_string)?);
+                            baseline_time += start.elapsed().as_secs_f64();
+                            let start = Instant::now();
+                            black_box(build(false)?);
+                            candidate_time += start.elapsed().as_secs_f64();
+                        } else {
+                            let start = Instant::now();
+                            black_box(build(false)?);
+                            candidate_time += start.elapsed().as_secs_f64();
+                            let start = Instant::now();
+                            black_box(build(baseline_forced_string)?);
+                            baseline_time += start.elapsed().as_secs_f64();
+                        }
+                    }
+                    ratios.push(baseline_time / candidate_time);
+                }
+                Ok(ratios)
+            };
+            let report = |name: &str, ratios: &[f64]| {
+                let wins = ratios.iter().filter(|&&ratio| ratio > 1.0).count();
+                let mean = ratios.iter().sum::<f64>() / ratios.len() as f64;
+                let variance = ratios
+                    .iter()
+                    .map(|ratio| (ratio - mean).powi(2))
+                    .sum::<f64>()
+                    / (ratios.len() - 1) as f64;
+                let cv_pct = variance.sqrt() / mean * 100.0;
+                let mut sorted = ratios.to_vec();
+                sorted.sort_by(f64::total_cmp);
+                println!(
+                    "MULTIDIGRAPH_KEYED_ATTR_INDEXED_AB {name}: median={:.4}x wins={wins}/{rounds} cv={cv_pct:.3}% p5_p95=[{:.4},{:.4}]",
+                    sorted[rounds / 2],
+                    sorted[rounds * 5 / 100],
+                    sorted[rounds * 95 / 100],
+                );
+            };
+
+            println!(
+                "MULTIDIGRAPH_KEYED_ATTR_INDEXED_AB edges={edge_count} repetitions={repetitions} rounds={rounds} (>1 = indexed stage faster)"
+            );
+            report("indexed_vs_string_stage", &paired(true)?);
+            report("indexed_null", &paired(false)?);
+            Ok(())
+        })
+        .expect("MultiDiGraph attributed keyed indexed-stage A/B should run");
+    }
+
+    /// `br-r37-c1-sorrc`: same-binary proof for retaining keyed Python mirror
+    /// rows by dense endpoint index and materializing the two final
+    /// String-keyed maps once at commit.
+    #[test]
+    #[ignore = "measurement; run with release profile, --ignored, and --nocapture"]
+    fn multidigraph_keyed_attr_iterator_indexed_mirrors_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        ensure_python();
+        Python::attach(|py| -> PyResult<()> {
+            let edge_count = 10_000usize;
+            let repetitions = std::env::var("FNX_CTOR_REPETITIONS")
+                .ok()
+                .and_then(|value| value.parse().ok())
+                .unwrap_or(32usize);
+            let rounds = 21usize;
+            let edges = PyList::empty(py);
+            for source in 0..edge_count {
+                let attrs = PyDict::new(py);
+                attrs.set_item("weight", source as f64 * 0.25)?;
+                attrs.set_item("cost", source % 11)?;
+                attrs.set_item("tag", format!("e{source}"))?;
+                edges.append(PyTuple::new(
+                    py,
+                    [
+                        source.into_py_any(py)?,
+                        (source + 1).into_py_any(py)?,
+                        format!("k{source}").into_py_any(py)?,
+                        attrs.into_any().unbind(),
+                    ],
+                )?)?;
+            }
+
+            let build = |force_string_mirrors: bool| -> PyResult<PyMultiDiGraph> {
+                let graph = multidigraph_from_keyed_true_iterator_with_all_controls(
+                    py,
+                    &edges,
+                    false,
+                    false,
+                    force_string_mirrors,
+                )?;
+                black_box(graph.inner.edge_count());
+                black_box(graph.edge_py_keys.len());
+                black_box(graph.edge_py_attrs.len());
+                Ok(graph)
+            };
+
+            let string_mirrors = build(true)?;
+            let indexed = build(false)?;
+            assert_multidigraph_ctor_same(py, &indexed, &string_mirrors)?;
+            black_box(build(true)?);
+            black_box(build(false)?);
+
+            let paired = |baseline_forced_string: bool| -> PyResult<Vec<f64>> {
+                let mut ratios = Vec::with_capacity(rounds);
+                for round in 0..rounds {
+                    let mut baseline_time = 0.0;
+                    let mut candidate_time = 0.0;
+                    for repetition in 0..repetitions {
+                        let baseline_first = (round + repetition).is_multiple_of(2);
+                        if baseline_first {
+                            let start = Instant::now();
+                            black_box(build(baseline_forced_string)?);
+                            baseline_time += start.elapsed().as_secs_f64();
+                            let start = Instant::now();
+                            black_box(build(false)?);
+                            candidate_time += start.elapsed().as_secs_f64();
+                        } else {
+                            let start = Instant::now();
+                            black_box(build(false)?);
+                            candidate_time += start.elapsed().as_secs_f64();
+                            let start = Instant::now();
+                            black_box(build(baseline_forced_string)?);
+                            baseline_time += start.elapsed().as_secs_f64();
+                        }
+                    }
+                    ratios.push(baseline_time / candidate_time);
+                }
+                Ok(ratios)
+            };
+            let report = |name: &str, ratios: &[f64]| {
+                let wins = ratios.iter().filter(|&&ratio| ratio > 1.0).count();
+                let mean = ratios.iter().sum::<f64>() / ratios.len() as f64;
+                let variance = ratios
+                    .iter()
+                    .map(|ratio| (ratio - mean).powi(2))
+                    .sum::<f64>()
+                    / (ratios.len() - 1) as f64;
+                let cv_pct = variance.sqrt() / mean * 100.0;
+                let mut sorted = ratios.to_vec();
+                sorted.sort_by(f64::total_cmp);
+                println!(
+                    "MULTIDIGRAPH_KEYED_ATTR_MIRRORS_AB {name}: median={:.4}x wins={wins}/{rounds} cv={cv_pct:.3}% p5_p95=[{:.4},{:.4}]",
+                    sorted[rounds / 2],
+                    sorted[rounds * 5 / 100],
+                    sorted[rounds * 95 / 100],
+                );
+            };
+
+            println!(
+                "MULTIDIGRAPH_KEYED_ATTR_MIRRORS_AB edges={edge_count} repetitions={repetitions} rounds={rounds} (>1 = indexed mirror staging faster)"
+            );
+            report("indexed_vs_string_mirrors", &paired(true)?);
+            report("indexed_null", &paired(false)?);
+            Ok(())
+        })
+        .expect("MultiDiGraph attributed keyed indexed-mirror A/B should run");
+    }
+
+    #[test]
+    fn digraph_true_iterator_row_key_elision_matches_frozen_route() {
+        ensure_python();
+        Python::attach(|py| -> PyResult<()> {
+            let exact_edges = PyList::empty(py);
+            for source in 0_i64..128 {
+                let edge = [source.into_py_any(py)?, (source + 1).into_py_any(py)?];
+                exact_edges.append(PyTuple::new(py, &edge)?)?;
+            }
+            let candidate = digraph_from_true_iterator(py, &exact_edges, false)?;
+            let baseline = digraph_from_true_iterator(py, &exact_edges, true)?;
+            assert_digraph_ctor_same(py, &candidate, &baseline)?;
+            assert!(candidate.succ_py_keys.is_empty());
+            assert!(candidate.pred_py_keys.is_empty());
+
+            // The first float forces a one-time reconstruction of the exact-int
+            // prefix. Duplicate cells on both sides of that transition prove
+            // the z6uka first-touch display objects stay byte-for-byte aligned.
+            let mixed_edges = PyList::empty(py);
+            for (source, target) in [
+                (1_i64.into_py_any(py)?, 2_i64.into_py_any(py)?),
+                (1.0_f64.into_py_any(py)?, 2_i64.into_py_any(py)?),
+                (3.0_f64.into_py_any(py)?, 4_i64.into_py_any(py)?),
+                (3_i64.into_py_any(py)?, 4_i64.into_py_any(py)?),
+                (5_i64.into_py_any(py)?, 6.0_f64.into_py_any(py)?),
+                (5_i64.into_py_any(py)?, 6_i64.into_py_any(py)?),
+            ] {
+                mixed_edges.append(PyTuple::new(py, &[source, target])?)?;
+            }
+            let candidate = digraph_from_true_iterator(py, &mixed_edges, false)?;
+            let baseline = digraph_from_true_iterator(py, &mixed_edges, true)?;
+            assert_digraph_ctor_same(py, &candidate, &baseline)
+        })
+        .expect("DiGraph iterator row-key elision must preserve the frozen route");
+    }
+
+    /// `br-r37-c1-b4rfz`: same-binary proof for skipping cell-key clones and
+    /// row-display probes on the exact-int true-iterator constructor path.
+    /// Run with the release profile, `--ignored`, and `--nocapture`.
+    #[test]
+    #[ignore = "measurement; run with release profile, --ignored, and --nocapture"]
+    fn digraph_true_iterator_row_key_elision_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        ensure_python();
+        Python::attach(|py| -> PyResult<()> {
+            let edge_count = 20_000usize;
+            let rounds = 31usize;
+            let edges = PyList::empty(py);
+            for source in 0..edge_count {
+                let edge = [source.into_py_any(py)?, (source + 1).into_py_any(py)?];
+                edges.append(PyTuple::new(py, &edge)?)?;
+            }
+
+            let candidate = digraph_from_true_iterator(py, &edges, false)?;
+            let baseline = digraph_from_true_iterator(py, &edges, true)?;
+            assert_digraph_ctor_same(py, &candidate, &baseline)?;
+
+            let time = |force_baseline: bool| -> PyResult<f64> {
+                let start = Instant::now();
+                let graph = digraph_from_true_iterator(py, &edges, force_baseline)?;
+                black_box(graph.inner.edge_count());
+                Ok(start.elapsed().as_secs_f64())
+            };
+            for _ in 0..3 {
+                black_box(time(true)?);
+                black_box(time(false)?);
+            }
+
+            let paired = |baseline_is_candidate: bool| -> PyResult<Vec<f64>> {
+                let mut ratios = Vec::with_capacity(rounds);
+                for round in 0..rounds {
+                    let (baseline_time, candidate_time) = if round.is_multiple_of(2) {
+                        (time(baseline_is_candidate)?, time(false)?)
+                    } else {
+                        let candidate_time = time(false)?;
+                        let baseline_time = time(baseline_is_candidate)?;
+                        (baseline_time, candidate_time)
+                    };
+                    ratios.push(baseline_time / candidate_time);
+                }
+                Ok(ratios)
+            };
+            let report = |name: &str, ratios: &[f64]| {
+                let wins = ratios.iter().filter(|&&ratio| ratio > 1.0).count();
+                let mut sorted = ratios.to_vec();
+                sorted.sort_by(f64::total_cmp);
+                println!(
+                    "DIGRAPH_ITER_ROWKEY_AB {name}: median={:.4}x wins={wins}/{rounds} p5_p95=[{:.4},{:.4}]",
+                    sorted[rounds / 2],
+                    sorted[rounds * 5 / 100],
+                    sorted[rounds * 95 / 100],
+                );
+            };
+
+            println!(
+                "DIGRAPH_ITER_ROWKEY_AB edges={edge_count} rounds={rounds} (>1 = candidate faster)"
+            );
+            report("candidate_vs_frozen", &paired(true)?);
+            report("candidate_null", &paired(false)?);
+            Ok(())
+        })
+        .expect("DiGraph iterator row-key A/B should run");
+    }
+
     fn seeded_digraph_policy() -> RuntimePolicy {
         let mut graph = DiGraph::new(CompatibilityMode::Hardened);
         graph.add_node("seed".to_owned());
@@ -15211,6 +17778,404 @@ mod tests {
         let mut graph = MultiDiGraph::new(CompatibilityMode::Hardened);
         graph.add_node("seed".to_owned());
         graph.runtime_policy().clone()
+    }
+
+    fn multidiatlas_len_allocating(view: &MultiDiAtlasView, py: Python<'_>) -> usize {
+        let graph = view.graph.borrow(py);
+        match view.kind {
+            MultiDiAdjKind::Successors => graph
+                .inner
+                .successors(&view.node)
+                .map_or(0, |successors| successors.len()),
+            MultiDiAdjKind::Predecessors => graph
+                .inner
+                .predecessors(&view.node)
+                .map_or(0, |predecessors| predecessors.len()),
+        }
+    }
+
+    fn multidiatlas_hub_views(
+        py: Python<'_>,
+        degree: usize,
+    ) -> PyResult<(MultiDiAtlasView, MultiDiAtlasView)> {
+        assert!(degree > 0);
+        let mut graph = PyMultiDiGraph::new_empty_with_policy(py, RuntimePolicy::default())?;
+        assert!(graph.inner.add_node("hub".to_owned()));
+        for index in 0..degree {
+            graph
+                .inner
+                .add_edge("hub".to_owned(), format!("out-{index}"))
+                .expect("outgoing edge should be added");
+            graph
+                .inner
+                .add_edge(format!("in-{index}"), "hub".to_owned())
+                .expect("incoming edge should be added");
+        }
+        assert_eq!(
+            graph
+                .inner
+                .add_edge("hub".to_owned(), "out-0".to_owned())
+                .expect("parallel outgoing edge should be added"),
+            1
+        );
+        assert_eq!(
+            graph
+                .inner
+                .add_edge("in-0".to_owned(), "hub".to_owned())
+                .expect("parallel incoming edge should be added"),
+            1
+        );
+        assert_eq!(
+            graph
+                .inner
+                .add_edge("hub".to_owned(), "hub".to_owned())
+                .expect("self-loop should be added"),
+            0
+        );
+
+        let graph = Py::new(py, graph)?;
+        Ok((
+            MultiDiAtlasView::new(
+                graph.clone_ref(py),
+                "hub".to_owned(),
+                MultiDiAdjKind::Successors,
+            ),
+            MultiDiAtlasView::new(graph, "hub".to_owned(), MultiDiAdjKind::Predecessors),
+        ))
+    }
+
+    fn multidikeydict_len_allocating(view: &MultiDiKeyDictView, py: Python<'_>) -> usize {
+        view.graph
+            .borrow(py)
+            .inner
+            .edge_keys(&view.source, &view.target)
+            .map_or(0, |keys| keys.len())
+    }
+
+    fn multidikeydict_parallel_view(
+        py: Python<'_>,
+        key_count: usize,
+    ) -> PyResult<MultiDiKeyDictView> {
+        let mut graph = PyMultiDiGraph::new_empty_with_policy(py, RuntimePolicy::default())?;
+        assert!(graph.inner.add_node("source"));
+        assert!(graph.inner.add_node("target"));
+        for key in 0..key_count {
+            assert_eq!(graph.inner.add_edge("source", "target"), Ok(key));
+        }
+        Ok(MultiDiKeyDictView::new(
+            Py::new(py, graph)?,
+            "source".to_owned(),
+            "target".to_owned(),
+        ))
+    }
+
+    #[test]
+    fn multidiatlas_len_matches_allocating_baseline() {
+        ensure_python();
+        Python::attach(|py| -> PyResult<()> {
+            let mut graph = PyMultiDiGraph::new_empty_with_policy(py, RuntimePolicy::default())?;
+            assert!(graph.inner.add_node("hub".to_owned()));
+            let graph = Py::new(py, graph)?;
+            let successors = MultiDiAtlasView::new(
+                graph.clone_ref(py),
+                "hub".to_owned(),
+                MultiDiAdjKind::Successors,
+            );
+            let predecessors =
+                MultiDiAtlasView::new(graph, "hub".to_owned(), MultiDiAdjKind::Predecessors);
+
+            assert_eq!(successors.__len__(py), 0);
+            assert_eq!(predecessors.__len__(py), 0);
+            assert_eq!(
+                successors.__len__(py),
+                multidiatlas_len_allocating(&successors, py)
+            );
+            assert_eq!(
+                predecessors.__len__(py),
+                multidiatlas_len_allocating(&predecessors, py)
+            );
+
+            {
+                let mut graph = successors.graph.borrow_mut(py);
+                assert_eq!(graph.inner.add_edge("hub", "out-a"), Ok(0));
+                assert_eq!(graph.inner.add_edge("hub", "out-a"), Ok(1));
+                assert_eq!(graph.inner.add_edge("in-a", "hub"), Ok(0));
+                assert_eq!(graph.inner.add_edge("in-a", "hub"), Ok(1));
+                assert_eq!(graph.inner.add_edge("hub", "hub"), Ok(0));
+                assert_eq!(graph.inner.add_edge("hub", "out-b"), Ok(0));
+                assert_eq!(graph.inner.add_edge("in-b", "hub"), Ok(0));
+            }
+            assert_eq!(successors.__len__(py), 3);
+            assert_eq!(predecessors.__len__(py), 3);
+            assert_eq!(
+                successors.__len__(py),
+                multidiatlas_len_allocating(&successors, py)
+            );
+            assert_eq!(
+                predecessors.__len__(py),
+                multidiatlas_len_allocating(&predecessors, py)
+            );
+
+            {
+                let mut graph = successors.graph.borrow_mut(py);
+                assert!(graph.inner.remove_edge("hub", "out-a", Some(0)));
+            }
+            assert_eq!(successors.__len__(py), 3);
+            assert_eq!(predecessors.__len__(py), 3);
+
+            {
+                let mut graph = successors.graph.borrow_mut(py);
+                assert!(graph.inner.remove_edge("hub", "out-a", Some(1)));
+            }
+            assert_eq!(successors.__len__(py), 2);
+            assert_eq!(predecessors.__len__(py), 3);
+            assert_eq!(
+                successors.__len__(py),
+                multidiatlas_len_allocating(&successors, py)
+            );
+            assert_eq!(
+                predecessors.__len__(py),
+                multidiatlas_len_allocating(&predecessors, py)
+            );
+            Ok(())
+        })
+        .expect("MultiDiAtlasView length parity should hold");
+    }
+
+    #[test]
+    fn multidikeydict_len_matches_allocating_baseline() {
+        ensure_python();
+        Python::attach(|py| -> PyResult<()> {
+            let forward = multidikeydict_parallel_view(py, 0)?;
+            let reverse = MultiDiKeyDictView::new(
+                forward.graph.clone_ref(py),
+                "target".to_owned(),
+                "source".to_owned(),
+            );
+            let self_loop = MultiDiKeyDictView::new(
+                forward.graph.clone_ref(py),
+                "source".to_owned(),
+                "source".to_owned(),
+            );
+            assert_eq!(
+                forward.__len__(py),
+                multidikeydict_len_allocating(&forward, py)
+            );
+            assert_eq!(forward.__len__(py), 0);
+            assert_eq!(reverse.__len__(py), 0);
+
+            {
+                let mut graph = forward.graph.borrow_mut(py);
+                assert_eq!(
+                    graph
+                        .inner
+                        .add_edge_with_key_and_attrs("source", "target", 7, AttrMap::new(),),
+                    Ok(7)
+                );
+                assert_eq!(
+                    graph
+                        .inner
+                        .add_edge_with_key_and_attrs("source", "target", 42, AttrMap::new(),),
+                    Ok(42)
+                );
+                assert_eq!(graph.inner.add_edge("source", "target"), Ok(2));
+                assert_eq!(
+                    graph
+                        .inner
+                        .add_edge_with_key_and_attrs("target", "source", 5, AttrMap::new(),),
+                    Ok(5)
+                );
+                assert_eq!(
+                    graph
+                        .inner
+                        .add_edge_with_key_and_attrs("source", "source", 11, AttrMap::new(),),
+                    Ok(11)
+                );
+                assert_eq!(graph.inner.add_edge("source", "other"), Ok(0));
+            }
+            assert_eq!(
+                forward.__len__(py),
+                multidikeydict_len_allocating(&forward, py)
+            );
+            assert_eq!(forward.__len__(py), 3);
+            assert_eq!(reverse.__len__(py), 1);
+            assert_eq!(self_loop.__len__(py), 1);
+
+            {
+                let mut graph = forward.graph.borrow_mut(py);
+                assert!(graph.inner.remove_edge("source", "target", Some(42)));
+            }
+            assert_eq!(
+                forward.__len__(py),
+                multidikeydict_len_allocating(&forward, py)
+            );
+            assert_eq!(forward.__len__(py), 2);
+            assert_eq!(reverse.__len__(py), 1);
+
+            {
+                let mut graph = forward.graph.borrow_mut(py);
+                assert!(graph.inner.remove_edge("source", "target", Some(7)));
+                assert!(graph.inner.remove_edge("source", "target", Some(2)));
+            }
+            assert_eq!(forward.__len__(py), 0);
+            assert_eq!(reverse.__len__(py), 1);
+
+            {
+                let mut graph = forward.graph.borrow_mut(py);
+                assert!(graph.inner.remove_edge("target", "source", Some(5)));
+            }
+            assert_eq!(reverse.__len__(py), 0);
+            Ok(())
+        })
+        .expect("MultiDiKeyDictView length parity should hold");
+    }
+
+    /// `br-r37-c1-owbzu`: same-binary proof for exact-size successor and
+    /// predecessor iterator counting versus their frozen allocating routes.
+    /// Run with the release profile, `--ignored`, and `--nocapture`.
+    #[test]
+    #[ignore = "measurement; run with release profile, --ignored, and --nocapture"]
+    fn multidiatlas_len_noalloc_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        ensure_python();
+        Python::attach(|py| -> PyResult<()> {
+            let degree = 4_096usize;
+            let calls = 4_096usize;
+            let rounds = 31usize;
+            let expected = degree + 1;
+            let (successors, predecessors) = multidiatlas_hub_views(py, degree)?;
+            assert_eq!(successors.__len__(py), expected);
+            assert_eq!(predecessors.__len__(py), expected);
+            assert_eq!(multidiatlas_len_allocating(&successors, py), expected);
+            assert_eq!(multidiatlas_len_allocating(&predecessors, py), expected);
+
+            let time = |candidate: bool| -> f64 {
+                let start = Instant::now();
+                for _ in 0..calls {
+                    let lengths = if candidate {
+                        (successors.__len__(py), predecessors.__len__(py))
+                    } else {
+                        (
+                            multidiatlas_len_allocating(&successors, py),
+                            multidiatlas_len_allocating(&predecessors, py),
+                        )
+                    };
+                    black_box(lengths);
+                }
+                start.elapsed().as_secs_f64()
+            };
+            for _ in 0..3 {
+                black_box(time(false));
+                black_box(time(true));
+            }
+
+            let paired = |baseline_is_candidate: bool| -> Vec<f64> {
+                let mut ratios = Vec::with_capacity(rounds);
+                for round in 0..rounds {
+                    let (baseline_time, candidate_time) = if round.is_multiple_of(2) {
+                        (time(baseline_is_candidate), time(true))
+                    } else {
+                        let candidate_time = time(true);
+                        let baseline_time = time(baseline_is_candidate);
+                        (baseline_time, candidate_time)
+                    };
+                    ratios.push(baseline_time / candidate_time);
+                }
+                ratios
+            };
+            let report = |name: &str, ratios: &[f64]| {
+                let wins = ratios.iter().filter(|&&ratio| ratio > 1.0).count();
+                let mut sorted = ratios.to_vec();
+                sorted.sort_by(f64::total_cmp);
+                println!(
+                    "MULTIDIATLAS_LEN_AB {name}: median={:.4}x wins={wins}/{rounds} p5_p95=[{:.4},{:.4}]",
+                    sorted[rounds / 2],
+                    sorted[rounds * 5 / 100],
+                    sorted[rounds * 95 / 100],
+                );
+            };
+
+            println!(
+                "MULTIDIATLAS_LEN_AB degree={degree} calls={calls} rounds={rounds} (>1 = candidate faster)"
+            );
+            report("candidate_vs_allocating", &paired(false));
+            report("candidate_null", &paired(true));
+            Ok(())
+        })
+        .expect("MultiDiAtlasView length A/B should run");
+    }
+
+    /// `br-r37-c1-gs676`: same-binary proof for exact-size directed key
+    /// iterator counting versus the frozen allocating `edge_keys().len()`
+    /// route. Run with the release profile, `--ignored`, and `--nocapture`.
+    #[test]
+    #[ignore = "measurement; run with release profile, --ignored, and --nocapture"]
+    fn multidikeydict_len_noalloc_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        ensure_python();
+        Python::attach(|py| -> PyResult<()> {
+            let key_count = 4_096usize;
+            let calls = 4_096usize;
+            let rounds = 31usize;
+            let view = multidikeydict_parallel_view(py, key_count)?;
+            assert_eq!(view.__len__(py), key_count);
+            assert_eq!(multidikeydict_len_allocating(&view, py), key_count);
+
+            let time = |candidate: bool| -> f64 {
+                let start = Instant::now();
+                for _ in 0..calls {
+                    let length = if candidate {
+                        view.__len__(py)
+                    } else {
+                        multidikeydict_len_allocating(&view, py)
+                    };
+                    black_box(length);
+                }
+                start.elapsed().as_secs_f64()
+            };
+            for _ in 0..3 {
+                black_box(time(false));
+                black_box(time(true));
+            }
+
+            let paired = |baseline_is_candidate: bool| -> Vec<f64> {
+                let mut ratios = Vec::with_capacity(rounds);
+                for round in 0..rounds {
+                    let (baseline_time, candidate_time) = if round.is_multiple_of(2) {
+                        (time(baseline_is_candidate), time(true))
+                    } else {
+                        let candidate_time = time(true);
+                        let baseline_time = time(baseline_is_candidate);
+                        (baseline_time, candidate_time)
+                    };
+                    ratios.push(baseline_time / candidate_time);
+                }
+                ratios
+            };
+            let report = |name: &str, ratios: &[f64]| {
+                let wins = ratios.iter().filter(|&&ratio| ratio > 1.0).count();
+                let mut sorted = ratios.to_vec();
+                sorted.sort_by(f64::total_cmp);
+                println!(
+                    "MULTIDIKEYDICT_LEN_AB {name}: median={:.4}x wins={wins}/{rounds} p5_p95=[{:.4},{:.4}]",
+                    sorted[rounds / 2],
+                    sorted[rounds * 5 / 100],
+                    sorted[rounds * 95 / 100],
+                );
+            };
+
+            println!(
+                "MULTIDIKEYDICT_LEN_AB keys={key_count} calls={calls} rounds={rounds} (>1 = candidate faster)"
+            );
+            report("candidate_vs_allocating", &paired(false));
+            report("candidate_null", &paired(true));
+            Ok(())
+        })
+        .expect("MultiDiKeyDictView length A/B should run");
     }
 
     #[test]

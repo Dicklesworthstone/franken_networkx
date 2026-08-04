@@ -270,6 +270,28 @@ def test_k_corona_undirected(name, edges, nodes):
         ), f"{name}: k_corona k={k} mismatch"
 
 
+def test_k_corona_sparse_isolated_result_preserves_node_order():
+    """Do not let an edge-only comparison hide isolated-node order drift."""
+    # Spaced integer hashes make the former set iteration order
+    # deterministically differ from graph/core-number insertion order.
+    nodes = [1_000 + index * 37 for index in range(100)]
+    dense_nodes = nodes[:20]
+    corona_nodes = nodes[20:33]
+    edges = list(itertools.combinations(dense_nodes, 2))
+    edges.extend(
+        (node, neighbor)
+        for node in corona_nodes
+        for neighbor in dense_nodes[:3]
+    )
+    fg, ng = _pair_undirected(edges, nodes)
+
+    fnx_result = fnx.k_corona(fg, k=3)
+    nx_result = nx.k_corona(ng, k=3)
+
+    assert list(fnx_result.nodes(data=True)) == list(nx_result.nodes(data=True))
+    assert list(fnx_result.edges(data=True)) == list(nx_result.edges(data=True))
+
+
 # ---------------------------------------------------------------------------
 # Multigraph and self-loop rejection
 # ---------------------------------------------------------------------------

@@ -122,29 +122,62 @@ impl<T: Copy + PartialEq + Ord> Ord for DijkstraState<T> {
     }
 }
 
+#[cfg(test)]
 #[derive(Clone, PartialEq)]
-struct PrimEdgeState {
+struct PrimStringEdgeState {
     weight: f64,
     seq: u64,
     left: String,
     right: String,
 }
 
-impl Eq for PrimEdgeState {}
+#[cfg(test)]
+impl Eq for PrimStringEdgeState {}
 
-impl PartialOrd for PrimEdgeState {
+#[cfg(test)]
+impl PartialOrd for PrimStringEdgeState {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
         Some(self.cmp(other))
     }
 }
 
-impl Ord for PrimEdgeState {
+#[cfg(test)]
+impl Ord for PrimStringEdgeState {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
         other
             .weight
             .total_cmp(&self.weight)
             .then_with(|| other.left.cmp(&self.left))
             .then_with(|| other.right.cmp(&self.right))
+            .then_with(|| other.seq.cmp(&self.seq))
+    }
+}
+
+#[derive(Clone, Copy, PartialEq)]
+struct PrimReferenceIndexEdge {
+    weight: f64,
+    seq: u64,
+    left: usize,
+    right: usize,
+    left_rank: usize,
+    right_rank: usize,
+}
+
+impl Eq for PrimReferenceIndexEdge {}
+
+impl PartialOrd for PrimReferenceIndexEdge {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for PrimReferenceIndexEdge {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        other
+            .weight
+            .total_cmp(&self.weight)
+            .then_with(|| other.left_rank.cmp(&self.left_rank))
+            .then_with(|| other.right_rank.cmp(&self.right_rank))
             .then_with(|| other.seq.cmp(&self.seq))
     }
 }
@@ -1118,6 +1151,86 @@ pub fn shortest_path_unweighted_directed(
 
 /// Fast internal implementation for directed graphs.
 fn shortest_path_unweighted_directed_fast(
+    digraph: &DiGraph,
+    source: &str,
+    target: &str,
+) -> Option<Vec<String>> {
+    shortest_path_unweighted_directed_fast_impl(digraph, source, target, true)
+}
+
+fn shortest_path_unweighted_directed_fast_impl(
+    digraph: &DiGraph,
+    source: &str,
+    target: &str,
+    direct_edge_fast_path: bool,
+) -> Option<Vec<String>> {
+    // br-r37-c1-spudidx (cc): integer-index single-source→single-target BFS, mirror of the
+    // already-shipped undirected `shortest_path_unweighted_fast`. The old kernel kept `visited`
+    // as HashSet<&str> and `predecessor` as HashMap<&str,&str> and walked `successors_iter`
+    // (String hash on every visit/insert over the O(|V|+|E|) frontier). Walk `successors_indices`
+    // over a Vec<bool> visited + Vec<Option<usize>> predecessor; names are materialised only for
+    // the O(path) reconstructed path. Byte-identical: same adjacency-order successor discovery,
+    // same first-visit predecessor tree, same early exit at `target` → the same node sequence.
+    let source_idx = digraph.get_node_index(source)?;
+    let target_idx = digraph.get_node_index(target)?;
+
+    if source_idx == target_idx {
+        return Some(vec![source.to_owned()]);
+    }
+
+    // br-r37-c1-zlapg: mirror the proven undirected one-hop bypass. The
+    // out-degree guard avoids an extra edge-map probe on path/cycle-like rows.
+    if direct_edge_fast_path
+        && digraph
+            .successors_indices(source_idx)
+            .is_some_and(|successors| successors.len() > 2)
+        && digraph.has_edge(source, target)
+    {
+        return Some(vec![source.to_owned(), target.to_owned()]);
+    }
+
+    let n = digraph.node_count();
+    let mut visited = vec![false; n];
+    let mut predecessor: Vec<Option<usize>> = vec![None; n];
+    let mut queue: VecDeque<usize> = VecDeque::new();
+
+    visited[source_idx] = true;
+    queue.push_back(source_idx);
+
+    while let Some(current) = queue.pop_front() {
+        if let Some(successors) = digraph.successors_indices(current) {
+            for &nbr in successors {
+                if !visited[nbr] {
+                    visited[nbr] = true;
+                    predecessor[nbr] = Some(current);
+                    queue.push_back(nbr);
+
+                    if nbr == target_idx {
+                        let mut path = Vec::new();
+                        let mut cur = nbr;
+                        loop {
+                            path.push(digraph.get_node_name(cur)?.to_owned());
+                            if cur == source_idx {
+                                break;
+                            }
+                            cur = predecessor[cur]?;
+                        }
+                        path.reverse();
+                        return Some(path);
+                    }
+                }
+            }
+        }
+    }
+
+    None
+}
+
+/// br-r37-c1-spudidx A/B baseline: the pre-lever `shortest_path_unweighted_directed_fast` that
+/// kept `visited`/`predecessor` String-keyed and walked `successors_iter`. Test-only;
+/// byte-identical to the shipped integer-index version.
+#[cfg(test)]
+fn shortest_path_unweighted_directed_fast_orig_string(
     digraph: &DiGraph,
     source: &str,
     target: &str,
@@ -2504,12 +2617,110 @@ pub fn single_source_shortest_path_index(
     result
 }
 
+/// Index-space core of [`single_source_shortest_path_directed`] (br-r37-c1-ssspdiridx).
+/// Directed mirror of [`single_source_shortest_path_index`]: BFS over `successors_indices`
+/// with a `Vec<Option<usize>>` predecessor tree, reconstructing paths from indices at the
+/// end. Returns `(target_idx, path_indices)` pairs in BFS discovery order.
+#[must_use]
+pub fn single_source_shortest_path_directed_index(
+    digraph: &DiGraph,
+    source: &str,
+    cutoff: Option<usize>,
+) -> Vec<(usize, Vec<usize>)> {
+    let n = digraph.node_count();
+
+    let Some(source_idx) = digraph.get_node_index(source) else {
+        return Vec::new();
+    };
+
+    let mut visited = vec![false; n];
+    let mut predecessors: Vec<Option<usize>> = vec![None; n];
+    let mut discovery_order: Vec<usize> = Vec::with_capacity(n);
+
+    visited[source_idx] = true;
+    discovery_order.push(source_idx);
+    let mut frontier: Vec<usize> = vec![source_idx];
+    let mut level = 0usize;
+
+    while !frontier.is_empty() {
+        if let Some(c) = cutoff
+            && level >= c
+        {
+            break;
+        }
+        let mut next_frontier: Vec<usize> = Vec::new();
+        for &node_idx in &frontier {
+            if let Some(successor_indices) = digraph.successors_indices(node_idx) {
+                for &nbr_idx in successor_indices {
+                    if !visited[nbr_idx] {
+                        visited[nbr_idx] = true;
+                        predecessors[nbr_idx] = Some(node_idx);
+                        discovery_order.push(nbr_idx);
+                        next_frontier.push(nbr_idx);
+                    }
+                }
+            }
+        }
+        frontier = next_frontier;
+        level += 1;
+    }
+
+    let mut result: Vec<(usize, Vec<usize>)> = Vec::with_capacity(discovery_order.len());
+    for &target_idx in &discovery_order {
+        let mut path_indices: Vec<usize> = Vec::new();
+        let mut current_idx = target_idx;
+
+        loop {
+            path_indices.push(current_idx);
+            if current_idx == source_idx {
+                break;
+            }
+            let Some(parent_idx) = predecessors[current_idx] else {
+                break;
+            };
+            current_idx = parent_idx;
+        }
+
+        path_indices.reverse();
+        result.push((target_idx, path_indices));
+    }
+
+    result
+}
+
 /// Return all shortest paths from a single source for a directed graph (unweighted, BFS).
 ///
 /// Returns (node, path) pairs in BFS discovery order.
 /// `cutoff` limits the search depth (None = no limit).
 #[must_use]
 pub fn single_source_shortest_path_directed(
+    digraph: &DiGraph,
+    source: &str,
+    cutoff: Option<usize>,
+) -> Vec<(String, Vec<String>)> {
+    // br-r37-c1-ssspdiridx (cc): the old kernel kept `paths` as a HashMap<String,Vec<String>>
+    // and CLONED the parent's full path (`paths[node].clone()`) plus a second clone into
+    // `result` for every discovered node — O(|V|·depth) String allocations on top of the
+    // String-hashing `successors_iter` walk. Delegate to the integer-index core (mirror of the
+    // undirected path) and materialise names once per node. Byte-identical: same adjacency-order
+    // successor discovery, same first-visit predecessor tree, same BFS discovery order.
+    let nodes = digraph.nodes_ordered();
+    single_source_shortest_path_directed_index(digraph, source, cutoff)
+        .into_iter()
+        .map(|(target, path)| {
+            (
+                nodes[target].to_owned(),
+                path.into_iter().map(|i| nodes[i].to_owned()).collect(),
+            )
+        })
+        .collect()
+}
+
+/// br-r37-c1-ssspdiridx A/B baseline: the pre-lever `single_source_shortest_path_directed` that
+/// kept `paths` String-keyed and cloned the full path per node. Test-only; byte-identical to the
+/// shipped integer-index version.
+#[cfg(test)]
+fn single_source_shortest_path_directed_orig_string(
     digraph: &DiGraph,
     source: &str,
     cutoff: Option<usize>,
@@ -2720,10 +2931,385 @@ pub fn single_source_shortest_path_length_directed_with_parents(
         .collect()
 }
 
+// ---------------------------------------------------------------------------
+// Parallel indexed all-pairs unweighted shortest-path lengths
+// ---------------------------------------------------------------------------
+
+/// Flat immutable adjacency shared by every all-pairs BFS source.
+///
+/// The graph classes intentionally preserve insertion-ordered neighbor rows.
+/// Concatenating those rows into CSR therefore changes only their physical
+/// layout, not the order in which any source discovers nodes.
+struct AllPairsBfsCsr {
+    offsets: Vec<usize>,
+    targets: Vec<usize>,
+}
+
+impl AllPairsBfsCsr {
+    fn from_rows<'a>(rows: impl Iterator<Item = &'a [usize]>, node_count: usize) -> Self {
+        let mut offsets = Vec::with_capacity(node_count + 1);
+        let mut targets = Vec::new();
+        offsets.push(0);
+        for row in rows {
+            targets.extend_from_slice(row);
+            offsets.push(targets.len());
+        }
+        debug_assert_eq!(offsets.len(), node_count + 1);
+        Self { offsets, targets }
+    }
+
+    #[inline]
+    fn neighbors(&self, node: usize) -> &[usize] {
+        &self.targets[self.offsets[node]..self.offsets[node + 1]]
+    }
+}
+
+/// Per-rayon-worker state for ordered BFS. Epoch marks avoid clearing an O(V)
+/// visited bitmap before every source; a worker pays that clear only after
+/// roughly four billion sources.
+struct AllPairsBfsScratch {
+    seen_epoch: Vec<u32>,
+    epoch: u32,
+    frontier: Vec<usize>,
+    next_frontier: Vec<usize>,
+}
+
+impl AllPairsBfsScratch {
+    fn new(node_count: usize) -> Self {
+        Self {
+            seen_epoch: vec![0; node_count],
+            epoch: 0,
+            frontier: Vec::with_capacity(node_count),
+            next_frontier: Vec::with_capacity(node_count),
+        }
+    }
+
+    fn next_epoch(&mut self) -> u32 {
+        if self.epoch == u32::MAX {
+            self.seen_epoch.fill(0);
+            self.epoch = 1;
+        } else {
+            self.epoch += 1;
+        }
+        self.epoch
+    }
+}
+
+fn all_pairs_bfs_source(
+    scratch: &mut AllPairsBfsScratch,
+    csr: &AllPairsBfsCsr,
+    source: usize,
+    cutoff: Option<usize>,
+) -> (usize, Vec<(usize, usize)>) {
+    let epoch = scratch.next_epoch();
+    scratch.frontier.clear();
+    scratch.next_frontier.clear();
+    scratch.seen_epoch[source] = epoch;
+    scratch.frontier.push(source);
+
+    // NetworkX inserts the source first, then each newly discovered level in
+    // frontier order and neighbor insertion order. Each source stays serial,
+    // so source-parallel execution preserves this sequence exactly.
+    let mut lengths = Vec::with_capacity(csr.offsets.len().saturating_sub(1));
+    lengths.push((source, 0));
+    let mut level = 0usize;
+    'search: while !scratch.frontier.is_empty() {
+        if cutoff.is_some_and(|limit| level >= limit) {
+            break;
+        }
+        scratch.next_frontier.clear();
+        for &node in &scratch.frontier {
+            for &neighbor in csr.neighbors(node) {
+                if scratch.seen_epoch[neighbor] != epoch {
+                    scratch.seen_epoch[neighbor] = epoch;
+                    lengths.push((neighbor, level + 1));
+                    scratch.next_frontier.push(neighbor);
+                    // Once every node has been discovered, all distances and
+                    // insertion positions are final. Do not drain the rest of
+                    // this row/frontier or rescan every edge from the last
+                    // level merely to prove that no unseen node remains.
+                    if lengths.len() == csr.offsets.len() - 1 {
+                        break 'search;
+                    }
+                }
+            }
+        }
+        std::mem::swap(&mut scratch.frontier, &mut scratch.next_frontier);
+        level += 1;
+    }
+    (source, lengths)
+}
+
+fn all_pairs_shortest_path_length_indexed_csr(
+    csr: &AllPairsBfsCsr,
+    node_count: usize,
+    cutoff: Option<usize>,
+) -> Vec<(usize, Vec<(usize, usize)>)> {
+    // Below this work floor rayon setup costs more than the edge scans it can
+    // remove. Cutoff zero never traverses an edge and is always kept serial.
+    const PARALLEL_MIN_SOURCES: usize = 128;
+    const PARALLEL_MIN_EDGE_SCANS: usize = 1 << 18;
+    let estimated_edge_scans = csr.targets.len().saturating_mul(node_count);
+    if node_count >= PARALLEL_MIN_SOURCES
+        && cutoff != Some(0)
+        && estimated_edge_scans >= PARALLEL_MIN_EDGE_SCANS
+    {
+        use rayon::prelude::*;
+        (0..node_count)
+            .into_par_iter()
+            .map_init(
+                || AllPairsBfsScratch::new(node_count),
+                |scratch, source| all_pairs_bfs_source(scratch, csr, source, cutoff),
+            )
+            .collect()
+    } else {
+        let mut scratch = AllPairsBfsScratch::new(node_count);
+        (0..node_count)
+            .map(|source| all_pairs_bfs_source(&mut scratch, csr, source, cutoff))
+            .collect()
+    }
+}
+
+fn shortest_path_length_matrix_source(
+    scratch: &mut AllPairsBfsScratch,
+    csr: &AllPairsBfsCsr,
+    source: usize,
+    cutoff: Option<usize>,
+    row: &mut [i32],
+) {
+    let node_count = row.len();
+    debug_assert!(source < node_count);
+    let epoch = scratch.next_epoch();
+    scratch.frontier.clear();
+    scratch.next_frontier.clear();
+    scratch.seen_epoch[source] = epoch;
+    scratch.frontier.push(source);
+    row[source] = 0;
+
+    let mut reached = 1usize;
+    let mut level = 0usize;
+    'search: while !scratch.frontier.is_empty() && reached < node_count {
+        if cutoff.is_some_and(|limit| level >= limit) {
+            break;
+        }
+        scratch.next_frontier.clear();
+        let next_distance = i32::try_from(level + 1).unwrap_or(i32::MAX);
+        for &node in &scratch.frontier {
+            for &neighbor in csr.neighbors(node) {
+                if scratch.seen_epoch[neighbor] != epoch {
+                    scratch.seen_epoch[neighbor] = epoch;
+                    row[neighbor] = next_distance;
+                    scratch.next_frontier.push(neighbor);
+                    reached += 1;
+                    if reached == node_count {
+                        break 'search;
+                    }
+                }
+            }
+        }
+        std::mem::swap(&mut scratch.frontier, &mut scratch.next_frontier);
+        level += 1;
+    }
+}
+
+fn shortest_path_length_matrix_indexed_csr(
+    csr: &AllPairsBfsCsr,
+    node_count: usize,
+    sources: &[usize],
+    cutoff: Option<usize>,
+) -> Vec<i32> {
+    if node_count == 0 || sources.is_empty() {
+        return Vec::new();
+    }
+    debug_assert!(sources.iter().all(|&source| source < node_count));
+
+    let mut matrix = vec![-1; sources.len().saturating_mul(node_count)];
+    // Dense output makes even modest source batches worth distributing: every
+    // worker writes an independent cache-contiguous row while sharing one
+    // immutable CSR. Cutoff zero performs no edge scan and stays serial.
+    const PARALLEL_MIN_SOURCES: usize = 4;
+    const PARALLEL_MIN_EDGE_SCANS: usize = 1 << 17;
+    let estimated_edge_scans = csr.targets.len().saturating_mul(sources.len());
+    if sources.len() >= PARALLEL_MIN_SOURCES
+        && cutoff != Some(0)
+        && estimated_edge_scans >= PARALLEL_MIN_EDGE_SCANS
+    {
+        use rayon::prelude::*;
+        matrix
+            .par_chunks_mut(node_count)
+            .zip(sources.par_iter().copied())
+            .for_each_init(
+                || AllPairsBfsScratch::new(node_count),
+                |scratch, (row, source)| {
+                    shortest_path_length_matrix_source(scratch, csr, source, cutoff, row);
+                },
+            );
+    } else {
+        let mut scratch = AllPairsBfsScratch::new(node_count);
+        for (row, &source) in matrix.chunks_mut(node_count).zip(sources) {
+            shortest_path_length_matrix_source(&mut scratch, csr, source, cutoff, row);
+        }
+    }
+    matrix
+}
+
+/// One source's distance histogram plus exact work counters. A histogram is
+/// enough for scalar distance analytics: BFS emits targets level-by-level, so
+/// replaying `count[level]` identical addends retains the original floating
+/// addition sequence without materializing an O(V^2) distance matrix.
+fn all_pairs_bfs_histogram_source(
+    scratch: &mut AllPairsBfsScratch,
+    csr: &AllPairsBfsCsr,
+    source: usize,
+) -> (Vec<usize>, usize, usize) {
+    let node_count = csr.offsets.len().saturating_sub(1);
+    let epoch = scratch.next_epoch();
+    scratch.frontier.clear();
+    scratch.next_frontier.clear();
+    scratch.seen_epoch[source] = epoch;
+    scratch.frontier.push(source);
+
+    let mut histogram = vec![1usize];
+    let mut reached = 1usize;
+    let mut edges_scanned = 0usize;
+    let mut queue_peak = 1usize;
+    while !scratch.frontier.is_empty() && reached < node_count {
+        scratch.next_frontier.clear();
+        'level: for &node in &scratch.frontier {
+            for &neighbor in csr.neighbors(node) {
+                edges_scanned += 1;
+                if scratch.seen_epoch[neighbor] != epoch {
+                    scratch.seen_epoch[neighbor] = epoch;
+                    scratch.next_frontier.push(neighbor);
+                    reached += 1;
+                    if reached == node_count {
+                        break 'level;
+                    }
+                }
+            }
+        }
+        if scratch.next_frontier.is_empty() {
+            break;
+        }
+        queue_peak = queue_peak.max(scratch.next_frontier.len());
+        histogram.push(scratch.next_frontier.len());
+        std::mem::swap(&mut scratch.frontier, &mut scratch.next_frontier);
+    }
+    (histogram, edges_scanned, queue_peak)
+}
+
+fn all_sources_bfs_histograms(
+    csr: &AllPairsBfsCsr,
+    node_count: usize,
+) -> Vec<(Vec<usize>, usize, usize)> {
+    const PARALLEL_MIN_SOURCES: usize = 128;
+    const PARALLEL_MIN_EDGE_SCANS: usize = 1 << 18;
+    let estimated_edge_scans = csr.targets.len().saturating_mul(node_count);
+    if node_count >= PARALLEL_MIN_SOURCES && estimated_edge_scans >= PARALLEL_MIN_EDGE_SCANS {
+        use rayon::prelude::*;
+        (0..node_count)
+            .into_par_iter()
+            .map_init(
+                || AllPairsBfsScratch::new(node_count),
+                |scratch, source| all_pairs_bfs_histogram_source(scratch, csr, source),
+            )
+            .collect()
+    } else {
+        let mut scratch = AllPairsBfsScratch::new(node_count);
+        (0..node_count)
+            .map(|source| all_pairs_bfs_histogram_source(&mut scratch, csr, source))
+            .collect()
+    }
+}
+
+/// All-pairs unweighted distances indexed by graph insertion order.
+///
+/// Outer sources and each inner row retain exact NetworkX BFS insertion order.
+#[must_use]
+pub fn all_pairs_shortest_path_length_indexed(
+    graph: &Graph,
+    cutoff: Option<usize>,
+) -> Vec<(usize, Vec<(usize, usize)>)> {
+    let node_count = graph.node_count();
+    let csr = AllPairsBfsCsr::from_rows(
+        (0..node_count).map(|node| graph.neighbors_indices(node).unwrap_or(&[])),
+        node_count,
+    );
+    all_pairs_shortest_path_length_indexed_csr(&csr, node_count, cutoff)
+}
+
+/// Directed counterpart of [`all_pairs_shortest_path_length_indexed`].
+#[must_use]
+pub fn all_pairs_shortest_path_length_directed_indexed(
+    digraph: &DiGraph,
+    cutoff: Option<usize>,
+) -> Vec<(usize, Vec<(usize, usize)>)> {
+    let node_count = digraph.node_count();
+    let csr = AllPairsBfsCsr::from_rows(
+        (0..node_count).map(|node| digraph.successors_indices(node).unwrap_or(&[])),
+        node_count,
+    );
+    all_pairs_shortest_path_length_indexed_csr(&csr, node_count, cutoff)
+}
+
+/// Dense multi-source unweighted distances indexed by graph insertion order.
+///
+/// Rows follow `sources`, columns follow `Graph::nodes_ordered`, and `-1`
+/// denotes an unreachable node. Every source is independent, so sufficiently
+/// large batches run in parallel over one shared immutable CSR.
+#[must_use]
+pub fn shortest_path_length_matrix_indexed(
+    graph: &Graph,
+    sources: &[usize],
+    cutoff: Option<usize>,
+) -> Vec<i32> {
+    let node_count = graph.node_count();
+    let csr = AllPairsBfsCsr::from_rows(
+        (0..node_count).map(|node| graph.neighbors_indices(node).unwrap_or(&[])),
+        node_count,
+    );
+    shortest_path_length_matrix_indexed_csr(&csr, node_count, sources, cutoff)
+}
+
+/// Directed counterpart of [`shortest_path_length_matrix_indexed`].
+#[must_use]
+pub fn shortest_path_length_matrix_directed_indexed(
+    digraph: &DiGraph,
+    sources: &[usize],
+    cutoff: Option<usize>,
+) -> Vec<i32> {
+    let node_count = digraph.node_count();
+    let csr = AllPairsBfsCsr::from_rows(
+        (0..node_count).map(|node| digraph.successors_indices(node).unwrap_or(&[])),
+        node_count,
+    );
+    shortest_path_length_matrix_indexed_csr(&csr, node_count, sources, cutoff)
+}
+
 #[must_use]
 pub fn connected_components(graph: &Graph) -> ComponentsResult {
+    connected_components_arm(graph, ConnectedComponentsQueueArm::VecHead)
+}
+
+/// Queue implementation selector retained for same-binary performance proofs.
+///
+/// `VecHead` is the production path resurrected from the 2026-07-10 ledger:
+/// a preallocated `Vec<usize>` with a monotonic head cursor. `VecDeque` is the
+/// frozen baseline. Both arms execute the same monomorphized traversal body,
+/// including CGSE decisions and witness accounting.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ConnectedComponentsQueueArm {
+    VecDeque,
+    VecHead,
+}
+
+#[must_use]
+pub fn connected_components_arm(
+    graph: &Graph,
+    arm: ConnectedComponentsQueueArm,
+) -> ComponentsResult {
     let (components, nodes_touched, edges_scanned, queue_peak) =
-        connected_components_borrowed(graph);
+        connected_components_borrowed_arm(graph, arm);
     let owned: Vec<Vec<String>> = components
         .into_iter()
         .map(|comp| comp.into_iter().map(str::to_owned).collect())
@@ -2754,6 +3340,99 @@ pub fn connected_components(graph: &Graph) -> ComponentsResult {
 ///
 /// Returns `(components, nodes_touched, edges_scanned, queue_peak)`.
 pub fn connected_components_borrowed(graph: &Graph) -> (Vec<Vec<&str>>, usize, usize, usize) {
+    connected_components_borrowed_with_queue::<VecHeadQueue>(graph)
+}
+
+fn connected_components_borrowed_arm(
+    graph: &Graph,
+    arm: ConnectedComponentsQueueArm,
+) -> (Vec<Vec<&str>>, usize, usize, usize) {
+    match arm {
+        ConnectedComponentsQueueArm::VecDeque => {
+            connected_components_borrowed_with_queue::<VecDeque<usize>>(graph)
+        }
+        ConnectedComponentsQueueArm::VecHead => {
+            connected_components_borrowed_with_queue::<VecHeadQueue>(graph)
+        }
+    }
+}
+
+trait ComponentsQueue {
+    fn for_node_count(node_count: usize) -> Self;
+    fn clear(&mut self);
+    fn push(&mut self, node: usize);
+    fn pop(&mut self) -> Option<usize>;
+    fn len(&self) -> usize;
+}
+
+impl ComponentsQueue for VecDeque<usize> {
+    #[inline]
+    fn for_node_count(_node_count: usize) -> Self {
+        Self::new()
+    }
+
+    #[inline]
+    fn clear(&mut self) {
+        VecDeque::clear(self);
+    }
+
+    #[inline]
+    fn push(&mut self, node: usize) {
+        self.push_back(node);
+    }
+
+    #[inline]
+    fn pop(&mut self) -> Option<usize> {
+        self.pop_front()
+    }
+
+    #[inline]
+    fn len(&self) -> usize {
+        VecDeque::len(self)
+    }
+}
+
+struct VecHeadQueue {
+    nodes: Vec<usize>,
+    head: usize,
+}
+
+impl ComponentsQueue for VecHeadQueue {
+    #[inline]
+    fn for_node_count(node_count: usize) -> Self {
+        Self {
+            nodes: Vec::with_capacity(node_count),
+            head: 0,
+        }
+    }
+
+    #[inline]
+    fn clear(&mut self) {
+        self.nodes.clear();
+        self.head = 0;
+    }
+
+    #[inline]
+    fn push(&mut self, node: usize) {
+        self.nodes.push(node);
+    }
+
+    #[inline]
+    fn pop(&mut self) -> Option<usize> {
+        let node = self.nodes.get(self.head).copied()?;
+        self.head += 1;
+        Some(node)
+    }
+
+    #[inline]
+    fn len(&self) -> usize {
+        self.nodes.len() - self.head
+    }
+}
+
+fn connected_components_borrowed_with_queue<Q: ComponentsQueue>(
+    graph: &Graph,
+) -> (Vec<Vec<&str>>, usize, usize, usize) {
     let mut cgse_sink = cgse_begin(CgseReferenceAlgorithm::ConnectedComponents);
     let nodes: Vec<&str> = graph.nodes_ordered();
     let n = nodes.len();
@@ -2771,7 +3450,7 @@ pub fn connected_components_borrowed(graph: &Graph) -> (Vec<Vec<&str>>, usize, u
     let mut nodes_touched = 0usize;
     let mut edges_scanned = 0usize;
     let mut queue_peak = 0usize;
-    let mut queue: VecDeque<usize> = VecDeque::new();
+    let mut queue = Q::for_node_count(n);
 
     for start_idx in 0..n {
         if visited[start_idx] {
@@ -2780,14 +3459,14 @@ pub fn connected_components_borrowed(graph: &Graph) -> (Vec<Vec<&str>>, usize, u
 
         queue.clear();
         let mut component: Vec<&str> = Vec::new();
-        queue.push_back(start_idx);
+        queue.push(start_idx);
         visited[start_idx] = true;
         component.push(nodes[start_idx]);
         cgse_record_decision(&mut cgse_sink, nodes[start_idx], "component_root");
         nodes_touched += 1;
         queue_peak = queue_peak.max(queue.len());
 
-        while let Some(current_idx) = queue.pop_front() {
+        while let Some(current_idx) = queue.pop() {
             // Use integer-indexed adjacency for O(1) neighbor traversal.
             let Some(neighbor_indices) = graph.neighbors_indices(current_idx) else {
                 continue;
@@ -2797,7 +3476,7 @@ pub fn connected_components_borrowed(graph: &Graph) -> (Vec<Vec<&str>>, usize, u
                 edges_scanned += 1;
                 if !visited[nbr_idx] {
                     visited[nbr_idx] = true;
-                    queue.push_back(nbr_idx);
+                    queue.push(nbr_idx);
                     component.push(nodes[nbr_idx]);
                     cgse_record_decision(&mut cgse_sink, nodes[nbr_idx], nodes[current_idx]);
                     nodes_touched += 1;
@@ -3333,6 +4012,258 @@ pub fn harmonic_centrality_directed(graph: &DiGraph) -> HarmonicCentralityResult
     harmonic_centrality_generic(graph)
 }
 
+/// Compute harmonic centrality while replaying sources in an explicit order.
+///
+/// NetworkX accumulates each target's score in its outer `sources` set order:
+/// one forward BFS per source, then `centrality[target] += 1 / distance`.
+/// Floating-point addition is not associative, so the level-grouped kernels
+/// below can differ by one ULP even though they discover identical distances.
+/// Python bindings use this entry point with the exact CPython set iteration
+/// order to preserve observable NetworkX values.
+#[must_use]
+pub fn harmonic_centrality_source_ordered(
+    graph: &Graph,
+    sources: &[&str],
+) -> HarmonicCentralityResult {
+    harmonic_centrality_source_ordered_generic(graph, sources)
+}
+
+/// Directed counterpart of [`harmonic_centrality_source_ordered`].
+#[must_use]
+pub fn harmonic_centrality_directed_source_ordered(
+    graph: &DiGraph,
+    sources: &[&str],
+) -> HarmonicCentralityResult {
+    harmonic_centrality_source_ordered_generic(graph, sources)
+}
+
+fn harmonic_centrality_source_ordered_generic<G: GraphView>(
+    graph: &G,
+    sources: &[&str],
+) -> HarmonicCentralityResult {
+    harmonic_centrality_source_ordered_impl(graph, sources, true)
+}
+
+/// `allow_gather = false` pins the serial scatter, so the parallel gather can be
+/// differentially tested against the exact code path it replaces.
+fn harmonic_centrality_source_ordered_impl<G: GraphView>(
+    graph: &G,
+    sources: &[&str],
+    allow_gather: bool,
+) -> HarmonicCentralityResult {
+    let nodes = graph.nodes_ordered();
+    let n = nodes.len();
+    let mut harmonic = vec![0.0_f64; n];
+    let mut seen_source = vec![false; n];
+    let mut distance = vec![usize::MAX; n];
+    let mut queue = VecDeque::new();
+    let mut nodes_touched = 0usize;
+    let mut edges_scanned = 0usize;
+    let mut queue_peak = 0usize;
+
+    // br-r37-c1-hgather: SCATTER -> GATHER, which is what makes this parallel.
+    //
+    // The loop below is a scatter: each source's forward BFS does
+    // `harmonic[target] += 1/d` into every target it reaches. Every source writes
+    // every accumulator, so the sources cannot be split across threads — not just
+    // for the obvious data-race reason, but because f64 addition is not
+    // associative and nx's ORDER is precisely what this entry point exists to
+    // preserve. That is why harmonic gave up the bit-parallel kernel for parity
+    // and became the whole-job bottleneck (75.8% of fnx runtime, cpu/wall 1.00).
+    //
+    // Inverting the loop recovers the parallelism WITHOUT touching the order. For
+    // one target `u`, nx's addend sequence is `1/d(v,u)` for v in `sources` order.
+    // A single REVERSE BFS from `u` yields `d(v,u)` for every v at once, so that
+    // whole sequence can be replayed by one thread that owns `harmonic[u]` alone.
+    // Targets are then independent and rayon splits them. The addends per target,
+    // and their order, are bit-for-bit what the scatter produces — verified in
+    // Python against nx on both a connected and a disconnected graph (0/800 and
+    // 0/1200 nodes differ) and asserted here by `harmonic_gather_matches_scatter`.
+    //
+    // Reverse (not forward) BFS is what makes this correct for DIGRAPHS too:
+    // `in_neighbors_indices` gives distances INTO `u`, which is the direction nx
+    // accumulates. On an undirected graph it coincides with forward BFS.
+    //
+    // Gated on `src_idx.len() == n`: with a strict source SUBSET the scatter runs
+    // |sources| traversals while the gather would run n, so inverting would be a
+    // pessimisation. The Python binding always passes every node, which is the
+    // case that matters.
+    let src_idx = {
+        let mut seen = vec![false; n];
+        let mut idx = Vec::with_capacity(sources.len().min(n));
+        for &source in sources {
+            if let Some(i) = graph.get_node_index(source)
+                && !seen[i]
+            {
+                seen[i] = true;
+                idx.push(i);
+            }
+        }
+        idx
+    };
+
+    if allow_gather
+        && n >= CENTRALITY_PARALLEL_THRESHOLD
+        && src_idx.len() == n
+        && let Some(rows) = (0..n)
+            .map(|u| graph.in_neighbors_indices(u))
+            .collect::<Option<Vec<&[usize]>>>()
+    {
+        use rayon::prelude::*;
+
+        // br-r37-c1-harmbp: this reverse BFS only ACQUIRES distances; the
+        // accumulation below is what owns nx parity. So the traversal can be made
+        // cache-friendly without touching a single f64 addition:
+        //
+        //   * `rows` is a `Vec<&[usize]>` — one pointer chase per node visited.
+        //     Flatten it once into a u32 CSR and the inner loop becomes a
+        //     contiguous array scan. Same rows, same order, so the BFS visits
+        //     neighbours in an unchanged sequence.
+        //   * `distance` was `Vec<usize>` and is refilled for every target: at
+        //     n=17903 that is a 143 KiB memset per target, ~2.6 GiB across the
+        //     run. u32 halves it and halves the traffic of every probe.
+        //   * `VecDeque` becomes a `Vec` with a head index, matching the Brandes
+        //     kernel — BFS never needs to push at the front.
+        //
+        // Same treatment that took Brandes 1.37-1.54x (br-r37-c1-bcsr); the
+        // harmonic gather had the identical shape.
+        let (csr_offsets, csr_targets) = build_u32_csr(n, |u| rows[u]);
+        const UNREACHED: u32 = u32::MAX;
+        let per_target: Vec<(f64, usize, usize, usize)> = (0..n)
+            .into_par_iter()
+            .map_init(
+                || (vec![UNREACHED; n], Vec::<u32>::with_capacity(n)),
+                |(distance, queue): &mut (Vec<u32>, Vec<u32>), u| {
+                    distance.fill(UNREACHED);
+                    queue.clear();
+                    distance[u] = 0;
+                    queue.push(u as u32);
+                    let (mut touched, mut edges, mut peak) = (0usize, 0usize, 1usize);
+
+                    let mut head = 0usize;
+                    while head < queue.len() {
+                        let v = queue[head] as usize;
+                        head += 1;
+                        touched += 1;
+                        let d = distance[v];
+                        let lo = csr_offsets[v] as usize;
+                        let hi = csr_offsets[v + 1] as usize;
+                        for &target in &csr_targets[lo..hi] {
+                            let w = target as usize;
+                            edges += 1;
+                            if distance[w] == UNREACHED {
+                                distance[w] = d + 1;
+                                queue.push(w as u32);
+                            }
+                        }
+                        peak = peak.max(queue.len() - head);
+                    }
+
+                    // nx's exact addend sequence for target `u`: sources in their
+                    // given order, skipping self (d == 0) and unreached sources,
+                    // which is precisely what the scatter's `if d != 0` and
+                    // "only reached targets" behaviour amount to. UNCHANGED — the
+                    // whole point of the rewrite above is that it stops here.
+                    let mut acc = 0.0_f64;
+                    for &s in &src_idx {
+                        let d = distance[s];
+                        if d != UNREACHED && d != 0 {
+                            acc += 1.0 / (f64::from(d));
+                        }
+                    }
+                    (acc, touched, edges, peak)
+                },
+            )
+            .collect();
+
+        let mut scores = Vec::with_capacity(n);
+        for (u, (score, touched, edges, peak)) in per_target.into_iter().enumerate() {
+            nodes_touched += touched;
+            edges_scanned += edges;
+            queue_peak = queue_peak.max(peak);
+            scores.push(CentralityScore {
+                node: nodes[u].to_owned(),
+                score,
+            });
+        }
+        return HarmonicCentralityResult {
+            scores,
+            witness: ComplexityWitness {
+                algorithm: "harmonic_centrality".to_owned(),
+                complexity_claim: "O(|V| * (|V| + |E|))".to_owned(),
+                // Counted over reverse traversals rather than forward ones. The
+                // reachable-ordered-pair total is identical either way; the edge
+                // count is the in-edge view of the same sweeps.
+                nodes_touched,
+                edges_scanned,
+                queue_peak,
+            },
+        };
+    }
+
+    for &source in sources {
+        let Some(source_idx) = graph.get_node_index(source) else {
+            continue;
+        };
+        if seen_source[source_idx] {
+            continue;
+        }
+        seen_source[source_idx] = true;
+        distance.fill(usize::MAX);
+        queue.clear();
+        distance[source_idx] = 0;
+        queue.push_back(source_idx);
+        queue_peak = queue_peak.max(1);
+
+        while let Some(u) = queue.pop_front() {
+            nodes_touched += 1;
+            let d = distance[u];
+            if d != 0 {
+                harmonic[u] += 1.0 / (d as f64);
+            }
+
+            if let Some(neighbors) = graph.neighbors_indices(u) {
+                for &v in neighbors {
+                    edges_scanned += 1;
+                    if distance[v] == usize::MAX {
+                        distance[v] = d + 1;
+                        queue.push_back(v);
+                    }
+                }
+            } else if let Some(neighbors) = graph.neighbors_iter(nodes[u]) {
+                for neighbor in neighbors {
+                    edges_scanned += 1;
+                    if let Some(v) = graph.get_node_index(neighbor)
+                        && distance[v] == usize::MAX
+                    {
+                        distance[v] = d + 1;
+                        queue.push_back(v);
+                    }
+                }
+            }
+            queue_peak = queue_peak.max(queue.len());
+        }
+    }
+
+    HarmonicCentralityResult {
+        scores: nodes
+            .into_iter()
+            .zip(harmonic)
+            .map(|(node, score)| CentralityScore {
+                node: node.to_owned(),
+                score,
+            })
+            .collect(),
+        witness: ComplexityWitness {
+            algorithm: "harmonic_centrality".to_owned(),
+            complexity_claim: "O(|V| * (|V| + |E|))".to_owned(),
+            nodes_touched,
+            edges_scanned,
+            queue_peak,
+        },
+    }
+}
+
 /// Bench/test-only entry point pinning one arm. Results are identical across arms.
 #[doc(hidden)]
 #[must_use]
@@ -3348,6 +4279,14 @@ fn harmonic_centrality_generic_arm<G: GraphView>(
     graph: &G,
     arm: BitparArm,
 ) -> HarmonicCentralityResult {
+    harmonic_centrality_generic_arm_impl(graph, arm, true)
+}
+
+fn harmonic_centrality_generic_arm_impl<G: GraphView>(
+    graph: &G,
+    arm: BitparArm,
+    edgeless_fast_path: bool,
+) -> HarmonicCentralityResult {
     let nodes = graph.nodes_ordered();
     let n = nodes.len();
     if n == 0 {
@@ -3359,6 +4298,34 @@ fn harmonic_centrality_generic_arm<G: GraphView>(
                 nodes_touched: 0,
                 edges_scanned: 0,
                 queue_peak: 0,
+            },
+        };
+    }
+
+    // Below the parallel threshold the old path always enters one bit-parallel
+    // batch. With no edges that batch can only mark every source as reaching
+    // itself, so construct the identical result directly and avoid its CSR plus
+    // O(V^2 / 64) bit-matrix setup. Keep forced `PerSource` available as the
+    // frozen pre-change arm for differential tests and foreground A/B evidence.
+    if edgeless_fast_path
+        && arm != BitparArm::PerSource
+        && n < CENTRALITY_PARALLEL_THRESHOLD
+        && graph.edge_count() == 0
+    {
+        return HarmonicCentralityResult {
+            scores: nodes
+                .into_iter()
+                .map(|node| CentralityScore {
+                    node: node.to_owned(),
+                    score: 0.0,
+                })
+                .collect(),
+            witness: ComplexityWitness {
+                algorithm: "harmonic_centrality".to_owned(),
+                complexity_claim: "O(|V| * (|V| + |E|))".to_owned(),
+                nodes_touched: n,
+                edges_scanned: 0,
+                queue_peak: n,
             },
         };
     }
@@ -4631,22 +5598,56 @@ pub fn betweenness_centrality_sampled_directed_with_params(
     betweenness_centrality_sampled_generic(graph, sources, normalized, endpoints)
 }
 
+/// Transpose a `u32` CSR: row `w` of the result lists every `v` whose forward row
+/// contains `w`, with multiplicity. On an undirected graph that reproduces the
+/// same neighbour multiset; on a directed one it yields in-neighbours. Counting
+/// sort, O(|V| + |E|), so one uniform construction serves both — no
+/// `is_directed` branch, and no second walk over the graph API.
+fn transpose_u32_csr(offsets: &[u32], targets: &[u32], n: usize) -> (Vec<u32>, Vec<u32>) {
+    let mut counts = vec![0u32; n + 1];
+    for &t in targets {
+        counts[t as usize + 1] += 1;
+    }
+    for i in 0..n {
+        counts[i + 1] += counts[i];
+    }
+    let rev_offsets = counts.clone();
+    let mut cursor = counts;
+    let mut rev_targets = vec![0u32; targets.len()];
+    for v in 0..n {
+        let lo = offsets[v] as usize;
+        let hi = offsets[v + 1] as usize;
+        for &w in &targets[lo..hi] {
+            let slot = &mut cursor[w as usize];
+            rev_targets[*slot as usize] = v as u32;
+            *slot += 1;
+        }
+    }
+    (rev_offsets, rev_targets)
+}
+
 /// Reusable per-worker scratch buffers for one Brandes single-source pass.
 /// Allocated once per rayon worker (via `map_init`) and cleared per source so
 /// the parallel path matches the sequential path's allocation profile.
+///
+/// br-r37-c1-bcsr: there is deliberately **no predecessor structure** here. The
+/// classical Brandes formulation keeps a `Vec<Vec<usize>>` of per-node
+/// predecessor lists, which costs `n` heap rows cleared on every one of the `n`
+/// sources (`n^2` pointer-chasing clears) plus a push per tree edge. The
+/// dependency phase re-derives the same predecessor set instead, by scanning
+/// `w`'s reverse CSR row for `distance[v] == distance[w] - 1` — a contiguous
+/// array scan that allocates nothing. See `brandes_source_delta`.
 struct BrandesScratch {
-    predecessors: Vec<Vec<usize>>,
     sigma: Vec<f64>,
     distance: Vec<i64>,
     dependency: Vec<f64>,
-    stack: Vec<usize>,
-    queue: Vec<usize>,
+    stack: Vec<u32>,
+    queue: Vec<u32>,
 }
 
 impl BrandesScratch {
     fn new(n: usize) -> Self {
         Self {
-            predecessors: std::iter::repeat_with(Vec::<usize>::new).take(n).collect(),
             sigma: vec![0.0; n],
             distance: vec![-1i64; n],
             dependency: vec![0.0; n],
@@ -4664,13 +5665,15 @@ impl BrandesScratch {
 /// queue_peak)`.
 fn brandes_source_delta(
     scratch: &mut BrandesScratch,
-    adjacency: &[Vec<usize>],
+    out_offsets: &[u32],
+    out_targets: &[u32],
+    in_offsets: &[u32],
+    in_targets: &[u32],
     s: usize,
     endpoints: bool,
     n: usize,
 ) -> (Vec<f64>, usize, usize, usize) {
     let BrandesScratch {
-        predecessors,
         sigma,
         distance,
         dependency,
@@ -4679,9 +5682,6 @@ fn brandes_source_delta(
     } = scratch;
 
     stack.clear();
-    for predecessor_list in predecessors.iter_mut() {
-        predecessor_list.clear();
-    }
     sigma.fill(0.0);
     distance.fill(-1);
     dependency.fill(0.0);
@@ -4694,26 +5694,30 @@ fn brandes_source_delta(
     distance[s] = 0;
 
     let mut queue_head = 0usize;
-    queue.push(s);
+    queue.push(s as u32);
     queue_peak = queue_peak.max(queue.len());
 
+    // BFS over the forward CSR. The row order is exactly the order the previous
+    // `Vec<Vec<usize>>` build produced, so `sigma[w] += sigma_v` accumulates in
+    // an unchanged sequence and the counts stay bit-identical.
     while queue_head < queue.len() {
-        let v = queue[queue_head];
+        let v = queue[queue_head] as usize;
         queue_head += 1;
-        stack.push(v);
+        stack.push(v as u32);
         let next_dist = distance[v] + 1;
         let sigma_v = sigma[v];
-        for &w in &adjacency[v] {
+        let lo = out_offsets[v] as usize;
+        let hi = out_offsets[v + 1] as usize;
+        for &target in &out_targets[lo..hi] {
+            let w = target as usize;
             edges_scanned += 1;
             if distance[w] < 0 {
                 distance[w] = next_dist;
-                queue.push(w);
+                queue.push(w as u32);
                 queue_peak = queue_peak.max(queue.len() - queue_head);
                 sigma[w] += sigma_v;
-                predecessors[w].push(v);
             } else if distance[w] == next_dist {
                 sigma[w] += sigma_v;
-                predecessors[w].push(v);
             }
         }
     }
@@ -4723,12 +5727,33 @@ fn brandes_source_delta(
     if endpoints {
         delta[s] += stack.len().saturating_sub(1) as f64;
     }
-    while let Some(w) = stack.pop() {
+    while let Some(popped) = stack.pop() {
+        let w = popped as usize;
         let sigma_w = sigma[w];
         let delta_w = dependency[w];
-        if sigma_w > 0.0 {
-            for &v in &predecessors[w] {
-                dependency[v] += (sigma[v] / sigma_w) * (1.0 + delta_w);
+        let dist_w = distance[w];
+        // Predecessors of `w` are exactly its in-neighbours one BFS level up.
+        // Recovering them by scan rather than by stored list is bit-exact: for a
+        // fixed `w` every `v` in the row is a DISTINCT accumulator (and a repeated
+        // `v` from a parallel edge contributes an identical addend), so the order
+        // within the row cannot change any sum. What DOES matter is the order the
+        // `w`s are popped, and that is untouched.
+        //
+        // `dist_w > 0` excludes the source, whose predecessor list is empty, and
+        // stops the `dist_w - 1 == -1` probe from matching unreached nodes, which
+        // carry `distance == -1`.
+        if sigma_w > 0.0 && dist_w > 0 {
+            let pred_dist = dist_w - 1;
+            let lo = in_offsets[w] as usize;
+            let hi = in_offsets[w + 1] as usize;
+            for &source in &in_targets[lo..hi] {
+                let v = source as usize;
+                if distance[v] == pred_dist {
+                    // Keep this expression literally as-is: hoisting the division
+                    // to `sigma[v] * ((1.0 + delta_w) / sigma_w)` is a different
+                    // f64 rounding and would break byte-identity with NetworkX.
+                    dependency[v] += (sigma[v] / sigma_w) * (1.0 + delta_w);
+                }
             }
         }
         if w != s {
@@ -4737,6 +5762,34 @@ fn brandes_source_delta(
     }
 
     (delta, edges_scanned, nodes_touched, queue_peak)
+}
+
+/// Build the forward CSR Brandes traverses plus the reverse CSR its dependency
+/// phase scans, from the same `neighbors_iter` + `get_node_index` walk the
+/// `Vec<Vec<usize>>` adjacency used. Building the forward rows from the identical
+/// source keeps the BFS neighbour order — and therefore the float summation
+/// order — provably unchanged.
+fn brandes_build_csr<G: GraphView>(
+    graph: &G,
+    nodes: &[&str],
+) -> (Vec<u32>, Vec<u32>, Vec<u32>, Vec<u32>) {
+    let n = nodes.len();
+    let mut offsets = Vec::with_capacity(n + 1);
+    let mut targets: Vec<u32> = Vec::new();
+    offsets.push(0u32);
+    for &node in nodes {
+        if let Some(neighbors) = graph.neighbors_iter(node) {
+            for neighbor in neighbors {
+                let idx = graph
+                    .get_node_index(neighbor)
+                    .expect("graph neighbor must exist in node index");
+                targets.push(idx as u32);
+            }
+        }
+        offsets.push(targets.len() as u32);
+    }
+    let (in_offsets, in_targets) = transpose_u32_csr(&offsets, &targets, n);
+    (offsets, targets, in_offsets, in_targets)
 }
 
 fn betweenness_centrality_sampled_generic<G: GraphView>(
@@ -4766,22 +5819,7 @@ fn betweenness_centrality_sampled_generic<G: GraphView>(
         .filter_map(|source| graph.get_node_index(source))
         .collect();
 
-    let adjacency = nodes
-        .iter()
-        .map(|&node| {
-            let mut indexed_neighbors = Vec::with_capacity(graph.neighbor_count(node));
-            if let Some(neighbors) = graph.neighbors_iter(node) {
-                for neighbor in neighbors {
-                    indexed_neighbors.push(
-                        graph
-                            .get_node_index(neighbor)
-                            .expect("graph neighbor must exist in node index"),
-                    );
-                }
-            }
-            indexed_neighbors
-        })
-        .collect::<Vec<Vec<usize>>>();
+    let (out_offsets, out_targets, in_offsets, in_targets) = brandes_build_csr(graph, &nodes);
 
     let mut centrality = vec![0.0; n];
     let mut total_nodes_touched = 0usize;
@@ -4802,7 +5840,16 @@ fn betweenness_centrality_sampled_generic<G: GraphView>(
                 .map_init(
                     || BrandesScratch::new(n),
                     |scratch, &source| {
-                        brandes_source_delta(scratch, &adjacency, source, endpoints, n)
+                        brandes_source_delta(
+                            scratch,
+                            &out_offsets,
+                            &out_targets,
+                            &in_offsets,
+                            &in_targets,
+                            source,
+                            endpoints,
+                            n,
+                        )
                     },
                 )
                 .collect();
@@ -4820,8 +5867,16 @@ fn betweenness_centrality_sampled_generic<G: GraphView>(
     } else {
         let mut scratch = BrandesScratch::new(n);
         for &source in &source_idx {
-            let (delta, src_edges, src_touched, src_peak) =
-                brandes_source_delta(&mut scratch, &adjacency, source, endpoints, n);
+            let (delta, src_edges, src_touched, src_peak) = brandes_source_delta(
+                &mut scratch,
+                &out_offsets,
+                &out_targets,
+                &in_offsets,
+                &in_targets,
+                source,
+                endpoints,
+                n,
+            );
             for (acc, contribution) in centrality.iter_mut().zip(delta.iter()) {
                 *acc += *contribution;
             }
@@ -4901,10 +5956,76 @@ fn betweenness_centrality_sampled_generic<G: GraphView>(
     }
 }
 
+/// Which reduction the parallel Brandes arm uses to fold per-source deltas into
+/// the global score. Both are order-preserving and produce byte-identical
+/// results; they differ only in how the fold is scheduled.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[doc(hidden)]
+pub enum BrandesReduce {
+    /// Threshold on `n` (the default production behaviour).
+    Auto,
+    /// One thread walks every source's delta row in source order.
+    Serial,
+    /// Disjoint node blocks folded concurrently; each block still sees its
+    /// sources in increasing order, so no f64 sum is reassociated.
+    Parallel,
+}
+
+/// Bench/test-only entry point pinning one reduction arm. Results are identical
+/// across arms; see `brandes_reduce_ab`.
+#[doc(hidden)]
+#[must_use]
+pub fn betweenness_centrality_reduce_arm(
+    graph: &Graph,
+    normalized: bool,
+    endpoints: bool,
+    reduce: BrandesReduce,
+) -> BetweennessCentralityResult {
+    betweenness_centrality_brandes_arm(graph, normalized, endpoints, reduce)
+}
+
 fn betweenness_centrality_generic<G: GraphView>(
     graph: &G,
     normalized: bool,
     endpoints: bool,
+) -> BetweennessCentralityResult {
+    if graph.edge_count() == 0 && std::env::var_os("PERF_SPANS").is_none() {
+        let nodes = graph.nodes_ordered();
+        let n = nodes.len();
+        return BetweennessCentralityResult {
+            scores: nodes
+                .into_iter()
+                .map(|node| CentralityScore {
+                    node: node.to_owned(),
+                    score: 0.0,
+                })
+                .collect(),
+            witness: ComplexityWitness {
+                algorithm: "brandes_betweenness_centrality".to_owned(),
+                complexity_claim: "O(|V| * |E|)".to_owned(),
+                nodes_touched: n,
+                edges_scanned: 0,
+                queue_peak: usize::from(n > 0),
+            },
+        };
+    }
+
+    betweenness_centrality_brandes(graph, normalized, endpoints)
+}
+
+fn betweenness_centrality_brandes<G: GraphView>(
+    graph: &G,
+    normalized: bool,
+    endpoints: bool,
+) -> BetweennessCentralityResult {
+    betweenness_centrality_brandes_arm(graph, normalized, endpoints, BrandesReduce::Auto)
+}
+
+fn betweenness_centrality_brandes_arm<G: GraphView>(
+    graph: &G,
+    normalized: bool,
+    endpoints: bool,
+    reduce: BrandesReduce,
 ) -> BetweennessCentralityResult {
     let nodes = graph.nodes_ordered();
     let n = nodes.len();
@@ -4934,22 +6055,7 @@ fn betweenness_centrality_generic<G: GraphView>(
     let mut accum_ns: u128 = 0;
     let mut alloc_ns: u128 = 0;
 
-    let adjacency = nodes
-        .iter()
-        .map(|&node| {
-            let mut indexed_neighbors = Vec::with_capacity(graph.neighbor_count(node));
-            if let Some(neighbors) = graph.neighbors_iter(node) {
-                for neighbor in neighbors {
-                    indexed_neighbors.push(
-                        graph
-                            .get_node_index(neighbor)
-                            .expect("graph neighbor must exist in node index"),
-                    );
-                }
-            }
-            indexed_neighbors
-        })
-        .collect::<Vec<Vec<usize>>>();
+    let (out_offsets, out_targets, in_offsets, in_targets) = brandes_build_csr(graph, &nodes);
 
     // Parallel Brandes: for large graphs, fan the per-source O(|E|) passes out
     // over rayon workers, then reduce the per-source delta vectors into the
@@ -4965,6 +6071,9 @@ fn betweenness_centrality_generic<G: GraphView>(
         let bytes_per_delta = n.max(1).saturating_mul(std::mem::size_of::<f64>());
         let chunk = (64 * 1024 * 1024 / bytes_per_delta).clamp(1, n);
 
+        // One slab for the whole call, reused chunk to chunk: the per-source
+        // `vec![0.0; n]` is gone, so the allocator sees O(1) requests instead of
+        // O(n).
         let mut start = 0usize;
         while start < n {
             let end = (start + chunk).min(n);
@@ -4972,26 +6081,83 @@ fn betweenness_centrality_generic<G: GraphView>(
                 .into_par_iter()
                 .map_init(
                     || BrandesScratch::new(n),
-                    |scratch, s| brandes_source_delta(scratch, &adjacency, s, endpoints, n),
+                    |scratch, s| {
+                        brandes_source_delta(
+                            scratch,
+                            &out_offsets,
+                            &out_targets,
+                            &in_offsets,
+                            &in_targets,
+                            s,
+                            endpoints,
+                            n,
+                        )
+                    },
                 )
                 .collect();
 
-            // Reduce in source order (the collected Vec is already ordered by s).
-            for (delta, src_edges, src_touched, src_peak) in chunk_results {
-                for (acc, contribution) in centrality.iter_mut().zip(delta.iter()) {
-                    *acc += *contribution;
+            // Fold the chunk's per-source deltas into the global score IN SOURCE
+            // ORDER (the collected Vec is already ordered by s), so the f64
+            // summation order — and therefore the result — matches the sequential
+            // path byte for byte.
+            //
+            // Two schedulings, identical arithmetic. The serial fold walks whole
+            // rows one source at a time. The parallel fold splits the NODE axis
+            // into disjoint blocks: for any fixed target `w` the addends still
+            // arrive in increasing source order, only independent `w`s go to
+            // different threads, so nothing is reassociated. Blocking also keeps
+            // the accumulator slice resident while the source rows stream past it.
+            //
+            // br-r37-c1-bcsr measured the parallel fold at n=3000 and it LOST
+            // (delta row 24 KiB, allocator-recycled and L2-resident; the fold is a
+            // negligible slice of a kernel already running at cpu/wall 42). The
+            // retry predicate recorded then was "reopen when the delta rows exceed
+            // last-level cache anyway", and the ca-AstroPh whole-job profile
+            // satisfies it: n=17903 makes each row 143 KiB and the fold 320M adds.
+            // Hence the threshold rather than a flat choice — see `brandes_reduce_ab`.
+            const REDUCE_PARALLEL_MIN_N: usize = 8192;
+            const REDUCE_BLOCK: usize = 2048;
+            let parallel_reduce = match reduce {
+                BrandesReduce::Auto => n >= REDUCE_PARALLEL_MIN_N,
+                BrandesReduce::Serial => false,
+                BrandesReduce::Parallel => true,
+            };
+
+            if parallel_reduce {
+                let rows = &chunk_results;
+                centrality
+                    .par_chunks_mut(REDUCE_BLOCK)
+                    .enumerate()
+                    .for_each(|(block_idx, block)| {
+                        let base = block_idx * REDUCE_BLOCK;
+                        let width = block.len();
+                        for (delta, _, _, _) in rows.iter() {
+                            for (acc, contribution) in
+                                block.iter_mut().zip(&delta[base..base + width])
+                            {
+                                *acc += *contribution;
+                            }
+                        }
+                    });
+                for (_, src_edges, src_touched, src_peak) in &chunk_results {
+                    edges_scanned += *src_edges;
+                    total_nodes_touched += *src_touched;
+                    queue_peak = queue_peak.max(*src_peak);
                 }
-                edges_scanned += src_edges;
-                total_nodes_touched += src_touched;
-                queue_peak = queue_peak.max(src_peak);
+            } else {
+                for (delta, src_edges, src_touched, src_peak) in chunk_results {
+                    for (acc, contribution) in centrality.iter_mut().zip(delta.iter()) {
+                        *acc += *contribution;
+                    }
+                    edges_scanned += src_edges;
+                    total_nodes_touched += src_touched;
+                    queue_peak = queue_peak.max(src_peak);
+                }
             }
             start = end;
         }
     } else {
         let mut stack = Vec::<usize>::with_capacity(n);
-        let mut predecessors = std::iter::repeat_with(Vec::<usize>::new)
-            .take(n)
-            .collect::<Vec<_>>();
         let mut sigma = vec![0.0; n];
         let mut distance = vec![-1i64; n];
         let mut dependency = vec![0.0; n];
@@ -5004,9 +6170,6 @@ fn betweenness_centrality_generic<G: GraphView>(
                 None
             };
             stack.clear();
-            for predecessor_list in &mut predecessors {
-                predecessor_list.clear();
-            }
             sigma.fill(0.0);
             distance.fill(-1);
             dependency.fill(0.0);
@@ -5034,7 +6197,10 @@ fn betweenness_centrality_generic<G: GraphView>(
                 let dist_v = distance[v];
                 let next_dist = dist_v + 1;
                 let sigma_v = sigma[v];
-                for &w in &adjacency[v] {
+                let lo = out_offsets[v] as usize;
+                let hi = out_offsets[v + 1] as usize;
+                for &target in &out_targets[lo..hi] {
+                    let w = target as usize;
                     edges_scanned += 1;
 
                     if distance[w] < 0 {
@@ -5042,10 +6208,8 @@ fn betweenness_centrality_generic<G: GraphView>(
                         queue.push(w);
                         queue_peak = queue_peak.max(queue.len() - queue_head);
                         sigma[w] += sigma_v;
-                        predecessors[w].push(v);
                     } else if distance[w] == next_dist {
                         sigma[w] += sigma_v;
-                        predecessors[w].push(v);
                     }
                 }
             }
@@ -5065,9 +6229,18 @@ fn betweenness_centrality_generic<G: GraphView>(
             while let Some(w) = stack.pop() {
                 let sigma_w = sigma[w];
                 let delta_w = dependency[w];
-                if sigma_w > 0.0 {
-                    for &v in &predecessors[w] {
-                        dependency[v] += (sigma[v] / sigma_w) * (1.0 + delta_w);
+                let dist_w = distance[w];
+                // Same predecessor-by-scan recovery as `brandes_source_delta`; see
+                // the correctness note there.
+                if sigma_w > 0.0 && dist_w > 0 {
+                    let pred_dist = dist_w - 1;
+                    let lo = in_offsets[w] as usize;
+                    let hi = in_offsets[w + 1] as usize;
+                    for &source in &in_targets[lo..hi] {
+                        let v = source as usize;
+                        if distance[v] == pred_dist {
+                            dependency[v] += (sigma[v] / sigma_w) * (1.0 + delta_w);
+                        }
                     }
                 }
                 if w != s {
@@ -5711,27 +6884,90 @@ pub fn edge_betweenness_centrality_directed(graph: &DiGraph) -> EdgeBetweennessC
 }
 
 /// Reusable per-worker scratch for one edge-Brandes single-source pass.
-/// `predecessors[w]` holds `(v, edge_index)` pairs so the dependency loop has the
-/// canonical edge index in hand — no per-step string build / hash lookup.
+/// br-r37-c1-ebcsr: like `BrandesScratch`, this carries NO predecessor structure.
+/// The dependency phase re-derives `w`'s predecessors by scanning its reverse-CSR
+/// row for `distance[v] == distance[w] - 1`, which removes `n` heap rows cleared
+/// on each of `n` sources plus a push per tree edge. See `edge_brandes_source`.
 struct EdgeBrandesScratch {
-    predecessors: Vec<Vec<(usize, usize)>>,
     sigma: Vec<f64>,
     distance: Vec<i64>,
     dependency: Vec<f64>,
-    stack: Vec<usize>,
-    queue: VecDeque<usize>,
+    stack: Vec<u32>,
+    queue: Vec<u32>,
 }
 
 impl EdgeBrandesScratch {
     fn new(n: usize) -> Self {
         Self {
-            predecessors: std::iter::repeat_with(Vec::new).take(n).collect(),
             sigma: vec![0.0; n],
             distance: vec![-1i64; n],
             dependency: vec![0.0; n],
             stack: Vec::with_capacity(n),
-            queue: VecDeque::new(),
+            queue: Vec::with_capacity(n),
         }
+    }
+}
+
+/// Flatten `(neighbor, edge_index)` adjacency into a CSR carrying the edge-index
+/// payload, plus its transpose. Row order is preserved exactly, so the BFS visits
+/// neighbours in an unchanged sequence and `sigma[w] += sigma[v]` associates
+/// identically. The transpose is a counting sort, O(|V| + |E|); on an undirected
+/// graph it reproduces the same neighbour multiset, on a directed one it yields
+/// in-neighbours — the direction the dependency phase needs.
+struct EdgeBrandesCsr {
+    /// Forward rows: `out_targets[k]` is a neighbour, `out_eidx[k]` its canonical
+    /// edge id, in the graph's own neighbour-iteration order.
+    out_offsets: Vec<u32>,
+    out_targets: Vec<u32>,
+    /// Reverse rows carrying the same edge-id payload, so the dependency phase
+    /// has `(v, eidx)` in hand without a stored predecessor list.
+    in_offsets: Vec<u32>,
+    in_sources: Vec<u32>,
+    in_eidx: Vec<u32>,
+}
+
+fn edge_brandes_build_csr(adjacency: &[Vec<(usize, usize)>], n: usize) -> EdgeBrandesCsr {
+    let total: usize = adjacency.iter().map(Vec::len).sum();
+    let mut out_offsets = Vec::with_capacity(n + 1);
+    let mut out_targets: Vec<u32> = Vec::with_capacity(total);
+    let mut out_eidx: Vec<u32> = Vec::with_capacity(total);
+    out_offsets.push(0u32);
+    for row in adjacency.iter().take(n) {
+        for &(w, eidx) in row {
+            out_targets.push(w as u32);
+            out_eidx.push(eidx as u32);
+        }
+        out_offsets.push(out_targets.len() as u32);
+    }
+
+    let mut counts = vec![0u32; n + 1];
+    for &t in &out_targets {
+        counts[t as usize + 1] += 1;
+    }
+    for i in 0..n {
+        counts[i + 1] += counts[i];
+    }
+    let in_offsets = counts.clone();
+    let mut cursor = counts;
+    let mut in_sources = vec![0u32; total];
+    let mut in_eidx = vec![0u32; total];
+    for v in 0..n {
+        let lo = out_offsets[v] as usize;
+        let hi = out_offsets[v + 1] as usize;
+        for k in lo..hi {
+            let w = out_targets[k] as usize;
+            let slot = &mut cursor[w];
+            in_sources[*slot as usize] = v as u32;
+            in_eidx[*slot as usize] = out_eidx[k];
+            *slot += 1;
+        }
+    }
+    EdgeBrandesCsr {
+        out_offsets,
+        out_targets,
+        in_offsets,
+        in_sources,
+        in_eidx,
     }
 }
 
@@ -5743,12 +6979,18 @@ impl EdgeBrandesScratch {
 /// Returns `(delta, edges_scanned, nodes_touched, queue_peak)`.
 fn edge_brandes_source(
     scratch: &mut EdgeBrandesScratch,
-    adjacency: &[Vec<(usize, usize)>],
+    csr: &EdgeBrandesCsr,
     n_edges: usize,
     s: usize,
 ) -> (Vec<f64>, usize, usize, usize) {
+    let EdgeBrandesCsr {
+        out_offsets,
+        out_targets,
+        in_offsets,
+        in_sources,
+        in_eidx,
+    } = csr;
     let EdgeBrandesScratch {
-        predecessors,
         sigma,
         distance,
         dependency,
@@ -5757,9 +6999,6 @@ fn edge_brandes_source(
     } = scratch;
 
     stack.clear();
-    for predecessor_list in predecessors.iter_mut() {
-        predecessor_list.clear();
-    }
     sigma.fill(0.0);
     distance.fill(-1);
     dependency.fill(0.0);
@@ -5770,36 +7009,57 @@ fn edge_brandes_source(
 
     sigma[s] = 1.0;
     distance[s] = 0;
-    queue.push_back(s);
+    queue.push(s as u32);
     queue_peak = queue_peak.max(queue.len());
 
-    while let Some(v) = queue.pop_front() {
-        stack.push(v);
+    let mut head = 0usize;
+    while head < queue.len() {
+        let v = queue[head] as usize;
+        head += 1;
+        stack.push(v as u32);
         let dist_v = distance[v];
-        for &(w, eidx) in &adjacency[v] {
+        let lo = out_offsets[v] as usize;
+        let hi = out_offsets[v + 1] as usize;
+        for &target in &out_targets[lo..hi] {
+            let w = target as usize;
             edges_scanned += 1;
             if distance[w] < 0 {
                 distance[w] = dist_v + 1;
-                queue.push_back(w);
-                queue_peak = queue_peak.max(queue.len());
+                queue.push(w as u32);
+                queue_peak = queue_peak.max(queue.len() - head);
             }
             if distance[w] == dist_v + 1 {
                 sigma[w] += sigma[v];
-                predecessors[w].push((v, eidx));
             }
         }
     }
 
     let nodes_touched = stack.len();
     let mut delta = vec![0.0f64; n_edges];
-    while let Some(w) = stack.pop() {
+    while let Some(popped) = stack.pop() {
+        let w = popped as usize;
         let sigma_w = sigma[w];
         let delta_w = dependency[w];
-        if sigma_w > 0.0 {
-            for &(v, eidx) in &predecessors[w] {
-                let contribution = (sigma[v] / sigma_w) * (1.0 + delta_w);
-                delta[eidx] += contribution;
-                dependency[v] += contribution;
+        let dist_w = distance[w];
+        // Predecessors of `w` are its in-neighbours one BFS level up, recovered by
+        // scan instead of from a stored list. Bit-exact: for a fixed `w` the
+        // distinct predecessors carry distinct `v` AND distinct `eidx`, so both
+        // accumulators are written once each and the order within the row cannot
+        // change either sum. Parallel edges repeat a `v` with an identical addend,
+        // which is likewise order-invariant. `dist_w > 0` excludes the source
+        // (empty predecessor list) and stops the `dist_w - 1 == -1` probe from
+        // matching unreached nodes.
+        if sigma_w > 0.0 && dist_w > 0 {
+            let pred_dist = dist_w - 1;
+            let lo = in_offsets[w] as usize;
+            let hi = in_offsets[w + 1] as usize;
+            for k in lo..hi {
+                let v = in_sources[k] as usize;
+                if distance[v] == pred_dist {
+                    let contribution = (sigma[v] / sigma_w) * (1.0 + delta_w);
+                    delta[in_eidx[k] as usize] += contribution;
+                    dependency[v] += contribution;
+                }
             }
         }
     }
@@ -5808,6 +7068,24 @@ fn edge_brandes_source(
 }
 
 fn edge_betweenness_centrality_generic<G: GraphView>(graph: &G) -> EdgeBetweennessCentralityResult {
+    if graph.edge_count() == 0 {
+        let n = graph.node_count();
+        return EdgeBetweennessCentralityResult {
+            scores: Vec::new(),
+            witness: ComplexityWitness {
+                algorithm: "brandes_edge_betweenness_centrality".to_owned(),
+                complexity_claim: "O(|V| * |E|)".to_owned(),
+                nodes_touched: n,
+                edges_scanned: 0,
+                queue_peak: usize::from(n > 0),
+            },
+        };
+    }
+
+    edge_betweenness_centrality_brandes(graph)
+}
+
+fn edge_betweenness_centrality_brandes<G: GraphView>(graph: &G) -> EdgeBetweennessCentralityResult {
     let nodes = graph.nodes_ordered();
     let n = nodes.len();
     if n == 0 {
@@ -5862,6 +7140,7 @@ fn edge_betweenness_centrality_generic<G: GraphView>(graph: &G) -> EdgeBetweenne
         adjacency.push(row);
     }
     let n_edges = edge_endpoints.len();
+    let edge_csr = edge_brandes_build_csr(&adjacency, n);
 
     let mut edge_total = vec![0.0f64; n_edges];
     let mut nodes_touched = 0usize;
@@ -5885,7 +7164,7 @@ fn edge_betweenness_centrality_generic<G: GraphView>(graph: &G) -> EdgeBetweenne
                 .into_par_iter()
                 .map_init(
                     || EdgeBrandesScratch::new(n),
-                    |scratch, s| edge_brandes_source(scratch, &adjacency, n_edges, s),
+                    |scratch, s| edge_brandes_source(scratch, &edge_csr, n_edges, s),
                 )
                 .collect();
             for (delta, src_edges, src_touched, src_peak) in chunk_results {
@@ -5902,7 +7181,7 @@ fn edge_betweenness_centrality_generic<G: GraphView>(graph: &G) -> EdgeBetweenne
         let mut scratch = EdgeBrandesScratch::new(n);
         for s in 0..n {
             let (delta, src_edges, src_touched, src_peak) =
-                edge_brandes_source(&mut scratch, &adjacency, n_edges, s);
+                edge_brandes_source(&mut scratch, &edge_csr, n_edges, s);
             for (acc, contribution) in edge_total.iter_mut().zip(delta.iter()) {
                 *acc += *contribution;
             }
@@ -7473,6 +8752,63 @@ pub fn minimum_cut_edmonds_karp_directed(
 }
 
 pub fn minimum_st_edge_cut_edmonds_karp(
+    graph: &Graph,
+    source: &str,
+    sink: &str,
+    capacity_attr: &str,
+) -> Result<EdgeCutResult, FlowError> {
+    let cut = minimum_cut_edmonds_karp(graph, source, sink, capacity_attr)?;
+    let source_partition = cut.source_partition;
+    let sink_partition = cut.sink_partition;
+
+    // br-r37-c1-a273b: partitions cover every graph node, so one source-side
+    // index mark is sufficient to identify crossing edges. The previous
+    // projection cloned every partition name and both endpoints of every edge,
+    // then performed four String HashSet probes per edge.
+    let mut in_source_partition = vec![false; graph.node_count()];
+    for node in &source_partition {
+        let node_index = graph
+            .get_node_index(node)
+            .expect("minimum-cut partition node must exist in the graph");
+        in_source_partition[node_index] = true;
+    }
+
+    let mut cut_edges = Vec::<(String, String)>::new();
+    let mut cut_edges_scanned = 0usize;
+    for (left_index, right_index) in graph.edges_ordered_indices() {
+        cut_edges_scanned += 1;
+        if in_source_partition[left_index] == in_source_partition[right_index] {
+            continue;
+        }
+        let left = graph
+            .get_node_name(left_index)
+            .expect("stored edge endpoint must exist in the graph");
+        let right = graph
+            .get_node_name(right_index)
+            .expect("stored edge endpoint must exist in the graph");
+        let (canonical_left, canonical_right) = canonical_undirected_edge(left, right);
+        cut_edges.push((canonical_left, canonical_right));
+    }
+    cut_edges.sort_unstable();
+    cut_edges.dedup();
+
+    Ok(EdgeCutResult {
+        value: cut.value,
+        cut_edges,
+        source_partition,
+        sink_partition,
+        witness: ComplexityWitness {
+            algorithm: "edmonds_karp_minimum_st_edge_cut".to_owned(),
+            complexity_claim: "O(|V| * |E|^2)".to_owned(),
+            nodes_touched: cut.witness.nodes_touched,
+            edges_scanned: cut.witness.edges_scanned + cut_edges_scanned,
+            queue_peak: cut.witness.queue_peak,
+        },
+    })
+}
+
+#[cfg(test)]
+fn minimum_st_edge_cut_edmonds_karp_string_projection_baseline(
     graph: &Graph,
     source: &str,
     sink: &str,
@@ -9073,6 +10409,23 @@ fn edge_weight_or_default(graph: &Graph, left: &str, right: &str, weight_attr: &
         .unwrap_or(1.0)
 }
 
+/// br-r37-c1-aspwidx: index-keyed twin of `edge_weight_or_default` — IDENTICAL semantics
+/// (default 1.0, `is_finite && >= 0.0` filter) but resolves the edge via `edge_attrs_by_indices`
+/// (no node-map String probes). Bit-identical weight for the same (left_idx, right_idx) endpoints.
+fn edge_weight_or_default_idx(
+    graph: &Graph,
+    left_idx: usize,
+    right_idx: usize,
+    weight_attr: &str,
+) -> f64 {
+    graph
+        .edge_attrs_by_indices(left_idx, right_idx)
+        .and_then(|attrs| attrs.get(weight_attr))
+        .and_then(|val| val.as_f64())
+        .filter(|value| value.is_finite() && *value >= 0.0)
+        .unwrap_or(1.0)
+}
+
 fn weight_value_or_default_typed(raw: Option<&CgseValue>) -> (f64, bool) {
     match raw {
         None => (1.0, true),
@@ -9276,6 +10629,46 @@ fn stable_hash_hex(input: &[u8]) -> String {
     format!("{hash:016x}")
 }
 
+/// One node's contribution to the `u < v < w` triangle census.
+///
+/// Split out of [`clustering_coefficient`] so the serial and fanned-out scans
+/// run byte-identical inner logic; `in_neighborhood` is left all-false on
+/// return so a worker can reuse one mark array across its whole range.
+#[inline]
+fn clustering_census_node(
+    graph: &Graph,
+    u: usize,
+    tri: &mut [usize],
+    in_neighborhood: &mut [bool],
+    edges_scanned: &mut usize,
+) {
+    let nbrs_u = graph.neighbors_indices(u).unwrap_or(&[]);
+    for &x in nbrs_u {
+        if x != u {
+            in_neighborhood[x] = true;
+        }
+    }
+    for &v in nbrs_u {
+        if v > u
+            && let Some(nbrs_v) = graph.neighbors_indices(v)
+        {
+            for &w in nbrs_v {
+                if w > v && in_neighborhood[w] {
+                    *edges_scanned += 1;
+                    tri[u] += 1;
+                    tri[v] += 1;
+                    tri[w] += 1;
+                }
+            }
+        }
+    }
+    for &x in nbrs_u {
+        if x != u {
+            in_neighborhood[x] = false;
+        }
+    }
+}
+
 #[must_use]
 pub fn clustering_coefficient(graph: &Graph) -> ClusteringCoefficientResult {
     let nodes = graph.nodes_ordered();
@@ -9314,36 +10707,59 @@ pub fn clustering_coefficient(graph: &Graph) -> ClusteringCoefficientResult {
     for &d in &deg {
         total_triples += d * d.saturating_sub(1);
     }
-    let mut tri = vec![0usize; n];
-    let mut in_neighborhood = vec![false; n];
-    let mut edges_scanned = 0usize;
-    for u in 0..n {
-        let nbrs_u = graph.neighbors_indices(u).unwrap_or(&[]);
-        for &x in nbrs_u {
-            if x != u {
-                in_neighborhood[x] = true;
-            }
-        }
-        for &v in nbrs_u {
-            if v > u
-                && let Some(nbrs_v) = graph.neighbors_indices(v)
-            {
-                for &w in nbrs_v {
-                    if w > v && in_neighborhood[w] {
-                        edges_scanned += 1;
-                        tri[u] += 1;
-                        tri[v] += 1;
-                        tri[w] += 1;
-                    }
+    // The census is a scatter over INTEGER counters, so splitting the `u` range
+    // across workers and summing the per-worker count vectors is bit-identical
+    // to the serial scan — integer addition is associative and exact. Only the
+    // census fans out: `scores` and `average_clustering` are still built in
+    // index order below, so the f64 summation order that defines the public
+    // value is untouched. NetworkX cannot take this path at all; its triangle
+    // census is a Python loop serialised by the GIL.
+    let (tri, edges_scanned) = if n >= CENTRALITY_PARALLEL_THRESHOLD {
+        use rayon::prelude::*;
+        // Each worker owns a full-width count vector plus a mark array; cap the
+        // worker count so that scratch stays bounded on very large graphs.
+        let bytes_per_worker = n.saturating_mul(std::mem::size_of::<usize>() + 1).max(1);
+        let workers = rayon::current_num_threads()
+            .min((256 * 1024 * 1024 / bytes_per_worker).max(1))
+            .max(1);
+        let span = n.div_ceil(workers);
+        (0..workers)
+            .into_par_iter()
+            .map(|worker| {
+                let lo = worker.saturating_mul(span);
+                let hi = lo.saturating_add(span).min(n);
+                let mut tri_local = vec![0usize; n];
+                let mut in_neighborhood = vec![false; n];
+                let mut scanned = 0usize;
+                for u in lo..hi {
+                    clustering_census_node(
+                        graph,
+                        u,
+                        &mut tri_local,
+                        &mut in_neighborhood,
+                        &mut scanned,
+                    );
                 }
-            }
+                (tri_local, scanned)
+            })
+            .reduce(
+                || (vec![0usize; n], 0usize),
+                |(mut acc_tri, acc_scanned), (part_tri, part_scanned)| {
+                    for (acc, part) in acc_tri.iter_mut().zip(part_tri.iter()) {
+                        *acc += *part;
+                    }
+                    (acc_tri, acc_scanned + part_scanned)
+                },
+            )
+    } else {
+        let mut tri = vec![0usize; n];
+        let mut in_neighborhood = vec![false; n];
+        let mut scanned = 0usize;
+        for u in 0..n {
+            clustering_census_node(graph, u, &mut tri, &mut in_neighborhood, &mut scanned);
         }
-        for &x in nbrs_u {
-            if x != u {
-                in_neighborhood[x] = false;
-            }
-        }
-    }
+        (tri, scanned)
+    };
     let mut total_triangles = 0usize;
     let mut scores = Vec::with_capacity(n);
     for (idx, node) in nodes.iter().enumerate() {
@@ -9384,6 +10800,102 @@ pub fn clustering_coefficient(graph: &Graph) -> ClusteringCoefficientResult {
             queue_peak: 0,
         },
     }
+}
+
+/// Triangles incident on `u` under the `u < v < w` ordering, counted three
+/// times (once per vertex) so the caller's total matches the materializing
+/// kernel's `sum(tri)` exactly.
+///
+/// `in_neighborhood` is left all-false on return so one worker can reuse a
+/// single mark array across its whole range.
+#[inline]
+fn transitivity_census_node(graph: &Graph, u: usize, in_neighborhood: &mut [bool]) -> usize {
+    let neighbors_u = graph.neighbors_indices(u).unwrap_or(&[]);
+    for &neighbor in neighbors_u {
+        if neighbor != u {
+            in_neighborhood[neighbor] = true;
+        }
+    }
+    let mut found = 0usize;
+    for &v in neighbors_u {
+        if v > u
+            && let Some(neighbors_v) = graph.neighbors_indices(v)
+        {
+            for &w in neighbors_v {
+                if w > v && in_neighborhood[w] {
+                    found += 3;
+                }
+            }
+        }
+    }
+    for &neighbor in neighbors_u {
+        if neighbor != u {
+            in_neighborhood[neighbor] = false;
+        }
+    }
+    found
+}
+
+/// Return the transitivity (global clustering coefficient) of an undirected graph.
+///
+/// This scalar kernel preserves the exact triangle and connected-triple arithmetic
+/// used by [`clustering_coefficient`] without materializing per-node scores.
+#[must_use]
+pub fn transitivity(graph: &Graph) -> f64 {
+    // br-r37-c1-bsd0p: the Python scalar API previously called
+    // `clustering_coefficient(graph).transitivity`, which cloned every node name
+    // into a `CentralityScore` and retained per-node degree/triangle vectors even
+    // though callers observe only one f64. Count the same ordered triples and the
+    // same three per-vertex triangle incidences directly. Keeping
+    // `total_triangles += 3` makes the final floating-point expression bit-for-bit
+    // identical to the materializing kernel's `sum(tri)` arithmetic.
+    let n = graph.node_count();
+    let mut total_triples = 0usize;
+    for u in 0..n {
+        let degree = graph
+            .neighbors_indices(u)
+            .map_or(0, |neighbors| neighbors.iter().filter(|&&v| v != u).count());
+        total_triples += degree * degree.saturating_sub(1);
+    }
+    if total_triples == 0 {
+        return 0.0;
+    }
+
+    // Same fan-out as `clustering_coefficient`'s census, and bit-exact for the
+    // same reason: the accumulator is an integer, so worker order cannot change
+    // the total. Only the final division is floating point, and it sees the
+    // identical operands.
+    let total_triangles: usize = if n >= CENTRALITY_PARALLEL_THRESHOLD {
+        use rayon::prelude::*;
+        // Scratch is one mark byte per node per worker; cap the worker count so
+        // it stays bounded on very large graphs.
+        let workers = rayon::current_num_threads()
+            .min((256 * 1024 * 1024 / n.max(1)).max(1))
+            .max(1);
+        let span = n.div_ceil(workers);
+        (0..workers)
+            .into_par_iter()
+            .map(|worker| {
+                let lo = worker.saturating_mul(span);
+                let hi = lo.saturating_add(span).min(n);
+                let mut in_neighborhood = vec![false; n];
+                let mut local = 0usize;
+                for u in lo..hi {
+                    local += transitivity_census_node(graph, u, &mut in_neighborhood);
+                }
+                local
+            })
+            .sum()
+    } else {
+        let mut in_neighborhood = vec![false; n];
+        let mut serial = 0usize;
+        for u in 0..n {
+            serial += transitivity_census_node(graph, u, &mut in_neighborhood);
+        }
+        serial
+    };
+
+    (2.0 * total_triangles as f64) / total_triples as f64
 }
 
 /// Directed clustering coefficient (Fagiolo 2007).
@@ -9567,8 +11079,57 @@ fn clustering_coefficient_directed_scores_orig_string(digraph: &DiGraph) -> Vec<
     scores
 }
 
+/// Assemble the final result from per-source eccentricities. Shared by BOTH arms so
+/// the derived measures (diameter/radius/center/periphery) cannot drift apart from
+/// each other — only the eccentricity vector is computed two ways.
+fn distance_measures_finalize(
+    eccentricities: Vec<EccentricityEntry>,
+    nodes_touched: usize,
+    edges_scanned: usize,
+    queue_peak: usize,
+) -> DistanceMeasuresResult {
+    let diameter = eccentricities.iter().map(|e| e.value).max().unwrap_or(0);
+    let radius = eccentricities.iter().map(|e| e.value).min().unwrap_or(0);
+
+    let mut center: Vec<String> = eccentricities
+        .iter()
+        .filter(|e| e.value == radius)
+        .map(|e| e.node.clone())
+        .collect();
+    center.sort_unstable();
+
+    let mut periphery: Vec<String> = eccentricities
+        .iter()
+        .filter(|e| e.value == diameter)
+        .map(|e| e.node.clone())
+        .collect();
+    periphery.sort_unstable();
+
+    DistanceMeasuresResult {
+        eccentricity: eccentricities,
+        diameter,
+        radius,
+        center,
+        periphery,
+        witness: ComplexityWitness {
+            algorithm: "bfs_distance_measures".to_owned(),
+            complexity_claim: "O(|V| * (|V| + |E|))".to_owned(),
+            nodes_touched,
+            edges_scanned,
+            queue_peak,
+        },
+    }
+}
+
 #[must_use]
 pub fn distance_measures(graph: &Graph) -> DistanceMeasuresResult {
+    distance_measures_arm(graph, BitparArm::Auto)
+}
+
+/// Bench/test-only entry point pinning one arm. Results are identical across arms.
+#[doc(hidden)]
+#[must_use]
+pub fn distance_measures_arm(graph: &Graph, arm: BitparArm) -> DistanceMeasuresResult {
     let nodes = graph.nodes_ordered();
     let n = nodes.len();
     if n == 0 {
@@ -9586,6 +11147,73 @@ pub fn distance_measures(graph: &Graph) -> DistanceMeasuresResult {
                 queue_peak: 0,
             },
         };
+    }
+
+    // Bit-parallel multi-source BFS (see `eccentricity_all_sources`), the same
+    // kernel closeness and harmonic already run. The serial loop below sweeps one
+    // source per graph traversal; this advances W*64 sources per traversal, with
+    // the O(|E|) inner loop staying pure word AND/OR and the per-source attribution
+    // deferred to a once-per-level pass over set bits.
+    //
+    // Bit-identical to the serial arm: eccentricity is an integer max over BFS
+    // levels, and BFS distances on an unweighted graph are order-invariant. A
+    // disconnected graph is handled the same way by both arms — each source's
+    // eccentricity is the max over the component it can reach, and the caller
+    // (`_raw_eccentricity`/`diameter`) rejects disconnected input via a separate
+    // `is_connected` check before ever reading these values.
+    //
+    // Gating mirrors closeness exactly: below the parallel threshold the serial
+    // loop is sequential anyway so one traversal serving W*64 sources strictly
+    // wins; at or above it the per-source path would fan out over rayon, so the
+    // bit-parallel path is only taken when the graph has far fewer BFS levels than
+    // lanes. The gate probes the borrowed adjacency ROWS and builds the CSR only
+    // after ACCEPTING, so a declined graph pays neither a CSR build nor a probe
+    // that ran past the largest useful eccentricity.
+    if arm != BitparArm::PerSource && n <= u32::MAX as usize {
+        let rows: Vec<&[usize]> = (0..n)
+            .map(|u| graph.neighbors_indices(u).unwrap_or(&[]))
+            .collect();
+        let threads = rayon::current_num_threads();
+        let lane_width = if n < CENTRALITY_PARALLEL_THRESHOLD {
+            None
+        } else if arm == BitparArm::ChunkedBitpar {
+            Some(bitpar_chunk_lane_width(n, threads))
+        } else {
+            bitpar_chunked_lane_width_if_profitable_rows(&rows, n, threads)
+        };
+
+        if n < CENTRALITY_PARALLEL_THRESHOLD || lane_width.is_some() {
+            let (offsets, targets) = build_u32_csr(n, |u| rows[u]);
+            let mut reached = vec![0usize; n];
+            let mut ecc = vec![0usize; n];
+            let (edges_scanned, queue_peak) = match lane_width {
+                Some(w) => eccentricity_all_sources_chunked(
+                    &offsets,
+                    &targets,
+                    n,
+                    w,
+                    &mut reached,
+                    &mut ecc,
+                ),
+                None => eccentricity_all_sources(&offsets, &targets, n, &mut reached, &mut ecc),
+            };
+            let eccentricities = (0..n)
+                .map(|s| EccentricityEntry {
+                    node: nodes[s].to_owned(),
+                    value: ecc[s],
+                })
+                .collect();
+            // `nodes_touched` (total reach over all sources) matches the serial arm.
+            // `edges_scanned`/`queue_peak` report what this kernel actually does: one
+            // scan serves up to W*64 sources, so they sit far below the per-source
+            // sum by design — the same convention closeness's witness uses.
+            return distance_measures_finalize(
+                eccentricities,
+                reached.iter().sum(),
+                edges_scanned,
+                queue_peak,
+            );
+        }
     }
 
     let mut eccentricities = Vec::with_capacity(n);
@@ -9647,37 +11275,12 @@ pub fn distance_measures(graph: &Graph) -> DistanceMeasuresResult {
         }
     }
 
-    let diameter = eccentricities.iter().map(|e| e.value).max().unwrap_or(0);
-    let radius = eccentricities.iter().map(|e| e.value).min().unwrap_or(0);
-
-    let mut center: Vec<String> = eccentricities
-        .iter()
-        .filter(|e| e.value == radius)
-        .map(|e| e.node.clone())
-        .collect();
-    center.sort_unstable();
-
-    let mut periphery: Vec<String> = eccentricities
-        .iter()
-        .filter(|e| e.value == diameter)
-        .map(|e| e.node.clone())
-        .collect();
-    periphery.sort_unstable();
-
-    DistanceMeasuresResult {
-        eccentricity: eccentricities,
-        diameter,
-        radius,
-        center,
-        periphery,
-        witness: ComplexityWitness {
-            algorithm: "bfs_distance_measures".to_owned(),
-            complexity_claim: "O(|V| * (|V| + |E|))".to_owned(),
-            nodes_touched: total_nodes_touched,
-            edges_scanned: total_edges_scanned,
-            queue_peak: max_queue_peak,
-        },
-    }
+    distance_measures_finalize(
+        eccentricities,
+        total_nodes_touched,
+        total_edges_scanned,
+        max_queue_peak,
+    )
 }
 
 /// Reusable per-worker scratch for one all-pairs BFS source.
@@ -10133,12 +11736,33 @@ fn aspl_finalize_bitpar(
 /// Accumulates one bit-parallel reverse BFS into a per-source result.
 ///
 /// The kernel guarantees `reach` is called EXACTLY once per (source, node)
-/// first-reach event and that levels are delivered in ASCENDING order. Both
-/// properties are what make the sinks below byte-identical to the per-source BFS
-/// they replace: `closeness` sums exact integers (order-free), and `harmonic`
-/// replays the very same sequence of `+= 1/L` additions that BFS pop order
-/// produces (a BFS pops in non-decreasing distance, and every addend within one
-/// level is the identical value `1/L`).
+/// first-reach event and that levels are delivered in ASCENDING order.
+///
+/// What those two properties do and do NOT buy, per sink:
+/// - `ClosenessSink` and `EccentricitySink` accumulate INTEGERS (a sum and a max).
+///   Both are order-free, so these two are byte-identical to the per-source BFS
+///   they replace, and to nx.
+/// - `HarmonicSink` accumulates f64, and its ORDER does not match nx's. An earlier
+///   version of this comment claimed it did, reasoning that the kernel "replays the
+///   same sequence of `+= 1/L` additions that BFS pop order produces". The premise
+///   is true but irrelevant: nx 3.6.1 does not accumulate in per-source BFS pop
+///   order at all. `harmonic_centrality` runs
+///   `for v in sources: for u, d in spl(v): centrality[u] += 1/d`, so a TARGET's
+///   addends arrive ordered by the OTHER endpoint (`sources` is a `set`), not
+///   grouped by distance. Same multiset, different association, so the sums round
+///   differently — measured on gnm(3000, 15000, seed=7), replaying this sink's
+///   order in Python differs from nx on 2993/3000 nodes, max absolute delta
+///   3.92e-11 (~4e-14 relative, a few ULP).
+///
+///   That divergence is why the PUBLIC `harmonic_centrality` binding does not reach
+///   this sink at `n >= CENTRALITY_PARALLEL_THRESHOLD`: `br-r37-c1-4l10m` routes it
+///   through a source-ordered kernel fed the real Python `set` iteration order, and
+///   the public API is byte-identical to nx (verified 0/3000 on that same graph).
+///   The sink is still correct and still used below the threshold, where it is the
+///   only path. Before "fixing" harmonic to use this sink at scale, note the cost
+///   being paid: the source-ordered kernel is SERIAL (cpu/wall 1.00), which makes
+///   harmonic the whole-job bottleneck at 75.8% of fnx runtime.
+///
 /// The sink is a stateless MARKER carrying its accumulator element type, not a
 /// struct borrowing the output slice. br-r37-c1-x0jz8: a borrowing sink pins one
 /// `&mut [T]` for the whole run, which cannot be split across rayon tasks. With
@@ -10178,6 +11802,10 @@ impl ReachSink for ClosenessSink {
 }
 
 /// `harmonic[s]` = sum of `1/d` over every node `s` reaches at distance `d > 0`.
+///
+/// Accumulates grouped by ascending level, which is NOT nx's summation order — see
+/// the `ReachSink` doc. Reached only below `CENTRALITY_PARALLEL_THRESHOLD`; above it
+/// the public binding uses the source-ordered kernel instead.
 struct HarmonicSink;
 
 impl ReachSink for HarmonicSink {
@@ -10193,6 +11821,35 @@ impl ReachSink for HarmonicSink {
     }
     fn init_source(acc: &mut [f64], j: usize) {
         acc[j] = 0.0;
+    }
+}
+
+/// `ecc[s]` = greatest distance from `s` to any node it reaches — its eccentricity.
+///
+/// This is the cheapest possible sink: the kernel's contract is that `reach` fires
+/// in ASCENDING level order, so the LAST level written for a source is already its
+/// maximum. No comparison is needed, just an overwrite. A source that reaches
+/// nothing keeps the `0` from `init_source`, which is the correct eccentricity of
+/// an isolated node (and of the single node of a 1-node graph).
+///
+/// Exactness: eccentricity is an integer max over the same BFS levels the
+/// per-source `VecDeque` sweep computes, and BFS distances are order-invariant on
+/// an unweighted graph, so the value is bit-identical to the serial arm — there is
+/// no float to reassociate, unlike `HarmonicSink`.
+struct EccentricitySink;
+
+impl ReachSink for EccentricitySink {
+    type LevelValue = usize;
+    type Acc = usize;
+    fn level_value(level: usize) -> usize {
+        level
+    }
+    fn reach(acc: &mut [usize], j: usize, level: usize) {
+        // Ascending levels: the last write IS the max.
+        acc[j] = level;
+    }
+    fn init_source(acc: &mut [usize], j: usize) {
+        acc[j] = 0;
     }
 }
 
@@ -10658,11 +12315,12 @@ fn harmonic_all_sources(
 /// Chunked-parallel harmonic sweep (br-r37-c1-qdcdq), the sibling of
 /// `closeness_all_sources_chunked`.
 ///
-/// Bit-exact in f64 for the same reason the sequential kernel is: a chunk owns a
-/// disjoint `harmonic[s0..s0+k]` sub-slice, so each source still receives its own
-/// first-reach events in ascending level order with every intra-level addend equal
-/// to the identical `1/L`. Chunking repartitions SOURCES, never the addition order
-/// within a source, so no f64 sum is reassociated.
+/// Bit-exact against the SEQUENTIAL BIT-PARALLEL ARM (an arm-equality property, not
+/// an nx-parity one — see `HarmonicSink`): a chunk owns a disjoint
+/// `harmonic[s0..s0+k]` sub-slice, so each source still receives its own first-reach
+/// events in ascending level order with every intra-level addend equal to the
+/// identical `1/L`. Chunking repartitions SOURCES, never the addition order within a
+/// source, so no f64 sum is reassociated and the arms agree bit-for-bit.
 fn harmonic_all_sources_chunked(
     offsets: &[u32],
     targets: &[u32],
@@ -10673,6 +12331,31 @@ fn harmonic_all_sources_chunked(
 ) -> (usize, usize) {
     bitpar_reverse_bfs_all_sources_chunked::<HarmonicSink>(
         offsets, targets, n, lane_width, reached, harmonic,
+    )
+}
+
+/// Fill `reached[s]` and `ecc[s]` for every source (distance measures).
+fn eccentricity_all_sources(
+    offsets: &[u32],
+    targets: &[u32],
+    n: usize,
+    reached: &mut [usize],
+    ecc: &mut [usize],
+) -> (usize, usize) {
+    bitpar_reverse_bfs_all_sources::<EccentricitySink>(offsets, targets, n, reached, ecc)
+}
+
+/// Chunked-parallel eccentricity sweep, sibling of `closeness_all_sources_chunked`.
+fn eccentricity_all_sources_chunked(
+    offsets: &[u32],
+    targets: &[u32],
+    n: usize,
+    lane_width: usize,
+    reached: &mut [usize],
+    ecc: &mut [usize],
+) -> (usize, usize) {
+    bitpar_reverse_bfs_all_sources_chunked::<EccentricitySink>(
+        offsets, targets, n, lane_width, reached, ecc,
     )
 }
 
@@ -11399,6 +13082,156 @@ pub fn minimum_spanning_tree_prim(graph: &Graph, weight_attr: &str) -> MinimumSp
         };
     }
 
+    // Keep Prim's internal state in node-index space. The previous reference
+    // kernel cloned both endpoint names into every heap entry, hashed the
+    // destination name for each visited probe, allocated a neighbour-name
+    // iterator per expansion, and resolved both names again for every weight
+    // lookup. Lexical ranks preserve the exact `(weight, left, right, seq)`
+    // heap order while indices make all of that bookkeeping compact.
+    let n = nodes.len();
+    let mut roots: Vec<usize> = (0..n).collect();
+    roots.sort_unstable_by(|left, right| nodes[*left].cmp(nodes[*right]));
+    let mut lexical_rank = vec![0usize; n];
+    for (rank, &node) in roots.iter().enumerate() {
+        lexical_rank[node] = rank;
+    }
+
+    let edge_weight = |left: usize, right: usize| {
+        graph
+            .edge_attrs_by_indices(left, right)
+            .and_then(|attrs| attrs.get(weight_attr))
+            .and_then(|value| value.as_f64())
+            .filter(|value| value.is_finite())
+            .unwrap_or(1.0)
+    };
+
+    let mut visited = vec![false; n];
+    let mut frontier = BinaryHeap::new();
+    let mut seq_counter = 0u64;
+    let mut mst_edges = Vec::new();
+    let mut total_weight = 0.0;
+    let mut nodes_touched = 0usize;
+    let mut edges_scanned = 0usize;
+    let mut queue_peak = 0usize;
+
+    for root in roots {
+        if visited[root] {
+            continue;
+        }
+        visited[root] = true;
+        nodes_touched += 1;
+        cgse_record_decision(&mut cgse_sink, nodes[root], "component_root");
+
+        if let Some(neighbors) = graph.neighbors_indices(root) {
+            for &neighbor in neighbors {
+                if visited[neighbor] {
+                    continue;
+                }
+                seq_counter += 1;
+                edges_scanned += 1;
+                frontier.push(PrimReferenceIndexEdge {
+                    weight: edge_weight(root, neighbor),
+                    seq: seq_counter,
+                    left: root,
+                    right: neighbor,
+                    left_rank: lexical_rank[root],
+                    right_rank: lexical_rank[neighbor],
+                });
+                queue_peak = queue_peak.max(frontier.len());
+            }
+        }
+
+        while let Some(PrimReferenceIndexEdge {
+            weight,
+            left,
+            right,
+            ..
+        }) = frontier.pop()
+        {
+            if visited[right] {
+                continue;
+            }
+
+            visited[right] = true;
+            nodes_touched += 1;
+            total_weight += weight;
+            mst_edges.push(MstEdge {
+                left: nodes[left].to_owned(),
+                right: nodes[right].to_owned(),
+                weight,
+            });
+            cgse_record_decision(&mut cgse_sink, nodes[right], nodes[left]);
+
+            if let Some(neighbors) = graph.neighbors_indices(right) {
+                for &neighbor in neighbors {
+                    if visited[neighbor] {
+                        continue;
+                    }
+                    seq_counter += 1;
+                    edges_scanned += 1;
+                    frontier.push(PrimReferenceIndexEdge {
+                        weight: edge_weight(right, neighbor),
+                        seq: seq_counter,
+                        left: right,
+                        right: neighbor,
+                        left_rank: lexical_rank[right],
+                        right_rank: lexical_rank[neighbor],
+                    });
+                    queue_peak = queue_peak.max(frontier.len());
+                }
+            }
+        }
+    }
+
+    cgse_publish(
+        CgseReferenceAlgorithm::Prim,
+        graph.node_count(),
+        graph.edge_count(),
+        cgse_sink,
+    );
+
+    MinimumSpanningTreeResult {
+        edges: mst_edges,
+        total_weight,
+        witness: ComplexityWitness {
+            algorithm: "prim_mst".to_owned(),
+            complexity_claim: "O(|E| log |V|)".to_owned(),
+            nodes_touched,
+            edges_scanned,
+            queue_peak,
+        },
+    }
+}
+
+/// Frozen pre-`br-r37-c1-ygrvk` String-state Prim reference for exact A/B
+/// parity and timing. Production callers use [`minimum_spanning_tree_prim`].
+#[cfg(test)]
+fn minimum_spanning_tree_prim_orig_string(
+    graph: &Graph,
+    weight_attr: &str,
+) -> MinimumSpanningTreeResult {
+    let mut cgse_sink = cgse_begin(CgseReferenceAlgorithm::Prim);
+    let nodes = graph.nodes_ordered();
+    if nodes.is_empty() {
+        cgse_publish(
+            CgseReferenceAlgorithm::Prim,
+            graph.node_count(),
+            graph.edge_count(),
+            cgse_sink,
+        );
+        return MinimumSpanningTreeResult {
+            edges: Vec::new(),
+            total_weight: 0.0,
+            witness: ComplexityWitness {
+                algorithm: "prim_mst".to_owned(),
+                complexity_claim: "O(|E| log |V|)".to_owned(),
+                nodes_touched: 0,
+                edges_scanned: 0,
+                queue_peak: 0,
+            },
+        };
+    }
+
     let mut roots: Vec<&str> = nodes.clone();
     roots.sort_unstable();
 
@@ -11425,7 +13258,7 @@ pub fn minimum_spanning_tree_prim(graph: &Graph, weight_attr: &str) -> MinimumSp
                 }
                 seq_counter += 1;
                 edges_scanned += 1;
-                frontier.push(PrimEdgeState {
+                frontier.push(PrimStringEdgeState {
                     weight: matching_edge_weight_or_default(graph, root, neighbor, weight_attr),
                     seq: seq_counter,
                     left: root.to_owned(),
@@ -11435,7 +13268,7 @@ pub fn minimum_spanning_tree_prim(graph: &Graph, weight_attr: &str) -> MinimumSp
             }
         }
 
-        while let Some(PrimEdgeState {
+        while let Some(PrimStringEdgeState {
             weight,
             left,
             right,
@@ -11463,7 +13296,7 @@ pub fn minimum_spanning_tree_prim(graph: &Graph, weight_attr: &str) -> MinimumSp
                     }
                     seq_counter += 1;
                     edges_scanned += 1;
-                    frontier.push(PrimEdgeState {
+                    frontier.push(PrimStringEdgeState {
                         weight: matching_edge_weight_or_default(
                             graph,
                             &right,
@@ -12114,6 +13947,181 @@ pub fn partition_spanning_tree(
         });
     }
 
+    // br-r37-c1-psptidx (cc): index-key the Kruskal partition MST. The old kernel kept union-find
+    // (parent/rank) as HashMap<&str,_> with a String-hashing path-compression find, and built edges via
+    // neighbors_iter + name-keyed edge_attrs (weight/partition) probes. Union-find over Vec<usize> +
+    // walk neighbors_indices + edge_attrs_by_indices; node names are materialised only for the
+    // O(chosen) output edges. BIT-IDENTICAL: same node-major × adjacency edge scan → same ordinal +
+    // first-seen dedup (an index (min,max) pair dedups the same undirected edge set), same weight +
+    // partition state (edge_attrs_by_indices == edge_attrs for the same endpoints) → the same sort
+    // (weight.total_cmp then ordinal) → the same union-find merges → the same chosen edges/total_weight.
+    let mut parent: Vec<usize> = (0..node_count).collect();
+    let mut rank: Vec<usize> = vec![0usize; node_count];
+
+    fn find_partition_root(parent: &mut [usize], node: usize) -> usize {
+        let mut root = node;
+        while parent[root] != root {
+            root = parent[root];
+        }
+        let mut current = node;
+        while current != root {
+            let next = parent[current];
+            parent[current] = root;
+            current = next;
+        }
+        root
+    }
+
+    #[derive(Debug, Clone, Copy)]
+    struct OrderedSpanningEdge {
+        weight: f64,
+        ordinal: usize,
+        left: usize,
+        right: usize,
+    }
+
+    let mut included_edges = Vec::<OrderedSpanningEdge>::new();
+    let mut open_edges = Vec::<OrderedSpanningEdge>::new();
+    let mut seen: HashSet<(usize, usize)> = HashSet::new();
+    let mut ordinal = 0usize;
+    for u in 0..node_count {
+        if let Some(neighbors) = graph.neighbors_indices(u) {
+            for &v in neighbors {
+                let key = if u <= v { (u, v) } else { (v, u) };
+                if !seen.insert(key) {
+                    continue;
+                }
+
+                let raw_weight = graph
+                    .edge_attrs_by_indices(u, v)
+                    .and_then(|attrs| attrs.get(weight_attr))
+                    .and_then(|raw| raw.as_f64());
+                if raw_weight.is_some_and(f64::is_nan) {
+                    if ignore_nan {
+                        ordinal += 1;
+                        continue;
+                    }
+                    return Err(PartitionSpanningTreeError::NaNWeight {
+                        left: nodes[u].to_owned(),
+                        right: nodes[v].to_owned(),
+                    });
+                }
+
+                let weight = raw_weight.filter(|value| value.is_finite()).unwrap_or(1.0);
+                let entry = OrderedSpanningEdge {
+                    weight,
+                    ordinal,
+                    left: u,
+                    right: v,
+                };
+                ordinal += 1;
+
+                match parse_partition_state(
+                    graph
+                        .edge_attrs_by_indices(u, v)
+                        .and_then(|attrs| attrs.get(partition_attr))
+                        .as_ref()
+                        .map(|value| value.as_str())
+                        .as_deref(),
+                ) {
+                    PartitionState::Included => included_edges.push(entry),
+                    PartitionState::Excluded => {}
+                    PartitionState::Open => open_edges.push(entry),
+                }
+            }
+        }
+    }
+
+    open_edges.sort_by(|left, right| {
+        let order = if minimum {
+            left.weight.total_cmp(&right.weight)
+        } else {
+            right.weight.total_cmp(&left.weight)
+        };
+        order.then_with(|| left.ordinal.cmp(&right.ordinal))
+    });
+
+    let edges_scanned = included_edges.len() + open_edges.len();
+    let mut chosen = Vec::new();
+    let mut total_weight = 0.0;
+    let mut nodes_touched = 0usize;
+    for edge in included_edges.into_iter().chain(open_edges) {
+        let left_root = find_partition_root(&mut parent, edge.left);
+        let right_root = find_partition_root(&mut parent, edge.right);
+        if left_root == right_root {
+            continue;
+        }
+
+        let left_rank = rank[left_root];
+        let right_rank = rank[right_root];
+        if left_rank < right_rank {
+            parent[left_root] = right_root;
+        } else if left_rank > right_rank {
+            parent[right_root] = left_root;
+        } else {
+            parent[right_root] = left_root;
+            rank[left_root] = left_rank + 1;
+        }
+
+        chosen.push(MstEdge {
+            left: nodes[edge.left].to_owned(),
+            right: nodes[edge.right].to_owned(),
+            weight: edge.weight,
+        });
+        total_weight += edge.weight;
+        nodes_touched += 2;
+        if chosen.len() == node_count.saturating_sub(1) {
+            break;
+        }
+    }
+
+    Ok(MinimumSpanningTreeResult {
+        edges: chosen,
+        total_weight,
+        witness: ComplexityWitness {
+            algorithm: if minimum {
+                "kruskal_partition_mst".to_owned()
+            } else {
+                "kruskal_partition_max_st".to_owned()
+            },
+            complexity_claim: "O(|E| log |E|)".to_owned(),
+            nodes_touched: nodes_touched.min(node_count),
+            edges_scanned,
+            queue_peak: 0,
+        },
+    })
+}
+
+/// br-r37-c1-psptidx A/B baseline: the pre-lever String-keyed Kruskal partition MST (HashMap<&str>
+/// union-find + name-keyed edge_attrs). Test-only; bit-identical to the shipped integer-index version.
+#[cfg(test)]
+fn partition_spanning_tree_orig_string(
+    graph: &Graph,
+    minimum: bool,
+    weight_attr: &str,
+    partition_attr: &str,
+    ignore_nan: bool,
+) -> Result<MinimumSpanningTreeResult, PartitionSpanningTreeError> {
+    let nodes = graph.nodes_ordered();
+    let node_count = nodes.len();
+    if node_count == 0 {
+        return Ok(MinimumSpanningTreeResult {
+            edges: Vec::new(),
+            total_weight: 0.0,
+            witness: ComplexityWitness {
+                algorithm: if minimum {
+                    "kruskal_partition_mst".to_owned()
+                } else {
+                    "kruskal_partition_max_st".to_owned()
+                },
+                complexity_claim: "O(|E| log |E|)".to_owned(),
+                nodes_touched: 0,
+                edges_scanned: 0,
+                queue_peak: 0,
+            },
+        });
+    }
+
     let mut parent: HashMap<&str, &str> = HashMap::new();
     let mut rank: HashMap<&str, usize> = HashMap::new();
     for node in &nodes {
@@ -12255,9 +14263,105 @@ pub fn partition_spanning_tree(
     })
 }
 
+/// Select one exactly equivalent spanning-tree count setup for same-binary A/B.
+#[doc(hidden)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SpanningTreeCountArm {
+    Direct,
+    Contracted,
+}
+
 /// Return the number of spanning trees of an undirected graph.
 #[must_use]
 pub fn number_of_spanning_trees(graph: &Graph, weight_attr: Option<&str>) -> f64 {
+    number_of_spanning_trees_arm(graph, weight_attr, SpanningTreeCountArm::Direct)
+}
+
+/// Bench/test-only entry point pinning one exact spanning-tree count setup.
+#[doc(hidden)]
+#[must_use]
+pub fn number_of_spanning_trees_arm(
+    graph: &Graph,
+    weight_attr: Option<&str>,
+    arm: SpanningTreeCountArm,
+) -> f64 {
+    match arm {
+        SpanningTreeCountArm::Direct => number_of_spanning_trees_direct(graph, weight_attr),
+        SpanningTreeCountArm::Contracted => {
+            number_of_spanning_trees_contracted_baseline(graph, weight_attr)
+        }
+    }
+}
+
+fn number_of_spanning_trees_direct(graph: &Graph, weight_attr: Option<&str>) -> f64 {
+    if graph.node_count() == 0 {
+        return 0.0;
+    }
+    if graph.node_count() == 1 {
+        return 1.0;
+    }
+    if !is_connected(graph).is_connected {
+        return 0.0;
+    }
+
+    // br-r37-c1-jhxvq: the plain counting path has no included/excluded edges, so
+    // building the generic contraction graph only clones every EdgeSnapshot twice
+    // and round-trips endpoints through several String-keyed maps. Walk the stored
+    // edges by reference instead. Sorting by the same canonical endpoint pair as
+    // ContractedUndirectedGraph's BTreeMap preserves weighted accumulation order
+    // (and therefore exact floating-point output), while insertion indices address
+    // the Laplacian directly.
+    let nodes = graph.nodes_ordered();
+    let node_index: HashMap<&str, usize> = nodes
+        .iter()
+        .enumerate()
+        .map(|(index, &node)| (node, index))
+        .collect();
+    let mut edges = graph.edges_storage_order_borrowed();
+    edges.sort_unstable_by(|(left_a, right_a, _), (left_b, right_b, _)| {
+        let pair_a = if left_a <= right_a {
+            (*left_a, *right_a)
+        } else {
+            (*right_a, *left_a)
+        };
+        let pair_b = if left_b <= right_b {
+            (*left_b, *right_b)
+        } else {
+            (*right_b, *left_b)
+        };
+        pair_a.cmp(&pair_b)
+    });
+
+    let mut laplacian = vec![vec![0.0; nodes.len()]; nodes.len()];
+    for (left, right, attrs) in edges {
+        if left == right {
+            continue;
+        }
+        let mut weight_sum = 0.0;
+        weight_sum += spanning_tree_edge_weight_from_attrs(Some(attrs), weight_attr);
+        let weight = if weight_attr.is_some() {
+            weight_sum
+        } else {
+            1.0
+        };
+        let left_index = node_index[left];
+        let right_index = node_index[right];
+        laplacian[left_index][left_index] += weight;
+        laplacian[right_index][right_index] += weight;
+        laplacian[left_index][right_index] -= weight;
+        laplacian[right_index][left_index] -= weight;
+    }
+
+    let minor = laplacian
+        .iter()
+        .skip(1)
+        .map(|row| row.iter().skip(1).copied().collect::<Vec<_>>())
+        .collect::<Vec<_>>();
+    determinant(minor)
+}
+
+/// Frozen pre-jhxvq implementation for exact parity and same-binary A/B tests.
+fn number_of_spanning_trees_contracted_baseline(graph: &Graph, weight_attr: Option<&str>) -> f64 {
     let available_edges = graph
         .edges_ordered()
         .into_iter()
@@ -13407,6 +15511,44 @@ pub fn minimum_spanning_arborescence(
     is_arborescence(&arborescence).then_some(result)
 }
 
+/// One node's contribution to [`triangles`]' `u < v < w` census.
+///
+/// Distinct from `clustering_census_node`: this marks the full neighbour row
+/// (self-loops included) and counts `edges_scanned` per `u < v` edge rather
+/// than per triangle, which is the witness contract `triangles` has always
+/// reported. `in_neighborhood` is left all-false on return so one worker can
+/// reuse a single mark array across its whole range.
+#[inline]
+fn triangles_census_node(
+    graph: &Graph,
+    u: usize,
+    tri_count: &mut [usize],
+    in_neighborhood: &mut [bool],
+    edges_scanned: &mut usize,
+) {
+    let nbrs_u = graph.neighbors_indices(u).unwrap_or(&[]);
+    for &x in nbrs_u {
+        in_neighborhood[x] = true;
+    }
+    for &v in nbrs_u {
+        if v > u {
+            *edges_scanned += 1;
+            if let Some(nbrs_v) = graph.neighbors_indices(v) {
+                for &w in nbrs_v {
+                    if w > v && in_neighborhood[w] {
+                        tri_count[u] += 1;
+                        tri_count[v] += 1;
+                        tri_count[w] += 1;
+                    }
+                }
+            }
+        }
+    }
+    for &x in nbrs_u {
+        in_neighborhood[x] = false;
+    }
+}
+
 /// Counts the number of triangles each node participates in.
 ///
 /// A triangle is a 3-clique. Each triangle is counted once per participating node.
@@ -13436,33 +15578,53 @@ pub fn triangles(graph: &Graph) -> TrianglesResult {
     // with O(1) array lookups and cache-sequential neighbour scans. Byte-identical:
     // both enumerate exactly the w in N(u)∩N(v) with w>v for each edge u<v, and
     // increment all three vertices; `edges_scanned` stays |E| (each u<v edge once).
-    let mut tri_count: Vec<usize> = vec![0; n];
-    let mut in_neighborhood = vec![false; n];
-    let mut edges_scanned = 0usize;
-
-    for u in 0..n {
-        let nbrs_u = graph.neighbors_indices(u).unwrap_or(&[]);
-        for &x in nbrs_u {
-            in_neighborhood[x] = true;
-        }
-        for &v in nbrs_u {
-            if v > u {
-                edges_scanned += 1;
-                if let Some(nbrs_v) = graph.neighbors_indices(v) {
-                    for &w in nbrs_v {
-                        if w > v && in_neighborhood[w] {
-                            tri_count[u] += 1;
-                            tri_count[v] += 1;
-                            tri_count[w] += 1;
-                        }
-                    }
+    // Same fan-out as `clustering_coefficient`'s census: the counters are
+    // integers, so splitting the `u` range across workers and summing the
+    // per-worker vectors is bit-identical to the serial scan.
+    let (tri_count, edges_scanned) = if n >= CENTRALITY_PARALLEL_THRESHOLD {
+        use rayon::prelude::*;
+        let bytes_per_worker = n.saturating_mul(std::mem::size_of::<usize>() + 1).max(1);
+        let workers = rayon::current_num_threads()
+            .min((256 * 1024 * 1024 / bytes_per_worker).max(1))
+            .max(1);
+        let span = n.div_ceil(workers);
+        (0..workers)
+            .into_par_iter()
+            .map(|worker| {
+                let lo = worker.saturating_mul(span);
+                let hi = lo.saturating_add(span).min(n);
+                let mut tri_local: Vec<usize> = vec![0; n];
+                let mut in_neighborhood = vec![false; n];
+                let mut scanned = 0usize;
+                for u in lo..hi {
+                    triangles_census_node(
+                        graph,
+                        u,
+                        &mut tri_local,
+                        &mut in_neighborhood,
+                        &mut scanned,
+                    );
                 }
-            }
+                (tri_local, scanned)
+            })
+            .reduce(
+                || (vec![0usize; n], 0usize),
+                |(mut acc_tri, acc_scanned), (part_tri, part_scanned)| {
+                    for (acc, part) in acc_tri.iter_mut().zip(part_tri.iter()) {
+                        *acc += *part;
+                    }
+                    (acc_tri, acc_scanned + part_scanned)
+                },
+            )
+    } else {
+        let mut tri_count: Vec<usize> = vec![0; n];
+        let mut in_neighborhood = vec![false; n];
+        let mut scanned = 0usize;
+        for u in 0..n {
+            triangles_census_node(graph, u, &mut tri_count, &mut in_neighborhood, &mut scanned);
         }
-        for &x in nbrs_u {
-            in_neighborhood[x] = false;
-        }
-    }
+        (tri_count, scanned)
+    };
 
     // Return in nodes_ordered() order (insertion order), matching G.nodes()
     let result: Vec<NodeTriangleCount> = nodes
@@ -14341,12 +16503,123 @@ pub fn bipartite_sets(graph: &Graph) -> BipartiteSetsResult {
         };
     }
 
+    // br-r37-c1-bipidx (cc): integer-index 2-coloring BFS. The old kernel kept `color`
+    // as HashMap<&str, u8> and walked `neighbors_iter` (mapping every adjacency entry back
+    // to a &str), paying a String hash on every `color.get`/`insert` over the O(|E|) scan.
+    // Walk `neighbors_indices` over node indices with a Vec<i8> color (-1 = uncolored);
+    // names are materialised only for the O(|V|) partition output (sorted, so index order is
+    // irrelevant). Byte-identical: same name-sorted start order + same adjacency-row neighbor
+    // order → identical coloring, identical odd-cycle early exit, identical witness counters.
+    let mut color: Vec<i8> = vec![-1; n];
+    let mut colored = 0usize;
+    let mut queue: VecDeque<usize> = VecDeque::new();
+    let mut edges_scanned = 0usize;
+    let mut queue_peak = 0usize;
+
+    // Process all connected components in ascending node-name order (matches the old
+    // `sorted_nodes.sort_unstable()` on the node names; names are unique so the order is total).
+    let mut order: Vec<usize> = (0..n).collect();
+    order.sort_unstable_by(|&a, &b| nodes[a].cmp(nodes[b]));
+
+    for &start in &order {
+        if color[start] != -1 {
+            continue;
+        }
+        color[start] = 0;
+        colored += 1;
+        queue.push_back(start);
+        if queue.len() > queue_peak {
+            queue_peak = queue.len();
+        }
+
+        while let Some(current) = queue.pop_front() {
+            let current_color = color[current];
+            if let Some(neighbors) = graph.neighbors_indices(current) {
+                for &neighbor in neighbors {
+                    edges_scanned += 1;
+                    let c = color[neighbor];
+                    if c == current_color {
+                        // Odd cycle found - not bipartite
+                        return BipartiteSetsResult {
+                            is_bipartite: false,
+                            set_a: Vec::new(),
+                            set_b: Vec::new(),
+                            witness: ComplexityWitness {
+                                algorithm: "bipartite_bfs".to_owned(),
+                                complexity_claim: "O(|V| + |E|)".to_owned(),
+                                nodes_touched: colored,
+                                edges_scanned,
+                                queue_peak,
+                            },
+                        };
+                    } else if c == -1 {
+                        color[neighbor] = 1 - current_color;
+                        colored += 1;
+                        queue.push_back(neighbor);
+                        if queue.len() > queue_peak {
+                            queue_peak = queue.len();
+                        }
+                    }
+                    // else: already colored correctly
+                }
+            }
+        }
+    }
+
+    let mut set_a: Vec<String> = Vec::new();
+    let mut set_b: Vec<String> = Vec::new();
+    for (i, &c) in color.iter().enumerate() {
+        if c == 0 {
+            set_a.push(nodes[i].to_owned());
+        } else if c == 1 {
+            set_b.push(nodes[i].to_owned());
+        }
+    }
+    set_a.sort();
+    set_b.sort();
+
+    BipartiteSetsResult {
+        is_bipartite: true,
+        set_a,
+        set_b,
+        witness: ComplexityWitness {
+            algorithm: "bipartite_bfs".to_owned(),
+            complexity_claim: "O(|V| + |E|)".to_owned(),
+            nodes_touched: colored,
+            edges_scanned,
+            queue_peak,
+        },
+    }
+}
+
+/// br-r37-c1-bipidx A/B baseline: the pre-lever `bipartite_sets` that kept `color` as a
+/// `HashMap<&str, u8>` and walked `neighbors_iter` (String-keyed). Test-only; byte-identical
+/// to `bipartite_sets` (same start order, neighbor order, coloring, and witness).
+#[cfg(test)]
+fn bipartite_sets_orig_string(graph: &Graph) -> BipartiteSetsResult {
+    let nodes = graph.nodes_ordered();
+    let n = nodes.len();
+
+    if n == 0 {
+        return BipartiteSetsResult {
+            is_bipartite: true,
+            set_a: Vec::new(),
+            set_b: Vec::new(),
+            witness: ComplexityWitness {
+                algorithm: "bipartite_bfs".to_owned(),
+                complexity_claim: "O(|V| + |E|)".to_owned(),
+                nodes_touched: 0,
+                edges_scanned: 0,
+                queue_peak: 0,
+            },
+        };
+    }
+
     let mut color: HashMap<&str, u8> = HashMap::new();
     let mut queue = VecDeque::new();
     let mut edges_scanned = 0usize;
     let mut queue_peak = 0usize;
 
-    // Process all connected components
     let mut sorted_nodes = nodes.clone();
     sorted_nodes.sort_unstable();
 
@@ -14367,7 +16640,6 @@ pub fn bipartite_sets(graph: &Graph) -> BipartiteSetsResult {
                     edges_scanned += 1;
                     match color.get(neighbor) {
                         Some(&c) if c == current_color => {
-                            // Odd cycle found - not bipartite
                             return BipartiteSetsResult {
                                 is_bipartite: false,
                                 set_a: Vec::new(),
@@ -14381,7 +16653,7 @@ pub fn bipartite_sets(graph: &Graph) -> BipartiteSetsResult {
                                 },
                             };
                         }
-                        Some(_) => {} // Already colored correctly
+                        Some(_) => {}
                         None => {
                             color.insert(neighbor, 1 - current_color);
                             queue.push_back(neighbor);
@@ -14539,41 +16811,43 @@ pub fn k_core(graph: &Graph, k: Option<usize>) -> KCoreResult {
     // Determine the effective k
     let effective_k = k.unwrap_or_else(|| core_map.values().copied().max().unwrap_or(0));
 
-    // Filter nodes with core number >= k
-    let nodes: Vec<String> = core_map
-        .iter()
-        .filter(|&(_, c)| *c >= effective_k)
-        .map(|(&node, _)| node.to_owned())
-        .collect();
+    // br-r37-c1-kcorenative (cc): emit nodes in G's INSERTION order (nodes_ordered), not
+    // HashMap-iteration-order-then-sort, so the result matches nx.k_core = G.subgraph(nodes)
+    // which preserves G's node order. Induced edges are collected by walking in-core nodes in
+    // G order over integer adjacency (first-seen canonical (min,max) index dedup), so both the
+    // node list and the edge set match nx (the binding re-attaches node/edge attributes).
+    let names = graph.nodes_ordered();
+    let n = names.len();
+    let mut in_core = vec![false; n];
+    let mut nodes: Vec<String> = Vec::new();
+    for (i, &name) in names.iter().enumerate() {
+        if core_map.get(name).copied().unwrap_or(0) >= effective_k {
+            in_core[i] = true;
+            nodes.push(name.to_owned());
+        }
+    }
 
-    let node_set: HashSet<&str> = nodes.iter().map(String::as_str).collect();
-
-    // Collect edges in the induced subgraph
     let mut edges = Vec::new();
-    let mut seen: HashSet<(&str, &str)> = HashSet::new();
-    for node in &nodes {
-        if let Some(neighbors) = graph.neighbors_iter(node) {
-            for neighbor in neighbors {
-                if node_set.contains(neighbor) {
-                    let (left, right) = if node.as_str() <= neighbor {
-                        (node.as_str(), neighbor)
-                    } else {
-                        (neighbor, node.as_str())
-                    };
-                    if seen.insert((left, right)) {
-                        edges.push((left.to_owned(), right.to_owned()));
+    let mut seen: HashSet<(usize, usize)> = HashSet::new();
+    for u in 0..n {
+        if !in_core[u] {
+            continue;
+        }
+        if let Some(neighbors) = graph.neighbors_indices(u) {
+            for &v in neighbors {
+                if in_core[v] {
+                    let key = if u <= v { (u, v) } else { (v, u) };
+                    if seen.insert(key) {
+                        let (l, r) = key;
+                        edges.push((names[l].to_owned(), names[r].to_owned()));
                     }
                 }
             }
         }
     }
 
-    let mut sorted_nodes = nodes;
-    sorted_nodes.sort();
-    edges.sort();
-
     KCoreResult {
-        nodes: sorted_nodes,
+        nodes,
         edges,
         witness: ComplexityWitness {
             algorithm: "k_core".to_owned(),
@@ -14604,41 +16878,42 @@ pub fn k_shell(graph: &Graph, k: Option<usize>) -> KCoreResult {
     // Determine the effective k (default to max core number)
     let effective_k = k.unwrap_or_else(|| core_map.values().copied().max().unwrap_or(0));
 
-    // Filter nodes with core number == k
-    let nodes: Vec<String> = core_map
-        .iter()
-        .filter(|&(_, c)| *c == effective_k)
-        .map(|(&node, _)| node.to_owned())
-        .collect();
+    // br-r37-c1-kshellnative (cc): emit in-shell nodes in G INSERTION order (nodes_ordered) and
+    // collect induced edges by walking in-shell nodes in G order over integer adjacency
+    // (neighbors_indices, first-seen (min,max) index dedup), so the result matches
+    // nx.k_shell = G.subgraph({v: core[v] == k}) — same node order + induced edge set as nx.
+    let names = graph.nodes_ordered();
+    let n = names.len();
+    let mut in_shell = vec![false; n];
+    let mut nodes: Vec<String> = Vec::new();
+    for (i, &name) in names.iter().enumerate() {
+        if core_map.get(name).copied().unwrap_or(0) == effective_k {
+            in_shell[i] = true;
+            nodes.push(name.to_owned());
+        }
+    }
 
-    let node_set: HashSet<&str> = nodes.iter().map(String::as_str).collect();
-
-    // Collect edges in the induced subgraph
     let mut edges = Vec::new();
-    let mut seen: HashSet<(&str, &str)> = HashSet::new();
-    for node in &nodes {
-        if let Some(neighbors) = graph.neighbors_iter(node) {
-            for neighbor in neighbors {
-                if node_set.contains(neighbor) {
-                    let (left, right) = if node.as_str() <= neighbor {
-                        (node.as_str(), neighbor)
-                    } else {
-                        (neighbor, node.as_str())
-                    };
-                    if seen.insert((left, right)) {
-                        edges.push((left.to_owned(), right.to_owned()));
+    let mut seen: HashSet<(usize, usize)> = HashSet::new();
+    for u in 0..n {
+        if !in_shell[u] {
+            continue;
+        }
+        if let Some(neighbors) = graph.neighbors_indices(u) {
+            for &v in neighbors {
+                if in_shell[v] {
+                    let key = if u <= v { (u, v) } else { (v, u) };
+                    if seen.insert(key) {
+                        let (l, r) = key;
+                        edges.push((names[l].to_owned(), names[r].to_owned()));
                     }
                 }
             }
         }
     }
 
-    let mut sorted_nodes = nodes;
-    sorted_nodes.sort();
-    edges.sort();
-
     KCoreResult {
-        nodes: sorted_nodes,
+        nodes,
         edges,
         witness: ComplexityWitness {
             algorithm: "k_shell".to_owned(),
@@ -14667,43 +16942,49 @@ pub fn k_crust(graph: &Graph, k: Option<usize>) -> KCoreResult {
 
     // Default k is max core - 1
     let max_core = core_map.values().copied().max().unwrap_or(0);
+    // nx default is `max(core.values()) - 1`. When max_core == 0 (edgeless) that default is -1,
+    // and `core[v] <= -1` selects NO node — represent that as an empty selection (usize can't be
+    // negative). An explicit k is used as-is (an explicit k == 0 still selects the 0-core, as nx).
+    let select_none_default = k.is_none() && max_core == 0;
     let effective_k = k.unwrap_or_else(|| max_core.saturating_sub(1));
 
-    // Filter nodes with core number <= k
-    let nodes: Vec<String> = core_map
-        .iter()
-        .filter(|&(_, c)| *c <= effective_k)
-        .map(|(&node, _)| node.to_owned())
-        .collect();
+    // br-r37-c1-kcrustnative (cc): emit in-crust nodes in G INSERTION order + index-adjacency
+    // induced edges (first-seen (min,max) dedup) so the result matches
+    // nx.k_crust = G.subgraph({v: core[v] <= k}).
+    let names = graph.nodes_ordered();
+    let n = names.len();
+    let mut in_crust = vec![false; n];
+    let mut nodes: Vec<String> = Vec::new();
+    if !select_none_default {
+        for (i, &name) in names.iter().enumerate() {
+            if core_map.get(name).copied().unwrap_or(0) <= effective_k {
+                in_crust[i] = true;
+                nodes.push(name.to_owned());
+            }
+        }
+    }
 
-    let node_set: HashSet<&str> = nodes.iter().map(String::as_str).collect();
-
-    // Collect edges in the induced subgraph
     let mut edges = Vec::new();
-    let mut seen: HashSet<(&str, &str)> = HashSet::new();
-    for node in &nodes {
-        if let Some(neighbors) = graph.neighbors_iter(node) {
-            for neighbor in neighbors {
-                if node_set.contains(neighbor) {
-                    let (left, right) = if node.as_str() <= neighbor {
-                        (node.as_str(), neighbor)
-                    } else {
-                        (neighbor, node.as_str())
-                    };
-                    if seen.insert((left, right)) {
-                        edges.push((left.to_owned(), right.to_owned()));
+    let mut seen: HashSet<(usize, usize)> = HashSet::new();
+    for u in 0..n {
+        if !in_crust[u] {
+            continue;
+        }
+        if let Some(neighbors) = graph.neighbors_indices(u) {
+            for &v in neighbors {
+                if in_crust[v] {
+                    let key = if u <= v { (u, v) } else { (v, u) };
+                    if seen.insert(key) {
+                        let (l, r) = key;
+                        edges.push((names[l].to_owned(), names[r].to_owned()));
                     }
                 }
             }
         }
     }
 
-    let mut sorted_nodes = nodes;
-    sorted_nodes.sort();
-    edges.sort();
-
     KCoreResult {
-        nodes: sorted_nodes,
+        nodes,
         edges,
         witness: ComplexityWitness {
             algorithm: "k_crust".to_owned(),
@@ -14738,51 +17019,50 @@ pub fn k_corona(graph: &Graph, k: usize) -> KCoreResult {
         .map(|(&node, _)| node)
         .collect();
 
-    // Filter nodes with core number == k and exactly k neighbors in the k-core
-    let nodes: Vec<String> = core_map
-        .iter()
-        .filter(|&(&node, c)| {
-            if *c != k {
-                return false;
-            }
-            // Count neighbors in the k-core
-            let neighbors_in_k_core = graph
-                .neighbors_iter(node)
-                .map(|iter| iter.filter(|nb| k_core_nodes.contains(nb)).count())
-                .unwrap_or(0);
-            neighbors_in_k_core == k
-        })
-        .map(|(&node, _)| node.to_owned())
-        .collect();
+    // br-r37-c1-kcoronanative (cc): select nodes with core number == k and exactly k neighbors in
+    // the k-core (predicate byte-identical to the prior String-keyed count), but iterate in G
+    // INSERTION order (nodes_ordered) so the emitted node order matches
+    // nx.k_corona = G.subgraph({v: core[v] == k and #{w in G[v]: core[w] >= k} == k}). Induced
+    // edges are walked in G order over integer adjacency with first-seen (min,max) index dedup.
+    let names = graph.nodes_ordered();
+    let n = names.len();
+    let mut in_corona = vec![false; n];
+    let mut nodes: Vec<String> = Vec::new();
+    for (i, &name) in names.iter().enumerate() {
+        if core_map.get(name).copied().unwrap_or(0) != k {
+            continue;
+        }
+        let neighbors_in_k_core = graph
+            .neighbors_iter(name)
+            .map(|iter| iter.filter(|nb| k_core_nodes.contains(nb)).count())
+            .unwrap_or(0);
+        if neighbors_in_k_core == k {
+            in_corona[i] = true;
+            nodes.push(name.to_owned());
+        }
+    }
 
-    let node_set: HashSet<&str> = nodes.iter().map(String::as_str).collect();
-
-    // Collect edges in the induced subgraph
     let mut edges = Vec::new();
-    let mut seen: HashSet<(&str, &str)> = HashSet::new();
-    for node in &nodes {
-        if let Some(neighbors) = graph.neighbors_iter(node) {
-            for neighbor in neighbors {
-                if node_set.contains(neighbor) {
-                    let (left, right) = if node.as_str() <= neighbor {
-                        (node.as_str(), neighbor)
-                    } else {
-                        (neighbor, node.as_str())
-                    };
-                    if seen.insert((left, right)) {
-                        edges.push((left.to_owned(), right.to_owned()));
+    let mut seen: HashSet<(usize, usize)> = HashSet::new();
+    for u in 0..n {
+        if !in_corona[u] {
+            continue;
+        }
+        if let Some(neighbors) = graph.neighbors_indices(u) {
+            for &v in neighbors {
+                if in_corona[v] {
+                    let key = if u <= v { (u, v) } else { (v, u) };
+                    if seen.insert(key) {
+                        let (l, r) = key;
+                        edges.push((names[l].to_owned(), names[r].to_owned()));
                     }
                 }
             }
         }
     }
 
-    let mut sorted_nodes = nodes;
-    sorted_nodes.sort();
-    edges.sort();
-
     KCoreResult {
-        nodes: sorted_nodes,
+        nodes,
         edges,
         witness: ComplexityWitness {
             algorithm: "k_corona".to_owned(),
@@ -15196,14 +17476,27 @@ pub fn from_prufer_sequence(sequence: &[usize]) -> Result<PruferResult, String> 
         degree[i] += 1;
     }
     let mut edges: Vec<(usize, usize)> = Vec::with_capacity(n - 1);
+    // br-r37-c1-uxbg8: the smallest-leaf pointer only advances across nodes
+    // once. A parent that becomes a smaller leaf is consumed immediately;
+    // otherwise the next leaf lies strictly after the pointer. This is the
+    // same choice as rescanning 0..n on every code element, in O(n) total.
+    let mut leaf = degree
+        .iter()
+        .position(|&remaining_degree| remaining_degree == 1)
+        .expect("a Prüfer degree sequence always has a leaf");
+    let mut pointer = leaf;
     for &i in sequence {
-        for j in 0..n {
-            if degree[j] == 1 {
-                edges.push((i.min(j), i.max(j)));
-                degree[i] -= 1;
-                degree[j] -= 1;
-                break;
+        edges.push((i.min(leaf), i.max(leaf)));
+        degree[i] -= 1;
+        degree[leaf] -= 1;
+        if i < pointer && degree[i] == 1 {
+            leaf = i;
+        } else {
+            pointer += 1;
+            while degree[pointer] != 1 {
+                pointer += 1;
             }
+            leaf = pointer;
         }
     }
     let last: Vec<usize> = (0..n).filter(|&j| degree[j] == 1).collect();
@@ -15248,15 +17541,15 @@ pub fn to_prufer_sequence(graph: &Graph) -> Result<Vec<usize>, String> {
         return Ok(Vec::new());
     }
 
-    // Build mutable adjacency for integer-labeled tree
+    // Build mutable adjacency for integer-labeled tree. The borrowed edge view preserves the exact
+    // `edges_ordered()` walk and endpoint text while avoiding two owned String clones plus an unused
+    // AttrMap clone per tree edge (br-r37-c1-8vjja).
     let mut adj: Vec<HashSet<usize>> = vec![HashSet::new(); n];
-    for edge in graph.edges_ordered() {
-        let u = edge
-            .left
+    for (left, right, _attrs) in graph.edges_ordered_borrowed() {
+        let u = left
             .parse::<usize>()
             .map_err(|_| invalid_labels.to_owned())?;
-        let v = edge
-            .right
+        let v = right
             .parse::<usize>()
             .map_err(|_| invalid_labels.to_owned())?;
         if u >= n || v >= n {
@@ -15579,64 +17872,91 @@ fn voterank_generic<G: GraphView>(graph: &G, number_of_nodes: Option<usize>) -> 
         0.0
     };
 
-    let mut vote_power: HashMap<&str, f64> = nodes.iter().map(|&v| (v, 1.0)).collect();
+    // br-r37-c1-voterankidx (cc): integer-index voterank. The prior kernel kept vote_power / scores as
+    // `HashMap<&str, f64>` and `selected` as `HashSet<&str>`, paying a String hash on EVERY per-edge
+    // vote accumulation + per-neighbour decrement across up to |V| rounds (O(|V|·|E|) String hashes).
+    // Build the integer adjacency ONCE (`adj[i]` in the same `neighbors_iter` order → ULP-identical
+    // accumulation), then run the whole loop over `Vec<f64>`/`Vec<bool>` indexed by node index — no
+    // String hashing in the hot loop. ALSO: the per-round winner pick sorted ALL scored nodes
+    // (O(|V| log|V|)) just to take `.first()`; replaced with a single O(|V|) `max_by` with the same key
+    // (max score, ties by min node name). Byte-identical: same per-node score (accumulated in the same
+    // node-index order → same f64 sum), same (score, name) winner, same decay update, same edges_scanned.
+    let node_to_idx: HashMap<&str, usize> =
+        nodes.iter().enumerate().map(|(i, &nd)| (nd, i)).collect();
+    let mut adj: Vec<Vec<usize>> = vec![Vec::new(); n];
+    for i in 0..n {
+        if let Some(neighbors) = graph.neighbors_iter(nodes[i]) {
+            for nb in neighbors {
+                adj[i].push(node_to_idx[nb]);
+            }
+        }
+    }
+
+    let mut vote_power: Vec<f64> = vec![1.0; n];
     let mut ranked: Vec<String> = Vec::new();
-    let mut selected: HashSet<&str> = HashSet::new();
+    let mut selected: Vec<bool> = vec![false; n];
     let mut edges_scanned = 0usize;
     let max_nodes = number_of_nodes.unwrap_or(n);
+
+    // Reused per-round score scratch: `scored`/`touched` reproduce the HashMap's "entry exists" set
+    // (a node is a candidate iff it received ≥1 vote this round, even if the summed value is 0.0).
+    let mut score: Vec<f64> = vec![0.0; n];
+    let mut scored: Vec<bool> = vec![false; n];
+    let mut touched: Vec<usize> = Vec::new();
 
     loop {
         if ranked.len() >= max_nodes {
             break;
         }
+        for &t in &touched {
+            score[t] = 0.0;
+            scored[t] = false;
+        }
+        touched.clear();
         // Accumulate votes
-        let mut scores: HashMap<&str, f64> = HashMap::new();
-        for &node in &nodes {
-            if selected.contains(node) {
+        for node in 0..n {
+            if selected[node] {
                 continue;
             }
-            if let Some(neighbors) = graph.neighbors_iter(node) {
-                for neighbor in neighbors {
-                    edges_scanned += 1;
-                    if !selected.contains(neighbor) {
-                        *scores.entry(neighbor).or_insert(0.0) += vote_power[node];
+            let vp = vote_power[node];
+            for &neighbor in &adj[node] {
+                edges_scanned += 1;
+                if !selected[neighbor] {
+                    if !scored[neighbor] {
+                        scored[neighbor] = true;
+                        touched.push(neighbor);
                     }
+                    score[neighbor] += vp;
                 }
             }
         }
 
-        if scores.is_empty() {
+        if touched.is_empty() {
             break;
         }
 
-        // Find node with max score; deterministic tie-break by node name (ascending)
-        let mut candidates: Vec<(&str, f64)> = scores.into_iter().collect();
-        candidates.sort_by(|a, b| {
-            b.1.partial_cmp(&a.1)
-                .unwrap_or(std::cmp::Ordering::Equal)
-                .then_with(|| a.0.cmp(b.0))
-        });
-        let best = candidates.first().copied();
-
-        let Some((winner, max_score)) = best else {
-            break;
-        };
-        if max_score <= 0.0 {
+        // Node with max score; deterministic tie-break by node name (ascending). One O(|V|) pass.
+        let winner = *touched
+            .iter()
+            .max_by(|&&a, &&b| {
+                score[a]
+                    .partial_cmp(&score[b])
+                    .unwrap_or(std::cmp::Ordering::Equal)
+                    .then_with(|| nodes[b].cmp(nodes[a]))
+            })
+            .expect("touched is non-empty");
+        if score[winner] <= 0.0 {
             break;
         }
 
-        ranked.push(winner.to_owned());
-        selected.insert(winner);
+        ranked.push(nodes[winner].to_owned());
+        selected[winner] = true;
 
         // Reduce vote power of winner's neighbors
-        vote_power.insert(winner, 0.0);
-        if let Some(neighbors) = graph.neighbors_iter(winner) {
-            for neighbor in neighbors {
-                if !selected.contains(neighbor) {
-                    let current = vote_power[neighbor];
-                    let new_power = (current - decay).max(0.0);
-                    vote_power.insert(neighbor, new_power);
-                }
+        vote_power[winner] = 0.0;
+        for &neighbor in &adj[winner] {
+            if !selected[neighbor] {
+                vote_power[neighbor] = (vote_power[neighbor] - decay).max(0.0);
             }
         }
     }
@@ -15718,16 +18038,22 @@ pub fn find_cliques(graph: &Graph) -> FindCliquesResult {
             continue;
         }
 
-        // Choose pivot: node in P ∪ X that maximizes |P ∩ N(pivot)|
-        let pivot = p
-            .union(&x)
-            .max_by(|&&u, &&v| {
-                let deg_u = p.intersection(&adj[u]).count();
-                let deg_v = p.intersection(&adj[v]).count();
-                deg_u.cmp(&deg_v).then_with(|| u.cmp(&v))
-            })
-            .copied()
-            .unwrap(); // safe: P is non-empty
+        // Choose pivot: node in P ∪ X that maximizes |P ∩ N(pivot)|.
+        // br-r37-c1-bkpivotdeg (cc): precompute each candidate's |P ∩ N(u)| ONCE instead of recomputing
+        // both sides inside the max_by comparator — max_by recomputes the running max's intersection on
+        // every one of the ~|P∪X| comparisons, so each candidate's O(|P|) intersection was counted many
+        // times. Byte-identical: same (|P∩N(u)|, u) max_by key → same pivot. `counts` borrows `p`, so it
+        // is block-scoped to drop before `p` is moved into `p_mut` below.
+        let pivot = {
+            let counts: HashMap<usize, usize> = p
+                .union(&x)
+                .map(|&u| (u, p.intersection(&adj[u]).count()))
+                .collect();
+            p.union(&x)
+                .max_by(|&&u, &&v| counts[&u].cmp(&counts[&v]).then_with(|| u.cmp(&v)))
+                .copied()
+                .unwrap() // safe: P is non-empty
+        };
 
         // Candidates: P \ N(pivot)
         let candidates: Vec<usize> = p.difference(&adj[pivot]).copied().collect();
@@ -15778,12 +18104,30 @@ pub fn graph_clique_number(graph: &Graph) -> GraphCliqueNumberResult {
 
 /// Edmonds-Karp max-flow on a HashMap-based auxiliary directed graph.
 /// Returns (flow_value, residual).
-fn aux_max_flow(
+fn aux_max_flow_impl<const CACHE_SORTED_NEIGHBORS: bool>(
     residual: &mut HashMap<String, HashMap<String, f64>>,
     source: &str,
     sink: &str,
     stats: &mut (usize, usize, usize),
 ) -> f64 {
+    // br-r37-c1-sixrd: residual capacities change after each augmentation, but
+    // the topology almost never does. Cache the exact lexicographically sorted
+    // neighbor sequence once instead of cloning and sorting every dequeued
+    // node's keys in every BFS. If a caller omitted an initial reverse edge,
+    // the update path inserts it into both maps at the same moment, preserving
+    // the former traversal order and edges_scanned witness exactly.
+    let mut sorted_neighbors: HashMap<String, Vec<String>> = if CACHE_SORTED_NEIGHBORS {
+        residual
+            .iter()
+            .map(|(node, capacities)| {
+                let mut neighbors: Vec<String> = capacities.keys().cloned().collect();
+                neighbors.sort_unstable();
+                (node.clone(), neighbors)
+            })
+            .collect()
+    } else {
+        HashMap::new()
+    };
     let mut total_flow = 0.0_f64;
     loop {
         let mut predecessor: HashMap<String, String> = HashMap::new();
@@ -15795,19 +18139,28 @@ fn aux_max_flow(
         stats.2 = stats.2.max(queue.len());
         let mut reached_sink = false;
         while let Some(current) = queue.pop_front() {
-            let mut neighbors: Vec<String> = residual
-                .get(&current)
-                .map(|caps| caps.keys().cloned().collect())
-                .unwrap_or_default();
-            neighbors.sort_unstable();
+            let mut rebuilt_neighbors: Vec<String>;
+            let neighbors: &[String] = if CACHE_SORTED_NEIGHBORS {
+                sorted_neighbors
+                    .get(&current)
+                    .map(Vec::as_slice)
+                    .unwrap_or_default()
+            } else {
+                rebuilt_neighbors = residual
+                    .get(&current)
+                    .map(|caps| caps.keys().cloned().collect())
+                    .unwrap_or_default();
+                rebuilt_neighbors.sort_unstable();
+                &rebuilt_neighbors
+            };
             for neighbor in neighbors {
                 stats.1 += 1;
-                if visited.contains(&neighbor) {
+                if visited.contains(neighbor) {
                     continue;
                 }
                 let cap = residual
                     .get(&current)
-                    .and_then(|caps| caps.get(&neighbor))
+                    .and_then(|caps| caps.get(neighbor))
                     .copied()
                     .unwrap_or(0.0);
                 if cap <= 0.0 {
@@ -15820,7 +18173,7 @@ fn aux_max_flow(
                     reached_sink = true;
                     break;
                 }
-                queue.push_back(neighbor);
+                queue.push_back(neighbor.clone());
                 stats.2 = stats.2.max(queue.len());
             }
             if reached_sink {
@@ -15862,16 +18215,25 @@ fn aux_max_flow(
             }
 
             // Reverse edge update
-            if let Some(reverse_caps) = residual.get_mut(&cursor) {
+            let inserted_reverse = if let Some(reverse_caps) = residual.get_mut(&cursor) {
                 if let Some(cap) = reverse_caps.get_mut(&prev) {
                     *cap += bottleneck;
+                    false
                 } else {
                     reverse_caps.insert(prev.clone(), bottleneck);
+                    true
                 }
             } else {
                 let mut new_map = HashMap::new();
                 new_map.insert(prev.clone(), bottleneck);
                 residual.insert(cursor.clone(), new_map);
+                true
+            };
+            if CACHE_SORTED_NEIGHBORS && inserted_reverse {
+                let neighbors = sorted_neighbors.entry(cursor.clone()).or_default();
+                if let Err(position) = neighbors.binary_search(&prev) {
+                    neighbors.insert(position, prev.clone());
+                }
             }
 
             cursor = prev;
@@ -15879,6 +18241,26 @@ fn aux_max_flow(
         total_flow += bottleneck;
     }
     total_flow
+}
+
+fn aux_max_flow(
+    residual: &mut HashMap<String, HashMap<String, f64>>,
+    source: &str,
+    sink: &str,
+    stats: &mut (usize, usize, usize),
+) -> f64 {
+    aux_max_flow_impl::<true>(residual, source, sink, stats)
+}
+
+/// Frozen pre-`br-r37-c1-sixrd` max-flow kernel for parity and same-binary A/B.
+#[cfg(test)]
+fn aux_max_flow_rebuild_neighbors(
+    residual: &mut HashMap<String, HashMap<String, f64>>,
+    source: &str,
+    sink: &str,
+    stats: &mut (usize, usize, usize),
+) -> f64 {
+    aux_max_flow_impl::<false>(residual, source, sink, stats)
 }
 
 /// Build auxiliary directed graph for node connectivity:
@@ -16415,12 +18797,9 @@ pub fn global_node_connectivity(graph: &Graph) -> NodeConnectivityResult {
         for j in (i + 1)..v_nbr_vec.len() {
             let x = v_nbr_vec[i];
             let y = v_nbr_vec[j];
-            // Skip if x and y are adjacent
-            let x_neighbors: HashSet<&str> = graph
-                .neighbors_iter(x)
-                .map(|it| it.collect())
-                .unwrap_or_default();
-            if x_neighbors.contains(y) {
+            // br-r37-c1-r7e4g: this loop needs one adjacency bit, not a fresh
+            // HashSet of x's entire neighbor row for every (x, y) pair.
+            if graph.has_edge(x, y) {
                 continue;
             }
             let (value, edges_scanned, queue_peak) =
@@ -17070,11 +19449,7 @@ pub fn global_minimum_node_cut(graph: &Graph) -> MinimumNodeCutResult {
         for j in (i + 1)..v_nbr_vec.len() {
             let x = v_nbr_vec[i];
             let y = v_nbr_vec[j];
-            let x_neighbors: HashSet<&str> = graph
-                .neighbors_iter(x)
-                .map(|it| it.collect())
-                .unwrap_or_default();
-            if x_neighbors.contains(y) {
+            if graph.has_edge(x, y) {
                 continue;
             }
             let result = minimum_node_cut(graph, x, y);
@@ -18252,6 +20627,120 @@ pub fn all_simple_paths_directed(
     target: &str,
     cutoff: Option<usize>,
 ) -> AllSimplePathsResult {
+    let nodes = digraph.nodes_ordered();
+    let n = nodes.len();
+
+    if !nodes.contains(&source) || !nodes.contains(&target) {
+        return AllSimplePathsResult {
+            paths: Vec::new(),
+            witness: ComplexityWitness {
+                algorithm: "all_simple_paths_directed".to_owned(),
+                complexity_claim: "O(|V|! / (|V|-k)!)".to_owned(),
+                nodes_touched: 0,
+                edges_scanned: 0,
+                queue_peak: 0,
+            },
+        };
+    }
+
+    if source == target {
+        return AllSimplePathsResult {
+            paths: vec![vec![source.to_owned()]],
+            witness: ComplexityWitness {
+                algorithm: "all_simple_paths_directed".to_owned(),
+                complexity_claim: "O(1)".to_owned(),
+                nodes_touched: 1,
+                edges_scanned: 0,
+                queue_peak: 1,
+            },
+        };
+    }
+
+    let max_depth = cutoff.unwrap_or(n.saturating_sub(1));
+    let source_idx = digraph
+        .get_node_index(source)
+        .expect("source verified present above");
+    let target_idx = digraph
+        .get_node_index(target)
+        .expect("target verified present above");
+
+    let mut paths: Vec<Vec<String>> = Vec::new();
+    let mut nodes_touched = 0usize;
+    let mut edges_scanned = 0usize;
+    let mut stack_peak = 0usize;
+
+    // br-r37-c1-aspdiridx (cc): directed mirror of the undirected `all_simple_paths` (aspmark) —
+    // iterative DFS over INTEGER node indices with a `vec![false; n]` visited mark and the graph's
+    // integer successor adjacency, instead of a String-keyed `HashMap<&str,Vec<&str>>` neighbour
+    // cache (name-sorted) + `HashSet<&str>` visited that String-hashed on EVERY step of an
+    // exponential enumeration. Byte-identical: the SET of simple paths and all three witness counters
+    // (nodes_touched / edges_scanned / queue_peak) are independent of successor visit order — each
+    // frame examines ALL its successors before it is popped, and `paths.sort()` normalises the output
+    // — so the name-sort is dropped; node names are materialised only when a path is emitted.
+    let nbr_cache: Vec<&[usize]> = (0..n)
+        .map(|i| digraph.successors_indices(i).unwrap_or(&[]))
+        .collect();
+
+    let mut visited = vec![false; n];
+    visited[source_idx] = true;
+
+    let mut stack: Vec<(usize, usize)> = vec![(source_idx, 0)];
+    let mut path: Vec<usize> = vec![source_idx];
+
+    while !stack.is_empty() {
+        stack_peak = stack_peak.max(stack.len());
+        let (node, idx) = *stack.last().unwrap();
+        let nbrs = nbr_cache[node];
+
+        if idx < nbrs.len() {
+            let next = nbrs[idx];
+            stack.last_mut().unwrap().1 += 1;
+            edges_scanned += 1;
+
+            if next == target_idx {
+                nodes_touched += 1;
+                let mut found_path: Vec<String> =
+                    path.iter().map(|&i| nodes[i].to_owned()).collect();
+                found_path.push(target.to_owned());
+                paths.push(found_path);
+            } else if !visited[next] && path.len() < max_depth {
+                nodes_touched += 1;
+                visited[next] = true;
+                path.push(next);
+                stack.push((next, 0));
+            }
+        } else {
+            stack.pop();
+            if let Some(removed) = path.pop() {
+                visited[removed] = false;
+            }
+        }
+    }
+
+    paths.sort();
+
+    AllSimplePathsResult {
+        paths,
+        witness: ComplexityWitness {
+            algorithm: "all_simple_paths_directed".to_owned(),
+            complexity_claim: "O(|V|! / (|V|-k)!)".to_owned(),
+            nodes_touched,
+            edges_scanned,
+            queue_peak: stack_peak,
+        },
+    }
+}
+
+/// br-r37-c1-aspdiridx A/B baseline: the pre-lever String-keyed `all_simple_paths_directed`
+/// (HashMap<&str,Vec<&str>> name-sorted neighbour cache + HashSet<&str> visited). Test-only;
+/// byte-identical to the shipped integer-index version.
+#[cfg(test)]
+fn all_simple_paths_directed_orig_string(
+    digraph: &DiGraph,
+    source: &str,
+    target: &str,
+    cutoff: Option<usize>,
+) -> AllSimplePathsResult {
     use std::collections::{HashMap, HashSet};
 
     let nodes = digraph.nodes_ordered();
@@ -18377,8 +20866,7 @@ pub fn efficiency(graph: &Graph, source: &str, target: &str) -> Option<f64> {
 /// Edge weights are ignored (unweighted shortest paths).
 #[must_use]
 pub fn global_efficiency(graph: &Graph) -> GlobalEfficiencyResult {
-    let nodes = graph.nodes_ordered();
-    let n = nodes.len();
+    let n = graph.node_count();
     if n < 2 {
         return GlobalEfficiencyResult {
             efficiency: 0.0,
@@ -18393,44 +20881,29 @@ pub fn global_efficiency(graph: &Graph) -> GlobalEfficiencyResult {
     }
 
     let denom = n * (n - 1);
+    let csr = AllPairsBfsCsr::from_rows(
+        (0..n).map(|node| graph.neighbors_indices(node).unwrap_or(&[])),
+        n,
+    );
+    let per_source = all_sources_bfs_histograms(&csr, n);
+
     let mut total_eff = 0.0f64;
     let mut total_edges_scanned = 0usize;
     let mut max_queue_peak = 0usize;
-
-    // br-r37-c1-geffcsr: integer-CSR BFS from every source over the graph's
-    // index adjacency, replacing the per-source `HashMap<&str, usize>` +
-    // `nbrs.sort_unstable()` String tax (the same lever that made
-    // average_shortest_path_length / distance_measures ~16x faster). The
-    // neighbour visit order does not change BFS distances, so the sort is
-    // dropped. 1/d is accumulated at discovery for each reached target (d>0);
-    // a disconnected graph contributes only its reachable pairs, exactly like
-    // nx's `all_pairs_shortest_path_length` (which yields only reachable
-    // targets). Same O(|V|*(|V|+|E|)) class, far smaller constant factor.
-    let mut dist = vec![0usize; n];
-    let mut seen_stamp = vec![0u32; n];
-    let mut queue: VecDeque<usize> = VecDeque::new();
-    for s in 0..n {
-        let stamp = (s as u32) + 1;
-        seen_stamp[s] = stamp;
-        dist[s] = 0;
-        queue.clear();
-        queue.push_back(s);
-
-        while let Some(u) = queue.pop_front() {
-            let d = dist[u];
-            if let Some(nbrs) = graph.neighbors_indices(u) {
-                for &v in nbrs {
-                    total_edges_scanned += 1;
-                    if seen_stamp[v] != stamp {
-                        seen_stamp[v] = stamp;
-                        dist[v] = d + 1;
-                        total_eff += 1.0 / (d + 1) as f64;
-                        queue.push_back(v);
-                    }
-                }
+    // Sources are collected in insertion order. Within a source, ordinary BFS
+    // discovers every distance-L target before distance L+1. Replaying each
+    // level's identical `1/L` addend therefore preserves the exact sequential
+    // floating-point addition order while the expensive graph walks run in
+    // parallel.
+    for (histogram, edges_scanned, queue_peak) in per_source {
+        for (distance, &count) in histogram.iter().enumerate().skip(1) {
+            let contribution = 1.0 / distance as f64;
+            for _ in 0..count {
+                total_eff += contribution;
             }
-            max_queue_peak = max_queue_peak.max(queue.len());
         }
+        total_edges_scanned += edges_scanned;
+        max_queue_peak = max_queue_peak.max(queue_peak);
     }
 
     let efficiency = total_eff / denom as f64;
@@ -18473,12 +20946,30 @@ pub fn local_efficiency(graph: &Graph) -> LocalEfficiencyResult {
     let mut total_edges_scanned = 0usize;
     let mut max_queue_peak = 0usize;
 
-    for &v in &nodes {
-        // Get neighbors of v
-        let nbrs: HashSet<&str> = graph
-            .neighbors_iter(v)
-            .map(|iter| iter.collect())
-            .unwrap_or_default();
+    // br-r37-c1-y2q6x: local efficiency runs one induced-neighborhood BFS
+    // from every neighbor of every node. Keep that repeated state in compact
+    // node-index space instead of rebuilding String-keyed HashSets/HashMaps and
+    // allocating a sorted Vec<&str> at every queue pop. Sorting each adjacency
+    // row once by node name preserves the former BFS order (and therefore the
+    // queue-peak witness) while the mark/dist arrays are reused across all egos.
+    let mut sorted_adjacency = Vec::with_capacity(n);
+    for node_index in 0..n {
+        let mut row = graph
+            .neighbors_indices(node_index)
+            .unwrap_or_default()
+            .to_vec();
+        row.sort_unstable_by(|&left, &right| nodes[left].cmp(nodes[right]));
+        sorted_adjacency.push(row);
+    }
+    let mut in_ego = vec![false; n];
+    let mut seen_stamp = vec![0usize; n];
+    let mut distance = vec![0usize; n];
+    let mut queue = VecDeque::with_capacity(n);
+    let mut reached = Vec::with_capacity(n);
+    let mut stamp = 0usize;
+
+    for node_index in 0..n {
+        let nbrs = &sorted_adjacency[node_index];
 
         let nbr_count = nbrs.len();
         if nbr_count < 2 {
@@ -18489,7 +20980,98 @@ pub fn local_efficiency(graph: &Graph) -> LocalEfficiencyResult {
         let denom = nbr_count * (nbr_count - 1);
         let mut sub_eff = 0.0f64;
 
+        for &neighbor in nbrs {
+            in_ego[neighbor] = true;
+        }
+
         // BFS from each neighbor within the induced subgraph
+        for &source in nbrs {
+            stamp += 1;
+            seen_stamp[source] = stamp;
+            distance[source] = 0;
+            queue.clear();
+            reached.clear();
+            queue.push_back(source);
+            reached.push(source);
+
+            while let Some(current) = queue.pop_front() {
+                let next_distance = distance[current] + 1;
+                for &nbr in &sorted_adjacency[current] {
+                    total_edges_scanned += 1;
+                    // Only traverse within the induced subgraph of v's neighbors
+                    if in_ego[nbr] && seen_stamp[nbr] != stamp {
+                        seen_stamp[nbr] = stamp;
+                        distance[nbr] = next_distance;
+                        queue.push_back(nbr);
+                        reached.push(nbr);
+                        max_queue_peak = max_queue_peak.max(queue.len());
+                    }
+                }
+            }
+
+            for &target in &reached {
+                if target != source {
+                    sub_eff += 1.0 / distance[target] as f64;
+                }
+            }
+        }
+
+        for &neighbor in nbrs {
+            in_ego[neighbor] = false;
+        }
+
+        total_eff += sub_eff / denom as f64;
+    }
+
+    let efficiency = total_eff / n as f64;
+
+    LocalEfficiencyResult {
+        efficiency,
+        witness: ComplexityWitness {
+            algorithm: "local_efficiency".to_owned(),
+            complexity_claim: "O(|V| * d_max * (d_max + |E_sub|))".to_owned(),
+            nodes_touched: n,
+            edges_scanned: total_edges_scanned,
+            queue_peak: max_queue_peak,
+        },
+    }
+}
+
+#[cfg(test)]
+fn local_efficiency_orig_string(graph: &Graph) -> LocalEfficiencyResult {
+    let nodes = graph.nodes_ordered();
+    let n = nodes.len();
+    if n == 0 {
+        return LocalEfficiencyResult {
+            efficiency: 0.0,
+            witness: ComplexityWitness {
+                algorithm: "local_efficiency".to_owned(),
+                complexity_claim: "O(|V| * d_max * (d_max + |E_sub|))".to_owned(),
+                nodes_touched: 0,
+                edges_scanned: 0,
+                queue_peak: 0,
+            },
+        };
+    }
+
+    let mut total_eff = 0.0f64;
+    let mut total_edges_scanned = 0usize;
+    let mut max_queue_peak = 0usize;
+
+    for &v in &nodes {
+        let nbrs: HashSet<&str> = graph
+            .neighbors_iter(v)
+            .map(|iter| iter.collect())
+            .unwrap_or_default();
+
+        let nbr_count = nbrs.len();
+        if nbr_count < 2 {
+            continue;
+        }
+
+        let denom = nbr_count * (nbr_count - 1);
+        let mut sub_eff = 0.0f64;
+
         for &source in &nbrs {
             let mut dist: HashMap<&str, usize> = HashMap::new();
             dist.insert(source, 0);
@@ -18506,7 +21088,6 @@ pub fn local_efficiency(graph: &Graph) -> LocalEfficiencyResult {
 
                 for nbr in cur_nbrs {
                     total_edges_scanned += 1;
-                    // Only traverse within the induced subgraph of v's neighbors
                     if nbrs.contains(nbr) && !dist.contains_key(nbr) {
                         dist.insert(nbr, d + 1);
                         queue.push_back(nbr);
@@ -18525,10 +21106,8 @@ pub fn local_efficiency(graph: &Graph) -> LocalEfficiencyResult {
         total_eff += sub_eff / denom as f64;
     }
 
-    let efficiency = total_eff / n as f64;
-
     LocalEfficiencyResult {
-        efficiency,
+        efficiency: total_eff / n as f64,
         witness: ComplexityWitness {
             algorithm: "local_efficiency".to_owned(),
             complexity_claim: "O(|V| * d_max * (d_max + |E_sub|))".to_owned(),
@@ -18664,6 +21243,97 @@ pub fn tree_broadcast_center(graph: &Graph) -> Option<(usize, Vec<String>)> {
     // remove_node once per leaf — the clone + O(V) graph-mutations were the 17.6ms
     // cost on C(1023). Same peeling order, value DP, and String-name tie-break, so
     // the (broadcast_time, centers) output is byte-identical.
+    let mut removed: HashSet<String> = informed.iter().cloned().collect();
+    let mut degree: HashMap<String, usize> = HashMap::new();
+    for node in graph.nodes_ordered() {
+        if removed.contains(node) {
+            continue;
+        }
+        let d = graph
+            .neighbors(node)
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|nb| !removed.contains(*nb))
+            .count();
+        degree.insert(node.to_owned(), d);
+    }
+    let mut alive_count = graph.node_count() - removed.len();
+
+    // br-r37-c1-536sn: every peel formerly scanned the complete frontier
+    // HashSet to select the minimum `(value, node name)`. Balanced trees keep a
+    // wide frontier for most of the peel, turning that selection into the
+    // residual quadratic cost. A reversed heap returns the identical tuple
+    // minimum in O(log |frontier|), and borrowed graph names avoid new clones.
+    let mut frontier = BinaryHeap::new();
+    for node in graph
+        .nodes_ordered()
+        .into_iter()
+        .filter(|node| !removed.contains(*node) && degree.get(*node).copied() == Some(1))
+    {
+        let value = graph.neighbor_count(node).saturating_sub(1);
+        values.insert(node.to_owned(), value);
+        frontier.push(std::cmp::Reverse((value, node)));
+    }
+
+    while alive_count >= 2 {
+        let std::cmp::Reverse((_value, leaf)) = frontier.pop()?;
+        let neighbor = graph
+            .neighbors(leaf)
+            .unwrap_or_default()
+            .into_iter()
+            .find(|nb| !removed.contains(*nb))?;
+
+        informed.insert(leaf.to_owned());
+        removed.insert(leaf.to_owned());
+        alive_count -= 1;
+        if let Some(d) = degree.get_mut(neighbor) {
+            *d = d.saturating_sub(1);
+        }
+
+        if !removed.contains(neighbor) && degree.get(neighbor).copied() == Some(1) {
+            let value = tree_broadcast_max_value(graph, &informed, neighbor, &values);
+            values.insert(neighbor.to_owned(), value);
+            frontier.push(std::cmp::Reverse((value, neighbor)));
+        }
+    }
+
+    let root = graph
+        .nodes_ordered()
+        .into_iter()
+        .find(|node| !removed.contains(*node))
+        .map(str::to_owned)?;
+    let broadcast_time = tree_broadcast_max_value(graph, &informed, &root, &values);
+    let centers = tree_broadcast_centers(graph, &root, &values, broadcast_time);
+    Some((broadcast_time, centers))
+}
+
+#[cfg(test)]
+fn tree_broadcast_center_orig_frontier_scan(graph: &Graph) -> Option<(usize, Vec<String>)> {
+    let node_count = graph.node_count();
+    if node_count == 0 || !is_tree(graph).is_tree {
+        return None;
+    }
+    if node_count < 3 {
+        let mut nodes = graph
+            .nodes_ordered()
+            .into_iter()
+            .map(str::to_owned)
+            .collect::<Vec<String>>();
+        nodes.sort_unstable();
+        return Some((node_count - 1, nodes));
+    }
+
+    let mut informed = graph
+        .nodes_ordered()
+        .into_iter()
+        .filter(|node| graph.neighbor_count(node) == 1)
+        .map(str::to_owned)
+        .collect::<HashSet<String>>();
+    let mut values = informed
+        .iter()
+        .cloned()
+        .map(|node| (node, 0usize))
+        .collect::<HashMap<String, usize>>();
     let mut removed: HashSet<String> = informed.iter().cloned().collect();
     let mut degree: HashMap<String, usize> = HashMap::new();
     for node in graph.nodes_ordered() {
@@ -19531,6 +22201,117 @@ pub fn topological_sort(digraph: &DiGraph) -> Option<TopologicalSortResult> {
     let n = nodes.len();
 
     // DFS-based topological sort (reverse postorder)
+    #[derive(Clone, Copy, PartialEq, Eq)]
+    enum Color {
+        White,
+        Gray,
+        Black,
+    }
+
+    // br-r37-c1-toposortidx (cc): the 3-color DFS kept `color` as HashMap<&str,Color> and walked
+    // `successors()` (Vec<&str> alloc per node) with a `color.get(succ)` String re-hash per edge.
+    // Index the color array (Vec<Color>) and walk `successors_indices` (&[usize]); node names are
+    // materialised only at postorder push + the cgse record. Byte-identical: same node scan (0..n),
+    // same reversed successor order → same White/Gray/Black transitions, same cycle detection, same
+    // postorder → the same reverse-postorder result and witness.
+    let mut color: Vec<Color> = vec![Color::White; n];
+
+    let mut order: Vec<String> = Vec::with_capacity(n);
+    let mut nodes_touched = 0usize;
+    let mut edges_scanned = 0usize;
+
+    // Iterative DFS using an explicit stack to avoid stack overflow on large graphs.
+    // Stack items: (node, is_backtrack). When is_backtrack is true, we're returning
+    // from this node and should add it to the postorder.
+    for start in 0..n {
+        if color[start] != Color::White {
+            continue;
+        }
+
+        let mut stack: Vec<(usize, bool)> = vec![(start, false)];
+
+        while let Some((node, backtrack)) = stack.pop() {
+            if backtrack {
+                color[node] = Color::Black;
+                cgse_record_decision(&mut cgse_sink, nodes[node], "postorder");
+                order.push(nodes[node].to_owned());
+                continue;
+            }
+
+            match color[node] {
+                Color::Gray => {
+                    cgse_publish(
+                        CgseReferenceAlgorithm::TopologicalSort,
+                        digraph.node_count(),
+                        digraph.edge_count(),
+                        cgse_sink,
+                    );
+                    return None; // cycle detected
+                }
+                Color::Black => continue,
+                Color::White => {}
+            }
+
+            color[node] = Color::Gray;
+            nodes_touched += 1;
+
+            // Push backtrack marker
+            stack.push((node, true));
+
+            // Push successors in reverse order for deterministic iteration
+            if let Some(succs) = digraph.successors_indices(node) {
+                for &succ in succs.iter().rev() {
+                    edges_scanned += 1;
+                    match color[succ] {
+                        Color::Gray => {
+                            cgse_publish(
+                                CgseReferenceAlgorithm::TopologicalSort,
+                                digraph.node_count(),
+                                digraph.edge_count(),
+                                cgse_sink,
+                            );
+                            return None; // cycle detected
+                        }
+                        Color::Black => continue,
+                        Color::White => {
+                            stack.push((succ, false));
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    order.reverse();
+
+    cgse_publish(
+        CgseReferenceAlgorithm::TopologicalSort,
+        digraph.node_count(),
+        digraph.edge_count(),
+        cgse_sink,
+    );
+
+    Some(TopologicalSortResult {
+        order,
+        witness: ComplexityWitness {
+            algorithm: "dfs_topological_sort".to_owned(),
+            complexity_claim: "O(|V| + |E|)".to_owned(),
+            nodes_touched,
+            edges_scanned,
+            queue_peak: 0,
+        },
+    })
+}
+
+/// br-r37-c1-toposortidx A/B baseline: the pre-lever String-keyed 3-color DFS topological sort.
+/// Test-only; byte-identical to the shipped integer-index version.
+#[cfg(test)]
+fn topological_sort_orig_string(digraph: &DiGraph) -> Option<TopologicalSortResult> {
+    let mut cgse_sink = cgse_begin(CgseReferenceAlgorithm::TopologicalSort);
+
+    let nodes = digraph.nodes_ordered();
+    let n = nodes.len();
+
     #[derive(PartialEq, Eq)]
     enum Color {
         White,
@@ -19547,9 +22328,6 @@ pub fn topological_sort(digraph: &DiGraph) -> Option<TopologicalSortResult> {
     let mut nodes_touched = 0usize;
     let mut edges_scanned = 0usize;
 
-    // Iterative DFS using an explicit stack to avoid stack overflow on large graphs.
-    // Stack items: (node, is_backtrack). When is_backtrack is true, we're returning
-    // from this node and should add it to the postorder.
     for &start in &nodes {
         if color[start] != Color::White {
             continue;
@@ -19573,7 +22351,7 @@ pub fn topological_sort(digraph: &DiGraph) -> Option<TopologicalSortResult> {
                         digraph.edge_count(),
                         cgse_sink,
                     );
-                    return None; // cycle detected
+                    return None;
                 }
                 Some(Color::Black) => continue,
                 _ => {}
@@ -19581,11 +22359,8 @@ pub fn topological_sort(digraph: &DiGraph) -> Option<TopologicalSortResult> {
 
             color.insert(node, Color::Gray);
             nodes_touched += 1;
-
-            // Push backtrack marker
             stack.push((node, true));
 
-            // Push successors in reverse order for deterministic iteration
             if let Some(succs) = digraph.successors(node) {
                 for succ in succs.into_iter().rev() {
                     edges_scanned += 1;
@@ -19597,7 +22372,7 @@ pub fn topological_sort(digraph: &DiGraph) -> Option<TopologicalSortResult> {
                                 digraph.edge_count(),
                                 cgse_sink,
                             );
-                            return None; // cycle detected
+                            return None;
                         }
                         Some(Color::Black) => continue,
                         _ => {
@@ -19641,9 +22416,15 @@ pub fn topological_generations(digraph: &DiGraph) -> Option<TopologicalGeneratio
     let nodes = digraph.nodes_ordered();
     let n = nodes.len();
 
-    let mut in_degree: HashMap<&str, usize> = HashMap::with_capacity(n);
-    for &node in &nodes {
-        in_degree.insert(node, digraph.in_degree(node));
+    // br-r37-c1-topogenidx (cc): Kahn's over integer indices. The old kernel kept `in_degree` as
+    // HashMap<&str,usize> and walked `successors()` (a Vec<&str> alloc per node) with an
+    // `in_degree.get_mut(succ)` String hash per edge. Index in_degree (Vec<usize>) and walk
+    // `successors_indices` (&[usize]); node names are materialised only when a generation is emitted.
+    // Byte-identical: same in_degree seed, same gen-0 node-iteration order, same successor scan order →
+    // same zero-reach order → the same generations (node, discovering-parent) + witness.
+    let mut in_degree: Vec<usize> = vec![0; n];
+    for i in 0..n {
+        in_degree[i] = digraph.in_degree(nodes[i]);
     }
 
     // re-audit 2026-06-06: nx emits generation 0 in NODE ITERATION order
@@ -19651,6 +22432,68 @@ pub fn topological_generations(digraph: &DiGraph) -> Option<TopologicalGeneratio
     // indegree hits zero while scanning the previous generation). The old
     // lexicographic sort_unstable diverged on both (and string-sorted
     // "10" before "2").
+    let mut current_gen: Vec<(usize, Option<usize>)> = (0..n)
+        .filter(|&i| in_degree[i] == 0)
+        .map(|i| (i, None))
+        .collect();
+
+    let mut generations: Vec<Vec<(String, Option<String>)>> = Vec::new();
+    let mut total_processed = 0usize;
+    let mut edges_scanned = 0usize;
+
+    while !current_gen.is_empty() {
+        let mut next_gen: Vec<(usize, Option<usize>)> = Vec::new();
+        for &(node, _) in &current_gen {
+            total_processed += 1;
+            if let Some(succs) = digraph.successors_indices(node) {
+                for &succ in succs {
+                    edges_scanned += 1;
+                    in_degree[succ] -= 1;
+                    if in_degree[succ] == 0 {
+                        next_gen.push((succ, Some(node)));
+                    }
+                }
+            }
+        }
+
+        generations.push(
+            current_gen
+                .iter()
+                .map(|&(s, p)| (nodes[s].to_owned(), p.map(|pi| nodes[pi].to_owned())))
+                .collect(),
+        );
+
+        current_gen = next_gen;
+    }
+
+    if total_processed != n {
+        return None; // cycle detected
+    }
+
+    Some(TopologicalGenerationsResult {
+        generations,
+        witness: ComplexityWitness {
+            algorithm: "kahn_topological_generations".to_owned(),
+            complexity_claim: "O(|V| + |E|)".to_owned(),
+            nodes_touched: total_processed,
+            edges_scanned,
+            queue_peak: 0,
+        },
+    })
+}
+
+/// br-r37-c1-topogenidx A/B baseline: the pre-lever String-keyed Kahn's generations.
+/// Test-only; byte-identical to the shipped integer-index version.
+#[cfg(test)]
+fn topological_generations_orig_string(digraph: &DiGraph) -> Option<TopologicalGenerationsResult> {
+    let nodes = digraph.nodes_ordered();
+    let n = nodes.len();
+
+    let mut in_degree: HashMap<&str, usize> = HashMap::with_capacity(n);
+    for &node in &nodes {
+        in_degree.insert(node, digraph.in_degree(node));
+    }
+
     let mut current_gen: Vec<(&str, Option<&str>)> = nodes
         .iter()
         .filter(|&&node| in_degree.get(node) == Some(&0))
@@ -19689,7 +22532,7 @@ pub fn topological_generations(digraph: &DiGraph) -> Option<TopologicalGeneratio
     }
 
     if total_processed != n {
-        return None; // cycle detected
+        return None;
     }
 
     Some(TopologicalGenerationsResult {
@@ -20034,35 +22877,40 @@ pub fn dfs_postorder_nodes_directed(
     source: &str,
     depth_limit: Option<usize>,
 ) -> Vec<String> {
+    // br-r37-c1-descidx (cc): integer-index DFS. The old kernel kept `visited` as HashSet<&str> and
+    // called successors() (Vec<&str> alloc per node) — a String hash on every contains/insert. Walk
+    // successors_indices over node indices with a Vec<bool> visited; names materialise only into the
+    // O(|V|) postorder output. Byte-identical: successors_indices == successors order, so the `.rev()`
+    // child-push order (and thus the postorder) is unchanged, as are the visited/backtrack/depth logic.
     let max_depth = depth_limit.unwrap_or(usize::MAX);
-    let mut visited: HashSet<&str> = HashSet::new();
+    let Some(source_idx) = digraph.get_node_index(source) else {
+        return Vec::new();
+    };
+    let nodes = digraph.nodes_ordered();
+    let mut visited = vec![false; nodes.len()];
     let mut postorder: Vec<String> = Vec::new();
 
-    if !digraph.has_node(source) {
-        return postorder;
-    }
-
-    let mut stack: Vec<(&str, bool, usize)> = vec![(source, false, 0)];
+    let mut stack: Vec<(usize, bool, usize)> = vec![(source_idx, false, 0)];
 
     while let Some((node, backtrack, depth)) = stack.pop() {
         if backtrack {
-            postorder.push(node.to_owned());
+            postorder.push(nodes[node].to_owned());
             continue;
         }
-        if visited.contains(node) {
+        if visited[node] {
             continue;
         }
-        visited.insert(node);
+        visited[node] = true;
         // NetworkX omits cutoff nodes from postorder on depth-limited traversals.
-        if node == source || depth < max_depth {
+        if node == source_idx || depth < max_depth {
             stack.push((node, true, depth));
         }
 
         if depth < max_depth
-            && let Some(succs) = digraph.successors(node)
+            && let Some(succs) = digraph.successors_indices(node)
         {
-            for succ in succs.into_iter().rev() {
-                if !visited.contains(succ) {
+            for &succ in succs.iter().rev() {
+                if !visited[succ] {
                     stack.push((succ, false, depth + 1));
                 }
             }
@@ -20317,24 +23165,32 @@ pub fn bfs_successors_directed(
 /// Matches `networkx.bfs_layers`.
 #[must_use]
 pub fn bfs_layers(graph: &Graph, source: &str) -> Vec<Vec<String>> {
+    // br-r37-c1-bfslayidx (cc): integer-index BFS. The old kernel kept `visited` as a HashSet<&str>
+    // and called `graph.neighbors(node)` (a fresh Vec<&str> allocation) per node — a String hash on
+    // every visited probe across O(|E|) edge scans + O(|V|) neighbour-Vec allocs. Walk
+    // `neighbors_indices` over node INDICES with a `Vec<bool>` visited (O(1) probe, no alloc); only the
+    // per-layer output materialises names (`nodes[i]`). Byte-identical: node index i == nodes_ordered()
+    // position, neighbours_indices == neighbours order → the same per-layer discovery order and the same
+    // node names, layer by layer.
     let mut layers: Vec<Vec<String>> = Vec::new();
-    let mut visited: HashSet<&str> = HashSet::new();
-
-    if !graph.has_node(source) {
+    let Some(source_idx) = graph.get_node_index(source) else {
         return layers;
-    }
+    };
+    let nodes = graph.nodes_ordered();
+    let mut visited = vec![false; nodes.len()];
 
-    visited.insert(source);
-    let mut current_layer = vec![source];
+    visited[source_idx] = true;
+    let mut current_layer = vec![source_idx];
 
     while !current_layer.is_empty() {
-        layers.push(current_layer.iter().map(|&s| s.to_owned()).collect());
-        let mut next_layer: Vec<&str> = Vec::new();
+        layers.push(current_layer.iter().map(|&i| nodes[i].to_owned()).collect());
+        let mut next_layer: Vec<usize> = Vec::new();
         for &node in &current_layer {
-            if let Some(neighbors) = graph.neighbors(node) {
-                for neighbor in neighbors {
-                    if visited.insert(neighbor) {
-                        next_layer.push(neighbor);
+            if let Some(neighbors) = graph.neighbors_indices(node) {
+                for &nb in neighbors {
+                    if !visited[nb] {
+                        visited[nb] = true;
+                        next_layer.push(nb);
                     }
                 }
             }
@@ -20350,24 +23206,31 @@ pub fn bfs_layers(graph: &Graph, source: &str) -> Vec<Vec<String>> {
 /// Matches `networkx.bfs_layers` with an iterable of sources.
 #[must_use]
 pub fn bfs_layers_multi(graph: &Graph, sources: &[&str]) -> Vec<Vec<String>> {
+    // br-r37-c1-bfslayidx (cc): integer-index BFS (see bfs_layers) — Vec<bool> visited over node indices
+    // + neighbors_indices (no per-node Vec alloc), byte-identical (same seed/discovery order + names).
     let mut layers: Vec<Vec<String>> = Vec::new();
-    let mut visited: HashSet<&str> = HashSet::new();
+    let nodes = graph.nodes_ordered();
+    let mut visited = vec![false; nodes.len()];
 
-    let mut current_layer: Vec<&str> = Vec::new();
+    let mut current_layer: Vec<usize> = Vec::new();
     for &s in sources {
-        if graph.has_node(s) && visited.insert(s) {
-            current_layer.push(s);
+        if let Some(si) = graph.get_node_index(s)
+            && !visited[si]
+        {
+            visited[si] = true;
+            current_layer.push(si);
         }
     }
 
     while !current_layer.is_empty() {
-        layers.push(current_layer.iter().map(|&s| s.to_owned()).collect());
-        let mut next_layer: Vec<&str> = Vec::new();
+        layers.push(current_layer.iter().map(|&i| nodes[i].to_owned()).collect());
+        let mut next_layer: Vec<usize> = Vec::new();
         for &node in &current_layer {
-            if let Some(neighbors) = graph.neighbors(node) {
-                for neighbor in neighbors {
-                    if visited.insert(neighbor) {
-                        next_layer.push(neighbor);
+            if let Some(neighbors) = graph.neighbors_indices(node) {
+                for &nb in neighbors {
+                    if !visited[nb] {
+                        visited[nb] = true;
+                        next_layer.push(nb);
                     }
                 }
             }
@@ -20386,13 +23249,19 @@ pub fn bfs_layers_multi_with_parents(
     graph: &Graph,
     sources: &[&str],
 ) -> Vec<Vec<(String, Option<String>)>> {
+    // br-r37-c1-bfslayidx (cc): integer-index BFS (see bfs_layers); parent tracked as a node index,
+    // materialised to a name (`nodes[pi]`) only in the output. Byte-identical.
     let mut layers: Vec<Vec<(String, Option<String>)>> = Vec::new();
-    let mut visited: HashSet<&str> = HashSet::new();
+    let nodes = graph.nodes_ordered();
+    let mut visited = vec![false; nodes.len()];
 
-    let mut current_layer: Vec<(&str, Option<&str>)> = Vec::new();
+    let mut current_layer: Vec<(usize, Option<usize>)> = Vec::new();
     for &s in sources {
-        if graph.has_node(s) && visited.insert(s) {
-            current_layer.push((s, None));
+        if let Some(si) = graph.get_node_index(s)
+            && !visited[si]
+        {
+            visited[si] = true;
+            current_layer.push((si, None));
         }
     }
 
@@ -20400,15 +23269,16 @@ pub fn bfs_layers_multi_with_parents(
         layers.push(
             current_layer
                 .iter()
-                .map(|&(s, p)| (s.to_owned(), p.map(str::to_owned)))
+                .map(|&(s, p)| (nodes[s].to_owned(), p.map(|pi| nodes[pi].to_owned())))
                 .collect(),
         );
-        let mut next_layer: Vec<(&str, Option<&str>)> = Vec::new();
+        let mut next_layer: Vec<(usize, Option<usize>)> = Vec::new();
         for &(node, _) in &current_layer {
-            if let Some(neighbors) = graph.neighbors(node) {
-                for neighbor in neighbors {
-                    if visited.insert(neighbor) {
-                        next_layer.push((neighbor, Some(node)));
+            if let Some(neighbors) = graph.neighbors_indices(node) {
+                for &nb in neighbors {
+                    if !visited[nb] {
+                        visited[nb] = true;
+                        next_layer.push((nb, Some(node)));
                     }
                 }
             }
@@ -20478,24 +23348,30 @@ pub fn bfs_layers_directed_multi_with_parents(
 /// BFS layers from multiple sources on a directed graph.
 #[must_use]
 pub fn bfs_layers_directed_multi(digraph: &DiGraph, sources: &[&str]) -> Vec<Vec<String>> {
+    // br-r37-c1-bfslayidx (cc): integer-index BFS over successors_indices (see bfs_layers), byte-identical.
     let mut layers: Vec<Vec<String>> = Vec::new();
-    let mut visited: HashSet<&str> = HashSet::new();
+    let nodes = digraph.nodes_ordered();
+    let mut visited = vec![false; nodes.len()];
 
-    let mut current_layer: Vec<&str> = Vec::new();
+    let mut current_layer: Vec<usize> = Vec::new();
     for &s in sources {
-        if digraph.has_node(s) && visited.insert(s) {
-            current_layer.push(s);
+        if let Some(si) = digraph.get_node_index(s)
+            && !visited[si]
+        {
+            visited[si] = true;
+            current_layer.push(si);
         }
     }
 
     while !current_layer.is_empty() {
-        layers.push(current_layer.iter().map(|&s| s.to_owned()).collect());
-        let mut next_layer: Vec<&str> = Vec::new();
+        layers.push(current_layer.iter().map(|&i| nodes[i].to_owned()).collect());
+        let mut next_layer: Vec<usize> = Vec::new();
         for &node in &current_layer {
-            if let Some(succs) = digraph.successors(node) {
-                for succ in succs {
-                    if visited.insert(succ) {
-                        next_layer.push(succ);
+            if let Some(succs) = digraph.successors_indices(node) {
+                for &nb in succs {
+                    if !visited[nb] {
+                        visited[nb] = true;
+                        next_layer.push(nb);
                     }
                 }
             }
@@ -20509,24 +23385,27 @@ pub fn bfs_layers_directed_multi(digraph: &DiGraph, sources: &[&str]) -> Vec<Vec
 /// BFS layers from `source` on a directed graph.
 #[must_use]
 pub fn bfs_layers_directed(digraph: &DiGraph, source: &str) -> Vec<Vec<String>> {
+    // br-r37-c1-descidx (cc): integer-index BFS (see bfs_layers) — Vec<bool> visited over node indices +
+    // successors_indices (no per-node Vec alloc), byte-identical (same discovery order + names).
     let mut layers: Vec<Vec<String>> = Vec::new();
-    let mut visited: HashSet<&str> = HashSet::new();
-
-    if !digraph.has_node(source) {
+    let Some(source_idx) = digraph.get_node_index(source) else {
         return layers;
-    }
+    };
+    let nodes = digraph.nodes_ordered();
+    let mut visited = vec![false; nodes.len()];
 
-    visited.insert(source);
-    let mut current_layer = vec![source];
+    visited[source_idx] = true;
+    let mut current_layer = vec![source_idx];
 
     while !current_layer.is_empty() {
-        layers.push(current_layer.iter().map(|&s| s.to_owned()).collect());
-        let mut next_layer: Vec<&str> = Vec::new();
+        layers.push(current_layer.iter().map(|&i| nodes[i].to_owned()).collect());
+        let mut next_layer: Vec<usize> = Vec::new();
         for &node in &current_layer {
-            if let Some(succs) = digraph.successors(node) {
-                for succ in succs {
-                    if visited.insert(succ) {
-                        next_layer.push(succ);
+            if let Some(succs) = digraph.successors_indices(node) {
+                for &nb in succs {
+                    if !visited[nb] {
+                        visited[nb] = true;
+                        next_layer.push(nb);
                     }
                 }
             }
@@ -20562,27 +23441,34 @@ pub fn descendants_at_distance_directed(
 /// Matches `networkx.ancestors`.
 #[must_use]
 pub fn ancestors(digraph: &DiGraph, node: &str) -> HashSet<String> {
+    // br-r37-c1-descidx (cc): integer-index backward BFS (mirror of descendants). The old kernel kept
+    // `visited` as HashSet<&str> and called predecessors() (Vec<&str> alloc per node) — a String hash on
+    // every visited probe over O(|E|) scans. Walk predecessors_indices over node indices with a
+    // Vec<bool> visited; names are materialised only for the O(|V|) result set (order-independent).
+    // Byte-identical: the same set of nodes that reach `node` via ≥1 step (start excluded), by name.
+    let Some(start) = digraph.get_node_index(node) else {
+        return HashSet::new();
+    };
+    let names = digraph.nodes_ordered();
+    let mut visited = vec![false; digraph.node_count()];
+    let mut queue: VecDeque<usize> = VecDeque::new();
     let mut result: HashSet<String> = HashSet::new();
-    if !digraph.has_node(node) {
-        return result;
-    }
-    // BFS backwards via predecessors
-    let mut queue: VecDeque<&str> = VecDeque::new();
-    let mut visited: HashSet<&str> = HashSet::new();
-    visited.insert(node);
-    if let Some(preds) = digraph.predecessors(node) {
-        for pred in preds {
-            if visited.insert(pred) {
-                queue.push_back(pred);
+    visited[start] = true;
+    if let Some(preds) = digraph.predecessors_indices(start) {
+        for &p in preds {
+            if !visited[p] {
+                visited[p] = true;
+                queue.push_back(p);
             }
         }
     }
     while let Some(current) = queue.pop_front() {
-        result.insert(current.to_owned());
-        if let Some(preds) = digraph.predecessors(current) {
-            for pred in preds {
-                if visited.insert(pred) {
-                    queue.push_back(pred);
+        result.insert(names[current].to_owned());
+        if let Some(preds) = digraph.predecessors_indices(current) {
+            for &p in preds {
+                if !visited[p] {
+                    visited[p] = true;
+                    queue.push_back(p);
                 }
             }
         }
@@ -20595,27 +23481,34 @@ pub fn ancestors(digraph: &DiGraph, node: &str) -> HashSet<String> {
 /// Matches `networkx.descendants`.
 #[must_use]
 pub fn descendants(digraph: &DiGraph, node: &str) -> HashSet<String> {
+    // br-r37-c1-descidx (cc): integer-index forward BFS. The old kernel kept `visited` as HashSet<&str>
+    // and called successors() (Vec<&str> alloc per node) — a String hash on every visited probe over
+    // O(|E|) scans. Walk successors_indices over node indices with a Vec<bool> visited; names are
+    // materialised only for the O(|V|) result set (order-independent). Byte-identical: the same set of
+    // nodes reachable from `node` via ≥1 step (start excluded), by name.
+    let Some(start) = digraph.get_node_index(node) else {
+        return HashSet::new();
+    };
+    let names = digraph.nodes_ordered();
+    let mut visited = vec![false; digraph.node_count()];
+    let mut queue: VecDeque<usize> = VecDeque::new();
     let mut result: HashSet<String> = HashSet::new();
-    if !digraph.has_node(node) {
-        return result;
-    }
-    // BFS forwards via successors
-    let mut queue: VecDeque<&str> = VecDeque::new();
-    let mut visited: HashSet<&str> = HashSet::new();
-    visited.insert(node);
-    if let Some(succs) = digraph.successors(node) {
-        for succ in succs {
-            if visited.insert(succ) {
-                queue.push_back(succ);
+    visited[start] = true;
+    if let Some(succs) = digraph.successors_indices(start) {
+        for &s in succs {
+            if !visited[s] {
+                visited[s] = true;
+                queue.push_back(s);
             }
         }
     }
     while let Some(current) = queue.pop_front() {
-        result.insert(current.to_owned());
-        if let Some(succs) = digraph.successors(current) {
-            for succ in succs {
-                if visited.insert(succ) {
-                    queue.push_back(succ);
+        result.insert(names[current].to_owned());
+        if let Some(succs) = digraph.successors_indices(current) {
+            for &s in succs {
+                if !visited[s] {
+                    visited[s] = true;
+                    queue.push_back(s);
                 }
             }
         }
@@ -20636,12 +23529,76 @@ pub fn descendants(digraph: &DiGraph, node: &str) -> HashSet<String> {
 #[must_use]
 pub fn dag_longest_path(digraph: &DiGraph) -> Option<Vec<String>> {
     let topo = topological_sort(digraph)?;
+    if topo.order.is_empty() {
+        return Some(Vec::new());
+    }
+
+    // br-r37-c1-daglpidx (cc): the DAG longest-path DP kept dist as HashMap<&str,usize> and pred as
+    // HashMap<&str,Option<&str>> and walked successors() (Vec<&str> alloc) with a dist[v]/insert String
+    // hash per edge. Resolve the topo order to indices ONCE, then relax over successors_indices into
+    // dist: Vec<usize> + pred: Vec<Option<usize>>; node names are materialised only for the O(path)
+    // output. Byte-identical: same topo order, same successor order, same `>` relaxation and first-max
+    // (strictly-greater) tie-break → the same longest path. (topological_sort is the same in both arms.)
+    let nodes = digraph.nodes_ordered();
+    let n = nodes.len();
+    let topo_idx: Vec<usize> = topo
+        .order
+        .iter()
+        .map(|name| {
+            digraph
+                .get_node_index(name)
+                .expect("topological_sort nodes are graph nodes")
+        })
+        .collect();
+
+    // dist[node] = length of longest path ending at node
+    let mut dist = vec![0usize; n];
+    let mut pred: Vec<Option<usize>> = vec![None; n];
+
+    for &u in &topo_idx {
+        if let Some(succs) = digraph.successors_indices(u) {
+            for &v in succs {
+                let new_dist = dist[u] + 1;
+                if new_dist > dist[v] {
+                    dist[v] = new_dist;
+                    pred[v] = Some(u);
+                }
+            }
+        }
+    }
+
+    // Find the node with maximum distance (first in topo order on ties).
+    let mut best_node = topo_idx[0];
+    let mut best_dist = 0;
+    for &node in &topo_idx {
+        let d = dist[node];
+        if d > best_dist {
+            best_dist = d;
+            best_node = node;
+        }
+    }
+
+    // Reconstruct path by following predecessors.
+    let mut path = vec![nodes[best_node].to_owned()];
+    let mut current = best_node;
+    while let Some(p) = pred[current] {
+        path.push(nodes[p].to_owned());
+        current = p;
+    }
+    path.reverse();
+    Some(path)
+}
+
+/// br-r37-c1-daglpidx A/B baseline: the pre-lever String-keyed DAG longest-path DP.
+/// Test-only; byte-identical to the shipped integer-index version.
+#[cfg(test)]
+fn dag_longest_path_orig_string(digraph: &DiGraph) -> Option<Vec<String>> {
+    let topo = topological_sort(digraph)?;
     let order = &topo.order;
     if order.is_empty() {
         return Some(Vec::new());
     }
 
-    // dist[node] = length of longest path ending at node
     let mut dist: HashMap<&str, usize> = HashMap::with_capacity(order.len());
     let mut pred: HashMap<&str, Option<&str>> = HashMap::with_capacity(order.len());
 
@@ -20662,7 +23619,6 @@ pub fn dag_longest_path(digraph: &DiGraph) -> Option<Vec<String>> {
         }
     }
 
-    // Find the node with maximum distance
     let mut best_node = order[0].as_str();
     let mut best_dist = 0;
     for node in order {
@@ -20673,7 +23629,6 @@ pub fn dag_longest_path(digraph: &DiGraph) -> Option<Vec<String>> {
         }
     }
 
-    // Reconstruct path by following predecessors
     let mut path = vec![best_node.to_owned()];
     let mut current = best_node;
     while let Some(Some(p)) = pred.get(current) {
@@ -20705,6 +23660,82 @@ pub fn dag_longest_path_length(digraph: &DiGraph) -> Option<usize> {
 /// Matches ``networkx.dag_longest_path(G, weight=, default_weight=)``.
 #[must_use]
 pub fn dag_longest_path_weighted(
+    digraph: &DiGraph,
+    weight_attr: &str,
+    default_weight: f64,
+) -> Option<Vec<String>> {
+    let topo = topological_sort(digraph)?;
+    if topo.order.is_empty() {
+        return Some(Vec::new());
+    }
+
+    // br-r37-c1-daglpwidx (cc): index-key the weighted DAG DP. The old kernel kept dist as
+    // HashMap<&str,f64> + pred as HashMap<&str,Option<&str>> and looked up each edge weight via the
+    // NAME-keyed `directed_edge_weight_with_default` (two node-map String probes per edge). Resolve the
+    // topo order to indices once, relax over successors_indices into dist: Vec<f64> + pred:
+    // Vec<Option<usize>>, and read weights via `directed_edge_weight_with_default_idx`
+    // (edge_attrs_by_indices, same semantics). BIT-IDENTICAL floats: only the KEY lookup changes — the
+    // per-edge weight, the `dist[u] + edge_w` add, and the `>` relaxation/first-max tie-break are
+    // unchanged and applied in the same topo×successor order → the same f64 dist values and same path.
+    let nodes = digraph.nodes_ordered();
+    let n = nodes.len();
+    let topo_idx: Vec<usize> = topo
+        .order
+        .iter()
+        .map(|name| {
+            digraph
+                .get_node_index(name)
+                .expect("topological_sort nodes are graph nodes")
+        })
+        .collect();
+
+    let mut dist = vec![0.0f64; n];
+    let mut pred: Vec<Option<usize>> = vec![None; n];
+
+    for &u in &topo_idx {
+        if let Some(succs) = digraph.successors_indices(u) {
+            for &v in succs {
+                let edge_w = directed_edge_weight_with_default_idx(
+                    digraph,
+                    u,
+                    v,
+                    weight_attr,
+                    default_weight,
+                );
+                let new_dist = dist[u] + edge_w;
+                if new_dist > dist[v] {
+                    dist[v] = new_dist;
+                    pred[v] = Some(u);
+                }
+            }
+        }
+    }
+
+    let mut best_node = topo_idx[0];
+    let mut best_dist = dist[best_node];
+    for &node in &topo_idx {
+        let d = dist[node];
+        if d > best_dist {
+            best_dist = d;
+            best_node = node;
+        }
+    }
+
+    let mut path = vec![nodes[best_node].to_owned()];
+    let mut current = best_node;
+    while let Some(p) = pred[current] {
+        path.push(nodes[p].to_owned());
+        current = p;
+    }
+    path.reverse();
+    Some(path)
+}
+
+/// br-r37-c1-daglpwidx A/B baseline: the pre-lever String-keyed weighted DAG longest-path DP
+/// (name-keyed dist/pred + name-keyed edge-weight lookup). Test-only; byte-identical (bit-identical
+/// f64) to the shipped integer-index version.
+#[cfg(test)]
+fn dag_longest_path_weighted_orig_string(
     digraph: &DiGraph,
     weight_attr: &str,
     default_weight: f64,
@@ -20794,6 +23825,79 @@ pub fn lexicographic_topological_sort(digraph: &DiGraph) -> Option<Vec<String>> 
     use std::cmp::Reverse;
     use std::collections::BinaryHeap;
 
+    // br-r37-c1-lextopoidx (cc): index-key Kahn's lexicographic topo sort (twin of topological_sort/
+    // _generations). The old kernel kept in_degree as HashMap<&str,usize> (a get_mut String hash per
+    // edge) and walked successors() (a Vec<&str> alloc per pop). Index in_degree (Vec<usize>) + walk
+    // successors_indices; the min-heap carries `ByName { name, idx }` so it still pops in lexicographic
+    // NAME order (names are unique → the idx tie-break never fires), but pops yield the index directly.
+    // Byte-identical: same in_degree seed, same lexicographic pop order, same decrement/zero-reach →
+    // the same topological order (the initial heap push order is irrelevant — the heap normalises it).
+    let nodes = digraph.nodes_ordered();
+    let n = nodes.len();
+
+    #[derive(PartialEq, Eq)]
+    struct ByName<'a> {
+        name: &'a str,
+        idx: usize,
+    }
+    impl PartialOrd for ByName<'_> {
+        fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+            Some(self.cmp(other))
+        }
+    }
+    impl Ord for ByName<'_> {
+        fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+            self.name
+                .cmp(other.name)
+                .then_with(|| self.idx.cmp(&other.idx))
+        }
+    }
+
+    let mut in_degree: Vec<usize> = (0..n).map(|i| digraph.in_degree(nodes[i])).collect();
+
+    // Min-heap for lexicographic ordering (Reverse over ByName → smallest name pops first).
+    let mut heap: BinaryHeap<Reverse<ByName>> = BinaryHeap::new();
+    for i in 0..n {
+        if in_degree[i] == 0 {
+            heap.push(Reverse(ByName {
+                name: nodes[i],
+                idx: i,
+            }));
+        }
+    }
+
+    let mut result: Vec<String> = Vec::with_capacity(n);
+
+    while let Some(Reverse(ByName { idx: node, .. })) = heap.pop() {
+        result.push(nodes[node].to_owned());
+        if let Some(succs) = digraph.successors_indices(node) {
+            for &succ in succs {
+                in_degree[succ] -= 1;
+                if in_degree[succ] == 0 {
+                    heap.push(Reverse(ByName {
+                        name: nodes[succ],
+                        idx: succ,
+                    }));
+                }
+            }
+        }
+    }
+
+    if result.len() != n {
+        return None; // cycle detected
+    }
+
+    Some(result)
+}
+
+/// br-r37-c1-lextopoidx A/B baseline: the pre-lever String-keyed lexicographic topo sort
+/// (in_degree HashMap<&str> + successors() alloc + BinaryHeap<Reverse<&str>>). Test-only;
+/// byte-identical to the shipped integer-index version.
+#[cfg(test)]
+fn lexicographic_topological_sort_orig_string(digraph: &DiGraph) -> Option<Vec<String>> {
+    use std::cmp::Reverse;
+    use std::collections::BinaryHeap;
+
     let nodes = digraph.nodes_ordered();
     let n = nodes.len();
 
@@ -20802,7 +23906,6 @@ pub fn lexicographic_topological_sort(digraph: &DiGraph) -> Option<Vec<String>> 
         in_degree.insert(node, digraph.in_degree(node));
     }
 
-    // Min-heap for lexicographic ordering
     let mut heap: BinaryHeap<Reverse<&str>> = BinaryHeap::new();
     for (&node, &deg) in &in_degree {
         if deg == 0 {
@@ -20827,7 +23930,7 @@ pub fn lexicographic_topological_sort(digraph: &DiGraph) -> Option<Vec<String>> 
     }
 
     if result.len() != n {
-        return None; // cycle detected
+        return None;
     }
 
     Some(result)
@@ -20846,6 +23949,7 @@ pub fn lexicographic_topological_sort(digraph: &DiGraph) -> Option<Vec<String>> 
 pub fn transitive_closure(digraph: &DiGraph, reflexive: Option<bool>) -> DiGraph {
     let mut result = DiGraph::with_runtime_policy(digraph.runtime_policy().clone());
     let nodes = digraph.nodes_ordered();
+    let n = nodes.len();
 
     let add_all_self_loops = reflexive == Some(true);
 
@@ -20870,6 +23974,73 @@ pub fn transitive_closure(digraph: &DiGraph, reflexive: Option<bool>) -> DiGraph
     // (source, w) is emitted once (visited-set dedup), and extend_edges_unrecorded resolves
     // indices + dedups on (s_idx, t_idx) + handles self-loops exactly as add_edge, in the
     // identical order (all nodes pre-added → endpoints resolve) → byte-identical.
+    // br-r37-c1-tcidx (cc): integer-index per-source BFS + index-pair edge emit. The old kernel ran
+    // the reachability BFS over `successors_iter` + `HashSet<&str> visited` and emitted (&str,&str)
+    // pairs into `extend_edges_unrecorded`, which re-resolved BOTH endpoints via `get_index_of`
+    // (String hash) for every one of the O(reachable-pairs) closure edges. Walk successors_indices
+    // over an epoch-stamped `Vec<u32>` visited, emit (source_idx, w_idx), and bulk-insert via the new
+    // index-pair `extend_existing_index_edges_unrecorded` (no String resolution). Byte-identical: same
+    // source-major discovery order, same seed-from-successors visited/self-loop semantics, same
+    // (s_idx,t_idx) dedup + adjacency + revision → the same closure DiGraph.
+    let mut visited_stamp = vec![0u32; n];
+    let mut queue: VecDeque<usize> = VecDeque::new();
+    let mut edge_pairs: Vec<(usize, usize)> = Vec::new();
+
+    for (epoch, source) in (0..n).enumerate() {
+        let stamp = u32::try_from(epoch + 1).expect("node count fits in u32");
+        let mut order: Vec<usize> = Vec::new();
+        queue.clear();
+
+        if let Some(succs) = digraph.successors_indices(source) {
+            for &s in succs {
+                if visited_stamp[s] != stamp {
+                    visited_stamp[s] = stamp;
+                    queue.push_back(s);
+                    order.push(s);
+                }
+            }
+        }
+        while let Some(current) = queue.pop_front() {
+            if let Some(succs) = digraph.successors_indices(current) {
+                for &s in succs {
+                    if visited_stamp[s] != stamp {
+                        visited_stamp[s] = stamp;
+                        queue.push_back(s);
+                        order.push(s);
+                    }
+                }
+            }
+        }
+
+        // reflexive=true forces the trivial (length-0) self-loop on every node.
+        if add_all_self_loops && visited_stamp[source] != stamp {
+            visited_stamp[source] = stamp;
+            order.push(source);
+        }
+
+        for &w in &order {
+            edge_pairs.push((source, w));
+        }
+    }
+    let _ = result.extend_existing_index_edges_unrecorded(edge_pairs);
+
+    result
+}
+
+/// br-r37-c1-tcidx A/B baseline: the pre-lever String-keyed per-source BFS emitting (&str,&str)
+/// pairs into `extend_edges_unrecorded`. Test-only; byte-identical to the shipped integer-index
+/// version.
+#[cfg(test)]
+fn transitive_closure_orig_string(digraph: &DiGraph, reflexive: Option<bool>) -> DiGraph {
+    let mut result = DiGraph::with_runtime_policy(digraph.runtime_policy().clone());
+    let nodes = digraph.nodes_ordered();
+
+    let add_all_self_loops = reflexive == Some(true);
+
+    for &node in &nodes {
+        let _ = result.add_node(node);
+    }
+
     let mut edges: Vec<(&str, &str)> = Vec::new();
     for &source in &nodes {
         let mut visited: HashSet<&str> = HashSet::new();
@@ -20895,7 +24066,6 @@ pub fn transitive_closure(digraph: &DiGraph, reflexive: Option<bool>) -> DiGraph
             }
         }
 
-        // reflexive=true forces the trivial (length-0) self-loop on every node.
         if add_all_self_loops && visited.insert(source) {
             order.push(source);
         }
@@ -20916,19 +24086,93 @@ pub fn transitive_closure(digraph: &DiGraph, reflexive: Option<bool>) -> DiGraph
 /// graph contains a cycle.
 /// Matches `networkx.transitive_reduction(G)`.
 pub fn transitive_reduction(digraph: &DiGraph) -> Option<DiGraph> {
-    // Must be a DAG
+    // br-r37-c1-tredidx (cc): integer-index reachability. The old kernel sorted each node's direct
+    // successors by a String-hashed `pos: HashMap<&str,usize>` lookup and ran a per-node reachability
+    // BFS over `successors_iter` into a `HashSet<&str> reachable_via_others` — a String hash on every
+    // probe of an O(V·E) sweep. Walk successors_indices over a `pos_by_node: Vec<usize>` and an
+    // epoch-stamped `Vec<u32>` reachability mark (no per-u O(V) reset); names are materialised only for
+    // the O(kept) result edges. Byte-identical: the kept-edge SET and the (topo-u, successor-by-topo-
+    // position) edge insertion order are independent of the reachability BFS visit order (redundancy is
+    // a set-membership test), and the topo order + successor sort key are preserved exactly.
     let topo = topological_sort(digraph)?;
 
     let mut result = DiGraph::with_runtime_policy(digraph.runtime_policy().clone());
     let nodes = digraph.nodes_ordered();
+    let n = nodes.len();
 
     // Add all nodes
     for &node in &nodes {
         let _ = result.add_node(node);
     }
 
-    // For each node in topological order, compute the set of nodes reachable
-    // WITHOUT direct edges, and only keep edges that are not redundant.
+    // Topological order as node indices + the inverse position map.
+    let topo_idx: Vec<usize> = topo
+        .order
+        .iter()
+        .map(|name| {
+            digraph
+                .get_node_index(name)
+                .expect("topological_sort nodes are graph nodes")
+        })
+        .collect();
+    let mut pos_by_node = vec![0usize; n];
+    for (i, &idx) in topo_idx.iter().enumerate() {
+        pos_by_node[idx] = i;
+    }
+
+    // Epoch-stamped reachability mark: stamp == current epoch means "reachable via others".
+    let mut reach_stamp = vec![0u32; n];
+    let mut queue: VecDeque<usize> = VecDeque::new();
+
+    for (epoch, &u) in topo_idx.iter().enumerate() {
+        // Direct successors sorted by topological position (matches the old String-keyed sort).
+        let mut sorted_direct: Vec<usize> = digraph
+            .successors_indices(u)
+            .map(<[usize]>::to_vec)
+            .unwrap_or_default();
+        sorted_direct.sort_by_key(|&v| pos_by_node[v]);
+
+        let stamp = u32::try_from(epoch + 1).expect("node count fits in u32");
+
+        for &v in &sorted_direct {
+            if reach_stamp[v] == stamp {
+                continue; // This edge is redundant
+            }
+            // Keep this edge
+            let _ = result.add_edge(nodes[u], nodes[v]);
+
+            // Mark everything reachable from v (BFS in the original graph from v).
+            queue.clear();
+            queue.push_back(v);
+            while let Some(current) = queue.pop_front() {
+                if let Some(succs) = digraph.successors_indices(current) {
+                    for &s in succs {
+                        if s != v && reach_stamp[s] != stamp {
+                            reach_stamp[s] = stamp;
+                            queue.push_back(s);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    Some(result)
+}
+
+/// br-r37-c1-tredidx A/B baseline: the pre-lever String-keyed `transitive_reduction`. Test-only;
+/// byte-identical (nodes + edge insertion order) to the shipped integer-index version.
+#[cfg(test)]
+fn transitive_reduction_orig_string(digraph: &DiGraph) -> Option<DiGraph> {
+    let topo = topological_sort(digraph)?;
+
+    let mut result = DiGraph::with_runtime_policy(digraph.runtime_policy().clone());
+    let nodes = digraph.nodes_ordered();
+
+    for &node in &nodes {
+        let _ = result.add_node(node);
+    }
+
     let order = &topo.order;
     let pos: HashMap<&str, usize> = order
         .iter()
@@ -20937,28 +24181,18 @@ pub fn transitive_reduction(digraph: &DiGraph) -> Option<DiGraph> {
         .collect();
 
     for u in order {
-        // Get direct successors
         let direct: Vec<&str> = digraph.successors(u).unwrap_or_default();
-
-        // For each direct successor, check if it's reachable through
-        // another direct successor (making the edge redundant)
-        // Sort by topological position so we process in order
         let mut sorted_direct: Vec<&str> = direct.clone();
         sorted_direct.sort_by_key(|n| pos.get(n).copied().unwrap_or(0));
 
-        // Compute nodes reachable from u through the transitive reduction
-        // (i.e., the non-redundant edges we've added so far)
         let mut reachable_via_others: HashSet<&str> = HashSet::new();
 
         for &v in &sorted_direct {
             if reachable_via_others.contains(v) {
-                continue; // This edge is redundant
+                continue;
             }
-            // Keep this edge
             let _ = result.add_edge(u.as_str(), v);
 
-            // Mark everything reachable from v as reachable
-            // (BFS in the original graph from v)
             let mut queue: VecDeque<&str> = VecDeque::new();
             queue.push_back(v);
             while let Some(current) = queue.pop_front() {
@@ -20987,6 +24221,101 @@ pub fn transitive_reduction(digraph: &DiGraph) -> Option<DiGraph> {
 /// Matches `networkx.all_shortest_paths(G, source, target)`.
 #[must_use]
 pub fn all_shortest_paths(graph: &Graph, source: &str, target: &str) -> Vec<Vec<String>> {
+    // br-r37-c1-aspidx (cc): integer-index shortest-path-DAG BFS + backtrack. The old kernel kept
+    // `dist` as HashMap<&str,usize>, `preds` as HashMap<&str,Vec<&str>>, and the backtrack `seen` as
+    // HashSet<&str> — a String hash on every dist/preds probe over the O(|V|+|E|) BFS. Walk
+    // neighbors_indices over dist:Vec<u32> (u32::MAX = unvisited) + preds:Vec<Vec<usize>> and
+    // enumerate paths over integer indices, materialising names only when a completed path is pushed.
+    // Byte-identical: same adjacency-order neighbor discovery → same preds lists (nx BFS order), same
+    // target_dist cutoff, same predecessor-DAG DFS → the same paths in the same order.
+    let Some(source_idx) = graph.get_node_index(source) else {
+        return Vec::new();
+    };
+    let Some(target_idx) = graph.get_node_index(target) else {
+        return Vec::new();
+    };
+    if source_idx == target_idx {
+        return vec![vec![source.to_owned()]];
+    }
+    let nodes = graph.nodes_ordered();
+    let n = nodes.len();
+
+    let mut dist = vec![u32::MAX; n];
+    let mut preds: Vec<Vec<usize>> = vec![Vec::new(); n];
+    let mut queue: VecDeque<usize> = VecDeque::new();
+
+    dist[source_idx] = 0;
+    queue.push_back(source_idx);
+
+    let mut target_dist: Option<u32> = None;
+
+    while let Some(current) = queue.pop_front() {
+        let d = dist[current];
+        // If we've already found target at a shorter distance, stop
+        if let Some(td) = target_dist
+            && d >= td
+        {
+            break;
+        }
+        if let Some(neighbors) = graph.neighbors_indices(current) {
+            for &nbr in neighbors {
+                let nd = d + 1;
+                if dist[nbr] == u32::MAX {
+                    dist[nbr] = nd;
+                    preds[nbr].push(current);
+                    queue.push_back(nbr);
+                    if nbr == target_idx {
+                        target_dist = Some(nd);
+                    }
+                } else if dist[nbr] == nd {
+                    preds[nbr].push(current);
+                }
+            }
+        }
+    }
+
+    if dist[target_idx] == u32::MAX {
+        return Vec::new();
+    }
+
+    // Backtrack from target to source to enumerate all shortest paths in networkx's order: a DFS
+    // over the predecessor DAG from `target` back to `source` (matching
+    // shortest_paths.generic._build_paths_from_predecessors). The `preds` lists are already in nx
+    // BFS-discovery order (level-order BFS above), so this yields byte-identical path order.
+    let mut paths: Vec<Vec<String>> = Vec::new();
+    let mut seen = vec![false; n];
+    seen[target_idx] = true;
+    let mut stack: Vec<(usize, usize)> = vec![(target_idx, 0)];
+    while let Some(&(node, i)) = stack.last() {
+        if node == source_idx {
+            paths.push(
+                stack
+                    .iter()
+                    .rev()
+                    .map(|(idx, _)| nodes[*idx].to_owned())
+                    .collect(),
+            );
+        }
+        if preds[node].len() > i {
+            stack.last_mut().unwrap().1 = i + 1;
+            let next = preds[node][i];
+            if seen[next] {
+                continue;
+            }
+            seen[next] = true;
+            stack.push((next, 0));
+        } else {
+            seen[node] = false;
+            stack.pop();
+        }
+    }
+    paths
+}
+
+/// br-r37-c1-aspidx A/B baseline: the pre-lever String-keyed `all_shortest_paths`.
+/// Test-only; byte-identical to the shipped integer-index version.
+#[cfg(test)]
+fn all_shortest_paths_orig_string(graph: &Graph, source: &str, target: &str) -> Vec<Vec<String>> {
     if !graph.has_node(source) || !graph.has_node(target) {
         return Vec::new();
     }
@@ -20994,7 +24323,6 @@ pub fn all_shortest_paths(graph: &Graph, source: &str, target: &str) -> Vec<Vec<
         return vec![vec![source.to_owned()]];
     }
 
-    // BFS to find shortest-path predecessors for each node
     let mut dist: HashMap<&str, usize> = HashMap::new();
     let mut preds: HashMap<&str, Vec<&str>> = HashMap::new();
     let mut queue: VecDeque<&str> = VecDeque::new();
@@ -21006,7 +24334,6 @@ pub fn all_shortest_paths(graph: &Graph, source: &str, target: &str) -> Vec<Vec<
 
     while let Some(current) = queue.pop_front() {
         let d = dist[current];
-        // If we've already found target at a shorter distance, stop
         if let Some(td) = target_dist
             && d >= td
         {
@@ -21037,13 +24364,6 @@ pub fn all_shortest_paths(graph: &Graph, source: &str, target: &str) -> Vec<Vec<
         return Vec::new();
     }
 
-    // Backtrack from target to source to enumerate all shortest paths
-    // Enumerate paths in networkx's order: a DFS over the predecessor DAG from
-    // `target` back to `source`, matching networkx's
-    // shortest_paths.generic._build_paths_from_predecessors. The `preds` lists
-    // are already in nx BFS-discovery order (level-order traversal above), so
-    // reproducing nx's stack walk yields byte-identical path order — letting the
-    // wrapper drop its unweighted fnx->nx delegation (br-r37-c1-qiplw).
     let mut paths: Vec<Vec<String>> = Vec::new();
     let empty_preds: Vec<&str> = Vec::new();
     let mut seen: HashSet<&str> = HashSet::new();
@@ -21072,6 +24392,99 @@ pub fn all_shortest_paths(graph: &Graph, source: &str, target: &str) -> Vec<Vec<
 /// Return all shortest paths between source and target in a directed graph.
 #[must_use]
 pub fn all_shortest_paths_directed(
+    digraph: &DiGraph,
+    source: &str,
+    target: &str,
+) -> Vec<Vec<String>> {
+    // br-r37-c1-aspidx (cc): integer-index directed mirror of `all_shortest_paths` — see that
+    // function. Walks successors_indices over dist:Vec<u32> + preds:Vec<Vec<usize>>; byte-identical
+    // (same successor order → same preds lists, same target_dist cutoff, same predecessor-DAG DFS).
+    let Some(source_idx) = digraph.get_node_index(source) else {
+        return Vec::new();
+    };
+    let Some(target_idx) = digraph.get_node_index(target) else {
+        return Vec::new();
+    };
+    if source_idx == target_idx {
+        return vec![vec![source.to_owned()]];
+    }
+    let nodes = digraph.nodes_ordered();
+    let n = nodes.len();
+
+    let mut dist = vec![u32::MAX; n];
+    let mut preds: Vec<Vec<usize>> = vec![Vec::new(); n];
+    let mut queue: VecDeque<usize> = VecDeque::new();
+
+    dist[source_idx] = 0;
+    queue.push_back(source_idx);
+
+    let mut target_dist: Option<u32> = None;
+
+    while let Some(current) = queue.pop_front() {
+        let d = dist[current];
+        if let Some(td) = target_dist
+            && d >= td
+        {
+            break;
+        }
+        if let Some(succs) = digraph.successors_indices(current) {
+            for &nbr in succs {
+                let nd = d + 1;
+                if dist[nbr] == u32::MAX {
+                    dist[nbr] = nd;
+                    preds[nbr].push(current);
+                    queue.push_back(nbr);
+                    if nbr == target_idx {
+                        target_dist = Some(nd);
+                    }
+                } else if dist[nbr] == nd {
+                    preds[nbr].push(current);
+                }
+            }
+        }
+    }
+
+    if dist[target_idx] == u32::MAX {
+        return Vec::new();
+    }
+
+    // Enumerate paths in networkx's order (DFS over the predecessor DAG from `target` back to
+    // `source`, matching _build_paths_from_predecessors). The forward BFS builds `preds` in nx
+    // BFS-discovery order, so this yields byte-identical path order.
+    let mut paths: Vec<Vec<String>> = Vec::new();
+    let mut seen = vec![false; n];
+    seen[target_idx] = true;
+    let mut stack: Vec<(usize, usize)> = vec![(target_idx, 0)];
+    while let Some(&(node, i)) = stack.last() {
+        if node == source_idx {
+            paths.push(
+                stack
+                    .iter()
+                    .rev()
+                    .map(|(idx, _)| nodes[*idx].to_owned())
+                    .collect(),
+            );
+        }
+        if preds[node].len() > i {
+            stack.last_mut().unwrap().1 = i + 1;
+            let next = preds[node][i];
+            if seen[next] {
+                continue;
+            }
+            seen[next] = true;
+            stack.push((next, 0));
+        } else {
+            seen[node] = false;
+            stack.pop();
+        }
+    }
+    paths
+}
+
+/// br-r37-c1-aspidx A/B baseline: the pre-lever String-keyed `all_shortest_paths_directed`.
+/// Test-only; byte-identical to the shipped integer-index version.
+#[cfg(test)]
+fn all_shortest_paths_directed_orig_string(
     digraph: &DiGraph,
     source: &str,
     target: &str,
@@ -21124,10 +24537,6 @@ pub fn all_shortest_paths_directed(
         return Vec::new();
     }
 
-    // Enumerate paths in networkx's order (DFS over the predecessor DAG from
-    // `target` back to `source`, matching _build_paths_from_predecessors). The
-    // forward BFS above builds `preds` in nx BFS-discovery order, so this yields
-    // byte-identical path order (br-r37-c1-wjz3x).
     let mut paths: Vec<Vec<String>> = Vec::new();
     let empty_preds: Vec<&str> = Vec::new();
     let mut seen: HashSet<&str> = HashSet::new();
@@ -21163,6 +24572,100 @@ pub fn all_shortest_paths_directed(
 /// Matches `networkx.all_shortest_paths(G, source, target, weight=...)`.
 #[must_use]
 pub fn all_shortest_paths_weighted(
+    graph: &Graph,
+    source: &str,
+    target: &str,
+    weight_attr: &str,
+) -> Vec<Vec<String>> {
+    if !graph.has_node(source) || !graph.has_node(target) {
+        return Vec::new();
+    }
+
+    if source == target {
+        return vec![vec![source.to_owned()]];
+    }
+
+    // br-r37-c1-aspwidx (cc): index-keyed weighted Dijkstra + multi-pred path enumeration. The old
+    // kernel kept dist as HashMap<&str,f64>, preds as HashMap<&str,Vec<&str>>, and a
+    // BinaryHeap<DijkstraState{node:&str}> and walked neighbors_iter with a name-keyed weight lookup.
+    // Index dist: Vec<f64> (INF = unvisited) + preds: Vec<Vec<usize>> + DijkstraState<usize> +
+    // neighbors_indices + edge_weight_or_default_idx; names materialised only at path emit. FLOAT-SAFE:
+    // the heap orders by (dist, seq) ONLY (node is not a tie-break; seq is a unique counter), the
+    // per-edge weight is bit-identical, and every f64 comparison / EPSILON test is unchanged and applied
+    // in the same pop/neighbour order → the same relaxation → the same predecessor DAG → the same paths.
+    let source_idx = graph
+        .get_node_index(source)
+        .expect("has_node checked above");
+    let target_idx = graph
+        .get_node_index(target)
+        .expect("has_node checked above");
+    let nodes = graph.nodes_ordered();
+    let n = nodes.len();
+
+    let mut dist = vec![f64::INFINITY; n];
+    let mut preds: Vec<Vec<usize>> = vec![Vec::new(); n];
+    let mut pq = BinaryHeap::new();
+    let mut seq_counter: u64 = 0;
+
+    dist[source_idx] = 0.0;
+    seq_counter += 1;
+    pq.push(DijkstraState {
+        dist: 0.0,
+        seq: seq_counter,
+        node: source_idx,
+    });
+
+    let mut target_dist = f64::INFINITY;
+
+    while let Some(DijkstraState {
+        dist: d, node: u, ..
+    }) = pq.pop()
+    {
+        if d > target_dist + DISTANCE_COMPARISON_EPSILON {
+            break;
+        }
+
+        if d > dist[u] + DISTANCE_COMPARISON_EPSILON {
+            continue;
+        }
+
+        if u == target_idx {
+            target_dist = d;
+        }
+
+        if let Some(neighbors) = graph.neighbors_indices(u) {
+            for &v in neighbors {
+                let weight = edge_weight_or_default_idx(graph, u, v, weight_attr);
+                let next_dist = d + weight;
+                let current_dist_v = dist[v];
+
+                if next_dist < current_dist_v - DISTANCE_COMPARISON_EPSILON {
+                    dist[v] = next_dist;
+                    preds[v] = vec![u];
+                    seq_counter += 1;
+                    pq.push(DijkstraState {
+                        dist: next_dist,
+                        seq: seq_counter,
+                        node: v,
+                    });
+                } else if (next_dist - current_dist_v).abs() < DISTANCE_COMPARISON_EPSILON {
+                    preds[v].push(u);
+                }
+            }
+        }
+    }
+
+    if dist[target_idx].is_infinite() {
+        return Vec::new();
+    }
+
+    build_all_paths_from_preds_index(&preds, source_idx, target_idx, &nodes)
+}
+
+/// br-r37-c1-aspwidx A/B baseline: the pre-lever String-keyed weighted Dijkstra multi-pred path
+/// enumeration. Test-only; byte-identical (bit-identical f64) to the shipped integer-index version.
+#[cfg(test)]
+fn all_shortest_paths_weighted_orig_string(
     graph: &Graph,
     source: &str,
     target: &str,
@@ -21243,6 +24746,100 @@ pub fn all_shortest_paths_weighted(
 /// for directed graphs with non-negative weights.
 #[must_use]
 pub fn all_shortest_paths_weighted_directed(
+    digraph: &DiGraph,
+    source: &str,
+    target: &str,
+    weight_attr: &str,
+) -> Vec<Vec<String>> {
+    if !digraph.has_node(source) || !digraph.has_node(target) {
+        return Vec::new();
+    }
+
+    if source == target {
+        return vec![vec![source.to_owned()]];
+    }
+
+    // br-r37-c1-aspwdiridx (cc): directed mirror of `all_shortest_paths_weighted` (aspwidx). Index the
+    // weighted Dijkstra: dist: Vec<f64> (INF unvisited) + preds: Vec<Vec<usize>> + DijkstraState<usize>
+    // + successors_indices + the existing `digraph_edge_weight_or_default_idx` (bit-identical clamp to
+    // the name-keyed `digraph_edge_weight_or_default`) + build_all_paths_from_preds_index. FLOAT-SAFE:
+    // the heap orders by (dist, seq) ONLY, the per-edge weight is bit-identical, and every f64 / EPSILON
+    // comparison is unchanged and applied in the same pop×successor order → the same relaxation → the
+    // same predecessor DAG → the same paths.
+    let source_idx = digraph
+        .get_node_index(source)
+        .expect("has_node checked above");
+    let target_idx = digraph
+        .get_node_index(target)
+        .expect("has_node checked above");
+    let nodes = digraph.nodes_ordered();
+    let n = nodes.len();
+
+    let mut dist = vec![f64::INFINITY; n];
+    let mut preds: Vec<Vec<usize>> = vec![Vec::new(); n];
+    let mut pq = BinaryHeap::new();
+    let mut seq_counter: u64 = 0;
+
+    dist[source_idx] = 0.0;
+    seq_counter += 1;
+    pq.push(DijkstraState {
+        dist: 0.0,
+        seq: seq_counter,
+        node: source_idx,
+    });
+
+    let mut target_dist = f64::INFINITY;
+
+    while let Some(DijkstraState {
+        dist: d, node: u, ..
+    }) = pq.pop()
+    {
+        if d > target_dist + DISTANCE_COMPARISON_EPSILON {
+            break;
+        }
+
+        if d > dist[u] + DISTANCE_COMPARISON_EPSILON {
+            continue;
+        }
+
+        if u == target_idx {
+            target_dist = d;
+        }
+
+        if let Some(successors) = digraph.successors_indices(u) {
+            for &v in successors {
+                let weight = digraph_edge_weight_or_default_idx(digraph, u, v, weight_attr);
+                let next_dist = d + weight;
+                let current_dist_v = dist[v];
+
+                if next_dist < current_dist_v - DISTANCE_COMPARISON_EPSILON {
+                    dist[v] = next_dist;
+                    preds[v] = vec![u];
+                    seq_counter += 1;
+                    pq.push(DijkstraState {
+                        dist: next_dist,
+                        seq: seq_counter,
+                        node: v,
+                    });
+                } else if (next_dist - current_dist_v).abs() < DISTANCE_COMPARISON_EPSILON {
+                    preds[v].push(u);
+                }
+            }
+        }
+    }
+
+    if dist[target_idx].is_infinite() {
+        return Vec::new();
+    }
+
+    build_all_paths_from_preds_index(&preds, source_idx, target_idx, &nodes)
+}
+
+/// br-r37-c1-aspwdiridx A/B baseline: the pre-lever String-keyed directed weighted Dijkstra
+/// multi-pred path enumeration. Test-only; byte-identical (bit-identical f64) to the shipped
+/// integer-index version.
+#[cfg(test)]
+fn all_shortest_paths_weighted_directed_orig_string(
     digraph: &DiGraph,
     source: &str,
     target: &str,
@@ -21519,6 +25116,54 @@ fn build_all_paths_from_preds(
         }
 
         seen.remove(current);
+        stack.pop();
+    }
+
+    result
+}
+
+/// br-r37-c1-aspwidx: index-keyed twin of `build_all_paths_from_preds`. `preds[node]` is the
+/// predecessor-index list (empty = no predecessor); enumerates every shortest path target→…→source
+/// via the same seen-guarded DFS over the predecessor DAG, materialising names from `nodes` only at
+/// path emit. Byte-identical path order to the String version (same pred order, same DFS walk).
+fn build_all_paths_from_preds_index(
+    preds: &[Vec<usize>],
+    source_idx: usize,
+    target_idx: usize,
+    nodes: &[&str],
+) -> Vec<Vec<String>> {
+    if preds[target_idx].is_empty() {
+        return Vec::new();
+    }
+
+    let mut result = Vec::new();
+    let mut seen = vec![false; nodes.len()];
+    seen[target_idx] = true;
+    let mut stack: Vec<(usize, usize)> = vec![(target_idx, 0)];
+
+    while let Some((current, pred_index)) = stack.last().copied() {
+        if current == source_idx {
+            result.push(
+                stack
+                    .iter()
+                    .rev()
+                    .map(|(node, _)| nodes[*node].to_owned())
+                    .collect(),
+            );
+        }
+
+        let pred_list = &preds[current];
+        if pred_index < pred_list.len() {
+            stack.last_mut().expect("stack not empty").1 += 1;
+            let next = pred_list[pred_index];
+            if !seen[next] {
+                seen[next] = true;
+                stack.push((next, 0));
+            }
+            continue;
+        }
+
+        seen[current] = false;
         stack.pop();
     }
 
@@ -22108,11 +25753,11 @@ fn closeness_vitality_orig_string(graph: &Graph) -> HashMap<String, f64> {
                         if nbr == *excluded_node {
                             continue;
                         }
-                        if let Some(&v) = node_to_idx.get(nbr) {
-                            if dist[v].is_none() {
-                                dist[v] = Some(d + 1);
-                                queue.push_back(v);
-                            }
+                        if let Some(&v) = node_to_idx.get(nbr)
+                            && dist[v].is_none()
+                        {
+                            dist[v] = Some(d + 1);
+                            queue.push_back(v);
                         }
                     }
                 }
@@ -22466,15 +26111,17 @@ pub fn all_pairs_shortest_path_length(
     graph: &Graph,
     cutoff: Option<usize>,
 ) -> HashMap<String, HashMap<String, usize>> {
-    let mut result = HashMap::new();
-    for node in graph.nodes_ordered() {
-        let lengths: HashMap<String, usize> =
-            single_source_shortest_path_length(graph, node, cutoff)
+    let nodes = graph.nodes_ordered();
+    all_pairs_shortest_path_length_indexed(graph, cutoff)
+        .into_iter()
+        .map(|(source, row)| {
+            let lengths = row
                 .into_iter()
+                .map(|(target, distance)| (nodes[target].to_owned(), distance))
                 .collect();
-        result.insert(node.to_owned(), lengths);
-    }
-    result
+            (nodes[source].to_owned(), lengths)
+        })
+        .collect()
 }
 
 /// Return shortest path lengths between all pairs of nodes in a directed graph.
@@ -22486,15 +26133,17 @@ pub fn all_pairs_shortest_path_length_directed(
     digraph: &DiGraph,
     cutoff: Option<usize>,
 ) -> HashMap<String, HashMap<String, usize>> {
-    let mut result = HashMap::new();
-    for node in digraph.nodes_ordered() {
-        let lengths: HashMap<String, usize> =
-            single_source_shortest_path_length_directed(digraph, node, cutoff)
+    let nodes = digraph.nodes_ordered();
+    all_pairs_shortest_path_length_directed_indexed(digraph, cutoff)
+        .into_iter()
+        .map(|(source, row)| {
+            let lengths = row
                 .into_iter()
+                .map(|(target, distance)| (nodes[target].to_owned(), distance))
                 .collect();
-        result.insert(node.to_owned(), lengths);
-    }
-    result
+            (nodes[source].to_owned(), lengths)
+        })
+        .collect()
 }
 
 // ===========================================================================
@@ -22758,8 +26407,14 @@ pub fn strongly_connected_components(digraph: &DiGraph) -> Vec<Vec<String>> {
     let mut index_counter: usize = 0;
     let mut components: Vec<Vec<String>> = Vec::new();
 
-    // Work stack stores: (node_idx, successors_list, next_successor_idx)
-    let mut work: Vec<(usize, Vec<&str>, usize)> = Vec::new();
+    // Work stack stores: (node_idx, successor_index_slice, next_successor_idx).
+    // br-r37-c1-sccidx (cc): the Tarjan state was already integer, but the work stack held
+    // `Vec<&str>` successors (a per-node alloc) and RE-HASHED each successor via
+    // `get_node_index(v_name)` per edge. Store `successors_indices(u)` slices (&[usize], zero alloc)
+    // and read the neighbour index directly. Byte-identical: same successor order, same v_idx (the
+    // slice entry IS get_node_index(name)), same DFS → same components/order; `v_name` is only needed
+    // for the cgse decision record → `nodes[v_idx]`.
+    let mut work: Vec<(usize, &[usize], usize)> = Vec::new();
 
     for i in 0..n {
         if indices[i].is_some() {
@@ -22773,28 +26428,26 @@ pub fn strongly_connected_components(digraph: &DiGraph) -> Vec<Vec<String>> {
         stack.push(i);
         on_stack[i] = true;
 
-        let succs = digraph.successors(nodes[i]).unwrap_or_default();
+        let succs = digraph.successors_indices(i).unwrap_or(&[]);
         work.push((i, succs, 0));
 
         while let Some((u_idx, u_succs, next_nbr_idx)) = work.last_mut() {
             let u_idx = *u_idx;
             if *next_nbr_idx < u_succs.len() {
-                let v_name = u_succs[*next_nbr_idx];
+                let v_idx = u_succs[*next_nbr_idx];
                 *next_nbr_idx += 1;
-
-                let v_idx = digraph.get_node_index(v_name).unwrap();
 
                 match indices[v_idx] {
                     None => {
                         // Tree edge
-                        cgse_record_decision(&mut cgse_sink, v_name, nodes[u_idx]);
+                        cgse_record_decision(&mut cgse_sink, nodes[v_idx], nodes[u_idx]);
                         indices[v_idx] = Some(index_counter);
                         lowlinks[v_idx] = index_counter;
                         index_counter += 1;
                         stack.push(v_idx);
                         on_stack[v_idx] = true;
 
-                        let v_succs = digraph.successors(v_name).unwrap_or_default();
+                        let v_succs = digraph.successors_indices(v_idx).unwrap_or(&[]);
                         work.push((v_idx, v_succs, 0));
                     }
                     Some(v_index) if on_stack[v_idx] => {
@@ -22843,10 +26496,190 @@ pub fn strongly_connected_components(digraph: &DiGraph) -> Vec<Vec<String>> {
     components
 }
 
+/// br-r37-c1-sccidx A/B baseline: the pre-lever Tarjan with a `Vec<&str>` work stack that
+/// re-hashed each successor via `get_node_index`. Test-only; byte-identical to the shipped
+/// integer-index version.
+#[cfg(test)]
+fn strongly_connected_components_orig_string(digraph: &DiGraph) -> Vec<Vec<String>> {
+    let mut cgse_sink = cgse_begin(CgseReferenceAlgorithm::StronglyConnectedComponents);
+
+    let nodes = digraph.nodes_ordered();
+    let n = nodes.len();
+    let mut indices: Vec<Option<usize>> = vec![None; n];
+    let mut lowlinks: Vec<usize> = vec![0; n];
+    let mut on_stack: Vec<bool> = vec![false; n];
+    let mut stack: Vec<usize> = Vec::new();
+    let mut index_counter: usize = 0;
+    let mut components: Vec<Vec<String>> = Vec::new();
+
+    let mut work: Vec<(usize, Vec<&str>, usize)> = Vec::new();
+
+    for i in 0..n {
+        if indices[i].is_some() {
+            continue;
+        }
+
+        indices[i] = Some(index_counter);
+        lowlinks[i] = index_counter;
+        index_counter += 1;
+        stack.push(i);
+        on_stack[i] = true;
+
+        let succs = digraph.successors(nodes[i]).unwrap_or_default();
+        work.push((i, succs, 0));
+
+        while let Some((u_idx, u_succs, next_nbr_idx)) = work.last_mut() {
+            let u_idx = *u_idx;
+            if *next_nbr_idx < u_succs.len() {
+                let v_name = u_succs[*next_nbr_idx];
+                *next_nbr_idx += 1;
+
+                let v_idx = digraph.get_node_index(v_name).unwrap();
+
+                match indices[v_idx] {
+                    None => {
+                        cgse_record_decision(&mut cgse_sink, v_name, nodes[u_idx]);
+                        indices[v_idx] = Some(index_counter);
+                        lowlinks[v_idx] = index_counter;
+                        index_counter += 1;
+                        stack.push(v_idx);
+                        on_stack[v_idx] = true;
+
+                        let v_succs = digraph.successors(v_name).unwrap_or_default();
+                        work.push((v_idx, v_succs, 0));
+                    }
+                    Some(v_index) if on_stack[v_idx] => {
+                        lowlinks[u_idx] = lowlinks[u_idx].min(v_index);
+                    }
+                    _ => {}
+                }
+            } else {
+                let (u_finished, _, _) = work.pop().unwrap();
+                let u_low = lowlinks[u_finished];
+                let u_index = indices[u_finished].unwrap();
+
+                if u_low == u_index {
+                    let mut component = Vec::new();
+                    loop {
+                        let w_idx = stack.pop().unwrap();
+                        on_stack[w_idx] = false;
+                        component.push(nodes[w_idx].to_owned());
+                        if w_idx == u_finished {
+                            break;
+                        }
+                    }
+                    component.sort_unstable();
+                    components.push(component);
+                }
+
+                if let Some((parent_idx, _, _)) = work.last_mut() {
+                    lowlinks[*parent_idx] = lowlinks[*parent_idx].min(u_low);
+                }
+            }
+        }
+    }
+
+    components.sort_unstable();
+
+    cgse_publish(
+        CgseReferenceAlgorithm::StronglyConnectedComponents,
+        digraph.node_count(),
+        digraph.edge_count(),
+        cgse_sink,
+    );
+
+    components
+}
+
 /// Return the number of strongly connected components.
 #[must_use]
 pub fn number_strongly_connected_components(digraph: &DiGraph) -> usize {
-    strongly_connected_components(digraph).len()
+    // br-r37-c1-941r3: count Tarjan roots directly. The old scalar helper
+    // materialized every component as owned Strings, sorted every component,
+    // sorted the component list, and then discarded all of it for `.len()`.
+    // Keep the exact integer-index DFS and CGSE decision stream from
+    // `strongly_connected_components`; only SCC-root emission changes from
+    // output construction to a counter increment.
+    let mut cgse_sink = cgse_begin(CgseReferenceAlgorithm::StronglyConnectedComponents);
+
+    let nodes = digraph.nodes_ordered();
+    let n = nodes.len();
+    let mut indices: Vec<Option<usize>> = vec![None; n];
+    let mut lowlinks: Vec<usize> = vec![0; n];
+    let mut on_stack: Vec<bool> = vec![false; n];
+    let mut stack: Vec<usize> = Vec::new();
+    let mut index_counter: usize = 0;
+    let mut component_count: usize = 0;
+    let mut work: Vec<(usize, &[usize], usize)> = Vec::new();
+
+    for i in 0..n {
+        if indices[i].is_some() {
+            continue;
+        }
+
+        indices[i] = Some(index_counter);
+        lowlinks[i] = index_counter;
+        index_counter += 1;
+        stack.push(i);
+        on_stack[i] = true;
+
+        let successors = digraph.successors_indices(i).unwrap_or(&[]);
+        work.push((i, successors, 0));
+
+        while let Some((u_idx, u_successors, next_successor_idx)) = work.last_mut() {
+            let u_idx = *u_idx;
+            if *next_successor_idx < u_successors.len() {
+                let v_idx = u_successors[*next_successor_idx];
+                *next_successor_idx += 1;
+
+                match indices[v_idx] {
+                    None => {
+                        cgse_record_decision(&mut cgse_sink, nodes[v_idx], nodes[u_idx]);
+                        indices[v_idx] = Some(index_counter);
+                        lowlinks[v_idx] = index_counter;
+                        index_counter += 1;
+                        stack.push(v_idx);
+                        on_stack[v_idx] = true;
+
+                        let v_successors = digraph.successors_indices(v_idx).unwrap_or(&[]);
+                        work.push((v_idx, v_successors, 0));
+                    }
+                    Some(v_index) if on_stack[v_idx] => {
+                        lowlinks[u_idx] = lowlinks[u_idx].min(v_index);
+                    }
+                    _ => {}
+                }
+            } else {
+                let (u_finished, _, _) = work.pop().unwrap();
+                let u_low = lowlinks[u_finished];
+                let u_index = indices[u_finished].unwrap();
+
+                if u_low == u_index {
+                    loop {
+                        let w_idx = stack.pop().unwrap();
+                        on_stack[w_idx] = false;
+                        if w_idx == u_finished {
+                            break;
+                        }
+                    }
+                    component_count += 1;
+                }
+
+                if let Some((parent_idx, _, _)) = work.last_mut() {
+                    lowlinks[*parent_idx] = lowlinks[*parent_idx].min(u_low);
+                }
+            }
+        }
+    }
+
+    cgse_publish(
+        CgseReferenceAlgorithm::StronglyConnectedComponents,
+        digraph.node_count(),
+        digraph.edge_count(),
+        cgse_sink,
+    );
+
+    component_count
 }
 
 /// Return whether the directed graph is strongly connected.
@@ -24691,21 +28524,18 @@ pub fn graph_symmetric_difference(g1: &Graph, g2: &Graph) -> Graph {
 /// Matches `networkx.degree_histogram(G)`.
 #[must_use]
 pub fn degree_histogram(graph: &Graph) -> Vec<usize> {
-    let nodes = graph.nodes_ordered();
-    if nodes.is_empty() {
-        return Vec::new();
-    }
-
-    let max_degree = nodes
-        .iter()
-        .map(|&nd| graph.neighbor_count(nd))
-        .max()
-        .unwrap_or(0);
-
-    let mut hist = vec![0_usize; max_degree + 1];
-    for &nd in &nodes {
-        let deg = graph.neighbor_count(nd);
-        hist[deg] += 1;
+    // br-r37-c1-qpbuf: this scalar histogram does not observe node order, so
+    // avoid materializing names and hashing each name twice through
+    // `neighbor_count`. Compact node indices map one-to-one to adjacency rows.
+    let mut hist = Vec::new();
+    for node_idx in 0..graph.node_count() {
+        let degree = graph
+            .neighbors_indices(node_idx)
+            .map_or(0, |neighbors| neighbors.len());
+        if degree >= hist.len() {
+            hist.resize(degree + 1, 0);
+        }
+        hist[degree] += 1;
     }
     hist
 }
@@ -24802,44 +28632,68 @@ pub fn maximum_independent_set(graph: &Graph) -> Vec<String> {
     // the same unique winner. `effective_degree` is the same integer count, and the
     // name tie-break compares the same node names. The removed-neighbour set and the
     // sorted output are unchanged.
+    // br-r37-c1-misbucket (cc): O((|V|+|E|)·log|V|) min-degree BUCKETS replacing the O(|V|·|E|) peel
+    // that, EVERY round, rescanned all remaining nodes AND recomputed each one's effective degree via
+    // `neighbors_indices().filter(in_remaining).count()`. `buckets[d]` (a BTreeSet of node NAMES) holds
+    // the remaining nodes whose effective degree is d; each round pops the smallest name in the lowest
+    // non-empty bucket — byte-identical to the old `min (effective_degree, then node name)` selection (a
+    // total order → the unique minimum). Effective degrees are maintained incrementally: removing a node
+    // decrements each still-remaining neighbour by one (a bucket move). `min_d` drops to the lowest
+    // freshly-created degree on a decrement and is skipped up past emptied buckets each round. This is
+    // the decrementing min-degree sibling of the MCS max-label bucket lever (br-r37-c1-chordalmcs).
+    // eff_deg is seeded from `neighbors_indices().len()` (not degree_by_index) so any self-loop is
+    // counted exactly as the old per-round recompute did.
+    let name_to_idx: HashMap<&str, usize> =
+        nodes.iter().enumerate().map(|(i, &nd)| (nd, i)).collect();
+    let mut eff_deg: Vec<usize> = (0..n)
+        .map(|i| graph.neighbors_indices(i).map_or(0, <[usize]>::len))
+        .collect();
     let mut in_remaining = vec![true; n];
     let mut remaining_count = n;
+    let mut buckets: Vec<std::collections::BTreeSet<&str>> =
+        vec![std::collections::BTreeSet::new(); n];
+    for i in 0..n {
+        buckets[eff_deg[i]].insert(nodes[i]);
+    }
+    let mut min_d = 0usize;
     let mut independent_set: Vec<usize> = Vec::new();
 
     while remaining_count > 0 {
-        let mut best: Option<usize> = None;
-        let mut best_deg = 0usize;
-        for i in 0..n {
-            if !in_remaining[i] {
-                continue;
-            }
-            let deg = graph
-                .neighbors_indices(i)
-                .map(|nbrs| nbrs.iter().filter(|&&ni| in_remaining[ni]).count())
-                .unwrap_or(0);
-            let take = match best {
-                None => true,
-                // (deg, name) strictly less than the current best -> new unique min.
-                Some(b) => deg < best_deg || (deg == best_deg && nodes[i] < nodes[b]),
-            };
-            if take {
-                best = Some(i);
-                best_deg = deg;
-            }
+        while buckets[min_d].is_empty() {
+            min_d += 1;
         }
-        let min_node = best.unwrap();
+        let min_name = *buckets[min_d].iter().next().expect("non-empty bucket");
+        let min_node = name_to_idx[min_name];
         independent_set.push(min_node);
 
-        // Remove min_node and its still-remaining neighbours.
-        if in_remaining[min_node] {
-            in_remaining[min_node] = false;
-            remaining_count -= 1;
-        }
+        // Remove min_node and its still-remaining neighbours (pull them from their buckets).
+        let mut removed_this_round: Vec<usize> = vec![min_node];
+        buckets[min_d].remove(min_name);
+        in_remaining[min_node] = false;
+        remaining_count -= 1;
         if let Some(nbrs) = graph.neighbors_indices(min_node) {
             for &ni in nbrs {
                 if in_remaining[ni] {
+                    buckets[eff_deg[ni]].remove(nodes[ni]);
                     in_remaining[ni] = false;
                     remaining_count -= 1;
+                    removed_this_round.push(ni);
+                }
+            }
+        }
+
+        // Each removed node's still-remaining neighbours lose one effective degree.
+        for &x in &removed_this_round {
+            if let Some(nbrs) = graph.neighbors_indices(x) {
+                for &y in nbrs {
+                    if in_remaining[y] {
+                        buckets[eff_deg[y]].remove(nodes[y]);
+                        eff_deg[y] -= 1;
+                        buckets[eff_deg[y]].insert(nodes[y]);
+                        if eff_deg[y] < min_d {
+                            min_d = eff_deg[y];
+                        }
+                    }
                 }
             }
         }
@@ -25006,6 +28860,108 @@ pub fn maximal_independent_set(
     // the index permutation tracks the string permutation 1:1 (same RNG
     // sequence, same swap positions), and the greedy scan order is unchanged.
     let n = ordered_nodes.len();
+    // br-r37-c1-misadjidx (cc): build the peeling adjacency from `neighbors_indices` (zero-alloc
+    // &[usize]) instead of `neighbors(node)` (a Vec<&str> alloc per node) + a `node_to_idx.get(nbr)`
+    // String re-hash per edge; the `node_to_idx` map is then unneeded (the required-node seeding
+    // resolves via `get_node_index`). Byte-identical: `ordered_nodes[i]` IS graph node `i`, so
+    // `neighbors_indices(i)` yields the same neighbour set in the same adjacency order → `adj` unchanged.
+    let mut adj: Vec<Vec<usize>> = vec![Vec::new(); n];
+    for (i, row) in adj.iter_mut().enumerate() {
+        if let Some(neighbors) = graph.neighbors_indices(i) {
+            row.extend_from_slice(neighbors);
+        }
+    }
+
+    let mut blocked = vec![false; n];
+    let mut indep_nodes = required;
+    for node in &indep_nodes {
+        let i = graph
+            .get_node_index(node.as_str())
+            .expect("required node validated as a graph node above");
+        blocked[i] = true;
+        for &j in &adj[i] {
+            blocked[j] = true;
+        }
+    }
+
+    // Candidate indices in node-insertion order (matches the old
+    // ``ordered_nodes`` filter order before the shuffle).
+    let mut available: Vec<usize> = (0..n).filter(|&i| !blocked[i]).collect();
+
+    if let Some(mut s) = seed_state {
+        // Deterministic Fisher-Yates over indices — identical swap sequence
+        // to the previous string-based shuffle.
+        for i in (1..available.len()).rev() {
+            let j = (next_seed(&mut s) as usize) % (i + 1);
+            available.swap(i, j);
+        }
+    }
+
+    for idx in available {
+        if !blocked[idx] {
+            indep_nodes.push(ordered_nodes[idx].clone());
+            blocked[idx] = true;
+            for &j in &adj[idx] {
+                blocked[j] = true;
+            }
+        }
+    }
+
+    Ok(indep_nodes)
+}
+
+/// br-r37-c1-misadjidx A/B baseline: the pre-lever `maximal_independent_set` that built the peeling
+/// adjacency via `neighbors(node)` + a `node_to_idx` String re-hash per edge. Test-only;
+/// byte-identical to the shipped `neighbors_indices` version.
+#[cfg(test)]
+fn maximal_independent_set_orig_string(
+    graph: &Graph,
+    initial_nodes: &[String],
+    seed: Option<u64>,
+) -> Result<Vec<String>, MaximalIndependentSetError> {
+    let ordered_nodes: Vec<String> = graph
+        .nodes_ordered()
+        .into_iter()
+        .map(str::to_owned)
+        .collect();
+
+    let graph_nodes: HashSet<&str> = ordered_nodes.iter().map(String::as_str).collect();
+    let mut seen = HashSet::new();
+    let mut required = Vec::new();
+    let mut seed_state = seed;
+    for node in initial_nodes {
+        if !graph_nodes.contains(node.as_str()) {
+            return Err(MaximalIndependentSetError::NodesNotSubset {
+                nodes: initial_nodes.to_vec(),
+            });
+        }
+        if seen.insert(node.clone()) {
+            required.push(node.clone());
+        }
+    }
+    if required.is_empty() {
+        if ordered_nodes.is_empty() {
+            return Ok(Vec::new());
+        }
+        let first_index = choose_index(&mut seed_state, ordered_nodes.len());
+        required.push(ordered_nodes[first_index].clone());
+    }
+
+    let required_set: HashSet<&str> = required.iter().map(String::as_str).collect();
+    for node in &required {
+        if graph
+            .neighbors(node)
+            .unwrap_or_default()
+            .into_iter()
+            .any(|neighbor| required_set.contains(neighbor))
+        {
+            return Err(MaximalIndependentSetError::NodesNotIndependent {
+                nodes: initial_nodes.to_vec(),
+            });
+        }
+    }
+
+    let n = ordered_nodes.len();
     let node_to_idx: HashMap<&str, usize> = ordered_nodes
         .iter()
         .enumerate()
@@ -25032,13 +28988,9 @@ pub fn maximal_independent_set(
         }
     }
 
-    // Candidate indices in node-insertion order (matches the old
-    // ``ordered_nodes`` filter order before the shuffle).
     let mut available: Vec<usize> = (0..n).filter(|&i| !blocked[i]).collect();
 
     if let Some(mut s) = seed_state {
-        // Deterministic Fisher-Yates over indices — identical swap sequence
-        // to the previous string-based shuffle.
         for i in (1..available.len()).rev() {
             let j = (next_seed(&mut s) as usize) % (i + 1);
             available.swap(i, j);
@@ -25097,32 +29049,51 @@ fn chordal_mcs_max_clique_size(graph: &Graph) -> Result<usize, ChordalGraphTreew
     if nodes.is_empty() {
         return Ok(0);
     }
+    let n = nodes.len();
 
+    // rank: node name -> its index (== position in nodes_ordered).
     let rank: HashMap<&str, usize> = nodes
         .iter()
         .enumerate()
         .map(|(index, &node)| (node, index))
         .collect();
-    let mut remaining: HashSet<&str> = nodes.iter().copied().collect();
-    let mut labels: HashMap<&str, usize> = nodes.iter().map(|&node| (node, 0)).collect();
+
+    // br-r37-c1-chordaltwmcs (cc): O((|V|+|E|)·log|V|) weight-bucket MCS (same lever as is_chordal's
+    // br-r37-c1-chordalmcs) replacing the O(|V|²) `remaining.iter().max_by(label, then min rank)` full
+    // scan per round, AND indexing labels/removed by node INDEX instead of String-keyed
+    // HashMap/HashSet (dropping a String hash per neighbour per round). `buckets[l]` (a BTreeSet of node
+    // indices) holds the still-remaining nodes at label l; each round descends to the highest non-empty
+    // bucket (max label) and pops its first element (min index) — byte-identical to the old
+    // `max_by(labels[l].cmp(labels[r]).then(rank[r].cmp(rank[l])))` (max label, ties by min rank == min
+    // index). Label increments and the clique-completeness checks are unchanged, so `max_clique_size`
+    // (and the NotChordal early-return) are identical. `max_label` is always ≥ every remaining node's
+    // label (it only rises on an increment), so the descent never underflows while nodes remain.
+    let mut labels: Vec<usize> = vec![0; n];
+    let mut removed: Vec<bool> = vec![false; n];
+    let mut buckets: Vec<std::collections::BTreeSet<usize>> =
+        vec![std::collections::BTreeSet::new(); n + 1];
+    for i in 0..n {
+        buckets[0].insert(i);
+    }
+    let mut max_label = 0usize;
+    let mut remaining_count = n;
     let mut max_clique_size = 0usize;
 
-    while !remaining.is_empty() {
-        let &chosen = remaining
-            .iter()
-            .max_by(|&&left, &&right| {
-                labels[&left]
-                    .cmp(&labels[&right])
-                    .then_with(|| rank[&right].cmp(&rank[&left]))
-            })
-            .expect("remaining is non-empty");
-        remaining.remove(chosen);
+    while remaining_count > 0 {
+        while buckets[max_label].is_empty() {
+            max_label -= 1;
+        }
+        let chosen_idx = *buckets[max_label].iter().next().expect("non-empty bucket");
+        buckets[max_label].remove(&chosen_idx);
+        removed[chosen_idx] = true;
+        remaining_count -= 1;
+        let chosen = nodes[chosen_idx];
 
         let clique_wanna_be: Vec<&str> = graph
             .neighbors_iter(chosen)
             .map(|neighbors| {
                 neighbors
-                    .filter(|neighbor| neighbor != &chosen && !remaining.contains(*neighbor))
+                    .filter(|neighbor| *neighbor != chosen && removed[rank[*neighbor]])
                     .collect()
             })
             .unwrap_or_default();
@@ -25133,10 +29104,15 @@ fn chordal_mcs_max_clique_size(graph: &Graph) -> Result<usize, ChordalGraphTreew
 
         if let Some(neighbors) = graph.neighbors_iter(chosen) {
             for neighbor in neighbors {
-                if remaining.contains(neighbor)
-                    && let Some(label) = labels.get_mut(neighbor)
-                {
-                    *label += 1;
+                let ni = rank[neighbor];
+                if !removed[ni] {
+                    let old = labels[ni];
+                    buckets[old].remove(&ni);
+                    labels[ni] = old + 1;
+                    buckets[old + 1].insert(ni);
+                    if old + 1 > max_label {
+                        max_label = old + 1;
+                    }
                 }
             }
         }
@@ -25582,6 +29558,85 @@ pub fn spanner(
 /// NetworkX equivalent: `networkx.algorithms.approximation.clique.max_clique`
 pub fn max_clique_approx(graph: &Graph) -> Vec<String> {
     let nodes = graph.nodes_ordered();
+    let n = nodes.len();
+    if n == 0 {
+        return Vec::new();
+    }
+
+    // br-r37-c1-mmbpf: keep the greedy search entirely in node-index space.
+    // The previous mcapproxdeg lever stopped recomputing candidate degrees in
+    // the comparator, but every round still hashed owned node names through a
+    // HashSet<String> candidate set and a HashMap<&str, usize> degree table.
+    // A dense membership vector makes each neighbor probe O(1) by index, while
+    // the compact candidate list limits the scan to the live intersection.
+    // Selection is unchanged: the initial max_by_key still chooses the LAST
+    // insertion-order node on a degree tie, and each later round maximizes the
+    // identical (degree-within-candidates, node-name) total order.
+    let start = (0..n)
+        .max_by_key(|&idx| graph.neighbors_indices(idx).map_or(0, <[usize]>::len))
+        .expect("non-empty graph has a maximum-degree node");
+
+    let mut clique = vec![start];
+    let mut candidates = graph.neighbors_indices(start).unwrap_or(&[]).to_vec();
+    let mut is_candidate = vec![false; n];
+    for &candidate in &candidates {
+        is_candidate[candidate] = true;
+    }
+    let mut in_neighborhood = vec![false; n];
+
+    while !candidates.is_empty() {
+        let chosen = candidates
+            .iter()
+            .copied()
+            .map(|candidate| {
+                let degree = graph.neighbors_indices(candidate).map_or(0, |neighbors| {
+                    neighbors
+                        .iter()
+                        .filter(|&&neighbor| is_candidate[neighbor])
+                        .count()
+                });
+                (candidate, degree)
+            })
+            .max_by(|&(left, left_degree), &(right, right_degree)| {
+                left_degree
+                    .cmp(&right_degree)
+                    .then_with(|| nodes[left].cmp(nodes[right]))
+            })
+            .map(|(candidate, _)| candidate)
+            .expect("non-empty candidate list has a greedy maximum");
+
+        is_candidate[chosen] = false;
+        clique.push(chosen);
+
+        let chosen_neighbors = graph.neighbors_indices(chosen).unwrap_or(&[]);
+        for &neighbor in chosen_neighbors {
+            in_neighborhood[neighbor] = true;
+        }
+        candidates.retain(|&candidate| {
+            let keep = is_candidate[candidate] && in_neighborhood[candidate];
+            if !keep {
+                is_candidate[candidate] = false;
+            }
+            keep
+        });
+        for &neighbor in chosen_neighbors {
+            in_neighborhood[neighbor] = false;
+        }
+    }
+
+    let mut clique: Vec<String> = clique
+        .into_iter()
+        .map(|idx| nodes[idx].to_owned())
+        .collect();
+    clique.sort();
+    clique
+}
+
+/// br-r37-c1-mmbpf A/B baseline: the shipped mcapproxdeg implementation that
+/// retained candidate membership and per-round degrees in String hash tables.
+#[cfg(test)]
+fn max_clique_approx_orig_string_state(graph: &Graph) -> Vec<String> {
+    let nodes = graph.nodes_ordered();
     if nodes.is_empty() {
         return Vec::new();
     }
@@ -25589,10 +29644,10 @@ pub fn max_clique_approx(graph: &Graph) -> Vec<String> {
     let start = nodes
         .iter()
         .max_by_key(|&&node| graph.neighbor_count(node))
-        .unwrap()
+        .expect("non-empty graph has a maximum-degree node")
         .to_string();
 
-    let mut clique: Vec<String> = vec![start.clone()];
+    let mut clique = vec![start.clone()];
     let mut candidates: HashSet<String> = graph
         .neighbors(&start)
         .unwrap_or_default()
@@ -25601,30 +29656,37 @@ pub fn max_clique_approx(graph: &Graph) -> Vec<String> {
         .collect();
 
     while !candidates.is_empty() {
-        // Greedy: pick candidate with most neighbors in the candidate set
-        let chosen = candidates
-            .iter()
-            .max_by(|&a, &b| {
-                let deg_a = graph
-                    .neighbors(a)
-                    .map(|nbrs| nbrs.iter().filter(|&&n| candidates.contains(n)).count())
-                    .unwrap_or(0);
-                let deg_b = graph
-                    .neighbors(b)
-                    .map(|nbrs| nbrs.iter().filter(|&&n| candidates.contains(n)).count())
-                    .unwrap_or(0);
-                deg_a.cmp(&deg_b).then_with(|| a.cmp(b))
-            })
-            .cloned()
-            .unwrap();
+        let chosen = {
+            let degree: HashMap<&str, usize> = candidates
+                .iter()
+                .map(|candidate| {
+                    let value = graph
+                        .neighbors_iter(candidate)
+                        .map(|neighbors| {
+                            neighbors
+                                .filter(|&neighbor| candidates.contains(neighbor))
+                                .count()
+                        })
+                        .unwrap_or(0);
+                    (candidate.as_str(), value)
+                })
+                .collect();
+            candidates
+                .iter()
+                .max_by(|&left, &right| {
+                    degree[left.as_str()]
+                        .cmp(&degree[right.as_str()])
+                        .then_with(|| left.cmp(right))
+                })
+                .cloned()
+                .expect("non-empty candidate set has a greedy maximum")
+        };
 
         candidates.remove(&chosen);
         clique.push(chosen.clone());
-
-        // New candidates must be neighbors of the chosen node
-        if let Some(nbrs) = graph.neighbors(&chosen) {
-            let nbr_set: HashSet<&str> = nbrs.into_iter().collect();
-            candidates.retain(|c| nbr_set.contains(c.as_str()));
+        if let Some(neighbors) = graph.neighbors(&chosen) {
+            let neighborhood: HashSet<&str> = neighbors.into_iter().collect();
+            candidates.retain(|candidate| neighborhood.contains(candidate.as_str()));
         } else {
             candidates.clear();
         }
@@ -26288,6 +30350,10 @@ pub fn common_graph_edit_distance_mappings<G1: GraphView, G2: GraphView>(
 ///
 /// NetworkX equivalent: `networkx.algorithms.isomorphism.is_isomorphic`
 pub fn is_isomorphic(g1: &Graph, g2: &Graph) -> bool {
+    is_isomorphic_with_adjacency::<true>(g1, g2)
+}
+
+fn is_isomorphic_with_adjacency<const INDEX_ROWS: bool>(g1: &Graph, g2: &Graph) -> bool {
     let nodes1 = g1.nodes_ordered();
     let nodes2 = g2.nodes_ordered();
 
@@ -26320,24 +30386,43 @@ pub fn is_isomorphic(g1: &Graph, g2: &Graph) -> bool {
         return false;
     }
 
-    // Build adjacency matrices for fast lookup
-    let idx1: HashMap<&str, usize> = nodes1.iter().enumerate().map(|(i, &n)| (n, i)).collect();
-    let idx2: HashMap<&str, usize> = nodes2.iter().enumerate().map(|(i, &n)| (n, i)).collect();
-
+    // Build adjacency matrices for fast lookup. br-r37-c1-ec69g: the graph's
+    // adjacency rows already contain insertion indices, so walk them directly
+    // instead of materializing every edge as two owned Strings plus an AttrMap
+    // and then hashing both names back to these same indices.
     let mut adj1 = vec![vec![false; n]; n];
     let mut adj2 = vec![vec![false; n]; n];
 
-    for edge in g1.edges_ordered() {
-        let i = idx1[edge.left.as_str()];
-        let j = idx1[edge.right.as_str()];
-        adj1[i][j] = true;
-        adj1[j][i] = true;
-    }
-    for edge in g2.edges_ordered() {
-        let i = idx2[edge.left.as_str()];
-        let j = idx2[edge.right.as_str()];
-        adj2[i][j] = true;
-        adj2[j][i] = true;
+    if INDEX_ROWS {
+        for (node, row) in adj1.iter_mut().enumerate() {
+            if let Some(neighbors) = g1.neighbors_indices(node) {
+                for &neighbor in neighbors {
+                    row[neighbor] = true;
+                }
+            }
+        }
+        for (node, row) in adj2.iter_mut().enumerate() {
+            if let Some(neighbors) = g2.neighbors_indices(node) {
+                for &neighbor in neighbors {
+                    row[neighbor] = true;
+                }
+            }
+        }
+    } else {
+        let idx1: HashMap<&str, usize> = nodes1.iter().enumerate().map(|(i, &n)| (n, i)).collect();
+        let idx2: HashMap<&str, usize> = nodes2.iter().enumerate().map(|(i, &n)| (n, i)).collect();
+        for edge in g1.edges_ordered() {
+            let i = idx1[edge.left.as_str()];
+            let j = idx1[edge.right.as_str()];
+            adj1[i][j] = true;
+            adj1[j][i] = true;
+        }
+        for edge in g2.edges_ordered() {
+            let i = idx2[edge.left.as_str()];
+            let j = idx2[edge.right.as_str()];
+            adj2[i][j] = true;
+            adj2[j][i] = true;
+        }
     }
 
     // Group nodes by degree for pruning
@@ -26440,6 +30525,13 @@ pub fn is_isomorphic(g1: &Graph, g2: &Graph) -> bool {
         &mut mapping,
         &mut used,
     )
+}
+
+/// Frozen pre-`br-r37-c1-ec69g` edge-snapshot adjacency setup for exact
+/// full-function parity and same-binary A/B measurement.
+#[cfg(test)]
+fn is_isomorphic_orig_edge_snapshots(g1: &Graph, g2: &Graph) -> bool {
+    is_isomorphic_with_adjacency::<false>(g1, g2)
 }
 
 /// Check if two directed graphs are isomorphic.
@@ -27242,13 +31334,13 @@ pub fn is_planar_lr(graph: &Graph) -> bool {
     if n <= 4 {
         return true; // every simple graph on <= 4 nodes is planar
     }
-    let idx: HashMap<&str, usize> = nodes.iter().enumerate().map(|(i, &nd)| (nd, i)).collect();
     let mut seen: HashSet<(usize, usize)> = HashSet::new();
     let mut adj: Vec<Vec<usize>> = vec![Vec::new(); n];
     let mut m = 0usize;
-    for edge in graph.edges_ordered() {
-        let i = idx[edge.left.as_str()];
-        let j = idx[edge.right.as_str()];
+    // br-r37-c1-bndaf: consume the index-space twin of the ordered edge walk.
+    // This preserves LR adjacency insertion order while avoiding an EdgeSnapshot
+    // (two endpoint String clones plus an AttrMap clone) and two name hashes per edge.
+    for (i, j) in graph.edges_ordered_indices() {
         if i == j {
             continue; // self-loops do not affect planarity
         }
@@ -27280,33 +31372,58 @@ pub fn is_chordal(graph: &Graph) -> bool {
         return true;
     }
 
-    let idx: HashMap<&str, usize> = nodes.iter().enumerate().map(|(i, &nd)| (nd, i)).collect();
+    // br-r37-c1-chordalidx (cc): build the adjacency straight from the graph's index-native edge
+    // iterator instead of materialising edges_ordered() (a Vec<EdgeSnapshot>: two owned Strings + an
+    // AttrMap clone per edge) and re-hashing each endpoint NAME through an `idx` map. `adj` is a
+    // Vec<HashSet<usize>> so edge ORDER is irrelevant; nodes_ordered() position == internal node index
+    // (IndexMap get_index_of), so edges_storage_order_index_iter()'s (i, j) are exactly the indices the
+    // idx-map produced → byte-identical adjacency. Drops the idx-map build, the per-edge clone, and the
+    // per-edge rehash in one move.
     let mut adj: Vec<HashSet<usize>> = vec![HashSet::new(); n];
-    for edge in graph.edges_ordered() {
-        let i = idx[edge.left.as_str()];
-        let j = idx[edge.right.as_str()];
+    for (i, j, _) in graph.edges_storage_order_index_iter() {
         if i != j {
             adj[i].insert(j);
             adj[j].insert(i);
         }
     }
 
-    // Maximum Cardinality Search
+    // Maximum Cardinality Search.
+    //
+    // br-r37-c1-chordalmcs (cc): O((|V|+|E|)·log|V|) weight-bucket MCS instead of the previous
+    // O(|V|^2) `(0..n).filter(!numbered).max_by_key((weight, Reverse(i)))` full scan per round.
+    // `buckets[w]` holds the still-unnumbered nodes whose current weight is w; a BTreeSet yields the
+    // SMALLEST index at a given weight. Each round descends to the highest non-empty bucket (max weight)
+    // and pops its first element (min index) — the IDENTICAL "max weight, ties by min index" selection
+    // as the old `max_by_key((weight, Reverse(i)))` (max key ⇒ max weight; for equal weight, max
+    // Reverse(i) ⇒ min i). Weight updates are unchanged, so the elimination `order` is byte-identical.
+    // `max_w` is always ≥ every unnumbered node's weight (it only rises on an increment), so the descent
+    // never underflows while nodes remain.
     let mut weight = vec![0_usize; n];
     let mut order = Vec::with_capacity(n);
     let mut numbered = vec![false; n];
-
+    let mut buckets: Vec<std::collections::BTreeSet<usize>> =
+        vec![std::collections::BTreeSet::new(); n];
+    for i in 0..n {
+        buckets[0].insert(i);
+    }
+    let mut max_w = 0usize;
     for _ in 0..n {
-        // Pick unnumbered node with max weight (break ties by index for determinism)
-        let v = (0..n)
-            .filter(|&i| !numbered[i])
-            .max_by_key(|&i| (weight[i], std::cmp::Reverse(i)))
-            .unwrap();
+        while buckets[max_w].is_empty() {
+            max_w -= 1;
+        }
+        let v = *buckets[max_w].iter().next().unwrap();
+        buckets[max_w].remove(&v);
         order.push(v);
         numbered[v] = true;
         for &w in &adj[v] {
             if !numbered[w] {
-                weight[w] += 1;
+                let wt = weight[w];
+                buckets[wt].remove(&w);
+                weight[w] = wt + 1;
+                buckets[wt + 1].insert(w);
+                if wt + 1 > max_w {
+                    max_w = wt + 1;
+                }
             }
         }
     }
@@ -27456,6 +31573,15 @@ pub fn is_isolate(graph: &Graph, node: &str) -> bool {
 /// Return the number of isolate nodes.
 #[must_use]
 pub fn number_of_isolates(graph: &Graph) -> usize {
+    (0..graph.node_count())
+        .filter(|&index| graph.neighbors_indices(index).map_or(0, <[usize]>::len) == 0)
+        .count()
+}
+
+/// Frozen pre-`br-r37-c1-xmi3s` count path: materialize every isolate name,
+/// then discard the names and retain only the vector length.
+#[cfg(test)]
+fn number_of_isolates_orig_materialized(graph: &Graph) -> usize {
     isolates(graph).len()
 }
 
@@ -27510,6 +31636,16 @@ pub fn is_isolate_directed(graph: &DiGraph, node: &str) -> bool {
 /// Return the number of isolate nodes in a directed graph.
 #[must_use]
 pub fn number_of_isolates_directed(graph: &DiGraph) -> usize {
+    (0..graph.node_count())
+        .filter(|&index| {
+            graph.out_degree_by_index(index) == 0 && graph.in_degree_by_index(index) == 0
+        })
+        .count()
+}
+
+/// Directed frozen baseline for the former count-via-materialized-list path.
+#[cfg(test)]
+fn number_of_isolates_directed_orig_materialized(graph: &DiGraph) -> usize {
     isolates_directed(graph).len()
 }
 
@@ -27526,6 +31662,79 @@ pub fn number_of_isolates_directed(graph: &DiGraph) -> usize {
 /// returned once.
 #[must_use]
 pub fn edge_boundary(
+    graph: &Graph,
+    nbunch1: &[&str],
+    nbunch2: Option<&[&str]>,
+) -> Vec<(String, String)> {
+    let n = graph.node_count();
+    let names = graph.nodes_ordered();
+    let mut in_set1 = vec![false; n];
+    for &node in nbunch1 {
+        if let Some(idx) = graph.get_node_index(node) {
+            in_set1[idx] = true;
+        }
+    }
+
+    if let Some(nodes2) = nbunch2 {
+        let mut in_set2 = vec![false; n];
+        for &node in nodes2 {
+            if let Some(idx) = graph.get_node_index(node) {
+                in_set2[idx] = true;
+            }
+        }
+        let mut seen_sources = vec![false; n];
+        let mut seen_edges: HashSet<(usize, usize)> = HashSet::new();
+        let mut result = Vec::new();
+        for &node in nbunch1 {
+            let Some(u) = graph.get_node_index(node) else {
+                continue;
+            };
+            if seen_sources[u] {
+                continue;
+            }
+            seen_sources[u] = true;
+            if let Some(neighbors) = graph.neighbors_indices(u) {
+                for &v in neighbors {
+                    let edge_key = if u <= v { (u, v) } else { (v, u) };
+                    if !seen_edges.insert(edge_key) {
+                        continue;
+                    }
+                    if (in_set1[u] && in_set2[v]) || (in_set1[v] && in_set2[u]) {
+                        result.push((names[u].to_owned(), names[v].to_owned()));
+                    }
+                }
+            }
+        }
+        return result;
+    }
+
+    // br-r37-c1-ebidx (cc): the nbunch2=None branch walked graph.neighbors(node) (a Vec<&str> alloc per
+    // node) + a `set1.contains(nbr)` String hash per neighbour; walk neighbors_indices over the `in_set1`
+    // bool row (built once at the top, shared with the Some branch). Byte-identical: same nbunch1
+    // iteration × neighbour-adjacency order, same "nbr not in nbunch1" filter → the same (u,v) boundary
+    // edges in the same NOT-sorted order (every emitted nbr is a graph node → in_set1[v] == set1.contains).
+    let mut result = Vec::new();
+    for &node in nbunch1 {
+        let Some(u) = graph.get_node_index(node) else {
+            continue;
+        };
+        if let Some(nbrs) = graph.neighbors_indices(u) {
+            for &v in nbrs {
+                if in_set1[v] {
+                    continue;
+                }
+                result.push((names[u].to_owned(), names[v].to_owned()));
+            }
+        }
+    }
+    result
+}
+
+/// br-r37-c1-ebidx A/B baseline: the pre-lever `edge_boundary` nbunch2=None branch that walked
+/// graph.neighbors(node) (Vec<&str> alloc) + a set1.contains(nbr) String probe. Test-only;
+/// byte-identical to the shipped neighbors_indices/in_set1 version.
+#[cfg(test)]
+fn edge_boundary_orig_string(
     graph: &Graph,
     nbunch1: &[&str],
     nbunch2: Option<&[&str]>,
@@ -27649,6 +31858,81 @@ pub fn edge_boundary_directed(
     nbunch1: &[&str],
     nbunch2: Option<&[&str]>,
 ) -> Vec<(String, String)> {
+    let n = graph.node_count();
+    let names = graph.nodes_ordered();
+    let mut result = Vec::new();
+
+    let mut in_set1 = vec![false; n];
+    for &node in nbunch1 {
+        if let Some(idx) = graph.get_node_index(node) {
+            in_set1[idx] = true;
+        }
+    }
+
+    if let Some(nodes2) = nbunch2 {
+        let mut in_set2 = vec![false; n];
+        for &node in nodes2 {
+            if let Some(idx) = graph.get_node_index(node) {
+                in_set2[idx] = true;
+            }
+        }
+        let mut seen_sources = vec![false; n];
+        for &node in nbunch1 {
+            let Some(u) = graph.get_node_index(node) else {
+                continue;
+            };
+            if seen_sources[u] {
+                continue;
+            }
+            seen_sources[u] = true;
+            if let Some(succs) = graph.successors_indices(u) {
+                for &v in succs {
+                    if (in_set1[u] && in_set2[v]) || (in_set1[v] && in_set2[u]) {
+                        result.push((names[u].to_owned(), names[v].to_owned()));
+                    }
+                }
+            }
+        }
+        return result;
+    }
+
+    // br-r37-c1-ebdiridx (cc): the nbunch2=None branch walked graph.successors(node) (a Vec<&str>
+    // alloc per node) + a `set1.contains(succ)` String hash per successor; walk successors_indices over
+    // the `in_set1` bool row. Byte-identical: same nbunch1 iteration × successor-adjacency order, same
+    // "succ not in nbunch1" filter → the same (u→v) boundary edges (NOT sorted — matches nx's
+    // OutEdgeView order; every emitted `succ` is a graph node so in_set1[v] == set1.contains(succ)).
+    for &node in nbunch1 {
+        let Some(u) = graph.get_node_index(node) else {
+            continue;
+        };
+        if let Some(succs) = graph.successors_indices(u) {
+            for &v in succs {
+                if in_set1[v] {
+                    continue;
+                }
+                result.push((names[u].to_owned(), names[v].to_owned()));
+            }
+        }
+    }
+    // br-r37-c1-tep7r: do NOT sort. nx.edge_boundary emits boundary edges in
+    // nbunch1-iteration x successor-adjacency order (its OutEdgeView order), not
+    // sorted — the sibling undirected `edge_boundary` already returns unsorted.
+    // The stray sort made directed `edge_boundary(data=False)` diverge from nx
+    // on 16/768 sampled cases (edge SET correct, ORDER wrong). Emitting in
+    // source x successor order matches nx exactly (same nbunch order the wrapper
+    // passes, same adjacency order verified == nx for identically-built graphs).
+    result
+}
+
+/// br-r37-c1-ebdiridx A/B baseline: the pre-lever `edge_boundary_directed` nbunch2=None branch that
+/// walked graph.successors(node) (Vec<&str> alloc) + a set1.contains(succ) String probe. Test-only;
+/// byte-identical to the shipped `successors_indices`/in_set1 version.
+#[cfg(test)]
+fn edge_boundary_directed_orig_string(
+    graph: &DiGraph,
+    nbunch1: &[&str],
+    nbunch2: Option<&[&str]>,
+) -> Vec<(String, String)> {
     let set1: HashSet<&str> = nbunch1.iter().copied().collect();
     let set2: Option<HashSet<&str>> = nbunch2.map(|s| s.iter().copied().collect());
 
@@ -27701,13 +31985,6 @@ pub fn edge_boundary_directed(
             }
         }
     }
-    // br-r37-c1-tep7r: do NOT sort. nx.edge_boundary emits boundary edges in
-    // nbunch1-iteration x successor-adjacency order (its OutEdgeView order), not
-    // sorted — the sibling undirected `edge_boundary` already returns unsorted.
-    // The stray sort made directed `edge_boundary(data=False)` diverge from nx
-    // on 16/768 sampled cases (edge SET correct, ORDER wrong). Emitting in
-    // source x successor order matches nx exactly (same nbunch order the wrapper
-    // passes, same adjacency order verified == nx for identically-built graphs).
     result
 }
 
@@ -28076,63 +32353,46 @@ fn cut_volume_directed(digraph: &DiGraph, nodes: &[&str], weight_attr: Option<&s
 // is_simple_path
 // ---------------------------------------------------------------------------
 
-/// Return True if `path` is a simple path in the graph (no repeated nodes,
-/// all consecutive nodes connected by edges).
-#[must_use]
-pub fn is_simple_path(graph: &Graph, path: &[&str]) -> bool {
+fn is_simple_path_indexed<G: GraphView>(graph: &G, path: &[&str]) -> bool {
     if path.is_empty() {
         return false;
     }
     if path.len() == 1 {
-        return graph.neighbors(path[0]).is_some();
+        return graph.get_node_index(path[0]).is_some();
     }
-    // Check for repeated nodes
-    let mut seen: HashSet<&str> = HashSet::new();
+
+    let mut seen = HashSet::with_capacity(path.len());
+    let mut previous = None;
     for &node in path {
-        if !seen.insert(node) {
+        let Some(index) = graph.get_node_index(node) else {
+            return false;
+        };
+        if !seen.insert(index) {
             return false;
         }
-    }
-    // Check consecutive edges exist
-    for w in path.windows(2) {
-        match graph.neighbors(w[0]) {
-            Some(nbrs) => {
-                if !nbrs.contains(&w[1]) {
-                    return false;
-                }
-            }
-            None => return false,
+        if let Some(left) = previous
+            && !graph
+                .neighbors_indices(left)
+                .is_some_and(|neighbors| neighbors.contains(&index))
+        {
+            return false;
         }
+        previous = Some(index);
     }
     true
+}
+
+/// Return True if `path` is a simple path in the graph (no repeated nodes,
+/// all consecutive nodes connected by edges).
+#[must_use]
+pub fn is_simple_path(graph: &Graph, path: &[&str]) -> bool {
+    is_simple_path_indexed(graph, path)
 }
 
 /// Return True if `path` is a simple path in the directed graph.
 #[must_use]
 pub fn is_simple_path_directed(graph: &DiGraph, path: &[&str]) -> bool {
-    if path.is_empty() {
-        return false;
-    }
-    if path.len() == 1 {
-        return graph.successors(path[0]).is_some() || graph.predecessors(path[0]).is_some();
-    }
-    let mut seen: HashSet<&str> = HashSet::new();
-    for &node in path {
-        if !seen.insert(node) {
-            return false;
-        }
-    }
-    for w in path.windows(2) {
-        match graph.successors(w[0]) {
-            Some(succs) => {
-                if !succs.contains(&w[1]) {
-                    return false;
-                }
-            }
-            None => return false,
-        }
-    }
-    true
+    is_simple_path_indexed(graph, path)
 }
 
 // ---------------------------------------------------------------------------
@@ -28764,14 +33024,27 @@ pub fn girth(graph: &Graph) -> Option<usize> {
         return None;
     }
 
+    // br-r37-c1-girthidx (cc): integer-index BFS from every node instead of per-source String-keyed
+    // HashMap<&str, _> `dist`/`parent`. girth runs |V| BFS traversals, so the old kernel paid a String
+    // hash on every dist/parent probe across O(|V|·(|V|+|E|)) steps. Walk `neighbors_indices` over node
+    // INDICES with reusable `dist`/`parent` Vecs, using a per-source epoch stamp (`seen`) to mark
+    // "visited this BFS" with no realloc/O(n)-clear between sources. Byte-identical: `min_girth` is an
+    // order-independent minimum over the same BFS-discovered back-edge cycles; the early-exit
+    // `d_v*2+1 >= min_girth` and the parent-edge skip are unchanged (source has no parent → usize::MAX,
+    // which never equals a real neighbour index).
     let mut min_girth = usize::MAX;
+    let mut dist: Vec<usize> = vec![0; n];
+    let mut parent: Vec<usize> = vec![usize::MAX; n];
+    let mut seen: Vec<u32> = vec![0; n];
+    let mut epoch: u32 = 0;
+    let mut queue: VecDeque<usize> = VecDeque::new();
 
-    // BFS from each node, looking for the shortest back-edge
-    for &source in &nodes {
-        let mut dist: HashMap<&str, usize> = HashMap::new();
-        let mut parent: HashMap<&str, &str> = HashMap::new();
-        let mut queue = VecDeque::new();
-        dist.insert(source, 0);
+    for source in 0..n {
+        epoch += 1;
+        seen[source] = epoch;
+        dist[source] = 0;
+        parent[source] = usize::MAX;
+        queue.clear();
         queue.push_back(source);
 
         while let Some(v) = queue.pop_front() {
@@ -28779,20 +33052,21 @@ pub fn girth(graph: &Graph) -> Option<usize> {
             if d_v * 2 + 1 >= min_girth {
                 break; // Can't improve
             }
-            if let Some(neighbors) = graph.neighbors_iter(v) {
-                for w in neighbors {
-                    if let Some(&d_w) = dist.get(w) {
-                        // Skip parent edge (tree edge in BFS)
-                        if parent.get(v) == Some(&w) {
+            if let Some(neighbors) = graph.neighbors_indices(v) {
+                for &w in neighbors {
+                    if seen[w] == epoch {
+                        // w already discovered in this BFS; skip the parent (tree) edge.
+                        if parent[v] == w {
                             continue;
                         }
-                        let cycle_len = d_v + d_w + 1;
+                        let cycle_len = d_v + dist[w] + 1;
                         if cycle_len < min_girth {
                             min_girth = cycle_len;
                         }
                     } else {
-                        dist.insert(w, d_v + 1);
-                        parent.insert(w, v);
+                        seen[w] = epoch;
+                        dist[w] = d_v + 1;
+                        parent[w] = v;
                         queue.push_back(w);
                     }
                 }
@@ -29015,6 +33289,9 @@ type OrderedPaths = Vec<(String, Vec<String>)>;
 type DijkstraFull = (OrderedDistances, OrderedPaths);
 /// Ordered `(node, distance, all-int-distance, predecessor)` entries.
 type OrderedTypedPredDistances = Vec<(String, f64, bool, Option<String>)>;
+/// Index-space form of [`OrderedTypedPredDistances`]. A predecessor of
+/// `u32::MAX` denotes the source row's root.
+pub type IndexedTypedPredDistances = Vec<(u32, f64, bool, u32)>;
 /// Ordered `(node, distance, all-int-distance)` entries.
 type OrderedTypedDistances = Vec<(String, f64, bool)>;
 /// Ordered `(node, predecessor-list)` entries for NetworkX predecessor dicts.
@@ -29837,7 +34114,37 @@ fn single_source_dijkstra_typed_csr(
     weight_is_int: &[bool],
     cutoff: Option<f64>,
 ) -> OrderedTypedPredDistances {
-    let n = names.len();
+    single_source_dijkstra_typed_csr_indexed(
+        source_idx,
+        names.len(),
+        offsets,
+        targets,
+        weights,
+        weight_is_int,
+        cutoff,
+    )
+    .into_iter()
+    .map(|(idx, distance, all_int, predecessor)| {
+        (
+            names[idx as usize].to_owned(),
+            distance,
+            all_int,
+            (predecessor != u32::MAX).then(|| names[predecessor as usize].to_owned()),
+        )
+    })
+    .collect()
+}
+
+fn single_source_dijkstra_typed_csr_indexed(
+    source_idx: usize,
+    node_count: usize,
+    offsets: &[usize],
+    targets: &[u32],
+    weights: &[f64],
+    weight_is_int: &[bool],
+    cutoff: Option<f64>,
+) -> IndexedTypedPredDistances {
+    let n = node_count;
     let mut distances: Vec<f64> = vec![f64::INFINITY; n];
     let mut predecessors: Vec<u32> = vec![u32::MAX; n];
     let mut all_int_paths = vec![false; n];
@@ -29895,12 +34202,11 @@ fn single_source_dijkstra_typed_csr(
         .into_iter()
         .map(|idx| {
             let idx_usize = idx as usize;
-            let pred = predecessors[idx_usize];
             (
-                names[idx_usize].to_owned(),
+                idx,
                 distances[idx_usize],
                 all_int_paths[idx_usize],
-                (pred != u32::MAX).then(|| names[pred as usize].to_owned()),
+                predecessors[idx_usize],
             )
         })
         .collect()
@@ -30276,6 +34582,74 @@ pub fn single_target_shortest_path_directed(
     target: &str,
     cutoff: Option<usize>,
 ) -> HashMap<String, Vec<String>> {
+    // br-r37-c1-stspidx (cc): integer-index reverse BFS. The old kernel kept `result` keyed by
+    // &str and, for every discovered predecessor, CLONED the successor's full path
+    // (`result[node].iter().cloned()`) on top of the String-hashing predecessors_iter walk —
+    // O(|V|·depth) String allocations. Walk predecessors_indices over a Vec<bool> seen recording a
+    // `next_toward[pred] = node` tree, then reconstruct each path once at the end by walking the tree
+    // to the target. Byte-identical: the output is a HashMap (order-independent); each node maps to
+    // the same [node, …, target] shortest path (same predecessor discovery → same first-visit tree).
+    let Some(target_idx) = digraph.get_node_index(target) else {
+        return HashMap::new();
+    };
+    let n = digraph.node_count();
+    let names = digraph.nodes_ordered();
+
+    let mut seen = vec![false; n];
+    let mut next_toward = vec![usize::MAX; n];
+    let mut discovered: Vec<usize> = Vec::new();
+    seen[target_idx] = true;
+    discovered.push(target_idx);
+    let mut frontier: Vec<usize> = vec![target_idx];
+    let mut level = 0usize;
+
+    while !frontier.is_empty() {
+        if let Some(c) = cutoff
+            && level >= c
+        {
+            break;
+        }
+        let mut next_frontier: Vec<usize> = Vec::new();
+        for &node in &frontier {
+            if let Some(predecessors) = digraph.predecessors_indices(node) {
+                for &pred in predecessors {
+                    if !seen[pred] {
+                        seen[pred] = true;
+                        next_toward[pred] = node;
+                        discovered.push(pred);
+                        next_frontier.push(pred);
+                    }
+                }
+            }
+        }
+        frontier = next_frontier;
+        level += 1;
+    }
+
+    let mut result: HashMap<String, Vec<String>> = HashMap::with_capacity(discovered.len());
+    for &start in &discovered {
+        let mut path: Vec<String> = Vec::new();
+        let mut cur = start;
+        loop {
+            path.push(names[cur].to_owned());
+            if cur == target_idx {
+                break;
+            }
+            cur = next_toward[cur];
+        }
+        result.insert(names[start].to_owned(), path);
+    }
+    result
+}
+
+/// br-r37-c1-stspidx A/B baseline: the pre-lever String-keyed reverse BFS with per-predecessor
+/// path cloning. Test-only; byte-identical mapping to the shipped integer-index version.
+#[cfg(test)]
+fn single_target_shortest_path_directed_orig_string(
+    digraph: &DiGraph,
+    target: &str,
+    cutoff: Option<usize>,
+) -> HashMap<String, Vec<String>> {
     let mut result: HashMap<String, Vec<String>> = HashMap::new();
     if !digraph.has_node(target) {
         return result;
@@ -30329,6 +34703,61 @@ pub fn single_target_shortest_path_length(
 /// Matches `networkx.single_target_shortest_path_length(G, target, cutoff=None)`.
 #[must_use]
 pub fn single_target_shortest_path_length_directed(
+    digraph: &DiGraph,
+    target: &str,
+    cutoff: Option<usize>,
+) -> Vec<(String, usize)> {
+    // br-r37-c1-stsplidx (cc): integer-index reverse BFS. The old kernel kept `seen` as a
+    // HashSet<&str> and walked predecessors_iter (re-materialising each adjacency entry to a &str) —
+    // a String hash on every seen probe over the O(|V|+|E|) reverse frontier. Walk
+    // predecessors_indices over a Vec<bool> seen, collecting (idx, dist) in BFS discovery order;
+    // node names are materialised once at the end. Byte-identical: same predecessor order + same
+    // frontier order → the same (name, distance) sequence.
+    let Some(target_idx) = digraph.get_node_index(target) else {
+        return Vec::new();
+    };
+    let n = digraph.node_count();
+    let names = digraph.nodes_ordered();
+
+    let mut seen = vec![false; n];
+    let mut order: Vec<(usize, usize)> = Vec::with_capacity(n);
+    seen[target_idx] = true;
+    order.push((target_idx, 0));
+    let mut frontier: Vec<usize> = vec![target_idx];
+    let mut level = 0usize;
+
+    while !frontier.is_empty() {
+        if let Some(c) = cutoff
+            && level >= c
+        {
+            break;
+        }
+        let mut next_frontier: Vec<usize> = Vec::new();
+        for &node in &frontier {
+            if let Some(predecessors) = digraph.predecessors_indices(node) {
+                for &pred in predecessors {
+                    if !seen[pred] {
+                        seen[pred] = true;
+                        order.push((pred, level + 1));
+                        next_frontier.push(pred);
+                    }
+                }
+            }
+        }
+        frontier = next_frontier;
+        level += 1;
+    }
+
+    order
+        .into_iter()
+        .map(|(idx, dist)| (names[idx].to_owned(), dist))
+        .collect()
+}
+
+/// br-r37-c1-stsplidx A/B baseline: the pre-lever String-keyed reverse BFS. Test-only;
+/// byte-identical to the shipped integer-index version.
+#[cfg(test)]
+fn single_target_shortest_path_length_directed_orig_string(
     digraph: &DiGraph,
     target: &str,
     cutoff: Option<usize>,
@@ -30599,6 +35028,31 @@ pub fn all_pairs_dijkstra_path_length_directed(
         .collect()
 }
 
+const ALL_PAIRS_DIJKSTRA_PARALLEL_THRESHOLD: usize = 128;
+
+fn name_indexed_dijkstra_rows(
+    names: &[&str],
+    rows: Vec<IndexedTypedPredDistances>,
+) -> Vec<(String, OrderedTypedPredDistances)> {
+    rows.into_iter()
+        .enumerate()
+        .map(|(source_idx, row)| {
+            let named = row
+                .into_iter()
+                .map(|(target, distance, all_int, predecessor)| {
+                    (
+                        names[target as usize].to_owned(),
+                        distance,
+                        all_int,
+                        (predecessor != u32::MAX).then(|| names[predecessor as usize].to_owned()),
+                    )
+                })
+                .collect();
+            (names[source_idx].to_owned(), named)
+        })
+        .collect()
+}
+
 /// All-pairs Dijkstra returning distance rows plus predecessor metadata.
 #[must_use]
 pub fn all_pairs_dijkstra_path_length_with_pred(
@@ -30606,7 +35060,21 @@ pub fn all_pairs_dijkstra_path_length_with_pred(
     weight_attr: &str,
 ) -> Vec<(String, OrderedTypedPredDistances)> {
     let names = graph.nodes_ordered();
-    let n = names.len();
+    name_indexed_dijkstra_rows(
+        &names,
+        all_pairs_dijkstra_path_length_indexed_with_pred(graph, weight_attr),
+    )
+}
+
+/// Index-space all-pairs Dijkstra rows. Sources are implicit by row index;
+/// targets and predecessors stay as graph indices so bindings can avoid two
+/// temporary `String` allocations for every reachable pair.
+#[must_use]
+pub fn all_pairs_dijkstra_path_length_indexed_with_pred(
+    graph: &Graph,
+    weight_attr: &str,
+) -> Vec<IndexedTypedPredDistances> {
+    let n = graph.node_count();
     let mut offsets = Vec::with_capacity(n + 1);
     let mut targets: Vec<u32> = Vec::new();
     let mut weights: Vec<f64> = Vec::new();
@@ -30625,22 +35093,24 @@ pub fn all_pairs_dijkstra_path_length_with_pred(
         offsets.push(targets.len());
     }
 
-    (0..n)
-        .map(|source_idx| {
-            (
-                names[source_idx].to_owned(),
-                single_source_dijkstra_typed_csr(
-                    source_idx,
-                    &names,
-                    &offsets,
-                    &targets,
-                    &weights,
-                    &weight_is_int,
-                    None,
-                ),
-            )
-        })
-        .collect()
+    let solve_source = |source_idx: usize| {
+        single_source_dijkstra_typed_csr_indexed(
+            source_idx,
+            n,
+            &offsets,
+            &targets,
+            &weights,
+            &weight_is_int,
+            None,
+        )
+    };
+
+    if n >= ALL_PAIRS_DIJKSTRA_PARALLEL_THRESHOLD {
+        use rayon::prelude::*;
+        (0..n).into_par_iter().map(solve_source).collect()
+    } else {
+        (0..n).map(solve_source).collect()
+    }
 }
 
 /// Directed all-pairs Dijkstra returning distance rows plus predecessor metadata.
@@ -30649,11 +35119,24 @@ pub fn all_pairs_dijkstra_path_length_with_pred_directed(
     digraph: &DiGraph,
     weight_attr: &str,
 ) -> Vec<(String, OrderedTypedPredDistances)> {
-    let csr = digraph.csr();
     let names = digraph.nodes_ordered();
+    name_indexed_dijkstra_rows(
+        &names,
+        all_pairs_dijkstra_path_length_indexed_with_pred_directed(digraph, weight_attr),
+    )
+}
+
+/// Directed twin of [`all_pairs_dijkstra_path_length_indexed_with_pred`].
+#[must_use]
+pub fn all_pairs_dijkstra_path_length_indexed_with_pred_directed(
+    digraph: &DiGraph,
+    weight_attr: &str,
+) -> Vec<IndexedTypedPredDistances> {
+    let csr = digraph.csr();
+    let node_count = digraph.node_count();
     let mut weights: Vec<f64> = Vec::with_capacity(csr.succ_targets.len());
     let mut weight_is_int: Vec<bool> = Vec::with_capacity(csr.succ_targets.len());
-    for u in 0..names.len() {
+    for u in 0..node_count {
         for &v in csr.successors(u) {
             let (weight, is_int) =
                 digraph_edge_weight_or_default_idx_typed(digraph, u, v as usize, weight_attr);
@@ -30662,22 +35145,24 @@ pub fn all_pairs_dijkstra_path_length_with_pred_directed(
         }
     }
 
-    (0..names.len())
-        .map(|source_idx| {
-            (
-                names[source_idx].to_owned(),
-                single_source_dijkstra_typed_csr(
-                    source_idx,
-                    &names,
-                    &csr.succ_offsets,
-                    &csr.succ_targets,
-                    &weights,
-                    &weight_is_int,
-                    None,
-                ),
-            )
-        })
-        .collect()
+    let solve_source = |source_idx: usize| {
+        single_source_dijkstra_typed_csr_indexed(
+            source_idx,
+            node_count,
+            &csr.succ_offsets,
+            &csr.succ_targets,
+            &weights,
+            &weight_is_int,
+            None,
+        )
+    };
+
+    if node_count >= ALL_PAIRS_DIJKSTRA_PARALLEL_THRESHOLD {
+        use rayon::prelude::*;
+        (0..node_count).into_par_iter().map(solve_source).collect()
+    } else {
+        (0..node_count).map(solve_source).collect()
+    }
 }
 
 /// All-pairs Dijkstra returning paths only.
@@ -31162,6 +35647,169 @@ pub fn bidirectional_shortest_path(
     source: &str,
     target: &str,
 ) -> Option<Vec<String>> {
+    // br-r37-c1-bidirspidx (cc): integer-index bidirectional BFS. The old kernel kept forward/backward
+    // pred as HashMap<&str,&str> and visited as HashSet<&str> and walked neighbors_iter — a String hash
+    // on every visited/pred probe over both frontiers. Walk neighbors_indices over Vec<bool> visited +
+    // Vec<Option<usize>> pred; names are materialised only for the O(path) reconstructed path.
+    // Byte-identical: same frontier-size expansion choice, same neighbour order, same meeting-point
+    // detection → the same meeting node + predecessor trees → the same path.
+    let source_idx = graph.get_node_index(source)?;
+    let target_idx = graph.get_node_index(target)?;
+    if source_idx == target_idx {
+        return Some(vec![source.to_owned()]);
+    }
+    let nodes = graph.nodes_ordered();
+    let n = nodes.len();
+
+    let mut forward_pred: Vec<Option<usize>> = vec![None; n];
+    let mut backward_pred: Vec<Option<usize>> = vec![None; n];
+    let mut forward_visited = vec![false; n];
+    let mut backward_visited = vec![false; n];
+    let mut forward_frontier: Vec<usize> = vec![source_idx];
+    let mut backward_frontier: Vec<usize> = vec![target_idx];
+
+    forward_visited[source_idx] = true;
+    backward_visited[target_idx] = true;
+
+    while !forward_frontier.is_empty() && !backward_frontier.is_empty() {
+        // Expand the smaller frontier
+        if forward_frontier.len() <= backward_frontier.len() {
+            let mut next = Vec::new();
+            for &node in &forward_frontier {
+                if let Some(neighbors) = graph.neighbors_indices(node) {
+                    for &nbr in neighbors {
+                        if forward_visited[nbr] {
+                            continue;
+                        }
+                        forward_visited[nbr] = true;
+                        forward_pred[nbr] = Some(node);
+                        if backward_visited[nbr] {
+                            // Found meeting point
+                            return Some(build_bidir_path_index(
+                                source_idx,
+                                target_idx,
+                                nbr,
+                                &forward_pred,
+                                &backward_pred,
+                                &nodes,
+                            ));
+                        }
+                        next.push(nbr);
+                    }
+                }
+            }
+            forward_frontier = next;
+        } else {
+            let mut next = Vec::new();
+            for &node in &backward_frontier {
+                if let Some(neighbors) = graph.neighbors_indices(node) {
+                    for &nbr in neighbors {
+                        if backward_visited[nbr] {
+                            continue;
+                        }
+                        backward_visited[nbr] = true;
+                        backward_pred[nbr] = Some(node);
+                        if forward_visited[nbr] {
+                            return Some(build_bidir_path_index(
+                                source_idx,
+                                target_idx,
+                                nbr,
+                                &forward_pred,
+                                &backward_pred,
+                                &nodes,
+                            ));
+                        }
+                        next.push(nbr);
+                    }
+                }
+            }
+            backward_frontier = next;
+        }
+    }
+
+    None
+}
+
+/// Integer-index path reconstruction for bidirectional BFS (br-r37-c1-bidirspidx). Mirrors
+/// `build_bidirectional_path`: forward half source→…→meeting (via forward_pred, reversed) then
+/// backward half meeting→…→target (via backward_pred); names materialised from `nodes` here.
+fn build_bidir_path_index(
+    source_idx: usize,
+    target_idx: usize,
+    meeting: usize,
+    forward_pred: &[Option<usize>],
+    backward_pred: &[Option<usize>],
+    nodes: &[&str],
+) -> Vec<String> {
+    let mut path = vec![nodes[meeting].to_owned()];
+    let mut cur = meeting;
+    while cur != source_idx {
+        if let Some(prev) = forward_pred[cur] {
+            path.push(nodes[prev].to_owned());
+            cur = prev;
+        } else {
+            break;
+        }
+    }
+    path.reverse();
+
+    let mut cur = meeting;
+    while cur != target_idx {
+        if let Some(prev) = backward_pred[cur] {
+            path.push(nodes[prev].to_owned());
+            cur = prev;
+        } else {
+            break;
+        }
+    }
+
+    path
+}
+
+/// Helper to reconstruct path from bidirectional BFS (br-r37-c1-bidirspidx A/B baseline, String-keyed).
+#[cfg(test)]
+fn build_bidirectional_path<'a>(
+    source: &str,
+    target: &str,
+    meeting: &str,
+    forward_pred: &HashMap<&'a str, &'a str>,
+    backward_pred: &HashMap<&'a str, &'a str>,
+) -> Vec<String> {
+    // Build forward half: source -> ... -> meeting
+    let mut forward_half = vec![meeting.to_owned()];
+    let mut cur = meeting;
+    while cur != source {
+        if let Some(&prev) = forward_pred.get(cur) {
+            forward_half.push(prev.to_owned());
+            cur = prev;
+        } else {
+            break;
+        }
+    }
+    forward_half.reverse();
+
+    // Build backward half: meeting -> ... -> target
+    let mut cur = meeting;
+    while cur != target {
+        if let Some(&prev) = backward_pred.get(cur) {
+            forward_half.push(prev.to_owned());
+            cur = prev;
+        } else {
+            break;
+        }
+    }
+
+    forward_half
+}
+
+/// br-r37-c1-bidirspidx A/B baseline: the pre-lever String-keyed bidirectional BFS.
+/// Test-only; byte-identical to the shipped integer-index version.
+#[cfg(test)]
+fn bidirectional_shortest_path_orig_string(
+    graph: &Graph,
+    source: &str,
+    target: &str,
+) -> Option<Vec<String>> {
     if !graph.has_node(source) || !graph.has_node(target) {
         return None;
     }
@@ -31169,7 +35817,6 @@ pub fn bidirectional_shortest_path(
         return Some(vec![source.to_owned()]);
     }
 
-    // Forward and backward BFS frontiers
     let mut forward_pred: HashMap<&str, &str> = HashMap::new();
     let mut backward_pred: HashMap<&str, &str> = HashMap::new();
     let mut forward_visited: HashSet<&str> = HashSet::new();
@@ -31181,7 +35828,6 @@ pub fn bidirectional_shortest_path(
     backward_visited.insert(target);
 
     while !forward_frontier.is_empty() && !backward_frontier.is_empty() {
-        // Expand the smaller frontier
         if forward_frontier.len() <= backward_frontier.len() {
             let mut next = Vec::new();
             for &node in &forward_frontier {
@@ -31192,7 +35838,6 @@ pub fn bidirectional_shortest_path(
                         }
                         forward_pred.insert(nbr, node);
                         if backward_visited.contains(nbr) {
-                            // Found meeting point
                             return Some(build_bidirectional_path(
                                 source,
                                 target,
@@ -31235,46 +35880,22 @@ pub fn bidirectional_shortest_path(
     None
 }
 
-/// Helper to reconstruct path from bidirectional BFS.
-fn build_bidirectional_path<'a>(
-    source: &str,
-    target: &str,
-    meeting: &str,
-    forward_pred: &HashMap<&'a str, &'a str>,
-    backward_pred: &HashMap<&'a str, &'a str>,
-) -> Vec<String> {
-    // Build forward half: source -> ... -> meeting
-    let mut forward_half = vec![meeting.to_owned()];
-    let mut cur = meeting;
-    while cur != source {
-        if let Some(&prev) = forward_pred.get(cur) {
-            forward_half.push(prev.to_owned());
-            cur = prev;
-        } else {
-            break;
-        }
-    }
-    forward_half.reverse();
-
-    // Build backward half: meeting -> ... -> target
-    let mut cur = meeting;
-    while cur != target {
-        if let Some(&prev) = backward_pred.get(cur) {
-            forward_half.push(prev.to_owned());
-            cur = prev;
-        } else {
-            break;
-        }
-    }
-
-    forward_half
-}
-
 /// Detect whether a graph contains a negative weight cycle.
 /// Matches `networkx.negative_edge_cycle(G, weight=weight)`.
 #[must_use]
 pub fn negative_edge_cycle(graph: &Graph, weight_attr: &str) -> bool {
-    // Run Bellman-Ford from each component
+    // In an undirected graph every edge can be traversed in both directions, so
+    // a finite negative edge is itself a negative two-edge closed walk (and a
+    // negative self-loop is a one-edge cycle). Conversely, without a negative
+    // edge no cycle can have negative total weight. Reuse the authoritative
+    // O(|E|) attribute scan instead of rebuilding whole-graph Bellman-Ford CSR
+    // state once per connected component. (br-r37-c1-yg26j)
+    graph_has_negative_edge_weight(graph, weight_attr)
+}
+
+/// Frozen pre-br-r37-c1-yg26j implementation for parity and same-binary A/B.
+#[cfg(test)]
+fn negative_edge_cycle_orig_bellman_ford(graph: &Graph, weight_attr: &str) -> bool {
     let mut visited = HashSet::<String>::new();
     for node in graph.nodes_ordered() {
         if visited.contains(node) {
@@ -31385,6 +36006,26 @@ fn directed_edge_weight_with_default(
 ) -> f64 {
     digraph
         .edge_attrs(source, target)
+        .and_then(|attrs| attrs.get(weight_attr))
+        .and_then(|val| val.as_f64())
+        .filter(|value| value.is_finite())
+        .unwrap_or(default_weight)
+}
+
+/// br-r37-c1-daglpwidx: index-keyed twin of `directed_edge_weight_with_default` — IDENTICAL
+/// semantics (caller-supplied default, `is_finite` filter, negative weights allowed) but resolves
+/// the edge via `edge_attrs_by_indices` (no node-map String probes). Bit-identical weight for the
+/// same (source_idx, target_idx) endpoints. (Distinct from `digraph_edge_weight_or_default_idx`,
+/// which hard-codes a 1.0 default AND clamps negatives — that is the Dijkstra/non-negative variant.)
+fn directed_edge_weight_with_default_idx(
+    digraph: &DiGraph,
+    source_idx: usize,
+    target_idx: usize,
+    weight_attr: &str,
+    default_weight: f64,
+) -> f64 {
+    digraph
+        .edge_attrs_by_indices(source_idx, target_idx)
         .and_then(|attrs| attrs.get(weight_attr))
         .and_then(|val| val.as_f64())
         .filter(|value| value.is_finite())
@@ -31760,6 +36401,45 @@ pub fn group_degree_centrality(graph: &Graph, group: &[&str]) -> f64 {
     if n == 0 || s_len >= n {
         return 0.0;
     }
+    // br-r37-c1-grpdegidx (cc): integer-index mirror of group_out_degree_centrality
+    // (br-r37-c1-8wr40). The old kernel built group_set: HashSet<&str> and walked
+    // graph.neighbors_iter(node) (String) + a group_set.contains(nbr) String hash +
+    // a neighbors_outside HashSet<&str> String store per outside neighbour. Resolve
+    // group -> indices once, walk neighbors_indices (&[usize], no alloc), gate with
+    // an is_group_member bool row, dedup outside neighbours with a seen_outside bool
+    // row + counter. Byte-identical: the numerator is a set cardinality either way.
+    let group_indices: Vec<usize> = group
+        .iter()
+        .filter_map(|node| graph.get_node_index(node))
+        .collect();
+    let mut is_group_member = vec![false; n];
+    for &node in &group_indices {
+        is_group_member[node] = true;
+    }
+    let mut seen_outside = vec![false; n];
+    let mut outside_count = 0_usize;
+    for node in group_indices {
+        for &nbr in graph.neighbors_indices(node).unwrap_or_default() {
+            if !is_group_member[nbr] && !seen_outside[nbr] {
+                seen_outside[nbr] = true;
+                outside_count += 1;
+            }
+        }
+    }
+    outside_count as f64 / (n - s_len) as f64
+}
+
+/// br-r37-c1-grpdegidx A/B baseline: the pre-lever `group_degree_centrality` that
+/// built group_set: HashSet<&str> and walked graph.neighbors_iter(node) + a
+/// group_set.contains + neighbors_outside HashSet<&str>. Test-only; byte-identical
+/// to the shipped neighbors_indices/is_group_member version.
+#[cfg(test)]
+fn group_degree_centrality_orig_string(graph: &Graph, group: &[&str]) -> f64 {
+    let n = graph.node_count();
+    let s_len = group.len();
+    if n == 0 || s_len >= n {
+        return 0.0;
+    }
     let group_set: HashSet<&str> = group.iter().copied().collect();
     let mut neighbors_outside = HashSet::new();
     for &node in group {
@@ -31778,6 +36458,47 @@ pub fn group_degree_centrality(graph: &Graph, group: &[&str]) -> f64 {
 /// `C_gin(S) = |{v : v->s for some s in S, v not in S}| / (n - |S|)`
 #[must_use]
 pub fn group_in_degree_centrality(digraph: &DiGraph, group: &[&str]) -> f64 {
+    let n = digraph.node_count();
+    let s_len = group.len();
+    if n == 0 || s_len >= n {
+        return 0.0;
+    }
+    // br-r37-c1-grpdegidx (cc): integer-index mirror of group_out_degree_centrality
+    // (br-r37-c1-8wr40). The old kernel built group_set: HashSet<&str> and walked
+    // digraph.predecessors(node) (a Vec<&str> name alloc per group node) + a
+    // group_set.contains(p) String hash per predecessor + a predecessors_outside
+    // HashSet<&str> String store per outside pred. Resolve group -> indices once,
+    // walk predecessors_indices (&[usize], no alloc), gate membership with an
+    // is_group_member bool row, dedup outside preds with a seen_outside bool row +
+    // counter. Byte-identical: the numerator is a set cardinality (|distinct outside
+    // predecessors|) either way -> same usize count -> same f64 after division.
+    let group_indices: Vec<usize> = group
+        .iter()
+        .filter_map(|node| digraph.get_node_index(node))
+        .collect();
+    let mut is_group_member = vec![false; n];
+    for &node in &group_indices {
+        is_group_member[node] = true;
+    }
+    let mut seen_outside = vec![false; n];
+    let mut outside_count = 0_usize;
+    for node in group_indices {
+        for &pred in digraph.predecessors_indices(node).unwrap_or_default() {
+            if !is_group_member[pred] && !seen_outside[pred] {
+                seen_outside[pred] = true;
+                outside_count += 1;
+            }
+        }
+    }
+    outside_count as f64 / (n - s_len) as f64
+}
+
+/// br-r37-c1-grpdegidx A/B baseline: the pre-lever `group_in_degree_centrality` that
+/// built group_set: HashSet<&str> and walked digraph.predecessors(node) (Vec<&str>
+/// alloc) + group_set.contains + a predecessors_outside HashSet<&str>. Test-only;
+/// byte-identical to the shipped predecessors_indices/is_group_member version.
+#[cfg(test)]
+fn group_in_degree_centrality_orig_string(digraph: &DiGraph, group: &[&str]) -> f64 {
     let n = digraph.node_count();
     let s_len = group.len();
     if n == 0 || s_len >= n {
@@ -31806,18 +36527,25 @@ pub fn group_out_degree_centrality(digraph: &DiGraph, group: &[&str]) -> f64 {
     if n == 0 || s_len >= n {
         return 0.0;
     }
-    let group_set: HashSet<&str> = group.iter().copied().collect();
-    let mut successors_outside = HashSet::new();
-    for &node in group {
-        if let Some(succs) = digraph.successors(node) {
-            for s in succs {
-                if !group_set.contains(s) {
-                    successors_outside.insert(s);
-                }
+    let group_indices: Vec<usize> = group
+        .iter()
+        .filter_map(|node| digraph.get_node_index(node))
+        .collect();
+    let mut is_group_member = vec![false; n];
+    for &node in &group_indices {
+        is_group_member[node] = true;
+    }
+    let mut seen_outside = vec![false; n];
+    let mut outside_count = 0_usize;
+    for node in group_indices {
+        for &successor in digraph.successors_indices(node).unwrap_or_default() {
+            if !is_group_member[successor] && !seen_outside[successor] {
+                seen_outside[successor] = true;
+                outside_count += 1;
             }
         }
     }
-    successors_outside.len() as f64 / (n - s_len) as f64
+    outside_count as f64 / (n - s_len) as f64
 }
 
 // ===========================================================================
@@ -31908,6 +36636,111 @@ pub fn biconnected_components(graph: &Graph) -> Vec<Vec<String>> {
 /// Matches `networkx.biconnected_component_edges(G)`.
 #[must_use]
 pub fn biconnected_component_edges(graph: &Graph) -> Vec<Vec<(String, String)>> {
+    // br-r37-c1-bccidx (cc): fully integer-index articulation/biconnected DFS. The old kernel kept
+    // discovery/low as HashMap<&str,usize>, parent as HashMap<&str,Option<&str>>, the edge stack as
+    // (&str,&str), and the work stack as (&str, Vec<&str>, usize) — a String hash on every
+    // discovery/low/parent probe AND a Vec<&str> alloc per node over the O(V+E) DFS. Index all state
+    // (discovery: Vec<usize>, usize::MAX = unvisited; low/parent: Vec; work stack over
+    // neighbors_indices slices) and materialise node names ONLY when a component edge is emitted.
+    // Byte-identical: same root scan (0..n), same neighbour order → same DFS/low-links → same
+    // component split; edges stay canonicalised BY NAME (nodes[u] <= nodes[w]) exactly as before.
+    let nodes = graph.nodes_ordered();
+    let n = nodes.len();
+    let mut discovery = vec![usize::MAX; n];
+    let mut low = vec![0usize; n];
+    let mut parent: Vec<Option<usize>> = vec![None; n];
+    let mut edge_stack: Vec<(usize, usize)> = Vec::new();
+    let mut components: Vec<Vec<(String, String)>> = Vec::new();
+    let mut time = 0usize;
+
+    for root in 0..n {
+        if discovery[root] != usize::MAX {
+            continue;
+        }
+
+        // Iterative DFS
+        let mut stack: Vec<(usize, &[usize], usize)> = Vec::new();
+        discovery[root] = time;
+        low[root] = time;
+        parent[root] = None;
+        time += 1;
+
+        let succs = graph.neighbors_indices(root).unwrap_or(&[]);
+        stack.push((root, succs, 0));
+
+        while let Some((v, neighbors, idx)) = stack.last_mut() {
+            let v_idx = *v;
+            if *idx < neighbors.len() {
+                let w = neighbors[*idx];
+                *idx += 1;
+                if discovery[w] == usize::MAX {
+                    parent[w] = Some(v_idx);
+                    discovery[w] = time;
+                    low[w] = time;
+                    time += 1;
+                    edge_stack.push((v_idx, w));
+                    let w_succs = graph.neighbors_indices(w).unwrap_or(&[]);
+                    stack.push((w, w_succs, 0));
+                } else if parent[v_idx] != Some(w) && discovery[w] < discovery[v_idx] {
+                    edge_stack.push((v_idx, w));
+                    // br-r37-c1-bccdisc: for a back edge (v, w) the low-link must
+                    // fold in the DISCOVERY time of w, not low[w]. Using low[w]
+                    // wrongly propagates a deeper ancestor reachable from w (e.g.
+                    // the bowtie's shared articulation vertex carries low < disc),
+                    // which defeats the `low >= disc[parent]` split test and merges
+                    // two biconnected components into one. nx's _biconnected_dfs
+                    // does `low[parent] = min(low[parent], discovery[child])`.
+                    let w_disc = discovery[w];
+                    if w_disc < low[v_idx] {
+                        low[v_idx] = w_disc;
+                    }
+                }
+            } else {
+                // Finished processing v
+                let v_idx = *v;
+                let v_low = low[v_idx];
+                let v_parent = parent[v_idx];
+                stack.pop();
+
+                if let Some(p) = v_parent {
+                    // Update parent's low value
+                    if v_low < low[p] {
+                        low[p] = v_low;
+                    }
+                    // If v is the root of a biconnected component
+                    let p_disc = discovery[p];
+                    if v_low >= p_disc {
+                        let mut component = Vec::new();
+                        while let Some(&(u, w)) = edge_stack.last() {
+                            edge_stack.pop();
+                            // Canonicalise BY NODE NAME (not index) — matches the old &str `u <= w`.
+                            let edge = if nodes[u] <= nodes[w] {
+                                (nodes[u].to_owned(), nodes[w].to_owned())
+                            } else {
+                                (nodes[w].to_owned(), nodes[u].to_owned())
+                            };
+                            component.push(edge);
+                            if (u == p && w == v_idx) || (u == v_idx && w == p) {
+                                break;
+                            }
+                        }
+                        if !component.is_empty() {
+                            component.sort_unstable();
+                            components.push(component);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    components
+}
+
+/// br-r37-c1-bccidx A/B baseline: the pre-lever fully String-keyed articulation/biconnected DFS.
+/// Test-only; byte-identical to the shipped integer-index version.
+#[cfg(test)]
+fn biconnected_component_edges_orig_string(graph: &Graph) -> Vec<Vec<(String, String)>> {
     let nodes = graph.nodes_ordered();
     let mut discovery: HashMap<&str, usize> = HashMap::new();
     let mut low: HashMap<&str, usize> = HashMap::new();
@@ -31921,7 +36754,6 @@ pub fn biconnected_component_edges(graph: &Graph) -> Vec<Vec<(String, String)>> 
             continue;
         }
 
-        // Iterative DFS
         let mut stack: Vec<(&str, Vec<&str>, usize)> = Vec::new();
         discovery.insert(root, time);
         low.insert(root, time);
@@ -31952,13 +36784,6 @@ pub fn biconnected_component_edges(graph: &Graph) -> Vec<Vec<(String, String)>> 
                     stack.push((w, w_succs, 0));
                 } else if parent.get(v_str) != Some(&Some(w)) && discovery[w] < discovery[v_str] {
                     edge_stack.push((v_str, w));
-                    // br-r37-c1-bccdisc: for a back edge (v, w) the low-link must
-                    // fold in the DISCOVERY time of w, not low[w]. Using low[w]
-                    // wrongly propagates a deeper ancestor reachable from w (e.g.
-                    // the bowtie's shared articulation vertex carries low < disc),
-                    // which defeats the `low >= disc[parent]` split test and merges
-                    // two biconnected components into one. nx's _biconnected_dfs
-                    // does `low[parent] = min(low[parent], discovery[child])`.
                     let w_disc = discovery[w];
                     if let Some(v_low) = low.get_mut(v_str)
                         && w_disc < *v_low
@@ -31967,21 +36792,17 @@ pub fn biconnected_component_edges(graph: &Graph) -> Vec<Vec<(String, String)>> 
                     }
                 }
             } else {
-                // Finished processing v
                 let v_str = *v;
                 let v_low = low[v_str];
-                let v_disc = discovery[v_str];
                 let v_parent = parent.get(v_str).copied().flatten();
                 stack.pop();
 
                 if let Some(p) = v_parent {
-                    // Update parent's low value
                     if let Some(p_low) = low.get_mut(p)
                         && v_low < *p_low
                     {
                         *p_low = v_low;
                     }
-                    // If v is the root of a biconnected component
                     let p_disc = discovery[p];
                     if v_low >= p_disc {
                         let mut component = Vec::new();
@@ -32003,8 +36824,6 @@ pub fn biconnected_component_edges(graph: &Graph) -> Vec<Vec<(String, String)>> 
                         }
                     }
                 }
-                let _ = v_low;
-                let _ = v_disc;
             }
         }
     }
@@ -32182,6 +37001,85 @@ pub fn kosaraju_strongly_connected_components(digraph: &DiGraph) -> Vec<Vec<Stri
     // node-iteration order, shared ``visited``. Predecessors are pushed reversed so
     // they pop in forward predecessor order — matching nx's reverse-graph adjacency
     // traversal (same discipline as `dfs_postorder_nodes_directed`).
+    // br-r37-c1-kosidx (cc): both DFS phases keyed on node NAMES (HashSet<&str> visited/seen +
+    // predecessors()/successors() Vec<&str> allocs + String probes) → integer indices. Vec<bool>
+    // visited/seen, walk predecessors_indices/successors_indices (reversed exactly as before), keep
+    // `post` as Vec<usize>; names are materialised only for the O(|V|) component output. Byte-identical:
+    // same node scan (0..n), same reversed predecessor/successor order → the same postorder, the same
+    // reverse-postorder roots, the same forward-reachable SCC sets in the same emission sequence.
+    let mut visited = vec![false; n];
+    let mut post: Vec<usize> = Vec::with_capacity(n);
+    for start in 0..n {
+        if visited[start] {
+            continue;
+        }
+        let mut stack: Vec<(usize, bool)> = vec![(start, false)];
+        while let Some((v, backtrack)) = stack.pop() {
+            if backtrack {
+                post.push(v);
+                continue;
+            }
+            if visited[v] {
+                continue;
+            }
+            visited[v] = true;
+            stack.push((v, true));
+            if let Some(preds) = digraph.predecessors_indices(v) {
+                for &p in preds.iter().rev() {
+                    if !visited[p] {
+                        stack.push((p, false));
+                    }
+                }
+            }
+        }
+    }
+
+    // Phase 2: pop ``post`` in reverse; for each unseen root, the SCC is the set of
+    // unseen nodes reachable on the ORIGINAL graph (successors). Because reverse
+    // postorder of the reversed graph processes the condensation in topological
+    // order (every downstream SCC is already ``seen``), pruning the forward search
+    // at ``seen`` yields exactly the root's SCC — output-identical to nx's
+    // full-reachable-then-filter, in O(V+E) total instead of O(V*E).
+    let mut seen = vec![false; n];
+    let mut components: Vec<Vec<String>> = Vec::new();
+    for &root in post.iter().rev() {
+        if seen[root] {
+            continue;
+        }
+        let mut component: Vec<usize> = Vec::new();
+        let mut stack: Vec<usize> = vec![root];
+        while let Some(v) = stack.pop() {
+            if seen[v] {
+                continue;
+            }
+            seen[v] = true;
+            component.push(v);
+            if let Some(succs) = digraph.successors_indices(v) {
+                for &s in succs.iter().rev() {
+                    if !seen[s] {
+                        stack.push(s);
+                    }
+                }
+            }
+        }
+        let mut comp_owned: Vec<String> = component.iter().map(|&i| nodes[i].to_owned()).collect();
+        comp_owned.sort_unstable();
+        components.push(comp_owned);
+    }
+
+    components
+}
+
+/// br-r37-c1-kosidx A/B baseline: the pre-lever fully String-keyed two-phase Kosaraju DFS.
+/// Test-only; byte-identical to the shipped integer-index version.
+#[cfg(test)]
+fn kosaraju_strongly_connected_components_orig_string(digraph: &DiGraph) -> Vec<Vec<String>> {
+    let nodes = digraph.nodes_ordered();
+    let n = nodes.len();
+    if n == 0 {
+        return Vec::new();
+    }
+
     let mut visited = HashSet::<&str>::new();
     let mut post: Vec<&str> = Vec::with_capacity(n);
     for &start in &nodes {
@@ -32208,12 +37106,6 @@ pub fn kosaraju_strongly_connected_components(digraph: &DiGraph) -> Vec<Vec<Stri
         }
     }
 
-    // Phase 2: pop ``post`` in reverse; for each unseen root, the SCC is the set of
-    // unseen nodes reachable on the ORIGINAL graph (successors). Because reverse
-    // postorder of the reversed graph processes the condensation in topological
-    // order (every downstream SCC is already ``seen``), pruning the forward search
-    // at ``seen`` yields exactly the root's SCC — output-identical to nx's
-    // full-reachable-then-filter, in O(V+E) total instead of O(V*E).
     let mut seen = HashSet::<&str>::new();
     let mut components: Vec<Vec<String>> = Vec::new();
     for &root in post.iter().rev() {
@@ -32248,21 +37140,31 @@ pub fn kosaraju_strongly_connected_components(digraph: &DiGraph) -> Vec<Vec<Stri
 /// Matches `networkx.attracting_components(G)`.
 #[must_use]
 pub fn attracting_components(digraph: &DiGraph) -> Vec<Vec<String>> {
+    // br-r37-c1-attractidx (cc): the condensation "does this SCC have a cross-SCC out-edge?"
+    // scan kept node->scc as a HashMap<&str,usize> and walked digraph.successors(node) (a
+    // Vec<&str> name alloc per node) with a node_to_scc[s] String hash PER EDGE — an O(|E|)
+    // String tax on top of the (already integer-CSR) SCC. Build node_scc as a Vec<usize> by
+    // node index once (O(|V|) get_node_index), then walk successors_indices(u) (&[usize], no
+    // alloc) with node_scc[] array reads. Byte-identical: node index i == nodes_ordered()[i]
+    // (same node scan order), same cross-SCC test, has_outgoing is a per-SCC bool
+    // (order-independent), and the sccs order is preserved by the final filter.
     let sccs = strongly_connected_components(digraph);
-    let mut node_to_scc: HashMap<&str, usize> = HashMap::new();
+    let n = digraph.node_count();
+    let mut node_scc: Vec<usize> = vec![0; n];
     for (i, scc) in sccs.iter().enumerate() {
         for node in scc {
-            node_to_scc.insert(node.as_str(), i);
+            if let Some(idx) = digraph.get_node_index(node) {
+                node_scc[idx] = i;
+            }
         }
     }
 
     let mut has_outgoing = vec![false; sccs.len()];
-    for &node in digraph.nodes_ordered().iter() {
-        let u_scc = node_to_scc[node];
-        if let Some(succs) = digraph.successors(node) {
-            for s in succs {
-                let v_scc = node_to_scc[s];
-                if u_scc != v_scc {
+    for u_idx in 0..n {
+        let u_scc = node_scc[u_idx];
+        if let Some(succs) = digraph.successors_indices(u_idx) {
+            for &s_idx in succs {
+                if node_scc[s_idx] != u_scc {
                     has_outgoing[u_scc] = true;
                     break;
                 }
@@ -32277,11 +37179,142 @@ pub fn attracting_components(digraph: &DiGraph) -> Vec<Vec<String>> {
         .collect()
 }
 
+/// br-r37-c1-attractidx A/B baseline: the pre-lever `attracting_components` that kept
+/// node->scc as a HashMap<&str,usize> and walked successors() (Vec<&str> alloc) + a
+/// String hash per edge. Test-only; byte-identical to the integer-index version.
+#[cfg(test)]
+fn attracting_components_orig_string(digraph: &DiGraph) -> Vec<Vec<String>> {
+    let sccs = strongly_connected_components(digraph);
+    let mut node_to_scc: HashMap<&str, usize> = HashMap::new();
+    for (i, scc) in sccs.iter().enumerate() {
+        for node in scc {
+            node_to_scc.insert(node.as_str(), i);
+        }
+    }
+    let mut has_outgoing = vec![false; sccs.len()];
+    for &node in digraph.nodes_ordered().iter() {
+        let u_scc = node_to_scc[node];
+        if let Some(succs) = digraph.successors(node) {
+            for s in succs {
+                let v_scc = node_to_scc[s];
+                if u_scc != v_scc {
+                    has_outgoing[u_scc] = true;
+                    break;
+                }
+            }
+        }
+    }
+    sccs.into_iter()
+        .enumerate()
+        .filter(|(i, _)| !has_outgoing[*i])
+        .map(|(_, scc)| scc)
+        .collect()
+}
+
 /// Return the number of attracting components.
 /// Matches `networkx.number_attracting_components(G)`.
 #[must_use]
 pub fn number_attracting_components(digraph: &DiGraph) -> usize {
-    attracting_components(digraph).len()
+    // br-r37-c1-r3r7h: retain compact SCC ids instead of materializing and
+    // sorting owned node-name components that this scalar API immediately
+    // discarded. The Tarjan traversal and CGSE decision stream intentionally
+    // mirror `strongly_connected_components`; only SCC emission changes.
+    let mut cgse_sink = cgse_begin(CgseReferenceAlgorithm::StronglyConnectedComponents);
+
+    let nodes = digraph.nodes_ordered();
+    let n = nodes.len();
+    let mut indices: Vec<Option<usize>> = vec![None; n];
+    let mut lowlinks = vec![0usize; n];
+    let mut on_stack = vec![false; n];
+    let mut stack = Vec::<usize>::new();
+    let mut index_counter = 0usize;
+    let mut component_count = 0usize;
+    let mut component_of = vec![usize::MAX; n];
+    let mut work: Vec<(usize, &[usize], usize)> = Vec::new();
+
+    for start in 0..n {
+        if indices[start].is_some() {
+            continue;
+        }
+
+        indices[start] = Some(index_counter);
+        lowlinks[start] = index_counter;
+        index_counter += 1;
+        stack.push(start);
+        on_stack[start] = true;
+        let successors = digraph.successors_indices(start).unwrap_or(&[]);
+        work.push((start, successors, 0));
+
+        while let Some((u_idx, u_successors, next_successor_idx)) = work.last_mut() {
+            let u_idx = *u_idx;
+            if *next_successor_idx < u_successors.len() {
+                let v_idx = u_successors[*next_successor_idx];
+                *next_successor_idx += 1;
+
+                match indices[v_idx] {
+                    None => {
+                        cgse_record_decision(&mut cgse_sink, nodes[v_idx], nodes[u_idx]);
+                        indices[v_idx] = Some(index_counter);
+                        lowlinks[v_idx] = index_counter;
+                        index_counter += 1;
+                        stack.push(v_idx);
+                        on_stack[v_idx] = true;
+                        let successors = digraph.successors_indices(v_idx).unwrap_or(&[]);
+                        work.push((v_idx, successors, 0));
+                    }
+                    Some(v_index) if on_stack[v_idx] => {
+                        lowlinks[u_idx] = lowlinks[u_idx].min(v_index);
+                    }
+                    _ => {}
+                }
+            } else {
+                let (finished, _, _) = work.pop().unwrap();
+                let finished_lowlink = lowlinks[finished];
+                let finished_index = indices[finished].unwrap();
+
+                if finished_lowlink == finished_index {
+                    loop {
+                        let member = stack.pop().unwrap();
+                        on_stack[member] = false;
+                        component_of[member] = component_count;
+                        if member == finished {
+                            break;
+                        }
+                    }
+                    component_count += 1;
+                }
+
+                if let Some((parent_idx, _, _)) = work.last_mut() {
+                    lowlinks[*parent_idx] = lowlinks[*parent_idx].min(finished_lowlink);
+                }
+            }
+        }
+    }
+
+    cgse_publish(
+        CgseReferenceAlgorithm::StronglyConnectedComponents,
+        digraph.node_count(),
+        digraph.edge_count(),
+        cgse_sink,
+    );
+
+    let mut has_outgoing = vec![false; component_count];
+    for u in 0..n {
+        let u_component = component_of[u];
+        if let Some(successors) = digraph.successors_indices(u) {
+            for &v in successors {
+                if component_of[v] != u_component {
+                    has_outgoing[u_component] = true;
+                    break;
+                }
+            }
+        }
+    }
+
+    has_outgoing
+        .into_iter()
+        .filter(|outgoing| !outgoing)
+        .count()
 }
 
 /// Return True if the given component is an attracting component.
@@ -32533,10 +37566,7 @@ pub fn is_regular(graph: &Graph) -> bool {
 /// Check if an undirected graph is k-regular (all nodes have degree k).
 #[must_use]
 pub fn is_k_regular(graph: &Graph, k: usize) -> bool {
-    graph
-        .nodes_ordered()
-        .iter()
-        .all(|&node| node_degree(graph, node) == k)
+    (0..graph.node_count()).all(|index| graph.degree_by_index(index) == k)
 }
 
 fn node_degree(graph: &Graph, node: &str) -> usize {
@@ -32624,20 +37654,14 @@ fn is_tournament_orig_string(digraph: &DiGraph) -> bool {
 /// Check if an undirected graph has weighted edges.
 #[must_use]
 pub fn is_weighted(graph: &Graph, weight_attr: &str) -> bool {
-    let nodes = graph.nodes_ordered();
     let mut has_edges = false;
-    for &u in &nodes {
-        if let Some(neighbors) = graph.neighbors_iter(u) {
-            for v in neighbors {
-                has_edges = true;
-                if graph
-                    .edge_attrs(u, v)
-                    .and_then(|attrs| attrs.get(weight_attr))
-                    .is_none()
-                {
-                    return false;
-                }
-            }
+    // br-r37-c1-1its3: the undirected adjacency walk visited each ordinary
+    // edge twice and resolved both endpoint names before every attribute-map
+    // probe. The authoritative edge iterator yields each AttrMap exactly once.
+    for (_, _, attrs) in graph.edges_storage_order_index_iter() {
+        has_edges = true;
+        if !attrs.contains_key(weight_attr) {
+            return false;
         }
     }
     has_edges
@@ -32668,20 +37692,26 @@ pub fn is_negatively_weighted(graph: &Graph, weight_attr: &str) -> bool {
 /// exactly 2 nodes have degree 1 unless single node).
 #[must_use]
 pub fn is_path_graph(graph: &Graph) -> bool {
-    let nodes = graph.nodes_ordered();
-    let n = nodes.len();
+    let n = graph.node_count();
     if n == 0 {
         return false;
     }
-    if nodes.iter().any(|&node| graph.has_edge(node, node)) {
+    // br-r37-c1-tz5st: validate entirely in index space. The old full-success
+    // path resolved each node name twice for the self-loop probe, then three
+    // more times through `degree()` (`neighbor_count` + another self-loop
+    // probe). Node indices are insertion-order identical to `nodes_ordered()`,
+    // `has_edge_by_indices(i, i)` tests the same canonical edge key, and
+    // `degree_by_index(i)` returns the same adjacency-row length plus the same
+    // self-loop contribution. The boolean and all early exits are unchanged.
+    if (0..n).any(|index| graph.has_edge_by_indices(index, index)) {
         return false;
     }
     if n == 1 {
         return true;
     }
     let mut degree_one_count = 0usize;
-    for &node in &nodes {
-        let deg = node_degree(graph, node);
+    for index in 0..n {
+        let deg = graph.degree_by_index(index);
         match deg {
             0 => return false,
             1 => degree_one_count += 1,
@@ -32726,70 +37756,59 @@ pub fn is_distance_regular(graph: &Graph) -> bool {
         return true;
     }
 
-    let node_to_idx: HashMap<&str, usize> = nodes
-        .iter()
-        .enumerate()
-        .map(|(idx, &nd)| (nd, idx))
-        .collect();
-    let mut dist_matrix = vec![vec![usize::MAX; n]; n];
+    // br-r37-c1-isdr-single-source-3ch3u: validate each source's distance
+    // row while it is hot instead of retaining every row and scanning the
+    // full VxV matrix once per distance layer.
+    let mut distances = vec![usize::MAX; n];
+    let mut b_values: Vec<Option<usize>> = Vec::new();
+    let mut c_values: Vec<Option<usize>> = Vec::new();
     for (src_idx, _src) in nodes.iter().enumerate() {
-        dist_matrix[src_idx][src_idx] = 0;
+        distances.fill(usize::MAX);
+        distances[src_idx] = 0;
         let mut queue = VecDeque::new();
         queue.push_back(src_idx);
         while let Some(u) = queue.pop_front() {
-            if let Some(neighbors) = graph.neighbors_iter(nodes[u]) {
-                for v_str in neighbors {
-                    let v = node_to_idx[v_str];
-                    if dist_matrix[src_idx][v] == usize::MAX {
-                        dist_matrix[src_idx][v] = dist_matrix[src_idx][u] + 1;
+            // br-r37-c1-bgaxx: adjacency already stores these integer indices;
+            // avoid mapping each index to a node name and hashing it back.
+            if let Some(neighbors) = graph.neighbors_indices(u) {
+                for &v in neighbors {
+                    if distances[v] == usize::MAX {
+                        distances[v] = distances[u] + 1;
                         queue.push_back(v);
                     }
                 }
             }
         }
-    }
 
-    let diameter = dist_matrix
-        .iter()
-        .flat_map(|row| row.iter())
-        .filter(|&&d| d != usize::MAX)
-        .copied()
-        .max()
-        .unwrap_or(0);
+        for (col_idx, &distance) in distances.iter().enumerate() {
+            debug_assert_ne!(distance, usize::MAX);
+            if b_values.len() <= distance {
+                b_values.resize(distance + 1, None);
+                c_values.resize(distance + 1, None);
+            }
 
-    for d in 0..=diameter {
-        let mut b_vals: Option<usize> = None;
-        let mut c_vals: Option<usize> = None;
-
-        for (row_idx, row) in dist_matrix.iter().enumerate() {
-            for (col_idx, &dist_val) in row.iter().enumerate() {
-                if dist_val != d {
-                    continue;
-                }
-                let mut b_count = 0;
-                let mut c_count = 0;
-                if let Some(neighbors) = graph.neighbors_iter(nodes[col_idx]) {
-                    for w_str in neighbors {
-                        let w = node_to_idx[w_str];
-                        if dist_matrix[row_idx][w] == d + 1 {
-                            b_count += 1;
-                        }
-                        if d > 0 && dist_matrix[row_idx][w] == d - 1 {
-                            c_count += 1;
-                        }
+            let mut b_count = 0;
+            let mut c_count = 0;
+            if let Some(neighbors) = graph.neighbors_indices(col_idx) {
+                for &neighbor in neighbors {
+                    if distances[neighbor] == distance + 1 {
+                        b_count += 1;
+                    }
+                    if distance > 0 && distances[neighbor] == distance - 1 {
+                        c_count += 1;
                     }
                 }
-                match b_vals {
-                    Some(prev_b) if prev_b != b_count => return false,
-                    None => b_vals = Some(b_count),
+            }
+            match b_values[distance] {
+                Some(previous) if previous != b_count => return false,
+                None => b_values[distance] = Some(b_count),
+                _ => {}
+            }
+            if distance > 0 {
+                match c_values[distance] {
+                    Some(previous) if previous != c_count => return false,
+                    None => c_values[distance] = Some(c_count),
                     _ => {}
-                }
-                if d > 0 {
-                    match c_vals {
-                        Some(prev_c) if prev_c != c_count => return false,
-                        None => c_vals = Some(c_count),
-                        _ => {}
-                    }
                 }
             }
         }
@@ -32956,14 +37975,19 @@ pub fn find_cliques_recursive(graph: &Graph) -> Vec<Vec<String>> {
             result.push(clique);
             return;
         }
-        // Choose pivot with maximum connections to p
+        // Choose pivot with maximum connections to p.
+        // br-r37-c1-bkrpivotdeg (cc): precompute each candidate's |N(u) ∩ P| ONCE instead of recomputing
+        // both sides inside the max_by comparator (which recounts the running max's O(|P|) intersection
+        // on every one of the ~|P∪X| comparisons). `counts` holds owned usize, so it borrows nothing.
+        // Byte-identical: same (|N(u) ∩ P|, u) max_by key → same pivot. Twin of br-r37-c1-bkpivotdeg on
+        // the iterative `find_cliques`.
+        let counts: HashMap<usize, usize> = p
+            .union(x)
+            .map(|&u| (u, adj[u].intersection(p).count()))
+            .collect();
         let pivot = p
             .union(x)
-            .max_by(|&&u, &&v| {
-                let deg_u = adj[u].intersection(p).count();
-                let deg_v = adj[v].intersection(p).count();
-                deg_u.cmp(&deg_v).then_with(|| u.cmp(&v))
-            })
+            .max_by(|&&u, &&v| counts[&u].cmp(&counts[&v]).then_with(|| u.cmp(&v)))
             .copied();
         let Some(pivot) = pivot else { return };
         let candidates: Vec<usize> = p.difference(&adj[pivot]).copied().collect();
@@ -33019,36 +38043,38 @@ pub fn chordal_graph_cliques(graph: &Graph) -> Vec<Vec<String>> {
             .map(|(index, node)| (node.as_str(), index))
             .collect();
         let start = component[0].as_str();
-        let mut unnumbered: HashSet<&str> = component.iter().map(String::as_str).collect();
-        let mut numbered = HashSet::from([start]);
-        unnumbered.remove(start);
+        let mut numbered = vec![false; component.len()];
+        numbered[0] = true;
+        let mut weights = vec![0_usize; component.len()];
+        let mut buckets = vec![BTreeSet::new(); component.len()];
+        buckets[0].extend(1..component.len());
+        let mut max_weight = 0;
+        if let Some(neighbors) = graph.neighbors_iter(start) {
+            for neighbor in neighbors {
+                let Some(&neighbor_rank) = rank.get(neighbor) else {
+                    continue;
+                };
+                if numbered[neighbor_rank] {
+                    continue;
+                }
+                buckets[0].remove(&neighbor_rank);
+                weights[neighbor_rank] = 1;
+                buckets[1].insert(neighbor_rank);
+                max_weight = 1;
+            }
+        }
+        let mut remaining = component.len() - 1;
         let mut clique_wanna_be = HashSet::from([start]);
 
-        while !unnumbered.is_empty() {
-            let &chosen = unnumbered
-                .iter()
-                .max_by(|&&left, &&right| {
-                    let left_count = graph
-                        .neighbors_iter(left)
-                        .map(|neighbors| {
-                            neighbors
-                                .filter(|neighbor| numbered.contains(*neighbor))
-                                .count()
-                        })
-                        .unwrap_or(0);
-                    let right_count = graph
-                        .neighbors_iter(right)
-                        .map(|neighbors| {
-                            neighbors
-                                .filter(|neighbor| numbered.contains(*neighbor))
-                                .count()
-                        })
-                        .unwrap_or(0);
-                    left_count
-                        .cmp(&right_count)
-                        .then_with(|| rank[&right].cmp(&rank[&left]))
-                })
-                .expect("unnumbered is non-empty");
+        while remaining != 0 {
+            while buckets[max_weight].is_empty() {
+                max_weight -= 1;
+            }
+            let chosen_rank = *buckets[max_weight]
+                .first()
+                .expect("highest-weight bucket is non-empty");
+            buckets[max_weight].remove(&chosen_rank);
+            let chosen = component[chosen_rank].as_str();
 
             if node_set_is_complete(
                 graph,
@@ -33058,7 +38084,10 @@ pub fn chordal_graph_cliques(graph: &Graph) -> Vec<Vec<String>> {
                     .neighbors_iter(chosen)
                     .map(|neighbors| {
                         neighbors
-                            .filter(|neighbor| numbered.contains(*neighbor))
+                            .filter(|neighbor| {
+                                rank.get(*neighbor)
+                                    .is_some_and(|&neighbor_rank| numbered[neighbor_rank])
+                            })
                             .collect()
                     })
                     .unwrap_or_default();
@@ -33076,8 +38105,24 @@ pub fn chordal_graph_cliques(graph: &Graph) -> Vec<Vec<String>> {
                 return Vec::new();
             }
 
-            unnumbered.remove(chosen);
-            numbered.insert(chosen);
+            numbered[chosen_rank] = true;
+            remaining -= 1;
+            if let Some(neighbors) = graph.neighbors_iter(chosen) {
+                for neighbor in neighbors {
+                    let Some(&neighbor_rank) = rank.get(neighbor) else {
+                        continue;
+                    };
+                    if numbered[neighbor_rank] {
+                        continue;
+                    }
+                    let old_weight = weights[neighbor_rank];
+                    buckets[old_weight].remove(&neighbor_rank);
+                    let new_weight = old_weight + 1;
+                    weights[neighbor_rank] = new_weight;
+                    buckets[new_weight].insert(neighbor_rank);
+                    max_weight = max_weight.max(new_weight);
+                }
+            }
         }
 
         let mut clique: Vec<String> = clique_wanna_be
@@ -34505,11 +39550,20 @@ pub fn sudoku_graph(n: usize) -> Graph {
 /// Return the volume of a set of nodes (sum of degrees of nodes in the set).
 #[must_use]
 pub fn volume(graph: &Graph, nodes: &[&str]) -> usize {
-    let node_set: HashSet<&str> = nodes.iter().copied().collect();
+    // br-r37-c1-cutexpidx (cc): integer-index mirror of edge_expansion/node_expansion. The old kernel
+    // deduped `nodes` into a HashSet<&str> and summed neighbors_iter(nd).count() — an O(degree) iterate
+    // per node keyed by a String lookup. Dedup with an is_set bool row (get_node_index once) and add
+    // neighbors_indices(idx).len() (the O(1) adjacency-row length, the exact integer twin of
+    // neighbors_iter().count(): same row, same self-loop treatment). Byte-identical usize sum.
+    let n = graph.node_count();
+    let mut in_set = vec![false; n];
     let mut vol = 0;
-    for &nd in &node_set {
-        if let Some(nbrs) = graph.neighbors_iter(nd) {
-            vol += nbrs.count();
+    for &node in nodes {
+        if let Some(idx) = graph.get_node_index(node)
+            && !in_set[idx]
+        {
+            in_set[idx] = true;
+            vol += graph.neighbors_indices(idx).map_or(0, |nbrs| nbrs.len());
         }
     }
     vol
@@ -34572,6 +39626,16 @@ pub fn approximate_local_node_connectivity(
     let Some(target_idx) = graph.get_node_index(target) else {
         return 0;
     };
+
+    approximate_local_node_connectivity_indices(graph, source_idx, target_idx, cutoff)
+}
+
+fn approximate_local_node_connectivity_indices(
+    graph: &Graph,
+    source_idx: usize,
+    target_idx: usize,
+    cutoff: Option<usize>,
+) -> usize {
     if source_idx == target_idx {
         return 0;
     }
@@ -34716,7 +39780,82 @@ pub fn average_node_connectivity_directed(digraph: &DiGraph) -> f64 {
 
 /// Compute local node connectivity between s and t using iterative max-flow.
 fn local_node_connectivity_bfs(graph: &Graph, s: &str, t: &str) -> usize {
-    // Iteratively find node-disjoint paths from s to t using BFS
+    // br-r37-c1-lncidx (cc): integer-index Menger augmenting-path BFS. The old kernel kept
+    // excluded/visited as HashSet<&str> and parent as HashMap<&str,&str> and walked neighbors_iter —
+    // a String hash on every membership probe/insert over O(flow·|E|) scans, and this runs O(|V|^2)
+    // times inside average_node_connectivity. Walk neighbors_indices over Vec<bool> excluded/visited
+    // + Vec<Option<usize>> parent (reused across augmenting rounds via fill). Byte-identical: same
+    // adjacency-order neighbor discovery, same first-visit parent tree, same persistent exclusion
+    // set, same direct_edge_used flag → the same augmenting paths and the same returned flow.
+    let (Some(s_idx), Some(t_idx)) = (graph.get_node_index(s), graph.get_node_index(t)) else {
+        return 0;
+    };
+    let n = graph.node_count();
+
+    let mut flow = 0;
+    let mut excluded = vec![false; n];
+    let mut direct_edge_used = false;
+    let mut visited = vec![false; n];
+    let mut parent: Vec<Option<usize>> = vec![None; n];
+
+    loop {
+        // BFS from s to t avoiding excluded nodes (except s and t)
+        visited.fill(false);
+        parent.fill(None);
+        visited[s_idx] = true;
+        let mut queue: VecDeque<usize> = VecDeque::new();
+        queue.push_back(s_idx);
+        let mut found = false;
+
+        while let Some(curr) = queue.pop_front() {
+            if curr == t_idx {
+                found = true;
+                break;
+            }
+            if let Some(nbrs) = graph.neighbors_indices(curr) {
+                for &nbr in nbrs {
+                    // Skip the direct s->t edge if already used
+                    if curr == s_idx && nbr == t_idx && direct_edge_used {
+                        continue;
+                    }
+                    if !visited[nbr] && (nbr == t_idx || !excluded[nbr]) {
+                        visited[nbr] = true;
+                        parent[nbr] = Some(curr);
+                        queue.push_back(nbr);
+                    }
+                }
+            }
+        }
+
+        if !found {
+            break;
+        }
+
+        // Trace path and exclude internal nodes
+        let mut path_len = 0usize;
+        let mut node = t_idx;
+        while let Some(p) = parent[node] {
+            if node != s_idx && node != t_idx {
+                excluded[node] = true;
+            }
+            path_len += 1;
+            node = p;
+        }
+        flow += 1;
+
+        // If this was a direct edge (path length 1), mark it used so
+        // we don't re-discover the same direct edge and loop forever.
+        if path_len == 1 {
+            direct_edge_used = true;
+        }
+    }
+    flow
+}
+
+/// br-r37-c1-lncidx A/B baseline: the pre-lever String-keyed `local_node_connectivity_bfs`.
+/// Test-only; byte-identical to the shipped integer-index version.
+#[cfg(test)]
+fn local_node_connectivity_bfs_orig_string(graph: &Graph, s: &str, t: &str) -> usize {
     let nodes = graph.nodes_ordered();
     let node_set: HashSet<&str> = nodes.iter().copied().collect();
     if !node_set.contains(s) || !node_set.contains(t) {
@@ -34728,7 +39867,6 @@ fn local_node_connectivity_bfs(graph: &Graph, s: &str, t: &str) -> usize {
     let mut direct_edge_used = false;
 
     loop {
-        // BFS from s to t avoiding excluded nodes (except s and t)
         let mut visited = HashSet::new();
         visited.insert(s);
         let mut queue = std::collections::VecDeque::new();
@@ -34743,7 +39881,6 @@ fn local_node_connectivity_bfs(graph: &Graph, s: &str, t: &str) -> usize {
             }
             if let Some(nbrs) = graph.neighbors_iter(curr) {
                 for nbr in nbrs {
-                    // Skip the direct s->t edge if already used
                     if curr == s && nbr == t && direct_edge_used {
                         continue;
                     }
@@ -34760,7 +39897,6 @@ fn local_node_connectivity_bfs(graph: &Graph, s: &str, t: &str) -> usize {
             break;
         }
 
-        // Trace path and exclude internal nodes
         let mut path_len = 0usize;
         let mut node = t;
         while let Some(&p) = parent.get(node) {
@@ -34772,8 +39908,6 @@ fn local_node_connectivity_bfs(graph: &Graph, s: &str, t: &str) -> usize {
         }
         flow += 1;
 
-        // If this was a direct edge (path length 1), mark it used so
-        // we don't re-discover the same direct edge and loop forever.
         if path_len == 1 {
             direct_edge_used = true;
         }
@@ -34782,6 +39916,74 @@ fn local_node_connectivity_bfs(graph: &Graph, s: &str, t: &str) -> usize {
 }
 
 fn local_node_connectivity_bfs_directed(digraph: &DiGraph, s: &str, t: &str) -> usize {
+    // br-r37-c1-lncidx (cc): integer-index directed mirror of `local_node_connectivity_bfs` — see
+    // that function. Walks successors_indices over Vec<bool> excluded/visited + Vec<Option<usize>>
+    // parent; byte-identical flow count (same successor order, parent tree, exclusion set, flag).
+    let (Some(s_idx), Some(t_idx)) = (digraph.get_node_index(s), digraph.get_node_index(t)) else {
+        return 0;
+    };
+    let n = digraph.node_count();
+
+    let mut flow = 0;
+    let mut excluded = vec![false; n];
+    let mut direct_edge_used = false;
+    let mut visited = vec![false; n];
+    let mut parent: Vec<Option<usize>> = vec![None; n];
+
+    loop {
+        visited.fill(false);
+        parent.fill(None);
+        visited[s_idx] = true;
+        let mut queue: VecDeque<usize> = VecDeque::new();
+        queue.push_back(s_idx);
+        let mut found = false;
+
+        while let Some(curr) = queue.pop_front() {
+            if curr == t_idx {
+                found = true;
+                break;
+            }
+            if let Some(succs) = digraph.successors_indices(curr) {
+                for &succ in succs {
+                    if curr == s_idx && succ == t_idx && direct_edge_used {
+                        continue;
+                    }
+                    if !visited[succ] && (succ == t_idx || !excluded[succ]) {
+                        visited[succ] = true;
+                        parent[succ] = Some(curr);
+                        queue.push_back(succ);
+                    }
+                }
+            }
+        }
+
+        if !found {
+            break;
+        }
+
+        let mut path_len = 0usize;
+        let mut node = t_idx;
+        while let Some(p) = parent[node] {
+            if node != s_idx && node != t_idx {
+                excluded[node] = true;
+            }
+            path_len += 1;
+            node = p;
+        }
+        flow += 1;
+
+        if path_len == 1 {
+            direct_edge_used = true;
+        }
+    }
+
+    flow
+}
+
+/// br-r37-c1-lncidx A/B baseline: the pre-lever String-keyed `local_node_connectivity_bfs_directed`.
+/// Test-only; byte-identical to the shipped integer-index version.
+#[cfg(test)]
+fn local_node_connectivity_bfs_directed_orig_string(digraph: &DiGraph, s: &str, t: &str) -> usize {
     let nodes = digraph.nodes_ordered();
     let node_set: HashSet<&str> = nodes.iter().copied().collect();
     if !node_set.contains(s) || !node_set.contains(t) {
@@ -34849,12 +40051,24 @@ pub fn boundary_expansion(graph: &Graph, nodes: &[&str]) -> f64 {
     if nodes.is_empty() {
         return 0.0;
     }
-    let node_set: HashSet<&str> = nodes.iter().copied().collect();
+    // br-r37-c1-cutexpidx (cc): integer boundary scan (mirror of edge_expansion). Old: HashSet<&str> +
+    // neighbors_iter(nd) + node_set.contains(nbr) String probe. New: in_set bool row + neighbors_indices
+    // + O(1) array read. Byte-identical: every emitted nbr is a graph node so in_set[nbr]==contains(nbr),
+    // and boundary_edges is an integer count (order-independent). Denominator stays nodes.len() (raw).
+    let n = graph.node_count();
+    let mut in_set = vec![false; n];
+    for &node in nodes {
+        if let Some(idx) = graph.get_node_index(node) {
+            in_set[idx] = true;
+        }
+    }
     let mut boundary_edges = 0;
-    for &nd in &node_set {
-        if let Some(nbrs) = graph.neighbors_iter(nd) {
-            for nbr in nbrs {
-                if !node_set.contains(nbr) {
+    for node_idx in 0..n {
+        if in_set[node_idx]
+            && let Some(neighbors) = graph.neighbors_indices(node_idx)
+        {
+            for &neighbor_idx in neighbors {
+                if !in_set[neighbor_idx] {
                     boundary_edges += 1;
                 }
             }
@@ -34867,27 +40081,37 @@ pub fn boundary_expansion(graph: &Graph, nodes: &[&str]) -> f64 {
 /// conductance(G, S) = |edge_boundary(S)| / min(vol(S), vol(V-S))
 #[must_use]
 pub fn conductance(graph: &Graph, nodes: &[&str]) -> f64 {
-    let node_set: HashSet<&str> = nodes.iter().copied().collect();
-    let all_nodes = graph.nodes_ordered();
-    let complement: Vec<&str> = all_nodes
-        .iter()
-        .filter(|&&n| !node_set.contains(n))
-        .copied()
-        .collect();
-
-    let mut boundary_edges = 0;
-    for &nd in &node_set {
-        if let Some(nbrs) = graph.neighbors_iter(nd) {
-            for nbr in nbrs {
-                if !node_set.contains(nbr) {
+    // br-r37-c1-cutexpidx (cc): one integer pass. Old kernel built a HashSet<&str> + a complement
+    // Vec<&str> (O(V) String contains) + a neighbors_iter boundary scan + TWO volume() traversals.
+    // New: an in_set bool row; per node compute its degree = neighbors_indices(i).len() once, accumulate
+    // vol_total and (for in-set nodes) vol_s + the integer boundary scan. vol_comp = vol_total - vol_s
+    // (the complement is exactly the non-in-set graph nodes → volume(complement) == vol_total - vol_s).
+    // Byte-identical: boundary_edges is an integer count, vol_s == volume(nodes), min unchanged.
+    let n = graph.node_count();
+    let mut in_set = vec![false; n];
+    for &node in nodes {
+        if let Some(idx) = graph.get_node_index(node) {
+            in_set[idx] = true;
+        }
+    }
+    let mut boundary_edges = 0usize;
+    let mut vol_s = 0usize;
+    let mut vol_total = 0usize;
+    for node_idx in 0..n {
+        let Some(neighbors) = graph.neighbors_indices(node_idx) else {
+            continue;
+        };
+        vol_total += neighbors.len();
+        if in_set[node_idx] {
+            vol_s += neighbors.len();
+            for &neighbor_idx in neighbors {
+                if !in_set[neighbor_idx] {
                     boundary_edges += 1;
                 }
             }
         }
     }
-
-    let vol_s = volume(graph, nodes);
-    let vol_comp = volume(graph, &complement);
+    let vol_comp = vol_total - vol_s;
     let min_vol = vol_s.min(vol_comp);
     if min_vol == 0 {
         return 0.0;
@@ -34959,8 +40183,11 @@ pub fn node_expansion(graph: &Graph, nodes: &[&str]) -> f64 {
 /// mixing_expansion(G, S) = |edge_boundary(S)| / (|S| * |V-S|)
 #[must_use]
 pub fn mixing_expansion(graph: &Graph, nodes: &[&str]) -> f64 {
+    // br-r37-c1-cutexpidx (cc): the denominator uses s = |distinct input NAMES| (may include names not
+    // in the graph), so keep the small HashSet purely for `s` (O(|nodes|), cheap). Convert the DOMINANT
+    // boundary scan to the integer in_set/neighbors_indices path (mirror of edge_expansion). Byte-identical.
     let node_set: HashSet<&str> = nodes.iter().copied().collect();
-    let n = graph.nodes_ordered().len();
+    let n = graph.node_count();
     let s = node_set.len();
     let complement_size = n - s;
     let denom = s * complement_size;
@@ -34968,6 +40195,49 @@ pub fn mixing_expansion(graph: &Graph, nodes: &[&str]) -> f64 {
         return 0.0;
     }
 
+    let mut in_set = vec![false; n];
+    for &node in nodes {
+        if let Some(idx) = graph.get_node_index(node) {
+            in_set[idx] = true;
+        }
+    }
+    let mut boundary_edges = 0;
+    for node_idx in 0..n {
+        if in_set[node_idx]
+            && let Some(neighbors) = graph.neighbors_indices(node_idx)
+        {
+            for &neighbor_idx in neighbors {
+                if !in_set[neighbor_idx] {
+                    boundary_edges += 1;
+                }
+            }
+        }
+    }
+
+    boundary_edges as f64 / denom as f64
+}
+
+/// br-r37-c1-cutexpidx A/B baselines: the pre-lever String-keyed cut-measure kernels
+/// (HashSet<&str> subset + neighbors_iter + contains). Test-only; byte-identical to the
+/// shipped integer-index versions (mirror of edge_expansion/node_expansion).
+#[cfg(test)]
+fn volume_orig_string(graph: &Graph, nodes: &[&str]) -> usize {
+    let node_set: HashSet<&str> = nodes.iter().copied().collect();
+    let mut vol = 0;
+    for &nd in &node_set {
+        if let Some(nbrs) = graph.neighbors_iter(nd) {
+            vol += nbrs.count();
+        }
+    }
+    vol
+}
+
+#[cfg(test)]
+fn boundary_expansion_orig_string(graph: &Graph, nodes: &[&str]) -> f64 {
+    if nodes.is_empty() {
+        return 0.0;
+    }
+    let node_set: HashSet<&str> = nodes.iter().copied().collect();
     let mut boundary_edges = 0;
     for &nd in &node_set {
         if let Some(nbrs) = graph.neighbors_iter(nd) {
@@ -34978,7 +40248,57 @@ pub fn mixing_expansion(graph: &Graph, nodes: &[&str]) -> f64 {
             }
         }
     }
+    boundary_edges as f64 / nodes.len() as f64
+}
 
+#[cfg(test)]
+fn conductance_orig_string(graph: &Graph, nodes: &[&str]) -> f64 {
+    let node_set: HashSet<&str> = nodes.iter().copied().collect();
+    let all_nodes = graph.nodes_ordered();
+    let complement: Vec<&str> = all_nodes
+        .iter()
+        .filter(|&&n| !node_set.contains(n))
+        .copied()
+        .collect();
+    let mut boundary_edges = 0;
+    for &nd in &node_set {
+        if let Some(nbrs) = graph.neighbors_iter(nd) {
+            for nbr in nbrs {
+                if !node_set.contains(nbr) {
+                    boundary_edges += 1;
+                }
+            }
+        }
+    }
+    let vol_s = volume_orig_string(graph, nodes);
+    let vol_comp = volume_orig_string(graph, &complement);
+    let min_vol = vol_s.min(vol_comp);
+    if min_vol == 0 {
+        return 0.0;
+    }
+    boundary_edges as f64 / min_vol as f64
+}
+
+#[cfg(test)]
+fn mixing_expansion_orig_string(graph: &Graph, nodes: &[&str]) -> f64 {
+    let node_set: HashSet<&str> = nodes.iter().copied().collect();
+    let n = graph.nodes_ordered().len();
+    let s = node_set.len();
+    let complement_size = n - s;
+    let denom = s * complement_size;
+    if denom == 0 {
+        return 0.0;
+    }
+    let mut boundary_edges = 0;
+    for &nd in &node_set {
+        if let Some(nbrs) = graph.neighbors_iter(nd) {
+            for nbr in nbrs {
+                if !node_set.contains(nbr) {
+                    boundary_edges += 1;
+                }
+            }
+        }
+    }
     boundary_edges as f64 / denom as f64
 }
 
@@ -34990,6 +40310,33 @@ pub fn mixing_expansion(graph: &Graph, nodes: &[&str]) -> f64 {
 /// edges as (u, v) tuples in BFS order.
 #[must_use]
 pub fn edge_bfs(graph: &Graph, source: &str) -> Vec<(String, String)> {
+    let mut result = Vec::new();
+    let Some(source_idx) = graph.get_node_index(source) else {
+        return result;
+    };
+    let names = graph.nodes_ordered();
+    let mut visited = vec![false; names.len()];
+    let mut queue = VecDeque::new();
+    visited[source_idx] = true;
+    queue.push_back(source_idx);
+    while let Some(u) = queue.pop_front() {
+        if let Some(neighbors) = graph.neighbors_indices(u) {
+            for &v in neighbors {
+                if !visited[v] {
+                    visited[v] = true;
+                    queue.push_back(v);
+                }
+                result.push((names[u].to_owned(), names[v].to_owned()));
+            }
+        }
+    }
+    result
+}
+
+/// br-r37-c1-arouf A/B baseline: the pre-lever undirected edge-BFS with
+/// String-keyed visited/queue state and a name lookup for every dequeued node.
+#[cfg(test)]
+fn edge_bfs_orig_string(graph: &Graph, source: &str) -> Vec<(String, String)> {
     let mut result = Vec::new();
     let mut visited = HashSet::new();
     let mut queue = VecDeque::new();
@@ -35003,7 +40350,6 @@ pub fn edge_bfs(graph: &Graph, source: &str) -> Vec<(String, String)> {
                     result.push((u.clone(), v.to_string()));
                     queue.push_back(v.to_string());
                 } else {
-                    // Also yield non-tree edges for edge_bfs
                     result.push((u.clone(), v.to_string()));
                 }
             }
@@ -35015,6 +40361,33 @@ pub fn edge_bfs(graph: &Graph, source: &str) -> Vec<(String, String)> {
 /// BFS traversal yielding edges on a directed graph.
 #[must_use]
 pub fn edge_bfs_directed(digraph: &DiGraph, source: &str) -> Vec<(String, String)> {
+    let mut result = Vec::new();
+    let Some(source_idx) = digraph.get_node_index(source) else {
+        return result;
+    };
+    let names = digraph.nodes_ordered();
+    let mut visited = vec![false; names.len()];
+    let mut queue = VecDeque::new();
+    visited[source_idx] = true;
+    queue.push_back(source_idx);
+    while let Some(u) = queue.pop_front() {
+        if let Some(succs) = digraph.successors_indices(u) {
+            for &v in succs {
+                if !visited[v] {
+                    visited[v] = true;
+                    queue.push_back(v);
+                }
+                result.push((names[u].to_owned(), names[v].to_owned()));
+            }
+        }
+    }
+    result
+}
+
+/// br-r37-c1-vnlu0 A/B baseline: the pre-lever directed edge-BFS with
+/// String-keyed visited/queue state and an allocated successor vector per node.
+#[cfg(test)]
+fn edge_bfs_directed_orig_string(digraph: &DiGraph, source: &str) -> Vec<(String, String)> {
     let mut result = Vec::new();
     let mut visited = HashSet::new();
     let mut queue = VecDeque::new();
@@ -35037,50 +40410,44 @@ pub fn edge_bfs_directed(digraph: &DiGraph, source: &str) -> Vec<(String, String
 /// DFS traversal yielding edges.
 #[must_use]
 pub fn edge_dfs(graph: &Graph, source: &str) -> Vec<(String, String)> {
+    // br-r37-c1-edfsidx (cc): integer-index edge-DFS. The old kernel cloned each node's neighbours into a
+    // `Vec<String>` (`.map(String::from)`) on the stack, keyed `visited_edges` on `(String,String)` and
+    // `visited_nodes` on `String`, and cloned u/v names on every step. Store borrowed integer adjacency
+    // rows (`&[usize]`, no alloc) on the stack, dedup edges via `(usize,usize)` and nodes via `Vec<bool>`;
+    // names materialise only into the O(|E|) result. Byte-identical: the edge-key canonicalisation
+    // (min,max) is consistent by index just as it was by name, so undirected-edge dedup behaves the same,
+    // and neighbours_indices preserves neighbour order → the same edge-DFS sequence of `(u_name,v_name)`.
     let mut result = Vec::new();
-    let mut visited_edges: HashSet<(String, String)> = HashSet::new();
-    let mut visited_nodes: HashSet<String> = HashSet::new();
+    let Some(source_idx) = graph.get_node_index(source) else {
+        return result;
+    };
+    let names = graph.nodes_ordered();
+    let mut visited_edges: HashSet<(usize, usize)> = HashSet::new();
+    let mut visited_nodes = vec![false; names.len()];
 
-    let mut stack = Vec::new();
-    let u = source.to_string();
-    visited_nodes.insert(u.clone());
-    let nbrs = graph
-        .neighbors(&u)
-        .unwrap_or_default()
-        .into_iter()
-        .map(String::from)
-        .collect::<Vec<_>>();
-    stack.push((u, nbrs, 0));
+    let mut stack: Vec<(usize, &[usize], usize)> = Vec::new();
+    visited_nodes[source_idx] = true;
+    stack.push((
+        source_idx,
+        graph.neighbors_indices(source_idx).unwrap_or(&[]),
+        0,
+    ));
 
     while let Some((u, nbrs, mut idx)) = stack.pop() {
-        let mut pushed = false;
         while idx < nbrs.len() {
-            let v = nbrs[idx].clone();
+            let v = nbrs[idx];
             idx += 1;
 
-            let edge_key = if u < v {
-                (u.clone(), v.clone())
-            } else {
-                (v.clone(), u.clone())
-            };
+            let edge_key = if u < v { (u, v) } else { (v, u) };
             if visited_edges.insert(edge_key) {
-                result.push((u.clone(), v.clone()));
-                if visited_nodes.insert(v.clone()) {
-                    stack.push((u.clone(), nbrs, idx));
-                    let v_nbrs = graph
-                        .neighbors(&v)
-                        .unwrap_or_default()
-                        .into_iter()
-                        .map(String::from)
-                        .collect::<Vec<_>>();
-                    stack.push((v, v_nbrs, 0));
-                    pushed = true;
+                result.push((names[u].to_owned(), names[v].to_owned()));
+                if !visited_nodes[v] {
+                    visited_nodes[v] = true;
+                    stack.push((u, nbrs, idx));
+                    stack.push((v, graph.neighbors_indices(v).unwrap_or(&[]), 0));
                     break;
                 }
             }
-        }
-        if !pushed {
-            // Drop
         }
     }
     result
@@ -35089,46 +40456,40 @@ pub fn edge_dfs(graph: &Graph, source: &str) -> Vec<(String, String)> {
 /// DFS traversal yielding edges on a directed graph.
 #[must_use]
 pub fn edge_dfs_directed(digraph: &DiGraph, source: &str) -> Vec<(String, String)> {
+    // br-r37-c1-edfsidx (cc): integer-index edge-DFS (directed sibling of edge_dfs). Borrowed integer
+    // successor rows on the stack (no per-node Vec<String> clone), `(usize,usize)` directed edge dedup +
+    // `Vec<bool>` node dedup; names only into the O(|E|) result. Byte-identical: the directed edge key
+    // (u,v) dedups the same by index as by name, and successors_indices preserves successor order.
     let mut result = Vec::new();
-    let mut visited_edges: HashSet<(String, String)> = HashSet::new();
-    let mut visited_nodes: HashSet<String> = HashSet::new();
+    let Some(source_idx) = digraph.get_node_index(source) else {
+        return result;
+    };
+    let names = digraph.nodes_ordered();
+    let mut visited_edges: HashSet<(usize, usize)> = HashSet::new();
+    let mut visited_nodes = vec![false; names.len()];
 
-    let mut stack = Vec::new();
-    let u = source.to_string();
-    visited_nodes.insert(u.clone());
-    let succs = digraph
-        .successors(&u)
-        .unwrap_or_default()
-        .into_iter()
-        .map(String::from)
-        .collect::<Vec<_>>();
-    stack.push((u, succs, 0));
+    let mut stack: Vec<(usize, &[usize], usize)> = Vec::new();
+    visited_nodes[source_idx] = true;
+    stack.push((
+        source_idx,
+        digraph.successors_indices(source_idx).unwrap_or(&[]),
+        0,
+    ));
 
     while let Some((u, succs, mut idx)) = stack.pop() {
-        let mut pushed = false;
         while idx < succs.len() {
-            let v = succs[idx].clone();
+            let v = succs[idx];
             idx += 1;
 
-            let edge_key = (u.clone(), v.clone());
-            if visited_edges.insert(edge_key) {
-                result.push((u.clone(), v.clone()));
-                if visited_nodes.insert(v.clone()) {
-                    stack.push((u.clone(), succs, idx));
-                    let v_succs = digraph
-                        .successors(&v)
-                        .unwrap_or_default()
-                        .into_iter()
-                        .map(String::from)
-                        .collect::<Vec<_>>();
-                    stack.push((v, v_succs, 0));
-                    pushed = true;
+            if visited_edges.insert((u, v)) {
+                result.push((names[u].to_owned(), names[v].to_owned()));
+                if !visited_nodes[v] {
+                    visited_nodes[v] = true;
+                    stack.push((u, succs, idx));
+                    stack.push((v, digraph.successors_indices(v).unwrap_or(&[]), 0));
                     break;
                 }
             }
-        }
-        if !pushed {
-            // Drop
         }
     }
     result
@@ -35141,23 +40502,49 @@ pub fn edge_dfs_directed(digraph: &DiGraph, source: &str) -> Vec<(String, String
 /// Check if a set of edges is an edge cover (every node is incident to at least one edge).
 #[must_use]
 pub fn is_edge_cover(graph: &Graph, edges: &[(&str, &str)]) -> bool {
+    let node_count = graph.node_count();
+    if node_count == 0 {
+        return true;
+    }
+    let mut covered = vec![false; node_count];
+    let mut covered_count = 0usize;
+    for &(u, v) in edges {
+        let Some(u_idx) = graph.get_node_index(u) else {
+            return false;
+        };
+        let Some(v_idx) = graph.get_node_index(v) else {
+            return false;
+        };
+        if !graph.has_edge_by_indices(u_idx, v_idx) {
+            return false;
+        }
+        for idx in [u_idx, v_idx] {
+            if !covered[idx] {
+                covered[idx] = true;
+                covered_count += 1;
+            }
+        }
+    }
+    covered_count == node_count
+}
+
+/// br-r37-c1-kdpe3 A/B baseline: the retained indexed edge predicate with
+/// String-keyed coverage state and a final full name-membership pass.
+#[cfg(test)]
+fn is_edge_cover_orig_string_state(graph: &Graph, edges: &[(&str, &str)]) -> bool {
     let nodes = graph.nodes_ordered();
     if nodes.is_empty() {
         return true;
     }
     let mut covered: HashSet<&str> = HashSet::new();
     for &(u, v) in edges {
-        // Verify edge exists in graph
-        let exists = graph
-            .neighbors_iter(u)
-            .is_some_and(|mut nbrs| nbrs.any(|n| n == v));
-        if !exists {
+        if !graph.has_edge(u, v) {
             return false;
         }
         covered.insert(u);
         covered.insert(v);
     }
-    nodes.iter().all(|&n| covered.contains(n))
+    nodes.iter().all(|&node| covered.contains(node))
 }
 
 /// Find the maximum weight clique.
@@ -37282,9 +42669,12 @@ pub fn edge_disjoint_paths(graph: &Graph, source: &str, target: &str) -> Vec<Vec
     let mut cap = std::collections::HashMap::new();
     let mut initial_cap = std::collections::HashMap::new();
     let mut adj = vec![std::collections::HashSet::new(); n];
-    for edge in graph.edges_ordered() {
-        let i = idx[edge.left.as_str()];
-        let j = idx[edge.right.as_str()];
+    // br-r37-c1-lqir7: `edges_ordered_indices()` preserves the exact node-major
+    // order and orientation of `edges_ordered()` without cloning two endpoint
+    // Strings and the complete AttrMap for every edge, then hashing both names
+    // back through `idx`. Residual insertion order, capacities, and every
+    // augmenting/extraction step below are unchanged.
+    for (i, j) in graph.edges_ordered_indices() {
         if i != j {
             cap.insert((i, j), 1);
             cap.insert((j, i), 1);
@@ -37900,15 +43290,27 @@ pub fn complement_digraph(digraph: &DiGraph) -> DiGraph {
 /// Return the reverse of a directed graph (all edges reversed).
 #[must_use]
 pub fn reverse_digraph(digraph: &DiGraph) -> DiGraph {
+    // br-r37-c1-revdeleg (cc): delegate to the core `DiGraph::reversed()` — an O(V+E) pure topology
+    // flip (clone the node table, walk the original successor rows u-major appending the reversed
+    // endpoint) — instead of the redundant `edges_ordered()` (EdgeSnapshot = 2 owned-String clones +
+    // attr clone PER EDGE) + a SECOND (right.clone(), left.clone(), attrs.clone()) + a String-resolving
+    // `extend_edges_with_attrs_unrecorded`. `reversed()` is already the blessed reverse used by
+    // PyDiGraph.reverse(); the sole caller of this fn uses the reversed graph only for topology (a
+    // Dijkstra pass). Same node table + same u-major reversed edge stream → byte-identical
+    // edges_ordered_borrowed()/nodes_ordered() and preserved runtime policy; it additionally preserves
+    // node attributes (the old add_node(name) path dropped them — a latent parity gap vs nx.reverse).
+    digraph.reversed()
+}
+
+/// br-r37-c1-revdeleg A/B baseline: the pre-lever String-path `reverse_digraph`
+/// (edges_ordered() clone + double clone + String-resolving extend). Test-only; byte-identical
+/// edge topology + node names to the shipped `DiGraph::reversed()` delegation.
+#[cfg(test)]
+fn reverse_digraph_orig_string(digraph: &DiGraph) -> DiGraph {
     let mut result = DiGraph::with_runtime_policy(digraph.runtime_policy().clone());
     for node in digraph.nodes_ordered() {
         result.add_node(node.to_owned());
     }
-    // br-r37-c1-reversedigbatch (cc): reverse each edge (right->left) carrying its attrs, but collect
-    // them + one batch insert instead of per-edge add_edge_with_attrs (a policy record each). The
-    // reversed edges are a bijection of the input's distinct directed edges → all unique (a self-loop
-    // reverses to itself, handled). extend_edges_with_attrs_unrecorded matches add_edge_with_attrs'
-    // edge insertion + succ/pred adjacency order → byte-identical.
     let mut edges: Vec<(String, String, AttrMap)> = Vec::new();
     for edge in digraph.edges_ordered() {
         edges.push((edge.right.clone(), edge.left.clone(), edge.attrs.clone()));
@@ -38588,12 +43990,16 @@ pub fn ego_graph(graph: &Graph, center: &str, radius: usize) -> Graph {
     // input edges are distinct and this loop never reads `result`, so every collected edge is unique
     // with no self-loop → extend_edges_with_attrs_unrecorded is byte-identical to the per-edge add.
     let mut edges: Vec<(String, String, AttrMap)> = Vec::new();
-    for edge in graph.edges_ordered() {
-        if let (Some(&ui), Some(&vi)) = (idx.get(edge.left.as_str()), idx.get(edge.right.as_str()))
+    // br-r37-c1-vngrp: borrow the input edge snapshot instead of cloning every endpoint and AttrMap
+    // into an intermediate `EdgeSnapshot`, only to clone the selected induced edges once more into
+    // the result batch. `edges_ordered_borrowed()` preserves the exact edge walk order and exposes the
+    // same endpoint names and attributes, so ego-node membership and result insertion are unchanged.
+    for (left, right, attrs) in graph.edges_ordered_borrowed() {
+        if let (Some(&ui), Some(&vi)) = (idx.get(left), idx.get(right))
             && ego_set.contains(&ui)
             && ego_set.contains(&vi)
         {
-            edges.push((edge.left.clone(), edge.right.clone(), edge.attrs.clone()));
+            edges.push((left.to_owned(), right.to_owned(), attrs.clone()));
         }
     }
     let _ = result.extend_edges_with_attrs_unrecorded(edges);
@@ -38989,6 +44395,12 @@ pub fn connected_dominating_set(graph: &Graph) -> Vec<String> {
 /// Counts the 16 MAN triad types. Returns a map from triad name to count.
 #[must_use]
 pub fn triadic_census(digraph: &DiGraph) -> std::collections::HashMap<String, usize> {
+    triadic_census_with_setup::<true>(digraph)
+}
+
+fn triadic_census_with_setup<const INDEX_ROWS: bool>(
+    digraph: &DiGraph,
+) -> std::collections::HashMap<String, usize> {
     use std::collections::{HashMap, HashSet};
 
     // Batagelj-Mrvar subquadratic triad census: iterate connected triads via
@@ -39008,8 +44420,7 @@ pub fn triadic_census(digraph: &DiGraph) -> std::collections::HashMap<String, us
         15, 8, 14, 13, 15, 11, 15, 15, 16,
     ];
 
-    let nodes = digraph.nodes_ordered();
-    let n = nodes.len();
+    let n = digraph.node_count();
     // census[t] counts triad-type index t (0 = "003" .. 15 = "300").
     let mut census = [0usize; 16];
     if n < 3 {
@@ -39020,16 +44431,28 @@ pub fn triadic_census(digraph: &DiGraph) -> std::collections::HashMap<String, us
             .collect();
     }
 
-    let idx: HashMap<&str, usize> = nodes.iter().enumerate().map(|(i, nd)| (*nd, i)).collect();
-
     // succ[u] = out-neighbors, pred[u] = in-neighbors.
     let mut succ: Vec<HashSet<usize>> = vec![HashSet::new(); n];
     let mut pred: Vec<HashSet<usize>> = vec![HashSet::new(); n];
-    for edge in digraph.edges_ordered() {
-        let u = idx[edge.left.as_str()];
-        let v = idx[edge.right.as_str()];
-        succ[u].insert(v);
-        pred[v].insert(u);
+    if INDEX_ROWS {
+        // br-r37-c1-t37f9: the census core consumes only integer adjacency.
+        // Populate its sets directly from DiGraph's canonical index rows instead
+        // of cloning every endpoint/AttrMap and hashing names back to indices.
+        for (u, succ_u) in succ.iter_mut().enumerate() {
+            for &v in digraph.successors_indices(u).unwrap_or_default() {
+                succ_u.insert(v);
+                pred[v].insert(u);
+            }
+        }
+    } else {
+        let nodes = digraph.nodes_ordered();
+        let idx: HashMap<&str, usize> = nodes.iter().enumerate().map(|(i, nd)| (*nd, i)).collect();
+        for edge in digraph.edges_ordered() {
+            let u = idx[edge.left.as_str()];
+            let v = idx[edge.right.as_str()];
+            succ[u].insert(v);
+            pred[v].insert(u);
+        }
     }
     // nbrs[u] = succ[u] | pred[u] (neighbors ignoring direction).
     let nbrs: Vec<HashSet<usize>> = (0..n)
@@ -39101,6 +44524,13 @@ pub fn triadic_census(digraph: &DiGraph) -> std::collections::HashMap<String, us
         .collect()
 }
 
+#[cfg(test)]
+fn triadic_census_orig_edge_snapshots(
+    digraph: &DiGraph,
+) -> std::collections::HashMap<String, usize> {
+    triadic_census_with_setup::<false>(digraph)
+}
+
 // ---------------------------------------------------------------------------
 // Attribute mixing dictionary
 // ---------------------------------------------------------------------------
@@ -39114,24 +44544,75 @@ pub fn attribute_mixing_dict(
     attribute: &str,
 ) -> std::collections::HashMap<(String, String), usize> {
     let mut mixing = std::collections::HashMap::new();
-    for edge in graph.edges_ordered() {
+    // br-r37-c1-attrmixborrow (cc): edges_ordered_borrowed() yields (&str, &str, &AttrMap) — zero
+    // per-edge allocation — instead of edges_ordered() which clones two owned Strings + an AttrMap per
+    // edge. This loop only reads the endpoint NAMES (node_attrs lookup + the self-loop name comparison)
+    // and never keeps the owned edge data, so the borrow is byte-identical (same edges, same walk order,
+    // same names → same mixing counts).
+    for (left, right, _attrs) in graph.edges_ordered_borrowed() {
         let u_val = graph
-            .node_attrs(&edge.left)
+            .node_attrs(left)
             .and_then(|a| a.get(attribute))
             .map(|v| v.as_str())
             .unwrap_or_default();
         let v_val = graph
-            .node_attrs(&edge.right)
+            .node_attrs(right)
             .and_then(|a| a.get(attribute))
             .map(|v| v.as_str())
             .unwrap_or_default();
         // Undirected: count both directions for every edge
         *mixing.entry((u_val.clone(), v_val.clone())).or_insert(0) += 1;
-        if edge.left != edge.right {
+        if left != right {
             *mixing.entry((v_val, u_val)).or_insert(0) += 1;
         }
     }
     mixing
+}
+
+fn attribute_assortativity_matrix_square_sum(e: &[Vec<f64>]) -> f64 {
+    // br-r37-c1-ff5wy: `e` is a nonnegative normalized count matrix. The old
+    // dense product visited every (i, j, m) triple even though categorical
+    // mixing matrices are commonly sparse. Preserve the exact i/j/m fold
+    // order, but omit terms where either factor is +0.0; adding those terms is
+    // bit-neutral, while the remaining products retain their original order.
+    let nonzero_by_row = e
+        .iter()
+        .map(|row| {
+            row.iter()
+                .enumerate()
+                .filter_map(|(index, &value)| (value != 0.0).then_some(index))
+                .collect::<Vec<_>>()
+        })
+        .collect::<Vec<_>>();
+
+    let mut sum = 0.0;
+    for (i, nonzero_m) in nonzero_by_row.iter().enumerate() {
+        for j in 0..e.len() {
+            let mut dot = 0.0;
+            for &m in nonzero_m {
+                if e[m][j] != 0.0 {
+                    dot += e[i][m] * e[m][j];
+                }
+            }
+            sum += dot;
+        }
+    }
+    sum
+}
+
+#[cfg(test)]
+fn attribute_assortativity_matrix_square_sum_orig(e: &[Vec<f64>]) -> f64 {
+    let mut sum = 0.0;
+    for i in 0..e.len() {
+        for j in 0..e.len() {
+            let mut dot = 0.0;
+            for m in 0..e.len() {
+                dot += e[i][m] * e[m][j];
+            }
+            sum += dot;
+        }
+    }
+    sum
 }
 
 // ---------------------------------------------------------------------------
@@ -39179,17 +44660,7 @@ pub fn attribute_assortativity(graph: &Graph, attribute: &str) -> f64 {
     // Compute assortativity r = (tr(e) - sum(e@e)) / (1 - sum(e@e))
     // per Newman (2003) Eq. (2)
     let trace: f64 = (0..k).map(|i| e[i][i]).sum();
-    // Compute sum of all elements of e@e (matrix product)
-    let mut e_sq_sum: f64 = 0.0;
-    for i in 0..k {
-        for j in 0..k {
-            let mut dot = 0.0;
-            for m in 0..k {
-                dot += e[i][m] * e[m][j];
-            }
-            e_sq_sum += dot;
-        }
-    }
+    let e_sq_sum = attribute_assortativity_matrix_square_sum(&e);
 
     let denom = 1.0 - e_sq_sum;
     if denom.abs() < ASSORTATIVITY_EPSILON {
@@ -40377,13 +45848,17 @@ pub fn all_triads(digraph: &DiGraph) -> Vec<(String, String, String, String)> {
 /// and `y` controls target degree type.
 pub fn node_degree_xy(graph: &Graph) -> Vec<(usize, usize)> {
     let mut result = Vec::with_capacity(graph.edge_count());
-    for edge in graph.edges_ordered() {
+    // br-r37-c1-ndxyborrow (cc): edges_ordered_borrowed() yields (&str, &str, &AttrMap) — zero per-edge
+    // allocation — instead of edges_ordered() which clones two owned Strings + an AttrMap per edge into an
+    // EdgeSnapshot. This loop only reads the endpoint NAMES (neighbor_count) and never keeps the owned
+    // data, so the borrow is byte-identical (same edges, same walk order, same names → same (du, dv)).
+    for (left, right, _attrs) in graph.edges_ordered_borrowed() {
         // br-r37-c1-ra004 (cc): no-alloc degree, matching the already-optimised
         // `node_degree_xy_directed` twin. `neighbor_count(x)` == the length of the
         // `Vec<&str>` `neighbors(x)` builds (both are `adj_indices[idx].len()`), so
         // this is byte-identical and drops two per-edge `Vec<&str>` allocations.
-        let du = graph.neighbor_count(&edge.left);
-        let dv = graph.neighbor_count(&edge.right);
+        let du = graph.neighbor_count(left);
+        let dv = graph.neighbor_count(right);
         result.push((du, dv));
     }
     result
@@ -40418,16 +45893,21 @@ pub fn node_degree_xy_directed(
     // undirected `node_degree_xy` twin's comment claimed this was already done — it
     // was only done for the "out" arm.)
     let mut result = Vec::with_capacity(digraph.edge_count());
-    for edge in digraph.edges_ordered() {
+    // br-r37-c1-ndxydirborrow (cc): edges_ordered_borrowed() yields (&str, &str, &AttrMap) — zero
+    // per-edge allocation — instead of edges_ordered() which clones two owned Strings + an AttrMap per
+    // edge into an EdgeSnapshot. This loop only reads the endpoint NAMES (in_degree/neighbor_count) and
+    // never keeps the owned data, so the borrow is byte-identical (same edges, same walk order, same
+    // names → same (du, dv) pairs). Directed twin of br-r37-c1-ndxyborrow.
+    for (left, right, _attrs) in digraph.edges_ordered_borrowed() {
         let du = match x_type {
-            "in" => digraph.in_degree(&edge.left),
-            "out" => digraph.neighbor_count(&edge.left),
-            _ => digraph.neighbor_count(&edge.left) + digraph.in_degree(&edge.left),
+            "in" => digraph.in_degree(left),
+            "out" => digraph.neighbor_count(left),
+            _ => digraph.neighbor_count(left) + digraph.in_degree(left),
         };
         let dv = match y_type {
-            "in" => digraph.in_degree(&edge.right),
-            "out" => digraph.neighbor_count(&edge.right),
-            _ => digraph.neighbor_count(&edge.right) + digraph.in_degree(&edge.right),
+            "in" => digraph.in_degree(right),
+            "out" => digraph.neighbor_count(right),
+            _ => digraph.neighbor_count(right) + digraph.in_degree(right),
         };
         result.push((du, dv));
     }
@@ -40589,14 +46069,20 @@ pub fn numeric_assortativity_coefficient(graph: &Graph, attribute: &str) -> f64 
     // Build mixing matrix (normalized) — count both directions for undirected
     let mut counts = vec![vec![0usize; k]; k];
     let mut total = 0usize;
-    for edge in graph.edges_ordered() {
+    // br-r37-c1-numassortborrow (cc): edges_ordered_borrowed() yields (&str, &str, &AttrMap) — zero
+    // per-edge allocation — instead of edges_ordered() which clones two owned Strings + an AttrMap per
+    // edge. This loop only reads the endpoint NAMES (node_attrs lookups) and never keeps the owned edge
+    // data, so the borrow is byte-identical (same edges, same walk order, same names → same x/y_bits →
+    // same counts → ULP-identical coefficient). Cheap per-edge work (u64 map lookup + array increment),
+    // so the clone saving is undiluted.
+    for (left, right, _attrs) in graph.edges_ordered_borrowed() {
         let x_bits = graph
-            .node_attrs(&edge.left)
+            .node_attrs(left)
             .and_then(|a| a.get(attribute))
             .map(|v| v.as_f64().unwrap_or(0.0).to_bits())
             .unwrap_or(0u64);
         let y_bits = graph
-            .node_attrs(&edge.right)
+            .node_attrs(right)
             .and_then(|a| a.get(attribute))
             .map(|v| v.as_f64().unwrap_or(0.0).to_bits())
             .unwrap_or(0u64);
@@ -40867,9 +46353,58 @@ pub fn ra_index_soundarajan_hopcroft(
 /// blocks if any edge connects their members.
 #[must_use]
 pub fn quotient_graph(graph: &Graph, partition: &[Vec<String>]) -> Graph {
+    // br-r37-c1-qgidx (cc): the old kernel mapped each node to its block via a String-keyed
+    // `HashMap<&str,usize>`, walked `edges_ordered()` (which materialises an EdgeSnapshot per edge —
+    // owned left/right Strings AND a full attr CLONE, none of which quotient uses), probed the map
+    // twice per edge (String hash), then emitted each cross-block edge via a String round-trip
+    // (`add_edge(k.0.to_string(), k.1.to_string())` re-resolves the block index). Walk
+    // `edges_ordered_indices()` (zero-alloc (u,v) pairs, same u-major order/dedup) over a
+    // `block_of_idx: Vec<usize>` and batch the cross-block index pairs through the index-pair extend.
+    // Byte-identical: same edge scan order → same first-seen cross-block (min,max) sequence → the same
+    // block nodes/edges (the source-edge orientation is irrelevant — the block pair is canonicalised).
     let mut result = Graph::with_runtime_policy(graph.runtime_policy().clone());
 
-    // Map each node to its block index
+    // Map each node index to its block index (usize::MAX = node not in any block).
+    let mut block_of_idx = vec![usize::MAX; graph.node_count()];
+    for (i, block) in partition.iter().enumerate() {
+        for node in block {
+            if let Some(ni) = graph.get_node_index(node) {
+                block_of_idx[ni] = i;
+            }
+        }
+    }
+
+    // Add block nodes (node index i == block i).
+    for i in 0..partition.len() {
+        let _ = result.add_node(i.to_string());
+    }
+
+    // Add edges between blocks
+    let mut seen_edges: std::collections::HashSet<(usize, usize)> =
+        std::collections::HashSet::new();
+    let mut block_edges: Vec<(usize, usize)> = Vec::new();
+    for (u, v) in graph.edges_ordered_indices() {
+        let bi = block_of_idx[u];
+        let bj = block_of_idx[v];
+        if bi != usize::MAX && bj != usize::MAX && bi != bj {
+            let key = if bi < bj { (bi, bj) } else { (bj, bi) };
+            if seen_edges.insert(key) {
+                block_edges.push(key);
+            }
+        }
+    }
+    let _ = result.extend_existing_index_edges_unrecorded(block_edges);
+
+    result
+}
+
+/// br-r37-c1-qgidx A/B baseline: the pre-lever String-keyed `quotient_graph` (edges_ordered() +
+/// HashMap<&str,usize> block map + String round-trip emit). Test-only; byte-identical to the
+/// shipped integer-index version.
+#[cfg(test)]
+fn quotient_graph_orig_string(graph: &Graph, partition: &[Vec<String>]) -> Graph {
+    let mut result = Graph::with_runtime_policy(graph.runtime_policy().clone());
+
     let mut node_to_block: std::collections::HashMap<&str, usize> =
         std::collections::HashMap::new();
     for (i, block) in partition.iter().enumerate() {
@@ -40878,12 +46413,10 @@ pub fn quotient_graph(graph: &Graph, partition: &[Vec<String>]) -> Graph {
         }
     }
 
-    // Add block nodes
     for i in 0..partition.len() {
         let _ = result.add_node(i.to_string());
     }
 
-    // Add edges between blocks
     let mut seen_edges: std::collections::HashSet<(usize, usize)> =
         std::collections::HashSet::new();
     for edge in graph.edges_ordered() {
@@ -41344,19 +46877,31 @@ pub fn selfloop_edges(graph: &Graph) -> Vec<(String, String)> {
 /// Count of self-loop edges.
 #[must_use]
 pub fn number_of_selfloops(graph: &Graph) -> usize {
-    graph
-        .edges_ordered()
-        .iter()
-        .filter(|e| e.left == e.right)
+    // br-r37-c1-numselfidx (cc): count self-loops by an integer per-node index probe
+    // (`has_edge_by_indices(i, i)`) instead of `edges_ordered()`, which materialises a full
+    // `Vec<EdgeSnapshot>` (two owned Strings + an attr clone PER edge) only to filter for
+    // `left == right`. For a simple `Graph` each self-loop is exactly one edge on one node, so the
+    // count of `(i, i)` edges equals the count of self-loop edges — byte-identical. Sibling of the
+    // `nodes_with_selfloops` selfloopidx lever (this one additionally drops the O(|E|) materialization).
+    (0..graph.node_count())
+        .filter(|&i| graph.has_edge_by_indices(i, i))
         .count()
 }
 
 /// Nodes with self-loops.
 #[must_use]
 pub fn nodes_with_selfloops(graph: &Graph) -> Vec<String> {
+    // br-r37-c1-selfloopidx (cc): probe each node's self-loop by INDEX
+    // (`has_edge_by_indices(i, i)`, a direct O(1) integer-pair lookup) instead of
+    // `has_edge(node, node)`, which resolves BOTH `&str` endpoints to indices via
+    // `edge_pair_key` (two String-hash lookups per node). Undirected twin of the
+    // directed `nodes_with_selfloops_rust` selfloopdir fast path. Byte-identical:
+    // `has_edge_by_indices(i, i)` == `has_edge(nodes_ordered()[i], same)`, same
+    // node-insertion emission order.
+    let names = graph.nodes_ordered();
     let mut result = Vec::new();
-    for node in graph.nodes_ordered() {
-        if graph.has_edge(node, node) {
+    for (i, &node) in names.iter().enumerate() {
+        if graph.has_edge_by_indices(i, i) {
             result.push(node.to_owned());
         }
     }
@@ -41859,24 +47404,25 @@ pub fn generic_bfs_edges(
 #[must_use]
 pub fn local_bridges_list(graph: &Graph) -> Vec<(String, String)> {
     let mut result = Vec::new();
-    for edge in graph.edges_ordered() {
-        if edge.left == edge.right {
+    let nodes = graph.nodes_ordered();
+    // br-r37-c1-xuvu2: consume the index-space twin of the ordered edge walk.
+    // Avoid cloning both endpoint names and the attribute map for every edge,
+    // then hashing the names back to the same indices before the native probe.
+    for (u, v) in graph.edges_ordered_indices() {
+        if u == v {
             continue;
         }
-        let u_nbrs: std::collections::HashSet<&str> = graph
-            .neighbors(&edge.left)
-            .unwrap_or_default()
-            .into_iter()
-            .filter(|&n| n != edge.right.as_str())
-            .collect();
-        let v_nbrs: std::collections::HashSet<&str> = graph
-            .neighbors(&edge.right)
-            .unwrap_or_default()
-            .into_iter()
-            .filter(|&n| n != edge.left.as_str())
-            .collect();
-        if u_nbrs.intersection(&v_nbrs).next().is_none() {
-            result.push((edge.left.clone(), edge.right.clone()));
+        // br-r37-c1-f1run: N(u) is already an integer row and the edge map
+        // answers N(v) membership directly. Skip both endpoints to preserve
+        // the old `(N(u) - {v}) ∩ (N(v) - {u})` behavior around self-loops.
+        let has_common_neighbor = graph.neighbors_indices(u).is_some_and(|neighbors| {
+            neighbors
+                .iter()
+                .copied()
+                .any(|w| w != u && w != v && graph.has_edge_by_indices(v, w))
+        });
+        if !has_common_neighbor {
+            result.push((nodes[u].to_owned(), nodes[v].to_owned()));
         }
     }
     result
@@ -41948,6 +47494,179 @@ pub fn all_pairs_node_connectivity(
         }
     }
     result
+}
+
+/// Approximate node connectivity for only the requested node pairs.
+///
+/// Returns `None` when any requested node is absent. Otherwise the result
+/// contains both orientations for every distinct pair, matching
+/// [`all_pairs_node_connectivity`]'s flat-map contract.
+#[must_use]
+pub fn all_pairs_node_connectivity_subset(
+    graph: &Graph,
+    nodes: &[&str],
+) -> Option<std::collections::HashMap<(String, String), usize>> {
+    // br-r37-c1-qktr5: the public small-nbunch path previously copied the full
+    // adjacency into Python dictionaries and ran every bidirectional BFS there.
+    // Resolve this already graph-ordered subset once, then reuse the native
+    // index kernel for only C(k, 2) requested pairs. Pair order, both oriented
+    // entries, and the White-Newman greedy path/exclusion choices are unchanged.
+    let indexed_nodes = nodes
+        .iter()
+        .map(|&node| graph.get_node_index(node).map(|index| (node, index)))
+        .collect::<Option<Vec<_>>>()?;
+    let pair_count = indexed_nodes
+        .len()
+        .saturating_mul(indexed_nodes.len().saturating_sub(1));
+    let mut result = std::collections::HashMap::with_capacity(pair_count);
+    for (position, &(left, left_idx)) in indexed_nodes.iter().enumerate() {
+        for &(right, right_idx) in &indexed_nodes[position + 1..] {
+            let connectivity =
+                approximate_local_node_connectivity_indices(graph, left_idx, right_idx, None);
+            result.insert((left.to_owned(), right.to_owned()), connectivity);
+            result.insert((right.to_owned(), left.to_owned()), connectivity);
+        }
+    }
+    Some(result)
+}
+
+/// br-r37-c1-qktr5 A/B baseline: the pre-lever Python-dict subset algorithm,
+/// represented with String-keyed Rust hash tables so the benchmark retains its
+/// adjacency snapshot, membership hashing, and per-BFS map allocation costs.
+#[cfg(test)]
+fn all_pairs_node_connectivity_subset_orig_string(
+    graph: &Graph,
+    nodes: &[&str],
+) -> Option<std::collections::HashMap<(String, String), usize>> {
+    fn bidirectional_path<'a>(
+        adjacency: &std::collections::HashMap<&'a str, Vec<&'a str>>,
+        source: &'a str,
+        target: &'a str,
+        excluded: &std::collections::HashSet<&'a str>,
+    ) -> Option<Vec<&'a str>> {
+        let mut predecessor = std::collections::HashMap::new();
+        let mut successor = std::collections::HashMap::new();
+        predecessor.insert(source, None);
+        successor.insert(target, None);
+        let mut forward_fringe = vec![source];
+        let mut reverse_fringe = vec![target];
+        let mut level = 0usize;
+        let mut found = None;
+
+        while !forward_fringe.is_empty() && !reverse_fringe.is_empty() && found.is_none() {
+            level += 1;
+            if !level.is_multiple_of(2) {
+                let this_level = std::mem::take(&mut forward_fringe);
+                'forward: for node in this_level {
+                    for &neighbor in adjacency
+                        .get(node)
+                        .expect("adjacency snapshot contains every node")
+                    {
+                        if excluded.contains(neighbor) {
+                            continue;
+                        }
+                        if !predecessor.contains_key(neighbor) {
+                            forward_fringe.push(neighbor);
+                            predecessor.insert(neighbor, Some(node));
+                        }
+                        if successor.contains_key(neighbor) {
+                            found = Some(neighbor);
+                            break 'forward;
+                        }
+                    }
+                }
+            } else {
+                let this_level = std::mem::take(&mut reverse_fringe);
+                'reverse: for node in this_level {
+                    for &neighbor in adjacency
+                        .get(node)
+                        .expect("adjacency snapshot contains every node")
+                    {
+                        if excluded.contains(neighbor) {
+                            continue;
+                        }
+                        if !successor.contains_key(neighbor) {
+                            successor.insert(neighbor, Some(node));
+                            reverse_fringe.push(neighbor);
+                        }
+                        if predecessor.contains_key(neighbor) {
+                            found = Some(neighbor);
+                            break 'reverse;
+                        }
+                    }
+                }
+            }
+        }
+
+        let found = found?;
+        let mut path = Vec::new();
+        let mut current = Some(found);
+        while let Some(node) = current {
+            path.push(node);
+            current = predecessor.get(node).copied().flatten();
+        }
+        path.reverse();
+        current = successor
+            .get(path.last().expect("path contains the meeting node"))
+            .copied()
+            .flatten();
+        while let Some(node) = current {
+            path.push(node);
+            current = successor.get(node).copied().flatten();
+        }
+        Some(path)
+    }
+
+    fn local_connectivity<'a>(
+        adjacency: &std::collections::HashMap<&'a str, Vec<&'a str>>,
+        degree: &std::collections::HashMap<&'a str, usize>,
+        source: &'a str,
+        target: &'a str,
+    ) -> usize {
+        let limit = degree[source].min(degree[target]);
+        let mut excluded = std::collections::HashSet::new();
+        let mut count = 0usize;
+        for _ in 0..limit {
+            let Some(path) = bidirectional_path(adjacency, source, target, &excluded) else {
+                break;
+            };
+            excluded.extend(path);
+            count += 1;
+        }
+        count
+    }
+
+    let graph_nodes = graph.nodes_ordered();
+    let adjacency = graph_nodes
+        .iter()
+        .map(|&node| {
+            let neighbors = graph
+                .neighbors_iter(node)
+                .map(Iterator::collect)
+                .unwrap_or_default();
+            (node, neighbors)
+        })
+        .collect::<std::collections::HashMap<_, Vec<_>>>();
+    let degree = adjacency
+        .iter()
+        .map(|(&node, neighbors)| (node, neighbors.len()))
+        .collect::<std::collections::HashMap<_, _>>();
+    let canonical_nodes = nodes
+        .iter()
+        .map(|&node| graph.get_node_index(node).map(|index| graph_nodes[index]))
+        .collect::<Option<Vec<_>>>()?;
+    let pair_count = canonical_nodes
+        .len()
+        .saturating_mul(canonical_nodes.len().saturating_sub(1));
+    let mut result = std::collections::HashMap::with_capacity(pair_count);
+    for (position, &left) in canonical_nodes.iter().enumerate() {
+        for &right in &canonical_nodes[position + 1..] {
+            let connectivity = local_connectivity(&adjacency, &degree, left, right);
+            result.insert((left.to_owned(), right.to_owned()), connectivity);
+            result.insert((right.to_owned(), left.to_owned()), connectivity);
+        }
+    }
+    Some(result)
 }
 
 /// Tutte polynomial via deletion-contraction. Exponential time.
@@ -42701,6 +48420,13 @@ pub fn find_asteroidal_triple(graph: &Graph) -> Option<(String, String, String)>
 /// each node represents a group of original nodes.
 #[must_use]
 pub fn snap_aggregation(graph: &Graph, node_attributes: &[String]) -> Graph {
+    snap_aggregation_impl::<true>(graph, node_attributes)
+}
+
+fn snap_aggregation_impl<const FAST_FORWARD_STABLE: bool>(
+    graph: &Graph,
+    node_attributes: &[String],
+) -> Graph {
     let nodes = graph.nodes_ordered();
     let n = nodes.len();
     if n == 0 {
@@ -42736,7 +48462,8 @@ pub fn snap_aggregation(graph: &Graph, node_attributes: &[String]) -> Graph {
 
     // Iterative refinement: split groups by neighbor-group signature
     let mut changed = true;
-    for _ in 0..n {
+    let mut group_count = next_group;
+    for pass in 0..n {
         if !changed {
             break;
         }
@@ -42775,9 +48502,27 @@ pub fn snap_aggregation(graph: &Graph, node_attributes: &[String]) -> Graph {
             new_group_of[i] = new_group_id;
         }
 
+        let new_group_count = new_next - next_group;
+        // br-r37-c1-yx9iw: a refinement key contains the old group id, so a pass can
+        // split groups but can never merge them. Equal old/new group counts therefore
+        // mean that the partition is stable. The fresh ids are contiguous and assigned
+        // in first-node order on every pass; once stable, each remaining pass only adds
+        // `new_group_count` to every id. Preserve the exact ids that the former full `n`
+        // scans produced by arithmetically applying those label-only shifts.
+        if FAST_FORWARD_STABLE && new_group_count == group_count {
+            let remaining_passes = n - pass - 1;
+            let remaining_shift = new_group_count * remaining_passes;
+            for group in &mut new_group_of {
+                *group += remaining_shift;
+            }
+            group_of = new_group_of;
+            break;
+        }
+
         if changed {
             group_of = new_group_of;
             next_group = new_next;
+            group_count = new_group_count;
         }
     }
 
@@ -42808,6 +48553,13 @@ pub fn snap_aggregation(graph: &Graph, node_attributes: &[String]) -> Graph {
     }
 
     summary
+}
+
+/// br-r37-c1-yx9iw A/B baseline: the former refinement loop that rescanned all
+/// nodes on every one of its `n` passes, including label-only stable passes.
+#[cfg(test)]
+fn snap_aggregation_orig_all_passes(graph: &Graph, node_attributes: &[String]) -> Graph {
+    snap_aggregation_impl::<false>(graph, node_attributes)
 }
 
 // ---------------------------------------------------------------------------
@@ -46895,8 +52647,66 @@ pub fn node_attribute_xy(graph: &Graph, attribute: &str) -> Vec<(String, String)
 
 /// Check if a set of nodes forms a connected dominating set.
 pub fn is_connected_dominating_set(graph: &Graph, nodes: &[&str]) -> bool {
-    let node_set: std::collections::HashSet<&str> = nodes.iter().copied().collect();
+    // br-r37-c1-73ztf: resolve the supplied set once, then keep both the
+    // domination scan and the induced-connectivity BFS in node-index space.
+    // The old kernel allocated a neighbor-name Vec at every visited node and
+    // hashed long labels for every set/visited probe. The final comparison
+    // intentionally remains against `nodes.len()` (not the number of marked
+    // indices), preserving the former false result for duplicate or partially
+    // missing input. A missing first node formerly entered the String visited
+    // set but had no neighbors, so the one-element missing-node case remains
+    // true exactly when the domination scan has already succeeded.
+    let node_count = graph.node_count();
+    let mut node_mask = vec![false; node_count];
+    for &node in nodes {
+        if let Some(index) = graph.get_node_index(node) {
+            node_mask[index] = true;
+        }
+    }
+
     // 1. Check domination: every non-set node is adjacent to a set node
+    for node in 0..node_count {
+        if node_mask[node] {
+            continue;
+        }
+        let has_neighbor_in_set = graph
+            .neighbors_indices(node)
+            .is_some_and(|neighbors| neighbors.iter().any(|&neighbor| node_mask[neighbor]));
+        if !has_neighbor_in_set {
+            return false;
+        }
+    }
+    // 2. Check connectivity of the induced subgraph
+    if nodes.is_empty() {
+        return node_count == 0;
+    }
+    let Some(source) = graph.get_node_index(nodes[0]) else {
+        return nodes.len() == 1;
+    };
+    let mut visited = vec![false; node_count];
+    let mut queue = std::collections::VecDeque::new();
+    visited[source] = true;
+    let mut visited_count = 1usize;
+    queue.push_back(source);
+    while let Some(v) = queue.pop_front() {
+        if let Some(neighbors) = graph.neighbors_indices(v) {
+            for &neighbor in neighbors {
+                if node_mask[neighbor] && !visited[neighbor] {
+                    visited[neighbor] = true;
+                    visited_count += 1;
+                    queue.push_back(neighbor);
+                }
+            }
+        }
+    }
+    visited_count == nodes.len()
+}
+
+/// br-r37-c1-73ztf A/B baseline: the former String-keyed domination and BFS
+/// state, including its duplicate/missing-input behavior.
+#[cfg(test)]
+fn is_connected_dominating_set_orig_string(graph: &Graph, nodes: &[&str]) -> bool {
+    let node_set: std::collections::HashSet<&str> = nodes.iter().copied().collect();
     for node in graph.nodes_ordered() {
         if node_set.contains(node) {
             continue;
@@ -46910,7 +52720,6 @@ pub fn is_connected_dominating_set(graph: &Graph, nodes: &[&str]) -> bool {
             return false;
         }
     }
-    // 2. Check connectivity of the induced subgraph
     if nodes.is_empty() {
         return graph.nodes_ordered().is_empty();
     }
@@ -47197,6 +53006,157 @@ mod bitpar_aspl_tests {
         let got = average_shortest_path_length(&g).average_shortest_path_length;
         let want = _average_shortest_path_length_undirected(&g).average_shortest_path_length;
         assert_eq!(got.to_bits(), want.to_bits());
+    }
+
+    /// Every field of `distance_measures` as comparable owned data:
+    /// `(per-node eccentricity, diameter, radius, center, periphery)`.
+    type DmTuple = (Vec<(String, usize)>, usize, usize, Vec<String>, Vec<String>);
+
+    /// Every field of `distance_measures`, arm-by-arm, as comparable owned data.
+    fn dm_tuple(r: &super::DistanceMeasuresResult) -> DmTuple {
+        (
+            r.eccentricity
+                .iter()
+                .map(|e| (e.node.clone(), e.value))
+                .collect(),
+            r.diameter,
+            r.radius,
+            r.center.clone(),
+            r.periphery.clone(),
+        )
+    }
+
+    #[test]
+    fn distance_measures_arms_agree() {
+        // br-r37-c1-eccsink: the EccentricitySink route must be bit-identical to the
+        // serial per-source VecDeque sweep it replaces, on every derived measure --
+        // eccentricity, diameter, radius, center AND periphery -- not just the one
+        // the job pass happened to time.
+        //
+        // Coverage is deliberate: lane widths W=1 (n<=64) through W=8, diameters from
+        // 1 (complete) to n-1 (path) so the gate is exercised on both sides, n >= 500
+        // to reach the chunked-parallel arm, and a DISCONNECTED graph to pin the
+        // "max over the reachable component" semantics both arms must share.
+        let mut disconnected = path(40);
+        for i in 100..140 {
+            let _ = disconnected.add_node(i.to_string());
+        }
+        for i in 100..139 {
+            let _ = disconnected.add_edge(i.to_string(), (i + 1).to_string());
+        }
+
+        let graphs = [
+            path(1),
+            path(2),
+            path(7),
+            path(64),
+            path(65),
+            path(200),
+            cycle(9),
+            cycle(128),
+            grid(5, 7),
+            grid(12, 12),
+            grid(22, 22), // 484 nodes -> widest bit-parallel lane (W=8)
+            grid(30, 30), // 900 nodes -> at/above CENTRALITY_PARALLEL_THRESHOLD
+            complete(8),
+            complete(50),
+            disconnected,
+        ];
+
+        for g in graphs {
+            let n = g.node_count();
+            let want = dm_tuple(&super::distance_measures_arm(
+                &g,
+                super::BitparArm::PerSource,
+            ));
+            for arm in [super::BitparArm::Auto, super::BitparArm::ChunkedBitpar] {
+                let got = dm_tuple(&super::distance_measures_arm(&g, arm));
+                assert_eq!(got, want, "distance_measures arm {arm:?} mismatch at n={n}");
+            }
+        }
+    }
+
+    #[test]
+    fn harmonic_gather_matches_scatter() {
+        // br-r37-c1-hgather: the parallel GATHER must reproduce the serial SCATTER
+        // BIT-FOR-BIT, not approximately -- the whole reason this entry point exists
+        // is that f64 addition is not associative, so an "equivalent" sum is not
+        // good enough. Anything less and harmonic silently stops matching nx.
+        //
+        // n >= CENTRALITY_PARALLEL_THRESHOLD (500) on every graph here, since below
+        // it the gather is gated off and the test would compare scatter to itself.
+        let mut disconnected = path(600);
+        for i in 1000..1600 {
+            let _ = disconnected.add_node(i.to_string());
+        }
+        for i in 1000..1599 {
+            let _ = disconnected.add_edge(i.to_string(), (i + 1).to_string());
+        }
+
+        let graphs = [
+            path(600),
+            cycle(700),
+            grid(30, 30),
+            grid(25, 40),
+            complete(520),
+            disconnected,
+        ];
+
+        for g in graphs {
+            let n = g.node_count();
+            let nodes = g.nodes_ordered();
+            // Source order deliberately NOT the node order: nx hands us a CPython
+            // set's iteration order, and the gather must honour whatever order it
+            // is given rather than quietly sorting.
+            let mut order: Vec<&str> = nodes.clone();
+            order.reverse();
+
+            let want = super::harmonic_centrality_source_ordered_impl(&g, &order, false);
+            let got = super::harmonic_centrality_source_ordered_impl(&g, &order, true);
+
+            assert_eq!(got.scores.len(), want.scores.len(), "n={n}");
+            for (a, b) in got.scores.iter().zip(want.scores.iter()) {
+                assert_eq!(a.node, b.node, "node order drift at n={n}");
+                assert_eq!(
+                    a.score.to_bits(),
+                    b.score.to_bits(),
+                    "harmonic gather != scatter at n={n} node {}: {} vs {}",
+                    a.node,
+                    a.score,
+                    b.score
+                );
+            }
+            // Reachable ordered pairs are direction-agnostic, so the two forms must
+            // agree on this even though one counts forward and the other reverse.
+            assert_eq!(
+                got.witness.nodes_touched, want.witness.nodes_touched,
+                "nodes_touched drift at n={n}"
+            );
+        }
+    }
+
+    #[test]
+    fn distance_measures_known_values() {
+        // Independent of the arms: pin the actual numbers so a bug that corrupts BOTH
+        // arms identically still fails. A path P_n has ecc(end)=n-1, radius floor(n/2),
+        // diameter n-1; a cycle C_n has every ecc = floor(n/2).
+        let p = super::distance_measures(&path(7));
+        assert_eq!(p.diameter, 6);
+        assert_eq!(p.radius, 3);
+        assert_eq!(p.center, vec!["3".to_owned()]);
+        let mut ends = p.periphery.clone();
+        ends.sort();
+        assert_eq!(ends, vec!["0".to_owned(), "6".to_owned()]);
+
+        let c = super::distance_measures(&cycle(9));
+        assert_eq!(c.diameter, 4);
+        assert_eq!(c.radius, 4);
+        assert_eq!(c.eccentricity.len(), 9);
+        assert!(c.eccentricity.iter().all(|e| e.value == 4));
+
+        // Complete graph: everything is one hop away.
+        let k = super::distance_measures(&complete(8));
+        assert_eq!((k.diameter, k.radius), (1, 1));
     }
 
     #[test]
@@ -47900,6 +53860,8 @@ mod bitpar_harmonic_tests {
     };
     use fnx_classes::{Graph, digraph::DiGraph};
     use std::collections::{HashMap, VecDeque};
+    use std::hint::black_box;
+    use std::time::Instant;
 
     /// Independent reference: per-source reverse BFS, `+= 1/d` in pop order.
     fn reference_harmonic<G: super::GraphView>(graph: &G) -> Vec<(String, f64)> {
@@ -47983,6 +53945,137 @@ mod bitpar_harmonic_tests {
             }
         }
         g
+    }
+
+    fn edgeless(n: usize) -> Graph {
+        let mut g = Graph::strict();
+        for i in 0..n {
+            let _ = g.add_node(i.to_string());
+        }
+        g
+    }
+
+    fn assert_result_identical(
+        got: &super::HarmonicCentralityResult,
+        want: &super::HarmonicCentralityResult,
+        label: &str,
+    ) {
+        assert_eq!(got.witness, want.witness, "{label}: witness");
+        assert_eq!(got.scores.len(), want.scores.len(), "{label}: score count");
+        for (got_score, want_score) in got.scores.iter().zip(&want.scores) {
+            assert_eq!(got_score.node, want_score.node, "{label}: node order");
+            assert_eq!(
+                got_score.score.to_bits(),
+                want_score.score.to_bits(),
+                "{label}: score bits at {}",
+                got_score.node
+            );
+        }
+    }
+
+    #[test]
+    fn edgeless_fast_path_matches_old_arm_bit_for_bit() {
+        for n in [1, 63, 64, 65, 256, CENTRALITY_PARALLEL_THRESHOLD - 1] {
+            let g = edgeless(n);
+            let baseline =
+                super::harmonic_centrality_generic_arm_impl(&g, super::BitparArm::Auto, false);
+            let candidate =
+                super::harmonic_centrality_generic_arm_impl(&g, super::BitparArm::Auto, true);
+            assert_result_identical(&candidate, &baseline, &format!("Graph n={n}"));
+
+            let mut dg = DiGraph::strict();
+            for i in 0..n {
+                let _ = dg.add_node(i.to_string());
+            }
+            let directed_baseline =
+                super::harmonic_centrality_generic_arm_impl(&dg, super::BitparArm::Auto, false);
+            let directed_candidate =
+                super::harmonic_centrality_generic_arm_impl(&dg, super::BitparArm::Auto, true);
+            assert_result_identical(
+                &directed_candidate,
+                &directed_baseline,
+                &format!("DiGraph n={n}"),
+            );
+        }
+    }
+
+    fn run_harmonic_edgeless_fast_path_ab(candidate_enabled: bool) {
+        const ROUNDS: usize = 31;
+        let mode = if candidate_enabled {
+            "candidate"
+        } else {
+            "null"
+        };
+        let graph = edgeless(CENTRALITY_PARALLEL_THRESHOLD - 1);
+
+        let baseline =
+            super::harmonic_centrality_generic_arm_impl(&graph, super::BitparArm::Auto, false);
+        let candidate = super::harmonic_centrality_generic_arm_impl(
+            &graph,
+            super::BitparArm::Auto,
+            candidate_enabled,
+        );
+        assert_result_identical(&candidate, &baseline, mode);
+
+        for _ in 0..8 {
+            black_box(super::harmonic_centrality_generic_arm_impl(
+                black_box(&graph),
+                super::BitparArm::Auto,
+                false,
+            ));
+            black_box(super::harmonic_centrality_generic_arm_impl(
+                black_box(&graph),
+                super::BitparArm::Auto,
+                candidate_enabled,
+            ));
+        }
+
+        let mut baseline_ns = Vec::with_capacity(ROUNDS);
+        let mut candidate_ns = Vec::with_capacity(ROUNDS);
+        let mut paired_wins = 0usize;
+        for round in 0..ROUNDS {
+            let measure = |fast_path| {
+                let started = Instant::now();
+                let result = super::harmonic_centrality_generic_arm_impl(
+                    black_box(&graph),
+                    super::BitparArm::Auto,
+                    fast_path,
+                );
+                let elapsed = started.elapsed().as_nanos();
+                black_box(result);
+                elapsed
+            };
+            let (baseline_elapsed, candidate_elapsed) = if round % 2 == 0 {
+                (measure(false), measure(candidate_enabled))
+            } else {
+                let candidate_elapsed = measure(candidate_enabled);
+                (measure(false), candidate_elapsed)
+            };
+            paired_wins += usize::from(candidate_elapsed < baseline_elapsed);
+            baseline_ns.push(baseline_elapsed);
+            candidate_ns.push(candidate_elapsed);
+        }
+        baseline_ns.sort_unstable();
+        candidate_ns.sort_unstable();
+        let baseline_median = baseline_ns[ROUNDS / 2];
+        let candidate_median = candidate_ns[ROUNDS / 2];
+        let speedup = baseline_median as f64 / candidate_median as f64;
+        eprintln!(
+            "HARMONIC_EDGELESS_AB mode={mode} n={} rounds={ROUNDS} baseline_median_ns={baseline_median} candidate_median_ns={candidate_median} speedup={speedup:.4} paired_wins={paired_wins}/{ROUNDS} exact_parity=true",
+            graph.node_count()
+        );
+    }
+
+    #[test]
+    #[ignore = "foreground paired A/A null; run through strict remote RCH"]
+    fn harmonic_edgeless_fast_path_null_ab() {
+        run_harmonic_edgeless_fast_path_ab(false);
+    }
+
+    #[test]
+    #[ignore = "foreground paired A/B; run through strict remote RCH"]
+    fn harmonic_edgeless_fast_path_candidate_ab() {
+        run_harmonic_edgeless_fast_path_ab(true);
     }
 
     fn grid(rows: usize, cols: usize) -> Graph {
@@ -48266,6 +54359,8 @@ mod tests {
         all_pairs_lowest_common_ancestor,
         all_pairs_shortest_path,
         all_pairs_shortest_path_length,
+        all_pairs_shortest_path_length_directed_indexed,
+        all_pairs_shortest_path_length_indexed,
         all_shortest_paths,
         all_shortest_paths_directed,
         all_shortest_paths_weighted,
@@ -48548,6 +54643,7 @@ mod tests {
         minimum_cut_edmonds_karp,
         minimum_cut_edmonds_karp_directed,
         minimum_spanning_arborescence,
+        minimum_spanning_tree_prim,
         minimum_st_edge_cut_edmonds_karp,
         mixing_expansion,
         modularity,
@@ -48611,6 +54707,8 @@ mod tests {
         second_order_centrality,
         sedgewick_maze_graph,
         selfloop_edges,
+        shortest_path_length_matrix_directed_indexed,
+        shortest_path_length_matrix_indexed,
         shortest_path_unweighted,
         shortest_path_weighted,
         shortest_simple_paths,
@@ -48653,6 +54751,7 @@ mod tests {
         transitive_reduction,
         tree_all_pairs_lowest_common_ancestor,
         tree_broadcast_center,
+        tree_broadcast_center_orig_frontier_scan,
         tree_broadcast_time,
         tree_data,
         triadic_census,
@@ -48861,6 +54960,5902 @@ mod tests {
         );
         report("NEIGHBOR_COUNT_vs_alloc", &paired(true, false));
         report("NULL_lever_vs_lever", &paired(true, true));
+    }
+
+    /// br-r37-c1-ndxyborrow: paired-interleaved median A/B for `node_degree_xy`'s edges_ordered() →
+    /// edges_ordered_borrowed() swap, isolated from the ra004 neighbor_count lever (BOTH arms use
+    /// neighbor_count; they differ ONLY in owned vs borrowed edge iteration). Times the whole
+    /// (pure-O(E)) function on a dense graph so the per-edge EdgeSnapshot clone (2 owned Strings +
+    /// AttrMap) is the dominant cost beside the two O(1) neighbor_count probes. Output-Vec parity
+    /// asserted first. `#[ignore]`; run with
+    /// `cargo test --release -p fnx-algorithms --lib node_degree_xy_borrow_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with --release --ignored --nocapture"]
+    fn node_degree_xy_borrow_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        // Dense circulant: 8000 nodes, degree 50 → ~200k edges; the edge scan is the whole function.
+        let n_nodes = 8000usize;
+        let mut g = Graph::strict();
+        for i in 0..n_nodes {
+            let _ = g.add_node(i.to_string());
+        }
+        for i in 0..n_nodes {
+            for step in 1..=25usize {
+                let _ = g.add_edge(i.to_string(), ((i + step) % n_nodes).to_string());
+            }
+        }
+
+        let old_fn = |g: &Graph| -> Vec<(usize, usize)> {
+            let mut result = Vec::with_capacity(g.edge_count());
+            for edge in g.edges_ordered() {
+                let du = g.neighbor_count(&edge.left);
+                let dv = g.neighbor_count(&edge.right);
+                result.push((du, dv));
+            }
+            result
+        };
+        let new_fn = |g: &Graph| -> Vec<(usize, usize)> {
+            let mut result = Vec::with_capacity(g.edge_count());
+            for (left, right, _attrs) in g.edges_ordered_borrowed() {
+                let du = g.neighbor_count(left);
+                let dv = g.neighbor_count(right);
+                result.push((du, dv));
+            }
+            result
+        };
+
+        assert_eq!(
+            old_fn(&g),
+            new_fn(&g),
+            "node_degree_xy owned vs borrowed must be byte-identical"
+        );
+
+        let time = |cand: bool| -> f64 {
+            let t0 = Instant::now();
+            let r = if cand { new_fn(&g) } else { old_fn(&g) };
+            black_box(&r);
+            t0.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(true));
+            black_box(time(false));
+        }
+        let median = |v: &[f64]| {
+            let mut s = v.to_vec();
+            s.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            s[s.len() / 2]
+        };
+        let rounds = 61usize;
+        let paired = |cand: bool, base_arm: bool| -> Vec<f64> {
+            let mut v = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (tb, tc) = if round.is_multiple_of(2) {
+                    let bt = time(base_arm);
+                    let ct = time(cand);
+                    (bt, ct)
+                } else {
+                    let ct = time(cand);
+                    let bt = time(base_arm);
+                    (bt, ct)
+                };
+                v.push(tb / tc);
+            }
+            v
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&r| r > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            println!(
+                "NDXYBORROW_AB {name}: median={:.4}x win_rate={wins}/{rounds} \
+                 p5_p95=[{:.4},{:.4}]",
+                median(ratios),
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+        println!("NDXYBORROW_AB node_degree_xy 8k/200k rounds={rounds} (>1 = borrowed faster)");
+        report("BORROWED_vs_owned", &paired(true, false));
+        report("NULL_borrowed_vs_borrowed", &paired(true, true));
+    }
+
+    /// br-r37-c1-ndxydirborrow: paired-interleaved median A/B for `node_degree_xy_directed`'s
+    /// edges_ordered() → edges_ordered_borrowed() swap, isolated (BOTH arms use in_degree/neighbor_count;
+    /// they differ ONLY in owned vs borrowed edge iteration). Times the whole (pure-O(E)) function with
+    /// x_type=y_type="both" (both degree lookups per endpoint) on a dense directed circulant so the
+    /// per-edge EdgeSnapshot clone dominates. Output-Vec parity asserted first. `#[ignore]`; run with
+    /// `cargo test --release -p fnx-algorithms --lib node_degree_xy_directed_borrow_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with --release --ignored --nocapture"]
+    fn node_degree_xy_directed_borrow_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        // Dense directed circulant: 8000 nodes, out-degree 25 → ~200k directed edges.
+        let n_nodes = 8000usize;
+        let mut g = DiGraph::strict();
+        for i in 0..n_nodes {
+            let _ = g.add_node(i.to_string());
+        }
+        for i in 0..n_nodes {
+            for step in 1..=25usize {
+                let _ = g.add_edge(i.to_string(), ((i + step) % n_nodes).to_string());
+            }
+        }
+
+        let old_fn = |g: &DiGraph| -> Vec<(usize, usize)> {
+            let mut result = Vec::with_capacity(g.edge_count());
+            for edge in g.edges_ordered() {
+                let du = g.neighbor_count(&edge.left) + g.in_degree(&edge.left);
+                let dv = g.neighbor_count(&edge.right) + g.in_degree(&edge.right);
+                result.push((du, dv));
+            }
+            result
+        };
+        let new_fn = |g: &DiGraph| -> Vec<(usize, usize)> {
+            let mut result = Vec::with_capacity(g.edge_count());
+            for (left, right, _attrs) in g.edges_ordered_borrowed() {
+                let du = g.neighbor_count(left) + g.in_degree(left);
+                let dv = g.neighbor_count(right) + g.in_degree(right);
+                result.push((du, dv));
+            }
+            result
+        };
+
+        assert_eq!(
+            old_fn(&g),
+            new_fn(&g),
+            "node_degree_xy_directed owned vs borrowed must be byte-identical"
+        );
+
+        let time = |cand: bool| -> f64 {
+            let t0 = Instant::now();
+            let r = if cand { new_fn(&g) } else { old_fn(&g) };
+            black_box(&r);
+            t0.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(true));
+            black_box(time(false));
+        }
+        let median = |v: &[f64]| {
+            let mut s = v.to_vec();
+            s.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            s[s.len() / 2]
+        };
+        let rounds = 61usize;
+        let paired = |cand: bool, base_arm: bool| -> Vec<f64> {
+            let mut v = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (tb, tc) = if round.is_multiple_of(2) {
+                    let bt = time(base_arm);
+                    let ct = time(cand);
+                    (bt, ct)
+                } else {
+                    let ct = time(cand);
+                    let bt = time(base_arm);
+                    (bt, ct)
+                };
+                v.push(tb / tc);
+            }
+            v
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&r| r > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            println!(
+                "NDXYDIRBORROW_AB {name}: median={:.4}x win_rate={wins}/{rounds} \
+                 p5_p95=[{:.4},{:.4}]",
+                median(ratios),
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+        println!(
+            "NDXYDIRBORROW_AB node_degree_xy_directed 8k/200k rounds={rounds} (>1 = borrowed faster)"
+        );
+        report("BORROWED_vs_owned", &paired(true, false));
+        report("NULL_borrowed_vs_borrowed", &paired(true, true));
+    }
+
+    /// br-r37-c1-attrmixborrow: paired-interleaved median A/B for `attribute_mixing_dict`'s
+    /// edges_ordered() → edges_ordered_borrowed() swap. BOTH arms do the identical node_attrs lookups +
+    /// mixing-count inserts; they differ ONLY in owned vs borrowed edge iteration. Dense graph (8k
+    /// nodes with a 5-value node attribute, ~200k edges) so the per-edge EdgeSnapshot clone is a real
+    /// fraction (though diluted by the per-edge (String,String) map inserts). Output-dict parity
+    /// asserted first. `#[ignore]`; run with
+    /// `cargo test --release -p fnx-algorithms --lib attribute_mixing_dict_borrow_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with --release --ignored --nocapture"]
+    fn attribute_mixing_dict_borrow_ab() {
+        use fnx_classes::AttrMap;
+        use fnx_runtime::CgseValue;
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        let n_nodes = 10000usize;
+        let attribute = "color";
+        let mut g = Graph::strict();
+        for i in 0..n_nodes {
+            let mut attrs = AttrMap::new();
+            attrs.insert(attribute.to_owned(), CgseValue::String((i % 5).to_string()));
+            let _ = g.add_node_with_attrs(i.to_string(), attrs);
+        }
+        // ~80 edges/node → ~400k edges; scaled up (per the sizing lesson) to amortize fixed per-round
+        // overhead and tighten the NULL, since the heavy per-edge (String,String) map inserts are noisy.
+        for i in 0..n_nodes {
+            for step in 1..=40usize {
+                let _ = g.add_edge(i.to_string(), ((i + step) % n_nodes).to_string());
+            }
+        }
+
+        let old_fn = |g: &Graph| -> std::collections::HashMap<(String, String), usize> {
+            let mut mixing = std::collections::HashMap::new();
+            for edge in g.edges_ordered() {
+                let u_val = g
+                    .node_attrs(&edge.left)
+                    .and_then(|a| a.get(attribute))
+                    .map(|v| v.as_str())
+                    .unwrap_or_default();
+                let v_val = g
+                    .node_attrs(&edge.right)
+                    .and_then(|a| a.get(attribute))
+                    .map(|v| v.as_str())
+                    .unwrap_or_default();
+                *mixing.entry((u_val.clone(), v_val.clone())).or_insert(0) += 1;
+                if edge.left != edge.right {
+                    *mixing.entry((v_val, u_val)).or_insert(0) += 1;
+                }
+            }
+            mixing
+        };
+        let new_fn = |g: &Graph| -> std::collections::HashMap<(String, String), usize> {
+            let mut mixing = std::collections::HashMap::new();
+            for (left, right, _attrs) in g.edges_ordered_borrowed() {
+                let u_val = g
+                    .node_attrs(left)
+                    .and_then(|a| a.get(attribute))
+                    .map(|v| v.as_str())
+                    .unwrap_or_default();
+                let v_val = g
+                    .node_attrs(right)
+                    .and_then(|a| a.get(attribute))
+                    .map(|v| v.as_str())
+                    .unwrap_or_default();
+                *mixing.entry((u_val.clone(), v_val.clone())).or_insert(0) += 1;
+                if left != right {
+                    *mixing.entry((v_val, u_val)).or_insert(0) += 1;
+                }
+            }
+            mixing
+        };
+
+        assert_eq!(
+            old_fn(&g),
+            new_fn(&g),
+            "attribute_mixing_dict owned vs borrowed must be byte-identical"
+        );
+
+        let time = |cand: bool| -> f64 {
+            let t0 = Instant::now();
+            let r = if cand { new_fn(&g) } else { old_fn(&g) };
+            black_box(&r);
+            t0.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(true));
+            black_box(time(false));
+        }
+        let median = |v: &[f64]| {
+            let mut s = v.to_vec();
+            s.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            s[s.len() / 2]
+        };
+        let rounds = 61usize;
+        let paired = |cand: bool, base_arm: bool| -> Vec<f64> {
+            let mut v = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (tb, tc) = if round.is_multiple_of(2) {
+                    let bt = time(base_arm);
+                    let ct = time(cand);
+                    (bt, ct)
+                } else {
+                    let ct = time(cand);
+                    let bt = time(base_arm);
+                    (bt, ct)
+                };
+                v.push(tb / tc);
+            }
+            v
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&r| r > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            println!(
+                "ATTRMIXBORROW_AB {name}: median={:.4}x win_rate={wins}/{rounds} \
+                 p5_p95=[{:.4},{:.4}]",
+                median(ratios),
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+        println!(
+            "ATTRMIXBORROW_AB attribute_mixing_dict 10k/400k rounds={rounds} (>1 = borrowed faster)"
+        );
+        report("BORROWED_vs_owned", &paired(true, false));
+        report("NULL_borrowed_vs_borrowed", &paired(true, true));
+    }
+
+    #[test]
+    fn attribute_assortativity_sparse_reduction_preserves_exact_fold() {
+        fn assert_exact(matrix: &[Vec<f64>]) {
+            let baseline = super::attribute_assortativity_matrix_square_sum_orig(matrix);
+            let candidate = super::attribute_assortativity_matrix_square_sum(matrix);
+            assert_eq!(
+                candidate.to_bits(),
+                baseline.to_bits(),
+                "zero-term elision must preserve the dense fold exactly"
+            );
+        }
+
+        assert_exact(&[]);
+        assert_exact(&[vec![0.0]]);
+        assert_exact(&[
+            vec![0.25, 0.0, 0.0],
+            vec![0.0, 0.5, 0.0],
+            vec![0.0, 0.0, 0.25],
+        ]);
+
+        let sparse_size = 17usize;
+        let mut sparse = vec![vec![0.0; sparse_size]; sparse_size];
+        for row in 0..sparse_size {
+            sparse[row][row] = (row + 1) as f64 / 10_000.0;
+            sparse[row][(row * 7 + 3) % sparse_size] = (row + 2) as f64 / 20_000.0;
+        }
+        assert_exact(&sparse);
+
+        let dense_size = 11usize;
+        let dense = (0..dense_size)
+            .map(|row| {
+                (0..dense_size)
+                    .map(|column| ((row * 17 + column * 13) % 23 + 1) as f64 / 10_000.0)
+                    .collect::<Vec<_>>()
+            })
+            .collect::<Vec<_>>();
+        assert_exact(&dense);
+    }
+
+    #[test]
+    #[ignore = "measurement; run with --profile release --ignored --nocapture"]
+    fn attribute_assortativity_sparse_reduction_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        fn median(values: &[u128]) -> u128 {
+            let mut sorted = values.to_vec();
+            sorted.sort_unstable();
+            sorted[sorted.len() / 2]
+        }
+
+        fn elapsed_ns<F>(mut run: F) -> u128
+        where
+            F: FnMut(),
+        {
+            let started = Instant::now();
+            run();
+            started.elapsed().as_nanos()
+        }
+
+        let category_count = 384usize;
+        let mut matrix = vec![vec![0.0; category_count]; category_count];
+        let unit = 1.0 / (2 * category_count) as f64;
+        for row in 0..category_count {
+            let next = (row + 1) % category_count;
+            matrix[row][next] = unit;
+            matrix[next][row] = unit;
+        }
+
+        let expected = super::attribute_assortativity_matrix_square_sum_orig(&matrix);
+        let actual = super::attribute_assortativity_matrix_square_sum(&matrix);
+        assert_eq!(actual.to_bits(), expected.to_bits());
+
+        for _ in 0..3 {
+            black_box(super::attribute_assortativity_matrix_square_sum_orig(
+                black_box(&matrix),
+            ));
+            black_box(super::attribute_assortativity_matrix_square_sum(black_box(
+                &matrix,
+            )));
+        }
+
+        let rounds = 15usize;
+        let mut baseline_ns = Vec::with_capacity(rounds);
+        let mut candidate_ns = Vec::with_capacity(rounds);
+        for round in 0..rounds {
+            if round.is_multiple_of(2) {
+                baseline_ns.push(elapsed_ns(|| {
+                    black_box(super::attribute_assortativity_matrix_square_sum_orig(
+                        black_box(&matrix),
+                    ));
+                }));
+                candidate_ns.push(elapsed_ns(|| {
+                    black_box(super::attribute_assortativity_matrix_square_sum(black_box(
+                        &matrix,
+                    )));
+                }));
+            } else {
+                candidate_ns.push(elapsed_ns(|| {
+                    black_box(super::attribute_assortativity_matrix_square_sum(black_box(
+                        &matrix,
+                    )));
+                }));
+                baseline_ns.push(elapsed_ns(|| {
+                    black_box(super::attribute_assortativity_matrix_square_sum_orig(
+                        black_box(&matrix),
+                    ));
+                }));
+            }
+        }
+
+        let mut null_first_ns = Vec::with_capacity(rounds);
+        let mut null_second_ns = Vec::with_capacity(rounds);
+        for round in 0..rounds {
+            if round.is_multiple_of(2) {
+                null_first_ns.push(elapsed_ns(|| {
+                    black_box(super::attribute_assortativity_matrix_square_sum(black_box(
+                        &matrix,
+                    )));
+                }));
+                null_second_ns.push(elapsed_ns(|| {
+                    black_box(super::attribute_assortativity_matrix_square_sum(black_box(
+                        &matrix,
+                    )));
+                }));
+            } else {
+                null_second_ns.push(elapsed_ns(|| {
+                    black_box(super::attribute_assortativity_matrix_square_sum(black_box(
+                        &matrix,
+                    )));
+                }));
+                null_first_ns.push(elapsed_ns(|| {
+                    black_box(super::attribute_assortativity_matrix_square_sum(black_box(
+                        &matrix,
+                    )));
+                }));
+            }
+        }
+
+        let baseline_median_ns = median(&baseline_ns);
+        let candidate_median_ns = median(&candidate_ns);
+        let null_first_median_ns = median(&null_first_ns);
+        let null_second_median_ns = median(&null_second_ns);
+        let paired_wins = baseline_ns
+            .iter()
+            .zip(&candidate_ns)
+            .filter(|(baseline, candidate)| baseline > candidate)
+            .count();
+        println!(
+            "ATTRIBUTE_ASSORTATIVITY_SPARSE_REDUCTION_AB categories={category_count} \
+             nonzeros={} rounds={rounds} baseline_median_ns={baseline_median_ns} \
+             candidate_median_ns={candidate_median_ns} speedup={:.4}x \
+             paired_wins={paired_wins}/{rounds} null_first_median_ns={null_first_median_ns} \
+             null_second_median_ns={null_second_median_ns} null_ratio={:.4}x \
+             exact_bit_parity=true",
+            2 * category_count,
+            baseline_median_ns as f64 / candidate_median_ns as f64,
+            null_first_median_ns as f64 / null_second_median_ns as f64,
+        );
+    }
+
+    /// br-r37-c1-numassortborrow: paired-interleaved median A/B for `numeric_assortativity_coefficient`'s
+    /// counts-accumulation edge loop — edges_ordered() vs edges_ordered_borrowed(). BOTH arms do the
+    /// identical node_attrs lookups + u64 val_idx probe + counts[][] increments; they differ ONLY in
+    /// owned vs borrowed edge iteration. Cheap per-edge work (no String map inserts) so the clone is
+    /// undiluted → expected to clear the strict gate. Output counts-matrix parity asserted first.
+    /// `#[ignore]`; run with
+    /// `cargo test --release -p fnx-algorithms --lib numeric_assort_borrow_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with --release --ignored --nocapture"]
+    fn numeric_assort_borrow_ab() {
+        use fnx_classes::AttrMap;
+        use fnx_runtime::CgseValue;
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        let n_nodes = 10000usize;
+        let attribute = "val";
+        let k = 5usize;
+        let mut g = Graph::strict();
+        for i in 0..n_nodes {
+            let mut attrs = AttrMap::new();
+            attrs.insert(attribute.to_owned(), CgseValue::Int((i % k) as i64));
+            let _ = g.add_node_with_attrs(i.to_string(), attrs);
+        }
+        for i in 0..n_nodes {
+            for step in 1..=40usize {
+                let _ = g.add_edge(i.to_string(), ((i + step) % n_nodes).to_string());
+            }
+        }
+        // val_idx over the k distinct value bit-patterns (0..k as f64).
+        let val_idx: std::collections::HashMap<u64, usize> =
+            (0..k).map(|i| ((i as f64).to_bits(), i)).collect();
+
+        let old_fn = |g: &Graph| -> Vec<Vec<usize>> {
+            let mut counts = vec![vec![0usize; k]; k];
+            for edge in g.edges_ordered() {
+                let x_bits = g
+                    .node_attrs(&edge.left)
+                    .and_then(|a| a.get(attribute))
+                    .map(|v| v.as_f64().unwrap_or(0.0).to_bits())
+                    .unwrap_or(0u64);
+                let y_bits = g
+                    .node_attrs(&edge.right)
+                    .and_then(|a| a.get(attribute))
+                    .map(|v| v.as_f64().unwrap_or(0.0).to_bits())
+                    .unwrap_or(0u64);
+                if let (Some(&xi), Some(&yi)) = (val_idx.get(&x_bits), val_idx.get(&y_bits)) {
+                    counts[xi][yi] += 1;
+                    counts[yi][xi] += 1;
+                }
+            }
+            counts
+        };
+        let new_fn = |g: &Graph| -> Vec<Vec<usize>> {
+            let mut counts = vec![vec![0usize; k]; k];
+            for (left, right, _attrs) in g.edges_ordered_borrowed() {
+                let x_bits = g
+                    .node_attrs(left)
+                    .and_then(|a| a.get(attribute))
+                    .map(|v| v.as_f64().unwrap_or(0.0).to_bits())
+                    .unwrap_or(0u64);
+                let y_bits = g
+                    .node_attrs(right)
+                    .and_then(|a| a.get(attribute))
+                    .map(|v| v.as_f64().unwrap_or(0.0).to_bits())
+                    .unwrap_or(0u64);
+                if let (Some(&xi), Some(&yi)) = (val_idx.get(&x_bits), val_idx.get(&y_bits)) {
+                    counts[xi][yi] += 1;
+                    counts[yi][xi] += 1;
+                }
+            }
+            counts
+        };
+
+        assert_eq!(
+            old_fn(&g),
+            new_fn(&g),
+            "numeric_assortativity counts owned vs borrowed must be byte-identical"
+        );
+
+        let time = |cand: bool| -> f64 {
+            let t0 = Instant::now();
+            let r = if cand { new_fn(&g) } else { old_fn(&g) };
+            black_box(&r);
+            t0.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(true));
+            black_box(time(false));
+        }
+        let median = |v: &[f64]| {
+            let mut s = v.to_vec();
+            s.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            s[s.len() / 2]
+        };
+        let rounds = 61usize;
+        let paired = |cand: bool, base_arm: bool| -> Vec<f64> {
+            let mut v = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (tb, tc) = if round.is_multiple_of(2) {
+                    let bt = time(base_arm);
+                    let ct = time(cand);
+                    (bt, ct)
+                } else {
+                    let ct = time(cand);
+                    let bt = time(base_arm);
+                    (bt, ct)
+                };
+                v.push(tb / tc);
+            }
+            v
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&r| r > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            println!(
+                "NUMASSORTBORROW_AB {name}: median={:.4}x win_rate={wins}/{rounds} \
+                 p5_p95=[{:.4},{:.4}]",
+                median(ratios),
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+        println!(
+            "NUMASSORTBORROW_AB numeric_assortativity 10k/400k rounds={rounds} (>1 = borrowed faster)"
+        );
+        report("BORROWED_vs_owned", &paired(true, false));
+        report("NULL_borrowed_vs_borrowed", &paired(true, true));
+    }
+
+    /// br-r37-c1-chordalmcs: full-function paired-interleaved median A/B for `is_chordal` — inline
+    /// ORIGINAL (O(V^2) `max_by_key` MCS + edges_ordered()/idx-map adj) vs the shipped
+    /// `super::is_chordal` (O((V+E)logV) bucket MCS + index-native adj). Timed on a large SPARSE chordal
+    /// graph (path-power / interval graph) so the O(V^2) MCS dominates and the algorithmic win is visible.
+    /// Bool parity asserted first. `#[ignore]`; run with
+    /// `cargo test --release -p fnx-algorithms --lib is_chordal_mcs_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with --release --ignored --nocapture"]
+    fn is_chordal_mcs_ab() {
+        use std::collections::{HashMap, HashSet};
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        // Interval graph (k-th power of a path): node i ~ i-1..=i-k. Chordal → is_chordal runs fully.
+        let n_nodes = 6000usize;
+        let k = 4usize;
+        let mut g = Graph::strict();
+        for i in 0..n_nodes {
+            let _ = g.add_node(i.to_string());
+        }
+        for i in 0..n_nodes {
+            for d in 1..=k {
+                if i >= d {
+                    let _ = g.add_edge(i.to_string(), (i - d).to_string());
+                }
+            }
+        }
+
+        // Inline ORIGINAL is_chordal (O(V^2) MCS + edges_ordered/idx-map adj).
+        let old_fn = |graph: &Graph| -> bool {
+            let nodes = graph.nodes_ordered();
+            let n = nodes.len();
+            if n <= 3 {
+                return true;
+            }
+            let idx: HashMap<&str, usize> =
+                nodes.iter().enumerate().map(|(i, &nd)| (nd, i)).collect();
+            let mut adj: Vec<HashSet<usize>> = vec![HashSet::new(); n];
+            for edge in graph.edges_ordered() {
+                let i = idx[edge.left.as_str()];
+                let j = idx[edge.right.as_str()];
+                if i != j {
+                    adj[i].insert(j);
+                    adj[j].insert(i);
+                }
+            }
+            let mut weight = vec![0_usize; n];
+            let mut order = Vec::with_capacity(n);
+            let mut numbered = vec![false; n];
+            for _ in 0..n {
+                let v = (0..n)
+                    .filter(|&i| !numbered[i])
+                    .max_by_key(|&i| (weight[i], std::cmp::Reverse(i)))
+                    .unwrap();
+                order.push(v);
+                numbered[v] = true;
+                for &w in &adj[v] {
+                    if !numbered[w] {
+                        weight[w] += 1;
+                    }
+                }
+            }
+            order.reverse();
+            let position: Vec<usize> = {
+                let mut pos = vec![0; n];
+                for (i, &v) in order.iter().enumerate() {
+                    pos[v] = i;
+                }
+                pos
+            };
+            for (idx_in_order, &v) in order.iter().enumerate() {
+                let later_neighbors: Vec<usize> = adj[v]
+                    .iter()
+                    .filter(|&&w| position[w] > idx_in_order)
+                    .copied()
+                    .collect();
+                for i in 0..later_neighbors.len() {
+                    for j in (i + 1)..later_neighbors.len() {
+                        if !adj[later_neighbors[i]].contains(&later_neighbors[j]) {
+                            return false;
+                        }
+                    }
+                }
+            }
+            true
+        };
+
+        assert_eq!(
+            old_fn(&g),
+            super::is_chordal(&g),
+            "is_chordal bucket-MCS must be byte-identical to the O(V^2) scan"
+        );
+
+        let time = |cand: bool| -> f64 {
+            let t0 = Instant::now();
+            let r = if cand {
+                super::is_chordal(&g)
+            } else {
+                old_fn(&g)
+            };
+            black_box(r);
+            t0.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(true));
+            black_box(time(false));
+        }
+        let median = |v: &[f64]| {
+            let mut s = v.to_vec();
+            s.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            s[s.len() / 2]
+        };
+        let rounds = 61usize;
+        let paired = |cand: bool, base_arm: bool| -> Vec<f64> {
+            let mut v = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (tb, tc) = if round.is_multiple_of(2) {
+                    let bt = time(base_arm);
+                    let ct = time(cand);
+                    (bt, ct)
+                } else {
+                    let ct = time(cand);
+                    let bt = time(base_arm);
+                    (bt, ct)
+                };
+                v.push(tb / tc);
+            }
+            v
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&r| r > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            println!(
+                "CHORDALMCS_AB {name}: median={:.4}x win_rate={wins}/{rounds} \
+                 p5_p95=[{:.4},{:.4}]",
+                median(ratios),
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+        println!(
+            "CHORDALMCS_AB is_chordal 6000-node interval graph rounds={rounds} (>1 = bucket-MCS faster)"
+        );
+        report("BUCKET_vs_scan", &paired(true, false));
+        report("NULL_bucket_vs_bucket", &paired(true, true));
+    }
+
+    /// br-r37-c1-chordaltwmcs: full-function paired-interleaved median A/B for
+    /// `chordal_graph_treewidth` — inline ORIGINAL (O(V²) String-keyed `remaining.iter().max_by(...)`
+    /// MCS) vs the shipped `super::chordal_graph_treewidth` (O((V+E)logV) index-bucket MCS). Large
+    /// SPARSE chordal graph so the O(V²) scan dominates. Result parity asserted first. `#[ignore]`; run
+    /// with `cargo test --release -p fnx-algorithms --lib chordal_treewidth_mcs_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with --release --ignored --nocapture"]
+    fn chordal_treewidth_mcs_ab() {
+        use std::collections::{HashMap, HashSet};
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        // Interval graph (4th power of a path): chordal → chordal_graph_treewidth returns Ok(tw).
+        let n_nodes = 6000usize;
+        let k = 4usize;
+        let mut g = Graph::strict();
+        for i in 0..n_nodes {
+            let _ = g.add_node(i.to_string());
+        }
+        for i in 0..n_nodes {
+            for d in 1..=k {
+                if i >= d {
+                    let _ = g.add_edge(i.to_string(), (i - d).to_string());
+                }
+            }
+        }
+
+        // Inline ORIGINAL chordal_mcs_max_clique_size (O(V²) String-keyed MCS) → treewidth.
+        let old_tw = |graph: &Graph| -> usize {
+            let nodes = graph.nodes_ordered();
+            let n = nodes.len();
+            if n == 0 {
+                return 0;
+            }
+            let rank: HashMap<&str, usize> =
+                nodes.iter().enumerate().map(|(i, &nd)| (nd, i)).collect();
+            let mut remaining: HashSet<&str> = nodes.iter().copied().collect();
+            let mut labels: HashMap<&str, usize> = nodes.iter().map(|&nd| (nd, 0)).collect();
+            let mut max_clique_size = 0usize;
+            while !remaining.is_empty() {
+                let &chosen = remaining
+                    .iter()
+                    .max_by(|&&l, &&r| {
+                        labels[&l]
+                            .cmp(&labels[&r])
+                            .then_with(|| rank[&r].cmp(&rank[&l]))
+                    })
+                    .unwrap();
+                remaining.remove(chosen);
+                let clique_wanna_be: Vec<&str> = graph
+                    .neighbors_iter(chosen)
+                    .map(|nbrs| {
+                        nbrs.filter(|nb| nb != &chosen && !remaining.contains(*nb))
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                assert!(
+                    super::node_set_is_complete(graph, &clique_wanna_be),
+                    "test graph must be chordal"
+                );
+                max_clique_size = max_clique_size.max(clique_wanna_be.len() + 1);
+                if let Some(nbrs) = graph.neighbors_iter(chosen) {
+                    for nb in nbrs {
+                        if remaining.contains(nb)
+                            && let Some(label) = labels.get_mut(nb)
+                        {
+                            *label += 1;
+                        }
+                    }
+                }
+            }
+            max_clique_size.saturating_sub(1)
+        };
+
+        assert_eq!(
+            old_tw(&g),
+            super::chordal_graph_treewidth(&g).unwrap(),
+            "bucket-MCS treewidth must be byte-identical to the O(V²) scan"
+        );
+
+        let time = |cand: bool| -> f64 {
+            let t0 = Instant::now();
+            let r = if cand {
+                super::chordal_graph_treewidth(&g).unwrap()
+            } else {
+                old_tw(&g)
+            };
+            black_box(r);
+            t0.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(true));
+            black_box(time(false));
+        }
+        let median = |v: &[f64]| {
+            let mut s = v.to_vec();
+            s.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            s[s.len() / 2]
+        };
+        let rounds = 61usize;
+        let paired = |cand: bool, base_arm: bool| -> Vec<f64> {
+            let mut v = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (tb, tc) = if round.is_multiple_of(2) {
+                    let bt = time(base_arm);
+                    let ct = time(cand);
+                    (bt, ct)
+                } else {
+                    let ct = time(cand);
+                    let bt = time(base_arm);
+                    (bt, ct)
+                };
+                v.push(tb / tc);
+            }
+            v
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&r| r > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            println!(
+                "CHORDALTWMCS_AB {name}: median={:.4}x win_rate={wins}/{rounds} \
+                 p5_p95=[{:.4},{:.4}]",
+                median(ratios),
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+        println!(
+            "CHORDALTWMCS_AB chordal_graph_treewidth 6000-node interval rounds={rounds} (>1 = bucket faster)"
+        );
+        report("BUCKET_vs_scan", &paired(true, false));
+        report("NULL_bucket_vs_bucket", &paired(true, true));
+    }
+
+    /// br-r37-c1-misbucket: full-function paired-interleaved median A/B for `maximum_independent_set` —
+    /// inline PREVIOUS production (the `mismark` O(V·E) int scan: rescan all remaining + recompute each
+    /// effective degree per round) vs the shipped `super::maximum_independent_set` (O((V+E)logV)
+    /// min-degree buckets). Large sparse-ish graph so the O(V·E) recompute dominates. Full-output parity
+    /// asserted first. `#[ignore]`; run with
+    /// `cargo test --release -p fnx-algorithms --lib mis_bucket_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with --release --ignored --nocapture"]
+    fn mis_bucket_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        // 5th-power-of-a-path interval graph: large independent set → many peel rounds.
+        let n_nodes = 4000usize;
+        let k = 5usize;
+        let mut g = Graph::strict();
+        for i in 0..n_nodes {
+            let _ = g.add_node(i.to_string());
+        }
+        for i in 0..n_nodes {
+            for d in 1..=k {
+                if i >= d {
+                    let _ = g.add_edge(i.to_string(), (i - d).to_string());
+                }
+            }
+        }
+
+        // Inline PREVIOUS production maximum_independent_set (mismark O(V·E) int scan).
+        let old_fn = |graph: &Graph| -> Vec<String> {
+            let nodes = graph.nodes_ordered();
+            let n = nodes.len();
+            if n == 0 {
+                return Vec::new();
+            }
+            let mut in_remaining = vec![true; n];
+            let mut remaining_count = n;
+            let mut independent_set: Vec<usize> = Vec::new();
+            while remaining_count > 0 {
+                let mut best: Option<usize> = None;
+                let mut best_deg = 0usize;
+                for i in 0..n {
+                    if !in_remaining[i] {
+                        continue;
+                    }
+                    let deg = graph
+                        .neighbors_indices(i)
+                        .map(|nbrs| nbrs.iter().filter(|&&ni| in_remaining[ni]).count())
+                        .unwrap_or(0);
+                    let take = match best {
+                        None => true,
+                        Some(b) => deg < best_deg || (deg == best_deg && nodes[i] < nodes[b]),
+                    };
+                    if take {
+                        best = Some(i);
+                        best_deg = deg;
+                    }
+                }
+                let min_node = best.unwrap();
+                independent_set.push(min_node);
+                if in_remaining[min_node] {
+                    in_remaining[min_node] = false;
+                    remaining_count -= 1;
+                }
+                if let Some(nbrs) = graph.neighbors_indices(min_node) {
+                    for &ni in nbrs {
+                        if in_remaining[ni] {
+                            in_remaining[ni] = false;
+                            remaining_count -= 1;
+                        }
+                    }
+                }
+            }
+            let mut result: Vec<String> = independent_set
+                .iter()
+                .map(|&i| nodes[i].to_owned())
+                .collect();
+            result.sort();
+            result
+        };
+
+        assert_eq!(
+            old_fn(&g),
+            super::maximum_independent_set(&g),
+            "min-degree bucket MIS must be byte-identical to the O(V·E) scan"
+        );
+
+        let time = |cand: bool| -> f64 {
+            let t0 = Instant::now();
+            let r = if cand {
+                super::maximum_independent_set(&g)
+            } else {
+                old_fn(&g)
+            };
+            black_box(&r);
+            t0.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(true));
+            black_box(time(false));
+        }
+        let median = |v: &[f64]| {
+            let mut s = v.to_vec();
+            s.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            s[s.len() / 2]
+        };
+        let rounds = 61usize;
+        let paired = |cand: bool, base_arm: bool| -> Vec<f64> {
+            let mut v = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (tb, tc) = if round.is_multiple_of(2) {
+                    let bt = time(base_arm);
+                    let ct = time(cand);
+                    (bt, ct)
+                } else {
+                    let ct = time(cand);
+                    let bt = time(base_arm);
+                    (bt, ct)
+                };
+                v.push(tb / tc);
+            }
+            v
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&r| r > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            println!(
+                "MISBUCKET_AB {name}: median={:.4}x win_rate={wins}/{rounds} \
+                 p5_p95=[{:.4},{:.4}]",
+                median(ratios),
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+        println!(
+            "MISBUCKET_AB maximum_independent_set 4000-node interval rounds={rounds} (>1 = bucket faster)"
+        );
+        report("BUCKET_vs_scan", &paired(true, false));
+        report("NULL_bucket_vs_bucket", &paired(true, true));
+    }
+
+    /// br-r37-c1-mcapproxdeg: full-function paired-interleaved median A/B for `max_clique_approx` —
+    /// inline ORIGINAL (degree recomputed inside the max_by comparator, a fresh neighbors() Vec alloc
+    /// per comparison) vs the frozen mcapproxdeg String-state helper (precompute each candidate's degree
+    /// once per round via neighbors_iter, no per-comparison alloc). Dense-ish graph so a large candidate set
+    /// makes the ~|candidates| redundant recomputations/allocs the dominant cost. Output parity asserted
+    /// first. `#[ignore]`; run with
+    /// `cargo test --release -p fnx-algorithms --lib max_clique_approx_deg_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with --release --ignored --nocapture"]
+    fn max_clique_approx_deg_ab() {
+        use std::collections::HashSet;
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        // Dense-ish graph: high-degree start → large candidate set → many redundant comparator recomputes.
+        let n_nodes = 1200usize;
+        let mut g = Graph::strict();
+        for i in 0..n_nodes {
+            let _ = g.add_node(i.to_string());
+        }
+        for i in 0..n_nodes {
+            for step in 1..=60usize {
+                let _ = g.add_edge(i.to_string(), ((i + step) % n_nodes).to_string());
+            }
+        }
+
+        // Inline ORIGINAL max_clique_approx (comparator recomputes degrees, neighbors() Vec alloc).
+        let old_fn = |graph: &Graph| -> Vec<String> {
+            let nodes = graph.nodes_ordered();
+            if nodes.is_empty() {
+                return Vec::new();
+            }
+            let start = nodes
+                .iter()
+                .max_by_key(|&&node| graph.neighbor_count(node))
+                .unwrap()
+                .to_string();
+            let mut clique: Vec<String> = vec![start.clone()];
+            let mut candidates: HashSet<String> = graph
+                .neighbors(&start)
+                .unwrap_or_default()
+                .into_iter()
+                .map(str::to_owned)
+                .collect();
+            while !candidates.is_empty() {
+                let chosen = candidates
+                    .iter()
+                    .max_by(|&a, &b| {
+                        let deg_a = graph
+                            .neighbors(a)
+                            .map(|nbrs| nbrs.iter().filter(|&&n| candidates.contains(n)).count())
+                            .unwrap_or(0);
+                        let deg_b = graph
+                            .neighbors(b)
+                            .map(|nbrs| nbrs.iter().filter(|&&n| candidates.contains(n)).count())
+                            .unwrap_or(0);
+                        deg_a.cmp(&deg_b).then_with(|| a.cmp(b))
+                    })
+                    .cloned()
+                    .unwrap();
+                candidates.remove(&chosen);
+                clique.push(chosen.clone());
+                if let Some(nbrs) = graph.neighbors(&chosen) {
+                    let nbr_set: HashSet<&str> = nbrs.into_iter().collect();
+                    candidates.retain(|c| nbr_set.contains(c.as_str()));
+                } else {
+                    candidates.clear();
+                }
+            }
+            clique.sort();
+            clique
+        };
+
+        assert_eq!(
+            old_fn(&g),
+            super::max_clique_approx_orig_string_state(&g),
+            "precompute-degree max_clique_approx must be byte-identical to the comparator-recompute version"
+        );
+
+        let time = |cand: bool| -> f64 {
+            let t0 = Instant::now();
+            let r = if cand {
+                super::max_clique_approx_orig_string_state(&g)
+            } else {
+                old_fn(&g)
+            };
+            black_box(&r);
+            t0.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(true));
+            black_box(time(false));
+        }
+        let median = |v: &[f64]| {
+            let mut s = v.to_vec();
+            s.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            s[s.len() / 2]
+        };
+        let rounds = 61usize;
+        let paired = |cand: bool, base_arm: bool| -> Vec<f64> {
+            let mut v = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (tb, tc) = if round.is_multiple_of(2) {
+                    let bt = time(base_arm);
+                    let ct = time(cand);
+                    (bt, ct)
+                } else {
+                    let ct = time(cand);
+                    let bt = time(base_arm);
+                    (bt, ct)
+                };
+                v.push(tb / tc);
+            }
+            v
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&r| r > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            println!(
+                "MCAPPROXDEG_AB {name}: median={:.4}x win_rate={wins}/{rounds} \
+                 p5_p95=[{:.4},{:.4}]",
+                median(ratios),
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+        println!(
+            "MCAPPROXDEG_AB max_clique_approx 1200-node deg120 rounds={rounds} (>1 = precompute faster)"
+        );
+        report("PRECOMPUTE_vs_recompute", &paired(true, false));
+        report("NULL_precompute_vs_precompute", &paired(true, true));
+    }
+
+    /// br-r37-c1-mmbpf: same-binary A/B for dense index/mark candidate state
+    /// against the frozen String HashSet/HashMap implementation, plus an
+    /// index/index null control.
+    #[test]
+    #[ignore = "measurement; run with --profile release --include-ignored --nocapture"]
+    fn max_clique_approx_index_state_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        fn median(values: &[u128]) -> u128 {
+            let mut sorted = values.to_vec();
+            sorted.sort_unstable();
+            sorted[sorted.len() / 2]
+        }
+
+        let n = 2_048usize;
+        let radius = 96usize;
+        let calls = 2usize;
+        let names = (0..n).map(|idx| format!("n{idx}")).collect::<Vec<_>>();
+        let mut graph = Graph::strict();
+        for name in &names {
+            graph.add_node(name);
+        }
+        for left in 0..n {
+            for offset in 1..=radius {
+                let right = (left + offset) % n;
+                let _ = graph.add_edge(&names[left], &names[right]);
+            }
+        }
+
+        let baseline = super::max_clique_approx_orig_string_state(&graph);
+        let candidate = super::max_clique_approx(&graph);
+        assert_eq!(
+            candidate, baseline,
+            "index candidate state must preserve output"
+        );
+
+        let time = |use_candidate: bool| -> u128 {
+            let start = Instant::now();
+            for _ in 0..calls {
+                let clique = if use_candidate {
+                    super::max_clique_approx(black_box(&graph))
+                } else {
+                    super::max_clique_approx_orig_string_state(black_box(&graph))
+                };
+                black_box(clique);
+            }
+            start.elapsed().as_nanos()
+        };
+        for _ in 0..3 {
+            black_box(time(false));
+            black_box(time(true));
+        }
+
+        let rounds = 15usize;
+        let mut baseline_times = Vec::with_capacity(rounds);
+        let mut candidate_times = Vec::with_capacity(rounds);
+        let mut null_first_times = Vec::with_capacity(rounds);
+        let mut null_second_times = Vec::with_capacity(rounds);
+        for round in 0..rounds {
+            let (baseline_time, candidate_time) = if round.is_multiple_of(2) {
+                (time(false), time(true))
+            } else {
+                let candidate_time = time(true);
+                (time(false), candidate_time)
+            };
+            baseline_times.push(baseline_time);
+            candidate_times.push(candidate_time);
+
+            let (null_first, null_second) = if round.is_multiple_of(2) {
+                (time(true), time(true))
+            } else {
+                let null_second = time(true);
+                (time(true), null_second)
+            };
+            null_first_times.push(null_first);
+            null_second_times.push(null_second);
+        }
+
+        let baseline_median = median(&baseline_times);
+        let candidate_median = median(&candidate_times);
+        let null_first_median = median(&null_first_times);
+        let null_second_median = median(&null_second_times);
+        let paired_wins = baseline_times
+            .iter()
+            .zip(&candidate_times)
+            .filter(|(baseline_time, candidate_time)| baseline_time > candidate_time)
+            .count();
+
+        println!(
+            "MAX_CLIQUE_INDEX_AB n={n} radius={radius} calls={calls} rounds={rounds} baseline_median_ns={baseline_median} candidate_median_ns={candidate_median} speedup={:.3}x paired_wins={paired_wins}/{rounds} null_first_median_ns={null_first_median} null_second_median_ns={null_second_median} null_ratio={:.3}x exact_parity=true",
+            baseline_median as f64 / candidate_median as f64,
+            null_first_median as f64 / null_second_median as f64,
+        );
+    }
+
+    /// br-r37-c1-bkpivotdeg: full-function paired-interleaved median A/B for `find_cliques` — inline
+    /// ORIGINAL (Bron-Kerbosch with the pivot |P∩N(u)| recomputed inside the max_by comparator) vs the
+    /// shipped `super::find_cliques` (precompute each candidate's |P∩N(u)| once per pivot pick). Pivot-
+    /// heavy graph (disjoint large cliques → large P at the top levels) so the pivot selection is a real
+    /// fraction. Clique-list parity asserted first. `#[ignore]`; run with
+    /// `cargo test --release -p fnx-algorithms --lib find_cliques_pivot_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with --release --ignored --nocapture"]
+    fn find_cliques_pivot_ab() {
+        use std::collections::{HashMap, HashSet};
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        // 8 disjoint K_40 cliques → 8 maximal cliques, but large P (320) at the top BK levels.
+        let cliques_n = 8usize;
+        let clique_sz = 40usize;
+        let mut g = Graph::strict();
+        let total = cliques_n * clique_sz;
+        for i in 0..total {
+            let _ = g.add_node(i.to_string());
+        }
+        for c in 0..cliques_n {
+            let base = c * clique_sz;
+            for a in 0..clique_sz {
+                for b in (a + 1)..clique_sz {
+                    let _ = g.add_edge((base + a).to_string(), (base + b).to_string());
+                }
+            }
+        }
+
+        // Inline ORIGINAL find_cliques (pivot recomputed in the comparator), returning just the cliques.
+        let old_fn = |graph: &Graph| -> Vec<Vec<String>> {
+            let nodes = graph.nodes_ordered();
+            let n = nodes.len();
+            if n == 0 {
+                return vec![];
+            }
+            let node_to_idx: HashMap<&str, usize> =
+                nodes.iter().enumerate().map(|(i, nd)| (*nd, i)).collect();
+            let mut adj: Vec<HashSet<usize>> = vec![HashSet::new(); n];
+            for i in 0..n {
+                if let Some(nbrs) = graph.neighbors_iter(nodes[i]) {
+                    for nb in nbrs {
+                        if let Some(&j) = node_to_idx.get(nb) {
+                            adj[i].insert(j);
+                        }
+                    }
+                }
+            }
+            let mut cliques: Vec<Vec<String>> = Vec::new();
+            let p_init: HashSet<usize> = (0..n).collect();
+            let mut stack: Vec<(HashSet<usize>, HashSet<usize>, HashSet<usize>)> =
+                vec![(p_init, HashSet::new(), HashSet::new())];
+            while let Some((p, r, x)) = stack.pop() {
+                if p.is_empty() && x.is_empty() {
+                    let mut clique: Vec<String> = r.iter().map(|&i| nodes[i].to_owned()).collect();
+                    clique.sort();
+                    cliques.push(clique);
+                    continue;
+                }
+                if p.is_empty() {
+                    continue;
+                }
+                let pivot = p
+                    .union(&x)
+                    .max_by(|&&u, &&v| {
+                        let deg_u = p.intersection(&adj[u]).count();
+                        let deg_v = p.intersection(&adj[v]).count();
+                        deg_u.cmp(&deg_v).then_with(|| u.cmp(&v))
+                    })
+                    .copied()
+                    .unwrap();
+                let candidates: Vec<usize> = p.difference(&adj[pivot]).copied().collect();
+                let mut p_mut = p;
+                let mut x_mut = x;
+                for v in candidates {
+                    let mut r_new = r.clone();
+                    r_new.insert(v);
+                    let p_new: HashSet<usize> = p_mut.intersection(&adj[v]).copied().collect();
+                    let x_new: HashSet<usize> = x_mut.intersection(&adj[v]).copied().collect();
+                    stack.push((p_new, r_new, x_new));
+                    p_mut.remove(&v);
+                    x_mut.insert(v);
+                }
+            }
+            cliques.sort();
+            cliques
+        };
+
+        assert_eq!(
+            old_fn(&g),
+            super::find_cliques(&g).cliques,
+            "precompute-pivot find_cliques must be byte-identical to the comparator-recompute version"
+        );
+
+        let time = |cand: bool| -> f64 {
+            let t0 = Instant::now();
+            if cand {
+                black_box(super::find_cliques(&g).cliques);
+            } else {
+                black_box(old_fn(&g));
+            }
+            t0.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(true));
+            black_box(time(false));
+        }
+        let median = |v: &[f64]| {
+            let mut s = v.to_vec();
+            s.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            s[s.len() / 2]
+        };
+        let rounds = 61usize;
+        let paired = |cand: bool, base_arm: bool| -> Vec<f64> {
+            let mut v = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (tb, tc) = if round.is_multiple_of(2) {
+                    let bt = time(base_arm);
+                    let ct = time(cand);
+                    (bt, ct)
+                } else {
+                    let ct = time(cand);
+                    let bt = time(base_arm);
+                    (bt, ct)
+                };
+                v.push(tb / tc);
+            }
+            v
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&r| r > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            println!(
+                "BKPIVOTDEG_AB {name}: median={:.4}x win_rate={wins}/{rounds} \
+                 p5_p95=[{:.4},{:.4}]",
+                median(ratios),
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+        println!("BKPIVOTDEG_AB find_cliques 8xK40 rounds={rounds} (>1 = precompute faster)");
+        report("PRECOMPUTE_vs_recompute", &paired(true, false));
+        report("NULL_precompute_vs_precompute", &paired(true, true));
+    }
+
+    /// br-r37-c1-bkrpivotdeg: full-function paired-interleaved median A/B for `find_cliques_recursive` —
+    /// inline ORIGINAL recursive Bron-Kerbosch (pivot |N(u)∩P| recomputed inside the max_by comparator)
+    /// vs the shipped `super::find_cliques_recursive` (precompute each |N(u)∩P| once). Twin of
+    /// br-r37-c1-bkpivotdeg on the recursive variant. `#[ignore]`; run with
+    /// `cargo test --release -p fnx-algorithms --lib find_cliques_recursive_pivot_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with --release --ignored --nocapture"]
+    fn find_cliques_recursive_pivot_ab() {
+        use std::collections::{HashMap, HashSet};
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        let cliques_n = 8usize;
+        let clique_sz = 40usize;
+        let mut g = Graph::strict();
+        let total = cliques_n * clique_sz;
+        for i in 0..total {
+            let _ = g.add_node(i.to_string());
+        }
+        for c in 0..cliques_n {
+            let base = c * clique_sz;
+            for a in 0..clique_sz {
+                for b in (a + 1)..clique_sz {
+                    let _ = g.add_edge((base + a).to_string(), (base + b).to_string());
+                }
+            }
+        }
+
+        // ORIGINAL recursive BK with pivot recomputed in the comparator (matches the pre-lever code).
+        fn old_bron_kerbosch(
+            r: &HashSet<usize>,
+            p: &mut HashSet<usize>,
+            x: &mut HashSet<usize>,
+            adj: &[HashSet<usize>],
+            result: &mut Vec<Vec<usize>>,
+        ) {
+            if p.is_empty() && x.is_empty() {
+                let mut clique: Vec<usize> = r.iter().copied().collect();
+                clique.sort_unstable();
+                result.push(clique);
+                return;
+            }
+            let pivot = p
+                .union(x)
+                .max_by(|&&u, &&v| {
+                    let deg_u = adj[u].intersection(p).count();
+                    let deg_v = adj[v].intersection(p).count();
+                    deg_u.cmp(&deg_v).then_with(|| u.cmp(&v))
+                })
+                .copied();
+            let Some(pivot) = pivot else { return };
+            let candidates: Vec<usize> = p.difference(&adj[pivot]).copied().collect();
+            for v in candidates {
+                let mut new_r = r.clone();
+                new_r.insert(v);
+                let mut new_p: HashSet<usize> = p.intersection(&adj[v]).copied().collect();
+                let mut new_x: HashSet<usize> = x.intersection(&adj[v]).copied().collect();
+                old_bron_kerbosch(&new_r, &mut new_p, &mut new_x, adj, result);
+                p.remove(&v);
+                x.insert(v);
+            }
+        }
+        let old_fn = |graph: &Graph| -> Vec<Vec<String>> {
+            let nodes = graph.nodes_ordered();
+            let n = nodes.len();
+            if n == 0 {
+                return vec![];
+            }
+            let node_to_idx: HashMap<&str, usize> =
+                nodes.iter().enumerate().map(|(i, &nd)| (nd, i)).collect();
+            let mut adj = vec![HashSet::new(); n];
+            for (i, &u) in nodes.iter().enumerate() {
+                if let Some(neighbors) = graph.neighbors_iter(u) {
+                    for v in neighbors {
+                        adj[i].insert(node_to_idx[v]);
+                    }
+                }
+            }
+            let mut result = Vec::new();
+            let r: HashSet<usize> = HashSet::new();
+            let mut p: HashSet<usize> = (0..n).collect();
+            let mut x: HashSet<usize> = HashSet::new();
+            old_bron_kerbosch(&r, &mut p, &mut x, &adj, &mut result);
+            let mut string_result: Vec<Vec<String>> = result
+                .into_iter()
+                .map(|clique| clique.into_iter().map(|i| nodes[i].to_string()).collect())
+                .collect();
+            string_result.sort();
+            string_result
+        };
+
+        assert_eq!(
+            old_fn(&g),
+            super::find_cliques_recursive(&g),
+            "precompute-pivot find_cliques_recursive must be byte-identical to the comparator-recompute version"
+        );
+
+        let time = |cand: bool| -> f64 {
+            let t0 = Instant::now();
+            if cand {
+                black_box(super::find_cliques_recursive(&g));
+            } else {
+                black_box(old_fn(&g));
+            }
+            t0.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(true));
+            black_box(time(false));
+        }
+        let median = |v: &[f64]| {
+            let mut s = v.to_vec();
+            s.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            s[s.len() / 2]
+        };
+        let rounds = 61usize;
+        let paired = |cand: bool, base_arm: bool| -> Vec<f64> {
+            let mut v = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (tb, tc) = if round.is_multiple_of(2) {
+                    let bt = time(base_arm);
+                    let ct = time(cand);
+                    (bt, ct)
+                } else {
+                    let ct = time(cand);
+                    let bt = time(base_arm);
+                    (bt, ct)
+                };
+                v.push(tb / tc);
+            }
+            v
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&r| r > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            println!(
+                "BKRPIVOTDEG_AB {name}: median={:.4}x win_rate={wins}/{rounds} \
+                 p5_p95=[{:.4},{:.4}]",
+                median(ratios),
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+        println!(
+            "BKRPIVOTDEG_AB find_cliques_recursive 8xK40 rounds={rounds} (>1 = precompute faster)"
+        );
+        report("PRECOMPUTE_vs_recompute", &paired(true, false));
+        report("NULL_precompute_vs_precompute", &paired(true, true));
+    }
+
+    /// br-r37-c1-voterankidx: full-function paired-interleaved median A/B for `voterank` — inline ORIGINAL
+    /// String-keyed kernel (HashMap<&str,f64> vote_power/scores, HashSet<&str> selected, per-round
+    /// sort-to-pick-max) vs the shipped `super::voterank` (integer-index adjacency built once, Vec<f64>/
+    /// Vec<bool> loop, O(|V|) max_by). Full `VoterankResult` (ranked + witness incl. edges_scanned)
+    /// parity asserted first. `#[ignore]`; run with
+    /// `cargo test --release -p fnx-algorithms --lib voterank_idx_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with --release --ignored --nocapture"]
+    fn voterank_idx_ab() {
+        use std::collections::{HashMap, HashSet};
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        // Circulant: 2000 nodes, degree 20 → ~20k edges; voterank ranks all V nodes → V rounds.
+        let n_nodes = 2000usize;
+        let mut g = Graph::strict();
+        for i in 0..n_nodes {
+            let _ = g.add_node(i.to_string());
+        }
+        for i in 0..n_nodes {
+            for step in 1..=10usize {
+                let _ = g.add_edge(i.to_string(), ((i + step) % n_nodes).to_string());
+            }
+        }
+
+        // Inline ORIGINAL String-keyed voterank kernel for a Graph, returning the full VoterankResult.
+        let old_fn = |graph: &Graph| -> super::VoterankResult {
+            let nodes = graph.nodes_ordered();
+            let n = nodes.len();
+            let edge_count = graph.edge_count();
+            let avg_degree = if n > 0 {
+                (2.0 * edge_count as f64) / n as f64
+            } else {
+                0.0
+            };
+            let decay = if avg_degree > 0.0 {
+                1.0 / avg_degree
+            } else {
+                0.0
+            };
+            let mut vote_power: HashMap<&str, f64> = nodes.iter().map(|&v| (v, 1.0)).collect();
+            let mut ranked: Vec<String> = Vec::new();
+            let mut selected: HashSet<&str> = HashSet::new();
+            let mut edges_scanned = 0usize;
+            let max_nodes = n;
+            loop {
+                if ranked.len() >= max_nodes {
+                    break;
+                }
+                let mut scores: HashMap<&str, f64> = HashMap::new();
+                for &node in &nodes {
+                    if selected.contains(node) {
+                        continue;
+                    }
+                    if let Some(neighbors) = graph.neighbors_iter(node) {
+                        for neighbor in neighbors {
+                            edges_scanned += 1;
+                            if !selected.contains(neighbor) {
+                                *scores.entry(neighbor).or_insert(0.0) += vote_power[node];
+                            }
+                        }
+                    }
+                }
+                if scores.is_empty() {
+                    break;
+                }
+                let mut candidates: Vec<(&str, f64)> = scores.into_iter().collect();
+                candidates.sort_by(|a, b| {
+                    b.1.partial_cmp(&a.1)
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                        .then_with(|| a.0.cmp(b.0))
+                });
+                let Some((winner, max_score)) = candidates.first().copied() else {
+                    break;
+                };
+                if max_score <= 0.0 {
+                    break;
+                }
+                ranked.push(winner.to_owned());
+                selected.insert(winner);
+                vote_power.insert(winner, 0.0);
+                if let Some(neighbors) = graph.neighbors_iter(winner) {
+                    for neighbor in neighbors {
+                        if !selected.contains(neighbor) {
+                            let current = vote_power[neighbor];
+                            vote_power.insert(neighbor, (current - decay).max(0.0));
+                        }
+                    }
+                }
+            }
+            super::VoterankResult {
+                ranked,
+                witness: super::ComplexityWitness {
+                    algorithm: "voterank".to_owned(),
+                    complexity_claim: "O(|V|^2)".to_owned(),
+                    nodes_touched: n,
+                    edges_scanned,
+                    queue_peak: 0,
+                },
+            }
+        };
+
+        assert_eq!(
+            old_fn(&g),
+            super::voterank(&g, None),
+            "integer-index voterank must be byte-identical to the String-keyed kernel"
+        );
+
+        let time = |cand: bool| -> f64 {
+            let t0 = Instant::now();
+            if cand {
+                black_box(super::voterank(&g, None));
+            } else {
+                black_box(old_fn(&g));
+            }
+            t0.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(true));
+            black_box(time(false));
+        }
+        let median = |v: &[f64]| {
+            let mut s = v.to_vec();
+            s.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            s[s.len() / 2]
+        };
+        let rounds = 61usize;
+        let paired = |cand: bool, base_arm: bool| -> Vec<f64> {
+            let mut v = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (tb, tc) = if round.is_multiple_of(2) {
+                    let bt = time(base_arm);
+                    let ct = time(cand);
+                    (bt, ct)
+                } else {
+                    let ct = time(cand);
+                    let bt = time(base_arm);
+                    (bt, ct)
+                };
+                v.push(tb / tc);
+            }
+            v
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&r| r > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            println!(
+                "VOTERANKIDX_AB {name}: median={:.4}x win_rate={wins}/{rounds} \
+                 p5_p95=[{:.4},{:.4}]",
+                median(ratios),
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+        println!("VOTERANKIDX_AB voterank 2000-node deg20 rounds={rounds} (>1 = index faster)");
+        report("INDEX_vs_string", &paired(true, false));
+        report("NULL_index_vs_index", &paired(true, true));
+    }
+
+    /// br-r37-c1-girthidx: full-function paired-interleaved median A/B for `girth` — inline ORIGINAL
+    /// per-source String-keyed BFS (HashMap<&str,usize> dist + HashMap<&str,&str> parent) vs the shipped
+    /// integer-index stamped BFS. Large ring (girth = |V|) so BFS from each node runs deep and the
+    /// String hashing over O(|V|·(|V|+|E|)) steps dominates. Result parity asserted first. `#[ignore]`;
+    /// run with `cargo test --release -p fnx-algorithms --lib girth_idx_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with --release --ignored --nocapture"]
+    fn girth_idx_ab() {
+        use std::collections::{HashMap, VecDeque};
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        // Ring C_1200 → girth 1200; BFS from every node explores the whole ring (deep BFS).
+        let n_nodes = 1200usize;
+        let mut g = Graph::strict();
+        for i in 0..n_nodes {
+            let _ = g.add_node(i.to_string());
+        }
+        for i in 0..n_nodes {
+            let _ = g.add_edge(i.to_string(), ((i + 1) % n_nodes).to_string());
+        }
+
+        // Inline ORIGINAL String-keyed girth.
+        let old_fn = |graph: &Graph| -> Option<usize> {
+            let nodes = graph.nodes_ordered();
+            let n = nodes.len();
+            if n == 0 {
+                return None;
+            }
+            let mut min_girth = usize::MAX;
+            for &source in &nodes {
+                let mut dist: HashMap<&str, usize> = HashMap::new();
+                let mut parent: HashMap<&str, &str> = HashMap::new();
+                let mut queue = VecDeque::new();
+                dist.insert(source, 0);
+                queue.push_back(source);
+                while let Some(v) = queue.pop_front() {
+                    let d_v = dist[v];
+                    if d_v * 2 + 1 >= min_girth {
+                        break;
+                    }
+                    if let Some(neighbors) = graph.neighbors_iter(v) {
+                        for w in neighbors {
+                            if let Some(&d_w) = dist.get(w) {
+                                if parent.get(v) == Some(&w) {
+                                    continue;
+                                }
+                                let cycle_len = d_v + d_w + 1;
+                                if cycle_len < min_girth {
+                                    min_girth = cycle_len;
+                                }
+                            } else {
+                                dist.insert(w, d_v + 1);
+                                parent.insert(w, v);
+                                queue.push_back(w);
+                            }
+                        }
+                    }
+                }
+            }
+            if min_girth == usize::MAX {
+                None
+            } else {
+                Some(min_girth)
+            }
+        };
+
+        assert_eq!(
+            old_fn(&g),
+            super::girth(&g),
+            "integer-index girth must be byte-identical to the String-keyed BFS"
+        );
+
+        let time = |cand: bool| -> f64 {
+            let t0 = Instant::now();
+            let r = if cand { super::girth(&g) } else { old_fn(&g) };
+            black_box(r);
+            t0.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(true));
+            black_box(time(false));
+        }
+        let median = |v: &[f64]| {
+            let mut s = v.to_vec();
+            s.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            s[s.len() / 2]
+        };
+        let rounds = 61usize;
+        let paired = |cand: bool, base_arm: bool| -> Vec<f64> {
+            let mut v = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (tb, tc) = if round.is_multiple_of(2) {
+                    let bt = time(base_arm);
+                    let ct = time(cand);
+                    (bt, ct)
+                } else {
+                    let ct = time(cand);
+                    let bt = time(base_arm);
+                    (bt, ct)
+                };
+                v.push(tb / tc);
+            }
+            v
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&r| r > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            println!(
+                "GIRTHIDX_AB {name}: median={:.4}x win_rate={wins}/{rounds} \
+                 p5_p95=[{:.4},{:.4}]",
+                median(ratios),
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+        println!("GIRTHIDX_AB girth ring-1200 rounds={rounds} (>1 = index faster)");
+        report("INDEX_vs_string", &paired(true, false));
+        report("NULL_index_vs_index", &paired(true, true));
+    }
+
+    /// br-r37-c1-bfslayidx: full-function paired-interleaved median A/B for `bfs_layers` — inline
+    /// ORIGINAL String-keyed BFS (HashSet<&str> visited + graph.neighbors() Vec allocs) vs the shipped
+    /// integer-index BFS (Vec<bool> visited + neighbors_indices). Dense graph so the O(|E|) visited
+    /// probes + per-node neighbour-Vec allocs dominate the O(|V|) name output. Layer-list parity
+    /// asserted first. `#[ignore]`; run with
+    /// `cargo test --release -p fnx-algorithms --lib bfs_layers_idx_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with --release --ignored --nocapture"]
+    fn bfs_layers_idx_ab() {
+        use std::collections::HashSet;
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        // Dense circulant: 3000 nodes, degree 100 → ~150k edges.
+        let n_nodes = 3000usize;
+        let mut g = Graph::strict();
+        for i in 0..n_nodes {
+            let _ = g.add_node(i.to_string());
+        }
+        for i in 0..n_nodes {
+            for step in 1..=50usize {
+                let _ = g.add_edge(i.to_string(), ((i + step) % n_nodes).to_string());
+            }
+        }
+
+        // Inline ORIGINAL String-keyed bfs_layers.
+        let old_fn = |graph: &Graph, source: &str| -> Vec<Vec<String>> {
+            let mut layers: Vec<Vec<String>> = Vec::new();
+            let mut visited: HashSet<&str> = HashSet::new();
+            if !graph.has_node(source) {
+                return layers;
+            }
+            visited.insert(source);
+            let mut current_layer = vec![source];
+            while !current_layer.is_empty() {
+                layers.push(current_layer.iter().map(|&s| s.to_owned()).collect());
+                let mut next_layer: Vec<&str> = Vec::new();
+                for &node in &current_layer {
+                    if let Some(neighbors) = graph.neighbors(node) {
+                        for neighbor in neighbors {
+                            if visited.insert(neighbor) {
+                                next_layer.push(neighbor);
+                            }
+                        }
+                    }
+                }
+                current_layer = next_layer;
+            }
+            layers
+        };
+
+        assert_eq!(
+            old_fn(&g, "0"),
+            super::bfs_layers(&g, "0"),
+            "integer-index bfs_layers must be byte-identical to the String-keyed BFS"
+        );
+
+        let time = |cand: bool| -> f64 {
+            let t0 = Instant::now();
+            let r = if cand {
+                super::bfs_layers(&g, "0")
+            } else {
+                old_fn(&g, "0")
+            };
+            black_box(&r);
+            t0.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(true));
+            black_box(time(false));
+        }
+        let median = |v: &[f64]| {
+            let mut s = v.to_vec();
+            s.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            s[s.len() / 2]
+        };
+        let rounds = 61usize;
+        let paired = |cand: bool, base_arm: bool| -> Vec<f64> {
+            let mut v = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (tb, tc) = if round.is_multiple_of(2) {
+                    let bt = time(base_arm);
+                    let ct = time(cand);
+                    (bt, ct)
+                } else {
+                    let ct = time(cand);
+                    let bt = time(base_arm);
+                    (bt, ct)
+                };
+                v.push(tb / tc);
+            }
+            v
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&r| r > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            println!(
+                "BFSLAYIDX_AB {name}: median={:.4}x win_rate={wins}/{rounds} \
+                 p5_p95=[{:.4},{:.4}]",
+                median(ratios),
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+        println!("BFSLAYIDX_AB bfs_layers 3000-node deg100 rounds={rounds} (>1 = index faster)");
+        report("INDEX_vs_string", &paired(true, false));
+        report("NULL_index_vs_index", &paired(true, true));
+    }
+
+    /// br-r37-c1-bipidx: full-function paired-interleaved A/B for `bipartite_sets`. The old kernel
+    /// kept `color` as a `HashMap<&str, u8>` and walked `neighbors_iter` (String-hash per
+    /// adjacency probe); the shipped version walks `neighbors_indices` over a `Vec<i8>` color.
+    /// Loop-dominated graph: a guaranteed-bipartite even↔odd graph so the full 2-coloring BFS runs
+    /// (no early exit). Parity (result + witness) asserted first. `#[ignore]`; run with
+    /// `cargo test --release -p fnx-algorithms --lib bipartite_sets_idx_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with --release --ignored --nocapture"]
+    fn bipartite_sets_idx_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        // n=60000 nodes; every even node connects to `deg` odd nodes → every edge crosses the
+        // even/odd partition → 2-colorable, so the BFS colors all V and scans all E (no odd-cycle
+        // early exit). ~1.2M edge scans vs an O(V) sorted partition output → BFS-scan dominated.
+        let n = 60000usize;
+        let deg = 40usize;
+        let mut g = Graph::strict();
+        for i in 0..n {
+            let _ = g.add_node(format!("n{i}"));
+        }
+        for i in (0..n).step_by(2) {
+            for k in 1..=deg {
+                let mut j = ((i as u64)
+                    .wrapping_mul(1_000_003)
+                    .wrapping_add((k as u64).wrapping_mul(97))
+                    % (n as u64)) as usize;
+                if j.is_multiple_of(2) {
+                    j = (j + 1) % n;
+                }
+                if j.is_multiple_of(2) {
+                    continue; // n even → (n-1) odd, so this only trips if wrap hit 0
+                }
+                let _ = g.add_edge(format!("n{i}"), format!("n{j}"));
+            }
+        }
+
+        // Byte-exact parity: index 2-coloring == String baseline (result + witness).
+        let cand = super::bipartite_sets(&g);
+        let base = super::bipartite_sets_orig_string(&g);
+        assert_eq!(
+            cand.is_bipartite, base.is_bipartite,
+            "is_bipartite must match"
+        );
+        assert_eq!(cand.set_a, base.set_a, "set_a must match");
+        assert_eq!(cand.set_b, base.set_b, "set_b must match");
+        assert_eq!(
+            cand.witness.edges_scanned, base.witness.edges_scanned,
+            "witness edges_scanned must match"
+        );
+        assert_eq!(
+            cand.witness.nodes_touched, base.witness.nodes_touched,
+            "witness nodes_touched must match"
+        );
+        assert_eq!(
+            cand.witness.queue_peak, base.witness.queue_peak,
+            "witness queue_peak must match"
+        );
+        assert!(
+            cand.is_bipartite,
+            "bench graph must be bipartite (full BFS)"
+        );
+
+        let time = |use_cand: bool| -> f64 {
+            let t0 = Instant::now();
+            let r = if use_cand {
+                super::bipartite_sets(&g)
+            } else {
+                super::bipartite_sets_orig_string(&g)
+            };
+            black_box(&r);
+            t0.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(true));
+            black_box(time(false));
+        }
+        let median = |v: &[f64]| {
+            let mut s = v.to_vec();
+            s.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            s[s.len() / 2]
+        };
+        let rounds = 61usize;
+        let paired = |use_cand: bool, base_arm: bool| -> Vec<f64> {
+            let mut v = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (tb, tc) = if round.is_multiple_of(2) {
+                    let bt = time(base_arm);
+                    let ct = time(use_cand);
+                    (bt, ct)
+                } else {
+                    let ct = time(use_cand);
+                    let bt = time(base_arm);
+                    (bt, ct)
+                };
+                v.push(tb / tc);
+            }
+            v
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&r| r > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            println!(
+                "BIPIDX_AB {name}: median={:.4}x win_rate={wins}/{rounds} \
+                 p5_p95=[{:.4},{:.4}]",
+                median(ratios),
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+        println!("BIPIDX_AB bipartite_sets n={n} deg={deg} rounds={rounds} (>1 = index faster)");
+        report("INDEX_vs_string", &paired(true, false));
+        report("NULL_index_vs_index", &paired(true, true));
+    }
+
+    #[test]
+    fn shortest_path_unweighted_directed_direct_edge_preserves_bfs_result() {
+        let mut graph = DiGraph::strict();
+        for node in ["s", "z", "a", "m", "t", "u"] {
+            graph.add_node(node);
+        }
+        for (source, target) in [
+            ("s", "z"),
+            ("s", "a"),
+            ("s", "m"),
+            ("s", "t"),
+            ("z", "t"),
+            ("a", "u"),
+            ("m", "u"),
+            ("u", "u"),
+        ] {
+            graph.add_edge(source, target).unwrap();
+        }
+
+        for source in ["s", "z", "a", "m", "t", "u", "missing"] {
+            for target in ["s", "z", "a", "m", "t", "u", "missing"] {
+                assert_eq!(
+                    super::shortest_path_unweighted_directed_fast_impl(
+                        &graph, source, target, true,
+                    ),
+                    super::shortest_path_unweighted_directed_fast_impl(
+                        &graph, source, target, false,
+                    ),
+                    "direct-edge bypass parity for {source}->{target}"
+                );
+            }
+        }
+
+        assert!(graph.remove_edge("s", "t"));
+        assert_eq!(
+            super::shortest_path_unweighted_directed_fast_impl(&graph, "s", "t", true),
+            super::shortest_path_unweighted_directed_fast_impl(&graph, "s", "t", false),
+            "a guarded miss must retain ordered BFS fallback"
+        );
+    }
+
+    /// br-r37-c1-zlapg: same-binary A/B for the directed one-hop bypass
+    /// against the frozen integer BFS, plus a candidate/candidate null.
+    #[test]
+    #[ignore = "measurement; run with --profile release --ignored --nocapture"]
+    fn shortest_path_unweighted_directed_direct_edge_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        fn median(values: &[u128]) -> u128 {
+            let mut sorted = values.to_vec();
+            sorted.sort_unstable();
+            sorted[sorted.len() / 2]
+        }
+
+        let n = 4_096_usize;
+        let calls = 256_usize;
+        let mut graph = DiGraph::strict();
+        graph.add_node("source");
+        for index in 1..n {
+            graph.add_node(format!("node-{index:04}"));
+        }
+        let target = format!("node-{:04}", n - 1);
+        for index in 1..n {
+            graph
+                .add_edge("source", format!("node-{index:04}"))
+                .unwrap();
+        }
+
+        let baseline =
+            super::shortest_path_unweighted_directed_fast_impl(&graph, "source", &target, false);
+        let candidate =
+            super::shortest_path_unweighted_directed_fast_impl(&graph, "source", &target, true);
+        assert_eq!(baseline, candidate, "exact path parity");
+        assert_eq!(
+            candidate,
+            Some(vec!["source".to_owned(), target.clone()]),
+            "the direct edge is the unique one-hop shortest path"
+        );
+
+        let time = |use_candidate: bool| -> u128 {
+            let start = Instant::now();
+            for _ in 0..calls {
+                let result = super::shortest_path_unweighted_directed_fast_impl(
+                    black_box(&graph),
+                    black_box("source"),
+                    black_box(&target),
+                    use_candidate,
+                );
+                black_box(result);
+            }
+            start.elapsed().as_nanos()
+        };
+
+        for _ in 0..3 {
+            black_box(time(false));
+            black_box(time(true));
+        }
+
+        let rounds = 15_usize;
+        let mut baseline_times = Vec::with_capacity(rounds);
+        let mut candidate_times = Vec::with_capacity(rounds);
+        let mut null_first_times = Vec::with_capacity(rounds);
+        let mut null_second_times = Vec::with_capacity(rounds);
+        for round in 0..rounds {
+            let (baseline_time, candidate_time) = if round.is_multiple_of(2) {
+                (time(false), time(true))
+            } else {
+                let candidate_time = time(true);
+                (time(false), candidate_time)
+            };
+            baseline_times.push(baseline_time);
+            candidate_times.push(candidate_time);
+
+            let (null_first, null_second) = if round.is_multiple_of(2) {
+                (time(true), time(true))
+            } else {
+                let null_second = time(true);
+                (time(true), null_second)
+            };
+            null_first_times.push(null_first);
+            null_second_times.push(null_second);
+        }
+
+        let baseline_median = median(&baseline_times);
+        let candidate_median = median(&candidate_times);
+        let null_first_median = median(&null_first_times);
+        let null_second_median = median(&null_second_times);
+        let paired_wins = baseline_times
+            .iter()
+            .zip(&candidate_times)
+            .filter(|(baseline_time, candidate_time)| baseline_time > candidate_time)
+            .count();
+
+        println!(
+            "DIRECTED_SHORTEST_PATH_DIRECT_EDGE_AB n={n} calls={calls} rounds={rounds} baseline_median_ns={baseline_median} candidate_median_ns={candidate_median} speedup={:.3}x paired_wins={paired_wins}/{rounds} null_first_median_ns={null_first_median} null_second_median_ns={null_second_median} null_ratio={:.3}x exact_parity=true",
+            baseline_median as f64 / candidate_median as f64,
+            null_first_median as f64 / null_second_median as f64,
+        );
+    }
+
+    /// br-r37-c1-spudidx: full-function paired-interleaved A/B for the directed single-source→
+    /// single-target BFS `shortest_path_unweighted_directed_fast` (String-keyed `HashSet<&str>` /
+    /// `HashMap<&str,&str>` + `successors_iter`) vs the shipped integer-index mirror. Loop-dominated
+    /// case: a dense strongly-connected reachable blob with the target having no in-edges, so the BFS
+    /// scans the whole component then returns None (max scan, zero path output). Path-reconstruction
+    /// parity also asserted on a reachable target. `#[ignore]`; run with
+    /// `cargo test --release -p fnx-algorithms --lib shortest_path_unweighted_directed_idx_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with --release --ignored --nocapture"]
+    fn shortest_path_unweighted_directed_idx_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        // nodes 0..n-1; the reachable blob is 0..m (m=n-1) as a directed circulant (step 1 alone
+        // makes it strongly connected). Node n-1 has NO in-edges → unreachable from n0 → the BFS
+        // scans the entire ~m*deg-edge component before returning None. That is the max-work,
+        // zero-path-output case: 100% BFS-scan dominated.
+        let n = 40000usize;
+        let deg = 20usize;
+        let m = n - 1;
+        let mut g = DiGraph::strict();
+        for i in 0..n {
+            let _ = g.add_node(format!("n{i}"));
+        }
+        for i in 0..m {
+            for k in 1..=deg {
+                let j = (i + k) % m;
+                let _ = g.add_edge(format!("n{i}"), format!("n{j}"));
+            }
+        }
+        let src = "n0";
+        let unreachable = format!("n{}", n - 1);
+        let reachable = "n12345";
+
+        // Byte-exact parity: index BFS == String baseline, for both the None (full-scan) case and a
+        // reachable target (validates the path reconstruction, not just None==None).
+        assert_eq!(
+            super::shortest_path_unweighted_directed_fast(&g, src, &unreachable),
+            super::shortest_path_unweighted_directed_fast_orig_string(&g, src, &unreachable),
+            "index BFS must equal String baseline (unreachable → None, full scan)"
+        );
+        let cand_path = super::shortest_path_unweighted_directed_fast(&g, src, reachable);
+        assert_eq!(
+            cand_path,
+            super::shortest_path_unweighted_directed_fast_orig_string(&g, src, reachable),
+            "index BFS must equal String baseline (reachable path reconstruction)"
+        );
+        assert!(cand_path.is_some(), "reachable target must yield a path");
+
+        let time = |use_cand: bool| -> f64 {
+            let t0 = Instant::now();
+            let r = if use_cand {
+                super::shortest_path_unweighted_directed_fast(&g, src, &unreachable)
+            } else {
+                super::shortest_path_unweighted_directed_fast_orig_string(&g, src, &unreachable)
+            };
+            black_box(&r);
+            t0.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(true));
+            black_box(time(false));
+        }
+        let median = |v: &[f64]| {
+            let mut s = v.to_vec();
+            s.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            s[s.len() / 2]
+        };
+        let rounds = 61usize;
+        let paired = |use_cand: bool, base_arm: bool| -> Vec<f64> {
+            let mut v = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (tb, tc) = if round.is_multiple_of(2) {
+                    let bt = time(base_arm);
+                    let ct = time(use_cand);
+                    (bt, ct)
+                } else {
+                    let ct = time(use_cand);
+                    let bt = time(base_arm);
+                    (bt, ct)
+                };
+                v.push(tb / tc);
+            }
+            v
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&r| r > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            println!(
+                "SPUDIDX_AB {name}: median={:.4}x win_rate={wins}/{rounds} \
+                 p5_p95=[{:.4},{:.4}]",
+                median(ratios),
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+        println!(
+            "SPUDIDX_AB shortest_path_unweighted_directed n={n} deg={deg} rounds={rounds} (>1 = index faster)"
+        );
+        report("INDEX_vs_string", &paired(true, false));
+        report("NULL_index_vs_index", &paired(true, true));
+    }
+
+    /// br-r37-c1-ssspdiridx: full-function paired-interleaved A/B for `single_source_shortest_path_directed`.
+    /// The old kernel kept `paths` as a `HashMap<String,Vec<String>>` and deep-cloned the parent's full
+    /// path per node (twice) on top of the String-hashing `successors_iter` walk; the shipped version
+    /// delegates to the integer-index core. Small-diameter expander (pseudo-random directed targets) so
+    /// paths stay shallow → BFS-scan/hash + clone dominated, output O(|V|). Byte-exact parity asserted.
+    /// `#[ignore]`; run with
+    /// `cargo test --release -p fnx-algorithms --lib single_source_shortest_path_directed_idx_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with --release --ignored --nocapture"]
+    fn single_source_shortest_path_directed_idx_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        // Small-diameter directed expander: each node i → deg pseudo-random targets, so from n0 the BFS
+        // reaches ~all V in ~log_deg(V) hops (paths shallow, output O(|V|)) while scanning ~V*deg edges.
+        // That isolates the String-hash + path-clone tax the old kernel paid (not the path materialisation,
+        // which is O(|V|·small-depth) and identical in both arms).
+        let n = 30000usize;
+        let deg = 20usize;
+        let mut g = DiGraph::strict();
+        for i in 0..n {
+            let _ = g.add_node(format!("n{i}"));
+        }
+        for i in 0..n {
+            for k in 1..=deg {
+                let j = ((i as u64)
+                    .wrapping_mul(1_000_003)
+                    .wrapping_add((k as u64).wrapping_mul(97))
+                    % (n as u64)) as usize;
+                let _ = g.add_edge(format!("n{i}"), format!("n{j}"));
+            }
+        }
+        let src = "n0";
+
+        // Byte-exact parity: index core == String baseline (same (name, path) pairs, same BFS order).
+        assert_eq!(
+            super::single_source_shortest_path_directed(&g, src, None),
+            super::single_source_shortest_path_directed_orig_string(&g, src, None),
+            "index single_source_shortest_path_directed must equal the String baseline"
+        );
+
+        let time = |use_cand: bool| -> f64 {
+            let t0 = Instant::now();
+            let r = if use_cand {
+                super::single_source_shortest_path_directed(&g, src, None)
+            } else {
+                super::single_source_shortest_path_directed_orig_string(&g, src, None)
+            };
+            black_box(&r);
+            t0.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(true));
+            black_box(time(false));
+        }
+        let median = |v: &[f64]| {
+            let mut s = v.to_vec();
+            s.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            s[s.len() / 2]
+        };
+        let rounds = 61usize;
+        let paired = |use_cand: bool, base_arm: bool| -> Vec<f64> {
+            let mut v = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (tb, tc) = if round.is_multiple_of(2) {
+                    let bt = time(base_arm);
+                    let ct = time(use_cand);
+                    (bt, ct)
+                } else {
+                    let ct = time(use_cand);
+                    let bt = time(base_arm);
+                    (bt, ct)
+                };
+                v.push(tb / tc);
+            }
+            v
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&r| r > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            println!(
+                "SSSPDIRIDX_AB {name}: median={:.4}x win_rate={wins}/{rounds} \
+                 p5_p95=[{:.4},{:.4}]",
+                median(ratios),
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+        println!(
+            "SSSPDIRIDX_AB single_source_shortest_path_directed n={n} deg={deg} rounds={rounds} (>1 = index faster)"
+        );
+        report("INDEX_vs_string", &paired(true, false));
+        report("NULL_index_vs_index", &paired(true, true));
+    }
+
+    /// br-r37-c1-lncidx: end-to-end A/B for the Menger augmenting-path BFS `local_node_connectivity_bfs`
+    /// via its O(|V|^2) caller `average_node_connectivity`. Old kernel: HashSet<&str> excluded/visited +
+    /// HashMap<&str,&str> parent + neighbors_iter (String hash per probe) run V^2 times; shipped:
+    /// integer-index. The candidate arm calls `average_node_connectivity` (uses the new BFS); the base arm
+    /// re-runs the identical O(|V|^2) loop against the String baseline BFS. Byte-exact parity asserted for
+    /// both the undirected result and the directed twin. `#[ignore]`; run with
+    /// `cargo test --release -p fnx-algorithms --lib local_node_connectivity_idx_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with --release --ignored --nocapture"]
+    fn local_node_connectivity_idx_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        // Moderate connected undirected graph: n=140, each node linked to ±1,±2,±3 (deg 6) so every pair
+        // packs up to ~6 node-disjoint augmenting paths → the BFS runs several rounds per pair, V^2 pairs.
+        let n = 140usize;
+        let mut g = Graph::strict();
+        for i in 0..n {
+            let _ = g.add_node(format!("n{i}"));
+        }
+        for i in 0..n {
+            for step in 1..=3usize {
+                let _ = g.add_edge(format!("n{i}"), format!("n{}", (i + step) % n));
+            }
+        }
+        // Directed variant for the directed-twin parity check.
+        let mut dg = DiGraph::strict();
+        for i in 0..n {
+            let _ = dg.add_node(format!("n{i}"));
+        }
+        for i in 0..n {
+            for step in 1..=3usize {
+                let _ = dg.add_edge(format!("n{i}"), format!("n{}", (i + step) % n));
+            }
+        }
+
+        // Baseline average_node_connectivity using the String-keyed BFS (mirrors the production loop).
+        let avg_orig = |graph: &Graph| -> f64 {
+            let nodes = graph.nodes_ordered();
+            let m = nodes.len();
+            let mut total = 0.0;
+            let mut count = 0usize;
+            for i in 0..m {
+                for j in (i + 1)..m {
+                    total +=
+                        super::local_node_connectivity_bfs_orig_string(graph, nodes[i], nodes[j])
+                            as f64;
+                    count += 1;
+                }
+            }
+            if count == 0 {
+                0.0
+            } else {
+                total / count as f64
+            }
+        };
+
+        // Byte-exact parity: undirected end-to-end + directed twin on a sample of pairs.
+        assert_eq!(
+            super::average_node_connectivity(&g),
+            avg_orig(&g),
+            "index average_node_connectivity must equal the String-baseline loop"
+        );
+        let dnodes = dg.nodes_ordered();
+        for &(i, j) in &[(0usize, 7usize), (3, 88), (10, 139), (50, 51), (0, 70)] {
+            assert_eq!(
+                super::local_node_connectivity_bfs_directed(&dg, dnodes[i], dnodes[j]),
+                super::local_node_connectivity_bfs_directed_orig_string(&dg, dnodes[i], dnodes[j]),
+                "directed index BFS must equal the String baseline"
+            );
+        }
+
+        let time = |use_cand: bool| -> f64 {
+            let t0 = Instant::now();
+            let r = if use_cand {
+                super::average_node_connectivity(&g)
+            } else {
+                avg_orig(&g)
+            };
+            black_box(r);
+            t0.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(true));
+            black_box(time(false));
+        }
+        let median = |v: &[f64]| {
+            let mut s = v.to_vec();
+            s.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            s[s.len() / 2]
+        };
+        let rounds = 41usize;
+        let paired = |use_cand: bool, base_arm: bool| -> Vec<f64> {
+            let mut v = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (tb, tc) = if round.is_multiple_of(2) {
+                    let bt = time(base_arm);
+                    let ct = time(use_cand);
+                    (bt, ct)
+                } else {
+                    let ct = time(use_cand);
+                    let bt = time(base_arm);
+                    (bt, ct)
+                };
+                v.push(tb / tc);
+            }
+            v
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&r| r > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            println!(
+                "LNCIDX_AB {name}: median={:.4}x win_rate={wins}/{rounds} \
+                 p5_p95=[{:.4},{:.4}]",
+                median(ratios),
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+        println!(
+            "LNCIDX_AB average_node_connectivity n={n} deg=6 rounds={rounds} (>1 = index faster)"
+        );
+        report("INDEX_vs_string", &paired(true, false));
+        report("NULL_index_vs_index", &paired(true, true));
+    }
+
+    #[test]
+    fn all_pairs_node_connectivity_subset_matches_string_baseline() {
+        let names = ["z", "a", "m", "b", "q"];
+        let subset = ["z", "m", "b", "q"];
+        let edges = [
+            (0, 1),
+            (0, 2),
+            (0, 3),
+            (0, 4),
+            (1, 2),
+            (1, 3),
+            (1, 4),
+            (2, 3),
+            (2, 4),
+            (3, 4),
+        ];
+
+        for edge_mask in 0usize..(1 << edges.len()) {
+            let mut graph = Graph::strict();
+            for name in names {
+                graph.add_node(name);
+            }
+            for (bit, &(left, right)) in edges.iter().enumerate() {
+                if edge_mask & (1 << bit) != 0 {
+                    let _ = graph.add_edge(names[left], names[right]);
+                }
+            }
+            assert_eq!(
+                super::all_pairs_node_connectivity_subset(&graph, &subset),
+                super::all_pairs_node_connectivity_subset_orig_string(&graph, &subset),
+                "simple edge mask {edge_mask:#05x}"
+            );
+        }
+
+        for loop_mask in 1usize..(1 << names.len()) {
+            let mut graph = Graph::strict();
+            for name in names {
+                graph.add_node(name);
+            }
+            let edge_mask = loop_mask.wrapping_mul(37) & ((1 << edges.len()) - 1);
+            for (bit, &(left, right)) in edges.iter().enumerate() {
+                if edge_mask & (1 << bit) != 0 {
+                    let _ = graph.add_edge(names[left], names[right]);
+                }
+            }
+            for (bit, name) in names.iter().enumerate() {
+                if loop_mask & (1 << bit) != 0 {
+                    let _ = graph.add_edge(*name, *name);
+                }
+            }
+            assert_eq!(
+                super::all_pairs_node_connectivity_subset(&graph, &subset),
+                super::all_pairs_node_connectivity_subset_orig_string(&graph, &subset),
+                "self-loop mask {loop_mask:#04x}, edge mask {edge_mask:#05x}"
+            );
+        }
+
+        let mut graph = Graph::strict();
+        graph.add_node("known");
+        assert_eq!(
+            super::all_pairs_node_connectivity_subset(&graph, &["known", "missing"]),
+            None
+        );
+    }
+
+    /// br-r37-c1-qktr5: same-binary A/B for the current String/dict subset
+    /// path against the native index subset kernel, plus an index/index null.
+    #[test]
+    #[ignore = "measurement; run with --profile release --include-ignored --nocapture"]
+    fn all_pairs_node_connectivity_subset_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        fn median(values: &[u128]) -> u128 {
+            let mut sorted = values.to_vec();
+            sorted.sort_unstable();
+            sorted[sorted.len() / 2]
+        }
+
+        let n = 256usize;
+        let radius = 6usize;
+        let calls = 8usize;
+        let names = (0..n).map(|index| format!("n{index}")).collect::<Vec<_>>();
+        let mut graph = Graph::strict();
+        for name in &names {
+            graph.add_node(name);
+        }
+        for left in 0..n {
+            for offset in 1..=radius {
+                let right = (left + offset) % n;
+                let _ = graph.add_edge(&names[left], &names[right]);
+            }
+        }
+        let subset_indices = [0usize, 17, 39, 71, 103, 149, 197, 233];
+        let subset = subset_indices
+            .iter()
+            .map(|&index| names[index].as_str())
+            .collect::<Vec<_>>();
+
+        let baseline = super::all_pairs_node_connectivity_subset_orig_string(&graph, &subset);
+        let candidate = super::all_pairs_node_connectivity_subset(&graph, &subset);
+        assert_eq!(candidate, baseline, "native subset output must be exact");
+
+        let time = |use_candidate: bool| -> u128 {
+            let start = Instant::now();
+            for _ in 0..calls {
+                let result = if use_candidate {
+                    super::all_pairs_node_connectivity_subset(black_box(&graph), black_box(&subset))
+                } else {
+                    super::all_pairs_node_connectivity_subset_orig_string(
+                        black_box(&graph),
+                        black_box(&subset),
+                    )
+                };
+                black_box(result);
+            }
+            start.elapsed().as_nanos()
+        };
+        for _ in 0..3 {
+            black_box(time(false));
+            black_box(time(true));
+        }
+
+        let rounds = 15usize;
+        let mut baseline_times = Vec::with_capacity(rounds);
+        let mut candidate_times = Vec::with_capacity(rounds);
+        let mut null_first_times = Vec::with_capacity(rounds);
+        let mut null_second_times = Vec::with_capacity(rounds);
+        for round in 0..rounds {
+            let (baseline_time, candidate_time) = if round.is_multiple_of(2) {
+                (time(false), time(true))
+            } else {
+                let candidate_time = time(true);
+                (time(false), candidate_time)
+            };
+            baseline_times.push(baseline_time);
+            candidate_times.push(candidate_time);
+
+            let (null_first, null_second) = if round.is_multiple_of(2) {
+                (time(true), time(true))
+            } else {
+                let null_second = time(true);
+                (time(true), null_second)
+            };
+            null_first_times.push(null_first);
+            null_second_times.push(null_second);
+        }
+
+        let baseline_median = median(&baseline_times);
+        let candidate_median = median(&candidate_times);
+        let null_first_median = median(&null_first_times);
+        let null_second_median = median(&null_second_times);
+        let paired_wins = baseline_times
+            .iter()
+            .zip(&candidate_times)
+            .filter(|(baseline_time, candidate_time)| baseline_time > candidate_time)
+            .count();
+        println!(
+            "APNC_SUBSET_AB n={n} radius={radius} subset={} calls={calls} rounds={rounds} baseline_median_ns={baseline_median} candidate_median_ns={candidate_median} speedup={:.3}x paired_wins={paired_wins}/{rounds} null_first_median_ns={null_first_median} null_second_median_ns={null_second_median} null_ratio={:.3}x exact_parity=true",
+            subset.len(),
+            baseline_median as f64 / candidate_median as f64,
+            null_first_median as f64 / null_second_median as f64,
+        );
+    }
+
+    /// br-r37-c1-aspidx: full-function paired-interleaved A/B for `all_shortest_paths` (String-keyed
+    /// dist/preds HashMap + backtrack HashSet → integer-index). Caterpillar graph: a unique shortest
+    /// spine s0..sD plus degree-inflating leaf dead-ends per spine node, so the BFS scans ~D*(w+2)
+    /// edges (all String-hashed in the baseline) while the output is a SINGLE path of length D → the
+    /// win is the BFS hash tax, not the O(paths·len) materialisation. Byte-exact parity asserted for
+    /// undirected + directed twin. `#[ignore]`; run with
+    /// `cargo test --release -p fnx-algorithms --lib all_shortest_paths_idx_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with --release --ignored --nocapture"]
+    fn all_shortest_paths_idx_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        // spine s0..sD (unique shortest s0→sD path of length D); each spine node also has `w` leaf
+        // dead-ends (degree-1) that inflate the BFS edge scan without creating alternate shortest routes.
+        let d = 1500usize;
+        let w = 20usize;
+        let build = |_directed: bool| {
+            let spine = |i: usize| format!("s{i}");
+            let leaf = |i: usize, k: usize| format!("l{i}_{k}");
+            let mut edges: Vec<(String, String)> = Vec::new();
+            for i in 0..d {
+                edges.push((spine(i), spine(i + 1)));
+            }
+            for i in 0..=d {
+                for k in 0..w {
+                    edges.push((spine(i), leaf(i, k)));
+                }
+            }
+            (edges, spine(0), spine(d))
+        };
+
+        let (uedges, src, tgt) = build(false);
+        let mut g = Graph::strict();
+        for (u, v) in &uedges {
+            let _ = g.add_edge(u.clone(), v.clone());
+        }
+        let mut dg = DiGraph::strict();
+        for (u, v) in &uedges {
+            let _ = dg.add_edge(u.clone(), v.clone());
+        }
+
+        // Byte-exact parity: undirected + directed twin.
+        let cand = super::all_shortest_paths(&g, &src, &tgt);
+        assert_eq!(
+            cand,
+            super::all_shortest_paths_orig_string(&g, &src, &tgt),
+            "index all_shortest_paths must equal the String baseline"
+        );
+        assert_eq!(
+            cand.len(),
+            1,
+            "spine graph must have a unique shortest path"
+        );
+        assert_eq!(
+            super::all_shortest_paths_directed(&dg, &src, &tgt),
+            super::all_shortest_paths_directed_orig_string(&dg, &src, &tgt),
+            "directed index all_shortest_paths must equal the String baseline"
+        );
+
+        let time = |use_cand: bool| -> f64 {
+            let t0 = Instant::now();
+            let r = if use_cand {
+                super::all_shortest_paths(&g, &src, &tgt)
+            } else {
+                super::all_shortest_paths_orig_string(&g, &src, &tgt)
+            };
+            black_box(&r);
+            t0.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(true));
+            black_box(time(false));
+        }
+        let median = |v: &[f64]| {
+            let mut s = v.to_vec();
+            s.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            s[s.len() / 2]
+        };
+        let rounds = 61usize;
+        let paired = |use_cand: bool, base_arm: bool| -> Vec<f64> {
+            let mut v = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (tb, tc) = if round.is_multiple_of(2) {
+                    let bt = time(base_arm);
+                    let ct = time(use_cand);
+                    (bt, ct)
+                } else {
+                    let ct = time(use_cand);
+                    let bt = time(base_arm);
+                    (bt, ct)
+                };
+                v.push(tb / tc);
+            }
+            v
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&r| r > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            println!(
+                "ASPIDX_AB {name}: median={:.4}x win_rate={wins}/{rounds} \
+                 p5_p95=[{:.4},{:.4}]",
+                median(ratios),
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+        println!("ASPIDX_AB all_shortest_paths D={d} w={w} rounds={rounds} (>1 = index faster)");
+        report("INDEX_vs_string", &paired(true, false));
+        report("NULL_index_vs_index", &paired(true, true));
+    }
+
+    /// br-r37-c1-aspdiridx: full-function paired-interleaved A/B for `all_simple_paths_directed`
+    /// (String-keyed name-sorted `HashMap<&str,Vec<&str>>` neighbour cache + `HashSet<&str>` visited →
+    /// integer-index, mirror of the undirected `all_simple_paths`/aspmark). Trap-chain graph: a unique
+    /// spine s0→sD plus dead-end trap chains hanging off each spine node, so the DFS explores D*b*L trap
+    /// nodes (each a String hash on visited insert/remove in the baseline) plus the per-call O(n)
+    /// name-sorted nbr_cache rebuild, while the output is a SINGLE simple path. Byte-exact parity
+    /// (result incl. witness). `#[ignore]`; run with
+    /// `cargo test --release -p fnx-algorithms --lib all_simple_paths_directed_idx_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with --release --ignored --nocapture"]
+    fn all_simple_paths_directed_idx_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        // spine s0..sD (unique s0→sD path); each spine node has b dead-end trap chains of length L.
+        let cap_d = 50usize;
+        let b = 10usize;
+        let l = 50usize;
+        let mut dg = DiGraph::strict();
+        for i in 0..cap_d {
+            let _ = dg.add_edge(format!("s{i}"), format!("s{}", i + 1));
+        }
+        for i in 0..=cap_d {
+            for j in 0..b {
+                let _ = dg.add_edge(format!("s{i}"), format!("t{i}_{j}_0"));
+                for k in 0..(l - 1) {
+                    let _ = dg.add_edge(format!("t{i}_{j}_{k}"), format!("t{i}_{j}_{}", k + 1));
+                }
+            }
+        }
+        let src = "s0";
+        let tgt = format!("s{cap_d}");
+
+        // Byte-exact parity (paths + witness via PartialEq).
+        let cand = super::all_simple_paths_directed(&dg, src, &tgt, None);
+        assert_eq!(
+            cand,
+            super::all_simple_paths_directed_orig_string(&dg, src, &tgt, None),
+            "index all_simple_paths_directed must equal the String baseline (paths + witness)"
+        );
+        assert_eq!(
+            cand.paths.len(),
+            1,
+            "trap-chain graph must yield a unique simple path"
+        );
+
+        let time = |use_cand: bool| -> f64 {
+            let t0 = Instant::now();
+            let r = if use_cand {
+                super::all_simple_paths_directed(&dg, src, &tgt, None)
+            } else {
+                super::all_simple_paths_directed_orig_string(&dg, src, &tgt, None)
+            };
+            black_box(&r);
+            t0.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(true));
+            black_box(time(false));
+        }
+        let median = |v: &[f64]| {
+            let mut s = v.to_vec();
+            s.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            s[s.len() / 2]
+        };
+        let rounds = 41usize;
+        let paired = |use_cand: bool, base_arm: bool| -> Vec<f64> {
+            let mut v = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (tb, tc) = if round.is_multiple_of(2) {
+                    let bt = time(base_arm);
+                    let ct = time(use_cand);
+                    (bt, ct)
+                } else {
+                    let ct = time(use_cand);
+                    let bt = time(base_arm);
+                    (bt, ct)
+                };
+                v.push(tb / tc);
+            }
+            v
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&r| r > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            println!(
+                "ASPDIRIDX_AB {name}: median={:.4}x win_rate={wins}/{rounds} \
+                 p5_p95=[{:.4},{:.4}]",
+                median(ratios),
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+        println!(
+            "ASPDIRIDX_AB all_simple_paths_directed D={cap_d} b={b} L={l} rounds={rounds} (>1 = index faster)"
+        );
+        report("INDEX_vs_string", &paired(true, false));
+        report("NULL_index_vs_index", &paired(true, true));
+    }
+
+    /// br-r37-c1-stsplidx: full-function paired-interleaved A/B for the directed reverse BFS
+    /// `single_target_shortest_path_length_directed` (String-keyed `HashSet<&str>` seen +
+    /// predecessors_iter → integer-index). Directed circulant (strongly connected via step-1, in-degree
+    /// `deg`) so the reverse BFS reaches all V and scans ~V*deg predecessor edges (all String-hashed in
+    /// the baseline) with O(V) output. Byte-exact parity asserted. `#[ignore]`; run with
+    /// `cargo test --release -p fnx-algorithms --lib single_target_shortest_path_length_directed_idx_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with --release --ignored --nocapture"]
+    fn single_target_shortest_path_length_directed_idx_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        // Directed circulant: node i → (i+1..i+deg) mod n. Predecessors of v are {v-1..v-deg}; step-1
+        // makes it strongly connected, so the reverse BFS from the target reaches all V, scanning
+        // ~V*deg predecessor edges, output O(V).
+        let n = 40000usize;
+        let deg = 20usize;
+        let mut g = DiGraph::strict();
+        for i in 0..n {
+            let _ = g.add_node(format!("n{i}"));
+        }
+        for i in 0..n {
+            for k in 1..=deg {
+                let _ = g.add_edge(format!("n{i}"), format!("n{}", (i + k) % n));
+            }
+        }
+        let tgt = "n0";
+
+        // Byte-exact parity: index reverse BFS == String baseline (same (name, dist) sequence).
+        let cand = super::single_target_shortest_path_length_directed(&g, tgt, None);
+        assert_eq!(
+            cand,
+            super::single_target_shortest_path_length_directed_orig_string(&g, tgt, None),
+            "index single_target_shortest_path_length_directed must equal the String baseline"
+        );
+        assert_eq!(
+            cand.len(),
+            n,
+            "strongly-connected graph must reach every node"
+        );
+
+        let time = |use_cand: bool| -> f64 {
+            let t0 = Instant::now();
+            let r = if use_cand {
+                super::single_target_shortest_path_length_directed(&g, tgt, None)
+            } else {
+                super::single_target_shortest_path_length_directed_orig_string(&g, tgt, None)
+            };
+            black_box(&r);
+            t0.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(true));
+            black_box(time(false));
+        }
+        let median = |v: &[f64]| {
+            let mut s = v.to_vec();
+            s.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            s[s.len() / 2]
+        };
+        let rounds = 61usize;
+        let paired = |use_cand: bool, base_arm: bool| -> Vec<f64> {
+            let mut v = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (tb, tc) = if round.is_multiple_of(2) {
+                    let bt = time(base_arm);
+                    let ct = time(use_cand);
+                    (bt, ct)
+                } else {
+                    let ct = time(use_cand);
+                    let bt = time(base_arm);
+                    (bt, ct)
+                };
+                v.push(tb / tc);
+            }
+            v
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&r| r > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            println!(
+                "STSPLIDX_AB {name}: median={:.4}x win_rate={wins}/{rounds} \
+                 p5_p95=[{:.4},{:.4}]",
+                median(ratios),
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+        println!(
+            "STSPLIDX_AB single_target_shortest_path_length_directed n={n} deg={deg} rounds={rounds} (>1 = index faster)"
+        );
+        report("INDEX_vs_string", &paired(true, false));
+        report("NULL_index_vs_index", &paired(true, true));
+    }
+
+    /// br-r37-c1-stspidx: full-function paired-interleaved A/B for the directed reverse-BFS PATH builder
+    /// `single_target_shortest_path_directed` (String-keyed HashMap<String,Vec<String>> with per-
+    /// predecessor full-path clone → integer next-toward tree + reconstruct-once). Small-diameter
+    /// directed expander (shallow paths, HashMap output O(|V|)) so the win is the hash + path-clone tax,
+    /// not the O(|V|·depth) path materialisation. Byte-exact parity (HashMap equality). `#[ignore]`; run
+    /// with `cargo test --release -p fnx-algorithms --lib single_target_shortest_path_directed_idx_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with --release --ignored --nocapture"]
+    fn single_target_shortest_path_directed_idx_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        // Small-diameter directed expander: node i → deg pseudo-random targets. Reverse BFS from n0
+        // reaches ~all V in ~log_deg(V) hops (paths shallow), scanning ~V*deg predecessor edges.
+        let n = 30000usize;
+        let deg = 20usize;
+        let mut g = DiGraph::strict();
+        for i in 0..n {
+            let _ = g.add_node(format!("n{i}"));
+        }
+        for i in 0..n {
+            for k in 1..=deg {
+                let j = ((i as u64)
+                    .wrapping_mul(1_000_003)
+                    .wrapping_add((k as u64).wrapping_mul(97))
+                    % (n as u64)) as usize;
+                let _ = g.add_edge(format!("n{i}"), format!("n{j}"));
+            }
+        }
+        let tgt = "n0";
+
+        // Byte-exact parity: HashMap equality (order-independent) between index + String baseline.
+        assert_eq!(
+            super::single_target_shortest_path_directed(&g, tgt, None),
+            super::single_target_shortest_path_directed_orig_string(&g, tgt, None),
+            "index single_target_shortest_path_directed must equal the String baseline"
+        );
+
+        let time = |use_cand: bool| -> f64 {
+            let t0 = Instant::now();
+            let r = if use_cand {
+                super::single_target_shortest_path_directed(&g, tgt, None)
+            } else {
+                super::single_target_shortest_path_directed_orig_string(&g, tgt, None)
+            };
+            black_box(&r);
+            t0.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(true));
+            black_box(time(false));
+        }
+        let median = |v: &[f64]| {
+            let mut s = v.to_vec();
+            s.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            s[s.len() / 2]
+        };
+        let rounds = 41usize;
+        let paired = |use_cand: bool, base_arm: bool| -> Vec<f64> {
+            let mut v = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (tb, tc) = if round.is_multiple_of(2) {
+                    let bt = time(base_arm);
+                    let ct = time(use_cand);
+                    (bt, ct)
+                } else {
+                    let ct = time(use_cand);
+                    let bt = time(base_arm);
+                    (bt, ct)
+                };
+                v.push(tb / tc);
+            }
+            v
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&r| r > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            println!(
+                "STSPIDX_AB {name}: median={:.4}x win_rate={wins}/{rounds} \
+                 p5_p95=[{:.4},{:.4}]",
+                median(ratios),
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+        println!(
+            "STSPIDX_AB single_target_shortest_path_directed n={n} deg={deg} rounds={rounds} (>1 = index faster)"
+        );
+        report("INDEX_vs_string", &paired(true, false));
+        report("NULL_index_vs_index", &paired(true, true));
+    }
+
+    /// br-r37-c1-tredidx: full-function paired-interleaved A/B for `transitive_reduction` (String-keyed
+    /// per-node reachability BFS `HashSet<&str>` + `pos: HashMap<&str,usize>` sort → integer-index).
+    /// Complete DAG (i → all j>i): each kept edge's reachability BFS scans the whole upper-triangle
+    /// (~O(V^2) edges), summing to an O(V^3) String-hashed sweep, while the reduction output is just the
+    /// V-1-edge path → reachability-hash dominated. Byte-exact parity (nodes + edge insertion order).
+    /// `#[ignore]`; run with
+    /// `cargo test --release -p fnx-algorithms --lib transitive_reduction_idx_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with --release --ignored --nocapture"]
+    fn transitive_reduction_idx_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        // Complete DAG on n nodes: edge i→j for all i<j. Reduction is the path 0→1→…→(n-1), but every
+        // kept edge's reachability BFS scans the full upper triangle → O(V^3) hash probes in the baseline.
+        let n = 200usize;
+        let mut g = DiGraph::strict();
+        for i in 0..n {
+            let _ = g.add_node(format!("n{i}"));
+        }
+        for i in 0..n {
+            for j in (i + 1)..n {
+                let _ = g.add_edge(format!("n{i}"), format!("n{j}"));
+            }
+        }
+
+        // Byte-exact parity: same node order + same edge insertion order.
+        let cand = super::transitive_reduction(&g).expect("DAG has a reduction");
+        let base = super::transitive_reduction_orig_string(&g).expect("DAG has a reduction");
+        assert_eq!(
+            cand.nodes_ordered(),
+            base.nodes_ordered(),
+            "reduction node order must match"
+        );
+        assert_eq!(
+            cand.edges_ordered_indices(),
+            base.edges_ordered_indices(),
+            "reduction edge insertion order must match"
+        );
+        assert_eq!(
+            cand.edges_ordered_indices().len(),
+            n - 1,
+            "complete-DAG reduction is the (n-1)-edge path"
+        );
+
+        let time = |use_cand: bool| -> f64 {
+            let t0 = Instant::now();
+            let r = if use_cand {
+                super::transitive_reduction(&g)
+            } else {
+                super::transitive_reduction_orig_string(&g)
+            };
+            black_box(&r);
+            t0.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(true));
+            black_box(time(false));
+        }
+        let median = |v: &[f64]| {
+            let mut s = v.to_vec();
+            s.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            s[s.len() / 2]
+        };
+        let rounds = 41usize;
+        let paired = |use_cand: bool, base_arm: bool| -> Vec<f64> {
+            let mut v = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (tb, tc) = if round.is_multiple_of(2) {
+                    let bt = time(base_arm);
+                    let ct = time(use_cand);
+                    (bt, ct)
+                } else {
+                    let ct = time(use_cand);
+                    let bt = time(base_arm);
+                    (bt, ct)
+                };
+                v.push(tb / tc);
+            }
+            v
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&r| r > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            println!(
+                "TREDIDX_AB {name}: median={:.4}x win_rate={wins}/{rounds} \
+                 p5_p95=[{:.4},{:.4}]",
+                median(ratios),
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+        println!(
+            "TREDIDX_AB transitive_reduction complete_dag n={n} rounds={rounds} (>1 = index faster)"
+        );
+        report("INDEX_vs_string", &paired(true, false));
+        report("NULL_index_vs_index", &paired(true, true));
+    }
+
+    /// br-r37-c1-tcidx: full-function paired-interleaved A/B for `transitive_closure` (String-keyed
+    /// per-source BFS + (&str,&str) emit into `extend_edges_unrecorded` → integer-index BFS + index-pair
+    /// emit into the new `extend_existing_index_edges_unrecorded`). Chain DAG (0→1→…→n-1) → closure is
+    /// the O(V²/2) upper triangle, so both the BFS String-hashing AND the per-edge endpoint resolution
+    /// are removed. Byte-exact parity (closure edges). `#[ignore]`; run with
+    /// `cargo test --release -p fnx-algorithms --lib transitive_closure_idx_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with --release --ignored --nocapture"]
+    fn transitive_closure_idx_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        // Chain DAG n0→n1→…→n(n-1): closure has n*(n-1)/2 edges (each node reaches all higher ones).
+        let n = 900usize;
+        let mut g = DiGraph::strict();
+        for i in 0..n {
+            let _ = g.add_node(format!("n{i}"));
+        }
+        for i in 0..(n - 1) {
+            let _ = g.add_edge(format!("n{i}"), format!("n{}", i + 1));
+        }
+
+        // Byte-exact parity: same closure edge set + insertion order.
+        let cand = super::transitive_closure(&g, None);
+        let base = super::transitive_closure_orig_string(&g, None);
+        assert_eq!(
+            cand.nodes_ordered(),
+            base.nodes_ordered(),
+            "closure nodes must match"
+        );
+        assert_eq!(
+            cand.edges_ordered_indices(),
+            base.edges_ordered_indices(),
+            "closure edges (set + insertion order) must match"
+        );
+        assert_eq!(
+            cand.edges_ordered_indices().len(),
+            n * (n - 1) / 2,
+            "chain-DAG closure is the upper triangle"
+        );
+        // reflexive=true path parity too (self-loops).
+        assert_eq!(
+            super::transitive_closure(&g, Some(true)).edges_ordered_indices(),
+            super::transitive_closure_orig_string(&g, Some(true)).edges_ordered_indices(),
+            "reflexive closure must match"
+        );
+
+        let time = |use_cand: bool| -> f64 {
+            let t0 = Instant::now();
+            let r = if use_cand {
+                super::transitive_closure(&g, None)
+            } else {
+                super::transitive_closure_orig_string(&g, None)
+            };
+            black_box(&r);
+            t0.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(true));
+            black_box(time(false));
+        }
+        let median = |v: &[f64]| {
+            let mut s = v.to_vec();
+            s.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            s[s.len() / 2]
+        };
+        let rounds = 41usize;
+        let paired = |use_cand: bool, base_arm: bool| -> Vec<f64> {
+            let mut v = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (tb, tc) = if round.is_multiple_of(2) {
+                    let bt = time(base_arm);
+                    let ct = time(use_cand);
+                    (bt, ct)
+                } else {
+                    let ct = time(use_cand);
+                    let bt = time(base_arm);
+                    (bt, ct)
+                };
+                v.push(tb / tc);
+            }
+            v
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&r| r > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            println!(
+                "TCIDX_AB {name}: median={:.4}x win_rate={wins}/{rounds} \
+                 p5_p95=[{:.4},{:.4}]",
+                median(ratios),
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+        println!("TCIDX_AB transitive_closure chain_dag n={n} rounds={rounds} (>1 = index faster)");
+        report("INDEX_vs_string", &paired(true, false));
+        report("NULL_index_vs_index", &paired(true, true));
+    }
+
+    /// br-r37-c1-qgidx: full-function paired-interleaved A/B for `quotient_graph` (String-keyed
+    /// edges_ordered() + HashMap<&str,usize> block map + String round-trip emit → edges_ordered_indices
+    /// + Vec<usize> block map + index-pair batch extend). Dense graph, contiguous blocks so most edges
+    ///   are intra-block (tiny output) → the O(|E|) edge scan + edges_ordered() attr-cloning materialisation
+    ///   dominates. Byte-exact parity (quotient nodes + edges). `#[ignore]`; run with
+    ///   `cargo test --release -p fnx-algorithms --lib quotient_graph_idx_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with --release --ignored --nocapture"]
+    fn quotient_graph_idx_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        // Dense circulant n=20000 deg~20; partition into contiguous blocks of 200 → most circulant
+        // edges (|i-j|<=10) are intra-block, so the quotient output is small and the O(|E|) scan +
+        // edges_ordered() EdgeSnapshot (String left/right + attr clone) materialisation dominates.
+        let n = 20000usize;
+        let block_size = 200usize;
+        // Longer node names so edges_ordered()'s per-edge left/right String CLONE (which
+        // edges_ordered_indices avoids) is a heavier, clearer signal above the alloc noise.
+        let name = |i: usize| format!("graph_node_identifier_{i:08}");
+        let mut g = Graph::strict();
+        for i in 0..n {
+            let _ = g.add_node(name(i));
+        }
+        for i in 0..n {
+            for step in 1..=10usize {
+                let _ = g.add_edge(name(i), name((i + step) % n));
+            }
+        }
+        let mut partition: Vec<Vec<String>> = Vec::new();
+        let mut b = 0usize;
+        while b < n {
+            let block: Vec<String> = (b..(b + block_size).min(n)).map(name).collect();
+            partition.push(block);
+            b += block_size;
+        }
+
+        // Byte-exact parity: same quotient nodes + edges.
+        let cand = super::quotient_graph(&g, &partition);
+        let base = super::quotient_graph_orig_string(&g, &partition);
+        assert_eq!(
+            cand.nodes_ordered(),
+            base.nodes_ordered(),
+            "quotient nodes must match"
+        );
+        assert_eq!(
+            cand.edges_ordered_indices(),
+            base.edges_ordered_indices(),
+            "quotient edges (set + insertion order) must match"
+        );
+
+        // 3 calls per sample amortises allocator warmup (the per-call multi-MB Vec allocations
+        // otherwise make a single-call sample's first-vs-second asymmetry dominate the null spread).
+        let time = |use_cand: bool| -> f64 {
+            let t0 = Instant::now();
+            for _ in 0..3 {
+                let r = if use_cand {
+                    super::quotient_graph(&g, &partition)
+                } else {
+                    super::quotient_graph_orig_string(&g, &partition)
+                };
+                black_box(&r);
+            }
+            t0.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(true));
+            black_box(time(false));
+        }
+        let median = |v: &[f64]| {
+            let mut s = v.to_vec();
+            s.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            s[s.len() / 2]
+        };
+        let rounds = 41usize;
+        let paired = |use_cand: bool, base_arm: bool| -> Vec<f64> {
+            let mut v = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (tb, tc) = if round.is_multiple_of(2) {
+                    let bt = time(base_arm);
+                    let ct = time(use_cand);
+                    (bt, ct)
+                } else {
+                    let ct = time(use_cand);
+                    let bt = time(base_arm);
+                    (bt, ct)
+                };
+                v.push(tb / tc);
+            }
+            v
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&r| r > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            println!(
+                "QGIDX_AB {name}: median={:.4}x win_rate={wins}/{rounds} \
+                 p5_p95=[{:.4},{:.4}]",
+                median(ratios),
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+        println!(
+            "QGIDX_AB quotient_graph n={n} block_size={block_size} rounds={rounds} (>1 = index faster)"
+        );
+        report("INDEX_vs_string", &paired(true, false));
+        report("NULL_index_vs_index", &paired(true, true));
+    }
+
+    /// br-r37-c1-revdeleg: full-function paired-interleaved A/B for `reverse_digraph` (String-path
+    /// edges_ordered() clone + double-clone + String-resolving extend → delegate to the O(V+E)
+    /// `DiGraph::reversed()` topology flip). Dense complete digraph so the O(|E|) edge-reversal work
+    /// dominates. Byte-exact parity (edge topology via edges_ordered_borrowed + node names). `#[ignore]`;
+    /// run with `cargo test --release -p fnx-algorithms --lib reverse_digraph_deleg_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with --release --ignored --nocapture"]
+    fn reverse_digraph_deleg_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        // Complete digraph K200 (39800 directed edges).
+        let m = 200usize;
+        let mut g = DiGraph::strict();
+        for i in 0..m {
+            let _ = g.add_node(format!("n{i}"));
+        }
+        for i in 0..m {
+            for j in 0..m {
+                if i != j {
+                    let _ = g.add_edge(format!("n{i}"), format!("n{j}"));
+                }
+            }
+        }
+
+        // Byte-exact parity: same reversed edge topology (names + attrs) + same node names.
+        let cand = super::reverse_digraph(&g);
+        let base = super::reverse_digraph_orig_string(&g);
+        assert_eq!(
+            cand.edges_ordered_borrowed(),
+            base.edges_ordered_borrowed(),
+            "reversed edge topology must match the String-path baseline"
+        );
+        assert_eq!(
+            cand.nodes_ordered(),
+            base.nodes_ordered(),
+            "node order must match"
+        );
+
+        let time = |use_cand: bool| -> f64 {
+            let t0 = Instant::now();
+            let r = if use_cand {
+                super::reverse_digraph(&g)
+            } else {
+                super::reverse_digraph_orig_string(&g)
+            };
+            black_box(&r);
+            t0.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(true));
+            black_box(time(false));
+        }
+        let median = |v: &[f64]| {
+            let mut s = v.to_vec();
+            s.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            s[s.len() / 2]
+        };
+        let rounds = 41usize;
+        let paired = |use_cand: bool, base_arm: bool| -> Vec<f64> {
+            let mut v = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (tb, tc) = if round.is_multiple_of(2) {
+                    let bt = time(base_arm);
+                    let ct = time(use_cand);
+                    (bt, ct)
+                } else {
+                    let ct = time(use_cand);
+                    let bt = time(base_arm);
+                    (bt, ct)
+                };
+                v.push(tb / tc);
+            }
+            v
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&r| r > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            println!(
+                "REVDELEG_AB {name}: median={:.4}x win_rate={wins}/{rounds} \
+                 p5_p95=[{:.4},{:.4}]",
+                median(ratios),
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+        println!(
+            "REVDELEG_AB reverse_digraph K{m} ({} edges) rounds={rounds} (>1 = reversed() faster)",
+            m * (m - 1)
+        );
+        report("DELEG_vs_string", &paired(true, false));
+        report("NULL_deleg_vs_deleg", &paired(true, true));
+    }
+
+    /// br-r37-c1-sccidx: full-function paired-interleaved A/B for `strongly_connected_components`
+    /// (Tarjan work stack held `Vec<&str>` successors + `get_node_index` re-hash per edge → integer
+    /// `successors_indices` slices). Forward DAG so every node is its own SCC (component builds are
+    /// O(1)) and the O(|E|) per-edge re-hash + per-node Vec<&str> alloc dominates. Byte-exact parity
+    /// (components). `#[ignore]`; run with
+    /// `cargo test --release -p fnx-algorithms --lib strongly_connected_components_idx_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with --release --ignored --nocapture"]
+    fn strongly_connected_components_idx_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        // Forward DAG n=40000, out-degree ~20 (i → i+1..i+20): all singleton SCCs, ~800k edges → the
+        // DFS re-hashes every successor in the baseline; index version reads the slice entry directly.
+        let n = 40000usize;
+        let deg = 20usize;
+        let mut g = DiGraph::strict();
+        for i in 0..n {
+            let _ = g.add_node(format!("n{i}"));
+        }
+        for i in 0..n {
+            for k in 1..=deg {
+                if i + k < n {
+                    let _ = g.add_edge(format!("n{i}"), format!("n{}", i + k));
+                }
+            }
+        }
+
+        // Byte-exact parity: same components (composition + order).
+        let cand = super::strongly_connected_components(&g);
+        let base = super::strongly_connected_components_orig_string(&g);
+        assert_eq!(cand, base, "index SCC must equal the String baseline");
+        assert_eq!(cand.len(), n, "forward DAG has n singleton SCCs");
+
+        let time = |use_cand: bool| -> f64 {
+            let t0 = Instant::now();
+            let r = if use_cand {
+                super::strongly_connected_components(&g)
+            } else {
+                super::strongly_connected_components_orig_string(&g)
+            };
+            black_box(&r);
+            t0.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(true));
+            black_box(time(false));
+        }
+        let median = |v: &[f64]| {
+            let mut s = v.to_vec();
+            s.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            s[s.len() / 2]
+        };
+        let rounds = 41usize;
+        let paired = |use_cand: bool, base_arm: bool| -> Vec<f64> {
+            let mut v = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (tb, tc) = if round.is_multiple_of(2) {
+                    let bt = time(base_arm);
+                    let ct = time(use_cand);
+                    (bt, ct)
+                } else {
+                    let ct = time(use_cand);
+                    let bt = time(base_arm);
+                    (bt, ct)
+                };
+                v.push(tb / tc);
+            }
+            v
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&r| r > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            println!(
+                "SCCIDX_AB {name}: median={:.4}x win_rate={wins}/{rounds} \
+                 p5_p95=[{:.4},{:.4}]",
+                median(ratios),
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+        println!(
+            "SCCIDX_AB strongly_connected_components n={n} deg={deg} rounds={rounds} (>1 = index faster)"
+        );
+        report("INDEX_vs_string", &paired(true, false));
+        report("NULL_index_vs_index", &paired(true, true));
+    }
+
+    /// br-r37-c1-941r3: full-function paired A/B for the scalar SCC count.
+    /// The baseline materializes and sorts every component before taking `.len()`;
+    /// the candidate uses `number_strongly_connected_components`. A forward DAG
+    /// makes every node a singleton SCC and amplifies that avoidable output work.
+    /// `#[ignore]`; run with
+    /// `cargo test --release -p fnx-algorithms --lib number_strongly_connected_components_count_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with --release --ignored --nocapture"]
+    fn number_strongly_connected_components_count_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        let n = 20_000usize;
+        let degree = 4usize;
+        let mut g = DiGraph::strict();
+        for i in 0..n {
+            let _ = g.add_node(format!("n{i}"));
+        }
+        for i in 0..n {
+            for offset in 1..=degree {
+                if i + offset < n {
+                    let _ = g.add_edge(format!("n{i}"), format!("n{}", i + offset));
+                }
+            }
+        }
+
+        let materialized = super::strongly_connected_components(&g).len();
+        let counted = super::number_strongly_connected_components(&g);
+        assert_eq!(counted, materialized);
+        assert_eq!(counted, n, "forward DAG has one SCC per node");
+
+        let time = |use_count: bool| -> f64 {
+            let start = Instant::now();
+            let result = if use_count {
+                super::number_strongly_connected_components(&g)
+            } else {
+                super::strongly_connected_components(&g).len()
+            };
+            black_box(result);
+            start.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(false));
+            black_box(time(true));
+        }
+
+        let rounds = 31usize;
+        let paired = |candidate: bool, baseline: bool| -> Vec<f64> {
+            let mut ratios = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (base_time, candidate_time) = if round.is_multiple_of(2) {
+                    (time(baseline), time(candidate))
+                } else {
+                    let candidate_time = time(candidate);
+                    let base_time = time(baseline);
+                    (base_time, candidate_time)
+                };
+                ratios.push(base_time / candidate_time);
+            }
+            ratios
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&ratio| ratio > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            println!(
+                "SCCCOUNT_AB {name}: median={:.4}x win_rate={wins}/{rounds} p5_p95=[{:.4},{:.4}]",
+                sorted[rounds / 2],
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+
+        println!(
+            "SCCCOUNT_AB number_strongly_connected_components n={n} degree={degree} rounds={rounds} (>1 = count-only faster)"
+        );
+        report("COUNT_vs_materialized", &paired(true, false));
+        report("NULL_materialized_vs_materialized", &paired(false, false));
+    }
+
+    /// br-r37-c1-bccidx: full-function paired-interleaved A/B for `biconnected_component_edges`
+    /// (fully String-keyed articulation DFS: discovery/low/parent HashMap<&str,_> + (&str,&str) edge
+    /// stack + Vec<&str> work stack → all integer-index). Chain of triangles so there are many small
+    /// biconnected components (tiny per-component output/sort) and the O(V+E) String-hash DFS dominates.
+    /// Byte-exact parity (components). `#[ignore]`; run with
+    /// `cargo test --release -p fnx-algorithms --lib biconnected_component_edges_idx_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with --release --ignored --nocapture"]
+    fn biconnected_component_edges_idx_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        // Chain of T triangles sharing even articulation nodes: triangle t on (2t, 2t+1, 2t+2).
+        // 2T+1 nodes, 3T edges, T biconnected components (each triangle) → per-component output is 3
+        // edges (cheap sort) while the O(V+E) discovery/low/parent probes are the dominant cost.
+        let t = 20000usize;
+        let n = 2 * t + 1;
+        let mut g = Graph::strict();
+        for i in 0..n {
+            let _ = g.add_node(format!("n{i}"));
+        }
+        for k in 0..t {
+            let a = 2 * k;
+            let _ = g.add_edge(format!("n{a}"), format!("n{}", a + 1));
+            let _ = g.add_edge(format!("n{}", a + 1), format!("n{}", a + 2));
+            let _ = g.add_edge(format!("n{a}"), format!("n{}", a + 2));
+        }
+
+        // Byte-exact parity: same components (composition + order).
+        let cand = super::biconnected_component_edges(&g);
+        let base = super::biconnected_component_edges_orig_string(&g);
+        assert_eq!(
+            cand, base,
+            "index biconnected_component_edges must equal the String baseline"
+        );
+        assert_eq!(
+            cand.len(),
+            t,
+            "chain of T triangles has T biconnected components"
+        );
+
+        let time = |use_cand: bool| -> f64 {
+            let t0 = Instant::now();
+            let r = if use_cand {
+                super::biconnected_component_edges(&g)
+            } else {
+                super::biconnected_component_edges_orig_string(&g)
+            };
+            black_box(&r);
+            t0.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(true));
+            black_box(time(false));
+        }
+        let median = |v: &[f64]| {
+            let mut s = v.to_vec();
+            s.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            s[s.len() / 2]
+        };
+        let rounds = 41usize;
+        let paired = |use_cand: bool, base_arm: bool| -> Vec<f64> {
+            let mut v = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (tb, tc) = if round.is_multiple_of(2) {
+                    let bt = time(base_arm);
+                    let ct = time(use_cand);
+                    (bt, ct)
+                } else {
+                    let ct = time(use_cand);
+                    let bt = time(base_arm);
+                    (bt, ct)
+                };
+                v.push(tb / tc);
+            }
+            v
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&r| r > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            println!(
+                "BCCIDX_AB {name}: median={:.4}x win_rate={wins}/{rounds} \
+                 p5_p95=[{:.4},{:.4}]",
+                median(ratios),
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+        println!(
+            "BCCIDX_AB biconnected_component_edges T={t} (n={n}) rounds={rounds} (>1 = index faster)"
+        );
+        report("INDEX_vs_string", &paired(true, false));
+        report("NULL_index_vs_index", &paired(true, true));
+    }
+
+    /// br-r37-c1-kosidx: full-function paired-interleaved A/B for `kosaraju_strongly_connected_components`
+    /// (two String-keyed DFS phases: HashSet<&str> visited/seen + predecessors()/successors() Vec<&str>
+    /// allocs → integer-index). Forward DAG so all SCCs are singletons and both phases traverse the whole
+    /// O(V+E) graph. Byte-exact parity (components, incl. emission order). `#[ignore]`; run with
+    /// `cargo test --release -p fnx-algorithms --lib kosaraju_strongly_connected_components_idx_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with --release --ignored --nocapture"]
+    fn kosaraju_strongly_connected_components_idx_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        // Forward DAG n=40000, out-degree ~20 → all singleton SCCs; phase 1 (predecessors) + phase 2
+        // (successors) each walk the whole graph, re-hashing every neighbour in the baseline.
+        let n = 40000usize;
+        let deg = 20usize;
+        let mut g = DiGraph::strict();
+        for i in 0..n {
+            let _ = g.add_node(format!("n{i}"));
+        }
+        for i in 0..n {
+            for k in 1..=deg {
+                if i + k < n {
+                    let _ = g.add_edge(format!("n{i}"), format!("n{}", i + k));
+                }
+            }
+        }
+
+        // Byte-exact parity: same components (composition + emission order).
+        let cand = super::kosaraju_strongly_connected_components(&g);
+        let base = super::kosaraju_strongly_connected_components_orig_string(&g);
+        assert_eq!(cand, base, "index Kosaraju must equal the String baseline");
+        assert_eq!(cand.len(), n, "forward DAG has n singleton SCCs");
+
+        let time = |use_cand: bool| -> f64 {
+            let t0 = Instant::now();
+            let r = if use_cand {
+                super::kosaraju_strongly_connected_components(&g)
+            } else {
+                super::kosaraju_strongly_connected_components_orig_string(&g)
+            };
+            black_box(&r);
+            t0.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(true));
+            black_box(time(false));
+        }
+        let median = |v: &[f64]| {
+            let mut s = v.to_vec();
+            s.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            s[s.len() / 2]
+        };
+        let rounds = 41usize;
+        let paired = |use_cand: bool, base_arm: bool| -> Vec<f64> {
+            let mut v = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (tb, tc) = if round.is_multiple_of(2) {
+                    let bt = time(base_arm);
+                    let ct = time(use_cand);
+                    (bt, ct)
+                } else {
+                    let ct = time(use_cand);
+                    let bt = time(base_arm);
+                    (bt, ct)
+                };
+                v.push(tb / tc);
+            }
+            v
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&r| r > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            println!(
+                "KOSIDX_AB {name}: median={:.4}x win_rate={wins}/{rounds} \
+                 p5_p95=[{:.4},{:.4}]",
+                median(ratios),
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+        println!(
+            "KOSIDX_AB kosaraju_strongly_connected_components n={n} deg={deg} rounds={rounds} (>1 = index faster)"
+        );
+        report("INDEX_vs_string", &paired(true, false));
+        report("NULL_index_vs_index", &paired(true, true));
+    }
+
+    /// br-r37-c1-toposortidx: full-function paired-interleaved A/B for `topological_sort` (String-keyed
+    /// 3-color DFS: HashMap<&str,Color> + successors() Vec<&str> alloc + color.get re-hash per edge →
+    /// integer-index). Forward DAG (no cycle → full sort). Byte-exact parity (result incl. order + witness
+    /// via PartialEq). `#[ignore]`; run with
+    /// `cargo test --release -p fnx-algorithms --lib topological_sort_idx_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with --release --ignored --nocapture"]
+    fn topological_sort_idx_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        // Forward DAG n=40000, out-degree ~20 (i → i+1..i+20): acyclic, so the DFS visits every node
+        // and scans every edge (re-hashing each successor via color.get in the baseline).
+        let n = 40000usize;
+        let deg = 20usize;
+        let mut g = DiGraph::strict();
+        for i in 0..n {
+            let _ = g.add_node(format!("n{i}"));
+        }
+        for i in 0..n {
+            for k in 1..=deg {
+                if i + k < n {
+                    let _ = g.add_edge(format!("n{i}"), format!("n{}", i + k));
+                }
+            }
+        }
+
+        // Byte-exact parity: same order + witness.
+        let cand = super::topological_sort(&g);
+        let base = super::topological_sort_orig_string(&g);
+        assert_eq!(
+            cand, base,
+            "index topological_sort must equal the String baseline"
+        );
+        assert!(cand.is_some(), "forward DAG is acyclic");
+        assert_eq!(cand.as_ref().unwrap().order.len(), n, "all n nodes ordered");
+
+        let time = |use_cand: bool| -> f64 {
+            let t0 = Instant::now();
+            let r = if use_cand {
+                super::topological_sort(&g)
+            } else {
+                super::topological_sort_orig_string(&g)
+            };
+            black_box(&r);
+            t0.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(true));
+            black_box(time(false));
+        }
+        let median = |v: &[f64]| {
+            let mut s = v.to_vec();
+            s.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            s[s.len() / 2]
+        };
+        let rounds = 41usize;
+        let paired = |use_cand: bool, base_arm: bool| -> Vec<f64> {
+            let mut v = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (tb, tc) = if round.is_multiple_of(2) {
+                    let bt = time(base_arm);
+                    let ct = time(use_cand);
+                    (bt, ct)
+                } else {
+                    let ct = time(use_cand);
+                    let bt = time(base_arm);
+                    (bt, ct)
+                };
+                v.push(tb / tc);
+            }
+            v
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&r| r > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            println!(
+                "TOPOSORTIDX_AB {name}: median={:.4}x win_rate={wins}/{rounds} \
+                 p5_p95=[{:.4},{:.4}]",
+                median(ratios),
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+        println!(
+            "TOPOSORTIDX_AB topological_sort n={n} deg={deg} rounds={rounds} (>1 = index faster)"
+        );
+        report("INDEX_vs_string", &paired(true, false));
+        report("NULL_index_vs_index", &paired(true, true));
+    }
+
+    /// br-r37-c1-topogenidx: full-function paired-interleaved A/B for `topological_generations` (Kahn's
+    /// with in_degree HashMap<&str,usize> + successors() Vec<&str> alloc + get_mut re-hash per edge →
+    /// integer-index). Forward DAG (acyclic → full Kahn's). Byte-exact parity (result incl. generations
+    /// + order + witness via PartialEq). `#[ignore]`; run with
+    ///   `cargo test --release -p fnx-algorithms --lib topological_generations_idx_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with --release --ignored --nocapture"]
+    fn topological_generations_idx_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        // Forward DAG n=40000, out-degree ~20 (i → i+1..i+20): acyclic, so Kahn's decrements every edge's
+        // successor in_degree (a String get_mut per edge in the baseline).
+        let n = 40000usize;
+        let deg = 20usize;
+        let mut g = DiGraph::strict();
+        for i in 0..n {
+            let _ = g.add_node(format!("n{i}"));
+        }
+        for i in 0..n {
+            for k in 1..=deg {
+                if i + k < n {
+                    let _ = g.add_edge(format!("n{i}"), format!("n{}", i + k));
+                }
+            }
+        }
+
+        // Byte-exact parity: same generations + witness.
+        let cand = super::topological_generations(&g);
+        let base = super::topological_generations_orig_string(&g);
+        assert_eq!(
+            cand, base,
+            "index topological_generations must equal the String baseline"
+        );
+        assert!(cand.is_some(), "forward DAG is acyclic");
+
+        let time = |use_cand: bool| -> f64 {
+            let t0 = Instant::now();
+            let r = if use_cand {
+                super::topological_generations(&g)
+            } else {
+                super::topological_generations_orig_string(&g)
+            };
+            black_box(&r);
+            t0.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(true));
+            black_box(time(false));
+        }
+        let median = |v: &[f64]| {
+            let mut s = v.to_vec();
+            s.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            s[s.len() / 2]
+        };
+        let rounds = 41usize;
+        let paired = |use_cand: bool, base_arm: bool| -> Vec<f64> {
+            let mut v = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (tb, tc) = if round.is_multiple_of(2) {
+                    let bt = time(base_arm);
+                    let ct = time(use_cand);
+                    (bt, ct)
+                } else {
+                    let ct = time(use_cand);
+                    let bt = time(base_arm);
+                    (bt, ct)
+                };
+                v.push(tb / tc);
+            }
+            v
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&r| r > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            println!(
+                "TOPOGENIDX_AB {name}: median={:.4}x win_rate={wins}/{rounds} \
+                 p5_p95=[{:.4},{:.4}]",
+                median(ratios),
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+        println!(
+            "TOPOGENIDX_AB topological_generations n={n} deg={deg} rounds={rounds} (>1 = index faster)"
+        );
+        report("INDEX_vs_string", &paired(true, false));
+        report("NULL_index_vs_index", &paired(true, true));
+    }
+
+    /// br-r37-c1-bidirspidx: full-function paired-interleaved A/B for `bidirectional_shortest_path`
+    /// (String-keyed bidir BFS: forward/backward HashMap<&str,&str> pred + HashSet<&str> visited +
+    /// neighbors_iter → integer-index). Dense circulant with source/target diametrically opposite so
+    /// both frontiers explore ~all V before meeting while the path stays short → BFS-hash dominated.
+    /// Byte-exact parity (path). `#[ignore]`; run with
+    /// `cargo test --release -p fnx-algorithms --lib bidirectional_shortest_path_idx_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with --release --ignored --nocapture"]
+    fn bidirectional_shortest_path_idx_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        // Circulant n=120000, each node linked to ±1..±10 (deg 20). source=n0, target=n60000
+        // (diametrically opposite): the two frontiers sweep toward each other, exploring ~all V before
+        // meeting, but the shortest path is only ~6000 hops → the O(V+E) visited/pred probes dominate.
+        let n = 120000usize;
+        let deg = 10usize;
+        let mut g = Graph::strict();
+        for i in 0..n {
+            let _ = g.add_node(format!("n{i}"));
+        }
+        for i in 0..n {
+            for step in 1..=deg {
+                let _ = g.add_edge(format!("n{i}"), format!("n{}", (i + step) % n));
+            }
+        }
+        let src = "n0";
+        let tgt = "n60000";
+
+        // Byte-exact parity: same shortest path.
+        let cand = super::bidirectional_shortest_path(&g, src, tgt);
+        let base = super::bidirectional_shortest_path_orig_string(&g, src, tgt);
+        assert_eq!(
+            cand, base,
+            "index bidirectional_shortest_path must equal the String baseline"
+        );
+        assert!(cand.is_some(), "target is reachable");
+
+        let time = |use_cand: bool| -> f64 {
+            let t0 = Instant::now();
+            let r = if use_cand {
+                super::bidirectional_shortest_path(&g, src, tgt)
+            } else {
+                super::bidirectional_shortest_path_orig_string(&g, src, tgt)
+            };
+            black_box(&r);
+            t0.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(true));
+            black_box(time(false));
+        }
+        let median = |v: &[f64]| {
+            let mut s = v.to_vec();
+            s.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            s[s.len() / 2]
+        };
+        let rounds = 41usize;
+        let paired = |use_cand: bool, base_arm: bool| -> Vec<f64> {
+            let mut v = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (tb, tc) = if round.is_multiple_of(2) {
+                    let bt = time(base_arm);
+                    let ct = time(use_cand);
+                    (bt, ct)
+                } else {
+                    let ct = time(use_cand);
+                    let bt = time(base_arm);
+                    (bt, ct)
+                };
+                v.push(tb / tc);
+            }
+            v
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&r| r > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            println!(
+                "BIDIRSPIDX_AB {name}: median={:.4}x win_rate={wins}/{rounds} \
+                 p5_p95=[{:.4},{:.4}]",
+                median(ratios),
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+        println!(
+            "BIDIRSPIDX_AB bidirectional_shortest_path n={n} deg={deg} rounds={rounds} (>1 = index faster)"
+        );
+        report("INDEX_vs_string", &paired(true, false));
+        report("NULL_index_vs_index", &paired(true, true));
+    }
+
+    /// br-r37-c1-daglpidx: full-function paired-interleaved A/B for `dag_longest_path` (String-keyed DAG
+    /// DP: dist HashMap<&str,usize> + pred HashMap<&str,Option<&str>> + successors() re-hash per edge →
+    /// integer-index). Forward DAG (acyclic). The shared topological_sort (already index) is identical in
+    /// both arms, so this isolates the DP loop. Byte-exact parity (path). `#[ignore]`; run with
+    /// `cargo test --release -p fnx-algorithms --lib dag_longest_path_idx_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with --release --ignored --nocapture"]
+    fn dag_longest_path_idx_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        // Forward DAG n=40000, out-degree ~20 (i → i+1..i+20): acyclic; the DP relaxes every edge
+        // (dist[u]/dist[v]/insert String hash per edge in the baseline).
+        let n = 40000usize;
+        let deg = 20usize;
+        let mut g = DiGraph::strict();
+        for i in 0..n {
+            let _ = g.add_node(format!("n{i}"));
+        }
+        for i in 0..n {
+            for k in 1..=deg {
+                if i + k < n {
+                    let _ = g.add_edge(format!("n{i}"), format!("n{}", i + k));
+                }
+            }
+        }
+
+        // Byte-exact parity: same longest path.
+        let cand = super::dag_longest_path(&g);
+        let base = super::dag_longest_path_orig_string(&g);
+        assert_eq!(
+            cand, base,
+            "index dag_longest_path must equal the String baseline"
+        );
+        assert!(cand.is_some(), "forward DAG is acyclic");
+
+        let time = |use_cand: bool| -> f64 {
+            let t0 = Instant::now();
+            let r = if use_cand {
+                super::dag_longest_path(&g)
+            } else {
+                super::dag_longest_path_orig_string(&g)
+            };
+            black_box(&r);
+            t0.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(true));
+            black_box(time(false));
+        }
+        let median = |v: &[f64]| {
+            let mut s = v.to_vec();
+            s.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            s[s.len() / 2]
+        };
+        let rounds = 41usize;
+        let paired = |use_cand: bool, base_arm: bool| -> Vec<f64> {
+            let mut v = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (tb, tc) = if round.is_multiple_of(2) {
+                    let bt = time(base_arm);
+                    let ct = time(use_cand);
+                    (bt, ct)
+                } else {
+                    let ct = time(use_cand);
+                    let bt = time(base_arm);
+                    (bt, ct)
+                };
+                v.push(tb / tc);
+            }
+            v
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&r| r > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            println!(
+                "DAGLPIDX_AB {name}: median={:.4}x win_rate={wins}/{rounds} \
+                 p5_p95=[{:.4},{:.4}]",
+                median(ratios),
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+        println!(
+            "DAGLPIDX_AB dag_longest_path n={n} deg={deg} rounds={rounds} (>1 = index faster)"
+        );
+        report("INDEX_vs_string", &paired(true, false));
+        report("NULL_index_vs_index", &paired(true, true));
+    }
+
+    /// br-r37-c1-daglpwidx: full-function paired-interleaved A/B for `dag_longest_path_weighted` (String-
+    /// keyed weighted DAG DP: dist HashMap<&str,f64> + pred HashMap<&str,Option<&str>> + NAME-keyed edge-
+    /// weight lookup → integer-index dist/pred + directed_edge_weight_with_default_idx). f64 add/compare
+    /// unchanged; only the key lookup changes → bit-identical. Byte-exact parity (path). `#[ignore]`; run
+    /// with `cargo test --release -p fnx-algorithms --lib dag_longest_path_weighted_idx_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with --release --ignored --nocapture"]
+    fn dag_longest_path_weighted_idx_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        // Weighted forward DAG n=40000, out-degree ~20; edge (i,i+k) carries weight 1..9. The DP relaxes
+        // every edge with a per-edge weight lookup — 2 node-map String probes each in the baseline.
+        let n = 40000usize;
+        let deg = 20usize;
+        let mut g = DiGraph::strict();
+        for i in 0..n {
+            let _ = g.add_node(format!("n{i}"));
+        }
+        for i in 0..n {
+            for k in 1..=deg {
+                if i + k < n {
+                    let w = format!("{}", (i + k) % 9 + 1);
+                    let _ = g.add_edge_with_attrs(
+                        format!("n{i}"),
+                        format!("n{}", i + k),
+                        attrs([("weight", w.as_str())]),
+                    );
+                }
+            }
+        }
+
+        // Byte-exact parity (bit-identical f64 → same path).
+        let cand = super::dag_longest_path_weighted(&g, "weight", 1.0);
+        let base = super::dag_longest_path_weighted_orig_string(&g, "weight", 1.0);
+        assert_eq!(
+            cand, base,
+            "index dag_longest_path_weighted must equal the String baseline"
+        );
+        assert!(cand.is_some(), "forward DAG is acyclic");
+
+        let time = |use_cand: bool| -> f64 {
+            let t0 = Instant::now();
+            let r = if use_cand {
+                super::dag_longest_path_weighted(&g, "weight", 1.0)
+            } else {
+                super::dag_longest_path_weighted_orig_string(&g, "weight", 1.0)
+            };
+            black_box(&r);
+            t0.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(true));
+            black_box(time(false));
+        }
+        let median = |v: &[f64]| {
+            let mut s = v.to_vec();
+            s.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            s[s.len() / 2]
+        };
+        let rounds = 41usize;
+        let paired = |use_cand: bool, base_arm: bool| -> Vec<f64> {
+            let mut v = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (tb, tc) = if round.is_multiple_of(2) {
+                    let bt = time(base_arm);
+                    let ct = time(use_cand);
+                    (bt, ct)
+                } else {
+                    let ct = time(use_cand);
+                    let bt = time(base_arm);
+                    (bt, ct)
+                };
+                v.push(tb / tc);
+            }
+            v
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&r| r > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            println!(
+                "DAGLPWIDX_AB {name}: median={:.4}x win_rate={wins}/{rounds} \
+                 p5_p95=[{:.4},{:.4}]",
+                median(ratios),
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+        println!(
+            "DAGLPWIDX_AB dag_longest_path_weighted n={n} deg={deg} rounds={rounds} (>1 = index faster)"
+        );
+        report("INDEX_vs_string", &paired(true, false));
+        report("NULL_index_vs_index", &paired(true, true));
+    }
+
+    /// br-r37-c1-aspwidx: full-function paired-interleaved A/B for `all_shortest_paths_weighted` (String-
+    /// keyed weighted Dijkstra: dist HashMap<&str,f64> + preds HashMap<&str,Vec<&str>> +
+    /// BinaryHeap<DijkstraState{&str}> + name-keyed weight → integer-index). Weighted circulant with
+    /// edge weight = step² and an off-centre target so the shortest path is UNIQUE (short output) while
+    /// Dijkstra explores ~⅔ of V → relaxation-hash dominated. Byte-exact parity (paths). `#[ignore]`; run
+    /// with `cargo test --release -p fnx-algorithms --lib all_shortest_paths_weighted_idx_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with --release --ignored --nocapture"]
+    fn all_shortest_paths_weighted_idx_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        // Circulant n=30000, each node linked to ±1,±2,±3 with edge weight = step² (1,4,9). The unit-step
+        // (+1) route is strictly cheapest (k² > k·1²), and the off-centre target n10000 makes the short
+        // way strictly shorter than the long way → a UNIQUE shortest path, while Dijkstra relaxes every
+        // node within dist ≤ 10000 (~⅔ of V) — a name-keyed dist/preds hash per relaxation in the baseline.
+        let n = 30000usize;
+        let mut g = Graph::strict();
+        for i in 0..n {
+            let _ = g.add_node(format!("n{i}"));
+        }
+        for i in 0..n {
+            for k in 1..=3usize {
+                let w = format!("{}", k * k);
+                let _ = g.add_edge_with_attrs(
+                    format!("n{i}"),
+                    format!("n{}", (i + k) % n),
+                    attrs([("weight", w.as_str())]),
+                );
+            }
+        }
+        let src = "n0";
+        let tgt = "n10000";
+
+        // Byte-exact parity (bit-identical f64 → same shortest paths).
+        let cand = super::all_shortest_paths_weighted(&g, src, tgt, "weight");
+        let base = super::all_shortest_paths_weighted_orig_string(&g, src, tgt, "weight");
+        assert_eq!(
+            cand, base,
+            "index all_shortest_paths_weighted must equal the String baseline"
+        );
+        assert_eq!(
+            cand.len(),
+            1,
+            "off-centre target on a step²-weighted circulant has a unique path"
+        );
+
+        let time = |use_cand: bool| -> f64 {
+            let t0 = Instant::now();
+            let r = if use_cand {
+                super::all_shortest_paths_weighted(&g, src, tgt, "weight")
+            } else {
+                super::all_shortest_paths_weighted_orig_string(&g, src, tgt, "weight")
+            };
+            black_box(&r);
+            t0.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(true));
+            black_box(time(false));
+        }
+        let median = |v: &[f64]| {
+            let mut s = v.to_vec();
+            s.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            s[s.len() / 2]
+        };
+        let rounds = 41usize;
+        let paired = |use_cand: bool, base_arm: bool| -> Vec<f64> {
+            let mut v = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (tb, tc) = if round.is_multiple_of(2) {
+                    let bt = time(base_arm);
+                    let ct = time(use_cand);
+                    (bt, ct)
+                } else {
+                    let ct = time(use_cand);
+                    let bt = time(base_arm);
+                    (bt, ct)
+                };
+                v.push(tb / tc);
+            }
+            v
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&r| r > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            println!(
+                "ASPWIDX_AB {name}: median={:.4}x win_rate={wins}/{rounds} \
+                 p5_p95=[{:.4},{:.4}]",
+                median(ratios),
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+        println!(
+            "ASPWIDX_AB all_shortest_paths_weighted n={n} rounds={rounds} (>1 = index faster)"
+        );
+        report("INDEX_vs_string", &paired(true, false));
+        report("NULL_index_vs_index", &paired(true, true));
+    }
+
+    /// br-r37-c1-aspwdiridx: full-function paired-interleaved A/B for `all_shortest_paths_weighted_directed`
+    /// (directed twin of aspwidx: String-keyed weighted Dijkstra → integer-index, reusing the existing
+    /// digraph_edge_weight_or_default_idx + build_all_paths_from_preds_index). Directed step²-weighted
+    /// circulant, forward edges only → unique forward shortest path. Byte-exact parity (paths). `#[ignore]`;
+    /// run with `cargo test --release -p fnx-algorithms --lib all_shortest_paths_weighted_directed_idx_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with --release --ignored --nocapture"]
+    fn all_shortest_paths_weighted_directed_idx_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        // Directed circulant n=20000, i → (i+1..i+10) with edge weight = step². The +1-only forward route
+        // is strictly cheapest (k² > k), so 0→n10000 is a UNIQUE forward path; Dijkstra relaxes every node
+        // with dist ≤ 10000 (~half of V) — a name-keyed dist/preds hash per relaxation in the baseline.
+        let n = 20000usize;
+        let deg = 10usize;
+        let mut g = DiGraph::strict();
+        for i in 0..n {
+            let _ = g.add_node(format!("n{i}"));
+        }
+        for i in 0..n {
+            for k in 1..=deg {
+                let w = format!("{}", k * k);
+                let _ = g.add_edge_with_attrs(
+                    format!("n{i}"),
+                    format!("n{}", (i + k) % n),
+                    attrs([("weight", w.as_str())]),
+                );
+            }
+        }
+        let src = "n0";
+        let tgt = "n10000";
+
+        // Byte-exact parity (bit-identical f64 → same shortest paths).
+        let cand = super::all_shortest_paths_weighted_directed(&g, src, tgt, "weight");
+        let base = super::all_shortest_paths_weighted_directed_orig_string(&g, src, tgt, "weight");
+        assert_eq!(
+            cand, base,
+            "index all_shortest_paths_weighted_directed must equal the String baseline"
+        );
+        assert_eq!(
+            cand.len(),
+            1,
+            "forward step²-weighted circulant has a unique shortest path"
+        );
+
+        let time = |use_cand: bool| -> f64 {
+            let t0 = Instant::now();
+            let r = if use_cand {
+                super::all_shortest_paths_weighted_directed(&g, src, tgt, "weight")
+            } else {
+                super::all_shortest_paths_weighted_directed_orig_string(&g, src, tgt, "weight")
+            };
+            black_box(&r);
+            t0.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(true));
+            black_box(time(false));
+        }
+        let median = |v: &[f64]| {
+            let mut s = v.to_vec();
+            s.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            s[s.len() / 2]
+        };
+        let rounds = 41usize;
+        let paired = |use_cand: bool, base_arm: bool| -> Vec<f64> {
+            let mut v = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (tb, tc) = if round.is_multiple_of(2) {
+                    let bt = time(base_arm);
+                    let ct = time(use_cand);
+                    (bt, ct)
+                } else {
+                    let ct = time(use_cand);
+                    let bt = time(base_arm);
+                    (bt, ct)
+                };
+                v.push(tb / tc);
+            }
+            v
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&r| r > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            println!(
+                "ASPWDIRIDX_AB {name}: median={:.4}x win_rate={wins}/{rounds} \
+                 p5_p95=[{:.4},{:.4}]",
+                median(ratios),
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+        println!(
+            "ASPWDIRIDX_AB all_shortest_paths_weighted_directed n={n} deg={deg} rounds={rounds} (>1 = index faster)"
+        );
+        report("INDEX_vs_string", &paired(true, false));
+        report("NULL_index_vs_index", &paired(true, true));
+    }
+
+    /// br-r37-c1-misadjidx: full-function paired-interleaved A/B for `maximal_independent_set`. The
+    /// peeling loop was already index-based, but the adjacency was built via neighbors(node) (Vec<&str>
+    /// alloc/node) + a node_to_idx String re-hash per edge → neighbors_indices (zero-alloc), node_to_idx
+    /// dropped. Dense graph so the O(|E|) adj build dominates. Byte-exact parity (same MIS for a fixed
+    /// seed). `#[ignore]`; run with
+    /// `cargo test --release -p fnx-algorithms --lib maximal_independent_set_idx_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with --release --ignored --nocapture"]
+    fn maximal_independent_set_idx_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        // Dense circulant n=50000, ±1..±10 (deg 20) → ~500k edges; the peeling adjacency build is O(|E|)
+        // String-hashed in the baseline.
+        let n = 50000usize;
+        let deg = 10usize;
+        let mut g = Graph::strict();
+        for i in 0..n {
+            let _ = g.add_node(format!("n{i}"));
+        }
+        for i in 0..n {
+            for step in 1..=deg {
+                let _ = g.add_edge(format!("n{i}"), format!("n{}", (i + step) % n));
+            }
+        }
+        let init: Vec<String> = Vec::new();
+        let seed = Some(42u64);
+
+        // Byte-exact parity: same maximal independent set for the fixed seed.
+        let cand = super::maximal_independent_set(&g, &init, seed);
+        let base = super::maximal_independent_set_orig_string(&g, &init, seed);
+        assert_eq!(
+            cand, base,
+            "index maximal_independent_set must equal the String baseline"
+        );
+        assert!(
+            cand.as_ref().map(|v| !v.is_empty()).unwrap_or(false),
+            "MIS is non-empty"
+        );
+
+        let time = |use_cand: bool| -> f64 {
+            let t0 = Instant::now();
+            let r = if use_cand {
+                super::maximal_independent_set(&g, &init, seed)
+            } else {
+                super::maximal_independent_set_orig_string(&g, &init, seed)
+            };
+            black_box(&r);
+            t0.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(true));
+            black_box(time(false));
+        }
+        let median = |v: &[f64]| {
+            let mut s = v.to_vec();
+            s.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            s[s.len() / 2]
+        };
+        let rounds = 41usize;
+        let paired = |use_cand: bool, base_arm: bool| -> Vec<f64> {
+            let mut v = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (tb, tc) = if round.is_multiple_of(2) {
+                    let bt = time(base_arm);
+                    let ct = time(use_cand);
+                    (bt, ct)
+                } else {
+                    let ct = time(use_cand);
+                    let bt = time(base_arm);
+                    (bt, ct)
+                };
+                v.push(tb / tc);
+            }
+            v
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&r| r > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            println!(
+                "MISADJIDX_AB {name}: median={:.4}x win_rate={wins}/{rounds} \
+                 p5_p95=[{:.4},{:.4}]",
+                median(ratios),
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+        println!(
+            "MISADJIDX_AB maximal_independent_set n={n} deg={deg} rounds={rounds} (>1 = index faster)"
+        );
+        report("INDEX_vs_string", &paired(true, false));
+        report("NULL_index_vs_index", &paired(true, true));
+    }
+
+    /// br-r37-c1-psptidx: full-function paired-interleaved A/B for `partition_spanning_tree` (String-keyed
+    /// Kruskal partition MST: HashMap<&str> union-find + name-keyed edge_attrs → integer-index union-find
+    /// (Vec<usize>) + neighbors_indices + edge_attrs_by_indices). Weight sort/tie-break untouched → bit-
+    /// identical MST. Dense weighted graph so the O(|E|) edge scan + union-find dominates. Byte-exact
+    /// parity (MST edges + total_weight). `#[ignore]`; run with
+    /// `cargo test --release -p fnx-algorithms --lib partition_spanning_tree_idx_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with --release --ignored --nocapture"]
+    fn partition_spanning_tree_idx_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        // Dense weighted circulant n=30000, ±1..±3 (deg 6), pseudo-random integer weights (no partition
+        // attr → all edges Open). The union-find processes every edge (find+union) and the edge build
+        // probes edge_attrs per edge — both String-hashed in the baseline.
+        let n = 30000usize;
+        let mut g = Graph::strict();
+        for i in 0..n {
+            let _ = g.add_node(format!("n{i}"));
+        }
+        for i in 0..n {
+            for k in 1..=3usize {
+                let w = format!("{}", (i * 7 + k * 131) % 1000);
+                let _ = g.add_edge_with_attrs(
+                    format!("n{i}"),
+                    format!("n{}", (i + k) % n),
+                    attrs([("weight", w.as_str())]),
+                );
+            }
+        }
+
+        // Byte-exact parity (bit-identical f64 → same MST edges + total_weight).
+        let cand = super::partition_spanning_tree(&g, true, "weight", "partition", false);
+        let base =
+            super::partition_spanning_tree_orig_string(&g, true, "weight", "partition", false);
+        assert_eq!(
+            cand, base,
+            "index partition_spanning_tree must equal the String baseline"
+        );
+        assert!(
+            cand.as_ref().map(|r| !r.edges.is_empty()).unwrap_or(false),
+            "MST is non-empty"
+        );
+
+        let time = |use_cand: bool| -> f64 {
+            let t0 = Instant::now();
+            let r = if use_cand {
+                super::partition_spanning_tree(&g, true, "weight", "partition", false)
+            } else {
+                super::partition_spanning_tree_orig_string(&g, true, "weight", "partition", false)
+            };
+            black_box(&r);
+            t0.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(true));
+            black_box(time(false));
+        }
+        let median = |v: &[f64]| {
+            let mut s = v.to_vec();
+            s.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            s[s.len() / 2]
+        };
+        let rounds = 41usize;
+        let paired = |use_cand: bool, base_arm: bool| -> Vec<f64> {
+            let mut v = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (tb, tc) = if round.is_multiple_of(2) {
+                    let bt = time(base_arm);
+                    let ct = time(use_cand);
+                    (bt, ct)
+                } else {
+                    let ct = time(use_cand);
+                    let bt = time(base_arm);
+                    (bt, ct)
+                };
+                v.push(tb / tc);
+            }
+            v
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&r| r > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            println!(
+                "PSPTIDX_AB {name}: median={:.4}x win_rate={wins}/{rounds} \
+                 p5_p95=[{:.4},{:.4}]",
+                median(ratios),
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+        println!("PSPTIDX_AB partition_spanning_tree n={n} rounds={rounds} (>1 = index faster)");
+        report("INDEX_vs_string", &paired(true, false));
+        report("NULL_index_vs_index", &paired(true, true));
+    }
+
+    /// br-r37-c1-lextopoidx: full-function paired-interleaved A/B for `lexicographic_topological_sort`
+    /// (in_degree HashMap<&str> + successors() alloc + BinaryHeap<Reverse<&str>> → in_degree Vec<usize>
+    /// + successors_indices + a ByName{name,idx} heap so pop order is unchanged). Forward DAG (acyclic).
+    ///   Byte-exact parity (lexicographic order). `#[ignore]`; run with
+    ///   `cargo test --release -p fnx-algorithms --lib lexicographic_topological_sort_idx_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with --release --ignored --nocapture"]
+    fn lexicographic_topological_sort_idx_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        // Forward DAG n=40000, out-degree ~20 (i → i+1..i+20): acyclic; Kahn's decrements every edge's
+        // successor in_degree (a String get_mut per edge in the baseline).
+        let n = 40000usize;
+        let deg = 20usize;
+        let mut g = DiGraph::strict();
+        for i in 0..n {
+            let _ = g.add_node(format!("n{i}"));
+        }
+        for i in 0..n {
+            for k in 1..=deg {
+                if i + k < n {
+                    let _ = g.add_edge(format!("n{i}"), format!("n{}", i + k));
+                }
+            }
+        }
+
+        // Byte-exact parity: same lexicographic topological order.
+        let cand = super::lexicographic_topological_sort(&g);
+        let base = super::lexicographic_topological_sort_orig_string(&g);
+        assert_eq!(
+            cand, base,
+            "index lexicographic_topological_sort must equal the String baseline"
+        );
+        assert!(
+            cand.as_ref().map(|v| v.len() == n).unwrap_or(false),
+            "acyclic → all n ordered"
+        );
+
+        let time = |use_cand: bool| -> f64 {
+            let t0 = Instant::now();
+            let r = if use_cand {
+                super::lexicographic_topological_sort(&g)
+            } else {
+                super::lexicographic_topological_sort_orig_string(&g)
+            };
+            black_box(&r);
+            t0.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(true));
+            black_box(time(false));
+        }
+        let median = |v: &[f64]| {
+            let mut s = v.to_vec();
+            s.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            s[s.len() / 2]
+        };
+        let rounds = 41usize;
+        let paired = |use_cand: bool, base_arm: bool| -> Vec<f64> {
+            let mut v = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (tb, tc) = if round.is_multiple_of(2) {
+                    let bt = time(base_arm);
+                    let ct = time(use_cand);
+                    (bt, ct)
+                } else {
+                    let ct = time(use_cand);
+                    let bt = time(base_arm);
+                    (bt, ct)
+                };
+                v.push(tb / tc);
+            }
+            v
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&r| r > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            println!(
+                "LEXTOPOIDX_AB {name}: median={:.4}x win_rate={wins}/{rounds} \
+                 p5_p95=[{:.4},{:.4}]",
+                median(ratios),
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+        println!(
+            "LEXTOPOIDX_AB lexicographic_topological_sort n={n} deg={deg} rounds={rounds} (>1 = index faster)"
+        );
+        report("INDEX_vs_string", &paired(true, false));
+        report("NULL_index_vs_index", &paired(true, true));
+    }
+
+    /// br-r37-c1-ebdiridx: full-function paired-interleaved A/B for `edge_boundary_directed` (nbunch2=None
+    /// branch: graph.successors(node) Vec<&str> alloc + set1.contains(succ) String probe → successors_indices
+    /// + in_set1 bool row). Large nbunch1 (half a dense directed graph). Byte-exact parity (boundary edges +
+    ///   order). `#[ignore]`; run with
+    ///   `cargo test --release -p fnx-algorithms --lib edge_boundary_directed_idx_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with --release --ignored --nocapture"]
+    fn edge_boundary_directed_idx_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        // Directed circulant n=50000, i → (i+1..i+20) mod n (deg 20). nbunch1 = first n/2 nodes; the
+        // None branch scans every nbunch1 node's successors (~n/2 * 20 = 500k) + set1.contains per succ.
+        let n = 50000usize;
+        let deg = 20usize;
+        let mut g = DiGraph::strict();
+        for i in 0..n {
+            let _ = g.add_node(format!("n{i}"));
+        }
+        for i in 0..n {
+            for k in 1..=deg {
+                let _ = g.add_edge(format!("n{i}"), format!("n{}", (i + k) % n));
+            }
+        }
+        let nb1_names: Vec<String> = (0..(n / 2)).map(|i| format!("n{i}")).collect();
+        let nb1: Vec<&str> = nb1_names.iter().map(String::as_str).collect();
+
+        // Byte-exact parity: same boundary edges in the same order.
+        let cand = super::edge_boundary_directed(&g, &nb1, None);
+        let base = super::edge_boundary_directed_orig_string(&g, &nb1, None);
+        assert_eq!(
+            cand, base,
+            "index edge_boundary_directed must equal the String baseline"
+        );
+        assert!(!cand.is_empty(), "boundary is non-empty");
+
+        let time = |use_cand: bool| -> f64 {
+            let t0 = Instant::now();
+            let r = if use_cand {
+                super::edge_boundary_directed(&g, &nb1, None)
+            } else {
+                super::edge_boundary_directed_orig_string(&g, &nb1, None)
+            };
+            black_box(&r);
+            t0.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(true));
+            black_box(time(false));
+        }
+        let median = |v: &[f64]| {
+            let mut s = v.to_vec();
+            s.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            s[s.len() / 2]
+        };
+        let rounds = 41usize;
+        let paired = |use_cand: bool, base_arm: bool| -> Vec<f64> {
+            let mut v = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (tb, tc) = if round.is_multiple_of(2) {
+                    let bt = time(base_arm);
+                    let ct = time(use_cand);
+                    (bt, ct)
+                } else {
+                    let ct = time(use_cand);
+                    let bt = time(base_arm);
+                    (bt, ct)
+                };
+                v.push(tb / tc);
+            }
+            v
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&r| r > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            println!(
+                "EBDIRIDX_AB {name}: median={:.4}x win_rate={wins}/{rounds} \
+                 p5_p95=[{:.4},{:.4}]",
+                median(ratios),
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+        println!(
+            "EBDIRIDX_AB edge_boundary_directed n={n} deg={deg} |nb1|={} rounds={rounds} (>1 = index faster)",
+            nb1.len()
+        );
+        report("INDEX_vs_string", &paired(true, false));
+        report("NULL_index_vs_index", &paired(true, true));
+    }
+
+    /// br-r37-c1-ebidx: full-function paired-interleaved A/B for undirected `edge_boundary` (nbunch2=None
+    /// branch: graph.neighbors(node) Vec<&str> alloc + set1.contains(nbr) String probe → neighbors_indices
+    /// + in_set1 bool row). Large nbunch1 (half a dense graph). Byte-exact parity (boundary edges + order).
+    ///   `#[ignore]`; run with `cargo test --release -p fnx-algorithms --lib edge_boundary_idx_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with --release --ignored --nocapture"]
+    fn edge_boundary_idx_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        // Undirected circulant n=50000, each node linked to ±1..±20 (deg 40). nbunch1 = first n/2 nodes;
+        // the None branch scans every nbunch1 node's neighbours (~n/2 * 40) + set1.contains per neighbour.
+        let n = 50000usize;
+        let deg = 20usize;
+        let mut g = Graph::strict();
+        for i in 0..n {
+            let _ = g.add_node(format!("n{i}"));
+        }
+        for i in 0..n {
+            for step in 1..=deg {
+                let _ = g.add_edge(format!("n{i}"), format!("n{}", (i + step) % n));
+            }
+        }
+        let nb1_names: Vec<String> = (0..(n / 2)).map(|i| format!("n{i}")).collect();
+        let nb1: Vec<&str> = nb1_names.iter().map(String::as_str).collect();
+
+        // Byte-exact parity: same boundary edges in the same order.
+        let cand = super::edge_boundary(&g, &nb1, None);
+        let base = super::edge_boundary_orig_string(&g, &nb1, None);
+        assert_eq!(
+            cand, base,
+            "index edge_boundary must equal the String baseline"
+        );
+        assert!(!cand.is_empty(), "boundary is non-empty");
+
+        let time = |use_cand: bool| -> f64 {
+            let t0 = Instant::now();
+            let r = if use_cand {
+                super::edge_boundary(&g, &nb1, None)
+            } else {
+                super::edge_boundary_orig_string(&g, &nb1, None)
+            };
+            black_box(&r);
+            t0.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(true));
+            black_box(time(false));
+        }
+        let median = |v: &[f64]| {
+            let mut s = v.to_vec();
+            s.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            s[s.len() / 2]
+        };
+        let rounds = 41usize;
+        let paired = |use_cand: bool, base_arm: bool| -> Vec<f64> {
+            let mut v = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (tb, tc) = if round.is_multiple_of(2) {
+                    let bt = time(base_arm);
+                    let ct = time(use_cand);
+                    (bt, ct)
+                } else {
+                    let ct = time(use_cand);
+                    let bt = time(base_arm);
+                    (bt, ct)
+                };
+                v.push(tb / tc);
+            }
+            v
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&r| r > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            println!(
+                "EBIDX_AB {name}: median={:.4}x win_rate={wins}/{rounds} \
+                 p5_p95=[{:.4},{:.4}]",
+                median(ratios),
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+        println!(
+            "EBIDX_AB edge_boundary n={n} deg={deg} |nb1|={} rounds={rounds} (>1 = index faster)",
+            nb1.len()
+        );
+        report("INDEX_vs_string", &paired(true, false));
+        report("NULL_index_vs_index", &paired(true, true));
+    }
+
+    /// br-r37-c1-grpdegidx: full-function paired-interleaved A/B for the two mirror-lag siblings of the
+    /// already-converted `group_out_degree_centrality` — `group_in_degree_centrality` (DiGraph,
+    /// predecessors) and `group_degree_centrality` (Graph, neighbours). Old kernel: group_set HashSet<&str>
+    /// + predecessors()/neighbors_iter() (Vec<&str> alloc) + contains + outside HashSet<&str>. New: resolve
+    ///   group→indices once, walk *_indices over is_group_member/seen_outside bool rows + counter.
+    ///   Byte-identical f64 (set cardinality). `#[ignore]`; run with
+    ///   `cargo test --release -p fnx-algorithms --lib group_degree_idx_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with --release --ignored --nocapture"]
+    fn group_degree_idx_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        // Circulant n=50000, each node -> ±1..±20 (in/out-deg 20 directed, deg 40 undirected). group =
+        // first n/2 nodes; the scan walks every group node's predecessors/neighbours + contains probe.
+        let n = 50000usize;
+        let deg = 20usize;
+        let mut dg = DiGraph::strict();
+        let mut g = Graph::strict();
+        for i in 0..n {
+            let _ = dg.add_node(format!("n{i}"));
+            let _ = g.add_node(format!("n{i}"));
+        }
+        for i in 0..n {
+            for step in 1..=deg {
+                let _ = dg.add_edge(format!("n{i}"), format!("n{}", (i + step) % n));
+                let _ = g.add_edge(format!("n{i}"), format!("n{}", (i + step) % n));
+            }
+        }
+        let grp_names: Vec<String> = (0..(n / 2)).map(|i| format!("n{i}")).collect();
+        let grp: Vec<&str> = grp_names.iter().map(String::as_str).collect();
+
+        // Byte-exact parity (bit-identical f64: numerator is a set cardinality either way).
+        let din = super::group_in_degree_centrality(&dg, &grp);
+        let din_base = super::group_in_degree_centrality_orig_string(&dg, &grp);
+        assert_eq!(
+            din.to_bits(),
+            din_base.to_bits(),
+            "group_in must equal String baseline"
+        );
+        let ugd = super::group_degree_centrality(&g, &grp);
+        let ugd_base = super::group_degree_centrality_orig_string(&g, &grp);
+        assert_eq!(
+            ugd.to_bits(),
+            ugd_base.to_bits(),
+            "group_degree must equal String baseline"
+        );
+        assert!(din > 0.0 && ugd > 0.0, "centralities are non-zero");
+
+        let time_in = |use_cand: bool| -> f64 {
+            let t0 = Instant::now();
+            let r = if use_cand {
+                super::group_in_degree_centrality(&dg, &grp)
+            } else {
+                super::group_in_degree_centrality_orig_string(&dg, &grp)
+            };
+            black_box(r);
+            t0.elapsed().as_secs_f64()
+        };
+        let time_ud = |use_cand: bool| -> f64 {
+            let t0 = Instant::now();
+            let r = if use_cand {
+                super::group_degree_centrality(&g, &grp)
+            } else {
+                super::group_degree_centrality_orig_string(&g, &grp)
+            };
+            black_box(r);
+            t0.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time_in(true));
+            black_box(time_in(false));
+            black_box(time_ud(true));
+            black_box(time_ud(false));
+        }
+        let median = |v: &[f64]| {
+            let mut s = v.to_vec();
+            s.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            s[s.len() / 2]
+        };
+        let rounds = 41usize;
+        let paired = |time: &dyn Fn(bool) -> f64, use_cand: bool, base_arm: bool| -> Vec<f64> {
+            let mut v = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (tb, tc) = if round.is_multiple_of(2) {
+                    let bt = time(base_arm);
+                    let ct = time(use_cand);
+                    (bt, ct)
+                } else {
+                    let ct = time(use_cand);
+                    let bt = time(base_arm);
+                    (bt, ct)
+                };
+                v.push(tb / tc);
+            }
+            v
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&r| r > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            println!(
+                "GRPDEG_AB {name}: median={:.4}x win_rate={wins}/{rounds} p5_p95=[{:.4},{:.4}]",
+                median(ratios),
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+        println!(
+            "GRPDEG_AB group_*degree_centrality n={n} deg={deg} |group|={} rounds={rounds} (>1 = index faster)",
+            grp.len()
+        );
+        report("IN_index_vs_string", &paired(&time_in, true, false));
+        report("IN_NULL_index_vs_index", &paired(&time_in, true, true));
+        report("UNDIR_index_vs_string", &paired(&time_ud, true, false));
+        report("UNDIR_NULL_index_vs_index", &paired(&time_ud, true, true));
+    }
+
+    /// br-r37-c1-attractidx: full-function paired-interleaved A/B for `attracting_components` — the
+    /// condensation out-edge scan (node_to_scc HashMap<&str,usize> + successors() Vec<&str> + String hash
+    /// per edge) → node_scc Vec<usize> by index + successors_indices. Dense STRONGLY-CONNECTED circulant
+    /// (one giant SCC → every edge is in-SCC → the scan checks all |E| without early-break, maximising the
+    /// String tax). Byte-exact parity. `#[ignore]`; run with
+    /// `cargo test --release -p fnx-algorithms --lib attracting_components_idx_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with --release --ignored --nocapture"]
+    fn attracting_components_idx_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        // Directed circulant i -> (i+1..=i+deg) mod n: strongly connected (one SCC), so the has-outgoing
+        // scan walks every node's `deg` successors WITHOUT the cross-SCC break → full |E| String hashing.
+        let n = 50000usize;
+        let deg = 20usize;
+        let mut dg = DiGraph::strict();
+        for i in 0..n {
+            let _ = dg.add_node(format!("n{i}"));
+        }
+        for i in 0..n {
+            for step in 1..=deg {
+                let _ = dg.add_edge(format!("n{i}"), format!("n{}", (i + step) % n));
+            }
+        }
+
+        // Byte-exact parity: same attracting components (one, the whole graph).
+        let cand = super::attracting_components(&dg);
+        let base = super::attracting_components_orig_string(&dg);
+        assert_eq!(
+            cand, base,
+            "index attracting_components must equal the String baseline"
+        );
+        assert_eq!(cand.len(), 1, "one attracting component (single SCC)");
+
+        let time = |use_cand: bool| -> f64 {
+            let t0 = Instant::now();
+            let r = if use_cand {
+                super::attracting_components(&dg)
+            } else {
+                super::attracting_components_orig_string(&dg)
+            };
+            black_box(&r);
+            t0.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(true));
+            black_box(time(false));
+        }
+        let median = |v: &[f64]| {
+            let mut s = v.to_vec();
+            s.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            s[s.len() / 2]
+        };
+        let rounds = 41usize;
+        let paired = |use_cand: bool, base_arm: bool| -> Vec<f64> {
+            let mut v = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (tb, tc) = if round.is_multiple_of(2) {
+                    let bt = time(base_arm);
+                    let ct = time(use_cand);
+                    (bt, ct)
+                } else {
+                    let ct = time(use_cand);
+                    let bt = time(base_arm);
+                    (bt, ct)
+                };
+                v.push(tb / tc);
+            }
+            v
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&r| r > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            println!(
+                "ATTRACT_AB {name}: median={:.4}x win_rate={wins}/{rounds} p5_p95=[{:.4},{:.4}]",
+                median(ratios),
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+        println!(
+            "ATTRACT_AB attracting_components n={n} deg={deg} rounds={rounds} (>1 = index faster)"
+        );
+        report("INDEX_vs_string", &paired(true, false));
+        report("NULL_index_vs_index", &paired(true, true));
+    }
+
+    /// br-r37-c1-cutexpidx: full-function paired-interleaved A/B for the cut-measure mirror-lag family —
+    /// `conductance`, `boundary_expansion`, `mixing_expansion`, `volume` — String-keyed boundary scan
+    /// (HashSet<&str> + neighbors_iter + contains) → integer in_set/neighbors_indices (mirror of the
+    /// already-converted edge_expansion/node_expansion). Large subset (half a dense graph). Byte-exact
+    /// parity (bit-identical f64 / usize). `#[ignore]`; run with
+    /// `cargo test --release -p fnx-algorithms --lib cut_expansion_idx_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with --release --ignored --nocapture"]
+    fn cut_expansion_idx_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        let n = 50000usize;
+        let deg = 20usize;
+        let mut g = Graph::strict();
+        for i in 0..n {
+            let _ = g.add_node(format!("n{i}"));
+        }
+        for i in 0..n {
+            for step in 1..=deg {
+                let _ = g.add_edge(format!("n{i}"), format!("n{}", (i + step) % n));
+            }
+        }
+        let sub_names: Vec<String> = (0..(n / 2)).map(|i| format!("n{i}")).collect();
+        let sub: Vec<&str> = sub_names.iter().map(String::as_str).collect();
+
+        // Byte-exact parity for all four (bit-identical f64 via to_bits; usize for volume).
+        assert_eq!(
+            super::volume(&g, &sub),
+            super::volume_orig_string(&g, &sub),
+            "volume parity"
+        );
+        assert_eq!(
+            super::boundary_expansion(&g, &sub).to_bits(),
+            super::boundary_expansion_orig_string(&g, &sub).to_bits(),
+            "boundary_expansion parity"
+        );
+        assert_eq!(
+            super::conductance(&g, &sub).to_bits(),
+            super::conductance_orig_string(&g, &sub).to_bits(),
+            "conductance parity"
+        );
+        assert_eq!(
+            super::mixing_expansion(&g, &sub).to_bits(),
+            super::mixing_expansion_orig_string(&g, &sub).to_bits(),
+            "mixing_expansion parity"
+        );
+
+        let median = |v: &[f64]| {
+            let mut s = v.to_vec();
+            s.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            s[s.len() / 2]
+        };
+        let rounds = 41usize;
+        let paired = |time: &dyn Fn(bool) -> f64, use_cand: bool, base_arm: bool| -> Vec<f64> {
+            for _ in 0..3 {
+                black_box(time(true));
+                black_box(time(false));
+            }
+            let mut v = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (tb, tc) = if round.is_multiple_of(2) {
+                    let bt = time(base_arm);
+                    let ct = time(use_cand);
+                    (bt, ct)
+                } else {
+                    let ct = time(use_cand);
+                    let bt = time(base_arm);
+                    (bt, ct)
+                };
+                v.push(tb / tc);
+            }
+            v
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&r| r > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            println!(
+                "CUTEXP_AB {name}: median={:.4}x win_rate={wins}/{rounds} p5_p95=[{:.4},{:.4}]",
+                median(ratios),
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+
+        macro_rules! ab {
+            ($label:literal, $cand:path, $base:path) => {{
+                let t = |use_cand: bool| -> f64 {
+                    let t0 = Instant::now();
+                    let r = if use_cand {
+                        $cand(&g, &sub)
+                    } else {
+                        $base(&g, &sub)
+                    };
+                    black_box(r);
+                    t0.elapsed().as_secs_f64()
+                };
+                report(
+                    concat!($label, "_index_vs_string"),
+                    &paired(&t, true, false),
+                );
+                report(concat!($label, "_NULL"), &paired(&t, true, true));
+            }};
+        }
+
+        println!(
+            "CUTEXP_AB cut-measures n={n} deg={deg} |S|={} rounds={rounds} (>1 = index faster)",
+            sub.len()
+        );
+        ab!(
+            "conductance",
+            super::conductance,
+            super::conductance_orig_string
+        );
+        ab!(
+            "boundary_expansion",
+            super::boundary_expansion,
+            super::boundary_expansion_orig_string
+        );
+        ab!(
+            "mixing_expansion",
+            super::mixing_expansion,
+            super::mixing_expansion_orig_string
+        );
+        ab!("volume", super::volume, super::volume_orig_string);
+    }
+
+    /// br-r37-c1-bfslayidx (family): full-function A/B for `bfs_layers_multi` (representative of the
+    /// multi-source family: bfs_layers_multi / _directed_multi / _multi_with_parents, all converted the
+    /// same way). Inline ORIGINAL String-keyed BFS vs the shipped integer-index BFS. Parity asserted
+    /// first. `#[ignore]`; run with
+    /// `cargo test --release -p fnx-algorithms --lib bfs_layers_multi_idx_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with --release --ignored --nocapture"]
+    fn bfs_layers_multi_idx_ab() {
+        use std::collections::HashSet;
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        let n_nodes = 3000usize;
+        let mut g = Graph::strict();
+        for i in 0..n_nodes {
+            let _ = g.add_node(i.to_string());
+        }
+        for i in 0..n_nodes {
+            for step in 1..=50usize {
+                let _ = g.add_edge(i.to_string(), ((i + step) % n_nodes).to_string());
+            }
+        }
+        let sources = ["0", "1000", "2000"];
+
+        let old_fn = |graph: &Graph, sources: &[&str]| -> Vec<Vec<String>> {
+            let mut layers: Vec<Vec<String>> = Vec::new();
+            let mut visited: HashSet<&str> = HashSet::new();
+            let mut current_layer: Vec<&str> = Vec::new();
+            for &s in sources {
+                if graph.has_node(s) && visited.insert(s) {
+                    current_layer.push(s);
+                }
+            }
+            while !current_layer.is_empty() {
+                layers.push(current_layer.iter().map(|&s| s.to_owned()).collect());
+                let mut next_layer: Vec<&str> = Vec::new();
+                for &node in &current_layer {
+                    if let Some(neighbors) = graph.neighbors(node) {
+                        for neighbor in neighbors {
+                            if visited.insert(neighbor) {
+                                next_layer.push(neighbor);
+                            }
+                        }
+                    }
+                }
+                current_layer = next_layer;
+            }
+            layers
+        };
+
+        assert_eq!(
+            old_fn(&g, &sources),
+            super::bfs_layers_multi(&g, &sources),
+            "integer-index bfs_layers_multi must be byte-identical to the String-keyed BFS"
+        );
+
+        let time = |cand: bool| -> f64 {
+            let t0 = Instant::now();
+            let r = if cand {
+                super::bfs_layers_multi(&g, &sources)
+            } else {
+                old_fn(&g, &sources)
+            };
+            black_box(&r);
+            t0.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(true));
+            black_box(time(false));
+        }
+        let median = |v: &[f64]| {
+            let mut s = v.to_vec();
+            s.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            s[s.len() / 2]
+        };
+        let rounds = 61usize;
+        let paired = |cand: bool, base_arm: bool| -> Vec<f64> {
+            let mut v = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (tb, tc) = if round.is_multiple_of(2) {
+                    let bt = time(base_arm);
+                    let ct = time(cand);
+                    (bt, ct)
+                } else {
+                    let ct = time(cand);
+                    let bt = time(base_arm);
+                    (bt, ct)
+                };
+                v.push(tb / tc);
+            }
+            v
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&r| r > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            println!(
+                "BFSLAYMULTIIDX_AB {name}: median={:.4}x win_rate={wins}/{rounds} \
+                 p5_p95=[{:.4},{:.4}]",
+                median(ratios),
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+        println!(
+            "BFSLAYMULTIIDX_AB bfs_layers_multi 3000-node deg100 rounds={rounds} (>1 = index faster)"
+        );
+        report("INDEX_vs_string", &paired(true, false));
+        report("NULL_index_vs_index", &paired(true, true));
+    }
+
+    /// br-r37-c1-descidx: full-function A/B for `descendants` (representative of the descendants/ancestors
+    /// pair, both converted the same way). Inline ORIGINAL String-keyed forward BFS vs the shipped
+    /// integer-index BFS. Result-set parity asserted first. `#[ignore]`; run with
+    /// `cargo test --release -p fnx-algorithms --lib descendants_idx_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with --release --ignored --nocapture"]
+    fn descendants_idx_ab() {
+        use std::collections::{HashSet, VecDeque};
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        // Dense forward directed graph: node i -> i+1..=i+50 → descendants(0) = all other nodes.
+        let n_nodes = 3000usize;
+        let mut g = DiGraph::strict();
+        for i in 0..n_nodes {
+            let _ = g.add_node(i.to_string());
+        }
+        for i in 0..n_nodes {
+            for step in 1..=50usize {
+                if i + step < n_nodes {
+                    let _ = g.add_edge(i.to_string(), (i + step).to_string());
+                }
+            }
+        }
+
+        let old_fn = |digraph: &DiGraph, node: &str| -> HashSet<String> {
+            let mut result: HashSet<String> = HashSet::new();
+            if !digraph.has_node(node) {
+                return result;
+            }
+            let mut queue: VecDeque<&str> = VecDeque::new();
+            let mut visited: HashSet<&str> = HashSet::new();
+            visited.insert(node);
+            if let Some(succs) = digraph.successors(node) {
+                for succ in succs {
+                    if visited.insert(succ) {
+                        queue.push_back(succ);
+                    }
+                }
+            }
+            while let Some(current) = queue.pop_front() {
+                result.insert(current.to_owned());
+                if let Some(succs) = digraph.successors(current) {
+                    for succ in succs {
+                        if visited.insert(succ) {
+                            queue.push_back(succ);
+                        }
+                    }
+                }
+            }
+            result
+        };
+
+        assert_eq!(
+            old_fn(&g, "0"),
+            super::descendants(&g, "0"),
+            "integer-index descendants must be byte-identical to the String-keyed BFS"
+        );
+
+        let time = |cand: bool| -> f64 {
+            let t0 = Instant::now();
+            let r = if cand {
+                super::descendants(&g, "0")
+            } else {
+                old_fn(&g, "0")
+            };
+            black_box(&r);
+            t0.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(true));
+            black_box(time(false));
+        }
+        let median = |v: &[f64]| {
+            let mut s = v.to_vec();
+            s.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            s[s.len() / 2]
+        };
+        let rounds = 61usize;
+        let paired = |cand: bool, base_arm: bool| -> Vec<f64> {
+            let mut v = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (tb, tc) = if round.is_multiple_of(2) {
+                    let bt = time(base_arm);
+                    let ct = time(cand);
+                    (bt, ct)
+                } else {
+                    let ct = time(cand);
+                    let bt = time(base_arm);
+                    (bt, ct)
+                };
+                v.push(tb / tc);
+            }
+            v
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&r| r > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            println!(
+                "DESCIDX_AB {name}: median={:.4}x win_rate={wins}/{rounds} \
+                 p5_p95=[{:.4},{:.4}]",
+                median(ratios),
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+        println!("DESCIDX_AB descendants 3000-node fwd-deg50 rounds={rounds} (>1 = index faster)");
+        report("INDEX_vs_string", &paired(true, false));
+        report("NULL_index_vs_index", &paired(true, true));
+    }
+
+    /// br-r37-c1-descidx (dfs): full-function A/B for `dfs_postorder_nodes_directed` (order-sensitive
+    /// output) + a parity check for `bfs_layers_directed`. Inline ORIGINAL String-keyed DFS vs the shipped
+    /// integer-index DFS. Parity asserted first (postorder order + directed layers). `#[ignore]`; run with
+    /// `cargo test --release -p fnx-algorithms --lib dfs_postorder_directed_idx_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with --release --ignored --nocapture"]
+    fn dfs_postorder_directed_idx_ab() {
+        use std::collections::HashSet;
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        // Dense forward directed graph: node i -> i+1..=i+50 → deep DFS from 0.
+        let n_nodes = 3000usize;
+        let mut g = DiGraph::strict();
+        for i in 0..n_nodes {
+            let _ = g.add_node(i.to_string());
+        }
+        for i in 0..n_nodes {
+            for step in 1..=50usize {
+                if i + step < n_nodes {
+                    let _ = g.add_edge(i.to_string(), (i + step).to_string());
+                }
+            }
+        }
+
+        let old_dfs =
+            |digraph: &DiGraph, source: &str, depth_limit: Option<usize>| -> Vec<String> {
+                let max_depth = depth_limit.unwrap_or(usize::MAX);
+                let mut visited: HashSet<&str> = HashSet::new();
+                let mut postorder: Vec<String> = Vec::new();
+                if !digraph.has_node(source) {
+                    return postorder;
+                }
+                let mut stack: Vec<(&str, bool, usize)> = vec![(source, false, 0)];
+                while let Some((node, backtrack, depth)) = stack.pop() {
+                    if backtrack {
+                        postorder.push(node.to_owned());
+                        continue;
+                    }
+                    if visited.contains(node) {
+                        continue;
+                    }
+                    visited.insert(node);
+                    if node == source || depth < max_depth {
+                        stack.push((node, true, depth));
+                    }
+                    if depth < max_depth
+                        && let Some(succs) = digraph.successors(node)
+                    {
+                        for succ in succs.into_iter().rev() {
+                            if !visited.contains(succ) {
+                                stack.push((succ, false, depth + 1));
+                            }
+                        }
+                    }
+                }
+                postorder
+            };
+
+        assert_eq!(
+            old_dfs(&g, "0", None),
+            super::dfs_postorder_nodes_directed(&g, "0", None),
+            "integer-index dfs_postorder_nodes_directed must be byte-identical (order-sensitive)"
+        );
+
+        // Parity check for the sibling bfs_layers_directed conversion (no timing).
+        let old_bfs_dir = |digraph: &DiGraph, source: &str| -> Vec<Vec<String>> {
+            let mut layers: Vec<Vec<String>> = Vec::new();
+            let mut visited: HashSet<&str> = HashSet::new();
+            if !digraph.has_node(source) {
+                return layers;
+            }
+            visited.insert(source);
+            let mut current_layer = vec![source];
+            while !current_layer.is_empty() {
+                layers.push(current_layer.iter().map(|&s| s.to_owned()).collect());
+                let mut next_layer: Vec<&str> = Vec::new();
+                for &node in &current_layer {
+                    if let Some(succs) = digraph.successors(node) {
+                        for succ in succs {
+                            if visited.insert(succ) {
+                                next_layer.push(succ);
+                            }
+                        }
+                    }
+                }
+                current_layer = next_layer;
+            }
+            layers
+        };
+        assert_eq!(
+            old_bfs_dir(&g, "0"),
+            super::bfs_layers_directed(&g, "0"),
+            "integer-index bfs_layers_directed must be byte-identical"
+        );
+
+        let time = |cand: bool| -> f64 {
+            let t0 = Instant::now();
+            let r = if cand {
+                super::dfs_postorder_nodes_directed(&g, "0", None)
+            } else {
+                old_dfs(&g, "0", None)
+            };
+            black_box(&r);
+            t0.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(true));
+            black_box(time(false));
+        }
+        let median = |v: &[f64]| {
+            let mut s = v.to_vec();
+            s.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            s[s.len() / 2]
+        };
+        let rounds = 61usize;
+        let paired = |cand: bool, base_arm: bool| -> Vec<f64> {
+            let mut v = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (tb, tc) = if round.is_multiple_of(2) {
+                    let bt = time(base_arm);
+                    let ct = time(cand);
+                    (bt, ct)
+                } else {
+                    let ct = time(cand);
+                    let bt = time(base_arm);
+                    (bt, ct)
+                };
+                v.push(tb / tc);
+            }
+            v
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&r| r > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            println!(
+                "DFSPOSTDIRIDX_AB {name}: median={:.4}x win_rate={wins}/{rounds} \
+                 p5_p95=[{:.4},{:.4}]",
+                median(ratios),
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+        println!(
+            "DFSPOSTDIRIDX_AB dfs_postorder_nodes_directed 3000-node fwd-deg50 rounds={rounds} (>1 = index faster)"
+        );
+        report("INDEX_vs_string", &paired(true, false));
+        report("NULL_index_vs_index", &paired(true, true));
+    }
+
+    /// br-r37-c1-edfsidx: full-function A/B for `edge_dfs` (order-sensitive edge list) + a parity check
+    /// for `edge_dfs_directed`. Inline ORIGINAL String-keyed edge-DFS (Vec<String> neighbour clones on the
+    /// stack, (String,String) edge keys) vs the shipped integer-index version. `#[ignore]`; run with
+    /// `cargo test --release -p fnx-algorithms --lib edge_dfs_idx_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with --release --ignored --nocapture"]
+    fn edge_dfs_idx_ab() {
+        use std::collections::HashSet;
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        // Dense undirected circulant: 2000 nodes, degree 40 → ~40k edges.
+        let n_nodes = 2000usize;
+        let mut g = Graph::strict();
+        for i in 0..n_nodes {
+            let _ = g.add_node(i.to_string());
+        }
+        for i in 0..n_nodes {
+            for step in 1..=20usize {
+                let _ = g.add_edge(i.to_string(), ((i + step) % n_nodes).to_string());
+            }
+        }
+
+        let old_fn = |graph: &Graph, source: &str| -> Vec<(String, String)> {
+            let mut result = Vec::new();
+            let mut visited_edges: HashSet<(String, String)> = HashSet::new();
+            let mut visited_nodes: HashSet<String> = HashSet::new();
+            let mut stack = Vec::new();
+            let u = source.to_string();
+            visited_nodes.insert(u.clone());
+            let nbrs = graph
+                .neighbors(&u)
+                .unwrap_or_default()
+                .into_iter()
+                .map(String::from)
+                .collect::<Vec<_>>();
+            stack.push((u, nbrs, 0));
+            while let Some((u, nbrs, mut idx)) = stack.pop() {
+                while idx < nbrs.len() {
+                    let v = nbrs[idx].clone();
+                    idx += 1;
+                    let edge_key = if u < v {
+                        (u.clone(), v.clone())
+                    } else {
+                        (v.clone(), u.clone())
+                    };
+                    if visited_edges.insert(edge_key) {
+                        result.push((u.clone(), v.clone()));
+                        if visited_nodes.insert(v.clone()) {
+                            stack.push((u.clone(), nbrs, idx));
+                            let v_nbrs = graph
+                                .neighbors(&v)
+                                .unwrap_or_default()
+                                .into_iter()
+                                .map(String::from)
+                                .collect::<Vec<_>>();
+                            stack.push((v, v_nbrs, 0));
+                            break;
+                        }
+                    }
+                }
+            }
+            result
+        };
+
+        assert_eq!(
+            old_fn(&g, "0"),
+            super::edge_dfs(&g, "0"),
+            "integer-index edge_dfs must be byte-identical (order-sensitive)"
+        );
+
+        // Parity check for edge_dfs_directed on a directed graph.
+        let mut dg = DiGraph::strict();
+        for i in 0..1000usize {
+            let _ = dg.add_node(i.to_string());
+        }
+        for i in 0..1000usize {
+            for step in 1..=10usize {
+                if i + step < 1000 {
+                    let _ = dg.add_edge(i.to_string(), (i + step).to_string());
+                }
+            }
+        }
+        let old_dir = |digraph: &DiGraph, source: &str| -> Vec<(String, String)> {
+            let mut result = Vec::new();
+            let mut visited_edges: HashSet<(String, String)> = HashSet::new();
+            let mut visited_nodes: HashSet<String> = HashSet::new();
+            let mut stack = Vec::new();
+            let u = source.to_string();
+            visited_nodes.insert(u.clone());
+            let succs = digraph
+                .successors(&u)
+                .unwrap_or_default()
+                .into_iter()
+                .map(String::from)
+                .collect::<Vec<_>>();
+            stack.push((u, succs, 0));
+            while let Some((u, succs, mut idx)) = stack.pop() {
+                while idx < succs.len() {
+                    let v = succs[idx].clone();
+                    idx += 1;
+                    if visited_edges.insert((u.clone(), v.clone())) {
+                        result.push((u.clone(), v.clone()));
+                        if visited_nodes.insert(v.clone()) {
+                            stack.push((u.clone(), succs, idx));
+                            let v_succs = digraph
+                                .successors(&v)
+                                .unwrap_or_default()
+                                .into_iter()
+                                .map(String::from)
+                                .collect::<Vec<_>>();
+                            stack.push((v, v_succs, 0));
+                            break;
+                        }
+                    }
+                }
+            }
+            result
+        };
+        assert_eq!(
+            old_dir(&dg, "0"),
+            super::edge_dfs_directed(&dg, "0"),
+            "integer-index edge_dfs_directed must be byte-identical"
+        );
+
+        let time = |cand: bool| -> f64 {
+            let t0 = Instant::now();
+            let r = if cand {
+                super::edge_dfs(&g, "0")
+            } else {
+                old_fn(&g, "0")
+            };
+            black_box(&r);
+            t0.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(true));
+            black_box(time(false));
+        }
+        let median = |v: &[f64]| {
+            let mut s = v.to_vec();
+            s.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            s[s.len() / 2]
+        };
+        let rounds = 61usize;
+        let paired = |cand: bool, base_arm: bool| -> Vec<f64> {
+            let mut v = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (tb, tc) = if round.is_multiple_of(2) {
+                    let bt = time(base_arm);
+                    let ct = time(cand);
+                    (bt, ct)
+                } else {
+                    let ct = time(cand);
+                    let bt = time(base_arm);
+                    (bt, ct)
+                };
+                v.push(tb / tc);
+            }
+            v
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&r| r > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            println!(
+                "EDFSIDX_AB {name}: median={:.4}x win_rate={wins}/{rounds} \
+                 p5_p95=[{:.4},{:.4}]",
+                median(ratios),
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+        println!("EDFSIDX_AB edge_dfs 2000-node deg40 rounds={rounds} (>1 = index faster)");
+        report("INDEX_vs_string", &paired(true, false));
+        report("NULL_index_vs_index", &paired(true, true));
     }
 
     /// br-r37-c1-ra004: paired-interleaved median A/B for the `neighbor_count`
@@ -49559,8 +61554,8 @@ mod tests {
     /// br-r37-c1-voronoi: paired-interleaved median A/B for the integer-adjacency
     /// multi-source BFS `voronoi_cells` vs the old `graph.neighbors()` (`Vec<&str>`)
     /// + `idx.get` String baseline, in ONE binary / ONE worker with a NULL control.
-    /// `#[ignore]` (measurement); run with
-    /// `cargo test --release -p fnx-algorithms --lib voronoi_cells_voronoi_ab -- --ignored --nocapture`.
+    ///   `#[ignore]` (measurement); run with
+    ///   `cargo test --release -p fnx-algorithms --lib voronoi_cells_voronoi_ab -- --ignored --nocapture`.
     #[test]
     #[ignore = "measurement; run with --release --ignored --nocapture"]
     fn voronoi_cells_voronoi_ab() {
@@ -51144,8 +63139,8 @@ mod tests {
     /// br-r37-c1-branch: paired-interleaved median A/B for the no-alloc-degree +
     /// integer per-component `is_branching` vs the old `predecessors()/successors().len()`
     /// + `HashSet<&str>` baseline, in ONE binary / ONE worker with a NULL control.
-    /// `#[ignore]` (measurement); run with
-    /// `cargo test --release -p fnx-algorithms --lib is_branching_branch_ab -- --ignored --nocapture`.
+    ///   `#[ignore]` (measurement); run with
+    ///   `cargo test --release -p fnx-algorithms --lib is_branching_branch_ab -- --ignored --nocapture`.
     #[test]
     #[ignore = "measurement; run with --release --ignored --nocapture"]
     fn is_branching_branch_ab() {
@@ -51627,6 +63622,123 @@ mod tests {
         report("NULL_noalloc_vs_noalloc", &paired(true, true));
     }
 
+    /// `br-r37-c1-xmi3s`: paired same-binary A/B for count-only isolate queries.
+    /// The frozen baseline materializes every isolated node name into a
+    /// `Vec<String>` and then takes its length. The candidate counts indexed
+    /// degree rows directly. Run through strict remote RCH with:
+    /// `cargo test --profile release -p fnx-algorithms --lib
+    /// number_of_isolates_count_only_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with release profile, --ignored, and --nocapture"]
+    fn number_of_isolates_count_only_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        // Half-path, half-isolates: both predicates must reject non-isolates and
+        // accept isolates, while the former count path clones 50,000 names that
+        // the count-only API never returns.
+        let n = 100_000usize;
+        let path_nodes = n / 2;
+        let expected = n - path_nodes;
+        let mut graph = Graph::strict();
+        let mut digraph = DiGraph::strict();
+        for i in 0..n {
+            let node = format!("n{i}");
+            let _ = graph.add_node(node.clone());
+            let _ = digraph.add_node(node);
+        }
+        for i in 0..path_nodes.saturating_sub(1) {
+            let left = format!("n{i}");
+            let right = format!("n{}", i + 1);
+            let _ = graph.add_edge(left.clone(), right.clone());
+            let _ = digraph.add_edge(left, right);
+        }
+
+        assert_eq!(super::number_of_isolates(&graph), expected);
+        assert_eq!(super::number_of_isolates_directed(&digraph), expected);
+        assert_eq!(
+            super::number_of_isolates(&graph),
+            super::number_of_isolates_orig_materialized(&graph),
+            "Graph indexed count must exactly match the former materialized-list count"
+        );
+        assert_eq!(
+            super::number_of_isolates_directed(&digraph),
+            super::number_of_isolates_directed_orig_materialized(&digraph),
+            "DiGraph indexed count must exactly match the former materialized-list count"
+        );
+
+        let time_graph = |candidate: bool| -> f64 {
+            let start = Instant::now();
+            for _ in 0..3 {
+                let count = if candidate {
+                    super::number_of_isolates(&graph)
+                } else {
+                    super::number_of_isolates_orig_materialized(&graph)
+                };
+                black_box(count);
+            }
+            start.elapsed().as_secs_f64()
+        };
+        let time_digraph = |candidate: bool| -> f64 {
+            let start = Instant::now();
+            for _ in 0..3 {
+                let count = if candidate {
+                    super::number_of_isolates_directed(&digraph)
+                } else {
+                    super::number_of_isolates_directed_orig_materialized(&digraph)
+                };
+                black_box(count);
+            }
+            start.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time_graph(true));
+            black_box(time_graph(false));
+            black_box(time_digraph(true));
+            black_box(time_digraph(false));
+        }
+
+        let rounds = 31usize;
+        let paired = |time: &dyn Fn(bool) -> f64, baseline: bool| -> Vec<f64> {
+            let mut ratios = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (base_time, candidate_time) = if round.is_multiple_of(2) {
+                    let base_time = time(baseline);
+                    let candidate_time = time(true);
+                    (base_time, candidate_time)
+                } else {
+                    let candidate_time = time(true);
+                    let base_time = time(baseline);
+                    (base_time, candidate_time)
+                };
+                ratios.push(base_time / candidate_time);
+            }
+            ratios
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&ratio| ratio > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(|left, right| left.partial_cmp(right).unwrap());
+            println!(
+                "ISOLATE_COUNT_AB {name}: median={:.4}x wins={wins}/{rounds} p5_p95=[{:.4},{:.4}]",
+                sorted[rounds / 2],
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+
+        println!(
+            "ISOLATE_COUNT_AB n={n} path_nodes={path_nodes} rounds={rounds} (>1 = indexed count faster)"
+        );
+        report("GRAPH_index_vs_materialized", &paired(&time_graph, false));
+        report("GRAPH_NULL_index_vs_index", &paired(&time_graph, true));
+        report(
+            "DIGRAPH_index_vs_materialized",
+            &paired(&time_digraph, false),
+        );
+        report("DIGRAPH_NULL_index_vs_index", &paired(&time_digraph, true));
+    }
+
     /// br-r37-c1-odc: paired-interleaved median A/B for the no-alloc `out_degree_centrality`
     /// vs the old `successors().len()` (`Vec<&str>`) baseline, in ONE binary / ONE worker
     /// with a NULL control. `#[ignore]` (measurement); run with
@@ -52021,9 +64133,9 @@ mod tests {
 
     /// br-r37-c1-ktrussmark: paired-interleaved median A/B for the integer-adjacency
     /// + mark-array k-truss peeling vs the old String-keyed HashMap/HashSet
-    /// per-edge-clone baseline, in ONE binary / ONE worker with a NULL control.
-    /// `#[ignore]` (measurement); run with
-    /// `cargo test --release -p fnx-algorithms --lib k_truss_mark_ab -- --ignored --nocapture`.
+    ///   per-edge-clone baseline, in ONE binary / ONE worker with a NULL control.
+    ///   `#[ignore]` (measurement); run with
+    ///   `cargo test --release -p fnx-algorithms --lib k_truss_mark_ab -- --ignored --nocapture`.
     #[test]
     #[ignore = "measurement; run with --release --ignored --nocapture"]
     fn k_truss_mark_ab() {
@@ -52332,9 +64444,9 @@ mod tests {
 
     /// br-r37-c1-dirclustmark: paired-interleaved median A/B for the integer-adjacency
     /// + mark-array directed clustering vs the old HashSet<&str> preds/succs +
-    /// per-neighbour jpreds/jsuccs baseline, in ONE binary / ONE worker with a NULL
-    /// control. `#[ignore]` (measurement); run with
-    /// `cargo test --release -p fnx-algorithms --lib dir_clustering_mark_ab -- --ignored --nocapture`.
+    ///   per-neighbour jpreds/jsuccs baseline, in ONE binary / ONE worker with a NULL
+    ///   control. `#[ignore]` (measurement); run with
+    ///   `cargo test --release -p fnx-algorithms --lib dir_clustering_mark_ab -- --ignored --nocapture`.
     #[test]
     #[ignore = "measurement; run with --release --ignored --nocapture"]
     fn dir_clustering_mark_ab() {
@@ -53812,6 +65924,114 @@ mod tests {
         assert_eq!(left, right);
     }
 
+    /// br-r37-c1-a273b: paired full-function A/B for index-space s-t cut-edge
+    /// projection. The frozen baseline clones partition/edge names and probes
+    /// String sets. Exact `EdgeCutResult` parity is asserted before timing.
+    #[test]
+    #[ignore = "measurement; run with --profile release --ignored --nocapture"]
+    fn minimum_st_edge_cut_index_projection_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        let side = 72usize;
+        let left_names = (0..side)
+            .map(|index| format!("left-cut-node-{index:04}-payload-abcdefghijkl"))
+            .collect::<Vec<_>>();
+        let right_names = (0..side)
+            .map(|index| format!("right-cut-node-{index:04}-payload-abcdefghijk"))
+            .collect::<Vec<_>>();
+        let mut graph = Graph::strict();
+        for name in left_names.iter().chain(&right_names) {
+            assert!(graph.add_node(name));
+        }
+        for names in [&left_names, &right_names] {
+            for left in 0..side {
+                for right in (left + 1)..side {
+                    graph
+                        .add_edge_with_attrs(
+                            &names[left],
+                            &names[right],
+                            attrs([("capacity", "1")]),
+                        )
+                        .expect("clique edge add should succeed");
+                }
+            }
+        }
+        graph
+            .add_edge_with_attrs(&left_names[0], &right_names[0], attrs([("capacity", "1")]))
+            .expect("bridge edge add should succeed");
+        let source = &left_names[side - 1];
+        let sink = &right_names[side - 1];
+
+        let candidate = super::minimum_st_edge_cut_edmonds_karp(&graph, source, sink, "capacity")
+            .expect("candidate cut should succeed");
+        let baseline = super::minimum_st_edge_cut_edmonds_karp_string_projection_baseline(
+            &graph, source, sink, "capacity",
+        )
+        .expect("baseline cut should succeed");
+        assert_eq!(candidate, baseline, "index projection must be exact");
+
+        let time = |use_candidate: bool| -> f64 {
+            let start = Instant::now();
+            let result = if use_candidate {
+                super::minimum_st_edge_cut_edmonds_karp(
+                    black_box(&graph),
+                    black_box(source),
+                    black_box(sink),
+                    black_box("capacity"),
+                )
+            } else {
+                super::minimum_st_edge_cut_edmonds_karp_string_projection_baseline(
+                    black_box(&graph),
+                    black_box(source),
+                    black_box(sink),
+                    black_box("capacity"),
+                )
+            };
+            black_box(result.expect("timed cut should succeed"));
+            start.elapsed().as_secs_f64()
+        };
+
+        for _ in 0..3 {
+            black_box(time(true));
+            black_box(time(false));
+        }
+        let rounds = 21usize;
+        let paired = |left_candidate: bool, right_candidate: bool| -> Vec<f64> {
+            let mut ratios = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (left_time, right_time) = if round.is_multiple_of(2) {
+                    (time(left_candidate), time(right_candidate))
+                } else {
+                    let right_time = time(right_candidate);
+                    (time(left_candidate), right_time)
+                };
+                ratios.push(right_time / left_time);
+            }
+            ratios
+        };
+        let report = |name: &str, mut ratios: Vec<f64>| {
+            ratios.sort_by(|left, right| left.partial_cmp(right).unwrap());
+            let wins = ratios.iter().filter(|&&ratio| ratio > 1.0).count();
+            println!(
+                "MIN_ST_EDGE_CUT_AB {name}: median={:.4}x win_rate={wins}/{rounds} p10_p90=[{:.4},{:.4}]",
+                ratios[rounds / 2],
+                ratios[rounds / 10],
+                ratios[rounds * 9 / 10],
+            );
+        };
+
+        println!(
+            "MIN_ST_EDGE_CUT_AB nodes={} edges={} unconditional_string_clones={} string_set_probes={} rounds={rounds} (>1 = left faster)",
+            graph.node_count(),
+            graph.edge_count(),
+            graph.node_count() + graph.edge_count() * 2,
+            graph.edge_count() * 4,
+        );
+        report("INDEX_vs_string", paired(true, false));
+        report("NULL_index_vs_index", paired(true, true));
+    }
+
     #[test]
     fn edge_connectivity_edmonds_karp_matches_minimum_cut_value() {
         let mut graph = Graph::strict();
@@ -54739,6 +66959,155 @@ mod tests {
     }
 
     #[test]
+    fn minimum_spanning_tree_prim_index_state_preserves_reference_contract() {
+        let empty = Graph::strict();
+        assert_eq!(
+            minimum_spanning_tree_prim(&empty, "weight"),
+            super::minimum_spanning_tree_prim_orig_string(&empty, "weight")
+        );
+
+        let mut graph = Graph::strict();
+        for node in ["z", "aa", "middle", "b", "isolate"] {
+            graph.add_node(node);
+        }
+        for (left, right, weight) in [
+            ("z", "aa", "2"),
+            ("z", "middle", "1"),
+            ("aa", "middle", "1"),
+            ("aa", "b", "3"),
+            ("middle", "b", "3"),
+            ("z", "z", "0"),
+        ] {
+            graph
+                .add_edge_with_attrs(left, right, attrs([("weight", weight)]))
+                .expect("edge add should succeed");
+        }
+
+        assert_eq!(
+            minimum_spanning_tree_prim(&graph, "weight"),
+            super::minimum_spanning_tree_prim_orig_string(&graph, "weight"),
+            "index state must preserve lexical roots, equal-weight endpoint ties, self-loop handling, disconnected roots, floats, and witness counts"
+        );
+        assert_eq!(
+            minimum_spanning_tree_prim(&graph, "missing"),
+            super::minimum_spanning_tree_prim_orig_string(&graph, "missing"),
+            "missing weights retain the exact default-one route"
+        );
+    }
+
+    /// `br-r37-c1-ygrvk`: same-binary A/B for compact-index Prim frontier
+    /// state against the frozen String-state reference, plus a candidate null.
+    #[test]
+    #[ignore = "measurement; run with --profile release --ignored --nocapture"]
+    fn minimum_spanning_tree_prim_index_state_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        fn median(values: &[u128]) -> u128 {
+            let mut sorted = values.to_vec();
+            sorted.sort_unstable();
+            sorted[sorted.len() / 2]
+        }
+
+        let n = 2_048usize;
+        let calls = 2usize;
+        let names = (0..n)
+            .map(|index| {
+                let lexical_key = (index * 104_729) % n;
+                format!("prim-node-{lexical_key:05}-abcdefghijklmnopqrstuvwxyz-{index:05}")
+            })
+            .collect::<Vec<_>>();
+        let mut graph = Graph::strict();
+        for name in &names {
+            graph.add_node(name);
+        }
+        for index in 0..n {
+            for offset in [1usize, 7, 31, 127] {
+                let neighbor = (index + offset) % n;
+                let weight = ((index * 17 + offset * 13) % 11).to_string();
+                graph
+                    .add_edge_with_attrs(
+                        &names[index],
+                        &names[neighbor],
+                        attrs([("weight", weight.as_str())]),
+                    )
+                    .expect("benchmark edge add should succeed");
+            }
+        }
+
+        let baseline = super::minimum_spanning_tree_prim_orig_string(&graph, "weight");
+        let candidate = minimum_spanning_tree_prim(&graph, "weight");
+        assert_eq!(candidate, baseline);
+
+        let time = |use_candidate: bool| -> u128 {
+            let start = Instant::now();
+            let mut checksum = 0usize;
+            for _ in 0..calls {
+                let result = if use_candidate {
+                    minimum_spanning_tree_prim(black_box(&graph), black_box("weight"))
+                } else {
+                    super::minimum_spanning_tree_prim_orig_string(
+                        black_box(&graph),
+                        black_box("weight"),
+                    )
+                };
+                checksum ^= result.edges.len();
+                checksum ^= result.witness.edges_scanned;
+                checksum ^= result.total_weight.to_bits() as usize;
+            }
+            black_box(checksum);
+            start.elapsed().as_nanos()
+        };
+
+        for _ in 0..3 {
+            black_box(time(false));
+            black_box(time(true));
+        }
+
+        let rounds = 15usize;
+        let mut baseline_times = Vec::with_capacity(rounds);
+        let mut candidate_times = Vec::with_capacity(rounds);
+        let mut null_first_times = Vec::with_capacity(rounds);
+        let mut null_second_times = Vec::with_capacity(rounds);
+        for round in 0..rounds {
+            let (baseline_time, candidate_time) = if round.is_multiple_of(2) {
+                (time(false), time(true))
+            } else {
+                let candidate_time = time(true);
+                (time(false), candidate_time)
+            };
+            baseline_times.push(baseline_time);
+            candidate_times.push(candidate_time);
+
+            let (null_first, null_second) = if round.is_multiple_of(2) {
+                (time(true), time(true))
+            } else {
+                let null_second = time(true);
+                (time(true), null_second)
+            };
+            null_first_times.push(null_first);
+            null_second_times.push(null_second);
+        }
+
+        let baseline_median = median(&baseline_times);
+        let candidate_median = median(&candidate_times);
+        let null_first_median = median(&null_first_times);
+        let null_second_median = median(&null_second_times);
+        let paired_wins = baseline_times
+            .iter()
+            .zip(&candidate_times)
+            .filter(|(baseline_time, candidate_time)| baseline_time > candidate_time)
+            .count();
+
+        println!(
+            "PRIM_INDEX_STATE_AB n={n} edges={} calls={calls} rounds={rounds} baseline_median_ns={baseline_median} candidate_median_ns={candidate_median} speedup={:.3}x paired_wins={paired_wins}/{rounds} null_first_median_ns={null_first_median} null_second_median_ns={null_second_median} null_ratio={:.3}x exact_parity=true",
+            graph.edge_count(),
+            baseline_median as f64 / candidate_median as f64,
+            null_first_median as f64 / null_second_median as f64,
+        );
+    }
+
+    #[test]
     fn returns_none_when_nodes_are_missing() {
         let graph = Graph::strict();
         let result = shortest_path_unweighted(&graph, "a", "b");
@@ -54827,6 +67196,129 @@ mod tests {
                 vec!["x".to_owned(), "y".to_owned()]
             ]
         );
+    }
+
+    #[test]
+    fn parallel_indexed_all_pairs_bfs_preserves_exact_order_and_cutoffs() {
+        let node_count = 160usize;
+        let names: Vec<String> = (0..node_count).map(|i| format!("node-{i:03}")).collect();
+        let mut graph = Graph::strict();
+        let mut digraph = DiGraph::strict();
+        for name in &names {
+            graph.add_node(name);
+            digraph.add_node(name);
+        }
+        for source in 0..node_count {
+            for offset in [1usize, 2, 3, 5, 8, 13, 21, 34, 55, 89, 97, 127] {
+                let target = (source + offset) % node_count;
+                graph
+                    .add_edge(&names[source], &names[target])
+                    .expect("undirected edge add should succeed");
+                digraph
+                    .add_edge(&names[source], &names[target])
+                    .expect("directed edge add should succeed");
+            }
+        }
+
+        let one_thread = rayon::ThreadPoolBuilder::new()
+            .num_threads(1)
+            .build()
+            .expect("one-thread pool");
+        let four_threads = rayon::ThreadPoolBuilder::new()
+            .num_threads(4)
+            .build()
+            .expect("four-thread pool");
+        let matrix_sources: Vec<usize> = (0..node_count).step_by(2).collect();
+
+        for cutoff in [None, Some(0), Some(1), Some(3)] {
+            let undirected_reference =
+                one_thread.install(|| all_pairs_shortest_path_length_indexed(&graph, cutoff));
+            let undirected_parallel =
+                four_threads.install(|| all_pairs_shortest_path_length_indexed(&graph, cutoff));
+            assert_eq!(undirected_parallel, undirected_reference);
+
+            let directed_reference = one_thread
+                .install(|| all_pairs_shortest_path_length_directed_indexed(&digraph, cutoff));
+            let directed_parallel = four_threads
+                .install(|| all_pairs_shortest_path_length_directed_indexed(&digraph, cutoff));
+            assert_eq!(directed_parallel, directed_reference);
+
+            let undirected_matrix_reference = one_thread
+                .install(|| shortest_path_length_matrix_indexed(&graph, &matrix_sources, cutoff));
+            let undirected_matrix_parallel = four_threads
+                .install(|| shortest_path_length_matrix_indexed(&graph, &matrix_sources, cutoff));
+            assert_eq!(undirected_matrix_parallel, undirected_matrix_reference);
+
+            let directed_matrix_reference = one_thread.install(|| {
+                shortest_path_length_matrix_directed_indexed(&digraph, &matrix_sources, cutoff)
+            });
+            let directed_matrix_parallel = four_threads.install(|| {
+                shortest_path_length_matrix_directed_indexed(&digraph, &matrix_sources, cutoff)
+            });
+            assert_eq!(directed_matrix_parallel, directed_matrix_reference);
+
+            for (matrix_row, &source) in undirected_matrix_parallel
+                .chunks(node_count)
+                .zip(&matrix_sources)
+            {
+                let mut expected = vec![-1; node_count];
+                for &(target, distance) in &undirected_reference[source].1 {
+                    expected[target] = i32::try_from(distance).expect("test distance fits i32");
+                }
+                assert_eq!(matrix_row, expected);
+            }
+            for (matrix_row, &source) in directed_matrix_parallel
+                .chunks(node_count)
+                .zip(&matrix_sources)
+            {
+                let mut expected = vec![-1; node_count];
+                for &(target, distance) in &directed_reference[source].1 {
+                    expected[target] = i32::try_from(distance).expect("test distance fits i32");
+                }
+                assert_eq!(matrix_row, expected);
+            }
+        }
+    }
+
+    #[test]
+    fn connected_components_vec_head_matches_frozen_vec_deque_arm() {
+        let mut disconnected = Graph::strict();
+        let _ = disconnected.add_node("isolated");
+        disconnected
+            .add_edge("a", "b")
+            .expect("edge add should succeed");
+        disconnected
+            .add_edge("b", "c")
+            .expect("edge add should succeed");
+        disconnected
+            .add_edge("loop", "loop")
+            .expect("self-loop add should succeed");
+
+        let mut branching = Graph::strict();
+        for (left, right) in [
+            ("root", "left"),
+            ("root", "right"),
+            ("left", "left_leaf"),
+            ("right", "right_leaf"),
+            ("right", "right_leaf_2"),
+        ] {
+            branching
+                .add_edge(left, right)
+                .expect("edge add should succeed");
+        }
+
+        for graph in [Graph::strict(), disconnected, branching] {
+            assert_eq!(
+                super::connected_components_arm(
+                    &graph,
+                    super::ConnectedComponentsQueueArm::VecHead,
+                ),
+                super::connected_components_arm(
+                    &graph,
+                    super::ConnectedComponentsQueueArm::VecDeque,
+                ),
+            );
+        }
     }
 
     #[test]
@@ -55791,6 +68283,623 @@ mod tests {
         }
     }
 
+    /// br-r37-c1-bcsr: the CSR + predecessor-by-scan Brandes must be BIT-identical
+    /// to the stored-predecessor-list formulation it replaces, not merely close.
+    ///
+    /// The reference below is the exact pre-change kernel: `Vec<Vec<usize>>`
+    /// adjacency built from `neighbors_iter` + `get_node_index`, per-node
+    /// predecessor lists pushed during the BFS, and the same
+    /// `(sigma[v] / sigma_w) * (1.0 + delta_w)` accumulation. Sizes straddle
+    /// `BRANDES_PARALLEL_THRESHOLD` (500) so both the rayon-chunked arm and the
+    /// sequential arm are covered, and the directed cases are what prove the
+    /// reverse-CSR transpose really recovers in-neighbours.
+    #[test]
+    fn betweenness_csr_predecessor_scan_is_bit_identical_to_stored_lists() {
+        use super::GraphView;
+
+        fn reference<G: GraphView>(graph: &G, normalized: bool, endpoints: bool) -> Vec<f64> {
+            let nodes = graph.nodes_ordered();
+            let n = nodes.len();
+            if n == 0 {
+                return Vec::new();
+            }
+            let adjacency = nodes
+                .iter()
+                .map(|&node| {
+                    let mut row = Vec::new();
+                    if let Some(neighbors) = graph.neighbors_iter(node) {
+                        for neighbor in neighbors {
+                            row.push(graph.get_node_index(neighbor).expect("indexed"));
+                        }
+                    }
+                    row
+                })
+                .collect::<Vec<Vec<usize>>>();
+
+            let mut centrality = vec![0.0f64; n];
+            let mut predecessors = vec![Vec::<usize>::new(); n];
+            let mut sigma = vec![0.0f64; n];
+            let mut distance = vec![-1i64; n];
+            let mut dependency = vec![0.0f64; n];
+            let mut stack = Vec::<usize>::new();
+            let mut queue = Vec::<usize>::new();
+
+            for s in 0..n {
+                stack.clear();
+                for row in &mut predecessors {
+                    row.clear();
+                }
+                sigma.fill(0.0);
+                distance.fill(-1);
+                dependency.fill(0.0);
+                queue.clear();
+
+                sigma[s] = 1.0;
+                distance[s] = 0;
+                let mut head = 0usize;
+                queue.push(s);
+                while head < queue.len() {
+                    let v = queue[head];
+                    head += 1;
+                    stack.push(v);
+                    let next_dist = distance[v] + 1;
+                    let sigma_v = sigma[v];
+                    for &w in &adjacency[v] {
+                        if distance[w] < 0 {
+                            distance[w] = next_dist;
+                            queue.push(w);
+                            sigma[w] += sigma_v;
+                            predecessors[w].push(v);
+                        } else if distance[w] == next_dist {
+                            sigma[w] += sigma_v;
+                            predecessors[w].push(v);
+                        }
+                    }
+                }
+
+                if endpoints {
+                    centrality[s] += stack.len().saturating_sub(1) as f64;
+                }
+                while let Some(w) = stack.pop() {
+                    let sigma_w = sigma[w];
+                    let delta_w = dependency[w];
+                    if sigma_w > 0.0 {
+                        for &v in &predecessors[w] {
+                            dependency[v] += (sigma[v] / sigma_w) * (1.0 + delta_w);
+                        }
+                    }
+                    if w != s {
+                        centrality[w] += if endpoints { delta_w + 1.0 } else { delta_w };
+                    }
+                }
+            }
+
+            let pair_base = if endpoints { n } else { n.saturating_sub(1) };
+            let scale = if pair_base < 2 {
+                1.0
+            } else if normalized {
+                1.0 / ((pair_base * (pair_base - 1)) as f64)
+            } else if graph.is_directed() {
+                1.0
+            } else {
+                0.5
+            };
+            if scale != 1.0 {
+                for score in &mut centrality {
+                    *score *= scale;
+                }
+            }
+            centrality
+        }
+
+        // Sizes on both sides of the 500-source parallel threshold. `step` > 1
+        // gives multiple shortest paths, so `sigma` genuinely branches and the
+        // predecessor sets have more than one member.
+        for &n in &[64usize, 499, 500, 700, 1100] {
+            for &(normalized, endpoints) in
+                &[(true, false), (false, false), (true, true), (false, true)]
+            {
+                let mut undirected = Graph::strict();
+                for i in 0..n {
+                    let _ = undirected.add_node(i.to_string());
+                }
+                for i in 0..n {
+                    for step in [1usize, 3, 7] {
+                        let _ = undirected.add_edge(i.to_string(), ((i + step) % n).to_string());
+                    }
+                }
+                let got = betweenness_centrality_with_params(&undirected, normalized, endpoints);
+                let want = reference(&undirected, normalized, endpoints);
+                assert_eq!(got.scores.len(), want.len());
+                for (score, expected) in got.scores.iter().zip(want.iter()) {
+                    assert_eq!(
+                        score.score.to_bits(),
+                        expected.to_bits(),
+                        "undirected n={n} normalized={normalized} endpoints={endpoints} \
+                         node={} got={} want={expected}",
+                        score.node,
+                        score.score
+                    );
+                }
+
+                let mut directed = DiGraph::strict();
+                for i in 0..n {
+                    let _ = directed.add_node(i.to_string());
+                }
+                for i in 0..n {
+                    for step in [1usize, 3, 7] {
+                        let _ = directed.add_edge(i.to_string(), ((i + step) % n).to_string());
+                    }
+                }
+                let got_d =
+                    betweenness_centrality_directed_with_params(&directed, normalized, endpoints);
+                let want_d = reference(&directed, normalized, endpoints);
+                assert_eq!(got_d.scores.len(), want_d.len());
+                for (score, expected) in got_d.scores.iter().zip(want_d.iter()) {
+                    assert_eq!(
+                        score.score.to_bits(),
+                        expected.to_bits(),
+                        "directed n={n} normalized={normalized} endpoints={endpoints} \
+                         node={} got={} want={expected}",
+                        score.node,
+                        score.score
+                    );
+                }
+            }
+        }
+
+        // Disconnected: unreached nodes keep `distance == -1`, which is exactly
+        // what the `dist_w > 0` guard has to stop the predecessor scan from
+        // matching at the source.
+        for &n in &[600usize, 900] {
+            let mut split = Graph::strict();
+            for i in 0..n {
+                let _ = split.add_node(i.to_string());
+            }
+            // Three disjoint components plus a scatter of isolates.
+            for i in 0..n {
+                if i % 5 == 4 {
+                    continue;
+                }
+                let j = (i + 3) % n;
+                if j % 5 != 4 && i % 3 == j % 3 {
+                    let _ = split.add_edge(i.to_string(), j.to_string());
+                }
+            }
+            let got = betweenness_centrality(&split);
+            let want = reference(&split, true, false);
+            for (score, expected) in got.scores.iter().zip(want.iter()) {
+                assert_eq!(
+                    score.score.to_bits(),
+                    expected.to_bits(),
+                    "disconnected n={n} node={} got={} want={expected}",
+                    score.node,
+                    score.score
+                );
+            }
+        }
+        println!("betweenness_csr_predecessor_scan_is_bit_identical_to_stored_lists: OK");
+    }
+
+    /// br-r37-c1-bcsr2: the parallel node-block reduction must be BIT-identical
+    /// to the serial source-order fold, not merely close. Sizes straddle
+    /// `REDUCE_PARALLEL_MIN_N` so `Auto` is exercised on both sides of its own
+    /// threshold, and the pinned arms are compared directly.
+    #[test]
+    fn brandes_parallel_reduction_is_bit_identical_to_serial() {
+        use super::{BrandesReduce, betweenness_centrality_reduce_arm};
+        for &n in &[600usize, 2000, 9000] {
+            let mut graph = Graph::strict();
+            for i in 0..n {
+                let _ = graph.add_node(i.to_string());
+            }
+            for i in 0..n {
+                for step in [1usize, 3, 7] {
+                    let _ = graph.add_edge(i.to_string(), ((i + step) % n).to_string());
+                }
+            }
+            for &(normalized, endpoints) in
+                &[(true, false), (false, false), (true, true), (false, true)]
+            {
+                let serial = betweenness_centrality_reduce_arm(
+                    &graph,
+                    normalized,
+                    endpoints,
+                    BrandesReduce::Serial,
+                );
+                let parallel = betweenness_centrality_reduce_arm(
+                    &graph,
+                    normalized,
+                    endpoints,
+                    BrandesReduce::Parallel,
+                );
+                let auto = betweenness_centrality_with_params(&graph, normalized, endpoints);
+                assert_eq!(serial.scores.len(), parallel.scores.len());
+                for ((s, p), a) in serial
+                    .scores
+                    .iter()
+                    .zip(parallel.scores.iter())
+                    .zip(auto.scores.iter())
+                {
+                    assert_eq!(
+                        s.score.to_bits(),
+                        p.score.to_bits(),
+                        "n={n} normalized={normalized} endpoints={endpoints} node={} \
+                         serial={} parallel={}",
+                        s.node,
+                        s.score,
+                        p.score
+                    );
+                    assert_eq!(
+                        s.score.to_bits(),
+                        a.score.to_bits(),
+                        "Auto diverged from Serial at n={n} node={}",
+                        s.node
+                    );
+                }
+                // The witness must not depend on how the fold was scheduled.
+                assert_eq!(serial.witness.edges_scanned, parallel.witness.edges_scanned);
+                assert_eq!(serial.witness.nodes_touched, parallel.witness.nodes_touched);
+                assert_eq!(serial.witness.queue_peak, parallel.witness.queue_peak);
+            }
+        }
+        println!("brandes_parallel_reduction_is_bit_identical_to_serial: OK");
+    }
+
+    /// br-r37-c1-bcsr2: paired-interleaved median A/B for the Brandes delta
+    /// reduction, serial source-order fold vs disjoint node blocks, in ONE binary
+    /// with an A/A null control. `#[ignore]` (measurement); run with
+    /// `cargo test --release -p fnx-algorithms --lib brandes_reduce_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with --release --ignored --nocapture"]
+    fn brandes_reduce_ab() {
+        use super::{BrandesReduce, betweenness_centrality_reduce_arm};
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        for &n in &[3000usize, 9000, 18000] {
+            let mut graph = Graph::strict();
+            for i in 0..n {
+                let _ = graph.add_node(i.to_string());
+            }
+            for i in 0..n {
+                for step in [1usize, 5, 11] {
+                    let _ = graph.add_edge(i.to_string(), ((i + step) % n).to_string());
+                }
+            }
+
+            let run = |arm: BrandesReduce| {
+                black_box(betweenness_centrality_reduce_arm(&graph, true, false, arm))
+            };
+            // Warm the rayon pool and the allocator before any timing.
+            let _ = run(BrandesReduce::Serial);
+            let _ = run(BrandesReduce::Parallel);
+
+            // Arms INTERLEAVED inside one round, order alternating per round; the
+            // statistic is the median of per-round ratios, not a ratio of medians.
+            let rounds = if n >= 18000 { 5 } else { 9 };
+            let mut ab: Vec<f64> = Vec::new();
+            let mut null: Vec<f64> = Vec::new();
+            for round in 0..rounds {
+                let (a, b) = if round % 2 == 0 {
+                    let t0 = Instant::now();
+                    let _ = run(BrandesReduce::Serial);
+                    let a = t0.elapsed().as_secs_f64();
+                    let t1 = Instant::now();
+                    let _ = run(BrandesReduce::Parallel);
+                    (a, t1.elapsed().as_secs_f64())
+                } else {
+                    let t1 = Instant::now();
+                    let _ = run(BrandesReduce::Parallel);
+                    let b = t1.elapsed().as_secs_f64();
+                    let t0 = Instant::now();
+                    let _ = run(BrandesReduce::Serial);
+                    (t0.elapsed().as_secs_f64(), b)
+                };
+                ab.push(a / b);
+                // A/A null: the SAME arm twice, same interleaving discipline.
+                let t2 = Instant::now();
+                let _ = run(BrandesReduce::Serial);
+                let c = t2.elapsed().as_secs_f64();
+                let t3 = Instant::now();
+                let _ = run(BrandesReduce::Serial);
+                null.push(c / t3.elapsed().as_secs_f64());
+            }
+            let median = |v: &mut Vec<f64>| {
+                v.sort_by(|x, y| x.partial_cmp(y).unwrap());
+                v[v.len() / 2]
+            };
+            let wins = ab.iter().filter(|r| **r > 1.0).count();
+            let (lo, hi) = {
+                let mut s = ab.clone();
+                s.sort_by(|x, y| x.partial_cmp(y).unwrap());
+                (s[0], s[s.len() - 1])
+            };
+            println!(
+                "BRANDES_REDUCE_AB n={n} serial/parallel median={:.4} (>1 = parallel faster) \
+                 range=[{lo:.4}, {hi:.4}] wins={wins}/{rounds} A/A_null={:.4}",
+                median(&mut ab.clone()),
+                median(&mut null.clone()),
+            );
+        }
+    }
+
+    /// br-r37-c1-ebcsr: edge betweenness with predecessors recovered by scan must
+    /// be BIT-identical to the stored `(v, edge_index)` list formulation. The
+    /// reference below is the exact pre-change kernel; sizes straddle
+    /// `EDGE_BRANDES_PARALLEL_THRESHOLD` (500) so both arms are covered, and the
+    /// directed cases are what prove the payload-carrying transpose really
+    /// recovers in-edges rather than out-edges.
+    #[test]
+    fn edge_betweenness_predecessor_scan_is_bit_identical_to_stored_lists() {
+        use super::{
+            EdgeBetweennessCentralityResult, GraphView, edge_betweenness_centrality,
+            edge_betweenness_centrality_directed,
+        };
+        use std::collections::HashMap;
+
+        fn reference<G: GraphView>(graph: &G) -> Vec<((String, String), f64)> {
+            let nodes = graph.nodes_ordered();
+            let n = nodes.len();
+            let is_directed = graph.is_directed();
+            let canon = |a: usize, b: usize| -> (usize, usize) {
+                if is_directed || nodes[a] <= nodes[b] {
+                    (a, b)
+                } else {
+                    (b, a)
+                }
+            };
+            let mut edge_index: HashMap<(usize, usize), usize> = HashMap::new();
+            let mut edge_endpoints: Vec<(usize, usize)> = Vec::new();
+            let mut adjacency: Vec<Vec<(usize, usize)>> = Vec::with_capacity(n);
+            for u in 0..n {
+                let mut row = Vec::new();
+                if let Some(neighbors) = graph.neighbors_iter(nodes[u]) {
+                    for w_name in neighbors {
+                        let w = graph.get_node_index(w_name).expect("indexed");
+                        let key = canon(u, w);
+                        let eidx = *edge_index.entry(key).or_insert_with(|| {
+                            let e = edge_endpoints.len();
+                            edge_endpoints.push(key);
+                            e
+                        });
+                        row.push((w, eidx));
+                    }
+                }
+                adjacency.push(row);
+            }
+            let n_edges = edge_endpoints.len();
+            let mut total = vec![0.0f64; n_edges];
+
+            let mut predecessors: Vec<Vec<(usize, usize)>> = vec![Vec::new(); n];
+            let mut sigma = vec![0.0f64; n];
+            let mut distance = vec![-1i64; n];
+            let mut dependency = vec![0.0f64; n];
+            let mut stack: Vec<usize> = Vec::new();
+            let mut queue: std::collections::VecDeque<usize> = Default::default();
+
+            for s in 0..n {
+                stack.clear();
+                for row in &mut predecessors {
+                    row.clear();
+                }
+                sigma.fill(0.0);
+                distance.fill(-1);
+                dependency.fill(0.0);
+                queue.clear();
+                sigma[s] = 1.0;
+                distance[s] = 0;
+                queue.push_back(s);
+                while let Some(v) = queue.pop_front() {
+                    stack.push(v);
+                    let dist_v = distance[v];
+                    for &(w, eidx) in &adjacency[v] {
+                        if distance[w] < 0 {
+                            distance[w] = dist_v + 1;
+                            queue.push_back(w);
+                        }
+                        if distance[w] == dist_v + 1 {
+                            sigma[w] += sigma[v];
+                            predecessors[w].push((v, eidx));
+                        }
+                    }
+                }
+                while let Some(w) = stack.pop() {
+                    let sigma_w = sigma[w];
+                    let delta_w = dependency[w];
+                    if sigma_w > 0.0 {
+                        for &(v, eidx) in &predecessors[w] {
+                            let contribution = (sigma[v] / sigma_w) * (1.0 + delta_w);
+                            total[eidx] += contribution;
+                            dependency[v] += contribution;
+                        }
+                    }
+                }
+            }
+            // Same scaling the production path applies, so the comparison is on
+            // the values users actually see.
+            let scale = if n > 1 {
+                1.0 / ((n * (n - 1)) as f64)
+            } else {
+                0.0
+            };
+            edge_endpoints
+                .iter()
+                .enumerate()
+                .map(|(e, &(a, b))| ((nodes[a].to_owned(), nodes[b].to_owned()), total[e] * scale))
+                .collect()
+        }
+
+        for &n in &[64usize, 499, 500, 700] {
+            let mut undirected = Graph::strict();
+            let mut directed = DiGraph::strict();
+            for i in 0..n {
+                let _ = undirected.add_node(i.to_string());
+                let _ = directed.add_node(i.to_string());
+            }
+            for i in 0..n {
+                for step in [1usize, 3, 7] {
+                    let _ = undirected.add_edge(i.to_string(), ((i + step) % n).to_string());
+                    let _ = directed.add_edge(i.to_string(), ((i + step) % n).to_string());
+                }
+            }
+
+            let check = |label: &str,
+                         want: Vec<((String, String), f64)>,
+                         got: &EdgeBetweennessCentralityResult| {
+                let mut want_map: HashMap<(String, String), f64> = want.into_iter().collect();
+                assert_eq!(got.scores.len(), want_map.len(), "{label} n={n}");
+                for score in &got.scores {
+                    let key = (score.left.clone(), score.right.clone());
+                    let expected = want_map
+                        .remove(&key)
+                        .unwrap_or_else(|| panic!("{label} n={n}: unexpected edge {key:?}"));
+                    assert_eq!(
+                        score.score.to_bits(),
+                        expected.to_bits(),
+                        "{label} n={n} edge={key:?} got={} want={expected}",
+                        score.score
+                    );
+                }
+                assert!(want_map.is_empty(), "{label} n={n}: missing edges");
+            };
+
+            check(
+                "undirected",
+                reference(&undirected),
+                &edge_betweenness_centrality(&undirected),
+            );
+            check(
+                "directed",
+                reference(&directed),
+                &edge_betweenness_centrality_directed(&directed),
+            );
+        }
+        println!("edge_betweenness_predecessor_scan_is_bit_identical_to_stored_lists: OK");
+    }
+
+    #[test]
+    fn betweenness_edgeless_fast_path_preserves_brandes_result_and_witness() {
+        assert!(
+            std::env::var_os("PERF_SPANS").is_none(),
+            "parity test must exercise the production fast path"
+        );
+        for n in [0usize, 1, 2, 31, 499, 500] {
+            let mut graph = Graph::strict();
+            let mut digraph = DiGraph::strict();
+            for node in 0..n {
+                let name = format!("n{node}");
+                let _ = graph.add_node(name.clone());
+                let _ = digraph.add_node(name);
+            }
+
+            for normalized in [false, true] {
+                for endpoints in [false, true] {
+                    assert_eq!(
+                        super::betweenness_centrality_generic(&graph, normalized, endpoints,),
+                        super::betweenness_centrality_brandes(&graph, normalized, endpoints,),
+                        "undirected parity failed for {n} isolates, normalized={normalized}, endpoints={endpoints}"
+                    );
+                    assert_eq!(
+                        super::betweenness_centrality_generic(&digraph, normalized, endpoints,),
+                        super::betweenness_centrality_brandes(&digraph, normalized, endpoints,),
+                        "directed parity failed for {n} isolates, normalized={normalized}, endpoints={endpoints}"
+                    );
+                }
+            }
+        }
+
+        let mut one_edge = Graph::strict();
+        one_edge
+            .add_edge("left", "right")
+            .expect("edge add should succeed");
+        assert_eq!(
+            super::betweenness_centrality_generic(&one_edge, true, false),
+            super::betweenness_centrality_brandes(&one_edge, true, false),
+            "nonempty graphs must remain on the Brandes path"
+        );
+    }
+
+    #[test]
+    #[ignore = "foreground A/B benchmark"]
+    fn betweenness_edgeless_fast_path_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        assert!(
+            std::env::var_os("PERF_SPANS").is_none(),
+            "benchmark must exercise the production fast path"
+        );
+        let mut graph = Graph::strict();
+        let n = 2_048usize;
+        for node in 0..n {
+            let _ = graph.add_node(format!("n{node}"));
+        }
+
+        let candidate = super::betweenness_centrality_generic(&graph, true, false);
+        let baseline = super::betweenness_centrality_brandes(&graph, true, false);
+        assert_eq!(candidate, baseline, "A/B arms must have exact parity");
+
+        let measure = |use_candidate: bool| -> u128 {
+            let start = Instant::now();
+            let result = if use_candidate {
+                super::betweenness_centrality_generic(black_box(&graph), true, false)
+            } else {
+                super::betweenness_centrality_brandes(black_box(&graph), true, false)
+            };
+            black_box(result);
+            start.elapsed().as_nanos()
+        };
+
+        for _ in 0..3 {
+            black_box(measure(false));
+            black_box(measure(true));
+        }
+
+        let rounds = 15usize;
+        let mut baseline_ns = Vec::with_capacity(rounds);
+        let mut candidate_ns = Vec::with_capacity(rounds);
+        let mut null_first_ns = Vec::with_capacity(rounds);
+        let mut null_second_ns = Vec::with_capacity(rounds);
+        let mut paired_wins = 0usize;
+        for round in 0..rounds {
+            let (baseline_elapsed, candidate_elapsed) = if round.is_multiple_of(2) {
+                (measure(false), measure(true))
+            } else {
+                let candidate_elapsed = measure(true);
+                let baseline_elapsed = measure(false);
+                (baseline_elapsed, candidate_elapsed)
+            };
+            paired_wins += usize::from(candidate_elapsed < baseline_elapsed);
+            baseline_ns.push(baseline_elapsed);
+            candidate_ns.push(candidate_elapsed);
+
+            null_first_ns.push(measure(true));
+            null_second_ns.push(measure(true));
+        }
+
+        let median = |mut samples: Vec<u128>| -> u128 {
+            samples.sort_unstable();
+            samples[samples.len() / 2]
+        };
+        let baseline_median_ns = median(baseline_ns);
+        let candidate_median_ns = median(candidate_ns);
+        let null_first_median_ns = median(null_first_ns);
+        let null_second_median_ns = median(null_second_ns);
+        let speedup = baseline_median_ns as f64 / candidate_median_ns as f64;
+        let null_ratio = null_first_median_ns as f64 / null_second_median_ns as f64;
+
+        println!(
+            "NODE_BETWEENNESS_EDGELESS_AB n={n} rounds={rounds} \
+             baseline_median_ns={baseline_median_ns} \
+             candidate_median_ns={candidate_median_ns} speedup={speedup:.3}x \
+             paired_wins={paired_wins}/{rounds} \
+             null_first_median_ns={null_first_median_ns} \
+             null_second_median_ns={null_second_median_ns} null_ratio={null_ratio:.3}x \
+             exact_parity=true"
+        );
+    }
+
     #[test]
     fn edge_betweenness_centrality_path_graph_matches_expected_values() {
         let mut graph = Graph::strict();
@@ -55897,6 +69006,116 @@ mod tests {
         let _ = singleton.add_node("solo");
         let single_result = edge_betweenness_centrality(&singleton);
         assert!(single_result.scores.is_empty());
+    }
+
+    #[test]
+    fn edge_betweenness_edgeless_fast_path_preserves_brandes_result_and_witness() {
+        for n in [0usize, 1, 2, 31, 499, 500] {
+            let mut graph = Graph::strict();
+            let mut digraph = DiGraph::strict();
+            for node in 0..n {
+                let name = format!("n{node}");
+                let _ = graph.add_node(name.clone());
+                let _ = digraph.add_node(name);
+            }
+
+            assert_eq!(
+                super::edge_betweenness_centrality_generic(&graph),
+                super::edge_betweenness_centrality_brandes(&graph),
+                "undirected parity failed for {n} isolates"
+            );
+            assert_eq!(
+                super::edge_betweenness_centrality_generic(&digraph),
+                super::edge_betweenness_centrality_brandes(&digraph),
+                "directed parity failed for {n} isolates"
+            );
+        }
+
+        let mut one_edge = Graph::strict();
+        one_edge
+            .add_edge("left", "right")
+            .expect("edge add should succeed");
+        assert_eq!(
+            super::edge_betweenness_centrality_generic(&one_edge),
+            super::edge_betweenness_centrality_brandes(&one_edge),
+            "nonempty graphs must remain on the Brandes path"
+        );
+    }
+
+    #[test]
+    #[ignore = "foreground A/B benchmark"]
+    fn edge_betweenness_edgeless_fast_path_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        let mut graph = Graph::strict();
+        let n = 2_048usize;
+        for node in 0..n {
+            let _ = graph.add_node(format!("n{node}"));
+        }
+
+        let candidate = super::edge_betweenness_centrality_generic(&graph);
+        let baseline = super::edge_betweenness_centrality_brandes(&graph);
+        assert_eq!(candidate, baseline, "A/B arms must have exact parity");
+
+        let measure = |use_candidate: bool| -> u128 {
+            let start = Instant::now();
+            let result = if use_candidate {
+                super::edge_betweenness_centrality_generic(black_box(&graph))
+            } else {
+                super::edge_betweenness_centrality_brandes(black_box(&graph))
+            };
+            black_box(result);
+            start.elapsed().as_nanos()
+        };
+
+        for _ in 0..3 {
+            black_box(measure(false));
+            black_box(measure(true));
+        }
+
+        let rounds = 15usize;
+        let mut baseline_ns = Vec::with_capacity(rounds);
+        let mut candidate_ns = Vec::with_capacity(rounds);
+        let mut null_first_ns = Vec::with_capacity(rounds);
+        let mut null_second_ns = Vec::with_capacity(rounds);
+        let mut paired_wins = 0usize;
+        for round in 0..rounds {
+            let (baseline_elapsed, candidate_elapsed) = if round.is_multiple_of(2) {
+                (measure(false), measure(true))
+            } else {
+                let candidate_elapsed = measure(true);
+                let baseline_elapsed = measure(false);
+                (baseline_elapsed, candidate_elapsed)
+            };
+            paired_wins += usize::from(candidate_elapsed < baseline_elapsed);
+            baseline_ns.push(baseline_elapsed);
+            candidate_ns.push(candidate_elapsed);
+
+            null_first_ns.push(measure(true));
+            null_second_ns.push(measure(true));
+        }
+
+        let median = |mut samples: Vec<u128>| -> u128 {
+            samples.sort_unstable();
+            samples[samples.len() / 2]
+        };
+        let baseline_median_ns = median(baseline_ns);
+        let candidate_median_ns = median(candidate_ns);
+        let null_first_median_ns = median(null_first_ns);
+        let null_second_median_ns = median(null_second_ns);
+        let speedup = baseline_median_ns as f64 / candidate_median_ns as f64;
+        let null_ratio = null_first_median_ns as f64 / null_second_median_ns as f64;
+
+        println!(
+            "EDGE_BETWEENNESS_EDGELESS_AB n={n} rounds={rounds} \
+             baseline_median_ns={baseline_median_ns} \
+             candidate_median_ns={candidate_median_ns} speedup={speedup:.3}x \
+             paired_wins={paired_wins}/{rounds} \
+             null_first_median_ns={null_first_median_ns} \
+             null_second_median_ns={null_second_median_ns} null_ratio={null_ratio:.3}x \
+             exact_parity=true"
+        );
     }
 
     #[test]
@@ -57431,6 +70650,57 @@ mod tests {
     }
 
     #[test]
+    fn global_efficiency_parallel_histograms_are_bit_exact() {
+        let node_count = 160usize;
+        let names: Vec<String> = (0..node_count).map(|i| format!("ge-{i:03}")).collect();
+        let mut graph = Graph::strict();
+        for name in &names {
+            graph.add_node(name);
+        }
+        for source in 0..node_count {
+            for offset in [1usize, 2, 3, 5, 8, 13, 21, 34, 55, 89, 97, 127] {
+                graph
+                    .add_edge(&names[source], &names[(source + offset) % node_count])
+                    .expect("edge add");
+            }
+        }
+
+        // Frozen pre-parallel accumulation: source order, then BFS discovery
+        // order. This is the exact floating-point sequence the histogram replay
+        // must retain.
+        let mut dist = vec![0usize; node_count];
+        let mut seen_stamp = vec![0u32; node_count];
+        let mut queue = std::collections::VecDeque::with_capacity(node_count);
+        let mut reference_total = 0.0f64;
+        for source in 0..node_count {
+            let stamp = source as u32 + 1;
+            seen_stamp[source] = stamp;
+            dist[source] = 0;
+            queue.clear();
+            queue.push_back(source);
+            while let Some(node) = queue.pop_front() {
+                let distance = dist[node];
+                for &neighbor in graph.neighbors_indices(node).unwrap_or(&[]) {
+                    if seen_stamp[neighbor] != stamp {
+                        seen_stamp[neighbor] = stamp;
+                        dist[neighbor] = distance + 1;
+                        reference_total += 1.0 / (distance + 1) as f64;
+                        queue.push_back(neighbor);
+                    }
+                }
+            }
+        }
+        let reference = reference_total / (node_count * (node_count - 1)) as f64;
+
+        let pool = rayon::ThreadPoolBuilder::new()
+            .num_threads(4)
+            .build()
+            .expect("parallel pool");
+        let candidate = pool.install(|| global_efficiency(&graph).efficiency);
+        assert_eq!(candidate.to_bits(), reference.to_bits());
+    }
+
+    #[test]
     fn global_efficiency_matches_networkx_reference() {
         // br-r37-c1-geffcsr: cross-impl fixtures captured from networkx
         // (`nx.global_efficiency`) on random gnp graphs — including a
@@ -57627,6 +70897,158 @@ mod tests {
             (result.efficiency - 1.0).abs() < 1e-12,
             "K4 should have local efficiency 1.0, got {}",
             result.efficiency
+        );
+    }
+
+    #[test]
+    fn local_efficiency_index_state_preserves_string_baseline() {
+        let empty = Graph::strict();
+        assert_eq!(
+            local_efficiency(&empty),
+            super::local_efficiency_orig_string(&empty)
+        );
+
+        let mut graph = Graph::strict();
+        for node in ["z", "aa", "middle", "b", "tail", "isolate"] {
+            graph.add_node(node);
+        }
+        for (left, right) in [
+            ("z", "aa"),
+            ("z", "middle"),
+            ("z", "b"),
+            ("aa", "middle"),
+            ("middle", "b"),
+            ("b", "tail"),
+            ("tail", "tail"),
+        ] {
+            graph
+                .add_edge(left, right)
+                .expect("edge add should succeed");
+        }
+
+        let candidate = local_efficiency(&graph);
+        let baseline = super::local_efficiency_orig_string(&graph);
+        assert!(
+            (candidate.efficiency - baseline.efficiency).abs() <= TEST_TOLERANCE,
+            "compact index state changed local efficiency: candidate={}, baseline={}",
+            candidate.efficiency,
+            baseline.efficiency
+        );
+        assert_eq!(
+            candidate.witness, baseline.witness,
+            "compact index state must preserve scan and queue witnesses"
+        );
+    }
+
+    /// `br-r37-c1-y2q6x`: same-binary A/B for compact-index local-efficiency
+    /// ego BFS state against the frozen String-state baseline, plus a candidate null.
+    #[test]
+    #[ignore = "measurement; run with --profile release --ignored --nocapture"]
+    fn local_efficiency_index_state_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        fn median(values: &[u128]) -> u128 {
+            let mut sorted = values.to_vec();
+            sorted.sort_unstable();
+            sorted[sorted.len() / 2]
+        }
+
+        let n = 384usize;
+        let radius = 12usize;
+        let calls = 1usize;
+        let names = (0..n)
+            .map(|index| {
+                let lexical_key = (index * 104_729) % n;
+                format!(
+                    "local-efficiency-node-{lexical_key:05}-abcdefghijklmnopqrstuvwxyz-{index:05}"
+                )
+            })
+            .collect::<Vec<_>>();
+        let mut graph = Graph::strict();
+        for name in &names {
+            graph.add_node(name);
+        }
+        for index in 0..n {
+            for offset in 1..=radius {
+                graph
+                    .add_edge(&names[index], &names[(index + offset) % n])
+                    .expect("benchmark edge add should succeed");
+            }
+        }
+
+        let baseline = super::local_efficiency_orig_string(&graph);
+        let candidate = local_efficiency(&graph);
+        assert!(
+            (candidate.efficiency - baseline.efficiency).abs() <= TEST_TOLERANCE,
+            "benchmark parity drift: candidate={}, baseline={}",
+            candidate.efficiency,
+            baseline.efficiency
+        );
+        assert_eq!(candidate.witness, baseline.witness);
+
+        let time = |use_candidate: bool| -> u128 {
+            let start = Instant::now();
+            let mut checksum = 0usize;
+            for _ in 0..calls {
+                let result = if use_candidate {
+                    local_efficiency(black_box(&graph))
+                } else {
+                    super::local_efficiency_orig_string(black_box(&graph))
+                };
+                checksum ^= result.efficiency.to_bits() as usize;
+                checksum ^= result.witness.edges_scanned;
+                checksum ^= result.witness.queue_peak;
+            }
+            black_box(checksum);
+            start.elapsed().as_nanos()
+        };
+
+        for _ in 0..3 {
+            black_box(time(false));
+            black_box(time(true));
+        }
+
+        let rounds = 15usize;
+        let mut baseline_times = Vec::with_capacity(rounds);
+        let mut candidate_times = Vec::with_capacity(rounds);
+        let mut null_first_times = Vec::with_capacity(rounds);
+        let mut null_second_times = Vec::with_capacity(rounds);
+        for round in 0..rounds {
+            let (baseline_time, candidate_time) = if round.is_multiple_of(2) {
+                (time(false), time(true))
+            } else {
+                let candidate_time = time(true);
+                (time(false), candidate_time)
+            };
+            baseline_times.push(baseline_time);
+            candidate_times.push(candidate_time);
+
+            let (null_first, null_second) = if round.is_multiple_of(2) {
+                (time(true), time(true))
+            } else {
+                let null_second = time(true);
+                (time(true), null_second)
+            };
+            null_first_times.push(null_first);
+            null_second_times.push(null_second);
+        }
+
+        let baseline_median = median(&baseline_times);
+        let candidate_median = median(&candidate_times);
+        let null_first_median = median(&null_first_times);
+        let null_second_median = median(&null_second_times);
+        let paired_wins = baseline_times
+            .iter()
+            .zip(&candidate_times)
+            .filter(|(baseline_time, candidate_time)| baseline_time > candidate_time)
+            .count();
+
+        println!(
+            "LOCAL_EFFICIENCY_INDEX_STATE_AB n={n} edges={} radius={radius} calls={calls} rounds={rounds} baseline_median_ns={baseline_median} candidate_median_ns={candidate_median} speedup={:.3}x paired_wins={paired_wins}/{rounds} null_first_median_ns={null_first_median} null_second_median_ns={null_second_median} null_ratio={:.3}x tolerance_parity=true witness_parity=true",
+            graph.edge_count(),
+            baseline_median as f64 / candidate_median as f64,
+            null_first_median as f64 / null_second_median as f64,
         );
     }
 
@@ -59987,6 +73409,20 @@ mod tests {
         dg.add_edge("c", "d").unwrap();
         dg.add_edge("d", "c").unwrap();
         assert_eq!(number_strongly_connected_components(&dg), 2);
+        assert_eq!(
+            number_strongly_connected_components(&dg),
+            strongly_connected_components(&dg).len()
+        );
+
+        let _ = dg.add_node("isolated");
+        assert_eq!(number_strongly_connected_components(&dg), 3);
+        assert_eq!(
+            number_strongly_connected_components(&dg),
+            strongly_connected_components(&dg).len()
+        );
+
+        let empty = DiGraph::strict();
+        assert_eq!(number_strongly_connected_components(&empty), 0);
     }
 
     #[test]
@@ -60124,6 +73560,535 @@ mod tests {
 
         assert_eq!(super::global_node_connectivity(&g).value, 1);
         assert_eq!(super::global_minimum_node_cut(&g).cut_nodes, vec!["d"]);
+    }
+
+    fn node_connectivity_complete_bipartite(left: usize, right: usize) -> Graph {
+        let mut graph = Graph::strict();
+        for index in 0..left {
+            graph.add_node(format!("left_{index:03}"));
+        }
+        for index in 0..right {
+            graph.add_node(format!("right_{index:03}"));
+        }
+        for left_index in 0..left {
+            for right_index in 0..right {
+                graph
+                    .add_edge(
+                        format!("left_{left_index:03}"),
+                        format!("right_{right_index:03}"),
+                    )
+                    .unwrap();
+            }
+        }
+        graph
+    }
+
+    #[test]
+    fn aux_max_flow_sorted_topology_matches_rebuilt_neighbors() {
+        fn assert_flow_parity(
+            residual: HashMap<String, HashMap<String, f64>>,
+            source: &str,
+            sink: &str,
+        ) {
+            let mut frozen_residual = residual.clone();
+            let mut candidate_residual = residual;
+            let mut frozen_stats = (0, 0, 0);
+            let mut candidate_stats = (0, 0, 0);
+            let frozen = super::aux_max_flow_rebuild_neighbors(
+                &mut frozen_residual,
+                source,
+                sink,
+                &mut frozen_stats,
+            );
+            let candidate =
+                super::aux_max_flow(&mut candidate_residual, source, sink, &mut candidate_stats);
+            assert_eq!(candidate.to_bits(), frozen.to_bits());
+            assert_eq!(candidate_stats, frozen_stats);
+            assert_eq!(candidate_residual, frozen_residual);
+        }
+
+        let graph = node_connectivity_complete_bipartite(8, 8);
+        assert_flow_parity(
+            super::build_node_split_auxiliary(&graph),
+            "left_000_out",
+            "left_001_in",
+        );
+
+        // Exercise the rare topology-growth branch: the initial residual omits
+        // reverse keys, so both kernels discover them only after augmentation.
+        let mut residual = HashMap::<String, HashMap<String, f64>>::new();
+        residual
+            .entry("a".to_owned())
+            .or_default()
+            .insert("b".to_owned(), 1.0);
+        residual
+            .entry("b".to_owned())
+            .or_default()
+            .insert("c".to_owned(), 1.0);
+        residual.entry("c".to_owned()).or_default();
+        assert_flow_parity(residual, "a", "c");
+    }
+
+    /// `br-r37-c1-sixrd`: same-binary A/B of the residual Edmonds-Karp
+    /// kernel. K(36,36) exposes 36 augmentations between two nodes on the same
+    /// side, amplifying the former clone+sort per dequeued residual vertex.
+    #[test]
+    #[ignore = "measurement; run with --profile release --ignored --nocapture"]
+    fn aux_max_flow_sorted_topology_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        let graph = node_connectivity_complete_bipartite(36, 36);
+        let template = super::build_node_split_auxiliary(&graph);
+        let source = "left_000_out";
+        let sink = "left_001_in";
+
+        let run = |cached: bool| -> (f64, f64, (usize, usize, usize)) {
+            let mut residual = template.clone();
+            let mut stats = (0, 0, 0);
+            let start = Instant::now();
+            let flow = if cached {
+                super::aux_max_flow(
+                    black_box(&mut residual),
+                    source,
+                    sink,
+                    black_box(&mut stats),
+                )
+            } else {
+                super::aux_max_flow_rebuild_neighbors(
+                    black_box(&mut residual),
+                    source,
+                    sink,
+                    black_box(&mut stats),
+                )
+            };
+            black_box(&residual);
+            (start.elapsed().as_secs_f64(), flow, stats)
+        };
+
+        let frozen = run(false);
+        let candidate = run(true);
+        assert_eq!(candidate.1.to_bits(), frozen.1.to_bits());
+        assert_eq!(candidate.2, frozen.2);
+        assert_eq!(candidate.1 as usize, 36);
+        for _ in 0..3 {
+            black_box(run(false));
+            black_box(run(true));
+        }
+
+        let rounds = 15_usize;
+        let paired = |baseline_cached: bool, contender_cached: bool| -> Vec<f64> {
+            let mut ratios = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (baseline, contender) = if round.is_multiple_of(2) {
+                    (run(baseline_cached).0, run(contender_cached).0)
+                } else {
+                    let contender = run(contender_cached).0;
+                    (run(baseline_cached).0, contender)
+                };
+                ratios.push(baseline / contender);
+            }
+            ratios
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(|left, right| left.partial_cmp(right).unwrap());
+            let wins = ratios.iter().filter(|&&ratio| ratio > 1.0).count();
+            println!(
+                "AUX_MAX_FLOW_AB {name}: median={:.4}x win_rate={wins}/{rounds} p5_p95=[{:.4},{:.4}]",
+                sorted[rounds / 2],
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+        println!("AUX_MAX_FLOW_AB complete_bipartite_36x36 flow=36 rounds={rounds}");
+        report("CACHED_vs_rebuilt", &paired(false, true));
+        report("NULL_cached_vs_cached", &paired(true, true));
+    }
+
+    /// br-r37-c1-r7e4g: full-function A/B for the neighbor-pair adjacency
+    /// screen in global node connectivity. K256 makes every screened pair
+    /// adjacent, so both arms execute zero max-flow calls while the frozen arm
+    /// rebuilds a 255-entry HashSet for each of 32,385 pairs.
+    #[test]
+    #[ignore = "measurement; run with --release --ignored --nocapture"]
+    fn global_node_connectivity_hasedge_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        fn old_global_node_connectivity(graph: &Graph) -> super::NodeConnectivityResult {
+            let nodes = graph.nodes_ordered();
+            let n = nodes.len();
+            if n <= 1 {
+                return super::NodeConnectivityResult {
+                    value: 0,
+                    witness: super::ComplexityWitness {
+                        algorithm: "global_node_connectivity".to_owned(),
+                        complexity_claim: "O(|V|^2 * |V| * |E|^2)".to_owned(),
+                        nodes_touched: n,
+                        edges_scanned: 0,
+                        queue_peak: 0,
+                    },
+                };
+            }
+            if !super::is_connected(graph).is_connected {
+                return super::NodeConnectivityResult {
+                    value: 0,
+                    witness: super::ComplexityWitness {
+                        algorithm: "global_node_connectivity".to_owned(),
+                        complexity_claim: "O(|V|^2 * |V| * |E|^2)".to_owned(),
+                        nodes_touched: n,
+                        edges_scanned: 0,
+                        queue_peak: 0,
+                    },
+                };
+            }
+
+            let mut total_edges_scanned = 0usize;
+            let mut max_queue_peak = 0usize;
+            let v = nodes
+                .iter()
+                .min_by_key(|node| graph.neighbors_iter(node).map(|it| it.count()).unwrap_or(0))
+                .unwrap();
+            let v_neighbors: HashSet<&str> = graph
+                .neighbors_iter(v)
+                .map(|it| it.collect())
+                .unwrap_or_default();
+            let mut k = v_neighbors.len();
+            let template = super::build_indexed_node_split_auxiliary(graph, k);
+
+            for w in &nodes {
+                if *w == *v || v_neighbors.contains(*w) {
+                    continue;
+                }
+                let (value, edges_scanned, queue_peak) =
+                    super::indexed_node_connectivity_from_template(&template, v, w, k);
+                total_edges_scanned += edges_scanned;
+                max_queue_peak = max_queue_peak.max(queue_peak);
+                if value < k {
+                    k = value;
+                    if k == 0 {
+                        break;
+                    }
+                }
+            }
+
+            let mut v_nbr_vec: Vec<&str> = v_neighbors.iter().copied().collect();
+            v_nbr_vec.sort_unstable();
+            'neighbors: for i in 0..v_nbr_vec.len() {
+                for j in (i + 1)..v_nbr_vec.len() {
+                    let x = v_nbr_vec[i];
+                    let y = v_nbr_vec[j];
+                    let x_neighbors: HashSet<&str> = graph
+                        .neighbors_iter(x)
+                        .map(|it| it.collect())
+                        .unwrap_or_default();
+                    if x_neighbors.contains(y) {
+                        continue;
+                    }
+                    let (value, edges_scanned, queue_peak) =
+                        super::indexed_node_connectivity_from_template(&template, x, y, k);
+                    total_edges_scanned += edges_scanned;
+                    max_queue_peak = max_queue_peak.max(queue_peak);
+                    if value < k {
+                        k = value;
+                        if k == 0 {
+                            break 'neighbors;
+                        }
+                    }
+                }
+            }
+
+            super::NodeConnectivityResult {
+                value: k,
+                witness: super::ComplexityWitness {
+                    algorithm: "global_node_connectivity".to_owned(),
+                    complexity_claim: "O(|V|^2 * |V| * |E|^2)".to_owned(),
+                    nodes_touched: n,
+                    edges_scanned: total_edges_scanned,
+                    queue_peak: max_queue_peak,
+                },
+            }
+        }
+
+        fn complete(n: usize, self_loops: bool) -> Graph {
+            let mut graph = Graph::strict();
+            for i in 0..n {
+                graph.add_node(i.to_string());
+            }
+            for i in 0..n {
+                for j in (i + 1)..n {
+                    graph.add_edge(i.to_string(), j.to_string()).unwrap();
+                }
+                if self_loops {
+                    graph.add_edge(i.to_string(), i.to_string()).unwrap();
+                }
+            }
+            graph
+        }
+
+        let mut path = Graph::strict();
+        for i in 0..5 {
+            path.add_node(i.to_string());
+        }
+        for i in 0..4 {
+            path.add_edge(i.to_string(), (i + 1).to_string()).unwrap();
+        }
+        for graph in [complete(4, false), complete(4, true), path] {
+            assert_eq!(
+                old_global_node_connectivity(&graph),
+                super::global_node_connectivity(&graph)
+            );
+        }
+
+        let graph = complete(256, false);
+        let old = old_global_node_connectivity(&graph);
+        let candidate = super::global_node_connectivity(&graph);
+        assert_eq!(old, candidate);
+        assert_eq!(candidate.value, 255);
+        assert_eq!(candidate.witness.edges_scanned, 0);
+        assert_eq!(candidate.witness.queue_peak, 0);
+
+        let time = |use_candidate: bool| -> f64 {
+            let start = Instant::now();
+            let result = if use_candidate {
+                super::global_node_connectivity(black_box(&graph))
+            } else {
+                old_global_node_connectivity(black_box(&graph))
+            };
+            black_box(&result);
+            start.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(false));
+            black_box(time(true));
+        }
+
+        let rounds = 31usize;
+        let paired = |baseline_candidate: bool, contender_candidate: bool| -> Vec<f64> {
+            let mut ratios = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (base_time, contender_time) = if round.is_multiple_of(2) {
+                    (time(baseline_candidate), time(contender_candidate))
+                } else {
+                    let contender_time = time(contender_candidate);
+                    (time(baseline_candidate), contender_time)
+                };
+                ratios.push(base_time / contender_time);
+            }
+            ratios
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(|left, right| left.partial_cmp(right).unwrap());
+            let wins = ratios.iter().filter(|&&ratio| ratio > 1.0).count();
+            println!(
+                "GLOBAL_NODE_CONN_AB {name}: median={:.4}x win_rate={wins}/{rounds} p5_p95=[{:.4},{:.4}]",
+                sorted[rounds / 2],
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+        println!("GLOBAL_NODE_CONN_AB complete_256 rounds={rounds} (>1 = has_edge faster)");
+        report("HASEDGE_vs_hashset", &paired(false, true));
+        report("NULL_hasedge_vs_hasedge", &paired(true, true));
+    }
+
+    /// br-r37-c1-lmyth: full-function A/B for the neighbor-pair adjacency
+    /// screen in `global_minimum_node_cut`. K256 makes every screened pair
+    /// adjacent, so both arms execute zero flow calls while the frozen arm
+    /// rebuilds a 255-entry `HashSet` for each of 32,385 pairs.
+    #[test]
+    #[ignore = "measurement; run with --release --ignored --nocapture"]
+    fn global_minimum_node_cut_hasedge_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        fn frozen_hashset_screen(graph: &Graph) -> super::MinimumNodeCutResult {
+            let nodes = graph.nodes_ordered();
+            let n = nodes.len();
+            if n <= 1 {
+                return super::MinimumNodeCutResult {
+                    cut_nodes: vec![],
+                    witness: super::ComplexityWitness {
+                        algorithm: "global_minimum_node_cut".to_owned(),
+                        complexity_claim: "O(|V|^2 * |V| * |E|^2)".to_owned(),
+                        nodes_touched: n,
+                        edges_scanned: 0,
+                        queue_peak: 0,
+                    },
+                };
+            }
+            if !super::is_connected(graph).is_connected {
+                return super::MinimumNodeCutResult {
+                    cut_nodes: vec![],
+                    witness: super::ComplexityWitness {
+                        algorithm: "global_minimum_node_cut".to_owned(),
+                        complexity_claim: "O(|V|^2 * |V| * |E|^2)".to_owned(),
+                        nodes_touched: n,
+                        edges_scanned: 0,
+                        queue_peak: 0,
+                    },
+                };
+            }
+
+            let mut total_edges_scanned = 0_usize;
+            let mut max_queue_peak = 0_usize;
+            let v = nodes
+                .iter()
+                .min_by_key(|node| graph.neighbors_iter(node).map(|it| it.count()).unwrap_or(0))
+                .unwrap();
+            let v_neighbors: HashSet<&str> = graph
+                .neighbors_iter(v)
+                .map(|it| it.collect())
+                .unwrap_or_default();
+            let mut min_cut: Vec<String> =
+                v_neighbors.iter().map(|node| (*node).to_owned()).collect();
+            min_cut.sort();
+
+            for w in &nodes {
+                if *w == *v || v_neighbors.contains(*w) {
+                    continue;
+                }
+                let result = super::minimum_node_cut(graph, v, w);
+                total_edges_scanned += result.witness.edges_scanned;
+                max_queue_peak = max_queue_peak.max(result.witness.queue_peak);
+                if super::should_replace_minimum_node_cut(&min_cut, &result.cut_nodes) {
+                    min_cut = result.cut_nodes;
+                }
+            }
+
+            let mut v_nbr_vec: Vec<&str> = v_neighbors.iter().copied().collect();
+            v_nbr_vec.sort_unstable();
+            for i in 0..v_nbr_vec.len() {
+                for j in (i + 1)..v_nbr_vec.len() {
+                    let x = v_nbr_vec[i];
+                    let y = v_nbr_vec[j];
+                    let x_neighbors: HashSet<&str> = graph
+                        .neighbors_iter(x)
+                        .map(|it| it.collect())
+                        .unwrap_or_default();
+                    if x_neighbors.contains(y) {
+                        continue;
+                    }
+                    let result = super::minimum_node_cut(graph, x, y);
+                    total_edges_scanned += result.witness.edges_scanned;
+                    max_queue_peak = max_queue_peak.max(result.witness.queue_peak);
+                    if super::should_replace_minimum_node_cut(&min_cut, &result.cut_nodes) {
+                        min_cut = result.cut_nodes;
+                    }
+                }
+            }
+
+            min_cut.sort();
+            super::MinimumNodeCutResult {
+                cut_nodes: min_cut,
+                witness: super::ComplexityWitness {
+                    algorithm: "global_minimum_node_cut".to_owned(),
+                    complexity_claim: "O(|V|^2 * |V| * |E|^2)".to_owned(),
+                    nodes_touched: n,
+                    edges_scanned: total_edges_scanned,
+                    queue_peak: max_queue_peak,
+                },
+            }
+        }
+
+        fn complete(n: usize, self_loops: bool) -> Graph {
+            let mut graph = Graph::strict();
+            for i in 0..n {
+                graph.add_node(i.to_string());
+            }
+            for i in 0..n {
+                for j in (i + 1)..n {
+                    graph.add_edge(i.to_string(), j.to_string()).unwrap();
+                }
+                if self_loops {
+                    graph.add_edge(i.to_string(), i.to_string()).unwrap();
+                }
+            }
+            graph
+        }
+
+        let mut path = Graph::strict();
+        for i in 0..5 {
+            path.add_node(i.to_string());
+        }
+        for i in 0..4 {
+            path.add_edge(i.to_string(), (i + 1).to_string()).unwrap();
+        }
+        let mut nonlexical = Graph::strict();
+        for node in ["z", "a", "m", "b", "q"] {
+            nonlexical.add_node(node);
+        }
+        for (left, right) in [
+            ("z", "a"),
+            ("z", "m"),
+            ("a", "m"),
+            ("a", "b"),
+            ("m", "b"),
+            ("b", "q"),
+        ] {
+            nonlexical.add_edge(left, right).unwrap();
+        }
+        for graph in [complete(4, false), complete(4, true), path, nonlexical] {
+            assert_eq!(
+                frozen_hashset_screen(&graph),
+                super::global_minimum_node_cut(&graph),
+                "exact cut and witness parity"
+            );
+        }
+
+        let graph = complete(256, false);
+        let frozen = frozen_hashset_screen(&graph);
+        let candidate = super::global_minimum_node_cut(&graph);
+        assert_eq!(frozen, candidate);
+        assert_eq!(candidate.cut_nodes.len(), 255);
+        assert_eq!(candidate.witness.edges_scanned, 0);
+        assert_eq!(candidate.witness.queue_peak, 0);
+
+        let time = |use_candidate: bool| -> f64 {
+            let start = Instant::now();
+            let result = if use_candidate {
+                super::global_minimum_node_cut(black_box(&graph))
+            } else {
+                frozen_hashset_screen(black_box(&graph))
+            };
+            black_box(result);
+            start.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(false));
+            black_box(time(true));
+        }
+
+        let rounds = 31_usize;
+        let paired = |baseline_candidate: bool, contender_candidate: bool| -> Vec<f64> {
+            let mut ratios = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (base_time, contender_time) = if round.is_multiple_of(2) {
+                    (time(baseline_candidate), time(contender_candidate))
+                } else {
+                    let contender_time = time(contender_candidate);
+                    (time(baseline_candidate), contender_time)
+                };
+                ratios.push(base_time / contender_time);
+            }
+            ratios
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(|left, right| left.partial_cmp(right).unwrap());
+            let wins = ratios.iter().filter(|&&ratio| ratio > 1.0).count();
+            println!(
+                "GLOBAL_MIN_CUT_AB {name}: median={:.4}x win_rate={wins}/{rounds} p5_p95=[{:.4},{:.4}]",
+                sorted[rounds / 2],
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+        println!("GLOBAL_MIN_CUT_AB complete_256 rounds={rounds} (>1 = has_edge faster)");
+        report("HASEDGE_vs_hashset", &paired(false, true));
+        report("NULL_hasedge_vs_hasedge", &paired(true, true));
     }
 
     // -----------------------------------------------------------------------
@@ -60511,6 +74476,58 @@ mod tests {
         g.add_edge("b", "c").expect("edge add should succeed");
         g.add_edge("a", "c").expect("edge add should succeed");
         assert!((super::number_of_spanning_trees(&g, None) - 3.0).abs() < TEST_TOLERANCE);
+    }
+
+    #[test]
+    fn number_of_spanning_trees_direct_laplacian_exact_parity() {
+        let assert_parity = |graph: &Graph, weight_attr: Option<&str>| {
+            let baseline = super::number_of_spanning_trees_contracted_baseline(graph, weight_attr);
+            let candidate = super::number_of_spanning_trees(graph, weight_attr);
+            assert_eq!(
+                candidate.to_bits(),
+                baseline.to_bits(),
+                "direct Laplacian must preserve exact spanning-tree count"
+            );
+        };
+
+        let empty = Graph::strict();
+        assert_parity(&empty, None);
+
+        let mut singleton = Graph::strict();
+        assert!(singleton.add_node("only-node"));
+        assert_parity(&singleton, None);
+
+        let mut disconnected = Graph::strict();
+        disconnected
+            .add_edge("zeta", "alpha")
+            .expect("edge add should succeed");
+        assert!(disconnected.add_node("isolated"));
+        assert_parity(&disconnected, None);
+
+        let mut weighted = Graph::strict();
+        for node in ["node-z", "node-a", "node-m", "node-b", "node-y"] {
+            assert!(weighted.add_node(node));
+        }
+        for (left, right, weight) in [
+            ("node-z", "node-a", "1.25"),
+            ("node-z", "node-m", "-0.0"),
+            ("node-a", "node-m", "3.5"),
+            ("node-a", "node-b", "0.125"),
+            ("node-m", "node-b", "7.75"),
+            ("node-m", "node-y", "2.25"),
+            ("node-b", "node-y", "4.5"),
+            ("node-z", "node-y", "NaN"),
+        ] {
+            weighted
+                .add_edge_with_attrs(left, right, attrs([("weight", weight)]))
+                .expect("edge add should succeed");
+        }
+        weighted
+            .add_edge_with_attrs("node-z", "node-z", attrs([("weight", "99.0")]))
+            .expect("self-loop add should succeed");
+        assert_parity(&weighted, None);
+        assert_parity(&weighted, Some("weight"));
+        assert_parity(&weighted, Some("missing"));
     }
 
     #[test]
@@ -61151,6 +75168,63 @@ mod tests {
     }
 
     #[test]
+    fn max_clique_approx_index_state_matches_string_baseline() {
+        let names = ["z", "a", "m", "b", "q"];
+        let edges = [
+            (0, 1),
+            (0, 2),
+            (0, 3),
+            (0, 4),
+            (1, 2),
+            (1, 3),
+            (1, 4),
+            (2, 3),
+            (2, 4),
+            (3, 4),
+        ];
+
+        for edge_mask in 0usize..(1 << edges.len()) {
+            let mut graph = Graph::strict();
+            for name in names {
+                graph.add_node(name);
+            }
+            for (bit, &(left, right)) in edges.iter().enumerate() {
+                if edge_mask & (1 << bit) != 0 {
+                    let _ = graph.add_edge(names[left], names[right]);
+                }
+            }
+            assert_eq!(
+                max_clique_approx(&graph),
+                super::max_clique_approx_orig_string_state(&graph),
+                "simple edge mask {edge_mask:#05x}"
+            );
+        }
+
+        for loop_mask in 1usize..(1 << names.len()) {
+            let mut graph = Graph::strict();
+            for name in names {
+                graph.add_node(name);
+            }
+            let edge_mask = loop_mask.wrapping_mul(37) & ((1 << edges.len()) - 1);
+            for (bit, &(left, right)) in edges.iter().enumerate() {
+                if edge_mask & (1 << bit) != 0 {
+                    let _ = graph.add_edge(names[left], names[right]);
+                }
+            }
+            for (bit, name) in names.iter().enumerate() {
+                if loop_mask & (1 << bit) != 0 {
+                    let _ = graph.add_edge(*name, *name);
+                }
+            }
+            assert_eq!(
+                max_clique_approx(&graph),
+                super::max_clique_approx_orig_string_state(&graph),
+                "self-loop mask {loop_mask:#04x}, edge mask {edge_mask:#05x}"
+            );
+        }
+    }
+
+    #[test]
     fn test_clique_removal_triangle() {
         let mut g = Graph::strict();
         let _ = g.add_edge("a", "b");
@@ -61533,6 +75607,208 @@ mod tests {
     }
 
     #[test]
+    fn is_isomorphic_index_rows_match_edge_snapshot_setup() {
+        let mut path_left = Graph::strict();
+        let mut path_right = Graph::strict();
+        for node in ["left-a", "left-b", "left-c", "left-d", "left-isolate"] {
+            path_left.add_node(node);
+        }
+        for node in ["right-w", "right-x", "right-y", "right-z", "right-isolate"] {
+            path_right.add_node(node);
+        }
+        for (left, right) in [
+            ("left-a", "left-b"),
+            ("left-b", "left-c"),
+            ("left-c", "left-d"),
+            ("left-c", "left-c"),
+        ] {
+            path_left
+                .add_edge_with_attrs(left, right, attrs([("payload", "left-value")]))
+                .unwrap();
+        }
+        for (left, right) in [
+            ("right-w", "right-x"),
+            ("right-x", "right-y"),
+            ("right-y", "right-z"),
+            ("right-y", "right-y"),
+        ] {
+            path_right
+                .add_edge_with_attrs(left, right, attrs([("other", "right-value")]))
+                .unwrap();
+        }
+        assert_eq!(
+            is_isomorphic(&path_left, &path_right),
+            super::is_isomorphic_orig_edge_snapshots(&path_left, &path_right),
+            "relabelled attributed path with isolate and self-loop"
+        );
+
+        let mut cycle = Graph::strict();
+        let mut triangles = Graph::strict();
+        for node in 0..6 {
+            cycle.add_node(format!("cycle-{node}"));
+            triangles.add_node(format!("triangles-{node}"));
+        }
+        for node in 0..6 {
+            cycle
+                .add_edge(format!("cycle-{node}"), format!("cycle-{}", (node + 1) % 6))
+                .unwrap();
+        }
+        for base in [0, 3] {
+            for (left, right) in [(base, base + 1), (base + 1, base + 2), (base + 2, base)] {
+                triangles
+                    .add_edge(format!("triangles-{left}"), format!("triangles-{right}"))
+                    .unwrap();
+            }
+        }
+        assert_eq!(
+            is_isomorphic(&cycle, &triangles),
+            super::is_isomorphic_orig_edge_snapshots(&cycle, &triangles),
+            "same degree sequence but non-isomorphic"
+        );
+
+        let empty = Graph::strict();
+        assert_eq!(
+            is_isomorphic(&empty, &empty),
+            super::is_isomorphic_orig_edge_snapshots(&empty, &empty),
+            "empty graphs"
+        );
+    }
+
+    /// br-r37-c1-ec69g: full-function same-binary A/B for native index-row
+    /// adjacency setup against the frozen edge-snapshot setup, plus a candidate
+    /// null. The default isomorphism contract ignores edge attributes, making
+    /// attributed sparse graphs the clearest view of the avoidable clone work.
+    #[test]
+    #[ignore = "measurement; run with --profile release --ignored --nocapture"]
+    fn is_isomorphic_index_rows_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        fn median(values: &[u128]) -> u128 {
+            let mut sorted = values.to_vec();
+            sorted.sort_unstable();
+            sorted[sorted.len() / 2]
+        }
+
+        fn median_ratio(values: &[f64]) -> f64 {
+            let mut sorted = values.to_vec();
+            sorted.sort_by(f64::total_cmp);
+            sorted[sorted.len() / 2]
+        }
+
+        let n = 768_usize;
+        let half_degree = 6_usize;
+        let calls = 2_usize;
+        let left_names = (0..n)
+            .map(|node| format!("isomorphic-left-{node:04}-abcdefghijklmnopqrstuvwxyz"))
+            .collect::<Vec<_>>();
+        let right_names = (0..n)
+            .map(|node| format!("isomorphic-right-{node:04}-zyxwvutsrqponmlkjihgfedcba"))
+            .collect::<Vec<_>>();
+        let mut left = Graph::strict();
+        let mut right = Graph::strict();
+        for node in 0..n {
+            left.add_node(&left_names[node]);
+            right.add_node(&right_names[node]);
+        }
+        for node in 0..n {
+            for offset in 1..=half_degree {
+                let neighbor = (node + offset) % n;
+                let edge_attrs = (0..6)
+                    .map(|slot| {
+                        (
+                            format!("payload-{slot}"),
+                            CgseValue::from(format!(
+                                "edge-{node:04}-{neighbor:04}-{slot}-abcdefghijklmnopqrstuvwxyz0123456789"
+                            )),
+                        )
+                    })
+                    .collect::<AttrMap>();
+                left.add_edge_with_attrs(
+                    left_names[node].clone(),
+                    left_names[neighbor].clone(),
+                    edge_attrs.clone(),
+                )
+                .unwrap();
+                right
+                    .add_edge_with_attrs(
+                        right_names[node].clone(),
+                        right_names[neighbor].clone(),
+                        edge_attrs,
+                    )
+                    .unwrap();
+            }
+        }
+
+        assert!(super::is_isomorphic_orig_edge_snapshots(&left, &right));
+        assert!(is_isomorphic(&left, &right));
+
+        let time = |use_candidate: bool| -> u128 {
+            let start = Instant::now();
+            for _ in 0..calls {
+                let result = if use_candidate {
+                    is_isomorphic(black_box(&left), black_box(&right))
+                } else {
+                    super::is_isomorphic_orig_edge_snapshots(black_box(&left), black_box(&right))
+                };
+                assert!(black_box(result));
+            }
+            start.elapsed().as_nanos()
+        };
+
+        for _ in 0..3 {
+            black_box(time(false));
+            black_box(time(true));
+        }
+
+        let rounds = 15_usize;
+        let mut baseline_times = Vec::with_capacity(rounds);
+        let mut candidate_times = Vec::with_capacity(rounds);
+        let mut paired_ratios = Vec::with_capacity(rounds);
+        let mut null_ratios = Vec::with_capacity(rounds);
+        let mut wins = 0_usize;
+        let mut null_wins = 0_usize;
+        for round in 0..rounds {
+            let (baseline_time, candidate_time) = if round.is_multiple_of(2) {
+                (time(false), time(true))
+            } else {
+                let candidate_time = time(true);
+                (time(false), candidate_time)
+            };
+            wins += usize::from(candidate_time < baseline_time);
+            paired_ratios.push(baseline_time as f64 / candidate_time as f64);
+            baseline_times.push(baseline_time);
+            candidate_times.push(candidate_time);
+
+            let (null_first, null_second) = if round.is_multiple_of(2) {
+                (time(true), time(true))
+            } else {
+                let null_second = time(true);
+                (time(true), null_second)
+            };
+            null_wins += usize::from(null_second < null_first);
+            null_ratios.push(null_first as f64 / null_second as f64);
+        }
+
+        let baseline_median = median(&baseline_times);
+        let candidate_median = median(&candidate_times);
+        let paired_median = median_ratio(&paired_ratios);
+        let null_median = median_ratio(&null_ratios);
+        paired_ratios.sort_by(f64::total_cmp);
+        null_ratios.sort_by(f64::total_cmp);
+        let p5 = rounds * 5 / 100;
+        let p95 = rounds * 95 / 100;
+        println!(
+            "ISOMORPHIC_INDEX_ROWS_AB n={n} degree={} attrs_per_edge=6 calls={calls} rounds={rounds} baseline_median_ns={baseline_median} candidate_median_ns={candidate_median} paired_median={paired_median:.4}x wins={wins}/{rounds} p5_p95=[{:.4},{:.4}] null_median={null_median:.4}x null_wins={null_wins}/{rounds} null_p5_p95=[{:.4},{:.4}] exact_boolean_parity=true",
+            half_degree * 2,
+            paired_ratios[p5],
+            paired_ratios[p95],
+            null_ratios[p5],
+            null_ratios[p95],
+        );
+    }
+
+    #[test]
     fn test_could_be_isomorphic_yes() {
         let mut g1 = Graph::strict();
         let _ = g1.add_edge("a", "b");
@@ -61645,6 +75921,144 @@ mod tests {
         let _ = g.add_edge("v0", "v0");
         let _ = g.add_edge("v2", "v2");
         assert!(!is_planar_lr(&g));
+    }
+
+    /// br-r37-c1-bndaf: full-function A/B for ordered edge indices versus the
+    /// frozen EdgeSnapshot + endpoint-rehash setup, in one binary and worker.
+    #[test]
+    #[ignore = "measurement; run with --release --ignored --nocapture"]
+    fn is_planar_lr_edge_indices_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        fn snapshot_is_planar_lr(graph: &Graph) -> bool {
+            let nodes = graph.nodes_ordered();
+            let n = nodes.len();
+            if n <= 4 {
+                return true;
+            }
+            let idx: HashMap<&str, usize> = nodes
+                .iter()
+                .enumerate()
+                .map(|(i, &node)| (node, i))
+                .collect();
+            let mut seen: HashSet<(usize, usize)> = HashSet::new();
+            let mut adj: Vec<Vec<usize>> = vec![Vec::new(); n];
+            let mut m = 0usize;
+            for edge in graph.edges_ordered() {
+                let i = idx[edge.left.as_str()];
+                let j = idx[edge.right.as_str()];
+                if i == j {
+                    continue;
+                }
+                let key = if i < j { (i, j) } else { (j, i) };
+                if seen.insert(key) {
+                    adj[i].push(j);
+                    adj[j].push(i);
+                    m += 1;
+                }
+            }
+            if n > 2 && m > 3 * n - 6 {
+                return false;
+            }
+            super::LrState::new(n, adj).run()
+        }
+
+        fn grid(side: usize) -> Graph {
+            let mut graph = Graph::strict();
+            for row in 0..side {
+                for col in 0..side {
+                    graph.add_node(format!("n{row}_{col}"));
+                }
+            }
+            for row in 0..side {
+                for col in 0..side {
+                    if col + 1 < side {
+                        let _ =
+                            graph.add_edge(format!("n{row}_{col}"), format!("n{row}_{}", col + 1));
+                    }
+                    if row + 1 < side {
+                        let _ =
+                            graph.add_edge(format!("n{row}_{col}"), format!("n{}_{col}", row + 1));
+                    }
+                }
+            }
+            graph
+        }
+
+        let mut nonlexical = Graph::strict();
+        for node in ["z", "a", "m", "b", "q"] {
+            nonlexical.add_node(node);
+        }
+        for (left, right) in [("m", "a"), ("z", "b"), ("z", "a"), ("q", "m")] {
+            let _ = nonlexical.add_edge(left, right);
+        }
+        let mut selfloops = complete_graph_n(5);
+        let _ = selfloops.add_edge("v0", "v0");
+        let _ = selfloops.add_edge("v2", "v2");
+        for fixture in [
+            complete_graph_n(4),
+            complete_graph_n(5),
+            complete_bipartite(2, 4),
+            complete_bipartite(3, 3),
+            nonlexical,
+            selfloops,
+            grid(8),
+        ] {
+            assert_eq!(
+                snapshot_is_planar_lr(&fixture),
+                is_planar_lr(&fixture),
+                "ordered edge indices must preserve the exact LR boolean"
+            );
+        }
+
+        let graph = grid(120);
+        assert!(snapshot_is_planar_lr(&graph));
+        assert!(is_planar_lr(&graph));
+
+        let time = |snapshot: bool| -> f64 {
+            let start = Instant::now();
+            let planar = if snapshot {
+                snapshot_is_planar_lr(black_box(&graph))
+            } else {
+                is_planar_lr(black_box(&graph))
+            };
+            black_box(planar);
+            start.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(true));
+            black_box(time(false));
+        }
+
+        let rounds = 31usize;
+        let paired = |baseline_snapshot: bool, contender_snapshot: bool| -> Vec<f64> {
+            let mut ratios = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (baseline, contender) = if round.is_multiple_of(2) {
+                    (time(baseline_snapshot), time(contender_snapshot))
+                } else {
+                    let contender = time(contender_snapshot);
+                    (time(baseline_snapshot), contender)
+                };
+                ratios.push(baseline / contender);
+            }
+            ratios
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(|left, right| left.partial_cmp(right).unwrap());
+            let wins = ratios.iter().filter(|&&ratio| ratio > 1.0).count();
+            println!(
+                "PLANARLREDGEIDX_AB {name}: median={:.4}x win_rate={wins}/{rounds} p5_p95=[{:.4},{:.4}]",
+                sorted[rounds / 2],
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+        println!("PLANARLREDGEIDX_AB grid_120 rounds={rounds} (>1 = edge indices faster)");
+        report("EDGEIDX_vs_snapshots", &paired(true, false));
+        report("NULL_edgeidx_vs_edgeidx", &paired(false, false));
     }
 
     #[test]
@@ -61895,6 +76309,179 @@ mod tests {
         assert_eq!(tree_broadcast_time(&g, Some("3")), Some(3));
     }
 
+    #[test]
+    fn tree_broadcast_center_heap_frontier_preserves_reference_contract() {
+        let empty = Graph::strict();
+        assert_eq!(
+            tree_broadcast_center(&empty),
+            tree_broadcast_center_orig_frontier_scan(&empty)
+        );
+
+        let mut singleton = Graph::strict();
+        singleton.add_node("only");
+        assert_eq!(
+            tree_broadcast_center(&singleton),
+            tree_broadcast_center_orig_frontier_scan(&singleton)
+        );
+
+        let mut path = Graph::strict();
+        let _ = path.add_edge("node-zulu", "node-alpha");
+        let _ = path.add_edge("node-alpha", "node-yankee");
+        let _ = path.add_edge("node-yankee", "node-bravo");
+        let _ = path.add_edge("node-bravo", "node-xray");
+        assert_eq!(
+            tree_broadcast_center(&path),
+            tree_broadcast_center_orig_frontier_scan(&path)
+        );
+
+        let mut star = Graph::strict();
+        for leaf in ["z", "a", "y", "b", "x", "c"] {
+            let _ = star.add_edge("hub", leaf);
+        }
+        assert_eq!(
+            tree_broadcast_center(&star),
+            tree_broadcast_center_orig_frontier_scan(&star)
+        );
+
+        let node_count = 63usize;
+        let labels = (0..node_count)
+            .map(|index| {
+                let lexical_key = (index * 47) % node_count;
+                format!("balanced-{lexical_key:02}-node-{index:02}")
+            })
+            .collect::<Vec<_>>();
+        let mut balanced = Graph::strict();
+        for label in &labels {
+            balanced.add_node(label);
+        }
+        for child in 1..node_count {
+            let parent = (child - 1) / 2;
+            let _ = balanced.add_edge(&labels[parent], &labels[child]);
+        }
+        assert_eq!(
+            tree_broadcast_center(&balanced),
+            tree_broadcast_center_orig_frontier_scan(&balanced)
+        );
+
+        let mut cycle = Graph::strict();
+        let _ = cycle.add_edge("a", "b");
+        let _ = cycle.add_edge("b", "c");
+        let _ = cycle.add_edge("c", "a");
+        assert_eq!(
+            tree_broadcast_center(&cycle),
+            tree_broadcast_center_orig_frontier_scan(&cycle)
+        );
+    }
+
+    #[test]
+    #[ignore = "measurement; run with --profile release --ignored --nocapture"]
+    fn tree_broadcast_center_heap_frontier_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        fn median(values: &[u128]) -> u128 {
+            let mut sorted = values.to_vec();
+            sorted.sort_unstable();
+            sorted[sorted.len() / 2]
+        }
+
+        fn elapsed_ns<F>(mut run: F) -> u128
+        where
+            F: FnMut(),
+        {
+            let started = Instant::now();
+            run();
+            started.elapsed().as_nanos()
+        }
+
+        let node_count = 4_095usize;
+        let labels = (0..node_count)
+            .map(|index| {
+                let lexical_key = (index * 104_729) % node_count;
+                format!("broadcast-node-{lexical_key:05}-abcdefghijklmnopqrstuvwxyz-{index:05}")
+            })
+            .collect::<Vec<_>>();
+        let mut graph = Graph::strict();
+        for label in &labels {
+            graph.add_node(label);
+        }
+        for child in 1..node_count {
+            let parent = (child - 1) / 2;
+            let _ = graph.add_edge(&labels[parent], &labels[child]);
+        }
+
+        let expected = tree_broadcast_center_orig_frontier_scan(&graph);
+        let actual = tree_broadcast_center(&graph);
+        assert_eq!(actual, expected);
+
+        for _ in 0..3 {
+            black_box(tree_broadcast_center_orig_frontier_scan(black_box(&graph)));
+            black_box(tree_broadcast_center(black_box(&graph)));
+        }
+
+        let rounds = 15usize;
+        let mut baseline_ns = Vec::with_capacity(rounds);
+        let mut candidate_ns = Vec::with_capacity(rounds);
+        for round in 0..rounds {
+            if round.is_multiple_of(2) {
+                baseline_ns.push(elapsed_ns(|| {
+                    black_box(tree_broadcast_center_orig_frontier_scan(black_box(&graph)));
+                }));
+                candidate_ns.push(elapsed_ns(|| {
+                    black_box(tree_broadcast_center(black_box(&graph)));
+                }));
+            } else {
+                candidate_ns.push(elapsed_ns(|| {
+                    black_box(tree_broadcast_center(black_box(&graph)));
+                }));
+                baseline_ns.push(elapsed_ns(|| {
+                    black_box(tree_broadcast_center_orig_frontier_scan(black_box(&graph)));
+                }));
+            }
+        }
+
+        let mut null_first_ns = Vec::with_capacity(rounds);
+        let mut null_second_ns = Vec::with_capacity(rounds);
+        for round in 0..rounds {
+            if round.is_multiple_of(2) {
+                null_first_ns.push(elapsed_ns(|| {
+                    black_box(tree_broadcast_center(black_box(&graph)));
+                }));
+                null_second_ns.push(elapsed_ns(|| {
+                    black_box(tree_broadcast_center(black_box(&graph)));
+                }));
+            } else {
+                null_second_ns.push(elapsed_ns(|| {
+                    black_box(tree_broadcast_center(black_box(&graph)));
+                }));
+                null_first_ns.push(elapsed_ns(|| {
+                    black_box(tree_broadcast_center(black_box(&graph)));
+                }));
+            }
+        }
+
+        let baseline_median_ns = median(&baseline_ns);
+        let candidate_median_ns = median(&candidate_ns);
+        let null_first_median_ns = median(&null_first_ns);
+        let null_second_median_ns = median(&null_second_ns);
+        let paired_wins = baseline_ns
+            .iter()
+            .zip(&candidate_ns)
+            .filter(|(baseline, candidate)| baseline > candidate)
+            .count();
+        println!(
+            "TREE_BROADCAST_FRONTIER_HEAP_AB n={node_count} edges={} rounds={rounds} \
+             baseline_median_ns={baseline_median_ns} candidate_median_ns={candidate_median_ns} \
+             speedup={:.4}x paired_wins={paired_wins}/{rounds} \
+             null_first_median_ns={null_first_median_ns} \
+             null_second_median_ns={null_second_median_ns} null_ratio={:.4}x \
+             exact_parity=true",
+            graph.edge_count(),
+            baseline_median_ns as f64 / candidate_median_ns as f64,
+            null_first_median_ns as f64 / null_second_median_ns as f64,
+        );
+    }
+
     // -----------------------------------------------------------------------
     // Isolates tests
     // -----------------------------------------------------------------------
@@ -62041,9 +76628,11 @@ mod tests {
         let _ = g.add_edge("a", "b");
         let _ = g.add_edge("b", "c");
         let _ = g.add_edge("c", "d");
+        let _ = g.add_node("isolated");
         assert!(is_simple_path(&g, &["a", "b", "c", "d"]));
         assert!(is_simple_path(&g, &["a", "b"]));
         assert!(is_simple_path(&g, &["a"]));
+        assert!(is_simple_path(&g, &["isolated"]));
     }
 
     #[test]
@@ -62066,9 +76655,157 @@ mod tests {
         let mut g = DiGraph::strict();
         let _ = g.add_edge("a", "b");
         let _ = g.add_edge("b", "c");
+        let _ = g.add_node("isolated");
         assert!(is_simple_path_directed(&g, &["a", "b", "c"]));
         // Reverse direction: no edge b->a
         assert!(!is_simple_path_directed(&g, &["c", "b", "a"]));
+        assert!(!is_simple_path_directed(&g, &["a", "b", "a"]));
+        assert!(!is_simple_path_directed(&g, &["a", "missing"]));
+        assert!(is_simple_path_directed(&g, &["isolated"]));
+        assert!(!is_simple_path_directed(&g, &["missing"]));
+    }
+
+    /// br-r37-c1-yk7eb: full-predicate paired-interleaved A/B for resolving path node names
+    /// once and scanning integer adjacency rows. The baselines freeze the former String-keyed
+    /// duplicate checks plus per-hop neighbor-name materialization for both graph directions.
+    /// `#[ignore]`; run with `cargo test --release -p fnx-algorithms --lib
+    /// is_simple_path_indexed_adjacency_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with --release --ignored --nocapture"]
+    fn is_simple_path_indexed_adjacency_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        let nodes: Vec<String> = (0..30_000usize).map(|index| index.to_string()).collect();
+        let path: Vec<&str> = nodes.iter().map(String::as_str).collect();
+        let mut graph = Graph::strict();
+        let mut digraph = DiGraph::strict();
+        for node in &nodes {
+            let _ = graph.add_node(node.clone());
+            let _ = digraph.add_node(node.clone());
+        }
+        for pair in nodes.windows(2) {
+            let _ = graph.add_edge(pair[0].clone(), pair[1].clone());
+            let _ = digraph.add_edge(pair[0].clone(), pair[1].clone());
+        }
+
+        let baseline_graph = |graph: &Graph, path: &[&str]| {
+            if path.is_empty() {
+                return false;
+            }
+            if path.len() == 1 {
+                return graph.neighbors(path[0]).is_some();
+            }
+            let mut seen: HashSet<&str> = HashSet::new();
+            for &node in path {
+                if !seen.insert(node) {
+                    return false;
+                }
+            }
+            for pair in path.windows(2) {
+                match graph.neighbors(pair[0]) {
+                    Some(neighbors) if neighbors.contains(&pair[1]) => {}
+                    Some(_) | None => return false,
+                }
+            }
+            true
+        };
+        let baseline_digraph = |graph: &DiGraph, path: &[&str]| {
+            if path.is_empty() {
+                return false;
+            }
+            if path.len() == 1 {
+                return graph.successors(path[0]).is_some()
+                    || graph.predecessors(path[0]).is_some();
+            }
+            let mut seen: HashSet<&str> = HashSet::new();
+            for &node in path {
+                if !seen.insert(node) {
+                    return false;
+                }
+            }
+            for pair in path.windows(2) {
+                match graph.successors(pair[0]) {
+                    Some(successors) if successors.contains(&pair[1]) => {}
+                    Some(_) | None => return false,
+                }
+            }
+            true
+        };
+
+        assert_eq!(baseline_graph(&graph, &path), is_simple_path(&graph, &path));
+        assert_eq!(
+            baseline_digraph(&digraph, &path),
+            is_simple_path_directed(&digraph, &path)
+        );
+
+        let graph_time = |candidate: bool| -> f64 {
+            let start = Instant::now();
+            let result = if candidate {
+                is_simple_path(black_box(&graph), black_box(&path))
+            } else {
+                baseline_graph(black_box(&graph), black_box(&path))
+            };
+            black_box(result);
+            start.elapsed().as_secs_f64()
+        };
+        let digraph_time = |candidate: bool| -> f64 {
+            let start = Instant::now();
+            let result = if candidate {
+                is_simple_path_directed(black_box(&digraph), black_box(&path))
+            } else {
+                baseline_digraph(black_box(&digraph), black_box(&path))
+            };
+            black_box(result);
+            start.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(graph_time(true));
+            black_box(graph_time(false));
+            black_box(digraph_time(true));
+            black_box(digraph_time(false));
+        }
+
+        let rounds = 31usize;
+        let paired = |time: &dyn Fn(bool) -> f64, candidate: bool, baseline_arm: bool| {
+            let mut ratios = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (baseline_time, candidate_time) = if round.is_multiple_of(2) {
+                    (time(baseline_arm), time(candidate))
+                } else {
+                    let candidate_time = time(candidate);
+                    (time(baseline_arm), candidate_time)
+                };
+                ratios.push(baseline_time / candidate_time);
+            }
+            ratios
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(|left, right| left.partial_cmp(right).unwrap());
+            let wins = ratios.iter().filter(|&&ratio| ratio > 1.0).count();
+            println!(
+                "SIMPLEPATH_IDX_AB {name}: median={:.4}x win_rate={wins}/{rounds} p5_p95=[{:.4},{:.4}]",
+                sorted[rounds / 2],
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+
+        println!("SIMPLEPATH_IDX_AB path30k rounds={rounds} (>1 = indexed path faster)");
+        report("GRAPH_index_vs_string", &paired(&graph_time, true, false));
+        report(
+            "GRAPH_NULL_index_vs_index",
+            &paired(&graph_time, true, true),
+        );
+        report(
+            "DIGRAPH_index_vs_string",
+            &paired(&digraph_time, true, false),
+        );
+        report(
+            "DIGRAPH_NULL_index_vs_index",
+            &paired(&digraph_time, true, true),
+        );
     }
 
     // -----------------------------------------------------------------------
@@ -62684,6 +77421,55 @@ mod tests {
         assert!(!dists["c"].contains_key("a"));
     }
 
+    #[test]
+    fn all_pairs_dijkstra_parallel_rows_match_sequential_sources_exactly() {
+        let node_count = super::ALL_PAIRS_DIJKSTRA_PARALLEL_THRESHOLD;
+        let mut graph = Graph::strict();
+        let mut digraph = DiGraph::strict();
+        for node in 0..node_count {
+            let next = (node + 1) % node_count;
+            let chord = (node + 17) % node_count;
+            let _ = graph.add_edge(node.to_string(), next.to_string());
+            let _ = graph.add_edge(node.to_string(), chord.to_string());
+            let _ = digraph.add_edge(node.to_string(), next.to_string());
+            let _ = digraph.add_edge(node.to_string(), chord.to_string());
+        }
+
+        let graph_expected = graph
+            .nodes_ordered()
+            .into_iter()
+            .map(|source| {
+                (
+                    source.to_owned(),
+                    super::single_source_dijkstra_path_length_typed_with_pred(
+                        &graph, source, "weight", None,
+                    ),
+                )
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(
+            super::all_pairs_dijkstra_path_length_with_pred(&graph, "weight"),
+            graph_expected
+        );
+
+        let digraph_expected = digraph
+            .nodes_ordered()
+            .into_iter()
+            .map(|source| {
+                (
+                    source.to_owned(),
+                    super::single_source_dijkstra_path_length_typed_with_pred_directed(
+                        &digraph, source, "weight", None,
+                    ),
+                )
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(
+            super::all_pairs_dijkstra_path_length_with_pred_directed(&digraph, "weight"),
+            digraph_expected
+        );
+    }
+
     // -----------------------------------------------------------------------
     // all_pairs_bellman_ford tests
     // -----------------------------------------------------------------------
@@ -62828,6 +77614,134 @@ mod tests {
         let _ = g.add_edge_with_attrs("b", "c", attrs([("weight", "-3.0")]));
         let _ = g.add_edge_with_attrs("c", "a", attrs([("weight", "-1.0")]));
         assert!(negative_edge_cycle(&g, "weight"));
+    }
+
+    #[test]
+    fn test_negative_edge_cycle_edge_scan_matches_bellman_ford() {
+        let mut g = Graph::strict();
+        for node in 0usize..96 {
+            g.add_node(node.to_string());
+        }
+        for node in 0usize..95 {
+            if node.is_multiple_of(3) {
+                let _ = g.add_edge(node.to_string(), (node + 1).to_string());
+            } else {
+                let weight = if node.is_multiple_of(2) { "2.5" } else { "0" };
+                let _ = g.add_edge_with_attrs(
+                    node.to_string(),
+                    (node + 1).to_string(),
+                    attrs([("cost", weight)]),
+                );
+            }
+        }
+        assert_eq!(
+            negative_edge_cycle(&g, "cost"),
+            super::negative_edge_cycle_orig_bellman_ford(&g, "cost")
+        );
+
+        let _ = g.add_edge_with_attrs("isolated-a", "isolated-b", attrs([("cost", "-0.25")]));
+        assert_eq!(
+            negative_edge_cycle(&g, "cost"),
+            super::negative_edge_cycle_orig_bellman_ford(&g, "cost")
+        );
+        assert!(negative_edge_cycle(&g, "cost"));
+
+        let mut nonfinite = Graph::strict();
+        let _ = nonfinite.add_edge_with_attrs("nan-a", "nan-b", attrs([("cost", "NaN")]));
+        let _ = nonfinite.add_edge_with_attrs("inf-a", "inf-b", attrs([("cost", "inf")]));
+        assert_eq!(
+            negative_edge_cycle(&nonfinite, "cost"),
+            super::negative_edge_cycle_orig_bellman_ford(&nonfinite, "cost")
+        );
+        assert!(!negative_edge_cycle(&nonfinite, "cost"));
+
+        let mut self_loop = Graph::strict();
+        let _ = self_loop.add_edge_with_attrs("loop", "loop", attrs([("cost", "-1")]));
+        assert_eq!(
+            negative_edge_cycle(&self_loop, "cost"),
+            super::negative_edge_cycle_orig_bellman_ford(&self_loop, "cost")
+        );
+        assert!(negative_edge_cycle(&self_loop, "cost"));
+    }
+
+    /// br-r37-c1-yg26j: full-function same-binary A/B on a connected all-positive
+    /// graph, which forces both arms to inspect the complete graph. The baseline
+    /// is the frozen per-component Bellman-Ford implementation; the candidate is
+    /// the equivalent undirected finite-negative-edge scan. Candidate/candidate
+    /// pairs provide the local timing-noise control.
+    #[test]
+    #[ignore = "measurement; run with --profile release --ignored --nocapture"]
+    fn negative_edge_cycle_edge_scan_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        let n = 4096usize;
+        let mut g = Graph::strict();
+        for node in 0..n {
+            g.add_node(node.to_string());
+        }
+        for node in 0..(n - 1) {
+            let _ = g.add_edge_with_attrs(
+                node.to_string(),
+                (node + 1).to_string(),
+                attrs([("weight", "1.0")]),
+            );
+        }
+        assert_eq!(
+            negative_edge_cycle(&g, "weight"),
+            super::negative_edge_cycle_orig_bellman_ford(&g, "weight")
+        );
+
+        let time = |candidate: bool| -> f64 {
+            let started = Instant::now();
+            let found = if candidate {
+                negative_edge_cycle(&g, "weight")
+            } else {
+                super::negative_edge_cycle_orig_bellman_ford(&g, "weight")
+            };
+            black_box(found);
+            started.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(false));
+            black_box(time(true));
+        }
+
+        let rounds = 21usize;
+        let paired = |baseline_is_candidate: bool| -> Vec<f64> {
+            let mut ratios = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (baseline, candidate) = if round.is_multiple_of(2) {
+                    let baseline = time(baseline_is_candidate);
+                    let candidate = time(true);
+                    (baseline, candidate)
+                } else {
+                    let candidate = time(true);
+                    let baseline = time(baseline_is_candidate);
+                    (baseline, candidate)
+                };
+                ratios.push(baseline / candidate);
+            }
+            ratios
+        };
+        let report = |label: &str, ratios: &[f64]| {
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(|left, right| left.partial_cmp(right).unwrap());
+            let wins = ratios.iter().filter(|&&ratio| ratio > 1.0).count();
+            println!(
+                "NEG_EDGE_CYCLE_AB {label}: median={:.4}x win_rate={wins}/{rounds} p5_p95=[{:.4},{:.4}]",
+                sorted[rounds / 2],
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+
+        println!(
+            "NEG_EDGE_CYCLE_AB connected_positive_path nodes={n} edges={} (>1 = edge scan faster)",
+            g.edge_count()
+        );
+        report("EDGE_SCAN_vs_BELLMAN_FORD", &paired(false));
+        report("NULL_EDGE_SCAN_vs_EDGE_SCAN", &paired(true));
     }
 
     // -----------------------------------------------------------------------
@@ -63216,6 +78130,144 @@ mod tests {
         assert_eq!(number_attracting_components(&dg), 2);
     }
 
+    fn assert_number_attracting_components_scalar_parity() {
+        let empty = DiGraph::strict();
+        assert_eq!(number_attracting_components(&empty), 0);
+        assert_eq!(
+            number_attracting_components(&empty),
+            attracting_components(&empty).len()
+        );
+
+        let names = ["zeta", "alpha", "middle"];
+        let edge_slots = names.len() * names.len();
+        for mask in 0usize..(1usize << edge_slots) {
+            let mut digraph = DiGraph::strict();
+            for name in names {
+                let _ = digraph.add_node(name);
+            }
+            for source in 0..names.len() {
+                for target in 0..names.len() {
+                    let bit = source * names.len() + target;
+                    if mask & (1usize << bit) != 0 {
+                        digraph.add_edge(names[source], names[target]).unwrap();
+                    }
+                }
+            }
+            assert_eq!(
+                number_attracting_components(&digraph),
+                attracting_components(&digraph).len(),
+                "scalar/materialized mismatch for directed edge mask {mask:#x}"
+            );
+        }
+    }
+
+    #[test]
+    fn number_attracting_components_scalar_matches_materialized_exhaustive() {
+        assert_number_attracting_components_scalar_parity();
+    }
+
+    /// br-r37-c1-r3r7h: same-binary A/B for direct sink-SCC counting against
+    /// the complete materializing `attracting_components(...).len()` route,
+    /// plus a direct/direct null control.
+    #[test]
+    #[ignore = "measurement; run with --profile release --ignored --nocapture"]
+    fn number_attracting_components_sink_scc_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        fn median(values: &[u128]) -> u128 {
+            let mut sorted = values.to_vec();
+            sorted.sort_unstable();
+            sorted[sorted.len() / 2]
+        }
+
+        assert_number_attracting_components_scalar_parity();
+
+        let n = 12_000usize;
+        let degree = 4usize;
+        let calls = 2usize;
+        let names = (0..n)
+            .map(|index| format!("node-{index:05}-payload-abcdefghijklmnopqrstuvwxyz"))
+            .collect::<Vec<_>>();
+        let mut digraph = DiGraph::strict();
+        for name in &names {
+            let _ = digraph.add_node(name);
+        }
+        for source in 0..n {
+            for offset in 1..=degree {
+                if source + offset < n {
+                    digraph
+                        .add_edge(&names[source], &names[source + offset])
+                        .unwrap();
+                }
+            }
+        }
+
+        let baseline = attracting_components(&digraph).len();
+        let candidate = number_attracting_components(&digraph);
+        assert_eq!(candidate, baseline, "large DAG scalar parity");
+        assert_eq!(candidate, 1, "forward DAG has one sink SCC");
+
+        let time = |use_candidate: bool| -> u128 {
+            let start = Instant::now();
+            for _ in 0..calls {
+                let count = if use_candidate {
+                    number_attracting_components(black_box(&digraph))
+                } else {
+                    attracting_components(black_box(&digraph)).len()
+                };
+                black_box(count);
+            }
+            start.elapsed().as_nanos()
+        };
+
+        for _ in 0..3 {
+            black_box(time(false));
+            black_box(time(true));
+        }
+
+        let rounds = 15usize;
+        let mut baseline_times = Vec::with_capacity(rounds);
+        let mut candidate_times = Vec::with_capacity(rounds);
+        let mut null_first_times = Vec::with_capacity(rounds);
+        let mut null_second_times = Vec::with_capacity(rounds);
+        for round in 0..rounds {
+            let (baseline_time, candidate_time) = if round.is_multiple_of(2) {
+                (time(false), time(true))
+            } else {
+                let candidate_time = time(true);
+                (time(false), candidate_time)
+            };
+            baseline_times.push(baseline_time);
+            candidate_times.push(candidate_time);
+
+            let (null_first, null_second) = if round.is_multiple_of(2) {
+                (time(true), time(true))
+            } else {
+                let null_second = time(true);
+                (time(true), null_second)
+            };
+            null_first_times.push(null_first);
+            null_second_times.push(null_second);
+        }
+
+        let baseline_median = median(&baseline_times);
+        let candidate_median = median(&candidate_times);
+        let null_first_median = median(&null_first_times);
+        let null_second_median = median(&null_second_times);
+        let paired_wins = baseline_times
+            .iter()
+            .zip(&candidate_times)
+            .filter(|(baseline_time, candidate_time)| baseline_time > candidate_time)
+            .count();
+
+        println!(
+            "ATTRACTING_COUNT_AB n={n} degree={degree} calls={calls} rounds={rounds} baseline_median_ns={baseline_median} candidate_median_ns={candidate_median} speedup={:.4}x paired_wins={paired_wins}/{rounds} null_first_median_ns={null_first_median} null_second_median_ns={null_second_median} null_ratio={:.4}x exact_parity=true",
+            baseline_median as f64 / candidate_median as f64,
+            null_first_median as f64 / null_second_median as f64,
+        );
+    }
+
     // -----------------------------------------------------------------------
     // is_attracting_component
     // -----------------------------------------------------------------------
@@ -63510,6 +78562,147 @@ mod tests {
         assert!((group_out_degree_centrality(&dg, &["a"]) - 1.0).abs() < TEST_TOLERANCE);
     }
 
+    /// br-r37-c1-8wr40: full-function A/B for the group-out successor union.
+    /// The frozen arm allocates one successor `Vec` per group entry and hashes
+    /// every successor through two String-keyed sets; production walks the
+    /// stable successor-index rows and records membership in mark arrays.
+    #[test]
+    #[ignore = "measurement; run with --release --ignored --nocapture"]
+    fn group_out_degree_centrality_mark_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        fn frozen_string_sets(digraph: &DiGraph, group: &[&str]) -> f64 {
+            let n = digraph.node_count();
+            let s_len = group.len();
+            if n == 0 || s_len >= n {
+                return 0.0;
+            }
+            let group_set: HashSet<&str> = group.iter().copied().collect();
+            let mut successors_outside = HashSet::new();
+            for &node in group {
+                if let Some(succs) = digraph.successors(node) {
+                    for successor in succs {
+                        if !group_set.contains(successor) {
+                            successors_outside.insert(successor);
+                        }
+                    }
+                }
+            }
+            successors_outside.len() as f64 / (n - s_len) as f64
+        }
+
+        let empty = DiGraph::strict();
+        for group in [&[][..], &["missing"][..]] {
+            assert_eq!(
+                frozen_string_sets(&empty, group).to_bits(),
+                super::group_out_degree_centrality(&empty, group).to_bits()
+            );
+        }
+
+        let mut fixture = DiGraph::strict();
+        for node in ["z", "a", "m", "b", "q"] {
+            fixture.add_node(node);
+        }
+        for (source, target) in [
+            ("z", "z"),
+            ("z", "a"),
+            ("z", "m"),
+            ("a", "m"),
+            ("a", "b"),
+            ("q", "z"),
+            ("m", "q"),
+        ] {
+            fixture.add_edge(source, target).unwrap();
+        }
+        for group in [
+            &[][..],
+            &["z"][..],
+            &["z", "a"][..],
+            &["z", "z"][..],
+            &["z", "missing"][..],
+            &["missing"][..],
+            &["z", "a", "m", "b", "q"][..],
+            &["z", "a", "m", "b", "q", "missing"][..],
+        ] {
+            assert_eq!(
+                frozen_string_sets(&fixture, group).to_bits(),
+                super::group_out_degree_centrality(&fixture, group).to_bits(),
+                "exact float-bit parity for group {group:?}"
+            );
+        }
+
+        let n = 50_000_usize;
+        let group_len = 10_000_usize;
+        let fanout = 16_usize;
+        let names: Vec<String> = (0..n).map(|node| format!("node_{node}")).collect();
+        let mut digraph = DiGraph::strict();
+        for node in &names {
+            digraph.add_node(node.clone());
+        }
+        let outside_len = n - group_len;
+        for source in 0..group_len {
+            for edge in 0..fanout {
+                let target = group_len + ((source * 31 + edge * 997) % outside_len);
+                digraph
+                    .add_edge(names[source].clone(), names[target].clone())
+                    .unwrap();
+            }
+        }
+        let group: Vec<&str> = names[..group_len].iter().map(String::as_str).collect();
+        assert_eq!(
+            frozen_string_sets(&digraph, &group).to_bits(),
+            super::group_out_degree_centrality(&digraph, &group).to_bits(),
+            "timed graph must preserve the exact scalar"
+        );
+
+        let time = |use_candidate: bool| -> f64 {
+            let start = Instant::now();
+            let result = if use_candidate {
+                super::group_out_degree_centrality(black_box(&digraph), black_box(&group))
+            } else {
+                frozen_string_sets(black_box(&digraph), black_box(&group))
+            };
+            black_box(result);
+            start.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(false));
+            black_box(time(true));
+        }
+
+        let rounds = 31_usize;
+        let paired = |baseline_candidate: bool, contender_candidate: bool| -> Vec<f64> {
+            let mut ratios = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (baseline, contender) = if round.is_multiple_of(2) {
+                    (time(baseline_candidate), time(contender_candidate))
+                } else {
+                    let contender = time(contender_candidate);
+                    (time(baseline_candidate), contender)
+                };
+                ratios.push(baseline / contender);
+            }
+            ratios
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(|left, right| left.partial_cmp(right).unwrap());
+            let wins = ratios.iter().filter(|&&ratio| ratio > 1.0).count();
+            println!(
+                "GROUP_OUT_MARK_AB {name}: median={:.4}x win_rate={wins}/{rounds} p5_p95=[{:.4},{:.4}]",
+                sorted[rounds / 2],
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+        println!(
+            "GROUP_OUT_MARK_AB nodes={n} group={group_len} fanout={fanout} rounds={rounds} (>1 = marks faster)"
+        );
+        report("MARKS_vs_string_sets", &paired(false, true));
+        report("NULL_marks_vs_marks", &paired(true, true));
+    }
+
     // -----------------------------------------------------------------------
     // girth
     // -----------------------------------------------------------------------
@@ -63691,6 +78884,79 @@ mod tests {
         assert!(!is_k_regular(&g, 1));
     }
 
+    /// br-r37-c1-38tp8: paired-interleaved median A/B for `is_k_regular`'s full-scan path.
+    /// The baseline freezes the ordered-name materialization plus per-node String lookup; the
+    /// candidate walks the same dense node order through `degree_by_index`. `#[ignore]`; run with
+    /// `cargo test --release -p fnx-algorithms --lib is_k_regular_degree_index_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with --release --ignored --nocapture"]
+    fn is_k_regular_degree_index_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        let mut graph = Graph::strict();
+        for index in 0..100_000usize {
+            let _ = graph.add_node(index.to_string());
+        }
+
+        let baseline = |graph: &Graph, k: usize| {
+            graph
+                .nodes_ordered()
+                .iter()
+                .all(|&node| graph.degree(node) == k)
+        };
+        assert_eq!(
+            baseline(&graph, 0),
+            is_k_regular(&graph, 0),
+            "indexed degree scan must match the ordered-name baseline"
+        );
+
+        let time = |indexed: bool| -> f64 {
+            let start = Instant::now();
+            let result = if indexed {
+                is_k_regular(black_box(&graph), black_box(0))
+            } else {
+                baseline(black_box(&graph), black_box(0))
+            };
+            black_box(result);
+            start.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(true));
+            black_box(time(false));
+        }
+
+        let rounds = 61usize;
+        let paired = |candidate: bool, baseline_arm: bool| -> Vec<f64> {
+            let mut ratios = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (baseline_time, candidate_time) = if round.is_multiple_of(2) {
+                    (time(baseline_arm), time(candidate))
+                } else {
+                    let candidate_time = time(candidate);
+                    (time(baseline_arm), candidate_time)
+                };
+                ratios.push(baseline_time / candidate_time);
+            }
+            ratios
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(|left, right| left.partial_cmp(right).unwrap());
+            let wins = ratios.iter().filter(|&&ratio| ratio > 1.0).count();
+            println!(
+                "KREG_IDX_AB {name}: median={:.4}x win_rate={wins}/{rounds} p5_p95=[{:.4},{:.4}]",
+                sorted[rounds / 2],
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+
+        println!("KREG_IDX_AB empty100k rounds={rounds} (>1 = indexed scan faster)");
+        report("INDEX_vs_name", &paired(true, false));
+        report("NULL_index_vs_index", &paired(true, true));
+    }
+
     #[test]
     fn test_is_tournament() {
         let mut g = DiGraph::strict();
@@ -63717,11 +78983,19 @@ mod tests {
 
     #[test]
     fn test_is_weighted() {
+        let empty = Graph::strict();
+        assert!(!is_weighted(&empty, "weight"));
+
         let mut g = Graph::strict();
         g.add_edge_with_attrs("a", "b", attrs([("weight", "1.0")]))
             .unwrap();
+        g.add_edge_with_attrs("b", "b", attrs([("weight", "2.0")]))
+            .unwrap();
         assert!(is_weighted(&g, "weight"));
         assert!(!is_weighted(&g, "cost"));
+
+        let _ = g.add_edge("b", "c");
+        assert!(!is_weighted(&g, "weight"));
     }
 
     #[test]
@@ -63791,6 +79065,245 @@ mod tests {
         let _ = g.add_edge("b", "c");
         let _ = g.add_edge("c", "d");
         assert!(!is_distance_regular(&g));
+    }
+
+    /// br-r37-c1-isdr-single-source-3ch3u: full-function A/B for validating
+    /// each BFS row immediately instead of retaining and rescanning VxV
+    /// distances once per layer.
+    #[test]
+    #[ignore = "measurement; run with --profile release --ignored --nocapture"]
+    fn is_distance_regular_single_row_ab() {
+        use std::collections::VecDeque;
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        fn old_is_distance_regular(graph: &Graph) -> bool {
+            if !super::is_connected(graph).is_connected {
+                return false;
+            }
+            let nodes = graph.nodes_ordered();
+            let n = nodes.len();
+            if n <= 1 {
+                return true;
+            }
+
+            let mut dist_matrix = vec![vec![usize::MAX; n]; n];
+            for src_idx in 0..n {
+                dist_matrix[src_idx][src_idx] = 0;
+                let mut queue = VecDeque::new();
+                queue.push_back(src_idx);
+                while let Some(u) = queue.pop_front() {
+                    if let Some(neighbors) = graph.neighbors_indices(u) {
+                        for &v in neighbors {
+                            if dist_matrix[src_idx][v] == usize::MAX {
+                                dist_matrix[src_idx][v] = dist_matrix[src_idx][u] + 1;
+                                queue.push_back(v);
+                            }
+                        }
+                    }
+                }
+            }
+
+            let diameter = dist_matrix
+                .iter()
+                .flat_map(|row| row.iter())
+                .filter(|&&distance| distance != usize::MAX)
+                .copied()
+                .max()
+                .unwrap_or(0);
+
+            for distance in 0..=diameter {
+                let mut b_value: Option<usize> = None;
+                let mut c_value: Option<usize> = None;
+                for (row_idx, row) in dist_matrix.iter().enumerate() {
+                    for (col_idx, &pair_distance) in row.iter().enumerate() {
+                        if pair_distance != distance {
+                            continue;
+                        }
+                        let mut b_count = 0;
+                        let mut c_count = 0;
+                        if let Some(neighbors) = graph.neighbors_indices(col_idx) {
+                            for &w in neighbors {
+                                if dist_matrix[row_idx][w] == distance + 1 {
+                                    b_count += 1;
+                                }
+                                if distance > 0 && dist_matrix[row_idx][w] == distance - 1 {
+                                    c_count += 1;
+                                }
+                            }
+                        }
+                        match b_value {
+                            Some(previous) if previous != b_count => return false,
+                            None => b_value = Some(b_count),
+                            _ => {}
+                        }
+                        if distance > 0 {
+                            match c_value {
+                                Some(previous) if previous != c_count => return false,
+                                None => c_value = Some(c_count),
+                                _ => {}
+                            }
+                        }
+                    }
+                }
+            }
+            true
+        }
+
+        fn complete(n: usize, self_loops: bool) -> Graph {
+            let mut graph = Graph::strict();
+            for node in 0..n {
+                graph.add_node(node.to_string());
+            }
+            for left in 0..n {
+                for right in (left + 1)..n {
+                    graph.add_edge(left.to_string(), right.to_string()).unwrap();
+                }
+                if self_loops {
+                    graph.add_edge(left.to_string(), left.to_string()).unwrap();
+                }
+            }
+            graph
+        }
+
+        fn hypercube(dimensions: usize) -> Graph {
+            let mut graph = Graph::strict();
+            let node_count = 1usize << dimensions;
+            for node in 0..node_count {
+                graph.add_node(node.to_string());
+            }
+            for node in 0..node_count {
+                for bit in 0..dimensions {
+                    if node & (1usize << bit) == 0 {
+                        graph
+                            .add_edge(node.to_string(), (node | (1usize << bit)).to_string())
+                            .unwrap();
+                    }
+                }
+            }
+            graph
+        }
+
+        fn petersen() -> Graph {
+            let mut graph = Graph::strict();
+            for node in 0..10 {
+                graph.add_node(node.to_string());
+            }
+            for (left, right) in [
+                (0, 1),
+                (1, 2),
+                (2, 3),
+                (3, 4),
+                (4, 0),
+                (0, 5),
+                (1, 6),
+                (2, 7),
+                (3, 8),
+                (4, 9),
+                (5, 7),
+                (7, 9),
+                (9, 6),
+                (6, 8),
+                (8, 5),
+            ] {
+                graph.add_edge(left.to_string(), right.to_string()).unwrap();
+            }
+            graph
+        }
+
+        fn triangular_prism() -> Graph {
+            let mut graph = Graph::strict();
+            for node in 0..6 {
+                graph.add_node(node.to_string());
+            }
+            for (left, right) in [
+                (0, 1),
+                (1, 2),
+                (2, 0),
+                (3, 4),
+                (4, 5),
+                (5, 3),
+                (0, 3),
+                (1, 4),
+                (2, 5),
+            ] {
+                graph.add_edge(left.to_string(), right.to_string()).unwrap();
+            }
+            graph
+        }
+
+        let mut path = Graph::strict();
+        for node in 0..5 {
+            path.add_node(node.to_string());
+        }
+        for node in 0..4 {
+            path.add_edge(node.to_string(), (node + 1).to_string())
+                .unwrap();
+        }
+        let mut singleton = Graph::strict();
+        singleton.add_node("only");
+        for graph in [
+            complete(4, false),
+            complete(4, true),
+            petersen(),
+            hypercube(5),
+            triangular_prism(),
+            path,
+            singleton,
+        ] {
+            assert_eq!(
+                old_is_distance_regular(&graph),
+                super::is_distance_regular(&graph)
+            );
+        }
+
+        let graph = hypercube(10);
+        assert!(old_is_distance_regular(&graph));
+        assert!(super::is_distance_regular(&graph));
+
+        let time = |candidate: bool| -> f64 {
+            let start = Instant::now();
+            let result = if candidate {
+                super::is_distance_regular(black_box(&graph))
+            } else {
+                old_is_distance_regular(black_box(&graph))
+            };
+            black_box(result);
+            start.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(false));
+            black_box(time(true));
+        }
+
+        let rounds = 31usize;
+        let paired = |baseline_candidate: bool, contender_candidate: bool| -> Vec<f64> {
+            let mut ratios = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (baseline, contender) = if round.is_multiple_of(2) {
+                    (time(baseline_candidate), time(contender_candidate))
+                } else {
+                    let contender = time(contender_candidate);
+                    (time(baseline_candidate), contender)
+                };
+                ratios.push(baseline / contender);
+            }
+            ratios
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(|left, right| left.partial_cmp(right).unwrap());
+            let wins = ratios.iter().filter(|&&ratio| ratio > 1.0).count();
+            println!(
+                "DISTREGROW_AB {name}: median={:.4}x win_rate={wins}/{rounds} p5_p95=[{:.4},{:.4}]",
+                sorted[rounds / 2],
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+        println!("DISTREGROW_AB hypercube_10 rounds={rounds} (>1 = single-row faster)");
+        report("SINGLE_ROW_vs_matrix", &paired(false, true));
+        report("NULL_single_row_vs_single_row", &paired(true, true));
     }
 
     // -----------------------------------------------------------------------
@@ -63921,6 +79434,259 @@ mod tests {
     }
 
     #[test]
+    fn is_edge_cover_index_state_preserves_boolean_contract() {
+        let empty = Graph::strict();
+        assert_eq!(
+            is_edge_cover(&empty, &[("missing", "missing")]),
+            super::is_edge_cover_orig_string_state(&empty, &[("missing", "missing")]),
+            "empty graphs retain the existing unconditional true result"
+        );
+
+        let mut graph = Graph::strict();
+        for node in ["z", "a", "m", "q", "self"] {
+            graph.add_node(node);
+        }
+        for (left, right) in [("z", "a"), ("m", "q"), ("self", "self"), ("z", "m")] {
+            graph.add_edge(left, right).unwrap();
+        }
+
+        for cover in [
+            vec![("z", "a"), ("m", "q"), ("self", "self")],
+            vec![("a", "z"), ("q", "m"), ("self", "self")],
+            vec![("z", "a"), ("z", "a"), ("m", "q"), ("self", "self")],
+            vec![("z", "a"), ("m", "q")],
+            vec![("z", "q")],
+            vec![("missing", "z")],
+            Vec::new(),
+        ] {
+            assert_eq!(
+                is_edge_cover(&graph, &cover),
+                super::is_edge_cover_orig_string_state(&graph, &cover),
+                "index coverage parity for {cover:?}"
+            );
+        }
+    }
+
+    /// br-r37-c1-4pchn: paired-interleaved A/B for edge-cover validation's
+    /// per-cover-edge existence check. The frozen baseline linearly scans the
+    /// source adjacency row; the candidate probes the indexed edge map. Exact
+    /// boolean parity is asserted before timing. `#[ignore]`; run with
+    /// `cargo test --release -p fnx-algorithms --lib is_edge_cover_hasedge_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with --release --ignored --nocapture"]
+    fn is_edge_cover_hasedge_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        fn old_is_edge_cover(graph: &Graph, edges: &[(&str, &str)]) -> bool {
+            let nodes = graph.nodes_ordered();
+            if nodes.is_empty() {
+                return true;
+            }
+            let mut covered: HashSet<&str> = HashSet::new();
+            for &(u, v) in edges {
+                let exists = graph
+                    .neighbors_iter(u)
+                    .is_some_and(|mut neighbors| neighbors.any(|neighbor| neighbor == v));
+                if !exists {
+                    return false;
+                }
+                covered.insert(u);
+                covered.insert(v);
+            }
+            nodes.iter().all(|&node| covered.contains(node))
+        }
+
+        let mut parity = Graph::strict();
+        let _ = parity.add_edge("a", "b");
+        let _ = parity.add_edge("b", "c");
+        let _ = parity.add_edge("c", "c");
+        for edges in [
+            vec![("a", "b"), ("b", "c")],
+            vec![("b", "a"), ("c", "c")],
+            vec![("a", "c")],
+            vec![("missing", "a")],
+            Vec::new(),
+        ] {
+            assert_eq!(
+                old_is_edge_cover(&parity, &edges),
+                is_edge_cover(&parity, &edges),
+                "indexed edge predicate parity for {edges:?}"
+            );
+        }
+
+        // Every even node has 512 earlier-inserted filler neighbours followed by
+        // its paired odd node. The supplied pair edges cover every node and put
+        // the baseline's successful match at the end of each scanned row.
+        let pairs = 4_000usize;
+        let fanout = 512usize;
+        let mut graph = Graph::strict();
+        for i in 0..pairs {
+            let _ = graph.add_node((2 * i).to_string());
+            let _ = graph.add_node((2 * i + 1).to_string());
+        }
+        let mut cover = Vec::with_capacity(pairs);
+        for i in 0..pairs {
+            let even = (2 * i).to_string();
+            for delta in 1..=fanout {
+                let filler_odd = (2 * ((i + delta) % pairs) + 1).to_string();
+                let _ = graph.add_edge(even.clone(), filler_odd);
+            }
+            let paired_odd = (2 * i + 1).to_string();
+            let _ = graph.add_edge(even.clone(), paired_odd.clone());
+            cover.push((even, paired_odd));
+        }
+        let cover_refs: Vec<(&str, &str)> = cover
+            .iter()
+            .map(|(u, v)| (u.as_str(), v.as_str()))
+            .collect();
+        assert!(old_is_edge_cover(&graph, &cover_refs));
+        assert!(is_edge_cover(&graph, &cover_refs));
+
+        let time = |candidate: bool| -> f64 {
+            let start = Instant::now();
+            let covered = if candidate {
+                is_edge_cover(black_box(&graph), black_box(&cover_refs))
+            } else {
+                old_is_edge_cover(black_box(&graph), black_box(&cover_refs))
+            };
+            black_box(covered);
+            start.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(true));
+            black_box(time(false));
+        }
+        let median = |values: &[f64]| {
+            let mut sorted = values.to_vec();
+            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            sorted[sorted.len() / 2]
+        };
+        let rounds = 61usize;
+        let paired = |candidate: bool, baseline: bool| -> Vec<f64> {
+            let mut ratios = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (base_time, candidate_time) = if round.is_multiple_of(2) {
+                    (time(baseline), time(candidate))
+                } else {
+                    let candidate_time = time(candidate);
+                    (time(baseline), candidate_time)
+                };
+                ratios.push(base_time / candidate_time);
+            }
+            ratios
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&ratio| ratio > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            println!(
+                "EDGECOVER_AB {name}: median={:.4}x win_rate={wins}/{rounds} p5_p95=[{:.4},{:.4}]",
+                median(ratios),
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+        println!(
+            "EDGECOVER_AB pairs={pairs} fanout={fanout} rounds={rounds} (>1 = has_edge faster)"
+        );
+        report("HASEDGE_vs_neighbor_scan", &paired(true, false));
+        report("NULL_hasedge_vs_hasedge", &paired(true, true));
+    }
+
+    /// br-r37-c1-kdpe3: same-binary A/B for resolved-index coverage state
+    /// against the retained indexed-edge/String-coverage route, plus a null.
+    #[test]
+    #[ignore = "measurement; run with --profile release --ignored --nocapture"]
+    fn is_edge_cover_index_state_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        fn median(values: &[u128]) -> u128 {
+            let mut sorted = values.to_vec();
+            sorted.sort_unstable();
+            sorted[sorted.len() / 2]
+        }
+
+        let n = 8_192usize;
+        let calls = 16usize;
+        let names = (0..n)
+            .map(|index| format!("cover-node-{index:05}-abcdefghijklmnopqrstuvwxyz"))
+            .collect::<Vec<_>>();
+        let mut graph = Graph::strict();
+        for name in &names {
+            graph.add_node(name);
+        }
+        let mut cover = Vec::with_capacity(n / 2);
+        for index in (0..n).step_by(2) {
+            graph.add_edge(&names[index], &names[index + 1]).unwrap();
+            cover.push((names[index].as_str(), names[index + 1].as_str()));
+        }
+
+        assert!(super::is_edge_cover_orig_string_state(&graph, &cover));
+        assert!(is_edge_cover(&graph, &cover));
+
+        let time = |use_candidate: bool| -> u128 {
+            let start = Instant::now();
+            for _ in 0..calls {
+                let result = if use_candidate {
+                    is_edge_cover(black_box(&graph), black_box(&cover))
+                } else {
+                    super::is_edge_cover_orig_string_state(black_box(&graph), black_box(&cover))
+                };
+                assert!(black_box(result));
+            }
+            start.elapsed().as_nanos()
+        };
+
+        for _ in 0..3 {
+            black_box(time(false));
+            black_box(time(true));
+        }
+
+        let rounds = 15usize;
+        let mut baseline_times = Vec::with_capacity(rounds);
+        let mut candidate_times = Vec::with_capacity(rounds);
+        let mut null_first_times = Vec::with_capacity(rounds);
+        let mut null_second_times = Vec::with_capacity(rounds);
+        for round in 0..rounds {
+            let (baseline_time, candidate_time) = if round.is_multiple_of(2) {
+                (time(false), time(true))
+            } else {
+                let candidate_time = time(true);
+                (time(false), candidate_time)
+            };
+            baseline_times.push(baseline_time);
+            candidate_times.push(candidate_time);
+
+            let (null_first, null_second) = if round.is_multiple_of(2) {
+                (time(true), time(true))
+            } else {
+                let null_second = time(true);
+                (time(true), null_second)
+            };
+            null_first_times.push(null_first);
+            null_second_times.push(null_second);
+        }
+
+        let baseline_median = median(&baseline_times);
+        let candidate_median = median(&candidate_times);
+        let null_first_median = median(&null_first_times);
+        let null_second_median = median(&null_second_times);
+        let paired_wins = baseline_times
+            .iter()
+            .zip(&candidate_times)
+            .filter(|(baseline_time, candidate_time)| baseline_time > candidate_time)
+            .count();
+
+        println!(
+            "EDGE_COVER_INDEX_STATE_AB n={n} calls={calls} rounds={rounds} baseline_median_ns={baseline_median} candidate_median_ns={candidate_median} speedup={:.3}x paired_wins={paired_wins}/{rounds} null_first_median_ns={null_first_median} null_second_median_ns={null_second_median} null_ratio={:.3}x exact_parity=true",
+            baseline_median as f64 / candidate_median as f64,
+            null_first_median as f64 / null_second_median as f64,
+        );
+    }
+
+    #[test]
     fn test_max_weight_clique_triangle() {
         let mut g = Graph::strict();
         let _ = g.add_edge("a", "b");
@@ -63968,6 +79734,147 @@ mod tests {
     }
 
     #[test]
+    fn edge_bfs_index_state_preserves_exact_order() {
+        let mut graph = Graph::strict();
+        for node in ["s", "z", "a", "m", "t", "u", "isolated"] {
+            graph.add_node(node);
+        }
+        for (left, right) in [
+            ("s", "z"),
+            ("s", "a"),
+            ("s", "m"),
+            ("z", "t"),
+            ("a", "t"),
+            ("m", "a"),
+            ("t", "s"),
+            ("t", "t"),
+            ("u", "s"),
+        ] {
+            graph.add_edge(left, right).unwrap();
+        }
+
+        for source in ["s", "z", "a", "m", "t", "u", "isolated", "missing"] {
+            assert_eq!(
+                edge_bfs(&graph, source),
+                super::edge_bfs_orig_string(&graph, source),
+                "undirected edge-BFS parity from {source}"
+            );
+        }
+        assert_eq!(
+            &edge_bfs(&graph, "s")[..5],
+            &[
+                ("s".to_owned(), "z".to_owned()),
+                ("s".to_owned(), "a".to_owned()),
+                ("s".to_owned(), "m".to_owned()),
+                ("s".to_owned(), "t".to_owned()),
+                ("s".to_owned(), "u".to_owned()),
+            ],
+            "neighbor insertion order remains observable"
+        );
+
+        assert!(graph.remove_edge("s", "a"));
+        graph.add_edge("s", "a").unwrap();
+        assert_eq!(
+            edge_bfs(&graph, "s"),
+            super::edge_bfs_orig_string(&graph, "s"),
+            "remove/re-add neighbor order remains exact"
+        );
+    }
+
+    /// br-r37-c1-arouf: same-binary A/B for index-backed undirected edge-BFS
+    /// against the frozen String-state traversal, plus a candidate null.
+    #[test]
+    #[ignore = "measurement; run with --profile release --ignored --nocapture"]
+    fn edge_bfs_index_state_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        fn median(values: &[u128]) -> u128 {
+            let mut sorted = values.to_vec();
+            sorted.sort_unstable();
+            sorted[sorted.len() / 2]
+        }
+
+        let n = 8_192_usize;
+        let calls = 4_usize;
+        let names = (0..n)
+            .map(|index| format!("vertex-{index:05}-payload-abcdefghijklmnopqrstuvwxyz"))
+            .collect::<Vec<_>>();
+        let mut graph = Graph::strict();
+        for name in &names {
+            graph.add_node(name);
+        }
+        for index in 0..(n - 1) {
+            graph.add_edge(&names[index], &names[index + 1]).unwrap();
+        }
+        let source = names[0].as_str();
+
+        let baseline = super::edge_bfs_orig_string(&graph, source);
+        let candidate = edge_bfs(&graph, source);
+        assert_eq!(candidate, baseline, "exact ordered edge parity");
+        assert_eq!(candidate.len(), 2 * (n - 1), "all oriented path edges");
+
+        let time = |use_candidate: bool| -> u128 {
+            let start = Instant::now();
+            for _ in 0..calls {
+                let result = if use_candidate {
+                    edge_bfs(black_box(&graph), black_box(source))
+                } else {
+                    super::edge_bfs_orig_string(black_box(&graph), black_box(source))
+                };
+                black_box(result);
+            }
+            start.elapsed().as_nanos()
+        };
+
+        for _ in 0..3 {
+            black_box(time(false));
+            black_box(time(true));
+        }
+
+        let rounds = 15_usize;
+        let mut baseline_times = Vec::with_capacity(rounds);
+        let mut candidate_times = Vec::with_capacity(rounds);
+        let mut null_first_times = Vec::with_capacity(rounds);
+        let mut null_second_times = Vec::with_capacity(rounds);
+        for round in 0..rounds {
+            let (baseline_time, candidate_time) = if round.is_multiple_of(2) {
+                (time(false), time(true))
+            } else {
+                let candidate_time = time(true);
+                (time(false), candidate_time)
+            };
+            baseline_times.push(baseline_time);
+            candidate_times.push(candidate_time);
+
+            let (null_first, null_second) = if round.is_multiple_of(2) {
+                (time(true), time(true))
+            } else {
+                let null_second = time(true);
+                (time(true), null_second)
+            };
+            null_first_times.push(null_first);
+            null_second_times.push(null_second);
+        }
+
+        let baseline_median = median(&baseline_times);
+        let candidate_median = median(&candidate_times);
+        let null_first_median = median(&null_first_times);
+        let null_second_median = median(&null_second_times);
+        let paired_wins = baseline_times
+            .iter()
+            .zip(&candidate_times)
+            .filter(|(baseline_time, candidate_time)| baseline_time > candidate_time)
+            .count();
+
+        println!(
+            "EDGE_BFS_INDEX_AB n={n} calls={calls} rounds={rounds} baseline_median_ns={baseline_median} candidate_median_ns={candidate_median} speedup={:.3}x paired_wins={paired_wins}/{rounds} null_first_median_ns={null_first_median} null_second_median_ns={null_second_median} null_ratio={:.3}x exact_parity=true",
+            baseline_median as f64 / candidate_median as f64,
+            null_first_median as f64 / null_second_median as f64,
+        );
+    }
+
+    #[test]
     fn test_edge_bfs_directed() {
         let mut g = DiGraph::strict();
         let _ = g.add_edge("a", "b");
@@ -63975,6 +79882,151 @@ mod tests {
         let edges = edge_bfs_directed(&g, "a");
         assert!(edges.contains(&("a".to_string(), "b".to_string())));
         assert!(edges.contains(&("b".to_string(), "c".to_string())));
+    }
+
+    #[test]
+    fn edge_bfs_directed_index_state_preserves_exact_order() {
+        let mut graph = DiGraph::strict();
+        for node in ["s", "z", "a", "m", "t", "u", "isolated"] {
+            graph.add_node(node);
+        }
+        for (source, target) in [
+            ("s", "z"),
+            ("s", "a"),
+            ("s", "m"),
+            ("z", "t"),
+            ("a", "t"),
+            ("m", "a"),
+            ("t", "s"),
+            ("t", "t"),
+            ("u", "s"),
+        ] {
+            graph.add_edge(source, target).unwrap();
+        }
+
+        for source in ["s", "z", "a", "m", "t", "u", "isolated", "missing"] {
+            assert_eq!(
+                edge_bfs_directed(&graph, source),
+                super::edge_bfs_directed_orig_string(&graph, source),
+                "directed edge-BFS parity from {source}"
+            );
+        }
+        assert_eq!(
+            edge_bfs_directed(&graph, "s"),
+            vec![
+                ("s".to_owned(), "z".to_owned()),
+                ("s".to_owned(), "a".to_owned()),
+                ("s".to_owned(), "m".to_owned()),
+                ("z".to_owned(), "t".to_owned()),
+                ("a".to_owned(), "t".to_owned()),
+                ("m".to_owned(), "a".to_owned()),
+                ("t".to_owned(), "s".to_owned()),
+                ("t".to_owned(), "t".to_owned()),
+            ],
+            "successor insertion order and non-tree edges remain observable"
+        );
+
+        assert!(graph.remove_edge("s", "a"));
+        graph.add_edge("s", "a").unwrap();
+        assert_eq!(
+            edge_bfs_directed(&graph, "s"),
+            super::edge_bfs_directed_orig_string(&graph, "s"),
+            "remove/re-add successor order remains exact"
+        );
+    }
+
+    /// br-r37-c1-vnlu0: same-binary A/B for index-backed directed edge-BFS
+    /// against the frozen String-state traversal, plus a candidate null.
+    #[test]
+    #[ignore = "measurement; run with --profile release --ignored --nocapture"]
+    fn edge_bfs_directed_index_state_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        fn median(values: &[u128]) -> u128 {
+            let mut sorted = values.to_vec();
+            sorted.sort_unstable();
+            sorted[sorted.len() / 2]
+        }
+
+        let n = 8_192_usize;
+        let calls = 4_usize;
+        let names = (0..n)
+            .map(|index| format!("vertex-{index:05}-payload-abcdefghijklmnopqrstuvwxyz"))
+            .collect::<Vec<_>>();
+        let mut graph = DiGraph::strict();
+        for name in &names {
+            graph.add_node(name);
+        }
+        for index in 0..(n - 1) {
+            graph.add_edge(&names[index], &names[index + 1]).unwrap();
+            graph.add_edge(&names[index + 1], &names[index]).unwrap();
+        }
+        let source = names[0].as_str();
+
+        let baseline = super::edge_bfs_directed_orig_string(&graph, source);
+        let candidate = edge_bfs_directed(&graph, source);
+        assert_eq!(candidate, baseline, "exact ordered edge parity");
+        assert_eq!(candidate.len(), 2 * (n - 1), "all oriented path edges");
+
+        let time = |use_candidate: bool| -> u128 {
+            let start = Instant::now();
+            for _ in 0..calls {
+                let result = if use_candidate {
+                    edge_bfs_directed(black_box(&graph), black_box(source))
+                } else {
+                    super::edge_bfs_directed_orig_string(black_box(&graph), black_box(source))
+                };
+                black_box(result);
+            }
+            start.elapsed().as_nanos()
+        };
+
+        for _ in 0..3 {
+            black_box(time(false));
+            black_box(time(true));
+        }
+
+        let rounds = 15_usize;
+        let mut baseline_times = Vec::with_capacity(rounds);
+        let mut candidate_times = Vec::with_capacity(rounds);
+        let mut null_first_times = Vec::with_capacity(rounds);
+        let mut null_second_times = Vec::with_capacity(rounds);
+        for round in 0..rounds {
+            let (baseline_time, candidate_time) = if round.is_multiple_of(2) {
+                (time(false), time(true))
+            } else {
+                let candidate_time = time(true);
+                (time(false), candidate_time)
+            };
+            baseline_times.push(baseline_time);
+            candidate_times.push(candidate_time);
+
+            let (null_first, null_second) = if round.is_multiple_of(2) {
+                (time(true), time(true))
+            } else {
+                let null_second = time(true);
+                (time(true), null_second)
+            };
+            null_first_times.push(null_first);
+            null_second_times.push(null_second);
+        }
+
+        let baseline_median = median(&baseline_times);
+        let candidate_median = median(&candidate_times);
+        let null_first_median = median(&null_first_times);
+        let null_second_median = median(&null_second_times);
+        let paired_wins = baseline_times
+            .iter()
+            .zip(&candidate_times)
+            .filter(|(baseline_time, candidate_time)| baseline_time > candidate_time)
+            .count();
+
+        println!(
+            "DIRECTED_EDGE_BFS_INDEX_AB n={n} calls={calls} rounds={rounds} baseline_median_ns={baseline_median} candidate_median_ns={candidate_median} speedup={:.3}x paired_wins={paired_wins}/{rounds} null_first_median_ns={null_first_median} null_second_median_ns={null_second_median} null_ratio={:.3}x exact_parity=true",
+            baseline_median as f64 / candidate_median as f64,
+            null_first_median as f64 / null_second_median as f64,
+        );
     }
 
     #[test]
@@ -63999,6 +80051,147 @@ mod tests {
     // -----------------------------------------------------------------------
     // Clustering & cliques — additional
     // -----------------------------------------------------------------------
+
+    #[test]
+    fn transitivity_scalar_matches_materialized_kernel() {
+        let mut graphs = vec![Graph::strict()];
+
+        let mut degenerate = Graph::strict();
+        degenerate.add_node("isolated");
+        let _ = degenerate.add_edge("loop", "loop");
+        let _ = degenerate.add_edge("left", "right");
+        graphs.push(degenerate);
+
+        let mut mixed = Graph::strict();
+        for edge in [
+            ("a", "b"),
+            ("b", "c"),
+            ("c", "a"),
+            ("c", "d"),
+            ("d", "e"),
+            ("e", "f"),
+            ("f", "c"),
+            ("a", "a"),
+        ] {
+            let _ = mixed.add_edge(edge.0, edge.1);
+        }
+        graphs.push(mixed);
+
+        let mut complete = Graph::strict();
+        for left in 0..7 {
+            for right in (left + 1)..7 {
+                let _ = complete.add_edge(format!("n{left}"), format!("n{right}"));
+            }
+        }
+        graphs.push(complete);
+
+        for (case, graph) in graphs.iter().enumerate() {
+            let materialized = super::clustering_coefficient(graph).transitivity;
+            let scalar = super::transitivity(graph);
+            assert_eq!(
+                scalar.to_bits(),
+                materialized.to_bits(),
+                "case {case} must preserve exact f64 output"
+            );
+        }
+    }
+
+    /// br-r37-c1-bsd0p: same-binary A/B for the scalar-only transitivity kernel
+    /// against the frozen materializing `clustering_coefficient` path, plus a
+    /// candidate/candidate null control.
+    #[test]
+    #[ignore = "measurement; run with --profile release --include-ignored --nocapture"]
+    fn transitivity_scalar_output_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        fn median(values: &[u128]) -> u128 {
+            let mut sorted = values.to_vec();
+            sorted.sort_unstable();
+            sorted[sorted.len() / 2]
+        }
+
+        let n = 32_768usize;
+        let radius = 3usize;
+        let calls = 3usize;
+        let names = (0..n).map(|i| format!("n{i}")).collect::<Vec<_>>();
+        let mut graph = Graph::strict();
+        for name in &names {
+            graph.add_node(name);
+        }
+        for u in 0..n {
+            for offset in 1..=radius {
+                let v = (u + offset) % n;
+                let _ = graph.add_edge(&names[u], &names[v]);
+            }
+        }
+
+        let baseline = super::clustering_coefficient(&graph).transitivity;
+        let candidate = super::transitivity(&graph);
+        assert_eq!(
+            candidate.to_bits(),
+            baseline.to_bits(),
+            "exact scalar parity"
+        );
+
+        let time = |use_candidate: bool| -> u128 {
+            let start = Instant::now();
+            for _ in 0..calls {
+                let value = if use_candidate {
+                    super::transitivity(black_box(&graph))
+                } else {
+                    super::clustering_coefficient(black_box(&graph)).transitivity
+                };
+                black_box(value);
+            }
+            start.elapsed().as_nanos()
+        };
+        for _ in 0..3 {
+            black_box(time(false));
+            black_box(time(true));
+        }
+
+        let rounds = 15usize;
+        let mut baseline_times = Vec::with_capacity(rounds);
+        let mut candidate_times = Vec::with_capacity(rounds);
+        let mut null_first_times = Vec::with_capacity(rounds);
+        let mut null_second_times = Vec::with_capacity(rounds);
+        for round in 0..rounds {
+            let (baseline_time, candidate_time) = if round.is_multiple_of(2) {
+                (time(false), time(true))
+            } else {
+                let candidate_time = time(true);
+                (time(false), candidate_time)
+            };
+            baseline_times.push(baseline_time);
+            candidate_times.push(candidate_time);
+
+            let (null_first, null_second) = if round.is_multiple_of(2) {
+                (time(true), time(true))
+            } else {
+                let null_second = time(true);
+                (time(true), null_second)
+            };
+            null_first_times.push(null_first);
+            null_second_times.push(null_second);
+        }
+
+        let baseline_median = median(&baseline_times);
+        let candidate_median = median(&candidate_times);
+        let null_first_median = median(&null_first_times);
+        let null_second_median = median(&null_second_times);
+        let paired_wins = baseline_times
+            .iter()
+            .zip(&candidate_times)
+            .filter(|(baseline_time, candidate_time)| baseline_time > candidate_time)
+            .count();
+
+        println!(
+            "TRANSITIVITY_SCALAR_AB n={n} radius={radius} calls={calls} rounds={rounds} baseline_median_ns={baseline_median} candidate_median_ns={candidate_median} speedup={:.3}x paired_wins={paired_wins}/{rounds} null_first_median_ns={null_first_median} null_second_median_ns={null_second_median} null_ratio={:.3}x exact_parity=true",
+            baseline_median as f64 / candidate_median as f64,
+            null_first_median as f64 / null_second_median as f64,
+        );
+    }
 
     #[test]
     fn test_all_triangles_triangle() {
@@ -64852,6 +81045,166 @@ mod tests {
         d.add_edge("c", "a").unwrap();
         let census = triadic_census(&d);
         assert_eq!(census["030C"], 1);
+    }
+
+    #[test]
+    fn triadic_census_index_rows_match_edge_snapshot_setup() {
+        let empty = DiGraph::strict();
+        assert_eq!(
+            triadic_census(&empty),
+            super::triadic_census_orig_edge_snapshots(&empty)
+        );
+
+        let mut d = DiGraph::strict();
+        for node in [
+            "node-zeta-with-a-long-name",
+            "node-alpha-with-a-long-name",
+            "node-mu-with-a-long-name",
+            "node-beta-with-a-long-name",
+            "node-omega-with-a-long-name",
+        ] {
+            assert!(d.add_node(node));
+        }
+        for (source, target) in [
+            ("node-zeta-with-a-long-name", "node-alpha-with-a-long-name"),
+            ("node-alpha-with-a-long-name", "node-zeta-with-a-long-name"),
+            ("node-alpha-with-a-long-name", "node-mu-with-a-long-name"),
+            ("node-mu-with-a-long-name", "node-beta-with-a-long-name"),
+            ("node-beta-with-a-long-name", "node-alpha-with-a-long-name"),
+            ("node-omega-with-a-long-name", "node-mu-with-a-long-name"),
+            ("node-zeta-with-a-long-name", "node-zeta-with-a-long-name"),
+        ] {
+            let mut edge_attrs = AttrMap::new();
+            edge_attrs.insert(
+                "payload".to_owned(),
+                CgseValue::from(format!("attribute-{source}-{target}")),
+            );
+            d.add_edge_with_attrs(source, target, edge_attrs).unwrap();
+        }
+
+        let candidate = triadic_census(&d);
+        let baseline = super::triadic_census_orig_edge_snapshots(&d);
+        assert_eq!(candidate, baseline, "all 16 census cells must match");
+        assert_eq!(candidate.values().sum::<usize>(), 10, "C(5, 3) triads");
+    }
+
+    /// br-r37-c1-t37f9: same-binary paired A/B for the live native
+    /// `triadic_census` setup. The baseline clones ordered edge snapshots and
+    /// hashes endpoint names; the candidate reads canonical successor indices.
+    /// Run with `cargo test --profile release -p fnx-algorithms --lib
+    /// triadic_census_index_rows_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with --profile release --ignored --nocapture"]
+    fn triadic_census_index_rows_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        const N: usize = 768;
+        const OUT_DEGREE: usize = 4;
+        const ATTRS_PER_EDGE: usize = 6;
+        const ROUNDS: usize = 15;
+
+        let labels = (0..N)
+            .map(|i| format!("triad-node-{i:04}-abcdefghijklmnopqrstuvwxyz0123456789"))
+            .collect::<Vec<_>>();
+        let mut d = DiGraph::strict();
+        for label in &labels {
+            assert!(d.add_node(label.clone()));
+        }
+        for u in 0..N {
+            for offset in [1_usize, 7, 31, 97] {
+                let v = (u + offset) % N;
+                let mut edge_attrs = AttrMap::new();
+                for slot in 0..ATTRS_PER_EDGE {
+                    edge_attrs.insert(
+                        format!("payload-{slot}"),
+                        CgseValue::from(format!(
+                            "edge-{u:04}-{v:04}-slot-{slot}-{}",
+                            "x".repeat(80)
+                        )),
+                    );
+                }
+                d.add_edge_with_attrs(labels[u].clone(), labels[v].clone(), edge_attrs)
+                    .unwrap();
+            }
+        }
+
+        let candidate = triadic_census(&d);
+        let baseline = super::triadic_census_orig_edge_snapshots(&d);
+        assert_eq!(candidate, baseline, "exact 16-cell parity before timing");
+
+        let time = |candidate: bool| -> f64 {
+            let start = Instant::now();
+            let census = if candidate {
+                triadic_census(black_box(&d))
+            } else {
+                super::triadic_census_orig_edge_snapshots(black_box(&d))
+            };
+            black_box(census);
+            start.elapsed().as_nanos() as f64
+        };
+        for _ in 0..3 {
+            black_box(time(false));
+            black_box(time(true));
+        }
+
+        let mut baseline_ns = Vec::with_capacity(ROUNDS);
+        let mut candidate_ns = Vec::with_capacity(ROUNDS);
+        let mut paired_ratios = Vec::with_capacity(ROUNDS);
+        let mut null_ratios = Vec::with_capacity(ROUNDS);
+        for round in 0..ROUNDS {
+            let (baseline_elapsed, candidate_elapsed) = if round % 2 == 0 {
+                (time(false), time(true))
+            } else {
+                let candidate_elapsed = time(true);
+                let baseline_elapsed = time(false);
+                (baseline_elapsed, candidate_elapsed)
+            };
+            baseline_ns.push(baseline_elapsed);
+            candidate_ns.push(candidate_elapsed);
+            paired_ratios.push(baseline_elapsed / candidate_elapsed);
+
+            let (null_first, null_second) = if round % 2 == 0 {
+                (time(true), time(true))
+            } else {
+                let null_second = time(true);
+                let null_first = time(true);
+                (null_first, null_second)
+            };
+            null_ratios.push(null_first / null_second);
+        }
+
+        let median = |values: &[f64]| -> f64 {
+            let mut sorted = values.to_vec();
+            sorted.sort_by(f64::total_cmp);
+            sorted[sorted.len() / 2]
+        };
+        let percentile_range = |values: &[f64]| -> (f64, f64) {
+            let mut sorted = values.to_vec();
+            sorted.sort_by(f64::total_cmp);
+            (sorted[ROUNDS * 5 / 100], sorted[ROUNDS * 95 / 100])
+        };
+        let paired_range = percentile_range(&paired_ratios);
+        let null_range = percentile_range(&null_ratios);
+        let paired_wins = paired_ratios.iter().filter(|&&ratio| ratio > 1.0).count();
+        let null_wins = null_ratios.iter().filter(|&&ratio| ratio > 1.0).count();
+        println!(
+            "TRIADIC_CENSUS_INDEX_ROWS_AB n={N} out_degree={OUT_DEGREE} \
+             attrs_per_edge={ATTRS_PER_EDGE} rounds={ROUNDS} \
+             baseline_median_ns={:.0} candidate_median_ns={:.0} \
+             paired_median={:.4}x paired_wins={paired_wins}/{ROUNDS} \
+             paired_p5_p95=[{:.4},{:.4}] null_median={:.4}x \
+             null_wins={null_wins}/{ROUNDS} null_p5_p95=[{:.4},{:.4}] \
+             exact_16_cell_parity=true",
+            median(&baseline_ns),
+            median(&candidate_ns),
+            median(&paired_ratios),
+            paired_range.0,
+            paired_range.1,
+            median(&null_ratios),
+            null_range.0,
+            null_range.1,
+        );
     }
 
     #[test]
@@ -65788,6 +82141,71 @@ mod tests {
     }
 
     #[test]
+    fn snap_aggregation_stable_fast_forward_parity() {
+        fn signature(graph: &Graph) -> (Vec<String>, Vec<(String, String)>) {
+            let nodes = graph
+                .nodes_ordered()
+                .into_iter()
+                .map(str::to_owned)
+                .collect();
+            let edges = graph
+                .edges_ordered()
+                .into_iter()
+                .map(|edge| (edge.left, edge.right))
+                .collect();
+            (nodes, edges)
+        }
+
+        let attrs = ["color".to_owned()];
+        let fixtures = {
+            let mut path = Graph::strict();
+            for i in 0..17usize {
+                let color = if i % 3 == 0 { "red" } else { "blue" };
+                let _ = path.add_node_with_attrs(
+                    format!("path-node-{i:02}-with-a-long-label"),
+                    single_attr("color", color),
+                );
+            }
+            for i in 0..16usize {
+                let _ = path.add_edge(
+                    format!("path-node-{i:02}-with-a-long-label"),
+                    format!("path-node-{:02}-with-a-long-label", i + 1),
+                );
+            }
+
+            let mut regular = Graph::hardened();
+            for i in 0..12usize {
+                let _ = regular.add_node_with_attrs(
+                    format!("cycle-node-{i:02}"),
+                    single_attr("color", "same"),
+                );
+            }
+            for i in 0..12usize {
+                let _ = regular.add_edge(
+                    format!("cycle-node-{i:02}"),
+                    format!("cycle-node-{:02}", (i + 1) % 12),
+                );
+                let _ = regular.add_edge(
+                    format!("cycle-node-{i:02}"),
+                    format!("cycle-node-{:02}", (i + 3) % 12),
+                );
+            }
+
+            vec![Graph::strict(), path, regular]
+        };
+
+        for graph in &fixtures {
+            let baseline = super::snap_aggregation_orig_all_passes(graph, &attrs);
+            let candidate = snap_aggregation(graph, &attrs);
+            assert_eq!(
+                signature(&candidate),
+                signature(&baseline),
+                "stable-refinement fast-forward must preserve exact supernode labels and edge order"
+            );
+        }
+    }
+
+    #[test]
     fn test_gomory_hu_tree_preserves_runtime_policy() {
         let mut g = Graph::hardened();
         let _ = g.add_edge_with_attrs("a", "b", single_attr("weight", "1.0"));
@@ -65947,6 +82365,153 @@ mod tests {
     }
 
     #[test]
+    fn is_connected_dominating_set_indexed_matches_string_baseline() {
+        let check = |graph: &Graph, nodes: &[&str]| {
+            assert_eq!(
+                super::is_connected_dominating_set(graph, nodes),
+                super::is_connected_dominating_set_orig_string(graph, nodes),
+                "predicate parity failed for {nodes:?}"
+            );
+        };
+
+        let empty = Graph::strict();
+        check(&empty, &[]);
+        check(&empty, &["ghost"]);
+        check(&empty, &["ghost", "ghost"]);
+
+        let mut path = Graph::strict();
+        let _ = path.add_edge("a", "b");
+        let _ = path.add_edge("b", "c");
+        let _ = path.add_edge("c", "d");
+        check(&path, &[]);
+        check(&path, &["a", "b", "c", "d"]);
+        check(&path, &["b", "c"]);
+        check(&path, &["a", "d"]);
+        check(&path, &["b", "b", "c"]);
+        check(&path, &["ghost", "b", "c"]);
+        check(&path, &["b", "c", "ghost"]);
+
+        let mut singleton = Graph::strict();
+        assert!(singleton.add_node("only".to_owned()));
+        check(&singleton, &["only"]);
+        check(&singleton, &["ghost"]);
+
+        let mut disconnected = Graph::strict();
+        assert!(disconnected.add_node("left".to_owned()));
+        assert!(disconnected.add_node("right".to_owned()));
+        check(&disconnected, &["left", "right"]);
+    }
+
+    /// br-r37-c1-73ztf: same-binary paired A/B for compact-index domination
+    /// and induced-connectivity state. The fixed long-label path keeps the
+    /// mandatory adjacency walk small while exposing the former per-node Vec
+    /// allocations and String hashes. Run only as the one foreground ordinary-
+    /// release measurement for this lever.
+    #[test]
+    #[ignore = "measurement; run with --profile release --ignored --nocapture"]
+    fn is_connected_dominating_set_indexed_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        const NODE_COUNT: usize = 8_192;
+        const CALLS_PER_SAMPLE: usize = 8;
+        const PAIRS: usize = 15;
+
+        let labels: Vec<String> = (0..NODE_COUNT)
+            .map(|index| format!("connected-dominating-long-node-{index:05}-payload"))
+            .collect();
+        let mut graph = Graph::strict();
+        for label in &labels {
+            assert!(graph.add_node(label.clone()));
+        }
+        for edge in labels.windows(2) {
+            let _ = graph.add_edge(edge[0].clone(), edge[1].clone());
+        }
+        let node_refs: Vec<&str> = labels.iter().map(String::as_str).collect();
+
+        let baseline = super::is_connected_dominating_set_orig_string(&graph, &node_refs);
+        let indexed = super::is_connected_dominating_set(&graph, &node_refs);
+        assert_eq!(indexed, baseline);
+        assert!(indexed);
+
+        let time_arm = |use_indexed: bool| -> u128 {
+            let started = Instant::now();
+            for _ in 0..CALLS_PER_SAMPLE {
+                let value = if use_indexed {
+                    super::is_connected_dominating_set(black_box(&graph), black_box(&node_refs))
+                } else {
+                    super::is_connected_dominating_set_orig_string(
+                        black_box(&graph),
+                        black_box(&node_refs),
+                    )
+                };
+                black_box(value);
+            }
+            started.elapsed().as_nanos()
+        };
+
+        for _ in 0..3 {
+            black_box(time_arm(false));
+            black_box(time_arm(true));
+        }
+
+        let mut baseline_times = Vec::with_capacity(PAIRS);
+        let mut indexed_times = Vec::with_capacity(PAIRS);
+        for pair in 0..PAIRS {
+            let (baseline_ns, indexed_ns) = if pair.is_multiple_of(2) {
+                (time_arm(false), time_arm(true))
+            } else {
+                let indexed_ns = time_arm(true);
+                let baseline_ns = time_arm(false);
+                (baseline_ns, indexed_ns)
+            };
+            baseline_times.push(baseline_ns);
+            indexed_times.push(indexed_ns);
+        }
+
+        let mut null_left = Vec::with_capacity(PAIRS);
+        let mut null_right = Vec::with_capacity(PAIRS);
+        for pair in 0..PAIRS {
+            let (left, right) = if pair.is_multiple_of(2) {
+                (time_arm(true), time_arm(true))
+            } else {
+                let right = time_arm(true);
+                let left = time_arm(true);
+                (left, right)
+            };
+            null_left.push(left);
+            null_right.push(right);
+        }
+
+        let median = |values: &[u128]| -> u128 {
+            let mut sorted = values.to_vec();
+            sorted.sort_unstable();
+            sorted[sorted.len() / 2]
+        };
+        let baseline_median = median(&baseline_times);
+        let indexed_median = median(&indexed_times);
+        let null_left_median = median(&null_left);
+        let null_right_median = median(&null_right);
+        let wins = baseline_times
+            .iter()
+            .zip(&indexed_times)
+            .filter(|(baseline_ns, indexed_ns)| baseline_ns > indexed_ns)
+            .count();
+
+        println!(
+            "IS_CONNECTED_DOMINATING_SET_INDEXED_AB nodes={NODE_COUNT} calls={CALLS_PER_SAMPLE} \
+             pairs={PAIRS} baseline_median_ns={baseline_median} \
+             indexed_median_ns={indexed_median} ratio={:.3}x wins={wins}/{PAIRS} parity=exact",
+            baseline_median as f64 / indexed_median as f64
+        );
+        println!(
+            "IS_CONNECTED_DOMINATING_SET_INDEXED_NULL left_median_ns={null_left_median} \
+             right_median_ns={null_right_median} ratio={:.3}x parity=exact",
+            null_left_median as f64 / null_right_median as f64
+        );
+    }
+
+    #[test]
     fn test_selfloop_functions() {
         let mut g = Graph::strict();
         let _ = g.add_edge("a", "a");
@@ -66002,6 +82567,249 @@ mod tests {
         let _ = g.add_edge("b", "c");
         // All edges in a path are local bridges (no common neighbors)
         assert_eq!(local_bridges_list(&g).len(), 2);
+    }
+
+    /// br-r37-c1-f1run: full-function A/B for replacing two per-edge neighbor
+    /// vectors plus two `HashSet`s with one native-index adjacency probe.
+    #[test]
+    #[ignore = "measurement; run with --release --ignored --nocapture"]
+    fn local_bridges_indexed_ab() {
+        use std::collections::HashSet;
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        fn old_local_bridges_list(graph: &Graph) -> Vec<(String, String)> {
+            let mut result = Vec::new();
+            for edge in graph.edges_ordered() {
+                if edge.left == edge.right {
+                    continue;
+                }
+                let u_nbrs: HashSet<&str> = graph
+                    .neighbors(&edge.left)
+                    .unwrap_or_default()
+                    .into_iter()
+                    .filter(|&neighbor| neighbor != edge.right.as_str())
+                    .collect();
+                let v_nbrs: HashSet<&str> = graph
+                    .neighbors(&edge.right)
+                    .unwrap_or_default()
+                    .into_iter()
+                    .filter(|&neighbor| neighbor != edge.left.as_str())
+                    .collect();
+                if u_nbrs.intersection(&v_nbrs).next().is_none() {
+                    result.push((edge.left.clone(), edge.right.clone()));
+                }
+            }
+            result
+        }
+
+        fn graph(edges: &[(&str, &str)]) -> Graph {
+            let mut graph = Graph::strict();
+            for &(left, right) in edges {
+                graph.add_edge(left, right).unwrap();
+            }
+            graph
+        }
+
+        fn complete(n: usize) -> Graph {
+            let mut graph = Graph::strict();
+            for node in 0..n {
+                graph.add_node(node.to_string());
+            }
+            for left in 0..n {
+                for right in (left + 1)..n {
+                    graph.add_edge(left.to_string(), right.to_string()).unwrap();
+                }
+            }
+            graph
+        }
+
+        for fixture in [
+            graph(&[("a", "b"), ("b", "c"), ("c", "d")]),
+            graph(&[("a", "b"), ("b", "c"), ("c", "d"), ("d", "a")]),
+            graph(&[("a", "b"), ("b", "c"), ("c", "a"), ("c", "d")]),
+            graph(&[("a", "b"), ("a", "a")]),
+            graph(&[("a", "b"), ("a", "a"), ("b", "b")]),
+            complete(6),
+        ] {
+            assert_eq!(
+                old_local_bridges_list(&fixture),
+                super::local_bridges_list(&fixture)
+            );
+        }
+
+        let graph = complete(192);
+        assert_eq!(old_local_bridges_list(&graph), Vec::new());
+        assert_eq!(super::local_bridges_list(&graph), Vec::new());
+
+        let time = |old: bool| -> f64 {
+            let start = Instant::now();
+            let result = if old {
+                old_local_bridges_list(black_box(&graph))
+            } else {
+                super::local_bridges_list(black_box(&graph))
+            };
+            black_box(result);
+            start.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(true));
+            black_box(time(false));
+        }
+
+        let rounds = 31usize;
+        let paired = |baseline_old: bool, contender_old: bool| -> Vec<f64> {
+            let mut ratios = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (baseline, contender) = if round.is_multiple_of(2) {
+                    (time(baseline_old), time(contender_old))
+                } else {
+                    let contender = time(contender_old);
+                    (time(baseline_old), contender)
+                };
+                ratios.push(baseline / contender);
+            }
+            ratios
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(|left, right| left.partial_cmp(right).unwrap());
+            let wins = ratios.iter().filter(|&&ratio| ratio > 1.0).count();
+            println!(
+                "LOCALBRIDX_AB {name}: median={:.4}x win_rate={wins}/{rounds} p5_p95=[{:.4},{:.4}]",
+                sorted[rounds / 2],
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+        println!("LOCALBRIDX_AB complete_192 rounds={rounds} (>1 = indexed faster)");
+        report("INDEX_vs_sets", &paired(true, false));
+        report("NULL_index_vs_index", &paired(false, false));
+    }
+
+    /// br-r37-c1-xuvu2: full-function A/B for consuming ordered edge indices
+    /// instead of cloning `EdgeSnapshot`s and hashing both names back to indices.
+    #[test]
+    #[ignore = "measurement; run with --release --ignored --nocapture"]
+    fn local_bridges_edge_indices_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        fn snapshot_local_bridges_list(graph: &Graph) -> Vec<(String, String)> {
+            let mut result = Vec::new();
+            for edge in graph.edges_ordered() {
+                if edge.left == edge.right {
+                    continue;
+                }
+                let u = graph
+                    .get_node_index(&edge.left)
+                    .expect("edge endpoint is a graph node");
+                let v = graph
+                    .get_node_index(&edge.right)
+                    .expect("edge endpoint is a graph node");
+                let has_common_neighbor = graph.neighbors_indices(u).is_some_and(|neighbors| {
+                    neighbors
+                        .iter()
+                        .copied()
+                        .any(|w| w != u && w != v && graph.has_edge_by_indices(v, w))
+                });
+                if !has_common_neighbor {
+                    result.push((edge.left.clone(), edge.right.clone()));
+                }
+            }
+            result
+        }
+
+        fn graph(edges: &[(&str, &str)]) -> Graph {
+            let mut graph = Graph::strict();
+            for &(left, right) in edges {
+                graph.add_edge(left, right).unwrap();
+            }
+            graph
+        }
+
+        fn complete(n: usize) -> Graph {
+            let mut graph = Graph::strict();
+            for node in 0..n {
+                graph.add_node(node.to_string());
+            }
+            for left in 0..n {
+                for right in (left + 1)..n {
+                    graph.add_edge(left.to_string(), right.to_string()).unwrap();
+                }
+            }
+            graph
+        }
+
+        let mut nonlexical = Graph::strict();
+        for node in ["z", "a", "m", "b", "q"] {
+            nonlexical.add_node(node);
+        }
+        for (left, right) in [("m", "a"), ("z", "b"), ("z", "a"), ("q", "m")] {
+            nonlexical.add_edge(left, right).unwrap();
+        }
+        for fixture in [
+            graph(&[("a", "b"), ("b", "c"), ("c", "d")]),
+            graph(&[("a", "b"), ("b", "c"), ("c", "d"), ("d", "a")]),
+            graph(&[("a", "b"), ("b", "c"), ("c", "a"), ("c", "d")]),
+            graph(&[("a", "b"), ("a", "a")]),
+            graph(&[("a", "b"), ("a", "a"), ("b", "b")]),
+            nonlexical,
+            complete(6),
+        ] {
+            assert_eq!(
+                snapshot_local_bridges_list(&fixture),
+                super::local_bridges_list(&fixture)
+            );
+        }
+
+        let graph = complete(384);
+        assert_eq!(snapshot_local_bridges_list(&graph), Vec::new());
+        assert_eq!(super::local_bridges_list(&graph), Vec::new());
+
+        let time = |snapshot: bool| -> f64 {
+            let start = Instant::now();
+            let result = if snapshot {
+                snapshot_local_bridges_list(black_box(&graph))
+            } else {
+                super::local_bridges_list(black_box(&graph))
+            };
+            black_box(result);
+            start.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(true));
+            black_box(time(false));
+        }
+
+        let rounds = 31usize;
+        let paired = |baseline_snapshot: bool, contender_snapshot: bool| -> Vec<f64> {
+            let mut ratios = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (baseline, contender) = if round.is_multiple_of(2) {
+                    (time(baseline_snapshot), time(contender_snapshot))
+                } else {
+                    let contender = time(contender_snapshot);
+                    (time(baseline_snapshot), contender)
+                };
+                ratios.push(baseline / contender);
+            }
+            ratios
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(|left, right| left.partial_cmp(right).unwrap());
+            let wins = ratios.iter().filter(|&&ratio| ratio > 1.0).count();
+            println!(
+                "LOCALBREDGEIDX_AB {name}: median={:.4}x win_rate={wins}/{rounds} p5_p95=[{:.4},{:.4}]",
+                sorted[rounds / 2],
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+        println!("LOCALBREDGEIDX_AB complete_384 rounds={rounds} (>1 = edge indices faster)");
+        report("EDGEIDX_vs_snapshots", &paired(true, false));
+        report("NULL_edgeidx_vs_edgeidx", &paired(false, false));
     }
 
     #[test]
@@ -71731,6 +88539,123 @@ mod tests {
         report("NULL_int_vs_int", &paired(true, true));
     }
 
+    /// br-r37-c1-yx9iw: full-function paired A/B for stable-refinement
+    /// fast-forwarding. A regular single-attribute graph stabilizes after the
+    /// first pass; the frozen baseline still performs all `n` passes. Exact
+    /// supernode-label and edge-order parity is asserted before timing. Run with
+    /// `cargo test --profile release -p fnx-algorithms --lib
+    /// snap_aggregation_stable_fast_forward_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with --profile release --ignored --nocapture"]
+    fn snap_aggregation_stable_fast_forward_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        fn signature(graph: &Graph) -> (Vec<String>, Vec<(String, String)>) {
+            let nodes = graph
+                .nodes_ordered()
+                .into_iter()
+                .map(str::to_owned)
+                .collect();
+            let edges = graph
+                .edges_ordered()
+                .into_iter()
+                .map(|edge| (edge.left, edge.right))
+                .collect();
+            (nodes, edges)
+        }
+
+        fn median(values: &[u128]) -> u128 {
+            let mut sorted = values.to_vec();
+            sorted.sort_unstable();
+            sorted[sorted.len() / 2]
+        }
+
+        let n_nodes = 512usize;
+        let mut graph = Graph::strict();
+        for i in 0..n_nodes {
+            let _ = graph.add_node_with_attrs(
+                format!("regular-node-{i:04}-with-a-long-label"),
+                single_attr("color", "same"),
+            );
+        }
+        for i in 0..n_nodes {
+            for step in 1..=12usize {
+                let _ = graph.add_edge(
+                    format!("regular-node-{i:04}-with-a-long-label"),
+                    format!("regular-node-{:04}-with-a-long-label", (i + step) % n_nodes),
+                );
+            }
+        }
+        let attrs = ["color".to_owned()];
+
+        let baseline = super::snap_aggregation_orig_all_passes(&graph, &attrs);
+        let candidate = super::snap_aggregation(&graph, &attrs);
+        assert_eq!(
+            signature(&candidate),
+            signature(&baseline),
+            "fast-forwarded SNAP output must exactly match all-pass output"
+        );
+
+        let time = |candidate: bool| -> u128 {
+            let started = Instant::now();
+            let result = if candidate {
+                super::snap_aggregation(&graph, &attrs)
+            } else {
+                super::snap_aggregation_orig_all_passes(&graph, &attrs)
+            };
+            black_box(result.node_count());
+            black_box(result.edge_count());
+            started.elapsed().as_nanos()
+        };
+
+        for _ in 0..3 {
+            black_box(time(false));
+            black_box(time(true));
+        }
+
+        let rounds = 15usize;
+        let paired = |baseline_is_candidate: bool| -> (Vec<f64>, Vec<u128>, Vec<u128>) {
+            let mut ratios = Vec::with_capacity(rounds);
+            let mut baseline_samples = Vec::with_capacity(rounds);
+            let mut candidate_samples = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (baseline_ns, candidate_ns) = if round.is_multiple_of(2) {
+                    (time(baseline_is_candidate), time(true))
+                } else {
+                    let candidate_ns = time(true);
+                    let baseline_ns = time(baseline_is_candidate);
+                    (baseline_ns, candidate_ns)
+                };
+                ratios.push(baseline_ns as f64 / candidate_ns as f64);
+                baseline_samples.push(baseline_ns);
+                candidate_samples.push(candidate_ns);
+            }
+            (ratios, baseline_samples, candidate_samples)
+        };
+        let (full_ratios, baseline_samples, candidate_samples) = paired(false);
+        let (null_ratios, _, _) = paired(true);
+        let report = |name: &str, ratios: &[f64]| {
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(|left, right| left.partial_cmp(right).unwrap());
+            let wins = ratios.iter().filter(|&&ratio| ratio > 1.0).count();
+            println!(
+                "SNAP_STABLE_AB {name}: median={:.4}x wins={wins}/{rounds} p5_p95=[{:.4},{:.4}]",
+                sorted[rounds / 2],
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+
+        println!(
+            "SNAP_STABLE_AB full_function n={n_nodes} degree=24 rounds={rounds} baseline_median_ns={} candidate_median_ns={}",
+            median(&baseline_samples),
+            median(&candidate_samples),
+        );
+        report("FAST_FORWARD_vs_all_passes", &full_ratios);
+        report("NULL_fast_forward_vs_fast_forward", &null_ratios);
+    }
+
     /// br-r37-c1-gbfsidx: paired-interleaved median A/B for generic_bfs_edges' neighbour iteration —
     /// inline the full BFS with a flag branching only the neighbour collection (ORIGINAL neighbors(nodes
     /// [v]) + idx.get re-hash vs the shipped neighbors_indices). Differential output-list parity asserted
@@ -72675,6 +89600,203 @@ mod tests {
         report("NULL_edgecount_vs_edgecount", &paired(true, true));
     }
 
+    /// br-r37-c1-vngrp: isolated paired-interleaved median A/B for `ego_graph`'s induced-edge copy
+    /// loop. The original arm materializes `edges_ordered()` (two owned Strings plus an AttrMap clone
+    /// per input edge) before cloning retained edges into the result batch. The candidate walks the
+    /// order-identical borrowed snapshot and performs only the required result clones. Both arms use
+    /// the same all-node ego set and assert an exactly equal ordered batch before timing. `#[ignore]`;
+    /// run with `cargo test --release -p fnx-algorithms --lib ego_graph_edge_borrow_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with --release --ignored --nocapture"]
+    fn ego_graph_edge_borrow_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        let n_nodes = 8000usize;
+        let mut graph = Graph::strict();
+        for i in 0..n_nodes {
+            let _ = graph.add_node(i.to_string());
+        }
+        for i in 0..n_nodes {
+            for step in 1..=25usize {
+                let _ = graph.add_edge(i.to_string(), ((i + step) % n_nodes).to_string());
+            }
+        }
+        let nodes = graph.nodes_ordered();
+        let idx: HashMap<&str, usize> = nodes
+            .iter()
+            .enumerate()
+            .map(|(i, &node)| (node, i))
+            .collect();
+        let ego_set: HashSet<usize> = (0..n_nodes).collect();
+
+        let old_fn = || -> Vec<(String, String, AttrMap)> {
+            let mut edges = Vec::with_capacity(graph.edge_count());
+            for edge in graph.edges_ordered() {
+                if let (Some(&ui), Some(&vi)) =
+                    (idx.get(edge.left.as_str()), idx.get(edge.right.as_str()))
+                    && ego_set.contains(&ui)
+                    && ego_set.contains(&vi)
+                {
+                    edges.push((edge.left.clone(), edge.right.clone(), edge.attrs.clone()));
+                }
+            }
+            edges
+        };
+        let new_fn = || -> Vec<(String, String, AttrMap)> {
+            let mut edges = Vec::with_capacity(graph.edge_count());
+            for (left, right, attrs) in graph.edges_ordered_borrowed() {
+                if let (Some(&ui), Some(&vi)) = (idx.get(left), idx.get(right))
+                    && ego_set.contains(&ui)
+                    && ego_set.contains(&vi)
+                {
+                    edges.push((left.to_owned(), right.to_owned(), attrs.clone()));
+                }
+            }
+            edges
+        };
+
+        assert_eq!(old_fn(), new_fn(), "ego_graph induced-edge batch parity");
+
+        let time = |borrowed: bool| -> f64 {
+            let t0 = Instant::now();
+            let edges = if borrowed { new_fn() } else { old_fn() };
+            black_box(edges);
+            t0.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(true));
+            black_box(time(false));
+        }
+        let median = |values: &[f64]| {
+            let mut sorted = values.to_vec();
+            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            sorted[sorted.len() / 2]
+        };
+        let rounds = 61usize;
+        let paired = |candidate: bool, baseline: bool| -> Vec<f64> {
+            let mut ratios = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (base_time, candidate_time) = if round.is_multiple_of(2) {
+                    (time(baseline), time(candidate))
+                } else {
+                    let candidate_time = time(candidate);
+                    (time(baseline), candidate_time)
+                };
+                ratios.push(base_time / candidate_time);
+            }
+            ratios
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&ratio| ratio > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            println!(
+                "EGOBORROW_AB {name}: median={:.4}x win_rate={wins}/{rounds} p5_p95=[{:.4},{:.4}]",
+                median(ratios),
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+        println!("EGOBORROW_AB induced-edge-copy 8k/200k rounds={rounds} (>1 = borrowed faster)");
+        report("BORROWED_vs_owned", &paired(true, false));
+        report("NULL_borrowed_vs_borrowed", &paired(true, true));
+    }
+
+    /// br-r37-c1-8vjja: isolated paired-interleaved median A/B for the ordered edge scan that builds
+    /// `to_prufer_sequence`'s integer adjacency. The original arm materializes `edges_ordered()`
+    /// (cloning two Strings and an unused AttrMap per tree edge); the candidate parses the identical
+    /// borrowed endpoints. Exact ordered integer endpoint parity is asserted before timing. `#[ignore]`;
+    /// run with `cargo test --release -p fnx-algorithms --lib to_prufer_edge_borrow_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with --release --ignored --nocapture"]
+    fn to_prufer_edge_borrow_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        let n_nodes = 100_000usize;
+        let mut graph = Graph::strict();
+        for i in 0..n_nodes {
+            let _ = graph.add_node(i.to_string());
+        }
+        for i in 1..n_nodes {
+            let _ = graph.add_edge((i - 1).to_string(), i.to_string());
+        }
+
+        let old_fn = || -> Vec<(usize, usize)> {
+            graph
+                .edges_ordered()
+                .into_iter()
+                .map(|edge| {
+                    (
+                        edge.left.parse::<usize>().unwrap(),
+                        edge.right.parse::<usize>().unwrap(),
+                    )
+                })
+                .collect()
+        };
+        let new_fn = || -> Vec<(usize, usize)> {
+            graph
+                .edges_ordered_borrowed()
+                .into_iter()
+                .map(|(left, right, _attrs)| {
+                    (
+                        left.parse::<usize>().unwrap(),
+                        right.parse::<usize>().unwrap(),
+                    )
+                })
+                .collect()
+        };
+
+        assert_eq!(old_fn(), new_fn(), "Prüfer ordered edge scan parity");
+
+        let time = |borrowed: bool| -> f64 {
+            let t0 = Instant::now();
+            let edges = if borrowed { new_fn() } else { old_fn() };
+            black_box(edges);
+            t0.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(true));
+            black_box(time(false));
+        }
+        let median = |values: &[f64]| {
+            let mut sorted = values.to_vec();
+            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            sorted[sorted.len() / 2]
+        };
+        let rounds = 61usize;
+        let paired = |candidate: bool, baseline: bool| -> Vec<f64> {
+            let mut ratios = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (base_time, candidate_time) = if round.is_multiple_of(2) {
+                    (time(baseline), time(candidate))
+                } else {
+                    let candidate_time = time(candidate);
+                    (time(baseline), candidate_time)
+                };
+                ratios.push(base_time / candidate_time);
+            }
+            ratios
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&ratio| ratio > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            println!(
+                "PRUFERBORROW_AB {name}: median={:.4}x win_rate={wins}/{rounds} p5_p95=[{:.4},{:.4}]",
+                median(ratios),
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+        println!(
+            "PRUFERBORROW_AB ordered-edge-scan path100k rounds={rounds} (>1 = borrowed faster)"
+        );
+        report("BORROWED_vs_owned", &paired(true, false));
+        report("NULL_borrowed_vs_borrowed", &paired(true, true));
+    }
+
     /// br-r37-c1-modwborrow: isolated paired-interleaved median A/B for `modularity`'s w_map-build edge
     /// loop — inline ORIGINAL `edges_ordered()` (clones two owned Strings + an AttrMap per edge into an
     /// EdgeSnapshot) vs the shipped `edges_ordered_borrowed()` (yields `(&str,&str,&AttrMap)`, zero
@@ -73141,6 +90263,353 @@ mod tests {
             "Prüfer sequence undefined for trees with fewer than two nodes"
         );
     }
+
+    #[test]
+    fn from_prufer_sequence_preserves_ordered_smallest_leaf_decode() {
+        assert_eq!(
+            super::from_prufer_sequence(&[]).unwrap().edges,
+            vec![(0, 1)]
+        );
+        assert_eq!(
+            super::from_prufer_sequence(&[3, 3, 3, 4]).unwrap().edges,
+            vec![(0, 3), (1, 3), (2, 3), (3, 4), (4, 5)]
+        );
+        assert_eq!(
+            super::from_prufer_sequence(&[2, 4, 0, 1, 3, 3])
+                .unwrap()
+                .edges,
+            vec![(2, 5), (2, 4), (0, 4), (0, 1), (1, 3), (3, 6), (3, 7)]
+        );
+        assert_eq!(
+            super::from_prufer_sequence(&[0, 5, 99]).unwrap_err(),
+            "Invalid Prufer sequence: Values must be between 0 and 4, got 5"
+        );
+    }
+
+    /// br-r37-c1-uxbg8: paired-interleaved A/B for the Rust Prüfer decoder's
+    /// smallest-leaf selection. The frozen baseline rescans 0..n for every
+    /// code element; production uses the monotonic pointer. Exact ordered edge
+    /// and error parity are asserted before timing. `#[ignore]`; run with
+    /// `cargo test --release -p fnx-algorithms --lib from_prufer_pointer_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with --release --ignored --nocapture"]
+    fn from_prufer_pointer_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        fn old_from_prufer(sequence: &[usize]) -> Result<super::PruferResult, String> {
+            let n = sequence.len() + 2;
+            for &i in sequence {
+                if i >= n {
+                    return Err(format!(
+                        "Invalid Prufer sequence: Values must be between 0 and {}, got {}",
+                        n - 1,
+                        i
+                    ));
+                }
+            }
+            let mut degree = vec![1_usize; n];
+            for &i in sequence {
+                degree[i] += 1;
+            }
+            let mut edges: Vec<(usize, usize)> = Vec::with_capacity(n - 1);
+            for &i in sequence {
+                for j in 0..n {
+                    if degree[j] == 1 {
+                        edges.push((i.min(j), i.max(j)));
+                        degree[i] -= 1;
+                        degree[j] -= 1;
+                        break;
+                    }
+                }
+            }
+            let last: Vec<usize> = (0..n).filter(|&j| degree[j] == 1).collect();
+            if last.len() == 2 {
+                edges.push((last[0].min(last[1]), last[0].max(last[1])));
+            }
+            Ok(super::PruferResult { edges })
+        }
+
+        for sequence in [
+            Vec::new(),
+            vec![0],
+            vec![2, 2, 2],
+            vec![1, 3, 3, 0, 4, 4],
+            vec![5, 0, 5, 1, 5, 2],
+        ] {
+            assert_eq!(
+                old_from_prufer(&sequence),
+                super::from_prufer_sequence(&sequence),
+                "ordered Prüfer decode parity for {sequence:?}"
+            );
+        }
+        assert_eq!(
+            old_from_prufer(&[3]),
+            super::from_prufer_sequence(&[3]),
+            "invalid-value error parity"
+        );
+
+        // Star centered at n-1: the old smallest-leaf scan walks across every
+        // previously removed leaf again, totaling roughly n²/2 probes.
+        let n = 10_000usize;
+        let sequence = vec![n - 1; n - 2];
+        assert_eq!(
+            old_from_prufer(&sequence),
+            super::from_prufer_sequence(&sequence),
+            "worst-case ordered edge parity"
+        );
+
+        let time = |candidate: bool| -> f64 {
+            let start = Instant::now();
+            let result = if candidate {
+                super::from_prufer_sequence(black_box(&sequence))
+            } else {
+                old_from_prufer(black_box(&sequence))
+            };
+            black_box(result.unwrap());
+            start.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(true));
+            black_box(time(false));
+        }
+        let median = |values: &[f64]| {
+            let mut sorted = values.to_vec();
+            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            sorted[sorted.len() / 2]
+        };
+        let rounds = 31usize;
+        let paired = |candidate: bool, baseline: bool| -> Vec<f64> {
+            let mut ratios = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (base_time, candidate_time) = if round.is_multiple_of(2) {
+                    (time(baseline), time(candidate))
+                } else {
+                    let candidate_time = time(candidate);
+                    (time(baseline), candidate_time)
+                };
+                ratios.push(base_time / candidate_time);
+            }
+            ratios
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&ratio| ratio > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            println!(
+                "FROMPRUFER_AB {name}: median={:.4}x win_rate={wins}/{rounds} p5_p95=[{:.4},{:.4}]",
+                median(ratios),
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+        println!("FROMPRUFER_AB star_n={n} rounds={rounds} (>1 = pointer faster)");
+        report("POINTER_vs_rescan", &paired(true, false));
+        report("NULL_pointer_vs_pointer", &paired(true, true));
+    }
+
+    /// br-r37-c1-6rzwp: full-function paired-interleaved A/B for
+    /// `chordal_graph_cliques`. The frozen baseline rescans every unnumbered
+    /// node's numbered neighbors for each MCS comparison; production maintains
+    /// the same `(weight, Reverse(lexicographic_rank))` choice in rank buckets.
+    /// Exact ordered clique parity is asserted before timing. `#[ignore]`; run
+    /// with `cargo test --release -p fnx-algorithms --lib chordal_graph_cliques_mcs_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with --release --ignored --nocapture"]
+    fn chordal_graph_cliques_mcs_ab() {
+        use std::collections::{HashMap, HashSet};
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        fn frozen_scan(graph: &Graph) -> Vec<Vec<String>> {
+            let mut result = Vec::new();
+
+            for mut component in super::connected_components(graph).components.into_iter() {
+                if component.is_empty() {
+                    continue;
+                }
+                if component.len() == 1 {
+                    result.push(component);
+                    continue;
+                }
+
+                component.sort_unstable();
+                let rank: HashMap<&str, usize> = component
+                    .iter()
+                    .enumerate()
+                    .map(|(index, node)| (node.as_str(), index))
+                    .collect();
+                let start = component[0].as_str();
+                let mut unnumbered: HashSet<&str> = component.iter().map(String::as_str).collect();
+                let mut numbered = HashSet::from([start]);
+                unnumbered.remove(start);
+                let mut clique_wanna_be = HashSet::from([start]);
+
+                while !unnumbered.is_empty() {
+                    let &chosen = unnumbered
+                        .iter()
+                        .max_by(|&&left, &&right| {
+                            let left_count = graph
+                                .neighbors_iter(left)
+                                .map(|neighbors| {
+                                    neighbors
+                                        .filter(|neighbor| numbered.contains(*neighbor))
+                                        .count()
+                                })
+                                .unwrap_or(0);
+                            let right_count = graph
+                                .neighbors_iter(right)
+                                .map(|neighbors| {
+                                    neighbors
+                                        .filter(|neighbor| numbered.contains(*neighbor))
+                                        .count()
+                                })
+                                .unwrap_or(0);
+                            left_count
+                                .cmp(&right_count)
+                                .then_with(|| rank[&right].cmp(&rank[&left]))
+                        })
+                        .expect("unnumbered is non-empty");
+
+                    if super::node_set_is_complete(
+                        graph,
+                        &clique_wanna_be.iter().copied().collect::<Vec<&str>>(),
+                    ) {
+                        let mut new_clique_wanna_be: HashSet<&str> = graph
+                            .neighbors_iter(chosen)
+                            .map(|neighbors| {
+                                neighbors
+                                    .filter(|neighbor| numbered.contains(*neighbor))
+                                    .collect()
+                            })
+                            .unwrap_or_default();
+                        new_clique_wanna_be.insert(chosen);
+                        if !new_clique_wanna_be.is_superset(&clique_wanna_be) {
+                            let mut clique: Vec<String> = clique_wanna_be
+                                .iter()
+                                .map(|node| (*node).to_owned())
+                                .collect();
+                            clique.sort();
+                            result.push(clique);
+                        }
+                        clique_wanna_be = new_clique_wanna_be;
+                    } else {
+                        return Vec::new();
+                    }
+
+                    unnumbered.remove(chosen);
+                    numbered.insert(chosen);
+                }
+
+                let mut clique: Vec<String> = clique_wanna_be
+                    .iter()
+                    .map(|node| (*node).to_owned())
+                    .collect();
+                clique.sort();
+                result.push(clique);
+            }
+
+            result
+        }
+
+        let mut fixtures = Vec::new();
+        let mut path = Graph::strict();
+        path.add_edge("node-10", "node-2").unwrap();
+        path.add_edge("node-2", "node-1").unwrap();
+        fixtures.push(path);
+        let mut diamond = Graph::strict();
+        for (left, right) in [("d", "b"), ("d", "a"), ("b", "a"), ("b", "c"), ("a", "c")] {
+            diamond.add_edge(left, right).unwrap();
+        }
+        fixtures.push(diamond);
+        let mut star_and_isolate = Graph::strict();
+        star_and_isolate.add_node("isolate");
+        for leaf in ["z", "node-10", "node-2", "a"] {
+            star_and_isolate.add_edge("center", leaf).unwrap();
+        }
+        fixtures.push(star_and_isolate);
+        let mut cycle4 = Graph::strict();
+        for (left, right) in [("0", "1"), ("1", "2"), ("2", "3"), ("3", "0")] {
+            cycle4.add_edge(left, right).unwrap();
+        }
+        fixtures.push(cycle4);
+        for graph in &fixtures {
+            assert_eq!(
+                frozen_scan(graph),
+                super::chordal_graph_cliques(graph),
+                "exact ordered clique parity"
+            );
+        }
+
+        // A fourth-power path is chordal and keeps the output linear while the
+        // frozen selector repeatedly rescans all remaining candidates.
+        let n = 1_200_usize;
+        let mut graph = Graph::strict();
+        let names: Vec<String> = (0..n).map(|i| format!("node-{i}")).collect();
+        for name in names.iter().rev() {
+            graph.add_node(name);
+        }
+        for i in 0..n {
+            for distance in 1..=4 {
+                if i + distance < n {
+                    graph.add_edge(&names[i], &names[i + distance]).unwrap();
+                }
+            }
+        }
+        assert_eq!(
+            frozen_scan(&graph),
+            super::chordal_graph_cliques(&graph),
+            "timed fourth-power-path exact ordered clique parity"
+        );
+
+        let time = |candidate: bool| -> f64 {
+            let start = Instant::now();
+            let cliques = if candidate {
+                super::chordal_graph_cliques(black_box(&graph))
+            } else {
+                frozen_scan(black_box(&graph))
+            };
+            black_box(cliques);
+            start.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(true));
+            black_box(time(false));
+        }
+        let median = |values: &[f64]| {
+            let mut sorted = values.to_vec();
+            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            sorted[sorted.len() / 2]
+        };
+        let rounds = 31_usize;
+        let paired = |candidate: bool, baseline: bool| -> Vec<f64> {
+            let mut ratios = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (baseline_time, candidate_time) = if round.is_multiple_of(2) {
+                    (time(baseline), time(candidate))
+                } else {
+                    let candidate_time = time(candidate);
+                    (time(baseline), candidate_time)
+                };
+                ratios.push(baseline_time / candidate_time);
+            }
+            ratios
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&ratio| ratio > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            println!(
+                "CHORDCLIQMCS_AB {name}: median={:.4}x win_rate={wins}/{rounds} p5_p95=[{:.4},{:.4}]",
+                median(ratios),
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+        println!("CHORDCLIQMCS_AB path4_n={n} rounds={rounds} (>1 = buckets faster)");
+        report("BUCKETS_vs_scan", &paired(true, false));
+        report("NULL_buckets_vs_buckets", &paired(true, true));
+    }
 }
 
 #[cfg(test)]
@@ -73494,6 +90963,42 @@ mod lu_pade_tests {
         assert_eq!(
             unweighted_laplacian_spectrum(&graph, None, 1).unwrap(),
             [0.0]
+        );
+    }
+
+    /// br-r37-c1-2zn1u AVX2 probe: does `-C target-cpu=x86-64-v3` move the
+    /// pure-FLOP dense core (`matmul_rowmajor`, the matrix-exponential /
+    /// communicability-family kernel)? Prints the COMPILE-TIME target features
+    /// so the ledger can prove the flag actually reached codegen through rch
+    /// env forwarding (execution-proof discipline). Run BOTH arms on the SAME
+    /// pinned worker:
+    /// baseline: `RCH_REQUIRE_REMOTE=1 RCH_WORKER=<pin> rch exec -- cargo test --release -p fnx-algorithms --lib zn1u_avx2_matmul_probe -- --ignored --nocapture`
+    /// avx2:     same + `RCH_ENV_ALLOWLIST=RUSTFLAGS RUSTFLAGS='-C target-cpu=x86-64-v3'`
+    #[test]
+    #[ignore = "timing probe; run --release with --ignored --nocapture"]
+    fn zn1u_avx2_matmul_probe() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        let n = 384usize;
+        let mut rng = Lcg(0x9E37_79B9_7F4A_7C15);
+        // Strictly positive entries: the kernel's zero-skip branch never fires,
+        // so this times the dense FLOP path.
+        let a: Vec<f64> = (0..n * n).map(|_| rng.next_f64() + 0.001).collect();
+        let b: Vec<f64> = (0..n * n).map(|_| rng.next_f64() + 0.001).collect();
+        let mut samples = Vec::new();
+        for _ in 0..9 {
+            let t0 = Instant::now();
+            let c = matmul_rowmajor(&a, &b, n);
+            samples.push(t0.elapsed().as_secs_f64());
+            black_box(&c);
+        }
+        samples.sort_by(f64::total_cmp);
+        println!(
+            "ZN1U_AVX2_PROBE n={n} avx2_compiled={} fma_compiled={} median_matmul={:.6}s",
+            cfg!(target_feature = "avx2"),
+            cfg!(target_feature = "fma"),
+            samples[samples.len() / 2],
         );
     }
 }

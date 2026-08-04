@@ -5,27 +5,255 @@
 //! Run:   cargo bench -p fnx-algorithms
 //! Gate:  check p50/p95/p99 via criterion JSON output in target/criterion/
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 
-use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
+use criterion::{BenchmarkId, Criterion, criterion_group};
+#[cfg(feature = "bench-internals")]
+use fnx_algorithms::network_simplex_int::{
+    NetworkSimplexCycleArm, NetworkSimplexIntSolution, NetworkSimplexStatus,
+    network_simplex_int_cycle_arm,
+};
 use fnx_algorithms::{
-    BitparArm, adamic_adar_index, aspl_gate_overhead_cost, average_degree_connectivity,
-    average_shortest_path_length, average_shortest_path_length_arm, betweenness_centrality,
-    closeness_centrality, closeness_centrality_arm, closeness_reverse_csr_build_cost,
-    cn_soundarajan_hopcroft, common_neighbor_centrality, common_neighbors, connected_components,
-    degree_centrality, degree_mixing_dict, eigenvector_centrality, harmonic_centrality,
+    BitparArm, ConnectedComponentsQueueArm, adamic_adar_index, aspl_gate_overhead_cost,
+    average_degree_connectivity, average_shortest_path_length, average_shortest_path_length_arm,
+    betweenness_centrality, closeness_centrality, closeness_centrality_arm,
+    closeness_reverse_csr_build_cost, cn_soundarajan_hopcroft, common_neighbor_centrality,
+    common_neighbors, connected_components, connected_components_arm, degree_centrality,
+    degree_histogram, degree_mixing_dict, eigenvector_centrality, harmonic_centrality,
     harmonic_centrality_arm, jaccard_coefficient, max_flow_edmonds_karp, minimum_cut_edmonds_karp,
     minimum_spanning_tree, node_degree_xy, pagerank, preferential_attachment,
     ra_index_soundarajan_hopcroft, resource_allocation_index, shortest_path_unweighted,
     shortest_path_weighted, single_source_dijkstra_path_length,
 };
-use fnx_classes::{Graph, digraph::DiGraph};
-use fnx_runtime::CgseValue;
+use fnx_classes::{AttrMap, Graph, MultiGraph, MultiGraphSnapshot, digraph::DiGraph};
+use fnx_runtime::{CgseValue, CompatibilityMode};
+use indexmap::{IndexMap, IndexSet};
+use rustc_hash::FxBuildHasher;
+use sha2::{Digest, Sha256};
+
+/// SHA-256 of the benchmark executable, reported by the process that runs it.
+fn self_identity() -> String {
+    let Ok(path) = std::env::current_exe() else {
+        return "unavailable".to_owned();
+    };
+    let Ok(bytes) = std::fs::read(&path) else {
+        return "unavailable".to_owned();
+    };
+    let mut hasher = Sha256::new();
+    hasher.update(&bytes);
+    format!(
+        "{:x} ({} bytes) {}",
+        hasher.finalize(),
+        bytes.len(),
+        path.display()
+    )
+}
 
 fn attr(key: &str, val: &str) -> BTreeMap<String, CgseValue> {
     let mut m = BTreeMap::new();
     m.insert(key.to_owned(), val.to_owned().into());
     m
+}
+
+type FrozenFxIndexMap<K, V> = IndexMap<K, V, FxBuildHasher>;
+
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+struct FrozenEdgeKey {
+    left: String,
+    right: String,
+}
+
+impl FrozenEdgeKey {
+    fn new(left: &str, right: &str) -> Self {
+        if left <= right {
+            Self {
+                left: left.to_owned(),
+                right: right.to_owned(),
+            }
+        } else {
+            Self {
+                left: right.to_owned(),
+                right: left.to_owned(),
+            }
+        }
+    }
+}
+
+/// Frozen pre-thp6w MultiGraph store. This intentionally preserves the old
+/// three-map String representation so the cutover benchmark has a real
+/// in-process baseline without keeping the retired store in production.
+struct FrozenStringMultiGraph {
+    nodes: FrozenFxIndexMap<String, AttrMap>,
+    adjacency: FrozenFxIndexMap<String, IndexMap<String, IndexSet<usize>>>,
+    edges: FrozenFxIndexMap<FrozenEdgeKey, IndexMap<usize, AttrMap>>,
+    edge_count: usize,
+}
+
+impl FrozenStringMultiGraph {
+    fn from_fresh_int_prefix(node_count: usize, edges: &[(usize, usize, usize)]) -> Self {
+        let mut nodes = FrozenFxIndexMap::with_capacity_and_hasher(node_count, FxBuildHasher);
+        let mut adjacency: FrozenFxIndexMap<String, IndexMap<String, IndexSet<usize>>> =
+            FrozenFxIndexMap::with_capacity_and_hasher(node_count, FxBuildHasher);
+        let mut edge_store: FrozenFxIndexMap<FrozenEdgeKey, IndexMap<usize, AttrMap>> =
+            FrozenFxIndexMap::with_capacity_and_hasher(edges.len(), FxBuildHasher);
+        let node_names = (0..node_count)
+            .map(|node| node.to_string())
+            .collect::<Vec<_>>();
+        for node in &node_names {
+            nodes.insert(node.clone(), AttrMap::new());
+            adjacency.insert(node.clone(), IndexMap::new());
+        }
+
+        for &(left_idx, right_idx, key) in edges {
+            let left = &node_names[left_idx];
+            let right = &node_names[right_idx];
+            edge_store
+                .entry(FrozenEdgeKey::new(left, right))
+                .or_default()
+                .insert(key, AttrMap::new());
+            adjacency
+                .get_mut(left.as_str())
+                .expect("integer-prefix left node should exist")
+                .entry(right.clone())
+                .or_default()
+                .insert(key);
+            if left_idx != right_idx {
+                adjacency
+                    .get_mut(right.as_str())
+                    .expect("integer-prefix right node should exist")
+                    .entry(left.clone())
+                    .or_default()
+                    .insert(key);
+            }
+        }
+
+        Self {
+            nodes,
+            adjacency,
+            edges: edge_store,
+            edge_count: edges.len(),
+        }
+    }
+
+    fn snapshot(&self) -> MultiGraphSnapshot {
+        let mut edges = Vec::with_capacity(self.edge_count);
+        let mut seen =
+            std::collections::HashSet::<(FrozenEdgeKey, usize)>::with_capacity(self.edge_count);
+        for node in self.nodes.keys() {
+            let neighbors = self
+                .adjacency
+                .get(node.as_str())
+                .expect("every fixture node has an adjacency row");
+            for neighbor in neighbors.keys() {
+                let pair = FrozenEdgeKey::new(node, neighbor);
+                let bucket = self
+                    .edges
+                    .get(&pair)
+                    .expect("every adjacency cell has an edge bucket");
+                for (&key, attrs) in bucket {
+                    if !seen.insert((pair.clone(), key)) {
+                        continue;
+                    }
+                    edges.push(fnx_classes::MultiEdgeSnapshot {
+                        left: pair.left.clone(),
+                        right: pair.right.clone(),
+                        key,
+                        attrs: attrs.clone(),
+                    });
+                }
+            }
+        }
+        MultiGraphSnapshot {
+            mode: CompatibilityMode::Strict,
+            nodes: self.nodes.keys().cloned().collect(),
+            node_attrs: self
+                .nodes
+                .iter()
+                .filter(|(_, attrs)| !attrs.is_empty())
+                .map(|(node, attrs)| (node.clone(), attrs.clone()))
+                .collect(),
+            edges,
+        }
+    }
+
+    fn observable_count(&self) -> usize {
+        self.nodes.len().wrapping_add(self.edge_count)
+    }
+}
+
+#[derive(Clone, Copy)]
+enum MultiGraphCutoverArm {
+    FrozenString,
+    StableSlot,
+}
+
+fn multigraph_cutover_fixture(
+    node_count: usize,
+    edges_per_node: usize,
+) -> Vec<(usize, usize, usize)> {
+    let mut stream = Vec::with_capacity(node_count.saturating_mul(edges_per_node));
+    let mut next_keys = HashMap::<(usize, usize), usize>::new();
+    let mut state = 0xD1B5_4A32_D192_ED03_u64;
+    for left in 0..node_count {
+        for lane in 0..edges_per_node {
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+            let right = if lane == 0 {
+                left
+            } else if lane == 1 {
+                (left + 1) % node_count
+            } else {
+                (state as usize) % node_count
+            };
+            let pair = (left.min(right), left.max(right));
+            let key = next_keys.entry(pair).or_default();
+            stream.push((left, right, *key));
+            *key += 1;
+        }
+    }
+    stream
+}
+
+fn multigraph_cutover_snapshot(
+    node_count: usize,
+    edges: &[(usize, usize, usize)],
+    arm: MultiGraphCutoverArm,
+) -> MultiGraphSnapshot {
+    match arm {
+        MultiGraphCutoverArm::FrozenString => {
+            FrozenStringMultiGraph::from_fresh_int_prefix(node_count, edges).snapshot()
+        }
+        MultiGraphCutoverArm::StableSlot => {
+            let mut graph = MultiGraph::strict();
+            let inserted = graph
+                .extend_fresh_int_prefix_keyed_edges_unrecorded(node_count, edges.iter().copied());
+            assert_eq!(inserted, edges.len());
+            graph.snapshot()
+        }
+    }
+}
+
+fn encode_multigraph_snapshot(snapshot: &MultiGraphSnapshot) -> Vec<u64> {
+    fn push_string(encoded: &mut Vec<u64>, value: &str) {
+        encoded.push(value.len() as u64);
+        encoded.extend(value.bytes().map(u64::from));
+    }
+
+    let mut encoded = Vec::with_capacity(snapshot.nodes.len() + snapshot.edges.len() * 6);
+    encoded.push(snapshot.nodes.len() as u64);
+    for node in &snapshot.nodes {
+        push_string(&mut encoded, node);
+        encoded.push(snapshot.node_attrs.get(node).map_or(0, BTreeMap::len) as u64);
+    }
+    encoded.push(snapshot.edges.len() as u64);
+    for edge in &snapshot.edges {
+        push_string(&mut encoded, &edge.left);
+        push_string(&mut encoded, &edge.right);
+        encoded.push(edge.key as u64);
+        encoded.push(edge.attrs.len() as u64);
+    }
+    encoded
 }
 
 // ---------------------------------------------------------------------------
@@ -364,6 +592,88 @@ fn bench_connected_components(c: &mut Criterion) {
     group.finish();
 }
 
+/// Resurrection rerun for the 2026-07-10 `connected_components` Vec-FIFO row.
+/// The old decision had no A/A null, no executing-ELF identity, and rejected on
+/// raw-arm CV despite a profile attributing 76.4% inclusive time to the target
+/// traversal. This rerun uses the process-wide self hash plus adjacent
+/// base/base and base/candidate median-CI decisions.
+fn bench_connected_components_queue_void_rerun(_c: &mut Criterion) {
+    const CALLS: usize = 100;
+    const ROUNDS: usize = 61;
+
+    let run = |g: &Graph, arm: ConnectedComponentsQueueArm| -> usize {
+        let mut checksum = 0usize;
+        for _ in 0..CALLS {
+            let result = std::hint::black_box(connected_components_arm(
+                std::hint::black_box(g),
+                std::hint::black_box(arm),
+            ));
+            checksum = checksum
+                .wrapping_mul(31)
+                .wrapping_add(result.components.len())
+                .wrapping_add(result.witness.nodes_touched)
+                .wrapping_add(result.witness.edges_scanned)
+                .wrapping_add(result.witness.queue_peak);
+        }
+        std::hint::black_box(checksum)
+    };
+    let score = |g: &Graph, arm: ConnectedComponentsQueueArm| -> Vec<u64> {
+        let result = connected_components_arm(g, arm);
+        let mut hash = 0xcbf2_9ce4_8422_2325_u64;
+        for component in &result.components {
+            hash ^= component.len() as u64;
+            hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+            for node in component {
+                for &byte in node.as_bytes() {
+                    hash ^= u64::from(byte);
+                    hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+                }
+            }
+        }
+        vec![
+            hash,
+            result.components.len() as u64,
+            result.witness.nodes_touched as u64,
+            result.witness.edges_scanned as u64,
+            result.witness.queue_peak as u64,
+        ]
+    };
+
+    for (label, graph) in [
+        ("connected_components/path/1000", build_path(1000)),
+        ("connected_components/grid/900", build_grid(30, 30)),
+    ] {
+        assert_eq!(
+            connected_components_arm(&graph, ConnectedComponentsQueueArm::VecDeque),
+            connected_components_arm(&graph, ConnectedComponentsQueueArm::VecHead),
+            "{label}: VecDeque and Vec-head outputs diverged"
+        );
+        let null = paired_interleaved_ab_base(
+            label,
+            &graph,
+            "vec_deque",
+            ConnectedComponentsQueueArm::VecDeque,
+            "null_control",
+            ConnectedComponentsQueueArm::VecDeque,
+            ROUNDS,
+            &run,
+            &score,
+        );
+        let candidate = paired_interleaved_ab_base(
+            label,
+            &graph,
+            "vec_deque",
+            ConnectedComponentsQueueArm::VecDeque,
+            "vec_head",
+            ConnectedComponentsQueueArm::VecHead,
+            ROUNDS,
+            &run,
+            &score,
+        );
+        report_median_ci_gate(label, "vec_deque", "vec_head", null, candidate);
+    }
+}
+
 fn bench_average_shortest_path_length(c: &mut Criterion) {
     let mut group = c.benchmark_group("average_shortest_path_length");
     for &(r, co) in &[(20, 20), (30, 30), (40, 40)] {
@@ -373,6 +683,41 @@ fn bench_average_shortest_path_length(c: &mut Criterion) {
             b.iter(|| average_shortest_path_length(&g));
         });
     }
+    group.finish();
+}
+
+fn degree_histogram_name_two_pass(graph: &Graph) -> Vec<usize> {
+    let nodes = graph.nodes_ordered();
+    if nodes.is_empty() {
+        return Vec::new();
+    }
+    let max_degree = nodes
+        .iter()
+        .map(|&node| graph.neighbor_count(node))
+        .max()
+        .unwrap_or(0);
+    let mut histogram = vec![0_usize; max_degree + 1];
+    for &node in &nodes {
+        histogram[graph.neighbor_count(node)] += 1;
+    }
+    histogram
+}
+
+fn bench_degree_histogram_index_ab(c: &mut Criterion) {
+    let graph = build_low_diameter(4_096, 12_288);
+    let frozen = degree_histogram_name_two_pass(&graph);
+    assert_eq!(degree_histogram(&graph), frozen);
+
+    let mut group = c.benchmark_group("degree_histogram_index_ab");
+    group.bench_function("frozen_name_two_pass_n4096", |b| {
+        b.iter(|| degree_histogram_name_two_pass(&graph));
+    });
+    group.bench_function("candidate_index_one_pass_n4096", |b| {
+        b.iter(|| degree_histogram(&graph));
+    });
+    group.bench_function("candidate_index_one_pass_null_n4096", |b| {
+        b.iter(|| degree_histogram(&graph));
+    });
     group.finish();
 }
 
@@ -475,17 +820,26 @@ fn paired_interleaved_ab(
     // share this sampler without duplicating the statistics.
     run_arm: &dyn Fn(&Graph, BitparArm) -> usize,
     score_bits: &dyn Fn(&Graph, BitparArm) -> Vec<u64>,
-) {
+) -> PairedStats {
     paired_interleaved_ab_base(
         label,
         g,
+        "per_source",
         BitparArm::PerSource,
         cand_name,
         cand,
         rounds,
         run_arm,
         score_bits,
-    );
+    )
+}
+
+#[derive(Clone, Copy)]
+struct PairedStats {
+    ratio_median: f64,
+    ci_lo: f64,
+    ci_hi: f64,
+    median_cv: f64,
 }
 
 /// As above but with an explicit BASE arm. The A/A null control needs `base == cand`
@@ -494,20 +848,21 @@ fn paired_interleaved_ab(
 /// — the two arms differ in the gate probe + row collection, whose own variance the
 /// per_source null cannot see (br-r37-c1-4bubk).
 #[allow(clippy::too_many_arguments)]
-fn paired_interleaved_ab_base(
+fn paired_interleaved_ab_base<G, A: Copy>(
     label: &str,
-    g: &Graph,
-    base: BitparArm,
+    g: &G,
+    base_name: &str,
+    base: A,
     cand_name: &str,
-    cand: BitparArm,
+    cand: A,
     rounds: usize,
-    run_arm: &dyn Fn(&Graph, BitparArm) -> usize,
-    score_bits: &dyn Fn(&Graph, BitparArm) -> Vec<u64>,
-) {
+    run_arm: &dyn Fn(&G, A) -> usize,
+    score_bits: &dyn Fn(&G, A) -> Vec<u64>,
+) -> PairedStats {
     use std::hint::black_box;
     use std::time::Instant;
 
-    let run = |arm: BitparArm| -> usize { run_arm(black_box(g), black_box(arm)) };
+    let run = |arm: A| -> usize { run_arm(black_box(g), black_box(arm)) };
     for _ in 0..3 {
         black_box(run(base));
         black_box(run(cand));
@@ -553,11 +908,10 @@ fn paired_interleaved_ab_base(
         s.sort_by(|a, b| a.partial_cmp(b).unwrap());
         s[s.len() / 2]
     };
-    // The decision statistic is the MEDIAN paired ratio, so the quantity that must
-    // clear the cv gate is the sampling error OF THAT MEDIAN — not the spread of
-    // individual pairs, which on a shared worker mostly reflects other tenants.
-    // Bootstrap it. `win_rate` is the distribution-free companion: the fraction of
-    // adjacent pairs the candidate won, which drift cannot fake.
+    // The decision statistic is the MEDIAN paired ratio. Bootstrap its 95% CI;
+    // `median_cv` is provenance only and is never a gate. `win_rate` is the
+    // distribution-free companion: the fraction of adjacent pairs the candidate
+    // won, which drift cannot fake.
     let point = median(&ratios);
     let mut x: u64 = 0x9E37_79B9_7F4A_7C15;
     let mut rng = || {
@@ -586,7 +940,7 @@ fn paired_interleaved_ab_base(
         .fold((f64::MAX, f64::MIN), |(l, h), &r| (l.min(r), h.max(r)));
 
     println!(
-        "PAIRED {label} per_source vs {cand_name}: orig_med={:.3}ms cand_med={:.3}ms \
+        "PAIRED {label} {base_name} vs {cand_name}: orig_med={:.3}ms cand_med={:.3}ms \
          ratio_med={:.3}x ci95=[{:.3},{:.3}] median_cv={:.2}% win_rate={}/{} \
          ratio_min={:.3}x ratio_max={:.3}x checksum={:#018x}",
         median(&orig),
@@ -601,6 +955,293 @@ fn paired_interleaved_ab_base(
         hi,
         checksum
     );
+
+    PairedStats {
+        ratio_median: point,
+        ci_lo,
+        ci_hi,
+        median_cv,
+    }
+}
+
+fn report_median_ci_gate(
+    label: &str,
+    base_name: &str,
+    cand_name: &str,
+    null: PairedStats,
+    candidate: PairedStats,
+) {
+    let null_half_width = (null.ci_lo - 1.0).abs().max((null.ci_hi - 1.0).abs());
+    let null_log_radius = null.ci_lo.ln().abs().max(null.ci_hi.ln().abs());
+    let candidate_ci_edge_log = if candidate.ci_lo > 1.0 {
+        candidate.ci_lo.ln()
+    } else if candidate.ci_hi < 1.0 {
+        -candidate.ci_hi.ln()
+    } else {
+        0.0
+    };
+    let ci_edge_margin = if null_log_radius > 0.0 {
+        candidate_ci_edge_log / null_log_radius
+    } else {
+        f64::INFINITY
+    };
+    let decidable = median_ci_decidable(null, candidate);
+    println!(
+        "MEDIAN_CI_GATE {label} {base_name} vs {cand_name}: verdict={} \
+         claim={:.3}x null_ci95=[{:.3},{:.3}] null_half_width={:.3} \
+         ci_edge_margin={ci_edge_margin:.2}x candidate_ci95=[{:.3},{:.3}] \
+         cv_report_only=null:{:.2}%/candidate:{:.2}%",
+        if decidable {
+            "DECIDABLE"
+        } else {
+            "UNDECIDABLE"
+        },
+        candidate.ratio_median,
+        null.ci_lo,
+        null.ci_hi,
+        null_half_width,
+        candidate.ci_lo,
+        candidate.ci_hi,
+        null.median_cv,
+        candidate.median_cv
+    );
+}
+
+fn median_ci_decidable(null: PairedStats, candidate: PairedStats) -> bool {
+    if null.ci_lo <= 0.0 || null.ci_hi <= 0.0 || candidate.ci_lo <= 0.0 || candidate.ci_hi <= 0.0 {
+        return false;
+    }
+    let doubled_null_log_radius = 2.0 * null.ci_lo.ln().abs().max(null.ci_hi.ln().abs());
+    candidate.ci_lo.ln() > doubled_null_log_radius
+        || candidate.ci_hi.ln() < -doubled_null_log_radius
+}
+
+fn assert_median_ci_gate_contract() {
+    fn stats(point: f64, lo: f64, hi: f64) -> PairedStats {
+        PairedStats {
+            ratio_median: point,
+            ci_lo: lo,
+            ci_hi: hi,
+            median_cv: 0.0,
+        }
+    }
+
+    let null = stats(1.0, 0.99, 1.01);
+    assert!(!median_ci_decidable(null, stats(1.04, 0.995, 1.05)));
+    assert!(median_ci_decidable(null, stats(1.04, 1.03, 1.05)));
+    assert!(median_ci_decidable(null, stats(0.96, 0.95, 0.97)));
+}
+
+struct MultiGraphCutoverFixture {
+    node_count: usize,
+    edges: Vec<(usize, usize, usize)>,
+}
+
+/// br-r37-c1-thp6w: corrected frontier measurement for the sole-store cutover.
+/// The null and candidate samples run back-to-back in this process, under the
+/// executable identity printed by `main`; only the paired-median bootstrap CI
+/// decides whether the effect clears the measured A/A floor.
+fn run_multigraph_slab_cutover_rerun() {
+    const ROUNDS: usize = 61;
+    let fixture = MultiGraphCutoverFixture {
+        node_count: 10_000,
+        edges: multigraph_cutover_fixture(10_000, 8),
+    };
+    let run = |fixture: &MultiGraphCutoverFixture, arm: MultiGraphCutoverArm| -> usize {
+        match arm {
+            MultiGraphCutoverArm::FrozenString => {
+                let graph = FrozenStringMultiGraph::from_fresh_int_prefix(
+                    fixture.node_count,
+                    &fixture.edges,
+                );
+                let result = graph.observable_count();
+                std::hint::black_box(graph);
+                result
+            }
+            MultiGraphCutoverArm::StableSlot => {
+                let mut graph = MultiGraph::strict();
+                let inserted = graph.extend_fresh_int_prefix_keyed_edges_unrecorded(
+                    fixture.node_count,
+                    fixture.edges.iter().copied(),
+                );
+                assert_eq!(inserted, fixture.edges.len());
+                let result = graph.node_count().wrapping_add(graph.edge_count());
+                std::hint::black_box(graph);
+                result
+            }
+        }
+    };
+    let score = |fixture: &MultiGraphCutoverFixture, arm: MultiGraphCutoverArm| -> Vec<u64> {
+        encode_multigraph_snapshot(&multigraph_cutover_snapshot(
+            fixture.node_count,
+            &fixture.edges,
+            arm,
+        ))
+    };
+    let label = "multigraph/fresh_int_prefix/n10000_m80000";
+    let null = paired_interleaved_ab_base(
+        label,
+        &fixture,
+        "frozen_string",
+        MultiGraphCutoverArm::FrozenString,
+        "null_control",
+        MultiGraphCutoverArm::FrozenString,
+        ROUNDS,
+        &run,
+        &score,
+    );
+    let candidate = paired_interleaved_ab_base(
+        label,
+        &fixture,
+        "frozen_string",
+        MultiGraphCutoverArm::FrozenString,
+        "stable_slot",
+        MultiGraphCutoverArm::StableSlot,
+        ROUNDS,
+        &run,
+        &score,
+    );
+    report_median_ci_gate(label, "frozen_string", "stable_slot", null, candidate);
+}
+
+#[cfg(feature = "bench-internals")]
+struct NetworkSimplexScratchFixture {
+    demands: Vec<i64>,
+    src: Vec<usize>,
+    tgt: Vec<usize>,
+    cap: Vec<i64>,
+    wt: Vec<i64>,
+}
+
+#[cfg(feature = "bench-internals")]
+impl NetworkSimplexScratchFixture {
+    fn assignment(side: usize) -> Self {
+        const OFFSETS: [usize; 4] = [0, 1, 7, 19];
+
+        let mut demands = vec![-1; side];
+        demands.extend(std::iter::repeat_n(1, side));
+        let mut src = Vec::with_capacity(side * OFFSETS.len());
+        let mut tgt = Vec::with_capacity(side * OFFSETS.len());
+        let mut cap = Vec::with_capacity(side * OFFSETS.len());
+        let mut wt = Vec::with_capacity(side * OFFSETS.len());
+        for supplier in 0..side {
+            for (lane, offset) in OFFSETS.into_iter().enumerate() {
+                let sink = (supplier + offset) % side;
+                src.push(supplier);
+                tgt.push(side + sink);
+                cap.push(1);
+                wt.push(((supplier * 17 + sink * 13 + lane * 5) % 11) as i64 - 5);
+            }
+        }
+        Self {
+            demands,
+            src,
+            tgt,
+            cap,
+            wt,
+        }
+    }
+
+    fn solve(&self, arm: NetworkSimplexCycleArm) -> NetworkSimplexIntSolution {
+        network_simplex_int_cycle_arm(
+            &self.demands,
+            &self.src,
+            &self.tgt,
+            &self.cap,
+            &self.wt,
+            arm,
+        )
+    }
+}
+
+#[cfg(feature = "bench-internals")]
+fn encode_network_simplex_solution(solution: &NetworkSimplexIntSolution) -> Vec<u64> {
+    let status = match solution.status {
+        NetworkSimplexStatus::Optimal => 0,
+        NetworkSimplexStatus::Infeasible => 1,
+        NetworkSimplexStatus::Unbounded => 2,
+    };
+    let mut encoded = Vec::with_capacity(solution.flows.len() + 3);
+    encoded.push(status);
+    encoded.push(solution.cost as u64);
+    encoded.push(solution.flows.len() as u64);
+    encoded.extend(solution.flows.iter().map(|&flow| flow as u64));
+    encoded
+}
+
+/// br-r37-c1-coje0: resurrect the profile-attributed pivot-scratch HOLD under
+/// the corrected same-ELF, A/A-then-A/B, median-CI-only contract.
+#[cfg(feature = "bench-internals")]
+fn run_network_simplex_pivot_scratch_rerun() {
+    const BATCH: usize = 64;
+    const ROUNDS: usize = 61;
+
+    let fixture = NetworkSimplexScratchFixture::assignment(64);
+    let run = |fixture: &NetworkSimplexScratchFixture, arm: NetworkSimplexCycleArm| -> usize {
+        let mut checksum = 0usize;
+        for _ in 0..BATCH {
+            let solution = fixture.solve(arm);
+            checksum = checksum
+                .rotate_left(7)
+                .wrapping_add(solution.cost as usize)
+                .wrapping_add(solution.flows.len());
+            std::hint::black_box(solution);
+        }
+        checksum
+    };
+    let score = |fixture: &NetworkSimplexScratchFixture, arm: NetworkSimplexCycleArm| -> Vec<u64> {
+        encode_network_simplex_solution(&fixture.solve(arm))
+    };
+    let label = "network_simplex/assignment/side64";
+    let null = paired_interleaved_ab_base(
+        label,
+        &fixture,
+        "allocating",
+        NetworkSimplexCycleArm::Allocating,
+        "null_control",
+        NetworkSimplexCycleArm::Allocating,
+        ROUNDS,
+        &run,
+        &score,
+    );
+    let candidate = paired_interleaved_ab_base(
+        label,
+        &fixture,
+        "allocating",
+        NetworkSimplexCycleArm::Allocating,
+        "reused_scratch",
+        NetworkSimplexCycleArm::ReusedScratch,
+        ROUNDS,
+        &run,
+        &score,
+    );
+    report_median_ci_gate(label, "allocating", "reused_scratch", null, candidate);
+}
+
+/// Run the required A/A control immediately before the real A/B and decide only
+/// against the null median's bootstrap CI. CV is printed as provenance, never used
+/// by this gate.
+#[allow(clippy::too_many_arguments)]
+fn paired_interleaved_with_null(
+    label: &str,
+    g: &Graph,
+    cand_name: &str,
+    cand: BitparArm,
+    rounds: usize,
+    run_arm: &dyn Fn(&Graph, BitparArm) -> usize,
+    score_bits: &dyn Fn(&Graph, BitparArm) -> Vec<u64>,
+) {
+    let null = paired_interleaved_ab(
+        label,
+        g,
+        "null_control",
+        BitparArm::PerSource,
+        rounds,
+        run_arm,
+        score_bits,
+    );
+    let candidate = paired_interleaved_ab(label, g, cand_name, cand, rounds, run_arm, score_bits);
+    report_median_ci_gate(label, "per_source", cand_name, null, candidate);
 }
 
 /// br-r37-c1-x0jz8 A/B. BOTH arms live in this ONE group so a single
@@ -624,21 +1265,8 @@ fn bench_closeness_centrality_parallel(c: &mut Criterion) {
         ("closeness/lowdiam_2000", build_low_diameter(2000, 8000)),
         ("closeness/grid_1600", build_grid(40, 40)),
     ] {
-        // NULL CONTROL (franken_whisper): the IDENTICAL arm against itself, through the
-        // same interleaved routine. Its ratio is this harness's noise floor. Any effect
-        // smaller than the floor — win OR regression — is indistinguishable from noise
-        // and no lever may be judged on it.
-        paired_interleaved_ab(
-            label,
-            &g,
-            "null_control",
-            BitparArm::PerSource,
-            61,
-            &run,
-            &bits,
-        );
-        paired_interleaved_ab(label, &g, "auto", BitparArm::Auto, 61, &run, &bits);
-        paired_interleaved_ab(
+        paired_interleaved_with_null(label, &g, "auto", BitparArm::Auto, 61, &run, &bits);
+        paired_interleaved_with_null(
             label,
             &g,
             "chunked_bitpar",
@@ -703,32 +1331,11 @@ fn bench_aspl_parallel(c: &mut Criterion) {
         ("aspl/grid_1600", build_grid(40, 40)), // GUARD: gate must decline
     ];
     for (label, g) in &workloads {
-        // br-r37-c1-4bubk: aspl's guard sat exactly on the per_source null's lower
-        // bound at 121 rounds — undecidable. 241 rounds tighten the median, and TWO
-        // nulls calibrate the floor: per_source-vs-per_source (the baseline path) AND
-        // auto-vs-auto (the path the guard actually runs, whose gate-probe + row-collect
-        // variance the per_source null cannot see). Decide the guard against the LATTER.
-        paired_interleaved_ab(
-            label,
-            g,
-            "null_persrc",
-            BitparArm::PerSource,
-            241,
-            &run,
-            &bits,
-        );
-        paired_interleaved_ab_base(
-            label,
-            g,
-            BitparArm::Auto,
-            "null_auto",
-            BitparArm::Auto,
-            241,
-            &run,
-            &bits,
-        );
-        paired_interleaved_ab(label, g, "auto", BitparArm::Auto, 241, &run, &bits);
-        paired_interleaved_ab(
+        // br-r37-c1-4bubk: 121 rounds left this guard undecidable, so retain 241
+        // while applying the fleet contract: base/base immediately followed by
+        // base/candidate, gated only on the base/base bootstrap-median CI.
+        paired_interleaved_with_null(label, g, "auto", BitparArm::Auto, 241, &run, &bits);
+        paired_interleaved_with_null(
             label,
             g,
             "chunked_bitpar",
@@ -789,23 +1396,11 @@ fn bench_harmonic_centrality_parallel(c: &mut Criterion) {
         ("harmonic/lowdiam_2000", build_low_diameter(2000, 8000)),
         ("harmonic/grid_1600", build_grid(40, 40)), // GUARD: gate must decline
     ];
-    // 121 rounds, not 61: harmonic's per-source arm pays an f64 division per popped
-    // node, so its grid rows are noisier than closeness's and 61 rounds left the
-    // GUARD row's bootstrapped median at cv 6.00% — above the keep-gate. The extra
-    // rounds tighten the estimator, they do not change what is measured.
+    // Retain 121 rounds because the earlier 61-round median CI was too wide to
+    // decide the guard. The extra rounds tighten the estimator; CV is provenance.
     for (label, g) in &workloads {
-        // NULL CONTROL (franken_whisper): identical arm vs itself = the noise floor.
-        paired_interleaved_ab(
-            label,
-            g,
-            "null_control",
-            BitparArm::PerSource,
-            121,
-            &run,
-            &bits,
-        );
-        paired_interleaved_ab(label, g, "auto", BitparArm::Auto, 121, &run, &bits);
-        paired_interleaved_ab(
+        paired_interleaved_with_null(label, g, "auto", BitparArm::Auto, 121, &run, &bits);
+        paired_interleaved_with_null(
             label,
             g,
             "chunked_bitpar",
@@ -1090,7 +1685,9 @@ criterion_group!(
     bench_shortest_path_weighted,
     bench_single_source_dijkstra,
     bench_connected_components,
+    bench_connected_components_queue_void_rerun,
     bench_average_shortest_path_length,
+    bench_degree_histogram_index_ab,
     bench_aspl_parallel,
     bench_degree_centrality,
     bench_closeness_centrality,
@@ -1109,4 +1706,28 @@ criterion_group!(
     bench_minimum_cut,
     bench_minimum_spanning_tree,
 );
-criterion_main!(benches);
+
+fn main() {
+    println!("bench_elf_sha256={}", self_identity());
+    // Fail before any measurement if a future harness edit regresses the
+    // whole-candidate-CI rule back to a point-estimate decision.
+    assert_median_ci_gate_contract();
+    if std::env::args().any(|arg| arg == "--fnx-harness-contract-check-only") {
+        return;
+    }
+    #[cfg(feature = "bench-internals")]
+    if std::env::var("FNX_FRONTIER_RERUN").as_deref() == Ok("network_simplex_pivot_scratch") {
+        run_network_simplex_pivot_scratch_rerun();
+        return;
+    }
+    if std::env::var("FNX_FRONTIER_RERUN").as_deref() == Ok("multigraph_slab_cutover") {
+        run_multigraph_slab_cutover_rerun();
+        return;
+    }
+    if std::env::var("FNX_VOID_RERUN").as_deref() == Ok("connected_components_vec_fifo") {
+        let mut criterion = Criterion::default();
+        bench_connected_components_queue_void_rerun(&mut criterion);
+        return;
+    }
+    benches();
+}

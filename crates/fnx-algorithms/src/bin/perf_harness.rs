@@ -11,7 +11,9 @@
 //! Run:    ALGO=betweenness N=1500 DEG=8 ITERS=1 ./target/release-perf/perf_harness
 //!
 //! Env vars:
-//!   ALGO  — betweenness | pagerank | closeness | harmonic | aspl | components | dijkstra_ssp (default betweenness)
+//!   ALGO  — betweenness | pagerank | closeness | harmonic | aspl | components |
+//!           dijkstra_ssp | spanning_tree_ab | path_graph_ab |
+//!           edge_disjoint_paths_ab (default betweenness)
 //!   N     — node count (default 1500)
 //!   DEG   — average degree for the sparse random graph (default 8)
 //!   ITERS — timed repetitions of the algorithm (default 1)
@@ -24,12 +26,14 @@
 use std::hint::black_box;
 use std::time::Instant;
 
+use std::collections::BTreeMap;
 #[cfg(feature = "profile-pprof")]
-use std::collections::{BTreeMap, HashSet};
+use std::collections::HashSet;
 
 use fnx_algorithms::{
-    average_shortest_path_length, betweenness_centrality, closeness_centrality,
-    connected_components, harmonic_centrality, pagerank, shortest_path_unweighted,
+    SpanningTreeCountArm, average_shortest_path_length, betweenness_centrality,
+    closeness_centrality, connected_components, edge_disjoint_paths, harmonic_centrality,
+    is_connected, is_path_graph, number_of_spanning_trees_arm, pagerank, shortest_path_unweighted,
 };
 use fnx_classes::Graph;
 
@@ -129,6 +133,19 @@ fn main() {
     });
     let pprof_enabled = args.pprof || std::env::var_os("PPROF").is_some();
 
+    if algo == "spanning_tree_ab" {
+        run_spanning_tree_ab(n, iters);
+        return;
+    }
+    if algo == "path_graph_ab" {
+        run_path_graph_ab(n, iters);
+        return;
+    }
+    if algo == "edge_disjoint_paths_ab" {
+        run_edge_disjoint_paths_ab(n, iters);
+        return;
+    }
+
     let g = build_sparse(n, deg, seed);
     let m = g.edge_count();
 
@@ -162,6 +179,493 @@ fn main() {
     );
 
     print_pprof_report(pprof_guard, pprof_top);
+}
+
+/// Same-binary, paired-interleaved A/B for br-r37-c1-jhxvq. Graph construction,
+/// parity, and warm-up are outside the measured region; each timing contains only
+/// complete spanning-tree count calls.
+fn run_spanning_tree_ab(node_count: usize, iterations: usize) {
+    assert!(node_count >= 12, "spanning_tree_ab needs at least 12 nodes");
+    let iterations = iterations.max(1);
+    let name = |index: usize| format!("spanning_tree_node_{index:04}_with_long_name");
+    let payload = "attribute-payload-that-is-intentionally-long-enough-to-make-cloning-visible";
+    let mut graph = Graph::strict();
+    for index in 0..node_count {
+        let _ = graph.add_node(name(index));
+    }
+    for left in 0..node_count {
+        for step in 1..=5usize {
+            let right = (left + step) % node_count;
+            let attrs: fnx_classes::AttrMap = (0..8usize)
+                .map(|index| (format!("payload-{index}"), payload.to_owned().into()))
+                .collect::<BTreeMap<_, _>>();
+            let _ = graph.add_edge_with_attrs(name(left), name(right), attrs);
+        }
+    }
+
+    let baseline = number_of_spanning_trees_arm(&graph, None, SpanningTreeCountArm::Contracted);
+    let candidate = number_of_spanning_trees_arm(&graph, None, SpanningTreeCountArm::Direct);
+    assert_eq!(
+        candidate.to_bits(),
+        baseline.to_bits(),
+        "direct and contracted spanning-tree counts must be bit-identical"
+    );
+
+    let time = |arm: SpanningTreeCountArm| -> f64 {
+        let started = Instant::now();
+        for _ in 0..iterations {
+            black_box(number_of_spanning_trees_arm(black_box(&graph), None, arm));
+        }
+        started.elapsed().as_nanos() as f64
+    };
+    for _ in 0..3 {
+        black_box(time(SpanningTreeCountArm::Contracted));
+        black_box(time(SpanningTreeCountArm::Direct));
+    }
+
+    let rounds = 21usize;
+    let paired = |null_control: bool| -> (Vec<f64>, Vec<f64>, Vec<f64>) {
+        let mut ratios = Vec::with_capacity(rounds);
+        let mut baseline_times = Vec::with_capacity(rounds);
+        let mut candidate_times = Vec::with_capacity(rounds);
+        let baseline_arm = if null_control {
+            SpanningTreeCountArm::Direct
+        } else {
+            SpanningTreeCountArm::Contracted
+        };
+        for round in 0..rounds {
+            let (baseline_time, candidate_time) = if round.is_multiple_of(2) {
+                (time(baseline_arm), time(SpanningTreeCountArm::Direct))
+            } else {
+                let candidate_time = time(SpanningTreeCountArm::Direct);
+                (time(baseline_arm), candidate_time)
+            };
+            ratios.push(baseline_time / candidate_time);
+            baseline_times.push(baseline_time);
+            candidate_times.push(candidate_time);
+        }
+        (ratios, baseline_times, candidate_times)
+    };
+    let median = |values: &[f64]| {
+        let mut sorted = values.to_vec();
+        sorted.sort_by(|left, right| left.partial_cmp(right).expect("finite timing"));
+        sorted[sorted.len() / 2]
+    };
+    let report = |label: &str, ratios: &[f64], baseline_times: &[f64], candidate_times: &[f64]| {
+        let wins = ratios.iter().filter(|&&ratio| ratio > 1.0).count();
+        let mut sorted = ratios.to_vec();
+        sorted.sort_by(|left, right| left.partial_cmp(right).expect("finite ratio"));
+        println!(
+            "NST_DIRECT_AB {label}: median={:.4}x win_rate={wins}/{rounds} p5_p95=[{:.4},{:.4}] baseline_median_ns={:.0} candidate_median_ns={:.0}",
+            median(ratios),
+            sorted[rounds * 5 / 100],
+            sorted[rounds * 95 / 100],
+            median(baseline_times) / iterations as f64,
+            median(candidate_times) / iterations as f64,
+        );
+    };
+
+    println!(
+        "NST_DIRECT_AB full-function n={node_count} edges={} attrs_per_edge=8 rounds={rounds} iterations={iterations} (>1 = direct faster)",
+        graph.edge_count()
+    );
+    let (ratios, baseline_times, candidate_times) = paired(false);
+    report(
+        "DIRECT_vs_contracted",
+        &ratios,
+        &baseline_times,
+        &candidate_times,
+    );
+    let (null_ratios, null_left, null_right) = paired(true);
+    report(
+        "NULL_direct_vs_direct",
+        &null_ratios,
+        &null_left,
+        &null_right,
+    );
+}
+
+/// Same-binary, paired-interleaved A/B for br-r37-c1-tz5st. Graph construction,
+/// parity controls, and warm-up are outside the measured region; each timing
+/// contains only complete `is_path_graph` calls.
+fn run_path_graph_ab(node_count: usize, iterations: usize) {
+    assert!(node_count >= 3, "path_graph_ab needs at least 3 nodes");
+    let iterations = iterations.max(1);
+    let name = |index: usize| format!("path_graph_node_{index:06}_with_a_long_stable_label");
+    let mut graph = Graph::strict();
+    for index in 0..node_count {
+        let _ = graph.add_node(name(index));
+    }
+    for index in 0..node_count - 1 {
+        let _ = graph.add_edge(name(index), name(index + 1));
+    }
+
+    let baseline = is_path_graph_name_keyed(&graph);
+    let candidate = is_path_graph(&graph);
+    assert_eq!(
+        candidate, baseline,
+        "index and name-keyed path checks differ"
+    );
+    assert!(
+        candidate,
+        "benchmark graph must exercise the full-success path"
+    );
+
+    let empty = Graph::strict();
+    let mut singleton = Graph::strict();
+    let _ = singleton.add_node("singleton");
+    let mut self_loop = Graph::strict();
+    let _ = self_loop.add_edge("loop", "loop");
+    let mut cycle = Graph::strict();
+    let _ = cycle.add_edge("a", "b");
+    let _ = cycle.add_edge("b", "c");
+    let _ = cycle.add_edge("c", "a");
+    for control in [&empty, &singleton, &self_loop, &cycle] {
+        assert_eq!(
+            is_path_graph(control),
+            is_path_graph_name_keyed(control),
+            "index and name-keyed path checks differ on a parity control"
+        );
+    }
+
+    let time = |candidate_arm: bool| -> f64 {
+        let started = Instant::now();
+        for _ in 0..iterations {
+            let value = if candidate_arm {
+                is_path_graph(black_box(&graph))
+            } else {
+                is_path_graph_name_keyed(black_box(&graph))
+            };
+            black_box(value);
+        }
+        started.elapsed().as_nanos() as f64
+    };
+    for _ in 0..3 {
+        black_box(time(false));
+        black_box(time(true));
+    }
+
+    let rounds = 21usize;
+    let paired = |null_control: bool| -> (Vec<f64>, Vec<f64>, Vec<f64>) {
+        let mut ratios = Vec::with_capacity(rounds);
+        let mut baseline_times = Vec::with_capacity(rounds);
+        let mut candidate_times = Vec::with_capacity(rounds);
+        for round in 0..rounds {
+            let baseline_arm = null_control;
+            let (baseline_time, candidate_time) = if round.is_multiple_of(2) {
+                (time(baseline_arm), time(true))
+            } else {
+                let candidate_time = time(true);
+                (time(baseline_arm), candidate_time)
+            };
+            ratios.push(baseline_time / candidate_time);
+            baseline_times.push(baseline_time);
+            candidate_times.push(candidate_time);
+        }
+        (ratios, baseline_times, candidate_times)
+    };
+    let median = |values: &[f64]| {
+        let mut sorted = values.to_vec();
+        sorted.sort_by(|left, right| left.partial_cmp(right).expect("finite timing"));
+        sorted[sorted.len() / 2]
+    };
+    let report = |label: &str, ratios: &[f64], baseline_times: &[f64], candidate_times: &[f64]| {
+        let wins = ratios.iter().filter(|&&ratio| ratio > 1.0).count();
+        let mut sorted = ratios.to_vec();
+        sorted.sort_by(|left, right| left.partial_cmp(right).expect("finite ratio"));
+        println!(
+            "PATH_GRAPH_INDEX_AB {label}: median={:.4}x win_rate={wins}/{rounds} p5_p95=[{:.4},{:.4}] baseline_median_ns={:.0} candidate_median_ns={:.0}",
+            median(ratios),
+            sorted[rounds * 5 / 100],
+            sorted[rounds * 95 / 100],
+            median(baseline_times) / iterations as f64,
+            median(candidate_times) / iterations as f64,
+        );
+    };
+
+    println!(
+        "PATH_GRAPH_INDEX_AB full-function n={node_count} edges={} rounds={rounds} iterations={iterations} (>1 = index faster)",
+        graph.edge_count()
+    );
+    let (ratios, baseline_times, candidate_times) = paired(false);
+    report(
+        "INDEX_vs_name_keyed",
+        &ratios,
+        &baseline_times,
+        &candidate_times,
+    );
+    let (null_ratios, null_left, null_right) = paired(true);
+    report("NULL_index_vs_index", &null_ratios, &null_left, &null_right);
+}
+
+/// Exact pre-br-r37-c1-tz5st production kernel, retained only in the profiling
+/// harness as the paired baseline.
+fn is_path_graph_name_keyed(graph: &Graph) -> bool {
+    let nodes = graph.nodes_ordered();
+    let n = nodes.len();
+    if n == 0 {
+        return false;
+    }
+    if nodes.iter().any(|&node| graph.has_edge(node, node)) {
+        return false;
+    }
+    if n == 1 {
+        return true;
+    }
+    let mut degree_one_count = 0usize;
+    for &node in &nodes {
+        match graph.degree(node) {
+            0 => return false,
+            1 => degree_one_count += 1,
+            2 => {}
+            _ => return false,
+        }
+    }
+    degree_one_count == 2 && is_connected(graph).is_connected
+}
+
+/// Same-binary, paired-interleaved A/B for br-r37-c1-lqir7. The measured
+/// graph has one tiny queried component plus an attribute-heavy background
+/// component, exposing the mandatory whole-graph residual setup without
+/// timing graph construction. Both arms execute the complete public kernel.
+fn run_edge_disjoint_paths_ab(node_count: usize, iterations: usize) {
+    assert!(
+        node_count >= 8,
+        "edge_disjoint_paths_ab needs at least 8 nodes"
+    );
+    let iterations = iterations.max(1);
+    let name = |index: usize| format!("flow_node_{index:06}_with_a_long_stable_label");
+    let payload = "attribute-payload-that-is-intentionally-long-enough-to-make-cloning-visible";
+    let attrs: fnx_classes::AttrMap = (0..8usize)
+        .map(|index| (format!("payload-{index}"), payload.to_owned().into()))
+        .collect::<BTreeMap<_, _>>();
+    let mut graph = Graph::strict();
+    for index in 0..node_count {
+        let _ = graph.add_node(name(index));
+    }
+    let _ = graph.add_edge_with_attrs(name(0), name(1), attrs.clone());
+    for index in 2..node_count - 1 {
+        let _ = graph.add_edge_with_attrs(name(index), name(index + 1), attrs.clone());
+    }
+    let source = name(0);
+    let target = name(1);
+
+    let baseline = edge_disjoint_paths_snapshot_baseline(&graph, &source, &target);
+    let candidate = edge_disjoint_paths(&graph, &source, &target);
+    assert_eq!(
+        candidate, baseline,
+        "ordered-index and snapshot flow paths differ"
+    );
+    assert_eq!(
+        candidate,
+        vec![vec![source.clone(), target.clone()]],
+        "benchmark query must have one direct path"
+    );
+
+    let mut path = Graph::strict();
+    let _ = path.add_edge("p0", "p1");
+    let _ = path.add_edge("p1", "p2");
+    let mut disconnected = Graph::strict();
+    let _ = disconnected.add_node("left");
+    let _ = disconnected.add_node("right");
+    for (control, left, right) in [
+        (&path, "p0", "p2"),
+        (&path, "p0", "p0"),
+        (&disconnected, "left", "right"),
+    ] {
+        assert_eq!(
+            edge_disjoint_paths(control, left, right),
+            edge_disjoint_paths_snapshot_baseline(control, left, right),
+            "ordered-index and snapshot paths differ on a parity control"
+        );
+    }
+
+    let time = |candidate_arm: bool| -> f64 {
+        let started = Instant::now();
+        for _ in 0..iterations {
+            let paths = if candidate_arm {
+                edge_disjoint_paths(black_box(&graph), black_box(&source), black_box(&target))
+            } else {
+                edge_disjoint_paths_snapshot_baseline(
+                    black_box(&graph),
+                    black_box(&source),
+                    black_box(&target),
+                )
+            };
+            black_box(paths);
+        }
+        started.elapsed().as_nanos() as f64
+    };
+    for _ in 0..3 {
+        black_box(time(false));
+        black_box(time(true));
+    }
+
+    let rounds = 21usize;
+    let paired = |null_control: bool| -> (Vec<f64>, Vec<f64>, Vec<f64>) {
+        let mut ratios = Vec::with_capacity(rounds);
+        let mut baseline_times = Vec::with_capacity(rounds);
+        let mut candidate_times = Vec::with_capacity(rounds);
+        for round in 0..rounds {
+            let baseline_arm = null_control;
+            let (baseline_time, candidate_time) = if round.is_multiple_of(2) {
+                (time(baseline_arm), time(true))
+            } else {
+                let candidate_time = time(true);
+                (time(baseline_arm), candidate_time)
+            };
+            ratios.push(baseline_time / candidate_time);
+            baseline_times.push(baseline_time);
+            candidate_times.push(candidate_time);
+        }
+        (ratios, baseline_times, candidate_times)
+    };
+    let median = |values: &[f64]| {
+        let mut sorted = values.to_vec();
+        sorted.sort_by(|left, right| left.partial_cmp(right).expect("finite timing"));
+        sorted[sorted.len() / 2]
+    };
+    let report = |label: &str, ratios: &[f64], baseline_times: &[f64], candidate_times: &[f64]| {
+        let wins = ratios.iter().filter(|&&ratio| ratio > 1.0).count();
+        let mut sorted = ratios.to_vec();
+        sorted.sort_by(|left, right| left.partial_cmp(right).expect("finite ratio"));
+        println!(
+            "EDGE_DISJOINT_INDEX_AB {label}: median={:.4}x win_rate={wins}/{rounds} p5_p95=[{:.4},{:.4}] baseline_median_ns={:.0} candidate_median_ns={:.0}",
+            median(ratios),
+            sorted[rounds * 5 / 100],
+            sorted[rounds * 95 / 100],
+            median(baseline_times) / iterations as f64,
+            median(candidate_times) / iterations as f64,
+        );
+    };
+
+    println!(
+        "EDGE_DISJOINT_INDEX_AB full-function n={node_count} edges={} attrs_per_edge=8 rounds={rounds} iterations={iterations} (>1 = ordered indices faster)",
+        graph.edge_count()
+    );
+    let (ratios, baseline_times, candidate_times) = paired(false);
+    report(
+        "INDEX_vs_snapshots",
+        &ratios,
+        &baseline_times,
+        &candidate_times,
+    );
+    let (null_ratios, null_left, null_right) = paired(true);
+    report("NULL_index_vs_index", &null_ratios, &null_left, &null_right);
+}
+
+/// Exact pre-br-r37-c1-lqir7 production kernel, retained only in the profiling
+/// harness as the paired baseline.
+fn edge_disjoint_paths_snapshot_baseline(
+    graph: &Graph,
+    source: &str,
+    target: &str,
+) -> Vec<Vec<String>> {
+    if source == target || !graph.has_node(source) || !graph.has_node(target) {
+        return Vec::new();
+    }
+
+    let nodes = graph.nodes_ordered();
+    let n = nodes.len();
+    let idx: std::collections::HashMap<&str, usize> =
+        nodes.iter().enumerate().map(|(i, n)| (*n, i)).collect();
+    let s = match idx.get(source) {
+        Some(&i) => i,
+        None => return Vec::new(),
+    };
+    let t = match idx.get(target) {
+        Some(&i) => i,
+        None => return Vec::new(),
+    };
+
+    let mut cap = std::collections::HashMap::new();
+    let mut initial_cap = std::collections::HashMap::new();
+    let mut adj = vec![std::collections::HashSet::new(); n];
+    for edge in graph.edges_ordered() {
+        let i = idx[edge.left.as_str()];
+        let j = idx[edge.right.as_str()];
+        if i != j {
+            cap.insert((i, j), 1);
+            cap.insert((j, i), 1);
+            initial_cap.insert((i, j), 1);
+            initial_cap.insert((j, i), 1);
+            adj[i].insert(j);
+            adj[j].insert(i);
+        }
+    }
+
+    loop {
+        let mut parent = vec![None::<usize>; n];
+        let mut visited = vec![false; n];
+        visited[s] = true;
+        let mut queue = std::collections::VecDeque::new();
+        queue.push_back(s);
+        while let Some(v) = queue.pop_front() {
+            if v == t {
+                break;
+            }
+            for &j in &adj[v] {
+                if !visited[j] && *cap.get(&(v, j)).unwrap_or(&0) > 0 {
+                    visited[j] = true;
+                    parent[j] = Some(v);
+                    queue.push_back(j);
+                }
+            }
+        }
+        if !visited[t] {
+            break;
+        }
+        let mut v = t;
+        while let Some(p) = parent[v] {
+            *cap.get_mut(&(p, v)).expect("path edge has capacity") -= 1;
+            *cap.get_mut(&(v, p)).expect("reverse edge has capacity") += 1;
+            v = p;
+        }
+    }
+
+    let mut flow_adj = vec![Vec::new(); n];
+    for (&(i, j), &c) in &initial_cap {
+        if c == 1 && *cap.get(&(i, j)).unwrap_or(&0) == 0 {
+            flow_adj[i].push(j);
+        }
+    }
+
+    let mut paths = Vec::new();
+    loop {
+        let mut parent = vec![None::<usize>; n];
+        let mut visited = vec![false; n];
+        visited[s] = true;
+        let mut queue = std::collections::VecDeque::new();
+        queue.push_back(s);
+        while let Some(v) = queue.pop_front() {
+            if v == t {
+                break;
+            }
+            for &j in &flow_adj[v] {
+                if !visited[j] {
+                    visited[j] = true;
+                    parent[j] = Some(v);
+                    queue.push_back(j);
+                }
+            }
+        }
+        if !visited[t] {
+            break;
+        }
+        let mut path = Vec::new();
+        let mut v = t;
+        while let Some(p) = parent[v] {
+            path.push(nodes[v].to_owned());
+            if let Some(position) = flow_adj[p].iter().position(|&x| x == v) {
+                flow_adj[p].remove(position);
+            }
+            v = p;
+        }
+        path.push(nodes[s].to_owned());
+        path.reverse();
+        paths.push(path);
+    }
+    paths
 }
 
 fn parse_args() -> HarnessArgs {
@@ -200,10 +704,7 @@ fn start_pprof_guard(
         return None;
     }
 
-    let sample_frequency = match frequency {
-        Some(value) => value,
-        None => 997,
-    };
+    let sample_frequency = frequency.unwrap_or(997);
     match pprof::ProfilerGuardBuilder::default()
         .frequency(sample_frequency)
         .blocklist(&["libc", "libgcc", "pthread", "vdso"])

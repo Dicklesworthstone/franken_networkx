@@ -3947,6 +3947,29 @@ def test_has_edge_unhashable_raises_typeerror_match_nx():
     assert MG.has_edge(0, 1, key=0) is True
 
 
+def test_has_edge_raw_descriptor_propagates_custom_hash_errors():
+    """br-r37-c1-6q4wl: wrapper removal must not swallow __hash__ failures."""
+
+    class ExplodingHash:
+        def __hash__(self):
+            raise RuntimeError("has-edge hash probe reached")
+
+    for graph in (
+        fnx.Graph([(0, 1)]),
+        fnx.DiGraph([(0, 1)]),
+        fnx.MultiGraph([(0, 1)]),
+        fnx.MultiDiGraph([(0, 1)]),
+    ):
+        with pytest.raises(RuntimeError, match="has-edge hash probe reached"):
+            graph.has_edge(ExplodingHash(), 1)
+        with pytest.raises(RuntimeError, match="has-edge hash probe reached"):
+            graph.has_edge(0, ExplodingHash())
+
+    for graph in (fnx.MultiGraph([(0, 1)]), fnx.MultiDiGraph([(0, 1)])):
+        with pytest.raises(RuntimeError, match="has-edge hash probe reached"):
+            graph.has_edge(0, 1, key=ExplodingHash())
+
+
 def test_get_edge_data_unhashable_raises_typeerror_match_nx():
     """br-r37-c1-ged-hash: nx propagates ``TypeError: unhashable
     type: 'X'`` from the underlying ``self._adj[u]`` lookup;
@@ -3980,6 +4003,29 @@ def test_get_edge_data_unhashable_raises_typeerror_match_nx():
     # Good edges still return data dict
     assert P.get_edge_data(0, 1) == {}
     assert MG.get_edge_data(0, 1) == {0: {}}
+
+
+def test_get_edge_data_raw_descriptor_propagates_custom_hash_errors():
+    """br-r37-c1-57ba1: wrapper removal must retain __hash__ failures."""
+
+    class ExplodingHash:
+        def __hash__(self):
+            raise RuntimeError("edge-data hash probe reached")
+
+    for graph in (
+        fnx.Graph([(0, 1)]),
+        fnx.DiGraph([(0, 1)]),
+        fnx.MultiGraph([(0, 1)]),
+        fnx.MultiDiGraph([(0, 1)]),
+    ):
+        with pytest.raises(RuntimeError, match="edge-data hash probe reached"):
+            graph.get_edge_data(ExplodingHash(), 1)
+        with pytest.raises(RuntimeError, match="edge-data hash probe reached"):
+            graph.get_edge_data(0, ExplodingHash())
+
+    for graph in (fnx.MultiGraph([(0, 1)]), fnx.MultiDiGraph([(0, 1)])):
+        with pytest.raises(RuntimeError, match="edge-data hash probe reached"):
+            graph.get_edge_data(0, 1, key=ExplodingHash())
 
 
 def test_multigraph_add_edge_unhashable_key_raises_typeerror():
@@ -6510,6 +6556,98 @@ def test_graph_constructor_accepts_list_of_list_edges_match_nx():
         fnx.Graph([1, 2, 3])
     with pytest.raises(nx_mod.NetworkXError):
         fnx.Graph([(0,)])
+
+
+def test_true_iterator_constructor_two_epoch_parity_all_graph_classes():
+    """br-r37-c1-hxdyb: lock the 48-shape iterator constructor corpus.
+
+    NetworkX attempts ``from_edgelist`` twice for a true iterator.  A bad row
+    consumes that row, discards the first partial graph, and retries only the
+    remaining suffix.  The native constructors must preserve that unusual
+    consume/retry contract while also accepting non-tuple edge rows.
+    """
+    import franken_networkx as fnx
+    import networkx as nx_mod
+
+    def raising_after_edge():
+        yield (0, 1)
+        raise RuntimeError("boom")
+
+    def shared_mutable_attrs():
+        attrs = {}
+        for node in range(3):
+            attrs["weight"] = node
+            yield [node, node + 1, attrs]
+
+    factories = {
+        "list_rows": lambda: iter([[0, 1], [1, 2]]),
+        "list_attrs": lambda: iter([[0, 1, {"weight": 5}]]),
+        "bare_nodes": lambda: iter([1, 2, 3]),
+        "four_tuple": lambda: iter([(0, 1, 2, 3)]),
+        "none_endpoint": lambda: iter([(None, 1)]),
+        "simple_bad_third_multi_key": lambda: iter([(0, 1, 2)]),
+        "invalid_prefix_valid_suffix": lambda: iter([9, (1, 2)]),
+        "valid_prefix_invalid_middle_suffix": lambda: iter(
+            [(0, 1), 9, (2, 3)]
+        ),
+        "keyed_prefix_invalid_middle_suffix": lambda: iter(
+            [(0, 1, "key"), 9, (2, 3)]
+        ),
+        "string_and_bytes_rows": lambda: iter(["ab", b"cd"]),
+        "raising_after_edge": raising_after_edge,
+        "shared_mutable_attrs": shared_mutable_attrs,
+    }
+
+    def outcome(constructor, factory, is_multi):
+        try:
+            graph = constructor(factory())
+        except Exception as error:
+            return ("error", type(error).__name__, str(error))
+        edges = (
+            list(graph.edges(keys=True, data=True))
+            if is_multi
+            else list(graph.edges(data=True))
+        )
+        return ("graph", list(graph.nodes(data=True)), edges, dict(graph.graph))
+
+    classes = [
+        ("Graph", fnx.Graph, nx_mod.Graph, False),
+        ("DiGraph", fnx.DiGraph, nx_mod.DiGraph, False),
+        ("MultiGraph", fnx.MultiGraph, nx_mod.MultiGraph, True),
+        ("MultiDiGraph", fnx.MultiDiGraph, nx_mod.MultiDiGraph, True),
+    ]
+    for case_name, factory in factories.items():
+        for class_name, fnx_constructor, nx_constructor, is_multi in classes:
+            assert outcome(fnx_constructor, factory, is_multi) == outcome(
+                nx_constructor, factory, is_multi
+            ), (case_name, class_name)
+
+
+def test_graph_true_iterator_attr_snapshot_aliasing_matches_nx():
+    """br-r37-c1-04z53.9178: private top-level snapshot, shallow values."""
+    import franken_networkx as fnx
+    import networkx as nx_mod
+
+    fnx_nested = ["seed"]
+    nx_nested = ["seed"]
+    fnx_source = {"weight": 7, "nested": fnx_nested, "tag": "edge"}
+    nx_source = {"weight": 7, "nested": nx_nested, "tag": "edge"}
+
+    fnx_graph = fnx.Graph(iter([[0, 1, fnx_source]]))
+    nx_graph = nx_mod.Graph(iter([[0, 1, nx_source]]))
+
+    # NetworkX snapshots the outer mapping at yield time but shares its values.
+    fnx_source["weight"] = 99
+    nx_source["weight"] = 99
+    fnx_nested.append("shared")
+    nx_nested.append("shared")
+
+    fnx_payload = dict(fnx_graph.get_edge_data(0, 1))
+    nx_payload = dict(nx_graph.get_edge_data(0, 1))
+    assert list(fnx_payload) == list(nx_payload)
+    assert fnx_payload == nx_payload
+    assert fnx_payload["weight"] == 7
+    assert fnx_payload["nested"] == ["seed", "shared"]
 
 
 def test_add_edges_from_accepts_list_edges_match_nx():

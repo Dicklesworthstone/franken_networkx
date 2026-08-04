@@ -14,7 +14,7 @@
 
 </div>
 
-**FrankenNetworkX is a Rust-backed, byte-for-byte–compatible drop-in for [NetworkX](https://networkx.org/).** Use it as a standalone library with the familiar NetworkX API, or wire it in as a `networkx>=3.0` backend so existing code dispatches into Rust with zero call-site changes.
+**FrankenNetworkX is a Rust-backed NetworkX-compatible graph library with a measured, incomplete drop-in surface.** Use it as a standalone library with the familiar NetworkX API, or wire it in as a `networkx>=3.0` backend so supported calls dispatch into Rust without call-site changes.
 
 ```bash
 pip install franken-networkx
@@ -34,17 +34,17 @@ NetworkX is the canonical Python graph library: rich, correct, comprehensive, an
 
 FrankenNetworkX is a Rust port of NetworkX that treats **observable behavior** as a hard constraint. Graph mutation semantics, iteration order, tie-break choices, exception classes, error message wording, and serialization round-trip behavior are all part of the contract. Where pure-Python NetworkX would call `dict[unhashable]`, FrankenNetworkX raises the same `TypeError`. Where NetworkX iterates a `dict_keys` in insertion order, FrankenNetworkX does too. Where NetworkX returns a generator, FrankenNetworkX returns a generator, not a list with a different repr.
 
-That contract is enforced by a 377-file Python parity test suite, by a curated Rust differential conformance harness, and by five auto-generated audit ledgers (coverage matrix, raw-vs-public, delegation, upstream divergence, API ergonomics) that fail CI if any public symbol drifts.
+That contract is enforced by a 377-file Python parity test suite, by a curated Rust differential conformance harness, and by five auto-generated audit ledgers (coverage matrix, raw-vs-public, delegation, upstream divergence, API ergonomics) that fail CI if a measured public symbol drifts. The current structural surface result is not 100%: the pinned NetworkX 3.6.1 FeatureUniverse has 3,399 strictly present paths out of 4,129 applicable paths (82.3%), with 700 partial and 30 missing.
 
 ### Why FrankenNetworkX?
 
 | Feature | NetworkX 3.x | FrankenNetworkX |
 |---|---|---|
 | Backing language | Pure Python | Rust 2024 (`#![forbid(unsafe_code)]`) |
-| Graph types | `Graph`, `DiGraph`, `MultiGraph`, `MultiDiGraph` | Same four, same method surface |
+| Graph types | `Graph`, `DiGraph`, `MultiGraph`, `MultiDiGraph` | Same four core types; class/member signature gaps are measured in `docs/coverage.md` |
 | Adjacency storage | nested `dict` | deterministic `IndexMap`-based, insertion-order preserving |
 | GIL release on heavy work | n/a (pure Python) | yes; hundreds of `py.allow_threads(...)` sites |
-| Public API exports | ~730 | **763** classified in `docs/coverage.md` |
+| Declared import/signature surface | NetworkX 3.6.1 FeatureUniverse | **3,399 / 4,129 strictly present (82.3%)**; 700 partial, 30 missing |
 | Backend-dispatch surface | n/a | **316** algorithms registered in `backend.py` |
 | Tie-break determinism | implicit | explicit **CGSE** (13-variant `TieBreakPolicy`) |
 | Complexity audit | none | `ComplexityWitness` per call, length-prefixed Blake3 decision-path ledger |
@@ -64,7 +64,7 @@ There are several existing approaches to "faster NetworkX." Each has tradeoffs t
 | **Subclassing or monkey-patching nx graphs with C/Cython adjacency** | Replace specific hot loops with native code, leave the rest in Python. | Doesn't move the cost: nested Python dicts still dominate memory and cache behavior. Algorithm-level work happens in pure Python. GIL stays held. |
 | **Wrapping a separate Rust/C++ graph engine and copying data in/out** | Convert nx graphs into a foreign representation, run algorithms there, convert results back. | The conversion is the entire workload for short-running algorithms. Attribute fidelity gets lost. Tie-break behavior diverges. Algorithm coverage is sparse. |
 | **Rewriting in Rust with a "Rust-idiomatic" API** | Build a clean-slate Rust graph library with its own type system. | Users have to rewrite. The behavioral oracle (NetworkX) becomes invisible. Iteration order drift makes results non-portable. |
-| **FrankenNetworkX** | Port the algorithms into native Rust, expose the *same* Python API NetworkX exposes (same names, same signatures, same iteration order, same exception classes, same tie-break behavior), and stand up an audit harness that fails CI if any public symbol drifts. | This is the design. The cost is high one-time engineering. The benefit is real drop-in compatibility without behavioral surprises. |
+| **FrankenNetworkX** | Port algorithms into native Rust, preserve NetworkX-observable behavior on implemented paths, and measure every declared import/signature path against the pinned reference. | This is the design target, not a completed full-surface claim: the live FeatureUniverse records present, partial, missing, n/a, and reasoned exclusions. |
 
 The discipline difference is enforced by tooling, not goodwill:
 
@@ -81,7 +81,7 @@ The discipline difference is enforced by tooling, not goodwill:
 | **graph-tool** | `Graph` with vertex/edge property maps | no; C++/Python hybrid API | no | strong for analytics + statistics | Boost-backed, very fast, but requires a custom build pipeline (no PyPI wheel). |
 | **rustworkx** | `PyGraph`/`PyDiGraph` with integer node IDs | partial; explicit conversion API | no; integer-index based | growing | High-quality Rust core; intentionally not a drop-in replacement. |
 | **graspologic** / **networkx-cuda** / **cugraph** | various, often GPU-backed | partial; mostly nx-shaped but algorithm coverage varies widely | varies | varies | Often optimize the inner loop of specific algorithms (PageRank, BFS, connected components) but require additional toolchains (CUDA, conda channels). |
-| **FrankenNetworkX** | `fnx.*` mirroring `nx.*` exactly + backend dispatch | **yes**; same API surface, same iteration order, same exceptions, fallback to nx for unsupported | **yes**; explicit CGSE `TieBreakPolicy` per algorithm | 763 public exports, 316 backend-dispatchable, 25+ algorithm families | Pre-built ABI3 wheels. No GPU or extra toolchain. CGSE complexity-witness ledger. Audit ledgers for every public symbol. |
+| **FrankenNetworkX** | `fnx.*` compatibility layer + backend dispatch | **partial**; 82.3% strict import/signature coverage, with fallback on many unsupported paths | scoped; explicit CGSE `TieBreakPolicy` on owned paths | 3,399 present / 700 partial / 30 missing applicable paths; 316 backend-dispatchable algorithms | Pre-built ABI3 wheels. The generated FeatureUniverse states every gap and exclusion. |
 
 The honest summary: if the only thing you need is "PageRank on a huge graph as fast as possible" and you don't care about API shape or tie-break semantics, igraph or graph-tool or a GPU library may beat fnx on raw throughput for that single call. If you have an existing NetworkX codebase and you want it to *just work* without rewriting and without subtle behavior changes, fnx is built for that case.
 
@@ -126,7 +126,7 @@ mst         = fnx.minimum_spanning_tree(G)
 
 ### 2. NetworkX backend (zero call-site changes)
 
-If you already have a NetworkX codebase, set the backend priority once and supported algorithms dispatch into Rust transparently. Unsupported algorithms fall back to NetworkX so nothing breaks.
+If you already have a NetworkX codebase, set the backend priority once and supported algorithms dispatch into Rust transparently. Many unsupported algorithms fall back to NetworkX, but fallback is not a blanket full-surface guarantee; check the generated status for the paths your application uses.
 
 ```python
 import networkx as nx
@@ -155,7 +155,7 @@ The backend is registered via Python entry points (`pyproject.toml`) so NetworkX
 | `fnx.MultiGraph` | undirected | yes (keyed by int) | `G[u][v][k]` returns the per-key attribute mapping |
 | `fnx.MultiDiGraph` | directed | yes (keyed by int) | Combined directedness + parallel edges |
 
-All four share the same method surface (`add_node`, `add_edge`, `remove_node`, `subgraph`, `copy`, `to_directed`, `to_undirected`, `edges`, `nodes`, `degree`, `adj`, `__getitem__`, etc.) and the same algorithm dispatch. MultiGraph variants collapse parallel edges transparently when a simple-graph algorithm is invoked.
+All four provide the core method surface (`add_node`, `add_edge`, `remove_node`, `subgraph`, `copy`, `to_directed`, `to_undirected`, `edges`, `nodes`, `degree`, `adj`, `__getitem__`, etc.). Exact class/member signature differences are classified as partial in the generated FeatureUniverse rather than rounded up to full parity. MultiGraph variants collapse parallel edges transparently when a simple-graph algorithm is invoked.
 
 ```python
 import franken_networkx as fnx
@@ -173,7 +173,7 @@ assert list(fnx.topological_sort(D)) == [1, 2, 3]
 
 ## Algorithm Catalog
 
-FrankenNetworkX implements 25+ algorithm families. The table below is a high-level inventory. The canonical, machine-checked list lives in [`docs/coverage.md`](docs/coverage.md) (763 entries, auto-generated from `franken_networkx.__all__`) and [`python/franken_networkx/backend.py`](python/franken_networkx/backend.py) (the 316 algorithms wired into the NetworkX dispatcher).
+FrankenNetworkX implements paths across 25+ algorithm families. The table below is a high-level inventory. The canonical, machine-checked surface list lives in [`docs/coverage.md`](docs/coverage.md) (4,926 qualified NetworkX 3.6.1 FeatureUniverse rows, including explicit exclusions) and [`python/franken_networkx/backend.py`](python/franken_networkx/backend.py) (the 316 algorithms wired into the NetworkX dispatcher).
 
 | Family | Selected Functions |
 |--------|--------------------|
@@ -211,7 +211,7 @@ FrankenNetworkX implements 25+ algorithm families. The table below is a high-lev
 | **Conversion** | `from_dict_of_dicts`, `to_dict_of_dicts`, `from_dict_of_lists`, `to_dict_of_lists`, `from_edgelist`, `to_edgelist`, `convert_node_labels_to_integers`, `relabel_nodes`, `contracted_nodes`, `contracted_edge`, `identified_nodes`, `quotient_graph`, `line_graph`, `reverse` |
 | **Drawing & layout** | `draw`, `draw_spring`, `draw_circular`, `draw_kamada_kawai`, `draw_planar`, `draw_random`, `draw_shell`, `draw_spectral`, `draw_bipartite`, `spring_layout`, `circular_layout`, `kamada_kawai_layout`, `planar_layout`, `random_layout`, `shell_layout`, `spectral_layout`, `bipartite_layout` (delegates to NetworkX + matplotlib) |
 
-The full export list is in [`docs/coverage.md`](docs/coverage.md). To use a specific algorithm: `from franken_networkx import <name>`. If it's a `RUST_NATIVE`, `PY_WRAPPER`, or `CLASS` row in the coverage matrix, it works.
+The full surface list is in [`docs/coverage.md`](docs/coverage.md). To use a specific algorithm: `from franken_networkx import <name>`. Consult its FeatureUniverse status first: only `present` contributes to the strict portability fraction; every `partial` row states the exact signature, kind, or value gap.
 
 ---
 
@@ -709,7 +709,7 @@ FrankenNetworkX's compatibility contract is not "best-effort similarity." It is 
 
 | Ledger | Purpose |
 |---|---|
-| [`coverage.md`](docs/coverage.md) | Every `franken_networkx.__all__` export classified as `RUST_NATIVE`, `PY_WRAPPER`, `CLASS`, or `CONSTANT`. 763 entries. Drift fails CI. |
+| [`coverage.md`](docs/coverage.md) | NetworkX 3.6.1 FeatureUniverse: 4,926 qualified paths classified as `present`, `partial`, `missing`, `n/a`, or reasoned `excluded`; per-family strict coverage is reported. A separate appendix classifies the 763 `franken_networkx.__all__` implementation routes. Drift fails CI. |
 | [`raw_vs_public_audit.md`](docs/raw_vs_public_audit.md) | Every `_raw_X` Rust kernel cross-checked against its public wrapper. Documents the 25 wrapper-patched parity repairs where the public wrapper post-processes raw output to match NetworkX. |
 | [`delegation_ledger.md`](docs/delegation_ledger.md) | Every `_call_networkx_*_for_parity(...)` call site enumerated: 143 public exports, 167 routes. Tracks which algorithms intentionally delegate edge cases to upstream NetworkX. |
 | [`upstream_divergence_ledger.md`](docs/upstream_divergence_ledger.md) | Unified ledger of `native-parity`, `wrapper-patched`, `intentionally-delegated`, `raw-known-gap`, and `owner-acknowledged-limitation` rows. |
@@ -848,15 +848,11 @@ The five ledgers under `docs/` are not documentation. They are *machine-checked 
 
 ### How a public symbol gets classified
 
-When a name appears in `franken_networkx.__all__`, `scripts/generate_coverage_matrix.py` does the following:
+`scripts/generate_coverage_matrix.py` launches an isolated `python -I` reference process, requires the pinned NetworkX 3.6.1, discovers the installed module tree, and enumerates each module from `__all__` or Python's public wildcard namespace rule. It also adds public class members declared by NetworkX classes in their MRO. Each qualified path is compared with the corresponding FrankenNetworkX binding and classified as `present`, `partial`, `missing`, `n/a`, or `excluded`; partial signature/kind/value gaps and every exclusion reason are rendered verbatim.
 
-1. Look up the source location.
-2. Classify the surface: is it a `_fnx`-bound Rust function (`RUST_NATIVE`)? A Python def (`PY_WRAPPER`)? A class (`CLASS`)? Something else (`CONSTANT`)?
-3. Inspect the function body for `_call_networkx_*_for_parity(...)` call sites. If any are present, mark the runtime route as `NETWORKX_HELPER`; otherwise `PY_WRAPPER`.
-4. Cross-reference `raw_vs_public_audit.json` to detect wrapper-patched exports (the ones where a `_raw_X` Rust kernel is post-processed by the public wrapper to match NetworkX's iteration order).
-5. Cross-reference closed beads with bead-tagged comments (e.g. `# br-r37-c1-...`) to surface owner-acknowledged limitations.
+The same generator retains a separate implementation-route appendix for the 763 names in `franken_networkx.__all__`: `_fnx` binding (`RUST_NATIVE`), Python wrapper (`PY_WRAPPER`), class, constant, and any `_call_networkx_*_for_parity(...)` route. It also cross-references the raw-vs-public and upstream-divergence ledgers.
 
-The output is `docs/coverage.md`. If a developer adds a public symbol without classifying it, or sneaks in a NetworkX delegation that isn't covered by `delegation_ledger.md`, the regenerated file diverges from the committed file and CI breaks.
+The output is `docs/coverage.md`. If the pinned reference fingerprint, a qualified path, a classification, or a delegation route drifts, the regenerated file diverges from the committed file and CI breaks.
 
 ### The five ledgers and what they catch
 
@@ -1021,33 +1017,119 @@ The cost of a `fnx.algorithm(G)` call decomposes into four chunks:
 | Chunk | Typical scale | Notes |
 |---|---|---|
 | Python → Rust marshaling | ~5–50 μs base + O(n + m) for graph conversion when a *new* graph is constructed | Reusing an existing fnx graph: ~5 μs total per call (attribute lookup only). Constructing a fresh fnx graph from an nx graph at call time: O(n + m) plus a constant ~5 μs/node, ~3 μs/edge for dict→IndexMap conversion. |
-| Native algorithm execution | algorithm-dependent | Performance varies by algorithm family (see table below). Algorithms with native Rust kernels and minimal marshaling overhead (betweenness, clustering, shortest_path) are 2-4× faster. Algorithms requiring attr sync (dijkstra, MST, pagerank) or graph-result construction (bfs_tree, dfs_tree) are 2-6× slower. |
-| Rust → Python return marshaling | O(output size) | For algorithms returning a `dict[node, float]` of size `n`, this is the dominant tail. A `PyDict::set_item` per entry plus an arc-bumped node label string. ~0.5–1 μs per entry. |
+| Native algorithm execution | algorithm-dependent | Performance varies by family and workload. The dated incumbent comparison below ranges from 1.6085× to 36.1146× on the listed winning rows. |
+| Rust → Python return marshaling | O(output size) | A `PyDict::set_item` per entry plus an arc-bumped node label string. Measured 2026-07-25: **~452 ns per `edges(data=True)` entry** and **~27 ns per `nodes(data=True)` / `adjacency()` entry**. NetworkX pays more per entry on the same shapes (758 ns/edge; 1690 ns/node for `to_dict_of_lists`), because it builds the same containers in interpreted code. |
 | Wrapper-side post-processing (if any) | O(output size) | The 25 wrapper-patched functions add a single pass over the output for iteration-order normalization. Skipped for the 731 - 25 = 706 functions that don't need it. |
 
-The performance break-even versus pure-Python NetworkX is roughly:
+**Real-world end-to-end performance — current 2026-07-29 gate.** Five whole jobs
+start by loading and cleaning deterministic induced prefixes of the
+[SNAP Astro Physics collaboration graph](https://snap.stanford.edu/data/ca-AstroPh.html),
+run multiple analysis and subgraph stages, and finish by serializing the result.
+The inputs contain 1,000 / 13,410, 5,000 / 77,598, and 10,000 / 143,680
+nodes/edges. NetworkX 3.6.1 and FNX run in one pinned invocation for 21
+alternating-order rounds, with exact complete-output bytes, loaded-ELF identity,
+and separate NetworkX/NetworkX and FNX/FNX nulls. Ratios are NetworkX wall time
+divided by FNX wall time; values above 1 favor FNX. Reproduce with
+`PYTHONHASHSEED=0 python3 scripts/perf_harness.py realistic-workloads`.
 
-- **Below ~100 nodes**: marshaling cost dominates; NetworkX usually wins or ties.
-- **100–10,000 nodes**: fnx wins on compute-heavy algorithms (betweenness 3×, clustering 4×, connected_components 10×). Single-query shortest paths and dijkstra are 8-20× slower due to string-key hashing overhead; all-pairs variants are 3× faster.
-- **Above ~10,000 nodes**: fnx wins by 3-10× on betweenness, cliques, and other cubic/exponential algorithms. Linear single-query algorithms with string-key overhead remain slower.
+| Whole job | n=1,000 | n=5,000 | n=10,000 | What it means for a user |
+|---|---:|---:|---:|---|
+| Collaboration cohesion: load → components/core → cohort subgraph → export | **1.4898×** | **1.3232×** | **1.2039×** | FNX finishes this analysis/export pipeline sooner at all three sizes. |
+| Hub routing: load → hub rank → SSSP/BFS tree → radius-2 subgraph → export | **1.5457×** | **1.1885×** | **1.2159×** | FNX finishes this routing and two-graph export pipeline sooner at all three sizes. |
+| Rich-club analysis: load → rich-club/onion layers → leader subgraph → export | **2.1765×** | **1.8585×** | **1.8392×** | FNX roughly halves the wall time of this compute-heavy pipeline. |
+| Link recommendations: load → core rank → Jaccard/preferential scores → export | **1.0973×** | undecidable | **1.2422×** | FNX wins at 1,000 and 10,000 nodes; the 5,000-node gate has no stable separation. |
+| Community detection: load → label propagation → largest-community subgraph → assignments/export | **1.6538×** | **1.3622×** | **1.4318×** | FNX completes community detection and result export sooner at all three sizes. |
 
-**Per-family performance (n=2000 BA graph, warmed imports):**
+**Per-family performance — current exact incumbent gates.** The 2026-07-25 baseline uses an
+n=2000 / m=8000 random graph and is reproduced with
+`python3 scripts/perf_harness.py marshaling`. Rows whose notes carry another size are from the
+pure-Python-loop gates and are reproduced with
+`python3 scripts/perf_harness.py class1-frontier`. The n=50,000 rows use
+`FNX_CLASS1_SIZES=10000,25000,50000`,
+`FNX_CLASS1_EDGE_MULTIPLIERS=16`, and
+`FNX_CLASS1_FRONTIER_JOBS=onion_layers,k_core`; the average-degree-128
+`onion_layers` row uses `FNX_CLASS1_SIZES=1000,5000,10000`,
+`FNX_CLASS1_EDGE_MULTIPLIERS=64`, and
+`FNX_CLASS1_FRONTIER_JOBS=onion_layers`. All gates run genuine unpatched NetworkX
+3.6.1 in the same invocation, prove exact complete-output bytes before timing, record an adjacent
+A/A null, and decide only on the complete bootstrap median CI with a 2× log-space margin. The
+harness also fails closed unless every CPU in the effective host cpuset stays at
+or below 20% busy for five consecutive one-second pre-setup windows and five
+consecutive immediate pre-measurement windows, then continuously accounts for
+every non-affinity CPU in 300 ms windows throughout timing and rejects
+sustained two-window contention; a narrow `taskset` affinity cannot hide
+co-tenancy elsewhere on the host.
 
 | Family | fnx vs nx | Notes |
 |--------|-----------|-------|
-| betweenness_centrality | 3× faster | Native bitset enumeration |
-| clustering (all nodes) | 4× faster | Native triangle counting |
-| all_pairs_shortest_path | 3× faster | Algorithmic work dominates |
-| single_pair_shortest_path | 10-20× slower | String-key hashing overhead |
-| number_connected_components | 10× faster | Native union-find |
-| bfs_edges / dfs_edges | 0.8-2× | Near parity |
-| bfs_tree / dfs_tree | 25-35× slower | DiGraph result construction overhead |
-| pagerank | 2-4× slower | Sync + scipy overhead |
-| core_number | 1-2× slower | Dict reordering |
-| minimum_spanning_tree | 4× slower | Sync + Graph result construction |
-| dijkstra (weighted) | 8-17× slower | String hashing + sync overhead |
+| closeness_centrality | **194.3093× faster** | Native multi-source BFS; n=220 / m=900 |
+| rich_club_coefficient | **117.3619× faster** | Native degree scan; n=10,000 / m=40,000 |
+| transitive_closure | **92.3164× faster** | Native descendant closure; directed n=200 / m=800 |
+| k_core | **127.6491× faster** | Native core filter; n=50,000 / m=800,000 |
+| clustering (all nodes) | **36.1146× faster** | Native triangle counting |
+| node_connectivity | **30.1588× faster** | Native max-flow; n=220 / m=900 |
+| triadic_census | **20.4715× faster** | Native census; directed n=200 / m=800 |
+| square_clustering | **18.4067× faster** | Native neighbour-pair scan; n=10,000 / m=40,000 |
+| triangles | **14.3397× faster** | Native triangle counting |
+| onion_layers | **122.7680× faster** | Native peeling; n=10,000 / m=640,000 |
+| faster_could_be_isomorphic | **3.4961× faster** | Native degree/triangle sequence; n=1,200 / m=6,000 |
+| dfs_postorder_nodes | **3.0811× faster** | Native traversal; n=1,200 / m=6,000 |
+| jaccard_coefficient | **2.4536× faster** | Native neighbour-set intersection; 300 pairs |
+| label_propagation_communities | **2.1827× faster** | Native label counting; n=1,200 / m=6,000; re-measured 2026-07-31 vs live nx 3.6.1 (was 2.1485×) |
+| minimum_spanning_tree | **1.9947× faster** | Native Kruskal; n=1,200 / m=6,000 |
+| erdos_renyi_graph (n=1500) | **12.87–13.15× faster** | Native generator; re-measured 2026-07-31 vs live nx 3.6.1 (was 14.1755×, not reproducible) |
+| k_corona | no current admissible ratio | Complete-result incumbent gate awaiting an exclusive host window |
+| k_crust | **13.2556× faster** | Native core filter; re-measured 2026-07-31 vs live nx 3.6.1 (was 5.8664×, understated) |
+| kosaraju_strongly_connected_components | **4.8474× faster** | Native SCC; re-measured 2026-07-31 vs live nx 3.6.1 (was 4.6519×) |
+| minimum_branching | no current admissible ratio | Native branching; 2026-07-31 re-measure gave 3.9978× but the A/A null drifted (bias 0.0295 > 0.0200) — UNDECIDABLE, needs a quieter host |
+| partition_spanning_tree | **2.4612× faster** | Native Kruskal with partition constraints; CONFIRMED 2026-07-31 vs live nx 3.6.1 (measured 2.3794×, CI [2.3303, 2.5633] contains the published figure) |
+| dfs_successors | **2.3223× faster** | Native traversal; re-measured 2026-07-31 vs live nx 3.6.1 (was 2.1456×) |
+| read_graph6 / read_sparse6 | **1.72× / 1.69× faster** | Native decoders; CONFIRMED 2026-07-31 vs live nx 3.6.1 (measured 1.7202× / 1.7069×, both CIs contain the published figures) |
+| all_simple_edge_paths | **1.3384× faster** | Native path enumeration; re-measured 2026-07-31 vs live nx 3.6.1 (was 1.3466×) |
+| dijkstra_path (weighted) | **7.6077× faster** | Native bidirectional kernel + persistent dense node ids |
+| single_source_shortest_path_length | **5.1868× faster** | Native BFS, dict returned from Rust; re-measured 2026-07-31 vs live nx 3.6.1 (was 5.5005×, overstated) |
+| all_pairs_shortest_path_length (n=300) | **4.5647× faster** | Algorithmic work dominates |
+| single_source_shortest_path | **3.8952× faster** | Native BFS |
+| all_pairs_dijkstra_path_length (n=300) | **3.6658× faster** | Algorithmic work dominates |
+| subgraph(view) → edges | **3.5212× faster** | Native induced-subgraph walk; re-measured 2026-07-31 vs live nx 3.6.1 (was 3.5719×) |
+| dfs_tree | **3.3439× faster** | Native traversal + native result construction |
+| single_source_dijkstra_path_length | **3.3325× faster** | Native Dijkstra |
+| bfs_tree | **3.2403× faster** | Native traversal + native result construction |
+| single_pair_shortest_path | **3.3313× faster** | Native BFS; re-measured 2026-07-31 vs live nx 3.6.1 (was 3.1614×) |
+| pagerank | **2.6361× faster** | Native power iteration; CONFIRMED 2026-07-31 vs live nx 3.6.1 (measured 2.7275×, CI [2.5777, 2.8818] contains the published figure) |
+| to_scipy_sparse_array | **2.4758× faster** | Native CSR assembly; re-measured 2026-07-31 vs live nx 3.6.1 (was 2.4073×) |
+| to_dict_of_lists | **1.9662× faster** | Native row walk |
+| bidirectional_dijkstra | **1.7916× faster** | Native bidirectional kernel; re-measured 2026-07-31 vs live nx 3.6.1 (was 1.8125×) |
+| shortest_path (weighted) | **1.8343× faster** | Native weighted-path kernel; re-measured 2026-07-31 vs live nx 3.6.1 (was 1.7684×) |
+| all_pairs_shortest_path (n=300) | **1.7624× faster** | Result construction dilutes the kernel win |
+| edges(data=True) | **1.5555× faster** | re-measured 2026-07-31 vs live nx 3.6.1 (was 1.6085×) |
 
-If you can keep the graph on the fnx side (don't reconstruct per call), the marshaling chunk vanishes. The backend-dispatch path automatically caches the converted graph for repeat calls.
+**Scalar multigraph degree access — measured 2026-07-27** (2,000 nodes / 1,999
+path-shaped edges, 512 exact-string lookups per sample, genuine unpatched NetworkX
+3.6.1 side-by-side in the same invocation, with an A/A null control and bootstrap
+median-CI gate; reproduce with
+`FNX_PERF_ROUNDS=61 python3 scripts/perf_harness.py multigraph-degree-scalar`):
+
+| Surface | fnx vs nx | Bootstrap 95% CI |
+|---|---:|---:|
+| `MultiGraph.degree[node]` | **1.47× faster** | `1.4389–1.5295×` |
+| `MultiDiGraph.degree[node]` | **2.20× faster** | `2.1125–2.2690×` |
+
+**Known remaining measured losses:**
+
+| Surface | fnx vs nx | Cause |
+|--------|-----------|-------|
+| `G.adj` (bare accessor) | **0.82×** | Public descriptor access |
+| `G.has_node(n)` | **0.4596×** | Key conversion and native lookup; still a loss, re-measured 2026-07-31 vs live nx 3.6.1 (was 0.41×) |
+| `preferential_attachment` | **0.5949×** | nx's per-pair work is two degree lookups and a multiply — below our per-call boundary cost |
+| `Graph` incremental `add_edge` | **0.26×** | Per-call Python shim; batch constructors are ~3× better per edge |
+| `karate_club_graph`, `tutte_graph` | **0.38× / 0.76×** | Fixed small literals; nx builds a hard-coded edge list, we pay graph construction |
+| `read_multiline_adjlist` | **0.7981×** | Parser is not native; still a loss, re-measured 2026-07-31 vs live nx 3.6.1 (was 0.70×) |
+| `read_gml` | **0.92×** | GML parse path; CONFIRMED 2026-07-31 vs live nx 3.6.1 (measured 0.9234×, CI [0.9169, 0.9253] contains the published figure) |
+
+Default simple-graph `write_edgelist(data=False)` writes directly from FNX edge
+iteration while preserving exact NetworkX bytes. Non-default and multigraph
+writer configurations retain their compatibility routes.
 
 ---
 
@@ -1103,7 +1185,8 @@ The `fnx.community` submodule mirrors `nx.algorithms.community`. Most algorithms
 
 - **Louvain (`louvain_communities`).** Currently routes through `nx.algorithms.community.louvain_communities` against a converted graph. Bead `br-r37-c1-louvainsubmod` documents the conversion path; nx's multi-level Louvain produces wrong partitions against a raw fnx graph. Native Rust port is planned.
 - **Label propagation (`label_propagation_communities`).** Same routing today (bead `br-r37-c1-cy2me`). Earlier had a native fast path that was retired pending a parity fix.
-- **Greedy modularity, k-clique communities, Girvan-Newman, asyn_fluidc, Kernighan-Lin bisection.** Mixed: some native, some delegated. Check `docs/delegation_ledger.md` for the canonical state of each.
+- **Greedy modularity (`greedy_modularity_communities`).** Currently routes through NetworkX against a converted graph. The former native CNM public route was retired after an insertion-order-sensitive partition divergence (`br-r37-c1-z4rnj`).
+- **K-clique communities, Girvan-Newman, asyn_fluidc, Kernighan-Lin bisection.** Mixed: some native, some delegated. Check `docs/delegation_ledger.md` for the canonical state of each.
 - **`community.modularity`.** Computed natively against fnx adjacency.
 
 ### Isomorphism
@@ -1532,7 +1615,7 @@ Algorithm calls release the GIL during their inner loops, with the following con
 | [docs/migration.md](docs/migration.md) | Side-by-side NetworkX → FrankenNetworkX patterns |
 | [docs/algorithms.md](docs/algorithms.md) | Algorithm reference summary |
 | [docs/performance.md](docs/performance.md) | Performance notes and benchmarking |
-| [docs/coverage.md](docs/coverage.md) | Auto-generated public-API inventory (763 entries) |
+| [docs/coverage.md](docs/coverage.md) | Auto-generated NetworkX 3.6.1 FeatureUniverse (4,926 qualified rows) plus FNX route appendix |
 | [docs/raw_vs_public_audit.md](docs/raw_vs_public_audit.md) | Wrapper-patched parity repairs |
 | [docs/delegation_ledger.md](docs/delegation_ledger.md) | All parity-helper delegation routes |
 | [docs/upstream_divergence_ledger.md](docs/upstream_divergence_ledger.md) | Native-parity / wrapper-patched / delegated / gap rows |
@@ -1804,7 +1887,7 @@ import networkx as nx
 import franken_networkx as nx
 ```
 
-This works for the algorithm surface fnx natively implements; for the rest, the fnx wrapper delegates to NetworkX internally so behavior is identical.
+This works unchanged for paths marked `present` in `docs/coverage.md`. Paths marked `partial` may still execute through a wrapper or NetworkX fallback, but their documented signature, binding-kind, or value gap means they are not claimed as drop-in portable.
 
 ### Pattern: type checks on `nx.Graph`
 
@@ -2056,7 +2139,7 @@ The conformance gate guarantees that an analysis published last year and rerun t
 ### Recommendation systems and social analytics
 
 - **Link prediction:** `adamic_adar_index`, `preferential_attachment`, `resource_allocation_index` over user-item bipartite graphs.
-- **Community detection at scale:** Louvain / greedy modularity over follower graphs (with the caveat that Louvain currently routes through nx).
+- **Community detection at scale:** Louvain / greedy modularity over follower graphs (both currently route through nx for exact behavioral parity).
 - **Pagerank-style ranking:** personalized PageRank for content recommendation.
 
 ### Compiler and program analysis
@@ -2124,7 +2207,7 @@ FrankenNetworkX is honest about what it does not do today:
 ## FAQ
 
 **Is it really a drop-in replacement?**
-For the 316 algorithms in `backend.py`'s `_SUPPORTED_ALGORITHMS` registry, yes: output is byte-compatible with NetworkX including iteration order. For the rest, NetworkX itself runs the algorithm (via the standard backend fallback) so nothing breaks. The 377-file parity suite is the canonical truth.
+Not across all of NetworkX today. Against the pinned 3.6.1 declared import-and-signature FeatureUniverse, 3,399 of 4,129 applicable paths are strictly present (82.3%), while 700 are partial and 30 are missing. The 316 algorithms in `backend.py` are the dispatch registry, not a proof that every NetworkX path or behavior is covered; behavioral claims remain scoped to their conformance fixtures.
 
 **Why are iteration orders such a big deal?**
 NetworkX users often write code that implicitly depends on `dict` insertion order or BFS visit order or `connected_components` set ordering. If a "faster NetworkX" returns the same set of correct answers but in a different order, downstream code breaks subtly. CGSE + the parity tests + the iteration-order audit ledger collectively make iteration order a first-class API contract.
@@ -2418,7 +2501,7 @@ In rough priority order (`bv --robot-triage` shows the current bead backlog):
 - **Complexity witness.** A `ComplexityWitness { n, m, dominant_term, observed_count, policy, seed, decision_path_blake3 }` receipt emitted per algorithm execution, drainable from a `WitnessLedger` for audit.
 - **Compatibility mode (Strict vs Hardened).** Two-mode runtime contract: Strict fails closed on malformed input; Hardened applies bounded recovery and records every recovery as a `DecisionRecord`.
 - **Conformance harness.** The `fnx-conformance` crate; replays curated graph fixtures through fnx and the legacy NetworkX oracle, emitting a structured report under `artifacts/conformance/latest/`.
-- **Coverage matrix.** The `docs/coverage.md` ledger, auto-generated from `franken_networkx.__all__` by `scripts/generate_coverage_matrix.py`. Classifies every export and fails CI on drift.
+- **Coverage matrix.** The `docs/coverage.md` ledger, auto-generated from pinned NetworkX 3.6.1 by `scripts/generate_coverage_matrix.py`. It classifies 4,926 qualified paths as present, partial, missing, n/a, or reasoned excluded, reports per-family strict coverage, and retains the `franken_networkx.__all__` route analysis as an appendix.
 - **Decision-path hash (`decision_path_blake3`).** A length-prefixed Blake3 hash of the sequence of tie-break decisions an algorithm made. Used to detect non-determinism.
 - **Delegation ledger.** `docs/delegation_ledger.md`; enumerates every `_call_networkx_*_for_parity` route (public exports that intentionally fall back to NetworkX for specific argument shapes).
 - **Fail-closed.** A policy choice in `fnx-runtime`: on uncertain input, raise rather than guess. The default in Strict mode.
@@ -2466,7 +2549,7 @@ franken_networkx/
 │   ├── fnx-durability/        # RaptorQ sidecars + scrub
 │   └── fnx-python/            # PyO3 bindings (cdylib)
 ├── python/franken_networkx/   # Python package surface
-│   ├── __init__.py            # 763 public exports
+│   ├── __init__.py            # 763 FNX root exports; not the NetworkX coverage denominator
 │   ├── backend.py             # 316 algorithms wired into nx dispatch
 │   ├── backend_info.py        # backend metadata for nx registration
 │   └── _fnx.pyi               # type stubs

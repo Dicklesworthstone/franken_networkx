@@ -1,0 +1,10 @@
+  [2m2026-07-12T22:41:30.174349Z[0m [32m INFO[0m [1;32mrch::hook::transfer_orchestration[0m[32m: [32mExecuting command remotely: cargo test --release -p fnx-algorithms --lib treewidth -- --include-ignored --nocapture[0m
+test tests::test_chordal_graph_treewidth_non_chordal ... ok
+test tests::test_chordal_graph_treewidth_path ... ok
+test tests::test_chordal_graph_treewidth_star ... ok
+CHORDALTWMCS_AB chordal_graph_treewidth 6000-node interval rounds=61 (>1 = bucket faster)
+test tests::chordal_treewidth_mcs_ab has been running for over 60 seconds
+CHORDALTWMCS_AB BUCKET_vs_scan: median=176.3175x win_rate=61/61 p5_p95=[127.3480,269.2032]
+CHORDALTWMCS_AB NULL_bucket_vs_bucket: median=1.0072x win_rate=34/61 p5_p95=[0.9141,1.1000]
+test tests::chordal_treewidth_mcs_ab ... ok
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 1020 filtered out; finished in 69.84s

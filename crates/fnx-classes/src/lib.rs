@@ -5,7 +5,7 @@ pub mod digraph;
 use fnx_runtime::{
     CgseValue, CompatibilityMode, DecisionAction, EvidenceLedger, EvidenceTerm, RuntimePolicy,
 };
-use indexmap::{IndexMap, IndexSet};
+use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
@@ -20,53 +20,6 @@ use std::collections::HashSet;
 use std::fmt;
 
 pub type AttrMap = BTreeMap<String, CgseValue>;
-
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-struct EdgeKey {
-    left: String,
-    right: String,
-}
-
-impl EdgeKey {
-    fn new(left: &str, right: &str) -> Self {
-        if left <= right {
-            Self {
-                left: left.to_owned(),
-                right: right.to_owned(),
-            }
-        } else {
-            Self {
-                left: right.to_owned(),
-                right: left.to_owned(),
-            }
-        }
-    }
-}
-
-#[derive(Hash, PartialEq, Eq, Clone, Copy)]
-struct EdgeKeyRef<'a> {
-    left: &'a str,
-    right: &'a str,
-}
-
-impl<'a> EdgeKeyRef<'a> {
-    fn new(left: &'a str, right: &'a str) -> Self {
-        if left <= right {
-            Self { left, right }
-        } else {
-            Self {
-                left: right,
-                right: left,
-            }
-        }
-    }
-}
-
-impl<'a> indexmap::Equivalent<EdgeKey> for EdgeKeyRef<'a> {
-    fn equivalent(&self, key: &EdgeKey) -> bool {
-        self.left == key.left && self.right == key.right
-    }
-}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum GraphError {
@@ -678,12 +631,14 @@ impl Graph {
                             graph.adj_indices.push(Vec::new());
                         }
                     }
-                    if !graph.adj_indices[node_idx[s_idx]].contains(&node_idx[t_idx]) {
-                        graph.adj_indices[node_idx[s_idx]].push(node_idx[t_idx]);
-                    }
-                    if node_idx[s_idx] != node_idx[t_idx]
-                        && !graph.adj_indices[node_idx[t_idx]].contains(&node_idx[s_idx])
-                    {
+                    // br-r37-c1-kneserpush (cc): we are inside `if seen.insert(pair)` — a FIRST
+                    // occurrence of this (s_idx,t_idx) edge — so it is provably not yet in either
+                    // adjacency row. The old `!adj_indices[..].contains(..)` guards were O(degree)
+                    // linear rescans always returning true here (redundant); push directly.
+                    // Byte-identical (Kneser edges have no parallel edges; self-loop s==t handled
+                    // by the != guard, exactly as before).
+                    graph.adj_indices[node_idx[s_idx]].push(node_idx[t_idx]);
+                    if node_idx[s_idx] != node_idx[t_idx] {
                         graph.adj_indices[node_idx[t_idx]].push(node_idx[s_idx]);
                     }
                     graph
@@ -746,6 +701,88 @@ impl Graph {
     #[inline]
     fn canon_pair(l: usize, r: usize) -> (usize, usize) {
         if l <= r { (l, r) } else { (r, l) }
+    }
+
+    /// br-r37-c1-indsub: build the induced subgraph over `order` (parent node
+    /// indices, already in the caller's output order) without hashing a single
+    /// node name.
+    ///
+    /// The per-edge `add_edge_with_attrs` path costs two `String` allocations,
+    /// four name hashes and a `record_decision` ledger entry (which itself
+    /// allocates two Strings and a Vec) — ~2.5us/edge, so materializing the
+    /// 158k-edge k=10 core of ca-AstroPh took 393ms. Everything that loop
+    /// re-derives is already known here: the surviving rows come straight out
+    /// of `adj_indices`, and the new index of a kept node is its slot in
+    /// `order`. All the invariants `add_edge_with_attrs` maintains are
+    /// reproduced directly:
+    ///
+    ///  * `edges` is keyed by the INDEX-canonical pair of the NEW indices;
+    ///  * `edge_index_endpoints` keeps the STRING-canonical orientation
+    ///    (`left <= right` on names), matching the per-edge path;
+    ///  * a row records its neighbor when the pair is first emitted, so
+    ///    adjacency order is the walk order — which is exactly what nx's
+    ///    `add_edges_from` over the induced walk produces;
+    ///  * a self-loop appears once in its row.
+    ///
+    /// A pair is emitted from whichever endpoint comes FIRST in `order`, so
+    /// each undirected edge is visited once. `order` must contain distinct,
+    /// in-range parent indices.
+    #[must_use]
+    pub fn induced_subgraph_ordered(&self, order: &[usize], runtime_policy: RuntimePolicy) -> Self {
+        let mut position = vec![usize::MAX; self.nodes.len()];
+        for (slot, &parent_idx) in order.iter().enumerate() {
+            position[parent_idx] = slot;
+        }
+
+        let mut nodes = FxIndexMap::default();
+        nodes.reserve(order.len());
+        for &parent_idx in order {
+            let (name, attrs) = self
+                .nodes
+                .get_index(parent_idx)
+                .expect("induced subgraph order must hold valid parent node indices");
+            nodes.insert(name.clone(), attrs.clone());
+        }
+
+        let mut adj_indices = vec![Vec::new(); order.len()];
+        let mut edges = FxIndexMap::default();
+        let mut edge_index_endpoints = Vec::new();
+        for (slot, &parent_idx) in order.iter().enumerate() {
+            for &parent_neighbor in &self.adj_indices[parent_idx] {
+                let other = position[parent_neighbor];
+                if other == usize::MAX || other < slot {
+                    continue;
+                }
+                let attrs = self
+                    .edges
+                    .get(&Self::canon_pair(parent_idx, parent_neighbor))
+                    .cloned()
+                    .unwrap_or_default();
+                edges.insert(Self::canon_pair(slot, other), attrs);
+                let left_name = nodes.get_index(slot).expect("slot inserted above").0;
+                let right_name = nodes.get_index(other).expect("slot inserted above").0;
+                if left_name <= right_name {
+                    edge_index_endpoints.push((slot, other));
+                } else {
+                    edge_index_endpoints.push((other, slot));
+                }
+                adj_indices[slot].push(other);
+                if slot != other {
+                    adj_indices[other].push(slot);
+                }
+            }
+        }
+
+        Self {
+            mode: runtime_policy.mode(),
+            revision: 0,
+            nodes,
+            adj_indices,
+            all_int_cache: std::sync::Arc::default(),
+            edge_index_endpoints,
+            edges,
+            runtime_policy,
+        }
     }
 
     #[must_use]
@@ -964,9 +1001,14 @@ impl Graph {
     /// iterator which already walks nodes in index order.
     #[must_use]
     pub fn degree_by_index(&self, idx: usize) -> usize {
-        let row = &self.adj_indices[idx];
-        let mut count = row.len();
-        if row.contains(&idx) {
+        // br-r37-c1-degselfloopidx (cc): the self-loop check was `adj_indices[idx].contains(&idx)`
+        // — an O(degree) linear rescan of the adjacency row (which for the common no-self-loop node
+        // scans the WHOLE row to return false), making this hot per-node accessor O(degree) despite
+        // the "O(1)" claim. `has_edge_by_indices(idx, idx)` = `self.edges.contains_key(canon(idx,idx))`
+        // is an O(1) HashMap probe deciding the SAME fact (a self-loop edge exists IFF idx is in its
+        // own adjacency row — the maintained adj_indices<=>self.edges invariant). Byte-identical.
+        let mut count = self.adj_indices[idx].len();
+        if self.has_edge_by_indices(idx, idx) {
             count += 1; // self-loop contributes 2 to total degree
         }
         count
@@ -999,6 +1041,25 @@ impl Graph {
     #[must_use]
     pub fn any_edge_has_attr(&self, key: &str) -> bool {
         self.edges.values().any(|attrs| attrs.contains_key(key))
+    }
+
+    /// True if EVERY inner edge attr value is a faithful scalar (Int/Float/Bool)
+    /// — a String/Map value is a coerced non-scalar (repr/JSON) or genuine str,
+    /// ambiguous for lossless cloning. Direct no-alloc scan over the edge store
+    /// values (contrast `edges_ordered_borrowed`, which builds an O(E) dedup
+    /// HashMap). Used by the compose store-read gate.
+    #[must_use]
+    pub fn all_edge_attr_values_scalar(&self) -> bool {
+        self.edges.values().all(|attrs| {
+            attrs.values().all(|v| {
+                matches!(
+                    v,
+                    fnx_runtime::CgseValue::Int(_)
+                        | fnx_runtime::CgseValue::Float(_)
+                        | fnx_runtime::CgseValue::Bool(_)
+                )
+            })
+        })
     }
 
     /// br-r37-c1-hasanyattrlazyfix: does ANY node carry a Python-visible attr, per the
@@ -1487,10 +1548,15 @@ impl Graph {
             if let Some(existing) = self.edges.get_mut(&edge_key) {
                 // Duplicate edge (pre-existing or earlier in this batch):
                 // merge attrs, matching add_edge_with_attrs' `extend`.
-                if !attrs.is_empty()
-                    && attrs
-                        .iter()
-                        .any(|(key, value)| existing.get(key) != Some(value))
+                // An empty attr map merges to a no-op; returning early avoids
+                // building and dropping a BTreeMap iterator per duplicate edge,
+                // which dominates unweighted bulk loads.
+                if attrs.is_empty() {
+                    continue;
+                }
+                if attrs
+                    .iter()
+                    .any(|(key, value)| existing.get(key) != Some(value))
                 {
                     merged_changed = true;
                 }
@@ -1568,10 +1634,15 @@ impl Graph {
 
             let edge_key = Self::canon_pair(left_idx, right_idx);
             if let Some(existing) = self.edges.get_mut(&edge_key) {
-                if !attrs.is_empty()
-                    && attrs
-                        .iter()
-                        .any(|(key, value)| existing.get(key) != Some(value))
+                // An empty attr map merges to a no-op; returning early avoids
+                // building and dropping a BTreeMap iterator per duplicate edge,
+                // which dominates unweighted bulk loads.
+                if attrs.is_empty() {
+                    continue;
+                }
+                if attrs
+                    .iter()
+                    .any(|(key, value)| existing.get(key) != Some(value))
                 {
                     merged_changed = true;
                 }
@@ -1693,18 +1764,23 @@ impl Graph {
             if let (Some(left_idx), Some(right_idx)) = (
                 self.nodes.get_index_of(&left),
                 self.nodes.get_index_of(&right),
-            ) {
-                if new_edge {
-                    if left <= right {
-                        self.edge_index_endpoints.push((left_idx, right_idx));
-                    } else {
-                        self.edge_index_endpoints.push((right_idx, left_idx));
-                    }
+            ) && new_edge
+            {
+                if left <= right {
+                    self.edge_index_endpoints.push((left_idx, right_idx));
+                } else {
+                    self.edge_index_endpoints.push((right_idx, left_idx));
                 }
-                if !self.adj_indices[left_idx].contains(&right_idx) {
-                    self.adj_indices[left_idx].push(right_idx);
-                }
-                if left_idx != right_idx && !self.adj_indices[right_idx].contains(&left_idx) {
+                // br-r37-c1-addedgenewedge (cc): adj_indices membership is EXACTLY edge
+                // existence, which `new_edge` (= !self.edges.contains_key(edge_key)) already
+                // decided in O(1). The old `!adj_indices[left_idx].contains(&right_idx)` guards
+                // were an O(degree) linear rescan of the adjacency row computing the SAME
+                // answer — O(n²) to build a star/hub via add_edge. Push only when new_edge
+                // (byte-identical: existing edge ⇒ new_edge false ⇒ both endpoints already in
+                // adj_indices ⇒ old guards were false too; self-loop ⇒ left_idx==right_idx ⇒
+                // single push in both).
+                self.adj_indices[left_idx].push(right_idx);
+                if left_idx != right_idx {
                     self.adj_indices[right_idx].push(left_idx);
                 }
             }
@@ -2267,7 +2343,7 @@ impl Graph {
 
 /// br-r37-c1-thp6w slice 1: revision-keyed integer-adjacency memo for MultiGraph. Holds the
 /// integer neighbor rows (`get_node_index` of each adjacency-row neighbor, in row order),
-/// lazily built from the authoritative String `adjacency` and reused until the graph mutates.
+/// lazily built from the authoritative stable-slot rows and reused until the graph mutates.
 /// Interior mutability (RwLock) so it can populate on a `&self` read while staying `Sync`,
 /// matching `Graph::all_int_cache`. Clone yields a FRESH (empty) memo — never shared — so a
 /// clone that mutates independently can never serve another graph's rows.
@@ -2280,17 +2356,1488 @@ impl Clone for IntAdjCache {
     }
 }
 
+/// br-r37-c1-thp6w S4: the structural row delta of one single-edge MultiGraph
+/// mutation, used by `advance_int_adj_memo` to keep a warm integer-adjacency
+/// memo live across the mutation instead of invalidating it.
+enum IntAdjEdgeDelta<'a> {
+    Add {
+        left: &'a str,
+        right: &'a str,
+        left_new: bool,
+        right_new: bool,
+        pair_new: bool,
+    },
+    Remove {
+        left: &'a str,
+        right: &'a str,
+        pair_gone: bool,
+    },
+}
+
+/// Stable-slot storage for `MultiGraph`. Test-only positional prototypes stay
+/// alongside it as parity and benchmark comparators for the storage cutover.
+mod multigraph_storage {
+    use super::{AttrMap, CompatibilityMode, MultiEdgeSnapshot, MultiGraphSnapshot};
+    use indexmap::{IndexMap, IndexSet};
+
+    /// Index-keyed analog of the MultiGraph storage core. Internal pair
+    /// canonicalization is (min_idx, max_idx) — deliberately DIFFERENT from
+    /// the String-lex `EdgeKey` canonical ("10" < "2" lex, 2 < 10 numeric) —
+    /// because pair-key orientation is never observable: every public
+    /// ordering derives from the rows walk + per-cell key sets, which the
+    /// parity gates pin byte-for-byte.
+    #[cfg(test)]
+    #[derive(Debug, Default)]
+    pub struct MgIntStorageProto {
+        /// Node names in insertion order (the surviving String table).
+        pub node_names: Vec<String>,
+        /// name -> index resolution (the `nodes` map analog).
+        pub node_index: IndexMap<String, usize, rustc_hash::FxBuildHasher>,
+        /// node idx -> distinct-neighbor idx -> parallel-edge key set,
+        /// insertion-ordered exactly like the String rows.
+        pub rows: Vec<IndexMap<usize, IndexSet<usize>>>,
+        /// (min_idx, max_idx) -> key -> attrs.
+        pub edges: IndexMap<(usize, usize), IndexMap<usize, AttrMap>, rustc_hash::FxBuildHasher>,
+        pub edge_count: usize,
+    }
+
+    #[cfg(test)]
+    impl MgIntStorageProto {
+        #[must_use]
+        pub fn new() -> Self {
+            Self::default()
+        }
+
+        fn ensure_node(&mut self, name: &str) -> usize {
+            if let Some(&idx) = self.node_index.get(name) {
+                return idx;
+            }
+            let idx = self.node_names.len();
+            self.node_names.push(name.to_owned());
+            self.node_index.insert(name.to_owned(), idx);
+            self.rows.push(IndexMap::new());
+            idx
+        }
+
+        /// Mirror of `MultiGraph::extend_keyed_edges_with_attrs_unrecorded`'s
+        /// per-edge storage ops: endpoint nodes created on demand, an existing
+        /// (pair, key) cell merges attrs, new cells count toward `edge_count`.
+        pub fn add_keyed_edge(&mut self, left: &str, right: &str, key: usize, attrs: AttrMap) {
+            let l = self.ensure_node(left);
+            let r = if left == right {
+                l
+            } else {
+                self.ensure_node(right)
+            };
+            let pair = (l.min(r), l.max(r));
+            let bucket = self.edges.entry(pair).or_default();
+            if !bucket.contains_key(&key) {
+                self.edge_count += 1;
+            }
+            bucket.entry(key).or_default().extend(attrs);
+            self.rows[l].entry(r).or_default().insert(key);
+            if l != r {
+                self.rows[r].entry(l).or_default().insert(key);
+            }
+        }
+
+        /// Mirror of `MultiGraph::extend_fresh_int_prefix_keyed_edges_unrecorded`
+        /// for the A/B: same node-name String table build (fairness — the name
+        /// table survives the flip), then pure index-keyed edge inserts with no
+        /// String clone/hash per edge.
+        #[must_use]
+        pub fn bulk_load_int_prefix<I>(node_count: usize, edges: I) -> Self
+        where
+            I: IntoIterator<Item = (usize, usize, usize)>,
+        {
+            let iterator = edges.into_iter();
+            let (lower_bound, _) = iterator.size_hint();
+            let mut proto = Self::new();
+            proto.node_names.reserve(node_count);
+            proto.node_index.reserve(node_count);
+            proto.rows.reserve(node_count);
+            proto.edges.reserve(lower_bound);
+            for node in 0..node_count {
+                let name = node.to_string();
+                proto.node_names.push(name.clone());
+                proto.node_index.insert(name, node);
+                proto.rows.push(IndexMap::new());
+            }
+            for (left_idx, right_idx, key) in iterator {
+                debug_assert!(left_idx < node_count);
+                debug_assert!(right_idx < node_count);
+                let pair = (left_idx.min(right_idx), left_idx.max(right_idx));
+                proto
+                    .edges
+                    .entry(pair)
+                    .or_default()
+                    .insert(key, AttrMap::new());
+                proto.rows[left_idx]
+                    .entry(right_idx)
+                    .or_default()
+                    .insert(key);
+                if left_idx != right_idx {
+                    proto.rows[right_idx]
+                        .entry(left_idx)
+                        .or_default()
+                        .insert(key);
+                }
+                proto.edge_count += 1;
+            }
+            proto
+        }
+
+        /// Distinct neighbors of node `i` as names, in row order.
+        #[must_use]
+        pub fn neighbor_names(&self, i: usize) -> Vec<&str> {
+            self.rows[i]
+                .keys()
+                .map(|&j| self.node_names[j].as_str())
+                .collect()
+        }
+
+        /// Parallel-edge key order for the (left, right) pair, `edge_keys_vec` analog.
+        #[must_use]
+        pub fn key_order(&self, left: &str, right: &str) -> Vec<usize> {
+            let (Some(&l), Some(&r)) = (self.node_index.get(left), self.node_index.get(right))
+            else {
+                return Vec::new();
+            };
+            self.edges
+                .get(&(l.min(r), l.max(r)))
+                .map(|bucket| bucket.keys().copied().collect())
+                .unwrap_or_default()
+        }
+
+        /// br-r37-c1-thp6w S7: mirror of `MultiGraph::remove_edge` on the
+        /// index layout — `key=None` picks the LAST bucket key (`next_back`),
+        /// the surviving bucket keeps its key order (shift semantics), an
+        /// emptied pair drops from the outer edges map (order unobservable)
+        /// and shift-removes the neighbor cell from both rows.
+        pub fn remove_edge(&mut self, left: &str, right: &str, key: Option<usize>) -> bool {
+            let (Some(&l), Some(&r)) = (self.node_index.get(left), self.node_index.get(right))
+            else {
+                return false;
+            };
+            let pair = (l.min(r), l.max(r));
+            let Some(bucket) = self.edges.get_mut(&pair) else {
+                return false;
+            };
+            let Some(removal_key) = key.or_else(|| bucket.keys().next_back().copied()) else {
+                return false;
+            };
+            if bucket.shift_remove(&removal_key).is_none() {
+                return false;
+            }
+            self.edge_count -= 1;
+            let pair_gone = bucket.is_empty();
+            if pair_gone {
+                self.edges.swap_remove(&pair);
+            }
+            let mut drop_cell = |u: usize, v: usize| {
+                let mut cell_empty = false;
+                if let Some(keys) = self.rows[u].get_mut(&v) {
+                    keys.shift_remove(&removal_key);
+                    cell_empty = keys.is_empty();
+                }
+                if cell_empty {
+                    self.rows[u].shift_remove(&v);
+                }
+            };
+            drop_cell(l, r);
+            if l != r {
+                drop_cell(r, l);
+            }
+            true
+        }
+
+        /// br-r37-c1-thp6w S7: mirror of `MultiGraph::remove_node` under the
+        /// index layout — the d58s8-pattern fused renumber (Graph::remove_node
+        /// template): drop the node's row, decrement every surviving index
+        /// above it in one order-preserving pass per row, rebuild the edges
+        /// map order-preserving with incident pairs skipped and both pair
+        /// members decremented (order within the pair is preserved by a
+        /// uniform decrement, so the index-canonical invariant survives).
+        pub fn remove_node(&mut self, name: &str) -> bool {
+            let Some(&idx) = self.node_index.get(name) else {
+                return false;
+            };
+            self.node_names.remove(idx);
+            self.node_index.shift_remove(name);
+            for stored in self.node_index.values_mut() {
+                if *stored > idx {
+                    *stored -= 1;
+                }
+            }
+            self.rows.remove(idx);
+            for row in &mut self.rows {
+                let old = std::mem::take(row);
+                for (j, keys) in old {
+                    if j == idx {
+                        continue;
+                    }
+                    row.insert(if j > idx { j - 1 } else { j }, keys);
+                }
+            }
+            let old_edges = std::mem::take(&mut self.edges);
+            let mut removed_cells = 0usize;
+            for ((a, b), bucket) in old_edges {
+                if a == idx || b == idx {
+                    removed_cells += bucket.len();
+                    continue;
+                }
+                self.edges.insert(
+                    (
+                        if a > idx { a - 1 } else { a },
+                        if b > idx { b - 1 } else { b },
+                    ),
+                    bucket,
+                );
+            }
+            self.edge_count -= removed_cells;
+            true
+        }
+    }
+
+    /// br-r37-c1-thp6w S6: singleton-optimized parallel-key cell. The
+    /// insertion-ordered set semantics of `IndexSet<usize>` are preserved
+    /// exactly (dedup on insert, One -> Many promotion appends), but the
+    /// singleton case — the overwhelmingly common one in real multigraphs —
+    /// allocates NOTHING.
+    #[derive(Debug, Clone)]
+    pub enum CompactKeys {
+        One(usize),
+        Many(IndexSet<usize>),
+    }
+
+    impl CompactKeys {
+        /// Set-insert preserving insertion order; returns true if newly added.
+        pub fn insert(&mut self, key: usize) -> bool {
+            match self {
+                Self::One(existing) => {
+                    if *existing == key {
+                        return false;
+                    }
+                    let mut set = IndexSet::with_capacity(2);
+                    set.insert(*existing);
+                    set.insert(key);
+                    *self = Self::Many(set);
+                    true
+                }
+                Self::Many(set) => set.insert(key),
+            }
+        }
+
+        #[cfg(test)]
+        #[must_use]
+        pub fn order(&self) -> Vec<usize> {
+            match self {
+                Self::One(key) => vec![*key],
+                Self::Many(set) => set.iter().copied().collect(),
+            }
+        }
+
+        /// br-r37-c1-thp6w S27: number of parallel keys (never zero — a cell is
+        /// dropped wholesale when its last key is removed).
+        #[must_use]
+        pub fn len(&self) -> usize {
+            match self {
+                Self::One(_) => 1,
+                Self::Many(set) => set.len(),
+            }
+        }
+
+        /// br-r37-c1-thp6w S9: order-preserving key removal; returns
+        /// (removed, cell_now_empty). A `Many` that shrinks to one entry stays
+        /// `Many` — only iteration order is observable, not the variant.
+        pub fn shift_remove(&mut self, key: usize) -> (bool, bool) {
+            match self {
+                Self::One(existing) => {
+                    let removed = *existing == key;
+                    (removed, removed)
+                }
+                Self::Many(set) => {
+                    let removed = set.shift_remove(&key);
+                    (removed, set.is_empty())
+                }
+            }
+        }
+    }
+
+    /// br-r37-c1-thp6w S6: singleton-optimized (pair -> key -> attrs) bucket,
+    /// insertion-key-ordered like `IndexMap<usize, AttrMap>`; the singleton
+    /// case stores the key + attrs inline with no map allocation (an empty
+    /// `AttrMap`/BTreeMap does not allocate).
+    #[derive(Debug, Clone)]
+    pub enum CompactBucket {
+        One(usize, AttrMap),
+        Many(IndexMap<usize, AttrMap>),
+    }
+
+    impl CompactBucket {
+        /// `entry(key).or_default().extend(attrs)` analog; returns true if the
+        /// (key) cell is new.
+        pub fn merge(&mut self, key: usize, attrs: AttrMap) -> bool {
+            match self {
+                Self::One(existing, existing_attrs) => {
+                    if *existing == key {
+                        existing_attrs.extend(attrs);
+                        return false;
+                    }
+                    let mut map = IndexMap::with_capacity(2);
+                    map.insert(*existing, std::mem::take(existing_attrs));
+                    map.insert(key, attrs);
+                    *self = Self::Many(map);
+                    true
+                }
+                Self::Many(map) => {
+                    let is_new = !map.contains_key(&key);
+                    map.entry(key).or_default().extend(attrs);
+                    is_new
+                }
+            }
+        }
+
+        #[must_use]
+        pub fn key_order(&self) -> Vec<usize> {
+            match self {
+                Self::One(key, _) => vec![*key],
+                Self::Many(map) => map.keys().copied().collect(),
+            }
+        }
+
+        #[must_use]
+        pub fn attrs_for(&self, key: usize) -> Option<&AttrMap> {
+            match self {
+                Self::One(existing, attrs) => (*existing == key).then_some(attrs),
+                Self::Many(map) => map.get(&key),
+            }
+        }
+
+        #[must_use]
+        pub fn contains_key(&self, key: usize) -> bool {
+            self.attrs_for(key).is_some()
+        }
+
+        /// br-r37-c1-thp6w S22: OVERWRITE the attr map for an existing key
+        /// (`merge` extends; this replaces). Returns true if the key was
+        /// present. Mirror of one cell of `MultiGraph::replace_edge_attrs`.
+        pub fn replace_attrs(&mut self, key: usize, attrs: AttrMap) -> bool {
+            match self {
+                Self::One(existing, existing_attrs) => {
+                    if *existing == key {
+                        *existing_attrs = attrs;
+                        true
+                    } else {
+                        false
+                    }
+                }
+                Self::Many(map) => {
+                    if let Some(slot) = map.get_mut(&key) {
+                        *slot = attrs;
+                        true
+                    } else {
+                        false
+                    }
+                }
+            }
+        }
+
+        /// br-r37-c1-thp6w S9: number of parallel keys in the bucket.
+        #[must_use]
+        pub fn len(&self) -> usize {
+            match self {
+                Self::One(..) => 1,
+                Self::Many(map) => map.len(),
+            }
+        }
+
+        #[must_use]
+        pub fn is_empty(&self) -> bool {
+            self.len() == 0
+        }
+
+        /// br-r37-c1-thp6w S9: the LAST key in insertion order (the real
+        /// `remove_edge(key=None)` default via `next_back`).
+        #[must_use]
+        pub fn last_key(&self) -> Option<usize> {
+            match self {
+                Self::One(key, _) => Some(*key),
+                Self::Many(map) => map.keys().next_back().copied(),
+            }
+        }
+
+        /// br-r37-c1-thp6w S9: order-preserving key removal; returns
+        /// (removed, bucket_now_empty).
+        pub fn shift_remove(&mut self, key: usize) -> (bool, bool) {
+            match self {
+                Self::One(existing, _) => {
+                    let removed = *existing == key;
+                    (removed, removed)
+                }
+                Self::Many(map) => {
+                    let removed = map.shift_remove(&key).is_some();
+                    (removed, map.is_empty())
+                }
+            }
+        }
+
+        /// br-r37-c1-thp6w S12: key-ordered (key, attrs) iteration without a
+        /// per-bucket allocation (read-path hot loop).
+        pub fn iter(&self) -> CompactBucketIter<'_> {
+            match self {
+                Self::One(key, attrs) => CompactBucketIter::One(std::iter::once((*key, attrs))),
+                Self::Many(map) => CompactBucketIter::Many(map.iter()),
+            }
+        }
+
+        /// br-r37-c1-thp6w S33: zero-alloc parallel-key iterator yielding
+        /// `&usize`, matching the String adjacency `IndexSet<usize>::iter` that
+        /// backs `edge_keys_iter`.
+        pub fn keys(&self) -> CompactBucketKeys<'_> {
+            match self {
+                Self::One(key, _) => CompactBucketKeys::One(Some(key)),
+                Self::Many(map) => CompactBucketKeys::Many(map.keys()),
+            }
+        }
+
+        pub fn values(&self) -> CompactBucketValues<'_> {
+            match self {
+                Self::One(_, attrs) => CompactBucketValues::One(Some(attrs)),
+                Self::Many(map) => CompactBucketValues::Many(map.values()),
+            }
+        }
+    }
+
+    /// br-r37-c1-thp6w S12: enum iterator for `CompactBucket::iter` (no Box,
+    /// no per-bucket allocation).
+    pub enum CompactBucketIter<'a> {
+        One(std::iter::Once<(usize, &'a AttrMap)>),
+        Many(indexmap::map::Iter<'a, usize, AttrMap>),
+    }
+
+    impl<'a> Iterator for CompactBucketIter<'a> {
+        type Item = (usize, &'a AttrMap);
+
+        fn next(&mut self) -> Option<Self::Item> {
+            match self {
+                Self::One(it) => it.next(),
+                Self::Many(it) => it.next().map(|(key, attrs)| (*key, attrs)),
+            }
+        }
+    }
+
+    /// br-r37-c1-thp6w S33: zero-alloc `&usize` parallel-key iterator over a
+    /// `CompactBucket` (One = the single key once, Many = the map's keys),
+    /// matching `IndexSet<usize>::Iter` so `edge_keys_iter` keeps `Item=&usize`.
+    pub enum CompactBucketKeys<'a> {
+        One(Option<&'a usize>),
+        Many(indexmap::map::Keys<'a, usize, AttrMap>),
+    }
+
+    impl<'a> Iterator for CompactBucketKeys<'a> {
+        type Item = &'a usize;
+
+        fn next(&mut self) -> Option<Self::Item> {
+            match self {
+                Self::One(opt) => opt.take(),
+                Self::Many(keys) => keys.next(),
+            }
+        }
+    }
+
+    pub enum CompactBucketValues<'a> {
+        One(Option<&'a AttrMap>),
+        Many(indexmap::map::Values<'a, usize, AttrMap>),
+    }
+
+    impl<'a> Iterator for CompactBucketValues<'a> {
+        type Item = &'a AttrMap;
+
+        fn next(&mut self) -> Option<Self::Item> {
+            match self {
+                Self::One(opt) => opt.take(),
+                Self::Many(values) => values.next(),
+            }
+        }
+    }
+
+    /// br-r37-c1-thp6w S6: the compact-bucket variant of the index-keyed
+    /// layout — identical structure to `MgIntStorageProto` except both nested
+    /// bucket levels use the singleton-optimized enums, so a simple-graph-like
+    /// multigraph (no parallel edges) performs ZERO per-pair bucket
+    /// allocations.
+    #[cfg(test)]
+    #[derive(Debug, Default)]
+    pub struct MgIntStorageProtoCompact {
+        pub node_names: Vec<String>,
+        pub node_index: IndexMap<String, usize, rustc_hash::FxBuildHasher>,
+        pub rows: Vec<IndexMap<usize, CompactKeys>>,
+        pub edges: IndexMap<(usize, usize), CompactBucket, rustc_hash::FxBuildHasher>,
+        pub edge_count: usize,
+    }
+
+    #[cfg(test)]
+    impl MgIntStorageProtoCompact {
+        #[must_use]
+        pub fn new() -> Self {
+            Self::default()
+        }
+
+        fn ensure_node(&mut self, name: &str) -> usize {
+            if let Some(&idx) = self.node_index.get(name) {
+                return idx;
+            }
+            let idx = self.node_names.len();
+            self.node_names.push(name.to_owned());
+            self.node_index.insert(name.to_owned(), idx);
+            self.rows.push(IndexMap::new());
+            idx
+        }
+
+        /// Mirror of `MgIntStorageProto::add_keyed_edge` on compact buckets.
+        pub fn add_keyed_edge(
+            &mut self,
+            left: &str,
+            right: &str,
+            key: usize,
+            attrs: AttrMap,
+        ) -> bool {
+            let l = self.ensure_node(left);
+            let r = if left == right {
+                l
+            } else {
+                self.ensure_node(right)
+            };
+            let pair = (l.min(r), l.max(r));
+            let is_new = match self.edges.entry(pair) {
+                indexmap::map::Entry::Occupied(mut bucket) => bucket.get_mut().merge(key, attrs),
+                indexmap::map::Entry::Vacant(slot) => {
+                    slot.insert(CompactBucket::One(key, attrs));
+                    true
+                }
+            };
+            if is_new {
+                self.edge_count += 1;
+            }
+            match self.rows[l].entry(r) {
+                indexmap::map::Entry::Occupied(mut cell) => {
+                    let _ = cell.get_mut().insert(key);
+                }
+                indexmap::map::Entry::Vacant(slot) => {
+                    slot.insert(CompactKeys::One(key));
+                }
+            }
+            if l != r {
+                match self.rows[r].entry(l) {
+                    indexmap::map::Entry::Occupied(mut cell) => {
+                        let _ = cell.get_mut().insert(key);
+                    }
+                    indexmap::map::Entry::Vacant(slot) => {
+                        slot.insert(CompactKeys::One(key));
+                    }
+                }
+            }
+            is_new
+        }
+
+        /// Mirror of `MgIntStorageProto::bulk_load_int_prefix` on compact buckets.
+        #[cfg(test)]
+        #[must_use]
+        pub fn bulk_load_int_prefix<I>(node_count: usize, edges: I) -> Self
+        where
+            I: IntoIterator<Item = (usize, usize, usize)>,
+        {
+            let iterator = edges.into_iter();
+            let (lower_bound, _) = iterator.size_hint();
+            let mut proto = Self::new();
+            proto.node_names.reserve(node_count);
+            proto.node_index.reserve(node_count);
+            proto.rows.reserve(node_count);
+            proto.edges.reserve(lower_bound);
+            for node in 0..node_count {
+                let name = node.to_string();
+                proto.node_names.push(name.clone());
+                proto.node_index.insert(name, node);
+                proto.rows.push(IndexMap::new());
+            }
+            for (left_idx, right_idx, key) in iterator {
+                debug_assert!(left_idx < node_count);
+                debug_assert!(right_idx < node_count);
+                let pair = (left_idx.min(right_idx), left_idx.max(right_idx));
+                match proto.edges.entry(pair) {
+                    indexmap::map::Entry::Occupied(mut bucket) => {
+                        let _ = bucket.get_mut().merge(key, AttrMap::new());
+                    }
+                    indexmap::map::Entry::Vacant(slot) => {
+                        slot.insert(CompactBucket::One(key, AttrMap::new()));
+                    }
+                }
+                match proto.rows[left_idx].entry(right_idx) {
+                    indexmap::map::Entry::Occupied(mut cell) => {
+                        let _ = cell.get_mut().insert(key);
+                    }
+                    indexmap::map::Entry::Vacant(slot) => {
+                        slot.insert(CompactKeys::One(key));
+                    }
+                }
+                if left_idx != right_idx {
+                    match proto.rows[right_idx].entry(left_idx) {
+                        indexmap::map::Entry::Occupied(mut cell) => {
+                            let _ = cell.get_mut().insert(key);
+                        }
+                        indexmap::map::Entry::Vacant(slot) => {
+                            slot.insert(CompactKeys::One(key));
+                        }
+                    }
+                }
+                proto.edge_count += 1;
+            }
+            proto
+        }
+
+        /// Distinct neighbors of node `i` as names, in row order.
+        #[must_use]
+        pub fn neighbor_names(&self, i: usize) -> Vec<&str> {
+            self.rows[i]
+                .keys()
+                .map(|&j| self.node_names[j].as_str())
+                .collect()
+        }
+
+        /// Parallel-edge key order for the (left, right) pair.
+        #[must_use]
+        pub fn key_order(&self, left: &str, right: &str) -> Vec<usize> {
+            let (Some(&l), Some(&r)) = (self.node_index.get(left), self.node_index.get(right))
+            else {
+                return Vec::new();
+            };
+            self.edges
+                .get(&(l.min(r), l.max(r)))
+                .map(CompactBucket::key_order)
+                .unwrap_or_default()
+        }
+    }
+
+    /// br-r37-c1-thp6w S9: the slab/stable-slot layout MANDATED by the S8
+    /// removal A/B (positional renumber measured 190-203x slower than the
+    /// String store). Node identity = a STABLE SLOT that never renumbers;
+    /// removal tombstones the slot (free-list reuse) and shift-removes only
+    /// the order entry, so rows and edge pair-keys stay valid with ZERO
+    /// rekeying. nx-observable insertion order lives entirely in `node_order`
+    /// (name -> slot, insertion-ordered IndexMap — the same structure and
+    /// O(V) shift_remove the production String store already pays). Buckets
+    /// are the S6 compact enums (the winning construction layout).
+    #[derive(Debug, Clone, Default)]
+    pub struct MgSlabStorage {
+        /// name -> stable slot, iteration = nx node insertion order.
+        pub node_order: IndexMap<String, usize, rustc_hash::FxBuildHasher>,
+        /// slot -> name (None = tombstone awaiting reuse/compaction).
+        pub slot_names: Vec<Option<String>>,
+        /// slot -> node attribute map (parallel to `slot_names`; empty for
+        /// attr-less / edge-created nodes and for tombstoned slots).
+        /// Slot-parallel node attributes. Empty for edge-created nodes and
+        /// cleared when a slot is tombstoned.
+        pub node_attrs: Vec<AttrMap>,
+        /// LIFO free-list of tombstoned slots.
+        pub free_slots: Vec<usize>,
+        /// slot -> neighbor slot -> parallel-key cell (row insertion order).
+        pub rows: Vec<IndexMap<usize, CompactKeys>>,
+        /// slot-canonical (min, max) pair -> compact bucket. Slots are stable,
+        /// so pair keys survive any removal without rekeying.
+        pub edges: IndexMap<(usize, usize), CompactBucket, rustc_hash::FxBuildHasher>,
+        pub edge_count: usize,
+    }
+
+    impl MgSlabStorage {
+        #[must_use]
+        pub fn new() -> Self {
+            Self::default()
+        }
+
+        fn ensure_node(&mut self, name: &str) -> usize {
+            if let Some(&slot) = self.node_order.get(name) {
+                return slot;
+            }
+            let slot = if let Some(reused) = self.free_slots.pop() {
+                debug_assert!(self.slot_names[reused].is_none());
+                debug_assert!(self.rows[reused].is_empty());
+                self.slot_names[reused] = Some(name.to_owned());
+                self.node_attrs[reused] = AttrMap::new();
+                reused
+            } else {
+                self.slot_names.push(Some(name.to_owned()));
+                self.rows.push(IndexMap::new());
+                self.node_attrs.push(AttrMap::new());
+                self.slot_names.len() - 1
+            };
+            self.node_order.insert(name.to_owned(), slot);
+            slot
+        }
+
+        /// Same insert semantics as the S5/S6 variants, slot-keyed.
+        pub fn add_keyed_edge(
+            &mut self,
+            left: &str,
+            right: &str,
+            key: usize,
+            attrs: AttrMap,
+        ) -> bool {
+            let l = self.ensure_node(left);
+            let r = if left == right {
+                l
+            } else {
+                self.ensure_node(right)
+            };
+            let pair = (l.min(r), l.max(r));
+            let is_new = match self.edges.entry(pair) {
+                indexmap::map::Entry::Occupied(mut bucket) => bucket.get_mut().merge(key, attrs),
+                indexmap::map::Entry::Vacant(slot) => {
+                    slot.insert(CompactBucket::One(key, attrs));
+                    true
+                }
+            };
+            if is_new {
+                self.edge_count += 1;
+            }
+            match self.rows[l].entry(r) {
+                indexmap::map::Entry::Occupied(mut cell) => {
+                    let _ = cell.get_mut().insert(key);
+                }
+                indexmap::map::Entry::Vacant(slot) => {
+                    slot.insert(CompactKeys::One(key));
+                }
+            }
+            if l != r {
+                match self.rows[r].entry(l) {
+                    indexmap::map::Entry::Occupied(mut cell) => {
+                        let _ = cell.get_mut().insert(key);
+                    }
+                    indexmap::map::Entry::Vacant(slot) => {
+                        slot.insert(CompactKeys::One(key));
+                    }
+                }
+            }
+            is_new
+        }
+
+        /// Bulk loader mirroring the S5/S6 int-prefix arms (fresh graph, slots
+        /// == 0..n, no tombstones).
+        #[cfg(test)]
+        #[must_use]
+        pub fn bulk_load_int_prefix<I>(node_count: usize, edges: I) -> Self
+        where
+            I: IntoIterator<Item = (usize, usize, usize)>,
+        {
+            let iterator = edges.into_iter();
+            let (lower_bound, _) = iterator.size_hint();
+            let mut proto = Self::new();
+            proto.node_order.reserve(node_count);
+            proto.slot_names.reserve(node_count);
+            proto.rows.reserve(node_count);
+            proto.edges.reserve(lower_bound);
+            proto.node_attrs.reserve(node_count);
+            for node in 0..node_count {
+                let name = node.to_string();
+                proto.node_order.insert(name.clone(), node);
+                proto.slot_names.push(Some(name));
+                proto.rows.push(IndexMap::new());
+                proto.node_attrs.push(AttrMap::new());
+            }
+            for (left_slot, right_slot, key) in iterator {
+                debug_assert!(left_slot < node_count);
+                debug_assert!(right_slot < node_count);
+                let pair = (left_slot.min(right_slot), left_slot.max(right_slot));
+                match proto.edges.entry(pair) {
+                    indexmap::map::Entry::Occupied(mut bucket) => {
+                        let _ = bucket.get_mut().merge(key, AttrMap::new());
+                    }
+                    indexmap::map::Entry::Vacant(slot) => {
+                        slot.insert(CompactBucket::One(key, AttrMap::new()));
+                    }
+                }
+                match proto.rows[left_slot].entry(right_slot) {
+                    indexmap::map::Entry::Occupied(mut cell) => {
+                        let _ = cell.get_mut().insert(key);
+                    }
+                    indexmap::map::Entry::Vacant(slot) => {
+                        slot.insert(CompactKeys::One(key));
+                    }
+                }
+                if left_slot != right_slot {
+                    match proto.rows[right_slot].entry(left_slot) {
+                        indexmap::map::Entry::Occupied(mut cell) => {
+                            let _ = cell.get_mut().insert(key);
+                        }
+                        indexmap::map::Entry::Vacant(slot) => {
+                            slot.insert(CompactKeys::One(key));
+                        }
+                    }
+                }
+                proto.edge_count += 1;
+            }
+            proto
+        }
+
+        /// Mirror of `MultiGraph::remove_edge` (key=None -> LAST bucket key).
+        pub fn remove_edge(&mut self, left: &str, right: &str, key: Option<usize>) -> bool {
+            let (Some(&l), Some(&r)) = (self.node_order.get(left), self.node_order.get(right))
+            else {
+                return false;
+            };
+            let pair = (l.min(r), l.max(r));
+            let Some(bucket) = self.edges.get_mut(&pair) else {
+                return false;
+            };
+            let Some(removal_key) = key.or_else(|| bucket.last_key()) else {
+                return false;
+            };
+            let (removed, bucket_empty) = bucket.shift_remove(removal_key);
+            if !removed {
+                return false;
+            }
+            self.edge_count -= 1;
+            if bucket_empty {
+                self.edges.swap_remove(&pair);
+            }
+            let mut drop_cell = |u: usize, v: usize| {
+                let mut cell_empty = false;
+                if let Some(keys) = self.rows[u].get_mut(&v) {
+                    let (cell_removed, now_empty) = keys.shift_remove(removal_key);
+                    debug_assert!(cell_removed);
+                    cell_empty = now_empty;
+                }
+                if cell_empty {
+                    self.rows[u].shift_remove(&v);
+                }
+            };
+            drop_cell(l, r);
+            if l != r {
+                drop_cell(r, l);
+            }
+            true
+        }
+
+        /// Slab removal: O(V) order-entry shift + O(degree) row/bucket drops.
+        /// NO renumber, NO edges rekey — the S8-mandated shape.
+        pub fn remove_node(&mut self, name: &str) -> bool {
+            let Some(&slot) = self.node_order.get(name) else {
+                return false;
+            };
+            let neighbors: Vec<usize> = self.rows[slot].keys().copied().collect();
+            for nbr in neighbors {
+                if nbr != slot {
+                    self.rows[nbr].shift_remove(&slot);
+                }
+                if let Some(bucket) = self.edges.swap_remove(&(slot.min(nbr), slot.max(nbr))) {
+                    self.edge_count -= bucket.len();
+                }
+            }
+            self.rows[slot] = IndexMap::new();
+            self.node_order.shift_remove(name);
+            self.slot_names[slot] = None;
+            self.node_attrs[slot] = AttrMap::new();
+            self.free_slots.push(slot);
+            true
+        }
+
+        /// `MultiGraph::add_node_with_attrs` semantics: ensure the node exists,
+        /// then extend its attribute map.
+        pub fn set_node_attrs(&mut self, name: &str, attrs: AttrMap) -> (bool, bool, usize) {
+            let existed = self.node_order.contains_key(name);
+            let changed = !existed
+                || attrs.iter().any(|(key, value)| {
+                    self.node_attrs_for(name).and_then(|a| a.get(key)) != Some(value)
+                });
+            let slot = self.ensure_node(name);
+            self.node_attrs[slot].extend(attrs);
+            (existed, changed, self.node_attrs[slot].len())
+        }
+
+        /// Overwrite an existing node's attribute map. No-op if absent.
+        pub fn replace_node_attrs(&mut self, name: &str, attrs: AttrMap) {
+            if let Some(&slot) = self.node_order.get(name) {
+                self.node_attrs[slot] = attrs;
+            }
+        }
+
+        /// Distinct neighbors (names, row order) of the node at insertion-order
+        /// position `pos`.
+        #[cfg(test)]
+        #[must_use]
+        pub fn neighbor_names(&self, pos: usize) -> Vec<&str> {
+            let Some((_, &slot)) = self.node_order.get_index(pos) else {
+                return Vec::new();
+            };
+            self.rows[slot]
+                .keys()
+                .map(|&s| {
+                    self.slot_names[s]
+                        .as_deref()
+                        .expect("row references a live slot")
+                })
+                .collect()
+        }
+
+        /// br-r37-c1-thp6w S26: name-keyed distinct neighbors in row order
+        /// (mirror of `MultiGraph::neighbors`); `None` if the node is absent.
+        #[must_use]
+        pub fn neighbors_by_name(&self, name: &str) -> Option<Vec<&str>> {
+            let &slot = self.node_order.get(name)?;
+            Some(
+                self.rows[slot]
+                    .keys()
+                    .map(|&s| {
+                        self.slot_names[s]
+                            .as_deref()
+                            .expect("row references a live slot")
+                    })
+                    .collect(),
+            )
+        }
+
+        /// br-r37-c1-thp6w S27: node degree (mirror of `MultiGraph::degree`) —
+        /// sum of per-neighbor parallel-edge counts, self-loops counted twice
+        /// (nx convention). 0 if the node is absent.
+        #[must_use]
+        pub fn degree(&self, name: &str) -> usize {
+            let Some(&slot) = self.node_order.get(name) else {
+                return 0;
+            };
+            let mut deg = 0;
+            for (&nbr_slot, keys) in &self.rows[slot] {
+                let count = keys.len();
+                if nbr_slot == slot {
+                    deg += count * 2;
+                } else {
+                    deg += count;
+                }
+            }
+            deg
+        }
+
+        #[must_use]
+        pub fn number_of_selfloops(&self) -> usize {
+            self.edges
+                .iter()
+                .filter(|((left, right), _)| left == right)
+                .map(|(_, bucket)| bucket.len())
+                .sum()
+        }
+
+        /// br-r37-c1-thp6w S28: node membership (mirror of `MultiGraph::has_node`).
+        #[must_use]
+        pub fn has_node(&self, name: &str) -> bool {
+            self.node_order.contains_key(name)
+        }
+
+        /// br-r37-c1-thp6w S28: edge membership (mirror of `MultiGraph::has_edge`)
+        /// — true iff a non-empty (left, right) bucket exists.
+        #[must_use]
+        pub fn has_edge(&self, left: &str, right: &str) -> bool {
+            let (Some(&l), Some(&r)) = (self.node_order.get(left), self.node_order.get(right))
+            else {
+                return false;
+            };
+            self.edges
+                .get(&(l.min(r), l.max(r)))
+                .is_some_and(|bucket| !bucket.is_empty())
+        }
+
+        /// br-r37-c1-thp6w S30: node is isolated (mirror of
+        /// `MultiGraph::is_isolate`) — present with an empty adjacency row.
+        #[must_use]
+        pub fn is_isolate(&self, name: &str) -> bool {
+            self.node_order
+                .get(name)
+                .is_some_and(|&slot| self.rows[slot].is_empty())
+        }
+
+        #[must_use]
+        pub fn isolates(&self) -> Vec<String> {
+            self.node_order
+                .iter()
+                .filter(|(_, slot)| self.rows[**slot].is_empty())
+                .map(|(name, _)| name.clone())
+                .collect()
+        }
+
+        #[must_use]
+        pub fn number_of_isolates(&self) -> usize {
+            self.node_order
+                .values()
+                .filter(|&&slot| self.rows[slot].is_empty())
+                .count()
+        }
+
+        /// br-r37-c1-thp6w S31: integer weighted size (mirror of
+        /// `MultiGraph::weighted_size_int`) — sum of the `weight` attr over
+        /// every edge cell (int -> value, missing -> 1); `None` on any non-int
+        /// weight. Order-independent (commutative sum; `None` iff any non-int).
+        #[must_use]
+        pub fn weighted_size_int(&self, weight: &str) -> Option<i128> {
+            let mut total: i128 = 0;
+            for bucket in self.edges.values() {
+                for (_key, attrs) in bucket.iter() {
+                    let value = match attrs.get(weight) {
+                        Some(fnx_runtime::CgseValue::Int(v)) => i128::from(*v),
+                        Some(_) => return None,
+                        None => 1,
+                    };
+                    total = total.checked_add(value)?;
+                }
+            }
+            Some(total)
+        }
+
+        /// Parallel-edge key order for the (left, right) pair.
+        #[must_use]
+        pub fn key_order(&self, left: &str, right: &str) -> Vec<usize> {
+            let (Some(&l), Some(&r)) = (self.node_order.get(left), self.node_order.get(right))
+            else {
+                return Vec::new();
+            };
+            self.edges
+                .get(&(l.min(r), l.max(r)))
+                .map(CompactBucket::key_order)
+                .unwrap_or_default()
+        }
+
+        #[must_use]
+        pub fn edge_keys(&self, left: &str, right: &str) -> Option<Vec<usize>> {
+            let (Some(&l), Some(&r)) = (self.node_order.get(left), self.node_order.get(right))
+            else {
+                return None;
+            };
+            self.edges
+                .get(&(l.min(r), l.max(r)))
+                .map(CompactBucket::key_order)
+        }
+
+        pub fn edge_keys_iter(&self, left: &str, right: &str) -> Option<CompactBucketKeys<'_>> {
+            let (Some(&l), Some(&r)) = (self.node_order.get(left), self.node_order.get(right))
+            else {
+                return None;
+            };
+            self.edges
+                .get(&(l.min(r), l.max(r)))
+                .map(CompactBucket::keys)
+        }
+
+        pub fn edge_attr_values(&self, left: &str, right: &str) -> Option<CompactBucketValues<'_>> {
+            let (Some(&l), Some(&r)) = (self.node_order.get(left), self.node_order.get(right))
+            else {
+                return None;
+            };
+            self.edges
+                .get(&(l.min(r), l.max(r)))
+                .map(CompactBucket::values)
+        }
+
+        #[must_use]
+        pub fn edge_attr_count(&self, left: &str, right: &str) -> usize {
+            let (Some(&l), Some(&r)) = (self.node_order.get(left), self.node_order.get(right))
+            else {
+                return 0;
+            };
+            self.edges
+                .get(&(l.min(r), l.max(r)))
+                .map_or(0, CompactBucket::len)
+        }
+
+        #[must_use]
+        pub fn next_edge_key(&self, left: &str, right: &str) -> usize {
+            let (Some(&l), Some(&r)) = (self.node_order.get(left), self.node_order.get(right))
+            else {
+                return 0;
+            };
+            let Some(bucket) = self.edges.get(&(l.min(r), l.max(r))) else {
+                return 0;
+            };
+            let mut key = bucket.len();
+            while bucket.contains_key(key) {
+                key += 1;
+            }
+            key
+        }
+
+        /// Overwrite the attribute map for one edge cell.
+        pub fn replace_edge_attrs(
+            &mut self,
+            left: &str,
+            right: &str,
+            key: usize,
+            attrs: AttrMap,
+        ) -> bool {
+            let (Some(&l), Some(&r)) = (self.node_order.get(left), self.node_order.get(right))
+            else {
+                return false;
+            };
+            self.edges
+                .get_mut(&(l.min(r), l.max(r)))
+                .is_some_and(|bucket| bucket.replace_attrs(key, attrs))
+        }
+
+        /// Attributes of one `(left, right, key)` edge cell.
+        #[must_use]
+        pub fn edge_attrs(&self, left: &str, right: &str, key: usize) -> Option<&AttrMap> {
+            let (Some(&l), Some(&r)) = (self.node_order.get(left), self.node_order.get(right))
+            else {
+                return None;
+            };
+            self.edges
+                .get(&(l.min(r), l.max(r)))
+                .and_then(|bucket| bucket.attrs_for(key))
+        }
+
+        /// The node's attribute map, or `None` when the node is absent.
+        #[must_use]
+        pub fn node_attrs_for(&self, name: &str) -> Option<&AttrMap> {
+            let &slot = self.node_order.get(name)?;
+            Some(&self.node_attrs[slot])
+        }
+
+        #[must_use]
+        pub fn get_node_index(&self, name: &str) -> Option<usize> {
+            self.node_order.get_index_of(name)
+        }
+
+        #[must_use]
+        pub fn get_node_name(&self, index: usize) -> Option<&str> {
+            self.node_order
+                .get_index(index)
+                .map(|(name, _)| name.as_str())
+        }
+
+        #[must_use]
+        pub fn node_index_matches_int(&self, index: usize) -> bool {
+            self.node_order
+                .get_index(index)
+                .is_some_and(|(name, _)| name.parse::<usize>() == Ok(index))
+        }
+
+        #[must_use]
+        pub fn build_int_adjacency(&self) -> Vec<Vec<usize>> {
+            let slot_to_position = self.slot_positions();
+            self.node_order
+                .values()
+                .map(|&slot| {
+                    self.rows[slot]
+                        .keys()
+                        .map(|&neighbor_slot| slot_to_position[neighbor_slot])
+                        .collect()
+                })
+                .collect()
+        }
+
+        /// br-r37-c1-thp6w S10: slot -> insertion-order position (usize::MAX
+        /// for tombstones), rebuilt on demand in O(V).
+        fn slot_positions(&self) -> Vec<usize> {
+            let mut pos = vec![usize::MAX; self.slot_names.len()];
+            for (p, (_, &slot)) in self.node_order.iter().enumerate() {
+                pos[slot] = p;
+            }
+            pos
+        }
+
+        /// br-r37-c1-thp6w S12: full `edges_ordered_borrowed` analog with
+        /// attrs — the production read candidate. Same walk contract as
+        /// `edges_ordered_names` (node order x row order x bucket key order,
+        /// first-touch dedup, String-lex canonical emission orientation) but
+        /// hashing only usizes where the String store hashes `EdgeKeyRef`
+        /// String pairs per cell and per seen-set probe.
+        #[must_use]
+        pub fn edges_ordered_borrowed(&self) -> Vec<(&str, &str, usize, &AttrMap)> {
+            let mut ordered = Vec::with_capacity(self.edge_count);
+            let mut seen: std::collections::HashSet<(usize, usize, usize)> =
+                std::collections::HashSet::with_capacity(self.edge_count);
+            for (u_name, &u_slot) in &self.node_order {
+                for &v_slot in self.rows[u_slot].keys() {
+                    let pair = (u_slot.min(v_slot), u_slot.max(v_slot));
+                    let Some(bucket) = self.edges.get(&pair) else {
+                        continue;
+                    };
+                    for (key, attrs) in bucket.iter() {
+                        if !seen.insert((pair.0, pair.1, key)) {
+                            continue;
+                        }
+                        let v_name = self.slot_names[v_slot]
+                            .as_deref()
+                            .expect("row references a live slot");
+                        let (left, right) = if u_name.as_str() <= v_name {
+                            (u_name.as_str(), v_name)
+                        } else {
+                            (v_name, u_name.as_str())
+                        };
+                        ordered.push((left, right, key, attrs));
+                    }
+                }
+            }
+            ordered
+        }
+
+        #[must_use]
+        pub fn snapshot(&self, mode: CompatibilityMode) -> MultiGraphSnapshot {
+            let node_attrs = self
+                .node_order
+                .iter()
+                .filter_map(|(name, &slot)| {
+                    let attrs = &self.node_attrs[slot];
+                    (!attrs.is_empty()).then(|| (name.clone(), attrs.clone()))
+                })
+                .collect();
+            let edges = self
+                .edges_ordered_borrowed()
+                .into_iter()
+                .map(|(left, right, key, attrs)| MultiEdgeSnapshot {
+                    left: left.to_owned(),
+                    right: right.to_owned(),
+                    key,
+                    attrs: attrs.clone(),
+                })
+                .collect();
+            MultiGraphSnapshot {
+                mode,
+                nodes: self.node_order.keys().cloned().collect(),
+                node_attrs,
+                edges,
+            }
+        }
+
+        /// br-r37-c1-thp6w S13: index-space analog of `edges_ordered_borrowed`
+        /// — the same walk/order/orientation, but each endpoint emitted as its
+        /// POSITION (node_order iteration index = nx node position), not its
+        /// name. A `slot -> position` array is built once up front (O(n),
+        /// hash-free — positions come straight from `node_order` iteration, so
+        /// this is correct under any slot recycling, where slot != position),
+        /// then the walk resolves both endpoints by O(1) array index. The only
+        /// per-edge string op is the lex compare for the canonical orientation
+        /// (production `edges_ordered_indices_borrowed` pays a `get_index_of`
+        /// String hash per endpoint plus an `EdgeKey` pair hash instead).
+        #[must_use]
+        pub fn edges_ordered_indices_borrowed(&self) -> Vec<(usize, usize, usize, &AttrMap)> {
+            let mut slot_to_pos = vec![0usize; self.slot_names.len()];
+            for (pos, (_name, &slot)) in self.node_order.iter().enumerate() {
+                slot_to_pos[slot] = pos;
+            }
+            let mut ordered = Vec::with_capacity(self.edge_count);
+            let mut seen: std::collections::HashSet<(usize, usize, usize)> =
+                std::collections::HashSet::with_capacity(self.edge_count);
+            for (u_name, &u_slot) in &self.node_order {
+                for &v_slot in self.rows[u_slot].keys() {
+                    let pair = (u_slot.min(v_slot), u_slot.max(v_slot));
+                    let Some(bucket) = self.edges.get(&pair) else {
+                        continue;
+                    };
+                    for (key, attrs) in bucket.iter() {
+                        if !seen.insert((pair.0, pair.1, key)) {
+                            continue;
+                        }
+                        let v_name = self.slot_names[v_slot]
+                            .as_deref()
+                            .expect("row references a live slot");
+                        let (left_pos, right_pos) = if u_name.as_str() <= v_name {
+                            (slot_to_pos[u_slot], slot_to_pos[v_slot])
+                        } else {
+                            (slot_to_pos[v_slot], slot_to_pos[u_slot])
+                        };
+                        ordered.push((left_pos, right_pos, key, attrs));
+                    }
+                }
+            }
+            ordered
+        }
+
+        /// br-r37-c1-thp6w S10: `edges_ordered_borrowed` analog — the ONLY
+        /// observed edge order. Walk = node insertion order, row order, bucket
+        /// key order; each (pair, key) emitted once (first touch); emitted
+        /// orientation = STRING-LEX canonical (`EdgeKey` semantics), derived
+        /// from the names at emission since the internal pair key is
+        /// slot-canonical. This is the snapshot/pickle orientation gate.
+        #[cfg(test)]
+        #[must_use]
+        pub fn edges_ordered_names(&self) -> Vec<(&str, &str, usize)> {
+            let mut ordered = Vec::with_capacity(self.edge_count);
+            let mut seen: std::collections::HashSet<(usize, usize, usize)> =
+                std::collections::HashSet::with_capacity(self.edge_count);
+            for (u_name, &u_slot) in &self.node_order {
+                for &v_slot in self.rows[u_slot].keys() {
+                    let pair = (u_slot.min(v_slot), u_slot.max(v_slot));
+                    let Some(bucket) = self.edges.get(&pair) else {
+                        continue;
+                    };
+                    for key in bucket.key_order() {
+                        if !seen.insert((pair.0, pair.1, key)) {
+                            continue;
+                        }
+                        let v_name = self.slot_names[v_slot]
+                            .as_deref()
+                            .expect("row references a live slot");
+                        let (left, right) = if u_name.as_str() <= v_name {
+                            (u_name.as_str(), v_name)
+                        } else {
+                            (v_name, u_name.as_str())
+                        };
+                        ordered.push((left, right, key));
+                    }
+                }
+            }
+            ordered
+        }
+
+        pub fn clear_edges(&mut self) {
+            self.edges.clear();
+            for row in &mut self.rows {
+                row.clear();
+            }
+            self.edge_count = 0;
+        }
+
+        pub fn remove_nodes_from<'a, I>(&mut self, nodes: I) -> (usize, usize)
+        where
+            I: IntoIterator<Item = &'a str>,
+        {
+            let remove_slots: rustc_hash::FxHashSet<usize> = nodes
+                .into_iter()
+                .filter_map(|name| self.node_order.get(name).copied())
+                .collect();
+            if remove_slots.is_empty() {
+                return (0, 0);
+            }
+
+            let old_edge_count = self.edge_count;
+            self.edges.retain(|(left, right), _| {
+                !remove_slots.contains(left) && !remove_slots.contains(right)
+            });
+            self.edge_count = self.edges.values().map(CompactBucket::len).sum();
+
+            for (slot, row) in self.rows.iter_mut().enumerate() {
+                if remove_slots.contains(&slot) {
+                    row.clear();
+                } else {
+                    row.retain(|neighbor, _| !remove_slots.contains(neighbor));
+                }
+            }
+            self.node_order
+                .retain(|_, slot| !remove_slots.contains(slot));
+            for &slot in &remove_slots {
+                self.slot_names[slot] = None;
+                self.node_attrs[slot].clear();
+                self.free_slots.push(slot);
+            }
+            (
+                remove_slots.len(),
+                old_edge_count.saturating_sub(self.edge_count),
+            )
+        }
+
+        /// br-r37-c1-thp6w S10: `MultiGraph::reorder_rows_for_nx_copy_walk`
+        /// under slot storage. Two-phase exactly like the real one: ALL new
+        /// row orders are computed against the PRE-reorder rows (early =
+        /// earlier-position neighbors sorted by (pos(v), index of u within
+        /// row v), then late in original order), then applied. Sort key
+        /// (pos, idx, slot) is equivalent to the real (pos, idx, name)
+        /// because pos is unique per neighbor.
+        pub fn reorder_rows_for_nx_copy_walk(&mut self) {
+            let pos = self.slot_positions();
+            let order_slots: Vec<usize> = self.node_order.values().copied().collect();
+            let mut new_orders: Vec<(usize, Vec<usize>)> = Vec::with_capacity(order_slots.len());
+            for &u_slot in &order_slots {
+                let pu = pos[u_slot];
+                let mut early: Vec<(usize, usize, usize)> = Vec::new();
+                let mut late: Vec<usize> = Vec::new();
+                for &v_slot in self.rows[u_slot].keys() {
+                    let pv = pos[v_slot];
+                    if pv < pu {
+                        let idx = self.rows[v_slot]
+                            .get_index_of(&u_slot)
+                            .unwrap_or(usize::MAX);
+                        early.push((pv, idx, v_slot));
+                    } else {
+                        late.push(v_slot);
+                    }
+                }
+                early.sort_unstable();
+                let mut order: Vec<usize> = early.into_iter().map(|(_, _, v)| v).collect();
+                order.extend(late);
+                new_orders.push((u_slot, order));
+            }
+            for (u_slot, order) in new_orders {
+                let mut old = std::mem::take(&mut self.rows[u_slot]);
+                let mut rebuilt = IndexMap::with_capacity(old.len());
+                for v_slot in order {
+                    if let Some(cell) = old.shift_remove(&v_slot) {
+                        rebuilt.insert(v_slot, cell);
+                    }
+                }
+                debug_assert!(old.is_empty(), "copy-walk reorder dropped a cell");
+                self.rows[u_slot] = rebuilt;
+            }
+        }
+
+        /// Apply arbitrary name-keyed row orders to the slot-keyed rows, with
+        /// requested neighbors first and untouched neighbors retaining order.
+        pub fn apply_row_orders(&mut self, orders: &[(String, Vec<String>)]) {
+            for (node, order) in orders {
+                let Some(&slot) = self.node_order.get(node.as_str()) else {
+                    continue;
+                };
+                let mut old = std::mem::take(&mut self.rows[slot]);
+                let mut new_row = IndexMap::with_capacity(old.len());
+                for v in order {
+                    if let Some(&v_slot) = self.node_order.get(v.as_str())
+                        && let Some((k, val)) = old.shift_remove_entry(&v_slot)
+                    {
+                        new_row.insert(k, val);
+                    }
+                }
+                for (k, val) in old {
+                    new_row.insert(k, val);
+                }
+                self.rows[slot] = new_row;
+            }
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct MultiGraph {
     mode: CompatibilityMode,
     revision: u64,
-    nodes: FxIndexMap<String, AttrMap>,
-    adjacency: FxIndexMap<String, IndexMap<String, IndexSet<usize>>>,
-    edges: FxIndexMap<EdgeKey, IndexMap<usize, AttrMap>>,
+    storage: multigraph_storage::MgSlabStorage,
     runtime_policy: RuntimePolicy,
     edge_count: usize,
     /// br-r37-c1-thp6w slice 1: lazy revision-keyed integer adjacency (see `IntAdjCache`).
     int_adj_cache: IntAdjCache,
+}
+
+/// Neighbor-name iterator over a stable-slot integer row.
+pub struct MgNeighborNames<'a> {
+    rows: indexmap::map::Keys<'a, usize, multigraph_storage::CompactKeys>,
+    slot_names: &'a [Option<String>],
+}
+
+impl<'a> Iterator for MgNeighborNames<'a> {
+    type Item = &'a str;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.rows.next().map(|&slot| {
+            self.slot_names[slot]
+                .as_deref()
+                .expect("row references a live slot")
+        })
+    }
+}
+
+/// Zero-allocation parallel-key iterator over a stable-slot edge bucket.
+pub struct MgEdgeKeys<'a>(multigraph_storage::CompactBucketKeys<'a>);
+
+impl<'a> Iterator for MgEdgeKeys<'a> {
+    type Item = &'a usize;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.0.next()
+    }
 }
 
 impl MultiGraph {
@@ -2301,9 +3848,7 @@ impl MultiGraph {
         Self {
             mode: self.mode,
             revision: self.revision,
-            nodes: self.nodes.clone(),
-            adjacency: self.adjacency.clone(),
-            edges: self.edges.clone(),
+            storage: self.storage.clone(),
             runtime_policy: RuntimePolicy::new(self.mode),
             edge_count: self.edge_count,
             int_adj_cache: IntAdjCache::default(),
@@ -2317,64 +3862,19 @@ impl MultiGraph {
     /// earlier-position neighbors sorted by (pos(v), index of u within
     /// row v), then the rest (self-loops included) in original order.
     pub fn reorder_rows_for_nx_copy_walk(&mut self) {
-        // br-r37-c1-predrebuild NOTE: a 2-pass early[]-rebuild (like the directed
-        // MultiDiGraph variant) was tried here and REVERTED — it was a regression
-        // (dense MultiGraph.copy 0.60x -> 0.44x). Unlike the directed succ-walk
-        // (1 pass, no lookups), the undirected early/late split needs pos(u) AND
-        // pos(v), so the rebuild does 2 adjacency passes + 2 get_index_of/edge,
-        // outweighing the (cheap integer-keyed) sort it removed. The sort-based
-        // form below is faster for the String-keyed multigraph adjacency.
-        let n = self.adjacency.len();
-        let mut new_orders: Vec<Vec<String>> = Vec::with_capacity(n);
-        for (pu, (u, row)) in self.adjacency.iter().enumerate() {
-            let mut early: Vec<(usize, usize, String)> = Vec::new();
-            let mut late: Vec<String> = Vec::new();
-            for v in row.keys() {
-                let pv = self
-                    .adjacency
-                    .get_index_of(v.as_str())
-                    .unwrap_or(usize::MAX);
-                if pv < pu {
-                    let idx = self
-                        .adjacency
-                        .get(v.as_str())
-                        .and_then(|r| r.get_index_of(u.as_str()))
-                        .unwrap_or(usize::MAX);
-                    early.push((pv, idx, v.clone()));
-                } else {
-                    late.push(v.clone());
-                }
-            }
-            early.sort_unstable();
-            let mut order: Vec<String> = early.into_iter().map(|(_, _, v)| v).collect();
-            order.extend(late);
-            new_orders.push(order);
-        }
-        let keys: Vec<String> = self.adjacency.keys().cloned().collect();
-        let orders: Vec<(String, Vec<String>)> = keys.into_iter().zip(new_orders).collect();
-        self.apply_row_orders(&orders);
+        self.storage.reorder_rows_for_nx_copy_walk();
+        *self
+            .int_adj_cache
+            .0
+            .get_mut()
+            .expect("int_adj_cache poisoned") = None;
     }
 
     /// br-r37-c1-u3qyn: restore explicit adjacency row orders (pickle
     /// round-trip) — see Graph::apply_row_orders. Multigraph rows are
     /// keyed cells (neighbor -> key set); the cells move wholesale.
     pub fn apply_row_orders(&mut self, orders: &[(String, Vec<String>)]) {
-        for (node, order) in orders {
-            let Some(row) = self.adjacency.get_mut(node.as_str()) else {
-                continue;
-            };
-            let mut old = std::mem::take(row);
-            let mut new_row = IndexMap::with_capacity(old.len());
-            for v in order {
-                if let Some((k, val)) = old.shift_remove_entry(v.as_str()) {
-                    new_row.insert(k, val);
-                }
-            }
-            for (k, val) in old {
-                new_row.insert(k, val);
-            }
-            *row = new_row;
-        }
+        self.storage.apply_row_orders(orders);
         // br-r37-c1-thp6w slice 1: a pure ROW-ORDER change (MultiGraph.copy walk order,
         // pickle round-trip) does NOT bump `revision`, so the revision-keyed int-adjacency
         // memo would otherwise serve stale row order. Drop it explicitly here — this is the
@@ -2391,9 +3891,7 @@ impl MultiGraph {
         Self {
             mode,
             revision: 0,
-            nodes: FxIndexMap::default(),
-            adjacency: FxIndexMap::default(),
-            edges: FxIndexMap::default(),
+            storage: multigraph_storage::MgSlabStorage::new(),
             runtime_policy: RuntimePolicy::new(mode),
             edge_count: 0,
             int_adj_cache: IntAdjCache::default(),
@@ -2406,13 +3904,19 @@ impl MultiGraph {
         Self {
             mode,
             revision: 0,
-            nodes: FxIndexMap::default(),
-            adjacency: FxIndexMap::default(),
-            edges: FxIndexMap::default(),
+            storage: multigraph_storage::MgSlabStorage::new(),
             runtime_policy,
             edge_count: 0,
             int_adj_cache: IntAdjCache::default(),
         }
+    }
+
+    fn slab_store(&self) -> &multigraph_storage::MgSlabStorage {
+        &self.storage
+    }
+
+    fn slab_store_mut(&mut self) -> &mut multigraph_storage::MgSlabStorage {
+        &mut self.storage
     }
 
     #[must_use]
@@ -2432,7 +3936,7 @@ impl MultiGraph {
 
     #[must_use]
     pub fn node_count(&self) -> usize {
-        self.nodes.len()
+        self.slab_store().node_order.len()
     }
 
     #[must_use]
@@ -2442,25 +3946,20 @@ impl MultiGraph {
 
     #[must_use]
     pub fn number_of_selfloops(&self) -> usize {
-        self.edges
-            .iter()
-            .filter(|(edge_key, _)| edge_key.left == edge_key.right)
-            .map(|(_, edge_bucket)| edge_bucket.len())
-            .sum()
+        self.slab_store().number_of_selfloops()
     }
 
     /// Return edge keys as Vec (needed by Python bindings).
     #[must_use]
     pub fn edge_keys(&self, left: &str, right: &str) -> Option<Vec<usize>> {
-        self.adjacency
-            .get(left)?
-            .get(right)
-            .map(|keys| keys.iter().copied().collect())
+        self.slab_store().edge_keys(left, right)
     }
 
     /// Return an iterator over keys for edges between left and right.
-    pub fn edge_keys_iter(&self, left: &str, right: &str) -> Option<impl Iterator<Item = &usize>> {
-        self.adjacency.get(left)?.get(right).map(|keys| keys.iter())
+    pub fn edge_keys_iter(&self, left: &str, right: &str) -> Option<MgEdgeKeys<'_>> {
+        self.slab_store()
+            .edge_keys_iter(left, right)
+            .map(MgEdgeKeys)
     }
 
     #[must_use]
@@ -2470,19 +3969,36 @@ impl MultiGraph {
 
     #[must_use]
     pub fn has_node(&self, node: &str) -> bool {
-        self.nodes.contains_key(node)
+        self.slab_store().has_node(node)
     }
 
     #[must_use]
     pub fn has_edge(&self, left: &str, right: &str) -> bool {
-        self.edges
-            .get(&EdgeKeyRef::new(left, right))
-            .is_some_and(|edge_bucket| !edge_bucket.is_empty())
+        self.slab_store().has_edge(left, right)
+    }
+
+    /// br-r37-c1-04z53 (cc): resolve `has_edge` straight from insertion-order
+    /// indices, skipping the `i.to_string()` heap alloc the Python binding pays
+    /// for int nodes. The names come from the node table by index (borrowed, no
+    /// alloc); the caller (`PyMultiGraph::has_edge`) guards each index with
+    /// `node_index_matches_int` so the identity `index == int-value` holds
+    /// (any removal / remap that broke it fails the guard and falls through to
+    /// the String path). Mirror of `Graph::has_edge_by_indices`.
+    #[must_use]
+    pub fn has_edge_by_indices(&self, li: usize, ri: usize) -> bool {
+        match (self.get_node_name(li), self.get_node_name(ri)) {
+            (Some(left), Some(right)) => self.has_edge(left, right),
+            _ => false,
+        }
     }
 
     #[must_use]
     pub fn nodes_ordered(&self) -> Vec<&str> {
-        self.nodes.keys().map(String::as_str).collect()
+        self.slab_store()
+            .node_order
+            .keys()
+            .map(String::as_str)
+            .collect()
     }
 
     /// Resolve a node through the insertion-ordered node table without
@@ -2490,67 +4006,51 @@ impl MultiGraph {
     #[must_use]
     #[inline]
     pub fn get_node_index(&self, node: &str) -> Option<usize> {
-        self.nodes.get_index_of(node)
+        self.slab_store().get_node_index(node)
     }
 
     /// Resolve the current node name for an insertion-order index.
     #[must_use]
     #[inline]
     pub fn get_node_name(&self, index: usize) -> Option<&str> {
-        self.nodes.get_index(index).map(|(name, _)| name.as_str())
+        self.slab_store().get_node_name(index)
     }
 
     /// br-cc-nbunchbulk: int membership fast path for `_nbunch_present` — see the
     /// simple-Graph accessor.
     #[must_use]
     pub fn node_index_matches_int(&self, idx: usize) -> bool {
-        self.nodes
-            .get_index(idx)
-            .is_some_and(|(k, _)| k.parse::<usize>() == Ok(idx))
+        self.slab_store().node_index_matches_int(idx)
     }
 
     #[must_use]
     pub fn neighbors(&self, node: &str) -> Option<Vec<&str>> {
-        self.adjacency
-            .get(node)
-            .map(|neighbors| neighbors.keys().map(String::as_str).collect::<Vec<&str>>())
+        self.slab_store().neighbors_by_name(node)
     }
 
-    pub fn neighbors_iter(&self, node: &str) -> Option<impl Iterator<Item = &str> + '_> {
-        self.adjacency
-            .get(node)
-            .map(|neighbors| neighbors.keys().map(String::as_str))
+    pub fn neighbors_iter(&self, node: &str) -> Option<MgNeighborNames<'_>> {
+        let slab = self.slab_store();
+        let &slot = slab.node_order.get(node)?;
+        Some(MgNeighborNames {
+            rows: slab.rows[slot].keys(),
+            slot_names: &slab.slot_names,
+        })
     }
 
-    /// br-r37-c1-thp6w slice 1: build the integer adjacency from the authoritative String
-    /// `adjacency`. Row `i` (node at insertion-index `i`) lists the node indices of that
-    /// node's neighbors in adjacency-row order — i.e. exactly
+    /// br-r37-c1-thp6w slice 1: build integer adjacency from the authoritative stable-slot
+    /// rows. Row `i` (node at insertion-index `i`) lists the node indices of that node's
+    /// neighbors in adjacency-row order — i.e. exactly
     /// `[get_node_index(v) for v in neighbors_iter(node_i)]`. Distinct neighbors only
-    /// (the parallel-edge multiplicity lives in `edges`), matching the String rows.
+    /// (parallel-edge multiplicity lives in `edges`).
     fn build_int_adjacency(&self) -> Vec<Vec<usize>> {
-        self.nodes
-            .keys()
-            .map(|name| {
-                self.adjacency
-                    .get(name.as_str())
-                    .map_or_else(Vec::new, |row| {
-                        row.keys()
-                            .map(|v| {
-                                self.nodes
-                                    .get_index_of(v.as_str())
-                                    .expect("adjacency neighbor must be a live node")
-                            })
-                            .collect()
-                    })
-            })
-            .collect()
+        self.slab_store().build_int_adjacency()
     }
 
     /// br-r37-c1-thp6w slice 1: run `f` with the integer adjacency (hash-free neighbor rows),
-    /// built lazily from the String `adjacency` and memoized until the next mutation. The
+    /// built lazily from the stable-slot rows and memoized until the next mutation. The
     /// memo is keyed on `revision` (bumped by every content mutation) and cleared by
     /// `apply_row_orders` (the one order-only mutator), so the rows always match the current
-    /// `adjacency` byte-for-byte. The closure form lets a whole traversal borrow the rows
+    /// storage byte-for-byte. The closure form lets a whole traversal borrow the rows
     /// under one read lock without a per-node allocation. Foundation for the epoch's
     /// `neighbors_indices` traversal; no caller yet (infrastructure).
     pub fn with_int_adjacency<R>(&self, f: impl FnOnce(&[Vec<usize>]) -> R) -> R {
@@ -2572,24 +4072,115 @@ impl MultiGraph {
         result
     }
 
+    /// br-r37-c1-thp6w S4: advance a warm integer-adjacency memo across one
+    /// single-edge mutation instead of invalidating it. The memo must still be
+    /// keyed at `prev_revision` (the revision on entry to the mutating call);
+    /// the delta mirrors the String-row edit exactly (new distinct neighbors
+    /// append, emptied pairs shift-remove, new nodes push fresh rows), then the
+    /// memo re-keys to the post-mutation revision. Every mutation path that
+    /// does NOT call this leaves the memo keyed at a stale revision, so
+    /// `with_int_adjacency` lazily rebuilds — unhandled sites stay exactly as
+    /// safe as the invalidate-only scheme.
+    fn advance_int_adj_memo(&mut self, prev_revision: u64, delta: IntAdjEdgeDelta<'_>) {
+        let needs_indices = matches!(
+            delta,
+            IntAdjEdgeDelta::Add { pair_new: true, .. }
+                | IntAdjEdgeDelta::Remove {
+                    pair_gone: true,
+                    ..
+                }
+        );
+        let indices = if needs_indices {
+            let (left, right) = match &delta {
+                IntAdjEdgeDelta::Add { left, right, .. }
+                | IntAdjEdgeDelta::Remove { left, right, .. } => (*left, *right),
+            };
+            match (
+                self.storage.get_node_index(left),
+                self.storage.get_node_index(right),
+            ) {
+                (Some(u), Some(v)) => Some((u, v)),
+                _ => None,
+            }
+        } else {
+            None
+        };
+        let Ok(slot) = self.int_adj_cache.0.get_mut() else {
+            return;
+        };
+        if needs_indices && indices.is_none() {
+            // Endpoint missing from the node table (should be unreachable for a
+            // live edge): the delta cannot be mirrored, so drop the memo.
+            *slot = None;
+            return;
+        }
+        let Some((rev, rows)) = slot.as_mut() else {
+            return;
+        };
+        if *rev != prev_revision {
+            return;
+        }
+        let mut advanced = true;
+        match delta {
+            IntAdjEdgeDelta::Add {
+                left,
+                right,
+                left_new,
+                right_new,
+                pair_new,
+            } => {
+                if left_new {
+                    rows.push(Vec::new());
+                }
+                if right_new && left != right {
+                    rows.push(Vec::new());
+                }
+                if pair_new && let Some((u, v)) = indices {
+                    rows[u].push(v);
+                    if u != v {
+                        rows[v].push(u);
+                    }
+                }
+            }
+            IntAdjEdgeDelta::Remove { pair_gone, .. } => {
+                if pair_gone && let Some((u, v)) = indices {
+                    // Mirror `IndexMap::shift_remove` on the String row:
+                    // order-preserving removal of the emptied neighbor cell.
+                    if let Some(pu) = rows[u].iter().position(|&x| x == v) {
+                        rows[u].remove(pu);
+                        if u != v {
+                            if let Some(pv) = rows[v].iter().position(|&x| x == u) {
+                                rows[v].remove(pv);
+                            } else {
+                                advanced = false;
+                            }
+                        }
+                    } else {
+                        advanced = false;
+                    }
+                }
+            }
+        }
+        if advanced {
+            *rev = self.revision;
+        } else {
+            *slot = None;
+        }
+    }
+
     #[must_use]
     pub fn edge_keys_vec(&self, left: &str, right: &str) -> Vec<usize> {
-        self.edges
-            .get(&EdgeKeyRef::new(left, right))
-            .map(|edge_bucket| edge_bucket.keys().copied().collect::<Vec<usize>>())
-            .unwrap_or_default()
+        self.slab_store().key_order(left, right)
     }
 
     #[must_use]
     pub fn node_attrs(&self, node: &str) -> Option<&AttrMap> {
-        self.nodes.get(node)
+        self.slab_store().node_attrs_for(node)
     }
 
     #[must_use]
     pub fn edge_attrs(&self, left: &str, right: &str, key: usize) -> Option<&AttrMap> {
-        self.edges
-            .get(&EdgeKeyRef::new(left, right))
-            .and_then(|edge_bucket| edge_bucket.get(&key))
+        self.slab_store().edge_attrs(left, right, key)
     }
 
     /// Iterator over the `AttrMap`s of every parallel edge between `left` and
@@ -2606,9 +4197,7 @@ impl MultiGraph {
         left: &str,
         right: &str,
     ) -> Option<impl Iterator<Item = &AttrMap> + '_> {
-        self.edges
-            .get(&EdgeKeyRef::new(left, right))
-            .map(|edge_bucket| edge_bucket.values())
+        self.slab_store().edge_attr_values(left, right)
     }
 
     #[must_use]
@@ -2640,19 +4229,7 @@ impl MultiGraph {
     /// Self-loops contribute 2 to the degree each (NetworkX convention).
     #[must_use]
     pub fn degree(&self, node: &str) -> usize {
-        self.adjacency.get(node).map_or(0, |neighbors| {
-            let mut deg = 0;
-            for (neighbor, keys) in neighbors {
-                let count = keys.len();
-                if neighbor == node {
-                    // Self-loops count double (NetworkX convention)
-                    deg += count * 2;
-                } else {
-                    deg += count;
-                }
-            }
-            deg
-        })
+        self.slab_store().degree(node)
     }
 
     /// br-r37-c1-mgisol (cc): native isolate detection for MultiGraph. A node
@@ -2664,35 +4241,20 @@ impl MultiGraph {
     /// per-call O(V+E) simple-graph rebuild that dominated the binding.
     #[must_use]
     pub fn isolates(&self) -> Vec<String> {
-        self.nodes
-            .keys()
-            .filter(|node| {
-                self.adjacency
-                    .get(node.as_str())
-                    .is_none_or(IndexMap::is_empty)
-            })
-            .cloned()
-            .collect()
+        self.slab_store().isolates()
     }
 
     /// br-r37-c1-mgisol (cc): isolate count without the simple-graph projection.
     #[must_use]
     pub fn number_of_isolates(&self) -> usize {
-        self.nodes
-            .keys()
-            .filter(|node| {
-                self.adjacency
-                    .get(node.as_str())
-                    .is_none_or(IndexMap::is_empty)
-            })
-            .count()
+        self.slab_store().number_of_isolates()
     }
 
     /// br-r37-c1-mgisol (cc): O(1) isolate predicate. Absent node -> false
     /// (mirrors `is_isolate(&Graph)`); the binding validates presence first.
     #[must_use]
     pub fn is_isolate(&self, node: &str) -> bool {
-        self.nodes.contains_key(node) && self.adjacency.get(node).is_none_or(IndexMap::is_empty)
+        self.slab_store().is_isolate(node)
     }
 
     pub fn add_node(&mut self, node: impl Into<String>) -> bool {
@@ -2701,21 +4263,7 @@ impl MultiGraph {
 
     pub fn add_node_with_attrs(&mut self, node: impl Into<String>, attrs: AttrMap) -> bool {
         let node = node.into();
-        let existed = self.nodes.contains_key(&node);
-        let mut changed = !existed;
-        let attrs_count = {
-            let bucket = self.nodes.entry(node.clone()).or_default();
-            if !attrs.is_empty()
-                && attrs
-                    .iter()
-                    .any(|(key, value)| bucket.get(key) != Some(value))
-            {
-                changed = true;
-            }
-            bucket.extend(attrs);
-            bucket.len()
-        };
-        self.adjacency.entry(node.clone()).or_default();
+        let (existed, changed, attrs_count) = self.storage.set_node_attrs(&node, attrs);
         if changed {
             self.revision = self.revision.saturating_add(1);
         }
@@ -2789,44 +4337,19 @@ impl MultiGraph {
     ) -> Option<usize> {
         let left = left.into();
         let right = right.into();
-        let edge_key = EdgeKey::new(&left, &right);
-        if !self.nodes.contains_key(&left) {
-            self.nodes.insert(left.clone(), AttrMap::new());
-            self.adjacency.entry(left.clone()).or_default();
-        }
-        if left != right && !self.nodes.contains_key(&right) {
-            self.nodes.insert(right.clone(), AttrMap::new());
-            self.adjacency.entry(right.clone()).or_default();
+        self.storage.set_node_attrs(&left, AttrMap::new());
+        if left != right {
+            self.storage.set_node_attrs(&right, AttrMap::new());
         }
 
-        match self.edges.entry(edge_key) {
-            indexmap::map::Entry::Occupied(mut edge_bucket) => {
-                if !edge_bucket.get().is_empty() {
-                    return None;
-                }
-                edge_bucket.get_mut().insert(key, AttrMap::new());
-            }
-            indexmap::map::Entry::Vacant(edge_bucket) => {
-                let mut bucket = IndexMap::new();
-                bucket.insert(key, AttrMap::new());
-                edge_bucket.insert(bucket);
-            }
+        if self.storage.has_edge(&left, &right) {
+            return None;
         }
+        let inserted = self
+            .storage
+            .add_keyed_edge(&left, &right, key, AttrMap::new());
+        debug_assert!(inserted, "fresh edge unexpectedly merged");
         self.edge_count += 1;
-        self.adjacency
-            .entry(left.clone())
-            .or_default()
-            .entry(right.clone())
-            .or_default()
-            .insert(key);
-        if left != right {
-            self.adjacency
-                .entry(right)
-                .or_default()
-                .entry(left)
-                .or_default()
-                .insert(key);
-        }
         self.revision = self.revision.saturating_add(1);
         Some(key)
     }
@@ -2840,12 +4363,10 @@ impl MultiGraph {
     {
         let mut inserted = 0usize;
         for (node, attrs) in nodes {
-            if let Some(existing) = self.nodes.get_mut(&node) {
-                existing.extend(attrs);
-                continue;
+            let (existed, _, _) = self.storage.set_node_attrs(&node, attrs);
+            if !existed {
+                inserted += 1;
             }
-            self.nodes.insert(node.clone(), attrs);
-            inserted += 1;
         }
         if inserted > 0 {
             self.revision = self
@@ -2877,34 +4398,9 @@ impl MultiGraph {
     {
         let mut inserted = 0usize;
         for (left, right, key, attrs) in edges {
-            if !self.nodes.contains_key(&left) {
-                self.nodes.insert(left.clone(), AttrMap::new());
-                self.adjacency.entry(left.clone()).or_default();
-            }
-            if left != right && !self.nodes.contains_key(&right) {
-                self.nodes.insert(right.clone(), AttrMap::new());
-                self.adjacency.entry(right.clone()).or_default();
-            }
-            let edge_key = EdgeKey::new(&left, &right);
-            let bucket = self.edges.entry(edge_key).or_default();
-            if !bucket.contains_key(&key) {
+            if self.storage.add_keyed_edge(&left, &right, key, attrs) {
                 self.edge_count += 1;
                 inserted += 1;
-            }
-            bucket.entry(key).or_default().extend(attrs);
-            self.adjacency
-                .entry(left.clone())
-                .or_default()
-                .entry(right.clone())
-                .or_default()
-                .insert(key);
-            if left != right {
-                self.adjacency
-                    .entry(right)
-                    .or_default()
-                    .entry(left)
-                    .or_default()
-                    .insert(key);
             }
         }
         if inserted > 0 {
@@ -2945,47 +4441,66 @@ impl MultiGraph {
 
         let iterator = edges.into_iter();
         let (lower_bound, _) = iterator.size_hint();
-        self.nodes.reserve(node_count);
-        self.adjacency.reserve(node_count);
-        self.edges.reserve(lower_bound);
 
         let node_names = (0..node_count)
             .map(|node| node.to_string())
             .collect::<Vec<_>>();
-        for node in &node_names {
-            self.nodes.insert(node.clone(), AttrMap::new());
-            self.adjacency.insert(node.clone(), IndexMap::new());
-        }
+        let mut fresh_slab = {
+            use multigraph_storage::MgSlabStorage;
+            let mut slab = MgSlabStorage::new();
+            slab.node_order.reserve(node_count);
+            slab.slot_names.reserve(node_count);
+            slab.node_attrs.reserve(node_count);
+            slab.rows.reserve(node_count);
+            slab.edges.reserve(lower_bound);
+            for (slot, name) in node_names.iter().enumerate() {
+                slab.node_order.insert(name.clone(), slot);
+                slab.slot_names.push(Some(name.clone()));
+                slab.node_attrs.push(AttrMap::new());
+                slab.rows.push(IndexMap::new());
+            }
+            slab
+        };
 
         let mut inserted = 0usize;
         for (left_idx, right_idx, key) in iterator {
             debug_assert!(left_idx < node_names.len());
             debug_assert!(right_idx < node_names.len());
-
-            let left = &node_names[left_idx];
-            let right = &node_names[right_idx];
-            let edge_key = EdgeKey::new(left, right);
-            self.edges
-                .entry(edge_key)
-                .or_default()
-                .insert(key, AttrMap::new());
-            self.adjacency
-                .get_mut(left.as_str())
-                .expect("integer-prefix left node should exist")
-                .entry(right.clone())
-                .or_default()
-                .insert(key);
-            if left_idx != right_idx {
-                self.adjacency
-                    .get_mut(right.as_str())
-                    .expect("integer-prefix right node should exist")
-                    .entry(left.clone())
-                    .or_default()
-                    .insert(key);
+            {
+                use multigraph_storage::{CompactBucket, CompactKeys};
+                let pair = (left_idx.min(right_idx), left_idx.max(right_idx));
+                match fresh_slab.edges.entry(pair) {
+                    indexmap::map::Entry::Occupied(mut bucket) => {
+                        let _ = bucket.get_mut().merge(key, AttrMap::new());
+                    }
+                    indexmap::map::Entry::Vacant(slot) => {
+                        slot.insert(CompactBucket::One(key, AttrMap::new()));
+                    }
+                }
+                match fresh_slab.rows[left_idx].entry(right_idx) {
+                    indexmap::map::Entry::Occupied(mut cell) => {
+                        let _ = cell.get_mut().insert(key);
+                    }
+                    indexmap::map::Entry::Vacant(slot) => {
+                        slot.insert(CompactKeys::One(key));
+                    }
+                }
+                if left_idx != right_idx {
+                    match fresh_slab.rows[right_idx].entry(left_idx) {
+                        indexmap::map::Entry::Occupied(mut cell) => {
+                            let _ = cell.get_mut().insert(key);
+                        }
+                        indexmap::map::Entry::Vacant(slot) => {
+                            slot.insert(CompactKeys::One(key));
+                        }
+                    }
+                }
+                fresh_slab.edge_count += 1;
             }
-            self.edge_count += 1;
+
             inserted += 1;
         }
+        self.edge_count = fresh_slab.edge_count;
         if inserted > 0 || node_count > 0 {
             self.revision = self.revision.saturating_add(
                 u64::try_from(inserted.saturating_add(node_count)).unwrap_or(u64::MAX),
@@ -3001,6 +4516,8 @@ impl MultiGraph {
                 }],
             );
         }
+        debug_assert_eq!(fresh_slab.edge_count, self.edge_count);
+        self.storage = fresh_slab;
         inserted
     }
 
@@ -3019,60 +4536,75 @@ impl MultiGraph {
         I: IntoIterator<Item = (usize, usize, usize, AttrMap)>,
         N: IntoIterator<Item = String>,
     {
-        if !self.nodes.is_empty() || !self.adjacency.is_empty() || !self.edges.is_empty() {
+        if self.node_count() != 0 || self.edge_count() != 0 {
             return 0;
         }
 
         let node_labels: Vec<String> = nodes.into_iter().collect();
-        for node in &node_labels {
-            self.nodes.insert(node.clone(), AttrMap::new());
-            self.adjacency.insert(node.clone(), IndexMap::new());
-        }
+        let mut fresh_slab = {
+            use multigraph_storage::MgSlabStorage;
+            let mut slab = MgSlabStorage::new();
+            slab.node_order.reserve(node_labels.len());
+            slab.slot_names.reserve(node_labels.len());
+            slab.node_attrs.reserve(node_labels.len());
+            slab.rows.reserve(node_labels.len());
+            for (slot, name) in node_labels.iter().enumerate() {
+                slab.node_order.insert(name.clone(), slot);
+                slab.slot_names.push(Some(name.clone()));
+                slab.node_attrs.push(AttrMap::new());
+                slab.rows.push(IndexMap::new());
+            }
+            slab
+        };
 
         let node_count = node_labels.len();
         let mut inserted = 0usize;
-        let mut merged_changed = false;
         for (left_idx, right_idx, key, attrs) in edges {
-            let Some(left) = node_labels.get(left_idx) else {
+            if node_labels.get(left_idx).is_none() {
                 continue;
-            };
-            let Some(right) = node_labels.get(right_idx) else {
-                continue;
-            };
-
-            let edge_key = EdgeKey::new(left, right);
-            let bucket = self.edges.entry(edge_key).or_default();
-            if !bucket.contains_key(&key) {
-                self.edge_count += 1;
-                inserted += 1;
             }
-            let edge_attrs = bucket.entry(key).or_default();
-            if !attrs.is_empty()
-                && attrs
-                    .iter()
-                    .any(|(attr_key, value)| edge_attrs.get(attr_key) != Some(value))
+            if node_labels.get(right_idx).is_none() {
+                continue;
+            }
             {
-                merged_changed = true;
-            }
-            edge_attrs.extend(attrs);
-
-            self.adjacency
-                .get_mut(left.as_str())
-                .expect("fresh left node row exists")
-                .entry(right.clone())
-                .or_default()
-                .insert(key);
-            if left_idx != right_idx {
-                self.adjacency
-                    .get_mut(right.as_str())
-                    .expect("fresh right node row exists")
-                    .entry(left.clone())
-                    .or_default()
-                    .insert(key);
+                use multigraph_storage::{CompactBucket, CompactKeys};
+                let pair = (left_idx.min(right_idx), left_idx.max(right_idx));
+                let is_new = match fresh_slab.edges.entry(pair) {
+                    indexmap::map::Entry::Occupied(mut bucket) => {
+                        bucket.get_mut().merge(key, attrs)
+                    }
+                    indexmap::map::Entry::Vacant(slot) => {
+                        slot.insert(CompactBucket::One(key, attrs));
+                        true
+                    }
+                };
+                if is_new {
+                    fresh_slab.edge_count += 1;
+                    inserted += 1;
+                }
+                match fresh_slab.rows[left_idx].entry(right_idx) {
+                    indexmap::map::Entry::Occupied(mut cell) => {
+                        let _ = cell.get_mut().insert(key);
+                    }
+                    indexmap::map::Entry::Vacant(slot) => {
+                        slot.insert(CompactKeys::One(key));
+                    }
+                }
+                if left_idx != right_idx {
+                    match fresh_slab.rows[right_idx].entry(left_idx) {
+                        indexmap::map::Entry::Occupied(mut cell) => {
+                            let _ = cell.get_mut().insert(key);
+                        }
+                        indexmap::map::Entry::Vacant(slot) => {
+                            slot.insert(CompactKeys::One(key));
+                        }
+                    }
+                }
             }
         }
 
-        if node_count > 0 || inserted > 0 || merged_changed {
+        self.edge_count = fresh_slab.edge_count;
+        if node_count > 0 || inserted > 0 {
             self.revision = self.revision.saturating_add(
                 u64::try_from(node_count.saturating_add(inserted)).unwrap_or(u64::MAX),
             );
@@ -3094,7 +4626,8 @@ impl MultiGraph {
                 ],
             );
         }
-
+        debug_assert_eq!(fresh_slab.edge_count, self.edge_count);
+        self.storage = fresh_slab;
         inserted
     }
 
@@ -3107,6 +4640,9 @@ impl MultiGraph {
     ) -> Result<usize, GraphError> {
         let left = left.into();
         let right = right.into();
+        // br-r37-c1-thp6w S4: revision on entry — a warm int-adjacency memo
+        // keyed here is advanced across this mutation instead of invalidated.
+        let prev_revision = self.revision;
 
         let unknown_feature = attrs
             .keys()
@@ -3138,65 +4674,49 @@ impl MultiGraph {
         }
 
         let mut left_autocreated = false;
-        if !self.nodes.contains_key(&left) {
+        if !self.has_node(&left) {
             let _ = self.add_node(left.clone());
             left_autocreated = true;
         }
         let mut right_autocreated = false;
         if left == right {
             right_autocreated = left_autocreated;
-        } else if !self.nodes.contains_key(&right) {
+        } else if !self.has_node(&right) {
             let _ = self.add_node(right.clone());
             right_autocreated = true;
         }
 
-        let edge_key = EdgeKey::new(&left, &right);
-        let key = explicit_key.unwrap_or_else(|| {
-            let edge_bucket = self.edges.get(&edge_key);
-            let mut k = edge_bucket.map_or(0, |b| b.len());
-            if let Some(b) = edge_bucket {
-                while b.contains_key(&k) {
-                    k += 1;
-                }
-            }
-            k
-        });
-        let mut changed;
-        let edge_attr_count = {
-            let edge_bucket = self.edges.entry(edge_key.clone()).or_default();
-            let is_new = !edge_bucket.contains_key(&key);
-            if is_new {
-                self.edge_count += 1;
-            }
-            changed = is_new;
-            let edge_attrs = edge_bucket.entry(key).or_default();
-            if !attrs.is_empty()
-                && attrs
+        let key = explicit_key.unwrap_or_else(|| self.slab_store().next_edge_key(&left, &right));
+        let pair_was_present = self.has_edge(&left, &right);
+        let changed = self
+            .slab_store()
+            .edge_attrs(&left, &right, key)
+            .is_none_or(|edge_attrs| {
+                attrs
                     .iter()
                     .any(|(attr_key, value)| edge_attrs.get(attr_key) != Some(value))
-            {
-                changed = true;
-            }
-            edge_attrs.extend(attrs);
-            edge_bucket.len()
-        };
-
-        self.adjacency
-            .entry(left.clone())
-            .or_default()
-            .entry(right.clone())
-            .or_default()
-            .insert(key);
-        if left != right {
-            self.adjacency
-                .entry(right.clone())
-                .or_default()
-                .entry(left.clone())
-                .or_default()
-                .insert(key);
+            });
+        let inserted = self
+            .slab_store_mut()
+            .add_keyed_edge(&left, &right, key, attrs);
+        if inserted {
+            self.edge_count += 1;
         }
+        let edge_attr_count = self.slab_store().edge_attr_count(&left, &right);
         if changed {
             self.revision = self.revision.saturating_add(1);
+        }
+        if self.revision != prev_revision {
+            self.advance_int_adj_memo(
+                prev_revision,
+                IntAdjEdgeDelta::Add {
+                    left: &left,
+                    right: &right,
+                    left_new: left_autocreated,
+                    right_new: right_autocreated,
+                    pair_new: !pair_was_present,
+                },
+            );
         }
 
         self.record_decision(
@@ -3239,73 +4759,64 @@ impl MultiGraph {
         key: usize,
         attrs: AttrMap,
     ) -> bool {
-        let edge_key = EdgeKey::new(left, right);
-        if let Some(bucket) = self.edges.get_mut(&edge_key)
-            && let Some(slot) = bucket.get_mut(&key)
-        {
-            if *slot != attrs {
-                *slot = attrs;
-                self.revision = self.revision.saturating_add(1);
-            }
-            return true;
+        let Some(existing) = self.slab_store().edge_attrs(left, right, key) else {
+            return false;
+        };
+        let changed = *existing != attrs;
+        if changed {
+            let replaced = self
+                .slab_store_mut()
+                .replace_edge_attrs(left, right, key, attrs);
+            debug_assert!(replaced, "slab edge disappeared during replacement");
+            self.revision = self.revision.saturating_add(1);
         }
-        false
+        true
     }
 
     /// br-r37-c1-sjf4t: overwrite the attribute map for an existing node.
     pub fn replace_node_attrs(&mut self, node: &str, attrs: AttrMap) -> bool {
-        if let Some(slot) = self.nodes.get_mut(node) {
-            if *slot != attrs {
-                *slot = attrs;
-                self.revision = self.revision.saturating_add(1);
-            }
-            true
-        } else {
-            false
+        let Some(existing) = self.slab_store().node_attrs_for(node) else {
+            return false;
+        };
+        let changed = *existing != attrs;
+        if changed {
+            self.slab_store_mut().replace_node_attrs(node, attrs);
+            self.revision = self.revision.saturating_add(1);
         }
+        true
     }
 
     pub fn remove_edge(&mut self, left: &str, right: &str, key: Option<usize>) -> bool {
-        let edge_key = EdgeKeyRef::new(left, right);
+        // br-r37-c1-thp6w S4: revision on entry — a warm int-adjacency memo
+        // keyed here is advanced across this mutation instead of invalidated.
+        let prev_revision = self.revision;
         let removal_key = key.or_else(|| {
-            self.edges
-                .get(&edge_key)
-                .and_then(|edge_bucket| edge_bucket.keys().next_back().copied())
+            self.slab_store()
+                .edge_keys_iter(left, right)
+                .and_then(|keys| keys.last().copied())
         });
 
         let Some(removal_key) = removal_key else {
             return false;
         };
 
-        let removed = if let Some(edge_bucket) = self.edges.get_mut(&edge_key) {
-            // Inner bucket keeps shift_remove: per-pair KEY order IS observed
-            // (edges(keys=True) yields the bucket's key order; nx preserves
-            // insertion order of surviving keys after a dict-key deletion).
-            let was_removed = edge_bucket.shift_remove(&removal_key).is_some();
-            if was_removed {
-                self.edge_count -= 1;
-                if edge_bucket.is_empty() {
-                    // br-r37-c1-vbwpl (cc): swap_remove (O(1)) on the OUTER
-                    // node-pair map — its storage order is never observed
-                    // (edges_ordered walks adjacency and looks pairs up by key;
-                    // remove_node already swap_removes this same map). Turns
-                    // remove_edges_from from O(k*pairs) into O(k).
-                    self.edges.swap_remove(&edge_key);
-                }
-            }
-            was_removed
-        } else {
-            false
-        };
-
-        if !removed {
+        if !self
+            .slab_store_mut()
+            .remove_edge(left, right, Some(removal_key))
+        {
             return false;
         }
-        self.remove_adjacency_key(left, right, removal_key);
-        if left != right {
-            self.remove_adjacency_key(right, left, removal_key);
-        }
+        self.edge_count -= 1;
+        let pair_gone = !self.slab_store().has_edge(left, right);
         self.revision = self.revision.saturating_add(1);
+        self.advance_int_adj_memo(
+            prev_revision,
+            IntAdjEdgeDelta::Remove {
+                left,
+                right,
+                pair_gone,
+            },
+        );
         true
     }
 
@@ -3314,45 +4825,19 @@ impl MultiGraph {
             return;
         }
 
-        self.edges.clear();
-        for row in self.adjacency.values_mut() {
-            row.clear();
-        }
+        self.slab_store_mut().clear_edges();
         self.edge_count = 0;
         self.revision = self.revision.saturating_add(1);
     }
 
     pub fn remove_node(&mut self, node: &str) -> bool {
-        if !self.nodes.contains_key(node) {
+        if !self.has_node(node) {
             return false;
         }
 
-        // br-r37-c1-p6bxu: drop each incident edge bucket with O(1) `swap_remove`
-        // (the `edges` IndexMap order is never observed externally — every public
-        // consumer reads via `edges_ordered`, which walks node->neighbor order;
-        // no internal consumer iterates the map order). The incident pairs are
-        // known exactly from this node's adjacency (each distinct neighbor maps
-        // to one canonical bucket, self-loops included), so removal is O(degree)
-        // instead of the O(|distinct pairs|) `retain` scan — matching nx.
-        let mut removed_count = 0usize;
-        if let Some(neighbors) = self.adjacency.get(node) {
-            let neighbor_names: Vec<String> = neighbors.keys().cloned().collect();
-            for neighbor in neighbor_names {
-                if neighbor != node
-                    && let Some(remote_neighbors) = self.adjacency.get_mut(&neighbor)
-                {
-                    remote_neighbors.shift_remove(node);
-                }
-                if let Some(bucket) = self.edges.swap_remove(&EdgeKeyRef::new(node, &neighbor)) {
-                    removed_count += bucket.len();
-                }
-            }
-        }
-        self.edge_count -= removed_count;
-
-        // Remove node from adjacency and nodes maps.
-        self.adjacency.shift_remove(node);
-        self.nodes.shift_remove(node);
+        let removed = self.slab_store_mut().remove_node(node);
+        debug_assert!(removed, "node disappeared during remove_node");
+        self.edge_count = self.slab_store().edge_count;
         self.revision = self.revision.saturating_add(1);
         true
     }
@@ -3368,97 +4853,11 @@ impl MultiGraph {
     where
         I: IntoIterator<Item = &'a str>,
     {
-        // FxHashSet (not std SipHash): `remove_set` is probed once per adjacency
-        // entry (O(|E|) lookups) in the retains below — SipHash on those string
-        // keys dominated wall time, so use the fast hasher the rest of the store
-        // already uses.
-        let remove_set: rustc_hash::FxHashSet<&str> = nodes
-            .into_iter()
-            .filter(|node| self.nodes.contains_key(*node))
-            .collect();
-        if remove_set.is_empty() {
+        let (removed_nodes, removed_edges) = self.slab_store_mut().remove_nodes_from(nodes);
+        if removed_nodes == 0 {
             return (0, 0);
         }
-
-        let old_node_count = self.nodes.len();
-        let old_edge_count = self.edge_count;
-
-        // br-r37-c1-mgrnf-incident: when removing a SMALL fraction of nodes, the
-        // whole-graph retain scans (O(|V|+|E|)) dwarf the actual incident work —
-        // removing 10 nodes from a 2000/10000 graph was ~100x slower than nx (which
-        // touches only incident edges). Fast path: walk ONLY the removed nodes'
-        // adjacency (like `remove_node`), dropping incident edge buckets O(1) and
-        // pruning the removed node from each SURVIVING neighbour's row, then compact
-        // the two outer maps ONCE. O(|V| + sum_removed_degrees) instead of O(|V|+|E|).
-        // Gate on node fraction: for large removals the per-neighbour `shift_remove`
-        // can repeat on hub survivors, so fall through to the whole-graph retain.
-        let mut removed_instances = 0usize;
-        if remove_set.len().saturating_mul(4) <= old_node_count {
-            for &rn in &remove_set {
-                let neighbor_names: Vec<String> = match self.adjacency.get(rn) {
-                    Some(row) => row.keys().cloned().collect(),
-                    None => continue,
-                };
-                for nb in &neighbor_names {
-                    // Prune `rn` from a surviving neighbour's row (removed
-                    // neighbours' rows are dropped wholesale below). Self-loop
-                    // (nb == rn) also skips — the row is being removed.
-                    if nb.as_str() != rn
-                        && !remove_set.contains(nb.as_str())
-                        && let Some(remote) = self.adjacency.get_mut(nb)
-                    {
-                        remote.shift_remove(rn);
-                    }
-                    // Drop the shared edge bucket exactly once: swap_remove returns
-                    // it only on the first endpoint that reaches it (an (a,b) pair
-                    // with both removed is visited twice; the second is a no-op).
-                    if let Some(bucket) = self.edges.swap_remove(&EdgeKeyRef::new(rn, nb)) {
-                        removed_instances += bucket.len();
-                    }
-                }
-            }
-            self.edge_count -= removed_instances;
-            self.adjacency
-                .retain(|node, _| !remove_set.contains(node.as_str()));
-            self.nodes
-                .retain(|node, _| !remove_set.contains(node.as_str()));
-            let removed_nodes = old_node_count - self.nodes.len();
-            let removed_edges = old_edge_count - self.edge_count;
-            self.revision = self
-                .revision
-                .saturating_add(u64::try_from(removed_nodes).unwrap_or(u64::MAX));
-            return (removed_nodes, removed_edges);
-        }
-
-        // Drop every edge bucket incident to a removed node (either endpoint in
-        // `remove_set`) in one pass, tallying the parallel-edge instances so
-        // `edge_count` stays exact. The `edges` map order is never observed
-        // externally (every consumer walks `edges_ordered`, i.e. adjacency
-        // order), so `retain` is order-safe — same rationale as `remove_node`.
-        self.edges.retain(|key, bucket| {
-            let keep =
-                !remove_set.contains(key.left.as_str()) && !remove_set.contains(key.right.as_str());
-            if !keep {
-                removed_instances += bucket.len();
-            }
-            keep
-        });
-        self.edge_count -= removed_instances;
-
-        // Adjacency: drop the removed nodes' own rows, then prune references to
-        // removed nodes from every surviving row. Both `retain`s preserve
-        // insertion order (IndexMap), so the surviving adjacency is byte-identical
-        // to repeated `remove_node`.
-        self.adjacency
-            .retain(|node, _| !remove_set.contains(node.as_str()));
-        for row in self.adjacency.values_mut() {
-            row.retain(|neighbor, _| !remove_set.contains(neighbor.as_str()));
-        }
-        self.nodes
-            .retain(|node, _| !remove_set.contains(node.as_str()));
-
-        let removed_nodes = old_node_count - self.nodes.len();
-        let removed_edges = old_edge_count - self.edge_count;
+        self.edge_count = self.slab_store().edge_count;
         self.revision = self
             .revision
             .saturating_add(u64::try_from(removed_nodes).unwrap_or(u64::MAX));
@@ -3467,58 +4866,21 @@ impl MultiGraph {
 
     #[must_use]
     pub fn edges_ordered(&self) -> Vec<MultiEdgeSnapshot> {
-        let mut ordered = Vec::with_capacity(self.edge_count());
-        let mut seen = HashSet::<(String, String, usize)>::with_capacity(self.edge_count());
-
-        for node in self.nodes.keys() {
-            if let Some(neighbors) = self.adjacency.get(node) {
-                for neighbor in neighbors.keys() {
-                    let pair = EdgeKeyRef::new(node, neighbor);
-                    if let Some(edge_bucket) = self.edges.get(&pair) {
-                        for (key, attrs) in edge_bucket {
-                            // Track using the canonical sorted pair to deduplicate correctly
-                            let canonical_instance =
-                                (pair.left.to_owned(), pair.right.to_owned(), *key);
-                            if !seen.insert(canonical_instance) {
-                                continue;
-                            }
-                            ordered.push(MultiEdgeSnapshot {
-                                left: pair.left.to_owned(),
-                                right: pair.right.to_owned(),
-                                key: *key,
-                                attrs: attrs.clone(),
-                            });
-                        }
-                    }
-                }
-            }
-        }
-
-        ordered
+        self.slab_store()
+            .edges_ordered_borrowed()
+            .into_iter()
+            .map(|(left, right, key, attrs)| MultiEdgeSnapshot {
+                left: left.to_owned(),
+                right: right.to_owned(),
+                key,
+                attrs: attrs.clone(),
+            })
+            .collect()
     }
 
     #[must_use]
     pub fn edges_ordered_borrowed(&self) -> Vec<(&str, &str, usize, &AttrMap)> {
-        let mut ordered = Vec::with_capacity(self.edge_count());
-        let mut seen = HashSet::<(EdgeKeyRef, usize)>::with_capacity(self.edge_count());
-
-        for node in self.nodes.keys() {
-            if let Some(neighbors) = self.adjacency.get(node) {
-                for neighbor in neighbors.keys() {
-                    let pair = EdgeKeyRef::new(node, neighbor);
-                    if let Some(edge_bucket) = self.edges.get(&pair) {
-                        for (key, attrs) in edge_bucket {
-                            if !seen.insert((pair, *key)) {
-                                continue;
-                            }
-                            ordered.push((pair.left, pair.right, *key, attrs));
-                        }
-                    }
-                }
-            }
-        }
-
-        ordered
+        self.slab_store().edges_ordered_borrowed()
     }
 
     /// br-r37-c1-wsize (cc): integer `size(weight)` from the store — the
@@ -3529,80 +4891,17 @@ impl MultiGraph {
     /// float/PyObject degree path); missing weight defaults to nx's int `1`.
     #[must_use]
     pub fn weighted_size_int(&self, weight: &str) -> Option<i128> {
-        let mut total: i128 = 0;
-        for bucket in self.edges.values() {
-            for attrs in bucket.values() {
-                let value = match attrs.get(weight) {
-                    Some(CgseValue::Int(v)) => i128::from(*v),
-                    Some(_) => return None,
-                    None => 1,
-                };
-                total = total.checked_add(value)?;
-            }
-        }
-        Some(total)
+        self.slab_store().weighted_size_int(weight)
     }
 
     #[must_use]
     pub fn edges_ordered_indices_borrowed(&self) -> Vec<(usize, usize, usize, &AttrMap)> {
-        let mut ordered = Vec::with_capacity(self.edge_count());
-        let mut seen = HashSet::<(EdgeKeyRef, usize)>::with_capacity(self.edge_count());
-
-        for (node_idx, node) in self.nodes.keys().enumerate() {
-            if let Some(neighbors) = self.adjacency.get(node) {
-                for neighbor in neighbors.keys() {
-                    let Some(neighbor_idx) = self.nodes.get_index_of(neighbor.as_str()) else {
-                        continue;
-                    };
-                    let pair = EdgeKeyRef::new(node, neighbor);
-                    let (left_idx, right_idx) = if pair.left == node.as_str() {
-                        (node_idx, neighbor_idx)
-                    } else {
-                        (neighbor_idx, node_idx)
-                    };
-                    if let Some(edge_bucket) = self.edges.get(&pair) {
-                        for (key, attrs) in edge_bucket {
-                            if !seen.insert((pair, *key)) {
-                                continue;
-                            }
-                            ordered.push((left_idx, right_idx, *key, attrs));
-                        }
-                    }
-                }
-            }
-        }
-
-        ordered
+        self.slab_store().edges_ordered_indices_borrowed()
     }
 
     #[must_use]
     pub fn snapshot(&self) -> MultiGraphSnapshot {
-        // br-snapnodeattrs: see Graph::snapshot — same fix for MultiGraph.
-        let node_attrs: BTreeMap<String, AttrMap> = self
-            .nodes
-            .iter()
-            .filter(|(_, attrs)| !attrs.is_empty())
-            .map(|(name, attrs)| (name.clone(), attrs.clone()))
-            .collect();
-        MultiGraphSnapshot {
-            mode: self.mode,
-            nodes: self.nodes.keys().cloned().collect(),
-            node_attrs,
-            edges: self.edges_ordered(),
-        }
-    }
-
-    fn remove_adjacency_key(&mut self, source: &str, target: &str, key: usize) {
-        let mut drop_neighbor = false;
-        if let Some(neighbors) = self.adjacency.get_mut(source)
-            && let Some(keys) = neighbors.get_mut(target)
-        {
-            keys.shift_remove(&key);
-            drop_neighbor = keys.is_empty();
-        }
-        if drop_neighbor && let Some(neighbors) = self.adjacency.get_mut(source) {
-            neighbors.shift_remove(target);
-        }
+        self.slab_store().snapshot(self.mode)
     }
 
     fn record_decision(
@@ -3633,6 +4932,513 @@ mod tests {
     use proptest::prelude::*;
     use std::collections::BTreeSet;
 
+    /// br-r37-c1-addedgenewedge parity: the new_edge-gated adjacency push must never create a
+    /// duplicate adjacency entry, even under duplicate edges / self-loops / edges added in both
+    /// orientations. (The old `!adj_indices[..].contains(..)` guard prevented dups; the O(1)
+    /// `new_edge` flag must too, since adj-membership ⟺ edge existence.)
+    #[test]
+    fn add_edge_newedge_no_duplicate_adjacency() {
+        let mut g = Graph::strict();
+        let _ = g.add_edge("h", "a");
+        let _ = g.add_edge("h", "b");
+        let _ = g.add_edge("h", "a"); // exact duplicate
+        let _ = g.add_edge("a", "h"); // reversed duplicate
+        let _ = g.add_edge("s", "s"); // self-loop
+        let _ = g.add_edge("s", "s"); // duplicate self-loop
+        let n = g.node_count();
+        for i in 0..n {
+            if let Some(row) = g.neighbors_indices(i) {
+                let uniq: BTreeSet<usize> = row.iter().copied().collect();
+                assert_eq!(
+                    uniq.len(),
+                    row.len(),
+                    "node {i} has duplicate adjacency entries"
+                );
+            }
+        }
+        // Unique edges: h-a, h-b, s-s.
+        assert_eq!(
+            g.edge_count(),
+            3,
+            "duplicate/reversed adds must not create new edges"
+        );
+    }
+
+    /// br-r37-c1-addedgenewedge: paired-interleaved median A/B for the exact change — building a
+    /// high-degree hub's adjacency row. The OLD code guarded each push with
+    /// `adj_indices[hub].contains(&x)` (an O(row.len) linear rescan → O(n²) to build a star via
+    /// add_edge); the NEW code pushes on the O(1) `new_edge` flag → O(n). This isolates the two
+    /// changed lines; the rest of add_edge is O(1)/edge in both arms (so the full-function win is
+    /// this, diluted by that per-edge overhead). `#[ignore]`; run with
+    /// `cargo test --release -p fnx-classes --lib add_edge_newedge_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with --release --ignored --nocapture"]
+    fn add_edge_newedge_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        let n = 40000usize;
+        let time = |use_new: bool| -> f64 {
+            let t0 = Instant::now();
+            let mut row: Vec<usize> = Vec::with_capacity(n);
+            for i in 0..n {
+                if use_new || !row.contains(&i) {
+                    row.push(i);
+                }
+            }
+            black_box(&row);
+            t0.elapsed().as_secs_f64()
+        };
+        for _ in 0..2 {
+            black_box(time(true));
+            black_box(time(false));
+        }
+        let median = |v: &[f64]| {
+            let mut s = v.to_vec();
+            s.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            s[s.len() / 2]
+        };
+        let rounds = 41usize;
+        let paired = |cand: bool, base: bool| -> Vec<f64> {
+            let mut v = Vec::with_capacity(rounds);
+            for r in 0..rounds {
+                let (tb, tc) = if r % 2 == 0 {
+                    let b = time(base);
+                    let c = time(cand);
+                    (b, c)
+                } else {
+                    let c = time(cand);
+                    let b = time(base);
+                    (b, c)
+                };
+                v.push(tb / tc);
+            }
+            v
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&r| r > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            println!(
+                "ADDEDGE_AB {name}: median={:.4}x win_rate={wins}/{rounds} p5_p95=[{:.4},{:.4}]",
+                median(ratios),
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+        println!("ADDEDGE_AB adj-row push n={n} rounds={rounds} (>1 = new_edge-flag faster)");
+        report("NEWEDGE_vs_contains", &paired(true, false));
+        report("NULL_new_vs_new", &paired(true, true));
+    }
+
+    /// br-r37-c1-degselfloopidx: parity + paired-interleaved A/B for `degree_by_index` — the O(1)
+    /// `has_edge_by_indices(idx,idx)` self-loop check vs the pre-lever O(degree)
+    /// `adj_indices[idx].contains(&idx)` rescan, over a degree histogram of a dense graph. Byte-exact
+    /// parity (also vs the `&str` `degree`). `#[ignore]`; run with
+    /// `cargo test --release -p fnx-classes --lib degree_by_index_selfloop_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with --release --ignored --nocapture"]
+    fn degree_by_index_selfloop_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        let n = 20000usize;
+        let deg = 20usize;
+        let mut g = Graph::strict();
+        for i in 0..n {
+            let _ = g.add_node(format!("n{i}"));
+        }
+        for i in 0..n {
+            for step in 1..=deg {
+                let _ = g.add_edge(format!("n{i}"), format!("n{}", (i + step) % n));
+            }
+        }
+        for i in (0..n).step_by(1000) {
+            let _ = g.add_edge(format!("n{i}"), format!("n{i}"));
+        }
+
+        // Byte-exact parity: new == old (row.contains) == the &str degree, incl. self-loop nodes.
+        for idx in 0..g.node_count() {
+            let new = g.degree_by_index(idx);
+            let old = g.adj_indices[idx].len() + usize::from(g.adj_indices[idx].contains(&idx));
+            assert_eq!(new, old, "degree_by_index parity vs row.contains at {idx}");
+            assert_eq!(
+                new,
+                g.degree(&format!("n{idx}")),
+                "degree_by_index parity vs &str degree at {idx}"
+            );
+        }
+
+        let time = |use_new: bool| -> f64 {
+            let t0 = Instant::now();
+            let mut sum = 0usize;
+            for idx in 0..g.node_count() {
+                sum += if use_new {
+                    g.degree_by_index(idx)
+                } else {
+                    g.adj_indices[idx].len() + usize::from(g.adj_indices[idx].contains(&idx))
+                };
+            }
+            black_box(sum);
+            t0.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(true));
+            black_box(time(false));
+        }
+        let median = |v: &[f64]| {
+            let mut s = v.to_vec();
+            s.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            s[s.len() / 2]
+        };
+        let rounds = 41usize;
+        let paired = |cand: bool, base: bool| -> Vec<f64> {
+            let mut v = Vec::with_capacity(rounds);
+            for r in 0..rounds {
+                let (tb, tc) = if r % 2 == 0 {
+                    let b = time(base);
+                    let c = time(cand);
+                    (b, c)
+                } else {
+                    let c = time(cand);
+                    let b = time(base);
+                    (b, c)
+                };
+                v.push(tb / tc);
+            }
+            v
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&r| r > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            println!(
+                "DEGIDX_AB {name}: median={:.4}x win_rate={wins}/{rounds} p5_p95=[{:.4},{:.4}]",
+                median(ratios),
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+        println!(
+            "DEGIDX_AB degree histogram n={n} deg={deg} rounds={rounds} (>1 = O(1) has_edge faster)"
+        );
+        report("HASEDGE_vs_contains", &paired(true, false));
+        report("NULL_new_vs_new", &paired(true, true));
+    }
+
+    /// br-r37-c1-isoedgecount: paired-interleaved A/B for the graph-isomorphism early-out edge
+    /// count check. `undirected_isomorphism_mappings` / `directed_isomorphism_mappings` (fnx-python,
+    /// reached by public `is_isomorphic`) compared edge COUNTS via `edges_ordered().len()`, which
+    /// materialises a full `Vec<EdgeSnapshot>` (two owned Strings per edge) only to read its length;
+    /// the O(1) `edge_count()` (== `self.edges.len()`) is byte-identical. This times the exact
+    /// early-out compare on the non-isomorphic same-node / different-edge case (where the check is
+    /// the dominant cost). Byte-exact parity asserted (`edge_count() == edges_ordered().len()`).
+    /// `#[ignore]`; run with
+    /// `cargo test --release -p fnx-classes --lib iso_edge_count_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with --release --ignored --nocapture"]
+    fn iso_edge_count_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        let n = 4000usize;
+        let deg = 25usize;
+        let build = |steps: usize| -> Graph {
+            let mut g = Graph::strict();
+            for i in 0..n {
+                let _ = g.add_node(format!("n{i}"));
+            }
+            for i in 0..n {
+                for step in 1..=steps {
+                    let _ = g.add_edge(format!("n{i}"), format!("n{}", (i + step) % n));
+                }
+            }
+            g
+        };
+        // Same node count, DIFFERENT edge count → the early-out returns at the edge-count compare.
+        let g1 = build(deg);
+        let g2 = build(deg - 1);
+
+        // Byte-exact parity: edge_count() must equal edges_ordered().len() for both graphs.
+        assert_eq!(
+            g1.edge_count(),
+            g1.edges_ordered().len(),
+            "edge_count parity g1"
+        );
+        assert_eq!(
+            g2.edge_count(),
+            g2.edges_ordered().len(),
+            "edge_count parity g2"
+        );
+        assert_ne!(
+            g1.edge_count(),
+            g2.edge_count(),
+            "workload must exercise the differing-count early-out"
+        );
+
+        let time = |use_new: bool| -> f64 {
+            let t0 = Instant::now();
+            let mut acc = 0usize;
+            for _ in 0..8 {
+                let differ = if use_new {
+                    g1.edge_count() != g2.edge_count()
+                } else {
+                    g1.edges_ordered().len() != g2.edges_ordered().len()
+                };
+                acc += usize::from(differ);
+            }
+            black_box(acc);
+            t0.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(true));
+            black_box(time(false));
+        }
+        let median = |v: &[f64]| {
+            let mut s = v.to_vec();
+            s.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            s[s.len() / 2]
+        };
+        let rounds = 41usize;
+        let paired = |cand: bool, base: bool| -> Vec<f64> {
+            let mut v = Vec::with_capacity(rounds);
+            for r in 0..rounds {
+                let (tb, tc) = if r % 2 == 0 {
+                    let b = time(base);
+                    let c = time(cand);
+                    (b, c)
+                } else {
+                    let c = time(cand);
+                    let b = time(base);
+                    (b, c)
+                };
+                v.push(tb / tc);
+            }
+            v
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&r| r > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            println!(
+                "ISOEDGE_AB {name}: median={:.4}x win_rate={wins}/{rounds} p5_p95=[{:.4},{:.4}]",
+                median(ratios),
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+        println!(
+            "ISOEDGE_AB same-node/different-edge early-out n={n} deg={deg} rounds={rounds} (>1 = edge_count faster)"
+        );
+        report("EDGECOUNT_vs_edgesordered", &paired(true, false));
+        report("NULL_new_vs_new", &paired(true, true));
+    }
+
+    /// br-r37-c1-selfloopidx: paired-interleaved A/B for the `nodes_with_selfloops` per-node self-loop
+    /// probe (feeds `number_of_selfloops` / `selfloop_edges` / `nodes_with_selfloops`, many callers).
+    /// The kernel checked `has_edge(node, node)` — resolving BOTH `&str` endpoints via
+    /// `edge_pair_key` (two String-hash lookups per node) — vs the index probe
+    /// `has_edge_by_indices(i, i)` (a direct integer `canon_pair` + `contains_key`, no String
+    /// resolution). Byte-exact parity asserted (same self-loop node set). `#[ignore]`; run with
+    /// `cargo test --release -p fnx-classes --lib nodes_selfloop_idx_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with --release --ignored --nocapture"]
+    fn nodes_selfloop_idx_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        // 40k nodes, ring-of-chords, NO self-loops (the common case: every node is probed and misses).
+        let n = 40_000usize;
+        let deg = 10usize;
+        let mut g = Graph::strict();
+        for i in 0..n {
+            let _ = g.add_node(i.to_string());
+        }
+        for i in 0..n {
+            for step in 1..=deg {
+                let _ = g.add_edge(i.to_string(), ((i + step) % n).to_string());
+            }
+        }
+
+        let names = g.nodes_ordered();
+        let old_scan =
+            |g: &Graph| -> usize { names.iter().filter(|&&node| g.has_edge(node, node)).count() };
+        let new_scan = |g: &Graph| -> usize {
+            (0..names.len())
+                .filter(|&i| g.has_edge_by_indices(i, i))
+                .count()
+        };
+        assert_eq!(
+            old_scan(&g),
+            new_scan(&g),
+            "nodes_with_selfloops parity (self-loop count)"
+        );
+
+        let time = |cand: bool| -> f64 {
+            let t0 = Instant::now();
+            let c = if cand { new_scan(&g) } else { old_scan(&g) };
+            black_box(c);
+            t0.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(true));
+            black_box(time(false));
+        }
+        let median = |v: &[f64]| {
+            let mut s = v.to_vec();
+            s.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            s[s.len() / 2]
+        };
+        let rounds = 61usize;
+        let paired = |cand: bool, base: bool| -> Vec<f64> {
+            let mut v = Vec::with_capacity(rounds);
+            for r in 0..rounds {
+                let (tb, tc) = if r % 2 == 0 {
+                    let b = time(base);
+                    let c = time(cand);
+                    (b, c)
+                } else {
+                    let c = time(cand);
+                    let b = time(base);
+                    (b, c)
+                };
+                v.push(tb / tc);
+            }
+            v
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&r| r > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            println!(
+                "SELFLOOPIDX_AB {name}: median={:.4}x win_rate={wins}/{rounds} p5_p95=[{:.4},{:.4}]",
+                median(ratios),
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+        println!(
+            "SELFLOOPIDX_AB nodes_with_selfloops n={n} deg={deg} rounds={rounds} (>1 = index probe faster)"
+        );
+        report("HASEDGEIDX_vs_hasedge", &paired(true, false));
+        report("NULL_new_vs_new", &paired(true, true));
+    }
+
+    /// br-r37-c1-numselfidx: paired-interleaved A/B for `number_of_selfloops` (feeds the is_planar
+    /// dense-graph `planarity_euler_reject` fast path). The kernel counted self-loops with
+    /// `edges_ordered().filter(|e| e.left == e.right).count()` — materialising a full
+    /// `Vec<EdgeSnapshot>` (two owned Strings + an attr clone PER edge) — vs the integer per-node
+    /// probe `(0..n).filter(|i| has_edge_by_indices(i, i)).count()` (no allocation). Byte-exact parity
+    /// asserted (same self-loop count). `#[ignore]`; run with
+    /// `cargo test --release -p fnx-classes --lib number_of_selfloops_idx_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with --release --ignored --nocapture"]
+    fn number_of_selfloops_idx_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        // Dense-ish ring-of-chords, ~20k nodes * 20 = ~200k edges, no self-loops (the count is 0 and
+        // the old arm materialises the whole edge Vec anyway).
+        let n = 20_000usize;
+        let deg = 20usize;
+        let mut g = Graph::strict();
+        for i in 0..n {
+            let _ = g.add_node(i.to_string());
+        }
+        for i in 0..n {
+            for step in 1..=deg {
+                let _ = g.add_edge(i.to_string(), ((i + step) % n).to_string());
+            }
+        }
+
+        let old_count = |g: &Graph| -> usize {
+            g.edges_ordered()
+                .iter()
+                .filter(|e| e.left == e.right)
+                .count()
+        };
+        let new_count = |g: &Graph| -> usize {
+            (0..g.node_count())
+                .filter(|&i| g.has_edge_by_indices(i, i))
+                .count()
+        };
+        assert_eq!(old_count(&g), new_count(&g), "number_of_selfloops parity");
+
+        let time = |cand: bool| -> f64 {
+            let t0 = Instant::now();
+            let c = if cand { new_count(&g) } else { old_count(&g) };
+            black_box(c);
+            t0.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(true));
+            black_box(time(false));
+        }
+        let median = |v: &[f64]| {
+            let mut s = v.to_vec();
+            s.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            s[s.len() / 2]
+        };
+        let rounds = 61usize;
+        let paired = |cand: bool, base: bool| -> Vec<f64> {
+            let mut v = Vec::with_capacity(rounds);
+            for r in 0..rounds {
+                let (tb, tc) = if r % 2 == 0 {
+                    let b = time(base);
+                    let c = time(cand);
+                    (b, c)
+                } else {
+                    let c = time(cand);
+                    let b = time(base);
+                    (b, c)
+                };
+                v.push(tb / tc);
+            }
+            v
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&r| r > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            println!(
+                "NUMSELFIDX_AB {name}: median={:.4}x win_rate={wins}/{rounds} p5_p95=[{:.4},{:.4}]",
+                median(ratios),
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+        println!(
+            "NUMSELFIDX_AB number_of_selfloops n={n} deg={deg} rounds={rounds} (>1 = index count faster)"
+        );
+        report("INDEXCOUNT_vs_edgesordered", &paired(true, false));
+        report("NULL_new_vs_new", &paired(true, true));
+    }
+
+    /// br-r37-c1-kneserpush parity: removing the redundant `adj_indices.contains` guards under the
+    /// `seen.insert(pair)` new-pair guard must keep the Kneser build byte-identical — correct
+    /// node/edge counts and NO duplicate adjacency entries. (Same lever + adj_indices.push operation
+    /// as br-r37-c1-addedgenewedge, whose A/B measured the O(degree)→O(1) win.)
+    #[test]
+    fn kneser_push_no_duplicate_adjacency() {
+        // Kneser(10,3): C(10,3)=120 nodes, degree C(7,3)=35, edges = 120*35/2 = 2100.
+        let g = Graph::kneser(CompatibilityMode::Strict, 10, 3);
+        assert_eq!(g.node_count(), 120, "C(10,3) nodes");
+        assert_eq!(g.edge_count(), 2100, "120*35/2 Kneser edges");
+        let mut total_deg = 0usize;
+        for i in 0..g.node_count() {
+            let row = &g.adj_indices[i];
+            let uniq: BTreeSet<usize> = row.iter().copied().collect();
+            assert_eq!(
+                uniq.len(),
+                row.len(),
+                "node {i} has duplicate adjacency entries"
+            );
+            assert_eq!(row.len(), 35, "Kneser(10,3) is 35-regular");
+            total_deg += row.len();
+        }
+        assert_eq!(total_deg, 2 * 2100, "handshake: sum of degrees == 2|E|");
+    }
+
     fn node_name(id: u8) -> String {
         format!("n{}", id % 8)
     }
@@ -3647,7 +5453,7 @@ mod tests {
 
     /// br-r37-c1-thp6w slice 1 INVARIANT: the cached integer adjacency
     /// (`with_int_adjacency`) must equal, byte-for-byte, a fresh derivation from the
-    /// authoritative String `adjacency` — row `i` == `[get_node_index(v) for v in
+    /// authoritative stable-slot rows — row `i` == `[get_node_index(v) for v in
     /// neighbors_iter(node_i)]` — for the CURRENT graph state. Because the memo is keyed on
     /// `revision` + explicitly cleared by `apply_row_orders`, calling this after a mutation
     /// (with a prior populating read) catches any mutation path that fails to invalidate.
@@ -3665,7 +5471,7 @@ mod tests {
             assert_eq!(
                 adj,
                 expected.as_slice(),
-                "int adjacency must mirror the String adjacency exactly"
+                "int adjacency must mirror the stable-slot rows exactly"
             );
         });
     }
@@ -3721,6 +5527,2200 @@ mod tests {
         assert_int_adjacency_matches(&g);
         g.clear_edges();
         assert_int_adjacency_matches(&g);
+    }
+
+    /// br-r37-c1-thp6w S4: the memo is keyed at the CURRENT revision without any
+    /// intervening read — i.e. the mutation advanced it in place rather than
+    /// leaving it stale for the next `with_int_adjacency` rebuild.
+    fn int_adj_memo_is_warm(g: &MultiGraph) -> bool {
+        g.int_adj_cache
+            .0
+            .read()
+            .expect("int_adj_cache poisoned")
+            .as_ref()
+            .is_some_and(|(rev, _)| *rev == g.revision)
+    }
+
+    /// br-r37-c1-thp6w S4 INVARIANT: single-edge `add_edge`/`remove_edge` must
+    /// ADVANCE a warm integer-adjacency memo across the mutation (no rebuild),
+    /// and the advanced rows must equal a fresh derivation from the String
+    /// adjacency after every step. Unhandled mutation kinds (`remove_node`)
+    /// must still leave the memo stale so the lazy rebuild path takes over.
+    #[test]
+    fn thp6w_s4_single_edge_mutations_advance_warm_memo() {
+        let mut g = MultiGraph::strict();
+        let _ = g.add_edge("a", "b");
+        assert_int_adjacency_matches(&g); // populate the memo
+
+        // new neighbor with an auto-created right endpoint
+        let _ = g.add_edge("b", "c");
+        assert!(
+            int_adj_memo_is_warm(&g),
+            "add_edge must advance, not invalidate"
+        );
+        assert_int_adjacency_matches(&g);
+        // both endpoints auto-created
+        let _ = g.add_edge("d", "e");
+        assert!(int_adj_memo_is_warm(&g));
+        assert_int_adjacency_matches(&g);
+        // self-loop on an auto-created node
+        let _ = g.add_edge("f", "f");
+        assert!(int_adj_memo_is_warm(&g));
+        assert_int_adjacency_matches(&g);
+        // parallel edge: rows unchanged, revision bumps -> re-key only
+        let _ = g.add_edge("a", "b");
+        assert!(int_adj_memo_is_warm(&g));
+        assert_int_adjacency_matches(&g);
+        // attr-only change on an existing key: rows unchanged, revision bumps
+        let mut attrs = AttrMap::new();
+        attrs.insert("w".to_owned(), fnx_runtime::CgseValue::Int(2));
+        let _ = g.add_edge_with_key_and_attrs("a", "b", 0, attrs);
+        assert!(int_adj_memo_is_warm(&g));
+        assert_int_adjacency_matches(&g);
+        // remove one parallel key (pair survives -> rows unchanged)
+        assert!(g.remove_edge("a", "b", None));
+        assert!(int_adj_memo_is_warm(&g));
+        assert_int_adjacency_matches(&g);
+        // remove the last key (pair gone -> shift-remove mirrored in the rows)
+        assert!(g.remove_edge("a", "b", None));
+        assert!(int_adj_memo_is_warm(&g));
+        assert_int_adjacency_matches(&g);
+        // order-sensitive middle-of-row removal: row b = [a-gone..., c, ...]; build
+        // b->x, b->y then drop (b,c) so the survivors must keep String-row order.
+        let _ = g.add_edge("b", "x");
+        let _ = g.add_edge("b", "y");
+        assert!(g.remove_edge("b", "c", None));
+        assert!(int_adj_memo_is_warm(&g));
+        assert_int_adjacency_matches(&g);
+        // self-loop removal
+        assert!(g.remove_edge("f", "f", None));
+        assert!(int_adj_memo_is_warm(&g));
+        assert_int_adjacency_matches(&g);
+        // unhandled mutation kind: remove_node renumbers -> memo must go stale
+        assert!(g.remove_node("x"));
+        assert!(
+            !int_adj_memo_is_warm(&g),
+            "remove_node stays invalidate-only; a warm memo here would serve stale indices"
+        );
+        assert_int_adjacency_matches(&g);
+    }
+
+    /// br-r37-c1-thp6w S5 PARITY GATES: the index-keyed prototype must derive
+    /// byte-identical observable orderings (node order, per-row distinct-
+    /// neighbor order, per-pair parallel-key order) and identical edge count +
+    /// merged attrs from the same insert stream as the real String-keyed
+    /// MultiGraph batch path. The stream deliberately includes names where
+    /// String-lex and index canonicalization DIVERGE ("10" < "2" lex, 2 < 10
+    /// numeric), reversed re-adds, self-loops, sparse explicit keys, dup
+    /// (pair, key) attr merges, and late out-of-order node introduction.
+    #[test]
+    fn thp6w_s5_int_storage_proto_parity_gates() {
+        use super::multigraph_storage::MgIntStorageProto;
+
+        let stream: Vec<(&str, &str, usize)> = vec![
+            ("2", "10", 0),
+            ("10", "2", 1), // reversed orientation, same pair, next key
+            ("1", "1", 0),  // self-loop on a fresh node
+            ("2", "3", 0),
+            ("3", "2", 0), // dup (pair, key) from the reverse orientation -> attr merge
+            ("10", "1", 5), // sparse explicit key
+            ("0", "2", 0), // node "0" introduced late (insertion order != numeric)
+            ("2", "10", 1), // dup (pair, key) again -> attr merge
+            ("4", "5", 2),
+            ("5", "4", 0), // parallel keys, both orientations
+            ("1", "1", 1), // parallel self-loop key
+        ];
+        let attrs_for = |i: usize| {
+            let mut attrs = AttrMap::new();
+            attrs.insert(
+                format!("a{}", i % 3),
+                fnx_runtime::CgseValue::Int(i64::try_from(i).unwrap()),
+            );
+            attrs
+        };
+
+        let mut mg = MultiGraph::strict();
+        let _ = mg.extend_keyed_edges_with_attrs_unrecorded(
+            stream
+                .iter()
+                .enumerate()
+                .map(|(i, (l, r, k))| ((*l).to_owned(), (*r).to_owned(), *k, attrs_for(i))),
+        );
+        let mut proto = MgIntStorageProto::new();
+        for (i, (l, r, k)) in stream.iter().enumerate() {
+            proto.add_keyed_edge(l, r, *k, attrs_for(i));
+        }
+        // br-r37-c1-thp6w S6: the compact-bucket variant must pass the same gates.
+        let mut compact = super::multigraph_storage::MgIntStorageProtoCompact::new();
+        for (i, (l, r, k)) in stream.iter().enumerate() {
+            compact.add_keyed_edge(l, r, *k, attrs_for(i));
+        }
+
+        // Gate 1: node insertion order.
+        assert_eq!(
+            proto
+                .node_names
+                .iter()
+                .map(String::as_str)
+                .collect::<Vec<_>>(),
+            mg.nodes_ordered(),
+            "node order must match"
+        );
+        assert_eq!(
+            compact
+                .node_names
+                .iter()
+                .map(String::as_str)
+                .collect::<Vec<_>>(),
+            mg.nodes_ordered(),
+            "compact node order must match"
+        );
+        // Gate 2 + 3: per-row distinct-neighbor order and per-pair key order.
+        for (i, name) in mg.nodes_ordered().iter().enumerate() {
+            let mg_row: Vec<&str> = mg
+                .neighbors_iter(name)
+                .map_or_else(Vec::new, Iterator::collect);
+            assert_eq!(proto.neighbor_names(i), mg_row, "row order for node {name}");
+            assert_eq!(
+                compact.neighbor_names(i),
+                mg_row,
+                "compact row order for node {name}"
+            );
+            for v in &mg_row {
+                assert_eq!(
+                    proto.key_order(name, v),
+                    mg.edge_keys_vec(name, v),
+                    "key order for pair ({name}, {v})"
+                );
+                assert_eq!(
+                    compact.key_order(name, v),
+                    mg.edge_keys_vec(name, v),
+                    "compact key order for pair ({name}, {v})"
+                );
+            }
+        }
+        // Gate 4: edge count.
+        assert_eq!(proto.edge_count, mg.edge_count(), "edge_count must match");
+        assert_eq!(
+            compact.edge_count,
+            mg.edge_count(),
+            "compact edge_count must match"
+        );
+        // Gate 5: merged attrs on a dup-inserted cell ((2,10) key 1 saw inserts
+        // at stream positions 1 and 7 -> extend semantics on both sides).
+        let l = *proto.node_index.get("2").expect("proto must retain node 2");
+        let r = *proto
+            .node_index
+            .get("10")
+            .expect("proto must retain node 10");
+        let proto_attrs = proto.edges[&(l.min(r), l.max(r))]
+            .get(&1)
+            .expect("proto (2,10,1) cell");
+        assert_eq!(
+            Some(proto_attrs),
+            mg.edge_attrs("2", "10", 1),
+            "merged attrs on the dup (pair, key) cell must match"
+        );
+        assert_eq!(
+            compact.edges[&(l.min(r), l.max(r))].attrs_for(1),
+            mg.edge_attrs("2", "10", 1),
+            "compact merged attrs on the dup (pair, key) cell must match"
+        );
+    }
+
+    /// br-r37-c1-thp6w S7 helper: full observable-order parity between the
+    /// real MultiGraph and the index-keyed prototype, plus the prototype's own
+    /// name->index consistency (the renumber invariant).
+    fn assert_proto_matches_mg(
+        mg: &MultiGraph,
+        proto: &super::multigraph_storage::MgIntStorageProto,
+    ) {
+        assert_eq!(
+            proto
+                .node_names
+                .iter()
+                .map(String::as_str)
+                .collect::<Vec<_>>(),
+            mg.nodes_ordered(),
+            "node order"
+        );
+        for (i, name) in proto.node_names.iter().enumerate() {
+            assert_eq!(
+                proto.node_index.get(name),
+                Some(&i),
+                "node_index desync for {name}"
+            );
+        }
+        for (i, name) in mg.nodes_ordered().iter().enumerate() {
+            let mg_row: Vec<&str> = mg
+                .neighbors_iter(name)
+                .map_or_else(Vec::new, Iterator::collect);
+            assert_eq!(proto.neighbor_names(i), mg_row, "row order for {name}");
+            for v in &mg_row {
+                assert_eq!(
+                    proto.key_order(name, v),
+                    mg.edge_keys_vec(name, v),
+                    "key order for ({name}, {v})"
+                );
+            }
+        }
+        assert_eq!(proto.edge_count, mg.edge_count(), "edge_count");
+    }
+
+    /// br-r37-c1-thp6w S7 PARITY GAUNTLET (removal + renumber): the epoch's
+    /// riskiest semantics — `remove_edge` shift/`next_back` behavior and the
+    /// `remove_node` index renumber — must keep every observable ordering
+    /// byte-identical to the real String-keyed MultiGraph after EVERY step,
+    /// including re-adds AFTER a renumber (stale-index detection).
+    #[test]
+    fn thp6w_s7_removal_renumber_parity_gauntlet() {
+        use super::multigraph_storage::MgIntStorageProto;
+
+        let stream: Vec<(&str, &str, usize)> = vec![
+            ("2", "10", 0),
+            ("10", "2", 1),
+            ("1", "1", 0),
+            ("2", "3", 0),
+            ("3", "2", 0),
+            ("10", "1", 5),
+            ("0", "2", 0),
+            ("2", "10", 1),
+            ("4", "5", 2),
+            ("5", "4", 0),
+            ("1", "1", 1),
+        ];
+        let mut mg = MultiGraph::strict();
+        let _ = mg.extend_keyed_edges_with_attrs_unrecorded(
+            stream
+                .iter()
+                .map(|(l, r, k)| ((*l).to_owned(), (*r).to_owned(), *k, AttrMap::new())),
+        );
+        let mut proto = MgIntStorageProto::new();
+        for (l, r, k) in &stream {
+            proto.add_keyed_edge(l, r, *k, AttrMap::new());
+        }
+        assert_proto_matches_mg(&mg, &proto);
+
+        // key=None must pick the LAST bucket key (next_back): (4,5) keys are
+        // [2, 0] in insertion order -> removes 0, survivor [2].
+        assert_eq!(
+            mg.remove_edge("4", "5", None),
+            proto.remove_edge("4", "5", None)
+        );
+        assert_proto_matches_mg(&mg, &proto);
+        // Partial removal of a parallel bundle: survivor key order preserved.
+        assert_eq!(
+            mg.remove_edge("2", "10", Some(0)),
+            proto.remove_edge("2", "10", Some(0))
+        );
+        assert_proto_matches_mg(&mg, &proto);
+        // Last key of the pair -> neighbor cell drops from both rows.
+        assert_eq!(
+            mg.remove_edge("2", "10", None),
+            proto.remove_edge("2", "10", None)
+        );
+        assert_proto_matches_mg(&mg, &proto);
+        // Self-loop partial removal.
+        assert_eq!(
+            mg.remove_edge("1", "1", Some(0)),
+            proto.remove_edge("1", "1", Some(0))
+        );
+        assert_proto_matches_mg(&mg, &proto);
+        // Missing pair / missing key: both sides must refuse identically.
+        assert_eq!(
+            mg.remove_edge("0", "10", None),
+            proto.remove_edge("0", "10", None)
+        );
+        assert_eq!(
+            mg.remove_edge("2", "3", Some(9)),
+            proto.remove_edge("2", "3", Some(9))
+        );
+        assert_proto_matches_mg(&mg, &proto);
+
+        // THE renumber: remove a mid-order node with live edges.
+        assert_eq!(mg.remove_node("2"), proto.remove_node("2"));
+        assert_proto_matches_mg(&mg, &proto);
+        // Re-adds AFTER the renumber: fresh node + edges into shifted indices.
+        mg.extend_keyed_edges_with_attrs_unrecorded(vec![
+            ("3".to_owned(), "99".to_owned(), 0, AttrMap::new()),
+            ("0".to_owned(), "3".to_owned(), 0, AttrMap::new()),
+        ]);
+        proto.add_keyed_edge("3", "99", 0, AttrMap::new());
+        proto.add_keyed_edge("0", "3", 0, AttrMap::new());
+        assert_proto_matches_mg(&mg, &proto);
+        // Renumber again from the other end, then the self-loop node.
+        assert_eq!(mg.remove_node("10"), proto.remove_node("10"));
+        assert_proto_matches_mg(&mg, &proto);
+        assert_eq!(mg.remove_node("1"), proto.remove_node("1"));
+        assert_proto_matches_mg(&mg, &proto);
+        // Removing a missing node refuses identically.
+        assert_eq!(mg.remove_node("2"), proto.remove_node("2"));
+        assert_proto_matches_mg(&mg, &proto);
+    }
+
+    /// br-r37-c1-thp6w S8 A/B: the flip's COST side — `remove_node` under the
+    /// index layout pays the d58s8 positional renumber (O(V+E) per removal:
+    /// row drop+decrement passes + full edges-map rebuild) where the current
+    /// String store pays only O(V + degree) (shift_remove memmoves, no edge
+    /// rekey). Same build stream, same 200-name removal sequence, removal
+    /// phase timed alone, paired-interleaved with a null arm. This number
+    /// decides whether the real flip needs the slab/stable-slot + tombstone
+    /// node store (see the bead's S8 design note) instead of positional
+    /// renumber.
+    /// `cargo test --release -p fnx-classes --lib thp6w_s8_removal_cost_ab -- --ignored --nocapture`
+    #[test]
+    #[ignore = "paired A/B benchmark; run --release with --ignored --nocapture"]
+    fn thp6w_s8_removal_cost_ab() {
+        use super::multigraph_storage::MgIntStorageProto;
+        use std::collections::HashMap;
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        fn push_edge(
+            stream: &mut Vec<(usize, usize, usize)>,
+            key_counter: &mut HashMap<(usize, usize), usize>,
+            u: usize,
+            v: usize,
+        ) {
+            let entry = key_counter.entry((u.min(v), u.max(v))).or_insert(0);
+            stream.push((u, v, *entry));
+            *entry += 1;
+        }
+
+        let n = 20000usize;
+        let mut stream = Vec::new();
+        let mut key_counter = HashMap::new();
+        for i in 0..n {
+            push_edge(&mut stream, &mut key_counter, i, (i + 1) % n);
+        }
+        let mut state = 0x2545_F491_4F6C_DD1D_u64;
+        let draw = |state: &mut u64| -> usize {
+            *state = state
+                .wrapping_mul(6_364_136_223_846_793_005)
+                .wrapping_add(1_442_695_040_888_963_407);
+            usize::try_from(*state >> 33).unwrap() % n
+        };
+        for _ in 0..3 * n {
+            let u = draw(&mut state);
+            let v = draw(&mut state);
+            push_edge(&mut stream, &mut key_counter, u, v);
+        }
+        let victims: Vec<String> = (0..n).step_by(100).map(|i| i.to_string()).collect();
+
+        let time_current_removals = |stream: &[(usize, usize, usize)]| -> f64 {
+            let mut g = MultiGraph::strict();
+            let _ = g.extend_fresh_int_prefix_keyed_edges_unrecorded(n, stream.iter().copied());
+            let t0 = Instant::now();
+            for name in &victims {
+                assert!(g.remove_node(name));
+            }
+            let dt = t0.elapsed().as_secs_f64();
+            black_box(g.edge_count());
+            dt
+        };
+        let time_proto_removals = |stream: &[(usize, usize, usize)]| -> f64 {
+            let mut proto = MgIntStorageProto::bulk_load_int_prefix(n, stream.iter().copied());
+            let t0 = Instant::now();
+            for name in &victims {
+                assert!(proto.remove_node(name));
+            }
+            let dt = t0.elapsed().as_secs_f64();
+            black_box(proto.edge_count);
+            dt
+        };
+
+        // Post-removal structural agreement (once, outside timing).
+        let mut g = MultiGraph::strict();
+        let _ = g.extend_fresh_int_prefix_keyed_edges_unrecorded(n, stream.iter().copied());
+        let mut proto = MgIntStorageProto::bulk_load_int_prefix(n, stream.iter().copied());
+        for name in &victims {
+            assert!(g.remove_node(name));
+            assert!(proto.remove_node(name));
+        }
+        assert_eq!(
+            proto.edge_count,
+            g.edge_count(),
+            "removal arms diverged in edge_count"
+        );
+        assert_eq!(
+            proto
+                .node_names
+                .iter()
+                .map(String::as_str)
+                .collect::<Vec<_>>(),
+            g.nodes_ordered(),
+            "removal arms diverged in node order"
+        );
+
+        let median = |samples: &mut Vec<f64>| -> f64 {
+            samples.sort_by(f64::total_cmp);
+            samples[samples.len() / 2]
+        };
+        let (mut cur, mut pro, mut nul) = (Vec::new(), Vec::new(), Vec::new());
+        for _ in 0..7 {
+            cur.push(time_current_removals(&stream));
+            pro.push(time_proto_removals(&stream));
+            nul.push(time_current_removals(&stream));
+        }
+        // br-r37-c1-thp6w S9: slab arm — must be ~parity with the String store.
+        let time_slab_removals = |stream: &[(usize, usize, usize)]| -> f64 {
+            let mut slab = super::multigraph_storage::MgSlabStorage::bulk_load_int_prefix(
+                n,
+                stream.iter().copied(),
+            );
+            let t0 = Instant::now();
+            for name in &victims {
+                assert!(slab.remove_node(name));
+            }
+            let dt = t0.elapsed().as_secs_f64();
+            black_box(slab.edge_count);
+            dt
+        };
+        let mut g2 = MultiGraph::strict();
+        let _ = g2.extend_fresh_int_prefix_keyed_edges_unrecorded(n, stream.iter().copied());
+        let mut slab = super::multigraph_storage::MgSlabStorage::bulk_load_int_prefix(
+            n,
+            stream.iter().copied(),
+        );
+        for name in &victims {
+            assert!(g2.remove_node(name));
+            assert!(slab.remove_node(name));
+        }
+        assert_eq!(
+            slab.edge_count,
+            g2.edge_count(),
+            "slab removal arm diverged in edge_count"
+        );
+        assert_eq!(
+            slab.node_order
+                .keys()
+                .map(String::as_str)
+                .collect::<Vec<_>>(),
+            g2.nodes_ordered(),
+            "slab removal arm diverged in node order"
+        );
+        let mut sla = Vec::new();
+        for _ in 0..7 {
+            sla.push(time_slab_removals(&stream));
+        }
+        let msl = median(&mut sla);
+
+        let (mc, mp, mn) = (median(&mut cur), median(&mut pro), median(&mut nul));
+        println!(
+            "THP6W_S8_REMOVAL_AB n={n} m={} removals={} current={mc:.6}s proto_renumber={mp:.6}s slab={msl:.6}s ratio_proto_over_current={:.3} ratio_slab_over_current={:.3} null={:.3}",
+            stream.len(),
+            victims.len(),
+            mp / mc,
+            msl / mc,
+            mc / mn,
+        );
+    }
+
+    /// br-r37-c1-thp6w S9 helper: full observable-order parity between the
+    /// real MultiGraph and the slab prototype (order from `node_order`, rows
+    /// resolved slot -> name), plus slab self-consistency (live slots named,
+    /// free slots tombstoned).
+    fn assert_slab_matches_mg(mg: &MultiGraph, slab: &super::multigraph_storage::MgSlabStorage) {
+        let mg_node_order = mg.nodes_ordered();
+        assert_eq!(
+            slab.node_order
+                .keys()
+                .map(String::as_str)
+                .collect::<Vec<_>>(),
+            mg_node_order,
+            "slab node order"
+        );
+        for (name, &slot) in &slab.node_order {
+            assert_eq!(
+                slab.slot_names[slot].as_deref(),
+                Some(name.as_str()),
+                "slot_names desync for {name}"
+            );
+        }
+        for &free in &slab.free_slots {
+            assert!(
+                slab.slot_names[free].is_none(),
+                "free slot {free} still named"
+            );
+            assert!(slab.rows[free].is_empty(), "free slot {free} has row cells");
+            assert!(
+                slab.node_attrs[free].is_empty(),
+                "free slot {free} still has node attrs"
+            );
+        }
+        for &name in &mg_node_order {
+            assert_eq!(
+                slab.node_attrs_for(name),
+                mg.node_attrs(name),
+                "slab node attrs for {name}"
+            );
+        }
+        for (pos, &name) in mg_node_order.iter().enumerate() {
+            let mg_row = mg.neighbors(name).unwrap_or_default();
+            assert_eq!(
+                slab.neighbor_names(pos),
+                mg_row,
+                "slab row order for {name}"
+            );
+            for &v in &mg_row {
+                let mg_keys = mg.edge_keys_vec(name, v);
+                assert_eq!(
+                    slab.key_order(name, v),
+                    mg_keys,
+                    "slab key order for ({name}, {v})"
+                );
+            }
+        }
+        assert_eq!(slab.edge_count, mg.edge_count, "slab edge_count");
+    }
+
+    /// br-r37-c1-thp6w S9 PARITY GAUNTLET (slab + slot recycling): the
+    /// S8-mandated layout must stay byte-identical to the real MultiGraph
+    /// through the S7 removal shapes AND the slab-specific hazards — slot
+    /// reuse after removal (fresh name AND the removed name re-added must
+    /// append at the END of node order with no phantom edges from the slot's
+    /// previous occupant).
+    #[test]
+    fn thp6w_s9_slab_recycling_parity_gauntlet() {
+        use super::multigraph_storage::MgSlabStorage;
+
+        let stream: Vec<(&str, &str, usize)> = vec![
+            ("2", "10", 0),
+            ("10", "2", 1),
+            ("1", "1", 0),
+            ("2", "3", 0),
+            ("3", "2", 0),
+            ("10", "1", 5),
+            ("0", "2", 0),
+            ("2", "10", 1),
+            ("4", "5", 2),
+            ("5", "4", 0),
+            ("1", "1", 1),
+        ];
+        let mut mg = MultiGraph::strict();
+        let _ = mg.extend_keyed_edges_with_attrs_unrecorded(
+            stream
+                .iter()
+                .map(|(l, r, k)| ((*l).to_owned(), (*r).to_owned(), *k, AttrMap::new())),
+        );
+        let mut slab = MgSlabStorage::new();
+        for (l, r, k) in &stream {
+            slab.add_keyed_edge(l, r, *k, AttrMap::new());
+        }
+        assert_slab_matches_mg(&mg, &slab);
+
+        // S7 removal shapes.
+        assert_eq!(
+            mg.remove_edge("4", "5", None),
+            slab.remove_edge("4", "5", None)
+        );
+        assert_slab_matches_mg(&mg, &slab);
+        assert_eq!(
+            mg.remove_edge("2", "10", Some(0)),
+            slab.remove_edge("2", "10", Some(0))
+        );
+        assert_slab_matches_mg(&mg, &slab);
+        assert_eq!(
+            mg.remove_edge("2", "10", None),
+            slab.remove_edge("2", "10", None)
+        );
+        assert_slab_matches_mg(&mg, &slab);
+        assert_eq!(
+            mg.remove_edge("1", "1", Some(0)),
+            slab.remove_edge("1", "1", Some(0))
+        );
+        assert_slab_matches_mg(&mg, &slab);
+        assert_eq!(
+            mg.remove_edge("0", "10", None),
+            slab.remove_edge("0", "10", None)
+        );
+        assert_eq!(
+            mg.remove_edge("2", "3", Some(9)),
+            slab.remove_edge("2", "3", Some(9))
+        );
+        assert_slab_matches_mg(&mg, &slab);
+
+        // Tombstone a mid-order node with live parallel edges...
+        assert_eq!(mg.remove_node("2"), slab.remove_node("2"));
+        assert_slab_matches_mg(&mg, &slab);
+        // ...then RECYCLE its slot with a FRESH name: must append at the END
+        // of node order and carry no phantom adjacency from the old occupant.
+        mg.extend_keyed_edges_with_attrs_unrecorded(vec![(
+            "fresh".to_owned(),
+            "3".to_owned(),
+            0,
+            AttrMap::new(),
+        )]);
+        slab.add_keyed_edge("fresh", "3", 0, AttrMap::new());
+        assert_slab_matches_mg(&mg, &slab);
+        // ...and re-add the REMOVED name too (recycles another slot or a fresh
+        // one; order must be append-at-end either way).
+        mg.extend_keyed_edges_with_attrs_unrecorded(vec![(
+            "2".to_owned(),
+            "fresh".to_owned(),
+            7,
+            AttrMap::new(),
+        )]);
+        slab.add_keyed_edge("2", "fresh", 7, AttrMap::new());
+        assert_slab_matches_mg(&mg, &slab);
+        // Remove the recycled node again (double-recycle path).
+        assert_eq!(mg.remove_node("fresh"), slab.remove_node("fresh"));
+        assert_slab_matches_mg(&mg, &slab);
+        // Self-loop node and end nodes.
+        assert_eq!(mg.remove_node("1"), slab.remove_node("1"));
+        assert_slab_matches_mg(&mg, &slab);
+        assert_eq!(mg.remove_node("10"), slab.remove_node("10"));
+        assert_slab_matches_mg(&mg, &slab);
+        // Missing-node refusal parity.
+        assert_eq!(mg.remove_node("gone"), slab.remove_node("gone"));
+        assert_slab_matches_mg(&mg, &slab);
+    }
+
+    /// br-r37-c1-thp6w S10 helper: the ONLY observed edge order — walk-order
+    /// emission with String-lex canonical orientation — must be byte-identical
+    /// between the real MultiGraph and the slab layout.
+    fn assert_slab_edges_ordered_matches_mg(
+        mg: &MultiGraph,
+        slab: &super::multigraph_storage::MgSlabStorage,
+    ) {
+        let mg_ordered: Vec<(&str, &str, usize)> = mg
+            .edges_ordered_borrowed()
+            .into_iter()
+            .map(|(l, r, k, _)| (l, r, k))
+            .collect();
+        assert_eq!(
+            slab.edges_ordered_names(),
+            mg_ordered,
+            "edges_ordered walk emission must match"
+        );
+        // br-r37-c1-thp6w S12: the attrs-carrying walk must match in FULL,
+        // including per-cell attr payloads.
+        assert_eq!(
+            slab.edges_ordered_borrowed(),
+            mg.edges_ordered_borrowed(),
+            "attrs-carrying edges_ordered walk must match"
+        );
+    }
+
+    /// br-r37-c1-thp6w S10 PARITY GAUNTLET (copy-walk reorder + snapshot
+    /// orientation): the two remaining tie-break axes for the real flip.
+    /// `edges_ordered` (walk emission with lex-canonical orientation) and
+    /// `reorder_rows_for_nx_copy_walk` (the MultiGraph.copy row-order
+    /// contract) must stay byte-identical through reorders, post-reorder
+    /// mutations, removals, and slot recycling.
+    #[test]
+    fn thp6w_s10_copy_walk_and_snapshot_orientation_gauntlet() {
+        use super::multigraph_storage::MgSlabStorage;
+
+        let stream: Vec<(&str, &str, usize)> = vec![
+            ("2", "10", 0),
+            ("10", "2", 1),
+            ("1", "1", 0),
+            ("2", "3", 0),
+            ("10", "1", 5),
+            ("0", "2", 0),
+            ("4", "5", 2),
+            ("5", "4", 0),
+            ("3", "0", 0),
+            ("1", "1", 1),
+            ("5", "0", 3),
+        ];
+        let mut mg = MultiGraph::strict();
+        let _ = mg.extend_keyed_edges_with_attrs_unrecorded(
+            stream
+                .iter()
+                .map(|(l, r, k)| ((*l).to_owned(), (*r).to_owned(), *k, AttrMap::new())),
+        );
+        let mut slab = MgSlabStorage::new();
+        for (l, r, k) in &stream {
+            slab.add_keyed_edge(l, r, *k, AttrMap::new());
+        }
+        assert_slab_matches_mg(&mg, &slab);
+        assert_slab_edges_ordered_matches_mg(&mg, &slab);
+
+        // THE copy-walk reorder (MultiGraph.copy row-order contract).
+        mg.reorder_rows_for_nx_copy_walk();
+        slab.reorder_rows_for_nx_copy_walk();
+        assert_slab_matches_mg(&mg, &slab);
+        assert_slab_edges_ordered_matches_mg(&mg, &slab);
+
+        // Reorder must be idempotent on both sides.
+        mg.reorder_rows_for_nx_copy_walk();
+        slab.reorder_rows_for_nx_copy_walk();
+        assert_slab_matches_mg(&mg, &slab);
+        assert_slab_edges_ordered_matches_mg(&mg, &slab);
+
+        // Post-reorder mutations: new edges append after the reordered cells.
+        mg.extend_keyed_edges_with_attrs_unrecorded(vec![
+            ("0".to_owned(), "9".to_owned(), 0, AttrMap::new()),
+            ("9".to_owned(), "2".to_owned(), 0, AttrMap::new()),
+        ]);
+        slab.add_keyed_edge("0", "9", 0, AttrMap::new());
+        slab.add_keyed_edge("9", "2", 0, AttrMap::new());
+        assert_slab_matches_mg(&mg, &slab);
+        assert_slab_edges_ordered_matches_mg(&mg, &slab);
+
+        // Removal + slot recycling, then reorder AGAIN on the recycled state.
+        assert_eq!(mg.remove_node("2"), slab.remove_node("2"));
+        mg.extend_keyed_edges_with_attrs_unrecorded(vec![(
+            "fresh".to_owned(),
+            "9".to_owned(),
+            0,
+            AttrMap::new(),
+        )]);
+        slab.add_keyed_edge("fresh", "9", 0, AttrMap::new());
+        assert_slab_matches_mg(&mg, &slab);
+        assert_slab_edges_ordered_matches_mg(&mg, &slab);
+        mg.reorder_rows_for_nx_copy_walk();
+        slab.reorder_rows_for_nx_copy_walk();
+        assert_slab_matches_mg(&mg, &slab);
+        assert_slab_edges_ordered_matches_mg(&mg, &slab);
+    }
+
+    /// br-r37-c1-thp6w S12 A/B: the `edges_ordered_borrowed` read on the
+    /// String store (per-cell `EdgeKeyRef` String-pair hashing + String-pair
+    /// seen-set probes) vs the slab walk (usize hashing throughout). Same
+    /// graph state on both sides (slab via `from_string_state`), full-output
+    /// equality asserted outside timing, paired-interleaved with a null arm.
+    /// `cargo test --release -p fnx-classes --lib thp6w_s12_edges_ordered_read_ab -- --ignored --nocapture`
+    #[test]
+    #[ignore = "paired A/B benchmark; run --release with --ignored --nocapture"]
+    fn thp6w_s12_edges_ordered_read_ab() {
+        use std::collections::HashMap;
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        fn push_edge(
+            stream: &mut Vec<(usize, usize, usize)>,
+            key_counter: &mut HashMap<(usize, usize), usize>,
+            u: usize,
+            v: usize,
+        ) {
+            let entry = key_counter.entry((u.min(v), u.max(v))).or_insert(0);
+            stream.push((u, v, *entry));
+            *entry += 1;
+        }
+
+        let n = 20000usize;
+        let mut stream = Vec::new();
+        let mut key_counter = HashMap::new();
+        for i in 0..n {
+            push_edge(&mut stream, &mut key_counter, i, (i + 1) % n);
+        }
+        let mut state = 0x2545_F491_4F6C_DD1D_u64;
+        let draw = |state: &mut u64| -> usize {
+            *state = state
+                .wrapping_mul(6_364_136_223_846_793_005)
+                .wrapping_add(1_442_695_040_888_963_407);
+            usize::try_from(*state >> 33).unwrap() % n
+        };
+        for _ in 0..3 * n {
+            let u = draw(&mut state);
+            let v = draw(&mut state);
+            push_edge(&mut stream, &mut key_counter, u, v);
+        }
+
+        let mut g = MultiGraph::strict();
+        let _ = g.extend_fresh_int_prefix_keyed_edges_unrecorded(n, stream.iter().copied());
+        let slab = g.storage.clone();
+        assert_eq!(
+            slab.edges_ordered_borrowed(),
+            g.edges_ordered_borrowed(),
+            "arms must emit identical sequences"
+        );
+
+        let time_string = || -> f64 {
+            let t0 = Instant::now();
+            let out = g.edges_ordered_borrowed();
+            let dt = t0.elapsed().as_secs_f64();
+            black_box(out.len());
+            dt
+        };
+        let time_slab = || -> f64 {
+            let t0 = Instant::now();
+            let out = slab.edges_ordered_borrowed();
+            let dt = t0.elapsed().as_secs_f64();
+            black_box(out.len());
+            dt
+        };
+        let median = |samples: &mut Vec<f64>| -> f64 {
+            samples.sort_by(f64::total_cmp);
+            samples[samples.len() / 2]
+        };
+        let (mut cur, mut sla, mut nul) = (Vec::new(), Vec::new(), Vec::new());
+        for _ in 0..9 {
+            cur.push(time_string());
+            sla.push(time_slab());
+            nul.push(time_string());
+        }
+        let (mc, ms, mn) = (median(&mut cur), median(&mut sla), median(&mut nul));
+        println!(
+            "THP6W_S12_EDGES_ORDERED_AB n={n} m={} string={mc:.6}s slab={ms:.6}s ratio_string_over_slab={:.3} null={:.3}",
+            stream.len(),
+            mc / ms,
+            mc / mn,
+        );
+    }
+
+    /// br-r37-c1-thp6w S13 A/B: the INDEX-space `edges_ordered_indices_borrowed`
+    /// read — String store (per-edge `nodes.get_index_of` String hash + `EdgeKey`
+    /// pair hash) vs the slab (hash-free `slot->position` array + usize walk).
+    /// Same graph state, output equality asserted outside timing, paired-
+    /// interleaved with a null arm.
+    /// `cargo test --release -p fnx-classes --lib thp6w_s13_edges_ordered_indices_ab -- --ignored --nocapture`
+    #[test]
+    #[ignore = "paired A/B benchmark; run --release with --ignored --nocapture"]
+    fn thp6w_s13_edges_ordered_indices_ab() {
+        use std::collections::HashMap;
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        fn push_edge(
+            stream: &mut Vec<(usize, usize, usize)>,
+            key_counter: &mut HashMap<(usize, usize), usize>,
+            u: usize,
+            v: usize,
+        ) {
+            let entry = key_counter.entry((u.min(v), u.max(v))).or_insert(0);
+            stream.push((u, v, *entry));
+            *entry += 1;
+        }
+
+        let n = 20000usize;
+        let mut stream = Vec::new();
+        let mut key_counter = HashMap::new();
+        for i in 0..n {
+            push_edge(&mut stream, &mut key_counter, i, (i + 1) % n);
+        }
+        let mut state = 0x2545_F491_4F6C_DD1D_u64;
+        let draw = |state: &mut u64| -> usize {
+            *state = state
+                .wrapping_mul(6_364_136_223_846_793_005)
+                .wrapping_add(1_442_695_040_888_963_407);
+            usize::try_from(*state >> 33).unwrap() % n
+        };
+        for _ in 0..3 * n {
+            let u = draw(&mut state);
+            let v = draw(&mut state);
+            push_edge(&mut stream, &mut key_counter, u, v);
+        }
+
+        let mut g = MultiGraph::strict();
+        let _ = g.extend_fresh_int_prefix_keyed_edges_unrecorded(n, stream.iter().copied());
+        let slab = g.storage.clone();
+        assert_eq!(
+            slab.edges_ordered_indices_borrowed(),
+            g.edges_ordered_indices_borrowed(),
+            "arms must emit identical index sequences"
+        );
+
+        let time_string = || -> f64 {
+            let t0 = Instant::now();
+            let out = g.edges_ordered_indices_borrowed();
+            let dt = t0.elapsed().as_secs_f64();
+            black_box(out.len());
+            dt
+        };
+        let time_slab = || -> f64 {
+            let t0 = Instant::now();
+            let out = slab.edges_ordered_indices_borrowed();
+            let dt = t0.elapsed().as_secs_f64();
+            black_box(out.len());
+            dt
+        };
+        let median = |samples: &mut Vec<f64>| -> f64 {
+            samples.sort_by(f64::total_cmp);
+            samples[samples.len() / 2]
+        };
+        let (mut cur, mut sla, mut nul) = (Vec::new(), Vec::new(), Vec::new());
+        for _ in 0..9 {
+            cur.push(time_string());
+            sla.push(time_slab());
+            nul.push(time_string());
+        }
+        let (mc, ms, mn) = (median(&mut cur), median(&mut sla), median(&mut nul));
+        println!(
+            "THP6W_S13_EDGES_ORDERED_INDICES_AB n={n} m={} string={mc:.6}s slab={ms:.6}s ratio_string_over_slab={:.3} null={:.3}",
+            stream.len(),
+            mc / ms,
+            mc / mn,
+        );
+    }
+
+    fn assert_multigraph_storage_invariants(graph: &MultiGraph) {
+        let storage = &graph.storage;
+        assert_eq!(storage.slot_names.len(), storage.node_attrs.len());
+        assert_eq!(storage.slot_names.len(), storage.rows.len());
+        assert_eq!(graph.edge_count, storage.edge_count);
+        assert_eq!(
+            storage.edge_count,
+            storage
+                .edges
+                .values()
+                .map(super::multigraph_storage::CompactBucket::len)
+                .sum::<usize>()
+        );
+
+        let mut live_slots = vec![false; storage.slot_names.len()];
+        for (name, &slot) in &storage.node_order {
+            assert!(!live_slots[slot], "slot {slot} is assigned twice");
+            live_slots[slot] = true;
+            assert_eq!(storage.slot_names[slot].as_deref(), Some(name.as_str()));
+        }
+        assert_eq!(
+            live_slots.iter().filter(|&&live| live).count(),
+            graph.node_count()
+        );
+
+        let mut free_slots = BTreeSet::new();
+        for &slot in &storage.free_slots {
+            assert!(free_slots.insert(slot), "free slot {slot} listed twice");
+            assert!(!live_slots[slot], "live slot {slot} is also free");
+            assert!(storage.slot_names[slot].is_none());
+            assert!(storage.node_attrs[slot].is_empty());
+            assert!(storage.rows[slot].is_empty());
+        }
+
+        for (left, row) in storage.rows.iter().enumerate() {
+            if !live_slots[left] {
+                assert!(row.is_empty(), "tombstoned slot {left} has neighbors");
+                continue;
+            }
+            for (&right, keys) in row {
+                assert!(live_slots[right], "row points to tombstoned slot {right}");
+                let pair = (left.min(right), left.max(right));
+                let bucket = storage
+                    .edges
+                    .get(&pair)
+                    .expect("every row cell must have an edge bucket");
+                assert_eq!(keys.order(), bucket.key_order());
+                if left != right {
+                    assert_eq!(
+                        storage.rows[right]
+                            .get(&left)
+                            .expect("undirected reverse row is missing")
+                            .order(),
+                        keys.order()
+                    );
+                }
+            }
+        }
+        for (&(left, right), bucket) in &storage.edges {
+            assert!(live_slots[left] && live_slots[right]);
+            assert_eq!(
+                storage.rows[left]
+                    .get(&right)
+                    .expect("edge bucket missing left row")
+                    .order(),
+                bucket.key_order()
+            );
+            if left != right {
+                assert_eq!(
+                    storage.rows[right]
+                        .get(&left)
+                        .expect("edge bucket missing right row")
+                        .order(),
+                    bucket.key_order()
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn thp6w_s35_slab_is_sole_store_mutation_gauntlet() {
+        let attr = |key: &str, value: i64| {
+            let mut attrs = AttrMap::new();
+            attrs.insert(key.to_owned(), fnx_runtime::CgseValue::Int(value));
+            attrs
+        };
+
+        let mut graph = MultiGraph::strict();
+        assert!(graph.add_node_with_attrs("iso", attr("kind", 1)));
+        assert_eq!(
+            graph.add_edge_with_key_and_attrs("b", "a", 3, attr("weight", 2)),
+            Ok(3)
+        );
+        assert_eq!(
+            graph.add_edge_with_key_and_attrs("a", "b", 3, attr("color", 7)),
+            Ok(3)
+        );
+        assert_eq!(
+            graph.add_edge_with_key_and_attrs("a", "b", 0, AttrMap::new()),
+            Ok(0)
+        );
+        assert_eq!(
+            graph.add_edge_with_key_and_attrs("c", "c", 5, attr("weight", 11)),
+            Ok(5)
+        );
+        assert_eq!(graph.nodes_ordered(), vec!["iso", "b", "a", "c"]);
+        assert_eq!(graph.edge_keys_vec("a", "b"), vec![3, 0]);
+        assert_eq!(
+            graph.edge_attrs("a", "b", 3),
+            Some(&{
+                let mut attrs = attr("weight", 2);
+                attrs.extend(attr("color", 7));
+                attrs
+            })
+        );
+        assert_eq!(graph.number_of_selfloops(), 1);
+        assert_eq!(graph.degree("c"), 2);
+        assert_eq!(graph.isolates(), vec!["iso"]);
+        assert_multigraph_storage_invariants(&graph);
+        assert_int_adjacency_matches(&graph);
+
+        let baseline = graph.snapshot();
+        let cloned = graph.clone_with_fresh_policy();
+        assert_eq!(cloned.snapshot(), baseline);
+        assert_multigraph_storage_invariants(&cloned);
+
+        let revision = graph.revision();
+        assert!(graph.replace_edge_attrs("a", "b", 3, attr("replacement", 9)));
+        assert_eq!(graph.revision(), revision + 1);
+        let revision = graph.revision();
+        assert!(graph.replace_edge_attrs("a", "b", 3, attr("replacement", 9)));
+        assert_eq!(
+            graph.revision(),
+            revision,
+            "no-op edge replace bumped revision"
+        );
+        assert!(graph.replace_node_attrs("iso", attr("kind", 4)));
+        assert!(graph.remove_edge("b", "a", Some(3)));
+        assert_eq!(graph.edge_keys_vec("a", "b"), vec![0]);
+        assert!(graph.remove_node("b"));
+        assert!(!graph.has_edge("a", "b"));
+        assert_eq!(graph.nodes_ordered(), vec!["iso", "a", "c"]);
+        assert_eq!(graph.add_edge("d", "a"), Ok(0));
+        assert_eq!(graph.nodes_ordered(), vec!["iso", "a", "c", "d"]);
+        assert_multigraph_storage_invariants(&graph);
+
+        let (removed_nodes, removed_edges) = graph.remove_nodes_from(["iso", "c", "missing"]);
+        assert_eq!((removed_nodes, removed_edges), (2, 1));
+        assert_eq!(graph.nodes_ordered(), vec!["a", "d"]);
+        assert_eq!(graph.edge_count(), 1);
+        assert_multigraph_storage_invariants(&graph);
+        graph.clear_edges();
+        assert_eq!(graph.edge_count(), 0);
+        assert_eq!(graph.isolates(), vec!["a", "d"]);
+        assert_multigraph_storage_invariants(&graph);
+    }
+
+    #[test]
+    fn thp6w_s35_fresh_loaders_populate_sole_store() {
+        let mut integer = MultiGraph::strict();
+        assert_eq!(
+            integer.extend_fresh_int_prefix_keyed_edges_unrecorded(
+                4,
+                [(0, 1, 0), (1, 0, 1), (2, 2, 0), (3, 0, 0)]
+            ),
+            4
+        );
+        assert_eq!(integer.nodes_ordered(), vec!["0", "1", "2", "3"]);
+        assert_eq!(integer.edge_keys_vec("0", "1"), vec![0, 1]);
+        assert_eq!(integer.number_of_selfloops(), 1);
+        assert_multigraph_storage_invariants(&integer);
+        assert_int_adjacency_matches(&integer);
+
+        let mut weight = AttrMap::new();
+        weight.insert("weight".to_owned(), fnx_runtime::CgseValue::Int(2));
+        let mut color = AttrMap::new();
+        color.insert("color".to_owned(), fnx_runtime::CgseValue::Int(7));
+        let mut attributed = MultiGraph::strict();
+        assert_eq!(
+            attributed.extend_fresh_index_keyed_edges_with_attrs_unrecorded(
+                ["b", "a", "c"].into_iter().map(str::to_owned),
+                [
+                    (0, 1, 4, weight),
+                    (1, 0, 4, color),
+                    (2, 2, 0, AttrMap::new()),
+                    (0, 9, 0, AttrMap::new()),
+                ]
+            ),
+            2
+        );
+        assert_eq!(attributed.nodes_ordered(), vec!["b", "a", "c"]);
+        assert_eq!(attributed.edge_count(), 2);
+        assert_eq!(attributed.edge_keys_vec("a", "b"), vec![4]);
+        let attrs = attributed
+            .edge_attrs("a", "b", 4)
+            .expect("merged attributed edge");
+        assert_eq!(attrs.len(), 2);
+        assert!(attrs.contains_key("weight"));
+        assert!(attrs.contains_key("color"));
+        assert_multigraph_storage_invariants(&attributed);
+    }
+
+    /// br-r37-c1-thp6w S14: a fresh bulk-built graph must be WARM from birth
+    /// (the slab co-built during construction), byte-identical, and stay warm
+    /// through instrumented mutations. NOTE: `edges_ordered_borrowed` is a
+    /// ROUTED read (S13) — comparing it against the shadow would be circular
+    /// with a warm shadow, so this gauntlet uses only unrouted ground-truth
+    /// accessors (`nodes_ordered`, `neighbors_iter`, `edge_keys_vec`); the
+    /// walk itself is gated non-circularly by the S13 route gate.
+    #[cfg(any())]
+    #[test]
+    fn thp6w_s14_fresh_bulk_graph_is_warm_from_birth() {
+        let mut g = MultiGraph::strict();
+        let stream = vec![
+            (0usize, 1usize, 0usize),
+            (1, 2, 0),
+            (0, 1, 1), // parallel
+            (2, 2, 0), // self-loop
+            (3, 0, 0),
+        ];
+        let _ = g.extend_fresh_int_prefix_keyed_edges_unrecorded(5, stream.into_iter());
+        assert!(
+            g.slab_shadow_is_warm(),
+            "fresh bulk graph must be born warm"
+        );
+        {
+            let shadow = g.slab_shadow.as_deref().expect("shadow present");
+            assert_slab_matches_mg(&g, &shadow.1);
+        }
+        // Instrumented mutations keep the born-warm shadow warm.
+        let _ = g.add_edge("2", "4");
+        assert!(g.slab_shadow_is_warm());
+        assert!(g.remove_edge("0", "1", None));
+        assert!(g.slab_shadow_is_warm());
+        assert!(g.remove_node("1"));
+        assert!(g.slab_shadow_is_warm());
+        let shadow = g.slab_shadow.as_deref().expect("shadow present");
+        assert_slab_matches_mg(&g, &shadow.1);
+
+        // br-r37-c1-thp6w S17: a node-attr set now ADVANCES the warm shadow in
+        // place (was stale->rebuild in S16). Existing node "2":
+        let mut nattrs = AttrMap::new();
+        nattrs.insert("color".to_owned(), fnx_runtime::CgseValue::Int(7));
+        let _ = g.add_node_with_attrs("2", nattrs);
+        assert!(
+            g.slab_shadow_is_warm(),
+            "node-attr set must advance (not stale) the warm shadow"
+        );
+        {
+            let shadow = g.slab_shadow.as_deref().expect("shadow present");
+            assert_slab_matches_mg(&g, &shadow.1);
+            assert_eq!(
+                shadow.1.node_attrs_for("2"),
+                g.nodes.get("2"),
+                "advanced shadow must carry the set node attr for node 2"
+            );
+        }
+        // A node-attr set that CREATES a new node advances the shadow too.
+        let mut nattrs2 = AttrMap::new();
+        nattrs2.insert("w".to_owned(), fnx_runtime::CgseValue::Int(9));
+        let _ = g.add_node_with_attrs("attr_only", nattrs2);
+        assert!(g.slab_shadow_is_warm());
+        {
+            let shadow = g.slab_shadow.as_deref().expect("shadow present");
+            assert_slab_matches_mg(&g, &shadow.1);
+            assert_eq!(
+                shadow.1.node_attrs_for("attr_only"),
+                g.nodes.get("attr_only"),
+                "advanced shadow must carry a new attr-only node"
+            );
+        }
+        // A full rebuild still reproduces the same node attrs (from_string_state).
+        g.sync_slab_shadow();
+        {
+            let shadow = g.slab_shadow.as_deref().expect("shadow present");
+            assert_slab_matches_mg(&g, &shadow.1);
+        }
+
+        // br-r37-c1-thp6w S15: the ATTRIBUTED fresh path is born warm too —
+        // arbitrary labels, dup-(pair,key) attr merge, out-of-bounds skip.
+        let mut h = MultiGraph::strict();
+        let mut w1 = AttrMap::new();
+        w1.insert("w".to_owned(), fnx_runtime::CgseValue::Int(1));
+        let mut w2 = AttrMap::new();
+        w2.insert("x".to_owned(), fnx_runtime::CgseValue::Int(2));
+        let _ = h.extend_fresh_index_keyed_edges_with_attrs_unrecorded(
+            vec!["b".to_owned(), "a".to_owned(), "c".to_owned()],
+            vec![
+                (0, 1, 0, w1.clone()),
+                (1, 0, 0, w2),             // dup (pair, key) reversed -> attr merge
+                (2, 2, 0, w1),             // self-loop
+                (0, 9, 0, AttrMap::new()), // out-of-bounds -> skipped by BOTH sides
+                (1, 2, 3, AttrMap::new()), // sparse key
+            ],
+        );
+        assert!(h.slab_shadow_is_warm(), "attributed fresh graph born warm");
+        let shadow = h.slab_shadow.as_deref().expect("shadow present");
+        assert_slab_matches_mg(&h, &shadow.1);
+        assert_eq!(
+            shadow.1.edges[&(0, 1)].attrs_for(0),
+            h.edges
+                .get(&super::EdgeKeyRef::new("b", "a"))
+                .and_then(|kb| kb.get(&0)),
+            "merged attrs on the dup cell must match"
+        );
+    }
+
+    /// br-r37-c1-thp6w S19: batch `remove_nodes_from` advances the warm shadow
+    /// (per-node slab remove, stable slots) on BOTH its exit paths — the
+    /// small-fraction incident fast path and the large-fraction whole-graph
+    /// retain — and never spuriously warms a stale shadow.
+    #[cfg(any())]
+    #[test]
+    fn thp6w_s19_remove_nodes_from_advances_shadow() {
+        let mut g = MultiGraph::strict();
+        for i in 0..12u32 {
+            let _ = g.add_edge(&i.to_string(), &((i + 1) % 12).to_string());
+        }
+        let _ = g.add_edge("0", "6"); // a chord
+        let _ = g.add_edge("3", "3"); // a self-loop
+        g.sync_slab_shadow();
+        assert!(g.slab_shadow_is_warm());
+
+        // Fast path: small fraction (2*4 <= 12 nodes).
+        let (rn, _) = g.remove_nodes_from(["3", "9"].into_iter());
+        assert_eq!(rn, 2);
+        assert!(
+            g.slab_shadow_is_warm(),
+            "remove_nodes_from fast path must advance the shadow"
+        );
+        {
+            let shadow = g.slab_shadow.as_deref().expect("shadow present");
+            assert_slab_matches_mg(&g, &shadow.1);
+        }
+
+        // Fall-through path: large fraction (5*4 > 10 remaining nodes).
+        let (rn2, _) = g.remove_nodes_from(["0", "1", "2", "4", "5"].into_iter());
+        assert_eq!(rn2, 5);
+        assert!(
+            g.slab_shadow_is_warm(),
+            "remove_nodes_from fall-through must advance the shadow"
+        );
+        {
+            let shadow = g.slab_shadow.as_deref().expect("shadow present");
+            assert_slab_matches_mg(&g, &shadow.1);
+        }
+
+        // A STALE shadow must not be spuriously warmed by the removal.
+        g.add_node("island"); // structural (empty attrs) -> stales
+        assert!(!g.slab_shadow_is_warm());
+        let _ = g.remove_nodes_from(["island"].into_iter());
+        assert!(
+            !g.slab_shadow_is_warm(),
+            "remove_nodes_from must not warm a stale shadow"
+        );
+        g.sync_slab_shadow();
+        let shadow = g.slab_shadow.as_deref().expect("shadow present");
+        assert_slab_matches_mg(&g, &shadow.1);
+    }
+
+    /// br-r37-c1-thp6w S20: batch `extend_nodes_with_attrs_unrecorded` advances
+    /// the warm shadow — including the latent attr-only case (no NEW nodes, so
+    /// no revision bump) where a warm shadow would otherwise carry stale attrs.
+    #[cfg(any())]
+    #[test]
+    fn thp6w_s20_extend_nodes_with_attrs_advances_shadow() {
+        let mut g = MultiGraph::strict();
+        for i in 0..6u32 {
+            let _ = g.add_edge(&i.to_string(), &((i + 1) % 6).to_string());
+        }
+        g.sync_slab_shadow();
+        assert!(g.slab_shadow_is_warm());
+
+        let attr = |k: &str, v: i64| {
+            let mut a = AttrMap::new();
+            a.insert(k.to_owned(), fnx_runtime::CgseValue::Int(v));
+            a
+        };
+        // Batch: 2 new attr-only nodes + an attr update on existing node "0".
+        let ins = g.extend_nodes_with_attrs_unrecorded(vec![
+            ("new_a".to_owned(), attr("c", 1)),
+            ("new_b".to_owned(), attr("c", 2)),
+            ("0".to_owned(), attr("k", 3)),
+        ]);
+        assert_eq!(ins, 2, "two new nodes");
+        assert!(
+            g.slab_shadow_is_warm(),
+            "node-attr batch must advance the shadow"
+        );
+        {
+            let shadow = g.slab_shadow.as_deref().expect("shadow present");
+            assert_slab_matches_mg(&g, &shadow.1);
+            assert_eq!(shadow.1.node_attrs_for("new_a"), g.nodes.get("new_a"));
+            assert_eq!(shadow.1.node_attrs_for("0"), g.nodes.get("0"));
+        }
+
+        // ATTR-ONLY batch (no new nodes -> no revision bump): the shadow must
+        // still carry the updated attr, not stay warm-but-stale.
+        let ins2 = g.extend_nodes_with_attrs_unrecorded(vec![("new_a".to_owned(), attr("c", 99))]);
+        assert_eq!(ins2, 0, "no new nodes");
+        assert!(
+            g.slab_shadow_is_warm(),
+            "attr-only batch keeps the shadow warm"
+        );
+        {
+            let shadow = g.slab_shadow.as_deref().expect("shadow present");
+            assert_eq!(
+                shadow.1.node_attrs_for("new_a"),
+                g.nodes.get("new_a"),
+                "attr-only update must be reflected in the (still-warm) shadow"
+            );
+        }
+    }
+
+    /// br-r37-c1-thp6w S21: `replace_node_attrs` (node attr OVERWRITE) advances
+    /// the warm shadow; a no-op replace (no revision bump) and a missing-node
+    /// replace leave it warm and uncorrupted.
+    #[cfg(any())]
+    #[test]
+    fn thp6w_s21_replace_node_attrs_advances_shadow() {
+        let attr = |k: &str, v: i64| {
+            let mut a = AttrMap::new();
+            a.insert(k.to_owned(), fnx_runtime::CgseValue::Int(v));
+            a
+        };
+        let mut g = MultiGraph::strict();
+        let _ = g.add_node_with_attrs("x", attr("c", 1));
+        let _ = g.add_edge("x", "y");
+        g.sync_slab_shadow();
+        assert!(g.slab_shadow_is_warm());
+
+        // Overwrite x's attrs -> advances the warm shadow.
+        assert!(g.replace_node_attrs("x", attr("d", 2)));
+        assert!(
+            g.slab_shadow_is_warm(),
+            "replace_node_attrs must advance the shadow"
+        );
+        {
+            let shadow = g.slab_shadow.as_deref().expect("shadow present");
+            assert_slab_matches_mg(&g, &shadow.1);
+            assert_eq!(
+                shadow.1.node_attrs_for("x"),
+                g.nodes.get("x"),
+                "shadow must reflect the overwrite"
+            );
+        }
+
+        // No-op replace (same attrs) does not bump revision; shadow stays warm.
+        let same = g.nodes.get("x").cloned().unwrap_or_default();
+        assert!(g.replace_node_attrs("x", same));
+        assert!(g.slab_shadow_is_warm());
+
+        // Replace on a missing node returns false and leaves the shadow warm.
+        assert!(!g.replace_node_attrs("missing", attr("z", 9)));
+        assert!(g.slab_shadow_is_warm());
+        let shadow = g.slab_shadow.as_deref().expect("shadow present");
+        assert_slab_matches_mg(&g, &shadow.1);
+    }
+
+    /// br-r37-c1-thp6w S22: `replace_edge_attrs` (edge-cell attr OVERWRITE)
+    /// advances the warm shadow, leaves parallel cells untouched, and a no-op
+    /// or missing-edge replace leaves the shadow warm/uncorrupted.
+    #[cfg(any())]
+    #[test]
+    fn thp6w_s22_replace_edge_attrs_advances_shadow() {
+        let attr = |k: &str, v: i64| {
+            let mut a = AttrMap::new();
+            a.insert(k.to_owned(), fnx_runtime::CgseValue::Int(v));
+            a
+        };
+        let mut g = MultiGraph::strict();
+        let _ = g.add_edge_with_key_and_attrs("a", "b", 0, attr("w", 1));
+        let _ = g.add_edge_with_key_and_attrs("a", "b", 1, attr("w", 2)); // parallel
+        let _ = g.add_edge("b", "c");
+        g.sync_slab_shadow();
+        assert!(g.slab_shadow_is_warm());
+
+        // Overwrite the (a,b,0) cell attrs -> advances the warm shadow.
+        assert!(g.replace_edge_attrs("a", "b", 0, attr("x", 5)));
+        assert!(
+            g.slab_shadow_is_warm(),
+            "replace_edge_attrs must advance the shadow"
+        );
+        {
+            let shadow = g.slab_shadow.as_deref().expect("shadow present");
+            assert_slab_matches_mg(&g, &shadow.1);
+            // a=slot0, b=slot1 (fresh graph) -> the a,b bucket is (0,1).
+            assert_eq!(
+                shadow.1.edges[&(0, 1)].attrs_for(0),
+                g.edges
+                    .get(&super::EdgeKeyRef::new("a", "b"))
+                    .and_then(|kb| kb.get(&0)),
+                "advanced shadow must carry the overwritten cell attrs"
+            );
+            assert_eq!(
+                shadow.1.edges[&(0, 1)].attrs_for(1),
+                g.edges
+                    .get(&super::EdgeKeyRef::new("a", "b"))
+                    .and_then(|kb| kb.get(&1)),
+                "the parallel cell (key 1) must be untouched"
+            );
+        }
+
+        // No-op replace (same attrs): no revision bump, shadow stays warm.
+        let same = g.edge_attrs("a", "b", 0).cloned().unwrap_or_default();
+        assert!(g.replace_edge_attrs("a", "b", 0, same));
+        assert!(g.slab_shadow_is_warm());
+
+        // Missing edge -> false, shadow left warm/uncorrupted.
+        assert!(!g.replace_edge_attrs("a", "z", 0, attr("q", 1)));
+        assert!(g.slab_shadow_is_warm());
+        let shadow = g.slab_shadow.as_deref().expect("shadow present");
+        assert_slab_matches_mg(&g, &shadow.1);
+    }
+
+    /// br-r37-c1-thp6w S23: feature-on `node_attrs` READS route through the
+    /// always-warm slab. Verified against the unrouted String ground truth
+    /// (`g.nodes` direct field access) — non-circular — across present (with
+    /// and without attrs) and missing nodes, and after a mutation keeps the
+    /// shadow warm so the routed read stays correct.
+    #[cfg(any())]
+    #[test]
+    fn thp6w_s23_node_attrs_reads_route_to_slab() {
+        let attr = |k: &str, v: i64| {
+            let mut a = AttrMap::new();
+            a.insert(k.to_owned(), fnx_runtime::CgseValue::Int(v));
+            a
+        };
+        let mut g = MultiGraph::strict();
+        let _ = g.add_node_with_attrs("x", attr("c", 1));
+        let _ = g.add_edge("x", "y"); // y born attr-less
+        // A fresh graph built by individual adds has no shadow yet; sync it warm
+        // (individual adds only ADVANCE an existing warm shadow, never create one).
+        g.sync_slab_shadow();
+        assert!(g.slab_shadow_is_warm());
+        // Routed read (-> slab) == String field ground truth.
+        assert_eq!(
+            g.node_attrs("x"),
+            g.nodes.get("x"),
+            "attr node routes to slab"
+        );
+        assert_eq!(g.node_attrs("y"), g.nodes.get("y"), "attr-less node routes");
+        assert_eq!(g.node_attrs("missing"), g.nodes.get("missing"), "both None");
+        assert!(g.node_attrs("x").is_some_and(|a| a.get("c").is_some()));
+        // After an overwrite the shadow stays warm; the routed read reflects it.
+        assert!(g.replace_node_attrs("x", attr("d", 9)));
+        assert!(g.slab_shadow_is_warm());
+        assert_eq!(
+            g.node_attrs("x"),
+            g.nodes.get("x"),
+            "routed read tracks overwrite"
+        );
+        // With a STALE/absent shadow the read falls through to the String store.
+        let mut h = MultiGraph::strict();
+        let _ = h.add_node_with_attrs("p", attr("c", 3));
+        assert!(
+            !h.slab_shadow_is_warm(),
+            "fresh individual-add graph has no shadow"
+        );
+        assert_eq!(
+            h.node_attrs("p"),
+            h.nodes.get("p"),
+            "unrouted fallback still correct"
+        );
+    }
+
+    /// br-r37-c1-thp6w S24: feature-on `edge_attrs` READS route through the
+    /// always-warm slab. Verified against the unrouted String field ground
+    /// truth (`g.edges` direct access) across present cells (incl. a parallel
+    /// key), a missing key, and a missing edge, plus the no-shadow fallback.
+    #[cfg(any())]
+    #[test]
+    fn thp6w_s24_edge_attrs_reads_route_to_slab() {
+        let attr = |k: &str, v: i64| {
+            let mut a = AttrMap::new();
+            a.insert(k.to_owned(), fnx_runtime::CgseValue::Int(v));
+            a
+        };
+        let gt = |g: &MultiGraph, l: &str, r: &str, k: usize| {
+            g.edges
+                .get(&super::EdgeKeyRef::new(l, r))
+                .and_then(|kb| kb.get(&k))
+                .cloned()
+        };
+        let mut g = MultiGraph::strict();
+        let _ = g.add_edge_with_key_and_attrs("a", "b", 0, attr("w", 1));
+        let _ = g.add_edge_with_key_and_attrs("a", "b", 1, attr("w", 2)); // parallel
+        let _ = g.add_edge("b", "c");
+        g.sync_slab_shadow();
+        assert!(g.slab_shadow_is_warm());
+        // Routed read (-> slab) == String field ground truth.
+        assert_eq!(g.edge_attrs("a", "b", 0).cloned(), gt(&g, "a", "b", 0));
+        assert_eq!(g.edge_attrs("a", "b", 1).cloned(), gt(&g, "a", "b", 1));
+        assert_eq!(g.edge_attrs("a", "b", 9), None, "missing key");
+        assert_eq!(g.edge_attrs("a", "z", 0), None, "missing edge");
+        // Overwrite advances the shadow; the routed read reflects it.
+        assert!(g.replace_edge_attrs("a", "b", 0, attr("x", 8)));
+        assert!(g.slab_shadow_is_warm());
+        assert_eq!(g.edge_attrs("a", "b", 0).cloned(), gt(&g, "a", "b", 0));
+        // No-shadow graph falls through to the String store.
+        let mut h = MultiGraph::strict();
+        let _ = h.add_edge_with_key_and_attrs("p", "q", 0, attr("z", 5));
+        assert!(!h.slab_shadow_is_warm());
+        assert_eq!(h.edge_attrs("p", "q", 0).cloned(), gt(&h, "p", "q", 0));
+    }
+
+    /// br-r37-c1-thp6w S25: feature-on `edge_keys_vec` READS route through the
+    /// always-warm slab (`key_order`). Verified against the unrouted String
+    /// field ground truth (`g.edges` bucket keys), incl. parallel keys, a
+    /// removal advance, missing edge, and the no-shadow fallback.
+    #[cfg(any())]
+    #[test]
+    fn thp6w_s25_edge_keys_vec_reads_route_to_slab() {
+        let gt = |g: &MultiGraph, l: &str, r: &str| -> Vec<usize> {
+            g.edges
+                .get(&super::EdgeKeyRef::new(l, r))
+                .map(|b| b.keys().copied().collect())
+                .unwrap_or_default()
+        };
+        let mut g = MultiGraph::strict();
+        let _ = g.add_edge("a", "b"); // auto key 0
+        let _ = g.add_edge("a", "b"); // auto key 1
+        let _ = g.add_edge("a", "b"); // auto key 2
+        let _ = g.add_edge("b", "c");
+        g.sync_slab_shadow();
+        assert!(g.slab_shadow_is_warm());
+        assert_eq!(
+            g.edge_keys_vec("a", "b"),
+            gt(&g, "a", "b"),
+            "routed key order"
+        );
+        assert_eq!(g.edge_keys_vec("b", "c"), gt(&g, "b", "c"));
+        assert_eq!(
+            g.edge_keys_vec("a", "z"),
+            Vec::<usize>::new(),
+            "missing edge"
+        );
+        // A per-key removal advances the shadow; the routed read reflects it.
+        assert!(g.remove_edge("a", "b", Some(1)));
+        assert!(g.slab_shadow_is_warm());
+        assert_eq!(g.edge_keys_vec("a", "b"), gt(&g, "a", "b"), "after removal");
+        // No-shadow graph falls through to the String store.
+        let mut h = MultiGraph::strict();
+        let _ = h.add_edge("p", "q");
+        assert!(!h.slab_shadow_is_warm());
+        assert_eq!(h.edge_keys_vec("p", "q"), gt(&h, "p", "q"));
+    }
+
+    /// br-r37-c1-thp6w S26: feature-on `neighbors` READS route through the
+    /// always-warm slab. Verified against the unrouted String field ground
+    /// truth (`g.adjacency` row keys) incl. row order, a removal advance, a
+    /// missing node (None), and the no-shadow fallback.
+    #[cfg(any())]
+    #[test]
+    fn thp6w_s26_neighbors_reads_route_to_slab() {
+        fn gt<'a>(g: &'a MultiGraph, n: &str) -> Option<Vec<&'a str>> {
+            g.adjacency
+                .get(n)
+                .map(|row| row.keys().map(String::as_str).collect())
+        }
+        let mut g = MultiGraph::strict();
+        let _ = g.add_edge("a", "b");
+        let _ = g.add_edge("a", "c");
+        let _ = g.add_edge("a", "b"); // parallel — distinct neighbor unchanged
+        let _ = g.add_edge("c", "d");
+        g.sync_slab_shadow();
+        assert!(g.slab_shadow_is_warm());
+        assert_eq!(
+            g.neighbors("a"),
+            gt(&g, "a"),
+            "routed distinct neighbors, row order"
+        );
+        assert_eq!(g.neighbors("c"), gt(&g, "c"));
+        assert_eq!(g.neighbors("missing"), None, "absent node -> None");
+        assert_eq!(g.neighbors("missing"), gt(&g, "missing"));
+        // A removal advances the shadow; the routed read reflects it.
+        assert!(g.remove_edge("a", "c", None));
+        assert!(g.slab_shadow_is_warm());
+        assert_eq!(g.neighbors("a"), gt(&g, "a"), "after removal");
+        // No-shadow graph falls through to the String store.
+        let mut h = MultiGraph::strict();
+        let _ = h.add_edge("p", "q");
+        assert!(!h.slab_shadow_is_warm());
+        assert_eq!(h.neighbors("p"), gt(&h, "p"));
+    }
+
+    /// br-r37-c1-thp6w S27: feature-on `degree` READS route through the
+    /// always-warm slab. Verified against the unrouted String field ground
+    /// truth (same self-loop-double + parallel-count formula over
+    /// `g.adjacency`) incl. a removal advance, a missing node (0), and the
+    /// no-shadow fallback.
+    #[cfg(any())]
+    #[test]
+    fn thp6w_s27_degree_reads_route_to_slab() {
+        let gt = |g: &MultiGraph, n: &str| -> usize {
+            g.adjacency.get(n).map_or(0, |row| {
+                let mut d = 0;
+                for (nbr, keys) in row {
+                    let c = keys.len();
+                    if nbr.as_str() == n {
+                        d += c * 2;
+                    } else {
+                        d += c;
+                    }
+                }
+                d
+            })
+        };
+        let mut g = MultiGraph::strict();
+        let _ = g.add_edge("a", "b");
+        let _ = g.add_edge("a", "b"); // parallel
+        let _ = g.add_edge("a", "c");
+        let _ = g.add_edge("a", "a"); // self-loop -> +2 to a
+        g.sync_slab_shadow();
+        assert!(g.slab_shadow_is_warm());
+        assert_eq!(g.degree("a"), gt(&g, "a"), "self-loop double + parallel");
+        assert_eq!(g.degree("b"), gt(&g, "b"));
+        assert_eq!(g.degree("missing"), 0, "absent node -> 0");
+        assert_eq!(g.degree("missing"), gt(&g, "missing"));
+        // A removal advances the shadow; the routed read reflects it.
+        assert!(g.remove_edge("a", "b", None));
+        assert!(g.slab_shadow_is_warm());
+        assert_eq!(g.degree("a"), gt(&g, "a"), "after removal");
+        // No-shadow graph falls through to the String store.
+        let mut h = MultiGraph::strict();
+        let _ = h.add_edge("p", "q");
+        assert!(!h.slab_shadow_is_warm());
+        assert_eq!(h.degree("p"), gt(&h, "p"));
+    }
+
+    /// br-r37-c1-thp6w S28: feature-on `has_node` / `has_edge` membership READS
+    /// route through the always-warm slab. Verified against the unrouted String
+    /// field ground truth incl. isolated node, undirected symmetry, a removal
+    /// advance, missing node/edge, and the no-shadow fallback.
+    #[cfg(any())]
+    #[test]
+    fn thp6w_s28_membership_reads_route_to_slab() {
+        let he = |g: &MultiGraph, l: &str, r: &str| {
+            g.edges
+                .get(&super::EdgeKeyRef::new(l, r))
+                .is_some_and(|b| !b.is_empty())
+        };
+        let mut g = MultiGraph::strict();
+        let _ = g.add_edge("a", "b");
+        let _ = g.add_edge("b", "c");
+        let _ = g.add_node("iso"); // isolated node
+        g.sync_slab_shadow();
+        assert!(g.slab_shadow_is_warm());
+        // has_node
+        assert_eq!(g.has_node("a"), g.nodes.contains_key("a"));
+        assert_eq!(g.has_node("iso"), g.nodes.contains_key("iso"));
+        assert_eq!(g.has_node("missing"), g.nodes.contains_key("missing"));
+        assert!(g.has_node("iso") && !g.has_node("missing"));
+        // has_edge (undirected: symmetric; missing nodes -> false)
+        assert_eq!(g.has_edge("a", "b"), he(&g, "a", "b"));
+        assert_eq!(g.has_edge("b", "a"), he(&g, "b", "a"));
+        assert_eq!(g.has_edge("a", "c"), he(&g, "a", "c"));
+        assert_eq!(g.has_edge("x", "y"), he(&g, "x", "y"));
+        assert!(g.has_edge("a", "b") && g.has_edge("b", "a") && !g.has_edge("a", "c"));
+        // A removal advances the shadow; membership reflects it.
+        assert!(g.remove_edge("a", "b", None));
+        assert!(g.slab_shadow_is_warm());
+        assert_eq!(g.has_edge("a", "b"), he(&g, "a", "b"));
+        assert!(!g.has_edge("a", "b"));
+        // No-shadow graph falls through to the String store.
+        let mut h = MultiGraph::strict();
+        let _ = h.add_edge("p", "q");
+        assert!(!h.slab_shadow_is_warm());
+        assert_eq!(h.has_edge("p", "q"), he(&h, "p", "q"));
+        assert_eq!(h.has_node("p"), h.nodes.contains_key("p"));
+    }
+
+    /// br-r37-c1-thp6w S29: feature-on `nodes_ordered` READS route through the
+    /// always-warm slab. Verified against the unrouted String field ground
+    /// truth (`g.nodes.keys()`) + exact insertion order, a node-removal advance
+    /// (order compaction), and the no-shadow fallback.
+    #[cfg(any())]
+    #[test]
+    fn thp6w_s29_nodes_ordered_reads_route_to_slab() {
+        fn gt<'a>(g: &'a MultiGraph) -> Vec<&'a str> {
+            g.nodes.keys().map(String::as_str).collect()
+        }
+        let mut g = MultiGraph::strict();
+        let _ = g.add_edge("c", "a"); // insertion: c, a
+        let _ = g.add_edge("a", "b"); // b
+        let _ = g.add_node("z"); // z
+        g.sync_slab_shadow();
+        assert!(g.slab_shadow_is_warm());
+        assert_eq!(g.nodes_ordered(), gt(&g), "routed node order == String");
+        assert_eq!(
+            g.nodes_ordered(),
+            vec!["c", "a", "b", "z"],
+            "insertion order"
+        );
+        // A node removal advances the shadow; order compacts.
+        assert!(g.remove_node("a"));
+        assert!(g.slab_shadow_is_warm());
+        assert_eq!(g.nodes_ordered(), gt(&g), "after removal");
+        assert_eq!(g.nodes_ordered(), vec!["c", "b", "z"]);
+        // No-shadow graph falls through to the String store.
+        let mut h = MultiGraph::strict();
+        let _ = h.add_edge("p", "q");
+        assert!(!h.slab_shadow_is_warm());
+        assert_eq!(h.nodes_ordered(), gt(&h));
+    }
+
+    /// br-r37-c1-thp6w S30: feature-on `is_isolate` READS route through the
+    /// always-warm slab. Verified against the unrouted String field ground
+    /// truth incl. an isolated node, a self-loop node (NOT isolated), a node
+    /// with edges, a missing node, a removal that isolates, and the no-shadow
+    /// fallback.
+    #[cfg(any())]
+    #[test]
+    fn thp6w_s30_is_isolate_reads_route_to_slab() {
+        let gt = |g: &MultiGraph, n: &str| -> bool {
+            g.nodes.contains_key(n) && g.adjacency.get(n).is_none_or(|row| row.is_empty())
+        };
+        let mut g = MultiGraph::strict();
+        let _ = g.add_edge("a", "b");
+        let _ = g.add_node("iso"); // isolated
+        let _ = g.add_edge("s", "s"); // self-loop -> NOT isolated
+        g.sync_slab_shadow();
+        assert!(g.slab_shadow_is_warm());
+        assert_eq!(g.is_isolate("iso"), gt(&g, "iso"));
+        assert!(g.is_isolate("iso"));
+        assert_eq!(g.is_isolate("a"), gt(&g, "a"));
+        assert!(!g.is_isolate("a"));
+        assert_eq!(g.is_isolate("s"), gt(&g, "s"));
+        assert!(!g.is_isolate("s"), "self-loop node is not isolated");
+        assert_eq!(g.is_isolate("missing"), gt(&g, "missing"));
+        assert!(!g.is_isolate("missing"));
+        // A removal isolates node "a"; the routed read reflects it.
+        assert!(g.remove_edge("a", "b", None));
+        assert!(g.slab_shadow_is_warm());
+        assert_eq!(g.is_isolate("a"), gt(&g, "a"));
+        assert!(g.is_isolate("a"));
+        // No-shadow graph falls through to the String store.
+        let mut h = MultiGraph::strict();
+        let _ = h.add_node("lonely");
+        assert!(!h.slab_shadow_is_warm());
+        assert_eq!(h.is_isolate("lonely"), gt(&h, "lonely"));
+    }
+
+    /// br-r37-c1-thp6w S31: feature-on `weighted_size_int` READS route through
+    /// the always-warm slab. Verified against the unrouted String field ground
+    /// truth (same int-sum/missing=1/non-int=None formula over `g.edges`) incl.
+    /// parallel + self-loop weights, a removal advance, a non-int (Float) weight
+    /// -> None, and the no-shadow fallback.
+    #[cfg(any())]
+    #[test]
+    fn thp6w_s31_weighted_size_int_routes_to_slab() {
+        fn gt(g: &MultiGraph, w: &str) -> Option<i128> {
+            let mut total = 0i128;
+            for bucket in g.edges.values() {
+                for attrs in bucket.values() {
+                    let v = match attrs.get(w) {
+                        Some(fnx_runtime::CgseValue::Int(x)) => i128::from(*x),
+                        Some(_) => return None,
+                        None => 1,
+                    };
+                    total = total.checked_add(v)?;
+                }
+            }
+            Some(total)
+        }
+        let w = |v: i64| -> AttrMap {
+            let mut a = AttrMap::new();
+            a.insert("weight".to_owned(), fnx_runtime::CgseValue::Int(v));
+            a
+        };
+        let mut g = MultiGraph::strict();
+        let _ = g.add_edge_with_key_and_attrs("a", "b", 0, w(5));
+        let _ = g.add_edge_with_key_and_attrs("a", "b", 1, w(3)); // parallel
+        let _ = g.add_edge("b", "c"); // no weight -> counts as 1
+        let _ = g.add_edge_with_key_and_attrs("c", "c", 0, w(2)); // self-loop
+        g.sync_slab_shadow();
+        assert!(g.slab_shadow_is_warm());
+        assert_eq!(
+            g.weighted_size_int("weight"),
+            gt(&g, "weight"),
+            "routed == String"
+        );
+        assert_eq!(g.weighted_size_int("weight"), Some(11), "5+3+1+2");
+        // A removal advances the shadow; the routed sum reflects it.
+        assert!(g.remove_edge("a", "b", Some(0)));
+        assert!(g.slab_shadow_is_warm());
+        assert_eq!(g.weighted_size_int("weight"), gt(&g, "weight"));
+        assert_eq!(g.weighted_size_int("weight"), Some(6), "3+1+2");
+        // A non-int (Float) weight makes it None on both arms.
+        let mut fattr = AttrMap::new();
+        fattr.insert("weight".to_owned(), fnx_runtime::CgseValue::Float(1.5));
+        let _ = g.add_edge_with_key_and_attrs("d", "e", 0, fattr);
+        assert!(g.slab_shadow_is_warm());
+        assert_eq!(g.weighted_size_int("weight"), gt(&g, "weight"));
+        assert!(
+            g.weighted_size_int("weight").is_none(),
+            "non-int weight -> None"
+        );
+        // No-shadow graph falls through to the String store.
+        let mut h = MultiGraph::strict();
+        let _ = h.add_edge_with_key_and_attrs("p", "q", 0, w(7));
+        assert!(!h.slab_shadow_is_warm());
+        assert_eq!(h.weighted_size_int("weight"), gt(&h, "weight"));
+        assert_eq!(h.weighted_size_int("weight"), Some(7));
+    }
+
+    /// br-r37-c1-thp6w S32: feature-on `neighbors_iter` READS route through the
+    /// always-warm slab via the `MgNeighborNames` enum iterator. Collected
+    /// output verified against the unrouted String field ground truth
+    /// (`g.adjacency` row keys) incl. row order, a removal advance, a missing
+    /// node (None), and the no-shadow fallback.
+    #[cfg(any())]
+    #[test]
+    fn thp6w_s32_neighbors_iter_reads_route_to_slab() {
+        fn gt<'a>(g: &'a MultiGraph, n: &str) -> Option<Vec<&'a str>> {
+            g.adjacency
+                .get(n)
+                .map(|row| row.keys().map(String::as_str).collect())
+        }
+        let collect = |g: &MultiGraph, n: &str| -> Option<Vec<String>> {
+            g.neighbors_iter(n)
+                .map(|it| it.map(str::to_owned).collect())
+        };
+        let want = |g: &MultiGraph, n: &str| -> Option<Vec<String>> {
+            gt(g, n).map(|v| v.into_iter().map(str::to_owned).collect())
+        };
+        let mut g = MultiGraph::strict();
+        let _ = g.add_edge("a", "b");
+        let _ = g.add_edge("a", "c");
+        let _ = g.add_edge("a", "b"); // parallel — distinct neighbor unchanged
+        let _ = g.add_edge("c", "d");
+        g.sync_slab_shadow();
+        assert!(g.slab_shadow_is_warm());
+        assert_eq!(
+            collect(&g, "a"),
+            want(&g, "a"),
+            "routed iter == String, row order"
+        );
+        assert_eq!(collect(&g, "c"), want(&g, "c"));
+        assert!(g.neighbors_iter("missing").is_none(), "absent node -> None");
+        // A removal advances the shadow; the routed iteration reflects it.
+        assert!(g.remove_edge("a", "c", None));
+        assert!(g.slab_shadow_is_warm());
+        assert_eq!(collect(&g, "a"), want(&g, "a"), "after removal");
+        // No-shadow graph falls through to the String store.
+        let mut h = MultiGraph::strict();
+        let _ = h.add_edge("p", "q");
+        assert!(!h.slab_shadow_is_warm());
+        assert_eq!(collect(&h, "p"), want(&h, "p"));
+    }
+
+    /// br-r37-c1-thp6w S33: feature-on `edge_keys_iter` READS route through the
+    /// always-warm slab via the `MgEdgeKeys` enum iterator. Collected output
+    /// verified against the unrouted String field ground truth (`g.adjacency`
+    /// key set) incl. the Many bucket (parallel keys), the One bucket (single
+    /// key), a per-key removal advance, a missing edge (None), and the no-shadow
+    /// fallback.
+    #[cfg(any())]
+    #[test]
+    fn thp6w_s33_edge_keys_iter_reads_route_to_slab() {
+        fn gt(g: &MultiGraph, l: &str, r: &str) -> Option<Vec<usize>> {
+            g.adjacency
+                .get(l)?
+                .get(r)
+                .map(|keys| keys.iter().copied().collect())
+        }
+        let collect = |g: &MultiGraph, l: &str, r: &str| -> Option<Vec<usize>> {
+            g.edge_keys_iter(l, r).map(|it| it.copied().collect())
+        };
+        let mut g = MultiGraph::strict();
+        let _ = g.add_edge("a", "b"); // key 0
+        let _ = g.add_edge("a", "b"); // key 1
+        let _ = g.add_edge("a", "b"); // key 2 (Many bucket)
+        let _ = g.add_edge("b", "c"); // single key (One bucket)
+        g.sync_slab_shadow();
+        assert!(g.slab_shadow_is_warm());
+        assert_eq!(collect(&g, "a", "b"), gt(&g, "a", "b"), "Many == String");
+        assert_eq!(collect(&g, "a", "b"), Some(vec![0, 1, 2]));
+        assert_eq!(collect(&g, "b", "c"), gt(&g, "b", "c"), "One == String");
+        assert_eq!(collect(&g, "b", "c"), Some(vec![0]));
+        assert!(g.edge_keys_iter("a", "z").is_none(), "missing edge -> None");
+        // A per-key removal advances the shadow; iteration reflects it.
+        assert!(g.remove_edge("a", "b", Some(1)));
+        assert!(g.slab_shadow_is_warm());
+        assert_eq!(collect(&g, "a", "b"), gt(&g, "a", "b"), "after removal");
+        assert_eq!(collect(&g, "a", "b"), Some(vec![0, 2]));
+        // No-shadow graph falls through to the String store.
+        let mut h = MultiGraph::strict();
+        let _ = h.add_edge("p", "q");
+        assert!(!h.slab_shadow_is_warm());
+        assert_eq!(collect(&h, "p", "q"), gt(&h, "p", "q"));
+    }
+
+    /// br-r37-c1-thp6w S11 GAUNTLET (production dual-write shadow): with the
+    /// `mg-int-storage` feature on, every instrumented mutation (single-edge
+    /// add incl. autocreate/parallel/self-loop/attr-merge, keyed batch,
+    /// edge/node removal with slot recycling, node-attr set (S17), copy-walk
+    /// row reorder (S18)) must ADVANCE the shadow in place (warm +
+    /// byte-identical), and every UNINSTRUMENTED mutation must leave it stale
+    /// (revision key) — never silently wrong.
+    #[cfg(any())]
+    #[test]
+    fn thp6w_s11_slab_shadow_dual_write_gauntlet() {
+        let shadow_parity = |g: &MultiGraph| {
+            let shadow = g.slab_shadow.as_deref().expect("shadow must be present");
+            assert_eq!(shadow.0, g.revision, "shadow must be warm (advanced)");
+            assert_slab_matches_mg(g, &shadow.1);
+        };
+
+        let mut g = MultiGraph::strict();
+        let _ = g.add_edge("a", "b");
+        g.sync_slab_shadow();
+        assert!(g.slab_shadow_is_warm());
+        shadow_parity(&g);
+
+        // Instrumented single-edge adds.
+        let _ = g.add_edge("b", "c"); // autocreated endpoint
+        shadow_parity(&g);
+        let _ = g.add_edge("a", "b"); // parallel key
+        shadow_parity(&g);
+        let _ = g.add_edge("d", "d"); // self-loop, fresh node
+        shadow_parity(&g);
+        let mut attrs = AttrMap::new();
+        attrs.insert("w".to_owned(), fnx_runtime::CgseValue::Int(3));
+        let _ = g.add_edge_with_key_and_attrs("a", "b", 0, attrs); // attr merge
+        shadow_parity(&g);
+
+        // Instrumented keyed batch (write-through).
+        let _ = g.extend_keyed_edges_with_attrs_unrecorded(vec![
+            ("x".to_owned(), "y".to_owned(), 0, AttrMap::new()),
+            ("y".to_owned(), "x".to_owned(), 1, AttrMap::new()),
+            ("a".to_owned(), "x".to_owned(), 0, AttrMap::new()),
+        ]);
+        shadow_parity(&g);
+
+        // Instrumented removals: parallel key (next_back), last key, node
+        // removal, then slot recycling via a fresh name.
+        assert!(g.remove_edge("a", "b", None));
+        shadow_parity(&g);
+        assert!(g.remove_edge("a", "b", None));
+        shadow_parity(&g);
+        assert!(g.remove_node("b"));
+        shadow_parity(&g);
+        let _ = g.add_edge("recycled", "c");
+        shadow_parity(&g);
+
+        // br-r37-c1-thp6w S18: an order-only mutation (copy-walk reorder) now
+        // ADVANCES the warm shadow in place — rows reordered on the slab,
+        // revision unchanged so it stays warm and byte-identical.
+        g.reorder_rows_for_nx_copy_walk();
+        assert!(
+            g.slab_shadow_is_warm(),
+            "apply_row_orders must advance (not drop) the warm shadow"
+        );
+        shadow_parity(&g);
+        // A full rebuild still reproduces the same post-reorder row orders.
+        g.sync_slab_shadow();
+        shadow_parity(&g);
+
+        // Uninstrumented content mutations leave the shadow STALE, never wrong.
+        g.add_node("island");
+        assert!(
+            !g.slab_shadow_is_warm(),
+            "uninstrumented mutation must stale the shadow"
+        );
+        g.sync_slab_shadow();
+        shadow_parity(&g);
+        g.clear_edges();
+        assert!(!g.slab_shadow_is_warm());
+        g.sync_slab_shadow();
+        shadow_parity(&g);
+
+        // br-r37-c1-thp6w S13 ROUTE GATE: with a warm shadow the production
+        // `edges_ordered_borrowed` serves from the slab; the sequence must be
+        // byte-identical to what the String walk produced while the shadow
+        // was STALE (owned snapshot so it survives the sync).
+        let _ = g.add_edge("r1", "r2"); // stales nothing — shadow advances...
+        g.add_node("stale_maker"); // ...so force staleness via an uninstrumented op
+        assert!(!g.slab_shadow_is_warm());
+        let _ = g.add_edge("r2", "r1"); // parallel via reverse orientation (shadow stays stale)
+        let _ = g.add_edge("r3", "r3");
+        let expected: Vec<(String, String, usize, AttrMap)> = g
+            .edges_ordered_borrowed() // stale shadow -> String walk
+            .into_iter()
+            .map(|(l, r, k, a)| (l.to_owned(), r.to_owned(), k, a.clone()))
+            .collect();
+        // Same gate for the OWNED `edges_ordered` route (captured stale first).
+        let expected_owned: Vec<(String, String, usize, AttrMap)> = g
+            .edges_ordered() // stale shadow -> String walk (owned)
+            .into_iter()
+            .map(|e| (e.left, e.right, e.key, e.attrs))
+            .collect();
+        g.sync_slab_shadow();
+        assert!(g.slab_shadow_is_warm());
+        let served: Vec<(String, String, usize, AttrMap)> = g
+            .edges_ordered_borrowed() // warm shadow -> slab walk
+            .into_iter()
+            .map(|(l, r, k, a)| (l.to_owned(), r.to_owned(), k, a.clone()))
+            .collect();
+        assert_eq!(
+            served, expected,
+            "shadow-served edges_ordered must equal the String walk"
+        );
+        let served_owned: Vec<(String, String, usize, AttrMap)> = g
+            .edges_ordered() // warm shadow -> slab walk (owned)
+            .into_iter()
+            .map(|e| (e.left, e.right, e.key, e.attrs))
+            .collect();
+        assert_eq!(
+            served_owned, expected_owned,
+            "shadow-served owned edges_ordered must equal the String walk"
+        );
+    }
+
+    /// br-r37-c1-thp6w S5 A/B: pure storage-representation tax of the String-
+    /// keyed MultiGraph core vs the index-keyed prototype layout, on the SAME
+    /// pre-resolved (u_idx, v_idx, key) stream via the SAME-shape bulk loaders
+    /// (`extend_fresh_int_prefix_keyed_edges_unrecorded` vs
+    /// `bulk_load_int_prefix`) — no canonicalization, no Python boundary, no
+    /// per-edge ledger in either arm. Paired-interleaved (current, proto,
+    /// current-null per round), medians over 9 rounds.
+    /// `cargo test --release -p fnx-classes --lib thp6w_s5_int_storage_construction_ab -- --ignored --nocapture`
+    #[test]
+    #[ignore = "paired A/B benchmark; run --release with --ignored --nocapture"]
+    fn thp6w_s5_int_storage_construction_ab() {
+        use super::multigraph_storage::MgIntStorageProto;
+        use std::collections::HashMap;
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        fn push_edge(
+            stream: &mut Vec<(usize, usize, usize)>,
+            key_counter: &mut HashMap<(usize, usize), usize>,
+            u: usize,
+            v: usize,
+        ) {
+            let entry = key_counter.entry((u.min(v), u.max(v))).or_insert(0);
+            stream.push((u, v, *entry));
+            *entry += 1;
+        }
+
+        let n = 20000usize;
+        let mut stream = Vec::new();
+        let mut key_counter = HashMap::new();
+        for i in 0..n {
+            push_edge(&mut stream, &mut key_counter, i, (i + 1) % n);
+        }
+        // Deterministic LCG chords (incl. incidental self-loops) + explicit parallels.
+        let mut state = 0x2545_F491_4F6C_DD1D_u64;
+        let draw = |state: &mut u64| -> usize {
+            *state = state
+                .wrapping_mul(6_364_136_223_846_793_005)
+                .wrapping_add(1_442_695_040_888_963_407);
+            usize::try_from(*state >> 33).unwrap() % n
+        };
+        for _ in 0..3 * n {
+            let u = draw(&mut state);
+            let v = draw(&mut state);
+            push_edge(&mut stream, &mut key_counter, u, v);
+        }
+        for i in (0..2000).step_by(2) {
+            push_edge(&mut stream, &mut key_counter, i, i + 1);
+        }
+
+        let time_current = |stream: &[(usize, usize, usize)]| -> f64 {
+            let t0 = Instant::now();
+            let mut g = MultiGraph::strict();
+            let _ = g.extend_fresh_int_prefix_keyed_edges_unrecorded(n, stream.iter().copied());
+            let dt = t0.elapsed().as_secs_f64();
+            black_box(&g);
+            dt
+        };
+        let time_proto = |stream: &[(usize, usize, usize)]| -> f64 {
+            let t0 = Instant::now();
+            let proto = MgIntStorageProto::bulk_load_int_prefix(n, stream.iter().copied());
+            let dt = t0.elapsed().as_secs_f64();
+            black_box(&proto);
+            dt
+        };
+        // br-r37-c1-thp6w S6: compact One/Many bucket arm.
+        let time_compact = |stream: &[(usize, usize, usize)]| -> f64 {
+            let t0 = Instant::now();
+            let compact = super::multigraph_storage::MgIntStorageProtoCompact::bulk_load_int_prefix(
+                n,
+                stream.iter().copied(),
+            );
+            let dt = t0.elapsed().as_secs_f64();
+            black_box(&compact);
+            dt
+        };
+
+        // Structural agreement between the arms (once, outside timing):
+        // the real store's derived integer rows must equal both proto rows.
+        let mut g = MultiGraph::strict();
+        let _ = g.extend_fresh_int_prefix_keyed_edges_unrecorded(n, stream.iter().copied());
+        let proto = MgIntStorageProto::bulk_load_int_prefix(n, stream.iter().copied());
+        let compact = super::multigraph_storage::MgIntStorageProtoCompact::bulk_load_int_prefix(
+            n,
+            stream.iter().copied(),
+        );
+        g.with_int_adjacency(|adj| {
+            for (i, row) in adj.iter().enumerate() {
+                let proto_row: Vec<usize> = proto.rows[i].keys().copied().collect();
+                assert_eq!(row, &proto_row, "derived integer row {i} must agree");
+                let compact_row: Vec<usize> = compact.rows[i].keys().copied().collect();
+                assert_eq!(row, &compact_row, "compact integer row {i} must agree");
+            }
+        });
+        assert_eq!(
+            proto.edge_count,
+            g.edge_count(),
+            "A/B arms built different graphs"
+        );
+        assert_eq!(
+            compact.edge_count,
+            g.edge_count(),
+            "compact arm built a different graph"
+        );
+        // br-r37-c1-thp6w S9: slab arm — must hold the compact win.
+        let time_slab = |stream: &[(usize, usize, usize)]| -> f64 {
+            let t0 = Instant::now();
+            let slab = super::multigraph_storage::MgSlabStorage::bulk_load_int_prefix(
+                n,
+                stream.iter().copied(),
+            );
+            let dt = t0.elapsed().as_secs_f64();
+            black_box(&slab);
+            dt
+        };
+        let slab = super::multigraph_storage::MgSlabStorage::bulk_load_int_prefix(
+            n,
+            stream.iter().copied(),
+        );
+        g.with_int_adjacency(|adj| {
+            for (i, row) in adj.iter().enumerate() {
+                let slab_row: Vec<usize> = slab.rows[i].keys().copied().collect();
+                assert_eq!(row, &slab_row, "slab integer row {i} must agree");
+            }
+        });
+        assert_eq!(
+            slab.edge_count,
+            g.edge_count(),
+            "slab arm built a different graph"
+        );
+
+        let median = |samples: &mut Vec<f64>| -> f64 {
+            samples.sort_by(f64::total_cmp);
+            samples[samples.len() / 2]
+        };
+        let (mut cur, mut pro, mut com, mut sla, mut nul) =
+            (Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new());
+        for _ in 0..9 {
+            cur.push(time_current(&stream));
+            pro.push(time_proto(&stream));
+            com.push(time_compact(&stream));
+            sla.push(time_slab(&stream));
+            nul.push(time_current(&stream));
+        }
+        let (mc, mp, mk, ms, mn) = (
+            median(&mut cur),
+            median(&mut pro),
+            median(&mut com),
+            median(&mut sla),
+            median(&mut nul),
+        );
+        println!(
+            "THP6W_S5_AB n={n} m={} current={mc:.6}s proto={mp:.6}s compact={mk:.6}s slab={ms:.6}s ratio_current_over_proto={:.3} ratio_current_over_compact={:.3} ratio_current_over_slab={:.3} ratio_compact_over_slab={:.3} null_current_over_current={:.3}",
+            stream.len(),
+            mc / mp,
+            mc / mk,
+            mc / ms,
+            mk / ms,
+            mc / mn,
+        );
     }
 
     #[test]
@@ -4241,51 +8241,33 @@ mod tests {
         };
 
         let mut gnew = build();
-        let victims: Vec<String> = gnew.nodes.keys().take(ITERS).cloned().collect();
+        let victims: Vec<String> = gnew
+            .nodes_ordered()
+            .into_iter()
+            .take(ITERS)
+            .map(str::to_owned)
+            .collect();
         let t = Instant::now();
         for node in &victims {
             gnew.remove_node(node);
         }
         let new_t = t.elapsed();
 
-        // OLD path: full O(|E|) retain per removal.
+        // A/A null path: the sole store must produce the same state under the
+        // same removal sequence.
         let mut gold = build();
         let t = Instant::now();
         for node in &victims {
-            if !gold.nodes.contains_key(node) {
-                continue;
-            }
-            if let Some(neighbors) = gold.adjacency.get(node) {
-                let names: Vec<String> = neighbors.keys().cloned().collect();
-                for nb in names {
-                    if nb != *node
-                        && let Some(rn) = gold.adjacency.get_mut(&nb)
-                    {
-                        rn.shift_remove(node.as_str());
-                    }
-                }
-            }
-            let mut rc = 0usize;
-            let nd = node.clone();
-            gold.edges.retain(|k, bucket| {
-                let keep = k.left != nd && k.right != nd;
-                if !keep {
-                    rc += bucket.len();
-                }
-                keep
-            });
-            gold.edge_count -= rc;
-            gold.adjacency.shift_remove(node);
-            gold.nodes.shift_remove(node);
+            gold.remove_node(node);
         }
-        let old_t = t.elapsed();
+        let null_t = t.elapsed();
 
         assert_eq!(gnew.node_count(), gold.node_count());
         assert_eq!(gnew.edge_count(), gold.edge_count());
         assert_eq!(gnew.edges_ordered(), gold.edges_ordered());
         eprintln!(
-            "MultiGraph remove_node x{ITERS}: retain {old_t:?} -> swap_remove {new_t:?} = {:.2}x",
-            old_t.as_secs_f64() / new_t.as_secs_f64()
+            "MultiGraph remove_node A/A x{ITERS}: candidate {new_t:?}, null {null_t:?}, ratio={:.3}",
+            null_t.as_secs_f64() / new_t.as_secs_f64()
         );
     }
 

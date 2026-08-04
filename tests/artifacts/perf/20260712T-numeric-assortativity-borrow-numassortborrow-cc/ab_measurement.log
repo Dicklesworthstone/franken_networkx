@@ -1,0 +1,4 @@
+NUMASSORTBORROW_AB numeric_assortativity 10k/400k rounds=61 (>1 = borrowed faster)
+NUMASSORTBORROW_AB BORROWED_vs_owned: median=1.6409x win_rate=61/61 p5_p95=[1.4221,1.8744]
+NUMASSORTBORROW_AB NULL_borrowed_vs_borrowed: median=0.9896x win_rate=29/61 p5_p95=[0.8058,1.1471]
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1019 filtered out; finished in 51.83s

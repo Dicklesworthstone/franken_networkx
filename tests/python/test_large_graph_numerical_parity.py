@@ -47,6 +47,25 @@ def test_large_graph_centrality_precision(seed):
     ) < 1e-5
 
 
+@pytest.mark.parametrize("directed", [False, True], ids=["graph", "digraph"])
+def test_harmonic_centrality_matches_networkx_float_bits(directed):
+    """Source-order accumulation is observable in the low f64 bits."""
+    fnx_type = fnx.DiGraph if directed else fnx.Graph
+    nx_type = nx.DiGraph if directed else nx.Graph
+    fg = fnx.path_graph(600, create_using=fnx_type)
+    ng = nx.path_graph(600, create_using=nx_type)
+
+    actual = fnx.harmonic_centrality(fg)
+    expected = nx.harmonic_centrality(ng)
+
+    assert list(actual) == list(expected)
+    assert {
+        node: (type(value), float(value).hex()) for node, value in actual.items()
+    } == {
+        node: (type(value), float(value).hex()) for node, value in expected.items()
+    }
+
+
 @pytest.mark.parametrize("seed", range(10))
 def test_large_graph_scalar_precision(seed):
     fg, ng, n = _identical_large(seed)

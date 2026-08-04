@@ -1,0 +1,21 @@
+bench_elf_sha256=e5bb3755812c732b63bb8ab3e4650d526bb69bb67834d264f8b00adfad4a3213 (13222632 bytes) /data/tmp/claude-1000/-data-projects-franken-networkx/e8e62859-6f92-4f94-bbb9-09dd13ed0437/scratchpad/headpkg_629268633/franken_networkx/_fnx.abi3.so
+host_identity=thinkstation1  nx=3.6.1
+graph: n=3000 m=15000 seed=7 connected=True
+
+stage                           nx ms     fnx ms     ratio  parity
+connected_components              1.8        0.5      4.1x  IDENTICAL
+core_number                      11.8        0.9     12.5x  IDENTICAL
+triangles                        48.2        1.4     34.6x  IDENTICAL
+average_clustering               78.5        1.5     51.4x  IDENTICAL
+degree_assortativity             34.7        0.6     60.7x  IDENTICAL
+pagerank                         24.9        2.6      9.7x  IDENTICAL
+closeness_centrality           5730.9       30.6    187.4x  IDENTICAL
+harmonic_centrality            8700.7       22.3    390.6x  DIVERGENT
+betweenness_centrality        32728.0      310.4    105.4x  IDENTICAL
+eccentricity                   6500.1      447.6     14.5x  IDENTICAL
+diameter                       5407.9      265.3     20.4x  IDENTICAL
+----------------------------------------------------------------------
+WHOLE JOB                     59267.5     1083.6     54.7x
+
+fnx bottleneck: eccentricity = 41.3% of fnx job time (ratio 14.5x)
+parity: 10/11 stages byte-identical; DIVERGENT: ['harmonic_centrality']
