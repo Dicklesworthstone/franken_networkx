@@ -1910,3 +1910,29 @@ class TestShortestPath:
             fnx.bellman_ford_path(D_fnx, "b", "a", weight="weight")
         with pytest.raises(nx.NetworkXNoPath):
             nx.bellman_ford_path(D_nx, "b", "a", weight="weight")
+
+    @pytest.mark.parametrize("directed", [False, True])
+    @pytest.mark.parametrize("cutoff", [None, 0, 1, 2, 3])
+    def test_single_target_shortest_path_cutoff_parity(self, fnx, nx, directed, cutoff):
+        """Target-oriented paths must preserve nx reachability and cutoff semantics."""
+        graph_type = fnx.DiGraph if directed else fnx.Graph
+        nx_graph_type = nx.DiGraph if directed else nx.Graph
+        fnx_graph = graph_type()
+        nx_graph = nx_graph_type()
+        for graph in (fnx_graph, nx_graph):
+            graph.add_edges_from(
+                [
+                    ("a", "b"),
+                    ("b", "target"),
+                    ("c", "b"),
+                    ("d", "c"),
+                    ("outside", "isolated"),
+                ]
+            )
+
+        assert fnx.single_target_shortest_path(
+            fnx_graph, "target", cutoff=cutoff
+        ) == nx.single_target_shortest_path(nx_graph, "target", cutoff=cutoff)
+        assert fnx.single_target_shortest_path_length(
+            fnx_graph, "target", cutoff=cutoff
+        ) == nx.single_target_shortest_path_length(nx_graph, "target", cutoff=cutoff)
