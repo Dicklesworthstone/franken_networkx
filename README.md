@@ -1122,10 +1122,17 @@ median-CI gate; reproduce with
 | `G.adj` (bare accessor) | **0.82×** | Public descriptor access |
 | `G.has_node(n)` | **0.4596×** | Key conversion and native lookup; still a loss, re-measured 2026-07-31 vs live nx 3.6.1 (was 0.41×) |
 | `preferential_attachment` | **0.5949×** | nx's per-pair work is two degree lookups and a multiply — below our per-call boundary cost |
-| `Graph` incremental `add_edge` | **0.26×** | Per-call Python shim; batch constructors are ~3× better per edge |
+| `Graph` incremental `add_edge` | **0.4387×** | Re-measured 2026-08-04 vs live nx 3.6.1 (was 0.26×); 0.3514× when each edge carries a `weight`. The per-call Python `None`/hashability shim is only a 1.13× tax — the rest is the String-canonicalisation substrate (`node_key_to_string` plus `IndexMap<String, _>` probes). Batch constructors remain ~3× better per edge. |
 | `karate_club_graph`, `tutte_graph` | **0.38× / 0.76×** | Fixed small literals; nx builds a hard-coded edge list, we pay graph construction |
 | `read_multiline_adjlist` | **0.7981×** | Parser is not native; still a loss, re-measured 2026-07-31 vs live nx 3.6.1 (was 0.70×) |
 | `read_gml` | **0.92×** | GML parse path; CONFIRMED 2026-07-31 vs live nx 3.6.1 (measured 0.9234×, CI [0.9169, 0.9253] contains the published figure) |
+
+The `add_edge` row was re-measured on 2026-08-04 (`br-r37-c1-8n3j3`, `br-r37-c1-eo88t`): 4,000
+`G.add_edge(u, v)` calls building a path graph from empty, genuine unpatched NetworkX 3.6.1 in the
+same invocation, 21 interleaved rounds, `PYTHONHASHSEED=0`, pinned with `taskset`, A/A null
+0.9944–1.0042×. It moved from 0.26× after the CGSE decision ledger stopped writing two unbounded
+records per edge — that ledger was 46.7% of `Graph::add_edge_with_attrs` and is now 15.9%
+(`cargo test --release -p fnx-classes --lib ledger_record_cost_ab -- --ignored --nocapture`).
 
 Default simple-graph `write_edgelist(data=False)` writes directly from FNX edge
 iteration while preserving exact NetworkX bytes. Non-default and multigraph
