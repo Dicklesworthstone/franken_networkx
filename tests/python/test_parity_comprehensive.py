@@ -1477,3 +1477,50 @@ def test_api_health_scalar_smoke_matches_networkx(name, args):
         assert actual == pytest.approx(expected, rel=1e-9, abs=1e-12)
     else:
         assert actual == expected
+
+
+# ---------------------------------------------------------------------------
+# Directed API-health smoke parity
+# ---------------------------------------------------------------------------
+
+def _directed_api_health_dag(module):
+    graph = module.DiGraph()
+    graph.add_edges_from([(0, 1), (1, 2), (2, 3), (0, 2), (1, 3)])
+    return graph
+
+
+def _directed_api_health_cycle(module):
+    graph = module.DiGraph()
+    graph.add_edges_from([(0, 1), (1, 2), (2, 0), (0, 2)])
+    return graph
+
+
+@needs_nx
+@pytest.mark.parametrize(
+    ("name", "args", "builder", "materialize"),
+    [
+        ("is_directed_acyclic_graph", (), _directed_api_health_dag, lambda value: value),
+        ("is_weakly_connected", (), _directed_api_health_dag, lambda value: value),
+        ("is_semiconnected", (), _directed_api_health_dag, lambda value: value),
+        ("number_weakly_connected_components", (), _directed_api_health_dag, lambda value: value),
+        ("number_strongly_connected_components", (), _directed_api_health_dag, lambda value: value),
+        ("number_attracting_components", (), _directed_api_health_dag, lambda value: value),
+        ("flow_hierarchy", (), _directed_api_health_dag, lambda value: value),
+        ("transitivity", (), _directed_api_health_dag, lambda value: value),
+        ("topological_sort", (), _directed_api_health_dag, list),
+        ("ancestors", (3,), _directed_api_health_dag, lambda value: value),
+        ("descendants", (0,), _directed_api_health_dag, lambda value: value),
+        ("is_strongly_connected", (), _directed_api_health_cycle, lambda value: value),
+        ("is_aperiodic", (), _directed_api_health_cycle, lambda value: value),
+        ("overall_reciprocity", (), _directed_api_health_cycle, lambda value: value),
+    ],
+)
+def test_directed_api_health_smoke_matches_networkx(name, args, builder, materialize):
+    """Directed-only public APIs agree on fresh acyclic and cyclic graphs."""
+    actual = materialize(getattr(fnx, name)(builder(fnx), *args))
+    expected = materialize(getattr(nx, name)(builder(nx), *args))
+
+    if isinstance(expected, float):
+        assert actual == pytest.approx(expected, rel=1e-9, abs=1e-12)
+    else:
+        assert actual == expected
