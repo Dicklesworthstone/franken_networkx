@@ -23995,11 +23995,8 @@ pub fn modularity(
         return Ok(0.0);
     }
 
-    let node_to_idx: HashMap<&str, usize> = nodes
-        .iter()
-        .enumerate()
-        .map(|(i, &nd)| (nd, i))
-        .collect();
+    let node_to_idx: HashMap<&str, usize> =
+        nodes.iter().enumerate().map(|(i, &nd)| (nd, i)).collect();
 
     // br-r37-c1-modwmap (cc): precompute the edge weights into an index-keyed map ONCE (O(|E|)) so the
     // community double-loop reads a_uv with an O(1) integer lookup instead of a per-pair String has_edge
@@ -34171,7 +34168,8 @@ pub fn grid_graph(dim: &[usize]) -> Graph {
     // Add all nodes
     // br-r37-c1-grididxbatch (cc): upgrade the earlier String-pair batch to the INDEX batch. Nodes are
     // added in flat-index order so node i sits at index i; build them all with one extend_nodes_unrecorded.
-    let _ = g.extend_nodes_unrecorded((0..total).map(|i| coords_to_label(&index_to_coords(i, dim))));
+    let _ =
+        g.extend_nodes_unrecorded((0..total).map(|i| coords_to_label(&index_to_coords(i, dim))));
 
     // Add edges: connect nodes that differ by exactly 1 in exactly one dimension. The +1-in-dimension-d
     // neighbour of flat index i is `i + strides[d]` (strides[d] = product of dims after d), so collect
@@ -67062,7 +67060,8 @@ mod tests {
                 .map(|e| (e.left.clone(), e.right.clone()))
                 .collect();
             if batch {
-                let mut edges: Vec<(String, String)> = Vec::with_capacity(g_edges.len() * h_edges.len());
+                let mut edges: Vec<(String, String)> =
+                    Vec::with_capacity(g_edges.len() * h_edges.len());
                 for (gu, gv) in &g_edges {
                     for (hu, hv) in &h_edges {
                         edges.push((pair_label(gu, hu), pair_label(gv, hv)));
@@ -67721,14 +67720,20 @@ mod tests {
         let build = |g: &Graph, mapping: &HashMap<String, String>, batch: bool| -> Graph {
             let mut result = Graph::with_runtime_policy(g.runtime_policy().clone());
             for node in g.nodes_ordered() {
-                let new_label = mapping.get(node).cloned().unwrap_or_else(|| node.to_owned());
+                let new_label = mapping
+                    .get(node)
+                    .cloned()
+                    .unwrap_or_else(|| node.to_owned());
                 let attrs = g.node_attrs(node).cloned().unwrap_or_default();
                 let _ = result.add_node_with_attrs(new_label, attrs);
             }
             if batch {
                 let mut edges: Vec<(String, String, AttrMap)> = Vec::new();
                 for edge in g.edges_ordered() {
-                    let nl = mapping.get(&edge.left).cloned().unwrap_or_else(|| edge.left.clone());
+                    let nl = mapping
+                        .get(&edge.left)
+                        .cloned()
+                        .unwrap_or_else(|| edge.left.clone());
                     let nr = mapping
                         .get(&edge.right)
                         .cloned()
@@ -67738,7 +67743,10 @@ mod tests {
                 let _ = result.extend_edges_with_attrs_unrecorded(edges);
             } else {
                 for edge in g.edges_ordered() {
-                    let nl = mapping.get(&edge.left).cloned().unwrap_or_else(|| edge.left.clone());
+                    let nl = mapping
+                        .get(&edge.left)
+                        .cloned()
+                        .unwrap_or_else(|| edge.left.clone());
                     let nr = mapping
                         .get(&edge.right)
                         .cloned()
@@ -67754,8 +67762,9 @@ mod tests {
         let g_small = complete(20);
         let bijection: HashMap<String, String> =
             (0..20).map(|i| (format!("{i}"), format!("r{i}"))).collect();
-        let merging: HashMap<String, String> =
-            (0..20).map(|i| (format!("{i}"), format!("m{}", i / 2))).collect();
+        let merging: HashMap<String, String> = (0..20)
+            .map(|i| (format!("{i}"), format!("m{}", i / 2)))
+            .collect();
         for mapping in [&bijection, &merging] {
             let old = build(&g_small, mapping, false);
             let new = build(&g_small, mapping, true);
@@ -67850,14 +67859,20 @@ mod tests {
         let build = |g: &DiGraph, mapping: &HashMap<String, String>, batch: bool| -> DiGraph {
             let mut result = DiGraph::with_runtime_policy(g.runtime_policy().clone());
             for node in g.nodes_ordered() {
-                let new_label = mapping.get(node).cloned().unwrap_or_else(|| node.to_owned());
+                let new_label = mapping
+                    .get(node)
+                    .cloned()
+                    .unwrap_or_else(|| node.to_owned());
                 let attrs = g.node_attrs(node).cloned().unwrap_or_default();
                 let _ = result.add_node_with_attrs(new_label, attrs);
             }
             if batch {
                 let mut edges: Vec<(String, String, AttrMap)> = Vec::new();
                 for edge in g.edges_ordered() {
-                    let nl = mapping.get(&edge.left).cloned().unwrap_or_else(|| edge.left.clone());
+                    let nl = mapping
+                        .get(&edge.left)
+                        .cloned()
+                        .unwrap_or_else(|| edge.left.clone());
                     let nr = mapping
                         .get(&edge.right)
                         .cloned()
@@ -67867,7 +67882,10 @@ mod tests {
                 let _ = result.extend_edges_with_attrs_unrecorded(edges);
             } else {
                 for edge in g.edges_ordered() {
-                    let nl = mapping.get(&edge.left).cloned().unwrap_or_else(|| edge.left.clone());
+                    let nl = mapping
+                        .get(&edge.left)
+                        .cloned()
+                        .unwrap_or_else(|| edge.left.clone());
                     let nr = mapping
                         .get(&edge.right)
                         .cloned()
@@ -67881,8 +67899,9 @@ mod tests {
         let g_small = complete(20);
         let bijection: HashMap<String, String> =
             (0..20).map(|i| (format!("{i}"), format!("r{i}"))).collect();
-        let merging: HashMap<String, String> =
-            (0..20).map(|i| (format!("{i}"), format!("m{}", i / 2))).collect();
+        let merging: HashMap<String, String> = (0..20)
+            .map(|i| (format!("{i}"), format!("m{}", i / 2)))
+            .collect();
         for mapping in [&bijection, &merging] {
             let old = build(&g_small, mapping, false);
             let new = build(&g_small, mapping, true);
@@ -70463,7 +70482,11 @@ mod tests {
 
         let old = build(false);
         let new = build(true);
-        assert_eq!(old.to_bits(), new.to_bits(), "modularity fold must be ULP-identical");
+        assert_eq!(
+            old.to_bits(),
+            new.to_bits(),
+            "modularity fold must be ULP-identical"
+        );
 
         let time = |batch: bool| -> f64 {
             let t0 = Instant::now();
@@ -70868,8 +70891,14 @@ mod tests {
 
         let old = old_fn(&graph, &dom_refs);
         let new = new_fn(&graph, &dom_refs);
-        assert_eq!(old, new, "integer domination check must match the string baseline");
-        assert!(old, "the every-11th dom set should be valid (so the pass scans all nodes)");
+        assert_eq!(
+            old, new,
+            "integer domination check must match the string baseline"
+        );
+        assert!(
+            old,
+            "the every-11th dom set should be valid (so the pass scans all nodes)"
+        );
 
         let time = |batch: bool| -> f64 {
             let t0 = Instant::now();
@@ -70988,8 +71017,12 @@ mod tests {
                         .collect();
                     for i in 0..pl.len() {
                         for j in (i + 1)..pl.len() {
-                            adj.entry(pl[i].to_owned()).or_default().insert(pl[j].to_owned());
-                            adj.entry(pl[j].to_owned()).or_default().insert(pl[i].to_owned());
+                            adj.entry(pl[i].to_owned())
+                                .or_default()
+                                .insert(pl[j].to_owned());
+                            adj.entry(pl[j].to_owned())
+                                .or_default()
+                                .insert(pl[i].to_owned());
                         }
                     }
                 }
@@ -71035,7 +71068,10 @@ mod tests {
         for (x, y, z) in &configs {
             let old = old_fn(&digraph, x, y, z);
             let new = is_d_separator(&digraph, x, y, z);
-            assert_eq!(old, new, "d-separator integer version must match the string baseline");
+            assert_eq!(
+                old, new,
+                "d-separator integer version must match the string baseline"
+            );
         }
 
         let (tx, ty, tz) = (&configs[0].0, &configs[0].1, &configs[0].2);
@@ -71223,7 +71259,10 @@ mod tests {
 
         let old = build(false);
         let new = build(true);
-        assert_eq!(old, new, "successors_indices immediate_dominators must match the string baseline");
+        assert_eq!(
+            old, new,
+            "successors_indices immediate_dominators must match the string baseline"
+        );
 
         let time = |batch: bool| -> f64 {
             let t0 = Instant::now();
@@ -71369,7 +71408,10 @@ mod tests {
 
         let old = build(false);
         let new = build(true);
-        assert_eq!(old, new, "successors_indices find_cycle must match the string baseline");
+        assert_eq!(
+            old, new,
+            "successors_indices find_cycle must match the string baseline"
+        );
 
         let time = |batch: bool| -> f64 {
             let t0 = Instant::now();
@@ -71517,7 +71559,10 @@ mod tests {
 
         let old = build(false);
         let new = build(true);
-        assert_eq!(old, new, "neighbors_indices find_cycle must match the string baseline");
+        assert_eq!(
+            old, new,
+            "neighbors_indices find_cycle must match the string baseline"
+        );
 
         let time = |batch: bool| -> f64 {
             let t0 = Instant::now();
@@ -71633,7 +71678,10 @@ mod tests {
 
         let old = refine_pass(false);
         let new = refine_pass(true);
-        assert_eq!(old, new, "neighbors_indices refinement must match the string baseline");
+        assert_eq!(
+            old, new,
+            "neighbors_indices refinement must match the string baseline"
+        );
 
         let time = |batch: bool| -> f64 {
             let t0 = Instant::now();
@@ -71760,7 +71808,10 @@ mod tests {
 
         let old = build(false);
         let new = build(true);
-        assert_eq!(old, new, "neighbors_indices BFS must match the string baseline");
+        assert_eq!(
+            old, new,
+            "neighbors_indices BFS must match the string baseline"
+        );
 
         let time = |batch: bool| -> f64 {
             let t0 = Instant::now();
@@ -71842,8 +71893,10 @@ mod tests {
             let n = nodes.len();
             let idx: HashMap<&str, usize> =
                 nodes.iter().enumerate().map(|(i, &nn)| (nn, i)).collect();
-            let group_set: HashSet<usize> =
-                group.iter().filter_map(|g| idx.get(g.as_str()).copied()).collect();
+            let group_set: HashSet<usize> = group
+                .iter()
+                .filter_map(|g| idx.get(g.as_str()).copied())
+                .collect();
             let c = group_set.len();
             if n <= c + 1 {
                 return 0.0;
@@ -71907,7 +71960,11 @@ mod tests {
 
         let old = build(false);
         let new = build(true);
-        assert_eq!(old.to_bits(), new.to_bits(), "neighbors_indices GBC must be ULP-identical");
+        assert_eq!(
+            old.to_bits(),
+            new.to_bits(),
+            "neighbors_indices GBC must be ULP-identical"
+        );
 
         let time = |batch: bool| -> f64 {
             let t0 = Instant::now();
@@ -72062,7 +72119,11 @@ mod tests {
 
         let old = build(false);
         let new = build(true);
-        assert_eq!(old.to_bits(), new.to_bits(), "w_map modularity must be ULP-identical");
+        assert_eq!(
+            old.to_bits(),
+            new.to_bits(),
+            "w_map modularity must be ULP-identical"
+        );
 
         let time = |batch: bool| -> f64 {
             let t0 = Instant::now();
@@ -72183,11 +72244,18 @@ mod tests {
 
         let old = old_fn(&graph);
         let new = new_fn(&graph);
-        assert_eq!(old, new, "bool-row complement_edges must match the has_edge baseline");
+        assert_eq!(
+            old, new,
+            "bool-row complement_edges must match the has_edge baseline"
+        );
 
         let time = |batch: bool| -> f64 {
             let t0 = Instant::now();
-            let r = if batch { new_fn(&graph) } else { old_fn(&graph) };
+            let r = if batch {
+                new_fn(&graph)
+            } else {
+                old_fn(&graph)
+            };
             black_box(r);
             t0.elapsed().as_secs_f64()
         };
@@ -72305,11 +72373,18 @@ mod tests {
 
         let old = old_fn(&digraph);
         let new = new_fn(&digraph);
-        assert_eq!(old, new, "bool-row complement_edges_directed must match the has_edge baseline");
+        assert_eq!(
+            old, new,
+            "bool-row complement_edges_directed must match the has_edge baseline"
+        );
 
         let time = |batch: bool| -> f64 {
             let t0 = Instant::now();
-            let r = if batch { new_fn(&digraph) } else { old_fn(&digraph) };
+            let r = if batch {
+                new_fn(&digraph)
+            } else {
+                old_fn(&digraph)
+            };
             black_box(r);
             t0.elapsed().as_secs_f64()
         };
@@ -72547,7 +72622,11 @@ mod tests {
 
         let time = |cand: bool| -> f64 {
             let t0 = Instant::now();
-            let r = if cand { new_fn(&g1, &g2) } else { old_fn(&g1, &g2) };
+            let r = if cand {
+                new_fn(&g1, &g2)
+            } else {
+                old_fn(&g1, &g2)
+            };
             black_box(r);
             t0.elapsed().as_secs_f64()
         };
@@ -72589,7 +72668,9 @@ mod tests {
                 sorted[rounds * 95 / 100],
             );
         };
-        println!("EORDLEN_AB faster_could_be_isomorphic 10k/100k rounds={rounds} (>1 = edge_count faster)");
+        println!(
+            "EORDLEN_AB faster_could_be_isomorphic 10k/100k rounds={rounds} (>1 = edge_count faster)"
+        );
         report("EDGECOUNT_vs_edgesordered", &paired(true, false));
         report("NULL_edgecount_vs_edgecount", &paired(true, true));
     }
@@ -72650,13 +72731,20 @@ mod tests {
             for (left, right, _attrs) in graph.edges_ordered_borrowed() {
                 if let (Some(&li), Some(&ri)) = (node_to_idx.get(left), node_to_idx.get(right)) {
                     let key = if li <= ri { (li, ri) } else { (ri, li) };
-                    w_map.insert(key, edge_weight_or_default(&graph, left, right, weight_attr));
+                    w_map.insert(
+                        key,
+                        edge_weight_or_default(&graph, left, right, weight_attr),
+                    );
                 }
             }
             w_map
         };
 
-        assert_eq!(old_fn(), new_fn(), "modularity w_map parity (owned vs borrowed)");
+        assert_eq!(
+            old_fn(),
+            new_fn(),
+            "modularity w_map parity (owned vs borrowed)"
+        );
 
         let time = |cand: bool| -> f64 {
             let t0 = Instant::now();
