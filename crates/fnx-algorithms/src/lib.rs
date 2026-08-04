@@ -23940,11 +23940,8 @@ pub fn modularity(
         return Ok(0.0);
     }
 
-    let node_to_idx: HashMap<&str, usize> = nodes
-        .iter()
-        .enumerate()
-        .map(|(i, &nd)| (nd, i))
-        .collect();
+    let node_to_idx: HashMap<&str, usize> =
+        nodes.iter().enumerate().map(|(i, &nd)| (nd, i)).collect();
 
     let mut q = 0.0;
     for comm in communities {
@@ -24774,7 +24771,10 @@ pub fn maximum_independent_set(graph: &Graph) -> Vec<String> {
         }
     }
 
-    let mut result: Vec<String> = independent_set.iter().map(|&i| nodes[i].to_owned()).collect();
+    let mut result: Vec<String> = independent_set
+        .iter()
+        .map(|&i| nodes[i].to_owned())
+        .collect();
     result.sort();
     result
 }
@@ -34075,7 +34075,8 @@ pub fn grid_graph(dim: &[usize]) -> Graph {
     // Add all nodes
     // br-r37-c1-grididxbatch (cc): upgrade the earlier String-pair batch to the INDEX batch. Nodes are
     // added in flat-index order so node i sits at index i; build them all with one extend_nodes_unrecorded.
-    let _ = g.extend_nodes_unrecorded((0..total).map(|i| coords_to_label(&index_to_coords(i, dim))));
+    let _ =
+        g.extend_nodes_unrecorded((0..total).map(|i| coords_to_label(&index_to_coords(i, dim))));
 
     // Add edges: connect nodes that differ by exactly 1 in exactly one dimension. The +1-in-dimension-d
     // neighbour of flat index i is `i + strides[d]` (strides[d] = product of dims after d), so collect
@@ -50653,7 +50654,9 @@ mod tests {
                 if lever {
                     black_box(super::node_degree_xy_directed(&g, "both", "both"));
                 } else {
-                    black_box(super::node_degree_xy_directed_orig_alloc(&g, "both", "both"));
+                    black_box(super::node_degree_xy_directed_orig_alloc(
+                        &g, "both", "both",
+                    ));
                 }
             }
             t0.elapsed().as_secs_f64()
@@ -51729,7 +51732,9 @@ mod tests {
 
         let time = |lever: bool| -> f64 {
             let t0 = Instant::now();
-            black_box(super::greedy_modularity_communities_impl(&g, 1.0, "", lever));
+            black_box(super::greedy_modularity_communities_impl(
+                &g, 1.0, "", lever,
+            ));
             t0.elapsed().as_secs_f64()
         };
         for _ in 0..3 {
@@ -66526,12 +66531,14 @@ mod tests {
             }
             for gn in &g_nodes {
                 for edge in h.edges_ordered() {
-                    let _ = result.add_edge(pair_label(gn, &edge.left), pair_label(gn, &edge.right));
+                    let _ =
+                        result.add_edge(pair_label(gn, &edge.left), pair_label(gn, &edge.right));
                 }
             }
             for hn in &h_nodes {
                 for edge in g.edges_ordered() {
-                    let _ = result.add_edge(pair_label(&edge.left, hn), pair_label(&edge.right, hn));
+                    let _ =
+                        result.add_edge(pair_label(&edge.left, hn), pair_label(&edge.right, hn));
                 }
             }
             result
@@ -66638,12 +66645,14 @@ mod tests {
             }
             for gn in &g_nodes {
                 for edge in h.edges_ordered() {
-                    let _ = result.add_edge(pair_label(gn, &edge.left), pair_label(gn, &edge.right));
+                    let _ =
+                        result.add_edge(pair_label(gn, &edge.left), pair_label(gn, &edge.right));
                 }
             }
             for hn in &h_nodes {
                 for edge in g.edges_ordered() {
-                    let _ = result.add_edge(pair_label(&edge.left, hn), pair_label(&edge.right, hn));
+                    let _ =
+                        result.add_edge(pair_label(&edge.left, hn), pair_label(&edge.right, hn));
                 }
             }
             result
@@ -66922,7 +66931,8 @@ mod tests {
                 .map(|e| (e.left.clone(), e.right.clone()))
                 .collect();
             if batch {
-                let mut edges: Vec<(String, String)> = Vec::with_capacity(g_edges.len() * h_edges.len());
+                let mut edges: Vec<(String, String)> =
+                    Vec::with_capacity(g_edges.len() * h_edges.len());
                 for (gu, gv) in &g_edges {
                     for (hu, hv) in &h_edges {
                         edges.push((pair_label(gu, hu), pair_label(gv, hv)));
@@ -67581,14 +67591,20 @@ mod tests {
         let build = |g: &Graph, mapping: &HashMap<String, String>, batch: bool| -> Graph {
             let mut result = Graph::with_runtime_policy(g.runtime_policy().clone());
             for node in g.nodes_ordered() {
-                let new_label = mapping.get(node).cloned().unwrap_or_else(|| node.to_owned());
+                let new_label = mapping
+                    .get(node)
+                    .cloned()
+                    .unwrap_or_else(|| node.to_owned());
                 let attrs = g.node_attrs(node).cloned().unwrap_or_default();
                 let _ = result.add_node_with_attrs(new_label, attrs);
             }
             if batch {
                 let mut edges: Vec<(String, String, AttrMap)> = Vec::new();
                 for edge in g.edges_ordered() {
-                    let nl = mapping.get(&edge.left).cloned().unwrap_or_else(|| edge.left.clone());
+                    let nl = mapping
+                        .get(&edge.left)
+                        .cloned()
+                        .unwrap_or_else(|| edge.left.clone());
                     let nr = mapping
                         .get(&edge.right)
                         .cloned()
@@ -67598,7 +67614,10 @@ mod tests {
                 let _ = result.extend_edges_with_attrs_unrecorded(edges);
             } else {
                 for edge in g.edges_ordered() {
-                    let nl = mapping.get(&edge.left).cloned().unwrap_or_else(|| edge.left.clone());
+                    let nl = mapping
+                        .get(&edge.left)
+                        .cloned()
+                        .unwrap_or_else(|| edge.left.clone());
                     let nr = mapping
                         .get(&edge.right)
                         .cloned()
@@ -67614,8 +67633,9 @@ mod tests {
         let g_small = complete(20);
         let bijection: HashMap<String, String> =
             (0..20).map(|i| (format!("{i}"), format!("r{i}"))).collect();
-        let merging: HashMap<String, String> =
-            (0..20).map(|i| (format!("{i}"), format!("m{}", i / 2))).collect();
+        let merging: HashMap<String, String> = (0..20)
+            .map(|i| (format!("{i}"), format!("m{}", i / 2)))
+            .collect();
         for mapping in [&bijection, &merging] {
             let old = build(&g_small, mapping, false);
             let new = build(&g_small, mapping, true);
@@ -67710,14 +67730,20 @@ mod tests {
         let build = |g: &DiGraph, mapping: &HashMap<String, String>, batch: bool| -> DiGraph {
             let mut result = DiGraph::with_runtime_policy(g.runtime_policy().clone());
             for node in g.nodes_ordered() {
-                let new_label = mapping.get(node).cloned().unwrap_or_else(|| node.to_owned());
+                let new_label = mapping
+                    .get(node)
+                    .cloned()
+                    .unwrap_or_else(|| node.to_owned());
                 let attrs = g.node_attrs(node).cloned().unwrap_or_default();
                 let _ = result.add_node_with_attrs(new_label, attrs);
             }
             if batch {
                 let mut edges: Vec<(String, String, AttrMap)> = Vec::new();
                 for edge in g.edges_ordered() {
-                    let nl = mapping.get(&edge.left).cloned().unwrap_or_else(|| edge.left.clone());
+                    let nl = mapping
+                        .get(&edge.left)
+                        .cloned()
+                        .unwrap_or_else(|| edge.left.clone());
                     let nr = mapping
                         .get(&edge.right)
                         .cloned()
@@ -67727,7 +67753,10 @@ mod tests {
                 let _ = result.extend_edges_with_attrs_unrecorded(edges);
             } else {
                 for edge in g.edges_ordered() {
-                    let nl = mapping.get(&edge.left).cloned().unwrap_or_else(|| edge.left.clone());
+                    let nl = mapping
+                        .get(&edge.left)
+                        .cloned()
+                        .unwrap_or_else(|| edge.left.clone());
                     let nr = mapping
                         .get(&edge.right)
                         .cloned()
@@ -67741,8 +67770,9 @@ mod tests {
         let g_small = complete(20);
         let bijection: HashMap<String, String> =
             (0..20).map(|i| (format!("{i}"), format!("r{i}"))).collect();
-        let merging: HashMap<String, String> =
-            (0..20).map(|i| (format!("{i}"), format!("m{}", i / 2))).collect();
+        let merging: HashMap<String, String> = (0..20)
+            .map(|i| (format!("{i}"), format!("m{}", i / 2)))
+            .collect();
         for mapping in [&bijection, &merging] {
             let old = build(&g_small, mapping, false);
             let new = build(&g_small, mapping, true);
@@ -70323,7 +70353,11 @@ mod tests {
 
         let old = build(false);
         let new = build(true);
-        assert_eq!(old.to_bits(), new.to_bits(), "modularity fold must be ULP-identical");
+        assert_eq!(
+            old.to_bits(),
+            new.to_bits(),
+            "modularity fold must be ULP-identical"
+        );
 
         let time = |batch: bool| -> f64 {
             let t0 = Instant::now();

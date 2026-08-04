@@ -2379,7 +2379,11 @@ impl MultiGraph {
         // pickle round-trip) does NOT bump `revision`, so the revision-keyed int-adjacency
         // memo would otherwise serve stale row order. Drop it explicitly here — this is the
         // only adjacency mutator that changes order without a content (revision) bump.
-        *self.int_adj_cache.0.get_mut().expect("int_adj_cache poisoned") = None;
+        *self
+            .int_adj_cache
+            .0
+            .get_mut()
+            .expect("int_adj_cache poisoned") = None;
     }
 
     #[must_use]
@@ -2527,15 +2531,17 @@ impl MultiGraph {
         self.nodes
             .keys()
             .map(|name| {
-                self.adjacency.get(name.as_str()).map_or_else(Vec::new, |row| {
-                    row.keys()
-                        .map(|v| {
-                            self.nodes
-                                .get_index_of(v.as_str())
-                                .expect("adjacency neighbor must be a live node")
-                        })
-                        .collect()
-                })
+                self.adjacency
+                    .get(name.as_str())
+                    .map_or_else(Vec::new, |row| {
+                        row.keys()
+                            .map(|v| {
+                                self.nodes
+                                    .get_index_of(v.as_str())
+                                    .expect("adjacency neighbor must be a live node")
+                            })
+                            .collect()
+                    })
             })
             .collect()
     }
@@ -2558,7 +2564,11 @@ impl MultiGraph {
         }
         let adj = self.build_int_adjacency();
         let result = f(&adj);
-        *self.int_adj_cache.0.write().expect("int_adj_cache poisoned") = Some((self.revision, adj));
+        *self
+            .int_adj_cache
+            .0
+            .write()
+            .expect("int_adj_cache poisoned") = Some((self.revision, adj));
         result
     }
 
@@ -3653,7 +3663,8 @@ mod tests {
             .collect();
         g.with_int_adjacency(|adj| {
             assert_eq!(
-                adj, expected.as_slice(),
+                adj,
+                expected.as_slice(),
                 "int adjacency must mirror the String adjacency exactly"
             );
         });
