@@ -128,7 +128,7 @@ def test_weighted_metrics_scale_linearly(c, seed):
     )
 
 
-@pytest.mark.parametrize("k", [1, 5, 11])
+@pytest.mark.parametrize("k", [-11, -1, 1, 5, 11])
 @pytest.mark.parametrize("seed", range(30))
 def test_spanning_tree_outputs_shift_uniformly(k, seed):
     res = _connected_weighted(seed, distinct=True)
