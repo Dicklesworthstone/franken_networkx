@@ -16,6 +16,7 @@ fnx-generators = { version = "0.2.0", path = "../fnx-generators" }
 fnx-readwrite = { version = "0.2.0", path = "../fnx-readwrite" }
 fnx-runtime = { version = "0.2.0", path = "../fnx-runtime" }
 fnx-views = { version = "0.2.0", path = "../fnx-views" }
+pyo3 = { version = "0.28.3", features = ["auto-initialize"] }
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.149"
 
@@ -26,6 +27,10 @@ path = "src/bin/mine_counter_examples.rs"
 [[bin]]
 name = "dedupe_regressions"
 path = "src/bin/dedupe_regressions.rs"
+
+[[bin]]
+name = "feature_behavioral_oracle"
+path = "src/bin/feature_behavioral_oracle.rs"
 
 [dev-dependencies]
 proptest = "1.11.0"

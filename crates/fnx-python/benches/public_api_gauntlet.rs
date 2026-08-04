@@ -1,9 +1,28 @@
 #![forbid(unsafe_code)]
 
-use criterion::{BenchmarkId, Criterion, SamplingMode, criterion_group, criterion_main};
+use criterion::{BenchmarkId, Criterion, SamplingMode, criterion_group};
 use pyo3::types::PyAnyMethods;
 use pyo3::{Bound, Py, PyAny, Python};
+use sha2::{Digest, Sha256};
 use std::time::{Duration, Instant};
+
+/// SHA-256 of this benchmark executable, reported by the process that runs it.
+fn self_identity() -> String {
+    let Ok(path) = std::env::current_exe() else {
+        return "unavailable".to_owned();
+    };
+    let Ok(bytes) = std::fs::read(&path) else {
+        return "unavailable".to_owned();
+    };
+    let mut hasher = Sha256::new();
+    hasher.update(&bytes);
+    format!(
+        "{:x} ({} bytes) {}",
+        hasher.finalize(),
+        bytes.len(),
+        path.display()
+    )
+}
 
 #[derive(Debug, Eq, PartialEq)]
 struct BidirectionalOutput {
@@ -852,4 +871,52 @@ if target_dir:
 }
 
 criterion_group!(benches, bench_public_api_gauntlet);
-criterion_main!(benches);
+
+fn run_python_perf_harness_if_requested() -> Option<i32> {
+    let suite = std::env::var_os("FNX_PYTHON_PERF_SUITE")?;
+    let cpu = std::env::var_os("FNX_PYTHON_PERF_CPU")
+        .expect("FNX_PYTHON_PERF_CPU must pin the Python harness to one CPU");
+    let repo_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .and_then(std::path::Path::parent)
+        .expect("fnx-python crate must live under crates/");
+    let mut command = std::process::Command::new("taskset");
+    command
+        .arg("--cpu-list")
+        .arg(cpu)
+        .arg("python3")
+        .arg(repo_root.join("scripts/perf_harness.py"))
+        .arg(suite)
+        .current_dir(repo_root);
+    if std::env::var_os("FNX_EXTENSION_PATH").is_none() {
+        let bench_executable =
+            std::env::current_exe().expect("Python performance bench executable must have a path");
+        let extension = bench_executable
+            .parent()
+            .expect("Python performance bench executable must have a parent")
+            .join(format!(
+                "{}_fnx{}",
+                std::env::consts::DLL_PREFIX,
+                std::env::consts::DLL_SUFFIX
+            ));
+        assert!(
+            extension.is_file(),
+            "same-build Python extension is missing: {}",
+            extension.display()
+        );
+        command.env("FNX_EXTENSION_PATH", extension);
+    }
+    let status = command
+        .status()
+        .expect("failed to launch the Python performance harness through taskset");
+    Some(status.code().unwrap_or(1))
+}
+
+fn main() {
+    if let Some(exit_code) = run_python_perf_harness_if_requested() {
+        std::process::exit(exit_code);
+    }
+    println!("bench_elf_sha256={}", self_identity());
+    benches();
+    Criterion::default().configure_from_args().final_summary();
+}

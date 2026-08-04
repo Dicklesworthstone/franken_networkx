@@ -40,6 +40,11 @@ DOCS_DIR = REPO_ROOT / "docs"
 # the dict for future review.
 TRIAGE = {
     # ---- keep-public-api: wrapper uses a different path on purpose ----
+    "_raw_out_degree_centrality": ("keep-public-api",
+        "br-r37-c1-idcnative (cc): the wrapper re-implements nx's verbatim "
+        "{n: d*s} dict-comp over the out_degree view — byte-exact and 1.23x; "
+        "the Rust kernel's PyO3 dict-build is slower AND ULP-drifts from nx "
+        "(same reasoning as the in_degree_centrality wrapper)"),
     "_raw_symmetric_difference": ("keep-public-api",
         "br-r37-c1-aun4c: wrapper replicates installed nx verbatim in "
         "Python (check sequence, with_data=False copy depth, batched "

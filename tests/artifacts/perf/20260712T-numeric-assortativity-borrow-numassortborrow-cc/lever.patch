@@ -1,0 +1,165 @@
+diff --git a/crates/fnx-algorithms/src/lib.rs b/crates/fnx-algorithms/src/lib.rs
+index 5ad27477e..68587d941 100644
+--- a/crates/fnx-algorithms/src/lib.rs
++++ b/crates/fnx-algorithms/src/lib.rs
+@@ -40605,14 +40605,20 @@ pub fn numeric_assortativity_coefficient(graph: &Graph, attribute: &str) -> f64
+     // Build mixing matrix (normalized) — count both directions for undirected
+     let mut counts = vec![vec![0usize; k]; k];
+     let mut total = 0usize;
+-    for edge in graph.edges_ordered() {
++    // br-r37-c1-numassortborrow (cc): edges_ordered_borrowed() yields (&str, &str, &AttrMap) — zero
++    // per-edge allocation — instead of edges_ordered() which clones two owned Strings + an AttrMap per
++    // edge. This loop only reads the endpoint NAMES (node_attrs lookups) and never keeps the owned edge
++    // data, so the borrow is byte-identical (same edges, same walk order, same names → same x/y_bits →
++    // same counts → ULP-identical coefficient). Cheap per-edge work (u64 map lookup + array increment),
++    // so the clone saving is undiluted.
++    for (left, right, _attrs) in graph.edges_ordered_borrowed() {
+         let x_bits = graph
+-            .node_attrs(&edge.left)
++            .node_attrs(left)
+             .and_then(|a| a.get(attribute))
+             .map(|v| v.as_f64().unwrap_or(0.0).to_bits())
+             .unwrap_or(0u64);
+         let y_bits = graph
+-            .node_attrs(&edge.right)
++            .node_attrs(right)
+             .and_then(|a| a.get(attribute))
+             .map(|v| v.as_f64().unwrap_or(0.0).to_bits())
+             .unwrap_or(0u64);
+@@ -49203,6 +49209,136 @@ mod tests {
+         report("NULL_borrowed_vs_borrowed", &paired(true, true));
+     }
+ 
++    /// br-r37-c1-numassortborrow: paired-interleaved median A/B for `numeric_assortativity_coefficient`'s
++    /// counts-accumulation edge loop — edges_ordered() vs edges_ordered_borrowed(). BOTH arms do the
++    /// identical node_attrs lookups + u64 val_idx probe + counts[][] increments; they differ ONLY in
++    /// owned vs borrowed edge iteration. Cheap per-edge work (no String map inserts) so the clone is
++    /// undiluted → expected to clear the strict gate. Output counts-matrix parity asserted first.
++    /// `#[ignore]`; run with
++    /// `cargo test --release -p fnx-algorithms --lib numeric_assort_borrow_ab -- --ignored --nocapture`.
++    #[test]
++    #[ignore = "measurement; run with --release --ignored --nocapture"]
++    fn numeric_assort_borrow_ab() {
++        use fnx_classes::AttrMap;
++        use fnx_runtime::CgseValue;
++        use std::hint::black_box;
++        use std::time::Instant;
++
++        let n_nodes = 10000usize;
++        let attribute = "val";
++        let k = 5usize;
++        let mut g = Graph::strict();
++        for i in 0..n_nodes {
++            let mut attrs = AttrMap::new();
++            attrs.insert(attribute.to_owned(), CgseValue::Int((i % k) as i64));
++            let _ = g.add_node_with_attrs(i.to_string(), attrs);
++        }
++        for i in 0..n_nodes {
++            for step in 1..=40usize {
++                let _ = g.add_edge(i.to_string(), ((i + step) % n_nodes).to_string());
++            }
++        }
++        // val_idx over the k distinct value bit-patterns (0..k as f64).
++        let val_idx: std::collections::HashMap<u64, usize> = (0..k)
++            .map(|i| ((i as f64).to_bits(), i))
++            .collect();
++
++        let old_fn = |g: &Graph| -> Vec<Vec<usize>> {
++            let mut counts = vec![vec![0usize; k]; k];
++            for edge in g.edges_ordered() {
++                let x_bits = g
++                    .node_attrs(&edge.left)
++                    .and_then(|a| a.get(attribute))
++                    .map(|v| v.as_f64().unwrap_or(0.0).to_bits())
++                    .unwrap_or(0u64);
++                let y_bits = g
++                    .node_attrs(&edge.right)
++                    .and_then(|a| a.get(attribute))
++                    .map(|v| v.as_f64().unwrap_or(0.0).to_bits())
++                    .unwrap_or(0u64);
++                if let (Some(&xi), Some(&yi)) = (val_idx.get(&x_bits), val_idx.get(&y_bits)) {
++                    counts[xi][yi] += 1;
++                    counts[yi][xi] += 1;
++                }
++            }
++            counts
++        };
++        let new_fn = |g: &Graph| -> Vec<Vec<usize>> {
++            let mut counts = vec![vec![0usize; k]; k];
++            for (left, right, _attrs) in g.edges_ordered_borrowed() {
++                let x_bits = g
++                    .node_attrs(left)
++                    .and_then(|a| a.get(attribute))
++                    .map(|v| v.as_f64().unwrap_or(0.0).to_bits())
++                    .unwrap_or(0u64);
++                let y_bits = g
++                    .node_attrs(right)
++                    .and_then(|a| a.get(attribute))
++                    .map(|v| v.as_f64().unwrap_or(0.0).to_bits())
++                    .unwrap_or(0u64);
++                if let (Some(&xi), Some(&yi)) = (val_idx.get(&x_bits), val_idx.get(&y_bits)) {
++                    counts[xi][yi] += 1;
++                    counts[yi][xi] += 1;
++                }
++            }
++            counts
++        };
++
++        assert_eq!(
++            old_fn(&g),
++            new_fn(&g),
++            "numeric_assortativity counts owned vs borrowed must be byte-identical"
++        );
++
++        let time = |cand: bool| -> f64 {
++            let t0 = Instant::now();
++            let r = if cand { new_fn(&g) } else { old_fn(&g) };
++            black_box(&r);
++            t0.elapsed().as_secs_f64()
++        };
++        for _ in 0..3 {
++            black_box(time(true));
++            black_box(time(false));
++        }
++        let median = |v: &[f64]| {
++            let mut s = v.to_vec();
++            s.sort_by(|a, b| a.partial_cmp(b).unwrap());
++            s[s.len() / 2]
++        };
++        let rounds = 61usize;
++        let paired = |cand: bool, base_arm: bool| -> Vec<f64> {
++            let mut v = Vec::with_capacity(rounds);
++            for round in 0..rounds {
++                let (tb, tc) = if round.is_multiple_of(2) {
++                    let bt = time(base_arm);
++                    let ct = time(cand);
++                    (bt, ct)
++                } else {
++                    let ct = time(cand);
++                    let bt = time(base_arm);
++                    (bt, ct)
++                };
++                v.push(tb / tc);
++            }
++            v
++        };
++        let report = |name: &str, ratios: &[f64]| {
++            let wins = ratios.iter().filter(|&&r| r > 1.0).count();
++            let mut sorted = ratios.to_vec();
++            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
++            println!(
++                "NUMASSORTBORROW_AB {name}: median={:.4}x win_rate={wins}/{rounds} \
++                 p5_p95=[{:.4},{:.4}]",
++                median(ratios),
++                sorted[rounds * 5 / 100],
++                sorted[rounds * 95 / 100],
++            );
++        };
++        println!("NUMASSORTBORROW_AB numeric_assortativity 10k/400k rounds={rounds} (>1 = borrowed faster)");
++        report("BORROWED_vs_owned", &paired(true, false));
++        report("NULL_borrowed_vs_borrowed", &paired(true, true));
++    }
++
+     /// br-r37-c1-ra004: paired-interleaved median A/B for the `neighbor_count`
+     /// no-alloc lever on `bfs_beam_edges` (one per-candidate-neighbor `Vec<&str>`
+     /// degree allocation removed from the BFS inner loop), against its exact

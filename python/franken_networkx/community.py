@@ -320,30 +320,15 @@ def greedy_modularity_communities(
 ):
     """Find communities using Clauset-Newman-Moore greedy modularity.
 
-    br-r37-c1-wxy3x: the re-exported NetworkX implementation walks fnx
-    adjacency views in the hot heap-update loop. The concrete simple,
-    unweighted, no-self-loop default case can use the native CNM kernel after
-    its NetworkX delta-Q scaling, zero-gain merge, and tie-survivor semantics
-    were aligned. Weighted graphs, custom cutoffs, and non-simple graph
-    variants delegate to NetworkX.
+    br-r37-c1-z4rnj: the native CNM route can find a higher-modularity
+    partition than NetworkX after choosing a different equal-gain merge.
+    That is a behavioral divergence even though both results are valid.
+    Delegate the public surface to NetworkX until the native heap-update and
+    tie-survivor sequence is proven exact over a substantially broader corpus.
     """
     _fnx._validate_backend_dispatch_keywords(
         "greedy_modularity_communities", backend, backend_kwargs
     )
-    if (
-        type(G) is _fnx.Graph
-        and weight is None
-        and resolution == 1
-        and cutoff == 1
-        and best_n is None
-        and G.number_of_edges() > 0
-        and _fnx.number_of_selfloops(G) == 0
-    ):
-        return [
-            frozenset(community)
-            for community in _fnx._raw_greedy_modularity_communities(G, resolution, "")
-        ]
-
     graph = _fnx._networkx_graph_for_parity(G) if isinstance(
         G, (_fnx.Graph, _fnx.DiGraph, _fnx.MultiGraph, _fnx.MultiDiGraph)
     ) else G

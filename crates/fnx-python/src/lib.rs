@@ -19,12 +19,13 @@ pub use readwrite::{RawNodeLinkError, RawNodeLinkReport, parse_raw_node_link_jso
 use fnx_classes::{AttrMap, Graph, MultiGraph};
 use fnx_runtime::{CgseValue, CompatibilityMode, RuntimePolicy};
 use pyo3::exceptions::{PyKeyError, PyRuntimeError, PyTypeError, PyValueError};
+use pyo3::gc::{PyTraverseError, PyVisit};
 use pyo3::marker::Ungil;
 use pyo3::prelude::*;
 use pyo3::types::{PyAny, PyBool, PyDict, PyFloat, PyInt, PyIterator, PyList, PyString, PyTuple};
 use std::collections::{HashMap, HashSet};
 use std::convert::Infallible;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
 pub(crate) type PyObject = Py<PyAny>;
 
@@ -213,19 +214,632 @@ pub(crate) fn fnx_graph_instance_mode(data: &Bound<'_, PyAny>) -> Option<Compati
 /// Peak transient memory grows by the drained item vector (~64 B/edge) for
 /// iterator inputs, which is small against fnx's per-edge steady-state
 /// (String keys + AttrMap + mirror dict).
-fn materialize_iterator_edge_list<'py>(
+pub(crate) struct MaterializedIteratorEdgeList<'py> {
+    pub(crate) items: Bound<'py, PyAny>,
+    graph_exact_int_attr_batch: Option<IndexedAttrEdgeBatch>,
+    pub(crate) multidigraph_exact_int_str_keyed_batch: Option<MultiDiGraphExactIntStrKeyedBatch>,
+}
+
+#[cfg(test)]
+pub(crate) static FORCE_MULTIDIGRAPH_CTOR_KEYED_STREAMING: AtomicBool = AtomicBool::new(false);
+
+#[cfg(test)]
+pub(crate) static FORCE_MULTIDIGRAPH_CTOR_KEYED_STRING_STAGE: AtomicBool = AtomicBool::new(false);
+
+#[cfg(test)]
+pub(crate) static FORCE_MULTIDIGRAPH_CTOR_KEYED_STRING_MIRRORS: AtomicBool = AtomicBool::new(false);
+
+pub(crate) enum MultiDiGraphExactIntStrKeyedNativeBatch {
+    String {
+        node_entries: Vec<(String, PyObject)>,
+        edges: Vec<(String, String, usize, AttrMap)>,
+    },
+    Indexed {
+        node_labels: Vec<String>,
+        node_objects: Vec<PyObject>,
+        edges: Vec<(usize, usize, usize, AttrMap)>,
+    },
+}
+
+pub(crate) struct MultiDiGraphExactIntStrKeyedIndexedMirror {
+    pub(crate) u_index: usize,
+    pub(crate) v_index: usize,
+    pub(crate) internal_key: usize,
+    pub(crate) attrs: Py<PyDict>,
+    pub(crate) key: PyObject,
+}
+
+pub(crate) enum MultiDiGraphExactIntStrKeyedMirrorBatch {
+    String {
+        edge_attrs: HashMap<(String, String, usize), Py<PyDict>>,
+        edge_keys: HashMap<(String, String, usize), PyObject>,
+    },
+    Indexed(Vec<MultiDiGraphExactIntStrKeyedIndexedMirror>),
+}
+
+pub(crate) struct MultiDiGraphExactIntStrKeyedBatch {
+    pub(crate) native: MultiDiGraphExactIntStrKeyedNativeBatch,
+    pub(crate) mirrors: MultiDiGraphExactIntStrKeyedMirrorBatch,
+}
+
+#[derive(Default)]
+struct MultiDiGraphExactIntStrKeyedStage {
+    force_string_stage: bool,
+    force_string_mirrors: bool,
+    node_seen: HashSet<String>,
+    node_entries: Vec<(String, PyObject)>,
+    occupied_keys: HashMap<(String, String), HashSet<usize>>,
+    public_to_internal: HashMap<(String, String, String), usize>,
+    edges: Vec<(String, String, usize, AttrMap)>,
+    node_indices: HashMap<i64, usize>,
+    node_labels: Vec<String>,
+    node_objects: Vec<PyObject>,
+    indexed_occupied_keys: HashMap<(usize, usize), HashSet<usize>>,
+    indexed_public_to_internal: HashMap<(usize, usize, String), (usize, usize)>,
+    indexed_edges: Vec<(usize, usize, usize, AttrMap)>,
+    indexed_mirrors: Vec<MultiDiGraphExactIntStrKeyedIndexedMirror>,
+    edge_attrs: HashMap<(String, String, usize), Py<PyDict>>,
+    edge_keys: HashMap<(String, String, usize), PyObject>,
+}
+
+impl MultiDiGraphExactIntStrKeyedStage {
+    fn new() -> Self {
+        #[cfg(test)]
+        let force_string_stage = FORCE_MULTIDIGRAPH_CTOR_KEYED_STRING_STAGE.load(Ordering::Relaxed);
+        #[cfg(test)]
+        let force_string_mirrors = force_string_stage
+            || FORCE_MULTIDIGRAPH_CTOR_KEYED_STRING_MIRRORS.load(Ordering::Relaxed);
+        #[cfg(not(test))]
+        let force_string_stage = false;
+        #[cfg(not(test))]
+        let force_string_mirrors = false;
+        Self {
+            force_string_stage,
+            force_string_mirrors,
+            ..Self::default()
+        }
+    }
+
+    fn accepts(item: &Bound<'_, PyAny>) -> bool {
+        let Ok(tuple) = item.downcast::<PyTuple>() else {
+            return false;
+        };
+        if !matches!(tuple.len(), 3 | 4) {
+            return false;
+        }
+        let keyed = tuple
+            .get_item(0)
+            .is_ok_and(|u| u.is_exact_instance_of::<PyInt>())
+            && tuple
+                .get_item(1)
+                .is_ok_and(|v| v.is_exact_instance_of::<PyInt>())
+            && tuple
+                .get_item(2)
+                .is_ok_and(|key| key.is_exact_instance_of::<PyString>());
+        keyed
+            && (tuple.len() == 3
+                || tuple.get_item(3).is_ok_and(|attrs| {
+                    attrs.is_exact_instance_of::<PyDict>()
+                        && attrs
+                            .downcast::<PyDict>()
+                            .is_ok_and(attr_dict_is_batch_lossless)
+                }))
+    }
+
+    fn push<'py>(
+        &mut self,
+        py: Python<'py>,
+        item: &Bound<'py, PyAny>,
+    ) -> PyResult<Option<Bound<'py, PyAny>>> {
+        if !Self::accepts(item) {
+            return Ok(None);
+        }
+        let tuple = item.downcast::<PyTuple>()?;
+        let u = tuple.get_item(0)?;
+        let v = tuple.get_item(1)?;
+        let key = tuple.get_item(2)?;
+        let Ok(u_value) = u.extract::<i64>() else {
+            return Ok(None);
+        };
+        let Ok(v_value) = v.extract::<i64>() else {
+            return Ok(None);
+        };
+        // br-r37-c1-e2pw9: attributed true-iterator rows must snapshot the
+        // source dict at yield time. If a later row leaves the typed region,
+        // the normalized tuple below is replayed through the frozen one-shot
+        // route, so a generator that reuses one mutable dict keeps the same
+        // per-yield values as NetworkX.
+        let (normalized, rust_attrs, attrs) = if tuple.len() == 4 {
+            let fourth = tuple.get_item(3)?;
+            let source_attrs = fourth.downcast::<PyDict>()?;
+            let attrs = source_attrs.copy()?;
+            let normalized = PyTuple::new(
+                py,
+                [u.clone(), v.clone(), key.clone(), attrs.clone().into_any()],
+            )?
+            .into_any();
+            if !attr_dict_is_batch_lossless(&attrs) {
+                return Ok(None);
+            }
+            let Ok(rust_attrs) = py_dict_to_attr_map(&attrs) else {
+                return Ok(None);
+            };
+            (normalized, rust_attrs, Some(attrs))
+        } else {
+            (item.clone(), AttrMap::new(), None)
+        };
+
+        // Do not mutate the stage before every fallible discriminator has
+        // cleared; a declined row must leave the already-staged prefix
+        // replayable by the frozen fallback.
+        let public_lookup = edge_key_lookup_string(py, &key)?;
+        let (internal_key, string_mirror_key, indexed_mirror_index) = if self.force_string_stage {
+            let u_canonical = u_value.to_string();
+            let v_canonical = v_value.to_string();
+            if self.node_seen.insert(u_canonical.clone()) {
+                self.node_entries.push((u_canonical.clone(), u.unbind()));
+            }
+            if self.node_seen.insert(v_canonical.clone()) {
+                self.node_entries.push((v_canonical.clone(), v.unbind()));
+            }
+
+            let pair = (u_canonical.clone(), v_canonical.clone());
+            let lookup_key = (pair.0.clone(), pair.1.clone(), public_lookup);
+            let internal_key = if let Some(existing) = self.public_to_internal.get(&lookup_key) {
+                *existing
+            } else {
+                let occupied = self.occupied_keys.entry(pair).or_default();
+                let mut candidate = occupied.len();
+                while occupied.contains(&candidate) {
+                    candidate += 1;
+                }
+                occupied.insert(candidate);
+                self.public_to_internal.insert(lookup_key, candidate);
+                candidate
+            };
+            self.edges.push((
+                u_canonical.clone(),
+                v_canonical.clone(),
+                internal_key,
+                rust_attrs,
+            ));
+            (internal_key, Some((u_canonical, v_canonical)), None)
+        } else {
+            let u_index = match self.node_indices.get(&u_value).copied() {
+                Some(index) => index,
+                None => {
+                    let index = self.node_labels.len();
+                    self.node_indices.insert(u_value, index);
+                    self.node_labels.push(u_value.to_string());
+                    self.node_objects.push(u.unbind());
+                    index
+                }
+            };
+            let v_index = match self.node_indices.get(&v_value).copied() {
+                Some(index) => index,
+                None => {
+                    let index = self.node_labels.len();
+                    self.node_indices.insert(v_value, index);
+                    self.node_labels.push(v_value.to_string());
+                    self.node_objects.push(v.unbind());
+                    index
+                }
+            };
+            let pair = (u_index, v_index);
+            let lookup_key = (u_index, v_index, public_lookup);
+            let (internal_key, mirror_index) =
+                if let Some(existing) = self.indexed_public_to_internal.get(&lookup_key) {
+                    *existing
+                } else {
+                    let occupied = self.indexed_occupied_keys.entry(pair).or_default();
+                    let mut candidate = occupied.len();
+                    while occupied.contains(&candidate) {
+                        candidate += 1;
+                    }
+                    occupied.insert(candidate);
+                    let mirror_index = if self.force_string_mirrors {
+                        usize::MAX
+                    } else {
+                        self.indexed_mirrors.len()
+                    };
+                    self.indexed_public_to_internal
+                        .insert(lookup_key, (candidate, mirror_index));
+                    (candidate, mirror_index)
+                };
+            self.indexed_edges
+                .push((u_index, v_index, internal_key, rust_attrs));
+            let string_mirror_key = self.force_string_mirrors.then(|| {
+                (
+                    self.node_labels[u_index].clone(),
+                    self.node_labels[v_index].clone(),
+                )
+            });
+            let indexed_mirror_index =
+                (!self.force_string_mirrors).then_some((u_index, v_index, mirror_index));
+            (internal_key, string_mirror_key, indexed_mirror_index)
+        };
+
+        if let Some((u_canonical, v_canonical)) = string_mirror_key {
+            let edge_key = (u_canonical, v_canonical, internal_key);
+            let py_attrs = self
+                .edge_attrs
+                .entry(edge_key.clone())
+                .or_insert_with(|| PyDict::new(py).unbind());
+            if let Some(attrs) = attrs {
+                py_attrs.bind(py).update(attrs.as_mapping())?;
+            }
+            self.edge_keys
+                .entry(edge_key)
+                .or_insert_with(|| key.unbind());
+        } else {
+            let (u_index, v_index, mirror_index) =
+                indexed_mirror_index.expect("indexed mirror stage must retain its row index");
+            if mirror_index == self.indexed_mirrors.len() {
+                self.indexed_mirrors
+                    .push(MultiDiGraphExactIntStrKeyedIndexedMirror {
+                        u_index,
+                        v_index,
+                        internal_key,
+                        attrs: PyDict::new(py).unbind(),
+                        key: key.unbind(),
+                    });
+            }
+            if let Some(attrs) = attrs {
+                self.indexed_mirrors[mirror_index]
+                    .attrs
+                    .bind(py)
+                    .update(attrs.as_mapping())?;
+            }
+        }
+        Ok(Some(normalized))
+    }
+
+    fn into_batch(self) -> Option<MultiDiGraphExactIntStrKeyedBatch> {
+        const KEYED_EDGE_BATCH_MIN: usize = 8;
+        let edge_count = if self.force_string_stage {
+            self.edges.len()
+        } else {
+            self.indexed_edges.len()
+        };
+        if edge_count < KEYED_EDGE_BATCH_MIN {
+            return None;
+        }
+        let native = if self.force_string_stage {
+            MultiDiGraphExactIntStrKeyedNativeBatch::String {
+                node_entries: self.node_entries,
+                edges: self.edges,
+            }
+        } else {
+            MultiDiGraphExactIntStrKeyedNativeBatch::Indexed {
+                node_labels: self.node_labels,
+                node_objects: self.node_objects,
+                edges: self.indexed_edges,
+            }
+        };
+        let mirrors = if self.force_string_mirrors {
+            MultiDiGraphExactIntStrKeyedMirrorBatch::String {
+                edge_attrs: self.edge_attrs,
+                edge_keys: self.edge_keys,
+            }
+        } else {
+            MultiDiGraphExactIntStrKeyedMirrorBatch::Indexed(self.indexed_mirrors)
+        };
+        Some(MultiDiGraphExactIntStrKeyedBatch { native, mirrors })
+    }
+}
+
+struct GraphExactIntAttrRow {
+    u_value: i64,
+    v_value: i64,
+    u_object: PyObject,
+    v_object: PyObject,
+    attrs: AttrMap,
+    mirror: Option<Py<PyDict>>,
+}
+
+#[derive(Default)]
+struct GraphExactIntAttrStage {
+    rows: Vec<GraphExactIntAttrRow>,
+    seen_edges: HashSet<(i64, i64)>,
+}
+
+impl GraphExactIntAttrStage {
+    fn push(&mut self, row: GraphExactIntAttrRow) -> bool {
+        let edge = if row.u_value <= row.v_value {
+            (row.u_value, row.v_value)
+        } else {
+            (row.v_value, row.u_value)
+        };
+        if !self.seen_edges.insert(edge) {
+            return false;
+        }
+        self.rows.push(row);
+        true
+    }
+
+    fn into_batch(self) -> Option<IndexedAttrEdgeBatch> {
+        const ATTR_EDGE_BATCH_MIN: usize = 8;
+        if self.rows.len() < ATTR_EDGE_BATCH_MIN {
+            return None;
+        }
+
+        let node_capacity = self.rows.len().saturating_mul(2);
+        let mut node_indices: HashMap<i64, usize> = HashMap::with_capacity(node_capacity);
+        let mut node_labels = Vec::with_capacity(node_capacity);
+        let mut node_objects = Vec::with_capacity(node_capacity);
+        let mut edges = Vec::with_capacity(self.rows.len());
+        let mut node_bumps = 0_u64;
+        for row in self.rows {
+            let mut edge_added_node = false;
+            let u_index = match node_indices.get(&row.u_value).copied() {
+                Some(index) => index,
+                None => {
+                    let index = node_labels.len();
+                    node_indices.insert(row.u_value, index);
+                    node_labels.push(row.u_value.to_string());
+                    node_objects.push(row.u_object);
+                    edge_added_node = true;
+                    index
+                }
+            };
+            let v_index = match node_indices.get(&row.v_value).copied() {
+                Some(index) => index,
+                None => {
+                    let index = node_labels.len();
+                    node_indices.insert(row.v_value, index);
+                    node_labels.push(row.v_value.to_string());
+                    node_objects.push(row.v_object);
+                    edge_added_node = true;
+                    index
+                }
+            };
+            if edge_added_node {
+                node_bumps = node_bumps.wrapping_add(1);
+            }
+            edges.push((u_index, v_index, row.attrs, row.mirror));
+        }
+        Some((node_labels, node_objects, edges, node_bumps))
+    }
+}
+
+fn normalize_graph_exact_int_attr_row<'py>(
+    py: Python<'py>,
+    item: &Bound<'py, PyAny>,
+) -> PyResult<Option<(Bound<'py, PyAny>, Option<GraphExactIntAttrRow>)>> {
+    if item.len().ok() != Some(3) {
+        return Ok(None);
+    }
+    let u = item.get_item(0)?;
+    let v = item.get_item(1)?;
+    if !u.is_exact_instance_of::<PyInt>()
+        || !v.is_exact_instance_of::<PyInt>()
+        || u.is_exact_instance_of::<PyBool>()
+        || v.is_exact_instance_of::<PyBool>()
+    {
+        return Ok(None);
+    }
+    let Ok(u_value) = u.extract::<i64>() else {
+        return Ok(None);
+    };
+    let Ok(v_value) = v.extract::<i64>() else {
+        return Ok(None);
+    };
+    let third = item.get_item(2)?;
+    let Ok(source_attrs) = third.downcast::<PyDict>() else {
+        return Ok(None);
+    };
+    let attrs = source_attrs.copy()?;
+    let normalized = PyTuple::new(py, [u.clone(), v.clone(), attrs.clone().into_any()])?.into_any();
+    if !attr_dict_is_batch_lossless(&attrs) {
+        return Ok(Some((normalized, None)));
+    }
+    let Ok(rust_attrs) = py_dict_to_attr_map(&attrs) else {
+        return Ok(Some((normalized, None)));
+    };
+    if rust_attrs
+        .keys()
+        .any(|key| key.starts_with("__fnx_incompatible"))
+    {
+        return Ok(Some((normalized, None)));
+    }
+    let mirror = (attrs.len() >= 2).then(|| attrs.unbind());
+    Ok(Some((
+        normalized,
+        Some(GraphExactIntAttrRow {
+            u_value,
+            v_value,
+            u_object: u.unbind(),
+            v_object: v.unbind(),
+            attrs: rust_attrs,
+            mirror,
+        }),
+    )))
+}
+
+pub(crate) fn materialize_iterator_edge_list<'py>(
     py: Python<'py>,
     data: &Bound<'py, PyAny>,
-) -> PyResult<Option<Bound<'py, PyList>>> {
+    is_multi: bool,
+    preserve_exact_tuple_stream: bool,
+    collect_graph_exact_int_attrs: bool,
+) -> PyResult<Option<MaterializedIteratorEdgeList<'py>>> {
     if !data.hasattr("__next__")? {
         return Ok(None);
     }
-    let iter = PyIterator::from_object(data)?;
-    let mut items: Vec<Bound<'py, PyAny>> = Vec::new();
-    for item in iter {
-        items.push(snapshot_iterator_edge_item(py, item?)?);
+
+    let mut iter = PyIterator::from_object(data)?;
+    let Some(first) = iter.next() else {
+        return Ok(Some(MaterializedIteratorEdgeList {
+            items: PyList::empty(py).into_any(),
+            graph_exact_int_attr_batch: None,
+            multidigraph_exact_int_str_keyed_batch: None,
+        }));
+    };
+
+    // br-r37-c1-hxdyb: DiGraph/MultiDiGraph already have faster streaming
+    // routes for canonical tuple rows. Peek only the first row and put it back
+    // with itertools.chain when that route is behavior-safe. Exotic first
+    // rows enter the transactional decoder below; the common tuple stream is
+    // neither exhausted nor copied (the retry predicate on the rejected broad
+    // MultiDiGraph drain).
+    #[cfg(test)]
+    let force_multidigraph_keyed_streaming =
+        FORCE_MULTIDIGRAPH_CTOR_KEYED_STREAMING.load(Ordering::Relaxed);
+    #[cfg(not(test))]
+    let force_multidigraph_keyed_streaming = false;
+    let collect_multidigraph_exact_keyed = is_multi
+        && preserve_exact_tuple_stream
+        && !force_multidigraph_keyed_streaming
+        && first
+            .as_ref()
+            .is_ok_and(MultiDiGraphExactIntStrKeyedStage::accepts);
+    if preserve_exact_tuple_stream
+        && !collect_multidigraph_exact_keyed
+        && first
+            .as_ref()
+            .is_ok_and(|item| ctor_tuple_can_stream(py, item, is_multi))
+    {
+        let first = first?;
+        let head = PyTuple::new(py, [first])?;
+        let chained = py
+            .import("itertools")?
+            .getattr("chain")?
+            .call1((head, iter))?;
+        return Ok(Some(MaterializedIteratorEdgeList {
+            items: chained,
+            graph_exact_int_attr_batch: None,
+            multidigraph_exact_int_str_keyed_batch: None,
+        }));
     }
-    Ok(Some(PyList::new(py, items)?))
+
+    // NetworkX first tries from_edgelist under a broad exception handler. An
+    // invalid row consumes that row and discards the partially built graph;
+    // it then retries from the iterator's remaining suffix. Stage rows here so
+    // graph mutation is failure-atomic and reproduce exactly that two-epoch
+    // consume/retry contract.
+    let mut retrying = false;
+    let mut items: Vec<Bound<'py, PyAny>> = Vec::new();
+    let mut graph_stage = collect_graph_exact_int_attrs.then(GraphExactIntAttrStage::default);
+    let mut multidigraph_stage =
+        collect_multidigraph_exact_keyed.then(MultiDiGraphExactIntStrKeyedStage::new);
+    let mut pending = Some(first);
+    loop {
+        let Some(item) = pending.take().or_else(|| iter.next()) else {
+            break;
+        };
+        let normalized = item.and_then(|item| {
+            if let Some(stage) = multidigraph_stage.as_mut() {
+                if let Some(normalized) = stage.push(py, &item)? {
+                    return Ok((normalized, None));
+                }
+                multidigraph_stage = None;
+            }
+            if graph_stage.is_some()
+                && let Some(normalized) = normalize_graph_exact_int_attr_row(py, &item)?
+            {
+                return Ok(normalized);
+            }
+            normalize_ctor_edge_item(py, &item, is_multi).map(|normalized| (normalized, None))
+        });
+        match normalized {
+            Ok((item, typed_row)) => {
+                items.push(item);
+                if let Some(stage) = graph_stage.as_mut() {
+                    if let Some(row) = typed_row {
+                        if !stage.push(row) {
+                            graph_stage = None;
+                        }
+                    } else {
+                        graph_stage = None;
+                    }
+                }
+            }
+            Err(_) if !retrying => {
+                items.clear();
+                graph_stage = collect_graph_exact_int_attrs.then(GraphExactIntAttrStage::default);
+                multidigraph_stage =
+                    collect_multidigraph_exact_keyed.then(MultiDiGraphExactIntStrKeyedStage::new);
+                retrying = true;
+            }
+            Err(_) => return Err(NetworkXError::new_err("Input is not a valid edge list")),
+        }
+    }
+    let multidigraph_exact_int_str_keyed_batch =
+        multidigraph_stage.and_then(MultiDiGraphExactIntStrKeyedStage::into_batch);
+    let materialized = PyList::new(py, items)?;
+    let items =
+        if collect_multidigraph_exact_keyed && multidigraph_exact_int_str_keyed_batch.is_none() {
+            materialized.call_method0("__iter__")?
+        } else {
+            materialized.into_any()
+        };
+    Ok(Some(MaterializedIteratorEdgeList {
+        items,
+        graph_exact_int_attr_batch: graph_stage.and_then(GraphExactIntAttrStage::into_batch),
+        multidigraph_exact_int_str_keyed_batch,
+    }))
+}
+
+/// Return true when an exact tuple can remain on the existing directed
+/// streaming route. The checks exclude every shape whose first-pass failure
+/// NetworkX turns into a suffix retry. MultiGraph keyed tuples remain streaming
+/// so the rejected broad-drain keyed regression is not retried.
+pub(crate) fn ctor_tuple_can_stream(
+    py: Python<'_>,
+    item: &Bound<'_, PyAny>,
+    is_multi: bool,
+) -> bool {
+    let Ok(tuple) = item.downcast::<PyTuple>() else {
+        return false;
+    };
+    let arity = tuple.len();
+    if (!is_multi && !(2..=3).contains(&arity)) || (is_multi && !(2..=4).contains(&arity)) {
+        return false;
+    }
+    let Ok(u) = tuple.get_item(0) else {
+        return false;
+    };
+    let Ok(v) = tuple.get_item(1) else {
+        return false;
+    };
+    if u.is_none() || v.is_none() || u.hash().is_err() || v.hash().is_err() {
+        return false;
+    }
+    if !is_multi {
+        return arity == 2
+            || tuple
+                .get_item(2)
+                .is_ok_and(|attrs| attrs.is_exact_instance_of::<PyDict>());
+    }
+    match arity {
+        2 => false,
+        3 => {
+            let Ok(third) = tuple.get_item(2) else {
+                return false;
+            };
+            if third.is_exact_instance_of::<PyDict>() {
+                return false;
+            }
+            let probe = PyDict::new(py);
+            match probe.call_method1("update", (&third,)) {
+                Ok(_) => false,
+                Err(err)
+                    if err.is_instance_of::<PyTypeError>(py)
+                        || err.is_instance_of::<PyValueError>(py) =>
+                {
+                    third.hash().is_ok()
+                }
+                Err(_) => false,
+            }
+        }
+        4 => {
+            tuple.get_item(2).is_ok_and(|key| key.hash().is_ok())
+                && tuple
+                    .get_item(3)
+                    .is_ok_and(|attrs| attrs.is_exact_instance_of::<PyDict>())
+        }
+        _ => false,
+    }
 }
 
 /// br-r37-c1-ctorgen: a generator may yield the SAME attr dict on every step,
@@ -243,26 +857,49 @@ fn materialize_iterator_edge_list<'py>(
 /// `(u, v, key)` 3-tuple is untouched (a dict is unhashable and cannot be a
 /// key), and endpoints are immutable in every shape fnx accepts, so nothing
 /// else can drift between yields.
-fn snapshot_iterator_edge_item<'py>(
+pub(crate) fn normalize_ctor_edge_item<'py>(
     py: Python<'py>,
-    item: Bound<'py, PyAny>,
+    item: &Bound<'py, PyAny>,
+    is_multi: bool,
 ) -> PyResult<Bound<'py, PyAny>> {
-    let Ok(tuple) = item.downcast::<PyTuple>().cloned() else {
-        return Ok(item);
-    };
-    let arity = tuple.len();
-    if arity < 3 {
-        return Ok(item);
+    let arity = item.len()?;
+    if (!is_multi && !(2..=3).contains(&arity)) || (is_multi && !(2..=4).contains(&arity)) {
+        return Err(NetworkXError::new_err("invalid constructor edge row"));
     }
-    let last = tuple.get_item(arity - 1)?;
-    let Ok(attrs) = last.downcast::<PyDict>() else {
-        return Ok(item);
-    };
     let mut parts: Vec<Bound<'py, PyAny>> = Vec::with_capacity(arity);
-    for i in 0..arity - 1 {
-        parts.push(tuple.get_item(i)?);
+    for i in 0..arity {
+        parts.push(item.get_item(i)?);
     }
-    parts.push(attrs.copy()?.into_any());
+    if parts[0].is_none()
+        || parts[1].is_none()
+        || parts[0].hash().is_err()
+        || parts[1].hash().is_err()
+    {
+        return Err(NetworkXError::new_err("invalid constructor edge endpoint"));
+    }
+
+    if !is_multi && arity == 3 {
+        let attrs = PyDict::new(py);
+        attrs.call_method1("update", (&parts[2],))?;
+        parts[2] = attrs.into_any();
+    } else if is_multi && arity == 3 {
+        let attrs = PyDict::new(py);
+        match attrs.call_method1("update", (&parts[2],)) {
+            Ok(_) => parts[2] = attrs.into_any(),
+            Err(err)
+                if err.is_instance_of::<PyTypeError>(py)
+                    || err.is_instance_of::<PyValueError>(py) =>
+            {
+                parts[2].hash()?;
+            }
+            Err(err) => return Err(err),
+        }
+    } else if is_multi && arity == 4 {
+        parts[2].hash()?;
+        let attrs = PyDict::new(py);
+        attrs.call_method1("update", (&parts[3],))?;
+        parts[3] = attrs.into_any();
+    }
     Ok(PyTuple::new(py, parts)?.into_any())
 }
 
@@ -319,10 +956,20 @@ pub fn validate_ctor_edge_list(
         // also caught non-multi 3-tuples whose NON-DICT third element
         // the Rust __new__ mis-absorbs as a node (e.g. (1, 2, [3])) —
         // mirror that by hashing such third elements too.
-        if endpoints_hashable
-            && (item.get_item(0)?.hash().is_err() || item.get_item(1)?.hash().is_err())
-        {
-            endpoints_hashable = false;
+        // br-r37-c1-fo8zw: a None endpoint is also invalid — nx's add_edge
+        // raises ValueError("None cannot be a node"), which the constructor
+        // wraps as "Input is not a valid edge list". The Rust __new__ absorbs
+        // None as the node "None" (node_key_to_string) for the simple
+        // Graph/DiGraph d58s8 loop, so catch it here (this pre-validation gates
+        // list/tuple/set inputs; iterators skip it and are already rejected via
+        // the __new__ two-epoch). None is hashable, so the hash() checks below
+        // miss it — test is_none() explicitly.
+        if endpoints_hashable {
+            let u0 = item.get_item(0)?;
+            let u1 = item.get_item(1)?;
+            if u0.is_none() || u1.is_none() || u0.hash().is_err() || u1.hash().is_err() {
+                endpoints_hashable = false;
+            }
         }
         // (non-multi non-dict-third already rejected above)
     }
@@ -476,6 +1123,109 @@ pub fn geometric_pairs_grid(
 
 pub(crate) fn missing_key_error(key: &Bound<'_, PyAny>) -> PyErr {
     PyKeyError::new_err((key.clone().unbind(),))
+}
+
+/// Per-view public-node-key interning for warm ``NodeView.__getitem__`` calls.
+///
+/// The graph's native maps are keyed by an allocated canonical `String`, while
+/// NetworkX probes its existing Python dict directly. Cache only keys that have
+/// actually been observed, retain the graph's original public key object (not a
+/// transient equal query object), and invalidate lazily on any node-set change.
+/// `PyDict::get_item` supplies Python's native hash/equality behavior and exact
+/// unhashable-key exception before the cold canonical fallback runs.
+pub(crate) struct NodeLookupCache {
+    nodes_seq: AtomicU64,
+    entries: Py<PyDict>,
+}
+
+impl NodeLookupCache {
+    pub(crate) fn new(py: Python<'_>) -> Self {
+        Self {
+            nodes_seq: AtomicU64::new(u64::MAX),
+            entries: PyDict::new(py).unbind(),
+        }
+    }
+
+    pub(crate) fn get(
+        &self,
+        py: Python<'_>,
+        nodes_seq: u64,
+        key: &Bound<'_, PyAny>,
+    ) -> PyResult<Option<Py<PyDict>>> {
+        if self.nodes_seq.load(Ordering::Relaxed) != nodes_seq {
+            self.entries.bind(py).clear();
+            self.nodes_seq.store(nodes_seq, Ordering::Relaxed);
+        }
+        let Some(value) = self.entries.bind(py).get_item(key)? else {
+            return Ok(None);
+        };
+        Ok(Some(value.downcast::<PyDict>()?.clone().unbind()))
+    }
+
+    pub(crate) fn insert(
+        &self,
+        py: Python<'_>,
+        public_key: &Bound<'_, PyAny>,
+        attrs: &Py<PyDict>,
+    ) -> PyResult<()> {
+        self.entries.bind(py).set_item(public_key, attrs.bind(py))
+    }
+
+    pub(crate) fn traverse(&self, visit: PyVisit<'_>) -> Result<(), PyTraverseError> {
+        visit.call(&self.entries)
+    }
+}
+
+/// Per-graph public-node-key to native-index interning for warm scalar probes.
+///
+/// NetworkX probes its existing Python dictionaries with the caller's node
+/// objects, while the native store is keyed by canonical Rust strings.  This
+/// cache lets an exact built-in string pay that canonicalization once, then
+/// resolve equal-but-nonidentical strings through Python's own hash/equality
+/// semantics.  A node-set mutation invalidates every index because removal can
+/// renumber the compact native store.
+pub(crate) struct NodeIndexLookupCache {
+    nodes_seq: AtomicU64,
+    entries: Py<PyDict>,
+}
+
+impl NodeIndexLookupCache {
+    pub(crate) fn new(py: Python<'_>) -> Self {
+        Self {
+            nodes_seq: AtomicU64::new(u64::MAX),
+            entries: PyDict::new(py).unbind(),
+        }
+    }
+
+    fn get(
+        &self,
+        py: Python<'_>,
+        nodes_seq: u64,
+        key: &Bound<'_, PyAny>,
+    ) -> PyResult<Option<usize>> {
+        if self.nodes_seq.load(Ordering::Relaxed) != nodes_seq {
+            self.entries.bind(py).clear();
+            self.nodes_seq.store(nodes_seq, Ordering::Relaxed);
+        }
+        self.entries
+            .bind(py)
+            .get_item(key)?
+            .map(|index| index.extract::<usize>())
+            .transpose()
+    }
+
+    fn insert(&self, py: Python<'_>, public_key: &Bound<'_, PyAny>, index: usize) -> PyResult<()> {
+        self.entries.bind(py).set_item(public_key, index)
+    }
+
+    fn traverse(&self, visit: &PyVisit<'_>) -> Result<(), PyTraverseError> {
+        visit.call(&self.entries)
+    }
+
+    fn clear(&self, py: Python<'_>) {
+        self.entries.bind(py).clear();
+        self.nodes_seq.store(u64::MAX, Ordering::Relaxed);
+    }
 }
 
 pub(crate) fn edge_key_lookup_string(_py: Python<'_>, key: &Bound<'_, PyAny>) -> PyResult<String> {
@@ -642,6 +1392,22 @@ pub(crate) fn py_value_to_cgse(v: &Bound<'_, PyAny>) -> PyResult<CgseValue> {
         // Oversized int: fall through to the chain (which yields Float via f64).
     } else if v.is_exact_instance_of::<PyString>() {
         return Ok(CgseValue::String(v.extract::<String>()?));
+    }
+
+    // Graphs may be stored as arbitrary Python attribute values, including a
+    // graph storing itself.  The generic extraction chain below invokes
+    // Python protocols (`__bool__`, `__float__`, then `__str__`), which would
+    // re-enter the same pyclass while `add_node` / `add_edge` holds its mutable
+    // borrow.  The Python mirror remains authoritative and retains the exact
+    // object; the inner CGSE store needs only an opaque fallback for this
+    // otherwise-unrepresentable value.
+    if v.is_instance_of::<PyGraph>()
+        || v.is_instance_of::<PyMultiGraph>()
+        || v.is_instance_of::<crate::digraph::PyDiGraph>()
+        || v.is_instance_of::<crate::digraph::PyMultiDiGraph>()
+    {
+        let type_name = v.get_type().name()?.to_string_lossy().into_owned();
+        return Ok(CgseValue::String(format!("<{type_name}>")));
     }
 
     if let Ok(d) = v.downcast::<PyDict>() {
@@ -859,6 +1625,28 @@ pub(crate) fn cgse_value_to_py(py: Python<'_>, val: &CgseValue) -> PyResult<PyOb
     }
 }
 
+/// True when a simple undirected `PyGraph`'s inner edge store is authoritative
+/// and loss-free for cloning attrs: either the Python edge mirror is pristine
+/// (empty) OR the graph is clean (no unsynced Python-dict mutations) AND every
+/// inner edge attr value is a faithful scalar (Int/Float/Bool). A String/Map
+/// value on a non-pristine graph is ambiguous — the py->inner boundary coerces
+/// None/list/dict/objects to their repr/JSON String, indistinguishable from a
+/// genuine str. br-r37-c1-41boc/w868y sibling: lets `_native_compose` skip the
+/// per-edge Python-dict mirror copy (relying on the inner-store edge batch +
+/// extend_edges_with_attrs_unrecorded's merge) when both factors qualify.
+pub(crate) fn graph_edge_store_scalar_readable(pg: &PyGraph) -> bool {
+    if pg.edge_py_attrs.is_empty() {
+        return true;
+    }
+    if pg.edges_dirty.load(Ordering::Relaxed) {
+        return false;
+    }
+    // No-alloc scan over the inner edge store (not edges_ordered_borrowed, which
+    // builds an O(E) dedup HashMap — that overhead diluted the win and taxed the
+    // non-scalar fallback).
+    pg.inner.all_edge_attr_values_scalar()
+}
+
 pub(crate) const fn compatibility_mode_name(mode: CompatibilityMode) -> &'static str {
     match mode {
         CompatibilityMode::Strict => "strict",
@@ -930,6 +1718,51 @@ pub(crate) struct DictOfDictsCache {
     pub(crate) shared_outer: std::sync::Mutex<Option<Py<PyDict>>>,
 }
 
+impl DictOfDictsCache {
+    fn traverse(&self, visit: &PyVisit<'_>) -> Result<(), PyTraverseError> {
+        for (node, row) in &self.rows {
+            visit.call(node)?;
+            visit.call(row)?;
+        }
+        let shared_outer = self.shared_outer.lock().unwrap();
+        visit.call(shared_outer.as_ref())
+    }
+}
+
+/// Makes a ``#[pyclass(dict)]`` instance's Python dictionary visible to CPython GC.
+///
+/// PyO3 does not traverse a pyclass instance dictionary automatically. Cached
+/// graph views retain their owner, so the instance dictionary must be reported
+/// as an outgoing edge or ``graph -> view -> graph`` cycles leak. ``dict`` is
+/// held once here and once by the Python object layout, hence traversal reports
+/// both strong references.
+pub(crate) struct InstanceDictGc {
+    dict: Option<Py<PyDict>>,
+}
+
+impl InstanceDictGc {
+    pub(crate) const fn new() -> Self {
+        Self { dict: None }
+    }
+
+    pub(crate) fn register(&mut self, dict: &Bound<'_, PyDict>) {
+        if self.dict.is_none() {
+            self.dict = Some(dict.clone().unbind());
+        }
+    }
+
+    pub(crate) fn traverse(&self, visit: PyVisit<'_>) -> Result<(), PyTraverseError> {
+        visit.call(&self.dict)?;
+        visit.call(&self.dict)
+    }
+
+    pub(crate) fn clear(&mut self, py: Python<'_>) {
+        if let Some(dict) = self.dict.take() {
+            dict.bind(py).clear();
+        }
+    }
+}
+
 #[pyclass(module = "franken_networkx", name = "Graph", dict, weakref, subclass)]
 pub(crate) struct PyGraph {
     pub(crate) inner: Graph,
@@ -977,9 +1810,80 @@ pub(crate) struct PyGraph {
     pub(crate) node_keys_cache: std::sync::Mutex<Option<(u64, Py<pyo3::types::PyTuple>)>>,
     node_iter_mirror: std::sync::Mutex<Option<Py<PyDict>>>,
     node_data_mirror: std::sync::Mutex<Option<(u64, Py<PyDict>)>>,
+    pub(crate) instance_dict_gc: InstanceDictGc,
+}
+
+#[pymethods]
+impl PyGraph {
+    fn _fnx_register_gc_dict(&mut self, dict: &Bound<'_, PyDict>) {
+        self.instance_dict_gc.register(dict);
+    }
+
+    fn __traverse__(&self, visit: PyVisit<'_>) -> Result<(), PyTraverseError> {
+        self.instance_dict_gc.traverse(visit.clone())?;
+        self.traverse_python_refs(&visit)
+    }
+
+    fn __clear__(slf: &Bound<'_, Self>) {
+        let py = slf.py();
+        slf.borrow_mut().clear_python_refs(py);
+    }
 }
 
 impl PyGraph {
+    fn traverse_python_refs(&self, visit: &PyVisit<'_>) -> Result<(), PyTraverseError> {
+        for key in self.node_key_map.values() {
+            visit.call(key)?;
+        }
+        for key in self.adj_py_keys.values() {
+            visit.call(key)?;
+        }
+        for attrs in self.node_py_attrs.values() {
+            visit.call(attrs)?;
+        }
+        for attrs in self.edge_py_attrs.values() {
+            visit.call(attrs)?;
+        }
+        if let Some(cache) = &self.dict_of_dicts_cache {
+            cache.traverse(visit)?;
+        }
+        for row in self.adj_row_py.values() {
+            visit.call(row)?;
+        }
+        visit.call(&self.graph_attrs)?;
+        {
+            let cache = self.node_keys_cache.lock().unwrap();
+            if let Some((_, keys)) = cache.as_ref() {
+                visit.call(keys)?;
+            }
+        }
+        {
+            let mirror = self.node_iter_mirror.lock().unwrap();
+            visit.call(mirror.as_ref())?;
+        }
+        {
+            let mirror = self.node_data_mirror.lock().unwrap();
+            if let Some((_, data)) = mirror.as_ref() {
+                visit.call(data)?;
+            }
+        }
+        Ok(())
+    }
+
+    fn clear_python_refs(&mut self, py: Python<'_>) {
+        self.instance_dict_gc.clear(py);
+        self.node_key_map.clear();
+        self.adj_py_keys.clear();
+        self.node_py_attrs.clear();
+        self.edge_py_attrs.clear();
+        self.dict_of_dicts_cache = None;
+        self.adj_row_py.clear();
+        self.graph_attrs.bind(py).clear();
+        *self.node_keys_cache.get_mut().unwrap() = None;
+        *self.node_iter_mirror.get_mut().unwrap() = None;
+        *self.node_data_mirror.get_mut().unwrap() = None;
+    }
+
     /// Get the canonical edge key tuple (left <= right for undirected).
     pub(crate) fn edge_key(u: &str, v: &str) -> (String, String) {
         if u <= v {
@@ -1349,6 +2253,7 @@ impl PyGraph {
             edges_dirty: AtomicBool::new(false),
             node_keys_cache: std::sync::Mutex::new(None),
             node_iter_mirror: std::sync::Mutex::new(None),
+            instance_dict_gc: InstanceDictGc::new(),
             node_data_mirror: std::sync::Mutex::new(None),
         })
     }
@@ -1423,20 +2328,47 @@ impl PyGraph {
         py: Python<'py>,
         items: I,
         len: usize,
-    ) -> PyResult<Option<(Vec<(String, String)>, Vec<(String, PyObject)>, u64)>>
+    ) -> PyResult<Option<(Vec<(usize, usize)>, Vec<(String, PyObject)>, u64)>>
     where
         I: IntoIterator<Item = Bound<'py, PyAny>>,
     {
-        let mut edges = Vec::with_capacity(len);
+        // br-r37-c1-batchidxedges: emit endpoints in INDEX space. The batch used
+        // to hand `extend_edges_unrecorded` a `Vec<(String, String)>`, which
+        // meant two owned Strings per edge here and then two more name hashes
+        // per edge there (`nodes.get_index_of` on each endpoint) — 396k clones
+        // and ~800k hashes for ca-AstroPh, none of which networkx pays. A node's
+        // index is knowable at collect time: existing nodes keep their position
+        // in the IndexMap, and a new node takes the next slot, because the
+        // commit inserts `new_nodes` in this same first-appearance order.
+        let mut edges: Vec<(usize, usize)> = Vec::with_capacity(len);
         let mut new_nodes = Vec::new();
-        let mut seen_nodes: HashSet<String> = self
+        let mut node_index: HashMap<String, usize> = self
             .inner
             .nodes_ordered()
             .into_iter()
-            .map(str::to_owned)
+            .enumerate()
+            .map(|(index, name)| (name.to_owned(), index))
             .collect();
+        let mut next_index = node_index.len();
         let mut node_bumps = 0_u64;
         let mut batch_first: HashMap<String, PyObject> = HashMap::new(); // br-r37-c1-z6uka
+        // br-r37-c1-batchintmemo: canonical-key memo keyed by the node's integer
+        // VALUE. This loop ran `node_key_to_string` — plus a display-conflict
+        // probe and two `seen_nodes` probes — once per endpoint OCCURRENCE, so a
+        // graph of average degree d formatted and re-hashed every node d times:
+        // 792k formats over 18.7k distinct nodes for ca-AstroPh. An
+        // identity-keyed memo cannot fix that (CPython only interns small ints,
+        // so every SNAP-style id is a fresh object); keying on the value gives
+        // O(unique nodes) work instead of O(2|E|).
+        //
+        // Only exact `int` endpoints enter the memo, and only on the FIRST
+        // occurrence — which is the one that runs the conflict check and
+        // registers the object in `batch_first`. A later hash-equal endpoint of
+        // a DIFFERENT type (28.0 against 28) never hits the int memo, so it
+        // still reaches `plain_batch_display_conflict` and still bails.
+        // Memo straight to the node INDEX: a hit needs no canonical String at
+        // all, so a repeat endpoint costs one integer hash.
+        let mut int_memo: HashMap<i64, usize> = HashMap::new();
 
         for item in items {
             let Ok(tuple) = item.downcast::<PyTuple>() else {
@@ -1452,35 +2384,91 @@ impl PyGraph {
                 return Ok(None);
             }
 
-            let u_canonical = node_key_to_string(py, &u)?;
-            let v_canonical = node_key_to_string(py, &v)?;
-            // br-r37-c1-z6uka: hash-equal mixed-type keys (28 vs 28.0)
-            // need per-adjacency-row display objects — bail to the
-            // per-edge path, which records them.
-            if self.plain_batch_display_conflict(py, &u_canonical, &u, &mut batch_first)
-                || self.plain_batch_display_conflict(py, &v_canonical, &v, &mut batch_first)
-            {
-                return Ok(None);
-            }
-            if !seen_nodes.contains(&u_canonical) || !seen_nodes.contains(&v_canonical) {
+            // A memo hit means this exact integer node was already admitted by
+            // an earlier occurrence — the one that ran the conflict check and
+            // claimed its index — so it is never "absent" for bump accounting.
+            //
+            // Resolving `u` can claim a new index before `v` is resolved, but
+            // that matches the original: it tested BOTH endpoints for presence
+            // before inserting either, and the only case where the two differ
+            // is a self-loop (u and v the same canonical), where the original
+            // also counted one bump and pushed one node.
+            let u_key = Self::int_value_for_memo(&u);
+            let (u_idx, u_absent) = match u_key.and_then(|k| int_memo.get(&k).copied()) {
+                Some(index) => (index, false),
+                None => {
+                    let canonical = node_key_to_string(py, &u)?;
+                    // br-r37-c1-z6uka: hash-equal mixed-type keys (28 vs 28.0)
+                    // need per-adjacency-row display objects — bail to the
+                    // per-edge path, which records them.
+                    if self.plain_batch_display_conflict(py, &canonical, &u, &mut batch_first) {
+                        return Ok(None);
+                    }
+                    let (index, absent) = match node_index.get(&canonical) {
+                        Some(&index) => (index, false),
+                        None => {
+                            let index = next_index;
+                            next_index += 1;
+                            node_index.insert(canonical.clone(), index);
+                            new_nodes.push((canonical, u.clone().unbind()));
+                            (index, true)
+                        }
+                    };
+                    if let Some(key) = u_key {
+                        int_memo.insert(key, index);
+                    }
+                    (index, absent)
+                }
+            };
+            let v_key = Self::int_value_for_memo(&v);
+            let (v_idx, v_absent) = match v_key.and_then(|k| int_memo.get(&k).copied()) {
+                Some(index) => (index, false),
+                None => {
+                    let canonical = node_key_to_string(py, &v)?;
+                    if self.plain_batch_display_conflict(py, &canonical, &v, &mut batch_first) {
+                        return Ok(None);
+                    }
+                    let (index, absent) = match node_index.get(&canonical) {
+                        Some(&index) => (index, false),
+                        None => {
+                            let index = next_index;
+                            next_index += 1;
+                            node_index.insert(canonical.clone(), index);
+                            new_nodes.push((canonical, v.clone().unbind()));
+                            (index, true)
+                        }
+                    };
+                    if let Some(key) = v_key {
+                        int_memo.insert(key, index);
+                    }
+                    (index, absent)
+                }
+            };
+
+            if u_absent || v_absent {
                 node_bumps = node_bumps.wrapping_add(1);
             }
-            if seen_nodes.insert(u_canonical.clone()) {
-                new_nodes.push((u_canonical.clone(), u.clone().unbind()));
-            }
-            if seen_nodes.insert(v_canonical.clone()) {
-                new_nodes.push((v_canonical.clone(), v.clone().unbind()));
-            }
-            edges.push((u_canonical, v_canonical));
+            edges.push((u_idx, v_idx));
         }
 
         Ok(Some((edges, new_nodes, node_bumps)))
     }
 
+    /// br-r37-c1-batchintmemo: memo key for an endpoint whose canonical node key
+    /// is exactly its decimal form. `bool` is excluded — it subclasses `int` in
+    /// Python but canonicalizes to `True`/`False` — as is any int too wide for
+    /// `i64`, so the memo can never alias two distinct nodes.
+    fn int_value_for_memo(node: &Bound<'_, PyAny>) -> Option<i64> {
+        if !node.is_exact_instance_of::<pyo3::types::PyInt>() {
+            return None;
+        }
+        node.extract::<i64>().ok()
+    }
+
     fn add_plain_edge_batch(
         &mut self,
         py: Python<'_>,
-        edges: Vec<(String, String)>,
+        edges: Vec<(usize, usize)>,
         new_nodes: Vec<(String, PyObject)>,
         node_bumps: u64,
     ) -> PyResult<()> {
@@ -1488,6 +2476,18 @@ impl PyGraph {
             .unwrap_or(u64::MAX)
             .wrapping_add(1);
 
+        // br-r37-c1-batchidxedges: create the inner nodes FIRST, in the same
+        // first-appearance order the collect phase assigned indices in, so the
+        // provisional indices it emitted are exactly the IndexMap positions.
+        // `extend_edges_unrecorded` used to auto-create them while walking the
+        // edges (same order, since it also saw left-then-right per edge).
+        if !new_nodes.is_empty() {
+            let _created = self.inner.extend_nodes_with_attrs_unrecorded(
+                new_nodes
+                    .iter()
+                    .map(|(canonical, _)| (canonical.clone(), AttrMap::new())),
+            );
+        }
         for (canonical, node) in new_nodes {
             self.node_key_map.entry(canonical.clone()).or_insert(node);
             self.node_iter_mirror_insert(py, &canonical)?;
@@ -1497,7 +2497,7 @@ impl PyGraph {
         // observationally identical to an empty dict. ~6700 PyDict allocs
         // saved per 5217-edge build.
 
-        let _inserted = self.inner.extend_edges_unrecorded(edges);
+        let _inserted = self.inner.extend_existing_index_edges_unrecorded(edges);
         self.nodes_seq = self.nodes_seq.wrapping_add(node_bumps);
         self.edges_seq = self.edges_seq.wrapping_add(edge_bumps);
         Ok(())
@@ -2148,6 +3148,7 @@ impl PyGraph {
         py: Python<'py>,
         items: I,
         len: usize,
+        reuse_materialized_dict_as_mirror: bool,
     ) -> PyResult<Option<IndexedAttrEdgeBatch>>
     where
         I: IntoIterator<Item = Bound<'py, PyAny>>,
@@ -2205,10 +3206,23 @@ impl PyGraph {
             // edges(data)/get_edge_data preserve nx insertion order (the BTreeMap store
             // sorts keys). Single-key/empty dicts have no order to preserve.
             let (attrs, mirror) = if dict.len() >= 2 {
-                let Ok((attrs, m)) = py_dict_to_attr_map_with_mirror(py, dict) else {
-                    return Ok(None);
-                };
-                (attrs, Some(m))
+                if reuse_materialized_dict_as_mirror {
+                    // br-r37-c1-04z53.9178: the true-iterator decoder created
+                    // this shallow snapshot privately for this construction.
+                    // Transfer that affine-owned dict into the ordered mirror
+                    // instead of immediately copying it a second time. Public
+                    // list/tuple batches pass false because callers still own
+                    // their dictionaries.
+                    let Ok(attrs) = py_dict_to_attr_map(dict) else {
+                        return Ok(None);
+                    };
+                    (attrs, Some(dict.clone().unbind()))
+                } else {
+                    let Ok((attrs, m)) = py_dict_to_attr_map_with_mirror(py, dict) else {
+                        return Ok(None);
+                    };
+                    (attrs, Some(m))
+                }
             } else {
                 let Ok(attrs) = py_dict_to_attr_map(dict) else {
                     return Ok(None);
@@ -2500,6 +3514,7 @@ impl PyGraph {
         &mut self,
         py: Python<'_>,
         ebunch_to_add: &Bound<'_, PyAny>,
+        reuse_materialized_dict_as_mirror: bool,
     ) -> PyResult<bool> {
         const ATTR_EDGE_BATCH_MIN: usize = 8;
         if self.inner.node_count() != 0
@@ -2536,7 +3551,12 @@ impl PyGraph {
             ) {
                 self.collect_fresh_exact_int_attr_edge_batch_merged(py, list.iter(), list.len())?
             } else {
-                match self.collect_fresh_exact_int_attr_edge_batch(py, list.iter(), list.len())? {
+                match self.collect_fresh_exact_int_attr_edge_batch(
+                    py,
+                    list.iter(),
+                    list.len(),
+                    reuse_materialized_dict_as_mirror,
+                )? {
                     Some(batch) => Some(batch),
                     None => self.collect_fresh_exact_int_attr_edge_batch_merged(
                         py,
@@ -2558,7 +3578,12 @@ impl PyGraph {
             ) {
                 self.collect_fresh_exact_int_attr_edge_batch_merged(py, tuple.iter(), tuple.len())?
             } else {
-                match self.collect_fresh_exact_int_attr_edge_batch(py, tuple.iter(), tuple.len())? {
+                match self.collect_fresh_exact_int_attr_edge_batch(
+                    py,
+                    tuple.iter(),
+                    tuple.len(),
+                    reuse_materialized_dict_as_mirror,
+                )? {
                     Some(batch) => Some(batch),
                     None => self.collect_fresh_exact_int_attr_edge_batch_merged(
                         py,
@@ -2778,6 +3803,7 @@ impl PyGraph {
         py: Python<'_>,
         ebunch_to_add: &Bound<'_, PyAny>,
         global_attr: Option<&Bound<'_, PyDict>>,
+        reuse_materialized_dict_as_mirror: bool,
     ) -> PyResult<bool> {
         const ATTR_EDGE_BATCH_MIN: usize = 8;
         if !self.adj_row_py.is_empty() {
@@ -2794,7 +3820,11 @@ impl PyGraph {
             return Ok(false);
         }
         if global_attr.is_none_or(|attrs| attrs.is_empty())
-            && self.try_add_fresh_exact_int_attr_edge_batch(py, ebunch_to_add)?
+            && self.try_add_fresh_exact_int_attr_edge_batch(
+                py,
+                ebunch_to_add,
+                reuse_materialized_dict_as_mirror,
+            )?
         {
             return Ok(true);
         }
@@ -2843,6 +3873,18 @@ impl PyGraph {
             return Ok(true);
         }
         Ok(false)
+    }
+
+    fn try_add_edges_from_batch_impl(
+        &mut self,
+        py: Python<'_>,
+        ebunch_to_add: &Bound<'_, PyAny>,
+        reuse_materialized_dict_as_mirror: bool,
+    ) -> PyResult<bool> {
+        if self.try_add_plain_edge_batch(py, ebunch_to_add)? {
+            return Ok(true);
+        }
+        self.try_add_attr_edge_batch(py, ebunch_to_add, None, reuse_materialized_dict_as_mirror)
     }
 
     /// br-r37-c1-nodebatch: collect a batch of attributed nodes — a mix of
@@ -3081,9 +4123,106 @@ pub(crate) struct PyMultiGraph {
     /// Live `{node: None}` dict serving iter(G)/list(G.nodes()) as a
     /// dict_keyiterator, mutated in place by node add/remove/clear hooks.
     pub(crate) node_iter_mirror: std::sync::Mutex<Option<Py<PyDict>>>,
+    /// br-r37-c1-paof2: warm exact-string endpoints for keyless `has_edge`.
+    /// Values are native node indices and are invalidated by `nodes_seq`.
+    pub(crate) has_edge_node_index_cache: NodeIndexLookupCache,
+    pub(crate) instance_dict_gc: InstanceDictGc,
+}
+
+#[pymethods]
+impl PyMultiGraph {
+    fn _fnx_register_gc_dict(&mut self, dict: &Bound<'_, PyDict>) {
+        self.instance_dict_gc.register(dict);
+    }
+
+    fn __traverse__(&self, visit: PyVisit<'_>) -> Result<(), PyTraverseError> {
+        self.instance_dict_gc.traverse(visit.clone())?;
+        self.traverse_python_refs(&visit)
+    }
+
+    fn __clear__(slf: &Bound<'_, Self>) {
+        let py = slf.py();
+        slf.borrow_mut().clear_python_refs(py);
+    }
 }
 
 impl PyMultiGraph {
+    fn traverse_python_refs(&self, visit: &PyVisit<'_>) -> Result<(), PyTraverseError> {
+        for key in self.node_key_map.values() {
+            visit.call(key)?;
+        }
+        for key in self.adj_py_keys.values() {
+            visit.call(key)?;
+        }
+        for attrs in self.node_py_attrs.values() {
+            visit.call(attrs)?;
+        }
+        for attrs in self.edge_py_attrs.values() {
+            visit.call(attrs)?;
+        }
+        for key in self.edge_py_keys.values() {
+            visit.call(key)?;
+        }
+        visit.call(&self.graph_attrs)?;
+        {
+            let cache = self.node_keys_cache.lock().unwrap();
+            if let Some((_, keys)) = cache.as_ref() {
+                visit.call(keys)?;
+            }
+        }
+        {
+            let mirror = self.node_data_mirror.lock().unwrap();
+            if let Some((_, data)) = mirror.as_ref() {
+                visit.call(data)?;
+            }
+        }
+        if let Some(cache) = &self.dict_of_dicts_cache {
+            cache.traverse(visit)?;
+        }
+        if let Some((_, _, _, tuples)) = &self.edges_with_data_cache {
+            for tuple in tuples {
+                visit.call(tuple)?;
+            }
+        }
+        {
+            let cache = self.edges_data_attr_cache.lock().unwrap();
+            if let Some((_, _, _, _, default, tuples)) = cache.as_ref() {
+                visit.call(default)?;
+                for tuple in tuples {
+                    visit.call(tuple)?;
+                }
+            }
+        }
+        if let Some((_, _, tuples)) = &self.edges_with_keys_cache {
+            for tuple in tuples {
+                visit.call(tuple)?;
+            }
+        }
+        {
+            let mirror = self.node_iter_mirror.lock().unwrap();
+            visit.call(mirror.as_ref())?;
+        }
+        self.has_edge_node_index_cache.traverse(visit)
+    }
+
+    fn clear_python_refs(&mut self, py: Python<'_>) {
+        self.instance_dict_gc.clear(py);
+        self.node_key_map.clear();
+        self.adj_py_keys.clear();
+        self.node_py_attrs.clear();
+        self.edge_py_attrs.clear();
+        self.edge_py_keys.clear();
+        self.graph_attrs.bind(py).clear();
+        *self.node_keys_cache.get_mut().unwrap() = None;
+        *self.node_data_mirror.get_mut().unwrap() = None;
+        self.dict_of_dicts_cache = None;
+        self.edges_with_data_cache = None;
+        *self.edges_data_attr_cache.get_mut().unwrap() = None;
+        self.edges_with_keys_cache = None;
+        *self.node_iter_mirror.get_mut().unwrap() = None;
+        self.has_edge_node_index_cache.clear(py);
+    }
+
     /// br-r37-c1-3oc6v: cache the immutable no-data keyed edge tuples for the
     /// common all-edge MultiGraph view. The tuple content is exactly the same
     /// as `_native_edge_view_list(data=False, keys=True)`: edge orientation is
@@ -3451,6 +4590,23 @@ impl PyMultiGraph {
         v: &str,
         key: &Bound<'_, PyAny>,
     ) -> PyResult<Option<usize>> {
+        // br-r37-c1-d0afg: while the display-key space is pristine, every
+        // public integer key is exactly its internal usize key.  Resolve that
+        // overwhelmingly common auto-key shape by direct keyed-edge membership
+        // instead of allocating two canonical strings, collecting the pair's
+        // key vector, materializing each public key, and canonicalizing it again.
+        // Exact PyInt excludes bool; floats and every remapped/string key retain
+        // the Python-equality scan below.
+        if !self.has_remapped_int_key
+            && key.is_exact_instance_of::<PyInt>()
+            && let Ok(internal_key) = key.extract::<usize>()
+        {
+            return Ok(self
+                .inner
+                .edge_attrs(u, v, internal_key)
+                .is_some()
+                .then_some(internal_key));
+        }
         let requested = edge_key_lookup_string(py, key)?;
         for internal_key in self.inner.edge_keys(u, v).unwrap_or_default() {
             let stored_key = self.py_edge_key(py, u, v, internal_key);
@@ -3495,6 +4651,8 @@ impl PyMultiGraph {
             edges_with_data_cache: None,
             edges_with_keys_cache: None,
             node_iter_mirror: std::sync::Mutex::new(None),
+            instance_dict_gc: InstanceDictGc::new(),
+            has_edge_node_index_cache: NodeIndexLookupCache::new(py),
         })
     }
 
@@ -3508,6 +4666,27 @@ impl PyMultiGraph {
     #[inline]
     pub(crate) fn bump_edges_seq(&mut self) {
         self.edges_seq = self.edges_seq.wrapping_add(1);
+    }
+
+    fn cached_exact_string_node_index(
+        &self,
+        py: Python<'_>,
+        key: &Bound<'_, PyAny>,
+    ) -> PyResult<Option<usize>> {
+        if let Some(index) = self
+            .has_edge_node_index_cache
+            .get(py, self.nodes_seq, key)?
+        {
+            return Ok(Some(index));
+        }
+        let canonical = node_key_to_string(py, key)?;
+        let Some(index) = self.inner.get_node_index(&canonical) else {
+            return Ok(None);
+        };
+        let public_key = self.py_node_key(py, &canonical);
+        self.has_edge_node_index_cache
+            .insert(py, public_key.bind(py), index)?;
+        Ok(Some(index))
     }
 
     #[inline]
@@ -4357,11 +5536,11 @@ impl MultiAtlasView {
     }
 
     fn __len__(&self, py: Python<'_>) -> usize {
-        self.graph
-            .borrow(py)
+        let graph = self.graph.borrow(py);
+        graph
             .inner
-            .neighbors(&self.node)
-            .map_or(0, |neighbors| neighbors.len())
+            .neighbors_iter(&self.node)
+            .map_or(0, Iterator::count)
     }
 
     fn __iter__(&self, py: Python<'_>) -> PyResult<Py<NodeIterator>> {
@@ -4531,8 +5710,8 @@ impl MultiKeyDictView {
         self.graph
             .borrow(py)
             .inner
-            .edge_keys(&self.source, &self.target)
-            .map_or(0, |keys| keys.len())
+            .edge_keys_iter(&self.source, &self.target)
+            .map_or(0, Iterator::count)
     }
 
     fn __iter__(&self, py: Python<'_>) -> PyResult<Py<NodeIterator>> {
@@ -4664,6 +5843,33 @@ impl PyMultiGraph {
                 g.inner = MultiGraph::new(mode);
                 return Ok(g);
             }
+            // br-r37-c1-fo8zw: a dict is ALWAYS from_dict_of_dicts in nx's
+            // to_networkx_graph dispatch (never an edge-list) — `__init__`'s
+            // `_decode_dict_of_dicts_into` owns it. Skip absorption: the
+            // two-epoch iterator loop below now `normalize`s each row, which
+            // would reject the dict's bare-int KEYS as invalid edges (mirrors
+            // the PyMultiDiGraph guard). `_decode` re-adds every source node.
+            if data.is_instance_of::<PyDict>() {
+                return Ok(g);
+            }
+            // br-r37-c1-fo8zw: a FOREIGN graph object (nx.Graph / nx.MultiGraph
+            // — fnx-native graphs were caught by `fnx_graph_instance_mode`
+            // above) is rebuilt by `__init__`'s `_copy_constructor_graph_source`
+            // via the public edge iterator (br-nxgraph). Skip absorption: the
+            // Rust loop would otherwise iterate the graph's NODES and the new
+            // `normalize` step rejects a bare node as an invalid edge. Duck-type
+            // on the nx graph protocol (nodes + edges + is_multigraph).
+            if data.hasattr("is_multigraph")? && data.hasattr("nodes")? && data.hasattr("edges")? {
+                return Ok(g);
+            }
+            // br-r37-c1-q86hv: drain a true iterator once so the edge batches
+            // below can consume it as a list. Graph instances and every other
+            // constructor arm continue to receive the original `data`.
+            let materialized = materialize_iterator_edge_list(py, data, true, false, false)?;
+            let edata: &Bound<'_, PyAny> = materialized
+                .as_ref()
+                .map(|decoded| &decoded.items)
+                .unwrap_or(data);
             if let Ok(other) = data.extract::<PyRef<'_, PyMultiGraph>>() {
                 g.inner = MultiGraph::with_runtime_policy(other.inner.runtime_policy().clone());
                 // br-r37-c1-tbh4q: single-pass attr crossing via
@@ -4766,15 +5972,15 @@ impl PyMultiGraph {
                     g.remember_edge_key(py, &edge.left, &edge.right, key, None);
                 }
                 g.graph_attrs = other.graph_attrs.bind(py).copy()?.unbind();
-            } else if g.try_absorb_exact_int_str_keyed_ctor_edges(py, data)? {
+            } else if g.try_absorb_exact_int_str_keyed_ctor_edges(py, edata)? {
                 // Constructor-only batch path for exact int endpoints + exact str keys.
-            } else if g._try_add_attr_edges_from_batch(py, data, None)? {
+            } else if g._try_add_attr_edges_from_batch(py, edata, None)? {
                 // br-r37-c1-ctorbatch (cc): (u,v,attr_dict) 3-tuples route through
                 // the add_edges_from fast batch (lazy mirrors); try_absorb above
                 // only handles (u,v)/(u,v,key_string)/(u,v,key,dict), so weighted
                 // 3-tuples fell to the per-edge loop (~0.38x). Mutation-free on
                 // false -> the iterator loop below still owns declined inputs.
-            } else if let Ok(iter) = PyIterator::from_object(data) {
+            } else if edata.try_iter().is_ok() {
                 // br-r37-c1-fl36h: nx's to_networkx_graph wraps every
                 // from_edgelist failure in NetworkXError("Input is not a
                 // valid edge list"). Unhashable endpoints/keys raise
@@ -4789,25 +5995,45 @@ impl PyMultiGraph {
                         e
                     }
                 };
-                for item in iter {
-                    let item = item?;
-                    if let Ok(tuple) = item.downcast::<PyTuple>() {
-                        let merged = PyDict::new(py);
-                        match tuple.len() {
-                            2 => {
-                                g.add_edge(
-                                    py,
-                                    &tuple.get_item(0)?,
-                                    &tuple.get_item(1)?,
-                                    None,
-                                    Some(&merged),
-                                )
-                                .map_err(edge_list_err)?;
+                // br-r37-c1-fo8zw: replicate nx's TWO-EPOCH from_edgelist (see
+                // PyMultiDiGraph::__new__, br-r37-c1-hxdyb). `normalize_ctor_edge_item`
+                // rejects a None/unhashable endpoint UP FRONT (returning Err), so a
+                // bad row discards the partial graph in epoch 0 and re-runs in epoch
+                // 1 over a FRESH iterator: a re-iterable LIST `[(None, 1)]` raises
+                // NetworkXError; a one-shot ITERATOR yields the post-failure suffix.
+                // Previously MG was single-pass and `edge_list_err` only wrapped
+                // TypeError, so `[(None, 1)]` leaked a raw ValueError and the iterator
+                // suffix contract was absent.
+                'epochs: for epoch in 0..2 {
+                    let Ok(iter) = PyIterator::from_object(edata) else {
+                        break;
+                    };
+                    for item in iter {
+                        let normalized = item.and_then(|item| {
+                            if crate::digraph::exact_int_str_keyed_ctor_tuple(&item) {
+                                Ok(item)
+                            } else {
+                                crate::normalize_ctor_edge_item(py, &item, true)
                             }
-                            3 => {
-                                let third = tuple.get_item(2)?;
-                                if let Ok(d) = third.downcast::<PyDict>() {
-                                    merged.update(d.as_mapping())?;
+                        });
+                        let item = match normalized {
+                            Ok(item) => item,
+                            Err(_) if epoch == 0 => {
+                                let graph_attrs = g.graph_attrs.clone_ref(py);
+                                g = Self::new_empty_with_mode(py, CompatibilityMode::Strict)?;
+                                g.graph_attrs = graph_attrs;
+                                continue 'epochs;
+                            }
+                            Err(_) => {
+                                return Err(NetworkXError::new_err(
+                                    "Input is not a valid edge list",
+                                ));
+                            }
+                        };
+                        if let Ok(tuple) = item.downcast::<PyTuple>() {
+                            let merged = PyDict::new(py);
+                            match tuple.len() {
+                                2 => {
                                     g.add_edge(
                                         py,
                                         &tuple.get_item(0)?,
@@ -4816,73 +6042,89 @@ impl PyMultiGraph {
                                         Some(&merged),
                                     )
                                     .map_err(edge_list_err)?;
-                                } else {
-                                    // br-r37-c1-baqyi: nx tries
-                                    // ddd.update(dd) FIRST; only a
-                                    // TypeError/ValueError makes the third
-                                    // element the key. Dict-able iterables
-                                    // of pairs are DATA.
-                                    let throwaway = PyDict::new(py);
-                                    match throwaway.call_method1("update", (&third,)) {
-                                        Ok(_) => {
-                                            merged.update(throwaway.as_mapping())?;
-                                            g.add_edge(
-                                                py,
-                                                &tuple.get_item(0)?,
-                                                &tuple.get_item(1)?,
-                                                None,
-                                                Some(&merged),
-                                            )
-                                            .map_err(edge_list_err)?;
+                                }
+                                3 => {
+                                    let third = tuple.get_item(2)?;
+                                    if let Ok(d) = third.downcast::<PyDict>() {
+                                        merged.update(d.as_mapping())?;
+                                        g.add_edge(
+                                            py,
+                                            &tuple.get_item(0)?,
+                                            &tuple.get_item(1)?,
+                                            None,
+                                            Some(&merged),
+                                        )
+                                        .map_err(edge_list_err)?;
+                                    } else {
+                                        // br-r37-c1-baqyi: nx tries
+                                        // ddd.update(dd) FIRST; only a
+                                        // TypeError/ValueError makes the third
+                                        // element the key. Dict-able iterables
+                                        // of pairs are DATA.
+                                        let throwaway = PyDict::new(py);
+                                        match throwaway.call_method1("update", (&third,)) {
+                                            Ok(_) => {
+                                                merged.update(throwaway.as_mapping())?;
+                                                g.add_edge(
+                                                    py,
+                                                    &tuple.get_item(0)?,
+                                                    &tuple.get_item(1)?,
+                                                    None,
+                                                    Some(&merged),
+                                                )
+                                                .map_err(edge_list_err)?;
+                                            }
+                                            Err(err)
+                                                if err.is_instance_of::<PyTypeError>(py)
+                                                    || err.is_instance_of::<PyValueError>(py) =>
+                                            {
+                                                g.add_edge(
+                                                    py,
+                                                    &tuple.get_item(0)?,
+                                                    &tuple.get_item(1)?,
+                                                    Some(&third),
+                                                    Some(&merged),
+                                                )
+                                                .map_err(edge_list_err)?;
+                                            }
+                                            Err(err) => return Err(err),
                                         }
-                                        Err(err)
-                                            if err.is_instance_of::<PyTypeError>(py)
-                                                || err.is_instance_of::<PyValueError>(py) =>
-                                        {
-                                            g.add_edge(
-                                                py,
-                                                &tuple.get_item(0)?,
-                                                &tuple.get_item(1)?,
-                                                Some(&third),
-                                                Some(&merged),
-                                            )
-                                            .map_err(edge_list_err)?;
-                                        }
-                                        Err(err) => return Err(err),
                                     }
                                 }
-                            }
-                            4 => {
-                                let edge_key = tuple.get_item(2)?;
-                                let fourth = tuple.get_item(3)?;
-                                if let Ok(d) = fourth.downcast::<PyDict>() {
-                                    merged.update(d.as_mapping())?;
-                                } else {
-                                    // br-r37-c1-baqyi: nx's ddd.update(dd)
-                                    // runs BEFORE add_edge — a non-dict
-                                    // 4th raises with NOTHING created (the
-                                    // ctor wraps it as an invalid edge
-                                    // list, like nx to_networkx_graph).
-                                    let throwaway = PyDict::new(py);
-                                    throwaway
-                                        .call_method1("update", (&fourth,))
-                                        .map_err(edge_list_err)?;
-                                    merged.update(throwaway.as_mapping())?;
+                                4 => {
+                                    let edge_key = tuple.get_item(2)?;
+                                    let fourth = tuple.get_item(3)?;
+                                    if let Ok(d) = fourth.downcast::<PyDict>() {
+                                        merged.update(d.as_mapping())?;
+                                    } else {
+                                        // br-r37-c1-baqyi: nx's ddd.update(dd)
+                                        // runs BEFORE add_edge — a non-dict
+                                        // 4th raises with NOTHING created (the
+                                        // ctor wraps it as an invalid edge
+                                        // list, like nx to_networkx_graph).
+                                        let throwaway = PyDict::new(py);
+                                        throwaway
+                                            .call_method1("update", (&fourth,))
+                                            .map_err(edge_list_err)?;
+                                        merged.update(throwaway.as_mapping())?;
+                                    }
+                                    g.add_edge(
+                                        py,
+                                        &tuple.get_item(0)?,
+                                        &tuple.get_item(1)?,
+                                        Some(&edge_key),
+                                        Some(&merged),
+                                    )
+                                    .map_err(edge_list_err)?;
                                 }
-                                g.add_edge(
-                                    py,
-                                    &tuple.get_item(0)?,
-                                    &tuple.get_item(1)?,
-                                    Some(&edge_key),
-                                    Some(&merged),
-                                )
-                                .map_err(edge_list_err)?;
+                                _ => g.add_node(py, &item, None).map_err(edge_list_err)?,
                             }
-                            _ => g.add_node(py, &item, None).map_err(edge_list_err)?,
+                        } else {
+                            g.add_node(py, &item, None).map_err(edge_list_err)?;
                         }
-                    } else {
-                        g.add_node(py, &item, None).map_err(edge_list_err)?;
                     }
+                    // Epoch finished with no malformed row — accept this graph.
+                    break;
                 }
             }
         }
@@ -5057,6 +6299,14 @@ impl PyMultiGraph {
         key: Option<&Bound<'_, PyAny>>,
         default: Option<PyObject>,
     ) -> PyResult<PyObject> {
+        // br-r37-c1-57ba1: preserve the former wrapper's eager hash contract
+        // inside the raw descriptor, including custom __hash__ exceptions for
+        // an explicit multiedge key.
+        u.hash()?;
+        v.hash()?;
+        if let Some(key_obj) = key {
+            key_obj.hash()?;
+        }
         let u_c = node_key_to_string(py, u)?;
         let v_c = node_key_to_string(py, v)?;
         if let Some(key_obj) = key {
@@ -6464,23 +7714,32 @@ impl PyMultiGraph {
             let attr_name = value_attr_name
                 .as_deref()
                 .expect("value fast path has an attribute name");
-            let mut out: Vec<PyObject> = Vec::with_capacity(self.inner.edge_count());
-            let nodes: Vec<String> = self
+            let mut out: Vec<PyObject> = Vec::with_capacity(self.inner.number_of_selfloops());
+            // br-r37-c1-04z53 (cc): collect ONLY the self-loop nodes (name + keys)
+            // in one borrowed pass instead of cloning EVERY node name up front.
+            // The old `nodes_ordered().map(to_owned)` paid an O(N) String alloc per
+            // node just to scan for the (usually few) self-loops, dominating
+            // selfloop_edges on a large graph with sparse self-loops (0.60x).
+            // `edge_keys(n, n)` is BOTH the self-loop test and the keys, so this is
+            // the same scan minus the wasted clones — mirroring the general path
+            // below. Byte-identical emission (same nodes, order, keys, values).
+            let selfloops: Vec<(String, Vec<usize>)> = self
                 .inner
                 .nodes_ordered()
-                .into_iter()
-                .map(ToOwned::to_owned)
+                .iter()
+                .filter_map(|node| {
+                    let keys = self.inner.edge_keys(node, node)?;
+                    if keys.is_empty() {
+                        None
+                    } else {
+                        Some(((*node).to_owned(), keys))
+                    }
+                })
                 .collect();
-            for node in &nodes {
+            for (node, edge_keys) in &selfloops {
                 let node = node.as_str();
-                let Some(edge_keys) = self.inner.edge_keys(node, node) else {
-                    continue;
-                };
-                if edge_keys.is_empty() {
-                    continue;
-                }
                 let py_node = self.py_node_key(py, node);
-                for key in edge_keys {
+                for &key in edge_keys {
                     let val = match self
                         .inner
                         .edge_attrs(node, node, key)
@@ -7562,6 +8821,18 @@ impl PyMultiGraph {
     }
 
     fn has_node(&self, py: Python<'_>, n: &Bound<'_, PyAny>) -> PyResult<bool> {
+        // br-r37-c1-04z53 (cc): identity-int membership fast path. An exact int
+        // (bool excluded) that fits usize AND sits at its own index IS present —
+        // `node_index_matches_int` is the whole answer, so we skip both the
+        // `i.to_string()` heap alloc and the String-keyed `has_node` lookup.
+        // A non-identity int (present at another index / absent) falls through
+        // to the String path, which stays correct.
+        if n.is_exact_instance_of::<PyInt>()
+            && let Ok(i) = n.extract::<usize>()
+            && self.inner.node_index_matches_int(i)
+        {
+            return Ok(true);
+        }
         let canonical = node_key_to_string(py, n)?;
         Ok(self.inner.has_node(&canonical))
     }
@@ -7574,6 +8845,48 @@ impl PyMultiGraph {
         v: &Bound<'_, PyAny>,
         key: Option<&Bound<'_, PyAny>>,
     ) -> PyResult<bool> {
+        // br-r37-c1-6q4wl: keep NetworkX's hashability contract inside the raw
+        // descriptor so ordinary graphs do not need a Python wrapper solely to
+        // call hash(u), hash(v), and hash(key).  Propagate custom __hash__
+        // exceptions before any lookup, exactly as the former wrapper did.
+        u.hash()?;
+        v.hash()?;
+        if let Some(edge_key) = key {
+            edge_key.hash()?;
+        }
+        // br-r37-c1-04z53 (cc): identity-int fast path (mirror of
+        // PyGraph::has_edge cc-hasedgeintidx) for the keyless
+        // `MultiGraph.has_edge(u, v)` — the common shape. Exact int u,v (bool
+        // excluded: canonical "0"/"1") that fit usize AND sit at their own
+        // index resolve straight by index, skipping 2 `i.to_string()` heap
+        // allocs. Any key argument, or a non-identity int, falls through to the
+        // String path (exact keyed / non-int semantics unchanged).
+        if key.is_none()
+            && u.is_exact_instance_of::<PyInt>()
+            && v.is_exact_instance_of::<PyInt>()
+            && let Ok(iu) = u.extract::<usize>()
+            && let Ok(iv) = v.extract::<usize>()
+            && self.inner.node_index_matches_int(iu)
+            && self.inner.node_index_matches_int(iv)
+        {
+            return Ok(self.inner.has_edge_by_indices(iu, iv));
+        }
+        // br-r37-c1-paof2: the most-used keyless exact-string path interns the
+        // graph's canonical public keys to native indices.  Python's dict
+        // lookup preserves hash/equality semantics for equal-but-nonidentical
+        // strings; nodes_seq invalidation preserves compact-index correctness
+        // across removal/re-add.  Explicit edge keys and every non-exact string
+        // shape retain the established canonical fallback below.
+        if key.is_none()
+            && u.is_exact_instance_of::<PyString>()
+            && v.is_exact_instance_of::<PyString>()
+        {
+            let u_index = self.cached_exact_string_node_index(py, u)?;
+            let v_index = self.cached_exact_string_node_index(py, v)?;
+            return Ok(u_index
+                .zip(v_index)
+                .is_some_and(|(ui, vi)| self.inner.has_edge_by_indices(ui, vi)));
+        }
         let u_c = node_key_to_string(py, u)?;
         let v_c = node_key_to_string(py, v)?;
         Ok(match key {
@@ -7584,6 +8897,24 @@ impl PyMultiGraph {
                 }),
             None => self.inner.has_edge(&u_c, &v_c),
         })
+    }
+
+    /// Exact pre-paof2 keyless path retained as the same-ELF causal control.
+    ///
+    /// This private helper is deliberately source-equivalent to the fallback
+    /// above: eager endpoint hashes, two canonical conversions, and the same
+    /// native edge lookup. It is used only by the permanent perf harness.
+    fn _native_has_edge_uncached_string_control(
+        &self,
+        py: Python<'_>,
+        u: &Bound<'_, PyAny>,
+        v: &Bound<'_, PyAny>,
+    ) -> PyResult<bool> {
+        u.hash()?;
+        v.hash()?;
+        let u_c = node_key_to_string(py, u)?;
+        let v_c = node_key_to_string(py, v)?;
+        Ok(self.inner.has_edge(&u_c, &v_c))
     }
 
     fn neighbors(&self, py: Python<'_>, n: &Bound<'_, PyAny>) -> PyResult<Vec<PyObject>> {
@@ -7614,6 +8945,18 @@ impl PyMultiGraph {
     }
 
     fn __contains__(&self, py: Python<'_>, n: &Bound<'_, PyAny>) -> PyResult<bool> {
+        // br-r37-c1-04z53 (cc): identity-int membership fast path. An exact int
+        // (bool excluded) that fits usize AND sits at its own index IS present —
+        // `node_index_matches_int` is the whole answer, so we skip both the
+        // `i.to_string()` heap alloc and the String-keyed `has_node` lookup.
+        // A non-identity int (present at another index / absent) falls through
+        // to the String path, which stays correct.
+        if n.is_exact_instance_of::<PyInt>()
+            && let Ok(i) = n.extract::<usize>()
+            && self.inner.node_index_matches_int(i)
+        {
+            return Ok(true);
+        }
         let canonical = node_key_to_string(py, n)?;
         Ok(self.inner.has_node(&canonical))
     }
@@ -7832,7 +9175,13 @@ impl PyMultiGraph {
     fn nodes(slf: PyRef<'_, Self>) -> PyResult<Py<MultiGraphNodeView>> {
         let py = slf.py();
         let graph_py: Py<PyMultiGraph> = Py::from(slf);
-        Py::new(py, MultiGraphNodeView { graph: graph_py })
+        Py::new(
+            py,
+            MultiGraphNodeView {
+                graph: graph_py,
+                lookup_cache: NodeLookupCache::new(py),
+            },
+        )
     }
 
     /// ``G.edges`` — returns an EdgeView-like list of edges.
@@ -8527,6 +9876,8 @@ impl PyMultiGraph {
             edges_with_data_cache: None,
             edges_with_keys_cache: None,
             node_iter_mirror: std::sync::Mutex::new(None),
+            instance_dict_gc: InstanceDictGc::new(),
+            has_edge_node_index_cache: NodeIndexLookupCache::new(py),
         };
         // br-r37-c1-tbh4q: single-pass attr crossing (with_mirror) on copy() —
         // node attrs still cross once; clean edge attrs below reuse the
@@ -8632,6 +9983,8 @@ impl PyMultiGraph {
             edges_with_data_cache: None,
             edges_with_keys_cache: None,
             node_iter_mirror: std::sync::Mutex::new(None),
+            instance_dict_gc: InstanceDictGc::new(),
+            has_edge_node_index_cache: NodeIndexLookupCache::new(py),
         };
         for node in self.inner.nodes_ordered() {
             let py_attrs = self.node_py_attrs.get(node).map_or_else(
@@ -8705,6 +10058,7 @@ impl PyMultiGraph {
             in_edges_with_data_cache: None,
             edges_with_keys_cache: None,
             node_iter_mirror: std::sync::Mutex::new(None),
+            instance_dict_gc: InstanceDictGc::new(),
         };
         let mut node_batch: Vec<(String, fnx_classes::AttrMap)> =
             Vec::with_capacity(self.inner.node_count());
@@ -8794,6 +10148,8 @@ impl PyMultiGraph {
             edges_with_data_cache: None,
             edges_with_keys_cache: None,
             node_iter_mirror: std::sync::Mutex::new(None),
+            instance_dict_gc: InstanceDictGc::new(),
+            has_edge_node_index_cache: NodeIndexLookupCache::new(py),
         };
         // br-r37-c1-s0d4x: nx's MultiGraph.copy() rebuild walk reorders
         // adjacency CELLS (u-major first-touch) just like simple Graph
@@ -8885,6 +10241,8 @@ impl PyMultiGraph {
             edges_with_data_cache: None,
             edges_with_keys_cache: None,
             node_iter_mirror: std::sync::Mutex::new(None),
+            instance_dict_gc: InstanceDictGc::new(),
+            has_edge_node_index_cache: NodeIndexLookupCache::new(py),
         })
     }
 
@@ -8957,6 +10315,8 @@ impl PyMultiGraph {
             edges_with_data_cache: None,
             edges_with_keys_cache: None,
             node_iter_mirror: std::sync::Mutex::new(None),
+            instance_dict_gc: InstanceDictGc::new(),
+            has_edge_node_index_cache: NodeIndexLookupCache::new(py),
         };
 
         for canonical in &keep {
@@ -9073,6 +10433,8 @@ impl PyMultiGraph {
             edges_with_data_cache: None,
             edges_with_keys_cache: None,
             node_iter_mirror: std::sync::Mutex::new(None),
+            instance_dict_gc: InstanceDictGc::new(),
+            has_edge_node_index_cache: NodeIndexLookupCache::new(py),
         };
 
         for (u, v, key_filter) in &keep_edges {
@@ -9181,6 +10543,7 @@ impl PyMultiGraph {
             in_edges_with_data_cache: None,
             edges_with_keys_cache: None,
             node_iter_mirror: std::sync::Mutex::new(None),
+            instance_dict_gc: InstanceDictGc::new(),
         };
 
         for (canonical, py_key) in &self.node_key_map {
@@ -9735,10 +11098,16 @@ impl PyMultiGraph {
 #[pyclass]
 pub(crate) struct MultiGraphNodeView {
     graph: Py<PyMultiGraph>,
+    lookup_cache: NodeLookupCache,
 }
 
 #[pymethods]
 impl MultiGraphNodeView {
+    fn __traverse__(&self, visit: PyVisit<'_>) -> Result<(), PyTraverseError> {
+        visit.call(&self.graph)?;
+        self.lookup_cache.traverse(visit)
+    }
+
     fn __len__(&self, py: Python<'_>) -> usize {
         self.graph.borrow(py).inner.node_count()
     }
@@ -9790,14 +11159,20 @@ impl MultiGraphNodeView {
     }
 
     fn __getitem__(&self, py: Python<'_>, n: &Bound<'_, PyAny>) -> PyResult<PyObject> {
+        let nodes_seq = self.graph.borrow(py).nodes_seq;
+        if let Some(attrs) = self.lookup_cache.get(py, nodes_seq, n)? {
+            return Ok(attrs.into_any());
+        }
         let mut g = self.graph.borrow_mut(py);
         let canonical = node_key_to_string(py, n)?;
         if !g.inner.has_node(&canonical) {
             return Err(missing_key_error(n));
         }
-        Ok(g.ensure_node_py_attrs(py, &canonical)
-            .clone_ref(py)
-            .into_any())
+        let public_key = g.py_node_key(py, &canonical);
+        let attrs = g.ensure_node_py_attrs(py, &canonical).clone_ref(py);
+        drop(g);
+        self.lookup_cache.insert(py, public_key.bind(py), &attrs)?;
+        Ok(attrs.into_any())
     }
 
     #[pyo3(signature = (n, default=None))]
@@ -10093,6 +11468,10 @@ pub(crate) struct MultiGraphDegreeView {
 
 #[pymethods]
 impl MultiGraphDegreeView {
+    fn __traverse__(&self, visit: PyVisit<'_>) -> Result<(), PyTraverseError> {
+        visit.call(&self.graph)
+    }
+
     fn __len__(&self, py: Python<'_>) -> usize {
         self.graph.borrow(py).inner.node_count()
     }
@@ -10343,10 +11722,24 @@ impl PyGraph {
             // br-r37-c1-ctorgen: drain a true iterator once so the edge batch
             // below can fire on it (it only downcasts PyList/PyTuple). Every
             // other arm below deliberately keeps receiving the original `data`.
-            let materialized = materialize_iterator_edge_list(py, data)?;
-            let edata: &Bound<'_, PyAny> = materialized.as_ref().map_or(data, |l| l.as_any());
+            let mut materialized = materialize_iterator_edge_list(py, data, false, false, true)?;
+            let typed_batch = materialized
+                .as_mut()
+                .and_then(|decoded| decoded.graph_exact_int_attr_batch.take());
+            let edata: &Bound<'_, PyAny> = materialized
+                .as_ref()
+                .map(|decoded| &decoded.items)
+                .unwrap_or(data);
             // If it's another PyGraph, copy it.
-            if let Ok(other) = data.extract::<PyRef<'_, PyGraph>>() {
+            if let Some((node_labels, node_objects, edges, node_bumps)) = typed_batch {
+                g.add_fresh_exact_int_attr_edge_batch(
+                    py,
+                    node_labels,
+                    node_objects,
+                    edges,
+                    node_bumps,
+                )?;
+            } else if let Ok(other) = data.extract::<PyRef<'_, PyGraph>>() {
                 g.inner = other.inner.clone();
                 g.lazy_int_node_stop = other.lazy_int_node_stop;
                 for canonical in other.inner.nodes_ordered() {
@@ -10367,7 +11760,7 @@ impl PyGraph {
                         .replace_edge_attrs(u, v, py_dict_to_attr_map(copied.bind(py))?);
                 }
                 g.graph_attrs = other.graph_attrs.bind(py).copy()?.unbind();
-            } else if g._try_add_edges_from_batch(py, edata)? {
+            } else if g.try_add_edges_from_batch_impl(py, edata, materialized.is_some())? {
                 // br-r37-c1-ctorbatch (cc): route fresh edge-list construction
                 // through the add_edges_from fast batch — the constructor's own
                 // edge loop pays per-edge `has_node`/`has_edge`/`maybe_store_adj_key`
@@ -10858,10 +12251,7 @@ impl PyGraph {
         py: Python<'_>,
         ebunch_to_add: &Bound<'_, PyAny>,
     ) -> PyResult<bool> {
-        if self.try_add_plain_edge_batch(py, ebunch_to_add)? {
-            return Ok(true);
-        }
-        self.try_add_attr_edge_batch(py, ebunch_to_add, None)
+        self.try_add_edges_from_batch_impl(py, ebunch_to_add, false)
     }
 
     /// br-r37-c1-nodebatch: native attributed-node batch for
@@ -11124,7 +12514,7 @@ impl PyGraph {
         // replicate exactly falls through to the loop unchanged.
         // br-r37-c1-d58s8: global **attr now batches too (was the 7x
         // residual: nx merge order = global first, per-edge overrides).
-        if self.try_add_attr_edge_batch(py, ebunch_to_add, attr)? {
+        if self.try_add_attr_edge_batch(py, ebunch_to_add, attr, false)? {
             return Ok(());
         }
         let iter = PyIterator::from_object(ebunch_to_add)?;
@@ -11411,6 +12801,18 @@ impl PyGraph {
 
     /// Return True if graph has node n.
     fn has_node(&self, py: Python<'_>, n: &Bound<'_, PyAny>) -> PyResult<bool> {
+        // br-r37-c1-04z53 (cc): identity-int membership fast path. An exact int
+        // (bool excluded) that fits usize AND sits at its own index IS present —
+        // `node_index_matches_int` is the whole answer, so we skip both the
+        // `i.to_string()` heap alloc and the String-keyed `has_node` lookup.
+        // A non-identity int (present at another index / absent) falls through
+        // to the String path, which stays correct.
+        if n.is_exact_instance_of::<PyInt>()
+            && let Ok(i) = n.extract::<usize>()
+            && self.inner.node_index_matches_int(i)
+        {
+            return Ok(true);
+        }
         let canonical = node_key_to_string(py, n)?;
         Ok(self.inner.has_node(&canonical))
     }
@@ -11422,6 +12824,11 @@ impl PyGraph {
         u: &Bound<'_, PyAny>,
         v: &Bound<'_, PyAny>,
     ) -> PyResult<bool> {
+        // br-r37-c1-6q4wl: the raw descriptor owns NetworkX's hashability
+        // contract, allowing ordinary graphs to bypass the mapping-aware
+        // Python wrapper without swallowing TypeError/custom __hash__ errors.
+        u.hash()?;
+        v.hash()?;
         // cc-hasedgeintidx: identity-int fast path. `G.has_edge(u, v)` on int nodes
         // otherwise pays 2 `i.to_string()` heap allocs + 2 String-hash
         // `get_index_of` (vs nx's 2 int-dict lookups). When u and v are EXACT ints
@@ -11457,6 +12864,55 @@ impl PyGraph {
                 n.repr()?
             ))),
         }
+    }
+
+    /// br-r37-c1-comnbr (bt): native `common_neighbors(u, v)` for a simple Graph.
+    /// The Python fast path built TWO full `_native_adjacency_row_dict` attr dicts
+    /// (materialising every neighbour's attr map) just to intersect their KEYS, plus
+    /// two Python-level `u in G`/`v in G` membership checks (each a `node_key_to_string`
+    /// + `has_node` PyO3 round-trip) — ~0.76x nx. This intersects the two integer
+    /// adjacency index rows directly in Rust (probe the smaller into a set, walk the
+    /// larger), excluding `u`/`v`, and materialises ONLY the common neighbours' node
+    /// objects — no attr dicts, one FFI call. Returns `None` (-> the Python path) when
+    /// `adj_py_keys` is non-empty (hash-mixed keys need the z6uka row-display object,
+    /// which `py_node_key` does not carry). Missing `u`/`v` raise the exact nx
+    /// `NetworkXError` in u-before-v order. Result is a set == nx's `set(G[u]) & set(G[v]) - {u, v}`.
+    fn _native_common_neighbors(
+        &self,
+        py: Python<'_>,
+        u: &Bound<'_, PyAny>,
+        v: &Bound<'_, PyAny>,
+    ) -> PyResult<Option<Py<pyo3::types::PySet>>> {
+        if !self.adj_py_keys.is_empty() {
+            return Ok(None);
+        }
+        let u_canon = node_key_to_string(py, u)?;
+        let Some(ui) = self.inner.get_node_index(&u_canon) else {
+            return Err(NetworkXError::new_err("u is not in the graph."));
+        };
+        let v_canon = node_key_to_string(py, v)?;
+        let Some(vi) = self.inner.get_node_index(&v_canon) else {
+            return Err(NetworkXError::new_err("v is not in the graph."));
+        };
+        let u_nbrs = self.inner.neighbors_indices(ui).unwrap_or(&[]);
+        let v_nbrs = self.inner.neighbors_indices(vi).unwrap_or(&[]);
+        let (small, large) = if u_nbrs.len() <= v_nbrs.len() {
+            (u_nbrs, v_nbrs)
+        } else {
+            (v_nbrs, u_nbrs)
+        };
+        let small_set: std::collections::HashSet<usize> = small.iter().copied().collect();
+        let result = pyo3::types::PySet::empty(py)?;
+        for &j in large {
+            if j != ui
+                && j != vi
+                && small_set.contains(&j)
+                && let Some(name) = self.inner.get_node_name(j)
+            {
+                result.add(self.py_node_key(py, name))?;
+            }
+        }
+        Ok(Some(result.unbind()))
     }
 
     /// br-r37-c1-snabulk: bulk set_node_attributes(values, name) — one
@@ -12003,6 +13459,18 @@ impl PyGraph {
 
     /// Membership test (called by ``n in G``).
     fn __contains__(&self, py: Python<'_>, n: &Bound<'_, PyAny>) -> PyResult<bool> {
+        // br-r37-c1-04z53 (cc): identity-int membership fast path. An exact int
+        // (bool excluded) that fits usize AND sits at its own index IS present —
+        // `node_index_matches_int` is the whole answer, so we skip both the
+        // `i.to_string()` heap alloc and the String-keyed `has_node` lookup.
+        // A non-identity int (present at another index / absent) falls through
+        // to the String path, which stays correct.
+        if n.is_exact_instance_of::<PyInt>()
+            && let Ok(i) = n.extract::<usize>()
+            && self.inner.node_index_matches_int(i)
+        {
+            return Ok(true);
+        }
         let canonical = node_key_to_string(py, n)?;
         Ok(self.inner.has_node(&canonical))
     }
@@ -12142,6 +13610,7 @@ impl PyGraph {
             edges_dirty: AtomicBool::new(self.edges_dirty.load(Ordering::Relaxed)),
             node_keys_cache: std::sync::Mutex::new(None),
             node_iter_mirror: std::sync::Mutex::new(None),
+            instance_dict_gc: InstanceDictGc::new(),
             node_data_mirror: std::sync::Mutex::new(None),
         };
         // br-r37-c1-0ek49: nx's G.copy() rebuild walk reorders undirected
@@ -12218,6 +13687,7 @@ impl PyGraph {
             edges_dirty: AtomicBool::new(false),
             node_keys_cache: std::sync::Mutex::new(None),
             node_iter_mirror: std::sync::Mutex::new(None),
+            instance_dict_gc: InstanceDictGc::new(),
             node_data_mirror: std::sync::Mutex::new(None),
         };
 
@@ -12282,6 +13752,111 @@ impl PyGraph {
         Ok(new_graph)
     }
 
+    /// Materialize `G.subgraph(nodes).copy()` natively, in nx's exact order.
+    ///
+    /// `order` is the node sequence ALREADY resolved by the caller under nx's
+    /// `FilterAtlas.__iter__` rule — keep-set iteration order when
+    /// `2 * len(keep) < len(G)`, else G order filtered. That rule can land on
+    /// CPython set-iteration order, which cannot be reproduced from Rust, so
+    /// the O(|V|) ordering stays in Python (C-speed set/dict walks) and only
+    /// the O(|E|) adjacency walk crosses the boundary.
+    ///
+    /// The inner row order needs no such rule: nx's
+    /// `FilterAdjacency.__getitem__` wraps the row filter in a plain closure
+    /// with no `.nodes` attribute, so the inner `FilterAtlas` always falls
+    /// through to iterating the parent's adjacency row.
+    ///
+    /// Undirected dedup mirrors `add_edges_from` over the induced walk: a pair
+    /// is emitted at whichever endpoint comes FIRST in `order`, which fixes the
+    /// stored orientation exactly as nx's first-write does.
+    fn _native_induced_subgraph_copy(
+        &self,
+        py: Python<'_>,
+        order: &Bound<'_, PyAny>,
+    ) -> PyResult<Self> {
+        let node_count = self.inner.node_count();
+        let iter = PyIterator::from_object(order)?;
+        let mut names: Vec<String> = Vec::new();
+        let mut indices: Vec<usize> = Vec::new();
+        let mut position = vec![usize::MAX; node_count];
+        for item in iter {
+            let item = item?;
+            let canonical = node_key_to_string(py, &item)?;
+            let Some(idx) = self.inner.get_node_index(&canonical) else {
+                // Caller guarantees membership; a miss means the fast-path gate
+                // was wrong, so refuse rather than emit a divergent graph.
+                return Err(PyValueError::new_err(
+                    "induced subgraph order contains a node absent from the graph",
+                ));
+            };
+            position[idx] = names.len();
+            indices.push(idx);
+            names.push(canonical);
+        }
+
+        // Structure + Rust-side attrs in one index-only pass: no node-name
+        // hashing, no per-edge ledger entry.
+        let mut new_graph = Self {
+            inner: self
+                .inner
+                .induced_subgraph_ordered(&indices, self.inner.runtime_policy().clone()),
+            node_key_map: HashMap::new(),
+            lazy_int_node_stop: 0,
+            node_py_attrs: HashMap::new(),
+            edge_py_attrs: HashMap::new(),
+            adj_py_keys: HashMap::new(),
+            dict_of_dicts_cache: None,
+            adj_row_py: HashMap::new(),
+            graph_attrs: self.graph_attrs.bind(py).copy()?.unbind(),
+            nodes_seq: 0,
+            edges_seq: 0,
+            edges_dirty: AtomicBool::new(false),
+            node_keys_cache: std::sync::Mutex::new(None),
+            node_iter_mirror: std::sync::Mutex::new(None),
+            instance_dict_gc: InstanceDictGc::new(),
+            node_data_mirror: std::sync::Mutex::new(None),
+        };
+
+        for canonical in &names {
+            new_graph
+                .node_key_map
+                .insert(canonical.clone(), self.py_node_key(py, canonical));
+        }
+
+        // Where a Python attr mirror exists it is AUTHORITATIVE (the Rust store
+        // can be stale behind `edges_dirty`), so replay it over the copied Rust
+        // attrs. Both loops are sized by the MIRROR, not by |V| / |E| — a
+        // batch-built graph leaves them empty and pays nothing.
+        for (canonical, attrs) in &self.node_py_attrs {
+            if self.inner.get_node_index(canonical).is_none_or(|idx| {
+                idx >= position.len() || position[idx] == usize::MAX
+            }) {
+                continue;
+            }
+            let (rust_attrs, mirror) = py_dict_to_attr_map_with_mirror(py, attrs.bind(py))?;
+            new_graph
+                .inner
+                .replace_node_attrs(canonical.as_str(), rust_attrs);
+            new_graph.node_py_attrs.insert(canonical.clone(), mirror);
+        }
+        for (key, attrs) in &self.edge_py_attrs {
+            let (u, v) = key;
+            if !new_graph.inner.has_edge(u, v) {
+                continue;
+            }
+            let (rust_attrs, mirror) = py_dict_to_attr_map_with_mirror(py, attrs.bind(py))?;
+            new_graph
+                .inner
+                .replace_edge_attrs(u.as_str(), v.as_str(), rust_attrs);
+            new_graph.edge_py_attrs.insert(key.clone(), mirror);
+        }
+
+        if !self.adj_py_keys.is_empty() {
+            new_graph.adj_py_keys = self.derive_copy_adj_py_keys(py, &new_graph.inner);
+        }
+        Ok(new_graph)
+    }
+
     /// Return a subgraph containing only the specified edges.
     fn edge_subgraph(&self, py: Python<'_>, edges: &Bound<'_, PyAny>) -> PyResult<Self> {
         let iter = PyIterator::from_object(edges)?;
@@ -12313,6 +13888,7 @@ impl PyGraph {
             edges_dirty: AtomicBool::new(false),
             node_keys_cache: std::sync::Mutex::new(None),
             node_iter_mirror: std::sync::Mutex::new(None),
+            instance_dict_gc: InstanceDictGc::new(),
             node_data_mirror: std::sync::Mutex::new(None),
         };
 
@@ -12481,6 +14057,17 @@ impl PyGraph {
         merged_graph_attrs.update(self.graph_attrs.bind(py).as_mapping())?;
         merged_graph_attrs.update(other.graph_attrs.bind(py).as_mapping())?;
         g.graph_attrs = merged_graph_attrs.unbind();
+        // br-r37-c1 compose store-read: when BOTH factors' edge stores are
+        // authoritative + all-scalar, the inner edge batch below (whose
+        // extend_edges_with_attrs_unrecorded MERGES duplicate edges, exactly
+        // nx.compose's H-wins-on-overlap semantics) reproduces every edge attr
+        // losslessly — so the per-edge Python-dict mirror COPY (String edge_key
+        // build + dict.copy/update per edge, the ~0.62x cost) is redundant and
+        // the result's edge mirror can stay lazy. Gate on BOTH parts (a mixed
+        // pristine/non-pristine pair would leave the result mirror inconsistent
+        // with inner on overlap edges).
+        let both_edge_stores_readable =
+            graph_edge_store_scalar_readable(self) && graph_edge_store_scalar_readable(&other);
         for (part_idx, part) in [self, &*other].into_iter().enumerate() {
             let nodes = part.inner.nodes_ordered();
             // node index map: lets the per-walk edge dedup run on (usize,
@@ -12494,12 +14081,18 @@ impl PyGraph {
                 Vec::with_capacity(nodes.len());
             for (i, node) in nodes.iter().enumerate() {
                 if let Some(attrs) = part.node_py_attrs.get(*node) {
-                    if let Some(existing) = g.node_py_attrs.get(*node) {
-                        // overlap: later graph's values win (dict update)
-                        existing.bind(py).update(attrs.bind(py).as_mapping())?;
-                    } else {
-                        g.node_py_attrs
-                            .insert((*node).to_owned(), attrs.bind(py).copy()?.unbind());
+                    // add_edge eagerly materializes an EMPTY node mirror dict for
+                    // every endpoint; skip those (nothing to merge, result reads
+                    // the inner node_batch), keeping the result node mirror lazy.
+                    let bound = attrs.bind(py);
+                    if !bound.is_empty() {
+                        if let Some(existing) = g.node_py_attrs.get(*node) {
+                            // overlap: later graph's values win (dict update)
+                            existing.bind(py).update(bound.as_mapping())?;
+                        } else {
+                            g.node_py_attrs
+                                .insert((*node).to_owned(), bound.copy()?.unbind());
+                        }
                     }
                 }
                 if let std::collections::hash_map::Entry::Vacant(e) =
@@ -12555,7 +14148,11 @@ impl PyGraph {
                     }
                     // attr-less fast path: no mirror lookups or edge_key
                     // String allocs when the source carries no edge mirrors.
-                    if !part.edge_py_attrs.is_empty()
+                    // clean-scalar fast path: when both stores are authoritative,
+                    // skip the per-edge Python-dict copy — the inner edge batch +
+                    // merge already carries every (scalar) attr losslessly.
+                    if !both_edge_stores_readable
+                        && !part.edge_py_attrs.is_empty()
                         && let Some(attrs) = part
                             .edge_py_attrs
                             .get(&Self::edge_key(u, v))
@@ -12842,6 +14439,10 @@ impl PyGraph {
         v: &Bound<'_, PyAny>,
         default: Option<PyObject>,
     ) -> PyResult<PyObject> {
+        // br-r37-c1-57ba1: keep NetworkX's endpoint hashability contract in
+        // the raw descriptor so ordinary graphs need no Python shim.
+        u.hash()?;
+        v.hash()?;
         let u_c = node_key_to_string(py, u)?;
         let v_c = node_key_to_string(py, v)?;
         if !self.inner.has_edge(&u_c, &v_c) {
@@ -13025,6 +14626,76 @@ impl PyGraph {
         Ok(Some(out))
     }
 
+    /// br-r37-c1-wdegfval (bt): FLOAT sibling of `_native_weighted_degree_int_values`.
+    /// Values-only total weighted degree in node-index order, summed straight from
+    /// the CgseValue store with CPython's Neumaier (Kahan-Babuska) compensation so
+    /// each per-node total is BIT-IDENTICAL to `builtins.sum` (the to_dict_of_dicts
+    /// gen path) — with NO per-edge PyObject, PyList, or `to_dict_of_dicts` snapshot,
+    /// which is all of float `degree(weight)`/`size(weight)`'s cost (~0.87x nx). An
+    /// undirected self-loop appears ONCE in `neighbors_indices` but nx counts its
+    /// weight TWICE, so it is added a second time OUTSIDE the compensated sum (matching
+    /// the gen's `total = sum(...) + selfloop.get(weight, 1)`). The compensation is the
+    /// undirected/simple twin of `PyMultiGraph::weighted_degree_float_node_store`.
+    /// Gated on `!edges_dirty` (store authoritative); returns None (-> the exact
+    /// to_dict_of_dicts gen) on a dirty store, any non-float weight, or ANY missing
+    /// weight (nx's default int 1 would mix an int into the float sum), so
+    /// int/heterogeneous/mutated graphs stay byte-identical. An edgeless node yields
+    /// nx's int `0` (NOT float `0.0`), matching `sum(())`.
+    fn _native_weighted_degree_float_values(
+        &self,
+        py: Python<'_>,
+        weight: &str,
+    ) -> PyResult<Option<Vec<PyObject>>> {
+        if self.edges_dirty.load(Ordering::Relaxed) {
+            return Ok(None);
+        }
+        let n = self.inner.node_count();
+        let mut out: Vec<PyObject> = Vec::with_capacity(n);
+        for i in 0..n {
+            let mut f = 0.0f64;
+            let mut c = 0.0f64;
+            let mut selfloop_w: Option<f64> = None;
+            let mut saw = false;
+            if let Some(nbrs) = self.inner.neighbors_indices(i) {
+                for &j in nbrs {
+                    let Some(attrs) = self.inner.edge_attrs_by_indices(i, j) else {
+                        return Ok(None);
+                    };
+                    let x = match attrs.get(weight) {
+                        Some(CgseValue::Float(v)) => *v,
+                        // Any non-float value OR a missing weight (nx default int 1)
+                        // would break the pure-float sum -> fall to the exact gen.
+                        _ => return Ok(None),
+                    };
+                    saw = true;
+                    // Neumaier / Kahan-Babuska compensated add (== CPython float sum).
+                    let t = f + x;
+                    if f.abs() >= x.abs() {
+                        c += (f - t) + x;
+                    } else {
+                        c += (x - t) + f;
+                    }
+                    f = t;
+                    if i == j {
+                        selfloop_w = Some(x);
+                    }
+                }
+            }
+            if !saw {
+                // Isolated node: nx `sum(())` is int 0, not float 0.0.
+                out.push(0i64.into_pyobject(py)?.into_any().unbind());
+                continue;
+            }
+            let mut total = f + c;
+            if let Some(w) = selfloop_w {
+                // nx's undirected DegreeView counts a self-loop's weight twice.
+                total += w;
+            }
+            out.push(pyo3::types::PyFloat::new(py, total).into_any().unbind());
+        }
+        Ok(Some(out))
+    }
+
     /// br-r37-c1-yo1nt: native weighted degree, returning the full
     /// ``(node, total)`` sequence in node order. The Python
     /// `_WeightAwareDegreeView` weighted path builds ``dict(G.adj[node])``
@@ -13151,6 +14822,68 @@ impl PyGraph {
             }
             if all_int {
                 return Ok(int_pairs);
+            }
+        }
+
+        // br-r37-c1-wdegfnb (bt): FLOAT-store fast path — the float sibling of the
+        // int block above (and the subset twin of `_native_weighted_degree_float_values`).
+        // Per-node Neumaier (Kahan-Babuska) sum straight from the CgseValue store, so
+        // each total is bit-identical to the exact `builtins.sum` below with NO per-edge
+        // PyObject / PyList. Undirected self-loop counted twice (once in the compensated
+        // sum, once via the trailing add, matching the exact path). Gated on
+        // `!edges_dirty`; bails (whole subset) to the exact path on any non-float /
+        // missing weight. An edgeless nbunch node yields nx's int 0 (matching `sum(())`).
+        if !self.edges_dirty.load(Ordering::Relaxed) {
+            let mut float_pairs: Vec<(PyObject, PyObject)> = Vec::with_capacity(items.len());
+            let mut all_float = true;
+            'fnodes: for (node, canonical) in &items {
+                let Some(idx) = self.inner.get_node_index(canonical) else {
+                    all_float = false;
+                    break;
+                };
+                let mut f = 0.0f64;
+                let mut c = 0.0f64;
+                let mut selfloop_w: Option<f64> = None;
+                let mut saw = false;
+                if let Some(nbrs) = self.inner.neighbors_indices(idx) {
+                    for &j in nbrs {
+                        let x = match self
+                            .inner
+                            .edge_attrs_by_indices(idx, j)
+                            .map(|a| a.get(weight))
+                        {
+                            Some(Some(CgseValue::Float(v))) => *v,
+                            _ => {
+                                all_float = false;
+                                break 'fnodes;
+                            }
+                        };
+                        saw = true;
+                        let t = f + x;
+                        if f.abs() >= x.abs() {
+                            c += (f - t) + x;
+                        } else {
+                            c += (x - t) + f;
+                        }
+                        f = t;
+                        if idx == j {
+                            selfloop_w = Some(x);
+                        }
+                    }
+                }
+                let value_obj = if !saw {
+                    0i64.into_pyobject(py)?.into_any().unbind()
+                } else {
+                    let mut total = f + c;
+                    if let Some(w) = selfloop_w {
+                        total += w;
+                    }
+                    pyo3::types::PyFloat::new(py, total).into_any().unbind()
+                };
+                float_pairs.push((node.clone().unbind(), value_obj));
+            }
+            if all_float {
+                return Ok(float_pairs);
             }
         }
 
@@ -13307,6 +15040,7 @@ impl PyGraph {
             edges_dirty: AtomicBool::new(self.edges_dirty.load(Ordering::Relaxed)),
             node_keys_cache: std::sync::Mutex::new(None),
             node_iter_mirror: std::sync::Mutex::new(None),
+            instance_dict_gc: InstanceDictGc::new(),
             node_data_mirror: std::sync::Mutex::new(None),
         })
     }
@@ -13499,6 +15233,119 @@ mod tests {
     use super::*;
     use fnx_runtime::RuntimePolicy;
 
+    fn multigraph_ctor_edge_iterable_type<'py>(py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
+        let locals = PyDict::new(py);
+        py.run(
+            pyo3::ffi::c_str!(
+                r#"
+class FnxMultiGraphCtorEdgeIterable:
+    def __init__(self, edge_count, shape):
+        self.edge_count = edge_count
+        self.shape = shape
+
+    def __iter__(self):
+        attrs = {}
+        for index in range(self.edge_count):
+            if self.shape == 0:
+                yield (index, index + 1)
+            elif self.shape == 1:
+                attrs["weight"] = index
+                yield (index, index + 1, attrs)
+            else:
+                attrs["weight"] = index
+                yield (index, index + 1, f"key-{index}", attrs)
+"#
+            ),
+            None,
+            Some(&locals),
+        )?;
+        Ok(locals
+            .get_item("FnxMultiGraphCtorEdgeIterable")?
+            .expect("class definition must populate locals"))
+    }
+
+    fn multigraph_from_ctor_iterable(
+        py: Python<'_>,
+        iterable_type: &Bound<'_, PyAny>,
+        edge_count: usize,
+        shape: usize,
+        true_iterator: bool,
+    ) -> PyResult<PyMultiGraph> {
+        let iterable = iterable_type.call1((edge_count, shape))?;
+        let data = if true_iterator {
+            iterable.call_method0("__iter__")?
+        } else {
+            iterable
+        };
+        PyMultiGraph::new(py, Some(&data), None)
+    }
+
+    fn assert_multigraph_ctor_parity(
+        py: Python<'_>,
+        candidate: &PyMultiGraph,
+        baseline: &PyMultiGraph,
+    ) -> PyResult<()> {
+        assert_eq!(candidate.inner.snapshot(), baseline.inner.snapshot());
+        assert_eq!(candidate.node_key_map.len(), baseline.node_key_map.len());
+        for (key, value) in &baseline.node_key_map {
+            let candidate_value = candidate
+                .node_key_map
+                .get(key)
+                .expect("candidate must preserve every display node key");
+            assert!(value.bind(py).eq(candidate_value.bind(py))?);
+        }
+        for edge in candidate.inner.edges_ordered() {
+            let candidate_key = candidate.py_edge_key(py, &edge.left, &edge.right, edge.key);
+            let baseline_key = baseline.py_edge_key(py, &edge.left, &edge.right, edge.key);
+            assert!(candidate_key.bind(py).eq(baseline_key.bind(py))?);
+        }
+        Ok(())
+    }
+
+    fn multiatlas_len_allocating(view: &MultiAtlasView, py: Python<'_>) -> usize {
+        view.graph
+            .borrow(py)
+            .inner
+            .neighbors(&view.node)
+            .map_or(0, |neighbors| neighbors.len())
+    }
+
+    fn multiatlas_star_view(py: Python<'_>, degree: usize) -> PyResult<MultiAtlasView> {
+        let mut graph = PyMultiGraph::new_empty_with_mode(py, CompatibilityMode::Strict)?;
+        assert!(graph.inner.add_node("hub"));
+        for index in 0..degree {
+            assert_eq!(
+                graph
+                    .inner
+                    .add_fresh_edge_unrecorded("hub", format!("leaf-{index}")),
+                Some(0)
+            );
+        }
+        Ok(MultiAtlasView::new(Py::new(py, graph)?, "hub".to_owned()))
+    }
+
+    fn multikeydict_len_allocating(view: &MultiKeyDictView, py: Python<'_>) -> usize {
+        view.graph
+            .borrow(py)
+            .inner
+            .edge_keys(&view.source, &view.target)
+            .map_or(0, |keys| keys.len())
+    }
+
+    fn multikeydict_parallel_view(py: Python<'_>, key_count: usize) -> PyResult<MultiKeyDictView> {
+        let mut graph = PyMultiGraph::new_empty_with_mode(py, CompatibilityMode::Strict)?;
+        assert!(graph.inner.add_node("left"));
+        assert!(graph.inner.add_node("right"));
+        for key in 0..key_count {
+            assert_eq!(graph.inner.add_edge("left", "right"), Ok(key));
+        }
+        Ok(MultiKeyDictView::new(
+            Py::new(py, graph)?,
+            "left".to_owned(),
+            "right".to_owned(),
+        ))
+    }
+
     fn ensure_python() {
         Python::initialize();
     }
@@ -13513,6 +15360,924 @@ mod tests {
         let mut graph = MultiGraph::new(CompatibilityMode::Hardened);
         graph.add_node("seed".to_owned());
         graph.runtime_policy().clone()
+    }
+
+    #[test]
+    fn multigraph_true_iterator_ctor_matches_streaming_route() {
+        ensure_python();
+        Python::attach(|py| -> PyResult<()> {
+            let iterable_type = multigraph_ctor_edge_iterable_type(py)?;
+            for shape in 0..=2 {
+                let baseline = multigraph_from_ctor_iterable(py, &iterable_type, 32, shape, false)?;
+                let candidate = multigraph_from_ctor_iterable(py, &iterable_type, 32, shape, true)?;
+                assert_multigraph_ctor_parity(py, &candidate, &baseline)?;
+            }
+
+            let iterable = iterable_type.call1((8, 1))?;
+            let iterator = iterable.call_method0("__iter__")?;
+            let candidate = PyMultiGraph::new(py, Some(&iterator), None)?;
+            assert_eq!(candidate.inner.edge_count(), 8);
+            assert!(
+                PyIterator::from_object(&iterator)?.next().is_none(),
+                "constructor must exhaust a true iterator exactly once"
+            );
+            Ok(())
+        })
+        .expect("MultiGraph iterator constructor parity should hold");
+    }
+
+    #[test]
+    fn multiatlas_len_matches_allocating_baseline() {
+        ensure_python();
+        Python::attach(|py| -> PyResult<()> {
+            let view = multiatlas_star_view(py, 0)?;
+            assert_eq!(view.__len__(py), multiatlas_len_allocating(&view, py));
+            assert_eq!(view.__len__(py), 0);
+
+            {
+                let mut graph = view.graph.borrow_mut(py);
+                assert_eq!(graph.inner.add_edge("hub", "a"), Ok(0));
+                assert_eq!(graph.inner.add_edge("hub", "a"), Ok(1));
+                assert_eq!(graph.inner.add_edge("hub", "hub"), Ok(0));
+                assert_eq!(graph.inner.add_edge("hub", "b"), Ok(0));
+            }
+            assert_eq!(view.__len__(py), multiatlas_len_allocating(&view, py));
+            assert_eq!(view.__len__(py), 3);
+
+            {
+                let mut graph = view.graph.borrow_mut(py);
+                assert!(graph.inner.remove_edge("hub", "a", Some(0)));
+            }
+            assert_eq!(view.__len__(py), multiatlas_len_allocating(&view, py));
+            assert_eq!(view.__len__(py), 3);
+
+            {
+                let mut graph = view.graph.borrow_mut(py);
+                assert!(graph.inner.remove_edge("hub", "a", Some(1)));
+            }
+            assert_eq!(view.__len__(py), multiatlas_len_allocating(&view, py));
+            assert_eq!(view.__len__(py), 2);
+            Ok(())
+        })
+        .expect("MultiAtlasView length parity should hold");
+    }
+
+    #[test]
+    fn multikeydict_len_matches_allocating_baseline() {
+        ensure_python();
+        Python::attach(|py| -> PyResult<()> {
+            let view = multikeydict_parallel_view(py, 0)?;
+            let reverse = MultiKeyDictView::new(
+                view.graph.clone_ref(py),
+                "right".to_owned(),
+                "left".to_owned(),
+            );
+            let self_loop = MultiKeyDictView::new(
+                view.graph.clone_ref(py),
+                "left".to_owned(),
+                "left".to_owned(),
+            );
+            assert_eq!(view.__len__(py), multikeydict_len_allocating(&view, py));
+            assert_eq!(view.__len__(py), 0);
+
+            {
+                let mut graph = view.graph.borrow_mut(py);
+                assert_eq!(
+                    graph
+                        .inner
+                        .add_edge_with_key_and_attrs("left", "right", 7, AttrMap::new()),
+                    Ok(7)
+                );
+                assert_eq!(
+                    graph
+                        .inner
+                        .add_edge_with_key_and_attrs("left", "right", 42, AttrMap::new()),
+                    Ok(42)
+                );
+                assert_eq!(graph.inner.add_edge("left", "right"), Ok(2));
+                assert_eq!(
+                    graph
+                        .inner
+                        .add_edge_with_key_and_attrs("left", "left", 11, AttrMap::new()),
+                    Ok(11)
+                );
+                assert_eq!(graph.inner.add_edge("left", "other"), Ok(0));
+            }
+            assert_eq!(view.__len__(py), multikeydict_len_allocating(&view, py));
+            assert_eq!(view.__len__(py), 3);
+            assert_eq!(reverse.__len__(py), 3);
+            assert_eq!(self_loop.__len__(py), 1);
+
+            {
+                let mut graph = view.graph.borrow_mut(py);
+                assert!(graph.inner.remove_edge("left", "right", Some(42)));
+            }
+            assert_eq!(view.__len__(py), multikeydict_len_allocating(&view, py));
+            assert_eq!(view.__len__(py), 2);
+
+            {
+                let mut graph = view.graph.borrow_mut(py);
+                assert!(graph.inner.remove_edge("left", "right", Some(7)));
+                assert!(graph.inner.remove_edge("left", "right", Some(2)));
+            }
+            assert_eq!(view.__len__(py), multikeydict_len_allocating(&view, py));
+            assert_eq!(view.__len__(py), 0);
+            assert_eq!(reverse.__len__(py), 0);
+            Ok(())
+        })
+        .expect("MultiKeyDictView length parity should hold");
+    }
+
+    /// `br-r37-c1-ci87u`: same-binary proof for exact-size iterator counting
+    /// versus the frozen allocating `neighbors().len()` route. Run with the
+    /// release profile, `--ignored`, and `--nocapture`.
+    #[test]
+    #[ignore = "measurement; run with release profile, --ignored, and --nocapture"]
+    fn multiatlas_len_noalloc_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        ensure_python();
+        Python::attach(|py| -> PyResult<()> {
+            let degree = 4_096usize;
+            let calls = 4_096usize;
+            let rounds = 31usize;
+            let view = multiatlas_star_view(py, degree)?;
+            assert_eq!(view.__len__(py), degree);
+            assert_eq!(multiatlas_len_allocating(&view, py), degree);
+
+            let time = |candidate: bool| -> f64 {
+                let start = Instant::now();
+                for _ in 0..calls {
+                    let length = if candidate {
+                        view.__len__(py)
+                    } else {
+                        multiatlas_len_allocating(&view, py)
+                    };
+                    black_box(length);
+                }
+                start.elapsed().as_secs_f64()
+            };
+            for _ in 0..3 {
+                black_box(time(false));
+                black_box(time(true));
+            }
+
+            let paired = |baseline_is_candidate: bool| -> Vec<f64> {
+                let mut ratios = Vec::with_capacity(rounds);
+                for round in 0..rounds {
+                    let (baseline_time, candidate_time) = if round.is_multiple_of(2) {
+                        (time(baseline_is_candidate), time(true))
+                    } else {
+                        let candidate_time = time(true);
+                        let baseline_time = time(baseline_is_candidate);
+                        (baseline_time, candidate_time)
+                    };
+                    ratios.push(baseline_time / candidate_time);
+                }
+                ratios
+            };
+            let report = |name: &str, ratios: &[f64]| {
+                let wins = ratios.iter().filter(|&&ratio| ratio > 1.0).count();
+                let mut sorted = ratios.to_vec();
+                sorted.sort_by(f64::total_cmp);
+                println!(
+                    "MULTIATLAS_LEN_AB {name}: median={:.4}x wins={wins}/{rounds} p5_p95=[{:.4},{:.4}]",
+                    sorted[rounds / 2],
+                    sorted[rounds * 5 / 100],
+                    sorted[rounds * 95 / 100],
+                );
+            };
+
+            println!(
+                "MULTIATLAS_LEN_AB degree={degree} calls={calls} rounds={rounds} (>1 = candidate faster)"
+            );
+            report("candidate_vs_allocating", &paired(false));
+            report("candidate_null", &paired(true));
+            Ok(())
+        })
+        .expect("MultiAtlasView length A/B should run");
+    }
+
+    /// `br-r37-c1-dd84r`: same-binary proof for exact-size iterator counting
+    /// versus the frozen allocating `edge_keys().len()` route. Run with the
+    /// release profile, `--ignored`, and `--nocapture`.
+    #[test]
+    #[ignore = "measurement; run with release profile, --ignored, and --nocapture"]
+    fn multikeydict_len_noalloc_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        ensure_python();
+        Python::attach(|py| -> PyResult<()> {
+            let key_count = 4_096usize;
+            let calls = 4_096usize;
+            let rounds = 31usize;
+            let view = multikeydict_parallel_view(py, key_count)?;
+            assert_eq!(view.__len__(py), key_count);
+            assert_eq!(multikeydict_len_allocating(&view, py), key_count);
+
+            let time = |candidate: bool| -> f64 {
+                let start = Instant::now();
+                for _ in 0..calls {
+                    let length = if candidate {
+                        view.__len__(py)
+                    } else {
+                        multikeydict_len_allocating(&view, py)
+                    };
+                    black_box(length);
+                }
+                start.elapsed().as_secs_f64()
+            };
+            for _ in 0..3 {
+                black_box(time(false));
+                black_box(time(true));
+            }
+
+            let paired = |baseline_is_candidate: bool| -> Vec<f64> {
+                let mut ratios = Vec::with_capacity(rounds);
+                for round in 0..rounds {
+                    let (baseline_time, candidate_time) = if round.is_multiple_of(2) {
+                        (time(baseline_is_candidate), time(true))
+                    } else {
+                        let candidate_time = time(true);
+                        let baseline_time = time(baseline_is_candidate);
+                        (baseline_time, candidate_time)
+                    };
+                    ratios.push(baseline_time / candidate_time);
+                }
+                ratios
+            };
+            let report = |name: &str, ratios: &[f64]| {
+                let wins = ratios.iter().filter(|&&ratio| ratio > 1.0).count();
+                let mut sorted = ratios.to_vec();
+                sorted.sort_by(f64::total_cmp);
+                println!(
+                    "MULTIKEYDICT_LEN_AB {name}: median={:.4}x wins={wins}/{rounds} p5_p95=[{:.4},{:.4}]",
+                    sorted[rounds / 2],
+                    sorted[rounds * 5 / 100],
+                    sorted[rounds * 95 / 100],
+                );
+            };
+
+            println!(
+                "MULTIKEYDICT_LEN_AB keys={key_count} calls={calls} rounds={rounds} (>1 = candidate faster)"
+            );
+            report("candidate_vs_allocating", &paired(false));
+            report("candidate_null", &paired(true));
+            Ok(())
+        })
+        .expect("MultiKeyDictView length A/B should run");
+    }
+
+    /// `br-r37-c1-q86hv`: same-binary proof for the one-time true-iterator
+    /// drain versus the frozen streaming fallback (an iterable without
+    /// `__next__`). Run with release profile, `--ignored`, and `--nocapture`.
+    #[test]
+    #[ignore = "measurement; run with release profile, --ignored, and --nocapture"]
+    fn multigraph_true_iterator_ctor_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        ensure_python();
+        Python::attach(|py| -> PyResult<()> {
+            let iterable_type = multigraph_ctor_edge_iterable_type(py)?;
+            let edge_count = 20_000usize;
+            let rounds = 31usize;
+            let time = |true_iterator: bool| -> PyResult<f64> {
+                let iterable = iterable_type.call1((edge_count, 0))?;
+                let data = if true_iterator {
+                    iterable.call_method0("__iter__")?
+                } else {
+                    iterable
+                };
+                let start = Instant::now();
+                let graph = PyMultiGraph::new(py, Some(&data), None)?;
+                black_box(graph.inner.edge_count());
+                black_box(graph.inner.node_count());
+                Ok(start.elapsed().as_secs_f64())
+            };
+
+            let baseline =
+                multigraph_from_ctor_iterable(py, &iterable_type, edge_count, 0, false)?;
+            let candidate =
+                multigraph_from_ctor_iterable(py, &iterable_type, edge_count, 0, true)?;
+            assert_multigraph_ctor_parity(py, &candidate, &baseline)?;
+            for _ in 0..3 {
+                black_box(time(false)?);
+                black_box(time(true)?);
+            }
+
+            let paired = |baseline_true_iterator: bool| -> PyResult<Vec<f64>> {
+                let mut ratios = Vec::with_capacity(rounds);
+                for round in 0..rounds {
+                    let (baseline_time, candidate_time) = if round.is_multiple_of(2) {
+                        (time(baseline_true_iterator)?, time(true)?)
+                    } else {
+                        let candidate_time = time(true)?;
+                        let baseline_time = time(baseline_true_iterator)?;
+                        (baseline_time, candidate_time)
+                    };
+                    ratios.push(baseline_time / candidate_time);
+                }
+                Ok(ratios)
+            };
+            let report = |name: &str, ratios: &[f64]| {
+                let wins = ratios.iter().filter(|&&ratio| ratio > 1.0).count();
+                let mut sorted = ratios.to_vec();
+                sorted.sort_by(f64::total_cmp);
+                println!(
+                    "MG_ITER_CTOR_AB {name}: median={:.4}x wins={wins}/{rounds} p5_p95=[{:.4},{:.4}]",
+                    sorted[rounds / 2],
+                    sorted[rounds * 5 / 100],
+                    sorted[rounds * 95 / 100],
+                );
+            };
+
+            println!(
+                "MG_ITER_CTOR_AB edges={edge_count} rounds={rounds} (>1 = true-iterator route faster)"
+            );
+            report("candidate_vs_streaming", &paired(false)?);
+            report("candidate_null", &paired(true)?);
+            Ok(())
+        })
+        .expect("MultiGraph iterator constructor A/B should run");
+    }
+
+    /// `br-r37-c1-hxdyb`: same-binary proof for native list-row iterator
+    /// decoding versus the behavior-isomorphic Python `map(tuple, rows)`
+    /// workaround. Run with the release profile, `--ignored`, and
+    /// `--nocapture` on one remote worker.
+    #[test]
+    #[ignore = "measurement; run with release profile, --ignored, and --nocapture"]
+    fn graph_list_iterator_ctor_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        ensure_python();
+        Python::attach(|py| -> PyResult<()> {
+            let edge_count = 20_000usize;
+            let rounds = 21usize;
+            let repetitions = 64usize;
+            let rows = PyList::empty(py);
+            for node in 0..edge_count {
+                rows.append(PyList::new(py, [node, node + 1])?)?;
+            }
+            let builtins = py.import("builtins")?;
+            let map = builtins.getattr("map")?;
+            let tuple = builtins.getattr("tuple")?;
+
+            let build = |direct: bool| -> PyResult<PyGraph> {
+                let data = if direct {
+                    rows.call_method0("__iter__")?
+                } else {
+                    map.call1((&tuple, &rows))?
+                };
+                let graph = PyGraph::new(py, Some(&data), None)?;
+                black_box(graph.inner.edge_count());
+                black_box(graph.inner.node_count());
+                Ok(graph)
+            };
+            let time = |direct: bool| -> PyResult<f64> {
+                let start = Instant::now();
+                for _ in 0..repetitions {
+                    black_box(build(direct)?);
+                }
+                Ok(start.elapsed().as_secs_f64())
+            };
+
+            let candidate = build(true)?;
+            let baseline = build(false)?;
+            assert_eq!(candidate.inner.snapshot(), baseline.inner.snapshot());
+            assert_eq!(candidate.node_key_map.len(), baseline.node_key_map.len());
+            for _ in 0..1 {
+                black_box(time(false)?);
+                black_box(time(true)?);
+            }
+
+            let paired = |baseline_is_direct: bool| -> PyResult<Vec<f64>> {
+                let mut ratios = Vec::with_capacity(rounds);
+                for round in 0..rounds {
+                    let (baseline_time, candidate_time) = if round.is_multiple_of(2) {
+                        (time(baseline_is_direct)?, time(true)?)
+                    } else {
+                        let candidate_time = time(true)?;
+                        let baseline_time = time(baseline_is_direct)?;
+                        (baseline_time, candidate_time)
+                    };
+                    ratios.push(baseline_time / candidate_time);
+                }
+                Ok(ratios)
+            };
+            let report = |name: &str, ratios: &[f64]| {
+                let wins = ratios.iter().filter(|&&ratio| ratio > 1.0).count();
+                let mean = ratios.iter().sum::<f64>() / ratios.len() as f64;
+                let variance = ratios
+                    .iter()
+                    .map(|ratio| (ratio - mean).powi(2))
+                    .sum::<f64>()
+                    / (ratios.len() - 1) as f64;
+                let cv_pct = variance.sqrt() / mean * 100.0;
+                let mut sorted = ratios.to_vec();
+                sorted.sort_by(f64::total_cmp);
+                println!(
+                    "GRAPH_LIST_ITER_CTOR_AB {name}: median={:.4}x wins={wins}/{rounds} cv={cv_pct:.3}% p5_p95=[{:.4},{:.4}]",
+                    sorted[rounds / 2],
+                    sorted[rounds * 5 / 100],
+                    sorted[rounds * 95 / 100],
+                );
+            };
+
+            println!(
+                "GRAPH_LIST_ITER_CTOR_AB edges={edge_count} repetitions={repetitions} rounds={rounds} (>1 = native direct faster)"
+            );
+            report("candidate_vs_map_tuple", &paired(false)?);
+            report("candidate_null", &paired(true)?);
+            Ok(())
+        })
+        .expect("Graph list-iterator constructor A/B should run");
+    }
+
+    /// `br-r37-c1-04z53.9180`: phase attribution for attributed true-iterator
+    /// construction. This separates transactional normalization/materializing
+    /// from the existing native batch commit before any fused-stage candidate
+    /// is written. Run with the release profile, `--ignored`, and `--nocapture`.
+    #[test]
+    #[ignore = "measurement; run with release profile, --ignored, and --nocapture"]
+    fn graph_attr_iterator_ctor_phase_profile() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        ensure_python();
+        Python::attach(|py| -> PyResult<()> {
+            let edge_count = 10_000usize;
+            let repetitions = 16usize;
+            let rounds = 21usize;
+            let rows = PyList::empty(py);
+            for node in 0..edge_count {
+                let attrs = PyDict::new(py);
+                attrs.set_item("weight", node % 97)?;
+                attrs.set_item("cost", node as f64 / 17.0)?;
+                attrs.set_item("tag", format!("e{}", node % 11))?;
+                rows.append(PyList::new(
+                    py,
+                    [
+                        node.into_py_any(py)?,
+                        (node + 1).into_py_any(py)?,
+                        attrs.unbind().into_any(),
+                    ],
+                )?)?;
+            }
+
+            let stage = || -> PyResult<Bound<'_, PyAny>> {
+                let iterator = rows.call_method0("__iter__")?;
+                let materialized =
+                    materialize_iterator_edge_list(py, &iterator, false, false, false)?
+                    .expect("a true iterator must materialize");
+                black_box(materialized.items.len()?);
+                Ok(materialized.items)
+            };
+            let commit = |materialized: &Bound<'_, PyAny>| -> PyResult<()> {
+                let mut graph = PyGraph::new_empty(py)?;
+                assert!(graph.try_add_edges_from_batch_impl(py, materialized, true)?);
+                black_box(graph.inner.edge_count());
+                black_box(graph.edge_py_attrs.len());
+                Ok(())
+            };
+            let time_stage = || -> PyResult<f64> {
+                let start = Instant::now();
+                for _ in 0..repetitions {
+                    black_box(stage()?);
+                }
+                Ok(start.elapsed().as_secs_f64())
+            };
+            let materialized = stage()?;
+            let time_commit = || -> PyResult<f64> {
+                let start = Instant::now();
+                for _ in 0..repetitions {
+                    commit(&materialized)?;
+                }
+                Ok(start.elapsed().as_secs_f64())
+            };
+            let time_full = || -> PyResult<f64> {
+                let start = Instant::now();
+                for _ in 0..repetitions {
+                    let iterator = rows.call_method0("__iter__")?;
+                    let graph = PyGraph::new(py, Some(&iterator), None)?;
+                    black_box(graph.inner.edge_count());
+                    black_box(graph.edge_py_attrs.len());
+                }
+                Ok(start.elapsed().as_secs_f64())
+            };
+
+            black_box(time_stage()?);
+            black_box(time_commit()?);
+            black_box(time_full()?);
+            let mut stage_times = Vec::with_capacity(rounds);
+            let mut commit_times = Vec::with_capacity(rounds);
+            let mut full_times = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                match round % 3 {
+                    0 => {
+                        stage_times.push(time_stage()?);
+                        commit_times.push(time_commit()?);
+                        full_times.push(time_full()?);
+                    }
+                    1 => {
+                        commit_times.push(time_commit()?);
+                        full_times.push(time_full()?);
+                        stage_times.push(time_stage()?);
+                    }
+                    _ => {
+                        full_times.push(time_full()?);
+                        stage_times.push(time_stage()?);
+                        commit_times.push(time_commit()?);
+                    }
+                }
+            }
+
+            let report = |name: &str, samples: &[f64]| {
+                let mean = samples.iter().sum::<f64>() / samples.len() as f64;
+                let variance = samples
+                    .iter()
+                    .map(|sample| (sample - mean).powi(2))
+                    .sum::<f64>()
+                    / (samples.len() - 1) as f64;
+                let mut sorted = samples.to_vec();
+                sorted.sort_by(f64::total_cmp);
+                println!(
+                    "GRAPH_ATTR_ITER_PHASE {name}: median_ms={:.3} cv={:.3}% p5_p95_ms=[{:.3},{:.3}]",
+                    sorted[rounds / 2] * 1_000.0,
+                    variance.sqrt() / mean * 100.0,
+                    sorted[rounds * 5 / 100] * 1_000.0,
+                    sorted[rounds * 95 / 100] * 1_000.0,
+                );
+            };
+            println!(
+                "GRAPH_ATTR_ITER_PHASE edges={edge_count} repetitions={repetitions} rounds={rounds}"
+            );
+            report("stage", &stage_times);
+            report("commit", &commit_times);
+            report("full", &full_times);
+            Ok(())
+        })
+        .expect("Graph attributed iterator phase profile should run");
+    }
+
+    fn build_graph_attr_iterator_stage_for_test(
+        py: Python<'_>,
+        rows: &Bound<'_, PyList>,
+        fused: bool,
+    ) -> PyResult<PyGraph> {
+        let iterator = rows.call_method0("__iter__")?;
+        let mut decoded = materialize_iterator_edge_list(py, &iterator, false, false, fused)?
+            .expect("a true iterator must materialize");
+        let mut graph = PyGraph::new_empty(py)?;
+        if fused {
+            let (node_labels, node_objects, edges, node_bumps) = decoded
+                .graph_exact_int_attr_batch
+                .take()
+                .expect("the exact-int attributed fixture must form a typed stage");
+            graph.add_fresh_exact_int_attr_edge_batch(
+                py,
+                node_labels,
+                node_objects,
+                edges,
+                node_bumps,
+            )?;
+        } else {
+            assert!(graph.try_add_edges_from_batch_impl(py, &decoded.items, true)?);
+        }
+        Ok(graph)
+    }
+
+    #[test]
+    fn graph_attr_iterator_fused_stage_matches_frozen_batch() {
+        ensure_python();
+        Python::attach(|py| -> PyResult<()> {
+            let rows = PyList::empty(py);
+            let mut first_source_attrs = None;
+            for node in 0..32usize {
+                let attrs = PyDict::new(py);
+                attrs.set_item("weight", node % 7)?;
+                attrs.set_item("cost", node as f64 / 3.0)?;
+                attrs.set_item("tag", format!("e{}", node % 5))?;
+                if node == 0 {
+                    first_source_attrs = Some(attrs.clone().unbind());
+                }
+                rows.append(PyList::new(
+                    py,
+                    [
+                        node.into_py_any(py)?,
+                        (node + 1).into_py_any(py)?,
+                        attrs.unbind().into_any(),
+                    ],
+                )?)?;
+            }
+
+            let frozen = build_graph_attr_iterator_stage_for_test(py, &rows, false)?;
+            let fused = build_graph_attr_iterator_stage_for_test(py, &rows, true)?;
+            assert_eq!(fused.inner.snapshot(), frozen.inner.snapshot());
+            assert_eq!(fused.node_key_map.len(), frozen.node_key_map.len());
+            assert_eq!(fused.edge_py_attrs.len(), frozen.edge_py_attrs.len());
+            for (edge, fused_attrs) in &fused.edge_py_attrs {
+                let frozen_attrs = frozen
+                    .edge_py_attrs
+                    .get(edge)
+                    .expect("both paths must retain every ordered mirror");
+                assert_eq!(
+                    fused_attrs.bind(py).repr()?.to_str()?,
+                    frozen_attrs.bind(py).repr()?.to_str()?,
+                    "ordered Python edge payload must stay byte-identical"
+                );
+            }
+
+            first_source_attrs
+                .expect("the fixture has a first attribute dictionary")
+                .bind(py)
+                .set_item("weight", 9999)?;
+            let first_edge = PyGraph::edge_key("0", "1");
+            assert_eq!(
+                fused.edge_py_attrs[&first_edge]
+                    .bind(py)
+                    .get_item("weight")?
+                    .expect("weight must remain present")
+                    .extract::<usize>()?,
+                0,
+                "the fused stage must retain the yield-time shallow snapshot"
+            );
+
+            let duplicate_rows = PyList::empty(py);
+            for (u, v) in [
+                (0, 1),
+                (1, 0),
+                (1, 2),
+                (2, 3),
+                (3, 4),
+                (4, 5),
+                (5, 6),
+                (6, 7),
+            ] {
+                duplicate_rows.append(PyTuple::new(
+                    py,
+                    [
+                        u.into_py_any(py)?,
+                        v.into_py_any(py)?,
+                        PyDict::new(py).unbind().into_any(),
+                    ],
+                )?)?;
+            }
+            let iterator = duplicate_rows.call_method0("__iter__")?;
+            let decoded = materialize_iterator_edge_list(py, &iterator, false, false, true)?
+                .expect("a true iterator must materialize");
+            assert!(
+                decoded.graph_exact_int_attr_batch.is_none(),
+                "duplicate undirected edges must retain merge-aware fallback"
+            );
+            Ok(())
+        })
+        .expect("fused Graph iterator stage parity should hold");
+    }
+
+    /// `br-r37-c1-04z53.9180`: same-binary proof for fusing exact-int
+    /// attributed iterator normalization with typed batch staging. The frozen
+    /// arm materializes a Python list and lets the existing batch collector
+    /// reparse it; the candidate commits the typed region produced during that
+    /// same transactional normalization pass.
+    #[test]
+    #[ignore = "measurement; run with release profile, --ignored, and --nocapture"]
+    fn graph_attr_iterator_fused_stage_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        ensure_python();
+        Python::attach(|py| -> PyResult<()> {
+            let edge_count = 10_000usize;
+            let repetitions = std::env::var("FNX_CTOR_REPETITIONS")
+                .ok()
+                .and_then(|value| value.parse().ok())
+                .unwrap_or(32usize);
+            let rounds = 21usize;
+            let rows = PyList::empty(py);
+            for node in 0..edge_count {
+                let attrs = PyDict::new(py);
+                attrs.set_item("weight", node % 97)?;
+                attrs.set_item("cost", node as f64 / 17.0)?;
+                attrs.set_item("tag", format!("e{}", node % 11))?;
+                rows.append(PyList::new(
+                    py,
+                    [
+                        node.into_py_any(py)?,
+                        (node + 1).into_py_any(py)?,
+                        attrs.unbind().into_any(),
+                    ],
+                )?)?;
+            }
+
+            let build = |fused: bool| -> PyResult<PyGraph> {
+                let graph = build_graph_attr_iterator_stage_for_test(py, &rows, fused)?;
+                black_box(graph.inner.edge_count());
+                black_box(graph.edge_py_attrs.len());
+                Ok(graph)
+            };
+            let time = |fused: bool| -> PyResult<f64> {
+                let start = Instant::now();
+                for _ in 0..repetitions {
+                    black_box(build(fused)?);
+                }
+                Ok(start.elapsed().as_secs_f64())
+            };
+
+            let frozen = build(false)?;
+            let candidate = build(true)?;
+            assert_eq!(candidate.inner.snapshot(), frozen.inner.snapshot());
+            assert_eq!(candidate.node_key_map.len(), frozen.node_key_map.len());
+            assert_eq!(candidate.edge_py_attrs.len(), frozen.edge_py_attrs.len());
+            for (edge, candidate_attrs) in &candidate.edge_py_attrs {
+                let frozen_attrs = frozen
+                    .edge_py_attrs
+                    .get(edge)
+                    .expect("both paths must retain every ordered mirror");
+                assert_eq!(
+                    candidate_attrs.bind(py).repr()?.to_str()?,
+                    frozen_attrs.bind(py).repr()?.to_str()?,
+                    "ordered Python edge payload must stay byte-identical"
+                );
+            }
+            black_box(time(false)?);
+            black_box(time(true)?);
+
+            let paired = |baseline_is_fused: bool| -> PyResult<Vec<f64>> {
+                let mut ratios = Vec::with_capacity(rounds);
+                for round in 0..rounds {
+                    let mut baseline_time = 0.0;
+                    let mut candidate_time = 0.0;
+                    for repetition in 0..repetitions {
+                        let baseline_first = (round + repetition).is_multiple_of(2);
+                        if baseline_first {
+                            let start = Instant::now();
+                            black_box(build(baseline_is_fused)?);
+                            baseline_time += start.elapsed().as_secs_f64();
+                            let start = Instant::now();
+                            black_box(build(true)?);
+                            candidate_time += start.elapsed().as_secs_f64();
+                        } else {
+                            let start = Instant::now();
+                            black_box(build(true)?);
+                            candidate_time += start.elapsed().as_secs_f64();
+                            let start = Instant::now();
+                            black_box(build(baseline_is_fused)?);
+                            baseline_time += start.elapsed().as_secs_f64();
+                        }
+                    }
+                    ratios.push(baseline_time / candidate_time);
+                }
+                Ok(ratios)
+            };
+            let report = |name: &str, ratios: &[f64]| {
+                let wins = ratios.iter().filter(|&&ratio| ratio > 1.0).count();
+                let mean = ratios.iter().sum::<f64>() / ratios.len() as f64;
+                let variance = ratios
+                    .iter()
+                    .map(|ratio| (ratio - mean).powi(2))
+                    .sum::<f64>()
+                    / (ratios.len() - 1) as f64;
+                let cv_pct = variance.sqrt() / mean * 100.0;
+                let mut sorted = ratios.to_vec();
+                sorted.sort_by(f64::total_cmp);
+                println!(
+                    "GRAPH_ATTR_ITER_FUSED_AB {name}: median={:.4}x wins={wins}/{rounds} cv={cv_pct:.3}% p5_p95=[{:.4},{:.4}]",
+                    sorted[rounds / 2],
+                    sorted[rounds * 5 / 100],
+                    sorted[rounds * 95 / 100],
+                );
+            };
+
+            println!(
+                "GRAPH_ATTR_ITER_FUSED_AB edges={edge_count} repetitions={repetitions} rounds={rounds} (>1 = fused typed stage faster)"
+            );
+            report("candidate_vs_materialize_reparse", &paired(false)?);
+            report("candidate_null", &paired(true)?);
+            Ok(())
+        })
+        .expect("Graph attributed iterator fused-stage A/B should run");
+    }
+
+    /// `br-r37-c1-04z53.9178`: same-binary proof for affine transfer of the
+    /// true-iterator decoder's private attribute snapshots versus the frozen
+    /// second-copy path. Run with the release profile, `--ignored`, and
+    /// `--nocapture` on one remote worker.
+    #[test]
+    #[ignore = "measurement; run with release profile, --ignored, and --nocapture"]
+    fn graph_attr_iterator_owned_mirror_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        ensure_python();
+        Python::attach(|py| -> PyResult<()> {
+            let edge_count = 10_000usize;
+            let repetitions = 32usize;
+            let rounds = 21usize;
+            let rows = PyList::empty(py);
+            for node in 0..edge_count {
+                let attrs = PyDict::new(py);
+                attrs.set_item("weight", node % 97)?;
+                attrs.set_item("cost", node as f64 / 17.0)?;
+                attrs.set_item("tag", format!("e{}", node % 11))?;
+                let row = PyList::new(
+                    py,
+                    [
+                        node.into_py_any(py)?,
+                        (node + 1).into_py_any(py)?,
+                        attrs.unbind().into_any(),
+                    ],
+                )?;
+                rows.append(row)?;
+            }
+
+            let build = |reuse_materialized_dict_as_mirror: bool| -> PyResult<PyGraph> {
+                let iterator = rows.call_method0("__iter__")?;
+                let materialized =
+                    materialize_iterator_edge_list(py, &iterator, false, false, false)?
+                    .expect("a true iterator must materialize");
+                let mut graph = PyGraph::new_empty(py)?;
+                assert!(graph.try_add_edges_from_batch_impl(
+                    py,
+                    &materialized.items,
+                    reuse_materialized_dict_as_mirror,
+                )?);
+                black_box(graph.inner.edge_count());
+                black_box(graph.edge_py_attrs.len());
+                Ok(graph)
+            };
+            let time = |reuse_materialized_dict_as_mirror: bool| -> PyResult<f64> {
+                let start = Instant::now();
+                for _ in 0..repetitions {
+                    black_box(build(reuse_materialized_dict_as_mirror)?);
+                }
+                Ok(start.elapsed().as_secs_f64())
+            };
+
+            let baseline = build(false)?;
+            let candidate = build(true)?;
+            assert_eq!(candidate.inner.snapshot(), baseline.inner.snapshot());
+            assert_eq!(candidate.node_key_map.len(), baseline.node_key_map.len());
+            assert_eq!(candidate.edge_py_attrs.len(), baseline.edge_py_attrs.len());
+            for (edge, candidate_attrs) in &candidate.edge_py_attrs {
+                let baseline_attrs = baseline
+                    .edge_py_attrs
+                    .get(edge)
+                    .expect("both paths must retain every ordered mirror");
+                assert_eq!(
+                    candidate_attrs.bind(py).repr()?.to_str()?,
+                    baseline_attrs.bind(py).repr()?.to_str()?,
+                    "ordered Python edge payload must stay byte-identical"
+                );
+            }
+            black_box(time(false)?);
+            black_box(time(true)?);
+
+            let paired = |baseline_reuses_mirror: bool| -> PyResult<Vec<f64>> {
+                let mut ratios = Vec::with_capacity(rounds);
+                for round in 0..rounds {
+                    let (baseline_time, candidate_time) = if round.is_multiple_of(2) {
+                        (time(baseline_reuses_mirror)?, time(true)?)
+                    } else {
+                        let candidate_time = time(true)?;
+                        let baseline_time = time(baseline_reuses_mirror)?;
+                        (baseline_time, candidate_time)
+                    };
+                    ratios.push(baseline_time / candidate_time);
+                }
+                Ok(ratios)
+            };
+            let report = |name: &str, ratios: &[f64]| {
+                let wins = ratios.iter().filter(|&&ratio| ratio > 1.0).count();
+                let mean = ratios.iter().sum::<f64>() / ratios.len() as f64;
+                let variance = ratios
+                    .iter()
+                    .map(|ratio| (ratio - mean).powi(2))
+                    .sum::<f64>()
+                    / (ratios.len() - 1) as f64;
+                let cv_pct = variance.sqrt() / mean * 100.0;
+                let mut sorted = ratios.to_vec();
+                sorted.sort_by(f64::total_cmp);
+                println!(
+                    "GRAPH_ATTR_ITER_MIRROR_AB {name}: median={:.4}x wins={wins}/{rounds} cv={cv_pct:.3}% p5_p95=[{:.4},{:.4}]",
+                    sorted[rounds / 2],
+                    sorted[rounds * 5 / 100],
+                    sorted[rounds * 95 / 100],
+                );
+            };
+
+            println!(
+                "GRAPH_ATTR_ITER_MIRROR_AB edges={edge_count} repetitions={repetitions} rounds={rounds} (>1 = affine transfer faster)"
+            );
+            report("candidate_vs_second_copy", &paired(false)?);
+            report("candidate_null", &paired(true)?);
+            Ok(())
+        })
+        .expect("Graph attributed iterator mirror A/B should run");
     }
 
     fn exact_int_attr_ebunch(py: Python<'_>) -> PyResult<(Bound<'_, PyList>, Py<PyDict>)> {
@@ -13620,7 +16385,7 @@ mod tests {
             let (ebunch, first_source_attrs) = exact_int_attr_ebunch(py)?;
             let mut sparse = PyGraph::new_empty(py)?;
 
-            assert!(sparse.try_add_fresh_exact_int_attr_edge_batch(py, ebunch.as_any())?);
+            assert!(sparse.try_add_fresh_exact_int_attr_edge_batch(py, ebunch.as_any(), false,)?);
             assert_eq!(sparse.inner.node_count(), 9);
             assert_eq!(sparse.inner.edge_count(), 8);
             assert!(
@@ -13679,7 +16444,11 @@ mod tests {
 
             let (ebunch, _) = exact_int_attr_ebunch(py)?;
             let mut materialized = PyGraph::new_empty(py)?;
-            assert!(materialized.try_add_fresh_exact_int_attr_edge_batch(py, ebunch.as_any())?);
+            assert!(materialized.try_add_fresh_exact_int_attr_edge_batch(
+                py,
+                ebunch.as_any(),
+                false,
+            )?);
             let zero = 0_i64.into_pyobject(py)?.into_any();
             let one = 1_i64.into_pyobject(py)?.into_any();
             let data = materialized.get_edge_data(py, &zero, &one, None)?;

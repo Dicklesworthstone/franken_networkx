@@ -1,0 +1,150 @@
+diff --git a/crates/fnx-algorithms/src/lib.rs b/crates/fnx-algorithms/src/lib.rs
+index db220efe6..53cd27fea 100644
+--- a/crates/fnx-algorithms/src/lib.rs
++++ b/crates/fnx-algorithms/src/lib.rs
+@@ -24007,17 +24007,16 @@ pub fn modularity(
+     // replaces the dominant String work. Byte-identical: w_map[canon(ui,vi)] holds exactly
+     // edge_weight_or_default for each undirected (symmetric-weight) edge, so a_uv is the same f64 for
+     // every pair (edge → weight, non-edge → 0.0), summed in the identical (comm, u, v) order.
++    // br-r37-c1-modwborrow (cc): edges_ordered_borrowed() yields (&str, &str, &AttrMap) — zero
++    // per-edge allocation — instead of edges_ordered() which clones two owned Strings + an AttrMap
++    // per edge into an EdgeSnapshot. This loop only reads the endpoint NAMES (node_to_idx probe +
++    // edge_weight_or_default re-lookup) and never keeps the owned data, so the borrow is byte-
++    // identical (same edges, same walk order, same names → same w_map).
+     let mut w_map: HashMap<(usize, usize), f64> = HashMap::with_capacity(k.len());
+-    for edge in graph.edges_ordered() {
+-        if let (Some(&li), Some(&ri)) = (
+-            node_to_idx.get(edge.left.as_str()),
+-            node_to_idx.get(edge.right.as_str()),
+-        ) {
++    for (left, right, _attrs) in graph.edges_ordered_borrowed() {
++        if let (Some(&li), Some(&ri)) = (node_to_idx.get(left), node_to_idx.get(right)) {
+             let key = if li <= ri { (li, ri) } else { (ri, li) };
+-            w_map.insert(
+-                key,
+-                edge_weight_or_default(graph, edge.left.as_str(), edge.right.as_str(), weight_attr),
+-            );
++            w_map.insert(key, edge_weight_or_default(graph, left, right, weight_attr));
+         }
+     }
+ 
+@@ -72584,6 +72583,119 @@ mod tests {
+         report("NULL_edgecount_vs_edgecount", &paired(true, true));
+     }
+ 
++    /// br-r37-c1-modwborrow: isolated paired-interleaved median A/B for `modularity`'s w_map-build edge
++    /// loop — inline ORIGINAL `edges_ordered()` (clones two owned Strings + an AttrMap per edge into an
++    /// EdgeSnapshot) vs the shipped `edges_ordered_borrowed()` (yields `(&str,&str,&AttrMap)`, zero
++    /// per-edge alloc). Times ONLY the changed loop (the exact self-time removed) on a dense graph so
++    /// the per-edge clone is the dominant cost; the resulting w_map is asserted equal first. `#[ignore]`;
++    /// run with `cargo test --release -p fnx-algorithms --lib modularity_wmap_borrow_ab -- --ignored --nocapture`.
++    #[test]
++    #[ignore = "measurement; run with --release --ignored --nocapture"]
++    fn modularity_wmap_borrow_ab() {
++        use super::edge_weight_or_default;
++        use std::hint::black_box;
++        use std::time::Instant;
++
++        let n_nodes = 8000usize;
++        let mut graph = Graph::strict();
++        for i in 0..n_nodes {
++            let _ = graph.add_node(i.to_string());
++        }
++        // ~50 edges/node → ~200k edges; scaled up to amortize fixed per-round overhead and
++        // tighten the NULL (per the sizing lesson) so the per-edge clone saving is measurable.
++        for i in 0..n_nodes {
++            for step in 1..=25usize {
++                let _ = graph.add_edge(i.to_string(), ((i + step) % n_nodes).to_string());
++            }
++        }
++        let nodes = graph.nodes_ordered();
++        let node_to_idx: HashMap<&str, usize> =
++            nodes.iter().enumerate().map(|(i, &nd)| (nd, i)).collect();
++        let weight_attr = "weight";
++
++        let old_fn = || -> HashMap<(usize, usize), f64> {
++            let mut w_map: HashMap<(usize, usize), f64> = HashMap::with_capacity(nodes.len());
++            for edge in graph.edges_ordered() {
++                if let (Some(&li), Some(&ri)) = (
++                    node_to_idx.get(edge.left.as_str()),
++                    node_to_idx.get(edge.right.as_str()),
++                ) {
++                    let key = if li <= ri { (li, ri) } else { (ri, li) };
++                    w_map.insert(
++                        key,
++                        edge_weight_or_default(
++                            &graph,
++                            edge.left.as_str(),
++                            edge.right.as_str(),
++                            weight_attr,
++                        ),
++                    );
++                }
++            }
++            w_map
++        };
++        let new_fn = || -> HashMap<(usize, usize), f64> {
++            let mut w_map: HashMap<(usize, usize), f64> = HashMap::with_capacity(nodes.len());
++            for (left, right, _attrs) in graph.edges_ordered_borrowed() {
++                if let (Some(&li), Some(&ri)) = (node_to_idx.get(left), node_to_idx.get(right)) {
++                    let key = if li <= ri { (li, ri) } else { (ri, li) };
++                    w_map.insert(key, edge_weight_or_default(&graph, left, right, weight_attr));
++                }
++            }
++            w_map
++        };
++
++        assert_eq!(old_fn(), new_fn(), "modularity w_map parity (owned vs borrowed)");
++
++        let time = |cand: bool| -> f64 {
++            let t0 = Instant::now();
++            let r = if cand { new_fn() } else { old_fn() };
++            black_box(r);
++            t0.elapsed().as_secs_f64()
++        };
++        for _ in 0..3 {
++            black_box(time(true));
++            black_box(time(false));
++        }
++        let median = |v: &[f64]| {
++            let mut s = v.to_vec();
++            s.sort_by(|a, b| a.partial_cmp(b).unwrap());
++            s[s.len() / 2]
++        };
++        let rounds = 61usize;
++        let paired = |cand: bool, base_arm: bool| -> Vec<f64> {
++            let mut v = Vec::with_capacity(rounds);
++            for round in 0..rounds {
++                let (tb, tc) = if round.is_multiple_of(2) {
++                    let bt = time(base_arm);
++                    let ct = time(cand);
++                    (bt, ct)
++                } else {
++                    let ct = time(cand);
++                    let bt = time(base_arm);
++                    (bt, ct)
++                };
++                v.push(tb / tc);
++            }
++            v
++        };
++        let report = |name: &str, ratios: &[f64]| {
++            let wins = ratios.iter().filter(|&&r| r > 1.0).count();
++            let mut sorted = ratios.to_vec();
++            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
++            println!(
++                "MODWBORROW_AB {name}: median={:.4}x win_rate={wins}/{rounds} \
++                 p5_p95=[{:.4},{:.4}]",
++                median(ratios),
++                sorted[rounds * 5 / 100],
++                sorted[rounds * 95 / 100],
++            );
++        };
++        println!("MODWBORROW_AB wmap-build 8k/200k rounds={rounds} (>1 = borrowed faster)");
++        report("BORROWED_vs_owned", &paired(true, false));
++        report("NULL_borrowed_vs_borrowed", &paired(true, true));
++    }
++
+     #[test]
+     fn test_cartesian_product_label_disambiguation() {
+         let mut g1 = Graph::strict();

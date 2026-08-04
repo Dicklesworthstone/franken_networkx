@@ -253,11 +253,17 @@ impl WitnessLedger {
 
     /// Serialize the ledger to JSONL (one JSON object per line).
     pub fn to_jsonl(&self) -> String {
-        self.entries
-            .iter()
-            .map(|w| serde_json::to_string(w).unwrap_or_default())
-            .collect::<Vec<_>>()
-            .join("\n")
+        let mut output = Vec::new();
+        for (index, witness) in self.entries.iter().enumerate() {
+            if index != 0 {
+                output.push(b'\n');
+            }
+            let entry_start = output.len();
+            if serde_json::to_writer(&mut output, witness).is_err() {
+                output.truncate(entry_start);
+            }
+        }
+        String::from_utf8(output).unwrap_or_default()
     }
 
     /// Clear all entries.
@@ -839,6 +845,8 @@ pub fn mining_result_to_jsonl(result: &MiningResult) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::hint::black_box;
+    use std::time::Instant;
 
     #[test]
     fn test_policy_id_stable() {
@@ -913,6 +921,115 @@ mod tests {
         let jsonl = ledger.to_jsonl();
         assert!(!jsonl.is_empty());
         let _: ComplexityWitness = serde_json::from_str(&jsonl).unwrap();
+    }
+
+    #[test]
+    #[ignore = "same-binary release-profile performance probe"]
+    fn witness_ledger_streaming_jsonl_ab() {
+        fn frozen_jsonl(ledger: &WitnessLedger) -> String {
+            ledger
+                .entries
+                .iter()
+                .map(|witness| serde_json::to_string(witness).unwrap_or_default())
+                .collect::<Vec<_>>()
+                .join("\n")
+        }
+
+        let policies = [
+            TieBreakPolicy::LexMin,
+            TieBreakPolicy::InsertionOrder,
+            TieBreakPolicy::WeightThenInsertionOrder,
+            TieBreakPolicy::DeterministicHash { seed: 0x5eed },
+            TieBreakPolicy::BfsLevelLex,
+        ];
+        let entry_count = 2_048usize;
+        let ledger = WitnessLedger {
+            entries: (0..entry_count)
+                .map(|index| ComplexityWitness {
+                    n: index + 1,
+                    m: index * 3 + 7,
+                    dominant_term: match index % 3 {
+                        0 => "n_plus_m",
+                        1 => "n_log_n",
+                        _ => "m_log_m",
+                    }
+                    .to_owned(),
+                    observed_count: (index as u64 + 11) * 17,
+                    policy: policies[index % policies.len()],
+                    seed: (index % 4 == 0).then_some(index as u64),
+                    decision_path_blake3: [(index * 29) as u8; 32],
+                })
+                .collect(),
+        };
+
+        assert_eq!(
+            WitnessLedger::new().to_jsonl(),
+            frozen_jsonl(&WitnessLedger::new())
+        );
+        assert_eq!(
+            ledger.to_jsonl(),
+            frozen_jsonl(&ledger),
+            "JSONL bytes drifted"
+        );
+
+        let rounds = 15usize;
+        let time = |streaming: bool| {
+            let started = Instant::now();
+            let output = if streaming {
+                ledger.to_jsonl()
+            } else {
+                frozen_jsonl(&ledger)
+            };
+            let elapsed = started.elapsed().as_nanos();
+            black_box(output);
+            elapsed
+        };
+        for _ in 0..3 {
+            black_box(time(false));
+            black_box(time(true));
+        }
+
+        let paired = |candidate: bool, baseline: bool| {
+            let mut baseline_ns = Vec::with_capacity(rounds);
+            let mut candidate_ns = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (base, cand) = if round % 2 == 0 {
+                    (time(baseline), time(candidate))
+                } else {
+                    let cand = time(candidate);
+                    let base = time(baseline);
+                    (base, cand)
+                };
+                baseline_ns.push(base);
+                candidate_ns.push(cand);
+            }
+            (baseline_ns, candidate_ns)
+        };
+        let median = |samples: &[u128]| {
+            let mut sorted = samples.to_vec();
+            sorted.sort_unstable();
+            sorted[sorted.len() / 2]
+        };
+        let report = |name: &str, baseline_ns: &[u128], candidate_ns: &[u128]| {
+            let baseline_median = median(baseline_ns);
+            let candidate_median = median(candidate_ns);
+            let wins = baseline_ns
+                .iter()
+                .zip(candidate_ns)
+                .filter(|(baseline, candidate)| baseline > candidate)
+                .count();
+            println!(
+                "CGSE_WITNESS_JSONL_AB {name}: entries={entry_count} \
+                 baseline_median_ns={baseline_median} candidate_median_ns={candidate_median} \
+                 ratio={:.4}x wins={wins}/{rounds} exact_bytes=true",
+                baseline_median as f64 / candidate_median as f64,
+            );
+        };
+
+        let (baseline_ns, candidate_ns) = paired(true, false);
+        report("string_vec_join_vs_streaming", &baseline_ns, &candidate_ns);
+        let (null_a_ns, null_b_ns) = paired(true, true);
+        report("streaming_vs_streaming_null", &null_a_ns, &null_b_ns);
     }
 
     #[test]

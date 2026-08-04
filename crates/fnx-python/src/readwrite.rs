@@ -160,6 +160,7 @@ fn report_to_pygraph(py: Python<'_>, report: ReadWriteReport) -> PyResult<PyGrap
         edges_dirty: AtomicBool::new(false),
         node_keys_cache: std::sync::Mutex::new(None),
         node_iter_mirror: std::sync::Mutex::new(None),
+        instance_dict_gc: crate::InstanceDictGc::new(),
         node_data_mirror: std::sync::Mutex::new(None),
     })
 }
@@ -233,6 +234,7 @@ fn di_report_to_pydigraph(py: Python<'_>, report: DiReadWriteReport) -> PyResult
         in_edges_data_attr_cache: std::sync::Mutex::new(None),
         edges_attr_dicts_cache: None,
         node_iter_mirror: std::sync::Mutex::new(None),
+        instance_dict_gc: crate::InstanceDictGc::new(),
     })
 }
 
@@ -832,6 +834,7 @@ fn read_adjlist_simple(py: Python<'_>, path: &str) -> PyResult<Option<PyGraph>> 
         edges_dirty: AtomicBool::new(false),
         node_keys_cache: std::sync::Mutex::new(None),
         node_iter_mirror: std::sync::Mutex::new(None),
+        instance_dict_gc: crate::InstanceDictGc::new(),
         node_data_mirror: std::sync::Mutex::new(None),
     }))
 }
@@ -864,95 +867,259 @@ fn read_adjlist_simple(py: Python<'_>, path: &str) -> PyResult<Option<PyGraph>> 
 /// separators, so any token containing `_` bails to the delegated
 /// path. Returns None (caller falls back to nx) for missing or
 /// non-UTF-8 files so nx defines those error surfaces exactly.
-#[pyfunction]
-#[pyo3(signature = (path, mode))]
-fn read_edgelist_simple(py: Python<'_>, path: &str, mode: &str) -> PyResult<Option<PyGraph>> {
-    let Ok(content) = std::fs::read_to_string(path) else {
-        return Ok(None);
-    };
+/// Parse mode for the native edge-list fast path. Resolved once before the
+/// scan so the hot loop tests an enum discriminant instead of re-comparing the
+/// `&str` mode on every line.
+#[derive(Clone, Copy)]
+enum EdgelistMode {
+    DataTrue,
+    DataFalse,
+    WeightFloat,
+}
 
-    let mut node_key_map: HashMap<String, PyObject> = HashMap::new();
-    let mut node_py_attrs: HashMap<String, Py<PyDict>> = HashMap::new();
-    let mut edge_py_attrs: HashMap<(String, String), Py<PyDict>> = HashMap::new();
-    let mut nodes_order: Vec<String> = Vec::new();
-    let mut edges: Vec<(String, String, fnx_classes::AttrMap)> = Vec::new();
-    let mut canon_cache: HashMap<&str, String> = HashMap::new();
+impl EdgelistMode {
+    fn resolve(mode: &str) -> Option<Self> {
+        match mode {
+            "data_true" => Some(Self::DataTrue),
+            "data_false" => Some(Self::DataFalse),
+            "weight_float" => Some(Self::WeightFloat),
+            _ => None,
+        }
+    }
+}
 
-    for raw in content.split('\n') {
+/// One chunk's dictionary-encoded scan output.
+///
+/// `tokens` holds the chunk's distinct node tokens in first-appearance order,
+/// as `&str` slices borrowed from the caller's payload — the scan copies no
+/// node text at all. `edges` carries chunk-local dense ids, remapped to global
+/// ids by the ordered merge in [`parse_edgelist_simple_content`].
+struct EdgelistChunk<'a> {
+    tokens: Vec<&'a str>,
+    edges: Vec<(u32, u32, Option<f64>)>,
+}
+
+/// Intern `token` into this chunk's local dictionary, returning its local id.
+#[inline]
+fn intern_chunk_token<'a>(
+    token: &'a str,
+    ids: &mut rustc_hash::FxHashMap<&'a str, u32>,
+    tokens: &mut Vec<&'a str>,
+) -> u32 {
+    let next = tokens.len() as u32;
+    match ids.entry(token) {
+        std::collections::hash_map::Entry::Occupied(slot) => *slot.get(),
+        std::collections::hash_map::Entry::Vacant(slot) => {
+            slot.insert(next);
+            tokens.push(token);
+            next
+        }
+    }
+}
+
+/// Scan one chunk of whole lines, mirroring `nx.parse_edgelist` line semantics
+/// exactly. Returns `None` at the first condition the native path does not
+/// own, which is where the caller falls back to nx.
+fn parse_edgelist_chunk<'a>(chunk: &'a str, mode: EdgelistMode) -> Option<EdgelistChunk<'a>> {
+    let mut ids: rustc_hash::FxHashMap<&'a str, u32> = rustc_hash::FxHashMap::default();
+    let mut tokens: Vec<&'a str> = Vec::new();
+    let mut edges: Vec<(u32, u32, Option<f64>)> = Vec::new();
+
+    for raw in chunk.split('\n') {
         let line = match raw.find('#') {
             Some(p) => &raw[..p],
             None => raw,
         };
-        let mut tokens = line.split_whitespace();
-        let (Some(u), Some(v)) = (tokens.next(), tokens.next()) else {
+        let mut fields = line.split_whitespace();
+        let (Some(u), Some(v)) = (fields.next(), fields.next()) else {
             // nx parse_edgelist: `if len(s) < 2: continue` — blank,
             // whitespace-only, and single-token lines are skipped.
             continue;
         };
-        let extra = tokens.next();
-        let mut attrs = fnx_classes::AttrMap::new();
+        let extra = fields.next();
+        let mut weight = None;
         match mode {
-            "data_true" => {
+            EdgelistMode::DataTrue => {
                 if extra.is_some() {
                     // nx: TypeError("Failed to convert edge data ...").
-                    return Ok(None);
+                    return None;
                 }
             }
-            "data_false" => {
+            EdgelistMode::DataFalse => {
                 // extras ignored entirely
             }
-            "weight_float" => {
+            EdgelistMode::WeightFloat => {
                 if let Some(w) = extra {
-                    if tokens.next().is_some() {
+                    if fields.next().is_some() {
                         // nx: IndexError on data/data_keys length mismatch.
-                        return Ok(None);
+                        return None;
                     }
                     if w.contains('_') {
                         // Python float() accepts underscore separators;
                         // Rust does not — delegate.
-                        return Ok(None);
+                        return None;
                     }
-                    let Ok(parsed) = w.parse::<f64>() else {
-                        // nx raises TypeError on float() failure.
-                        return Ok(None);
-                    };
-                    attrs.insert("weight".to_owned(), fnx_runtime::CgseValue::Float(parsed));
+                    // nx raises TypeError on float() failure.
+                    weight = Some(w.parse::<f64>().ok()?);
                 }
                 // 2 tokens: nx leaves the edge with empty attrs.
             }
-            _ => return Ok(None),
         }
-
-        let cu = canon_token(
-            py,
-            u,
-            &mut canon_cache,
-            &mut nodes_order,
-            &mut node_key_map,
-            &mut node_py_attrs,
-        );
-        let cv = canon_token(
-            py,
-            v,
-            &mut canon_cache,
-            &mut nodes_order,
-            &mut node_key_map,
-            &mut node_py_attrs,
-        );
-        let mirror = edge_py_attrs
-            .entry(PyGraph::edge_key(&cu, &cv))
-            .or_insert_with(|| PyDict::new(py).unbind());
-        // weighted: duplicate edges overwrite, matching nx's per-line
-        // datadict.update on the live edge dict.
-        if let Some((k, fnx_runtime::CgseValue::Float(f))) = attrs.iter().next() {
-            mirror.bind(py).set_item(k, *f)?;
-        }
-        edges.push((cu, cv, attrs));
+        let local_u = intern_chunk_token(u, &mut ids, &mut tokens);
+        let local_v = intern_chunk_token(v, &mut ids, &mut tokens);
+        edges.push((local_u, local_v, weight));
     }
 
+    Some(EdgelistChunk { tokens, edges })
+}
+
+/// Cut `content` into at most `target` slices that each begin at a line start
+/// and end just past a `\n`, so a chunked scan observes exactly the lines one
+/// `split('\n')` over the whole payload would.
+///
+/// A chunk that ends on `\n` yields a trailing empty piece, and a payload that
+/// ends on `\n` yields one for the final chunk — both parse to zero tokens and
+/// are skipped, which is the same no-op the whole-payload scan performs.
+fn edgelist_chunk_bounds(content: &str, target: usize) -> Vec<(usize, usize)> {
+    let len = content.len();
+    if target <= 1 || len == 0 {
+        return vec![(0, len)];
+    }
+    let bytes = content.as_bytes();
+    let stride = len / target;
+    let mut bounds: Vec<(usize, usize)> = Vec::with_capacity(target);
+    let mut start = 0usize;
+    while bounds.len() + 1 < target {
+        let probe = start + stride;
+        if probe >= len {
+            break;
+        }
+        let Some(offset) = bytes[probe..].iter().position(|&b| b == b'\n') else {
+            break;
+        };
+        // `\n` is ASCII, so the byte just past it is always a char boundary.
+        let cut = probe + offset + 1;
+        if cut >= len {
+            break;
+        }
+        bounds.push((start, cut));
+        start = cut;
+    }
+    bounds.push((start, len));
+    bounds
+}
+
+fn parse_edgelist_simple_content(
+    py: Python<'_>,
+    content: &str,
+    mode: &str,
+) -> PyResult<Option<PyGraph>> {
+    let Some(mode) = EdgelistMode::resolve(mode) else {
+        return Ok(None);
+    };
+
+    // Size the split by WORK, not by core count. The ordered merge is serial
+    // and its cost grows with the chunk count (each chunk re-offers its whole
+    // local dictionary), so splitting a payload finer than it deserves loses
+    // more in the merge than it gains in the scan: measured on a 5.3 MB
+    // edge list, 8-16 chunks ran 85 ms while one-chunk-per-core (64) ran 97 ms.
+    // Giving every chunk at least CHUNK_TARGET_BYTES keeps the default at that
+    // optimum and still falls back to a single serial chunk for small payloads.
+    const CHUNK_TARGET_BYTES: usize = 1 << 19;
+    let target = (content.len() / CHUNK_TARGET_BYTES).clamp(1, rayon::current_num_threads().max(1));
+    let bounds = edgelist_chunk_bounds(content, target);
+
+    // The scan is pure `&str` work that touches no Python object, so chunks fan
+    // out over the rayon pool. This is the step NetworkX has no path to: its
+    // parser is a per-line Python generator serialised by the GIL.
+    let scanned: Vec<Option<EdgelistChunk<'_>>> = if bounds.len() == 1 {
+        vec![parse_edgelist_chunk(
+            &content[bounds[0].0..bounds[0].1],
+            mode,
+        )]
+    } else {
+        use rayon::prelude::*;
+        bounds
+            .par_iter()
+            .map(|&(start, end)| parse_edgelist_chunk(&content[start..end], mode))
+            .collect()
+    };
+    let mut chunks: Vec<EdgelistChunk<'_>> = Vec::with_capacity(scanned.len());
+    for chunk in scanned {
+        // Any chunk hitting a non-native condition bails the whole parse — the
+        // same outcome the serial scan produced when it reached that line.
+        let Some(chunk) = chunk else {
+            return Ok(None);
+        };
+        chunks.push(chunk);
+    }
+
+    // Ordered merge: chunk order is line order, so folding the per-chunk
+    // dictionaries in sequence reproduces global first-appearance node order.
+    let token_hint: usize = chunks.iter().map(|chunk| chunk.tokens.len()).sum();
+    let mut global_ids: rustc_hash::FxHashMap<&str, u32> =
+        rustc_hash::FxHashMap::with_capacity_and_hasher(token_hint, Default::default());
+    let mut token_order: Vec<&str> = Vec::with_capacity(token_hint);
+    let mut remaps: Vec<Vec<u32>> = Vec::with_capacity(chunks.len());
+    for chunk in &chunks {
+        let mut remap: Vec<u32> = Vec::with_capacity(chunk.tokens.len());
+        for &token in &chunk.tokens {
+            let next = token_order.len() as u32;
+            let id = match global_ids.entry(token) {
+                std::collections::hash_map::Entry::Occupied(slot) => *slot.get(),
+                std::collections::hash_map::Entry::Vacant(slot) => {
+                    slot.insert(next);
+                    token_order.push(token);
+                    next
+                }
+            };
+            remap.push(id);
+        }
+        remaps.push(remap);
+    }
+
+    // One canonical key, one Python str, and one attr dict per DISTINCT node.
+    // The string-keyed scan this replaces built a canonical key per edge
+    // ENDPOINT, i.e. 2|E| heap allocations where |V| are needed.
+    let mut node_key_map: HashMap<String, PyObject> = HashMap::with_capacity(token_order.len());
+    let mut node_py_attrs: HashMap<String, Py<PyDict>> = HashMap::with_capacity(token_order.len());
+    let mut nodes_order: Vec<String> = Vec::with_capacity(token_order.len());
+    for &token in &token_order {
+        let canon = format!("str:{}:{token}", token.len());
+        node_key_map.insert(canon.clone(), PyString::new(py, token).into_any().unbind());
+        node_py_attrs.insert(canon.clone(), PyDict::new(py).unbind());
+        nodes_order.push(canon);
+    }
+
+    let edge_hint: usize = chunks.iter().map(|chunk| chunk.edges.len()).sum();
+    let mut edges: Vec<(usize, usize, fnx_classes::AttrMap)> = Vec::with_capacity(edge_hint);
+    let mut edge_py_attrs: HashMap<(String, String), Py<PyDict>> = HashMap::new();
+    for (chunk, remap) in chunks.iter().zip(&remaps) {
+        for &(local_u, local_v, weight) in &chunk.edges {
+            let u = remap[local_u as usize] as usize;
+            let v = remap[local_v as usize] as usize;
+            let mut attrs = fnx_classes::AttrMap::new();
+            if let Some(weight) = weight {
+                attrs.insert("weight".to_owned(), fnx_runtime::CgseValue::Float(weight));
+                // weighted: duplicate edges overwrite, matching nx's per-line
+                // datadict.update on the live edge dict. Unweighted rows
+                // deliberately allocate no empty Python edge dict: PyGraph
+                // materializes that live mirror lazily if Python later asks for
+                // or mutates edge attributes.
+                let mirror = edge_py_attrs
+                    .entry(PyGraph::edge_key(&nodes_order[u], &nodes_order[v]))
+                    .or_insert_with(|| PyDict::new(py).unbind());
+                mirror.bind(py).set_item("weight", weight)?;
+            }
+            edges.push((u, v, attrs));
+        }
+    }
+
+    // Node indices are already assigned in NetworkX first-seen order, so the
+    // fresh/indexed bulk builder applies them directly instead of re-hashing
+    // every endpoint's canonical key through the string-keyed node map.
     let mut inner = RustGraph::new(CompatibilityMode::Strict);
-    let _ = inner.extend_nodes_unrecorded(nodes_order);
-    let _ = inner.extend_edges_with_attrs_unrecorded(edges);
+    let _ = inner.extend_fresh_index_edges_with_attrs_unrecorded(nodes_order, edges);
 
     Ok(Some(PyGraph {
         inner,
@@ -969,8 +1136,32 @@ fn read_edgelist_simple(py: Python<'_>, path: &str, mode: &str) -> PyResult<Opti
         edges_dirty: AtomicBool::new(false),
         node_keys_cache: std::sync::Mutex::new(None),
         node_iter_mirror: std::sync::Mutex::new(None),
+        instance_dict_gc: crate::InstanceDictGc::new(),
         node_data_mirror: std::sync::Mutex::new(None),
     }))
+}
+
+#[pyfunction]
+#[pyo3(signature = (path, mode))]
+fn read_edgelist_simple(py: Python<'_>, path: &str, mode: &str) -> PyResult<Option<PyGraph>> {
+    let Ok(content) = std::fs::read_to_string(path) else {
+        return Ok(None);
+    };
+    parse_edgelist_simple_content(py, &content, mode)
+}
+
+/// Parse an already-decoded edge-list payload through the same native bulk
+/// builder as `read_edgelist_simple`. Python's `open_file` layer handles gzip,
+/// bzip2, and path-like semantics; one string boundary replaces per-line Python
+/// tokenization for the common default reader.
+#[pyfunction]
+#[pyo3(signature = (content, mode))]
+fn parse_edgelist_simple_text(
+    py: Python<'_>,
+    content: &str,
+    mode: &str,
+) -> PyResult<Option<PyGraph>> {
+    parse_edgelist_simple_content(py, content, mode)
 }
 
 #[pyfunction]
@@ -2520,6 +2711,75 @@ impl CsrDataBytes {
     }
 }
 
+/// Byte-backed CSR handoff for an unweighted simple Graph or DiGraph.
+///
+/// The tuple-valued adjacency helper crosses the PyO3 boundary as two Python
+/// lists, allocating one Python integer per endpoint before NumPy copies them
+/// back into contiguous storage. PageRank only needs insertion-order CSR, so
+/// emit native-endian `intp` buffers directly. Sorting each integer row matches
+/// SciPy's COO-to-CSR canonical column order without paying that conversion.
+#[pyfunction]
+#[pyo3(signature = (g, absent_weight_attr=None))]
+pub fn adjacency_csr_bytes_default_order_unweighted(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    absent_weight_attr: Option<&str>,
+) -> PyResult<Option<(Py<PyByteArray>, Py<PyByteArray>)>> {
+    let gr = extract_graph(g)?;
+    let (node_count, edge_capacity, mut rows) = match &gr {
+        GraphRef::Undirected(pg) => {
+            if let Some(attr) = absent_weight_attr {
+                for dict in pg.edge_py_attrs.values() {
+                    if dict.bind(py).contains(attr)? {
+                        return Ok(None);
+                    }
+                }
+            }
+            let inner = &pg.inner;
+            let mut rows = Vec::with_capacity(inner.node_count());
+            for row in 0..inner.node_count() {
+                rows.push(inner.neighbors_indices(row).unwrap_or_default().to_vec());
+            }
+            (inner.node_count(), inner.edge_count() * 2, rows)
+        }
+        GraphRef::Directed { dg, .. } => {
+            if let Some(attr) = absent_weight_attr {
+                for dict in dg.edge_py_attrs.values() {
+                    if dict.bind(py).contains(attr)? {
+                        return Ok(None);
+                    }
+                }
+            }
+            let inner = &dg.inner;
+            let mut rows = Vec::with_capacity(inner.node_count());
+            for row in 0..inner.node_count() {
+                rows.push(inner.successors_indices(row).unwrap_or_default().to_vec());
+            }
+            (inner.node_count(), inner.edge_count(), rows)
+        }
+        GraphRef::MultiUndirected { .. } | GraphRef::MultiDirected { .. } => return Ok(None),
+    };
+
+    let intp_width = std::mem::size_of::<isize>();
+    let mut indptr = Vec::with_capacity((node_count + 1) * intp_width);
+    let mut indices = Vec::with_capacity(edge_capacity * intp_width);
+    let mut emitted = 0usize;
+    append_csr_intp_bytes(&mut indptr, emitted)?;
+    for row in &mut rows {
+        row.sort_unstable();
+        for &column in row.iter() {
+            append_csr_intp_bytes(&mut indices, column)?;
+            emitted += 1;
+        }
+        append_csr_intp_bytes(&mut indptr, emitted)?;
+    }
+
+    Ok(Some((
+        PyByteArray::new(py, &indptr).unbind(),
+        PyByteArray::new(py, &indices).unbind(),
+    )))
+}
+
 /// br-r37-c1-q2w4t: byte-backed CSR handoff for default-order MultiDiGraph.
 ///
 /// The tuple-valued CSR helper is already native, but PyO3 still materializes
@@ -3157,6 +3417,10 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
         m
     )?)?;
     m.add_function(wrap_pyfunction!(
+        adjacency_csr_bytes_default_order_unweighted,
+        m
+    )?)?;
+    m.add_function(wrap_pyfunction!(
         adjacency_csr_bytes_multidigraph_default_order_live_finite_checked,
         m
     )?)?;
@@ -3176,6 +3440,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(read_adjlist, m)?)?;
     m.add_function(wrap_pyfunction!(read_adjlist_simple, m)?)?;
     m.add_function(wrap_pyfunction!(read_edgelist_simple, m)?)?;
+    m.add_function(wrap_pyfunction!(parse_edgelist_simple_text, m)?)?;
     m.add_function(wrap_pyfunction!(digraph_absorb_graph_bidirected, m)?)?;
     m.add_function(wrap_pyfunction!(multigraph_absorb_graph, m)?)?;
     m.add_function(wrap_pyfunction!(write_adjlist, m)?)?;

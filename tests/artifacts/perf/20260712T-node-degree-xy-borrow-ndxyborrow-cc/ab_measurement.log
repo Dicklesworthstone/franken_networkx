@@ -1,0 +1,4 @@
+NDXYBORROW_AB node_degree_xy 8k/200k rounds=61 (>1 = borrowed faster)
+NDXYBORROW_AB BORROWED_vs_owned: median=1.4874x win_rate=61/61 p5_p95=[1.1606,1.7242]
+NDXYBORROW_AB NULL_borrowed_vs_borrowed: median=1.0099x win_rate=35/61 p5_p95=[0.8727,1.2207]
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1016 filtered out; finished in 17.94s

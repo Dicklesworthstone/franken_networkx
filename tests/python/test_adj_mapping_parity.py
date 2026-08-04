@@ -56,6 +56,175 @@ def test_adj_get_matches_upstream_defaults(fnx_ctor):
     [
         (fnx.Graph, nx.Graph),
         (fnx.DiGraph, nx.DiGraph),
+    ],
+)
+def test_cached_simple_adjacency_row_stays_live_like_networkx(fnx_ctor, nx_ctor):
+    fg = fnx_ctor()
+    ng = nx_ctor()
+    for graph in (fg, ng):
+        graph.add_edges_from([(0, 1, {"weight": 1}), (0, 2, {"weight": 2})])
+
+    frow = fg[0]
+    nrow = ng[0]
+    fkeys = frow.keys()
+    nkeys = nrow.keys()
+    fattrs = frow[1]
+    nattrs = nrow[1]
+
+    assert dict(frow) == dict(nrow)
+    assert list(fkeys) == list(nkeys)
+
+    fg.add_edge(0, 3, weight=3)
+    ng.add_edge(0, 3, weight=3)
+    assert dict(frow) == dict(nrow)
+    assert list(fkeys) == list(nkeys)
+
+    fg[0][1]["seen"] = True
+    ng[0][1]["seen"] = True
+    assert frow[1] is fattrs
+    assert nrow[1] is nattrs
+    assert dict(frow) == dict(nrow)
+
+    fg.remove_edge(0, 2)
+    ng.remove_edge(0, 2)
+    assert dict(frow) == dict(nrow)
+    assert list(fkeys) == list(nkeys)
+
+    fg.remove_nodes_from([1, 999])
+    ng.remove_nodes_from([1, 999])
+    assert dict(frow) == dict(nrow)
+    assert list(fkeys) == list(nkeys)
+
+    fg.clear_edges()
+    ng.clear_edges()
+    assert dict(frow) == dict(nrow) == {}
+    assert list(fkeys) == list(nkeys) == []
+
+
+def test_cached_directed_predecessor_row_stays_live_like_networkx():
+    fg = fnx.DiGraph()
+    ng = nx.DiGraph()
+    for graph in (fg, ng):
+        graph.add_edges_from([(1, 0, {"weight": 1}), (2, 0, {"weight": 2})])
+
+    frow = fg.pred[0]
+    nrow = ng.pred[0]
+    fkeys = frow.keys()
+    nkeys = nrow.keys()
+
+    assert dict(frow) == dict(nrow)
+    fg.add_edge(3, 0, weight=3)
+    ng.add_edge(3, 0, weight=3)
+    assert dict(frow) == dict(nrow)
+    assert list(fkeys) == list(nkeys)
+
+    fg.remove_edge(2, 0)
+    ng.remove_edge(2, 0)
+    assert dict(frow) == dict(nrow)
+    assert list(fkeys) == list(nkeys)
+
+    fg.remove_nodes_from([1, 999])
+    ng.remove_nodes_from([1, 999])
+    assert dict(frow) == dict(nrow)
+    assert list(fkeys) == list(nkeys)
+
+
+@pytest.mark.parametrize(
+    ("fnx_ctor", "nx_ctor"),
+    [
+        (fnx.MultiGraph, nx.MultiGraph),
+        (fnx.MultiDiGraph, nx.MultiDiGraph),
+    ],
+)
+def test_cached_multigraph_getitem_row_stays_live_and_node_scoped(
+    fnx_ctor, nx_ctor
+):
+    """br-r37-c1-fy913: warm G[u] reuses one live view per extant node."""
+    fg, ng = fnx_ctor(), nx_ctor()
+    for graph in (fg, ng):
+        graph.add_node("new")
+        graph.add_edge("root", "leaf", key=0, weight=1)
+
+    def deep_row(row):
+        return {
+            neighbor: {
+                key: dict(attrs) for key, attrs in keydict.items()
+            }
+            for neighbor, keydict in row.items()
+        }
+
+    first = fg["root"]
+    assert fg["root"] is first
+    cache = vars(fg)["_fnx_getitem_atlas_cache"]
+    assert cache[0] == fg.nodes_seq
+    assert list(cache[1]) == ["root"]
+    assert deep_row(first) == deep_row(ng["root"])
+
+    first_attrs = first["leaf"][0]
+    nx_attrs = ng["root"]["leaf"][0]
+    for graph in (fg, ng):
+        graph.add_edge("root", "leaf", key=1, weight=2)
+        graph.add_edge("root", "new", key=0, weight=3)
+    assert fg["root"] is first
+    assert first["leaf"][0] is first_attrs
+    assert ng["root"]["leaf"][0] is nx_attrs
+    assert deep_row(first) == deep_row(ng["root"])
+
+    for graph in (fg, ng):
+        graph.remove_edge("root", "leaf", key=1)
+    assert deep_row(first) == deep_row(ng["root"])
+
+    # A node-set mutation invalidates the cache; edge-only mutations above do
+    # not. The replacement view remains content-equivalent to NetworkX.
+    for graph in (fg, ng):
+        graph.add_node("isolated")
+    replacement = fg["root"]
+    assert replacement is not first
+    assert deep_row(replacement) == deep_row(ng["root"])
+
+    with pytest.raises(TypeError):
+        fg[[]]
+    with pytest.raises(KeyError) as nx_error:
+        ng["missing"]
+    with pytest.raises(type(nx_error.value)) as fnx_error:
+        fg["missing"]
+    assert fnx_error.value.args == nx_error.value.args
+
+
+@pytest.mark.parametrize(
+    ("fnx_ctor", "nx_ctor"),
+    [
+        (fnx.Graph, nx.Graph),
+        (fnx.DiGraph, nx.DiGraph),
+    ],
+)
+def test_removed_node_captured_row_matches_networkx_detached_view(fnx_ctor, nx_ctor):
+    fg = fnx_ctor()
+    ng = nx_ctor()
+    for graph in (fg, ng):
+        graph.add_edges_from([(0, 1, {"weight": 1}), (0, 2, {"weight": 2})])
+
+    frow = fg[0]
+    nrow = ng[0]
+    assert dict(frow) == dict(nrow)
+
+    fg.remove_node(0)
+    ng.remove_node(0)
+    assert dict(frow) == dict(nrow)
+
+    # Re-adding the same public key creates a fresh inner adjacency row; a
+    # previously captured nx AtlasView remains attached to the old row object.
+    fg.add_edge(0, 3, weight=3)
+    ng.add_edge(0, 3, weight=3)
+    assert dict(frow) == dict(nrow)
+    assert dict(fg[0]) == dict(ng[0])
+
+
+@pytest.mark.parametrize(
+    ("fnx_ctor", "nx_ctor"),
+    [
+        (fnx.Graph, nx.Graph),
+        (fnx.DiGraph, nx.DiGraph),
         (fnx.MultiGraph, nx.MultiGraph),
         (fnx.MultiDiGraph, nx.MultiDiGraph),
     ],

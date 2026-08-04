@@ -108,6 +108,56 @@ def test_multigraph_input_raises():
 
 
 @needs_nx
+@pytest.mark.parametrize("k", [0, 1, 2, 3])
+def test_self_loop_rejection_matches_nx_exactly(k):
+    edges = [("a", "a"), ("a", "b"), ("b", "c")]
+    g = _make_graph(fnx, edges)
+    gx = _make_graph(nx, edges)
+
+    with pytest.raises(nx.NetworkXNotImplemented) as nx_error:
+        nx.k_truss(gx, k)
+    with pytest.raises(fnx.NetworkXNotImplemented) as fnx_error:
+        fnx.k_truss(g, k)
+
+    assert str(fnx_error.value) == str(nx_error.value)
+
+
+@needs_nx
+@pytest.mark.parametrize("k", [0, 1])
+def test_edgeless_graph_drops_isolates_at_low_k(k):
+    g = fnx.Graph(campaign="parity")
+    gx = nx.Graph(campaign="parity")
+    g.add_nodes_from([("a", {"rank": 1}), ("b", {"rank": 2}), "c"])
+    gx.add_nodes_from([("a", {"rank": 1}), ("b", {"rank": 2}), "c"])
+
+    f = fnx.k_truss(g, k)
+    n = nx.k_truss(gx, k)
+
+    assert list(f.nodes(data=True)) == list(n.nodes(data=True)) == []
+    assert list(f.edges(data=True)) == list(n.edges(data=True)) == []
+    assert dict(f.graph) == dict(n.graph) == {"campaign": "parity"}
+
+
+@needs_nx
+@pytest.mark.parametrize("k", [0, 1, 2])
+def test_low_k_drops_input_isolates_but_preserves_survivor_attrs(k):
+    g = fnx.Graph(campaign="parity")
+    gx = nx.Graph(campaign="parity")
+    for graph in (g, gx):
+        graph.add_node("a", rank=1)
+        graph.add_node("b", rank=2)
+        graph.add_node("isolated", rank=3)
+        graph.add_edge("a", "b", weight=7)
+
+    f = fnx.k_truss(g, k)
+    n = nx.k_truss(gx, k)
+
+    assert list(f.nodes(data=True)) == list(n.nodes(data=True))
+    assert list(f.edges(data=True)) == list(n.edges(data=True))
+    assert dict(f.graph) == dict(n.graph)
+
+
+@needs_nx
 def test_repro_specific_node_order_regression():
     """Regression: nx returns ['c','d','a','b','e'] for the repro case."""
     edges = [("c", "d"), ("a", "b"), ("b", "c"), ("d", "e"), ("a", "c")]

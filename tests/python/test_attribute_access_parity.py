@@ -6,6 +6,10 @@ import pytest
 import franken_networkx as fnx
 
 
+def _instance_predicate_override():
+    return "instance override"
+
+
 def test_set_node_attributes_dict_with_name():
     graph = fnx.path_graph(3)
     expected = nx.path_graph(3)
@@ -136,6 +140,173 @@ def test_set_edge_attributes_multigraph_matches_networkx():
     nx.set_edge_attributes(expected, values)
 
     assert sorted(graph.edges(keys=True, data=True)) == sorted(expected.edges(keys=True, data=True))
+
+
+def _generated_oracle_edge_attribute_graph(module):
+    graph = module.Graph(case_id="disconnected-255201394")
+    for node in range(6):
+        graph.add_node(
+            node,
+            color="even" if node % 2 == 0 else "odd",
+            value=node + 1,
+        )
+    graph.add_edges_from(
+        [
+            (0, 1, {"capacity": 1, "color": "warm", "weight": 5}),
+            (1, 2, {"capacity": 2, "color": "cool", "weight": 8}),
+            (3, 4, {"capacity": 3, "color": "warm", "weight": 2}),
+            (4, 5, {"capacity": 4, "color": "cool", "weight": 5}),
+            (0, 3, {"capacity": 5, "color": "warm", "weight": 8}),
+            (1, 5, {"capacity": 6, "color": "cool", "weight": 2}),
+            (1, 3, {"capacity": 7, "color": "warm", "weight": 5}),
+        ]
+    )
+    return graph
+
+
+def _edge_attribute_graph_snapshot(graph):
+    if graph.is_multigraph():
+        edges = [
+            (u, v, key, dict(attrs))
+            for u, v, key, attrs in graph.edges(keys=True, data=True)
+        ]
+    else:
+        edges = [(u, v, dict(attrs)) for u, v, attrs in graph.edges(data=True)]
+    return {
+        "graph": dict(graph.graph),
+        "nodes": [(node, dict(attrs)) for node, attrs in graph.nodes(data=True)],
+        "edges": edges,
+    }
+
+
+def _edge_attribute_call_outcome(setter, graph, values, name):
+    try:
+        setter(graph, values, name)
+    except Exception as exc:
+        return type(exc), str(exc)
+    return None
+
+
+@pytest.mark.parametrize(
+    "fnx_setter",
+    [
+        pytest.param(fnx.set_edge_attributes, id="top-level"),
+        pytest.param(fnx.classes.function.set_edge_attributes, id="classes-function"),
+    ],
+)
+def test_generated_oracle_set_edge_attributes_integer_keys_match_networkx(
+    fnx_setter,
+):
+    """Exact generated input for ea577605dc16a1d94095 / 79096fbbc3416739bfb9."""
+    values = {node: f"mapped-{node}" for node in range(6)}
+    graph = _generated_oracle_edge_attribute_graph(fnx)
+    expected = _generated_oracle_edge_attribute_graph(nx)
+    graph_before = _edge_attribute_graph_snapshot(graph)
+    expected_before = _edge_attribute_graph_snapshot(expected)
+
+    expected_outcome = _edge_attribute_call_outcome(
+        nx.set_edge_attributes,
+        expected,
+        values,
+        None,
+    )
+    outcome = _edge_attribute_call_outcome(fnx_setter, graph, values, None)
+
+    assert outcome == expected_outcome == (
+        TypeError,
+        "cannot unpack non-iterable int object",
+    )
+    assert _edge_attribute_graph_snapshot(graph) == graph_before
+    assert _edge_attribute_graph_snapshot(expected) == expected_before
+
+
+@pytest.mark.parametrize(
+    ("fnx_factory", "nx_factory", "valid_key", "short_key", "long_key"),
+    [
+        (fnx.Graph, nx.Graph, (0, 1), (0,), (0, 1, "extra")),
+        (fnx.DiGraph, nx.DiGraph, (0, 1), (0,), (0, 1, "extra")),
+        (fnx.MultiGraph, nx.MultiGraph, (0, 1, "k"), (0, 1), (0, 1, "k", "extra")),
+        (
+            fnx.MultiDiGraph,
+            nx.MultiDiGraph,
+            (0, 1, "k"),
+            (0, 1),
+            (0, 1, "k", "extra"),
+        ),
+    ],
+)
+@pytest.mark.parametrize("invalid_key", [7, "short", "long"])
+@pytest.mark.parametrize("name", [None, "score"])
+def test_set_edge_attributes_malformed_key_and_partial_mutation_match_networkx(
+    fnx_factory,
+    nx_factory,
+    valid_key,
+    short_key,
+    long_key,
+    invalid_key,
+    name,
+):
+    if invalid_key == "short":
+        invalid_key = short_key
+    elif invalid_key == "long":
+        invalid_key = long_key
+
+    graph = fnx_factory()
+    expected = nx_factory()
+    if graph.is_multigraph():
+        graph.add_edge(0, 1, key="k")
+        expected.add_edge(0, 1, key="k")
+    else:
+        graph.add_edge(0, 1)
+        expected.add_edge(0, 1)
+
+    if name is None:
+        values = {valid_key: {"first": 1}, invalid_key: {"never": 2}}
+    else:
+        values = {valid_key: 1, invalid_key: 2}
+
+    expected_outcome = _edge_attribute_call_outcome(
+        nx.set_edge_attributes,
+        expected,
+        values,
+        name,
+    )
+    outcome = _edge_attribute_call_outcome(
+        fnx.set_edge_attributes,
+        graph,
+        values,
+        name,
+    )
+
+    assert outcome == expected_outcome
+    assert outcome is not None
+    assert _edge_attribute_graph_snapshot(graph) == _edge_attribute_graph_snapshot(
+        expected
+    )
+
+
+@pytest.mark.parametrize("name", [None, "score"])
+def test_set_edge_attributes_non_tuple_iterable_key_matches_networkx(name):
+    graph = fnx.Graph()
+    expected = nx.Graph()
+    graph.add_edge("a", "b")
+    expected.add_edge("a", "b")
+    values = {"ab": {"seen": True}} if name is None else {"ab": 7}
+
+    assert _edge_attribute_call_outcome(
+        fnx.set_edge_attributes,
+        graph,
+        values,
+        name,
+    ) == _edge_attribute_call_outcome(
+        nx.set_edge_attributes,
+        expected,
+        values,
+        name,
+    )
+    assert _edge_attribute_graph_snapshot(graph) == _edge_attribute_graph_snapshot(
+        expected
+    )
 
 
 def test_attribute_roundtrip_matches_networkx_on_directed_multigraph():
@@ -1450,9 +1621,8 @@ class TestClassLevelPredicates:
     when deciding whether a create_using CLASS matches expected
     directedness. On nx, these are plain methods that ignore self, so
     passing self=None works. fnx's Rust descriptors required a real
-    instance and raised TypeError. Wrapper makes is_directed /
-    is_multigraph callable on the class (returning the class-level
-    default) without breaking instance-level calls.
+    instance and raised TypeError. The class-safe descriptor keeps the
+    class call while memoizing the raw native method on each instance.
     """
 
     def test_class_level_is_directed(self):
@@ -1476,6 +1646,63 @@ class TestClassLevelPredicates:
         assert D.is_directed() is True
         assert MG.is_multigraph() is True
         assert MD.is_multigraph() is True
+
+    @pytest.mark.parametrize(
+        ("graph_cls", "directed", "multigraph"),
+        [
+            (fnx.Graph, False, False),
+            (fnx.DiGraph, True, False),
+            (fnx.MultiGraph, False, True),
+            (fnx.MultiDiGraph, True, True),
+        ],
+    )
+    def test_instance_predicate_cache_does_not_alias_copies(
+        self, graph_cls, directed, multigraph
+    ):
+        """br-r37-c1-8a89c: cached bound methods belong only to their graph."""
+        import copy
+        import pickle
+
+        graph = graph_cls()
+        assert "is_directed" not in vars(graph)
+        assert "is_multigraph" not in vars(graph)
+        assert graph.is_directed() is directed
+        assert graph.is_multigraph() is multigraph
+        assert type(vars(graph)["is_directed"]).__name__ == "builtin_function_or_method"
+        assert type(vars(graph)["is_multigraph"]).__name__ == "builtin_function_or_method"
+        assert vars(graph)["is_directed"].__self__ is graph
+        assert vars(graph)["is_multigraph"].__self__ is graph
+
+        for clone in (
+            copy.copy(graph),
+            copy.deepcopy(graph),
+            # ast-grep-ignore: trusted in-memory pickle round-trip fixture
+            pickle.loads(pickle.dumps(graph)),  # nosec B301  # ubs:ignore - trusted round trip
+        ):
+            assert "is_directed" not in vars(clone)
+            assert "is_multigraph" not in vars(clone)
+            assert clone.is_directed() is directed
+            assert clone.is_multigraph() is multigraph
+            assert vars(clone)["is_directed"].__self__ is clone
+            assert vars(clone)["is_multigraph"].__self__ is clone
+
+        graph.is_directed = _instance_predicate_override
+        graph.is_multigraph = _instance_predicate_override
+        assert graph.is_directed() == "instance override"
+        assert graph.is_multigraph() == "instance override"
+        cached_names = vars(graph).get("_fnx_descriptor_cached_views", ())
+        assert "is_directed" not in cached_names
+        assert "is_multigraph" not in cached_names
+
+        for clone in (
+            copy.deepcopy(graph),
+            # ast-grep-ignore: trusted in-memory pickle round-trip fixture
+            pickle.loads(pickle.dumps(graph)),  # nosec B301  # ubs:ignore - trusted round trip
+        ):
+            assert vars(clone)["is_directed"] is _instance_predicate_override
+            assert vars(clone)["is_multigraph"] is _instance_predicate_override
+            assert clone.is_directed() == "instance override"
+            assert clone.is_multigraph() == "instance override"
 
     def test_nx_gnp_random_graph_with_fnx_create_using(self):
         import networkx as nx

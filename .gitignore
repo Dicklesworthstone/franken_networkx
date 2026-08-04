@@ -6,6 +6,8 @@ target-codex-*/
 # rch (remote cargo helper) per-job artifact directories — accidentally
 # committed in 4372cf30; gitignored to prevent recurrence.
 .rch-target-*/
+# The shared pool is plural with no separator, so the pattern above misses it.
+.rch-targets/
 
 # Python cache artifacts
 __pycache__/
@@ -176,6 +178,8 @@ storage.sqlite3-wal.corrupt-*
 .beads/*.bad_*
 .beads/*.backup_*
 .beads/*.rebuild_*
+.beads/*-fsqlite-ns-gate
+.beads/*-fsqlite-ns-use
 .beads/recovery*/
 .beads_recovery/
 

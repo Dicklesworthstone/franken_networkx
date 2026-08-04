@@ -1,0 +1,253 @@
+diff --git a/crates/fnx-algorithms/src/lib.rs b/crates/fnx-algorithms/src/lib.rs
+index 09fb4759d..a19062d00 100644
+--- a/crates/fnx-algorithms/src/lib.rs
++++ b/crates/fnx-algorithms/src/lib.rs
+@@ -20077,35 +20077,40 @@ pub fn dfs_postorder_nodes_directed(
+     source: &str,
+     depth_limit: Option<usize>,
+ ) -> Vec<String> {
++    // br-r37-c1-descidx (cc): integer-index DFS. The old kernel kept `visited` as HashSet<&str> and
++    // called successors() (Vec<&str> alloc per node) — a String hash on every contains/insert. Walk
++    // successors_indices over node indices with a Vec<bool> visited; names materialise only into the
++    // O(|V|) postorder output. Byte-identical: successors_indices == successors order, so the `.rev()`
++    // child-push order (and thus the postorder) is unchanged, as are the visited/backtrack/depth logic.
+     let max_depth = depth_limit.unwrap_or(usize::MAX);
+-    let mut visited: HashSet<&str> = HashSet::new();
++    let Some(source_idx) = digraph.get_node_index(source) else {
++        return Vec::new();
++    };
++    let nodes = digraph.nodes_ordered();
++    let mut visited = vec![false; nodes.len()];
+     let mut postorder: Vec<String> = Vec::new();
+ 
+-    if !digraph.has_node(source) {
+-        return postorder;
+-    }
+-
+-    let mut stack: Vec<(&str, bool, usize)> = vec![(source, false, 0)];
++    let mut stack: Vec<(usize, bool, usize)> = vec![(source_idx, false, 0)];
+ 
+     while let Some((node, backtrack, depth)) = stack.pop() {
+         if backtrack {
+-            postorder.push(node.to_owned());
++            postorder.push(nodes[node].to_owned());
+             continue;
+         }
+-        if visited.contains(node) {
++        if visited[node] {
+             continue;
+         }
+-        visited.insert(node);
++        visited[node] = true;
+         // NetworkX omits cutoff nodes from postorder on depth-limited traversals.
+-        if node == source || depth < max_depth {
++        if node == source_idx || depth < max_depth {
+             stack.push((node, true, depth));
+         }
+ 
+         if depth < max_depth
+-            && let Some(succs) = digraph.successors(node)
++            && let Some(succs) = digraph.successors_indices(node)
+         {
+-            for succ in succs.into_iter().rev() {
+-                if !visited.contains(succ) {
++            for &succ in succs.iter().rev() {
++                if !visited[succ] {
+                     stack.push((succ, false, depth + 1));
+                 }
+             }
+@@ -20580,24 +20585,27 @@ pub fn bfs_layers_directed_multi(digraph: &DiGraph, sources: &[&str]) -> Vec<Vec
+ /// BFS layers from `source` on a directed graph.
+ #[must_use]
+ pub fn bfs_layers_directed(digraph: &DiGraph, source: &str) -> Vec<Vec<String>> {
++    // br-r37-c1-descidx (cc): integer-index BFS (see bfs_layers) — Vec<bool> visited over node indices +
++    // successors_indices (no per-node Vec alloc), byte-identical (same discovery order + names).
+     let mut layers: Vec<Vec<String>> = Vec::new();
+-    let mut visited: HashSet<&str> = HashSet::new();
+-
+-    if !digraph.has_node(source) {
++    let Some(source_idx) = digraph.get_node_index(source) else {
+         return layers;
+-    }
++    };
++    let nodes = digraph.nodes_ordered();
++    let mut visited = vec![false; nodes.len()];
+ 
+-    visited.insert(source);
+-    let mut current_layer = vec![source];
++    visited[source_idx] = true;
++    let mut current_layer = vec![source_idx];
+ 
+     while !current_layer.is_empty() {
+-        layers.push(current_layer.iter().map(|&s| s.to_owned()).collect());
+-        let mut next_layer: Vec<&str> = Vec::new();
++        layers.push(current_layer.iter().map(|&i| nodes[i].to_owned()).collect());
++        let mut next_layer: Vec<usize> = Vec::new();
+         for &node in &current_layer {
+-            if let Some(succs) = digraph.successors(node) {
+-                for succ in succs {
+-                    if visited.insert(succ) {
+-                        next_layer.push(succ);
++            if let Some(succs) = digraph.successors_indices(node) {
++                for &nb in succs {
++                    if !visited[nb] {
++                        visited[nb] = true;
++                        next_layer.push(nb);
+                     }
+                 }
+             }
+@@ -50964,6 +50970,154 @@ mod tests {
+         report("NULL_index_vs_index", &paired(true, true));
+     }
+ 
++    /// br-r37-c1-descidx (dfs): full-function A/B for `dfs_postorder_nodes_directed` (order-sensitive
++    /// output) + a parity check for `bfs_layers_directed`. Inline ORIGINAL String-keyed DFS vs the shipped
++    /// integer-index DFS. Parity asserted first (postorder order + directed layers). `#[ignore]`; run with
++    /// `cargo test --release -p fnx-algorithms --lib dfs_postorder_directed_idx_ab -- --ignored --nocapture`.
++    #[test]
++    #[ignore = "measurement; run with --release --ignored --nocapture"]
++    fn dfs_postorder_directed_idx_ab() {
++        use std::collections::HashSet;
++        use std::hint::black_box;
++        use std::time::Instant;
++
++        // Dense forward directed graph: node i -> i+1..=i+50 → deep DFS from 0.
++        let n_nodes = 3000usize;
++        let mut g = DiGraph::strict();
++        for i in 0..n_nodes {
++            let _ = g.add_node(i.to_string());
++        }
++        for i in 0..n_nodes {
++            for step in 1..=50usize {
++                if i + step < n_nodes {
++                    let _ = g.add_edge(i.to_string(), (i + step).to_string());
++                }
++            }
++        }
++
++        let old_dfs = |digraph: &DiGraph, source: &str, depth_limit: Option<usize>| -> Vec<String> {
++            let max_depth = depth_limit.unwrap_or(usize::MAX);
++            let mut visited: HashSet<&str> = HashSet::new();
++            let mut postorder: Vec<String> = Vec::new();
++            if !digraph.has_node(source) {
++                return postorder;
++            }
++            let mut stack: Vec<(&str, bool, usize)> = vec![(source, false, 0)];
++            while let Some((node, backtrack, depth)) = stack.pop() {
++                if backtrack {
++                    postorder.push(node.to_owned());
++                    continue;
++                }
++                if visited.contains(node) {
++                    continue;
++                }
++                visited.insert(node);
++                if node == source || depth < max_depth {
++                    stack.push((node, true, depth));
++                }
++                if depth < max_depth
++                    && let Some(succs) = digraph.successors(node)
++                {
++                    for succ in succs.into_iter().rev() {
++                        if !visited.contains(succ) {
++                            stack.push((succ, false, depth + 1));
++                        }
++                    }
++                }
++            }
++            postorder
++        };
++
++        assert_eq!(
++            old_dfs(&g, "0", None),
++            super::dfs_postorder_nodes_directed(&g, "0", None),
++            "integer-index dfs_postorder_nodes_directed must be byte-identical (order-sensitive)"
++        );
++
++        // Parity check for the sibling bfs_layers_directed conversion (no timing).
++        let old_bfs_dir = |digraph: &DiGraph, source: &str| -> Vec<Vec<String>> {
++            let mut layers: Vec<Vec<String>> = Vec::new();
++            let mut visited: HashSet<&str> = HashSet::new();
++            if !digraph.has_node(source) {
++                return layers;
++            }
++            visited.insert(source);
++            let mut current_layer = vec![source];
++            while !current_layer.is_empty() {
++                layers.push(current_layer.iter().map(|&s| s.to_owned()).collect());
++                let mut next_layer: Vec<&str> = Vec::new();
++                for &node in &current_layer {
++                    if let Some(succs) = digraph.successors(node) {
++                        for succ in succs {
++                            if visited.insert(succ) {
++                                next_layer.push(succ);
++                            }
++                        }
++                    }
++                }
++                current_layer = next_layer;
++            }
++            layers
++        };
++        assert_eq!(
++            old_bfs_dir(&g, "0"),
++            super::bfs_layers_directed(&g, "0"),
++            "integer-index bfs_layers_directed must be byte-identical"
++        );
++
++        let time = |cand: bool| -> f64 {
++            let t0 = Instant::now();
++            let r = if cand {
++                super::dfs_postorder_nodes_directed(&g, "0", None)
++            } else {
++                old_dfs(&g, "0", None)
++            };
++            black_box(&r);
++            t0.elapsed().as_secs_f64()
++        };
++        for _ in 0..3 {
++            black_box(time(true));
++            black_box(time(false));
++        }
++        let median = |v: &[f64]| {
++            let mut s = v.to_vec();
++            s.sort_by(|a, b| a.partial_cmp(b).unwrap());
++            s[s.len() / 2]
++        };
++        let rounds = 61usize;
++        let paired = |cand: bool, base_arm: bool| -> Vec<f64> {
++            let mut v = Vec::with_capacity(rounds);
++            for round in 0..rounds {
++                let (tb, tc) = if round.is_multiple_of(2) {
++                    let bt = time(base_arm);
++                    let ct = time(cand);
++                    (bt, ct)
++                } else {
++                    let ct = time(cand);
++                    let bt = time(base_arm);
++                    (bt, ct)
++                };
++                v.push(tb / tc);
++            }
++            v
++        };
++        let report = |name: &str, ratios: &[f64]| {
++            let wins = ratios.iter().filter(|&&r| r > 1.0).count();
++            let mut sorted = ratios.to_vec();
++            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
++            println!(
++                "DFSPOSTDIRIDX_AB {name}: median={:.4}x win_rate={wins}/{rounds} \
++                 p5_p95=[{:.4},{:.4}]",
++                median(ratios),
++                sorted[rounds * 5 / 100],
++                sorted[rounds * 95 / 100],
++            );
++        };
++        println!("DFSPOSTDIRIDX_AB dfs_postorder_nodes_directed 3000-node fwd-deg50 rounds={rounds} (>1 = index faster)");
++        report("INDEX_vs_string", &paired(true, false));
++        report("NULL_index_vs_index", &paired(true, true));
++    }
++
+     /// br-r37-c1-ra004: paired-interleaved median A/B for the `neighbor_count`
+     /// no-alloc lever on `bfs_beam_edges` (one per-candidate-neighbor `Vec<&str>`
+     /// degree allocation removed from the BFS inner loop), against its exact

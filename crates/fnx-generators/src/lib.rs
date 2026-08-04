@@ -272,17 +272,10 @@ impl GraphGenerator {
     pub fn star_graph(&mut self, n: usize) -> Result<GenerationReport, GenerationError> {
         // NetworkX integer semantics: star_graph(n) has n spokes and n + 1 nodes total.
         let (n, warnings) = self.validate_n("star_graph", n, MAX_N_STAR)?;
-        let (mut graph, node_labels) = graph_with_n_nodes(self.mode, n + 1);
-        if let Some((hub, spokes)) = node_labels.split_first() {
-            for spoke in spokes {
-                graph.add_edge(hub.clone(), spoke.clone()).map_err(|err| {
-                    GenerationError::FailClosed {
-                        operation: "star_graph",
-                        reason: err.to_string(),
-                    }
-                })?;
-            }
-        }
+        let (mut graph, _node_labels) = graph_with_n_nodes(self.mode, n + 1);
+        let inserted = graph
+            .extend_existing_index_edges_unrecorded((1..=n).map(|spoke_index| (0, spoke_index)));
+        debug_assert_eq!(inserted, n);
 
         self.record(
             "star_graph",
@@ -2239,19 +2232,16 @@ impl GraphGenerator {
         }
 
         let (mut graph, node_labels) = graph_with_n_nodes(self.mode, total_nodes);
+        let mut clique_edges = Vec::with_capacity(edge_count);
         for start in (0..total_nodes).step_by(k) {
             let end = start + k;
             for left in start..end {
                 for right in (left + 1)..end {
-                    graph
-                        .add_edge(node_labels[left].clone(), node_labels[right].clone())
-                        .map_err(|err| GenerationError::FailClosed {
-                            operation,
-                            reason: err.to_string(),
-                        })?;
+                    clique_edges.push((left, right));
                 }
             }
         }
+        let _ = graph.extend_existing_index_edges_unrecorded(clique_edges);
 
         for start in (0..total_nodes).step_by(k) {
             let _ = graph.remove_edge(&node_labels[start], &node_labels[start + 1]);
@@ -5438,15 +5428,13 @@ impl GraphGenerator {
             let _ = graph.add_node(src.clone());
             let mut target = rng.randrange(i);
             let draw = rng.random();
-            if draw < p && target != 0 {
-                // Redirect to the target's successor, matching NetworkX.
-                let target_name = target.to_string();
-                if let Some(successors) = graph.successors(&target_name)
-                    && let Some(succ) = successors.first()
-                    && let Ok(pred_idx) = succ.parse::<usize>()
-                {
-                    target = pred_idx;
-                }
+            if draw < p
+                && target != 0
+                && let Some(&successor) = graph
+                    .successors_indices(target)
+                    .and_then(|successors| successors.first())
+            {
+                target = successor;
             }
             graph
                 .add_edge(src, target.to_string())
@@ -7690,6 +7678,126 @@ mod tests {
         println!("CAVE_BATCH_AB l={l} k={k} rounds={rounds} (>1 = batch faster)");
         report("BATCH_vs_string", &paired(true, false));
         report("NULL_batch_vs_batch", &paired(true, true));
+    }
+
+    /// br-r37-c1-18zr9: paired full-construction A/B for connected-caveman
+    /// clique insertion. Both arms preserve the subsequent remove/add rewiring;
+    /// ordered nodes, edges, and adjacency rows are compared before timing.
+    #[test]
+    #[ignore = "measurement; run with --profile release --ignored --nocapture"]
+    fn connected_caveman_index_batch_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        let build = |batch: bool, l: usize, k: usize| {
+            let total_nodes = l * k;
+            let edge_count = l * k * (k - 1) / 2;
+            let (mut graph, node_labels) =
+                super::graph_with_n_nodes(CompatibilityMode::Strict, total_nodes);
+            if batch {
+                let mut edges = Vec::with_capacity(edge_count);
+                for start in (0..total_nodes).step_by(k) {
+                    let end = start + k;
+                    for left in start..end {
+                        for right in (left + 1)..end {
+                            edges.push((left, right));
+                        }
+                    }
+                }
+                let _ = graph.extend_existing_index_edges_unrecorded(edges);
+            } else {
+                for start in (0..total_nodes).step_by(k) {
+                    let end = start + k;
+                    for left in start..end {
+                        for right in (left + 1)..end {
+                            let _ = graph
+                                .add_edge(node_labels[left].clone(), node_labels[right].clone());
+                        }
+                    }
+                }
+            }
+            for start in (0..total_nodes).step_by(k) {
+                let _ = graph.remove_edge(&node_labels[start], &node_labels[start + 1]);
+                let previous = (start + total_nodes - 1) % total_nodes;
+                let _ = graph.add_edge(node_labels[start].clone(), node_labels[previous].clone());
+            }
+            graph
+        };
+
+        for &(l, k) in &[(0, 3), (1, 2), (1, 3), (3, 2), (3, 3), (8, 7)] {
+            let string_graph = build(false, l, k);
+            let index_graph = build(true, l, k);
+            assert_eq!(string_graph.nodes_ordered(), index_graph.nodes_ordered());
+            assert_eq!(
+                string_graph.edges_ordered_borrowed(),
+                index_graph.edges_ordered_borrowed(),
+                "ordered edge mismatch for connected_caveman_graph({l}, {k})",
+            );
+            for node in 0..string_graph.node_count() {
+                assert_eq!(
+                    string_graph.neighbors_indices(node),
+                    index_graph.neighbors_indices(node),
+                    "adjacency-row mismatch for connected_caveman_graph({l}, {k}) node {node}",
+                );
+            }
+        }
+
+        const L: usize = 48;
+        const K: usize = 32;
+        let time = |batch: bool| -> u128 {
+            let started = Instant::now();
+            black_box(build(batch, L, K));
+            started.elapsed().as_nanos()
+        };
+        for _ in 0..2 {
+            black_box(time(true));
+            black_box(time(false));
+        }
+
+        const ROUNDS: usize = 15;
+        let paired = |left_batch: bool, right_batch: bool| {
+            let mut left_times = Vec::with_capacity(ROUNDS);
+            let mut right_times = Vec::with_capacity(ROUNDS);
+            let mut ratios = Vec::with_capacity(ROUNDS);
+            for round in 0..ROUNDS {
+                let (left, right) = if round.is_multiple_of(2) {
+                    (time(left_batch), time(right_batch))
+                } else {
+                    let right = time(right_batch);
+                    (time(left_batch), right)
+                };
+                left_times.push(left);
+                right_times.push(right);
+                ratios.push(right as f64 / left as f64);
+            }
+            (left_times, right_times, ratios)
+        };
+        let report = |name: &str,
+                      (mut left_times, mut right_times, mut ratios): (
+            Vec<u128>,
+            Vec<u128>,
+            Vec<f64>,
+        )| {
+            left_times.sort_unstable();
+            right_times.sort_unstable();
+            ratios.sort_by(f64::total_cmp);
+            let wins = ratios.iter().filter(|&&ratio| ratio > 1.0).count();
+            println!(
+                "CONNECTED_CAVEMAN_AB {name}: left_median_ns={} right_median_ns={} median={:.4}x win_rate={wins}/{ROUNDS} p10_p90=[{:.4},{:.4}]",
+                left_times[ROUNDS / 2],
+                right_times[ROUNDS / 2],
+                ratios[ROUNDS / 2],
+                ratios[ROUNDS / 10],
+                ratios[ROUNDS * 9 / 10],
+            );
+        };
+
+        println!(
+            "CONNECTED_CAVEMAN_AB l={L} k={K} edges={} rounds={ROUNDS} (>1 = left faster)",
+            L * K * (K - 1) / 2,
+        );
+        report("INDEX_vs_string", paired(true, false));
+        report("NULL_index_vs_index", paired(true, true));
     }
 
     /// br-r37-c1-barbellbatch: paired-interleaved median A/B for barbell_graph edge insertion —
@@ -10015,6 +10123,107 @@ mod tests {
         let snapshot = report.graph.snapshot();
         assert_eq!(snapshot.nodes, vec!["0"]);
         assert!(snapshot.edges.is_empty());
+    }
+
+    /// Paired same-binary A/B for `star_graph`'s edge insertion. The frozen arm
+    /// retains the former per-edge String path; the candidate uses the shipped
+    /// existing-index batch. Both construct the same complete report substrate.
+    #[test]
+    #[ignore = "measurement; run with --profile release --ignored --nocapture"]
+    fn star_graph_index_batch_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        let build_frozen = |n: usize| {
+            let (mut graph, node_labels) =
+                super::graph_with_n_nodes(CompatibilityMode::Strict, n + 1);
+            let (hub, spokes) = node_labels
+                .split_first()
+                .expect("star graph always contains its hub");
+            for spoke in spokes {
+                graph
+                    .add_edge(hub.clone(), spoke.clone())
+                    .expect("frozen star endpoints already exist");
+            }
+            graph
+        };
+        let build_index_batch = |n: usize| {
+            let (mut graph, _node_labels) =
+                super::graph_with_n_nodes(CompatibilityMode::Strict, n + 1);
+            let inserted = graph.extend_existing_index_edges_unrecorded(
+                (1..=n).map(|spoke_index| (0, spoke_index)),
+            );
+            assert_eq!(inserted, n);
+            graph
+        };
+
+        for n in [0, 1, 2, 4, 17] {
+            assert_eq!(
+                build_frozen(n).snapshot(),
+                build_index_batch(n).snapshot(),
+                "index batch must preserve the complete ordered star snapshot for n={n}"
+            );
+        }
+
+        let n = 8_192usize;
+        let calls = 4usize;
+        let rounds = 15usize;
+        let time = |batch: bool| {
+            let started = Instant::now();
+            for _ in 0..calls {
+                if batch {
+                    black_box(build_index_batch(n));
+                } else {
+                    black_box(build_frozen(n));
+                }
+            }
+            started.elapsed().as_nanos()
+        };
+        for _ in 0..3 {
+            black_box(time(false));
+            black_box(time(true));
+        }
+
+        let paired = |candidate: bool, baseline: bool| {
+            let mut baseline_ns = Vec::with_capacity(rounds);
+            let mut candidate_ns = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (base, cand) = if round % 2 == 0 {
+                    (time(baseline), time(candidate))
+                } else {
+                    let cand = time(candidate);
+                    let base = time(baseline);
+                    (base, cand)
+                };
+                baseline_ns.push(base);
+                candidate_ns.push(cand);
+            }
+            (baseline_ns, candidate_ns)
+        };
+        let median = |samples: &[u128]| {
+            let mut sorted = samples.to_vec();
+            sorted.sort_unstable();
+            sorted[sorted.len() / 2]
+        };
+        let report = |name: &str, baseline_ns: &[u128], candidate_ns: &[u128]| {
+            let base_median = median(baseline_ns);
+            let candidate_median = median(candidate_ns);
+            let wins = baseline_ns
+                .iter()
+                .zip(candidate_ns)
+                .filter(|(base, candidate)| base > candidate)
+                .count();
+            println!(
+                "STAR_INDEX_BATCH_AB {name}: baseline_median_ns={base_median} \
+                 candidate_median_ns={candidate_median} ratio={:.4}x wins={wins}/{rounds}",
+                base_median as f64 / candidate_median as f64,
+            );
+        };
+
+        let (baseline_ns, candidate_ns) = paired(true, false);
+        report("frozen_vs_index", &baseline_ns, &candidate_ns);
+        let (null_a_ns, null_b_ns) = paired(true, true);
+        report("index_vs_index_null", &null_a_ns, &null_b_ns);
     }
 
     #[test]
@@ -14241,6 +14450,185 @@ mod tests {
             .random_k_out_graph(1, 1, 1.0, false, 1)
             .expect_err("no self-loop branch has no target for n=1");
         assert!(matches!(err, GenerationError::FailClosed { .. }));
+    }
+
+    /// Operation profile for the frozen pre-lever `gnr_graph` redirect path.
+    /// Replaying the same RNG stream counts its String/hash/row/parse round trips.
+    #[test]
+    #[ignore = "operation profile; run with --profile release --ignored --nocapture"]
+    fn gnr_successor_round_trip_profile() {
+        let (n, p, seed) = (50_000usize, 1.0f64, 42u64);
+        let mut rng = super::PythonRandom::new(seed);
+        let mut redirect_round_trips = 0usize;
+        for i in 1..n {
+            let target = rng.randrange(i);
+            let draw = rng.random();
+            redirect_round_trips += usize::from(draw < p && target != 0);
+        }
+
+        assert_eq!(redirect_round_trips, 49_988);
+        println!(
+            "GNR_SUCCESSOR_PROFILE n={n} p={p} redirects={redirect_round_trips} \
+             target_formats={redirect_round_trips} successor_row_allocations={redirect_round_trips} \
+             successor_parses={redirect_round_trips}",
+        );
+    }
+
+    /// Frozen String-row implementation versus the indexed successor slice
+    /// used by production, with exact graph parity and a same-arm null.
+    #[test]
+    #[ignore = "measurement; run with --profile release --ignored --nocapture"]
+    fn gnr_successor_indices_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        let build_frozen = |n: usize, p: f64, seed: u64| {
+            let mut graph = DiGraph::new(CompatibilityMode::Strict);
+            if n == 0 {
+                return (graph, 0usize);
+            }
+            let _ = graph.add_node("0".to_owned());
+            let mut rng = super::PythonRandom::new(seed);
+            let mut redirects = 0usize;
+            for i in 1..n {
+                let src = i.to_string();
+                let _ = graph.add_node(src.clone());
+                let mut target = rng.randrange(i);
+                let draw = rng.random();
+                if draw < p && target != 0 {
+                    redirects += 1;
+                    let target_name = target.to_string();
+                    if let Some(successors) = graph.successors(&target_name)
+                        && let Some(successor) = successors.first()
+                        && let Ok(successor_index) = successor.parse::<usize>()
+                    {
+                        target = successor_index;
+                    }
+                }
+                graph
+                    .add_edge(src, target.to_string())
+                    .expect("frozen GNR edge should insert");
+            }
+            (graph, redirects)
+        };
+
+        let build_indexed = |n: usize, p: f64, seed: u64| {
+            let mut graph = DiGraph::new(CompatibilityMode::Strict);
+            if n == 0 {
+                return (graph, 0usize);
+            }
+            let _ = graph.add_node("0".to_owned());
+            let mut rng = super::PythonRandom::new(seed);
+            let mut redirects = 0usize;
+            for i in 1..n {
+                let src = i.to_string();
+                let _ = graph.add_node(src.clone());
+                let mut target = rng.randrange(i);
+                let draw = rng.random();
+                if draw < p
+                    && target != 0
+                    && let Some(&successor) = graph
+                        .successors_indices(target)
+                        .and_then(|successors| successors.first())
+                {
+                    redirects += 1;
+                    target = successor;
+                }
+                graph
+                    .add_edge(src, target.to_string())
+                    .expect("indexed GNR edge should insert");
+            }
+            (graph, redirects)
+        };
+
+        let parity_cases = [
+            (0usize, 0.5f64, 0u64),
+            (1, 0.5, 1),
+            (6, 0.5, 1),
+            (256, 0.0, 7),
+            (256, 1.0, 7),
+            (256, -1.0, 9),
+            (256, 2.0, 9),
+            (256, f64::NEG_INFINITY, 11),
+            (256, f64::INFINITY, 11),
+            (256, f64::NAN, u64::from(u32::MAX) + 17),
+        ];
+        for (n, p, seed) in parity_cases {
+            let (frozen, frozen_redirects) = build_frozen(n, p, seed);
+            let (indexed, indexed_redirects) = build_indexed(n, p, seed);
+            assert_eq!(indexed.snapshot(), frozen.snapshot());
+            assert_eq!(indexed.revision(), frozen.revision());
+            assert_eq!(indexed_redirects, frozen_redirects);
+
+            let mut generator = GraphGenerator::strict();
+            let report = generator
+                .gnr_graph(n, p, seed)
+                .expect("production GNR parity case should generate");
+            assert_eq!(report.graph.snapshot(), frozen.snapshot());
+            assert_eq!(report.graph.revision(), frozen.revision());
+            assert!(report.warnings.is_empty());
+        }
+
+        let (n, p, seed) = (50_000usize, 1.0f64, 42u64);
+        let (_, redirects) = build_indexed(n, p, seed);
+        let time = |indexed: bool| {
+            let started = Instant::now();
+            let (graph, observed_redirects) = if indexed {
+                build_indexed(n, p, seed)
+            } else {
+                build_frozen(n, p, seed)
+            };
+            black_box(&graph);
+            black_box(observed_redirects);
+            let elapsed = started.elapsed().as_nanos();
+            drop(graph);
+            elapsed
+        };
+        for _ in 0..3 {
+            black_box(time(false));
+            black_box(time(true));
+        }
+
+        let rounds = 15usize;
+        let paired = |left_indexed: bool, right_indexed: bool| {
+            let mut left = Vec::with_capacity(rounds);
+            let mut right = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                if round % 2 == 0 {
+                    left.push(time(left_indexed));
+                    right.push(time(right_indexed));
+                } else {
+                    right.push(time(right_indexed));
+                    left.push(time(left_indexed));
+                }
+            }
+            (left, right)
+        };
+        let median = |samples: &[u128]| {
+            let mut sorted = samples.to_vec();
+            sorted.sort_unstable();
+            sorted[sorted.len() / 2]
+        };
+        let report = |name: &str, baseline: &[u128], candidate: &[u128]| {
+            let baseline_median = median(baseline);
+            let candidate_median = median(candidate);
+            let wins = baseline
+                .iter()
+                .zip(candidate)
+                .filter(|(baseline, candidate)| baseline > candidate)
+                .count();
+            println!(
+                "GNR_SUCCESSOR_INDICES_AB {name}: baseline_median_ns={baseline_median} \
+                 candidate_median_ns={candidate_median} ratio={:.4}x wins={wins}/{rounds} \
+                 redirects={redirects}",
+                baseline_median as f64 / candidate_median as f64,
+            );
+        };
+
+        let (frozen, indexed) = paired(false, true);
+        report("frozen_vs_indexed", &frozen, &indexed);
+        let (indexed_left, indexed_right) = paired(true, true);
+        report("indexed_vs_indexed_null", &indexed_left, &indexed_right);
     }
 
     #[test]

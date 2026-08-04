@@ -16,7 +16,9 @@ use pyo3::exceptions::{
     PyIndexError, PyKeyError, PyRuntimeError, PyTypeError, PyValueError, PyZeroDivisionError,
 };
 use pyo3::prelude::*;
-use pyo3::types::{PyBool, PyDict, PyFloat, PyInt, PyIterator, PyList, PySet, PyString, PyTuple};
+use pyo3::types::{
+    PyBool, PyBytes, PyDict, PyFloat, PyInt, PyIterator, PyList, PySet, PyString, PyTuple,
+};
 use std::cell::{OnceCell, RefCell};
 use std::collections::{BTreeSet, BinaryHeap, HashMap, HashSet, VecDeque};
 use std::sync::{
@@ -4255,6 +4257,37 @@ pub fn graph_has_edge_attr(
     Ok(has_attr)
 }
 
+/// br-r37-c1-dijknone: does any simple-graph edge carry the literal Python
+/// `None` as an attribute KEY?
+///
+/// `nx`'s `weight=None` resolves each edge weight as `data.get(None, 1)`, so it
+/// is the unweighted case UNLESS some edge really does have a `None` key —
+/// `G.edges[u, v][None] = 5` is legal and nx honours it. Only the
+/// `edge_py_attrs` mirror can hold such a key; the Rust `inner` attr store is
+/// String-keyed and cannot represent it. Cost is O(materialized mirrors), not
+/// O(|E|): a batch-built graph has an empty mirror and answers immediately.
+///
+/// Multigraphs return `None` so callers keep their existing fallback.
+#[pyfunction]
+pub fn graph_has_none_edge_attr_key(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Option<bool>> {
+    let gr = extract_graph(g)?;
+    let none_key = py.None();
+    let scan = |dicts: &mut dyn Iterator<Item = &Py<PyDict>>| -> PyResult<bool> {
+        for dict in dicts {
+            if dict.bind(py).contains(none_key.bind(py))? {
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    };
+    let found = match &gr {
+        GraphRef::Undirected(pg) => Some(scan(&mut pg.edge_py_attrs.values())?),
+        GraphRef::Directed { dg, .. } => Some(scan(&mut dg.edge_py_attrs.values())?),
+        GraphRef::MultiUndirected { .. } | GraphRef::MultiDirected { .. } => None,
+    };
+    Ok(found)
+}
+
 /// Return whether any simple graph node or edge has a Python-visible attr.
 ///
 /// ``graph`` attributes are intentionally ignored: product and relabel fast
@@ -5248,9 +5281,38 @@ pub fn dijkstra_path_to_target(
 /// irrelevant to connectivity) — same lever that fixed connected_components.
 fn multigraph_is_connected(mg: &fnx_classes::MultiGraph) -> bool {
     use std::collections::VecDeque;
+
+    if mg.node_count() == 0 {
+        return true; // null graph; caller raises before reaching here
+    }
+
+    mg.with_int_adjacency(|adjacency| {
+        let mut visited = vec![false; adjacency.len()];
+        let mut visited_count = 1usize;
+        let mut queue: VecDeque<usize> = VecDeque::new();
+        visited[0] = true;
+        queue.push_back(0);
+        while let Some(node_idx) = queue.pop_front() {
+            for &neighbor_idx in &adjacency[node_idx] {
+                if !visited[neighbor_idx] {
+                    visited[neighbor_idx] = true;
+                    visited_count += 1;
+                    queue.push_back(neighbor_idx);
+                }
+            }
+        }
+        visited_count == adjacency.len()
+    })
+}
+
+/// Frozen pre-`br-r37-c1-59jm4` String-hashed traversal for exact A/B proof.
+#[cfg(test)]
+fn multigraph_is_connected_orig_string(mg: &fnx_classes::MultiGraph) -> bool {
+    use std::collections::VecDeque;
+
     let nodes = mg.nodes_ordered();
     if nodes.is_empty() {
-        return true; // null graph; caller raises before reaching here
+        return true;
     }
     let mut visited: rustc_hash::FxHashSet<&str> =
         rustc_hash::FxHashSet::with_capacity_and_hasher(nodes.len(), Default::default());
@@ -5259,10 +5321,10 @@ fn multigraph_is_connected(mg: &fnx_classes::MultiGraph) -> bool {
     let mut queue: VecDeque<&str> = VecDeque::new();
     queue.push_back(start);
     while let Some(node) = queue.pop_front() {
-        if let Some(nbrs) = mg.neighbors_iter(node) {
-            for v in nbrs {
-                if visited.insert(v) {
-                    queue.push_back(v);
+        if let Some(neighbors) = mg.neighbors_iter(node) {
+            for neighbor in neighbors {
+                if visited.insert(neighbor) {
+                    queue.push_back(neighbor);
                 }
             }
         }
@@ -5277,10 +5339,44 @@ fn multigraph_node_connected_component<'a>(
     start: &str,
 ) -> Vec<&'a str> {
     use std::collections::VecDeque;
+
+    let nodes = mg.nodes_ordered();
+    let Some(start_idx) = mg.get_node_index(start) else {
+        return Vec::new();
+    };
+
+    mg.with_int_adjacency(|adjacency| {
+        let mut comp: Vec<&'a str> = Vec::new();
+        let mut visited = vec![false; adjacency.len()];
+        let mut queue: VecDeque<usize> = VecDeque::new();
+        visited[start_idx] = true;
+        comp.push(nodes[start_idx]);
+        queue.push_back(start_idx);
+        while let Some(node_idx) = queue.pop_front() {
+            for &neighbor_idx in &adjacency[node_idx] {
+                if !visited[neighbor_idx] {
+                    visited[neighbor_idx] = true;
+                    comp.push(nodes[neighbor_idx]);
+                    queue.push_back(neighbor_idx);
+                }
+            }
+        }
+        comp
+    })
+}
+
+/// Frozen pre-`br-r37-c1-85ktt` String-hashed traversal for exact A/B proof.
+#[cfg(test)]
+fn multigraph_node_connected_component_orig_string<'a>(
+    mg: &'a fnx_classes::MultiGraph,
+    start: &str,
+) -> Vec<&'a str> {
+    use std::collections::VecDeque;
+
     let mut comp: Vec<&'a str> = Vec::new();
     let nodes = mg.nodes_ordered();
-    let start_ref: &'a str = match nodes.iter().copied().find(|&n| n == start) {
-        Some(s) => s,
+    let start_ref: &'a str = match nodes.iter().copied().find(|&node| node == start) {
+        Some(node) => node,
         None => return comp,
     };
     let mut visited: rustc_hash::FxHashSet<&'a str> = rustc_hash::FxHashSet::default();
@@ -5289,11 +5385,11 @@ fn multigraph_node_connected_component<'a>(
     let mut queue: VecDeque<&'a str> = VecDeque::new();
     queue.push_back(start_ref);
     while let Some(node) = queue.pop_front() {
-        if let Some(nbrs) = mg.neighbors_iter(node) {
-            for v in nbrs {
-                if visited.insert(v) {
-                    comp.push(v);
-                    queue.push_back(v);
+        if let Some(neighbors) = mg.neighbors_iter(node) {
+            for neighbor in neighbors {
+                if visited.insert(neighbor) {
+                    comp.push(neighbor);
+                    queue.push_back(neighbor);
                 }
             }
         }
@@ -5716,10 +5812,76 @@ fn emit_dijkstra_indexed_full(
     Ok((dist_dict.into_any().unbind(), path_dict.into_any().unbind()))
 }
 
-/// br-r37-c1-ubizp (cc): unweighted single-pair distance over a MultiGraph by a
-/// target-early-exit BFS over the adjacency (no simple-Graph build). Distance is
-/// multiplicity-invariant. Returns Some(distance) or None if target is unreachable.
+/// br-r37-c1-ddw4l: unweighted single-pair distance over a MultiGraph by a
+/// two-fringe BFS over the adjacency (no simple-Graph build). Expanding the
+/// smaller frontier preserves level-BFS distances while avoiding the nearly
+/// whole-graph scan paid by the old source-only search on sparse expanders.
+/// Distance is multiplicity-invariant. Returns `Some(distance)` or `None` if
+/// the target is unreachable.
 fn multigraph_target_bfs_distance(
+    mg: &fnx_classes::MultiGraph,
+    source: &str,
+    target: &str,
+) -> Option<usize> {
+    use std::collections::HashMap;
+
+    if source == target {
+        return Some(0);
+    }
+    let source = mg
+        .get_node_index(source)
+        .and_then(|index| mg.get_node_name(index))?;
+    let target = mg
+        .get_node_index(target)
+        .and_then(|index| mg.get_node_name(index))?;
+
+    let mut forward_distances = HashMap::from([(source, 0usize)]);
+    let mut reverse_distances = HashMap::from([(target, 0usize)]);
+    let mut forward_frontier = vec![source];
+    let mut reverse_frontier = vec![target];
+
+    while !forward_frontier.is_empty() && !reverse_frontier.is_empty() {
+        if forward_frontier.len() <= reverse_frontier.len() {
+            let mut next_frontier = Vec::new();
+            for node in std::mem::take(&mut forward_frontier) {
+                let next_distance = forward_distances[node] + 1;
+                for neighbor in mg.neighbors(node).unwrap_or_default() {
+                    if let Some(&reverse_distance) = reverse_distances.get(neighbor) {
+                        return Some(next_distance + reverse_distance);
+                    }
+                    if !forward_distances.contains_key(neighbor) {
+                        forward_distances.insert(neighbor, next_distance);
+                        next_frontier.push(neighbor);
+                    }
+                }
+            }
+            forward_frontier = next_frontier;
+        } else {
+            let mut next_frontier = Vec::new();
+            for node in std::mem::take(&mut reverse_frontier) {
+                let next_distance = reverse_distances[node] + 1;
+                for neighbor in mg.neighbors(node).unwrap_or_default() {
+                    if let Some(&forward_distance) = forward_distances.get(neighbor) {
+                        return Some(next_distance + forward_distance);
+                    }
+                    if !reverse_distances.contains_key(neighbor) {
+                        reverse_distances.insert(neighbor, next_distance);
+                        next_frontier.push(neighbor);
+                    }
+                }
+            }
+            reverse_frontier = next_frontier;
+        }
+    }
+
+    None
+}
+
+/// `br-r37-c1-ddw4l` A/B baseline: the source-only target-early-exit BFS that
+/// preceded the two-fringe search. Test-only so the benchmark compares both
+/// algorithms in one release binary.
+#[cfg(test)]
+fn multigraph_target_bfs_distance_orig_unidirectional(
     mg: &fnx_classes::MultiGraph,
     source: &str,
     target: &str,
@@ -5728,29 +5890,26 @@ fn multigraph_target_bfs_distance(
     if source == target {
         return Some(0);
     }
-    // O(1) source resolution: seed the BFS from source's neighbors directly (one hash
-    // lookup) instead of an O(|V|) scan to find the borrowed source &str. The source
-    // never re-enters the frontier (skip neighbors equal to it), so no revisit loop.
     let mut visited: HashSet<&str> = HashSet::new();
     let mut queue: VecDeque<(&str, usize)> = VecDeque::new();
-    if let Some(nbrs) = mg.neighbors(source) {
-        for v in nbrs {
-            if v == target {
+    if let Some(neighbors) = mg.neighbors(source) {
+        for neighbor in neighbors {
+            if neighbor == target {
                 return Some(1);
             }
-            if v != source && visited.insert(v) {
-                queue.push_back((v, 1));
+            if neighbor != source && visited.insert(neighbor) {
+                queue.push_back((neighbor, 1));
             }
         }
     }
-    while let Some((node, dist)) = queue.pop_front() {
-        if let Some(nbrs) = mg.neighbors(node) {
-            for v in nbrs {
-                if v == target {
-                    return Some(dist + 1);
+    while let Some((node, distance)) = queue.pop_front() {
+        if let Some(neighbors) = mg.neighbors(node) {
+            for neighbor in neighbors {
+                if neighbor == target {
+                    return Some(distance + 1);
                 }
-                if v != source && visited.insert(v) {
-                    queue.push_back((v, dist + 1));
+                if neighbor != source && visited.insert(neighbor) {
+                    queue.push_back((neighbor, distance + 1));
                 }
             }
         }
@@ -6021,6 +6180,92 @@ fn multidigraph_target_bfs_distance(
 /// contract while avoiding full successor+predecessor CSR materialization for
 /// the common not-strongly-connected case.
 fn multidigraph_is_strongly_connected(mdg: &fnx_classes::digraph::MultiDiGraph) -> bool {
+    // br-r37-c1-d291d (cc): run the iterative Tarjan over the pre-existing
+    // revision-keyed integer CSR successor rows instead of rebuilding an inline
+    // `HashMap<&str,usize>` + per-node `successors()` String Vec each call. The CSR
+    // rows are the same distinct successors in the same order (already node indices),
+    // so the preorder/lowlink DFS is byte-identical → identical strong-connectivity
+    // bool. Wins warm (cache) and cold (flat CSR build < HashMap/String rebuild).
+    let n = mdg.node_count();
+    if n == 0 {
+        return true;
+    }
+    let csr = mdg.csr();
+    let mut preorder = vec![0usize; n];
+    let mut lowlink = vec![0usize; n];
+    let mut scc_found = vec![false; n];
+    let mut scc_queue = Vec::<usize>::new();
+    let mut preorder_counter = 0usize;
+
+    for source in 0..n {
+        if scc_found[source] {
+            continue;
+        }
+        let mut queue: Vec<(usize, &[u32], usize)> = vec![(source, csr.successors(source), 0)];
+        while let Some((v_ref, successors, next_successor)) = queue.last_mut() {
+            let v = *v_ref;
+            if preorder[v] == 0 {
+                preorder_counter += 1;
+                preorder[v] = preorder_counter;
+            }
+
+            let mut descended = false;
+            while *next_successor < successors.len() {
+                let w = successors[*next_successor] as usize;
+                *next_successor += 1;
+                if w < n && preorder[w] == 0 {
+                    queue.push((w, csr.successors(w), 0));
+                    descended = true;
+                    break;
+                }
+            }
+            if descended {
+                continue;
+            }
+
+            lowlink[v] = preorder[v];
+            for &raw in csr.successors(v) {
+                let w = raw as usize;
+                if w >= n || scc_found[w] {
+                    continue;
+                }
+                if preorder[w] > preorder[v] {
+                    lowlink[v] = lowlink[v].min(lowlink[w]);
+                } else {
+                    lowlink[v] = lowlink[v].min(preorder[w]);
+                }
+            }
+
+            queue.pop();
+            if lowlink[v] == preorder[v] {
+                let mut component_size = 1usize;
+                while scc_queue
+                    .last()
+                    .is_some_and(|&queued| preorder[queued] > preorder[v])
+                {
+                    let Some(queued) = scc_queue.pop() else {
+                        break;
+                    };
+                    scc_found[queued] = true;
+                    component_size += 1;
+                }
+                scc_found[v] = true;
+                return component_size == n;
+            }
+            scc_queue.push(v);
+        }
+    }
+
+    false
+}
+
+/// Frozen pre-`br-r37-c1-d291d` inline-`HashMap` Tarjan route — rebuilds the
+/// name→index map and per-node successor Vecs each call. Kept for the same-binary
+/// A/B and parity proof.
+#[cfg(test)]
+fn multidigraph_is_strongly_connected_orig_hashmap(
+    mdg: &fnx_classes::digraph::MultiDiGraph,
+) -> bool {
     use std::collections::HashMap;
     let nodes = mdg.nodes_ordered();
     let n = nodes.len();
@@ -6160,6 +6405,100 @@ fn multidigraph_bfs_edges_csr<'a>(
     edges
 }
 
+/// br-r37-c1-nqwti: single-source DFS over the MultiDiGraph's revision-keyed
+/// integer CSR successor rows, mirroring `dfs_edges_indexed` EXACTLY (reverse-push
+/// stack; immediate neighbors always pushed at depth 1 regardless of `depth_limit`,
+/// deeper descent gated on `depth < max_depth`). The CSR successor rows follow the
+/// same distinct-successor key order as `build_index_adjacency(&nodes, |u|
+/// inner.successors(u))` (both filter to live-node indices), so the reversed
+/// iteration and thus the emitted edge order are byte-identical — but the
+/// per-call index-adjacency rebuild is replaced by the shared cached CSR.
+fn multidigraph_dfs_edges_csr(
+    mdg: &fnx_classes::digraph::MultiDiGraph,
+    source: &str,
+    depth_limit: Option<usize>,
+) -> Vec<(String, String)> {
+    let max_depth = depth_limit.unwrap_or(usize::MAX);
+    let nodes = mdg.nodes_ordered();
+    let Some(source_idx) = nodes.iter().position(|&n| n == source) else {
+        return Vec::new();
+    };
+    let n = nodes.len();
+    let csr = mdg.csr();
+    let mut visited = vec![false; n];
+    let mut edges: Vec<(String, String)> = Vec::new();
+    visited[source_idx] = true;
+    let mut stack: Vec<(usize, usize, usize)> = Vec::new();
+    for &raw in csr.successors(source_idx).iter().rev() {
+        let nbr = raw as usize;
+        if nbr < n && !visited[nbr] {
+            stack.push((source_idx, nbr, 1));
+        }
+    }
+    while let Some((parent, node, depth)) = stack.pop() {
+        if visited[node] {
+            continue;
+        }
+        visited[node] = true;
+        edges.push((nodes[parent].to_owned(), nodes[node].to_owned()));
+        if depth < max_depth {
+            for &raw in csr.successors(node).iter().rev() {
+                let nbr = raw as usize;
+                if nbr < n && !visited[nbr] {
+                    stack.push((node, nbr, depth + 1));
+                }
+            }
+        }
+    }
+    edges
+}
+
+/// br-r37-c1-nqwti: forest DFS (no source) over the MultiDiGraph's cached CSR
+/// successor rows, mirroring `dfs_forest_indexed` EXACTLY (root iteration `0..n`,
+/// depth-1 star pushed unconditionally, deeper descent gated on `depth <
+/// max_depth`). Byte-identical to the former `build_index_adjacency` +
+/// `dfs_forest_indexed` route; reuses the shared cached CSR.
+fn multidigraph_dfs_forest_csr(
+    mdg: &fnx_classes::digraph::MultiDiGraph,
+    depth_limit: Option<usize>,
+) -> Vec<(String, String)> {
+    let max_depth = depth_limit.unwrap_or(usize::MAX);
+    let nodes = mdg.nodes_ordered();
+    let n = nodes.len();
+    let csr = mdg.csr();
+    let mut visited = vec![false; n];
+    let mut edges: Vec<(String, String)> = Vec::new();
+    for start in 0..n {
+        if visited[start] {
+            continue;
+        }
+        visited[start] = true;
+        let mut stack: Vec<(usize, usize, usize)> = Vec::new();
+        for &raw in csr.successors(start).iter().rev() {
+            let nbr = raw as usize;
+            if nbr < n && !visited[nbr] {
+                stack.push((start, nbr, 1));
+            }
+        }
+        while let Some((parent, node, depth)) = stack.pop() {
+            if visited[node] {
+                continue;
+            }
+            visited[node] = true;
+            edges.push((nodes[parent].to_owned(), nodes[node].to_owned()));
+            if depth < max_depth {
+                for &raw in csr.successors(node).iter().rev() {
+                    let nbr = raw as usize;
+                    if nbr < n && !visited[nbr] {
+                        stack.push((node, nbr, depth + 1));
+                    }
+                }
+            }
+        }
+    }
+    edges
+}
+
 /// br-r37-c1-1jm15: borrowed BFS tree edges over a MultiGraph's distinct
 /// neighbor rows. The public bfs_edges residual was dominated by rebuilding an
 /// indexed adjacency Vec<Vec<usize>> plus cloning String edge endpoints on every
@@ -6209,10 +6548,46 @@ fn multidigraph_bfs_edges_reverse(
         .collect()
 }
 
-/// br-r37-c1-zid1b2 (cc): is a MultiDiGraph a DAG? Kahn's algorithm over an integer CSR
-/// of DISTINCT successors (parallel edges don't affect acyclicity; a self-loop does).
+/// br-r37-c1-zid1b2 (cc): is a MultiDiGraph a DAG? Kahn's algorithm over the DISTINCT
+/// successor rows (parallel edges don't affect acyclicity; a self-loop does).
 /// Order-invariant boolean — no simple-DiGraph build. True iff all nodes get removed.
+///
+/// br-r37-c1-v03q9 (cc): reuse the pre-existing revision-keyed `mdg.csr()` instead of
+/// rebuilding an inline `HashMap<&str,usize>` + per-node `successors()` String Vec +
+/// dedup adjacency every call. The CSR successor rows are already distinct and in the
+/// same order, and the distinct in-degree of node j is exactly
+/// `csr.predecessors(j).len()`, so the Kahn traversal is byte-identical → identical
+/// acyclicity bool. Wins warm (cache) and cold (the flat CSR build beats the
+/// HashMap/String rebuild). Same lever as the MultiDiGraph dfs csr route (nqwti).
 fn multidigraph_is_dag(mdg: &fnx_classes::digraph::MultiDiGraph) -> bool {
+    use std::collections::VecDeque;
+    let n = mdg.node_count();
+    if n == 0 {
+        return true;
+    }
+    let csr = mdg.csr();
+    let mut indeg: Vec<usize> = (0..n).map(|j| csr.predecessors(j).len()).collect();
+    let mut queue: VecDeque<usize> = (0..n).filter(|&i| indeg[i] == 0).collect();
+    let mut processed = 0usize;
+    while let Some(u) = queue.pop_front() {
+        processed += 1;
+        for &raw in csr.successors(u) {
+            let v = raw as usize;
+            if v < n {
+                indeg[v] -= 1;
+                if indeg[v] == 0 {
+                    queue.push_back(v);
+                }
+            }
+        }
+    }
+    processed == n
+}
+
+/// Frozen pre-`br-r37-c1-v03q9` inline-`HashMap` Kahn route — rebuilds the successor
+/// adjacency per call. Kept for the same-binary A/B and parity proof.
+#[cfg(test)]
+fn multidigraph_is_dag_orig_hashmap(mdg: &fnx_classes::digraph::MultiDiGraph) -> bool {
     use std::collections::{HashMap, HashSet, VecDeque};
     let nodes = mdg.nodes_ordered();
     let n = nodes.len();
@@ -6254,6 +6629,78 @@ fn multidigraph_is_dag(mdg: &fnx_classes::digraph::MultiDiGraph) -> bool {
 /// trees). The COUNT is order-invariant (no nx-order matching needed, unlike the
 /// component LISTING / 8hjsu). Iterative DFS (no recursion). No simple-DiGraph build.
 fn multidigraph_number_scc(mdg: &fnx_classes::digraph::MultiDiGraph) -> usize {
+    // br-r37-c1-giqjb (cc): run Kosaraju over the pre-existing revision-keyed integer
+    // CSR (forward DFS over `csr.successors`, reverse DFS over `csr.predecessors`)
+    // instead of rebuilding an inline `HashMap<&str,usize>` + succ/pred `Vec<Vec<usize>>`
+    // from per-node `successors()` String Vecs each call. The forward successor rows are
+    // the same distinct successors in the same order → identical finish order; the SCC
+    // COUNT is a graph invariant (a fixed partition) regardless of the reverse-adjacency
+    // row order, so the result is byte-identical. Wins warm (cache) and cold (flat CSR
+    // build < HashMap/String rebuild). Same vein as is_dag (v03q9) / is_strongly_connected
+    // (d291d).
+    let n = mdg.node_count();
+    if n == 0 {
+        return 0;
+    }
+    let csr = mdg.csr();
+    // forward iterative DFS, record finish (post) order
+    let mut visited = vec![false; n];
+    let mut finish: Vec<usize> = Vec::with_capacity(n);
+    let mut stack: Vec<usize> = Vec::new();
+    let mut idx: Vec<usize> = Vec::new();
+    for s in 0..n {
+        if visited[s] {
+            continue;
+        }
+        stack.push(s);
+        idx.push(0);
+        visited[s] = true;
+        while let Some(&node) = stack.last() {
+            let ci = *idx.last().unwrap();
+            let succ = csr.successors(node);
+            if ci < succ.len() {
+                *idx.last_mut().unwrap() += 1;
+                let v = succ[ci] as usize;
+                if v < n && !visited[v] {
+                    visited[v] = true;
+                    stack.push(v);
+                    idx.push(0);
+                }
+            } else {
+                finish.push(node);
+                stack.pop();
+                idx.pop();
+            }
+        }
+    }
+    // reverse DFS over pred in reverse-finish order; each tree is one SCC
+    let mut visited2 = vec![false; n];
+    let mut count = 0usize;
+    for &s in finish.iter().rev() {
+        if visited2[s] {
+            continue;
+        }
+        count += 1;
+        let mut st = vec![s];
+        visited2[s] = true;
+        while let Some(node) = st.pop() {
+            for &raw in csr.predecessors(node) {
+                let v = raw as usize;
+                if v < n && !visited2[v] {
+                    visited2[v] = true;
+                    st.push(v);
+                }
+            }
+        }
+    }
+    count
+}
+
+/// Frozen pre-`br-r37-c1-giqjb` inline-`HashMap` Kosaraju route — rebuilds the
+/// name→index map and succ/pred adjacency each call. Kept for the same-binary A/B
+/// and parity proof.
+#[cfg(test)]
+fn multidigraph_number_scc_orig_hashmap(mdg: &fnx_classes::digraph::MultiDiGraph) -> usize {
     use std::collections::HashMap;
     let nodes = mdg.nodes_ordered();
     let n = nodes.len();
@@ -6331,6 +6778,47 @@ fn multidigraph_number_scc(mdg: &fnx_classes::digraph::MultiDiGraph) -> usize {
 fn multidigraph_topological_sort<'a>(
     mdg: &'a fnx_classes::digraph::MultiDiGraph,
 ) -> Option<Vec<&'a str>> {
+    // br-r37-c1-hi50t (cc): run the generation-based Kahn over the pre-existing
+    // revision-keyed integer CSR instead of rebuilding an inline `HashMap<&str,usize>`
+    // + per-node `successors()` String Vec + dedup adjacency each call. The CSR
+    // successor rows are the same distinct successors in the same order (the former
+    // dedup `HashSet` was redundant — `mdg.successors` keys are already distinct), and
+    // the distinct in-degree of j is exactly `csr.predecessors(j).len()`, so both the
+    // zero-set (index order) and the per-generation expansion are byte-identical → the
+    // emitted order matches nx.topological_sort exactly. Wins warm (cache) and cold
+    // (flat CSR build < HashMap/String rebuild).
+    let nodes = mdg.nodes_ordered();
+    let n = nodes.len();
+    let csr = mdg.csr();
+    let mut indeg: Vec<usize> = (0..n).map(|j| csr.predecessors(j).len()).collect();
+    let mut zero: Vec<usize> = (0..n).filter(|&i| indeg[i] == 0).collect();
+    let mut out: Vec<&'a str> = Vec::with_capacity(n);
+    while !zero.is_empty() {
+        let mut nxt: Vec<usize> = Vec::new();
+        for &u in &zero {
+            out.push(nodes[u]);
+            for &raw in csr.successors(u) {
+                let v = raw as usize;
+                if v < n {
+                    indeg[v] -= 1;
+                    if indeg[v] == 0 {
+                        nxt.push(v);
+                    }
+                }
+            }
+        }
+        zero = nxt;
+    }
+    if out.len() == n { Some(out) } else { None }
+}
+
+/// Frozen pre-`br-r37-c1-hi50t` inline-`HashMap` generation-Kahn route — rebuilds the
+/// name→index map and successor adjacency each call. Kept for the same-binary A/B and
+/// exact-order parity proof.
+#[cfg(test)]
+fn multidigraph_topological_sort_orig_hashmap<'a>(
+    mdg: &'a fnx_classes::digraph::MultiDiGraph,
+) -> Option<Vec<&'a str>> {
     use std::collections::{HashMap, HashSet};
     let nodes = mdg.nodes_ordered();
     let n = nodes.len();
@@ -6376,7 +6864,7 @@ pub fn is_connected(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<bool> {
     // of building a full simple Graph first (was 11x slower than the Graph path).
     if let GraphRef::MultiUndirected { mg, .. } = &gr {
         let inner = &mg.inner;
-        if inner.nodes_ordered().is_empty() {
+        if inner.node_count() == 0 {
             return Err(crate::NetworkXPointlessConcept::new_err(
                 "Connectivity is undefined for the null graph.",
             ));
@@ -6400,22 +6888,21 @@ pub fn is_connected(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<bool> {
 #[pyfunction]
 pub fn density(_py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<f64> {
     let gr = extract_graph(g)?;
+    // br-r37-c1-e5hzf (cc): `node_count()` is an O(1) field read; the former
+    // `nodes_ordered().len()` materialized a whole `Vec<&str>` of every node name
+    // just to count it (O(V) alloc) — for the simple cases that was density's entire
+    // variable cost. Same count-only-materialization lever as edges_ordered().len()
+    // → edge_count(). Byte-identical n.
     let (n, m, directed) = match &gr {
-        GraphRef::Undirected(pg) => (pg.inner.nodes_ordered().len(), pg.inner.edge_count(), false),
-        GraphRef::Directed { dg, .. } => {
-            (dg.inner.nodes_ordered().len(), dg.inner.edge_count(), true)
-        }
+        GraphRef::Undirected(pg) => (pg.inner.node_count(), pg.inner.edge_count(), false),
+        GraphRef::Directed { dg, .. } => (dg.inner.node_count(), dg.inner.edge_count(), true),
         GraphRef::MultiUndirected { .. } => {
             let simple = gr.undirected();
-            (simple.nodes_ordered().len(), simple.edge_count(), false)
+            (simple.node_count(), simple.edge_count(), false)
         }
         GraphRef::MultiDirected { .. } => {
             let simple_dg = gr.digraph().expect("is_directed checked above");
-            (
-                simple_dg.nodes_ordered().len(),
-                simple_dg.edge_count(),
-                true,
-            )
+            (simple_dg.node_count(), simple_dg.edge_count(), true)
         }
     };
     if n < 2 {
@@ -6491,12 +6978,44 @@ pub fn connected_components(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Ve
 /// HashSet yields the same components as networkx — at int-CSR-class speed.
 fn multigraph_connected_components_borrowed(mg: &fnx_classes::MultiGraph) -> Vec<Vec<&str>> {
     use std::collections::VecDeque;
-    // br-r37-c1-mgccfxhash (cc): the prior BFS used std HashSet (SipHash — slow for
-    // short node-key strings) + a fresh Vec<&str> alloc per `mg.neighbors(node)`
-    // call, making this Rust BFS ~5x SLOWER than nx's pure-Python walk. Swap to
-    // rustc_hash::FxHashSet (fast non-crypto hash, already a fnx-python dep) and
-    // `neighbors_iter` (borrowed iterator, no per-node allocation). Same node /
-    // neighbor / discovery order => component order byte-identical to nx.
+    // br-r37-c1-7xsg9: consume the revision-keyed integer-adjacency memo that the
+    // MultiGraph SSSP path already maintains. The former FxHashSet<&str> BFS hashed
+    // every discovered name and revisited String-keyed adjacency for every pop.
+    // `adj[i]` preserves the authoritative row order exactly, while insertion indices
+    // preserve outer node order, so component order and BFS discovery order are
+    // byte-identical. A Vec<bool> replaces all per-neighbor String hashing.
+    let nodes = mg.nodes_ordered();
+    mg.with_int_adjacency(|adjacency| {
+        let mut visited = vec![false; nodes.len()];
+        let mut components: Vec<Vec<&str>> = Vec::new();
+        for start in 0..nodes.len() {
+            if visited[start] {
+                continue;
+            }
+            visited[start] = true;
+            let mut component = vec![nodes[start]];
+            let mut queue: VecDeque<usize> = VecDeque::new();
+            queue.push_back(start);
+            while let Some(node) = queue.pop_front() {
+                for &neighbor in &adjacency[node] {
+                    if !visited[neighbor] {
+                        visited[neighbor] = true;
+                        component.push(nodes[neighbor]);
+                        queue.push_back(neighbor);
+                    }
+                }
+            }
+            components.push(component);
+        }
+        components
+    })
+}
+
+/// Frozen pre-`br-r37-c1-7xsg9` String/FxHashSet traversal for exact A/B proof.
+#[cfg(test)]
+fn multigraph_connected_components_orig_string(mg: &fnx_classes::MultiGraph) -> Vec<Vec<&str>> {
+    use std::collections::VecDeque;
+
     let nodes = mg.nodes_ordered();
     let mut visited: rustc_hash::FxHashSet<&str> =
         rustc_hash::FxHashSet::with_capacity_and_hasher(nodes.len(), Default::default());
@@ -6509,11 +7028,11 @@ fn multigraph_connected_components_borrowed(mg: &fnx_classes::MultiGraph) -> Vec
         let mut queue: VecDeque<&str> = VecDeque::new();
         queue.push_back(start);
         while let Some(node) = queue.pop_front() {
-            if let Some(nbrs) = mg.neighbors_iter(node) {
-                for v in nbrs {
-                    if visited.insert(v) {
-                        comp.push(v);
-                        queue.push_back(v);
+            if let Some(neighbors) = mg.neighbors_iter(node) {
+                for neighbor in neighbors {
+                    if visited.insert(neighbor) {
+                        comp.push(neighbor);
+                        queue.push_back(neighbor);
                     }
                 }
             }
@@ -6521,6 +7040,45 @@ fn multigraph_connected_components_borrowed(mg: &fnx_classes::MultiGraph) -> Vec
         components.push(comp);
     }
     components
+}
+
+/// Count MultiGraph components without materializing their members.
+///
+/// `br-r37-c1-a5rsz`: the listing helper must retain exact component and BFS
+/// discovery order, but a scalar count observes neither. Traverse the same
+/// revision-keyed integer adjacency rows and increment once per unseen start,
+/// avoiding `nodes_ordered()` plus every per-component output `Vec<&str>`.
+fn multigraph_number_connected_components(mg: &fnx_classes::MultiGraph) -> usize {
+    use std::collections::VecDeque;
+
+    mg.with_int_adjacency(|adjacency| {
+        let mut visited = vec![false; adjacency.len()];
+        let mut count = 0usize;
+        for start in 0..adjacency.len() {
+            if visited[start] {
+                continue;
+            }
+            count += 1;
+            visited[start] = true;
+            let mut queue: VecDeque<usize> = VecDeque::new();
+            queue.push_back(start);
+            while let Some(node) = queue.pop_front() {
+                for &neighbor in &adjacency[node] {
+                    if !visited[neighbor] {
+                        visited[neighbor] = true;
+                        queue.push_back(neighbor);
+                    }
+                }
+            }
+        }
+        count
+    })
+}
+
+/// Frozen pre-`br-r37-c1-a5rsz` count route for exact A/B proof.
+#[cfg(test)]
+fn multigraph_number_connected_components_orig_materialized(mg: &fnx_classes::MultiGraph) -> usize {
+    multigraph_connected_components_borrowed(mg).len()
 }
 
 /// Return the number of connected components.
@@ -6533,7 +7091,7 @@ pub fn number_connected_components(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyRe
     // instead of building a full simple Graph first (was 12x slower).
     if let GraphRef::MultiUndirected { mg, .. } = &gr {
         let inner = &mg.inner;
-        return Ok(py.allow_threads(|| multigraph_connected_components_borrowed(inner).len()));
+        return Ok(py.allow_threads(|| multigraph_number_connected_components(inner)));
     }
     let inner = gr.undirected();
     Ok(py.allow_threads(|| fnx_algorithms::number_connected_components(inner).count))
@@ -6784,9 +7342,11 @@ pub fn degree_centrality(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Py<Py
         GraphRef::Undirected(pg) => {
             return graph_degree_centrality_to_dict(py, pg);
         }
-        GraphRef::Directed { dg, .. } => {
-            let inner = &dg.inner;
-            py.allow_threads(|| fnx_algorithms::degree_centrality_directed(inner))
+        // br-r37-c1-tdcbind (cc): simple DiGraph → inline total-degree dict build, skipping the
+        // kernel's throwaway CentralityScore Strings (sibling of the in/out idcbind win). Multigraphs
+        // stay on the kernel path below (parallel-edge total-degree semantics via the projection).
+        GraphRef::Directed { .. } => {
+            return digraph_total_degree_centrality_inline_to_dict(py, &gr);
         }
         _ => {
             if gr.is_directed() {
@@ -6804,6 +7364,47 @@ pub fn degree_centrality(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Py<Py
 /// Return the closeness centrality for all nodes.
 #[pyfunction]
 pub fn closeness_centrality(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Py<PyDict>> {
+    let gr = extract_graph(g)?;
+    // br-r37-c1-or38d: every node in an edgeless graph is isolated, so NX
+    // closeness is exactly +0.0. Emit the ordered Python dict directly instead
+    // of running the all-sources kernel and allocating throwaway score Strings.
+    if gr.edge_count_original() == 0 {
+        let dict = PyDict::new(py);
+        for node in gr.nodes_ordered() {
+            dict.set_item(gr.py_node_key(py, node), 0.0_f64)?;
+        }
+        return Ok(dict.unbind());
+    }
+    let result = match &gr {
+        GraphRef::Undirected(pg) => {
+            let inner = &pg.inner;
+            py.allow_threads(|| fnx_algorithms::closeness_centrality(inner))
+        }
+        GraphRef::Directed { dg, .. } => {
+            let inner = &dg.inner;
+            py.allow_threads(|| fnx_algorithms::closeness_centrality_directed(inner))
+        }
+        _ => {
+            if gr.is_directed() {
+                let inner = gr.digraph().expect("is_directed checked above");
+                py.allow_threads(|| fnx_algorithms::closeness_centrality_directed(inner))
+            } else {
+                let inner = gr.undirected();
+                py.allow_threads(|| fnx_algorithms::closeness_centrality(inner))
+            }
+        }
+    };
+    centrality_to_dict(py, &gr, &result.scores)
+}
+
+/// Frozen pre-`br-r37-c1-or38d` binding route for the same-binary A/B proof.
+/// This deliberately always runs the all-sources kernel before materializing
+/// the Python dict, including when the graph has no edges.
+#[cfg(test)]
+fn closeness_centrality_kernel_baseline(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+) -> PyResult<Py<PyDict>> {
     let gr = extract_graph(g)?;
     let result = match &gr {
         GraphRef::Undirected(pg) => {
@@ -6831,22 +7432,46 @@ pub fn closeness_centrality(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Py
 #[pyfunction]
 pub fn harmonic_centrality(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Py<PyDict>> {
     let gr = extract_graph(g)?;
+    // br-r37-c1-4l10m: NetworkX initializes `sources = set(G.nodes)` and
+    // accumulates one forward BFS at a time in that set's iteration order.
+    // Replaying distances grouped by target/level changes low f64 bits. Build
+    // the same Python set from the same display keys, then pass its exact order
+    // into the native source-ordered kernel.
+    let py_nodes: Vec<PyObject> = gr
+        .nodes_ordered()
+        .iter()
+        .map(|node| gr.py_node_key(py, node))
+        .collect();
+    let source_set = PySet::new(py, &py_nodes)?;
+    let source_order: Vec<String> = source_set
+        .iter()
+        .map(|node| node_key_to_string(py, &node))
+        .collect::<PyResult<_>>()?;
+    let source_refs: Vec<&str> = source_order.iter().map(String::as_str).collect();
     let result = match &gr {
         GraphRef::Undirected(pg) => {
             let inner = &pg.inner;
-            py.allow_threads(|| fnx_algorithms::harmonic_centrality(inner))
+            py.allow_threads(|| {
+                fnx_algorithms::harmonic_centrality_source_ordered(inner, &source_refs)
+            })
         }
         GraphRef::Directed { dg, .. } => {
             let inner = &dg.inner;
-            py.allow_threads(|| fnx_algorithms::harmonic_centrality_directed(inner))
+            py.allow_threads(|| {
+                fnx_algorithms::harmonic_centrality_directed_source_ordered(inner, &source_refs)
+            })
         }
         _ => {
             if gr.is_directed() {
                 let inner = gr.digraph().expect("is_directed checked above");
-                py.allow_threads(|| fnx_algorithms::harmonic_centrality_directed(inner))
+                py.allow_threads(|| {
+                    fnx_algorithms::harmonic_centrality_directed_source_ordered(inner, &source_refs)
+                })
             } else {
                 let inner = gr.undirected();
-                py.allow_threads(|| fnx_algorithms::harmonic_centrality(inner))
+                py.allow_threads(|| {
+                    fnx_algorithms::harmonic_centrality_source_ordered(inner, &source_refs)
+                })
             }
         }
     };
@@ -7993,7 +8618,7 @@ pub fn transitivity(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<f64> {
     // br-r37-c1-djohp: also reject multigraph (sister kernels do too).
     require_not_multigraph(&gr)?;
     let inner = gr.undirected();
-    Ok(py.allow_threads(|| fnx_algorithms::clustering_coefficient(inner).transitivity))
+    Ok(py.allow_threads(|| fnx_algorithms::transitivity(inner)))
 }
 
 /// br-r37-c1-lzh3n (cc): triangle count per node of a MultiGraph by a direct dedup
@@ -8671,6 +9296,35 @@ pub fn eccentricity(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Py<PyDict>
     Ok(dict.unbind())
 }
 
+/// Bench-only: run `distance_measures` with ONE arm pinned, returning the diameter.
+///
+/// br-r37-c1-eccsink. Exists so the bit-parallel `EccentricitySink` route can be
+/// measured against the serial per-source `VecDeque` sweep it replaces with both
+/// arms interleaved inside a SINGLE process and a single `.so`, instead of by
+/// diffing two builds (which would fold in every unrelated commit between them).
+/// A scalar return keeps the dict marshalling out of the measured region, so the
+/// ratio reflects the kernel. Results are identical across arms by construction —
+/// `distance_measures_arms_agree` asserts it on 15 graphs.
+///
+/// `arm` is one of "auto" | "persource" | "chunked".
+#[pyfunction]
+pub fn _distance_measures_arm(py: Python<'_>, g: &Bound<'_, PyAny>, arm: &str) -> PyResult<usize> {
+    let gr = extract_graph(g)?;
+    require_undirected(&gr, "_distance_measures_arm")?;
+    let inner = gr.undirected();
+    let pinned = match arm {
+        "auto" => fnx_algorithms::BitparArm::Auto,
+        "persource" => fnx_algorithms::BitparArm::PerSource,
+        "chunked" => fnx_algorithms::BitparArm::ChunkedBitpar,
+        other => {
+            return Err(pyo3::exceptions::PyValueError::new_err(format!(
+                "unknown arm {other:?}; expected auto|persource|chunked"
+            )));
+        }
+    };
+    Ok(py.allow_threads(|| fnx_algorithms::distance_measures_arm(inner, pinned).diameter))
+}
+
 /// Return the diameter of the graph.
 #[pyfunction]
 pub fn diameter(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<usize> {
@@ -8859,10 +9513,40 @@ pub fn core_number(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Py<PyDict>>
     // bucket-based k-core decomposition); mirror that contract.
     require_not_multigraph(&gr)?;
     let inner = gr.undirected();
-    // br-r37-c1-ftorb: nx also rejects self-loops because the bucket
-    // decomposition double-counts loops in the degree, producing wrong
-    // core numbers. nx raises NetworkXNotImplemented with a remediation
-    // hint; mirror it.
+    // br-r37-c1-ftorb: nx also rejects self-loops because the bucket decomposition double-counts
+    // loops in the degree, producing wrong core numbers. nx raises NetworkXNotImplemented.
+    // br-r37-c1-corenumsl (cc): self-loop guard via a per-index INTEGER adjacency scan
+    // (`neighbors_indices`, a borrowed `&[usize]`) instead of per-node `inner.neighbors(node)`, which
+    // allocated a `Vec<&str>` per node (O(V) heap allocations) just to `.contains` scan it.
+    // Byte-identical: a self-loop is exactly a node that appears in its own adjacency row, and the
+    // same NetworkXNotImplemented is raised iff any exists.
+    let n_nodes = inner.node_count();
+    for idx in 0..n_nodes {
+        if let Some(neighbors) = inner.neighbors_indices(idx)
+            && neighbors.contains(&idx)
+        {
+            return Err(crate::NetworkXNotImplemented::new_err(
+                "Input graph has self loops which is not permitted; \
+                 Consider using G.remove_edges_from(nx.selfloop_edges(G)).",
+            ));
+        }
+    }
+    let result = py.allow_threads(|| fnx_algorithms::core_number(inner));
+    let dict = PyDict::new(py);
+    for nc in &result.core_numbers {
+        dict.set_item(gr.py_node_key(py, &nc.node), nc.core)?;
+    }
+    Ok(dict.unbind())
+}
+
+/// br-r37-c1-corenumsl A/B baseline: PRE-lever `core_number` self-loop guard (per-node
+/// `inner.neighbors(node)` Vec alloc + `.contains`). Preserved so the with-GIL binding bench stays a
+/// durable old-vs-new A/B; byte-identical to `core_number`. Not part of the public nx-parity surface.
+#[pyfunction]
+pub fn core_number_selfloopscan_ab(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Py<PyDict>> {
+    let gr = extract_graph(g)?;
+    require_not_multigraph(&gr)?;
+    let inner = gr.undirected();
     for node in inner.nodes_ordered() {
         if let Some(neighbors) = inner.neighbors(node)
             && neighbors.contains(&node)
@@ -8896,14 +9580,21 @@ pub fn k_core_rust(
     let result = py.allow_threads(|| fnx_algorithms::k_core(inner, k));
 
     let mut new_graph = PyGraph::new_empty_with_policy(py, runtime_policy.clone())?;
+    // br-r37-c1-kcorenative (cc): re-attach node/edge attributes from the source graph so the native
+    // k-core matches nx.k_core = G.subgraph(nodes) (which preserves attrs). Node order is G-insertion
+    // order (the kernel now emits nodes_ordered order), matching the subgraph's node order.
     for node in &result.nodes {
-        new_graph.inner.add_node(node.clone());
+        let attrs = inner.node_attrs(node).cloned().unwrap_or_default();
+        new_graph.inner.add_node_with_attrs(node.clone(), attrs);
         new_graph
             .node_key_map
             .insert(node.clone(), gr.py_node_key(py, node));
     }
     for (u, v) in &result.edges {
-        let _ = new_graph.inner.add_edge(u.clone(), v.clone());
+        let attrs = inner.edge_attrs(u, v).cloned().unwrap_or_default();
+        let _ = new_graph
+            .inner
+            .add_edge_with_attrs(u.clone(), v.clone(), attrs);
     }
     new_graph.inner.set_runtime_policy(runtime_policy);
     Py::new(py, new_graph)
@@ -8925,14 +9616,20 @@ pub fn k_shell_rust(
     let result = py.allow_threads(|| fnx_algorithms::k_shell(inner, k));
 
     let mut new_graph = PyGraph::new_empty_with_policy(py, runtime_policy.clone())?;
+    // br-r37-c1-kshellnative (cc): re-attach node/edge attributes so the native k-shell matches
+    // nx.k_shell = G.subgraph(nodes) (which preserves attrs). Node order is G-insertion order.
     for node in &result.nodes {
-        new_graph.inner.add_node(node.clone());
+        let attrs = inner.node_attrs(node).cloned().unwrap_or_default();
+        new_graph.inner.add_node_with_attrs(node.clone(), attrs);
         new_graph
             .node_key_map
             .insert(node.clone(), gr.py_node_key(py, node));
     }
     for (u, v) in &result.edges {
-        let _ = new_graph.inner.add_edge(u.clone(), v.clone());
+        let attrs = inner.edge_attrs(u, v).cloned().unwrap_or_default();
+        let _ = new_graph
+            .inner
+            .add_edge_with_attrs(u.clone(), v.clone(), attrs);
     }
     new_graph.inner.set_runtime_policy(runtime_policy);
     Py::new(py, new_graph)
@@ -8954,14 +9651,20 @@ pub fn k_crust_rust(
     let result = py.allow_threads(|| fnx_algorithms::k_crust(inner, k));
 
     let mut new_graph = PyGraph::new_empty_with_policy(py, runtime_policy.clone())?;
+    // br-r37-c1-kcrustnative (cc): re-attach node/edge attributes so the native k-crust matches
+    // nx.k_crust = G.subgraph(nodes) (which preserves attrs). Node order is G-insertion order.
     for node in &result.nodes {
-        new_graph.inner.add_node(node.clone());
+        let attrs = inner.node_attrs(node).cloned().unwrap_or_default();
+        new_graph.inner.add_node_with_attrs(node.clone(), attrs);
         new_graph
             .node_key_map
             .insert(node.clone(), gr.py_node_key(py, node));
     }
     for (u, v) in &result.edges {
-        let _ = new_graph.inner.add_edge(u.clone(), v.clone());
+        let attrs = inner.edge_attrs(u, v).cloned().unwrap_or_default();
+        let _ = new_graph
+            .inner
+            .add_edge_with_attrs(u.clone(), v.clone(), attrs);
     }
     new_graph.inner.set_runtime_policy(runtime_policy);
     Py::new(py, new_graph)
@@ -8978,14 +9681,20 @@ pub fn k_corona_rust(py: Python<'_>, g: &Bound<'_, PyAny>, k: usize) -> PyResult
     let result = py.allow_threads(|| fnx_algorithms::k_corona(inner, k));
 
     let mut new_graph = PyGraph::new_empty_with_policy(py, runtime_policy.clone())?;
+    // br-r37-c1-kcoronanative (cc): re-attach node/edge attributes so the native k-corona matches
+    // nx.k_corona = G.subgraph(nodes) (which preserves attrs). Node order is G-insertion order.
     for node in &result.nodes {
-        new_graph.inner.add_node(node.clone());
+        let attrs = inner.node_attrs(node).cloned().unwrap_or_default();
+        new_graph.inner.add_node_with_attrs(node.clone(), attrs);
         new_graph
             .node_key_map
             .insert(node.clone(), gr.py_node_key(py, node));
     }
     for (u, v) in &result.edges {
-        let _ = new_graph.inner.add_edge(u.clone(), v.clone());
+        let attrs = inner.edge_attrs(u, v).cloned().unwrap_or_default();
+        let _ = new_graph
+            .inner
+            .add_edge_with_attrs(u.clone(), v.clone(), attrs);
     }
     new_graph.inner.set_runtime_policy(runtime_policy);
     Py::new(py, new_graph)
@@ -9913,17 +10622,14 @@ pub fn is_eulerian(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<bool> {
         // like 0->1, 1->2, 0->2 (each undirected degree is 2 → even,
         // so the undirected K3 check passed) even though those are not
         // Eulerian.
-        if gr.is_multigraph() {
-            // For MultiDiGraph, parallel edges affect in/out-degree; ask
-            // Python's degree views so parallel-edge counting matches NX.
-            let nodes_method = g.call_method0("nodes")?;
-            let nodes: Vec<Bound<'_, PyAny>> =
-                nodes_method.try_iter()?.collect::<PyResult<Vec<_>>>()?;
-            let in_deg_view = g.getattr("in_degree")?;
-            let out_deg_view = g.getattr("out_degree")?;
-            for node in &nodes {
-                let in_d: usize = in_deg_view.get_item(node)?.extract()?;
-                let out_d: usize = out_deg_view.get_item(node)?.extract()?;
+        if let GraphRef::MultiDirected { mdg, .. } = &gr {
+            // br-r37-c1-msown: read multiplicity-aware degrees from the
+            // borrowed native store. Calling Python degree descriptors while
+            // `extract_graph` holds this PyRef re-borrows the same object and
+            // raises `RuntimeError: Already borrowed`.
+            for node in mdg.inner.nodes_ordered() {
+                let in_d = mdg.inner.in_degree(node);
+                let out_d = mdg.inner.out_degree(node);
                 if in_d != out_d {
                     return Ok(false);
                 }
@@ -9948,17 +10654,13 @@ pub fn is_eulerian(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<bool> {
     }
     let inner = gr.undirected();
     // For multigraphs, the simple-graph conversion collapses parallel edges
-    // which changes degree parity. Check multigraph degree directly via Python.
-    if gr.is_multigraph() {
+    // which changes degree parity. Read the original native multigraph store.
+    if let GraphRef::MultiUndirected { mg, .. } = &gr {
         if inner.node_count() > 1 && inner.nodes_ordered().iter().any(|n| inner.degree(n) == 0) {
             return Ok(false);
         }
-        let nodes_method = g.call_method0("nodes")?;
-        let nodes: Vec<Bound<'_, PyAny>> =
-            nodes_method.try_iter()?.collect::<PyResult<Vec<_>>>()?;
-        let degree_view = g.getattr("degree")?;
-        for node in &nodes {
-            let deg: usize = degree_view.get_item(node)?.extract()?;
+        for node in mg.inner.nodes_ordered() {
+            let deg = mg.inner.degree(node);
             if !deg.is_multiple_of(2) {
                 return Ok(false);
             }
@@ -10718,6 +11420,7 @@ pub fn stochastic_graph_copy_multidigraph(
         in_edges_with_data_cache: None,
         edges_with_keys_cache: None,
         node_iter_mirror: std::sync::Mutex::new(None),
+        instance_dict_gc: crate::InstanceDictGc::new(),
     };
     Ok(Py::new(py, new_graph)?.into_any())
 }
@@ -10870,15 +11573,16 @@ pub fn bfs_edges(
             } else if let GraphRef::MultiUndirected { mg, .. } = &gr {
                 // br-r37-c1-86c7r: walk the MultiGraph neighbor adjacency
                 // DIRECTLY — no conversion.
+                // br-r37-c1-usx40 (cc): reuse the revision-keyed integer-adjacency memo instead of
+                // rebuilding the index adjacency per call (family memo-reuse); byte-identical rows in
+                // mg.neighbors order → identical FIFO BFS edge order. Mirror of dfs (5jmyo).
                 let inner = &mg.inner;
                 py.allow_threads(|| {
                     let nodes = inner.nodes_ordered();
                     let Some(src) = nodes.iter().position(|&n| n == source_key) else {
                         return Vec::new();
                     };
-                    let adj =
-                        build_index_adjacency(&nodes, |u| inner.neighbors(u).unwrap_or_default());
-                    bfs_edges_indexed(&adj, &nodes, src, depth_limit)
+                    inner.with_int_adjacency(|adj| bfs_edges_indexed(adj, &nodes, src, depth_limit))
                 })
             } else {
                 let inner = gr.undirected();
@@ -10972,15 +11676,16 @@ pub fn bfs_tree(
             } else if let GraphRef::MultiUndirected { mg, .. } = &gr {
                 // br-r37-c1-86c7r: walk the MultiGraph neighbor adjacency
                 // DIRECTLY — no conversion.
+                // br-r37-c1-usx40 (cc): reuse the revision-keyed integer-adjacency memo instead of
+                // rebuilding the index adjacency per call (family memo-reuse); byte-identical rows in
+                // mg.neighbors order → identical FIFO BFS edge order. Mirror of dfs (5jmyo).
                 let inner = &mg.inner;
                 py.allow_threads(|| {
                     let nodes = inner.nodes_ordered();
                     let Some(src) = nodes.iter().position(|&n| n == source_key) else {
                         return Vec::new();
                     };
-                    let adj =
-                        build_index_adjacency(&nodes, |u| inner.neighbors(u).unwrap_or_default());
-                    bfs_edges_indexed(&adj, &nodes, src, depth_limit)
+                    inner.with_int_adjacency(|adj| bfs_edges_indexed(adj, &nodes, src, depth_limit))
                 })
             } else {
                 let inner = gr.undirected();
@@ -11466,6 +12171,7 @@ fn dfs_forest_directed(
 /// simple-graph materialization, no `apply_row_orders`. The IndexMap-backed
 /// `neighbors(u)` order is exactly the order the structure-only-ordered
 /// conversion restored, so the emitted DFS/BFS edge sequence is unchanged.
+#[cfg(test)]
 fn build_index_adjacency<'a>(
     nodes: &[&'a str],
     str_neighbors: impl Fn(&str) -> Vec<&'a str>,
@@ -11757,17 +12463,10 @@ fn dfs_edges_canonical(
                 if let GraphRef::MultiDirected { mdg, .. } = gr {
                     // br-r37-c1-86c7r: walk the MultiDiGraph successor adjacency
                     // DIRECTLY — no multidigraph->simple-digraph conversion.
+                    // br-r37-c1-nqwti (cc): reuse the pre-existing revision-keyed CSR memo instead of
+                    // rebuilding the index adjacency per call; byte-identical edge order.
                     let inner = &mdg.inner;
-                    py.allow_threads(|| {
-                        let nodes = inner.nodes_ordered();
-                        let Some(src) = nodes.iter().position(|&n| n == source_key) else {
-                            return Vec::new();
-                        };
-                        let adj = build_index_adjacency(&nodes, |u| {
-                            inner.successors(u).unwrap_or_default()
-                        });
-                        dfs_edges_indexed(&adj, &nodes, src, depth_limit)
-                    })
+                    py.allow_threads(|| multidigraph_dfs_edges_csr(inner, &source_key, depth_limit))
                 } else if gr.is_directed() {
                     let __gr_digraph = gr.digraph().expect("is_directed checked above");
                     py.allow_threads(|| {
@@ -11776,16 +12475,18 @@ fn dfs_edges_canonical(
                 } else if let GraphRef::MultiUndirected { mg, .. } = gr {
                     // br-r37-c1-86c7r: walk the MultiGraph neighbor adjacency
                     // DIRECTLY — no multigraph->simple-graph conversion.
+                    // br-r37-c1-5jmyo (cc): reuse the revision-keyed integer-adjacency memo instead of
+                    // rebuilding the index adjacency per call (family memo-reuse); byte-identical rows
+                    // in mg.neighbors order → identical reversed DFS edge order.
                     let inner = &mg.inner;
                     py.allow_threads(|| {
                         let nodes = inner.nodes_ordered();
                         let Some(src) = nodes.iter().position(|&n| n == source_key) else {
                             return Vec::new();
                         };
-                        let adj = build_index_adjacency(&nodes, |u| {
-                            inner.neighbors(u).unwrap_or_default()
-                        });
-                        dfs_edges_indexed(&adj, &nodes, src, depth_limit)
+                        inner.with_int_adjacency(|adj| {
+                            dfs_edges_indexed(adj, &nodes, src, depth_limit)
+                        })
                     })
                 } else {
                     let inner = gr.undirected();
@@ -11811,14 +12512,9 @@ fn dfs_edges_canonical(
                     if let GraphRef::MultiDirected { mdg, .. } = gr {
                         // br-r37-c1-86c7r: forest walk over the MultiDiGraph
                         // successor adjacency DIRECTLY — no conversion.
+                        // br-r37-c1-nqwti (cc): reuse the revision-keyed CSR memo (family memo-reuse).
                         let inner = &mdg.inner;
-                        py.allow_threads(|| {
-                            let mnodes = inner.nodes_ordered();
-                            let adj = build_index_adjacency(&mnodes, |u| {
-                                inner.successors(u).unwrap_or_default()
-                            });
-                            dfs_forest_indexed(&adj, &mnodes, depth_limit)
-                        })
+                        py.allow_threads(|| multidigraph_dfs_forest_csr(inner, depth_limit))
                     } else if gr.is_directed() {
                         let __gr_digraph = gr.digraph().expect("is_directed checked above");
                         py.allow_threads(|| {
@@ -11827,13 +12523,14 @@ fn dfs_edges_canonical(
                     } else if let GraphRef::MultiUndirected { mg, .. } = gr {
                         // br-r37-c1-86c7r: forest walk over the MultiGraph
                         // neighbor adjacency DIRECTLY — no conversion.
+                        // br-r37-c1-5jmyo (cc): reuse the integer-adjacency memo (family memo-reuse);
+                        // byte-identical rows → identical forest edge order.
                         let inner = &mg.inner;
                         py.allow_threads(|| {
                             let mnodes = inner.nodes_ordered();
-                            let adj = build_index_adjacency(&mnodes, |u| {
-                                inner.neighbors(u).unwrap_or_default()
-                            });
-                            dfs_forest_indexed(&adj, &mnodes, depth_limit)
+                            inner.with_int_adjacency(|adj| {
+                                dfs_forest_indexed(adj, &mnodes, depth_limit)
+                            })
                         })
                     } else {
                         let inner = gr.undirected();
@@ -13192,14 +13889,15 @@ pub fn all_pairs_shortest_path_length(
         let inner = gr.digraph().expect("is_directed checked above");
         let nodes = inner.nodes_ordered();
         let result = py.allow_threads(|| {
-            all_pairs_shortest_path_length_directed_ordered(inner, &nodes, cutoff)
+            fnx_algorithms::all_pairs_shortest_path_length_directed_indexed(inner, cutoff)
         });
         (nodes, result)
     } else {
         let inner = gr.undirected();
         let nodes = inner.nodes_ordered();
-        let result =
-            py.allow_threads(|| all_pairs_shortest_path_length_ordered(inner, &nodes, cutoff));
+        let result = py.allow_threads(|| {
+            fnx_algorithms::all_pairs_shortest_path_length_indexed(inner, cutoff)
+        });
         (nodes, result)
     };
     let outer_dict = pyo3::types::PyDict::new(py);
@@ -13213,121 +13911,109 @@ pub fn all_pairs_shortest_path_length(
     Ok(outer_dict.into_any().unbind())
 }
 
-fn all_pairs_shortest_path_length_ordered(
-    graph: &fnx_classes::Graph,
-    nodes: &[&str],
+/// Return a packed dense multi-source unweighted distance matrix.
+///
+/// The Python wrapper exposes the bytes as a zero-copy NumPy `int32` view.
+/// Rows follow `sources`, columns follow graph insertion order, and `-1`
+/// denotes an unreachable node.
+#[pyfunction]
+#[pyo3(signature = (g, sources, cutoff=None))]
+pub fn shortest_path_length_matrix(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    sources: &Bound<'_, PyAny>,
     cutoff: Option<usize>,
-) -> Vec<(usize, Vec<(usize, usize)>)> {
-    let adjacency = graph_shortest_path_adjacency_indices(graph, nodes);
-    all_pairs_shortest_path_length_from_adjacency(&adjacency, cutoff)
+) -> PyResult<Py<PyBytes>> {
+    let gr = extract_graph(g)?;
+    let source_keys: Vec<String> = sources
+        .try_iter()?
+        .map(|item| node_key_to_string(py, &item?))
+        .collect::<PyResult<Vec<_>>>()?;
+
+    let distances = if gr.is_directed() {
+        let inner = gr.digraph().expect("is_directed checked above");
+        let source_indices = source_keys
+            .iter()
+            .map(|source| {
+                inner
+                    .get_node_index(source)
+                    .ok_or_else(|| NodeNotFound::new_err(format!("Source {source} is not in G")))
+            })
+            .collect::<PyResult<Vec<_>>>()?;
+        py.allow_threads(|| {
+            fnx_algorithms::shortest_path_length_matrix_directed_indexed(
+                inner,
+                &source_indices,
+                cutoff,
+            )
+        })
+    } else {
+        let inner = gr.undirected();
+        let source_indices = source_keys
+            .iter()
+            .map(|source| {
+                inner
+                    .get_node_index(source)
+                    .ok_or_else(|| NodeNotFound::new_err(format!("Source {source} is not in G")))
+            })
+            .collect::<PyResult<Vec<_>>>()?;
+        py.allow_threads(|| {
+            fnx_algorithms::shortest_path_length_matrix_indexed(inner, &source_indices, cutoff)
+        })
+    };
+
+    let packed = py.allow_threads(|| {
+        let mut bytes = Vec::with_capacity(distances.len().saturating_mul(size_of::<i32>()));
+        for distance in distances {
+            bytes.extend_from_slice(&distance.to_ne_bytes());
+        }
+        bytes
+    });
+    Ok(PyBytes::new(py, &packed).unbind())
 }
 
+/// Snapshot insertion-ordered native neighbor indices for algorithms that need
+/// owned rows beyond one graph borrow. All-pairs path length itself now uses the
+/// shared flat-CSR kernel in `fnx-algorithms`; these helpers remain for the path,
+/// barycenter, resistance, and distance-measure consumers below.
 fn graph_shortest_path_adjacency_indices(
     graph: &fnx_classes::Graph,
     nodes: &[&str],
 ) -> Vec<Vec<usize>> {
-    let node_indices: HashMap<&str, usize> = nodes
-        .iter()
-        .copied()
-        .enumerate()
-        .map(|(index, node)| (node, index))
-        .collect();
-    nodes
-        .iter()
-        .map(|&node| {
+    debug_assert!(
+        nodes
+            .iter()
+            .enumerate()
+            .all(|(i, &node)| graph.get_node_index(node) == Some(i)),
+        "graph_shortest_path_adjacency_indices requires nodes == nodes_ordered()"
+    );
+    (0..nodes.len())
+        .map(|index| {
             graph
-                .neighbors_iter(node)
-                .map_or_else(Vec::new, |neighbors| {
-                    neighbors
-                        .filter_map(|neighbor| node_indices.get(neighbor).copied())
-                        .collect()
-                })
+                .neighbors_indices(index)
+                .map_or_else(Vec::new, <[usize]>::to_vec)
         })
         .collect()
-}
-
-fn all_pairs_shortest_path_length_directed_ordered(
-    digraph: &fnx_classes::digraph::DiGraph,
-    nodes: &[&str],
-    cutoff: Option<usize>,
-) -> Vec<(usize, Vec<(usize, usize)>)> {
-    let adjacency = digraph_shortest_path_adjacency_indices(digraph, nodes);
-    all_pairs_shortest_path_length_from_adjacency(&adjacency, cutoff)
 }
 
 fn digraph_shortest_path_adjacency_indices(
     digraph: &fnx_classes::digraph::DiGraph,
     nodes: &[&str],
 ) -> Vec<Vec<usize>> {
-    let node_indices: HashMap<&str, usize> = nodes
-        .iter()
-        .copied()
-        .enumerate()
-        .map(|(index, node)| (node, index))
-        .collect();
-    nodes
-        .iter()
-        .map(|&node| {
+    debug_assert!(
+        nodes
+            .iter()
+            .enumerate()
+            .all(|(i, &node)| digraph.get_node_index(node) == Some(i)),
+        "digraph_shortest_path_adjacency_indices requires nodes == nodes_ordered()"
+    );
+    (0..nodes.len())
+        .map(|index| {
             digraph
-                .successors_iter(node)
-                .map_or_else(Vec::new, |successors| {
-                    successors
-                        .filter_map(|successor| node_indices.get(successor).copied())
-                        .collect()
-                })
+                .successors_indices(index)
+                .map_or_else(Vec::new, <[usize]>::to_vec)
         })
         .collect()
-}
-
-fn all_pairs_shortest_path_length_from_adjacency(
-    adjacency: &[Vec<usize>],
-    cutoff: Option<usize>,
-) -> Vec<(usize, Vec<(usize, usize)>)> {
-    let node_count = adjacency.len();
-    let mut result = Vec::with_capacity(node_count);
-    let mut seen_epoch = vec![0usize; node_count];
-    let mut frontier = Vec::with_capacity(node_count);
-    let mut next_frontier = Vec::with_capacity(node_count);
-    let mut epoch = 1usize;
-
-    for source in 0..node_count {
-        let mut lengths = Vec::with_capacity(node_count);
-        frontier.clear();
-        next_frontier.clear();
-        seen_epoch[source] = epoch;
-        frontier.push(source);
-        lengths.push((source, 0));
-
-        let mut level = 0usize;
-        while !frontier.is_empty() {
-            if let Some(c) = cutoff
-                && level >= c
-            {
-                break;
-            }
-            next_frontier.clear();
-            for &node in &frontier {
-                for &neighbor in &adjacency[node] {
-                    if seen_epoch[neighbor] != epoch {
-                        seen_epoch[neighbor] = epoch;
-                        lengths.push((neighbor, level + 1));
-                        next_frontier.push(neighbor);
-                    }
-                }
-            }
-            std::mem::swap(&mut frontier, &mut next_frontier);
-            level += 1;
-        }
-
-        result.push((source, lengths));
-        epoch = epoch.saturating_add(1);
-        if epoch == usize::MAX {
-            seen_epoch.fill(0);
-            epoch = 1;
-        }
-    }
-
-    result
 }
 
 // ===========================================================================
@@ -14142,7 +14828,136 @@ pub fn strongly_connected_components(
         .collect()
 }
 
+/// Reachability of every node from `source` over the DiGraph's native integer
+/// successor (or predecessor, when `reverse`) rows. Order-invariant boolean used
+/// for the single-SCC fast path — no adjacency rebuild.
+fn digraph_reaches_every_node(
+    digraph: &fnx_classes::digraph::DiGraph,
+    source: usize,
+    n: usize,
+    reverse: bool,
+) -> bool {
+    let mut visited = vec![false; n];
+    let mut stack = vec![source];
+    visited[source] = true;
+    let mut seen = 1usize;
+    while let Some(node) = stack.pop() {
+        let neighbors = if reverse {
+            digraph.predecessors_indices(node)
+        } else {
+            digraph.successors_indices(node)
+        };
+        if let Some(neighbors) = neighbors {
+            for &neighbor in neighbors {
+                if !visited[neighbor] {
+                    visited[neighbor] = true;
+                    seen += 1;
+                    stack.push(neighbor);
+                }
+            }
+        }
+    }
+    seen == n
+}
+
 fn strongly_connected_components_nx_ordered(
+    digraph: &fnx_classes::digraph::DiGraph,
+) -> Vec<Vec<String>> {
+    // br-r37-c1-rjj10 (cc): walk the DiGraph's native integer successor rows
+    // (`successors_indices(idx) -> &[usize]`) directly instead of rebuilding an
+    // inline `HashMap<&str,usize>` + successors/predecessors `Vec<Vec<usize>>` via
+    // `successors_iter` — the former path round-trips int→name→int (name yield +
+    // per-neighbour hash lookup) every call. The native rows are the same distinct
+    // successors in the same order, so the preorder/lowlink Tarjan and the emitted
+    // component partition/order are byte-identical. Rows are always live (no memo),
+    // so this wins uniformly, not just warm.
+    let nodes = digraph.nodes_ordered();
+    let n = nodes.len();
+    if n == 0 {
+        return Vec::new();
+    }
+    if digraph_reaches_every_node(digraph, 0, n, false)
+        && digraph_reaches_every_node(digraph, 0, n, true)
+    {
+        return vec![nodes.into_iter().map(str::to_owned).collect()];
+    }
+
+    let mut preorder = vec![0usize; n];
+    let mut lowlink = vec![0usize; n];
+    let mut scc_found = vec![false; n];
+    let mut scc_queue = Vec::<usize>::new();
+    let mut neighbor_pos = vec![0usize; n];
+    let mut preorder_counter = 0usize;
+    let mut result = Vec::new();
+
+    for source in 0..n {
+        if scc_found[source] {
+            continue;
+        }
+        let mut queue = vec![source];
+        while let Some(&v) = queue.last() {
+            if preorder[v] == 0 {
+                preorder_counter += 1;
+                preorder[v] = preorder_counter;
+            }
+            let succ_v = digraph.successors_indices(v).unwrap_or(&[]);
+
+            let mut done = true;
+            while neighbor_pos[v] < succ_v.len() {
+                let w = succ_v[neighbor_pos[v]];
+                neighbor_pos[v] += 1;
+                if preorder[w] == 0 {
+                    queue.push(w);
+                    done = false;
+                    break;
+                }
+            }
+
+            if done {
+                lowlink[v] = preorder[v];
+                for &w in succ_v {
+                    if !scc_found[w] {
+                        if preorder[w] > preorder[v] {
+                            lowlink[v] = lowlink[v].min(lowlink[w]);
+                        } else {
+                            lowlink[v] = lowlink[v].min(preorder[w]);
+                        }
+                    }
+                }
+                queue.pop();
+                if lowlink[v] == preorder[v] {
+                    let mut component_indices = vec![v];
+                    while scc_queue
+                        .last()
+                        .is_some_and(|&queued| preorder[queued] > preorder[v])
+                    {
+                        if let Some(queued) = scc_queue.pop() {
+                            component_indices.push(queued);
+                        }
+                    }
+                    for &idx in &component_indices {
+                        scc_found[idx] = true;
+                    }
+                    let component = component_indices
+                        .into_iter()
+                        .map(|idx| nodes[idx].to_owned())
+                        .collect();
+                    result.push(component);
+                } else {
+                    scc_queue.push(v);
+                }
+            }
+        }
+    }
+
+    result
+}
+
+/// Frozen pre-`br-r37-c1-rjj10` inline-`HashMap` Tarjan route — rebuilds the
+/// name→index map and successor/predecessor adjacency via `successors_iter` each
+/// call. Kept for the same-binary A/B and exact-order parity proof.
+#[cfg(test)]
+fn strongly_connected_components_nx_ordered_orig_inline(
     digraph: &fnx_classes::digraph::DiGraph,
 ) -> Vec<Vec<String>> {
     let nodes = digraph.nodes_ordered();
@@ -14361,6 +15176,33 @@ fn multidigraph_csr_reaches_every_node(
 fn multidigraph_strongly_connected_components_nx_ordered(
     mdg: &fnx_classes::digraph::MultiDiGraph,
 ) -> Vec<Vec<String>> {
+    // br-r37-c1-vrbmf (cc): the sibling `_indices_` variant already runs this EXACT
+    // Tarjan (identical preorder/lowlink/scc_queue, single-SCC fast path, component
+    // collection order) over the cached `mdg.csr()`. Delegate to it and map the
+    // component indices to names instead of rebuilding a duplicate inline
+    // `HashMap<&str,usize>` + per-node `successors()` String adjacency. Byte-identical
+    // component partition AND order (csr.successors == mdg.successors key order; the
+    // (0..n) single-SCC fast path equals the node-insertion order); wins warm (cache)
+    // and cold (flat CSR build < HashMap/String rebuild) — same as number_scc (giqjb).
+    let nodes = mdg.nodes_ordered();
+    multidigraph_strongly_connected_component_indices_nx_ordered(mdg)
+        .into_iter()
+        .map(|component| {
+            component
+                .into_iter()
+                .map(|idx| nodes[idx].to_owned())
+                .collect()
+        })
+        .collect()
+}
+
+/// Frozen pre-`br-r37-c1-vrbmf` inline-`HashMap` Tarjan route — rebuilds the
+/// name→index map and successor/predecessor adjacency each call. Kept for the
+/// same-binary A/B and exact-order parity proof.
+#[cfg(test)]
+fn multidigraph_strongly_connected_components_nx_ordered_orig_inline(
+    mdg: &fnx_classes::digraph::MultiDiGraph,
+) -> Vec<Vec<String>> {
     let nodes = mdg.nodes_ordered();
     let node_indices: HashMap<&str, usize> = nodes
         .iter()
@@ -14463,6 +15305,7 @@ fn multidigraph_strongly_connected_components_nx_ordered(
     result
 }
 
+#[cfg(test)]
 fn reaches_every_node(source: usize, adjacency: &[Vec<usize>]) -> bool {
     let mut visited = vec![false; adjacency.len()];
     let mut stack = vec![source];
@@ -14518,7 +15361,7 @@ pub fn is_strongly_connected(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<b
         // br-r37-c1-1pmou: direct boolean SCC over MultiDiGraph adjacency instead
         // of building a simple DiGraph or materializing forward+reverse CSR.
         let inner = &mdg.inner;
-        if inner.nodes_ordered().is_empty() {
+        if inner.node_count() == 0 {
             return Err(crate::NetworkXPointlessConcept::new_err(
                 "Connectivity is undefined for the null graph.",
             ));
@@ -14845,7 +15688,7 @@ pub fn is_weakly_connected(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<boo
     }
     if let GraphRef::MultiDirected { mdg, .. } = &gr {
         let inner = &mdg.inner;
-        if inner.nodes_ordered().is_empty() {
+        if inner.node_count() == 0 {
             return Err(crate::NetworkXPointlessConcept::new_err(
                 "Connectivity is undefined for the null graph.",
             ));
@@ -14958,6 +15801,7 @@ pub fn multidigraph_transitive_closure(
         in_edges_with_data_cache: None,
         edges_with_keys_cache: None,
         node_iter_mirror: std::sync::Mutex::new(None),
+        instance_dict_gc: crate::InstanceDictGc::new(),
     };
 
     for (canonical, py_key) in &mdg.node_key_map {
@@ -15043,6 +15887,7 @@ pub fn transitive_closure(
             in_edges_data_attr_cache: std::sync::Mutex::new(None),
             edges_attr_dicts_cache: None,
             node_iter_mirror: std::sync::Mutex::new(None),
+            instance_dict_gc: crate::InstanceDictGc::new(),
         };
         Ok(py_dg.into_pyobject(py)?.into_any().unbind())
     }
@@ -15226,6 +16071,58 @@ pub fn common_neighbors(
     Ok(result.iter().map(|n| gr.py_node_key(py, n)).collect())
 }
 
+/// br-r37-c1-c4ye0 (cc): undirected upper-triangle non-edges over a `vec![false;n]`
+/// neighbor bool row instead of an O(V²/2) `has_edge(u,v)` String-hash probe per
+/// ordered pair. For each `i` mark `neighbors_indices(i)` in the reusable row, then a
+/// non-edge is any `j > i` with `!is_nbr[j]` (an O(1) array read), resetting the row
+/// after each `i`. Byte-identical: same `i < j` upper-triangle scan in node order,
+/// same emitted `(name, name)` pairs. Undirected sibling of
+/// `directed_non_edges_bool_row` (br-r37-c1-5k75q).
+fn undirected_non_edges_bool_row(graph: &fnx_classes::Graph) -> Vec<(String, String)> {
+    let nodes = graph.nodes_ordered();
+    let n = nodes.len();
+    let mut pairs = Vec::new();
+    let mut is_nbr = vec![false; n];
+    for i in 0..n {
+        if let Some(nbrs) = graph.neighbors_indices(i) {
+            for &w in nbrs {
+                if w < n {
+                    is_nbr[w] = true;
+                }
+            }
+        }
+        for j in (i + 1)..n {
+            if !is_nbr[j] {
+                pairs.push((nodes[i].to_string(), nodes[j].to_string()));
+            }
+        }
+        if let Some(nbrs) = graph.neighbors_indices(i) {
+            for &w in nbrs {
+                if w < n {
+                    is_nbr[w] = false;
+                }
+            }
+        }
+    }
+    pairs
+}
+
+/// Frozen pre-`br-r37-c1-c4ye0` O(V²) `has_edge` route for the same-binary A/B and
+/// parity proof.
+#[cfg(test)]
+fn undirected_non_edges_has_edge_orig(graph: &fnx_classes::Graph) -> Vec<(String, String)> {
+    let nodes = graph.nodes_ordered();
+    let mut pairs = Vec::new();
+    for (i, u) in nodes.iter().enumerate() {
+        for v in &nodes[i + 1..] {
+            if !graph.has_edge(u, v) {
+                pairs.push((u.to_string(), v.to_string()));
+            }
+        }
+    }
+    pairs
+}
+
 /// Helper to extract node pairs (ebunch) from Python.
 /// If ebunch is None, returns all non-edges.
 fn extract_ebunch(
@@ -15253,18 +16150,10 @@ fn extract_ebunch(
             .collect::<PyResult<Vec<_>>>()?;
         Ok(pairs)
     } else {
-        // Default: all non-edges
+        // br-r37-c1-c4ye0 (cc): default all-non-edges over the neighbor bool row (O(1)
+        // array reads) instead of an O(V²/2) has_edge String-hash probe per pair.
         let inner = gr.undirected();
-        let nodes = inner.nodes_ordered();
-        let mut pairs = Vec::new();
-        for (i, u) in nodes.iter().enumerate() {
-            for v in &nodes[i + 1..] {
-                if !inner.has_edge(u, v) {
-                    pairs.push((u.to_string(), v.to_string()));
-                }
-            }
-        }
-        Ok(pairs)
+        Ok(undirected_non_edges_bool_row(inner))
     }
 }
 
@@ -16099,6 +16988,63 @@ fn lexicographic_product_fast(
     graph_product_fast(py, g, h, 3)
 }
 
+/// Product edge-attr store-read admissibility for a simple UNDIRECTED factor.
+/// The product edge-attr kernels clone each source edge's inner `AttrMap` onto
+/// the product edges, so they need the inner store to be authoritative and
+/// loss-free. That holds when either the Python edge mirror is PRISTINE (empty
+/// `edge_py_attrs`: bulk-built, every attr genuine + store-complete + clean) OR
+/// the graph is CLEAN (no unsynced Python-dict mutations) AND every inner edge
+/// attr value is a faithful scalar (`Int`/`Float`/`Bool`). A `String`/`Map`
+/// value on a non-pristine graph is AMBIGUOUS — the py->inner boundary coerces
+/// `None`/list/dict/objects to their repr/JSON `String`, indistinguishable from
+/// a genuine `str` — so it defers to the Python batch. br-r37-c1-w868y sibling:
+/// admits the common per-edge-built / small-bulk numeric-weight graphs the
+/// pristine-only gate wrongly rejected (0.32x -> native).
+fn product_factor_store_readable_undirected(pg: &PyGraph) -> bool {
+    if pg.edge_py_attrs.is_empty() {
+        return true;
+    }
+    if pg.edges_dirty.load(Ordering::Relaxed) {
+        return false;
+    }
+    pg.inner
+        .edges_ordered_borrowed()
+        .iter()
+        .all(|(_, _, attrs)| {
+            attrs.values().all(|v| {
+                matches!(
+                    v,
+                    fnx_runtime::CgseValue::Int(_)
+                        | fnx_runtime::CgseValue::Float(_)
+                        | fnx_runtime::CgseValue::Bool(_)
+                )
+            })
+        })
+}
+
+/// Directed sibling of `product_factor_store_readable_undirected`.
+fn product_factor_store_readable_directed(dg: &PyDiGraph) -> bool {
+    if dg.edge_py_attrs.is_empty() {
+        return true;
+    }
+    if dg.edges_dirty.load(Ordering::Relaxed) {
+        return false;
+    }
+    dg.inner
+        .edges_ordered_borrowed()
+        .iter()
+        .all(|(_, _, attrs)| {
+            attrs.values().all(|v| {
+                matches!(
+                    v,
+                    fnx_runtime::CgseValue::Int(_)
+                        | fnx_runtime::CgseValue::Float(_)
+                        | fnx_runtime::CgseValue::Bool(_)
+                )
+            })
+        })
+}
+
 /// br-r37-c1-prodedgeattr (cc): native cartesian product carrying SCALAR edge
 /// attrs. Gated to simple undirected Graph x Graph with PRISTINE edge mirrors
 /// (`edge_py_attrs` empty) — which GUARANTEES every edge attribute lives in the
@@ -16123,7 +17069,9 @@ fn cartesian_product_edge_attrs_fast(
         (GraphRef::Undirected(pg1), GraphRef::Undirected(pg2)) => {
             // Pristine edge mirror => every edge attr is scalar (store-only). A single
             // non-scalar (list/dict/tuple) attr would leave a mirror entry -> bail.
-            if !pg1.edge_py_attrs.is_empty() || !pg2.edge_py_attrs.is_empty() {
+            if !product_factor_store_readable_undirected(pg1)
+                || !product_factor_store_readable_undirected(pg2)
+            {
                 return Ok(None);
             }
             let g1 = &pg1.inner;
@@ -16189,7 +17137,9 @@ fn cartesian_product_edge_attrs_fast(
             Ok(Some(py_graph.into_pyobject(py)?.into_any().unbind()))
         }
         (GraphRef::Directed { dg: dg1, .. }, GraphRef::Directed { dg: dg2, .. }) => {
-            if !dg1.edge_py_attrs.is_empty() || !dg2.edge_py_attrs.is_empty() {
+            if !product_factor_store_readable_directed(dg1)
+                || !product_factor_store_readable_directed(dg2)
+            {
                 return Ok(None);
             }
             let d1 = &dg1.inner;
@@ -16245,6 +17195,633 @@ fn cartesian_product_edge_attrs_fast(
         }
         _ => Ok(None),
     }
+}
+
+/// br-r37-c1-lexprodattr (bt): edge-attributed LEXICOGRAPHIC product for two simple
+/// undirected Graphs with a pristine (scalar-only, store-complete) edge mirror.
+/// Mirrors `cartesian_product_edge_attrs_fast` but with the lexicographic rule: each
+/// G-edge (gu,gv) connects (gu,hu)-(gv,hv) for ALL H-node pairs (hu,hv), inheriting
+/// the G-edge's attrs (|E_G|*|H|^2 edges — the densest product, so the Rust
+/// store-clone beats the O(E_product) Python attr batch the most: 0.24x -> faster);
+/// plus each H-edge within every G-node copy, inheriting the H-edge's attrs. Same
+/// edge set and insertion order (G-layer `G.edges() x hu x hv`, then H-layer
+/// `H.edges() x g`) as the Python `add_edges_from` build, so byte-identical. Node
+/// attrs are decorated in Python afterward. Returns None (-> Python path) on a
+/// non-pristine mirror (non-scalar attrs) or any non-undirected-simple factor;
+/// self-loops are caller-gated.
+#[pyfunction]
+fn lexicographic_product_edge_attrs_fast(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    h: &Bound<'_, PyAny>,
+) -> PyResult<Option<PyObject>> {
+    let gr1 = extract_graph(g)?;
+    let gr2 = extract_graph(h)?;
+    match (&gr1, &gr2) {
+        (GraphRef::Undirected(pg1), GraphRef::Undirected(pg2)) => {
+            if !product_factor_store_readable_undirected(pg1)
+                || !product_factor_store_readable_undirected(pg2)
+            {
+                return Ok(None);
+            }
+            let g1 = &pg1.inner;
+            let h1 = &pg2.inner;
+            let g_names: Vec<String> = g1.nodes_ordered().iter().map(|s| (*s).to_owned()).collect();
+            let h_names: Vec<String> = h1.nodes_ordered().iter().map(|s| (*s).to_owned()).collect();
+            let ng = g_names.len();
+            let nh = h_names.len();
+            let (canon, node_key_map) = product_node_tuples(py, &gr1, &gr2, &g_names, &h_names)?;
+
+            let undirected_edges = |graph: &fnx_classes::Graph, n: usize| -> Vec<(usize, usize)> {
+                let mut es = Vec::new();
+                for u in 0..n {
+                    for &v in graph.neighbors_indices(u).unwrap_or(&[]) {
+                        if v >= u {
+                            es.push((u, v));
+                        }
+                    }
+                }
+                es
+            };
+            let g_edges = undirected_edges(g1, ng);
+            let h_edges = undirected_edges(h1, nh);
+
+            let mut edges: Vec<(String, String, AttrMap)> =
+                Vec::with_capacity(g_edges.len() * nh * nh + h_edges.len() * ng);
+            // G-layer: each G-edge x ALL (hu, hv) H-node pairs -> inherit G-edge attrs.
+            for &(gu, gv) in &g_edges {
+                let attrs = g1
+                    .edge_attrs_by_indices(gu, gv)
+                    .cloned()
+                    .unwrap_or_default();
+                for hu in 0..nh {
+                    for hv in 0..nh {
+                        edges.push((
+                            canon[gu * nh + hu].clone(),
+                            canon[gv * nh + hv].clone(),
+                            attrs.clone(),
+                        ));
+                    }
+                }
+            }
+            // H-layer: each H-edge within every G-node copy -> inherit H-edge attrs.
+            for &(hu, hv) in &h_edges {
+                let attrs = h1
+                    .edge_attrs_by_indices(hu, hv)
+                    .cloned()
+                    .unwrap_or_default();
+                for gi in 0..ng {
+                    edges.push((
+                        canon[gi * nh + hu].clone(),
+                        canon[gi * nh + hv].clone(),
+                        attrs.clone(),
+                    ));
+                }
+            }
+
+            let mut inner = fnx_classes::Graph::with_runtime_policy(g1.runtime_policy().clone());
+            let _ = inner.extend_nodes_unrecorded(canon.iter().cloned());
+            let _ = inner.extend_edges_with_attrs_unrecorded(edges);
+            let mut py_graph = PyGraph::new_empty_with_policy(py, g1.runtime_policy().clone())?;
+            py_graph.inner = inner;
+            py_graph.node_key_map = node_key_map;
+            Ok(Some(py_graph.into_pyobject(py)?.into_any().unbind()))
+        }
+        (GraphRef::Directed { dg: dg1, .. }, GraphRef::Directed { dg: dg2, .. }) => {
+            // DIRECTED lexicographic — single-source store-clone, mirroring the
+            // undirected branch + the cartesian directed branch. (u1,v1)->(u2,v2)
+            // iff (u1,u2) in G (all v1,v2) OR u1==u2 and (v1,v2) in H.
+            if !product_factor_store_readable_directed(dg1)
+                || !product_factor_store_readable_directed(dg2)
+            {
+                return Ok(None);
+            }
+            let d1 = &dg1.inner;
+            let d2 = &dg2.inner;
+            let g_names: Vec<String> = d1.nodes_ordered().iter().map(|s| (*s).to_owned()).collect();
+            let h_names: Vec<String> = d2.nodes_ordered().iter().map(|s| (*s).to_owned()).collect();
+            let ng = g_names.len();
+            let nh = h_names.len();
+            let (canon, node_key_map) = product_node_tuples(py, &gr1, &gr2, &g_names, &h_names)?;
+
+            let mut edges: Vec<(String, String, AttrMap)> = Vec::new();
+            // G-layer: directed G-edge (gu->gv) x ALL (hu, hv) -> inherit G-edge attrs.
+            for gu in 0..ng {
+                for &gv in d1.successors_indices(gu).unwrap_or(&[]) {
+                    let ga = d1
+                        .edge_attrs_by_indices(gu, gv)
+                        .cloned()
+                        .unwrap_or_default();
+                    for hu in 0..nh {
+                        for hv in 0..nh {
+                            edges.push((
+                                canon[gu * nh + hu].clone(),
+                                canon[gv * nh + hv].clone(),
+                                ga.clone(),
+                            ));
+                        }
+                    }
+                }
+            }
+            // H-layer: same G-node + directed H-edge (hu->hv) -> inherit H-edge attrs.
+            for hu in 0..nh {
+                for &hv in d2.successors_indices(hu).unwrap_or(&[]) {
+                    let ha = d2
+                        .edge_attrs_by_indices(hu, hv)
+                        .cloned()
+                        .unwrap_or_default();
+                    for gi in 0..ng {
+                        edges.push((
+                            canon[gi * nh + hu].clone(),
+                            canon[gi * nh + hv].clone(),
+                            ha.clone(),
+                        ));
+                    }
+                }
+            }
+
+            let mut inner =
+                fnx_classes::digraph::DiGraph::with_runtime_policy(d1.runtime_policy().clone());
+            let _ = inner.extend_nodes_unrecorded(canon.iter().cloned());
+            let _ = inner.extend_edges_with_attrs_unrecorded(edges);
+            let mut py_dg = PyDiGraph::new_empty_with_policy(py, d1.runtime_policy().clone())?;
+            py_dg.inner = inner;
+            py_dg.node_key_map = node_key_map;
+            Ok(Some(py_dg.into_pyobject(py)?.into_any().unbind()))
+        }
+        _ => Ok(None),
+    }
+}
+
+/// br-r37-c1-tensorprodattr (bt): edge-attributed TENSOR product for two simple
+/// undirected Graphs with a SINGLE edge-attr key and pristine mirrors. The no-attr
+/// kernel builds the structure fast (11ms of a 165ms weighted tensor), but the
+/// Python wrapper then pays `set_edge_attributes` per-edge TUPLE-NODE key resolution
+/// (~93% of the time) to attach the paired attrs. This REUSES the proven
+/// `graph_product_fast` structure (byte-exact edge set + iteration order), then
+/// attaches the paired `{key: (g_val, h_val)}` attrs BY INDEX straight into
+/// `edge_py_attrs` — no re-canonicalisation. The paired value is a TUPLE (non-scalar)
+/// so it lives in the py mirror + `edges_dirty`, NOT the CgseValue store. GATE:
+/// undirected simple Graph x Graph, pristine mirrors (`edge_py_attrs` empty), and the
+/// union of ALL distinct edge-attr keys across G and H is <= 1 (so each paired dict
+/// has <= 1 key — trivial order; nx's `set(ga)|set(ha)` order is otherwise
+/// unreproducible). Node attrs are decorated by the Python wrapper.
+#[pyfunction]
+#[pyo3(signature = (g, h))]
+fn tensor_product_edge_attrs_fast(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    h: &Bound<'_, PyAny>,
+) -> PyResult<Option<PyObject>> {
+    let gr1 = extract_graph(g)?;
+    let gr2 = extract_graph(h)?;
+    // DIRECTED tensor: (gu->gv) x (hu->hv) -> ONE product edge (gu,hu)->(gv,hv)
+    // (no undirected second diagonal). PyDiGraph keys edge_py_attrs by (source,
+    // target) directed. Same reuse-structure-then-attach-by-index recipe.
+    if let (GraphRef::Directed { dg: dg1, .. }, GraphRef::Directed { dg: dg2, .. }) = (&gr1, &gr2) {
+        if !product_factor_store_readable_directed(dg1)
+            || !product_factor_store_readable_directed(dg2)
+        {
+            return Ok(None);
+        }
+        let d1 = &dg1.inner;
+        let d2 = &dg2.inner;
+        let mut keyset: HashSet<&str> = HashSet::new();
+        for gu in 0..d1.node_count() {
+            for &gv in d1.successors_indices(gu).unwrap_or(&[]) {
+                if let Some(a) = d1.edge_attrs_by_indices(gu, gv) {
+                    for k in a.keys() {
+                        keyset.insert(k.as_str());
+                    }
+                }
+            }
+        }
+        for hu in 0..d2.node_count() {
+            for &hv in d2.successors_indices(hu).unwrap_or(&[]) {
+                if let Some(a) = d2.edge_attrs_by_indices(hu, hv) {
+                    for k in a.keys() {
+                        keyset.insert(k.as_str());
+                    }
+                }
+            }
+        }
+        if keyset.len() > 1 {
+            return Ok(None);
+        }
+        let single_key: Option<String> = keyset.iter().next().map(|s| (*s).to_owned());
+        let structure_obj = match graph_product_fast(py, g, h, 1)? {
+            Some(o) => o,
+            None => return Ok(None),
+        };
+        let g_names: Vec<String> = d1.nodes_ordered().iter().map(|s| (*s).to_owned()).collect();
+        let h_names: Vec<String> = d2.nodes_ordered().iter().map(|s| (*s).to_owned()).collect();
+        let ng = g_names.len();
+        let nh = h_names.len();
+        let (canon, _node_key_map) = product_node_tuples(py, &gr1, &gr2, &g_names, &h_names)?;
+        let make_paired =
+            |py: Python<'_>, ga: Option<&AttrMap>, ha: Option<&AttrMap>| -> PyResult<Py<PyDict>> {
+                let dict = PyDict::new(py);
+                if let Some(k) = single_key.as_deref() {
+                    let gv = ga.and_then(|m| m.get(k));
+                    let hv = ha.and_then(|m| m.get(k));
+                    if gv.is_some() || hv.is_some() {
+                        let gpy = match gv {
+                            Some(v) => crate::cgse_value_to_py(py, v)?,
+                            None => py.None(),
+                        };
+                        let hpy = match hv {
+                            Some(v) => crate::cgse_value_to_py(py, v)?,
+                            None => py.None(),
+                        };
+                        dict.set_item(k, PyTuple::new(py, [gpy, hpy])?)?;
+                    }
+                }
+                Ok(dict.unbind())
+            };
+        {
+            let bound = structure_obj.bind(py);
+            let cell = bound.downcast::<PyDiGraph>().map_err(|_| {
+                pyo3::exceptions::PyTypeError::new_err("tensor structure is not a DiGraph")
+            })?;
+            let mut structure = cell.borrow_mut();
+            for gu in 0..ng {
+                for &gv in d1.successors_indices(gu).unwrap_or(&[]) {
+                    let ga = d1.edge_attrs_by_indices(gu, gv);
+                    for hu in 0..nh {
+                        for &hv in d2.successors_indices(hu).unwrap_or(&[]) {
+                            let ha = d2.edge_attrs_by_indices(hu, hv);
+                            let key =
+                                PyDiGraph::edge_key(&canon[gu * nh + hu], &canon[gv * nh + hv]);
+                            structure
+                                .edge_py_attrs
+                                .insert(key, make_paired(py, ga, ha)?);
+                        }
+                    }
+                }
+            }
+            structure.mark_edges_dirty();
+        }
+        return Ok(Some(structure_obj));
+    }
+    let (pg1, pg2) = match (&gr1, &gr2) {
+        (GraphRef::Undirected(a), GraphRef::Undirected(b)) => (a, b),
+        _ => return Ok(None),
+    };
+    if !product_factor_store_readable_undirected(pg1)
+        || !product_factor_store_readable_undirected(pg2)
+    {
+        return Ok(None);
+    }
+    let g1 = &pg1.inner;
+    let h1 = &pg2.inner;
+    // Single-key gate: at most one distinct edge-attr key across both factors, so
+    // every paired dict has <= 1 key (trivial, reproducible order).
+    let mut keyset: HashSet<&str> = HashSet::new();
+    for (_, _, a) in g1.edges_ordered_borrowed() {
+        for k in a.keys() {
+            keyset.insert(k.as_str());
+        }
+    }
+    for (_, _, a) in h1.edges_ordered_borrowed() {
+        for k in a.keys() {
+            keyset.insert(k.as_str());
+        }
+    }
+    if keyset.len() > 1 {
+        return Ok(None);
+    }
+    let single_key: Option<String> = keyset.iter().next().map(|s| (*s).to_owned());
+
+    // Reuse the proven no-attr structure (byte-exact edge set + iteration order).
+    let structure_obj = match graph_product_fast(py, g, h, 1)? {
+        Some(o) => o,
+        None => return Ok(None),
+    };
+
+    let g_names: Vec<String> = g1.nodes_ordered().iter().map(|s| (*s).to_owned()).collect();
+    let h_names: Vec<String> = h1.nodes_ordered().iter().map(|s| (*s).to_owned()).collect();
+    let ng = g_names.len();
+    let nh = h_names.len();
+    let (canon, _node_key_map) = product_node_tuples(py, &gr1, &gr2, &g_names, &h_names)?;
+
+    let undirected_edges = |graph: &fnx_classes::Graph, n: usize| -> Vec<(usize, usize)> {
+        let mut es = Vec::new();
+        for u in 0..n {
+            for &v in graph.neighbors_indices(u).unwrap_or(&[]) {
+                if v >= u {
+                    es.push((u, v));
+                }
+            }
+        }
+        es
+    };
+    let g_edges = undirected_edges(g1, ng);
+    let h_edges = undirected_edges(h1, nh);
+
+    let make_paired =
+        |py: Python<'_>, ga: Option<&AttrMap>, ha: Option<&AttrMap>| -> PyResult<Py<PyDict>> {
+            let dict = PyDict::new(py);
+            if let Some(k) = single_key.as_deref() {
+                let gv = ga.and_then(|m| m.get(k));
+                let hv = ha.and_then(|m| m.get(k));
+                if gv.is_some() || hv.is_some() {
+                    let gpy = match gv {
+                        Some(v) => crate::cgse_value_to_py(py, v)?,
+                        None => py.None(),
+                    };
+                    let hpy = match hv {
+                        Some(v) => crate::cgse_value_to_py(py, v)?,
+                        None => py.None(),
+                    };
+                    let tup = PyTuple::new(py, [gpy, hpy])?;
+                    dict.set_item(k, tup)?;
+                }
+            }
+            Ok(dict.unbind())
+        };
+
+    {
+        let bound = structure_obj.bind(py);
+        let cell = bound.downcast::<crate::PyGraph>().map_err(|_| {
+            pyo3::exceptions::PyTypeError::new_err("tensor structure is not a Graph")
+        })?;
+        let mut structure = cell.borrow_mut();
+        for &(gu, gv) in &g_edges {
+            let ga = g1.edge_attrs_by_indices(gu, gv);
+            for &(hu, hv) in &h_edges {
+                let ha = h1.edge_attrs_by_indices(hu, hv);
+                // Two diagonals of the undirected tensor edge, each a SEPARATE dict
+                // (matching nx's two `_paired_edge_attrs` calls).
+                let d1 = crate::PyGraph::edge_key(&canon[gu * nh + hu], &canon[gv * nh + hv]);
+                structure.edge_py_attrs.insert(d1, make_paired(py, ga, ha)?);
+                let d2 = crate::PyGraph::edge_key(&canon[gv * nh + hu], &canon[gu * nh + hv]);
+                structure.edge_py_attrs.insert(d2, make_paired(py, ga, ha)?);
+            }
+        }
+        structure.mark_edges_dirty();
+    }
+    Ok(Some(structure_obj))
+}
+
+/// br-r37-c1-strongprodattr (bt): edge-attributed STRONG product (cartesian ∪ tensor)
+/// for two simple undirected Graphs with a SINGLE edge-attr key and pristine mirrors.
+/// Same reuse-structure-then-attach-by-index recipe as tensor_product_edge_attrs_fast,
+/// but strong has FOUR edge passes with mixed attr shapes — the two cartesian layers
+/// inherit ONE source edge's attrs (scalar `dict(ga)` / `dict(ha)`), the two tensor
+/// layers get the paired `{k: (g_val, h_val)}` tuple. Inserted in nx's exact pass
+/// order (1 nodes×H-edges, 2 G-edges×nodes, 3 tensor directed, 4 tensor undirected)
+/// so any later write wins as a later nx add_edge would (the layers don't overlap, so
+/// order only matters defensively). All attrs go in `edge_py_attrs` + `edges_dirty`
+/// (the tuple values can't live in the CgseValue store). Gate: undirected simple
+/// Graph×Graph, no self-loops, pristine mirrors, ≤1 distinct edge-attr key. Node
+/// attrs decorated by the Python wrapper.
+#[pyfunction]
+#[pyo3(signature = (g, h))]
+fn strong_product_edge_attrs_fast(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    h: &Bound<'_, PyAny>,
+) -> PyResult<Option<PyObject>> {
+    let gr1 = extract_graph(g)?;
+    let gr2 = extract_graph(h)?;
+    // DIRECTED strong (cartesian ∪ tensor): three passes (nx skips the undirected
+    // tensor pass 4 for directed). PyDiGraph keys edge_py_attrs by (source, target).
+    if let (GraphRef::Directed { dg: dg1, .. }, GraphRef::Directed { dg: dg2, .. }) = (&gr1, &gr2) {
+        if !product_factor_store_readable_directed(dg1)
+            || !product_factor_store_readable_directed(dg2)
+        {
+            return Ok(None);
+        }
+        let d1 = &dg1.inner;
+        let d2 = &dg2.inner;
+        let mut keyset: HashSet<&str> = HashSet::new();
+        for gu in 0..d1.node_count() {
+            for &gv in d1.successors_indices(gu).unwrap_or(&[]) {
+                if let Some(a) = d1.edge_attrs_by_indices(gu, gv) {
+                    for k in a.keys() {
+                        keyset.insert(k.as_str());
+                    }
+                }
+            }
+        }
+        for hu in 0..d2.node_count() {
+            for &hv in d2.successors_indices(hu).unwrap_or(&[]) {
+                if let Some(a) = d2.edge_attrs_by_indices(hu, hv) {
+                    for k in a.keys() {
+                        keyset.insert(k.as_str());
+                    }
+                }
+            }
+        }
+        if keyset.len() > 1 {
+            return Ok(None);
+        }
+        let single_key: Option<String> = keyset.iter().next().map(|s| (*s).to_owned());
+        let structure_obj = match graph_product_fast(py, g, h, 2)? {
+            Some(o) => o,
+            None => return Ok(None),
+        };
+        let g_names: Vec<String> = d1.nodes_ordered().iter().map(|s| (*s).to_owned()).collect();
+        let h_names: Vec<String> = d2.nodes_ordered().iter().map(|s| (*s).to_owned()).collect();
+        let ng = g_names.len();
+        let nh = h_names.len();
+        let (canon, _node_key_map) = product_node_tuples(py, &gr1, &gr2, &g_names, &h_names)?;
+        let make_scalar = |py: Python<'_>, attrs: Option<&AttrMap>| -> PyResult<Py<PyDict>> {
+            let dict = PyDict::new(py);
+            if let Some(k) = single_key.as_deref()
+                && let Some(v) = attrs.and_then(|m| m.get(k))
+            {
+                dict.set_item(k, crate::cgse_value_to_py(py, v)?)?;
+            }
+            Ok(dict.unbind())
+        };
+        let make_paired =
+            |py: Python<'_>, ga: Option<&AttrMap>, ha: Option<&AttrMap>| -> PyResult<Py<PyDict>> {
+                let dict = PyDict::new(py);
+                if let Some(k) = single_key.as_deref() {
+                    let gv = ga.and_then(|m| m.get(k));
+                    let hv = ha.and_then(|m| m.get(k));
+                    if gv.is_some() || hv.is_some() {
+                        let gpy = match gv {
+                            Some(v) => crate::cgse_value_to_py(py, v)?,
+                            None => py.None(),
+                        };
+                        let hpy = match hv {
+                            Some(v) => crate::cgse_value_to_py(py, v)?,
+                            None => py.None(),
+                        };
+                        dict.set_item(k, PyTuple::new(py, [gpy, hpy])?)?;
+                    }
+                }
+                Ok(dict.unbind())
+            };
+        {
+            let bound = structure_obj.bind(py);
+            let cell = bound.downcast::<PyDiGraph>().map_err(|_| {
+                pyo3::exceptions::PyTypeError::new_err("strong structure is not a DiGraph")
+            })?;
+            let mut structure = cell.borrow_mut();
+            // Pass 1: cartesian H-layer (same G-node × directed H-edge) -> H-edge attrs.
+            for gi in 0..ng {
+                for hu in 0..nh {
+                    for &hv in d2.successors_indices(hu).unwrap_or(&[]) {
+                        let ha = d2.edge_attrs_by_indices(hu, hv);
+                        let key = PyDiGraph::edge_key(&canon[gi * nh + hu], &canon[gi * nh + hv]);
+                        structure.edge_py_attrs.insert(key, make_scalar(py, ha)?);
+                    }
+                }
+            }
+            // Pass 2: cartesian G-layer (directed G-edge × same H-node) -> G-edge attrs.
+            for gu in 0..ng {
+                for &gv in d1.successors_indices(gu).unwrap_or(&[]) {
+                    let ga = d1.edge_attrs_by_indices(gu, gv);
+                    for hi in 0..nh {
+                        let key = PyDiGraph::edge_key(&canon[gu * nh + hi], &canon[gv * nh + hi]);
+                        structure.edge_py_attrs.insert(key, make_scalar(py, ga)?);
+                    }
+                }
+            }
+            // Pass 3: tensor directed cross (single diagonal) -> paired tuple.
+            for gu in 0..ng {
+                for &gv in d1.successors_indices(gu).unwrap_or(&[]) {
+                    let ga = d1.edge_attrs_by_indices(gu, gv);
+                    for hu in 0..nh {
+                        for &hv in d2.successors_indices(hu).unwrap_or(&[]) {
+                            let ha = d2.edge_attrs_by_indices(hu, hv);
+                            let key =
+                                PyDiGraph::edge_key(&canon[gu * nh + hu], &canon[gv * nh + hv]);
+                            structure
+                                .edge_py_attrs
+                                .insert(key, make_paired(py, ga, ha)?);
+                        }
+                    }
+                }
+            }
+            structure.mark_edges_dirty();
+        }
+        return Ok(Some(structure_obj));
+    }
+    let (pg1, pg2) = match (&gr1, &gr2) {
+        (GraphRef::Undirected(a), GraphRef::Undirected(b)) => (a, b),
+        _ => return Ok(None),
+    };
+    if !product_factor_store_readable_undirected(pg1)
+        || !product_factor_store_readable_undirected(pg2)
+    {
+        return Ok(None);
+    }
+    let g1 = &pg1.inner;
+    let h1 = &pg2.inner;
+    let mut keyset: HashSet<&str> = HashSet::new();
+    for (_, _, a) in g1.edges_ordered_borrowed() {
+        for k in a.keys() {
+            keyset.insert(k.as_str());
+        }
+    }
+    for (_, _, a) in h1.edges_ordered_borrowed() {
+        for k in a.keys() {
+            keyset.insert(k.as_str());
+        }
+    }
+    if keyset.len() > 1 {
+        return Ok(None);
+    }
+    let single_key: Option<String> = keyset.iter().next().map(|s| (*s).to_owned());
+
+    let structure_obj = match graph_product_fast(py, g, h, 2)? {
+        Some(o) => o,
+        None => return Ok(None),
+    };
+
+    let g_names: Vec<String> = g1.nodes_ordered().iter().map(|s| (*s).to_owned()).collect();
+    let h_names: Vec<String> = h1.nodes_ordered().iter().map(|s| (*s).to_owned()).collect();
+    let ng = g_names.len();
+    let nh = h_names.len();
+    let (canon, _node_key_map) = product_node_tuples(py, &gr1, &gr2, &g_names, &h_names)?;
+
+    let undirected_edges = |graph: &fnx_classes::Graph, n: usize| -> Vec<(usize, usize)> {
+        let mut es = Vec::new();
+        for u in 0..n {
+            for &v in graph.neighbors_indices(u).unwrap_or(&[]) {
+                if v >= u {
+                    es.push((u, v));
+                }
+            }
+        }
+        es
+    };
+    let g_edges = undirected_edges(g1, ng);
+    let h_edges = undirected_edges(h1, nh);
+
+    // Single-source scalar attrs: `dict(attrs)` for the ≤1 key.
+    let make_scalar = |py: Python<'_>, attrs: Option<&AttrMap>| -> PyResult<Py<PyDict>> {
+        let dict = PyDict::new(py);
+        if let Some(k) = single_key.as_deref()
+            && let Some(v) = attrs.and_then(|m| m.get(k))
+        {
+            dict.set_item(k, crate::cgse_value_to_py(py, v)?)?;
+        }
+        Ok(dict.unbind())
+    };
+    // Paired tuple attrs: `{k: (g_val, h_val)}`.
+    let make_paired =
+        |py: Python<'_>, ga: Option<&AttrMap>, ha: Option<&AttrMap>| -> PyResult<Py<PyDict>> {
+            let dict = PyDict::new(py);
+            if let Some(k) = single_key.as_deref() {
+                let gv = ga.and_then(|m| m.get(k));
+                let hv = ha.and_then(|m| m.get(k));
+                if gv.is_some() || hv.is_some() {
+                    let gpy = match gv {
+                        Some(v) => crate::cgse_value_to_py(py, v)?,
+                        None => py.None(),
+                    };
+                    let hpy = match hv {
+                        Some(v) => crate::cgse_value_to_py(py, v)?,
+                        None => py.None(),
+                    };
+                    let tup = PyTuple::new(py, [gpy, hpy])?;
+                    dict.set_item(k, tup)?;
+                }
+            }
+            Ok(dict.unbind())
+        };
+
+    {
+        let bound = structure_obj.bind(py);
+        let cell = bound.downcast::<crate::PyGraph>().map_err(|_| {
+            pyo3::exceptions::PyTypeError::new_err("strong structure is not a Graph")
+        })?;
+        let mut structure = cell.borrow_mut();
+        // Pass 1: cartesian H-layer (same G-node × H-edge) -> H-edge attrs.
+        for gi in 0..ng {
+            for &(hu, hv) in &h_edges {
+                let ha = h1.edge_attrs_by_indices(hu, hv);
+                let key = crate::PyGraph::edge_key(&canon[gi * nh + hu], &canon[gi * nh + hv]);
+                structure.edge_py_attrs.insert(key, make_scalar(py, ha)?);
+            }
+        }
+        // Pass 2: cartesian G-layer (G-edge × same H-node) -> G-edge attrs.
+        for &(gu, gv) in &g_edges {
+            let ga = g1.edge_attrs_by_indices(gu, gv);
+            for hi in 0..nh {
+                let key = crate::PyGraph::edge_key(&canon[gu * nh + hi], &canon[gv * nh + hi]);
+                structure.edge_py_attrs.insert(key, make_scalar(py, ga)?);
+            }
+        }
+        // Passes 3 & 4: tensor layers (both diagonals) -> paired tuple.
+        for &(gu, gv) in &g_edges {
+            let ga = g1.edge_attrs_by_indices(gu, gv);
+            for &(hu, hv) in &h_edges {
+                let ha = h1.edge_attrs_by_indices(hu, hv);
+                let d1 = crate::PyGraph::edge_key(&canon[gu * nh + hu], &canon[gv * nh + hv]);
+                structure.edge_py_attrs.insert(d1, make_paired(py, ga, ha)?);
+                let d2 = crate::PyGraph::edge_key(&canon[gv * nh + hu], &canon[gu * nh + hv]);
+                structure.edge_py_attrs.insert(d2, make_paired(py, ga, ha)?);
+            }
+        }
+        structure.mark_edges_dirty();
+    }
+    Ok(Some(structure_obj))
 }
 
 /// br-r37-c1-prodmodular: native modular product fast path (undirected only).
@@ -17120,7 +18697,12 @@ fn undirected_isomorphism_mappings(
         return vec![Vec::new()];
     }
 
-    if g1.edges_ordered().len() != g2.edges_ordered().len() {
+    // br-r37-c1-isoedgecount (cc): compare edge COUNTS via the O(1) `edge_count()` (== self.edges
+    // .len()) instead of `edges_ordered().len()`, which materialised a full Vec<EdgeSnapshot> (two
+    // owned Strings per edge) just to read its length. Byte-identical early-out; same
+    // redundant-materialization lever as faster_could_be_isomorphic (br-r37-c1, edge_count vs
+    // edges_ordered().len()). Amplified on the non-isomorphic same-node/different-edge early-out.
+    if g1.edge_count() != g2.edge_count() {
         return Vec::new();
     }
 
@@ -17257,7 +18839,10 @@ fn directed_isomorphism_mappings(
         return vec![Vec::new()];
     }
 
-    if g1.edges_ordered().len() != g2.edges_ordered().len() {
+    // br-r37-c1-isoedgecount (cc): O(1) `edge_count()` compare instead of `edges_ordered().len()`
+    // (which materialised a full Vec<EdgeSnapshot>) — byte-identical early-out. See the undirected
+    // twin above ([[directed_undirected_mirror_lag_idx]] pattern — mirror both siblings).
+    if g1.edge_count() != g2.edge_count() {
         return Vec::new();
     }
 
@@ -20836,36 +22421,61 @@ fn all_pairs_dijkstra_path_length(
 ) -> PyResult<PyObject> {
     sync_rust_attrs_if_available(g)?;
     let gr = extract_graph(g)?;
-    let result = if gr.is_directed() {
+    let (nodes, result) = if gr.is_directed() {
         let dg = gr
             .weighted_digraph_projection(weight)
             .expect("is_directed checked above");
-        py.allow_threads(|| {
-            fnx_algorithms::all_pairs_dijkstra_path_length_with_pred_directed(dg.as_ref(), weight)
-        })
+        let nodes: Vec<String> = dg
+            .as_ref()
+            .nodes_ordered()
+            .into_iter()
+            .map(str::to_owned)
+            .collect();
+        let result = py.allow_threads(|| {
+            fnx_algorithms::all_pairs_dijkstra_path_length_indexed_with_pred_directed(
+                dg.as_ref(),
+                weight,
+            )
+        });
+        (nodes, result)
     } else {
         let weighted_projection = gr.weighted_undirected_projection(weight);
-        {
-            let __wp = weighted_projection.as_ref();
-            py.allow_threads(|| {
-                fnx_algorithms::all_pairs_dijkstra_path_length_with_pred(__wp, weight)
-            })
-        }
+        let nodes: Vec<String> = weighted_projection
+            .as_ref()
+            .nodes_ordered()
+            .into_iter()
+            .map(str::to_owned)
+            .collect();
+        let result = py.allow_threads(|| {
+            fnx_algorithms::all_pairs_dijkstra_path_length_indexed_with_pred(
+                weighted_projection.as_ref(),
+                weight,
+            )
+        });
+        (nodes, result)
     };
     let outer_dict = PyDict::new(py);
-    for (source, dists) in &result {
-        let mut disp: std::collections::HashMap<String, PyObject> =
-            std::collections::HashMap::with_capacity(dists.len());
-        for (node, _distance, _all_int, predecessor) in dists {
-            if let Some(pred) = predecessor {
-                disp.insert(node.clone(), gr.py_row_key(py, pred, node));
+    for (source_idx, dists) in result.iter().enumerate() {
+        let inner_dict = PyDict::new(py);
+        for &(target, distance, all_int, predecessor) in dists {
+            let target = target as usize;
+            let display_key = if predecessor == u32::MAX {
+                gr.py_node_key(py, &nodes[target])
+            } else {
+                gr.py_row_key(py, &nodes[predecessor as usize], &nodes[target])
+            };
+            if all_int
+                && distance.is_finite()
+                && distance.fract() == 0.0
+                && distance >= i128::MIN as f64
+                && distance <= i128::MAX as f64
+            {
+                inner_dict.set_item(display_key, PyInt::new(py, distance as i128))?;
+            } else {
+                inner_dict.set_item(display_key, distance)?;
             }
         }
-        let inner_dict = PyDict::new(py);
-        for (target, d, _all_int, _predecessor) in dists {
-            inner_dict.set_item(gr.disp_or_node_key(py, &disp, target), d)?;
-        }
-        outer_dict.set_item(gr.py_node_key(py, source), inner_dict)?;
+        outer_dict.set_item(gr.py_node_key(py, &nodes[source_idx]), inner_dict)?;
     }
     Ok(outer_dict.into_any().unbind())
 }
@@ -21475,11 +23085,10 @@ pub fn in_degree_centrality(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Py
             "in_degree_centrality is not defined for undirected graphs.",
         ));
     }
-    {
-        let dg_ref = gr.digraph().expect("is_directed checked above");
-        let scores = py.allow_threads(|| fnx_algorithms::in_degree_centrality(dg_ref));
-        centrality_to_dict(py, &gr, &scores)
-    }
+    // br-r37-c1-idcbind (cc): inline dict build (skip the kernel's throwaway CentralityScore
+    // Strings). Measured 1.46x vs the old kernel+centrality_to_dict path (with-GIL binding A/B,
+    // 20k-node DiGraph, non-overlapping CIs); byte-identical (parity gated in the bench).
+    digraph_degree_centrality_inline_to_dict(py, &gr, false)
 }
 
 /// Return the out-degree centrality for directed graph nodes.
@@ -21491,11 +23100,117 @@ pub fn out_degree_centrality(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<P
             "out_degree_centrality is not defined for undirected graphs.",
         ));
     }
-    {
-        let dg_ref = gr.digraph().expect("is_directed checked above");
-        let scores = py.allow_threads(|| fnx_algorithms::out_degree_centrality(dg_ref));
-        centrality_to_dict(py, &gr, &scores)
+    // br-r37-c1-idcbind (cc): inline dict build (out-degree twin of the in-degree route above).
+    digraph_degree_centrality_inline_to_dict(py, &gr, true)
+}
+
+/// br-r37-c1-idcbind (cc): inline in/out-degree-centrality dict — the directed twin of
+/// `graph_degree_centrality_to_dict`. The current path builds a `Vec<CentralityScore>` in the
+/// kernel (an `n`-element `node.to_owned()` String materialization) then `centrality_to_dict`
+/// re-reads each `&s.node`. This walks node INDICES and reads `get_node_name(idx)` → `py_node_key`
+/// directly, skipping the throwaway Strings. Byte-identical to `in_degree_centrality` /
+/// `out_degree_centrality`: same `nodes_ordered` (index) order, same `deg_by_index(i) as f64 /
+/// (n-1)` (DIVISION, matching the kernel — NOT `* reciprocal`), same `n==0 → {}` / `n==1 → 1.0`.
+fn digraph_degree_centrality_inline_to_dict(
+    py: Python<'_>,
+    gr: &GraphRef<'_>,
+    out: bool,
+) -> PyResult<Py<PyDict>> {
+    let dg = gr.digraph().expect("caller checked is_directed");
+    let n = dg.node_count();
+    let dict = PyDict::new(py);
+    if n == 0 {
+        return Ok(dict.unbind());
     }
+    if n == 1 {
+        let node = dg.get_node_name(0).expect("index 0 must resolve to a node");
+        dict.set_item(gr.py_node_key(py, node), 1.0)?;
+        return Ok(dict.unbind());
+    }
+    let denom = (n - 1) as f64;
+    for idx in 0..n {
+        let node = dg.get_node_name(idx).expect("index must resolve to a node");
+        let deg = if out {
+            dg.out_degree_by_index(idx)
+        } else {
+            dg.in_degree_by_index(idx)
+        };
+        dict.set_item(gr.py_node_key(py, node), deg as f64 / denom)?;
+    }
+    Ok(dict.unbind())
+}
+
+/// br-r37-c1-idcbind A/B baseline: the PRE-lever in-degree centrality via the kernel's
+/// `Vec<CentralityScore>` (throwaway `node.to_owned()` Strings) + `centrality_to_dict`. The live
+/// `in_degree_centrality` now uses the inline path; this preserves the OLD arm so the with-GIL
+/// binding bench `networkx_head_to_head_indeg_binding` stays a durable old-vs-new regression A/B.
+/// Byte-identical output to `in_degree_centrality`; not part of the public nx-parity surface.
+#[pyfunction]
+pub fn in_degree_centrality_kernel_ab(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+) -> PyResult<Py<PyDict>> {
+    let gr = extract_graph(g)?;
+    if !gr.is_directed() {
+        return Err(crate::NetworkXNotImplemented::new_err(
+            "in_degree_centrality is not defined for undirected graphs.",
+        ));
+    }
+    let dg_ref = gr.digraph().expect("is_directed checked above");
+    let scores = py.allow_threads(|| fnx_algorithms::in_degree_centrality(dg_ref));
+    centrality_to_dict(py, &gr, &scores)
+}
+
+/// br-r37-c1-tdcbind (cc): inline TOTAL degree centrality for a simple DiGraph — the directed sibling
+/// of the in/out inline (br-r37-c1-idcbind) and of `graph_degree_centrality_to_dict`. Skips the
+/// kernel's `Vec<CentralityScore>` throwaway Strings by walking indices → `get_node_name` →
+/// `py_node_key`. Byte-identical to `degree_centrality_directed` + `centrality_to_dict`: same
+/// `nodes_ordered` order, total `degree_by_index(i)` (== out_degree + in_degree), and — matching that
+/// kernel AND nx — `degree * (1.0/(n-1))` MULTIPLICATION (not division); same n==0 -> {} / n==1 -> 1.0.
+fn digraph_total_degree_centrality_inline_to_dict(
+    py: Python<'_>,
+    gr: &GraphRef<'_>,
+) -> PyResult<Py<PyDict>> {
+    let dg = gr.digraph().expect("caller checked is_directed");
+    let n = dg.node_count();
+    let dict = PyDict::new(py);
+    if n == 0 {
+        return Ok(dict.unbind());
+    }
+    if n == 1 {
+        let node = dg.get_node_name(0).expect("index 0 must resolve to a node");
+        dict.set_item(gr.py_node_key(py, node), 1.0)?;
+        return Ok(dict.unbind());
+    }
+    let reciprocal = 1.0 / ((n - 1) as f64);
+    for idx in 0..n {
+        let node = dg.get_node_name(idx).expect("index must resolve to a node");
+        dict.set_item(
+            gr.py_node_key(py, node),
+            (dg.degree_by_index(idx) as f64) * reciprocal,
+        )?;
+    }
+    Ok(dict.unbind())
+}
+
+/// br-r37-c1-tdcbind A/B baseline: the PRE-lever directed total degree centrality via
+/// `degree_centrality_directed` (throwaway `Vec<CentralityScore>`) + `centrality_to_dict`. Preserved
+/// so the with-GIL binding bench stays a durable old-vs-new A/B; byte-identical to the routed
+/// `degree_centrality` on a simple DiGraph. Not part of the public nx-parity surface.
+#[pyfunction]
+pub fn degree_centrality_directed_kernel_ab(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+) -> PyResult<Py<PyDict>> {
+    let gr = extract_graph(g)?;
+    if !gr.is_directed() {
+        return Err(crate::NetworkXNotImplemented::new_err(
+            "degree_centrality_directed_kernel_ab requires a directed graph.",
+        ));
+    }
+    let dg_ref = gr.digraph().expect("is_directed checked above");
+    let result = py.allow_threads(|| fnx_algorithms::degree_centrality_directed(dg_ref));
+    centrality_to_dict(py, &gr, &result.scores)
 }
 
 /// Return the local reaching centrality of a node.
@@ -21683,10 +23398,13 @@ pub fn biconnected_components(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<
     let gr = extract_graph(g)?;
     require_undirected(&gr, "biconnected_components")?;
     if let GraphRef::MultiUndirected { mg, .. } = &gr {
+        // br-r37-c1-vi5rf (cc): reuse the revision-keyed integer-adjacency memo instead of rebuilding
+        // the index adjacency per call. Byte-identical index rows in mg.neighbors order → identical
+        // component partition; warm reuse after is_biconnected (sstk9) on the same revision.
         let inner = &mg.inner;
         let nodes = inner.nodes_ordered();
-        let adjacency = build_index_adjacency(&nodes, |u| inner.neighbors(u).unwrap_or_default());
-        let result = py.allow_threads(|| biconnected_components_from_adjacency(&adjacency));
+        let result =
+            py.allow_threads(|| inner.with_int_adjacency(biconnected_components_from_adjacency));
         return result
             .iter()
             .map(|comp| {
@@ -21723,10 +23441,12 @@ pub fn biconnected_component_edges(
     let gr = extract_graph(g)?;
     require_undirected(&gr, "biconnected_component_edges")?;
     if let GraphRef::MultiUndirected { mg, .. } = &gr {
+        // br-r37-c1-vi5rf (cc): reuse the revision-keyed integer-adjacency memo instead of rebuilding
+        // the index adjacency per call. Byte-identical index rows in mg.neighbors order → identical
+        // DFS edge stacks; warm reuse across the biconnected-inspection call sequence.
         let inner = &mg.inner;
         let nodes = inner.nodes_ordered();
-        let adjacency = build_index_adjacency(&nodes, |u| inner.neighbors(u).unwrap_or_default());
-        let result = py.allow_threads(|| biconnected_component_edges_dfs(&adjacency));
+        let result = py.allow_threads(|| inner.with_int_adjacency(biconnected_component_edges_dfs));
         return Ok(result
             .iter()
             .map(|comp| {
@@ -21833,14 +23553,12 @@ fn biconnected_components_from_adjacency(adjacency: &[Vec<usize>]) -> Vec<Vec<us
         .collect()
 }
 
-/// Direct `MultiGraph` articulation points over distinct-neighbor adjacency.
-fn multigraph_articulation_points(mg: &fnx_classes::MultiGraph) -> Vec<&str> {
-    let nodes = mg.nodes_ordered();
-    let n = nodes.len();
-    if n == 0 {
-        return Vec::new();
-    }
-    let adjacency = build_index_adjacency(&nodes, |u| mg.neighbors(u).unwrap_or_default());
+/// Low-link articulation-point DFS over an integer adjacency, returning the
+/// articulation node indices in NetworkX discovery order. Pure over `adjacency`
+/// (`n = adjacency.len()`); shared by the live memo route and the frozen A/B
+/// baseline so the two differ ONLY in how the adjacency rows are sourced.
+fn multigraph_articulation_order(adjacency: &[Vec<usize>]) -> Vec<usize> {
+    let n = adjacency.len();
     let undiscovered = usize::MAX;
     let mut discovery = vec![undiscovered; n];
     let mut low = vec![undiscovered; n];
@@ -21910,6 +23628,38 @@ fn multigraph_articulation_points(mg: &fnx_classes::MultiGraph) -> Vec<&str> {
     }
 
     articulation_order
+}
+
+/// Direct `MultiGraph` articulation points over distinct-neighbor adjacency.
+fn multigraph_articulation_points(mg: &fnx_classes::MultiGraph) -> Vec<&str> {
+    let nodes = mg.nodes_ordered();
+    if nodes.is_empty() {
+        return Vec::new();
+    }
+    // br-r37-c1-wt0wh (cc): reuse the revision-keyed integer-adjacency memo instead of rebuilding
+    // the index adjacency per call via `build_index_adjacency` (a per-neighbour String→index
+    // resolution). The memo yields the same distinct-neighbour rows in the same mg.neighbors order →
+    // byte-identical low-link DFS → identical discovery-ordered articulation node names. Warm reuse
+    // across MultiGraph ops on the same revision (family: 7xsg9/a5rsz/85ktt/sstk9).
+    mg.with_int_adjacency(|adjacency| {
+        multigraph_articulation_order(adjacency)
+            .into_iter()
+            .map(|idx| nodes[idx])
+            .collect()
+    })
+}
+
+/// Frozen pre-`br-r37-c1-wt0wh` `build_index_adjacency` route — rebuilds the
+/// index adjacency per call, then runs the shared DFS. Kept for the same-binary
+/// A/B and parity proof.
+#[cfg(test)]
+fn multigraph_articulation_points_orig_buildindex(mg: &fnx_classes::MultiGraph) -> Vec<&str> {
+    let nodes = mg.nodes_ordered();
+    if nodes.is_empty() {
+        return Vec::new();
+    }
+    let adjacency = build_index_adjacency(&nodes, |u| mg.neighbors(u).unwrap_or_default());
+    multigraph_articulation_order(&adjacency)
         .into_iter()
         .map(|idx| nodes[idx])
         .collect()
@@ -21921,6 +23671,74 @@ fn multigraph_articulation_points(mg: &fnx_classes::MultiGraph) -> Vec<&str> {
 /// node rule is honored; parallel edges must not force the slow simple-Graph
 /// materialization path just to run the same low-link check.
 fn multigraph_is_biconnected(mg: &fnx_classes::MultiGraph) -> bool {
+    let nodes = mg.nodes_ordered();
+    let n = nodes.len();
+    if n < 2 {
+        return false;
+    }
+    // br-r37-c1-sstk9 (cc): reuse the revision-keyed integer-adjacency memo instead of rebuilding
+    // the index adjacency per call via `build_index_adjacency` (a per-neighbour String→index
+    // resolution). The memo yields the same distinct-neighbour rows in the same mg.neighbors order →
+    // identical low-link DFS → identical biconnectivity bool (a vertex invariant). Byte-identical;
+    // joins the shared-memo ecosystem (warm reuse across MultiGraph ops on the same revision) —
+    // same transform already shipped for connected_components (7xsg9), number_connected_components
+    // (a5rsz) and node_connected_component (85ktt).
+    mg.with_int_adjacency(|adjacency| {
+        let undiscovered = usize::MAX;
+        let mut discovery = vec![undiscovered; n];
+        let mut low = vec![0usize; n];
+        let mut parent = vec![undiscovered; n];
+        let mut time = 1usize;
+        let mut visited_count = 1usize;
+        let mut root_children = 0usize;
+
+        discovery[0] = 0;
+        low[0] = 0;
+        let mut stack: Vec<(usize, usize, usize)> = vec![(undiscovered, 0, 0)];
+
+        while let Some(&(grandparent, node, pos)) = stack.last() {
+            if pos < adjacency[node].len() {
+                stack.last_mut().expect("non-empty").2 = pos + 1;
+                let child = adjacency[node][pos];
+                if child == grandparent || child == node {
+                    continue;
+                }
+                if discovery[child] == undiscovered {
+                    parent[child] = node;
+                    discovery[child] = time;
+                    low[child] = time;
+                    time += 1;
+                    visited_count += 1;
+                    if node == 0 {
+                        root_children += 1;
+                        if root_children > 1 {
+                            return false;
+                        }
+                    }
+                    stack.push((node, child, 0));
+                } else {
+                    low[node] = low[node].min(discovery[child]);
+                }
+            } else {
+                let finished = stack.pop().expect("non-empty").1;
+                let p = parent[finished];
+                if p != undiscovered {
+                    low[p] = low[p].min(low[finished]);
+                    if parent[p] != undiscovered && low[finished] >= discovery[p] {
+                        return false;
+                    }
+                }
+            }
+        }
+
+        visited_count == n
+    })
+}
+
+/// Frozen pre-`br-r37-c1-sstk9` `build_index_adjacency` route — rebuilds the
+/// index adjacency per call. Kept for the same-binary A/B and parity proof.
+#[cfg(test)]
+fn multigraph_is_biconnected_orig_buildindex(mg: &fnx_classes::MultiGraph) -> bool {
     let nodes = mg.nodes_ordered();
     let n = nodes.len();
     if n < 2 {
@@ -22350,6 +24168,125 @@ pub fn path_exists_rust(
     Ok(true)
 }
 
+/// Accumulate `sum(attrs[weight])` over consecutive index pairs, matching
+/// Python's `int`/`float` promotion. `lookup(a, b)` returns the edge's inner
+/// AttrMap by node INDEX; `matches(i)` verifies node value `i` is stored at
+/// index `i` (so the value can be used directly as the index). Returns `None`
+/// (the Python-fallback signal) the instant any pair is off the int fast path
+/// (value != index), an edge is absent, the weight is missing/non-numeric, or
+/// an i64 sum overflows (Python promotes to bignum there).
+fn sum_path_weight_by_indices<'a>(
+    py: Python<'_>,
+    indices: &[usize],
+    weight: &str,
+    lookup: impl Fn(usize, usize) -> Option<&'a AttrMap>,
+    matches: impl Fn(usize) -> bool,
+) -> PyResult<Option<PyObject>> {
+    let mut acc_i: i64 = 0;
+    let mut acc_f: f64 = 0.0;
+    let mut is_float = false;
+    for pair in indices.windows(2) {
+        let (a, b) = (pair[0], pair[1]);
+        if !matches(a) || !matches(b) {
+            return Ok(None);
+        }
+        let Some(attrs) = lookup(a, b) else {
+            return Ok(None);
+        };
+        match attrs.get(weight) {
+            Some(fnx_runtime::CgseValue::Int(v)) => {
+                if is_float {
+                    acc_f += *v as f64;
+                } else {
+                    match acc_i.checked_add(*v) {
+                        Some(sum) => acc_i = sum,
+                        None => return Ok(None), // bignum territory -> Python
+                    }
+                }
+            }
+            Some(fnx_runtime::CgseValue::Float(v)) => {
+                if !is_float {
+                    is_float = true;
+                    acc_f = acc_i as f64;
+                }
+                acc_f += *v;
+            }
+            // Missing weight (KeyError in nx), bool/str/map (needs Python semantics).
+            _ => return Ok(None),
+        }
+    }
+    let result = if is_float {
+        acc_f.into_pyobject(py)?.into_any().unbind()
+    } else {
+        acc_i.into_pyobject(py)?.into_any().unbind()
+    };
+    Ok(Some(result))
+}
+
+/// Native `sum(G[u][v][weight] for u, v in pairwise(path))` for SIMPLE
+/// (non-multi) graphs on the integer node-value fast path (node value == storage
+/// index — the common `range(n)`/generator-built case), whose inner edge attrs
+/// are clean (no pending Python->inner sync). Returns `None` — signalling the
+/// Python wrapper to fall back to the exact `G[u][v][weight]` loop — for every
+/// case not handled byte-identically here: non-integer / non-contiguous node
+/// keys, multigraphs (min over parallel edges), dirty graphs (mutated Python
+/// edge dicts not yet mirrored into `inner`), a missing weight (nx raises
+/// KeyError), non-numeric weight values, and i64 overflow. br-r37-c1-ykqs0:
+/// eliminates the per-step `G[node]` AtlasView/row-keydict build (~len(path)
+/// PyO3 crossings) that made path_weight ~0.27x vs nx, using O(1) FxIndexMap
+/// edge-attr lookups by index with zero String canonicalization.
+#[pyfunction]
+#[pyo3(signature = (g, path, weight))]
+pub fn path_weight_rust(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    path: &Bound<'_, PyAny>,
+    weight: &str,
+) -> PyResult<Option<PyObject>> {
+    let gr = extract_graph(g)?;
+    // Cheap gate FIRST, before extracting the path: multigraphs need
+    // min-over-parallel-edges semantics, and a dirty graph has authoritative
+    // (unsynced) Python edge dicts that make `inner` stale — both defer to the
+    // Python fallback. Bailing here avoids building the index Vec on the miss.
+    match &gr {
+        GraphRef::Undirected(pg) if !pg.edges_dirty.load(Ordering::Relaxed) => {
+            let Some(indices) = exact_usize_path_sequence(path) else {
+                return Ok(None);
+            };
+            if indices.len() < 2 {
+                // Empty/singleton path: nx returns int 0 — let Python return it.
+                return Ok(None);
+            }
+            let inner = &pg.inner;
+            sum_path_weight_by_indices(
+                py,
+                &indices,
+                weight,
+                |a, b| inner.edge_attrs_by_indices(a, b),
+                |i| inner.node_index_matches_int(i),
+            )
+        }
+        GraphRef::Directed { dg, .. } if !dg.edges_dirty.load(Ordering::Relaxed) => {
+            let Some(indices) = exact_usize_path_sequence(path) else {
+                return Ok(None);
+            };
+            if indices.len() < 2 {
+                return Ok(None);
+            }
+            let inner = &dg.inner;
+            sum_path_weight_by_indices(
+                py,
+                &indices,
+                weight,
+                |a, b| inner.edge_attrs_by_indices(a, b),
+                |i| inner.node_index_matches_int(i),
+            )
+        }
+        // Dirty simple graph, or any multigraph -> Python fallback.
+        _ => Ok(None),
+    }
+}
+
 #[pyfunction]
 #[pyo3(signature = (g,))]
 pub fn is_path(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<bool> {
@@ -22717,37 +24654,69 @@ fn mixing_expansion(
     })
 }
 
+/// br-r37-c1-5k75q (cc): directed non-edges over a `vec![false;n]` successor bool row
+/// instead of an O(V²) `has_edge(u,v)` String-hash probe per ordered pair. For each
+/// source `u` mark `successors_indices(u)` in the reusable row, then a non-edge is
+/// `u != v && !is_succ[v]` (an O(1) array read; `(u,v)` is a directed edge ⟺ `v` is a
+/// successor of `u`), resetting the row after each source. Byte-identical: same
+/// row-major (u-outer, v-inner) node-order scan, same `u != v` guard, same emitted
+/// `(name,name)` pairs. Same bool-row lever as complement_edges_directed.
+fn directed_non_edges_bool_row(dg: &fnx_classes::digraph::DiGraph) -> Vec<(String, String)> {
+    let nodes = dg.nodes_ordered();
+    let n = nodes.len();
+    let mut missing = Vec::new();
+    let mut is_succ = vec![false; n];
+    for u in 0..n {
+        if let Some(succ) = dg.successors_indices(u) {
+            for &v in succ {
+                if v < n {
+                    is_succ[v] = true;
+                }
+            }
+        }
+        for v in 0..n {
+            if u != v && !is_succ[v] {
+                missing.push((nodes[u].to_owned(), nodes[v].to_owned()));
+            }
+        }
+        if let Some(succ) = dg.successors_indices(u) {
+            for &v in succ {
+                if v < n {
+                    is_succ[v] = false;
+                }
+            }
+        }
+    }
+    missing
+}
+
+/// Frozen pre-`br-r37-c1-5k75q` O(V²) `has_edge` route — a String-hash probe per
+/// ordered pair. Kept for the same-binary A/B and parity proof.
+#[cfg(test)]
+fn directed_non_edges_has_edge_orig(dg: &fnx_classes::digraph::DiGraph) -> Vec<(String, String)> {
+    let nodes = dg.nodes_ordered();
+    let mut missing = Vec::new();
+    for &u in &nodes {
+        for &v in &nodes {
+            if u != v && !dg.has_edge(u, v) {
+                missing.push((u.to_owned(), v.to_owned()));
+            }
+        }
+    }
+    missing
+}
+
 /// Return all non-edges of the graph.
 #[pyfunction]
 #[pyo3(signature = (g,))]
 fn non_edges(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Vec<(PyObject, PyObject)>> {
     let gr = extract_graph(g)?;
     let result: Vec<(String, String)> = match &gr {
-        GraphRef::Directed { dg, .. } => {
-            let nodes = dg.inner.nodes_ordered();
-            let mut missing = Vec::new();
-            for &u in &nodes {
-                for &v in &nodes {
-                    if u != v && !dg.inner.has_edge(u, v) {
-                        missing.push((u.to_owned(), v.to_owned()));
-                    }
-                }
-            }
-            missing
-        }
+        GraphRef::Directed { dg, .. } => directed_non_edges_bool_row(&dg.inner),
         _ => {
             if gr.is_directed() {
                 let dg = gr.digraph().expect("is_directed checked above");
-                let nodes = dg.nodes_ordered();
-                let mut missing = Vec::new();
-                for &u in &nodes {
-                    for &v in &nodes {
-                        if u != v && !dg.has_edge(u, v) {
-                            missing.push((u.to_owned(), v.to_owned()));
-                        }
-                    }
-                }
-                missing
+                directed_non_edges_bool_row(dg)
             } else {
                 {
                     let __gr_undirected = gr.undirected();
@@ -23476,8 +25445,7 @@ pub fn average_clustering_rust(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult
 pub fn transitivity_rust(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<f64> {
     let gr = extract_graph(g)?;
     let inner = gr.undirected();
-    let result = py.allow_threads(|| fnx_algorithms::clustering_coefficient(inner));
-    Ok(result.transitivity)
+    Ok(py.allow_threads(|| fnx_algorithms::transitivity(inner)))
 }
 
 // ---------------------------------------------------------------------------
@@ -23589,6 +25557,7 @@ pub fn power_rust(py: Python<'_>, g: &Bound<'_, PyAny>, k: usize) -> PyResult<Py
         edges_dirty: AtomicBool::new(false),
         node_keys_cache: std::sync::Mutex::new(None),
         node_iter_mirror: std::sync::Mutex::new(None),
+        instance_dict_gc: crate::InstanceDictGc::new(),
         node_data_mirror: std::sync::Mutex::new(None),
     };
     Ok(pg.into_pyobject(py)?.into_any().unbind())
@@ -23706,6 +25675,7 @@ pub fn ego_graph_rust(
         edges_dirty: AtomicBool::new(false),
         node_keys_cache: std::sync::Mutex::new(None),
         node_iter_mirror: std::sync::Mutex::new(None),
+        instance_dict_gc: crate::InstanceDictGc::new(),
         node_data_mirror: std::sync::Mutex::new(None),
     };
     Ok(pg.into_pyobject(py)?.into_any().unbind())
@@ -23844,6 +25814,7 @@ pub fn full_join_rust(
         edges_dirty: AtomicBool::new(false),
         node_keys_cache: std::sync::Mutex::new(None),
         node_iter_mirror: std::sync::Mutex::new(None),
+        instance_dict_gc: crate::InstanceDictGc::new(),
         node_data_mirror: std::sync::Mutex::new(None),
     };
     Ok(pg.into_pyobject(py)?.into_any().unbind())
@@ -23881,6 +25852,7 @@ pub fn identified_nodes_rust(
         edges_dirty: AtomicBool::new(false),
         node_keys_cache: std::sync::Mutex::new(None),
         node_iter_mirror: std::sync::Mutex::new(None),
+        instance_dict_gc: crate::InstanceDictGc::new(),
         node_data_mirror: std::sync::Mutex::new(None),
     };
     Ok(pg.into_pyobject(py)?.into_any().unbind())
@@ -23977,6 +25949,7 @@ pub fn dedensify_rust(
         edges_dirty: AtomicBool::new(false),
         node_keys_cache: std::sync::Mutex::new(None),
         node_iter_mirror: std::sync::Mutex::new(None),
+        instance_dict_gc: crate::InstanceDictGc::new(),
         node_data_mirror: std::sync::Mutex::new(None),
     };
     Ok((pg.into_pyobject(py)?.into_any().unbind(), compressors))
@@ -24057,6 +26030,58 @@ pub fn get_edge_attributes_rust(
     Ok(dict.unbind())
 }
 
+/// Typed native `get_edge_attributes(G, name)` for a SIMPLE UNDIRECTED `Graph`
+/// whose edge attrs are clean (no pending Python->inner sync). Reads the inner
+/// `edges` AttrMaps directly (authoritative for add_edge / add_edges_from /
+/// generator-built graphs) and returns `{(u, v): value}` for edges carrying
+/// `name`, converting each value with the byte-exact `cgse_value_to_py`.
+///
+/// Returns `None` — signalling the Python `get_edge_attributes` wrapper to fall
+/// back to the exact `edges(data=True)` walk — for every case not handled
+/// byte-identically here: directed / multigraph inputs (different key shape or
+/// already fast), a dirty graph (mutated Python edge dicts are authoritative,
+/// inner stale), and any value stored as `String`/`Map`. `String` is AMBIGUOUS —
+/// the py->inner boundary coerces `None`, lists, dicts, and arbitrary objects to
+/// their repr/JSON `String`, indistinguishable from a genuine `str` value — so a
+/// single non-scalar edge value defers the whole call to Python. Int/Float/Bool
+/// round-trip exactly. br-r37-c1-w868y: replaces the 0.79x EdgeView walk on the
+/// common numeric-weight case; dict order is `==`-irrelevant.
+#[pyfunction]
+#[pyo3(signature = (g, name))]
+pub fn get_edge_attributes_native(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    name: &str,
+) -> PyResult<Option<Py<PyDict>>> {
+    let gr = extract_graph(g)?;
+    let GraphRef::Undirected(pg) = &gr else {
+        return Ok(None);
+    };
+    if pg.edges_dirty.load(Ordering::Relaxed) {
+        return Ok(None);
+    }
+    let dict = PyDict::new(py);
+    for (left, right, attrs) in pg.inner.edges_ordered_borrowed() {
+        let Some(val) = attrs.get(name) else {
+            continue;
+        };
+        match val {
+            // Int/Float/Bool round-trip byte-exactly through cgse_value_to_py.
+            fnx_runtime::CgseValue::Int(_)
+            | fnx_runtime::CgseValue::Float(_)
+            | fnx_runtime::CgseValue::Bool(_) => {
+                let key = (pg.py_node_key(py, left), pg.py_node_key(py, right));
+                dict.set_item(key, crate::cgse_value_to_py(py, val)?)?;
+            }
+            // Ambiguous/uncertain fidelity -> exact Python edges(data=True) walk.
+            fnx_runtime::CgseValue::String(_) | fnx_runtime::CgseValue::Map(_) => {
+                return Ok(None);
+            }
+        }
+    }
+    Ok(Some(dict.unbind()))
+}
+
 // ---------------------------------------------------------------------------
 // Quotient graph
 // ---------------------------------------------------------------------------
@@ -24095,6 +26120,7 @@ pub fn quotient_graph_rust(
         edges_dirty: AtomicBool::new(false),
         node_keys_cache: std::sync::Mutex::new(None),
         node_iter_mirror: std::sync::Mutex::new(None),
+        instance_dict_gc: crate::InstanceDictGc::new(),
         node_data_mirror: std::sync::Mutex::new(None),
     };
     Ok(pg.into_pyobject(py)?.into_any().unbind())
@@ -24632,6 +26658,7 @@ pub fn gomory_hu_tree_rust(
         edges_dirty: AtomicBool::new(false),
         node_keys_cache: std::sync::Mutex::new(None),
         node_iter_mirror: std::sync::Mutex::new(None),
+        instance_dict_gc: crate::InstanceDictGc::new(),
         node_data_mirror: std::sync::Mutex::new(None),
     };
     Ok(pg.into_pyobject(py)?.into_any().unbind())
@@ -24688,6 +26715,7 @@ pub fn snap_aggregation_rust(
         edges_dirty: AtomicBool::new(false),
         node_keys_cache: std::sync::Mutex::new(None),
         node_iter_mirror: std::sync::Mutex::new(None),
+        instance_dict_gc: crate::InstanceDictGc::new(),
         node_data_mirror: std::sync::Mutex::new(None),
     };
     Ok(pg.into_pyobject(py)?.into_any().unbind())
@@ -24905,13 +26933,34 @@ pub fn write_graphml_string_rust(
 
 /// All-pairs node connectivity.
 #[pyfunction]
+#[pyo3(signature = (g, nbunch=None))]
 pub fn all_pairs_node_connectivity_rust(
     py: Python<'_>,
     g: &Bound<'_, PyAny>,
+    nbunch: Option<Vec<Bound<'_, PyAny>>>,
 ) -> PyResult<Py<PyDict>> {
     let gr = extract_graph(g)?;
     let inner = gr.undirected();
-    let result = py.allow_threads(|| fnx_algorithms::all_pairs_node_connectivity(inner));
+    let node_names = nbunch
+        .map(|nodes| {
+            nodes
+                .iter()
+                .map(|node| node_key_to_string(py, node))
+                .collect::<PyResult<Vec<_>>>()
+        })
+        .transpose()?;
+    let result = if let Some(node_names) = &node_names {
+        for node in node_names {
+            validate_node_str(&gr, node, "Node")?;
+        }
+        let node_refs = node_names.iter().map(String::as_str).collect::<Vec<_>>();
+        py.allow_threads(|| {
+            fnx_algorithms::all_pairs_node_connectivity_subset(inner, &node_refs)
+                .expect("validated nbunch nodes exist")
+        })
+    } else {
+        py.allow_threads(|| fnx_algorithms::all_pairs_node_connectivity(inner))
+    };
     let dict = PyDict::new(py);
     for ((u, v), conn) in &result {
         dict.set_item((gr.py_node_key(py, u), gr.py_node_key(py, v)), conn)?;
@@ -25513,6 +27562,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(adjacency_nodelist_typed_arrays, m)?)?;
     m.add_function(wrap_pyfunction!(fnx_to_nx_adjacency, m)?)?;
     m.add_function(wrap_pyfunction!(graph_has_edge_attr, m)?)?;
+    m.add_function(wrap_pyfunction!(graph_has_none_edge_attr_key, m)?)?;
     m.add_function(wrap_pyfunction!(graph_has_any_attrs, m)?)?;
     m.add_function(wrap_pyfunction!(graph_has_any_edge_attrs, m)?)?;
     m.add_function(wrap_pyfunction!(bellman_ford_path, m)?)?;
@@ -25607,6 +27657,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     // Distance measures
     m.add_function(wrap_pyfunction!(density, m)?)?;
     m.add_function(wrap_pyfunction!(eccentricity, m)?)?;
+    m.add_function(wrap_pyfunction!(_distance_measures_arm, m)?)?;
     m.add_function(wrap_pyfunction!(diameter, m)?)?;
     m.add_function(wrap_pyfunction!(radius, m)?)?;
     m.add_function(wrap_pyfunction!(center, m)?)?;
@@ -25618,6 +27669,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(bipartite_sets, m)?)?;
     m.add_function(wrap_pyfunction!(greedy_color, m)?)?;
     m.add_function(wrap_pyfunction!(core_number, m)?)?;
+    m.add_function(wrap_pyfunction!(core_number_selfloopscan_ab, m)?)?;
     m.add_function(wrap_pyfunction!(k_core_rust, m)?)?;
     m.add_function(wrap_pyfunction!(k_shell_rust, m)?)?;
     m.add_function(wrap_pyfunction!(k_crust_rust, m)?)?;
@@ -25723,6 +27775,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     // All-pairs shortest paths
     m.add_function(wrap_pyfunction!(all_pairs_shortest_path, m)?)?;
     m.add_function(wrap_pyfunction!(all_pairs_shortest_path_length, m)?)?;
+    m.add_function(wrap_pyfunction!(shortest_path_length_matrix, m)?)?;
     // Graph predicates & utilities
     m.add_function(wrap_pyfunction!(is_empty, m)?)?;
     m.add_function(wrap_pyfunction!(non_neighbors, m)?)?;
@@ -25805,6 +27858,9 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(tensor_product, m)?)?;
     m.add_function(wrap_pyfunction!(cartesian_product_fast, m)?)?;
     m.add_function(wrap_pyfunction!(cartesian_product_edge_attrs_fast, m)?)?;
+    m.add_function(wrap_pyfunction!(lexicographic_product_edge_attrs_fast, m)?)?;
+    m.add_function(wrap_pyfunction!(tensor_product_edge_attrs_fast, m)?)?;
+    m.add_function(wrap_pyfunction!(strong_product_edge_attrs_fast, m)?)?;
     m.add_function(wrap_pyfunction!(tensor_product_fast, m)?)?;
     m.add_function(wrap_pyfunction!(strong_product_fast, m)?)?;
     m.add_function(wrap_pyfunction!(lexicographic_product_fast, m)?)?;
@@ -25859,6 +27915,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(normalized_cut_size, m)?)?;
     // Path validation
     m.add_function(wrap_pyfunction!(path_exists_rust, m)?)?;
+    m.add_function(wrap_pyfunction!(path_weight_rust, m)?)?;
     m.add_function(wrap_pyfunction!(is_simple_path, m)?)?;
     // Matching validators
     m.add_function(wrap_pyfunction!(is_matching, m)?)?;
@@ -25896,6 +27953,8 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     // Additional centrality algorithms
     m.add_function(wrap_pyfunction!(in_degree_centrality, m)?)?;
     m.add_function(wrap_pyfunction!(out_degree_centrality, m)?)?;
+    m.add_function(wrap_pyfunction!(in_degree_centrality_kernel_ab, m)?)?;
+    m.add_function(wrap_pyfunction!(degree_centrality_directed_kernel_ab, m)?)?;
     m.add_function(wrap_pyfunction!(local_reaching_centrality, m)?)?;
     m.add_function(wrap_pyfunction!(global_reaching_centrality, m)?)?;
     m.add_function(wrap_pyfunction!(group_degree_centrality, m)?)?;
@@ -26037,6 +28096,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     // Get node/edge attributes
     m.add_function(wrap_pyfunction!(get_node_attributes_rust, m)?)?;
     m.add_function(wrap_pyfunction!(get_edge_attributes_rust, m)?)?;
+    m.add_function(wrap_pyfunction!(get_edge_attributes_native, m)?)?;
     // Quotient graph
     m.add_function(wrap_pyfunction!(quotient_graph_rust, m)?)?;
     // Moral graph
@@ -26309,6 +28369,3505 @@ mod tests {
 
     fn ensure_python() {
         Python::initialize();
+    }
+
+    #[test]
+    fn multigraph_target_bidirectional_bfs_matches_unidirectional_baseline() {
+        let nodes = ["zeta", "alpha", "mu", "theta", "xi"];
+        let edges = [
+            (0usize, 1usize),
+            (0, 2),
+            (0, 3),
+            (0, 4),
+            (1, 2),
+            (1, 3),
+            (1, 4),
+            (2, 3),
+            (2, 4),
+            (3, 4),
+        ];
+
+        for edge_mask in 0usize..(1 << edges.len()) {
+            let mut graph = MultiGraph::strict();
+            for node in nodes {
+                let _ = graph.add_node(node.to_owned());
+            }
+            for (bit, &(left, right)) in edges.iter().enumerate() {
+                if edge_mask & (1 << bit) != 0 {
+                    let _ = graph.add_edge(nodes[left].to_owned(), nodes[right].to_owned());
+                }
+            }
+            for source in nodes {
+                for target in nodes {
+                    assert_eq!(
+                        super::multigraph_target_bfs_distance(&graph, source, target),
+                        super::multigraph_target_bfs_distance_orig_unidirectional(
+                            &graph, source, target,
+                        ),
+                        "edge mask {edge_mask:#05x}, source={source}, target={target}"
+                    );
+                }
+            }
+        }
+
+        let mut graph = MultiGraph::strict();
+        for node in nodes {
+            let _ = graph.add_node(node.to_owned());
+        }
+        for _ in 0..3 {
+            let _ = graph.add_edge("zeta".to_owned(), "alpha".to_owned());
+        }
+        let _ = graph.add_edge("alpha".to_owned(), "alpha".to_owned());
+        let _ = graph.add_edge("mu".to_owned(), "theta".to_owned());
+        for source in nodes {
+            for target in nodes {
+                assert_eq!(
+                    super::multigraph_target_bfs_distance(&graph, source, target),
+                    super::multigraph_target_bfs_distance_orig_unidirectional(
+                        &graph, source, target,
+                    ),
+                    "parallel/self-loop source={source}, target={target}"
+                );
+            }
+        }
+        assert_eq!(
+            super::multigraph_target_bfs_distance(&graph, "missing", "zeta"),
+            None
+        );
+        assert_eq!(
+            super::multigraph_target_bfs_distance(&graph, "zeta", "missing"),
+            None
+        );
+    }
+
+    /// `br-r37-c1-ddw4l`: same-binary A/B of the frozen source-only BFS and
+    /// the two-fringe BFS, plus a candidate/candidate null control.
+    #[test]
+    #[ignore = "measurement; run with release profile, --ignored, and --nocapture"]
+    fn multigraph_target_bidirectional_bfs_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        fn shuffle(values: &mut [usize], state: &mut u64) {
+            for upper in (1..values.len()).rev() {
+                *state = state
+                    .wrapping_mul(6_364_136_223_846_793_005)
+                    .wrapping_add(1_442_695_040_888_963_407);
+                let index = (*state as usize) % (upper + 1);
+                values.swap(upper, index);
+            }
+        }
+
+        fn median(values: &[u128]) -> u128 {
+            let mut sorted = values.to_vec();
+            sorted.sort_unstable();
+            sorted[sorted.len() / 2]
+        }
+
+        let n = 4_096usize;
+        let calls = 16usize;
+        let rounds = 31usize;
+        let names = (0..n)
+            .map(|index| format!("bidir-{index:05}"))
+            .collect::<Vec<_>>();
+        let mut graph = MultiGraph::strict();
+        for name in &names {
+            let _ = graph.add_node(name.clone());
+        }
+        for left in 0..n {
+            let _ = graph.add_edge(names[left].clone(), names[(left + 1) % n].clone());
+        }
+        let mut order = (0..n).collect::<Vec<_>>();
+        let mut state = 90_210u64;
+        for _ in 0..2 {
+            shuffle(&mut order, &mut state);
+            for pair in order.as_chunks::<2>().0 {
+                let _ = graph.add_edge(names[pair[0]].clone(), names[pair[1]].clone());
+            }
+        }
+
+        let source = names[0].as_str();
+        let (target, distance, _) =
+            super::multigraph_sssp_length_with_parents(&graph, source, None)
+                .into_iter()
+                .max_by_key(|(_, distance, _)| *distance)
+                .expect("fixture contains its source");
+        let target = target.to_owned();
+        let baseline =
+            super::multigraph_target_bfs_distance_orig_unidirectional(&graph, source, &target);
+        let candidate = super::multigraph_target_bfs_distance(&graph, source, &target);
+        assert_eq!(candidate, baseline, "two-fringe distance must be exact");
+        assert_eq!(candidate, Some(distance));
+
+        let time = |candidate_route: bool| -> u128 {
+            let start = Instant::now();
+            for _ in 0..calls {
+                let result = if candidate_route {
+                    super::multigraph_target_bfs_distance(
+                        black_box(&graph),
+                        black_box(source),
+                        black_box(&target),
+                    )
+                } else {
+                    super::multigraph_target_bfs_distance_orig_unidirectional(
+                        black_box(&graph),
+                        black_box(source),
+                        black_box(&target),
+                    )
+                };
+                black_box(result);
+            }
+            start.elapsed().as_nanos()
+        };
+        for _ in 0..3 {
+            black_box(time(false));
+            black_box(time(true));
+        }
+
+        let mut baseline_times = Vec::with_capacity(rounds);
+        let mut candidate_times = Vec::with_capacity(rounds);
+        let mut null_first_times = Vec::with_capacity(rounds);
+        let mut null_second_times = Vec::with_capacity(rounds);
+        for round in 0..rounds {
+            let (baseline_time, candidate_time) = if round.is_multiple_of(2) {
+                (time(false), time(true))
+            } else {
+                let candidate_time = time(true);
+                (time(false), candidate_time)
+            };
+            baseline_times.push(baseline_time);
+            candidate_times.push(candidate_time);
+
+            let (null_first, null_second) = if round.is_multiple_of(2) {
+                (time(true), time(true))
+            } else {
+                let null_second = time(true);
+                (time(true), null_second)
+            };
+            null_first_times.push(null_first);
+            null_second_times.push(null_second);
+        }
+
+        let baseline_median = median(&baseline_times);
+        let candidate_median = median(&candidate_times);
+        let null_first_median = median(&null_first_times);
+        let null_second_median = median(&null_second_times);
+        let paired_wins = baseline_times
+            .iter()
+            .zip(&candidate_times)
+            .filter(|(baseline_time, candidate_time)| baseline_time > candidate_time)
+            .count();
+        println!(
+            "MG_TARGET_BIDIR_AB n={n} edges={} distance={distance} calls={calls} rounds={rounds} baseline_median_ns={baseline_median} candidate_median_ns={candidate_median} speedup={:.3}x paired_wins={paired_wins}/{rounds} null_first_median_ns={null_first_median} null_second_median_ns={null_second_median} null_ratio={:.3}x exact_parity=true",
+            graph.edge_count(),
+            baseline_median as f64 / candidate_median as f64,
+            null_first_median as f64 / null_second_median as f64,
+        );
+    }
+
+    fn closeness_dict_bits(py: Python<'_>, dict: &Py<PyDict>) -> Vec<(String, u64)> {
+        dict.bind(py)
+            .iter()
+            .map(|(key, value)| {
+                (
+                    key.extract::<String>()
+                        .expect("closeness key must be a string"),
+                    value
+                        .extract::<f64>()
+                        .expect("closeness score must be a float")
+                        .to_bits(),
+                )
+            })
+            .collect()
+    }
+
+    fn assert_closeness_binding_matches_kernel(py: Python<'_>, graph: &Bound<'_, PyAny>) {
+        let candidate =
+            super::closeness_centrality(py, graph).expect("candidate closeness should succeed");
+        let baseline = super::closeness_centrality_kernel_baseline(py, graph)
+            .expect("baseline closeness should succeed");
+        assert_eq!(
+            closeness_dict_bits(py, &candidate),
+            closeness_dict_bits(py, &baseline),
+            "binding path must preserve insertion order and exact score bits"
+        );
+    }
+
+    #[test]
+    fn closeness_edgeless_binding_matches_kernel() {
+        ensure_python();
+        Python::attach(|py| {
+            let empty = PyGraph::new_empty(py).expect("graph should initialize");
+            let empty = Py::new(py, empty).expect("graph should bind");
+            assert_closeness_binding_matches_kernel(py, empty.bind(py).as_any());
+
+            let mut graph = PyGraph::new_empty(py).expect("graph should initialize");
+            for node in ["zeta", "alpha", "mu"] {
+                let _ = graph.inner.add_node(node.to_owned());
+            }
+            let graph = Py::new(py, graph).expect("graph should bind");
+            assert_closeness_binding_matches_kernel(py, graph.bind(py).as_any());
+
+            let mut digraph = PyDiGraph::new_empty(py).expect("digraph should initialize");
+            for node in ["zeta", "alpha", "mu"] {
+                let _ = digraph.inner.add_node(node.to_owned());
+            }
+            let digraph = Py::new(py, digraph).expect("digraph should bind");
+            assert_closeness_binding_matches_kernel(py, digraph.bind(py).as_any());
+
+            let mut multigraph = PyMultiGraph::new_empty_with_mode(py, CompatibilityMode::Strict)
+                .expect("multigraph should initialize");
+            for node in ["zeta", "alpha", "mu"] {
+                let _ = multigraph.inner.add_node(node.to_owned());
+            }
+            let multigraph = Py::new(py, multigraph).expect("multigraph should bind");
+            assert_closeness_binding_matches_kernel(py, multigraph.bind(py).as_any());
+
+            let mut multidigraph =
+                PyMultiDiGraph::new_empty_with_mode(py, CompatibilityMode::Strict)
+                    .expect("multidigraph should initialize");
+            for node in ["zeta", "alpha", "mu"] {
+                let _ = multidigraph.inner.add_node(node.to_owned());
+            }
+            let multidigraph = Py::new(py, multidigraph).expect("multidigraph should bind");
+            assert_closeness_binding_matches_kernel(py, multidigraph.bind(py).as_any());
+
+            // A non-edgeless fixture proves the ordinary kernel route remains
+            // byte-identical when the eventual fast-path predicate is false.
+            let mut edge_graph = PyGraph::new_empty(py).expect("graph should initialize");
+            let _ = edge_graph
+                .inner
+                .add_edge("left".to_owned(), "right".to_owned());
+            let edge_graph = Py::new(py, edge_graph).expect("graph should bind");
+            assert_closeness_binding_matches_kernel(py, edge_graph.bind(py).as_any());
+        });
+    }
+
+    /// `br-r37-c1-or38d`: with-GIL same-binary proof for bypassing the all-sources
+    /// kernel on an edgeless graph. Before the production branch is applied,
+    /// candidate and baseline are the same route, providing the A/A null.
+    #[test]
+    #[ignore = "measurement; run with release profile, --ignored, and --nocapture"]
+    fn closeness_edgeless_binding_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        ensure_python();
+        Python::attach(|py| {
+            let n = 4_096usize;
+            let mut graph = PyGraph::new_empty(py).expect("graph should initialize");
+            for index in 0..n {
+                let _ = graph
+                    .inner
+                    .add_node(format!("closeness-isolate-{index:05}"));
+            }
+            let graph = Py::new(py, graph).expect("graph should bind");
+            let graph_any = graph.bind(py).as_any();
+
+            let candidate = super::closeness_centrality(py, graph_any)
+                .expect("candidate closeness should succeed");
+            let baseline = super::closeness_centrality_kernel_baseline(py, graph_any)
+                .expect("baseline closeness should succeed");
+            assert_eq!(
+                closeness_dict_bits(py, &candidate),
+                closeness_dict_bits(py, &baseline),
+                "candidate must preserve ordered keys and exact score bits"
+            );
+            assert!(
+                closeness_dict_bits(py, &candidate)
+                    .iter()
+                    .all(|(_, bits)| *bits == 0.0_f64.to_bits()),
+                "every isolated node must have positive-zero closeness"
+            );
+
+            let time = |candidate_route: bool| -> f64 {
+                let start = Instant::now();
+                let result = if candidate_route {
+                    super::closeness_centrality(py, graph_any)
+                } else {
+                    super::closeness_centrality_kernel_baseline(py, graph_any)
+                }
+                .expect("timed closeness should succeed");
+                black_box(result.bind(py).len());
+                start.elapsed().as_secs_f64()
+            };
+
+            for _ in 0..3 {
+                black_box(time(false));
+                black_box(time(true));
+            }
+
+            let rounds = 31usize;
+            let mut baseline_times = Vec::with_capacity(rounds);
+            let mut candidate_times = Vec::with_capacity(rounds);
+            let mut ratios = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (baseline_time, candidate_time) = if round.is_multiple_of(2) {
+                    (time(false), time(true))
+                } else {
+                    let candidate_time = time(true);
+                    (time(false), candidate_time)
+                };
+                baseline_times.push(baseline_time);
+                candidate_times.push(candidate_time);
+                ratios.push(baseline_time / candidate_time);
+            }
+
+            let mut null_ratios = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let first = time(true);
+                let second = time(true);
+                null_ratios.push(if round.is_multiple_of(2) {
+                    first / second
+                } else {
+                    second / first
+                });
+            }
+
+            let percentile = |values: &[f64], numerator: usize| -> f64 {
+                let mut sorted = values.to_vec();
+                sorted.sort_by(f64::total_cmp);
+                sorted[(sorted.len() - 1) * numerator / 100]
+            };
+            let wins = ratios.iter().filter(|&&ratio| ratio > 1.0).count();
+            println!(
+                "CLOSENESS_EDGELESS_AB n={n} rounds={rounds} baseline_us_p50={:.3} candidate_us_p50={:.3}",
+                percentile(&baseline_times, 50) * 1.0e6,
+                percentile(&candidate_times, 50) * 1.0e6,
+            );
+            println!(
+                "CLOSENESS_EDGELESS_AB paired median={:.4}x wins={wins}/{rounds} p5_p95=[{:.4},{:.4}]",
+                percentile(&ratios, 50),
+                percentile(&ratios, 5),
+                percentile(&ratios, 95),
+            );
+            println!(
+                "CLOSENESS_EDGELESS_AB null median={:.4}x p5_p95=[{:.4},{:.4}]",
+                percentile(&null_ratios, 50),
+                percentile(&null_ratios, 5),
+                percentile(&null_ratios, 95),
+            );
+        });
+    }
+
+    #[test]
+    fn multigraph_is_connected_matches_string_route() {
+        let mut graph = MultiGraph::strict();
+        assert_eq!(
+            super::multigraph_is_connected(&graph),
+            super::multigraph_is_connected_orig_string(&graph)
+        );
+
+        let _ = graph.add_node("solo".to_owned());
+        assert_eq!(
+            super::multigraph_is_connected(&graph),
+            super::multigraph_is_connected_orig_string(&graph)
+        );
+
+        for node in ["alpha", "mu", "theta"] {
+            let _ = graph.add_node(node.to_owned());
+        }
+        let _ = graph.add_edge("solo".to_owned(), "alpha".to_owned());
+        let _ = graph.add_edge("solo".to_owned(), "alpha".to_owned());
+        let _ = graph.add_edge("mu".to_owned(), "theta".to_owned());
+        let _ = graph.add_edge("theta".to_owned(), "theta".to_owned());
+        assert_eq!(
+            super::multigraph_is_connected(&graph),
+            super::multigraph_is_connected_orig_string(&graph)
+        );
+        assert!(!super::multigraph_is_connected(&graph));
+
+        // Exercise read-mutate-read memo invalidation while joining the two
+        // components without changing any public error handling.
+        let _ = graph.add_edge("alpha".to_owned(), "mu".to_owned());
+        assert_eq!(
+            super::multigraph_is_connected(&graph),
+            super::multigraph_is_connected_orig_string(&graph)
+        );
+        assert!(super::multigraph_is_connected(&graph));
+    }
+
+    /// `br-r37-c1-59jm4`: same-binary paired proof for cached integer-row BFS
+    /// versus the former String-hashed `MultiGraph` connectivity traversal.
+    /// Run through strict remote RCH with:
+    /// `cargo test --profile release -p fnx-python --lib
+    /// multigraph_is_connected_intadj_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with release profile, --ignored, and --nocapture"]
+    fn multigraph_is_connected_intadj_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        let n = 20_000usize;
+        let node = |index: usize| format!("isconn-node-{index:05}");
+        let mut graph = MultiGraph::strict();
+        for index in 0..n {
+            let _ = graph.add_node(node(index));
+        }
+        for index in 0..n {
+            let next = (index + 1) % n;
+            let chord = (index + 127) % n;
+            let _ = graph.add_edge(node(index), node(next));
+            let _ = graph.add_edge(node(index), node(chord));
+            if index.is_multiple_of(8) {
+                let _ = graph.add_edge(node(index), node(next));
+            }
+        }
+        let candidate = super::multigraph_is_connected(&graph);
+        let baseline = super::multigraph_is_connected_orig_string(&graph);
+        assert_eq!(
+            candidate, baseline,
+            "indexed BFS must preserve connectivity"
+        );
+        assert!(candidate, "constructed graph must be connected");
+
+        // Prime the revision-keyed memo before warm timing. Pre-lever, the
+        // candidate is still the String route, giving a true A/A null baseline.
+        graph.with_int_adjacency(|adjacency| {
+            black_box(adjacency.len());
+        });
+
+        let time = |timed_graph: &MultiGraph, candidate_route: bool| -> f64 {
+            let start = Instant::now();
+            let connected = if candidate_route {
+                super::multigraph_is_connected(timed_graph)
+            } else {
+                super::multigraph_is_connected_orig_string(timed_graph)
+            };
+            black_box(connected);
+            start.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(&graph, true));
+            black_box(time(&graph, false));
+        }
+
+        let rounds = 31usize;
+        let paired_warm = |baseline_candidate: bool| -> Vec<f64> {
+            let mut ratios = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (baseline_time, candidate_time) = if round.is_multiple_of(2) {
+                    let baseline_time = time(&graph, baseline_candidate);
+                    let candidate_time = time(&graph, true);
+                    (baseline_time, candidate_time)
+                } else {
+                    let candidate_time = time(&graph, true);
+                    let baseline_time = time(&graph, baseline_candidate);
+                    (baseline_time, candidate_time)
+                };
+                ratios.push(baseline_time / candidate_time);
+            }
+            ratios
+        };
+        let paired_cold = |baseline_candidate: bool| -> Vec<f64> {
+            let mut ratios = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let baseline_graph = graph.clone();
+                let candidate_graph = graph.clone();
+                let (baseline_time, candidate_time) = if round.is_multiple_of(2) {
+                    let baseline_time = time(&baseline_graph, baseline_candidate);
+                    let candidate_time = time(&candidate_graph, true);
+                    (baseline_time, candidate_time)
+                } else {
+                    let candidate_time = time(&candidate_graph, true);
+                    let baseline_time = time(&baseline_graph, baseline_candidate);
+                    (baseline_time, candidate_time)
+                };
+                ratios.push(baseline_time / candidate_time);
+            }
+            ratios
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&ratio| ratio > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(f64::total_cmp);
+            println!(
+                "MG_ISCONN_AB {name}: median={:.4}x wins={wins}/{rounds} p5_p95=[{:.4},{:.4}]",
+                sorted[rounds / 2],
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+
+        println!("MG_ISCONN_AB n={n} degree=4+parallel rounds={rounds} (>1 = candidate faster)");
+        report("warm_candidate_vs_string", &paired_warm(false));
+        report("warm_candidate_null", &paired_warm(true));
+        report("cold_candidate_vs_string", &paired_cold(false));
+        report("cold_candidate_null", &paired_cold(true));
+    }
+
+    #[test]
+    fn multigraph_connected_components_intadj_preserves_exact_order() {
+        let mut graph = MultiGraph::strict();
+        assert_eq!(
+            super::multigraph_connected_components_borrowed(&graph),
+            super::multigraph_connected_components_orig_string(&graph)
+        );
+
+        for node in ["zeta", "alpha", "mu", "theta", "xi"] {
+            let _ = graph.add_node(node.to_owned());
+        }
+        let _ = graph.add_edge("zeta".to_owned(), "alpha".to_owned());
+        let _ = graph.add_edge("zeta".to_owned(), "alpha".to_owned());
+        let _ = graph.add_edge("alpha".to_owned(), "mu".to_owned());
+        let _ = graph.add_edge("theta".to_owned(), "theta".to_owned());
+        assert_eq!(
+            super::multigraph_connected_components_borrowed(&graph),
+            super::multigraph_connected_components_orig_string(&graph)
+        );
+
+        // Exercise read-mutate-read cache invalidation while merging the three
+        // insertion-ordered components into one.
+        let _ = graph.add_edge("mu".to_owned(), "theta".to_owned());
+        let _ = graph.add_edge("theta".to_owned(), "xi".to_owned());
+        assert_eq!(
+            super::multigraph_connected_components_borrowed(&graph),
+            super::multigraph_connected_components_orig_string(&graph)
+        );
+    }
+
+    #[test]
+    fn multigraph_node_connected_component_matches_string_route() {
+        let mut graph = MultiGraph::strict();
+        assert_eq!(
+            super::multigraph_node_connected_component(&graph, "missing"),
+            super::multigraph_node_connected_component_orig_string(&graph, "missing")
+        );
+
+        for node in ["zeta", "alpha", "mu", "theta", "xi"] {
+            let _ = graph.add_node(node.to_owned());
+        }
+        let _ = graph.add_edge("zeta".to_owned(), "alpha".to_owned());
+        let _ = graph.add_edge("zeta".to_owned(), "alpha".to_owned());
+        let _ = graph.add_edge("alpha".to_owned(), "mu".to_owned());
+        let _ = graph.add_edge("theta".to_owned(), "theta".to_owned());
+        for start in ["zeta", "theta", "xi", "missing"] {
+            assert_eq!(
+                super::multigraph_node_connected_component(&graph, start),
+                super::multigraph_node_connected_component_orig_string(&graph, start),
+                "component discovery order must match for {start}"
+            );
+        }
+
+        // Exercise read-mutate-read memo invalidation while merging the three
+        // components into one.
+        let _ = graph.add_edge("mu".to_owned(), "theta".to_owned());
+        let _ = graph.add_edge("theta".to_owned(), "xi".to_owned());
+        assert_eq!(
+            super::multigraph_node_connected_component(&graph, "zeta"),
+            super::multigraph_node_connected_component_orig_string(&graph, "zeta")
+        );
+    }
+
+    /// `br-r37-c1-85ktt`: same-binary paired proof for cached integer-row BFS
+    /// versus the former String-hashed `MultiGraph` traversal. Run through
+    /// strict remote RCH with:
+    /// `cargo test --profile release -p fnx-python --lib
+    /// multigraph_node_connected_component_intadj_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with release profile, --ignored, and --nocapture"]
+    fn multigraph_node_connected_component_intadj_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        let n = 20_000usize;
+        let node = |index: usize| format!("ncc-node-{index:05}");
+        let mut graph = MultiGraph::strict();
+        for index in 0..n {
+            let _ = graph.add_node(node(index));
+        }
+        for index in 0..n {
+            let next = (index + 1) % n;
+            let chord = (index + 127) % n;
+            let _ = graph.add_edge(node(index), node(next));
+            let _ = graph.add_edge(node(index), node(chord));
+            if index.is_multiple_of(8) {
+                let _ = graph.add_edge(node(index), node(next));
+            }
+        }
+        let source = node(0);
+        let candidate = super::multigraph_node_connected_component(&graph, &source);
+        let baseline = super::multigraph_node_connected_component_orig_string(&graph, &source);
+        assert_eq!(candidate, baseline, "indexed BFS must preserve exact order");
+        assert_eq!(candidate.len(), n);
+
+        // Prime the revision-keyed memo before warm timing. Pre-lever, the
+        // candidate is still the String route, giving a true A/A null baseline.
+        graph.with_int_adjacency(|adjacency| {
+            black_box(adjacency.len());
+        });
+
+        let time = |timed_graph: &MultiGraph, candidate_route: bool| -> f64 {
+            let start = Instant::now();
+            let component = if candidate_route {
+                super::multigraph_node_connected_component(timed_graph, &source)
+            } else {
+                super::multigraph_node_connected_component_orig_string(timed_graph, &source)
+            };
+            black_box(component.len());
+            start.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(&graph, true));
+            black_box(time(&graph, false));
+        }
+
+        let rounds = 31usize;
+        let paired_warm = |baseline_candidate: bool| -> Vec<f64> {
+            let mut ratios = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (baseline_time, candidate_time) = if round.is_multiple_of(2) {
+                    let baseline_time = time(&graph, baseline_candidate);
+                    let candidate_time = time(&graph, true);
+                    (baseline_time, candidate_time)
+                } else {
+                    let candidate_time = time(&graph, true);
+                    let baseline_time = time(&graph, baseline_candidate);
+                    (baseline_time, candidate_time)
+                };
+                ratios.push(baseline_time / candidate_time);
+            }
+            ratios
+        };
+        let paired_cold = |baseline_candidate: bool| -> Vec<f64> {
+            let mut ratios = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let baseline_graph = graph.clone();
+                let candidate_graph = graph.clone();
+                let (baseline_time, candidate_time) = if round.is_multiple_of(2) {
+                    let baseline_time = time(&baseline_graph, baseline_candidate);
+                    let candidate_time = time(&candidate_graph, true);
+                    (baseline_time, candidate_time)
+                } else {
+                    let candidate_time = time(&candidate_graph, true);
+                    let baseline_time = time(&baseline_graph, baseline_candidate);
+                    (baseline_time, candidate_time)
+                };
+                ratios.push(baseline_time / candidate_time);
+            }
+            ratios
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&ratio| ratio > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(f64::total_cmp);
+            println!(
+                "MG_NCC_NODE_AB {name}: median={:.4}x wins={wins}/{rounds} p5_p95=[{:.4},{:.4}]",
+                sorted[rounds / 2],
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+
+        println!("MG_NCC_NODE_AB n={n} degree=4+parallel rounds={rounds} (>1 = candidate faster)");
+        report("warm_candidate_vs_string", &paired_warm(false));
+        report("warm_candidate_null", &paired_warm(true));
+        report("cold_candidate_vs_string", &paired_cold(false));
+        report("cold_candidate_null", &paired_cold(true));
+    }
+
+    #[test]
+    fn multigraph_is_biconnected_matches_buildindex_route() {
+        // Null/single-node rule, plus a range of connectivity shapes; parallel
+        // edges and self-loops must stay multiplicity-invariant.
+        let empty = MultiGraph::strict();
+        assert_eq!(
+            super::multigraph_is_biconnected(&empty),
+            super::multigraph_is_biconnected_orig_buildindex(&empty)
+        );
+
+        let mut single = MultiGraph::strict();
+        let _ = single.add_node("solo".to_owned());
+        assert_eq!(
+            super::multigraph_is_biconnected(&single),
+            super::multigraph_is_biconnected_orig_buildindex(&single)
+        );
+
+        // Biconnected square cycle a-b-c-d-a (no cut vertex).
+        let mut cycle = MultiGraph::strict();
+        for node in ["a", "b", "c", "d"] {
+            let _ = cycle.add_node(node.to_owned());
+        }
+        for (u, v) in [("a", "b"), ("b", "c"), ("c", "d"), ("d", "a")] {
+            let _ = cycle.add_edge(u.to_owned(), v.to_owned());
+        }
+        assert_eq!(
+            super::multigraph_is_biconnected(&cycle),
+            super::multigraph_is_biconnected_orig_buildindex(&cycle)
+        );
+        assert!(super::multigraph_is_biconnected(&cycle));
+
+        // Parallel edges + a self-loop must not change the vertex invariant.
+        let _ = cycle.add_edge("a".to_owned(), "b".to_owned());
+        let _ = cycle.add_edge("c".to_owned(), "c".to_owned());
+        assert_eq!(
+            super::multigraph_is_biconnected(&cycle),
+            super::multigraph_is_biconnected_orig_buildindex(&cycle)
+        );
+
+        // Add a pendant tail e off d → cut vertex d → not biconnected.
+        let _ = cycle.add_node("e".to_owned());
+        let _ = cycle.add_edge("d".to_owned(), "e".to_owned());
+        assert_eq!(
+            super::multigraph_is_biconnected(&cycle),
+            super::multigraph_is_biconnected_orig_buildindex(&cycle)
+        );
+        assert!(!super::multigraph_is_biconnected(&cycle));
+
+        // Read-mutate-read: heal the tail into the cycle (e-a) restoring
+        // biconnectivity while exercising memo invalidation between reads.
+        let _ = cycle.add_edge("e".to_owned(), "a".to_owned());
+        assert_eq!(
+            super::multigraph_is_biconnected(&cycle),
+            super::multigraph_is_biconnected_orig_buildindex(&cycle)
+        );
+    }
+
+    /// `br-r37-c1-sstk9`: same-binary paired proof for cached integer-row
+    /// low-link DFS versus the per-call `build_index_adjacency` route. Run with:
+    /// `cargo test --profile release -p fnx-python --lib
+    /// multigraph_is_biconnected_intadj_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with release profile, --ignored, and --nocapture"]
+    fn multigraph_is_biconnected_intadj_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        let n = 20_000usize;
+        let node = |index: usize| format!("bic-node-{index:05}");
+        let mut graph = MultiGraph::strict();
+        for index in 0..n {
+            let _ = graph.add_node(node(index));
+        }
+        // Cycle + chord keeps the graph 2-connected (worst case: full DFS runs).
+        for index in 0..n {
+            let next = (index + 1) % n;
+            let chord = (index + 127) % n;
+            let _ = graph.add_edge(node(index), node(next));
+            let _ = graph.add_edge(node(index), node(chord));
+            if index.is_multiple_of(8) {
+                let _ = graph.add_edge(node(index), node(next));
+            }
+        }
+        let candidate = super::multigraph_is_biconnected(&graph);
+        let baseline = super::multigraph_is_biconnected_orig_buildindex(&graph);
+        assert_eq!(candidate, baseline, "indexed low-link DFS must match");
+        assert!(candidate, "constructed graph must be biconnected");
+
+        // Prime the revision-keyed memo before warm timing.
+        graph.with_int_adjacency(|adjacency| {
+            black_box(adjacency.len());
+        });
+
+        let time = |timed_graph: &MultiGraph, candidate_route: bool| -> f64 {
+            let start = Instant::now();
+            let result = if candidate_route {
+                super::multigraph_is_biconnected(timed_graph)
+            } else {
+                super::multigraph_is_biconnected_orig_buildindex(timed_graph)
+            };
+            black_box(result);
+            start.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(&graph, true));
+            black_box(time(&graph, false));
+        }
+
+        let rounds = 31usize;
+        let paired_warm = |baseline_candidate: bool| -> Vec<f64> {
+            let mut ratios = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (baseline_time, candidate_time) = if round.is_multiple_of(2) {
+                    let baseline_time = time(&graph, baseline_candidate);
+                    let candidate_time = time(&graph, true);
+                    (baseline_time, candidate_time)
+                } else {
+                    let candidate_time = time(&graph, true);
+                    let baseline_time = time(&graph, baseline_candidate);
+                    (baseline_time, candidate_time)
+                };
+                ratios.push(baseline_time / candidate_time);
+            }
+            ratios
+        };
+        let paired_cold = |baseline_candidate: bool| -> Vec<f64> {
+            let mut ratios = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let baseline_graph = graph.clone();
+                let candidate_graph = graph.clone();
+                let (baseline_time, candidate_time) = if round.is_multiple_of(2) {
+                    let baseline_time = time(&baseline_graph, baseline_candidate);
+                    let candidate_time = time(&candidate_graph, true);
+                    (baseline_time, candidate_time)
+                } else {
+                    let candidate_time = time(&candidate_graph, true);
+                    let baseline_time = time(&baseline_graph, baseline_candidate);
+                    (baseline_time, candidate_time)
+                };
+                ratios.push(baseline_time / candidate_time);
+            }
+            ratios
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&ratio| ratio > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(f64::total_cmp);
+            println!(
+                "MG_BICONN_AB {name}: median={:.4}x wins={wins}/{rounds} p5_p95=[{:.4},{:.4}]",
+                sorted[rounds / 2],
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+
+        println!("MG_BICONN_AB n={n} degree=4+parallel rounds={rounds} (>1 = candidate faster)");
+        report("warm_candidate_vs_buildindex", &paired_warm(false));
+        report("warm_candidate_null", &paired_warm(true));
+        report("cold_candidate_vs_buildindex", &paired_cold(false));
+        report("cold_candidate_null", &paired_cold(true));
+    }
+
+    #[test]
+    fn multigraph_articulation_points_matches_buildindex_route() {
+        let empty = MultiGraph::strict();
+        assert_eq!(
+            super::multigraph_articulation_points(&empty),
+            super::multigraph_articulation_points_orig_buildindex(&empty)
+        );
+
+        let mut single = MultiGraph::strict();
+        let _ = single.add_node("solo".to_owned());
+        assert_eq!(
+            super::multigraph_articulation_points(&single),
+            super::multigraph_articulation_points_orig_buildindex(&single)
+        );
+
+        // Path a-b-c-d: b and c are cut vertices (discovery order matters).
+        let mut path = MultiGraph::strict();
+        for node in ["a", "b", "c", "d"] {
+            let _ = path.add_node(node.to_owned());
+        }
+        for (u, v) in [("a", "b"), ("b", "c"), ("c", "d")] {
+            let _ = path.add_edge(u.to_owned(), v.to_owned());
+        }
+        assert_eq!(
+            super::multigraph_articulation_points(&path),
+            super::multigraph_articulation_points_orig_buildindex(&path)
+        );
+        assert_eq!(super::multigraph_articulation_points(&path), vec!["c", "b"]);
+
+        // Parallel edges + a self-loop must not change the vertex invariant.
+        let _ = path.add_edge("b".to_owned(), "c".to_owned());
+        let _ = path.add_edge("a".to_owned(), "a".to_owned());
+        assert_eq!(
+            super::multigraph_articulation_points(&path),
+            super::multigraph_articulation_points_orig_buildindex(&path)
+        );
+
+        // Two components with a shared cut-vertex shape + an isolated node.
+        let mut multi = MultiGraph::strict();
+        for node in ["p", "q", "r", "s", "t", "iso"] {
+            let _ = multi.add_node(node.to_owned());
+        }
+        for (u, v) in [("p", "q"), ("q", "r"), ("s", "t")] {
+            let _ = multi.add_edge(u.to_owned(), v.to_owned());
+        }
+        assert_eq!(
+            super::multigraph_articulation_points(&multi),
+            super::multigraph_articulation_points_orig_buildindex(&multi)
+        );
+
+        // Read-mutate-read: close p-q-r into a triangle removing q as a cut
+        // vertex, exercising memo invalidation between reads.
+        let _ = multi.add_edge("p".to_owned(), "r".to_owned());
+        assert_eq!(
+            super::multigraph_articulation_points(&multi),
+            super::multigraph_articulation_points_orig_buildindex(&multi)
+        );
+    }
+
+    /// `br-r37-c1-wt0wh`: same-binary paired proof for cached integer-row
+    /// articulation DFS versus the per-call `build_index_adjacency` route. Run:
+    /// `cargo test --profile release -p fnx-python --lib
+    /// multigraph_articulation_points_intadj_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with release profile, --ignored, and --nocapture"]
+    fn multigraph_articulation_points_intadj_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        let n = 20_000usize;
+        let node = |index: usize| format!("art-node-{index:05}");
+        let mut graph = MultiGraph::strict();
+        for index in 0..n {
+            let _ = graph.add_node(node(index));
+        }
+        // Cycle + chord keeps the graph 2-connected (full DFS, empty result).
+        for index in 0..n {
+            let next = (index + 1) % n;
+            let chord = (index + 127) % n;
+            let _ = graph.add_edge(node(index), node(next));
+            let _ = graph.add_edge(node(index), node(chord));
+            if index.is_multiple_of(8) {
+                let _ = graph.add_edge(node(index), node(next));
+            }
+        }
+        let candidate = super::multigraph_articulation_points(&graph);
+        let baseline = super::multigraph_articulation_points_orig_buildindex(&graph);
+        assert_eq!(candidate, baseline, "indexed articulation DFS must match");
+        assert!(
+            candidate.is_empty(),
+            "2-connected graph has no cut vertices"
+        );
+
+        // Prime the revision-keyed memo before warm timing.
+        graph.with_int_adjacency(|adjacency| {
+            black_box(adjacency.len());
+        });
+
+        let time = |timed_graph: &MultiGraph, candidate_route: bool| -> f64 {
+            let start = Instant::now();
+            let result = if candidate_route {
+                super::multigraph_articulation_points(timed_graph)
+            } else {
+                super::multigraph_articulation_points_orig_buildindex(timed_graph)
+            };
+            black_box(result.len());
+            start.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(&graph, true));
+            black_box(time(&graph, false));
+        }
+
+        let rounds = 31usize;
+        let paired_warm = |baseline_candidate: bool| -> Vec<f64> {
+            let mut ratios = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (baseline_time, candidate_time) = if round.is_multiple_of(2) {
+                    let baseline_time = time(&graph, baseline_candidate);
+                    let candidate_time = time(&graph, true);
+                    (baseline_time, candidate_time)
+                } else {
+                    let candidate_time = time(&graph, true);
+                    let baseline_time = time(&graph, baseline_candidate);
+                    (baseline_time, candidate_time)
+                };
+                ratios.push(baseline_time / candidate_time);
+            }
+            ratios
+        };
+        let paired_cold = |baseline_candidate: bool| -> Vec<f64> {
+            let mut ratios = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let baseline_graph = graph.clone();
+                let candidate_graph = graph.clone();
+                let (baseline_time, candidate_time) = if round.is_multiple_of(2) {
+                    let baseline_time = time(&baseline_graph, baseline_candidate);
+                    let candidate_time = time(&candidate_graph, true);
+                    (baseline_time, candidate_time)
+                } else {
+                    let candidate_time = time(&candidate_graph, true);
+                    let baseline_time = time(&baseline_graph, baseline_candidate);
+                    (baseline_time, candidate_time)
+                };
+                ratios.push(baseline_time / candidate_time);
+            }
+            ratios
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&ratio| ratio > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(f64::total_cmp);
+            println!(
+                "MG_ARTIC_AB {name}: median={:.4}x wins={wins}/{rounds} p5_p95=[{:.4},{:.4}]",
+                sorted[rounds / 2],
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+
+        println!("MG_ARTIC_AB n={n} degree=4+parallel rounds={rounds} (>1 = candidate faster)");
+        report("warm_candidate_vs_buildindex", &paired_warm(false));
+        report("warm_candidate_null", &paired_warm(true));
+        report("cold_candidate_vs_buildindex", &paired_cold(false));
+        report("cold_candidate_null", &paired_cold(true));
+    }
+
+    #[test]
+    fn multigraph_biconnected_components_memo_matches_buildindex_route() {
+        // Kernel-level parity for BOTH biconnected pyfunctions' MultiGraph path:
+        // `with_int_adjacency(kernel)` must equal `{ build_index_adjacency; kernel(&adj) }`.
+        let baseline_components = |mg: &MultiGraph| -> Vec<Vec<usize>> {
+            let nodes = mg.nodes_ordered();
+            let adj = super::build_index_adjacency(&nodes, |u| mg.neighbors(u).unwrap_or_default());
+            super::biconnected_components_from_adjacency(&adj)
+        };
+        let baseline_edges = |mg: &MultiGraph| -> Vec<Vec<(usize, usize)>> {
+            let nodes = mg.nodes_ordered();
+            let adj = super::build_index_adjacency(&nodes, |u| mg.neighbors(u).unwrap_or_default());
+            super::biconnected_component_edges_dfs(&adj)
+        };
+        let assert_parity = |mg: &MultiGraph| {
+            assert_eq!(
+                mg.with_int_adjacency(super::biconnected_components_from_adjacency),
+                baseline_components(mg)
+            );
+            assert_eq!(
+                mg.with_int_adjacency(super::biconnected_component_edges_dfs),
+                baseline_edges(mg)
+            );
+        };
+
+        assert_parity(&MultiGraph::strict());
+
+        let mut single = MultiGraph::strict();
+        let _ = single.add_node("solo".to_owned());
+        assert_parity(&single);
+
+        // Path a-b-c-d: three biconnected components (each edge) sharing cut vertices.
+        let mut path = MultiGraph::strict();
+        for node in ["a", "b", "c", "d"] {
+            let _ = path.add_node(node.to_owned());
+        }
+        for (u, v) in [("a", "b"), ("b", "c"), ("c", "d")] {
+            let _ = path.add_edge(u.to_owned(), v.to_owned());
+        }
+        assert_parity(&path);
+
+        // Parallel edges + self-loop must not change the vertex-level partition.
+        let _ = path.add_edge("b".to_owned(), "c".to_owned());
+        let _ = path.add_edge("a".to_owned(), "a".to_owned());
+        assert_parity(&path);
+
+        // Cycle (single biconnected component) + a pendant tail (own component)
+        // + an isolated node, then a read-mutate-read closing the tail.
+        let mut cyc = MultiGraph::strict();
+        for node in ["p", "q", "r", "s", "iso"] {
+            let _ = cyc.add_node(node.to_owned());
+        }
+        for (u, v) in [("p", "q"), ("q", "r"), ("r", "p"), ("r", "s")] {
+            let _ = cyc.add_edge(u.to_owned(), v.to_owned());
+        }
+        assert_parity(&cyc);
+        let _ = cyc.add_edge("s".to_owned(), "p".to_owned());
+        assert_parity(&cyc);
+    }
+
+    /// `br-r37-c1-vi5rf`: same-binary paired proof for the shared build-elimination
+    /// behind biconnected_components + biconnected_component_edges (MultiGraph path).
+    /// Uses the heavier edge-DFS kernel (conservative). Run with:
+    /// `cargo test --profile release -p fnx-python --lib
+    /// multigraph_biconnected_components_intadj_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with release profile, --ignored, and --nocapture"]
+    fn multigraph_biconnected_components_intadj_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        let n = 20_000usize;
+        let node = |index: usize| format!("bcc-node-{index:05}");
+        let mut graph = MultiGraph::strict();
+        for index in 0..n {
+            let _ = graph.add_node(node(index));
+        }
+        for index in 0..n {
+            let next = (index + 1) % n;
+            let chord = (index + 127) % n;
+            let _ = graph.add_edge(node(index), node(next));
+            let _ = graph.add_edge(node(index), node(chord));
+            if index.is_multiple_of(8) {
+                let _ = graph.add_edge(node(index), node(next));
+            }
+        }
+        let candidate = graph.with_int_adjacency(super::biconnected_component_edges_dfs);
+        let baseline = {
+            let nodes = graph.nodes_ordered();
+            let adj =
+                super::build_index_adjacency(&nodes, |u| graph.neighbors(u).unwrap_or_default());
+            super::biconnected_component_edges_dfs(&adj)
+        };
+        assert_eq!(
+            candidate, baseline,
+            "memo edge-DFS must match buildindex route"
+        );
+
+        graph.with_int_adjacency(|adjacency| {
+            black_box(adjacency.len());
+        });
+
+        let time = |timed_graph: &MultiGraph, candidate_route: bool| -> f64 {
+            let start = Instant::now();
+            let result = if candidate_route {
+                timed_graph.with_int_adjacency(super::biconnected_component_edges_dfs)
+            } else {
+                let nodes = timed_graph.nodes_ordered();
+                let adj = super::build_index_adjacency(&nodes, |u| {
+                    timed_graph.neighbors(u).unwrap_or_default()
+                });
+                super::biconnected_component_edges_dfs(&adj)
+            };
+            black_box(result.len());
+            start.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(&graph, true));
+            black_box(time(&graph, false));
+        }
+
+        let rounds = 31usize;
+        let paired_warm = |baseline_candidate: bool| -> Vec<f64> {
+            let mut ratios = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (baseline_time, candidate_time) = if round.is_multiple_of(2) {
+                    let baseline_time = time(&graph, baseline_candidate);
+                    let candidate_time = time(&graph, true);
+                    (baseline_time, candidate_time)
+                } else {
+                    let candidate_time = time(&graph, true);
+                    let baseline_time = time(&graph, baseline_candidate);
+                    (baseline_time, candidate_time)
+                };
+                ratios.push(baseline_time / candidate_time);
+            }
+            ratios
+        };
+        let paired_cold = |baseline_candidate: bool| -> Vec<f64> {
+            let mut ratios = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let baseline_graph = graph.clone();
+                let candidate_graph = graph.clone();
+                let (baseline_time, candidate_time) = if round.is_multiple_of(2) {
+                    let baseline_time = time(&baseline_graph, baseline_candidate);
+                    let candidate_time = time(&candidate_graph, true);
+                    (baseline_time, candidate_time)
+                } else {
+                    let candidate_time = time(&candidate_graph, true);
+                    let baseline_time = time(&baseline_graph, baseline_candidate);
+                    (baseline_time, candidate_time)
+                };
+                ratios.push(baseline_time / candidate_time);
+            }
+            ratios
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&ratio| ratio > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(f64::total_cmp);
+            println!(
+                "MG_BCC_AB {name}: median={:.4}x wins={wins}/{rounds} p5_p95=[{:.4},{:.4}]",
+                sorted[rounds / 2],
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+
+        println!(
+            "MG_BCC_AB n={n} degree=4+parallel rounds={rounds} edge-DFS kernel (>1 = candidate faster)"
+        );
+        report("warm_candidate_vs_buildindex", &paired_warm(false));
+        report("warm_candidate_null", &paired_warm(true));
+        report("cold_candidate_vs_buildindex", &paired_cold(false));
+        report("cold_candidate_null", &paired_cold(true));
+    }
+
+    #[test]
+    fn multigraph_dfs_memo_matches_buildindex_route() {
+        // Kernel-level parity for the dfs_edges pyfunction's two MultiGraph paths:
+        // `with_int_adjacency(K)` must equal `{ build_index_adjacency; K(&adj) }`
+        // for both the single-source and forest kernels, incl. a depth limit.
+        let assert_parity = |mg: &MultiGraph| {
+            let nodes = mg.nodes_ordered();
+            let baseline_adj =
+                super::build_index_adjacency(&nodes, |u| mg.neighbors(u).unwrap_or_default());
+            for depth in [None, Some(0usize), Some(1usize), Some(3usize)] {
+                assert_eq!(
+                    mg.with_int_adjacency(|adj| super::dfs_forest_indexed(adj, &nodes, depth)),
+                    super::dfs_forest_indexed(&baseline_adj, &nodes, depth),
+                    "forest parity at depth {depth:?}"
+                );
+                for src in 0..nodes.len() {
+                    assert_eq!(
+                        mg.with_int_adjacency(|adj| super::dfs_edges_indexed(
+                            adj, &nodes, src, depth
+                        )),
+                        super::dfs_edges_indexed(&baseline_adj, &nodes, src, depth),
+                        "single-source parity from {src} at depth {depth:?}"
+                    );
+                }
+            }
+        };
+
+        assert_parity(&MultiGraph::strict());
+
+        // Path a-b-c-d + parallel edge + self-loop.
+        let mut path = MultiGraph::strict();
+        for node in ["a", "b", "c", "d"] {
+            let _ = path.add_node(node.to_owned());
+        }
+        for (u, v) in [("a", "b"), ("b", "c"), ("c", "d")] {
+            let _ = path.add_edge(u.to_owned(), v.to_owned());
+        }
+        assert_parity(&path);
+        let _ = path.add_edge("b".to_owned(), "c".to_owned());
+        let _ = path.add_edge("a".to_owned(), "a".to_owned());
+        assert_parity(&path);
+
+        // Two components + isolated node, then read-mutate-read joining them.
+        let mut multi = MultiGraph::strict();
+        for node in ["p", "q", "r", "s", "t", "iso"] {
+            let _ = multi.add_node(node.to_owned());
+        }
+        for (u, v) in [("p", "q"), ("q", "r"), ("r", "p"), ("s", "t")] {
+            let _ = multi.add_edge(u.to_owned(), v.to_owned());
+        }
+        assert_parity(&multi);
+        let _ = multi.add_edge("r".to_owned(), "s".to_owned());
+        assert_parity(&multi);
+    }
+
+    /// `br-r37-c1-5jmyo`: same-binary paired proof for the shared build-elimination
+    /// behind the dfs_edges pyfunction's MultiGraph paths. Measured on the forest
+    /// kernel (full traversal → best memo amortization). NOTE the Vec<(String,String)>
+    /// O(E) result floor caps the ratio. Run with:
+    /// `cargo test --profile release -p fnx-python --lib
+    /// multigraph_dfs_forest_intadj_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with release profile, --ignored, and --nocapture"]
+    fn multigraph_dfs_forest_intadj_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        let n = 20_000usize;
+        let node = |index: usize| format!("dfs-node-{index:05}");
+        let mut graph = MultiGraph::strict();
+        for index in 0..n {
+            let _ = graph.add_node(node(index));
+        }
+        for index in 0..n {
+            let next = (index + 1) % n;
+            let chord = (index + 127) % n;
+            let _ = graph.add_edge(node(index), node(next));
+            let _ = graph.add_edge(node(index), node(chord));
+            if index.is_multiple_of(8) {
+                let _ = graph.add_edge(node(index), node(next));
+            }
+        }
+        let nodes = graph.nodes_ordered();
+        let candidate =
+            graph.with_int_adjacency(|adj| super::dfs_forest_indexed(adj, &nodes, None));
+        let baseline = {
+            let adj =
+                super::build_index_adjacency(&nodes, |u| graph.neighbors(u).unwrap_or_default());
+            super::dfs_forest_indexed(&adj, &nodes, None)
+        };
+        assert_eq!(
+            candidate, baseline,
+            "memo forest DFS must match buildindex route"
+        );
+
+        graph.with_int_adjacency(|adjacency| {
+            black_box(adjacency.len());
+        });
+
+        let time = |timed_graph: &MultiGraph, candidate_route: bool| -> f64 {
+            let nodes = timed_graph.nodes_ordered();
+            let start = Instant::now();
+            let result = if candidate_route {
+                timed_graph.with_int_adjacency(|adj| super::dfs_forest_indexed(adj, &nodes, None))
+            } else {
+                let adj = super::build_index_adjacency(&nodes, |u| {
+                    timed_graph.neighbors(u).unwrap_or_default()
+                });
+                super::dfs_forest_indexed(&adj, &nodes, None)
+            };
+            black_box(result.len());
+            start.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(&graph, true));
+            black_box(time(&graph, false));
+        }
+
+        let rounds = 31usize;
+        let paired_warm = |baseline_candidate: bool| -> Vec<f64> {
+            let mut ratios = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (baseline_time, candidate_time) = if round.is_multiple_of(2) {
+                    let baseline_time = time(&graph, baseline_candidate);
+                    let candidate_time = time(&graph, true);
+                    (baseline_time, candidate_time)
+                } else {
+                    let candidate_time = time(&graph, true);
+                    let baseline_time = time(&graph, baseline_candidate);
+                    (baseline_time, candidate_time)
+                };
+                ratios.push(baseline_time / candidate_time);
+            }
+            ratios
+        };
+        let paired_cold = |baseline_candidate: bool| -> Vec<f64> {
+            let mut ratios = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let baseline_graph = graph.clone();
+                let candidate_graph = graph.clone();
+                let (baseline_time, candidate_time) = if round.is_multiple_of(2) {
+                    let baseline_time = time(&baseline_graph, baseline_candidate);
+                    let candidate_time = time(&candidate_graph, true);
+                    (baseline_time, candidate_time)
+                } else {
+                    let candidate_time = time(&candidate_graph, true);
+                    let baseline_time = time(&baseline_graph, baseline_candidate);
+                    (baseline_time, candidate_time)
+                };
+                ratios.push(baseline_time / candidate_time);
+            }
+            ratios
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&ratio| ratio > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(f64::total_cmp);
+            println!(
+                "MG_DFS_AB {name}: median={:.4}x wins={wins}/{rounds} p5_p95=[{:.4},{:.4}]",
+                sorted[rounds / 2],
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+
+        println!(
+            "MG_DFS_AB n={n} degree=4+parallel rounds={rounds} forest kernel (>1 = candidate faster)"
+        );
+        report("warm_candidate_vs_buildindex", &paired_warm(false));
+        report("warm_candidate_null", &paired_warm(true));
+        report("cold_candidate_vs_buildindex", &paired_cold(false));
+        report("cold_candidate_null", &paired_cold(true));
+    }
+
+    #[test]
+    fn multigraph_bfs_memo_matches_buildindex_route() {
+        // Kernel-level parity for the bfs_edges/bfs_tree pyfunctions' shared
+        // MultiGraph single-source path: `with_int_adjacency(K)` must equal
+        // `{ build_index_adjacency; K(&adj) }` at every source and depth.
+        let assert_parity = |mg: &MultiGraph| {
+            let nodes = mg.nodes_ordered();
+            let baseline_adj =
+                super::build_index_adjacency(&nodes, |u| mg.neighbors(u).unwrap_or_default());
+            for depth in [None, Some(0usize), Some(1usize), Some(3usize)] {
+                for src in 0..nodes.len() {
+                    assert_eq!(
+                        mg.with_int_adjacency(|adj| super::bfs_edges_indexed(
+                            adj, &nodes, src, depth
+                        )),
+                        super::bfs_edges_indexed(&baseline_adj, &nodes, src, depth),
+                        "bfs parity from {src} at depth {depth:?}"
+                    );
+                }
+            }
+        };
+
+        assert_parity(&MultiGraph::strict());
+
+        // Path a-b-c-d + parallel edge + self-loop.
+        let mut path = MultiGraph::strict();
+        for node in ["a", "b", "c", "d"] {
+            let _ = path.add_node(node.to_owned());
+        }
+        for (u, v) in [("a", "b"), ("b", "c"), ("c", "d")] {
+            let _ = path.add_edge(u.to_owned(), v.to_owned());
+        }
+        assert_parity(&path);
+        let _ = path.add_edge("b".to_owned(), "c".to_owned());
+        let _ = path.add_edge("a".to_owned(), "a".to_owned());
+        assert_parity(&path);
+
+        // Two components + isolated node, then read-mutate-read joining them.
+        let mut multi = MultiGraph::strict();
+        for node in ["p", "q", "r", "s", "t", "iso"] {
+            let _ = multi.add_node(node.to_owned());
+        }
+        for (u, v) in [("p", "q"), ("q", "r"), ("r", "p"), ("s", "t")] {
+            let _ = multi.add_edge(u.to_owned(), v.to_owned());
+        }
+        assert_parity(&multi);
+        let _ = multi.add_edge("r".to_owned(), "s".to_owned());
+        assert_parity(&multi);
+    }
+
+    /// `br-r37-c1-usx40`: same-binary paired proof for the shared build-elimination
+    /// behind the bfs_edges + bfs_tree MultiGraph paths (mirror of dfs 5jmyo). Run:
+    /// `cargo test --profile release -p fnx-python --lib
+    /// multigraph_bfs_edges_intadj_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with release profile, --ignored, and --nocapture"]
+    fn multigraph_bfs_edges_intadj_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        let n = 20_000usize;
+        let node = |index: usize| format!("bfs-node-{index:05}");
+        let mut graph = MultiGraph::strict();
+        for index in 0..n {
+            let _ = graph.add_node(node(index));
+        }
+        for index in 0..n {
+            let next = (index + 1) % n;
+            let chord = (index + 127) % n;
+            let _ = graph.add_edge(node(index), node(next));
+            let _ = graph.add_edge(node(index), node(chord));
+            if index.is_multiple_of(8) {
+                let _ = graph.add_edge(node(index), node(next));
+            }
+        }
+        let nodes = graph.nodes_ordered();
+        let candidate =
+            graph.with_int_adjacency(|adj| super::bfs_edges_indexed(adj, &nodes, 0, None));
+        let baseline = {
+            let adj =
+                super::build_index_adjacency(&nodes, |u| graph.neighbors(u).unwrap_or_default());
+            super::bfs_edges_indexed(&adj, &nodes, 0, None)
+        };
+        assert_eq!(
+            candidate, baseline,
+            "memo single-source BFS must match buildindex route"
+        );
+
+        graph.with_int_adjacency(|adjacency| {
+            black_box(adjacency.len());
+        });
+
+        let time = |timed_graph: &MultiGraph, candidate_route: bool| -> f64 {
+            let nodes = timed_graph.nodes_ordered();
+            let start = Instant::now();
+            let result = if candidate_route {
+                timed_graph.with_int_adjacency(|adj| super::bfs_edges_indexed(adj, &nodes, 0, None))
+            } else {
+                let adj = super::build_index_adjacency(&nodes, |u| {
+                    timed_graph.neighbors(u).unwrap_or_default()
+                });
+                super::bfs_edges_indexed(&adj, &nodes, 0, None)
+            };
+            black_box(result.len());
+            start.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(&graph, true));
+            black_box(time(&graph, false));
+        }
+
+        let rounds = 31usize;
+        let paired_warm = |baseline_candidate: bool| -> Vec<f64> {
+            let mut ratios = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (baseline_time, candidate_time) = if round.is_multiple_of(2) {
+                    let baseline_time = time(&graph, baseline_candidate);
+                    let candidate_time = time(&graph, true);
+                    (baseline_time, candidate_time)
+                } else {
+                    let candidate_time = time(&graph, true);
+                    let baseline_time = time(&graph, baseline_candidate);
+                    (baseline_time, candidate_time)
+                };
+                ratios.push(baseline_time / candidate_time);
+            }
+            ratios
+        };
+        let paired_cold = |baseline_candidate: bool| -> Vec<f64> {
+            let mut ratios = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let baseline_graph = graph.clone();
+                let candidate_graph = graph.clone();
+                let (baseline_time, candidate_time) = if round.is_multiple_of(2) {
+                    let baseline_time = time(&baseline_graph, baseline_candidate);
+                    let candidate_time = time(&candidate_graph, true);
+                    (baseline_time, candidate_time)
+                } else {
+                    let candidate_time = time(&candidate_graph, true);
+                    let baseline_time = time(&baseline_graph, baseline_candidate);
+                    (baseline_time, candidate_time)
+                };
+                ratios.push(baseline_time / candidate_time);
+            }
+            ratios
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&ratio| ratio > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(f64::total_cmp);
+            println!(
+                "MG_BFS_AB {name}: median={:.4}x wins={wins}/{rounds} p5_p95=[{:.4},{:.4}]",
+                sorted[rounds / 2],
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+
+        println!(
+            "MG_BFS_AB n={n} degree=4+parallel rounds={rounds} single-source kernel (>1 = candidate faster)"
+        );
+        report("warm_candidate_vs_buildindex", &paired_warm(false));
+        report("warm_candidate_null", &paired_warm(true));
+        report("cold_candidate_vs_buildindex", &paired_cold(false));
+        report("cold_candidate_null", &paired_cold(true));
+    }
+
+    #[test]
+    fn multidigraph_dfs_csr_matches_buildindex_route() {
+        // Parity for the MultiDiGraph dfs paths: the cached-CSR kernels must equal
+        // the former `build_index_adjacency(successors)` + *_indexed route at every
+        // source and depth.
+        let baseline_edges = |mdg: &MultiDiGraph, src: usize, depth: Option<usize>| {
+            let nodes = mdg.nodes_ordered();
+            let adj =
+                super::build_index_adjacency(&nodes, |u| mdg.successors(u).unwrap_or_default());
+            super::dfs_edges_indexed(&adj, &nodes, src, depth)
+        };
+        let baseline_forest = |mdg: &MultiDiGraph, depth: Option<usize>| {
+            let nodes = mdg.nodes_ordered();
+            let adj =
+                super::build_index_adjacency(&nodes, |u| mdg.successors(u).unwrap_or_default());
+            super::dfs_forest_indexed(&adj, &nodes, depth)
+        };
+        let assert_parity = |mdg: &MultiDiGraph| {
+            let nodes = mdg.nodes_ordered();
+            for depth in [None, Some(0usize), Some(1usize), Some(3usize)] {
+                assert_eq!(
+                    super::multidigraph_dfs_forest_csr(mdg, depth),
+                    baseline_forest(mdg, depth),
+                    "forest parity at depth {depth:?}"
+                );
+                for (src_idx, &src_name) in nodes.iter().enumerate() {
+                    assert_eq!(
+                        super::multidigraph_dfs_edges_csr(mdg, src_name, depth),
+                        baseline_edges(mdg, src_idx, depth),
+                        "single-source parity from {src_name} at depth {depth:?}"
+                    );
+                }
+            }
+        };
+
+        assert_parity(&MultiDiGraph::strict());
+
+        // Directed path a->b->c->d plus a back edge and a branch.
+        let mut dg = MultiDiGraph::strict();
+        for node in ["a", "b", "c", "d", "e"] {
+            let _ = dg.add_node(node.to_owned());
+        }
+        for (u, v) in [("a", "b"), ("b", "c"), ("c", "d"), ("b", "e")] {
+            let _ = dg.add_edge(u.to_owned(), v.to_owned());
+        }
+        assert_parity(&dg);
+
+        // Directed cycle a->b->c->a + parallel edge + self-loop.
+        let _ = dg.add_edge("d".to_owned(), "a".to_owned());
+        let _ = dg.add_edge("a".to_owned(), "b".to_owned());
+        let _ = dg.add_edge("c".to_owned(), "c".to_owned());
+        assert_parity(&dg);
+
+        // Two weakly-disconnected pieces + an isolated node, then a read-mutate-read
+        // bridging edge exercising CSR revision invalidation between reads.
+        let mut multi = MultiDiGraph::strict();
+        for node in ["p", "q", "r", "s", "t", "iso"] {
+            let _ = multi.add_node(node.to_owned());
+        }
+        for (u, v) in [("p", "q"), ("q", "r"), ("s", "t")] {
+            let _ = multi.add_edge(u.to_owned(), v.to_owned());
+        }
+        assert_parity(&multi);
+        let _ = multi.add_edge("r".to_owned(), "s".to_owned());
+        assert_parity(&multi);
+    }
+
+    /// `br-r37-c1-nqwti`: same-binary paired proof for the MultiDiGraph dfs paths —
+    /// cached CSR kernel vs the per-call `build_index_adjacency(successors)` route.
+    /// Forest kernel (full traversal). Run with:
+    /// `cargo test --profile release -p fnx-python --lib
+    /// multidigraph_dfs_forest_csr_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with release profile, --ignored, and --nocapture"]
+    fn multidigraph_dfs_forest_csr_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        let n = 20_000usize;
+        let node = |index: usize| format!("mdfs-node-{index:05}");
+        let mut graph = MultiDiGraph::strict();
+        for index in 0..n {
+            let _ = graph.add_node(node(index));
+        }
+        for index in 0..n {
+            let next = (index + 1) % n;
+            let chord = (index + 127) % n;
+            let _ = graph.add_edge(node(index), node(next));
+            let _ = graph.add_edge(node(index), node(chord));
+            if index.is_multiple_of(8) {
+                let _ = graph.add_edge(node(index), node(next));
+            }
+        }
+        let candidate = super::multidigraph_dfs_forest_csr(&graph, None);
+        let baseline = {
+            let nodes = graph.nodes_ordered();
+            let adj =
+                super::build_index_adjacency(&nodes, |u| graph.successors(u).unwrap_or_default());
+            super::dfs_forest_indexed(&adj, &nodes, None)
+        };
+        assert_eq!(
+            candidate, baseline,
+            "cached-CSR forest DFS must match buildindex route"
+        );
+
+        // Prime the revision-keyed CSR memo before warm timing.
+        black_box(graph.csr().successors(0).len());
+
+        let time = |timed_graph: &MultiDiGraph, candidate_route: bool| -> f64 {
+            let start = Instant::now();
+            let result = if candidate_route {
+                super::multidigraph_dfs_forest_csr(timed_graph, None)
+            } else {
+                let nodes = timed_graph.nodes_ordered();
+                let adj = super::build_index_adjacency(&nodes, |u| {
+                    timed_graph.successors(u).unwrap_or_default()
+                });
+                super::dfs_forest_indexed(&adj, &nodes, None)
+            };
+            black_box(result.len());
+            start.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(&graph, true));
+            black_box(time(&graph, false));
+        }
+
+        let rounds = 31usize;
+        let paired_warm = |baseline_candidate: bool| -> Vec<f64> {
+            let mut ratios = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (baseline_time, candidate_time) = if round.is_multiple_of(2) {
+                    let baseline_time = time(&graph, baseline_candidate);
+                    let candidate_time = time(&graph, true);
+                    (baseline_time, candidate_time)
+                } else {
+                    let candidate_time = time(&graph, true);
+                    let baseline_time = time(&graph, baseline_candidate);
+                    (baseline_time, candidate_time)
+                };
+                ratios.push(baseline_time / candidate_time);
+            }
+            ratios
+        };
+        let paired_cold = |baseline_candidate: bool| -> Vec<f64> {
+            let mut ratios = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let baseline_graph = graph.clone();
+                let candidate_graph = graph.clone();
+                let (baseline_time, candidate_time) = if round.is_multiple_of(2) {
+                    let baseline_time = time(&baseline_graph, baseline_candidate);
+                    let candidate_time = time(&candidate_graph, true);
+                    (baseline_time, candidate_time)
+                } else {
+                    let candidate_time = time(&candidate_graph, true);
+                    let baseline_time = time(&baseline_graph, baseline_candidate);
+                    (baseline_time, candidate_time)
+                };
+                ratios.push(baseline_time / candidate_time);
+            }
+            ratios
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&ratio| ratio > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(f64::total_cmp);
+            println!(
+                "MDG_DFS_AB {name}: median={:.4}x wins={wins}/{rounds} p5_p95=[{:.4},{:.4}]",
+                sorted[rounds / 2],
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+
+        println!(
+            "MDG_DFS_AB n={n} degree=4+parallel rounds={rounds} forest kernel (>1 = candidate faster)"
+        );
+        report("warm_candidate_vs_buildindex", &paired_warm(false));
+        report("warm_candidate_null", &paired_warm(true));
+        report("cold_candidate_vs_buildindex", &paired_cold(false));
+        report("cold_candidate_null", &paired_cold(true));
+    }
+
+    #[test]
+    fn multidigraph_is_dag_csr_matches_hashmap_route() {
+        let assert_parity = |mdg: &MultiDiGraph, expected: bool| {
+            let csr_route = super::multidigraph_is_dag(mdg);
+            assert_eq!(
+                csr_route,
+                super::multidigraph_is_dag_orig_hashmap(mdg),
+                "csr vs hashmap route must agree"
+            );
+            assert_eq!(csr_route, expected, "acyclicity value");
+        };
+
+        assert_parity(&MultiDiGraph::strict(), true);
+
+        let mut single = MultiDiGraph::strict();
+        let _ = single.add_node("solo".to_owned());
+        assert_parity(&single, true);
+        let _ = single.add_edge("solo".to_owned(), "solo".to_owned());
+        assert_parity(&single, false); // self-loop is a cycle
+
+        // DAG a->b->c with a shortcut a->c and a branch b->d.
+        let mut dag = MultiDiGraph::strict();
+        for node in ["a", "b", "c", "d"] {
+            let _ = dag.add_node(node.to_owned());
+        }
+        for (u, v) in [("a", "b"), ("b", "c"), ("a", "c"), ("b", "d")] {
+            let _ = dag.add_edge(u.to_owned(), v.to_owned());
+        }
+        assert_parity(&dag, true);
+        // Parallel edge must not change acyclicity.
+        let _ = dag.add_edge("a".to_owned(), "b".to_owned());
+        assert_parity(&dag, true);
+        // Read-mutate-read: add a back edge c->a forming a cycle (CSR revision bump).
+        let _ = dag.add_edge("c".to_owned(), "a".to_owned());
+        assert_parity(&dag, false);
+
+        // Two disconnected DAG pieces + an isolated node.
+        let mut multi = MultiDiGraph::strict();
+        for node in ["p", "q", "r", "s", "t", "iso"] {
+            let _ = multi.add_node(node.to_owned());
+        }
+        for (u, v) in [("p", "q"), ("q", "r"), ("s", "t")] {
+            let _ = multi.add_edge(u.to_owned(), v.to_owned());
+        }
+        assert_parity(&multi, true);
+    }
+
+    /// `br-r37-c1-v03q9`: same-binary paired proof for multidigraph_is_dag — cached
+    /// CSR Kahn vs the per-call inline-HashMap adjacency rebuild. Run with:
+    /// `cargo test --profile release -p fnx-python --lib
+    /// multidigraph_is_dag_csr_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with release profile, --ignored, and --nocapture"]
+    fn multidigraph_is_dag_csr_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        let n = 20_000usize;
+        let node = |index: usize| format!("dag-node-{index:05}");
+        let mut graph = MultiDiGraph::strict();
+        for index in 0..n {
+            let _ = graph.add_node(node(index));
+        }
+        // Forward-only edges → a DAG, so Kahn processes every node (exercises the
+        // full traversal, not just an early cycle bail).
+        for index in 0..n {
+            if index + 1 < n {
+                let _ = graph.add_edge(node(index), node(index + 1));
+            }
+            if index + 127 < n {
+                let _ = graph.add_edge(node(index), node(index + 127));
+            }
+            if index.is_multiple_of(8) && index + 1 < n {
+                let _ = graph.add_edge(node(index), node(index + 1));
+            }
+        }
+        let candidate = super::multidigraph_is_dag(&graph);
+        let baseline = super::multidigraph_is_dag_orig_hashmap(&graph);
+        assert_eq!(candidate, baseline, "csr Kahn must match hashmap route");
+        assert!(candidate, "forward-only graph is a DAG");
+
+        // Prime the revision-keyed CSR memo before warm timing.
+        black_box(graph.csr().successors(0).len());
+
+        let time = |timed_graph: &MultiDiGraph, candidate_route: bool| -> f64 {
+            let start = Instant::now();
+            let result = if candidate_route {
+                super::multidigraph_is_dag(timed_graph)
+            } else {
+                super::multidigraph_is_dag_orig_hashmap(timed_graph)
+            };
+            black_box(result);
+            start.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(&graph, true));
+            black_box(time(&graph, false));
+        }
+
+        let rounds = 31usize;
+        let paired_warm = |baseline_candidate: bool| -> Vec<f64> {
+            let mut ratios = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (baseline_time, candidate_time) = if round.is_multiple_of(2) {
+                    let baseline_time = time(&graph, baseline_candidate);
+                    let candidate_time = time(&graph, true);
+                    (baseline_time, candidate_time)
+                } else {
+                    let candidate_time = time(&graph, true);
+                    let baseline_time = time(&graph, baseline_candidate);
+                    (baseline_time, candidate_time)
+                };
+                ratios.push(baseline_time / candidate_time);
+            }
+            ratios
+        };
+        let paired_cold = |baseline_candidate: bool| -> Vec<f64> {
+            let mut ratios = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let baseline_graph = graph.clone();
+                let candidate_graph = graph.clone();
+                let (baseline_time, candidate_time) = if round.is_multiple_of(2) {
+                    let baseline_time = time(&baseline_graph, baseline_candidate);
+                    let candidate_time = time(&candidate_graph, true);
+                    (baseline_time, candidate_time)
+                } else {
+                    let candidate_time = time(&candidate_graph, true);
+                    let baseline_time = time(&baseline_graph, baseline_candidate);
+                    (baseline_time, candidate_time)
+                };
+                ratios.push(baseline_time / candidate_time);
+            }
+            ratios
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&ratio| ratio > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(f64::total_cmp);
+            println!(
+                "MDG_DAG_AB {name}: median={:.4}x wins={wins}/{rounds} p5_p95=[{:.4},{:.4}]",
+                sorted[rounds / 2],
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+
+        println!("MDG_DAG_AB n={n} forward-DAG rounds={rounds} Kahn (>1 = candidate faster)");
+        report("warm_candidate_vs_hashmap", &paired_warm(false));
+        report("warm_candidate_null", &paired_warm(true));
+        report("cold_candidate_vs_hashmap", &paired_cold(false));
+        report("cold_candidate_null", &paired_cold(true));
+    }
+
+    #[test]
+    fn multidigraph_is_strongly_connected_csr_matches_hashmap_route() {
+        let assert_parity = |mdg: &MultiDiGraph, expected: bool| {
+            let csr_route = super::multidigraph_is_strongly_connected(mdg);
+            assert_eq!(
+                csr_route,
+                super::multidigraph_is_strongly_connected_orig_hashmap(mdg),
+                "csr vs hashmap route must agree"
+            );
+            assert_eq!(csr_route, expected, "strong-connectivity value");
+        };
+
+        assert_parity(&MultiDiGraph::strict(), true); // empty is vacuously SC
+
+        let mut single = MultiDiGraph::strict();
+        let _ = single.add_node("solo".to_owned());
+        assert_parity(&single, true);
+        let _ = single.add_edge("solo".to_owned(), "solo".to_owned());
+        assert_parity(&single, true); // one node stays SC with a self-loop
+
+        // Directed cycle a->b->c->a is strongly connected.
+        let mut cyc = MultiDiGraph::strict();
+        for node in ["a", "b", "c"] {
+            let _ = cyc.add_node(node.to_owned());
+        }
+        for (u, v) in [("a", "b"), ("b", "c"), ("c", "a")] {
+            let _ = cyc.add_edge(u.to_owned(), v.to_owned());
+        }
+        assert_parity(&cyc, true);
+        // Parallel edge + self-loop keep it SC.
+        let _ = cyc.add_edge("a".to_owned(), "b".to_owned());
+        let _ = cyc.add_edge("b".to_owned(), "b".to_owned());
+        assert_parity(&cyc, true);
+        // Read-mutate-read: add an isolated sink node d, breaking SC.
+        let _ = cyc.add_node("d".to_owned());
+        let _ = cyc.add_edge("c".to_owned(), "d".to_owned());
+        assert_parity(&cyc, false);
+
+        // Two separate directed cycles (two SCCs) → not strongly connected.
+        let mut two = MultiDiGraph::strict();
+        for node in ["p", "q", "r", "s"] {
+            let _ = two.add_node(node.to_owned());
+        }
+        for (u, v) in [("p", "q"), ("q", "p"), ("r", "s"), ("s", "r")] {
+            let _ = two.add_edge(u.to_owned(), v.to_owned());
+        }
+        assert_parity(&two, false);
+
+        // Directed path a->b->c (weakly but not strongly connected).
+        let mut path = MultiDiGraph::strict();
+        for node in ["x", "y", "z"] {
+            let _ = path.add_node(node.to_owned());
+        }
+        for (u, v) in [("x", "y"), ("y", "z")] {
+            let _ = path.add_edge(u.to_owned(), v.to_owned());
+        }
+        assert_parity(&path, false);
+    }
+
+    /// `br-r37-c1-d291d`: same-binary paired proof for multidigraph_is_strongly_connected
+    /// — cached-CSR Tarjan vs the per-call inline-HashMap adjacency rebuild. Run with:
+    /// `cargo test --profile release -p fnx-python --lib
+    /// multidigraph_is_strongly_connected_csr_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with release profile, --ignored, and --nocapture"]
+    fn multidigraph_is_strongly_connected_csr_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        let n = 20_000usize;
+        let node = |index: usize| format!("scc-node-{index:05}");
+        let mut graph = MultiDiGraph::strict();
+        for index in 0..n {
+            let _ = graph.add_node(node(index));
+        }
+        // Directed cycle + forward chords keeps the whole graph one SCC, so Tarjan
+        // traverses every node before returning true.
+        for index in 0..n {
+            let next = (index + 1) % n;
+            let chord = (index + 127) % n;
+            let _ = graph.add_edge(node(index), node(next));
+            let _ = graph.add_edge(node(index), node(chord));
+            if index.is_multiple_of(8) {
+                let _ = graph.add_edge(node(index), node(next));
+            }
+        }
+        let candidate = super::multidigraph_is_strongly_connected(&graph);
+        let baseline = super::multidigraph_is_strongly_connected_orig_hashmap(&graph);
+        assert_eq!(candidate, baseline, "csr Tarjan must match hashmap route");
+        assert!(
+            candidate,
+            "directed cycle+chord graph is strongly connected"
+        );
+
+        // Prime the revision-keyed CSR memo before warm timing.
+        black_box(graph.csr().successors(0).len());
+
+        let time = |timed_graph: &MultiDiGraph, candidate_route: bool| -> f64 {
+            let start = Instant::now();
+            let result = if candidate_route {
+                super::multidigraph_is_strongly_connected(timed_graph)
+            } else {
+                super::multidigraph_is_strongly_connected_orig_hashmap(timed_graph)
+            };
+            black_box(result);
+            start.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(&graph, true));
+            black_box(time(&graph, false));
+        }
+
+        let rounds = 31usize;
+        let paired_warm = |baseline_candidate: bool| -> Vec<f64> {
+            let mut ratios = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (baseline_time, candidate_time) = if round.is_multiple_of(2) {
+                    let baseline_time = time(&graph, baseline_candidate);
+                    let candidate_time = time(&graph, true);
+                    (baseline_time, candidate_time)
+                } else {
+                    let candidate_time = time(&graph, true);
+                    let baseline_time = time(&graph, baseline_candidate);
+                    (baseline_time, candidate_time)
+                };
+                ratios.push(baseline_time / candidate_time);
+            }
+            ratios
+        };
+        let paired_cold = |baseline_candidate: bool| -> Vec<f64> {
+            let mut ratios = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let baseline_graph = graph.clone();
+                let candidate_graph = graph.clone();
+                let (baseline_time, candidate_time) = if round.is_multiple_of(2) {
+                    let baseline_time = time(&baseline_graph, baseline_candidate);
+                    let candidate_time = time(&candidate_graph, true);
+                    (baseline_time, candidate_time)
+                } else {
+                    let candidate_time = time(&candidate_graph, true);
+                    let baseline_time = time(&baseline_graph, baseline_candidate);
+                    (baseline_time, candidate_time)
+                };
+                ratios.push(baseline_time / candidate_time);
+            }
+            ratios
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&ratio| ratio > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(f64::total_cmp);
+            println!(
+                "MDG_SC_AB {name}: median={:.4}x wins={wins}/{rounds} p5_p95=[{:.4},{:.4}]",
+                sorted[rounds / 2],
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+
+        println!("MDG_SC_AB n={n} SC cycle+chord rounds={rounds} Tarjan (>1 = candidate faster)");
+        report("warm_candidate_vs_hashmap", &paired_warm(false));
+        report("warm_candidate_null", &paired_warm(true));
+        report("cold_candidate_vs_hashmap", &paired_cold(false));
+        report("cold_candidate_null", &paired_cold(true));
+    }
+
+    #[test]
+    fn multidigraph_number_scc_csr_matches_hashmap_route() {
+        let assert_parity = |mdg: &MultiDiGraph, expected: usize| {
+            let csr_route = super::multidigraph_number_scc(mdg);
+            assert_eq!(
+                csr_route,
+                super::multidigraph_number_scc_orig_hashmap(mdg),
+                "csr vs hashmap route must agree"
+            );
+            assert_eq!(csr_route, expected, "scc count");
+        };
+
+        assert_parity(&MultiDiGraph::strict(), 0);
+
+        let mut single = MultiDiGraph::strict();
+        let _ = single.add_node("solo".to_owned());
+        assert_parity(&single, 1);
+        let _ = single.add_edge("solo".to_owned(), "solo".to_owned());
+        assert_parity(&single, 1); // self-loop stays one SCC
+
+        // Directed cycle a->b->c->a is a single SCC.
+        let mut cyc = MultiDiGraph::strict();
+        for node in ["a", "b", "c"] {
+            let _ = cyc.add_node(node.to_owned());
+        }
+        for (u, v) in [("a", "b"), ("b", "c"), ("c", "a")] {
+            let _ = cyc.add_edge(u.to_owned(), v.to_owned());
+        }
+        assert_parity(&cyc, 1);
+        // Parallel edge + self-loop don't change the count.
+        let _ = cyc.add_edge("a".to_owned(), "b".to_owned());
+        let _ = cyc.add_edge("b".to_owned(), "b".to_owned());
+        assert_parity(&cyc, 1);
+        // Read-mutate-read: append a sink d (own SCC) → 2 SCCs.
+        let _ = cyc.add_node("d".to_owned());
+        let _ = cyc.add_edge("c".to_owned(), "d".to_owned());
+        assert_parity(&cyc, 2);
+
+        // Directed path x->y->z: three singleton SCCs.
+        let mut path = MultiDiGraph::strict();
+        for node in ["x", "y", "z"] {
+            let _ = path.add_node(node.to_owned());
+        }
+        for (u, v) in [("x", "y"), ("y", "z")] {
+            let _ = path.add_edge(u.to_owned(), v.to_owned());
+        }
+        assert_parity(&path, 3);
+
+        // Two disjoint 2-cycles + an isolated node: 3 SCCs.
+        let mut multi = MultiDiGraph::strict();
+        for node in ["p", "q", "r", "s", "iso"] {
+            let _ = multi.add_node(node.to_owned());
+        }
+        for (u, v) in [("p", "q"), ("q", "p"), ("r", "s"), ("s", "r")] {
+            let _ = multi.add_edge(u.to_owned(), v.to_owned());
+        }
+        assert_parity(&multi, 3);
+    }
+
+    /// `br-r37-c1-giqjb`: same-binary paired proof for multidigraph_number_scc —
+    /// cached-CSR Kosaraju vs the per-call inline-HashMap succ/pred rebuild. Run with:
+    /// `cargo test --profile release -p fnx-python --lib
+    /// multidigraph_number_scc_csr_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with release profile, --ignored, and --nocapture"]
+    fn multidigraph_number_scc_csr_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        let n = 20_000usize;
+        let node = |index: usize| format!("nscc-node-{index:05}");
+        let mut graph = MultiDiGraph::strict();
+        for index in 0..n {
+            let _ = graph.add_node(node(index));
+        }
+        // Directed cycle + chords → one SCC, so both DFS passes visit every node.
+        for index in 0..n {
+            let next = (index + 1) % n;
+            let chord = (index + 127) % n;
+            let _ = graph.add_edge(node(index), node(next));
+            let _ = graph.add_edge(node(index), node(chord));
+            if index.is_multiple_of(8) {
+                let _ = graph.add_edge(node(index), node(next));
+            }
+        }
+        let candidate = super::multidigraph_number_scc(&graph);
+        let baseline = super::multidigraph_number_scc_orig_hashmap(&graph);
+        assert_eq!(candidate, baseline, "csr Kosaraju must match hashmap route");
+        assert_eq!(candidate, 1, "cycle+chord graph is a single SCC");
+
+        // Prime the revision-keyed CSR memo before warm timing.
+        black_box(graph.csr().successors(0).len());
+
+        let time = |timed_graph: &MultiDiGraph, candidate_route: bool| -> f64 {
+            let start = Instant::now();
+            let result = if candidate_route {
+                super::multidigraph_number_scc(timed_graph)
+            } else {
+                super::multidigraph_number_scc_orig_hashmap(timed_graph)
+            };
+            black_box(result);
+            start.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(&graph, true));
+            black_box(time(&graph, false));
+        }
+
+        let rounds = 31usize;
+        let paired_warm = |baseline_candidate: bool| -> Vec<f64> {
+            let mut ratios = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (baseline_time, candidate_time) = if round.is_multiple_of(2) {
+                    let baseline_time = time(&graph, baseline_candidate);
+                    let candidate_time = time(&graph, true);
+                    (baseline_time, candidate_time)
+                } else {
+                    let candidate_time = time(&graph, true);
+                    let baseline_time = time(&graph, baseline_candidate);
+                    (baseline_time, candidate_time)
+                };
+                ratios.push(baseline_time / candidate_time);
+            }
+            ratios
+        };
+        let paired_cold = |baseline_candidate: bool| -> Vec<f64> {
+            let mut ratios = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let baseline_graph = graph.clone();
+                let candidate_graph = graph.clone();
+                let (baseline_time, candidate_time) = if round.is_multiple_of(2) {
+                    let baseline_time = time(&baseline_graph, baseline_candidate);
+                    let candidate_time = time(&candidate_graph, true);
+                    (baseline_time, candidate_time)
+                } else {
+                    let candidate_time = time(&candidate_graph, true);
+                    let baseline_time = time(&baseline_graph, baseline_candidate);
+                    (baseline_time, candidate_time)
+                };
+                ratios.push(baseline_time / candidate_time);
+            }
+            ratios
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&ratio| ratio > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(f64::total_cmp);
+            println!(
+                "MDG_NSCC_AB {name}: median={:.4}x wins={wins}/{rounds} p5_p95=[{:.4},{:.4}]",
+                sorted[rounds / 2],
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+
+        println!(
+            "MDG_NSCC_AB n={n} SC cycle+chord rounds={rounds} Kosaraju (>1 = candidate faster)"
+        );
+        report("warm_candidate_vs_hashmap", &paired_warm(false));
+        report("warm_candidate_null", &paired_warm(true));
+        report("cold_candidate_vs_hashmap", &paired_cold(false));
+        report("cold_candidate_null", &paired_cold(true));
+    }
+
+    #[test]
+    fn multidigraph_topological_sort_csr_matches_hashmap_route() {
+        // Exact-ORDER parity: the csr route must produce the identical topo order
+        // (or None) as the frozen inline route across every shape.
+        let assert_parity = |mdg: &MultiDiGraph, expected: Option<Vec<&str>>| {
+            let csr_route = super::multidigraph_topological_sort(mdg);
+            assert_eq!(
+                csr_route,
+                super::multidigraph_topological_sort_orig_hashmap(mdg),
+                "csr vs hashmap topo order must be identical"
+            );
+            assert_eq!(csr_route, expected, "exact topo order / cycle");
+        };
+
+        assert_parity(&MultiDiGraph::strict(), Some(vec![]));
+
+        let mut single = MultiDiGraph::strict();
+        let _ = single.add_node("solo".to_owned());
+        assert_parity(&single, Some(vec!["solo"]));
+
+        // Diamond DAG a->b, a->c, b->d, c->d: generation order a | b,c | d.
+        let mut dag = MultiDiGraph::strict();
+        for node in ["a", "b", "c", "d"] {
+            let _ = dag.add_node(node.to_owned());
+        }
+        for (u, v) in [("a", "b"), ("a", "c"), ("b", "d"), ("c", "d")] {
+            let _ = dag.add_edge(u.to_owned(), v.to_owned());
+        }
+        assert_parity(&dag, Some(vec!["a", "b", "c", "d"]));
+        // Parallel edge must not change the order (distinct-successor invariant).
+        let _ = dag.add_edge("a".to_owned(), "b".to_owned());
+        assert_parity(&dag, Some(vec!["a", "b", "c", "d"]));
+        // Read-mutate-read: add back edge d->a forming a cycle → None.
+        let _ = dag.add_edge("d".to_owned(), "a".to_owned());
+        assert_parity(&dag, None);
+
+        // Self-loop is a cycle → None.
+        let mut loopy = MultiDiGraph::strict();
+        let _ = loopy.add_node("x".to_owned());
+        let _ = loopy.add_edge("x".to_owned(), "x".to_owned());
+        assert_parity(&loopy, None);
+
+        // Multi-source DAG + isolated node: roots first (index order), then descendants.
+        let mut multi = MultiDiGraph::strict();
+        for node in ["r1", "r2", "m", "leaf", "iso"] {
+            let _ = multi.add_node(node.to_owned());
+        }
+        for (u, v) in [("r1", "m"), ("r2", "m"), ("m", "leaf")] {
+            let _ = multi.add_edge(u.to_owned(), v.to_owned());
+        }
+        assert_parity(&multi, Some(vec!["r1", "r2", "iso", "m", "leaf"]));
+    }
+
+    /// `br-r37-c1-hi50t`: same-binary paired proof for multidigraph_topological_sort
+    /// — cached-CSR Kahn vs the per-call inline-HashMap adjacency rebuild. Run with:
+    /// `cargo test --profile release -p fnx-python --lib
+    /// multidigraph_topological_sort_csr_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with release profile, --ignored, and --nocapture"]
+    fn multidigraph_topological_sort_csr_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        let n = 20_000usize;
+        let node = |index: usize| format!("topo-node-{index:05}");
+        let mut graph = MultiDiGraph::strict();
+        for index in 0..n {
+            let _ = graph.add_node(node(index));
+        }
+        // Forward-only edges → a DAG, so Kahn emits a full ordering of every node.
+        for index in 0..n {
+            if index + 1 < n {
+                let _ = graph.add_edge(node(index), node(index + 1));
+            }
+            if index + 127 < n {
+                let _ = graph.add_edge(node(index), node(index + 127));
+            }
+            if index.is_multiple_of(8) && index + 1 < n {
+                let _ = graph.add_edge(node(index), node(index + 1));
+            }
+        }
+        let candidate = super::multidigraph_topological_sort(&graph);
+        let baseline = super::multidigraph_topological_sort_orig_hashmap(&graph);
+        assert_eq!(
+            candidate, baseline,
+            "csr Kahn topo order must match hashmap route"
+        );
+        assert_eq!(
+            candidate.as_ref().map(|v| v.len()),
+            Some(n),
+            "forward-only DAG yields a full ordering"
+        );
+
+        // Prime the revision-keyed CSR memo before warm timing.
+        black_box(graph.csr().successors(0).len());
+
+        let time = |timed_graph: &MultiDiGraph, candidate_route: bool| -> f64 {
+            let start = Instant::now();
+            let result = if candidate_route {
+                super::multidigraph_topological_sort(timed_graph)
+            } else {
+                super::multidigraph_topological_sort_orig_hashmap(timed_graph)
+            };
+            black_box(result.map(|v| v.len()));
+            start.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(&graph, true));
+            black_box(time(&graph, false));
+        }
+
+        let rounds = 31usize;
+        let paired_warm = |baseline_candidate: bool| -> Vec<f64> {
+            let mut ratios = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (baseline_time, candidate_time) = if round.is_multiple_of(2) {
+                    let baseline_time = time(&graph, baseline_candidate);
+                    let candidate_time = time(&graph, true);
+                    (baseline_time, candidate_time)
+                } else {
+                    let candidate_time = time(&graph, true);
+                    let baseline_time = time(&graph, baseline_candidate);
+                    (baseline_time, candidate_time)
+                };
+                ratios.push(baseline_time / candidate_time);
+            }
+            ratios
+        };
+        let paired_cold = |baseline_candidate: bool| -> Vec<f64> {
+            let mut ratios = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let baseline_graph = graph.clone();
+                let candidate_graph = graph.clone();
+                let (baseline_time, candidate_time) = if round.is_multiple_of(2) {
+                    let baseline_time = time(&baseline_graph, baseline_candidate);
+                    let candidate_time = time(&candidate_graph, true);
+                    (baseline_time, candidate_time)
+                } else {
+                    let candidate_time = time(&candidate_graph, true);
+                    let baseline_time = time(&baseline_graph, baseline_candidate);
+                    (baseline_time, candidate_time)
+                };
+                ratios.push(baseline_time / candidate_time);
+            }
+            ratios
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&ratio| ratio > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(f64::total_cmp);
+            println!(
+                "MDG_TOPO_AB {name}: median={:.4}x wins={wins}/{rounds} p5_p95=[{:.4},{:.4}]",
+                sorted[rounds / 2],
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+
+        println!(
+            "MDG_TOPO_AB n={n} forward-DAG rounds={rounds} generation-Kahn (>1 = candidate faster)"
+        );
+        report("warm_candidate_vs_hashmap", &paired_warm(false));
+        report("warm_candidate_null", &paired_warm(true));
+        report("cold_candidate_vs_hashmap", &paired_cold(false));
+        report("cold_candidate_null", &paired_cold(true));
+    }
+
+    #[test]
+    fn multidigraph_scc_listing_delegate_matches_inline_route() {
+        // EXACT parity: the delegating (cached-csr) route must produce the identical
+        // ordered Vec<Vec<String>> as the frozen inline route on every shape.
+        let assert_parity = |mdg: &MultiDiGraph| {
+            assert_eq!(
+                super::multidigraph_strongly_connected_components_nx_ordered(mdg),
+                super::multidigraph_strongly_connected_components_nx_ordered_orig_inline(mdg),
+                "delegated vs inline SCC listing must be byte-identical"
+            );
+            super::multidigraph_strongly_connected_components_nx_ordered(mdg)
+        };
+
+        assert!(assert_parity(&MultiDiGraph::strict()).is_empty());
+
+        let mut single = MultiDiGraph::strict();
+        let _ = single.add_node("solo".to_owned());
+        assert_eq!(assert_parity(&single), vec![vec!["solo".to_owned()]]);
+        let _ = single.add_edge("solo".to_owned(), "solo".to_owned());
+        assert_eq!(assert_parity(&single), vec![vec!["solo".to_owned()]]);
+
+        // Strongly-connected cycle a->b->c->a: one component (single-SCC fast path).
+        let mut cyc = MultiDiGraph::strict();
+        for node in ["a", "b", "c"] {
+            let _ = cyc.add_node(node.to_owned());
+        }
+        for (u, v) in [("a", "b"), ("b", "c"), ("c", "a")] {
+            let _ = cyc.add_edge(u.to_owned(), v.to_owned());
+        }
+        assert_eq!(
+            assert_parity(&cyc),
+            vec![vec!["a".to_owned(), "b".to_owned(), "c".to_owned()]]
+        );
+        // Parallel edge + self-loop keep the single component.
+        let _ = cyc.add_edge("a".to_owned(), "b".to_owned());
+        let _ = cyc.add_edge("b".to_owned(), "b".to_owned());
+        assert_parity(&cyc);
+        // Read-mutate-read: append sink d → two components (order asserted via parity).
+        let _ = cyc.add_node("d".to_owned());
+        let _ = cyc.add_edge("c".to_owned(), "d".to_owned());
+        let two = assert_parity(&cyc);
+        assert_eq!(two.len(), 2, "cycle + sink → 2 SCCs");
+
+        // Directed path + branch + two disjoint 2-cycles + isolated node: full Tarjan,
+        // several components — parity is the contract here.
+        let mut multi = MultiDiGraph::strict();
+        for node in ["p", "q", "r", "s", "t", "u", "iso"] {
+            let _ = multi.add_node(node.to_owned());
+        }
+        for (a, b) in [
+            ("p", "q"),
+            ("q", "r"),
+            ("r", "p"),
+            ("r", "s"),
+            ("t", "u"),
+            ("u", "t"),
+        ] {
+            let _ = multi.add_edge(a.to_owned(), b.to_owned());
+        }
+        assert_parity(&multi);
+    }
+
+    /// `br-r37-c1-vrbmf`: same-binary paired proof for the MultiDiGraph SCC listing —
+    /// cached-csr delegation vs the frozen per-call inline-HashMap Tarjan. Forward DAG
+    /// (n singleton SCCs → full Tarjan). Run with:
+    /// `cargo test --profile release -p fnx-python --lib
+    /// multidigraph_scc_listing_delegate_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with release profile, --ignored, and --nocapture"]
+    fn multidigraph_scc_listing_delegate_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        let n = 20_000usize;
+        let node = |index: usize| format!("scl-node-{index:05}");
+        let mut graph = MultiDiGraph::strict();
+        for index in 0..n {
+            let _ = graph.add_node(node(index));
+        }
+        // Forward-only edges → a DAG: every node is its own SCC, so the single-SCC
+        // fast path is skipped and the full Tarjan runs over all n nodes.
+        for index in 0..n {
+            if index + 1 < n {
+                let _ = graph.add_edge(node(index), node(index + 1));
+            }
+            if index + 127 < n {
+                let _ = graph.add_edge(node(index), node(index + 127));
+            }
+            if index.is_multiple_of(8) && index + 1 < n {
+                let _ = graph.add_edge(node(index), node(index + 1));
+            }
+        }
+        let candidate = super::multidigraph_strongly_connected_components_nx_ordered(&graph);
+        let baseline =
+            super::multidigraph_strongly_connected_components_nx_ordered_orig_inline(&graph);
+        assert_eq!(
+            candidate, baseline,
+            "delegated csr listing must match inline route"
+        );
+        assert_eq!(candidate.len(), n, "forward DAG yields n singleton SCCs");
+
+        // Prime the revision-keyed CSR memo before warm timing.
+        black_box(graph.csr().successors(0).len());
+
+        let time = |timed_graph: &MultiDiGraph, candidate_route: bool| -> f64 {
+            let start = Instant::now();
+            let result = if candidate_route {
+                super::multidigraph_strongly_connected_components_nx_ordered(timed_graph)
+            } else {
+                super::multidigraph_strongly_connected_components_nx_ordered_orig_inline(
+                    timed_graph,
+                )
+            };
+            black_box(result.len());
+            start.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(&graph, true));
+            black_box(time(&graph, false));
+        }
+
+        let rounds = 31usize;
+        let paired_warm = |baseline_candidate: bool| -> Vec<f64> {
+            let mut ratios = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (baseline_time, candidate_time) = if round.is_multiple_of(2) {
+                    let baseline_time = time(&graph, baseline_candidate);
+                    let candidate_time = time(&graph, true);
+                    (baseline_time, candidate_time)
+                } else {
+                    let candidate_time = time(&graph, true);
+                    let baseline_time = time(&graph, baseline_candidate);
+                    (baseline_time, candidate_time)
+                };
+                ratios.push(baseline_time / candidate_time);
+            }
+            ratios
+        };
+        let paired_cold = |baseline_candidate: bool| -> Vec<f64> {
+            let mut ratios = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let baseline_graph = graph.clone();
+                let candidate_graph = graph.clone();
+                let (baseline_time, candidate_time) = if round.is_multiple_of(2) {
+                    let baseline_time = time(&baseline_graph, baseline_candidate);
+                    let candidate_time = time(&candidate_graph, true);
+                    (baseline_time, candidate_time)
+                } else {
+                    let candidate_time = time(&candidate_graph, true);
+                    let baseline_time = time(&baseline_graph, baseline_candidate);
+                    (baseline_time, candidate_time)
+                };
+                ratios.push(baseline_time / candidate_time);
+            }
+            ratios
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&ratio| ratio > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(f64::total_cmp);
+            println!(
+                "MDG_SCL_AB {name}: median={:.4}x wins={wins}/{rounds} p5_p95=[{:.4},{:.4}]",
+                sorted[rounds / 2],
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+
+        println!(
+            "MDG_SCL_AB n={n} forward-DAG rounds={rounds} SCC-listing Tarjan (>1 = candidate faster)"
+        );
+        report("warm_candidate_vs_inline", &paired_warm(false));
+        report("warm_candidate_null", &paired_warm(true));
+        report("cold_candidate_vs_inline", &paired_cold(false));
+        report("cold_candidate_null", &paired_cold(true));
+    }
+
+    #[test]
+    fn digraph_scc_listing_native_indices_matches_inline_route() {
+        use fnx_classes::digraph::DiGraph;
+        let assert_parity = |dg: &DiGraph| {
+            assert_eq!(
+                super::strongly_connected_components_nx_ordered(dg),
+                super::strongly_connected_components_nx_ordered_orig_inline(dg),
+                "native-indices vs inline SCC listing must be byte-identical"
+            );
+            super::strongly_connected_components_nx_ordered(dg)
+        };
+
+        assert!(assert_parity(&DiGraph::strict()).is_empty());
+
+        let mut single = DiGraph::strict();
+        let _ = single.add_node("solo".to_owned());
+        assert_eq!(assert_parity(&single), vec![vec!["solo".to_owned()]]);
+        let _ = single.add_edge("solo".to_owned(), "solo".to_owned());
+        assert_eq!(assert_parity(&single), vec![vec!["solo".to_owned()]]);
+
+        // Strongly-connected cycle a->b->c->a: one component (single-SCC fast path).
+        let mut cyc = DiGraph::strict();
+        for node in ["a", "b", "c"] {
+            let _ = cyc.add_node(node.to_owned());
+        }
+        for (u, v) in [("a", "b"), ("b", "c"), ("c", "a")] {
+            let _ = cyc.add_edge(u.to_owned(), v.to_owned());
+        }
+        assert_eq!(
+            assert_parity(&cyc),
+            vec![vec!["a".to_owned(), "b".to_owned(), "c".to_owned()]]
+        );
+        // Read-mutate-read: append sink d → two components.
+        let _ = cyc.add_node("d".to_owned());
+        let _ = cyc.add_edge("c".to_owned(), "d".to_owned());
+        assert_eq!(assert_parity(&cyc).len(), 2, "cycle + sink → 2 SCCs");
+
+        // Directed path x->y->z: three singleton SCCs.
+        let mut path = DiGraph::strict();
+        for node in ["x", "y", "z"] {
+            let _ = path.add_node(node.to_owned());
+        }
+        for (u, v) in [("x", "y"), ("y", "z")] {
+            let _ = path.add_edge(u.to_owned(), v.to_owned());
+        }
+        assert_eq!(assert_parity(&path).len(), 3);
+
+        // Two disjoint 2-cycles + branch + isolated node: full Tarjan, parity is the
+        // contract.
+        let mut multi = DiGraph::strict();
+        for node in ["p", "q", "r", "s", "t", "u", "iso"] {
+            let _ = multi.add_node(node.to_owned());
+        }
+        for (a, b) in [
+            ("p", "q"),
+            ("q", "p"),
+            ("q", "r"),
+            ("r", "s"),
+            ("t", "u"),
+            ("u", "t"),
+        ] {
+            let _ = multi.add_edge(a.to_owned(), b.to_owned());
+        }
+        assert_parity(&multi);
+    }
+
+    /// `br-r37-c1-rjj10`: same-binary paired proof for the simple-DiGraph SCC listing
+    /// — native `successors_indices` traversal vs the frozen inline-HashMap Tarjan.
+    /// Forward DAG (n singleton SCCs → full Tarjan). Run with:
+    /// `cargo test --profile release -p fnx-python --lib
+    /// digraph_scc_listing_native_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with release profile, --ignored, and --nocapture"]
+    fn digraph_scc_listing_native_ab() {
+        use fnx_classes::digraph::DiGraph;
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        let n = 20_000usize;
+        let node = |index: usize| format!("dscl-node-{index:05}");
+        let mut graph = DiGraph::strict();
+        for index in 0..n {
+            let _ = graph.add_node(node(index));
+        }
+        // Forward-only edges → a DAG: every node is its own SCC, full Tarjan runs.
+        for index in 0..n {
+            if index + 1 < n {
+                let _ = graph.add_edge(node(index), node(index + 1));
+            }
+            if index + 127 < n {
+                let _ = graph.add_edge(node(index), node(index + 127));
+            }
+        }
+        let candidate = super::strongly_connected_components_nx_ordered(&graph);
+        let baseline = super::strongly_connected_components_nx_ordered_orig_inline(&graph);
+        assert_eq!(
+            candidate, baseline,
+            "native-indices listing must match inline route"
+        );
+        assert_eq!(candidate.len(), n, "forward DAG yields n singleton SCCs");
+
+        let time = |timed_graph: &DiGraph, candidate_route: bool| -> f64 {
+            let start = Instant::now();
+            let result = if candidate_route {
+                super::strongly_connected_components_nx_ordered(timed_graph)
+            } else {
+                super::strongly_connected_components_nx_ordered_orig_inline(timed_graph)
+            };
+            black_box(result.len());
+            start.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(&graph, true));
+            black_box(time(&graph, false));
+        }
+
+        let rounds = 31usize;
+        let paired = || -> Vec<f64> {
+            let mut ratios = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (baseline_time, candidate_time) = if round.is_multiple_of(2) {
+                    let baseline_time = time(&graph, false);
+                    let candidate_time = time(&graph, true);
+                    (baseline_time, candidate_time)
+                } else {
+                    let candidate_time = time(&graph, true);
+                    let baseline_time = time(&graph, false);
+                    (baseline_time, candidate_time)
+                };
+                ratios.push(baseline_time / candidate_time);
+            }
+            ratios
+        };
+        let null = || -> Vec<f64> {
+            let mut ratios = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let a = time(&graph, true);
+                let b = time(&graph, true);
+                ratios.push(if round.is_multiple_of(2) {
+                    b / a
+                } else {
+                    a / b
+                });
+            }
+            ratios
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&ratio| ratio > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(f64::total_cmp);
+            println!(
+                "DG_SCL_AB {name}: median={:.4}x wins={wins}/{rounds} p5_p95=[{:.4},{:.4}]",
+                sorted[rounds / 2],
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+
+        println!(
+            "DG_SCL_AB n={n} forward-DAG rounds={rounds} SCC-listing Tarjan (>1 = candidate faster)"
+        );
+        report("candidate_vs_inline", &paired());
+        report("null", &null());
+    }
+
+    #[test]
+    fn shortest_path_adjacency_indices_native_matches_inline_route() {
+        use fnx_classes::Graph;
+        use fnx_classes::digraph::DiGraph;
+        use std::collections::HashMap;
+
+        let inline_graph = |g: &Graph, nodes: &[&str]| -> Vec<Vec<usize>> {
+            let node_indices: HashMap<&str, usize> = nodes
+                .iter()
+                .copied()
+                .enumerate()
+                .map(|(i, n)| (n, i))
+                .collect();
+            nodes
+                .iter()
+                .map(|&node| {
+                    g.neighbors_iter(node).map_or_else(Vec::new, |nbrs| {
+                        nbrs.filter_map(|nb| node_indices.get(nb).copied())
+                            .collect()
+                    })
+                })
+                .collect()
+        };
+        let inline_digraph = |g: &DiGraph, nodes: &[&str]| -> Vec<Vec<usize>> {
+            let node_indices: HashMap<&str, usize> = nodes
+                .iter()
+                .copied()
+                .enumerate()
+                .map(|(i, n)| (n, i))
+                .collect();
+            nodes
+                .iter()
+                .map(|&node| {
+                    g.successors_iter(node).map_or_else(Vec::new, |succs| {
+                        succs.filter_map(|s| node_indices.get(s).copied()).collect()
+                    })
+                })
+                .collect()
+        };
+
+        // Undirected: empty, isolated node, path, cycle + parallel-ish (simple graph
+        // dedups), self-loop.
+        let mut g = Graph::strict();
+        assert_eq!(
+            super::graph_shortest_path_adjacency_indices(&g, &g.nodes_ordered()),
+            inline_graph(&g, &g.nodes_ordered())
+        );
+        for node in ["a", "b", "c", "d", "iso"] {
+            let _ = g.add_node(node.to_owned());
+        }
+        for (u, v) in [("a", "b"), ("b", "c"), ("c", "d"), ("d", "a")] {
+            let _ = g.add_edge(u.to_owned(), v.to_owned());
+        }
+        let _ = g.add_edge("a".to_owned(), "a".to_owned()); // self-loop
+        let nodes = g.nodes_ordered();
+        assert_eq!(
+            super::graph_shortest_path_adjacency_indices(&g, &nodes),
+            inline_graph(&g, &nodes)
+        );
+        // Read-mutate-read.
+        let _ = g.add_edge("iso".to_owned(), "c".to_owned());
+        let nodes = g.nodes_ordered();
+        assert_eq!(
+            super::graph_shortest_path_adjacency_indices(&g, &nodes),
+            inline_graph(&g, &nodes)
+        );
+
+        // Directed: path + branch + cycle + self-loop + isolated node.
+        let mut dg = DiGraph::strict();
+        for node in ["p", "q", "r", "s", "iso"] {
+            let _ = dg.add_node(node.to_owned());
+        }
+        for (u, v) in [("p", "q"), ("q", "r"), ("r", "p"), ("q", "s")] {
+            let _ = dg.add_edge(u.to_owned(), v.to_owned());
+        }
+        let _ = dg.add_edge("s".to_owned(), "s".to_owned());
+        let dnodes = dg.nodes_ordered();
+        assert_eq!(
+            super::digraph_shortest_path_adjacency_indices(&dg, &dnodes),
+            inline_digraph(&dg, &dnodes)
+        );
+    }
+
+    /// `br-r37-c1-ny6ly`: same-binary paired proof for the Graph shortest-path
+    /// adjacency builder — native `neighbors_indices` rows vs the inline-HashMap
+    /// int→name→int round-trip (the DiGraph builder is the identical transform).
+    /// Run: `cargo test --profile release -p fnx-python --lib
+    /// shortest_path_adjacency_native_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with release profile, --ignored, and --nocapture"]
+    fn shortest_path_adjacency_native_ab() {
+        use fnx_classes::Graph;
+        use std::collections::HashMap;
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        let n = 20_000usize;
+        let node = |index: usize| format!("spa-node-{index:05}");
+        let mut graph = Graph::strict();
+        for index in 0..n {
+            let _ = graph.add_node(node(index));
+        }
+        for index in 0..n {
+            let _ = graph.add_edge(node(index), node((index + 1) % n));
+            let _ = graph.add_edge(node(index), node((index + 127) % n));
+        }
+        let nodes = graph.nodes_ordered();
+
+        let inline = |g: &Graph, nodes: &[&str]| -> Vec<Vec<usize>> {
+            let node_indices: HashMap<&str, usize> = nodes
+                .iter()
+                .copied()
+                .enumerate()
+                .map(|(i, nd)| (nd, i))
+                .collect();
+            nodes
+                .iter()
+                .map(|&nd| {
+                    g.neighbors_iter(nd).map_or_else(Vec::new, |nbrs| {
+                        nbrs.filter_map(|nb| node_indices.get(nb).copied())
+                            .collect()
+                    })
+                })
+                .collect()
+        };
+        let candidate = super::graph_shortest_path_adjacency_indices(&graph, &nodes);
+        assert_eq!(
+            candidate,
+            inline(&graph, &nodes),
+            "native rows must match inline route"
+        );
+
+        let time = |candidate_route: bool| -> f64 {
+            let start = Instant::now();
+            let result = if candidate_route {
+                super::graph_shortest_path_adjacency_indices(&graph, &nodes)
+            } else {
+                inline(&graph, &nodes)
+            };
+            black_box(result.len());
+            start.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(true));
+            black_box(time(false));
+        }
+
+        let rounds = 31usize;
+        let paired = || -> Vec<f64> {
+            let mut ratios = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (baseline_time, candidate_time) = if round.is_multiple_of(2) {
+                    (time(false), time(true))
+                } else {
+                    let c = time(true);
+                    (time(false), c)
+                };
+                ratios.push(baseline_time / candidate_time);
+            }
+            ratios
+        };
+        let null = || -> Vec<f64> {
+            let mut ratios = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let a = time(true);
+                let b = time(true);
+                ratios.push(if round.is_multiple_of(2) {
+                    b / a
+                } else {
+                    a / b
+                });
+            }
+            ratios
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&ratio| ratio > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(f64::total_cmp);
+            println!(
+                "SPA_AB {name}: median={:.4}x wins={wins}/{rounds} p5_p95=[{:.4},{:.4}]",
+                sorted[rounds / 2],
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+
+        println!(
+            "SPA_AB n={n} cycle+chord rounds={rounds} adjacency-build (>1 = candidate faster)"
+        );
+        report("native_vs_inline", &paired());
+        report("null", &null());
+    }
+
+    #[test]
+    fn node_count_equals_nodes_ordered_len_and_empty() {
+        use fnx_classes::Graph;
+        let mut g = Graph::strict();
+        assert_eq!(g.node_count(), g.nodes_ordered().len());
+        assert_eq!(g.node_count() == 0, g.nodes_ordered().is_empty());
+        for node in ["a", "b", "c", "d"] {
+            let _ = g.add_node(node.to_owned());
+        }
+        let _ = g.add_edge("a".to_owned(), "b".to_owned());
+        assert_eq!(g.node_count(), g.nodes_ordered().len());
+        assert_eq!(g.node_count() == 0, g.nodes_ordered().is_empty());
+        let _ = g.remove_node("b");
+        assert_eq!(g.node_count(), g.nodes_ordered().len());
+        assert!(g.node_count() != 0);
+    }
+
+    /// `br-r37-c1-e5hzf`: same-binary paired proof that the `node_count()` O(1) field
+    /// read replaces the O(V) `nodes_ordered().len()` materialization density used on
+    /// its simple-graph path. Run with:
+    /// `cargo test --profile release -p fnx-python --lib
+    /// node_count_vs_materialize_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with release profile, --ignored, and --nocapture"]
+    fn node_count_vs_materialize_ab() {
+        use fnx_classes::Graph;
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        let n = 20_000usize;
+        let node = |index: usize| format!("dens-node-{index:05}");
+        let mut graph = Graph::strict();
+        for index in 0..n {
+            let _ = graph.add_node(node(index));
+        }
+        for index in 0..n {
+            let _ = graph.add_edge(node(index), node((index + 1) % n));
+        }
+        assert_eq!(graph.node_count(), graph.nodes_ordered().len());
+
+        let iters = 2_000usize;
+        let time = |candidate: bool| -> f64 {
+            let start = Instant::now();
+            let mut acc = 0usize;
+            for _ in 0..iters {
+                acc += if candidate {
+                    graph.node_count()
+                } else {
+                    graph.nodes_ordered().len()
+                };
+            }
+            black_box(acc);
+            start.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(true));
+            black_box(time(false));
+        }
+
+        let rounds = 31usize;
+        let paired = || -> Vec<f64> {
+            let mut ratios = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (baseline_time, candidate_time) = if round.is_multiple_of(2) {
+                    (time(false), time(true))
+                } else {
+                    let c = time(true);
+                    (time(false), c)
+                };
+                ratios.push(baseline_time / candidate_time);
+            }
+            ratios
+        };
+        let null = || -> Vec<f64> {
+            let mut ratios = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let a = time(true);
+                let b = time(true);
+                ratios.push(if round.is_multiple_of(2) {
+                    b / a
+                } else {
+                    a / b
+                });
+            }
+            ratios
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&ratio| ratio > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(f64::total_cmp);
+            println!(
+                "DENSITY_AB {name}: median={:.4}x wins={wins}/{rounds} p5_p95=[{:.4},{:.4}]",
+                sorted[rounds / 2],
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+
+        println!(
+            "DENSITY_AB n={n} iters={iters} rounds={rounds} node_count vs nodes_ordered().len() (>1 = candidate faster)"
+        );
+        report("node_count_vs_materialize", &paired());
+        report("null", &null());
+    }
+
+    #[test]
+    fn directed_non_edges_bool_row_matches_has_edge_route() {
+        use fnx_classes::digraph::DiGraph;
+        let assert_parity = |dg: &DiGraph| {
+            assert_eq!(
+                super::directed_non_edges_bool_row(dg),
+                super::directed_non_edges_has_edge_orig(dg),
+                "bool-row non-edges must match the has_edge route (order + pairs)"
+            );
+        };
+
+        assert_parity(&DiGraph::strict());
+
+        let mut single = DiGraph::strict();
+        let _ = single.add_node("solo".to_owned());
+        assert_parity(&single); // no non-edges (u==v excluded)
+        let _ = single.add_edge("solo".to_owned(), "solo".to_owned()); // self-loop irrelevant
+        assert_parity(&single);
+
+        // Mixed: some edges, a self-loop, a fully-connected pair, isolated node.
+        let mut dg = DiGraph::strict();
+        for node in ["a", "b", "c", "d", "iso"] {
+            let _ = dg.add_node(node.to_owned());
+        }
+        for (u, v) in [("a", "b"), ("b", "c"), ("c", "a"), ("a", "c"), ("d", "d")] {
+            let _ = dg.add_edge(u.to_owned(), v.to_owned());
+        }
+        assert_parity(&dg);
+        // Read-mutate-read.
+        let _ = dg.add_edge("iso".to_owned(), "a".to_owned());
+        assert_parity(&dg);
+    }
+
+    /// `br-r37-c1-5k75q`: same-binary paired proof for the directed non_edges scan —
+    /// successor bool row vs the O(V²) has_edge probe. Dense DiGraph (few non-edges →
+    /// the pair scan dominates, not the output). Run with:
+    /// `cargo test --profile release -p fnx-python --lib
+    /// directed_non_edges_bool_row_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with release profile, --ignored, and --nocapture"]
+    fn directed_non_edges_bool_row_ab() {
+        use fnx_classes::digraph::DiGraph;
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        // Dense: each node points to ~half the others → the O(V^2) has_edge scan is
+        // the whole cost; the non-edge OUTPUT stays small.
+        let n = 3_000usize;
+        let node = |index: usize| format!("ne-node-{index:05}");
+        let mut graph = DiGraph::strict();
+        for index in 0..n {
+            let _ = graph.add_node(node(index));
+        }
+        for u in 0..n {
+            for step in 1..=(n / 2) {
+                let _ = graph.add_edge(node(u), node((u + step) % n));
+            }
+        }
+        let candidate = super::directed_non_edges_bool_row(&graph);
+        let baseline = super::directed_non_edges_has_edge_orig(&graph);
+        assert_eq!(candidate, baseline, "bool-row must match has_edge route");
+
+        let time = |candidate_route: bool| -> f64 {
+            let start = Instant::now();
+            let result = if candidate_route {
+                super::directed_non_edges_bool_row(&graph)
+            } else {
+                super::directed_non_edges_has_edge_orig(&graph)
+            };
+            black_box(result.len());
+            start.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(true));
+            black_box(time(false));
+        }
+
+        let rounds = 31usize;
+        let paired = || -> Vec<f64> {
+            let mut ratios = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (baseline_time, candidate_time) = if round.is_multiple_of(2) {
+                    (time(false), time(true))
+                } else {
+                    let c = time(true);
+                    (time(false), c)
+                };
+                ratios.push(baseline_time / candidate_time);
+            }
+            ratios
+        };
+        let null = || -> Vec<f64> {
+            let mut ratios = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let a = time(true);
+                let b = time(true);
+                ratios.push(if round.is_multiple_of(2) {
+                    b / a
+                } else {
+                    a / b
+                });
+            }
+            ratios
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&ratio| ratio > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(f64::total_cmp);
+            println!(
+                "NONEDGES_AB {name}: median={:.4}x wins={wins}/{rounds} p5_p95=[{:.4},{:.4}]",
+                sorted[rounds / 2],
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+
+        println!(
+            "NONEDGES_AB n={n} dense-DiGraph rounds={rounds} V^2 scan (>1 = candidate faster)"
+        );
+        report("boolrow_vs_hasedge", &paired());
+        report("null", &null());
+    }
+
+    #[test]
+    fn undirected_non_edges_bool_row_matches_has_edge_route() {
+        use fnx_classes::Graph;
+        let assert_parity = |g: &Graph| {
+            assert_eq!(
+                super::undirected_non_edges_bool_row(g),
+                super::undirected_non_edges_has_edge_orig(g),
+                "bool-row non-edges must match the has_edge route (order + pairs)"
+            );
+        };
+
+        assert_parity(&Graph::strict());
+
+        let mut single = Graph::strict();
+        let _ = single.add_node("solo".to_owned());
+        assert_parity(&single);
+        let _ = single.add_edge("solo".to_owned(), "solo".to_owned()); // self-loop irrelevant
+        assert_parity(&single);
+
+        // Mixed: path + a triangle + isolated node + a self-loop.
+        let mut g = Graph::strict();
+        for node in ["a", "b", "c", "d", "e", "iso"] {
+            let _ = g.add_node(node.to_owned());
+        }
+        for (u, v) in [("a", "b"), ("b", "c"), ("c", "a"), ("c", "d"), ("d", "d")] {
+            let _ = g.add_edge(u.to_owned(), v.to_owned());
+        }
+        assert_parity(&g);
+        // Read-mutate-read.
+        let _ = g.add_edge("iso".to_owned(), "e".to_owned());
+        assert_parity(&g);
+    }
+
+    /// `br-r37-c1-c4ye0`: same-binary paired proof for the undirected non-edges scan
+    /// (extract_ebunch default path) — neighbor bool row vs the O(V²) has_edge probe.
+    /// Dense graph (few non-edges → the pair scan dominates). Run with:
+    /// `cargo test --profile release -p fnx-python --lib
+    /// undirected_non_edges_bool_row_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with release profile, --ignored, and --nocapture"]
+    fn undirected_non_edges_bool_row_ab() {
+        use fnx_classes::Graph;
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        // Dense: each node adjacent to ~half the others → the O(V²) has_edge scan is
+        // the whole cost; the non-edge OUTPUT stays small.
+        let n = 3_000usize;
+        let node = |index: usize| format!("une-node-{index:05}");
+        let mut graph = Graph::strict();
+        for index in 0..n {
+            let _ = graph.add_node(node(index));
+        }
+        for u in 0..n {
+            for step in 1..=(n / 2) {
+                let _ = graph.add_edge(node(u), node((u + step) % n));
+            }
+        }
+        let candidate = super::undirected_non_edges_bool_row(&graph);
+        let baseline = super::undirected_non_edges_has_edge_orig(&graph);
+        assert_eq!(candidate, baseline, "bool-row must match has_edge route");
+
+        let time = |candidate_route: bool| -> f64 {
+            let start = Instant::now();
+            let result = if candidate_route {
+                super::undirected_non_edges_bool_row(&graph)
+            } else {
+                super::undirected_non_edges_has_edge_orig(&graph)
+            };
+            black_box(result.len());
+            start.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(true));
+            black_box(time(false));
+        }
+
+        let rounds = 31usize;
+        let paired = || -> Vec<f64> {
+            let mut ratios = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (baseline_time, candidate_time) = if round.is_multiple_of(2) {
+                    (time(false), time(true))
+                } else {
+                    let c = time(true);
+                    (time(false), c)
+                };
+                ratios.push(baseline_time / candidate_time);
+            }
+            ratios
+        };
+        let null = || -> Vec<f64> {
+            let mut ratios = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let a = time(true);
+                let b = time(true);
+                ratios.push(if round.is_multiple_of(2) {
+                    b / a
+                } else {
+                    a / b
+                });
+            }
+            ratios
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&ratio| ratio > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(f64::total_cmp);
+            println!(
+                "UNEDGES_AB {name}: median={:.4}x wins={wins}/{rounds} p5_p95=[{:.4},{:.4}]",
+                sorted[rounds / 2],
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+
+        println!("UNEDGES_AB n={n} dense-Graph rounds={rounds} V^2 scan (>1 = candidate faster)");
+        report("boolrow_vs_hasedge", &paired());
+        report("null", &null());
+    }
+
+    #[test]
+    fn multigraph_number_connected_components_matches_materialized_route() {
+        let mut graph = MultiGraph::strict();
+        assert_eq!(
+            super::multigraph_number_connected_components(&graph),
+            super::multigraph_number_connected_components_orig_materialized(&graph)
+        );
+
+        for node in ["zeta", "alpha", "mu", "theta", "xi"] {
+            let _ = graph.add_node(node.to_owned());
+        }
+        let _ = graph.add_edge("zeta".to_owned(), "alpha".to_owned());
+        let _ = graph.add_edge("zeta".to_owned(), "alpha".to_owned());
+        let _ = graph.add_edge("alpha".to_owned(), "mu".to_owned());
+        let _ = graph.add_edge("theta".to_owned(), "theta".to_owned());
+        assert_eq!(
+            super::multigraph_number_connected_components(&graph),
+            super::multigraph_number_connected_components_orig_materialized(&graph)
+        );
+
+        // Exercise read-mutate-read memo invalidation while merging three
+        // components into one.
+        let _ = graph.add_edge("mu".to_owned(), "theta".to_owned());
+        let _ = graph.add_edge("theta".to_owned(), "xi".to_owned());
+        assert_eq!(
+            super::multigraph_number_connected_components(&graph),
+            super::multigraph_number_connected_components_orig_materialized(&graph)
+        );
+        assert_eq!(super::multigraph_number_connected_components(&graph), 1);
+    }
+
+    /// `br-r37-c1-a5rsz`: same-binary paired proof for a count-only traversal
+    /// versus the former materialized `connected_components(...).len()` route.
+    /// Run through strict remote RCH with:
+    /// `cargo test --profile release -p fnx-python --lib
+    /// multigraph_number_connected_components_count_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with release profile, --ignored, and --nocapture"]
+    fn multigraph_number_connected_components_count_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        let n = 20_000usize;
+        let build_graph = |component_size: usize| {
+            let mut graph = MultiGraph::strict();
+            for i in 0..n {
+                let _ = graph.add_node(format!("count-node-{i:05}"));
+            }
+            if component_size > 1 {
+                for start in (0..n).step_by(component_size) {
+                    for offset in 0..component_size {
+                        let node = start + offset;
+                        let next = start + (offset + 1) % component_size;
+                        let _ = graph.add_edge(
+                            format!("count-node-{node:05}"),
+                            format!("count-node-{next:05}"),
+                        );
+                    }
+                }
+            }
+            graph
+        };
+        let fixtures = [
+            ("isolates", build_graph(1), n),
+            ("pairs", build_graph(2), n / 2),
+            ("ring", build_graph(n), 1),
+        ];
+        let rounds = 31usize;
+
+        for (label, graph, expected) in &fixtures {
+            let candidate = super::multigraph_number_connected_components(graph);
+            let baseline = super::multigraph_number_connected_components_orig_materialized(graph);
+            assert_eq!(
+                candidate, baseline,
+                "count-only route must match list length"
+            );
+            assert_eq!(candidate, *expected);
+
+            let time = |candidate_route: bool| -> f64 {
+                let start = Instant::now();
+                let count = if candidate_route {
+                    super::multigraph_number_connected_components(graph)
+                } else {
+                    super::multigraph_number_connected_components_orig_materialized(graph)
+                };
+                black_box(count);
+                start.elapsed().as_secs_f64()
+            };
+            for _ in 0..3 {
+                black_box(time(true));
+                black_box(time(false));
+            }
+
+            let paired = |baseline_candidate: bool| -> Vec<f64> {
+                let mut ratios = Vec::with_capacity(rounds);
+                for round in 0..rounds {
+                    let (baseline_time, candidate_time) = if round.is_multiple_of(2) {
+                        let baseline_time = time(baseline_candidate);
+                        let candidate_time = time(true);
+                        (baseline_time, candidate_time)
+                    } else {
+                        let candidate_time = time(true);
+                        let baseline_time = time(baseline_candidate);
+                        (baseline_time, candidate_time)
+                    };
+                    ratios.push(baseline_time / candidate_time);
+                }
+                ratios
+            };
+            let report = |name: &str, ratios: &[f64]| {
+                let wins = ratios.iter().filter(|&&ratio| ratio > 1.0).count();
+                let mut sorted = ratios.to_vec();
+                sorted.sort_by(f64::total_cmp);
+                println!(
+                    "MG_NCC_AB {label}/{name}: median={:.4}x wins={wins}/{rounds} p5_p95=[{:.4},{:.4}]",
+                    sorted[rounds / 2],
+                    sorted[rounds * 5 / 100],
+                    sorted[rounds * 95 / 100],
+                );
+            };
+
+            println!(
+                "MG_NCC_AB {label}: n={n} components={expected} rounds={rounds} (>1 = count-only faster)"
+            );
+            report("count_vs_materialized", &paired(false));
+            report("count_vs_count_null", &paired(true));
+        }
+    }
+
+    /// `br-r37-c1-7xsg9`: same-binary paired proof for reusing the maintained
+    /// MultiGraph integer-adjacency memo in connected-components traversal.
+    /// Run through strict remote RCH with:
+    /// `cargo test --profile release -p fnx-python --lib
+    /// multigraph_connected_components_intadj_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with release profile, --ignored, and --nocapture"]
+    fn multigraph_connected_components_intadj_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        let n = 20_000usize;
+        let component_size = 100usize;
+        let expected_components = n / component_size;
+        let mut graph = MultiGraph::strict();
+        for i in 0..n {
+            let _ = graph.add_node(format!("component-node-{i:05}"));
+        }
+        for start in (0..n).step_by(component_size) {
+            for offset in 0..component_size {
+                let node = start + offset;
+                let next = start + (offset + 1) % component_size;
+                let chord = start + (offset + 17) % component_size;
+                let left = format!("component-node-{node:05}");
+                let _ = graph.add_edge(left.clone(), format!("component-node-{next:05}"));
+                let _ = graph.add_edge(left, format!("component-node-{chord:05}"));
+            }
+        }
+
+        let candidate = super::multigraph_connected_components_borrowed(&graph);
+        let baseline = super::multigraph_connected_components_orig_string(&graph);
+        assert_eq!(
+            candidate, baseline,
+            "indexed traversal must preserve exact component and discovery order"
+        );
+        assert_eq!(candidate.len(), expected_components);
+        assert!(
+            candidate
+                .iter()
+                .all(|component| component.len() == component_size)
+        );
+
+        let time_warm = |indexed: bool| -> f64 {
+            let start = Instant::now();
+            let components = if indexed {
+                super::multigraph_connected_components_borrowed(&graph)
+            } else {
+                super::multigraph_connected_components_orig_string(&graph)
+            };
+            black_box(components);
+            start.elapsed().as_secs_f64()
+        };
+        let time_cold = |indexed: bool| -> f64 {
+            // `MultiGraph::clone` intentionally starts with an empty integer-adjacency
+            // memo. Clone outside the timer so this row measures first-read cache build
+            // plus traversal, not graph duplication.
+            let fresh = graph.clone();
+            let start = Instant::now();
+            let components = if indexed {
+                super::multigraph_connected_components_borrowed(&fresh)
+            } else {
+                super::multigraph_connected_components_orig_string(&fresh)
+            };
+            black_box(components);
+            start.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time_warm(true));
+            black_box(time_warm(false));
+            black_box(time_cold(true));
+            black_box(time_cold(false));
+        }
+
+        let rounds = 31usize;
+        let paired = |time: &dyn Fn(bool) -> f64, baseline_indexed: bool| -> Vec<f64> {
+            let mut ratios = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (baseline_time, candidate_time) = if round.is_multiple_of(2) {
+                    let baseline_time = time(baseline_indexed);
+                    let candidate_time = time(true);
+                    (baseline_time, candidate_time)
+                } else {
+                    let candidate_time = time(true);
+                    let baseline_time = time(baseline_indexed);
+                    (baseline_time, candidate_time)
+                };
+                ratios.push(baseline_time / candidate_time);
+            }
+            ratios
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&ratio| ratio > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(|left, right| left.partial_cmp(right).unwrap());
+            println!(
+                "MG_CC_AB {name}: median={:.4}x wins={wins}/{rounds} p5_p95=[{:.4},{:.4}]",
+                sorted[rounds / 2],
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+
+        println!(
+            "MG_CC_AB n={n} components={expected_components} rounds={rounds} (>1 = indexed faster)"
+        );
+        report("WARM_index_vs_string", &paired(&time_warm, false));
+        report("WARM_NULL_index_vs_index", &paired(&time_warm, true));
+        report("COLD_index_vs_string", &paired(&time_cold, false));
+        report("COLD_NULL_index_vs_index", &paired(&time_cold, true));
     }
 
     /// br-r37-c1-thp6w slice 2: paired-interleaved median A/B for the integer-adjacency
@@ -26945,9 +32504,11 @@ mod tests {
                 dict_of_dicts_cache: None,
                 edges_with_data_cache: None,
                 node_iter_mirror: std::sync::Mutex::new(None),
+                instance_dict_gc: crate::InstanceDictGc::new(),
                 edges_with_keys_cache: None,
                 edges_data_attr_cache: std::sync::Mutex::new(None),
                 has_remapped_int_key: false,
+                has_edge_node_index_cache: crate::NodeIndexLookupCache::new(py),
             };
             let mut weighted_attrs = AttrMap::new();
             weighted_attrs.insert("weight".to_owned(), 1.0.into());

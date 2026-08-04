@@ -573,6 +573,59 @@ class TestBranchings:
         assert list(fnx_result.nodes) == list(nx_result.nodes)
         assert _sorted_directed_weighted_edges(fnx_result) == _sorted_directed_weighted_edges(nx_result)
 
+    def test_maximum_branching_large_tie_fixture_matches_networkx(self, fnx, nx):
+        """Pin the exact br-r37-c1-kb9hm producing input and edge choices."""
+        import random
+
+        node_count = 800
+        edge_count = 4_000
+        rng = random.Random(11)
+        seen = set()
+        stream = []
+        while len(stream) < edge_count:
+            source, target = rng.randrange(node_count), rng.randrange(node_count)
+            if source == target or (source, target) in seen:
+                continue
+            seen.add((source, target))
+            stream.append(
+                (str(source), str(target), {"weight": rng.randint(1, 20)})
+            )
+
+        G_fnx = fnx.DiGraph()
+        G_nx = nx.DiGraph()
+        nodes = [str(index) for index in range(node_count)]
+        for graph in (G_fnx, G_nx):
+            graph.add_nodes_from(nodes)
+            graph.add_edges_from(
+                (source, target, dict(attrs))
+                for source, target, attrs in stream
+            )
+
+        fnx_result = fnx.maximum_branching(G_fnx)
+        nx_result = nx.maximum_branching(G_nx)
+        assert list(fnx_result.nodes(data=True)) == list(nx_result.nodes(data=True))
+        assert list(fnx_result.edges(data=True)) == list(nx_result.edges(data=True))
+        assert fnx_result.number_of_edges() == 795
+        assert fnx_result.size(weight="weight") == 13_367
+
+        expected_tie_choices = {
+            ("58", "157"),
+            ("374", "24"),
+            ("500", "41"),
+            ("395", "560"),
+            ("508", "700"),
+        }
+        former_native_choices = {
+            ("209", "157"),
+            ("396", "24"),
+            ("273", "41"),
+            ("425", "560"),
+            ("481", "700"),
+        }
+        result_edges = set(fnx_result.edges())
+        assert expected_tie_choices <= result_edges
+        assert former_native_choices.isdisjoint(result_edges)
+
     def test_minimum_branching_matches_networkx(self, fnx, nx):
         G_fnx = fnx.DiGraph()
         G_nx = nx.DiGraph()

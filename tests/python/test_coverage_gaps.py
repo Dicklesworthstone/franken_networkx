@@ -41,6 +41,11 @@ def _load_conformance_dashboard_script():
     return run_path(str(script_path))
 
 
+def _load_behavioral_oracle_script():
+    script_path = _repo_root() / "scripts" / "generate_behavioral_oracle.py"
+    return run_path(str(script_path))
+
+
 def _load_perf_slo_gate_script():
     script_path = _repo_root() / "scripts" / "run_perf_slo_gate.py"
     return run_path(str(script_path))
@@ -65,6 +70,95 @@ def test_generated_coverage_matrix_document_is_current():
     coverage_path = _repo_root() / "docs" / "coverage.md"
 
     assert coverage_path.read_text(encoding="utf-8") == rendered
+
+
+def test_feature_universe_is_derived_from_pinned_networkx_361():
+    coverage_matrix = _load_coverage_matrix_script()
+    reference = coverage_matrix["load_feature_universe_reference"]()
+
+    assert reference["networkx_version"] == "3.6.1"
+    assert reference["networkx_python_source_sha256"] == (
+        "078c247dde263d696a86f6a2551bab277e16171bc38e797322ce8318755b1fc5"
+    )
+    assert reference["discovered_module_count"] == 578
+    assert reference["included_module_count"] == 287
+    assert reference["excluded_module_count"] == 292
+    assert len(reference["rows"]) == 4926
+
+
+def test_feature_universe_classifies_every_path_without_rounding_partial_up():
+    coverage_matrix = _load_coverage_matrix_script()
+    reference = coverage_matrix["load_feature_universe_reference"]()
+    rows = coverage_matrix["classify_feature_universe"](reference)
+    statuses = Counter(row["status"] for row in rows)
+    by_path = {row["path"]: row for row in rows}
+
+    assert len(by_path) == len(rows) == 4926
+    assert set(statuses) == {"present", "partial", "missing", "n/a", "excluded"}
+    assert statuses == {
+        "present": 3399,
+        "partial": 700,
+        "missing": 30,
+        "n/a": 1,
+        "excluded": 796,
+    }
+    assert by_path["networkx.shortest_path"]["status"] == "present"
+    assert by_path["networkx.algorithms.shortest_path"]["status"] == "partial"
+    assert (
+        by_path["networkx.algorithms.shortest_path"]["detail"]
+        == "signature differs: NetworkX `(G, source=None, target=None, "
+        "weight=None, method='dijkstra', *, backend=None, **backend_kwargs)`; "
+        "FrankenNetworkX `(*args, **kwargs)`"
+    )
+    assert by_path["networkx.Graph"]["status"] == "partial"
+    assert by_path["networkx.readwrite.GraphMLReader.add_edge"]["status"] == (
+        "missing"
+    )
+
+    applicable = (
+        statuses["present"] + statuses["partial"] + statuses["missing"]
+    )
+    assert applicable == 4129
+    assert statuses["present"] / applicable == pytest.approx(
+        0.8232017437636232
+    )
+
+
+def test_feature_universe_exclusions_and_partials_always_state_exact_reason():
+    coverage_matrix = _load_coverage_matrix_script()
+    rows = coverage_matrix["classify_feature_universe"](
+        coverage_matrix["load_feature_universe_reference"]()
+    )
+
+    partials = [row for row in rows if row["status"] == "partial"]
+    exclusions = [row for row in rows if row["status"] == "excluded"]
+    assert partials
+    assert exclusions
+    assert all(row["detail"].strip() for row in partials)
+    assert all(row["detail"].strip() for row in exclusions)
+    assert all(row["kind"] == "module" for row in exclusions)
+    assert any(
+        row["path"].endswith(".tests")
+        and row["detail"].startswith("test-only module")
+        for row in exclusions
+    )
+
+
+def test_feature_universe_reports_every_family_not_only_a_headline():
+    coverage_matrix = _load_coverage_matrix_script()
+    reference = coverage_matrix["load_feature_universe_reference"]()
+    rows = coverage_matrix["classify_feature_universe"](reference)
+    rendered = "\n".join(
+        coverage_matrix["render_feature_universe"](reference, rows)
+    )
+    families = {row["family"] for row in rows}
+
+    assert "## Per-family strict surface coverage" in rendered
+    assert all(f"| `{family}` |" in rendered for family in families)
+    assert (
+        "a real user can port **3399 of 4129 applicable NetworkX feature "
+        "paths today (82.3%)**"
+    ) in rendered
 
 
 def test_coverage_matrix_tracks_networkx_helper_routes():
@@ -150,6 +244,52 @@ def test_conformance_dashboard_generation_is_deterministic():
     assert first == second
     assert first["deterministic"]
     assert first["run_id"].startswith("conformance-dashboard-")
+
+
+@needs_nx
+def test_behavioral_oracle_pins_and_restores_gexf_metadata_date():
+    oracle = _load_behavioral_oracle_script()
+    time_module = oracle["sys"].modules["time"]
+    spec = oracle["graph_case_specs"]()[0]
+    recipe = {
+        "required": [
+            {
+                "name": "G",
+                "value": {"kind": "graph", "role": "primary"},
+            }
+        ],
+        "optional_overrides": {},
+    }
+    original_strftime = time_module.strftime
+
+    outcome = oracle["run_target"](
+        nx.generate_gexf,
+        module=nx,
+        spec=spec,
+        recipe=recipe,
+        policy="auto",
+        function_name="networkx.generate_gexf",
+    )
+    normalized = oracle["stable_json"](outcome.normalized)
+
+    assert 'lastmodifieddate=\\"2000-01-01\\"' in normalized
+    assert time_module.strftime is original_strftime
+
+
+@needs_nx
+def test_behavioral_oracle_canonicalizes_graph_order_but_preserves_paths():
+    oracle = _load_behavioral_oracle_script()
+    left = nx.Graph()
+    left.add_nodes_from([(1, {"color": "red"}), (2, {"color": "blue"}), (3, {})])
+    left.add_edges_from([(1, 2, {"weight": 4}), (2, 3, {"weight": 5})])
+    right = nx.Graph()
+    right.add_nodes_from([(3, {}), (2, {"color": "blue"}), (1, {"color": "red"})])
+    right.add_edges_from([(3, 2, {"weight": 5}), (2, 1, {"weight": 4})])
+
+    assert oracle["canonical_graph"](left) == oracle["canonical_graph"](right)
+    assert oracle["canonicalize"]([1, 2, 3], "path") != oracle[
+        "canonicalize"
+    ]([3, 2, 1], "path")
 
 
 # ---------------------------------------------------------------------------

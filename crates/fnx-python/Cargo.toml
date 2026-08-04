@@ -25,6 +25,7 @@ pyo3-log = "0.13.3"
 log = "0.4.29"
 serde_json = "1.0.149"
 rustc-hash = "2.1.2"
+rayon = "1.10.0"
 
 [features]
 extension-module = ["pyo3/extension-module"]
@@ -33,6 +34,7 @@ bench-internals = []
 [dev-dependencies]
 criterion = { version = "0.8.2", features = ["html_reports"] }
 proptest = "1.11.0"
+sha2 = "0.10.9"
 
 [[bench]]
 name = "networkx_head_to_head"

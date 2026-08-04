@@ -1,0 +1,219 @@
+diff --git a/crates/fnx-algorithms/src/lib.rs b/crates/fnx-algorithms/src/lib.rs
+index 80aa3231d..656e1b2eb 100644
+--- a/crates/fnx-algorithms/src/lib.rs
++++ b/crates/fnx-algorithms/src/lib.rs
+@@ -23957,20 +23957,40 @@ pub fn modularity(
+         .map(|(i, &nd)| (nd, i))
+         .collect();
+ 
++    // br-r37-c1-modwmap (cc): precompute the edge weights into an index-keyed map ONCE (O(|E|)) so the
++    // community double-loop reads a_uv with an O(1) integer lookup instead of a per-pair String has_edge
++    // + edge_weight_or_default. For large communities the double-loop is O(Σ|comm|²) >> |E|, so this
++    // replaces the dominant String work. Byte-identical: w_map[canon(ui,vi)] holds exactly
++    // edge_weight_or_default for each undirected (symmetric-weight) edge, so a_uv is the same f64 for
++    // every pair (edge → weight, non-edge → 0.0), summed in the identical (comm, u, v) order.
++    let mut w_map: HashMap<(usize, usize), f64> = HashMap::with_capacity(k.len());
++    for edge in graph.edges_ordered() {
++        if let (Some(&li), Some(&ri)) = (
++            node_to_idx.get(edge.left.as_str()),
++            node_to_idx.get(edge.right.as_str()),
++        ) {
++            let key = if li <= ri { (li, ri) } else { (ri, li) };
++            w_map.insert(
++                key,
++                edge_weight_or_default(graph, edge.left.as_str(), edge.right.as_str(), weight_attr),
++            );
++        }
++    }
++
++    // Resolve each community's nodes to indices ONCE (dropping the per-pair node_to_idx.get String hash
++    // from the O(Σ|comm|²) double-loop); the in-graph nodes are kept in the same order, so the (ui, vi)
++    // pairs — and the q summation order — are identical to the per-name loop → ULP-identical.
+     let mut q = 0.0;
+     for comm in communities {
+-        for u in comm {
+-            if let Some(&ui) = node_to_idx.get(u.as_str()) {
+-                for v in comm {
+-                    if let Some(&vi) = node_to_idx.get(v.as_str()) {
+-                        let a_uv = if graph.has_edge(u, v) {
+-                            edge_weight_or_default(graph, u, v, weight_attr)
+-                        } else {
+-                            0.0
+-                        };
+-                        q += a_uv - resolution * k[ui] * k[vi] / m2;
+-                    }
+-                }
++        let comm_idx: Vec<usize> = comm
++            .iter()
++            .filter_map(|nd| node_to_idx.get(nd.as_str()).copied())
++            .collect();
++        for &ui in &comm_idx {
++            for &vi in &comm_idx {
++                let key = if ui <= vi { (ui, vi) } else { (vi, ui) };
++                let a_uv = w_map.get(&key).copied().unwrap_or(0.0);
++                q += a_uv - resolution * k[ui] * k[vi] / m2;
+             }
+         }
+     }
+@@ -71872,6 +71892,161 @@ mod tests {
+         report("NULL_int_vs_int", &paired(true, true));
+     }
+ 
++    /// br-r37-c1-modwmap: paired-interleaved median A/B for modularity's community double-loop — inline
++    /// ORIGINAL per-pair has_edge + edge_weight_or_default vs the shipped w_map (index-keyed weight map
++    /// built once, O(1) lookups). k/m2/node_to_idx are shared setup. Large communities (4 x 500) make the
++    /// double-loop dominant. ULP parity asserted first. `#[ignore]`; run with
++    /// `cargo test --release -p fnx-algorithms --lib modularity_wmap_ab -- --ignored --nocapture`.
++    #[test]
++    #[ignore = "measurement; run with --release --ignored --nocapture"]
++    fn modularity_wmap_ab() {
++        use crate::edge_weight_or_default;
++        use std::collections::HashMap;
++        use std::hint::black_box;
++        use std::time::Instant;
++
++        let weight = "weight";
++        let mut graph = Graph::strict();
++        for i in 0..2000usize {
++            let _ = graph.add_node(i.to_string());
++        }
++        for i in 0..2000usize {
++            for d in 1..=10usize {
++                let j = (i + d) % 2000;
++                if i != j {
++                    let _ = graph.add_edge(i.to_string(), j.to_string());
++                }
++            }
++        }
++        let communities: Vec<Vec<String>> = (0..2000)
++            .step_by(500)
++            .map(|s| (s..s + 500).map(|i| i.to_string()).collect())
++            .collect();
++
++        let nodes = graph.nodes_ordered();
++        let node_to_idx: HashMap<&str, usize> =
++            nodes.iter().enumerate().map(|(i, &nd)| (nd, i)).collect();
++        let k: Vec<f64> = nodes
++            .iter()
++            .map(|&nd| {
++                graph
++                    .neighbors(nd)
++                    .unwrap_or_default()
++                    .iter()
++                    .map(|nbr| edge_weight_or_default(&graph, nd, nbr, weight))
++                    .sum()
++            })
++            .collect();
++        let m2: f64 = k.iter().sum();
++        let resolution = 1.0;
++
++        let build = |batch: bool| -> f64 {
++            let mut q = 0.0;
++            if batch {
++                let mut w_map: HashMap<(usize, usize), f64> = HashMap::with_capacity(k.len());
++                for edge in graph.edges_ordered() {
++                    if let (Some(&li), Some(&ri)) = (
++                        node_to_idx.get(edge.left.as_str()),
++                        node_to_idx.get(edge.right.as_str()),
++                    ) {
++                        let key = if li <= ri { (li, ri) } else { (ri, li) };
++                        w_map.insert(
++                            key,
++                            edge_weight_or_default(
++                                &graph,
++                                edge.left.as_str(),
++                                edge.right.as_str(),
++                                weight,
++                            ),
++                        );
++                    }
++                }
++                for comm in &communities {
++                    let comm_idx: Vec<usize> = comm
++                        .iter()
++                        .filter_map(|nd| node_to_idx.get(nd.as_str()).copied())
++                        .collect();
++                    for &ui in &comm_idx {
++                        for &vi in &comm_idx {
++                            let key = if ui <= vi { (ui, vi) } else { (vi, ui) };
++                            let a_uv = w_map.get(&key).copied().unwrap_or(0.0);
++                            q += a_uv - resolution * k[ui] * k[vi] / m2;
++                        }
++                    }
++                }
++            } else {
++                for comm in &communities {
++                    for u in comm {
++                        if let Some(&ui) = node_to_idx.get(u.as_str()) {
++                            for v in comm {
++                                if let Some(&vi) = node_to_idx.get(v.as_str()) {
++                                    let a_uv = if graph.has_edge(u, v) {
++                                        edge_weight_or_default(&graph, u, v, weight)
++                                    } else {
++                                        0.0
++                                    };
++                                    q += a_uv - resolution * k[ui] * k[vi] / m2;
++                                }
++                            }
++                        }
++                    }
++                }
++            }
++            q / m2
++        };
++
++        let old = build(false);
++        let new = build(true);
++        assert_eq!(old.to_bits(), new.to_bits(), "w_map modularity must be ULP-identical");
++
++        let time = |batch: bool| -> f64 {
++            let t0 = Instant::now();
++            black_box(build(batch));
++            t0.elapsed().as_secs_f64()
++        };
++        for _ in 0..3 {
++            black_box(time(true));
++            black_box(time(false));
++        }
++        let median = |v: &[f64]| {
++            let mut s = v.to_vec();
++            s.sort_by(|a, b| a.partial_cmp(b).unwrap());
++            s[s.len() / 2]
++        };
++        let rounds = 61usize;
++        let paired = |cand: bool, base_arm: bool| -> Vec<f64> {
++            let mut v = Vec::with_capacity(rounds);
++            for round in 0..rounds {
++                let (tb, tc) = if round.is_multiple_of(2) {
++                    let bt = time(base_arm);
++                    let ct = time(cand);
++                    (bt, ct)
++                } else {
++                    let ct = time(cand);
++                    let bt = time(base_arm);
++                    (bt, ct)
++                };
++                v.push(tb / tc);
++            }
++            v
++        };
++        let report = |name: &str, ratios: &[f64]| {
++            let wins = ratios.iter().filter(|&&r| r > 1.0).count();
++            let mut sorted = ratios.to_vec();
++            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
++            println!(
++                "MODWMAP_AB {name}: median={:.4}x win_rate={wins}/{rounds} \
++                 p5_p95=[{:.4},{:.4}]",
++                median(ratios),
++                sorted[rounds * 5 / 100],
++                sorted[rounds * 95 / 100],
++            );
++        };
++        println!("MODWMAP_AB circ2000_comm4x500 rounds={rounds} (>1 = wmap faster)");
++        report("WMAP_vs_hasedge", &paired(true, false));
++        report("NULL_wmap_vs_wmap", &paired(true, true));
++    }
++
+     #[test]
+     fn test_cartesian_product_label_disambiguation() {
+         let mut g1 = Graph::strict();

@@ -1,0 +1,6 @@
+  [2m2026-07-12T19:13:34.553300Z[0m [32m INFO[0m [1;32mrch::hook::transfer_orchestration[0m[32m: [32mExecuting command remotely: cargo test --release -p fnx-algorithms --lib faster_could_be_iso_eordlen_ab -- --ignored --nocapture[0m
+EORDLEN_AB faster_could_be_isomorphic 10k/100k rounds=61 (>1 = edge_count faster)
+EORDLEN_AB EDGECOUNT_vs_edgesordered: median=35.1888x win_rate=61/61 p5_p95=[29.2128,66.7683]
+EORDLEN_AB NULL_edgecount_vs_edgecount: median=0.9971x win_rate=29/61 p5_p95=[0.7985,1.1598]
+test tests::faster_could_be_iso_eordlen_ab ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1014 filtered out; finished in 5.79s

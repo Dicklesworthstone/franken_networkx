@@ -1,0 +1,14 @@
+  [2m2026-07-12T22:55:11.923986Z[0m [32m INFO[0m [1;32mrch::hook::transfer_orchestration[0m[32m: [32mExecuting command remotely: cargo test --release -p fnx-algorithms --lib independent_set -- --include-ignored --nocapture[0m
+test tests::test_maximum_independent_set_path ... ok
+test tests::test_maximal_independent_set_with_seed_nodes ... ok
+test tests::test_maximal_independent_set_single_self_loop_is_unfeasible ... ok
+test tests::test_maximum_independent_set_empty ... ok
+test tests::test_maximal_independent_set_rejects_non_independent_seed_nodes ... ok
+test tests::test_maximum_independent_set_triangle ... ok
+test tests::maximum_independent_set_mismark_ab ... ok
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 1019 filtered out; finished in 2.17s
+--- perf A/B ---
+MISBUCKET_AB maximum_independent_set 4000-node interval rounds=61 (>1 = bucket faster)
+MISBUCKET_AB BUCKET_vs_scan: median=5.5407x win_rate=61/61 p5_p95=[4.4206,7.4221]
+MISBUCKET_AB NULL_bucket_vs_bucket: median=1.0093x win_rate=34/61 p5_p95=[0.8747,1.2010]
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1025 filtered out; finished in 1.63s

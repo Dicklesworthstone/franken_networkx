@@ -483,12 +483,33 @@ class TestEdgelistNxCrossCompat:
         assert sorted(G.nodes()) == [0, 1, 2]
         assert all(isinstance(n, int) for n in G.nodes())
 
-    def test_write_edgelist_data_false(self):
-        G = fnx.Graph()
-        G.add_edge(0, 1, weight=2.5)
+    @pytest.mark.parametrize(
+        ("fnx_type", "nx_type"),
+        [
+            pytest.param(fnx.Graph, "Graph", id="graph"),
+            pytest.param(fnx.DiGraph, "DiGraph", id="digraph"),
+        ],
+    )
+    def test_write_edgelist_data_false_uses_generate_fast(
+        self, monkeypatch, fnx_type, nx_type
+    ):
+        import networkx as nx
+
+        nx_class = getattr(nx, nx_type)
+        G = fnx_type()
+        G.add_edge("left", "right", weight=2.5)
+        expected_graph = nx_class()
+        expected_graph.add_edge("left", "right", weight=2.5)
+        expected = io.BytesIO()
+        nx.write_edgelist(expected_graph, expected, data=False)
+
+        def fail_delegate(*args, **kwargs):
+            raise AssertionError("data=False should use generate_edgelist fast path")
+
+        monkeypatch.setattr(fnx, "_write_edgelist_via_nx", fail_delegate)
         buf = io.BytesIO()
         fnx.write_edgelist(G, buf, data=False)
-        assert buf.getvalue() == b"0 1\n"
+        assert buf.getvalue() == expected.getvalue()
 
     def test_write_edgelist_delimiter_override(self):
         G = fnx.Graph()
