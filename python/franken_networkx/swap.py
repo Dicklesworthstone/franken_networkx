@@ -43,8 +43,10 @@ def double_edge_swap(G, nswap=1, max_tries=100, seed=None, *, backend=None, **ba
     # graphs to the native top-level (fast + the documented fnx behaviour); genuine
     # nx-typed inputs keep nx's algorithm so the nx-parity contract holds.
     if isinstance(G, _nx.Graph):
-        return _nx_swap.double_edge_swap(G, nswap=nswap, max_tries=max_tries, seed=seed)
-    return _fnx.double_edge_swap(G, nswap=nswap, max_tries=max_tries, seed=seed)
+        _nx_swap.double_edge_swap(G, nswap=nswap, max_tries=max_tries, seed=seed)
+    else:
+        _fnx.double_edge_swap(G, nswap=nswap, max_tries=max_tries, seed=seed)
+    return G
 
 
 def connected_double_edge_swap(
@@ -69,5 +71,7 @@ def directed_edge_swap(G, *, nswap=1, max_tries=100, seed=None, backend=None, **
     # br-r37-c1-swaproute: see double_edge_swap. Route fnx graphs to the native
     # top-level; genuine nx-typed inputs keep nx's algorithm.
     if isinstance(G, _nx.Graph):
-        return _nx_swap.directed_edge_swap(G, nswap=nswap, max_tries=max_tries, seed=seed)
-    return _fnx.directed_edge_swap(G, nswap=nswap, max_tries=max_tries, seed=seed)
+        _nx_swap.directed_edge_swap(G, nswap=nswap, max_tries=max_tries, seed=seed)
+    else:
+        _fnx.directed_edge_swap(G, nswap=nswap, max_tries=max_tries, seed=seed)
+    return G

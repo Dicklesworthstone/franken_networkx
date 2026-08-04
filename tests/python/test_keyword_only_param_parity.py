@@ -106,6 +106,17 @@ def test_swap_module_public_surface_matches_networkx():
 
 
 @needs_nx
+@pytest.mark.parametrize("graph_type", [fnx.Graph, nx.Graph])
+def test_swap_module_double_edge_swap_returns_mutated_input(graph_type):
+    graph = graph_type()
+    graph.add_edges_from(
+        [(0, 1), (1, 2), (2, 3), (3, 4), (4, 5), (5, 0), (0, 3), (2, 5)]
+    )
+
+    assert fnx_swap.double_edge_swap(graph, nswap=1, max_tries=100, seed=7) is graph
+
+
+@needs_nx
 def test_swap_directed_edge_swap_rejects_positional_nswap():
     G = fnx.DiGraph()
     G.add_edges_from([(0, 1), (1, 2), (2, 3), (3, 0)])
