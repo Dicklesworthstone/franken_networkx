@@ -1323,6 +1323,26 @@ RETRY PREDICATES.
   handling — 0.25x of ratio for one int attr per edge. Retry against a profile of the attr decode
   path specifically.
 
+## 2026-08-04 EmeraldTiger — `br-r37-c1-4c29a` MultiDiGraph construction re-profile: NO-VERDICT
+
+Strict RCH is compilation-only. I therefore built the pinned source
+`17a2f39198de25c0e1ee3cf9879b4412c36f53b4` on remote worker `vmi1227854` with
+`RCH_REQUIRE_REMOTE=1 env -u CARGO_TARGET_DIR rch exec --base 17a2f39198de25c0e1ee3cf9879b4412c36f53b4 --clean-overlay --no-overlay -- cargo build --release -p fnx-python --features pyo3/abi3-py310`, copied the resulting `lib_fnx.so` locally, and invoked the exact harness locally with
+`PYTHONHASHSEED=0 FNX_EXTENSION_PATH=/data/tmp/fnx-remote-17a2-vmi1227854-lib_fnx.so python3 scripts/perf_harness.py multidigraph-string-attr-construction`.
+The copied remote artifact was 13,526,440 bytes with SHA-256
+`cb69a922c5b6dcb0acef01b3ed44e407919a1dd86bb99732a04c5da0102994eb`.
+
+The harness rejected the run at its mandatory `pre_measurement` host-wide admission gate after
+300 windows (it requires five consecutive quiet windows): `cpu8=25.3%`, `cpu16=39.4%`,
+`cpu22=32.0%`, and `cpu54=31.0%`. The abort preceded a usable harness provenance row, so there is
+no in-process ELF self-report, incumbent arm, A/A null, profile, ratio, median CI, or port decision.
+This is a **NO-VERDICT**, not a speed claim and not evidence for the stable-slot hypothesis.
+
+RETRY PREDICATE: in a quiet local window, repeat this two-stage method with the same pinned
+remote-built ELF: strict RCH compiles only; the local harness loads that exact artifact through
+`FNX_EXTENSION_PATH` and must emit its in-process SHA-256 before collecting the live incumbent,
+A/A, profile, and candidate median-CI evidence required for a one-lever port decision.
+
 ## 2026-07-27 BlackThrush (cc) METHOD: the dispatch-trap guard is what makes every fnx-vs-nx ratio in this repo valid
 
 ```
