@@ -16466,7 +16466,7 @@ class FnxMultiGraphCtorEdgeIterable:
     }
 
     #[test]
-    fn graph_fresh_exact_int_attr_batch_keeps_attrs_with_lazy_mirrors() {
+    fn graph_fresh_exact_int_attr_batch_preserves_ordered_mirrors() {
         ensure_python();
         Python::attach(|py| -> PyResult<()> {
             let (ebunch, first_source_attrs) = exact_int_attr_ebunch(py)?;
@@ -16475,9 +16475,10 @@ class FnxMultiGraphCtorEdgeIterable:
             assert!(sparse.try_add_fresh_exact_int_attr_edge_batch(py, ebunch.as_any(), false,)?);
             assert_eq!(sparse.inner.node_count(), 9);
             assert_eq!(sparse.inner.edge_count(), 8);
-            assert!(
-                sparse.edge_py_attrs.is_empty(),
-                "fresh exact-int attributed batch should leave Python edge mirrors lazy"
+            assert_eq!(
+                sparse.edge_py_attrs.len(),
+                8,
+                "multi-attribute edges retain owned mirrors so Python dict key order matches NetworkX"
             );
 
             let first_inner_attrs = sparse
@@ -16524,9 +16525,10 @@ class FnxMultiGraphCtorEdgeIterable:
                     .extract::<String>()?,
                 "edge-0"
             );
-            assert!(
-                sparse.edge_py_attrs.is_empty(),
-                "__getstate__ should not eagerly materialize live edge mirrors"
+            assert_eq!(
+                sparse.edge_py_attrs.len(),
+                8,
+                "__getstate__ must not add mirrors beyond the order-preserving batch mirrors"
             );
 
             let (ebunch, _) = exact_int_attr_ebunch(py)?;
@@ -16547,7 +16549,7 @@ class FnxMultiGraphCtorEdgeIterable:
                     .extract::<i64>()?,
                 0
             );
-            assert_eq!(materialized.edge_py_attrs.len(), 1);
+            assert_eq!(materialized.edge_py_attrs.len(), 8);
 
             let sparse_py = Py::new(py, sparse)?;
             let materialized_py = Py::new(py, materialized)?;
@@ -16563,7 +16565,49 @@ class FnxMultiGraphCtorEdgeIterable:
             );
             Ok(())
         })
-        .expect("fresh exact-int attr batch parity should hold");
+        .expect("fresh exact-int multi-attribute batch parity should hold");
+    }
+
+    #[test]
+    fn graph_fresh_exact_int_single_attr_batch_keeps_mirrors_lazy() {
+        ensure_python();
+        Python::attach(|py| -> PyResult<()> {
+            let ebunch = PyList::empty(py);
+            for i in 0_i64..8 {
+                let attrs = PyDict::new(py);
+                attrs.set_item("weight", i)?;
+                ebunch.append(PyTuple::new(
+                    py,
+                    [
+                        i.into_py_any(py)?,
+                        (i + 1).into_py_any(py)?,
+                        attrs.into_any().unbind(),
+                    ],
+                )?)?;
+            }
+
+            let mut graph = PyGraph::new_empty(py)?;
+            assert!(graph.try_add_fresh_exact_int_attr_edge_batch(py, ebunch.as_any(), false,)?);
+            assert!(
+                graph.edge_py_attrs.is_empty(),
+                "single-attribute edges do not need an order-preserving mirror"
+            );
+
+            let zero = 0_i64.into_pyobject(py)?.into_any();
+            let one = 1_i64.into_pyobject(py)?.into_any();
+            let attrs = graph.get_edge_data(py, &zero, &one, None)?;
+            let attrs = attrs.bind(py).downcast::<PyDict>()?;
+            assert_eq!(
+                attrs
+                    .get_item("weight")?
+                    .expect("materialized attrs should include weight")
+                    .extract::<i64>()?,
+                0
+            );
+            assert_eq!(graph.edge_py_attrs.len(), 1);
+            Ok(())
+        })
+        .expect("fresh exact-int single-attribute batch should keep mirrors lazy");
     }
 
     #[test]

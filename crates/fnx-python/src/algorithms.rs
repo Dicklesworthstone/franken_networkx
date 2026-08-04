@@ -2181,7 +2181,7 @@ fn emit_paths_dict_discovery_index(
             Some(o) => o.clone_ref(py),
             None => gr.py_node_key(py, nodes[*node_idx]),
         };
-        dict.set_item(key, py_path)?;
+        dict.set_item(key, &py_path)?;
     }
     Ok(dict.unbind())
 }
@@ -5707,7 +5707,7 @@ fn emit_paths_dict_discovery_parent_index(
             Some(obj) => obj.clone_ref(py),
             None => gr.py_node_key(py, nodes[node_idx]),
         };
-        dict.set_item(key, py_path)?;
+        dict.set_item(key, &py_path)?;
         path_cache[node_idx] = Some(py_path.unbind());
     }
     Ok(dict.unbind())
