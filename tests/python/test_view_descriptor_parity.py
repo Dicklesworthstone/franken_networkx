@@ -863,13 +863,29 @@ def test_native_contains_switches_to_private_node_mapping_and_resets_on_copies(c
         graph.copy(),
         copy.copy(graph),
         copy.deepcopy(graph),
-        graph.subgraph(["native"]).copy(),
     ):
         # Private NetworkX storage remains an ephemeral compatibility override;
-        # copies and materialized subgraphs return to canonical native storage.
+        # copies return to canonical native storage. NOTE: networkx 3.6.1 does the
+        # opposite here — its default __dict__ copy carries the assigned _node
+        # through all three of these, so the mapping survives and the native node
+        # does not. That is a known fnx divergence tracked by br-r37-c1-s8obc; these
+        # three lines pin fnx's CURRENT contract, not networkx parity.
         assert "native" in other
         assert "private" not in other
         assert [] not in other
+
+    # br-r37-c1-w4754: a MATERIALIZED subgraph is a different case, and the old
+    # expectation here ("native" in it) contradicted the oracle. Under live networkx
+    # 3.6.1, `graph.subgraph(["native"]).copy()` is EMPTY on all four classes: nx's
+    # nbunch_iter filters a SEQUENCE nbunch against _adj while the subgraph's node
+    # view reads the assigned _node, and those two no longer intersect. fnx now
+    # matches by filtering the nbunch against the adjacency mapping whenever private
+    # storage is assigned. This assertion was never run against a matching build —
+    # the .so installed when it was written predated the native __contains__ flag.
+    materialized = graph.subgraph(["native"]).copy()
+    assert "native" not in materialized
+    assert "private" not in materialized
+    assert len(materialized) == 0
 
 
 def test_private_node_install_preserves_user_instance_methods():

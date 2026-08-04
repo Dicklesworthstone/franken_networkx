@@ -52872,7 +52872,15 @@ def _subgraph_filter_from_nbunch(G, nbunch):
         # membership at C speed, but only when nbunch is large enough to amortize
         # the O(V) build (>= ~V/4 nodes); a tiny nbunch on a large graph keeps
         # the per-node path (no whole-graph over-build). ~2.4-2.7x faster.
-        gnodes = set(G) if len(nb_list) * 4 >= len(G) else None
+        # br-r37-c1-w4754: nx's ``nbunch_iter`` filters a SEQUENCE nbunch against
+        # ``self._adj``, while the single-node form above tests ``nbunch in self``
+        # (``_node``) — an asymmetry mirrored here deliberately. The two mappings can
+        # only disagree when NetworkX private storage is assigned to one of them, so
+        # an ordinary graph keeps the ``set(G)`` fast path above untouched; a
+        # private-storage graph switches to the adjacency mapping, which excludes an
+        # assigned ``_node`` key that has no adjacency row exactly as nx excludes it.
+        container = G.adj if _has_networkx_private_storage(G) else G
+        gnodes = set(container) if len(nb_list) * 4 >= len(G) else None
         allowed_nodes = set()
         for node in nb_list:
             try:
@@ -52881,7 +52889,7 @@ def _subgraph_filter_from_nbunch(G, nbunch):
                 raise NetworkXError(
                     f"Node {node} in sequence nbunch is not a valid node."
                 ) from exc
-            in_graph = node in gnodes if gnodes is not None else node in G
+            in_graph = node in gnodes if gnodes is not None else node in container
             if in_graph:
                 allowed_nodes.add(node)
 
