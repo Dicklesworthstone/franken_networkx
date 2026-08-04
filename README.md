@@ -1119,7 +1119,8 @@ median-CI gate; reproduce with
 
 | Surface | fnx vs nx | Cause |
 |--------|-----------|-------|
-| `G.adj` (bare accessor) | **0.82×** | Public descriptor access |
+| `G.adj` (bare accessor) | **0.9009×** | Public descriptor access; re-measured 2026-08-04 vs live nx 3.6.1 (was 0.82×). 6/6 runs decidable, 0.8962–0.9079× (1.3% spread), A/A nulls within 0.0035 of 1.0, result parity 7,446,000 bytes. Reproduce with `PYTHONHASHSEED=0 taskset -c 40-43 python3 scripts/perf_harness.py adj-descriptor`. |
+| `len(G.adj)` | **0.7901×** | Adjacency-view length; measured 2026-08-04 vs live nx 3.6.1, 6/6 runs decidable, 0.7857–0.7919× (0.8% spread). Worse than the bare accessor and previously unlisted (`br-r37-c1-nic2n`). |
 | `G.has_node(n)` | **0.4596×** | Key conversion and native lookup; still a loss, re-measured 2026-07-31 vs live nx 3.6.1 (was 0.41×) |
 | `preferential_attachment` | **0.5949×** | nx's per-pair work is two degree lookups and a multiply — below our per-call boundary cost |
 | `Graph` incremental `add_edge` | **0.4387×** | Re-measured 2026-08-04 vs live nx 3.6.1 (was 0.26×); 0.3514× when each edge carries a `weight`. The per-call Python `None`/hashability shim is only a 1.13× tax — the rest is the String-canonicalisation substrate (`node_key_to_string` plus `IndexMap<String, _>` probes). Batch constructors remain ~3× better per edge. |
