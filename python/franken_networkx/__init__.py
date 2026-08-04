@@ -44564,9 +44564,27 @@ def _private_aware_len(raw_len):
 
 
 def _private_aware_contains(raw_contains):
+    # br-r37-c1-mi31t: ``n in G`` is the only node-membership spelling that
+    # cannot escape this probe. ``has_node`` is bound straight to the raw native
+    # slot and a graph that gains NetworkX private storage gets a per-INSTANCE
+    # method shadow instead; a dunder is looked up on the TYPE, so every graph
+    # pays this wrapper on every call. Measured 2026-08-04, 1200-node graph, 512
+    # present string keys: nx 63.4 ns, fnx ``n in G`` 236.8 ns, fnx
+    # ``G.has_node(n)`` 98.5 ns — the native lookup is identical code in both, so
+    # the whole 138.3 ns gap was this probe. It is also 91% of the published
+    # preferential_attachment loss, because both nx's ``_apply_prediction`` and
+    # our ``_link_prediction_validate_ebunch`` membership-test each endpoint.
+    #
+    # So the probe is written as cheaply as Python allows: the key and the
+    # sentinel are closure cells rather than module globals, ``self.__dict__``
+    # replaces the ``vars()`` builtin call, and the ``_private_override`` helper
+    # is inlined so an ordinary graph pays no extra interpreter frame.
+    missing = _PRIVATE_MISSING
+    override_key = _PRIVATE_NODE_OVERRIDE
+
     def __contains__(self, node):
-        node_mapping = _private_override(self, _PRIVATE_NODE_OVERRIDE)
-        if node_mapping is not _PRIVATE_MISSING:
+        node_mapping = self.__dict__.get(override_key, missing)
+        if node_mapping is not missing:
             try:
                 return node in node_mapping
             except TypeError:
