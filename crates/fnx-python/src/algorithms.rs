@@ -4269,7 +4269,10 @@ pub fn graph_has_edge_attr(
 ///
 /// Multigraphs return `None` so callers keep their existing fallback.
 #[pyfunction]
-pub fn graph_has_none_edge_attr_key(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Option<bool>> {
+pub fn graph_has_none_edge_attr_key(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+) -> PyResult<Option<bool>> {
     let gr = extract_graph(g)?;
     let none_key = py.None();
     let scan = |dicts: &mut dyn Iterator<Item = &Py<PyDict>>| -> PyResult<bool> {

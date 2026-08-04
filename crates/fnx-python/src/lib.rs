@@ -13828,9 +13828,11 @@ impl PyGraph {
         // attrs. Both loops are sized by the MIRROR, not by |V| / |E| — a
         // batch-built graph leaves them empty and pays nothing.
         for (canonical, attrs) in &self.node_py_attrs {
-            if self.inner.get_node_index(canonical).is_none_or(|idx| {
-                idx >= position.len() || position[idx] == usize::MAX
-            }) {
+            if self
+                .inner
+                .get_node_index(canonical)
+                .is_none_or(|idx| idx >= position.len() || position[idx] == usize::MAX)
+            {
                 continue;
             }
             let (rust_attrs, mirror) = py_dict_to_attr_map_with_mirror(py, attrs.bind(py))?;
