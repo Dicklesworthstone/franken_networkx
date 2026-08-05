@@ -58,11 +58,9 @@ __all__ = [
     "draw_shell",
     "draw_spectral",
     "draw_spring",
-    "generate_network_text",
     "to_latex",
     "to_latex_raw",
     "write_latex",
-    "write_network_text",
     "arf_layout",
     "bfs_layout",
     "bipartite_layout",
@@ -100,15 +98,30 @@ __all__ += ["apply_matplotlib_colors", "rescale_layout"]
 
 
 def _install_drawing_child_aliases():
+    """br-r37-c1-ibcok: also put the child modules on ``__all__``.
+
+    ``networkx.drawing`` declares no ``__all__``, so ``from networkx.drawing
+    import *`` binds every public module-level name — which INCLUDES its five
+    child modules (``layout``, ``nx_agraph``, ``nx_latex``, ``nx_pydot``,
+    ``nx_pylab``). fnx declares an explicit ``__all__``, so those names were
+    silently dropped from the star-import surface even though the modules
+    themselves resolve fine as attributes. Collect the names here rather than
+    hard-coding them, so the export surface follows whatever children the
+    installed NetworkX actually has.
+    """
     import importlib
     import pkgutil
     import sys
     import networkx.drawing as _src
 
     native_children = {"layout", "nx_pylab"}
+    exported = set(native_children)
     for info in pkgutil.iter_modules(_src.__path__):
         name = info.name
-        if name in native_children or name == "tests" or name.startswith("_"):
+        if name == "tests" or name.startswith("_"):
+            continue
+        exported.add(name)
+        if name in native_children:
             continue
         alias = f"{__name__}.{name}"
         if alias in sys.modules:
@@ -116,6 +129,8 @@ def _install_drawing_child_aliases():
         module = importlib.import_module(f"networkx.drawing.{name}")
         sys.modules[alias] = module
         globals()[name] = module
+
+    __all__.extend(sorted(exported - set(__all__)))
 
 
 _install_drawing_child_aliases()

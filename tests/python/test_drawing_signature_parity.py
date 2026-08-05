@@ -155,3 +155,60 @@ def test_draw_networkx_nodes_kwargs_accepted():
         )
     finally:
         plt.close(fig)
+
+
+# br-r37-c1-ibcok: ``networkx.drawing`` declares no ``__all__``, so its
+# star-import surface is its public ``dir()`` — which INCLUDES the five child
+# modules. fnx declares an explicit ``__all__``, and it used to omit them while
+# adding two names nx does not expose there, so ``import *`` bound a different
+# set of names on the two packages.
+_DRAWING_CHILD_MODULES = ("layout", "nx_agraph", "nx_latex", "nx_pydot", "nx_pylab")
+
+
+@pytest.mark.skipif(not HAS_NX, reason="networkx required")
+def test_drawing_package_star_export_surface_matches_networkx():
+    import networkx.drawing as nx_drawing
+    import franken_networkx.drawing as fnx_drawing
+
+    nx_surface = {n for n in dir(nx_drawing) if not n.startswith("_")}
+    assert set(fnx_drawing.__all__) == nx_surface
+
+    # The child modules are the specific names that were missing.
+    assert set(_DRAWING_CHILD_MODULES) <= set(fnx_drawing.__all__)
+    for child in _DRAWING_CHILD_MODULES:
+        assert hasattr(fnx_drawing, child), child
+
+
+def _star_import_names(module):
+    """The names ``from <module> import *`` binds: ``__all__`` if present, else
+    every public module-level name. This is CPython's rule, spelled out rather
+    than run through ``exec``."""
+    declared = getattr(module, "__all__", None)
+    if declared is None:
+        return {n for n in dir(module) if not n.startswith("_")}
+    return set(declared)
+
+
+@pytest.mark.skipif(not HAS_NX, reason="networkx required")
+def test_drawing_star_import_binds_the_same_names():
+    import networkx.drawing as nx_drawing
+    import franken_networkx.drawing as fnx_drawing
+
+    fnx_names = _star_import_names(fnx_drawing)
+    assert fnx_names == _star_import_names(nx_drawing)
+    # A name in __all__ that does not resolve makes the real star-import raise,
+    # so check every exported name actually binds.
+    for name in sorted(fnx_names):
+        assert hasattr(fnx_drawing, name), name
+
+
+@pytest.mark.skipif(not HAS_NX, reason="networkx required")
+def test_drawing_child_all_surfaces_stay_equal_to_networkx():
+    """Negative guard: fixing the parent must not disturb br-r37-c1-knd9z."""
+    import networkx.drawing.layout as nx_layout
+    import networkx.drawing.nx_pylab as nx_pylab_mod
+    import franken_networkx.drawing.layout as fnx_layout
+    import franken_networkx.drawing.nx_pylab as fnx_pylab_mod
+
+    assert set(fnx_layout.__all__) == set(nx_layout.__all__)
+    assert set(fnx_pylab_mod.__all__) == set(nx_pylab_mod.__all__)
