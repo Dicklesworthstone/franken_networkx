@@ -36124,33 +36124,34 @@ def cost_of_flow(G, flowDict, weight="weight"):
     float
         Total cost of the flow.
     """
-    # br-costint: nx.cost_of_flow uses sum(G[u][v][weight]*flow[u][v])
-    # which preserves int when all factors are int. fnx initialized
-    # total=0.0 and cast weights via float(), always widening the
-    # result. Keep nx's int-preservation by initializing total=0 and
-    # using the raw weight value (with a 0 default) without float cast.
-    total = 0
-    for u in flowDict:
-        for v, flow in flowDict[u].items():
-            if isinstance(flow, dict):
-                data = G.get_edge_data(u, v)
-                for key, keyed_flow in flow.items():
-                    if keyed_flow > 0:
-                        edge_data = data.get(key, {}) if isinstance(data, dict) else {}
-                        if isinstance(edge_data, dict):
-                            cost = edge_data.get(weight, 0)
-                        else:
-                            cost = 0
-                        total = total + keyed_flow * cost
-                continue
-            if flow > 0:
-                data = G.get_edge_data(u, v)
-                if isinstance(data, dict):
-                    cost = data.get(weight, 0)
-                else:
-                    cost = 0
-                total = total + flow * cost
-    return total
+    # br-costint: nx preserves int when all factors are int, so no float() cast.
+    #
+    # br-r37-c1-txgb4: iterate the GRAPH's edges, exactly as nx does
+    # (``sum(flowDict[u][v] * d.get(weight, 0) for u, v, d in G.edges(data=True))``).
+    # The previous implementation walked flowDict instead, which diverged from nx
+    # two ways — the second a SILENT WRONG VALUE:
+    #
+    #   * an edge of G absent from flowDict scored 0; nx raises KeyError(u), so a
+    #     partial flow dict was accepted and quietly under-counted;
+    #   * on a MultiDiGraph with PARALLEL edges and an unkeyed flowDict, nx yields
+    #     each parallel edge from edges(data=True) and sums 2*3 + 2*5 = 16. fnx
+    #     read ``G.get_edge_data(u, v)`` — a ``{key: attrs}`` mapping for a
+    #     multigraph — found no ``weight`` inside it, and returned 0.
+    #
+    # The keyed-flow-dict form (``flowDict[u][v][key]``) is a DELIBERATE fnx
+    # extension: nx raises TypeError on it, but fnx's own network_simplex emits
+    # that shape for multigraphs and test_flow_conformance_matrix locks it. It is
+    # kept, and now scores each parallel edge against ITS OWN key instead of
+    # collapsing them.
+    if G.is_multigraph():
+        total = 0
+        for u, v, key, data in G.edges(keys=True, data=True):
+            flow = flowDict[u][v]
+            total = total + (flow[key] if isinstance(flow, dict) else flow) * data.get(
+                weight, 0
+            )
+        return total
+    return sum(flowDict[u][v] * d.get(weight, 0) for u, v, d in G.edges(data=True))
 
 
 def _mcf_inputs_all_integral(G, demand, capacity, weight, _fastg=None):

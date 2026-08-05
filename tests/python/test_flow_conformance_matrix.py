@@ -170,6 +170,44 @@ def test_cost_of_flow_matches_networkx_on_network_simplex_output():
     assert fnx.cost_of_flow(fg, f_flow) == nx.cost_of_flow(ng, n_flow)
 
 
+def test_cost_of_flow_iterates_the_graph_not_the_flow_dict():
+    """br-r37-c1-txgb4: nx sums over ``G.edges(data=True)``, so an edge of G that
+    the flow dict omits is a ``KeyError``, not a silent zero."""
+    fg = fnx.DiGraph([(0, 1, {"weight": 3})])
+    ng = nx.DiGraph([(0, 1, {"weight": 3})])
+    with pytest.raises(KeyError) as fnx_exc:
+        fnx.cost_of_flow(fg, {})
+    with pytest.raises(KeyError) as nx_exc:
+        nx.cost_of_flow(ng, {})
+    assert fnx_exc.value.args == nx_exc.value.args == (0,)
+
+    # A flow-dict entry for an edge NOT in G is ignored by both.
+    assert fnx.cost_of_flow(fg, {0: {1: 2}, 5: {6: 9}}) == nx.cost_of_flow(
+        ng, {0: {1: 2}, 5: {6: 9}}
+    )
+
+
+def test_cost_of_flow_scores_every_parallel_edge_on_a_multigraph():
+    """br-r37-c1-txgb4: an unkeyed flow dict on parallel edges scored 0.
+
+    ``G.get_edge_data(u, v)`` on a multigraph is a ``{key: attrs}`` mapping, so
+    the old flow-dict walk found no ``weight`` in it and contributed nothing.
+    nx yields each parallel edge from ``edges(data=True)``: 2*3 + 2*5 == 16.
+    """
+    edges = [(0, 1, {"weight": 3}), (0, 1, {"weight": 5})]
+    fg, ng = fnx.MultiDiGraph(edges), nx.MultiDiGraph(edges)
+    assert fnx.cost_of_flow(fg, {0: {1: 2}}) == nx.cost_of_flow(ng, {0: {1: 2}}) == 16
+
+    with pytest.raises(KeyError):
+        fnx.cost_of_flow(fg, {})
+
+    # The keyed form is an fnx extension (nx raises TypeError on it); it must
+    # score each parallel edge against ITS OWN key, not collapse them.
+    assert fnx.cost_of_flow(fg, {0: {1: {0: 2, 1: 4}}}) == 2 * 3 + 4 * 5
+    with pytest.raises(TypeError):
+        nx.cost_of_flow(ng, {0: {1: {0: 2, 1: 4}}})
+
+
 def test_multidigraph_min_cost_flow_cost_family_matches_networkx():
     fg, ng = _multi_min_cost_demand()
 
