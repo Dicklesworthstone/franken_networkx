@@ -161,3 +161,75 @@ def test_root_mirror_modules_define_star_exports_like_networkx():
         assert not missing_attrs, (
             f"{fnx_name} __all__ lists names not present on module: {missing_attrs}"
         )
+
+
+# br-r37-c1-z0640: the TOP-LEVEL star-export surface. ``networkx`` declares no
+# ``__all__``, so ``from networkx import *`` binds every public module-level
+# name — including its subpackages. fnx declares an explicit ``__all__``, and 27
+# of its own subpackages were missing from it, so
+# ``from franken_networkx import *; bipartite.sets(G)`` raised NameError.
+_FNX_OWNED_SUBPACKAGES = (
+    "approximation", "bipartite", "chordal", "clique", "community", "components",
+    "convert_matrix", "core", "dag", "drawing", "euler", "flow", "hybrid",
+    "minors", "moral", "operators", "planarity", "readwrite", "regular",
+    "smallworld", "sparsifiers", "summarization", "swap", "tournament",
+    "traversal", "tree", "triads",
+)
+
+
+def test_top_level_all_exports_every_fnx_owned_name_networkx_also_exports():
+    """Self-maintaining: a subpackage added later without being exported fails here.
+
+    Run in a SUBPROCESS on purpose. ``vars(franken_networkx)`` grows during a
+    pytest session — importing ``franken_networkx.<sub>` anywhere binds ``<sub>``
+    onto the parent package — so measuring it in-process makes the answer depend
+    on which test files ran first. A cold interpreter is the only stable reading.
+    The parent's ``sys.path`` is handed through so the child imports the same
+    packages this session did.
+    """
+    import json
+    import os
+    import subprocess
+    import sys
+
+    snippet = (
+        "import json, networkx as nx, franken_networkx as fnx;"
+        "nx_star={n for n in dir(nx) if not n.startswith('_')};"
+        "own={n for n in vars(fnx) if not n.startswith('_')};"
+        "print(json.dumps(sorted((own & nx_star) - set(fnx.__all__))))"
+    )
+    env = dict(os.environ, PYTHONPATH=os.pathsep.join(p for p in sys.path if p))
+    proc = subprocess.run(
+        [sys.executable, "-c", snippet],
+        capture_output=True,
+        text=True,
+        env=env,
+        check=False,
+        timeout=120,
+    )
+    assert proc.returncode == 0, proc.stderr
+    unexported = json.loads(proc.stdout.strip().splitlines()[-1])
+    assert unexported == []
+
+
+def test_top_level_all_exports_the_fnx_subpackages():
+    import franken_networkx as fnx
+
+    exported = set(fnx.__all__)
+    assert set(_FNX_OWNED_SUBPACKAGES) <= exported
+    for name in _FNX_OWNED_SUBPACKAGES:
+        assert hasattr(fnx, name), name
+    # No duplicates crept in while extending the list.
+    assert len(fnx.__all__) == len(exported)
+
+
+def test_top_level_all_does_not_export_accidental_stdlib_imports():
+    """Negative case: ``copyreg`` is an import leak, not part of the API.
+
+    A fix that extended ``__all__`` from ``vars()`` wholesale would export it,
+    and ``nx.copyreg`` does not exist.
+    """
+    import franken_networkx as fnx
+
+    assert "copyreg" not in set(fnx.__all__)
+    assert not hasattr(nx, "copyreg")

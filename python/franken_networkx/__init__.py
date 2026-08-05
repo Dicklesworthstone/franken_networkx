@@ -62760,3 +62760,47 @@ def __dir__():
     import networkx as nx
 
     return sorted(set(globals()) | set(dir(nx)))
+
+
+# br-r37-c1-z0640: ``networkx`` declares no ``__all__``, so ``from networkx
+# import *`` binds every public module-level name — including its subpackages.
+# fnx declares an explicit ``__all__``, and these 27 subpackages were absent from
+# it, so ``from franken_networkx import *; bipartite.sets(G)`` raised NameError
+# where the nx spelling works. They were always reachable as ATTRIBUTES; only the
+# star-export surface was short.
+#
+# Listed explicitly rather than derived: ``approximation`` is a
+# ``_ApproximationNamespace`` instance, not a ``ModuleType``, and its ``__name__``
+# is swallowed by its own ``__getattr__``, so any ``isinstance(v, ModuleType)``
+# rule silently drops it (measured: such a rule selects 26 of the 27). The
+# accompanying test asserts the property against the live nx surface, so a
+# subpackage added later without being exported fails there.
+__all__ += [
+    "approximation",
+    "bipartite",
+    "chordal",
+    "clique",
+    "community",
+    "components",
+    "convert_matrix",
+    "core",
+    "dag",
+    "drawing",
+    "euler",
+    "flow",
+    "hybrid",
+    "minors",
+    "moral",
+    "operators",
+    "planarity",
+    "readwrite",
+    "regular",
+    "smallworld",
+    "sparsifiers",
+    "summarization",
+    "swap",
+    "tournament",
+    "traversal",
+    "tree",
+    "triads",
+]
