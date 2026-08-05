@@ -16830,11 +16830,11 @@ class FnxMultiGraphCtorEdgeIterable:
                 "",
                 "a",
                 "native",
-                "str:5:weird",   // a key that looks like the canonical form
-                "with:colons:",  // separators inside the payload
-                "ünïcödé",       // multi-byte: byte length != char count
+                "str:5:weird",    // a key that looks like the canonical form
+                "with:colons:",   // separators inside the payload
+                "ünïcödé",        // multi-byte: byte length != char count
                 "日本語のノード", // 3-byte code points
-                "emoji-🎯-key",  // 4-byte code point
+                "emoji-🎯-key",   // 4-byte code point
                 &long_ascii,
             ];
             string_keys.extend(boundary.iter().map(String::as_str));
@@ -16843,8 +16843,9 @@ class FnxMultiGraphCtorEdgeIterable:
                 let obj = PyString::new(py, key);
                 let owned = node_key_to_string(py, obj.as_any())
                     .expect("owned canonicalization should succeed");
-                let borrowed = with_node_key_str(py, obj.as_any(), std::string::ToString::to_string)
-                    .expect("borrowed canonicalization should succeed");
+                let borrowed =
+                    with_node_key_str(py, obj.as_any(), std::string::ToString::to_string)
+                        .expect("borrowed canonicalization should succeed");
                 assert_eq!(
                     borrowed, owned,
                     "borrowed canonical diverged from owned for {key:?}"
@@ -16858,8 +16859,9 @@ class FnxMultiGraphCtorEdgeIterable:
                 let obj = value.into_pyobject(py).expect("int should convert");
                 let owned =
                     node_key_to_string(py, obj.as_any()).expect("owned int canonical should work");
-                let borrowed = with_node_key_str(py, obj.as_any(), std::string::ToString::to_string)
-                    .expect("borrowed int canonical should work");
+                let borrowed =
+                    with_node_key_str(py, obj.as_any(), std::string::ToString::to_string)
+                        .expect("borrowed int canonical should work");
                 assert_eq!(borrowed, owned, "int canonical diverged for {value}");
             }
         });
@@ -16875,7 +16877,11 @@ class FnxMultiGraphCtorEdgeIterable:
         Python::attach(|py| {
             let canonical = |literal: &str| {
                 let value = py
-                    .eval(std::ffi::CString::new(literal).unwrap().as_c_str(), None, None)
+                    .eval(
+                        std::ffi::CString::new(literal).unwrap().as_c_str(),
+                        None,
+                        None,
+                    )
                     .expect("literal should evaluate");
                 node_key_to_string(py, &value).expect("canonicalization should succeed")
             };
@@ -16987,9 +16993,14 @@ class FnxMultiGraphCtorEdgeIterable:
         Python::attach(|py| {
             let canonical = |literal: &str| {
                 let value = py
-                    .eval(std::ffi::CString::new(literal).unwrap().as_c_str(), None, None)
+                    .eval(
+                        std::ffi::CString::new(literal).unwrap().as_c_str(),
+                        None,
+                        None,
+                    )
                     .expect("literal should evaluate");
-                edge_key_lookup_string(py, &value).expect("edge-key canonicalization should succeed")
+                edge_key_lookup_string(py, &value)
+                    .expect("edge-key canonicalization should succeed")
             };
 
             assert_eq!(canonical("2**63 + 7"), "int:9223372036854775815");
