@@ -94,7 +94,62 @@ pyo3::import_exception!(networkx.exception, PowerIterationFailedConvergence);
 /// namespace; ``1`` and ``"1"`` are distinct even though ``1`` /
 /// ``1.0`` / ``True`` are equal keys. Prefix strings so text nodes do
 /// not collide with numeric canonical keys.
-fn node_key_to_string(_py: Python<'_>, key: &Bound<'_, PyAny>) -> PyResult<String> {
+/// br-r37-c1-oe93x: stack budget for a canonical str key. Covers `"str:"` + the
+/// decimal byte length + the key itself, so any node name up to ~120 bytes is
+/// canonicalized without touching the allocator.
+const CANONICAL_KEY_STACK_BUF: usize = 128;
+
+/// br-r37-c1-oe93x: write `"str:{len}:{s}"` into `buf` and return it as `&str`.
+///
+/// Returns `None` when the key does not fit, and the caller falls back to the
+/// heap path. The bytes produced here are IDENTICAL to what
+/// `node_key_to_string` builds for the same key — same `format!` string, same
+/// `s.len()` in BYTES — which is what makes the borrowed lookup sound: the map
+/// is `FxIndexMap<String, _>`, and `str` hashing feeds the whole slice to the
+/// hasher in one `write` plus a terminator, so hashing an equal slice yields an
+/// equal hash. (Hashing the three pieces separately would NOT: it changes the
+/// `write` call sequence and the lookup would silently miss.)
+fn write_canonical_str_key<'b>(
+    buf: &'b mut [u8; CANONICAL_KEY_STACK_BUF],
+    s: &str,
+) -> Option<&'b str> {
+    use std::io::Write as _;
+
+    let used = {
+        let mut cursor: &mut [u8] = &mut buf[..];
+        write!(cursor, "str:{}:{s}", s.len()).ok()?;
+        CANONICAL_KEY_STACK_BUF - cursor.len()
+    };
+    // Always valid UTF-8: an ASCII prefix followed by an existing `&str`.
+    core::str::from_utf8(&buf[..used]).ok()
+}
+
+/// br-r37-c1-oe93x: canonicalize a node key for a READ-ONLY lookup and hand it
+/// to `f` as `&str`, without allocating for the common short-string case.
+///
+/// `node_key_to_string` returns an owned `String`, so every `has_node` /
+/// `n in G` / `has_edge` probe malloc'd and freed purely to look up a borrowed
+/// key. networkx probes a C dict with no allocation at all, which is why a
+/// PYTHON `has_node` (57ns) beat this native one (119ns) before this path
+/// existed. Write paths still call `node_key_to_string` — they need the owned
+/// String to insert.
+fn with_node_key_str<R>(
+    py: Python<'_>,
+    key: &Bound<'_, PyAny>,
+    f: impl FnOnce(&str) -> R,
+) -> PyResult<R> {
+    if let Ok(s) = key.downcast::<PyString>() {
+        let s = s.to_str()?;
+        let mut buf = [0u8; CANONICAL_KEY_STACK_BUF];
+        if let Some(canonical) = write_canonical_str_key(&mut buf, s) {
+            return Ok(f(canonical));
+        }
+    }
+    let canonical = node_key_to_string(py, key)?;
+    Ok(f(&canonical))
+}
+
+fn node_key_to_string(py: Python<'_>, key: &Bound<'_, PyAny>) -> PyResult<String> {
     // br-ctaxkey: `downcast::<PyString>()` is a cheap isinstance check that
     // builds NO Python exception on a non-string, unlike `extract::<String>()`
     // which constructs and discards a `PyErr` for every int / float node key.
@@ -111,10 +166,31 @@ fn node_key_to_string(_py: Python<'_>, key: &Bound<'_, PyAny>) -> PyResult<Strin
     if let Ok(i) = key.extract::<i64>() {
         return Ok(i.to_string());
     }
+    // br-r37-c1-dr1h9: a Python int that failed `extract::<i64>()` is WIDER than
+    // i64, and it must NOT reach the float branch below. `extract::<f64>()`
+    // SUCCEEDS on it with a ROUNDED value — 2**63+7 and 2**63+8 both round to
+    // 2f64.powi(63) — and `f as i64` then saturates, so every wide int
+    // canonicalized to the single string "9223372036854775807" and distinct
+    // nodes silently merged into one. Python ints are arbitrary precision, so
+    // the exact decimal is the only lossless canonical. `int.__repr__` is called
+    // UNBOUND so an int subclass with a custom `__repr__` still canonicalizes by
+    // value, exactly as the in-range `i.to_string()` path above does.
+    if key.downcast::<PyInt>().is_ok() {
+        return py
+            .get_type::<PyInt>()
+            .getattr(pyo3::intern!(py, "__repr__"))?
+            .call1((key,))?
+            .extract::<String>();
+    }
     // Floats that exactly represent an integer in i64 range collide
     // (by hash + ==) with their int counterpart in Python dicts.
     if let Ok(f) = key.extract::<f64>() {
-        if f.is_finite() && f.fract() == 0.0 && f >= i64::MIN as f64 && f <= i64::MAX as f64 {
+        // br-r37-c1-dr1h9: the bound is EXCLUSIVE at 2**63. `i64::MAX as f64`
+        // rounds UP to 2**63, so `f <= i64::MAX as f64` admitted 2**63 itself
+        // and `f as i64` saturated it onto i64::MAX — aliasing the float 2**63
+        // onto the distinct integer key 2**63-1.
+        const I64_RANGE_END_F64: f64 = 9_223_372_036_854_775_808.0; // 2**63
+        if f.is_finite() && f.fract() == 0.0 && f >= i64::MIN as f64 && f < I64_RANGE_END_F64 {
             return Ok((f as i64).to_string());
         }
         let repr = key.repr()?;
@@ -1270,7 +1346,7 @@ impl NodeIndexLookupCache {
     }
 }
 
-pub(crate) fn edge_key_lookup_string(_py: Python<'_>, key: &Bound<'_, PyAny>) -> PyResult<String> {
+pub(crate) fn edge_key_lookup_string(py: Python<'_>, key: &Bound<'_, PyAny>) -> PyResult<String> {
     // br-r37-c1-edgekeyint: MultiGraph/MultiDiGraph edge keys must
     // honour Python's dict semantics — ``hash(0) == hash(0.0) ==
     // hash(False)``, so an edge added with ``key=0`` is the SAME
@@ -1296,8 +1372,25 @@ pub(crate) fn edge_key_lookup_string(_py: Python<'_>, key: &Bound<'_, PyAny>) ->
     if let Ok(i) = key.extract::<i64>() {
         return Ok(format!("int:{i}"));
     }
+    // br-r37-c1-dr1h9: the node-key defect verbatim, on the edge-key axis — an
+    // int wider than i64 rounds through `extract::<f64>()` and saturates, so
+    // `add_edge(u, v, key=2**63+7)` and `key=2**63+8` collapsed into ONE edge.
+    // The exact decimal (unbound `int.__repr__`, so a subclass override cannot
+    // change the canonical) keeps them distinct while staying in the same
+    // "int:" namespace as the in-range keys they must not collide with.
+    if key.downcast::<PyInt>().is_ok() {
+        let exact: String = py
+            .get_type::<PyInt>()
+            .getattr(pyo3::intern!(py, "__repr__"))?
+            .call1((key,))?
+            .extract()?;
+        return Ok(format!("int:{exact}"));
+    }
     if let Ok(f) = key.extract::<f64>() {
-        if f.is_finite() && f.fract() == 0.0 && f >= i64::MIN as f64 && f <= i64::MAX as f64 {
+        // Exclusive at 2**63: `i64::MAX as f64` rounds UP, so an inclusive
+        // bound admitted 2**63 and saturated it onto the distinct key 2**63-1.
+        const I64_RANGE_END_F64: f64 = 9_223_372_036_854_775_808.0; // 2**63
+        if f.is_finite() && f.fract() == 0.0 && f >= i64::MIN as f64 && f < I64_RANGE_END_F64 {
             return Ok(format!("int:{}", f as i64));
         }
         return Ok(format!("float:{f:?}"));
@@ -8912,8 +9005,8 @@ impl PyMultiGraph {
         {
             return Ok(true);
         }
-        let canonical = node_key_to_string(py, n)?;
-        Ok(self.inner.has_node(&canonical))
+        // br-r37-c1-oe93x: borrowed canonical key — no String alloc per probe.
+        with_node_key_str(py, n, |canonical| self.inner.has_node(canonical))
     }
 
     #[pyo3(signature = (u, v, key=None))]
@@ -9039,8 +9132,8 @@ impl PyMultiGraph {
         {
             return Ok(true);
         }
-        let canonical = node_key_to_string(py, n)?;
-        Ok(self.inner.has_node(&canonical))
+        // br-r37-c1-oe93x: borrowed canonical key — no String alloc per probe.
+        with_node_key_str(py, n, |canonical| self.inner.has_node(canonical))
     }
 
     /// br-cc-nbunchbulk: bulk nbunch filter — see PyGraph::_nbunch_present.
@@ -12895,8 +12988,8 @@ impl PyGraph {
         {
             return Ok(true);
         }
-        let canonical = node_key_to_string(py, n)?;
-        Ok(self.inner.has_node(&canonical))
+        // br-r37-c1-oe93x: borrowed canonical key — no String alloc per probe.
+        with_node_key_str(py, n, |canonical| self.inner.has_node(canonical))
     }
 
     /// Return True if graph has edge (u, v).
@@ -12928,9 +13021,11 @@ impl PyGraph {
         {
             return Ok(self.inner.has_edge_by_indices(iu, iv));
         }
-        let u_c = node_key_to_string(py, u)?;
-        let v_c = node_key_to_string(py, v)?;
-        Ok(self.inner.has_edge(&u_c, &v_c))
+        // br-r37-c1-oe93x: borrowed canonical keys — a str-keyed probe used to
+        // malloc and free TWO Strings purely to look the edge up.
+        with_node_key_str(py, u, |u_c| {
+            with_node_key_str(py, v, |v_c| self.inner.has_edge(u_c, v_c))
+        })?
     }
 
     /// Return a list of neighbors of node n.
@@ -13556,8 +13651,8 @@ impl PyGraph {
         {
             return Ok(true);
         }
-        let canonical = node_key_to_string(py, n)?;
-        Ok(self.inner.has_node(&canonical))
+        // br-r37-c1-oe93x: borrowed canonical key — no String alloc per probe.
+        with_node_key_str(py, n, |canonical| self.inner.has_node(canonical))
     }
 
     /// br-cc-nbunchbulk: bulk nbunch filter — the in-graph members of `nbunch`, in
@@ -16685,6 +16780,161 @@ class FnxMultiGraphCtorEdgeIterable:
 
             assert_eq!(restored.inner.runtime_policy(), &expected_policy);
         });
+    }
+
+    /// br-r37-c1-oe93x: the borrowed read path must produce a canonical key
+    /// BYTE-IDENTICAL to the owned one for every key kind, or lookups miss.
+    #[test]
+    fn borrowed_node_key_matches_the_owned_canonical_for_every_key_kind() {
+        ensure_python();
+        Python::attach(|py| {
+            let long_ascii = "n".repeat(CANONICAL_KEY_STACK_BUF * 2);
+            // "str:{len}:" is 4 + digits + 1 bytes of prefix, so keys near the
+            // buffer size straddle the stack/heap boundary. Cover both sides of
+            // it plus the exact edge.
+            let boundary: Vec<String> = (CANONICAL_KEY_STACK_BUF - 12
+                ..=CANONICAL_KEY_STACK_BUF + 2)
+                .map(|n| "b".repeat(n))
+                .collect();
+
+            let mut string_keys: Vec<&str> = vec![
+                "",
+                "a",
+                "native",
+                "str:5:weird",   // a key that looks like the canonical form
+                "with:colons:",  // separators inside the payload
+                "ünïcödé",       // multi-byte: byte length != char count
+                "日本語のノード", // 3-byte code points
+                "emoji-🎯-key",  // 4-byte code point
+                &long_ascii,
+            ];
+            string_keys.extend(boundary.iter().map(String::as_str));
+
+            for key in string_keys {
+                let obj = PyString::new(py, key);
+                let owned = node_key_to_string(py, obj.as_any())
+                    .expect("owned canonicalization should succeed");
+                let borrowed = with_node_key_str(py, obj.as_any(), std::string::ToString::to_string)
+                    .expect("borrowed canonicalization should succeed");
+                assert_eq!(
+                    borrowed, owned,
+                    "borrowed canonical diverged from owned for {key:?}"
+                );
+            }
+
+            // Non-string keys have no stack path; they must still route through
+            // the owned canonicalization unchanged.
+            let ints = [0i64, 1, -7, i64::MAX, i64::MIN];
+            for value in ints {
+                let obj = value.into_pyobject(py).expect("int should convert");
+                let owned =
+                    node_key_to_string(py, obj.as_any()).expect("owned int canonical should work");
+                let borrowed = with_node_key_str(py, obj.as_any(), std::string::ToString::to_string)
+                    .expect("borrowed int canonical should work");
+                assert_eq!(borrowed, owned, "int canonical diverged for {value}");
+            }
+        });
+    }
+
+    /// br-r37-c1-dr1h9: Python ints are arbitrary precision. Keys wider than
+    /// i64 used to round through `extract::<f64>()` and saturate onto
+    /// `i64::MAX`, so `2**63+7` and `2**63+8` shared one canonical and silently
+    /// merged into a single node.
+    #[test]
+    fn wide_int_node_keys_canonicalize_to_their_exact_decimal() {
+        ensure_python();
+        Python::attach(|py| {
+            let canonical = |literal: &str| {
+                let value = py
+                    .eval(std::ffi::CString::new(literal).unwrap().as_c_str(), None, None)
+                    .expect("literal should evaluate");
+                node_key_to_string(py, &value).expect("canonicalization should succeed")
+            };
+
+            // The saturation window: three DISTINCT keys that all collapsed onto
+            // "9223372036854775807" before the fix.
+            assert_eq!(canonical("2**63 - 1"), "9223372036854775807");
+            assert_eq!(canonical("2**63"), "9223372036854775808");
+            assert_eq!(canonical("2**63 + 1"), "9223372036854775809");
+            assert_eq!(canonical("2**63 + 7"), "9223372036854775815");
+            assert_eq!(canonical("2**63 + 8"), "9223372036854775816");
+
+            // Negative side and far-out magnitudes.
+            assert_eq!(canonical("-(2**63)"), "-9223372036854775808");
+            assert_eq!(canonical("-(2**63) - 1"), "-9223372036854775809");
+            assert_eq!(canonical("2**64 + 1"), "18446744073709551617");
+            assert_eq!(canonical("10**30"), "1000000000000000000000000000000");
+
+            // An integral float at exactly 2**63 must not be saturated onto the
+            // DISTINCT integer key 2**63-1 either.
+            assert_ne!(canonical("float(2**63)"), canonical("2**63 - 1"));
+
+            // NEGATIVE CASE: routing every int through repr would break the
+            // bool/int/float collapse that Python's dict semantics require —
+            // repr(True) is "True", not "1".
+            assert_eq!(canonical("1"), "1");
+            assert_eq!(canonical("1.0"), "1");
+            assert_eq!(canonical("True"), "1");
+            assert_eq!(canonical("False"), "0");
+            assert_eq!(canonical("0.0"), "0");
+
+            // An int subclass canonicalizes BY VALUE, so a custom `__repr__`
+            // cannot split it from the plain int it is equal to.
+            let subclass = py
+                .eval(
+                    c"(lambda: [t for t in [type('M', (int,), {'__repr__': lambda s: 'boo'})]][0](2**64))",
+                    None,
+                    None,
+                )
+                .expect("subclass factory should evaluate")
+                .call0()
+                .expect("subclass instance should build");
+            assert_eq!(
+                node_key_to_string(py, &subclass).expect("subclass canonical"),
+                canonical("2**64"),
+            );
+        });
+    }
+
+    /// br-r37-c1-dr1h9: the MultiGraph edge-key axis carried the same defect —
+    /// `key=2**63+7` and `key=2**63+8` collapsed into one edge slot.
+    #[test]
+    fn wide_int_edge_keys_stay_distinct() {
+        ensure_python();
+        Python::attach(|py| {
+            let canonical = |literal: &str| {
+                let value = py
+                    .eval(std::ffi::CString::new(literal).unwrap().as_c_str(), None, None)
+                    .expect("literal should evaluate");
+                edge_key_lookup_string(py, &value).expect("edge-key canonicalization should succeed")
+            };
+
+            assert_eq!(canonical("2**63 + 7"), "int:9223372036854775815");
+            assert_eq!(canonical("2**63 + 8"), "int:9223372036854775816");
+            assert_ne!(canonical("2**63"), canonical("2**63 - 1"));
+            assert_ne!(canonical("float(2**63)"), canonical("2**63 - 1"));
+
+            // The hash-equal collapse this function exists to provide survives.
+            assert_eq!(canonical("0"), "int:0");
+            assert_eq!(canonical("0.0"), "int:0");
+            assert_eq!(canonical("False"), "int:0");
+        });
+    }
+
+    /// The stack writer must REFUSE an oversized key rather than truncate it —
+    /// a truncated canonical would alias two distinct nodes.
+    #[test]
+    fn canonical_stack_writer_refuses_keys_that_do_not_fit() {
+        let mut buf = [0u8; CANONICAL_KEY_STACK_BUF];
+        let too_long = "x".repeat(CANONICAL_KEY_STACK_BUF);
+        assert!(
+            write_canonical_str_key(&mut buf, &too_long).is_none(),
+            "an oversized key must fall back to the heap path, not truncate"
+        );
+
+        let fits = "y".repeat(16);
+        let written = write_canonical_str_key(&mut buf, &fits).expect("a short key should fit");
+        assert_eq!(written, format!("str:{}:{fits}", fits.len()));
     }
 
     #[test]

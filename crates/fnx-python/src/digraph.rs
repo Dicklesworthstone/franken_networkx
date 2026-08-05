@@ -10,7 +10,7 @@ use crate::{
     collect_index_weight_attr_edges, compatibility_mode_from_py, compatibility_mode_name,
     edge_key_lookup_string, node_key_to_string, py_dict_to_attr_map,
     py_dict_to_attr_map_with_mirror, runtime_policy_from_state, runtime_policy_json,
-    unwrap_infallible, weighted_edge_triplet,
+    unwrap_infallible, weighted_edge_triplet, with_node_key_str,
 };
 use fnx_classes::AttrMap;
 use fnx_classes::digraph::{DiGraph, MultiDiGraph};
@@ -5429,8 +5429,8 @@ impl PyMultiDiGraph {
         {
             return Ok(true);
         }
-        let canonical = node_key_to_string(py, n)?;
-        Ok(self.inner.has_node(&canonical))
+        // br-r37-c1-oe93x: borrowed canonical key — no String alloc per probe.
+        with_node_key_str(py, n, |canonical| self.inner.has_node(canonical))
     }
 
     fn __len__(&self) -> usize {
@@ -5453,8 +5453,8 @@ impl PyMultiDiGraph {
         {
             return Ok(true);
         }
-        let canonical = node_key_to_string(py, n)?;
-        Ok(self.inner.has_node(&canonical))
+        // br-r37-c1-oe93x: borrowed canonical key — no String alloc per probe.
+        with_node_key_str(py, n, |canonical| self.inner.has_node(canonical))
     }
 
     /// br-cc-nbunchbulk: bulk nbunch filter — see PyGraph::_nbunch_present.
@@ -12213,8 +12213,8 @@ impl PyDiGraph {
         {
             return Ok(true);
         }
-        let canonical = node_key_to_string(py, n)?;
-        Ok(self.inner.has_node(&canonical))
+        // br-r37-c1-oe93x: borrowed canonical key — no String alloc per probe.
+        with_node_key_str(py, n, |canonical| self.inner.has_node(canonical))
     }
 
     /// Return True if directed edge (u, v) exists.
@@ -12240,9 +12240,11 @@ impl PyDiGraph {
         {
             return Ok(self.inner.has_edge_by_indices(iu, iv));
         }
-        let u_c = node_key_to_string(py, u)?;
-        let v_c = node_key_to_string(py, v)?;
-        Ok(self.inner.has_edge(&u_c, &v_c))
+        // br-r37-c1-oe93x: borrowed canonical keys — a str-keyed probe used to
+        // malloc and free TWO Strings purely to look the edge up.
+        with_node_key_str(py, u, |u_c| {
+            with_node_key_str(py, v, |v_c| self.inner.has_edge(u_c, v_c))
+        })?
     }
 
     /// Return a reversed copy of the digraph.
@@ -14851,8 +14853,8 @@ impl PyDiGraph {
         {
             return Ok(true);
         }
-        let canonical = node_key_to_string(py, n)?;
-        Ok(self.inner.has_node(&canonical))
+        // br-r37-c1-oe93x: borrowed canonical key — no String alloc per probe.
+        with_node_key_str(py, n, |canonical| self.inner.has_node(canonical))
     }
 
     /// br-cc-nbunchbulk: bulk nbunch filter — see PyGraph::_nbunch_present.
