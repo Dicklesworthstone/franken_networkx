@@ -298,6 +298,13 @@ def louvain_communities(
             )
         ]
 
+    # br-r37-c1-egjfn: ``backend="networkx"`` is load-bearing, not decoration.
+    # ``louvain_communities`` is a registered entry of
+    # ``backend._SUPPORTED_ALGORITHMS``, so under
+    # ``nx.config.backend_priority = ["franken_networkx"]`` an unpinned call
+    # here is routed by nx's dispatcher straight back into this function, which
+    # falls back again — the documented drop-in mode recursed until
+    # ``RecursionError``. ``tournament.py`` pins the same way.
     return _nx_community.louvain_communities(
         _fnx._networkx_graph_for_parity(G),
         weight=weight,
@@ -305,6 +312,7 @@ def louvain_communities(
         threshold=threshold,
         max_level=max_level,
         seed=seed,
+        backend="networkx",
     )
 
 

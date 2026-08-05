@@ -197,9 +197,19 @@ _SUPPORTED_ALGORITHMS = {
     # Approximation algorithms
     "min_weighted_vertex_cover": fnx.approximation.min_weighted_vertex_cover,
     "maximal_independent_set": fnx.maximal_independent_set,
-    "maximum_independent_set": fnx.approximation.maximum_independent_set,
-    "max_clique": fnx.approximation.max_clique,
-    "clique_removal": fnx.approximation.clique_removal,
+    # br-r37-c1-egjfn: ``maximum_independent_set``, ``max_clique`` and
+    # ``clique_removal`` are deliberately NOT registered. There is no native
+    # kernel behind those names — ``approximation.py`` obtains them from a
+    # wildcard re-export of ``networkx.algorithms.approximation``, so
+    # registering them would name nx's own ``@_dispatchable`` as this backend's
+    # implementation of the same algorithm. Under
+    # ``nx.config.backend_priority = ["franken_networkx"]`` that is a pure
+    # dispatch cycle with no fnx frame in it, and it recurses until
+    # ``RecursionError``. Pinning ``backend="networkx"`` at the call site does
+    # not help: nx's own ``max_clique`` body calls ``clique_removal()``
+    # unpinned, so the cycle re-forms one frame deeper. Leaving them out lets
+    # ``fallback_to_nx`` route both nx and fnx graphs to nx's kernel, which is
+    # what the registration was delegating to anyway.
     "large_clique_size": fnx.approximation.large_clique_size,
     "spanner": fnx.spanner,
     # Strongly connected components
