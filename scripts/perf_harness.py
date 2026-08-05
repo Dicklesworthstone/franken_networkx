@@ -2034,6 +2034,16 @@ def suite_node_primitives():
     wrapped_has_node = fnx._private_aware_has_node(
         fnx._GRAPH_PRIVATE_AWARE_HAS_NODE
     ).__get__(gfx, type(gfx))
+    # br-r37-c1-padm6: the lever's own before/after, in ONE invocation. The Python
+    # private-override wrapper that `__contains__` used to carry is still importable
+    # (it is dead code now), so binding it over the raw native slot reconstructs the
+    # pre-lever call path. Conservative by construction: the old path ALSO paid the
+    # slot->Python-function dispatch that this arm skips, so the measured effect is a
+    # floor on what the lever removed.
+    raw_graph_contains = type(gfx).__dict__["__contains__"]
+    wrapped_contains = fnx._private_aware_contains(raw_graph_contains).__get__(
+        gfx, type(gfx)
+    )
     wrapped_number_of_nodes = fnx._private_aware_number_of_nodes(
         fnx._GRAPH_PRIVATE_AWARE_NUMBER_OF_NODES
     ).__get__(gfx, type(gfx))
@@ -2075,6 +2085,11 @@ def suite_node_primitives():
             "membership x512 [contains/has_node]",
             lambda: sum(node in gfx for node in present),
             lambda: sum(gfx.has_node(node) for node in present),
+        ),
+        (
+            "n in G (present) x512 [wrapper/native]",
+            lambda: sum(wrapped_contains(node) for node in present),
+            lambda: sum(node in gfx for node in present),
         ),
         (
             "G.number_of_nodes() x512 [nx/fnx]",
