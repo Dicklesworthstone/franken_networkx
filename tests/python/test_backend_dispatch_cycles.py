@@ -150,6 +150,49 @@ def test_louvain_networkx_fallback_pins_the_backend():
     }
 
 
+def _multi_argument_probes():
+    """Concrete calls for registered algorithms the one-argument sweep skips.
+
+    The sweep calls every entry with a single graph, so 271 of the 313
+    registrations raise on arity and are skipped — a blind spot exactly where a
+    louvain-shaped unpinned fallback could hide. These are the registered names
+    that delegate into networkx WITHOUT ``backend="networkx"`` (found by walking
+    the package AST), each given real arguments. All of them are expected to
+    terminate: being unpinned is necessary for the louvain cycle but not
+    sufficient, and nothing here should be "fixed" by adding pins on spec.
+    """
+    path = fnx.path_graph(6)
+    dag = fnx.DiGraph([(0, 1), (1, 2), (2, 3)])
+    dense = fnx.complete_graph(6)
+    return [
+        ("bfs_tree", lambda: fnx.traversal.bfs_tree(path, 0)),
+        ("dfs_tree", lambda: fnx.traversal.dfs_tree(path, 0)),
+        ("transitive_closure", lambda: fnx.dag.transitive_closure(dag)),
+        ("transitive_reduction", lambda: fnx.dag.transitive_reduction(dag)),
+        ("contracted_nodes", lambda: fnx.minors.contracted_nodes(path, 0, 1)),
+        ("contracted_edge", lambda: fnx.minors.contracted_edge(path, (0, 1))),
+        ("identified_nodes", lambda: fnx.minors.identified_nodes(path, 0, 1)),
+        ("greedy_color", lambda: fnx.greedy_color(path)),
+        ("intersection", lambda: fnx.intersection(path, fnx.path_graph(6))),
+        ("union", lambda: fnx.union(fnx.Graph([(0, 1)]), fnx.Graph([(2, 3)]))),
+        ("shortest_path", lambda: fnx.shortest_path(path, 0, 5)),
+        ("maximum_spanning_tree", lambda: fnx.maximum_spanning_tree(path)),
+        ("minimum_spanning_edges", lambda: list(fnx.minimum_spanning_edges(path))),
+        ("chordal_graph_cliques", lambda: list(fnx.chordal_graph_cliques(dense))),
+        (
+            "complete_bipartite_graph",
+            lambda: fnx.bipartite.complete_bipartite_graph(2, 3),
+        ),
+    ]
+
+
+@pytest.mark.parametrize("name", [probe[0] for probe in _multi_argument_probes()])
+def test_multi_argument_delegations_terminate(name, backend_priority):
+    """The arity-skipped half of the table terminates too."""
+    call = dict(_multi_argument_probes())[name]
+    assert call() is not None
+
+
 @pytest.mark.slow
 def test_no_dispatchable_algorithm_recurses(backend_priority):
     """Sweep every registered algorithm; none may exhaust the stack.
