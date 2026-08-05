@@ -28391,14 +28391,21 @@ mod tests {
     fn single_source_shortest_path_deep_paths_are_independent_and_ordered() {
         ensure_python();
         Python::attach(|py| {
-            let mut graph = PyGraph::new_empty(py).expect("graph should initialize");
+            // br-r37-c1-zqmqu: build through the PUBLIC `add_edge`, not
+            // `graph.inner.add_edge`. Seeding the inner map with raw `"0"` while
+            // the `PyString` source canonicalizes to `"str:1:0"` meant the
+            // lookup could never match: the algorithm returned an EMPTY dict and
+            // every assertion below was vacuous. The public path also records
+            // the display keys, without which the result renders raw canonicals
+            // (`"str:2:32"`) instead of the node objects the caller passed in.
+            let graph = Py::new(py, PyGraph::new_empty(py).expect("graph should initialize"))
+                .expect("graph should initialize");
             for node in 0..32 {
                 graph
-                    .inner
-                    .add_edge(node.to_string(), (node + 1).to_string())
+                    .bind(py)
+                    .call_method1("add_edge", (node.to_string(), (node + 1).to_string()))
                     .expect("path edge should add");
             }
-            let graph = Py::new(py, graph).expect("graph should initialize");
             let source = PyString::new(py, "0");
             let result =
                 single_source_shortest_path(py, graph.bind(py).as_any(), source.as_any(), None)
