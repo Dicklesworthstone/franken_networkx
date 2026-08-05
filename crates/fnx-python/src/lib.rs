@@ -149,6 +149,26 @@ fn with_node_key_str<R>(
     Ok(f(&canonical))
 }
 
+/// br-r37-c1-dr1h9: the largest magnitude an `f64` can hold that still fits i64
+/// is `2**63 - 1024`, but `i64::MAX as f64` ROUNDS UP to `2**63`, so an inclusive
+/// `f <= i64::MAX as f64` bound admits `2**63` itself — which `f as i64` then
+/// saturates onto `i64::MAX`, aliasing a distinct key. The bound is exclusive.
+const I64_RANGE_END_F64: f64 = 9_223_372_036_854_775_808.0; // 2**63
+
+/// br-r37-c1-dr1h9 / br-r37-c1-9q5kq: the exact decimal of a Python integer.
+///
+/// `int.__repr__` is looked up on the TYPE and called UNBOUND, so an `int`
+/// subclass that overrides `__repr__` still canonicalizes by VALUE — matching
+/// the in-range `i.to_string()` path, which never sees a subclass override
+/// either. Python ints are arbitrary precision, so this is the only lossless
+/// canonical for a key that does not fit i64.
+fn exact_int_decimal(py: Python<'_>, value: &Bound<'_, PyAny>) -> PyResult<String> {
+    py.get_type::<PyInt>()
+        .getattr(pyo3::intern!(py, "__repr__"))?
+        .call1((value,))?
+        .extract::<String>()
+}
+
 fn node_key_to_string(py: Python<'_>, key: &Bound<'_, PyAny>) -> PyResult<String> {
     // br-ctaxkey: `downcast::<PyString>()` is a cheap isinstance check that
     // builds NO Python exception on a non-string, unlike `extract::<String>()`
@@ -176,11 +196,7 @@ fn node_key_to_string(py: Python<'_>, key: &Bound<'_, PyAny>) -> PyResult<String
     // UNBOUND so an int subclass with a custom `__repr__` still canonicalizes by
     // value, exactly as the in-range `i.to_string()` path above does.
     if key.downcast::<PyInt>().is_ok() {
-        return py
-            .get_type::<PyInt>()
-            .getattr(pyo3::intern!(py, "__repr__"))?
-            .call1((key,))?
-            .extract::<String>();
+        return exact_int_decimal(py, key);
     }
     // Floats that exactly represent an integer in i64 range collide
     // (by hash + ==) with their int counterpart in Python dicts.
@@ -189,9 +205,19 @@ fn node_key_to_string(py: Python<'_>, key: &Bound<'_, PyAny>) -> PyResult<String
         // rounds UP to 2**63, so `f <= i64::MAX as f64` admitted 2**63 itself
         // and `f as i64` saturated it onto i64::MAX — aliasing the float 2**63
         // onto the distinct integer key 2**63-1.
-        const I64_RANGE_END_F64: f64 = 9_223_372_036_854_775_808.0; // 2**63
-        if f.is_finite() && f.fract() == 0.0 && f >= i64::MIN as f64 && f < I64_RANGE_END_F64 {
-            return Ok((f as i64).to_string());
+        if f.is_finite() && f.fract() == 0.0 {
+            if f >= i64::MIN as f64 && f < I64_RANGE_END_F64 {
+                return Ok((f as i64).to_string());
+            }
+            // br-r37-c1-9q5kq: integral but WIDER than i64. Python hashes such a
+            // float equal to the int of the same value and compares them ==, so
+            // they are ONE dict key — `repr()` here would emit
+            // "1.8446744073709552e+19" against the int's "18446744073709551616"
+            // and SPLIT the node. Worse, the split node carried no display key,
+            // so `number_of_nodes()` reported 2 while `nodes()` yielded 1.
+            if let Ok(as_int) = key.call_method0(pyo3::intern!(py, "__int__")) {
+                return exact_int_decimal(py, &as_int);
+            }
         }
         let repr = key.repr()?;
         return Ok(repr.to_string());
@@ -1379,19 +1405,22 @@ pub(crate) fn edge_key_lookup_string(py: Python<'_>, key: &Bound<'_, PyAny>) -> 
     // change the canonical) keeps them distinct while staying in the same
     // "int:" namespace as the in-range keys they must not collide with.
     if key.downcast::<PyInt>().is_ok() {
-        let exact: String = py
-            .get_type::<PyInt>()
-            .getattr(pyo3::intern!(py, "__repr__"))?
-            .call1((key,))?
-            .extract()?;
-        return Ok(format!("int:{exact}"));
+        return Ok(format!("int:{}", exact_int_decimal(py, key)?));
     }
     if let Ok(f) = key.extract::<f64>() {
         // Exclusive at 2**63: `i64::MAX as f64` rounds UP, so an inclusive
         // bound admitted 2**63 and saturated it onto the distinct key 2**63-1.
-        const I64_RANGE_END_F64: f64 = 9_223_372_036_854_775_808.0; // 2**63
-        if f.is_finite() && f.fract() == 0.0 && f >= i64::MIN as f64 && f < I64_RANGE_END_F64 {
-            return Ok(format!("int:{}", f as i64));
+        if f.is_finite() && f.fract() == 0.0 {
+            if f >= i64::MIN as f64 && f < I64_RANGE_END_F64 {
+                return Ok(format!("int:{}", f as i64));
+            }
+            // br-r37-c1-9q5kq: integral but wider than i64 — the "float:"
+            // namespace would split it from the numerically-equal int that
+            // Python treats as the SAME dict key, so `add_edge(key=2**64)` and
+            // `add_edge(key=2.0**64)` became two edges instead of one.
+            if let Ok(as_int) = key.call_method0(pyo3::intern!(py, "__int__")) {
+                return Ok(format!("int:{}", exact_int_decimal(py, &as_int)?));
+            }
         }
         return Ok(format!("float:{f:?}"));
     }
@@ -16896,6 +16925,60 @@ class FnxMultiGraphCtorEdgeIterable:
         });
     }
 
+    /// br-r37-c1-9q5kq: an integral float wider than i64 is the SAME Python dict
+    /// key as the int of that value (hash-equal and `==`), so it must share the
+    /// int's canonical. `repr()` emitted "1.8446744073709552e+19" against the
+    /// int's "18446744073709551616" and split the node.
+    #[test]
+    fn integral_float_keys_wider_than_i64_share_the_int_canonical() {
+        ensure_python();
+        Python::attach(|py| {
+            let canonical = |literal: &str| {
+                let value = py
+                    .eval(
+                        std::ffi::CString::new(literal).unwrap().as_c_str(),
+                        None,
+                        None,
+                    )
+                    .expect("literal should evaluate");
+                node_key_to_string(py, &value).expect("canonicalization should succeed")
+            };
+
+            // `int(float(x))` is the int that is `==` and hash-equal to
+            // `float(x)` — the pair Python stores under ONE dict key. (Plain
+            // `10**30` is NOT that int: it is not representable in f64, so it is
+            // a genuinely DIFFERENT key and must stay separate.)
+            for literal in ["2**64", "1e30", "2**63", "-(2**64)", "2**70", "1e300"] {
+                let as_float = format!("float({literal})");
+                let equal_int = format!("int(float({literal}))");
+                assert_eq!(
+                    canonical(&as_float),
+                    canonical(&equal_int),
+                    "float and equal-int spellings of {literal} must share one canonical",
+                );
+            }
+            assert_ne!(
+                canonical("float(10**30)"),
+                canonical("10**30"),
+                "10**30 is not representable in f64, so the two ARE different keys",
+            );
+
+            // NEGATIVE CASES: a fix that routed every float through `int()`
+            // would collapse these onto integers or crash on the non-finite
+            // ones. They must keep the float canonical and stay distinct.
+            assert_ne!(canonical("1.5"), canonical("1"));
+            assert_ne!(canonical("1.5"), canonical("2"));
+            assert_ne!(canonical("float('inf')"), canonical("float('-inf')"));
+            assert_ne!(canonical("float('nan')"), canonical("0"));
+            assert_ne!(canonical("float('inf')"), canonical("0"));
+
+            // The hash-equal collapse the in-range path exists to provide.
+            assert_eq!(canonical("1.0"), canonical("1"));
+            assert_eq!(canonical("True"), canonical("1"));
+            assert_eq!(canonical("-0.0"), canonical("0"));
+        });
+    }
+
     /// br-r37-c1-dr1h9: the MultiGraph edge-key axis carried the same defect —
     /// `key=2**63+7` and `key=2**63+8` collapsed into one edge slot.
     #[test]
@@ -16914,10 +16997,18 @@ class FnxMultiGraphCtorEdgeIterable:
             assert_ne!(canonical("2**63"), canonical("2**63 - 1"));
             assert_ne!(canonical("float(2**63)"), canonical("2**63 - 1"));
 
+            // br-r37-c1-9q5kq: the float spelling of a wide edge key is the same
+            // dict key as its int, so it must land in the SAME "int:" namespace.
+            assert_eq!(canonical("float(2**64)"), canonical("2**64"));
+            assert_eq!(canonical("float(1e30)"), canonical("int(1e30)"));
+
             // The hash-equal collapse this function exists to provide survives.
             assert_eq!(canonical("0"), "int:0");
             assert_eq!(canonical("0.0"), "int:0");
             assert_eq!(canonical("False"), "int:0");
+            // Non-integral and non-finite edge keys keep the float namespace.
+            assert_ne!(canonical("1.5"), canonical("1"));
+            assert_ne!(canonical("float('nan')"), canonical("0"));
         });
     }
 

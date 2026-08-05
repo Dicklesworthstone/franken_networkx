@@ -8,6 +8,7 @@ of int vs str, large ints, negatives, floats, and tuple keys all match nx.
 """
 
 import networkx as nx
+import pytest
 
 import franken_networkx as fnx
 
@@ -263,6 +264,80 @@ def test_wide_int_fix_preserves_hash_equal_collapse():
 
     assert Gf.number_of_nodes() == Gx.number_of_nodes() == 3
     assert sorted(Gf.nodes(), key=repr) == sorted(Gx.nodes(), key=repr)
+
+
+# br-r37-c1-9q5kq: an integral float wider than i64 is the SAME Python dict key as
+# the int of that value (hash-equal and ``==``), so it must be ONE node. It used to
+# split — and the split node carried no display key, so ``number_of_nodes()``
+# reported 2 while ``nodes()`` yielded 1.
+_EQUAL_INT_FLOAT_PAIRS = [
+    (2**64, float(2**64)),
+    (int(1e30), 1e30),
+    (-(2**64), -float(2**64)),
+    (2**63, float(2**63)),
+    (2**70, float(2**70)),
+]
+
+
+@pytest.mark.parametrize("as_int,as_float", _EQUAL_INT_FLOAT_PAIRS)
+def test_wide_integral_float_is_the_same_node_as_its_equal_int(as_int, as_float):
+    assert as_int == as_float and hash(as_int) == hash(as_float)
+
+    Gx, Gf = nx.Graph(), fnx.Graph()
+    for graph in (Gx, Gf):
+        graph.add_node(as_int)
+        graph.add_node(as_float)
+
+    assert Gf.number_of_nodes() == Gx.number_of_nodes() == 1
+    # The count must agree with the ITERATOR — this is what diverged.
+    assert len(list(Gf.nodes())) == len(list(Gx.nodes())) == Gf.number_of_nodes()
+    assert Gf.has_node(as_int) is Gx.has_node(as_int) is True
+    assert Gf.has_node(as_float) is Gx.has_node(as_float) is True
+
+    for graph in (Gx, Gf):
+        graph.add_edge(as_int, "x")
+    assert Gf.degree(as_int) == Gx.degree(as_int) == 1
+    assert Gf.degree(as_float) == Gx.degree(as_float) == 1
+    assert Gf.number_of_nodes() == Gx.number_of_nodes() == 2
+
+
+def test_non_representable_int_stays_distinct_from_its_nearest_float():
+    """``10**30`` is NOT representable in f64, so it is a genuinely different key."""
+    assert 10**30 != float(10**30)
+
+    Gx, Gf = nx.Graph(), fnx.Graph()
+    for graph in (Gx, Gf):
+        graph.add_node(10**30)
+        graph.add_node(float(10**30))
+    assert Gf.number_of_nodes() == Gx.number_of_nodes() == 2
+
+
+def test_wide_integral_float_edge_keys_share_the_int_slot():
+    for nx_cls, fnx_cls in ((nx.MultiGraph, fnx.MultiGraph), (nx.MultiDiGraph, fnx.MultiDiGraph)):
+        Gx, Gf = nx_cls(), fnx_cls()
+        for graph in (Gx, Gf):
+            graph.add_edge("a", "b", key=2**64)
+            graph.add_edge("a", "b", key=float(2**64))
+        assert Gf.number_of_edges() == Gx.number_of_edges() == 1
+        assert len(Gf["a"]["b"]) == len(Gx["a"]["b"]) == 1
+
+
+def test_non_integral_and_non_finite_float_keys_stay_distinct():
+    """The negative case: a fix that routed every float through ``int()``."""
+    keys = [1.5, -2.5, float("inf"), float("-inf"), 1, 2, -2]
+    Gx, Gf = nx.Graph(), fnx.Graph()
+    for graph in (Gx, Gf):
+        graph.add_nodes_from(keys)
+    assert Gf.number_of_nodes() == Gx.number_of_nodes() == len(keys)
+
+    # NaN is never equal to itself, so each insertion of a DISTINCT nan object is
+    # a distinct key while the same object re-added is not.
+    nan = float("nan")
+    Hx, Hf = nx.Graph(), fnx.Graph()
+    for graph in (Hx, Hf):
+        graph.add_node(nan)
+        graph.add_node(nan)
+    assert Hf.number_of_nodes() == Hx.number_of_nodes() == 1
 
 
 def test_range_fast_path_materializes_int_keys_for_native_algorithms():
