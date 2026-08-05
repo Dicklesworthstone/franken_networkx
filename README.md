@@ -846,7 +846,9 @@ import networkx as nx
 nx.config.backend_priority = ["franken_networkx"]
 
 # Per-call:
-nx.shortest_path(G, s, t, backend="franken_networkx")
+demo = nx.path_graph(10)
+s, t = 0, 9
+nx.shortest_path(demo, s, t, backend="franken_networkx")
 ```
 
 The application-wide form still falls back to NetworkX for any algorithm fnx doesn't claim. The per-call form raises `NotImplementedError` if fnx doesn't claim the algorithm (you can wrap it yourself if you want a softer fallback).
