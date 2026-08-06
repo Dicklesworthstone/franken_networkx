@@ -3200,3 +3200,73 @@ shared, so it is named here rather than rewritten.
 RETRY PREDICATE: same two ELFs, same suite, one harness at a time, admission
 gated on zero monitored CPUs above 20% across five consecutive windows. The
 BEFORE arm took 9 attempts and the AFTER arm 3, at host loadavg 7-14.
+
+## 2026-08-06 ProudBasin (cc) CORRECTION + METHOD DEFECT: the `br-r37-c1-vz4v9` "+3%" is nx-arm drift, not an fnx speedup — and a ratio-of-ratios across two invocations needs the nx arm checked
+
+Retracts the numeric claim in the entry immediately above. The lever's fnx arm
+did NOT get faster; the published ratio moved because the NETWORKX arm slowed
+between the two runs.
+
+### The defect
+
+`perf_harness.py` interleaves nx and fnx inside ONE invocation, which makes the
+nx/fnx ratio robust against machine state — within that run. A before/after
+lever comparison, however, divides one run's ratio by another's. That is a
+ratio-of-ratios, and it silently assumes the nx arm is the SAME yardstick in
+both runs. It was not.
+
+Per-call absolute times, both arms, from the same admitted artifacts:
+
+| row | nx BEFORE | nx AFTER | nx drift | fnx BEFORE | fnx AFTER | fnx delta | published ratio |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `Graph.get_edge_data` | 92.9ns | 96.6ns | **+3.9%** | 277.0ns | 278.9ns | **+0.7% SLOWER** | 1.033x |
+| `DiGraph.get_edge_data` | 93.2ns | 94.4ns | +1.3% | 268.0ns | 263.9ns | -1.5% | 1.029x |
+| `MultiGraph.get_edge_data` | 99.8ns | 99.8ns | -0.0% | 408.9ns | 405.9ns | -0.7% | 1.006x |
+| `MultiDiGraph.get_edge_data` | 97.5ns | 99.5ns | +2.0% | 412.5ns | 424.0ns | **+2.8% SLOWER** | 0.991x |
+
+`Graph.get_edge_data` is the clearest case: I reported a 1.033x improvement for a
+build whose fnx arm was 0.7% SLOWER. The entire reported gain is the nx arm
+moving 3.9%.
+
+### Verdict on the lever: NO-VERDICT, not a win
+
+Across-run nx drift here ranges 0.0-3.9%, which is larger than the effect being
+claimed. The measurement cannot resolve a ~3% lever, so `br-r37-c1-vz4v9` has no
+demonstrated benefit in either direction. It is not a measured regression either
+— the fnx-arm deltas are themselves within the same drift band.
+
+### The membership lever SURVIVES this check, and that is why the check matters
+
+Applying the same test to `br-r37-c1-oe93x`, whose conclusion stands:
+
+| row | fnx BEFORE | fnx AFTER | fnx delta | nx drift |
+| --- | ---: | ---: | ---: | ---: |
+| `G.has_node(present)` | 123.0ns | 111.8ns | **-9.1%** | +2.5% |
+| `G.has_node(missing)` | 105.4ns | 93.8ns | **-11.1%** | +2.3% |
+| `n in G (missing)` | 86.1ns | 74.6ns | **-13.3%** | +3.1% |
+| `n in G (present)` | 92.4ns | 88.5ns | -4.3% | +3.6% |
+
+fnx's OWN time falls 4-13% in a consistent direction across four rows while the
+yardstick moves 2-4%. The effect dominates the drift, so that result is real.
+
+BUT two rows in that entry must be withdrawn: `G.number_of_nodes()` (reported
+1.069x) and `G.order()` (reported 1.049x) have fnx arms that got SLOWER (+2.7%
+and +6.2%) against nx drift of +9.8% and +11.1%. Those two "gains" are entirely
+yardstick movement. The entry already said they were pre-existing wins not
+claimed as the lever's product, which was right, but listing them in the gains
+table was misleading and they are retracted here.
+
+### What to do instead
+
+A before/after lever comparison must report the fnx arm's own movement alongside
+the ratio, and state the nx arm's drift between runs as the error floor. If the
+nx arm moves by more than the claimed effect, the comparison is a NO-VERDICT
+regardless of how tight either run's CI is — per-run CIs describe within-run
+noise and say nothing about across-run reproducibility.
+
+The inverse-scaling hypothesis from the entry above is therefore also
+UNTESTED, not confirmed: the apparent shrinking share (9-11% for `has_node`,
+~3% for `get_edge_data`) mixed a real effect with drift. What the absolute
+numbers do show is that `get_edge_data` costs 268-424ns/call versus `has_node`'s
+105-123ns, so there IS far more surrounding work — but no measurement here
+resolves what share the allocation holds.
