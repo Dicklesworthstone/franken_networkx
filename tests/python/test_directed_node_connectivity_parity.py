@@ -56,6 +56,19 @@ def test_directed_node_connectivity_satisfies_menger(seed):
                 path_count = 0
             assert nc == path_count
 
+            # br-r37-c1-kfyyf: the guard above makes this test SELF-consistent —
+            # it compares fnx against fnx. The bead that produced the guard
+            # concluded "verified identical: networkx.exception.NetworkXNoPath",
+            # but nothing asserted it, so fnx could have started raising a
+            # different class (or not raising) and this would still pass.
+            # Compare against the oracle on the same pair.
+            assert nc == nx.node_connectivity(ng, s, t)
+            try:
+                nx_path_count = len(list(nx.node_disjoint_paths(ng, s, t)))
+            except nx.NetworkXNoPath:
+                nx_path_count = 0
+            assert path_count == nx_path_count
+
 
 def test_regression_undercounted_pair():
     # The exact pair from the sweep: two node-disjoint paths 4->6 exist.
