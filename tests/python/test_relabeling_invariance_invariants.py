@@ -119,6 +119,42 @@ def test_node_metric_maps_relabeling_equivariant(metric, seed):
 
 
 @pytest.mark.parametrize("seed", range(30))
+def test_harmonic_centrality_key_order_matches_networkx_after_relabeling(seed):
+    """The order harmonic_centrality is exempted from must still equal nx's.
+
+    br-r37-c1-8otik. The exemption above is correct — networkx does not preserve
+    harmonic key order under relabeling either — but "we do not assert an order"
+    is not the same as "our order is right". Without this, fnx could drift to
+    some third order and every test above would stay green.
+
+    So pin it to the oracle: same graph, same mapping, both sides, exact key
+    sequence. That is the claim the exemption rests on, tested directly.
+    """
+    import networkx as nx
+
+    res = _connected_graph(seed, p=0.45)
+    if res is None:
+        pytest.skip("disconnected")
+    g, n = res
+
+    edges = sorted(tuple(sorted(edge)) for edge in g.edges())
+    g_nx = nx.Graph()
+    g_nx.add_nodes_from(sorted(g.nodes()))
+    g_nx.add_edges_from(edges)
+
+    mapping = {i: f"node-{seed}-{i}" for i in range(n)}
+    relabelled_fnx = fnx.harmonic_centrality(fnx.relabel_nodes(g, mapping))
+    relabelled_nx = nx.harmonic_centrality(nx.relabel_nodes(g_nx, mapping))
+
+    assert list(relabelled_fnx) == list(relabelled_nx), (
+        "fnx's harmonic_centrality key order diverged from networkx's on a "
+        "relabelled graph — the exemption above assumes they agree"
+    )
+    for node, value in relabelled_nx.items():
+        assert relabelled_fnx[node] == pytest.approx(value)
+
+
+@pytest.mark.parametrize("seed", range(30))
 def test_edge_metric_maps_relabeling_equivariant(seed):
     res = _connected_graph(seed, p=0.45)
     if res is None:
