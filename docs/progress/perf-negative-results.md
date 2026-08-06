@@ -3096,3 +3096,35 @@ WHAT THIS LEAVES: `has_edge` at 0.44x and `get_edge_data` at 0.23-0.35x against
 the incumbent, still paying an owned `String` allocation per call on exactly the
 path where the membership lever is worth 8-19% build-over-build. Measured
 headroom on a named loss, filed as a follow-up rather than claimed here.
+
+### CORRECTION (same day, ProudBasin) to the section above: `has_edge` does NOT allocate on the measured path
+
+The explanation given above — "the edge family still allocates a canonical
+`String` per lookup on the string-key path" — is wrong for `has_edge`, and the
+error is worth stating because the method that produced it is tempting.
+
+I counted `node_key_to_string` versus `with_node_key_str` calls per FUNCTION
+BODY and inferred the measured path from those counts. Function bodies here
+carry fast paths AHEAD of the canonical fallback, so a call count says nothing
+about which line the benchmark actually reaches.
+
+`PyGraph::has_edge` already has a keyless exact-string fast path
+(`br-r37-c1-paof2`, `lib.rs` ~9075): when `key is None` and both endpoints are
+exact `str`, it resolves each through `cached_exact_string_node_index` and calls
+`has_edge_by_indices`. The `edge-primitives` suite probes exactly that shape —
+`probes = [(str(i), str(i + 1)) for i in range(512)]`, called as
+`gfx.has_edge(u, v)` with no key — so the measured path goes through an interned
+index cache and allocates nothing. The two `node_key_to_string` calls counted
+above are the fallback for keyed and non-exact-string shapes, which this
+benchmark never exercises.
+
+So the correct reading of the `has_edge` rows is stronger, not weaker: that path
+is ALREADY allocation-free by a better mechanism than the membership lever, which
+is exactly why extending the membership lever to it moved nothing. The
+measurement and the code agree; only my first explanation of them was wrong.
+
+`get_edge_data` is unaffected by this correction: `PyMultiGraph::get_edge_data`
+(`lib.rs` 6495) has no fast path and calls `node_key_to_string` on both endpoints
+unconditionally on every call, so those four rows (0.2339x-0.3507x) genuinely do
+pay two owned allocations per lookup. The headroom claim stands for them alone,
+and `br-r37-c1-vz4v9` has been rescoped accordingly.
