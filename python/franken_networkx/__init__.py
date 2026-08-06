@@ -44247,13 +44247,29 @@ class _AssignedPrivateEdgeView:
             # assigned-private-storage case: ordinary graphs never reach it, so
             # neither edge order nor the hot path moves.
             return list(self._graph.adj)
+        # br-r37-c1-wzypa: networkx's nbunch handling is ASYMMETRIC, and both
+        # halves are reproduced here because the asymmetry is observable:
+        #
+        #   G.edges('a')                -> [('a','b')]   'a' has an adjacency row
+        #   G.edges('private')          -> KeyError      in _node, NOT in _adj
+        #   G.edges('ghost')            -> []            in neither: nx iterates
+        #                                                the string's characters
+        #   G.edges(['a','private'])    -> [('a','b')]   'private' silently SKIPPED
+        #
+        # A scalar is tested against the NODE view (nx's `nbunch in self` uses
+        # `__contains__`, i.e. `_node`) and returned unfiltered, so the later
+        # adjacency lookup raises for a node with no row — that is where nx's
+        # KeyError comes from. An iterable is filtered against the ADJACENCY
+        # (nx's `nbunch_iter` keeps `n for n in nbunch if n in adj`), so the same
+        # node inside a list is dropped instead of raising.
         try:
             if nbunch in self._graph:
                 return [nbunch]
         except TypeError:
             pass
+        adjacency = self._graph.adj
         try:
-            return [node for node in nbunch if node in self._graph]
+            return [node for node in nbunch if node in adjacency]
         except TypeError:
             return []
 
@@ -44264,20 +44280,12 @@ class _AssignedPrivateEdgeView:
 
         if self._graph.is_directed():
             for source in nodes:
-                # br-r37-c1-ka7fd: a node can exist WITHOUT an adjacency row —
-                # assign `G._node = {...}` and the node view reports the assigned
-                # mapping while `_adj` still holds the native rows. networkx's
-                # EdgeView iterates `_adj`, so such a node simply contributes no
-                # edges; this iterates the node list, so it used to raise
-                # `KeyError` where nx returns the edges fine. Skipping keeps nx's
-                # result AND the existing edge order (every node of an ordinary
-                # graph has a row, so nothing else changes). `try` is zero-cost
-                # on the success path, so the hot loop is untouched.
-                try:
-                    source_row = adj[source]
-                except KeyError:
-                    continue
-                for target, edge_data in source_row.items():
+                # br-r37-c1-wzypa: NOT guarded. `_nbunch` now yields only sources
+                # that have an adjacency row — except for an explicit SCALAR
+                # nbunch, which nx returns unfiltered precisely so this lookup
+                # raises KeyError. Swallowing it here would turn nx's raise into
+                # an empty result.
+                for target, edge_data in adj[source].items():
                     if self._graph.is_multigraph():
                         for key, attrs in edge_data.items():
                             if keys and data:
@@ -44296,12 +44304,8 @@ class _AssignedPrivateEdgeView:
 
         seen = set()
         for source in nodes:
-            # br-r37-c1-ka7fd: see the directed branch above.
-            try:
-                source_row = adj[source]
-            except KeyError:
-                continue
-            for target, edge_data in source_row.items():
+            # br-r37-c1-wzypa: unguarded, for the reason in the directed branch.
+            for target, edge_data in adj[source].items():
                 if target in seen:
                     continue
                 if self._graph.is_multigraph():

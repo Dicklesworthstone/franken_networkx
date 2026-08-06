@@ -109,20 +109,40 @@ def test_ordinary_graphs_are_untouched(nx_cls, fnx_cls):
     ]
 
 
-def test_edges_nbunch_is_unchanged_by_this_fix():
-    """Only the ``nbunch=None`` path moved; the explicit-nbunch path did not.
+_NBUNCH_SHAPES = [
+    pytest.param("a", id="scalar-with-row"),
+    pytest.param("private", id="scalar-without-row"),
+    pytest.param("ghost", id="scalar-unknown"),
+    pytest.param(["a", "private"], id="list-mixed"),
+    pytest.param(["a", "b"], id="list-both-with-rows"),
+]
 
-    The explicit path is separately divergent from networkx and is tracked by
-    br-r37-c1-wzypa — under an assigned store, `g.edges('a')` returns `[]` where
-    nx returns the edge, and `g.edges('private')` returns `[]` where nx raises.
-    That is PRE-EXISTING: `_nbunch` filters an explicit nbunch against the node
-    view rather than the adjacency, which this fix did not touch.
 
-    Deliberately NOT asserting nx parity here — it would fail, and deliberately
-    not pinning fnx's current answers either, since that would enshrine the
-    wrong behaviour. This only asserts the path still runs and stays out of the
-    KeyError that br-r37-c1-ka7fd was about.
+@pytest.mark.parametrize("nx_cls, fnx_cls", _CLASS_PAIRS)
+@pytest.mark.parametrize("nbunch", _NBUNCH_SHAPES)
+def test_edges_nbunch_matches_networkx(nx_cls, fnx_cls, nbunch):
+    """br-r37-c1-wzypa: the explicit-nbunch path, including its ASYMMETRY.
+
+    This test previously asserted only that the path "still runs", as a
+    placeholder while the divergence was tracked separately. That bead is fixed,
+    so it now asserts real parity rather than a contract that has moved.
+
+    networkx's nbunch handling is deliberately asymmetric and all of it is
+    pinned here — a scalar is matched against the NODE view and returned
+    unfiltered (so a node with no adjacency row RAISES), while an iterable is
+    filtered against the ADJACENCY (so the same node is silently skipped):
+
+        edges('a')             -> [('a','b')]
+        edges('private')       -> KeyError
+        edges('ghost')         -> []            (nx iterates the string)
+        edges(['a','private']) -> [('a','b')]
     """
-    fnx_graph = _build(fnx.Graph)
-    assert isinstance(list(fnx_graph.edges("a")), list)
-    assert isinstance(list(fnx_graph.edges("private")), list)
+
+    def run(cls):
+        graph = _build(cls)
+        try:
+            return sorted(map(str, graph.edges(nbunch)))
+        except Exception as exc:  # noqa: BLE001 - the exception TYPE is the contract
+            return type(exc).__name__
+
+    assert run(fnx_cls) == run(nx_cls)
