@@ -1900,7 +1900,15 @@ class MultiAdjacencyView(_Mapping):
         hash(node)
         owner = self._fnx_owner
         if owner is not None:
-            if node not in owner:
+            # br-r37-c1-ka7fd: membership must be tested against the ADJACENCY,
+            # not the node view. networkx's `G.adj` IS `_adj`, so `G.adj[x]`
+            # raises exactly when x has no adjacency row. Those two agree on an
+            # ordinary graph, but an assigned `G._node = {...}` makes the node
+            # view report the assigned mapping while `_adj` keeps the native
+            # rows — and then this rejected 'a', a node with a real row, because
+            # 'a' was absent from the override. `G.edges()` came back empty as a
+            # result. Fall back to the adjacency before raising.
+            if node not in owner and node not in self._atlas():
                 raise KeyError(node)
             # br-r37-c1-spg9n: return a row view backed by the kind-specific
             # native per-row binding (the same one G[u] uses) so len/iter/
@@ -44228,7 +44236,17 @@ class _AssignedPrivateEdgeView:
 
     def _nbunch(self, nbunch):
         if nbunch is None:
-            return list(self._graph)
+            # br-r37-c1-ka7fd: iterate the ADJACENCY, not the node view.
+            # networkx's EdgeView walks `_adj`; this walked `list(self._graph)`,
+            # which under an assigned `G._node` reports the assigned mapping
+            # instead. That made `G.edges()` raise KeyError on a node with no
+            # adjacency row, and — once the raise was guarded — return NO edges
+            # at all, where nx returns the edges held in `_adj`.
+            #
+            # Safe to change wholesale because this view exists ONLY for the
+            # assigned-private-storage case: ordinary graphs never reach it, so
+            # neither edge order nor the hot path moves.
+            return list(self._graph.adj)
         try:
             if nbunch in self._graph:
                 return [nbunch]
@@ -44246,7 +44264,20 @@ class _AssignedPrivateEdgeView:
 
         if self._graph.is_directed():
             for source in nodes:
-                for target, edge_data in adj[source].items():
+                # br-r37-c1-ka7fd: a node can exist WITHOUT an adjacency row —
+                # assign `G._node = {...}` and the node view reports the assigned
+                # mapping while `_adj` still holds the native rows. networkx's
+                # EdgeView iterates `_adj`, so such a node simply contributes no
+                # edges; this iterates the node list, so it used to raise
+                # `KeyError` where nx returns the edges fine. Skipping keeps nx's
+                # result AND the existing edge order (every node of an ordinary
+                # graph has a row, so nothing else changes). `try` is zero-cost
+                # on the success path, so the hot loop is untouched.
+                try:
+                    source_row = adj[source]
+                except KeyError:
+                    continue
+                for target, edge_data in source_row.items():
                     if self._graph.is_multigraph():
                         for key, attrs in edge_data.items():
                             if keys and data:
@@ -44265,7 +44296,12 @@ class _AssignedPrivateEdgeView:
 
         seen = set()
         for source in nodes:
-            for target, edge_data in adj[source].items():
+            # br-r37-c1-ka7fd: see the directed branch above.
+            try:
+                source_row = adj[source]
+            except KeyError:
+                continue
+            for target, edge_data in source_row.items():
                 if target in seen:
                     continue
                 if self._graph.is_multigraph():
