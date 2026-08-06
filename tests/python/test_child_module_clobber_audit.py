@@ -37,18 +37,28 @@ with open(_SRC) as _f:
 
 @pytest.mark.parametrize("sub", _ALIASED)
 def test_importing_submodule_does_not_clobber_functions(sub):
+    """No name networkx exposes as a function may be a module on fnx's side.
+
+    br-r37-c1-0ouoj. The reference is NETWORKX, not a snapshot of fnx taken
+    before the aliasing runs. A snapshot is order-dependent and silently
+    vacuous: in a broad run another test has usually imported
+    `franken_networkx.algorithms.<sub>` already, so a clobbered name is a module
+    by the time the snapshot is taken, is excluded from it, and is never
+    asserted on. Verified vacuous by re-introducing the dispersion clobber with
+    the child module pre-imported — the snapshot form passed.
+
+    networkx's own namespace cannot drift with our import order, so this form
+    holds whatever ran first.
+    """
     try:
         top = importlib.import_module(f"franken_networkx.{sub}")
     except ImportError:
         top = importlib.import_module(f"franken_networkx.algorithms.{sub}")
 
-    # Snapshot which public attributes are callable functions (not modules).
-    functions = {
-        n for n in dir(top)
-        if not n.startswith("_")
-        and callable(getattr(top, n, None))
-        and not inspect.ismodule(getattr(top, n, None))
-    }
+    try:
+        reference = importlib.import_module(f"networkx.algorithms.{sub}")
+    except ImportError:
+        pytest.skip(f"no networkx.algorithms.{sub}")
 
     # Trigger the child-aliasing by importing the algorithms submodule.
     try:
@@ -56,11 +66,21 @@ def test_importing_submodule_does_not_clobber_functions(sub):
     except ImportError:
         pytest.skip(f"no algorithms.{sub}")
 
-    # No function may have been replaced by a module.
-    for n in functions:
-        assert not inspect.ismodule(getattr(top, n, None)), (
-            f"{sub}.{n} was clobbered from a function into a module"
-        )
+    clobbered = []
+    for name in dir(reference):
+        if name.startswith("_"):
+            continue
+        their_object = getattr(reference, name, None)
+        if inspect.ismodule(their_object) or not callable(their_object):
+            continue
+        if inspect.ismodule(getattr(top, name, None)):
+            clobbered.append(name)
+
+    assert clobbered == [], (
+        f"networkx exposes {clobbered} as callables, but franken_networkx.{sub} "
+        f"has a child MODULE of that name — `fnx.{sub}.<name>(...)` raises "
+        f"'module is not callable'"
+    )
 
 
 def test_known_at_risk_functions_stay_callable():
