@@ -7512,6 +7512,19 @@ def _graph_deepcopy(self, memo=None):
             out_dict[key] = _dc(val, memo)
         except Exception:
             out_dict[key] = val
+    # br-r37-c1-s8obc: assigned private stores are skipped by the ``_fnx_``
+    # rule above (they are stashed under ``_fnx_private_*_override``), so
+    # re-apply them explicitly. Deep-copied under the shared memo, because this
+    # is deepcopy — copy.copy shares them instead, see _graph_shallowcopy.
+    private_overrides = _captured_private_overrides(self)
+    if private_overrides:
+        _reapply_private_overrides(
+            out,
+            {
+                public: _dc(value, memo)
+                for public, value in private_overrides.items()
+            },
+        )
     return out
 
 
@@ -43552,6 +43565,46 @@ _PRIVATE_SUCC_OVERRIDE = "_fnx_private_succ_override"
 _PRIVATE_PRED_OVERRIDE = "_fnx_private_pred_override"
 _PRIVATE_MISSING = object()
 
+# br-r37-c1-s8obc: assigning ``g._node = {...}`` does NOT land in ``vars(g)`` —
+# it is intercepted and stashed under ``_fnx_private_node_override``, with method
+# shadows installed alongside it. Every copy path then skipped it, because they
+# all skip ``key.startswith("_fnx_")``, so the clone silently reverted to the
+# native store: ``'x' in g`` was True and ``'x' in copy.copy(g)`` was False.
+# networkx has no such interception — the mapping lives in ``__dict__`` and rides
+# along on the default copy protocol — so this was a real divergence.
+#
+# Re-apply through the PUBLIC name rather than copying the private key across.
+# Assignment re-runs the installer, so the method shadows are rebuilt bound to
+# the CLONE; copying ``_fnx_private_*`` directly would leave the clone carrying
+# shadows still bound to the original graph.
+_PRIVATE_OVERRIDE_PUBLIC_NAMES = (
+    (_PRIVATE_NODE_OVERRIDE, "_node"),
+    (_PRIVATE_ADJ_OVERRIDE, "_adj"),
+    (_PRIVATE_SUCC_OVERRIDE, "_succ"),
+    (_PRIVATE_PRED_OVERRIDE, "_pred"),
+)
+
+
+def _captured_private_overrides(graph):
+    """Return {public_name: assigned_mapping} for each private store override."""
+    storage = vars(graph)
+    return {
+        public: storage[key]
+        for key, public in _PRIVATE_OVERRIDE_PUBLIC_NAMES
+        if key in storage
+    }
+
+
+def _reapply_private_overrides(target, overrides):
+    """Re-assign captured private stores onto ``target`` via the public names."""
+    for public, value in overrides.items():
+        try:
+            setattr(target, public, value)
+        except Exception:
+            # A class that rejects the assignment keeps its native store; that is
+            # strictly better than half-applying one of the four.
+            pass
+
 _GRAPH_PRIVATE_AWARE_ITER = Graph.__iter__
 _DIGRAPH_PRIVATE_AWARE_ITER = DiGraph.__iter__
 _MULTIGRAPH_PRIVATE_AWARE_ITER = MultiGraph.__iter__
@@ -45417,6 +45470,10 @@ def _graph_shallowcopy(self):
         result = self.copy()
     # Share graph attrs dict by setting the override directly
     vars(result)[_GRAPH_ATTR_OVERRIDE] = self.graph
+    # br-r37-c1-s8obc: an assigned private store (``g._node = {...}``) must ride
+    # along, as it does in nx. copy.copy SHARES the mapping object, matching the
+    # graph-attrs sharing directly above and nx's own shallow-copy semantics.
+    _reapply_private_overrides(result, _captured_private_overrides(self))
     if getattr(self, "frozen", False):
         freeze(result)
     return result
@@ -45507,6 +45564,11 @@ def _make_reduce_ex_preserving_frozen(raw_reduce_ex):
                 # also restores the mutator overrides.
                 continue
             extra[key] = val
+        # br-r37-c1-s8obc: carry assigned private stores under their PUBLIC
+        # names. The reconstructor applies ``extra`` with setattr, so the
+        # interception that stashed them in the first place runs again on the
+        # unpickled graph and rebuilds its method shadows.
+        extra.update(_captured_private_overrides(self))
         return (
             _reconstruct_graph_preserving_frozen,
             (normalized, was_frozen, extra or None),

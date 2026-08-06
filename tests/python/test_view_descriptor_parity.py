@@ -826,12 +826,21 @@ def test_private_node_method_shadows_do_not_alias_copy_or_pickle(cls_name):
         copy.deepcopy(graph),
         pickle.loads(pickle.dumps(graph)),  # nosec B301  # ubs:ignore - trusted round trip
     ):
-        # Existing fnx contract: private NetworkX storage is an ephemeral view
-        # override; graph copies serialize the canonical native storage.
-        assert list(other) == ["native"]
-        assert other.has_node("native")
-        assert not other.has_node("private")
+        # br-r37-c1-s8obc: the clone now reads the assigned mapping, matching
+        # networkx 3.6.1 exactly — verified on nx itself, which returns
+        # list=['private'], has_node('private')=True, n=1 for all three of these.
+        # The previous expectation (['native']) pinned fnx's divergence.
+        assert list(other) == ["private"]
+        assert other.has_node("private")
+        assert not other.has_node("native")
         assert other.number_of_nodes() == other.order() == 1
+
+        # THE POINT OF THIS TEST, unchanged: shadows must not ALIAS the source.
+        # Restoring the override necessarily reinstalls the internal shadows on
+        # the clone, so their mere presence is no longer the signal — a clone
+        # that answers from an assigned mapping needs them. What must never
+        # happen is a shadow still bound to the ORIGINAL graph, which is exactly
+        # what copying the `_fnx_private_*` keys across verbatim would produce.
         internal_method_names = {
             "has_node",
             "has_edge",
@@ -841,7 +850,10 @@ def test_private_node_method_shadows_do_not_alias_copy_or_pickle(cls_name):
         }
         if cls_name == "DiGraph":
             internal_method_names.update({"neighbors", "successors"})
-        assert not internal_method_names & vars(other).keys()
+        for name in internal_method_names & vars(other).keys():
+            bound_to = getattr(vars(other)[name], "__self__", None)
+            assert bound_to is other, f"{name} shadow aliases another graph"
+            assert bound_to is not graph
 
 
 @pytest.mark.parametrize("cls_name", CLASS_NAMES)
@@ -859,20 +871,27 @@ def test_native_contains_switches_to_private_node_mapping_and_resets_on_copies(c
     assert "native" not in graph
     assert [] not in graph
 
-    for other in (
-        graph.copy(),
-        copy.copy(graph),
-        copy.deepcopy(graph),
-    ):
-        # Private NetworkX storage remains an ephemeral compatibility override;
-        # copies return to canonical native storage. NOTE: networkx 3.6.1 does the
-        # opposite here — its default __dict__ copy carries the assigned _node
-        # through all three of these, so the mapping survives and the native node
-        # does not. That is a known fnx divergence tracked by br-r37-c1-s8obc; these
-        # three lines pin fnx's CURRENT contract, not networkx parity.
-        assert "native" in other
-        assert "private" not in other
+    # br-r37-c1-s8obc, RESOLVED for the copy PROTOCOL: `copy.copy`,
+    # `copy.deepcopy` and pickle now carry the assigned `_node` exactly as
+    # networkx's default `__dict__` copy does, so the mapping survives and the
+    # native node does not. Verified against live networkx 3.6.1 on all four
+    # classes rather than asserted from fnx alone.
+    for other in (copy.copy(graph), copy.deepcopy(graph)):
+        assert "private" in other
+        assert "native" not in other
         assert [] not in other
+
+    # STILL DIVERGENT, and deliberately left pinned here: `G.copy()` is not part
+    # of the copy protocol — it is networkx's own method, which rebuilds from
+    # `self._node`/`self.adj`. Under live nx 3.6.1 it therefore yields
+    # `private=True, native=False`; fnx still rebuilds from native storage and
+    # yields the opposite. br-r37-c1-s8obc's repro covered copy/deepcopy/pickle
+    # only, so this line records the remaining gap instead of silently widening
+    # that bead's scope. Tracked by br-r37-c1-93mx3.
+    method_copy = graph.copy()
+    assert "native" in method_copy
+    assert "private" not in method_copy
+    assert [] not in method_copy
 
     # br-r37-c1-w4754: a MATERIALIZED subgraph is a different case, and the old
     # expectation here ("native" in it) contradicted the oracle. Under live networkx
