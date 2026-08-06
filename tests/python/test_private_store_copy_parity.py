@@ -146,6 +146,54 @@ def test_graph_without_private_store_is_unaffected():
         assert "_fnx_private_node_override" not in vars(clone)
 
 
+@pytest.mark.parametrize("nx_cls, fnx_cls", _CLASS_PAIRS)
+def test_method_copy_rebuilds_from_the_assigned_store(nx_cls, fnx_cls):
+    """`G.copy()` — networkx's own method, not the copy protocol.
+
+    br-r37-c1-93mx3. nx's copy is `add_nodes_from(self._node.items())` followed
+    by `add_edges_from(self.edges(...))`: nodes from the assigned mapping, edges
+    from the still-native `_adj`, UNIONED — so endpoints reachable only through
+    `_adj` reappear even though they are absent from the override. fnx took a
+    native fast path that cloned native storage and never saw the override.
+    """
+    def build(cls):
+        graph = cls()
+        graph.add_edge("a", "b")
+        graph.add_node("native")
+        graph._node = {"private": {"tag": 1}}
+        return graph
+
+    expected = build(nx_cls).copy()
+    actual = build(fnx_cls).copy()
+
+    assert sorted(map(str, actual.nodes())) == sorted(map(str, expected.nodes()))
+    assert sorted(map(str, actual.edges())) == sorted(map(str, expected.edges()))
+    assert len(actual) == len(expected)
+    # The union is the subtle part: 'a' and 'b' come from _adj, 'private' from
+    # the override, and 'native' — in neither — must NOT appear.
+    assert "native" not in actual
+    assert "private" in actual
+
+
+@pytest.mark.parametrize("nx_cls, fnx_cls", _CLASS_PAIRS)
+def test_method_copy_of_an_ordinary_graph_is_unchanged(nx_cls, fnx_cls):
+    """The guard must not disturb the native fast path.
+
+    `G.copy()` on a graph with no override still takes the native clone, so node
+    and edge ORDER must remain identical to networkx's — asserted as ordered
+    sequences, since order is what a rebuild would most plausibly break.
+    """
+    edges = [(0, 1), (1, 2), (2, 3), (3, 0), (0, 2)]
+    nx_graph, fnx_graph = nx_cls(), fnx_cls()
+    nx_graph.add_edges_from(edges)
+    fnx_graph.add_edges_from(edges)
+
+    nx_copy, fnx_copy = nx_graph.copy(), fnx_graph.copy()
+    assert list(fnx_copy.nodes()) == list(nx_copy.nodes())
+    assert list(fnx_copy.edges()) == list(nx_copy.edges())
+    assert "_fnx_private_node_override" not in vars(fnx_copy)
+
+
 @pytest.mark.parametrize("clone", _CLONERS)
 def test_assigned_adjacency_store_survives_cloning(clone):
     """`_adj` takes the same interception path as `_node`."""

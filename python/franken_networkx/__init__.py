@@ -45812,7 +45812,18 @@ def _copy_preserving_insertion_order(self, as_view=False):
     # live edge/node attr dicts (shallow .copy()), preserving node + edge order
     # and public endpoint orientation. Gated on exact type so subclasses /
     # filtered views keep the generic rebuild.
-    if type(self) in (Graph, DiGraph, MultiGraph, MultiDiGraph):
+    # br-r37-c1-93mx3: an assigned private store must be honoured, so it cannot
+    # take the native fast path — that clones the NATIVE storage and never sees
+    # the override, so `G.copy()` came back with the native nodes where nx comes
+    # back with the assigned ones. nx's copy is
+    # `add_nodes_from(self._node.items())` + `add_edges_from(self.edges(...))`:
+    # nodes from the override, edges from the still-native `_adj`, UNIONED — so
+    # endpoints reachable only through `_adj` reappear. The generic rebuild
+    # below has exactly that shape and reproduces nx's answer once the edge view
+    # reads the adjacency (br-r37-c1-ka7fd).
+    if type(self) in (Graph, DiGraph, MultiGraph, MultiDiGraph) and not (
+        _captured_private_overrides(self)
+    ):
         native_copy = getattr(self, "_native_copy", None)
         if native_copy is not None:
             return native_copy()

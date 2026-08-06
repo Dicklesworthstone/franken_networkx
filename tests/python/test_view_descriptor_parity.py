@@ -881,16 +881,14 @@ def test_native_contains_switches_to_private_node_mapping_and_resets_on_copies(c
         assert "native" not in other
         assert [] not in other
 
-    # STILL DIVERGENT, and deliberately left pinned here: `G.copy()` is not part
-    # of the copy protocol — it is networkx's own method, which rebuilds from
-    # `self._node`/`self.adj`. Under live nx 3.6.1 it therefore yields
-    # `private=True, native=False`; fnx still rebuilds from native storage and
-    # yields the opposite. br-r37-c1-s8obc's repro covered copy/deepcopy/pickle
-    # only, so this line records the remaining gap instead of silently widening
-    # that bead's scope. Tracked by br-r37-c1-93mx3.
+    # br-r37-c1-93mx3, RESOLVED: `G.copy()` is networkx's own method rather than
+    # part of the copy protocol, and it rebuilds from `self._node` + `self.adj`.
+    # This block used to pin fnx's opposite answer (`native` in, `private` out)
+    # with a note naming that bead; the bead is fixed, so the pin is flipped to
+    # nx parity rather than left asserting a contract that has changed.
     method_copy = graph.copy()
-    assert "native" in method_copy
-    assert "private" not in method_copy
+    assert "private" in method_copy
+    assert "native" not in method_copy
     assert [] not in method_copy
 
     # br-r37-c1-w4754: a MATERIALIZED subgraph is a different case, and the old
