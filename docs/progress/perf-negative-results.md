@@ -2882,3 +2882,114 @@ Retry only after two required clean-overlay invocations prove one identical
 managed physical target path, then retain all exact hashes, live incumbent,
 21 rounds, in-process host/ELF identity, actual threads, continuous
 accounting, dual A/A nulls, and the corrected three-clause median gate.
+
+## 2026-08-06 ProudBasin (cc) NO-VERDICT (`br-r37-c1-oe93x` edge family): the exclusivity gate is a per-CPU maximum, and a 5%-mean host still breaches it on 58 of 60 CPUs
+
+WHAT DID ADMIT in this window, recorded here only so the no-verdict is not
+mistaken for a total failure — all three artifacts are timestamped before the
+concurrency incident noted at the end, and the paired node-primitives result is
+reported as a KEEP row elsewhere:
+
+- `node-primitives` BEFORE (`ee7363ce…`) and AFTER (`a9b194d1…`), both arms,
+  each admitted on its FIRST attempt.
+- `edge-primitives` AFTER (`a9b194d1…`), admitted on attempt 15.
+
+WHAT REFUSED: the BEFORE arm of `edge-primitives`, and both arms of
+`edge-data-primitives`. Without the BEFORE edge arm, the bead's own predicate
+clause — "the whole-family rows (`has_edge`, `get_edge_data`) should move too;
+if they do not, the attribution above is wrong" — cannot be evaluated as
+MOVEMENT. The admitted AFTER levels are therefore published as levels only:
+
+| row (nx/fnx) | AFTER `a9b194d1…` | 95% CI |
+| --- | ---: | ---: |
+| `Graph.has_edge` x512 | 0.4358x | 0.4354–0.4380 |
+| `DiGraph.has_edge` x512 | 0.4429x | 0.4420–0.4451 |
+| `MultiDiGraph.has_edge` x512 | 0.4649x | 0.4639–0.4658 |
+| `MultiGraph.has_edge` x512 | 0.5302x | 0.5270–0.5324 |
+
+All four decidable, dual A/A nulls within 0.15% of 1.0, 21 interleaved rounds,
+live NetworkX 3.6.1 in the same invocation, ELF sha256 self-reported from inside
+the measuring process.
+
+### Why a "clear" host still refuses
+
+A fleet reading of `host_wide_quiescence=clear at ~5% load` and this gate's
+verdict are not in conflict; they are different statistics. Sampling all 60
+non-affinity CPUs directly, during the refusals:
+
+```
+single 1s window   mean busy across monitored CPUs      5.4%   <- matches the ~5% fleet reading
+                   CPUs above the gate's 20% threshold  3      (cpu22 52.0, cpu19 22.8, cpu16 22.4)
+
+5 consecutive 1s windows (the actual admission condition)
+                   CPUs breaching 20% in >=1 window     58 of 60
+                   mean of per-CPU maxima               45.6%
+                   worst                                cpu46 89.0, cpu17 83.2, cpu11 78.8,
+                                                        cpu16 77.8, cpu41 75.0, cpu21 69.4
+```
+
+The gate requires EVERY monitored CPU under 20% for five consecutive 1s windows
+before admission, and aborts mid-run if ANY single CPU exceeds 20% in two
+consecutive 300 ms windows. It is a per-CPU maximum over time, not a mean over
+CPUs. A host that is 5% busy on average and 89% busy on one core is quiet by the
+fleet metric and correctly refused by this one.
+
+Attributable cause at the time of sampling, from `ps`: two Rust builds belonging
+to another project on this host — `cargo run -q -p frankenmerm…` at 122% CPU and
+`rustc` at 98.7%, plus a third `cargo build` — with roughly ten agent processes
+at 4–6% each spread across the remaining cores. `rustc` parallelises, which is
+what turns a low mean into a wide per-CPU breach.
+
+### Recorded refusals
+
+Seven consecutive attempts on the BEFORE `edge-primitives` arm, host loadavg
+3.26–4.74 throughout, each naming different CPUs:
+
+```
+pre_setup   : cpu1 33.0, cpu8 40.0, cpu9 24.0, cpu15 30.0, cpu16 29.3, cpu22 30.3, cpu48 29.3
+pre_setup   : cpu1 44.9
+pre_setup   : cpu1 23.5
+pre_setup   : cpu16 59.0, cpu19 20.2, cpu22 31.3, cpu48 28.0
+measurement : cpu4  22.6 streak=2
+measurement : cpu40 73.3 streak=2
+measurement : cpu8  48.3 streak=2
+```
+
+Across the wider session the same suite was refused on cpu8, cpu15, cpu16,
+cpu18, cpu19, cpu20, cpu22, cpu23, cpu40, cpu48, cpu52 and cpu54, at loadavgs
+from 1.43 to 21.08. One attempt reached "measurement closeout" — the final
+checkpoint — before a blip on a single core killed it.
+
+### Structural, not bad luck
+
+`edge-primitives` is roughly four times longer than `node-primitives` (four
+graph classes rather than one), so its exposure to a single two-window blip
+anywhere across 60 CPUs is proportionally larger. The observed pattern matches:
+`node-primitives` admitted on the FIRST attempt in each direction, while
+`edge-primitives` needed 15 for its AFTER arm and has not yet admitted its
+BEFORE arm.
+
+### Retry predicate
+
+Same suites, same ELFs (`ee7363ce…` BEFORE, `a9b194d1…` AFTER), same gate, one
+harness at a time. The condition to wait for is **zero monitored CPUs above 20%
+sustained over five consecutive windows** — sample it directly rather than
+inferring it from a loadavg or a fleet mean, both of which read "clear" while
+this gate correctly refuses.
+
+KNOBS DELIBERATELY NOT TOUCHED: fewer rounds, a narrower suite, a raised
+threshold, a shortened settle loop. Each would have produced an admission, and
+each would have weakened exactly the claim being made.
+
+### Concurrency incident, recorded because it nearly produced a clean-looking lie
+
+The retry driver was split across two scripts whose waits were BOTH bounded, so
+the second started unconditionally after ~55 minutes and ran a second harness on
+the same `taskset -c 0-3` cores from 01:15Z. The quiescence gate is structurally
+blind to this: it accounts only for NON-affinity CPUs, so two harnesses pinned to
+the same cores never trip each other, and a contaminated run would have looked
+perfectly decidable. No artifact was admitted during the overlap — all three
+ADMITTED files predate 01:15Z, verified by mtime — so nothing above is affected.
+The driver is now a single queue that refuses to start if any `perf_harness.py`
+process is already alive; that guard fired on its first launch and is how the
+strays were found.
