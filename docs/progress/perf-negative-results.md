@@ -3128,3 +3128,75 @@ measurement and the code agree; only my first explanation of them was wrong.
 unconditionally on every call, so those four rows (0.2339x-0.3507x) genuinely do
 pay two owned allocations per lookup. The headroom claim stands for them alone,
 and `br-r37-c1-vz4v9` has been rescoped accordingly.
+
+## 2026-08-06 ProudBasin (cc) SELF-SPEEDUP, PREDICTION FALSIFIED (`br-r37-c1-vz4v9`): borrowed canonical key on `get_edge_data` is worth ~3%, not the predicted 8-19% — and `get_edge_data` remains a 0.35x incumbent LOSS
+
+NOT A CAMPAIGN OUTPUT, stated first. Every number below compares two
+FrankenNetworkX builds of our own. Against the live incumbent this surface stays
+a decisive LOSS: `Graph.get_edge_data` is 0.3466x, i.e. NetworkX is still
+roughly three times faster. Nothing was won.
+
+comparison_class=SELF-SPEEDUP
+campaign_output=false
+incumbent=networkx
+incumbent_same_invocation=true
+incumbent_ratio=0.3466x
+decision_gate=median_ci
+cv_role=report_only
+loaded_elf_sha256_before=a9b194d1a21467ae1411a66c218e083e055f2f4e7297ec935b47e09a3bcd9fd7
+loaded_elf_sha256_after=145297b5ecfbcb7112cea079688c46278dbfb26f6b7c55f990e67086df04639a
+aa_null_half_width=0.0018-0.0027
+decidable_rows=8_of_8
+
+CLEAN SINGLE-COMMIT DELTA, unlike the `br-r37-c1-oe93x` arms: BEFORE is the
+previous HEAD ELF, AFTER is that plus ONLY this lever, both run against the same
+HEAD python tree. `perf_harness.py edge-data-primitives`, 21 interleaved rounds,
+dual A/A nulls, corrected three-clause median gate, `taskset -c 0-3`,
+`PYTHONHASHSEED=0`, ELF sha256 self-reported from inside the process.
+
+| row (nx/fnx) | BEFORE | AFTER | ratio | delta vs noise |
+| --- | ---: | ---: | ---: | --- |
+| `Graph.get_edge_data` x512 | 0.3355x | 0.3466x | 1.033x | ~4x null half-width |
+| `DiGraph.get_edge_data` x512 | 0.3483x | 0.3583x | 1.029x | ~5x |
+| `MultiGraph.get_edge_data` x512 | 0.2443x | 0.2459x | 1.006x | ~0.3x — NOT resolvable |
+| `MultiDiGraph.get_edge_data` x512 | 0.2363x | 0.2342x | 0.991x | ~1.1x — NOT resolvable |
+
+### The prediction was stated in advance and is falsified
+
+`br-r37-c1-vz4v9` said, before the code was written: *"if the mechanism
+transfers as it did for has_node (1.08-1.19x build-over-build), get_edge_data
+should move similarly."* It does not. The measured effect is **1.03x on the two
+simple classes and nothing resolvable on the two multigraph classes** — roughly
+a third of the predicted magnitude.
+
+The likely reason, offered as a hypothesis rather than a finding: `has_node` is
+almost nothing BUT the canonicalisation, so removing the allocation removes most
+of the call. `get_edge_data` additionally resolves the edge, calls
+`ensure_edge_py_attrs`, marks the store dirty and materialises a Python dict, so
+the same saved allocation is a much smaller fraction of the work. That predicts
+the lever's value scales inversely with how much the surrounding call does —
+worth testing before applying it anywhere else on that assumption.
+
+### On the two multigraph rows
+
+`MultiDiGraph` has a point estimate BELOW 1.0 and disjoint CIs, which reads like
+a regression, but the between-arm delta is 0.0021 against an A/A null half-width
+of 0.0019 — about one noise unit. `MultiGraph`'s CIs overlap outright. Neither
+row supports a claim in either direction, and neither is reported as one. The
+Graph/DiGraph deltas (0.011 and 0.010) are 4-5 noise units and are real.
+
+### Kept, with the reason
+
+The lever stays: +3% build-over-build on the two most-used classes, decidable,
+with no demonstrated regression. It does NOT move `get_edge_data` out of a
+0.23-0.36x incumbent loss, and it should not be cited as doing so.
+
+ATTRIBUTION DEFECT, recorded because it is misleading in the log: the lever's
+code landed inside commit `218e7f9c1`, whose subject reads "style(fnx-python):
+format the vz4v9 hunks; record the piped-exit-status audit". A functional Rust
+change is sitting under a formatting subject. The history is already pushed and
+shared, so it is named here rather than rewritten.
+
+RETRY PREDICATE: same two ELFs, same suite, one harness at a time, admission
+gated on zero monitored CPUs above 20% across five consecutive windows. The
+BEFORE arm took 9 attempts and the AFTER arm 3, at host loadavg 7-14.
