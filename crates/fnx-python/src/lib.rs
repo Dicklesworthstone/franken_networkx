@@ -124,6 +124,67 @@ fn write_canonical_str_key<'b>(
     core::str::from_utf8(&buf[..used]).ok()
 }
 
+/// br-r37-c1-vz4v9: a canonical key that borrows a caller-owned stack buffer
+/// when it can, and owns a `String` when it cannot.
+///
+/// `with_node_key_str` hands the `&str` to a closure, which suits a body that
+/// needs it once. `get_edge_data` needs the canonical form of BOTH endpoints
+/// across a long `&mut self` body — `resolve_internal_edge_key`,
+/// `ensure_edge_py_attrs`, `edge_keys`, `py_edge_key` — so nesting two closures
+/// around all of that would fight the borrow checker for no benefit. This gives
+/// the same allocation-free fast path with a value whose lifetime spans the
+/// body.
+enum CanonicalNodeKey<'b> {
+    Borrowed(&'b str),
+    Owned(String),
+}
+
+impl CanonicalNodeKey<'_> {
+    fn as_str(&self) -> &str {
+        match self {
+            Self::Borrowed(s) => s,
+            Self::Owned(s) => s.as_str(),
+        }
+    }
+}
+
+/// Canonicalize into `buf` when the key is a short `str`, else onto the heap.
+///
+/// The produced bytes are identical either way — see `write_canonical_str_key`
+/// for why that identity is what makes the borrowed lookup sound.
+fn canonical_node_key_in<'b>(
+    py: Python<'_>,
+    key: &Bound<'_, PyAny>,
+    buf: &'b mut [u8; CANONICAL_KEY_STACK_BUF],
+) -> PyResult<CanonicalNodeKey<'b>> {
+    if let Ok(s) = key.downcast::<PyString>() {
+        let s = s.to_str()?;
+        // Decide BEFORE borrowing `buf`. Calling `write_canonical_str_key` and
+        // branching on its `Option` would tie the borrow to `'b` on the failure
+        // path too (NLL cannot see that the `None` arm keeps nothing), forcing
+        // either a second write or a fight with the checker. The length is exact
+        // and cheap: "str:" + the decimal digits of s.len() + ":" + the bytes.
+        let needed = 4 + decimal_width(s.len()) + 1 + s.len();
+        if needed <= CANONICAL_KEY_STACK_BUF
+            && let Some(canonical) = write_canonical_str_key(buf, s)
+        {
+            return Ok(CanonicalNodeKey::Borrowed(canonical));
+        }
+    }
+    Ok(CanonicalNodeKey::Owned(node_key_to_string(py, key)?))
+}
+
+/// Digits in the decimal representation of `n` (`0` is one digit).
+const fn decimal_width(n: usize) -> usize {
+    let mut width = 1;
+    let mut rest = n / 10;
+    while rest > 0 {
+        width += 1;
+        rest /= 10;
+    }
+    width
+}
+
 /// br-r37-c1-oe93x: canonicalize a node key for a READ-ONLY lookup and hand it
 /// to `f` as `&str`, without allocating for the common short-string case.
 ///
@@ -6508,28 +6569,40 @@ impl PyMultiGraph {
         if let Some(key_obj) = key {
             key_obj.hash()?;
         }
-        let u_c = node_key_to_string(py, u)?;
-        let v_c = node_key_to_string(py, v)?;
+        // br-r37-c1-vz4v9: this body had no fast path — it canonicalized BOTH
+        // endpoints onto the heap on every call, so each `get_edge_data` probe
+        // malloc'd and freed two Strings purely to look them up. The membership
+        // lever (br-r37-c1-oe93x) proved removing exactly that allocation is
+        // worth 8-19% build-over-build on `has_node` / `n in G`.
+        //
+        // Unlike `has_edge`, there is no interned-index fast path ahead of this,
+        // so the borrowed key is the whole optimisation here rather than a
+        // second-best one.
+        let mut u_buf = [0u8; CANONICAL_KEY_STACK_BUF];
+        let mut v_buf = [0u8; CANONICAL_KEY_STACK_BUF];
+        let u_key = canonical_node_key_in(py, u, &mut u_buf)?;
+        let v_key = canonical_node_key_in(py, v, &mut v_buf)?;
+        let u_c = u_key.as_str();
+        let v_c = v_key.as_str();
         if let Some(key_obj) = key {
-            let Some(internal_key) = self.resolve_internal_edge_key(py, &u_c, &v_c, key_obj)?
-            else {
+            let Some(internal_key) = self.resolve_internal_edge_key(py, u_c, v_c, key_obj)? else {
                 return Ok(default.unwrap_or_else(|| py.None()));
             };
             self.mark_edges_dirty();
             Ok(self
-                .ensure_edge_py_attrs(py, &u_c, &v_c, internal_key)
+                .ensure_edge_py_attrs(py, u_c, v_c, internal_key)
                 .clone_ref(py)
                 .into_any())
         } else {
-            let keys = self.inner.edge_keys(&u_c, &v_c).unwrap_or_default();
+            let keys = self.inner.edge_keys(u_c, v_c).unwrap_or_default();
             if keys.is_empty() {
                 Ok(default.unwrap_or_else(|| py.None()))
             } else {
                 self.mark_edges_dirty();
                 let result = PyDict::new(py);
                 for k in keys {
-                    let attrs = self.ensure_edge_py_attrs(py, &u_c, &v_c, k).clone_ref(py);
-                    let py_key = self.py_edge_key(py, &u_c, &v_c, k);
+                    let attrs = self.ensure_edge_py_attrs(py, u_c, v_c, k).clone_ref(py);
+                    let py_key = self.py_edge_key(py, u_c, v_c, k);
                     result.set_item(py_key, attrs.bind(py))?;
                 }
                 Ok(result.into_any().unbind())
@@ -14654,13 +14727,20 @@ impl PyGraph {
         // the raw descriptor so ordinary graphs need no Python shim.
         u.hash()?;
         v.hash()?;
-        let u_c = node_key_to_string(py, u)?;
-        let v_c = node_key_to_string(py, v)?;
-        if !self.inner.has_edge(&u_c, &v_c) {
+        // br-r37-c1-vz4v9: borrowed canonical keys — see the note on the
+        // multigraph `get_edge_data`. Same absence of an interned-index fast
+        // path, same two heap allocations per probe before this.
+        let mut u_buf = [0u8; CANONICAL_KEY_STACK_BUF];
+        let mut v_buf = [0u8; CANONICAL_KEY_STACK_BUF];
+        let u_key = canonical_node_key_in(py, u, &mut u_buf)?;
+        let v_key = canonical_node_key_in(py, v, &mut v_buf)?;
+        let u_c = u_key.as_str();
+        let v_c = v_key.as_str();
+        if !self.inner.has_edge(u_c, v_c) {
             return Ok(default.unwrap_or_else(|| py.None()));
         }
         self.mark_edges_dirty();
-        Ok(self.materialize_edge_py_attrs(py, &u_c, &v_c).into_any())
+        Ok(self.materialize_edge_py_attrs(py, u_c, v_c).into_any())
     }
 
     /// br-r37-c1-atlasget (cc): O(1) single-edge live attr dict for
@@ -16809,6 +16889,79 @@ class FnxMultiGraphCtorEdgeIterable:
 
             assert_eq!(restored.inner.runtime_policy(), &expected_policy);
         });
+    }
+
+    /// br-r37-c1-vz4v9: `canonical_node_key_in` must agree with the owned
+    /// canonical byte-for-byte, on BOTH sides of the stack-buffer boundary.
+    ///
+    /// It decides whether the key fits by computing the exact width
+    /// (`"str:" + digits + ":" + bytes`) rather than by attempting the write,
+    /// so an off-by-one there would silently route a fitting key to the heap —
+    /// harmless — or, far worse, route an oversized key to a truncated stack
+    /// buffer. The boundary sweep below is what would catch the second.
+    #[test]
+    fn canonical_node_key_in_matches_the_owned_canonical() {
+        ensure_python();
+        Python::attach(|py| {
+            let long_ascii = "n".repeat(CANONICAL_KEY_STACK_BUF * 3);
+            let boundary: Vec<String> = (CANONICAL_KEY_STACK_BUF - 12
+                ..=CANONICAL_KEY_STACK_BUF + 4)
+                .map(|n| "b".repeat(n))
+                .collect();
+
+            let mut keys: Vec<&str> = vec![
+                "",
+                "a",
+                "str:5:weird",
+                "with:colons:",
+                "ünïcödé",
+                "日本語のノード",
+                "emoji-🎯-key",
+                &long_ascii,
+            ];
+            keys.extend(boundary.iter().map(String::as_str));
+
+            for key in keys {
+                let obj = PyString::new(py, key);
+                let owned = node_key_to_string(py, obj.as_any())
+                    .expect("owned canonicalization should succeed");
+                let mut buf = [0u8; CANONICAL_KEY_STACK_BUF];
+                let borrowed = canonical_node_key_in(py, obj.as_any(), &mut buf)
+                    .expect("borrowed canonicalization should succeed");
+                assert_eq!(
+                    borrowed.as_str(),
+                    owned,
+                    "canonical_node_key_in diverged from owned for {key:?}"
+                );
+            }
+
+            // Non-string keys must take the owned branch and still agree.
+            for value in [0_i64, 1, -1, i64::MAX, i64::MIN] {
+                let obj = value.into_pyobject(py).expect("int should convert");
+                let owned =
+                    node_key_to_string(py, obj.as_any()).expect("owned int canonical should work");
+                let mut buf = [0u8; CANONICAL_KEY_STACK_BUF];
+                let borrowed = canonical_node_key_in(py, obj.as_any(), &mut buf)
+                    .expect("borrowed int canonical should work");
+                assert_eq!(
+                    borrowed.as_str(),
+                    owned,
+                    "int canonical diverged for {value}"
+                );
+            }
+        });
+    }
+
+    /// The width helper the fast-path gate depends on.
+    #[test]
+    fn decimal_width_matches_the_rendered_length() {
+        for n in [0_usize, 1, 9, 10, 99, 100, 999, 1000, 65_535, 1_000_000] {
+            assert_eq!(
+                decimal_width(n),
+                n.to_string().len(),
+                "decimal_width disagreed for {n}"
+            );
+        }
     }
 
     /// br-r37-c1-oe93x: the borrowed read path must produce a canonical key
