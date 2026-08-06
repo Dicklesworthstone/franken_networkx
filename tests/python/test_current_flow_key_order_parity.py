@@ -87,3 +87,55 @@ def test_current_flow_betweenness_key_order_still_matches():
     assert list(actual) == list(expected)
     for node, value in expected.items():
         assert actual[node] == pytest.approx(value)
+
+
+# ``solver="full"`` is the DEFAULT and was the only broken one — it is the
+# branch that takes the Rust fast path, while ``lu``/``cg`` fall through to the
+# Python implementation and were already correct. Parametrizing over all three
+# is what localised the bug, so keep all three.
+_SOLVERS = ["full", "lu", "cg"]
+
+
+@pytest.mark.parametrize("solver", _SOLVERS)
+@pytest.mark.parametrize("normalized", [True, False])
+def test_edge_current_flow_betweenness_key_order_matches_networkx(solver, normalized):
+    gn, gf = _pair()
+    expected = nx.edge_current_flow_betweenness_centrality(
+        gn, normalized=normalized, solver=solver
+    )
+    actual = fnx.edge_current_flow_betweenness_centrality(
+        gf, normalized=normalized, solver=solver
+    )
+
+    assert set(actual) == set(expected), "edge key SET diverged"
+    assert list(actual) == list(expected), (
+        f"edge key ORDER diverged for solver={solver}: "
+        f"{list(actual)} vs {list(expected)}"
+    )
+    for edge, value in expected.items():
+        assert actual[edge] == pytest.approx(value)
+
+
+@pytest.mark.parametrize(
+    "edges",
+    [
+        pytest.param([(0, 1), (1, 2), (2, 3), (3, 4)], id="path"),
+        pytest.param([(0, 1), (0, 2), (0, 3), (0, 4)], id="star"),
+        pytest.param([(0, 1), (0, 2), (0, 3), (1, 2), (1, 3), (2, 3)], id="complete"),
+        pytest.param(
+            [(0, 1), (1, 2), (0, 2), (2, 3), (3, 4), (4, 5), (3, 5)], id="barbell"
+        ),
+        pytest.param(
+            [("a", "b"), ("b", "c"), ("c", "d"), ("d", "a"), ("a", "c")], id="strings"
+        ),
+    ],
+)
+def test_edge_current_flow_key_order_across_shapes(edges):
+    """Different shapes give different RCM orderings — one fixture is not enough."""
+    gn = nx.Graph(edges)
+    gf = fnx.Graph(edges)
+    expected = nx.edge_current_flow_betweenness_centrality(gn)
+    actual = fnx.edge_current_flow_betweenness_centrality(gf)
+    assert list(actual) == list(expected)
+    for edge, value in expected.items():
+        assert actual[edge] == pytest.approx(value)
