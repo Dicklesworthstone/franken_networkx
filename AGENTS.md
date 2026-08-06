@@ -112,9 +112,39 @@ maturin develop --features pyo3/abi3-py310
 # With release optimizations (recommended for benchmarks)
 maturin develop --release --features pyo3/abi3-py310
 
-# Via rch (remote compilation + local install)
-rch exec -- maturin develop --features pyo3/abi3-py310
+# Build a wheel locally into the REPO-LOCAL target dir (what benchmarks use)
+env -u CARGO_TARGET_DIR maturin build --release --features pyo3/abi3-py310
 ```
+
+**RCH does NOT offload `maturin` — build it locally and do not pretend otherwise**
+(`br-r37-c1-839yx`). This section used to prescribe
+`rch exec -- maturin develop ...`, which reads like remote compilation and is
+not. RCH classifies by compilation keyword, and `maturin` is not one of them —
+confirmed by RCH's own diagnostic rather than by inference:
+
+```
+$ rch diagnose -- maturin build --release --features pyo3/abi3-py310
+  Kind: none
+  Confidence: 0.00 (no compilation keyword)
+  Decision: WOULD NOT INTERCEPT
+
+$ rch diagnose -- cargo build --release
+  Kind: CargoBuild
+  Confidence: 0.95 (cargo build)
+  Decision: WOULD INTERCEPT
+```
+
+So a `maturin` command runs on THIS machine whatever wrapper it carries. Two
+consequences worth knowing before you trust a build:
+
+- It competes for local CPU. That matters if a `perf_harness.py` run is in
+  flight — the exclusivity gate will abort the measurement, and a maturin build
+  is more than enough load to do it.
+- The `rch exec --` prefix does not make it remote, so a `target/release/` tree
+  appearing after one is expected, not a sign something went wrong.
+
+Use `rch exec -- cargo ...` for `check` / `clippy` / `test`, which RCH does
+offload, and plain local `maturin` for the extension itself.
 
 **Testing Python bindings:**
 ```bash
