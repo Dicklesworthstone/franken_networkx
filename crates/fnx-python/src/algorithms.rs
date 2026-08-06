@@ -4516,6 +4516,51 @@ fn py_dijkstra_weight_flags(raw: &Bound<'_, PyAny>, max_path_edges: u128) -> (bo
     (false, false, true)
 }
 
+/// br-r37-c1-04z53.9172: the EXACTNESS dimension the shared scan was missing.
+///
+/// The scan's three flags were `has_negative`, `requires_exact_fallback` and
+/// `has_nonnumeric`, and the per-class loops computed them with
+/// `val.extract::<f64>()` as the numeric test. That test SUCCEEDS — lossily —
+/// for a Python int of any width and for anything with `__float__`, so a value
+/// that f64 cannot represent was classified "numeric, finite, non-negative" and
+/// entered the native kernel. Measured against live nx 3.6.1 on all four graph
+/// classes, path a-b-c:
+///
+/// ```text
+/// weight        nx                       fnx (before)
+/// 2**60         1152921504606846977      1152921504606846976   <- lost the +1
+/// 2**70         1180591620717411303425   1.1805916207174113e+21
+/// Fraction(1,3) 4/3                      1.3333333333333333
+/// ```
+///
+/// Returns `(inexact_type, int_magnitude)`. The caller ACCUMULATES the
+/// magnitudes, because a per-edge bound does not suffice: 40 edges of
+/// `2**53 // 10` are each far inside f64's exact range while their sum is not
+/// (nx 36028797018963960 vs fnx 36028797018963984). The running total over every
+/// edge is an upper bound on any path sum, so it can only over-delegate, never
+/// under-delegate, and it costs one add inside the walk the scan already makes.
+fn py_weight_exactness(raw: &Bound<'_, PyAny>) -> (bool, u128) {
+    if raw.is_exact_instance_of::<PyBool>() {
+        // `True` is 1 in nx's arithmetic, so it still contributes to the sum.
+        return (false, 1);
+    }
+    if raw.is_exact_instance_of::<PyInt>() {
+        return raw
+            .extract::<i128>()
+            // Wider than i128 is far outside the exact envelope already.
+            .map_or((true, 0), |value| (false, value.unsigned_abs()));
+    }
+    if raw.is_exact_instance_of::<PyFloat>() {
+        // A float weight is already inexact by construction; nx and the kernel
+        // agree because both are doing f64 arithmetic.
+        return (false, 0);
+    }
+    // Fraction, Decimal, NumPy scalars, and int/float SUBCLASSES: nx preserves
+    // the exact type and its arithmetic. This matches what
+    // `py_dijkstra_weight_flags` above already does for the exact-string lane.
+    (true, 0)
+}
+
 fn stored_dijkstra_weight_flags(
     raw: Option<&fnx_runtime::CgseValue>,
     max_path_edges: u128,
@@ -4548,6 +4593,8 @@ pub fn check_dijkstra_edge_weights_fast(
             let mut has_negative = false;
             let mut has_nonfinite = false;
             let mut has_nonnumeric = false;
+            // br-r37-c1-04z53.9172: running upper bound on any path sum.
+            let mut int_magnitude_total: u128 = 0;
             for dict in pg.edge_py_attrs.values() {
                 let bound = dict.bind(py);
                 if let Some(val) = bound.get_item(weight_attr)? {
@@ -4565,17 +4612,22 @@ pub fn check_dijkstra_edge_weights_fast(
                     } else if val.extract::<bool>().is_err() {
                         has_nonnumeric = true;
                     }
+                    let (inexact, magnitude) = py_weight_exactness(&val);
+                    has_nonfinite |= inexact;
+                    int_magnitude_total = int_magnitude_total.saturating_add(magnitude);
                 }
                 if has_negative && has_nonfinite && has_nonnumeric {
                     break;
                 }
             }
+            has_nonfinite |= int_magnitude_total > MAX_EXACT_F64_INT;
             Ok(Some((has_negative, has_nonfinite, has_nonnumeric)))
         }
         GraphRef::Directed { dg, .. } => {
             let mut has_negative = false;
             let mut has_nonfinite = false;
             let mut has_nonnumeric = false;
+            let mut int_magnitude_total: u128 = 0;
             for dict in dg.edge_py_attrs.values() {
                 let bound = dict.bind(py);
                 if let Some(val) = bound.get_item(weight_attr)? {
@@ -4593,11 +4645,15 @@ pub fn check_dijkstra_edge_weights_fast(
                     } else if val.extract::<bool>().is_err() {
                         has_nonnumeric = true;
                     }
+                    let (inexact, magnitude) = py_weight_exactness(&val);
+                    has_nonfinite |= inexact;
+                    int_magnitude_total = int_magnitude_total.saturating_add(magnitude);
                 }
                 if has_negative && has_nonfinite && has_nonnumeric {
                     break;
                 }
             }
+            has_nonfinite |= int_magnitude_total > MAX_EXACT_F64_INT;
             Ok(Some((has_negative, has_nonfinite, has_nonnumeric)))
         }
         GraphRef::MultiUndirected { mg, .. } => {
@@ -4608,6 +4664,7 @@ pub fn check_dijkstra_edge_weights_fast(
                 let mut has_negative = false;
                 let mut has_positive_infinity = false;
                 let mut has_nonnumeric = false;
+                let mut int_magnitude_total: u128 = 0;
                 for dict in mg.edge_py_attrs.values() {
                     let bound = dict.bind(py);
                     if let Some(val) = bound.get_item(weight_attr)? {
@@ -4625,11 +4682,19 @@ pub fn check_dijkstra_edge_weights_fast(
                         } else if val.extract::<bool>().is_err() {
                             has_nonnumeric = true;
                         }
+                        let (inexact, magnitude) = py_weight_exactness(&val);
+                        has_nonnumeric |= inexact;
+                        int_magnitude_total = int_magnitude_total.saturating_add(magnitude);
                     }
                     if has_negative && has_positive_infinity && has_nonnumeric {
                         break;
                     }
                 }
+                // This arm's slot 2 is `has_positive_infinity`, not the general
+                // exactness channel, so the verdict lands in slot 3 instead. The
+                // Python caller ORs all three, so delegation is identical, and
+                // NaN keeps its existing routing rather than being swept up here.
+                has_nonnumeric |= int_magnitude_total > MAX_EXACT_F64_INT;
                 return Ok(Some((has_negative, has_positive_infinity, has_nonnumeric)));
             }
 
@@ -4705,6 +4770,7 @@ pub fn check_dijkstra_edge_weights_fast(
             let mut has_negative = false;
             let mut has_positive_infinity = false;
             let mut has_nonnumeric = false;
+            let mut int_magnitude_total: u128 = 0;
             for dict in mdg.edge_py_attrs.values() {
                 let bound = dict.bind(py);
                 if let Some(val) = bound.get_item(weight_attr)? {
@@ -4722,11 +4788,17 @@ pub fn check_dijkstra_edge_weights_fast(
                     } else if val.extract::<bool>().is_err() {
                         has_nonnumeric = true;
                     }
+                    let (inexact, magnitude) = py_weight_exactness(&val);
+                    has_nonnumeric |= inexact;
+                    int_magnitude_total = int_magnitude_total.saturating_add(magnitude);
                 }
                 if has_negative && has_positive_infinity && has_nonnumeric {
                     break;
                 }
             }
+            // As in the MultiUndirected arm above, slot 2 here is
+            // `has_positive_infinity`, so the exactness verdict lands in slot 3.
+            has_nonnumeric |= int_magnitude_total > MAX_EXACT_F64_INT;
             Ok(Some((has_negative, has_positive_infinity, has_nonnumeric)))
         }
     }

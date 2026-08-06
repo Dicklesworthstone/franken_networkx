@@ -9078,6 +9078,13 @@ def dijkstra_path(G, source, target, weight="weight"):
             raise NodeNotFound(f"Node {source} not found in graph")
         if target not in G:
             raise NetworkXNoPath(f"No path to {target}.")
+        # br-r37-c1-04z53.9172: see dijkstra_path_length — the raw MultiDiGraph
+        # kernel is entered before the delegation predicate, and its own
+        # "return None to delegate" rule has no exactness dimension.
+        if _should_delegate_dijkstra_to_networkx(G, weight):
+            return _call_networkx_for_parity(
+                "dijkstra_path", G, source, target, weight=weight
+            )
         try:
             _direct = _raw_multidigraph_dijkstra_path_target(
                 G, source, target, weight=weight
@@ -21498,6 +21505,16 @@ def dijkstra_path_length(G, source, target, weight="weight"):
             hash(target)
             if target not in G:
                 raise NetworkXNoPath(f"Node {target} not reachable from {source}")
+            # br-r37-c1-04z53.9172: this fast path ran BEFORE the delegation
+            # predicate below, so a MultiDiGraph reached the f64 kernel however
+            # the classifier voted. That is why the 2**60 / 2**70 / Fraction
+            # rows kept diverging on MultiDiGraph after the classifier itself
+            # was corrected. The kernel's own "return None to delegate" rule
+            # carries no exactness dimension, so the predicate has to be asked.
+            if _should_delegate_dijkstra_to_networkx(G, weight):
+                return _call_networkx_for_parity(
+                    "dijkstra_path_length", G, source, target, weight=weight
+                )
             _direct = _raw_multidigraph_dijkstra_path_length_target(
                 G, source, target, weight=weight
             )
@@ -21930,6 +21947,11 @@ def single_source_dijkstra(G, source, target=None, cutoff=None, weight="weight")
                 raise NodeNotFound(f"Node {source} not found in graph")
             if target not in G:
                 raise NetworkXNoPath(f"No path to {target}.")
+            # br-r37-c1-04z53.9172: same bypass as dijkstra_path/_length.
+            if _should_delegate_dijkstra_to_networkx(G, weight):
+                return _call_networkx_for_parity(
+                    "single_source_dijkstra", G, source, target=target, weight=weight
+                )
             try:
                 _len = _raw_multidigraph_dijkstra_path_length_target(
                     G, source, target, weight=weight
