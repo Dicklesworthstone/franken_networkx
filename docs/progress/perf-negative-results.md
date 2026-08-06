@@ -2993,3 +2993,106 @@ ADMITTED files predate 01:15Z, verified by mtime — so nothing above is affecte
 The driver is now a single queue that refuses to start if any `perf_harness.py`
 process is already alive; that guard fired on its first launch and is how the
 strays were found.
+
+## 2026-08-06 ProudBasin (cc) SELF-SPEEDUP + FAMILY-CLAUSE FALSIFIED (`br-r37-c1-oe93x`): borrowed canonical key is worth 8-19% on membership, ZERO on the edge family — and `G.has_node` is STILL an incumbent loss at 0.5199x
+
+Supersedes the NO-VERDICT entry immediately above: all six arms subsequently
+admitted at host loadavg 1.30-1.42, so the edge family is measured rather than
+outstanding. That entry's refusal analysis stands and is why these took 22
+attempts.
+
+NOT A CAMPAIGN OUTPUT, stated first so no reader mistakes the direction. Every
+number below compares two FrankenNetworkX builds of our own. Against the live
+incumbent this surface remains a LOSS: `G.has_node(present)` is 0.5199x, i.e.
+NetworkX is still roughly twice as fast. The lever narrowed a named gap; it did
+not win anything.
+
+comparison_class=SELF-SPEEDUP
+campaign_output=false
+incumbent=networkx
+incumbent_same_invocation=true
+incumbent_ratio=0.5199x
+decision_gate=median_ci
+cv_role=report_only
+loaded_elf_sha256_before=ee7363ceb00ddbc8710d66a2ae135c414bd6b26597a52b59248db362cb7d8301
+loaded_elf_sha256_after=a9b194d1a21467ae1411a66c218e083e055f2f4e7297ec935b47e09a3bcd9fd7
+aa_null_median_before=1.0004
+aa_null_median_after=0.9995
+aa_null_worst_median_bias=0.0022
+
+Six admitted arms, each with live NetworkX 3.6.1 inside the SAME invocation, 21
+interleaved rounds, dual A/A nulls, corrected three-clause median gate,
+`taskset -c 0-3`, `PYTHONHASHSEED=0`, ELF sha256 self-reported from inside the
+measuring process. Both arms ran the same HEAD python tree, so the ELF is the
+only difference between them.
+
+### The membership family moved, decisively — build-over-build
+
+| row (nx/fnx) | BEFORE | AFTER | self-speedup | vs incumbent |
+| --- | ---: | ---: | ---: | :---: |
+| `G.has_node(present)` x512 | 0.4612x | 0.5199x | 1.127x | still LOSS |
+| `G.has_node(missing)` x512 | 0.5578x | 0.6417x | 1.150x | still LOSS |
+| `n in G (present)` x512 | 0.7312x | 0.7903x | 1.081x | still LOSS |
+| `n in G (missing)` x512 | 0.8093x | 0.9651x | 1.192x | still LOSS |
+| `G.number_of_nodes()` x512 | 1.2222x | 1.3072x | 1.069x | win, pre-existing |
+| `G.order()` x512 | 1.2264x | 1.2869x | 1.049x | win, pre-existing |
+
+Every CI pair disjoint. fnx per-call on 512 present string keys: `has_node`
+122.9ns -> 111.8ns, `n in G` 92.3ns -> 88.5ns. The two `number_of_nodes`/`order`
+rows were already above 1.0x before this lever and are not claimed as its
+product.
+
+### The edge family did not move — and the bead's own predicate says what that means
+
+The retry predicate: *"The whole-family rows (`has_edge`, `get_edge_data`)
+should move too; if they do not, the attribution above is wrong."*
+
+| row (nx/fnx) | BEFORE | AFTER | ratio | CIs disjoint |
+| --- | ---: | ---: | ---: | :---: |
+| `DiGraph.has_edge` x512 | 0.4331x | 0.4429x | 1.023x | yes |
+| `Graph.has_edge` x512 | 0.4415x | 0.4358x | 0.987x | yes |
+| `MultiGraph.has_edge` x512 | 0.5364x | 0.5302x | 0.989x | yes |
+| `MultiDiGraph.has_edge` x512 | 0.5030x | 0.4649x | 0.924x | yes |
+| `Graph.get_edge_data` x512 | 0.3470x | 0.3352x | 0.966x | yes |
+| `DiGraph.get_edge_data` x512 | 0.3518x | 0.3507x | 0.997x | no |
+| `MultiGraph.get_edge_data` x512 | 0.2500x | 0.2409x | 0.964x | yes |
+| `MultiDiGraph.get_edge_data` x512 | 0.2383x | 0.2339x | 0.982x | yes |
+
+Seven of eight flat-to-worse, most decisively. By the predicate, the attribution
+is falsified for the edge family.
+
+### Why, established from the source rather than guessed
+
+A bead status comment dated 2026-08-05 states the lever was *"extended to
+Graph::has_edge / DiGraph::has_edge"*. It was not. Counting canonicalizer calls
+in `crates/fnx-python/src/lib.rs`:
+
+| path | `node_key_to_string` (owned, allocates) | `with_node_key_str` (borrowed) |
+| --- | ---: | ---: |
+| `Graph::has_edge` (9042) | 2 | 0 |
+| `has_edge` (13025) | 3 | 2 |
+| `get_edge_data` (6495) | 2 | 0 |
+| `get_edge_data` (14646) | 4 | 0 |
+
+The edge family still allocates a canonical `String` per lookup on the
+string-key path. The clause failed because the lever is ABSENT there, not
+because the mechanism is wrong — the mechanism holds exactly where it is
+applied: `has_node` and `__contains__` both call `with_node_key_str`, and both
+moved.
+
+CONFLATION DISCLOSED: the AFTER ELF is HEAD, not the lever commit in isolation,
+so it carries every change merged since `98066b4b1`. The small negative edge
+deltas are the net of that whole range and cannot be attributed to the lever.
+`MultiDiGraph.has_edge` at 0.924x is the largest and is not explained by
+anything in this bead.
+
+RETRY PREDICATE: same suites, same two ELFs, same gate, one harness at a time,
+and admission gated on zero monitored CPUs above 20% across five consecutive
+windows. Re-measure `MultiDiGraph.has_edge` against an ELF built from
+`98066b4b1` plus ONLY the lever commit before attributing its 0.924x to
+anything.
+
+WHAT THIS LEAVES: `has_edge` at 0.44x and `get_edge_data` at 0.23-0.35x against
+the incumbent, still paying an owned `String` allocation per call on exactly the
+path where the membership lever is worth 8-19% build-over-build. Measured
+headroom on a named loss, filed as a follow-up rather than claimed here.
