@@ -8513,6 +8513,247 @@ mod tests {
         );
     }
 
+    /// br-r37-c1-g2nev: is the `Cow<'static, str>` field migration worth 110
+    /// hand-edited construction sites?
+    ///
+    /// The bead proposes changing `DecisionRecord.operation`/`.rationale` and
+    /// `EvidenceTerm.signal`/`.observed_value` from `String` to
+    /// `Cow<'static, str>`, because 13 of the 14 owned strings a shipped
+    /// `add_edge` materialises are compile-time constants. It has been REJECTed
+    /// twice — not on the merits, but because it is an all-surface mechanical
+    /// conversion across seven crates that `AGENTS.md` forbids scripting, and
+    /// nobody had a number saying whether the payoff justifies it.
+    ///
+    /// This produces that number WITHOUT doing the migration first. Both arms
+    /// run in ONE invocation and differ in exactly one thing: the field type.
+    ///
+    /// WHAT IS SIMULATED, AND WHY THE DELTA STILL TRANSFERS. The real ledger
+    /// retires selectively (oldest `Allow` only) inside `RuntimePolicy`, which
+    /// a local type cannot reuse. Both arms here therefore use the same plain
+    /// capped `Vec` instead. That shifts the ABSOLUTE ns/edge away from the
+    /// shipped path — so these are not ledger-share numbers and must not be
+    /// quoted as such — but it shifts BOTH arms identically, and the quantity
+    /// this bead turns on is the DIFFERENCE between them. `ledger_record_cost_ab`
+    /// above remains the authority on the shipped path's absolute cost.
+    ///
+    /// A `Cow` record is also WIDER than a `String` one (a `Cow<str>` carries a
+    /// discriminant), so a migration trades N allocations for a larger memcpy on
+    /// every push and retire. That trade is exactly what is being measured, and
+    /// it is why the answer was not obvious enough to skip measuring.
+    ///
+    /// `#[ignore]`; run with
+    /// `cargo test --release -p fnx-classes --lib ledger_cow_field_cost_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with --release --ignored --nocapture"]
+    fn ledger_cow_field_cost_ab() {
+        use fnx_runtime::{DecisionAction, EvidenceTerm, RuntimePolicy};
+        use std::borrow::Cow;
+        use std::hint::black_box;
+        use std::time::{Duration, Instant};
+
+        const EDGES: usize = 20_000;
+        const ROUNDS: usize = 21;
+        const CAP: usize = fnx_runtime::DECISION_LEDGER_RETAINED_RECORDS;
+        const RATIONALE: &str = "argmin expected loss over {allow,full_validate,fail_closed}";
+
+        /// Shape-for-shape mirror of `DecisionRecord` with borrowed fields.
+        struct CowRecord {
+            ts_unix_ms: u128,
+            operation: Cow<'static, str>,
+            action: DecisionAction,
+            incompatibility_probability: f64,
+            rationale: Cow<'static, str>,
+            evidence: Vec<CowTerm>,
+        }
+        struct CowTerm {
+            signal: Cow<'static, str>,
+            observed_value: Cow<'static, str>,
+            log_likelihood_ratio: f64,
+        }
+
+        // The exact four terms a shipped allowed edge records, in both forms.
+        // Only `edge_attr_count` is genuinely dynamic; the other nine strings
+        // are constants, which is the whole premise of the bead.
+        fn owned_terms(edge_attr_count: usize) -> Vec<EvidenceTerm> {
+            vec![
+                EvidenceTerm {
+                    signal: "self_loop".to_owned(),
+                    observed_value: false.to_string(),
+                    log_likelihood_ratio: -0.5,
+                },
+                EvidenceTerm {
+                    signal: "edge_attr_count".to_owned(),
+                    observed_value: edge_attr_count.to_string(),
+                    log_likelihood_ratio: -2.0,
+                },
+                EvidenceTerm {
+                    signal: "left_autocreated".to_owned(),
+                    observed_value: true.to_string(),
+                    log_likelihood_ratio: -1.25,
+                },
+                EvidenceTerm {
+                    signal: "right_autocreated".to_owned(),
+                    observed_value: true.to_string(),
+                    log_likelihood_ratio: -1.25,
+                },
+            ]
+        }
+        fn borrowed_terms(edge_attr_count: usize) -> Vec<CowTerm> {
+            vec![
+                CowTerm {
+                    signal: Cow::Borrowed("self_loop"),
+                    observed_value: Cow::Borrowed("false"),
+                    log_likelihood_ratio: -0.5,
+                },
+                CowTerm {
+                    signal: Cow::Borrowed("edge_attr_count"),
+                    // The one field a migration cannot borrow.
+                    observed_value: Cow::Owned(edge_attr_count.to_string()),
+                    log_likelihood_ratio: -2.0,
+                },
+                CowTerm {
+                    signal: Cow::Borrowed("left_autocreated"),
+                    observed_value: Cow::Borrowed("true"),
+                    log_likelihood_ratio: -1.25,
+                },
+                CowTerm {
+                    signal: Cow::Borrowed("right_autocreated"),
+                    observed_value: Cow::Borrowed("true"),
+                    log_likelihood_ratio: -1.25,
+                },
+            ]
+        }
+
+        let owned_arm = || -> Duration {
+            let policy = RuntimePolicy::strict();
+            let mode = policy.mode();
+            let mut log: Vec<DecisionRecord> = Vec::new();
+            let start = Instant::now();
+            for index in 0..EDGES {
+                let action = policy.action_for(0.08, false);
+                if log.len() == CAP {
+                    log.clear();
+                }
+                log.push(DecisionRecord {
+                    ts_unix_ms: fnx_runtime::unix_time_ms(),
+                    operation: "add_edge".to_owned(),
+                    mode,
+                    action,
+                    incompatibility_probability: 0.08,
+                    rationale: RATIONALE.to_owned(),
+                    evidence: owned_terms(index & 3),
+                });
+            }
+            let elapsed = start.elapsed();
+            // Consume every field AFTER timing. Both arms do this, symmetrically:
+            // it keeps the record contents observable so neither arm can have
+            // its construction elided as dead, which would compare a real build
+            // against an optimised-away one.
+            let mut sink = 0usize;
+            for record in &log {
+                sink ^= record.operation.len()
+                    ^ record.rationale.len()
+                    ^ (record.ts_unix_ms as usize)
+                    ^ (record.incompatibility_probability.to_bits() as usize)
+                    ^ usize::from(matches!(record.action, DecisionAction::Allow));
+                for term in &record.evidence {
+                    sink ^= term.signal.len()
+                        ^ term.observed_value.len()
+                        ^ (term.log_likelihood_ratio.to_bits() as usize);
+                }
+            }
+            black_box(sink);
+            elapsed
+        };
+
+        let borrowed_arm = || -> Duration {
+            let policy = RuntimePolicy::strict();
+            let mut log: Vec<CowRecord> = Vec::new();
+            let start = Instant::now();
+            for index in 0..EDGES {
+                let action = policy.action_for(0.08, false);
+                if log.len() == CAP {
+                    log.clear();
+                }
+                log.push(CowRecord {
+                    ts_unix_ms: fnx_runtime::unix_time_ms(),
+                    operation: Cow::Borrowed("add_edge"),
+                    action,
+                    incompatibility_probability: 0.08,
+                    rationale: Cow::Borrowed(RATIONALE),
+                    evidence: borrowed_terms(index & 3),
+                });
+            }
+            let elapsed = start.elapsed();
+            let mut sink = 0usize;
+            for record in &log {
+                sink ^= record.operation.len()
+                    ^ record.rationale.len()
+                    ^ (record.ts_unix_ms as usize)
+                    ^ (record.incompatibility_probability.to_bits() as usize)
+                    ^ usize::from(matches!(record.action, DecisionAction::Allow));
+                for term in &record.evidence {
+                    sink ^= term.signal.len()
+                        ^ term.observed_value.len()
+                        ^ (term.log_likelihood_ratio.to_bits() as usize);
+                }
+            }
+            black_box(sink);
+            elapsed
+        };
+
+        // Order-balanced ABBA, and an A/A null measured through the identical
+        // scheme. br-r37-c1-vz4v9 found a fixed-order sibling bench reporting a
+        // 12% "effect" that was purely which arm ran first; the null is what
+        // makes this readable.
+        let balanced =
+            |first: &dyn Fn() -> Duration, second: &dyn Fn() -> Duration| -> (f64, f64) {
+                let a1 = first();
+                let b1 = second();
+                let b2 = second();
+                let a2 = first();
+                let scale = (2 * EDGES) as f64;
+                (
+                    (a1 + a2).as_nanos() as f64 / scale,
+                    (b1 + b2).as_nanos() as f64 / scale,
+                )
+            };
+
+        owned_arm();
+        borrowed_arm();
+
+        let mut owned_ns = Vec::with_capacity(ROUNDS);
+        let mut cow_ns = Vec::with_capacity(ROUNDS);
+        let mut null_a_ns = Vec::with_capacity(ROUNDS);
+        let mut null_b_ns = Vec::with_capacity(ROUNDS);
+        for _ in 0..ROUNDS {
+            let (na, nb) = balanced(&owned_arm, &owned_arm);
+            let (owned, cow) = balanced(&owned_arm, &borrowed_arm);
+            null_a_ns.push(na);
+            null_b_ns.push(nb);
+            owned_ns.push(owned);
+            cow_ns.push(cow);
+        }
+
+        let median = |samples: &mut Vec<f64>| {
+            samples.sort_by(f64::total_cmp);
+            samples[samples.len() / 2]
+        };
+        let owned = median(&mut owned_ns);
+        let cow = median(&mut cow_ns);
+        let null_a = median(&mut null_a_ns);
+        let null_b = median(&mut null_b_ns);
+
+        println!("ledger_cow_field_cost_ab n={EDGES} rounds={ROUNDS} cap={CAP}");
+        println!("  S  String fields   : {owned:8.1} ns/edge  (incumbent)");
+        println!("  C  Cow fields      : {cow:8.1} ns/edge  (proposed)");
+        println!("  N1 String, null A  : {null_a:8.1} ns/edge");
+        println!("  N2 String, null B  : {null_b:8.1} ns/edge");
+        println!("  -> A/A null (N2/N1): {:8.4}x", null_b / null_a);
+        println!("  -> Cow gain (S/C)  : {:8.4}x", owned / cow);
+        println!("  -> saving          : {:8.1} ns/edge", owned - cow);
+    }
+
     // br-r37-c1-p6bxu: A/B substrate bench for MultiGraph::remove_node
     // (O(degree) swap_remove vs the old O(|E|) retain). Ignored by default;
     // run with `cargo test -p fnx-classes --release ab_bench_multigraph_remove_node

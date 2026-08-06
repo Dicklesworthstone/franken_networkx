@@ -3391,3 +3391,74 @@ long-key penalty to explain. `br-r37-c1-ivxvs` is closed NOT REPRODUCED with a
 retry predicate. The fallback change is kept as strictly less work for
 byte-identical output, and its comment says explicitly that no performance claim
 attaches to it.
+
+## 2026-08-06 SnowyValley (cc) MEASURED, PRIOR REJECT RATIONALE OVERTURNED (`br-r37-c1-g2nev`): the `Cow<'static, str>` ledger migration is worth 3.20x on the record component — the "32.2 ns, not worth it" figure counted 2 of 14 strings
+
+`br-r37-c1-g2nev` proposes changing `DecisionRecord.operation`/`.rationale` and
+`EvidenceTerm.signal`/`.observed_value` from `String` to `Cow<'static, str>`,
+because 13 of the 14 owned strings a shipped `add_edge` materialises are
+compile-time constants. It was REJECTed twice — both times on COST (110
+hand-edited sites across seven crates, which `AGENTS.md` forbids scripting) with
+no number on the benefit side. Its own retry predicate asked for a Cow arm in a
+one-invocation before/after. This supplies it.
+
+NOT A CAMPAIGN OUTPUT. Both arms are our own code. Incremental `add_edge` remains
+an incumbent LOSS at roughly 0.44x and nothing here changes that.
+
+### Result — `ledger_cow_field_cost_ab`, n=20,000, 21 rounds, ABBA-placed
+
+| run | A/A null | Cow gain (S/C) | saving |
+| --- | ---: | ---: | ---: |
+| 1 | 0.9893x | 3.4107x | 216.6 ns/edge |
+| 2 | 1.0017x | 3.1040x | 146.2 ns/edge |
+| 3 | 0.9896x | 3.2140x | 298.7 ns/edge |
+| 4 | 1.0012x | 3.1863x | 305.1 ns/edge |
+
+A/A null control, positively recorded, same invocation as its paired arm, one per
+run: 0.9893x, 1.0017x, 0.9896x, 1.0012x — each within 1.1% of 1.0.
+
+Median gain **3.2002x**. The effect exceeds the largest null deviation by more
+than 100x, so the exact admission band is immaterial here — this is not a
+marginal row. Direction unanimous, 4/4.
+
+The ABBA placement and the null are not decoration: the sibling instrument in the
+`br-r37-c1-vz4v9` entry above reported a 12% "effect" from arm ORDER alone before
+those two things were added.
+
+### Why this does not contradict the bead's own "32.2 ns/edge, so Cow is the wrong lever"
+
+It counts a different set of strings. The bead's 32.2 ns is `D - C` from
+`ledger_record_cost_ab`, which isolates **2** clones (`operation`, `rationale`) on
+records that are then DISCARDED. This arm removes **12** of the 14 owned strings
+and keeps the records. Per string: 32.2/2 = 16.1 ns against 216.6/12 = 18.1 ns —
+**the two measurements agree almost exactly on the unit cost.** The prior
+conclusion was not a bad measurement, it was a 2-string subset quoted as if it
+bounded a 14-string change.
+
+### What the number transfers to, and the assumption in that transfer
+
+The shipped ledger component is 270.7 ns/edge of `add_edge_with_attrs`' 1703.3
+ns/edge (15.9%), from `ledger_record_cost_ab`. Applying the measured 3.20x leaves
+~84.6 ns, a saving of ~186 ns — **~10.9% of `add_edge_with_attrs`**.
+
+That transfer ASSUMES the ratio measured here survives the container difference:
+the real ledger retires selectively (oldest `Allow` only) inside `RuntimePolicy`,
+which a local mirror type cannot reuse, so both arms here use a plain capped `Vec`
+instead. Both arms use the SAME container, so the ratio is a fair comparison — but
+the absolute ns/edge in the table are NOT the shipped path's and must not be
+quoted as ledger-share figures. `ledger_record_cost_ab` remains the authority on
+absolute cost.
+
+A `Cow<str>` record is also WIDER than a `String` one, trading allocations for a
+larger memcpy on every push and retire. That trade is inside the measured ratio,
+which is why it was worth measuring rather than reasoning about.
+
+### Disposition
+
+`br-r37-c1-g2nev` stays OPEN. The migration is NOT landed and this entry does not
+land it — closing it here would be closing a bead on a measurement of the thing
+rather than the thing. What changes is that the two prior REJECTs rested on "no
+demonstrated benefit", and that rationale is now void: the benefit is ~10.9% of
+the hottest mutation path in the library. The remaining objection is purely the
+110-site manual conversion, which is a real cost and now has a real number to be
+weighed against.
