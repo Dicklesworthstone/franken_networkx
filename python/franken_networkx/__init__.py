@@ -31296,11 +31296,32 @@ def _check_planarity_certificate(G, counterexample=False, recursive=False):
 
     graph = _planarity_graph_for_certificate(G)
     if recursive:
-        return nx_planarity.check_planarity_recursive(
+        result = nx_planarity.check_planarity_recursive(
             graph,
             counterexample=counterexample,
         )
-    return nx_planarity.check_planarity(graph, counterexample=counterexample)
+    else:
+        result = nx_planarity.check_planarity(
+            graph, counterexample=counterexample
+        )
+
+    # br-r37-c1-rcg8f: return the Kuratowski counterexample as an fnx graph.
+    # ``get_counterexample`` already converts, so one module handed back two
+    # different types for the same object — `fnx.Graph` from one entry point and
+    # `networkx.classes.graph.Graph` from the other. Every other graph-returning
+    # surface here (``complete_to_chordal_graph``, ``subgraph().copy()``,
+    # ``k_core``) returns fnx types, and planarity.py's own docstring promises it.
+    #
+    # Gated on ``is_planar`` being False, which is exact: the PLANAR branch's
+    # certificate is a ``PlanarEmbedding``, deliberately kept as networkx's class
+    # so isinstance and ``check_structure()`` keep working, and it must not be
+    # converted. Only the non-planar counterexample is a plain Graph.
+    is_planar, certificate = result
+    if not is_planar and certificate is not None:
+        from franken_networkx.readwrite import _from_nx_graph
+
+        return is_planar, _from_nx_graph(certificate)
+    return result
 
 
 def check_planarity(G, counterexample=False, *, backend=None, **backend_kwargs):
