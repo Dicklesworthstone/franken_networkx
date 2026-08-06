@@ -39200,7 +39200,10 @@ def current_flow_closeness_centrality(
         and type(G) is Graph
         and hasattr(_fnx, "current_flow_closeness_centrality_rust")
     ):
-        return _fnx.current_flow_closeness_centrality_rust(G, ordering)
+        # br-r37-c1-8n5ni: emit in G's node order, not RCM order — see the
+        # comment on the return of the general path below.
+        raw = _fnx.current_flow_closeness_centrality_rust(G, ordering)
+        return {node: raw[node] for node in G}
 
     relabeled = relabel_nodes(G, dict(zip(ordering, range(node_count))))
 
@@ -39232,7 +39235,15 @@ def current_flow_closeness_centrality(
     # is a numpy array so ``1.0 / centrality_arr[i]`` is ``np.float64``, which
     # diverges on ``type(v) is float`` and on repr (``np.float64(...)``).
     # current_flow_betweenness already coerces — match it here.
-    return {ordering[i]: float(1.0 / centrality_arr[i]) for i in range(n)}
+    #
+    # br-r37-c1-8n5ni: iterate G, not ``range(n)``. ``centrality_arr`` is indexed
+    # by RCM RANK, so ``{ordering[i]: ... for i in range(n)}`` emitted keys in RCM
+    # order — nx emits them in G's node order. nx gets there by keying its
+    # accumulator off the relabeled graph (``dict.fromkeys(H)``), whose node order
+    # is ``[mapping[v] for v in G]``, so ``ordering[node]`` maps each key straight
+    # back to G's order. Values are untouched; only the key sequence moves.
+    rank = {node: index for index, node in enumerate(ordering)}
+    return {node: float(1.0 / centrality_arr[rank[node]]) for node in G}
 
 
 def betweenness_centrality_subset(
