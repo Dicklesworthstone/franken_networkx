@@ -170,6 +170,22 @@ fn canonical_node_key_in<'b>(
         {
             return Ok(CanonicalNodeKey::Borrowed(canonical));
         }
+        // Too long for the buffer: build the SAME canonical form directly from
+        // the `&str` already in hand, rather than falling through to
+        // `node_key_to_string` and repeating the downcast and the `to_str` this
+        // branch has already done. `node_key_to_string`'s own string branch is
+        // this same `format!`, so the bytes are unchanged and the boundary
+        // sweep in `canonical_node_key_in_matches_the_owned_canonical` covers
+        // exactly this branch.
+        //
+        // No performance claim is attached. It was written against a long-key
+        // control that read 0.94x in two runs of
+        // `borrowed_canonical_key_self_time_ab`, which looked like an over-long
+        // key being taxed by the lever; over five admitted runs that control's
+        // median is 1.0051x, so the 0.94x readings were worker noise and there
+        // was nothing to fix. Kept because it is strictly less work for
+        // identical output, not because it was measured to be faster.
+        return Ok(CanonicalNodeKey::Owned(format!("str:{}:{s}", s.len())));
     }
     Ok(CanonicalNodeKey::Owned(node_key_to_string(py, key)?))
 }
@@ -16909,6 +16925,22 @@ class FnxMultiGraphCtorEdgeIterable:
                 .map(|n| "b".repeat(n))
                 .collect();
 
+            // The same sweep in a 3-byte-per-char script: 38-44 chars, 114-132
+            // BYTES, so the canonical form straddles the buffer while the char
+            // count stays far below it. The ASCII sweep above cannot produce
+            // that shape, because there bytes and chars coincide.
+            //
+            // What this actually guards is the WRITE, not the routing: a fit
+            // test that reasoned in chars would send these to the stack path,
+            // and `write_canonical_str_key` would then have to refuse a 140-byte
+            // canonical in a 128-byte buffer rather than truncate it. A silent
+            // truncation is a wrong key that still looks like a key, and it
+            // would show up here as a divergence from the owned canonical.
+            let multibyte_boundary: Vec<String> = (CANONICAL_KEY_STACK_BUF - 12
+                ..=CANONICAL_KEY_STACK_BUF + 4)
+                .map(|n| "あ".repeat(n / 3))
+                .collect();
+
             let mut keys: Vec<&str> = vec![
                 "",
                 "a",
@@ -16920,6 +16952,7 @@ class FnxMultiGraphCtorEdgeIterable:
                 &long_ascii,
             ];
             keys.extend(boundary.iter().map(String::as_str));
+            keys.extend(multibyte_boundary.iter().map(String::as_str));
 
             for key in keys {
                 let obj = PyString::new(py, key);
@@ -17574,4 +17607,276 @@ fn node_lookup_cache_bounds_missing_keys_and_invalidates_on_node_change() {
         Ok(())
     })
     .expect("node lookup cache must preserve Python mapping semantics");
+}
+
+/// br-r37-c1-vz4v9: same-invocation self-time A/B for the borrowed canonical
+/// node key, on the exact lookup shape `get_edge_data` performs.
+///
+/// WHY THIS EXISTS RATHER THAN ANOTHER `perf_harness.py` PAIR. The first
+/// verdict on this lever came from dividing one harness invocation's nx/fnx
+/// ratio by another's. That is a ratio-of-ratios across runs, and the networkx
+/// yardstick moved up to 3.9% between them — larger than the ~3% being claimed,
+/// so the comparison could not resolve the lever in either direction (ledger
+/// 112d15cba). Interleaving the two arms INSIDE one invocation removes the
+/// across-run axis entirely: both arms see the same process, the same host
+/// state and the same allocator, so the difference between them is the code.
+///
+/// WHAT IT CAN AND CANNOT SAY. This measures the SELF-TIME of the component the
+/// lever changed — canonicalize both endpoints, then look the edge up — and
+/// reports it against the whole `get_edge_data` call measured in the same
+/// invocation. It is a self-speedup instrument. It cannot produce a vs-nx
+/// campaign number and must never be cited as one.
+///
+/// TWO NEGATIVE CONTROLS, both of which a broken measurement would fail:
+///   - `stack/stack` is an A/A null. The two closures are byte-identical work;
+///     if that ratio is not ~1.0 the instrument is measuring position in the
+///     round, not the arms, and every other number here is void.
+///   - the LONG-key pair. A 200-byte key cannot fit `CANONICAL_KEY_STACK_BUF`,
+///     so `canonical_node_key_in` falls back to exactly the heap path the
+///     incumbent takes. That ratio must also be ~1.0 — it is what shows the
+///     short-key effect comes from the stack buffer rather than from arm order
+///     or from the two functions differing in some way unrelated to allocation.
+///
+/// `#[ignore]`; run with
+/// `cargo test --release -p fnx-python --lib borrowed_canonical_key_self_time_ab
+///  -- --ignored --nocapture`.
+#[test]
+#[ignore = "measurement; run with --release --ignored --nocapture"]
+fn borrowed_canonical_key_self_time_ab() {
+    use std::hint::black_box;
+    use std::time::{Duration, Instant};
+
+    // Mirrors `perf_harness.py`'s edge-data-primitives suite: 2000 string
+    // nodes, a 1999-edge path, and 512 probes that all hit.
+    const NODES: usize = 2000;
+    const PROBES: usize = 512;
+    const ROUNDS: usize = 41;
+    const REPS: usize = 100;
+    const LONG_KEY_LEN: usize = 200;
+
+    Python::initialize();
+    Python::attach(|py| -> PyResult<()> {
+        let short: Vec<String> = (0..NODES).map(|n| n.to_string()).collect();
+        // Longer than the stack buffer, so both arms canonicalize onto the heap.
+        let long: Vec<String> = (0..NODES)
+            .map(|n| format!("{n:0>width$}", width = LONG_KEY_LEN))
+            .collect();
+        assert!(
+            4 + decimal_width(LONG_KEY_LEN) + 1 + LONG_KEY_LEN > CANONICAL_KEY_STACK_BUF,
+            "the long-key control must not fit the stack buffer, or it is not a control"
+        );
+
+        let mut store = Graph::strict();
+        for keys in [&short, &long] {
+            for index in 0..NODES - 1 {
+                store
+                    .add_edge_with_attrs(
+                        node_key_to_string(py, &PyString::new(py, &keys[index]).into_any())?,
+                        node_key_to_string(py, &PyString::new(py, &keys[index + 1]).into_any())?,
+                        AttrMap::new(),
+                    )
+                    .expect("bench store edge add must succeed");
+            }
+        }
+
+        // Probe objects are built once: the arms differ in how they canonicalize
+        // a key, not in how they obtain one.
+        let bind = |keys: &[String]| -> PyResult<Vec<(PyObject, PyObject)>> {
+            (0..PROBES)
+                .map(|index| {
+                    Ok((
+                        PyString::new(py, &keys[index]).into_any().unbind(),
+                        PyString::new(py, &keys[index + 1]).into_any().unbind(),
+                    ))
+                })
+                .collect()
+        };
+        let short_probes = bind(&short)?;
+        let long_probes = bind(&long)?;
+
+        // Each timed slot sweeps the probe set REPS times. A slot that measured
+        // one 512-probe sweep was ~30 us, small enough that its fixed entry cost
+        // (cold i-cache on the arm being entered) was a measurable share — which
+        // is what left the ABBA null 6% off 1.0. Sweeping repeatedly amortises
+        // that fixed cost toward zero without changing what is being timed.
+        //
+        // SHIPPED: canonicalize into a caller-owned stack buffer, look up by &str.
+        let stack_arm = |probes: &[(PyObject, PyObject)]| -> PyResult<(Duration, usize)> {
+            let mut hits = 0usize;
+            let start = Instant::now();
+            for _ in 0..REPS {
+                for (u, v) in probes {
+                    let mut u_buf = [0u8; CANONICAL_KEY_STACK_BUF];
+                    let mut v_buf = [0u8; CANONICAL_KEY_STACK_BUF];
+                    let u_key = canonical_node_key_in(py, u.bind(py), &mut u_buf)?;
+                    let v_key = canonical_node_key_in(py, v.bind(py), &mut v_buf)?;
+                    hits += usize::from(black_box(store.has_edge(u_key.as_str(), v_key.as_str())));
+                }
+            }
+            Ok((start.elapsed(), hits))
+        };
+
+        // INCUMBENT: two owned Strings per probe, then the identical lookup.
+        let heap_arm = |probes: &[(PyObject, PyObject)]| -> PyResult<(Duration, usize)> {
+            let mut hits = 0usize;
+            let start = Instant::now();
+            for _ in 0..REPS {
+                for (u, v) in probes {
+                    let u_c = node_key_to_string(py, u.bind(py))?;
+                    let v_c = node_key_to_string(py, v.bind(py))?;
+                    hits += usize::from(black_box(store.has_edge(&u_c, &v_c)));
+                }
+            }
+            Ok((start.elapsed(), hits))
+        };
+
+        // Denominator: the whole shipped `get_edge_data`, same probes, same
+        // invocation. Built through the public API so the graph carries the
+        // display-key map and attribute storage a real call touches.
+        let mut graph = PyGraph::new_empty_with_mode(py, CompatibilityMode::Strict)?;
+        for index in 0..NODES - 1 {
+            let u = PyString::new(py, &short[index]).into_any();
+            let v = PyString::new(py, &short[index + 1]).into_any();
+            let attrs = PyDict::new(py);
+            attrs.set_item("weight", index)?;
+            graph.add_edge(py, &u, &v, Some(&attrs))?;
+        }
+        let full_arm = |graph: &mut PyGraph| -> PyResult<(Duration, usize)> {
+            let mut found = 0usize;
+            let start = Instant::now();
+            for _ in 0..REPS {
+                for (u, v) in &short_probes {
+                    let data = graph.get_edge_data(py, u.bind(py), v.bind(py), None)?;
+                    found += usize::from(!data.bind(py).is_none());
+                    black_box(data);
+                }
+            }
+            Ok((start.elapsed(), found))
+        };
+
+        // ORDER-BALANCED PLACEMENT (ABBA), and why it is not optional here.
+        // The first version of this bench ran each arm once per round in a fixed
+        // order. Its A/A null came out 0.8885x: two byte-identical closures
+        // differed by 12% purely because one ran first, and the "effect" it
+        // reported for the real pair (0.8849x) was indistinguishable from that.
+        // Whatever the mechanism (the leading arm absorbing the round's cold
+        // branch predictor and i-cache), position was worth more than the code.
+        // Running each arm at BOTH ends of a four-slot block cancels any cost
+        // that depends on slot rather than on work — and the null is measured
+        // through the identical scheme, so it still reports a residual if one
+        // survives.
+        let balanced = |first: &dyn Fn(&[(PyObject, PyObject)]) -> PyResult<(Duration, usize)>,
+                        second: &dyn Fn(&[(PyObject, PyObject)]) -> PyResult<(Duration, usize)>,
+                        probes: &[(PyObject, PyObject)]|
+         -> PyResult<(f64, f64, usize)> {
+            let (a1, h1) = first(probes)?;
+            let (b1, h2) = second(probes)?;
+            let (b2, h3) = second(probes)?;
+            let (a2, h4) = first(probes)?;
+            let scale = (2 * PROBES * REPS) as f64;
+            Ok((
+                (a1 + a2).as_nanos() as f64 / scale,
+                (b1 + b2).as_nanos() as f64 / scale,
+                h1 + h2 + h3 + h4,
+            ))
+        };
+
+        // Untimed warm-up: pay the one-off costs (first allocation of each size
+        // class, first walk of the store) before any sample is recorded.
+        for _ in 0..3 {
+            stack_arm(&short_probes)?;
+            heap_arm(&short_probes)?;
+            stack_arm(&long_probes)?;
+            heap_arm(&long_probes)?;
+            full_arm(&mut graph)?;
+        }
+
+        let per_probe = |elapsed: Duration| elapsed.as_nanos() as f64 / (PROBES * REPS) as f64;
+        let mut stack_ns = Vec::with_capacity(ROUNDS);
+        let mut null_a_ns = Vec::with_capacity(ROUNDS);
+        let mut null_b_ns = Vec::with_capacity(ROUNDS);
+        let mut heap_ns = Vec::with_capacity(ROUNDS);
+        let mut long_stack_ns = Vec::with_capacity(ROUNDS);
+        let mut long_heap_ns = Vec::with_capacity(ROUNDS);
+        let mut full_ns = Vec::with_capacity(ROUNDS);
+        for _ in 0..ROUNDS {
+            // Interleaved: each round pays whatever the machine is doing at that
+            // moment to every arm, which is the point of the design.
+            let (null_a, null_b, null_hits) = balanced(&stack_arm, &stack_arm, &short_probes)?;
+            let (stack, heap, short_hits) = balanced(&stack_arm, &heap_arm, &short_probes)?;
+            let (long_stack, long_heap, long_hits) = balanced(&stack_arm, &heap_arm, &long_probes)?;
+            let (full, full_found) = full_arm(&mut graph)?;
+            // The bench executes the code it claims to: every arm resolved every
+            // probe, and the two canonicalizations agree. A stack buffer that
+            // hashed the canonical form in pieces would MISS here (the trap
+            // recorded on br-r37-c1-oe93x) and this assert is what catches it.
+            assert_eq!(
+                (null_hits, short_hits, long_hits, full_found),
+                (
+                    4 * PROBES * REPS,
+                    4 * PROBES * REPS,
+                    4 * PROBES * REPS,
+                    PROBES * REPS
+                ),
+                "every arm must resolve every probe, or the timings compare different work"
+            );
+            stack_ns.push(stack);
+            heap_ns.push(heap);
+            // Both slots of the null block, so its ratio is computed within the
+            // block rather than across two of them.
+            null_a_ns.push(null_a);
+            null_b_ns.push(null_b);
+            long_stack_ns.push(long_stack);
+            long_heap_ns.push(long_heap);
+            full_ns.push(per_probe(full));
+        }
+
+        let percentile = |samples: &mut Vec<f64>, q: f64| -> f64 {
+            samples.sort_by(f64::total_cmp);
+            samples[((samples.len() - 1) as f64 * q).round() as usize]
+        };
+        let median = |samples: &mut Vec<f64>| percentile(samples, 0.5);
+        let stack = median(&mut stack_ns);
+        let heap = median(&mut heap_ns);
+        let null_a = median(&mut null_a_ns);
+        let null_b = median(&mut null_b_ns);
+        let long_stack = median(&mut long_stack_ns);
+        let long_heap = median(&mut long_heap_ns);
+        let full = median(&mut full_ns);
+
+        println!("borrowed_canonical_key_self_time_ab probes={PROBES} rounds={ROUNDS}");
+        println!("  A  stack canonical + lookup : {stack:8.1} ns/probe");
+        println!("  B  heap canonical + lookup  : {heap:8.1} ns/probe  (incumbent)");
+        println!("  N1 stack, null block slot A : {null_a:8.1} ns/probe");
+        println!("  N2 stack, null block slot B : {null_b:8.1} ns/probe");
+        println!("  L-A long key, stack path    : {long_stack:8.1} ns/probe");
+        println!("  L-B long key, heap path     : {long_heap:8.1} ns/probe");
+        println!("  get_edge_data (denominator) : {full:8.1} ns/call");
+        println!("  -> A/A null (N2/N1)         : {:8.4}x", null_b / null_a);
+        println!(
+            "  -> long-key control (L-B/L-A): {:8.4}x",
+            long_heap / long_stack
+        );
+        println!("  -> lever self-time (B/A)    : {:8.4}x", heap / stack);
+        println!(
+            "  -> saving                   : {:8.1} ns/probe",
+            heap - stack
+        );
+        println!(
+            "  -> share of get_edge_data   : {:8.2}%",
+            100.0 * (heap - stack) / full
+        );
+        println!(
+            "  spread A p25/p75            : {:8.1} / {:8.1} ns",
+            percentile(&mut stack_ns, 0.25),
+            percentile(&mut stack_ns, 0.75)
+        );
+        println!(
+            "  spread B p25/p75            : {:8.1} / {:8.1} ns",
+            percentile(&mut heap_ns, 0.25),
+            percentile(&mut heap_ns, 0.75)
+        );
+        Ok(())
+    })
+    .expect("borrowed canonical key A/B must run");
 }

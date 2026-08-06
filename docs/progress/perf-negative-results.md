@@ -3298,3 +3298,96 @@ UNTESTED, not confirmed: the apparent shrinking share (9-11% for `has_node`,
 numbers do show is that `get_edge_data` costs 268-424ns/call versus `has_node`'s
 105-123ns, so there IS far more surrounding work — but no measurement here
 resolves what share the allocation holds.
+
+## 2026-08-06 SnowyValley (cc) RESOLVED by a different instrument (`br-r37-c1-vz4v9`): the borrowed canonical key is a real but small self-speedup, and `perf_harness.py` could never have resolved it
+
+Settles the NO-VERDICT left by the entry above, and cancels the revert that entry
+had pending. The lever did not need another admitted `perf_harness.py` pair; it
+needed an instrument whose resolution is finer than the effect.
+
+NOT A CAMPAIGN OUTPUT, stated first. Every number below compares two code paths
+inside FrankenNetworkX. Against the live incumbent this surface remains a
+decisive LOSS at 0.23-0.36x, and nothing here changes that.
+
+### Why more retries of the old instrument could not have worked
+
+`perf_harness.py` compares two builds by dividing one invocation's nx/fnx ratio
+by another's. Under the ACROSS-RUN RULE at the top of this ledger, that is a
+NO-VERDICT whenever the nx yardstick moves by more than the effect. The nx arm
+moved 0.0-3.9% between the vz4v9 arms; the effect is measured below at 0.7-3.5%
+of the call. **The effect sits inside the yardstick's drift band**, so the
+25-attempt requeue was chasing an admission the design cannot deliver. That
+requeue ran to attempt 8 against a host that never quiesced, and is not what this
+entry rests on.
+
+### The instrument: same-invocation, interleaved, order-balanced
+
+`borrowed_canonical_key_self_time_ab` (`crates/fnx-python/src/lib.rs`,
+`#[ignore]`) times the two canonicalisation strategies against each other inside
+ONE process on the exact shape `get_edge_data` performs — canonicalise both
+endpoints, then look the edge up. One invocation means no across-run axis and no
+yardstick to drift. It measures SELF-TIME only and cannot produce a vs-nx number.
+
+Its own A/A null caught two design defects before any result was believed:
+
+1. **Fixed arm order: null 0.8885x.** Two byte-identical closures differed by 12%
+   purely by position, and the "effect" it reported (0.8849x) was
+   indistinguishable from that null.
+2. **ABBA placement: null 0.9379x.** Order-balancing removed most of it, but a
+   convex per-slot entry cost survived — still larger than the effect.
+
+Fixed by sweeping the probe set 100x inside each timed slot, which amortises the
+fixed per-slot cost. Had the null not been in the design, version 1 would have
+reported a 12% REGRESSION that does not exist.
+
+### Admission rule, fixed in writing before the repeat runs were started
+
+ADMITTED iff the A/A null is within [0.99, 1.01]. An admitted run RESOLVES the
+lever iff `|effect - 1| >= 2 * |null - 1|`; otherwise it is admitted NO-VERDICT.
+Five runs on the post-fix build:
+
+| run | A/A null | effect (B/A) | saving | share | long-key control | verdict |
+| --- | ---: | ---: | ---: | ---: | ---: | --- |
+| 4 | 1.0092x | 1.0108x | 1.4 ns | 0.68% | 0.9424x | admitted, NO-VERDICT |
+| 5 | 0.9938x | 1.0603x | 6.0 ns | 3.52% | 0.9635x | RESOLVED |
+| 6 | 0.9944x | 1.0520x | 5.2 ns | 3.05% | 1.0255x | RESOLVED |
+| 7 | 0.9936x | 1.0332x | 3.3 ns | 1.96% | 1.0051x | RESOLVED |
+| 8 | 0.9939x | 1.0591x | 6.0 ns | 3.44% | 1.0096x | RESOLVED |
+
+5/5 admitted, 4/5 resolved, all four in the same direction. Median effect
+**1.0520x**, median saving **5.2 ns** per two-endpoint lookup, median share
+**3.05%**. Run 4 is the one that did not resolve and is also the only run whose
+p25/p75 spread was ±13% rather than ±1%, on a worker whose denominator was 207 ns
+against the others' 170-176 ns.
+
+Run 3 is excluded from the tally by an amendment written before the repeats
+produced output: it predates a change inside `canonical_node_key_in`, and pooling
+builds is the conflation this instrument exists to avoid.
+
+### Verdict
+
+KEPT, classified SELF-SPEEDUP, `campaign_output=false`. The bead's written
+prediction (8-19%, transferring from the membership lever) stays FALSIFIED — the
+saving is a few ns on a two-endpoint lookup, not a tenth of the call. What is new
+is that the DIRECTION is resolved rather than unknown: the lever helps, slightly.
+
+### The denominator is quoted in our favour, so treat the share as an upper bound
+
+The share is against the RUST-side `get_edge_data` measured in the same
+invocation (170-207 ns). The Python-visible call is ~277 ns because it also pays
+interpreter method dispatch, so the share of what a user actually calls is
+SMALLER — roughly 1.9% at the median rather than 3.05%.
+
+### A second finding was filed and then withdrawn on its own data
+
+Two early runs put the long-key control — keys too long for
+`CANONICAL_KEY_STACK_BUF`, where both arms take the heap path and the ratio must
+be 1.0 — at 0.9424-0.9439x, which reads as the lever taxing keys it cannot help.
+A candidate cause (the fallback repeating the downcast and `to_str`) was
+implemented and measured: the control moved 0.9439x -> 0.9424x, i.e. not the
+cause. Over all five admitted runs that control's median is **1.0051x**, so the
+low readings were worker noise on the ~250 ns long-key arms and there is no
+long-key penalty to explain. `br-r37-c1-ivxvs` is closed NOT REPRODUCED with a
+retry predicate. The fallback change is kept as strictly less work for
+byte-identical output, and its comment says explicitly that no performance claim
+attaches to it.
