@@ -62727,16 +62727,33 @@ def __getattr__(name):
     # br-r37-c1-als7z: for submodules that fnx has its own version of,
     # return the fnx submodule instead of nx's so fnx.generators.balanced_tree
     # returns fnx types instead of nx types.
+    # br-r37-c1-2qsqf: a name missing from this set does NOT fall back to a
+    # harmless nx module — it silently replaces the fnx submodule wholesale,
+    # because the fallback below is `getattr(nx, name)` and networkx has a module
+    # of the same name. `fnx.convert.from_edgelist` was returning
+    # `networkx.convert.from_edgelist`, so the routing inside
+    # `franken_networkx/convert.py` was dead on this access path while still
+    # reachable via `from franken_networkx.convert import ...` (two spellings,
+    # two implementations). The three added here each carry real overrides that
+    # were unreachable: convert 7 names, distance_regular 5, relabel 2.
+    #
+    # Only these three are added because only these three are inside the audit
+    # this bead covers. 36 further submodules are shadowed the same way and are
+    # filed separately — adding them here is a bigger behavioural change than
+    # this bead's evidence supports.
     _fnx_submodules = {
         "algorithms",
         "broadcasting",
         "classes",
         "connectivity",
+        "convert",
         "convert_matrix",
+        "distance_regular",
         "drawing",
         "generators",
         "linalg",
         "readwrite",
+        "relabel",
         "utils",
     }
     if name in _fnx_submodules:

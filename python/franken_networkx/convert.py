@@ -41,6 +41,45 @@ def to_dict_of_lists(G, nodelist=None):
     return _fnx.to_dict_of_lists(G, nodelist=nodelist)
 
 
+# br-r37-c1-2qsqf: the `from networkx.convert import *` above also left these
+# five bound to nx's pure-Python versions while `franken_networkx.<name>` is a
+# different, native object — so `from franken_networkx.convert import
+# from_edgelist` silently handed back nx's implementation. Same bug class the
+# two wrappers above already fix for `to_dict_of_dicts` / `to_dict_of_lists`,
+# and the same routing the bead prescribes.
+#
+# Forwarded with `*args, **kwargs` rather than restated signatures on purpose:
+# these take `create_using` / `multigraph_input` / `nodelist` and a restated
+# signature is one upstream keyword away from silently diverging. The top-level
+# functions own the contract; this module only decides WHICH object you get.
+_FNX_NATIVE_CONVERT_NAMES = (
+    "from_dict_of_dicts",
+    "from_dict_of_lists",
+    "from_edgelist",
+    "to_edgelist",
+    "to_networkx_graph",
+)
+
+
+def _make_fnx_convert_router(_fn_name):
+    def _routed(*args, **kwargs):
+        import franken_networkx as _fnx
+
+        return getattr(_fnx, _fn_name)(*args, **kwargs)
+
+    _routed.__name__ = _fn_name
+    _routed.__qualname__ = _fn_name
+    _routed.__doc__ = (
+        f"Route to ``franken_networkx.{_fn_name}`` (fnx-native). See "
+        f"``networkx.convert.{_fn_name}`` for semantics."
+    )
+    return _routed
+
+
+for _name in _FNX_NATIVE_CONVERT_NAMES:
+    globals()[_name] = _make_fnx_convert_router(_name)
+
+
 def __getattr__(name):
     import networkx.convert as _src
 
