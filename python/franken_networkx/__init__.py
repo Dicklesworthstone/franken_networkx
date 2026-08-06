@@ -27037,11 +27037,21 @@ def line_graph(G, create_using=None):
     return graph
 
 
-def make_max_clique_graph(G, create_using=None):
+def make_max_clique_graph(G, create_using=None, *, backend=None, **backend_kwargs):
     """Return the maximal-clique intersection graph of *G*.
 
     br-r37-c1-cfcls: Always use fnx type as default, not G.__class__.
+
+    br-r37-c1-9hnq3: nx's signature is
+    ``(G, create_using=None, *, backend=None, **backend_kwargs)``; this one
+    omitted the dispatch keywords, so the coverage matrix classified it as
+    PARTIAL surface coverage and ``make_max_clique_graph(G, backend=...)``
+    raised TypeError where nx accepts it. The gap was invisible while the
+    FeatureUniverse extractor could not import networkx at all.
     """
+    _validate_backend_dispatch_keywords(
+        "make_max_clique_graph", backend, backend_kwargs
+    )
     if G.is_directed():
         raise NetworkXNotImplemented("not implemented for directed type")
     graph = _empty_graph_from_create_using(create_using, default=_concrete_class_for(G))

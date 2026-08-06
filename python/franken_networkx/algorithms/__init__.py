@@ -601,6 +601,28 @@ def _install_fnx_native_algorithm_aliases():
 _install_fnx_native_algorithm_aliases()
 
 
+# br-r37-c1-9hnq3: the installer above gives every routed function the signature
+# `(*args, **kwargs)`, which the coverage matrix scores as PARTIAL coverage of
+# the nx surface rather than present. Most routed names are already accounted for
+# at that grade in the pinned numbers; `make_max_clique_graph` had regressed away
+# from `present` on both this path and `franken_networkx.clique`, so it is spelled
+# out. Attaching `__wrapped__` inside `_make_router` would fix the whole family at
+# once and is probably right, but it would reclassify hundreds of paths and needs
+# its own regenerated baseline — filed separately, not smuggled in here.
+def make_max_clique_graph(G, create_using=None, *, backend=None, **backend_kwargs):
+    """Return the maximal clique graph of the given graph.
+
+    Routes to ``franken_networkx.make_max_clique_graph`` (fnx-native) with nx's
+    signature spelled out. See ``networkx.algorithms.clique.make_max_clique_graph``
+    for semantics.
+    """
+    import franken_networkx as _fnx_call
+
+    return _fnx_call.make_max_clique_graph(
+        G, create_using=create_using, backend=backend, **backend_kwargs
+    )
+
+
 def __getattr__(name):
     import networkx.algorithms as _src
 

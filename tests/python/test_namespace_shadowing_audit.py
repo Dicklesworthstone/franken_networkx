@@ -151,10 +151,22 @@ def test_convert_namespace_routes_to_the_native(name):
 
     from franken_networkx import convert as fnx_convert
 
+    import inspect
+
     routed = getattr(fnx_convert, name)
-    assert routed is not getattr(nx_convert, name)
+    reference = getattr(nx_convert, name)
+    assert routed is not reference
     assert routed.__doc__ is not None
-    assert f"franken_networkx.{name}" in routed.__doc__
+
+    # br-r37-c1-9hnq3: signature equality, not a docstring substring. The first
+    # version of this test asserted the generic router's "Route to
+    # franken_networkx.X" docstring — which passed happily while the router
+    # forwarded `*args, **kwargs` and thereby demoted the entry point to PARTIAL
+    # surface coverage in docs/coverage.md. Signature is the property the
+    # coverage matrix actually grades, so assert that.
+    assert inspect.signature(routed) == inspect.signature(reference), (
+        f"franken_networkx.convert.{name} no longer mirrors networkx's signature"
+    )
 
 
 def test_convert_namespace_values_match_networkx():

@@ -39,10 +39,19 @@ __all__ = list(
 # etc. silently resolved to nx's instead of fnx's native versions. ``make_clique_bipartite``
 # already overrides below; route the rest to the fnx top-level functions via
 # call-time closure wrappers (import-order robust).
+# br-r37-c1-9hnq3: ``make_max_clique_graph`` is deliberately NOT in this tuple.
+# The generic router below forwards ``*args, **kwargs``, which the coverage
+# matrix classifies as PARTIAL coverage of the nx surface rather than present —
+# `inspect.signature`, `help()` and keyword-only enforcement all degrade through
+# it. It is spelled out below instead, like ``make_clique_bipartite``.
+#
+# The other six here have the same weakness and are left alone on purpose: they
+# are already accounted for in the pinned coverage numbers, whereas
+# ``make_max_clique_graph`` had regressed away from them. Converting the rest is
+# a real improvement but a separate, wider change — filed, not smuggled in here.
 _FNX_NATIVE_CLIQUE_NAMES = (
     "find_cliques",
     "find_cliques_recursive",
-    "make_max_clique_graph",
     "node_clique_number",
     "number_of_cliques",
     "enumerate_all_cliques",
@@ -65,6 +74,17 @@ def _make_fnx_clique_router(_fn_name):
 
 for _name in _FNX_NATIVE_CLIQUE_NAMES:
     globals()[_name] = _make_fnx_clique_router(_name)
+
+
+def make_max_clique_graph(G, create_using=None, *, backend=None, **backend_kwargs):
+    """Return the maximal clique graph of the given graph.
+
+    Routes to ``franken_networkx.make_max_clique_graph`` (fnx-native) with nx's
+    signature spelled out — see the note on ``_FNX_NATIVE_CLIQUE_NAMES``.
+    """
+    return _fnx.make_max_clique_graph(
+        G, create_using=create_using, backend=backend, **backend_kwargs
+    )
 
 
 def make_clique_bipartite(G, fpos=None, create_using=None, name=None, *, backend=None, **backend_kwargs):

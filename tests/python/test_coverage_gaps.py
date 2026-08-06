@@ -95,9 +95,22 @@ def test_feature_universe_classifies_every_path_without_rounding_partial_up():
 
     assert len(by_path) == len(rows) == 4926
     assert set(statuses) == {"present", "partial", "missing", "n/a", "excluded"}
+    # br-r37-c1-9hnq3: 3399 -> 3403 present, 700 -> 696 partial. Four paths moved
+    # partial -> present and NOTHING moved the other way (verified by diffing the
+    # regenerated matrix against the committed one, row by row):
+    #   networkx.algorithms.clique.make_max_clique_graph
+    #   networkx.algorithms.make_max_clique_graph
+    #   networkx.MultiGraph.adj
+    #   networkx.classes.MultiGraph.adj
+    # The first two are this bead's own fix. The `adj` pair was already repaired
+    # in the code and simply had never been reflected here, because the seven
+    # tests in this file all errored on a networkx import before reaching an
+    # assertion — which is also how four k_core-family REGRESSIONS
+    # (present -> partial) slipped in unnoticed; those are repaired in
+    # franken_networkx/core.py rather than absorbed into these numbers.
     assert statuses == {
-        "present": 3399,
-        "partial": 700,
+        "present": 3403,
+        "partial": 696,
         "missing": 30,
         "n/a": 1,
         "excluded": 796,
@@ -119,8 +132,11 @@ def test_feature_universe_classifies_every_path_without_rounding_partial_up():
         statuses["present"] + statuses["partial"] + statuses["missing"]
     )
     assert applicable == 4129
+    # br-r37-c1-9hnq3: 3399/4129 -> 3403/4129. The denominator is unchanged, so
+    # this is the same four paths moving partial -> present, not a shift in what
+    # counts as applicable.
     assert statuses["present"] / applicable == pytest.approx(
-        0.8232017437636232
+        0.8241705013320416
     )
 
 
@@ -155,9 +171,11 @@ def test_feature_universe_reports_every_family_not_only_a_headline():
 
     assert "## Per-family strict surface coverage" in rendered
     assert all(f"| `{family}` |" in rendered for family in families)
+    # br-r37-c1-9hnq3: 3399 -> 3403 (82.3% -> 82.4%); see the itemised note on
+    # test_feature_universe_classifies_every_path_without_rounding_partial_up.
     assert (
-        "a real user can port **3399 of 4129 applicable NetworkX feature "
-        "paths today (82.3%)**"
+        "a real user can port **3403 of 4129 applicable NetworkX feature "
+        "paths today (82.4%)**"
     ) in rendered
 
 

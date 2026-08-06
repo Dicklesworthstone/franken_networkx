@@ -127,7 +127,16 @@ import inspect
 import json
 import pkgutil
 import re
+import sys
 from pathlib import Path
+
+# br-r37-c1-9hnq3: this child runs under -I (isolated), which is what keeps
+# FrankenNetworkX from patching the surface we are measuring — but -I also drops
+# the USER site-packages, which is where networkx itself is installed, so
+# ``import networkx`` raised ModuleNotFoundError and took 7 tests down with it.
+# The parent passes the pinned networkx tree's location as argv[1]; add exactly
+# that one directory and nothing else, so isolation still holds everywhere else.
+sys.path.insert(0, sys.argv[1])
 
 import networkx
 
@@ -390,9 +399,17 @@ print(json.dumps(payload, sort_keys=True))
 @lru_cache(maxsize=1)
 def load_feature_universe_reference() -> dict:
     """Extract the pinned NetworkX surface without FrankenNetworkX patching it."""
+    # br-r37-c1-9hnq3: locate the pinned networkx tree in THIS process (where it
+    # is importable) and hand the child its parent directory. The child runs
+    # isolated, so it cannot find networkx on its own.
+    import networkx as _networkx_for_location
+
+    networkx_site = str(
+        Path(_networkx_for_location.__file__).resolve().parent.parent
+    )
     try:
         completed = subprocess.run(  # nosec B603 - argv is fixed and shell is disabled
-            [sys.executable, "-I", "-c", _NETWORKX_SURFACE_EXTRACTOR],
+            [sys.executable, "-I", "-c", _NETWORKX_SURFACE_EXTRACTOR, networkx_site],
             check=False,
             capture_output=True,
             text=True,

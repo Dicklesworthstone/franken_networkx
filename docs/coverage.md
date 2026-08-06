@@ -29,11 +29,11 @@
 | `algorithms.link_analysis` | 9 | 3 | 0 | 0 | 11 | 12 | 75.0% |
 | `algorithms.minors` | 14 | 6 | 0 | 0 | 3 | 20 | 70.0% |
 | `algorithms.operators` | 63 | 21 | 0 | 0 | 19 | 84 | 75.0% |
-| `algorithms.other` | 417 | 220 | 0 | 0 | 164 | 637 | 65.5% |
+| `algorithms.other` | 419 | 218 | 0 | 0 | 164 | 637 | 65.8% |
 | `algorithms.shortest_paths` | 138 | 46 | 0 | 0 | 24 | 184 | 75.0% |
 | `algorithms.traversal` | 38 | 34 | 0 | 0 | 23 | 72 | 52.8% |
 | `algorithms.tree` | 78 | 46 | 6 | 0 | 17 | 130 | 60.0% |
-| `classes` | 796 | 130 | 0 | 0 | 35 | 926 | 86.0% |
+| `classes` | 798 | 128 | 0 | 0 | 35 | 926 | 86.2% |
 | `configuration` | 1 | 0 | 0 | 0 | 0 | 1 | 100.0% |
 | `conversion` | 33 | 1 | 0 | 0 | 3 | 34 | 97.1% |
 | `drawing` | 118 | 3 | 0 | 0 | 18 | 121 | 97.5% |
@@ -45,9 +45,9 @@
 | `readwrite` | 236 | 0 | 24 | 0 | 54 | 260 | 90.8% |
 | `runtime` | 2 | 0 | 0 | 0 | 1 | 2 | 100.0% |
 | `utils` | 150 | 0 | 0 | 0 | 21 | 150 | 100.0% |
-| **All families** | **3399** | **700** | **30** | **1** | **796** | **4129** | **82.3%** |
+| **All families** | **3403** | **696** | **30** | **1** | **796** | **4129** | **82.4%** |
 
-At the declared import-and-signature surface measured here, a real user can port **3399 of 4129 applicable NetworkX feature paths today (82.3%)**; the 700 partial and 30 missing paths are not counted as portable, and this is not a behavioral-conformance score.
+At the declared import-and-signature surface measured here, a real user can port **3403 of 4129 applicable NetworkX feature paths today (82.4%)**; the 696 partial and 30 missing paths are not counted as portable, and this is not a behavioral-conformance score.
 
 ## Exhaustive FeatureUniverse
 
@@ -1540,7 +1540,7 @@ At the declared import-and-signature surface measured here, a real user can port
 | `algorithms.other` | `networkx.algorithms.clique.find_cliques` | `callable` | `partial` | `franken_networkx.algorithms.clique.find_cliques` | signature differs: NetworkX `(G, nodes=None, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
 | `algorithms.other` | `networkx.algorithms.clique.find_cliques_recursive` | `callable` | `partial` | `franken_networkx.algorithms.clique.find_cliques_recursive` | signature differs: NetworkX `(G, nodes=None, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
 | `algorithms.other` | `networkx.algorithms.clique.make_clique_bipartite` | `callable` | `present` | `franken_networkx.algorithms.clique.make_clique_bipartite` | binding kind and signature match |
-| `algorithms.other` | `networkx.algorithms.clique.make_max_clique_graph` | `callable` | `partial` | `franken_networkx.algorithms.clique.make_max_clique_graph` | signature differs: NetworkX `(G, create_using=None, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
+| `algorithms.other` | `networkx.algorithms.clique.make_max_clique_graph` | `callable` | `present` | `franken_networkx.algorithms.clique.make_max_clique_graph` | binding kind and signature match |
 | `algorithms.other` | `networkx.algorithms.clique.max_weight_clique` | `callable` | `partial` | `franken_networkx.algorithms.clique.max_weight_clique` | signature differs: NetworkX `(G, weight='weight', *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
 | `algorithms.other` | `networkx.algorithms.clique.node_clique_number` | `callable` | `partial` | `franken_networkx.algorithms.clique.node_clique_number` | signature differs: NetworkX `(G, nodes=None, cliques=None, separate_nodes=False, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
 | `algorithms.other` | `networkx.algorithms.clique.number_of_cliques` | `callable` | `partial` | `franken_networkx.algorithms.clique.number_of_cliques` | signature differs: NetworkX `(G, nodes=None, cliques=None)`; FrankenNetworkX `(*args, **kwargs)` |
@@ -1773,7 +1773,7 @@ At the declared import-and-signature surface measured here, a real user can port
 | `algorithms.other` | `networkx.algorithms.lowest_common_ancestors.lowest_common_ancestor` | `callable` | `present` | `franken_networkx.algorithms.lowest_common_ancestors.lowest_common_ancestor` | binding kind and signature match |
 | `algorithms.other` | `networkx.algorithms.lowest_common_ancestors.tree_all_pairs_lowest_common_ancestor` | `callable` | `present` | `franken_networkx.algorithms.lowest_common_ancestors.tree_all_pairs_lowest_common_ancestor` | binding kind and signature match |
 | `algorithms.other` | `networkx.algorithms.make_clique_bipartite` | `callable` | `partial` | `franken_networkx.algorithms.make_clique_bipartite` | signature differs: NetworkX `(G, fpos=None, create_using=None, name=None, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
-| `algorithms.other` | `networkx.algorithms.make_max_clique_graph` | `callable` | `partial` | `franken_networkx.algorithms.make_max_clique_graph` | signature differs: NetworkX `(G, create_using=None, *, backend=None, **backend_kwargs)`; FrankenNetworkX `(*args, **kwargs)` |
+| `algorithms.other` | `networkx.algorithms.make_max_clique_graph` | `callable` | `present` | `franken_networkx.algorithms.make_max_clique_graph` | binding kind and signature match |
 | `algorithms.other` | `networkx.algorithms.matching` | `module` | `excluded` | `franken_networkx.algorithms.matching` | namespace container; its declared callable, class, and value members are enumerated as separate qualified FeatureUniverse rows |
 | `algorithms.other` | `networkx.algorithms.matching.is_matching` | `callable` | `present` | `franken_networkx.algorithms.matching.is_matching` | binding kind and signature match |
 | `algorithms.other` | `networkx.algorithms.matching.is_maximal_matching` | `callable` | `present` | `franken_networkx.algorithms.matching.is_maximal_matching` | binding kind and signature match |
@@ -2861,7 +2861,7 @@ At the declared import-and-signature surface measured here, a real user can port
 | `classes` | `networkx.MultiGraph.add_node` | `method` | `present` | `franken_networkx.MultiGraph.add_node` | class-member kind and signature match |
 | `classes` | `networkx.MultiGraph.add_nodes_from` | `method` | `present` | `franken_networkx.MultiGraph.add_nodes_from` | class-member kind and signature match |
 | `classes` | `networkx.MultiGraph.add_weighted_edges_from` | `method` | `present` | `franken_networkx.MultiGraph.add_weighted_edges_from` | class-member kind and signature match |
-| `classes` | `networkx.MultiGraph.adj` | `descriptor` | `partial` | `franken_networkx.MultiGraph.adj` | class-member kind differs: NetworkX exposes `descriptor`, FrankenNetworkX exposes `property` |
+| `classes` | `networkx.MultiGraph.adj` | `descriptor` | `present` | `franken_networkx.MultiGraph.adj` | class-member binding kind matches |
 | `classes` | `networkx.MultiGraph.adjacency` | `method` | `present` | `franken_networkx.MultiGraph.adjacency` | class-member kind and signature match |
 | `classes` | `networkx.MultiGraph.adjlist_inner_dict_factory` | `method` | `present` | `franken_networkx.MultiGraph.adjlist_inner_dict_factory` | class-member kind matches; NetworkX exposes no inspectable signature |
 | `classes` | `networkx.MultiGraph.adjlist_outer_dict_factory` | `method` | `present` | `franken_networkx.MultiGraph.adjlist_outer_dict_factory` | class-member kind matches; NetworkX exposes no inspectable signature |
@@ -3202,7 +3202,7 @@ At the declared import-and-signature surface measured here, a real user can port
 | `classes` | `networkx.classes.MultiGraph.add_node` | `method` | `present` | `franken_networkx.classes.MultiGraph.add_node` | class-member kind and signature match |
 | `classes` | `networkx.classes.MultiGraph.add_nodes_from` | `method` | `present` | `franken_networkx.classes.MultiGraph.add_nodes_from` | class-member kind and signature match |
 | `classes` | `networkx.classes.MultiGraph.add_weighted_edges_from` | `method` | `present` | `franken_networkx.classes.MultiGraph.add_weighted_edges_from` | class-member kind and signature match |
-| `classes` | `networkx.classes.MultiGraph.adj` | `descriptor` | `partial` | `franken_networkx.classes.MultiGraph.adj` | class-member kind differs: NetworkX exposes `descriptor`, FrankenNetworkX exposes `property` |
+| `classes` | `networkx.classes.MultiGraph.adj` | `descriptor` | `present` | `franken_networkx.classes.MultiGraph.adj` | class-member binding kind matches |
 | `classes` | `networkx.classes.MultiGraph.adjacency` | `method` | `present` | `franken_networkx.classes.MultiGraph.adjacency` | class-member kind and signature match |
 | `classes` | `networkx.classes.MultiGraph.adjlist_inner_dict_factory` | `method` | `present` | `franken_networkx.classes.MultiGraph.adjlist_inner_dict_factory` | class-member kind matches; NetworkX exposes no inspectable signature |
 | `classes` | `networkx.classes.MultiGraph.adjlist_outer_dict_factory` | `method` | `present` | `franken_networkx.classes.MultiGraph.adjlist_outer_dict_factory` | class-member kind matches; NetworkX exposes no inspectable signature |
@@ -4989,11 +4989,11 @@ The FeatureUniverse above measures NetworkX-qualified import and signature surfa
 | Category | Count | % | Rule |
 |----------|-------|---|------|
 | RUST_NATIVE | 1 | 0% | native extension exports from `franken_networkx._fnx` |
-| PY_WRAPPER | 732 | 95% | Python-defined exports with no runtime NetworkX dependency detected |
+| PY_WRAPPER | 735 | 92% | Python-defined exports with no runtime NetworkX dependency detected |
 | NX_DELEGATED | 0 | 0% | Python-defined exports that import or call NetworkX at runtime |
 | CLASS | 28 | 3% | public classes, exceptions, iterators |
-| CONSTANT | 2 | 0% | public non-callable values |
-| **Total public exports** | **763** | | unique names from `franken_networkx.__all__` |
+| CONSTANT | 29 | 3% | public non-callable values |
+| **Total public exports** | **793** | | unique names from `franken_networkx.__all__` |
 
 All declared public exports are classified. `--check` fails if this generated report drifts from the live module surface.
 
@@ -5004,11 +5004,11 @@ This ledger separates the broad public-export category from source-visible runti
 | Runtime route | Exports | Helper call sites | Rule |
 |---------------|---------|-------------------|------|
 | RUST_NATIVE | 1 | 0 | native extension export from `franken_networkx._fnx` |
-| PY_WRAPPER | 606 | 0 | Python-defined export with no visible NetworkX route |
+| PY_WRAPPER | 609 | 0 | Python-defined export with no visible NetworkX route |
 | NETWORKX_HELPER | 126 | 175 | Python-defined export with `_call_networkx_*_for_parity(...)` branches |
 | DIRECT_NETWORKX | 0 | 0 | Python-defined export that directly imports or calls NetworkX |
 | CLASS | 28 | 0 | public classes, exceptions, iterators |
-| CONSTANT | 2 | 0 | public non-callable values |
+| CONSTANT | 29 | 0 | public non-callable values |
 
 `NETWORKX_HELPER` currently covers 126 public export(s) and 175 parity-helper call site(s).
 
@@ -5199,12 +5199,12 @@ This ledger makes divergence ownership explicit. Rows come from AST-visible publ
 
 | Module | Count |
 |--------|-------|
-| `franken_networkx` | 676 |
+| `franken_networkx` | 680 |
 | `franken_networkx.readwrite` | 32 |
+| `builtins` | 28 |
 | `franken_networkx.drawing.nx_pylab` | 21 |
 | `franken_networkx.drawing.layout` | 15 |
 | `networkx.exception` | 12 |
-| `builtins` | 2 |
 | `franken_networkx._fnx` | 1 |
 | `franken_networkx.bridges` | 1 |
 | `franken_networkx.reciprocity` | 1 |
@@ -5215,7 +5215,7 @@ This ledger makes divergence ownership explicit. Rows come from AST-visible publ
 
 - `is_empty`
 
-## PY_WRAPPER exports (732)
+## PY_WRAPPER exports (735)
 
 - `LCF_graph`
 - `LFR_benchmark_graph`
@@ -5627,6 +5627,7 @@ This ledger makes divergence ownership explicit. Rows come from AST-visible publ
 - `kamada_kawai_layout`
 - `karate_club_graph`
 - `katz_centrality`
+- `katz_centrality_many`
 - `katz_centrality_numpy`
 - `kemeny_constant`
 - `kl_connected_subgraph`
@@ -5738,6 +5739,7 @@ This ledger makes divergence ownership explicit. Rows come from AST-visible publ
 - `out_degree_centrality`
 - `overall_reciprocity`
 - `pagerank`
+- `pagerank_many`
 - `paley_graph`
 - `panther_similarity`
 - `panther_vector_similarity`
@@ -5833,6 +5835,7 @@ This ledger makes divergence ownership explicit. Rows come from AST-visible publ
 - `shell_layout`
 - `shortest_path`
 - `shortest_path_length`
+- `shortest_path_length_matrix`
 - `shortest_simple_paths`
 - `sigma`
 - `simple_cycles`
@@ -5984,7 +5987,34 @@ This ledger makes divergence ownership explicit. Rows come from AST-visible publ
 - `TimeRespectingDiGraphMatcher`
 - `TimeRespectingGraphMatcher`
 
-## CONSTANT exports (2)
+## CONSTANT exports (29)
 
 - `__version__`
+- `approximation`
+- `bipartite`
+- `chordal`
+- `clique`
+- `community`
+- `components`
+- `convert_matrix`
+- `core`
+- `dag`
+- `drawing`
+- `euler`
+- `flow`
+- `hybrid`
 - `isomorphism`
+- `minors`
+- `moral`
+- `operators`
+- `planarity`
+- `readwrite`
+- `regular`
+- `smallworld`
+- `sparsifiers`
+- `summarization`
+- `swap`
+- `tournament`
+- `traversal`
+- `tree`
+- `triads`

@@ -48,36 +48,66 @@ def to_dict_of_lists(G, nodelist=None):
 # two wrappers above already fix for `to_dict_of_dicts` / `to_dict_of_lists`,
 # and the same routing the bead prescribes.
 #
-# Forwarded with `*args, **kwargs` rather than restated signatures on purpose:
-# these take `create_using` / `multigraph_input` / `nodelist` and a restated
-# signature is one upstream keyword away from silently diverging. The top-level
-# functions own the contract; this module only decides WHICH object you get.
-_FNX_NATIVE_CONVERT_NAMES = (
-    "from_dict_of_dicts",
-    "from_dict_of_lists",
-    "from_edgelist",
-    "to_edgelist",
-    "to_networkx_graph",
-)
+# Signatures are restated verbatim from networkx rather than forwarded through
+# `*args, **kwargs`. A generic router is tempting and was tried first, but the
+# coverage matrix classifies an entry point whose signature reads
+# `(*args, **kwargs)` as PARTIAL coverage of the nx surface, not present — and it
+# is right to: `help()`, `inspect.signature`, IDE completion and keyword-only
+# enforcement all degrade. `to_dict_of_dicts` / `to_dict_of_lists` above already
+# spell theirs out; these match.
 
 
-def _make_fnx_convert_router(_fn_name):
-    def _routed(*args, **kwargs):
-        import franken_networkx as _fnx
+def from_dict_of_dicts(
+    d, create_using=None, multigraph_input=False, *, backend=None, **backend_kwargs
+):
+    """Return a graph from a dictionary of dictionaries."""
+    import franken_networkx as _fnx
 
-        return getattr(_fnx, _fn_name)(*args, **kwargs)
-
-    _routed.__name__ = _fn_name
-    _routed.__qualname__ = _fn_name
-    _routed.__doc__ = (
-        f"Route to ``franken_networkx.{_fn_name}`` (fnx-native). See "
-        f"``networkx.convert.{_fn_name}`` for semantics."
+    return _fnx.from_dict_of_dicts(
+        d,
+        create_using=create_using,
+        multigraph_input=multigraph_input,
+        backend=backend,
+        **backend_kwargs,
     )
-    return _routed
 
 
-for _name in _FNX_NATIVE_CONVERT_NAMES:
-    globals()[_name] = _make_fnx_convert_router(_name)
+def from_dict_of_lists(d, create_using=None, *, backend=None, **backend_kwargs):
+    """Return a graph from a dictionary of lists."""
+    import franken_networkx as _fnx
+
+    return _fnx.from_dict_of_lists(
+        d, create_using=create_using, backend=backend, **backend_kwargs
+    )
+
+
+def from_edgelist(edgelist, create_using=None, *, backend=None, **backend_kwargs):
+    """Return a graph from a list of edges."""
+    import franken_networkx as _fnx
+
+    return _fnx.from_edgelist(
+        edgelist, create_using=create_using, backend=backend, **backend_kwargs
+    )
+
+
+def to_edgelist(G, nodelist=None, *, backend=None, **backend_kwargs):
+    """Return a list of edges in the graph."""
+    import franken_networkx as _fnx
+
+    return _fnx.to_edgelist(G, nodelist=nodelist, backend=backend, **backend_kwargs)
+
+
+def to_networkx_graph(data, create_using=None, multigraph_input=False):
+    """Make a graph from a known data structure.
+
+    No ``backend`` keyword: networkx's own ``to_networkx_graph`` does not take
+    one, and adding it here would diverge from the surface being mirrored.
+    """
+    import franken_networkx as _fnx
+
+    return _fnx.to_networkx_graph(
+        data, create_using=create_using, multigraph_input=multigraph_input
+    )
 
 
 def __getattr__(name):

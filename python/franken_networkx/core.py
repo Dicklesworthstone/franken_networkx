@@ -52,13 +52,18 @@ __all__ = list(
 # what the published k_core incumbent gate actually measures. Route to them, exactly
 # as ``onion_layers`` below already does, so there is ONE implementation to keep
 # parity-correct instead of two that can silently drift apart.
+# br-r37-c1-9hnq3: the k-* four are deliberately NOT routed through the generic
+# wrapper below. It forwards `*args, **kwargs`, and docs/coverage.md recorded all
+# four as `present` — matching nx's signature — before that routing landed; the
+# generic wrapper silently demoted them to `partial`. The regression was
+# invisible because the FeatureUniverse extractor could not import networkx, so
+# every test that would have caught it errored out first.
+#
+# `core_number` and `k_truss` keep the generic router: they are already carried
+# at that grade in the pinned numbers, so changing them is a separate call.
 _FNX_NATIVE_CORE_NAMES = (
     "core_number",
     "k_truss",
-    "k_core",
-    "k_shell",
-    "k_crust",
-    "k_corona",
 )
 
 
@@ -77,6 +82,38 @@ def _make_fnx_core_router(_fn_name):
 
 for _name in _FNX_NATIVE_CORE_NAMES:
     globals()[_name] = _make_fnx_core_router(_name)
+
+
+def k_core(G, k=None, core_number=None, *, backend=None, **backend_kwargs):
+    """Return the k-core of G. Routes to ``franken_networkx.k_core``."""
+    return _fnx.k_core(
+        G, k=k, core_number=core_number, backend=backend, **backend_kwargs
+    )
+
+
+def k_shell(G, k=None, core_number=None, *, backend=None, **backend_kwargs):
+    """Return the k-shell of G. Routes to ``franken_networkx.k_shell``."""
+    return _fnx.k_shell(
+        G, k=k, core_number=core_number, backend=backend, **backend_kwargs
+    )
+
+
+def k_crust(G, k=None, core_number=None, *, backend=None, **backend_kwargs):
+    """Return the k-crust of G. Routes to ``franken_networkx.k_crust``."""
+    return _fnx.k_crust(
+        G, k=k, core_number=core_number, backend=backend, **backend_kwargs
+    )
+
+
+def k_corona(G, k, core_number=None, *, backend=None, **backend_kwargs):
+    """Return the k-corona of G. Routes to ``franken_networkx.k_corona``.
+
+    ``k`` is positional-required here, as in networkx — unlike its three
+    siblings above, which default it to None.
+    """
+    return _fnx.k_corona(
+        G, k, core_number=core_number, backend=backend, **backend_kwargs
+    )
 
 
 def onion_layers(G, *, backend=None, **backend_kwargs):
