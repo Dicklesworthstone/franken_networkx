@@ -17,11 +17,9 @@ from franken_networkx.drawing.nx_pylab import (
     draw_shell,
     draw_spectral,
     draw_spring,
-    generate_network_text,
     to_latex,
     to_latex_raw,
     write_latex,
-    write_network_text,
 )
 from franken_networkx.drawing.layout import (
     arf_layout,

@@ -23103,6 +23103,7 @@ from franken_networkx.readwrite import (
 )
 
 
+
 def _edgelist_native_writer_preserves_node_labels(G):
     return not any(isinstance(node, str) for node in G.nodes())
 
@@ -56841,7 +56842,6 @@ from franken_networkx.drawing import (
     draw_shell,
     draw_spectral,
     draw_spring,
-    generate_network_text,
     circular_layout,
     forceatlas2_layout,
     fruchterman_reingold_layout,
@@ -56857,7 +56857,27 @@ from franken_networkx.drawing import (
     to_latex,
     to_latex_raw,
     write_latex,
-    write_network_text,
+)
+
+# br-r37-c1-s2nw9: networkx defines the network-text renderers in
+# ``networkx/readwrite/text.py`` and re-exports them at TOP LEVEL only — they are
+# NOT attributes of ``nx.drawing``. fnx defines them in ``drawing/nx_pylab.py``
+# and used to surface them through ``drawing/__init__.py``, so
+# ``fnx.drawing.<name>`` resolved where ``nx.drawing.<name>`` raises
+# AttributeError. Import from the DEFINING module directly and leave the
+# ``drawing`` package clean.
+#
+# Not imported from ``franken_networkx.readwrite`` despite that being upstream's
+# home for them: its ``generate_network_text`` / ``write_network_text`` are
+# FORWARDERS that call back into this top-level name, so binding it from there is
+# an infinite recursion (observed — it is why this import points at nx_pylab).
+# There is likewise no fnx ``readwrite/text.py`` to relocate the definitions
+# into: ``fnx.readwrite.text`` already resolves to networkx's own module by
+# fallthrough, which is exactly the parity wanted, and shadowing it would be a
+# regression rather than a fix.
+from franken_networkx.drawing.nx_pylab import (
+    generate_network_text as generate_network_text,
+    write_network_text as write_network_text,
 )
 
 
