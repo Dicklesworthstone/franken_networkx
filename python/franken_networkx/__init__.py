@@ -62946,6 +62946,53 @@ def __getattr__(name):
         "readwrite",
         "relabel",
         "utils",
+        # br-r37-c1-t6z9m: the remaining 35 fnx-owned submodules that networkx
+        # also has a module for. Without an entry here `getattr(nx, name)` wins
+        # and `fnx.<ns>` IS networkx's module, so every name reached through it
+        # is networkx's implementation whatever the fnx submodule contains.
+        #
+        # Each was checked individually rather than swept in, as the bead
+        # required: for every one below, the fnx submodule genuinely overrides
+        # at least one name that networkx also exports (counts ranged 1-4, e.g.
+        # centrality 4, link_analysis 3 (pagerank/hits/google_matrix), boundary 2,
+        # walks 1). `exception` is DELIBERATELY absent — it is a pure re-export,
+        # so allowlisting it would change which module object is returned while
+        # changing no behaviour.
+        "assortativity",
+        "asteroidal",
+        "boundary",
+        "centrality",
+        "chains",
+        "cluster",
+        "communicability_alg",
+        "covering",
+        "cuts",
+        "cycles",
+        "d_separation",
+        "distance_measures",
+        "dominance",
+        "dominating",
+        "efficiency_measures",
+        "graph_hashing",
+        "graphical",
+        "hierarchy",
+        "isolate",
+        "link_analysis",
+        "link_prediction",
+        "lowest_common_ancestors",
+        "matching",
+        "mis",
+        "perfect_graph",
+        "polynomials",
+        "richclub",
+        "similarity",
+        "simple_paths",
+        "smetric",
+        "structuralholes",
+        "vitality",
+        "voronoi",
+        "walks",
+        "wiener",
     }
     if name in _fnx_submodules:
         import importlib

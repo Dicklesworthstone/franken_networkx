@@ -31,7 +31,25 @@ NAMESPACES = [
     "core", "classes", "regular", "relabel", "planarity", "smallworld",
     "bipartite", "distance_regular", "hybrid", "minors", "swap",
     "convert_matrix", "linalg",
+    # br-r37-c1-t6z9m: the 35 further submodules that were resolving to
+    # networkx's module on the attribute path. Each was allowlisted only after
+    # confirming its fnx file genuinely overrides at least one name networkx
+    # also exports — a pure re-export gains nothing from routing.
+    "assortativity", "asteroidal", "boundary", "centrality", "chains",
+    "cluster", "communicability_alg", "covering", "cuts", "cycles",
+    "d_separation", "distance_measures", "dominance", "dominating",
+    "efficiency_measures", "graph_hashing", "graphical", "hierarchy",
+    "isolate", "link_analysis", "link_prediction", "lowest_common_ancestors",
+    "matching", "mis", "perfect_graph", "polynomials", "richclub",
+    "similarity", "simple_paths", "smetric", "structuralholes", "vitality",
+    "voronoi", "walks", "wiener",
 ]
+
+# br-r37-c1-t6z9m: `exception` is deliberately NOT routed. Its fnx file is a
+# pure re-export — it overrides nothing networkx exports — so allowlisting it
+# would change which module object `fnx.exception` returns while changing no
+# behaviour. Asserted below rather than left as a silent omission.
+DELIBERATELY_NOT_ROUTED = ["exception"]
 
 _NX_CANDIDATES = (
     "networkx.algorithms.{}",
@@ -218,3 +236,35 @@ def test_convert_router_forwards_keywords():
         multigraph_input=True,
     )
     assert multi.is_multigraph()
+
+
+@pytest.mark.parametrize("namespace", DELIBERATELY_NOT_ROUTED)
+def test_pure_reexport_namespaces_are_left_alone(namespace):
+    """br-r37-c1-t6z9m: a namespace that overrides nothing must NOT be routed.
+
+    The rule applied across those 35 submodules was "route it only if the fnx
+    file genuinely overrides a name networkx also exports". `exception` fails
+    that test, so it stays on networkx's module — and this asserts the reason
+    still holds, rather than the outcome. If someone adds a real override to
+    `franken_networkx/exception.py`, this fails and prompts the allowlist entry
+    instead of leaving the shadowing to be rediscovered.
+    """
+    ours = importlib.import_module(f"franken_networkx.{namespace}")
+    theirs = _networkx_counterpart(namespace)
+    assert theirs is not None
+
+    overrides = [
+        name
+        for name in dir(theirs)
+        if not name.startswith("_")
+        and getattr(ours, name, None) is not None
+        and getattr(ours, name, None) is not getattr(theirs, name, None)
+        and (
+            callable(getattr(ours, name))
+            or isinstance(getattr(ours, name), type)
+        )
+    ]
+    assert overrides == [], (
+        f"franken_networkx.{namespace} now overrides {overrides}, so it should "
+        f"be added to the _fnx_submodules allowlist"
+    )
