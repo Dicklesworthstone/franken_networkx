@@ -11,6 +11,34 @@ decide candidate/base on the paired median relative to that null floor, and reco
 as provenance rather than a gate. Historical CV-only measurement rejections remain
 routing history, but they do not close source families under this rule.
 
+## ACROSS-RUN RULE (2026-08-06, br-r37-c1-vz4v9) — applies to every before/after row below
+
+**Per-run CIs describe within-run noise and say nothing about across-run
+reproducibility.**
+
+`perf_harness.py` interleaves nx and fnx inside ONE invocation, so the nx/fnx
+ratio is drift-robust *within* that run. A before/after lever comparison divides
+one run's ratio by another's — a **ratio-of-ratios** — which silently assumes the
+nx arm is the same yardstick in both runs. It often is not.
+
+Every before/after row must therefore report:
+
+1. **the fnx arm's own absolute movement**, not only the ratio; and
+2. **the nx arm's drift between the two runs, as the error floor.**
+
+If the nx arm moved by more than the effect being claimed, the comparison is a
+**NO-VERDICT** no matter how tight either run's CI is — and a NO-VERDICT is not
+evidence of absence any more than of presence.
+
+Worked example, both directions, from the rows that produced this rule:
+
+- `br-r37-c1-vz4v9` published `Graph.get_edge_data` at 1.033x. The fnx arm was
+  0.7% **slower** (277.0 → 278.9 ns); the nx arm had moved +3.9%. Retracted.
+- `br-r37-c1-oe93x` survives the same check: fnx's own time fell 9.1–13.3%
+  across four membership rows while nx drifted 2–4%, so the effect dominates the
+  yardstick. Two rows of that entry (`number_of_nodes`, `order`) did NOT survive
+  and are retracted.
+
 | Date | Scope | Lever | Evidence | Result | Do not repeat / next route |
 | --- | --- | --- | --- | --- | --- |
 | 2026-07-22 | Attributed `Graph(true_iterator)` transactional commit (`br-r37-c1-04z53.9180`, WhiteJaguar) | During the already-required two-epoch iterator normalization pass, build a typed exact-int attributed-edge region alongside the behavior-safe normalized `PyList`; commit that region directly instead of rescanning the list through lossless, duplicate-prefix, tuple, endpoint, and attr-conversion passes. Duplicate, lossy, incompatible, small, exotic, and suffix-retry shapes retain the frozen list fallback before mutation. | Profile on actual RCH worker `vmi1264463` attributed 320.228 ms of a 1180.805 ms full 16-build sample (27.1%) to iterator staging, with commit at 703.307 ms. Final exact binary SHA-256 `b3fdd2ce79b2b7298c3621ef6bdfb7f054d4dc676c50b9d5b2c30ae2034896cd`; actual worker `vmi1149989`, CPU 4, 10 CPUs, pre-run load 1.28, no Cargo/rustc, 10,000 edges, 128 individually interleaved constructions/arm, 21 pairs: candidate/frozen **`1.3594x`**, 21/21 wins, CV `1.849%`, p5-p95 `1.3077x-1.3788x`; candidate null `0.9963x`, 10/21, CV `2.438%`, p5-p95 `0.9579x-1.0271x`. Same-binary native snapshot, node-map, ordered mirror, source-alias, duplicate-fallback parity passed. Strict-RCH public 20,000-edge Criterion on the same named worker: FNX `33.904 ms`, NetworkX `61.920 ms`, **`1.826x`**. Strict-RCH workspace check passed on `hz1`; exact workspace clippy stopped on peer-owned `fnx-classes/src/lib.rs:1719` (`collapsible_if`) before this lever. Three earlier blocked-arm measurements were discarded at candidate/null CVs `9.915/11.680%`, `9.041/8.461%`, and CPU-pinned `7.564/11.067%`. | Keep as a causal `1.3594x` self-speedup and current-worker `1.826x` NetworkX win. | Preserve the normalized-list fallback and two-epoch reset; never direct-commit duplicates, non-lossless attrs, incompatible keys, small batches, or exotic rows. Do not repeat post-materialization tuple/list rescans for eligible private exact-int attr epochs. Next constructor work must use a different public row/primitive; DiGraph affine transfer remains ledger-closed until its recorded clean-worker retry predicate holds. |
