@@ -113,13 +113,49 @@ fn write_canonical_str_key<'b>(
     buf: &'b mut [u8; CANONICAL_KEY_STACK_BUF],
     s: &str,
 ) -> Option<&'b str> {
-    use std::io::Write as _;
+    // br-r37-c1-7faiu: this was `write!(cursor, "str:{}:{s}", s.len())` through
+    // `std::io::Write`. Profiling `Graph.has_node` split the per-probe cost by
+    // key type — an identity-int probe skips canonicalization entirely and cost
+    // 41.2 ns against NetworkX's 37.6 ns, while a string probe cost 90.6 ns
+    // against NetworkX's 40.4 ns. The 49.4 ns difference IS this function, 54.5%
+    // of the whole call, and it is spent in `core::fmt`'s per-argument dynamic
+    // dispatch rather than on any work the canonical form requires.
+    //
+    // The form is a fixed ASCII prefix, the decimal byte-length, a colon, and
+    // the raw bytes, so it assembles from two `copy_from_slice` calls and a
+    // hand-rolled decimal. Output is byte-identical, which is the property the
+    // borrowed lookup depends on and which
+    // `canonical_node_key_in_matches_the_owned_canonical` sweeps across every
+    // key kind and both sides of the buffer boundary.
+    let bytes = s.as_bytes();
+    let len = bytes.len();
+    // A key whose bytes alone overflow the buffer cannot fit with a prefix, and
+    // bailing here keeps the decimal below four digits for the writer.
+    if len >= CANONICAL_KEY_STACK_BUF {
+        return None;
+    }
+    let width = decimal_width(len);
+    let used = 4 + width + 1 + len;
+    if used > CANONICAL_KEY_STACK_BUF {
+        return None;
+    }
 
-    let used = {
-        let mut cursor: &mut [u8] = &mut buf[..];
-        write!(cursor, "str:{}:{s}", s.len()).ok()?;
-        CANONICAL_KEY_STACK_BUF - cursor.len()
-    };
+    buf[..4].copy_from_slice(b"str:");
+    // `len < CANONICAL_KEY_STACK_BUF` (128), so this is 1..=3 digits, written
+    // least-significant first from the end of the reserved field.
+    let mut rest = len;
+    let mut at = 4 + width;
+    loop {
+        at -= 1;
+        buf[at] = b'0' + (rest % 10) as u8;
+        rest /= 10;
+        if rest == 0 {
+            break;
+        }
+    }
+    buf[4 + width] = b':';
+    buf[5 + width..used].copy_from_slice(bytes);
+
     // Always valid UTF-8: an ASCII prefix followed by an existing `&str`.
     core::str::from_utf8(&buf[..used]).ok()
 }
@@ -17223,6 +17259,57 @@ class FnxMultiGraphCtorEdgeIterable:
         let fits = "y".repeat(16);
         let written = write_canonical_str_key(&mut buf, &fits).expect("a short key should fit");
         assert_eq!(written, format!("str:{}:{fits}", fits.len()));
+    }
+
+    /// br-r37-c1-7faiu: the hand-rolled writer replaced a `write!` call, so the
+    /// only thing that matters is that it still emits the SAME bytes and refuses
+    /// at the SAME boundary. `format!("str:{len}:{s}")` is the reference the old
+    /// implementation was, checked here for every length across the buffer
+    /// boundary and for multi-byte input, where byte length and char count part
+    /// company.
+    #[test]
+    fn canonical_stack_writer_is_byte_identical_to_the_format_reference() {
+        let mut buf = [0u8; CANONICAL_KEY_STACK_BUF];
+
+        let mut cases: Vec<String> = (0..=CANONICAL_KEY_STACK_BUF + 4)
+            .map(|n| "a".repeat(n))
+            .collect();
+        // Multi-byte: 3 bytes per char, so the canonical straddles the buffer
+        // while the char count stays far below it.
+        cases.extend((0..=(CANONICAL_KEY_STACK_BUF + 6) / 3).map(|n| "\u{3042}".repeat(n)));
+        // Digit-width transitions, where a hand-rolled decimal is likeliest to
+        // be off by one.
+        for n in [0_usize, 1, 9, 10, 11, 99, 100, 101, 122, 123] {
+            cases.push("z".repeat(n));
+        }
+        cases.push("emb\u{0}edded nul".to_owned());
+        cases.push("has:colons:inside".to_owned());
+        cases.push("str:3:abc".to_owned());
+
+        for key in &cases {
+            let reference = format!("str:{}:{key}", key.len());
+            let fits = reference.len() <= CANONICAL_KEY_STACK_BUF;
+            match write_canonical_str_key(&mut buf, key) {
+                Some(written) => {
+                    assert!(
+                        fits,
+                        "wrote a {}-byte canonical into a {CANONICAL_KEY_STACK_BUF}-byte buffer",
+                        reference.len()
+                    );
+                    assert_eq!(
+                        written,
+                        reference,
+                        "canonical diverged for a {}-byte key",
+                        key.len()
+                    );
+                }
+                None => assert!(
+                    !fits,
+                    "refused a {}-byte canonical that fits",
+                    reference.len()
+                ),
+            }
+        }
     }
 
     #[test]

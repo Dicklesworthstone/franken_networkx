@@ -37,6 +37,123 @@ admission history, host, scope source, process affinity, monitored CPU set,
 checked-window count, maximum observed busy fraction, and maximum consecutive
 busy-window count.
 
+## 2026-08-08 OliveDesert SHIPPED, STILL A LOSS: `core::fmt` removed from the canonical node key — `has_node(present)` **`0.5178x` -> `0.6937x`**, and my own premise for this bead was WRONG (`br-r37-c1-7faiu`)
+
+FIRST, THE CORRECTION, BECAUSE IT INVALIDATES WHAT I FILED. `br-r37-c1-7faiu`
+claimed `G.has_node` pays a Python wrapper (`_private_aware_has_node` ->
+`_private_override` -> raw native) that `__contains__` sheds natively, and
+attributed the inversion to that. **That is false.** I read the wrapper's
+definition and never proved it was installed.
+`grep -n "_private_aware_has_node"` returns exactly one hit — its own `def` at
+`python/franken_networkx/__init__.py:44976`. It is **never called**.
+`Graph.has_node` is `<method 'has_node' of 'franken_networkx.Graph' objects>`,
+the raw native method; line 45328 assigns the natively-captured method back to
+the class, which is a no-op restore. The ordered lever, "route `G.has_node`
+through the direct backend fast path", was already in place before I started.
+This is the `pyo3_wrapper_can_itself_be_dead` trap and I walked into it.
+
+WHAT THE PROFILE ACTUALLY SAID. The native `has_node` has an identity-int fast
+path that returns BEFORE any canonicalization, so comparing key types splits
+the per-probe cost without a profiler (net of an empty-loop floor, 512 probes
+per call):
+
+| arm | ns/probe | vs nx |
+|---|---|---|
+| nx `has_node` int | 37.6 | — |
+| fnx `has_node` int (no canonicalization) | 41.2 | -3.6 ns |
+| nx `has_node` str | 40.4 | — |
+| fnx `has_node` str | 90.6 | -50.2 ns |
+
+PyO3 call overhead is **not** the problem: on the int path fnx is within 3.6 ns
+of NetworkX. The string path costs 49.4 ns more than the int path — **54.5% of
+the whole call** — and NetworkX's own str-vs-int delta is 2.7 ns. That clears
+the >=30% self-time attribution CloudyTurtle's 2026-07-26 interning HOLD asks
+for, but it does **not** license interning, because the 49.4 ns turned out not
+to be interning-shaped at all.
+
+THE LEVER. `write_canonical_str_key` built the canonical form with
+`write!(cursor, "str:{}:{s}", s.len())` through `std::io::Write`. The form is a
+fixed ASCII prefix, the decimal byte-length, a colon and the raw bytes — so
+`core::fmt`'s per-argument dynamic dispatch was the entire cost of assembling
+something that is two `copy_from_slice` calls and a 1-to-3 digit decimal. It is
+now written directly. Output is byte-identical; that identity is what the
+borrowed lookup depends on, and it is swept in a new test across every length
+either side of the 128-byte buffer boundary, multi-byte input where byte length
+and char count diverge, digit-width transitions, embedded NULs, and keys that
+already look like canonical keys.
+
+MEASUREMENT. Balanced `[A', B', B'', A'', A'', B'', B', A']` square, 41 rounds,
+`taskset -c 40-47`, live NetworkX 3.6.1 in-invocation, one-minute load 5.4
+falling to 4.2. Every row measured is reported.
+
+```
+before  bench_elf_sha256=80488d1e0014e4ca2907f8166df60fdf15a9de6eab6bd11685d260917fc7041d
+after   bench_elf_sha256=675707aceef90feadcfb8c17d73046ad68f76f035395bd3ec884792a717cc403
+```
+
+| row | before | after |
+|---|---|---|
+| `G.has_node(present)` str x512 | `0.5178x` | **`0.6937x`** |
+| `G.has_node(missing)` str x512 | `0.6071x` | `0.8696x` |
+| `n in G (present)` str x512 | `0.7840x` | `1.1129x` |
+| `G.has_edge(u, v)` str x512 | `0.4340x` | `0.6502x` |
+| `G.degree(n)` str x512 | `0.4222x` | `0.4247x` |
+| CONTROL `G.has_node(int)` x512 | `0.9192x` | `0.9448x` |
+| CONTROL `len(G.adj)` x500 | `0.7899x` | `0.7987x` |
+
+All fourteen measurements are DECIDABLE. The A/A null controls were measured,
+not assumed: every null median landed between `0.9977x` and `1.0015x`, with CI
+half-widths of `0.0014` to `0.0050`.
+
+THE CONTROLS ARE LOAD-BEARING, and they are why the before/after is readable at
+all. A before/after spans two invocations, so it carries across-run drift that
+the within-run nulls do not cover. `has_node(int)` never reaches the edited
+function (it returns on the identity-int path) and `len(G.adj)` touches no node
+key; they moved `+2.8%` and `+1.1%`, which IS the drift floor for this
+comparison, measured rather than assumed. `G.degree(n)` moved `+0.6%`, inside
+that floor, so degree does not route through this path and no claim is made for
+it. The four string-key rows moved `+34%`, `+43%`, `+42%` and `+50%` — an order
+of magnitude beyond the floor.
+
+An earlier attempt at this same before/after was thrown away rather than
+published: at one-minute load 22.3 the nulls widened to a `0.0553` half-width
+and `has_node(present)` came back NOT DECIDABLE. The substrate refused it, which
+is the point of carrying the nulls inside the run.
+
+PARITY. Full Python suite against the new ELF: **50678 passed**, 1081 skipped,
+1 xpassed, and one failure — `test_coverage_gaps.py::
+test_generated_coverage_matrix_document_is_current` — which is pre-existing and
+already filed as `br-r37-c1-vniyv` (doc says 178, source renders 175,
+diagnosed there as peer doc drift, RED on main independent of in-flight work).
+It is not regenerated here. Rust side: `cargo clippy -p fnx-python --all-targets
+-- -D warnings` clean, `cargo test -p fnx-python --lib` 77 passed, `cargo fmt
+--check` clean.
+
+comparison_class=SELF-SPEEDUP
+campaign_output=false
+decision_gate=median_ci
+cv_role=report_only
+
+RESULT: **SHIPPED AS MAINTENANCE, TARGET STILL A LOSS.** `G.has_node(present)`
+is `0.6937x`. It improved by a third and it did not reach parity, and the
+project orders' `0.52x` was accurate before this change (`0.5178x` measured).
+
+ON THE ONE ROW THAT CROSSED: `n in G (present)` reaches `1.1129x`, CI
+`1.1111 - 1.1134`, with nulls at `1.0003x`/`1.0000x`. That is a genuine
+same-invocation incumbent win and it is recorded here so it is not lost, but
+this row does NOT bank it as campaign output — the row's subject is `has_node`,
+which is still behind. Anyone wanting to publish the `n in G` figure should
+raise it as its own row with its own preflight rather than inherit this one's
+`campaign_output=false`.
+
+RETRY PREDICATE: do not reopen node-key interning on the strength of the 54.5%
+attribution above — that number was measured against the OLD `core::fmt`
+implementation and is now spent. Re-profile first: the string path must be
+re-split by key type on the new ELF before any further canonicalization claim,
+because the remaining `has_node` residual has not been attributed and may now
+be the `IndexMap` lookup rather than the key build. `G.degree(n)` at `0.4247x`
+is untouched by this lever and is the larger remaining loss on this surface.
+
 ## 2026-08-08 OliveDesert SHIPPED, STILL A LOSS: `preferential_attachment` gets the family's missing explicit-ebunch scorer — **`0.8635x` -> `0.9833x`**, which does NOT reach parity (`br-r37-c1-z00k8`)
 
 This is the lever `br-r37-c1-3s8x7` identified. It ships, it closes ~88% of
