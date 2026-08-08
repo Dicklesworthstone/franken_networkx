@@ -2652,14 +2652,25 @@ impl PyGraph {
         // commit inserts `new_nodes` in this same first-appearance order.
         let mut edges: Vec<(usize, usize)> = Vec::with_capacity(len);
         let mut new_nodes = Vec::new();
-        let mut node_index: HashMap<String, usize> = self
-            .inner
-            .nodes_ordered()
-            .into_iter()
-            .enumerate()
-            .map(|(index, name)| (name.to_owned(), index))
-            .collect();
-        let mut next_index = node_index.len();
+        // br-r37-c1-uta2n: this was a HashMap built from EVERY existing node name,
+        // cloning each `String`, on every call — O(N) allocations and hashes to
+        // insert as few as eight edges. Chunked `add_edges_from` therefore fell
+        // off a cliff at `PLAIN_EDGE_BATCH_MIN`: below 8 the batch is skipped, at
+        // 8 it engages and pays a whole-graph map. Measured 6.8446x slower per
+        // edge at k=8 than k=7, and the per-call cost scaled with NODE count
+        // (16x nodes -> 19.30x) while being flat in edge count (16x edges ->
+        // 1.04x), which is this map and nothing else.
+        //
+        // The map only ever answered "what index does this canonical key have?".
+        // The graph's own IndexMap answers that in O(1), and a node created by
+        // THIS batch takes `node_count() + <position among new nodes>`, because
+        // the commit inserts `new_nodes` in first-appearance order. So keep a
+        // local map of only the nodes this batch introduces — bounded by twice
+        // the batch length — and ask the graph for everything else. `self.inner`
+        // is not mutated during collect (this is a pure collect; the caller
+        // commits afterwards), so an index read here stays valid.
+        let mut batch_node_index: HashMap<String, usize> = HashMap::new();
+        let mut next_index = self.inner.node_count();
         let mut node_bumps = 0_u64;
         let mut batch_first: HashMap<String, PyObject> = HashMap::new(); // br-r37-c1-z6uka
         // br-r37-c1-batchintmemo: canonical-key memo keyed by the node's integer
@@ -2714,12 +2725,16 @@ impl PyGraph {
                     if self.plain_batch_display_conflict(py, &canonical, &u, &mut batch_first) {
                         return Ok(None);
                     }
-                    let (index, absent) = match node_index.get(&canonical) {
-                        Some(&index) => (index, false),
+                    let (index, absent) = match self
+                        .inner
+                        .get_node_index(&canonical)
+                        .or_else(|| batch_node_index.get(&canonical).copied())
+                    {
+                        Some(index) => (index, false),
                         None => {
                             let index = next_index;
                             next_index += 1;
-                            node_index.insert(canonical.clone(), index);
+                            batch_node_index.insert(canonical.clone(), index);
                             new_nodes.push((canonical, u.clone().unbind()));
                             (index, true)
                         }
@@ -2738,12 +2753,16 @@ impl PyGraph {
                     if self.plain_batch_display_conflict(py, &canonical, &v, &mut batch_first) {
                         return Ok(None);
                     }
-                    let (index, absent) = match node_index.get(&canonical) {
-                        Some(&index) => (index, false),
+                    let (index, absent) = match self
+                        .inner
+                        .get_node_index(&canonical)
+                        .or_else(|| batch_node_index.get(&canonical).copied())
+                    {
+                        Some(index) => (index, false),
                         None => {
                             let index = next_index;
                             next_index += 1;
-                            node_index.insert(canonical.clone(), index);
+                            batch_node_index.insert(canonical.clone(), index);
                             new_nodes.push((canonical, v.clone().unbind()));
                             (index, true)
                         }

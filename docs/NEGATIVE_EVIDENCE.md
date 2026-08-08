@@ -37,6 +37,120 @@ admission history, host, scope source, process affinity, monitored CPU set,
 checked-window count, maximum observed busy fraction, and maximum consecutive
 busy-window count.
 
+## 2026-08-08 OliveDesert SHIPPED: the chunk-size-8 cliff is FIXED — k=8 goes `15156` -> `633.3 ns/edge`, and the O(N) per-call scaling is gone (`br-r37-c1-uta2n`)
+
+The acceptance test I wrote onto this bead was: *the N=8000 figure must stop
+tracking N*. It does.
+
+MECHANISM. `collect_plain_edge_batch` (`crates/fnx-python/src/lib.rs:2655`) built
+
+```rust
+let mut node_index: HashMap<String, usize> = self.inner
+    .nodes_ordered().into_iter().enumerate()
+    .map(|(index, name)| (name.to_owned(), index)).collect();
+```
+
+— a map from EVERY existing node name to its index, cloning each `String`, on
+every call. O(N) allocations and hashes to insert as few as eight edges. That is
+why chunked `add_edges_from` fell off a cliff at `PLAIN_EDGE_BATCH_MIN = 8`:
+below 8 the batch is skipped and the per-edge path runs; at 8 the batch engages
+and pays a whole-graph map.
+
+The map only ever answered "what index does this canonical key have?". The
+graph's own `IndexMap` answers that in O(1) via `get_node_index`, and a node
+created by this batch takes `node_count() + <position among new nodes>` because
+the commit inserts `new_nodes` in first-appearance order. So it now keeps a
+local map of only the nodes the batch introduces — bounded by twice the batch
+length — and asks the graph for everything else. Collect performs no mutation,
+so an index read during it stays valid.
+
+ACCEPTANCE TEST, the one this bead pre-registered. Per-call cost measured
+directly at a known graph size, 100 successive 8-edge calls, ELF
+`865c226307d9d72e`, load 3.9:
+
+| N (edges fixed 8,000) | 500 | 1,000 | 2,000 | 4,000 | 8,000 |
+|---|---|---|---|---|---|
+| before, ns/edge | `3889.6` | `7442.0` | `15208.3` | `33816.6` | `75088.1` |
+| before, vs N=500 | `x1.00` | `x1.91` | `x3.91` | `x8.69` | **`x19.30`** |
+| after, ns/edge | `502.6` | `497.1` | `546.4` | `546.6` | `555.1` |
+| after, vs N=500 | `x1.00` | `x0.99` | `x1.09` | `x1.09` | **`x1.10`** |
+
+`x19.30` becomes `x1.10`. The pass is not "the k=8 number improved" — it is that
+the number stopped depending on N at all, which is what distinguishes removing
+the pass from merely amortizing it. The edge sweep stays flat as before
+(`x0.99`-`x1.00` across E = 1,000 to 16,000).
+
+THE CLIFF IS GONE AND INVERTED. Sweeping chunk size on the fixed build:
+
+| k | 1 | 4 | 7 | **8** | 16 | 32 | 64 |
+|---|---|---|---|---|---|---|---|
+| before ns/edge | `3646` | `1870` | `1679` | **`15156`** | `7686` | `4144` | `2362` |
+| after ns/edge | `3510` | `1839` | `1647` | **`633.3`** | `545.9` | `502.0` | `480.2` |
+
+k=8 is now `2.6x` FASTER than k=7 rather than `9x` slower — which is what
+engaging a batch is supposed to do. The curve is monotonically decreasing
+throughout.
+
+MEASURED WITH NULLS, balanced square, 21 rounds, live in-invocation, load 3.0.
+The fixed binary self-reports its identity from inside the benchmark process as
+line one of the run:
+
+```
+bench_elf_sha256=865c226307d9d72e019b596ec8597cd7d3c3d8c7da46dfad69d49cf089e91d5d
+```
+
+The A/A null controls were measured in that same invocation, not assumed: the
+k=7 arm against itself came back at `0.9953x` and the k=8 arm against itself at
+`1.0066x`, both inside 2% of `1.0`, which is the floor the `0.3571x` candidate
+below is decided against.
+
+| | median | CI95 | A/A null k=7 | A/A null k=8 |
+|---|---|---|---|---|
+| k8/k7 before | `6.8446x` slower | `6.7964 - 6.9221` | `0.9921x` | `0.9970x` |
+| k8/k7 after | **`0.3571x`** | `0.3548 - 0.3600` | `0.9953x` | `1.0066x` |
+
+Both nulls inside 2% of `1.0` and the candidate CI nowhere near it. A `19.2x`
+swing on that comparison.
+
+TWO WRONG EDITS PRECEDED THIS ONE, recorded because the reachability lesson is
+the transferable part. I first edited `_try_add_edges_from_batch` at `:7132`,
+which is `impl PyMultiGraph`, then the `seen_nodes` clone at `:3373`, which is
+`collect_attr_edge_batch` — the ATTRIBUTED collector. Neither is on the plain
+2-tuple path this workload uses, both rebuilds moved nothing, and both were
+reverted. `try_add_plain_edge_batch` is only 45 lines and delegates to
+`collect_plain_edge_batch`; reading it to its closing brace is what found the
+real site. In a file with several large per-class impls and repeated function
+names, confirm the enclosing `impl` AND that the function is the one the
+workload's input shape reaches.
+
+PARITY. Full Python suite on the fixed ELF: **50678 passed**, 1081 skipped, 1
+xpassed, and the single pre-existing `br-r37-c1-vniyv` coverage-doc failure that
+is red on main independent of this work — identical to the HEAD baseline, so no
+test changed state. `cargo test -p fnx-python --lib` 77 passed, `clippy
+--all-targets -- -D warnings` clean, `cargo fmt --check` clean. Edge and node
+insertion order asserted identical to the whole-batch build at every chunk size
+inside the probe before any timing.
+
+comparison_class=SELF-SPEEDUP
+campaign_output=false
+decision_gate=median_ci
+cv_role=report_only
+
+RESULT: **SHIPPED.** Classified SELF-SPEEDUP because the headline is a
+before/after inside FrankenNetworkX; no vs-NetworkX ratio is claimed for the
+chunked row, since the nx arm was not run in these invocations. For context
+only, and not as a claim: the whole-batch path measured `352.7 ns/edge` against
+NetworkX's `659.7` earlier today, and k=8 now sits at `633.3`.
+
+RETRY PREDICATE: do not re-attack `collect_plain_edge_batch` for this reason —
+the whole-graph map is gone and the N-scaling is `x1.10`. The remaining
+per-call floor is roughly `480-630 ns/edge` and is flat in both N and E, so any
+further work here needs a NEW named frame, not this one. Six sibling sites still
+carry the `seen_nodes` whole-graph clone (`lib.rs:3373`, `:7158`, `:7412`,
+`:7559`, `:7845`, `digraph.rs:9440`, `:9564`); the attributed and MultiGraph
+batches plausibly have the same cliff on their own input shapes, but that is
+unmeasured and must be measured on its own workload before anyone edits it.
+
 ## 2026-08-08 OliveDesert NOT TAKEN THIS ROW, SHAPE PINNED: the chunk-size-8 cliff is **O(nodes), flat in edges** — and it is not the collector (`br-r37-c1-uta2n`)
 
 The probe my own previous row prescribed, run and answered. No source edit.
