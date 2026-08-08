@@ -37,6 +37,59 @@ admission history, host, scope source, process affinity, monitored CPU set,
 checked-window count, maximum observed busy fraction, and maximum consecutive
 busy-window count.
 
+## 2026-08-08 OliveDesert NO DEFECT FOUND, NO EDIT MADE: MultiGraph's plain batch does NOT have the chunk-8 cliff — the pattern is 4 of 5, not universal (`br-r37-c1-09irv`)
+
+Fifth sibling measured under the `uta2n` / `hepb5` / `ab5u7` / `iozi3` pattern.
+After four consecutive confirmations the prior was very strong and it would have
+been easy to edit `lib.rs:7177` on the strength of it. Measuring first is what
+stopped that, and this row exists so nobody re-derives it.
+
+MEASURED on MultiGraph's own input shape, plain `(u, v)` two-tuples, edge order
+asserted identical to the whole-batch build at every chunk size, load 2.74:
+
+| k | 1 | 4 | 6 | **7** | **8** | 12 | 32 | 64 | 8000 |
+|---|---|---|---|---|---|---|---|---|---|
+| ns/edge | `3721.6` | `3043.6` | `2701.4` | **`2481.6`** | **`2527.4`** | `2927.3` | `2845.2` | `2848.9` | `1037.7` |
+
+NO CLIFF. `2481.6` -> `2527.4` across the `PLAIN_EDGE_BATCH_MIN` boundary is a
+`1.02x` step, against the `6.7x`-`8.0x` cliffs on the four fixed siblings.
+
+THE SCALING SWEEP IS THE DIAGNOSTIC AND IT IS ALREADY FLAT:
+
+| sweep | from | to | ratio |
+|---|---|---|---|
+| nodes, edges fixed 8,000, k=8 | `1987.8 ns/edge` at N=500 | `2235.2` at N=8,000 | **`x1.12`** |
+| edges, nodes fixed 2,000, k=8 | `1965.9 ns/edge` at E=1,000 | `2469.6` at E=16,000 | `x1.26` |
+
+Sixteen-fold more nodes costs `x1.12` here. The same sweep cost `x15.20` to
+`x17.51` on the four defective collectors before their fixes. There is no
+whole-node-set pass per call on this path.
+
+CONCLUSION: the `seen_nodes` clone at `lib.rs:7177` is either not on the path
+MultiGraph's plain two-tuple shape reaches, or is not reached per call in a way
+that costs anything. Either way the acceptance test has nothing to move — the
+N-scaling it would have to fix is already `x1.12`. Editing it would be an
+unmeasurable change, and unmeasurable changes do not ship.
+
+WHAT THIS DOES NOT SETTLE: MultiGraph's ATTRIBUTED shapes (`(u, v, dict)` and
+`(u, v, key, dict)`) and MultiDiGraph were not measured here. Each is a distinct
+input shape needing its own probe. The pattern stands at four confirmed of five
+measured — strong, and not universal.
+
+comparison_class=SELF-SPEEDUP
+campaign_output=false
+decision_gate=median_ci
+cv_role=report_only
+
+RESULT: **NO SOURCE EDIT.** No defect on this path. Recorded as a measured
+negative rather than left as an untested assumption, because a five-for-five
+prior would otherwise have licensed a blind edit on the remaining siblings.
+
+RETRY PREDICATE: do not re-measure MultiGraph's plain path — settled at `x1.12`.
+Do not edit `lib.rs:7177` for cliff reasons. If MultiGraph's attributed or keyed
+shapes are attacked, probe those shapes specifically; a result on the plain
+shape says nothing about them, which is the whole lesson of this row.
+
 ## 2026-08-08 OliveDesert SHIPPED: DiGraph's ATTRIBUTED batch, fourth instance — k=8 goes `18152.5` -> `1537.3 ns/edge`, N-scaling `x17.51` -> `x1.26` (`br-r37-c1-iozi3`)
 
 Fourth application of the `uta2n` / `hepb5` / `ab5u7` pattern; four for four
