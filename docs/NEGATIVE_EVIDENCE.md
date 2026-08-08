@@ -37,6 +37,98 @@ admission history, host, scope source, process affinity, monitored CPU set,
 checked-window count, maximum observed busy fraction, and maximum consecutive
 busy-window count.
 
+## 2026-08-08 OliveDesert SHIPPED: DiGraph's ATTRIBUTED batch, fourth instance — k=8 goes `18152.5` -> `1537.3 ns/edge`, N-scaling `x17.51` -> `x1.26` (`br-r37-c1-iozi3`)
+
+Fourth application of the `uta2n` / `hepb5` / `ab5u7` pattern; four for four
+where measured. `PyDiGraph::collect_attr_edge_batch`
+(`crates/fnx-python/src/digraph.rs:9577`) carried the same whole-graph
+`seen_nodes` clone.
+
+BEFORE, `(u, v, dict)` three-tuples into a `DiGraph`, edge order AND every weight
+asserted identical to the whole-batch build at each chunk size, load 0.49:
+
+| k | 1 | 4 | 7 | **8** | 16 | 64 | 8000 |
+|---|---|---|---|---|---|---|---|
+| ns/edge | `4705.8` | `3276.6` | `2476.8` | **`18152.5`** | `9650.3` | `3623.7` | `1300.9` |
+
+`7.3x` cliff at k=8; `x17.51` against node count at fixed edges, `x1.10` against
+edge count at fixed nodes.
+
+AFTER, ELF self-reported from inside the benchmark process:
+
+```
+bench_elf_sha256=daf4d388d215ecab95c3b6fdc5b4f0ecc91e6abe2738ce4c1c77071409c5daf4
+```
+
+| k | 1 | 4 | 7 | **8** | 16 | 64 | 8000 |
+|---|---|---|---|---|---|---|---|
+| ns/edge | `4547.0` | `3198.5` | `2443.2` | **`1537.3`** | `1752.9` | `1720.0` | `1213.9` |
+
+k=8 goes `18152.5` -> `1537.3`, an `11.8x` improvement, and is now faster than
+k=7 instead of `7.3x` slower.
+
+ACCEPTANCE TEST — the largest-N figure must stop tracking N:
+
+| N (edges fixed 8,000) | 500 | 1,000 | 2,000 | 4,000 | 8,000 |
+|---|---|---|---|---|---|
+| before, vs N=500 | `x1.00` | `x1.98` | `x4.20` | `x9.16` | **`x17.51`** |
+| after, vs N=500 | `x1.00` | `x1.17` | `x1.25` | `x1.30` | **`x1.26`** |
+
+`x17.51` becomes `x1.26`. Sixteen-fold more nodes now costs `1.26x`, so the
+tracking is gone and the test passes.
+
+REPORTED AGAINST MY OWN INTEREST, because this run is the noisiest of the four.
+The residual `x1.26` is higher than the three siblings' `x1.10`, `x0.97` and
+`x1.01`, the edge sweep came back `x1.36` at E=16,000 against `x1.10` before,
+and the chunk sweep is visibly non-monotone above k=8 (`1361.5` at k=12 against
+`1752.9` at k=16). A single run cannot separate a genuine residual from host
+variance, and I did not get a clean re-run before writing this up. Treat the
+`x1.26` as an upper bound with an unquantified noise component, not as a
+measured residual mechanism. If it reproduces on a quiet host it deserves its
+own probe; the acceptance test passes either way, since `x1.26` against `x17.51`
+is not a margin noise can account for.
+
+PARITY. Full Python suite on the fixed ELF: **50678 passed**, 1081 skipped, and
+only the pre-existing `br-r37-c1-vniyv` coverage-doc failure. This run reported
+`1 xfailed` where earlier runs today reported `1 xpassed`; I checked rather than
+waving it past, and it is
+`test_centrality_conformance_matrix.py::test_hits_structural_invariants[star-5]`,
+whose own xfail reason documents `scipy.sparse.linalg.svds` returning different
+basis vectors across calls for `star_graph`'s degenerate principal singular
+subspace. Flipping between xpass and xfail across runs IS its documented
+behaviour and is unrelated to this change. `cargo test -p fnx-python --lib` 77
+passed, `clippy --all-targets -- -D warnings` clean, `cargo fmt --check` clean.
+
+comparison_class=SELF-SPEEDUP
+campaign_output=false
+decision_gate=median_ci
+cv_role=report_only
+
+THE A/A NULL CONTROLS ON THIS WORKLOAD FAMILY WERE MEASURED, and they are why
+this row decides on a shape change rather than a ratio. On the `hepb5` sibling,
+run in the same substrate against the same batch machinery, the k=7 arm against
+itself came back at `0.9964x` and again at `1.0031x` — clean — while the k=8 arm
+against itself came back at `1.4966x`, and at `1.4447x` after warm-up was raised
+from 2 iterations to 8 specifically to rule warm-up out. That is a positively
+recorded, same-invocation dual-null measurement showing the k=8 arm carries a
+systematic within-round asymmetry on build workloads. The floor it establishes
+is far too wide to decide a k7-versus-k8 ratio, which is exactly why the
+acceptance test above is a scaling-shape test: `x17.51` -> `x1.26` is a change in
+what the cost DEPENDS ON, and a floor of that width can neither manufacture nor
+mask it.
+
+RESULT: **SHIPPED.** SELF-SPEEDUP; no NetworkX arm ran, so no vs-incumbent ratio
+is claimed, and no k7-versus-k8 ratio is claimed either.
+
+RETRY PREDICATE: this collector is done. THREE sibling sites remain
+(`lib.rs:7177`, `:7431`, and one later), covering the MultiGraph and
+MultiDiGraph batches. Four for four says the prior is now very strong, but the
+measure-first rule stands — it cost `uta2n` two wrong edits and has since
+produced four first-time landings. Also worth a quiet-host re-run: this row's
+`x1.26` residual and the attributed `Graph` sibling's `x1.23` edge drift are the
+only two loose threads across the four fixes, and both are small enough that
+only a drained host will resolve them.
+
 ## 2026-08-08 OliveDesert SHIPPED: DiGraph's plain batch, third instance — k=8 goes `14998.6` -> `765.6 ns/edge`, N-scaling `x15.20` -> `x1.01` (`br-r37-c1-ab5u7`)
 
 Third and cleanest application of the `br-r37-c1-uta2n` / `br-r37-c1-hepb5`
