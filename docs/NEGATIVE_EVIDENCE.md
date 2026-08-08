@@ -37,6 +37,86 @@ admission history, host, scope source, process affinity, monitored CPU set,
 checked-window count, maximum observed busy fraction, and maximum consecutive
 busy-window count.
 
+## 2026-08-08 OliveDesert NOT TAKEN THIS ROW, CEILING MEASURED: a native `AdjacencyView.__len__` C slot is worth **`1.85x`** against NetworkX, up from the published `0.806x` (`br-r37-c1-bmrbc` -> `br-r37-c1-5gam7`)
+
+Profile-first step for `br-r37-c1-bmrbc`. No source edit: this row establishes
+what the migration is worth before anyone pays for it, and it does so from a
+measurement rather than an estimate.
+
+NO PROTOTYPE WAS NEEDED, BECAUSE THE CEILING ALREADY SHIPS. `G.nodes` and
+`G.edges` expose `__len__` as a `wrapper_descriptor` — a C slot — while `G.adj`
+exposes a plain Python `function`, on the same graph, returning the same count.
+So `len(G.nodes)` IS a native adjacency-style `__len__`, already built, already
+measurable in the same process.
+
+Balanced `[A', B', B'', A'', A'', B'', B', A']` square, 41 rounds, `taskset -c
+40-47`, live NetworkX 3.6.1 in-invocation, load 7.8 of 64, ELF
+`675707aceef90feadcfb8c17d73046ad68f76f035395bd3ec884792a717cc403`, 500 `len()`
+calls per timed unit. Each ratio carries its own dual A/A null control measured
+in the same invocation; they came back at `1.0006x`, `1.0002x`, `0.9994x`,
+`1.0006x`, `1.0001x`, `0.9989x`, `0.9995x` and `1.0004x`:
+
+| comparison | ratio | CI95 | A | B |
+|---|---|---|---|---|
+| `len(G.adj)` nx vs fnx | `0.8062x` | `0.8050 - 0.8067` | `69.1 ns` | `85.6 ns` |
+| CEILING: nx `len(G.adj)` vs fnx `len(G.nodes)` | **`1.8500x`** | `1.8481 - 1.8523` | `69.1 ns` | `37.3 ns` |
+| fnx `len(G.adj)` vs fnx `len(G.nodes)` | `2.3062x` | `2.3044 - 2.3080` | `85.6 ns` | `37.1 ns` |
+| CONTROL: nx `len(G.adj)` vs nx `len(G.nodes)` | `1.0004x` | `0.9998 - 1.0017` | `69.2 ns` | `69.2 ns` |
+
+THE CONTROL IS WHAT MAKES THE CEILING LEGITIMATE. NetworkX's own two views land
+within `0.04%` of each other, both Python-framed, so `len(G.nodes)` is the same
+workload as `len(G.adj)` on NetworkX's side and fnx's already-native
+`len(G.nodes)` is a fair proxy for what a native adjacency `__len__` would cost.
+Without that control the proxy would be an assumption.
+
+So the prize is `0.806x -> ~1.85x`, and the whole of it is the Python `__len__`
+frame: `48.5 ns` of an `85.6 ns` call. The PyO3 bound-method call inside that
+frame — the thing the refuted `len(owner)` shortcut was aiming at — is only
+`10.5 ns` of it. Attacking the call instead of the frame could never have
+reached parity, which is worth knowing before the next person tries.
+
+A BLOCKER I EXPECTED AND THEN DISPROVED. I assumed the native `AdjacencyView`
+(`crates/fnx-python/src/views.rs:990`) was Graph-only, since it holds
+`Py<PyGraph>` — which would have forced a Graph-only ship and left DiGraph on
+the Python path, exactly the 3-of-4-classes asymmetry this codebase has been
+bitten by before. `DiAdjacencyView` exists at
+`crates/fnx-python/src/digraph.rs:16004`. Both graph types are covered and no
+asymmetry is needed. The migration is unblocked and fully specified in
+`br-r37-c1-5gam7`, down to the MRO route (subclass BOTH the native class and the
+existing Python `AdjacencyView`, so the native C slots win for `__len__` /
+`__contains__` while `_fnx_atlas_cache`, the native-iter binding,
+`keys`/`items`/`values`, `__eq__`, `copy` and pickling all keep coming from the
+Python class unchanged) and the two construction sites it may touch.
+
+WHY IT IS NOT SHIPPED IN THIS ROW: it is a view-class migration on the most
+heavily used view in the library, requiring pyclass `subclass`/`dict` attrs and
+constructors on two Rust classes plus Python MRO wiring, and it must clear the
+full 50k-test suite before it can be trusted. Starting it and not finishing it
+cleanly in a four-agent shared checkout is a worse outcome than handing it over
+specified. The profile-first step it depended on is now done and does not need
+repeating.
+
+comparison_class=INCUMBENT
+incumbent=networkx
+incumbent_same_invocation=true
+incumbent_ratio=0.8062x
+campaign_output=false
+decision_gate=median_ci
+cv_role=report_only
+
+RESULT: **NO SOURCE EDIT.** `len(G.adj)` stays at `0.8062x`, which reproduces
+the `0.8077x` measured yesterday on a different day and a different load. The
+`1.8500x` is a CEILING measured on an existing native slot, not a result for
+`G.adj`, and it must not be quoted as one.
+
+RETRY PREDICATE: do not re-run this profile — it is done, and the control makes
+it reusable. Reopen only as the migration in `br-r37-c1-5gam7`, and re-verify
+`__contains__` separately before including it: the native `__contains__` at
+`views.rs:1004` still uses `node_key_to_string` (heap `String`) rather than the
+borrowed `with_node_key_str` from `br-r37-c1-oe93x`, so a migration that carries
+`__contains__` along unexamined could regress `n in G.adj` while fixing
+`len(G.adj)`.
+
 ## 2026-08-08 OliveDesert NO SOURCE EDIT, LEVER REJECTED: `has_node` residual is now diffuse, and the obvious `len(G.adj)` fix is a semantics change (`br-r37-c1-7faiu`, `br-r37-c1-bmrbc`)
 
 Two queue items profiled, no lever shipped from either. Recording why, because
