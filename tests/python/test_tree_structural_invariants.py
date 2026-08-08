@@ -15,6 +15,7 @@ No mocks: real fnx.
 
 from __future__ import annotations
 
+import itertools
 import random
 
 import pytest
@@ -58,6 +59,43 @@ def test_diameter_radius_relationship(seed):
     rad = fnx.radius(t)
     # For a tree, diameter is 2*radius or 2*radius - 1.
     assert 2 * rad - 1 <= diam <= 2 * rad
+
+
+# br-r37-c1-0jqz4: the two invariants above are UNIVERSAL — "every edge is a
+# bridge", "between ANY two nodes there is a unique simple path" — but each was
+# checked on a single sample: `next(iter(t.edges()))` is one edge of n-1, and
+# `r.sample(nodes, 2)` is one pair of n*(n-1)/2. A defect affecting some edges
+# or some pairs and not the sampled one passes unnoticed. Quantifying costs
+# nothing at these sizes: 337 edges and 1789 pairs across the same 40 seeds,
+# against 40 and 40 before. All verified to hold before being asserted.
+@pytest.mark.parametrize("seed", range(40))
+def test_every_edge_is_a_bridge(seed):
+    t, n, _ = _random_tree(seed)
+    for edge in list(t.edges()):
+        h = t.copy()
+        h.remove_edge(*edge)
+        assert not fnx.is_connected(h), edge
+
+
+@pytest.mark.parametrize("seed", range(40))
+def test_every_pair_has_exactly_one_simple_path(seed):
+    t, n, _ = _random_tree(seed)
+    for a, b in itertools.combinations(list(t.nodes()), 2):
+        assert len(list(fnx.all_simple_paths(t, a, b))) == 1, (a, b)
+
+
+@pytest.mark.parametrize("seed", range(40))
+def test_center_is_a_node_or_an_adjacent_pair(seed):
+    """The module docstring states the center is "a vertex or an edge", but the
+    assertion above only counts it. A two-node center that was NOT adjacent
+    would satisfy the count and violate the property (br-r37-c1-0jqz4).
+    """
+    t, _, _ = _random_tree(seed)
+    center = fnx.center(t)
+    assert set(center) <= set(t.nodes())
+    assert len(center) in (1, 2)
+    if len(center) == 2:
+        assert t.has_edge(center[0], center[1]), center
 
 
 def test_path_graph_center_and_diameter():
