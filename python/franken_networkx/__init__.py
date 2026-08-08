@@ -1522,6 +1522,9 @@ class AtlasView(_Mapping):
         # the same object the graph-level row cache holds; both rebuild on any
         # structural change (nodes_seq/edges_seq token).
         self._fnx_kd_cache = None
+        # br-r37-c1-ey6ob: memoised owner._fnx_edge_attr_dict_fast. None = not
+        # looked up yet, False = looked up and absent, else the bound method.
+        self._fnx_edge_fast = None
 
     def _atlas(self):
         return self._atlas_getter()
@@ -1647,8 +1650,19 @@ class AtlasView(_Mapping):
             except (AttributeError, TypeError):
                 pass
         if owner is not None:
-            fast = getattr(owner, "_fnx_edge_attr_dict_fast", None)
-            if fast is not None:
+            # br-r37-c1-ey6ob: resolve the single-edge accessor ONCE per row view
+            # instead of on every subscript. A `getattr(owner, name, None)` costs
+            # about 70 ns against ~16 ns for a plain attribute load, and it ran on
+            # every `G[u][v]` — the largest single component of the Python frame
+            # around a 204 ns native call. `False` is the "looked and it is not
+            # there" sentinel, so an owner without the accessor is not re-probed
+            # either. This is the binding AdjacencyView already does for
+            # `native_len` / `native_iter`, applied one level down.
+            fast = self._fnx_edge_fast
+            if fast is None:
+                fast = getattr(owner, "_fnx_edge_attr_dict_fast", None)
+                self._fnx_edge_fast = False if fast is None else fast
+            if fast:
                 hash(node)  # nx-shaped TypeError on unhashable, like dict lookup
                 if self._fnx_row_kind == "pred":
                     d = fast(node, self._fnx_row_node)
