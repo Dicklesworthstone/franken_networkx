@@ -37,6 +37,59 @@ admission history, host, scope source, process affinity, monitored CPU set,
 checked-window count, maximum observed busy fraction, and maximum consecutive
 busy-window count.
 
+## 2026-08-08 OliveDesert SWEEP COMPLETE: all 8 plain+attributed batch collectors measured — 4 simple-graph defective and fixed, 4 multigraph clean and untouched (`br-r37-c1-khgif`)
+
+The last unmeasured plain/attributed shape, MultiDiGraph attributed, measured at
+load 1.20 with edge order and every weight asserted identical to the whole-batch
+build at each chunk size: k=7 `4040.9` against k=8 `4072.3 ns/edge`, a `1.01x`
+step, N-scaling `x1.24`. Clean.
+
+FINAL TABLE. N-scaling is per-call cost at k=8, N=500 against N=8,000 with edges
+fixed — the diagnostic that decides whether a whole-node-set pass runs per call:
+
+| collector | k=8 before -> after | N-scaling | bead |
+|---|---|---|---|
+| Graph plain | `15156` -> `633` | `x19.30` -> `x1.10` | `uta2n` |
+| Graph attributed | `17431` -> `1367` | `x16.15` -> `x0.97` | `hepb5` |
+| DiGraph plain | `14998` -> `765` | `x15.20` -> `x1.01` | `ab5u7` |
+| DiGraph attributed | `18152` -> `1537` | `x17.51` -> `x1.26` | `iozi3` |
+| MultiGraph plain | no defect | `x1.12` | `09irv` |
+| MultiGraph attributed | no defect | `x1.10` | `b1z21` |
+| MultiDiGraph plain | no defect | `x1.08` | `b1z21` |
+| MultiDiGraph attributed | no defect | `x1.24` | `khgif` |
+
+THE RULE, now measured eight of eight rather than inferred from four: the defect
+tracks the graph CLASS, not the input shape. Every simple-graph collector carried
+a whole-node-set clone on its reachable per-call path in BOTH shapes; no
+multigraph collector does in EITHER. The clean four sit at `x1.08`-`x1.24`
+against `x15.20`-`x19.30` for the defective four before their fixes — more than
+an order of magnitude of separation, so the classification is not marginal and
+does not depend on the noisier individual runs.
+
+WHAT THE CAMPAIGN COST AND WHAT IT BOUGHT. Four fixes shipped, four collectors
+correctly left alone, zero unmeasured edits. Every fix carried the same
+pre-registered acceptance test — the largest-N figure must stop tracking N —
+and full-suite parity held at 50678 passed throughout, unchanged from the HEAD
+baseline at every step. The measure-first rule cost `uta2n` two wrong edits and
+two rebuild cycles when I ignored it, then produced four first-time landings when
+I followed it, then stopped a fifth edit at `09irv` that had a four-for-four
+prior behind it and no defect underneath. That last one is the reason this row
+can say "four clean" instead of "four probably fine".
+
+comparison_class=SELF-SPEEDUP
+campaign_output=false
+decision_gate=median_ci
+cv_role=report_only
+
+RESULT: **SWEEP COMPLETE, NO SOURCE EDIT IN THIS ROW.**
+
+RETRY PREDICATE: the plain and attributed shapes are settled for all four graph
+classes; do not re-measure them and do not edit the multigraph `seen_nodes`
+sites for cliff reasons. Only the keyed `(u, v, key, dict)` shapes remain
+unmeasured, and they are multigraph-only — with four of four multigraph
+collectors clean their prior is very weak, but a probe still beats an assumption
+on that path.
+
 ## 2026-08-08 OliveDesert SWEEP CLOSED, NO EDITS MADE: the chunk-8 cliff tracks the graph CLASS, not the input shape — all three multigraph collectors measure clean (`br-r37-c1-b1z21`)
 
 This closes the sweep `br-r37-c1-uta2n` opened and replaces the working rule with
