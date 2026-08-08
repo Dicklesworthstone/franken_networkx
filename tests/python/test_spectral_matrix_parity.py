@@ -65,3 +65,75 @@ def test_spectra_and_algebraic_connectivity(seed):
         assert abs(
             fnx.algebraic_connectivity(fg) - nx.algebraic_connectivity(ng)
         ) < 1e-6
+
+    # br-r37-c1-iu2nm: the `sorted(...)` above is NOT an oversight and must not
+    # be "tightened" to raw order. Sorted-VALUE is the ruled contract for the
+    # spectra (br-r37-c1-spectrum-sorted-value): the raw LAPACK eigenvalue order
+    # is not part of the API, so asserting it would pin an implementation
+    # detail of the eigensolver. This note exists because every other blind
+    # `sorted()` in these parity modules HAS been a real gap, and the next
+    # reader should not assume this one is too.
+
+
+def _weighted_pair(seed):
+    """Same construction, but every edge carries a weight.
+
+    br-r37-c1-iu2nm: the fixture above is entirely UNWEIGHTED, so the weighted
+    matrix path — a different code route for all four matrices — was never
+    exercised by this module.
+    """
+    r = random.Random(seed)
+    n = r.randint(5, 10)
+    fg = fnx.Graph(); fg.add_nodes_from(range(n))
+    ng = nx.Graph(); ng.add_nodes_from(range(n))
+    for u in range(n):
+        for v in range(u + 1, n):
+            if r.random() < 0.5:
+                w = r.randint(1, 9)
+                fg.add_edge(u, v, weight=w)
+                ng.add_edge(u, v, weight=w)
+    return fg, ng, n
+
+
+_MATRICES = ["adjacency_matrix", "laplacian_matrix", "incidence_matrix"]
+
+
+@pytest.mark.parametrize("builder", [_identical_pair, _weighted_pair])
+@pytest.mark.parametrize("seed", range(30))
+def test_matrices_are_bit_exact_not_merely_close(seed, builder):
+    """br-r37-c1-iu2nm: this bead asks for EXACT matrix parity and the module
+    asserted ``np.allclose``, which would accept a 1e-9 divergence. All four
+    matrices are bit-identical to networkx — including the float-valued
+    normalized Laplacian, verified 54/54 on connected graphs across both
+    weighted and unweighted fixtures — so exact equality is achievable and is
+    what the project's identical-FP-bits rule asks for. dtype and shape are
+    compared too: a matrix that is numerically right in the wrong dtype passes
+    every value comparison.
+    """
+    fg, ng, _ = builder(seed)
+    for name in _MATRICES:
+        got = getattr(fnx, name)(fg).toarray()
+        want = getattr(nx, name)(ng).toarray()
+        assert got.shape == want.shape, name
+        assert got.dtype == want.dtype, name
+        assert np.array_equal(got, want), name
+    if fnx.is_connected(fg):
+        got = fnx.normalized_laplacian_matrix(fg).toarray()
+        want = nx.normalized_laplacian_matrix(ng).toarray()
+        assert got.dtype == want.dtype
+        assert np.array_equal(got, want)
+
+
+@pytest.mark.parametrize("builder", [_identical_pair, _weighted_pair])
+@pytest.mark.parametrize("seed", range(30))
+def test_matrix_nodelist_permutation_parity(seed, builder):
+    """br-r37-c1-iu2nm: `nodelist` permutes the matrix basis and is a distinct
+    code path that nothing here reached. A reversed nodelist is the sharpest
+    cheap case — it changes every row and column position.
+    """
+    fg, ng, n = builder(seed)
+    order = list(range(n))[::-1]
+    for name in ("adjacency_matrix", "laplacian_matrix"):
+        got = getattr(fnx, name)(fg, nodelist=order).toarray()
+        want = getattr(nx, name)(ng, nodelist=order).toarray()
+        assert np.array_equal(got, want), name
