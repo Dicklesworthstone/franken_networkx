@@ -841,12 +841,18 @@ impl DiGraph {
         self.add_node_with_attrs(node, AttrMap::new())
     }
 
-    pub fn add_node_with_attrs(&mut self, node: impl Into<String>, attrs: AttrMap) -> bool {
+    /// br-r37-c1-wa1b9: the storage half of [`Self::add_node_with_attrs`],
+    /// without its ledger record. See the undirected `Graph` sibling.
+    fn add_node_with_attrs_unrecorded(
+        &mut self,
+        node: impl Into<String>,
+        attrs: AttrMap,
+    ) -> (bool, bool, usize) {
         let node = node.into();
         let existed = self.nodes.contains_key(&node);
         let mut changed = !existed;
         let attrs_count = {
-            let bucket = self.nodes.entry(node.clone()).or_default();
+            let bucket = self.nodes.entry(node).or_default();
             if !attrs.is_empty()
                 && attrs
                     .iter()
@@ -864,6 +870,11 @@ impl DiGraph {
         if changed {
             self.revision = self.revision.saturating_add(1);
         }
+        (changed, existed, attrs_count)
+    }
+
+    pub fn add_node_with_attrs(&mut self, node: impl Into<String>, attrs: AttrMap) -> bool {
+        let (changed, existed, attrs_count) = self.add_node_with_attrs_unrecorded(node, attrs);
         self.record_decision(
             "add_node",
             0.0,
@@ -971,17 +982,19 @@ impl DiGraph {
             });
         }
 
-        // Auto-create nodes.
+        // Auto-create nodes. br-r37-c1-wa1b9: no record of their own — the
+        // outcome record below reports them via source/target_autocreated. See
+        // the undirected `Graph` sibling for the ruling.
         let mut source_autocreated = false;
         if !self.nodes.contains_key(&source) {
-            let _ = self.add_node(source.clone());
+            let _ = self.add_node_with_attrs_unrecorded(source.clone(), AttrMap::new());
             source_autocreated = true;
         }
         let mut target_autocreated = false;
         if self_loop {
             target_autocreated = source_autocreated;
         } else if !self.nodes.contains_key(&target) {
-            let _ = self.add_node(target.clone());
+            let _ = self.add_node_with_attrs_unrecorded(target.clone(), AttrMap::new());
             target_autocreated = true;
         }
 
@@ -2440,7 +2453,13 @@ impl MultiDiGraph {
         self.add_node_with_attrs(node, AttrMap::new())
     }
 
-    pub fn add_node_with_attrs(&mut self, node: impl Into<String>, attrs: AttrMap) -> bool {
+    /// br-r37-c1-wa1b9: the storage half of [`Self::add_node_with_attrs`],
+    /// without its ledger record. See the undirected `Graph` sibling.
+    fn add_node_with_attrs_unrecorded(
+        &mut self,
+        node: impl Into<String>,
+        attrs: AttrMap,
+    ) -> (bool, bool, usize) {
         let node = node.into();
         let existed = self.nodes.contains_key(&node);
         let mut changed = !existed;
@@ -2457,10 +2476,15 @@ impl MultiDiGraph {
             bucket.len()
         };
         self.successors.entry(node.clone()).or_default();
-        self.predecessors.entry(node.clone()).or_default();
+        self.predecessors.entry(node).or_default();
         if changed {
             self.revision = self.revision.saturating_add(1);
         }
+        (changed, existed, attrs_count)
+    }
+
+    pub fn add_node_with_attrs(&mut self, node: impl Into<String>, attrs: AttrMap) -> bool {
+        let (changed, existed, attrs_count) = self.add_node_with_attrs_unrecorded(node, attrs);
         self.record_decision(
             "add_node",
             0.0,
@@ -2748,16 +2772,18 @@ impl MultiDiGraph {
             });
         }
 
+        // br-r37-c1-wa1b9: internal autocreation files no record of its own —
+        // see the undirected `Graph` sibling for the ruling.
         let mut source_autocreated = false;
         if !self.nodes.contains_key(&source) {
-            let _ = self.add_node(source.clone());
+            let _ = self.add_node_with_attrs_unrecorded(source.clone(), AttrMap::new());
             source_autocreated = true;
         }
         let mut target_autocreated = false;
         if self_loop {
             target_autocreated = source_autocreated;
         } else if !self.nodes.contains_key(&target) {
-            let _ = self.add_node(target.clone());
+            let _ = self.add_node_with_attrs_unrecorded(target.clone(), AttrMap::new());
             target_autocreated = true;
         }
 

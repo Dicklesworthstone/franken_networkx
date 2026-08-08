@@ -1138,12 +1138,22 @@ impl Graph {
         self.add_node_with_attrs(node, AttrMap::new())
     }
 
-    pub fn add_node_with_attrs(&mut self, node: impl Into<String>, attrs: AttrMap) -> bool {
+    /// br-r37-c1-wa1b9: every storage effect of [`Self::add_node_with_attrs`]
+    /// and none of its ledger record. Returns `(changed, existed, attrs_count)`
+    /// so the caller can file the record itself if it is a user-visible
+    /// `add_node`. Extracted rather than reimplemented so the recorded and
+    /// unrecorded paths cannot drift: node insertion ORDER, the adjacency
+    /// extension and the revision bump are literally the same code.
+    fn add_node_with_attrs_unrecorded(
+        &mut self,
+        node: impl Into<String>,
+        attrs: AttrMap,
+    ) -> (bool, bool, usize) {
         let node = node.into();
         let existed = self.nodes.contains_key(&node);
         let mut changed = !existed;
         let attrs_count = {
-            let bucket = self.nodes.entry(node.clone()).or_default();
+            let bucket = self.nodes.entry(node).or_default();
             if !attrs.is_empty()
                 && attrs
                     .iter()
@@ -1161,6 +1171,11 @@ impl Graph {
         if changed {
             self.revision = self.revision.saturating_add(1);
         }
+        (changed, existed, attrs_count)
+    }
+
+    pub fn add_node_with_attrs(&mut self, node: impl Into<String>, attrs: AttrMap) -> bool {
+        let (changed, existed, attrs_count) = self.add_node_with_attrs_unrecorded(node, attrs);
         self.record_decision(
             "add_node",
             0.0,
@@ -1737,16 +1752,25 @@ impl Graph {
             });
         }
 
+        // br-r37-c1-wa1b9: autocreating an endpoint is an internal STEP of this
+        // add_edge, not a user-visible add_node, so it does not file its own
+        // ledger record. The outcome record below already reports the event via
+        // `left_autocreated` / `right_autocreated`, so no audit information is
+        // lost. This matches the ledger's per-OPERATION contract, which the
+        // bulk paths already assert (`extend_nodes_unrecorded` files ONE record
+        // for N nodes), and follows br-r37-c1-eo88t, which removed the other
+        // redundant record from this same function. A caller-visible
+        // `add_node` still records — only this internal path is unrecorded.
         let mut left_autocreated = false;
         if !self.nodes.contains_key(&left) {
-            let _ = self.add_node(left.clone());
+            let _ = self.add_node_with_attrs_unrecorded(left.clone(), AttrMap::new());
             left_autocreated = true;
         }
         let mut right_autocreated = false;
         if left == right {
             right_autocreated = left_autocreated;
         } else if !self.nodes.contains_key(&right) {
-            let _ = self.add_node(right.clone());
+            let _ = self.add_node_with_attrs_unrecorded(right.clone(), AttrMap::new());
             right_autocreated = true;
         }
 
@@ -4277,12 +4301,23 @@ impl MultiGraph {
         self.add_node_with_attrs(node, AttrMap::new())
     }
 
-    pub fn add_node_with_attrs(&mut self, node: impl Into<String>, attrs: AttrMap) -> bool {
+    /// br-r37-c1-wa1b9: the storage half of [`Self::add_node_with_attrs`],
+    /// without its ledger record. See the undirected `Graph` sibling.
+    fn add_node_with_attrs_unrecorded(
+        &mut self,
+        node: impl Into<String>,
+        attrs: AttrMap,
+    ) -> (bool, bool, usize) {
         let node = node.into();
         let (existed, changed, attrs_count) = self.storage.set_node_attrs(&node, attrs);
         if changed {
             self.revision = self.revision.saturating_add(1);
         }
+        (changed, existed, attrs_count)
+    }
+
+    pub fn add_node_with_attrs(&mut self, node: impl Into<String>, attrs: AttrMap) -> bool {
+        let (changed, existed, attrs_count) = self.add_node_with_attrs_unrecorded(node, attrs);
         self.record_decision(
             "add_node",
             0.0,
@@ -4699,16 +4734,18 @@ impl MultiGraph {
             });
         }
 
+        // br-r37-c1-wa1b9: internal autocreation files no record of its own —
+        // see the undirected `Graph` sibling for the ruling.
         let mut left_autocreated = false;
         if !self.has_node(&left) {
-            let _ = self.add_node(left.clone());
+            let _ = self.add_node_with_attrs_unrecorded(left.clone(), AttrMap::new());
             left_autocreated = true;
         }
         let mut right_autocreated = false;
         if left == right {
             right_autocreated = left_autocreated;
         } else if !self.has_node(&right) {
-            let _ = self.add_node(right.clone());
+            let _ = self.add_node_with_attrs_unrecorded(right.clone(), AttrMap::new());
             right_autocreated = true;
         }
 
@@ -8350,12 +8387,13 @@ mod tests {
             elapsed
         };
 
-        // Arm A2: what the shipped edge-BUILDING path actually files per edge —
-        // the autocreated endpoint's `add_node` record PLUS the `add_edge`
-        // outcome record. br-r37-c1-jc9e4: arm A1 models one record per edge and
-        // therefore reports a FLOOR for the ledger's share of add_edge, not its
-        // share, on any workload that grows the graph. The denominator arm
-        // (`add_edge_full`) grows a path graph, so A2 is the arm that matches it.
+        // Arm A2: two records per edge — the autocreated endpoint's `add_node`
+        // record PLUS the `add_edge` outcome record. This was the shipped
+        // behaviour until br-r37-c1-wa1b9 stopped the internal autocreation
+        // filing its own record; it is now the COUNTERFACTUAL that prices what
+        // that change removed, and A1 is the shipped path. Keep it: it is the
+        // only arm that shows what a per-call (rather than per-operation)
+        // ledger contract would cost on the hottest mutation path.
         let recorded_edge_build = || {
             let mut policy = RuntimePolicy::strict();
             let start = Instant::now();
@@ -8528,9 +8566,9 @@ mod tests {
         let full = median(&mut full_ns);
         println!("ledger_record_cost_ab n={EDGES} rounds={ROUNDS} (2 records/edge)");
         println!("  A  bounded ledger, 2 records: {recorded_ns:8.1} ns/edge");
-        println!("  A1 bounded ledger, 1 record : {single_median_ns:8.1} ns/edge  (shipped, FLOOR)");
+        println!("  A1 bounded ledger, 1 record : {single_median_ns:8.1} ns/edge  (SHIPPED)");
         println!(
-            "  A2 shipped edge-build, 2 recs: {edge_build_median_ns:8.1} ns/edge  (add_node + add_edge)"
+            "  A2 two records per edge      : {edge_build_median_ns:8.1} ns/edge  (pre-wa1b9 counterfactual)"
         );
         println!("  A0 unbounded Vec (incumbent): {unbounded_median_ns:8.1} ns/edge");
         println!("  B  build terms only         : {discarded_ns:8.1} ns/edge");
@@ -8566,11 +8604,11 @@ mod tests {
             unbounded_median_ns / single_median_ns
         );
         println!(
-            "  -> ledger share, 1 record   : {:6.1}%  (FLOOR — see A2)",
+            "  -> ledger share, SHIPPED    : {:6.1}%  (A1/full — one record per add_edge)",
             single_median_ns / full * 100.0
         );
         println!(
-            "  -> ledger share, edge-build : {:6.1}%  (A2/full, the growing-graph reality)",
+            "  -> ledger share, pre-wa1b9  : {:6.1}%  (A2/full — when autocreation also recorded)",
             edge_build_median_ns / full * 100.0
         );
     }
@@ -9084,6 +9122,53 @@ mod tests {
                 .map(|record| record.action)
                 .collect::<Vec<_>>(),
             vec![DecisionAction::Allow]
+        );
+    }
+
+    #[test]
+    fn add_edge_autocreation_files_no_add_node_record() {
+        // br-r37-c1-wa1b9: autocreating an endpoint is an internal STEP of
+        // add_edge, so the ledger's per-OPERATION contract means add_edge files
+        // exactly ONE record however many endpoints it had to create. The
+        // information is not lost — it is in that record's autocreated terms.
+        // A caller-visible add_node still records, which the second half pins.
+        let mut graph = Graph::strict();
+        graph
+            .add_edge_with_attrs("a", "b", AttrMap::new())
+            .expect("edge add should succeed");
+
+        let records = graph.evidence_ledger().records();
+        assert_eq!(
+            records.len(),
+            1,
+            "add_edge creating two nodes must file one record, got {:?}",
+            records
+                .iter()
+                .map(|record| record.operation.as_str())
+                .collect::<Vec<_>>()
+        );
+        let record = &records[0];
+        assert_eq!(record.operation, "add_edge");
+        assert_eq!(
+            record
+                .evidence
+                .iter()
+                .filter(|term| term.signal == "left_autocreated"
+                    || term.signal == "right_autocreated")
+                .map(|term| term.observed_value.as_str())
+                .collect::<Vec<_>>(),
+            vec!["true", "true"],
+            "the autocreation event must still be auditable from the outcome record"
+        );
+
+        // A user-visible add_node keeps its own record.
+        let before = graph.evidence_ledger().records().len();
+        graph.add_node("c");
+        let records = graph.evidence_ledger().records();
+        assert_eq!(records.len(), before + 1);
+        assert_eq!(
+            records.last().map(|record| record.operation.as_str()),
+            Some("add_node")
         );
     }
 
