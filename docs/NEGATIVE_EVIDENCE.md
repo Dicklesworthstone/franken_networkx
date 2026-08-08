@@ -37,6 +37,112 @@ admission history, host, scope source, process affinity, monitored CPU set,
 checked-window count, maximum observed busy fraction, and maximum consecutive
 busy-window count.
 
+## 2026-08-08 OliveDesert NOT TAKEN THIS ROW: `add_edge`'s loss is per-CALL, not per-edge — the batch path already beats NetworkX **`1.86x`**, and a **`6.84x` cliff at chunk size 8** turned up on the way (`br-r37-c1-jc9e4`)
+
+Profile-first for the native mutation path. No source edit. Two findings, and
+the second was not what I went looking for.
+
+### 1. The loss is the per-call boundary, not the mutation
+
+`add_edges_from` performs the SAME mutations behind one PyO3 crossing, so
+sweeping its chunk size separates per-call cost from per-edge work. 2,000 nodes
+/ 8,000 edges, fresh graph per timed unit, live NetworkX 3.6.1 in-invocation,
+`taskset -c 40-47`, ELF
+`675707aceef90feadcfb8c17d73046ad68f76f035395bd3ec884792a717cc403`. Edge order
+asserted identical against NetworkX for every route before timing.
+
+| arm | ns/edge |
+|---|---|
+| fnx `add_edges_from` (whole 8,000) | **`352.7`** |
+| nx `add_edges_from` | `659.7` |
+| nx `add_edge` loop | `713.4` |
+| fnx `add_edge` raw loop (shim bypassed) | `1177.4` |
+| fnx `add_edge` public loop | `1462.4` |
+| CONTROL: fnx no-op `add_node` (node already present) | `914.4` |
+
+**FrankenNetworkX's batch path already beats NetworkX by `1.8595x` against its
+batch and `1.9862x` against its loop, doing the identical mutations.** The same
+work costs `1177.4 ns` one crossing at a time. So `75.4%` of native
+`raw_add_edge` is per-call boundary cost, and the mutation itself is not the
+problem — this repo is not slow at adding edges, it is slow at being CALLED to
+add an edge.
+
+Key-type isolation confirms canonicalization is a minor term: str-minus-int on
+the raw loop is `168.6 ns`, `11.7%` of the call (NetworkX's own str-minus-int
+control is `28.7 ns`). The earlier guess that two `node_key_to_string` calls
+dominate is refuted.
+
+The control is the sharpest number here: a no-op `add_node` on a node that is
+ALREADY PRESENT costs `914.4 ns`. Nothing is mutated. Whatever that is, it is
+generic per-mutation-call entry cost shared with `add_edge`, not edge logic, and
+it is where the remaining work is.
+
+### 2. An unlooked-for `6.84x` cliff at chunk size 8
+
+Sweeping `add_edges_from` chunk size on one quiet host (load `4.04`), edge order
+asserted identical to the whole-batch build at every k:
+
+| k | 1 | 2 | 4 | 6 | **7** | **8** | 9 | 12 | 16 | 32 | 64 | 8000 |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| ns/edge | `3646` | `2408` | `1870` | `1707` | **`1679`** | **`15156`** | `13469` | `10175` | `7686` | `4144` | `2362` | `352` |
+
+k=1 through 7 amortize smoothly downward, then k=8 jumps to `15156 ns/edge` —
+about `121 us` for a single 8-edge call — and only works back down as k grows,
+not beating k=7 again until roughly k>=128.
+
+That sweep carries no null, so the cliff was re-measured on its own balanced
+square with both A/A null controls recorded in the same invocation. THIS is the
+figure to quote:
+
+| | median | CI95 |
+|---|---|---|
+| k=8 / k=7 slowdown | **`6.8446x`** | `6.7964 - 6.9221` |
+| A/A null, k=7 arm | `0.9921x` | `0.9753 - 1.0096` |
+| A/A null, k=8 arm | `0.9970x` | `0.9945 - 1.0003` |
+
+k=7 `2128.7 ns/edge`, k=8 `14631.0 ns/edge`. Both nulls sit within 2% of `1.0`
+and the candidate CI is nowhere near it, so the cliff is DECIDABLE. The nulled
+`6.84x` is smaller than the `9.0x` the unnulled sweep suggested, because the
+k=7 arm is the noisier of the two (its null CI is the wider one); the sweep
+overstated it and the smaller number is the one carried forward.
+
+This reproduced three times across separate invocations at loads `13.3`, `4.0`
+and `4.0` (`15491`, `15650`, `15156`), so it is not co-tenancy. It is
+user-visible: `G.add_edges_from(batch)` in a loop is a normal way to write
+graph-building code, and the sizes people pick land squarely in the bad region.
+Its magnitude, roughly `121 us` per call on a 4,000-edge graph, has the shape of
+an O(existing edges) pass per call rather than a constant. I did NOT locate the
+threshold in source — a grep of the obvious size guards found nothing — so the
+cause is open and the number is the finding. Filed as `br-r37-c1-uta2n`.
+
+comparison_class=INCUMBENT
+incumbent=networkx
+incumbent_same_invocation=true
+incumbent_ratio=0.4879x
+campaign_output=false
+decision_gate=median_ci
+cv_role=report_only
+
+RESULT: **NO SOURCE EDIT.** `add_edge` public stays a loss (`713.4` vs `1462.4`
+ns/edge here, consistent with the `0.4289x` measured earlier today under
+different load). No lever is taken because the two candidates I could see are
+both refused on evidence: the Python shim is `22.4%`, under its REJECT's `40%`
+bar, and routing single `add_edge` through the batch machinery is worse, not
+better — a k=1 batch costs `3646 ns/edge` against the raw call's `1177`.
+
+A DISCARDED RUN, disclosed: the first chunk sweep ran at load `13.3` with a
+broken calibration that collapsed to one iteration per slot. Its absolute
+numbers are not used anywhere above; only the cliff, which reproduced later on a
+quiet host, is carried forward.
+
+RETRY PREDICATE: do not re-derive the per-call/per-edge split or the key-type
+share — both are settled above. The next measurement on this surface is a Rust
+self-time profile of the per-mutation call entry, anchored by the `914.4 ns`
+no-op `add_node` control, using the in-crate harness pattern at
+`crates/fnx-python/src/lib.rs` `borrowed_canonical_key_self_time_ab`. Do not
+attack the Python shim, and do not reopen node-key interning for this surface on
+an `11.7%` share.
+
 ## 2026-08-08 OliveDesert REJECT UPHELD, NO SOURCE EDIT: `Graph.add_edge` shim frames are **`22.4%`**, under CloudyTurtle's `40%` bar — and deleting the whole shim still leaves **`0.5525x`** (`br-r37-c1-vabqj`)
 
 `perf_ledger_preflight.py --candidate` blocked on the 2026-07-26 CloudyTurtle
