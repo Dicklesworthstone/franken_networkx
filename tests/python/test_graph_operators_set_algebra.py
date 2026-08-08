@@ -75,6 +75,25 @@ def test_binary_operators_parity_and_laws(seed):
     assert _edge_set(fnx.symmetric_difference(fg, fh)) == ef ^ eh
 
 
+@pytest.mark.parametrize("seed", range(50))
+def test_set_algebra_operators_preserve_iteration_order(seed):
+    """br-r37-c1-cluiw: the assertions above compare ``_edge_set``, a set of
+    SORTED pairs. That discards two observable properties at once — the node set
+    (a graph with extra isolates has the same edge set) and the iteration order
+    (the CGSE contract). Both hold exactly for these five operators; verified
+    across all 50 seeds before being asserted here.
+    """
+    fg, ng, fh, nh, _ = _pair(seed)
+    unary = [(fnx.complement(fg), nx.complement(ng))]
+    binary = [
+        (getattr(fnx, name)(fg, fh), getattr(nx, name)(ng, nh))
+        for name in ("compose", "intersection", "difference", "symmetric_difference")
+    ]
+    for got, want in unary + binary:
+        assert list(got.nodes()) == list(want.nodes())
+        assert list(got.edges()) == list(want.edges())
+
+
 @pytest.mark.parametrize("seed", range(40))
 def test_products_size_parity(seed):
     fg, ng, fh, nh, n = _pair(seed)
@@ -87,3 +106,15 @@ def test_products_size_parity(seed):
         np_ = nprod(ng, nh)
         assert fp.number_of_nodes() == np_.number_of_nodes()
         assert fp.number_of_edges() == np_.number_of_edges()
+        # br-r37-c1-cluiw: counts alone would pass two graphs of the same size
+        # and different shape. Node ORDER and the edge SET both match nx exactly.
+        assert list(fp.nodes()) == list(np_.nodes())
+        assert {tuple(sorted(e)) for e in fp.edges()} == {
+            tuple(sorted(e)) for e in np_.edges()
+        }
+        # Edge ORDER is deliberately NOT asserted: it diverges from nx for all
+        # three products (same set, different sequence) — filed as
+        # br-r37-c1-28lwc. Asserting it here would red the suite over a known,
+        # separately-tracked divergence; asserting sorted() everywhere is what
+        # hid it in the first place, so the boundary is drawn explicitly rather
+        # than by using a comparison that cannot see the difference.
