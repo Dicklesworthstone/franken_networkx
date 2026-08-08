@@ -37,6 +37,74 @@ admission history, host, scope source, process affinity, monitored CPU set,
 checked-window count, maximum observed busy fraction, and maximum consecutive
 busy-window count.
 
+## 2026-08-08 OliveDesert NOT TAKEN THIS ROW, SHAPE PINNED: the chunk-size-8 cliff is **O(nodes), flat in edges** — and it is not the collector (`br-r37-c1-uta2n`)
+
+The probe my own previous row prescribed, run and answered. No source edit.
+
+METHOD. Measure the per-call cost DIRECTLY at a known graph size instead of
+inferring it from a whole build: pre-build a graph of (N nodes, E edges), then
+time 100 successive 8-edge `add_edges_from` calls on it. Those add 800 edges,
+small against E, so graph size is effectively fixed across the sample. Varying N
+at fixed E and E at fixed N separates the three candidate shapes — a constant
+stays flat in both, an O(N) cost tracks the node sweep only, an O(E) cost tracks
+the edge sweep only. Load 4.25, ELF
+`675707aceef90feadcfb8c17d73046ad68f76f035395bd3ec884792a717cc403`.
+
+**A) vary NODES, edges fixed at 8,000**
+
+| N | 500 | 1,000 | 2,000 | 4,000 | 8,000 |
+|---|---|---|---|---|---|
+| ns/edge | `3889.6` | `7442.0` | `15208.3` | `33816.6` | `75088.1` |
+| vs N=500 | `x1.00` | `x1.91` | `x3.91` | `x8.69` | `x19.30` |
+
+**B) vary EDGES, nodes fixed at 2,000**
+
+| E | 1,000 | 2,000 | 4,000 | 8,000 | 16,000 |
+|---|---|---|---|---|---|
+| ns/edge | `14900.6` | `15065.1` | `15694.8` | `15520.9` | `15502.3` |
+| vs E=1,000 | `x1.00` | `x1.01` | `x1.05` | `x1.04` | `x1.04` |
+
+Sixteen-fold more nodes costs `19.30x`; sixteen-fold more edges costs `1.04x`.
+**The per-call cost is proportional to the NODE count and independent of the
+edge count.** Nothing ambiguous is left about the shape: it is a whole-node-set
+pass per call, slightly superlinear in the way an allocating hash build is.
+
+AND IT IS NOT THE COLLECTOR. The obvious O(N) site — the `seen_nodes` HashSet
+cloned from every node key at `try_add_plain_edge_batch`
+(`crates/fnx-python/src/lib.rs:3373`) — was replaced with an O(1) per-endpoint
+lookup in the row below, rebuilt, and moved nothing. A scan of the whole
+collector body (`:3307`-`:3520`) for node-set-wide operations finds
+`nodes_ordered()` exactly once, at `:3375`, which is that same refuted clone. So
+the O(N) pass is downstream of the collect: the commit step, the caller
+`PyGraph::_try_add_edges_from_batch` (`:12578`), or a mirror/cache rebuild that
+runs once per successful batch.
+
+This also explains why the cliff exists at all rather than being a smooth curve.
+Below `PLAIN_EDGE_BATCH_MIN = 8` the batch never engages, so the per-edge path
+pays no whole-node-set pass; at 8 the batch engages and pays one per call. The
+`1/k` tail above 8 is that fixed O(N) cost amortized over the batch.
+
+comparison_class=INCUMBENT
+incumbent=networkx
+incumbent_same_invocation=false
+campaign_output=false
+decision_gate=median_ci
+cv_role=report_only
+
+RESULT: **NO SOURCE EDIT, SHAPE PINNED.** The cliff stands at `6.8446x` (CI
+`6.7964 - 6.9221`, A/A nulls `0.9921x` / `0.9970x`). This row does not re-measure
+that ratio; it measures the scaling of the per-call cost behind it, which is why
+`incumbent_same_invocation=false` — both arms here are FrankenNetworkX at
+different graph sizes and no NetworkX comparison is claimed.
+
+RETRY PREDICATE: do not re-run either sweep — the shape is settled, O(nodes) and
+flat in edges. Do not re-attack `seen_nodes`. The next edit must first NAME the
+surviving whole-node-set pass in the commit path and show it disappearing from
+the `A)` sweep; a fix is proven when the `N=8000` figure stops tracking N, not
+when the k=8 number merely improves. Confirm the enclosing `impl` before editing
+`lib.rs` — names repeat across per-class impls and an unreached edit reads
+exactly like a refuted hypothesis.
+
 ## 2026-08-08 OliveDesert HYPOTHESIS REJECTED, SOURCE REVERTED: the O(N) `seen_nodes` clone is NOT the chunk-size-8 cliff (`br-r37-c1-uta2n`)
 
 I had a mechanism, it was wrong, and the edit is reverted. Writing it down
