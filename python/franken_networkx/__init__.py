@@ -17434,6 +17434,50 @@ def _aa_native_scores(G, materialized):
         yield (u, v, sum(1.0 / math.log(d) for d in degs))
 
 
+def _pa_native_scores(G, materialized):
+    """Explicit-ebunch scorer for ``preferential_attachment``.
+
+    br-r37-c1-z00k8: this is the sibling the other three link-prediction
+    metrics already had. `jaccard_coefficient`, `adamic_adar_index` and
+    `resource_allocation_index` each short-circuit an explicit ebunch into a
+    dedicated scorer; `preferential_attachment` alone fell through to the
+    generic `_link_prediction_compute`, and measured `0.8635x` against live
+    NetworkX while `jaccard_coefficient` — same graph, same 300 pairs, same
+    validator — measured `3.2523x`.
+
+    Stage attribution put the residual here rather than in ebunch validation
+    (`+7.81us`) or the degree batch (a `1.6191x` win): `73.98us` of the deficit
+    sat in the generic path's machinery. That machinery is real work this
+    metric never needed — three neighbour caches, a four-way metric dispatch,
+    and two closure frames per pair (`predict` -> `deg` -> `dict.get` plus a
+    `None` test) — when the score is just the product of two endpoint degrees.
+
+    Parity notes:
+      * Generator, not a function returning a list, so the degree batch fires
+        on first iteration exactly as the generic path's did. NetworkX's
+        `_apply_prediction` also returns a generator, and the eager
+        `NodeNotFound` / `NetworkXNotImplemented` raises already happened in
+        `_link_prediction_validate_ebunch` (br-r37-c1-scceager).
+      * Degrees are Python ints, so `deg(u) * deg(v)` is an int, matching
+        NetworkX. No float ever enters.
+      * The whole-graph-vs-endpoint-subset choice is carried over verbatim
+        from the generic path: an ebunch at least as large as the node set
+        touches enough nodes that one `G.degree()` snapshot beats an nbunch
+        query (br-r37-c1-pa-degbatch), and a smaller one must not materialise
+        degrees it will never read (br-r37-c1-pa-endpointbatch).
+    """
+    if not materialized:
+        return
+    if len(materialized) >= G.number_of_nodes():
+        degrees = dict(G.degree())
+    else:
+        degrees = dict(
+            G.degree({endpoint for pair in materialized for endpoint in pair})
+        )
+    for u, v in materialized:
+        yield (u, v, degrees[u] * degrees[v])
+
+
 def _link_prediction_validate_ebunch(G, ebunch):
     """Validate ebunch for link-prediction per nx contract (br-7f0fn).
 
@@ -17632,6 +17676,12 @@ def preferential_attachment(G, ebunch=None):
     """
     G = _coerce_arg_to_fnx_graph(G)
     materialized = _link_prediction_validate_ebunch(G, ebunch)
+    # br-r37-c1-z00k8: explicit ebunch on a simple Graph -> dedicated endpoint-degree
+    # scorer, the sibling jaccard/adamic_adar/resource_allocation already had. The
+    # default (None) ebunch keeps the Python non_edges path (delicate pop/set-diff
+    # order). Subclasses keep the generic path so any overridden accessor still runs.
+    if materialized is not None and type(G) is Graph:
+        return _pa_native_scores(G, materialized)
     return _link_prediction_compute(G, materialized, "preferential_attachment")
 
 

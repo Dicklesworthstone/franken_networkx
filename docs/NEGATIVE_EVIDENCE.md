@@ -37,6 +37,93 @@ admission history, host, scope source, process affinity, monitored CPU set,
 checked-window count, maximum observed busy fraction, and maximum consecutive
 busy-window count.
 
+## 2026-08-08 OliveDesert SHIPPED, STILL A LOSS: `preferential_attachment` gets the family's missing explicit-ebunch scorer — **`0.8635x` -> `0.9833x`**, which does NOT reach parity (`br-r37-c1-z00k8`)
+
+This is the lever `br-r37-c1-3s8x7` identified. It ships, it closes ~88% of
+the gap to `1.0`, and it is still a loss. All three facts belong in the same
+sentence.
+
+MECHANISM. `jaccard_coefficient`, `adamic_adar_index` and
+`resource_allocation_index` each short-circuit an explicit ebunch into a
+dedicated scorer; `preferential_attachment` alone fell through to the generic
+`_link_prediction_compute`. That generic path builds three neighbour caches, a
+four-way metric dispatch, and two closure frames per pair (`predict` -> `deg`
+-> `dict.get` plus a `None` test) to compute a product of two endpoint degrees.
+`_pa_native_scores` is the missing sibling: one degree batch, then a direct
+dict-indexed product per pair. The whole-graph-vs-endpoint-subset branch is
+carried over verbatim from the generic path, so `br-r37-c1-pa-degbatch` and
+`br-r37-c1-pa-endpointbatch` both keep their behaviour.
+
+```
+bench_elf_sha256=80488d1e0014e4ca2907f8166df60fdf15a9de6eab6bd11685d260917fc7041d
+```
+
+| row | median | CI95 | A/A null nx | A/A null fnx |
+|---|---|---|---|---|
+| `preferential_attachment` before | `0.8635x` | `0.8578 - 0.8682` | `0.9979x` | `1.0000x` |
+| `preferential_attachment` after | **`0.9833x`** | `0.9786 - 0.9884` | `1.0011x` | `1.0028x` |
+| `jaccard_coefficient` (collateral control) | `3.2485x` | `3.2358 - 3.2539` | `1.0024x` | `0.9996x` |
+
+The A/A null controls were measured, not assumed: `1.0011x` and `1.0028x` on
+the candidate row, widest null CI half-width `0.0035`, and the candidate CI
+`0.9786 - 0.9884` sits wholly below `1.0`. So the remaining loss is decidable
+too — this shipped and it is still behind NetworkX by ~1.7%, and no rounding
+makes that a win. The unchanged `jaccard_coefficient` (`3.2523x` -> `3.2485x`)
+is the collateral control: the edit did not perturb the siblings.
+
+A MEASUREMENT TRAP I WALKED INTO, RECORDED BECAUSE IT FLIPS THE SIGN. A second
+probe of mine reported the same code at `1.0336x` — a win — on what I believed
+was the same workload. It was not. `perf_harness._build_pair` emits three-tuples
+carrying an EMPTY attr dict, `(u, v, {})`; my probe emitted bare `(u, v)`. A
+direct A/B of the two builds on one graph:
+
+| build | whole call | `degree(nbunch)` |
+|---|---|---|
+| `(u, v, {})` (the harness's) | `199.16us` -> `0.9962x` | `118.20us` |
+| `(u, v)` (my probe's) | `192.15us` -> `1.0325x` | `112.89us` |
+
+An empty attr dict costs 3.65% on the call and 4.71% on `degree(nbunch)`,
+which is the whole distance between a loss and a win. The number published
+above is the harness's build, `0.9833x`. The friendlier `1.0336x` is NOT this
+row's result and is not reported as one. Filed as `br-r37-c1-qqj23`, since an
+empty dict carries no information and should leave the graph in the state that
+passing nothing does.
+
+PARITY. 17 tests in
+`tests/python/test_preferential_attachment_scorer_parity.py`, against live
+NetworkX and against the generic scorer this replaced: int scores never floats,
+ebunch order with duplicates/self-pairs/both orientations, empty ebunch, the
+large-ebunch branch, isolated zero-degree endpoints, the untouched default
+`non_edges` path, generator laziness (a mutation between call and first
+iteration is still visible), eager `NodeNotFound`/`NetworkXNotImplemented`,
+`Graph` subclasses falling back to the generic path, and the three sibling
+metrics unchanged. Full link-prediction sweep across 20 files: 3153 passed,
+1 skipped. UBS exit 0.
+
+CLASSIFICATION, and why it is not `INCUMBENT`. The verdict contract offers two
+classes, and a shipped change that still trails the incumbent fits only one of
+them. NetworkX did run live in the same invocation, but the campaign class
+requires a ratio above `1.0x` and this one is `0.9833x`. The claim being banked
+is therefore the before/after inside FrankenNetworkX — `0.8635x` -> `0.9833x`
+— which is exactly what the contract calls maintenance: it ships, it takes no
+`WIN` heading, and it supports no competitive claim. The vs-NetworkX figures
+above are recorded as the scope limit on this row, not as its result.
+
+comparison_class=SELF-SPEEDUP
+campaign_output=false
+decision_gate=median_ci
+cv_role=report_only
+
+RESULT: **SHIPPED AS MAINTENANCE, STILL BEHIND THE INCUMBENT.** No public claim
+attaches, and the README must not gain a row from this.
+
+RETRY PREDICATE: the residual is now dominated by ebunch validation
+(`+7.84us`, fnx `51.15us` vs nx `43.31us` on 300 pairs) — the `padm6`
+`__contains__` surface, which carries its own live retry predicates from
+CloudyTurtle 2026-07-26; do not reopen it from this row. The cheaper move is
+`br-r37-c1-qqj23`, worth ~3.65% on this exact call. Do not re-measure this row
+unchanged, and do not re-report it on a bare-tuple build.
+
 ## 2026-08-08 OliveDesert RE-MEASURE + HYPOTHESIS REJECTED, NO SOURCE EDIT: `preferential_attachment` is **`0.8635x`**, not the published `0.59x`; ebunch validation is REJECTED as the cause of the residual (`br-r37-c1-3s8x7`)
 
 This bead asked one question and pre-registered its own falsification: padm6
