@@ -13637,7 +13637,7 @@ impl PyDiGraph {
         Py::new(
             py,
             DiAdjacencyView {
-                graph: graph_py,
+                graph: Some(graph_py),
                 kind: AdjKind::Successors,
             },
         )
@@ -13651,7 +13651,7 @@ impl PyDiGraph {
         Py::new(
             py,
             DiAdjacencyView {
-                graph: graph_py,
+                graph: Some(graph_py),
                 kind: AdjKind::Successors,
             },
         )
@@ -13665,7 +13665,7 @@ impl PyDiGraph {
         Py::new(
             py,
             DiAdjacencyView {
-                graph: graph_py,
+                graph: Some(graph_py),
                 kind: AdjKind::Predecessors,
             },
         )
@@ -16028,18 +16028,40 @@ enum AdjKind {
 
 #[pyclass(module = "franken_networkx")]
 pub struct DiAdjacencyView {
-    graph: Py<PyDiGraph>,
+    /// `None` once `__clear__` has run — see
+    /// [`crate::views::cleared_view_error`]. The handle must be nullable so
+    /// `tp_clear` can break the ``graph -> view -> graph`` reference cycle
+    /// (br-r37-c1-5gam7).
+    graph: Option<Py<PyDiGraph>>,
     kind: AdjKind,
+}
+
+impl DiAdjacencyView {
+    fn graph(&self) -> PyResult<&Py<PyDiGraph>> {
+        self.graph
+            .as_ref()
+            .ok_or_else(crate::views::cleared_view_error)
+    }
 }
 
 #[pymethods]
 impl DiAdjacencyView {
+    fn __traverse__(&self, visit: PyVisit<'_>) -> Result<(), PyTraverseError> {
+        visit.call(&self.graph)
+    }
+
+    fn __clear__(&mut self) {
+        self.graph = None;
+    }
+
     fn __len__(&self, py: Python<'_>) -> usize {
-        self.graph.borrow(py).inner.node_count()
+        self.graph
+            .as_ref()
+            .map_or(0, |graph| graph.borrow(py).inner.node_count())
     }
 
     fn __contains__(&self, py: Python<'_>, n: &Bound<'_, PyAny>) -> PyResult<bool> {
-        let g = self.graph.borrow(py);
+        let g = self.graph()?.borrow(py);
         let canonical = node_key_to_string(py, n)?;
         Ok(g.inner.has_node(&canonical))
     }
@@ -16047,18 +16069,19 @@ impl DiAdjacencyView {
     fn __getitem__(&self, py: Python<'_>, n: &Bound<'_, PyAny>) -> PyResult<Py<DiAtlasView>> {
         // br-r37-c1-ozcko: `G.succ[u]` / `G.pred[u]` return the same lazy
         // DiAtlasView as `G[u]` (was an eager O(degree) PyDict materialisation).
+        let graph = self.graph()?;
         let canonical = node_key_to_string(py, n)?;
-        if !self.graph.borrow(py).inner.has_node(&canonical) {
+        if !graph.borrow(py).inner.has_node(&canonical) {
             return Err(crate::missing_key_error(n));
         }
         Py::new(
             py,
-            DiAtlasView::new(self.graph.clone_ref(py), canonical, self.kind),
+            DiAtlasView::new(graph.clone_ref(py), canonical, self.kind),
         )
     }
 
     fn __iter__(&self, py: Python<'_>) -> PyResult<Py<crate::NodeIterator>> {
-        let g = self.graph.borrow(py);
+        let g = self.graph()?.borrow(py);
         let nodes: Vec<PyObject> = g
             .inner
             .nodes_ordered()
@@ -16069,7 +16092,9 @@ impl DiAdjacencyView {
     }
 
     fn __bool__(&self, py: Python<'_>) -> bool {
-        self.graph.borrow(py).inner.node_count() > 0
+        self.graph
+            .as_ref()
+            .is_some_and(|graph| graph.borrow(py).inner.node_count() > 0)
     }
 }
 
@@ -16083,20 +16108,34 @@ impl DiAdjacencyView {
 // ---------------------------------------------------------------------------
 #[pyclass(module = "franken_networkx", mapping)]
 pub struct DiAtlasView {
-    graph: Py<PyDiGraph>,
+    /// `None` once `__clear__` has run — see
+    /// [`crate::views::cleared_view_error`]. `DiAdjacencyView::__getitem__`
+    /// hands out a DiAtlasView holding its OWN clone of the graph handle, so
+    /// this view is on the same cycle (br-r37-c1-5gam7).
+    graph: Option<Py<PyDiGraph>>,
     node: String,
     kind: AdjKind,
 }
 
 impl DiAtlasView {
     fn new(graph: Py<PyDiGraph>, node: String, kind: AdjKind) -> Self {
-        Self { graph, node, kind }
+        Self {
+            graph: Some(graph),
+            node,
+            kind,
+        }
+    }
+
+    fn graph(&self) -> PyResult<&Py<PyDiGraph>> {
+        self.graph
+            .as_ref()
+            .ok_or_else(crate::views::cleared_view_error)
     }
 
     /// Materialise the full `{neighbour: shared_edge_attr_dict}` (O(degree)) —
     /// only when a materialising method (items/values/==/str/repr) is called.
     fn materialize(&self, py: Python<'_>) -> PyResult<Py<PyDict>> {
-        let mut g = self.graph.borrow_mut(py);
+        let mut g = self.graph()?.borrow_mut(py);
         let neighbors = match self.kind {
             AdjKind::Successors => g.inner.successors(&self.node).unwrap_or_default(),
             AdjKind::Predecessors => g.inner.predecessors(&self.node).unwrap_or_default(),
@@ -16123,8 +16162,16 @@ impl DiAtlasView {
 
 #[pymethods]
 impl DiAtlasView {
+    fn __traverse__(&self, visit: PyVisit<'_>) -> Result<(), PyTraverseError> {
+        visit.call(&self.graph)
+    }
+
+    fn __clear__(&mut self) {
+        self.graph = None;
+    }
+
     fn __getitem__(&self, py: Python<'_>, v: &Bound<'_, PyAny>) -> PyResult<Py<PyDict>> {
-        let g = self.graph.borrow(py);
+        let g = self.graph()?.borrow(py);
         let v_canon = node_key_to_string(py, v)?;
         let exists = match self.kind {
             AdjKind::Successors => g.inner.has_edge(&self.node, &v_canon),
@@ -16139,7 +16186,7 @@ impl DiAtlasView {
         // produce none) — a fresh unstored dict silently loses writes.
         g.mark_edges_dirty();
         drop(g);
-        let mut g = self.graph.borrow_mut(py);
+        let mut g = self.graph()?.borrow_mut(py);
         match self.kind {
             AdjKind::Successors => Ok(g.materialize_edge_py_attrs(py, &self.node, &v_canon)),
             AdjKind::Predecessors => Ok(g.materialize_edge_py_attrs(py, &v_canon, &self.node)),
@@ -16147,7 +16194,7 @@ impl DiAtlasView {
     }
 
     fn __contains__(&self, py: Python<'_>, v: &Bound<'_, PyAny>) -> PyResult<bool> {
-        let g = self.graph.borrow(py);
+        let g = self.graph()?.borrow(py);
         let v_canon = node_key_to_string(py, v)?;
         Ok(match self.kind {
             AdjKind::Successors => g.inner.has_edge(&self.node, &v_canon),
@@ -16156,7 +16203,10 @@ impl DiAtlasView {
     }
 
     fn __len__(&self, py: Python<'_>) -> usize {
-        let g = self.graph.borrow(py);
+        let Some(graph) = self.graph.as_ref() else {
+            return 0;
+        };
+        let g = graph.borrow(py);
         match self.kind {
             AdjKind::Successors => g.inner.out_degree(&self.node),
             AdjKind::Predecessors => g.inner.in_degree(&self.node),
@@ -16165,7 +16215,7 @@ impl DiAtlasView {
 
     fn __iter__(&self, py: Python<'_>) -> PyResult<PyObject> {
         let row = {
-            let mut g = self.graph.borrow_mut(py);
+            let mut g = self.graph()?.borrow_mut(py);
             match self.kind {
                 AdjKind::Successors => g.successor_row_dict_by_canonical(py, &self.node)?,
                 AdjKind::Predecessors => g.predecessor_row_dict_by_canonical(py, &self.node)?,
@@ -16179,7 +16229,7 @@ impl DiAtlasView {
     }
 
     fn items(&self, py: Python<'_>) -> PyResult<Vec<(PyObject, Py<PyDict>)>> {
-        let mut g = self.graph.borrow_mut(py);
+        let mut g = self.graph()?.borrow_mut(py);
         let neighbors = match self.kind {
             AdjKind::Successors => g.inner.successors(&self.node).unwrap_or_default(),
             AdjKind::Predecessors => g.inner.predecessors(&self.node).unwrap_or_default(),
@@ -16225,7 +16275,7 @@ impl DiAtlasView {
 
     /// nx ``AtlasView.copy`` -> ``{n: self[n].copy()}``.
     fn copy(&self, py: Python<'_>) -> PyResult<Py<PyDict>> {
-        let mut g = self.graph.borrow_mut(py);
+        let mut g = self.graph()?.borrow_mut(py);
         let neighbors = match self.kind {
             AdjKind::Successors => g.inner.successors(&self.node).unwrap_or_default(),
             AdjKind::Predecessors => g.inner.predecessors(&self.node).unwrap_or_default(),

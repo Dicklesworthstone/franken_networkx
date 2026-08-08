@@ -985,21 +985,49 @@ impl DegreeView {
 // AdjacencyView — returned by G.adj
 // ---------------------------------------------------------------------------
 
+/// The owning-graph handle of a view has been dropped by CPython's cyclic
+/// garbage collector (``__clear__``). A cleared view is reachable only from
+/// inside the collector's teardown of the cycle it belonged to, so this is a
+/// defined answer for the fallible methods rather than a state user code can
+/// observe. (br-r37-c1-5gam7)
+pub(crate) fn cleared_view_error() -> PyErr {
+    PyRuntimeError::new_err("view's graph reference was cleared by the garbage collector")
+}
+
 /// A view of the graph's adjacency structure. ``G.adj[n]`` returns a dict of neighbors.
 #[pyclass(module = "franken_networkx")]
 pub struct AdjacencyView {
-    graph: Py<PyGraph>,
+    /// `None` once `__clear__` has run — see [`cleared_view_error`]. The handle
+    /// must be nullable so `tp_clear` can break the ``graph -> view -> graph``
+    /// reference cycle, which is invisible to CPython without `__traverse__`
+    /// and unbreakable without `__clear__` (br-r37-c1-5gam7).
+    graph: Option<Py<PyGraph>>,
+}
+
+impl AdjacencyView {
+    fn graph(&self) -> PyResult<&Py<PyGraph>> {
+        self.graph.as_ref().ok_or_else(cleared_view_error)
+    }
 }
 
 #[pymethods]
 impl AdjacencyView {
+    fn __traverse__(&self, visit: PyVisit<'_>) -> Result<(), PyTraverseError> {
+        visit.call(&self.graph)
+    }
+
+    fn __clear__(&mut self) {
+        self.graph = None;
+    }
+
     fn __len__(&self, py: Python<'_>) -> usize {
-        let g = self.graph.borrow(py);
-        g.inner.node_count()
+        self.graph
+            .as_ref()
+            .map_or(0, |graph| graph.borrow(py).inner.node_count())
     }
 
     fn __contains__(&self, py: Python<'_>, n: &Bound<'_, PyAny>) -> PyResult<bool> {
-        let g = self.graph.borrow(py);
+        let g = self.graph()?.borrow(py);
         let canonical = node_key_to_string(py, n)?;
         Ok(g.inner.has_node(&canonical))
     }
@@ -1007,15 +1035,16 @@ impl AdjacencyView {
     fn __getitem__(&self, py: Python<'_>, n: &Bound<'_, PyAny>) -> PyResult<Py<AtlasView>> {
         // br-r37-c1-njs5g: `G.adj[u]` returns the same lazy AtlasView as `G[u]`
         // (was an eager O(degree) PyDict materialisation).
+        let graph = self.graph()?;
         let canonical = node_key_to_string(py, n)?;
-        if !self.graph.borrow(py).inner.has_node(&canonical) {
+        if !graph.borrow(py).inner.has_node(&canonical) {
             return Err(crate::missing_key_error(n));
         }
-        Py::new(py, AtlasView::new(self.graph.clone_ref(py), canonical))
+        Py::new(py, AtlasView::new(graph.clone_ref(py), canonical))
     }
 
     fn __iter__(&self, py: Python<'_>) -> PyResult<Py<NodeIterator>> {
-        let g = self.graph.borrow(py);
+        let g = self.graph()?.borrow(py);
         let nodes: Vec<PyObject> = g
             .inner
             .nodes_ordered()
@@ -1026,13 +1055,16 @@ impl AdjacencyView {
     }
 
     fn __repr__(&self, py: Python<'_>) -> String {
-        let g = self.graph.borrow(py);
-        format!("AdjacencyView({} nodes)", g.inner.node_count())
+        match &self.graph {
+            Some(graph) => format!("AdjacencyView({} nodes)", graph.borrow(py).inner.node_count()),
+            None => "AdjacencyView(<cleared>)".to_owned(),
+        }
     }
 
     fn __bool__(&self, py: Python<'_>) -> bool {
-        let g = self.graph.borrow(py);
-        g.inner.node_count() > 0
+        self.graph
+            .as_ref()
+            .is_some_and(|graph| graph.borrow(py).inner.node_count() > 0)
     }
 }
 
@@ -1046,19 +1078,30 @@ impl AdjacencyView {
 // ---------------------------------------------------------------------------
 #[pyclass(module = "franken_networkx", mapping)]
 pub struct AtlasView {
-    graph: Py<PyGraph>,
+    /// `None` once `__clear__` has run — see [`cleared_view_error`].
+    /// `AdjacencyView::__getitem__` hands out an AtlasView holding its OWN
+    /// clone of the graph handle, so this view is on the same cycle and needs
+    /// the same treatment (br-r37-c1-5gam7).
+    graph: Option<Py<PyGraph>>,
     node: String,
 }
 
 impl AtlasView {
     pub(crate) fn new(graph: Py<PyGraph>, node: String) -> Self {
-        Self { graph, node }
+        Self {
+            graph: Some(graph),
+            node,
+        }
+    }
+
+    fn graph(&self) -> PyResult<&Py<PyGraph>> {
+        self.graph.as_ref().ok_or_else(cleared_view_error)
     }
 
     /// Materialise the full `{neighbour: shared_edge_attr_dict}` (O(degree)) —
     /// only when a materialising method (items/values/==/str/repr) is called.
     fn materialize(&self, py: Python<'_>) -> PyResult<Py<PyDict>> {
-        let mut g = self.graph.borrow_mut(py);
+        let mut g = self.graph()?.borrow_mut(py);
         let result = PyDict::new(py);
         let neighbors: Vec<String> = g
             .inner
@@ -1078,8 +1121,16 @@ impl AtlasView {
 
 #[pymethods]
 impl AtlasView {
+    fn __traverse__(&self, visit: PyVisit<'_>) -> Result<(), PyTraverseError> {
+        visit.call(&self.graph)
+    }
+
+    fn __clear__(&mut self) {
+        self.graph = None;
+    }
+
     fn __getitem__(&self, py: Python<'_>, v: &Bound<'_, PyAny>) -> PyResult<Py<PyDict>> {
-        let mut g = self.graph.borrow_mut(py);
+        let mut g = self.graph()?.borrow_mut(py);
         let v_canon = node_key_to_string(py, v)?;
         if !g.inner.has_edge(&self.node, &v_canon) {
             return Err(PyKeyError::new_err((v.clone().unbind(),)));
@@ -1093,18 +1144,19 @@ impl AtlasView {
     }
 
     fn __contains__(&self, py: Python<'_>, v: &Bound<'_, PyAny>) -> PyResult<bool> {
-        let g = self.graph.borrow(py);
+        let g = self.graph()?.borrow(py);
         let v_canon = node_key_to_string(py, v)?;
         Ok(g.inner.has_edge(&self.node, &v_canon))
     }
 
     fn __len__(&self, py: Python<'_>) -> usize {
-        let g = self.graph.borrow(py);
-        g.inner.neighbor_count(&self.node)
+        self.graph
+            .as_ref()
+            .map_or(0, |graph| graph.borrow(py).inner.neighbor_count(&self.node))
     }
 
     fn __iter__(&self, py: Python<'_>) -> PyResult<Py<NodeIterator>> {
-        let g = self.graph.borrow(py);
+        let g = self.graph()?.borrow(py);
         let nbrs: Vec<PyObject> = g
             .inner
             .neighbors(&self.node)
@@ -1120,7 +1172,7 @@ impl AtlasView {
     }
 
     fn items(&self, py: Python<'_>) -> PyResult<Vec<(PyObject, Py<PyDict>)>> {
-        let mut g = self.graph.borrow_mut(py);
+        let mut g = self.graph()?.borrow_mut(py);
         let mut out = Vec::with_capacity(g.inner.neighbor_count(&self.node));
         let neighbors: Vec<String> = g
             .inner
@@ -1138,7 +1190,7 @@ impl AtlasView {
     }
 
     fn values(&self, py: Python<'_>) -> PyResult<Vec<Py<PyDict>>> {
-        let mut g = self.graph.borrow_mut(py);
+        let mut g = self.graph()?.borrow_mut(py);
         let mut out = Vec::with_capacity(g.inner.neighbor_count(&self.node));
         let neighbors: Vec<String> = g
             .inner
@@ -1173,7 +1225,7 @@ impl AtlasView {
     /// nx ``AtlasView.copy`` -> ``{n: self[n].copy()}`` (a plain dict of
     /// independent edge-attr-dict copies).
     fn copy(&self, py: Python<'_>) -> PyResult<Py<PyDict>> {
-        let g = self.graph.borrow(py);
+        let g = self.graph()?.borrow(py);
         let result = PyDict::new(py);
         if let Some(neighbors) = g.inner.neighbors(&self.node) {
             for nb in neighbors {
@@ -1327,5 +1379,10 @@ pub fn new_degree_view(py: Python<'_>, graph: Py<PyGraph>) -> PyResult<Py<Degree
 }
 
 pub fn new_adjacency_view(py: Python<'_>, graph: Py<PyGraph>) -> PyResult<Py<AdjacencyView>> {
-    Py::new(py, AdjacencyView { graph })
+    Py::new(
+        py,
+        AdjacencyView {
+            graph: Some(graph),
+        },
+    )
 }

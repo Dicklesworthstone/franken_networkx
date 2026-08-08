@@ -172,6 +172,49 @@ def test_cached_accessor_owner_cycle_is_collectable(cls_name, accessor):
     assert reference() is None
 
 
+@pytest.mark.parametrize(
+    ("cls_name", "descriptor_name", "subscript"),
+    [
+        ("Graph", "_GRAPH_ADJ_DESCRIPTOR", False),
+        ("Graph", "_GRAPH_ADJ_DESCRIPTOR", True),
+        ("DiGraph", "_DIGRAPH_ADJ_DESCRIPTOR", False),
+        ("DiGraph", "_DIGRAPH_ADJ_DESCRIPTOR", True),
+        ("DiGraph", "_DIGRAPH_PRED_DESCRIPTOR", False),
+        ("DiGraph", "_DIGRAPH_PRED_DESCRIPTOR", True),
+    ],
+)
+def test_native_adjacency_view_owner_cycle_is_collectable(
+    cls_name, descriptor_name, subscript
+):
+    """br-r37-c1-5gam7 — the NATIVE adjacency views must not pin their graph.
+
+    The Rust ``Py<Py*Graph>`` handle inside ``AdjacencyView`` / ``AtlasView`` (and
+    their directed twins) is invisible to CPython's cyclic collector unless the
+    class implements ``__traverse__``, and unbreakable unless it also implements
+    ``__clear__``. Both are required: with traverse alone the collector can see
+    the cycle but nothing in it can drop a reference.
+
+    The cycle here is the one the ``len(G.adj)`` native-slot migration creates —
+    ``_cached_view`` memoises the view by writing straight into ``vars(self)``,
+    bypassing the ``__setattr__`` that would otherwise register the instance dict
+    for the graph's own ``tp_clear``. All six parametrisations leaked before the
+    handle became nullable.
+    """
+    graph = getattr(fnx, cls_name)()
+    graph.add_edge("left", "right")
+    view = getattr(fnx, descriptor_name).__get__(graph, type(graph))
+    if subscript:
+        view = view["left"]
+
+    assert gc.is_tracked(view)
+    assert any(referent is graph for referent in gc.get_referents(view))
+
+    vars(graph)["_fnx_native_view_cycle"] = view
+    reference = _owner_cycle_reference(graph)
+    del graph, view
+    _assert_reference_collects(reference)
+
+
 @pytest.mark.parametrize("cls_name", CLASS_NAMES)
 def test_user_instance_attribute_owner_cycle_is_collectable(cls_name):
     graph = getattr(fnx, cls_name)()
