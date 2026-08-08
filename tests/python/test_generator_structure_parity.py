@@ -64,3 +64,30 @@ def test_named_graph_exact_structure(name):
     ng = getattr(nx, name)()
     assert _nodes(fg) == _nodes(ng)
     assert _edges(fg) == _edges(ng)
+
+
+# br-r37-c1-pyvux: `_nodes` and `_edges` above map every label through `str()`
+# and then sort. That is blind to exactly the bug class this module says it
+# catches — "node-labelling construction bugs (tuple labels for grid/hypercube)"
+# — because a generator emitting the STRING "(0, 1)" where networkx emits the
+# TUPLE (0, 1) compares equal after str(). Sorting additionally discards node
+# and edge iteration order.
+#
+# Verified before asserting, across all 30 generators: node types match
+# (grid_2d and hypercube are genuine tuples on both sides), and node and edge
+# ORDER match networkx exactly. So this locks shipped behaviour.
+def _assert_identical_labels_and_order(fg, ng):
+    # `==` on the raw node lists compares label VALUE and TYPE, not str(label).
+    assert list(fg.nodes()) == list(ng.nodes())
+    assert [type(n) for n in fg.nodes()] == [type(n) for n in ng.nodes()]
+    assert list(fg.edges()) == list(ng.edges())
+
+
+@pytest.mark.parametrize("name,builder", _PARAMETRIC)
+def test_parametric_generator_label_types_and_order(name, builder):
+    _assert_identical_labels_and_order(builder(fnx), builder(nx))
+
+
+@pytest.mark.parametrize("name", _NAMED)
+def test_named_graph_label_types_and_order(name):
+    _assert_identical_labels_and_order(getattr(fnx, name)(), getattr(nx, name)())
