@@ -48,12 +48,30 @@ def test_exact_shortest_path_parity(seed):
 
 @pytest.mark.parametrize("seed", range(50))
 def test_exact_traversal_tree_parity(seed):
+    # br-r37-c1-2wi7g: compare ORDER, not just structure. These assertions used
+    # to sort both sides, which pins the tree's edge SET but is blind to the
+    # iteration order — the exact property this module exists to verify. A
+    # traversal that visited neighbours in a different order would still emit
+    # the same edge set and pass a sorted comparison. Order-exact equality was
+    # confirmed to hold across all 50 seeds before the assertions were
+    # tightened, so this locks behaviour that already ships rather than
+    # asserting an aspiration.
     fg, ng, n = _identical_pair(seed)
-    assert sorted(fnx.bfs_tree(fg, 0).edges()) == sorted(nx.bfs_tree(ng, 0).edges())
-    assert sorted(fnx.dfs_tree(fg, 0).edges()) == sorted(nx.dfs_tree(ng, 0).edges())
-    assert {k: sorted(v) for k, v in fnx.bfs_successors(fg, 0)} == (
-        {k: sorted(v) for k, v in nx.bfs_successors(ng, 0)}
+    assert list(fnx.bfs_tree(fg, 0).edges()) == list(nx.bfs_tree(ng, 0).edges())
+    assert list(fnx.dfs_tree(fg, 0).edges()) == list(nx.dfs_tree(ng, 0).edges())
+    assert [(k, list(v)) for k, v in fnx.bfs_successors(fg, 0)] == (
+        [(k, list(v)) for k, v in nx.bfs_successors(ng, 0)]
     )
     assert fnx.single_source_shortest_path(fg, 0) == (
         nx.single_source_shortest_path(ng, 0)
     )
+
+
+@pytest.mark.parametrize("seed", range(50))
+def test_exact_traversal_edge_stream_parity(seed):
+    # br-r37-c1-2wi7g: the raw edge streams were not covered at all, and they
+    # are the most order-sensitive members of this family — bfs_tree/dfs_tree
+    # can agree as graphs while the stream that built them differs in order.
+    fg, ng, _ = _identical_pair(seed)
+    assert list(fnx.bfs_edges(fg, 0)) == list(nx.bfs_edges(ng, 0))
+    assert list(fnx.dfs_edges(fg, 0)) == list(nx.dfs_edges(ng, 0))
