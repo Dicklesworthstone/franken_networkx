@@ -37,6 +37,104 @@ admission history, host, scope source, process affinity, monitored CPU set,
 checked-window count, maximum observed busy fraction, and maximum consecutive
 busy-window count.
 
+## 2026-08-08 OliveDesert RE-MEASURE + HYPOTHESIS REJECTED, NO SOURCE EDIT: `preferential_attachment` is **`0.8635x`**, not the published `0.59x`; ebunch validation is REJECTED as the cause of the residual (`br-r37-c1-3s8x7`)
+
+This bead asked one question and pre-registered its own falsification: padm6
+predicted that 91% of the published `0.59x` loss was ebunch-endpoint membership
+testing, so `preferential_attachment` should move once `n in G` went `0.27x ->
+0.72x`; "if it does NOT move, the 91% attribution was wrong and that is the
+finding."
+
+It moved. It is still a loss. Both halves matter.
+
+WHY THIS RUN EXISTS AT ALL. SnowyValley recorded NO ADMISSIBLE MEASUREMENT on
+2026-08-06 after 25 attempts, and diagnosed the blocker as structural rather
+than unlucky: `perf_harness.py`'s admission gate is a per-CPU MAX, it refused at
+one-minute loads of `1.91` on a 64-way host, and `preferential_attachment` is
+the LAST row of `class1-frontier`, so it is the least reachable row in the
+suite. That disposition stands — this row does not retry the gate and does not
+resurrect the stale `0.59x`. It takes SnowyValley's route 2 (a shorter route to
+the row) in the form the bead permits: an independent same-invocation substrate,
+NOT the harness carved down to the row being claimed, which would be
+bench-path hardcoding. The graph and pair list are transcribed verbatim from
+`perf_harness._build_pair(1_200, 6_000, seed=11)` and the `class1-frontier`
+row, so the workload is the harness's workload.
+
+The substrate's validity claim is empirical instead of pre-declared: both A/A
+nulls are measured INSIDE the same invocation as the candidate, so a run
+corrupted by transient co-tenancy shows up as a wide or displaced null and is
+refused on the spot. That is what the host-wide pre-gate was proxying for, and
+it is checked per run rather than assumed.
+
+```
+bench_elf_sha256=80488d1e0014e4ca2907f8166df60fdf15a9de6eab6bd11685d260917fc7041d
+```
+
+41 rounds, `taskset -c 40-47`, live NetworkX 3.6.1 in-process, balanced
+`[A', B', B'', A'', A'', B'', B', A']` round square, output parity asserted on
+all 300 predictions before any timing.
+
+| row | median | CI95 | A/A null nx | A/A null fnx |
+|---|---|---|---|---|
+| `preferential_attachment n=1200 pairs=300` | **`0.8635x`** | `0.8578 - 0.8682` | `0.9979x` | `1.0000x` |
+| `jaccard_coefficient n=1200 pairs=300` | `3.2523x` | `3.2444 - 3.2573` | `0.9998x` | `0.9976x` |
+
+The A/A null controls were measured, not assumed: on the
+`preferential_attachment` row they came back at `0.9979x` (NetworkX against
+itself) and `1.0000x` (FrankenNetworkX against itself), with a widest null CI
+half-width of `0.0026`, so the candidate's `0.1365` displacement from `1.0` is
+52x that floor. Both rows are DECIDABLE. A second invocation attributing stage
+self-times independently re-measured the whole call at `0.8936x`, consistent in
+direction and magnitude.
+
+THE SIBLING IS THE CONTROL, AND IT IS THE INTERESTING PART. `jaccard_coefficient`
+runs on the IDENTICAL graph and the IDENTICAL 300 pairs through the IDENTICAL
+`_link_prediction_validate_ebunch`, and it measures `3.2523x`. Ebunch validation
+therefore cannot be what holds `preferential_attachment` at `0.8635x`.
+
+STAGE ATTRIBUTION (same-invocation, per-stage nulls all within `1.0022` of 1.0),
+whole-call deficit `22.99us` (fnx `221.28us` vs nx `198.29us`):
+
+| stage | fnx | nx | contribution to deficit |
+|---|---|---|---|
+| ebunch validation | `50.69us` | `42.88us` | `+7.81us` (34%) |
+| endpoint degree batch | `93.85us` | `152.65us` | `-58.80us` (fnx WINS 1.6191x) |
+| residual (scoring path) | — | — | `+73.98us` |
+
+So padm6's prediction is CONFIRMED, quantitatively: the bead recorded ebunch
+validation at `153.5us` vs nx `37.5us`, a `116us` overhead; it is now `50.69us`
+vs `42.88us`, a `7.81us` overhead — that specific overhead is down ~93%. The
+degree batch is not the problem either; it is a 1.6191x win. The entire
+remaining gap, `73.98us` of a `22.99us` net deficit, sits in the generic
+`_link_prediction_compute` scoring path.
+
+MECHANISM FOR THE RESIDUAL, read from source rather than inferred:
+`jaccard_coefficient`, `adamic_adar_index` and `resource_allocation_index` each
+carry an explicit-ebunch native fast path — `if materialized is not None and
+type(G) is Graph: return _jaccard_native_scores(...)` at
+`python/franken_networkx/__init__.py:17606,17623,17649`.
+`preferential_attachment` (`:17627`) has no such sibling and falls through to
+the generic `_link_prediction_compute` closure machinery. It is the one member
+of a four-metric family that never got the native scorer, and it is also the
+arithmetically simplest of the four. Filed as `br-r37-c1-z00k8`.
+
+comparison_class=INCUMBENT
+incumbent=networkx
+incumbent_same_invocation=true
+incumbent_ratio=0.8635x
+campaign_output=false
+decision_gate=median_ci
+cv_role=report_only
+
+RESULT: **RE-MEASURE COMPLETE, STILL A LOSS, NO SOURCE EDIT.** The published
+`0.59x` is superseded by `0.8635x` on HEAD. `campaign_output=false` because a
+sub-1.0 ratio is not a campaign result, however much it improved.
+
+RETRY PREDICATE: do not re-measure this row again unchanged. The next
+measurement on this surface should be the `_pa_native_scores` sibling of
+`br-r37-c1-z00k8`; re-decide it on the same substrate with output parity
+asserted over all 300 predictions and both per-stage nulls inside `0.98-1.02`.
+
 ## 2026-08-08 OliveDesert STRICT INCUMBENT WIN: `karate_club_graph` per-cell accept loop batched — **`0.3762x` -> `1.3665x`** (`br-r37-c1-p4qjj`)
 
 NEGATIVE-LEDGER-FIRST: `scripts/perf_ledger_preflight.py --prior-art
