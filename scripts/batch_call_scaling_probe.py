@@ -62,6 +62,14 @@ import franken_networkx as fnx  # noqa: E402
 CHUNKS = (1, 2, 4, 6, 7, 8, 9, 12, 16, 32, 64)
 NODE_SWEEP = (500, 1000, 2000, 4000, 8000)
 EDGE_SWEEP = (1000, 4000, 16000)
+# The node sweep holds edges at this value and the edge sweep holds nodes at
+# this one. They are named rather than indexed out of the sweep tuples: an
+# earlier revision used EDGE_SWEEP[1] (4,000) for the node sweep while every
+# published acceptance-test row in docs/NEGATIVE_EVIDENCE.md cites 8,000, so a
+# reader reproducing those numbers would have measured a different workload and
+# could have concluded the fixes did not hold.
+FIXED_EDGES = 8000
+FIXED_NODES = 2000
 
 
 def _elf_sha256() -> str:
@@ -150,17 +158,17 @@ def _per_call(cls, shape, directed, n, e, chunk, calls, reps):
 
 def mode_scaling(cls, shape, directed, chunk, calls, reps):
     """THE ACCEPTANCE TEST. O(N) and flat in E is the defect signature."""
-    print(f"\nA) vary NODES, edges fixed {EDGE_SWEEP[1]}, k={chunk}")
+    print(f"\nA) vary NODES, edges fixed {FIXED_EDGES}, k={chunk}")
     first = None
     for n in NODE_SWEEP:
-        cost = _per_call(cls, shape, directed, n, EDGE_SWEEP[1], chunk, calls, reps)
+        cost = _per_call(cls, shape, directed, n, FIXED_EDGES, chunk, calls, reps)
         first = first if first is not None else cost
         print(f"   N={n:<6d} {cost:9.1f} ns/edge   x{cost / first:.2f} vs N={NODE_SWEEP[0]}",
               flush=True)
-    print(f"\nB) vary EDGES, nodes fixed 2000, k={chunk}")
+    print(f"\nB) vary EDGES, nodes fixed {FIXED_NODES}, k={chunk}")
     first = None
     for e in EDGE_SWEEP:
-        cost = _per_call(cls, shape, directed, 2000, e, chunk, calls, reps)
+        cost = _per_call(cls, shape, directed, FIXED_NODES, e, chunk, calls, reps)
         first = first if first is not None else cost
         print(f"   E={e:<6d} {cost:9.1f} ns/edge   x{cost / first:.2f} vs E={EDGE_SWEEP[0]}",
               flush=True)
