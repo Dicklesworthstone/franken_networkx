@@ -26,11 +26,19 @@ def _edges(g):
 
 
 def _factors(seed):
+    # br-r37-c1-fwrzb: the nx factors are built by adding NODES first and then
+    # edges, in fnx's own order. They used to be constructed as
+    # ``nx.Graph(list(g.edges()))``, which discovers nodes in edge order — for
+    # 5 of these 20 seeds that produced a factor whose node order differed from
+    # fnx's, so the two libraries were being handed DIFFERENT graphs. The
+    # `_edges` comparison below sorts, so it could not see the difference. This
+    # is the same trap test_exact_path_tiebreak_parity documents in its module
+    # docstring: an edge-list-constructed nx graph permutes iteration order.
     r = random.Random(seed)
     g = fnx.path_graph(r.randint(2, 4)) if r.random() < 0.5 else fnx.cycle_graph(r.randint(3, 5))
     h = fnx.path_graph(r.randint(2, 4)) if r.random() < 0.5 else fnx.star_graph(r.randint(2, 4))
-    ng = nx.Graph(list(g.edges())); ng.add_nodes_from(g.nodes())
-    nh = nx.Graph(list(h.edges())); nh.add_nodes_from(h.nodes())
+    ng = nx.Graph(); ng.add_nodes_from(g.nodes()); ng.add_edges_from(g.edges())
+    nh = nx.Graph(); nh.add_nodes_from(h.nodes()); nh.add_edges_from(h.edges())
     return g, h, ng, nh
 
 
@@ -69,9 +77,34 @@ def test_lexicographic_identity(seed):
 
 
 def test_cartesian_product_is_commutative_up_to_iso():
-    # G x H and H x G are isomorphic (same node/edge counts is the cheap check).
+    # br-r37-c1-fwrzb: this asserted only equal node/edge COUNTS and called that
+    # "the cheap check" — any two graphs of the same size pass it, including
+    # ones that are not isomorphic at all. The property named in the test's own
+    # title is now actually checked.
     g, h = fnx.path_graph(3), fnx.cycle_graph(4)
     gh = fnx.cartesian_product(g, h)
     hg = fnx.cartesian_product(h, g)
     assert gh.number_of_nodes() == hg.number_of_nodes()
     assert gh.number_of_edges() == hg.number_of_edges()
+    assert fnx.is_isomorphic(gh, hg)
+
+
+@pytest.mark.parametrize("seed", range(20))
+def test_product_iteration_order_parity(seed):
+    """br-r37-c1-fwrzb: ``_edges`` sorts tuples of sorted str endpoints, so it
+    is blind to node identity and to iteration order — the property
+    br-r37-c1-28lwc found diverging in three of these four products. That is
+    fixed, so the order is locked here: this test is the regression guard for
+    28lwc, and it fails on the pre-fix kernels.
+    """
+    g, h, ng, nh = _factors(seed)
+    for name in (
+        "cartesian_product",
+        "tensor_product",
+        "strong_product",
+        "lexicographic_product",
+    ):
+        got = getattr(fnx, name)(g, h)
+        want = getattr(nx, name)(ng, nh)
+        assert list(got.nodes()) == list(want.nodes()), name
+        assert list(got.edges()) == list(want.edges()), name
