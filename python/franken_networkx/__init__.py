@@ -28499,6 +28499,38 @@ _KARATE_CLUB_MATRIX = """\
 _KARATE_CLUB1 = frozenset({0, 1, 2, 3, 4, 5, 6, 7, 8, 10, 11, 12, 13, 16, 17, 19, 21})
 
 
+_KARATE_CLUB_EDGE_STREAM = None
+
+
+def _karate_club_edge_stream():
+    """The exact ``(row, col, weight)`` stream Zachary's matrix emits.
+
+    br-r37-c1-p4qjj: parsed once and memoised, because the matrix is a
+    compile-time constant and re-``int()``-ing all 1156 cells on every call
+    was pure repeat work.
+
+    BOTH triangles stay in the stream, in row-major order. Zachary's matrix
+    is NOT symmetric: seven pairs disagree across the diagonal — (0,12),
+    (2,32), (8,32), (8,33), (22,33), (23,29), (29,32) — and (22,33) is zero
+    above the diagonal, so the edge exists only because row 33 emits (33,22).
+    The duplicate lower-triangle entries are therefore load-bearing twice
+    over: they are what makes the final weight last-write-wins, and they are
+    what makes that one edge exist at all. An upper-triangle shortcut would
+    silently drop one edge and mis-weight seven.
+    """
+    global _KARATE_CLUB_EDGE_STREAM
+    stream = _KARATE_CLUB_EDGE_STREAM
+    if stream is None:
+        stream = tuple(
+            (row, col, entry)
+            for row, line in enumerate(_KARATE_CLUB_MATRIX.split("\n"))
+            for col, entry in enumerate(int(b) for b in line.split())
+            if entry >= 1
+        )
+        _KARATE_CLUB_EDGE_STREAM = stream
+    return stream
+
+
 def karate_club_graph():
     """Return Zachary's Karate Club graph (34 nodes, 78 edges).
 
@@ -28508,16 +28540,30 @@ def karate_club_graph():
     HITS diverged by ~1.6% and ``G.nodes[v]['club']`` crashed with
     KeyError. Inlining Zachary's matrix directly (no nx dispatch so
     the coverage classifier stays PY_WRAPPER).
+
+    br-r37-c1-p4qjj: the per-cell ``add_edge`` accept loop paid 155 PyO3
+    crossings plus 34 more for the node-attribute pass, which measured
+    0.3762x vs live NetworkX. Replay the memoised stream through one batched
+    ``add_edges_from`` and fold the ``club`` attribute into the single
+    ``add_nodes_from`` instead. Observable output is unchanged: nodes still
+    arrive 0..33 before any edge, and the edge stream is replayed in the
+    identical row-major order with the identical last-write-wins duplicate
+    semantics, so node order, edge order, weights and attributes are all
+    byte-identical (locked by tests/python/test_karate_club_graph_parity.py).
+
+    The attribute dicts are rebuilt per call rather than memoised alongside
+    the stream: a shared dict would be a mutation channel between two graphs
+    handed to two different callers.
     """
     G = Graph()
-    G.add_nodes_from(range(34))
-    for row, line in enumerate(_KARATE_CLUB_MATRIX.split("\n")):
-        thisrow = [int(b) for b in line.split()]
-        for col, entry in enumerate(thisrow):
-            if entry >= 1:
-                G.add_edge(row, col, weight=entry)
-    for v in G:
-        G.nodes[v]["club"] = "Mr. Hi" if v in _KARATE_CLUB1 else "Officer"
+    G.add_nodes_from(
+        (v, {"club": "Mr. Hi" if v in _KARATE_CLUB1 else "Officer"})
+        for v in range(34)
+    )
+    G.add_edges_from(
+        (row, col, {"weight": entry})
+        for row, col, entry in _karate_club_edge_stream()
+    )
     G.graph["name"] = "Zachary's Karate Club"
     return G
 
