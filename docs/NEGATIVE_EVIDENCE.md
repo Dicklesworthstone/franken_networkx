@@ -37,6 +37,105 @@ admission history, host, scope source, process affinity, monitored CPU set,
 checked-window count, maximum observed busy fraction, and maximum consecutive
 busy-window count.
 
+## 2026-08-08 OliveDesert NO SOURCE EDIT, LEVER REJECTED: `has_node` residual is now diffuse, and the obvious `len(G.adj)` fix is a semantics change (`br-r37-c1-7faiu`, `br-r37-c1-bmrbc`)
+
+Two queue items profiled, no lever shipped from either. Recording why, because
+both conclusions are reusable and one of them kills a fix that looks correct.
+
+### 1. `has_node` residual: re-profiled as my own retry predicate required
+
+`br-r37-c1-7faiu` shipped with an explicit instruction not to reopen node-key
+interning on its `54.5%` attribution, because that number was measured against
+the OLD `core::fmt` implementation. Re-splitting by key type on the new ELF
+(`675707ac`), net of an empty-loop floor, 512 probes per call, load 3.7:
+
+| arm | ns/probe | was, before the fix |
+|---|---|---|
+| nx `has_node` str | 42.1 | 40.4 |
+| fnx `has_node` str | 64.8 | 90.6 |
+| fnx str-vs-int delta | **21.8** | 49.4 |
+| nx str-vs-int delta | 2.2 | 2.7 |
+
+The lever took 27.6 ns of the 49.4. What remains is `21.8 ns` — `33.7%` of the
+call, still nominally over CloudyTurtle's 30% bar, but it no longer has a
+dominant frame: it is spread across `PyString::to_str`, the canonical memcpy
+plus decimal, the `from_utf8` validation, the FxHash, and the `IndexMap` probe,
+none of which is individually large. The node index is ALREADY `FxIndexMap`, so
+the fast-hasher lever is spent. The structural asymmetry that remains is that
+CPython caches a `str`'s hash inside the object while FrankenNetworkX rehashes a
+freshly built canonical on every probe — and closing THAT is node-key interning,
+the design CloudyTurtle's HOLD fences. **No cheap lever remains here.**
+
+A key-length scan intended to separate per-byte work from fixed frames is
+reported as discarded, not as evidence: it used sequential arms with no
+interleaving and no null, the host went to load 15.7 mid-run, and NetworkX's own
+per-probe cost came back non-monotonic across lengths (58.9, 41.9, 68.9, 31.4,
+29.7, 30.8 ns). It measured the host, not the code.
+
+### 2. `len(G.adj)`: the deficit is real, and the obvious fix is wrong
+
+Balanced-square substrate, load 7.2, times per single `len()`. Every ratio below
+carries its own dual A/A null control measured in the same invocation, and they
+came back at `1.0009x`, `1.0005x`, `1.0006x`, `0.9995x`, `1.0007x`, `1.0004x`,
+`1.0003x` and `0.9991x` — that is the positively recorded floor these four
+ratios are decided against:
+
+| comparison | ratio | CI95 | nx | fnx |
+|---|---|---|---|---|
+| `len(G.adj)` public | `0.8077x` | `0.8057 - 0.8102` | `72.1 ns` | `89.3 ns` |
+| raw: `len(dict)` vs `native_len()` | `0.7049x` | `0.7022 - 0.7067` | `24.7 ns` | `35.2 ns` |
+| fnx public vs fnx raw | `2.5628x` | `2.5550 - 2.5743` | — | frame `54.3 ns` |
+| nx public vs nx raw | `2.9252x` | `2.9182 - 2.9272` | frame `47.4 ns` | — |
+
+The `17.2 ns` deficit is `10.5 ns` of PyO3 bound-method call where NetworkX has a
+C `len()` on a dict, plus `6.7 ns` of heavier `__len__` body. Both sides are
+dominated by the Python `__len__` frame — `47`-`54 ns` of a `72`-`89 ns` call —
+which is Mapping-protocol cost neither library escapes today.
+
+**REFUTED LEVER, tested rather than reasoned about.** Replacing
+`self._fnx_native_len()` with `len(self._fnx_owner)` swaps the PyO3 call for the
+graph's C length slot and would recover most of the `10.5 ns`. It is a semantics
+change. On HEAD: build a 3-node `fnx.Graph`, assign `G._node` a 5-node dict.
+Then `len(G) == 5` and `G.number_of_nodes() == 5`, but `native_len() == 3` and
+`len(G.adj) == 3`. `native_len` tracks the ADJACENCY owner count; `len(owner)`
+tracks the private-aware node count. NetworkX agrees with `3`, because its
+`AdjacencyView` is built over `_adj`, not `_node`. The swap would silently
+return `5`. Do not retry it.
+
+The lever that would actually work is a NATIVE `AdjacencyView.__len__` C slot —
+`crates/fnx-python/src/views.rs:990` already carries such a pyclass with a
+`__len__` at `:996`, but `G.adj` returns the Python `_Mapping` subclass because
+that is where the parity getitem cache, iteration order and row semantics live.
+Skipping the Python frame entirely would land near `35 ns` against NetworkX's
+`72 ns`, turning a `0.81x` loss into roughly a 2x win. That is a view-class
+migration, not one lever, and it is filed as `br-r37-c1-bmrbc` with the
+invariants it must preserve.
+
+Not attempted: dropping the `None` test alone. It is worth `3`-`5 ns` of `17.2`
+on an `89.3 ns` call — `3`-`6%`, which sits at the `+1.1%` to `+2.8%` across-run
+drift floor measured on the negative controls in `br-r37-c1-7faiu`, so a
+two-invocation before/after could not separate it from drift. Shipping it would
+have produced a number I could not defend.
+
+comparison_class=INCUMBENT
+incumbent=networkx
+incumbent_same_invocation=true
+incumbent_ratio=0.8077x
+campaign_output=false
+decision_gate=median_ci
+cv_role=report_only
+
+RESULT: **NO SOURCE EDIT.** `has_node` stays at `0.6937x` and `len(G.adj)` at
+`0.8077x`. Both are decidable losses with a named, evidenced next step, and
+neither next step is a one-line change.
+
+RETRY PREDICATE: for `has_node`, do not reopen interning without a design that
+bounds retained memory by the node set and preserves Python hash/equality and
+equal-but-nonidentical public keys — the diffuse `21.8 ns` above is not an
+implementation warrant on its own. For `len(G.adj)`, reopen only as the native
+view-class migration in `br-r37-c1-bmrbc`; the `len(owner)` shortcut is refuted
+above and must not be re-proposed.
+
 ## 2026-08-08 OliveDesert SHIPPED, STILL A LOSS: `core::fmt` removed from the canonical node key — `has_node(present)` **`0.5178x` -> `0.6937x`**, and my own premise for this bead was WRONG (`br-r37-c1-7faiu`)
 
 FIRST, THE CORRECTION, BECAUSE IT INVALIDATES WHAT I FILED. `br-r37-c1-7faiu`
