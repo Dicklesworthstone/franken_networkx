@@ -59,12 +59,9 @@ def test_deepcopy_is_fully_independent():
 
 
 def test_subgraph_copy_is_independent():
-    for lib, res in ((fnx, []), (nx, [])):
-        g = _build(lib)
-        g.add_edge(1, 2)
-        sc = g.subgraph([0, 1]).copy()
-        sc.add_edge(0, 5)
-        res.append((g.has_edge(0, 5), sorted(sc.nodes())))
+    # br-r37-c1-sky48: a loop here built a `res` list and then discarded it —
+    # every iteration appended to a fresh `[]` that nothing read. Removed; the
+    # assertions below were already doing the work.
     fg = _build(fnx); fg.add_edge(1, 2); fsc = fg.subgraph([0, 1]).copy(); fsc.add_edge(0, 5)
     ng = _build(nx); ng.add_edge(1, 2); nsc = ng.subgraph([0, 1]).copy(); nsc.add_edge(0, 5)
     assert (fg.has_edge(0, 5), sorted(fsc.nodes())) == (
@@ -82,3 +79,76 @@ def test_to_directed_is_independent():
         ng.has_edge(9, 8) or ng.has_edge(8, 9)
     )
     assert not (fg.has_edge(9, 8) or fg.has_edge(8, 9))
+
+
+# br-r37-c1-sky48: `_build` sets a graph-level attribute and no test ever
+# mutated it, and the subgraph/to_directed tests checked only STRUCTURAL
+# independence (adding an edge) — never whether attributes are shared. That is
+# the half of the contract this module is named for, and the two operations do
+# OPPOSITE things: to_directed deep-copies every attribute layer, while
+# subgraph().copy() shares nested values like copy() does. Both verified against
+# networkx before being asserted.
+def _graph_attr_behavior(lib):
+    g = _build(lib)
+    gc = g.copy()
+    gc.graph["new"] = "x"
+    key_leaks = "new" in g.graph
+    gc.graph["meta"]["a"] = 99
+    nested_shared = g.graph["meta"]["a"] == 99
+
+    g2 = _build(lib)
+    gd = copy.deepcopy(g2)
+    gd.graph["meta"]["a"] = 99
+    deep_shared = g2.graph["meta"]["a"] == 99
+    return key_leaks, nested_shared, deep_shared
+
+
+def test_graph_level_attributes_follow_the_same_copy_contract():
+    assert _graph_attr_behavior(fnx) == _graph_attr_behavior(nx)
+    # copy(): fresh graph dict (no key leak) but the nested value IS shared;
+    # deepcopy(): fully independent — the same shape as the node/edge layers.
+    assert _graph_attr_behavior(fnx) == (False, True, False)
+
+
+def _to_directed_sharing(lib):
+    g = _build(lib)
+    d = g.to_directed()
+    d[0][1]["w"]["k"] = "changed"
+    edge_shared = g[0][1]["w"]["k"] == "changed"
+
+    g = _build(lib)
+    d = g.to_directed()
+    d.nodes[0]["d"]["nested"].append(99)
+    node_shared = 99 in g.nodes[0]["d"]["nested"]
+
+    g = _build(lib)
+    d = g.to_directed()
+    d.graph["meta"]["a"] = 99
+    graph_shared = g.graph["meta"]["a"] == 99
+    return edge_shared, node_shared, graph_shared
+
+
+def test_to_directed_deep_copies_every_attribute_layer():
+    """networkx documents to_directed as returning a deepcopy of the edge, node
+    and graph attributes — so unlike ``copy()``, mutating a NESTED value in the
+    result must not reach the original. Structural independence (the assertion
+    above) would hold even if the attributes were shared.
+    """
+    assert _to_directed_sharing(fnx) == _to_directed_sharing(nx)
+    assert _to_directed_sharing(fnx) == (False, False, False)
+
+
+def _subgraph_copy_sharing(lib):
+    g = _build(lib)
+    sc = g.subgraph([0, 1]).copy()
+    sc[0][1]["w"]["k"] = "changed"
+    return g[0][1]["w"]["k"] == "changed"
+
+
+def test_subgraph_copy_shares_nested_values_unlike_to_directed():
+    """The contrast that makes both worth pinning: ``subgraph().copy()`` is a
+    ``copy()`` — nested values are SHARED — where ``to_directed()`` deep-copies.
+    Two copy-ish operations with opposite attribute semantics.
+    """
+    assert _subgraph_copy_sharing(fnx) == _subgraph_copy_sharing(nx)
+    assert _subgraph_copy_sharing(fnx) is True
