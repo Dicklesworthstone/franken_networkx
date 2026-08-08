@@ -37,6 +37,111 @@ admission history, host, scope source, process affinity, monitored CPU set,
 checked-window count, maximum observed busy fraction, and maximum consecutive
 busy-window count.
 
+## 2026-08-08 OliveDesert SHIPPED: the ATTRIBUTED batch had the same cliff — k=8 goes `17431.6` -> `1367.1 ns/edge`, N-scaling `x16.15` -> `x0.97` (`br-r37-c1-hepb5`)
+
+The sibling `br-r37-c1-uta2n` flagged and explicitly refused to fix on inference.
+Measured on its own input shape first; it has the identical defect.
+
+`collect_attr_edge_batch` (`crates/fnx-python/src/lib.rs`) serves
+`add_edges_from` with `(u, v, dict)` three-tuples — how every weighted graph in
+the library gets built — and opened with the same whole-graph `seen_nodes` clone:
+a `HashSet<String>` built from every existing node key, O(N) `String`
+allocations per call however few edges the call carries.
+
+BEFORE, on this collector's own workload (3-tuples with an attr dict), edge order
+AND every weight asserted identical to the whole-batch build at each chunk size
+before any timing, load 1.33:
+
+| k | 1 | 4 | 7 | **8** | 16 | 64 | 8000 |
+|---|---|---|---|---|---|---|---|
+| ns/edge | `4579.3` | `2602.5` | `2166.5` | **`17431.6`** | `8871.8` | `3259.0` | `1101.3` |
+
+An `8.0x` cliff at exactly k=8, and the scaling signature matches the plain
+collector's exactly: per-call cost `x16.15` against node count at fixed edges,
+`x1.03` against edge count at fixed nodes. O(nodes), flat in edges.
+
+THE FIX is the same transformation: ask the graph per endpoint via an O(1)
+lookup on the already-canonical key, and keep a local set of only the nodes this
+batch introduces, bounded by twice the batch length. Collect performs no
+mutation — the caller applies `new_nodes` afterwards — so a lookup during it
+sees the pre-batch state the cloned set used to hold. Both "known" flags are
+sampled before either insert, because the original bumped `node_bumps` on the
+pre-insert state of the pair, and v is re-tested against the set u may have just
+joined so a self-loop on a brand-new node still pushes it once.
+
+AFTER, same probe, ELF self-reported from inside the benchmark process:
+
+```
+bench_elf_sha256=b0d63dec62924cdf499f109b63635487607065a55cad78135af1f9ca8e8356c8
+```
+
+| k | 1 | 4 | 7 | **8** | 16 | 64 | 8000 |
+|---|---|---|---|---|---|---|---|
+| ns/edge | `4337.3` | `2535.0` | `2235.8` | **`1367.1`** | `1318.4` | `989.1` | `1150.9` |
+
+k=8 goes `17431.6` -> `1367.1`, a `12.8x` improvement, and is now FASTER than
+k=7 rather than `8x` slower.
+
+ACCEPTANCE TEST, the one `uta2n` pre-registered and this bead inherited — the
+largest-N figure must stop tracking N:
+
+| N (edges fixed 8,000) | 500 | 1,000 | 2,000 | 4,000 | 8,000 |
+|---|---|---|---|---|---|
+| before, vs N=500 | `x1.00` | `x1.70` | `x3.64` | `x7.75` | **`x16.15`** |
+| after, vs N=500 | `x1.00` | `x0.80` | `x0.86` | `x0.94` | **`x0.97`** |
+
+`x16.15` becomes `x0.97`. The pass is that the cost stopped depending on N, not
+that k=8 improved.
+
+THE NULLED RATIO DID NOT ADMIT, AND IS THEREFORE NOT CLAIMED. I attempted the
+same balanced-square k7-versus-k8 gate that decided the plain sibling. The A/A
+null control on the k=8 arm came back at `1.4966x` and, after raising warm-up
+from 2 iterations to 8 to rule that out, at `1.4447x` — persistently far outside
+the `0.02` bound, while the k=7 arm's null sat at `0.9964x` and `1.0031x`. The
+k=8 arm has a systematic within-round first-half/second-half asymmetry on this
+substrate that warm-up does not remove, so its `0.5546x` point estimate is
+inadmissible and no ratio is published from it.
+
+This row's claim therefore rests entirely on the two measurements that ARE
+sound: the chunk sweep and the N-scaling acceptance test, both with edge order
+and every edge weight asserted identical to the whole-batch build at each chunk
+size before timing. Those are `12.8x` and `x16.15 -> x0.97` — effects an order of
+magnitude beyond anything a null of this size could manufacture, and the
+acceptance test is a SHAPE change (cost stops depending on N) rather than a
+ratio, which is why it survives a substrate that cannot cleanly time this pair.
+
+REPORTED AGAINST MY OWN INTEREST: the edge sweep moved slightly the wrong way,
+`x1.03` before against `x1.23` at E=16,000 after (`864.9` -> `1063.0 ns/edge`).
+That is a real if small drift I cannot attribute — the removed clone was
+node-keyed, not edge-keyed, so there is no mechanism for it in this change, and
+the run sat at load 3.22 against 1.33 for the before. I am recording it rather
+than rounding it away; if it reproduces on a quiet host it wants its own probe.
+
+PARITY. Full Python suite on the fixed ELF: **50678 passed**, 1081 skipped, 1
+xpassed, and only the pre-existing `br-r37-c1-vniyv` coverage-doc failure —
+identical to the HEAD baseline, so no test changed state. `cargo test -p
+fnx-python --lib` 77 passed, `clippy --all-targets -- -D warnings` clean,
+`cargo fmt --check` clean. The probe asserts every edge weight as well as edge
+order at every chunk size, which is the attributed collector's extra risk
+surface over the plain one.
+
+comparison_class=SELF-SPEEDUP
+campaign_output=false
+decision_gate=median_ci
+cv_role=report_only
+
+RESULT: **SHIPPED.** SELF-SPEEDUP, as with the plain sibling: the headline is a
+before/after inside FrankenNetworkX and no NetworkX arm ran in these
+invocations, so no vs-incumbent ratio is claimed.
+
+RETRY PREDICATE: this collector is done — N-scaling is `x0.97` and the whole-graph
+clone is gone. FIVE sibling sites still carry the pattern (`lib.rs:7177`,
+`:7431`, and the two later ones, plus `digraph.rs:9440`, `:9564`), covering the
+MultiGraph, MultiDiGraph and DiGraph batches. Each serves a different input
+shape and each must be measured on its OWN workload before editing — that rule
+is what made `uta2n` cost two wrong edits and two rebuilds, and what made this
+one land first time.
+
 ## 2026-08-08 OliveDesert SHIPPED: the chunk-size-8 cliff is FIXED — k=8 goes `15156` -> `633.3 ns/edge`, and the O(N) per-call scaling is gone (`br-r37-c1-uta2n`)
 
 The acceptance test I wrote onto this bead was: *the N=8000 figure must stop
