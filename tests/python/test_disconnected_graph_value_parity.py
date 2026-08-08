@@ -76,3 +76,40 @@ def test_scalar_efficiency_parity(seed):
     assert round(fnx.average_clustering(fg), 5) == round(
         nx.average_clustering(ng), 5
     )
+
+
+# br-r37-c1-3jgpd: the WEIGHTED variants. `_forced_disconnected` gives every
+# edge a `weight`, and nothing above ever used it — every call is unweighted, so
+# the weighted unreachable/infinite-distance paths this bead exists to pin were
+# not exercised at all. Weighted distance on a disconnected graph is precisely
+# where the inf handling shows (Wasserman-Faust correction, harmonic 1/inf = 0).
+# Verified equal across all 30 seeds before being asserted.
+_WEIGHTED_FUNCS = [
+    ("closeness_w", lambda L, G: L.closeness_centrality(G, distance="weight")),
+    ("harmonic_w", lambda L, G: L.harmonic_centrality(G, distance="weight")),
+    ("betweenness_w", lambda L, G: L.betweenness_centrality(G, weight="weight")),
+    (
+        "all_pairs_dijkstra_len",
+        lambda L, G: dict(L.all_pairs_dijkstra_path_length(G)),
+    ),
+]
+
+
+@pytest.mark.parametrize("name,call", _WEIGHTED_FUNCS)
+@pytest.mark.parametrize("seed", range(30))
+def test_disconnected_weighted_value_parity(name, call, seed):
+    fg, ng = _forced_disconnected(seed)
+    assert _norm(call(fnx, fg)) == _norm(call(nx, ng))
+
+
+@pytest.mark.parametrize("name,call", _FUNCS + _WEIGHTED_FUNCS)
+@pytest.mark.parametrize("seed", range(30))
+def test_disconnected_result_key_order_parity(name, call, seed):
+    """br-r37-c1-3jgpd: `_norm` returns dicts, and dict equality ignores
+    insertion order — so every assertion above is blind to the ORDER of the
+    returned node->value map, which is observable and part of the
+    non-regression contract. Compared as key sequences here; equal across all
+    30 seeds for all thirteen functions before being asserted.
+    """
+    fg, ng = _forced_disconnected(seed)
+    assert list(call(fnx, fg).keys()) == list(call(nx, ng).keys())
