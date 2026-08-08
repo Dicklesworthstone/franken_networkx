@@ -5005,12 +5005,12 @@ This ledger separates the broad public-export category from source-visible runti
 |---------------|---------|-------------------|------|
 | RUST_NATIVE | 1 | 0 | native extension export from `franken_networkx._fnx` |
 | PY_WRAPPER | 609 | 0 | Python-defined export with no visible NetworkX route |
-| NETWORKX_HELPER | 126 | 175 | Python-defined export with `_call_networkx_*_for_parity(...)` branches |
+| NETWORKX_HELPER | 126 | 178 | Python-defined export with `_call_networkx_*_for_parity(...)` branches |
 | DIRECT_NETWORKX | 0 | 0 | Python-defined export that directly imports or calls NetworkX |
 | CLASS | 28 | 0 | public classes, exceptions, iterators |
 | CONSTANT | 29 | 0 | public non-callable values |
 
-`NETWORKX_HELPER` currently covers 126 public export(s) and 175 parity-helper call site(s).
+`NETWORKX_HELPER` currently covers 126 public export(s) and 178 parity-helper call site(s).
 
 ## Upstream Divergence Ledger
 
@@ -5100,8 +5100,8 @@ This ledger makes divergence ownership explicit. Rows come from AST-visible publ
 | `degree_assortativity_coefficient` | 2 | `degree_assortativity_coefficient` |
 | `dfs_labeled_edges` | 1 | `dfs_labeled_edges` |
 | `diameter` | 1 | `diameter` |
-| `dijkstra_path` | 2 | `dijkstra_path` |
-| `dijkstra_path_length` | 3 | `dijkstra_path_length` |
+| `dijkstra_path` | 3 | `dijkstra_path` |
+| `dijkstra_path_length` | 4 | `dijkstra_path_length` |
 | `directed_combinatorial_laplacian_matrix` | 1 | `directed_combinatorial_laplacian_matrix` |
 | `directed_laplacian_matrix` | 1 | `directed_laplacian_matrix` |
 | `dominating_set` | 1 | `dominating_set` |
@@ -5182,7 +5182,7 @@ This ledger makes divergence ownership explicit. Rows come from AST-visible publ
 | `single_source_bellman_ford` | 2 | `single_source_bellman_ford` |
 | `single_source_bellman_ford_path` | 2 | `single_source_bellman_ford_path` |
 | `single_source_bellman_ford_path_length` | 3 | `single_source_bellman_ford_path_length` |
-| `single_source_dijkstra` | 2 | `single_source_dijkstra` |
+| `single_source_dijkstra` | 3 | `single_source_dijkstra` |
 | `single_source_dijkstra_path_length` | 3 | `single_source_dijkstra_path_length` |
 | `spectral_ordering` | 1 | `spectral_ordering` |
 | `stoer_wagner` | 1 | `stoer_wagner` |
