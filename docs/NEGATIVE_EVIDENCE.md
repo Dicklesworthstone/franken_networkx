@@ -37,6 +37,53 @@ admission history, host, scope source, process affinity, monitored CPU set,
 checked-window count, maximum observed busy fraction, and maximum consecutive
 busy-window count.
 
+## 2026-08-08 OliveDesert FLAG WITHDRAWN: the keyed shape's edge growth is NOT key-assignment — it is shared, and my own `lka35` note over-read one run (`br-r37-c1-80bh7`)
+
+The row below flagged the keyed `(u, v, key, dict)` shape as having the steepest
+edge sweep of the nine collectors (`x1.72`), called it a different mechanism, and
+said it needed its own probe before anyone touched it. Probed. The flag does not
+survive.
+
+DISCRIMINATING PROBE: run the SAME edge-count sweep on keyed 4-tuples AND on
+attributed 3-tuples into the same MultiGraph class, nodes fixed at 2,000, k=8,
+load 0.93. If only the keyed arm grows, the cost is key assignment; if both grow,
+it is shared multi-edge structure cost and keyed is not special.
+
+| E | keyed 4-tuple | vs E=1,000 | attributed 3-tuple | vs E=1,000 | keyed/attr |
+|---|---|---|---|---|---|
+| 1,000 | `3860.4 ns` | `x1.00` | `2758.4 ns` | `x1.00` | `1.40` |
+| 4,000 | `3164.8` | `x0.82` | `2764.0` | `x1.00` | `1.15` |
+| 16,000 | `4941.2` | `x1.28` | `3495.7` | `x1.27` | `1.41` |
+| 32,000 | `6034.0` | **`x1.56`** | `4996.3` | **`x1.81`** | `1.21` |
+
+BOTH ARMS GROW TOGETHER, and at E=32,000 the ATTRIBUTED arm grew MORE than the
+keyed one. The keyed/attr ratio stays flat across the whole range — `1.40`,
+`1.15`, `1.41`, `1.21` — with no divergence, so keyed carries a roughly constant
+`1.2`-`1.4x` premium rather than a growing one.
+
+So there is no key-assignment mechanism to fix, and the `x1.72`-against-`x1.24`
+gap I flagged was two single runs of two different probes compared across
+invocations — inside run-to-run variation, and this probe shows the ordering can
+reverse outright. **Treat the `lka35` flag as withdrawn.** I am recording this as
+its own row rather than quietly editing that one, because the flag was published
+and someone may already have read it.
+
+comparison_class=SELF-SPEEDUP
+campaign_output=false
+decision_gate=median_ci
+cv_role=report_only
+
+RESULT: **NO SOURCE EDIT, FLAG WITHDRAWN.** The chunk-8 batch campaign now closes
+with no live threads: nine collector/shape combinations measured, four defects
+fixed, five clean, and the one loose observation retracted on measurement.
+
+RETRY PREDICATE: do not chase a keyed key-assignment optimization on the strength
+of the withdrawn note. The shared MultiGraph edge-count growth both shapes show
+is a separate question about the multi-edge structure itself, affects them
+equally, and would need its own bead and its own attribution — none of which this
+probe provides. A single-run comparison across two invocations is not evidence of
+a mechanism; that is the lesson of this row.
+
 ## 2026-08-08 OliveDesert LAST THREAD CLOSED: keyed `(u, v, key, dict)` measures clean — the chunk-8 batch surface is 9 of 9 characterized (`br-r37-c1-lka35`)
 
 The one shape I deliberately left as "probe first, not probably fine". Probed.
