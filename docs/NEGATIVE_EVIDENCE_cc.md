@@ -9620,3 +9620,52 @@ THE METHODOLOGICAL POINT, which is the part worth carrying: an A/A null certifie
 a run. It says nothing about comparability ACROSS runs, and quoting a within-run CI as though it
 bounded the figure overstates precision by roughly 5x here. Where a row is published rather than used
 to decide a lever, it wants two admitted runs and their spread, not one run and its CI.
+
+## 2026-08-08 CopperCliff (cc) RE-MEASURE (README sweep): four published rows were stale in the UNDERSTATED direction — `n in G` and `karate_club_graph` are wins published as losses
+
+NOT A KEEP ROW. I did not cause most of these moves; this re-measures published figures that had
+drifted, which is maintenance of the claim surface, not campaign output. Two rows crossed from LOSS
+to WIN while the README still advertised them as losses.
+
+    row                        published    measured 2026-08-08         verdict
+    n in G, present keys       0.7903x      1.2234x [1.2194,1.2280]     LOSS -> WIN
+    n in G, missing keys       0.9651x      1.5063x [1.4924,1.5206]     LOSS -> WIN
+    karate_club_graph          0.38x        1.4232x [1.4150,1.4273]     LOSS -> WIN
+                                            1.3812x [1.3745,1.3879]     (second run)
+    G.has_node, present        0.5199x      0.7595x [0.7422,0.7637]     still LOSS
+    G.has_node, missing        0.6417x      0.8153x [0.8011,0.8209]     still LOSS
+    len(G.adj)                 1.6548x      1.7097x [1.7055,1.7135]     WIN, confirmed
+    Graph.add_edge             0.4387x      0.4728x [0.4680,0.4832]     still LOSS
+    tutte_graph                0.76x        1.2860x [0.9036,1.3563]     NOT DECIDABLE
+
+    incumbent=networkx
+    incumbent_version=3.6.1
+    incumbent_same_invocation=true
+    campaign_output=false
+    comparison_class=RE-MEASURE
+    decision_gate=median_ci
+    cv_role=report_only
+
+Balanced [A B B A A B B A] square per row, live networkx 3.6.1 in the SAME invocation, 21 rounds,
+bootstrap median-ratio CI over 2000 draws, dual A/A nulls per row (every one within 0.0016 of 1.0),
+30 warm-up iterations per arm, `taskset -c 40-47`, load 5.9 of 64.
+
+TWO ROWS CARRIED AN EXPLICIT `STALE` WARNING and both were understated by more than the warning
+implied. The `n in G` warning said the SIGN of the comparison was in question after `cb519bd06`. It
+was: the sign flipped, and the row is now a 1.22-1.51x win. The `has_node` warning said to treat
+0.5199x as a lower bound; it is, by 46%.
+
+TUTTE IS REPORTED AS NOT DECIDABLE rather than as the 1.2860x median it produced. Its CI straddles
+1.0 while its A/A nulls are clean at 0.9997/0.9997, so the width is the row's own variance, not a bad
+substrate. Publishing 1.29x from that would be exactly the precision overstatement I committed
+earlier today on add_edge. The old combined `karate_club_graph, tutte_graph` README row is split for
+this reason — the two no longer share a verdict.
+
+KARATE IS PUBLISHED AS A RANGE, 1.38-1.42x, because the two admitted runs' CIs do not overlap. Same
+lesson as the add_edge row: an A/A null certifies stationarity WITHIN a run and says nothing about
+comparability ACROSS runs.
+
+WHAT THIS SAYS ABOUT THE TABLE, which is the reason to bank it: every drifted row moved in fnx's
+favour. The README understates current performance rather than overstating it, and the two rows most
+likely to be quoted against us — a `0.38x` generator and a `0.79x` membership test — are both wins.
+That matches the standing finding that this table is STALE rather than inflated.
