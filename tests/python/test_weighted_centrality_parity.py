@@ -93,3 +93,62 @@ def test_weighted_directed_centralities_match(seed):
     assert round(fnx.overall_reciprocity(g), 5) == round(
         nx.overall_reciprocity(ng), 5
     )
+
+
+# br-r37-c1-mfqlz: this module is "weighted centrality/PATH differential parity"
+# and the only path function used was all_pairs_dijkstra_path_LENGTH. A weighted
+# tie-break divergence hides precisely there: two routes of equal total weight
+# leave every length identical while the chosen route differs, so a
+# length-only comparison cannot see it. The weighted path differs from the
+# unweighted one on 12 of 36 connected seeds, so this arm reaches real work.
+@pytest.mark.parametrize("seed", range(40))
+def test_weighted_undirected_paths_match(seed):
+    g, ng = _weighted_undirected(seed)
+    if not nx.is_connected(ng):
+        pytest.skip("disconnected")
+    n = g.number_of_nodes()
+    r = random.Random(seed + 9)
+    s, t = r.sample(range(n), 2)
+    assert fnx.dijkstra_path(g, s, t, weight="weight") == (
+        nx.dijkstra_path(ng, s, t, weight="weight")
+    )
+    assert _norm({k: dict(v) for k, v in fnx.all_pairs_dijkstra_path(g, weight="weight")}) == (
+        _norm({k: dict(v) for k, v in nx.all_pairs_dijkstra_path(ng, weight="weight")})
+    )
+
+
+@pytest.mark.parametrize("seed", range(50))
+def test_weighted_directed_paths_match(seed):
+    g, ng = _weighted_directed(seed)
+    assert _norm({k: dict(v) for k, v in fnx.all_pairs_dijkstra_path(g, weight="weight")}) == (
+        _norm({k: dict(v) for k, v in nx.all_pairs_dijkstra_path(ng, weight="weight")})
+    )
+
+
+# br-r37-c1-mfqlz: `_norm` returns dicts, and dict equality ignores insertion
+# order — so every assertion above is blind to the ORDER of the returned
+# node->value map, which is observable. Verified equal for all of these across
+# their seeds before being asserted.
+@pytest.mark.parametrize("seed", range(40))
+def test_weighted_result_key_order_parity(seed):
+    g, ng = _weighted_undirected(seed)
+    if not nx.is_connected(ng):
+        pytest.skip("disconnected")
+    for call in (
+        lambda L, G: L.betweenness_centrality(G, weight="weight"),
+        lambda L, G: L.closeness_centrality(G, distance="weight"),
+        lambda L, G: L.pagerank(G, weight="weight"),
+        lambda L, G: L.clustering(G, weight="weight"),
+    ):
+        assert list(call(fnx, g).keys()) == list(call(nx, ng).keys())
+
+
+@pytest.mark.parametrize("seed", range(50))
+def test_weighted_directed_result_key_order_parity(seed):
+    g, ng = _weighted_directed(seed)
+    for call in (
+        lambda L, G: L.pagerank(G, weight="weight"),
+        lambda L, G: L.betweenness_centrality(G, weight="weight"),
+        lambda L, G: dict(L.all_pairs_dijkstra_path_length(G, weight="weight")),
+    ):
+        assert list(call(fnx, g).keys()) == list(call(nx, ng).keys())
