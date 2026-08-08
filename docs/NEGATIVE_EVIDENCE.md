@@ -37,6 +37,61 @@ admission history, host, scope source, process affinity, monitored CPU set,
 checked-window count, maximum observed busy fraction, and maximum consecutive
 busy-window count.
 
+## 2026-08-08 OliveDesert SWEEP CLOSED, NO EDITS MADE: the chunk-8 cliff tracks the graph CLASS, not the input shape — all three multigraph collectors measure clean (`br-r37-c1-b1z21`)
+
+This closes the sweep `br-r37-c1-uta2n` opened and replaces the working rule with
+a measured one.
+
+MEASURED, each on its own input shape, edge order — and every weight where
+attributed — asserted identical to the whole-batch build at every chunk size,
+ELF `daf4d388d215ecab95c3b6fdc5b4f0ecc91e6abe2738ce4c1c77071409c5daf4`:
+
+| collector | k=7 | k=8 | step | N-scaling at k=8 |
+|---|---|---|---|---|
+| MultiGraph plain `(u, v)` | `2481.6` | `2527.4` | `1.02x` | **`x1.12`** |
+| MultiGraph attributed `(u, v, d)` | `3124.0` | `3721.2` | `1.19x` | **`x1.10`** |
+| MultiDiGraph plain `(u, v)` | `3674.0` | `4045.8` | `1.10x` | **`x1.08`** |
+
+None has a cliff. The largest step across the `PLAIN_EDGE_BATCH_MIN` boundary is
+`1.19x` against `6.7x`-`8.0x` on the four defective siblings, and the diagnostic
+that actually decides it — per-call cost against node count at fixed k=8 — is
+already flat at `x1.08`-`x1.12` against `x15.20`-`x17.51` on the four before
+their fixes.
+
+THE STRUCTURAL FINDING, which is the point of this row:
+
+| | collectors | N-scaling before fix |
+|---|---|---|
+| DEFECTIVE, all four now fixed | Graph plain, Graph attributed, DiGraph plain, DiGraph attributed | `x15.20` - `x19.30` |
+| CLEAN, no defect | MultiGraph plain, MultiGraph attributed, MultiDiGraph plain | `x1.08` - `x1.12` |
+
+**The defect tracks the graph CLASS, not the input shape.** Every simple-graph
+collector had the whole-node-set clone on its reachable per-call path, in both
+plain and attributed form; no multigraph collector does, in either form. I had
+been working from an implicit shape-based rule — plain here, attributed there —
+and it was wrong. The class-based rule is now measured across seven collectors
+rather than inferred from four.
+
+CONSEQUENCE: the remaining `seen_nodes` sites on the multigraph side
+(`lib.rs:7177`, `:7431` and the later ones) must NOT be edited for cliff
+reasons. There is no measured defect for the acceptance test to move — their
+N-scaling is already `x1.08`-`x1.12` — so an edit there would be unmeasurable,
+and unmeasurable changes do not ship.
+
+comparison_class=SELF-SPEEDUP
+campaign_output=false
+decision_gate=median_ci
+cv_role=report_only
+
+RESULT: **NO SOURCE EDIT.** Seven collectors measured across the sweep: four
+defective and fixed, three clean and left alone.
+
+RETRY PREDICATE: do not re-measure any of these three, and do not edit the
+multigraph `seen_nodes` sites for cliff reasons. MultiDiGraph attributed and the
+keyed `(u, v, key, dict)` shapes remain unmeasured; three of three clean makes
+their prior weak, but weak is not zero, and the measure-first rule is what
+stopped a wrong edit at `br-r37-c1-09irv` after a four-for-four streak.
+
 ## 2026-08-08 OliveDesert NO DEFECT FOUND, NO EDIT MADE: MultiGraph's plain batch does NOT have the chunk-8 cliff — the pattern is 4 of 5, not universal (`br-r37-c1-09irv`)
 
 Fifth sibling measured under the `uta2n` / `hepb5` / `ab5u7` / `iozi3` pattern.
