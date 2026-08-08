@@ -72,6 +72,76 @@ def test_union_disjoint_compose_preserve_attributes():
     _assert_same_attrs(fnx.compose(fc, fd), nx.compose(nc, nd))
 
 
+# br-r37-c1-wog27: the fixture above builds attributes with per-node/per-edge
+# calls. The silent-attribute-drop class this bead guards has a sibling that
+# only the BATCH path can reach — `add_nodes_from` / `add_edges_from` commit
+# through a different collector, and multi-attr key ORDER there was a known
+# defect class (an AttrMap backed by a BTreeMap alphabetises). Building the same
+# fixture batch-wise costs one function and covers that route.
+def _attributed_batch(lib, base=0, gname="G"):
+    g = lib.Graph()
+    g.add_nodes_from(
+        [(n, {"tag": f"t{n}", "val": n * 10}) for n in range(base, base + 4)]
+    )
+    g.add_edges_from(
+        [
+            (u, v, {"weight": u + v, "label": f"e{u}{v}"})
+            for u, v in [(base, base + 1), (base + 1, base + 2), (base + 2, base + 3)]
+        ]
+    )
+    g.graph["gname"] = gname
+    g.graph["shared"] = 1
+    return g
+
+
+def _attr_key_order(g):
+    """Attribute key sequences — what dict equality cannot see."""
+    return (
+        [list(d.keys()) for _, d in g.nodes(data=True)],
+        [list(d.keys()) for _, _, d in g.edges(data=True)],
+        list(g.graph.keys()),
+    )
+
+
+@pytest.mark.parametrize("builder", [_attributed, _attributed_batch])
+@pytest.mark.parametrize("name,transform", _TRANSFORMS)
+def test_transform_preserves_attribute_key_order(name, transform, builder):
+    """br-r37-c1-wog27: `_assert_same_attrs` compares `dict(d) == dict(d)`, which
+    is blind to the ORDER of the attribute keys, to node iteration order, and —
+    because `_edge_attrs` sorts the endpoints — to edge direction and edge order.
+    "Attributes preserved" is exactly the property where key order silently
+    flips. Every sequence below was verified equal to networkx before being
+    asserted, on BOTH the per-item and batch-built fixtures.
+    """
+    fg = transform(fnx, builder(fnx))
+    ng = transform(nx, builder(nx))
+    assert _attr_key_order(fg) == _attr_key_order(ng)
+    assert [str(n) for n in fg.nodes()] == [str(n) for n in ng.nodes()]
+    assert [(str(u), str(v)) for u, v in fg.edges()] == [
+        (str(u), str(v)) for u, v in ng.edges()
+    ]
+
+
+@pytest.mark.parametrize("builder", [_attributed, _attributed_batch])
+def test_operators_preserve_attribute_key_order(builder):
+    fa, fb = builder(fnx, 0, "A"), builder(fnx, 10, "B")
+    na, nb = builder(nx, 0, "A"), builder(nx, 10, "B")
+    assert _attr_key_order(fnx.union(fa, fb)) == _attr_key_order(nx.union(na, nb))
+    assert _attr_key_order(fnx.disjoint_union(fa, fb)) == _attr_key_order(
+        nx.disjoint_union(na, nb)
+    )
+    fc, fd = builder(fnx, 0, "A"), builder(fnx, 2, "B")
+    nc, nd = builder(nx, 0, "A"), builder(nx, 2, "B")
+    assert _attr_key_order(fnx.compose(fc, fd)) == _attr_key_order(nx.compose(nc, nd))
+
+
+@pytest.mark.parametrize("builder", [_attributed, _attributed_batch])
+def test_batch_built_graphs_preserve_attributes(builder):
+    """The value-level assertion from test_transform_preserves_attributes, run
+    against both construction routes (br-r37-c1-wog27)."""
+    _assert_same_attrs(builder(fnx), builder(nx))
+
+
 def test_compose_graph_attr_last_writer_wins():
     # Conflicting graph-level keys: compose resolves to the second graph's value.
     fa = fnx.Graph(); fa.graph["x"] = 1; fa.add_edge(0, 1)
