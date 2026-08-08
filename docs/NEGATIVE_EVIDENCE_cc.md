@@ -9522,3 +9522,49 @@ STILL OPEN AND NOT TOUCHED HERE: `G[u][v]` at 0.36x. Mechanism reading, not a me
 call runs the `_atlas_getter` chain, which rebuilds a fresh native AdjacencyView through the `adj`
 descriptor before subscripting it. That is the obvious next target on this surface and it is
 unrelated to this lever.
+
+## 2026-08-08 CopperCliff (cc) RE-MEASURE (br-r37-c1-jc9e4): `add_edge` 0.4387x -> 0.4974x vs live nx — still a decisive loss, and the published figure was stale
+
+NOT A KEEP ROW AND NOT A WIN. This re-measures a published LOSS after br-r37-c1-wa1b9 moved the path,
+because my own landing aged the figure and nobody should reason from the old one. The row remains a
+loss; there is nothing here to claim.
+
+    fnx add_edge vs nx      0.4974x  CI [0.4833, 0.5129]
+    A/A null (nx/nx)        0.9847x  CI [0.9559, 1.0416]
+    A/A null (fnx/fnx)      1.0030x  CI [0.9886, 1.0163]
+    nx   677.1 ns/edge      fnx  1296.2 ns/edge
+
+    bench_elf_sha256=02debd3305da5a87d8b9e78189131ec49d9e462b2aa2a2057578f8e6f8517a19
+    incumbent=networkx
+    incumbent_version=3.6.1
+    incumbent_same_invocation=true
+    incumbent_ratio=0.4974x
+    campaign_output=false
+    comparison_class=INCUMBENT-LOSS
+    decision_gate=median_ci
+    cv_role=report_only
+
+SUBSTRATE: balanced [A B B A A B B A] square, live networkx 3.6.1 in the SAME invocation, 8,000
+`G.add_edge(u, v)` calls on a FRESH graph per timed unit, 21 rounds, bootstrap median-ratio CI over
+2000 draws, `taskset -c 40-47`, load 3.5 of 64.
+
+THE WARM-UP IS PART OF THE METHOD, not incidental. Mutation/build arms on this surface are
+non-stationary within a round, and an earlier attempt here produced an A/A null of 1.3255x and a
+result whose SIGN was wrong, traced to a warm-up curve on the per-call arm. This run does 40 warm-up
+builds per arm before timing anything and declares itself UNDECIDABLE if either null leaves
+[0.98, 1.02]. Both nulls landed inside, so the run is admitted on its own terms.
+
+WHAT MOVED IT: br-r37-c1-wa1b9 (2026-08-08) stopped internal endpoint autocreation from filing its
+own ledger record, taking `Graph::add_edge_with_attrs` from ~816 to 507-540 ns/edge. The Python-side
+ratio moved 0.4387x -> 0.4974x, about +13%, which is the right order for a ~280 ns saving inside a
+~1300 ns end-to-end call.
+
+WHAT IS NOW STALE ELSEWHERE, flagged rather than silently left: docs/NEGATIVE_EVIDENCE.md carries
+OliveDesert's 2026-08-08 REJECT row quoting `1433.8 ns` public / `0.4289x` and `1113.2 ns` raw /
+`0.5525x` for the native path. Those predate wa1b9. The 0.4289x public figure is superseded by this
+row; the `1113.2 ns` RAW figure has NOT been re-measured and should not be arithmetic'd against the
+new core number, because the two were taken on different graph shapes.
+
+README swept in the same commit (`Graph incremental add_edge` and `len(G.adj)` rows, plus the ledger
+-share paragraph beneath them), which is the discipline I failed to apply when f9e3173c3 landed
+earlier today and left `len(G.adj)` published at 0.7901x while HEAD was 1.6548x.
