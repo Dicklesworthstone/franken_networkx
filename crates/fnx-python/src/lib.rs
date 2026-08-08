@@ -2695,8 +2695,28 @@ impl PyGraph {
             let Ok(tuple) = item.downcast::<PyTuple>() else {
                 return Ok(None);
             };
-            if tuple.len() != 2 {
-                return Ok(None);
+            // br-r37-c1-qqj23: `(u, v, {})` is semantically identical to
+            // `(u, v)` — an EMPTY attr dict carries no information, and nx
+            // treats the two the same. Bailing the whole plain batch for it
+            // sent the build down the attributed path, which populates
+            // `edge_py_attrs`; the pristine-style gates elsewhere then refuse
+            // fast paths for edges that have no Python attributes at all, so
+            // the graph was left measurably slower to READ than the identical
+            // graph built from bare 2-tuples. A NON-empty dict still bails
+            // here for `try_add_attr_edge_batch`, as does a third element that
+            // is not a dict at all (whose error contract lives per-edge).
+            match tuple.len() {
+                2 => {}
+                3 => {
+                    let third = tuple.get_item(2)?;
+                    let Ok(attrs) = third.downcast::<PyDict>() else {
+                        return Ok(None);
+                    };
+                    if !attrs.is_empty() {
+                        return Ok(None);
+                    }
+                }
+                _ => return Ok(None),
             }
 
             let u = tuple.get_item(0)?;
