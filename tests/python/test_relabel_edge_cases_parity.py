@@ -85,3 +85,79 @@ def test_convert_node_labels_to_integers():
         nx.Graph([("a", "b"), ("b", "c")]), first_label=10
     )
     _assert_same(fg, ng)
+
+
+# br-r37-c1-sfemy: `_nodes` / `_edges` above map every label through `str()` and
+# sort. On THIS surface that is a poor fit twice over: relabel maps between
+# types (``{3: 0}`` produces an int label, ``{0: "a"}`` a str), so a relabel
+# emitting the string "0" where networkx emits the int 0 compares equal; and
+# relabel node ORDER is load-bearing enough that two other modules exist for it
+# (test_relabel_node_order_parity, test_relabel_order_parity_vs_networkx).
+_MAPPINGS = [
+    ("non_injective_merge", {1: "X", 2: "X"}),
+    ("merge_into_existing", {3: 0}),
+    ("swap", {0: 1, 1: 0}),
+    ("partial", {0: "a"}),
+]
+
+
+@pytest.mark.parametrize("name,mapping", _MAPPINGS)
+def test_relabel_preserves_label_types_and_order(name, mapping):
+    fg = fnx.relabel_nodes(_g(fnx), mapping)
+    ng = nx.relabel_nodes(_g(nx), mapping)
+    # `==` on raw lists compares label VALUE and TYPE, not str(label).
+    assert list(fg.nodes()) == list(ng.nodes())
+    assert [type(n) for n in fg.nodes()] == [type(n) for n in ng.nodes()]
+    assert list(fg.edges()) == list(ng.edges())
+
+
+def test_convert_node_labels_to_integers_label_types_and_order():
+    fg = fnx.convert_node_labels_to_integers(
+        fnx.Graph([("a", "b"), ("b", "c")]), first_label=10
+    )
+    ng = nx.convert_node_labels_to_integers(
+        nx.Graph([("a", "b"), ("b", "c")]), first_label=10
+    )
+    assert list(fg.nodes()) == list(ng.nodes())
+    assert [type(n) for n in fg.nodes()] == [type(n) for n in ng.nodes()]
+    assert list(fg.edges()) == list(ng.edges())
+
+
+def _attributed(lib):
+    """br-r37-c1-sfemy: the fixture above carries NO attributes, so nothing
+    tested what relabel does with them — and a MERGE has to resolve a conflict.
+    """
+    g = lib.Graph()
+    for n in range(4):
+        g.add_node(n, tag=f"t{n}")
+    for u, v in [(0, 1), (1, 2), (2, 3), (0, 3)]:
+        g.add_edge(u, v, w=u * 10 + v)
+    return g
+
+
+@pytest.mark.parametrize("name,mapping", _MAPPINGS)
+def test_relabel_carries_attributes(name, mapping):
+    fg = fnx.relabel_nodes(_attributed(fnx), mapping)
+    ng = nx.relabel_nodes(_attributed(nx), mapping)
+    assert {str(k): dict(v) for k, v in fg.nodes(data=True)} == (
+        {str(k): dict(v) for k, v in ng.nodes(data=True)}
+    )
+    assert sorted(
+        (str(u), str(v), tuple(sorted(d.items()))) for u, v, d in fg.edges(data=True)
+    ) == sorted(
+        (str(u), str(v), tuple(sorted(d.items()))) for u, v, d in ng.edges(data=True)
+    )
+
+
+def test_merge_resolves_attribute_conflict_last_writer_wins():
+    """The subtle half of a non-injective merge: nodes 1 and 2 both become "X",
+    so ONE set of node attributes survives. networkx keeps the LAST mapped
+    node's — ``tag == "t2"``, not "t1" — and fnx matches. Pinning the winner
+    matters because a merge that kept the first would still produce the right
+    node and edge sets and pass every other assertion in this module
+    (br-r37-c1-sfemy).
+    """
+    fg = fnx.relabel_nodes(_attributed(fnx), {1: "X", 2: "X"})
+    ng = nx.relabel_nodes(_attributed(nx), {1: "X", 2: "X"})
+    assert fg.nodes["X"] == ng.nodes["X"]
+    assert fg.nodes["X"]["tag"] == "t2"
