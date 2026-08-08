@@ -8289,6 +8289,26 @@ mod tests {
             ]
         }
 
+        // br-r37-c1-jc9e4: the record the AUTOCREATED ENDPOINT files.
+        // `add_edge_with_attrs` creates a missing endpoint via `add_node` ->
+        // `add_node_with_attrs`, which calls `record_decision` UNCONDITIONALLY,
+        // so an edge-BUILDING workload files this record in addition to the
+        // outcome record. Two evidence terms, against the outcome record's four.
+        fn node_terms() -> Vec<EvidenceTerm> {
+            vec![
+                EvidenceTerm {
+                    signal: "node_preexisting".to_owned(),
+                    observed_value: false.to_string(),
+                    log_likelihood_ratio: -3.0,
+                },
+                EvidenceTerm {
+                    signal: "attrs_count".to_owned(),
+                    observed_value: 0_usize.to_string(),
+                    log_likelihood_ratio: -1.0,
+                },
+            ]
+        }
+
         // Arm A: build the terms AND record them (the shipped behaviour).
         let recorded = || {
             let mut policy = RuntimePolicy::strict();
@@ -8327,6 +8347,32 @@ mod tests {
             }
             let elapsed = start.elapsed();
             assert_eq!(policy.decision_log().total_recorded(), EDGES as u64);
+            elapsed
+        };
+
+        // Arm A2: what the shipped edge-BUILDING path actually files per edge —
+        // the autocreated endpoint's `add_node` record PLUS the `add_edge`
+        // outcome record. br-r37-c1-jc9e4: arm A1 models one record per edge and
+        // therefore reports a FLOOR for the ledger's share of add_edge, not its
+        // share, on any workload that grows the graph. The denominator arm
+        // (`add_edge_full`) grows a path graph, so A2 is the arm that matches it.
+        let recorded_edge_build = || {
+            let mut policy = RuntimePolicy::strict();
+            let start = Instant::now();
+            for index in 0..EDGES {
+                let node_action = policy.action_for(0.0, false);
+                policy.record("add_node", node_action, 0.0, RATIONALE, node_terms());
+                let action = policy.action_for(0.08, false);
+                policy.record(
+                    "add_edge",
+                    action,
+                    0.08,
+                    RATIONALE,
+                    outcome_terms(index & 3),
+                );
+            }
+            let elapsed = start.elapsed();
+            assert_eq!(policy.decision_log().total_recorded(), (EDGES * 2) as u64);
             elapsed
         };
 
@@ -8452,6 +8498,7 @@ mod tests {
 
         let mut record_ns = Vec::with_capacity(ROUNDS);
         let mut single_ns = Vec::with_capacity(ROUNDS);
+        let mut edge_build_ns = Vec::with_capacity(ROUNDS);
         let mut unbounded_ns = Vec::with_capacity(ROUNDS);
         let mut discard_ns = Vec::with_capacity(ROUNDS);
         let mut clock_ns = Vec::with_capacity(ROUNDS);
@@ -8460,6 +8507,7 @@ mod tests {
         for _ in 0..ROUNDS {
             record_ns.push(recorded().as_nanos() as f64 / EDGES as f64);
             single_ns.push(recorded_single().as_nanos() as f64 / EDGES as f64);
+            edge_build_ns.push(recorded_edge_build().as_nanos() as f64 / EDGES as f64);
             unbounded_ns.push(unbounded().as_nanos() as f64 / EDGES as f64);
             discard_ns.push(discarded().as_nanos() as f64 / EDGES as f64);
             clock_ns.push(clocked().as_nanos() as f64 / EDGES as f64);
@@ -8472,6 +8520,7 @@ mod tests {
         };
         let recorded_ns = median(&mut record_ns);
         let single_median_ns = median(&mut single_ns);
+        let edge_build_median_ns = median(&mut edge_build_ns);
         let unbounded_median_ns = median(&mut unbounded_ns);
         let discarded_ns = median(&mut discard_ns);
         let clocked_ns = median(&mut clock_ns);
@@ -8479,7 +8528,10 @@ mod tests {
         let full = median(&mut full_ns);
         println!("ledger_record_cost_ab n={EDGES} rounds={ROUNDS} (2 records/edge)");
         println!("  A  bounded ledger, 2 records: {recorded_ns:8.1} ns/edge");
-        println!("  A1 bounded ledger, 1 record : {single_median_ns:8.1} ns/edge  (shipped)");
+        println!("  A1 bounded ledger, 1 record : {single_median_ns:8.1} ns/edge  (shipped, FLOOR)");
+        println!(
+            "  A2 shipped edge-build, 2 recs: {edge_build_median_ns:8.1} ns/edge  (add_node + add_edge)"
+        );
         println!("  A0 unbounded Vec (incumbent): {unbounded_median_ns:8.1} ns/edge");
         println!("  B  build terms only         : {discarded_ns:8.1} ns/edge");
         println!("  C  terms + clock            : {clocked_ns:8.1} ns/edge");
@@ -8514,8 +8566,12 @@ mod tests {
             unbounded_median_ns / single_median_ns
         );
         println!(
-            "  -> ledger share of add_edge : {:6.1}%",
+            "  -> ledger share, 1 record   : {:6.1}%  (FLOOR — see A2)",
             single_median_ns / full * 100.0
+        );
+        println!(
+            "  -> ledger share, edge-build : {:6.1}%  (A2/full, the growing-graph reality)",
+            edge_build_median_ns / full * 100.0
         );
     }
 
