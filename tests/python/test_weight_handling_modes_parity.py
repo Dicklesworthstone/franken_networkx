@@ -88,3 +88,66 @@ def test_partial_weight_attribute(seed):
         dict(nx.all_pairs_dijkstra_path_length(ng, weight="weight"))
     )
     assert dict(fg.degree(weight="weight")) == dict(ng.degree(weight="weight"))
+
+
+# br-r37-c1-upxos: `weight=None` was only exercised on shortest_path_length.
+# It is networkx's DEFAULT for the whole dijkstra and betweenness family, and
+# the None branch is a distinct code path (a non-str weight argument routes
+# differently — cf. br-r37-c1-nonstr-kwarg-delegation), so it needs covering on
+# each consumer rather than once. Verified equal across all 30 seeds first.
+@pytest.mark.parametrize("seed", range(30))
+def test_weight_none_across_the_family(seed):
+    fg, ng, n = _weighted(seed)
+    if not fnx.is_connected(fg):
+        pytest.skip("disconnected")
+    r = random.Random(seed + 3)
+    s, t = r.sample(range(n), 2)
+    assert fnx.dijkstra_path_length(fg, s, t, weight=None) == (
+        nx.dijkstra_path_length(ng, s, t, weight=None)
+    )
+    assert fnx.dijkstra_path(fg, s, t, weight=None) == (
+        nx.dijkstra_path(ng, s, t, weight=None)
+    )
+    assert list(fnx.minimum_spanning_tree(fg, weight=None).edges()) == (
+        list(nx.minimum_spanning_tree(ng, weight=None).edges())
+    )
+    # betweenness is compared with a tolerance, matching the convention in
+    # test_centrality_conformance_matrix._assert_centrality_close: the Brandes
+    # accumulation is a float sum whose ORDER differs, so exact equality fails
+    # by one ULP (2.776e-17) on 3 of these 30 seeds. That is summation order,
+    # not a semantic divergence — but it is why the exact `==` used for the
+    # callable-weight case above is fragile rather than strict.
+    got = fnx.betweenness_centrality(fg, weight=None)
+    want = nx.betweenness_centrality(ng, weight=None)
+    assert list(got.keys()) == list(want.keys())
+    for key in want:
+        assert got[key] == pytest.approx(want[key], rel=1e-6, abs=1e-9)
+
+
+# br-r37-c1-upxos: the bead names shortest_path and all_pairs, and only their
+# LENGTHS were checked. A path's SEQUENCE is where a weight-mode tie-break
+# divergence would actually show — two routes of equal total weight make the
+# length agree while the chosen path differs.
+@pytest.mark.parametrize("seed", range(30))
+def test_weight_mode_path_sequences(seed):
+    fg, ng, n = _weighted(seed)
+    if not fnx.is_connected(fg):
+        pytest.skip("disconnected")
+    r = random.Random(seed + 4)
+    s, t = r.sample(range(n), 2)
+    wf = lambda u, v, d: d.get("cost", 1)  # noqa: E731
+    assert fnx.dijkstra_path(fg, s, t, weight=wf) == nx.dijkstra_path(ng, s, t, weight=wf)
+    assert fnx.dijkstra_path(fg, s, t, weight="absent") == (
+        nx.dijkstra_path(ng, s, t, weight="absent")
+    )
+    assert fnx.shortest_path(fg, s, t, weight="weight") == (
+        nx.shortest_path(ng, s, t, weight="weight")
+    )
+    # MST edge ORDER, not just the sorted edge set the callable test compares.
+    assert list(fnx.minimum_spanning_tree(fg, weight=wf).edges()) == (
+        list(nx.minimum_spanning_tree(ng, weight=wf).edges())
+    )
+    # Key order of the weighted maps.
+    assert list(dict(fg.degree(weight="weight")).keys()) == (
+        list(dict(ng.degree(weight="weight")).keys())
+    )
