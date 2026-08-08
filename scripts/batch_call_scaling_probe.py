@@ -22,11 +22,25 @@ improved chunk-size-8 number on its own is NOT sufficient: amortisation changes
 produce that without removing the pass. Several beads name this test as their
 gate; run `--mode scaling` before and after and compare the final ratio column.
 
-This is deliberately a shape test, not a ratio test. The balanced-square A/A gate
-used elsewhere in this repo is unusable on build workloads — its k=8 arm nulls at
-1.44-1.50x because a repeated-build loop is not stationary within a round — and a
-change in what the cost DEPENDS ON survives a substrate that cannot cleanly time
-the pair.
+This is deliberately a shape test, not a ratio test, and that choice is forced by
+a repeatedly observed property of MUTATION workloads on this repo's balanced-square
+A/A substrate: their arms are not stationary within a round, so the A/A null blows
+out and the pair cannot be cleanly timed. Three independent instances, all
+mutation loops, all caught only because a null was carried:
+
+  * chunked add_edges_from, k=8 arm            null 1.4966x, then 1.4447x after
+                                               raising warm-up 2 -> 8 iterations
+  * per-call add_node loop vs add_nodes_from   null 1.3255x on the loop arm
+
+In each case the UNNULLED version of the same comparison produced a confident,
+plausible, publishable-looking number — and in the add_node case the sign
+reversed between runs (36% slower unnulled, 7% faster nulled). Treat any
+mutation-arm A/B on this substrate as inadmissible until its own A/A null is
+shown to sit near 1.0.
+
+A scaling-SHAPE result survives all of that, because it asks what the cost
+DEPENDS ON rather than how two arms compare: a x19.30 -> x1.10 change in
+node-scaling cannot be manufactured by an arm that drifts within a round.
 
 USAGE
     python3 scripts/batch_call_scaling_probe.py --mode chunk    # find the cliff
