@@ -37,6 +37,84 @@ admission history, host, scope source, process affinity, monitored CPU set,
 checked-window count, maximum observed busy fraction, and maximum consecutive
 busy-window count.
 
+## 2026-08-08 OliveDesert SHIPPED: DiGraph's plain batch, third instance — k=8 goes `14998.6` -> `765.6 ns/edge`, N-scaling `x15.20` -> `x1.01` (`br-r37-c1-ab5u7`)
+
+Third and cleanest application of the `br-r37-c1-uta2n` / `br-r37-c1-hepb5`
+pattern. Measured on DiGraph's own input shape before any edit, fixed, verified
+against the same pre-registered acceptance test.
+
+BEFORE, plain `(u, v)` two-tuples into a `DiGraph`, edge order asserted identical
+to the whole-batch build at every chunk size, load 0.85:
+
+| k | 1 | 4 | 7 | **8** | 16 | 64 | 8000 |
+|---|---|---|---|---|---|---|---|
+| ns/edge | `4151.0` | `2648.6` | `2253.5` | **`14998.6`** | `7956.9` | `2564.9` | `527.6` |
+
+A `6.7x` cliff at k=8, and the same scaling signature as both siblings: `x15.20`
+against node count at fixed edges (`4113.1` -> `62503.0 ns/edge` across
+N=500..8000), `x1.06` against edge count at fixed nodes.
+
+`PyDiGraph::collect_plain_edge_batch` (`crates/fnx-python/src/digraph.rs:9440`)
+opened with the same whole-graph `seen_nodes` clone. Same transformation: an
+O(1) per-endpoint graph lookup plus a batch-local set holding only what this
+batch introduces, both known-flags sampled before either insert, and v re-tested
+against the set u may have just joined.
+
+AFTER, ELF self-reported from inside the benchmark process:
+
+```
+bench_elf_sha256=ea6e779c114ad6a82053360f79cbc389c4422b4ccdd5b9fb11ceb29fa0aca624
+```
+
+| k | 1 | 4 | 7 | **8** | 16 | 64 | 8000 |
+|---|---|---|---|---|---|---|---|
+| ns/edge | `3954.0` | `2609.5` | `2203.3` | **`765.6`** | `615.9` | `618.9` | `417.4` |
+
+k=8 goes `14998.6` -> `765.6`, a `19.6x` improvement, and is now `2.9x` FASTER
+than k=7 instead of `6.7x` slower.
+
+ACCEPTANCE TEST — the largest-N figure must stop tracking N:
+
+| N (edges fixed 8,000) | 500 | 1,000 | 2,000 | 4,000 | 8,000 |
+|---|---|---|---|---|---|
+| before, vs N=500 | `x1.00` | `x1.96` | `x3.86` | `x7.57` | **`x15.20`** |
+| after, vs N=500 | `x1.00` | `x1.03` | `x1.06` | `x1.00` | **`x1.01`** |
+
+`x15.20` becomes `x1.01`. The edge sweep also stays clean here — `x1.00`,
+`x0.92`, `x0.99` across E=1,000..16,000 — with none of the small upward drift
+recorded honestly on the attributed sibling, which supports that drift having
+been host noise rather than mechanism.
+
+NO NULLED RATIO IS CLAIMED, consistent with the attributed sibling. The
+balanced-square k7-versus-k8 gate is not usable for these build workloads: on
+`hepb5` the k=8 arm's A/A null came back `1.4966x` and then `1.4447x` after
+raising warm-up, a systematic within-round asymmetry warm-up does not remove.
+The claim here rests on the chunk sweep and the N-scaling SHAPE change, which is
+the right instrument precisely because it is a change in what the cost depends
+on rather than a ratio a wandering null could manufacture.
+
+PARITY. Full Python suite on the fixed ELF: **50678 passed**, 1081 skipped, 1
+xpassed, and only the pre-existing `br-r37-c1-vniyv` coverage-doc failure —
+identical to the HEAD baseline across all three of today's batch fixes, so no
+test has changed state at any point. `cargo test -p fnx-python --lib` 77 passed,
+`clippy --all-targets -- -D warnings` clean, `cargo fmt --check` clean.
+
+comparison_class=SELF-SPEEDUP
+campaign_output=false
+decision_gate=median_ci
+cv_role=report_only
+
+RESULT: **SHIPPED.** SELF-SPEEDUP; no NetworkX arm ran in these invocations so
+no vs-incumbent ratio is claimed.
+
+RETRY PREDICATE: this collector is done at `x1.01`. FOUR sibling sites remain
+(`lib.rs:7177`, `:7431` and two later, plus `digraph.rs:9564`), covering the
+MultiGraph and MultiDiGraph batches and DiGraph's attributed collector. The
+pattern is now confirmed three times out of three attempted, so the prior is
+strong — but each still serves a different input shape and the rule stands:
+measure on its own workload first. That rule cost `uta2n` two wrong edits and
+has since produced three first-time landings.
+
 ## 2026-08-08 OliveDesert SHIPPED: the ATTRIBUTED batch had the same cliff — k=8 goes `17431.6` -> `1367.1 ns/edge`, N-scaling `x16.15` -> `x0.97` (`br-r37-c1-hepb5`)
 
 The sibling `br-r37-c1-uta2n` flagged and explicitly refused to fix on inference.
