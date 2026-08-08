@@ -37,6 +37,82 @@ admission history, host, scope source, process affinity, monitored CPU set,
 checked-window count, maximum observed busy fraction, and maximum consecutive
 busy-window count.
 
+## 2026-08-08 OliveDesert REJECT UPHELD, NO SOURCE EDIT: `Graph.add_edge` shim frames are **`22.4%`**, under CloudyTurtle's `40%` bar — and deleting the whole shim still leaves **`0.5525x`** (`br-r37-c1-vabqj`)
+
+`perf_ledger_preflight.py --candidate` blocked on the 2026-07-26 CloudyTurtle
+ADMISSION REJECT for this surface. Its retry predicate has a substantive clause
+that can be settled without a drained host: profile the exact public path, and
+**at least 40% of end-to-end time must belong to named removable Python shim
+frames before editing**. It does not, so the REJECT stands and no source is
+touched.
+
+THE SHIM IS REAL, unlike the one I wrongly assumed for `has_node` last cycle.
+`Graph.add_edge` is genuinely a Python function —
+`_make_none_rejecting_add_edge` installed at
+`python/franken_networkx/__init__.py:3418`. For a simple `Graph` with no attrs
+it runs `None` checks, `hash(u)`, `hash(v)`, then
+**`self.has_edge(u, v)`** and then `raw_add_edge(...)` — two native crossings per
+edge where NetworkX pays one Python frame over dicts. The `has_edge` probe
+exists only to serve the existing-edge attribute merge, which cannot fire when
+`attr` is empty, so it looked like a clean removable frame.
+
+MEASURED on the predicate's own workload, 2,000 nodes / 8,000 edges, each timed
+unit rebuilding a fresh graph so the mutation is identical every round. Live
+NetworkX 3.6.1 in-invocation, `taskset -c 40-47`, load 2.8, ELF
+`675707aceef90feadcfb8c17d73046ad68f76f035395bd3ec884792a717cc403`. Both
+same-invocation A/A null controls were measured and came back at `1.0035x`
+(CI `1.0015 - 1.0074`) and `1.0036x` (CI `1.0008 - 1.0078`):
+
+| arm | ns per edge | vs nx |
+|---|---|---|
+| nx `add_edge` | `615.0` | — |
+| fnx `add_edge` public, shimmed | `1433.8` | **`0.4289x`** |
+| fnx `add_edge` raw, shim entirely bypassed | `1113.2` | `0.5525x` |
+| fnx `has_edge` probes alone | `156.9` | — |
+
+So the total Python shim — every frame, both hashes, the probe, the `**attr`
+unpacking — is `320.6 ns`, **`22.4%`** of end-to-end. The `has_edge` probe I
+came here to remove is `156.9 ns`, **`10.9%`**. The bar is `40%`. NOT MET.
+
+THE NUMBER THAT SETTLES IT: bypassing the shim completely, which is strictly
+more than any legal edit could achieve since the shim also enforces `None`
+rejection and unhashable-endpoint errors, moves `0.4289x` to only `0.5525x`.
+`77.6%` of the cost is inside native `raw_add_edge` — `1113.2 ns` per edge
+against NetworkX's `615.0 ns` for what is fundamentally a dict insert. A
+perfectly executed shim removal would still ship a decisive loss while spending
+the whole retry-predicate budget and putting `None` rejection, partial
+node-creation state, live-dict identity and the attribute merge at risk.
+CloudyTurtle's `40%` bar was well calibrated; this row is evidence FOR it.
+
+ON THE PRECONDITION I DID NOT MEET, stated so nobody has to guess: the predicate
+also demands a pre-measurement screen at one-minute load below `0.25` and two
+A/A-only invocations with doubled-log floors below `1.02x`. Load was `2.8` on a
+64-way shared host and I ran one profile, not two preregistered nulls. That
+precondition gates EDITING, and this row declines to edit. Using a measurement
+of this grade to decline a change is safe in a way that using it to justify one
+would not be — and the conclusion is robust to it, because the shim would have
+to be nearly 2x its measured size to reach the bar.
+
+comparison_class=INCUMBENT
+incumbent=networkx
+incumbent_same_invocation=true
+incumbent_ratio=0.4289x
+campaign_output=false
+decision_gate=median_ci
+cv_role=report_only
+
+RESULT: **REJECT UPHELD, NO SOURCE EDIT.** `Graph.add_edge` stays at `0.4289x`,
+which reproduces the published `0.44x`. The shim is not the target and must not
+be edited on this evidence.
+
+RETRY PREDICATE: do not re-profile the shim — that question is now answered at
+`22.4%` and re-running it is not a new fact. The real target is the native
+mutation path, `1113.2 ns` per edge with the shim bypassed, filed as
+`br-r37-c1-jc9e4`. Reopen the shim only if a change inside `raw_add_edge` ever
+brings native cost low enough that `320.6 ns` of Python crosses `40%` of the new
+end-to-end — i.e. native under roughly `481 ns` per edge — at which point the
+shim becomes worth removing and not before.
+
 ## 2026-08-08 OliveDesert NOT TAKEN THIS ROW, CEILING MEASURED: a native `AdjacencyView.__len__` C slot is worth **`1.85x`** against NetworkX, up from the published `0.806x` (`br-r37-c1-bmrbc` -> `br-r37-c1-5gam7`)
 
 Profile-first step for `br-r37-c1-bmrbc`. No source edit: this row establishes
