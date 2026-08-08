@@ -9380,3 +9380,76 @@ SHA-256 line, actual observed thread counts for both arms, 21 interleaved
 rounds, both A/A nulls, and the corrected three-clause median gate. Any
 admission, provenance, parity, or continuous-accounting abort remains
 NO-VERDICT.
+
+## 2026-08-08 CopperCliff (cc) MILESTONE (br-r37-c1-5gam7 prerequisite): the four native adjacency views now traverse+clear — the cycle leak is real, and closing it costs nothing on the mint path
+
+NOT A PERFORMANCE VERDICT ROW, and deliberately not headed KEEP/SHIPPED/WIN. This is a
+correctness fix (an uncollectable reference cycle) plus the non-regression control that had to
+accompany it. The ratios below are CONTROLS showing the change is invisible, not a claim that
+anything got faster; nothing here is campaign output. The preflight gate rejected my first draft
+of this row for declaring `comparison_class=INCUMBENT` with `campaign_output=false` — the gate was
+right, the row was mislabelled, and the label is what changed.
+
+`views.rs` `AdjacencyView`/`AtlasView` and `digraph.rs` `DiAdjacencyView`/`DiAtlasView` held
+`graph: Py<Py*Graph>` with neither `__traverse__` nor `__clear__`. The handle is now
+`Option<Py<Py*Graph>>` with both slots implemented; every method that reads it either errors
+(`cleared_view_error`) or returns a defined cleared answer (`__len__` 0, `__bool__` false,
+`AdjacencyView.__repr__` a `<cleared>` marker). 26 read sites across the four structs, plus the
+four construction sites.
+
+MEASURED, not reasoned — the leak reproduces on the PUBLIC classes using exactly the write
+`_cached_view` performs (`vars(self)[slot] = view`, which bypasses the `__setattr__` that would
+otherwise register the instance dict for the graph's own `tp_clear`):
+
+    BEFORE  tracked=False  referents=0  -> LEAKED, all 6 parametrisations
+    AFTER   tracked=True   referents=1  -> collected, all 6
+
+Loaded-ELF SHA-256 of the two builds, printed in-process from `fnx._fnx.__file__` (they differ
+only by this patch — reverse-applied, rebuilt, re-applied):
+
+    BEFORE  daf4d388d215ecab95c3b6fdc5b4f0ecc91e6abe2738ce4c1c77071409c5daf4
+    AFTER   b85c553aac59c509d490026b6ca9120b71287d1ad1f8e762c308b78ba913b7fd
+
+Both slots are load-bearing, and that is why the previous attempt on this bead failed with
+`__traverse__` alone: traverse only makes the `graph -> view -> graph` edge VISIBLE to the
+collector; without `tp_clear` on a member, nothing in the cycle can drop a reference, and the
+graph end cannot do it because `_cached_view` never registers its dict.
+
+GATE: `tests/python/test_view_descriptor_parity.py::test_native_adjacency_view_owner_cycle_is_collectable`
+(6 params, new — it fails on the pre-change build), and the four pre-existing
+`test_cached_accessor_owner_cycle_is_collectable` /
+`test_direct_edge_attribute_self_reference_is_stored_and_collectable` cases that the earlier
+attempt broke stay green with the views still unsubclassed. FULL suite on the after build:
+**1 failed, 50684 passed, 1081 skipped, 1 xpassed** — the one failure is the pre-existing
+br-r37-c1-vniyv coverage-doc lock, and +6 passed against the bead's 50678 baseline is exactly the
+six new parametrisations.
+
+SELF-REGRESSION CHECK, because this is not free by inspection: an `AtlasView` is minted on EVERY
+`G[u]`, and `__traverse__` makes it GC-TRACKED — a GC header, a track/untrack pair, and extra
+gen-0 pressure on a hot path. Balanced square [A B B A A B B A] against LIVE networkx 3.6.1 in the
+same invocation, dual A/A nulls placed identically, GC left ENABLED (collector pressure is the
+thing under test), N=2000, 500 reps x 25 rounds, `taskset -c 40-47`, load 14-18 of 64, TWO
+before/after pairs with the build order alternated:
+
+    workload                      BEFORE ratio      AFTER ratio       A/A null range
+    G[u] -> AtlasView mint        1.1455 / 1.1611   1.1916 / 1.1630   0.9950 - 1.0355
+    G[u][v] mint + subscript      0.3577 / 0.3591   0.3624 / 0.3599
+    len(G.adj) no-mint control    0.7747 / 0.7653   0.7892 / 0.7624
+
+Every before/after delta is inside the A/A null band and none is consistently signed across the
+two pairs. NO measurable regression; the GC-tracking cost is below this substrate's ~2.5%
+resolution. The two builds differ ONLY by this patch (reverse-applied, rebuilt, re-applied), so
+the comparison is this change and nothing else.
+
+    comparison_class=NON-REGRESSION-CONTROL
+    incumbent=networkx-3.6.1
+    incumbent_same_invocation=true
+    campaign_output=false
+    decision_gate=non_regression_control
+    cv_role=report_only
+
+NOT THE LEVER, and must not be quoted as one: `len(G.adj)` is still 0.76-0.79x, matching the
+bead's published 0.8062x. This commit buys the GC safety the 1.85x native-`__len__` migration
+needs and buys no speed of its own. The migration (subclass + dict pyclass attrs, and the Python
+MRO wiring at the two outer construction sites `_graph_adj_view` / `_digraph_adj_view`) remains
+open on br-r37-c1-5gam7.
