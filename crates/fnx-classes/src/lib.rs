@@ -1771,15 +1771,21 @@ impl Graph {
 
         // Update integer adjacency (only for new edges, avoid duplicates)
         if changed {
-            if let (Some(left_idx), Some(right_idx)) = (
-                self.nodes.get_index_of(&left),
-                self.nodes.get_index_of(&right),
-            ) && new_edge
-            {
+            // br-r37-c1-jc9e4 (cc): reuse the indices resolved above instead of
+            // re-running two String-keyed IndexMap lookups. `left_key_idx` /
+            // `right_key_idx` came from the same `self.nodes` a few lines up and
+            // nothing between them touches the node map — the intervening work
+            // is the `self.edges` entry and the attr extend — so the old
+            // `if let (Some(..), Some(..))` could never fail and never differed.
+            // Byte-identical: same indices, same push order, same self-loop
+            // single-push behaviour.
+            if new_edge {
                 if left <= right {
-                    self.edge_index_endpoints.push((left_idx, right_idx));
+                    self.edge_index_endpoints
+                        .push((left_key_idx, right_key_idx));
                 } else {
-                    self.edge_index_endpoints.push((right_idx, left_idx));
+                    self.edge_index_endpoints
+                        .push((right_key_idx, left_key_idx));
                 }
                 // br-r37-c1-addedgenewedge (cc): adj_indices membership is EXACTLY edge
                 // existence, which `new_edge` (= !self.edges.contains_key(edge_key)) already
@@ -1789,9 +1795,9 @@ impl Graph {
                 // (byte-identical: existing edge ⇒ new_edge false ⇒ both endpoints already in
                 // adj_indices ⇒ old guards were false too; self-loop ⇒ left_idx==right_idx ⇒
                 // single push in both).
-                self.adj_indices[left_idx].push(right_idx);
-                if left_idx != right_idx {
-                    self.adj_indices[right_idx].push(left_idx);
+                self.adj_indices[left_key_idx].push(right_key_idx);
+                if left_key_idx != right_key_idx {
+                    self.adj_indices[right_key_idx].push(left_key_idx);
                 }
             }
             self.revision = self.revision.saturating_add(1);
