@@ -1070,7 +1070,10 @@ impl AdjacencyView {
 
     fn __repr__(&self, py: Python<'_>) -> String {
         match &self.graph {
-            Some(graph) => format!("AdjacencyView({} nodes)", graph.borrow(py).inner.node_count()),
+            Some(graph) => format!(
+                "AdjacencyView({} nodes)",
+                graph.borrow(py).inner.node_count()
+            ),
             None => "AdjacencyView(<cleared>)".to_owned(),
         }
     }
@@ -1393,10 +1396,5 @@ pub fn new_degree_view(py: Python<'_>, graph: Py<PyGraph>) -> PyResult<Py<Degree
 }
 
 pub fn new_adjacency_view(py: Python<'_>, graph: Py<PyGraph>) -> PyResult<Py<AdjacencyView>> {
-    Py::new(
-        py,
-        AdjacencyView {
-            graph: Some(graph),
-        },
-    )
+    Py::new(py, AdjacencyView { graph: Some(graph) })
 }

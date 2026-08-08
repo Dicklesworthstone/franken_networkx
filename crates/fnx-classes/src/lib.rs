@@ -9153,8 +9153,9 @@ mod tests {
             record
                 .evidence
                 .iter()
-                .filter(|term| term.signal == "left_autocreated"
-                    || term.signal == "right_autocreated")
+                .filter(
+                    |term| term.signal == "left_autocreated" || term.signal == "right_autocreated"
+                )
                 .map(|term| term.observed_value.as_str())
                 .collect::<Vec<_>>(),
             vec!["true", "true"],
