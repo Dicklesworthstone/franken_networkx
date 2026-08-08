@@ -9568,3 +9568,55 @@ new core number, because the two were taken on different graph shapes.
 README swept in the same commit (`Graph incremental add_edge` and `len(G.adj)` rows, plus the ledger
 -share paragraph beneath them), which is the discipline I failed to apply when f9e3173c3 landed
 earlier today and left `len(G.adj)` published at 0.7901x while HEAD was 1.6548x.
+
+## 2026-08-08 CopperCliff (cc) RE-MEASURE (br-r37-c1-jc9e4): the raw/shim split, three arms in ONE invocation — shim `332.6 ns` (26.5%), native `1113.2 -> 928.2 ns`, and my own published `0.4974x` needs a range
+
+NOT A KEEP ROW. Every figure here is a LOSS being re-measured after br-r37-c1-wa1b9 moved the path.
+The bead's raw figure could not previously be subtracted against anything, because it and the
+in-crate core number came from different graph shapes on different days. All three arms now run in
+the same invocation on the same workload, so the shim tax is an honest subtraction.
+
+    nx / fnx-public              0.4616x  CI [0.4563, 0.4658]    574.8 / 1245.4 ns/edge
+    nx / fnx-raw                 0.6274x  CI [0.6211, 0.6351]    582.4 /  928.2 ns/edge
+    fnx-raw / fnx-public (shim)  0.7351x  CI [0.7298, 0.7382]    923.2 / 1255.8 ns/edge
+    A/A null nx                  1.0007x  CI [0.9854, 1.0163]
+    A/A null public              1.0121x  CI [1.0027, 1.0184]
+    A/A null raw                 0.9998x  CI [0.9927, 1.0068]
+
+    bench_elf_sha256=02debd3305da5a87d8b9e78189131ec49d9e462b2aa2a2057578f8e6f8517a19
+    incumbent=networkx
+    incumbent_version=3.6.1
+    incumbent_same_invocation=true
+    incumbent_ratio=0.4616x
+    campaign_output=false
+    comparison_class=INCUMBENT-LOSS
+    decision_gate=median_ci
+    cv_role=report_only
+
+A = networkx, B = fnx `G.add_edge` (shimmed), C = fnx `_GRAPH_ADD_EDGE_RAW` (the native PyO3 method
+the shim wraps). Balanced [A B B A A B B A] square per pairing, 21 rounds, 8,000 calls on a FRESH
+graph per timed unit, 40 warm-up builds per arm, bootstrap median CI, `taskset -c 40-47`, load 17.
+A first run at load 252 is NOT quoted for its cross-arm ratios; its shim ratio (0.7389x) is noted
+only because both arms of that pairing are fnx and contention hits them equally.
+
+THREE RESULTS.
+
+1. THE SHIM REJECT STILL STANDS, now on post-wa1b9 numbers. 1255.8 - 923.2 = 332.6 ns/edge, 26.5% of
+end-to-end. The bead recorded 320.6 ns / 22.4%. The ABSOLUTE is unchanged, which is exactly right —
+nothing touched the shim — and the SHARE rose only because the native path got cheaper. Still under
+CloudyTurtle's 40% bar, so deleting the shim remains the wrong target.
+
+2. THE BEAD'S STALE RAW FIGURE IS REFRESHED: native `raw_add_edge` 1113.2 -> 928.2 ns/edge, 0.5525x
+-> 0.6274x. The ~185 ns is wa1b9's core saving arriving at the boundary, which is the confirmation
+the previous entry could not give.
+
+3. I HAVE TO WIDEN MY OWN PUBLISHED FIGURE. Yesterday's two-arm run gave 0.4974x CI [0.4833, 0.5129]
+and I put it in the README as if that CI were the uncertainty. This run gives 0.4616x CI [0.4563,
+0.4658]. The intervals DO NOT OVERLAP, and both runs pass their dual A/A nulls. The mover is the
+INCUMBENT arm — nx timed 677.1 ns/edge in one invocation and 574.8 in the other, while fnx moved only
+1296 -> 1245. So the honest published figure is a RANGE, 0.46-0.50x, and the README now says so.
+
+THE METHODOLOGICAL POINT, which is the part worth carrying: an A/A null certifies stationarity WITHIN
+a run. It says nothing about comparability ACROSS runs, and quoting a within-run CI as though it
+bounded the figure overstates precision by roughly 5x here. Where a row is published rather than used
+to decide a lever, it wants two admitted runs and their spread, not one run and its CI.
