@@ -37,6 +37,80 @@ admission history, host, scope source, process affinity, monitored CPU set,
 checked-window count, maximum observed busy fraction, and maximum consecutive
 busy-window count.
 
+## 2026-08-08 OliveDesert HYPOTHESIS REJECTED, SOURCE REVERTED: the O(N) `seen_nodes` clone is NOT the chunk-size-8 cliff (`br-r37-c1-uta2n`)
+
+I had a mechanism, it was wrong, and the edit is reverted. Writing it down
+because it eliminates the single most obvious suspect and saves the next person
+two rebuild cycles.
+
+THE HYPOTHESIS, which fit the data almost perfectly. The threshold is real and
+named: `PLAIN_EDGE_BATCH_MIN = 8` in `crates/fnx-python/src/lib.rs:3312`. Below
+8 edges `add_edges_from` skips the native batch and runs the per-edge path; at 8
+the batch engages. And the batch opened with
+
+```rust
+let mut seen_nodes: HashSet<String> = self.inner
+    .nodes_ordered().into_iter().map(str::to_owned).collect();
+```
+
+— a HashSet cloned from EVERY existing node key, O(N) `String` allocations per
+call regardless of batch size. On the measured 2,000-node graph that predicts
+roughly `100 us` per call against a measured `~117 us`, and the k>=8 tail is a
+clean `1/k` curve (`15156`, `7686`, `4144`, `2362` as k doubles from 8 to 64),
+exactly what a fixed per-call cost amortized over k looks like. Everything
+lined up.
+
+WHAT I DID. Replaced the whole-graph clone with an O(1) `self.inner.has_node`
+lookup per endpoint plus a local set of only the nodes the batch introduces
+(bounded by twice the batch length), preserving the pre-insert sampling of
+`node_bumps` and the self-loop case where the original inserted u before testing
+v. `cargo check`, `clippy -D warnings` and `cargo fmt --check` all clean.
+
+THE RESULT: NOTHING MOVED. Sweep on the rebuilt ELF `62f685a3`, same host:
+
+| k | 1 | 4 | 7 | **8** | 16 | 32 | 64 |
+|---|---|---|---|---|---|---|---|
+| before, ns/edge | `3646` | `1870` | `1679` | **`15156`** | `7686` | `4144` | `2362` |
+| after, ns/edge | `3659` | `1850` | `1612` | **`15255`** | `7797` | `5370` | `2487` |
+
+The cliff is untouched. The `seen_nodes` clone is therefore NOT the dominant
+per-call cost, and the hypothesis is rejected on its own evidence.
+
+A REACHABILITY MISTAKE WORTH RECORDING, because I made it inside this same
+attempt. My first edit went to `_try_add_edges_from_batch` at `lib.rs:7132`,
+which is in `impl PyMultiGraph` (declared at `:6137`), not `impl PyGraph`
+(declared at `:11851`). `lib.rs` carries several large per-class impls and the
+function names repeat across them. The rebuild changed nothing and I briefly
+mistook that for the hypothesis failing. `Graph`'s actual collector is
+`try_add_plain_edge_batch` at `:3307`. Confirm the enclosing `impl` before
+believing any edit in this file is on the path — `awk '/^impl Py/{n=$2} NR==L{print n}'`
+settles it in one command.
+
+SOURCE REVERTED. The change is semantically sound and does strictly less work,
+but it produced no measurable improvement, and an unmeasurable change does not
+ship — it would be noise in a shared checkout. Both edited sites are back to
+their original text and `git diff` on `lib.rs` is empty. Six sibling sites carry
+the same `seen_nodes` pattern (`lib.rs:3373`, `:7158`, `:7412`, `:7559`,
+`:7845`, `digraph.rs:9440`, `:9564`); on this evidence none of them is worth
+touching for this reason.
+
+comparison_class=SELF-SPEEDUP
+campaign_output=false
+decision_gate=median_ci
+cv_role=report_only
+
+RESULT: **HYPOTHESIS REJECTED, NO NET SOURCE CHANGE.** The cliff stands at
+`6.8446x` (CI `6.7964 - 6.9221`, A/A nulls `0.9921x` / `0.9970x`, recorded on
+`br-r37-c1-uta2n`). Its cause is still open.
+
+RETRY PREDICATE: do not re-attack `seen_nodes` — refuted above with a rebuilt
+ELF and a full sweep. The remaining O(N)-per-call candidates inside the batch
+are the post-collect commit step and any cache or mirror invalidation that runs
+once per successful batch; the next probe should time the batch on graphs of two
+different node counts at fixed k=8, which separates O(N) from O(E) from a
+constant, and should confirm reachability by the `impl` check above before
+editing anything.
+
 ## 2026-08-08 OliveDesert NOT TAKEN THIS ROW: `add_edge`'s loss is per-CALL, not per-edge — the batch path already beats NetworkX **`1.86x`**, and a **`6.84x` cliff at chunk size 8** turned up on the way (`br-r37-c1-jc9e4`)
 
 Profile-first for the native mutation path. No source edit. Two findings, and
