@@ -107,14 +107,11 @@ def test_products_size_parity(seed):
         assert fp.number_of_nodes() == np_.number_of_nodes()
         assert fp.number_of_edges() == np_.number_of_edges()
         # br-r37-c1-cluiw: counts alone would pass two graphs of the same size
-        # and different shape. Node ORDER and the edge SET both match nx exactly.
+        # and different shape.
         assert list(fp.nodes()) == list(np_.nodes())
-        assert {tuple(sorted(e)) for e in fp.edges()} == {
-            tuple(sorted(e)) for e in np_.edges()
-        }
-        # Edge ORDER is deliberately NOT asserted: it diverges from nx for all
-        # three products (same set, different sequence) — filed as
-        # br-r37-c1-28lwc. Asserting it here would red the suite over a known,
-        # separately-tracked divergence; asserting sorted() everywhere is what
-        # hid it in the first place, so the boundary is drawn explicitly rather
-        # than by using a comparison that cannot see the difference.
+        # br-r37-c1-28lwc: edge ORDER, not just the set. This assertion is the
+        # bead's acceptance test — it failed for cartesian (49/50 seeds), tensor
+        # and strong (38/50 each) until the kernels were reordered to nx's block
+        # sequence, and it is the assertion the previous sorted() comparison was
+        # structurally unable to make.
+        assert list(fp.edges()) == list(np_.edges())

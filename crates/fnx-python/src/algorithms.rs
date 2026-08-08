@@ -16872,8 +16872,21 @@ fn graph_product_fast(
         let (canon, node_key_map) = product_node_tuples(py, &gr1, &gr2, &g_names, &h_names)?;
 
         let mut edges: Vec<(String, String)> = Vec::new();
-        // cartesian edges (same G-node x H-edge, same H-node x G-edge)
-        let push_cartesian = |edges: &mut Vec<(String, String)>| {
+        // br-r37-c1-28lwc: the two cartesian blocks are emitted SEPARATELY
+        // because networkx orders them differently per product, and fnx used to
+        // share one fixed order between both callers:
+        //
+        //   nx cartesian_product: _edges_cross_nodes  then _nodes_cross_edges
+        //   nx strong_product:    _nodes_cross_edges  then _edges_cross_nodes
+        //
+        // The old combined closure emitted nodes-cross-edges first, which is
+        // nx's STRONG order — correct for strong, backwards for cartesian. The
+        // edge SET is identical either way, so every parity test that
+        // canonicalised (sorted, or compared counts) passed regardless. Naively
+        // swapping the blocks would have fixed cartesian and broken strong.
+
+        // nx `_nodes_cross_edges(G, H)`: for each G node, for each H edge.
+        let push_nodes_cross_edges = |edges: &mut Vec<(String, String)>| {
             for gi in 0..ng {
                 for hu in 0..nh {
                     for &hv in dg2.successors_indices(hu).unwrap_or(&[]) {
@@ -16881,6 +16894,9 @@ fn graph_product_fast(
                     }
                 }
             }
+        };
+        // nx `_edges_cross_nodes(G, H)`: for each G edge, for each H node.
+        let push_edges_cross_nodes = |edges: &mut Vec<(String, String)>| {
             for gu in 0..ng {
                 for &gv in dg1.successors_indices(gu).unwrap_or(&[]) {
                     for hi in 0..nh {
@@ -16904,11 +16920,17 @@ fn graph_product_fast(
             }
         };
         match kind {
-            0 => push_cartesian(&mut edges),
+            0 => {
+                // nx cartesian_product: _edges_cross_nodes, then _nodes_cross_edges.
+                push_edges_cross_nodes(&mut edges);
+                push_nodes_cross_edges(&mut edges);
+            }
             1 => push_tensor(&mut edges),
             2 => {
-                // strong = cartesian ∪ tensor
-                push_cartesian(&mut edges);
+                // nx strong_product: _nodes_cross_edges, then _edges_cross_nodes,
+                // then the tensor block — the OPPOSITE cartesian order to kind 0.
+                push_nodes_cross_edges(&mut edges);
+                push_edges_cross_nodes(&mut edges);
                 push_tensor(&mut edges);
             }
             3 => {
@@ -16971,33 +16993,60 @@ fn graph_product_fast(
         let h_edges = undirected_edges(g2, nh);
 
         let mut edges: Vec<(String, String)> = Vec::new();
-        // cartesian: same G-node + H-edge; same H-node + G-edge.
-        let push_cartesian = |edges: &mut Vec<(String, String)>| {
+        // br-r37-c1-28lwc: emitted as two separate blocks because networkx
+        // orders them differently per product — cartesian is
+        // _edges_cross_nodes then _nodes_cross_edges, while strong is the
+        // reverse. See the directed branch above for the full note.
+
+        // nx `_nodes_cross_edges(G, H)`: for each G node, for each H edge.
+        let push_nodes_cross_edges = |edges: &mut Vec<(String, String)>| {
             for gi in 0..ng {
                 for &(hu, hv) in &h_edges {
                     edges.push((canon[gi * nh + hu].clone(), canon[gi * nh + hv].clone()));
                 }
             }
+        };
+        // nx `_edges_cross_nodes(G, H)`: for each G edge, for each H node.
+        let push_edges_cross_nodes = |edges: &mut Vec<(String, String)>| {
             for &(gu, gv) in &g_edges {
                 for hi in 0..nh {
                     edges.push((canon[gu * nh + hi].clone(), canon[gv * nh + hi].clone()));
                 }
             }
         };
-        // tensor: {(gu,hu),(gv,hv)} and {(gu,hv),(gv,hu)} for each edge pair.
+        // br-r37-c1-28lwc: nx emits the two undirected-tensor blocks as SEPARATE
+        // passes — `_directed_edges_cross_edges` over every edge pair, and only
+        // then `_undirected_edges_cross_edges` over every edge pair — where this
+        // used to interleave them, pushing both members of a pair together. Same
+        // edge set, different sequence. Endpoint order matches nx too: its
+        // undirected block yields `(v, x), (u, y)`, i.e. the G-edge endpoints
+        // swapped, not the H-edge ones.
         let push_tensor = |edges: &mut Vec<(String, String)>| {
+            // nx `_directed_edges_cross_edges(G, H)`: (u,x) -> (v,y).
             for &(gu, gv) in &g_edges {
                 for &(hu, hv) in &h_edges {
                     edges.push((canon[gu * nh + hu].clone(), canon[gv * nh + hv].clone()));
-                    edges.push((canon[gu * nh + hv].clone(), canon[gv * nh + hu].clone()));
+                }
+            }
+            // nx `_undirected_edges_cross_edges(G, H)`: (v,x) -> (u,y).
+            for &(gu, gv) in &g_edges {
+                for &(hu, hv) in &h_edges {
+                    edges.push((canon[gv * nh + hu].clone(), canon[gu * nh + hv].clone()));
                 }
             }
         };
         match kind {
-            0 => push_cartesian(&mut edges),
+            0 => {
+                // nx cartesian_product: _edges_cross_nodes, then _nodes_cross_edges.
+                push_edges_cross_nodes(&mut edges);
+                push_nodes_cross_edges(&mut edges);
+            }
             1 => push_tensor(&mut edges),
             2 => {
-                push_cartesian(&mut edges);
+                // nx strong_product: _nodes_cross_edges, then _edges_cross_nodes,
+                // then tensor — the OPPOSITE cartesian order to kind 0.
+                push_nodes_cross_edges(&mut edges);
+                push_edges_cross_nodes(&mut edges);
                 push_tensor(&mut edges);
             }
             3 => {
