@@ -1319,7 +1319,10 @@ four-way metric dispatch, and two closure frames per pair (`predict` -> `deg`
 `_pa_native_scores` is the missing sibling: one degree batch, then a direct
 dict-indexed product per pair. The whole-graph-vs-endpoint-subset branch is
 carried over verbatim from the generic path, so `br-r37-c1-pa-degbatch` and
-`br-r37-c1-pa-endpointbatch` both keep their behaviour.
+`br-r37-c1-pa-endpointbatch` both keep their behaviour. Those two are IN-CODE
+change markers in `_link_prediction_compute`, not tracker beads — `br show` will
+not resolve them, and I quoted them from the source comments rather than minting
+them.
 
 ```
 bench_elf_sha256=80488d1e0014e4ca2907f8166df60fdf15a9de6eab6bd11685d260917fc7041d
