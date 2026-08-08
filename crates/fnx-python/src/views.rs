@@ -995,7 +995,12 @@ pub(crate) fn cleared_view_error() -> PyErr {
 }
 
 /// A view of the graph's adjacency structure. ``G.adj[n]`` returns a dict of neighbors.
-#[pyclass(module = "franken_networkx")]
+///
+/// `subclass` is what lets the Python `AdjacencyView` inherit from this class so
+/// `len(G.adj)` resolves to the C slot below instead of a Python frame
+/// (br-r37-c1-5gam7). Everything else about `G.adj` keeps coming from the Python
+/// class, which sits after this one in the MRO.
+#[pyclass(module = "franken_networkx", subclass)]
 pub struct AdjacencyView {
     /// `None` once `__clear__` has run — see [`cleared_view_error`]. The handle
     /// must be nullable so `tp_clear` can break the ``graph -> view -> graph``
@@ -1012,6 +1017,15 @@ impl AdjacencyView {
 
 #[pymethods]
 impl AdjacencyView {
+    /// Constructible from Python so the MRO subclass built in
+    /// `franken_networkx/__init__.py` can call `__new__` with the owning graph
+    /// (br-r37-c1-5gam7). The subclass supplies its own `__init__`, so this only
+    /// has to install the handle the C slots read.
+    #[new]
+    fn py_new(graph: Py<PyGraph>) -> Self {
+        Self { graph: Some(graph) }
+    }
+
     fn __traverse__(&self, visit: PyVisit<'_>) -> Result<(), PyTraverseError> {
         visit.call(&self.graph)
     }

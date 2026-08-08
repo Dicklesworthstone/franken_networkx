@@ -9453,3 +9453,72 @@ bead's published 0.8062x. This commit buys the GC safety the 1.85x native-`__len
 needs and buys no speed of its own. The migration (subclass + dict pyclass attrs, and the Python
 MRO wiring at the two outer construction sites `_graph_adj_view` / `_digraph_adj_view`) remains
 open on br-r37-c1-5gam7.
+
+## 2026-08-08 CopperCliff (cc) KEEP (br-r37-c1-5gam7): `len(G.adj)` 0.77x -> 1.6548x — the published loss is a win, and the migration is landed
+
+The lever this bead has been holding since the ceiling was measured. `G.nodes` and `G.edges` already
+exposed `__len__` as a wrapper_descriptor while `G.adj`'s was a plain Python function on the SAME
+graph returning the SAME count. `G.adj` now returns a subclass of the native view, so `__len__`
+resolves to the C slot.
+
+    len(G.adj) vs nx    1.6548x  CI [1.6447, 1.6641]
+    A/A null (nx/nx)    1.0004x  CI [0.9979, 1.0050]
+    A/A null (fnx/fnx)  1.0047x  CI [1.0005, 1.0082]
+
+    bench_elf_sha256=efaa88d05bb86b4db2947bc9d03ce7024c4d1da38acfeed2bf05a8d18719787e
+    loaded_elf_path=/data/projects/franken_networkx/python/franken_networkx/_fnx.abi3.so
+
+The SHA is self-reported in-process from the loaded binary (`fnx._fnx.__file__`) by the harness that
+produced the numbers above, not read off the tree by an adjacent shell.
+
+Balanced square [A B B A A B B A] with live networkx 3.6.1 in the SAME invocation, N=2000, 500 reps
+x 25 rounds, bootstrap median-ratio CI over 2000 draws, `taskset -c 40-47`, load 8.8 of 64. The
+candidate CI floor (1.6447) clears both null CI ceilings (1.0050 / 1.0082) by ~64 points, and the
+direction replicated 4/4 across independent runs (1.6021, 1.6670, 1.6625, 1.6548).
+
+MEASURED AGAINST MY OWN BEFORE, not against a published figure: the SAME script and square on the
+pre-migration build earlier today read 0.7747 / 0.7653 / 0.7892 / 0.7624, consistent with this
+bead's published 0.8062x. So the move is ~0.77x -> ~1.65x on one host, one substrate, one sitting.
+
+HOW, and why it is a subclass rather than a swap. `_native_len_adjacency_view(native_base)` builds
+`class _NativeLenAdjacencyView(native_base, AdjacencyView)`, used ONLY at the two outer construction
+sites (`_graph_adj_view`, `_digraph_adj_view` — `DiGraph.adj`/`_adj`, successors). The MRO puts the
+native C slots ahead of the Python definitions while `_fnx_atlas_cache`, the native-iter binding,
+`keys`/`items`/`values`, `__eq__`, `copy` and pickling all keep coming from `AdjacencyView`
+unmodified. `__getitem__`, `__iter__`, `__repr__`, `__str__` are bound BACK to `AdjacencyView`'s and
+`__contains__` to `Mapping`'s — inheriting those would silently drop `_fnx_atlas_cache`, return a
+native AtlasView instead of the parity one, lose nx's `dict_keyiterator` runtime type, and lose the
+nx-shaped repr. `G.succ`, `G.pred`, filtered, reverse, reconstructed, snapshot and inner-row views
+keep the pure-Python class.
+
+WHY IT IS LANDABLE NOW when two prior attempts were not: the uncollectable graph<->view cycle that
+reverted the last attempt was closed first, as its own commit (5c5cdd5e5), with its own gate. The
+four `test_view_descriptor_parity` collectability cases that failed last time pass here.
+
+PARITY: full suite **1 failed, 50684 passed, 1081 skipped, 1 xpassed** — byte-identical to the
+prerequisite-only run, the one failure being the pre-existing br-r37-c1-vniyv coverage-doc lock. Plus
+a direct differential against nx on len/repr/str/iterator-type/getitem-type/`__eq__`/identity, pickle,
+deepcopy, `copy.copy`, `G.copy()`, `to_directed`, subgraph views, empty graphs, add/remove_node, and
+`isinstance(Mapping)` — all equal. Including the case that refutes the tempting `len(owner)`
+shortcut: with `G._node` overridden to 5 entries on a 3-node graph, nx and fnx BOTH report
+`len(G) == 5` and `len(G.adj) == 3`.
+
+TWO NEIGHBOURING ROWS MEASURED AS CONTROLS, neither of which is a claim: `G[u]` 1.1628x
+CI [1.1285,1.1951] (unchanged, 1.1455-1.1916 before) and `G[u][v]` 0.3612x CI [0.3556,0.3692]
+(0.3577-0.3624 before). One early `G[u][v]` draw read 0.3412x and looked like a regression; it did
+not replicate and the CI now straddles the pre-migration median, so it was noise and is recorded as
+such rather than quietly dropped.
+
+    comparison_class=INCUMBENT
+    incumbent=networkx
+    incumbent_version=3.6.1
+    incumbent_same_invocation=true
+    incumbent_ratio=1.6548x
+    campaign_output=true
+    decision_gate=median_ci
+    cv_role=report_only
+
+STILL OPEN AND NOT TOUCHED HERE: `G[u][v]` at 0.36x. Mechanism reading, not a measurement — each
+call runs the `_atlas_getter` chain, which rebuilds a fresh native AdjacencyView through the `adj`
+descriptor before subscripting it. That is the obvious next target on this surface and it is
+unrelated to this lever.

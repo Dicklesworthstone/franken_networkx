@@ -16026,7 +16026,10 @@ enum AdjKind {
     Predecessors,
 }
 
-#[pyclass(module = "franken_networkx")]
+/// `subclass` mirrors `views::AdjacencyView` — it lets the Python
+/// `AdjacencyView` inherit from this class so `len(G.adj)` on a DiGraph resolves
+/// to the C slot rather than a Python frame (br-r37-c1-5gam7).
+#[pyclass(module = "franken_networkx", subclass)]
 pub struct DiAdjacencyView {
     /// `None` once `__clear__` has run — see
     /// [`crate::views::cleared_view_error`]. The handle must be nullable so
@@ -16046,6 +16049,17 @@ impl DiAdjacencyView {
 
 #[pymethods]
 impl DiAdjacencyView {
+    /// Constructible from Python for the MRO subclass (br-r37-c1-5gam7). Only
+    /// the OUTER `G.adj`/`G.succ` view is migrated, so successors is the only
+    /// kind reachable this way; `G.pred` keeps the pure-Python class.
+    #[new]
+    fn py_new(graph: Py<PyDiGraph>) -> Self {
+        Self {
+            graph: Some(graph),
+            kind: AdjKind::Successors,
+        }
+    }
+
     fn __traverse__(&self, visit: PyVisit<'_>) -> Result<(), PyTraverseError> {
         visit.call(&self.graph)
     }

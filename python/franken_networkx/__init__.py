@@ -1997,6 +1997,58 @@ def _cached_view(slot, factory):
     return _accessor
 
 
+def _native_len_adjacency_view(native_base):
+    """br-r37-c1-5gam7: an ``AdjacencyView`` whose ``__len__`` is a C slot.
+
+    ``G.nodes`` and ``G.edges`` already expose ``__len__`` as a
+    wrapper_descriptor while ``G.adj``'s was a plain Python function — on the
+    SAME graph, returning the SAME count. 48.5 ns of an 85.6 ns ``len(G.adj)``
+    was the Python frame alone; the PyO3 call inside it was 10.5 ns.
+
+    This SUBCLASSES the native view rather than returning it, so the MRO puts
+    the native C slots ahead of the Python definitions while everything else —
+    ``_fnx_atlas_cache``, the native-iter binding, ``keys``/``items``/
+    ``values``, ``__eq__``, ``copy``, and pickling via
+    ``_reconstruct_adjacency_view`` — still comes from ``AdjacencyView`` with
+    no reimplementation.
+
+    Only ``__len__`` (and ``__bool__``, which agrees) is wanted from the native
+    base. Every other method it happens to define is bound back explicitly
+    below, because inheriting those would silently drop Python behaviour:
+    ``__getitem__`` would lose ``_fnx_atlas_cache`` and hand back a native
+    AtlasView instead of the parity one, ``__iter__`` would lose the
+    ``dict_keyiterator`` runtime type nx returns, and ``__repr__``/``__str__``
+    would lose the nx-shaped mapping text.
+
+    Used ONLY at the two outer construction sites below. Filtered, reverse,
+    reconstructed, snapshot and inner-row views keep the pure-Python class and
+    its ``native_len``-is-None fallback.
+    """
+
+    class _NativeLenAdjacencyView(native_base, AdjacencyView):
+        def __new__(cls, atlas_getter, *, owner=None, **kwargs):
+            # The native base's ``__new__`` takes the owning graph; it is what
+            # installs the handle the C ``__len__`` reads.
+            return native_base.__new__(cls, owner)
+
+        def __init__(self, atlas_getter, **kwargs):
+            AdjacencyView.__init__(self, atlas_getter, **kwargs)
+
+        __getitem__ = AdjacencyView.__getitem__
+        __iter__ = AdjacencyView.__iter__
+        __repr__ = AdjacencyView.__repr__
+        __str__ = AdjacencyView.__str__
+        __contains__ = _Mapping.__contains__
+
+    _NativeLenAdjacencyView.__name__ = "AdjacencyView"
+    _NativeLenAdjacencyView.__qualname__ = "AdjacencyView"
+    return _NativeLenAdjacencyView
+
+
+_GRAPH_NATIVE_LEN_ADJ_VIEW = _native_len_adjacency_view(_fnx.AdjacencyView)
+_DIGRAPH_NATIVE_LEN_ADJ_VIEW = _native_len_adjacency_view(_fnx.DiAdjacencyView)
+
+
 _GRAPH_ADJ_NATIVE_LEN = Graph.number_of_nodes
 _DIGRAPH_ADJ_NATIVE_LEN = DiGraph.number_of_nodes
 _GRAPH_ADJ_NATIVE_ITER = Graph.__iter__
@@ -2020,7 +2072,7 @@ _multigraph_adj_view = _cached_view(
 
 _graph_adj_view = _cached_view(
     "_fnx_view_adj",
-    lambda self: AdjacencyView(
+    lambda self: _GRAPH_NATIVE_LEN_ADJ_VIEW(
         lambda: _GRAPH_ADJ_DESCRIPTOR.__get__(self, Graph),
         owner=self,
         row_kind="adj",
@@ -2032,7 +2084,7 @@ _graph_adj_view = _cached_view(
 
 _digraph_adj_view = _cached_view(
     "_fnx_view_adj",
-    lambda self: AdjacencyView(
+    lambda self: _DIGRAPH_NATIVE_LEN_ADJ_VIEW(
         lambda: _DIGRAPH_ADJ_DESCRIPTOR.__get__(self, DiGraph),
         owner=self,
         row_kind="succ",
