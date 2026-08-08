@@ -45,10 +45,50 @@ _MISSING_NODE_CASES = [
 ]
 
 
+_EXCEPTION_NAMES = [
+    "NetworkXError",
+    "NetworkXNoPath",
+    "NodeNotFound",
+    "NetworkXUnfeasible",
+    "NetworkXNotImplemented",
+    "NetworkXPointlessConcept",
+    "HasACycle",
+    "AmbiguousSolution",
+    "ExceededMaxIterations",
+    "PowerIterationFailedConvergence",
+]
+
+
+@pytest.mark.parametrize("name", _EXCEPTION_NAMES)
+def test_exception_classes_are_the_networkx_classes(name):
+    """br-r37-c1-uaw1x: the rest of this module compares ``type(exc).__name__``,
+    which is only a proxy for the contract that actually matters to a drop-in:
+    that ``except nx.NetworkXNoPath:`` in user code CATCHES what fnx raises. A
+    separate class with the same name would satisfy every other assertion here
+    and still break every caller. fnx re-exports networkx's own classes today;
+    this pins it, so a future native exception type has to fail here rather
+    than pass silently.
+    """
+    fnx_exc = getattr(fnx, name)
+    nx_exc = getattr(nx, name)
+    assert fnx_exc is nx_exc
+    with pytest.raises(nx_exc):
+        raise fnx_exc("probe")
+
+
+# br-r37-c1-uaw1x: the missing-node sweep ran on an undirected Graph only. The
+# directed and multigraph classes reach different code paths for the same
+# arguments, and a contract divergence in one of them would have been invisible.
+# Verified equal on all four classes before being asserted.
+_GRAPH_CLASSES = ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"]
+
+
+@pytest.mark.parametrize("cls_name", _GRAPH_CLASSES)
 @pytest.mark.parametrize("name,call", _MISSING_NODE_CASES)
-def test_missing_node_argument_contract(name, call):
-    fg = fnx.Graph([(0, 1), (1, 2), (2, 3), (0, 3)])
-    ng = nx.Graph([(0, 1), (1, 2), (2, 3), (0, 3)])
+def test_missing_node_argument_contract(name, call, cls_name):
+    edges = [(0, 1), (1, 2), (2, 3), (0, 3)]
+    fg = getattr(fnx, cls_name)(edges)
+    ng = getattr(nx, cls_name)(edges)
     assert _outcome(call, fnx, fg) == _outcome(call, nx, ng)
 
 
