@@ -37,6 +37,56 @@ admission history, host, scope source, process affinity, monitored CPU set,
 checked-window count, maximum observed busy fraction, and maximum consecutive
 busy-window count.
 
+## 2026-08-08 OliveDesert LAST THREAD CLOSED: keyed `(u, v, key, dict)` measures clean — the chunk-8 batch surface is 9 of 9 characterized (`br-r37-c1-lka35`)
+
+The one shape I deliberately left as "probe first, not probably fine". Probed.
+Clean. Load 0.63, edge order and every weight asserted identical to the
+whole-batch build at each chunk size:
+
+| k | 1 | 4 | 6 | **7** | **8** | 16 | 64 | 8000 |
+|---|---|---|---|---|---|---|---|---|
+| ns/edge | `4740.1` | `4094.5` | `3856.4` | **`3611.6`** | **`3920.1`** | `3907.9` | `3862.3` | `3640.4` |
+
+No cliff — `1.09x` across the `PLAIN_EDGE_BATCH_MIN` boundary against `6.7x`-`8.0x`
+on the defective four. **N-scaling `x1.03`** (`4382.4 ns/edge` at N=500 against
+`4532.3` at N=8,000), which is the diagnostic and is flat: no whole-node-set pass
+per call.
+
+A SEPARATE OBSERVATION, recorded because it is real and is NOT this defect. This
+shape has the steepest EDGE sweep of all nine, `x1.72` (`3095.6 ns/edge` at
+E=1,000 against `5336.5` at E=16,000, nodes fixed). That is growth in existing
+EDGE count, not node count, and the keyed path genuinely does more work per
+existing parallel edge — key assignment and lookup inside a growing multi-edge
+structure. It is a different question from the whole-node-set clone this sweep
+was about, it is unattributed, and it must not be conflated with it. Anyone who
+wants it should probe the keyed key-assignment path against edge count
+specifically.
+
+FINAL STATE, 9 of 9 measured:
+
+| | collectors | N-scaling |
+|---|---|---|
+| DEFECTIVE, all fixed | Graph plain, Graph attributed, DiGraph plain, DiGraph attributed | `x15.20`-`x19.30` -> `x0.97`-`x1.26` |
+| CLEAN, all untouched | MultiGraph plain / attributed / keyed, MultiDiGraph plain / attributed | `x1.03`-`x1.24` |
+
+The class rule holds without exception across all nine: every simple-graph
+collector carried the whole-node-set clone on its reachable per-call path; no
+multigraph collector does, in any of its three shapes.
+
+comparison_class=SELF-SPEEDUP
+campaign_output=false
+decision_gate=median_ci
+cv_role=report_only
+
+RESULT: **NO SOURCE EDIT.** Campaign closed with zero unmeasured edits: four
+defects found and fixed, five collectors measured clean and left alone.
+
+RETRY PREDICATE: the chunk-8 batch surface is settled — do not re-measure any of
+the nine, and do not edit the multigraph `seen_nodes` sites for cliff reasons.
+The only live thread this leaves is the keyed shape's `x1.72` edge-count growth
+noted above, which is a different mechanism and needs its own probe and its own
+bead before anyone touches it.
+
 ## 2026-08-08 OliveDesert SWEEP COMPLETE: all 8 plain+attributed batch collectors measured — 4 simple-graph defective and fixed, 4 multigraph clean and untouched (`br-r37-c1-khgif`)
 
 The last unmeasured plain/attributed shape, MultiDiGraph attributed, measured at
