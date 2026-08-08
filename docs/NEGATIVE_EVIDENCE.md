@@ -37,6 +37,105 @@ admission history, host, scope source, process affinity, monitored CPU set,
 checked-window count, maximum observed busy fraction, and maximum consecutive
 busy-window count.
 
+## 2026-08-08 OliveDesert STRICT INCUMBENT WIN: `karate_club_graph` per-cell accept loop batched — **`0.3762x` -> `1.3665x`** (`br-r37-c1-p4qjj`)
+
+NEGATIVE-LEDGER-FIRST: `scripts/perf_ledger_preflight.py --prior-art
+karate_club_graph` returns no REJECT on this surface — the only prior mention
+is the 2026-07-28 BlackThrush unmeasured-surface audit. This is a first
+attempt, not a resurrection.
+
+MECHANISM (read from source, not inferred). `karate_club_graph()` mirrored
+NetworkX's reference implementation literally: split `_KARATE_CLUB_MATRIX`,
+`int()`-parse all 1156 cells, then `G.add_edge(row, col, weight=entry)` once
+per nonzero cell — 155 PyO3 crossings — followed by a per-node
+`G.nodes[v]["club"] = ...` pass for 34 more. NetworkX pays the same loop
+against plain dicts, so the crossing count is the whole gap. The matrix is a
+compile-time constant, so both the parse and the per-edge dispatch were repeat
+work. The stream is now parsed once into a memoised tuple and replayed through
+one `add_edges_from`, with `club` folded into the single `add_nodes_from`.
+
+THE NON-OBVIOUS CONSTRAINT (this is why the row is not a one-liner). Zachary's
+matrix is **not symmetric**. Seven pairs disagree across the diagonal —
+`(0,12)`, `(2,32)`, `(8,32)`, `(8,33)`, `(22,33)`, `(23,29)`, `(29,32)` — so
+the duplicate lower-triangle entry is what decides each final weight under
+last-write-wins. Worse, `M[22][33]` is `0` while `M[33][22]` is `3`: that edge
+exists *only* because row 33 emits it, and it therefore lands last in node 22's
+adjacency row. The tempting upper-triangle rewrite (78 tuples instead of 155)
+would silently drop one edge and mis-weight seven. Both triangles stay in the
+stream in row-major order, and
+`tests/python/test_karate_club_graph_parity.py` fails loudly on any future
+attempt to remove them.
+
+CGSE NON-REGRESSION. Locked by 16 tests against two independent oracles: the
+pre-change per-cell builder (spelled out inside the test, so the lock survives
+edits to the implementation) and live NetworkX 3.6.1. Asserted identical:
+`list(G.nodes)`, `list(G.edges)`, every edge `weight`, every node `club`,
+`G.graph`, and every adjacency row's order. A separate test proves repeated
+calls share no mutable attribute state — the stream is memoised but the attr
+dicts are rebuilt per call, since a shared dict would be a mutation channel
+between two graphs handed to two different callers. The full 33-file
+karate-dependent suite passes: 1528 passed, 1 skipped.
+
+MEASUREMENT. Same-invocation A/B, live NetworkX 3.6.1 imported in the same
+process, 41 rounds, 27 iterations per slot, `taskset -c 40-47`. Round layout is
+the balanced square `[A', B', B'', A'', A'', B'', B', A']`, which gives A' and
+A'' position sums of 9 each, B' and B'' 9 each, and A and B 18 each — so
+neither null nor the candidate carries first-order position bias.
+
+Both arms ran against the identical ELF, self-reported from inside the
+benchmark process as line one of each invocation (a shell hash next to the run
+would not prove which binary the process actually loaded):
+
+```
+bench_elf_sha256=80488d1e0014e4ca2907f8166df60fdf15a9de6eab6bd11685d260917fc7041d
+```
+
+That binary was built from HEAD via `env -u CARGO_TARGET_DIR maturin build
+--release --features pyo3/abi3-py310` into the repo-local target tree. Across
+the before and after runs only the Python source hash moved, `46a3b0f2...` ->
+`930c0caa...`, so the ELF is held fixed and the Python edit is the sole
+independent variable.
+
+| | median | CI95 |
+|---|---|---|
+| before (`46a3b0f2`) | `0.3762x` | `0.3707 - 0.3836` |
+| after (`930c0caa`) | **`1.3665x`** | `1.3572 - 1.3812` |
+| A/A null, NetworkX | `1.0020x` | `0.9985 - 1.0066` |
+| A/A null, FrankenNetworkX | `1.0016x` | `0.9991 - 1.0034` |
+
+The widest null CI half-width is `0.0040`; the candidate median sits `0.3665`
+from `1.0`, i.e. 91x that floor, and the candidate CI is wholly above `1.0`.
+All four median clauses hold and the run is DECIDABLE in both directions —
+the `0.3762x` loss was equally decidable, so the named loss was real on HEAD
+and is not a stale premise.
+
+SCOPE LIMIT, STATED PLAINLY: this is a same-invocation dual-A/A median-CI gate,
+**not** a `perf_harness.py` host-wide quiescence admission — one-minute load was
+`6.4` and `7.6` (of 64) for the two runs. That gate is the right standard for
+an effect near the drift floor. This effect is 91x the measured null half-width
+in a direction the nulls cannot manufacture, so co-tenancy is not a candidate
+explanation for it.
+
+comparison_class=INCUMBENT
+incumbent=networkx
+incumbent_same_invocation=true
+incumbent_ratio=1.3665x
+campaign_output=true
+decision_gate=median_ci
+cv_role=report_only
+
+RESULT: **KEEP / SHIPPED.** One of the four losses named in the 2026-08-08
+project orders, closed and crossed over to a win.
+
+RETRY PREDICATE: do not re-derive the stream to the upper triangle, memoise the
+attribute dicts alongside the stream, or move the `club` write back out of
+`add_nodes_from` — the first is wrong, the second aliases state across callers,
+the third re-adds 34 crossings. The residual is now the batch path itself;
+reopen only with a profile attributing at least 30% self-time to a named
+removable frame inside `add_edges_from`/`add_nodes_from` for a 155-tuple
+duplicate-bearing stream, and re-decide on a same-invocation dual-null
+median-CI gate.
+
 ## 2026-07-29 BlackThrush NO-VERDICT: dense `enumerate_all_cliques` gate blocked by host exclusivity (`br-r37-c1-36dy9`)
 
 **NEW FAMILY / WORK-COUNT SCREEN.** This gate adds
