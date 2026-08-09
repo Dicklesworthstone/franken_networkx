@@ -99,6 +99,46 @@ fn allocs_per_call(rounds: usize, calls: usize, mut body: impl FnMut()) -> f64 {
     }
 }
 
+/// br-r37-c1-jc9e4: a single-purpose target for an EXTERNAL profiler.
+///
+/// The census above bounds the allocation axis, and that axis is now exhausted:
+/// both mutators sit at one allocation per steady-state call while `add_edge`
+/// is still ~1245 ns and 0.46-0.50x vs nx, so the dominant cost is something
+/// else. Attributing it needs instruction-level attribution, which
+/// `perf_event_paranoid=4` blocks on this host — but callgrind counts
+/// instructions by emulation, needs no privileges, and is immune to host load
+/// for the same reason the census is.
+///
+/// Run it against the built test binary rather than through cargo:
+/// ```text
+/// cargo test -p fnx-classes --release --test mutation_allocation_census --no-run
+/// valgrind --tool=callgrind --callgrind-out-file=cg.out \
+///     <printed binary path> add_edge_profile_target --ignored --exact
+/// callgrind_annotate cg.out
+/// ```
+/// Steady state on purpose: the edge and both endpoints already exist, so the
+/// loop measures the per-CALL path and not graph growth. Note the binary
+/// carries the counting allocator above, which adds one relaxed increment per
+/// allocation — it shows up as its own entry rather than distorting others.
+#[test]
+#[ignore = "profiling target; run under callgrind, see the doc comment"]
+fn add_edge_profile_target() {
+    const CALLS: usize = 100_000;
+
+    let mut graph = Graph::strict();
+    for index in 0..1_000_usize {
+        graph
+            .add_edge_with_attrs(index.to_string(), (index + 1).to_string(), weight_attrs())
+            .expect("path construction is allowed in strict mode");
+    }
+    for _ in 0..CALLS {
+        graph
+            .add_edge_with_attrs("10", "11", weight_attrs())
+            .expect("re-adding an existing edge is allowed");
+    }
+    assert_eq!(graph.node_count(), 1_001);
+}
+
 fn weight_attrs() -> AttrMap {
     let mut attrs = AttrMap::new();
     attrs.insert("weight".to_owned(), CgseValue::Int(1));
