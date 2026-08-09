@@ -1049,14 +1049,24 @@ impl DiGraph {
         let mut changed = new_edge;
         let edge_attr_count = {
             let edge_attrs = self.edges.entry(edge_key).or_default();
-            if !attrs.is_empty()
-                && attrs
-                    .iter()
-                    .any(|(key, value)| edge_attrs.get(key) != Some(value))
-            {
-                changed = true;
+            if edge_attrs.is_empty() {
+                // br-r37-c1-jc9e4: a fresh bucket TAKES the caller's map whole.
+                // Directed mirror of the `Graph` sibling — see it for why, and
+                // for the byte-identity argument.
+                if !attrs.is_empty() {
+                    changed = true;
+                }
+                *edge_attrs = attrs;
+            } else {
+                if !attrs.is_empty()
+                    && attrs
+                        .iter()
+                        .any(|(key, value)| edge_attrs.get(key) != Some(value))
+                {
+                    changed = true;
+                }
+                edge_attrs.extend(attrs);
             }
-            edge_attrs.extend(attrs);
             edge_attrs.len()
         };
         // br-r37-c1-d58s8 DiGraph flip P1: eager index rows (dup-guarded

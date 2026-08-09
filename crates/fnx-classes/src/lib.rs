@@ -1838,14 +1838,35 @@ impl Graph {
         let mut changed = new_edge;
         let edge_attr_count = {
             let edge_attrs = self.edges.entry(edge_key).or_default();
-            if !attrs.is_empty()
-                && attrs
-                    .iter()
-                    .any(|(key, value)| edge_attrs.get(key) != Some(value))
-            {
-                changed = true;
+            if edge_attrs.is_empty() {
+                // br-r37-c1-jc9e4: a fresh bucket TAKES the caller's map whole.
+                // The callgrind profile of the build workload — the one this
+                // bead's 0.46-0.50x is measured on — put ~47% of instructions
+                // inside malloc/free, and this is one of the alloc/free pairs
+                // feeding it: `extend` allocated a node in the destination for
+                // every entry and then freed the caller's map, when the
+                // destination is empty and the caller's map is already exactly
+                // the answer.
+                //
+                // Byte-identical: extending an EMPTY BTreeMap by `attrs` yields
+                // `attrs`, and `BTreeMap` orders by key either way. `changed`
+                // agrees too — the scan it replaces reports every key of a
+                // non-empty `attrs` as missing from an empty bucket, and is
+                // skipped entirely when `attrs` is empty.
+                if !attrs.is_empty() {
+                    changed = true;
+                }
+                *edge_attrs = attrs;
+            } else {
+                if !attrs.is_empty()
+                    && attrs
+                        .iter()
+                        .any(|(key, value)| edge_attrs.get(key) != Some(value))
+                {
+                    changed = true;
+                }
+                edge_attrs.extend(attrs);
             }
-            edge_attrs.extend(attrs);
             edge_attrs.len()
         };
 
@@ -9232,6 +9253,73 @@ mod tests {
         assert_eq!(
             records.last().map(|record| record.operation.as_ref()),
             Some("add_node")
+        );
+    }
+
+    /// br-r37-c1-jc9e4: `add_edge_with_attrs` now TAKES the caller's attribute
+    /// map when the edge bucket is empty instead of extending entry by entry.
+    /// That is a new branch on a CGSE-critical path, so this pins the four
+    /// bucket-state / incoming-attrs combinations it splits, including the
+    /// non-obvious one: an edge that already exists but carries NO attributes
+    /// still takes the empty-bucket branch on a later attributed add.
+    #[test]
+    fn add_edge_fresh_bucket_take_matches_merge_semantics() {
+        fn weight(value: i64) -> AttrMap {
+            let mut attrs = AttrMap::new();
+            attrs.insert("w".to_owned(), CgseValue::Int(value));
+            attrs
+        }
+        fn stored(graph: &Graph, left: &str, right: &str) -> Vec<(String, CgseValue)> {
+            graph
+                .edge_attrs(left, right)
+                .expect("edge exists")
+                .iter()
+                .map(|(key, value)| (key.clone(), value.clone()))
+                .collect()
+        }
+
+        // New edge WITH attrs: the taken map is the stored map.
+        let mut graph = Graph::strict();
+        graph
+            .add_edge_with_attrs("a", "b", weight(1))
+            .expect("edge is allowed");
+        assert_eq!(
+            stored(&graph, "a", "b"),
+            vec![("w".to_owned(), CgseValue::Int(1))]
+        );
+
+        // New edge with EMPTY attrs: bucket stays empty, edge still exists.
+        graph
+            .add_edge_with_attrs("c", "d", AttrMap::new())
+            .expect("edge is allowed");
+        assert!(stored(&graph, "c", "d").is_empty());
+
+        // EXISTING edge whose bucket is still empty — takes the same branch a
+        // brand-new edge does, and must land the attrs just the same.
+        graph
+            .add_edge_with_attrs("c", "d", weight(7))
+            .expect("edge is allowed");
+        assert_eq!(
+            stored(&graph, "c", "d"),
+            vec![("w".to_owned(), CgseValue::Int(7))]
+        );
+
+        // EXISTING edge with a NON-empty bucket still merges, and a differing
+        // value overwrites rather than being dropped by the take.
+        graph
+            .add_edge_with_attrs("a", "b", weight(9))
+            .expect("edge is allowed");
+        let mut extra = AttrMap::new();
+        extra.insert("k".to_owned(), CgseValue::Int(2));
+        graph
+            .add_edge_with_attrs("a", "b", extra)
+            .expect("edge is allowed");
+        assert_eq!(
+            stored(&graph, "a", "b"),
+            vec![
+                ("k".to_owned(), CgseValue::Int(2)),
+                ("w".to_owned(), CgseValue::Int(9)),
+            ]
         );
     }
 
