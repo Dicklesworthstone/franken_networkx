@@ -75,3 +75,77 @@ def test_reaching_and_percolation(seed):
     assert _norm(fnx.percolation_centrality(fg), 5) == _norm(
         nx.percolation_centrality(ng), 5
     )
+
+
+@pytest.mark.parametrize("seed", range(25))
+def test_simrank_call_forms(seed):
+    """simrank has three distinct return shapes and the file uses only one.
+
+    The bare call returns a nested dict; `source` returns one row; `source` and
+    `target` together return a scalar. Those are separate code paths, and
+    importance_factor changes the answer (verified: it differs from the default
+    on this family, so a dropped argument would not hide behind parity).
+    """
+    fg, ng, n = _connected(seed)
+    if not fnx.is_connected(fg):
+        pytest.skip("disconnected")
+
+    damped = fnx.simrank_similarity(fg, importance_factor=0.5)
+    assert _norm(damped, 4) == _norm(nx.simrank_similarity(ng, importance_factor=0.5), 4)
+    assert _norm(damped, 4) != _norm(fnx.simrank_similarity(fg), 4)
+
+    assert _norm(fnx.simrank_similarity(fg, source=0), 4) == _norm(
+        nx.simrank_similarity(ng, source=0), 4
+    )
+    assert round(fnx.simrank_similarity(fg, source=0, target=1), 4) == round(
+        nx.simrank_similarity(ng, source=0, target=1), 4
+    )
+
+
+@pytest.mark.parametrize("seed", range(25))
+def test_all_pairs_node_connectivity_nbunch(seed):
+    """`nbunch` restricts the pairs computed and was never passed."""
+    fg, ng, n = _connected(seed)
+    if not fnx.is_connected(fg):
+        pytest.skip("disconnected")
+
+    restricted = _norm(dict(fnx.all_pairs_node_connectivity(fg, nbunch=[0, 1])))
+    assert restricted == _norm(dict(nx.all_pairs_node_connectivity(ng, nbunch=[0, 1])))
+    assert restricted != _norm(dict(fnx.all_pairs_node_connectivity(fg)))
+
+
+def test_weight_and_normalized_parameters_reach_networkx_parity():
+    """Two more unpassed parameters.
+
+    Unlike the ones above I could NOT build an input where either changes the
+    answer — networkx returns the same value with and without them on every
+    witness I tried — so this asserts parity only and makes no claim that they
+    alter the result.
+    """
+    fg, ng, n = _connected(0)
+    assert round(fnx.global_reaching_centrality(fg, normalized=False), 5) == round(
+        nx.global_reaching_centrality(ng, normalized=False), 5
+    )
+
+    wf, wn = fnx.Graph(), nx.Graph()
+    for u, v, w in [(0, 1, 1), (1, 2, 10), (2, 3, 1), (3, 0, 1)]:
+        wf.add_edge(u, v, weight=w)
+        wn.add_edge(u, v, weight=w)
+    assert {k: set(v) for k, v in fnx.voronoi_cells(wf, {0, 2}, weight="weight").items()} == {
+        k: set(v) for k, v in nx.voronoi_cells(wn, {0, 2}, weight="weight").items()
+    }
+
+
+def test_voronoi_cells_reports_unreachable_nodes():
+    """What the disconnected skip discards.
+
+    voronoi_cells does not refuse a disconnected graph — it collects everything
+    it cannot reach under an "unreachable" key, which is a return shape none of
+    the connected draws can produce.
+    """
+    fg = fnx.Graph([(0, 1), (2, 3)])
+    ng = nx.Graph([(0, 1), (2, 3)])
+
+    cells = {k: set(v) for k, v in fnx.voronoi_cells(fg, {0}).items()}
+    assert cells == {0: {0, 1}, "unreachable": {2, 3}}
+    assert cells == {k: set(v) for k, v in nx.voronoi_cells(ng, {0}).items()}
