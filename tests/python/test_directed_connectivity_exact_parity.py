@@ -64,3 +64,61 @@ def test_directed_connectivity_is_genuinely_asymmetric():
     assert fc.local_node_connectivity(fg, 0, 2) == nc.local_node_connectivity(ng, 0, 2)
     assert fc.local_node_connectivity(fg, 2, 0) == nc.local_node_connectivity(ng, 2, 0)
     assert fc.local_node_connectivity(fg, 0, 2) != fc.local_node_connectivity(fg, 2, 0)
+
+
+@pytest.mark.parametrize("seed", range(50))
+def test_local_edge_connectivity_reverse_direction(seed):
+    """The node version checks both directions; the edge version checks one.
+
+    Edge connectivity is asymmetric on a digraph just as node connectivity is —
+    measured, the sampled pairs differ in that direction on 103 of 150 — so the
+    reverse call is a distinct value and was never compared with networkx.
+    """
+    fg, ng, n, r = _digraph(seed)
+    for _ in range(3):
+        s, t = r.sample(range(n), 2)
+        assert fc.local_edge_connectivity(fg, t, s) == (
+            nc.local_edge_connectivity(ng, t, s)
+        )
+
+
+def test_the_family_is_genuinely_asymmetric():
+    """Guards "both directions": if conn(s,t) always equalled conn(t,s), the
+    forward and reverse assertions would be checking one number twice."""
+    asymmetric = 0
+    sampled = 0
+    for seed in range(50):
+        fg, _, n, r = _digraph(seed)
+        for _ in range(3):
+            s, t = r.sample(range(n), 2)
+            sampled += 1
+            if fc.local_node_connectivity(fg, s, t) != fc.local_node_connectivity(fg, t, s):
+                asymmetric += 1
+    # Measured 99 of 150.
+    assert asymmetric >= 40, f"only {asymmetric} of {sampled} sampled pairs are asymmetric"
+
+
+def test_source_equals_target_contracts_differ():
+    """s == t is not handled uniformly by the two local measures.
+
+    local_node_connectivity answers 1 — a node is connected to itself — while
+    local_edge_connectivity refuses. Both match networkx, and the split is easy
+    to assume away.
+    """
+    fg, ng, _, _ = _digraph(0)
+
+    assert fc.local_node_connectivity(fg, 0, 0) == nc.local_node_connectivity(ng, 0, 0) == 1
+    with pytest.raises(fnx.NetworkXError):
+        fc.local_edge_connectivity(fg, 0, 0)
+    with pytest.raises(nx.NetworkXError):
+        nc.local_edge_connectivity(ng, 0, 0)
+
+
+def test_global_measures_on_a_disconnected_digraph():
+    """29 of the 50 draws are not strongly connected, but none is built to be
+    disconnected outright; both global measures are 0 there."""
+    fg = fnx.DiGraph([(0, 1), (2, 3)])
+    ng = nx.DiGraph([(0, 1), (2, 3)])
+
+    assert fnx.node_connectivity(fg) == nx.node_connectivity(ng) == 0
+    assert fnx.edge_connectivity(fg) == nx.edge_connectivity(ng) == 0
