@@ -29,6 +29,28 @@ def _di_shapes(mod):
     g = mod.DiGraph(); g.add_edges_from([(0, 1), (1, 2), (2, 0)]); s["three_cycle"] = g
     g = mod.DiGraph(); g.add_edges_from([(0, 1), (1, 2)]); s["path"] = g
     g = mod.DiGraph(); g.add_edges_from([(0, 1), (1, 2), (2, 0), (0, 0)]); s["cycle_loop"] = g
+    # Two components: the shapes above are all a single component (or empty),
+    # so nothing exercised a predicate that has to look past the first one.
+    g = mod.DiGraph(); g.add_edges_from([(0, 1), (2, 3)]); s["disconnected"] = g
+    return s
+
+
+def _mdi_shapes(mod):
+    """MultiDiGraph counterparts.
+
+    The sweep below runs on DiGraph only; multigraphs are covered by two fixed
+    degree checks. Parallel arcs and a directed self-loop are exactly where the
+    not-implemented guards and the period/reciprocity logic differ, so the same
+    predicates are swept over MultiDiGraph shapes too.
+    """
+    s = {}
+    s["empty"] = mod.MultiDiGraph()
+    g = mod.MultiDiGraph(); g.add_node(0); s["single"] = g
+    g = mod.MultiDiGraph(); g.add_edge(0, 0); s["self_loop"] = g
+    g = mod.MultiDiGraph(); g.add_edge(0, 1); g.add_edge(0, 1); s["parallel_arcs"] = g
+    g = mod.MultiDiGraph(); g.add_edges_from([(0, 1), (1, 0)]); s["two_cycle"] = g
+    g = mod.MultiDiGraph(); g.add_edges_from([(0, 1), (1, 2), (2, 0), (0, 0)]); s["cycle_loop"] = g
+    g = mod.MultiDiGraph(); g.add_edges_from([(0, 1), (2, 3)]); s["disconnected"] = g
     return s
 
 
@@ -57,6 +79,10 @@ _DI_ALGOS = {
 _NX_DI = _di_shapes(nx)
 _FNX_DI = _di_shapes(fnx)
 _DI_NAMES = sorted(_NX_DI)
+
+_NX_MDI = _mdi_shapes(nx)
+_FNX_MDI = _mdi_shapes(fnx)
+_MDI_NAMES = sorted(_NX_MDI)
 
 
 def _normalize(x):
@@ -183,3 +209,33 @@ def test_multidigraph_strongly_connected_components_matches_networkx(nodes, edge
     assert [set(c) for c in fnx.strongly_connected_components(m)] == [
         set(c) for c in nx.strongly_connected_components(nm)
     ]
+
+
+@pytest.mark.parametrize("algo", sorted(_DI_ALGOS))
+@pytest.mark.parametrize("shape", _MDI_NAMES)
+def test_multidigraph_degenerate_matches_networkx(algo, shape):
+    """The same predicates over MultiDiGraph shapes.
+
+    The DiGraph sweep says nothing about parallel arcs, and the multigraph
+    coverage in this file is two fixed degree comparisons. 14 of these
+    combinations RAISE — the not-implemented and pointless-concept guards — so
+    the exception-type half of the outcome carries most of the value here.
+    """
+    nx_fn, fnx_fn = _DI_ALGOS[algo]
+    assert _outcome(fnx_fn, _FNX_MDI[shape]) == _outcome(nx_fn, _NX_MDI[shape])
+
+
+def test_multidigraph_sweep_actually_exercises_the_guards():
+    """Guards the sweep above: an all-`ok` matrix would test far less.
+
+    If every combination returned a value, the sweep would only be comparing
+    numbers; the refusals are where multigraph handling actually differs.
+    """
+    raising = sum(
+        1
+        for shape in _MDI_NAMES
+        for algo in _DI_ALGOS
+        if _outcome(_DI_ALGOS[algo][1], _FNX_MDI[shape])[0] == "err"
+    )
+    # Measured 14 of 77.
+    assert raising >= 8, f"only {raising} of the multidigraph combinations raise"
