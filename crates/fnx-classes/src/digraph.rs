@@ -2489,22 +2489,42 @@ impl MultiDiGraph {
             && self.predecessors.get(node).is_none_or(IndexMap::is_empty)
     }
 
-    pub fn add_node(&mut self, node: impl Into<String>) -> bool {
+    pub fn add_node(&mut self, node: impl AsRef<str> + Into<String>) -> bool {
         self.add_node_with_attrs(node, AttrMap::new())
     }
 
     /// br-r37-c1-wa1b9: the storage half of [`Self::add_node_with_attrs`],
     /// without its ledger record. See the undirected `Graph` sibling.
+    ///
+    /// br-r37-c1-jc9e4: this key used to be materialised THREE times per call —
+    /// `node.into()` plus a `clone()` for the `nodes` entry and another for the
+    /// `successors` entry — because `entry()` allocates its key eagerly whether
+    /// or not the slot is vacant. On a node that already exists all three were
+    /// built only to be dropped. The allocation census measured this pair at
+    /// 4.000 allocations per call against 1.000 for every other graph type,
+    /// which is how the outlier was found. Each map is now probed borrowed and
+    /// the key owned only where a slot is genuinely created.
+    ///
+    /// The `successors` / `predecessors` rows are still created unconditionally
+    /// when missing rather than being skipped whenever the node exists: nothing
+    /// here may assume that every path which inserts into `nodes` also created
+    /// those rows, and `contains_key` + `insert`-when-absent is exactly what
+    /// `entry(..).or_default()` did, including appending at the end when vacant.
     fn add_node_with_attrs_unrecorded(
         &mut self,
-        node: impl Into<String>,
+        node: impl AsRef<str> + Into<String>,
         attrs: AttrMap,
     ) -> (bool, bool, usize) {
-        let node = node.into();
-        let existed = self.nodes.contains_key(&node);
+        let existed = self.nodes.contains_key(node.as_ref());
         let mut changed = !existed;
         let attrs_count = {
-            let bucket = self.nodes.entry(node.clone()).or_default();
+            let bucket = if existed {
+                self.nodes
+                    .get_mut(node.as_ref())
+                    .expect("contains_key reported this node present")
+            } else {
+                self.nodes.entry(node.as_ref().to_owned()).or_default()
+            };
             if !attrs.is_empty()
                 && attrs
                     .iter()
@@ -2515,15 +2535,24 @@ impl MultiDiGraph {
             bucket.extend(attrs);
             bucket.len()
         };
-        self.successors.entry(node.clone()).or_default();
-        self.predecessors.entry(node).or_default();
+        if !self.successors.contains_key(node.as_ref()) {
+            self.successors
+                .insert(node.as_ref().to_owned(), IndexMap::default());
+        }
+        if !self.predecessors.contains_key(node.as_ref()) {
+            self.predecessors.insert(node.into(), IndexMap::default());
+        }
         if changed {
             self.revision = self.revision.saturating_add(1);
         }
         (changed, existed, attrs_count)
     }
 
-    pub fn add_node_with_attrs(&mut self, node: impl Into<String>, attrs: AttrMap) -> bool {
+    pub fn add_node_with_attrs(
+        &mut self,
+        node: impl AsRef<str> + Into<String>,
+        attrs: AttrMap,
+    ) -> bool {
         let (changed, existed, attrs_count) = self.add_node_with_attrs_unrecorded(node, attrs);
         self.record_decision(
             "add_node",
@@ -4336,6 +4365,45 @@ mod tests {
                     .collect()
             })
             .collect()
+    }
+
+    /// br-r37-c1-jc9e4: `MultiDiGraph::add_node_with_attrs_unrecorded` stopped
+    /// using `entry(node.clone()).or_default()` for the `successors` /
+    /// `predecessors` rows and now probes borrowed, inserting only when the row
+    /// is genuinely absent. The risk that swap introduces is a row that fails to
+    /// get created, which would surface later as a lost edge rather than at the
+    /// call itself, so this exercises row creation and row preservation
+    /// directly through the degrees.
+    #[test]
+    fn multidigraph_add_node_creates_and_preserves_adjacency_rows() {
+        let mut graph = MultiDiGraph::strict();
+
+        // A node created by add_node — not by an edge — must still get usable
+        // successor AND predecessor rows.
+        graph.add_node("x");
+        graph
+            .add_edge_with_attrs("x", "y", AttrMap::new())
+            .expect("edge is allowed");
+        graph
+            .add_edge_with_attrs("w", "x", AttrMap::new())
+            .expect("edge is allowed");
+        assert_eq!(graph.out_degree("x"), 1);
+        assert_eq!(graph.in_degree("x"), 1);
+
+        // Re-adding an EXISTING node now takes the borrowed path that skips the
+        // insert entirely. It must not disturb the rows it skips.
+        for _ in 0..5 {
+            graph.add_node("x");
+        }
+        assert_eq!(graph.out_degree("x"), 1);
+        assert_eq!(graph.in_degree("x"), 1);
+        assert_eq!(graph.node_count(), 3);
+
+        // Parallel edges still accumulate on the preserved row.
+        graph
+            .add_edge_with_attrs("x", "y", AttrMap::new())
+            .expect("parallel edge is allowed");
+        assert_eq!(graph.out_degree("x"), 2);
     }
 
     /// br-r37-c1-jc9e4: directed mirror of the `Graph` lock. Pins the endpoint

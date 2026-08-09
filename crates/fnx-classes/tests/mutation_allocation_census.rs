@@ -39,8 +39,8 @@
 //! a change to `EvidenceLedger`'s shape, which was scoped and declined — see
 //! the bead. Until then this census is a floor, and its job is to keep it one.
 
-use fnx_classes::digraph::DiGraph;
-use fnx_classes::{AttrMap, Graph};
+use fnx_classes::digraph::{DiGraph, MultiDiGraph};
+use fnx_classes::{AttrMap, Graph, MultiGraph};
 use fnx_runtime::CgseValue;
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -184,6 +184,29 @@ fn mutation_entry_allocation_census() {
         digraph.add_node_with_attrs("10", AttrMap::new());
     });
 
+    // Arms 8/9 — the MULTI siblings. A multigraph reaches the same user-visible
+    // operation through `add_edge_impl`, so like the directed pair it gets its
+    // own arm instead of an assumption that the lever transferred. Re-adding
+    // an existing pair appends a parallel edge, so these arms are NOT no-ops
+    // the way arms 1/6 are; they are still steady-state in the sense that no
+    // node is created and the maps do not rehash per call.
+    let mut multigraph = MultiGraph::strict();
+    let mut multidigraph = MultiDiGraph::strict();
+    for index in 0..1_000_usize {
+        multigraph
+            .add_edge_with_attrs(index.to_string(), (index + 1).to_string(), weight_attrs())
+            .expect("path construction is allowed in strict mode");
+        multidigraph
+            .add_edge_with_attrs(index.to_string(), (index + 1).to_string(), weight_attrs())
+            .expect("path construction is allowed in strict mode");
+    }
+    let mg_node_noop = allocs_per_call(ROUNDS, CALLS, || {
+        multigraph.add_node_with_attrs("10", AttrMap::new());
+    });
+    let mdg_node_noop = allocs_per_call(ROUNDS, CALLS, || {
+        multidigraph.add_node_with_attrs("10", AttrMap::new());
+    });
+
     println!("mutation_entry_allocation_census rounds={ROUNDS} calls={CALLS}");
     println!("  add_edge_with_attrs, existing edge : {edge_noop:6.3} allocs/call");
     println!("  add_node_with_attrs, existing node : {node_noop:6.3} allocs/call");
@@ -196,6 +219,8 @@ fn mutation_entry_allocation_census() {
     );
     println!("  DiGraph add_edge, existing edge    : {di_edge_noop:6.3} allocs/call");
     println!("  DiGraph add_node, existing node    : {di_node_noop:6.3} allocs/call");
+    println!("  MultiGraph add_node, existing      : {mg_node_noop:6.3} allocs/call");
+    println!("  MultiDiGraph add_node, existing    : {mdg_node_noop:6.3} allocs/call");
     println!(
         "  -> owning the key costs (2-5)      : {:6.3} allocs/call",
         node_noop - node_noop_owned_key
@@ -248,5 +273,18 @@ fn mutation_entry_allocation_census() {
     assert!(
         (di_node_noop - 1.0).abs() < f64::EPSILON,
         "DiGraph add_node entry allocated {di_node_noop:.3} per call, expected 1"
+    );
+
+    // All four graph types reach the same floor on the node side. MultiDiGraph
+    // read 4.000 before its levers — it materialised the key three times, once
+    // for `nodes` and once each for the `successors` / `predecessors` rows —
+    // and this is what keeps any of them from drifting back independently.
+    assert!(
+        (mg_node_noop - 1.0).abs() < f64::EPSILON,
+        "MultiGraph add_node entry allocated {mg_node_noop:.3} per call, expected 1"
+    );
+    assert!(
+        (mdg_node_noop - 1.0).abs() < f64::EPSILON,
+        "MultiDiGraph add_node entry allocated {mdg_node_noop:.3} per call, expected 1"
     );
 }
