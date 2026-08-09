@@ -4,6 +4,7 @@ pub mod digraph;
 
 use fnx_runtime::{
     CgseValue, CompatibilityMode, DecisionAction, EvidenceLedger, EvidenceTerm, RuntimePolicy,
+    bool_evidence,
 };
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
@@ -198,8 +199,8 @@ impl Graph {
             0.0,
             false,
             vec![EvidenceTerm {
-                signal: "nodes".to_owned(),
-                observed_value: n.to_string(),
+                signal: "nodes".into(),
+                observed_value: n.to_string().into(),
                 log_likelihood_ratio: 0.0,
             }],
         );
@@ -275,8 +276,8 @@ impl Graph {
             0.0,
             false,
             vec![EvidenceTerm {
-                signal: "nodes".to_owned(),
-                observed_value: node_count.to_string(),
+                signal: "nodes".into(),
+                observed_value: node_count.to_string().into(),
                 log_likelihood_ratio: 0.0,
             }],
         );
@@ -497,8 +498,8 @@ impl Graph {
             0.0,
             false,
             vec![EvidenceTerm {
-                signal: "nodes".to_owned(),
-                observed_value: state.node_count.to_string(),
+                signal: "nodes".into(),
+                observed_value: state.node_count.to_string().into(),
                 log_likelihood_ratio: 0.0,
             }],
         );
@@ -1182,13 +1183,13 @@ impl Graph {
             false,
             vec![
                 EvidenceTerm {
-                    signal: "node_preexisting".to_owned(),
-                    observed_value: existed.to_string(),
+                    signal: "node_preexisting".into(),
+                    observed_value: bool_evidence(existed),
                     log_likelihood_ratio: -3.0,
                 },
                 EvidenceTerm {
-                    signal: "attrs_count".to_owned(),
-                    observed_value: attrs_count.to_string(),
+                    signal: "attrs_count".into(),
+                    observed_value: attrs_count.to_string().into(),
                     log_likelihood_ratio: -1.0,
                 },
             ],
@@ -1228,8 +1229,8 @@ impl Graph {
                 0.0,
                 false,
                 vec![EvidenceTerm {
-                    signal: "batch_node_count".to_owned(),
-                    observed_value: inserted.to_string(),
+                    signal: "batch_node_count".into(),
+                    observed_value: inserted.to_string().into(),
                     log_likelihood_ratio: -1.0,
                 }],
             );
@@ -1268,8 +1269,8 @@ impl Graph {
                 0.0,
                 false,
                 vec![EvidenceTerm {
-                    signal: "batch_node_count".to_owned(),
-                    observed_value: inserted.to_string(),
+                    signal: "batch_node_count".into(),
+                    observed_value: inserted.to_string().into(),
                     log_likelihood_ratio: -1.0,
                 }],
             );
@@ -1297,8 +1298,8 @@ impl Graph {
                 0.0,
                 false,
                 vec![EvidenceTerm {
-                    signal: "defaults_applied".to_owned(),
-                    observed_value: inserted.to_string(),
+                    signal: "defaults_applied".into(),
+                    observed_value: inserted.to_string().into(),
                     log_likelihood_ratio: 0.0,
                 }],
             );
@@ -1697,8 +1698,8 @@ impl Graph {
             0.0,
             false,
             vec![EvidenceTerm {
-                signal: "batch_edge_count".to_owned(),
-                observed_value: inserted.to_string(),
+                signal: "batch_edge_count".into(),
+                observed_value: inserted.to_string().into(),
                 log_likelihood_ratio: -1.0,
             }],
         );
@@ -1741,8 +1742,8 @@ impl Graph {
                 incompatibility_probability,
                 unknown_feature,
                 vec![EvidenceTerm {
-                    signal: "unknown_incompatible_feature".to_owned(),
-                    observed_value: unknown_feature.to_string(),
+                    signal: "unknown_incompatible_feature".into(),
+                    observed_value: bool_evidence(unknown_feature),
                     log_likelihood_ratio: 12.0,
                 }],
             );
@@ -1833,23 +1834,23 @@ impl Graph {
             unknown_feature,
             vec![
                 EvidenceTerm {
-                    signal: "self_loop".to_owned(),
-                    observed_value: self_loop.to_string(),
+                    signal: "self_loop".into(),
+                    observed_value: bool_evidence(self_loop),
                     log_likelihood_ratio: -0.5,
                 },
                 EvidenceTerm {
-                    signal: "edge_attr_count".to_owned(),
-                    observed_value: edge_attr_count.to_string(),
+                    signal: "edge_attr_count".into(),
+                    observed_value: edge_attr_count.to_string().into(),
                     log_likelihood_ratio: -2.0,
                 },
                 EvidenceTerm {
-                    signal: "left_autocreated".to_owned(),
-                    observed_value: left_autocreated.to_string(),
+                    signal: "left_autocreated".into(),
+                    observed_value: bool_evidence(left_autocreated),
                     log_likelihood_ratio: -1.25,
                 },
                 EvidenceTerm {
-                    signal: "right_autocreated".to_owned(),
-                    observed_value: right_autocreated.to_string(),
+                    signal: "right_autocreated".into(),
+                    observed_value: bool_evidence(right_autocreated),
                     log_likelihood_ratio: -1.25,
                 },
             ],
@@ -1878,8 +1879,8 @@ impl Graph {
                 0.0,
                 false,
                 vec![EvidenceTerm {
-                    signal: "defaults_applied".to_owned(),
-                    observed_value: inserted.to_string(),
+                    signal: "defaults_applied".into(),
+                    observed_value: inserted.to_string().into(),
                     log_likelihood_ratio: 0.0,
                 }],
             );
@@ -4324,13 +4325,13 @@ impl MultiGraph {
             false,
             vec![
                 EvidenceTerm {
-                    signal: "node_preexisting".to_owned(),
-                    observed_value: existed.to_string(),
+                    signal: "node_preexisting".into(),
+                    observed_value: bool_evidence(existed),
                     log_likelihood_ratio: -3.0,
                 },
                 EvidenceTerm {
-                    signal: "attrs_count".to_owned(),
-                    observed_value: attrs_count.to_string(),
+                    signal: "attrs_count".into(),
+                    observed_value: attrs_count.to_string().into(),
                     log_likelihood_ratio: -1.0,
                 },
             ],
@@ -4428,8 +4429,8 @@ impl MultiGraph {
                 0.0,
                 false,
                 vec![EvidenceTerm {
-                    signal: "batch_node_count".to_owned(),
-                    observed_value: inserted.to_string(),
+                    signal: "batch_node_count".into(),
+                    observed_value: inserted.to_string().into(),
                     log_likelihood_ratio: -1.0,
                 }],
             );
@@ -4463,8 +4464,8 @@ impl MultiGraph {
                 0.0,
                 false,
                 vec![EvidenceTerm {
-                    signal: "batch_edge_count".to_owned(),
-                    observed_value: inserted.to_string(),
+                    signal: "batch_edge_count".into(),
+                    observed_value: inserted.to_string().into(),
                     log_likelihood_ratio: -1.0,
                 }],
             );
@@ -4561,8 +4562,8 @@ impl MultiGraph {
                 0.0,
                 false,
                 vec![EvidenceTerm {
-                    signal: "batch_edge_count".to_owned(),
-                    observed_value: inserted.to_string(),
+                    signal: "batch_edge_count".into(),
+                    observed_value: inserted.to_string().into(),
                     log_likelihood_ratio: -1.0,
                 }],
             );
@@ -4665,13 +4666,13 @@ impl MultiGraph {
                 false,
                 vec![
                     EvidenceTerm {
-                        signal: "batch_node_count".to_owned(),
-                        observed_value: node_count.to_string(),
+                        signal: "batch_node_count".into(),
+                        observed_value: node_count.to_string().into(),
                         log_likelihood_ratio: -1.0,
                     },
                     EvidenceTerm {
-                        signal: "batch_edge_count".to_owned(),
-                        observed_value: inserted.to_string(),
+                        signal: "batch_edge_count".into(),
+                        observed_value: inserted.to_string().into(),
                         log_likelihood_ratio: -1.0,
                     },
                 ],
@@ -4723,8 +4724,8 @@ impl MultiGraph {
                 incompatibility_probability,
                 unknown_feature,
                 vec![EvidenceTerm {
-                    signal: "unknown_incompatible_feature".to_owned(),
-                    observed_value: unknown_feature.to_string(),
+                    signal: "unknown_incompatible_feature".into(),
+                    observed_value: bool_evidence(unknown_feature),
                     log_likelihood_ratio: 12.0,
                 }],
             );
@@ -4788,23 +4789,23 @@ impl MultiGraph {
             unknown_feature,
             vec![
                 EvidenceTerm {
-                    signal: "edge_key".to_owned(),
-                    observed_value: key.to_string(),
+                    signal: "edge_key".into(),
+                    observed_value: key.to_string().into(),
                     log_likelihood_ratio: -2.0,
                 },
                 EvidenceTerm {
-                    signal: "edge_attr_count".to_owned(),
-                    observed_value: edge_attr_count.to_string(),
+                    signal: "edge_attr_count".into(),
+                    observed_value: edge_attr_count.to_string().into(),
                     log_likelihood_ratio: -2.0,
                 },
                 EvidenceTerm {
-                    signal: "left_autocreated".to_owned(),
-                    observed_value: left_autocreated.to_string(),
+                    signal: "left_autocreated".into(),
+                    observed_value: bool_evidence(left_autocreated),
                     log_likelihood_ratio: -1.25,
                 },
                 EvidenceTerm {
-                    signal: "right_autocreated".to_owned(),
-                    observed_value: right_autocreated.to_string(),
+                    signal: "right_autocreated".into(),
+                    observed_value: bool_evidence(right_autocreated),
                     log_likelihood_ratio: -1.25,
                 },
             ],
@@ -8034,7 +8035,7 @@ mod tests {
         let records = graph.evidence_ledger().records();
         assert_eq!(records.len(), before + 1);
         assert_eq!(
-            records.last().map(|record| record.operation.as_str()),
+            records.last().map(|record| record.operation.as_ref()),
             Some("extend_edges_unrecorded")
         );
     }
@@ -8160,7 +8161,7 @@ mod tests {
         let records = graph.evidence_ledger().records();
         assert_eq!(records.len(), before + 1);
         assert_eq!(
-            records.last().map(|record| record.operation.as_str()),
+            records.last().map(|record| record.operation.as_ref()),
             Some("extend_nodes_unrecorded")
         );
     }
@@ -8256,7 +8257,7 @@ mod tests {
             .evidence_ledger()
             .records()
             .iter()
-            .map(|record| record.operation.as_str())
+            .map(|record| record.operation.as_ref())
             .collect::<Vec<_>>();
         assert_eq!(operations, vec!["complete_graph_bulk"]);
     }
@@ -8284,7 +8285,7 @@ mod tests {
     #[test]
     #[ignore = "measurement; run with --release --ignored --nocapture"]
     fn ledger_record_cost_ab() {
-        use fnx_runtime::{EvidenceTerm, RuntimePolicy};
+        use fnx_runtime::{EvidenceTerm, RuntimePolicy, bool_evidence};
         use std::hint::black_box;
         use std::time::Instant;
 
@@ -8296,31 +8297,31 @@ mod tests {
         // non-self-loop edge between two autocreated nodes.
         fn gate_terms() -> Vec<EvidenceTerm> {
             vec![EvidenceTerm {
-                signal: "unknown_incompatible_feature".to_owned(),
-                observed_value: false.to_string(),
+                signal: "unknown_incompatible_feature".into(),
+                observed_value: bool_evidence(false),
                 log_likelihood_ratio: 12.0,
             }]
         }
         fn outcome_terms(edge_attr_count: usize) -> Vec<EvidenceTerm> {
             vec![
                 EvidenceTerm {
-                    signal: "self_loop".to_owned(),
-                    observed_value: false.to_string(),
+                    signal: "self_loop".into(),
+                    observed_value: bool_evidence(false),
                     log_likelihood_ratio: -0.5,
                 },
                 EvidenceTerm {
-                    signal: "edge_attr_count".to_owned(),
-                    observed_value: edge_attr_count.to_string(),
+                    signal: "edge_attr_count".into(),
+                    observed_value: edge_attr_count.to_string().into(),
                     log_likelihood_ratio: -2.0,
                 },
                 EvidenceTerm {
-                    signal: "left_autocreated".to_owned(),
-                    observed_value: true.to_string(),
+                    signal: "left_autocreated".into(),
+                    observed_value: bool_evidence(true),
                     log_likelihood_ratio: -1.25,
                 },
                 EvidenceTerm {
-                    signal: "right_autocreated".to_owned(),
-                    observed_value: true.to_string(),
+                    signal: "right_autocreated".into(),
+                    observed_value: bool_evidence(true),
                     log_likelihood_ratio: -1.25,
                 },
             ]
@@ -8334,13 +8335,13 @@ mod tests {
         fn node_terms() -> Vec<EvidenceTerm> {
             vec![
                 EvidenceTerm {
-                    signal: "node_preexisting".to_owned(),
-                    observed_value: false.to_string(),
+                    signal: "node_preexisting".into(),
+                    observed_value: bool_evidence(false),
                     log_likelihood_ratio: -3.0,
                 },
                 EvidenceTerm {
-                    signal: "attrs_count".to_owned(),
-                    observed_value: 0_usize.to_string(),
+                    signal: "attrs_count".into(),
+                    observed_value: 0_usize.to_string().into(),
                     log_likelihood_ratio: -1.0,
                 },
             ]
@@ -8426,20 +8427,20 @@ mod tests {
                 let action = policy.action_for(0.08, false);
                 records.push(DecisionRecord {
                     ts_unix_ms: fnx_runtime::unix_time_ms(),
-                    operation: "add_edge".to_owned(),
+                    operation: "add_edge".into(),
                     mode,
                     action,
                     incompatibility_probability: 0.08,
-                    rationale: RATIONALE.to_owned(),
+                    rationale: RATIONALE.into(),
                     evidence: gate_terms(),
                 });
                 records.push(DecisionRecord {
                     ts_unix_ms: fnx_runtime::unix_time_ms(),
-                    operation: "add_edge".to_owned(),
+                    operation: "add_edge".into(),
                     mode,
                     action,
                     incompatibility_probability: 0.08,
-                    rationale: RATIONALE.to_owned(),
+                    rationale: RATIONALE.into(),
                     evidence: outcome_terms(index & 3),
                 });
             }
@@ -8495,20 +8496,20 @@ mod tests {
                 let action = policy.action_for(0.08, false);
                 black_box(DecisionRecord {
                     ts_unix_ms: fnx_runtime::unix_time_ms(),
-                    operation: "add_edge".to_owned(),
+                    operation: "add_edge".into(),
                     mode,
                     action,
                     incompatibility_probability: 0.08,
-                    rationale: RATIONALE.to_owned(),
+                    rationale: RATIONALE.into(),
                     evidence: gate_terms(),
                 });
                 black_box(DecisionRecord {
                     ts_unix_ms: fnx_runtime::unix_time_ms(),
-                    operation: "add_edge".to_owned(),
+                    operation: "add_edge".into(),
                     mode,
                     action,
                     incompatibility_probability: 0.08,
-                    rationale: RATIONALE.to_owned(),
+                    rationale: RATIONALE.into(),
                     evidence: outcome_terms(index & 3),
                 });
             }
@@ -8646,7 +8647,7 @@ mod tests {
     #[test]
     #[ignore = "measurement; run with --release --ignored --nocapture"]
     fn ledger_cow_field_cost_ab() {
-        use fnx_runtime::{DecisionAction, EvidenceTerm, RuntimePolicy};
+        use fnx_runtime::{DecisionAction, EvidenceTerm, RuntimePolicy, bool_evidence};
         use std::borrow::Cow;
         use std::hint::black_box;
         use std::time::{Duration, Instant};
@@ -8677,23 +8678,23 @@ mod tests {
         fn owned_terms(edge_attr_count: usize) -> Vec<EvidenceTerm> {
             vec![
                 EvidenceTerm {
-                    signal: "self_loop".to_owned(),
-                    observed_value: false.to_string(),
+                    signal: "self_loop".into(),
+                    observed_value: bool_evidence(false),
                     log_likelihood_ratio: -0.5,
                 },
                 EvidenceTerm {
-                    signal: "edge_attr_count".to_owned(),
-                    observed_value: edge_attr_count.to_string(),
+                    signal: "edge_attr_count".into(),
+                    observed_value: edge_attr_count.to_string().into(),
                     log_likelihood_ratio: -2.0,
                 },
                 EvidenceTerm {
-                    signal: "left_autocreated".to_owned(),
-                    observed_value: true.to_string(),
+                    signal: "left_autocreated".into(),
+                    observed_value: bool_evidence(true),
                     log_likelihood_ratio: -1.25,
                 },
                 EvidenceTerm {
-                    signal: "right_autocreated".to_owned(),
-                    observed_value: true.to_string(),
+                    signal: "right_autocreated".into(),
+                    observed_value: bool_evidence(true),
                     log_likelihood_ratio: -1.25,
                 },
             ]
@@ -8736,11 +8737,11 @@ mod tests {
                 }
                 log.push(DecisionRecord {
                     ts_unix_ms: fnx_runtime::unix_time_ms(),
-                    operation: "add_edge".to_owned(),
+                    operation: "add_edge".into(),
                     mode,
                     action,
                     incompatibility_probability: 0.08,
-                    rationale: RATIONALE.to_owned(),
+                    rationale: RATIONALE.into(),
                     evidence: owned_terms(index & 3),
                 });
             }
@@ -9091,7 +9092,7 @@ mod tests {
                 record
                     .evidence
                     .iter()
-                    .map(|term| term.signal.as_str())
+                    .map(|term| term.signal.as_ref())
                     .collect()
             })
             .collect()
@@ -9144,7 +9145,7 @@ mod tests {
             "add_edge creating two nodes must file one record, got {:?}",
             records
                 .iter()
-                .map(|record| record.operation.as_str())
+                .map(|record| record.operation.as_ref())
                 .collect::<Vec<_>>()
         );
         let record = &records[0];
@@ -9156,7 +9157,7 @@ mod tests {
                 .filter(
                     |term| term.signal == "left_autocreated" || term.signal == "right_autocreated"
                 )
-                .map(|term| term.observed_value.as_str())
+                .map(|term| term.observed_value.as_ref())
                 .collect::<Vec<_>>(),
             vec!["true", "true"],
             "the autocreation event must still be auditable from the outcome record"
@@ -9168,8 +9169,88 @@ mod tests {
         let records = graph.evidence_ledger().records();
         assert_eq!(records.len(), before + 1);
         assert_eq!(
-            records.last().map(|record| record.operation.as_str()),
+            records.last().map(|record| record.operation.as_ref()),
             Some("add_node")
+        );
+    }
+
+    /// br-r37-c1-g2nev: the ledger's compile-time-constant strings must reach
+    /// the record as BORROWED `Cow`s. That is the whole lever — every one of
+    /// them used to be a per-mutation heap allocation — so this pins it on the
+    /// shipped `add_edge`/`add_node` path rather than on a bench mirror. The
+    /// value assertions pin the other half: the bytes are unchanged, so the
+    /// CGSE audit trail is untouched.
+    #[test]
+    fn mutation_ledger_constants_are_borrowed_not_allocated() {
+        use std::borrow::Cow;
+        use std::collections::BTreeMap;
+
+        let mut graph = Graph::strict();
+        let mut attrs = AttrMap::new();
+        attrs.insert("weight".to_owned(), CgseValue::Int(3));
+        graph
+            .add_edge_with_attrs("a", "b", attrs)
+            .expect("strict add_edge with an int attribute is allowed");
+        graph.add_node("c");
+
+        let records = graph.evidence_ledger().records();
+        assert_eq!(
+            records
+                .iter()
+                .map(|record| record.operation.as_ref())
+                .collect::<Vec<_>>(),
+            vec!["add_edge", "add_node"],
+            "ledger shape must be unchanged by the Cow migration"
+        );
+
+        // Constant `observed_value`s, by signal, exactly as `bool::to_string()`
+        // rendered them before the migration.
+        let expected_borrowed: BTreeMap<&str, &str> = [
+            ("self_loop", "false"),
+            ("left_autocreated", "true"),
+            ("right_autocreated", "true"),
+            ("node_preexisting", "false"),
+        ]
+        .into_iter()
+        .collect();
+
+        for record in records {
+            assert!(
+                matches!(record.operation, Cow::Borrowed(_)),
+                "operation `{}` must be borrowed",
+                record.operation
+            );
+            assert!(
+                matches!(record.rationale, Cow::Borrowed(_)),
+                "rationale `{}` must be borrowed",
+                record.rationale
+            );
+            for term in &record.evidence {
+                assert!(
+                    matches!(term.signal, Cow::Borrowed(_)),
+                    "signal `{}` must be borrowed",
+                    term.signal
+                );
+                if let Some(expected) = expected_borrowed.get(term.signal.as_ref()) {
+                    assert_eq!(&term.observed_value, expected);
+                    assert!(
+                        matches!(term.observed_value, Cow::Borrowed(_)),
+                        "boolean observed_value for `{}` must be borrowed",
+                        term.signal
+                    );
+                }
+            }
+        }
+
+        // The genuinely dynamic counts still allocate, and still read the same.
+        let edge_record = &records[0];
+        assert_eq!(
+            edge_record
+                .evidence
+                .iter()
+                .find(|term| term.signal == "edge_attr_count")
+                .map(|term| term.observed_value.as_ref()),
+            Some("1")
         );
     }
 

@@ -8,6 +8,7 @@
 use crate::{AttrMap, EdgeSnapshot, GraphError};
 use fnx_runtime::{
     CgseValue, CompatibilityMode, DecisionAction, EvidenceLedger, EvidenceTerm, RuntimePolicy,
+    bool_evidence,
 };
 use indexmap::{IndexMap, IndexSet};
 use serde::{Deserialize, Serialize};
@@ -881,13 +882,13 @@ impl DiGraph {
             false,
             vec![
                 EvidenceTerm {
-                    signal: "node_preexisting".to_owned(),
-                    observed_value: existed.to_string(),
+                    signal: "node_preexisting".into(),
+                    observed_value: bool_evidence(existed),
                     log_likelihood_ratio: -3.0,
                 },
                 EvidenceTerm {
-                    signal: "attrs_count".to_owned(),
-                    observed_value: attrs_count.to_string(),
+                    signal: "attrs_count".into(),
+                    observed_value: attrs_count.to_string().into(),
                     log_likelihood_ratio: -1.0,
                 },
             ],
@@ -915,8 +916,8 @@ impl DiGraph {
                 0.0,
                 false,
                 vec![EvidenceTerm {
-                    signal: "defaults_applied".to_owned(),
-                    observed_value: inserted.to_string(),
+                    signal: "defaults_applied".into(),
+                    observed_value: inserted.to_string().into(),
                     log_likelihood_ratio: 0.0,
                 }],
             );
@@ -971,8 +972,8 @@ impl DiGraph {
                 incompatibility_probability,
                 unknown_feature,
                 vec![EvidenceTerm {
-                    signal: "unknown_incompatible_feature".to_owned(),
-                    observed_value: unknown_feature.to_string(),
+                    signal: "unknown_incompatible_feature".into(),
+                    observed_value: bool_evidence(unknown_feature),
                     log_likelihood_ratio: 12.0,
                 }],
             );
@@ -1041,23 +1042,23 @@ impl DiGraph {
             unknown_feature,
             vec![
                 EvidenceTerm {
-                    signal: "self_loop".to_owned(),
-                    observed_value: self_loop.to_string(),
+                    signal: "self_loop".into(),
+                    observed_value: bool_evidence(self_loop),
                     log_likelihood_ratio: -0.5,
                 },
                 EvidenceTerm {
-                    signal: "edge_attr_count".to_owned(),
-                    observed_value: edge_attr_count.to_string(),
+                    signal: "edge_attr_count".into(),
+                    observed_value: edge_attr_count.to_string().into(),
                     log_likelihood_ratio: -2.0,
                 },
                 EvidenceTerm {
-                    signal: "source_autocreated".to_owned(),
-                    observed_value: source_autocreated.to_string(),
+                    signal: "source_autocreated".into(),
+                    observed_value: bool_evidence(source_autocreated),
                     log_likelihood_ratio: -1.25,
                 },
                 EvidenceTerm {
-                    signal: "target_autocreated".to_owned(),
-                    observed_value: target_autocreated.to_string(),
+                    signal: "target_autocreated".into(),
+                    observed_value: bool_evidence(target_autocreated),
                     log_likelihood_ratio: -1.25,
                 },
             ],
@@ -1142,8 +1143,8 @@ impl DiGraph {
                 0.0,
                 false,
                 vec![EvidenceTerm {
-                    signal: "batch_edge_count".to_owned(),
-                    observed_value: inserted.to_string(),
+                    signal: "batch_edge_count".into(),
+                    observed_value: inserted.to_string().into(),
                     log_likelihood_ratio: -1.0,
                 }],
             );
@@ -1190,8 +1191,8 @@ impl DiGraph {
                 0.0,
                 false,
                 vec![EvidenceTerm {
-                    signal: "batch_edge_count".to_owned(),
-                    observed_value: inserted.to_string(),
+                    signal: "batch_edge_count".into(),
+                    observed_value: inserted.to_string().into(),
                     log_likelihood_ratio: -1.0,
                 }],
             );
@@ -1235,8 +1236,8 @@ impl DiGraph {
                 0.0,
                 false,
                 vec![EvidenceTerm {
-                    signal: "batch_node_count".to_owned(),
-                    observed_value: inserted.to_string(),
+                    signal: "batch_node_count".into(),
+                    observed_value: inserted.to_string().into(),
                     log_likelihood_ratio: -1.0,
                 }],
             );
@@ -1274,8 +1275,8 @@ impl DiGraph {
                 0.0,
                 false,
                 vec![EvidenceTerm {
-                    signal: "batch_node_count".to_owned(),
-                    observed_value: inserted.to_string(),
+                    signal: "batch_node_count".into(),
+                    observed_value: inserted.to_string().into(),
                     log_likelihood_ratio: -1.0,
                 }],
             );
@@ -1349,8 +1350,8 @@ impl DiGraph {
                 0.0,
                 false,
                 vec![EvidenceTerm {
-                    signal: "batch_edge_count".to_owned(),
-                    observed_value: inserted.to_string(),
+                    signal: "batch_edge_count".into(),
+                    observed_value: inserted.to_string().into(),
                     log_likelihood_ratio: -1.0,
                 }],
             );
@@ -1439,8 +1440,8 @@ impl DiGraph {
                 0.0,
                 false,
                 vec![EvidenceTerm {
-                    signal: "batch_edge_count".to_owned(),
-                    observed_value: inserted.to_string(),
+                    signal: "batch_edge_count".into(),
+                    observed_value: inserted.to_string().into(),
                     log_likelihood_ratio: -1.0,
                 }],
             );
@@ -1571,13 +1572,13 @@ impl DiGraph {
                 false,
                 vec![
                     EvidenceTerm {
-                        signal: "batch_node_count".to_owned(),
-                        observed_value: node_count.to_string(),
+                        signal: "batch_node_count".into(),
+                        observed_value: node_count.to_string().into(),
                         log_likelihood_ratio: -1.0,
                     },
                     EvidenceTerm {
-                        signal: "batch_edge_count".to_owned(),
-                        observed_value: inserted.to_string(),
+                        signal: "batch_edge_count".into(),
+                        observed_value: inserted.to_string().into(),
                         log_likelihood_ratio: -1.0,
                     },
                 ],
@@ -1607,8 +1608,8 @@ impl DiGraph {
                 0.0,
                 false,
                 vec![EvidenceTerm {
-                    signal: "defaults_applied".to_owned(),
-                    observed_value: inserted.to_string(),
+                    signal: "defaults_applied".into(),
+                    observed_value: inserted.to_string().into(),
                     log_likelihood_ratio: 0.0,
                 }],
             );
@@ -2491,13 +2492,13 @@ impl MultiDiGraph {
             false,
             vec![
                 EvidenceTerm {
-                    signal: "node_preexisting".to_owned(),
-                    observed_value: existed.to_string(),
+                    signal: "node_preexisting".into(),
+                    observed_value: bool_evidence(existed),
                     log_likelihood_ratio: -3.0,
                 },
                 EvidenceTerm {
-                    signal: "attrs_count".to_owned(),
-                    observed_value: attrs_count.to_string(),
+                    signal: "attrs_count".into(),
+                    observed_value: attrs_count.to_string().into(),
                     log_likelihood_ratio: -1.0,
                 },
             ],
@@ -2540,8 +2541,8 @@ impl MultiDiGraph {
                 0.0,
                 false,
                 vec![EvidenceTerm {
-                    signal: "batch_node_count".to_owned(),
-                    observed_value: inserted.to_string(),
+                    signal: "batch_node_count".into(),
+                    observed_value: inserted.to_string().into(),
                     log_likelihood_ratio: -1.0,
                 }],
             );
@@ -2600,8 +2601,8 @@ impl MultiDiGraph {
                 0.0,
                 false,
                 vec![EvidenceTerm {
-                    signal: "batch_edge_count".to_owned(),
-                    observed_value: inserted.to_string(),
+                    signal: "batch_edge_count".into(),
+                    observed_value: inserted.to_string().into(),
                     log_likelihood_ratio: -1.0,
                 }],
             );
@@ -2687,13 +2688,13 @@ impl MultiDiGraph {
                 false,
                 vec![
                     EvidenceTerm {
-                        signal: "batch_node_count".to_owned(),
-                        observed_value: node_count.to_string(),
+                        signal: "batch_node_count".into(),
+                        observed_value: node_count.to_string().into(),
                         log_likelihood_ratio: -1.0,
                     },
                     EvidenceTerm {
-                        signal: "batch_edge_count".to_owned(),
-                        observed_value: inserted.to_string(),
+                        signal: "batch_edge_count".into(),
+                        observed_value: inserted.to_string().into(),
                         log_likelihood_ratio: -1.0,
                     },
                 ],
@@ -2761,8 +2762,8 @@ impl MultiDiGraph {
                 incompatibility_probability,
                 unknown_feature,
                 vec![EvidenceTerm {
-                    signal: "unknown_incompatible_feature".to_owned(),
-                    observed_value: unknown_feature.to_string(),
+                    signal: "unknown_incompatible_feature".into(),
+                    observed_value: bool_evidence(unknown_feature),
                     log_likelihood_ratio: 12.0,
                 }],
             );
@@ -2840,23 +2841,23 @@ impl MultiDiGraph {
             unknown_feature,
             vec![
                 EvidenceTerm {
-                    signal: "edge_key".to_owned(),
-                    observed_value: key.to_string(),
+                    signal: "edge_key".into(),
+                    observed_value: key.to_string().into(),
                     log_likelihood_ratio: -2.0,
                 },
                 EvidenceTerm {
-                    signal: "edge_attr_count".to_owned(),
-                    observed_value: edge_attr_count.to_string(),
+                    signal: "edge_attr_count".into(),
+                    observed_value: edge_attr_count.to_string().into(),
                     log_likelihood_ratio: -2.0,
                 },
                 EvidenceTerm {
-                    signal: "source_autocreated".to_owned(),
-                    observed_value: source_autocreated.to_string(),
+                    signal: "source_autocreated".into(),
+                    observed_value: bool_evidence(source_autocreated),
                     log_likelihood_ratio: -1.25,
                 },
                 EvidenceTerm {
-                    signal: "target_autocreated".to_owned(),
-                    observed_value: target_autocreated.to_string(),
+                    signal: "target_autocreated".into(),
+                    observed_value: bool_evidence(target_autocreated),
                     log_likelihood_ratio: -1.25,
                 },
             ],
@@ -3903,7 +3904,7 @@ mod tests {
         let records = g.evidence_ledger().records();
         assert_eq!(records.len(), before + 1);
         assert_eq!(
-            records.last().map(|record| record.operation.as_str()),
+            records.last().map(|record| record.operation.as_ref()),
             Some("extend_edges_unrecorded")
         );
     }
@@ -3952,7 +3953,7 @@ mod tests {
         let records = g.evidence_ledger().records();
         assert_eq!(records.len(), before + 1);
         assert_eq!(
-            records.last().map(|record| record.operation.as_str()),
+            records.last().map(|record| record.operation.as_ref()),
             Some("extend_edges_unrecorded")
         );
     }
@@ -4292,7 +4293,7 @@ mod tests {
                 record
                     .evidence
                     .iter()
-                    .map(|term| term.signal.as_str())
+                    .map(|term| term.signal.as_ref())
                     .collect()
             })
             .collect()

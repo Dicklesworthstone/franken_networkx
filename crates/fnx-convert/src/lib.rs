@@ -994,10 +994,10 @@ impl GraphConverter {
             operation,
             action,
             incompatibility_probability,
-            message,
+            message.to_owned(),
             vec![EvidenceTerm {
-                signal: "message".to_owned(),
-                observed_value: message.to_owned(),
+                signal: "message".into(),
+                observed_value: message.to_owned().into(),
                 log_likelihood_ratio: if action == DecisionAction::Allow {
                     -1.5
                 } else {

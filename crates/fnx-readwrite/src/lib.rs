@@ -4352,10 +4352,10 @@ impl EdgeListEngine {
             operation,
             action,
             incompatibility_probability,
-            message,
+            message.to_owned(),
             vec![EvidenceTerm {
-                signal: "message".to_owned(),
-                observed_value: message.to_owned(),
+                signal: "message".into(),
+                observed_value: message.to_owned().into(),
                 log_likelihood_ratio: if action == DecisionAction::Allow {
                     -1.0
                 } else {
@@ -9774,7 +9774,7 @@ mod tests {
                     records.iter().all(|record| {
                         record.action == DecisionAction::Allow
                             && matches!(
-                                record.operation.as_str(),
+                                record.operation.as_ref(),
                                 "write_edgelist"
                                     | "read_edgelist"
                                     | "write_json_graph"

@@ -1,6 +1,7 @@
 #![forbid(unsafe_code)]
 
 use serde::{Deserialize, Serialize};
+use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -1706,19 +1707,35 @@ fn stable_hash_hex(input: &[u8]) -> String {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct EvidenceTerm {
-    pub signal: String,
-    pub observed_value: String,
+    pub signal: Cow<'static, str>,
+    pub observed_value: Cow<'static, str>,
     pub log_likelihood_ratio: f64,
+}
+
+/// Renders a boolean evidence value without allocating.
+///
+/// Emits exactly the bytes `bool::to_string()` produces — `"true"` / `"false"` —
+/// so ledger JSON and every `records()` assertion are unchanged. Boolean evidence
+/// is the single most common `observed_value` on the mutation path
+/// (`node_preexisting`, `self_loop`, `left_autocreated`, `right_autocreated`,
+/// `unknown_incompatible_feature`), and `to_string()` heap-allocates each one.
+#[must_use]
+pub const fn bool_evidence(value: bool) -> Cow<'static, str> {
+    if value {
+        Cow::Borrowed("true")
+    } else {
+        Cow::Borrowed("false")
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct DecisionRecord {
     pub ts_unix_ms: u128,
-    pub operation: String,
+    pub operation: Cow<'static, str>,
     pub mode: CompatibilityMode,
     pub action: DecisionAction,
     pub incompatibility_probability: f64,
-    pub rationale: String,
+    pub rationale: Cow<'static, str>,
     pub evidence: Vec<EvidenceTerm>,
 }
 
@@ -1818,30 +1835,30 @@ impl CgsePolicyEngine {
 
         let decision = DecisionRecord {
             ts_unix_ms,
-            operation: rule.operation_name().to_owned(),
+            operation: rule.operation_name().into(),
             mode: self.mode,
             action,
             incompatibility_probability: clamped_probability,
-            rationale,
+            rationale: rationale.into(),
             evidence: vec![
                 EvidenceTerm {
-                    signal: "cgse_policy_rule_id".to_owned(),
-                    observed_value: rule.as_rule_id().to_owned(),
+                    signal: "cgse_policy_rule_id".into(),
+                    observed_value: rule.as_rule_id().into(),
                     log_likelihood_ratio: 1.0,
                 },
                 EvidenceTerm {
-                    signal: "cgse_operation_family".to_owned(),
-                    observed_value: rule.operation_family().as_str().to_owned(),
+                    signal: "cgse_operation_family".into(),
+                    observed_value: rule.operation_family().as_str().into(),
                     log_likelihood_ratio: 0.5,
                 },
                 EvidenceTerm {
-                    signal: "cgse_ambiguity_tag".to_owned(),
-                    observed_value: ambiguity_tag.unwrap_or("none").to_owned(),
+                    signal: "cgse_ambiguity_tag".into(),
+                    observed_value: ambiguity_tag.unwrap_or("none").to_owned().into(),
                     log_likelihood_ratio: if allowlisted_ambiguity { 0.25 } else { -0.25 },
                 },
                 EvidenceTerm {
-                    signal: "cgse_hardened_allowlist_hit".to_owned(),
-                    observed_value: allowlisted_ambiguity.to_string(),
+                    signal: "cgse_hardened_allowlist_hit".into(),
+                    observed_value: bool_evidence(allowlisted_ambiguity),
                     log_likelihood_ratio: if allowlisted_ambiguity { 0.75 } else { -0.75 },
                 },
             ],
@@ -2276,7 +2293,9 @@ impl DriftAnalyzer {
         let mut op_counts: std::collections::HashMap<String, usize> =
             std::collections::HashMap::new();
         for record in &under_confident {
-            *op_counts.entry(record.operation.clone()).or_insert(0) += 1;
+            *op_counts
+                .entry(record.operation.clone().into_owned())
+                .or_insert(0) += 1;
         }
         let mut top_ops: Vec<_> = op_counts.into_iter().collect();
         top_ops.sort_by(|left, right| right.1.cmp(&left.1).then_with(|| left.0.cmp(&right.0)));
@@ -2559,10 +2578,10 @@ impl RuntimePolicy {
 
     pub fn record(
         &mut self,
-        operation: &str,
+        operation: impl Into<Cow<'static, str>>,
         action: DecisionAction,
         incompatibility_probability: f64,
-        rationale: &str,
+        rationale: impl Into<Cow<'static, str>>,
         evidence: Vec<EvidenceTerm>,
     ) {
         let clamped_probability = if incompatibility_probability.is_nan() {
@@ -2574,11 +2593,11 @@ impl RuntimePolicy {
         self.posterior = self.posterior.observe(clamped_probability, evidence_count);
         self.decision_log.record(DecisionRecord {
             ts_unix_ms: unix_time_ms(),
-            operation: operation.to_owned(),
+            operation: operation.into(),
             mode: self.mode,
             action,
             incompatibility_probability: clamped_probability,
-            rationale: rationale.to_owned(),
+            rationale: rationale.into(),
             evidence,
         });
     }
@@ -6892,11 +6911,11 @@ mod tests {
     fn ledger_decision(operation: &str, action: DecisionAction) -> super::DecisionRecord {
         super::DecisionRecord {
             ts_unix_ms: 0,
-            operation: operation.to_owned(),
+            operation: operation.to_owned().into(),
             mode: CompatibilityMode::Strict,
             action,
             incompatibility_probability: 0.08,
-            rationale: "test".to_owned(),
+            rationale: "test".into(),
             evidence: vec![],
         }
     }
@@ -6926,7 +6945,7 @@ mod tests {
         // would fail both of these.
         let resident = ledger.records();
         assert_eq!(
-            resident.last().map(|record| record.operation.as_str()),
+            resident.last().map(|record| record.operation.as_ref()),
             Some((total - 1).to_string().as_str())
         );
         let mut previous: Option<usize> = None;
@@ -7013,11 +7032,11 @@ mod tests {
 
         let record = super::DecisionRecord {
             ts_unix_ms: initial_time + 1000,
-            operation: "test_op".to_owned(),
+            operation: "test_op".into(),
             mode: CompatibilityMode::Strict,
             action: DecisionAction::Allow,
             incompatibility_probability: 0.01,
-            rationale: "test".to_owned(),
+            rationale: "test".into(),
             evidence: vec![],
         };
 
@@ -7078,14 +7097,14 @@ mod tests {
         let mut ledger = super::VersionedDecisionLedger::new("json-test");
         ledger.append(super::DecisionRecord {
             ts_unix_ms: 1000,
-            operation: "roundtrip_op".to_owned(),
+            operation: "roundtrip_op".into(),
             mode: CompatibilityMode::Hardened,
             action: DecisionAction::FullValidate,
             incompatibility_probability: 0.5,
-            rationale: "testing roundtrip".to_owned(),
+            rationale: "testing roundtrip".into(),
             evidence: vec![super::EvidenceTerm {
-                signal: "test_signal".to_owned(),
-                observed_value: "test_value".to_owned(),
+                signal: "test_signal".into(),
+                observed_value: "test_value".into(),
                 log_likelihood_ratio: 1.5,
             }],
         });
@@ -7105,31 +7124,31 @@ mod tests {
         let mut ledger1 = super::VersionedDecisionLedger::new("merge-1");
         ledger1.append(super::DecisionRecord {
             ts_unix_ms: 1000,
-            operation: "op1".to_owned(),
+            operation: "op1".into(),
             mode: CompatibilityMode::Strict,
             action: DecisionAction::Allow,
             incompatibility_probability: 0.01,
-            rationale: "first".to_owned(),
+            rationale: "first".into(),
             evidence: vec![],
         });
         ledger1.append(super::DecisionRecord {
             ts_unix_ms: 3000,
-            operation: "op3".to_owned(),
+            operation: "op3".into(),
             mode: CompatibilityMode::Strict,
             action: DecisionAction::Allow,
             incompatibility_probability: 0.01,
-            rationale: "third".to_owned(),
+            rationale: "third".into(),
             evidence: vec![],
         });
 
         let mut ledger2 = super::VersionedDecisionLedger::new("merge-2");
         ledger2.append(super::DecisionRecord {
             ts_unix_ms: 2000,
-            operation: "op2".to_owned(),
+            operation: "op2".into(),
             mode: CompatibilityMode::Strict,
             action: DecisionAction::Allow,
             incompatibility_probability: 0.01,
-            rationale: "second".to_owned(),
+            rationale: "second".into(),
             evidence: vec![],
         });
 
@@ -7146,11 +7165,11 @@ mod tests {
         let mut evidence = EvidenceLedger::new();
         evidence.record(super::DecisionRecord {
             ts_unix_ms: 5000,
-            operation: "convert_op".to_owned(),
+            operation: "convert_op".into(),
             mode: CompatibilityMode::Strict,
             action: DecisionAction::Allow,
             incompatibility_probability: 0.01,
-            rationale: "conversion test".to_owned(),
+            rationale: "conversion test".into(),
             evidence: vec![],
         });
 
@@ -7260,11 +7279,11 @@ mod tests {
     ) -> super::DecisionRecord {
         super::DecisionRecord {
             ts_unix_ms,
-            operation: "drift_fixture".to_owned(),
+            operation: "drift_fixture".into(),
             mode: CompatibilityMode::Strict,
             action,
             incompatibility_probability,
-            rationale: "weekly aggregation parity".to_owned(),
+            rationale: "weekly aggregation parity".into(),
             evidence: Vec::new(),
         }
     }
@@ -7432,20 +7451,20 @@ mod tests {
         // Add some low-confidence decisions
         ledger.append(super::DecisionRecord {
             ts_unix_ms: 1000,
-            operation: "safe_op".to_owned(),
+            operation: "safe_op".into(),
             mode: CompatibilityMode::Strict,
             action: DecisionAction::Allow,
             incompatibility_probability: 0.1, // Low, confident
-            rationale: "confident".to_owned(),
+            rationale: "confident".into(),
             evidence: vec![],
         });
         ledger.append(super::DecisionRecord {
             ts_unix_ms: 2000,
-            operation: "risky_op".to_owned(),
+            operation: "risky_op".into(),
             mode: CompatibilityMode::Strict,
             action: DecisionAction::FullValidate,
             incompatibility_probability: 0.5, // High, under-confident
-            rationale: "uncertain".to_owned(),
+            rationale: "uncertain".into(),
             evidence: vec![],
         });
 
@@ -7465,11 +7484,11 @@ mod tests {
 
         ledger.append(super::DecisionRecord {
             ts_unix_ms: 1000,
-            operation: "op".to_owned(),
+            operation: "op".into(),
             mode: CompatibilityMode::Strict,
             action: DecisionAction::Allow,
             incompatibility_probability: 0.25,
-            rationale: "test".to_owned(),
+            rationale: "test".into(),
             evidence: vec![],
         });
 
@@ -7493,11 +7512,11 @@ mod tests {
         for i in 0..3 {
             ledger.append(super::DecisionRecord {
                 ts_unix_ms: base_time + (i * 1000),
-                operation: "week1_op".to_owned(),
+                operation: "week1_op".into(),
                 mode: CompatibilityMode::Strict,
                 action: DecisionAction::Allow,
                 incompatibility_probability: 0.1,
-                rationale: "week1".to_owned(),
+                rationale: "week1".into(),
                 evidence: vec![],
             });
         }
@@ -7506,11 +7525,11 @@ mod tests {
         for i in 0..2 {
             ledger.append(super::DecisionRecord {
                 ts_unix_ms: base_time + super::MILLIS_PER_WEEK + (i * 1000),
-                operation: "week2_op".to_owned(),
+                operation: "week2_op".into(),
                 mode: CompatibilityMode::Strict,
                 action: DecisionAction::FullValidate,
                 incompatibility_probability: 0.4, // Under-confident
-                rationale: "week2".to_owned(),
+                rationale: "week2".into(),
                 evidence: vec![],
             });
         }
@@ -7533,11 +7552,11 @@ mod tests {
         for i in 0..10 {
             ledger.append(super::DecisionRecord {
                 ts_unix_ms: i * 1000,
-                operation: "risky_operation".to_owned(),
+                operation: "risky_operation".into(),
                 mode: CompatibilityMode::Strict,
                 action: DecisionAction::FailClosed,
                 incompatibility_probability: 0.7,
-                rationale: "high risk".to_owned(),
+                rationale: "high risk".into(),
                 evidence: vec![],
             });
         }
@@ -7561,11 +7580,11 @@ mod tests {
         for operation in ["zeta_op", "alpha_op", "middle_op"] {
             ledger.append(super::DecisionRecord {
                 ts_unix_ms: 1000,
-                operation: operation.to_owned(),
+                operation: operation.into(),
                 mode: CompatibilityMode::Strict,
                 action: DecisionAction::FullValidate,
                 incompatibility_probability: 0.7,
-                rationale: "tied under-confidence count".to_owned(),
+                rationale: "tied under-confidence count".into(),
                 evidence: vec![],
             });
         }
@@ -9744,8 +9763,8 @@ mod tests {
             0.7,
             "parser warning observed",
             vec![super::EvidenceTerm {
-                signal: "warning".to_owned(),
-                observed_value: "parser warning observed".to_owned(),
+                signal: "warning".into(),
+                observed_value: "parser warning observed".into(),
                 log_likelihood_ratio: 1.25,
             }],
         );
@@ -9755,5 +9774,63 @@ mod tests {
         assert_eq!(policy.posterior().observation_count, 1);
         assert!(policy.posterior().confidence > 0.0);
         assert!(policy.posterior().incompatibility_probability > 0.0);
+    }
+
+    // br-r37-c1-g2nev: `bool_evidence` replaced `bool::to_string()` on every
+    // boolean `observed_value`. It is only admissible if it emits the SAME
+    // bytes; this pins that, and pins the borrow that makes it free.
+    #[test]
+    fn bool_evidence_matches_bool_to_string_without_allocating() {
+        for value in [true, false] {
+            assert_eq!(super::bool_evidence(value), value.to_string());
+            assert!(
+                matches!(super::bool_evidence(value), std::borrow::Cow::Borrowed(_)),
+                "bool_evidence({value}) must borrow a 'static str, not allocate"
+            );
+        }
+    }
+
+    // br-r37-c1-g2nev: `DecisionRecord`/`EvidenceTerm` string fields became
+    // `Cow<'static, str>`. serde must serialise a borrowed field byte-identically
+    // to the owned field it replaced, or the ledger JSON contract has moved.
+    #[test]
+    fn cow_ledger_fields_serialise_identically_to_owned() {
+        let borrowed = super::DecisionRecord {
+            ts_unix_ms: 7,
+            operation: "add_edge".into(),
+            mode: CompatibilityMode::Strict,
+            action: DecisionAction::Allow,
+            incompatibility_probability: 0.08,
+            rationale: "argmin expected loss".into(),
+            evidence: vec![super::EvidenceTerm {
+                signal: "self_loop".into(),
+                observed_value: super::bool_evidence(false),
+                log_likelihood_ratio: -2.0,
+            }],
+        };
+        let owned = super::DecisionRecord {
+            operation: "add_edge".to_owned().into(),
+            rationale: "argmin expected loss".to_owned().into(),
+            evidence: vec![super::EvidenceTerm {
+                signal: "self_loop".to_owned().into(),
+                observed_value: false.to_string().into(),
+                log_likelihood_ratio: -2.0,
+            }],
+            ..borrowed.clone()
+        };
+
+        assert!(matches!(borrowed.operation, std::borrow::Cow::Borrowed(_)));
+        assert!(matches!(owned.operation, std::borrow::Cow::Owned(_)));
+        assert_eq!(borrowed, owned);
+
+        let borrowed_json = serde_json::to_string(&borrowed).expect("serialise borrowed record");
+        assert_eq!(
+            borrowed_json,
+            serde_json::to_string(&owned).expect("serialise owned record")
+        );
+
+        let round_tripped: super::DecisionRecord =
+            serde_json::from_str(&borrowed_json).expect("deserialise record");
+        assert_eq!(round_tripped, borrowed);
     }
 }

@@ -509,28 +509,29 @@ impl BackendRegistry {
         reason: &str,
     ) {
         self.runtime_policy.record(
-            &format!("dispatch::{}", request.operation),
+            format!("dispatch::{}", request.operation),
             action,
             request.risk_probability,
-            reason,
+            reason.to_owned(),
             vec![
                 EvidenceTerm {
-                    signal: "requested_backend".to_owned(),
+                    signal: "requested_backend".into(),
                     observed_value: request
                         .requested_backend
                         .as_deref()
                         .unwrap_or("none")
-                        .to_owned(),
+                        .to_owned()
+                        .into(),
                     log_likelihood_ratio: -1.0,
                 },
                 EvidenceTerm {
-                    signal: "required_feature_count".to_owned(),
-                    observed_value: request.required_features.len().to_string(),
+                    signal: "required_feature_count".into(),
+                    observed_value: request.required_features.len().to_string().into(),
                     log_likelihood_ratio: -0.5,
                 },
                 EvidenceTerm {
-                    signal: "selected_backend".to_owned(),
-                    observed_value: selected_backend.unwrap_or("none").to_owned(),
+                    signal: "selected_backend".into(),
+                    observed_value: selected_backend.unwrap_or("none").to_owned().into(),
                     log_likelihood_ratio: if selected_backend.is_some() {
                         -2.0
                     } else {
@@ -821,7 +822,7 @@ mod tests {
         let mut environment = BTreeMap::new();
         environment.insert("os".to_owned(), std::env::consts::OS.to_owned());
         environment.insert("arch".to_owned(), std::env::consts::ARCH.to_owned());
-        environment.insert("route_id".to_owned(), record.operation.clone());
+        environment.insert("route_id".to_owned(), record.operation.clone().into_owned());
         environment.insert("backend_name".to_owned(), "alpha-backend".to_owned());
         environment.insert("strict_mode".to_owned(), "true".to_owned());
 

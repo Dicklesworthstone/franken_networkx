@@ -5639,10 +5639,10 @@ impl GraphGenerator {
             operation,
             action,
             incompatibility_probability,
-            &rationale,
+            rationale.clone(),
             vec![EvidenceTerm {
-                signal: "generator_rationale".to_owned(),
-                observed_value: rationale.clone(),
+                signal: "generator_rationale".into(),
+                observed_value: rationale.into(),
                 log_likelihood_ratio: if action == DecisionAction::Allow {
                     -1.0
                 } else {
