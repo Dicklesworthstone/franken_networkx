@@ -79,3 +79,37 @@ def test_clustering_degrees_spectral(seed):
     assert round(fbp.spectral_bipartivity(fg), 5) == round(
         nbp.spectral_bipartivity(ng), 5
     )
+
+
+@pytest.mark.parametrize("seed", range(30))
+def test_projection_semantics_without_networkx(seed):
+    """The unweighted projection has an oracle-free rule and it is checked; the
+    WEIGHTED one is compared against networkx only, so a shared error in what
+    the weight means would satisfy both sides."""
+    fg, _, top, bot, edges = _bipartite(seed)
+
+    shared = {u: {v for v in bot if fg.has_edge(u, v)} for u in top}
+    weighted = fbp.weighted_projected_graph(fg, top)
+
+    # The projection lives on the projected side, whatever its edges are.
+    assert set(weighted.nodes()) == set(top)
+    # And the weight IS the number of bottom nodes the pair has in common.
+    for u, w, data in weighted.edges(data=True):
+        assert data["weight"] == len(shared[u] & shared[w])
+
+    # bipartite density is |E| / (|top| * |bottom|), also asserted only by
+    # parity today.
+    assert fbp.density(fg, top) == pytest.approx(len(edges) / (len(top) * len(bot)))
+
+
+def test_projection_weights_are_not_all_one():
+    """Guards the weight check: if every pair shared exactly one neighbour,
+    `weight == len(shared)` would hold for any implementation returning 1."""
+    interesting = 0
+    for seed in range(30):
+        fg, _, top, _, _ = _bipartite(seed)
+        weighted = fbp.weighted_projected_graph(fg, top)
+        if any(data["weight"] > 1 for _, _, data in weighted.edges(data=True)):
+            interesting += 1
+    # Measured 17 of 30.
+    assert interesting >= 8, f"only {interesting} of 30 draws have a weight above 1"
