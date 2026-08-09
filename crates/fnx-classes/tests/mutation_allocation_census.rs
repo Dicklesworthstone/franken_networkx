@@ -139,6 +139,38 @@ fn add_edge_profile_target() {
     assert_eq!(graph.node_count(), 1_001);
 }
 
+/// br-r37-c1-jc9e4: the BUILD workload, which is the one this bead's headline
+/// actually measures.
+///
+/// `add_edge_profile_target` above loops on an edge that already exists. That
+/// isolates the per-call path, but it is NOT the workload behind the 1245
+/// ns/edge and 0.46-0.50x figures — those were taken on a FRESH graph per timed
+/// unit, so nearly every call creates an edge and autocreates endpoints. The
+/// two run through different branches (autocreation, adjacency growth, an empty
+/// attribute map to merge into) and there is no reason to assume one profile
+/// describes the other, so this target exists to profile the headline path
+/// directly rather than transfer conclusions across workloads.
+///
+/// Keys are pre-built OUTSIDE the timed region on purpose: the real caller is
+/// the PyO3 boundary handing in already-canonicalised strings, so `to_string()`
+/// in the loop would attribute the test harness's work to `add_edge`.
+///
+/// Same invocation as the sibling, with `add_edge_build_profile_target`.
+#[test]
+#[ignore = "profiling target; run under callgrind, see the doc comment"]
+fn add_edge_build_profile_target() {
+    const EDGES: usize = 100_000;
+
+    let keys: Vec<String> = (0..=EDGES).map(|index| index.to_string()).collect();
+    let mut graph = Graph::strict();
+    for index in 0..EDGES {
+        graph
+            .add_edge_with_attrs(&keys[index], &keys[index + 1], weight_attrs())
+            .expect("path construction is allowed in strict mode");
+    }
+    assert_eq!(graph.node_count(), EDGES + 1);
+}
+
 fn weight_attrs() -> AttrMap {
     let mut attrs = AttrMap::new();
     attrs.insert("weight".to_owned(), CgseValue::Int(1));
