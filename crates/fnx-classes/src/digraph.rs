@@ -2886,14 +2886,25 @@ impl MultiDiGraph {
             }
             changed = is_new;
             let edge_attrs = edge_bucket.entry(key).or_default();
-            if !attrs.is_empty()
-                && attrs
-                    .iter()
-                    .any(|(attr_key, value)| edge_attrs.get(attr_key) != Some(value))
-            {
-                changed = true;
+            if edge_attrs.is_empty() {
+                // br-r37-c1-jc9e4: a fresh keyed bucket TAKES the caller's map
+                // whole. Same lever and same byte-identity argument as the
+                // `Graph` sibling; `attrs` here is the function's own owned
+                // parameter, so the move is unambiguous.
+                if !attrs.is_empty() {
+                    changed = true;
+                }
+                *edge_attrs = attrs;
+            } else {
+                if !attrs.is_empty()
+                    && attrs
+                        .iter()
+                        .any(|(attr_key, value)| edge_attrs.get(attr_key) != Some(value))
+                {
+                    changed = true;
+                }
+                edge_attrs.extend(attrs);
             }
-            edge_attrs.extend(attrs);
             edge_bucket.len()
         };
 
@@ -4375,6 +4386,66 @@ mod tests {
                     .collect()
             })
             .collect()
+    }
+
+    /// br-r37-c1-jc9e4: directed-multi mirror of the `Graph` fresh-bucket lock.
+    /// `add_edge_impl` now TAKES the caller's attribute map when the keyed
+    /// bucket is empty. The multigraph-only risk is that the take could land on
+    /// the wrong parallel edge, so each key is asserted separately.
+    #[test]
+    fn multidigraph_fresh_bucket_take_matches_merge_semantics() {
+        fn weight(value: i64) -> AttrMap {
+            let mut attrs = AttrMap::new();
+            attrs.insert("w".to_owned(), CgseValue::Int(value));
+            attrs
+        }
+
+        let mut graph = MultiDiGraph::strict();
+        let k0 = graph
+            .add_edge_with_attrs("a", "b", weight(1))
+            .expect("edge is allowed");
+        // A PARALLEL edge gets its own fresh bucket and must not disturb k0.
+        let k1 = graph
+            .add_edge_with_attrs("a", "b", weight(2))
+            .expect("parallel edge is allowed");
+        assert_ne!(k0, k1);
+        assert_eq!(
+            graph.edge_attrs("a", "b", k0).and_then(|a| a.get("w")),
+            Some(&CgseValue::Int(1))
+        );
+        assert_eq!(
+            graph.edge_attrs("a", "b", k1).and_then(|a| a.get("w")),
+            Some(&CgseValue::Int(2))
+        );
+
+        // A keyed edge created with EMPTY attrs still takes the empty-bucket
+        // branch when attrs arrive later.
+        let k2 = graph
+            .add_edge_with_attrs("c", "d", AttrMap::new())
+            .expect("edge is allowed");
+        assert!(
+            graph
+                .edge_attrs("c", "d", k2)
+                .expect("edge exists")
+                .is_empty()
+        );
+        graph
+            .add_edge_with_key_and_attrs("c", "d", k2, weight(7))
+            .expect("edge is allowed");
+        assert_eq!(
+            graph.edge_attrs("c", "d", k2).and_then(|a| a.get("w")),
+            Some(&CgseValue::Int(7))
+        );
+
+        // Non-empty bucket still merges rather than being replaced.
+        let mut extra = AttrMap::new();
+        extra.insert("k".to_owned(), CgseValue::Int(3));
+        graph
+            .add_edge_with_key_and_attrs("c", "d", k2, extra)
+            .expect("edge is allowed");
+        let stored = graph.edge_attrs("c", "d", k2).expect("edge exists");
+        assert_eq!(stored.get("w"), Some(&CgseValue::Int(7)));
+        assert_eq!(stored.get("k"), Some(&CgseValue::Int(3)));
     }
 
     /// br-r37-c1-jc9e4: `MultiDiGraph::add_node_with_attrs_unrecorded` stopped

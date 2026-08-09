@@ -171,6 +171,30 @@ fn add_edge_build_profile_target() {
     assert_eq!(graph.node_count(), EDGES + 1);
 }
 
+/// br-r37-c1-jc9e4: the MultiDiGraph build workload.
+///
+/// The simple-graph siblings above cannot stand in for it. This session has
+/// twice measured a lever failing to transfer between graph types — the
+/// directed pair sat at the undirected pair's pre-lever numbers, and
+/// MultiDiGraph's `add_node` was allocating 4x its siblings — so a multigraph
+/// change gets its own arm rather than an inherited conclusion.
+///
+/// Same invocation as the siblings, with `multidigraph_build_profile_target`.
+#[test]
+#[ignore = "profiling target; run under callgrind, see the doc comment"]
+fn multidigraph_build_profile_target() {
+    const EDGES: usize = 100_000;
+
+    let keys: Vec<String> = (0..=EDGES).map(|index| index.to_string()).collect();
+    let mut graph = MultiDiGraph::strict();
+    for index in 0..EDGES {
+        graph
+            .add_edge_with_attrs(&keys[index], &keys[index + 1], weight_attrs())
+            .expect("path construction is allowed in strict mode");
+    }
+    assert_eq!(graph.node_count(), EDGES + 1);
+}
+
 fn weight_attrs() -> AttrMap {
     let mut attrs = AttrMap::new();
     attrs.insert("weight".to_owned(), CgseValue::Int(1));
