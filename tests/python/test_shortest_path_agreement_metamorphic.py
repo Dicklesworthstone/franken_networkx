@@ -72,3 +72,59 @@ def test_undirected_distance_symmetry(seed):
     d_ts = dict(fnx.single_source_dijkstra_path_length(g, t))
     if t in d_st:
         assert d_st[t] == d_ts[s]
+
+
+@pytest.mark.parametrize("seed", range(70))
+def test_dijkstra_agrees_with_floyd_warshall_and_johnson(seed):
+    """The docstring claims agreement across THREE implementations.
+
+    Only two are compared for equality — Dijkstra and Bellman-Ford. The third
+    named source, unweighted BFS, supplies a BOUND rather than an equality, so
+    no third algorithm ever had to produce the same distances. Floyd-Warshall
+    (all-pairs, a different family entirely) and Johnson do.
+    """
+    g, _ = _random_weighted_graph(seed)
+    src = 0
+    dijkstra = dict(fnx.single_source_dijkstra_path_length(g, src))
+
+    floyd = {
+        node: dist
+        for node, dist in dict(fnx.floyd_warshall(g))[src].items()
+        if dist != float("inf")
+    }
+    assert floyd == dijkstra
+
+    # Johnson returns paths; their weights must be the same distances.
+    johnson_paths = dict(fnx.johnson(g))[src]
+    johnson_lengths = {
+        node: sum(g[a][b]["weight"] for a, b in zip(path, path[1:]))
+        for node, path in johnson_paths.items()
+    }
+    assert johnson_lengths == dijkstra
+
+
+def test_bellman_ford_handles_negative_weights():
+    """Negative weights are what distinguishes Bellman-Ford from Dijkstra.
+
+    The random family draws weights in 1..9, so the one capability that makes
+    the two algorithms genuinely independent is never exercised.
+    """
+    g = fnx.DiGraph()
+    g.add_edge(0, 1, weight=4)
+    g.add_edge(1, 2, weight=-2)
+    g.add_edge(0, 2, weight=5)
+
+    lengths = dict(fnx.single_source_bellman_ford_path_length(g, 0))
+    # 0 -> 1 -> 2 costs 2, which beats the direct edge of 5.
+    assert lengths == {0: 0, 1: 4, 2: 2}
+
+
+def test_negative_cycle_is_reported():
+    """A negative cycle makes shortest paths undefined; it must not be answered."""
+    g = fnx.DiGraph()
+    g.add_edge(0, 1, weight=1)
+    g.add_edge(1, 2, weight=-3)
+    g.add_edge(2, 0, weight=1)
+
+    with pytest.raises(fnx.NetworkXUnbounded):
+        fnx.single_source_bellman_ford_path_length(g, 0)
