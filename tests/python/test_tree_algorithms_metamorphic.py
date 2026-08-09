@@ -73,3 +73,72 @@ def test_spanning_tree_invariants_and_parity(seed):
     assert maxst_w == sum(
         d["weight"] for _, _, d in nx.maximum_spanning_tree(ng).edges(data=True)
     )
+
+
+@pytest.mark.parametrize("seed", range(40))
+def test_spanning_trees_are_subgraphs_of_the_input(seed):
+    """A weight TOTAL matching networkx does not say the edges came from G.
+
+    The existing checks are the edge count, is_tree, and the summed weight; a
+    tree built from invented edges whose weights happened to total correctly
+    satisfies all three.
+    """
+    fg, ng, n = _random_connected_weighted(seed)
+    if not fnx.is_connected(fg):
+        pytest.skip("disconnected")
+
+    for tree in (fnx.minimum_spanning_tree(fg), fnx.maximum_spanning_tree(fg)):
+        # It spans the input: same nodes, and every edge is one of G's.
+        assert set(tree.nodes()) == set(fg.nodes())
+        for u, v, data in tree.edges(data=True):
+            assert fg.has_edge(u, v)
+            # ...carrying G's weight, not one invented to make the total work.
+            assert data["weight"] == fg.edges[u, v]["weight"]
+
+
+def test_max_spanning_tree_is_strictly_heavier_on_this_family():
+    """Guards `maxST >= MST`: equality would satisfy it on every draw.
+
+    Equality is legitimate when all weights are equal, so this asserts the
+    family is varied enough to separate them rather than asserting strictness
+    as a universal law.
+    """
+    strict = 0
+    considered = 0
+    for seed in range(40):
+        fg, _, _ = _random_connected_weighted(seed)
+        if not fnx.is_connected(fg):
+            continue
+        considered += 1
+        light = sum(d["weight"] for _, _, d in fnx.minimum_spanning_tree(fg).edges(data=True))
+        heavy = sum(d["weight"] for _, _, d in fnx.maximum_spanning_tree(fg).edges(data=True))
+        if heavy > light:
+            strict += 1
+    # Measured 35 of 35 connected draws.
+    assert considered >= 20
+    assert strict >= considered - 3, f"only {strict} of {considered} draws separate the two"
+
+
+@pytest.mark.parametrize(
+    "case",
+    ["two_node_empty_sequence", "value_out_of_range", "encode_a_non_tree", "encode_two_node_tree"],
+)
+def test_prufer_edge_contracts_match_networkx(case):
+    """The sweep draws sequences of length n-2 for n in 3..12; these are the ends."""
+    def call(lib):
+        if case == "two_node_empty_sequence":
+            return sorted(tuple(sorted(e)) for e in lib.from_prufer_sequence([]).edges())
+        if case == "value_out_of_range":
+            return sorted(lib.from_prufer_sequence([9, 9]).edges())
+        if case == "encode_a_non_tree":
+            return list(lib.to_prufer_sequence(lib.Graph([(0, 1), (1, 2), (2, 0)])))
+        return list(lib.to_prufer_sequence(lib.Graph([(0, 1)])))
+
+    def outcome(lib):
+        try:
+            return ("returned", call(lib))
+        except Exception as exc:  # noqa: BLE001 - the type IS the assertion
+            return ("raised", type(exc).__name__)
+
+    got, want = outcome(fnx), outcome(nx)
+    assert got == want
