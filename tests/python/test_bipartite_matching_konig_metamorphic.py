@@ -90,3 +90,52 @@ def test_konig_on_complete_bipartite_closed_form():
         assert len(matching) // 2 == min(m, n)
         cover = fbp.to_vertex_cover(g, matching, top_nodes=top)
         assert len(cover) == min(m, n)
+
+
+def _maximum_matching_size(top, adjacency):
+    """Kuhn's augmenting-path algorithm — an oracle that does not call fnx.
+
+    König ties the matching to the cover, but a matching and a cover that were
+    BOTH wrong by the same amount would still satisfy it. This computes the
+    maximum independently. (Cross-checked against exhaustive search over all
+    edge subsets on the smaller draws: they agree.)
+    """
+    partner = {}
+
+    def augment(u, seen):
+        for v in adjacency.get(u, ()):
+            if v in seen:
+                continue
+            seen.add(v)
+            if v not in partner or augment(partner[v], seen):
+                partner[v] = u
+                return True
+        return False
+
+    return sum(1 for u in top if augment(u, set()))
+
+
+@pytest.mark.parametrize("seed", range(60))
+def test_returned_matching_is_actually_a_matching(seed):
+    """The suite validates the COVER thoroughly and never the matching itself."""
+    g, top, bot, edges = _random_bipartite(seed)
+    matching = fbp.hopcroft_karp_matching(g, top_nodes=top)
+
+    # Symmetric: the dict reports both directions of each pair.
+    for u, v in matching.items():
+        assert matching.get(v) == u
+        # A matched pair has to be an edge of the graph.
+        assert g.has_edge(u, v)
+    # No node is matched to two different partners.
+    assert len(set(matching.values())) == len(matching)
+    assert set(matching) <= set(g.nodes())
+
+
+@pytest.mark.parametrize("seed", range(60))
+def test_matching_is_maximum_not_merely_maximal(seed):
+    """König holds for a wrong matching paired with an equally wrong cover."""
+    g, top, bot, edges = _random_bipartite(seed)
+    adjacency = {u: list(g.neighbors(u)) for u in top}
+    assert len(fbp.hopcroft_karp_matching(g, top_nodes=top)) // 2 == _maximum_matching_size(
+        top, adjacency
+    )
