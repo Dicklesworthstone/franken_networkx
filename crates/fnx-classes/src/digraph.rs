@@ -2084,8 +2084,8 @@ pub struct MultiDiGraph {
     mode: CompatibilityMode,
     revision: u64,
     nodes: crate::FxIndexMap<String, AttrMap>,
-    successors: crate::FxIndexMap<String, IndexMap<String, IndexSet<usize>>>,
-    predecessors: crate::FxIndexMap<String, IndexMap<String, IndexSet<usize>>>,
+    successors: crate::FxIndexMap<String, crate::FxIndexMap<String, crate::FxIndexSet<usize>>>,
+    predecessors: crate::FxIndexMap<String, crate::FxIndexMap<String, crate::FxIndexSet<usize>>>,
     edges: crate::FxIndexMap<DirectedEdgeKey, IndexMap<usize, AttrMap>>,
     runtime_policy: RuntimePolicy,
     edge_count: usize,
@@ -2148,7 +2148,8 @@ impl MultiDiGraph {
                 continue;
             };
             let mut old = std::mem::take(row);
-            let mut new_row = IndexMap::with_capacity(old.len());
+            let mut new_row =
+                crate::FxIndexMap::with_capacity_and_hasher(old.len(), rustc_hash::FxBuildHasher);
             for v in order {
                 if let Some((k, val)) = old.shift_remove_entry(v.as_str()) {
                     new_row.insert(k, val);
@@ -2713,8 +2714,10 @@ impl MultiDiGraph {
         let node_labels: Vec<String> = nodes.into_iter().collect();
         for node in &node_labels {
             self.nodes.insert(node.clone(), AttrMap::new());
-            self.successors.insert(node.clone(), IndexMap::new());
-            self.predecessors.insert(node.clone(), IndexMap::new());
+            self.successors
+                .insert(node.clone(), crate::FxIndexMap::default());
+            self.predecessors
+                .insert(node.clone(), crate::FxIndexMap::default());
         }
 
         let node_count = node_labels.len();
@@ -3411,19 +3414,23 @@ impl MultiDiGraph {
     /// `add_edge` policy path.
     #[must_use]
     pub fn reversed(&self) -> Self {
-        let mut successors: crate::FxIndexMap<String, IndexMap<String, IndexSet<usize>>> =
-            crate::FxIndexMap::with_capacity_and_hasher(
-                self.nodes.len(),
-                rustc_hash::FxBuildHasher,
-            );
-        let mut predecessors: crate::FxIndexMap<String, IndexMap<String, IndexSet<usize>>> =
-            crate::FxIndexMap::with_capacity_and_hasher(
-                self.nodes.len(),
-                rustc_hash::FxBuildHasher,
-            );
+        let mut successors: crate::FxIndexMap<
+            String,
+            crate::FxIndexMap<String, crate::FxIndexSet<usize>>,
+        > = crate::FxIndexMap::with_capacity_and_hasher(
+            self.nodes.len(),
+            rustc_hash::FxBuildHasher,
+        );
+        let mut predecessors: crate::FxIndexMap<
+            String,
+            crate::FxIndexMap<String, crate::FxIndexSet<usize>>,
+        > = crate::FxIndexMap::with_capacity_and_hasher(
+            self.nodes.len(),
+            rustc_hash::FxBuildHasher,
+        );
         for node in self.nodes.keys() {
-            successors.insert(node.clone(), IndexMap::new());
-            predecessors.insert(node.clone(), IndexMap::new());
+            successors.insert(node.clone(), crate::FxIndexMap::default());
+            predecessors.insert(node.clone(), crate::FxIndexMap::default());
         }
 
         let mut edges: crate::FxIndexMap<DirectedEdgeKey, IndexMap<usize, AttrMap>> =
@@ -4386,6 +4393,51 @@ mod tests {
                     .collect()
             })
             .collect()
+    }
+
+    /// br-r37-c1-4c29a: `MultiDiGraph`'s adjacency rows moved from the default
+    /// SipHash to `FxBuildHasher`. That is only admissible because `IndexMap`
+    /// and `IndexSet` are INSERTION-ordered, so the hasher cannot reach
+    /// iteration order — and iteration order is CGSE-observable here, since
+    /// `edges_ordered` walks these rows. Asserted rather than asserted-by-faith:
+    /// the endpoints below are inserted in an order that is neither sorted nor
+    /// hash order, and must come back exactly as inserted.
+    #[test]
+    fn multidigraph_adjacency_iterates_in_insertion_order_under_fxhash() {
+        let mut graph = MultiDiGraph::strict();
+        for (source, target) in [
+            ("zeta", "mid"),
+            ("zeta", "alpha"),
+            ("zeta", "omega"),
+            ("zeta", "beta"),
+            ("alpha", "zeta"),
+        ] {
+            graph
+                .add_edge_with_attrs(source, target, AttrMap::new())
+                .expect("edge is allowed");
+        }
+        // Parallel edges on an already-seen pair must append, not reorder.
+        graph
+            .add_edge_with_attrs("zeta", "alpha", AttrMap::new())
+            .expect("parallel edge is allowed");
+
+        let observed: Vec<(String, String, usize)> = graph
+            .edges_ordered_borrowed()
+            .into_iter()
+            .map(|(source, target, key, _)| (source.to_owned(), target.to_owned(), key))
+            .collect();
+        assert_eq!(
+            observed,
+            vec![
+                ("zeta".to_owned(), "mid".to_owned(), 0),
+                ("zeta".to_owned(), "alpha".to_owned(), 0),
+                ("zeta".to_owned(), "alpha".to_owned(), 1),
+                ("zeta".to_owned(), "omega".to_owned(), 0),
+                ("zeta".to_owned(), "beta".to_owned(), 0),
+                ("alpha".to_owned(), "zeta".to_owned(), 0),
+            ],
+            "adjacency rows must stay insertion-ordered regardless of hasher"
+        );
     }
 
     /// br-r37-c1-jc9e4: directed-multi mirror of the `Graph` fresh-bucket lock.

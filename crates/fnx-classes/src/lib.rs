@@ -17,6 +17,12 @@ use std::collections::BTreeMap;
 // 16 bytes (~20ns) -> FxHash on a usize (~3ns). Speeds up every has_edge/edge_attrs/
 // get_index_of/construction insert across the library.
 pub(crate) type FxIndexMap<K, V> = IndexMap<K, V, rustc_hash::FxBuildHasher>;
+/// br-r37-c1-4c29a: the set half of the same alias. `MultiDiGraph`'s adjacency
+/// rows are `IndexMap<String, IndexSet<usize>>` nested inside an already-Fx
+/// outer map, and the inner pair was missed by the original fxhash pass — they
+/// were still on the default SipHash. Both containers are insertion-ordered, so
+/// the hasher is invisible to iteration order.
+pub(crate) type FxIndexSet<T> = indexmap::IndexSet<T, rustc_hash::FxBuildHasher>;
 use std::collections::HashSet;
 use std::fmt;
 
