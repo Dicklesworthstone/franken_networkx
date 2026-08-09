@@ -1799,21 +1799,39 @@ impl Graph {
         // for N nodes), and follows br-r37-c1-eo88t, which removed the other
         // redundant record from this same function. A caller-visible
         // `add_node` still records — only this internal path is unrecorded.
+        // br-r37-c1-jc9e4: resolve each endpoint with ONE probe, not two.
+        // `contains_key` and `get_index_of` hash the same String key against
+        // the same map and `get_index_of` already answers both questions, so
+        // the pair was two String hashes per endpoint where one does. A
+        // self-loop is resolved without probing the second endpoint at all,
+        // since `left == right` makes the indices equal by construction.
+        //
+        // Order is untouched: the left endpoint is still resolved and
+        // autocreated before the right one, and `IndexMap` appends, so
+        // autocreating the right endpoint cannot move the left one's index.
         let mut left_autocreated = false;
-        if !self.nodes.contains_key(left) {
-            let _ = self.add_node_with_attrs_unrecorded(left, AttrMap::new());
-            left_autocreated = true;
-        }
+        let left_key_idx = match self.nodes.get_index_of(left) {
+            Some(index) => index,
+            None => {
+                let _ = self.add_node_with_attrs_unrecorded(left, AttrMap::new());
+                left_autocreated = true;
+                self.nodes.get_index_of(left).expect("autocreated above")
+            }
+        };
         let mut right_autocreated = false;
-        if left == right {
+        let right_key_idx = if left == right {
             right_autocreated = left_autocreated;
-        } else if !self.nodes.contains_key(right) {
-            let _ = self.add_node_with_attrs_unrecorded(right, AttrMap::new());
-            right_autocreated = true;
-        }
-
-        let left_key_idx = self.nodes.get_index_of(left).expect("autocreated above");
-        let right_key_idx = self.nodes.get_index_of(right).expect("autocreated above");
+            left_key_idx
+        } else {
+            match self.nodes.get_index_of(right) {
+                Some(index) => index,
+                None => {
+                    let _ = self.add_node_with_attrs_unrecorded(right, AttrMap::new());
+                    right_autocreated = true;
+                    self.nodes.get_index_of(right).expect("autocreated above")
+                }
+            }
+        };
         let edge_key = Self::canon_pair(left_key_idx, right_key_idx);
         let self_loop = left == right;
         let new_edge = !self.edges.contains_key(&edge_key);
@@ -9215,6 +9233,72 @@ mod tests {
             records.last().map(|record| record.operation.as_ref()),
             Some("add_node")
         );
+    }
+
+    /// br-r37-c1-jc9e4: locks the endpoint-resolution cases that collapsing the
+    /// per-endpoint `contains_key` + `get_index_of` pair restructured.
+    ///
+    /// The self-loop branch is the delicate one: it now returns the left index
+    /// directly instead of probing the map for the right endpoint, and it
+    /// still has to report `right_autocreated` as a COPY of `left_autocreated`
+    /// — true when the loop created its node, false when the node was already
+    /// there. Node insertion order after autocreation is asserted alongside,
+    /// because the left endpoint is resolved before the right one and an
+    /// `IndexMap` append is what keeps the left index valid across the right
+    /// endpoint's insertion.
+    #[test]
+    fn add_edge_endpoint_resolution_preserves_autocreation_and_order() {
+        fn autocreated(graph: &Graph) -> (String, String) {
+            let record = graph
+                .evidence_ledger()
+                .records()
+                .last()
+                .expect("add_edge files an outcome record");
+            let read = |signal: &str| {
+                record
+                    .evidence
+                    .iter()
+                    .find(|term| term.signal == signal)
+                    .map(|term| term.observed_value.to_string())
+                    .unwrap_or_else(|| panic!("{signal} must be present"))
+            };
+            (read("left_autocreated"), read("right_autocreated"))
+        }
+
+        // Self-loop that CREATES its node: both flags true, one node added.
+        let mut graph = Graph::strict();
+        graph
+            .add_edge_with_attrs("s", "s", AttrMap::new())
+            .expect("self-loop is allowed");
+        assert_eq!(autocreated(&graph), ("true".to_owned(), "true".to_owned()));
+        assert_eq!(graph.node_count(), 1);
+
+        // Self-loop on an EXISTING node: both flags false, nothing added.
+        graph
+            .add_edge_with_attrs("s", "s", AttrMap::new())
+            .expect("re-adding a self-loop is allowed");
+        assert_eq!(
+            autocreated(&graph),
+            ("false".to_owned(), "false".to_owned())
+        );
+        assert_eq!(graph.node_count(), 1);
+
+        // Left exists, right is new — the asymmetric case.
+        graph
+            .add_edge_with_attrs("s", "t", AttrMap::new())
+            .expect("edge is allowed");
+        assert_eq!(autocreated(&graph), ("false".to_owned(), "true".to_owned()));
+
+        // Both new: left is resolved and inserted BEFORE right, so insertion
+        // order is left-then-right and the earlier indices are unmoved.
+        graph
+            .add_edge_with_attrs("z", "a", AttrMap::new())
+            .expect("edge is allowed");
+        assert_eq!(autocreated(&graph), ("true".to_owned(), "true".to_owned()));
+        assert_eq!(graph.get_node_index("s"), Some(0));
+        assert_eq!(graph.get_node_index("t"), Some(1));
+        assert_eq!(graph.get_node_index("z"), Some(2));
+        assert_eq!(graph.get_node_index("a"), Some(3));
     }
 
     /// br-r37-c1-g2nev: the ledger's compile-time-constant strings must reach
