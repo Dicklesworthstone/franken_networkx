@@ -11,6 +11,7 @@ No mocks: real fnx and real networkx on random graphs.
 
 from __future__ import annotations
 
+import itertools
 import random
 
 import pytest
@@ -100,3 +101,60 @@ def test_vertex_cover_complement_is_independent(seed):
     complement = set(fg.nodes()) - cover
     for u, v in edges:
         assert not (u in complement and v in complement)
+
+
+def _brute_force_min_weight_cover(edges, weights):
+    """Exhaustive optimum — the approximation guarantee needs a real optimum."""
+    nodes = sorted(weights)
+    best = None
+    for size in range(1, len(nodes) + 1):
+        for combo in itertools.combinations(nodes, size):
+            chosen = set(combo)
+            if all(u in chosen or v in chosen for u, v in edges):
+                total = sum(weights[v] for v in chosen)
+                if best is None or total < best:
+                    best = total
+    return best
+
+
+@pytest.mark.parametrize(
+    "builder_name",
+    ["add_node", "node_view", "set_node_attributes"],
+)
+def test_weighted_vertex_cover_respects_node_weights(builder_name):
+    """Regression for br-r37-c1-bdswh.
+
+    Node weights written AFTER construction never reached the store the native
+    kernel read, so every cost fell back to 1 and the weighted call silently
+    returned the UNWEIGHTED cover. All three ways of attaching the weights must
+    give the same answer, and it must respect the 2-approximation guarantee —
+    parity with networkx alone would not catch a future regression that was
+    wrong in the same direction.
+    """
+    edges = [(0, 1), (1, 2), (2, 3), (3, 0), (0, 2)]
+    weights = {0: 1, 1: 100, 2: 1, 3: 100}
+
+    fg = fnx.Graph()
+    if builder_name == "add_node":
+        for node, w in weights.items():
+            fg.add_node(node, weight=w)
+        fg.add_edges_from(edges)
+    else:
+        fg.add_edges_from(edges)
+        if builder_name == "node_view":
+            for node, w in weights.items():
+                fg.nodes[node]["weight"] = w
+        else:
+            fnx.set_node_attributes(fg, weights, "weight")
+
+    cover = set(fnx.approximation.min_weighted_vertex_cover(fg, weight="weight"))
+    assert all(u in cover or v in cover for u, v in edges)      # still a cover
+
+    total = sum(weights[v] for v in cover)
+    optimum = _brute_force_min_weight_cover(edges, weights)
+    assert total <= 2 * optimum                                  # the guarantee
+
+    ng = nx.Graph()
+    ng.add_edges_from(edges)
+    nx.set_node_attributes(ng, weights, "weight")
+    assert cover == set(nx.approximation.min_weighted_vertex_cover(ng, weight="weight"))
