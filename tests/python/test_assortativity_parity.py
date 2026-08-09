@@ -76,3 +76,70 @@ def test_average_neighbor_degree(seed):
     fand = {k: round(v, 6) for k, v in fnx.average_neighbor_degree(fg).items()}
     nand = {k: round(v, 6) for k, v in nx.average_neighbor_degree(ng).items()}
     assert fand == nand
+
+
+def _weighted_pair():
+    """Non-regular and weighted, so neither coefficient collapses to NaN."""
+    fg, ng = fnx.Graph(), nx.Graph()
+    for u, v, w in [(0, 1, 5), (1, 2, 1), (2, 3, 9), (3, 0, 1), (0, 2, 3)]:
+        fg.add_edge(u, v, weight=w)
+        ng.add_edge(u, v, weight=w)
+    return fg, ng
+
+
+@pytest.mark.parametrize("x", ["out", "in"])
+@pytest.mark.parametrize("y", ["out", "in"])
+def test_directed_degree_assortativity_x_y(x, y):
+    """The x/y parameters select four distinct directed coefficients.
+
+    Nothing in this file builds a DiGraph, so all four paths were unexercised;
+    they give four different values on the same graph.
+    """
+    d = fnx.DiGraph([(0, 1), (1, 2), (2, 0), (0, 2), (3, 0)])
+    nd = nx.DiGraph([(0, 1), (1, 2), (2, 0), (0, 2), (3, 0)])
+    assert _close(
+        fnx.degree_assortativity_coefficient(d, x=x, y=y),
+        nx.degree_assortativity_coefficient(nd, x=x, y=y),
+        1e-7,
+    )
+
+
+def test_the_four_directed_settings_are_distinct():
+    """Guards the test above: parity on four aliases of one value proves little."""
+    d = fnx.DiGraph([(0, 1), (1, 2), (2, 0), (0, 2), (3, 0)])
+    values = {
+        (x, y): round(fnx.degree_assortativity_coefficient(d, x=x, y=y), 9)
+        for x in ("out", "in")
+        for y in ("out", "in")
+    }
+    assert len(set(values.values())) == 4
+
+
+def test_weight_parameter_changes_both_coefficients():
+    """`weight` is untested, and parity alone could not see it being ignored."""
+    fg, ng = _weighted_pair()
+
+    weighted = fnx.degree_assortativity_coefficient(fg, weight="weight")
+    assert _close(weighted, nx.degree_assortativity_coefficient(ng, weight="weight"), 1e-7)
+    # ...and it is genuinely a different number from the unweighted coefficient.
+    assert not _close(weighted, fnx.degree_assortativity_coefficient(fg))
+
+    weighted_neighbours = fnx.average_neighbor_degree(fg, weight="weight")
+    assert {k: round(v, 9) for k, v in weighted_neighbours.items()} == {
+        k: round(v, 9) for k, v in nx.average_neighbor_degree(ng, weight="weight").items()
+    }
+    assert weighted_neighbours != fnx.average_neighbor_degree(fg)
+
+
+@pytest.mark.parametrize("seed", range(30))
+def test_average_neighbor_degree_nodes_subset(seed):
+    """The `nodes` parameter restricts the result and was never passed."""
+    fg, ng, _ = _attributed(seed)
+    subset = [0, 1]
+
+    restricted = fnx.average_neighbor_degree(fg, nodes=subset)
+    assert set(restricted) == set(subset)
+    assert {k: round(v, 9) for k, v in restricted.items()} == {
+        k: round(v, 9) for k, v in nx.average_neighbor_degree(ng, nodes=subset).items()
+    }
+    assert restricted != fnx.average_neighbor_degree(fg)
