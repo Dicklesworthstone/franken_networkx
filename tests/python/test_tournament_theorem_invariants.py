@@ -67,3 +67,49 @@ def test_reachability_consistency(seed):
         for s in range(n):
             for t in range(n):
                 assert fnx_tournament.is_reachable(g, s, t)
+
+
+@pytest.mark.parametrize("seed", range(60))
+def test_score_sequence_holds_the_actual_out_degrees(seed):
+    """Sorted, right length, right total — and none of that fixes the VALUES.
+
+    A score sequence is the sorted out-degrees. Moving one win from the top
+    score to the bottom keeps it sorted, keeps the length, and keeps the total
+    at C(n,2); such a different-but-passing sequence exists on 49 of these 60
+    draws. Comparing against the out-degrees pins the values themselves.
+    """
+    g, _ = _random_tournament(seed)
+    assert list(fnx_tournament.score_sequence(g)) == sorted(d for _, d in g.out_degree())
+
+
+def test_non_tournaments_are_rejected():
+    """is_tournament is only ever asked about graphs that ARE tournaments."""
+    # A pair with no arc between them.
+    missing = fnx.DiGraph([(0, 1), (1, 2)])
+    missing.add_nodes_from([0, 1, 2])
+    # A pair with arcs both ways.
+    both_ways = fnx.DiGraph([(0, 1), (1, 0), (1, 2), (0, 2)])
+
+    assert fnx_tournament.is_tournament(missing) is False
+    assert fnx_tournament.is_tournament(both_ways) is False
+    # ...and a real tournament still passes, so the predicate is not constant.
+    g, _ = _random_tournament(0)
+    assert fnx_tournament.is_tournament(g) is True
+
+
+@pytest.mark.parametrize("seed", range(40))
+def test_non_strongly_connected_tournaments_have_an_unreachable_pair(seed):
+    """The reachability test asserts only the strongly-connected direction.
+
+    Its `if is_strongly_connected` branch says nothing about the other case,
+    which is where is_reachable could wrongly return True for everything.
+    """
+    g, n = _random_tournament(seed)
+    if fnx_tournament.is_strongly_connected(g):
+        pytest.skip("strongly connected — covered by the sweep above")
+
+    assert any(
+        not fnx_tournament.is_reachable(g, a, b)
+        for a in range(n)
+        for b in range(n)
+    )
