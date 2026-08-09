@@ -1333,8 +1333,8 @@ impl Graph {
 
     pub fn add_edge(
         &mut self,
-        left: impl Into<String>,
-        right: impl Into<String>,
+        left: impl AsRef<str>,
+        right: impl AsRef<str>,
     ) -> Result<(), GraphError> {
         self.add_edge_with_attrs(left, right, AttrMap::new())
     }
@@ -1728,14 +1728,28 @@ impl Graph {
         );
     }
 
+    /// br-r37-c1-jc9e4: the endpoint keys are never owned by this function.
+    ///
+    /// This used to open with `let left = left.into(); let right =
+    /// right.into();`, then hand `left.clone()` / `right.clone()` to
+    /// autocreation — up to four owned `String`s per call, none of which this
+    /// function keeps. Every use below is a comparison, a map probe, or a
+    /// forward to `add_node_with_attrs_unrecorded`, and that callee now owns
+    /// the key only on the vacant path. So the keys stay borrowed here and the
+    /// single allocation an insert genuinely needs happens once, inside the
+    /// callee, exactly when a node is created.
+    ///
+    /// Comparison semantics are unchanged: `left == right` and `left <= right`
+    /// on `&str` are the same byte-wise comparisons `String` performed, so the
+    /// self-loop test and the `edge_index_endpoints` push order are identical.
     pub fn add_edge_with_attrs(
         &mut self,
-        left: impl Into<String>,
-        right: impl Into<String>,
+        left: impl AsRef<str>,
+        right: impl AsRef<str>,
         attrs: AttrMap,
     ) -> Result<(), GraphError> {
-        let left = left.into();
-        let right = right.into();
+        let left = left.as_ref();
+        let right = right.as_ref();
 
         let unknown_feature = attrs
             .keys()
@@ -1786,20 +1800,20 @@ impl Graph {
         // redundant record from this same function. A caller-visible
         // `add_node` still records — only this internal path is unrecorded.
         let mut left_autocreated = false;
-        if !self.nodes.contains_key(&left) {
-            let _ = self.add_node_with_attrs_unrecorded(left.clone(), AttrMap::new());
+        if !self.nodes.contains_key(left) {
+            let _ = self.add_node_with_attrs_unrecorded(left, AttrMap::new());
             left_autocreated = true;
         }
         let mut right_autocreated = false;
         if left == right {
             right_autocreated = left_autocreated;
-        } else if !self.nodes.contains_key(&right) {
-            let _ = self.add_node_with_attrs_unrecorded(right.clone(), AttrMap::new());
+        } else if !self.nodes.contains_key(right) {
+            let _ = self.add_node_with_attrs_unrecorded(right, AttrMap::new());
             right_autocreated = true;
         }
 
-        let left_key_idx = self.nodes.get_index_of(&left).expect("autocreated above");
-        let right_key_idx = self.nodes.get_index_of(&right).expect("autocreated above");
+        let left_key_idx = self.nodes.get_index_of(left).expect("autocreated above");
+        let right_key_idx = self.nodes.get_index_of(right).expect("autocreated above");
         let edge_key = Self::canon_pair(left_key_idx, right_key_idx);
         let self_loop = left == right;
         let new_edge = !self.edges.contains_key(&edge_key);

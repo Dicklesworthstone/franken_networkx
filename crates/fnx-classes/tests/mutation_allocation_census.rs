@@ -30,11 +30,14 @@
 //!     as the record's evidence `Vec`;
 //!   * arm 5 measured the owned endpoint key at 1 allocation. Probing the node
 //!     map borrowed and owning only on the vacant path removed it, and arm 5
-//!     now reads 0.
+//!     now reads 0;
+//!   * `add_edge` then dropped from 3 to 1 when its own preamble stopped
+//!     owning both endpoint keys.
 //!
-//! `add_node` on an existing node is therefore down to the evidence `Vec`
-//! alone. `add_edge` still owns both endpoint keys in its own preamble, which
-//! is the remaining 2 of its 3.
+//! Both mutators are now at exactly one allocation per steady-state call, and
+//! it is the same one: the decision record's evidence `Vec`. Removing it needs
+//! a change to `EvidenceLedger`'s shape, which was scoped and declined — see
+//! the bead. Until then this census is a floor, and its job is to keep it one.
 
 use fnx_classes::{AttrMap, Graph};
 use fnx_runtime::CgseValue;
@@ -186,9 +189,9 @@ fn mutation_entry_allocation_census() {
     // fails here even though the recorded VALUE would be unchanged and every
     // parity assertion would still pass.
     assert!(
-        (edge_noop - caller_attrs - 3.0).abs() < f64::EPSILON,
-        "add_edge entry allocated {:.3} per call excluding caller attrs, expected 3 \
-         (one owned key per endpoint plus the record's evidence Vec)",
+        (edge_noop - caller_attrs - 1.0).abs() < f64::EPSILON,
+        "add_edge entry allocated {:.3} per call excluding caller attrs, expected 1 \
+         (the record's evidence Vec; neither endpoint key is owned)",
         edge_noop - caller_attrs
     );
     assert!(
