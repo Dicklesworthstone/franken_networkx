@@ -11,6 +11,8 @@ Current native overrides:
 
 from __future__ import annotations
 
+from itertools import combinations as _combinations
+
 from networkx.algorithms.dag import *  # noqa: F401,F403
 import networkx.algorithms.dag as _nx_dag
 
@@ -60,8 +62,72 @@ def has_cycle(G, *, backend=None, **backend_kwargs):
     return _nx_dag.has_cycle(G, backend=backend, **backend_kwargs)
 
 
-colliders = _nx_dag.colliders
-v_structures = _nx_dag.v_structures
+# br-r37-c1-5fije: nx's colliders/v_structures call ``G.predecessors(node)``
+# once per node, so on an fnx graph they pay O(V) boundary crossings, each
+# re-materialising predecessor node-key PyObjects. Measured against live nx
+# 3.6.1 on a 2000-node DAG: 0.0710x and 0.0888x, both admissible. The algorithm
+# is identical — the graph interface is the whole gap.
+#
+# ``_native_predecessor_keys_bulk`` returns every node's predecessor row in ONE
+# crossing, in ``nodes_ordered()`` order with the z6uka per-cell display-key
+# override applied, i.e. exactly what ``G.nodes`` and ``pred[v][u]`` yield.
+#
+# A cheaper reconstruction from ``G.edges()`` was tried and FAILS PARITY: a
+# predecessor row is in the insertion order of the edges INTO that node, while
+# ``edges()`` walks the successor structure and emits grouped by source. Both
+# functions are generators whose tuple order is observable, so the rows must
+# come from the graph's own predecessor structure.
+def _bulk_predecessor_rows(G):
+    """[(node, [preds])] via one native crossing, or None if unavailable."""
+    bulk = getattr(G, "_native_predecessor_keys_bulk", None)
+    return None if bulk is None else bulk()
+
+
+def _colliders_fast(rows):
+    for node, parents in rows:
+        if len(parents) > 1:
+            for p1, p2 in _combinations(parents, 2):
+                yield (p1, node, p2)
+
+
+def _v_structures_fast(G, rows):
+    for node, parents in rows:
+        if len(parents) > 1:
+            for p1, p2 in _combinations(parents, 2):
+                if not (G.has_edge(p1, p2) or G.has_edge(p2, p1)):
+                    yield (p1, node, p2)
+
+
+# Deliberately NOT generator functions: nx raises NetworkXNotImplemented on
+# undirected input when the function is CALLED, and a ``yield`` in this body
+# would defer that to the first ``next()`` — an observable contract change. The
+# fallback is therefore returned eagerly, matching ``has_cycle`` above.
+def colliders(G, *, backend=None, **backend_kwargs):
+    """Yield the collider 3-tuples of ``G``.
+
+    See ``networkx.algorithms.dag.colliders``. Directed fnx graphs take a
+    single-crossing predecessor bulk; every other input falls back to NetworkX
+    verbatim, including backend dispatch and the undirected error contract.
+    """
+    if G.is_directed() and backend is None and not backend_kwargs:
+        rows = _bulk_predecessor_rows(G)
+        if rows is not None:
+            return _colliders_fast(rows)
+    return _nx_dag.colliders(G, backend=backend, **backend_kwargs)
+
+
+def v_structures(G, *, backend=None, **backend_kwargs):
+    """Yield the v-structure 3-tuples of ``G``.
+
+    See ``networkx.algorithms.dag.v_structures``. Same routing as
+    ``colliders``; the non-adjacency test stays on ``G.has_edge`` so the
+    contract is nx's exactly.
+    """
+    if G.is_directed() and backend is None and not backend_kwargs:
+        rows = _bulk_predecessor_rows(G)
+        if rows is not None:
+            return _v_structures_fast(G, rows)
+    return _nx_dag.v_structures(G, backend=backend, **backend_kwargs)
 
 # br-r37-c1-ukwgj: root_to_leaf_paths is dispatchable but absent from
 # dag.__all__, so the star import skips it.  Re-export for parity.

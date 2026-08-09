@@ -10925,6 +10925,46 @@ type DiAttrNodeBatch = (
 
 #[pymethods]
 impl PyDiGraph {
+    /// br-r37-c1-5fije: every node's predecessor row, in ONE crossing.
+    ///
+    /// The directed mirror of `PyMultiDiGraph::_native_predecessor_keys_bulk`.
+    /// `networkx.algorithms.dag.colliders` / `v_structures` call
+    /// `G.predecessors(node)` once per node, so on an fnx graph they pay O(V)
+    /// boundary crossings — measured against live nx 3.6.1 on a 2000-node DAG
+    /// at 0.0710x and 0.0888x, with the algorithm identical and the graph
+    /// interface the entire gap.
+    ///
+    /// ORDER IS THE CONTRACT. Both consumers are generators whose tuple order
+    /// is observable, and a predecessor row is in the insertion order of the
+    /// edges INTO that node — which is why it cannot be rebuilt from
+    /// `G.edges()` (that walks the successor structure and emits grouped by
+    /// source). This reads the rows the graph actually holds, in
+    /// `nodes_ordered()` order, applying the z6uka per-cell display-key
+    /// override exactly as `pred[v][u]` would.
+    fn _native_predecessor_keys_bulk(
+        &self,
+        py: Python<'_>,
+    ) -> PyResult<Vec<(PyObject, Vec<PyObject>)>> {
+        let nodes: Vec<String> = self
+            .inner
+            .nodes_ordered()
+            .into_iter()
+            .map(str::to_owned)
+            .collect();
+        let mut out: Vec<(PyObject, Vec<PyObject>)> = Vec::with_capacity(nodes.len());
+        for node in &nodes {
+            let preds: Vec<PyObject> = self
+                .inner
+                .predecessors(node)
+                .unwrap_or_default()
+                .into_iter()
+                .map(|p| self.py_pred_key(py, node, p))
+                .collect();
+            out.push((self.py_node_key(py, node), preds));
+        }
+        Ok(out)
+    }
+
     /// br-r37-c1-natdiffsimple-di: fully-native `difference(G, H)` for simple
     /// `DiGraph` (the directed sibling of `PyGraph::_native_difference`). Builds
     /// the result entirely in Rust in G's integer index space: H's directed edges
