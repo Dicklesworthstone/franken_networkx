@@ -84,3 +84,76 @@ def test_descendants_are_reachable_ancestors_symmetric():
     for u in range(n):
         for v in fnx.descendants(g, u):
             assert u in fnx.ancestors(g, v)
+
+
+def _relabelled_dag(seed):
+    """A DAG whose topological order is NOT its sorted-label order.
+
+    _random_dag only emits u -> v with u < v, so 0..n-1 is always a valid
+    topological order and the order check above cannot distinguish a real sort
+    from one that returns the nodes untouched. Shuffling the labels breaks that.
+    """
+    r = random.Random(seed + 5000)
+    n = r.randint(5, 10)
+    g = fnx.DiGraph()
+    g.add_nodes_from(range(n))
+    for u in range(n):
+        for v in range(u + 1, n):
+            if r.random() < 0.4:
+                g.add_edge(u, v)
+    permutation = list(range(n))
+    r.shuffle(permutation)
+    return fnx.relabel_nodes(g, {i: permutation[i] for i in range(n)}), n
+
+
+@pytest.mark.parametrize("seed", range(60))
+def test_topological_order_on_a_relabelled_dag(seed):
+    """The order check, on a family where the trivial answer is wrong."""
+    g, n = _relabelled_dag(seed)
+
+    order = list(fnx.topological_sort(g))
+    assert sorted(order) == sorted(g.nodes())      # a permutation of the nodes
+    position = {node: i for i, node in enumerate(order)}
+    for u, v in g.edges():
+        assert position[u] < position[v]
+
+
+def test_relabelled_family_defeats_the_trivial_order():
+    """Guards the test above: it is only stronger if sorted order is invalid."""
+    defeated = 0
+    for seed in range(60):
+        g, _ = _relabelled_dag(seed)
+        position = {node: i for i, node in enumerate(sorted(g.nodes()))}
+        if any(position[u] >= position[v] for u, v in g.edges()):
+            defeated += 1
+    # Measured 60/60; assert a floor so the family cannot drift back to one
+    # where returning the nodes in label order would pass.
+    assert defeated >= 45, f"sorted order is still valid on {60 - defeated} draws"
+
+
+@pytest.mark.parametrize(
+    "call",
+    [
+        lambda lib, g: lib.transitive_reduction(g),
+        lambda lib, g: list(lib.topological_sort(g)),
+        lambda lib, g: list(lib.topological_generations(g)),
+        lambda lib, g: lib.dag_longest_path_length(g),
+    ],
+    ids=["transitive_reduction", "topological_sort", "topological_generations", "longest_path"],
+)
+def test_cyclic_input_is_refused_like_networkx(call):
+    """Every function here is DAG-only; none of the refusals was exercised."""
+    cyclic = fnx.DiGraph([(0, 1), (1, 2), (2, 0)])
+    ncyclic = nx.DiGraph([(0, 1), (1, 2), (2, 0)])
+
+    def outcome(fn):
+        try:
+            fn()
+            return ("returned", None)
+        except Exception as exc:  # noqa: BLE001 - the type IS the assertion
+            return ("raised", type(exc).__name__)
+
+    got = outcome(lambda: call(fnx, cyclic))
+    want = outcome(lambda: call(nx, ncyclic))
+    assert want[0] == "raised", "networkx no longer refuses a cycle — retune the case"
+    assert got == want
