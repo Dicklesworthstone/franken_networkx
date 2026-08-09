@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import random
 
+import networkx as nx
 import pytest
 import franken_networkx as fnx
 
@@ -64,3 +65,50 @@ def test_bipartite_sets_are_valid_two_colouring(seed):
     # ...and no edge lies within a side (a valid 2-colouring).
     for u, v in g.edges():
         assert (u in left) != (v in left)
+
+
+def test_is_empty_is_exercised_in_both_directions():
+    """The random family is never edgeless: is_empty is False on all 50 draws.
+
+    `is_empty(g) == (E == 0)` is therefore `False == False` every time, and an
+    is_empty hardcoded to return False passes the whole sweep. These are the
+    True cases.
+    """
+    assert fnx.is_empty(fnx.Graph()) is True              # no nodes at all
+    assert fnx.is_empty(fnx.empty_graph(5)) is True       # nodes, no edges
+    assert fnx.is_empty(fnx.Graph([(0, 1)])) is False     # ...and one edge flips it
+
+
+def test_thin_predicates_have_deliberate_witnesses():
+    """is_tree is True on 4 of the 50 draws and is_regular on 2.
+
+    Both directions do occur, so the sweep is not vacuous — but the True side
+    rests on a handful of accidental draws. These pin it deliberately.
+    """
+    assert fnx.is_tree(fnx.path_graph(5)) is True
+    assert fnx.is_tree(fnx.cycle_graph(5)) is False
+    assert fnx.is_regular(fnx.cycle_graph(5)) is True     # 2-regular
+    assert fnx.is_regular(fnx.path_graph(5)) is False     # endpoints differ
+
+
+def test_bipartite_sets_refusals_match_networkx():
+    """What the sweep's skip discards on 44 of its 50 draws.
+
+    It skips both non-bipartite and disconnected inputs, and each has its own
+    refusal rather than a degraded answer.
+    """
+    # Disconnected: the bipartition is not unique, so it refuses to pick one.
+    disconnected = fnx.Graph([(0, 1), (2, 3)])
+    nx_disconnected = nx.Graph([(0, 1), (2, 3)])
+    with pytest.raises(fnx.AmbiguousSolution):
+        fnx.bipartite.sets(disconnected)
+    with pytest.raises(nx.AmbiguousSolution):
+        nx.bipartite.sets(nx_disconnected)
+
+    # Not bipartite at all: an odd cycle has no 2-colouring.
+    odd_cycle = fnx.cycle_graph(5)
+    assert fnx.is_bipartite(odd_cycle) is False
+    with pytest.raises(fnx.NetworkXError):
+        fnx.bipartite.sets(odd_cycle)
+    with pytest.raises(nx.NetworkXError):
+        nx.bipartite.sets(nx.cycle_graph(5))
