@@ -73,3 +73,57 @@ def test_fiedler_nonuniqueness_is_handled_on_degenerate_graph():
     v = np.asarray(fnx.fiedler_vector(g), dtype=float)
     vc = v - v.mean()
     assert abs((vc @ L @ vc) / (vc @ vc) - fnx.algebraic_connectivity(g)) < 1e-5
+
+
+def test_disconnected_contracts_are_not_uniform():
+    """What the sweep's skip discards — and the two functions disagree there.
+
+    On a disconnected graph lambda_2 is 0, so there is no meaningful Fiedler
+    direction: fiedler_vector refuses, while algebraic_connectivity simply
+    reports 0.0. Easy to assume a spectral pair behaves alike; it does not.
+    """
+    fg = fnx.Graph([(0, 1), (2, 3)])
+    ng = nx.Graph([(0, 1), (2, 3)])
+
+    with pytest.raises(fnx.NetworkXError):
+        fnx.fiedler_vector(fg)
+    with pytest.raises(nx.NetworkXError):
+        nx.fiedler_vector(ng)
+
+    assert fnx.algebraic_connectivity(fg) == 0.0
+    assert fnx.algebraic_connectivity(fg) == nx.algebraic_connectivity(ng)
+
+
+@pytest.mark.parametrize("method", ["tracemin_pcg", "tracemin_lu", "lanczos"])
+def test_eigensolver_methods_agree(method):
+    """Three different algorithms for one eigenvalue; none was ever selected.
+
+    They must agree with each other and with networkx — a cross-method check
+    that parity against a single default cannot provide.
+    """
+    fg = fnx.gnm_random_graph(9, 18, seed=4)
+    ng = nx.gnm_random_graph(9, 18, seed=4)
+
+    value = fnx.algebraic_connectivity(fg, method=method)
+    assert abs(value - nx.algebraic_connectivity(ng, method=method)) < 1e-6
+    # ...and the same number the default method produces.
+    assert abs(value - fnx.algebraic_connectivity(fg)) < 1e-6
+
+
+def test_normalized_and_weight_parameters_are_read():
+    """Both change the operator, and parity alone cannot see them ignored."""
+    fg = fnx.gnm_random_graph(9, 18, seed=4)
+    ng = nx.gnm_random_graph(9, 18, seed=4)
+
+    normalized = fnx.algebraic_connectivity(fg, normalized=True)
+    assert abs(normalized - nx.algebraic_connectivity(ng, normalized=True)) < 1e-6
+    assert abs(normalized - fnx.algebraic_connectivity(fg)) > 1e-9   # genuinely different
+
+    weighted_f, weighted_n = fnx.Graph(), nx.Graph()
+    for u, v, w in [(0, 1, 5), (1, 2, 1), (2, 3, 9), (3, 0, 1), (0, 2, 3)]:
+        weighted_f.add_edge(u, v, weight=w)
+        weighted_n.add_edge(u, v, weight=w)
+
+    weighted = fnx.algebraic_connectivity(weighted_f, weight="weight")
+    assert abs(weighted - nx.algebraic_connectivity(weighted_n, weight="weight")) < 1e-6
+    assert abs(weighted - fnx.algebraic_connectivity(weighted_f, weight=None)) > 1e-9
