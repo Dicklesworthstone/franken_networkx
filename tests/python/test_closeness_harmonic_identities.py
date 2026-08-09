@@ -7,7 +7,16 @@ path distances, so they cross-check all_pairs_shortest_path_length:
   - closeness(v) <= 1 (maximised when v is adjacent to every other node).
 Oracle-free, independent of networkx.
 
-No mocks: real fnx on connected graphs.
+"On a connected graph" is the interesting part of that sentence: the sweep below
+skips 10 of its 40 draws for being disconnected, and disconnectedness is exactly
+where these two functions stop agreeing with the simple formulas. Closeness then
+uses only the nodes REACHABLE from v, and by default scales by the fraction of
+the graph that is reachable (the Wasserman-Faust correction, wf_improved=True) —
+a parameter that makes no difference on a connected graph and so was never
+exercised. Harmonic needs no correction, since an unreachable node contributes
+1/inf = 0. All three are pinned below, still oracle-free.
+
+No mocks: real fnx.
 """
 
 from __future__ import annotations
@@ -41,6 +50,66 @@ def test_closeness_and_harmonic_from_distances(seed):
         expected_har = sum(1 / apsp[v][u] for u in g if u != v)
         assert abs(har[v] - expected_har) < 1e-6
         assert clo[v] <= 1 + 1e-9
+
+
+def _disconnected_seeds(limit=200):
+    """Seeds whose draw is disconnected, so the sweep below skips nothing.
+
+    Parametrising over range(limit) and skipping would report ~150 skips and
+    bury the 47 cases that actually run.
+    """
+    out = []
+    for seed in range(limit):
+        g, _ = _connected(seed)
+        if g.number_of_edges() and not fnx.is_connected(g):
+            out.append(seed)
+    return out
+
+
+DISCONNECTED_SEEDS = _disconnected_seeds()
+
+
+@pytest.mark.parametrize("seed", DISCONNECTED_SEEDS)
+def test_disconnected_uses_only_reachable_nodes(seed):
+    """The case the sweep above skips: closeness over the reachable set only.
+
+    closeness(v)     = (R / sum_reachable d) * (R / (n - 1))   [wf_improved=True]
+    closeness(v)     =  R / sum_reachable d                    [wf_improved=False]
+    harmonic(v)      = sum over REACHABLE of 1 / d             [unreachable -> 0]
+
+    where R is the number of nodes reachable from v, excluding v itself.
+    """
+    g, n = _connected(seed)
+    apsp = dict(fnx.all_pairs_shortest_path_length(g))
+    scaled = fnx.closeness_centrality(g)
+    unscaled = fnx.closeness_centrality(g, wf_improved=False)
+    har = fnx.harmonic_centrality(g)
+
+    for v in g:
+        reachable = {u: d for u, d in apsp[v].items() if u != v}
+        count = len(reachable)
+        if count == 0:                       # isolated node: nothing to be close to
+            assert scaled[v] == 0 and unscaled[v] == 0 and har[v] == 0
+            continue
+        total = sum(reachable.values())
+        assert abs(unscaled[v] - count / total) < 1e-9
+        assert abs(scaled[v] - (count / total) * (count / (n - 1))) < 1e-9
+        assert abs(har[v] - sum(1 / d for d in reachable.values())) < 1e-9
+        # The correction only ever shrinks the value, and matches when connected.
+        assert scaled[v] <= unscaled[v] + 1e-12
+
+
+def test_wf_correction_is_the_identity_on_connected_graphs():
+    """Guards the parameter's meaning: it is a no-op exactly when R == n-1."""
+    g = fnx.path_graph(6)
+    assert fnx.is_connected(g)
+    scaled = fnx.closeness_centrality(g)
+    unscaled = fnx.closeness_centrality(g, wf_improved=False)
+    assert all(abs(scaled[v] - unscaled[v]) < 1e-12 for v in g)
+
+    # ...and genuinely differs once the graph splits, so the guard is not vacuous.
+    h = fnx.Graph(); h.add_edges_from([(0, 1), (1, 2), (3, 4)])
+    assert fnx.closeness_centrality(h) != fnx.closeness_centrality(h, wf_improved=False)
 
 
 def test_star_center_has_maximal_closeness():
