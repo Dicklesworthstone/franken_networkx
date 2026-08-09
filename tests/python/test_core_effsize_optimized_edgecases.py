@@ -68,3 +68,44 @@ def test_effective_size_directed_and_weighted_paths():
     assert {k: round(v, 6) for k, v in fnx.effective_size(gw, weight="weight").items()} == (
         {k: round(v, 6) for k, v in nx.effective_size(ngw, weight="weight").items()}
     )
+
+
+def test_k_crust_and_k_corona_directed_parity():
+    """The comment above names k_crust; only k_core and k_shell are asserted.
+
+    Every member of the family reads core_number, so a directed core-number
+    regression could surface in the one member nothing checks.
+    """
+    r = random.Random(7)
+    n = 9
+    edges = [(u, v) for u in range(n) for v in range(n) if u != v and r.random() < 0.4]
+    fd, nd = fnx.DiGraph(edges), nx.DiGraph(edges)
+
+    assert sorted(fnx.k_crust(fd).nodes()) == sorted(nx.k_crust(nd).nodes())
+    assert sorted(fnx.k_corona(fd, 1).nodes()) == sorted(nx.k_corona(nd, 1).nodes())
+
+
+def test_multidigraph_is_rejected_like_multigraph():
+    """The multigraph branch is exercised for MultiGraph only.
+
+    A directed multigraph is a separate class and reaches the same guard.
+    """
+    with pytest.raises(nx.NetworkXNotImplemented):
+        fnx.core_number(fnx.MultiDiGraph([(0, 1), (0, 1)]))
+    with pytest.raises(nx.NetworkXNotImplemented):
+        nx.core_number(nx.MultiDiGraph([(0, 1), (0, 1)]))
+
+
+def test_effective_size_weight_is_actually_read():
+    """The weighted assertion above is parity-only.
+
+    If both libraries ignored `weight`, comparing them would still pass — so
+    the weighted result must also differ from the unweighted one.
+    """
+    gw = fnx.Graph()
+    for u, v, w in [(0, 1, 2), (1, 2, 3), (0, 2, 1)]:
+        gw.add_edge(u, v, weight=w)
+
+    weighted = fnx.effective_size(gw, weight="weight")
+    unweighted = fnx.effective_size(gw)
+    assert any(abs(weighted[k] - unweighted[k]) > 1e-9 for k in weighted)
