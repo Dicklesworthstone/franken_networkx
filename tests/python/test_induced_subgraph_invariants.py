@@ -123,8 +123,61 @@ def test_multigraph_subgraph_keeps_parallel_edges_and_keys():
     sub = m.subgraph({0, 1})
     assert sub.number_of_edges() == 2
     assert sorted(str(k) for _, _, k in sub.edges(keys=True)) == ["a", "b"]
-    # Attributes reachable per key. NOTE: `sub.edges[0, 1, "a"]` — the keyed
-    # subscript networkx supports on this same view — currently raises
-    # ValueError here; filed as its own bug rather than asserted around.
     assert sub.get_edge_data(0, 1, "a") == m.get_edge_data(0, 1, "a")
     assert dict(sub[0][1]) == dict(m[0][1])
+
+
+def test_multigraph_subgraph_view_is_keyed_like_networkx():
+    """Regression for br-r37-c1-j0oc5.
+
+    On a multigraph the KEY is part of an edge's identity, so the edge view is
+    subscripted by (u, v, key) and membership is keyed too. The filtered view
+    used to unpack every subscript into two names, which raised ValueError for
+    the well-formed 3-tuple and silently answered membership without the key.
+    """
+    m = fnx.MultiGraph()
+    m.add_edge(0, 1, key="a", weight=1)
+    m.add_edge(0, 1, key="b")
+    m.add_edge(1, 2)
+    sub = m.subgraph({0, 1})
+
+    ng = nx.MultiGraph()
+    ng.add_edge(0, 1, key="a", weight=1)
+    ng.add_edge(0, 1, key="b")
+    ng.add_edge(1, 2)
+    nsub = ng.subgraph({0, 1})
+
+    # The keyed subscript resolves, and agrees with networkx.
+    assert sub.edges[0, 1, "a"] == {"weight": 1}
+    assert sub.edges[0, 1, "a"] == nsub.edges[0, 1, "a"]
+    assert sub.edges[0, 1, "b"] == nsub.edges[0, 1, "b"]
+
+    # A bare pair is not an edge identity on a multigraph.
+    with pytest.raises(ValueError):
+        sub.edges[0, 1]
+    # An absent key is a KeyError, not an unpacking failure.
+    with pytest.raises(KeyError):
+        sub.edges[0, 1, "zz"]
+    with pytest.raises(KeyError):
+        sub.edges[0, 5, "a"]
+
+    # Membership is keyed, and matches networkx on all three forms.
+    assert ((0, 1, "a") in sub.edges) == ((0, 1, "a") in nsub.edges) is True
+    assert ((0, 1) in sub.edges) == ((0, 1) in nsub.edges) is False
+    assert ((0, 1, "zz") in sub.edges) == ((0, 1, "zz") in nsub.edges) is False
+
+
+def test_simple_graph_subgraph_view_subscript_is_unchanged():
+    """The multigraph split must not disturb the simple-graph path."""
+    g = fnx.Graph([(0, 1), (1, 2)])
+    sub = g.subgraph({0, 1})
+    ng = nx.Graph([(0, 1), (1, 2)])
+    nsub = ng.subgraph({0, 1})
+
+    assert sub.edges[0, 1] == nsub.edges[0, 1] == {}
+    with pytest.raises(ValueError):
+        sub.edges[0, 1, "x"]
+    with pytest.raises(KeyError):
+        sub.edges[0, 9]
+    assert ((0, 1) in sub.edges) == ((0, 1) in nsub.edges) is True
+    assert ((0, 9) in sub.edges) == ((0, 9) in nsub.edges) is False

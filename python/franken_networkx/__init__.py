@@ -42786,6 +42786,16 @@ class _FilteredEdgeView:
         return len(self())
 
     def __contains__(self, edge):
+        # br-r37-c1-j0oc5: on a multigraph view the KEY is part of the edge's
+        # identity, so nx's MultiEdgeView requires a 3-tuple and reports False
+        # for a bare (u, v) or a key that is not present. Ignoring the key here
+        # made `(u, v) in view` and `(u, v, bogus) in view` both report True.
+        if self._view.is_multigraph():
+            try:
+                u, v, key = edge
+            except (TypeError, ValueError):
+                return False
+            return self._view.has_edge(u, v, key)
         try:
             u, v = edge[:2]
         except (TypeError, ValueError):
@@ -42795,6 +42805,15 @@ class _FilteredEdgeView:
         return True
 
     def __getitem__(self, edge):
+        # br-r37-c1-j0oc5: same split. nx indexes a multigraph edge view by
+        # (u, v, key) and raises KeyError when that key is absent; the
+        # unconditional two-way unpack here raised ValueError for every
+        # multigraph subscript, including the well-formed one.
+        if self._view.is_multigraph():
+            u, v, key = edge
+            if not self._view.has_edge(u, v, key):
+                raise KeyError(key)
+            return self._view.adj[u][v][key]
         u, v = edge
         if not self._view.has_edge(u, v):
             raise KeyError(edge)
