@@ -28595,7 +28595,7 @@ mod tests {
         for edge_mask in 0usize..(1 << edges.len()) {
             let mut graph = MultiGraph::strict();
             for node in nodes {
-                let _ = graph.add_node(node.to_owned());
+                let _ = graph.add_node(node);
             }
             for (bit, &(left, right)) in edges.iter().enumerate() {
                 if edge_mask & (1 << bit) != 0 {
@@ -28617,7 +28617,7 @@ mod tests {
 
         let mut graph = MultiGraph::strict();
         for node in nodes {
-            let _ = graph.add_node(node.to_owned());
+            let _ = graph.add_node(node);
         }
         for _ in 0..3 {
             let _ = graph.add_edge("zeta".to_owned(), "alpha".to_owned());
@@ -28823,7 +28823,7 @@ mod tests {
             let mut multigraph = PyMultiGraph::new_empty_with_mode(py, CompatibilityMode::Strict)
                 .expect("multigraph should initialize");
             for node in ["zeta", "alpha", "mu"] {
-                let _ = multigraph.inner.add_node(node.to_owned());
+                let _ = multigraph.inner.add_node(node);
             }
             let multigraph = Py::new(py, multigraph).expect("multigraph should bind");
             assert_closeness_binding_matches_kernel(py, multigraph.bind(py).as_any());
@@ -28840,9 +28840,7 @@ mod tests {
             // A non-edgeless fixture proves the ordinary kernel route remains
             // byte-identical when the eventual fast-path predicate is false.
             let mut edge_graph = PyGraph::new_empty(py).expect("graph should initialize");
-            let _ = edge_graph
-                .inner
-                .add_edge("left".to_owned(), "right".to_owned());
+            let _ = edge_graph.inner.add_edge("left", "right");
             let edge_graph = Py::new(py, edge_graph).expect("graph should bind");
             assert_closeness_binding_matches_kernel(py, edge_graph.bind(py).as_any());
         });
@@ -28963,14 +28961,14 @@ mod tests {
             super::multigraph_is_connected_orig_string(&graph)
         );
 
-        let _ = graph.add_node("solo".to_owned());
+        let _ = graph.add_node("solo");
         assert_eq!(
             super::multigraph_is_connected(&graph),
             super::multigraph_is_connected_orig_string(&graph)
         );
 
         for node in ["alpha", "mu", "theta"] {
-            let _ = graph.add_node(node.to_owned());
+            let _ = graph.add_node(node);
         }
         let _ = graph.add_edge("solo".to_owned(), "alpha".to_owned());
         let _ = graph.add_edge("solo".to_owned(), "alpha".to_owned());
@@ -29110,7 +29108,7 @@ mod tests {
         );
 
         for node in ["zeta", "alpha", "mu", "theta", "xi"] {
-            let _ = graph.add_node(node.to_owned());
+            let _ = graph.add_node(node);
         }
         let _ = graph.add_edge("zeta".to_owned(), "alpha".to_owned());
         let _ = graph.add_edge("zeta".to_owned(), "alpha".to_owned());
@@ -29140,7 +29138,7 @@ mod tests {
         );
 
         for node in ["zeta", "alpha", "mu", "theta", "xi"] {
-            let _ = graph.add_node(node.to_owned());
+            let _ = graph.add_node(node);
         }
         let _ = graph.add_edge("zeta".to_owned(), "alpha".to_owned());
         let _ = graph.add_edge("zeta".to_owned(), "alpha".to_owned());
@@ -29282,7 +29280,7 @@ mod tests {
         );
 
         let mut single = MultiGraph::strict();
-        let _ = single.add_node("solo".to_owned());
+        let _ = single.add_node("solo");
         assert_eq!(
             super::multigraph_is_biconnected(&single),
             super::multigraph_is_biconnected_orig_buildindex(&single)
@@ -29291,7 +29289,7 @@ mod tests {
         // Biconnected square cycle a-b-c-d-a (no cut vertex).
         let mut cycle = MultiGraph::strict();
         for node in ["a", "b", "c", "d"] {
-            let _ = cycle.add_node(node.to_owned());
+            let _ = cycle.add_node(node);
         }
         for (u, v) in [("a", "b"), ("b", "c"), ("c", "d"), ("d", "a")] {
             let _ = cycle.add_edge(u.to_owned(), v.to_owned());
@@ -29303,7 +29301,7 @@ mod tests {
         assert!(super::multigraph_is_biconnected(&cycle));
 
         // Parallel edges + a self-loop must not change the vertex invariant.
-        let _ = cycle.add_edge("a".to_owned(), "b".to_owned());
+        let _ = cycle.add_edge("a", "b");
         let _ = cycle.add_edge("c".to_owned(), "c".to_owned());
         assert_eq!(
             super::multigraph_is_biconnected(&cycle),
@@ -29311,7 +29309,7 @@ mod tests {
         );
 
         // Add a pendant tail e off d → cut vertex d → not biconnected.
-        let _ = cycle.add_node("e".to_owned());
+        let _ = cycle.add_node("e");
         let _ = cycle.add_edge("d".to_owned(), "e".to_owned());
         assert_eq!(
             super::multigraph_is_biconnected(&cycle),
@@ -29442,7 +29440,7 @@ mod tests {
         );
 
         let mut single = MultiGraph::strict();
-        let _ = single.add_node("solo".to_owned());
+        let _ = single.add_node("solo");
         assert_eq!(
             super::multigraph_articulation_points(&single),
             super::multigraph_articulation_points_orig_buildindex(&single)
@@ -29451,10 +29449,10 @@ mod tests {
         // Path a-b-c-d: b and c are cut vertices (discovery order matters).
         let mut path = MultiGraph::strict();
         for node in ["a", "b", "c", "d"] {
-            let _ = path.add_node(node.to_owned());
+            let _ = path.add_node(node);
         }
         for (u, v) in [("a", "b"), ("b", "c"), ("c", "d")] {
-            let _ = path.add_edge(u.to_owned(), v.to_owned());
+            let _ = path.add_edge(u, v);
         }
         assert_eq!(
             super::multigraph_articulation_points(&path),
@@ -29463,7 +29461,7 @@ mod tests {
         assert_eq!(super::multigraph_articulation_points(&path), vec!["c", "b"]);
 
         // Parallel edges + a self-loop must not change the vertex invariant.
-        let _ = path.add_edge("b".to_owned(), "c".to_owned());
+        let _ = path.add_edge("b", "c");
         let _ = path.add_edge("a".to_owned(), "a".to_owned());
         assert_eq!(
             super::multigraph_articulation_points(&path),
@@ -29473,7 +29471,7 @@ mod tests {
         // Two components with a shared cut-vertex shape + an isolated node.
         let mut multi = MultiGraph::strict();
         for node in ["p", "q", "r", "s", "t", "iso"] {
-            let _ = multi.add_node(node.to_owned());
+            let _ = multi.add_node(node);
         }
         for (u, v) in [("p", "q"), ("q", "r"), ("s", "t")] {
             let _ = multi.add_edge(u.to_owned(), v.to_owned());
@@ -29628,21 +29626,21 @@ mod tests {
         assert_parity(&MultiGraph::strict());
 
         let mut single = MultiGraph::strict();
-        let _ = single.add_node("solo".to_owned());
+        let _ = single.add_node("solo");
         assert_parity(&single);
 
         // Path a-b-c-d: three biconnected components (each edge) sharing cut vertices.
         let mut path = MultiGraph::strict();
         for node in ["a", "b", "c", "d"] {
-            let _ = path.add_node(node.to_owned());
+            let _ = path.add_node(node);
         }
         for (u, v) in [("a", "b"), ("b", "c"), ("c", "d")] {
-            let _ = path.add_edge(u.to_owned(), v.to_owned());
+            let _ = path.add_edge(u, v);
         }
         assert_parity(&path);
 
         // Parallel edges + self-loop must not change the vertex-level partition.
-        let _ = path.add_edge("b".to_owned(), "c".to_owned());
+        let _ = path.add_edge("b", "c");
         let _ = path.add_edge("a".to_owned(), "a".to_owned());
         assert_parity(&path);
 
@@ -29650,10 +29648,10 @@ mod tests {
         // + an isolated node, then a read-mutate-read closing the tail.
         let mut cyc = MultiGraph::strict();
         for node in ["p", "q", "r", "s", "iso"] {
-            let _ = cyc.add_node(node.to_owned());
+            let _ = cyc.add_node(node);
         }
         for (u, v) in [("p", "q"), ("q", "r"), ("r", "p"), ("r", "s")] {
-            let _ = cyc.add_edge(u.to_owned(), v.to_owned());
+            let _ = cyc.add_edge(u, v);
         }
         assert_parity(&cyc);
         let _ = cyc.add_edge("s".to_owned(), "p".to_owned());
@@ -29809,20 +29807,20 @@ mod tests {
         // Path a-b-c-d + parallel edge + self-loop.
         let mut path = MultiGraph::strict();
         for node in ["a", "b", "c", "d"] {
-            let _ = path.add_node(node.to_owned());
+            let _ = path.add_node(node);
         }
         for (u, v) in [("a", "b"), ("b", "c"), ("c", "d")] {
-            let _ = path.add_edge(u.to_owned(), v.to_owned());
+            let _ = path.add_edge(u, v);
         }
         assert_parity(&path);
-        let _ = path.add_edge("b".to_owned(), "c".to_owned());
+        let _ = path.add_edge("b", "c");
         let _ = path.add_edge("a".to_owned(), "a".to_owned());
         assert_parity(&path);
 
         // Two components + isolated node, then read-mutate-read joining them.
         let mut multi = MultiGraph::strict();
         for node in ["p", "q", "r", "s", "t", "iso"] {
-            let _ = multi.add_node(node.to_owned());
+            let _ = multi.add_node(node);
         }
         for (u, v) in [("p", "q"), ("q", "r"), ("r", "p"), ("s", "t")] {
             let _ = multi.add_edge(u.to_owned(), v.to_owned());
@@ -29978,20 +29976,20 @@ mod tests {
         // Path a-b-c-d + parallel edge + self-loop.
         let mut path = MultiGraph::strict();
         for node in ["a", "b", "c", "d"] {
-            let _ = path.add_node(node.to_owned());
+            let _ = path.add_node(node);
         }
         for (u, v) in [("a", "b"), ("b", "c"), ("c", "d")] {
-            let _ = path.add_edge(u.to_owned(), v.to_owned());
+            let _ = path.add_edge(u, v);
         }
         assert_parity(&path);
-        let _ = path.add_edge("b".to_owned(), "c".to_owned());
+        let _ = path.add_edge("b", "c");
         let _ = path.add_edge("a".to_owned(), "a".to_owned());
         assert_parity(&path);
 
         // Two components + isolated node, then read-mutate-read joining them.
         let mut multi = MultiGraph::strict();
         for node in ["p", "q", "r", "s", "t", "iso"] {
-            let _ = multi.add_node(node.to_owned());
+            let _ = multi.add_node(node);
         }
         for (u, v) in [("p", "q"), ("q", "r"), ("r", "p"), ("s", "t")] {
             let _ = multi.add_edge(u.to_owned(), v.to_owned());
@@ -30161,13 +30159,13 @@ mod tests {
             let _ = dg.add_node(node.to_owned());
         }
         for (u, v) in [("a", "b"), ("b", "c"), ("c", "d"), ("b", "e")] {
-            let _ = dg.add_edge(u.to_owned(), v.to_owned());
+            let _ = dg.add_edge(u, v);
         }
         assert_parity(&dg);
 
         // Directed cycle a->b->c->a + parallel edge + self-loop.
         let _ = dg.add_edge("d".to_owned(), "a".to_owned());
-        let _ = dg.add_edge("a".to_owned(), "b".to_owned());
+        let _ = dg.add_edge("a", "b");
         let _ = dg.add_edge("c".to_owned(), "c".to_owned());
         assert_parity(&dg);
 
@@ -30175,7 +30173,7 @@ mod tests {
         // bridging edge exercising CSR revision invalidation between reads.
         let mut multi = MultiDiGraph::strict();
         for node in ["p", "q", "r", "s", "t", "iso"] {
-            let _ = multi.add_node(node.to_owned());
+            let _ = multi.add_node(node);
         }
         for (u, v) in [("p", "q"), ("q", "r"), ("s", "t")] {
             let _ = multi.add_edge(u.to_owned(), v.to_owned());
@@ -30316,9 +30314,9 @@ mod tests {
         assert_parity(&MultiDiGraph::strict(), true);
 
         let mut single = MultiDiGraph::strict();
-        let _ = single.add_node("solo".to_owned());
+        let _ = single.add_node("solo");
         assert_parity(&single, true);
-        let _ = single.add_edge("solo".to_owned(), "solo".to_owned());
+        let _ = single.add_edge("solo", "solo");
         assert_parity(&single, false); // self-loop is a cycle
 
         // DAG a->b->c with a shortcut a->c and a branch b->d.
@@ -30331,7 +30329,7 @@ mod tests {
         }
         assert_parity(&dag, true);
         // Parallel edge must not change acyclicity.
-        let _ = dag.add_edge("a".to_owned(), "b".to_owned());
+        let _ = dag.add_edge("a", "b");
         assert_parity(&dag, true);
         // Read-mutate-read: add a back edge c->a forming a cycle (CSR revision bump).
         let _ = dag.add_edge("c".to_owned(), "a".to_owned());
@@ -30340,7 +30338,7 @@ mod tests {
         // Two disconnected DAG pieces + an isolated node.
         let mut multi = MultiDiGraph::strict();
         for node in ["p", "q", "r", "s", "t", "iso"] {
-            let _ = multi.add_node(node.to_owned());
+            let _ = multi.add_node(node);
         }
         for (u, v) in [("p", "q"), ("q", "r"), ("s", "t")] {
             let _ = multi.add_edge(u.to_owned(), v.to_owned());
@@ -30469,27 +30467,27 @@ mod tests {
         assert_parity(&MultiDiGraph::strict(), true); // empty is vacuously SC
 
         let mut single = MultiDiGraph::strict();
-        let _ = single.add_node("solo".to_owned());
+        let _ = single.add_node("solo");
         assert_parity(&single, true);
-        let _ = single.add_edge("solo".to_owned(), "solo".to_owned());
+        let _ = single.add_edge("solo", "solo");
         assert_parity(&single, true); // one node stays SC with a self-loop
 
         // Directed cycle a->b->c->a is strongly connected.
         let mut cyc = MultiDiGraph::strict();
         for node in ["a", "b", "c"] {
-            let _ = cyc.add_node(node.to_owned());
+            let _ = cyc.add_node(node);
         }
         for (u, v) in [("a", "b"), ("b", "c"), ("c", "a")] {
-            let _ = cyc.add_edge(u.to_owned(), v.to_owned());
+            let _ = cyc.add_edge(u, v);
         }
         assert_parity(&cyc, true);
         // Parallel edge + self-loop keep it SC.
-        let _ = cyc.add_edge("a".to_owned(), "b".to_owned());
+        let _ = cyc.add_edge("a", "b");
         let _ = cyc.add_edge("b".to_owned(), "b".to_owned());
         assert_parity(&cyc, true);
         // Read-mutate-read: add an isolated sink node d, breaking SC.
         let _ = cyc.add_node("d".to_owned());
-        let _ = cyc.add_edge("c".to_owned(), "d".to_owned());
+        let _ = cyc.add_edge("c", "d");
         assert_parity(&cyc, false);
 
         // Two separate directed cycles (two SCCs) → not strongly connected.
@@ -30505,10 +30503,10 @@ mod tests {
         // Directed path a->b->c (weakly but not strongly connected).
         let mut path = MultiDiGraph::strict();
         for node in ["x", "y", "z"] {
-            let _ = path.add_node(node.to_owned());
+            let _ = path.add_node(node);
         }
         for (u, v) in [("x", "y"), ("y", "z")] {
-            let _ = path.add_edge(u.to_owned(), v.to_owned());
+            let _ = path.add_edge(u, v);
         }
         assert_parity(&path, false);
     }
@@ -30635,43 +30633,43 @@ mod tests {
         assert_parity(&MultiDiGraph::strict(), 0);
 
         let mut single = MultiDiGraph::strict();
-        let _ = single.add_node("solo".to_owned());
+        let _ = single.add_node("solo");
         assert_parity(&single, 1);
-        let _ = single.add_edge("solo".to_owned(), "solo".to_owned());
+        let _ = single.add_edge("solo", "solo");
         assert_parity(&single, 1); // self-loop stays one SCC
 
         // Directed cycle a->b->c->a is a single SCC.
         let mut cyc = MultiDiGraph::strict();
         for node in ["a", "b", "c"] {
-            let _ = cyc.add_node(node.to_owned());
+            let _ = cyc.add_node(node);
         }
         for (u, v) in [("a", "b"), ("b", "c"), ("c", "a")] {
-            let _ = cyc.add_edge(u.to_owned(), v.to_owned());
+            let _ = cyc.add_edge(u, v);
         }
         assert_parity(&cyc, 1);
         // Parallel edge + self-loop don't change the count.
-        let _ = cyc.add_edge("a".to_owned(), "b".to_owned());
+        let _ = cyc.add_edge("a", "b");
         let _ = cyc.add_edge("b".to_owned(), "b".to_owned());
         assert_parity(&cyc, 1);
         // Read-mutate-read: append a sink d (own SCC) → 2 SCCs.
         let _ = cyc.add_node("d".to_owned());
-        let _ = cyc.add_edge("c".to_owned(), "d".to_owned());
+        let _ = cyc.add_edge("c", "d");
         assert_parity(&cyc, 2);
 
         // Directed path x->y->z: three singleton SCCs.
         let mut path = MultiDiGraph::strict();
         for node in ["x", "y", "z"] {
-            let _ = path.add_node(node.to_owned());
+            let _ = path.add_node(node);
         }
         for (u, v) in [("x", "y"), ("y", "z")] {
-            let _ = path.add_edge(u.to_owned(), v.to_owned());
+            let _ = path.add_edge(u, v);
         }
         assert_parity(&path, 3);
 
         // Two disjoint 2-cycles + an isolated node: 3 SCCs.
         let mut multi = MultiDiGraph::strict();
         for node in ["p", "q", "r", "s", "iso"] {
-            let _ = multi.add_node(node.to_owned());
+            let _ = multi.add_node(node);
         }
         for (u, v) in [("p", "q"), ("q", "p"), ("r", "s"), ("s", "r")] {
             let _ = multi.add_edge(u.to_owned(), v.to_owned());
@@ -30801,7 +30799,7 @@ mod tests {
         assert_parity(&MultiDiGraph::strict(), Some(vec![]));
 
         let mut single = MultiDiGraph::strict();
-        let _ = single.add_node("solo".to_owned());
+        let _ = single.add_node("solo");
         assert_parity(&single, Some(vec!["solo"]));
 
         // Diamond DAG a->b, a->c, b->d, c->d: generation order a | b,c | d.
@@ -30814,7 +30812,7 @@ mod tests {
         }
         assert_parity(&dag, Some(vec!["a", "b", "c", "d"]));
         // Parallel edge must not change the order (distinct-successor invariant).
-        let _ = dag.add_edge("a".to_owned(), "b".to_owned());
+        let _ = dag.add_edge("a", "b");
         assert_parity(&dag, Some(vec!["a", "b", "c", "d"]));
         // Read-mutate-read: add back edge d->a forming a cycle → None.
         let _ = dag.add_edge("d".to_owned(), "a".to_owned());
@@ -30829,7 +30827,7 @@ mod tests {
         // Multi-source DAG + isolated node: roots first (index order), then descendants.
         let mut multi = MultiDiGraph::strict();
         for node in ["r1", "r2", "m", "leaf", "iso"] {
-            let _ = multi.add_node(node.to_owned());
+            let _ = multi.add_node(node);
         }
         for (u, v) in [("r1", "m"), ("r2", "m"), ("m", "leaf")] {
             let _ = multi.add_edge(u.to_owned(), v.to_owned());
@@ -30967,30 +30965,30 @@ mod tests {
         assert!(assert_parity(&MultiDiGraph::strict()).is_empty());
 
         let mut single = MultiDiGraph::strict();
-        let _ = single.add_node("solo".to_owned());
+        let _ = single.add_node("solo");
         assert_eq!(assert_parity(&single), vec![vec!["solo".to_owned()]]);
-        let _ = single.add_edge("solo".to_owned(), "solo".to_owned());
+        let _ = single.add_edge("solo", "solo");
         assert_eq!(assert_parity(&single), vec![vec!["solo".to_owned()]]);
 
         // Strongly-connected cycle a->b->c->a: one component (single-SCC fast path).
         let mut cyc = MultiDiGraph::strict();
         for node in ["a", "b", "c"] {
-            let _ = cyc.add_node(node.to_owned());
+            let _ = cyc.add_node(node);
         }
         for (u, v) in [("a", "b"), ("b", "c"), ("c", "a")] {
-            let _ = cyc.add_edge(u.to_owned(), v.to_owned());
+            let _ = cyc.add_edge(u, v);
         }
         assert_eq!(
             assert_parity(&cyc),
             vec![vec!["a".to_owned(), "b".to_owned(), "c".to_owned()]]
         );
         // Parallel edge + self-loop keep the single component.
-        let _ = cyc.add_edge("a".to_owned(), "b".to_owned());
+        let _ = cyc.add_edge("a", "b");
         let _ = cyc.add_edge("b".to_owned(), "b".to_owned());
         assert_parity(&cyc);
         // Read-mutate-read: append sink d → two components (order asserted via parity).
         let _ = cyc.add_node("d".to_owned());
-        let _ = cyc.add_edge("c".to_owned(), "d".to_owned());
+        let _ = cyc.add_edge("c", "d");
         let two = assert_parity(&cyc);
         assert_eq!(two.len(), 2, "cycle + sink → 2 SCCs");
 
@@ -30998,7 +30996,7 @@ mod tests {
         // several components — parity is the contract here.
         let mut multi = MultiDiGraph::strict();
         for node in ["p", "q", "r", "s", "t", "u", "iso"] {
-            let _ = multi.add_node(node.to_owned());
+            let _ = multi.add_node(node);
         }
         for (a, b) in [
             ("p", "q"),
@@ -31008,7 +31006,7 @@ mod tests {
             ("t", "u"),
             ("u", "t"),
         ] {
-            let _ = multi.add_edge(a.to_owned(), b.to_owned());
+            let _ = multi.add_edge(a, b);
         }
         assert_parity(&multi);
     }
@@ -31143,18 +31141,18 @@ mod tests {
         assert!(assert_parity(&DiGraph::strict()).is_empty());
 
         let mut single = DiGraph::strict();
-        let _ = single.add_node("solo".to_owned());
+        let _ = single.add_node("solo");
         assert_eq!(assert_parity(&single), vec![vec!["solo".to_owned()]]);
-        let _ = single.add_edge("solo".to_owned(), "solo".to_owned());
+        let _ = single.add_edge("solo", "solo");
         assert_eq!(assert_parity(&single), vec![vec!["solo".to_owned()]]);
 
         // Strongly-connected cycle a->b->c->a: one component (single-SCC fast path).
         let mut cyc = DiGraph::strict();
         for node in ["a", "b", "c"] {
-            let _ = cyc.add_node(node.to_owned());
+            let _ = cyc.add_node(node);
         }
         for (u, v) in [("a", "b"), ("b", "c"), ("c", "a")] {
-            let _ = cyc.add_edge(u.to_owned(), v.to_owned());
+            let _ = cyc.add_edge(u, v);
         }
         assert_eq!(
             assert_parity(&cyc),
@@ -31162,16 +31160,16 @@ mod tests {
         );
         // Read-mutate-read: append sink d → two components.
         let _ = cyc.add_node("d".to_owned());
-        let _ = cyc.add_edge("c".to_owned(), "d".to_owned());
+        let _ = cyc.add_edge("c", "d");
         assert_eq!(assert_parity(&cyc).len(), 2, "cycle + sink → 2 SCCs");
 
         // Directed path x->y->z: three singleton SCCs.
         let mut path = DiGraph::strict();
         for node in ["x", "y", "z"] {
-            let _ = path.add_node(node.to_owned());
+            let _ = path.add_node(node);
         }
         for (u, v) in [("x", "y"), ("y", "z")] {
-            let _ = path.add_edge(u.to_owned(), v.to_owned());
+            let _ = path.add_edge(u, v);
         }
         assert_eq!(assert_parity(&path).len(), 3);
 
@@ -31179,7 +31177,7 @@ mod tests {
         // contract.
         let mut multi = DiGraph::strict();
         for node in ["p", "q", "r", "s", "t", "u", "iso"] {
-            let _ = multi.add_node(node.to_owned());
+            let _ = multi.add_node(node);
         }
         for (a, b) in [
             ("p", "q"),
@@ -31189,7 +31187,7 @@ mod tests {
             ("t", "u"),
             ("u", "t"),
         ] {
-            let _ = multi.add_edge(a.to_owned(), b.to_owned());
+            let _ = multi.add_edge(a, b);
         }
         assert_parity(&multi);
     }
@@ -31344,16 +31342,16 @@ mod tests {
             let _ = g.add_node(node.to_owned());
         }
         for (u, v) in [("a", "b"), ("b", "c"), ("c", "d"), ("d", "a")] {
-            let _ = g.add_edge(u.to_owned(), v.to_owned());
+            let _ = g.add_edge(u, v);
         }
-        let _ = g.add_edge("a".to_owned(), "a".to_owned()); // self-loop
+        let _ = g.add_edge("a", "a"); // self-loop
         let nodes = g.nodes_ordered();
         assert_eq!(
             super::graph_shortest_path_adjacency_indices(&g, &nodes),
             inline_graph(&g, &nodes)
         );
         // Read-mutate-read.
-        let _ = g.add_edge("iso".to_owned(), "c".to_owned());
+        let _ = g.add_edge("iso", "c");
         let nodes = g.nodes_ordered();
         assert_eq!(
             super::graph_shortest_path_adjacency_indices(&g, &nodes),
@@ -31366,9 +31364,9 @@ mod tests {
             let _ = dg.add_node(node.to_owned());
         }
         for (u, v) in [("p", "q"), ("q", "r"), ("r", "p"), ("q", "s")] {
-            let _ = dg.add_edge(u.to_owned(), v.to_owned());
+            let _ = dg.add_edge(u, v);
         }
-        let _ = dg.add_edge("s".to_owned(), "s".to_owned());
+        let _ = dg.add_edge("s", "s");
         let dnodes = dg.nodes_ordered();
         assert_eq!(
             super::digraph_shortest_path_adjacency_indices(&dg, &dnodes),
@@ -31495,7 +31493,7 @@ mod tests {
         for node in ["a", "b", "c", "d"] {
             let _ = g.add_node(node.to_owned());
         }
-        let _ = g.add_edge("a".to_owned(), "b".to_owned());
+        let _ = g.add_edge("a", "b");
         assert_eq!(g.node_count(), g.nodes_ordered().len());
         assert_eq!(g.node_count() == 0, g.nodes_ordered().is_empty());
         let _ = g.remove_node("b");
@@ -31605,9 +31603,9 @@ mod tests {
         assert_parity(&DiGraph::strict());
 
         let mut single = DiGraph::strict();
-        let _ = single.add_node("solo".to_owned());
+        let _ = single.add_node("solo");
         assert_parity(&single); // no non-edges (u==v excluded)
-        let _ = single.add_edge("solo".to_owned(), "solo".to_owned()); // self-loop irrelevant
+        let _ = single.add_edge("solo", "solo"); // self-loop irrelevant
         assert_parity(&single);
 
         // Mixed: some edges, a self-loop, a fully-connected pair, isolated node.
@@ -31616,11 +31614,11 @@ mod tests {
             let _ = dg.add_node(node.to_owned());
         }
         for (u, v) in [("a", "b"), ("b", "c"), ("c", "a"), ("a", "c"), ("d", "d")] {
-            let _ = dg.add_edge(u.to_owned(), v.to_owned());
+            let _ = dg.add_edge(u, v);
         }
         assert_parity(&dg);
         // Read-mutate-read.
-        let _ = dg.add_edge("iso".to_owned(), "a".to_owned());
+        let _ = dg.add_edge("iso", "a");
         assert_parity(&dg);
     }
 
@@ -31728,9 +31726,9 @@ mod tests {
         assert_parity(&Graph::strict());
 
         let mut single = Graph::strict();
-        let _ = single.add_node("solo".to_owned());
+        let _ = single.add_node("solo");
         assert_parity(&single);
-        let _ = single.add_edge("solo".to_owned(), "solo".to_owned()); // self-loop irrelevant
+        let _ = single.add_edge("solo", "solo"); // self-loop irrelevant
         assert_parity(&single);
 
         // Mixed: path + a triangle + isolated node + a self-loop.
@@ -31739,11 +31737,11 @@ mod tests {
             let _ = g.add_node(node.to_owned());
         }
         for (u, v) in [("a", "b"), ("b", "c"), ("c", "a"), ("c", "d"), ("d", "d")] {
-            let _ = g.add_edge(u.to_owned(), v.to_owned());
+            let _ = g.add_edge(u, v);
         }
         assert_parity(&g);
         // Read-mutate-read.
-        let _ = g.add_edge("iso".to_owned(), "e".to_owned());
+        let _ = g.add_edge("iso", "e");
         assert_parity(&g);
     }
 
@@ -31844,7 +31842,7 @@ mod tests {
         );
 
         for node in ["zeta", "alpha", "mu", "theta", "xi"] {
-            let _ = graph.add_node(node.to_owned());
+            let _ = graph.add_node(node);
         }
         let _ = graph.add_edge("zeta".to_owned(), "alpha".to_owned());
         let _ = graph.add_edge("zeta".to_owned(), "alpha".to_owned());
@@ -32582,15 +32580,15 @@ mod tests {
             };
             graph
                 .inner
-                .add_edge_with_attrs("a".to_owned(), "b".to_owned(), weighted_edge(100.0))
+                .add_edge_with_attrs("a", "b", weighted_edge(100.0))
                 .expect("edge should add");
             graph
                 .inner
-                .add_edge_with_attrs("a".to_owned(), "c".to_owned(), weighted_edge(1.0))
+                .add_edge_with_attrs("a", "c", weighted_edge(1.0))
                 .expect("edge should add");
             graph
                 .inner
-                .add_edge_with_attrs("c".to_owned(), "b".to_owned(), weighted_edge(1.0))
+                .add_edge_with_attrs("c", "b", weighted_edge(1.0))
                 .expect("edge should add");
 
             let live_attrs = PyDict::new(py);
@@ -32622,15 +32620,15 @@ mod tests {
             };
             graph
                 .inner
-                .add_edge_with_attrs("a".to_owned(), "b".to_owned(), weighted_edge(100.0))
+                .add_edge_with_attrs("a", "b", weighted_edge(100.0))
                 .expect("edge should add");
             graph
                 .inner
-                .add_edge_with_attrs("a".to_owned(), "c".to_owned(), weighted_edge(1.0))
+                .add_edge_with_attrs("a", "c", weighted_edge(1.0))
                 .expect("edge should add");
             graph
                 .inner
-                .add_edge_with_attrs("c".to_owned(), "b".to_owned(), weighted_edge(1.0))
+                .add_edge_with_attrs("c", "b", weighted_edge(1.0))
                 .expect("edge should add");
 
             let live_attrs = PyDict::new(py);
@@ -32661,7 +32659,7 @@ mod tests {
             attrs.insert("weight".to_owned(), 1.0.into());
             graph
                 .inner
-                .add_edge_with_attrs("a".to_owned(), "b".to_owned(), attrs)
+                .add_edge_with_attrs("a", "b", attrs)
                 .expect("edge should add");
             let expected_policy = graph.inner.runtime_policy().clone();
 
@@ -32742,14 +32740,8 @@ mod tests {
 
             let mut graph = PyGraph::new_empty(py).expect("graph should initialize");
             graph.inner = fnx_classes::Graph::new(CompatibilityMode::Hardened);
-            graph
-                .inner
-                .add_edge("a".to_owned(), "b".to_owned())
-                .expect("edge should add");
-            graph
-                .inner
-                .add_edge("b".to_owned(), "c".to_owned())
-                .expect("edge should add");
+            graph.inner.add_edge("a", "b").expect("edge should add");
+            graph.inner.add_edge("b", "c").expect("edge should add");
             let expected_graph_policy = graph.inner.runtime_policy().clone();
             let graph = Py::new(py, graph).expect("py graph should initialize");
 
@@ -32796,15 +32788,15 @@ mod tests {
             };
             graph
                 .inner
-                .add_edge_with_attrs("a".to_owned(), "b".to_owned(), weighted_edge(1.0))
+                .add_edge_with_attrs("a", "b", weighted_edge(1.0))
                 .expect("edge should add");
             graph
                 .inner
-                .add_edge_with_attrs("b".to_owned(), "c".to_owned(), weighted_edge(1.0))
+                .add_edge_with_attrs("b", "c", weighted_edge(1.0))
                 .expect("edge should add");
             graph
                 .inner
-                .add_edge_with_attrs("c".to_owned(), "a".to_owned(), weighted_edge(1.0))
+                .add_edge_with_attrs("c", "a", weighted_edge(1.0))
                 .expect("edge should add");
             let graph = Py::new(py, graph).expect("py graph should initialize");
 

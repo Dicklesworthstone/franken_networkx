@@ -18505,7 +18505,7 @@ def fnx_keyed_attr_edges(mixed):
             for (left, right) in [("c", "d"), ("a", "b"), ("b", "c"), ("d", "a"), ("c", "a")] {
                 graph
                     .inner
-                    .add_edge(left.to_owned(), right.to_owned())
+                    .add_edge(left, right)
                     .expect("edge add should succeed");
             }
 

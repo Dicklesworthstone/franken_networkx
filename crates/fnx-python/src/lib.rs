@@ -6306,13 +6306,11 @@ impl PyMultiGraph {
                         Some(attrs) => {
                             let (rust_attrs, mirror) =
                                 py_dict_to_attr_map_with_mirror(py, attrs.bind(py))?;
-                            g.inner
-                                .add_node_with_attrs(canonical.to_owned(), rust_attrs);
+                            g.inner.add_node_with_attrs(canonical, rust_attrs);
                             g.node_py_attrs.insert(canonical.to_owned(), mirror);
                         }
                         None => {
-                            g.inner
-                                .add_node_with_attrs(canonical.to_owned(), AttrMap::new());
+                            g.inner.add_node_with_attrs(canonical, AttrMap::new());
                         }
                     }
                 }
@@ -10270,15 +10268,11 @@ impl PyMultiGraph {
             match self.node_py_attrs.get(node) {
                 Some(attrs) => {
                     let (rust_attrs, mirror) = py_dict_to_attr_map_with_mirror(py, attrs.bind(py))?;
-                    new_graph
-                        .inner
-                        .add_node_with_attrs(node.to_owned(), rust_attrs);
+                    new_graph.inner.add_node_with_attrs(node, rust_attrs);
                     new_graph.node_py_attrs.insert(node.to_owned(), mirror);
                 }
                 None => {
-                    new_graph
-                        .inner
-                        .add_node_with_attrs(node.to_owned(), AttrMap::new());
+                    new_graph.inner.add_node_with_attrs(node, AttrMap::new());
                 }
             }
             new_graph
@@ -10376,9 +10370,7 @@ impl PyMultiGraph {
                 |attrs| deepcopy_py_dict(py, &deepcopy, attrs),
             )?;
             let rust_attrs = py_dict_to_attr_map(py_attrs.bind(py))?;
-            new_graph
-                .inner
-                .add_node_with_attrs(node.to_owned(), rust_attrs);
+            new_graph.inner.add_node_with_attrs(node, rust_attrs);
             new_graph
                 .node_key_map
                 .insert(node.to_owned(), self.py_node_key(py, node));
@@ -14114,20 +14106,12 @@ impl PyGraph {
                     Some(py_attrs) => {
                         let (rust_attrs, mirror) =
                             py_dict_to_attr_map_with_mirror(py, py_attrs.bind(py))?;
-                        let _ = new_graph.inner.add_edge_with_attrs(
-                            u.to_owned(),
-                            v.to_owned(),
-                            rust_attrs,
-                        );
+                        let _ = new_graph.inner.add_edge_with_attrs(u, v, rust_attrs);
                         new_graph.edge_py_attrs.insert(key, mirror);
                     }
                     None => {
                         // No Python mirror -> reuse the Rust edge attrs directly.
-                        let _ = new_graph.inner.add_edge_with_attrs(
-                            u.to_owned(),
-                            v.to_owned(),
-                            attrs.clone(),
-                        );
+                        let _ = new_graph.inner.add_edge_with_attrs(u, v, attrs.clone());
                     }
                 }
             }
@@ -14395,11 +14379,11 @@ impl PyGraph {
             };
 
             dg.inner
-                .add_edge_with_attrs(u.to_owned(), v.to_owned(), attrs.clone())
+                .add_edge_with_attrs(u, v, attrs.clone())
                 .map_err(|e| crate::NetworkXError::new_err(e.to_string()))?;
             if u != v {
                 dg.inner
-                    .add_edge_with_attrs(v.to_owned(), u.to_owned(), attrs.clone())
+                    .add_edge_with_attrs(v, u, attrs.clone())
                     .map_err(|e| crate::NetworkXError::new_err(e.to_string()))?;
             }
 
@@ -15750,13 +15734,13 @@ class FnxMultiGraphCtorEdgeIterable:
 
     fn seeded_graph_policy() -> RuntimePolicy {
         let mut graph = Graph::new(CompatibilityMode::Hardened);
-        graph.add_node("seed".to_owned());
+        graph.add_node("seed");
         graph.runtime_policy().clone()
     }
 
     fn seeded_multigraph_policy() -> RuntimePolicy {
         let mut graph = MultiGraph::new(CompatibilityMode::Hardened);
-        graph.add_node("seed".to_owned());
+        graph.add_node("seed");
         graph.runtime_policy().clone()
     }
 
