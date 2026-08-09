@@ -20,6 +20,15 @@
 //! That isolates the per-CALL cost, which jc9e4 measured at roughly 90% of the
 //! total (no-op `add_node` 538.2 ns against a 58.0 ns insert), and it makes the
 //! count a constant instead of an amortised average over IndexMap growth.
+//!
+//! WHAT IT HAS ESTABLISHED SO FAR. The entry is now fully accounted on the
+//! allocation axis: one owned `String` per endpoint key (measured by arm 5),
+//! plus exactly one allocation per call that is independent of endpoint count.
+//! That residue was 2 when this census first ran; routing the ledger's count
+//! values through `count_evidence` removed one of them and left one, which
+//! identifies the removed one as the count's `to_string()` and the survivor as
+//! the record's evidence `Vec`. Neither was attributed by reading the source —
+//! each was isolated by an arm that changes one thing.
 
 use fnx_classes::{AttrMap, Graph};
 use fnx_runtime::CgseValue;
@@ -166,13 +175,15 @@ fn mutation_entry_allocation_census() {
     // fails here even though the recorded VALUE would be unchanged and every
     // parity assertion would still pass.
     assert!(
-        (edge_noop - caller_attrs - 4.0).abs() < f64::EPSILON,
-        "add_edge entry allocated {:.3} per call excluding caller attrs, expected 4",
+        (edge_noop - caller_attrs - 3.0).abs() < f64::EPSILON,
+        "add_edge entry allocated {:.3} per call excluding caller attrs, expected 3 \
+         (one owned key per endpoint plus the record's evidence Vec)",
         edge_noop - caller_attrs
     );
     assert!(
-        (node_noop - 3.0).abs() < f64::EPSILON,
-        "add_node entry allocated {node_noop:.3} per call, expected 3"
+        (node_noop - 2.0).abs() < f64::EPSILON,
+        "add_node entry allocated {node_noop:.3} per call, expected 2 \
+         (one owned key plus the record's evidence Vec)"
     );
     assert!(
         (node_noop - node_noop_owned_key - 1.0).abs() < f64::EPSILON,

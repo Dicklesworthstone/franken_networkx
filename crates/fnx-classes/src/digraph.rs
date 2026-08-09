@@ -8,7 +8,7 @@
 use crate::{AttrMap, EdgeSnapshot, GraphError};
 use fnx_runtime::{
     CgseValue, CompatibilityMode, DecisionAction, EvidenceLedger, EvidenceTerm, RuntimePolicy,
-    bool_evidence,
+    bool_evidence, count_evidence,
 };
 use indexmap::{IndexMap, IndexSet};
 use serde::{Deserialize, Serialize};
@@ -888,7 +888,7 @@ impl DiGraph {
                 },
                 EvidenceTerm {
                     signal: "attrs_count".into(),
-                    observed_value: attrs_count.to_string().into(),
+                    observed_value: count_evidence(attrs_count),
                     log_likelihood_ratio: -1.0,
                 },
             ],
@@ -917,7 +917,7 @@ impl DiGraph {
                 false,
                 vec![EvidenceTerm {
                     signal: "defaults_applied".into(),
-                    observed_value: inserted.to_string().into(),
+                    observed_value: count_evidence(inserted),
                     log_likelihood_ratio: 0.0,
                 }],
             );
@@ -1048,7 +1048,7 @@ impl DiGraph {
                 },
                 EvidenceTerm {
                     signal: "edge_attr_count".into(),
-                    observed_value: edge_attr_count.to_string().into(),
+                    observed_value: count_evidence(edge_attr_count),
                     log_likelihood_ratio: -2.0,
                 },
                 EvidenceTerm {
@@ -1144,7 +1144,7 @@ impl DiGraph {
                 false,
                 vec![EvidenceTerm {
                     signal: "batch_edge_count".into(),
-                    observed_value: inserted.to_string().into(),
+                    observed_value: count_evidence(inserted),
                     log_likelihood_ratio: -1.0,
                 }],
             );
@@ -1192,7 +1192,7 @@ impl DiGraph {
                 false,
                 vec![EvidenceTerm {
                     signal: "batch_edge_count".into(),
-                    observed_value: inserted.to_string().into(),
+                    observed_value: count_evidence(inserted),
                     log_likelihood_ratio: -1.0,
                 }],
             );
@@ -1237,7 +1237,7 @@ impl DiGraph {
                 false,
                 vec![EvidenceTerm {
                     signal: "batch_node_count".into(),
-                    observed_value: inserted.to_string().into(),
+                    observed_value: count_evidence(inserted),
                     log_likelihood_ratio: -1.0,
                 }],
             );
@@ -1276,7 +1276,7 @@ impl DiGraph {
                 false,
                 vec![EvidenceTerm {
                     signal: "batch_node_count".into(),
-                    observed_value: inserted.to_string().into(),
+                    observed_value: count_evidence(inserted),
                     log_likelihood_ratio: -1.0,
                 }],
             );
@@ -1351,7 +1351,7 @@ impl DiGraph {
                 false,
                 vec![EvidenceTerm {
                     signal: "batch_edge_count".into(),
-                    observed_value: inserted.to_string().into(),
+                    observed_value: count_evidence(inserted),
                     log_likelihood_ratio: -1.0,
                 }],
             );
@@ -1441,7 +1441,7 @@ impl DiGraph {
                 false,
                 vec![EvidenceTerm {
                     signal: "batch_edge_count".into(),
-                    observed_value: inserted.to_string().into(),
+                    observed_value: count_evidence(inserted),
                     log_likelihood_ratio: -1.0,
                 }],
             );
@@ -1573,12 +1573,12 @@ impl DiGraph {
                 vec![
                     EvidenceTerm {
                         signal: "batch_node_count".into(),
-                        observed_value: node_count.to_string().into(),
+                        observed_value: count_evidence(node_count),
                         log_likelihood_ratio: -1.0,
                     },
                     EvidenceTerm {
                         signal: "batch_edge_count".into(),
-                        observed_value: inserted.to_string().into(),
+                        observed_value: count_evidence(inserted),
                         log_likelihood_ratio: -1.0,
                     },
                 ],
@@ -1609,7 +1609,7 @@ impl DiGraph {
                 false,
                 vec![EvidenceTerm {
                     signal: "defaults_applied".into(),
-                    observed_value: inserted.to_string().into(),
+                    observed_value: count_evidence(inserted),
                     log_likelihood_ratio: 0.0,
                 }],
             );
@@ -2498,7 +2498,7 @@ impl MultiDiGraph {
                 },
                 EvidenceTerm {
                     signal: "attrs_count".into(),
-                    observed_value: attrs_count.to_string().into(),
+                    observed_value: count_evidence(attrs_count),
                     log_likelihood_ratio: -1.0,
                 },
             ],
@@ -2542,7 +2542,7 @@ impl MultiDiGraph {
                 false,
                 vec![EvidenceTerm {
                     signal: "batch_node_count".into(),
-                    observed_value: inserted.to_string().into(),
+                    observed_value: count_evidence(inserted),
                     log_likelihood_ratio: -1.0,
                 }],
             );
@@ -2602,7 +2602,7 @@ impl MultiDiGraph {
                 false,
                 vec![EvidenceTerm {
                     signal: "batch_edge_count".into(),
-                    observed_value: inserted.to_string().into(),
+                    observed_value: count_evidence(inserted),
                     log_likelihood_ratio: -1.0,
                 }],
             );
@@ -2689,12 +2689,12 @@ impl MultiDiGraph {
                 vec![
                     EvidenceTerm {
                         signal: "batch_node_count".into(),
-                        observed_value: node_count.to_string().into(),
+                        observed_value: count_evidence(node_count),
                         log_likelihood_ratio: -1.0,
                     },
                     EvidenceTerm {
                         signal: "batch_edge_count".into(),
-                        observed_value: inserted.to_string().into(),
+                        observed_value: count_evidence(inserted),
                         log_likelihood_ratio: -1.0,
                     },
                 ],
@@ -2847,7 +2847,7 @@ impl MultiDiGraph {
                 },
                 EvidenceTerm {
                     signal: "edge_attr_count".into(),
-                    observed_value: edge_attr_count.to_string().into(),
+                    observed_value: count_evidence(edge_attr_count),
                     log_likelihood_ratio: -2.0,
                 },
                 EvidenceTerm {

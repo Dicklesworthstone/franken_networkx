@@ -4,7 +4,7 @@ pub mod digraph;
 
 use fnx_runtime::{
     CgseValue, CompatibilityMode, DecisionAction, EvidenceLedger, EvidenceTerm, RuntimePolicy,
-    bool_evidence,
+    bool_evidence, count_evidence,
 };
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
@@ -200,7 +200,7 @@ impl Graph {
             false,
             vec![EvidenceTerm {
                 signal: "nodes".into(),
-                observed_value: n.to_string().into(),
+                observed_value: count_evidence(n),
                 log_likelihood_ratio: 0.0,
             }],
         );
@@ -277,7 +277,7 @@ impl Graph {
             false,
             vec![EvidenceTerm {
                 signal: "nodes".into(),
-                observed_value: node_count.to_string().into(),
+                observed_value: count_evidence(node_count),
                 log_likelihood_ratio: 0.0,
             }],
         );
@@ -499,7 +499,7 @@ impl Graph {
             false,
             vec![EvidenceTerm {
                 signal: "nodes".into(),
-                observed_value: state.node_count.to_string().into(),
+                observed_value: count_evidence(state.node_count),
                 log_likelihood_ratio: 0.0,
             }],
         );
@@ -1189,7 +1189,7 @@ impl Graph {
                 },
                 EvidenceTerm {
                     signal: "attrs_count".into(),
-                    observed_value: attrs_count.to_string().into(),
+                    observed_value: count_evidence(attrs_count),
                     log_likelihood_ratio: -1.0,
                 },
             ],
@@ -1230,7 +1230,7 @@ impl Graph {
                 false,
                 vec![EvidenceTerm {
                     signal: "batch_node_count".into(),
-                    observed_value: inserted.to_string().into(),
+                    observed_value: count_evidence(inserted),
                     log_likelihood_ratio: -1.0,
                 }],
             );
@@ -1270,7 +1270,7 @@ impl Graph {
                 false,
                 vec![EvidenceTerm {
                     signal: "batch_node_count".into(),
-                    observed_value: inserted.to_string().into(),
+                    observed_value: count_evidence(inserted),
                     log_likelihood_ratio: -1.0,
                 }],
             );
@@ -1299,7 +1299,7 @@ impl Graph {
                 false,
                 vec![EvidenceTerm {
                     signal: "defaults_applied".into(),
-                    observed_value: inserted.to_string().into(),
+                    observed_value: count_evidence(inserted),
                     log_likelihood_ratio: 0.0,
                 }],
             );
@@ -1699,7 +1699,7 @@ impl Graph {
             false,
             vec![EvidenceTerm {
                 signal: "batch_edge_count".into(),
-                observed_value: inserted.to_string().into(),
+                observed_value: count_evidence(inserted),
                 log_likelihood_ratio: -1.0,
             }],
         );
@@ -1840,7 +1840,7 @@ impl Graph {
                 },
                 EvidenceTerm {
                     signal: "edge_attr_count".into(),
-                    observed_value: edge_attr_count.to_string().into(),
+                    observed_value: count_evidence(edge_attr_count),
                     log_likelihood_ratio: -2.0,
                 },
                 EvidenceTerm {
@@ -1880,7 +1880,7 @@ impl Graph {
                 false,
                 vec![EvidenceTerm {
                     signal: "defaults_applied".into(),
-                    observed_value: inserted.to_string().into(),
+                    observed_value: count_evidence(inserted),
                     log_likelihood_ratio: 0.0,
                 }],
             );
@@ -4331,7 +4331,7 @@ impl MultiGraph {
                 },
                 EvidenceTerm {
                     signal: "attrs_count".into(),
-                    observed_value: attrs_count.to_string().into(),
+                    observed_value: count_evidence(attrs_count),
                     log_likelihood_ratio: -1.0,
                 },
             ],
@@ -4430,7 +4430,7 @@ impl MultiGraph {
                 false,
                 vec![EvidenceTerm {
                     signal: "batch_node_count".into(),
-                    observed_value: inserted.to_string().into(),
+                    observed_value: count_evidence(inserted),
                     log_likelihood_ratio: -1.0,
                 }],
             );
@@ -4465,7 +4465,7 @@ impl MultiGraph {
                 false,
                 vec![EvidenceTerm {
                     signal: "batch_edge_count".into(),
-                    observed_value: inserted.to_string().into(),
+                    observed_value: count_evidence(inserted),
                     log_likelihood_ratio: -1.0,
                 }],
             );
@@ -4563,7 +4563,7 @@ impl MultiGraph {
                 false,
                 vec![EvidenceTerm {
                     signal: "batch_edge_count".into(),
-                    observed_value: inserted.to_string().into(),
+                    observed_value: count_evidence(inserted),
                     log_likelihood_ratio: -1.0,
                 }],
             );
@@ -4667,12 +4667,12 @@ impl MultiGraph {
                 vec![
                     EvidenceTerm {
                         signal: "batch_node_count".into(),
-                        observed_value: node_count.to_string().into(),
+                        observed_value: count_evidence(node_count),
                         log_likelihood_ratio: -1.0,
                     },
                     EvidenceTerm {
                         signal: "batch_edge_count".into(),
-                        observed_value: inserted.to_string().into(),
+                        observed_value: count_evidence(inserted),
                         log_likelihood_ratio: -1.0,
                     },
                 ],
@@ -4795,7 +4795,7 @@ impl MultiGraph {
                 },
                 EvidenceTerm {
                     signal: "edge_attr_count".into(),
-                    observed_value: edge_attr_count.to_string().into(),
+                    observed_value: count_evidence(edge_attr_count),
                     log_likelihood_ratio: -2.0,
                 },
                 EvidenceTerm {
@@ -8285,7 +8285,7 @@ mod tests {
     #[test]
     #[ignore = "measurement; run with --release --ignored --nocapture"]
     fn ledger_record_cost_ab() {
-        use fnx_runtime::{EvidenceTerm, RuntimePolicy, bool_evidence};
+        use fnx_runtime::{EvidenceTerm, RuntimePolicy, bool_evidence, count_evidence};
         use std::hint::black_box;
         use std::time::Instant;
 
@@ -8311,7 +8311,7 @@ mod tests {
                 },
                 EvidenceTerm {
                     signal: "edge_attr_count".into(),
-                    observed_value: edge_attr_count.to_string().into(),
+                    observed_value: count_evidence(edge_attr_count),
                     log_likelihood_ratio: -2.0,
                 },
                 EvidenceTerm {
@@ -8341,7 +8341,7 @@ mod tests {
                 },
                 EvidenceTerm {
                     signal: "attrs_count".into(),
-                    observed_value: 0_usize.to_string().into(),
+                    observed_value: count_evidence(0),
                     log_likelihood_ratio: -1.0,
                 },
             ]
@@ -8647,7 +8647,9 @@ mod tests {
     #[test]
     #[ignore = "measurement; run with --release --ignored --nocapture"]
     fn ledger_cow_field_cost_ab() {
-        use fnx_runtime::{DecisionAction, EvidenceTerm, RuntimePolicy, bool_evidence};
+        use fnx_runtime::{
+            DecisionAction, EvidenceTerm, RuntimePolicy, bool_evidence, count_evidence,
+        };
         use std::borrow::Cow;
         use std::hint::black_box;
         use std::time::{Duration, Instant};
@@ -8684,7 +8686,7 @@ mod tests {
                 },
                 EvidenceTerm {
                     signal: "edge_attr_count".into(),
-                    observed_value: edge_attr_count.to_string().into(),
+                    observed_value: count_evidence(edge_attr_count),
                     log_likelihood_ratio: -2.0,
                 },
                 EvidenceTerm {

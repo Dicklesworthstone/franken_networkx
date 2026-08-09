@@ -1728,6 +1728,28 @@ pub const fn bool_evidence(value: bool) -> Cow<'static, str> {
     }
 }
 
+/// Decimal renderings of the small counts CGSE evidence actually carries.
+/// Indexed by the value itself, so `SMALL_COUNTS[n]` is `n.to_string()`.
+static SMALL_COUNTS: [&str; 33] = [
+    "0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "16",
+    "17", "18", "19", "20", "21", "22", "23", "24", "25", "26", "27", "28", "29", "30", "31", "32",
+];
+
+/// Renders a count evidence value, without allocating for the small values that
+/// dominate the mutation path.
+///
+/// Emits exactly the bytes `usize::to_string()` produces, so ledger JSON and
+/// every `records()` assertion are unchanged. `attrs_count` / `edge_attr_count`
+/// are the per-mutation counts and are almost always 0-3; larger values (batch
+/// counts) fall through to an owned `String` exactly as before.
+#[must_use]
+pub fn count_evidence(value: usize) -> Cow<'static, str> {
+    match SMALL_COUNTS.get(value) {
+        Some(rendered) => Cow::Borrowed(rendered),
+        None => Cow::Owned(value.to_string()),
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct DecisionRecord {
     pub ts_unix_ms: u128,
@@ -9788,6 +9810,27 @@ mod tests {
                 "bool_evidence({value}) must borrow a 'static str, not allocate"
             );
         }
+    }
+
+    // br-r37-c1-jc9e4: `count_evidence` replaced `usize::to_string()` on the
+    // ledger's count values. Same admissibility bar as `bool_evidence` — it is
+    // only legal if the bytes are identical, including past the table where it
+    // must still allocate.
+    #[test]
+    fn count_evidence_matches_usize_to_string_and_borrows_small_values() {
+        for value in 0..200_usize {
+            assert_eq!(super::count_evidence(value), value.to_string());
+        }
+        for value in 0..=32_usize {
+            assert!(
+                matches!(super::count_evidence(value), std::borrow::Cow::Borrowed(_)),
+                "count_evidence({value}) must borrow"
+            );
+        }
+        assert!(
+            matches!(super::count_evidence(33), std::borrow::Cow::Owned(_)),
+            "past the table count_evidence must fall back to an owned String"
+        );
     }
 
     // br-r37-c1-g2nev: `DecisionRecord`/`EvidenceTerm` string fields became
