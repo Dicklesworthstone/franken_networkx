@@ -70,3 +70,73 @@ def test_wl_hash_equal_for_isomorphic_relabelings():
     assert fnx.weisfeiler_lehman_graph_hash(g1) == (
         fnx.weisfeiler_lehman_graph_hash(g2)
     )
+
+
+def _attributed_pair(attr_value_for_first_node):
+    """Two structurally identical paths differing only in one node's colour."""
+    fg = fnx.Graph([(0, 1), (1, 2)])
+    ng = nx.Graph([(0, 1), (1, 2)])
+    for graph in (fg, ng):
+        for node in graph.nodes():
+            graph.nodes[node]["colour"] = "red"
+        graph.nodes[0]["colour"] = attr_value_for_first_node
+    return fg, ng
+
+
+def test_node_attr_changes_the_hash_and_matches_networkx():
+    """node_attr is untested, and it is what makes the hash attribute-aware.
+
+    The discrimination test uses four structurally DIFFERENT graphs, so it
+    cannot see whether attributes reach the hash at all.
+    """
+    same_fg, same_ng = _attributed_pair("red")
+    diff_fg, diff_ng = _attributed_pair("blue")
+
+    # Structure alone cannot tell them apart.
+    assert fnx.weisfeiler_lehman_graph_hash(same_fg) == fnx.weisfeiler_lehman_graph_hash(diff_fg)
+    # With node_attr the colours reach the hash.
+    hashed_same = fnx.weisfeiler_lehman_graph_hash(same_fg, node_attr="colour")
+    hashed_diff = fnx.weisfeiler_lehman_graph_hash(diff_fg, node_attr="colour")
+    assert hashed_same != hashed_diff
+    # ...and both agree with networkx.
+    assert hashed_same == nx.weisfeiler_lehman_graph_hash(same_ng, node_attr="colour")
+    assert hashed_diff == nx.weisfeiler_lehman_graph_hash(diff_ng, node_attr="colour")
+
+
+def test_edge_attr_changes_the_hash_and_matches_networkx():
+    same_fg = fnx.Graph(); same_fg.add_edge(0, 1, kind="x"); same_fg.add_edge(1, 2, kind="x")
+    diff_fg = fnx.Graph(); diff_fg.add_edge(0, 1, kind="x"); diff_fg.add_edge(1, 2, kind="y")
+    same_ng = nx.Graph(); same_ng.add_edge(0, 1, kind="x"); same_ng.add_edge(1, 2, kind="x")
+    diff_ng = nx.Graph(); diff_ng.add_edge(0, 1, kind="x"); diff_ng.add_edge(1, 2, kind="y")
+
+    hashed_same = fnx.weisfeiler_lehman_graph_hash(same_fg, edge_attr="kind")
+    hashed_diff = fnx.weisfeiler_lehman_graph_hash(diff_fg, edge_attr="kind")
+    assert hashed_same != hashed_diff
+    assert hashed_same == nx.weisfeiler_lehman_graph_hash(same_ng, edge_attr="kind")
+    assert hashed_diff == nx.weisfeiler_lehman_graph_hash(diff_ng, edge_attr="kind")
+
+
+def test_iterations_actually_changes_the_hash():
+    """Parity at iterations=5 cannot see the parameter being ignored.
+
+    If fnx dropped `iterations` on the floor, it would still match networkx
+    wherever networkx's own default happened to agree. Requiring the hash to
+    VARY with the parameter is what pins that it is read.
+    """
+    g = fnx.path_graph(8)
+    hashes = {i: fnx.weisfeiler_lehman_graph_hash(g, iterations=i) for i in (1, 2, 3, 5)}
+    assert len(set(hashes.values())) == len(hashes)
+
+
+@pytest.mark.parametrize("seed", range(30))
+def test_different_degree_sequences_hash_differently(seed):
+    """Discrimination on the random family, not only four named graphs.
+
+    The first WL refinement round incorporates each node's degree, so graphs
+    whose degree multisets differ cannot reach the same refined labelling.
+    """
+    fg, _, _, _ = _graph(seed)
+    other, _, _, _ = _graph((seed + 7) % 30)
+    if sorted(d for _, d in fg.degree()) == sorted(d for _, d in other.degree()):
+        pytest.skip("same degree sequence — nothing is claimed here")
+    assert fnx.weisfeiler_lehman_graph_hash(fg) != fnx.weisfeiler_lehman_graph_hash(other)
