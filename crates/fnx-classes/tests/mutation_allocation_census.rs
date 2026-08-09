@@ -21,14 +21,20 @@
 //! total (no-op `add_node` 538.2 ns against a 58.0 ns insert), and it makes the
 //! count a constant instead of an amortised average over IndexMap growth.
 //!
-//! WHAT IT HAS ESTABLISHED SO FAR. The entry is now fully accounted on the
-//! allocation axis: one owned `String` per endpoint key (measured by arm 5),
-//! plus exactly one allocation per call that is independent of endpoint count.
-//! That residue was 2 when this census first ran; routing the ledger's count
-//! values through `count_evidence` removed one of them and left one, which
-//! identifies the removed one as the count's `to_string()` and the survivor as
-//! the record's evidence `Vec`. Neither was attributed by reading the source —
-//! each was isolated by an arm that changes one thing.
+//! WHAT IT HAS ESTABLISHED, each step isolated by an arm that changes one
+//! thing rather than by reading the source:
+//!
+//!   * the residue was 2 allocations per call, independent of endpoint count.
+//!     Routing the ledger's counts through `count_evidence` removed one, which
+//!     identified the removed one as the count's `to_string()` and the survivor
+//!     as the record's evidence `Vec`;
+//!   * arm 5 measured the owned endpoint key at 1 allocation. Probing the node
+//!     map borrowed and owning only on the vacant path removed it, and arm 5
+//!     now reads 0.
+//!
+//! `add_node` on an existing node is therefore down to the evidence `Vec`
+//! alone. `add_edge` still owns both endpoint keys in its own preamble, which
+//! is the remaining 2 of its 3.
 
 use fnx_classes::{AttrMap, Graph};
 use fnx_runtime::CgseValue;
@@ -137,11 +143,16 @@ fn mutation_entry_allocation_census() {
     });
 
     // Arm 5 — the key discriminator, and the reason this file measures the
-    // decomposition instead of reading it off the source. `add_node_with_attrs`
-    // takes `impl Into<String>`: a `&str` argument allocates an owned key,
-    // a `String` argument moves. Pre-building every key OUTSIDE the counted
-    // window makes the difference between this arm and arm 2 the cost of that
-    // one owned key and nothing else.
+    // decomposition instead of reading it off the source. Pre-building every
+    // key OUTSIDE the counted window makes the difference between this arm and
+    // arm 2 the cost of owning the key and nothing else.
+    //
+    // It read 1.000 when this census was written, which is what identified the
+    // owned key as a real per-endpoint cost. It reads 0.000 now that
+    // `add_node_with_attrs_unrecorded` probes borrowed and owns only on the
+    // vacant path: handing it a `&str` and handing it a ready-made `String`
+    // cost the same, because neither allocates. The arm is kept precisely
+    // because a nonzero reading would mean that regressed.
     let mut owned_keys: Vec<String> = (0..ROUNDS * CALLS).map(|_| "10".to_owned()).collect();
     let node_noop_owned_key = allocs_per_call(ROUNDS, CALLS, || {
         let key = owned_keys
@@ -161,7 +172,7 @@ fn mutation_entry_allocation_census() {
         edge_noop - caller_attrs
     );
     println!(
-        "  -> owned key per endpoint (2-5)    : {:6.3} allocs/call",
+        "  -> owning the key costs (2-5)      : {:6.3} allocs/call",
         node_noop - node_noop_owned_key
     );
 
@@ -181,13 +192,14 @@ fn mutation_entry_allocation_census() {
         edge_noop - caller_attrs
     );
     assert!(
-        (node_noop - 2.0).abs() < f64::EPSILON,
-        "add_node entry allocated {node_noop:.3} per call, expected 2 \
-         (one owned key plus the record's evidence Vec)"
+        (node_noop - 1.0).abs() < f64::EPSILON,
+        "add_node entry allocated {node_noop:.3} per call, expected 1 \
+         (the record's evidence Vec; the occupied path owns no key)"
     );
     assert!(
-        (node_noop - node_noop_owned_key - 1.0).abs() < f64::EPSILON,
-        "an owned node key must cost exactly one allocation, measured {:.3}",
+        (node_noop - node_noop_owned_key).abs() < f64::EPSILON,
+        "add_node on an EXISTING node must not own its key, so a &str caller \
+         and a ready-made String caller must cost the same; the gap was {:.3}",
         node_noop - node_noop_owned_key
     );
     assert!(

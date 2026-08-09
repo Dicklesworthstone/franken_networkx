@@ -1135,7 +1135,7 @@ impl Graph {
         false
     }
 
-    pub fn add_node(&mut self, node: impl Into<String>) -> bool {
+    pub fn add_node(&mut self, node: impl AsRef<str> + Into<String>) -> bool {
         self.add_node_with_attrs(node, AttrMap::new())
     }
 
@@ -1145,16 +1145,35 @@ impl Graph {
     /// `add_node`. Extracted rather than reimplemented so the recorded and
     /// unrecorded paths cannot drift: node insertion ORDER, the adjacency
     /// extension and the revision bump are literally the same code.
+    /// br-r37-c1-jc9e4: the key is materialised only on the VACANT path.
+    ///
+    /// This used to open with `let node = node.into();`, so a `&str` caller
+    /// allocated an owned `String` on every call — including the calls that
+    /// insert nothing, where it was built purely to probe the map and then
+    /// dropped by `entry` on the occupied branch. The allocation census
+    /// measured that as one allocation per endpoint against a `has_node` read
+    /// control at zero. Probing borrowed and owning only when the entry is
+    /// genuinely new keeps the occupied path allocation-free.
+    ///
+    /// Occupied-branch semantics are unchanged: `IndexMap::entry(..).or_default()`
+    /// on a present key returns the existing value without reordering, which is
+    /// exactly what `get_mut` returns, so insertion order and every returned
+    /// value are identical.
     fn add_node_with_attrs_unrecorded(
         &mut self,
-        node: impl Into<String>,
+        node: impl AsRef<str> + Into<String>,
         attrs: AttrMap,
     ) -> (bool, bool, usize) {
-        let node = node.into();
-        let existed = self.nodes.contains_key(&node);
+        let existed = self.nodes.contains_key(node.as_ref());
         let mut changed = !existed;
         let attrs_count = {
-            let bucket = self.nodes.entry(node).or_default();
+            let bucket = if existed {
+                self.nodes
+                    .get_mut(node.as_ref())
+                    .expect("contains_key reported this node present")
+            } else {
+                self.nodes.entry(node.into()).or_default()
+            };
             if !attrs.is_empty()
                 && attrs
                     .iter()
@@ -1175,7 +1194,11 @@ impl Graph {
         (changed, existed, attrs_count)
     }
 
-    pub fn add_node_with_attrs(&mut self, node: impl Into<String>, attrs: AttrMap) -> bool {
+    pub fn add_node_with_attrs(
+        &mut self,
+        node: impl AsRef<str> + Into<String>,
+        attrs: AttrMap,
+    ) -> bool {
         let (changed, existed, attrs_count) = self.add_node_with_attrs_unrecorded(node, attrs);
         self.record_decision(
             "add_node",
@@ -4298,26 +4321,30 @@ impl MultiGraph {
         self.slab_store().is_isolate(node)
     }
 
-    pub fn add_node(&mut self, node: impl Into<String>) -> bool {
+    pub fn add_node(&mut self, node: impl AsRef<str>) -> bool {
         self.add_node_with_attrs(node, AttrMap::new())
     }
 
     /// br-r37-c1-wa1b9: the storage half of [`Self::add_node_with_attrs`],
     /// without its ledger record. See the undirected `Graph` sibling.
+    /// br-r37-c1-jc9e4: no owned key at all on this path. `set_node_attrs`
+    /// already takes `&str` and owns internally only when it inserts, so the
+    /// `let node = node.into();` this used to open with was allocating a
+    /// `String` purely to hand out a borrow of it — waste on every call, not
+    /// just the occupied ones.
     fn add_node_with_attrs_unrecorded(
         &mut self,
-        node: impl Into<String>,
+        node: impl AsRef<str>,
         attrs: AttrMap,
     ) -> (bool, bool, usize) {
-        let node = node.into();
-        let (existed, changed, attrs_count) = self.storage.set_node_attrs(&node, attrs);
+        let (existed, changed, attrs_count) = self.storage.set_node_attrs(node.as_ref(), attrs);
         if changed {
             self.revision = self.revision.saturating_add(1);
         }
         (changed, existed, attrs_count)
     }
 
-    pub fn add_node_with_attrs(&mut self, node: impl Into<String>, attrs: AttrMap) -> bool {
+    pub fn add_node_with_attrs(&mut self, node: impl AsRef<str>, attrs: AttrMap) -> bool {
         let (changed, existed, attrs_count) = self.add_node_with_attrs_unrecorded(node, attrs);
         self.record_decision(
             "add_node",
@@ -9028,7 +9055,7 @@ mod tests {
     fn multigraph_node_index_accessors_follow_remove_readd() {
         let mut graph = MultiGraph::strict();
         for node in ["prefix", "s", "a", "b", "t"] {
-            let _ = graph.add_node(node.to_owned());
+            let _ = graph.add_node(node);
         }
 
         for (expected_index, node) in ["prefix", "s", "a", "b", "t"].into_iter().enumerate() {
@@ -9038,7 +9065,7 @@ mod tests {
 
         assert!(graph.remove_node("prefix"));
         assert!(graph.remove_node("a"));
-        let _ = graph.add_node("a".to_owned());
+        let _ = graph.add_node("a");
 
         for (expected_index, node) in ["s", "b", "t", "a"].into_iter().enumerate() {
             assert_eq!(graph.get_node_index(node), Some(expected_index));
