@@ -52,6 +52,16 @@ def test_integer_capacities_give_integer_flow(seed):
     for u in flow:
         for v, f in flow[u].items():
             assert abs(f - round(f)) < 1e-9
+    # Zero is an integer, so integrality alone is satisfied by a flow of nothing:
+    # an s-t path exists and every capacity is >= 1, so the max flow is positive.
+    assert value > 0
+    # The scalar and the dict are separate return values and nothing above ties
+    # them together — the value must be the net flow leaving the source.
+    out_of_s = sum(flow[s].values())
+    into_s = sum(row.get(s, 0) for row in flow.values())
+    assert out_of_s - into_s == value
+    # maximum_flow_value is a second code path to the same number.
+    assert fnx.maximum_flow_value(g, s, t) == value
 
 
 @pytest.mark.parametrize("seed", range(40))
@@ -67,6 +77,49 @@ def test_unit_capacity_flow_equals_edge_connectivity(seed):
         gu.add_edge(u, v, capacity=1)
     # Menger (edge form): unit-capacity max flow == local edge connectivity.
     assert fnx.maximum_flow_value(gu, s, t) == fc.local_edge_connectivity(gu, s, t)
+
+
+@pytest.mark.parametrize("seed", range(40))
+def test_menger_holds_for_every_reachable_pair(seed):
+    """The test above checks a single (0, n-1) pair and skips 13 of its 40 seeds.
+
+    Menger is a statement about every pair, and the graph almost always has many
+    reachable ones, so sweeping them costs nothing and multiplies the coverage.
+    """
+    g, n = _capacitated(seed)
+    gu = fnx.DiGraph()
+    gu.add_nodes_from(range(n))
+    for u, v in g.edges():
+        gu.add_edge(u, v, capacity=1)
+
+    checked = 0
+    for s in range(n):
+        for t in range(n):
+            if s == t or not _has_path(g, s, t, n):
+                continue
+            checked += 1
+            flow = fnx.maximum_flow_value(gu, s, t)
+            assert flow == fc.local_edge_connectivity(gu, s, t)
+            # Edge-disjoint s-t paths must leave s and enter t on distinct edges.
+            assert flow <= min(gu.out_degree(s), gu.in_degree(t))
+    assert checked > 0, "seed produced no reachable pair — the sweep would be vacuous"
+
+
+@pytest.mark.parametrize("seed", range(40))
+def test_scaling_integer_capacities_scales_the_value(seed):
+    """Integrality is metamorphic: k * integer capacities gives exactly k * value."""
+    g, n = _capacitated(seed)
+    s, t = 0, n - 1
+    if not _has_path(g, s, t, n):
+        pytest.skip("no s-t path")
+    base = fnx.maximum_flow_value(g, s, t)
+
+    for k in (2, 3):
+        scaled = fnx.DiGraph()
+        scaled.add_nodes_from(range(n))
+        for u, v, data in g.edges(data=True):
+            scaled.add_edge(u, v, capacity=data["capacity"] * k)
+        assert fnx.maximum_flow_value(scaled, s, t) == base * k
 
 
 def test_complete_unit_digraph_flow_is_n_minus_1():
