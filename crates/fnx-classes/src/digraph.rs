@@ -838,22 +838,38 @@ impl DiGraph {
     // Mutations
     // -----------------------------------------------------------------------
 
-    pub fn add_node(&mut self, node: impl Into<String>) -> bool {
+    pub fn add_node(&mut self, node: impl AsRef<str> + Into<String>) -> bool {
         self.add_node_with_attrs(node, AttrMap::new())
     }
 
     /// br-r37-c1-wa1b9: the storage half of [`Self::add_node_with_attrs`],
     /// without its ledger record. See the undirected `Graph` sibling.
+    /// br-r37-c1-jc9e4: the key is materialised only on the VACANT path, the
+    /// directed mirror of the `Graph` sibling. This used to open with `let node
+    /// = node.into();`, so a `&str` caller allocated an owned `String` on every
+    /// call — including the calls that insert nothing, where it was built purely
+    /// to probe the map and then dropped by `entry`. The allocation census
+    /// measured the directed pair at the undirected pair's pre-lever numbers,
+    /// so the fix did not transfer on its own and had to be applied here too.
+    ///
+    /// Occupied-branch semantics are unchanged: `IndexMap::entry(..).or_default()`
+    /// on a present key returns the existing value without reordering, which is
+    /// exactly what `get_mut` returns.
     fn add_node_with_attrs_unrecorded(
         &mut self,
-        node: impl Into<String>,
+        node: impl AsRef<str> + Into<String>,
         attrs: AttrMap,
     ) -> (bool, bool, usize) {
-        let node = node.into();
-        let existed = self.nodes.contains_key(&node);
+        let existed = self.nodes.contains_key(node.as_ref());
         let mut changed = !existed;
         let attrs_count = {
-            let bucket = self.nodes.entry(node).or_default();
+            let bucket = if existed {
+                self.nodes
+                    .get_mut(node.as_ref())
+                    .expect("contains_key reported this node present")
+            } else {
+                self.nodes.entry(node.into()).or_default()
+            };
             if !attrs.is_empty()
                 && attrs
                     .iter()
@@ -874,7 +890,11 @@ impl DiGraph {
         (changed, existed, attrs_count)
     }
 
-    pub fn add_node_with_attrs(&mut self, node: impl Into<String>, attrs: AttrMap) -> bool {
+    pub fn add_node_with_attrs(
+        &mut self,
+        node: impl AsRef<str> + Into<String>,
+        attrs: AttrMap,
+    ) -> bool {
         let (changed, existed, attrs_count) = self.add_node_with_attrs_unrecorded(node, attrs);
         self.record_decision(
             "add_node",
@@ -928,20 +948,27 @@ impl DiGraph {
 
     pub fn add_edge(
         &mut self,
-        source: impl Into<String>,
-        target: impl Into<String>,
+        source: impl AsRef<str>,
+        target: impl AsRef<str>,
     ) -> Result<(), GraphError> {
         self.add_edge_with_attrs(source, target, AttrMap::new())
     }
 
+    /// br-r37-c1-jc9e4: the directed mirror of the `Graph` sibling — the
+    /// endpoint keys are never owned here, and each is resolved with ONE map
+    /// probe. This used to own both keys, clone each again for autocreation,
+    /// and then hash each up to three times (`contains_key`, `get_index_of`
+    /// for the edge key, `get_index_of` again for the successor/predecessor
+    /// rows). The census measured the directed pair at the undirected pair's
+    /// pre-lever numbers, so none of that transferred on its own.
     pub fn add_edge_with_attrs(
         &mut self,
-        source: impl Into<String>,
-        target: impl Into<String>,
+        source: impl AsRef<str>,
+        target: impl AsRef<str>,
         attrs: AttrMap,
     ) -> Result<(), GraphError> {
-        let source = source.into();
-        let target = target.into();
+        let source = source.as_ref();
+        let target = target.as_ref();
 
         let unknown_feature = attrs
             .keys()
@@ -986,23 +1013,38 @@ impl DiGraph {
         // Auto-create nodes. br-r37-c1-wa1b9: no record of their own — the
         // outcome record below reports them via source/target_autocreated. See
         // the undirected `Graph` sibling for the ruling.
+        // Resolve each endpoint with ONE probe: `get_index_of` answers both
+        // "does it exist" and "what is its index", so the old `contains_key`
+        // that preceded it was a second hash of the same key. A self-loop does
+        // not probe the target at all — `self_loop` makes the indices equal by
+        // construction. Order is untouched: the source is still resolved and
+        // autocreated before the target, and `IndexMap` appends, so
+        // autocreating the target cannot move the source's index.
         let mut source_autocreated = false;
-        if !self.nodes.contains_key(&source) {
-            let _ = self.add_node_with_attrs_unrecorded(source.clone(), AttrMap::new());
-            source_autocreated = true;
-        }
+        let source_idx = match self.nodes.get_index_of(source) {
+            Some(index) => index,
+            None => {
+                let _ = self.add_node_with_attrs_unrecorded(source, AttrMap::new());
+                source_autocreated = true;
+                self.nodes.get_index_of(source).expect("autocreated above")
+            }
+        };
         let mut target_autocreated = false;
-        if self_loop {
+        let target_idx = if self_loop {
             target_autocreated = source_autocreated;
-        } else if !self.nodes.contains_key(&target) {
-            let _ = self.add_node_with_attrs_unrecorded(target.clone(), AttrMap::new());
-            target_autocreated = true;
-        }
+            source_idx
+        } else {
+            match self.nodes.get_index_of(target) {
+                Some(index) => index,
+                None => {
+                    let _ = self.add_node_with_attrs_unrecorded(target, AttrMap::new());
+                    target_autocreated = true;
+                    self.nodes.get_index_of(target).expect("autocreated above")
+                }
+            }
+        };
 
-        let edge_key = (
-            self.nodes.get_index_of(&source).expect("autocreated above"),
-            self.nodes.get_index_of(&target).expect("autocreated above"),
-        );
+        let edge_key = (source_idx, target_idx);
         let new_edge = !self.edges.contains_key(&edge_key);
         let mut changed = new_edge;
         let edge_attr_count = {
@@ -1020,16 +1062,13 @@ impl DiGraph {
         // br-r37-c1-d58s8 DiGraph flip P1: eager index rows (dup-guarded
         // by edge newness; the IndexSet inserts above are idempotent).
         if new_edge {
-            let s_idx = self
-                .nodes
-                .get_index_of(&source)
-                .expect("source node exists");
-            let t_idx = self
-                .nodes
-                .get_index_of(&target)
-                .expect("target node exists");
-            self.succ_indices[s_idx].push(t_idx);
-            self.pred_indices[t_idx].push(s_idx);
+            // br-r37-c1-jc9e4: reuse the indices resolved above rather than
+            // hashing both keys a third time. Nothing between the resolution
+            // and here touches `self.nodes` — the intervening work is the
+            // `self.edges` entry and the attr extend — so these are the same
+            // two indices the lookups produced.
+            self.succ_indices[source_idx].push(target_idx);
+            self.pred_indices[target_idx].push(source_idx);
         }
 
         if changed {
@@ -4297,6 +4336,74 @@ mod tests {
                     .collect()
             })
             .collect()
+    }
+
+    /// br-r37-c1-jc9e4: directed mirror of the `Graph` lock. Pins the endpoint
+    /// resolution cases that collapsing the per-endpoint `contains_key` +
+    /// `get_index_of` pair restructured — in particular the self-loop branch,
+    /// which now returns the source index instead of probing for the target and
+    /// still has to report `target_autocreated` as a COPY of
+    /// `source_autocreated`. Direction is asserted alongside, because the
+    /// successor/predecessor rows are now filled from the reused indices.
+    #[test]
+    fn digraph_add_edge_endpoint_resolution_preserves_autocreation_and_direction() {
+        fn autocreated(graph: &DiGraph) -> (String, String) {
+            let record = graph
+                .evidence_ledger()
+                .records()
+                .last()
+                .expect("add_edge files an outcome record");
+            let read = |signal: &str| {
+                record
+                    .evidence
+                    .iter()
+                    .find(|term| term.signal == signal)
+                    .map(|term| term.observed_value.to_string())
+                    .unwrap_or_else(|| panic!("{signal} must be present"))
+            };
+            (read("source_autocreated"), read("target_autocreated"))
+        }
+
+        // Self-loop that CREATES its node: both flags true, one node added.
+        let mut graph = DiGraph::strict();
+        graph
+            .add_edge_with_attrs("s", "s", AttrMap::new())
+            .expect("self-loop is allowed");
+        assert_eq!(autocreated(&graph), ("true".to_owned(), "true".to_owned()));
+        assert_eq!(graph.node_count(), 1);
+
+        // Self-loop on an EXISTING node: both flags false, nothing added.
+        graph
+            .add_edge_with_attrs("s", "s", AttrMap::new())
+            .expect("re-adding a self-loop is allowed");
+        assert_eq!(
+            autocreated(&graph),
+            ("false".to_owned(), "false".to_owned())
+        );
+        assert_eq!(graph.node_count(), 1);
+
+        // Source exists, target is new — the asymmetric case.
+        graph
+            .add_edge_with_attrs("s", "t", AttrMap::new())
+            .expect("edge is allowed");
+        assert_eq!(autocreated(&graph), ("false".to_owned(), "true".to_owned()));
+
+        // Both new: source resolved and inserted BEFORE target, so insertion
+        // order is source-then-target and earlier indices are unmoved.
+        graph
+            .add_edge_with_attrs("z", "a", AttrMap::new())
+            .expect("edge is allowed");
+        assert_eq!(autocreated(&graph), ("true".to_owned(), "true".to_owned()));
+        assert_eq!(graph.get_node_index("s"), Some(0));
+        assert_eq!(graph.get_node_index("t"), Some(1));
+        assert_eq!(graph.get_node_index("z"), Some(2));
+        assert_eq!(graph.get_node_index("a"), Some(3));
+
+        // Direction survives filling succ/pred from the reused indices.
+        assert!(graph.has_edge("z", "a"));
+        assert!(!graph.has_edge("a", "z"));
+        assert!(graph.has_edge("s", "t"));
+        assert!(!graph.has_edge("t", "s"));
     }
 
     #[test]

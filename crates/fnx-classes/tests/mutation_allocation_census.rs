@@ -39,6 +39,7 @@
 //! a change to `EvidenceLedger`'s shape, which was scoped and declined — see
 //! the bead. Until then this census is a floor, and its job is to keep it one.
 
+use fnx_classes::digraph::DiGraph;
 use fnx_classes::{AttrMap, Graph};
 use fnx_runtime::CgseValue;
 use std::alloc::{GlobalAlloc, Layout, System};
@@ -164,6 +165,25 @@ fn mutation_entry_allocation_census() {
         graph.add_node_with_attrs(key, AttrMap::new());
     });
 
+    // Arms 6/7 — the DIRECTED siblings of arms 1 and 2. The undirected pair
+    // above was brought to one allocation per call; a directed graph reaches
+    // the same user-visible operation through its own code, so it needs its own
+    // arm rather than an assumption that the lever transferred.
+    let mut digraph = DiGraph::strict();
+    for index in 0..1_000_usize {
+        digraph
+            .add_edge_with_attrs(index.to_string(), (index + 1).to_string(), weight_attrs())
+            .expect("path construction is allowed in strict mode");
+    }
+    let di_edge_noop = allocs_per_call(ROUNDS, CALLS, || {
+        digraph
+            .add_edge_with_attrs("10", "11", weight_attrs())
+            .expect("re-adding an existing edge is allowed");
+    });
+    let di_node_noop = allocs_per_call(ROUNDS, CALLS, || {
+        digraph.add_node_with_attrs("10", AttrMap::new());
+    });
+
     println!("mutation_entry_allocation_census rounds={ROUNDS} calls={CALLS}");
     println!("  add_edge_with_attrs, existing edge : {edge_noop:6.3} allocs/call");
     println!("  add_node_with_attrs, existing node : {node_noop:6.3} allocs/call");
@@ -174,9 +194,15 @@ fn mutation_entry_allocation_census() {
         "  -> add_edge entry, caller attrs out: {:6.3} allocs/call",
         edge_noop - caller_attrs
     );
+    println!("  DiGraph add_edge, existing edge    : {di_edge_noop:6.3} allocs/call");
+    println!("  DiGraph add_node, existing node    : {di_node_noop:6.3} allocs/call");
     println!(
         "  -> owning the key costs (2-5)      : {:6.3} allocs/call",
         node_noop - node_noop_owned_key
+    );
+    println!(
+        "  -> DiGraph add_edge entry          : {:6.3} allocs/call",
+        di_edge_noop - caller_attrs
     );
 
     // EXACT LOCKS, not ceilings. Every arm above is a whole number in both
@@ -208,5 +234,19 @@ fn mutation_entry_allocation_census() {
     assert!(
         read_control.abs() < f64::EPSILON,
         "has_node is a read and must allocate NOTHING per call: {read_control:.3}"
+    );
+
+    // The directed pair must not drift back. It sat at the undirected pair's
+    // pre-lever numbers (entry 3, node 2) until the same levers were applied
+    // here, which is why these arms exist rather than an assumption that a fix
+    // to `Graph` reaches `DiGraph`.
+    assert!(
+        (di_edge_noop - caller_attrs - 1.0).abs() < f64::EPSILON,
+        "DiGraph add_edge entry allocated {:.3} per call excluding caller attrs, expected 1",
+        di_edge_noop - caller_attrs
+    );
+    assert!(
+        (di_node_noop - 1.0).abs() < f64::EPSILON,
+        "DiGraph add_node entry allocated {di_node_noop:.3} per call, expected 1"
     );
 }
