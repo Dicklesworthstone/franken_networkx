@@ -373,9 +373,9 @@ mod tests {
         for node in ["a", "b", "c"] {
             graph.add_node(node.to_owned());
         }
-        let _ = graph.add_edge("a".to_owned(), "b".to_owned());
-        let _ = graph.add_edge("b".to_owned(), "c".to_owned());
-        let _ = graph.add_edge("a".to_owned(), "c".to_owned());
+        let _ = graph.add_edge("a", "b");
+        let _ = graph.add_edge("b", "c");
+        let _ = graph.add_edge("a", "c");
 
         let (_, witnesses) = collect_witnesses(|| run_undirected_algorithm(algorithm, &graph));
         witnesses
@@ -386,9 +386,9 @@ mod tests {
         for node in ["a", "b", "c"] {
             graph.add_node(node.to_owned());
         }
-        let _ = graph.add_edge("a".to_owned(), "b".to_owned());
-        let _ = graph.add_edge("b".to_owned(), "c".to_owned());
-        let _ = graph.add_edge("c".to_owned(), "a".to_owned());
+        let _ = graph.add_edge("a", "b");
+        let _ = graph.add_edge("b", "c");
+        let _ = graph.add_edge("c", "a");
 
         let (_, witnesses) = collect_witnesses(|| run_directed_algorithm(algorithm, &graph));
         witnesses

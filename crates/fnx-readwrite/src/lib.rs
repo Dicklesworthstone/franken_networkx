@@ -381,7 +381,7 @@ impl EdgeListEngine {
 
             let attrs_encoded = attrs.unwrap_or("-");
             let attrs = decode_attrs(attrs_encoded, self.mode, &mut warnings, line_no + 1)?;
-            graph.add_edge_with_attrs(left.to_owned(), right.to_owned(), attrs)?;
+            graph.add_edge_with_attrs(left, right, attrs)?;
         }
 
         self.record(
@@ -459,7 +459,7 @@ impl EdgeListEngine {
 
             let attrs_encoded = attrs.unwrap_or("-");
             let attrs = decode_attrs(attrs_encoded, self.mode, &mut warnings, line_no + 1)?;
-            graph.add_edge_with_attrs(left.to_owned(), right.to_owned(), attrs)?;
+            graph.add_edge_with_attrs(left, right, attrs)?;
         }
 
         self.record(
@@ -5913,22 +5913,22 @@ mod tests {
         let mut graph = Graph::strict();
         graph
             .add_edge_with_attrs(
-                "a".to_owned(),
-                "b".to_owned(),
+                "a",
+                "b",
                 BTreeMap::from([("weight".to_owned(), CgseValue::Int(1))]),
             )
             .expect("edge add should succeed");
         graph
             .add_edge_with_attrs(
-                "a".to_owned(),
-                "c".to_owned(),
+                "a",
+                "c",
                 BTreeMap::from([("label".to_owned(), CgseValue::String("blue".to_owned()))]),
             )
             .expect("edge add should succeed");
         graph
             .add_edge_with_attrs(
-                "b".to_owned(),
-                "d".to_owned(),
+                "b",
+                "d",
                 BTreeMap::from([
                     ("weight".to_owned(), CgseValue::Int(3)),
                     ("capacity".to_owned(), CgseValue::Int(7)),
@@ -5961,8 +5961,8 @@ mod tests {
         let mut graph = Graph::strict();
         graph
             .add_edge_with_attrs(
-                "a".to_owned(),
-                "b".to_owned(),
+                "a",
+                "b",
                 BTreeMap::from([
                     (
                         "note".to_owned(),
@@ -6162,7 +6162,7 @@ mod tests {
             let _ = graph.add_node(node.clone());
             for neighbor in parts {
                 graph
-                    .add_edge(node.clone(), neighbor.to_owned())
+                    .add_edge(node.clone(), neighbor)
                     .expect("valid adjacency-list edge should insert");
             }
         }
@@ -6302,7 +6302,7 @@ mod tests {
             let _ = graph.add_node(node.clone());
             for neighbor in parts {
                 graph
-                    .add_edge(node.clone(), neighbor.to_owned())
+                    .add_edge(node.clone(), neighbor)
                     .expect("valid directed adjacency-list edge should insert");
             }
         }
@@ -6821,8 +6821,8 @@ mod tests {
         );
         graph
             .add_edge_with_attrs(
-                "z-last".to_owned(),
-                "a-first".to_owned(),
+                "z-last",
+                "a-first",
                 BTreeMap::from([
                     ("bool".to_owned(), CgseValue::Bool(true)),
                     ("float".to_owned(), CgseValue::Float(-0.0)),
@@ -6839,8 +6839,8 @@ mod tests {
             .expect("edge add should succeed");
         graph
             .add_edge_with_attrs(
-                "a-first".to_owned(),
-                "z-last".to_owned(),
+                "a-first",
+                "z-last",
                 BTreeMap::from([(
                     "string".to_owned(),
                     CgseValue::String("antiparallel".to_owned()),
@@ -6848,7 +6848,7 @@ mod tests {
             )
             .expect("antiparallel edge add should succeed");
         graph
-            .add_edge_with_attrs("z-last".to_owned(), "z-last".to_owned(), BTreeMap::new())
+            .add_edge_with_attrs("z-last", "z-last", BTreeMap::new())
             .expect("self-loop add should succeed");
         let graph_attrs = BTreeMap::from([
             (
@@ -7075,8 +7075,8 @@ mod tests {
         graph.add_node("n1");
         graph
             .add_edge_with_attrs(
-                "n0".to_owned(),
-                "n1".to_owned(),
+                "n0",
+                "n1",
                 BTreeMap::from([
                     ("weight".to_owned(), CgseValue::Float(2.5)),
                     ("kind".to_owned(), CgseValue::String("demo".to_owned())),
@@ -7200,15 +7200,15 @@ mod tests {
         let mut graph = Graph::strict();
         graph
             .add_edge_with_attrs(
-                "a".to_owned(),
-                "b".to_owned(),
+                "a",
+                "b",
                 BTreeMap::from([("weight".to_owned(), "1".into())]),
             )
             .expect("edge add should succeed");
         graph
             .add_edge_with_attrs(
-                "b".to_owned(),
-                "c".to_owned(),
+                "b",
+                "c",
                 BTreeMap::from([("weight".to_owned(), "3".into())]),
             )
             .expect("edge add should succeed");
@@ -7265,8 +7265,8 @@ mod tests {
         );
         graph
             .add_edge_with_attrs(
-                "a".to_owned(),
-                "b".to_owned(),
+                "a",
+                "b",
                 BTreeMap::from([
                     ("weight".to_owned(), CgseValue::Float(2.5)),
                     ("flag".to_owned(), CgseValue::Bool(false)),

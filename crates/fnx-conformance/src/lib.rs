@@ -6156,7 +6156,7 @@ mod tests {
     fn helper_graph_builder_preserves_source_runtime_policy() {
         let mut source = Graph::hardened();
         source
-            .add_edge("a".to_owned(), "b".to_owned())
+            .add_edge("a", "b")
             .expect("source edge add should succeed");
         let expected_policy = source.runtime_policy().clone();
 

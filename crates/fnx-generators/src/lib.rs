@@ -2615,7 +2615,7 @@ impl GraphGenerator {
         }
         for &(source, target) in edges {
             graph
-                .add_edge(source.to_owned(), target.to_owned())
+                .add_edge(source, target)
                 .map_err(|err| GenerationError::FailClosed {
                     operation,
                     reason: err.to_string(),
@@ -5372,7 +5372,7 @@ impl GraphGenerator {
 
         let mut rng = PythonRandom::new(seed);
         graph
-            .add_edge("1".to_owned(), "0".to_owned())
+            .add_edge("1", "0")
             .map_err(|err| GenerationError::FailClosed {
                 operation: "gn_graph",
                 reason: err.to_string(),
