@@ -55,12 +55,40 @@ def test_line_graph_node_degrees(seed):
         assert L.degree(ln) == deg[u] + deg[v] - 2
 
 
+@pytest.mark.parametrize("seed", range(40))
+def test_line_graph_adjacency_is_shared_endpoints(seed):
+    """The DEFINING property. Counts and degrees can all be right while the
+    adjacency is wrong, since neither says which pairs are joined."""
+    g = _graph(seed)
+    if g.number_of_edges() == 0:
+        pytest.skip("no edges")
+    L = fnx.line_graph(g)
+
+    # The nodes of L are exactly the edges of G.
+    assert {frozenset(n) for n in L.nodes()} == {frozenset(e) for e in g.edges()}
+
+    nodes = list(L.nodes())
+    for i, first in enumerate(nodes):
+        for second in nodes[i + 1:]:
+            shares_endpoint = bool(set(first) & set(second))
+            assert L.has_edge(first, second) == shares_endpoint
+
+
 def test_line_graph_of_path_and_cycle():
     # L(P_n) is P_{n-1}: the path on n nodes has n-1 edges -> n-1 line nodes.
     L = fnx.line_graph(fnx.path_graph(5))
     assert L.number_of_nodes() == 4
     assert L.number_of_edges() == 3            # consecutive edges share a node
+    # Counts alone do not say it is a PATH: star_graph(3) also has 4 nodes and
+    # 3 edges. A path is connected with degree sequence [1, 1, 2, 2]; the star's
+    # is [1, 1, 1, 3].
+    assert fnx.is_connected(L)
+    assert sorted(d for _, d in L.degree()) == [1, 1, 2, 2]
+
     # L(C_n) is C_n: a cycle's line graph is a cycle of the same length.
     Lc = fnx.line_graph(fnx.cycle_graph(6))
     assert Lc.number_of_nodes() == 6
     assert Lc.number_of_edges() == 6
+    # ...and a cycle is exactly a connected 2-regular graph.
+    assert fnx.is_connected(Lc)
+    assert all(d == 2 for _, d in Lc.degree())
