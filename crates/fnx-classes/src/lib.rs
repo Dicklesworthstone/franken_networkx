@@ -3212,6 +3212,21 @@ mod multigraph_storage {
             } else {
                 self.ensure_node(right)
             };
+            self.add_keyed_edge_by_pair(l, r, key, attrs)
+        }
+
+        /// br-r37-c1-4c29a: slot-keyed half of [`Self::add_keyed_edge`], for a
+        /// caller that has already ensured both endpoints exist and knows their
+        /// slots. Identical insert semantics — the only thing skipped is the
+        /// `ensure_node` pair, which for such a caller is two redundant
+        /// `String` hashes.
+        pub fn add_keyed_edge_by_pair(
+            &mut self,
+            l: usize,
+            r: usize,
+            key: usize,
+            attrs: AttrMap,
+        ) -> bool {
             let pair = (l.min(r), l.max(r));
             let is_new = match self.edges.entry(pair) {
                 indexmap::map::Entry::Occupied(mut bucket) => bucket.get_mut().merge(key, attrs),
@@ -3462,9 +3477,30 @@ mod multigraph_storage {
             else {
                 return false;
             };
+            self.has_edge_by_pair(l, r)
+        }
+
+        /// br-r37-c1-4c29a: the slot-keyed half of [`Self::has_edge`].
+        ///
+        /// The callgrind profile of the MultiGraph build put
+        /// `IndexMap<String, usize>::get_index_of` at 17.39% — the largest
+        /// entry, ahead of the allocator — because `add_edge_impl` re-resolved
+        /// both endpoint strings inside every one of six storage calls. These
+        /// `_by_pair` variants let a caller that has already resolved its
+        /// endpoints skip the lookup, and the `&str` methods keep working by
+        /// resolving once and delegating here, so there is a single
+        /// implementation of the logic.
+        #[must_use]
+        pub fn has_edge_by_pair(&self, l: usize, r: usize) -> bool {
             self.edges
                 .get(&(l.min(r), l.max(r)))
                 .is_some_and(|bucket| !bucket.is_empty())
+        }
+
+        /// Slot for a node name, or `None` when absent.
+        #[must_use]
+        pub fn node_slot(&self, name: &str) -> Option<usize> {
+            self.node_order.get(name).copied()
         }
 
         /// br-r37-c1-thp6w S30: node is isolated (mirror of
@@ -3557,23 +3593,21 @@ mod multigraph_storage {
                 .map(CompactBucket::values)
         }
 
+        /// br-r37-c1-4c29a: slot-keyed edge-cell count. The `&str` wrapper this
+        /// replaced had exactly one caller — `add_edge_impl`, which now holds
+        /// the slots — so it was removed rather than left dead.
         #[must_use]
-        pub fn edge_attr_count(&self, left: &str, right: &str) -> usize {
-            let (Some(&l), Some(&r)) = (self.node_order.get(left), self.node_order.get(right))
-            else {
-                return 0;
-            };
+        pub fn edge_attr_count_by_pair(&self, l: usize, r: usize) -> usize {
             self.edges
                 .get(&(l.min(r), l.max(r)))
                 .map_or(0, CompactBucket::len)
         }
 
+        /// br-r37-c1-4c29a: slot-keyed auto-key selection. As with
+        /// `edge_attr_count_by_pair`, the `&str` wrapper had a single caller
+        /// that now holds the slots, so it was removed rather than left dead.
         #[must_use]
-        pub fn next_edge_key(&self, left: &str, right: &str) -> usize {
-            let (Some(&l), Some(&r)) = (self.node_order.get(left), self.node_order.get(right))
-            else {
-                return 0;
-            };
+        pub fn next_edge_key_by_pair(&self, l: usize, r: usize) -> usize {
             let Some(bucket) = self.edges.get(&(l.min(r), l.max(r))) else {
                 return 0;
             };
@@ -3608,6 +3642,12 @@ mod multigraph_storage {
             else {
                 return None;
             };
+            self.edge_attrs_by_pair(l, r, key)
+        }
+
+        /// br-r37-c1-4c29a: slot-keyed half of [`Self::edge_attrs`].
+        #[must_use]
+        pub fn edge_attrs_by_pair(&self, l: usize, r: usize, key: usize) -> Option<&AttrMap> {
             self.edges
                 .get(&(l.min(r), l.max(r)))
                 .and_then(|bucket| bucket.attrs_for(key))
@@ -4836,11 +4876,32 @@ impl MultiGraph {
             right_autocreated = true;
         }
 
-        let key = explicit_key.unwrap_or_else(|| self.slab_store().next_edge_key(&left, &right));
-        let pair_was_present = self.has_edge(&left, &right);
+        // br-r37-c1-4c29a: resolve each endpoint to its slot ONCE. Both nodes
+        // are guaranteed present by the autocreation above, and the six storage
+        // calls below used to re-resolve BOTH endpoint strings independently —
+        // `IndexMap<String, usize>::get_index_of` was 17.39% of the MultiGraph
+        // build profile, the largest entry, ahead of the allocator. The
+        // `_by_pair` variants take the slots and are otherwise identical.
+        let left_slot = self
+            .slab_store()
+            .node_slot(&left)
+            .expect("autocreated above");
+        let right_slot = if left == right {
+            left_slot
+        } else {
+            self.slab_store()
+                .node_slot(&right)
+                .expect("autocreated above")
+        };
+
+        let key = explicit_key.unwrap_or_else(|| {
+            self.slab_store()
+                .next_edge_key_by_pair(left_slot, right_slot)
+        });
+        let pair_was_present = self.slab_store().has_edge_by_pair(left_slot, right_slot);
         let changed = self
             .slab_store()
-            .edge_attrs(&left, &right, key)
+            .edge_attrs_by_pair(left_slot, right_slot, key)
             .is_none_or(|edge_attrs| {
                 attrs
                     .iter()
@@ -4848,11 +4909,13 @@ impl MultiGraph {
             });
         let inserted = self
             .slab_store_mut()
-            .add_keyed_edge(&left, &right, key, attrs);
+            .add_keyed_edge_by_pair(left_slot, right_slot, key, attrs);
         if inserted {
             self.edge_count += 1;
         }
-        let edge_attr_count = self.slab_store().edge_attr_count(&left, &right);
+        let edge_attr_count = self
+            .slab_store()
+            .edge_attr_count_by_pair(left_slot, right_slot);
         if changed {
             self.revision = self.revision.saturating_add(1);
         }
@@ -9260,6 +9323,68 @@ mod tests {
             records.last().map(|record| record.operation.as_ref()),
             Some("add_node")
         );
+    }
+
+    /// br-r37-c1-4c29a: `MultiGraph::add_edge_impl` now resolves each endpoint
+    /// to a storage slot ONCE and calls the `_by_pair` variants, instead of
+    /// re-resolving both endpoint strings inside six separate storage calls.
+    /// The behaviour that could break is key assignment and the self-loop
+    /// shortcut (`left == right` reuses the source slot rather than probing),
+    /// so both are pinned here against the observable key sequence.
+    #[test]
+    fn multigraph_slot_resolution_preserves_key_assignment() {
+        let mut graph = MultiGraph::strict();
+
+        // Parallel edges take successive keys, and the pair is order-insensitive.
+        assert_eq!(
+            graph
+                .add_edge_with_attrs("a", "b", AttrMap::new())
+                .expect("edge is allowed"),
+            0
+        );
+        assert_eq!(
+            graph
+                .add_edge_with_attrs("a", "b", AttrMap::new())
+                .expect("edge is allowed"),
+            1
+        );
+        assert_eq!(
+            graph
+                .add_edge_with_attrs("b", "a", AttrMap::new())
+                .expect("reversed endpoints are the same undirected pair"),
+            2
+        );
+
+        // Self-loop takes the shortcut branch and must key independently.
+        assert_eq!(
+            graph
+                .add_edge_with_attrs("a", "a", AttrMap::new())
+                .expect("self-loop is allowed"),
+            0
+        );
+        assert_eq!(
+            graph
+                .add_edge_with_attrs("a", "a", AttrMap::new())
+                .expect("parallel self-loop is allowed"),
+            1
+        );
+
+        // An explicit key still lands where asked, on both branches.
+        assert_eq!(
+            graph
+                .add_edge_with_key_and_attrs("a", "b", 9, AttrMap::new())
+                .expect("explicit key is allowed"),
+            9
+        );
+        assert_eq!(
+            graph
+                .add_edge_with_key_and_attrs("a", "a", 9, AttrMap::new())
+                .expect("explicit key is allowed"),
+            9
+        );
+
+        assert_eq!(graph.node_count(), 2);
+        assert_eq!(graph.edge_count(), 7);
     }
 
     /// br-r37-c1-jc9e4: `add_edge_with_attrs` now TAKES the caller's attribute
