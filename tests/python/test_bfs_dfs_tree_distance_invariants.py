@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import random
 
+import networkx as nx
 import pytest
 import franken_networkx as fnx
 
@@ -69,3 +70,74 @@ def test_bfs_tree_on_cycle_has_two_branches():
     depth = fnx.single_source_shortest_path_length(bt, 0)
     assert depth[3] == 3
     assert max(depth.values()) == 3  # graph radius from 0 on C_6
+
+
+@pytest.mark.parametrize("seed", range(40))
+def test_traversal_trees_are_built_from_graph_edges(seed):
+    """Spanning the right nodes with the right depths does not say the EDGES
+    came from G, nor which way they point."""
+    g = _graph(seed)
+    root = 0
+
+    for tree in (fnx.bfs_tree(g, root), fnx.dfs_tree(g, root)):
+        for u, v in tree.edges():
+            assert g.has_edge(u, v)
+
+    # A traversal tree is DIRECTED, oriented away from the root: crossing any
+    # edge increases the depth by exactly one.
+    bt = fnx.bfs_tree(g, root)
+    assert bt.is_directed()
+    depth = fnx.single_source_shortest_path_length(bt, root)
+    for u, v in bt.edges():
+        assert depth[v] == depth[u] + 1
+
+
+@pytest.mark.parametrize("seed", range(20))
+def test_bfs_depth_equals_distance_from_every_root(seed):
+    """The sweep above roots at node 0 only."""
+    g = _graph(seed)
+    for root in g.nodes():
+        bt = fnx.bfs_tree(g, root)
+        dist = fnx.single_source_shortest_path_length(g, root)
+        depth = fnx.single_source_shortest_path_length(bt, root)
+        assert set(bt.nodes()) == set(dist)
+        for v in bt:
+            assert depth[v] == dist[v]
+
+
+def test_dfs_depth_actually_exceeds_distance_on_this_family():
+    """Guards `depth >= dist`: equality everywhere would satisfy it vacuously.
+
+    A DFS tree may legitimately equal the BFS tree, so this asserts the family
+    separates them often, not that it always does.
+    """
+    separated = 0
+    for seed in range(40):
+        g = _graph(seed)
+        dist = fnx.single_source_shortest_path_length(g, 0)
+        depth = fnx.single_source_shortest_path_length(fnx.dfs_tree(g, 0), 0)
+        if any(depth[v] > dist[v] for v in depth):
+            separated += 1
+    # Measured 33 of 40.
+    assert separated >= 20, f"only {separated} of 40 draws have a deeper DFS path"
+
+
+def test_directed_reverse_and_depth_limit_match_networkx():
+    """Three traversal parameters the sweep never varies."""
+    d = fnx.DiGraph([(0, 1), (1, 2), (0, 3), (3, 2)])
+    nd = nx.DiGraph([(0, 1), (1, 2), (0, 3), (3, 2)])
+    # Directed traversal follows out-edges only.
+    assert sorted(fnx.bfs_tree(d, 0).edges()) == sorted(nx.bfs_tree(nd, 0).edges())
+    # reverse=True walks in-edges instead.
+    assert sorted(fnx.bfs_tree(d, 2, reverse=True).edges()) == sorted(
+        nx.bfs_tree(nd, 2, reverse=True).edges()
+    )
+
+    g, ng = fnx.path_graph(6), nx.path_graph(6)
+    for limit in (1, 2, 3):
+        assert sorted(fnx.bfs_tree(g, 0, depth_limit=limit).edges()) == sorted(
+            nx.bfs_tree(ng, 0, depth_limit=limit).edges()
+        )
+        # ...and the limit is honoured: no node deeper than `limit`.
+        tree = fnx.bfs_tree(g, 0, depth_limit=limit)
+        assert max(fnx.single_source_shortest_path_length(tree, 0).values()) <= limit
