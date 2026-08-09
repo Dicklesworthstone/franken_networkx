@@ -75,3 +75,63 @@ def test_triangle_inequality_on_distance_matrix():
         for b in nodes:
             for c in nodes:
                 assert apsp[a][c] <= apsp[a][b] + apsp[b][c]
+
+
+@pytest.mark.parametrize("seed", range(40))
+def test_every_distance_function_matches_networkx(seed):
+    """Only eccentricity was compared against networkx; the rest ride on it."""
+    fg, ng = _connected(seed)
+    if not fnx.is_connected(fg):
+        pytest.skip("disconnected")
+
+    assert fnx.radius(fg) == nx.radius(ng)
+    assert fnx.diameter(fg) == nx.diameter(ng)
+    assert sorted(fnx.center(fg)) == sorted(nx.center(ng))
+    assert sorted(fnx.periphery(fg)) == sorted(nx.periphery(ng))
+    assert fnx.wiener_index(fg) == nx.wiener_index(ng)
+
+
+@pytest.mark.parametrize("seed", range(40))
+def test_triangle_inequality_on_the_random_family(seed):
+    """The metric law was checked on cycle_graph(8) alone."""
+    fg, _ = _connected(seed)
+    if not fnx.is_connected(fg):
+        pytest.skip("disconnected")
+    apsp = dict(fnx.all_pairs_shortest_path_length(fg))
+    nodes = list(fg)
+    for a in nodes:
+        for b in nodes:
+            for c in nodes:
+                assert apsp[a][c] <= apsp[a][b] + apsp[b][c]
+        # A metric is also symmetric with a zero diagonal on an undirected graph.
+        assert apsp[a][a] == 0
+        for b in nodes:
+            assert apsp[a][b] == apsp[b][a]
+
+
+def test_disconnected_contracts_are_not_uniform():
+    """What the sweeps skip: five of these refuse, and one does not.
+
+    Distances between components are infinite, so eccentricity and everything
+    derived from it raises. wiener_index instead SUMS those infinities and
+    returns inf — an asymmetry worth pinning precisely because it is easy to
+    assume the whole family behaves alike.
+    """
+    fg = fnx.Graph([(0, 1), (2, 3)])
+    ng = nx.Graph([(0, 1), (2, 3)])
+
+    for fnx_call, nx_call in [
+        (lambda: fnx.eccentricity(fg), lambda: nx.eccentricity(ng)),
+        (lambda: fnx.radius(fg), lambda: nx.radius(ng)),
+        (lambda: fnx.diameter(fg), lambda: nx.diameter(ng)),
+        (lambda: fnx.center(fg), lambda: nx.center(ng)),
+        (lambda: fnx.periphery(fg), lambda: nx.periphery(ng)),
+    ]:
+        with pytest.raises(fnx.NetworkXError):
+            fnx_call()
+        with pytest.raises(nx.NetworkXError):
+            nx_call()
+
+    # The exception: wiener_index returns infinity rather than raising.
+    assert fnx.wiener_index(fg) == float("inf")
+    assert fnx.wiener_index(fg) == nx.wiener_index(ng)
