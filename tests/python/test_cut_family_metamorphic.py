@@ -85,3 +85,48 @@ def test_min_edge_cut_and_stoer_wagner(seed):
     assert fnx.stoer_wagner(fg)[0] == nx.stoer_wagner(ng)[0]
     # And equals the edge-connectivity (min cut value = lambda).
     assert fnx.stoer_wagner(fg)[0] == len(f_ec)
+
+
+@pytest.mark.parametrize("seed", range(50))
+def test_stoer_wagner_partition_is_valid(seed):
+    """stoer_wagner returns (value, partition) and the file reads only [0].
+
+    The partition is half the answer: it is the witness that the value is
+    achievable. Nothing checked it covered the graph, that the two sides were
+    disjoint and non-empty, or that the edges crossing it actually number the
+    reported value.
+    """
+    fg, _, _, _ = _structured(seed)
+    if fg.number_of_edges() == 0 or not fnx.is_connected(fg):
+        pytest.skip("trivial / disconnected")
+
+    value, (left, right) = fnx.stoer_wagner(fg)
+    left_side, right_side = set(left), set(right)
+
+    assert left_side | right_side == set(fg.nodes())      # covers the graph
+    assert not (left_side & right_side)                   # ...disjointly
+    assert left_side and right_side                       # a cut needs two sides
+    # The reported value IS the number of edges crossing the partition.
+    crossing = sum(1 for u, v in fg.edges() if (u in left_side) != (v in left_side))
+    assert crossing == value
+
+
+@pytest.mark.parametrize("seed", range(50))
+def test_cuts_are_made_of_graph_elements(seed):
+    """A cut that disconnects the graph could still name things not in it.
+
+    Removing nodes or edges that G does not have is a no-op, so a cut padded
+    with foreign elements still disconnects and still has the right size.
+    """
+    fg, _, _, _ = _structured(seed)
+
+    try:
+        node_cut = fnx.minimum_node_cut(fg)
+    except Exception:  # noqa: BLE001 - complete/disconnected graphs have none
+        node_cut = None
+    if node_cut is not None:
+        assert set(node_cut) <= set(fg.nodes())
+
+    if fg.number_of_edges() and fnx.is_connected(fg):
+        for u, v in fnx.minimum_edge_cut(fg):
+            assert fg.has_edge(u, v)
