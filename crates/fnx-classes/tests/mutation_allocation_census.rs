@@ -171,6 +171,28 @@ fn add_edge_build_profile_target() {
     assert_eq!(graph.node_count(), EDGES + 1);
 }
 
+/// br-r37-c1-4c29a: the MultiGraph build workload.
+///
+/// MultiGraph stores its adjacency in a slab rather than the nested string maps
+/// MultiDiGraph uses, so it is a genuinely different shape and gets its own arm
+/// rather than inheriting the directed-multi conclusion.
+///
+/// Same invocation as the siblings, with `multigraph_build_profile_target`.
+#[test]
+#[ignore = "profiling target; run under callgrind, see the doc comment"]
+fn multigraph_build_profile_target() {
+    const EDGES: usize = 100_000;
+
+    let keys: Vec<String> = (0..=EDGES).map(|index| index.to_string()).collect();
+    let mut graph = MultiGraph::strict();
+    for index in 0..EDGES {
+        graph
+            .add_edge_with_attrs(&keys[index], &keys[index + 1], weight_attrs())
+            .expect("path construction is allowed in strict mode");
+    }
+    assert_eq!(graph.node_count(), EDGES + 1);
+}
+
 /// br-r37-c1-jc9e4: the MultiDiGraph build workload.
 ///
 /// The simple-graph siblings above cannot stand in for it. This session has
