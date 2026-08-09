@@ -16,8 +16,10 @@ No mocks: real fnx.
 
 from __future__ import annotations
 
+import itertools
 import random
 
+import networkx as nx
 import pytest
 import franken_networkx as fnx
 
@@ -70,3 +72,59 @@ def test_subgraph_of_complete_is_complete():
     k = fnx.complete_graph(6)
     sub = k.subgraph({0, 1, 2, 3})
     assert sub.number_of_edges() == 4 * 3 // 2   # C(4, 2)
+    # The edge count forces K_4 only GIVEN four nodes, which was not asserted.
+    # State both, so the claim does not rest on an unstated premise.
+    assert set(sub.nodes()) == {0, 1, 2, 3}
+    for a, b in itertools.combinations(sorted(sub.nodes()), 2):
+        assert sub.has_edge(a, b)
+
+
+def test_subgraph_is_a_live_frozen_view_sharing_attributes():
+    """A subgraph is a VIEW, which the structural assertions cannot detect."""
+    g = fnx.Graph()
+    g.add_edge(0, 1, weight=5)
+    g.add_edge(1, 2, weight=7)
+    g.add_edge(2, 3)
+    sub = g.subgraph({0, 1, 2})
+
+    # Frozen: the view refuses direct edits.
+    with pytest.raises(fnx.NetworkXError):
+        sub.add_edge(9, 8)
+    # Live: a parent edge added inside S appears in the view.
+    g.add_edge(0, 2)
+    assert sub.has_edge(0, 2)
+    # Attributes are shared, not copied — the same dict object.
+    g.edges[0, 1]["weight"] = 99
+    assert sub.edges[0, 1]["weight"] == 99
+    assert sub.edges[0, 1] is g.edges[0, 1]
+
+
+def test_foreign_nodes_and_edges_are_ignored():
+    """Both selectors filter to what the graph actually has, matching networkx."""
+    g = fnx.Graph([(0, 1), (1, 2)])
+    ng = nx.Graph([(0, 1), (1, 2)])
+
+    assert set(g.subgraph({0, 1, "ghost"}).nodes()) == {0, 1}
+    assert set(g.subgraph({0, 1, "ghost"}).nodes()) == set(ng.subgraph({0, 1, "ghost"}).nodes())
+
+    assert _edge_set(g.edge_subgraph([(0, 1), (5, 6)]).edges()) == {(0, 1)}
+    assert _edge_set(g.edge_subgraph([(0, 1), (5, 6)]).edges()) == _edge_set(
+        ng.edge_subgraph([(0, 1), (5, 6)]).edges()
+    )
+
+
+def test_multigraph_subgraph_keeps_parallel_edges_and_keys():
+    """An induced subgraph must not collapse parallel edges."""
+    m = fnx.MultiGraph()
+    m.add_edge(0, 1, key="a", weight=1)
+    m.add_edge(0, 1, key="b")
+    m.add_edge(1, 2)
+
+    sub = m.subgraph({0, 1})
+    assert sub.number_of_edges() == 2
+    assert sorted(str(k) for _, _, k in sub.edges(keys=True)) == ["a", "b"]
+    # Attributes reachable per key. NOTE: `sub.edges[0, 1, "a"]` — the keyed
+    # subscript networkx supports on this same view — currently raises
+    # ValueError here; filed as its own bug rather than asserted around.
+    assert sub.get_edge_data(0, 1, "a") == m.get_edge_data(0, 1, "a")
+    assert dict(sub[0][1]) == dict(m[0][1])
