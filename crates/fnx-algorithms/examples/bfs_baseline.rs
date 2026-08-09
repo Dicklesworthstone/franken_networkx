@@ -129,7 +129,7 @@ fn build_graph(config: &Config) -> Result<(Graph, String, String, &'static str),
             let nodes = config.nodes.max(2);
             for idx in 1..nodes {
                 graph
-                    .add_edge("0".to_string(), idx.to_string())
+                    .add_edge("0", idx.to_string())
                     .map_err(|_| "star edge add should succeed")?;
             }
             let source = "1".to_string();

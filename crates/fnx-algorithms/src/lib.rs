@@ -29267,8 +29267,7 @@ pub fn spanner(
             if spanner_attrs_can_use_bulk_insert(attrs) {
                 bulk_edges.push((left.to_owned(), right.to_owned(), attrs.clone()));
             } else {
-                let _ =
-                    result.add_edge_with_attrs(left.to_owned(), right.to_owned(), attrs.clone());
+                let _ = result.add_edge_with_attrs(left, right, attrs.clone());
             }
         }
         let _ = result.extend_edges_with_attrs_unrecorded(bulk_edges);
@@ -29542,7 +29541,7 @@ pub fn spanner(
         if spanner_attrs_can_use_bulk_insert(&attrs) {
             bulk_edges.push(((*left).to_owned(), (*right).to_owned(), attrs));
         } else {
-            let _ = result.add_edge_with_attrs((*left).to_owned(), (*right).to_owned(), attrs);
+            let _ = result.add_edge_with_attrs(*left, *right, attrs);
         }
     }
     let _ = result.extend_edges_with_attrs_unrecorded(bulk_edges);
@@ -46027,7 +46026,7 @@ pub fn dedensify(graph: &Graph, threshold: usize) -> (Graph, Vec<String>) {
             let comp_name = format!("_compressor_{compressor_id}");
             compressor_id += 1;
             let _ = result.add_node(comp_name.clone());
-            let _ = result.add_edge(comp_name.clone(), hd_node.to_owned());
+            let _ = result.add_edge(comp_name.clone(), hd_node);
 
             for gn in group_nodes {
                 let _ = result.remove_edge(gn, hd_node);
@@ -47734,7 +47733,7 @@ pub fn partial_duplication_graph(n: usize, p: f64, seed: u64) -> Graph {
         return g;
     }
     let _ = g.add_node("1".to_owned());
-    let _ = g.add_edge("0".to_owned(), "1".to_owned());
+    let _ = g.add_edge("0", "1");
     let mut rng = seed.wrapping_add(1);
     for i in 2..n {
         let nn = i.to_string();
@@ -48305,7 +48304,7 @@ pub fn gomory_hu_tree(graph: &Graph, weight_attr: &str) -> Graph {
             Ok(f) => {
                 let mut attrs = std::collections::BTreeMap::new();
                 attrs.insert("weight".to_owned(), CgseValue::Float(f.value));
-                let _ = tree.add_edge_with_attrs(s.to_owned(), t.to_owned(), attrs);
+                let _ = tree.add_edge_with_attrs(s, t, attrs);
 
                 // Update parents: any node j>i with parent[j]==parent[i]
                 // that is on the source side of the cut gets reparented to i
@@ -48322,7 +48321,7 @@ pub fn gomory_hu_tree(graph: &Graph, weight_attr: &str) -> Graph {
             }
             Err(_) => {
                 // No flow path — add zero-weight edge
-                let _ = tree.add_edge(s.to_owned(), t.to_owned());
+                let _ = tree.add_edge(s, t);
             }
         }
     }
@@ -49003,7 +49002,7 @@ pub fn random_spanning_tree(graph: &Graph, seed: u64) -> Option<Graph> {
         let _ = result.add_node((*node).to_owned());
     }
     for (u, v) in tree_edges {
-        let _ = result.add_edge(nodes[u].to_owned(), nodes[v].to_owned());
+        let _ = result.add_edge(nodes[u], nodes[v]);
     }
 
     Some(result)
@@ -49109,7 +49108,7 @@ pub fn random_spanning_tree_directed(digraph: &DiGraph, root: &str, seed: u64) -
         let _ = result.add_node((*node).to_owned());
     }
     for (u, v) in tree_edges {
-        let _ = result.add_edge(nodes[u].to_owned(), nodes[v].to_owned());
+        let _ = result.add_edge(nodes[u], nodes[v]);
     }
 
     Some(result)
@@ -53545,9 +53544,9 @@ mod bitpar_closeness_tests {
         for i in 0..8 {
             let _ = g.add_node(i.to_string());
         }
-        let _ = g.add_edge("0".to_owned(), "1".to_owned());
-        let _ = g.add_edge("1".to_owned(), "2".to_owned());
-        let _ = g.add_edge("4".to_owned(), "5".to_owned());
+        let _ = g.add_edge("0", "1");
+        let _ = g.add_edge("1", "2");
+        let _ = g.add_edge("4", "5");
         // 6 and 7 stay isolated.
         assert_matches_reference(&g, "disconnected");
         let scores = closeness_centrality(&g).scores;
@@ -53565,11 +53564,11 @@ mod bitpar_closeness_tests {
         for i in 0..5 {
             let _ = g.add_node(i.to_string());
         }
-        let _ = g.add_edge("0".to_owned(), "0".to_owned());
-        let _ = g.add_edge("0".to_owned(), "1".to_owned());
-        let _ = g.add_edge("1".to_owned(), "2".to_owned());
-        let _ = g.add_edge("2".to_owned(), "3".to_owned());
-        let _ = g.add_edge("3".to_owned(), "4".to_owned());
+        let _ = g.add_edge("0", "0");
+        let _ = g.add_edge("0", "1");
+        let _ = g.add_edge("1", "2");
+        let _ = g.add_edge("2", "3");
+        let _ = g.add_edge("3", "4");
         assert_matches_reference(&g, "self-loop");
     }
 
@@ -53585,7 +53584,7 @@ mod bitpar_closeness_tests {
             let _ = dg.add_node(i.to_string());
         }
         for i in 1..6 {
-            let _ = dg.add_edge("0".to_owned(), i.to_string());
+            let _ = dg.add_edge("0", i.to_string());
         }
         assert_matches_reference_directed(&dg, "out-star");
         let scores = closeness_centrality_directed(&dg).scores;
@@ -54129,9 +54128,9 @@ mod bitpar_harmonic_tests {
         for i in 0..8 {
             let _ = g.add_node(i.to_string());
         }
-        let _ = g.add_edge("0".to_owned(), "1".to_owned());
-        let _ = g.add_edge("1".to_owned(), "2".to_owned());
-        let _ = g.add_edge("4".to_owned(), "5".to_owned());
+        let _ = g.add_edge("0", "1");
+        let _ = g.add_edge("1", "2");
+        let _ = g.add_edge("4", "5");
         assert_matches_reference(&g, "disconnected");
         let scores = harmonic_centrality(&g).scores;
         for s in &scores {
@@ -54147,11 +54146,11 @@ mod bitpar_harmonic_tests {
         for i in 0..5 {
             let _ = g.add_node(i.to_string());
         }
-        let _ = g.add_edge("0".to_owned(), "0".to_owned());
-        let _ = g.add_edge("0".to_owned(), "1".to_owned());
-        let _ = g.add_edge("1".to_owned(), "2".to_owned());
-        let _ = g.add_edge("2".to_owned(), "3".to_owned());
-        let _ = g.add_edge("3".to_owned(), "4".to_owned());
+        let _ = g.add_edge("0", "0");
+        let _ = g.add_edge("0", "1");
+        let _ = g.add_edge("1", "2");
+        let _ = g.add_edge("2", "3");
+        let _ = g.add_edge("3", "4");
         assert_matches_reference(&g, "self-loop");
     }
 
@@ -54164,7 +54163,7 @@ mod bitpar_harmonic_tests {
             let _ = dg.add_node(i.to_string());
         }
         for i in 1..6 {
-            let _ = dg.add_edge("0".to_owned(), i.to_string());
+            let _ = dg.add_edge("0", i.to_string());
         }
         assert_matches_reference_directed(&dg, "out-star");
         let scores = harmonic_centrality_directed(&dg).scores;
@@ -62880,7 +62879,7 @@ mod tests {
                 let _ = bidir.add_edge(format!("b{i}"), format!("b{j}"));
             }
         }
-        let _ = bidir.add_edge("b1".to_string(), "b0".to_string());
+        let _ = bidir.add_edge("b1", "b0");
         for gr in [&g, &missing, &bidir] {
             assert_eq!(
                 super::is_tournament(gr),
@@ -62973,17 +62972,17 @@ mod tests {
         for i in 0..4usize {
             let _ = cyc.add_node(format!("c{i}"));
         }
-        let _ = cyc.add_edge("c0".to_string(), "c1".to_string());
-        let _ = cyc.add_edge("c1".to_string(), "c2".to_string());
-        let _ = cyc.add_edge("c2".to_string(), "c1".to_string());
+        let _ = cyc.add_edge("c0", "c1");
+        let _ = cyc.add_edge("c1", "c2");
+        let _ = cyc.add_edge("c2", "c1");
         let mut disc = DiGraph::strict();
         for i in 0..6usize {
             let _ = disc.add_node(format!("d{i}"));
         }
-        let _ = disc.add_edge("d0".to_string(), "d1".to_string());
-        let _ = disc.add_edge("d0".to_string(), "d2".to_string());
-        let _ = disc.add_edge("d3".to_string(), "d4".to_string());
-        let _ = disc.add_edge("d3".to_string(), "d5".to_string());
+        let _ = disc.add_edge("d0", "d1");
+        let _ = disc.add_edge("d0", "d2");
+        let _ = disc.add_edge("d3", "d4");
+        let _ = disc.add_edge("d3", "d5");
         for gr in [&g, &cyc, &disc] {
             assert_eq!(
                 super::is_arborescence(gr),
@@ -63169,15 +63168,15 @@ mod tests {
         for i in 0..5usize {
             let _ = indeg2.add_node(format!("i{i}"));
         }
-        let _ = indeg2.add_edge("i0".to_string(), "i2".to_string());
-        let _ = indeg2.add_edge("i1".to_string(), "i2".to_string());
+        let _ = indeg2.add_edge("i0", "i2");
+        let _ = indeg2.add_edge("i1", "i2");
         let mut cyc = DiGraph::strict();
         for i in 0..4usize {
             let _ = cyc.add_node(format!("c{i}"));
         }
-        let _ = cyc.add_edge("c0".to_string(), "c1".to_string());
-        let _ = cyc.add_edge("c1".to_string(), "c2".to_string());
-        let _ = cyc.add_edge("c2".to_string(), "c0".to_string());
+        let _ = cyc.add_edge("c0", "c1");
+        let _ = cyc.add_edge("c1", "c2");
+        let _ = cyc.add_edge("c2", "c0");
         for gr in [&g, &indeg2, &cyc] {
             assert_eq!(
                 super::is_branching(gr),
@@ -63288,8 +63287,8 @@ mod tests {
         for i in 0..3usize {
             let _ = dag.add_node(format!("d{i}"));
         }
-        let _ = dag.add_edge("d0".to_string(), "d1".to_string());
-        let _ = dag.add_edge("d1".to_string(), "d2".to_string());
+        let _ = dag.add_edge("d0", "d1");
+        let _ = dag.add_edge("d1", "d2");
         for gr in [&g, &c5, &dag] {
             assert_eq!(
                 super::is_aperiodic(gr),
@@ -63385,8 +63384,8 @@ mod tests {
         for i in 0..6usize {
             let _ = branch.add_node(format!("b{i}"));
         }
-        let _ = branch.add_edge("b0".to_string(), "b1".to_string());
-        let _ = branch.add_edge("b0".to_string(), "b2".to_string()); // b1, b2 incomparable
+        let _ = branch.add_edge("b0", "b1");
+        let _ = branch.add_edge("b0", "b2"); // b1, b2 incomparable
         let mut cyc = DiGraph::strict();
         for i in 0..4usize {
             let _ = cyc.add_node(format!("c{i}"));
@@ -81539,9 +81538,9 @@ mod tests {
     #[test]
     fn test_stoer_wagner_weighted() {
         let mut g = Graph::strict();
-        let _ = g.add_edge_with_attrs("a".to_owned(), "b".to_owned(), single_attr("weight", "5"));
-        let _ = g.add_edge_with_attrs("b".to_owned(), "c".to_owned(), single_attr("weight", "1"));
-        let _ = g.add_edge_with_attrs("a".to_owned(), "c".to_owned(), single_attr("weight", "3"));
+        let _ = g.add_edge_with_attrs("a", "b", single_attr("weight", "5"));
+        let _ = g.add_edge_with_attrs("b", "c", single_attr("weight", "1"));
+        let _ = g.add_edge_with_attrs("a", "c", single_attr("weight", "3"));
         let r = stoer_wagner(&g, "weight").unwrap();
         // Min cut should be 4 (cutting b-c=1 and a-c=3)
         assert!((r.cut_value - 4.0).abs() < TEST_TOLERANCE);
@@ -82940,7 +82939,7 @@ mod tests {
     #[test]
     fn test_get_edge_attributes() {
         let mut g = Graph::strict();
-        let _ = g.add_edge_with_attrs("a".to_owned(), "b".to_owned(), single_attr("weight", "5"));
+        let _ = g.add_edge_with_attrs("a", "b", single_attr("weight", "5"));
         let attrs = get_edge_attributes(&g, "weight");
         assert_eq!(attrs.len(), 1);
     }
@@ -83998,7 +83997,7 @@ mod tests {
                 for i in 0..nodes.len() {
                     for j in (i + 1)..nodes.len() {
                         if !g.has_edge(nodes[i], nodes[j]) {
-                            let _ = result.add_edge(nodes[i].to_owned(), nodes[j].to_owned());
+                            let _ = result.add_edge(nodes[i], nodes[j]);
                         }
                     }
                 }
@@ -84103,7 +84102,7 @@ mod tests {
                 for &u in &nodes {
                     for &v in &nodes {
                         if u != v && !g.has_edge(u, v) {
-                            let _ = result.add_edge(u.to_owned(), v.to_owned());
+                            let _ = result.add_edge(u, v);
                         }
                     }
                 }
@@ -85087,8 +85086,7 @@ mod tests {
                                     if batch {
                                         edges.push((nodes[s].to_owned(), nodes[ni].to_owned()));
                                     } else {
-                                        let _ = result
-                                            .add_edge(nodes[s].to_owned(), nodes[ni].to_owned());
+                                        let _ = result.add_edge(nodes[s], nodes[ni]);
                                     }
                                 }
                             }
@@ -85346,7 +85344,7 @@ mod tests {
                 }
                 for &u in &g1_nodes {
                     for &v in &g2_nodes {
-                        let _ = result.add_edge(u.to_owned(), v.to_owned());
+                        let _ = result.add_edge(u, v);
                     }
                 }
             }
@@ -90958,8 +90956,8 @@ mod lu_pade_tests {
         let mut graph = Graph::new(CompatibilityMode::Strict);
         assert!(graph.add_node("0".to_owned()));
         assert!(graph.add_node("1".to_owned()));
-        graph.add_edge("0".to_owned(), "0".to_owned()).unwrap();
-        graph.add_edge("0".to_owned(), "1".to_owned()).unwrap();
+        graph.add_edge("0", "0").unwrap();
+        graph.add_edge("0", "1").unwrap();
 
         let spectrum = unweighted_laplacian_spectrum(&graph, Some("weight"), 8).unwrap();
         assert!(spectrum[0].abs() < 1e-10, "{}", spectrum[0]);
