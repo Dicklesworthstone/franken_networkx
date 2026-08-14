@@ -520,6 +520,14 @@ def test_graphicality_is_invariant_under_degree_sequence_permutation():
         assert fnx.is_graphical(reversed_sequence) == expected
         assert fnx.is_graphical(rotated_sequence) == expected
 
+
+def test_graphical_complement_edge_count_matches_degree_sum():
+    sequence = [3, 3, 2, 2, 2, 2]
+    graph = fnx.havel_hakimi_graph(sequence)
+    complement = fnx.complement(graph)
+    total_possible = len(sequence) * (len(sequence) - 1) // 2
+    assert graph.number_of_edges() + complement.number_of_edges() == total_possible
+
     directed = fnx.DiGraph()
     directed.add_edges_from([(0, 1), (1, 3), (0, 2), (2, 3), (1, 2)])
     directed_mapping = {node: f"directed-path-{node}" for node in directed}
