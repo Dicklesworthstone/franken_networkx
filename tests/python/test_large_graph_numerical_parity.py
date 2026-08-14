@@ -474,6 +474,24 @@ def test_flow_cut_values_are_invariant_under_relabeling():
     assert moved_flow == flow
     assert moved_cut == cut
 
+
+def test_flow_values_are_monotone_when_capacities_increase():
+    graph = fnx.DiGraph()
+    graph.add_edge("s", "a", capacity=3)
+    graph.add_edge("s", "b", capacity=2)
+    graph.add_edge("a", "t", capacity=2)
+    graph.add_edge("b", "t", capacity=4)
+    increased = fnx.DiGraph()
+    increased.add_edges_from(
+        [(u, v, {"capacity": data["capacity"] + 2}) for u, v, data in graph.edges(data=True)]
+    )
+    flow = fnx.maximum_flow_value(graph, "s", "t", capacity="capacity")
+    increased_flow = fnx.maximum_flow_value(increased, "s", "t", capacity="capacity")
+    cut = fnx.minimum_cut_value(graph, "s", "t", capacity="capacity")
+    increased_cut = fnx.minimum_cut_value(increased, "s", "t", capacity="capacity")
+    assert increased_flow >= flow
+    assert increased_cut >= cut
+
     directed = fnx.DiGraph()
     directed.add_edges_from([(0, 1), (1, 3), (0, 2), (2, 3), (1, 2)])
     directed_mapping = {node: f"directed-path-{node}" for node in directed}
