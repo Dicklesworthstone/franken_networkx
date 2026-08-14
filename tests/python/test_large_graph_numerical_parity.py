@@ -545,6 +545,12 @@ def test_graph_complement_is_an_involution():
         frozenset(edge) for edge in graph.edges()
     }
 
+
+def test_graph_complement_never_introduces_self_loops():
+    graph = fnx.Graph([(0, 0), (0, 1), (1, 2)])
+    complement = fnx.complement(graph)
+    assert all(u != v for u, v in complement.edges())
+
     directed = fnx.DiGraph()
     directed.add_edges_from([(0, 1), (1, 3), (0, 2), (2, 3), (1, 2)])
     directed_mapping = {node: f"directed-path-{node}" for node in directed}
