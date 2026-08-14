@@ -13,6 +13,58 @@ import pytest
 import franken_networkx as fnx
 
 
+def _relabel_path_mapping(paths, mapping):
+    """Map a path dictionary through a node relabeling without reordering it."""
+    return {
+        mapping[source]: [mapping[node] for node in path]
+        for source, path in paths.items()
+    }
+
+
+def _relabel_all_pairs_paths(pairs, mapping):
+    """Map the complete ordered all-pairs path result through ``mapping``."""
+    return [
+        (mapping[source], _relabel_path_mapping(paths, mapping))
+        for source, paths in pairs
+    ]
+
+
+@pytest.mark.parametrize("graph_type", [fnx.Graph, fnx.DiGraph])
+def test_shortest_path_sequences_are_equivariant_under_relabeling(graph_type):
+    """Relabeling must preserve shortest-path sequence order as well as values.
+
+    The diamond forces two equal shortest paths, while the isolate ensures the
+    all-pairs iterators also retain their ordered unreachable-source row.
+    """
+    graph = graph_type()
+    graph.add_edges_from([(0, 1), (0, 2), (1, 3), (2, 3)])
+    graph.add_node(4)
+    mapping = {
+        0: "source",
+        1: ("left", 1),
+        2: "right",
+        3: ("target", 3),
+        4: "isolated",
+    }
+    relabeled = fnx.relabel_nodes(graph, mapping)
+
+    assert _relabel_path_mapping(
+        fnx.single_source_shortest_path(graph, 0), mapping
+    ) == fnx.single_source_shortest_path(relabeled, mapping[0])
+    assert _relabel_all_pairs_paths(
+        list(fnx.all_pairs_shortest_path(graph)), mapping
+    ) == list(fnx.all_pairs_shortest_path(relabeled))
+    assert [
+        [mapping[node] for node in path]
+        for path in fnx.all_shortest_paths(graph, 0, 3)
+    ] == list(fnx.all_shortest_paths(relabeled, mapping[0], mapping[3]))
+
+    assert {
+        mapping[source]: {mapping[target]: distance for target, distance in lengths.items()}
+        for source, lengths in fnx.all_pairs_shortest_path_length(graph)
+    } == dict(fnx.all_pairs_shortest_path_length(relabeled))
+
+
 def test_all_pairs_shortest_path_returns_generator_of_pairs():
     fg = fnx.path_graph(4)
     ng = nx.path_graph(4)
