@@ -251,6 +251,25 @@ def test_path_predicates_are_invariant_under_relabeling():
         directed_relabeled, [directed_mapping[node] for node in [0, 1, 2, 3]]
     )
 
+
+def test_single_source_distance_maps_are_equivariant_under_relabeling():
+    graph = fnx.Graph()
+    graph.add_edge(0, 1, weight=2)
+    graph.add_edge(1, 2, weight=3)
+    graph.add_edge(0, 2, weight=10)
+    mapping = {node: f"distance-{node}" for node in graph}
+    relabeled = fnx.relabel_nodes(graph, mapping)
+
+    original = fnx.single_source_shortest_path_length(graph, 0)
+    moved = fnx.single_source_shortest_path_length(relabeled, mapping[0])
+    assert {mapping[node]: value for node, value in original.items()} == moved
+
+    original_weighted = fnx.single_source_dijkstra_path_length(graph, 0, weight="weight")
+    moved_weighted = fnx.single_source_dijkstra_path_length(
+        relabeled, mapping[0], weight="weight"
+    )
+    assert {mapping[node]: value for node, value in original_weighted.items()} == moved_weighted
+
     directed = fnx.DiGraph()
     directed.add_edges_from([(0, 1), (1, 3), (0, 2), (2, 3), (1, 2)])
     directed_mapping = {node: f"directed-path-{node}" for node in directed}
