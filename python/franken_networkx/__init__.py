@@ -24631,7 +24631,12 @@ def _native_graph_product(G, H, *, kind="cartesian"):
     already accept for the no-attr native path.
     """
     if G.is_multigraph() or H.is_multigraph():
-        return None
+        # br-r37-c1-mg-product-native-kernel-9fe9f: Cartesian products of two
+        # like-kind multigraphs can keep their inherited keyed-edge structure
+        # native. The extension itself declines public-key/display-remap cases;
+        # every other multigraph product retains the Python construction below.
+        if not (kind == "cartesian" and G.is_multigraph() and H.is_multigraph()):
+            return None
     if G.is_directed() != H.is_directed():
         return None
     if _graph_has_any_edge_attrs(G) or _graph_has_any_edge_attrs(H):

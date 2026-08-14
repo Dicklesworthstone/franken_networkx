@@ -16838,6 +16838,201 @@ fn product_node_tuples(
     Ok((canon, node_key_map))
 }
 
+/// Native Cartesian product for two like-kind multigraphs whose public keyed
+/// edge space is identical to the inner keyed-edge space.  The Python wrapper
+/// admits this only after proving that every source edge attribute dict is
+/// empty, so the result deliberately leaves `edge_py_attrs` sparse: lazily
+/// materialising an empty dict later is NetworkX-observable equivalent and
+/// avoids allocating one dict per product edge.
+///
+/// A public multigraph key may differ from its internal `usize` key, and an
+/// adjacency cell may retain a display object distinct from its node's stored
+/// display object.  Either case needs the Python loop's object-preserving
+/// path, so this returns `None` for it.  With the guards below, copying the
+/// source internal key is exactly copying its public key.
+fn multigraph_cartesian_product_fast(
+    py: Python<'_>,
+    gr1: &GraphRef<'_>,
+    gr2: &GraphRef<'_>,
+) -> PyResult<Option<PyObject>> {
+    match (gr1, gr2) {
+        (GraphRef::MultiUndirected { mg: g, .. }, GraphRef::MultiUndirected { mg: h, .. }) => {
+            if g.has_remapped_int_key
+                || h.has_remapped_int_key
+                || !g.adj_py_keys.is_empty()
+                || !h.adj_py_keys.is_empty()
+            {
+                return Ok(None);
+            }
+
+            let g_names: Vec<String> = g
+                .inner
+                .nodes_ordered()
+                .iter()
+                .map(|node| (*node).to_owned())
+                .collect();
+            let h_names: Vec<String> = h
+                .inner
+                .nodes_ordered()
+                .iter()
+                .map(|node| (*node).to_owned())
+                .collect();
+            let (canon, node_key_map) = product_node_tuples(py, gr1, gr2, &g_names, &h_names)?;
+            let g_index: HashMap<&str, usize> = g_names
+                .iter()
+                .enumerate()
+                .map(|(index, name)| (name.as_str(), index))
+                .collect();
+            let h_index: HashMap<&str, usize> = h_names
+                .iter()
+                .enumerate()
+                .map(|(index, name)| (name.as_str(), index))
+                .collect();
+            let nh = h_names.len();
+            let mut edges = Vec::with_capacity(
+                g.inner
+                    .edge_count()
+                    .saturating_mul(nh)
+                    .saturating_add(h.inner.edge_count().saturating_mul(g_names.len())),
+            );
+
+            // NetworkX Cartesian product emits `_edges_cross_nodes(G, H)`
+            // before `_nodes_cross_edges(G, H)`.  Preserve both the source
+            // keyed-edge walk and inherited key exactly.
+            for (u, v, key, _) in g.inner.edges_ordered_borrowed() {
+                let gu = *g_index
+                    .get(u)
+                    .expect("multigraph edge endpoint must be an existing node");
+                let gv = *g_index
+                    .get(v)
+                    .expect("multigraph edge endpoint must be an existing node");
+                for hi in 0..nh {
+                    edges.push((
+                        canon[gu * nh + hi].clone(),
+                        canon[gv * nh + hi].clone(),
+                        key,
+                        AttrMap::new(),
+                    ));
+                }
+            }
+            for (u, v, key, _) in h.inner.edges_ordered_borrowed() {
+                let hu = *h_index
+                    .get(u)
+                    .expect("multigraph edge endpoint must be an existing node");
+                let hv = *h_index
+                    .get(v)
+                    .expect("multigraph edge endpoint must be an existing node");
+                for gi in 0..g_names.len() {
+                    edges.push((
+                        canon[gi * nh + hu].clone(),
+                        canon[gi * nh + hv].clone(),
+                        key,
+                        AttrMap::new(),
+                    ));
+                }
+            }
+
+            let mut product =
+                PyMultiGraph::new_empty_with_policy(py, g.inner.runtime_policy().clone())?;
+            let _ = product.inner.extend_nodes_with_attrs_unrecorded(
+                canon.iter().cloned().map(|node| (node, AttrMap::new())),
+            );
+            let _ = product
+                .inner
+                .extend_keyed_edges_with_attrs_unrecorded(edges);
+            product.node_key_map = node_key_map;
+            Ok(Some(product.into_pyobject(py)?.into_any().unbind()))
+        }
+        (GraphRef::MultiDirected { mdg: g, .. }, GraphRef::MultiDirected { mdg: h, .. }) => {
+            if g.has_remapped_int_key
+                || h.has_remapped_int_key
+                || !g.succ_py_keys.is_empty()
+                || !g.pred_py_keys.is_empty()
+                || !h.succ_py_keys.is_empty()
+                || !h.pred_py_keys.is_empty()
+            {
+                return Ok(None);
+            }
+
+            let g_names: Vec<String> = g
+                .inner
+                .nodes_ordered()
+                .iter()
+                .map(|node| (*node).to_owned())
+                .collect();
+            let h_names: Vec<String> = h
+                .inner
+                .nodes_ordered()
+                .iter()
+                .map(|node| (*node).to_owned())
+                .collect();
+            let (canon, node_key_map) = product_node_tuples(py, gr1, gr2, &g_names, &h_names)?;
+            let g_index: HashMap<&str, usize> = g_names
+                .iter()
+                .enumerate()
+                .map(|(index, name)| (name.as_str(), index))
+                .collect();
+            let h_index: HashMap<&str, usize> = h_names
+                .iter()
+                .enumerate()
+                .map(|(index, name)| (name.as_str(), index))
+                .collect();
+            let nh = h_names.len();
+            let mut edges = Vec::with_capacity(
+                g.inner
+                    .edge_count()
+                    .saturating_mul(nh)
+                    .saturating_add(h.inner.edge_count().saturating_mul(g_names.len())),
+            );
+
+            for (u, v, key, _) in g.inner.edges_ordered_borrowed() {
+                let gu = *g_index
+                    .get(u)
+                    .expect("multidigraph edge endpoint must be an existing node");
+                let gv = *g_index
+                    .get(v)
+                    .expect("multidigraph edge endpoint must be an existing node");
+                for hi in 0..nh {
+                    edges.push((
+                        canon[gu * nh + hi].clone(),
+                        canon[gv * nh + hi].clone(),
+                        key,
+                        AttrMap::new(),
+                    ));
+                }
+            }
+            for (u, v, key, _) in h.inner.edges_ordered_borrowed() {
+                let hu = *h_index
+                    .get(u)
+                    .expect("multidigraph edge endpoint must be an existing node");
+                let hv = *h_index
+                    .get(v)
+                    .expect("multidigraph edge endpoint must be an existing node");
+                for gi in 0..g_names.len() {
+                    edges.push((
+                        canon[gi * nh + hu].clone(),
+                        canon[gi * nh + hv].clone(),
+                        key,
+                        AttrMap::new(),
+                    ));
+                }
+            }
+
+            let mut product =
+                PyMultiDiGraph::new_empty_with_policy(py, g.inner.runtime_policy().clone())?;
+            let _ = product.inner.extend_nodes_with_attrs_unrecorded(
+                canon.iter().cloned().map(|node| (node, AttrMap::new())),
+            );
+            let _ = product
+                .inner
+                .extend_keyed_edges_with_attrs_unrecorded(edges);
+            product.node_key_map = node_key_map;
+            Ok(Some(product.into_pyobject(py)?.into_any().unbind()))
+        }
+        _ => Ok(None),
+    }
+}
+
 // br-r37-c1-prodstronglex product kind: 0=cartesian, 1=tensor, 2=strong,
 // 3=lexicographic. Edge SET is byte-identical to nx (the product parity tests
 // compare canonicalised/sorted edges); insertion order is not preserved (same as
@@ -16852,6 +17047,9 @@ fn graph_product_fast(
     let gr2 = extract_graph(h)?;
     if gr1.is_directed() != gr2.is_directed() {
         return Ok(None);
+    }
+    if kind == 0 && gr1.is_multigraph() && gr2.is_multigraph() {
+        return multigraph_cartesian_product_fast(py, &gr1, &gr2);
     }
 
     if gr1.is_directed() {

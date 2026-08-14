@@ -89,3 +89,33 @@ def test_product_result_independent_of_inputs():
     d["__new__"] = 1
     for u2, v2, k2, d2 in gf.edges(keys=True, data=True):
         assert "__new__" not in d2
+
+
+@pytest.mark.parametrize("cls_n,cls_f", _CLASSES)
+def test_cartesian_no_attr_multigraph_uses_native_structure(cls_n, cls_f, monkeypatch):
+    """The empty dict mirrors created by edge reads must not veto the kernel."""
+    gn = cls_n()
+    hn = cls_n()
+    gf = cls_f()
+    hf = cls_f()
+    for graph in (gn, gf):
+        graph.add_edge("g0", "g1")
+        graph.add_edge("g0", "g1")
+        graph.add_edge("g1", "g1")
+    for graph in (hn, hf):
+        graph.add_edge("h0", "h1")
+        graph.add_edge("h0", "h1")
+
+    # `_native_graph_product` probes edge attrs before invoking the extension;
+    # those probes legitimately materialize *empty* MultiGraph mirrors.  Make
+    # the old per-edge Python fallback impossible so this test proves the
+    # native keyed structure path remains admitted after that probe.
+    def python_keyed_edge_fallback(*_args, **_kwargs):
+        raise AssertionError("no-attribute multigraph Cartesian product fell back")
+
+    monkeypatch.setattr(fnx, "_product_add_keyed_edge", python_keyed_edge_fallback)
+    result = fnx.cartesian_product(gf, hf)
+    expected = nx.cartesian_product(gn, hn)
+
+    assert list(expected.nodes(data=True)) == list(result.nodes(data=True))
+    assert list(expected.edges(keys=True, data=True)) == list(result.edges(keys=True, data=True))
