@@ -107,10 +107,10 @@ The project includes Python bindings via PyO3, built with Maturin. The native ex
 **Dev loop:**
 ```bash
 # Build and install into current Python environment
-maturin develop --features pyo3/abi3-py310
+env -u CARGO_TARGET_DIR maturin develop --features pyo3/abi3-py310
 
 # With release optimizations (recommended for benchmarks)
-maturin develop --release --features pyo3/abi3-py310
+env -u CARGO_TARGET_DIR maturin develop --release --features pyo3/abi3-py310
 
 # Build a wheel locally into the REPO-LOCAL target dir (what benchmarks use)
 env -u CARGO_TARGET_DIR maturin build --release --features pyo3/abi3-py310
