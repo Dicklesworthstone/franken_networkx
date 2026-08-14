@@ -7,7 +7,7 @@ use crate::{
     NodeIterator, NodeLookupCache, PyGraph, PyObject, attr_map_to_pydict, node_key_to_string,
 };
 use arrayvec::ArrayString;
-use pyo3::exceptions::{PyKeyError, PyRuntimeError, PyTypeError};
+use pyo3::exceptions::{PyKeyError, PyRuntimeError};
 use pyo3::gc::{PyTraverseError, PyVisit};
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyIterator, PyModule, PyTuple};
@@ -1324,22 +1324,28 @@ impl AtlasView {
             .unbind())
     }
 
-    fn keys(mut slf: PyRefMut<'_, Self>, py: Python<'_>) -> PyResult<PyObject> {
-        slf.materialize(py)?;
-        let abc = PyModule::import(py, "collections.abc")?;
-        Ok(abc.getattr("KeysView")?.call1((slf,))?.unbind())
+    fn keys(&mut self, py: Python<'_>) -> PyResult<PyObject> {
+        Ok(self
+            .materialize(py)?
+            .bind(py)
+            .call_method0("keys")?
+            .unbind())
     }
 
-    fn items(mut slf: PyRefMut<'_, Self>, py: Python<'_>) -> PyResult<PyObject> {
-        slf.materialize(py)?;
-        let abc = PyModule::import(py, "collections.abc")?;
-        Ok(abc.getattr("ItemsView")?.call1((slf,))?.unbind())
+    fn items(&mut self, py: Python<'_>) -> PyResult<PyObject> {
+        Ok(self
+            .materialize(py)?
+            .bind(py)
+            .call_method0("items")?
+            .unbind())
     }
 
-    fn values(mut slf: PyRefMut<'_, Self>, py: Python<'_>) -> PyResult<PyObject> {
-        slf.materialize(py)?;
-        let abc = PyModule::import(py, "collections.abc")?;
-        Ok(abc.getattr("ValuesView")?.call1((slf,))?.unbind())
+    fn values(&mut self, py: Python<'_>) -> PyResult<PyObject> {
+        Ok(self
+            .materialize(py)?
+            .bind(py)
+            .call_method0("values")?
+            .unbind())
     }
 
     #[pyo3(signature = (v, default=None))]
@@ -1386,12 +1392,6 @@ impl AtlasView {
 
     fn __bool__(&self, py: Python<'_>) -> bool {
         self.__len__(py) > 0
-    }
-
-    fn __setitem__(&self, _key: &Bound<'_, PyAny>, _value: &Bound<'_, PyAny>) -> PyResult<()> {
-        Err(PyTypeError::new_err(
-            "'AtlasView' object does not support item assignment",
-        ))
     }
 
     fn __reduce__(&mut self, py: Python<'_>) -> PyResult<(PyObject, (Py<PyDict>,))> {
