@@ -510,6 +510,16 @@ def test_graphicality_is_preserved_by_degree_sequence_complement():
         complement = sorted((n - 1) - degree for degree in sequence)
         assert fnx.is_graphical(sequence) == fnx.is_graphical(complement)
 
+
+def test_graphicality_is_invariant_under_degree_sequence_permutation():
+    sequences = ([3, 3, 2, 2, 2, 2], [1, 1, 1, 1], [0, 0, 0, 0])
+    for sequence in sequences:
+        reversed_sequence = tuple(reversed(sequence))
+        rotated_sequence = sequence[1:] + sequence[:1]
+        expected = fnx.is_graphical(sequence)
+        assert fnx.is_graphical(reversed_sequence) == expected
+        assert fnx.is_graphical(rotated_sequence) == expected
+
     directed = fnx.DiGraph()
     directed.add_edges_from([(0, 1), (1, 3), (0, 2), (2, 3), (1, 2)])
     directed_mapping = {node: f"directed-path-{node}" for node in directed}
