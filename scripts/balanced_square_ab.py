@@ -180,12 +180,98 @@ def workload_view_reads(reps: int):
     return build, ops
 
 
-WORKLOADS = {"view-reads": workload_view_reads}
+def _directed_graph(module, nodes: int, edges: int, seed: int = 11):
+    """An identically-shaped weighted digraph in either library."""
+    rng = random.Random(seed)
+    graph = module.DiGraph()
+    names = [f"n{i}" for i in range(nodes)]
+    graph.add_nodes_from(names)
+    seen: set[tuple[int, int]] = set()
+    while len(seen) < edges:
+        a, b = rng.randrange(nodes), rng.randrange(nodes)
+        if a == b or (a, b) in seen:
+            continue
+        seen.add((a, b))
+        graph.add_edge(names[a], names[b], weight=1 + (a + b) % 19)
+    return graph, (names, sorted(seen))
+
+
+def workload_algorithms(reps: int):
+    """Whole-algorithm rows, for the br-r37-c1-p80x1 conversion queue.
+
+    These are the operations whose published README ratios have no paired
+    incumbent arm, and whose retry beads (p80x1.*) are all parked on
+    "after stable target reuse" — i.e. on the harness gate this substrate does
+    not need. `reps` is ignored: an algorithm call is its own timed unit.
+    """
+
+    def build(module):
+        undirected, (names, edges) = _simple_graph(module, 400, 1600)
+        directed, (dnames, dedges) = _directed_graph(module, 400, 1600)
+        return undirected, (names, edges, directed, dnames, dedges, module)
+
+    def ops(graph, fixture):
+        names, _edges, digraph, dnames, _dedges, module = fixture
+        source = names[0]
+        target = names[len(names) // 2]
+        return {
+            "pagerank": lambda: module.pagerank(graph),
+            "dfs_successors": lambda: module.dfs_successors(graph, source),
+            "bfs_tree->edges": lambda: sorted(module.bfs_tree(graph, source).edges()),
+            "single_source_sp_length": lambda: dict(
+                module.single_source_shortest_path_length(graph, source)
+            ),
+            "shortest_path(weighted)": lambda: module.shortest_path(
+                digraph, dnames[0], dnames[7], weight="weight"
+            ),
+            "kosaraju_scc": lambda: sorted(
+                map(sorted, module.kosaraju_strongly_connected_components(digraph))
+            ),
+            "connected_components": lambda: sorted(
+                map(sorted, module.connected_components(graph))
+            ),
+            "edges(data=True)": lambda: len(list(graph.edges(data=True))),
+            "degree_centrality": lambda: module.degree_centrality(graph),
+            "subgraph(view)->edges": lambda: sorted(
+                graph.subgraph(names[:200]).edges()
+            ),
+            # Control: a bare edge count is untouched by any algorithm lever.
+            "CONTROL number_of_edges": lambda: graph.number_of_edges(),
+        }
+
+    return build, ops
+
+
+WORKLOADS = {
+    "view-reads": workload_view_reads,
+    "algorithms": workload_algorithms,
+}
 
 
 # ---------------------------------------------------------------------------
 # Measurement
 # ---------------------------------------------------------------------------
+def canonical(value):
+    """A comparable form for the pre-timing parity gate.
+
+    Floats are rounded to 12 significant digits: tight enough that a different
+    algorithm shows up, loose enough that last-ulp accumulation-order noise
+    does not. Mappings are compared as sorted key/value pairs so dict ordering
+    is not asserted here — iteration order is a separate contract with its own
+    tests, and conflating the two would make this gate fail for the wrong
+    reason.
+    """
+    if isinstance(value, float):
+        return round(value, 12)
+    if isinstance(value, dict):
+        return sorted((str(k), canonical(v)) for k, v in value.items())
+    if isinstance(value, (list, tuple)):
+        return [canonical(v) for v in value]
+    if isinstance(value, (set, frozenset)):
+        return sorted(str(canonical(v)) for v in value)
+    return value
+
+
 def time_slot(fn) -> int:
     gc.collect()
     gc.disable()
@@ -290,11 +376,17 @@ def main(argv: list[str]) -> int:
     ops_fx = ops(g_fx, fx_fx)
 
     # Parity gate BEFORE timing: an arm that computes something different must
-    # fail loudly, not produce a fast wrong number.
+    # fail loudly, not produce a fast wrong number. Floats are compared at 12
+    # significant digits — tight enough to catch a different algorithm, loose
+    # enough not to trip on last-ulp accumulation-order differences, which are
+    # a separate question from "are these arms doing the same work".
     for name in ops_nx:
-        got_nx, got_fx = ops_nx[name](), ops_fx[name]()
+        got_nx, got_fx = canonical(ops_nx[name]()), canonical(ops_fx[name]())
         if got_nx != got_fx:
-            raise SystemExit(f"PARITY MISMATCH on {name}: {got_nx} != {got_fx}")
+            raise SystemExit(
+                f"PARITY MISMATCH on {name}:\n  networkx {str(got_nx)[:300]}\n"
+                f"  fnx      {str(got_fx)[:300]}"
+            )
 
     print(
         f"\nRATIO = t_networkx / t_fnx   (>1 means fnx faster)   square={SQUARE}"
