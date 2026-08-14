@@ -2166,6 +2166,19 @@ impl PyGraph {
         for attrs in self.edge_py_attrs.values() {
             visit.call(attrs)?;
         }
+        // The endpoint lookaside holds a SECOND strong reference to each edge's
+        // attr dict, so it must be traversed as well. `clear_python_refs` below
+        // already clears it, and CPython requires tp_traverse and tp_clear to
+        // cover the same references — omitting it here leaves a self-referencing
+        // edge attr dict invisible to the collector and therefore uncollectable,
+        // which is exactly what
+        // test_direct_edge_attribute_self_reference_is_stored_and_collectable
+        // catches.
+        for row in self.edge_py_attrs_by_endpoint.values() {
+            for attrs in row.values() {
+                visit.call(attrs)?;
+            }
+        }
         if let Some(cache) = &self.dict_of_dicts_cache {
             cache.traverse(visit)?;
         }
