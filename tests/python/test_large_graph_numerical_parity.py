@@ -385,6 +385,23 @@ def test_spanning_edges_are_invariant_under_positive_weight_scaling():
             frozenset(edge) for edge in moved
         }
 
+
+def test_spanning_edges_are_invariant_under_additive_weight_shift():
+    graph = fnx.Graph()
+    graph.add_weighted_edges_from(
+        [(0, 1, 4), (1, 2, 1), (2, 3, 3), (0, 3, 2), (0, 2, 5)]
+    )
+    shifted = fnx.Graph()
+    shifted.add_weighted_edges_from(
+        [(u, v, weight + 13) for u, v, weight in graph.edges(data="weight")]
+    )
+    for builder in (fnx.minimum_spanning_edges, fnx.maximum_spanning_edges):
+        original = list(builder(graph, data=False, weight="weight"))
+        moved = list(builder(shifted, data=False, weight="weight"))
+        assert {frozenset(edge) for edge in original} == {
+            frozenset(edge) for edge in moved
+        }
+
     directed = fnx.DiGraph()
     directed.add_edges_from([(0, 1), (1, 3), (0, 2), (2, 3), (1, 2)])
     directed_mapping = {node: f"directed-path-{node}" for node in directed}
