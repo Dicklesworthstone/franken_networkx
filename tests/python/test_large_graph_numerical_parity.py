@@ -528,6 +528,14 @@ def test_graphical_complement_edge_count_matches_degree_sum():
     total_possible = len(sequence) * (len(sequence) - 1) // 2
     assert graph.number_of_edges() + complement.number_of_edges() == total_possible
 
+
+def test_graphical_complement_degrees_sum_to_n_minus_one():
+    sequence = [3, 3, 2, 2, 2, 2]
+    graph = fnx.havel_hakimi_graph(sequence)
+    complement = fnx.complement(graph)
+    for node in graph:
+        assert graph.degree(node) + complement.degree(node) == len(graph) - 1
+
     directed = fnx.DiGraph()
     directed.add_edges_from([(0, 1), (1, 3), (0, 2), (2, 3), (1, 2)])
     directed_mapping = {node: f"directed-path-{node}" for node in directed}
