@@ -3337,6 +3337,7 @@ def suite_claim_incumbent():
         "read_sparse6",
         "shortest_path_weighted",
         "single_pair_shortest_path",
+        "single_source_shortest_path",
         "single_source_shortest_path_length",
         "subgraph_view_edges",
         "to_scipy_sparse_array",
@@ -6086,6 +6087,88 @@ def suite_claim_incumbent():
                 lambda graph=single_pair_fnx, src=source, dst=target: (
                     fnx.shortest_path(graph, src, dst)
                 ),
+            )
+        )
+    if "single_source_shortest_path" in jobs:
+        if os.environ.get("PYTHONHASHSEED") != "0":
+            raise RuntimeError(
+                "the single_source_shortest_path claim fixture requires "
+                "PYTHONHASHSEED=0 because output mapping order and each "
+                "tie-selected path are part of the public contract"
+            )
+        node_count = 2_000
+        edge_count = 8_000
+        seed = 7
+        source = "0"
+        expected_input_bytes = 273_938
+        expected_input_sha256 = (
+            "03635cb95fcf023b79a245e0dc38125225ba216e6eb77a9270ef5121024f6164"
+        )
+        expected_output_items = 1_999
+        expected_output_bytes = 90_167
+        expected_output_sha256 = (
+            "29f652f086c2aa346957d904b30b78ad41d55e2841f2e872125a94078f526d65"
+        )
+        paths_nx, paths_fnx = _build_pair(
+            node_count,
+            edge_count,
+            seed=seed,
+            weighted=False,
+        )
+        input_nx_bytes = canonical_bytes(paths_nx)
+        input_fnx_bytes = canonical_bytes(paths_fnx)
+        input_sha256 = hashlib.sha256(input_nx_bytes).hexdigest()
+        if input_nx_bytes != input_fnx_bytes:
+            raise RuntimeError("single_source_shortest_path claim input graphs diverged")
+        if (
+            len(input_nx_bytes) != expected_input_bytes
+            or not hmac.compare_digest(input_sha256, expected_input_sha256)
+        ):
+            raise RuntimeError(
+                "single_source_shortest_path claim input no longer matches "
+                "its preregistered canonical byte count and SHA-256"
+            )
+
+        preflight_nx = nx.single_source_shortest_path(paths_nx, source)
+        preflight_fnx = fnx.single_source_shortest_path(paths_fnx, source)
+        preflight_nx_bytes = canonical_bytes(preflight_nx)
+        preflight_fnx_bytes = canonical_bytes(preflight_fnx)
+        output_sha256 = hashlib.sha256(preflight_nx_bytes).hexdigest()
+        if preflight_nx_bytes != preflight_fnx_bytes:
+            raise RuntimeError(
+                "single_source_shortest_path claim complete ordered output diverged"
+            )
+        if (
+            type(preflight_nx) is not dict
+            or len(preflight_nx) != expected_output_items
+            or len(preflight_nx_bytes) != expected_output_bytes
+            or not hmac.compare_digest(output_sha256, expected_output_sha256)
+        ):
+            raise RuntimeError(
+                "single_source_shortest_path claim fixture no longer matches "
+                "its preregistered complete ordered output"
+            )
+        EXTRA_PROVENANCE["claim_single_source_shortest_path_fixture"] = {
+            "nodes": node_count,
+            "edges": edge_count,
+            "seed": seed,
+            "weighted": False,
+            "source": source,
+            "cutoff": None,
+            "python_hash_seed": 0,
+            "input_canonical_bytes": expected_input_bytes,
+            "input_sha256": expected_input_sha256,
+            "output_items": expected_output_items,
+            "output_canonical_bytes": expected_output_bytes,
+            "complete_output_sha256": expected_output_sha256,
+            "timed_projection": "single_source_shortest_path(graph, source)",
+        }
+        rows.append(
+            (
+                "claim/single_source_shortest_path "
+                'n=2000 m=8000 seed=7 source="0" cutoff=None [nx/fnx]',
+                lambda: nx.single_source_shortest_path(paths_nx, source),
+                lambda: fnx.single_source_shortest_path(paths_fnx, source),
             )
         )
     if "single_source_shortest_path_length" in jobs:

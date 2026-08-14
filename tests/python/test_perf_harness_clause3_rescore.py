@@ -122,3 +122,24 @@ def test_clause3_rescore_rejects_a_capture_that_disagrees_with_current_gate():
 
     with pytest.raises(ValueError, match="tampered capture"):
         rescore.rescore_rows([row], "pooled")
+
+
+def test_claim_incumbent_single_source_shortest_path_has_complete_oracle(monkeypatch):
+    """The published full-path claim must keep a paired, SHA-locked row."""
+    monkeypatch.setenv("PYTHONHASHSEED", "0")
+    monkeypatch.setenv("FNX_CLAIM_INCUMBENT_JOBS", "single_source_shortest_path")
+    perf_harness.EXTRA_PROVENANCE.clear()
+
+    rows = perf_harness.suite_claim_incumbent()
+
+    assert len(rows) == 1
+    label, nx_arm, fnx_arm = rows[0]
+    assert label.startswith("claim/single_source_shortest_path ")
+    assert nx_arm() == fnx_arm()
+    fixture = perf_harness.EXTRA_PROVENANCE[
+        "claim_single_source_shortest_path_fixture"
+    ]
+    assert fixture["output_items"] == 1_999
+    assert fixture["complete_output_sha256"] == (
+        "29f652f086c2aa346957d904b30b78ad41d55e2841f2e872125a94078f526d65"
+    )
