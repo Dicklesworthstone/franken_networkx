@@ -349,6 +349,25 @@ def test_spanning_edge_outputs_are_equivariant_under_relabeling():
         }
         assert expected == {(u, v, data["weight"]) for u, v, data in moved}
 
+
+def test_maximum_spanning_tree_is_invariant_under_positive_weight_scaling():
+    graph = fnx.Graph()
+    graph.add_weighted_edges_from(
+        [(0, 1, 4), (1, 2, 1), (2, 3, 3), (0, 3, 2), (0, 2, 5)]
+    )
+    scaled = fnx.Graph()
+    scaled.add_weighted_edges_from(
+        [(u, v, 7 * weight) for u, v, weight in graph.edges(data="weight")]
+    )
+    original = fnx.maximum_spanning_tree(graph, weight="weight")
+    moved = fnx.maximum_spanning_tree(scaled, weight="weight")
+    assert {frozenset(edge) for edge in original.edges()} == {
+        frozenset(edge) for edge in moved.edges()
+    }
+    assert sum(data["weight"] for _, _, data in moved.edges(data=True)) == 7 * sum(
+        data["weight"] for _, _, data in original.edges(data=True)
+    )
+
     directed = fnx.DiGraph()
     directed.add_edges_from([(0, 1), (1, 3), (0, 2), (2, 3), (1, 2)])
     directed_mapping = {node: f"directed-path-{node}" for node in directed}
