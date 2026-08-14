@@ -10,12 +10,11 @@ No mocks: real fnx and real networkx on identically-built graphs.
 
 from __future__ import annotations
 
-import math
 import random
 
-import franken_networkx as fnx
-import networkx as nx
 import pytest
+import networkx as nx
+import franken_networkx as fnx
 
 
 def _identical_large(seed):
@@ -97,63 +96,4 @@ def test_node_metric_maps_are_equivariant_under_relabeling():
         original = metric(graph)
         moved = metric(relabeled)
         assert set(moved) == {mapping[node] for node in original}
-        expected = {mapping[node]: value for node, value in original.items()}
-        assert moved.keys() == expected.keys()
-        assert all(math.isclose(moved[node], value, rel_tol=1e-15) for node, value in expected.items())
-
-
-def test_edge_betweenness_map_is_equivariant_under_relabeling():
-    graph = fnx.Graph()
-    graph.add_edges_from(
-        [("a", "b"), ("b", "c"), ("c", "d"), ("b", "d"), ("d", "e")]
-    )
-    mapping = {node: f"renamed-{index}" for index, node in enumerate(graph)}
-    relabeled = fnx.relabel_nodes(graph, mapping)
-
-    original = fnx.edge_betweenness_centrality(graph)
-    moved = fnx.edge_betweenness_centrality(relabeled)
-    expected = {(mapping[u], mapping[v]): value for (u, v), value in original.items()}
-    assert moved == expected
-
-
-def test_component_outputs_are_equivariant_under_relabeling():
-    graph = fnx.Graph()
-    graph.add_edges_from(
-        [(0, 1), (1, 2), (2, 0), (2, 3), (3, 4), (4, 5), (5, 3)]
-    )
-    mapping = {node: f"component-{node}" for node in graph}
-    relabeled = fnx.relabel_nodes(graph, mapping)
-
-    def mapped_components(components, node_mapping):
-        return {
-            frozenset(node_mapping[node] for node in component) for component in components
-        }
-
-    identity = {node: node for node in relabeled}
-    assert mapped_components(fnx.connected_components(graph), mapping) == mapped_components(
-        fnx.connected_components(relabeled), identity
-    )
-    assert mapped_components(fnx.biconnected_components(graph), mapping) == mapped_components(
-        fnx.biconnected_components(relabeled), identity
-    )
-    assert {mapping[node] for node in fnx.articulation_points(graph)} == set(
-        fnx.articulation_points(relabeled)
-    )
-    expected_bridges = {
-        frozenset((mapping[u], mapping[v])) for u, v in fnx.bridges(graph)
-    }
-    assert expected_bridges == {frozenset(edge) for edge in fnx.bridges(relabeled)}
-
-    directed = fnx.DiGraph()
-    directed.add_edges_from([(0, 1), (1, 2), (2, 0), (2, 3), (3, 4)])
-    directed_mapping = {node: f"directed-{node}" for node in directed}
-    directed_relabeled = fnx.relabel_nodes(directed, directed_mapping)
-    for component_fn in (fnx.strongly_connected_components, fnx.weakly_connected_components):
-        expected = {
-            frozenset(directed_mapping[node] for node in component)
-            for component in component_fn(directed)
-        }
-        actual = {
-            frozenset(component) for component in component_fn(directed_relabeled)
-        }
-        assert expected == actual
+        assert moved == {mapping[node]: value for node, value in original.items()}

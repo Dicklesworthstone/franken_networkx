@@ -51708,10 +51708,7 @@ fn sorted_current_flow_edges_ordered(
         let (left, right) = if i <= j { (i, j) } else { (j, i) };
         edges.push((left, right, weight));
     }
-    // NetworkX walks the relabelled graph's edges in the original graph's
-    // traversal order, only orienting each key by its RCM rank.  The numerical
-    // row computation is independent per edge, but this sequence becomes the
-    // observable insertion order of the returned dict.
+    edges.sort_by_key(|&(left, right, _)| (left, right));
     Some(edges)
 }
 

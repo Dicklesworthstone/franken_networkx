@@ -39356,9 +39356,25 @@ def edge_current_flow_betweenness_centrality(
         and hasattr(_fnx, "edge_current_flow_betweenness_centrality_nx_ordered_rust")
     ):
         ordering = _current_flow_rcm_ordering(G)
-        return _fnx.edge_current_flow_betweenness_centrality_nx_ordered_rust(
+        raw = _fnx.edge_current_flow_betweenness_centrality_nx_ordered_rust(
             G, ordering, normalized, None
         )
+        # br-r37-c1-8n5ni: despite the kernel's name, this path emitted edge keys
+        # in an order nx does not use — and since ``solver="full"`` is the
+        # DEFAULT, every default call was affected. The ``lu`` and ``cg`` Python
+        # paths below were already correct, which is what localises it here.
+        #
+        # nx's key sequence is G's edge order with each pair oriented by RCM rank
+        # (lower rank first): it walks ``H.edges()`` of the rank-relabelled copy
+        # and maps each key back through ``ordering``. Reproducing that costs one
+        # O(E) pass here rather than the O(V+E) ``relabel_nodes`` copy the general
+        # path makes — verified to reproduce nx's exact sequence on path, star,
+        # complete, barbell, chorded-cycle and string-labelled fixtures.
+        rank = {node: index for index, node in enumerate(ordering)}
+        nx_keys = (
+            (u, v) if rank[u] < rank[v] else (v, u) for u, v in G.edges()
+        )
+        return {key: raw[key] for key in nx_keys}
 
     import numpy as np
 

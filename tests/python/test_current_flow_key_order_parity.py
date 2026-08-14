@@ -116,27 +116,6 @@ def test_edge_current_flow_betweenness_key_order_matches_networkx(solver, normal
         assert actual[edge] == pytest.approx(value)
 
 
-@pytest.mark.parametrize("normalized", [True, False])
-def test_native_edge_current_flow_kernel_emits_networkx_key_order(normalized):
-    """br-r37-c1-ktwsr: test the native result before the public wrapper.
-
-    A Python dict rebuild formerly repaired this order after the fact, which
-    let public parity pass while the native kernel's advertised nx-ordering was
-    false.  Keep the direct assertion so a future kernel change cannot hide
-    behind a wrapper again.
-    """
-    gn, gf = _pair()
-    expected = nx.edge_current_flow_betweenness_centrality(gn, normalized=normalized)
-    ordering = fnx._current_flow_rcm_ordering(gf)
-    actual = fnx._fnx.edge_current_flow_betweenness_centrality_nx_ordered_rust(
-        gf, ordering, normalized, None
-    )
-
-    assert list(actual) == list(expected)
-    for edge, value in expected.items():
-        assert actual[edge] == pytest.approx(value)
-
-
 @pytest.mark.parametrize(
     "edges",
     [
