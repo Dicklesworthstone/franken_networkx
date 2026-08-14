@@ -6,6 +6,7 @@
 use crate::{
     NodeIterator, NodeLookupCache, PyGraph, PyObject, attr_map_to_pydict, node_key_to_string,
 };
+use arrayvec::ArrayString;
 use pyo3::exceptions::{PyKeyError, PyRuntimeError};
 use pyo3::gc::{PyTraverseError, PyVisit};
 use pyo3::prelude::*;
@@ -588,8 +589,8 @@ impl EdgeView {
         // the refcount round-trip bought nothing.
         let u_item = tuple.get_borrowed_item(0)?;
         let v_item = tuple.get_borrowed_item(1)?;
-        let mut u_buf = [0u8; crate::CANONICAL_KEY_STACK_BUF];
-        let mut v_buf = [0u8; crate::CANONICAL_KEY_STACK_BUF];
+        let mut u_buf = ArrayString::new();
+        let mut v_buf = ArrayString::new();
         let u = crate::canonical_node_key_in(py, &u_item, &mut u_buf)?;
         let v = crate::canonical_node_key_in(py, &v_item, &mut v_buf)?;
         let g = self.graph.borrow(py);
@@ -725,8 +726,8 @@ impl EdgeView {
         // is built from the same canonical bytes, so the message is unchanged.
         let u_item = tuple.get_item(0)?;
         let v_item = tuple.get_item(1)?;
-        let mut u_buf = [0u8; crate::CANONICAL_KEY_STACK_BUF];
-        let mut v_buf = [0u8; crate::CANONICAL_KEY_STACK_BUF];
+        let mut u_buf = ArrayString::new();
+        let mut v_buf = ArrayString::new();
         let u = crate::canonical_node_key_in(py, &u_item, &mut u_buf)?;
         let v = crate::canonical_node_key_in(py, &v_item, &mut v_buf)?;
         let (u, v) = (u.as_str(), v.as_str());
@@ -1012,7 +1013,7 @@ impl DegreeView {
         // br-r37-c1-ey6ob: borrowed canonical probe. This arm runs on EVERY
         // `G.degree(x)` call, including the ones where `x` turns out to be an
         // nbunch iterable and the owned canonical was built and thrown away.
-        let mut nb_buf = [0u8; crate::CANONICAL_KEY_STACK_BUF];
+        let mut nb_buf = ArrayString::new();
         if let Ok(canonical) = crate::canonical_node_key_in(py, nb, &mut nb_buf)
             && g.inner.has_node(canonical.as_str())
         {
@@ -1280,7 +1281,7 @@ impl AtlasView {
         // the returned dict is still the SAME shared `Py<PyDict>` the graph
         // stores, so `G[u][v]['w'] = x` keeps mutating the live edge attrs.
         let graph = self.graph()?;
-        let mut v_buf = [0u8; crate::CANONICAL_KEY_STACK_BUF];
+        let mut v_buf = ArrayString::new();
         let v_key = crate::canonical_node_key_in(py, v, &mut v_buf)?;
         let v_canon = v_key.as_str();
         let mut g = graph.borrow_mut(py);

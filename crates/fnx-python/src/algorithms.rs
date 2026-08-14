@@ -7,8 +7,8 @@
 use crate::digraph::{PyDiGraph, PyMultiDiGraph};
 use crate::{
     NetworkXError, NetworkXNoCycle, NetworkXNoPath, NetworkXNotImplemented, NetworkXUnfeasible,
-    NodeNotFound, NotAPartition, PowerIterationFailedConvergence, PyGraph, PyMultiGraph,
-    PyNodeKeyMap, PyObject, PythonAllowThreadsExt, node_key_to_string,
+    NodeNotFound, NotAPartition, PowerIterationFailedConvergence, PyGraph, PyMultiGraph, PyObject,
+    PythonAllowThreadsExt, node_key_to_string,
 };
 use fnx_classes::AttrMap;
 use pyo3::class::basic::CompareOp;
@@ -165,7 +165,8 @@ impl<'py> GraphRef<'py> {
         if let GraphRef::Undirected(pg) = self {
             return pg.py_node_key(py, canonical);
         }
-        self.node_key(canonical).map_or_else(
+        let key_map = self.node_key_map();
+        key_map.get(canonical).map_or_else(
             || {
                 crate::unwrap_infallible(canonical.to_owned().into_pyobject(py))
                     .into_any()
@@ -416,13 +417,13 @@ impl<'py> GraphRef<'py> {
         }
     }
 
-    /// Look up the original graph's display object for a canonical node key.
-    fn node_key(&self, canonical: &str) -> Option<&PyObject> {
+    /// Get the original graph's node key map.
+    fn node_key_map(&self) -> &HashMap<String, PyObject> {
         match self {
-            GraphRef::Undirected(pg) => pg.node_key_map.get(canonical),
-            GraphRef::Directed { dg, .. } => dg.node_key_map.get(canonical),
-            GraphRef::MultiUndirected { mg, .. } => mg.node_key_map.get(canonical),
-            GraphRef::MultiDirected { mdg, .. } => mdg.node_key_map.get(canonical),
+            GraphRef::Undirected(pg) => &pg.node_key_map,
+            GraphRef::Directed { dg, .. } => &dg.node_key_map,
+            GraphRef::MultiUndirected { mg, .. } => &mg.node_key_map,
+            GraphRef::MultiDirected { mdg, .. } => &mdg.node_key_map,
         }
     }
 
@@ -9902,7 +9903,7 @@ pub fn minimum_spanning_tree(
     // Add all nodes from original graph
     for node in inner.nodes_ordered() {
         new_graph.inner.add_node(node.to_owned());
-        if let Some(py_key) = gr.node_key(node) {
+        if let Some(py_key) = gr.node_key_map().get(node) {
             new_graph
                 .node_key_map
                 .insert(node.to_owned(), py_key.clone_ref(py));
@@ -10253,7 +10254,7 @@ pub fn maximum_spanning_tree(
 
     for node in inner.nodes_ordered() {
         new_graph.inner.add_node(node.to_owned());
-        if let Some(py_key) = gr.node_key(node) {
+        if let Some(py_key) = gr.node_key_map().get(node) {
             new_graph
                 .node_key_map
                 .insert(node.to_owned(), py_key.clone_ref(py));
@@ -17271,7 +17272,7 @@ fn graph_product_fast(
         let _ = inner.extend_edges_unrecorded(edges);
         let mut py_graph = PyGraph::new_empty_with_policy(py, g1.runtime_policy().clone())?;
         py_graph.inner = inner;
-        py_graph.node_key_map = node_key_map.into_iter().collect();
+        py_graph.node_key_map = node_key_map;
         Ok(Some(py_graph.into_pyobject(py)?.into_any().unbind()))
     }
 }
@@ -17466,7 +17467,7 @@ fn cartesian_product_edge_attrs_fast(
             let _ = inner.extend_edges_with_attrs_unrecorded(edges);
             let mut py_graph = PyGraph::new_empty_with_policy(py, g1.runtime_policy().clone())?;
             py_graph.inner = inner;
-            py_graph.node_key_map = node_key_map.into_iter().collect();
+            py_graph.node_key_map = node_key_map;
             Ok(Some(py_graph.into_pyobject(py)?.into_any().unbind()))
         }
         (GraphRef::Directed { dg: dg1, .. }, GraphRef::Directed { dg: dg2, .. }) => {
@@ -17617,7 +17618,7 @@ fn lexicographic_product_edge_attrs_fast(
             let _ = inner.extend_edges_with_attrs_unrecorded(edges);
             let mut py_graph = PyGraph::new_empty_with_policy(py, g1.runtime_policy().clone())?;
             py_graph.inner = inner;
-            py_graph.node_key_map = node_key_map.into_iter().collect();
+            py_graph.node_key_map = node_key_map;
             Ok(Some(py_graph.into_pyobject(py)?.into_any().unbind()))
         }
         (GraphRef::Directed { dg: dg1, .. }, GraphRef::Directed { dg: dg2, .. }) => {
@@ -18218,7 +18219,7 @@ fn modular_product_fast(
     let _ = inner.extend_edges_unrecorded(edges);
     let mut py_graph = PyGraph::new_empty_with_policy(py, g1.runtime_policy().clone())?;
     py_graph.inner = inner;
-    py_graph.node_key_map = node_key_map.into_iter().collect();
+    py_graph.node_key_map = node_key_map;
     Ok(Some(py_graph.into_pyobject(py)?.into_any().unbind()))
 }
 
@@ -18279,7 +18280,7 @@ fn rooted_product_fast(
     let _ = inner.extend_edges_unrecorded(edges);
     let mut py_graph = PyGraph::new_empty_with_policy(py, g1.runtime_policy().clone())?;
     py_graph.inner = inner;
-    py_graph.node_key_map = node_key_map.into_iter().collect();
+    py_graph.node_key_map = node_key_map;
     Ok(Some(py_graph.into_pyobject(py)?.into_any().unbind()))
 }
 
@@ -18348,7 +18349,7 @@ fn corona_product_fast(
     let _ = inner.extend_edges_unrecorded(edges);
     let mut py_graph = PyGraph::new_empty_with_policy(py, g1.runtime_policy().clone())?;
     py_graph.inner = inner;
-    py_graph.node_key_map = node_key_map.into_iter().collect();
+    py_graph.node_key_map = node_key_map;
     Ok(Some(py_graph.into_pyobject(py)?.into_any().unbind()))
 }
 
@@ -18434,7 +18435,7 @@ fn corona_product_edge_attrs_fast(
     let _ = inner.extend_edges_with_attrs_unrecorded(edges);
     let mut py_graph = PyGraph::new_empty_with_policy(py, g1.runtime_policy().clone())?;
     py_graph.inner = inner;
-    py_graph.node_key_map = node_key_map.into_iter().collect();
+    py_graph.node_key_map = node_key_map;
     Ok(Some(py_graph.into_pyobject(py)?.into_any().unbind()))
 }
 
@@ -18491,7 +18492,7 @@ fn mycielskian_step_fast(py: Python<'_>, m: &Bound<'_, PyAny>) -> PyResult<Optio
     }
     let mut py_graph = PyGraph::new_empty_with_policy(py, inner.runtime_policy().clone())?;
     py_graph.inner = r;
-    py_graph.node_key_map = node_key_map.into_iter().collect();
+    py_graph.node_key_map = node_key_map;
     Ok(Some(py_graph.into_pyobject(py)?.into_any().unbind()))
 }
 
@@ -18631,7 +18632,7 @@ fn line_graph_fast(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Option<PyOb
         let _ = inner.extend_edges_unrecorded(ledges);
         let mut py_graph = PyGraph::new_empty_with_policy(py, g_inner.runtime_policy().clone())?;
         py_graph.inner = inner;
-        py_graph.node_key_map = node_key_map.into_iter().collect();
+        py_graph.node_key_map = node_key_map;
         Ok(Some(py_graph.into_pyobject(py)?.into_any().unbind()))
     }
 }
@@ -25877,7 +25878,7 @@ pub fn power_rust(py: Python<'_>, g: &Bound<'_, PyAny>, k: usize) -> PyResult<Py
     // Convert Rust Graph to PyGraph
     let pg = crate::PyGraph {
         inner: result,
-        node_key_map: PyNodeKeyMap::default(),
+        node_key_map: std::collections::HashMap::new(),
         lazy_int_node_stop: 0,
         node_py_attrs: std::collections::HashMap::new(),
         edge_py_attrs: std::collections::HashMap::new(),
@@ -25996,7 +25997,7 @@ pub fn ego_graph_rust(
     let result = py.allow_threads(|| fnx_algorithms::ego_graph(inner, &c, radius));
     let pg = crate::PyGraph {
         inner: result,
-        node_key_map: PyNodeKeyMap::default(),
+        node_key_map: std::collections::HashMap::new(),
         lazy_int_node_stop: 0,
         node_py_attrs: std::collections::HashMap::new(),
         edge_py_attrs: std::collections::HashMap::new(),
@@ -26136,7 +26137,7 @@ pub fn full_join_rust(
     let result = py.allow_threads(|| fnx_algorithms::full_join(inner1, inner2));
     let pg = crate::PyGraph {
         inner: result,
-        node_key_map: PyNodeKeyMap::default(),
+        node_key_map: std::collections::HashMap::new(),
         lazy_int_node_stop: 0,
         node_py_attrs: std::collections::HashMap::new(),
         edge_py_attrs: std::collections::HashMap::new(),
@@ -26175,7 +26176,7 @@ pub fn identified_nodes_rust(
     let result = py.allow_threads(|| fnx_algorithms::identified_nodes(inner, &u_key, &v_key));
     let pg = crate::PyGraph {
         inner: result,
-        node_key_map: PyNodeKeyMap::default(),
+        node_key_map: std::collections::HashMap::new(),
         lazy_int_node_stop: 0,
         node_py_attrs: std::collections::HashMap::new(),
         edge_py_attrs: std::collections::HashMap::new(),
@@ -26273,7 +26274,7 @@ pub fn dedensify_rust(
         py.allow_threads(|| fnx_algorithms::dedensify(inner, threshold));
     let pg = crate::PyGraph {
         inner: result_graph,
-        node_key_map: PyNodeKeyMap::default(),
+        node_key_map: std::collections::HashMap::new(),
         lazy_int_node_stop: 0,
         node_py_attrs: std::collections::HashMap::new(),
         edge_py_attrs: std::collections::HashMap::new(),
@@ -26445,7 +26446,7 @@ pub fn quotient_graph_rust(
     let result = py.allow_threads(|| fnx_algorithms::quotient_graph(inner, &partition_keys));
     let pg = crate::PyGraph {
         inner: result,
-        node_key_map: PyNodeKeyMap::default(),
+        node_key_map: std::collections::HashMap::new(),
         lazy_int_node_stop: 0,
         node_py_attrs: std::collections::HashMap::new(),
         edge_py_attrs: std::collections::HashMap::new(),
@@ -26984,7 +26985,7 @@ pub fn gomory_hu_tree_rust(
     let result = py.allow_threads(|| fnx_algorithms::gomory_hu_tree(inner, weight));
     let pg = crate::PyGraph {
         inner: result,
-        node_key_map: PyNodeKeyMap::default(),
+        node_key_map: std::collections::HashMap::new(),
         lazy_int_node_stop: 0,
         node_py_attrs: std::collections::HashMap::new(),
         edge_py_attrs: std::collections::HashMap::new(),
@@ -27042,7 +27043,7 @@ pub fn snap_aggregation_rust(
     let result = py.allow_threads(|| fnx_algorithms::snap_aggregation(inner, &node_attributes));
     let pg = crate::PyGraph {
         inner: result,
-        node_key_map: PyNodeKeyMap::default(),
+        node_key_map: std::collections::HashMap::new(),
         lazy_int_node_stop: 0,
         node_py_attrs: std::collections::HashMap::new(),
         edge_py_attrs: std::collections::HashMap::new(),

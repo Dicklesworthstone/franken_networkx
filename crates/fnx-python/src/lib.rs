@@ -16,6 +16,7 @@ mod views;
 
 pub use readwrite::{RawNodeLinkError, RawNodeLinkReport, parse_raw_node_link_json};
 
+use arrayvec::ArrayString;
 use fnx_classes::{AttrMap, Graph, MultiGraph};
 use fnx_runtime::{CgseValue, CompatibilityMode, RuntimePolicy};
 use pyo3::exceptions::{PyKeyError, PyRuntimeError, PyTypeError, PyValueError};
@@ -116,7 +117,7 @@ const CANONICAL_KEY_STACK_BUF: usize = 128;
 /// equal hash. (Hashing the three pieces separately would NOT: it changes the
 /// `write` call sequence and the lookup would silently miss.)
 fn write_canonical_str_key<'b>(
-    buf: &'b mut [u8; CANONICAL_KEY_STACK_BUF],
+    buf: &'b mut ArrayString<CANONICAL_KEY_STACK_BUF>,
     s: &str,
 ) -> Option<&'b str> {
     // br-r37-c1-7faiu: this was `write!(cursor, "str:{}:{s}", s.len())` through
@@ -133,8 +134,7 @@ fn write_canonical_str_key<'b>(
     // borrowed lookup depends on and which
     // `canonical_node_key_in_matches_the_owned_canonical` sweeps across every
     // key kind and both sides of the buffer boundary.
-    let bytes = s.as_bytes();
-    let len = bytes.len();
+    let len = s.len();
     // A key whose bytes alone overflow the buffer cannot fit with a prefix, and
     // bailing here keeps the decimal below four digits for the writer.
     if len >= CANONICAL_KEY_STACK_BUF {
@@ -146,24 +146,29 @@ fn write_canonical_str_key<'b>(
         return None;
     }
 
-    buf[..4].copy_from_slice(b"str:");
+    buf.clear();
+    buf.push_str("str:");
     // `len < CANONICAL_KEY_STACK_BUF` (128), so this is 1..=3 digits, written
     // least-significant first from the end of the reserved field.
+    let mut digits = [0_u8; 3];
     let mut rest = len;
-    let mut at = 4 + width;
+    let mut digit_count = 0;
     loop {
-        at -= 1;
-        buf[at] = b'0' + (rest % 10) as u8;
+        digits[digit_count] = b'0' + (rest % 10) as u8;
+        digit_count += 1;
         rest /= 10;
         if rest == 0 {
             break;
         }
     }
-    buf[4 + width] = b':';
-    buf[5 + width..used].copy_from_slice(bytes);
+    for digit in digits[..digit_count].iter().rev() {
+        buf.push(*digit as char);
+    }
+    debug_assert_eq!(digit_count, width);
+    buf.push(':');
+    buf.push_str(s);
 
-    // Always valid UTF-8: an ASCII prefix followed by an existing `&str`.
-    core::str::from_utf8(&buf[..used]).ok()
+    Some(buf.as_str())
 }
 
 /// br-r37-c1-vz4v9: a canonical key that borrows a caller-owned stack buffer
@@ -197,7 +202,7 @@ impl CanonicalNodeKey<'_> {
 fn canonical_node_key_in<'b>(
     py: Python<'_>,
     key: &Bound<'_, PyAny>,
-    buf: &'b mut [u8; CANONICAL_KEY_STACK_BUF],
+    buf: &'b mut ArrayString<CANONICAL_KEY_STACK_BUF>,
 ) -> PyResult<CanonicalNodeKey<'b>> {
     if let Ok(s) = key.downcast::<PyString>() {
         let s = s.to_str()?;
@@ -259,21 +264,50 @@ fn with_node_key_str<R>(
 ) -> PyResult<R> {
     if let Ok(s) = key.downcast::<PyString>() {
         let s = s.to_str()?;
+        // br-r37-c1-oqvk5: a POOL, not a single cell. `PyGraph::has_edge`
+        // canonicalizes BOTH endpoints by nesting this helper inside its own
+        // closure:
+        //
+        //     with_node_key_str(py, u, |u_c| {
+        //         with_node_key_str(py, v, |v_c| self.inner.has_edge(u_c, v_c))
+        //     })
+        //
+        // so a single `RefCell<String>` scratch is re-entered and `borrow_mut()`
+        // panics with "RefCell already borrowed" — which took out every
+        // string-keyed `add_edge`, since the Python shim probes `has_edge`
+        // first. The buffer is taken OUT of the pool before `f` runs and put
+        // back after, so the RefCell is never borrowed across the callback and
+        // nesting at any depth gets its own buffer. The previous `[u8; N]`
+        // stack buffer was reentrant by construction; a shared scratch is not,
+        // and that property has to be restored explicitly.
         thread_local! {
-            static CANONICAL_STRING: std::cell::RefCell<String> =
-                std::cell::RefCell::new(String::with_capacity(CANONICAL_KEY_STACK_BUF));
+            static CANONICAL_POOL: std::cell::RefCell<Vec<String>> =
+                const { std::cell::RefCell::new(Vec::new()) };
         }
         let needed = 4 + decimal_width(s.len()) + 1 + s.len();
         if needed <= CANONICAL_KEY_STACK_BUF {
-            return CANONICAL_STRING.with(|scratch| {
-                let mut scratch = scratch.borrow_mut();
-                scratch.clear();
-                scratch.push_str("str:");
-                scratch.push_str(&s.len().to_string());
-                scratch.push(':');
-                scratch.push_str(s);
-                Ok(f(scratch.as_str()))
-            });
+            let mut buf = CANONICAL_POOL
+                .with(|pool| pool.borrow_mut().pop())
+                .unwrap_or_else(|| String::with_capacity(CANONICAL_KEY_STACK_BUF));
+            buf.clear();
+            buf.push_str("str:");
+            // The decimal, pushed as ASCII bytes. `s.len().to_string()` here
+            // heap-allocated on EVERY call, which is the allocation
+            // br-r37-c1-afiq8 exists to remove. `needed <= 128` bounds the
+            // length at 122, so this is at most three digits.
+            let len = s.len();
+            if len >= 100 {
+                buf.push((b'0' + (len / 100) as u8) as char);
+            }
+            if len >= 10 {
+                buf.push((b'0' + ((len / 10) % 10) as u8) as char);
+            }
+            buf.push((b'0' + (len % 10) as u8) as char);
+            buf.push(':');
+            buf.push_str(s);
+            let out = f(buf.as_str());
+            CANONICAL_POOL.with(|pool| pool.borrow_mut().push(buf));
+            return Ok(out);
         }
     }
     let canonical = node_key_to_string(py, key)?;
@@ -6739,8 +6773,8 @@ impl PyMultiGraph {
         // Unlike `has_edge`, there is no interned-index fast path ahead of this,
         // so the borrowed key is the whole optimisation here rather than a
         // second-best one.
-        let mut u_buf = [0u8; CANONICAL_KEY_STACK_BUF];
-        let mut v_buf = [0u8; CANONICAL_KEY_STACK_BUF];
+        let mut u_buf = ArrayString::new();
+        let mut v_buf = ArrayString::new();
         let u_key = canonical_node_key_in(py, u, &mut u_buf)?;
         let v_key = canonical_node_key_in(py, v, &mut v_buf)?;
         let u_c = u_key.as_str();
@@ -14884,8 +14918,8 @@ impl PyGraph {
         // br-r37-c1-vz4v9: borrowed canonical keys — see the note on the
         // multigraph `get_edge_data`. Same absence of an interned-index fast
         // path, same two heap allocations per probe before this.
-        let mut u_buf = [0u8; CANONICAL_KEY_STACK_BUF];
-        let mut v_buf = [0u8; CANONICAL_KEY_STACK_BUF];
+        let mut u_buf = ArrayString::new();
+        let mut v_buf = ArrayString::new();
         let u_key = canonical_node_key_in(py, u, &mut u_buf)?;
         let v_key = canonical_node_key_in(py, v, &mut v_buf)?;
         let u_c = u_key.as_str();
@@ -17138,7 +17172,7 @@ class FnxMultiGraphCtorEdgeIterable:
                 let obj = PyString::new(py, key);
                 let owned = node_key_to_string(py, obj.as_any())
                     .expect("owned canonicalization should succeed");
-                let mut buf = [0u8; CANONICAL_KEY_STACK_BUF];
+                let mut buf = ArrayString::new();
                 let borrowed = canonical_node_key_in(py, obj.as_any(), &mut buf)
                     .expect("borrowed canonicalization should succeed");
                 assert_eq!(
@@ -17153,7 +17187,7 @@ class FnxMultiGraphCtorEdgeIterable:
                 let obj = value.into_pyobject(py).expect("int should convert");
                 let owned =
                     node_key_to_string(py, obj.as_any()).expect("owned int canonical should work");
-                let mut buf = [0u8; CANONICAL_KEY_STACK_BUF];
+                let mut buf = ArrayString::new();
                 let borrowed = canonical_node_key_in(py, obj.as_any(), &mut buf)
                     .expect("borrowed int canonical should work");
                 assert_eq!(
@@ -17393,7 +17427,7 @@ class FnxMultiGraphCtorEdgeIterable:
     /// a truncated canonical would alias two distinct nodes.
     #[test]
     fn canonical_stack_writer_refuses_keys_that_do_not_fit() {
-        let mut buf = [0u8; CANONICAL_KEY_STACK_BUF];
+        let mut buf = ArrayString::new();
         let too_long = "x".repeat(CANONICAL_KEY_STACK_BUF);
         assert!(
             write_canonical_str_key(&mut buf, &too_long).is_none(),
@@ -17413,7 +17447,7 @@ class FnxMultiGraphCtorEdgeIterable:
     /// company.
     #[test]
     fn canonical_stack_writer_is_byte_identical_to_the_format_reference() {
-        let mut buf = [0u8; CANONICAL_KEY_STACK_BUF];
+        let mut buf = ArrayString::new();
 
         let mut cases: Vec<String> = (0..=CANONICAL_KEY_STACK_BUF + 4)
             .map(|n| "a".repeat(n))
@@ -17948,8 +17982,8 @@ fn borrowed_canonical_key_self_time_ab() {
             let start = Instant::now();
             for _ in 0..REPS {
                 for (u, v) in probes {
-                    let mut u_buf = [0u8; CANONICAL_KEY_STACK_BUF];
-                    let mut v_buf = [0u8; CANONICAL_KEY_STACK_BUF];
+                    let mut u_buf = ArrayString::new();
+                    let mut v_buf = ArrayString::new();
                     let u_key = canonical_node_key_in(py, u.bind(py), &mut u_buf)?;
                     let v_key = canonical_node_key_in(py, v.bind(py), &mut v_buf)?;
                     hits += usize::from(black_box(store.has_edge(u_key.as_str(), v_key.as_str())));

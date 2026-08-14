@@ -918,6 +918,7 @@ dependencies = [
 name = "fnx-python"
 version = "0.2.0"
 dependencies = [
+ "arrayvec",
  "criterion",
  "fnx-algorithms",
  "fnx-cgse",
