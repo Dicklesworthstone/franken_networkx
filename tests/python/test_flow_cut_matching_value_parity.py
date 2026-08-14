@@ -121,3 +121,38 @@ def test_steiner_tree_weight(spec):
     assert tw(fnx.approximation.steiner_tree(_graph(fnx, spec), terminals)) == tw(
         nx.approximation.steiner_tree(_graph(nx, spec), terminals)
     )
+
+
+def test_steiner_tree_conversion_preserves_ordered_node_and_attribute_payloads():
+    """The delegated result conversion must not lose attrs when batched."""
+
+    edges = [
+        ("a", "b", 1),
+        ("b", "c", 2),
+        ("c", "d", 3),
+        ("a", "d", 20),
+        ("a", "c", 10),
+    ]
+
+    def build(mod):
+        graph = mod.Graph(instance={"kind": "steiner"})
+        graph.add_nodes_from(
+            [
+                ("a", {"rank": 0, "payload": ["a"]}),
+                ("b", {"rank": 1, "payload": ["b"]}),
+                ("c", {"rank": 2, "payload": ["c"]}),
+                ("d", {"rank": 3, "payload": ["d"]}),
+            ]
+        )
+        graph.add_edges_from(
+            (u, v, {"weight": weight, "label": f"{u}{v}"})
+            for u, v, weight in edges
+        )
+        return graph
+
+    fnx_tree = fnx.approximation.steiner_tree(build(fnx), ["a", "c", "d"])
+    nx_tree = nx.approximation.steiner_tree(build(nx), ["a", "c", "d"])
+
+    assert fnx_tree.graph == nx_tree.graph
+    assert list(fnx_tree.nodes(data=True)) == list(nx_tree.nodes(data=True))
+    assert list(fnx_tree.edges(data=True)) == list(nx_tree.edges(data=True))

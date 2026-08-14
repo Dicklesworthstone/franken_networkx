@@ -482,8 +482,12 @@ def _from_nx_graph(graph, create_using=None):
     for key, value in graph.graph.items():
         result.graph[key] = value
 
-    for node, attrs in graph.nodes(data=True):
-        result.add_node(node, **attrs)
+    # Keep source node order, but cross the PyO3 boundary once.  Delegated
+    # algorithms such as ``steiner_tree`` often return an attributed closure
+    # graph; adding those nodes one at a time made result conversion a material
+    # part of their runtime.  Copy each mapping just as ``add_node(**attrs)``
+    # did, so the returned graph never aliases the NetworkX result's attrs.
+    result.add_nodes_from((node, dict(attrs)) for node, attrs in graph.nodes(data=True))
 
     if graph.is_multigraph():
         # 4-tuple (u, v, key, attrs) avoids the ``key=key, **attrs``
