@@ -1865,40 +1865,25 @@ impl Graph {
         };
         let edge_key = Self::canon_pair(left_key_idx, right_key_idx);
         let self_loop = left == right;
-        let new_edge = !self.edges.contains_key(&edge_key);
-        let mut changed = new_edge;
-        let edge_attr_count = {
-            let edge_attrs = self.edges.entry(edge_key).or_default();
-            if edge_attrs.is_empty() {
-                // br-r37-c1-jc9e4: a fresh bucket TAKES the caller's map whole.
-                // The callgrind profile of the build workload — the one this
-                // bead's 0.46-0.50x is measured on — put ~47% of instructions
-                // inside malloc/free, and this is one of the alloc/free pairs
-                // feeding it: `extend` allocated a node in the destination for
-                // every entry and then freed the caller's map, when the
-                // destination is empty and the caller's map is already exactly
-                // the answer.
-                //
-                // Byte-identical: extending an EMPTY BTreeMap by `attrs` yields
-                // `attrs`, and `BTreeMap` orders by key either way. `changed`
-                // agrees too — the scan it replaces reports every key of a
-                // non-empty `attrs` as missing from an empty bucket, and is
-                // skipped entirely when `attrs` is empty.
-                if !attrs.is_empty() {
-                    changed = true;
-                }
-                *edge_attrs = attrs;
-            } else {
-                if !attrs.is_empty()
+        // One `entry` probe decides both whether this is a fresh edge and
+        // which attribute bucket receives the update.  The former
+        // `contains_key` + `entry` sequence hashed the same index pair twice
+        // on every add_edge call, including the dominant fresh-edge build arm.
+        let (new_edge, changed, edge_attr_count) = match self.edges.entry(edge_key) {
+            indexmap::map::Entry::Vacant(entry) => {
+                let edge_attr_count = attrs.len();
+                entry.insert(attrs);
+                (true, true, edge_attr_count)
+            }
+            indexmap::map::Entry::Occupied(mut entry) => {
+                let edge_attrs = entry.get_mut();
+                let changed = !attrs.is_empty()
                     && attrs
                         .iter()
-                        .any(|(key, value)| edge_attrs.get(key) != Some(value))
-                {
-                    changed = true;
-                }
+                        .any(|(key, value)| edge_attrs.get(key) != Some(value));
                 edge_attrs.extend(attrs);
+                (false, changed, edge_attrs.len())
             }
-            edge_attrs.len()
         };
 
         // Update integer adjacency (only for new edges, avoid duplicates)
@@ -9477,6 +9462,24 @@ mod tests {
                 ("w".to_owned(), CgseValue::Int(9)),
             ]
         );
+    }
+
+    #[test]
+    fn add_edge_entry_probe_keeps_existing_empty_edge_structurally_unchanged() {
+        let mut graph = Graph::strict();
+        graph
+            .add_edge_with_attrs("a", "b", AttrMap::new())
+            .expect("initial edge is allowed");
+        let revision_before = graph.revision;
+
+        graph
+            .add_edge_with_attrs("b", "a", AttrMap::new())
+            .expect("duplicate edge is allowed");
+
+        assert_eq!(graph.edge_count(), 1);
+        assert_eq!(graph.neighbors("a"), Some(vec!["b"]));
+        assert_eq!(graph.neighbors("b"), Some(vec!["a"]));
+        assert_eq!(graph.revision, revision_before);
     }
 
     /// br-r37-c1-jc9e4: locks the endpoint-resolution cases that collapsing the
