@@ -51,8 +51,11 @@ import sys
 
 MAX_NULL_MEDIAN_BIAS = 0.02  # scripts/perf_harness.py
 RELATIVE_K = 10.0
-BOOT_REPS = 4000
-BOOT_SEED = 20260808
+# This tool is an offline replay of the production gate, not an independent
+# estimator.  Keep these exactly aligned with perf_harness._median_ci so that
+# clauses 1 and 2 remain fixed while clause 3 is rescored.
+BOOT_REPS = 2000
+BOOT_SEED = 12345
 
 
 def _median_ci(values, reps=BOOT_REPS, seed=BOOT_SEED):
