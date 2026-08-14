@@ -67,9 +67,16 @@ impl NodeView {
         // the native slot so ordinary Graph NodeView membership no longer
         // needs a Python hash+delegate wrapper on every present/missing probe.
         n.hash()?;
-        let g = self.graph.borrow(py);
-        let canonical = node_key_to_string(py, n)?;
-        Ok(g.inner.has_node(&canonical))
+        // br-r37-c1-ey6ob: probe with the BORROWED canonical key. This is a
+        // read-only membership test, so the owned `String` that
+        // `node_key_to_string` returns existed only to be hashed and dropped —
+        // one malloc/free per `n in G.nodes()` against nx's zero. The borrowed
+        // form (br-r37-c1-oe93x) writes the identical bytes into a stack buffer
+        // for short `str` keys and falls back to the owned build for everything
+        // else, so the canonical is unchanged on every key shape.
+        crate::with_node_key_str(py, n, |canonical| {
+            self.graph.borrow(py).inner.has_node(canonical)
+        })
     }
 
     fn __iter__(&self, py: Python<'_>) -> PyResult<PyObject> {
@@ -155,16 +162,24 @@ impl NodeView {
         if self.lookup_cache.is_known_missing(py, n)? {
             return Err(crate::missing_key_error(n));
         }
-        let mut g = self.graph.borrow_mut(py);
-        let canonical = node_key_to_string(py, n)?;
-        if !g.inner.has_node(&canonical) {
-            drop(g);
+        // br-r37-c1-ey6ob: borrowed canonical probe (see `__contains__`). The
+        // graph borrow now opens INSIDE the closure, i.e. AFTER canonicalization
+        // rather than around it — `node_key_to_string` can call back into Python
+        // (`repr`) for exotic keys, and holding `borrow_mut` across that is what
+        // turns a re-entrant key into a `BorrowMutError`.
+        let found = crate::with_node_key_str(py, n, |canonical| {
+            let mut g = self.graph.borrow_mut(py);
+            if !g.inner.has_node(canonical) {
+                return None;
+            }
+            let public_key = g.py_node_key(py, canonical);
+            let attrs = g.materialize_node_py_attrs(py, canonical);
+            Some((public_key, attrs))
+        })?;
+        let Some((public_key, attrs)) = found else {
             self.lookup_cache.insert_missing(py, n)?;
             return Err(crate::missing_key_error(n));
-        }
-        let public_key = g.py_node_key(py, &canonical);
-        let attrs = g.materialize_node_py_attrs(py, &canonical);
-        drop(g);
+        };
         self.lookup_cache.insert(py, public_key.bind(py), &attrs)?;
         Ok(attrs)
     }
@@ -176,12 +191,18 @@ impl NodeView {
         n: &Bound<'_, PyAny>,
         default: Option<PyObject>,
     ) -> PyResult<PyObject> {
-        let mut g = self.graph.borrow_mut(py);
-        let canonical = node_key_to_string(py, n)?;
-        if !g.inner.has_node(&canonical) {
-            return Ok(default.unwrap_or_else(|| py.None()));
-        }
-        Ok(g.materialize_node_py_attrs(py, &canonical).into_any())
+        // br-r37-c1-ey6ob: borrowed canonical probe (see `__contains__`).
+        let found = crate::with_node_key_str(py, n, |canonical| {
+            let mut g = self.graph.borrow_mut(py);
+            if !g.inner.has_node(canonical) {
+                return None;
+            }
+            Some(g.materialize_node_py_attrs(py, canonical))
+        })?;
+        Ok(match found {
+            Some(attrs) => attrs.into_any(),
+            None => default.unwrap_or_else(|| py.None()),
+        })
     }
 
     fn __repr__(&self, py: Python<'_>) -> String {
@@ -541,10 +562,18 @@ impl EdgeView {
         if tuple.len() < 2 {
             return Ok(false);
         }
-        let u = node_key_to_string(py, &tuple.get_item(0)?)?;
-        let v = node_key_to_string(py, &tuple.get_item(1)?)?;
+        // br-r37-c1-ey6ob: `(u, v) in G.edges()` is a read-only probe, so both
+        // endpoint canonicals are borrowed out of stack buffers instead of being
+        // heap-allocated to be hashed once and dropped — two mallocs per probe.
+        // Same two-buffer shape as `_fnx_edge_attr_dict_get` (lib.rs).
+        let u_item = tuple.get_item(0)?;
+        let v_item = tuple.get_item(1)?;
+        let mut u_buf = [0u8; crate::CANONICAL_KEY_STACK_BUF];
+        let mut v_buf = [0u8; crate::CANONICAL_KEY_STACK_BUF];
+        let u = crate::canonical_node_key_in(py, &u_item, &mut u_buf)?;
+        let v = crate::canonical_node_key_in(py, &v_item, &mut v_buf)?;
         let g = self.graph.borrow(py);
-        Ok(g.inner.has_edge(&u, &v))
+        Ok(g.inner.has_edge(u.as_str(), v.as_str()))
     }
 
     fn __iter__(&self, py: Python<'_>) -> PyResult<Py<NodeViewIterator>> {
@@ -671,14 +700,22 @@ impl EdgeView {
         let tuple = edge.downcast::<PyTuple>().map_err(|_| {
             pyo3::exceptions::PyTypeError::new_err("edge key must be a (u, v) tuple")
         })?;
-        let u = node_key_to_string(py, &tuple.get_item(0)?)?;
-        let v = node_key_to_string(py, &tuple.get_item(1)?)?;
+        // br-r37-c1-ey6ob: borrowed endpoint canonicals (see `__contains__`).
+        // `materialize_edge_py_attrs` already takes `&str`, and the KeyError text
+        // is built from the same canonical bytes, so the message is unchanged.
+        let u_item = tuple.get_item(0)?;
+        let v_item = tuple.get_item(1)?;
+        let mut u_buf = [0u8; crate::CANONICAL_KEY_STACK_BUF];
+        let mut v_buf = [0u8; crate::CANONICAL_KEY_STACK_BUF];
+        let u = crate::canonical_node_key_in(py, &u_item, &mut u_buf)?;
+        let v = crate::canonical_node_key_in(py, &v_item, &mut v_buf)?;
+        let (u, v) = (u.as_str(), v.as_str());
         let mut g = self.graph.borrow_mut(py);
-        if !g.inner.has_edge(&u, &v) {
-            return Err(PyKeyError::new_err(format!("({}, {})", u, v)));
+        if !g.inner.has_edge(u, v) {
+            return Err(PyKeyError::new_err(format!("({u}, {v})")));
         }
         g.mark_edges_dirty();
-        Ok(g.materialize_edge_py_attrs(py, &u, &v))
+        Ok(g.materialize_edge_py_attrs(py, u, v))
     }
 
     fn __repr__(&self, py: Python<'_>) -> String {
@@ -898,15 +935,21 @@ impl DegreeView {
     }
 
     fn __getitem__(&self, py: Python<'_>, n: &Bound<'_, PyAny>) -> PyResult<usize> {
-        let g = self.graph.borrow(py);
-        let canonical = node_key_to_string(py, n)?;
-        if !g.inner.has_node(&canonical) {
-            return Err(crate::NodeNotFound::new_err(format!(
-                "The node {} is not in the graph.",
-                n.repr()?
-            )));
-        }
-        Ok(g.inner.degree(&canonical))
+        // br-r37-c1-ey6ob: borrowed canonical probe (see NodeView::__contains__).
+        // `G.degree[n]` reads a degree and never inserts, so the owned canonical
+        // was a malloc/free per call.
+        let degree = crate::with_node_key_str(py, n, |canonical| {
+            let g = self.graph.borrow(py);
+            g.inner
+                .has_node(canonical)
+                .then(|| g.inner.degree(canonical))
+        })?;
+        degree.ok_or_else(|| match n.repr() {
+            Ok(repr) => {
+                crate::NodeNotFound::new_err(format!("The node {repr} is not in the graph."))
+            }
+            Err(err) => err,
+        })
     }
 
     fn __repr__(&self, py: Python<'_>) -> String {
@@ -945,11 +988,15 @@ impl DegreeView {
         let view = slf.borrow(py);
         let g = view.graph.borrow(py);
 
-        // Try as single node first
-        if let Ok(canonical) = node_key_to_string(py, nb)
-            && g.inner.has_node(&canonical)
+        // Try as single node first.
+        // br-r37-c1-ey6ob: borrowed canonical probe. This arm runs on EVERY
+        // `G.degree(x)` call, including the ones where `x` turns out to be an
+        // nbunch iterable and the owned canonical was built and thrown away.
+        let mut nb_buf = [0u8; crate::CANONICAL_KEY_STACK_BUF];
+        if let Ok(canonical) = crate::canonical_node_key_in(py, nb, &mut nb_buf)
+            && g.inner.has_node(canonical.as_str())
         {
-            let deg = g.inner.degree(&canonical);
+            let deg = g.inner.degree(canonical.as_str());
             return Ok(deg.into_pyobject(py)?.into_any().unbind());
         }
 
@@ -1041,9 +1088,11 @@ impl AdjacencyView {
     }
 
     fn __contains__(&self, py: Python<'_>, n: &Bound<'_, PyAny>) -> PyResult<bool> {
-        let g = self.graph()?.borrow(py);
-        let canonical = node_key_to_string(py, n)?;
-        Ok(g.inner.has_node(&canonical))
+        // br-r37-c1-ey6ob: borrowed canonical probe (see NodeView::__contains__).
+        let graph = self.graph()?;
+        crate::with_node_key_str(py, n, |canonical| {
+            graph.borrow(py).inner.has_node(canonical)
+        })
     }
 
     fn __getitem__(&self, py: Python<'_>, n: &Bound<'_, PyAny>) -> PyResult<Py<AtlasView>> {
@@ -1147,9 +1196,18 @@ impl AtlasView {
     }
 
     fn __getitem__(&self, py: Python<'_>, v: &Bound<'_, PyAny>) -> PyResult<Py<PyDict>> {
-        let mut g = self.graph()?.borrow_mut(py);
-        let v_canon = node_key_to_string(py, v)?;
-        if !g.inner.has_edge(&self.node, &v_canon) {
+        // br-r37-c1-ey6ob: `G[u][v]`'s inner subscript. `self.node` is ALREADY
+        // canonical, so this call only ever had to canonicalize `v` — and it did
+        // so into an owned String that was hashed twice and dropped. Borrowed
+        // now; `has_edge` and `materialize_edge_py_attrs` both take `&str`, and
+        // the returned dict is still the SAME shared `Py<PyDict>` the graph
+        // stores, so `G[u][v]['w'] = x` keeps mutating the live edge attrs.
+        let graph = self.graph()?;
+        let mut v_buf = [0u8; crate::CANONICAL_KEY_STACK_BUF];
+        let v_key = crate::canonical_node_key_in(py, v, &mut v_buf)?;
+        let v_canon = v_key.as_str();
+        let mut g = graph.borrow_mut(py);
+        if !g.inner.has_edge(&self.node, v_canon) {
             return Err(PyKeyError::new_err((v.clone().unbind(),)));
         }
         // The returned dict is the SAME shared Py<PyDict> the graph stores, so
@@ -1157,13 +1215,15 @@ impl AtlasView {
         // dirty so a later native read reconciles it (matches the old eager
         // `G[u]`, which marked dirty unconditionally).
         g.mark_edges_dirty();
-        Ok(g.materialize_edge_py_attrs(py, &self.node, &v_canon))
+        Ok(g.materialize_edge_py_attrs(py, &self.node, v_canon))
     }
 
     fn __contains__(&self, py: Python<'_>, v: &Bound<'_, PyAny>) -> PyResult<bool> {
-        let g = self.graph()?.borrow(py);
-        let v_canon = node_key_to_string(py, v)?;
-        Ok(g.inner.has_edge(&self.node, &v_canon))
+        // br-r37-c1-ey6ob: borrowed canonical probe (see `__getitem__`).
+        let graph = self.graph()?;
+        crate::with_node_key_str(py, v, |v_canon| {
+            graph.borrow(py).inner.has_edge(&self.node, v_canon)
+        })
     }
 
     fn __len__(&self, py: Python<'_>) -> usize {
