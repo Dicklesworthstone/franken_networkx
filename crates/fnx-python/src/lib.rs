@@ -13312,11 +13312,14 @@ impl PyGraph {
         {
             return Ok(self.inner.has_edge_by_indices(iu, iv));
         }
-        // br-r37-c1-oe93x: borrowed canonical keys — a str-keyed probe used to
-        // malloc and free TWO Strings purely to look the edge up.
-        with_node_key_str(py, u, |u_c| {
-            with_node_key_str(py, v, |v_c| self.inner.has_edge(u_c, v_c))
-        })?
+        // br-r37-c1-oqvk5: use independent caller-owned buffers here. Nested
+        // with_node_key_str calls would re-enter its thread-local scratch and
+        // panic while the outer closure still holds the RefCell borrow.
+        let mut u_buf = ArrayString::<CANONICAL_KEY_STACK_BUF>::new();
+        let mut v_buf = ArrayString::<CANONICAL_KEY_STACK_BUF>::new();
+        let u_key = canonical_node_key_in(py, u, &mut u_buf)?;
+        let v_key = canonical_node_key_in(py, v, &mut v_buf)?;
+        Ok(self.inner.has_edge(u_key.as_str(), v_key.as_str()))
     }
 
     /// Return a list of neighbors of node n.
