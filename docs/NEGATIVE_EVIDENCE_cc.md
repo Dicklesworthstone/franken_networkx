@@ -9780,3 +9780,131 @@ parity cases in `tests/python/test_view_borrowed_canonical_key_parity.py` whose
 negative case is the 128-byte stack-buffer boundary (keys of length
 120/121/200/4096 differing only in their LAST byte, so a truncating
 implementation aliases two distinct nodes and fails).
+
+---
+
+## 2026-08-14 CrimsonBeaver — the view probes, attributed exactly at last: hash probe and tuple refcounts removed, and the surface still loses (`br-r37-c1-ey6ob`)
+
+ONE LINE: lever = remove the redundant `PyObject_Hash` from
+`NodeView::__contains__` (an EXACT `str` cannot fail to hash) and the tuple
+refcount round-trip from `EdgeView::__contains__`; hypothesis = both are
+per-probe overhead that proves nothing and is discarded; measured = **-126.4
+Ir/call (-22.3%)** and **-38.1 Ir/call (-3.7%)** against a **+0.5 Ir (+0.08%)**
+untouched control; disposition = LANDED, still **NOT a vs-nx win** — the
+surface remains 0.1952-0.3562x.
+
+THE INSTRUMENT IS THE TRANSFERABLE PART, and it retires the "no profiler on
+this host" blocker that sat on this bead for days. Whole-program callgrind is
+useless here: importing the 2.4 MB `python/franken_networkx/__init__.py` costs
+~3.3e9 instructions with ~4e7 of run-to-run jitter, so a 20,000-op loop is
+inside the noise and baseline subtraction returns NEGATIVE per-op counts (I got
+-2122 and -1619 Ir/op). Instead:
+
+    valgrind --tool=callgrind --collect-atstart=no \
+      --toggle-collect='*_fnx::views::NodeView*__pymethod___contains____*' \
+      python3 probe.py
+
+collects only inside that pymethod's dynamic extent. Import is excluded, the
+result is exact per-call Ir, and it is decidable at ANY host load — which on
+this box is the only kind of measurement that survives. Symbols are LOCAL
+(`nm -C <so> | grep __pymethod`); callgrind matches them anyway.
+
+THE ATTRIBUTION IT PRODUCED, `n in G.nodes()` at 568.0 Ir/call before:
+
+    21.90%  124 Ir  PyObject_Hash                 <- removed here
+    16.39%   93 Ir  IndexMap::get_index_of::<str> (the actual work)
+    16.05%   91 Ir  core::str::converts::from_utf8  <- br-r37-c1-afiq8
+    15.14%   86 Ir  NodeView::__pymethod___contains____ (self)
+    10.56%   60 Ir  write_canonical_str_key
+     6.69%   38 Ir  pyo3 extract_pyclass_ref
+     4.22%   24 Ir  PyUnicode_AsUTF8AndSize
+
+and `(u,v) in G.edges()` at 1040.2 Ir/call, which carries NO hash term and so
+is the cleaner corroboration for afiq8: `get_index_of` 17.90%, `from_utf8`
+17.53%, slot self 12.59%, `write_canonical_str_key` 11.54%,
+`canonical_node_key_in` 9.23%, edge-map probe 5.09%, `PyTuple_GetItem` 2.50%
+and `_Py_DecRef` 2.31% (the pair removed here).
+
+RESULT
+
+    op                    before    after    delta
+    n in G.nodes()         568.0    441.6   -126.4  (-22.3%)
+    (u,v) in G.edges()    1040.2   1002.1    -38.1   (-3.7%)
+    G.nodes[n]  CONTROL    603.3    603.8     +0.5   (+0.08%)
+
+-126.4 against a predicted 124 Ir `PyObject_Hash` term is a 2% match, i.e. a
+mechanism-level confirmation rather than a bare before/after.
+
+CAVEAT THAT BOUNDS THE ATTRIBUTION: the after-ELF also carries a peer's
+in-flight `edge_py_attrs_by_endpoint` lookaside, so the two arms differ by more
+than these two edits. `G.nodes[n]` is the control for exactly that — it shares
+the whole prefix (same pyclass, same `extract_pyclass_ref`, same graph borrow,
+same canonicalization, same IndexMap probe) and is not an edited slot — and it
+moved +0.08%. Neither edited slot touches the edge-attr cache.
+
+WHAT IS STILL TRUE, and it is the point: instruction counts are not time, there
+is no incumbent arm in this row, and the surface remains a decisive LOSS
+measured live against networkx 3.6.1 — `(u,v) in G.edges()` 0.3562x and
+`G.edges[u,v]` 0.1952x (see the 2026-08-14 entry above). Removing 22% of one
+probe's instructions does not approach closing that. The largest remaining
+identified item is `br-r37-c1-afiq8`, at 16.05% here and 17.53% on the edge
+probe, and it scales with endpoint count (91 -> 182 Ir) so every two-endpoint
+operation in the library pays it twice.
+
+NEGATIVE CASE THE TESTS PIN: `_RaisingHashStr`, a `str` SUBCLASS whose
+`__hash__` raises. The skip is gated on `is_exact_instance_of::<PyString>()`;
+widening it to `isinstance` would silently return a membership answer where nx
+raises. A normal `str` subclass is covered too, so the gate is pinned from both
+sides.
+
+RETRY PREDICATE: the acceptance test is the toggle-collect profile, exact at any
+load. Re-run it and require `PyObject_Hash` to be absent from the
+`n in G.nodes()` breakdown and the control to stay within +/-1%.
+
+### ADDENDUM, same day: the vs-nx rows on HEAD, and a 22.3% instruction cut that did NOT move the ratio
+
+MEASURED live against networkx 3.6.1 in the SAME invocation, balanced
+`ABBAABBA` square, dual A/A nulls, 41 rounds, 400 reps, N=2000/E=8000
+string-keyed simple Graph with node attrs, `taskset -c 40-47`, host
+thinkstation1, governor performance, runtime ISA avx2, observed affinity 8
+CPUs, observed OS threads 1, PYTHONHASHSEED=0, ELF SHA-256 self-reported from
+inside the process
+`e2a2f587eff95cd0c077bc7ee978e23b204a829a79458e26240b33cbf14b34bc`. Ratio =
+t_nx/t_fnx. Two consecutive draws, loadavg 14.1 -> 12.4:
+
+    row                  draw 1                       draw 2
+    G.edges[u,v]         0.2235x NULL-FAILED          0.2301x CI [0.2268,0.2336] ADMISSIBLE
+    n in G.nodes()       0.3202x NULL-FAILED          0.3227x CI [0.3107,0.3349] ADMISSIBLE
+    G.nodes.get(n)       0.3627x ADMISSIBLE           0.3779x CI [0.3649,0.3913] ADMISSIBLE
+    G.nodes[n]           1.5818x NULL-FAILED          1.6247x NULL-FAILED
+    (u,v) in G.edges()   0.3592x NULL-FAILED          0.3699x NULL-FAILED
+    CONTROL len(G)       0.4859x NULL-FAILED          0.5067x NULL-FAILED
+
+`G.edges[u,v]` at **0.2301x** is the admitted row and remains the worst read
+probe on this surface. Its nulls were 1.0200/1.0177 — 1.0200 sits exactly on
+the [0.98,1.02] bound, so it is admissible but MARGINAL and should be re-drawn
+on a quieter host before being published anywhere.
+
+AGAINST THIS MORNING'S 0.1952x CI [0.1904,0.1995] the row has improved and the
+CIs do not overlap, which is directionally consistent with the endpoint
+lookaside now in the tree (it removes the two owned Strings
+`materialize_edge_py_attrs` allocated per call purely to `entry()`-probe — the
+`br-r37-c1-ef8rt` diagnosis). It is a CROSS-INVOCATION comparison, so it is NOT
+published as a delta: an A/A null certifies stationarity WITHIN a run and says
+nothing about comparability ACROSS runs.
+
+THE FINDING THAT MATTERS MOST, and it is a caution against the instrument I
+championed two entries above: `n in G.nodes()` had **22.3% of its instructions
+removed** (568.0 -> 441.6 Ir/call, exact, mechanism-confirmed) and its vs-nx
+ratio did **not** improve. This morning's figure for that row was 0.3445x but
+NULL-FAILED, so there is no admissible before-row and no regression can be
+claimed either — what can be said is that a large, real, exactly-measured
+instruction reduction bought no visible vs-nx time. Ir is not time: a removed
+`PyObject_Hash` is many instructions but a well-predicted call over a cached
+string hash, so its cycle cost is far below its instruction share. Anyone using
+the toggle-collect profile to RANK levers should weight it accordingly — it
+attributes SHAPE reliably and magnitude only loosely.
+
+NO CEILING IS CLAIMED. The remaining named items on this surface are
+`br-r37-c1-afiq8` (from_utf8 re-validation, 16.05%/17.53%, scales with endpoint
+count) and `br-r37-c1-wzoa7` (SipHash mirror maps vs FxHash core, 6.48%).

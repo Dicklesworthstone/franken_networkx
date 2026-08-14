@@ -200,6 +200,42 @@ def test_unhashable_key_raises_typeerror_like_networkx():
     for graph in (ref, got):
         with pytest.raises(TypeError):
             [] in graph.nodes()
+        with pytest.raises(TypeError):
+            ("ok", []) in graph.nodes()
+
+
+class _RaisingHashStr(str):
+    """A `str` SUBCLASS whose `__hash__` raises, like an unhashable key."""
+
+    def __hash__(self):
+        raise TypeError("unhashable type: _RaisingHashStr")
+
+
+def test_str_subclass_with_raising_hash_still_raises():
+    """br-r37-c1-ey6ob: `NodeView.__contains__` skips the hash probe for EXACT
+    `str` only. If that check were widened to `isinstance`, a str subclass whose
+    `__hash__` raises would silently return a membership answer where nx raises
+    — so this is the negative case for the skip, not a redundant TypeError test.
+    """
+    ref, got = _both(lambda g: (g.add_edge("a", "b"), g)[1])
+    key = _RaisingHashStr("a")
+
+    for graph in (ref, got):
+        with pytest.raises(TypeError):
+            key in graph.nodes()
+
+    # And a plain exact str on the skip path still answers correctly.
+    assert ("a" in got.nodes()) is ("a" in ref.nodes()) is True
+    assert ("zz" in got.nodes()) is ("zz" in ref.nodes()) is False
+
+
+def test_str_subclass_with_normal_hash_behaves_like_str():
+    class PlainStr(str):
+        pass
+
+    ref, got = _both(lambda g: (g.add_edge("a", "b"), g)[1])
+    assert (PlainStr("a") in got.nodes()) is (PlainStr("a") in ref.nodes()) is True
+    assert (PlainStr("q") in got.nodes()) is (PlainStr("q") in ref.nodes()) is False
 
 
 # ---------------------------------------------------------------------------

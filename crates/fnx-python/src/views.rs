@@ -66,7 +66,21 @@ impl NodeView {
         // br-r37-c1-m7xek: keep NetworkX's unhashable-node TypeError inside
         // the native slot so ordinary Graph NodeView membership no longer
         // needs a Python hash+delegate wrapper on every present/missing probe.
-        n.hash()?;
+        //
+        // br-r37-c1-ey6ob: but an EXACT `str` cannot fail to hash, so for the
+        // dominant node-key type this call only proved something the type
+        // system already guarantees. It was the single largest item in the
+        // probe — `PyObject_Hash` at 21.90% of 568 Ir/call (callgrind,
+        // --toggle-collect on this pymethod so the module import is excluded).
+        // The result was discarded either way; nothing downstream reads it.
+        //
+        // EXACT type only. A `str` SUBCLASS may override `__hash__` and raise,
+        // and nx's `n in self._nodes` would call it, so subclasses keep the
+        // probe. Every non-str key keeps it too — that is where hashing
+        // genuinely fails (a list, or a tuple containing one).
+        if !n.is_exact_instance_of::<pyo3::types::PyString>() {
+            n.hash()?;
+        }
         // br-r37-c1-ey6ob: probe with the BORROWED canonical key. This is a
         // read-only membership test, so the owned `String` that
         // `node_key_to_string` returns existed only to be hashed and dropped —
@@ -566,8 +580,14 @@ impl EdgeView {
         // endpoint canonicals are borrowed out of stack buffers instead of being
         // heap-allocated to be hashed once and dropped — two mallocs per probe.
         // Same two-buffer shape as `_fnx_edge_attr_dict_get` (lib.rs).
-        let u_item = tuple.get_item(0)?;
-        let v_item = tuple.get_item(1)?;
+        // br-r37-c1-ey6ob: BORROWED tuple items. `get_item` hands back an owned
+        // `Bound`, so each endpoint cost an incref on the way in and a decref on
+        // the way out — `_Py_DecRef` and `PyTuple_GetItem` together are 4.81% of
+        // this probe's 1040 Ir (callgrind, --toggle-collect on this pymethod).
+        // The endpoints are only read, and the tuple outlives both borrows, so
+        // the refcount round-trip bought nothing.
+        let u_item = tuple.get_borrowed_item(0)?;
+        let v_item = tuple.get_borrowed_item(1)?;
         let mut u_buf = [0u8; crate::CANONICAL_KEY_STACK_BUF];
         let mut v_buf = [0u8; crate::CANONICAL_KEY_STACK_BUF];
         let u = crate::canonical_node_key_in(py, &u_item, &mut u_buf)?;
