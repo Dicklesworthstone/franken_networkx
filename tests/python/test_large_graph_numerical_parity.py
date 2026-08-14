@@ -368,6 +368,23 @@ def test_maximum_spanning_tree_is_invariant_under_positive_weight_scaling():
         data["weight"] for _, _, data in original.edges(data=True)
     )
 
+
+def test_spanning_edges_are_invariant_under_positive_weight_scaling():
+    graph = fnx.Graph()
+    graph.add_weighted_edges_from(
+        [(0, 1, 4), (1, 2, 1), (2, 3, 3), (0, 3, 2), (0, 2, 5)]
+    )
+    scaled = fnx.Graph()
+    scaled.add_weighted_edges_from(
+        [(u, v, 11 * weight) for u, v, weight in graph.edges(data="weight")]
+    )
+    for builder in (fnx.minimum_spanning_edges, fnx.maximum_spanning_edges):
+        original = list(builder(graph, data=False, weight="weight"))
+        moved = list(builder(scaled, data=False, weight="weight"))
+        assert {frozenset(edge) for edge in original} == {
+            frozenset(edge) for edge in moved
+        }
+
     directed = fnx.DiGraph()
     directed.add_edges_from([(0, 1), (1, 3), (0, 2), (2, 3), (1, 2)])
     directed_mapping = {node: f"directed-path-{node}" for node in directed}
