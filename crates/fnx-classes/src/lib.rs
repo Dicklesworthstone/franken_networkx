@@ -1146,11 +1146,14 @@ impl Graph {
     }
 
     /// br-r37-c1-wa1b9: every storage effect of [`Self::add_node_with_attrs`]
-    /// and none of its ledger record. Returns `(changed, existed, attrs_count)`
-    /// so the caller can file the record itself if it is a user-visible
-    /// `add_node`. Extracted rather than reimplemented so the recorded and
-    /// unrecorded paths cannot drift: node insertion ORDER, the adjacency
-    /// extension and the revision bump are literally the same code.
+    /// and none of its ledger record. Returns `(changed, existed, attrs_count,
+    /// inserted_index)` so the caller can file the record itself if it is a
+    /// user-visible `add_node`. `inserted_index` is present only for a newly
+    /// inserted node, allowing an autocreating caller to reuse the `IndexMap`
+    /// index it already paid to assign. Extracted rather than reimplemented so
+    /// the recorded and unrecorded paths cannot drift: node insertion ORDER,
+    /// the adjacency extension and the revision bump are literally the same
+    /// code.
     /// br-r37-c1-jc9e4: the key is materialised only on the VACANT path.
     ///
     /// This used to open with `let node = node.into();`, so a `&str` caller
@@ -1169,16 +1172,30 @@ impl Graph {
         &mut self,
         node: impl AsRef<str> + Into<String>,
         attrs: AttrMap,
-    ) -> (bool, bool, usize) {
+    ) -> (bool, bool, usize, Option<usize>) {
         let existed = self.nodes.contains_key(node.as_ref());
         let mut changed = !existed;
-        let attrs_count = {
-            let bucket = if existed {
-                self.nodes
-                    .get_mut(node.as_ref())
-                    .expect("contains_key reported this node present")
+        let (attrs_count, inserted_index) = {
+            let (bucket, inserted_index) = if existed {
+                (
+                    self.nodes
+                        .get_mut(node.as_ref())
+                        .expect("contains_key reported this node present"),
+                    None,
+                )
             } else {
-                self.nodes.entry(node.into()).or_default()
+                // `insert_full` exposes the just-assigned stable insertion
+                // index. `get_index_mut` then obtains the same fresh bucket
+                // without hashing the String a second time.
+                let (index, previous) = self.nodes.insert_full(node.into(), AttrMap::new());
+                debug_assert!(previous.is_none(), "vacant node unexpectedly replaced");
+                (
+                    self.nodes
+                        .get_index_mut(index)
+                        .expect("inserted node must have its assigned index")
+                        .1,
+                    Some(index),
+                )
             };
             if !attrs.is_empty()
                 && attrs
@@ -1188,7 +1205,7 @@ impl Graph {
                 changed = true;
             }
             bucket.extend(attrs);
-            bucket.len()
+            (bucket.len(), inserted_index)
         };
         // Extend integer adjacency list for new nodes
         if !existed {
@@ -1197,7 +1214,7 @@ impl Graph {
         if changed {
             self.revision = self.revision.saturating_add(1);
         }
-        (changed, existed, attrs_count)
+        (changed, existed, attrs_count, inserted_index)
     }
 
     pub fn add_node_with_attrs(
@@ -1205,7 +1222,7 @@ impl Graph {
         node: impl AsRef<str> + Into<String>,
         attrs: AttrMap,
     ) -> bool {
-        let (changed, existed, attrs_count) = self.add_node_with_attrs_unrecorded(node, attrs);
+        let (changed, existed, attrs_count, _) = self.add_node_with_attrs_unrecorded(node, attrs);
         self.record_decision(
             "add_node",
             0.0,
@@ -1819,9 +1836,13 @@ impl Graph {
         let left_key_idx = match self.nodes.get_index_of(left) {
             Some(index) => index,
             None => {
-                let _ = self.add_node_with_attrs_unrecorded(left, AttrMap::new());
+                let (_, _, _, Some(index)) =
+                    self.add_node_with_attrs_unrecorded(left, AttrMap::new())
+                else {
+                    unreachable!("autocreation must insert its missing left endpoint");
+                };
                 left_autocreated = true;
-                self.nodes.get_index_of(left).expect("autocreated above")
+                index
             }
         };
         let mut right_autocreated = false;
@@ -1832,9 +1853,13 @@ impl Graph {
             match self.nodes.get_index_of(right) {
                 Some(index) => index,
                 None => {
-                    let _ = self.add_node_with_attrs_unrecorded(right, AttrMap::new());
+                    let (_, _, _, Some(index)) =
+                        self.add_node_with_attrs_unrecorded(right, AttrMap::new())
+                    else {
+                        unreachable!("autocreation must insert its missing right endpoint");
+                    };
                     right_autocreated = true;
-                    self.nodes.get_index_of(right).expect("autocreated above")
+                    index
                 }
             }
         };
