@@ -9669,3 +9669,114 @@ WHAT THIS SAYS ABOUT THE TABLE, which is the reason to bank it: every drifted ro
 favour. The README understates current performance rather than overstating it, and the two rows most
 likely to be quoted against us — a `0.38x` generator and a `0.79x` membership test — are both wins.
 That matches the standing finding that this table is STALE rather than inflated.
+
+---
+
+## 2026-08-14 CrimsonBeaver — view read probes: borrowed canonical key removes allocations but does NOT close the loss (`br-r37-c1-ey6ob`)
+
+ONE LINE: lever = replace the owned `node_key_to_string` canonical with the
+borrowed stack-buffer probe (`with_node_key_str` / `canonical_node_key_in`,
+`br-r37-c1-oe93x`) on every read-only probe in `crates/fnx-python/src/views.rs`;
+hypothesis = the per-probe malloc/free is a meaningful share of the ~204 ns
+native call this bead isolated; measured = allocations provably removed
+(**-1.516/op** on `n in G.nodes()`, **-3.015/op** on `(u,v) in G.edges()`,
+control **-0.016/op**), timing **NO-VERDICT** (every row null-failed), vs-nx
+**still a decisive loss**; disposition = LANDED (`b3020c27f`) as a provable
+removal of redundant work with **no perf claim attached**, because the
+allocation was not the dominant term.
+
+WHY THIS IS IN `_cc` AND NOT `NEGATIVE_EVIDENCE.md`: the pre-commit ledger gate
+rejects any commit that touches `NEGATIVE_EVIDENCE.md`, on a **pre-existing**
+row — `2026-07-26 CloudyTurtle ADMISSION REJECT (Graph scalar
+EdgeView.__getitem__ C-slot cutover)` at line 34642 — which it reads as
+carrying neither a same-invocation A/A null nor a counted mechanism. That row
+is not mine and fabricating a null for it would be worse than moving my entry.
+Flagging it because it silently blocks the legacy ledger for everyone.
+
+INSTRUMENT, and Ir is the WRONG one — recorded so nobody repeats it. Importing
+the 2.4 MB `python/franken_networkx/__init__.py` costs ~3.3e9 instructions with
+~4e7 of run-to-run jitter, as large as the entire 20,000-op loop; the baseline
+subtraction produced NEGATIVE per-op counts. Exact heap-allocation counts under
+`valgrind --tool=memcheck`, same op and same REPS across the two ELFs so the
+constant import allocations cancel, decided it immediately. ELF before
+`50f3d58db3a3edc8`, after `d15815d45ff22096`, REPS=20000, PYTHONHASHSEED=0.
+
+    op               before      after      delta   per-op
+    baseline        155,914    155,594       -320   -0.016   <- control
+    contains_node   110,505     80,185    -30,320   -1.516
+    getitem_node     85,382     82,126     -3,256   -0.163
+    contains_edge   140,495     80,185    -60,310   -3.015
+    getitem_edge    120,505    120,185       -320   -0.016   <- no change
+
+THE TWO SUBSCRIPT ROWS DID NOT MOVE, and the reason is the carryable finding:
+keys were drawn from a 2000-node graph over 20,000 probes, so each key repeats
+~10x and `NodeLookupCache` serves ~9 of 10 `G.nodes[n]` calls before reaching
+canonicalization at all. A cache in front of the subject makes a real lever
+read as inert. Measure the membership probes, which have no such cache, or
+defeat the cache deliberately.
+
+TIMING IS NO-VERDICT, NOT A WIN. Before/after ELF A/B, fresh process per slot,
+balanced `ABBAABBA` square, 15 rounds, taskset -c 40-47, host thinkstation1,
+governor performance, runtime ISA avx2, loadavg 13.1 -> 24.0:
+
+    op                before ns   after ns    ratio     CI95            nulls
+    contains_node         387.4      356.6   1.1137  [1.0183,1.1225]  0.9744/0.9701  NULL-FAILED
+    contains_edge         673.4      600.4   1.1741  [1.0928,1.2379]  1.0126/1.0224  NULL-FAILED
+    getitem_edge         1328.6     1320.2   0.9965  [0.9239,1.1104]  1.0943/1.0425  NULL-FAILED
+    CONTROL len(G)        229.2      218.7   1.0481  [0.9868,1.0798]  1.0399/1.0115  NULL-FAILED
+
+Every row failed its A/A null and the untouched `len(G)` control itself moved
+4.81% — the same order as the apparent effects — so no ratio here is quotable
+in either direction. Direction is consistent with the allocation census; that
+is context, not a claim.
+
+WHAT THIS SURFACE STILL LOSES, live networkx 3.6.1 in the SAME invocation
+(balanced square, 31 rounds, 400 reps, N=2000/E=8000 string-keyed simple Graph
+with node attrs, taskset -c 40-47, loadavg 11.0, ELF `d15815d45ff22096`,
+ratio = t_nx/t_fnx so >1 is fnx faster):
+
+    n in G.nodes()       0.3445x  CI [0.3286,0.3696]  nulls 0.9440/1.0086  NULL-FAILED
+    G.nodes[n]           1.6772x  CI [1.6182,1.7092]  nulls 0.9929/0.9875  ADMISSIBLE
+    G.nodes.get(n)       0.3789x  CI [0.3656,0.3865]  nulls 0.9886/0.9985  ADMISSIBLE
+    (u,v) in G.edges()   0.3562x  CI [0.3468,0.3665]  nulls 0.9858/1.0141  ADMISSIBLE
+    G.edges[u,v]         0.1952x  CI [0.1904,0.1995]  nulls 1.0166/1.0014  ADMISSIBLE
+    CONTROL len(G)       0.4999x  CI [0.4969,0.5047]  nulls 1.0457/1.0128  NULL-FAILED
+
+`G.nodes[n]` is a WIN at 1.6772x, which REFUTES `br-r37-c1-ts80b`'s recorded
+0.298x in magnitude and in SIGN — same stale-headline shape as jc9e4's
+0.46-0.50x re-measuring at 0.8990x. `G.edges[u,v]` at 0.1952x is now the worst
+measured read probe on this surface, worse than the `G[u][v]` row this bead was
+filed for, and is filed as `br-r37-c1-ef8rt`. Removing one to three allocations
+per probe does not approach closing any of them; the remainder is not
+allocation.
+
+FIVE OF THE TEN EDITED SLOTS ARE UNREACHABLE, verified not assumed. Sweeping
+`.nodes .edges .degree .adj G[u] .adj[u] .succ .pred .in_degree .out_degree`
+and the subgraph views across all four graph classes, comparing `type(obj)` and
+the full `__mro__` against the native class object:
+
+    native NodeView       reached ONLY from Graph.nodes
+    native EdgeView       reached ONLY from Graph.edges
+    native DegreeView     NOT REACHED  (G.degree -> Python _GraphDegreeView)
+    native AdjacencyView  NOT REACHED  (Python AdjacencyView, native not in MRO)
+    native AtlasView      NOT REACHED  (Python AtlasView,    native not in MRO)
+
+The Python classes shadow them outright and are NOT subclasses, so there is no
+MRO fallthrough. This confirms SunnyTern's AtlasView finding and extends it to
+`DegreeView`/`AdjacencyView`, and it also means DiGraph/MultiGraph/MultiDiGraph
+do not use the native NodeView/EdgeView at all. The three inert edits are kept
+because they are exactly the classes this bead's C-slot routing plan would make
+live, but NOTHING on them counts as shipped until routing reaches them.
+
+RETRY PREDICATE: do not re-run the timing square for this lever on a host above
+one-minute load 2. The allocation census is the acceptance test and is exact at
+any load: re-run it and require `contains_node` and `contains_edge` to stay
+negative against a `baseline` control within +/-0.05.
+
+QUALITY / CLOSEOUT: `cargo check --all-targets` and `cargo clippy --all-targets
+-- -D warnings` clean on rch remote ovh-a, `cargo fmt --check` clean, `ubs`
+exit 0 (0 critical), full Python suite **55097 passed / 0 failed**, 33 new
+parity cases in `tests/python/test_view_borrowed_canonical_key_parity.py` whose
+negative case is the 128-byte stack-buffer boundary (keys of length
+120/121/200/4096 differing only in their LAST byte, so a truncating
+implementation aliases two distinct nodes and fails).
