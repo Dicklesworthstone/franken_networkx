@@ -31,6 +31,15 @@ def _maxdiff(fd, nd):
     return max(abs(fd[k] - nd[k]) for k in fd)
 
 
+def _float_hex_differences(actual, expected):
+    """Return only the bit-level map differences for a relabeling failure."""
+    return {
+        node: (actual[node].hex(), expected[node].hex())
+        for node in expected
+        if actual[node] != expected[node]
+    }
+
+
 @pytest.mark.parametrize("seed", range(10))
 def test_large_graph_centrality_precision(seed):
     fg, ng, n = _identical_large(seed)
@@ -99,7 +108,13 @@ def test_node_metric_maps_are_equivariant_under_relabeling():
         assert set(moved) == {mapping[node] for node in original}
         expected = {mapping[node]: value for node, value in original.items()}
         assert moved.keys() == expected.keys()
-        assert all(math.isclose(moved[node], value, rel_tol=1e-15) for node, value in expected.items())
+        assert all(
+            math.isclose(moved[node], value, rel_tol=1e-15)
+            for node, value in expected.items()
+        ), (
+            f"{metric.__name__} relabeling drift: "
+            f"{_float_hex_differences(moved, expected)}"
+        )
 
 
 def test_edge_betweenness_map_is_equivariant_under_relabeling():
@@ -215,6 +230,26 @@ def test_all_simple_edge_paths_are_equivariant_under_relabeling():
         tuple((mapping[u], mapping[v]) for u, v in path) for path in original
     }
     assert moved == expected
+
+
+def test_path_predicates_are_invariant_under_relabeling():
+    graph = fnx.Graph([(0, 1), (1, 2), (2, 3)])
+    mapping = {node: f"predicate-{node}" for node in graph}
+    relabeled = fnx.relabel_nodes(graph, mapping)
+    assert fnx.has_path(graph, 0, 3) == fnx.has_path(relabeled, mapping[0], mapping[3])
+    for path in ([0, 1, 2, 3], [0, 1, 0], [0, 2, 3]):
+        moved = [mapping[node] for node in path if node in mapping]
+        assert fnx.is_simple_path(graph, path) == fnx.is_simple_path(relabeled, moved)
+
+    directed = fnx.DiGraph([(0, 1), (1, 2), (2, 3)])
+    directed_mapping = {node: f"directed-predicate-{node}" for node in directed}
+    directed_relabeled = fnx.relabel_nodes(directed, directed_mapping)
+    assert fnx.has_path(directed, 0, 3) == fnx.has_path(
+        directed_relabeled, directed_mapping[0], directed_mapping[3]
+    )
+    assert fnx.is_simple_path(directed, [0, 1, 2, 3]) == fnx.is_simple_path(
+        directed_relabeled, [directed_mapping[node] for node in [0, 1, 2, 3]]
+    )
 
     directed = fnx.DiGraph()
     directed.add_edges_from([(0, 1), (1, 3), (0, 2), (2, 3), (1, 2)])
