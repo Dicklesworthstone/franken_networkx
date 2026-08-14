@@ -418,6 +418,22 @@ def test_maximum_tree_matches_minimum_tree_on_negated_weights():
         frozenset(edge) for edge in minimum.edges()
     }
 
+
+def test_maximum_edges_match_minimum_edges_on_negated_weights():
+    graph = fnx.Graph()
+    graph.add_weighted_edges_from(
+        [(0, 1, 4), (1, 2, 1), (2, 3, 3), (0, 3, 2), (0, 2, 5)]
+    )
+    negated = fnx.Graph()
+    negated.add_weighted_edges_from(
+        [(u, v, -weight) for u, v, weight in graph.edges(data="weight")]
+    )
+    maximum = list(fnx.maximum_spanning_edges(graph, data=False, weight="weight"))
+    minimum = list(fnx.minimum_spanning_edges(negated, data=False, weight="weight"))
+    assert {frozenset(edge) for edge in maximum} == {
+        frozenset(edge) for edge in minimum
+    }
+
     directed = fnx.DiGraph()
     directed.add_edges_from([(0, 1), (1, 3), (0, 2), (2, 3), (1, 2)])
     directed_mapping = {node: f"directed-path-{node}" for node in directed}
