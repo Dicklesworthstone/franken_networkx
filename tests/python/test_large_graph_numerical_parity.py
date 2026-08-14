@@ -307,6 +307,30 @@ def test_all_pairs_distance_maps_are_equivariant_under_relabeling():
         source: dict(distances) for source, distances in moved.items()
     }
 
+
+def test_spanning_tree_outputs_are_equivariant_under_relabeling():
+    graph = fnx.Graph()
+    graph.add_edge(0, 1, weight=4)
+    graph.add_edge(1, 2, weight=1)
+    graph.add_edge(2, 3, weight=3)
+    graph.add_edge(0, 3, weight=2)
+    graph.add_edge(0, 2, weight=5)
+    mapping = {node: f"tree-{node}" for node in graph}
+    relabeled = fnx.relabel_nodes(graph, mapping)
+
+    def edge_weights(tree):
+        return {
+            frozenset((mapping[u], mapping[v])): data["weight"]
+            for u, v, data in tree.edges(data=True)
+        }
+
+    for builder in (fnx.minimum_spanning_tree, fnx.maximum_spanning_tree):
+        original = builder(graph, weight="weight")
+        moved = builder(relabeled, weight="weight")
+        assert edge_weights(original) == {
+            frozenset((u, v)): data["weight"] for u, v, data in moved.edges(data=True)
+        }
+
     directed = fnx.DiGraph()
     directed.add_edges_from([(0, 1), (1, 3), (0, 2), (2, 3), (1, 2)])
     directed_mapping = {node: f"directed-path-{node}" for node in directed}
