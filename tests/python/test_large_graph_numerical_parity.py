@@ -199,6 +199,23 @@ def test_all_simple_paths_are_equivariant_under_relabeling():
     expected = {tuple(mapping[node] for node in path) for path in original}
     assert moved == expected
 
+
+def test_all_simple_edge_paths_are_equivariant_under_relabeling():
+    graph = fnx.Graph([(0, 1), (1, 3), (0, 2), (2, 3), (1, 2)])
+    mapping = {node: f"edge-path-{node}" for node in graph}
+    relabeled = fnx.relabel_nodes(graph, mapping)
+    original = {
+        tuple(path) for path in fnx.all_simple_edge_paths(graph, 0, 3)
+    }
+    moved = {
+        tuple(path)
+        for path in fnx.all_simple_edge_paths(relabeled, mapping[0], mapping[3])
+    }
+    expected = {
+        tuple((mapping[u], mapping[v]) for u, v in path) for path in original
+    }
+    assert moved == expected
+
     directed = fnx.DiGraph()
     directed.add_edges_from([(0, 1), (1, 3), (0, 2), (2, 3), (1, 2)])
     directed_mapping = {node: f"directed-path-{node}" for node in directed}
