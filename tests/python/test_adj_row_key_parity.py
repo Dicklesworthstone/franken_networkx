@@ -410,3 +410,12 @@ def test_multidigraph_uniform_unchanged():
         for i in range(80):
             g.add_edge(i % 20, (i * 3) % 20)
     assert _canon_md(b) == _canon_md(a)
+
+
+def test_string_edge_insertion_does_not_reenter_canonical_scratch():
+    graph = fnx.Graph()
+    nodes = [f"n{i}" for i in range(2000)]
+    graph.add_nodes_from((node, {"color": "r"}) for node in nodes)
+    assert graph.has_edge(nodes[0], nodes[1]) is False
+    graph.add_edge(nodes[0], nodes[1])
+    assert graph.has_edge(nodes[0], nodes[1]) is True
