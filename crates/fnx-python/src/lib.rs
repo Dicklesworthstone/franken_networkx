@@ -253,9 +253,21 @@ fn with_node_key_str<R>(
 ) -> PyResult<R> {
     if let Ok(s) = key.downcast::<PyString>() {
         let s = s.to_str()?;
-        let mut buf = [0u8; CANONICAL_KEY_STACK_BUF];
-        if let Some(canonical) = write_canonical_str_key(&mut buf, s) {
-            return Ok(f(canonical));
+        thread_local! {
+            static CANONICAL_STRING: std::cell::RefCell<String> =
+                std::cell::RefCell::new(String::with_capacity(CANONICAL_KEY_STACK_BUF));
+        }
+        let needed = 4 + decimal_width(s.len()) + 1 + s.len();
+        if needed <= CANONICAL_KEY_STACK_BUF {
+            return CANONICAL_STRING.with(|scratch| {
+                let mut scratch = scratch.borrow_mut();
+                scratch.clear();
+                scratch.push_str("str:");
+                scratch.push_str(&s.len().to_string());
+                scratch.push(':');
+                scratch.push_str(s);
+                Ok(f(scratch.as_str()))
+            });
         }
     }
     let canonical = node_key_to_string(py, key)?;
@@ -17349,6 +17361,17 @@ class FnxMultiGraphCtorEdgeIterable:
                 ),
             }
         }
+    }
+
+    #[test]
+    fn read_only_canonical_string_scratch_preserves_bytes() {
+        ensure_python();
+        Python::attach(|py| {
+            let key = PyString::new(py, "hello");
+            let observed = with_node_key_str(py, key.as_any(), |canonical| canonical.to_owned())
+                .expect("short Python strings should canonicalize");
+            assert_eq!(observed, "str:5:hello");
+        });
     }
 
     #[test]
