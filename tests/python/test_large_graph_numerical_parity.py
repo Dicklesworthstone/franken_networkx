@@ -503,6 +503,13 @@ def test_graphical_degree_sequence_complement_is_invariant():
     assert fnx.is_graphical(sequence)
     assert fnx.is_graphical(complement_sequence)
 
+
+def test_graphicality_is_preserved_by_degree_sequence_complement():
+    for sequence in ([0, 0, 0, 0], [1, 1, 1, 1], [3, 3, 2, 2, 2, 2]):
+        n = len(sequence)
+        complement = sorted((n - 1) - degree for degree in sequence)
+        assert fnx.is_graphical(sequence) == fnx.is_graphical(complement)
+
     directed = fnx.DiGraph()
     directed.add_edges_from([(0, 1), (1, 3), (0, 2), (2, 3), (1, 2)])
     directed_mapping = {node: f"directed-path-{node}" for node in directed}
