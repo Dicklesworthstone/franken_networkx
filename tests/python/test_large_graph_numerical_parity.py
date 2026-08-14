@@ -270,6 +270,43 @@ def test_single_source_distance_maps_are_equivariant_under_relabeling():
     )
     assert {mapping[node]: value for node, value in original_weighted.items()} == moved_weighted
 
+
+def test_all_pairs_distance_maps_are_equivariant_under_relabeling():
+    graph = fnx.Graph()
+    graph.add_edges_from([(0, 1), (1, 2), (2, 3), (0, 3)])
+    mapping = {node: f"all-distance-{node}" for node in graph}
+    relabeled = fnx.relabel_nodes(graph, mapping)
+
+    def remap(distance_maps):
+        return {
+            mapping[source]: {mapping[target]: distance for target, distance in distances.items()}
+            for source, distances in distance_maps.items()
+        }
+
+    original = fnx.all_pairs_shortest_path_length(graph)
+    moved = fnx.all_pairs_shortest_path_length(relabeled)
+    assert remap(dict(original)) == dict(moved)
+
+    weighted = fnx.Graph()
+    weighted.add_edge(0, 1, weight=2)
+    weighted.add_edge(1, 2, weight=3)
+    weighted.add_edge(0, 2, weight=10)
+    weighted_mapping = {node: f"weighted-distance-{node}" for node in weighted}
+    weighted_relabeled = fnx.relabel_nodes(weighted, weighted_mapping)
+    original = dict(fnx.all_pairs_dijkstra_path_length(weighted, weight="weight"))
+    moved = dict(
+        fnx.all_pairs_dijkstra_path_length(weighted_relabeled, weight="weight")
+    )
+    expected = {
+        weighted_mapping[source]: {
+            weighted_mapping[target]: distance for target, distance in distances.items()
+        }
+        for source, distances in original.items()
+    }
+    assert expected == {
+        source: dict(distances) for source, distances in moved.items()
+    }
+
     directed = fnx.DiGraph()
     directed.add_edges_from([(0, 1), (1, 3), (0, 2), (2, 3), (1, 2)])
     directed_mapping = {node: f"directed-path-{node}" for node in directed}
