@@ -8,8 +8,8 @@
 use crate::algorithms::{GraphRef, extract_graph};
 use crate::digraph::PyDiGraph;
 use crate::{
-    DictOfDictsCache, PyGraph, PyMultiGraph, PyObject, PythonAllowThreadsExt, attr_map_to_pydict,
-    cgse_value_to_py, node_key_to_string, py_dict_to_attr_map,
+    DictOfDictsCache, PyGraph, PyMultiGraph, PyNodeKeyMap, PyObject, PythonAllowThreadsExt,
+    attr_map_to_pydict, cgse_value_to_py, node_key_to_string, py_dict_to_attr_map,
 };
 use fnx_classes::Graph as RustGraph;
 use fnx_classes::MultiGraph as RustMultiGraph;
@@ -103,7 +103,7 @@ fn report_to_pygraph(py: Python<'_>, report: ReadWriteReport) -> PyResult<PyGrap
     let g = report.graph;
     let mut inner = RustGraph::new(g.mode());
     let mut raw_to_canonical = HashMap::new();
-    let mut node_key_map = HashMap::new();
+    let mut node_key_map: PyNodeKeyMap<String, PyObject> = PyNodeKeyMap::default();
     let mut node_py_attrs = HashMap::new();
     for node_id in g.nodes_ordered() {
         let py_key = node_id.to_owned().into_pyobject(py)?.into_any().unbind();
@@ -731,7 +731,7 @@ fn canon_token<'a>(
     token: &'a str,
     cache: &mut HashMap<&'a str, String>,
     nodes_order: &mut Vec<String>,
-    node_key_map: &mut HashMap<String, PyObject>,
+    node_key_map: &mut PyNodeKeyMap<String, PyObject>,
     node_py_attrs: &mut HashMap<String, Py<PyDict>>,
 ) -> String {
     if let Some(c) = cache.get(token) {
@@ -753,7 +753,7 @@ fn read_adjlist_simple(py: Python<'_>, path: &str) -> PyResult<Option<PyGraph>> 
     };
 
     let mut inner = RustGraph::new(CompatibilityMode::Strict);
-    let mut node_key_map: HashMap<String, PyObject> = HashMap::new();
+    let mut node_key_map: PyNodeKeyMap<String, PyObject> = PyNodeKeyMap::default();
     let mut node_py_attrs: HashMap<String, Py<PyDict>> = HashMap::new();
     let edge_py_attrs: HashMap<(String, String), Py<PyDict>> = HashMap::new();
     let mut nodes_order: Vec<String> = Vec::new();
@@ -1083,7 +1083,8 @@ fn parse_edgelist_simple_content(
     // One canonical key, one Python str, and one attr dict per DISTINCT node.
     // The string-keyed scan this replaces built a canonical key per edge
     // ENDPOINT, i.e. 2|E| heap allocations where |V| are needed.
-    let mut node_key_map: HashMap<String, PyObject> = HashMap::with_capacity(token_order.len());
+    let mut node_key_map: PyNodeKeyMap<String, PyObject> =
+        PyNodeKeyMap::with_capacity_and_hasher(token_order.len(), rustc_hash::FxBuildHasher);
     let mut node_py_attrs: HashMap<String, Py<PyDict>> = HashMap::with_capacity(token_order.len());
     let mut nodes_order: Vec<String> = Vec::with_capacity(token_order.len());
     for &token in &token_order {

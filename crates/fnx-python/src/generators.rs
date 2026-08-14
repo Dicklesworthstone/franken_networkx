@@ -4,7 +4,7 @@
 //! Node labels are Python integers (0, 1, 2, ...) matching NetworkX convention.
 
 use crate::digraph::{PyDiGraph, PyMultiDiGraph};
-use crate::{PyGraph, PyObject, unwrap_infallible};
+use crate::{PyGraph, PyNodeKeyMap, PyObject, unwrap_infallible};
 use fnx_algorithms::stochastic_block_model as rust_stochastic_block_model;
 use fnx_generators::GraphGenerator;
 use fnx_runtime::CompatibilityMode;
@@ -21,7 +21,7 @@ const MAX_NATIVE_RARY_N: usize = 100_000;
 /// Converts string node keys ("0", "1", ...) to Python int keys so that
 /// `G.nodes()` yields `[0, 1, 2, ...]` matching NetworkX.
 fn report_to_pygraph(py: Python<'_>, graph: fnx_classes::Graph) -> PyResult<PyGraph> {
-    let mut node_key_map: HashMap<String, PyObject> = HashMap::new();
+    let mut node_key_map: PyNodeKeyMap<String, PyObject> = PyNodeKeyMap::default();
 
     // Map string keys to Python int keys.
     for canonical in graph.nodes_ordered() {
@@ -231,7 +231,8 @@ pub fn circular_ladder_graph_native(py: Python<'_>, n: usize) -> PyResult<PyGrap
 #[pyfunction]
 pub fn grid_2d_graph_simple(py: Python<'_>, m: usize, n: usize) -> PyResult<PyGraph> {
     let graph = fnx_classes::Graph::grid_2d(CompatibilityMode::Strict, m, n);
-    let mut node_key_map: HashMap<String, PyObject> = HashMap::with_capacity(m * n);
+    let mut node_key_map: PyNodeKeyMap<String, PyObject> =
+        PyNodeKeyMap::with_capacity_and_hasher(m * n, rustc_hash::FxBuildHasher);
     for i in 0..m {
         for j in 0..n {
             let tuple = pyo3::types::PyTuple::new(py, [i, j])?;
@@ -270,7 +271,8 @@ fn tuple_lattice_pygraph(
     max_j: usize,
     position: impl Fn(usize, usize) -> Option<(f64, f64)>,
 ) -> PyResult<PyGraph> {
-    let mut node_key_map: HashMap<String, PyObject> = HashMap::with_capacity(graph.node_count());
+    let mut node_key_map: PyNodeKeyMap<String, PyObject> =
+        PyNodeKeyMap::with_capacity_and_hasher(graph.node_count(), rustc_hash::FxBuildHasher);
     let mut node_py_attrs: HashMap<String, Py<PyDict>> = HashMap::new();
     for i in 0..=max_i {
         for j in 0..=max_j {
@@ -427,7 +429,8 @@ pub fn grid_graph_native(
     let graph = fnx_classes::Graph::grid_nd(CompatibilityMode::Strict, &dimensions, &periodic)
         .map_err(|e| PyValueError::new_err(e.to_string()))?;
     let output_sizes = dimensions.iter().rev().copied().collect::<Vec<usize>>();
-    let mut node_key_map: HashMap<String, PyObject> = HashMap::with_capacity(graph.node_count());
+    let mut node_key_map: PyNodeKeyMap<String, PyObject> =
+        PyNodeKeyMap::with_capacity_and_hasher(graph.node_count(), rustc_hash::FxBuildHasher);
 
     fn coords_from_index(mut index: usize, sizes: &[usize]) -> Vec<usize> {
         let mut coords = vec![0; sizes.len()];
@@ -499,7 +502,8 @@ pub fn grid_graph_native(
 #[pyfunction]
 pub fn kneser_graph_native(py: Python<'_>, n: usize, k: usize) -> PyResult<PyGraph> {
     let graph = fnx_classes::Graph::kneser(CompatibilityMode::Strict, n, k);
-    let mut node_key_map: HashMap<String, PyObject> = HashMap::with_capacity(graph.node_count());
+    let mut node_key_map: PyNodeKeyMap<String, PyObject> =
+        PyNodeKeyMap::with_capacity_and_hasher(graph.node_count(), rustc_hash::FxBuildHasher);
     // enumerate k-subsets in lex order, mirroring the kernel's canonicals
     if k <= n {
         let mut cur: Vec<usize> = (0..k).collect();
@@ -601,7 +605,7 @@ pub fn caveman_graph_native(py: Python<'_>, l: usize, k: usize) -> PyResult<PyGr
 
     Ok(PyGraph {
         inner: graph,
-        node_key_map: HashMap::new(),
+        node_key_map: PyNodeKeyMap::default(),
         lazy_int_node_stop,
         node_py_attrs: HashMap::new(),
         edge_py_attrs: HashMap::new(),
@@ -664,7 +668,7 @@ pub fn full_rary_tree_native(py: Python<'_>, r: usize, n: usize) -> PyResult<PyG
 
     Ok(PyGraph {
         inner: graph,
-        node_key_map: HashMap::new(),
+        node_key_map: PyNodeKeyMap::default(),
         lazy_int_node_stop,
         node_py_attrs: HashMap::new(),
         edge_py_attrs: HashMap::new(),
@@ -888,7 +892,7 @@ pub fn random_lobster_graph_lazy_int(
 
     Ok(PyGraph {
         inner: graph,
-        node_key_map: HashMap::new(),
+        node_key_map: PyNodeKeyMap::default(),
         lazy_int_node_stop,
         node_py_attrs: HashMap::new(),
         edge_py_attrs: HashMap::new(),
@@ -982,7 +986,7 @@ pub fn random_regular_graph_pyset_order(
 
     Ok(PyGraph {
         inner: graph,
-        node_key_map: HashMap::new(),
+        node_key_map: PyNodeKeyMap::default(),
         lazy_int_node_stop,
         node_py_attrs: HashMap::new(),
         edge_py_attrs: HashMap::new(),

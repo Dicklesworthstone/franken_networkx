@@ -243,6 +243,66 @@ def test_str_subclass_with_normal_hash_behaves_like_str():
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.parametrize(
+    "length",
+    # 9/10 and 99/100 straddle the 1->2 and 2->3 digit-width boundaries of the
+    # canonical's `{len}` field, which br-r37-c1-oqvk5 now writes as raw ASCII
+    # digits instead of `len.to_string()`. An off-by-one there produces a
+    # canonical that still LOOKS well-formed but does not match the owned
+    # builder, so the borrowed lookup silently misses.
+    [1, 8, 9, 10, 99, 100, KEY_IN_BUFFER, KEY_OVER_BUFFER, 200],
+)
+def test_two_endpoint_probes_do_not_reenter_the_canonical_scratch(length):
+    """br-r37-c1-oqvk5: `has_edge` canonicalizes BOTH endpoints by nesting the
+    borrowed-key helper inside its own closure. While that helper wrote into a
+    per-frame stack buffer this was safe by construction; when it was changed to
+    a single shared thread-local scratch the inner call re-entered it and
+    `borrow_mut()` panicked with `RefCell already borrowed`, taking out every
+    string-keyed `add_edge` (the Python shim probes `has_edge` first).
+
+    Nothing in the 55k-case suite covered it, so this is the named probe. It
+    must exercise BOTH sides of the buffer-size branch, since only the
+    in-buffer side uses the scratch at all.
+    """
+    left, right = _pair(length)
+
+    def build(g):
+        g.add_edge(left, right, weight=1)
+        g.add_edge(left, "hub")
+        return g
+
+    ref, got = _both(build)
+
+    # The panic was here: add_edge -> has_edge -> nested canonicalization.
+    assert got.number_of_edges() == ref.number_of_edges() == 2
+    assert got.has_edge(left, right) is ref.has_edge(left, right) is True
+    assert got.has_edge(right, left) is ref.has_edge(right, left) is True
+    assert got.has_edge(left, "absent") is ref.has_edge(left, "absent") is False
+    assert got.has_edge("absent", "alsoabsent") is False
+    # Re-adding an existing edge takes the same probe path a second time.
+    got.add_edge(left, right, weight=2)
+    ref.add_edge(left, right, weight=2)
+    assert got.edges[left, right] == ref.edges[left, right] == {"weight": 2}
+    assert got.number_of_edges() == ref.number_of_edges() == 2
+
+
+def test_bulk_string_keyed_construction_survives():
+    """The shape that actually crashed: many string-keyed edges in a loop."""
+    nodes = [f"n{i}" for i in range(300)]
+
+    def build(g):
+        g.add_nodes_from((n, {"color": "r"}) for n in nodes)
+        for i in range(len(nodes) - 1):
+            g.add_edge(nodes[i], nodes[i + 1], weight=float(i))
+        return g
+
+    ref, got = _both(build)
+    assert got.number_of_nodes() == ref.number_of_nodes() == 300
+    assert got.number_of_edges() == ref.number_of_edges() == 299
+    assert got.has_edge("n0", "n1") is ref.has_edge("n0", "n1") is True
+    assert got.edges["n5", "n6"] == ref.edges["n5", "n6"] == {"weight": 5.0}
+
+
 def test_subscript_still_returns_the_live_shared_edge_dict():
     g = fnx.Graph()
     g.add_edge("a", "b", weight=1)
