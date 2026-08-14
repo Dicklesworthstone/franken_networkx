@@ -551,6 +551,12 @@ def test_graph_complement_never_introduces_self_loops():
     complement = fnx.complement(graph)
     assert all(u != v for u, v in complement.edges())
 
+
+def test_graph_complement_preserves_node_set_exactly():
+    graph = fnx.Graph([(10, 20), (20, 30)])
+    complement = fnx.complement(graph)
+    assert set(complement) == set(graph)
+
     directed = fnx.DiGraph()
     directed.add_edges_from([(0, 1), (1, 3), (0, 2), (2, 3), (1, 2)])
     directed_mapping = {node: f"directed-path-{node}" for node in directed}
