@@ -4580,7 +4580,9 @@ def suite_claim_incumbent():
         ):
             raise RuntimeError(
                 "k_corona claim fixture no longer matches its preregistered "
-                "complete ordered output"
+                f"complete ordered output (nodes={tuple(preflight_nx)!r}, "
+                f"edges={preflight_nx.number_of_edges()}, "
+                f"bytes={len(preflight_nx_bytes)}, sha256={output_sha256})"
             )
         EXTRA_PROVENANCE["claim_k_corona_fixture"] = {
             "nodes": node_count,
