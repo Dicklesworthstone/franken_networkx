@@ -4290,7 +4290,10 @@ def suite_claim_incumbent():
         ):
             raise RuntimeError(
                 "erdos_renyi_graph claim fixture no longer matches its "
-                "preregistered edge count and output SHA-256"
+                f"preregistered edge count and output SHA-256 "
+                f"(nx_edges={preflight_nx.number_of_edges()}, "
+                f"fnx_edges={preflight_fnx.number_of_edges()}, "
+                f"sha256={fixture_sha256})"
             )
         EXTRA_PROVENANCE["claim_erdos_renyi_graph_fixture"] = {
             "nodes": node_count,
