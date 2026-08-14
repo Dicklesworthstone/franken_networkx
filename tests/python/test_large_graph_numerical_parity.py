@@ -453,6 +453,27 @@ def test_flow_values_scale_with_uniform_capacity_scaling():
     assert scaled_flow == 5 * flow
     assert scaled_cut == 5 * cut
 
+
+def test_flow_cut_values_are_invariant_under_relabeling():
+    graph = fnx.DiGraph()
+    graph.add_edge("s", "a", capacity=3)
+    graph.add_edge("s", "b", capacity=2)
+    graph.add_edge("a", "t", capacity=2)
+    graph.add_edge("b", "t", capacity=4)
+    graph.add_edge("a", "b", capacity=1)
+    mapping = {node: f"flow-{node}" for node in graph}
+    relabeled = fnx.relabel_nodes(graph, mapping)
+    flow = fnx.maximum_flow_value(graph, "s", "t", capacity="capacity")
+    moved_flow = fnx.maximum_flow_value(
+        relabeled, mapping["s"], mapping["t"], capacity="capacity"
+    )
+    cut = fnx.minimum_cut_value(graph, "s", "t", capacity="capacity")
+    moved_cut = fnx.minimum_cut_value(
+        relabeled, mapping["s"], mapping["t"], capacity="capacity"
+    )
+    assert moved_flow == flow
+    assert moved_cut == cut
+
     directed = fnx.DiGraph()
     directed.add_edges_from([(0, 1), (1, 3), (0, 2), (2, 3), (1, 2)])
     directed_mapping = {node: f"directed-path-{node}" for node in directed}
