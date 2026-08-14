@@ -10,11 +10,12 @@ No mocks: real fnx and real networkx on identically-built graphs.
 
 from __future__ import annotations
 
+import math
 import random
 
-import pytest
-import networkx as nx
 import franken_networkx as fnx
+import networkx as nx
+import pytest
 
 
 def _identical_large(seed):
@@ -96,4 +97,20 @@ def test_node_metric_maps_are_equivariant_under_relabeling():
         original = metric(graph)
         moved = metric(relabeled)
         assert set(moved) == {mapping[node] for node in original}
-        assert moved == {mapping[node]: value for node, value in original.items()}
+        expected = {mapping[node]: value for node, value in original.items()}
+        assert moved.keys() == expected.keys()
+        assert all(math.isclose(moved[node], value, rel_tol=1e-15) for node, value in expected.items())
+
+
+def test_edge_betweenness_map_is_equivariant_under_relabeling():
+    graph = fnx.Graph()
+    graph.add_edges_from(
+        [("a", "b"), ("b", "c"), ("c", "d"), ("b", "d"), ("d", "e")]
+    )
+    mapping = {node: f"renamed-{index}" for index, node in enumerate(graph)}
+    relabeled = fnx.relabel_nodes(graph, mapping)
+
+    original = fnx.edge_betweenness_centrality(graph)
+    moved = fnx.edge_betweenness_centrality(relabeled)
+    expected = {(mapping[u], mapping[v]): value for (u, v), value in original.items()}
+    assert moved == expected
