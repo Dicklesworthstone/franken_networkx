@@ -420,7 +420,7 @@ impl NodeView {
 #[inline]
 fn edgeview_py_node_key(
     py: Python<'_>,
-    node_key_map: &std::collections::HashMap<String, PyObject>,
+    node_key_map: &crate::PyNodeKeyMap<String, PyObject>,
     lazy_int_node_stop: i64,
     canonical: &str,
 ) -> PyObject {

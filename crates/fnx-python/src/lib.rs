@@ -29,6 +29,12 @@ use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 
 pub(crate) type PyObject = Py<PyAny>;
 
+/// The node-key mirror is a lookup-heavy cache; public graph order comes from
+/// the core `Graph`'s insertion-ordered `FxIndexMap`, not this map. Its keys
+/// are already admitted to that core map, so this does not add a new
+/// attacker-controlled hash boundary.
+pub(crate) type PyNodeKeyMap<K, V> = HashMap<K, V, rustc_hash::FxBuildHasher>;
+
 pub(crate) trait PythonAllowThreadsExt {
     fn allow_threads<T, F>(self, f: F) -> T
     where
@@ -2085,7 +2091,7 @@ impl InstanceDictGc {
 pub(crate) struct PyGraph {
     pub(crate) inner: Graph,
     /// Maps canonical string key -> original Python object for faithful round-trip.
-    pub(crate) node_key_map: HashMap<String, PyObject>,
+    pub(crate) node_key_map: PyNodeKeyMap<String, PyObject>,
     /// Range fast path marker: canonical integer nodes in ``0..stop`` can be
     /// displayed as Python ints even when node_key_map has not materialized them.
     pub(crate) lazy_int_node_stop: i64,
@@ -2598,7 +2604,7 @@ impl PyGraph {
     ) -> PyResult<Self> {
         Ok(Self {
             inner: Graph::with_runtime_policy(runtime_policy),
-            node_key_map: HashMap::new(),
+            node_key_map: PyNodeKeyMap::default(),
             lazy_int_node_stop: 0,
             node_py_attrs: HashMap::new(),
             edge_py_attrs: HashMap::new(),
@@ -14025,7 +14031,10 @@ impl PyGraph {
         // per-element work is the unavoidable deep-copy of the Python attr dicts.
         let mut new_graph = Self {
             inner: self.inner.clone_with_fresh_policy(), // br-r37-c1-7dpyg: skip ledger
-            node_key_map: HashMap::with_capacity(self.node_key_map.len()),
+            node_key_map: PyNodeKeyMap::with_capacity_and_hasher(
+                self.node_key_map.len(),
+                rustc_hash::FxBuildHasher,
+            ),
             lazy_int_node_stop: 0,
             node_py_attrs: HashMap::with_capacity(self.node_py_attrs.len()),
             edge_py_attrs: HashMap::with_capacity(self.edge_py_attrs.len()),
@@ -14106,7 +14115,7 @@ impl PyGraph {
 
         let mut new_graph = Self {
             inner: Graph::with_runtime_policy(self.inner.runtime_policy().clone()),
-            node_key_map: HashMap::new(),
+            node_key_map: PyNodeKeyMap::default(),
             lazy_int_node_stop: 0,
             node_py_attrs: HashMap::new(),
             edge_py_attrs: HashMap::new(),
@@ -14225,7 +14234,7 @@ impl PyGraph {
             inner: self
                 .inner
                 .induced_subgraph_ordered(&indices, self.inner.runtime_policy().clone()),
-            node_key_map: HashMap::new(),
+            node_key_map: PyNodeKeyMap::default(),
             lazy_int_node_stop: 0,
             node_py_attrs: HashMap::new(),
             edge_py_attrs: HashMap::new(),
@@ -14303,7 +14312,7 @@ impl PyGraph {
 
         let mut new_graph = Self {
             inner: Graph::with_runtime_policy(self.inner.runtime_policy().clone()),
-            node_key_map: HashMap::new(),
+            node_key_map: PyNodeKeyMap::default(),
             lazy_int_node_stop: 0,
             node_py_attrs: HashMap::new(),
             edge_py_attrs: HashMap::new(),

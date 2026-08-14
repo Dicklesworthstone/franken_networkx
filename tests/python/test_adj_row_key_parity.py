@@ -82,6 +82,20 @@ def test_copy_subgraph_propagate_overrides():
     assert _canon(gf.subgraph(["n58", 16]).copy()) == _canon(gn.subgraph(["n58", 16]).copy())
 
 
+def test_graph_copy_keeps_order_with_populated_mirrors():
+    def build(g):
+        g.add_node(3, rank=3)
+        g.add_edge(1, 2, weight=1)
+        g.add_edge(3, 1, weight=2)
+        _ = g.adj[1]
+
+    gn, gf = _pair(build)
+    copied_nx, copied_fnx = gn.copy(), gf.copy()
+
+    assert _canon(copied_fnx) == _canon(copied_nx)
+    assert list(copied_fnx.nodes(data=True)) == list(copied_nx.nodes(data=True))
+
+
 def test_remove_node_clears_overrides():
     gn, gf = _pair(
         lambda g: (g.add_edge(36, 16.0), g.add_edge("n58", 16), g.remove_node(16.0))
