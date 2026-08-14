@@ -557,6 +557,14 @@ def test_graph_complement_preserves_node_set_exactly():
     complement = fnx.complement(graph)
     assert set(complement) == set(graph)
 
+
+def test_directed_complement_preserves_node_set_and_excludes_reverse_edges():
+    graph = fnx.DiGraph([(0, 1), (1, 2)])
+    complement = fnx.complement(graph)
+    assert set(complement) == set(graph)
+    assert not complement.has_edge(0, 1)
+    assert complement.has_edge(1, 0)
+
     directed = fnx.DiGraph()
     directed.add_edges_from([(0, 1), (1, 3), (0, 2), (2, 3), (1, 2)])
     directed_mapping = {node: f"directed-path-{node}" for node in directed}
