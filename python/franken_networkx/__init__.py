@@ -19569,19 +19569,12 @@ class _ApproximationNamespace:
             nx_G = _networkx_graph_for_parity(G)
             return _nx.approximation.min_weighted_vertex_cover(nx_G, weight=weight)
         if weight is not None:
-            # br-r37-c1-bdswh: the native kernel reads node costs from the TYPED
-            # node-attr store, which post-construction writes never reach --
-            # `g.nodes[v][attr] = w` and set_node_attributes both land only in
-            # node_py_attrs. Every cost then took the kernel's unwrap_or(1.0)
-            # fallback, so the weighted call silently returned the UNWEIGHTED
-            # cover: measured identical to it on 30/30 draws, and on a 4-node
-            # witness it returned weight 102 against an optimum of 2, breaking
-            # the 2-approximation guarantee 25x. Delegate the weighted case for
-            # correctness; the unweighted case (which this kernel exists for,
-            # and where the attr store is not consulted at all) keeps the native
-            # route.
-            nx_G = _networkx_graph_for_parity(G)
-            return _nx.approximation.min_weighted_vertex_cover(nx_G, weight=weight)
+            # br-r37-c1-303zo: node-view writes mutate the live Python mirrors,
+            # while the native kernel reads the typed AttrMap store. Flush those
+            # mirrors while holding the GIL before the binding releases it; the
+            # sync replaces (rather than merges) each map, so deleted attrs do
+            # not survive as stale native costs.
+            _sync_rust_edge_attrs(G)
         return _raw_min_weighted_vertex_cover(G, weight)
 
     def min_maximal_matching(self, G, *, backend=None, **backend_kwargs):

@@ -16,6 +16,7 @@ margin grows with n.
 import random
 
 import networkx as nx
+import pytest
 
 import franken_networkx as fnx
 
@@ -55,6 +56,33 @@ def test_weight_none_ignores_node_weight_attrs():
     assert set(fnx.approximation.min_weighted_vertex_cover(F, weight="weight")) == set(
         nx.approximation.min_weighted_vertex_cover(G, weight="weight")
     )
+
+
+@pytest.mark.parametrize("write_mode", ["node_view", "bulk_setter"])
+def test_post_construction_node_weights_stay_on_native_path(monkeypatch, write_mode):
+    """br-r37-c1-303zo: native costs must see live node-attribute writes."""
+    edges = [(0, 1), (1, 2), (2, 3)]
+    native_graph = fnx.Graph(edges)
+    expected_graph = nx.Graph(edges)
+    weights = {0: 100, 1: 1, 2: 1, 3: 100}
+
+    if write_mode == "node_view":
+        for node, value in weights.items():
+            native_graph.nodes[node]["cost"] = value
+            expected_graph.nodes[node]["cost"] = value
+    else:
+        fnx.set_node_attributes(native_graph, weights, "cost")
+        nx.set_node_attributes(expected_graph, weights, "cost")
+
+    expected = nx.approximation.min_weighted_vertex_cover(expected_graph, weight="cost")
+
+    def forbid_fallback(*_args, **_kwargs):
+        raise AssertionError("weighted Graph vertex cover must stay native")
+
+    monkeypatch.setattr(fnx, "_networkx_graph_for_parity", forbid_fallback)
+    actual = fnx.approximation.min_weighted_vertex_cover(native_graph, weight="cost")
+
+    assert set(actual) == set(expected)
 
 
 def test_self_loops():
