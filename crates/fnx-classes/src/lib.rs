@@ -6,9 +6,13 @@ use fnx_runtime::{
     CgseValue, CompatibilityMode, DecisionAction, EvidenceLedger, EvidenceTerm, RuntimePolicy,
     bool_evidence, count_evidence,
 };
-use indexmap::IndexMap;
+use indexmap::{
+    IndexMap,
+    map::{RawEntryApiV1, raw_entry_v1::RawEntryMut},
+};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
+use std::hash::BuildHasher;
 
 // br-r37-c1-fxhash: the node (String) and edge ((usize,usize)) key->index maps use
 // a FAST non-cryptographic hasher instead of std's SipHash. IndexMap keeps insertion
@@ -1164,40 +1168,37 @@ impl Graph {
     /// control at zero. Probing borrowed and owning only when the entry is
     /// genuinely new keeps the occupied path allocation-free.
     ///
-    /// Occupied-branch semantics are unchanged: `IndexMap::get_full_mut` returns
-    /// the existing value without reordering, exactly as `get_mut` did, so
-    /// insertion order and every returned
-    /// value are identical.
+    /// The raw entry keeps that single borrowed-key hash for a vacant insert,
+    /// too. That retains the allocation-free occupied branch and turns the
+    /// fresh branch's former lookup-plus-insert pair into one probe.
     fn add_node_with_attrs_unrecorded(
         &mut self,
         node: impl AsRef<str> + Into<String>,
         attrs: AttrMap,
     ) -> (bool, bool, usize, Option<usize>) {
-        let (existed, changed, attrs_count, inserted_index) =
-            match self.nodes.get_full_mut(node.as_ref()) {
-                Some((_index, _stored_key, bucket)) => {
-                    let changed = !attrs.is_empty()
-                        && attrs
-                            .iter()
-                            .any(|(key, value)| bucket.get(key) != Some(value));
-                    bucket.extend(attrs);
-                    (true, changed, bucket.len(), None)
-                }
-                None => {
-                    // `insert_full` exposes the just-assigned stable insertion
-                    // index. `get_index_mut` then obtains the same fresh bucket
-                    // without hashing the String a second time.
-                    let (index, previous) = self.nodes.insert_full(node.into(), AttrMap::new());
-                    debug_assert!(previous.is_none(), "vacant node unexpectedly replaced");
-                    let bucket = self
-                        .nodes
-                        .get_index_mut(index)
-                        .expect("inserted node must have its assigned index")
-                        .1;
-                    bucket.extend(attrs);
-                    (false, true, bucket.len(), Some(index))
-                }
-            };
+        let node_hash = self.nodes.hasher().hash_one(node.as_ref());
+        let (existed, changed, attrs_count, inserted_index) = match self
+            .nodes
+            .raw_entry_mut_v1()
+            .from_key_hashed_nocheck(node_hash, node.as_ref())
+        {
+            RawEntryMut::Occupied(mut entry) => {
+                let bucket = entry.get_mut();
+                let changed = !attrs.is_empty()
+                    && attrs
+                        .iter()
+                        .any(|(key, value)| bucket.get(key) != Some(value));
+                bucket.extend(attrs);
+                (true, changed, bucket.len(), None)
+            }
+            RawEntryMut::Vacant(entry) => {
+                let index = entry.index();
+                let (_, bucket) =
+                    entry.insert_hashed_nocheck(node_hash, node.into(), AttrMap::new());
+                bucket.extend(attrs);
+                (false, true, bucket.len(), Some(index))
+            }
+        };
         // Extend integer adjacency list for new nodes
         if !existed {
             self.adj_indices.push(Vec::new());
@@ -9712,6 +9713,22 @@ mod tests {
         assert_eq!(graph.revision(), revision_before);
         assert_eq!(
             graph.node_attrs("a").and_then(|attrs| attrs.get("color")),
+            Some(&CgseValue::from("red"))
+        );
+    }
+
+    #[test]
+    fn add_node_with_attrs_keeps_fresh_node_order_and_attrs() {
+        let mut graph = Graph::strict();
+        assert!(graph.add_node("before"));
+        assert!(graph.add_node_with_attrs("fresh", single_attr("color", "red")));
+        assert!(graph.add_node("after"));
+
+        assert_eq!(graph.nodes_ordered(), vec!["before", "fresh", "after"]);
+        assert_eq!(
+            graph
+                .node_attrs("fresh")
+                .and_then(|attrs| attrs.get("color")),
             Some(&CgseValue::from("red"))
         );
     }

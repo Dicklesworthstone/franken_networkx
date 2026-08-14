@@ -81,6 +81,7 @@ instead of accepting whichever installed extension happens to be importable.
 
 from __future__ import annotations
 
+import fcntl
 import gzip
 import hashlib
 import hmac
@@ -106,6 +107,12 @@ HOST_WIDE_ADMISSION_SAMPLE_S = 1.0
 HOST_WIDE_ADMISSION_CLEAR_WINDOWS = 5
 HOST_WIDE_ADMISSION_MAX_WINDOWS = 300
 HOST_WIDE_CONSECUTIVE_BUSY_WINDOWS = 2
+PERF_HARNESS_LOCK_PATH = Path(
+    os.environ.get(
+        "FNX_PERF_HARNESS_LOCK_PATH",
+        "/tmp/franken-networkx-perf-harness.lock",
+    )
+)
 EXTRA_PROVENANCE: dict[str, object] = {}
 _MEASUREMENT_EXCLUSIVITY = None
 NETWORKX_361_WHEEL_URL = (
@@ -461,6 +468,43 @@ def provenance_header(tag: str) -> dict:
     info.update(EXTRA_PROVENANCE)
     print(json.dumps(info), flush=True)
     return info
+
+
+class BenchmarkLease:
+    """Reject competing whole-host harness runs before admission sampling."""
+
+    def __init__(self, suite: str, path: Path = PERF_HARNESS_LOCK_PATH) -> None:
+        self.suite = suite
+        self.path = path
+        self._handle = None
+
+    def __enter__(self) -> dict[str, object]:
+        handle = self.path.open("a+", encoding="utf-8")
+        try:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError as error:
+            handle.seek(0)
+            holder = handle.read().strip() or "unknown holder"
+            handle.close()
+            raise RuntimeError(
+                "another perf_harness.py invocation holds the host-wide "
+                f"measurement lease at {self.path}: {holder}"
+            ) from error
+
+        self._handle = handle
+        holder = {"pid": os.getpid(), "suite": self.suite}
+        handle.seek(0)
+        handle.truncate()
+        json.dump(holder, handle, sort_keys=True)
+        handle.flush()
+        os.fsync(handle.fileno())
+        return {"path": str(self.path), **holder}
+
+    def __exit__(self, exc_type, exc_value, traceback) -> None:
+        assert self._handle is not None
+        fcntl.flock(self._handle.fileno(), fcntl.LOCK_UN)
+        self._handle.close()
+        self._handle = None
 
 
 def _parse_cpu_list(value: str) -> set[int]:
@@ -7018,21 +7062,27 @@ def main(argv):
         print(f"usage: {argv[0]} {{{'|'.join(SUITES)}}}", file=sys.stderr)
         return 2
     name = argv[1]
-    EXTRA_PROVENANCE["host_wide_quiescence"] = {
-        "contract": "required",
-        "pre_setup": require_host_wide_quiescence("pre_setup"),
-    }
-    results = run_rows(f"suite={name}", SUITES[name]())
-    losses = [r for r in results if r.get("ratio_p50", 1) < 1.0 and r.get("decidable")]
-    if losses:
-        print("\ndecidable losses (fnx slower):", flush=True)
-        for row in sorted(losses, key=lambda r: r["ratio_p50"]):
-            print(f"  {row['ratio_p50']:7.4f}x  {row['label']}", flush=True)
-    print(
-        "benchmark_results_json="
-        + json.dumps(results, sort_keys=True, separators=(",", ":")),
-        flush=True,
-    )
+    with BenchmarkLease(name) as lease:
+        EXTRA_PROVENANCE["host_wide_measurement_lease"] = lease
+        EXTRA_PROVENANCE["host_wide_quiescence"] = {
+            "contract": "required",
+            "pre_setup": require_host_wide_quiescence("pre_setup"),
+        }
+        results = run_rows(f"suite={name}", SUITES[name]())
+        losses = [
+            row
+            for row in results
+            if row.get("ratio_p50", 1) < 1.0 and row.get("decidable")
+        ]
+        if losses:
+            print("\ndecidable losses (fnx slower):", flush=True)
+            for row in sorted(losses, key=lambda row: row["ratio_p50"]):
+                print(f"  {row['ratio_p50']:7.4f}x  {row['label']}", flush=True)
+        print(
+            "benchmark_results_json="
+            + json.dumps(results, sort_keys=True, separators=(",", ":")),
+            flush=True,
+        )
     return 0
 
 
