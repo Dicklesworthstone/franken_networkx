@@ -34,7 +34,7 @@ def _maxdiff(fd, nd):
 def _float_hex_differences(actual, expected):
     """Return only the bit-level map differences for a relabeling failure."""
     return {
-        node: (actual[node].hex(), expected[node].hex())
+        node: (actual[node].hex(), expected[node].hex(), actual[node] - expected[node])
         for node in expected
         if actual[node] != expected[node]
     }
