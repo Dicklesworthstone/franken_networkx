@@ -1707,6 +1707,13 @@ class AtlasView(_Mapping):
         return (_reconstruct_atlas_view, (self.copy(),))
 
 
+# The native Graph-row route below implements the full mapping protocol in
+# Rust. ``#[pyclass(mapping)]`` sets CPython's mapping flag, but does not make
+# an extension type a virtual ``collections.abc.Mapping`` subclass on its own.
+# Register it once so callers see the same abstract type as NetworkX's view.
+_Mapping.register(_fnx.AtlasView)
+
+
 class AdjacencyView(_Mapping):
     def __init__(
         self,
@@ -1796,13 +1803,20 @@ class AdjacencyView(_Mapping):
             # br-keystr: preserve the original key type (int/tuple/...)
             # in the KeyError args instead of the Rust side's str repr.
             raise KeyError(node) from exc
-        view = AtlasView(
-            lambda: self._atlas()[node],
-            owner=self._fnx_owner,
-            row_node=node,
-            row_kind=self._fnx_row_kind,
-            multi_edge_owner=self._fnx_multi_edge_owner,
-        )
+        if type(owner) is Graph and not _has_networkx_private_storage(owner):
+            # br-r37-c1-ey6ob: the native AtlasView owns a C-level
+            # ``__getitem__`` slot, so the cold G[u][v] path avoids the
+            # Python AtlasView frame while retaining the same persistent row
+            # mirror for Mapping-wide operations and detached-row parity.
+            view = _fnx.AtlasView(owner, node)
+        else:
+            view = AtlasView(
+                lambda: self._atlas()[node],
+                owner=owner,
+                row_node=node,
+                row_kind=self._fnx_row_kind,
+                multi_edge_owner=self._fnx_multi_edge_owner,
+            )
         if owner is not None:
             cache[1][node] = view
         return view

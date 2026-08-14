@@ -9,7 +9,7 @@ use crate::{
 use pyo3::exceptions::{PyKeyError, PyRuntimeError};
 use pyo3::gc::{PyTraverseError, PyVisit};
 use pyo3::prelude::*;
-use pyo3::types::{PyDict, PyIterator, PyTuple};
+use pyo3::types::{PyDict, PyIterator, PyModule, PyTuple};
 
 // ---------------------------------------------------------------------------
 // NodeView — returned by G.nodes or G.nodes(data=True)
@@ -1170,6 +1170,11 @@ pub struct AtlasView {
     /// the same treatment (br-r37-c1-5gam7).
     graph: Option<Py<PyGraph>>,
     node: String,
+    /// The persistent row mirror once a mapping-wide operation has requested
+    /// it. The graph mutators update this dictionary in place; retaining it
+    /// also gives a captured row NetworkX's detached-row behaviour after its
+    /// owner node is removed.
+    row: Option<Py<PyDict>>,
 }
 
 impl AtlasView {
@@ -1177,6 +1182,7 @@ impl AtlasView {
         Self {
             graph: Some(graph),
             node,
+            row: None,
         }
     }
 
@@ -1184,22 +1190,51 @@ impl AtlasView {
         self.graph.as_ref().ok_or_else(cleared_view_error)
     }
 
-    /// Materialise the full `{neighbour: shared_edge_attr_dict}` (O(degree)) —
-    /// only when a materialising method (items/values/==/str/repr) is called.
-    fn materialize(&self, py: Python<'_>) -> PyResult<Py<PyDict>> {
-        let mut g = self.graph()?.borrow_mut(py);
-        let result = PyDict::new(py);
-        let neighbors: Vec<String> = g
+    /// Materialise the persistent `{neighbour: shared_edge_attr_dict}` row
+    /// only for mapping-wide operations. The cold `__getitem__` route stays
+    /// O(1), while an already-materialised row remains live across edge churn
+    /// and detached after node removal, matching NetworkX's inner dict.
+    fn materialize(&mut self, py: Python<'_>) -> PyResult<Py<PyDict>> {
+        if let Some(row) = &self.row {
+            return Ok(row.clone_ref(py));
+        }
+        let graph = self.graph()?.clone_ref(py);
+        let mut graph = graph.borrow_mut(py);
+        if !graph.inner.has_node(&self.node) {
+            return Err(PyKeyError::new_err((self.node.clone(),)));
+        }
+        if let Some(row) = graph.adj_row_py.get(&self.node) {
+            let row = row.clone_ref(py);
+            self.row = Some(row.clone_ref(py));
+            return Ok(row);
+        }
+        let row = PyDict::new(py);
+        let neighbors: Vec<String> = graph
             .inner
             .neighbors(&self.node)
             .unwrap_or_default()
             .into_iter()
             .map(str::to_owned)
             .collect();
-        for nb in neighbors {
-            let py_nb = g.py_adj_key(py, &self.node, &nb); // br-r37-c1-z6uka
-            let edge_attrs = g.materialize_edge_py_attrs(py, &self.node, &nb);
-            result.set_item(py_nb, edge_attrs.bind(py))?;
+        if !neighbors.is_empty() {
+            graph.mark_edges_dirty();
+        }
+        for neighbor in neighbors {
+            let py_neighbor = graph.py_adj_key(py, &self.node, &neighbor);
+            let attrs = graph.materialize_edge_py_attrs(py, &self.node, &neighbor);
+            row.set_item(py_neighbor, attrs.bind(py))?;
+        }
+        let row = row.unbind();
+        graph.adj_row_py.insert(self.node.clone(), row.clone_ref(py));
+        self.row = Some(row.clone_ref(py));
+        Ok(row)
+    }
+
+    fn copy_row(py: Python<'_>, row: &Bound<'_, PyDict>) -> PyResult<Py<PyDict>> {
+        let result = PyDict::new(py);
+        for (key, value) in row.iter() {
+            let copied = value.downcast::<PyDict>()?.copy()?.unbind();
+            result.set_item(key, copied)?;
         }
         Ok(result.unbind())
     }
@@ -1208,14 +1243,36 @@ impl AtlasView {
 #[pymethods]
 impl AtlasView {
     fn __traverse__(&self, visit: PyVisit<'_>) -> Result<(), PyTraverseError> {
-        visit.call(&self.graph)
+        visit.call(&self.graph)?;
+        visit.call(&self.row)
     }
 
     fn __clear__(&mut self) {
         self.graph = None;
+        self.row = None;
     }
 
-    fn __getitem__(&self, py: Python<'_>, v: &Bound<'_, PyAny>) -> PyResult<Py<PyDict>> {
+    #[new]
+    fn py_new(
+        py: Python<'_>,
+        graph: Py<PyGraph>,
+        node: &Bound<'_, PyAny>,
+    ) -> PyResult<Self> {
+        let canonical = node_key_to_string(py, node)?;
+        if !graph.borrow(py).inner.has_node(&canonical) {
+            return Err(crate::missing_key_error(node));
+        }
+        Ok(Self::new(graph, canonical))
+    }
+
+    fn __getitem__(&mut self, py: Python<'_>, v: &Bound<'_, PyAny>) -> PyResult<Py<PyDict>> {
+        if let Some(row) = &self.row {
+            let Some(attrs) = row.bind(py).get_item(v)? else {
+                return Err(PyKeyError::new_err((v.clone().unbind(),)));
+            };
+            self.graph()?.borrow(py).mark_edges_dirty();
+            return Ok(attrs.downcast::<PyDict>()?.clone().unbind());
+        }
         // br-r37-c1-ey6ob: `G[u][v]`'s inner subscript. `self.node` is ALREADY
         // canonical, so this call only ever had to canonicalize `v` — and it did
         // so into an owned String that was hashed twice and dropped. Borrowed
@@ -1239,6 +1296,9 @@ impl AtlasView {
     }
 
     fn __contains__(&self, py: Python<'_>, v: &Bound<'_, PyAny>) -> PyResult<bool> {
+        if let Some(row) = &self.row {
+            return row.bind(py).contains(v);
+        }
         // br-r37-c1-ey6ob: borrowed canonical probe (see `__getitem__`).
         let graph = self.graph()?;
         crate::with_node_key_str(py, v, |v_canon| {
@@ -1247,65 +1307,49 @@ impl AtlasView {
     }
 
     fn __len__(&self, py: Python<'_>) -> usize {
+        if let Some(row) = &self.row {
+            return row.bind(py).len();
+        }
         self.graph
             .as_ref()
             .map_or(0, |graph| graph.borrow(py).inner.neighbor_count(&self.node))
     }
 
-    fn __iter__(&self, py: Python<'_>) -> PyResult<Py<NodeIterator>> {
-        let g = self.graph()?.borrow(py);
-        let nbrs: Vec<PyObject> = g
-            .inner
-            .neighbors(&self.node)
-            .unwrap_or_default()
-            .iter()
-            .map(|nb| g.py_adj_key(py, &self.node, nb)) // br-r37-c1-z6uka
-            .collect();
-        Py::new(py, NodeIterator::unguarded(nbrs))
+    fn __iter__(&mut self, py: Python<'_>) -> PyResult<PyObject> {
+        Ok(self
+            .materialize(py)?
+            .bind(py)
+            .call_method0("__iter__")?
+            .unbind())
     }
 
-    fn keys(&self, py: Python<'_>) -> PyResult<Py<NodeIterator>> {
-        self.__iter__(py)
+    fn keys(&mut self, py: Python<'_>) -> PyResult<PyObject> {
+        Ok(self
+            .materialize(py)?
+            .bind(py)
+            .call_method0("keys")?
+            .unbind())
     }
 
-    fn items(&self, py: Python<'_>) -> PyResult<Vec<(PyObject, Py<PyDict>)>> {
-        let mut g = self.graph()?.borrow_mut(py);
-        let mut out = Vec::with_capacity(g.inner.neighbor_count(&self.node));
-        let neighbors: Vec<String> = g
-            .inner
-            .neighbors(&self.node)
-            .unwrap_or_default()
-            .into_iter()
-            .map(str::to_owned)
-            .collect();
-        for nb in neighbors {
-            let py_nb = g.py_adj_key(py, &self.node, &nb); // br-r37-c1-z6uka
-            let ed = g.materialize_edge_py_attrs(py, &self.node, &nb);
-            out.push((py_nb, ed));
-        }
-        Ok(out)
+    fn items(&mut self, py: Python<'_>) -> PyResult<PyObject> {
+        Ok(self
+            .materialize(py)?
+            .bind(py)
+            .call_method0("items")?
+            .unbind())
     }
 
-    fn values(&self, py: Python<'_>) -> PyResult<Vec<Py<PyDict>>> {
-        let mut g = self.graph()?.borrow_mut(py);
-        let mut out = Vec::with_capacity(g.inner.neighbor_count(&self.node));
-        let neighbors: Vec<String> = g
-            .inner
-            .neighbors(&self.node)
-            .unwrap_or_default()
-            .into_iter()
-            .map(str::to_owned)
-            .collect();
-        for nb in neighbors {
-            let ed = g.materialize_edge_py_attrs(py, &self.node, &nb);
-            out.push(ed);
-        }
-        Ok(out)
+    fn values(&mut self, py: Python<'_>) -> PyResult<PyObject> {
+        Ok(self
+            .materialize(py)?
+            .bind(py)
+            .call_method0("values")?
+            .unbind())
     }
 
     #[pyo3(signature = (v, default=None))]
     fn get(
-        &self,
+        &mut self,
         py: Python<'_>,
         v: &Bound<'_, PyAny>,
         default: Option<PyObject>,
@@ -1321,47 +1365,38 @@ impl AtlasView {
 
     /// nx ``AtlasView.copy`` -> ``{n: self[n].copy()}`` (a plain dict of
     /// independent edge-attr-dict copies).
-    fn copy(&self, py: Python<'_>) -> PyResult<Py<PyDict>> {
-        let g = self.graph()?.borrow(py);
-        let result = PyDict::new(py);
-        if let Some(neighbors) = g.inner.neighbors(&self.node) {
-            for nb in neighbors {
-                let py_nb = g.py_node_key(py, nb);
-                let ek = PyGraph::edge_key(&self.node, nb);
-                let copied = match g.edge_py_attrs.get(&ek) {
-                    Some(d) => d.bind(py).copy()?.unbind(),
-                    None => match g.inner.edge_attrs(&self.node, nb) {
-                        Some(attrs) => attr_map_to_pydict(py, attrs)?,
-                        None => PyDict::new(py).unbind(),
-                    },
-                };
-                result.set_item(py_nb, copied)?;
-            }
-        }
-        Ok(result.unbind())
+    fn copy(&mut self, py: Python<'_>) -> PyResult<Py<PyDict>> {
+        let row = self.materialize(py)?;
+        Self::copy_row(py, row.bind(py))
     }
 
-    fn __eq__(&self, py: Python<'_>, other: &Bound<'_, PyAny>) -> PyResult<bool> {
+    fn __eq__(&mut self, py: Python<'_>, other: &Bound<'_, PyAny>) -> PyResult<bool> {
         let m = self.materialize(py)?;
         m.bind(py).eq(other)
     }
 
-    fn __ne__(&self, py: Python<'_>, other: &Bound<'_, PyAny>) -> PyResult<bool> {
+    fn __ne__(&mut self, py: Python<'_>, other: &Bound<'_, PyAny>) -> PyResult<bool> {
         Ok(!self.__eq__(py, other)?)
     }
 
-    fn __str__(&self, py: Python<'_>) -> PyResult<String> {
+    fn __str__(&mut self, py: Python<'_>) -> PyResult<String> {
         let m = self.materialize(py)?;
         Ok(m.bind(py).str()?.to_string())
     }
 
-    fn __repr__(&self, py: Python<'_>) -> PyResult<String> {
+    fn __repr__(&mut self, py: Python<'_>) -> PyResult<String> {
         let m = self.materialize(py)?;
         Ok(format!("AtlasView({})", m.bind(py).repr()?.to_str()?))
     }
 
     fn __bool__(&self, py: Python<'_>) -> bool {
         self.__len__(py) > 0
+    }
+
+    fn __reduce__(&mut self, py: Python<'_>) -> PyResult<(PyObject, (Py<PyDict>,))> {
+        let module = PyModule::import(py, "franken_networkx")?;
+        let reconstruct = module.getattr("_reconstruct_atlas_view")?.unbind();
+        Ok((reconstruct, (self.copy(py)?,)))
     }
 }
 

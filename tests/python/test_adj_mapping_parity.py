@@ -5,6 +5,7 @@ Upstream NetworkX exposes `items()`, `keys()`, `values()`, and `get()` on every
 """
 
 import copy
+import pickle
 
 import networkx as nx
 import pytest
@@ -99,6 +100,38 @@ def test_cached_simple_adjacency_row_stays_live_like_networkx(fnx_ctor, nx_ctor)
     ng.clear_edges()
     assert dict(frow) == dict(nrow) == {}
     assert list(fkeys) == list(nkeys) == []
+
+
+def test_graph_row_uses_native_mapping_slot_without_losing_atlas_contract():
+    """The C-slot Graph row preserves the Mapping and detached-row contracts."""
+    from collections.abc import Mapping
+
+    fg = fnx.Graph()
+    ng = nx.Graph()
+    for graph in (fg, ng):
+        graph.add_edges_from([(0, 1, {"weight": 1}), (0, 2, {"weight": 2})])
+
+    frow = fg[0]
+    nrow = ng[0]
+    assert type(frow) is fnx._fnx.AtlasView
+    assert isinstance(frow, Mapping)
+    assert list(frow.keys()) == list(nrow.keys())
+    assert list(frow.items()) == list(nrow.items())
+    assert list(frow.values()) == list(nrow.values())
+    assert frow.keys() & {1, 9} == nrow.keys() & {1, 9}
+    assert dict(frow) == dict(nrow)
+
+    assert frow[1] is fg.edges[0, 1]
+    frow[1]["seen"] = True
+    nrow[1]["seen"] = True
+    assert fg.edges[0, 1]["seen"] is True
+
+    restored = pickle.loads(pickle.dumps(frow))  # nosec B301 - trusted round trip
+    assert dict(restored) == dict(frow)
+
+    fg.remove_node(0)
+    ng.remove_node(0)
+    assert dict(frow) == dict(nrow)
 
 
 def test_cached_directed_predecessor_row_stays_live_like_networkx():
