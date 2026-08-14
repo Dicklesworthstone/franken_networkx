@@ -9908,3 +9908,43 @@ attributes SHAPE reliably and magnitude only loosely.
 NO CEILING IS CLAIMED. The remaining named items on this surface are
 `br-r37-c1-afiq8` (from_utf8 re-validation, 16.05%/17.53%, scales with endpoint
 count) and `br-r37-c1-wzoa7` (SipHash mirror maps vs FxHash core, 6.48%).
+
+### ADDENDUM 2: ledger audit — a published WIN that measures as a decisive LOSS (`br-r37-c1-0yuid`)
+
+Re-measured four rows the README publishes as measured, on HEAD, same
+invocation as the rows above (ELF
+`e2a2f587eff95cd0c077bc7ee978e23b204a829a79458e26240b33cbf14b34bc`, balanced
+`ABBAABBA` square, live networkx 3.6.1, dual A/A nulls, 41 rounds, pinned to
+CPUs 40-47, PYTHONHASHSEED=0, ratio = t_nx/t_fnx):
+
+    row              README publishes    draw 1                  draw 2
+    n in G           1.2234x  (a WIN)    0.3328x ADMISSIBLE      0.3897x null-failed
+    G.has_node(n)    0.7595x             0.3001x null-failed     0.3143x null-failed
+    G.adj (bare)     0.9009x             0.8921x null-failed     0.9073x null-failed
+    len(G.adj)       1.65-1.71x          1.3663x null-failed     1.4420x null-failed
+
+**`n in G` is the finding.** Draw 1's nulls are 0.9991/1.0013 — the tightest
+pair in a ten-row run — and it lands at 0.3328x against a published 1.2234x.
+Wrong in SIGN and by a factor of ~3.7. It is internally consistent with every
+sibling measured in the same invocations (`n in G.nodes()` 0.3227/0.4276/0.3215x
+all admissible, `G.nodes.get(n)` 0.3627/0.3779x, `(u,v) in G.edges()` 0.3713x),
+and with the instruction profile (441.6 Ir/call against a CPython dict lookup of
+order 100 Ir). A 1.22x would make `n in G` a 3.7x outlier against
+`n in G.nodes()`, which is the SAME lookup one level up.
+
+NOT ADJUDICATED HERE, and the README was NOT edited. My harness is not the one
+that produced 1.2234x (that row came from the repo perf harness, 21 rounds, its
+own fixture). Two harnesses disagreeing by 3.7x is the finding; deciding which
+is right needs the original harness re-run on HEAD plus a bisect of the square
+between `cb519bd06` and HEAD. Either a real regression landed on the hottest
+membership path in the library, or the published row does not represent
+present-key membership. Both need action; neither is a doc edit.
+
+`G.adj` at 0.8921/0.9073x against a published 0.9009x is a clean confirmation
+and is recorded as such — the audit is not one-directional.
+
+THREE STALE ROWS ON ONE SURFACE IN ONE DAY: `br-r37-c1-ts80b` (`G.nodes[n]`
+0.298x recorded, 1.6138x/1.4426x measured — a WIN, wrong in sign),
+`br-r37-c1-jc9e4` (add_edge 0.46-0.50x recorded, 0.8990x measured by SunnyTern),
+and now `n in G`. That rate suggests the ledger wants a systematic re-measure
+rather than three spot fixes.
