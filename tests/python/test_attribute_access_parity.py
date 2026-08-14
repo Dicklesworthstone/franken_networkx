@@ -1228,6 +1228,21 @@ class TestEdgeViewKeyErrorPreserved:
             MG.edges[0, 1, "missing"]
         assert exc_info.value.args[0] == "missing"
 
+    def test_graph_edges_reverse_lookup_keeps_live_dict_and_invalidates_on_readd(self):
+        """A cached EdgeView read must retain nx's live-dict lifecycle."""
+        graph = fnx.Graph()
+        graph.add_edge("left", "right", weight=1)
+
+        forward = graph.edges["left", "right"]
+        assert graph.edges["right", "left"] is forward
+        forward["weight"] = 7
+        assert graph.edges["left", "right"] == {"weight": 7}
+
+        graph.remove_edge("left", "right")
+        graph.add_edge("left", "right", fresh=True)
+        assert graph.edges["left", "right"] == {"fresh": True}
+        assert graph.edges["left", "right"] is not forward
+
 
 # ---------------------------------------------------------------------------
 # Regression: franken_networkx-vweqset — EdgeView Set.__eq__ semantics

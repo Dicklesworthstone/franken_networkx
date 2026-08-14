@@ -2102,6 +2102,10 @@ pub(crate) struct PyGraph {
     pub(crate) node_py_attrs: HashMap<String, Py<PyDict>>,
     /// Per-edge Python attribute dicts. Key is (canonical_left, canonical_right).
     pub(crate) edge_py_attrs: HashMap<(String, String), Py<PyDict>>,
+    /// Borrowed-endpoint lookup cache for repeated single-edge reads.  The
+    /// primary mirror's tuple key requires owned Strings to probe; this nested
+    /// map accepts `&str` endpoints directly and holds the same live dict.
+    edge_py_attrs_by_endpoint: HashMap<String, HashMap<String, Py<PyDict>>>,
     /// Cached NetworkX-style adjacency rows for `to_dict_of_dicts`.
     pub(crate) dict_of_dicts_cache: Option<DictOfDictsCache>,
     /// Live NetworkX-style adjacency row mirrors for simple Graph view iteration.
@@ -2211,6 +2215,7 @@ impl PyGraph {
         self.adj_py_keys.clear();
         self.node_py_attrs.clear();
         self.edge_py_attrs.clear();
+        self.edge_py_attrs_by_endpoint.clear();
         self.dict_of_dicts_cache = None;
         self.adj_row_py.clear();
         self.graph_attrs.bind(py).clear();
@@ -2527,15 +2532,33 @@ impl PyGraph {
         left: &str,
         right: &str,
     ) -> Py<PyDict> {
-        let key = Self::edge_key(left, right);
-        self.edge_py_attrs
-            .entry(key)
+        let (left, right) = if left <= right {
+            (left, right)
+        } else {
+            (right, left)
+        };
+        if let Some(attrs) = self
+            .edge_py_attrs_by_endpoint
+            .get(left)
+            .and_then(|row| row.get(right))
+        {
+            return attrs.clone_ref(py);
+        }
+
+        let attrs = self
+            .edge_py_attrs
+            .entry((left.to_owned(), right.to_owned()))
             .or_insert_with(|| match self.inner.edge_attrs(left, right) {
                 Some(attrs) => attr_map_to_pydict(py, attrs)
                     .expect("stored string-keyed edge attrs must convert to Python"),
                 None => PyDict::new(py).unbind(),
             })
-            .clone_ref(py)
+            .clone_ref(py);
+        self.edge_py_attrs_by_endpoint
+            .entry(left.to_owned())
+            .or_default()
+            .insert(right.to_owned(), attrs.clone_ref(py));
+        attrs
     }
 
     pub(crate) fn edge_attr_py_value(
@@ -2579,6 +2602,7 @@ impl PyGraph {
             lazy_int_node_stop: 0,
             node_py_attrs: HashMap::new(),
             edge_py_attrs: HashMap::new(),
+            edge_py_attrs_by_endpoint: HashMap::new(),
             adj_py_keys: HashMap::new(), // br-r37-c1-z6uka
             dict_of_dicts_cache: None,
             adj_row_py: HashMap::new(),
@@ -2609,6 +2633,7 @@ impl PyGraph {
     #[inline]
     pub(crate) fn bump_edges_seq(&mut self) {
         self.edges_seq = self.edges_seq.wrapping_add(1);
+        self.edge_py_attrs_by_endpoint.clear();
     }
 
     #[inline]
@@ -14004,6 +14029,7 @@ impl PyGraph {
             lazy_int_node_stop: 0,
             node_py_attrs: HashMap::with_capacity(self.node_py_attrs.len()),
             edge_py_attrs: HashMap::with_capacity(self.edge_py_attrs.len()),
+            edge_py_attrs_by_endpoint: HashMap::new(),
             adj_py_keys: self.derive_copy_adj_py_keys(py, &self.inner), // br-r37-c1-z6uka
             dict_of_dicts_cache: None,
             adj_row_py: HashMap::new(),
@@ -14084,6 +14110,7 @@ impl PyGraph {
             lazy_int_node_stop: 0,
             node_py_attrs: HashMap::new(),
             edge_py_attrs: HashMap::new(),
+            edge_py_attrs_by_endpoint: HashMap::new(),
             adj_py_keys: HashMap::new(), // br-r37-c1-z6uka
             dict_of_dicts_cache: None,
             adj_row_py: HashMap::new(),
@@ -14202,6 +14229,7 @@ impl PyGraph {
             lazy_int_node_stop: 0,
             node_py_attrs: HashMap::new(),
             edge_py_attrs: HashMap::new(),
+            edge_py_attrs_by_endpoint: HashMap::new(),
             adj_py_keys: HashMap::new(),
             dict_of_dicts_cache: None,
             adj_row_py: HashMap::new(),
@@ -14279,6 +14307,7 @@ impl PyGraph {
             lazy_int_node_stop: 0,
             node_py_attrs: HashMap::new(),
             edge_py_attrs: HashMap::new(),
+            edge_py_attrs_by_endpoint: HashMap::new(),
             adj_py_keys: HashMap::new(), // br-r37-c1-z6uka
             dict_of_dicts_cache: None,
             adj_row_py: HashMap::new(),
@@ -15440,6 +15469,11 @@ impl PyGraph {
                 .iter()
                 .map(|(k, v)| Ok((k.clone(), v.bind(py).copy()?.unbind())))
                 .collect::<PyResult<_>>()?,
+            // MUST start empty rather than clone the source's: this constructor
+            // deep-copies every edge-attr dict above, so a cloned lookaside would
+            // hand out the ORIGINAL graph's dicts and alias the two graphs'
+            // attributes. It refills lazily from the copies on first read.
+            edge_py_attrs_by_endpoint: HashMap::new(),
             // SHARE the graph attrs dict (shallow copy)
             graph_attrs: self.graph_attrs.clone_ref(py),
             nodes_seq: 0,
@@ -15767,6 +15801,43 @@ class FnxMultiGraphCtorEdgeIterable:
         let mut graph = MultiGraph::new(CompatibilityMode::Hardened);
         graph.add_node("seed");
         graph.runtime_policy().clone()
+    }
+
+    #[test]
+    fn edge_attr_endpoint_cache_keeps_identity_and_drops_removed_edges() {
+        ensure_python();
+        Python::attach(|py| -> PyResult<()> {
+            let mut graph = PyGraph::new_empty(py)?;
+            let left = PyString::new(py, "left").into_any();
+            let right = PyString::new(py, "right").into_any();
+            let attrs = PyDict::new(py);
+            attrs.set_item("weight", 1)?;
+            graph.add_edge(py, &left, &right, Some(&attrs))?;
+
+            let forward = graph.materialize_edge_py_attrs(py, "left", "right");
+            let reverse = graph.materialize_edge_py_attrs(py, "right", "left");
+            assert!(forward.bind(py).is(reverse.bind(py)));
+            forward.bind(py).set_item("weight", 7)?;
+            assert_eq!(
+                reverse
+                    .bind(py)
+                    .get_item("weight")?
+                    .unwrap()
+                    .extract::<i64>()?,
+                7
+            );
+
+            graph.remove_edge(py, &left, &right)?;
+            let fresh_attrs = PyDict::new(py);
+            fresh_attrs.set_item("fresh", true)?;
+            graph.add_edge(py, &left, &right, Some(&fresh_attrs))?;
+            let replacement = graph.materialize_edge_py_attrs(py, "left", "right");
+            assert!(!replacement.bind(py).is(forward.bind(py)));
+            assert!(replacement.bind(py).contains("fresh")?);
+            assert!(!replacement.bind(py).contains("weight")?);
+            Ok(())
+        })
+        .expect("edge attribute endpoint cache must preserve the live-dict lifecycle");
     }
 
     #[test]

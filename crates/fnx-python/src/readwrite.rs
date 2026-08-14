@@ -151,6 +151,7 @@ fn report_to_pygraph(py: Python<'_>, report: ReadWriteReport) -> PyResult<PyGrap
         lazy_int_node_stop: 0,
         node_py_attrs,
         edge_py_attrs,
+        edge_py_attrs_by_endpoint: HashMap::new(),
         adj_py_keys: HashMap::new(), // br-r37-c1-z6uka
         dict_of_dicts_cache: None,
         adj_row_py: HashMap::new(),
@@ -825,6 +826,7 @@ fn read_adjlist_simple(py: Python<'_>, path: &str) -> PyResult<Option<PyGraph>> 
         lazy_int_node_stop: 0,
         node_py_attrs,
         edge_py_attrs,
+        edge_py_attrs_by_endpoint: HashMap::new(),
         adj_py_keys: HashMap::new(), // br-r37-c1-z6uka
         dict_of_dicts_cache: None,
         adj_row_py: HashMap::new(),
@@ -1127,6 +1129,7 @@ fn parse_edgelist_simple_content(
         lazy_int_node_stop: 0,
         node_py_attrs,
         edge_py_attrs,
+        edge_py_attrs_by_endpoint: HashMap::new(),
         adj_py_keys: HashMap::new(), // br-r37-c1-z6uka
         dict_of_dicts_cache: None,
         adj_row_py: HashMap::new(),
