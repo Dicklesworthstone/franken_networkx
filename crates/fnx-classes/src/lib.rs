@@ -1164,49 +1164,40 @@ impl Graph {
     /// control at zero. Probing borrowed and owning only when the entry is
     /// genuinely new keeps the occupied path allocation-free.
     ///
-    /// Occupied-branch semantics are unchanged: `IndexMap::entry(..).or_default()`
-    /// on a present key returns the existing value without reordering, which is
-    /// exactly what `get_mut` returns, so insertion order and every returned
+    /// Occupied-branch semantics are unchanged: `IndexMap::get_full_mut` returns
+    /// the existing value without reordering, exactly as `get_mut` did, so
+    /// insertion order and every returned
     /// value are identical.
     fn add_node_with_attrs_unrecorded(
         &mut self,
         node: impl AsRef<str> + Into<String>,
         attrs: AttrMap,
     ) -> (bool, bool, usize, Option<usize>) {
-        let existed = self.nodes.contains_key(node.as_ref());
-        let mut changed = !existed;
-        let (attrs_count, inserted_index) = {
-            let (bucket, inserted_index) = if existed {
-                (
-                    self.nodes
-                        .get_mut(node.as_ref())
-                        .expect("contains_key reported this node present"),
-                    None,
-                )
-            } else {
-                // `insert_full` exposes the just-assigned stable insertion
-                // index. `get_index_mut` then obtains the same fresh bucket
-                // without hashing the String a second time.
-                let (index, previous) = self.nodes.insert_full(node.into(), AttrMap::new());
-                debug_assert!(previous.is_none(), "vacant node unexpectedly replaced");
-                (
-                    self.nodes
+        let (existed, changed, attrs_count, inserted_index) =
+            match self.nodes.get_full_mut(node.as_ref()) {
+                Some((_index, _stored_key, bucket)) => {
+                    let changed = !attrs.is_empty()
+                        && attrs
+                            .iter()
+                            .any(|(key, value)| bucket.get(key) != Some(value));
+                    bucket.extend(attrs);
+                    (true, changed, bucket.len(), None)
+                }
+                None => {
+                    // `insert_full` exposes the just-assigned stable insertion
+                    // index. `get_index_mut` then obtains the same fresh bucket
+                    // without hashing the String a second time.
+                    let (index, previous) = self.nodes.insert_full(node.into(), AttrMap::new());
+                    debug_assert!(previous.is_none(), "vacant node unexpectedly replaced");
+                    let bucket = self
+                        .nodes
                         .get_index_mut(index)
                         .expect("inserted node must have its assigned index")
-                        .1,
-                    Some(index),
-                )
+                        .1;
+                    bucket.extend(attrs);
+                    (false, true, bucket.len(), Some(index))
+                }
             };
-            if !attrs.is_empty()
-                && attrs
-                    .iter()
-                    .any(|(key, value)| bucket.get(key) != Some(value))
-            {
-                changed = true;
-            }
-            bucket.extend(attrs);
-            (bucket.len(), inserted_index)
-        };
         // Extend integer adjacency list for new nodes
         if !existed {
             self.adj_indices.push(Vec::new());
@@ -9706,6 +9697,23 @@ mod tests {
         assert!(r2 > r1);
         let expected = CgseValue::from("blue");
         assert_eq!(graph.node_attrs("a").unwrap().get("color"), Some(&expected));
+    }
+
+    #[test]
+    fn add_node_with_identical_attrs_keeps_order_and_revision() {
+        let mut graph = Graph::strict();
+        assert!(graph.add_node_with_attrs("a", single_attr("color", "red")));
+        assert!(graph.add_node("b"));
+        let revision_before = graph.revision();
+
+        assert!(!graph.add_node_with_attrs("a", single_attr("color", "red")));
+
+        assert_eq!(graph.nodes_ordered(), vec!["a", "b"]);
+        assert_eq!(graph.revision(), revision_before);
+        assert_eq!(
+            graph.node_attrs("a").and_then(|attrs| attrs.get("color")),
+            Some(&CgseValue::from("red"))
+        );
     }
 
     #[test]
