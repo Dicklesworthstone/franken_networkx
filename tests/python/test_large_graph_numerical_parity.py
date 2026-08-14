@@ -536,6 +536,15 @@ def test_graphical_complement_degrees_sum_to_n_minus_one():
     for node in graph:
         assert graph.degree(node) + complement.degree(node) == len(graph) - 1
 
+
+def test_graph_complement_is_an_involution():
+    graph = fnx.Graph([(0, 1), (1, 2), (2, 3)])
+    restored = fnx.complement(fnx.complement(graph))
+    assert set(restored.nodes()) == set(graph.nodes())
+    assert {frozenset(edge) for edge in restored.edges()} == {
+        frozenset(edge) for edge in graph.edges()
+    }
+
     directed = fnx.DiGraph()
     directed.add_edges_from([(0, 1), (1, 3), (0, 2), (2, 3), (1, 2)])
     directed_mapping = {node: f"directed-path-{node}" for node in directed}
