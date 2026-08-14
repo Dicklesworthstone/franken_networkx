@@ -565,6 +565,13 @@ def test_directed_complement_preserves_node_set_and_excludes_reverse_edges():
     assert not complement.has_edge(0, 1)
     assert complement.has_edge(1, 0)
 
+
+def test_directed_complement_edge_count_is_complete_minus_original():
+    graph = fnx.DiGraph([(0, 1), (1, 2)])
+    complement = fnx.complement(graph)
+    n = len(graph)
+    assert graph.number_of_edges() + complement.number_of_edges() == n * (n - 1)
+
     directed = fnx.DiGraph()
     directed.add_edges_from([(0, 1), (1, 3), (0, 2), (2, 3), (1, 2)])
     directed_mapping = {node: f"directed-path-{node}" for node in directed}
