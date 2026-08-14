@@ -579,6 +579,14 @@ def test_directed_complement_is_an_involution():
     assert set(restored.nodes()) == set(graph.nodes())
     assert set(restored.edges()) == set(graph.edges())
 
+
+def test_directed_complement_in_out_degrees_sum_to_n_minus_one():
+    graph = fnx.DiGraph([(0, 1), (1, 2), (2, 0)])
+    complement = fnx.complement(graph)
+    for node in graph:
+        assert graph.out_degree(node) + complement.out_degree(node) == len(graph) - 1
+        assert graph.in_degree(node) + complement.in_degree(node) == len(graph) - 1
+
     directed = fnx.DiGraph()
     directed.add_edges_from([(0, 1), (1, 3), (0, 2), (2, 3), (1, 2)])
     directed_mapping = {node: f"directed-path-{node}" for node in directed}
