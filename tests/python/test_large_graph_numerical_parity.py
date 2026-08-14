@@ -434,6 +434,25 @@ def test_maximum_edges_match_minimum_edges_on_negated_weights():
         frozenset(edge) for edge in minimum
     }
 
+
+def test_flow_values_scale_with_uniform_capacity_scaling():
+    graph = fnx.DiGraph()
+    graph.add_edge("s", "a", capacity=3)
+    graph.add_edge("s", "b", capacity=2)
+    graph.add_edge("a", "t", capacity=2)
+    graph.add_edge("b", "t", capacity=4)
+    graph.add_edge("a", "b", capacity=1)
+    scaled = fnx.DiGraph()
+    scaled.add_edges_from(
+        [(u, v, {"capacity": 5 * data["capacity"]}) for u, v, data in graph.edges(data=True)]
+    )
+    flow = fnx.maximum_flow_value(graph, "s", "t", capacity="capacity")
+    scaled_flow = fnx.maximum_flow_value(scaled, "s", "t", capacity="capacity")
+    cut = fnx.minimum_cut_value(graph, "s", "t", capacity="capacity")
+    scaled_cut = fnx.minimum_cut_value(scaled, "s", "t", capacity="capacity")
+    assert scaled_flow == 5 * flow
+    assert scaled_cut == 5 * cut
+
     directed = fnx.DiGraph()
     directed.add_edges_from([(0, 1), (1, 3), (0, 2), (2, 3), (1, 2)])
     directed_mapping = {node: f"directed-path-{node}" for node in directed}
