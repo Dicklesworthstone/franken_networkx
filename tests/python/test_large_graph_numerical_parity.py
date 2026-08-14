@@ -492,6 +492,17 @@ def test_flow_values_are_monotone_when_capacities_increase():
     assert increased_flow >= flow
     assert increased_cut >= cut
 
+
+def test_graphical_degree_sequence_complement_is_invariant():
+    sequence = [3, 3, 2, 2, 2, 2]
+    graph = fnx.havel_hakimi_graph(sequence)
+    complement = fnx.complement(graph)
+    n = len(sequence)
+    complement_sequence = sorted((n - 1) - degree for _, degree in graph.degree())
+    assert sorted(dict(complement.degree()).values()) == complement_sequence
+    assert fnx.is_graphical(sequence)
+    assert fnx.is_graphical(complement_sequence)
+
     directed = fnx.DiGraph()
     directed.add_edges_from([(0, 1), (1, 3), (0, 2), (2, 3), (1, 2)])
     directed_mapping = {node: f"directed-path-{node}" for node in directed}
