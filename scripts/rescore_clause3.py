@@ -118,10 +118,64 @@ def load_rows(path):
     return rows, usable
 
 
+def rescore_rows(rows, variant):
+    """Return the clause-3 delta table, refusing inconsistent harness captures."""
+    newly_decidable, newly_undecidable = [], []
+    unchanged = 0
+    for row in rows:
+        current = decide(row, "current")
+        recorded_gate = row.get("decision_gate")
+        if isinstance(recorded_gate, dict) and "decidable" in recorded_gate:
+            if bool(recorded_gate["decidable"]) is not current["decidable"]:
+                label = row.get("label", "?")
+                raise ValueError(
+                    f"{label}: raw samples replay to current decidable="
+                    f"{current['decidable']}, but the harness recorded "
+                    f"{recorded_gate['decidable']}"
+                )
+
+        alternate = decide(row, variant)
+        if current["decidable"] == alternate["decidable"]:
+            unchanged += 1
+        elif alternate["decidable"]:
+            # Clauses 1/2 are identical across variants, so every admitted row
+            # here was vetoed solely by the production clause-3 rule.
+            assert current["c1"] and current["c2"] and not current["c3"]
+            newly_decidable.append(
+                {
+                    "label": row.get("label", "?"),
+                    "ratio_p50": alternate["median"],
+                    "outcome": "WIN" if alternate["median"] > 1.0 else "LOSE",
+                }
+            )
+        else:
+            newly_undecidable.append(
+                {
+                    "label": row.get("label", "?"),
+                    "ratio_p50": current["median"],
+                }
+            )
+
+    wins = sum(row["outcome"] == "WIN" for row in newly_decidable)
+    loses = len(newly_decidable) - wins
+    return {
+        "variant": variant,
+        "rows_rescored": len(rows),
+        "unchanged": unchanged,
+        "previously_vetoed_now_decidable": newly_decidable,
+        "previously_vetoed_now_decidable_count": len(newly_decidable),
+        "previously_vetoed_now_decidable_wins": wins,
+        "previously_vetoed_now_decidable_loses": loses,
+        "newly_undecidable": newly_undecidable,
+        "newly_undecidable_count": len(newly_undecidable),
+    }
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("capture", help="harness stdout capture, or a JSON array of rows")
     ap.add_argument("--variant", default="pooled", choices=("pooled", "relative"))
+    ap.add_argument("--json", action="store_true", help="emit the publication table as JSON")
     args = ap.parse_args(argv)
 
     rows, usable = load_rows(args.capture)
@@ -132,29 +186,30 @@ def main(argv=None):
         return 2
     print(f"{len(usable)} of {len(rows)} rows carry raw samples\n")
 
-    flipped, unchanged, lost = [], 0, []
-    for row in usable:
-        cur = decide(row, "current")
-        alt = decide(row, args.variant)
-        if cur["decidable"] == alt["decidable"]:
-            unchanged += 1
-        elif alt["decidable"]:
-            flipped.append((row.get("label", "?"), alt["median"]))
-        else:
-            lost.append((row.get("label", "?"), cur["median"]))
+    table = rescore_rows(usable, args.variant)
+    if args.json:
+        print(json.dumps(table, sort_keys=True))
+        return 0
 
-    wins = [f for f in flipped if f[1] > 1.0]
-    loses = [f for f in flipped if f[1] <= 1.0]
     print(f"variant: {args.variant}   (clauses 1 and 2 held fixed)")
-    print(f"  unchanged                     {unchanged}")
-    print(f"  newly decidable               {len(flipped)}")
-    print(f"    of which WIN  (>1.0x)       {len(wins)}")
-    print(f"    of which LOSE (<=1.0x)      {len(loses)}")
-    print(f"  newly UNdecidable             {len(lost)}")
-    for label, median in flipped:
-        print(f"    + {median:8.4f}x  {label}")
-    for label, median in lost:
-        print(f"    - {median:8.4f}x  {label}")
+    print(f"  unchanged                     {table['unchanged']}")
+    print(
+        "  previously vetoed, now decidable "
+        f"{table['previously_vetoed_now_decidable_count']}"
+    )
+    print(
+        "    of which WIN  (>1.0x)       "
+        f"{table['previously_vetoed_now_decidable_wins']}"
+    )
+    print(
+        "    of which LOSE (<=1.0x)      "
+        f"{table['previously_vetoed_now_decidable_loses']}"
+    )
+    print(f"  newly UNdecidable             {table['newly_undecidable_count']}")
+    for row in table["previously_vetoed_now_decidable"]:
+        print(f"    + {row['ratio_p50']:8.4f}x  {row['outcome']}  {row['label']}")
+    for row in table["newly_undecidable"]:
+        print(f"    - {row['ratio_p50']:8.4f}x  {row['label']}")
 
     print("\nREAD THIS BEFORE ACTING. The predicate on br-r37-c1-d4xot is that a")
     print("variant admitting ONLY wins is a loosening and must be reverted. Compare")

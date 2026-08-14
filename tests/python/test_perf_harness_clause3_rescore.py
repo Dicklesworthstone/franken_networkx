@@ -7,6 +7,8 @@ import statistics
 import sys
 from pathlib import Path
 
+import pytest
+
 
 REPO = Path(__file__).resolve().parents[2]
 
@@ -70,3 +72,53 @@ def test_clause3_rescore_replays_the_production_bootstrap_and_current_verdict():
     assert replay["c2"] is production["clears_2x_half_width"]
     assert replay["c3"] is production["null_median_bias_bounded"]
     assert replay["decidable"] is production["decidable"]
+
+
+def test_clause3_rescore_reports_the_required_win_lose_split():
+    """Only rows vetoed solely by clause 3 may enter the publication table."""
+    noisy_null_nx = [0.970] * 21
+    neutral_null = [1.000] * 21
+    rows = [
+        {
+            "label": "rescued win",
+            "ratio_samples": [4.4] * 21,
+            "null_nx_samples": noisy_null_nx,
+            "null_fnx_samples": neutral_null,
+        },
+        {
+            "label": "rescued loss",
+            "ratio_samples": [0.6] * 21,
+            "null_nx_samples": noisy_null_nx,
+            "null_fnx_samples": neutral_null,
+        },
+        {
+            "label": "already decidable",
+            "ratio_samples": [1.2] * 21,
+            "null_nx_samples": neutral_null,
+            "null_fnx_samples": neutral_null,
+        },
+    ]
+
+    table = rescore.rescore_rows(rows, "pooled")
+
+    assert table["rows_rescored"] == 3
+    assert table["previously_vetoed_now_decidable_count"] == 2
+    assert table["previously_vetoed_now_decidable_wins"] == 1
+    assert table["previously_vetoed_now_decidable_loses"] == 1
+    assert [row["label"] for row in table["previously_vetoed_now_decidable"]] == [
+        "rescued win",
+        "rescued loss",
+    ]
+
+
+def test_clause3_rescore_rejects_a_capture_that_disagrees_with_current_gate():
+    row = {
+        "label": "tampered capture",
+        "ratio_samples": [1.2] * 21,
+        "null_nx_samples": [1.0] * 21,
+        "null_fnx_samples": [1.0] * 21,
+        "decision_gate": {"decidable": False},
+    }
+
+    with pytest.raises(ValueError, match="tampered capture"):
+        rescore.rescore_rows([row], "pooled")
