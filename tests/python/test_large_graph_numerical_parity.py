@@ -331,6 +331,24 @@ def test_spanning_tree_outputs_are_equivariant_under_relabeling():
             frozenset((u, v)): data["weight"] for u, v, data in moved.edges(data=True)
         }
 
+
+def test_spanning_edge_outputs_are_equivariant_under_relabeling():
+    graph = fnx.Graph()
+    graph.add_weighted_edges_from(
+        [(0, 1, 4), (1, 2, 1), (2, 3, 3), (0, 3, 2), (0, 2, 5)]
+    )
+    mapping = {node: f"edge-tree-{node}" for node in graph}
+    relabeled = fnx.relabel_nodes(graph, mapping)
+
+    for builder in (fnx.minimum_spanning_edges, fnx.maximum_spanning_edges):
+        original = list(builder(graph, data=True, weight="weight"))
+        moved = list(builder(relabeled, data=True, weight="weight"))
+        expected = {
+            (mapping[u], mapping[v], data["weight"])
+            for u, v, data in original
+        }
+        assert expected == {(u, v, data["weight"]) for u, v, data in moved}
+
     directed = fnx.DiGraph()
     directed.add_edges_from([(0, 1), (1, 3), (0, 2), (2, 3), (1, 2)])
     directed_mapping = {node: f"directed-path-{node}" for node in directed}
