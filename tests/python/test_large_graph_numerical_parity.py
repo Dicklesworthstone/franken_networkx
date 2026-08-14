@@ -77,3 +77,23 @@ def test_large_graph_scalar_precision(seed):
     assert fnx.diameter(fg) == nx.diameter(ng)
     assert _maxdiff(fnx.clustering(fg), nx.clustering(ng)) < 1e-9
     assert abs(fnx.estrada_index(fg) - nx.estrada_index(ng)) < 1e-3
+
+
+def test_node_metric_maps_are_equivariant_under_relabeling():
+    """Node-keyed centrality maps must move values with their node labels."""
+    graph = fnx.Graph()
+    graph.add_edges_from(
+        [("a", "b"), ("b", "c"), ("c", "d"), ("b", "d"), ("d", "e")]
+    )
+    mapping = {node: f"renamed-{index}" for index, node in enumerate(graph)}
+    relabeled = fnx.relabel_nodes(graph, mapping)
+
+    for metric in (
+        fnx.betweenness_centrality,
+        fnx.closeness_centrality,
+        fnx.harmonic_centrality,
+    ):
+        original = metric(graph)
+        moved = metric(relabeled)
+        assert set(moved) == {mapping[node] for node in original}
+        assert moved == {mapping[node]: value for node, value in original.items()}
