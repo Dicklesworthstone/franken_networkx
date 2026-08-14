@@ -402,6 +402,22 @@ def test_spanning_edges_are_invariant_under_additive_weight_shift():
             frozenset(edge) for edge in moved
         }
 
+
+def test_maximum_tree_matches_minimum_tree_on_negated_weights():
+    graph = fnx.Graph()
+    graph.add_weighted_edges_from(
+        [(0, 1, 4), (1, 2, 1), (2, 3, 3), (0, 3, 2), (0, 2, 5)]
+    )
+    negated = fnx.Graph()
+    negated.add_weighted_edges_from(
+        [(u, v, -weight) for u, v, weight in graph.edges(data="weight")]
+    )
+    maximum = fnx.maximum_spanning_tree(graph, weight="weight")
+    minimum = fnx.minimum_spanning_tree(negated, weight="weight")
+    assert {frozenset(edge) for edge in maximum.edges()} == {
+        frozenset(edge) for edge in minimum.edges()
+    }
+
     directed = fnx.DiGraph()
     directed.add_edges_from([(0, 1), (1, 3), (0, 2), (2, 3), (1, 2)])
     directed_mapping = {node: f"directed-path-{node}" for node in directed}
