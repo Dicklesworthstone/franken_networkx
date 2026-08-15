@@ -596,7 +596,7 @@ def test_directed_complement_flips_each_missing_orientation():
 
 
 def test_undirected_complement_edges_are_symmetric():
-    graph = fnx.Graph([(0, 1)])
+    graph = fnx.Graph([(0, 1), (0, 2)])
     complement = fnx.complement(graph)
     for u, v in complement.edges():
         assert complement.has_edge(v, u)
@@ -614,6 +614,14 @@ def test_complement_does_not_copy_source_edge_attributes():
     graph.add_edge(0, 1, color="red")
     complement = fnx.complement(graph)
     assert all("color" not in data for _, _, data in complement.edges(data=True))
+
+
+def test_complement_edge_attribute_mutation_is_independent():
+    graph = fnx.Graph([(0, 1)])
+    complement = fnx.complement(graph)
+    complement.add_edge(1, 2)
+    complement.edges[1, 2]["color"] = "blue"
+    assert not graph.has_edge(1, 2)
 
     directed = fnx.DiGraph()
     directed.add_edges_from([(0, 1), (1, 3), (0, 2), (2, 3), (1, 2)])
