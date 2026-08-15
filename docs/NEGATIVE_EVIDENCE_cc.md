@@ -915,7 +915,7 @@ MEASURED — grid_graph([100,100]) (10000 nodes, 19800 edges), 61 rounds: **BATC
 61/61, p5_p95 [10.3408,15.3132] vs NULL 1.0159x [0.8168,1.2459]. DECISIVE: candidate p5 (10.34) ~8.3x above
 null p95. Byte-identical: coords[d]+1 guarded (no carry) so +1 in dim d = +strides[d] in flat index, and
 index_to_coords(i+strides[d]) = neighbor_coords → same endpoint as coords_to_label. Parity asserted on [100,
-100] PLUS n-dim probes [7](1D), [4,5,6](3D), [3,2,4,3](4D) — all byte-identical. No dedicated Rust suite test
+100] PLUS n-dim probes shape `[7]` (1D), `[4,5,6]` (3D), and `[3,2,4,3]` (4D) — all byte-identical. No dedicated Rust suite test
 (A/B parity + Python differential). Reachable via grid_graph pyo3. CLIPPY: my lines clean (production
 ~34073-34098 / test ~70053-70200); crate's 12 pre-existing peer errors untouched. See
 [[redundant_edge_materialization_family]].

@@ -187,6 +187,19 @@ CV_REPORT_ONLY = re.compile(
     r"^\s*cv_role\s*=\s*report_only\s*$",
     re.I | re.M,
 )
+# Every field a verdict is read off, captured with its value so that flipping
+# one — INCUMBENT to SELF-SPEEDUP, a ratio, campaign_output — re-adjudicates
+# the row even though the surrounding prose is untouched.
+CLAIM_FIELD = re.compile(
+    r"^\s*(comparison_class|incumbent|incumbent_same_invocation|incumbent_ratio|"
+    r"campaign_output|decision_gate|cv_role|bench_elf_sha256)\s*=\s*(.+?)\s*$",
+    re.I | re.M,
+)
+# A verdict is a number. Any digit that moves, anywhere in the body, is a claim
+# change: ratios, CI bounds, round counts, self-time percentages, node counts.
+CLAIM_NUMERAL = re.compile(r"\d+(?:[.,]\d+)*")
+# Binary/input identities are hex, so a changed digest need not change a digit.
+CLAIM_DIGEST = re.compile(r"\b[0-9a-f]{16,}\b", re.I)
 COMPETITIVE_SELF_CLAIM = re.compile(
     r"\b(?:beats?|outperforms?)\s+(?:(?:the|actual|legacy)\s+)*"
     r"(?:networkx|incumbent)\b|"
@@ -470,14 +483,58 @@ def keyed_sections(text: str) -> dict[tuple[str, int], str]:
     return indexed
 
 
+def claim_fingerprint(heading: str, body: str) -> tuple:
+    """Everything about a row that a verdict can be read off.
+
+    Two bodies with the same fingerprint state the same claim on the same
+    evidence: same heading, same machine-readable contract fields, same
+    numbers, same binary identities, and the same adjudication under every
+    classifier in this file. Only the prose around them moved.
+    """
+    _ok, keep_label, keep_problems = keep_contract(heading, body)
+    return (
+        heading.strip(),
+        tuple((key.lower(), value.lower()) for key, value in CLAIM_FIELD.findall(body)),
+        tuple(CLAIM_NUMERAL.findall(body)),
+        tuple(digest.lower() for digest in CLAIM_DIGEST.findall(body)),
+        is_rejection(heading),
+        is_keep(heading),
+        classify(heading, body),
+        has_recorded_null(body),
+        has_counted_mechanism(body),
+        has_loaded_elf_sha(body),
+        keep_label,
+        tuple(keep_problems),
+    )
+
+
 def changed_section_rows(path: Path, before: str, after: str):
-    """Return every added or body-modified verdict section from ``after``."""
+    """Return every verdict section from ``after`` whose CLAIM is new or moved.
+
+    A row is re-adjudicated when it is new, or when anything a verdict rests on
+    changed: the heading, a contract field, any number, any binary digest, or
+    any classifier's reading of the body. An edit that leaves all of those
+    byte-identical is an annotation — reflowing prose, fixing Markdown, adding
+    a cross-reference — and re-running today's contract over a row written
+    under an older one would only strand the edit (br-r37-c1-qo7uf).
+
+    This is not an escape hatch for stale rows: an annotation that publishes a
+    NEW number moves the fingerprint and faces the full contract, which is the
+    right outcome — the annotation is itself a measurement and must carry its
+    own provenance.
+    """
     before_sections = keyed_sections(before)
-    return [
-        (path.name, heading, body)
-        for (heading, occurrence), body in keyed_sections(after).items()
-        if before_sections.get((heading, occurrence)) != body
-    ]
+    rows = []
+    for (heading, occurrence), body in keyed_sections(after).items():
+        prior = before_sections.get((heading, occurrence))
+        if prior == body:
+            continue
+        if prior is not None and claim_fingerprint(heading, prior) == claim_fingerprint(
+            heading, body
+        ):
+            continue
+        rows.append((path.name, heading, body))
+    return rows
 
 
 def git_text(spec: str, path: Path) -> str:
@@ -759,6 +816,52 @@ def cmd_selfcheck(*, quiet: bool = False) -> int:
         if actual_ok != expected_ok:
             failures.append(
                 f"{label}: expected keep_contract={expected_ok}, got {actual_ok}"
+            )
+
+    # br-r37-c1-qo7uf: a row is re-adjudicated when its CLAIM moves, never
+    # because someone reflowed the prose around it. The legacy row below fails
+    # today's KEEP contract, so if any of these edits reaches the validator the
+    # commit is blocked — which is exactly right for four of the five.
+    legacy_keep = (
+        "## 2026-07-12 SHIPPED WIN: `grid_graph` UPGRADED to INDEX batch **12.6885x**\n"
+        "\n"
+        "MEASURED on grid_graph([100,100]) (10000 nodes, 19800 edges), 61 rounds:\n"
+        "BATCH 12.6885x vs NULL 1.0159x [0.8168,1.2459]. Parity asserted on [4,5,6].\n"
+    )
+    annotation_cases = [
+        (
+            "cosmetic Markdown edit is an annotation",
+            legacy_keep.replace("on [4,5,6]", "on shape `[4,5,6]`"),
+            0,
+        ),
+        (
+            "a moved ratio is a claim change",
+            legacy_keep.replace("12.6885x**", "12.9885x**"),
+            1,
+        ),
+        (
+            "a moved null control is a claim change",
+            legacy_keep.replace("1.0159x", "1.0159x [0.9,1.1] and"),
+            1,
+        ),
+        (
+            "declaring a comparison class is a claim change",
+            legacy_keep + "comparison_class=INCUMBENT\n",
+            1,
+        ),
+        (
+            "an added row is validated as new",
+            legacy_keep + "\n## 2026-08-15 KEEP: unrelated new verdict row\n\nNo evidence.\n",
+            1,
+        ),
+    ]
+    synthetic_path = Path("selfcheck-ledger.md")
+    for label, after_text, expected_rows in annotation_cases:
+        checks += 1
+        actual_rows = len(changed_section_rows(synthetic_path, legacy_keep, after_text))
+        if actual_rows != expected_rows:
+            failures.append(
+                f"{label}: expected {expected_rows} re-validated row(s), got {actual_rows}"
             )
 
     own_sentinels = [
