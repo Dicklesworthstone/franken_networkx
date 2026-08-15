@@ -645,6 +645,13 @@ def test_complement_isolated_node_has_full_degree():
     complement = fnx.complement(graph)
     assert complement.degree(0) == len(graph) - 1
 
+
+def test_complement_preserves_node_iteration_order():
+    graph = fnx.Graph()
+    graph.add_nodes_from(["a", "b", "c"])
+    complement = fnx.complement(graph)
+    assert list(complement) == list(graph)
+
     directed = fnx.DiGraph()
     directed.add_edges_from([(0, 1), (1, 3), (0, 2), (2, 3), (1, 2)])
     directed_mapping = {node: f"directed-path-{node}" for node in directed}
