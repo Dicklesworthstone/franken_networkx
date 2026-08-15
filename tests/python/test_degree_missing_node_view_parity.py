@@ -193,6 +193,51 @@ def test_degree_view_getitem_still_answers_by_node(cls_name):
         assert view_fx["n1"] == view_nx["n1"] == 1
 
 
+@pytest.mark.parametrize("cls_name", CLASSES)
+def test_weighted_restricted_degree_view_membership_and_contracts(cls_name):
+    """br-r37-c1-p1uro, weighted path.
+
+    ``weight=`` reaches the restricted proxy through a DIFFERENT construction
+    site (``_WeightAwareDegreeView``) than the unweighted one the other
+    membership tests exercise, and its elements are floats rather than ints —
+    so ``(node, degree)`` membership is a distinct assertion, not a rerun.
+    """
+    made = []
+    for lib in (nx, fnx):
+        graph = getattr(lib, cls_name)()
+        graph.add_edge("n0", "n1", weight=2.5)
+        made.append(graph)
+    gnx, gfx = made
+    view_nx = gnx.degree(["n0"], weight="weight")
+    view_fx = gfx.degree(["n0"], weight="weight")
+    assert type(view_fx).__name__ == type(view_nx).__name__
+    for probe in ("n0", ("n0", 2.5), ("n0", 1), ("absent", 2.5)):
+        assert (probe in view_fx) == (probe in view_nx), probe
+    assert sorted(view_fx) == sorted(view_nx)
+    assert len(view_fx) == len(view_nx)
+    assert view_fx["n1"] == view_nx["n1"]
+
+
+@pytest.mark.parametrize("cls_name", CLASSES)
+@pytest.mark.parametrize("restricted", [True, False], ids=["restricted", "unrestricted"])
+def test_degree_view_membership_agrees_with_its_own_iteration(cls_name, restricted):
+    """The invariant the deleted ``__contains__`` broke, asserted on fnx alone.
+
+    A container whose ``in`` disagrees with iterating it is wrong independently
+    of what networkx does, so this is deliberately NOT differential: it would
+    still catch a re-introduced node-membership ``__contains__`` even if
+    networkx's own degree views grew one.
+    """
+    _, gfx = _pair(cls_name)
+    view = gfx.degree(["n0"]) if restricted else gfx.degree
+    elements = list(view)
+    assert elements, "the probe graph must make the view non-empty"
+    for element in elements:
+        assert element in view
+    for node, _degree in elements:
+        assert node not in view
+
+
 def test_missing_node_degree_is_falsy_not_an_exception():
     """The concrete drop-in pattern that motivated the bead."""
     gnx, gfx = _pair("Graph")
