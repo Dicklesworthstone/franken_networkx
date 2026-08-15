@@ -10783,7 +10783,7 @@ cannot drift.
 MEASURED, `harness=balanced_square_ab.py --only`, `same_host=thinkstation1`,
 `rch_worker=none` (both arms in-process; nothing dispatched to a worker), 41
 rounds, reps=4000, corrected per-round collect, live networkx 3.6.1 in the same
-invocation, `bench_elf_sha256=a75b9660a79fc44f...` (full sha in the commit):
+invocation, `bench_elf_sha256=a75b9660a79fc44fcc08bb54018f800f84862280cb301ed0e024075edbbf13a3`:
 
     draw            ratio     CI                  nulls           verdict
     1             1.0278x  [1.0246, 1.0320]   1.0118/1.0006  ADMISSIBLE
