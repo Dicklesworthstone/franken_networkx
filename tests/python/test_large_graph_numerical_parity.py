@@ -766,6 +766,15 @@ def test_edges_view_membership_accepts_reverse_equal_strings_undirected():
     second = "".join(["second", "-membership"])
     assert (second, first) in graph.edges
 
+
+def test_equal_string_edge_probes_do_not_change_edge_view_length():
+    graph = fnx.Graph([("probe-source", "probe-target")])
+    before = len(graph.edges)
+    source = "".join(["probe", "-source"])
+    target = "".join(["probe", "-target"])
+    assert (source, target) in graph.edges
+    assert len(graph.edges) == before
+
     directed = fnx.DiGraph()
     directed.add_edges_from([(0, 1), (1, 3), (0, 2), (2, 3), (1, 2)])
     directed_mapping = {node: f"directed-path-{node}" for node in directed}
