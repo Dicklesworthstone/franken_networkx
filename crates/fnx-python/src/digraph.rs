@@ -390,6 +390,12 @@ pub struct PyMultiDiGraph {
     /// Live `{node: None}` dict serving iter(G)/list(G.nodes()) as a
     /// dict_keyiterator, mutated in place by node add/remove/clear hooks.
     pub(crate) node_iter_mirror: std::sync::Mutex<Option<Py<PyDict>>>,
+    /// br-r37-c1-ic4cv: the present-key memo the other three classes already
+    /// carry (br-r37-c1-6n9vm). MultiDiGraph was the only class without this
+    /// field, so there was nowhere to hang the set and `has_node` /
+    /// `__contains__` paid the full canonical rebuild on every probe.
+    /// Values are native node indices, invalidated by `nodes_seq`.
+    pub(crate) has_edge_node_index_cache: crate::NodeIndexLookupCache,
     pub(crate) instance_dict_gc: crate::InstanceDictGc,
 }
 
@@ -422,7 +428,29 @@ impl PyMultiDiGraph {
 }
 
 impl PyMultiDiGraph {
+    /// br-r37-c1-ic4cv: see `PyGraph::exact_str_node_is_present`. Exact `str`
+    /// only — the caller enforces it, because the set answers with the key's
+    /// own `__hash__`/`__eq__`, so a subclass that lies about either would
+    /// resolve to whatever entry it claims to equal.
+    fn exact_str_node_is_present(&self, py: Python<'_>, n: &Bound<'_, PyAny>) -> PyResult<bool> {
+        let nodes_seq = self.nodes_seq;
+        if self
+            .has_edge_node_index_cache
+            .is_known_present(py, nodes_seq, n)?
+        {
+            return Ok(true);
+        }
+        let present = with_node_key_str(py, n, |canonical| self.inner.has_node(canonical))?;
+        if present {
+            self.has_edge_node_index_cache.remember_present(py, n)?;
+        }
+        Ok(present)
+    }
+
     fn traverse_python_refs(&self, visit: &PyVisit<'_>) -> Result<(), PyTraverseError> {
+        // br-r37-c1-ic4cv: the memo is traversed like every other Python-object
+        // holder here, so a reference cycle through a cached key is collectable.
+        self.has_edge_node_index_cache.traverse(visit)?;
         for key in self.node_key_map.values() {
             visit.call(key)?;
         }
@@ -516,6 +544,9 @@ impl PyMultiDiGraph {
         *self.edges_data_attr_cache.get_mut().unwrap() = None;
         self.edges_with_keys_cache = None;
         *self.node_iter_mirror.get_mut().unwrap() = None;
+        // br-r37-c1-ic4cv: the memo holds Python key objects, so it must be
+        // dropped here or those objects stay reachable through a cleared graph.
+        self.has_edge_node_index_cache.clear(py);
     }
 
     /// br-r37-c1-qwqvn: cache the immutable no-data keyed edge tuples for the
@@ -2150,6 +2181,7 @@ impl PyMultiDiGraph {
         runtime_policy: RuntimePolicy,
     ) -> PyResult<Self> {
         Ok(Self {
+            has_edge_node_index_cache: crate::NodeIndexLookupCache::new(py),
             in_edges_data_attr_cache: std::sync::Mutex::new(None),
             edges_data_attr_cache: std::sync::Mutex::new(None),
             inner: MultiDiGraph::with_runtime_policy(runtime_policy),
@@ -5473,6 +5505,13 @@ impl PyMultiDiGraph {
         {
             return Ok(true);
         }
+        // br-r37-c1-ic4cv: exact-`str` present-key set, as on the other three
+        // classes (br-r37-c1-6n9vm). CPython caches a string's hash inside the
+        // object; the canonical path rebuilt `"str:{len}:{s}"` and rehashed it
+        // on every probe.
+        if n.is_exact_instance_of::<PyString>() {
+            return self.exact_str_node_is_present(py, n);
+        }
         // br-r37-c1-lvlu7: an UNHASHABLE key is ABSENT, not an error and not a
         // byte comparison — see the undirected twin.
         if !node_key_is_hashable(n) {
@@ -5508,6 +5547,11 @@ impl PyMultiDiGraph {
             && self.inner.node_index_matches_int(i)
         {
             return Ok(true);
+        }
+        // br-r37-c1-ic4cv: same present-key set as `has_node` — the two are the
+        // same question and must not disagree, so they share the memo.
+        if n.is_exact_instance_of::<PyString>() {
+            return self.exact_str_node_is_present(py, n);
         }
         // br-r37-c1-lvlu7: an UNHASHABLE key is ABSENT, not an error and not a
         // byte comparison — see the undirected twin.
@@ -7148,6 +7192,7 @@ impl PyMultiDiGraph {
         // edge_dirty_keys clean. (We also drop the rebuild's eager empty edge attr
         // PyDicts — lazy materialize is identity-preserving, br-r37-c1-aab122464.)
         let mut new_graph = Self {
+            has_edge_node_index_cache: crate::NodeIndexLookupCache::new(py),
             in_edges_data_attr_cache: std::sync::Mutex::new(None),
             edges_data_attr_cache: std::sync::Mutex::new(None),
             inner: self.inner.clone_with_fresh_policy(),
@@ -7199,6 +7244,7 @@ impl PyMultiDiGraph {
     fn _native_to_directed_deepcopy(&self, py: Python<'_>) -> PyResult<Self> {
         let deepcopy = py.import("copy")?.getattr("deepcopy")?;
         let mut new_graph = Self {
+            has_edge_node_index_cache: crate::NodeIndexLookupCache::new(py),
             in_edges_data_attr_cache: std::sync::Mutex::new(None),
             edges_data_attr_cache: std::sync::Mutex::new(None),
             inner: MultiDiGraph::with_runtime_policy(self.inner.runtime_policy().clone()),
@@ -7508,6 +7554,7 @@ impl PyMultiDiGraph {
         // insertion order exactly; only the deep-copy of the Python attr dicts /
         // key objects remains.
         let mut new_graph = Self {
+            has_edge_node_index_cache: crate::NodeIndexLookupCache::new(py),
             in_edges_data_attr_cache: std::sync::Mutex::new(None),
             edges_data_attr_cache: std::sync::Mutex::new(None),
             inner: self.inner.clone_with_fresh_policy(), // br-r37-c1-7dpyg: skip ledger
@@ -7584,6 +7631,7 @@ impl PyMultiDiGraph {
         // dicts are clone_ref'd so attrs stay SHARED (shallow-copy
         // semantics); row-key override maps clone exactly.
         Ok(Self {
+            has_edge_node_index_cache: crate::NodeIndexLookupCache::new(py),
             in_edges_data_attr_cache: std::sync::Mutex::new(None),
             edges_data_attr_cache: std::sync::Mutex::new(None),
             inner: self.inner.clone_with_fresh_policy(), // br-r37-c1-7dpyg: skip ledger
@@ -7688,6 +7736,7 @@ impl PyMultiDiGraph {
         }
 
         let mut new_graph = Self {
+            has_edge_node_index_cache: crate::NodeIndexLookupCache::new(py),
             in_edges_data_attr_cache: std::sync::Mutex::new(None),
             edges_data_attr_cache: std::sync::Mutex::new(None),
             inner: MultiDiGraph::with_runtime_policy(self.inner.runtime_policy().clone()),
@@ -7773,6 +7822,7 @@ impl PyMultiDiGraph {
         let iter = PyIterator::from_object(edges)?;
         let mut involved_nodes: HashSet<String> = HashSet::new();
         let mut new_graph = Self {
+            has_edge_node_index_cache: crate::NodeIndexLookupCache::new(py),
             in_edges_data_attr_cache: std::sync::Mutex::new(None),
             edges_data_attr_cache: std::sync::Mutex::new(None),
             inner: MultiDiGraph::with_runtime_policy(self.inner.runtime_policy().clone()),
@@ -7967,6 +8017,7 @@ impl PyMultiDiGraph {
             Some(HashSet::new())
         };
         let mut new_graph = Self {
+            has_edge_node_index_cache: crate::NodeIndexLookupCache::new(py),
             in_edges_data_attr_cache: std::sync::Mutex::new(None),
             edges_data_attr_cache: std::sync::Mutex::new(None),
             inner: self.inner.reversed(),

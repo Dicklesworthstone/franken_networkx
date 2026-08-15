@@ -112,6 +112,7 @@ fn report_to_pymultidigraph(
     graph: fnx_classes::digraph::MultiDiGraph,
 ) -> PyResult<PyMultiDiGraph> {
     let mut pg = PyMultiDiGraph {
+        has_edge_node_index_cache: crate::NodeIndexLookupCache::new(py),
         in_edges_data_attr_cache: std::sync::Mutex::new(None),
         edges_data_attr_cache: std::sync::Mutex::new(None),
         inner: graph,

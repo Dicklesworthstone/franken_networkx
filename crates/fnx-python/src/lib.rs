@@ -10837,6 +10837,7 @@ impl PyMultiGraph {
         // old loop allocated an empty PyDict per attr-less node/edge —
         // the bindings tolerate absent entries throughout).
         let mut mdg = crate::digraph::PyMultiDiGraph {
+            has_edge_node_index_cache: NodeIndexLookupCache::new(py),
             in_edges_data_attr_cache: std::sync::Mutex::new(None),
             edges_data_attr_cache: std::sync::Mutex::new(None),
             inner: fnx_classes::digraph::MultiDiGraph::with_runtime_policy(
@@ -11322,6 +11323,7 @@ impl PyMultiGraph {
     /// Return a directed copy of the graph.
     fn to_directed(&self, py: Python<'_>) -> PyResult<crate::digraph::PyMultiDiGraph> {
         let mut mdg = crate::digraph::PyMultiDiGraph {
+            has_edge_node_index_cache: NodeIndexLookupCache::new(py),
             in_edges_data_attr_cache: std::sync::Mutex::new(None),
             edges_data_attr_cache: std::sync::Mutex::new(None),
             inner: fnx_classes::digraph::MultiDiGraph::with_runtime_policy(
