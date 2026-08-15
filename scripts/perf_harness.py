@@ -6254,6 +6254,7 @@ def suite_claim_incumbent():
             "output_items": expected_output_items,
             "output_canonical_bytes": expected_output_bytes,
             "complete_output_sha256": expected_output_sha256,
+            "timed_projection": "dict(single_source_shortest_path_length(graph, source))",
         }
         rows.append(
             (
