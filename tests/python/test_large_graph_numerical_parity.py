@@ -608,6 +608,13 @@ def test_complement_edges_start_with_empty_attribute_dicts():
     complement = fnx.complement(graph)
     assert all(data == {} for _, _, data in complement.edges(data=True))
 
+
+def test_complement_does_not_copy_source_edge_attributes():
+    graph = fnx.Graph()
+    graph.add_edge(0, 1, color="red")
+    complement = fnx.complement(graph)
+    assert all("color" not in data for _, _, data in complement.edges(data=True))
+
     directed = fnx.DiGraph()
     directed.add_edges_from([(0, 1), (1, 3), (0, 2), (2, 3), (1, 2)])
     directed_mapping = {node: f"directed-path-{node}" for node in directed}
