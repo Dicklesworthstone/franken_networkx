@@ -1335,7 +1335,9 @@ impl AtlasView {
             row.set_item(py_neighbor, attrs.bind(py))?;
         }
         let row = row.unbind();
-        graph.adj_row_py.insert(self.node.clone(), row.clone_ref(py));
+        graph
+            .adj_row_py
+            .insert(self.node.clone(), row.clone_ref(py));
         self.row = Some(row.clone_ref(py));
         Ok(row)
     }
@@ -1363,11 +1365,7 @@ impl AtlasView {
     }
 
     #[new]
-    fn py_new(
-        py: Python<'_>,
-        graph: Py<PyGraph>,
-        node: &Bound<'_, PyAny>,
-    ) -> PyResult<Self> {
+    fn py_new(py: Python<'_>, graph: Py<PyGraph>, node: &Bound<'_, PyAny>) -> PyResult<Self> {
         let canonical = node_key_to_string(py, node)?;
         if !graph.borrow(py).inner.has_node(&canonical) {
             return Err(crate::missing_key_error(node));
