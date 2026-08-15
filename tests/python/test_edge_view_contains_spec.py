@@ -143,6 +143,72 @@ def test_unhashable_endpoint_is_a_known_divergence_from_networkx():
         (_Unhashable(["a"]), "b") in reference.edges  # noqa: B015
 
 
+# --------------------------------------------------------------------------
+# Multigraphs: the same question, a different contract (br-r37-c1-6fs77).
+#
+# networkx's MultiEdgeView takes `len(e)`, unpacks 2 or 3 elements, raises
+# ValueError for any other length — and for a 2-element spec defaults the KEY
+# TO ZERO. It does not mean "any key". fnx reported True as soon as the pair
+# existed, so every multigraph whose keys are not 0 answered membership wrongly,
+# in the direction of claiming edges that are not there.
+# --------------------------------------------------------------------------
+MULTI_CLASSES = ["MultiGraph", "MultiDiGraph"]
+
+MULTI_SPECS = [
+    ("pair-with-nonzero-key", lambda: ("a", "b")),
+    ("triple-with-that-key", lambda: ("a", "b", "x")),
+    ("triple-with-key-zero", lambda: ("a", "b", 0)),
+    ("pair-with-auto-key", lambda: ("c", "d")),
+    ("triple-auto-key-zero", lambda: ("c", "d", 0)),
+    ("triple-absent-key", lambda: ("c", "d", 1)),
+    ("pair-of-parallel-edges", lambda: ("e", "f")),
+    ("triple-second-parallel", lambda: ("e", "f", 1)),
+    ("reversed-pair", lambda: ("b", "a")),
+    ("reversed-triple", lambda: ("b", "a", "x")),
+    ("three-list", lambda: ["a", "b", "x"]),
+    ("absent-pair", lambda: ("zz", "yy")),
+    ("four-tuple", lambda: ("a", "b", "x", "extra")),
+    ("one-tuple", lambda: ("a",)),
+    ("str-len2", lambda: "ab"),
+    ("int", lambda: 5),
+    ("bool-key", lambda: ("c", "d", False)),
+]
+
+
+def _multi_graphs(cls_name):
+    reference, subject = getattr(nx, cls_name)(), getattr(fnx, cls_name)()
+    for graph in (reference, subject):
+        graph.add_edge("a", "b", key="x")
+        graph.add_edge("c", "d")
+        graph.add_edge("e", "f", key=0)
+        graph.add_edge("e", "f", key=1)
+    return reference, subject
+
+
+@pytest.mark.parametrize("cls_name", MULTI_CLASSES)
+@pytest.mark.parametrize("label,make_spec", MULTI_SPECS, ids=[s[0] for s in MULTI_SPECS])
+def test_multi_edge_spec_outcome_matches_networkx(cls_name, label, make_spec):
+    reference, subject = _multi_graphs(cls_name)
+    assert _outcome(subject.edges, make_spec()) == _outcome(reference.edges, make_spec())
+
+
+@pytest.mark.parametrize("cls_name", MULTI_CLASSES)
+def test_a_two_element_multi_spec_means_key_zero_not_any_key(cls_name):
+    """The regression itself, stated on its own so a failure names it.
+
+    An implementation that answers "does the pair exist" passes every other
+    test in this file and fails this one.
+    """
+    reference, subject = _multi_graphs(cls_name)
+    assert (("a", "b") in reference.edges) is False
+    assert (("a", "b") in subject.edges) is False, (
+        f"{cls_name}: a 2-element spec matched an edge whose only key is 'x'; "
+        "networkx probes key 0"
+    )
+    # And key 0 present still answers True, so the fix is not just "always False".
+    assert (("c", "d") in subject.edges) is (("c", "d") in reference.edges) is True
+
+
 def test_the_rust_slot_is_reached_directly():
     """The lever IS the missing Python frame; a rebind would undo it silently."""
     from franken_networkx import _fnx

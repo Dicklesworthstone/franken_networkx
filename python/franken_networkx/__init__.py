@@ -2809,22 +2809,26 @@ class _MultiGraphEdgeView:
             N = len(edge)
         except TypeError:
             raise
+        # br-r37-c1-6fs77: a 2-element spec means key ZERO, not "any key".
+        # nx's body is ``k = 0`` then ``k in self._adjdict[u][v]``, so
+        # ``('a','b') in M.edges`` is False for an edge added with key='x'.
+        # Returning True as soon as the PAIR existed reported edges that are
+        # not there, on every multigraph whose keys are not 0.
         if N == 3:
             u, v, key = edge[0], edge[1], edge[2]
         elif N == 2:
             u, v = edge[0], edge[1]
-            key = None
+            key = 0
         else:
             raise ValueError("MultiEdge must have length 2 or 3")
         adj = self._graph.adj
         try:
             if u in adj and v in adj[u]:
-                if key is None:
-                    return True
                 return key in adj[u][v]
+            # The undirected adjacency is symmetric, so this only matters when
+            # `u` itself is absent; nx reaches the same answer through one
+            # `self._adjdict[u][v]` and a caught KeyError.
             if v in adj and u in adj[v]:
-                if key is None:
-                    return True
                 return key in adj[v][u]
         except (KeyError, TypeError):
             return False
@@ -3120,19 +3124,19 @@ class _MultiDiGraphEdgeView:
             N = len(edge)
         except TypeError:
             raise
+        # br-r37-c1-6fs77: a 2-element spec means key ZERO — see the undirected
+        # twin. nx's ``k = 0`` default is not "any key".
         if N == 3:
             u, v, key = edge[0], edge[1], edge[2]
         elif N == 2:
             u, v = edge[0], edge[1]
-            key = None
+            key = 0
         else:
             raise ValueError("MultiEdge must have length 2 or 3")
         succ = self._graph.succ
         try:
             if u not in succ or v not in succ[u]:
                 return False
-            if key is None:
-                return True
             return key in succ[u][v]
         except (KeyError, TypeError):
             return False
