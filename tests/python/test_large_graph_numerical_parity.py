@@ -594,6 +594,13 @@ def test_directed_complement_flips_each_missing_orientation():
     assert not complement.has_edge(0, 1)
     assert complement.has_edge(1, 0)
 
+
+def test_undirected_complement_edges_are_symmetric():
+    graph = fnx.Graph([(0, 1)])
+    complement = fnx.complement(graph)
+    for u, v in complement.edges():
+        assert complement.has_edge(v, u)
+
     directed = fnx.DiGraph()
     directed.add_edges_from([(0, 1), (1, 3), (0, 2), (2, 3), (1, 2)])
     directed_mapping = {node: f"directed-path-{node}" for node in directed}
