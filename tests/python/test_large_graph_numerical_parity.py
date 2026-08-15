@@ -683,6 +683,18 @@ def test_directed_string_node_edge_lookup_accepts_equal_nonidentical_strings():
     assert target == target_node and target is not target_node
     assert graph.has_edge(source, target)
 
+
+def test_multigraph_string_node_edge_lookup_accepts_equal_nonidentical_strings():
+    graph = fnx.MultiGraph()
+    source_node = "multi-source"
+    target_node = "multi-target"
+    graph.add_edge(source_node, target_node)
+    source = "".join(["multi", "-source"])
+    target = "".join(["multi", "-target"])
+    assert source == source_node and source is not source_node
+    assert target == target_node and target is not target_node
+    assert graph.has_edge(source, target)
+
     directed = fnx.DiGraph()
     directed.add_edges_from([(0, 1), (1, 3), (0, 2), (2, 3), (1, 2)])
     directed_mapping = {node: f"directed-path-{node}" for node in directed}
