@@ -736,6 +736,12 @@ def test_edges_view_subscript_returns_live_attrs_for_equal_strings():
     graph.edges[source, target]["checked"] = True
     assert graph.edges["live-source", "live-target"]["checked"] is True
 
+
+def test_edges_view_subscript_missing_endpoint_raises_node_not_found():
+    graph = fnx.Graph([("present", "other")])
+    with pytest.raises(KeyError):
+        _ = graph.edges["present", "missing"]
+
     directed = fnx.DiGraph()
     directed.add_edges_from([(0, 1), (1, 3), (0, 2), (2, 3), (1, 2)])
     directed_mapping = {node: f"directed-path-{node}" for node in directed}
