@@ -775,6 +775,15 @@ def test_equal_string_edge_probes_do_not_change_edge_view_length():
     assert (source, target) in graph.edges
     assert len(graph.edges) == before
 
+
+def test_equal_string_edge_probes_do_not_change_node_count():
+    graph = fnx.Graph([("count-source", "count-target")])
+    before = len(graph)
+    source = "".join(["count", "-source"])
+    target = "".join(["count", "-target"])
+    assert graph.has_edge(source, target)
+    assert len(graph) == before
+
     directed = fnx.DiGraph()
     directed.add_edges_from([(0, 1), (1, 3), (0, 2), (2, 3), (1, 2)])
     directed_mapping = {node: f"directed-path-{node}" for node in directed}
