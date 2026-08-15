@@ -2577,19 +2577,14 @@ impl PyGraph {
         left: &str,
         right: &str,
     ) -> Py<PyDict> {
+        if let Some(attrs) = self.cached_edge_py_attrs(py, left, right) {
+            return attrs;
+        }
         let (left, right) = if left <= right {
             (left, right)
         } else {
             (right, left)
         };
-        if let Some(attrs) = self
-            .edge_py_attrs_by_endpoint
-            .get(left)
-            .and_then(|row| row.get(right))
-        {
-            return attrs.clone_ref(py);
-        }
-
         let attrs = self
             .edge_py_attrs
             .entry((left.to_owned(), right.to_owned()))
@@ -2604,6 +2599,26 @@ impl PyGraph {
             .or_default()
             .insert(right.to_owned(), attrs.clone_ref(py));
         attrs
+    }
+
+    /// Return an already-materialized live edge attribute dict without probing
+    /// the native graph. Structural mutations clear this endpoint lookaside in
+    /// `bump_edges_seq`, so a hit proves that the edge still exists.
+    pub(crate) fn cached_edge_py_attrs(
+        &self,
+        py: Python<'_>,
+        left: &str,
+        right: &str,
+    ) -> Option<Py<PyDict>> {
+        let (left, right) = if left <= right {
+            (left, right)
+        } else {
+            (right, left)
+        };
+        self.edge_py_attrs_by_endpoint
+            .get(left)
+            .and_then(|row| row.get(right))
+            .map(|attrs| attrs.clone_ref(py))
     }
 
     pub(crate) fn edge_attr_py_value(

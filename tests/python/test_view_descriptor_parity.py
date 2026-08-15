@@ -483,6 +483,9 @@ def test_simple_edge_view_getitem_returns_live_native_attr_dict(cls_name):
     held_edges = graph.edges
 
     attrs = held_edges["left", "right"]
+    # A repeat is served by the native endpoint lookaside.  The removal below
+    # proves the shortcut cannot hand out the stale dict after an edge mutation.
+    assert held_edges["left", "right"] is attrs
     assert attrs is graph.get_edge_data("left", "right")
     attrs["color"] = "blue"
     assert graph.get_edge_data("left", "right") == {

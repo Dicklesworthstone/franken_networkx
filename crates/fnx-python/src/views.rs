@@ -732,6 +732,10 @@ impl EdgeView {
         let v = crate::canonical_node_key_in(py, &v_item, &mut v_buf)?;
         let (u, v) = (u.as_str(), v.as_str());
         let mut g = self.graph.borrow_mut(py);
+        if let Some(attrs) = g.cached_edge_py_attrs(py, u, v) {
+            g.mark_edges_dirty();
+            return Ok(attrs);
+        }
         if !g.inner.has_edge(u, v) {
             return Err(PyKeyError::new_err(format!("({u}, {v})")));
         }
@@ -1285,6 +1289,10 @@ impl AtlasView {
         let v_key = crate::canonical_node_key_in(py, v, &mut v_buf)?;
         let v_canon = v_key.as_str();
         let mut g = graph.borrow_mut(py);
+        if let Some(attrs) = g.cached_edge_py_attrs(py, &self.node, v_canon) {
+            g.mark_edges_dirty();
+            return Ok(attrs);
+        }
         if !g.inner.has_edge(&self.node, v_canon) {
             return Err(PyKeyError::new_err((v.clone().unbind(),)));
         }
