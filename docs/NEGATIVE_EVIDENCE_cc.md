@@ -10358,9 +10358,25 @@ cv_role=report_only
 
 **RESULT: KEEP / CAMPAIGN OUTPUT.**
 
-RETRY PREDICATE: a MISS now pays one extra set probe on top of the canonical
-path, so an absent-key-dominated workload is the row that could regress — it is
-unmeasured here and is the first thing to measure before widening this. Do NOT
-extend the memo to values (index or attrs) on this evidence: the value-carrying
-version of exactly this idea is the reverted lookaside above, and the difference
-between them is the boxing.
+THE MISS COST, measured rather than left as a caveat (same ELF, same
+invocation, ABBAABBA square, 61 rounds, absent keys only, memo warmed with 400
+present keys first). The two arms are two key TYPES: a `str` SUBCLASS is gated
+OUT of the memo and takes the canonical path alone, an exact `str` pays the set
+probe and then the same canonical path.
+
+    row                                 ratio     CI                  nulls           verdict
+    absent key: no-memo -> memo miss  0.8378x  [0.8355, 0.8402]  1.0006/1.0014  ADMISSIBLE
+    CONTROL subclass vs subclass      0.9994x  [0.9924, 1.0042]  1.0004/1.0079  straddles-1
+
+So a miss costs about **1.19x**, against 2.7-4.4x for a hit. Break-even sits
+near a 21% hit rate, and the standalone absent rows land at `has_node` 0.6610x,
+`n in G` 0.8797x, 50/50 mixed 0.7575x, all admissible. A workload that probes
+mostly ABSENT string keys is the one shape this makes worse. (A `str` subclass
+is not byte-for-byte the same canonical branch as an exact `str`, so 1.19x
+bounds the miss cost rather than isolating it exactly.)
+
+RETRY PREDICATE: before widening this, measure the absent-dominated shape on the
+surface you are widening to — the miss cost above is real and this row's win
+rests on hits being the common case. Do NOT extend the memo to values (index or
+attrs) on this evidence: the value-carrying version of exactly this idea is the
+reverted lookaside above, and the difference between them is the boxing.
