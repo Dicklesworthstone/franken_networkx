@@ -589,6 +589,16 @@ impl EdgeView {
         // the refcount round-trip bought nothing.
         let u_item = tuple.get_borrowed_item(0)?;
         let v_item = tuple.get_borrowed_item(1)?;
+        // br-r37-c1-p1tvg, MEASURED AND REVERTED: routing the exact-`str`
+        // endpoints through `PyGraph::cached_exact_string_node_index` (the
+        // Python-dict lookaside `has_edge` uses) removes 101 Ir/call here, and
+        // is 1.27x SLOWER in wall clock. Same-ELF, same-invocation ABBAABBA
+        // square with a clean A/A control, three draws: incumbent/candidate
+        // 0.779x / 0.791x / 0.768x. The canonical path below builds its key in
+        // a stack buffer and probes a hot FxHash IndexMap; the lookaside trades
+        // that for a CPython dict probe plus a PyLong round-trip, which costs
+        // fewer instructions and more cycles. Do not re-land it on an Ir
+        // argument alone.
         let mut u_buf = ArrayString::new();
         let mut v_buf = ArrayString::new();
         let u = crate::canonical_node_key_in(py, &u_item, &mut u_buf)?;

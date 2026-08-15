@@ -196,6 +196,44 @@ def _directed_graph(module, nodes: int, edges: int, seed: int = 11):
     return graph, (names, sorted(seen))
 
 
+def workload_view_reads_directed(reps: int):
+    """The directed twin of `view-reads` (br-r37-c1-p1tvg).
+
+    `DiGraph.edges` is the PYTHON `_DiGraphEdgeView`, so its `__contains__`
+    lands in `PyDiGraph::has_edge` rather than in a native view class — a
+    different code path from the undirected row, and one nothing measured
+    until this workload existed. Reversed probes are included because a
+    direction-blind lookup answers them wrongly and would otherwise look fast.
+    """
+
+    def build(module):
+        return _directed_graph(module, 2000, 8000)
+
+    def ops(graph, fixture):
+        names, seen = fixture
+        rng = random.Random(7)
+        edges = [(names[a], names[b]) for a, b in seen]
+        probe_nodes = [names[rng.randrange(len(names))] for _ in range(reps)]
+        probe_edges = [edges[rng.randrange(len(edges))] for _ in range(reps)]
+        reversed_edges = [(v, u) for u, v in probe_edges]
+        edgeview = graph.edges
+        return {
+            "(u,v) in D.edges()": lambda: sum(1 for p in probe_edges if p in edgeview),
+            "(v,u) in D.edges()": lambda: sum(
+                1 for p in reversed_edges if p in edgeview
+            ),
+            "D.has_edge(u,v)": lambda: sum(
+                1 for u, v in probe_edges if graph.has_edge(u, v)
+            ),
+            "D.edges[u,v]": lambda: sum(len(edgeview[u, v]) for u, v in probe_edges),
+            # Control: no edge-lookup lever can touch a bare node count.
+            "CONTROL len(D)": lambda: sum(len(graph) for _ in range(reps)),
+            "CONTROL n in D": lambda: sum(1 for n in probe_nodes if n in graph),
+        }
+
+    return build, ops
+
+
 def workload_algorithms(reps: int):
     """Whole-algorithm rows, for the br-r37-c1-p80x1 conversion queue.
 
@@ -244,6 +282,7 @@ def workload_algorithms(reps: int):
 
 WORKLOADS = {
     "view-reads": workload_view_reads,
+    "view-reads-directed": workload_view_reads_directed,
     "algorithms": workload_algorithms,
 }
 

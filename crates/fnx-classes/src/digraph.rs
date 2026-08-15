@@ -466,15 +466,17 @@ impl DiGraph {
     /// nodes. Names come from the node table by index (borrowed); the caller
     /// guards each index with `node_index_matches_int`. Mirror of
     /// `Graph::has_edge_by_indices`.
+    ///
+    /// br-r37-c1-p1tvg: this used to resolve both indices back to NAMES and
+    /// call `has_edge`, which hashes two Strings to rediscover the very
+    /// indices it was handed — exactly the cost a caller pays an index route
+    /// to avoid. The edges map has been keyed by the ORIENTED
+    /// `(source_idx, target_idx)` pair since the d58s8 flip, so the pair IS
+    /// the key. An out-of-range index still answers `false`: every key in the
+    /// map names two live nodes, so no key can carry one.
     #[must_use]
     pub fn has_edge_by_indices(&self, source_idx: usize, target_idx: usize) -> bool {
-        match (
-            self.get_node_name(source_idx),
-            self.get_node_name(target_idx),
-        ) {
-            (Some(source), Some(target)) => self.has_edge(source, target),
-            _ => false,
-        }
+        self.edges.contains_key(&(source_idx, target_idx))
     }
 
     #[must_use]
@@ -4739,9 +4741,80 @@ mod tests {
         assert!(g.runtime_policy().posterior().observation_count >= 1);
     }
 
+    /// br-r37-c1-p1tvg: the index probe answers the ORIENTED pair, and only
+    /// for live nodes. Probing the undirected pair or a freed index would
+    /// each pass a test that only checked present edges.
+    #[test]
+    fn has_edge_by_indices_is_oriented_and_range_checked() {
+        let mut g = DiGraph::strict();
+        g.add_edge("tail", "head").expect("edge add should succeed");
+        g.add_edge("head", "third")
+            .expect("edge add should succeed");
+
+        let (tail, head, third) = (
+            g.get_node_index("tail").expect("tail index"),
+            g.get_node_index("head").expect("head index"),
+            g.get_node_index("third").expect("third index"),
+        );
+        assert!(g.has_edge_by_indices(tail, head));
+        assert!(!g.has_edge_by_indices(head, tail));
+        assert!(!g.has_edge_by_indices(tail, third));
+        assert!(!g.has_edge_by_indices(third, g.node_count() + 7));
+        assert!(!g.has_edge_by_indices(g.node_count() + 7, third));
+
+        // Removal renumbers: "third" takes the freed slot, so a stale key
+        // left behind by the remap would answer for the wrong node pair.
+        assert!(g.remove_node("tail"), "node removal should succeed");
+        let head_after = g.get_node_index("head").expect("head index after removal");
+        let third_after = g
+            .get_node_index("third")
+            .expect("third index after removal");
+        assert!(g.has_edge_by_indices(head_after, third_after));
+        assert!(!g.has_edge_by_indices(third_after, head_after));
+        assert!(!g.has_edge_by_indices(head_after, g.node_count()));
+    }
+
     // -- Proptest -----------------------------------------------------------
 
     proptest! {
+        /// br-r37-c1-p1tvg: the index probe must agree with the String path
+        /// on EVERY pair — present, absent, reversed, and out of range —
+        /// through arbitrary add/remove sequences that renumber indices.
+        #[test]
+        fn prop_has_edge_by_indices_matches_the_name_path(
+            ops in prop::collection::vec((0_u8..6, 0_u8..6, 0_u8..10), 1..60),
+        ) {
+            let mut g = DiGraph::strict();
+            for (src_id, tgt_id, action) in ops {
+                let (source, target) = (node_name(src_id), node_name(tgt_id));
+                match action {
+                    0..=6 => {
+                        prop_assert!(g.add_edge(source, target).is_ok());
+                    }
+                    7 | 8 => {
+                        let _ = g.remove_edge(&source, &target);
+                    }
+                    _ => {
+                        let _ = g.remove_node(&source);
+                    }
+                }
+            }
+
+            let names: Vec<String> = g.nodes_ordered().iter().map(|n| (*n).to_owned()).collect();
+            for (i, source) in names.iter().enumerate() {
+                for (j, target) in names.iter().enumerate() {
+                    prop_assert_eq!(
+                        g.has_edge_by_indices(i, j),
+                        g.has_edge(source, target),
+                        "index pair ({}, {}) disagrees with ({}, {})",
+                        i, j, source, target
+                    );
+                }
+                prop_assert!(!g.has_edge_by_indices(i, names.len()));
+                prop_assert!(!g.has_edge_by_indices(names.len(), i));
+            }
+        }
+
         #[test]
         fn prop_digraph_invariants_under_mixed_mutations(
             ops in prop::collection::vec((0_u8..8, 0_u8..8, any::<bool>()), 1..80),

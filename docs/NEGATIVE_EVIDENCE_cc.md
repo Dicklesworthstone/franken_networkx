@@ -9948,3 +9948,77 @@ THREE STALE ROWS ON ONE SURFACE IN ONE DAY: `br-r37-c1-ts80b` (`G.nodes[n]`
 `br-r37-c1-jc9e4` (add_edge 0.46-0.50x recorded, 0.8990x measured by SunnyTern),
 and now `n in G`. That rate suggests the ledger wants a systematic re-measure
 rather than three spot fixes.
+
+## 2026-08-15 SnowyValley FINDING: 45% of `(u,v) in G.edges()` is the PYTHON `__contains__` wrapper, not the Rust (`br-r37-c1-p1tvg`)
+
+`python/franken_networkx/__init__.py:6279` replaces `_fnx.EdgeView.__contains__`
+(and the three sibling view classes) with a Python function that adds networkx's
+permissive `e[:2]` semantics around the native pymethod. Every `x in G.edges`
+therefore pays a Python frame before reaching any Rust.
+
+MEASURED, wall clock, ONE invocation, ONE ELF, both arms present. The incumbent
+arm is the shipped wrapped `__contains__`; the candidate is the native pymethod
+restored as the type's `__contains__` (recovered from the wrapper's closure and
+swapped OUTSIDE every timed region). Balanced `ABBAABBA` square, 61 rounds, 400
+probes/slot, per-arm A/A nulls, 2000 nodes / 8000 edges, string keys,
+`taskset -c 40-47`, host thinkstation1, governor powersave, runtime ISA
+avx2/avx/sse4_2, observed 1 OS thread / 8 affinity CPUs, PYTHONHASHSEED=0,
+loadavg 24.9, live networkx 3.6.1 in the same invocation,
+`bench_elf_sha256=d672f43625d3a8778436cda6b8947fbe24641133a0dee5e3dc8723209388cfaf`:
+
+    row                            ratio     CI                  nulls            verdict
+    wrapped -> native            1.1190x   [1.1074, 1.1324]   0.9915/0.9995   ADMISSIBLE
+    networkx vs fnx WRAPPED      0.8502x   [0.8160, 0.8758]   0.9953/1.0155   ADMISSIBLE
+    networkx vs fnx NATIVE       0.8980x   [0.8843, 0.9131]   1.0024/0.9897   ADMISSIBLE
+    CONTROL networkx vs networkx 0.9983x   [0.9713, 1.0366]   0.9637/0.9748   null-failed
+
+Dropping the wrapper is worth **1.1190x** on this probe and moves the
+vs-incumbent row from 0.8502x to 0.8980x. The control lands on 1.0 as a control
+must, though its own nulls drifted, so it is reported and not leaned on.
+
+INSTRUCTION DECOMPOSITION, same probe, whole-program Ir slope at 20000 vs 60000
+reps (fixed cost cancels; no toggle, no symbol assumptions, so it is comparable
+BETWEEN libraries, which a toggle on a Rust pymethod is not). A control arm runs
+the identical per-rep list build and generator loop with the membership test
+replaced, and its slope is subtracted from both:
+
+    harness control                      4481.1 Ir/rep
+    networkx `(u,v) in G.edges()`        1327.0 Ir/probe
+    fnx WRAPPED                          2451.4 Ir/probe
+    fnx NATIVE (wrapper ablated)         1336.7 Ir/probe
+
+The wrapper is 1114.7 Ir/probe — 45.5% of the whole fnx probe. Ablated, fnx sits
+at 1.007x networkx's instruction count on this probe. The Rust side is not the
+gap on this row; the compatibility shim is.
+
+CAVEAT, and it is a real one: two admissible substrates disagree about this row
+by ~2x on the SAME ELF minutes apart — `scripts/balanced_square_ab.py
+--workload view-reads` reports `(u,v) in G.edges()` at 0.4254x CI [0.4071,
+0.4544] nulls 0.9984/0.9882 ADMISSIBLE, while the ablation harness above reports
+0.8502x ADMISSIBLE for the same probe shape, same fixture, same taskset, same
+build. Both pass their nulls. Until that is resolved, the DIRECTION here (the
+wrapper is ~11-12% of this probe, and the Rust reaches instruction parity
+without it) is what this row supports; the absolute vs-incumbent level is not
+settled by it. Filed as its own bead.
+
+comparison_class=SELF-SPEEDUP
+campaign_output=false
+decision_gate=median_ci
+cv_role=report_only
+
+**RESULT: FINDING / LEVER OPEN.** The lever is to implement networkx's
+permissive `e[:2]` semantics inside the Rust `__contains__` for all four view
+classes and delete the Python wrapper, which is a parity change first and a
+perf change second: `e[:2]` on a non-subscriptable must keep raising with
+networkx's wording, a length mismatch must return False, and a tuple carrying an
+unconvertible node key must keep returning False rather than raising.
+
+RETRY PREDICATE: do not re-attempt the endpoint LOOKASIDE on this path. Routing
+the exact-`str` endpoints of `EdgeView::__contains__` through
+`PyGraph::cached_exact_string_node_index` removes 101 Ir/call (796.3 -> 696.0,
+toggle-collect, flat at 20000 and 40000 reps) and is a WALL-CLOCK REGRESSION:
+0.779x / 0.791x / 0.768x candidate-vs-incumbent across three same-ELF
+same-invocation squares. Fewer instructions, more cycles — the canonical path
+builds its key in a stack buffer and probes a hot FxHash IndexMap, while the
+lookaside trades that for a CPython dict probe plus a PyLong round-trip. That
+arm is reverted in-tree with the numbers recorded at its site.

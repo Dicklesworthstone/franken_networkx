@@ -451,6 +451,114 @@ def test_simple_has_edge_string_index_cache_is_equal_key_and_mutation_safe(cls_n
     assert graph.has_edge(equal_left, equal_right)
 
 
+class _LyingStr(str):
+    """A ``str`` subclass whose hash and equality point at a DIFFERENT node.
+
+    The string-index lookaside is a Python dict, so a subclass routed into it
+    would be resolved by THESE methods rather than by its characters, and would
+    answer for whatever node it claims to equal.
+    """
+
+    def __hash__(self):
+        return hash("n0")
+
+    def __eq__(self, other):
+        return True
+
+    def __ne__(self, other):
+        return False
+
+
+@pytest.mark.parametrize("cls_name", ["Graph", "DiGraph"])
+def test_edges_contains_string_route_is_equal_key_and_mutation_safe(cls_name):
+    """br-r37-c1-p1tvg: ``(u, v) in G.edges()`` shares the warm string route.
+
+    ``has_edge`` is not this path: the probe enters ``EdgeView.__contains__``,
+    so the lookaside has to be wired in here too, under the same contract.
+    """
+    left = "".join(("left", "-", "endpoint"))
+    right = "".join(("right", "-", "endpoint"))
+    equal_left = left.encode().decode()
+    equal_right = right.encode().decode()
+    assert equal_left == left and equal_left is not left
+    assert equal_right == right and equal_right is not right
+
+    graph = getattr(fnx, cls_name)()
+    reference = getattr(nx, cls_name)()
+    for target in (graph, reference):
+        target.add_edge(left, right)
+        target.add_edge(right, "third")
+
+    # Equal-but-nonidentical keys must hit, warm and cold, exactly as in nx.
+    for _ in range(2):
+        assert ((equal_left, equal_right) in graph.edges) is True
+        assert ((equal_left, equal_right) in reference.edges) is True
+    assert ((equal_left, "absent") in graph.edges) is False
+    assert ((equal_left, "absent") in reference.edges) is False
+
+    # Edge-only churn keeps node indices; the warm endpoints stay valid.
+    graph.remove_edge(left, right)
+    reference.remove_edge(left, right)
+    assert ((equal_left, equal_right) in graph.edges) is False
+    assert ((equal_left, equal_right) in reference.edges) is False
+    graph.add_edge(left, right)
+    reference.add_edge(left, right)
+    assert ((equal_left, equal_right) in graph.edges) is True
+
+    # Node removal renumbers compact indices. A cache that survived it would
+    # answer from a stale index — here, "third" now holds the freed slot.
+    graph.remove_node(equal_left)
+    reference.remove_node(equal_left)
+    assert ((equal_left, equal_right) in graph.edges) is False
+    assert ((equal_left, equal_right) in reference.edges) is False
+    assert ((equal_right, "third") in graph.edges) is True
+    graph.add_edge(left, right)
+    reference.add_edge(left, right)
+    assert ((equal_left, equal_right) in graph.edges) is True
+    assert list(graph.edges) == list(reference.edges)
+
+
+@pytest.mark.parametrize("cls_name", ["Graph", "DiGraph"])
+def test_edges_contains_string_route_rejects_str_subclasses(cls_name):
+    """A ``str`` subclass must never be resolved by its own hash/eq.
+
+    The fast route is gated on EXACT ``str``. Gate it on ``isinstance``
+    instead and ``_LyingStr("absent")`` resolves to ``n0``'s index through the
+    dict lookaside, so a nonexistent endpoint reports as present.
+    """
+    graph = getattr(fnx, cls_name)()
+    graph.add_edge("n0", "n1")
+    graph.add_edge("n2", "n3")
+
+    # Warm the lookaside so the subclass meets a POPULATED dict.
+    assert ("n0", "n1") in graph.edges
+
+    assert (_LyingStr("absent"), "n1") not in graph.edges
+    assert ("n0", _LyingStr("absent")) not in graph.edges
+    # Subclass keys still resolve by their characters, warm cache or not.
+    assert (_LyingStr("n0"), "n1") in graph.edges
+    assert (_LyingStr("n2"), _LyingStr("n3")) in graph.edges
+
+
+def test_directed_edges_contains_string_route_respects_direction():
+    """The index route must probe the DIRECTED adjacency, not a mirror."""
+    graph = fnx.DiGraph()
+    reference = nx.DiGraph()
+    for target in (graph, reference):
+        target.add_edge("tail", "head")
+        target.add_edge("head", "third")
+
+    assert (("tail", "head") in graph.edges) is True
+    assert (("head", "tail") in graph.edges) is False
+    assert (("head", "tail") in reference.edges) is False
+    assert (("tail", "third") in graph.edges) is False
+    # Self-loops resolve both endpoints from the same cached entry.
+    graph.add_edge("loop", "loop")
+    reference.add_edge("loop", "loop")
+    assert (("loop", "loop") in graph.edges) is True
+    assert list(graph.edges) == list(reference.edges)
+
+
 @pytest.mark.parametrize("cls_name", CLASS_NAMES)
 def test_plain_get_edge_data_is_a_raw_descriptor(cls_name):
     """br-r37-c1-57ba1: ordinary attr reads must not pay a Python shim."""
@@ -1961,3 +2069,113 @@ def test_randomized_mutation_differential(cls_name):
         assert {k: dict(v) for k, v in gfx.adjacency()} == {
             k: dict(v) for k, v in gnx.adjacency()
         }
+
+
+# ---------------------------------------------------------------------------
+# `(u, v) in G.edges()` — endpoint-resolution coverage.
+#
+# Written for br-r37-c1-p1tvg, which proposed resolving exact-`str` endpoints
+# through the node-index lookaside instead of rebuilding a canonical key per
+# endpoint. That lever was measured and REVERTED (1.27x slower despite -101
+# Ir/call; see the comment in views.rs). The coverage outlives it: this probe
+# had no direct differential tests, and these are what would catch a future
+# attempt that changes the ANSWER rather than only the cost.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("cls_name", ["Graph", "DiGraph"])
+def test_edge_view_contains_matches_networkx_for_string_endpoints(cls_name):
+    gnx, gfx = _pair(cls_name)
+    probes = [
+        ("n0", "n1"),
+        ("n1", "n0"),
+        ("n1", "n1"),
+        ("n0", "n2"),
+        ("n0", "missing"),
+        ("missing", "n0"),
+        ("missing", "other"),
+    ]
+    for probe in probes:
+        assert (probe in gfx.edges) == (probe in gnx.edges), probe
+
+
+@pytest.mark.parametrize("cls_name", ["Graph", "DiGraph"])
+def test_edge_view_contains_hits_on_equal_but_nonidentical_strings(cls_name):
+    """Endpoint resolution must be by VALUE, never by object identity."""
+    gnx, gfx = _pair(cls_name)
+    view_fx, view_nx = gfx.edges, gnx.edges
+    assert ("n0", "n1") in view_fx  # probe once with interned literals
+    # Built at runtime, so these are equal to but not the same object as the
+    # keys the graph holds; `"".join` defeats the compiler's literal interning.
+    left, right = "".join(["n", "0"]), "".join(["n", "1"])
+    held = next(n for n in gfx.nodes if n == "n0")
+    assert left == held and left is not held  # equal, distinct object
+    assert (left, right) in view_fx
+    assert ((left, right) in view_fx) == ((left, right) in view_nx)
+
+
+@pytest.mark.parametrize("cls_name", ["Graph", "DiGraph"])
+def test_edge_view_contains_tracks_node_removal_and_readd(cls_name):
+    """Removal renumbers compact node indices, so any endpoint memo keyed on
+    them must be invalidated. Pinned live because that is the failure a cache
+    would introduce silently."""
+    gnx, gfx = _pair(cls_name)
+    view_fx, view_nx = gfx.edges, gnx.edges
+    assert ("n0", "n1") in view_fx
+    assert ("n1", "n2") in view_fx
+    for graph in (gnx, gfx):
+        graph.remove_node("n0")
+    assert (("n0", "n1") in view_fx) == (("n0", "n1") in view_nx) is False
+    assert (("n1", "n2") in view_fx) == (("n1", "n2") in view_nx) is True
+    for graph in (gnx, gfx):
+        graph.add_node("n0")
+    # Re-added with no edges: present as a node, still not an endpoint.
+    assert (("n0", "n1") in view_fx) == (("n0", "n1") in view_nx) is False
+    for graph in (gnx, gfx):
+        graph.add_edge("n0", "n1")
+    assert (("n0", "n1") in view_fx) == (("n0", "n1") in view_nx) is True
+
+
+class _CaseInsensitiveStr(str):
+    def __eq__(self, other):
+        return str(self).lower() == str(other).lower()
+
+    def __hash__(self):
+        return hash(str(self).lower())
+
+
+@pytest.mark.parametrize("cls_name", ["Graph", "DiGraph"])
+def test_edge_view_contains_str_subclass_keeps_the_canonical_path(cls_name):
+    """A `str` SUBCLASS may override `__hash__`/`__eq__`, so any endpoint fast
+    path must gate on `is_exact_instance_of`, never `isinstance`.
+
+    A PLAIN subclass has str's own hash and equality, so the canonical path
+    gives nx's answer and this is a true parity assertion. The overriding
+    subclasses are NOT asserted against nx here: fnx already diverges from nx
+    on those, pre-existing, tracked in br-r37-c1-lvlu7. What is asserted about
+    them is that the answer is whatever the canonical path yields.
+    """
+    gnx, gfx = _pair(cls_name)
+
+    class _Plain(str):
+        pass
+
+    for probe in [(_Plain("n0"), "n1"), ("n0", _Plain("n1")), (_Plain("zz"), "n1")]:
+        assert (probe in gfx.edges) == (probe in gnx.edges), probe
+
+    # Subclass with a custom equivalence: the canonical path compares BYTES, so
+    # "N0" does not reach node "n0". Pinning it here is what would fail loudly
+    # if the gate were ever widened to `isinstance`.
+    assert (_CaseInsensitiveStr("N0"), "n1") not in gfx.edges
+    assert (_CaseInsensitiveStr("n0"), "n1") in gfx.edges
+
+
+@pytest.mark.parametrize("cls_name", ["Graph", "DiGraph"])
+def test_edge_view_contains_non_string_endpoints_match_networkx(cls_name):
+    """Mixed and non-str endpoints fall through to the canonical path."""
+    gnx, gfx = getattr(nx, cls_name)(), getattr(fnx, cls_name)()
+    for graph in (gnx, gfx):
+        graph.add_edge(1, 2)
+        graph.add_edge("1", "2")
+    for probe in [(1, 2), ("1", "2"), (1, "2"), ("1", 2), (2, 1), (1, 3)]:
+        assert (probe in gfx.edges) == (probe in gnx.edges), probe
