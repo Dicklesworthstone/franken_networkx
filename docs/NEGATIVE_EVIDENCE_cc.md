@@ -10925,12 +10925,20 @@ thing to check is whether its fnx arm allocates enough to make the round's
 disabled collector the problem, which is the opposite failure from the one
 `br-r37-c1-7x25w` fixed and would show as the SECOND half slower.
 
-## 2026-08-15 SnowyValley CLAIM CONVERTED / KEEP: `pagerank` **3.4628x / 3.4805x** vs live networkx (`br-r37-c1-p80x1.22`)
+## 2026-08-15 SnowyValley KEEP: `pagerank` **3.4628x / 3.4805x** vs live networkx on this harness's fixture — NOT the p80x1.22 conversion (`br-r37-c1-p80x1.22`)
 
-The p80x1 beads are parked on "retry after RCH proves one identical managed
-physical target path across two `--clean-overlay` invocations". This row does
-not need that: both arms run in ONE local process, so there is no target path to
-stabilise and no worker to compare across.
+CORRECTED HEADING (same day): I first published this as a CONVERSION of
+`br-r37-c1-p80x1.22` and reopened that bead. The bead names an EXACT recovered
+operation — n=2000, m=8000, seed=7, with a recorded input SHA-256 and a 65176-byte
+output SHA-256 — and this row measures the 400-node/1600-edge seed-11 fixture
+this harness builds. A caveat saying so is not the same as meeting the
+predicate. The measurement below stands on its own; the conversion does not.
+
+What this row DOES establish about the queue: the RCH stable-target predicate
+those beads are parked on is not required for a whole-algorithm measurement at
+all. Both arms run in ONE local process, so there is no managed target path to
+stabilise and no worker to compare across. What still blocks them is the fixture
+generator behind the recorded hashes.
 
 `harness=balanced_square_ab.py --workload algorithms --calls-per-slot 5`,
 `same_host=thinkstation1`, `rch_worker=none`,
@@ -10964,7 +10972,7 @@ the README's fixture. It converts the CLAIM SHAPE (pagerank has a live paired
 incumbent arm and wins) and does not license the README's number, which was
 measured on a different graph and still has no paired arm.
 
-## 2026-08-15 SnowyValley CLAIM CONVERTED / KEEP: `subgraph(view).edges()` **3.9989x / 4.0660x** vs live networkx (`br-r37-c1-p80x1.18`)
+## 2026-08-15 SnowyValley KEEP: `subgraph(view).edges()` **3.9989x / 4.0660x** vs live networkx on this harness's fixture — NOT the p80x1.18 conversion (`br-r37-c1-p80x1.18`)
 
 Same invocation, same harness and same provenance as the pagerank row above:
 `harness=balanced_square_ab.py --workload algorithms --calls-per-slot 5`,
@@ -10995,3 +11003,61 @@ RETRY PREDICATE: the row materialises `sorted(G.subgraph(nodes).edges())` on a
 200-of-400-node induced view. A lever that changes how the VIEW is built will
 move it; one that changes edge iteration will move it more, because the sort and
 the tuple materialisation are most of the work on this fixture.
+
+## 2026-08-15 SnowyValley KEEP: the whole-algorithm surface at K=25 — **10 of 11 rows admissible**, 1.63x to 4.91x vs live networkx (`br-r37-c1-j3i9q`)
+
+`br-r37-c1-j3i9q`'s retry predicate said to raise K before rounds, because the
+failing nulls were warm-up and rounds do not fix warm-up. Raising K from 5 to 25
+took the workload from 4 of 11 admissible to **10 of 11**, with every null on
+every passing row inside +/-0.02 — which is the predicate confirming itself.
+
+`harness=balanced_square_ab.py --workload algorithms --calls-per-slot 25`,
+`same_host=thinkstation1`, `rch_worker=none` (both arms in-process; nothing
+dispatched to a worker),
+`bench_elf_sha256=32d6337128fd9542d6ad3a26f2a2348db0b97e5e3476ef23f5fc83472d5e90e7`,
+balanced `ABBAABBA` square, 41 rounds, 25 calls per timed slot, per-arm A/A
+nulls, 400-node/1600-edge string-keyed Graph and a 400-node/1600-edge DiGraph,
+`taskset -c 40-47`, governor powersave, ISA avx2/avx/sse4_2, PYTHONHASHSEED=0,
+live networkx 3.6.1 in the same process, loadavg 12-20. Two draws:
+
+    row                        draw 1                       draw 2
+    kosaraju_scc            4.8638x [4.8502,4.8804]      4.9137x [4.8778,4.9293]
+    subgraph(view)->edges   4.1016x [4.0918,4.1048]      4.0879x [4.0775,4.0933]
+    single_source_sp_length 4.1580x [4.1354,4.1769]      4.1679x [4.1523,4.1818]
+    pagerank                3.5721x [3.5511,3.5766]      3.5470x [3.5399,3.5555]
+    connected_components    3.2178x [3.2068,3.2263]      3.2728x [3.2659,3.2791]
+    degree_centrality       2.8674x [2.8581,2.8775]      2.9943x [2.9682,3.0174]
+    bfs_tree->edges         2.7832x [2.7361,2.8073]      2.8037x [2.7414,2.8201]
+    shortest_path(weighted) 2.4828x [2.4717,2.5019]      2.4888x [2.4811,2.5019]
+    dfs_successors          1.7146x [1.7107,1.7214]      1.6938x [1.6856,1.7277]
+    edges(data=True)        1.6671x [1.6647,1.6689]      1.6346x [1.6302,1.6384]
+
+All twenty draws ADMISSIBLE. The same-invocation A/A null control ran between
+0.9933x and 1.0159x across every one of them, inside the +/-0.02 bound.
+
+THE CONTROL FAILS ITS NULL AND IS NOT A RESULT: `number_of_edges` reads 152.3083x
+and 184.4709x with second-half nulls of 1.0431 and 1.0483. It is included because
+a control that fails is information — here it says the row is dominated by the
+networkx arm walking every node while fnx answers in O(1), so the two arms are
+not doing comparable work and the slot times are unstable in the arm that does
+the work. It should be replaced with a control both libraries execute the same
+way.
+
+comparison_class=INCUMBENT
+incumbent=networkx
+incumbent_same_invocation=true
+incumbent_ratio=1.6346x
+campaign_output=true
+decision_gate=median_ci
+cv_role=report_only
+
+**RESULT: KEEP / CAMPAIGN OUTPUT.** `incumbent_ratio` is the WEAKEST admissible
+row in the table, not the strongest, so the declared figure is the one every
+other row beats.
+
+RETRY PREDICATE: these are this harness's 400/1600 fixtures, NOT the recorded
+p80x1 fixtures, which name exact inputs by SHA-256. Do not close a p80x1 bead on
+this table — br-r37-c1-p80x1.22 and br-r37-c1-p80x1.18 were closed on it and had
+to be reopened the same day. What this table settles is narrower and still worth
+having: the RCH stable-target predicate those beads are parked on is not needed
+for whole-algorithm measurement, because both arms run in one local process.
