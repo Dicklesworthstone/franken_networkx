@@ -93,6 +93,11 @@ import franken_networkx._fnx as _fnx_ext
 
 SQUARE = "ABBAABBA"
 NULL_BOUND = 0.02
+# br-r37-c1-7x25w: untimed calls per arm after the per-round collect. One was
+# not enough at reps=400 — the incumbent arm still showed a first/second-half
+# null of 1.1084 — because the collect leaves the caches cold and a single call
+# does not refill them. Two clears it at every rep count measured.
+ROUND_WARM_CALLS = 2
 
 
 # ---------------------------------------------------------------------------
@@ -356,15 +361,53 @@ def canonical(value):
     return value
 
 
-def time_slot(fn) -> int:
-    gc.collect()
-    gc.disable()
-    try:
-        start = time.perf_counter_ns()
-        fn()
-        return time.perf_counter_ns() - start
-    finally:
-        gc.enable()
+def time_slot(fn, *, collect_first: bool = False) -> int:
+    """Time one slot with the collector already quiet.
+
+    br-r37-c1-7x25w: this used to call `gc.collect()` before EVERY slot. The
+    collect sat outside the timed region so it was never charged directly —
+    what it did was walk every GC-tracked container in the process and leave
+    the caches cold, so the arm that restarts with the larger tracked heap pays
+    more to warm back up. That arm is always fnx: an fnx Graph carries
+    node_py_attrs, edge_py_attrs, edge_py_attrs_by_endpoint, adj_row_py, the
+    node-key map and the index lookaside, where the networkx arm is plain
+    dicts. Symmetric PROCEDURE, asymmetric EFFECT, running in the direction
+    that makes fnx look slow — and it is a fixed per-slot cost, so it
+    amortises away as reps grow instead of scaling with the work:
+
+        reps          400     1000     4000    20000
+        collect=1   0.4465   0.4645   0.5248   0.6564
+        collect=0   0.8167   0.8236   0.8057   0.8092   <- flat
+
+    The A/A null cannot see it. Both halves of a square are equally cold, so
+    the null comes out at 1.0 and certifies a biased ratio; one measured draw
+    reported 0.5478x with nulls 0.9935/0.9845 for a row that is 1.1464x —
+    admissible, and wrong in SIGN.
+
+    `collect_first` exists only to reproduce that defect on demand (see
+    `--gc-per-slot`), never as a measurement mode.
+    """
+    if collect_first:
+        gc.collect()
+    start = time.perf_counter_ns()
+    fn()
+    return time.perf_counter_ns() - start
+
+
+def _time_square(incumbent_fn, fnx_fn, gc_per_slot: bool):
+    """Run one `ABBAABBA` square and return the two arms' slot timings.
+
+    The square is what makes a busy host measurable: each arm occupies the same
+    set of slot POSITIONS, so drift across the round hits both equally instead
+    of biasing one.
+    """
+    a_slots, b_slots = [], []
+    for slot in SQUARE:
+        if slot == "A":
+            a_slots.append(time_slot(incumbent_fn, collect_first=gc_per_slot))
+        else:
+            b_slots.append(time_slot(fnx_fn, collect_first=gc_per_slot))
+    return a_slots, b_slots
 
 
 def bootstrap_ci(values, iters: int = 4000, seed: int = 3):
@@ -377,19 +420,50 @@ def bootstrap_ci(values, iters: int = 4000, seed: int = 3):
     return medians[int(0.025 * iters)], medians[int(0.975 * iters)]
 
 
-def run_row(label: str, incumbent_fn, fnx_fn, rounds: int, warmup: int) -> dict:
+def run_row(
+    label: str,
+    incumbent_fn,
+    fnx_fn,
+    rounds: int,
+    warmup: int,
+    *,
+    gc_per_slot: bool = False,
+) -> dict:
+    """One row: `rounds` balanced squares, per-arm A/A nulls, bootstrap median CI.
+
+    br-r37-c1-7x25w: the collector is quiesced ONCE per round and stays off for
+    all eight slots, so no collection can land inside a timed region and no arm
+    pays a cold start the other does not. Collecting per slot biased every read
+    row against the arm holding the larger GC-tracked heap, which is always
+    fnx.
+    """
     for _ in range(warmup):
         incumbent_fn()
         fnx_fn()
 
     ratios, null_a, null_b = [], [], []
     for _ in range(rounds):
-        a_slots, b_slots = [], []
-        for slot in SQUARE:
-            if slot == "A":
-                a_slots.append(time_slot(incumbent_fn))
-            else:
-                b_slots.append(time_slot(fnx_fn))
+        # One collect per ROUND, outside every timed slot, with the collector
+        # left OFF for the whole square: both arms then meet the same GC state
+        # and neither restarts cold eight times.
+        #
+        # Then ONE UNTIMED call per arm before the square. A collect leaves the
+        # caches cold, and the first timed slots after it are measurably slower
+        # than the last — with the per-slot collect that showed up as a uniform
+        # tax the A/A null could not see, and hoisting the collect turned it
+        # into a first-half/second-half asymmetry the null CAN see: the fixed
+        # harness reported nulls of 1.1783/1.3516 until this pair was added.
+        # Absorbing the cold start symmetrically is what makes both the bias
+        # and the null honest.
+        gc.collect()
+        gc.disable()
+        try:
+            for _ in range(ROUND_WARM_CALLS):
+                incumbent_fn()
+                fnx_fn()
+            a_slots, b_slots = _time_square(incumbent_fn, fnx_fn, gc_per_slot)
+        finally:
+            gc.enable()
         ratios.append(statistics.median(a_slots) / statistics.median(b_slots))
         # Each arm's own first-half / second-half ratio. The square places the
         # halves symmetrically, so a null that departs from 1.0 is drift or
@@ -432,6 +506,14 @@ def main(argv: list[str]) -> int:
         "--only",
         default=None,
         help="run only rows whose label contains this substring",
+    )
+    # br-r37-c1-7x25w: NOT a measurement mode. It restores the per-slot
+    # gc.collect() this harness used until 2026-08-15, so the bias that
+    # introduced can be reproduced and bounded rather than argued about.
+    parser.add_argument(
+        "--gc-per-slot",
+        action="store_true",
+        help="reproduce the pre-fix per-slot gc.collect() bias (do not measure with this)",
     )
     args = parser.parse_args(argv[1:])
 
@@ -495,7 +577,14 @@ def main(argv: list[str]) -> int:
     )
     admitted = 0
     for name in selected:
-        row = run_row(name, ops_nx[name], ops_fx[name], args.rounds, args.warmup)
+        row = run_row(
+            name,
+            ops_nx[name],
+            ops_fx[name],
+            args.rounds,
+            args.warmup,
+            gc_per_slot=args.gc_per_slot,
+        )
         low, high = row["ci"]
         print(
             f"  {name:22s} {row['ratio']:7.4f}x  CI [{low:.4f}, {high:.4f}]  "

@@ -10464,3 +10464,71 @@ surface you are widening to — the miss cost above is real and this row's win
 rests on hits being the common case. Do NOT extend the memo to values (index or
 attrs) on this evidence: the value-carrying version of exactly this idea is the
 reverted lookaside above, and the difference between them is the boxing.
+
+## 2026-08-15 SnowyValley SUBSTRATE CORRECTION: the per-slot `gc.collect()` was worth **1.37x** and crossed 1.0 — every read row this harness published is affected (`br-r37-c1-7x25w`)
+
+GoldenBison found it and handed it over rather than editing the substrate whose
+correction moves numbers in their own favour. `scripts/balanced_square_ab.py`
+called `gc.collect()` before EVERY timed slot. The collect sat outside the timed
+region so it was never charged directly; what it did was walk every GC-tracked
+container in the process and leave the caches cold, so the arm restarting with
+the larger tracked heap paid more to warm back up. That arm is always fnx — an
+fnx `Graph` carries `node_py_attrs`, `edge_py_attrs`,
+`edge_py_attrs_by_endpoint`, `adj_row_py`, the node-key map and the index
+lookaside, where the networkx arm is plain dicts. Symmetric PROCEDURE,
+asymmetric EFFECT, in the direction that makes fnx look slow.
+
+MEASURED after the fix, `harness=balanced_square_ab.py` sha256
+`809293dbff3ccd491309b8cdce2e310fc1684be81b8ca778f677fca62b5e6d31` (the file
+hashes itself into every run's provenance block now), `same_host=thinkstation1`,
+`rch_worker=none` — both arms in one process on that machine, no timing
+dispatched to a worker. `(u,v) in G.edges()`, N=2000/E=8000 string-keyed Graph,
+41 rounds, reps=4000, `taskset -c 40-47`, live networkx 3.6.1 in the same
+invocation, `bench_elf_sha256=b6ccaee611a8ef67cc90e444e66fdf313d1509d12962990b0bce9534ad5818b4`,
+git HEAD `718916464`. The two arms differ ONLY in whether the collector runs per
+slot:
+
+    mode                 ratio     CI                   nulls            verdict
+    per-slot collect   0.7741x  [0.7621, 0.7970]   1.0047/1.0012   ADMISSIBLE
+    per-round collect  1.0577x  [1.0525, 1.0609]   1.0110/1.0018   ADMISSIBLE
+
+**1.37x, and it crosses 1.0** — the defect turned a win into a loss, with both
+readings admissible and both nulls clean. The same-invocation A/A null control
+measured 1.0110x and 1.0018x on the corrected arm, inside the +/-0.02 bound.
+
+WHY THE NULL IS BLIND, which is the transferable part: both halves of a square
+are equally cold after a per-slot collect, so the null comes out at 1.0 and
+certifies a biased ratio. The null controls WITHIN-invocation noise and
+certifies nothing about a systematic bias that hits both halves equally. Worker
+identity (13.6x elsewhere in the fleet), host load, and this cold start are all
+in that class.
+
+THE FIX, and the second defect it exposed: one collect per ROUND, outside every
+slot, with the collector left OFF for the whole square so no collection can land
+in a timed region. That alone made the nulls FAIL at 1.1783/1.3516 — hoisting
+the collect converted a uniform tax the null could not see into a
+first-half/second-half asymmetry the null CAN see. Two untimed calls per arm
+after the collect absorb the cold start symmetrically and the nulls come back
+clean. The exposure is the improvement: the gate can now detect what it
+previously certified.
+
+At the harness DEFAULT of reps=400 this row's nulls fail in both modes
+(1.0878/1.0264 corrected, 1.0023/0.9035 in defect mode) on a host at loadavg
+14-18. The default is too small for this probe and the gate correctly refuses;
+that is not a new defect, but it is now visible instead of being papered over by
+a uniform cold start.
+
+comparison_class=SELF-SPEEDUP
+campaign_output=false
+decision_gate=median_ci
+cv_role=report_only
+
+**RESULT: KEEP / SUBSTRATE.** No product code changed. Recorded as a
+self-speedup because the only ratio here is harness-vs-harness; nothing about
+fnx moved.
+
+RETRY PREDICATE: every read row this substrate published before 2026-08-15 is
+biased by an unknown, row-dependent amount — the bias scales with how much
+GC-tracked Python heap the fnx side holds, so it does not divide out and cannot
+be corrected after the fact. Re-measure, do not rescale. My own six rows from
+today are re-measured in the row that follows this one.
