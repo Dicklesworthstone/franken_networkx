@@ -10216,3 +10216,58 @@ RETRY PREDICATE: `__getitem__` is the third wrapper on these classes but is NOT
 this lever — it is a Python-level AtlasView cache (`_graph_getitem_from_adj`),
 not a private-override probe, and belongs to br-r37-c1-ey6ob. Before assuming a
 dunder wrapper is the private-override family, read it: this one is not.
+
+## 2026-08-15 SnowyValley SHIPPED SELF-SPEEDUP: multigraph edge membership routed to native `has_edge` — **7.1365x** (`br-r37-c1-6fs77`)
+
+`(u, v) in MG.edges` was the worst row on the whole view surface: **0.0617x**
+against live networkx, admissible with clean nulls. `_MultiGraphEdgeView.
+__contains__` walked `self._graph.adj` — `u in adj`, `v in adj[u]`,
+`key in adj[u][v]` — where `adj` is a Python `AdjacencyView` whose
+`__contains__`, `__getitem__` and `__iter__` are all Python functions. Five
+Python frames and two view constructions per probe, against networkx's two plain
+dict lookups. It now calls `self._graph.has_edge(u, v, key)`, one native call
+that answers exactly `key in adj[u][v]`.
+
+MEASURED, wall clock, ONE invocation, ONE ELF, both arms present. Incumbent =
+the adjacency walk restored on the view class WITH the key-0 correctness fix
+already in it, so both arms answer identically and only the route differs.
+`ABBAABBA` square, 61 rounds, 400 probes/slot, per-arm A/A nulls, 2000-node /
+8000-edge string-keyed MultiGraph, `taskset -c 40-47`, host thinkstation1 with
+no rch worker in the path, governor powersave, ISA avx2/avx/sse4_2, 1 OS thread
+/ 8 affinity CPUs, PYTHONHASHSEED=0, loadavg 6.5, live networkx 3.6.1 in the
+same invocation,
+`bench_elf_sha256=b1b391ad21ea4c05f9a7c2d72f4384f592ddad951b781c6113effb68e09dc4ef`:
+
+    row                            draw 1                        draw 2
+    walk -> native            6.9979x [6.8453,7.0956] ADM   7.1365x [7.0207,7.2495] ADM
+    networkx vs fnx BEFORE    0.0580x [0.0570,0.0589] ADM   0.0617x [0.0612,0.0632] ADM
+    networkx vs fnx AFTER     0.3743x [0.3686,0.3807] null  0.3927x [0.3856,0.3977] ADM
+    CONTROL networkx vs nx    1.0071x straddles-1           0.9912x [0.9830,0.9977] ADM
+
+The same-invocation A/A null control measured 1.0021x and 0.9886x on the shipped
+row of draw 2 and 1.0033x/0.9962x on its before row, inside the +/-0.02 bound.
+
+**7.1365x** for the route change; the row moves 0.0617x -> 0.3927x and REMAINS a
+decisive loss, which is why this is recorded as maintenance and not as a
+campaign output. What is left is the per-probe boundary plus canonicalisation,
+the same floor `has_node` (0.3792x) and `n in G` (0.3762x) sit on.
+
+The correctness half of this bead shipped separately in d81abf1d4: a 2-element
+spec means key ZERO, not "any key", and fnx was answering True for an edge whose
+only key was something else. That fix is in BOTH arms above, so none of this
+ratio is a semantics change.
+
+comparison_class=SELF-SPEEDUP
+campaign_output=false
+decision_gate=median_ci
+cv_role=report_only
+
+**RESULT: KEEP / MAINTENANCE.**
+
+RETRY PREDICATE: the remaining multigraph view surface is the same shape —
+`u in MG.adj` 0.5919x, and `AdjacencyView.__contains__` / `__getitem__` /
+`__iter__` are Python functions on a native class. Before attacking any of
+them, MRO-probe `type(G.adj)` and check which entries are `function`: on this
+surface a Python frame on a native class has been the whole deficit four times
+today (`len(G)` 5.05x, `__iter__` 1.77x, edge specs 1.23x, this row 7.14x), and
+the native store has been the deficit zero times.

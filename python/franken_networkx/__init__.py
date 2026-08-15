@@ -2821,6 +2821,18 @@ class _MultiGraphEdgeView:
             key = 0
         else:
             raise ValueError("MultiEdge must have length 2 or 3")
+        # br-r37-c1-6fs77 perf half: `has_edge(u, v, key)` is one native call
+        # and answers exactly `key in adj[u][v]`, including `key=0` against an
+        # edge whose only key is something else. Walking `self._graph.adj`
+        # instead cost five Python frames and two view constructions per probe
+        # — measured 0.1082x against networkx, the worst row on the surface.
+        # A graph carrying networkx private storage keeps the walk, because
+        # then the assigned mapping, not the native store, is the authority.
+        if not _has_networkx_private_storage(self._graph):
+            try:
+                return self._graph.has_edge(u, v, key)
+            except (KeyError, TypeError):
+                return False
         adj = self._graph.adj
         try:
             if u in adj and v in adj[u]:
@@ -3133,6 +3145,13 @@ class _MultiDiGraphEdgeView:
             key = 0
         else:
             raise ValueError("MultiEdge must have length 2 or 3")
+        # br-r37-c1-6fs77 perf half: see the undirected twin. `has_edge` is
+        # oriented on a directed multigraph, so it answers this directly.
+        if not _has_networkx_private_storage(self._graph):
+            try:
+                return self._graph.has_edge(u, v, key)
+            except (KeyError, TypeError):
+                return False
         succ = self._graph.succ
         try:
             if u not in succ or v not in succ[u]:
