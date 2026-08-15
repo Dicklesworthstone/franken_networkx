@@ -5274,7 +5274,7 @@ class MultiGraphDegreeView:
                     if "is not iterable" in str(exc):
                         raise NetworkXError(f"Node {nbunch} is not in the graph.")
                     raise NetworkXError(str(exc))
-                return _FilteredDegreeView(self, None, pairs=pairs)
+                return _filtered_degree_view(self, None, pairs=pairs, owner=self)
         nodes = list(self._graph.nbunch_iter(nbunch))
         return type(self)(self._graph, nodes=nodes, weight=weight)
 
@@ -5399,7 +5399,7 @@ class MultiDiGraphDegreeView:
                     if "is not iterable" in str(exc):
                         raise NetworkXError(f"Node {nbunch} is not in the graph.")
                     raise NetworkXError(str(exc))
-                return _FilteredDegreeView(self, None, pairs=pairs)
+                return _filtered_degree_view(self, None, pairs=pairs, owner=self)
         nodes = list(self._graph.nbunch_iter(nbunch))
         return type(self)(self._graph, nodes=nodes, weight=weight)
 
@@ -5661,7 +5661,7 @@ class _DirectedDegreeView:
                     if "is not iterable" in str(exc):
                         raise NetworkXError(f"Node {nbunch} is not in the graph.")
                     raise NetworkXError(str(exc))
-                return _FilteredDegreeView(self, None, pairs=pairs)
+                return _filtered_degree_view(self, None, pairs=pairs, owner=self)
         nodes = list(self._graph.nbunch_iter(nbunch))
         return type(self)(self._graph, self._adjacency_attr, nodes=nodes, weight=weight)
 
@@ -5994,7 +5994,7 @@ class _WeightAwareDegreeView:
                         pairs = native(nbunch)
                     except TypeError as exc:
                         raise NetworkXError(str(exc))
-                    return _FilteredDegreeView(self._raw, None, pairs=pairs)
+                    return _filtered_degree_view(self._raw, None, pairs=pairs, owner=self)
                 filtered = []
                 for n in nbunch:
                     try:
@@ -6015,13 +6015,32 @@ class _WeightAwareDegreeView:
                 # with "list index out of range" / TypeError. Wrap the
                 # filtered result in a small proxy that preserves both
                 # behaviours without touching the Rust binding.
-                return _FilteredDegreeView(self._raw, filtered)
-            # br-degexc: nx raises NetworkXError for single non-existent
-            # node, but Rust layer raises NodeNotFound. Convert to match nx.
+                return _filtered_degree_view(self._raw, filtered, owner=self)
+            # br-r37-c1-1x6aq: nx's DegreeView.__call__ answers with an int
+            # ONLY when the node is present:
+            #
+            #     if nbunch in self._nodes: return <int degree>
+            #     return self.__class__(self._graph, nbunch, weight)
+            #
+            # and that second line runs ``nbunch_iter``, which ITERATES a
+            # str/bytes argument's elements. So `G.degree('nope')` on a graph
+            # with no 'n'/'o'/'p'/'e' node is an EMPTY VIEW in networkx, not an
+            # error — fnx raised NetworkXError here, so ordinary defensive code
+            # (`if G.degree(n):`) crashed under fnx where it runs under nx.
+            # A non-iterable argument (99) still raises, because nbunch_iter
+            # raises on it; that case already matched and is preserved.
             try:
-                return self._raw(nbunch) if callable(self._raw) else self._raw[nbunch]
-            except NodeNotFound:
-                raise NetworkXError(f"Node {nbunch} is not in the graph.")
+                present = nbunch in self._graph
+            except TypeError:
+                present = False
+            if present:
+                return self._raw[nbunch]
+            if isinstance(nbunch, (str, bytes)):
+                # Iterating bytes yields ints, which is also what nbunch_iter
+                # sees, so the element filter is correct for both types.
+                filtered = [n for n in nbunch if n in self._graph]
+                return _filtered_degree_view(self._raw, filtered, owner=self)
+            raise NetworkXError(f"Node {nbunch} is not in the graph.")
         # Weighted path
         if nbunch is None:
             # br-r37-c1-yo1nt: total weighted degree over all nodes routes to
@@ -6114,7 +6133,7 @@ class _WeightAwareDegreeView:
                     pairs = native(nbunch, weight)
                 except TypeError as exc:
                     raise NetworkXError(str(exc))
-                return _FilteredDegreeView(self, None, weight=weight, pairs=pairs)
+                return _filtered_degree_view(self, None, weight=weight, pairs=pairs, owner=self)
         # br-degexc: a single hashable nbunch that isn't in the graph
         # must raise NetworkXError, matching NX. Falling through to
         # ``[n for n in nbunch ...]`` would TypeError on non-iterables
@@ -6123,7 +6142,7 @@ class _WeightAwareDegreeView:
             filtered = [n for n in nbunch if n in self._graph]
         except TypeError:
             raise NetworkXError(f"Node {nbunch} is not in the graph.")
-        return _FilteredDegreeView(self, filtered, weight=weight)
+        return _filtered_degree_view(self, filtered, weight=weight, owner=self)
 
 
 class _FilteredDegreeView:
@@ -6187,7 +6206,9 @@ class _FilteredDegreeView:
     def __repr__(self):
         # br-r37-c1-wu9dv: nx exposes this as DegreeView({n: deg, ...}) —
         # drop-in code prints the full dict-style repr. Match it.
-        return f"DegreeView({dict(self)!r})"
+        # br-r37-c1-1x6aq: the NAME is per-variant, not always "DegreeView" —
+        # see _filtered_degree_view.
+        return f"{type(self).__name__}({dict(self)!r})"
 
     def __str__(self):
         # br-r37-c1-wu9dv: nx DegreeView.__str__ returns str(list(self)).
@@ -6197,6 +6218,31 @@ class _FilteredDegreeView:
 # br-r37-c1-wu9dv: rename so ``type(view).__name__`` matches nx exactly.
 _FilteredDegreeView.__name__ = "DegreeView"
 _FilteredDegreeView.__qualname__ = "DegreeView"
+
+
+# br-r37-c1-1x6aq: an nbunch-restricted degree view must report the SAME class
+# as the view it restricts. nx has eight of them — DegreeView, DiDegreeView,
+# MultiDegreeView, DiMultiDegreeView and the four In/Out variants — and fnx
+# returned the single hardcoded "DegreeView" for all of them, so
+# ``type(DG.degree(['a'])).__name__`` said DegreeView where nx says
+# DiDegreeView (6 of the 8 were wrong).
+#
+# The unrestricted views already carry the right names, so the name is taken
+# from the owning view rather than re-derived from the graph type — one source
+# of truth, and a new view variant inherits correct behaviour for free. The
+# name must live on the CLASS (``type(v).__name__`` cannot be shadowed per
+# instance), hence one cached subclass per name.
+_FILTERED_DEGREE_VIEW_CLASSES = {}
+
+
+def _filtered_degree_view(raw, nodes, weight=None, pairs=None, owner=None):
+    name = type(owner).__name__ if owner is not None else "DegreeView"
+    cls = _FILTERED_DEGREE_VIEW_CLASSES.get(name)
+    if cls is None:
+        cls = type(name, (_FilteredDegreeView,), {"__slots__": ()})
+        cls.__qualname__ = name
+        _FILTERED_DEGREE_VIEW_CLASSES[name] = cls
+    return cls(raw, nodes, weight=weight, pairs=pairs)
 
 
 # br-r37-c1-viewnames: align ``type(view).__name__`` with nx so
