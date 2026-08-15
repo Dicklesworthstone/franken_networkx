@@ -742,6 +742,14 @@ def test_edges_view_subscript_missing_endpoint_raises_node_not_found():
     with pytest.raises(KeyError):
         _ = graph.edges["present", "missing"]
 
+
+def test_edges_view_subscript_handles_equal_string_self_loop():
+    graph = fnx.Graph()
+    node = "self-loop"
+    graph.add_edge(node, node, weight=9)
+    equal_node = "".join(["self", "-loop"])
+    assert graph.edges[equal_node, equal_node]["weight"] == 9
+
     directed = fnx.DiGraph()
     directed.add_edges_from([(0, 1), (1, 3), (0, 2), (2, 3), (1, 2)])
     directed_mapping = {node: f"directed-path-{node}" for node in directed}
