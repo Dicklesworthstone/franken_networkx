@@ -2149,6 +2149,14 @@ impl DictOfDictsCache {
 pub(crate) struct InstanceDictGc {
     dict: Option<Py<PyDict>>,
     private_node_override: bool,
+    /// br-r37-c1-ef8rt: the `_adj` twin of `private_node_override`.
+    ///
+    /// Assigning `G._adj` replaces the ADJACENCY, which is what an edge
+    /// subscript reads — and it can be assigned without `_node`, so the node
+    /// flag cannot stand in for it. `EdgeView.__getitem__` is a native slot
+    /// now, so the check has to be here rather than in the Python wrapper that
+    /// used to own it.
+    private_adj_override: bool,
 }
 
 impl InstanceDictGc {
@@ -2156,6 +2164,7 @@ impl InstanceDictGc {
         Self {
             dict: None,
             private_node_override: false,
+            private_adj_override: false,
         }
     }
 
@@ -2178,6 +2187,36 @@ impl InstanceDictGc {
 
     pub(crate) fn set_private_node_override(&mut self) {
         self.private_node_override = true;
+    }
+
+    pub(crate) fn set_private_adj_override(&mut self) {
+        self.private_adj_override = true;
+    }
+
+    /// The `_adj` row an edge subscript must read for a graph carrying
+    /// networkx private storage (br-r37-c1-ef8rt), or `None` for an ordinary
+    /// graph. Ordinary graphs pay one bool test.
+    pub(crate) fn private_adj_row<'py>(
+        &self,
+        py: Python<'py>,
+        u: &Bound<'py, PyAny>,
+    ) -> PyResult<Option<Bound<'py, PyAny>>> {
+        if !self.private_adj_override {
+            return Ok(None);
+        }
+        let Some(dict) = self.dict.as_ref() else {
+            return Ok(None);
+        };
+        let Some(mapping) = dict.bind(py).get_item("_fnx_private_adj_override")? else {
+            return Ok(None);
+        };
+        // `mapping[u]` — a missing source is the caller's KeyError to shape,
+        // so it is reported as absent rather than raised from here.
+        match mapping.get_item(u) {
+            Ok(row) => Ok(Some(row)),
+            Err(err) if err.is_instance_of::<PyKeyError>(py) => Ok(Some(py.None().into_bound(py))),
+            Err(err) => Err(err),
+        }
     }
 
     /// The node count a graph carrying networkx private storage must report
@@ -2298,6 +2337,13 @@ impl PyGraph {
 
     fn _fnx_set_private_node_override(&mut self) {
         self.instance_dict_gc.set_private_node_override();
+    }
+
+    /// br-r37-c1-ef8rt: the `_adj` twin, called from the same single install
+    /// funnel. `EdgeView.__getitem__` is a native slot now, so it needs to know
+    /// when the adjacency it reads has been replaced.
+    fn _fnx_set_private_adj_override(&mut self) {
+        self.instance_dict_gc.set_private_adj_override();
     }
 
     fn __traverse__(&self, visit: PyVisit<'_>) -> Result<(), PyTraverseError> {
@@ -4773,6 +4819,13 @@ impl PyMultiGraph {
 
     fn _fnx_set_private_node_override(&mut self) {
         self.instance_dict_gc.set_private_node_override();
+    }
+
+    /// br-r37-c1-ef8rt: the `_adj` twin, called from the same single install
+    /// funnel. `EdgeView.__getitem__` is a native slot now, so it needs to know
+    /// when the adjacency it reads has been replaced.
+    fn _fnx_set_private_adj_override(&mut self) {
+        self.instance_dict_gc.set_private_adj_override();
     }
 
     fn __traverse__(&self, visit: PyVisit<'_>) -> Result<(), PyTraverseError> {

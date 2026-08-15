@@ -6565,70 +6565,17 @@ _MultiGraphEdgeView.data = _multi_edge_view_data
 _MultiDiGraphEdgeView.data = _multi_edge_view_data
 
 
-def _make_edge_view_getitem_preserving_key(raw):
-    """br-edgekey: wrap EdgeView.__getitem__ so KeyError carries the
-    original edge tuple/key object rather than the Rust side's str repr.
-
-    br-r37-c1-eg-msg: nx's EdgeView.__getitem__ uses ``KeyError(
-    f"The edge {e} is not in the graph.")`` for missing edges and
-    propagates ``TypeError`` for unhashable endpoints from the
-    underlying ``self._adjdict[u]`` dict lookup.  fnx previously
-    wrapped any KeyError with the raw ``edge`` tuple, masking the
-    exception-message contract and silently catching TypeError on
-    unhashable endpoints.  Mirror nx's exact wording.
-    """
-
-    def __getitem__(self, edge):
-        # nx unpacks via ``u, v = e`` so non-iterable subscripts
-        # raise ``TypeError: cannot unpack non-iterable …`` and
-        # mis-sized iterables raise ValueError naturally — match
-        # the same unpack form for parity.  Hash-check after the
-        # unpack so unhashable u or v surfaces as nx's TypeError
-        # from the underlying ``self._adjdict[u]`` lookup.  String
-        # subscripts (``G.edges["xy"]``) are valid in nx — they
-        # unpack as 2-char tuples — but the Rust raw binding
-        # rejects non-tuple inputs, so look up via the adjacency
-        # mapping directly to keep parity.
-        u, v = edge
-        hash(u)
-        hash(v)
-        owner = _EDGE_VIEW_GRAPH_OWNER.get(id(self))
-        if owner is None:
-            try:
-                return raw(self, edge)
-            except KeyError as exc:
-                raise KeyError(
-                    f"The edge {edge} is not in the graph."
-                ) from exc
-        # br-r37-c1-sivs2: ordinary Graph EdgeView objects are Rust-bound and
-        # cannot retain an extra bound method like the Python DiGraph sibling.
-        # Recover the weakly held exact owner and bind its captured raw
-        # get_edge_data descriptor for this scalar probe. This removes the
-        # AdjacencyView/AtlasView chain without changing owner lifetime.
-        if type(owner) is Graph and not _has_networkx_private_storage(owner):
-            # Call the PyO3 method descriptor unbound. Binding it afresh for
-            # every Rust EdgeView subscript costs more than the mapping chain
-            # this path replaces; the unbound vectorcall has the same native
-            # body without allocating a transient bound-method object.
-            data = _GRAPH_PRIVATE_AWARE_GET_EDGE_DATA(
-                owner, u, v, _PRIVATE_MISSING
-            )
-            if data is not _PRIVATE_MISSING:
-                return data
-            raise KeyError(f"The edge {edge} is not in the graph.")
-        try:
-            return owner.adj[u][v]
-        except KeyError as exc:
-            raise KeyError(
-                f"The edge {edge} is not in the graph."
-            ) from exc
-
-    return __getitem__
-
-
-_EDGE_VIEW_TYPE.__getitem__ = _make_edge_view_getitem_preserving_key(
-    _EDGE_VIEW_TYPE.__getitem__
-)
+# br-r37-c1-ef8rt: `_EDGE_VIEW_TYPE.__getitem__` is NOT rebound. The native slot
+# implements nx's `__getitem__` itself — the slice guard, the `u, v = e` unpack
+# with CPython's own wording, nx's KeyError text carrying the original spec, and
+# the hash order that answers a missing edge before the target is hashed. The
+# wrapper this replaces unpacked, called `hash()` twice, and looked the owning
+# graph up in a weak dict keyed by `id(self)` to recover the object the view
+# already holds a reference to, on the worst-measured read row on the surface.
+#
+# The wrapper factory that used to live here is deleted rather than left unused:
+# the DiGraph and multigraph edge views are Python classes with their own
+# `__getitem__` bodies, so nothing else called it.
 
 
 def _view_set_eq(self, other):
@@ -44171,6 +44118,14 @@ def _set_private_override(self, attr_name, value):
         mark_private_node_override = getattr(self, "_fnx_set_private_node_override", None)
         if mark_private_node_override is not None:
             mark_private_node_override()
+    elif attr_name == _PRIVATE_ADJ_OVERRIDE:
+        # br-r37-c1-ef8rt: `EdgeView.__getitem__` is a native slot, so the
+        # adjacency override has to reach the Rust side the same way the node
+        # override does. `_adj` can be assigned without `_node`, so the node
+        # flag cannot stand in for it.
+        mark_private_adj_override = getattr(self, "_fnx_set_private_adj_override", None)
+        if mark_private_adj_override is not None:
+            mark_private_adj_override()
     _install_private_method_shadows(self, storage)
 
 

@@ -4,11 +4,13 @@
 //! the current state of the graph (they are "live" views backed by Py<PyGraph>).
 
 use crate::{
-    NodeIterator, NodeLookupCache, PyGraph, PyObject, attr_map_to_pydict, node_key_to_string,
+    NetworkXError, NodeIterator, NodeLookupCache, PyGraph, PyObject, attr_map_to_pydict,
+    node_key_to_string,
 };
 use arrayvec::ArrayString;
 use pyo3::exceptions::{PyKeyError, PyRuntimeError, PyTypeError, PyValueError};
 use pyo3::gc::{PyTraverseError, PyVisit};
+use pyo3::intern;
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyIterator, PyModule, PySlice, PyTuple};
 
@@ -32,6 +34,60 @@ fn endpoint_not_a_node(item: &Bound<'_, PyAny>, canonical_err: PyErr) -> PyResul
             Err(hash_err)
         }
     }
+}
+
+/// networkx's KeyError text for a missing edge subscript (br-r37-c1-ef8rt).
+///
+/// nx re-raises with `f"The edge {e} is not in the graph."` carrying the
+/// ORIGINAL spec object, so the message shows what the caller passed rather
+/// than the canonical bytes we looked up.
+///
+/// `str`, not `repr`: an f-string formats with `__str__`, so a STRING subscript
+/// reads `The edge xy is not in the graph.` and not `The edge 'xy' ...`. A
+/// tuple renders identically either way, which is why only the string spec
+/// catches this — `test_edges_subscript_message_and_typeerror_match_nx` does.
+fn missing_edge_key_error(edge: &Bound<'_, PyAny>) -> PyErr {
+    match edge.str() {
+        Ok(text) => PyKeyError::new_err(format!("The edge {text} is not in the graph.")),
+        Err(err) => err,
+    }
+}
+
+/// `u, v = e`, with CPython's own wording on both failure modes.
+///
+/// br-r37-c1-ef8rt: callers match on these messages, and nx gets them for free
+/// from the interpreter's unpack. A non-iterable is a TypeError, and any length
+/// other than two is a ValueError — which `EdgeView.__getitem__` does NOT catch,
+/// unlike `__contains__`.
+fn unpack_two_endpoints<'py>(
+    edge: &Bound<'py, PyAny>,
+) -> PyResult<(Bound<'py, PyAny>, Bound<'py, PyAny>)> {
+    let mut items = edge.try_iter().map_err(|err| {
+        if err.is_instance_of::<PyTypeError>(edge.py()) {
+            let name = edge
+                .get_type()
+                .name()
+                .map(|n| n.to_string())
+                .unwrap_or_else(|_| "object".to_owned());
+            PyTypeError::new_err(format!("cannot unpack non-iterable {name} object"))
+        } else {
+            err
+        }
+    })?;
+    let first = items.next().transpose()?;
+    let second = items.next().transpose()?;
+    let got = usize::from(first.is_some()) + usize::from(second.is_some());
+    let (Some(first), Some(second)) = (first, second) else {
+        return Err(PyValueError::new_err(format!(
+            "not enough values to unpack (expected 2, got {got})"
+        )));
+    };
+    if items.next().transpose()?.is_some() {
+        return Err(PyValueError::new_err(
+            "too many values to unpack (expected 2)",
+        ));
+    }
+    Ok((first, second))
 }
 
 // ---------------------------------------------------------------------------
@@ -882,18 +938,71 @@ impl EdgeView {
         )
     }
 
+    /// networkx's `EdgeView.__getitem__`, natively (br-r37-c1-ef8rt)::
+    ///
+    ///     if isinstance(e, slice): raise nx.NetworkXError(...)
+    ///     u, v = e
+    ///     try: return self._adjdict[u][v]
+    ///     except KeyError: raise KeyError(f"The edge {e} is not in the graph.")
+    ///
+    /// `G.edges[u, v]` was the worst read probe on the surface at 0.25x, and
+    /// this slot was DEAD: `python/franken_networkx/__init__.py` rebound
+    /// `__getitem__` to a Python function that unpacked, called `hash()` twice,
+    /// looked the owning graph up in a weak dict keyed by `id(self)`, and then
+    /// called `get_edge_data` — the native slot below was never reached for a
+    /// plain `Graph`. The owner it went to that trouble to recover is the
+    /// `graph` field this view already holds.
+    ///
+    /// The unpack is nx's `u, v = e`, NOT `e[:2]`: a 3-tuple is a ValueError
+    /// here where `__contains__` accepts it. CPython's own wording for both
+    /// failure modes is reproduced because callers match on it.
     fn __getitem__(&self, py: Python<'_>, edge: &Bound<'_, PyAny>) -> PyResult<Py<PyDict>> {
-        let tuple = edge.downcast::<PyTuple>().map_err(|_| {
-            pyo3::exceptions::PyTypeError::new_err("edge key must be a (u, v) tuple")
-        })?;
+        if edge.is_instance_of::<PySlice>() {
+            let (start, stop, step) = (
+                edge.getattr(intern!(py, "start"))?,
+                edge.getattr(intern!(py, "stop"))?,
+                edge.getattr(intern!(py, "step"))?,
+            );
+            return Err(NetworkXError::new_err(format!(
+                "EdgeView does not support slicing, try list(G.edges)[{start}:{stop}:{step}]"
+            )));
+        }
+        let (u_item, v_item) = unpack_two_endpoints(edge)?;
+        // br-r37-c1-lvlu7: nx hashes `u` inside `self._adjdict[u]`, so an
+        // unhashable `u` raises TypeError and an ABSENT `u` becomes the KeyError
+        // below without `v` ever being hashed.
+        crate::require_hashable_node_key(&u_item)?;
+        // br-r37-c1-ef8rt: a graph carrying networkx private storage reads the
+        // ASSIGNED adjacency, not the native store — `G._adj = {...}` replaces
+        // exactly what this subscript returns. One bool test for every ordinary
+        // graph; the Python wrapper this slot replaced owned the same branch.
+        if let Some(row) = self
+            .graph
+            .borrow(py)
+            .instance_dict_gc
+            .private_adj_row(py, &u_item)?
+        {
+            if row.is_none() {
+                return Err(missing_edge_key_error(edge));
+            }
+            crate::require_hashable_node_key(&v_item)?;
+            return match row.get_item(&v_item) {
+                Ok(attrs) => Ok(attrs.downcast_into::<PyDict>()?.unbind()),
+                Err(err) if err.is_instance_of::<PyKeyError>(py) => {
+                    Err(missing_edge_key_error(edge))
+                }
+                Err(err) => Err(err),
+            };
+        }
         // br-r37-c1-ey6ob: borrowed endpoint canonicals (see `__contains__`).
-        // `materialize_edge_py_attrs` already takes `&str`, and the KeyError text
-        // is built from the same canonical bytes, so the message is unchanged.
-        let u_item = tuple.get_item(0)?;
-        let v_item = tuple.get_item(1)?;
+        // `materialize_edge_py_attrs` already takes `&str`.
         let mut u_buf = ArrayString::new();
         let mut v_buf = ArrayString::new();
         let u = crate::canonical_node_key_in(py, &u_item, &mut u_buf)?;
+        if !self.graph.borrow(py).inner.has_node(u.as_str()) {
+            return Err(missing_edge_key_error(edge));
+        }
+        crate::require_hashable_node_key(&v_item)?;
         let v = crate::canonical_node_key_in(py, &v_item, &mut v_buf)?;
         let (u, v) = (u.as_str(), v.as_str());
         let mut g = self.graph.borrow_mut(py);
@@ -902,7 +1011,7 @@ impl EdgeView {
             return Ok(attrs);
         }
         if !g.inner.has_edge(u, v) {
-            return Err(PyKeyError::new_err(format!("({u}, {v})")));
+            return Err(missing_edge_key_error(edge));
         }
         g.mark_edges_dirty();
         Ok(g.materialize_edge_py_attrs(py, u, v))

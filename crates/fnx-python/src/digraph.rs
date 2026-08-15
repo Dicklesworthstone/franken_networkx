@@ -185,6 +185,13 @@ impl PyDiGraph {
         self.instance_dict_gc.set_private_node_override();
     }
 
+    /// br-r37-c1-ef8rt: the `_adj` twin, called from the same single install
+    /// funnel. `EdgeView.__getitem__` is a native slot now, so it needs to know
+    /// when the adjacency it reads has been replaced.
+    fn _fnx_set_private_adj_override(&mut self) {
+        self.instance_dict_gc.set_private_adj_override();
+    }
+
     fn __traverse__(&self, visit: PyVisit<'_>) -> Result<(), PyTraverseError> {
         self.instance_dict_gc.traverse(visit.clone())?;
         self.traverse_python_refs(&visit)
@@ -394,6 +401,13 @@ impl PyMultiDiGraph {
 
     fn _fnx_set_private_node_override(&mut self) {
         self.instance_dict_gc.set_private_node_override();
+    }
+
+    /// br-r37-c1-ef8rt: the `_adj` twin, called from the same single install
+    /// funnel. `EdgeView.__getitem__` is a native slot now, so it needs to know
+    /// when the adjacency it reads has been replaced.
+    fn _fnx_set_private_adj_override(&mut self) {
+        self.instance_dict_gc.set_private_adj_override();
     }
 
     fn __traverse__(&self, visit: PyVisit<'_>) -> Result<(), PyTraverseError> {

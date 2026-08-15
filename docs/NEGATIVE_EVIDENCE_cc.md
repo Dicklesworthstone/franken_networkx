@@ -10622,3 +10622,73 @@ by scratch ablation harnesses that still carry the per-slot collect, so their
 LEVELS are unconfirmed. Their within-harness contrasts (1.7680x and 7.1365x) are
 fnx-vs-fnx with the same heap in both arms, which is the configuration the bias
 largely cancels in, but "largely" is not "measured".
+
+## 2026-08-15 SnowyValley SHIPPED: native `EdgeView.__getitem__` — the worst row on the surface, 0.2593x -> **0.6610x**, wrapper worth **2.5733x** (`br-r37-c1-ef8rt`)
+
+`G.edges[u, v]` was the worst read probe measured anywhere on this surface, and
+the native slot was DEAD: `python/franken_networkx/__init__.py` rebound
+`__getitem__` to a Python function that unpacked, called `hash()` twice, looked
+the owning graph up in a `WeakValueDictionary` keyed by `id(self)`, and then
+called `get_edge_data` — so the Rust `__getitem__` was never reached for a plain
+`Graph`. That is why an earlier toggle-collect on that pymethod collected ZERO
+instructions. The owner the wrapper went to that trouble to recover is the
+`graph` field the view already holds.
+
+MEASURED, wall clock, ONE invocation, ONE ELF, both arms present — incumbent =
+the wrapper body recovered verbatim from git `718916464` and re-applied over the
+new slot, candidate = the bare slot. `harness=ab_edges_getitem.py`,
+`same_host=thinkstation1`, `rch_worker=none` (both arms in-process; nothing
+dispatched to a worker), `bench_elf_sha256=c782cfeb25950019a499575b4b6357c46bcc9aa61beaadff946a708767b38eb7`,
+balanced `ABBAABBA` square with the corrected per-round collect
+(`br-r37-c1-7x25w`), 41 rounds, 4000 subscripts/slot, per-arm A/A nulls,
+2000-node/8000-edge string-keyed Graph, `taskset -c 40-47`, live networkx 3.6.1
+in the same invocation, loadavg 5.7:
+
+    row                          ratio     CI                  nulls           verdict
+    wrapped -> native         2.5733x  [2.5675, 2.5782]   1.0028/1.0008  ADMISSIBLE
+    networkx vs fnx BEFORE    0.2593x  [0.2583, 0.2606]   1.0061/1.0026  ADMISSIBLE
+    networkx vs fnx AFTER     0.6610x  [0.6592, 0.6618]   1.0082/1.0005  ADMISSIBLE
+    CONTROL networkx vs nx    1.0014x  [1.0003, 1.0037]   1.0034/1.0027  ADMISSIBLE
+
+The same-invocation A/A null control measured 1.0028x and 1.0008x on the shipped
+row, inside the +/-0.02 bound, and the incumbent arm reproduces the independently
+published level for this row (0.2524x re-measured on the repo harness), which is
+what says the reconstruction is faithful. **2.5733x**, and the row moves from
+0.2593x to 0.6610x — still a LOSS, and this is recorded as maintenance for that
+reason.
+
+PARITY IS THE WHOLE DIFFICULTY, because the wrapper WAS the specification. A
+14-shape matrix is asserted against LIVE networkx: present and reversed tuples,
+absent u, absent v, 3-tuple (`ValueError: too many values to unpack`), 1-tuple
+(`not enough values to unpack (expected 2, got 1)`), list, 2-char string,
+`int`/`None` (`cannot unpack non-iterable int object`), slice
+(`NetworkXError: EdgeView does not support slicing, try list(G.edges)[0:2:None]`),
+unhashable u, absent-u-plus-unhashable-v, and a generator. All 14 match.
+
+TWO DEFECTS THE FULL SUITE CAUGHT that the matrix did not, both now fixed and
+both worth naming because they are the ones a "port the happy path" change
+would ship:
+
+  * `f"The edge {e} is not in the graph."` formats with `__str__`, not `__repr__`.
+    A tuple renders identically either way, so only the STRING subscript
+    distinguishes them — `The edge xy` versus `The edge 'xy'`.
+  * a graph carrying networkx PRIVATE STORAGE (`G._adj = {...}`) must read the
+    ASSIGNED adjacency, which the Python wrapper handled and the slot did not.
+    `_adj` can be assigned without `_node`, so the existing node-override flag
+    could not stand in for it; the adjacency override now reaches Rust through
+    the same single install funnel, and an ordinary graph pays one bool test.
+
+comparison_class=SELF-SPEEDUP
+campaign_output=false
+decision_gate=median_ci
+cv_role=report_only
+
+**RESULT: KEEP / MAINTENANCE.** The row is no longer the outlier on this
+surface — it was 4x worse than its neighbours and is now in family with them —
+but 0.6610x is a loss and is recorded as one.
+
+RETRY PREDICATE: what remains here is the attr-dict materialisation, not the
+call boundary. Before attacking it, check whether `cached_edge_py_attrs` already
+serves the probe — this workload hits that cache, so a lever aimed at
+materialisation will read as inert on THIS row and only show up on a cold-attr
+workload that does not exist in the harness yet.
