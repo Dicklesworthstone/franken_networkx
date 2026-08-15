@@ -44,6 +44,23 @@ USAGE
 Ratio convention is t_incumbent / t_fnx, so > 1 means fnx is faster. That is
 the same convention the ledgers use.
 
+TWO THINGS THAT MOVE A ROW WITHOUT ANY CODE CHANGING (br-r37-c1-y4r63), found
+when this harness and an ablation harness disagreed by 2x on the same ELF:
+
+  * ROW CONTEXT. Every row runs in one process, so the rows before it have
+    already warmed and dirtied the structures it reads. `(u,v) in G.edges()`
+    measures 0.4254x with the full eight-row set and 0.5099x with `--only`,
+    same build, minutes apart, both admissible. Use `--only` when you are
+    quoting a single row, and say which way you ran it.
+  * PROBE KEY IDENTITY. CPython's dict compares POINTERS before it compares
+    strings, so networkx is ~1.17x faster when the key object handed to
+    `in` is the object it already stores than when it is an equal copy. fnx
+    canonicalises and memcmps either way, so it gets no such shortcut. Each
+    arm here builds its probes from its OWN fixture, which gives networkx that
+    shortcut; a harness that feeds one library's key objects to both arms
+    silently biases the ratio by that much in the other direction. Neither is
+    wrong, but a row is only comparable to another row measured the same way.
+
 ADDING A WORKLOAD. Append to `WORKLOADS`. A workload is a callable returning
 `(build, ops)` where `build(module)` constructs an equivalent graph in either
 library and `ops(graph, fixture)` returns `{label: callable}`. Every op is
@@ -380,6 +397,14 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--warmup", type=int, default=8)
     parser.add_argument("--expect-elf", default=os.environ.get("EXPECT_ELF_SHA"))
     parser.add_argument("--list", action="store_true")
+    # br-r37-c1-y4r63: run ONE row, so a row's number can be checked without the
+    # rows before it having run in the same process. Every row still builds and
+    # parity-gates, so the fixture and the gate are unchanged by the selection.
+    parser.add_argument(
+        "--only",
+        default=None,
+        help="run only rows whose label contains this substring",
+    )
     args = parser.parse_args(argv[1:])
 
     if args.list:
@@ -414,12 +439,21 @@ def main(argv: list[str]) -> int:
     ops_nx = ops(g_nx, fx_nx)
     ops_fx = ops(g_fx, fx_fx)
 
+    selected = [name for name in ops_nx if args.only is None or args.only in name]
+    if not selected:
+        raise SystemExit(f"--only {args.only!r} matched no row; rows are: {list(ops_nx)}")
+
     # Parity gate BEFORE timing: an arm that computes something different must
     # fail loudly, not produce a fast wrong number. Floats are compared at 12
     # significant digits — tight enough to catch a different algorithm, loose
     # enough not to trip on last-ulp accumulation-order differences, which are
     # a separate question from "are these arms doing the same work".
-    for name in ops_nx:
+    #
+    # It gates the SELECTED rows only. Gating a row you are not timing still
+    # runs it once against both libraries, which warms and dirties exactly the
+    # structures the timed row then reads — so `--only` would not isolate
+    # anything if this loop ignored it (br-r37-c1-y4r63).
+    for name in selected:
         got_nx, got_fx = canonical(ops_nx[name]()), canonical(ops_fx[name]())
         if got_nx != got_fx:
             raise SystemExit(
@@ -432,7 +466,7 @@ def main(argv: list[str]) -> int:
         f"   null bound +/-{NULL_BOUND}"
     )
     admitted = 0
-    for name in ops_nx:
+    for name in selected:
         row = run_row(name, ops_nx[name], ops_fx[name], args.rounds, args.warmup)
         low, high = row["ci"]
         print(
@@ -442,7 +476,7 @@ def main(argv: list[str]) -> int:
         admitted += row["verdict"] == "ADMISSIBLE"
 
     print(f"\n  loadavg_end              {os.getloadavg()}")
-    print(f"  admitted rows            {admitted}/{len(ops_nx)}")
+    print(f"  admitted rows            {admitted}/{len(selected)}")
     if admitted == 0:
         print("  NO ADMISSIBLE ROW — do not quote any number from this run.")
     return 0
