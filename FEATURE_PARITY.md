@@ -58,6 +58,58 @@ implementation and proof, not strategy churn: D2 wires `RuntimePolicy` through
 parser/high-risk entry points, and D3-D4 lock strict/hardened behavior with
 fixture evidence.
 
+## Declared Scope Boundary: Node-Key Equivalence (br-r37-c1-cow38)
+
+**Decision: a node key's identity is its VALUE, not a caller-supplied equivalence
+relation. Node-key types that redefine `__eq__`/`__hash__` to make distinct
+values compare equal are OUT OF SCOPE for V1.** This is a deliberate, recorded
+divergence, not an open defect.
+
+networkx stores nodes in a `dict`, so a key's own `__eq__`/`__hash__` define the
+equivalence relation and any object hashing and comparing equal to a stored key
+*is* that key. fnx canonicalises every node key to a string (`"str:{len}:{s}"`)
+and compares those bytes, which implements exactly one equivalence relation —
+character identity. The observable consequence, measured against live networkx
+3.6.1 on all four graph classes:
+
+```python
+class Ci(str):
+    def __hash__(self):  return hash(str(self).lower())
+    def __eq__(self, o): return str(self).lower() == str(o).lower()
+
+g.add_edge("n0", "n1")
+Ci("N0") in g                 # networkx True,  fnx False
+g.has_node(Ci("N0"))          # networkx True,  fnx False
+Ci("N0") in g.nodes           # networkx True,  fnx False
+(Ci("N0"), "n1") in g.edges   # networkx True,  fnx False
+g.has_edge(Ci("N0"), "n1")    # networkx True,  fnx False
+g.degree(Ci("N0"))            # networkx 1,     fnx empty view
+```
+
+**Why the boundary is drawn here rather than closed.** Honouring a caller's
+equivalence relation requires a Python-object-keyed node index that is
+*complete* — every node, maintained across every mutation — because a partial
+one answers from cache state rather than from the graph. That is a storage-model
+change, and its cost is already an open, measured problem in its own right
+(`br-r37-c1-node-storage-materialization-wall-5fije`, the node-key PyObject
+materialization wall). The existing lookasides deliberately do not qualify:
+`NodeIndexLookupCache::present_keys` is gated to exact `str` precisely because a
+subclass that lies about `__hash__`/`__eq__` would otherwise resolve to whatever
+entry it claims to equal, and would do so only after some other key had been
+probed — a cache-state-dependent answer, which is worse than a consistent
+divergence.
+
+**What is IN scope and must not regress:** the *hashability* contract. An
+unhashable key raises or answers absent exactly as networkx does, on every
+probe; that was closed in `c14dc2ecf` and is locked by
+`tests/python/test_unhashable_key_parity.py`. A plain `str` subclass that does
+not override `__eq__`/`__hash__` behaves identically to `str` in both libraries.
+
+The divergence above is asserted deliberately, from both sides, in
+`tests/python/test_custom_equality_node_key_scope.py`. If that file starts
+failing because fnx began matching networkx, the boundary has moved and this
+section is what needs updating.
+
 ## Parity Matrix
 
 | Feature Family | Status | Notes |
