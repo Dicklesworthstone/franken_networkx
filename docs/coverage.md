@@ -2781,7 +2781,7 @@ At the declared import-and-signature surface measured here, a real user can port
 | `classes` | `networkx.Graph.is_multigraph` | `method` | `partial` | `franken_networkx.Graph.is_multigraph` | method signature differs: NetworkX `(self)`; FrankenNetworkX `(self, *args, **kwargs)` |
 | `classes` | `networkx.Graph.name` | `property` | `present` | `franken_networkx.Graph.name` | class-member binding kind matches |
 | `classes` | `networkx.Graph.nbunch_iter` | `method` | `present` | `franken_networkx.Graph.nbunch_iter` | class-member kind and signature match |
-| `classes` | `networkx.Graph.neighbors` | `method` | `present` | `franken_networkx.Graph.neighbors` | class-member kind and signature match |
+| `classes` | `networkx.Graph.neighbors` | `method` | `present` | `franken_networkx.Graph.neighbors` | class-member kind and signature match; FrankenNetworkX `(self, /, n)` is a native method descriptor, whose `self` is positional-only |
 | `classes` | `networkx.Graph.node_attr_dict_factory` | `method` | `present` | `franken_networkx.Graph.node_attr_dict_factory` | class-member kind matches; NetworkX exposes no inspectable signature |
 | `classes` | `networkx.Graph.node_dict_factory` | `method` | `present` | `franken_networkx.Graph.node_dict_factory` | class-member kind matches; NetworkX exposes no inspectable signature |
 | `classes` | `networkx.Graph.nodes` | `descriptor` | `present` | `franken_networkx.Graph.nodes` | class-member binding kind matches |
@@ -3122,7 +3122,7 @@ At the declared import-and-signature surface measured here, a real user can port
 | `classes` | `networkx.classes.Graph.is_multigraph` | `method` | `partial` | `franken_networkx.classes.Graph.is_multigraph` | method signature differs: NetworkX `(self)`; FrankenNetworkX `(self, *args, **kwargs)` |
 | `classes` | `networkx.classes.Graph.name` | `property` | `present` | `franken_networkx.classes.Graph.name` | class-member binding kind matches |
 | `classes` | `networkx.classes.Graph.nbunch_iter` | `method` | `present` | `franken_networkx.classes.Graph.nbunch_iter` | class-member kind and signature match |
-| `classes` | `networkx.classes.Graph.neighbors` | `method` | `present` | `franken_networkx.classes.Graph.neighbors` | class-member kind and signature match |
+| `classes` | `networkx.classes.Graph.neighbors` | `method` | `present` | `franken_networkx.classes.Graph.neighbors` | class-member kind and signature match; FrankenNetworkX `(self, /, n)` is a native method descriptor, whose `self` is positional-only |
 | `classes` | `networkx.classes.Graph.node_attr_dict_factory` | `method` | `present` | `franken_networkx.classes.Graph.node_attr_dict_factory` | class-member kind matches; NetworkX exposes no inspectable signature |
 | `classes` | `networkx.classes.Graph.node_dict_factory` | `method` | `present` | `franken_networkx.classes.Graph.node_dict_factory` | class-member kind matches; NetworkX exposes no inspectable signature |
 | `classes` | `networkx.classes.Graph.nodes` | `descriptor` | `present` | `franken_networkx.classes.Graph.nodes` | class-member binding kind matches |

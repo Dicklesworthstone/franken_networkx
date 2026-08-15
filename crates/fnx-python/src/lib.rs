@@ -21,6 +21,7 @@ use fnx_classes::{AttrMap, Graph, MultiGraph};
 use fnx_runtime::{CgseValue, CompatibilityMode, RuntimePolicy};
 use pyo3::exceptions::{PyKeyError, PyRuntimeError, PyTypeError, PyValueError};
 use pyo3::gc::{PyTraverseError, PyVisit};
+use pyo3::intern;
 use pyo3::marker::Ungil;
 use pyo3::prelude::*;
 use pyo3::types::{
@@ -2201,6 +2202,15 @@ impl InstanceDictGc {
 
     pub(crate) fn set_private_adj_override(&mut self) {
         self.private_adj_override = true;
+    }
+
+    /// Does this graph carry networkx private storage at all?
+    ///
+    /// br-r37-c1-6mxtl: the read paths ported out of Python need one question
+    /// answered before they may use the native store, and both flags are set
+    /// through the same single install funnel.
+    pub(crate) const fn has_private_override(&self) -> bool {
+        self.private_node_override || self.private_adj_override
     }
 
     /// The `_adj` row an edge subscript must read for a graph carrying
@@ -14078,6 +14088,58 @@ impl PyGraph {
             lines.push(line);
         }
         Ok(lines)
+    }
+
+    /// `G.neighbors(n)` — networkx's `iter(self._adj[n])` (br-r37-c1-6mxtl).
+    ///
+    /// This is what `Graph.neighbors` binds to. The Python function it replaces
+    /// read `vars(self)`, tested FOUR override keys, built a `(nodes_seq,
+    /// edges_seq)` tuple, compared it against a cache-generation marker, probed
+    /// a per-instance dict, and only then called `_native_adjacency_row_dict` —
+    /// which already caches its row in `adj_row_py`. A cache in front of a
+    /// cache, and `list(G.neighbors(n))` measured 0.4911x against networkx.
+    ///
+    /// The ITERATOR TYPE is part of the contract (`br-r37-c1-nbritype`): nx
+    /// returns a `dict_keyiterator`, which is why this iterates the row dict
+    /// rather than returning the `Vec<PyObject>` that `neighbors` — still
+    /// present, still used by the internal raw-descriptor fast paths — hands
+    /// back.
+    ///
+    /// `signature = (n)` is mandatory: without it pyo3 makes the argument
+    /// POSITIONAL-ONLY and `G.neighbors(n=...)`, which networkx accepts, stops
+    /// working. That is a real caller-visible difference, unlike the `self`
+    /// marker br-r37-c1-y14e9 taught the surface matrix to ignore.
+    #[pyo3(name = "_native_neighbors_iter", signature = (n))]
+    fn native_neighbors_iter(slf: &Bound<'_, Self>, n: &Bound<'_, PyAny>) -> PyResult<PyObject> {
+        let py = slf.py();
+        // br-r37-c1-lvlu7: nx's `self._adj[n]` hashes `n` first, so an
+        // unhashable node raises TypeError rather than reporting absence.
+        require_hashable_node_key(n)?;
+        // A graph carrying networkx private storage reads the ASSIGNED
+        // adjacency. Handled HERE rather than by a Python caller, because a
+        // caller that had to inspect the result would put back the frame this
+        // exists to remove. The borrow is dropped before any Python call.
+        if slf.borrow().instance_dict_gc.has_private_override() {
+            let adjacency = slf.getattr(intern!(py, "adj"))?;
+            return match adjacency.get_item(n) {
+                Ok(row) => Ok(row.try_iter()?.into_any().unbind()),
+                Err(err) if err.is_instance_of::<PyKeyError>(py) => Err(NetworkXError::new_err(
+                    format!("The node {} is not in the graph.", n.str()?),
+                )),
+                Err(err) => Err(err),
+            };
+        }
+        let row = match slf.borrow_mut().native_adjacency_row_dict(py, n) {
+            Ok(row) => row,
+            Err(err) if err.is_instance_of::<PyKeyError>(py) => {
+                return Err(NetworkXError::new_err(format!(
+                    "The node {} is not in the graph.",
+                    n.str()?
+                )));
+            }
+            Err(err) => return Err(err),
+        };
+        Ok(row.bind(py).call_method0(intern!(py, "__iter__"))?.unbind())
     }
 
     #[pyo3(name = "_native_adjacency_row_dict")]

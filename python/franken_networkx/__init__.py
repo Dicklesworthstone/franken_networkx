@@ -45255,37 +45255,6 @@ def _private_aware_neighbors(raw_neighbors, *, attr_name="adj"):
     return neighbors
 
 
-def _private_aware_graph_neighbors():
-    def neighbors(self, n):
-        ov = vars(self)
-        if (
-            _PRIVATE_NODE_OVERRIDE not in ov
-            and _PRIVATE_ADJ_OVERRIDE not in ov
-            and _PRIVATE_SUCC_OVERRIDE not in ov
-            and _PRIVATE_PRED_OVERRIDE not in ov
-        ):
-            state = (self.nodes_seq, self.edges_seq)
-            if ov.get("_fnx_graph_adj_row_keydict_cache_state") != state:
-                ov["_fnx_graph_adj_row_keydict_cache_state"] = state
-                ov["_fnx_graph_adj_row_keydict_cache"] = {}
-            cache = ov["_fnx_graph_adj_row_keydict_cache"]
-            keydict = cache.get(n)
-            if keydict is None:
-                hash(n)
-                try:
-                    keydict = self._native_adjacency_row_dict(n)
-                except KeyError as exc:
-                    raise NetworkXError(f"The node {n} is not in the graph.") from exc
-                cache[n] = keydict
-            return iter(keydict)
-        adjacency = self.adj
-        if n not in self:
-            raise NetworkXError(f"The node {n} is not in the graph.")
-        return iter(adjacency[n])
-
-    return neighbors
-
-
 def _private_aware_digraph_successors():
     def successors(self, n):
         ov = vars(self)
@@ -45455,14 +45424,19 @@ MultiDiGraph.number_of_edges = _private_aware_number_of_edges(_MULTIDIGRAPH_PRIV
 # br-r37-c1-heyxu: ordinary DiGraphs call the native live-row iterator
 # descriptors directly. Private NetworkX storage restores mapping-aware
 # versions through `_install_private_method_shadows`.
-# br-r37-c1-ef8rt, MEASURED AND NOT TAKEN (pending br-r37-c1-y14e9): binding
-# this to a native slot instead of the Python function above is worth 1.21x on
-# `list(G.neighbors(n))` (0.4911x -> 0.5911x/0.5975x vs live networkx, both
-# admissible, 41 rounds, reps=4000). It was reverted because the surface matrix
-# charged for a method descriptor's positional-only `self` marker, which no
-# caller can observe. That classifier defect is fixed; the rebind lands next,
-# on its own, with its own measurement.
-Graph.neighbors = _private_aware_graph_neighbors()
+# br-r37-c1-6mxtl: `Graph.neighbors` is the native slot, not the Python function
+# above. That function read `vars(self)`, tested four private-override keys,
+# built a `(nodes_seq, edges_seq)` tuple, compared it to a cache-generation
+# marker and probed a per-instance dict before calling
+# `_native_adjacency_row_dict` — which already caches its row. A cache in front
+# of a cache, worth 1.21x on `list(G.neighbors(n))`. The slot answers the
+# private-storage case itself, so no Python frame is left to inspect its result.
+#
+# Its factory is deleted rather than left unused: `Graph` was its only caller.
+# The DiGraph and multigraph bindings below use `_private_aware_neighbors` and
+# the raw native descriptors, which are untouched — only the undirected Graph
+# has a slot to bind here.
+Graph.neighbors = _fnx.Graph._native_neighbors_iter
 DiGraph.neighbors = _DIGRAPH_NEIGHBORS
 DiGraph.successors = _DIGRAPH_SUCCESSORS
 DiGraph.predecessors = _private_aware_digraph_predecessors()

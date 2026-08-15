@@ -10813,3 +10813,63 @@ same way — Ir before and after on the toggled pymethod, at two rep counts, and
 count of the named frame. This regression was invisible in the test suite, which
 passed throughout, and would have been invisible in a cross-build wall-clock
 comparison alone because two other changes landed between the two builds.
+
+## 2026-08-15 SnowyValley SHIPPED SELF-SPEEDUP: native `Graph.neighbors`, unblocked by the classifier fix — **1.1933x** (`br-r37-c1-6mxtl`)
+
+`br-r37-c1-ef8rt` measured this lever and REVERTED it, because landing it meant
+editing three pinned coverage constants for a method-descriptor `self` marker no
+caller can observe. `br-r37-c1-y14e9` fixed the classifier — 62 native methods
+were mispriced by it — so the lever is now free and lands here on its own.
+
+The Python function it replaces read `vars(self)`, tested FOUR private-override
+keys, built a `(nodes_seq, edges_seq)` tuple, compared it against a
+cache-generation marker, probed a per-instance dict, and only then called
+`_native_adjacency_row_dict` — which already caches its row in `adj_row_py`. A
+cache in front of a cache, against networkx's `iter(self._adj[n])`.
+
+MEASURED, wall clock, ONE invocation, ONE ELF, both arms present — incumbent =
+the Python function recovered verbatim from git and re-installed over the new
+slot, candidate = the slot. `harness=ab_neighbors_wrapper.py` (kept at
+`tests/artifacts/perf/20260815-dunder-wrapper-ablations-snowyvalley/`),
+`same_host=thinkstation1`, `rch_worker=none` — both arms in-process, nothing
+dispatched to a worker. `ABBAABBA` square with the corrected per-round collect,
+41 rounds, 4000 probes/slot, per-arm A/A nulls, 2000-node/8000-edge string-keyed
+Graph, `taskset -c 40-47`, live networkx 3.6.1 in the same invocation, loadavg
+6.0, `bench_elf_sha256=32d6337128fd9542d6ad3a26f2a2348db0b97e5e3476ef23f5fc83472d5e90e7`:
+
+    row                        ratio     CI                  nulls           verdict
+    wrapped -> native       1.1933x  [1.1899, 1.1947]   1.0055/0.9999  ADMISSIBLE
+    networkx vs fnx BEFORE  0.5117x  [0.5102, 0.5120]   1.0057/0.9998  ADMISSIBLE
+    networkx vs fnx AFTER   0.6032x  [0.6016, 0.6049]   1.0012/0.9982  ADMISSIBLE
+    CONTROL networkx vs nx  1.0008x  [0.9974, 1.0020]   1.0020/1.0005  straddles-1
+
+The same-invocation A/A null control measured 1.0055x and 0.9999x on the shipped
+row, inside the +/-0.02 bound. **1.1933x**, and the row moves 0.5117x -> 0.6032x
+— still a LOSS, which is why this is maintenance. The incumbent arm reproduces
+the 0.4911x-0.5117x this row has measured all day, which is what says the
+reconstruction is faithful.
+
+PARITY, all four contracts the Python function owned: the iterator RUNTIME TYPE
+is `dict_keyiterator` (`br-r37-c1-nbritype` pins it), `NetworkXError` with nx's
+wording for a missing node, `TypeError` for an unhashable one, and a graph
+carrying networkx private storage reads the ASSIGNED adjacency — verified
+against live networkx on all four. `signature = (n)` keeps `G.neighbors(n=...)`
+working, which is a real caller-visible property and NOT the cosmetic marker
+y14e9 taught the matrix to ignore.
+
+`docs/coverage.md` moves by two DETAIL strings and no counts: the rows now say
+they matched via the marker instead of claiming the strings were identical.
+
+comparison_class=SELF-SPEEDUP
+campaign_output=false
+decision_gate=median_ci
+cv_role=report_only
+
+**RESULT: KEEP / MAINTENANCE.**
+
+RETRY PREDICATE: the residual on this row is the row-dict materialisation and
+the `list()` construction, not the call boundary — `_native_adjacency_row_dict`
+builds a full `{neighbour: attrs}` dict where networkx iterates one it already
+has. Attacking that means changing what the adjacency row IS, not how it is
+reached, and it must be measured on a graph whose attrs are cold: this workload
+hits `adj_row_py`, so a materialisation lever reads as inert here.
