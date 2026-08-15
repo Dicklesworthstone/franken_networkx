@@ -4658,7 +4658,9 @@ def suite_claim_incumbent():
         ):
             raise RuntimeError(
                 "k_crust claim fixture no longer matches its preregistered "
-                "complete ordered output"
+                f"complete ordered output (nodes={preflight_nx.number_of_nodes()}, "
+                f"edges={preflight_nx.number_of_edges()}, "
+                f"bytes={len(preflight_nx_bytes)}, sha256={output_sha256})"
             )
         EXTRA_PROVENANCE["claim_k_crust_fixture"] = {
             "nodes": node_count,
