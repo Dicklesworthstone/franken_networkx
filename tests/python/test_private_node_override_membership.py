@@ -133,6 +133,92 @@ def test_assigned_private_node_mapping_answers_membership(name):
     assert ["unhashable"] not in gfnx
 
 
+@pytest.mark.parametrize("name", CLASS_NAMES)
+@pytest.mark.parametrize("dunder", ["__len__", "__iter__"])
+def test_len_and_iter_are_native_slots_not_python_wrappers(name, dunder):
+    """br-r37-c1-l7ww9: the same lever, for the other two node dunders.
+
+    ``len(G)`` measured 0.4074x against networkx purely because of the Python
+    wrapper here — networkx's own ``__len__`` is a Python method returning
+    ``len(self._node)``, so this was a frame-versus-two-frames loss. Removing it
+    took the row to 2.0225x. Reinstalling a wrapper would give the whole thing
+    back silently, hence this structural guard.
+    """
+    slot = getattr(fnx, name).__dict__.get(dunder)
+    assert slot is not None, f"{name} does not define {dunder}"
+    assert not isinstance(slot, types.FunctionType), (
+        f"{name}.{dunder} is a Python function ({slot!r}); the private-override "
+        f"probe belongs in the native {dunder} behind the Rust flag"
+    )
+
+
+@pytest.mark.parametrize("name", CLASS_NAMES)
+def test_ordinary_graph_len_and_iter_match_networkx(name):
+    gnx, gfnx = _pair(name)
+    assert len(gfnx) == len(gnx)
+    assert list(gfnx) == list(gnx)
+    assert gfnx.number_of_nodes() == len(gfnx)
+
+
+@pytest.mark.parametrize("name", CLASS_NAMES)
+def test_assigned_private_node_mapping_answers_len_and_iter(name):
+    """NEGATIVE CASE — an unarmed native probe fails every assertion here.
+
+    After ``G._node = <mapping>`` the graph's length and iteration order come
+    from the mapping, not from the native store, and neither has anything to do
+    with how many nodes were added. A probe that read the native store would
+    report 3 and the original keys.
+    """
+    gnx, gfnx = _pair(name)
+    mapping = {"private": {}, "other": {"tag": 1}}
+    for graph in (gnx, gfnx):
+        graph._node = dict(mapping)
+
+    assert len(gnx) == 2
+    assert len(gfnx) == 2, (
+        f"{name}: len() answered from the native store after _node was assigned"
+    )
+    assert list(gfnx) == list(gnx) == ["private", "other"], (
+        f"{name}: iteration answered from the native store, or in the wrong order"
+    )
+    # Length tracks the mapping as it changes, with no node added to the graph.
+    for graph in (gnx, gfnx):
+        graph._node["third"] = {}
+    assert len(gfnx) == len(gnx) == 3
+    assert list(gfnx) == list(gnx)
+
+
+@pytest.mark.parametrize("name", CLASS_NAMES)
+def test_iterating_private_storage_raises_like_networkx_when_it_changes_size(name):
+    """Iterating the mapping ITSELF, not a copy, is part of the contract."""
+    gnx, gfnx = _pair(name)
+    for graph in (gnx, gfnx):
+        graph._node = {"private": {}, "other": {}}
+
+    def mutate_during_iteration(graph):
+        with pytest.raises(RuntimeError) as err:
+            for _ in graph:
+                graph._node["grown"] = {}
+        return str(err.value)
+
+    assert mutate_during_iteration(gfnx) == mutate_during_iteration(gnx)
+
+
+def test_len_and_iter_are_gated_on_the_flag_not_merely_on_the_dict_key():
+    """Sibling of the membership gate test, for the two new probes."""
+    bypassed = fnx.Graph()
+    bypassed.add_nodes_from(PRESENT_KEYS)
+    bypassed.__dict__[PRIVATE_OVERRIDE_KEY] = {"private": {}}
+    assert len(bypassed) == len(PRESENT_KEYS)
+    assert list(bypassed) == PRESENT_KEYS
+
+    through_funnel = fnx.Graph()
+    through_funnel.add_nodes_from(PRESENT_KEYS)
+    through_funnel._node = {"private": {}}
+    assert len(through_funnel) == 1
+    assert list(through_funnel) == ["private"]
+
+
 def test_probe_is_gated_on_the_flag_not_merely_on_the_dict_key():
     """The Rust flag — not the presence of the dict key — is what arms the probe.
 

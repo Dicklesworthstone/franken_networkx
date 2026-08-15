@@ -5495,9 +5495,25 @@ impl PyMultiDiGraph {
         Ok(Some(out))
     }
 
+    /// Iterate node keys (called by ``for n in G``).
+    ///
+    /// br-r37-c1-l7ww9: assigned `_node` storage wins, as it does for `__len__`
+    /// and `__contains__` — an ordinary graph pays one bool test for the check.
     fn __iter__(slf: PyRef<'_, Self>) -> PyResult<PyObject> {
         // Serve iteration from the live node_iter_mirror dict_keyiterator
         // (matching nx) instead of rebuilding a Vec<PyObject> per call.
+        let py = slf.py();
+        if let Some(iterator) = slf.instance_dict_gc.private_node_iter(py)? {
+            return Ok(iterator);
+        }
+        let mirror = slf.node_iter_mirror_or_init(py)?;
+        Ok(mirror.bind(py).call_method0("__iter__")?.unbind())
+    }
+
+    /// Iterate node keys from the NATIVE store, ignoring any assigned `_node`
+    /// mapping (br-r37-c1-l7ww9). `G.adj` binds this instead of `__iter__`; see
+    /// the undirected twin for why the two must stay separable.
+    fn _fnx_native_node_iter(slf: PyRef<'_, Self>) -> PyResult<PyObject> {
         let py = slf.py();
         let mirror = slf.node_iter_mirror_or_init(py)?;
         Ok(mirror.bind(py).call_method0("__iter__")?.unbind())
@@ -15003,12 +15019,28 @@ impl PyDiGraph {
         Ok(Some(out))
     }
 
+    /// Iterate node keys (called by ``for n in G``).
+    ///
+    /// br-r37-c1-l7ww9: assigned `_node` storage wins, as it does for `__len__`
+    /// and `__contains__` — an ordinary graph pays one bool test for the check.
     fn __iter__(slf: PyRef<'_, Self>) -> PyResult<PyObject> {
         // Serve iteration from the live node_iter_mirror dict — a
         // ``dict_keyiterator`` (matching nx's ``iter(self._nodes)``) instead of
         // rebuilding a Vec<PyObject> of every display key per call. The mirror's
         // in-place mutation hooks give nx's native "changed size during
         // iteration" semantics for free.
+        let py = slf.py();
+        if let Some(iterator) = slf.instance_dict_gc.private_node_iter(py)? {
+            return Ok(iterator);
+        }
+        let mirror = slf.node_iter_mirror_or_init(py)?;
+        Ok(mirror.bind(py).call_method0("__iter__")?.unbind())
+    }
+
+    /// Iterate node keys from the NATIVE store, ignoring any assigned `_node`
+    /// mapping (br-r37-c1-l7ww9). `G.adj` binds this instead of `__iter__`; see
+    /// the undirected twin for why the two must stay separable.
+    fn _fnx_native_node_iter(slf: PyRef<'_, Self>) -> PyResult<PyObject> {
         let py = slf.py();
         let mirror = slf.node_iter_mirror_or_init(py)?;
         Ok(mirror.bind(py).call_method0("__iter__")?.unbind())

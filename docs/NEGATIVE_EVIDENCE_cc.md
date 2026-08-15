@@ -10161,3 +10161,58 @@ shim on a native slot WAS the deficit (`br-r37-c1-dtrpe` edge specs,
 read probe, check `type(_fnx.Graph).__dict__[dunder]` — a `function` there is a
 Python frame on every call, a `wrapper_descriptor` is not. Do not re-derive the
 native store's cost until that check is clean.
+
+## 2026-08-15 SnowyValley SHIPPED: native private-storage-aware `__iter__`, wrapper deleted — **1.7680x** on short traversals, **1.0072x** on long ones (`br-r37-c1-l7ww9`)
+
+The `__len__` sibling of this bead was worth 5x because `len(G)` is one call.
+`__iter__` is called ONCE per traversal and then amortised over every node
+yielded, so the same wrapper removal is worth what the traversal length lets it
+be. Both ends measured rather than one:
+
+MEASURED, wall clock, ONE invocation, ONE ELF, both arms present (incumbent =
+the deleted wrapper's body re-installed over the native slot), `ABBAABBA`
+square, 61 rounds, 400 traversals per timed slot, per-arm A/A nulls,
+`taskset -c 40-47`, host thinkstation1 with no rch worker in the path, governor
+powersave, ISA avx2/avx/sse4_2, 1 OS thread / 8 affinity CPUs,
+PYTHONHASHSEED=0, loadavg 8.2, live networkx 3.6.1 in the same invocation,
+`bench_elf_sha256=b1b391ad21ea4c05f9a7c2d72f4384f592ddad951b781c6113effb68e09dc4ef`:
+
+    row                                  ratio     CI                  nulls           verdict
+    iter 8-node: wrapped -> native     1.7680x  [1.7624, 1.7807]  1.0030/0.9927  ADMISSIBLE
+    iter 2000-node: wrapped -> native  1.0072x  [1.0064, 1.0079]  0.9988/1.0004  ADMISSIBLE
+    networkx vs fnx 8-node WRAPPED     0.4626x  [0.4609, 0.4650]  1.0030/1.0020  ADMISSIBLE
+    networkx vs fnx 8-node NATIVE      0.8357x  [0.8309, 0.8402]  1.0033/1.0050  ADMISSIBLE
+    networkx vs fnx 2000-node NATIVE   1.0076x  [1.0070, 1.0083]  1.0007/0.9999  ADMISSIBLE
+    CONTROL networkx vs networkx       1.0025x  [1.0014, 1.0052]  1.0028/1.0046  ADMISSIBLE
+
+The same-invocation A/A null control measured 1.0030x and 0.9927x on the 8-node
+shipped row and 0.9988x and 1.0004x on the 2000-node row, inside the +/-0.02
+bound. Every row admissible in one run, control included.
+
+So: a short repeated traversal moves from 0.4626x to 0.8357x, and a long one was
+already at parity and stays there. Anyone quoting a single number for this lever
+is quoting a traversal length.
+
+A REGRESSION THIS CAUSED AND HOW IT WAS CAUGHT — worth more than the ratio. The
+adjacency views bind their node iteration at import time from `Graph.__iter__`,
+captured BEFORE the Python wrapper was installed, i.e. deliberately raw:
+assigning `_node` replaces the node mapping but NOT the adjacency, so `G.adj`
+must keep reporting native keys. Moving the override into the slot silently
+redirected that capture, and 32 tests across five files failed —
+`test_simple_adjacency_iter_keeps_native_storage_under_node_override` first. The
+fix is a separate native `_fnx_native_node_iter` for the adjacency views to bind,
+which is what `__iter__` used to be. Full Python suite: 55256 passed, 0 failed.
+
+comparison_class=SELF-SPEEDUP
+campaign_output=false
+decision_gate=median_ci
+cv_role=report_only
+
+**RESULT: KEEP / MAINTENANCE.** Recorded as maintenance and not as a campaign
+output: the vs-incumbent rows that move are the 8-node ones, which end at 0.8357x
+— still a loss — and the 2000-node row was already at parity before the change.
+
+RETRY PREDICATE: `__getitem__` is the third wrapper on these classes but is NOT
+this lever — it is a Python-level AtlasView cache (`_graph_getitem_from_adj`),
+not a private-override probe, and belongs to br-r37-c1-ey6ob. Before assuming a
+dunder wrapper is the private-override family, read it: this one is not.

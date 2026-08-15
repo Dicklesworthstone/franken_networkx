@@ -2113,6 +2113,18 @@ impl InstanceDictGc {
         mapping.len().map(Some)
     }
 
+    /// The iterator a graph carrying networkx private storage must yield
+    /// (br-r37-c1-l7ww9), or `None` for an ordinary graph.
+    ///
+    /// Iterating the mapping — not a copy of it — is what nx does, so a
+    /// mutation during iteration raises there and here alike.
+    pub(crate) fn private_node_iter(&self, py: Python<'_>) -> PyResult<Option<PyObject>> {
+        let Some(mapping) = self.private_node_mapping(py)? else {
+            return Ok(None);
+        };
+        Ok(Some(mapping.try_iter()?.into_any().unbind()))
+    }
+
     /// The assigned `_node` mapping, if this graph has one.
     fn private_node_mapping<'py>(&self, py: Python<'py>) -> PyResult<Option<Bound<'py, PyAny>>> {
         if !self.private_node_override {
@@ -9528,9 +9540,31 @@ impl PyMultiGraph {
         Ok(Some(out))
     }
 
+    /// Iterate node keys (called by ``for n in G``).
+    ///
+    /// br-r37-c1-l7ww9: assigned `_node` storage wins, as it does for `__len__`
+    /// and `__contains__` — an ordinary graph pays one bool test for the check.
     fn __iter__(slf: PyRef<'_, Self>) -> PyResult<PyObject> {
         // Serve iteration from the live node_iter_mirror dict_keyiterator
         // (matching nx) instead of rebuilding a Vec<PyObject> per call.
+        let py = slf.py();
+        if let Some(iterator) = slf.instance_dict_gc.private_node_iter(py)? {
+            return Ok(iterator);
+        }
+        let mirror = slf.node_iter_mirror_or_init(py)?;
+        Ok(mirror.bind(py).call_method0("__iter__")?.unbind())
+    }
+
+    /// Iterate node keys from the NATIVE store, ignoring any assigned `_node`
+    /// mapping (br-r37-c1-l7ww9).
+    ///
+    /// `G.adj` binds this instead of `__iter__`, because assigning `_node`
+    /// replaces the node mapping but NOT the adjacency: an adjacency view built
+    /// before the assignment must keep reporting native keys. That separation
+    /// used to fall out of `__iter__` being the raw slot with the override in a
+    /// Python wrapper installed later; now that the override lives in the slot,
+    /// the raw iteration needs a name of its own.
+    fn _fnx_native_node_iter(slf: PyRef<'_, Self>) -> PyResult<PyObject> {
         let py = slf.py();
         let mirror = slf.node_iter_mirror_or_init(py)?;
         Ok(mirror.bind(py).call_method0("__iter__")?.unbind())
@@ -14071,7 +14105,29 @@ impl PyGraph {
     }
 
     /// Iterate over nodes (called by ``for n in G``).
+    /// Iterate node keys (called by ``for n in G``).
+    ///
+    /// br-r37-c1-l7ww9: assigned `_node` storage wins, as it does for `__len__`
+    /// and `__contains__` — an ordinary graph pays one bool test for the check.
     fn __iter__(slf: PyRef<'_, Self>) -> PyResult<PyObject> {
+        let py = slf.py();
+        if let Some(iterator) = slf.instance_dict_gc.private_node_iter(py)? {
+            return Ok(iterator);
+        }
+        let mirror = slf.node_iter_mirror_or_init(py)?;
+        Ok(mirror.bind(py).call_method0("__iter__")?.unbind())
+    }
+
+    /// Iterate node keys from the NATIVE store, ignoring any assigned `_node`
+    /// mapping (br-r37-c1-l7ww9).
+    ///
+    /// `G.adj` binds this instead of `__iter__`, because assigning `_node`
+    /// replaces the node mapping but NOT the adjacency: an adjacency view built
+    /// before the assignment must keep reporting native keys. That separation
+    /// used to fall out of `__iter__` being the raw slot with the override in a
+    /// Python wrapper installed later; now that the override lives in the slot,
+    /// the raw iteration needs a name of its own.
+    fn _fnx_native_node_iter(slf: PyRef<'_, Self>) -> PyResult<PyObject> {
         let py = slf.py();
         let mirror = slf.node_iter_mirror_or_init(py)?;
         Ok(mirror.bind(py).call_method0("__iter__")?.unbind())
@@ -17670,6 +17726,23 @@ class FnxMultiGraphCtorEdgeIterable:
                 state.private_node_len(py).expect("marked probe succeeds"),
                 Some(3)
             );
+
+            // Iteration comes from the SAME mapping, in its order.
+            let iterator = state
+                .private_node_iter(py)
+                .expect("marked iter probe succeeds")
+                .expect("a marked graph iterates its mapping");
+            let observed: Vec<String> = iterator
+                .bind(py)
+                .try_iter()
+                .expect("the mapping iterator is iterable")
+                .map(|item| {
+                    item.expect("iteration should not fail")
+                        .extract::<String>()
+                        .expect("keys are strings here")
+                })
+                .collect();
+            assert_eq!(observed, vec!["one", "two", "three"]);
         });
     }
 }

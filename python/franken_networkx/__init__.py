@@ -2079,10 +2079,14 @@ _DIGRAPH_NATIVE_LEN_ADJ_VIEW = _native_len_adjacency_view(_fnx.DiAdjacencyView)
 
 _GRAPH_ADJ_NATIVE_LEN = Graph.number_of_nodes
 _DIGRAPH_ADJ_NATIVE_LEN = DiGraph.number_of_nodes
-_GRAPH_ADJ_NATIVE_ITER = Graph.__iter__
-_DIGRAPH_ADJ_NATIVE_ITER = DiGraph.__iter__
-_MULTIGRAPH_ADJ_NATIVE_ITER = MultiGraph.__iter__
-_MULTIDIGRAPH_ADJ_NATIVE_ITER = MultiDiGraph.__iter__
+# br-r37-c1-l7ww9: NOT `Graph.__iter__`. Assigning `_node` replaces the node
+# mapping but not the adjacency, so an adjacency view must keep reporting native
+# keys; `__iter__` now honours the override itself, and this is the raw
+# iteration it used to be before the wrapper was deleted.
+_GRAPH_ADJ_NATIVE_ITER = Graph._fnx_native_node_iter
+_DIGRAPH_ADJ_NATIVE_ITER = DiGraph._fnx_native_node_iter
+_MULTIGRAPH_ADJ_NATIVE_ITER = MultiGraph._fnx_native_node_iter
+_MULTIDIGRAPH_ADJ_NATIVE_ITER = MultiDiGraph._fnx_native_node_iter
 _MULTIGRAPH_ADJ_NATIVE_CONTAINS = MultiGraph.has_node
 _MULTIDIGRAPH_ADJ_NATIVE_CONTAINS = MultiDiGraph.has_node
 
@@ -43858,13 +43862,10 @@ def _reapply_private_overrides(target, overrides):
             # strictly better than half-applying one of the four.
             pass
 
-_GRAPH_PRIVATE_AWARE_ITER = Graph.__iter__
-_DIGRAPH_PRIVATE_AWARE_ITER = DiGraph.__iter__
-_MULTIGRAPH_PRIVATE_AWARE_ITER = MultiGraph.__iter__
-_MULTIDIGRAPH_PRIVATE_AWARE_ITER = MultiDiGraph.__iter__
-# br-r37-c1-l7ww9: no raw-slot captures for `__len__` or `__contains__`. Both
-# slots are private-storage aware in Rust, so nothing rebinds them and nothing
-# needs to hold the original to call through.
+
+# br-r37-c1-l7ww9: no raw-slot captures for `__iter__`, `__len__` or
+# `__contains__`. All three slots are private-storage aware in Rust, so nothing
+# rebinds them and nothing needs to hold the original to call through.
 _GRAPH_PRIVATE_AWARE_NODES = Graph.nodes
 _DIGRAPH_PRIVATE_AWARE_NODES = DiGraph.nodes
 _MULTIGRAPH_PRIVATE_AWARE_NODES = MultiGraph.nodes
@@ -44918,14 +44919,9 @@ class _AssignedDiMultiDegreeView(_AssignedPrivateDegreeView):
 _AssignedDiMultiDegreeView.__name__ = "DiMultiDegreeView"
 
 
-def _private_aware_iter(raw_iter):
-    def __iter__(self):
-        node_mapping = _private_override(self, _PRIVATE_NODE_OVERRIDE)
-        if node_mapping is not _PRIVATE_MISSING:
-            return iter(node_mapping)
-        return raw_iter(self)
-
-    return __iter__
+# br-r37-c1-l7ww9: there is deliberately no `_private_aware_iter` here either.
+# The native `__iter__` iterates the assigned `_node` mapping itself when one is
+# installed, behind the same bool as `__len__` and `__contains__`.
 
 
 # br-r37-c1-l7ww9: there is deliberately no `_private_aware_len` here. The
@@ -45362,10 +45358,7 @@ def _private_aware_digraph_predecessors():
     return predecessors
 
 
-Graph.__iter__ = _private_aware_iter(_GRAPH_PRIVATE_AWARE_ITER)
-DiGraph.__iter__ = _private_aware_iter(_DIGRAPH_PRIVATE_AWARE_ITER)
-MultiGraph.__iter__ = _private_aware_iter(_MULTIGRAPH_PRIVATE_AWARE_ITER)
-MultiDiGraph.__iter__ = _private_aware_iter(_MULTIDIGRAPH_PRIVATE_AWARE_ITER)
+# br-r37-c1-l7ww9: `__iter__` is NOT rebound either — see `__len__` above.
 # br-r37-c1-l7ww9: `__len__` is NOT rebound — the native slot is private-storage
 # aware, so `len(G)` reaches it with no Python frame at all.
 
