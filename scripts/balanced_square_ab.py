@@ -298,7 +298,16 @@ def workload_algorithms(reps: int):
     These are the operations whose published README ratios have no paired
     incumbent arm, and whose retry beads (p80x1.*) are all parked on
     "after stable target reuse" — i.e. on the harness gate this substrate does
-    not need. `reps` is ignored: an algorithm call is its own timed unit.
+    not need. `reps` is ignored here: an algorithm call is its own unit of work,
+    and `--calls-per-slot` decides how many of them a timed slot holds.
+
+    br-r37-c1-j3i9q: at one call per slot, 9 of these 11 rows failed their A/A
+    nulls while reporting stable ratios with tight CIs — the null was comparing
+    the variance of ONE call against ONE call. `--calls-per-slot` is what makes
+    the null resolvable, and it is reported in the run header because a row
+    measured at K=1 and one measured at K=5 are not automatically the same
+    measurement: anything that warms on first call reads differently, and that
+    difference is a finding about the operation rather than noise.
     """
 
     def build(module):
@@ -369,7 +378,7 @@ def canonical(value):
     return value
 
 
-def time_slot(fn, *, collect_first: bool = False) -> int:
+def time_slot(fn, *, collect_first: bool = False, calls: int = 1) -> int:
     """Time one slot with the collector already quiet.
 
     br-r37-c1-7x25w: this used to call `gc.collect()` before EVERY slot. The
@@ -398,11 +407,12 @@ def time_slot(fn, *, collect_first: bool = False) -> int:
     if collect_first:
         gc.collect()
     start = time.perf_counter_ns()
-    fn()
+    for _ in range(calls):
+        fn()
     return time.perf_counter_ns() - start
 
 
-def _time_square(incumbent_fn, fnx_fn, gc_per_slot: bool):
+def _time_square(incumbent_fn, fnx_fn, gc_per_slot: bool, calls_per_slot: int = 1):
     """Run one `ABBAABBA` square and return the two arms' slot timings.
 
     The square is what makes a busy host measurable: each arm occupies the same
@@ -412,9 +422,13 @@ def _time_square(incumbent_fn, fnx_fn, gc_per_slot: bool):
     a_slots, b_slots = [], []
     for slot in SQUARE:
         if slot == "A":
-            a_slots.append(time_slot(incumbent_fn, collect_first=gc_per_slot))
+            a_slots.append(
+                time_slot(incumbent_fn, collect_first=gc_per_slot, calls=calls_per_slot)
+            )
         else:
-            b_slots.append(time_slot(fnx_fn, collect_first=gc_per_slot))
+            b_slots.append(
+                time_slot(fnx_fn, collect_first=gc_per_slot, calls=calls_per_slot)
+            )
     return a_slots, b_slots
 
 
@@ -436,6 +450,7 @@ def run_row(
     warmup: int,
     *,
     gc_per_slot: bool = False,
+    calls_per_slot: int = 1,
 ) -> dict:
     """One row: `rounds` balanced squares, per-arm A/A nulls, bootstrap median CI.
 
@@ -466,10 +481,17 @@ def run_row(
         gc.collect()
         gc.disable()
         try:
-            for _ in range(ROUND_WARM_CALLS):
+            # br-r37-c1-j3i9q: warm each arm with as much work as a TIMED SLOT
+            # holds. Two fixed calls were enough for the read rows, where a slot
+            # is one call containing `reps` operations, but not for whole-
+            # algorithm rows at K>1: their first-half nulls stayed above 1.02
+            # because the first timed slot was still colder than the last.
+            for _ in range(max(ROUND_WARM_CALLS, calls_per_slot)):
                 incumbent_fn()
                 fnx_fn()
-            a_slots, b_slots = _time_square(incumbent_fn, fnx_fn, gc_per_slot)
+            a_slots, b_slots = _time_square(
+                incumbent_fn, fnx_fn, gc_per_slot, calls_per_slot
+            )
         finally:
             gc.enable()
         ratios.append(statistics.median(a_slots) / statistics.median(b_slots))
@@ -518,6 +540,19 @@ def main(argv: list[str]) -> int:
     # br-r37-c1-7x25w: NOT a measurement mode. It restores the per-slot
     # gc.collect() this harness used until 2026-08-15, so the bias that
     # introduced can be reproduced and bounded rather than argued about.
+    # br-r37-c1-j3i9q: how many CALLS a timed slot holds. The read workloads put
+    # `reps` operations inside one call and leave this at 1; the whole-algorithm
+    # workload has one call per unit of work, and at K=1 its A/A null is
+    # comparing the variance of one call against one call — 9 of 11 rows failed
+    # their nulls while reporting stable ratios. Default stays 1 so no existing
+    # row silently changes meaning, and K is printed in the run header because a
+    # row measured at K=1 and one at K=5 are not automatically comparable.
+    parser.add_argument(
+        "--calls-per-slot",
+        type=int,
+        default=1,
+        help="algorithm calls inside each timed slot (default 1)",
+    )
     parser.add_argument(
         "--gc-per-slot",
         action="store_true",
@@ -537,6 +572,7 @@ def main(argv: list[str]) -> int:
     for key, value in prov.items():
         print(f"  {key:24s} {value}")
     print(f"  {'rounds/warmup/reps':24s} {args.rounds}/{args.warmup}/{args.reps}")
+    print(f"  {'calls_per_slot':24s} {args.calls_per_slot}")
 
     # A bare `python3` loads the site-packages extension, which is a DIFFERENT
     # build. Refuse rather than measure the wrong binary.
@@ -592,6 +628,7 @@ def main(argv: list[str]) -> int:
             args.rounds,
             args.warmup,
             gc_per_slot=args.gc_per_slot,
+            calls_per_slot=args.calls_per_slot,
         )
         low, high = row["ci"]
         print(

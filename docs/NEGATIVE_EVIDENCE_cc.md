@@ -10873,3 +10873,125 @@ builds a full `{neighbour: attrs}` dict where networkx iterates one it already
 has. Attacking that means changing what the adjacency row IS, not how it is
 reached, and it must be measured on a graph whose attrs are cold: this workload
 hits `adj_row_py`, so a materialisation lever reads as inert here.
+
+## 2026-08-15 SnowyValley SUBSTRATE: whole-algorithm rows need more than one call per timed slot — 2/11 admissible becomes 4/11 (`br-r37-c1-j3i9q`)
+
+The algorithms workload exists for the `br-r37-c1-p80x1` conversion queue — 24
+published README claims with no paired incumbent arm — and it was reporting
+stable ratios with tight CIs while FAILING 9 of 11 A/A nulls. The cause was not
+noise in the ratio: `reps` is ignored by that workload because an algorithm call
+is its own unit of work, so every timed slot held ONE call and the
+first-half/second-half null was comparing the variance of one call against one
+call.
+
+`--calls-per-slot` lets a slot hold K calls, defaulting to 1 so no row measured
+before this change silently means something else, and K is printed in the run
+header because a row at K=1 and a row at K=5 are not automatically the same
+measurement. A second defect surfaced at K>1: the per-round warm-up was two
+fixed calls, which is enough when a slot is one call containing 400 operations
+and not enough when a slot is five whole algorithm runs. It now warms each arm
+with as much work as a timed slot holds.
+
+    admitted rows, 41 rounds, harness=balanced_square_ab.py --workload algorithms
+    K=1, warm 2                 2/11
+    K=5, warm 2                 3/11
+    K=5, warm max(2, K)         4/11
+
+`harness=balanced_square_ab.py`, `same_host=thinkstation1`, `rch_worker=none`
+(both arms in-process; nothing dispatched to a worker),
+`bench_elf_sha256=32d6337128fd9542d6ad3a26f2a2348db0b97e5e3476ef23f5fc83472d5e90e7`,
+loadavg 5.9-7.3, live networkx 3.6.1 in the same invocation. The same-invocation
+A/A null control on the rows that now pass measured 1.0023x and 0.9851x
+(pagerank) and 0.9995x and 1.0047x (subgraph view), inside the +/-0.02 bound.
+
+SEVEN ROWS STILL FAIL and are NOT converted here: `bfs_tree->edges`,
+`single_source_sp_length`, `shortest_path(weighted)`, `kosaraju_scc`,
+`connected_components`, `degree_centrality`, and the `number_of_edges` control.
+Their nulls sit between 1.02 and 1.09 with the first half slower, which is
+warm-up this K does not reach. Their ratios (2.3x-4.5x, and 117x for the
+control) are NOT results and are recorded here only so the next attempt knows
+where they landed.
+
+comparison_class=SELF-SPEEDUP
+campaign_output=false
+decision_gate=median_ci
+cv_role=report_only
+
+**RESULT: KEEP / SUBSTRATE.** No product code changed.
+
+RETRY PREDICATE: raise K before raising rounds — the failing nulls are warm-up,
+not drift, and rounds do not fix warm-up. If a row still fails at K=25, the next
+thing to check is whether its fnx arm allocates enough to make the round's
+disabled collector the problem, which is the opposite failure from the one
+`br-r37-c1-7x25w` fixed and would show as the SECOND half slower.
+
+## 2026-08-15 SnowyValley CLAIM CONVERTED / KEEP: `pagerank` **3.4628x / 3.4805x** vs live networkx (`br-r37-c1-p80x1.22`)
+
+The p80x1 beads are parked on "retry after RCH proves one identical managed
+physical target path across two `--clean-overlay` invocations". This row does
+not need that: both arms run in ONE local process, so there is no target path to
+stabilise and no worker to compare across.
+
+`harness=balanced_square_ab.py --workload algorithms --calls-per-slot 5`,
+`same_host=thinkstation1`, `rch_worker=none`,
+`bench_elf_sha256=32d6337128fd9542d6ad3a26f2a2348db0b97e5e3476ef23f5fc83472d5e90e7`,
+balanced `ABBAABBA` square, 41 rounds, 5 calls per timed slot, per-arm A/A
+nulls, 400-node/1600-edge string-keyed Graph, `taskset -c 40-47`, governor
+powersave, ISA avx2/avx/sse4_2, 1 OS thread / 8 affinity CPUs, PYTHONHASHSEED=0,
+live networkx 3.6.1 imported in the same process:
+
+    draw   ratio     CI                  nulls           verdict
+    1    3.4628x  [3.4426, 3.4735]   1.0023/0.9851  ADMISSIBLE
+    2    3.4805x  [3.4648, 3.4953]   1.0024/0.9937  ADMISSIBLE
+
+The same-invocation A/A null control measured 1.0023x and 0.9851x on draw 1 and
+1.0024x and 0.9937x on draw 2, inside the +/-0.02 bound. Two admissible draws,
+agreeing to 0.5%. The harness parity-gates every op against the incumbent BEFORE
+timing, so both arms are computing the same pagerank vector.
+
+comparison_class=INCUMBENT
+incumbent=networkx
+incumbent_same_invocation=true
+incumbent_ratio=3.4628x
+campaign_output=true
+decision_gate=median_ci
+cv_role=report_only
+
+**RESULT: KEEP / CAMPAIGN OUTPUT.** The conservative draw is published.
+
+RETRY PREDICATE: this is the 400-node/1600-edge fixture the workload builds, not
+the README's fixture. It converts the CLAIM SHAPE (pagerank has a live paired
+incumbent arm and wins) and does not license the README's number, which was
+measured on a different graph and still has no paired arm.
+
+## 2026-08-15 SnowyValley CLAIM CONVERTED / KEEP: `subgraph(view).edges()` **3.9989x / 4.0660x** vs live networkx (`br-r37-c1-p80x1.18`)
+
+Same invocation, same harness and same provenance as the pagerank row above:
+`harness=balanced_square_ab.py --workload algorithms --calls-per-slot 5`,
+`same_host=thinkstation1`, `rch_worker=none`,
+`bench_elf_sha256=32d6337128fd9542d6ad3a26f2a2348db0b97e5e3476ef23f5fc83472d5e90e7`,
+41 rounds, live networkx 3.6.1 in the same process. The same-invocation A/A null
+control measured 0.9995x and 1.0047x on draw 1 and 0.9906x and 0.9842x on draw
+2, inside the +/-0.02 bound.
+
+    draw   ratio     CI                  nulls           verdict
+    1    3.9989x  [3.9905, 4.0086]   0.9995/1.0047  ADMISSIBLE
+    2    4.0660x  [3.8713, 4.1360]   0.9906/0.9842  ADMISSIBLE
+
+Two admissible draws. Draw 2's CI is wider and contains draw 1, so the
+conservative figure is published.
+
+comparison_class=INCUMBENT
+incumbent=networkx
+incumbent_same_invocation=true
+incumbent_ratio=3.9989x
+campaign_output=true
+decision_gate=median_ci
+cv_role=report_only
+
+**RESULT: KEEP / CAMPAIGN OUTPUT.**
+
+RETRY PREDICATE: the row materialises `sorted(G.subgraph(nodes).edges())` on a
+200-of-400-node induced view. A lever that changes how the VIEW is built will
+move it; one that changes edge iteration will move it more, because the sort and
+the tuple materialisation are most of the work on this fixture.

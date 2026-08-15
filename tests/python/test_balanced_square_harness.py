@@ -118,6 +118,44 @@ def test_the_collector_is_off_inside_a_timed_slot(monkeypatch, harness):
     assert gc.isenabled(), "run_row must re-enable the collector when it finishes"
 
 
+def test_calls_per_slot_puts_k_calls_inside_one_timed_slot(harness):
+    """br-r37-c1-j3i9q: a timed slot may hold K calls, and defaults to one.
+
+    The whole-algorithm workload has one call per unit of work, so at K=1 its
+    A/A null compares the variance of ONE call against ONE call and 9 of 11 rows
+    failed while reporting stable ratios. K is what makes the null resolvable —
+    and the default must stay 1, so no row measured before this change silently
+    means something else.
+    """
+    calls = []
+    harness.time_slot(lambda: calls.append(1))
+    assert len(calls) == 1, "default must be one call per slot"
+
+    calls.clear()
+    harness.time_slot(lambda: calls.append(1), calls=5)
+    assert len(calls) == 5
+
+
+def test_calls_per_slot_reaches_every_slot_of_the_square(monkeypatch, harness):
+    """K applies to BOTH arms, or the ratio measures different amounts of work."""
+    incumbent, candidate = [], []
+    rounds, k = 3, 4
+    harness.run_row(
+        "probe",
+        lambda: incumbent.append(1),
+        lambda: candidate.append(1),
+        rounds=rounds,
+        warmup=0,
+        calls_per_slot=k,
+    )
+    slots_per_arm = len(harness.SQUARE) // 2
+    # The warm-up scales with the slot: each arm is warmed with as much work as
+    # a timed slot holds, or ROUND_WARM_CALLS, whichever is more.
+    warm = max(harness.ROUND_WARM_CALLS, k)
+    expected = rounds * (warm + slots_per_arm * k)
+    assert len(incumbent) == len(candidate) == expected
+
+
 def test_each_round_warms_both_arms_before_timing(monkeypatch, harness):
     """A collect leaves the caches cold; both arms must reheat symmetrically.
 
