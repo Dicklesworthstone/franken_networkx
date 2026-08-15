@@ -678,16 +678,28 @@ impl EdgeView {
         // the refcount round-trip bought nothing.
         let u_item = tuple.get_borrowed_item(0)?;
         let v_item = tuple.get_borrowed_item(1)?;
-        // br-r37-c1-p1tvg, MEASURED AND REVERTED: routing the exact-`str`
-        // endpoints through `PyGraph::cached_exact_string_node_index` (the
-        // Python-dict lookaside `has_edge` uses) removes 101 Ir/call here, and
-        // is 1.27x SLOWER in wall clock. Same-ELF, same-invocation ABBAABBA
-        // square with a clean A/A control, three draws: incumbent/candidate
-        // 0.779x / 0.791x / 0.768x. The canonical path below builds its key in
-        // a stack buffer and probes a hot FxHash IndexMap; the lookaside trades
-        // that for a CPython dict probe plus a PyLong round-trip, which costs
-        // fewer instructions and more cycles. Do not re-land it on an Ir
-        // argument alone.
+        // br-r37-c1-p1tvg, TRIED AND REVERTED — NO DEMONSTRATED WIN: routing
+        // the exact-`str` endpoints through
+        // `PyGraph::cached_exact_string_node_index` (the Python-dict lookaside
+        // `has_edge` uses) removes 101 Ir/call here — a quarter of what the
+        // bead predicted, because it costed the removal and not the CPython
+        // dict probe plus PyLong round-trip that replaces it — and bought no
+        // measurable time.
+        //
+        // The wall-clock draws I first recorded (incumbent/candidate 0.779x /
+        // 0.791x / 0.768x, read as "1.27x slower") are CONFOUNDED and the
+        // magnitude is retracted: the candidate was invoked as a slot
+        // `wrapper_descriptor` while the control was a plain method
+        // descriptor, and that call-protocol difference alone is ~25 ns/call
+        // against a ~150 ns operation, biased in the direction of the
+        // conclusion. Correcting for it leaves roughly 1.1x slower, which is
+        // an estimate and not a measurement. A clean re-test must reach both
+        // arms through the SAME call protocol.
+        //
+        // What IS established: no wall-clock win, and an Ir cut that did not
+        // translate. Do not re-land this on an Ir argument alone. The real
+        // lever on this row was br-r37-c1-dtrpe (the Python wrapper), which
+        // took it from 0.81x to ~1.15-1.20x vs networkx on two harnesses.
         let mut u_buf = ArrayString::new();
         let mut v_buf = ArrayString::new();
         let u = match crate::canonical_node_key_in(py, &u_item, &mut u_buf) {
