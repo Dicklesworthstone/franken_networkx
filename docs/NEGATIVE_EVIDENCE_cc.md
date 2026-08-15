@@ -9951,6 +9951,19 @@ rather than three spot fixes.
 
 ## 2026-08-15 SnowyValley FINDING: 45% of `(u,v) in G.edges()` is the PYTHON `__contains__` wrapper, not the Rust (`br-r37-c1-p1tvg`)
 
+WHERE AND WITH WHAT (added 2026-08-15 under the fleet's harness+worker identity
+gate): `harness=ab_wrapper_ablation.py`
+sha256 `12a4b53cd798e03804a830b263e31edbd1b6fe356bd41b7abc460241cac89c05`, plus
+`ir_slope_edges_contains.py` sha256
+`5d659b0483163fff690ccd030f45a83a3ffed679e8dc1b414080d93fc5c5c5cc` for the
+instruction figures; both kept at
+`tests/artifacts/perf/20260815-dunder-wrapper-ablations-snowyvalley/`.
+`same_host=thinkstation1`, `rch_worker=none` — both arms ran in one process on
+that machine and no timing was ever dispatched to a worker. **This row's harness
+is one of the two that disagree by ~2x on this exact probe** (`br-r37-c1-y4r63`,
+and see the CAVEAT below); it is named here so nobody has to guess which side of
+that disagreement produced these numbers.
+
 `python/franken_networkx/__init__.py:6279` replaces `_fnx.EdgeView.__contains__`
 (and the three sibling view classes) with a Python function that adds networkx's
 permissive `e[:2]` semantics around the native pymethod. Every `x in G.edges`
@@ -10025,6 +10038,17 @@ arm is reverted in-tree with the numbers recorded at its site.
 
 ## 2026-08-15 SnowyValley SHIPPED SELF-SPEEDUP: native permissive `EdgeView.__contains__`, Python rebind deleted — **1.2303x** / **1.2562x** (`br-r37-c1-dtrpe`)
 
+WHERE AND WITH WHAT (added under the harness+worker identity gate):
+`harness=ab_wrapper_ablation.py` sha256
+`12a4b53cd798e03804a830b263e31edbd1b6fe356bd41b7abc460241cac89c05`, at
+`tests/artifacts/perf/20260815-dunder-wrapper-ablations-snowyvalley/`.
+`same_host=thinkstation1`, `rch_worker=none` — both arms in one process on that
+machine. The SELF-DELTA rows (wrapped -> native) are within-harness contrasts
+and survive the harness disagreement; the vs-networkx LEVELS in this row come
+from the harness that reads ~2x high on this probe versus
+`scripts/balanced_square_ab.py`, and the RETRY PREDICATE already says not to
+quote the level.
+
 `python/franken_networkx/__init__.py` rebound `_fnx.EdgeView.__contains__` to a
 Python function that re-implemented networkx's permissive `e[:2]` handling
 around the Rust slot, so every `x in G.edges` paid a Python frame before
@@ -10096,6 +10120,17 @@ the level, until that is resolved.
 
 ## 2026-08-15 SnowyValley SHIPPED WIN: `len(G)` 0.4074x -> **2.0225x** vs live networkx — the private-override wrapper was 5x the operation (`br-r37-c1-l7ww9`)
 
+WHERE AND WITH WHAT (added under the harness+worker identity gate):
+`harness=ab_len_wrapper.py` sha256
+`13d5689bb37f8daf405be0947ee0622f4a4b988802a7b7fa00839ce822f02c32`, at
+`tests/artifacts/perf/20260815-dunder-wrapper-ablations-snowyvalley/`.
+`same_host=thinkstation1`, `rch_worker=none` — all four arms, including the
+networkx-vs-networkx control, ran in ONE process on that machine. This row's
+level is independently corroborated by a different harness:
+`scripts/balanced_square_ab.py --workload view-reads` reads `CONTROL len(G)` at
+`1.9840x` CI `[1.9514, 2.0054]` on the same ELF, against `2.0225x` here, so the
+two harnesses AGREE on this primitive to within 2%.
+
 `len(G)` is the cheapest operation this library has, and it was measuring 0.41x
 against networkx — whose own `__len__` is itself a Python method returning
 `len(self._node)`. Losing a Python-frame-versus-Python-frame race by 2.5x was
@@ -10164,6 +10199,14 @@ native store's cost until that check is clean.
 
 ## 2026-08-15 SnowyValley SHIPPED: native private-storage-aware `__iter__`, wrapper deleted — **1.7680x** on short traversals, **1.0072x** on long ones (`br-r37-c1-l7ww9`)
 
+WHERE AND WITH WHAT (added under the harness+worker identity gate):
+`harness=ab_iter_wrapper.py` sha256
+`3280cde827b3d852d1df75c732c639b4138d242ab04ad73822705b11707f92c1`, at
+`tests/artifacts/perf/20260815-dunder-wrapper-ablations-snowyvalley/`.
+`same_host=thinkstation1`, `rch_worker=none` — every arm in one process on that
+machine. No second harness measured this primitive, so the level here is
+single-harness and should be treated as such until one does.
+
 The `__len__` sibling of this bead was worth 5x because `len(G)` is one call.
 `__iter__` is called ONCE per traversal and then amortised over every node
 yielded, so the same wrapper removal is worth what the traversal length lets it
@@ -10219,6 +10262,25 @@ dunder wrapper is the private-override family, read it: this one is not.
 
 ## 2026-08-15 SnowyValley SHIPPED SELF-SPEEDUP: multigraph edge membership routed to native `has_edge` — **7.1365x** (`br-r37-c1-6fs77`)
 
+WHERE AND WITH WHAT (added under the harness+worker identity gate):
+`harness=ab_multi_contains.py` sha256
+`15b30094e139678578d3ee9e802b455729bdc51bcb1376ff75c66874e3862431`, at
+`tests/artifacts/perf/20260815-dunder-wrapper-ablations-snowyvalley/`.
+`same_host=thinkstation1`, `rch_worker=none` — both arms in one process on that
+machine.
+
+TWO HARNESSES, AND THEY DISAGREE ON THE LEVEL, which is why the 7.14x
+within-harness contrast is what this row claims. `ab_multi_contains.py` put the
+pre-change path at `0.0580x`/`0.0617x` and the post-change path at
+`0.3743x`/`0.3927x`; `ab_view_sweep2.py` (sha256
+`665a9ff38f2a08ec6d4c17c1e793f4f1bb7e3d449decb8ea371b5e0de2eb809e`) put the same
+before-row at `0.1082x` and the same after-row at `0.3080x`/`0.3390x` on the same
+ELFs. The fixtures differ (node attributes present in one, absent in the other)
+and the sweep runs the row after its neighbours, which is itself worth ~1.20x
+(`br-r37-c1-y4r63`). The AFTER levels agree to within ~1.2x; the BEFORE levels
+differ by ~1.8x. Both harnesses agree the row was a decisive loss and remains
+one.
+
 `(u, v) in MG.edges` was the worst row on the whole view surface: **0.0617x**
 against live networkx, admissible with clean nulls. `_MultiGraphEdgeView.
 __contains__` walked `self._graph.adj` — `u in adj`, `v in adj[u]`,
@@ -10273,6 +10335,28 @@ today (`len(G)` 5.05x, `__iter__` 1.77x, edge specs 1.23x, this row 7.14x), and
 the native store has been the deficit zero times.
 
 ## 2026-08-15 SnowyValley SHIPPED WIN: exact-`str` present-key memo — `has_node` 0.4556x -> **1.2205x**, `n in G` 0.3762x -> **1.6729x** (`br-r37-c1-6n9vm`)
+
+WHERE AND WITH WHAT (added under the harness+worker identity gate).
+`same_host=thinkstation1`, `rch_worker=none` for every row below — both arms of
+every ratio ran in ONE process on that machine, and no timing was dispatched to
+a worker. Three harnesses, named per row rather than pooled:
+
+| figure | harness | sha256 |
+|---|---|---|
+| `has_node` 0.4556x -> 1.2205x, `n in G` 0.3762x -> 1.6729x | `ab_view_sweep2.py` and `scripts/balanced_square_ab.py --workload view-reads` | `665a9ff38f2a08ec6d4c17c1e793f4f1bb7e3d449decb8ea371b5e0de2eb809e` / repo |
+| absent-key rows 0.6610x / 0.8797x / 0.7575x | `ab_absent_sweep.py` | `e8a07256722d55c316a82e046571aa92aaf3a5dfd0cd5300d69fa5e39124e753` |
+| miss cost 0.8378x | `ab_memo_miss_cost.py` | `353df9cc5248cd31078355be89ee98a5a04d17c28c4785ac595ddd5560ac1294` |
+| 77.4% canonicalisation attribution | `ir_probe_has_node.py` (callgrind) | `5d7a004bda246d55985b9d24d52b203e3bac8708dbed7381b40c7f87c9dcab08` |
+
+Scratch harnesses are kept at
+`tests/artifacts/perf/20260815-dunder-wrapper-ablations-snowyvalley/`.
+
+TWO HARNESSES AGREE HERE, which is the reason this row's LEVEL is quotable where
+the edge-membership rows' levels are not: `ab_view_sweep2.py` read `has_node` at
+`1.2205x` CI `[1.1861, 1.2318]` and `scripts/balanced_square_ab.py --only` read
+`1.2297x` CI `[1.2048, 1.2574]` on the same ELF — overlapping CIs from
+independently written harnesses. `n in G` spans `1.4917x`-`1.6841x` across four
+draws from both harnesses, and the row publishes that RANGE rather than a point.
 
 REOPENS the node-key interning HOLD (CloudyTurtle 2026-07-26 `br-r37-c1-zea7e`
 and `br-r37-c1-yere4`; OliveDesert 2026-08-08 `has_node` REJECT) on its own

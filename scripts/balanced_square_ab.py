@@ -82,6 +82,7 @@ import statistics
 import sys
 import time
 import warnings
+from pathlib import Path
 
 warnings.filterwarnings("ignore")
 
@@ -101,11 +102,30 @@ NULL_BOUND = 0.02
 # ACTUAL observed thread count (not the requested one), host identity, CPU
 # governor, runtime ISA, and an ELF SHA-256 read from the loaded module's own
 # path so a harness cannot silently compare a build against itself.
+#
+# WHICH HARNESS produced a row is provenance too, and it is the field the fleet
+# was missing. frankenlibc measured one primitive on ONE worker with two
+# separately-sanctioned harnesses and got 5.9459x and 12.385414x — a ~2x spread
+# with BOTH A/A nulls inside tolerance. This repo hit the same thing
+# independently: `(u,v) in G.edges()` read 0.4254x here and 0.8502x in an
+# ablation harness on the same ELF minutes apart, both admissible
+# (`br-r37-c1-y4r63`). A null certifies stationarity WITHIN one harness's run;
+# it says nothing about whether two harnesses measure the same thing. So the
+# harness names itself, and hashes its own source, in every row it prints.
+#
+# WHERE it ran is a gate, not a suggestion: `same_host` when both arms ran in
+# this process on this machine, and `rch_worker` when the run was dispatched to
+# a worker. A row that cannot name where it ran is not comparable to any other
+# row, because worker identity alone has moved a ratio 13.6x elsewhere in the
+# fleet with passing nulls.
 # ---------------------------------------------------------------------------
 def provenance() -> dict:
     elf = _fnx_ext.__file__
     with open(elf, "rb") as handle:
         elf_sha = hashlib.sha256(handle.read()).hexdigest()
+    harness = Path(__file__).resolve()
+    with open(harness, "rb") as handle:
+        harness_sha = hashlib.sha256(handle.read()).hexdigest()
     try:
         with open("/sys/devices/system/cpu/cpu0/cpufreq/scaling_governor") as handle:
             governor = handle.read().strip()
@@ -130,7 +150,15 @@ def provenance() -> dict:
                     break
     except OSError:
         pass
+    # Both arms of every row in this harness run inside THIS process, so the
+    # machine that ran them is this one. `RCH_WORKER` is reported when set so a
+    # dispatched run says so itself rather than being inferred later.
+    worker = os.environ.get("RCH_WORKER") or os.environ.get("RCH_WORKER_ID")
     return {
+        "harness": harness.name,
+        "harness_sha256": harness_sha,
+        "same_host": socket.gethostname(),
+        "rch_worker": worker or "none (both arms in-process on same_host)",
         "host": socket.gethostname(),
         "elf": elf,
         "elf_sha256": elf_sha,
