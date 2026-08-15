@@ -601,6 +601,13 @@ def test_undirected_complement_edges_are_symmetric():
     for u, v in complement.edges():
         assert complement.has_edge(v, u)
 
+
+def test_complement_edges_start_with_empty_attribute_dicts():
+    graph = fnx.Graph()
+    graph.add_edge(0, 1, weight=3)
+    complement = fnx.complement(graph)
+    assert all(data == {} for _, _, data in complement.edges(data=True))
+
     directed = fnx.DiGraph()
     directed.add_edges_from([(0, 1), (1, 3), (0, 2), (2, 3), (1, 2)])
     directed_mapping = {node: f"directed-path-{node}" for node in directed}
