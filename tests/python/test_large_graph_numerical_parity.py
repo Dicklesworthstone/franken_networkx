@@ -631,6 +631,13 @@ def test_complement_graph_attributes_are_independent():
     complement.graph["name"] = "complement"
     assert graph.graph["name"] == "source"
 
+
+def test_complement_preserves_isolated_nodes():
+    graph = fnx.Graph()
+    graph.add_node("isolated")
+    complement = fnx.complement(graph)
+    assert "isolated" in complement
+
     directed = fnx.DiGraph()
     directed.add_edges_from([(0, 1), (1, 3), (0, 2), (2, 3), (1, 2)])
     directed_mapping = {node: f"directed-path-{node}" for node in directed}
