@@ -45455,18 +45455,13 @@ MultiDiGraph.number_of_edges = _private_aware_number_of_edges(_MULTIDIGRAPH_PRIV
 # br-r37-c1-heyxu: ordinary DiGraphs call the native live-row iterator
 # descriptors directly. Private NetworkX storage restores mapping-aware
 # versions through `_install_private_method_shadows`.
-# br-r37-c1-ef8rt, MEASURED AND NOT TAKEN: binding this to the native
-# `_native_neighbors_iter` slot instead of the Python function below is worth
-# 1.21x on `list(G.neighbors(n))` (0.4911x -> 0.5911x/0.5975x vs live networkx,
-# both admissible, 41 rounds, reps=4000). It was reverted because a method
-# DESCRIPTOR reports `(self, /, n)` where a Python function reports `(self, n)`,
-# so the generated surface matrix reclassifies `Graph.neighbors` from `present`
-# to `partial` — twice — and landing it meant editing three pinned counts in
-# tests/python/test_coverage_gaps.py plus docs/coverage.md for a difference no
-# caller can observe (`G.neighbors(n=...)` works either way). Every native
-# method already carries that classification; `has_node` and `has_edge` are
-# `partial` for exactly this reason. The lever becomes free once the classifier
-# stops charging for the marker.
+# br-r37-c1-ef8rt, MEASURED AND NOT TAKEN (pending br-r37-c1-y14e9): binding
+# this to a native slot instead of the Python function above is worth 1.21x on
+# `list(G.neighbors(n))` (0.4911x -> 0.5911x/0.5975x vs live networkx, both
+# admissible, 41 rounds, reps=4000). It was reverted because the surface matrix
+# charged for a method descriptor's positional-only `self` marker, which no
+# caller can observe. That classifier defect is fixed; the rebind lands next,
+# on its own, with its own measurement.
 Graph.neighbors = _private_aware_graph_neighbors()
 DiGraph.neighbors = _DIGRAPH_NEIGHBORS
 DiGraph.successors = _DIGRAPH_SUCCESSORS

@@ -458,6 +458,37 @@ def _surface_signature(obj) -> str | None:
         return None
 
 
+def _signature_matches_ignoring_self_marker(
+    reference: str | None, franken: str | None
+) -> bool:
+    """Do two method signatures agree once CPython's `self` marker is allowed?
+
+    br-r37-c1-y14e9: a method DESCRIPTOR always reports `self` as
+    positional-only — `(self, /, n)` — because that is what a bound builtin is,
+    where a Python function writes `(self, n)`. NO CALLER CAN TELL: `self` is
+    never passed by keyword on a bound method, and `G.method(n=...)` works
+    either way. Counting it as a difference priced every native method as a
+    partial path and moved the portability score DOWN whenever a method was
+    ported from Python to Rust — penalising exactly the work this port exists to
+    do. `Graph.has_node` and `Graph.has_edge` were `partial` for this reason
+    alone, and a measured 1.21x lever on `Graph.neighbors` was reverted rather
+    than pay it.
+
+    The marker must sit IMMEDIATELY after `self`. A `/` anywhere else makes a
+    real parameter positional-only, which a caller can observe — `G.method(n=1)`
+    then raises — and that stays a difference.
+    """
+    if reference is None or franken is None:
+        return False
+    if franken == reference:
+        return True
+    if reference.startswith("(self, "):
+        return franken == "(self, /, " + reference.removeprefix("(self, ")
+    if reference == "(self)":
+        return franken == "(self, /)"
+    return False
+
+
 def _surface_stable_repr(obj) -> str:
     return re.sub(r" at 0x[0-9a-fA-F]+", "", repr(obj))
 
@@ -654,9 +685,10 @@ def classify_feature_universe(reference: dict | None = None) -> list[dict]:
                 )
             elif reference_row["kind"] == "method":
                 reference_call_shape = reference_row.get("signature")
-                if (
-                    reference_call_shape is not None
-                    and franken_call_shape != reference_call_shape
+                if reference_call_shape is not None and (
+                    not _signature_matches_ignoring_self_marker(
+                        reference_call_shape, franken_call_shape
+                    )
                 ):
                     row["status"] = "partial"
                     if franken_call_shape is None:
@@ -671,12 +703,24 @@ def classify_feature_universe(reference: dict | None = None) -> list[dict]:
                             f"`{reference_call_shape}`; FrankenNetworkX "
                             f"`{franken_call_shape}`"
                         )
-                else:
+                elif reference_call_shape is None:
                     row["status"] = "present"
                     row["detail"] = (
+                        "class-member kind matches; NetworkX exposes no inspectable signature"
+                    )
+                else:
+                    row["status"] = "present"
+                    # Say WHICH kind of match it is. A native method matching
+                    # only once the `self` marker is allowed is still present,
+                    # but the row should not claim the strings were identical.
+                    row["detail"] = (
                         "class-member kind and signature match"
-                        if reference_call_shape is not None
-                        else "class-member kind matches; NetworkX exposes no inspectable signature"
+                        if franken_call_shape == reference_call_shape
+                        else (
+                            "class-member kind and signature match; FrankenNetworkX "
+                            f"`{franken_call_shape}` is a native method descriptor, "
+                            "whose `self` is positional-only"
+                        )
                     )
             elif reference_row["kind"] == "attribute":
                 franken_type = type(resolved_member)

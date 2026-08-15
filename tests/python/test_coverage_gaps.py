@@ -51,6 +51,55 @@ def _load_perf_slo_gate_script():
     return run_path(str(script_path))
 
 
+def test_self_marker_alone_is_not_a_signature_difference():
+    """br-r37-c1-y14e9: `(self, /, n)` and `(self, n)` are the same call.
+
+    A method DESCRIPTOR always reports `self` as positional-only — that is what
+    a bound builtin is. No caller can tell: `self` is never passed by keyword on
+    a bound method. Counting it as a difference priced 62 native methods as
+    partial paths and moved the score DOWN whenever a method was ported from
+    Python to Rust, which is the work this port exists to do.
+    """
+    matches = _load_coverage_matrix_script()["_signature_matches_ignoring_self_marker"]
+
+    assert matches("(self, n)", "(self, /, n)")
+    assert matches("(self, u, v)", "(self, /, u, v)")
+    assert matches("(self)", "(self, /)")
+    assert matches("(self, n)", "(self, n)")
+    assert matches("(self, n=None, *, weight='weight')", "(self, /, n=None, *, weight='weight')")
+
+
+def test_a_real_positional_only_parameter_is_still_a_difference():
+    """THE NEGATIVE CASE. Only the marker on `self` is forgiven.
+
+    A `/` after a real parameter makes it positional-only, and a caller CAN
+    observe that: `G.method(n=1)` raises. An implementation that stripped every
+    `/` would pass the test above and hide a genuine break here.
+    """
+    matches = _load_coverage_matrix_script()["_signature_matches_ignoring_self_marker"]
+
+    assert not matches("(self, n)", "(self, n, /)")
+    assert not matches("(self, u, v)", "(self, /, u, v, /)")
+    assert not matches("(self, n)", "(self, /, m)")
+    assert not matches("(self, n)", "(self, /, n, extra=1)")
+    assert not matches("(self, n)", None)
+    assert not matches(None, "(self, /, n)")
+
+
+def test_the_marker_forgiveness_is_reachable_on_a_real_method():
+    """Not a unit test of a string helper: the graph classes actually hit it."""
+    coverage_matrix = _load_coverage_matrix_script()
+    reference = coverage_matrix["load_feature_universe_reference"]()
+    rows = {row["path"]: row for row in coverage_matrix["classify_feature_universe"](reference)}
+
+    for path in ("networkx.Graph.has_node", "networkx.Graph.has_edge"):
+        row = rows[path]
+        assert row["status"] == "present", (path, row["detail"])
+        assert "positional-only" in row["detail"], (
+            f"{path} should say WHY it matched, not claim the strings were identical"
+        )
+
+
 def test_public_coverage_has_no_networkx_delegated_exports():
     coverage_matrix = _load_coverage_matrix_script()
     exports, _duplicates = coverage_matrix["load_public_exports"]()
@@ -108,9 +157,13 @@ def test_feature_universe_classifies_every_path_without_rounding_partial_up():
     # assertion — which is also how four k_core-family REGRESSIONS
     # (present -> partial) slipped in unnoticed; those are repaired in
     # franken_networkx/core.py rather than absorbed into these numbers.
+    # br-r37-c1-y14e9: 3403 -> 3465 present, 696 -> 634 partial. SIXTY-TWO paths
+    # moved partial -> present and nothing moved the other way: every one is a
+    # native method that was being charged for a method descriptor's
+    # positional-only `self` marker. See the ratio assertion above.
     assert statuses == {
-        "present": 3403,
-        "partial": 696,
+        "present": 3465,
+        "partial": 634,
         "missing": 30,
         "n/a": 1,
         "excluded": 796,
@@ -132,11 +185,17 @@ def test_feature_universe_classifies_every_path_without_rounding_partial_up():
         statuses["present"] + statuses["partial"] + statuses["missing"]
     )
     assert applicable == 4129
-    # br-r37-c1-9hnq3: 3399/4129 -> 3403/4129. The denominator is unchanged, so
-    # this is the same four paths moving partial -> present, not a shift in what
-    # counts as applicable.
+    # br-r37-c1-y14e9: 3403/4129 -> 3465/4129. The denominator is unchanged, so
+    # this is 62 paths moving partial -> present and nothing moving the other
+    # way. They are native METHODS that were being charged for a method
+    # descriptor's positional-only `self` marker — a difference no caller can
+    # observe, and one that moved this number DOWN whenever a method was ported
+    # from Python to Rust. The classifier no longer charges for it; the boundary
+    # is pinned by test_a_real_positional_only_parameter_is_still_a_difference.
+    #
+    # br-r37-c1-9hnq3 previously moved 3399 -> 3403 (four paths, itemised below).
     assert statuses["present"] / applicable == pytest.approx(
-        0.8241705013320416
+        0.8391862436425285
     )
 
 
@@ -171,11 +230,11 @@ def test_feature_universe_reports_every_family_not_only_a_headline():
 
     assert "## Per-family strict surface coverage" in rendered
     assert all(f"| `{family}` |" in rendered for family in families)
-    # br-r37-c1-9hnq3: 3399 -> 3403 (82.3% -> 82.4%); see the itemised note on
+    # br-r37-c1-y14e9: 3403 -> 3465 (82.4% -> 83.9%); see the itemised note on
     # test_feature_universe_classifies_every_path_without_rounding_partial_up.
     assert (
-        "a real user can port **3403 of 4129 applicable NetworkX feature "
-        "paths today (82.4%)**"
+        "a real user can port **3465 of 4129 applicable NetworkX feature "
+        "paths today (83.9%)**"
     ) in rendered
 
 

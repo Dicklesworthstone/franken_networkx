@@ -33,7 +33,7 @@
 | `algorithms.shortest_paths` | 138 | 46 | 0 | 0 | 24 | 184 | 75.0% |
 | `algorithms.traversal` | 38 | 34 | 0 | 0 | 23 | 72 | 52.8% |
 | `algorithms.tree` | 78 | 46 | 6 | 0 | 17 | 130 | 60.0% |
-| `classes` | 798 | 128 | 0 | 0 | 35 | 926 | 86.2% |
+| `classes` | 860 | 66 | 0 | 0 | 35 | 926 | 92.9% |
 | `configuration` | 1 | 0 | 0 | 0 | 0 | 1 | 100.0% |
 | `conversion` | 33 | 1 | 0 | 0 | 3 | 34 | 97.1% |
 | `drawing` | 118 | 3 | 0 | 0 | 18 | 121 | 97.5% |
@@ -45,9 +45,9 @@
 | `readwrite` | 236 | 0 | 24 | 0 | 54 | 260 | 90.8% |
 | `runtime` | 2 | 0 | 0 | 0 | 1 | 2 | 100.0% |
 | `utils` | 150 | 0 | 0 | 0 | 21 | 150 | 100.0% |
-| **All families** | **3403** | **696** | **30** | **1** | **796** | **4129** | **82.4%** |
+| **All families** | **3465** | **634** | **30** | **1** | **796** | **4129** | **83.9%** |
 
-At the declared import-and-signature surface measured here, a real user can port **3403 of 4129 applicable NetworkX feature paths today (82.4%)**; the 696 partial and 30 missing paths are not counted as portable, and this is not a behavioral-conformance score.
+At the declared import-and-signature surface measured here, a real user can port **3465 of 4129 applicable NetworkX feature paths today (83.9%)**; the 634 partial and 30 missing paths are not counted as portable, and this is not a behavioral-conformance score.
 
 ## Exhaustive FeatureUniverse
 
@@ -2713,16 +2713,16 @@ At the declared import-and-signature surface measured here, a real user can port
 | `classes` | `networkx.DiGraph.adjlist_inner_dict_factory` | `method` | `present` | `franken_networkx.DiGraph.adjlist_inner_dict_factory` | class-member kind matches; NetworkX exposes no inspectable signature |
 | `classes` | `networkx.DiGraph.adjlist_outer_dict_factory` | `method` | `present` | `franken_networkx.DiGraph.adjlist_outer_dict_factory` | class-member kind matches; NetworkX exposes no inspectable signature |
 | `classes` | `networkx.DiGraph.clear` | `method` | `present` | `franken_networkx.DiGraph.clear` | class-member kind and signature match |
-| `classes` | `networkx.DiGraph.clear_edges` | `method` | `partial` | `franken_networkx.DiGraph.clear_edges` | method signature differs: NetworkX `(self)`; FrankenNetworkX `(self, /)` |
+| `classes` | `networkx.DiGraph.clear_edges` | `method` | `present` | `franken_networkx.DiGraph.clear_edges` | class-member kind and signature match; FrankenNetworkX `(self, /)` is a native method descriptor, whose `self` is positional-only |
 | `classes` | `networkx.DiGraph.copy` | `method` | `present` | `franken_networkx.DiGraph.copy` | class-member kind and signature match |
 | `classes` | `networkx.DiGraph.degree` | `descriptor` | `present` | `franken_networkx.DiGraph.degree` | class-member binding kind matches |
 | `classes` | `networkx.DiGraph.edge_attr_dict_factory` | `method` | `present` | `franken_networkx.DiGraph.edge_attr_dict_factory` | class-member kind matches; NetworkX exposes no inspectable signature |
 | `classes` | `networkx.DiGraph.edge_subgraph` | `method` | `present` | `franken_networkx.DiGraph.edge_subgraph` | class-member kind and signature match |
 | `classes` | `networkx.DiGraph.edges` | `descriptor` | `present` | `franken_networkx.DiGraph.edges` | class-member binding kind matches |
-| `classes` | `networkx.DiGraph.get_edge_data` | `method` | `partial` | `franken_networkx.DiGraph.get_edge_data` | method signature differs: NetworkX `(self, u, v, default=None)`; FrankenNetworkX `(self, /, u, v, default=None)` |
+| `classes` | `networkx.DiGraph.get_edge_data` | `method` | `present` | `franken_networkx.DiGraph.get_edge_data` | class-member kind and signature match; FrankenNetworkX `(self, /, u, v, default=None)` is a native method descriptor, whose `self` is positional-only |
 | `classes` | `networkx.DiGraph.graph_attr_dict_factory` | `method` | `present` | `franken_networkx.DiGraph.graph_attr_dict_factory` | class-member kind matches; NetworkX exposes no inspectable signature |
-| `classes` | `networkx.DiGraph.has_edge` | `method` | `partial` | `franken_networkx.DiGraph.has_edge` | method signature differs: NetworkX `(self, u, v)`; FrankenNetworkX `(self, /, u, v)` |
-| `classes` | `networkx.DiGraph.has_node` | `method` | `partial` | `franken_networkx.DiGraph.has_node` | method signature differs: NetworkX `(self, n)`; FrankenNetworkX `(self, /, n)` |
+| `classes` | `networkx.DiGraph.has_edge` | `method` | `present` | `franken_networkx.DiGraph.has_edge` | class-member kind and signature match; FrankenNetworkX `(self, /, u, v)` is a native method descriptor, whose `self` is positional-only |
+| `classes` | `networkx.DiGraph.has_node` | `method` | `present` | `franken_networkx.DiGraph.has_node` | class-member kind and signature match; FrankenNetworkX `(self, /, n)` is a native method descriptor, whose `self` is positional-only |
 | `classes` | `networkx.DiGraph.has_predecessor` | `method` | `present` | `franken_networkx.DiGraph.has_predecessor` | class-member kind and signature match |
 | `classes` | `networkx.DiGraph.has_successor` | `method` | `present` | `franken_networkx.DiGraph.has_successor` | class-member kind and signature match |
 | `classes` | `networkx.DiGraph.in_degree` | `descriptor` | `present` | `franken_networkx.DiGraph.in_degree` | class-member binding kind matches |
@@ -2731,13 +2731,13 @@ At the declared import-and-signature surface measured here, a real user can port
 | `classes` | `networkx.DiGraph.is_multigraph` | `method` | `partial` | `franken_networkx.DiGraph.is_multigraph` | method signature differs: NetworkX `(self)`; FrankenNetworkX `(self, *args, **kwargs)` |
 | `classes` | `networkx.DiGraph.name` | `property` | `present` | `franken_networkx.DiGraph.name` | class-member binding kind matches |
 | `classes` | `networkx.DiGraph.nbunch_iter` | `method` | `present` | `franken_networkx.DiGraph.nbunch_iter` | class-member kind and signature match |
-| `classes` | `networkx.DiGraph.neighbors` | `method` | `partial` | `franken_networkx.DiGraph.neighbors` | method signature differs: NetworkX `(self, n)`; FrankenNetworkX `(self, /, n)` |
+| `classes` | `networkx.DiGraph.neighbors` | `method` | `present` | `franken_networkx.DiGraph.neighbors` | class-member kind and signature match; FrankenNetworkX `(self, /, n)` is a native method descriptor, whose `self` is positional-only |
 | `classes` | `networkx.DiGraph.node_attr_dict_factory` | `method` | `present` | `franken_networkx.DiGraph.node_attr_dict_factory` | class-member kind matches; NetworkX exposes no inspectable signature |
 | `classes` | `networkx.DiGraph.node_dict_factory` | `method` | `present` | `franken_networkx.DiGraph.node_dict_factory` | class-member kind matches; NetworkX exposes no inspectable signature |
 | `classes` | `networkx.DiGraph.nodes` | `descriptor` | `present` | `franken_networkx.DiGraph.nodes` | class-member binding kind matches |
 | `classes` | `networkx.DiGraph.number_of_edges` | `method` | `present` | `franken_networkx.DiGraph.number_of_edges` | class-member kind and signature match |
-| `classes` | `networkx.DiGraph.number_of_nodes` | `method` | `partial` | `franken_networkx.DiGraph.number_of_nodes` | method signature differs: NetworkX `(self)`; FrankenNetworkX `(self, /)` |
-| `classes` | `networkx.DiGraph.order` | `method` | `partial` | `franken_networkx.DiGraph.order` | method signature differs: NetworkX `(self)`; FrankenNetworkX `(self, /)` |
+| `classes` | `networkx.DiGraph.number_of_nodes` | `method` | `present` | `franken_networkx.DiGraph.number_of_nodes` | class-member kind and signature match; FrankenNetworkX `(self, /)` is a native method descriptor, whose `self` is positional-only |
+| `classes` | `networkx.DiGraph.order` | `method` | `present` | `franken_networkx.DiGraph.order` | class-member kind and signature match; FrankenNetworkX `(self, /)` is a native method descriptor, whose `self` is positional-only |
 | `classes` | `networkx.DiGraph.out_degree` | `descriptor` | `present` | `franken_networkx.DiGraph.out_degree` | class-member binding kind matches |
 | `classes` | `networkx.DiGraph.out_edges` | `descriptor` | `present` | `franken_networkx.DiGraph.out_edges` | class-member binding kind matches |
 | `classes` | `networkx.DiGraph.pred` | `descriptor` | `present` | `franken_networkx.DiGraph.pred` | class-member binding kind matches |
@@ -2748,9 +2748,9 @@ At the declared import-and-signature surface measured here, a real user can port
 | `classes` | `networkx.DiGraph.remove_nodes_from` | `method` | `present` | `franken_networkx.DiGraph.remove_nodes_from` | class-member kind and signature match |
 | `classes` | `networkx.DiGraph.reverse` | `method` | `present` | `franken_networkx.DiGraph.reverse` | class-member kind and signature match |
 | `classes` | `networkx.DiGraph.size` | `method` | `present` | `franken_networkx.DiGraph.size` | class-member kind and signature match |
-| `classes` | `networkx.DiGraph.subgraph` | `method` | `partial` | `franken_networkx.DiGraph.subgraph` | method signature differs: NetworkX `(self, nodes)`; FrankenNetworkX `(self, /, nodes)` |
+| `classes` | `networkx.DiGraph.subgraph` | `method` | `present` | `franken_networkx.DiGraph.subgraph` | class-member kind and signature match; FrankenNetworkX `(self, /, nodes)` is a native method descriptor, whose `self` is positional-only |
 | `classes` | `networkx.DiGraph.succ` | `descriptor` | `present` | `franken_networkx.DiGraph.succ` | class-member binding kind matches |
-| `classes` | `networkx.DiGraph.successors` | `method` | `partial` | `franken_networkx.DiGraph.successors` | method signature differs: NetworkX `(self, n)`; FrankenNetworkX `(self, /, n)` |
+| `classes` | `networkx.DiGraph.successors` | `method` | `present` | `franken_networkx.DiGraph.successors` | class-member kind and signature match; FrankenNetworkX `(self, /, n)` is a native method descriptor, whose `self` is positional-only |
 | `classes` | `networkx.DiGraph.to_directed` | `method` | `present` | `franken_networkx.DiGraph.to_directed` | class-member kind and signature match |
 | `classes` | `networkx.DiGraph.to_directed_class` | `method` | `present` | `franken_networkx.DiGraph.to_directed_class` | class-member kind and signature match |
 | `classes` | `networkx.DiGraph.to_undirected` | `method` | `present` | `franken_networkx.DiGraph.to_undirected` | class-member kind and signature match |
@@ -2767,16 +2767,16 @@ At the declared import-and-signature surface measured here, a real user can port
 | `classes` | `networkx.Graph.adjlist_inner_dict_factory` | `method` | `present` | `franken_networkx.Graph.adjlist_inner_dict_factory` | class-member kind matches; NetworkX exposes no inspectable signature |
 | `classes` | `networkx.Graph.adjlist_outer_dict_factory` | `method` | `present` | `franken_networkx.Graph.adjlist_outer_dict_factory` | class-member kind matches; NetworkX exposes no inspectable signature |
 | `classes` | `networkx.Graph.clear` | `method` | `present` | `franken_networkx.Graph.clear` | class-member kind and signature match |
-| `classes` | `networkx.Graph.clear_edges` | `method` | `partial` | `franken_networkx.Graph.clear_edges` | method signature differs: NetworkX `(self)`; FrankenNetworkX `(self, /)` |
+| `classes` | `networkx.Graph.clear_edges` | `method` | `present` | `franken_networkx.Graph.clear_edges` | class-member kind and signature match; FrankenNetworkX `(self, /)` is a native method descriptor, whose `self` is positional-only |
 | `classes` | `networkx.Graph.copy` | `method` | `present` | `franken_networkx.Graph.copy` | class-member kind and signature match |
 | `classes` | `networkx.Graph.degree` | `descriptor` | `present` | `franken_networkx.Graph.degree` | class-member binding kind matches |
 | `classes` | `networkx.Graph.edge_attr_dict_factory` | `method` | `present` | `franken_networkx.Graph.edge_attr_dict_factory` | class-member kind matches; NetworkX exposes no inspectable signature |
 | `classes` | `networkx.Graph.edge_subgraph` | `method` | `present` | `franken_networkx.Graph.edge_subgraph` | class-member kind and signature match |
 | `classes` | `networkx.Graph.edges` | `descriptor` | `present` | `franken_networkx.Graph.edges` | class-member binding kind matches |
-| `classes` | `networkx.Graph.get_edge_data` | `method` | `partial` | `franken_networkx.Graph.get_edge_data` | method signature differs: NetworkX `(self, u, v, default=None)`; FrankenNetworkX `(self, /, u, v, default=None)` |
+| `classes` | `networkx.Graph.get_edge_data` | `method` | `present` | `franken_networkx.Graph.get_edge_data` | class-member kind and signature match; FrankenNetworkX `(self, /, u, v, default=None)` is a native method descriptor, whose `self` is positional-only |
 | `classes` | `networkx.Graph.graph_attr_dict_factory` | `method` | `present` | `franken_networkx.Graph.graph_attr_dict_factory` | class-member kind matches; NetworkX exposes no inspectable signature |
-| `classes` | `networkx.Graph.has_edge` | `method` | `partial` | `franken_networkx.Graph.has_edge` | method signature differs: NetworkX `(self, u, v)`; FrankenNetworkX `(self, /, u, v)` |
-| `classes` | `networkx.Graph.has_node` | `method` | `partial` | `franken_networkx.Graph.has_node` | method signature differs: NetworkX `(self, n)`; FrankenNetworkX `(self, /, n)` |
+| `classes` | `networkx.Graph.has_edge` | `method` | `present` | `franken_networkx.Graph.has_edge` | class-member kind and signature match; FrankenNetworkX `(self, /, u, v)` is a native method descriptor, whose `self` is positional-only |
+| `classes` | `networkx.Graph.has_node` | `method` | `present` | `franken_networkx.Graph.has_node` | class-member kind and signature match; FrankenNetworkX `(self, /, n)` is a native method descriptor, whose `self` is positional-only |
 | `classes` | `networkx.Graph.is_directed` | `method` | `partial` | `franken_networkx.Graph.is_directed` | method signature differs: NetworkX `(self)`; FrankenNetworkX `(self, *args, **kwargs)` |
 | `classes` | `networkx.Graph.is_multigraph` | `method` | `partial` | `franken_networkx.Graph.is_multigraph` | method signature differs: NetworkX `(self)`; FrankenNetworkX `(self, *args, **kwargs)` |
 | `classes` | `networkx.Graph.name` | `property` | `present` | `franken_networkx.Graph.name` | class-member binding kind matches |
@@ -2786,14 +2786,14 @@ At the declared import-and-signature surface measured here, a real user can port
 | `classes` | `networkx.Graph.node_dict_factory` | `method` | `present` | `franken_networkx.Graph.node_dict_factory` | class-member kind matches; NetworkX exposes no inspectable signature |
 | `classes` | `networkx.Graph.nodes` | `descriptor` | `present` | `franken_networkx.Graph.nodes` | class-member binding kind matches |
 | `classes` | `networkx.Graph.number_of_edges` | `method` | `present` | `franken_networkx.Graph.number_of_edges` | class-member kind and signature match |
-| `classes` | `networkx.Graph.number_of_nodes` | `method` | `partial` | `franken_networkx.Graph.number_of_nodes` | method signature differs: NetworkX `(self)`; FrankenNetworkX `(self, /)` |
-| `classes` | `networkx.Graph.order` | `method` | `partial` | `franken_networkx.Graph.order` | method signature differs: NetworkX `(self)`; FrankenNetworkX `(self, /)` |
+| `classes` | `networkx.Graph.number_of_nodes` | `method` | `present` | `franken_networkx.Graph.number_of_nodes` | class-member kind and signature match; FrankenNetworkX `(self, /)` is a native method descriptor, whose `self` is positional-only |
+| `classes` | `networkx.Graph.order` | `method` | `present` | `franken_networkx.Graph.order` | class-member kind and signature match; FrankenNetworkX `(self, /)` is a native method descriptor, whose `self` is positional-only |
 | `classes` | `networkx.Graph.remove_edge` | `method` | `present` | `franken_networkx.Graph.remove_edge` | class-member kind and signature match |
 | `classes` | `networkx.Graph.remove_edges_from` | `method` | `present` | `franken_networkx.Graph.remove_edges_from` | class-member kind and signature match |
 | `classes` | `networkx.Graph.remove_node` | `method` | `present` | `franken_networkx.Graph.remove_node` | class-member kind and signature match |
 | `classes` | `networkx.Graph.remove_nodes_from` | `method` | `present` | `franken_networkx.Graph.remove_nodes_from` | class-member kind and signature match |
 | `classes` | `networkx.Graph.size` | `method` | `present` | `franken_networkx.Graph.size` | class-member kind and signature match |
-| `classes` | `networkx.Graph.subgraph` | `method` | `partial` | `franken_networkx.Graph.subgraph` | method signature differs: NetworkX `(self, nodes)`; FrankenNetworkX `(self, /, nodes)` |
+| `classes` | `networkx.Graph.subgraph` | `method` | `present` | `franken_networkx.Graph.subgraph` | class-member kind and signature match; FrankenNetworkX `(self, /, nodes)` is a native method descriptor, whose `self` is positional-only |
 | `classes` | `networkx.Graph.to_directed` | `method` | `present` | `franken_networkx.Graph.to_directed` | class-member kind and signature match |
 | `classes` | `networkx.Graph.to_directed_class` | `method` | `present` | `franken_networkx.Graph.to_directed_class` | class-member kind and signature match |
 | `classes` | `networkx.Graph.to_undirected` | `method` | `present` | `franken_networkx.Graph.to_undirected` | class-member kind and signature match |
@@ -2810,17 +2810,17 @@ At the declared import-and-signature surface measured here, a real user can port
 | `classes` | `networkx.MultiDiGraph.adjlist_inner_dict_factory` | `method` | `present` | `franken_networkx.MultiDiGraph.adjlist_inner_dict_factory` | class-member kind matches; NetworkX exposes no inspectable signature |
 | `classes` | `networkx.MultiDiGraph.adjlist_outer_dict_factory` | `method` | `present` | `franken_networkx.MultiDiGraph.adjlist_outer_dict_factory` | class-member kind matches; NetworkX exposes no inspectable signature |
 | `classes` | `networkx.MultiDiGraph.clear` | `method` | `present` | `franken_networkx.MultiDiGraph.clear` | class-member kind and signature match |
-| `classes` | `networkx.MultiDiGraph.clear_edges` | `method` | `partial` | `franken_networkx.MultiDiGraph.clear_edges` | method signature differs: NetworkX `(self)`; FrankenNetworkX `(self, /)` |
+| `classes` | `networkx.MultiDiGraph.clear_edges` | `method` | `present` | `franken_networkx.MultiDiGraph.clear_edges` | class-member kind and signature match; FrankenNetworkX `(self, /)` is a native method descriptor, whose `self` is positional-only |
 | `classes` | `networkx.MultiDiGraph.copy` | `method` | `present` | `franken_networkx.MultiDiGraph.copy` | class-member kind and signature match |
 | `classes` | `networkx.MultiDiGraph.degree` | `descriptor` | `present` | `franken_networkx.MultiDiGraph.degree` | class-member binding kind matches |
 | `classes` | `networkx.MultiDiGraph.edge_attr_dict_factory` | `method` | `present` | `franken_networkx.MultiDiGraph.edge_attr_dict_factory` | class-member kind matches; NetworkX exposes no inspectable signature |
 | `classes` | `networkx.MultiDiGraph.edge_key_dict_factory` | `method` | `present` | `franken_networkx.MultiDiGraph.edge_key_dict_factory` | class-member kind matches; NetworkX exposes no inspectable signature |
 | `classes` | `networkx.MultiDiGraph.edge_subgraph` | `method` | `present` | `franken_networkx.MultiDiGraph.edge_subgraph` | class-member kind and signature match |
 | `classes` | `networkx.MultiDiGraph.edges` | `descriptor` | `present` | `franken_networkx.MultiDiGraph.edges` | class-member binding kind matches |
-| `classes` | `networkx.MultiDiGraph.get_edge_data` | `method` | `partial` | `franken_networkx.MultiDiGraph.get_edge_data` | method signature differs: NetworkX `(self, u, v, key=None, default=None)`; FrankenNetworkX `(self, /, u, v, key=None, default=None)` |
+| `classes` | `networkx.MultiDiGraph.get_edge_data` | `method` | `present` | `franken_networkx.MultiDiGraph.get_edge_data` | class-member kind and signature match; FrankenNetworkX `(self, /, u, v, key=None, default=None)` is a native method descriptor, whose `self` is positional-only |
 | `classes` | `networkx.MultiDiGraph.graph_attr_dict_factory` | `method` | `present` | `franken_networkx.MultiDiGraph.graph_attr_dict_factory` | class-member kind matches; NetworkX exposes no inspectable signature |
-| `classes` | `networkx.MultiDiGraph.has_edge` | `method` | `partial` | `franken_networkx.MultiDiGraph.has_edge` | method signature differs: NetworkX `(self, u, v, key=None)`; FrankenNetworkX `(self, /, u, v, key=None)` |
-| `classes` | `networkx.MultiDiGraph.has_node` | `method` | `partial` | `franken_networkx.MultiDiGraph.has_node` | method signature differs: NetworkX `(self, n)`; FrankenNetworkX `(self, /, n)` |
+| `classes` | `networkx.MultiDiGraph.has_edge` | `method` | `present` | `franken_networkx.MultiDiGraph.has_edge` | class-member kind and signature match; FrankenNetworkX `(self, /, u, v, key=None)` is a native method descriptor, whose `self` is positional-only |
+| `classes` | `networkx.MultiDiGraph.has_node` | `method` | `present` | `franken_networkx.MultiDiGraph.has_node` | class-member kind and signature match; FrankenNetworkX `(self, /, n)` is a native method descriptor, whose `self` is positional-only |
 | `classes` | `networkx.MultiDiGraph.has_predecessor` | `method` | `present` | `franken_networkx.MultiDiGraph.has_predecessor` | class-member kind and signature match |
 | `classes` | `networkx.MultiDiGraph.has_successor` | `method` | `present` | `franken_networkx.MultiDiGraph.has_successor` | class-member kind and signature match |
 | `classes` | `networkx.MultiDiGraph.in_degree` | `descriptor` | `present` | `franken_networkx.MultiDiGraph.in_degree` | class-member binding kind matches |
@@ -2835,8 +2835,8 @@ At the declared import-and-signature surface measured here, a real user can port
 | `classes` | `networkx.MultiDiGraph.node_dict_factory` | `method` | `present` | `franken_networkx.MultiDiGraph.node_dict_factory` | class-member kind matches; NetworkX exposes no inspectable signature |
 | `classes` | `networkx.MultiDiGraph.nodes` | `descriptor` | `present` | `franken_networkx.MultiDiGraph.nodes` | class-member binding kind matches |
 | `classes` | `networkx.MultiDiGraph.number_of_edges` | `method` | `present` | `franken_networkx.MultiDiGraph.number_of_edges` | class-member kind and signature match |
-| `classes` | `networkx.MultiDiGraph.number_of_nodes` | `method` | `partial` | `franken_networkx.MultiDiGraph.number_of_nodes` | method signature differs: NetworkX `(self)`; FrankenNetworkX `(self, /)` |
-| `classes` | `networkx.MultiDiGraph.order` | `method` | `partial` | `franken_networkx.MultiDiGraph.order` | method signature differs: NetworkX `(self)`; FrankenNetworkX `(self, /)` |
+| `classes` | `networkx.MultiDiGraph.number_of_nodes` | `method` | `present` | `franken_networkx.MultiDiGraph.number_of_nodes` | class-member kind and signature match; FrankenNetworkX `(self, /)` is a native method descriptor, whose `self` is positional-only |
+| `classes` | `networkx.MultiDiGraph.order` | `method` | `present` | `franken_networkx.MultiDiGraph.order` | class-member kind and signature match; FrankenNetworkX `(self, /)` is a native method descriptor, whose `self` is positional-only |
 | `classes` | `networkx.MultiDiGraph.out_degree` | `descriptor` | `present` | `franken_networkx.MultiDiGraph.out_degree` | class-member binding kind matches |
 | `classes` | `networkx.MultiDiGraph.out_edges` | `descriptor` | `present` | `franken_networkx.MultiDiGraph.out_edges` | class-member binding kind matches |
 | `classes` | `networkx.MultiDiGraph.pred` | `descriptor` | `present` | `franken_networkx.MultiDiGraph.pred` | class-member binding kind matches |
@@ -2847,7 +2847,7 @@ At the declared import-and-signature surface measured here, a real user can port
 | `classes` | `networkx.MultiDiGraph.remove_nodes_from` | `method` | `present` | `franken_networkx.MultiDiGraph.remove_nodes_from` | class-member kind and signature match |
 | `classes` | `networkx.MultiDiGraph.reverse` | `method` | `present` | `franken_networkx.MultiDiGraph.reverse` | class-member kind and signature match |
 | `classes` | `networkx.MultiDiGraph.size` | `method` | `present` | `franken_networkx.MultiDiGraph.size` | class-member kind and signature match |
-| `classes` | `networkx.MultiDiGraph.subgraph` | `method` | `partial` | `franken_networkx.MultiDiGraph.subgraph` | method signature differs: NetworkX `(self, nodes)`; FrankenNetworkX `(self, /, nodes)` |
+| `classes` | `networkx.MultiDiGraph.subgraph` | `method` | `present` | `franken_networkx.MultiDiGraph.subgraph` | class-member kind and signature match; FrankenNetworkX `(self, /, nodes)` is a native method descriptor, whose `self` is positional-only |
 | `classes` | `networkx.MultiDiGraph.succ` | `descriptor` | `present` | `franken_networkx.MultiDiGraph.succ` | class-member binding kind matches |
 | `classes` | `networkx.MultiDiGraph.successors` | `method` | `present` | `franken_networkx.MultiDiGraph.successors` | class-member kind and signature match |
 | `classes` | `networkx.MultiDiGraph.to_directed` | `method` | `present` | `franken_networkx.MultiDiGraph.to_directed` | class-member kind and signature match |
@@ -2856,7 +2856,7 @@ At the declared import-and-signature surface measured here, a real user can port
 | `classes` | `networkx.MultiDiGraph.to_undirected_class` | `method` | `present` | `franken_networkx.MultiDiGraph.to_undirected_class` | class-member kind and signature match |
 | `classes` | `networkx.MultiDiGraph.update` | `method` | `present` | `franken_networkx.MultiDiGraph.update` | class-member kind and signature match |
 | `classes` | `networkx.MultiGraph` | `class` | `partial` | `franken_networkx.MultiGraph` | signature differs: NetworkX `(*args, backend=None, **kwargs)`; FrankenNetworkX `(incoming_graph_data=None, multigraph_input=None, **attr)` |
-| `classes` | `networkx.MultiGraph.add_edge` | `method` | `partial` | `franken_networkx.MultiGraph.add_edge` | method signature differs: NetworkX `(self, u_for_edge, v_for_edge, key=None, **attr)`; FrankenNetworkX `(self, /, u_for_edge, v_for_edge, key=None, **attr)` |
+| `classes` | `networkx.MultiGraph.add_edge` | `method` | `present` | `franken_networkx.MultiGraph.add_edge` | class-member kind and signature match; FrankenNetworkX `(self, /, u_for_edge, v_for_edge, key=None, **attr)` is a native method descriptor, whose `self` is positional-only |
 | `classes` | `networkx.MultiGraph.add_edges_from` | `method` | `present` | `franken_networkx.MultiGraph.add_edges_from` | class-member kind and signature match |
 | `classes` | `networkx.MultiGraph.add_node` | `method` | `present` | `franken_networkx.MultiGraph.add_node` | class-member kind and signature match |
 | `classes` | `networkx.MultiGraph.add_nodes_from` | `method` | `present` | `franken_networkx.MultiGraph.add_nodes_from` | class-member kind and signature match |
@@ -2866,17 +2866,17 @@ At the declared import-and-signature surface measured here, a real user can port
 | `classes` | `networkx.MultiGraph.adjlist_inner_dict_factory` | `method` | `present` | `franken_networkx.MultiGraph.adjlist_inner_dict_factory` | class-member kind matches; NetworkX exposes no inspectable signature |
 | `classes` | `networkx.MultiGraph.adjlist_outer_dict_factory` | `method` | `present` | `franken_networkx.MultiGraph.adjlist_outer_dict_factory` | class-member kind matches; NetworkX exposes no inspectable signature |
 | `classes` | `networkx.MultiGraph.clear` | `method` | `present` | `franken_networkx.MultiGraph.clear` | class-member kind and signature match |
-| `classes` | `networkx.MultiGraph.clear_edges` | `method` | `partial` | `franken_networkx.MultiGraph.clear_edges` | method signature differs: NetworkX `(self)`; FrankenNetworkX `(self, /)` |
+| `classes` | `networkx.MultiGraph.clear_edges` | `method` | `present` | `franken_networkx.MultiGraph.clear_edges` | class-member kind and signature match; FrankenNetworkX `(self, /)` is a native method descriptor, whose `self` is positional-only |
 | `classes` | `networkx.MultiGraph.copy` | `method` | `present` | `franken_networkx.MultiGraph.copy` | class-member kind and signature match |
 | `classes` | `networkx.MultiGraph.degree` | `descriptor` | `present` | `franken_networkx.MultiGraph.degree` | class-member binding kind matches |
 | `classes` | `networkx.MultiGraph.edge_attr_dict_factory` | `method` | `present` | `franken_networkx.MultiGraph.edge_attr_dict_factory` | class-member kind matches; NetworkX exposes no inspectable signature |
 | `classes` | `networkx.MultiGraph.edge_key_dict_factory` | `method` | `present` | `franken_networkx.MultiGraph.edge_key_dict_factory` | class-member kind matches; NetworkX exposes no inspectable signature |
 | `classes` | `networkx.MultiGraph.edge_subgraph` | `method` | `present` | `franken_networkx.MultiGraph.edge_subgraph` | class-member kind and signature match |
 | `classes` | `networkx.MultiGraph.edges` | `descriptor` | `present` | `franken_networkx.MultiGraph.edges` | class-member binding kind matches |
-| `classes` | `networkx.MultiGraph.get_edge_data` | `method` | `partial` | `franken_networkx.MultiGraph.get_edge_data` | method signature differs: NetworkX `(self, u, v, key=None, default=None)`; FrankenNetworkX `(self, /, u, v, key=None, default=None)` |
+| `classes` | `networkx.MultiGraph.get_edge_data` | `method` | `present` | `franken_networkx.MultiGraph.get_edge_data` | class-member kind and signature match; FrankenNetworkX `(self, /, u, v, key=None, default=None)` is a native method descriptor, whose `self` is positional-only |
 | `classes` | `networkx.MultiGraph.graph_attr_dict_factory` | `method` | `present` | `franken_networkx.MultiGraph.graph_attr_dict_factory` | class-member kind matches; NetworkX exposes no inspectable signature |
-| `classes` | `networkx.MultiGraph.has_edge` | `method` | `partial` | `franken_networkx.MultiGraph.has_edge` | method signature differs: NetworkX `(self, u, v, key=None)`; FrankenNetworkX `(self, /, u, v, key=None)` |
-| `classes` | `networkx.MultiGraph.has_node` | `method` | `partial` | `franken_networkx.MultiGraph.has_node` | method signature differs: NetworkX `(self, n)`; FrankenNetworkX `(self, /, n)` |
+| `classes` | `networkx.MultiGraph.has_edge` | `method` | `present` | `franken_networkx.MultiGraph.has_edge` | class-member kind and signature match; FrankenNetworkX `(self, /, u, v, key=None)` is a native method descriptor, whose `self` is positional-only |
+| `classes` | `networkx.MultiGraph.has_node` | `method` | `present` | `franken_networkx.MultiGraph.has_node` | class-member kind and signature match; FrankenNetworkX `(self, /, n)` is a native method descriptor, whose `self` is positional-only |
 | `classes` | `networkx.MultiGraph.is_directed` | `method` | `partial` | `franken_networkx.MultiGraph.is_directed` | method signature differs: NetworkX `(self)`; FrankenNetworkX `(self, *args, **kwargs)` |
 | `classes` | `networkx.MultiGraph.is_multigraph` | `method` | `partial` | `franken_networkx.MultiGraph.is_multigraph` | method signature differs: NetworkX `(self)`; FrankenNetworkX `(self, *args, **kwargs)` |
 | `classes` | `networkx.MultiGraph.name` | `property` | `present` | `franken_networkx.MultiGraph.name` | class-member binding kind matches |
@@ -2887,14 +2887,14 @@ At the declared import-and-signature surface measured here, a real user can port
 | `classes` | `networkx.MultiGraph.node_dict_factory` | `method` | `present` | `franken_networkx.MultiGraph.node_dict_factory` | class-member kind matches; NetworkX exposes no inspectable signature |
 | `classes` | `networkx.MultiGraph.nodes` | `descriptor` | `present` | `franken_networkx.MultiGraph.nodes` | class-member binding kind matches |
 | `classes` | `networkx.MultiGraph.number_of_edges` | `method` | `present` | `franken_networkx.MultiGraph.number_of_edges` | class-member kind and signature match |
-| `classes` | `networkx.MultiGraph.number_of_nodes` | `method` | `partial` | `franken_networkx.MultiGraph.number_of_nodes` | method signature differs: NetworkX `(self)`; FrankenNetworkX `(self, /)` |
-| `classes` | `networkx.MultiGraph.order` | `method` | `partial` | `franken_networkx.MultiGraph.order` | method signature differs: NetworkX `(self)`; FrankenNetworkX `(self, /)` |
+| `classes` | `networkx.MultiGraph.number_of_nodes` | `method` | `present` | `franken_networkx.MultiGraph.number_of_nodes` | class-member kind and signature match; FrankenNetworkX `(self, /)` is a native method descriptor, whose `self` is positional-only |
+| `classes` | `networkx.MultiGraph.order` | `method` | `present` | `franken_networkx.MultiGraph.order` | class-member kind and signature match; FrankenNetworkX `(self, /)` is a native method descriptor, whose `self` is positional-only |
 | `classes` | `networkx.MultiGraph.remove_edge` | `method` | `present` | `franken_networkx.MultiGraph.remove_edge` | class-member kind and signature match |
 | `classes` | `networkx.MultiGraph.remove_edges_from` | `method` | `present` | `franken_networkx.MultiGraph.remove_edges_from` | class-member kind and signature match |
 | `classes` | `networkx.MultiGraph.remove_node` | `method` | `present` | `franken_networkx.MultiGraph.remove_node` | class-member kind and signature match |
 | `classes` | `networkx.MultiGraph.remove_nodes_from` | `method` | `present` | `franken_networkx.MultiGraph.remove_nodes_from` | class-member kind and signature match |
 | `classes` | `networkx.MultiGraph.size` | `method` | `present` | `franken_networkx.MultiGraph.size` | class-member kind and signature match |
-| `classes` | `networkx.MultiGraph.subgraph` | `method` | `partial` | `franken_networkx.MultiGraph.subgraph` | method signature differs: NetworkX `(self, nodes)`; FrankenNetworkX `(self, /, nodes)` |
+| `classes` | `networkx.MultiGraph.subgraph` | `method` | `present` | `franken_networkx.MultiGraph.subgraph` | class-member kind and signature match; FrankenNetworkX `(self, /, nodes)` is a native method descriptor, whose `self` is positional-only |
 | `classes` | `networkx.MultiGraph.to_directed` | `method` | `present` | `franken_networkx.MultiGraph.to_directed` | class-member kind and signature match |
 | `classes` | `networkx.MultiGraph.to_directed_class` | `method` | `present` | `franken_networkx.MultiGraph.to_directed_class` | class-member kind and signature match |
 | `classes` | `networkx.MultiGraph.to_undirected` | `method` | `present` | `franken_networkx.MultiGraph.to_undirected` | class-member kind and signature match |
@@ -3054,16 +3054,16 @@ At the declared import-and-signature surface measured here, a real user can port
 | `classes` | `networkx.classes.DiGraph.adjlist_inner_dict_factory` | `method` | `present` | `franken_networkx.classes.DiGraph.adjlist_inner_dict_factory` | class-member kind matches; NetworkX exposes no inspectable signature |
 | `classes` | `networkx.classes.DiGraph.adjlist_outer_dict_factory` | `method` | `present` | `franken_networkx.classes.DiGraph.adjlist_outer_dict_factory` | class-member kind matches; NetworkX exposes no inspectable signature |
 | `classes` | `networkx.classes.DiGraph.clear` | `method` | `present` | `franken_networkx.classes.DiGraph.clear` | class-member kind and signature match |
-| `classes` | `networkx.classes.DiGraph.clear_edges` | `method` | `partial` | `franken_networkx.classes.DiGraph.clear_edges` | method signature differs: NetworkX `(self)`; FrankenNetworkX `(self, /)` |
+| `classes` | `networkx.classes.DiGraph.clear_edges` | `method` | `present` | `franken_networkx.classes.DiGraph.clear_edges` | class-member kind and signature match; FrankenNetworkX `(self, /)` is a native method descriptor, whose `self` is positional-only |
 | `classes` | `networkx.classes.DiGraph.copy` | `method` | `present` | `franken_networkx.classes.DiGraph.copy` | class-member kind and signature match |
 | `classes` | `networkx.classes.DiGraph.degree` | `descriptor` | `present` | `franken_networkx.classes.DiGraph.degree` | class-member binding kind matches |
 | `classes` | `networkx.classes.DiGraph.edge_attr_dict_factory` | `method` | `present` | `franken_networkx.classes.DiGraph.edge_attr_dict_factory` | class-member kind matches; NetworkX exposes no inspectable signature |
 | `classes` | `networkx.classes.DiGraph.edge_subgraph` | `method` | `present` | `franken_networkx.classes.DiGraph.edge_subgraph` | class-member kind and signature match |
 | `classes` | `networkx.classes.DiGraph.edges` | `descriptor` | `present` | `franken_networkx.classes.DiGraph.edges` | class-member binding kind matches |
-| `classes` | `networkx.classes.DiGraph.get_edge_data` | `method` | `partial` | `franken_networkx.classes.DiGraph.get_edge_data` | method signature differs: NetworkX `(self, u, v, default=None)`; FrankenNetworkX `(self, /, u, v, default=None)` |
+| `classes` | `networkx.classes.DiGraph.get_edge_data` | `method` | `present` | `franken_networkx.classes.DiGraph.get_edge_data` | class-member kind and signature match; FrankenNetworkX `(self, /, u, v, default=None)` is a native method descriptor, whose `self` is positional-only |
 | `classes` | `networkx.classes.DiGraph.graph_attr_dict_factory` | `method` | `present` | `franken_networkx.classes.DiGraph.graph_attr_dict_factory` | class-member kind matches; NetworkX exposes no inspectable signature |
-| `classes` | `networkx.classes.DiGraph.has_edge` | `method` | `partial` | `franken_networkx.classes.DiGraph.has_edge` | method signature differs: NetworkX `(self, u, v)`; FrankenNetworkX `(self, /, u, v)` |
-| `classes` | `networkx.classes.DiGraph.has_node` | `method` | `partial` | `franken_networkx.classes.DiGraph.has_node` | method signature differs: NetworkX `(self, n)`; FrankenNetworkX `(self, /, n)` |
+| `classes` | `networkx.classes.DiGraph.has_edge` | `method` | `present` | `franken_networkx.classes.DiGraph.has_edge` | class-member kind and signature match; FrankenNetworkX `(self, /, u, v)` is a native method descriptor, whose `self` is positional-only |
+| `classes` | `networkx.classes.DiGraph.has_node` | `method` | `present` | `franken_networkx.classes.DiGraph.has_node` | class-member kind and signature match; FrankenNetworkX `(self, /, n)` is a native method descriptor, whose `self` is positional-only |
 | `classes` | `networkx.classes.DiGraph.has_predecessor` | `method` | `present` | `franken_networkx.classes.DiGraph.has_predecessor` | class-member kind and signature match |
 | `classes` | `networkx.classes.DiGraph.has_successor` | `method` | `present` | `franken_networkx.classes.DiGraph.has_successor` | class-member kind and signature match |
 | `classes` | `networkx.classes.DiGraph.in_degree` | `descriptor` | `present` | `franken_networkx.classes.DiGraph.in_degree` | class-member binding kind matches |
@@ -3072,13 +3072,13 @@ At the declared import-and-signature surface measured here, a real user can port
 | `classes` | `networkx.classes.DiGraph.is_multigraph` | `method` | `partial` | `franken_networkx.classes.DiGraph.is_multigraph` | method signature differs: NetworkX `(self)`; FrankenNetworkX `(self, *args, **kwargs)` |
 | `classes` | `networkx.classes.DiGraph.name` | `property` | `present` | `franken_networkx.classes.DiGraph.name` | class-member binding kind matches |
 | `classes` | `networkx.classes.DiGraph.nbunch_iter` | `method` | `present` | `franken_networkx.classes.DiGraph.nbunch_iter` | class-member kind and signature match |
-| `classes` | `networkx.classes.DiGraph.neighbors` | `method` | `partial` | `franken_networkx.classes.DiGraph.neighbors` | method signature differs: NetworkX `(self, n)`; FrankenNetworkX `(self, /, n)` |
+| `classes` | `networkx.classes.DiGraph.neighbors` | `method` | `present` | `franken_networkx.classes.DiGraph.neighbors` | class-member kind and signature match; FrankenNetworkX `(self, /, n)` is a native method descriptor, whose `self` is positional-only |
 | `classes` | `networkx.classes.DiGraph.node_attr_dict_factory` | `method` | `present` | `franken_networkx.classes.DiGraph.node_attr_dict_factory` | class-member kind matches; NetworkX exposes no inspectable signature |
 | `classes` | `networkx.classes.DiGraph.node_dict_factory` | `method` | `present` | `franken_networkx.classes.DiGraph.node_dict_factory` | class-member kind matches; NetworkX exposes no inspectable signature |
 | `classes` | `networkx.classes.DiGraph.nodes` | `descriptor` | `present` | `franken_networkx.classes.DiGraph.nodes` | class-member binding kind matches |
 | `classes` | `networkx.classes.DiGraph.number_of_edges` | `method` | `present` | `franken_networkx.classes.DiGraph.number_of_edges` | class-member kind and signature match |
-| `classes` | `networkx.classes.DiGraph.number_of_nodes` | `method` | `partial` | `franken_networkx.classes.DiGraph.number_of_nodes` | method signature differs: NetworkX `(self)`; FrankenNetworkX `(self, /)` |
-| `classes` | `networkx.classes.DiGraph.order` | `method` | `partial` | `franken_networkx.classes.DiGraph.order` | method signature differs: NetworkX `(self)`; FrankenNetworkX `(self, /)` |
+| `classes` | `networkx.classes.DiGraph.number_of_nodes` | `method` | `present` | `franken_networkx.classes.DiGraph.number_of_nodes` | class-member kind and signature match; FrankenNetworkX `(self, /)` is a native method descriptor, whose `self` is positional-only |
+| `classes` | `networkx.classes.DiGraph.order` | `method` | `present` | `franken_networkx.classes.DiGraph.order` | class-member kind and signature match; FrankenNetworkX `(self, /)` is a native method descriptor, whose `self` is positional-only |
 | `classes` | `networkx.classes.DiGraph.out_degree` | `descriptor` | `present` | `franken_networkx.classes.DiGraph.out_degree` | class-member binding kind matches |
 | `classes` | `networkx.classes.DiGraph.out_edges` | `descriptor` | `present` | `franken_networkx.classes.DiGraph.out_edges` | class-member binding kind matches |
 | `classes` | `networkx.classes.DiGraph.pred` | `descriptor` | `present` | `franken_networkx.classes.DiGraph.pred` | class-member binding kind matches |
@@ -3089,9 +3089,9 @@ At the declared import-and-signature surface measured here, a real user can port
 | `classes` | `networkx.classes.DiGraph.remove_nodes_from` | `method` | `present` | `franken_networkx.classes.DiGraph.remove_nodes_from` | class-member kind and signature match |
 | `classes` | `networkx.classes.DiGraph.reverse` | `method` | `present` | `franken_networkx.classes.DiGraph.reverse` | class-member kind and signature match |
 | `classes` | `networkx.classes.DiGraph.size` | `method` | `present` | `franken_networkx.classes.DiGraph.size` | class-member kind and signature match |
-| `classes` | `networkx.classes.DiGraph.subgraph` | `method` | `partial` | `franken_networkx.classes.DiGraph.subgraph` | method signature differs: NetworkX `(self, nodes)`; FrankenNetworkX `(self, /, nodes)` |
+| `classes` | `networkx.classes.DiGraph.subgraph` | `method` | `present` | `franken_networkx.classes.DiGraph.subgraph` | class-member kind and signature match; FrankenNetworkX `(self, /, nodes)` is a native method descriptor, whose `self` is positional-only |
 | `classes` | `networkx.classes.DiGraph.succ` | `descriptor` | `present` | `franken_networkx.classes.DiGraph.succ` | class-member binding kind matches |
-| `classes` | `networkx.classes.DiGraph.successors` | `method` | `partial` | `franken_networkx.classes.DiGraph.successors` | method signature differs: NetworkX `(self, n)`; FrankenNetworkX `(self, /, n)` |
+| `classes` | `networkx.classes.DiGraph.successors` | `method` | `present` | `franken_networkx.classes.DiGraph.successors` | class-member kind and signature match; FrankenNetworkX `(self, /, n)` is a native method descriptor, whose `self` is positional-only |
 | `classes` | `networkx.classes.DiGraph.to_directed` | `method` | `present` | `franken_networkx.classes.DiGraph.to_directed` | class-member kind and signature match |
 | `classes` | `networkx.classes.DiGraph.to_directed_class` | `method` | `present` | `franken_networkx.classes.DiGraph.to_directed_class` | class-member kind and signature match |
 | `classes` | `networkx.classes.DiGraph.to_undirected` | `method` | `present` | `franken_networkx.classes.DiGraph.to_undirected` | class-member kind and signature match |
@@ -3108,16 +3108,16 @@ At the declared import-and-signature surface measured here, a real user can port
 | `classes` | `networkx.classes.Graph.adjlist_inner_dict_factory` | `method` | `present` | `franken_networkx.classes.Graph.adjlist_inner_dict_factory` | class-member kind matches; NetworkX exposes no inspectable signature |
 | `classes` | `networkx.classes.Graph.adjlist_outer_dict_factory` | `method` | `present` | `franken_networkx.classes.Graph.adjlist_outer_dict_factory` | class-member kind matches; NetworkX exposes no inspectable signature |
 | `classes` | `networkx.classes.Graph.clear` | `method` | `present` | `franken_networkx.classes.Graph.clear` | class-member kind and signature match |
-| `classes` | `networkx.classes.Graph.clear_edges` | `method` | `partial` | `franken_networkx.classes.Graph.clear_edges` | method signature differs: NetworkX `(self)`; FrankenNetworkX `(self, /)` |
+| `classes` | `networkx.classes.Graph.clear_edges` | `method` | `present` | `franken_networkx.classes.Graph.clear_edges` | class-member kind and signature match; FrankenNetworkX `(self, /)` is a native method descriptor, whose `self` is positional-only |
 | `classes` | `networkx.classes.Graph.copy` | `method` | `present` | `franken_networkx.classes.Graph.copy` | class-member kind and signature match |
 | `classes` | `networkx.classes.Graph.degree` | `descriptor` | `present` | `franken_networkx.classes.Graph.degree` | class-member binding kind matches |
 | `classes` | `networkx.classes.Graph.edge_attr_dict_factory` | `method` | `present` | `franken_networkx.classes.Graph.edge_attr_dict_factory` | class-member kind matches; NetworkX exposes no inspectable signature |
 | `classes` | `networkx.classes.Graph.edge_subgraph` | `method` | `present` | `franken_networkx.classes.Graph.edge_subgraph` | class-member kind and signature match |
 | `classes` | `networkx.classes.Graph.edges` | `descriptor` | `present` | `franken_networkx.classes.Graph.edges` | class-member binding kind matches |
-| `classes` | `networkx.classes.Graph.get_edge_data` | `method` | `partial` | `franken_networkx.classes.Graph.get_edge_data` | method signature differs: NetworkX `(self, u, v, default=None)`; FrankenNetworkX `(self, /, u, v, default=None)` |
+| `classes` | `networkx.classes.Graph.get_edge_data` | `method` | `present` | `franken_networkx.classes.Graph.get_edge_data` | class-member kind and signature match; FrankenNetworkX `(self, /, u, v, default=None)` is a native method descriptor, whose `self` is positional-only |
 | `classes` | `networkx.classes.Graph.graph_attr_dict_factory` | `method` | `present` | `franken_networkx.classes.Graph.graph_attr_dict_factory` | class-member kind matches; NetworkX exposes no inspectable signature |
-| `classes` | `networkx.classes.Graph.has_edge` | `method` | `partial` | `franken_networkx.classes.Graph.has_edge` | method signature differs: NetworkX `(self, u, v)`; FrankenNetworkX `(self, /, u, v)` |
-| `classes` | `networkx.classes.Graph.has_node` | `method` | `partial` | `franken_networkx.classes.Graph.has_node` | method signature differs: NetworkX `(self, n)`; FrankenNetworkX `(self, /, n)` |
+| `classes` | `networkx.classes.Graph.has_edge` | `method` | `present` | `franken_networkx.classes.Graph.has_edge` | class-member kind and signature match; FrankenNetworkX `(self, /, u, v)` is a native method descriptor, whose `self` is positional-only |
+| `classes` | `networkx.classes.Graph.has_node` | `method` | `present` | `franken_networkx.classes.Graph.has_node` | class-member kind and signature match; FrankenNetworkX `(self, /, n)` is a native method descriptor, whose `self` is positional-only |
 | `classes` | `networkx.classes.Graph.is_directed` | `method` | `partial` | `franken_networkx.classes.Graph.is_directed` | method signature differs: NetworkX `(self)`; FrankenNetworkX `(self, *args, **kwargs)` |
 | `classes` | `networkx.classes.Graph.is_multigraph` | `method` | `partial` | `franken_networkx.classes.Graph.is_multigraph` | method signature differs: NetworkX `(self)`; FrankenNetworkX `(self, *args, **kwargs)` |
 | `classes` | `networkx.classes.Graph.name` | `property` | `present` | `franken_networkx.classes.Graph.name` | class-member binding kind matches |
@@ -3127,14 +3127,14 @@ At the declared import-and-signature surface measured here, a real user can port
 | `classes` | `networkx.classes.Graph.node_dict_factory` | `method` | `present` | `franken_networkx.classes.Graph.node_dict_factory` | class-member kind matches; NetworkX exposes no inspectable signature |
 | `classes` | `networkx.classes.Graph.nodes` | `descriptor` | `present` | `franken_networkx.classes.Graph.nodes` | class-member binding kind matches |
 | `classes` | `networkx.classes.Graph.number_of_edges` | `method` | `present` | `franken_networkx.classes.Graph.number_of_edges` | class-member kind and signature match |
-| `classes` | `networkx.classes.Graph.number_of_nodes` | `method` | `partial` | `franken_networkx.classes.Graph.number_of_nodes` | method signature differs: NetworkX `(self)`; FrankenNetworkX `(self, /)` |
-| `classes` | `networkx.classes.Graph.order` | `method` | `partial` | `franken_networkx.classes.Graph.order` | method signature differs: NetworkX `(self)`; FrankenNetworkX `(self, /)` |
+| `classes` | `networkx.classes.Graph.number_of_nodes` | `method` | `present` | `franken_networkx.classes.Graph.number_of_nodes` | class-member kind and signature match; FrankenNetworkX `(self, /)` is a native method descriptor, whose `self` is positional-only |
+| `classes` | `networkx.classes.Graph.order` | `method` | `present` | `franken_networkx.classes.Graph.order` | class-member kind and signature match; FrankenNetworkX `(self, /)` is a native method descriptor, whose `self` is positional-only |
 | `classes` | `networkx.classes.Graph.remove_edge` | `method` | `present` | `franken_networkx.classes.Graph.remove_edge` | class-member kind and signature match |
 | `classes` | `networkx.classes.Graph.remove_edges_from` | `method` | `present` | `franken_networkx.classes.Graph.remove_edges_from` | class-member kind and signature match |
 | `classes` | `networkx.classes.Graph.remove_node` | `method` | `present` | `franken_networkx.classes.Graph.remove_node` | class-member kind and signature match |
 | `classes` | `networkx.classes.Graph.remove_nodes_from` | `method` | `present` | `franken_networkx.classes.Graph.remove_nodes_from` | class-member kind and signature match |
 | `classes` | `networkx.classes.Graph.size` | `method` | `present` | `franken_networkx.classes.Graph.size` | class-member kind and signature match |
-| `classes` | `networkx.classes.Graph.subgraph` | `method` | `partial` | `franken_networkx.classes.Graph.subgraph` | method signature differs: NetworkX `(self, nodes)`; FrankenNetworkX `(self, /, nodes)` |
+| `classes` | `networkx.classes.Graph.subgraph` | `method` | `present` | `franken_networkx.classes.Graph.subgraph` | class-member kind and signature match; FrankenNetworkX `(self, /, nodes)` is a native method descriptor, whose `self` is positional-only |
 | `classes` | `networkx.classes.Graph.to_directed` | `method` | `present` | `franken_networkx.classes.Graph.to_directed` | class-member kind and signature match |
 | `classes` | `networkx.classes.Graph.to_directed_class` | `method` | `present` | `franken_networkx.classes.Graph.to_directed_class` | class-member kind and signature match |
 | `classes` | `networkx.classes.Graph.to_undirected` | `method` | `present` | `franken_networkx.classes.Graph.to_undirected` | class-member kind and signature match |
@@ -3151,17 +3151,17 @@ At the declared import-and-signature surface measured here, a real user can port
 | `classes` | `networkx.classes.MultiDiGraph.adjlist_inner_dict_factory` | `method` | `present` | `franken_networkx.classes.MultiDiGraph.adjlist_inner_dict_factory` | class-member kind matches; NetworkX exposes no inspectable signature |
 | `classes` | `networkx.classes.MultiDiGraph.adjlist_outer_dict_factory` | `method` | `present` | `franken_networkx.classes.MultiDiGraph.adjlist_outer_dict_factory` | class-member kind matches; NetworkX exposes no inspectable signature |
 | `classes` | `networkx.classes.MultiDiGraph.clear` | `method` | `present` | `franken_networkx.classes.MultiDiGraph.clear` | class-member kind and signature match |
-| `classes` | `networkx.classes.MultiDiGraph.clear_edges` | `method` | `partial` | `franken_networkx.classes.MultiDiGraph.clear_edges` | method signature differs: NetworkX `(self)`; FrankenNetworkX `(self, /)` |
+| `classes` | `networkx.classes.MultiDiGraph.clear_edges` | `method` | `present` | `franken_networkx.classes.MultiDiGraph.clear_edges` | class-member kind and signature match; FrankenNetworkX `(self, /)` is a native method descriptor, whose `self` is positional-only |
 | `classes` | `networkx.classes.MultiDiGraph.copy` | `method` | `present` | `franken_networkx.classes.MultiDiGraph.copy` | class-member kind and signature match |
 | `classes` | `networkx.classes.MultiDiGraph.degree` | `descriptor` | `present` | `franken_networkx.classes.MultiDiGraph.degree` | class-member binding kind matches |
 | `classes` | `networkx.classes.MultiDiGraph.edge_attr_dict_factory` | `method` | `present` | `franken_networkx.classes.MultiDiGraph.edge_attr_dict_factory` | class-member kind matches; NetworkX exposes no inspectable signature |
 | `classes` | `networkx.classes.MultiDiGraph.edge_key_dict_factory` | `method` | `present` | `franken_networkx.classes.MultiDiGraph.edge_key_dict_factory` | class-member kind matches; NetworkX exposes no inspectable signature |
 | `classes` | `networkx.classes.MultiDiGraph.edge_subgraph` | `method` | `present` | `franken_networkx.classes.MultiDiGraph.edge_subgraph` | class-member kind and signature match |
 | `classes` | `networkx.classes.MultiDiGraph.edges` | `descriptor` | `present` | `franken_networkx.classes.MultiDiGraph.edges` | class-member binding kind matches |
-| `classes` | `networkx.classes.MultiDiGraph.get_edge_data` | `method` | `partial` | `franken_networkx.classes.MultiDiGraph.get_edge_data` | method signature differs: NetworkX `(self, u, v, key=None, default=None)`; FrankenNetworkX `(self, /, u, v, key=None, default=None)` |
+| `classes` | `networkx.classes.MultiDiGraph.get_edge_data` | `method` | `present` | `franken_networkx.classes.MultiDiGraph.get_edge_data` | class-member kind and signature match; FrankenNetworkX `(self, /, u, v, key=None, default=None)` is a native method descriptor, whose `self` is positional-only |
 | `classes` | `networkx.classes.MultiDiGraph.graph_attr_dict_factory` | `method` | `present` | `franken_networkx.classes.MultiDiGraph.graph_attr_dict_factory` | class-member kind matches; NetworkX exposes no inspectable signature |
-| `classes` | `networkx.classes.MultiDiGraph.has_edge` | `method` | `partial` | `franken_networkx.classes.MultiDiGraph.has_edge` | method signature differs: NetworkX `(self, u, v, key=None)`; FrankenNetworkX `(self, /, u, v, key=None)` |
-| `classes` | `networkx.classes.MultiDiGraph.has_node` | `method` | `partial` | `franken_networkx.classes.MultiDiGraph.has_node` | method signature differs: NetworkX `(self, n)`; FrankenNetworkX `(self, /, n)` |
+| `classes` | `networkx.classes.MultiDiGraph.has_edge` | `method` | `present` | `franken_networkx.classes.MultiDiGraph.has_edge` | class-member kind and signature match; FrankenNetworkX `(self, /, u, v, key=None)` is a native method descriptor, whose `self` is positional-only |
+| `classes` | `networkx.classes.MultiDiGraph.has_node` | `method` | `present` | `franken_networkx.classes.MultiDiGraph.has_node` | class-member kind and signature match; FrankenNetworkX `(self, /, n)` is a native method descriptor, whose `self` is positional-only |
 | `classes` | `networkx.classes.MultiDiGraph.has_predecessor` | `method` | `present` | `franken_networkx.classes.MultiDiGraph.has_predecessor` | class-member kind and signature match |
 | `classes` | `networkx.classes.MultiDiGraph.has_successor` | `method` | `present` | `franken_networkx.classes.MultiDiGraph.has_successor` | class-member kind and signature match |
 | `classes` | `networkx.classes.MultiDiGraph.in_degree` | `descriptor` | `present` | `franken_networkx.classes.MultiDiGraph.in_degree` | class-member binding kind matches |
@@ -3176,8 +3176,8 @@ At the declared import-and-signature surface measured here, a real user can port
 | `classes` | `networkx.classes.MultiDiGraph.node_dict_factory` | `method` | `present` | `franken_networkx.classes.MultiDiGraph.node_dict_factory` | class-member kind matches; NetworkX exposes no inspectable signature |
 | `classes` | `networkx.classes.MultiDiGraph.nodes` | `descriptor` | `present` | `franken_networkx.classes.MultiDiGraph.nodes` | class-member binding kind matches |
 | `classes` | `networkx.classes.MultiDiGraph.number_of_edges` | `method` | `present` | `franken_networkx.classes.MultiDiGraph.number_of_edges` | class-member kind and signature match |
-| `classes` | `networkx.classes.MultiDiGraph.number_of_nodes` | `method` | `partial` | `franken_networkx.classes.MultiDiGraph.number_of_nodes` | method signature differs: NetworkX `(self)`; FrankenNetworkX `(self, /)` |
-| `classes` | `networkx.classes.MultiDiGraph.order` | `method` | `partial` | `franken_networkx.classes.MultiDiGraph.order` | method signature differs: NetworkX `(self)`; FrankenNetworkX `(self, /)` |
+| `classes` | `networkx.classes.MultiDiGraph.number_of_nodes` | `method` | `present` | `franken_networkx.classes.MultiDiGraph.number_of_nodes` | class-member kind and signature match; FrankenNetworkX `(self, /)` is a native method descriptor, whose `self` is positional-only |
+| `classes` | `networkx.classes.MultiDiGraph.order` | `method` | `present` | `franken_networkx.classes.MultiDiGraph.order` | class-member kind and signature match; FrankenNetworkX `(self, /)` is a native method descriptor, whose `self` is positional-only |
 | `classes` | `networkx.classes.MultiDiGraph.out_degree` | `descriptor` | `present` | `franken_networkx.classes.MultiDiGraph.out_degree` | class-member binding kind matches |
 | `classes` | `networkx.classes.MultiDiGraph.out_edges` | `descriptor` | `present` | `franken_networkx.classes.MultiDiGraph.out_edges` | class-member binding kind matches |
 | `classes` | `networkx.classes.MultiDiGraph.pred` | `descriptor` | `present` | `franken_networkx.classes.MultiDiGraph.pred` | class-member binding kind matches |
@@ -3188,7 +3188,7 @@ At the declared import-and-signature surface measured here, a real user can port
 | `classes` | `networkx.classes.MultiDiGraph.remove_nodes_from` | `method` | `present` | `franken_networkx.classes.MultiDiGraph.remove_nodes_from` | class-member kind and signature match |
 | `classes` | `networkx.classes.MultiDiGraph.reverse` | `method` | `present` | `franken_networkx.classes.MultiDiGraph.reverse` | class-member kind and signature match |
 | `classes` | `networkx.classes.MultiDiGraph.size` | `method` | `present` | `franken_networkx.classes.MultiDiGraph.size` | class-member kind and signature match |
-| `classes` | `networkx.classes.MultiDiGraph.subgraph` | `method` | `partial` | `franken_networkx.classes.MultiDiGraph.subgraph` | method signature differs: NetworkX `(self, nodes)`; FrankenNetworkX `(self, /, nodes)` |
+| `classes` | `networkx.classes.MultiDiGraph.subgraph` | `method` | `present` | `franken_networkx.classes.MultiDiGraph.subgraph` | class-member kind and signature match; FrankenNetworkX `(self, /, nodes)` is a native method descriptor, whose `self` is positional-only |
 | `classes` | `networkx.classes.MultiDiGraph.succ` | `descriptor` | `present` | `franken_networkx.classes.MultiDiGraph.succ` | class-member binding kind matches |
 | `classes` | `networkx.classes.MultiDiGraph.successors` | `method` | `present` | `franken_networkx.classes.MultiDiGraph.successors` | class-member kind and signature match |
 | `classes` | `networkx.classes.MultiDiGraph.to_directed` | `method` | `present` | `franken_networkx.classes.MultiDiGraph.to_directed` | class-member kind and signature match |
@@ -3197,7 +3197,7 @@ At the declared import-and-signature surface measured here, a real user can port
 | `classes` | `networkx.classes.MultiDiGraph.to_undirected_class` | `method` | `present` | `franken_networkx.classes.MultiDiGraph.to_undirected_class` | class-member kind and signature match |
 | `classes` | `networkx.classes.MultiDiGraph.update` | `method` | `present` | `franken_networkx.classes.MultiDiGraph.update` | class-member kind and signature match |
 | `classes` | `networkx.classes.MultiGraph` | `class` | `partial` | `franken_networkx.classes.MultiGraph` | signature differs: NetworkX `(*args, backend=None, **kwargs)`; FrankenNetworkX `(incoming_graph_data=None, multigraph_input=None, **attr)` |
-| `classes` | `networkx.classes.MultiGraph.add_edge` | `method` | `partial` | `franken_networkx.classes.MultiGraph.add_edge` | method signature differs: NetworkX `(self, u_for_edge, v_for_edge, key=None, **attr)`; FrankenNetworkX `(self, /, u_for_edge, v_for_edge, key=None, **attr)` |
+| `classes` | `networkx.classes.MultiGraph.add_edge` | `method` | `present` | `franken_networkx.classes.MultiGraph.add_edge` | class-member kind and signature match; FrankenNetworkX `(self, /, u_for_edge, v_for_edge, key=None, **attr)` is a native method descriptor, whose `self` is positional-only |
 | `classes` | `networkx.classes.MultiGraph.add_edges_from` | `method` | `present` | `franken_networkx.classes.MultiGraph.add_edges_from` | class-member kind and signature match |
 | `classes` | `networkx.classes.MultiGraph.add_node` | `method` | `present` | `franken_networkx.classes.MultiGraph.add_node` | class-member kind and signature match |
 | `classes` | `networkx.classes.MultiGraph.add_nodes_from` | `method` | `present` | `franken_networkx.classes.MultiGraph.add_nodes_from` | class-member kind and signature match |
@@ -3207,17 +3207,17 @@ At the declared import-and-signature surface measured here, a real user can port
 | `classes` | `networkx.classes.MultiGraph.adjlist_inner_dict_factory` | `method` | `present` | `franken_networkx.classes.MultiGraph.adjlist_inner_dict_factory` | class-member kind matches; NetworkX exposes no inspectable signature |
 | `classes` | `networkx.classes.MultiGraph.adjlist_outer_dict_factory` | `method` | `present` | `franken_networkx.classes.MultiGraph.adjlist_outer_dict_factory` | class-member kind matches; NetworkX exposes no inspectable signature |
 | `classes` | `networkx.classes.MultiGraph.clear` | `method` | `present` | `franken_networkx.classes.MultiGraph.clear` | class-member kind and signature match |
-| `classes` | `networkx.classes.MultiGraph.clear_edges` | `method` | `partial` | `franken_networkx.classes.MultiGraph.clear_edges` | method signature differs: NetworkX `(self)`; FrankenNetworkX `(self, /)` |
+| `classes` | `networkx.classes.MultiGraph.clear_edges` | `method` | `present` | `franken_networkx.classes.MultiGraph.clear_edges` | class-member kind and signature match; FrankenNetworkX `(self, /)` is a native method descriptor, whose `self` is positional-only |
 | `classes` | `networkx.classes.MultiGraph.copy` | `method` | `present` | `franken_networkx.classes.MultiGraph.copy` | class-member kind and signature match |
 | `classes` | `networkx.classes.MultiGraph.degree` | `descriptor` | `present` | `franken_networkx.classes.MultiGraph.degree` | class-member binding kind matches |
 | `classes` | `networkx.classes.MultiGraph.edge_attr_dict_factory` | `method` | `present` | `franken_networkx.classes.MultiGraph.edge_attr_dict_factory` | class-member kind matches; NetworkX exposes no inspectable signature |
 | `classes` | `networkx.classes.MultiGraph.edge_key_dict_factory` | `method` | `present` | `franken_networkx.classes.MultiGraph.edge_key_dict_factory` | class-member kind matches; NetworkX exposes no inspectable signature |
 | `classes` | `networkx.classes.MultiGraph.edge_subgraph` | `method` | `present` | `franken_networkx.classes.MultiGraph.edge_subgraph` | class-member kind and signature match |
 | `classes` | `networkx.classes.MultiGraph.edges` | `descriptor` | `present` | `franken_networkx.classes.MultiGraph.edges` | class-member binding kind matches |
-| `classes` | `networkx.classes.MultiGraph.get_edge_data` | `method` | `partial` | `franken_networkx.classes.MultiGraph.get_edge_data` | method signature differs: NetworkX `(self, u, v, key=None, default=None)`; FrankenNetworkX `(self, /, u, v, key=None, default=None)` |
+| `classes` | `networkx.classes.MultiGraph.get_edge_data` | `method` | `present` | `franken_networkx.classes.MultiGraph.get_edge_data` | class-member kind and signature match; FrankenNetworkX `(self, /, u, v, key=None, default=None)` is a native method descriptor, whose `self` is positional-only |
 | `classes` | `networkx.classes.MultiGraph.graph_attr_dict_factory` | `method` | `present` | `franken_networkx.classes.MultiGraph.graph_attr_dict_factory` | class-member kind matches; NetworkX exposes no inspectable signature |
-| `classes` | `networkx.classes.MultiGraph.has_edge` | `method` | `partial` | `franken_networkx.classes.MultiGraph.has_edge` | method signature differs: NetworkX `(self, u, v, key=None)`; FrankenNetworkX `(self, /, u, v, key=None)` |
-| `classes` | `networkx.classes.MultiGraph.has_node` | `method` | `partial` | `franken_networkx.classes.MultiGraph.has_node` | method signature differs: NetworkX `(self, n)`; FrankenNetworkX `(self, /, n)` |
+| `classes` | `networkx.classes.MultiGraph.has_edge` | `method` | `present` | `franken_networkx.classes.MultiGraph.has_edge` | class-member kind and signature match; FrankenNetworkX `(self, /, u, v, key=None)` is a native method descriptor, whose `self` is positional-only |
+| `classes` | `networkx.classes.MultiGraph.has_node` | `method` | `present` | `franken_networkx.classes.MultiGraph.has_node` | class-member kind and signature match; FrankenNetworkX `(self, /, n)` is a native method descriptor, whose `self` is positional-only |
 | `classes` | `networkx.classes.MultiGraph.is_directed` | `method` | `partial` | `franken_networkx.classes.MultiGraph.is_directed` | method signature differs: NetworkX `(self)`; FrankenNetworkX `(self, *args, **kwargs)` |
 | `classes` | `networkx.classes.MultiGraph.is_multigraph` | `method` | `partial` | `franken_networkx.classes.MultiGraph.is_multigraph` | method signature differs: NetworkX `(self)`; FrankenNetworkX `(self, *args, **kwargs)` |
 | `classes` | `networkx.classes.MultiGraph.name` | `property` | `present` | `franken_networkx.classes.MultiGraph.name` | class-member binding kind matches |
@@ -3228,14 +3228,14 @@ At the declared import-and-signature surface measured here, a real user can port
 | `classes` | `networkx.classes.MultiGraph.node_dict_factory` | `method` | `present` | `franken_networkx.classes.MultiGraph.node_dict_factory` | class-member kind matches; NetworkX exposes no inspectable signature |
 | `classes` | `networkx.classes.MultiGraph.nodes` | `descriptor` | `present` | `franken_networkx.classes.MultiGraph.nodes` | class-member binding kind matches |
 | `classes` | `networkx.classes.MultiGraph.number_of_edges` | `method` | `present` | `franken_networkx.classes.MultiGraph.number_of_edges` | class-member kind and signature match |
-| `classes` | `networkx.classes.MultiGraph.number_of_nodes` | `method` | `partial` | `franken_networkx.classes.MultiGraph.number_of_nodes` | method signature differs: NetworkX `(self)`; FrankenNetworkX `(self, /)` |
-| `classes` | `networkx.classes.MultiGraph.order` | `method` | `partial` | `franken_networkx.classes.MultiGraph.order` | method signature differs: NetworkX `(self)`; FrankenNetworkX `(self, /)` |
+| `classes` | `networkx.classes.MultiGraph.number_of_nodes` | `method` | `present` | `franken_networkx.classes.MultiGraph.number_of_nodes` | class-member kind and signature match; FrankenNetworkX `(self, /)` is a native method descriptor, whose `self` is positional-only |
+| `classes` | `networkx.classes.MultiGraph.order` | `method` | `present` | `franken_networkx.classes.MultiGraph.order` | class-member kind and signature match; FrankenNetworkX `(self, /)` is a native method descriptor, whose `self` is positional-only |
 | `classes` | `networkx.classes.MultiGraph.remove_edge` | `method` | `present` | `franken_networkx.classes.MultiGraph.remove_edge` | class-member kind and signature match |
 | `classes` | `networkx.classes.MultiGraph.remove_edges_from` | `method` | `present` | `franken_networkx.classes.MultiGraph.remove_edges_from` | class-member kind and signature match |
 | `classes` | `networkx.classes.MultiGraph.remove_node` | `method` | `present` | `franken_networkx.classes.MultiGraph.remove_node` | class-member kind and signature match |
 | `classes` | `networkx.classes.MultiGraph.remove_nodes_from` | `method` | `present` | `franken_networkx.classes.MultiGraph.remove_nodes_from` | class-member kind and signature match |
 | `classes` | `networkx.classes.MultiGraph.size` | `method` | `present` | `franken_networkx.classes.MultiGraph.size` | class-member kind and signature match |
-| `classes` | `networkx.classes.MultiGraph.subgraph` | `method` | `partial` | `franken_networkx.classes.MultiGraph.subgraph` | method signature differs: NetworkX `(self, nodes)`; FrankenNetworkX `(self, /, nodes)` |
+| `classes` | `networkx.classes.MultiGraph.subgraph` | `method` | `present` | `franken_networkx.classes.MultiGraph.subgraph` | class-member kind and signature match; FrankenNetworkX `(self, /, nodes)` is a native method descriptor, whose `self` is positional-only |
 | `classes` | `networkx.classes.MultiGraph.to_directed` | `method` | `present` | `franken_networkx.classes.MultiGraph.to_directed` | class-member kind and signature match |
 | `classes` | `networkx.classes.MultiGraph.to_directed_class` | `method` | `present` | `franken_networkx.classes.MultiGraph.to_directed_class` | class-member kind and signature match |
 | `classes` | `networkx.classes.MultiGraph.to_undirected` | `method` | `present` | `franken_networkx.classes.MultiGraph.to_undirected` | class-member kind and signature match |
