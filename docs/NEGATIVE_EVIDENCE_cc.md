@@ -10093,3 +10093,71 @@ them — MRO-probe `type(G.edges)` first. The absolute vs-networkx level on this
 row is NOT settled: three same-ELF runs put the shipped path at 0.4254x, 0.5905x
 and 0.8502x depending on substrate and load, so quote the in-run contrast, not
 the level, until that is resolved.
+
+## 2026-08-15 SnowyValley SHIPPED WIN: `len(G)` 0.4074x -> **2.0225x** vs live networkx — the private-override wrapper was 5x the operation (`br-r37-c1-l7ww9`)
+
+`len(G)` is the cheapest operation this library has, and it was measuring 0.41x
+against networkx — whose own `__len__` is itself a Python method returning
+`len(self._node)`. Losing a Python-frame-versus-Python-frame race by 2.5x was
+not the store: `python/franken_networkx/__init__.py` rebound `__len__` on all
+four graph classes to `_private_aware_len`, which called `_private_override`,
+which called `vars()`. Two Python frames and a builtin, wrapped around a native
+slot that returns a `usize`.
+
+The native slot now consults the assigned `_node` mapping itself, behind the
+same `private_node_override` bool `__contains__` has used since
+`br-r37-c1-mi31t` step 1 — an ordinary graph pays one predictable bool test.
+The rebind, the wrapper and the four raw-slot captures are deleted.
+
+MEASURED, wall clock, ONE invocation, ONE ELF, both arms present, on the local
+host with no rch worker in the path. Incumbent = the pre-change shipped path,
+rebuilt by re-installing the wrapper body over the native slot; candidate = the
+bare slot. Balanced `ABBAABBA` square, 61 rounds, 400 `len(G)` calls per timed
+slot, per-arm A/A nulls, 2000-node string-keyed Graph with node attrs,
+`taskset -c 40-47`, host thinkstation1, governor powersave, ISA avx2/avx/sse4_2,
+observed 1 OS thread / 8 affinity CPUs, PYTHONHASHSEED=0, loadavg 9.8, live
+networkx 3.6.1 in the same invocation,
+`bench_elf_sha256=5aebde23b9979e7ecd58bcb34677a530a00819e8af02fe80d743c8cd4a579619`:
+
+    row                            ratio      CI                   nulls            verdict
+    len(G): wrapped -> native    5.0497x   [5.0162, 5.0897]    1.0109/0.9984   ADMISSIBLE
+    networkx vs fnx BEFORE       0.4074x   [0.4056, 0.4088]    1.0136/0.9987   ADMISSIBLE
+    networkx vs fnx AFTER        2.0225x   [2.0070, 2.0419]    1.0154/1.0053   ADMISSIBLE
+    CONTROL networkx vs networkx 1.0063x   [1.0022, 1.0095]    1.0182/1.0018   ADMISSIBLE
+
+The same-invocation A/A null control measured 1.0109x and 0.9984x on the shipped
+row and 1.0154x and 1.0053x on the vs-incumbent row, inside the +/-0.02 bound.
+
+Every row admissible in one run, including the control, which lands on 1.0. Two
+earlier draws on the preceding build agree on the self-delta: 5.0430x
+[4.9876, 5.0932] and 4.5613x [4.4949, 4.5994], both with clean nulls.
+
+PARITY: a graph carrying networkx private storage must report the MAPPING's
+length, and `g._node = {"x": {}, "y": {}, "z": {}}` makes `len(g)` 3 in both
+libraries with no node added — asserted against live networkx, alongside the
+matching `in` and iteration behaviour. A Rust unit test pins the two states the
+bool selects: registered-but-unmarked answers `None` so the native count wins,
+marked answers the mapping's length.
+
+WHY IT IS BIGGER THAN ONE ROW: `len(G)` was the CONTROL row for the entire view
+surface, where every read probe measures between 0.32x and 0.51x. A control that
+was itself 0.41x for wrapper reasons means the surface's floor was never the
+boundary cost it appeared to be. `__iter__` and `__getitem__` carry the same
+wrapper on the same four classes and are next.
+
+comparison_class=INCUMBENT
+incumbent=networkx
+incumbent_same_invocation=true
+incumbent_ratio=2.0225x
+campaign_output=true
+decision_gate=median_ci
+cv_role=report_only
+
+**RESULT: KEEP / CAMPAIGN OUTPUT.**
+
+RETRY PREDICATE: this is the third row in one day where a Python compatibility
+shim on a native slot WAS the deficit (`br-r37-c1-dtrpe` edge specs,
+`br-r37-c1-mi31t` step 1 membership, this one). Before costing any lever on a
+read probe, check `type(_fnx.Graph).__dict__[dunder]` — a `function` there is a
+Python frame on every call, a `wrapper_descriptor` is not. Do not re-derive the
+native store's cost until that check is clean.

@@ -2099,18 +2099,37 @@ impl InstanceDictGc {
         self.private_node_override = true;
     }
 
-    pub(crate) fn private_node_contains(
-        &self,
-        py: Python<'_>,
-        node: &Bound<'_, PyAny>,
-    ) -> PyResult<Option<bool>> {
+    /// The node count a graph carrying networkx private storage must report
+    /// (br-r37-c1-l7ww9), or `None` for an ordinary graph.
+    ///
+    /// `len(G)` used to reach this through the Python `_private_aware_len`
+    /// wrapper, which called `_private_override`, which called `vars()` — two
+    /// Python frames on the cheapest operation the library has, against
+    /// networkx's one. The bool below is what an ordinary graph pays now.
+    pub(crate) fn private_node_len(&self, py: Python<'_>) -> PyResult<Option<usize>> {
+        let Some(mapping) = self.private_node_mapping(py)? else {
+            return Ok(None);
+        };
+        mapping.len().map(Some)
+    }
+
+    /// The assigned `_node` mapping, if this graph has one.
+    fn private_node_mapping<'py>(&self, py: Python<'py>) -> PyResult<Option<Bound<'py, PyAny>>> {
         if !self.private_node_override {
             return Ok(None);
         }
         let Some(dict) = self.dict.as_ref() else {
             return Ok(None);
         };
-        let Some(mapping) = dict.bind(py).get_item("_fnx_private_node_override")? else {
+        dict.bind(py).get_item("_fnx_private_node_override")
+    }
+
+    pub(crate) fn private_node_contains(
+        &self,
+        py: Python<'_>,
+        node: &Bound<'_, PyAny>,
+    ) -> PyResult<Option<bool>> {
+        let Some(mapping) = self.private_node_mapping(py)? else {
             return Ok(None);
         };
         match mapping.contains(node) {
@@ -9451,8 +9470,15 @@ impl PyMultiGraph {
         }
     }
 
-    fn __len__(&self) -> usize {
-        self.inner.node_count()
+    /// Number of nodes (called by ``len(G)``).
+    ///
+    /// br-r37-c1-l7ww9: assigned `_node` storage wins, as it does for
+    /// `__contains__` — an ordinary graph pays one bool test for the check.
+    fn __len__(&self, py: Python<'_>) -> PyResult<usize> {
+        if let Some(count) = self.instance_dict_gc.private_node_len(py)? {
+            return Ok(count);
+        }
+        Ok(self.inner.node_count())
     }
 
     fn __contains__(&self, py: Python<'_>, n: &Bound<'_, PyAny>) -> PyResult<bool> {
@@ -13977,8 +14003,14 @@ impl PyGraph {
     // ---- Python special methods ----
 
     /// Number of nodes (called by ``len(G)``).
-    fn __len__(&self) -> usize {
-        self.inner.node_count()
+    ///
+    /// br-r37-c1-l7ww9: assigned `_node` storage wins, as it does for
+    /// `__contains__` — an ordinary graph pays one bool test for the check.
+    fn __len__(&self, py: Python<'_>) -> PyResult<usize> {
+        if let Some(count) = self.instance_dict_gc.private_node_len(py)? {
+            return Ok(count);
+        }
+        Ok(self.inner.node_count())
     }
 
     /// Membership test (called by ``n in G``).
@@ -17604,6 +17636,39 @@ class FnxMultiGraphCtorEdgeIterable:
                     .private_node_contains(py, &unhashable)
                     .expect("unhashable lookup should be suppressed"),
                 Some(false)
+            );
+        });
+    }
+
+    #[test]
+    fn private_node_override_length_comes_from_the_mapping() {
+        ensure_python();
+        Python::attach(|py| {
+            let storage = PyDict::new(py);
+            let mapping = PyDict::new(py);
+            for name in ["one", "two", "three"] {
+                mapping
+                    .set_item(name, PyDict::new(py))
+                    .expect("private mapping setup should succeed");
+            }
+            storage
+                .set_item("_fnx_private_node_override", mapping)
+                .expect("private override setup should succeed");
+
+            let mut state = InstanceDictGc::new();
+            state.register(&storage);
+
+            // Registered but NOT marked: an ordinary graph must be told
+            // nothing, so its own node count answers.
+            assert_eq!(
+                state.private_node_len(py).expect("unmarked probe succeeds"),
+                None
+            );
+
+            state.set_private_node_override();
+            assert_eq!(
+                state.private_node_len(py).expect("marked probe succeeds"),
+                Some(3)
             );
         });
     }

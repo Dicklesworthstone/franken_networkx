@@ -5437,8 +5437,15 @@ impl PyMultiDiGraph {
         with_node_key_str(py, n, |canonical| self.inner.has_node(canonical))
     }
 
-    fn __len__(&self) -> usize {
-        self.inner.node_count()
+    /// Number of nodes (called by ``len(G)``).
+    ///
+    /// br-r37-c1-l7ww9: assigned `_node` storage wins, as it does for
+    /// `__contains__` — an ordinary graph pays one bool test for the check.
+    fn __len__(&self, py: Python<'_>) -> PyResult<usize> {
+        if let Some(count) = self.instance_dict_gc.private_node_len(py)? {
+            return Ok(count);
+        }
+        Ok(self.inner.node_count())
     }
 
     fn __contains__(&self, py: Python<'_>, n: &Bound<'_, PyAny>) -> PyResult<bool> {
@@ -14938,8 +14945,15 @@ impl PyDiGraph {
 
     // ---- Python special methods ----
 
-    fn __len__(&self) -> usize {
-        self.inner.node_count()
+    /// Number of nodes (called by ``len(G)``).
+    ///
+    /// br-r37-c1-l7ww9: assigned `_node` storage wins, as it does for
+    /// `__contains__` — an ordinary graph pays one bool test for the check.
+    fn __len__(&self, py: Python<'_>) -> PyResult<usize> {
+        if let Some(count) = self.instance_dict_gc.private_node_len(py)? {
+            return Ok(count);
+        }
+        Ok(self.inner.node_count())
     }
 
     fn __contains__(&self, py: Python<'_>, n: &Bound<'_, PyAny>) -> PyResult<bool> {

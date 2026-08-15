@@ -43862,14 +43862,9 @@ _GRAPH_PRIVATE_AWARE_ITER = Graph.__iter__
 _DIGRAPH_PRIVATE_AWARE_ITER = DiGraph.__iter__
 _MULTIGRAPH_PRIVATE_AWARE_ITER = MultiGraph.__iter__
 _MULTIDIGRAPH_PRIVATE_AWARE_ITER = MultiDiGraph.__iter__
-_GRAPH_PRIVATE_AWARE_LEN = Graph.__len__
-_DIGRAPH_PRIVATE_AWARE_LEN = DiGraph.__len__
-_MULTIGRAPH_PRIVATE_AWARE_LEN = MultiGraph.__len__
-_MULTIDIGRAPH_PRIVATE_AWARE_LEN = MultiDiGraph.__len__
-_GRAPH_PRIVATE_AWARE_CONTAINS = Graph.__contains__
-_DIGRAPH_PRIVATE_AWARE_CONTAINS = DiGraph.__contains__
-_MULTIGRAPH_PRIVATE_AWARE_CONTAINS = MultiGraph.__contains__
-_MULTIDIGRAPH_PRIVATE_AWARE_CONTAINS = MultiDiGraph.__contains__
+# br-r37-c1-l7ww9: no raw-slot captures for `__len__` or `__contains__`. Both
+# slots are private-storage aware in Rust, so nothing rebinds them and nothing
+# needs to hold the original to call through.
 _GRAPH_PRIVATE_AWARE_NODES = Graph.nodes
 _DIGRAPH_PRIVATE_AWARE_NODES = DiGraph.nodes
 _MULTIGRAPH_PRIVATE_AWARE_NODES = MultiGraph.nodes
@@ -44933,14 +44928,13 @@ def _private_aware_iter(raw_iter):
     return __iter__
 
 
-def _private_aware_len(raw_len):
-    def __len__(self):
-        node_mapping = _private_override(self, _PRIVATE_NODE_OVERRIDE)
-        if node_mapping is not _PRIVATE_MISSING:
-            return len(node_mapping)
-        return raw_len(self)
-
-    return __len__
+# br-r37-c1-l7ww9: there is deliberately no `_private_aware_len` here. The
+# native `__len__` consults the assigned `_node` mapping itself, behind the same
+# `private_node_override` bool `__contains__` already uses, so an ordinary graph
+# pays one bool test instead of two Python frames (the wrapper, plus the
+# `_private_override` helper it called). `len(G)` is the cheapest operation the
+# library has, and networkx's own `__len__` is itself a Python method returning
+# `len(self._node)` — losing that race 2x was the wrapper, not the store.
 
 
 def _private_aware_contains(raw_contains):
@@ -45372,10 +45366,8 @@ Graph.__iter__ = _private_aware_iter(_GRAPH_PRIVATE_AWARE_ITER)
 DiGraph.__iter__ = _private_aware_iter(_DIGRAPH_PRIVATE_AWARE_ITER)
 MultiGraph.__iter__ = _private_aware_iter(_MULTIGRAPH_PRIVATE_AWARE_ITER)
 MultiDiGraph.__iter__ = _private_aware_iter(_MULTIDIGRAPH_PRIVATE_AWARE_ITER)
-Graph.__len__ = _private_aware_len(_GRAPH_PRIVATE_AWARE_LEN)
-DiGraph.__len__ = _private_aware_len(_DIGRAPH_PRIVATE_AWARE_LEN)
-MultiGraph.__len__ = _private_aware_len(_MULTIGRAPH_PRIVATE_AWARE_LEN)
-MultiDiGraph.__len__ = _private_aware_len(_MULTIDIGRAPH_PRIVATE_AWARE_LEN)
+# br-r37-c1-l7ww9: `__len__` is NOT rebound — the native slot is private-storage
+# aware, so `len(G)` reaches it with no Python frame at all.
 
 Graph.nodes = _private_aware_nodes(_GRAPH_PRIVATE_AWARE_NODES)
 DiGraph.nodes = _private_aware_nodes(_DIGRAPH_PRIVATE_AWARE_NODES)
