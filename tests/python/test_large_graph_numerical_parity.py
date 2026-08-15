@@ -671,6 +671,18 @@ def test_string_node_edge_lookup_accepts_equal_nonidentical_strings():
     assert equal_right == right and equal_right is not right
     assert graph.has_edge(equal_left, equal_right)
 
+
+def test_directed_string_node_edge_lookup_accepts_equal_nonidentical_strings():
+    graph = fnx.DiGraph()
+    source_node = "source-node"
+    target_node = "target-node"
+    graph.add_edge(source_node, target_node)
+    source = "".join(["source", "-node"])
+    target = "".join(["target", "-node"])
+    assert source == source_node and source is not source_node
+    assert target == target_node and target is not target_node
+    assert graph.has_edge(source, target)
+
     directed = fnx.DiGraph()
     directed.add_edges_from([(0, 1), (1, 3), (0, 2), (2, 3), (1, 2)])
     directed_mapping = {node: f"directed-path-{node}" for node in directed}
