@@ -758,6 +758,14 @@ def test_edges_view_subscript_accepts_reverse_equal_strings_undirected():
     second = "".join(["second", "-node"])
     assert graph.edges[second, first]["weight"] == 4
 
+
+def test_edges_view_membership_accepts_reverse_equal_strings_undirected():
+    graph = fnx.Graph()
+    graph.add_edge("first-membership", "second-membership")
+    first = "".join(["first", "-membership"])
+    second = "".join(["second", "-membership"])
+    assert (second, first) in graph.edges
+
     directed = fnx.DiGraph()
     directed.add_edges_from([(0, 1), (1, 3), (0, 2), (2, 3), (1, 2)])
     directed_mapping = {node: f"directed-path-{node}" for node in directed}
