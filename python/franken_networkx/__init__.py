@@ -5621,7 +5621,31 @@ class _DirectedDegreeView:
             yield (node, self[node])
 
     def __getitem__(self, node):
-        return self._node_degree(node, self._weight)
+        degree = self._node_degree(node, self._weight)
+        # br-r37-c1-i89jx: nx's DiDegreeView.__getitem__ reads ``self._succ[n]``
+        # / ``self._pred[n]``, so indexing a node that is not in the graph
+        # raises KeyError. The unweighted native fast path in _node_degree
+        # (``_native_out_degree`` / ``_native_in_degree``) answers 0 for an
+        # absent node instead, and 0 is a perfectly plausible degree — so the
+        # caller got a real-looking number and kept computing where networkx
+        # would have raised. Every other path here already agrees with nx:
+        # weighted, subgraph-filtered and reverse views all raise, because they
+        # go through the adjacency lookup rather than the native counter.
+        #
+        # The membership probe is charged ONLY when the answer is 0, so a node
+        # with any edges pays nothing, and it lives in __getitem__ rather than
+        # in _node_degree so that ITERATION — which visits only nodes already
+        # known to be present, including isolated ones — is untouched.
+        if degree == 0:
+            # ``hash`` first: nx reaches this through a dict lookup, so an
+            # UNHASHABLE index raises TypeError there, not KeyError. fnx's
+            # ``in`` swallows that TypeError and answers False, which would
+            # turn nx's TypeError into a KeyError — so the hashability check
+            # cannot be folded into the membership probe.
+            hash(node)
+            if node not in self._graph:
+                raise KeyError(node)
+        return degree
 
     def __bool__(self):
         return bool(len(self))
