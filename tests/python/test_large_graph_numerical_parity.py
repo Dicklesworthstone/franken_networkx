@@ -623,6 +623,14 @@ def test_complement_edge_attribute_mutation_is_independent():
     complement.edges[1, 2]["color"] = "blue"
     assert not graph.has_edge(1, 2)
 
+
+def test_complement_graph_attributes_are_independent():
+    graph = fnx.Graph([(0, 1)])
+    graph.graph["name"] = "source"
+    complement = fnx.complement(graph)
+    complement.graph["name"] = "complement"
+    assert graph.graph["name"] == "source"
+
     directed = fnx.DiGraph()
     directed.add_edges_from([(0, 1), (1, 3), (0, 2), (2, 3), (1, 2)])
     directed_mapping = {node: f"directed-path-{node}" for node in directed}
