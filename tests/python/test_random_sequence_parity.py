@@ -187,6 +187,24 @@ def test_degree_sequence_tree_rejects_invalid_tree_sequences(sequence):
         fnx.degree_sequence_tree(sequence)
 
 
+def test_degree_sequence_tree_rejects_non_tree_sum_with_duplicate_degrees():
+    sequence = [2, 2, 2, 2]
+    valid, reason = fnx.utils.is_valid_tree_degree_sequence(sequence)
+    assert not valid
+    assert reason
+    with pytest.raises(fnx.NetworkXError):
+        fnx.degree_sequence_tree(sequence)
+
+
+def test_degree_sequence_tree_rejects_fractional_degrees_with_reason():
+    sequence = [1.5, 1.5]
+    valid, reason = fnx.utils.is_valid_tree_degree_sequence(sequence)
+    assert valid is False
+    assert reason
+    with pytest.raises(fnx.NetworkXError):
+        fnx.degree_sequence_tree(sequence)
+
+
 def test_is_valid_tree_degree_sequence_returns_tuple_with_reason():
     """The fnx helper returns ``(valid, reason)`` so callers can surface
     a useful error message. Lock that contract."""
