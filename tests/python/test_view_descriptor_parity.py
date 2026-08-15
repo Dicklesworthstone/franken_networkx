@@ -423,6 +423,34 @@ def test_multigraph_has_edge_string_index_cache_does_not_alias_copies():
         assert other.has_edge("left", "right")
 
 
+@pytest.mark.parametrize("cls_name", ["Graph", "DiGraph"])
+def test_simple_has_edge_string_index_cache_is_equal_key_and_mutation_safe(cls_name):
+    """br-r37-c1-p1tvg: simple graphs share the warm string-index route."""
+    left = "".join(("left", "-", "endpoint"))
+    right = "".join(("right", "-", "endpoint"))
+    equal_left = left.encode().decode()
+    equal_right = right.encode().decode()
+    assert equal_left == left and equal_left is not left
+    assert equal_right == right and equal_right is not right
+
+    graph = getattr(fnx, cls_name)()
+    graph.add_edge(left, right)
+    assert graph.has_edge(equal_left, equal_right)
+    assert graph.has_edge(equal_left, equal_right)
+
+    # Edge-only changes retain node indices; a warmed endpoint remains valid.
+    graph.remove_edge(left, right)
+    assert not graph.has_edge(equal_left, equal_right)
+    graph.add_edge(left, right)
+    assert graph.has_edge(equal_left, equal_right)
+
+    # Node removal compacts indices, so a warm cache must invalidate first.
+    graph.remove_node(equal_left)
+    assert not graph.has_edge(equal_left, equal_right)
+    graph.add_edge(left, right)
+    assert graph.has_edge(equal_left, equal_right)
+
+
 @pytest.mark.parametrize("cls_name", CLASS_NAMES)
 def test_plain_get_edge_data_is_a_raw_descriptor(cls_name):
     """br-r37-c1-57ba1: ordinary attr reads must not pay a Python shim."""

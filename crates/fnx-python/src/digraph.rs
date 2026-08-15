@@ -6,7 +6,7 @@
 //! - Additional methods: `predecessors`, `successors`, `in_degree`, `out_degree`.
 
 use crate::{
-    NetworkXError, NodeNotFound, PyGraph, PyObject, attr_map_to_pydict,
+    NetworkXError, NodeIndexLookupCache, NodeNotFound, PyGraph, PyObject, attr_map_to_pydict,
     collect_index_weight_attr_edges, compatibility_mode_from_py, compatibility_mode_name,
     edge_key_lookup_string, node_key_to_string, py_dict_to_attr_map,
     py_dict_to_attr_map_with_mirror, runtime_policy_from_state, runtime_policy_json,
@@ -126,6 +126,8 @@ pub struct PyDiGraph {
     pub(crate) edges_seq: u64,
     /// See PyGraph::edges_dirty.
     pub(crate) edges_dirty: AtomicBool,
+    /// Warm exact-string endpoints for `has_edge`; invalidated by `nodes_seq`.
+    pub(crate) has_edge_node_index_cache: NodeIndexLookupCache,
     pub(crate) node_keys_cache: std::sync::Mutex<Option<(u64, Py<pyo3::types::PyTuple>)>>,
     /// br-r37-c1-4b5ie: mirror of PyGraph::node_data_mirror — caches the
     /// {node: attr_dict} dict (keyed on nodes_seq) so repeated
@@ -205,6 +207,7 @@ impl PyDiGraph {
         for attrs in self.edge_py_attrs.values() {
             visit.call(attrs)?;
         }
+        self.has_edge_node_index_cache.traverse(visit)?;
         for key in self.succ_py_keys.values() {
             visit.call(key)?;
         }
@@ -269,6 +272,7 @@ impl PyDiGraph {
         self.node_key_map.clear();
         self.node_py_attrs.clear();
         self.edge_py_attrs.clear();
+        self.has_edge_node_index_cache.clear(py);
         self.succ_py_keys.clear();
         self.pred_py_keys.clear();
         self.succ_row_py.clear();
@@ -10663,6 +10667,7 @@ impl PyDiGraph {
             in_edges_with_data_cache: None,
             in_edges_data_attr_cache: std::sync::Mutex::new(None),
             edges_attr_dicts_cache: None,
+            has_edge_node_index_cache: NodeIndexLookupCache::new(py),
             node_iter_mirror: std::sync::Mutex::new(None),
             instance_dict_gc: crate::InstanceDictGc::new(),
         })
@@ -10678,6 +10683,27 @@ impl PyDiGraph {
     #[inline]
     pub(crate) fn bump_edges_seq(&mut self) {
         self.edges_seq = self.edges_seq.wrapping_add(1);
+    }
+
+    fn cached_exact_string_node_index(
+        &self,
+        py: Python<'_>,
+        key: &Bound<'_, PyAny>,
+    ) -> PyResult<Option<usize>> {
+        if let Some(index) = self
+            .has_edge_node_index_cache
+            .get(py, self.nodes_seq, key)?
+        {
+            return Ok(Some(index));
+        }
+        let canonical = node_key_to_string(py, key)?;
+        let Some(index) = self.inner.get_node_index(&canonical) else {
+            return Ok(None);
+        };
+        let public_key = self.py_node_key(py, &canonical);
+        self.has_edge_node_index_cache
+            .insert(py, public_key.bind(py), index)?;
+        Ok(Some(index))
     }
 
     #[inline]
@@ -12306,6 +12332,13 @@ impl PyDiGraph {
         {
             return Ok(self.inner.has_edge_by_indices(iu, iv));
         }
+        if u.is_exact_instance_of::<PyString>() && v.is_exact_instance_of::<PyString>() {
+            let u_index = self.cached_exact_string_node_index(py, u)?;
+            let v_index = self.cached_exact_string_node_index(py, v)?;
+            return Ok(u_index
+                .zip(v_index)
+                .is_some_and(|(ui, vi)| self.inner.has_edge_by_indices(ui, vi)));
+        }
         // br-r37-c1-oe93x: borrowed canonical keys — a str-keyed probe used to
         // malloc and free TWO Strings purely to look the edge up.
         with_node_key_str(py, u, |u_c| {
@@ -12370,6 +12403,7 @@ impl PyDiGraph {
                 in_edges_with_data_cache: None,
                 in_edges_data_attr_cache: std::sync::Mutex::new(None),
                 edges_attr_dicts_cache: None,
+                has_edge_node_index_cache: NodeIndexLookupCache::new(py),
                 node_iter_mirror: std::sync::Mutex::new(None),
                 instance_dict_gc: crate::InstanceDictGc::new(),
             };
@@ -12399,6 +12433,7 @@ impl PyDiGraph {
             in_edges_with_data_cache: None,
             in_edges_data_attr_cache: std::sync::Mutex::new(None),
             edges_attr_dicts_cache: None,
+            has_edge_node_index_cache: NodeIndexLookupCache::new(py),
             node_iter_mirror: std::sync::Mutex::new(None),
             instance_dict_gc: crate::InstanceDictGc::new(),
         };
@@ -12644,6 +12679,7 @@ impl PyDiGraph {
             in_edges_with_data_cache: None,
             in_edges_data_attr_cache: std::sync::Mutex::new(None),
             edges_attr_dicts_cache: None,
+            has_edge_node_index_cache: NodeIndexLookupCache::new(py),
             node_iter_mirror: std::sync::Mutex::new(None),
             instance_dict_gc: crate::InstanceDictGc::new(),
         };
@@ -12718,6 +12754,7 @@ impl PyDiGraph {
             in_edges_with_data_cache: None,
             in_edges_data_attr_cache: std::sync::Mutex::new(None),
             edges_attr_dicts_cache: None,
+            has_edge_node_index_cache: NodeIndexLookupCache::new(py),
             node_iter_mirror: std::sync::Mutex::new(None),
             instance_dict_gc: crate::InstanceDictGc::new(),
         };
@@ -12821,6 +12858,7 @@ impl PyDiGraph {
             in_edges_with_data_cache: None,
             in_edges_data_attr_cache: std::sync::Mutex::new(None),
             edges_attr_dicts_cache: None,
+            has_edge_node_index_cache: NodeIndexLookupCache::new(py),
             node_iter_mirror: std::sync::Mutex::new(None),
             instance_dict_gc: crate::InstanceDictGc::new(),
         };
@@ -12906,6 +12944,7 @@ impl PyDiGraph {
             in_edges_with_data_cache: None,
             in_edges_data_attr_cache: std::sync::Mutex::new(None),
             edges_attr_dicts_cache: None,
+            has_edge_node_index_cache: NodeIndexLookupCache::new(py),
             node_iter_mirror: std::sync::Mutex::new(None),
             instance_dict_gc: crate::InstanceDictGc::new(),
         };
@@ -15101,6 +15140,7 @@ impl PyDiGraph {
             in_edges_with_data_cache: None,
             in_edges_data_attr_cache: std::sync::Mutex::new(None),
             edges_attr_dicts_cache: None,
+            has_edge_node_index_cache: NodeIndexLookupCache::new(py),
             node_iter_mirror: std::sync::Mutex::new(None),
             instance_dict_gc: crate::InstanceDictGc::new(),
         })

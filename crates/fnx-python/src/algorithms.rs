@@ -15965,6 +15965,7 @@ pub fn transitive_closure(
             nodes_seq: 0,
             edges_seq: 0,
             edges_dirty: std::sync::atomic::AtomicBool::new(false),
+            has_edge_node_index_cache: crate::NodeIndexLookupCache::new(py),
             node_keys_cache: std::sync::Mutex::new(None),
             node_data_mirror: std::sync::Mutex::new(None),
             dict_of_dicts_cache: None,
@@ -25882,6 +25883,7 @@ pub fn power_rust(py: Python<'_>, g: &Bound<'_, PyAny>, k: usize) -> PyResult<Py
         node_py_attrs: std::collections::HashMap::new(),
         edge_py_attrs: std::collections::HashMap::new(),
         edge_py_attrs_by_endpoint: std::collections::HashMap::new(),
+        has_edge_node_index_cache: crate::NodeIndexLookupCache::new(py),
         adj_py_keys: HashMap::new(), // br-r37-c1-z6uka
         dict_of_dicts_cache: None,
         adj_row_py: HashMap::new(),
@@ -26001,6 +26003,7 @@ pub fn ego_graph_rust(
         node_py_attrs: std::collections::HashMap::new(),
         edge_py_attrs: std::collections::HashMap::new(),
         edge_py_attrs_by_endpoint: std::collections::HashMap::new(),
+        has_edge_node_index_cache: crate::NodeIndexLookupCache::new(py),
         adj_py_keys: HashMap::new(), // br-r37-c1-z6uka
         dict_of_dicts_cache: None,
         adj_row_py: HashMap::new(),
@@ -26141,6 +26144,7 @@ pub fn full_join_rust(
         node_py_attrs: std::collections::HashMap::new(),
         edge_py_attrs: std::collections::HashMap::new(),
         edge_py_attrs_by_endpoint: std::collections::HashMap::new(),
+        has_edge_node_index_cache: crate::NodeIndexLookupCache::new(py),
         adj_py_keys: HashMap::new(), // br-r37-c1-z6uka
         dict_of_dicts_cache: None,
         adj_row_py: HashMap::new(),
@@ -26180,6 +26184,7 @@ pub fn identified_nodes_rust(
         node_py_attrs: std::collections::HashMap::new(),
         edge_py_attrs: std::collections::HashMap::new(),
         edge_py_attrs_by_endpoint: std::collections::HashMap::new(),
+        has_edge_node_index_cache: crate::NodeIndexLookupCache::new(py),
         adj_py_keys: HashMap::new(), // br-r37-c1-z6uka
         dict_of_dicts_cache: None,
         adj_row_py: HashMap::new(),
@@ -26278,6 +26283,7 @@ pub fn dedensify_rust(
         node_py_attrs: std::collections::HashMap::new(),
         edge_py_attrs: std::collections::HashMap::new(),
         edge_py_attrs_by_endpoint: std::collections::HashMap::new(),
+        has_edge_node_index_cache: crate::NodeIndexLookupCache::new(py),
         adj_py_keys: HashMap::new(), // br-r37-c1-z6uka
         dict_of_dicts_cache: None,
         adj_row_py: HashMap::new(),
@@ -26450,6 +26456,7 @@ pub fn quotient_graph_rust(
         node_py_attrs: std::collections::HashMap::new(),
         edge_py_attrs: std::collections::HashMap::new(),
         edge_py_attrs_by_endpoint: std::collections::HashMap::new(),
+        has_edge_node_index_cache: crate::NodeIndexLookupCache::new(py),
         adj_py_keys: HashMap::new(), // br-r37-c1-z6uka
         dict_of_dicts_cache: None,
         adj_row_py: HashMap::new(),
@@ -26989,6 +26996,7 @@ pub fn gomory_hu_tree_rust(
         node_py_attrs: std::collections::HashMap::new(),
         edge_py_attrs: std::collections::HashMap::new(),
         edge_py_attrs_by_endpoint: std::collections::HashMap::new(),
+        has_edge_node_index_cache: crate::NodeIndexLookupCache::new(py),
         adj_py_keys: HashMap::new(), // br-r37-c1-z6uka
         dict_of_dicts_cache: None,
         adj_row_py: HashMap::new(),
@@ -27047,6 +27055,7 @@ pub fn snap_aggregation_rust(
         node_py_attrs: std::collections::HashMap::new(),
         edge_py_attrs: std::collections::HashMap::new(),
         edge_py_attrs_by_endpoint: std::collections::HashMap::new(),
+        has_edge_node_index_cache: crate::NodeIndexLookupCache::new(py),
         adj_py_keys: HashMap::new(), // br-r37-c1-z6uka
         dict_of_dicts_cache: None,
         adj_row_py: HashMap::new(),
