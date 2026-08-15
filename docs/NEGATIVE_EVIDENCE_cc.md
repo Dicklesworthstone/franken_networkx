@@ -10752,3 +10752,64 @@ counting a positional-only `self` marker as a partial path — every native meth
 is mispriced by it today, not just this one. Fix the classifier first, then this
 is a two-line rebind with a 1.21x row behind it and no lock to touch. Do not
 re-take it by editing the pinned counts.
+
+## 2026-08-15 SnowyValley SELF-REPORTED REGRESSION, FIXED: my own order fix cost a third String probe — 0.7954x back to **1.0278x** (`br-r37-c1-n4c8l`)
+
+`c14dc2ecf` gave `EdgeView::__contains__` networkx's hash ORDER, which it needs:
+nx's `v in self._adjdict[u]` short-circuits through KeyError without ever
+hashing `v`, so `("missing", Unhashable()) in G.edges` is False and not a
+TypeError. The implementation paid for that ordering UNCONDITIONALLY — a
+`has_node(u)` lookup before every `has_edge(u, v)`.
+
+MECHANISM PROVEN BY INSTRUCTION COUNT, which is exact and load-independent, so
+it does not depend on the cross-build wall-clock comparison that first raised
+the suspicion. callgrind `--collect-atstart=no --toggle-collect` on the
+pymethod, per-call Ir FLAT at 20000 and 40000 reps:
+
+    frame                              before      after
+    total                            973.2 Ir    811.7 Ir
+    IndexMap::get_index_of::<str>    279.2 Ir    186.0 Ir
+
+279.2 is THREE String-keyed probes; 186.0 is two. The third was the ordering
+lookup, and it is now taken only when it can be observed.
+
+THE FIX: hashing an exact `str`, `int`, `float` or `bool` cannot raise, so for
+those endpoints WHEN `v` is hashed is unobservable and the probe goes straight
+to `has_edge`. Any other `v` — which is how an unhashable key arrives — keeps
+the ordered path with its presence check. One predicate,
+`node_key_hash_cannot_raise`, shared with `require_hashable_node_key` so the two
+cannot drift.
+
+MEASURED, `harness=balanced_square_ab.py --only`, `same_host=thinkstation1`,
+`rch_worker=none` (both arms in-process; nothing dispatched to a worker), 41
+rounds, reps=4000, corrected per-round collect, live networkx 3.6.1 in the same
+invocation, `bench_elf_sha256=a75b9660a79fc44f...` (full sha in the commit):
+
+    draw            ratio     CI                  nulls           verdict
+    1             1.0278x  [1.0246, 1.0320]   1.0118/1.0006  ADMISSIBLE
+    2             0.9977x  [0.9956, 1.0024]   1.0099/1.0021  straddles-1
+
+against 0.7954x CI [0.7904, 0.7972] with the unconditional probe. The row is
+back at parity. The same-invocation A/A null control measured 1.0118x and
+1.0006x on draw 1, inside the +/-0.02 bound.
+
+PARITY IS UNCHANGED and that is the point of the shape of this fix: all 104
+assertions in `test_unhashable_key_parity.py` still pass, including the
+standalone order test that `("missing", Unhash("n1"))` is False while
+`(Unhash("n0"), "n1")` raises. A fix that simply deleted the presence check
+would pass every other test in that file and fail that one.
+
+comparison_class=SELF-SPEEDUP
+campaign_output=false
+decision_gate=median_ci
+cv_role=report_only
+
+**RESULT: KEEP / MAINTENANCE.** Recorded as a self-speedup because it recovers
+ground I lost two commits earlier; nothing here is a win over networkx that was
+not already there.
+
+RETRY PREDICATE: any future parity fix on a hot read path should be costed the
+same way — Ir before and after on the toggled pymethod, at two rep counts, and a
+count of the named frame. This regression was invisible in the test suite, which
+passed throughout, and would have been invisible in a cross-build wall-clock
+comparison alone because two other changes landed between the two builds.

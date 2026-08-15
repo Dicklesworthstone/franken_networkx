@@ -210,14 +210,24 @@ impl CanonicalNodeKey<'_> {
 /// the paths that matter. Everything else, which is how an unhashable key
 /// arrives, pays one `PyObject_Hash`.
 pub(crate) fn require_hashable_node_key(key: &Bound<'_, PyAny>) -> PyResult<()> {
-    if key.is_exact_instance_of::<PyString>()
-        || key.is_exact_instance_of::<PyInt>()
-        || key.is_exact_instance_of::<PyFloat>()
-        || key.is_exact_instance_of::<PyBool>()
-    {
+    if node_key_hash_cannot_raise(key) {
         return Ok(());
     }
     key.hash().map(|_| ())
+}
+
+/// Can hashing this key be ruled out as a source of exceptions?
+///
+/// A built-in `str`, `int`, `float` or `bool` is always hashable, so nothing
+/// about WHEN it is hashed is observable. br-r37-c1-n4c8l: that is what lets
+/// the edge probe skip the u-presence lookup it would otherwise need in order
+/// to reproduce networkx's short-circuit — the ordering only matters when the
+/// second endpoint can raise, and for the common shape it cannot.
+pub(crate) fn node_key_hash_cannot_raise(key: &Bound<'_, PyAny>) -> bool {
+    key.is_exact_instance_of::<PyString>()
+        || key.is_exact_instance_of::<PyInt>()
+        || key.is_exact_instance_of::<PyFloat>()
+        || key.is_exact_instance_of::<PyBool>()
 }
 
 /// The same question where networkx swallows the error instead of raising it:

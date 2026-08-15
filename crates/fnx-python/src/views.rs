@@ -704,13 +704,22 @@ impl EdgeView {
             Ok(key) => key,
             Err(err) => return endpoint_not_a_node(&u_item, err),
         };
-        {
-            let g = self.graph.borrow(py);
-            if !g.inner.has_node(u.as_str()) {
-                return Ok(false);
+        // br-r37-c1-n4c8l: the u-presence lookup exists ONLY to reproduce nx's
+        // short-circuit — an absent `u` must answer False before `v` is hashed.
+        // When hashing `v` cannot raise, that ordering is unobservable, so the
+        // probe goes straight to `has_edge` and pays ONE String-keyed lookup
+        // instead of two. Ordering it unconditionally cost 973.2 Ir/call
+        // against 696.0 before, three `get_index_of::<str>` probes where two
+        // are needed, and took the row from 1.0183x to 0.7954x.
+        if !crate::node_key_hash_cannot_raise(&v_item) {
+            {
+                let g = self.graph.borrow(py);
+                if !g.inner.has_node(u.as_str()) {
+                    return Ok(false);
+                }
             }
+            crate::require_hashable_node_key(&v_item)?;
         }
-        crate::require_hashable_node_key(&v_item)?;
         let v = match crate::canonical_node_key_in(py, &v_item, &mut v_buf) {
             Ok(key) => key,
             Err(err) => return endpoint_not_a_node(&v_item, err),
@@ -803,13 +812,22 @@ impl EdgeView {
             Ok(key) => key,
             Err(err) => return endpoint_not_a_node(&u_item, err),
         };
-        {
-            let g = self.graph.borrow(py);
-            if !g.inner.has_node(u.as_str()) {
-                return Ok(false);
+        // br-r37-c1-n4c8l: the u-presence lookup exists ONLY to reproduce nx's
+        // short-circuit — an absent `u` must answer False before `v` is hashed.
+        // When hashing `v` cannot raise, that ordering is unobservable, so the
+        // probe goes straight to `has_edge` and pays ONE String-keyed lookup
+        // instead of two. Ordering it unconditionally cost 973.2 Ir/call
+        // against 696.0 before, three `get_index_of::<str>` probes where two
+        // are needed, and took the row from 1.0183x to 0.7954x.
+        if !crate::node_key_hash_cannot_raise(&v_item) {
+            {
+                let g = self.graph.borrow(py);
+                if !g.inner.has_node(u.as_str()) {
+                    return Ok(false);
+                }
             }
+            crate::require_hashable_node_key(&v_item)?;
         }
-        crate::require_hashable_node_key(&v_item)?;
         let v = match crate::canonical_node_key_in(py, &v_item, &mut v_buf) {
             Ok(key) => key,
             Err(err) => return endpoint_not_a_node(&v_item, err),
