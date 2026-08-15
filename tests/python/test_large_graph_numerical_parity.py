@@ -727,6 +727,15 @@ def test_edges_view_subscript_accepts_equal_nonidentical_strings():
     target = "".join(["subscript", "-target"])
     assert graph.edges[source, target]["weight"] == 7
 
+
+def test_edges_view_subscript_returns_live_attrs_for_equal_strings():
+    graph = fnx.Graph()
+    graph.add_edge("live-source", "live-target")
+    source = "".join(["live", "-source"])
+    target = "".join(["live", "-target"])
+    graph.edges[source, target]["checked"] = True
+    assert graph.edges["live-source", "live-target"]["checked"] is True
+
     directed = fnx.DiGraph()
     directed.add_edges_from([(0, 1), (1, 3), (0, 2), (2, 3), (1, 2)])
     directed_mapping = {node: f"directed-path-{node}" for node in directed}
