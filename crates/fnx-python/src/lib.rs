@@ -23,7 +23,9 @@ use pyo3::exceptions::{PyKeyError, PyRuntimeError, PyTypeError, PyValueError};
 use pyo3::gc::{PyTraverseError, PyVisit};
 use pyo3::marker::Ungil;
 use pyo3::prelude::*;
-use pyo3::types::{PyAny, PyBool, PyDict, PyFloat, PyInt, PyIterator, PyList, PyString, PyTuple};
+use pyo3::types::{
+    PyAny, PyBool, PyDict, PyFloat, PyInt, PyIterator, PyList, PySet, PyString, PyTuple,
+};
 use std::collections::{HashMap, HashSet};
 use std::convert::Infallible;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
@@ -1496,6 +1498,19 @@ impl NodeLookupCache {
 pub(crate) struct NodeIndexLookupCache {
     nodes_seq: AtomicU64,
     entries: Py<PyDict>,
+    /// br-r37-c1-6n9vm: the node keys already PROVEN present, as a Python set.
+    ///
+    /// `has_node` spends 77.4% of its 437.4 Ir turning the caller's `str` into
+    /// a canonical `"str:{len}:{s}"` and hashing it (toggle-collect profile on
+    /// `__pymethod_has_node__`, flat at 20000 and 40000 reps), because CPython
+    /// caches a string's hash inside the object and we rehash a freshly built
+    /// canonical every time. A set probe reuses that cached hash.
+    ///
+    /// Membership only — no value, so nothing is boxed on a hit. That is the
+    /// difference from the endpoint lookaside reverted in br-r37-c1-p1tvg,
+    /// which paid a dict probe PLUS a `PyLong` round-trip per endpoint and
+    /// measured 1.27x slower in wall clock despite removing instructions.
+    present_keys: Py<PySet>,
 }
 
 impl NodeIndexLookupCache {
@@ -1503,6 +1518,17 @@ impl NodeIndexLookupCache {
         Self {
             nodes_seq: AtomicU64::new(u64::MAX),
             entries: PyDict::new(py).unbind(),
+            present_keys: PySet::empty(py)
+                .expect("an empty set is always constructible")
+                .unbind(),
+        }
+    }
+
+    fn invalidate_if_stale(&self, py: Python<'_>, nodes_seq: u64) {
+        if self.nodes_seq.load(Ordering::Relaxed) != nodes_seq {
+            self.entries.bind(py).clear();
+            self.present_keys.bind(py).clear();
+            self.nodes_seq.store(nodes_seq, Ordering::Relaxed);
         }
     }
 
@@ -1512,10 +1538,7 @@ impl NodeIndexLookupCache {
         nodes_seq: u64,
         key: &Bound<'_, PyAny>,
     ) -> PyResult<Option<usize>> {
-        if self.nodes_seq.load(Ordering::Relaxed) != nodes_seq {
-            self.entries.bind(py).clear();
-            self.nodes_seq.store(nodes_seq, Ordering::Relaxed);
-        }
+        self.invalidate_if_stale(py, nodes_seq);
         self.entries
             .bind(py)
             .get_item(key)?
@@ -1527,12 +1550,40 @@ impl NodeIndexLookupCache {
         self.entries.bind(py).set_item(public_key, index)
     }
 
+    /// br-r37-c1-6n9vm: has this EXACT-`str` key already been proven present
+    /// for this node-set generation?
+    ///
+    /// Exact `str` only, and the caller must enforce it: the set answers with
+    /// the KEY's `__hash__`/`__eq__`, so a `str` subclass that lies about
+    /// either would resolve to whatever entry it claims to equal — and, worse,
+    /// would do so only once some other key had been probed, making the answer
+    /// depend on cache state. Subclasses keep the canonical path, where the
+    /// answer is decided by the characters.
+    pub(crate) fn is_known_present(
+        &self,
+        py: Python<'_>,
+        nodes_seq: u64,
+        key: &Bound<'_, PyAny>,
+    ) -> PyResult<bool> {
+        self.invalidate_if_stale(py, nodes_seq);
+        self.present_keys.bind(py).contains(key)
+    }
+
+    /// Remember a key the canonical path just proved present. Bounded by the
+    /// node set: equal keys collapse to one entry by Python equality, and the
+    /// whole set is dropped when `nodes_seq` moves.
+    pub(crate) fn remember_present(&self, py: Python<'_>, key: &Bound<'_, PyAny>) -> PyResult<()> {
+        self.present_keys.bind(py).add(key)
+    }
+
     fn traverse(&self, visit: &PyVisit<'_>) -> Result<(), PyTraverseError> {
-        visit.call(&self.entries)
+        visit.call(&self.entries)?;
+        visit.call(&self.present_keys)
     }
 
     fn clear(&self, py: Python<'_>) {
         self.entries.bind(py).clear();
+        self.present_keys.bind(py).clear();
         self.nodes_seq.store(u64::MAX, Ordering::Relaxed);
     }
 }
@@ -2231,6 +2282,33 @@ impl PyGraph {
 }
 
 impl PyGraph {
+    /// br-r37-c1-6n9vm: membership for an EXACT `str`, through the present-key
+    /// set.
+    ///
+    /// The caller has already established the exact-`str` type; a subclass must
+    /// not reach here, because the set answers with the KEY's `__hash__` and
+    /// `__eq__` and a lying subclass would otherwise resolve to whatever entry
+    /// it claims to equal — and only once that entry existed, making the answer
+    /// depend on which keys had been probed before.
+    ///
+    /// A miss costs one extra set probe on top of the canonical path, which is
+    /// the trade: absent keys pay for present keys.
+    fn exact_str_node_is_present(&self, py: Python<'_>, n: &Bound<'_, PyAny>) -> PyResult<bool> {
+        let nodes_seq = self.nodes_seq;
+        if self
+            .has_edge_node_index_cache
+            .is_known_present(py, nodes_seq, n)?
+        {
+            return Ok(true);
+        }
+        // br-r37-c1-oe93x: borrowed canonical key — no String alloc.
+        let present = with_node_key_str(py, n, |canonical| self.inner.has_node(canonical))?;
+        if present {
+            self.has_edge_node_index_cache.remember_present(py, n)?;
+        }
+        Ok(present)
+    }
+
     fn traverse_python_refs(&self, visit: &PyVisit<'_>) -> Result<(), PyTraverseError> {
         for key in self.node_key_map.values() {
             visit.call(key)?;
@@ -4679,6 +4757,24 @@ impl PyMultiGraph {
 }
 
 impl PyMultiGraph {
+    /// br-r37-c1-6n9vm: see `PyGraph::exact_str_node_is_present`. Exact `str`
+    /// only — the caller enforces it, because the set answers with the key's
+    /// own `__hash__`/`__eq__`.
+    fn exact_str_node_is_present(&self, py: Python<'_>, n: &Bound<'_, PyAny>) -> PyResult<bool> {
+        let nodes_seq = self.nodes_seq;
+        if self
+            .has_edge_node_index_cache
+            .is_known_present(py, nodes_seq, n)?
+        {
+            return Ok(true);
+        }
+        let present = with_node_key_str(py, n, |canonical| self.inner.has_node(canonical))?;
+        if present {
+            self.has_edge_node_index_cache.remember_present(py, n)?;
+        }
+        Ok(present)
+    }
+
     fn traverse_python_refs(&self, visit: &PyVisit<'_>) -> Result<(), PyTraverseError> {
         for key in self.node_key_map.values() {
             visit.call(key)?;
@@ -9375,6 +9471,10 @@ impl PyMultiGraph {
         {
             return Ok(true);
         }
+        // br-r37-c1-6n9vm: exact-`str` present-key set, as on PyGraph.
+        if n.is_exact_instance_of::<PyString>() {
+            return self.exact_str_node_is_present(py, n);
+        }
         // br-r37-c1-oe93x: borrowed canonical key — no String alloc per probe.
         with_node_key_str(py, n, |canonical| self.inner.has_node(canonical))
     }
@@ -9508,6 +9608,11 @@ impl PyMultiGraph {
             && self.inner.node_index_matches_int(i)
         {
             return Ok(true);
+        }
+        // br-r37-c1-6n9vm: same present-key set as `has_node` — the two are the
+        // same question and must not disagree, so they share the memo.
+        if n.is_exact_instance_of::<PyString>() {
+            return self.exact_str_node_is_present(py, n);
         }
         // br-r37-c1-oe93x: borrowed canonical key — no String alloc per probe.
         with_node_key_str(py, n, |canonical| self.inner.has_node(canonical))
@@ -13381,6 +13486,12 @@ impl PyGraph {
         {
             return Ok(true);
         }
+        // br-r37-c1-6n9vm: an exact `str` already proven present answers from
+        // the set, reusing the hash CPython cached in the object. The canonical
+        // rebuild below is 77.4% of this method's instructions.
+        if n.is_exact_instance_of::<PyString>() {
+            return self.exact_str_node_is_present(py, n);
+        }
         // br-r37-c1-oe93x: borrowed canonical key — no String alloc per probe.
         with_node_key_str(py, n, |canonical| self.inner.has_node(canonical))
     }
@@ -14063,6 +14174,11 @@ impl PyGraph {
             && self.inner.node_index_matches_int(i)
         {
             return Ok(true);
+        }
+        // br-r37-c1-6n9vm: same present-key set as `has_node` — the two are the
+        // same question and must not disagree, so they share the memo.
+        if n.is_exact_instance_of::<PyString>() {
+            return self.exact_str_node_is_present(py, n);
         }
         // br-r37-c1-oe93x: borrowed canonical key — no String alloc per probe.
         with_node_key_str(py, n, |canonical| self.inner.has_node(canonical))

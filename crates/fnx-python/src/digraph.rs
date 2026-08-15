@@ -197,6 +197,24 @@ impl PyDiGraph {
 }
 
 impl PyDiGraph {
+    /// br-r37-c1-6n9vm: see `PyGraph::exact_str_node_is_present`. Exact `str`
+    /// only — the caller enforces it, because the set answers with the key's
+    /// own `__hash__`/`__eq__`.
+    fn exact_str_node_is_present(&self, py: Python<'_>, n: &Bound<'_, PyAny>) -> PyResult<bool> {
+        let nodes_seq = self.nodes_seq;
+        if self
+            .has_edge_node_index_cache
+            .is_known_present(py, nodes_seq, n)?
+        {
+            return Ok(true);
+        }
+        let present = with_node_key_str(py, n, |canonical| self.inner.has_node(canonical))?;
+        if present {
+            self.has_edge_node_index_cache.remember_present(py, n)?;
+        }
+        Ok(present)
+    }
+
     fn traverse_python_refs(&self, visit: &PyVisit<'_>) -> Result<(), PyTraverseError> {
         for key in self.node_key_map.values() {
             visit.call(key)?;
@@ -12328,6 +12346,10 @@ impl PyDiGraph {
         {
             return Ok(true);
         }
+        // br-r37-c1-6n9vm: exact-`str` present-key set, as on PyGraph.
+        if n.is_exact_instance_of::<PyString>() {
+            return self.exact_str_node_is_present(py, n);
+        }
         // br-r37-c1-oe93x: borrowed canonical key — no String alloc per probe.
         with_node_key_str(py, n, |canonical| self.inner.has_node(canonical))
     }
@@ -14973,6 +14995,10 @@ impl PyDiGraph {
     }
 
     fn __contains__(&self, py: Python<'_>, n: &Bound<'_, PyAny>) -> PyResult<bool> {
+        // br-r37-c1-6n9vm: same present-key set as `has_node` — the two are the
+        // same question and must not disagree, so they share the memo. It sits
+        // below the private-storage probe and the identity-int path, both of
+        // which answer without touching the node-key canonical at all.
         if let Some(contains) = self.instance_dict_gc.private_node_contains(py, n)? {
             return Ok(contains);
         }
@@ -14987,6 +15013,9 @@ impl PyDiGraph {
             && self.inner.node_index_matches_int(i)
         {
             return Ok(true);
+        }
+        if n.is_exact_instance_of::<PyString>() {
+            return self.exact_str_node_is_present(py, n);
         }
         // br-r37-c1-oe93x: borrowed canonical key — no String alloc per probe.
         with_node_key_str(py, n, |canonical| self.inner.has_node(canonical))

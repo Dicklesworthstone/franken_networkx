@@ -10271,3 +10271,96 @@ them, MRO-probe `type(G.adj)` and check which entries are `function`: on this
 surface a Python frame on a native class has been the whole deficit four times
 today (`len(G)` 5.05x, `__iter__` 1.77x, edge specs 1.23x, this row 7.14x), and
 the native store has been the deficit zero times.
+
+## 2026-08-15 SnowyValley SHIPPED WIN: exact-`str` present-key memo — `has_node` 0.4556x -> **1.2205x**, `n in G` 0.3762x -> **1.6729x** (`br-r37-c1-6n9vm`)
+
+REOPENS the node-key interning HOLD (CloudyTurtle 2026-07-26 `br-r37-c1-zea7e`
+and `br-r37-c1-yere4`; OliveDesert 2026-08-08 `has_node` REJECT) on its own
+stated terms, each answered before any code was written.
+
+**Condition 1 — "a fresh profile attributing at least 30% of the post-wrapper
+residual to canonicalization".** MET at 77.4%. callgrind
+`--collect-atstart=no --toggle-collect` on `<_fnx::PyGraph>::__pymethod_has_node__`,
+2000-node string-keyed graph, all-hit probes, per-call Ir FLAT at **437.4** for
+both 20000 and 40000 reps, which is what says the toggle bounds the work:
+
+    174.0 Ir  39.78%  __pymethod_has_node__ self   (canonical key build, inlined)
+     93.1 Ir  21.28%  IndexMap::get_index_of::<str>
+     57.0 Ir  13.03%  pyo3 extract_arguments_fastcall
+     28.2 Ir   6.44%  memcpy                       (canonical key copy)
+     24.0 Ir   5.49%  PyUnicode_AsUTF8AndSize
+     22.0 Ir   5.03%  pyo3 Borrowed::cast::<PyGraph>
+     19.2 Ir   4.39%  memcmp
+
+Canonicalisation plus the String-keyed probe is 338.5 of 437.4. The pyo3
+boundary is 79 Ir. OliveDesert's row named this exact asymmetry: CPython caches
+a string's hash inside the object, and we rebuild and rehash a canonical on
+every probe.
+
+**Condition 2 — "bounds retained memory by the node set".** One entry per NODE,
+not per probed object: the memo is a Python `set`, so every equal key collapses
+to one entry whatever object it arrives as, and the whole set is dropped when
+`nodes_seq` moves.
+
+**Condition 3 — "preserves Python hash/equality and equal-but-nonidentical
+public keys".** By construction — a `set` probe IS Python's hash/equality — and
+asserted: equal-but-nonidentical strings hit, 7 / 7.0 / True stay distinct from
+each other exactly as networkx has them, and an unhashable key answers False
+rather than raising.
+
+MEASURED against live networkx 3.6.1 in the same invocation, balanced `ABBAABBA`
+square, per-arm A/A nulls, 2000-node/8000-edge string-keyed Graph,
+`taskset -c 40-47`, host thinkstation1 with no rch worker in the path, governor
+powersave, ISA avx2/avx/sse4_2, 1 OS thread / 8 affinity CPUs, PYTHONHASHSEED=0.
+
+The after rows loaded
+`bench_elf_sha256=1cfe8f2483a780e7969aeed840aea955e89e7d43b79375d1fbfe97b39cd02065`
+and the before rows
+`bench_elf_sha256=b1b391ad21ea4c05f9a7c2d72f4384f592ddad951b781c6113effb68e09dc4ef`,
+each self-reported from inside the measuring process.
+
+    row                     before (ELF b1b391ad)      after (ELF 1cfe8f24)
+    G.has_node(n)         0.4556x [0.4500,0.4643] A  1.2205x [1.1861,1.2318] A
+    n in G                0.3762x [0.3522,0.4078] A  1.6729x [1.6427,1.6960] A
+    n in G.nodes()        0.3235x                    0.5406x [0.5272,0.5489] A
+
+The same-invocation A/A null control measured 1.0125x and 1.0075x on the
+`has_node` row and 1.0092x and 1.0148x on `n in G`, inside the +/-0.02 bound.
+Both rows were losses and are now wins. The `n in G.nodes()` row is a side
+effect, not a target, and remains a loss.
+
+WHY THIS IS NOT THE LOOKASIDE REVERTED IN `br-r37-c1-p1tvg`: that one was a
+CPython DICT mapping `PyString` to `PyLong`, and it removed 101 Ir/call while
+being 1.27x SLOWER in wall clock, because the dict probe plus the `PyLong`
+round-trip cost more cycles than the stack-buffer canonical it replaced. This is
+membership only — a `set`, no value, nothing boxed on a hit — and it is measured
+in wall clock against live networkx, not in instructions.
+
+THE GATE THAT MAKES IT SOUND: EXACT `str` only. The set answers with the KEY's
+`__hash__`/`__eq__`, so a `str` subclass that lies about either would resolve to
+whatever entry it claims to equal — and only once that entry had been probed,
+making one call answer two different ways depending on history. Subclasses keep
+the canonical path, where the characters decide. Pinned by
+`test_a_lying_str_subclass_is_decided_by_its_characters`.
+
+Wired on Graph, DiGraph and MultiGraph. MultiDiGraph has no
+`has_edge_node_index_cache` field to hang the set on and keeps the canonical
+path; every test is parametrised across all four classes so the memoised and
+unmemoised classes cannot drift apart.
+
+comparison_class=INCUMBENT
+incumbent=networkx
+incumbent_same_invocation=true
+incumbent_ratio=1.6729x
+campaign_output=true
+decision_gate=median_ci
+cv_role=report_only
+
+**RESULT: KEEP / CAMPAIGN OUTPUT.**
+
+RETRY PREDICATE: a MISS now pays one extra set probe on top of the canonical
+path, so an absent-key-dominated workload is the row that could regress — it is
+unmeasured here and is the first thing to measure before widening this. Do NOT
+extend the memo to values (index or attrs) on this evidence: the value-carrying
+version of exactly this idea is the reverted lookaside above, and the difference
+between them is the boxing.
