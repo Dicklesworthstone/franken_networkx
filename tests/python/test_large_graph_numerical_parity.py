@@ -659,6 +659,18 @@ def test_complement_does_not_copy_node_attributes():
     complement = fnx.complement(graph)
     assert complement.nodes[0] == {}
 
+
+def test_string_node_edge_lookup_accepts_equal_nonidentical_strings():
+    graph = fnx.Graph()
+    left = "left-node"
+    right = "right-node"
+    graph.add_edge(left, right)
+    equal_left = "".join(["left", "-node"])
+    equal_right = "".join(["right", "-node"])
+    assert equal_left == left and equal_left is not left
+    assert equal_right == right and equal_right is not right
+    assert graph.has_edge(equal_left, equal_right)
+
     directed = fnx.DiGraph()
     directed.add_edges_from([(0, 1), (1, 3), (0, 2), (2, 3), (1, 2)])
     directed_mapping = {node: f"directed-path-{node}" for node in directed}
