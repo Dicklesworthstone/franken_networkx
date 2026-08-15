@@ -10692,3 +10692,63 @@ call boundary. Before attacking it, check whether `cached_edge_py_attrs` already
 serves the probe — this workload hits that cache, so a lever aimed at
 materialisation will read as inert on THIS row and only show up on a cold-attr
 workload that does not exist in the harness yet.
+
+## 2026-08-15 SnowyValley MEASURED AND NOT TAKEN: native `Graph.neighbors` is **1.21x** and costs two declared-surface paths (`br-r37-c1-ef8rt`)
+
+`list(G.neighbors(n))` was the worst admissible row left on the corrected
+harness at 0.4911x. `Graph.neighbors` is a Python function that reads
+`vars(self)`, tests FOUR private-override keys, builds a `(nodes_seq,
+edges_seq)` tuple, compares it against a cache-generation marker, probes a
+per-instance dict, and only then calls `_native_adjacency_row_dict` — which
+already caches its row in `adj_row_py`. A cache in front of a cache, plus a
+Python frame, against networkx's `iter(self._adj[n])`.
+
+MEASURED, and the lever works. `harness=balanced_square_ab.py`,
+`same_host=thinkstation1`, `rch_worker=none`, 41 rounds, reps=4000, `--only`,
+live networkx 3.6.1 in the same invocation, corrected per-round collect,
+`bench_elf_sha256=166f96baceb57c3fc12eb09b621df9b7807a4d8843bc22daba50cd4b6683bd2d`:
+
+    list(G.neighbors(n))   0.5911x CI [0.5904, 0.5941] nulls 1.0071/0.9998 ADMISSIBLE
+    list(G.neighbors(n))   0.5975x CI [0.5961, 0.5986] nulls 1.0057/1.0027 ADMISSIBLE
+
+against 0.4911x CI [0.4907, 0.4916] for the Python function on the same harness.
+The same-invocation A/A null control measured 1.0071x and 0.9998x on the first
+draw and 1.0057x and 1.0027x on the second, and 1.0054x and 0.9989x on the
+Python-function baseline — every null inside the +/-0.02 bound, which is what
+makes the 1.21x a measurement rather than a difference of two guesses.
+
+**1.21x**, two admissible draws, parity verified (iterator runtime type
+`dict_keyiterator`, `NetworkXError` wording for a missing node, `TypeError` for
+an unhashable one, and the private-storage fallback all match live networkx).
+
+**NOT TAKEN, and the reason is the point.** A method DESCRIPTOR reports
+`(self, /, n)` where a Python function reports `(self, n)`, so the generated
+surface matrix reclassifies `Graph.neighbors` from `present` to `partial` —
+twice, once under `networkx.Graph` and once under `networkx.classes.Graph`.
+Landing it meant editing THREE pinned constants in
+`tests/python/test_coverage_gaps.py` (3403 present, 696 partial, and the
+0.8241705 ratio) plus regenerating `docs/coverage.md`. `pyo3`'s
+`text_signature = "($self, n)"` does not change it: `self` is positional-only
+for every method descriptor, which is why `Graph.has_node` and `Graph.has_edge`
+are ALREADY `partial` for exactly this reason.
+
+Nothing a caller can do changes — `G.neighbors(n=...)` works either way, which
+`signature = (n)` ensures. So the trade on offer was: 1.21x on one row, in
+exchange for editing a coverage lock and lowering a published portability count
+over a cosmetic marker. Editing three pinned numbers to land a modest row
+improvement is spec-editing as progress whatever the commit message says, so
+the change is reverted and this is the record.
+
+comparison_class=SELF-SPEEDUP
+campaign_output=false
+decision_gate=median_ci
+cv_role=report_only
+
+**RESULT: REJECTED / NO SOURCE EDIT RETAINED.** The measurement stands; the
+change does not.
+
+RETRY PREDICATE: this lever becomes FREE the moment the surface classifier stops
+counting a positional-only `self` marker as a partial path — every native method
+is mispriced by it today, not just this one. Fix the classifier first, then this
+is a two-line rebind with a 1.21x row behind it and no lock to touch. Do not
+re-take it by editing the pinned counts.

@@ -223,6 +223,14 @@ def workload_view_reads(reps: int):
             "G.nodes.get(n)": lambda: sum(len(nodeview.get(n)) for n in probe_nodes),
             "(u,v) in G.edges()": lambda: sum(1 for p in probe_edges if p in edgeview),
             "G.edges[u,v]": lambda: sum(len(edgeview[u, v]) for u, v in probe_edges),
+            # br-r37-c1-7x25w: these three were only ever measured by a scratch
+            # sweep carrying the per-slot collect. They live here now so every
+            # future ranking of this surface comes off one corrected substrate.
+            "G.degree(n)": lambda: sum(graph.degree(n) for n in probe_nodes),
+            "list(G.neighbors(n))": lambda: sum(
+                len(list(graph.neighbors(n))) for n in probe_nodes
+            ),
+            "G.adj[u]": lambda: sum(len(graph.adj[n]) for n in probe_nodes),
             # Control: no view lever can touch a bare node count.
             "CONTROL len(G)": lambda: sum(len(graph) for _ in range(reps)),
         }
