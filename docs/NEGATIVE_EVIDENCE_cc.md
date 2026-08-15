@@ -10022,3 +10022,74 @@ same-invocation squares. Fewer instructions, more cycles — the canonical path
 builds its key in a stack buffer and probes a hot FxHash IndexMap, while the
 lookaside trades that for a CPython dict probe plus a PyLong round-trip. That
 arm is reverted in-tree with the numbers recorded at its site.
+
+## 2026-08-15 SnowyValley SHIPPED SELF-SPEEDUP: native permissive `EdgeView.__contains__`, Python rebind deleted — **1.2303x** / **1.2562x** (`br-r37-c1-dtrpe`)
+
+`python/franken_networkx/__init__.py` rebound `_fnx.EdgeView.__contains__` to a
+Python function that re-implemented networkx's permissive `e[:2]` handling
+around the Rust slot, so every `x in G.edges` paid a Python frame before
+reaching any Rust. The semantics now live in the Rust slot and the rebind for
+that class is gone. The other three rebinds stay: `DiGraph.edges`,
+`MultiGraph.edges` and `MultiDiGraph.edges` return PYTHON view classes, so their
+native twins are unreachable and porting semantics into them would be
+unmeasurable by construction.
+
+MEASURED, wall clock, ONE invocation, ONE ELF, both arms present. Incumbent =
+the pre-change shipped path, reconstructed by re-applying the module's own
+`_edgeview_contains_with_nx_semantics` over the new native slot; candidate = the
+bare slot. Balanced `ABBAABBA` square, 61 rounds, 400 probes/slot, per-arm A/A
+nulls, 2000 nodes / 8000 edges string-keyed Graph, `taskset -c 40-47`, host
+thinkstation1, governor powersave, ISA avx2/avx/sse4_2, observed 1 OS thread / 8
+affinity CPUs, PYTHONHASHSEED=0, live networkx 3.6.1 in the same invocation,
+`bench_elf_sha256=5a0f2ca819029ba4718f3cc23070197a14f9bdb68cdee0c7079a218ffd75e173`:
+
+    draw  wrapped -> native            nulls            verdict
+    1     1.2308x [1.1904,1.3100]   0.9696/1.0156   null-failed
+    2     1.2562x [1.1981,1.2959]   1.0000/0.9889   ADMISSIBLE
+    3     1.2303x [1.1965,1.2546]   1.0154/1.0094   ADMISSIBLE
+
+    vs live networkx, same runs      ratio                     verdict
+    shipped path (wrapped)        0.5905x [0.5758,0.5998]   ADMISSIBLE
+    native slot (this change)     0.6838x [0.6699,0.7114]   ADMISSIBLE
+    CONTROL networkx vs networkx  1.0121x [0.9779,1.0443]   straddles-1
+
+The same-invocation A/A null control measured 1.0000x and 0.9889x on draw 2 and
+1.0154x and 1.0094x on draw 3, inside the +/-0.02 bound; draw 1 is reported and
+not leaned on because its incumbent-arm null came out at 0.9696x.
+
+Two admissible draws agree on 1.23-1.26x for the removed frame. The row REMAINS
+a loss against networkx: it moves from 0.5905x to 0.6838x, not past 1.0.
+
+Consistent with the instruction decomposition recorded in the sibling FINDING
+row above (wrapper = 1114.7 of 2451.4 Ir/probe) and with `br-r37-c1-dtrpe`'s own
+independent square (GoldenBison: 0.8167x wrapped vs 1.0330x raw slot at 400
+reps).
+
+PARITY IS THE POINT, and it was checked before the timing: a 27-shape behaviour
+matrix (`tuple`/`list`/`str`/`bytes`/`range`/`dict`/`set`/`generator`/`int`/
+`None`/`float`/`bool`, 1-, 2- and 3-length, absent and reversed endpoints) is
+asserted against LIVE networkx in `tests/python/test_edge_view_contains_spec.py`.
+The matrix run before and after the change is identical on every shape but one,
+and that one is a FIX: `{"a": 1, "b": 2} in G.edges` used to raise
+`KeyError: slice(None, 2, None)` and now answers False, as networkx does —
+slices became hashable in Python 3.12, so `dict[:2]` is a missing key rather
+than a type error, and the wrapper only caught TypeError. One divergence is
+pinned as known and NOT fixed here: an unhashable endpoint makes networkx raise
+from `adj[u]` while fnx answers False, which the canonical key builder decides
+one layer below `__contains__`.
+
+comparison_class=SELF-SPEEDUP
+campaign_output=false
+decision_gate=median_ci
+cv_role=report_only
+
+**RESULT: KEEP / MAINTENANCE.** The Python frame is gone from the hottest read
+probe on the view surface and the permissive contract is now testable in one
+place. The residual against networkx is what the next lever must attack.
+
+RETRY PREDICATE: do not port these semantics into `DiEdgeView`,
+`MultiGraphEdgeView` or `MultiDiGraphEdgeView` until something actually returns
+them — MRO-probe `type(G.edges)` first. The absolute vs-networkx level on this
+row is NOT settled: three same-ELF runs put the shipped path at 0.4254x, 0.5905x
+and 0.8502x depending on substrate and load, so quote the in-run contrast, not
+the level, until that is resolved.

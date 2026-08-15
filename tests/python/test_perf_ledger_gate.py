@@ -405,15 +405,38 @@ def test_every_active_verdict_ledger_has_a_fail_then_pass_keep_boundary():
         )
 
 
-def test_body_modified_verdict_rows_reenter_the_gate():
+def test_claim_modified_verdict_rows_reenter_the_gate():
+    """br-r37-c1-qo7uf: a row re-enters the gate when its CLAIM moves.
+
+    It used to re-enter on ANY body difference, which froze every row written
+    before the current contract: touching one for markdown made it demand five
+    provenance fields for a month-old measurement. What must still re-enter is
+    anything a verdict rests on — a number, a contract field, a digest, or a
+    classifier's reading of the body.
+    """
     path = REPO / "docs" / "NEGATIVE_EVIDENCE.md"
     heading = "2026-07-27 KEEP modified boundary"
-    before = f"# Ledger\n\n## {heading}\nold body\n"
-    after = f"# Ledger\n\n## {heading}\nnew body\n"
-    assert ledger_gate.changed_section_rows(path, before, after) == [
-        (path.name, heading, "new body")
+    row = f"# Ledger\n\n## {heading}\nmeasured 1.5000x on the grid fixture\n"
+
+    def rows(after):
+        return ledger_gate.changed_section_rows(path, row, after)
+
+    assert rows(row) == []
+    # A moved number is a claim change, wherever it sits in the body.
+    moved = row.replace("1.5000x", "1.6000x")
+    assert rows(moved) == [
+        (path.name, heading, "measured 1.6000x on the grid fixture")
     ]
-    assert ledger_gate.changed_section_rows(path, after, after) == []
+    # So is a newly declared contract field, and so is a new row.
+    assert len(rows(row + "comparison_class=INCUMBENT\n")) == 1
+    assert len(rows(row + f"\n## {heading} two\n\nno evidence\n")) == 1
+    # Prose that carries no number, field, or verdict signal is an annotation.
+    for annotation in (
+        row.replace("measured", "MEASURED, and see the sibling row:"),
+        row.replace("grid fixture", "`grid` fixture"),
+        row + "See also the endpoint-lookaside row.\n",
+    ):
+        assert rows(annotation) == [], annotation
 
 
 def test_retry_predicate_is_extracted_for_prior_art_output():

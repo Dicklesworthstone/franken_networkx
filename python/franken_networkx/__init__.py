@@ -6230,6 +6230,19 @@ MultiDiGraph.size = _size_with_unweighted_int(MultiDiGraph.size)
 def _edgeview_contains_with_nx_semantics(orig_contains):
     """Wrap ``EdgeView.__contains__`` to match nx's permissive semantics.
 
+    br-r37-c1-dtrpe: ``_fnx.EdgeView`` — the only one of these four classes any
+    public graph actually returns — no longer needs this. It implements the
+    permissive spec handling itself, so its rebind is gone and ``x in G.edges``
+    reaches the C slot directly. The wrapper cost 1114.7 Ir of the probe's
+    2451.4 and measured 1.1190x CI [1.1074, 1.1324] on the wall clock.
+
+    The three rebinds below stay because their classes are NOT reachable:
+    ``DiGraph.edges`` / ``MultiGraph.edges`` / ``MultiDiGraph.edges`` return the
+    Python ``_DiGraphEdgeView`` / ``_MultiGraphEdgeView`` / ``_MultiDiGraphEdgeView``
+    defined in this module. Porting semantics into a Rust slot nothing calls
+    would be unmeasurable by construction, so it is left for whoever routes
+    those classes to native views.
+
     br-r37-c1-edgeviewcontains: nx's ``EdgeView.__contains__``::
 
         try:
@@ -6276,9 +6289,6 @@ def _edgeview_contains_with_nx_semantics(orig_contains):
     return __contains__
 
 
-_fnx.EdgeView.__contains__ = _edgeview_contains_with_nx_semantics(
-    _fnx.EdgeView.__contains__
-)
 _fnx.DiEdgeView.__contains__ = _edgeview_contains_with_nx_semantics(
     _fnx.DiEdgeView.__contains__
 )

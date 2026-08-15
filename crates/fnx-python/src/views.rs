@@ -7,10 +7,32 @@ use crate::{
     NodeIterator, NodeLookupCache, PyGraph, PyObject, attr_map_to_pydict, node_key_to_string,
 };
 use arrayvec::ArrayString;
-use pyo3::exceptions::{PyKeyError, PyRuntimeError, PyTypeError};
+use pyo3::exceptions::{PyKeyError, PyRuntimeError, PyTypeError, PyValueError};
 use pyo3::gc::{PyTraverseError, PyVisit};
 use pyo3::prelude::*;
-use pyo3::types::{PyDict, PyIterator, PyModule, PyTuple};
+use pyo3::types::{PyDict, PyIterator, PyModule, PySlice, PyTuple};
+
+/// Decide what a spec endpoint that will not canonicalise should do
+/// (br-r37-c1-dtrpe).
+///
+/// networkx reaches the endpoint through `self._adjdict[u]`, so the outcome
+/// depends on the endpoint itself, not on our canonicalisation:
+///   * an UNHASHABLE endpoint makes that dict lookup raise TypeError, which nx
+///     does not catch, so it must escape here too;
+///   * a hashable endpoint we cannot canonicalise simply is not a node, which
+///     nx answers with False by way of KeyError.
+fn endpoint_not_a_node(item: &Bound<'_, PyAny>, canonical_err: PyErr) -> PyResult<bool> {
+    match item.hash() {
+        Ok(_) => Ok(false),
+        // The canonicalisation error is dropped on purpose: the endpoint being
+        // unhashable is the reason nx raises, and its message is the one nx
+        // surfaces.
+        Err(hash_err) => {
+            drop(canonical_err);
+            Err(hash_err)
+        }
+    }
+}
 
 // ---------------------------------------------------------------------------
 // NodeView — returned by G.nodes or G.nodes(data=True)
@@ -570,11 +592,78 @@ impl EdgeView {
         g.inner.edge_count()
     }
 
+    /// The permissive half of nx's `EdgeView.__contains__`, for specs that are
+    /// not tuples: `e[:2]` then `u, v = ...`.
+    ///
+    /// Which exception escapes is the contract, and it is not uniform. nx wraps
+    /// the whole body in `except (KeyError, ValueError)`, so:
+    ///   * a non-subscriptable spec (`5`, `None`, a set, a generator) raises
+    ///     TypeError from `e[:2]`, with CPython's own wording;
+    ///   * a dict raises KeyError from `e[:2]` — slices became hashable in
+    ///     Python 3.12, so it is a missing key, not a type error — and answers
+    ///     False;
+    ///   * a spec that slices but does not unpack to exactly two (`"a"`, `""`,
+    ///     a 1-list) is a ValueError, and answers False.
+    fn contains_edge_spec(&self, py: Python<'_>, edge: &Bound<'_, PyAny>) -> PyResult<bool> {
+        let two = 2usize.into_pyobject(py)?;
+        let head = py
+            .get_type::<PySlice>()
+            .call1((py.None(), two, py.None()))?;
+        let sliced = match edge.get_item(&head) {
+            Ok(value) => value,
+            Err(err) if err.is_instance_of::<PyKeyError>(py) => return Ok(false),
+            Err(err) if err.is_instance_of::<PyValueError>(py) => return Ok(false),
+            Err(err) => return Err(err),
+        };
+        // `u, v = sliced`: not iterable is a TypeError and propagates; any
+        // length other than two is a ValueError, which nx answers with False.
+        let mut items = sliced.try_iter()?;
+        let (Some(u_item), Some(v_item)) = (items.next().transpose()?, items.next().transpose()?)
+        else {
+            return Ok(false);
+        };
+        if items.next().transpose()?.is_some() {
+            return Ok(false);
+        }
+        let mut u_buf = ArrayString::new();
+        let mut v_buf = ArrayString::new();
+        let u = match crate::canonical_node_key_in(py, &u_item, &mut u_buf) {
+            Ok(key) => key,
+            Err(err) => return endpoint_not_a_node(&u_item, err),
+        };
+        let v = match crate::canonical_node_key_in(py, &v_item, &mut v_buf) {
+            Ok(key) => key,
+            Err(err) => return endpoint_not_a_node(&v_item, err),
+        };
+        let g = self.graph.borrow(py);
+        Ok(g.inner.has_edge(u.as_str(), v.as_str()))
+    }
+
+    /// networkx's `EdgeView.__contains__`, natively (br-r37-c1-dtrpe)::
+    ///
+    ///     try:
+    ///         u, v = e[:2]
+    ///         return v in self._adjdict[u] or u in self._adjdict[v]
+    ///     except (KeyError, ValueError):
+    ///         return False
+    ///
+    /// This used to raise `TypeError("edge must be a (u, v) tuple")` for every
+    /// non-tuple spec, and `python/franken_networkx/__init__.py` rebound the
+    /// slot to a Python function that re-implemented the permissive half around
+    /// it. That wrapper was 45.5% of the probe's instructions (1114.7 of 2451.4
+    /// Ir) and 1.1190x of its wall clock, so the semantics live here now and
+    /// the rebind is gone.
+    ///
+    /// The tuple fast path is unchanged and pays nothing for any of it: the
+    /// permissive path, the hashability probe, and the `e[:2]` slice all sit
+    /// behind a branch a `(u, v)` tuple never takes.
     fn __contains__(&self, py: Python<'_>, edge: &Bound<'_, PyAny>) -> PyResult<bool> {
-        let tuple = edge
-            .downcast::<PyTuple>()
-            .map_err(|_| pyo3::exceptions::PyTypeError::new_err("edge must be a (u, v) tuple"))?;
+        let Ok(tuple) = edge.downcast::<PyTuple>() else {
+            return self.contains_edge_spec(py, edge);
+        };
         if tuple.len() < 2 {
+            // `u, v = e[:2]` on a shorter spec is a ValueError, which nx
+            // answers with False.
             return Ok(false);
         }
         // br-r37-c1-ey6ob: `(u, v) in G.edges()` is a read-only probe, so both
@@ -601,8 +690,14 @@ impl EdgeView {
         // argument alone.
         let mut u_buf = ArrayString::new();
         let mut v_buf = ArrayString::new();
-        let u = crate::canonical_node_key_in(py, &u_item, &mut u_buf)?;
-        let v = crate::canonical_node_key_in(py, &v_item, &mut v_buf)?;
+        let u = match crate::canonical_node_key_in(py, &u_item, &mut u_buf) {
+            Ok(key) => key,
+            Err(err) => return endpoint_not_a_node(&u_item, err),
+        };
+        let v = match crate::canonical_node_key_in(py, &v_item, &mut v_buf) {
+            Ok(key) => key,
+            Err(err) => return endpoint_not_a_node(&v_item, err),
+        };
         let g = self.graph.borrow(py);
         Ok(g.inner.has_edge(u.as_str(), v.as_str()))
     }
