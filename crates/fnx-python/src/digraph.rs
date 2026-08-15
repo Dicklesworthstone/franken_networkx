@@ -8,9 +8,9 @@
 use crate::{
     NetworkXError, NodeIndexLookupCache, NodeNotFound, PyGraph, PyObject, attr_map_to_pydict,
     collect_index_weight_attr_edges, compatibility_mode_from_py, compatibility_mode_name,
-    edge_key_lookup_string, node_key_to_string, py_dict_to_attr_map,
-    py_dict_to_attr_map_with_mirror, runtime_policy_from_state, runtime_policy_json,
-    unwrap_infallible, weighted_edge_triplet, with_node_key_str,
+    edge_key_lookup_string, node_key_is_hashable, node_key_to_string, py_dict_to_attr_map,
+    py_dict_to_attr_map_with_mirror, require_hashable_node_key, runtime_policy_from_state,
+    runtime_policy_json, unwrap_infallible, weighted_edge_triplet, with_node_key_str,
 };
 use fnx_classes::AttrMap;
 use fnx_classes::digraph::{DiGraph, MultiDiGraph};
@@ -5345,11 +5345,11 @@ impl PyMultiDiGraph {
     ) -> PyResult<bool> {
         // br-r37-c1-6q4wl: preserve the former wrapper's eager hash contract in
         // the raw descriptor, including custom __hash__ exceptions for key=.
-        u.hash()?;
-        v.hash()?;
-        if let Some(edge_key) = key {
-            edge_key.hash()?;
-        }
+        //
+        // br-r37-c1-lvlu7: in nx's ORDER — `u`, then `v` and the edge key only
+        // once `u` resolves, because `self._succ[u]` raises KeyError first for
+        // an absent source and the caller turns that into False.
+        require_hashable_node_key(u)?;
         // br-r37-c1-04z53 (cc): identity-int fast path (mirror PyGraph::has_edge
         // cc-hasedgeintidx) for the keyless directed `has_edge(u, v)` — exact
         // int u,v at their own index resolve straight by index, skipping 2
@@ -5365,6 +5365,14 @@ impl PyMultiDiGraph {
             return Ok(self.inner.has_edge_by_indices(iu, iv));
         }
         let u_c = node_key_to_string(py, u)?;
+        // br-r37-c1-lvlu7: absent source short-circuits before `v` is hashed.
+        if !self.inner.has_node(&u_c) {
+            return Ok(false);
+        }
+        require_hashable_node_key(v)?;
+        if let Some(edge_key) = key {
+            edge_key.hash()?;
+        }
         let v_c = node_key_to_string(py, v)?;
         Ok(match key {
             Some(edge_key) => self
@@ -5451,6 +5459,11 @@ impl PyMultiDiGraph {
         {
             return Ok(true);
         }
+        // br-r37-c1-lvlu7: an UNHASHABLE key is ABSENT, not an error and not a
+        // byte comparison — see the undirected twin.
+        if !node_key_is_hashable(n) {
+            return Ok(false);
+        }
         // br-r37-c1-oe93x: borrowed canonical key — no String alloc per probe.
         with_node_key_str(py, n, |canonical| self.inner.has_node(canonical))
     }
@@ -5481,6 +5494,11 @@ impl PyMultiDiGraph {
             && self.inner.node_index_matches_int(i)
         {
             return Ok(true);
+        }
+        // br-r37-c1-lvlu7: an UNHASHABLE key is ABSENT, not an error and not a
+        // byte comparison — see the undirected twin.
+        if !node_key_is_hashable(n) {
+            return Ok(false);
         }
         // br-r37-c1-oe93x: borrowed canonical key — no String alloc per probe.
         with_node_key_str(py, n, |canonical| self.inner.has_node(canonical))
@@ -12350,6 +12368,11 @@ impl PyDiGraph {
         if n.is_exact_instance_of::<PyString>() {
             return self.exact_str_node_is_present(py, n);
         }
+        // br-r37-c1-lvlu7: an UNHASHABLE key is ABSENT, not an error and not a
+        // byte comparison — see the undirected twin.
+        if !node_key_is_hashable(n) {
+            return Ok(false);
+        }
         // br-r37-c1-oe93x: borrowed canonical key — no String alloc per probe.
         with_node_key_str(py, n, |canonical| self.inner.has_node(canonical))
     }
@@ -12363,8 +12386,12 @@ impl PyDiGraph {
     ) -> PyResult<bool> {
         // br-r37-c1-6q4wl: preserve NetworkX's hashability contract inside the
         // raw descriptor so the ordinary call path needs no Python shim.
-        u.hash()?;
-        v.hash()?;
+        //
+        // br-r37-c1-lvlu7: `u` first, `v` only once `u` is known present. nx's
+        // `self._succ[u]` raises KeyError for an absent `u` before `v` is ever
+        // hashed, so `has_edge("missing", Unhashable())` is False there and was
+        // a TypeError here.
+        require_hashable_node_key(u)?;
         // br-r37-c1-04z53 (cc): identity-int fast path (mirror PyGraph::has_edge
         // cc-hasedgeintidx) — exact int u,v at their own index resolve straight
         // by index (source-major), skipping 2 `i.to_string()` heap allocs.
@@ -12386,7 +12413,13 @@ impl PyDiGraph {
         }
         // br-r37-c1-oe93x: borrowed canonical keys — a str-keyed probe used to
         // malloc and free TWO Strings purely to look the edge up.
+        // br-r37-c1-lvlu7: the u-presence check sits inside the outer borrow so
+        // an absent source answers before `v` is hashed.
         with_node_key_str(py, u, |u_c| {
+            if !self.inner.has_node(u_c) {
+                return Ok(false);
+            }
+            require_hashable_node_key(v)?;
             with_node_key_str(py, v, |v_c| self.inner.has_edge(u_c, v_c))
         })?
     }
@@ -15016,6 +15049,11 @@ impl PyDiGraph {
         }
         if n.is_exact_instance_of::<PyString>() {
             return self.exact_str_node_is_present(py, n);
+        }
+        // br-r37-c1-lvlu7: an UNHASHABLE key is ABSENT, not an error and not a
+        // byte comparison — see the undirected twin.
+        if !node_key_is_hashable(n) {
+            return Ok(false);
         }
         // br-r37-c1-oe93x: borrowed canonical key — no String alloc per probe.
         with_node_key_str(py, n, |canonical| self.inner.has_node(canonical))

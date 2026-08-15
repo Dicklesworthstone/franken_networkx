@@ -2389,9 +2389,14 @@ class _DiGraphEdgeView:
         # TypeError.  fnx previously used ``e[:2]`` and caught both
         # TypeError and ValueError, returning False — too lenient.
         u, v = edge
+        # br-r37-c1-lvlu7: TypeError is NOT caught. nx is
+        # `return v in self._adjdict[u]` inside `except KeyError`, so an
+        # unhashable endpoint raises out of the dict. `has_edge` hashes `u`
+        # first and answers False for an absent `u` without touching `v`, which
+        # is what keeps `("missing", Unhashable()) in D.edges` False.
         try:
             return self._graph.has_edge(u, v)
-        except (KeyError, TypeError):
+        except KeyError:
             return False
 
     def __getitem__(self, edge):
@@ -2828,10 +2833,16 @@ class _MultiGraphEdgeView:
         # — measured 0.1082x against networkx, the worst row on the surface.
         # A graph carrying networkx private storage keeps the walk, because
         # then the assigned mapping, not the native store, is the authority.
+        # br-r37-c1-lvlu7: TypeError is NOT caught. nx's body is
+        # `k in self._adjdict[u][v]` inside `except KeyError`, so an unhashable
+        # endpoint raises out of the dict and must raise here too — and
+        # `has_edge` now hashes `u` first and short-circuits on an absent `u`
+        # before touching `v`, which is the order that keeps
+        # `("missing", Unhashable()) in M.edges` False rather than a TypeError.
         if not _has_networkx_private_storage(self._graph):
             try:
                 return self._graph.has_edge(u, v, key)
-            except (KeyError, TypeError):
+            except KeyError:
                 return False
         adj = self._graph.adj
         try:
@@ -3147,10 +3158,11 @@ class _MultiDiGraphEdgeView:
             raise ValueError("MultiEdge must have length 2 or 3")
         # br-r37-c1-6fs77 perf half: see the undirected twin. `has_edge` is
         # oriented on a directed multigraph, so it answers this directly.
+        # br-r37-c1-lvlu7: TypeError is NOT caught — see the undirected twin.
         if not _has_networkx_private_storage(self._graph):
             try:
                 return self._graph.has_edge(u, v, key)
-            except (KeyError, TypeError):
+            except KeyError:
                 return False
         succ = self._graph.succ
         try:

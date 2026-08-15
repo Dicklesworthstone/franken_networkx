@@ -197,6 +197,36 @@ impl CanonicalNodeKey<'_> {
     }
 }
 
+/// Assert networkx's hashability contract on a node key (br-r37-c1-lvlu7).
+///
+/// networkx reaches every node key through a dict, so an UNHASHABLE key raises
+/// `TypeError` there. fnx canonicalises by reading the key's BYTES and never
+/// calls `__hash__`, so a `str` subclass with `__hash__ = None` sailed through
+/// and answered from the characters: `(Unhash("n0"), "n1") in G.edges` was
+/// `True` where networkx raises.
+///
+/// Exact scalars skip the call — a built-in `str`, `int`, `float` or `bool` is
+/// always hashable, and those are the hot shapes, so the guard costs nothing on
+/// the paths that matter. Everything else, which is how an unhashable key
+/// arrives, pays one `PyObject_Hash`.
+pub(crate) fn require_hashable_node_key(key: &Bound<'_, PyAny>) -> PyResult<()> {
+    if key.is_exact_instance_of::<PyString>()
+        || key.is_exact_instance_of::<PyInt>()
+        || key.is_exact_instance_of::<PyFloat>()
+        || key.is_exact_instance_of::<PyBool>()
+    {
+        return Ok(());
+    }
+    key.hash().map(|_| ())
+}
+
+/// The same question where networkx swallows the error instead of raising it:
+/// `n in G` and `G.has_node(n)` are `try: n in self._node except TypeError:
+/// return False`, so an unhashable key is simply absent (br-r37-c1-lvlu7).
+pub(crate) fn node_key_is_hashable(key: &Bound<'_, PyAny>) -> bool {
+    require_hashable_node_key(key).is_ok()
+}
+
 /// Canonicalize into `buf` when the key is a short `str`, else onto the heap.
 ///
 /// The produced bytes are identical either way — see `write_canonical_str_key`
@@ -9475,6 +9505,14 @@ impl PyMultiGraph {
         if n.is_exact_instance_of::<PyString>() {
             return self.exact_str_node_is_present(py, n);
         }
+        // br-r37-c1-lvlu7: an UNHASHABLE key is ABSENT, not an error and not a
+        // byte comparison. nx is `try: n in self._node except TypeError:
+        // return False`; fnx canonicalises by reading the characters and never
+        // calls `__hash__`, so a `str` subclass with `__hash__ = None` reported
+        // True for a node it can never be used to reach.
+        if !node_key_is_hashable(n) {
+            return Ok(false);
+        }
         // br-r37-c1-oe93x: borrowed canonical key — no String alloc per probe.
         with_node_key_str(py, n, |canonical| self.inner.has_node(canonical))
     }
@@ -9491,11 +9529,14 @@ impl PyMultiGraph {
         // descriptor so ordinary graphs do not need a Python wrapper solely to
         // call hash(u), hash(v), and hash(key).  Propagate custom __hash__
         // exceptions before any lookup, exactly as the former wrapper did.
-        u.hash()?;
-        v.hash()?;
-        if let Some(edge_key) = key {
-            edge_key.hash()?;
-        }
+        //
+        // br-r37-c1-lvlu7: `u` first, `v` only once `u` is known present — nx's
+        // `self._adj[u]` raises KeyError for an absent `u` and never reaches
+        // `v`, so hashing both up front turned
+        // `has_edge("missing", Unhashable())` from False into a TypeError. The
+        // edge KEY is hashed here because nx reaches it only after both
+        // endpoints resolve, and every path below that consumes it does.
+        require_hashable_node_key(u)?;
         // br-r37-c1-04z53 (cc): identity-int fast path (mirror of
         // PyGraph::has_edge cc-hasedgeintidx) for the keyless
         // `MultiGraph.has_edge(u, v)` — the common shape. Exact int u,v (bool
@@ -9530,6 +9571,14 @@ impl PyMultiGraph {
                 .is_some_and(|(ui, vi)| self.inner.has_edge_by_indices(ui, vi)));
         }
         let u_c = node_key_to_string(py, u)?;
+        // br-r37-c1-lvlu7: absent `u` short-circuits before `v` is hashed.
+        if !self.inner.has_node(&u_c) {
+            return Ok(false);
+        }
+        require_hashable_node_key(v)?;
+        if let Some(edge_key) = key {
+            edge_key.hash()?;
+        }
         let v_c = node_key_to_string(py, v)?;
         Ok(match key {
             Some(edge_key) => self
@@ -9613,6 +9662,14 @@ impl PyMultiGraph {
         // same question and must not disagree, so they share the memo.
         if n.is_exact_instance_of::<PyString>() {
             return self.exact_str_node_is_present(py, n);
+        }
+        // br-r37-c1-lvlu7: an UNHASHABLE key is ABSENT, not an error and not a
+        // byte comparison. nx is `try: n in self._node except TypeError:
+        // return False`; fnx canonicalises by reading the characters and never
+        // calls `__hash__`, so a `str` subclass with `__hash__ = None` reported
+        // True for a node it can never be used to reach.
+        if !node_key_is_hashable(n) {
+            return Ok(false);
         }
         // br-r37-c1-oe93x: borrowed canonical key — no String alloc per probe.
         with_node_key_str(py, n, |canonical| self.inner.has_node(canonical))
@@ -13492,6 +13549,14 @@ impl PyGraph {
         if n.is_exact_instance_of::<PyString>() {
             return self.exact_str_node_is_present(py, n);
         }
+        // br-r37-c1-lvlu7: an UNHASHABLE key is ABSENT, not an error and not a
+        // byte comparison. nx is `try: n in self._node except TypeError:
+        // return False`; fnx canonicalises by reading the characters and never
+        // calls `__hash__`, so a `str` subclass with `__hash__ = None` reported
+        // True for a node it can never be used to reach.
+        if !node_key_is_hashable(n) {
+            return Ok(false);
+        }
         // br-r37-c1-oe93x: borrowed canonical key — no String alloc per probe.
         with_node_key_str(py, n, |canonical| self.inner.has_node(canonical))
     }
@@ -13506,8 +13571,14 @@ impl PyGraph {
         // br-r37-c1-6q4wl: the raw descriptor owns NetworkX's hashability
         // contract, allowing ordinary graphs to bypass the mapping-aware
         // Python wrapper without swallowing TypeError/custom __hash__ errors.
-        u.hash()?;
-        v.hash()?;
+        //
+        // br-r37-c1-lvlu7: U FIRST, AND V ONLY IF U IS PRESENT. nx is
+        // `try: return v in self._adj[u] except KeyError: return False`, so an
+        // absent `u` short-circuits before `v` is ever hashed:
+        // `G.has_edge("missing", Unhashable())` is False in nx, and hashing
+        // both up front made it a TypeError here. The v-side guard is applied
+        // at the general path below, after the u lookup.
+        require_hashable_node_key(u)?;
         // cc-hasedgeintidx: identity-int fast path. `G.has_edge(u, v)` on int nodes
         // otherwise pays 2 `i.to_string()` heap allocs + 2 String-hash
         // `get_index_of` (vs nx's 2 int-dict lookups). When u and v are EXACT ints
@@ -13542,6 +13613,13 @@ impl PyGraph {
         let mut u_buf = ArrayString::<CANONICAL_KEY_STACK_BUF>::new();
         let mut v_buf = ArrayString::<CANONICAL_KEY_STACK_BUF>::new();
         let u_key = canonical_node_key_in(py, u, &mut u_buf)?;
+        // br-r37-c1-lvlu7: nx's `self._adj[u]` raises KeyError for an absent
+        // `u` and the caller catches it, so `v` is never hashed. Reproduce that
+        // order: answer False here rather than falling into the v-side guard.
+        if !self.inner.has_node(u_key.as_str()) {
+            return Ok(false);
+        }
+        require_hashable_node_key(v)?;
         let v_key = canonical_node_key_in(py, v, &mut v_buf)?;
         Ok(self.inner.has_edge(u_key.as_str(), v_key.as_str()))
     }
@@ -14179,6 +14257,14 @@ impl PyGraph {
         // same question and must not disagree, so they share the memo.
         if n.is_exact_instance_of::<PyString>() {
             return self.exact_str_node_is_present(py, n);
+        }
+        // br-r37-c1-lvlu7: an UNHASHABLE key is ABSENT, not an error and not a
+        // byte comparison. nx is `try: n in self._node except TypeError:
+        // return False`; fnx canonicalises by reading the characters and never
+        // calls `__hash__`, so a `str` subclass with `__hash__ = None` reported
+        // True for a node it can never be used to reach.
+        if !node_key_is_hashable(n) {
+            return Ok(false);
         }
         // br-r37-c1-oe93x: borrowed canonical key — no String alloc per probe.
         with_node_key_str(py, n, |canonical| self.inner.has_node(canonical))

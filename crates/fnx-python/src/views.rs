@@ -625,12 +625,36 @@ impl EdgeView {
         if items.next().transpose()?.is_some() {
             return Ok(false);
         }
+        // br-r37-c1-lvlu7: nx's body is `v in self._adjdict[u]` inside
+        // `except (KeyError, ValueError)`, so an UNHASHABLE endpoint raises
+        // TypeError out of the dict — not caught there, and not answered here
+        // either. fnx canonicalises by reading characters and never calls
+        // `__hash__`, so `(Unhash("n0"), "n1") in G.edges` answered True.
+        //
+        // THE ORDER IS PART OF THE CONTRACT: `u` is hashed and looked up first,
+        // and an absent `u` short-circuits to False through KeyError WITHOUT
+        // `v` ever being hashed — `("missing", Unhash("n1")) in G.edges` is
+        // False in nx, so hashing both up front trades one divergence for
+        // another. Both directions are pinned in
+        // tests/python/test_unhashable_key_parity.py.
+        //
+        // The graph borrow is taken for the `u` probe and DROPPED before `v` is
+        // hashed: `__hash__` runs arbitrary Python and could re-enter this
+        // graph, which is how br-r37-c1-oqvk5 shipped a P0 RefCell panic.
+        crate::require_hashable_node_key(&u_item)?;
         let mut u_buf = ArrayString::new();
         let mut v_buf = ArrayString::new();
         let u = match crate::canonical_node_key_in(py, &u_item, &mut u_buf) {
             Ok(key) => key,
             Err(err) => return endpoint_not_a_node(&u_item, err),
         };
+        {
+            let g = self.graph.borrow(py);
+            if !g.inner.has_node(u.as_str()) {
+                return Ok(false);
+            }
+        }
+        crate::require_hashable_node_key(&v_item)?;
         let v = match crate::canonical_node_key_in(py, &v_item, &mut v_buf) {
             Ok(key) => key,
             Err(err) => return endpoint_not_a_node(&v_item, err),
@@ -700,12 +724,36 @@ impl EdgeView {
         // translate. Do not re-land this on an Ir argument alone. The real
         // lever on this row was br-r37-c1-dtrpe (the Python wrapper), which
         // took it from 0.81x to ~1.15-1.20x vs networkx on two harnesses.
+        // br-r37-c1-lvlu7: nx's body is `v in self._adjdict[u]` inside
+        // `except (KeyError, ValueError)`, so an UNHASHABLE endpoint raises
+        // TypeError out of the dict — not caught there, and not answered here
+        // either. fnx canonicalises by reading characters and never calls
+        // `__hash__`, so `(Unhash("n0"), "n1") in G.edges` answered True.
+        //
+        // THE ORDER IS PART OF THE CONTRACT: `u` is hashed and looked up first,
+        // and an absent `u` short-circuits to False through KeyError WITHOUT
+        // `v` ever being hashed — `("missing", Unhash("n1")) in G.edges` is
+        // False in nx, so hashing both up front trades one divergence for
+        // another. Both directions are pinned in
+        // tests/python/test_unhashable_key_parity.py.
+        //
+        // The graph borrow is taken for the `u` probe and DROPPED before `v` is
+        // hashed: `__hash__` runs arbitrary Python and could re-enter this
+        // graph, which is how br-r37-c1-oqvk5 shipped a P0 RefCell panic.
+        crate::require_hashable_node_key(&u_item)?;
         let mut u_buf = ArrayString::new();
         let mut v_buf = ArrayString::new();
         let u = match crate::canonical_node_key_in(py, &u_item, &mut u_buf) {
             Ok(key) => key,
             Err(err) => return endpoint_not_a_node(&u_item, err),
         };
+        {
+            let g = self.graph.borrow(py);
+            if !g.inner.has_node(u.as_str()) {
+                return Ok(false);
+            }
+        }
+        crate::require_hashable_node_key(&v_item)?;
         let v = match crate::canonical_node_key_in(py, &v_item, &mut v_buf) {
             Ok(key) => key,
             Err(err) => return endpoint_not_a_node(&v_item, err),

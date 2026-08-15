@@ -130,17 +130,22 @@ def test_str_spec_indexes_characters_not_the_whole_string():
     assert ("ac" in subject.edges) is ("ac" in reference.edges) is False
 
 
-def test_unhashable_endpoint_is_a_known_divergence_from_networkx():
-    """networkx raises from `adj[u]`; fnx canonicalises and answers False.
+def test_unhashable_endpoint_raises_exactly_as_networkx_does():
+    """FIXED in br-r37-c1-lvlu7; this test moved, as its previous form said it would.
 
-    Not introduced here and not fixed here — the canonical key builder decides
-    it, one layer below `__contains__`. Pinned so that whoever changes that
-    layer sees this move, rather than discovering it downstream.
+    It used to pin the divergence — networkx raising from `adj[u]` while fnx
+    canonicalised the characters and answered False — and to say that whoever
+    changed the layer below `__contains__` would see it move. That happened:
+    the membership paths now assert networkx's hashability contract, so both
+    libraries raise the same TypeError with the same message. The full
+    order-sensitive matrix lives in `test_unhashable_key_parity.py`.
     """
     reference, subject = _graphs()
-    assert ((_Unhashable(["a"]), "b") in subject.edges) is False
-    with pytest.raises(TypeError, match="unhashable type"):
+    with pytest.raises(TypeError, match="unhashable type") as subject_err:
+        (_Unhashable(["a"]), "b") in subject.edges  # noqa: B015
+    with pytest.raises(TypeError, match="unhashable type") as reference_err:
         (_Unhashable(["a"]), "b") in reference.edges  # noqa: B015
+    assert str(subject_err.value) == str(reference_err.value)
 
 
 # --------------------------------------------------------------------------
