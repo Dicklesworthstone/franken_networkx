@@ -750,6 +750,14 @@ def test_edges_view_subscript_handles_equal_string_self_loop():
     equal_node = "".join(["self", "-loop"])
     assert graph.edges[equal_node, equal_node]["weight"] == 9
 
+
+def test_edges_view_subscript_accepts_reverse_equal_strings_undirected():
+    graph = fnx.Graph()
+    graph.add_edge("first-node", "second-node", weight=4)
+    first = "".join(["first", "-node"])
+    second = "".join(["second", "-node"])
+    assert graph.edges[second, first]["weight"] == 4
+
     directed = fnx.DiGraph()
     directed.add_edges_from([(0, 1), (1, 3), (0, 2), (2, 3), (1, 2)])
     directed_mapping = {node: f"directed-path-{node}" for node in directed}
