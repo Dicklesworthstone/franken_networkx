@@ -6188,8 +6188,16 @@ class _FilteredDegreeView:
     def __len__(self):
         return len(self._nodes)
 
-    def __contains__(self, item):
-        return item in self._nodes
+    # br-r37-c1-p1uro: NO __contains__ ON PURPOSE. networkx's degree views do
+    # not define one, so `in` falls back to __iter__ — which yields
+    # ``(node, degree)`` pairs. On a networkx degree view ``node in view`` is
+    # therefore False and ``(node, degree) in view`` is True. This proxy used
+    # to define __contains__ over NODES, which inverted BOTH answers (3 of the
+    # 4 graph classes; MultiDiGraph escaped because its restricted path does
+    # not build this proxy). Two swapped booleans give a caller the wrong
+    # branch either way round rather than an error, so the fix is to define
+    # nothing and inherit networkx's semantics from iteration. __getitem__ is
+    # a separate dunder and still answers by NODE, as it does in networkx.
 
     def __getitem__(self, node):
         return self._value(node)

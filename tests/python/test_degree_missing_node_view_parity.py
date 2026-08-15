@@ -132,11 +132,7 @@ def test_restricted_degree_view_still_indexes_and_iterates(cls_name):
     assert len(view_fx) == len(view_nx) == 1
     # Indexing a node OUTSIDE the restriction still answers, in both.
     assert view_fx["n1"] == view_nx["n1"] == 1
-    # NOTE: `node in view` is deliberately NOT asserted here. networkx's degree
-    # views have no __contains__, so `in` falls back to __iter__ and tests
-    # (node, degree) TUPLES; fnx's restricted proxy defines __contains__ over
-    # NODES and inverts both answers on 3 of the 4 classes. That is a real
-    # divergence, out of scope for this bead, tracked in br-r37-c1-p1uro.
+    # `node in view` is covered by test_degree_view_membership_* below.
 
 
 @pytest.mark.parametrize("cls_name", CLASSES)
@@ -154,6 +150,47 @@ def test_degree_weighted_single_and_nbunch_match_networkx(cls_name):
         lambda g: g.degree("nope", weight="weight"),
     ):
         assert _outcome(probe, graph_fx) == _outcome(probe, graph_nx)
+
+
+@pytest.mark.parametrize("cls_name", CLASSES)
+@pytest.mark.parametrize("restricted", [True, False], ids=["restricted", "unrestricted"])
+def test_degree_view_membership_tests_tuples_like_networkx(cls_name, restricted):
+    """br-r37-c1-p1uro — `in` on a degree view tests (node, degree) PAIRS.
+
+    networkx defines no ``__contains__`` on its degree views, so ``in`` falls
+    back to ``__iter__``. fnx's restricted proxy defined one over NODES, which
+    inverted BOTH answers: ``node in view`` was True where networkx says False,
+    and ``(node, degree) in view`` was False where networkx says True. Two
+    swapped booleans hand a caller the wrong branch either way round rather
+    than an error, which is why this is asserted from both sides.
+    """
+    gnx, gfx = _pair(cls_name)
+    view_nx = gnx.degree(["n0"]) if restricted else gnx.degree
+    view_fx = gfx.degree(["n0"]) if restricted else gfx.degree
+    for probe in ("n0", ("n0", 1), ("n0", 999), ("absent", 1), "absent"):
+        assert (probe in view_fx) == (probe in view_nx), probe
+
+
+@pytest.mark.parametrize("cls_name", DIRECTED)
+@pytest.mark.parametrize("accessor", ["in_degree", "out_degree"])
+def test_directional_degree_view_membership_matches_networkx(cls_name, accessor):
+    gnx, gfx = _pair(cls_name)
+    for restricted in (True, False):
+        view_nx = getattr(gnx, accessor)(["n0"]) if restricted else getattr(gnx, accessor)
+        view_fx = getattr(gfx, accessor)(["n0"]) if restricted else getattr(gfx, accessor)
+        for probe in ("n0", ("n0", 1), ("n0", 0)):
+            assert (probe in view_fx) == (probe in view_nx), (accessor, probe)
+
+
+@pytest.mark.parametrize("cls_name", CLASSES)
+def test_degree_view_getitem_still_answers_by_node(cls_name):
+    """Removing __contains__ must not disturb key indexing, a separate dunder."""
+    gnx, gfx = _pair(cls_name)
+    for restricted in (True, False):
+        view_nx = gnx.degree(["n0"]) if restricted else gnx.degree
+        view_fx = gfx.degree(["n0"]) if restricted else gfx.degree
+        assert view_fx["n0"] == view_nx["n0"] == 1
+        assert view_fx["n1"] == view_nx["n1"] == 1
 
 
 def test_missing_node_degree_is_falsy_not_an_exception():
