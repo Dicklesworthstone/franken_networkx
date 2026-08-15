@@ -587,6 +587,13 @@ def test_directed_complement_in_out_degrees_sum_to_n_minus_one():
         assert graph.out_degree(node) + complement.out_degree(node) == len(graph) - 1
         assert graph.in_degree(node) + complement.in_degree(node) == len(graph) - 1
 
+
+def test_directed_complement_flips_each_missing_orientation():
+    graph = fnx.DiGraph([(0, 1)])
+    complement = fnx.complement(graph)
+    assert not complement.has_edge(0, 1)
+    assert complement.has_edge(1, 0)
+
     directed = fnx.DiGraph()
     directed.add_edges_from([(0, 1), (1, 3), (0, 2), (2, 3), (1, 2)])
     directed_mapping = {node: f"directed-path-{node}" for node in directed}
