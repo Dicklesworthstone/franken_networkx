@@ -10038,6 +10038,14 @@ arm is reverted in-tree with the numbers recorded at its site.
 
 ## 2026-08-15 SnowyValley SHIPPED SELF-SPEEDUP: native permissive `EdgeView.__contains__`, Python rebind deleted — **1.2303x** / **1.2562x** (`br-r37-c1-dtrpe`)
 
+**LEVEL CORRECTED UPWARD, 2026-08-15 (`br-r37-c1-7x25w`): this row is NOT a
+loss.** Both vs-networkx figures here were measured on the harness that
+collected before every timed slot, which on this exact probe was worth 1.37x and
+crossed 1.0. Re-measured on the corrected harness, `--only`, reps=4000:
+`1.0183x` CI `[1.0160, 1.0220]`, nulls 1.0089/1.0001, ADMISSIBLE. The row sits
+at parity, not at 0.5905x/0.6838x. The SELF-DELTA (wrapped -> native, 1.23x)
+is unaffected — it is fnx-vs-fnx with the same heap in both arms.
+
 WHERE AND WITH WHAT (added under the harness+worker identity gate):
 `harness=ab_wrapper_ablation.py` sha256
 `12a4b53cd798e03804a830b263e31edbd1b6fe356bd41b7abc460241cac89c05`, at
@@ -10336,6 +10344,18 @@ the native store has been the deficit zero times.
 
 ## 2026-08-15 SnowyValley SHIPPED WIN: exact-`str` present-key memo — `has_node` 0.4556x -> **1.2205x**, `n in G` 0.3762x -> **1.6729x** (`br-r37-c1-6n9vm`)
 
+**SUPERSEDED IN PART, 2026-08-15 (`br-r37-c1-7x25w`): the `has_node` figure in
+this row's heading is RETRACTED.** Every number below was measured on the
+harness that collected before every timed slot. Re-measured on the corrected
+harness at a rep count where the nulls pass, `has_node` reads `1.0008x`
+straddles-1, `1.0159x` and `0.9799x` — parity in both directions, not a 1.2205x
+win. `n in G` survives at `1.6113x` CI `[1.6025, 1.6199]`. The LEVER itself is
+untouched by this — the memo still removes the canonicalisation, the 77.4%
+attribution stands, and the parity tests stand — but the vs-networkx level
+claimed for `has_node` does not reproduce and its cause is unattributed (the ELF
+also moved under peers' Rust landings, and at the original reps=400 the
+collector was worth only ~1% on this row). See the RE-MEASURE row below.
+
 WHERE AND WITH WHAT (added under the harness+worker identity gate).
 `same_host=thinkstation1`, `rch_worker=none` for every row below — both arms of
 every ratio ran in ONE process on that machine, and no timing was dispatched to
@@ -10532,3 +10552,73 @@ biased by an unknown, row-dependent amount — the bias scales with how much
 GC-tracked Python heap the fnx side holds, so it does not divide out and cannot
 be corrected after the fact. Re-measure, do not rescale. My own six rows from
 today are re-measured in the row that follows this one.
+
+## 2026-08-15 SnowyValley RE-MEASURE after the substrate fix: one row UPGRADES, one WIN RETRACTED to parity (`br-r37-c1-7x25w`)
+
+Every row I banked today was measured on the harness with the per-slot
+`gc.collect()`. Re-measured on the corrected one. `harness=balanced_square_ab.py`
+sha256 `809293dbff3ccd491309b8cdce2e310fc1684be81b8ca778f677fca62b5e6d31`,
+`same_host=thinkstation1`, `rch_worker=none` (both arms in one process; nothing
+dispatched to a worker), `bench_elf_sha256=b6ccaee611a8ef67cc90e444e66fdf313d1509d12962990b0bce9534ad5818b4`,
+git HEAD `718916464`, 41 rounds, reps=4000, `--only` so no row carries its
+neighbours' context, `taskset -c 40-47`, live networkx 3.6.1 in the same
+invocation, loadavg 4.7-12.4.
+
+    row                  as published        re-measured               verdict now
+    (u,v) in G.edges()   0.4733x  LOSS     1.0183x [1.0160,1.0220]   ADMISSIBLE
+    CONTROL len(G)       1.9843x  WIN      2.1566x [2.1491,2.1616]   ADMISSIBLE
+    n in G               1.49-1.68x WIN    1.6113x [1.6025,1.6199]   ADMISSIBLE
+    n in G.nodes()       0.3395x  LOSS     0.7299x [0.7278,0.7341]   ADMISSIBLE
+    G.edges[u,v]         0.2329x  LOSS     0.2524x [0.2518,0.2529]   ADMISSIBLE
+    G.has_node(n)        1.2297x  WIN      1.0008x [0.9942,1.0084]   STRADDLES-1
+
+The same-invocation A/A null control measured 1.0089x and 1.0001x on the
+`(u,v) in G.edges()` row, 0.9995x and 0.9990x on `len(G)`, and 1.0092x and
+1.0018x on `n in G` — every null on every row above sat between 0.9990 and
+1.0182, inside the +/-0.02 bound.
+
+**`G.has_node(n)` IS RETRACTED.** Three draws on the corrected harness:
+`1.0008x` straddles-1, `1.0159x` admissible, `0.9799x` admissible — they straddle
+1.0 in BOTH directions. That is parity and no verdict, not the 1.2297x win I
+published this afternoon. The row `br-r37-c1-6n9vm` claims for `has_node` does
+not reproduce and should not be quoted.
+
+AND THE GC BIAS IS NOT WHY, which matters because the convenient story would be
+that the substrate did it. Isolating the collector at the ORIGINAL rep count,
+same ELF, same session, both modes:
+
+    reps=400  corrected    1.0811x   nulls 1.0407/1.0041  null-failed
+    reps=400  defect mode  1.0925x   nulls 1.0301/0.9993  null-failed
+
+~1% apart. For THIS row the per-slot collect was worth about a percent, not the
+0.2x the published figure is missing. What else moved: the ELF (peers landed
+Rust changes between `1cfe8f24` and `b6ccaee6`) and the rep count (400 -> 4000,
+where this row's nulls are actually clean). I have not isolated which, and I am
+not going to attribute it to one without measuring it, so the honest state is:
+**the 1.2297x level is not reproducible today and its cause is unattributed.**
+
+`(u,v) in G.edges()` moves the other way and that one IS the collector: the
+factorial in the row above puts it at 0.7741x with the per-slot collect and
+1.0577x without, on one ELF in one session. Re-measured with `--only` it reads
+1.0183x. The row I published as a decisive loss is at parity.
+
+comparison_class=INCUMBENT
+incumbent=networkx
+incumbent_same_invocation=true
+incumbent_ratio=1.6113x
+campaign_output=true
+decision_gate=median_ci
+cv_role=report_only
+
+**RESULT: KEEP / CAMPAIGN OUTPUT for `n in G` and `len(G)`, which survive the
+correction; RETRACTION for `has_node`.** The two surviving wins are stated at
+their re-measured values, not their published ones.
+
+RETRY PREDICATE: do not re-quote any pre-2026-08-15 read row from this substrate
+without re-measuring it at a rep count where its nulls actually pass — reps=400
+fails the null gate on several of these rows once the uniform cold start is gone.
+`iter(G)` and `(u,v) in MG.edges` are NOT in this table: they were measured only
+by scratch ablation harnesses that still carry the per-slot collect, so their
+LEVELS are unconfirmed. Their within-harness contrasts (1.7680x and 7.1365x) are
+fnx-vs-fnx with the same heap in both arms, which is the configuration the bias
+largely cancels in, but "largely" is not "measured".
