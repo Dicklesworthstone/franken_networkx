@@ -54324,17 +54324,50 @@ def _subgraph_filter_from_nbunch(G, nbunch):
         # assigned ``_node`` key that has no adjacency row exactly as nx excludes it.
         container = G.adj if _has_networkx_private_storage(G) else G
         gnodes = set(container) if len(nb_list) * 4 >= len(G) else None
-        allowed_nodes = set()
-        for node in nb_list:
+        if gnodes is not None:
+            # br-r37-c1-yioox: the per-node loop hashed every node THREE times
+            # — an explicit hash() for the error contract, again for the
+            # membership test, and again for the add. The comprehension does
+            # two, dropping the Python-level hash() CALL, which was the
+            # expensive one.
+            #
+            # NOT an intersection, though it looks like one: `set(nb_list) &
+            # gnodes` builds the set in an order determined by the operands, so
+            # the induced subgraph's NODE ITERATION ORDER stopped matching
+            # networkx's — seed-dependently, since string hashing is randomised
+            # per process. It passed on 2 of 5 PYTHONHASHSEED values and failed
+            # on 3. The comprehension adds in nbunch order exactly as the old
+            # loop did, so insertion order is preserved.
+            #
+            # The unhashable check rides on the set membership here, which DOES
+            # raise TypeError — unlike `n in G`, whose __contains__ answers
+            # False for an unhashable argument exactly as networkx's does. The
+            # offender is located only on the error path, where cost is
+            # irrelevant.
             try:
-                hash(node)
+                allowed_nodes = {node for node in nb_list if node in gnodes}
             except TypeError as exc:
-                raise NetworkXError(
-                    f"Node {node} in sequence nbunch is not a valid node."
-                ) from exc
-            in_graph = node in gnodes if gnodes is not None else node in container
-            if in_graph:
-                allowed_nodes.add(node)
+                for node in nb_list:
+                    try:
+                        hash(node)
+                    except TypeError:
+                        raise NetworkXError(
+                            f"Node {node} in sequence nbunch is not a valid node."
+                        ) from exc
+                raise
+        else:
+            # Small nbunch on a large graph: no whole-graph set was built, so
+            # membership stays per-node and the explicit hash stays with it.
+            allowed_nodes = set()
+            for node in nb_list:
+                try:
+                    hash(node)
+                except TypeError as exc:
+                    raise NetworkXError(
+                        f"Node {node} in sequence nbunch is not a valid node."
+                    ) from exc
+                if node in container:
+                    allowed_nodes.add(node)
 
     return _NodeSetFilter(allowed_nodes, copy_nodes=False)
 
