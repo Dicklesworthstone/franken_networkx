@@ -43939,6 +43939,66 @@ class _FilteredNeighborMap(_Mapping):
                     node_ok_shorter = 2 * len(keep) < len(row)
                 except TypeError:
                     node_ok_shorter = False
+            # br-r37-c1-k3vnp: this loop needs only the edge KEYS of each
+            # (node, neighbour) pair, to ask whether ANY of them is visible.
+            # Reaching them through `row.items()` / `row[neighbour]` builds the
+            # whole keydict VALUE view per neighbour — cProfile put
+            # `AdjacencyView.__getitem__` and `_multi_edge_keydict` at 14.7 calls
+            # each per single `adj[u]` lookup, and the row measured 0.0860x
+            # against networkx. `_native_edge_key_set` answers the same question
+            # in 1.45us against 16.85us for five neighbours, an 11.6x cheaper
+            # accessor for exactly the fact being asked for.
+            #
+            # It returns a SET, which is sound here because the result is fed to
+            # `any()`: only whether SOME key passes matters, not the order they
+            # are tried in. A filter_edge with side effects could observe the
+            # evaluation order, but nx calls filter_edge repeatedly and treats it
+            # as a pure predicate throughout. Key-set equality with
+            # `row[neighbour]` was verified over ~26000 pairs across both
+            # multigraph classes at two sizes, including self-loops, and the
+            # directed orientation was checked not to answer for the reverse arc.
+            # CONCRETE parents only. A reverse/filtered view DELEGATES
+            # `_native_edge_key_set` to something underneath it without
+            # reorienting, and on a reverse view it answers the empty set for
+            # BOTH orientations — so a `getattr` probe finds a method that is
+            # present, callable, and silently wrong. Caught by
+            # test_reverse_view_supports_edge_subgraph_without_fallback, which
+            # went red on exactly this: reverse_view(G).edge_subgraph([(b,a,1)])
+            # returned no edges at all. `type(...) is` rather than isinstance for
+            # the same reason the rest of this file uses it.
+            parent = view._graph
+            key_set = (
+                getattr(parent, "_native_edge_key_set", None)
+                if type(parent) in (MultiGraph, MultiDiGraph)
+                else None
+            )
+            if key_set is not None:
+                # The stored arc runs neighbour -> self._node in the reverse
+                # (predecessor) direction, so the endpoints must be swapped to
+                # match; `_edge_visible` does the same swap for the same reason.
+                if self._reverse:
+                    def _keys(neighbor):
+                        return key_set(neighbor, self._node)
+                else:
+                    def _keys(neighbor):
+                        return key_set(self._node, neighbor)
+
+                if node_ok_shorter:
+                    for neighbor in keep:
+                        if neighbor in row and any(
+                            self._edge_visible(neighbor, key)
+                            for key in _keys(neighbor)
+                        ):
+                            yield neighbor
+                    return
+                for neighbor in row:
+                    if not view._node_visible(neighbor):
+                        continue
+                    if any(
+                        self._edge_visible(neighbor, key) for key in _keys(neighbor)
+                    ):
+                        yield neighbor
+                return
             if node_ok_shorter:
                 for neighbor in keep:
                     if neighbor in row and any(
@@ -43952,7 +44012,14 @@ class _FilteredNeighborMap(_Mapping):
                 if any(self._edge_visible(neighbor, key) for key in edge_data):
                     yield neighbor
             return
-        for neighbor, edge_data in row.items():
+        # br-r37-c1-k3vnp: the simple-graph branch bound `edge_data` from
+        # `row.items()` and never used it — `_edge_visible(neighbor)` takes no
+        # key here, because a simple graph has one edge per pair. Materialising
+        # every neighbour's attribute dict to discard it is the same
+        # build-the-value-to-yield-the-key defect as the multigraph branch
+        # above, in its plainest form: iterating `row` yields the same
+        # neighbours in the same order and touches no values.
+        for neighbor in row:
             if not view._node_visible(neighbor):
                 continue
             if self._edge_visible(neighbor):
