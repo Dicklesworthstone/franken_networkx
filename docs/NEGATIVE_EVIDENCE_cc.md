@@ -16506,3 +16506,80 @@ comparison_class=SELF-SPEEDUP
 campaign_output=false
 decision_gate=median_ci
 cv_role=report_only
+
+## MEASURED FOR THIS HARNESS: a busy SMT sibling moves the ratio **+17 percent** — the balanced square does NOT cancel it, because the two arms are unequally sensitive (br-r37-c1-jycsb)
+
+NO CERTIFICATION. `uptime` checked by this pane: 1-min 12.32 against 5-min 16.73,
+ratio 1.36 — rejected as falling. This is an IMPACT measurement, which is a
+controlled within-invocation comparison and does not need a certifiable window:
+the manipulated variable is applied and removed by this pane, not waited for.
+
+The fleet result is mixed — torch finds the cross-core spread does not move its
+numbers, scipy measured ~50 percent SMT co-residency with a small effect,
+frankenfs found both arms on one physical core, frankenpandas has pinned. So the
+instruction was to measure the impact HERE rather than inherit a conclusion.
+Measured, and this harness is at the sensitive end.
+
+**DESIGN.** Benchmark pinned to `cpu14`; its SMT sibling is `cpu46`. A spinner
+child is pinned to `cpu46`, started and stopped INSIDE the same invocation — no
+shell backgrounding, nothing left running afterwards, verified with `pgrep`.
+Conditions alternated IDLE/LOADED, three pairs, 15 rounds x 4000 reps each:
+
+    condition   nx ns    fnx ns    ratio    CI                 bench clock   sibling busy
+    IDLE         73.9    9809.1    0.0079   [0.0078, 0.0081]   4289 MHz      38%
+    LOADED      142.2   15725.2    0.0091   [0.0090, 0.0091]   4166 MHz     100%
+    IDLE         75.3    9774.6    0.0078   [0.0076, 0.0079]   4167 MHz      15%
+    LOADED      145.8   15695.4    0.0093   [0.0092, 0.0093]   4167 MHz     100%
+    IDLE         69.8    9151.3    0.0077   [0.0076, 0.0078]   4289 MHz       9%
+    LOADED      142.4   15577.3    0.0091   [0.0090, 0.0092]   4217 MHz     100%
+
+**THE RATIO MOVES 0.0078 -> 0.0091, +17 percent, with completely non-overlapping
+intervals across all six runs.**
+
+**AND THE MECHANISM IS THE IMPORTANT PART: the two arms are NOT equally
+sensitive.**
+
+    nx  arm   73.9 -> 142.4 ns   1.93x slower
+    fnx arm   9775 -> 15695 ns   1.61x slower
+
+A balanced square cancels a disturbance that multiplies both arms by the SAME
+factor. SMT contention does not: the incumbent loses 1.93x and fnx loses 1.61x,
+so the quotient shifts by exactly the difference. **Interleaving is no defence
+here.** This is the same class as the cross-project contention finding —
+something that acts DIFFERENTLY on the two arms rather than moving both together
+— arriving through the hardware instead of through the code.
+
+Note also that the bench core's CLOCK barely moved (4289 -> 4166 MHz, under 3
+percent) while its throughput halved. Recording MHz would NOT have caught this:
+the sibling steals execution resources from a core that is still nominally at
+full clock. A row that recorded only per-arm MHz and concluded "arms comparable"
+would have been wrong by 17 percent.
+
+**THIS PLAUSIBLY EXPLAINS THE WINDOW SENSITIVITY BANKED EARLIER.** This pane
+found the same cell reading 0.0076-0.0086 across windows on one ELF, a 13 percent
+spread it could not account for. Sibling occupancy varies between windows and is
+worth 17 percent on its own. The two numbers are the same size, and this is the
+first mechanism offered for that spread that is measured rather than guessed.
+
+**WHAT THIS PANE WILL DO.** Certification rows will record whole-run sibling
+utilisation for the pinned core — measurable over the whole run even though it is
+NOT measurable per-arm on the fast arm at jiffy resolution — and a run whose
+sibling exceeded roughly 20 percent occupancy will be re-taken rather than
+banked. Pinning alone is not sufficient and, on its own, is slightly harmful: it
+fixes which physical core is shared without controlling who shares it.
+
+WHAT IS NOT CLAIMED: that 17 percent is a universal figure. It is this cell, this
+harness, on a 64-logical/32-physical SMT host, with a sibling driven to 100
+percent by a pure spinner. A real neighbour process with a different instruction
+mix would contend differently. The transferable finding is the SHAPE — unequal
+per-arm sensitivity defeats interleaving — not the number.
+
+PROVENANCE: impact measurement, no ratio certified. Harness
+`/data/tmp/claude-1000/smt_impact.py`; both arms in-process, sequential, same
+invocation, pinned to cpu14 with `os.sched_setaffinity`. Pinned ELF sha256
+789dd9dead49c4a8dbeaf6747c1532a70639561afda92497e4b304fdb7ff59fd via PYTHONPATH.
+host thinkstation1, 64 logical / 32 physical, SMT on, siblings paired (n, n+32),
+governor `powersave`, cross-core spread 1429-4264 MHz live. python 3.13.7, live
+networkx 3.6.1, disk 280G free. `uptime` observed: 12.32 / 16.73 at the decision
+(gate REJECTED), 11.57 at the first run and 13.66 at the last. Bench-core clock
+and sibling occupancy are in the table per row.
