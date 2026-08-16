@@ -5314,6 +5314,69 @@ impl PyMultiGraph {
         Ok(row)
     }
 
+    /// br-r37-c1-dwy1n: maintain a cached neighbour row IN PLACE, the way
+    /// `PyGraph::cached_adj_set_edge` maintains `adj_row_py`.
+    ///
+    /// networkx's `G.neighbors(n)` is `iter(self._adj[n])` over the LIVE row, so
+    /// mutating the graph mid-iteration raises `RuntimeError: dictionary changed
+    /// size during iteration`. This cache used to be dropped WHOLESALE on any
+    /// generation change, which built a fresh dict and left an outstanding
+    /// iterator walking the old one — no error, and a silently stale neighbour
+    /// set, which is the more dangerous half.
+    ///
+    /// Updating the SAME `PyDict` is what reproduces the exception, because the
+    /// error comes from CPython's own dict-versioning, not from anything this
+    /// code raises. Guarded by `is_empty()` at every call site so a graph nobody
+    /// has asked neighbours of pays nothing.
+    fn cached_neighbor_row_set(&mut self, py: Python<'_>, owner: &str, nbr: &str) -> PyResult<()> {
+        let Some(row) = self
+            .neighbor_key_rows
+            .as_ref()
+            .and_then(|(_, _, rows)| rows.get(owner))
+            .map(|row| row.clone_ref(py))
+        else {
+            return Ok(());
+        };
+        let py_nbr = self.py_adj_key(py, owner, nbr);
+        row.bind(py).set_item(py_nbr, py.None())?;
+        Ok(())
+    }
+
+    /// Drop one neighbour from a cached row in place. Absent keys are ignored:
+    /// a parallel edge removal that leaves the pair connected must NOT remove
+    /// the neighbour, and the caller decides that.
+    fn cached_neighbor_row_remove(&self, py: Python<'_>, owner: &str, nbr: &str) -> PyResult<()> {
+        if let Some(row) = self
+            .neighbor_key_rows
+            .as_ref()
+            .and_then(|(_, _, rows)| rows.get(owner))
+        {
+            let py_nbr = self.py_adj_key(py, owner, nbr);
+            let _ = row.bind(py).del_item(py_nbr);
+        }
+        Ok(())
+    }
+
+    /// Re-stamp the cache to the CURRENT generation after an in-place update.
+    ///
+    /// Without this the freshness check in `neighbor_key_row` would see the
+    /// bumped `edges_seq`, discard the map, and hand the next caller a rebuilt
+    /// dict — defeating the in-place maintenance above.
+    fn restamp_neighbor_rows(&mut self) {
+        let (nodes, edges) = (self.nodes_seq, self.edges_seq);
+        if let Some(entry) = self.neighbor_key_rows.as_mut() {
+            entry.0 = nodes;
+            entry.1 = edges;
+        }
+    }
+
+    #[inline]
+    fn neighbor_rows_live(&self) -> bool {
+        self.neighbor_key_rows
+            .as_ref()
+            .is_some_and(|(_, _, rows)| !rows.is_empty())
+    }
+
     /// br-r37-c1-z6uka: see PyGraph::derive_copy_adj_py_keys — nx's u-major
     /// copy walk keeps the first-encountered direction's cell object.
     pub(crate) fn derive_copy_adj_py_keys(
@@ -7907,8 +7970,21 @@ impl PyMultiGraph {
             // per-item set_item calls (see PyGraph::add_edge).
             py_dict.bind(py).update(a.as_mapping())?;
         }
+        // br-r37-c1-dwy1n: maintain any live neighbour rows IN PLACE, then
+        // re-stamp the cache, so an outstanding `G.neighbors(n)` iterator sees
+        // the mutation and CPython raises the same RuntimeError networkx does.
+        // Guarded so a graph nobody has asked neighbours of pays nothing.
+        if self.neighbor_rows_live() {
+            self.cached_neighbor_row_set(py, &u_canonical, &v_canonical)?;
+            if u_canonical != v_canonical {
+                self.cached_neighbor_row_set(py, &v_canonical, &u_canonical)?;
+            }
+        }
         // br-r37-c1-jft0i: bump edges_seq so view-materialization caches invalidate.
         self.bump_edges_seq();
+        if self.neighbor_rows_live() {
+            self.restamp_neighbor_rows();
+        }
         // Prefer the user's explicit key; otherwise echo the nx-computed public
         // auto key (NOT the internal usize key).
         let external = key.or_else(|| auto_public_key.as_ref().map(|o| o.bind(py)));
@@ -9913,7 +9989,21 @@ impl PyMultiGraph {
                     .retain(|(x, y, _), _| !(x == &a && y == &b));
             }
         }
+        // br-r37-c1-dwy1n: drop the neighbour from any live row IN PLACE, but
+        // ONLY once the LAST parallel edge between the pair is gone. Removing
+        // one of several parallel edges leaves the nodes adjacent, so the
+        // neighbour key must stay — and a spurious deletion would both corrupt
+        // the row and raise a RuntimeError networkx does not raise.
+        if self.neighbor_rows_live() && !self.inner.has_edge(&u_canonical, &v_canonical) {
+            self.cached_neighbor_row_remove(py, &u_canonical, &v_canonical)?;
+            if u_canonical != v_canonical {
+                self.cached_neighbor_row_remove(py, &v_canonical, &u_canonical)?;
+            }
+        }
         self.bump_edges_seq();
+        if self.neighbor_rows_live() {
+            self.restamp_neighbor_rows();
+        }
         Ok(())
     }
 
