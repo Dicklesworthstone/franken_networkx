@@ -46383,10 +46383,64 @@ class _AssignedPrivateDegreeView:
             total += len(row[node]) if multi else 1
         return total
 
+    def _visible_edge_count(self, node, nbr, row):
+        """br-r37-c1-p6dhq: how many edges (node, nbr) are visible, WITHOUT
+        materialising their attribute dicts.
+
+        Unweighted degree only ever needs a COUNT -- `_edge_weight` returns a
+        constant 1 when `self._weight is None` -- but the walk reached that count
+        by iterating `row.items()`, which builds the filtered keydict VALUE for
+        every neighbour. On a multigraph that is a `_multi_edge_keydict` plus an
+        inner view per neighbour, and it was the dominant cost of the worst row
+        on the surface: 3735us to answer `degree()` for THREE nodes.
+
+        `_native_edge_key_set` gives the parallel-edge keys directly, the same
+        accessor br-r37-c1-k3vnp used for row iteration, gated the same way -- a
+        CONCRETE multigraph parent only, because a reverse/filtered view
+        delegates it WITHOUT reorienting and answers the empty set for both
+        orientations.
+        """
+        view = self._graph
+        if not view.is_multigraph():
+            return 1
+        key_set = self._fnx_parent_key_set
+        if key_set is None:
+            return len(row[nbr])
+        return sum(
+            1 for key in key_set(node, nbr) if view._edge_visible(node, nbr, key)
+        )
+
+    @property
+    def _fnx_parent_key_set(self):
+        view = self._graph
+        # The degree view's graph is NOT always a filtered view -- a concrete
+        # graph has no `_edge_visible`, and on one `getattr(view, "_graph")`
+        # still returns something, so the isinstance check is what makes this
+        # safe rather than the parent-type check alone. Caught by
+        # test_upstream_networkx_view_helpers_accept_fnx_graphs.
+        if not isinstance(view, _FilteredGraphView):
+            return None
+        parent = getattr(view, "_graph", None)
+        if type(parent) not in (MultiGraph, MultiDiGraph):
+            return None
+        return getattr(parent, "_native_edge_key_set", None)
+
     def _out_degree(self, node):
         fast = self._filtered_set_count(node)
         if fast is not None:
             return fast
+        # br-r37-c1-p6dhq: unweighted degree is a COUNT; do not build the values.
+        if self._weight is None:
+            view = self._graph
+            row = view.adj[node]
+            undirected = not view.is_directed()
+            total = 0
+            for nbr in row:
+                count = self._visible_edge_count(node, nbr, row)
+                total += count
+                if undirected and nbr == node:
+                    total += count
+            return total
         total = 0
         for nbr, edge_data in self._graph.adj[node].items():
             if self._graph.is_multigraph():
@@ -46406,6 +46460,26 @@ class _AssignedPrivateDegreeView:
         fast = self._filtered_set_count(node, reverse=True)
         if fast is not None:
             return fast
+        # br-r37-c1-p6dhq: the predecessor twin. The stored arc runs
+        # nbr -> node here, so the key-set endpoints are swapped, exactly as
+        # `_edge_visible` swaps them.
+        if self._weight is None:
+            view = self._graph
+            row = view.pred[node]
+            key_set = self._fnx_parent_key_set
+            total = 0
+            for nbr in row:
+                if not view.is_multigraph():
+                    total += 1
+                elif key_set is None:
+                    total += len(row[nbr])
+                else:
+                    total += sum(
+                        1
+                        for key in key_set(nbr, node)
+                        if view._edge_visible(nbr, node, key)
+                    )
+            return total
         total = 0
         for edge_data in self._graph.pred[node].values():
             if self._graph.is_multigraph():
