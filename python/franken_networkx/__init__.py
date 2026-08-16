@@ -767,7 +767,21 @@ _EDGES_NBUNCH_PY_WALK_MAX = 8
 # over-raise on Graph and DiGraph, because the Python walk is what reproduces
 # networkx's mutate-during-iteration semantics. Raising it can only route MORE
 # calls onto the walk, i.e. onto the more nx-faithful path.
-_EDGES_NBUNCH_PY_WALK_NODES_PER_EXTRA = 1000
+# br-r37-c1-8qxi9 RETUNED this from 1000 to 250. Batching the per-node row
+# resolution (one graph-level preamble for the whole nbunch instead of one per
+# node) made the walk ~1.7x cheaper, which moved the crossover a long way out.
+# Re-measured walk/kernel, below 1.0 meaning the walk is faster:
+#
+#     N         k=4     k=8    k=16    k=32    k=64   k=128
+#     2000    0.767   1.002   1.283   1.111   1.152   1.292   crossover ~8
+#     8000    0.446   0.560   0.756   0.814   1.009   1.073   crossover ~64
+#     32000   0.192   0.252   0.348   0.468   0.721   0.818   walk wins to 128
+#     128000  0.055   0.082   0.115   0.188   0.301   0.447   walk wins to 128
+#
+# One per 250 nodes gives 8 / 32 / 128 / 512 at those sizes, which stays at or
+# under every measured crossing (the 512 at N=128000 extrapolates past the
+# largest nbunch measured, k=128, where the walk was still winning by 2.2x).
+_EDGES_NBUNCH_PY_WALK_NODES_PER_EXTRA = 250
 
 
 def _edges_nbunch_py_walk_limit(graph):
@@ -1033,12 +1047,12 @@ class EdgeDataView:
         the caller can fall back.
         """
         graph = self._graph
-        rows = []
-        for node in self._nbunch_list:
-            row = _cached_adj_row_keydict(graph, "adj", node, lambda: graph[node])
-            if row is None:
-                return None
-            rows.append((node, row))
+        # br-r37-c1-8qxi9: one preamble for the whole nbunch, not one per node.
+        rows = _cached_adj_row_keydicts(
+            graph, "adj", self._nbunch_list, lambda node: lambda: graph[node]
+        )
+        if rows is None:
+            return None
 
         def _walk():
             seen = set()
@@ -1090,15 +1104,10 @@ class EdgeDataView:
             # No private-storage probe here: _cached_adj_row_keydict already
             # returns None for those graphs, and it was the second such call
             # per edges() invocation.
-            rows = []
-            for node in self._nbunch_list:
-                row = _cached_adj_row_keydict(
-                    graph, "adj", node, lambda: graph[node]
-                )
-                if row is None:
-                    rows = None
-                    break
-                rows.append((node, row))
+            # br-r37-c1-8qxi9: one preamble for the whole nbunch, not one per node.
+            rows = _cached_adj_row_keydicts(
+                graph, "adj", self._nbunch_list, lambda node: lambda: graph[node]
+            )
             if rows is not None:
                 seen = set()
                 result = []
@@ -45712,6 +45721,55 @@ def _cached_adj_row_key_iter(owner, row_kind, row_node, row_getter):
     # Thin iter() wrapper over the cached keydict (None if uncacheable).
     keydict = _cached_adj_row_keydict(owner, row_kind, row_node, row_getter)
     return None if keydict is None else iter(keydict)
+
+
+def _cached_adj_row_keydicts(owner, row_kind, nodes, row_getter_for):
+    """Resolve SEVERAL rows with one preamble instead of one per node.
+
+    br-r37-c1-8qxi9: ``_cached_adj_row_keydict`` re-does its whole warm-path
+    preamble — ``vars()``, the two revision reads, the token tuple build and
+    compare — on every call, and the nbunch edge views call it once per node
+    twice per ``edges(nbunch)`` (once to build the lazy walk, once to
+    materialise). Profiled at nbunch=8 that was 16 calls at ~1us each and the
+    dominant cost of the whole operation.
+
+    The preamble answers a question about the GRAPH, not about the row, so it is
+    the same answer for every node in one call. Hoist it, then read the rows
+    straight out of the cache dict. Any miss — cold cache, stale token, a graph
+    with private storage — falls back to the per-node function, so the result is
+    identical by construction and the cache still gets populated on the way.
+
+    Returns a list of ``(node, row)`` in the order given, or None if any row is
+    unavailable (the caller then takes its own fallback path).
+    """
+    try:
+        owner_vars = vars(owner)
+    except TypeError:
+        return None
+    cache = owner_vars.get("_fnx_adj_row_keydict_cache")
+    if cache is not None:
+        try:
+            if owner_vars.get("_fnx_adj_row_keydict_cache_state") == (
+                owner.nodes_seq,
+                owner.edges_seq,
+            ):
+                warm = []
+                for node in nodes:
+                    row = cache.get((row_kind, node))
+                    if row is None:
+                        break
+                    warm.append((node, row))
+                else:
+                    return warm
+        except (AttributeError, TypeError):
+            pass
+    rows = []
+    for node in nodes:
+        row = _cached_adj_row_keydict(owner, row_kind, node, row_getter_for(node))
+        if row is None:
+            return None
+        rows.append((node, row))
+    return rows
 
 
 def _cached_adj_row_keydict(owner, row_kind, row_node, row_getter):
