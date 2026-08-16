@@ -11745,3 +11745,74 @@ ecfc2d30935a12eb0b61c3d00b38718026bcc36977c047b048463c1bf9a37fb8 on BOTH sides;
 governor powersave; runtime ISA avx2 avx sse4_2; observed affinity 8 of 64 cpus;
 python 3.13.7 x86_64; live networkx 3.6.1; PYTHONHASHSEED=0; loadavg 38.9/32.8
 before and 7.9/7.6/7.4/7.2 after.
+
+## 2026-08-16 GoldenBison ALLOCATOR SCALING ANALYSIS: the edge-lookup ratio is UNBOUNDED in node-key length (br-r37-c1-tjp0g)
+
+Written under the build freeze in response to the cross-project signal that libc
+reidentified its worst ratio as the ALLOCATOR (10-16x, not printf at 3.2x) and
+torch found zero of 21 lanes certifying with the allocator as prime suspect. This
+project converges on the same primitive, and it was already the open lever here
+(br-r37-c1-tjp0g, filed before the signal): replace the two owned
+`node_key_to_string` allocations in `PyDiGraph::get_edge_data` with the borrowed
+`with_node_key_str`.
+
+NOT A BANKED RATIO. These are repeat-min timings with no A/A null, taken to answer
+a structural question, and they must not be quoted as verdict rows. The ABBA
+measurement is queued for when the freeze lifts.
+
+THE DISCRIMINATOR. Two canonicalisation paths already exist in the tree:
+`with_node_key_str` writes `"str:{len}:{s}"` into a 128-byte stack buffer
+(`CANONICAL_KEY_STACK_BUF`) and only heap-allocates above it, while
+`node_key_to_string` ALWAYS `format!`s a fresh `String`. So the question "is the
+allocator the cost" can be asked without a build, by comparing their SLOPES
+against key length on the same binary. networkx is the control: it reuses
+CPython's cached str hash, so key length should cost it nothing.
+
+    key length         4      64     118     130     400    1000    4000
+    nx has_node     45.6    45.1    45.5    45.0    45.1    56.3    45.0   ns  FLAT
+    fnx has_node    50.8    50.6    50.1    49.8    50.3    62.8    50.3   ns  FLAT   (borrowed)
+    ratio          0.899   0.893   0.908   0.904   0.895   0.897   0.894         FLAT
+
+    nx  edges[u,v] 91.6    92.0    92.3    91.1    91.6    91.8    91.8   ns  FLAT
+    fnx edges[u,v] 133.9   169.7   181.2   346.3   467.9   717.1  1707.8  ns  x12.76 (owned)
+    ratio          0.685   0.542   0.509   0.263   0.196   0.128   0.054         COLLAPSES
+
+The borrowed path is flat to within 2 percent across three orders of magnitude of
+key length. The owned path grows 12.76x and its vs-incumbent ratio collapses from
+0.685x to 0.054x — 18.5x SLOWER than networkx on a single edge lookup. The step
+between 118 and 130 characters is the 128-byte stack buffer boundary, visible
+directly in the timings.
+
+IT IS NOT SPECIFIC TO ONE CLASS. `G.edges[...]` against key length, ratio at 4
+characters then at 2000:
+
+    DiGraph        0.2151x -> 0.0519x   (fnx grows x3.97)
+    MultiGraph     0.2483x -> 0.0402x   (fnx grows x6.09)
+    MultiDiGraph   0.2196x -> 0.0455x   (fnx grows x4.82)
+
+networkx is flat in all three (81.6-95.9ns regardless of length).
+
+DOES IT EXPLAIN THE WORST RATIO? YES, and it explains more than the ratio. The
+banked worst rows — MultiDiGraph `G.edges[u,v,k]` 0.2545x, DiGraph `G.edges[u,v]`
+0.2746x — are measured on SHORT keys (`n0`..`n1999`), i.e. at the best end of this
+curve. The same operation on a 2000-character key is 0.04-0.05x. So the banked
+numbers are not a constant factor to be closed; they are one point on a curve that
+degrades without bound, which is the same shape as br-r37-c1-cn8w4 (subgraph, once
+0.0015x) and belongs to the scaling-bug family rather than the micro-tuning one.
+
+WEIGHT OF THE PRIMITIVE IN THIS TREE: `node_key_to_string` has 471 call sites
+across crates/fnx-python/src/*.rs against 38 for `with_node_key_str`, a 12:1 ratio
+in favour of the allocating spelling, and an edge lookup pays TWO of them (one per
+endpoint) before it does any work.
+
+WHAT WOULD FALSIFY IT: if the owned path's growth were dominated by hashing rather
+than allocation, the borrowed path would grow too, since both hash the same number
+of bytes — `with_node_key_str` builds the identical canonical form, just in a
+stack buffer. It does not grow. That is the control, and it is what makes this an
+allocation claim rather than a length claim.
+
+MEASURE WHEN THE FREEZE LIFTS: ABBA both paths at several key lengths with dual
+A/A nulls, then apply the tjp0g patch and re-run. The prediction is specific and
+falsifiable — after the patch the owned-path curve should flatten to the borrowed
+path's shape below 128 characters and keep a single step above it, rather than
+growing without bound.
