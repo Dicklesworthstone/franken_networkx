@@ -1537,6 +1537,21 @@ pub struct AtlasView {
     /// also gives a captured row NetworkX's detached-row behaviour after its
     /// owner node is removed.
     row: Option<Py<PyDict>>,
+    /// br-r37-c1-ptiz2: this row's node INDEX, stamped with the `nodes_seq` it
+    /// was resolved under.
+    ///
+    /// `node` above is the CANONICAL STRING, so the index lookaside that fixed
+    /// the other two routes to the edge attr dict could not be used here —
+    /// resolving the index per subscript would cost the very O(key length) hash
+    /// the lookaside exists to avoid. Caching it on the ROW makes that hash
+    /// once per `G[u]` instead of once per `G[u][v]`, which is the whole point:
+    /// a row is subscripted many times.
+    ///
+    /// The stamp is not optional. Node removal RENUMBERS indices, so a stale
+    /// index would not merely miss — it would name a DIFFERENT node, and if
+    /// that pair happened to be cached it would return another edge's live
+    /// dict. Mismatched seq means re-resolve.
+    node_index: Option<(u64, usize)>,
 }
 
 impl AtlasView {
@@ -1545,6 +1560,7 @@ impl AtlasView {
             graph: Some(graph),
             node,
             row: None,
+            node_index: None,
         }
     }
 
@@ -1659,11 +1675,39 @@ impl AtlasView {
         // now; `has_edge` and `materialize_edge_py_attrs` both take `&str`, and
         // the returned dict is still the SAME shared `Py<PyDict>` the graph
         // stores, so `G[u][v]['w'] = x` keeps mutating the live edge attrs.
-        let graph = self.graph()?;
+        let graph = self.graph()?.clone_ref(py);
+        let mut g = graph.borrow_mut(py);
+        // br-r37-c1-ptiz2: INDEX-keyed probe, before `v` is canonicalised at
+        // all. The string-keyed lookaside below hashes BOTH canonicals in full,
+        // and `self.node` is the row's own key — at 8000 characters that is the
+        // whole cost. Measured before this: `G[u][v]` 0.0639x against its two
+        // sibling routes to the SAME dict at 0.7270x and 0.7012x.
+        //
+        // The row's index is resolved ONCE per `G[u]` and reused for every
+        // subscript on it, seq-stamped so a node removal that renumbers indices
+        // forces a re-resolve rather than naming a different node.
+        let nodes_seq = g.nodes_seq;
+        let u_index = match self.node_index {
+            Some((seq, index)) if seq == nodes_seq => Some(index),
+            _ => {
+                let resolved = g.inner.get_node_index(self.node.as_str());
+                if let Some(index) = resolved {
+                    self.node_index = Some((nodes_seq, index));
+                }
+                resolved
+            }
+        };
+        if let Some(u_index) = u_index
+            && v.is_exact_instance_of::<PyString>()
+            && let Some(v_index) = g.cached_exact_string_node_index(py, v)?
+            && let Some(attrs) = g.cached_edge_py_attrs_by_index(py, u_index, v_index)
+        {
+            g.mark_edges_dirty();
+            return Ok(attrs);
+        }
         let mut v_buf = ArrayString::new();
         let v_key = crate::canonical_node_key_in(py, v, &mut v_buf)?;
         let v_canon = v_key.as_str();
-        let mut g = graph.borrow_mut(py);
         if let Some(attrs) = g.cached_edge_py_attrs(py, &self.node, v_canon) {
             g.mark_edges_dirty();
             return Ok(attrs);
@@ -1676,7 +1720,18 @@ impl AtlasView {
         // dirty so a later native read reconciles it (matches the old eager
         // `G[u]`, which marked dirty unconditionally).
         g.mark_edges_dirty();
-        Ok(g.materialize_edge_py_attrs(py, &self.node, v_canon))
+        let attrs = g.materialize_edge_py_attrs(py, &self.node, v_canon);
+        // br-r37-c1-ptiz2: fill the index lookaside with the SAME dict the
+        // string-keyed mirror just returned, so the two can never disagree
+        // about identity. Only when both indices are known; anything else keeps
+        // paying the string path.
+        if let Some(u_index) = u_index
+            && v.is_exact_instance_of::<PyString>()
+            && let Some(v_index) = g.cached_exact_string_node_index(py, v)?
+        {
+            g.remember_edge_py_attrs_by_index(py, u_index, v_index, &attrs);
+        }
+        Ok(attrs)
     }
 
     fn __contains__(&self, py: Python<'_>, v: &Bound<'_, PyAny>) -> PyResult<bool> {

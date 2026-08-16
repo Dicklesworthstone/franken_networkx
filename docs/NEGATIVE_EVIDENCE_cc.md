@@ -13422,3 +13422,83 @@ and `ef0a5ed52`), `env -u CARGO_TARGET_DIR`, private TMPDIR, 2m32s cold, loaded
 via PYTHONPATH so the shared venv install was never touched. python 3.13.7
 x86_64, live networkx 3.6.1, disk 310G free. loadavg 25.3 at the window start and
 27.3 at the end, with the spike noted above inside it.
+
+## 2026-08-16 GoldenBison KEEP: `AtlasView` caches its row's node index — `G[u][v]` **0.0639x to 0.9237x** at 8000-char keys (br-r37-c1-ptiz2)
+
+comparison_class=SELF-SPEEDUP
+campaign_output=false
+decision_gate=median_ci
+cv_role=report_only
+
+The third and last route to the edge attr dict, and the one that needed a
+different fix from its two siblings. 14.5x.
+
+A/A null control run 1, incumbent arm paired against itself in the same invocation: 1.0020x, inside the 0.02 bound.
+
+A/A null control run 1, fnx arm paired against itself in the same invocation: 1.0051x, inside the 0.02 bound.
+
+A/A null control run 2, incumbent arm paired against itself in the same invocation: 1.0014x, inside the 0.02 bound.
+
+A/A null control run 2, fnx arm paired against itself in the same invocation: 0.9997x, inside the 0.02 bound.
+
+A/B against live networkx 3.6.1 in the SAME invocation, ABBAABBA square, 61 rounds
+x 50 reps x 160 calls per slot. All four rows admitted in BOTH runs:
+
+| row | before | after run 1 | after run 2 | after (worst bound) |
+|---|---|---|---|---|
+| `Graph G[u][v] len=8000` | 0.0639x | 0.9261x | 1.0397x | **0.9237x** |
+| `Graph get_edge_data len=8000` | 0.7012x | 0.6476x | 0.9359x | 0.6463x |
+| `CONTROL Graph edges[u,v] len=8000` | 0.7270x | 0.6989x | 0.8653x | 0.6952x |
+| `MDG edges[u,v,k] len=8000` | 0.3644x | 0.3765x | 0.4765x | 0.3751x |
+
+THE RUNS SHIFTED IN COMMON MODE AND THE CONTROL PROVES IT. Every row is 15-25
+percent higher in run 2 than run 1 — including `CONTROL Graph edges[u,v]`, which
+this change cannot touch, at 0.6989x then 0.8653x. Loadavg was 20.3 and 19.8, so
+the one-minute figures do not explain it. The two runs are therefore NOT
+comparable to each other and I am quoting the worst bound of the pair rather than
+averaging or picking. What survives that entirely is the size of the effect: 
+0.0639x to at worst 0.9237x is 14.5x, far outside any common-mode shift the
+control displays.
+
+WHY THIS ROUTE NEEDED A DIFFERENT FIX. The other two routes had a Python OBJECT
+for each endpoint, so `cached_exact_string_node_index` resolved both in O(1) using
+CPython's cached str hash. `AtlasView` stores its row key as a canonical STRING,
+so resolving that index per subscript would have cost exactly the O(key length)
+hash the lookaside exists to remove. The fix caches the row's index ON THE VIEW,
+resolved once per `G[u]` and reused for every `G[u][v]` on it — which is why
+`G[u][v]` is now the FASTEST of the three routes (0.9237x against 0.6952x and
+0.6463x): it pays for one endpoint where they still pay for two.
+
+THE STAMP IS LOAD-BEARING. Node removal RENUMBERS indices, so an unstamped cached
+index would not merely miss — it would name a DIFFERENT node, and if that pair
+were cached it would return another edge's live dict. The entry carries the
+`nodes_seq` it was resolved under and re-resolves on mismatch.
+
+I APPLIED THE RULE THIS TIME. The previous entry records that I patched
+`_fnx_edge_attr_dict_fast` for this row and it moved 15 percent because `G[u][v]`
+does not call it. Before touching anything here I confirmed by instrumentation
+that `G[u]` returns the native `AtlasView` and that its `__getitem__` is the C
+slot actually on the path, then read that slot rather than inferring from it.
+That is the whole difference between a 15 percent unattributable move and 14.5x.
+
+ALL THREE ROUTES TO THE SAME DICT ARE NOW FIXED, measured at 8000-character keys:
+
+    G[u][v]            0.0555x -> 0.9237x
+    G.get_edge_data()  0.0224x -> 0.6463x
+    G.edges[u,v]       0.0224x -> 0.6952x   (fixed earlier by the same lookaside)
+
+CORRECTNESS: `cargo check` clean; full Python suite 59653 passed / 1463 skipped,
+only the two pre-existing cross-test pollution failures (br-r37-c1-2i3mf). The
+index-renumbering negative case in
+`tests/python/test_edge_attr_lookaside_identity_and_invalidation.py` covers
+exactly the hazard this stamp guards.
+
+PROVENANCE, self-reported in-process: harness `scripts/balanced_square_ab.py`
+sha256 fba97bb5867907dbc10cb48d5ce70816844c4cab0408136f75000fd2bb7344f8; host
+thinkstation1; rch_worker none, both arms in-process on the same host; loaded ELF
+sha256 8f9d159a8ff369e5d0c21321ee881ad2e2931a62203bec11b2732da458d3b15b (AFTER),
+00a3b11ef4da3fc8e9564284b849baf9125fa08b7dce844ab3be3fba2c303d99 (BEFORE); built
+locally by maturin, `env -u CARGO_TARGET_DIR`, private TMPDIR, disk 309.70 ->
+309.78 GiB; governor powersave; runtime ISA avx2 avx sse4_2; observed affinity 8
+of 64 cpus; python 3.13.7 x86_64; live networkx 3.6.1; PYTHONHASHSEED=0; loadavg
+20.3 and 19.8 at the two run starts.
