@@ -11264,3 +11264,41 @@ ecfc2d30935a12eb0b61c3d00b38718026bcc36977c047b048463c1bf9a37fb8, built locally
 by maturin at 2026-08-16 from HEAD; governor powersave; runtime ISA avx2 avx
 sse4_2; observed affinity 8 of 64 cpus; python 3.13.7 x86_64; live networkx 3.6.1;
 PYTHONHASHSEED=0.
+
+---
+
+## MultiDiGraph nbunch_iter(half) — measured LOSS after the container lever (br-r37-c1-oaamq)
+
+LEVER: br-r37-c1-oaamq removed the eager native bulk filter and iterated
+`self.nodes` in networkx's own lazy generator, which took this family from
+0.453x-0.515x to 0.71x-0.75x.
+
+HYPOTHESIS: the remaining gap closes by reaching the live node PyDict directly
+rather than through NodeView dispatch.
+
+MEASURED 2026-08-16, LOCAL:thinkstation1, live networkx 3.6.1, N=4000, nbunch of
+half the nodes. Substrate: balanced square ABBAABBA, 21 rounds x 400 reps, both
+arms in ONE invocation, bootstrap median CI over rounds (10k resamples).
+Pure-Python path, no build. RCH_CARGO_WRAPPER_BYPASS=1 exported.
+ELF sha256 ecfc2d30935a12eb0b61c3d00b38718026bcc36977c047b048463c1bf9a37fb8.
+
+    class          nx us    fnx us   t_nx/t_fnx   95% CI
+    MultiDiGraph   82.30    116.83     0.7127     [0.6924, 0.7223]
+
+MultiDiGraph A/A null control, paired(base, base) in the same invocation: nx arm 1.0042x CI [0.9628, 1.0290] PASS; fnx arm 0.9942x CI [0.9776, 1.0166] PASS.
+Both A/A null CIs straddle 1.0, gated on the bootstrap median CI and not on CV, so the substrate is admissible and the 0.7127x gap sits outside the null spread.
+
+WHY THE NEXT LEVER WAS NOT TAKEN: the floor is already measured and it is not
+reachable from Python. A live node PyDict exists behind the graph — recovered via
+gc.get_referents on `_fnx_native_node_iter()`, membership against it costs
+95.7us, exactly equal to networkx's own `n in _adj` at 95.7us. Parity is
+therefore available, but only by exposing that dict through a real accessor,
+which is Rust work. Filed as br-r37-c1-8pcnn. Disk at 45G leaves 3G over the 42G
+hard stop, so no build was started for it.
+
+NOTE ON THE ELF: this row was taken on ecfc2d30..., a different extension from
+the e702b044... used for the two rows above it. The artifact has changed four
+times during this session, so rows are only comparable within the same sha.
+
+STATUS: loss recorded with an admissible null. The lever is OPEN, its ceiling is
+measured at parity, and it is Rust-side.
