@@ -23061,9 +23061,21 @@ def dijkstra_path_length(G, source, target, weight="weight"):
                 return _call_networkx_for_parity(
                     "dijkstra_path_length", G, source, target, weight=weight
                 )
-            _direct = _raw_multidigraph_dijkstra_path_length_target(
-                G, source, target, weight=weight
-            )
+            try:
+                _direct = _raw_multidigraph_dijkstra_path_length_target(
+                    G, source, target, weight=weight
+                )
+            except NetworkXNoPath as exc:
+                # br-r37-c1-rmzr6: the MultiDiGraph branch reached the raw
+                # kernel without the re-raise the general path below already
+                # does, so it surfaced the kernel's own wording -- and with the
+                # canonical key in it: "No path between str:1:a and str:1:z."
+                # networkx uses a DIFFERENT template for dijkstra_path_length
+                # than for shortest_path, and Graph / DiGraph / MultiGraph all
+                # already emit it here; MultiDiGraph was the one class out.
+                raise NetworkXNoPath(
+                    f"Node {target} not reachable from {source}"
+                ) from exc
             if _direct is not None:
                 return _direct
             return _call_networkx_for_parity(

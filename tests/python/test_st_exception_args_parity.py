@@ -13,12 +13,12 @@ The headline was an internal key encoding reaching the user:
 `str:1:a` is fnx's canonical node key. It leaked for STRING keys only — int and
 tuple keys already round-trip — so it hit the most common node type while every
 int-keyed fixture looked clean. Fixed under br-r37-c1-t27ad, taking 17 divergences
-to 5.
+to 5, and br-r37-c1-rmzr6 then took it to 4.
 
-The 5 that remain are two different defects, pinned below rather than hidden:
-br-r37-c1-7aymx (flow values return float 0.0 where networkx returns int 0) and
-br-r37-c1-rmzr6 (MultiDiGraph dijkstra_path_length uses the wrong message
-template). Both are filed with their own evidence.
+The 4 that remain are one defect: br-r37-c1-7aymx, where maximum_flow_value and
+minimum_cut_value return float 0.0 on a disconnected pair where networkx returns
+int 0. It is pinned below rather than hidden — the value agrees, only the type
+differs — and filed with its own evidence.
 """
 
 from __future__ import annotations
@@ -153,25 +153,26 @@ def test_flow_value_residue_is_still_exactly_as_recorded(cls_name):
     )
 
 
-def test_multidigraph_dijkstra_message_residue_is_still_as_recorded():
-    """br-r37-c1-rmzr6: MultiDiGraph uses the wrong message template.
+@pytest.mark.parametrize("cls_name", CLASSES)
+def test_dijkstra_path_length_uses_networkx_message_on_every_class(cls_name):
+    """br-r37-c1-rmzr6, now FIXED — a plain parity assertion.
 
-    The other three classes already produce networkx's wording, and asserting
-    that here is what proves the right message is reachable.
+    networkx uses a different template for dijkstra_path_length than for
+    shortest_path: "Node t not reachable from s", not "No path between s and t".
+    Graph, DiGraph and MultiGraph already emitted it; the MultiDiGraph branch
+    reached its raw kernel without the re-raise the general path already
+    performed, so it surfaced the kernel's own wording with the canonical key
+    in it. That asymmetry is why the pin this replaces asserted the other three
+    were correct — they were the proof the right message was reachable.
     """
-    for cls_name in ("Graph", "DiGraph", "MultiGraph"):
-        want = _outcome(nx, cls_name, lambda L, g: L.dijkstra_path_length(g, "a", "z"))
-        got = _outcome(fnx, cls_name, lambda L, g: L.dijkstra_path_length(g, "a", "z"))
-        assert got == want, f"{cls_name} was correct when rmzr6 was filed"
-
-    want = _outcome(nx, "MultiDiGraph", lambda L, g: L.dijkstra_path_length(g, "a", "z"))
-    got = _outcome(fnx, "MultiDiGraph", lambda L, g: L.dijkstra_path_length(g, "a", "z"))
-    assert got[0] == want[0] == "NetworkXNoPath", "the exception TYPE has always agreed"
-    if got == want:
-        pytest.fail(
-            "br-r37-c1-rmzr6 appears FIXED: MultiDiGraph dijkstra_path_length now "
-            "matches networkx. Fold it into the strict assertions above."
-        )
+    want = _outcome(nx, cls_name, lambda L, g: L.dijkstra_path_length(g, "a", "z"))
+    got = _outcome(fnx, cls_name, lambda L, g: L.dijkstra_path_length(g, "a", "z"))
+    assert got == want, cls_name
+    assert want[0] == "NetworkXNoPath"
+    assert "not reachable from" in want[1][0], (
+        "networkx changed its dijkstra_path_length wording; this test's premise "
+        "is stale"
+    )
 
 
 def test_the_sweep_is_not_vacuous():
