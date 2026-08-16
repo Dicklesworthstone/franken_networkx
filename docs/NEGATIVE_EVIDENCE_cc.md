@@ -16989,3 +16989,83 @@ venv install was never touched. host thinkstation1, 64 logical / 32 physical, SM
 on, governor `powersave`. python 3.13.7, live networkx 3.6.1, disk 252G free.
 `uptime` observed: 17.06 / 19.73 / 21.86 at the decision, 15.71-15.73 across the
 three certification runs. CPU MHz per arm is in the table.
+
+## CERTIFIED: DiGraph `G.adj[u][v]` at long keys is **0.0804x** — the new worst cell; and a peer took the bead mid-turn, so the lever is theirs (br-r37-c1-0k6zl)
+
+WINDOW VERIFIED BY THIS PANE: `uptime` gave 1-min 16.2, 5-min 16.2, 15-min 18.1 —
+tightly converged; `window_is_certifiable()` returned `(True, 'stable')`. Runs
+pinned to `cpu14`, per-arm loadavg and CPU MHz recorded, whole-run SMT sibling
+occupancy gated at 20 percent.
+
+**THE PREVIOUS WORST CELL IS GONE**, so this takes the next one. Multigraph
+unkeyed `get_edge_data` certified at 0.2225x last turn after the keydict cache;
+scanning the row-view family on a commit-pinned HEAD build (ELF
+`bba560418752d220`) put `DiGraph G.adj[u][v]` at 2000-character keys at the
+bottom.
+
+    loadavg  clock      nx ns    fnx ns   ratio    CI                 sibling  skew  same-core
+    14.08    4214 MHz   146.0    1814.2   0.0808   [0.0805, 0.0810]     3%     0.0%   100%
+    13.67    4114 MHz   150.5    1839.9   0.0820   [0.0807, 0.0824]     4%     0.0%   100%
+    13.37    4123 MHz   149.2    1858.2   0.0804   [0.0802, 0.0806]     3%     0.2%   100%
+
+**0.0804x worst bound — a 12.4x loss.** THE GATE DID WORK: three earlier runs at
+sibling occupancy 32-39 percent were REJECTED and re-taken rather than banked,
+which is the rule this pane set after measuring that a contended sibling shifts a
+ratio 17 percent. The three above ran at 3-4 percent.
+
+**THE DIAGNOSIS, and the correction to my own first version of it.** I filed this
+as "the whole family except Graph re-canonicalises per subscript, so cost grows
+with key length". Only the first half survives. Measuring BOTH ends instead of
+one:
+
+    class          K=3      K=2000   degradation
+    Graph          0.5917   0.5570   1.06x   flat -- has the native row-index cache
+    DiGraph        0.2906   0.0913   3.2x    key-length driven
+    MultiGraph     0.2544   0.1742   1.46x   constant-factor loss
+    MultiDiGraph   0.2403   0.1635   1.47x   constant-factor loss
+
+There are TWO effects and only DiGraph has both. A low ratio at ONE key length is
+equally consistent with a constant-factor loss; a slope needs two points and I
+had one. The guard test caught it — I had marked all three non-Graph classes
+`xfail(strict=True)` on the assumption they grew "8-12x", and the multigraph
+params XPASSED.
+
+**A THIRD GAP THAT NO BEAD OWNS**, visible only once the two effects were
+separated: simple `Graph` is 0.5917x even at 3-character keys. The native row
+view fixed the SLOPE and not the CONSTANT, so every class including the fixed one
+carries a fixed per-call deficit on row subscripts. br-r37-c1-2ndmw owns the
+multigraph constant; nothing owns Graph's.
+
+**THE LEVER IS A PEER'S, AND THIS PANE STOPPED.** After filing the bead this pane
+began the obvious fix — the `edge_py_attrs_by_index` lookaside that
+br-r37-c1-ptiz2 gave PyGraph and br-r37-c1-7qqr8 gave PyMultiDiGraph, wired into
+`_fnx_edge_attr_dict_fast`, which currently calls `node_key_to_string` on BOTH
+endpoints per subscript. Partway in, `bump_edges_seq` turned out to already carry
+a `br-r37-c1-0k6zl` comment: HEAD contains 0 mentions of that id and the working
+tree contains 6, so a peer picked the bead up within the same turn and is
+implementing it uncommitted. This pane wrote nothing to `digraph.rs` — the patch
+script asserts its anchors before writing and never reached the write — and
+stopped rather than duplicate. An attempt to build their in-flight state for
+verification fails to compile, as expected mid-implementation, so the fix is left
+entirely to them.
+
+Worth recording that the repo's own guard caught the dangerous half: a
+`git checkout -- crates/fnx-python/src/digraph.rs` in the cleanup step would have
+destroyed the peer's uncommitted work, and dcg refused it.
+
+**WHAT THIS PANE LEAVES BEHIND FOR THAT FIX**:
+`tests/python/test_row_subscript_key_length_scaling.py` — growth across a
+3-to-2000 character key span with networkx as the in-process control, bound 2.5x
+set BETWEEN the measured clusters rather than guessed. `Graph` and both multigraph
+classes assert strictly; `DiGraph` is the lone `xfail(strict=True)` and turns
+green the moment the lookaside lands, making this file its acceptance gate.
+
+PROVENANCE, self-reported in-process: harness
+`/data/tmp/claude-1000/bsq_adjcell.py` with per-arm core/clock/load sampling and
+whole-run sibling gating; both arms in-process, sequential, same invocation,
+pinned to cpu14 via `taskset`. Loaded ELF sha256 `bba560418752d220...`, a
+commit-pinned `git archive` build of HEAD, `env -u CARGO_TARGET_DIR`, private
+TMPDIR, loaded via PYTHONPATH so the shared venv install was never touched. host
+thinkstation1, 64 logical / 32 physical, governor `powersave`. python 3.13.7,
+live networkx 3.6.1, disk 243G free. `uptime` observed: 16.2 / 16.2 / 18.1 at the
+decision, 13.37-14.08 across the three certification runs.
