@@ -675,6 +675,11 @@ def workload_multi_key_length(reps: int):
         mdg_long, _s2, ul, vl = fixture[2000]
         table["CONTROL MDG has_edge len=3"] = lambda: mdg3.has_edge(u3, v3, 0)
         table["CONTROL MDG has_edge len=2000"] = lambda: mdg_long.has_edge(ul, vl, 0)
+        # br-r37-c1-ptiz2: the KEYLESS form is a different code path from the
+        # keyed one above — it can resolve entirely by node index, where the
+        # keyed form still needs canonical strings for the edge key.
+        table["MDG has_edge KEYLESS len=3"] = lambda: mdg3.has_edge(u3, v3)
+        table["MDG has_edge KEYLESS len=2000"] = lambda: mdg_long.has_edge(ul, vl)
         # br-r37-c1-tjp0g attribution rows: get_edge_data is ~90% of the
         # subscript at long keys, so it is measured directly rather than
         # inferred by subtraction.

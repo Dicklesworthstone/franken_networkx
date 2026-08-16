@@ -5596,6 +5596,43 @@ impl PyMultiDiGraph {
         {
             return Ok(self.inner.has_edge_by_indices(iu, iv));
         }
+        // br-r37-c1-ptiz2: exact-`str` endpoints resolve by CACHED INDEX, O(1) in
+        // key length, instead of two owned `node_key_to_string` allocations and
+        // three full-length hashes (`has_node`, then both endpoints again in
+        // `has_edge`).
+        //
+        // Measured at 2000-character nodes: `has_edge(u,v,0)` 546.1ns and
+        // `has_edge(u,v)` 484.9ns against `has_node(u)` on the SAME key at
+        // 58.0ns and flat — roughly 9x for what is the same node resolution
+        // twice over, because `has_node` already takes the index path.
+        //
+        // KEYLESS ONLY, and that gate is a MEASURED correction rather than
+        // caution. I first ran this path for the keyed form too, short-circuiting
+        // only an ABSENT pair — and it REGRESSED the keyed row from 0.1726x to
+        // 0.1404x at 2000-character keys (both measured at loadavg ~12). The
+        // reason is plain once measured: `resolve_internal_edge_key` and
+        // `edge_attrs` are keyed by canonical STRINGS and fnx-classes has no
+        // by-index equivalent taking an edge key, so a PRESENT keyed pair paid
+        // two index lookups and then fell through to the whole string path
+        // anyway. Extra work, nothing removed. The keyed form is left alone
+        // until that primitive exists.
+        //
+        // ORDER IS PRESERVED: nx raises KeyError from `self._succ[u]` for an
+        // absent source and answers False WITHOUT hashing `v`, which is what the
+        // absent branch does. Hashing an exact `str` cannot raise, so resolving
+        // `v`'s index before that point is unobservable.
+        if key.is_none()
+            && u.is_exact_instance_of::<PyString>()
+            && v.is_exact_instance_of::<PyString>()
+        {
+            let Some(u_index) = self.cached_exact_string_node_index(py, u)? else {
+                return Ok(false);
+            };
+            return Ok(match self.cached_exact_string_node_index(py, v)? {
+                Some(v_index) => self.inner.has_edge_by_indices(u_index, v_index),
+                None => false,
+            });
+        }
         let u_c = node_key_to_string(py, u)?;
         // br-r37-c1-lvlu7: absent source short-circuits before `v` is hashed.
         if !self.inner.has_node(&u_c) {
