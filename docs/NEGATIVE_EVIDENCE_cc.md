@@ -11608,3 +11608,63 @@ ecfc2d30935a12eb0b61c3d00b38718026bcc36977c047b048463c1bf9a37fb8 on BOTH sides;
 governor powersave; runtime ISA avx2 avx sse4_2; observed affinity 8 of 64 cpus;
 python 3.13.7 x86_64; live networkx 3.6.1; PYTHONHASHSEED=0; loadavg 24.0/23.7
 before and 24.8/23.5 after.
+
+## MultiGraph `G.has_edge(u,v,k)` — measured LOSS 0.3926x vs networkx, lever NOT taken (br-r37-c1-ki2ni)
+
+comparison_class=INCUMBENT
+incumbent=networkx
+incumbent_same_invocation=true
+decision_gate=median_ci
+cv_role=report_only
+
+Two rows I had RUN and recorded as UNBANKED because they NULL-FAILED at 8 calls
+per slot. Re-run here at 16, which resolves both. NO BUILD was performed; the
+existing binary was reused.
+
+A/A null control run 1, incumbent arm paired against itself in the same invocation: 1.0176x, inside the 0.02 bound.
+
+A/A null control run 1, fnx arm paired against itself in the same invocation: 0.9981x, inside the 0.02 bound.
+
+A/A null control run 2, incumbent arm paired against itself in the same invocation: 1.0115x, inside the 0.02 bound.
+
+A/A null control run 2, fnx arm paired against itself in the same invocation: 0.9983x, inside the 0.02 bound.
+
+A/B against live networkx 3.6.1 in the SAME invocation, ABBAABBA square, IDENTICAL
+shape in both runs (81 rounds x 50 reps x 16 calls per slot), differing only in
+core set, gated on the bootstrap median CI. All seven rows admitted in BOTH runs:
+
+| row | run 1 (cores 40-47) | run 2 (cores 48-55) | worst bound |
+|---|---|---|---|
+| `MG G.has_edge(u,v,k)` | 0.3944x [0.3926, 0.3958] | 0.4308x [0.4288, 0.4321] | 0.3926x |
+| `MG G.get_edge_data(u,v,k)` | 0.4391x [0.4384, 0.4408] | 0.4494x [0.4479, 0.4513] | 0.4384x |
+| `MDG G.edges[u,v,k]` | 0.2715x [0.2707, 0.2723] | 0.2719x [0.2707, 0.2727] | 0.2707x |
+| `MG G.edges[u,v,k]` | 0.3016x [0.3008, 0.3029] | 0.3174x [0.3165, 0.3186] | 0.3008x |
+| `MG (u,v,k) in G.edges()` | 0.2887x [0.2872, 0.2900] | 0.2842x [0.2825, 0.2850] | 0.2825x |
+| CONTROL `len(G)` | 2.0584x | 2.1386x | — |
+| CONTROL `n in G` | 1.5365x | 1.5724x | — |
+
+Ratio is t_networkx/t_fnx, so below 1.0 means fnx is slower.
+
+`MG G.has_edge(u,v,k)` is banked at its worst bound but its runs are about 9
+percent apart (0.3944x against 0.4308x) with all four nulls passing — the standing
+caveat that a null certifies stationarity WITHIN a run and nothing about
+between-run load. The host was heavily loaded, loadavg 38.9 and 32.8, with another
+project building throughout. By contrast `MDG G.edges[u,v,k]` replicates to 0.15
+percent under the same conditions, so the substrate is sound and the spread is
+specific to that row.
+
+CALLS-PER-SLOT CHANGES THESE NUMBERS and the shape is quoted with them. At 8 calls
+per slot `MDG G.edges[u,v,k]` reads 0.2545x worst bound (banked separately) and at
+16 it reads 0.2707x, while `has_edge` and `get_edge_data` do not admit at all at
+8. A row measured at one shape is not comparable to one measured at another; both
+are recorded rather than one being presented as the number.
+
+PROVENANCE, self-reported in-process: harness `scripts/balanced_square_ab.py`
+sha256 286bb779e78758e01b56e369fd71ec9f24b5971d60c03472570a812fc0edf62c; host
+thinkstation1; rch_worker none, both arms in-process, and NO build was performed —
+existing binary reused, verified by 0 `.rs` files newer than the loaded `.so`;
+loaded ELF sha256
+ecfc2d30935a12eb0b61c3d00b38718026bcc36977c047b048463c1bf9a37fb8; governor
+powersave; runtime ISA avx2 avx sse4_2; observed affinity 8 of 64 cpus; python
+3.13.7 x86_64; live networkx 3.6.1; PYTHONHASHSEED=0; loadavg 38.9 and 32.8 at the
+two run starts.
