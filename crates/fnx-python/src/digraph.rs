@@ -9278,7 +9278,13 @@ impl PyDiGraph {
         {
             return Ok(None);
         }
-        let py_nodes = self.cached_node_key_vec(py);
+        // br-r37-c1-y603y: bind the CACHED node-key tuple and index it, instead of
+        // `cached_node_key_vec`, which rebuilt a fresh Vec<PyObject> of EVERY node
+        // (increfing each) on every call. That is what made a one-node nbunch
+        // request cost O(V): the kernel doubled from 2.2us at n=250 to 59.0us at
+        // n=8000 while networkx stayed flat at 2.1us.
+        let py_nodes_keys = self.cached_node_key_tuple(py);
+        let py_nodes = py_nodes_keys.bind(py);
         let mut out: Vec<(PyObject, PyObject)> = Vec::new();
         // nx dedups repeated nbunch nodes (out_edges([1,1,2]) == out_edges([1,2])).
         let mut seen: std::collections::HashSet<usize> = std::collections::HashSet::new();
@@ -9306,7 +9312,7 @@ impl PyDiGraph {
                 self.inner.predecessors_indices(idx)
             };
             for &nbr_idx in neighbors.unwrap_or(&[]) {
-                let nbr_obj = py_nodes[nbr_idx].clone_ref(py);
+                let nbr_obj = py_nodes.get_item(nbr_idx)?.unbind();
                 if out_dir {
                     out.push((node.clone().unbind(), nbr_obj));
                 } else {
@@ -14576,8 +14582,19 @@ impl PyDiGraph {
             return Ok(None);
         }
         let mut out: Vec<PyObject> = Vec::new();
-        let mut seen_nodes = vec![false; self.inner.node_count()];
-        let py_nodes = self.cached_node_key_vec(py);
+        // br-r37-c1-y603y: dedup by HashSet, not a whole-graph bitmap. A one-node
+        // request used to allocate and zero one byte per NODE, so the
+        // kernel scaled with the graph rather than with the nbunch —
+        // 3.0us at n=250 rising to 61.4us at n=8000 for the same single
+        // row. The undirected sibling has always used a HashSet.
+        let mut seen_nodes: std::collections::HashSet<usize> = std::collections::HashSet::new();
+        // br-r37-c1-y603y: bind the CACHED node-key tuple and index it, instead of
+        // `cached_node_key_vec`, which rebuilt a fresh Vec<PyObject> of EVERY node
+        // (increfing each) on every call. That is what made a one-node nbunch
+        // request cost O(V): the kernel doubled from 2.2us at n=250 to 59.0us at
+        // n=8000 while networkx stayed flat at 2.1us.
+        let py_nodes_keys = self.cached_node_key_tuple(py);
+        let py_nodes = py_nodes_keys.bind(py);
         let inner = &self.inner;
         let edge_py_attrs = &mut self.edge_py_attrs;
         for item in nbunch.try_iter()? {
@@ -14595,10 +14612,9 @@ impl PyDiGraph {
             let Some(idx) = inner.get_node_index(&canonical) else {
                 continue;
             };
-            if seen_nodes[idx] {
+            if !seen_nodes.insert(idx) {
                 continue;
             }
-            seen_nodes[idx] = true;
             let target_obj = node.clone().unbind();
             let Some(target_name) = inner.get_node_name(idx) else {
                 continue;
@@ -14607,7 +14623,7 @@ impl PyDiGraph {
                 let source_name = inner
                     .get_node_name(src_idx)
                     .expect("predecessor index should resolve during in_edges");
-                let source_obj = py_nodes[src_idx].clone_ref(py);
+                let source_obj = py_nodes.get_item(src_idx)?.unbind();
                 let attrs = edge_py_attrs
                     .entry(Self::edge_key(source_name, target_name))
                     .or_insert_with(|| match inner.edge_attrs_by_indices(src_idx, idx) {
@@ -14644,7 +14660,13 @@ impl PyDiGraph {
         if !self.pred_py_keys.is_empty() {
             return Ok(None);
         }
-        let py_nodes = self.cached_node_key_vec(py);
+        // br-r37-c1-y603y: bind the CACHED node-key tuple and index it, instead of
+        // `cached_node_key_vec`, which rebuilt a fresh Vec<PyObject> of EVERY node
+        // (increfing each) on every call. That is what made a one-node nbunch
+        // request cost O(V): the kernel doubled from 2.2us at n=250 to 59.0us at
+        // n=8000 while networkx stayed flat at 2.1us.
+        let py_nodes_keys = self.cached_node_key_tuple(py);
+        let py_nodes = py_nodes_keys.bind(py);
         let clean_string_attr = (!self.edges_dirty.load(Ordering::Relaxed))
             .then(|| data.downcast::<PyString>().ok())
             .flatten()
@@ -14654,7 +14676,12 @@ impl PyDiGraph {
             let inner = &self.inner;
             let edge_py_attrs = &mut self.edge_py_attrs;
             let mut out: Vec<PyObject> = Vec::new();
-            let mut seen_nodes = vec![false; inner.node_count()];
+            // br-r37-c1-y603y: dedup by HashSet, not a whole-graph bitmap. A one-node
+            // request used to allocate and zero one byte per NODE, so the
+            // kernel scaled with the graph rather than with the nbunch —
+            // 3.0us at n=250 rising to 61.4us at n=8000 for the same single
+            // row. The undirected sibling has always used a HashSet.
+            let mut seen_nodes: std::collections::HashSet<usize> = std::collections::HashSet::new();
             for item in nbunch.try_iter()? {
                 let node = item?;
                 if node.hash().is_err() {
@@ -14670,16 +14697,15 @@ impl PyDiGraph {
                 let Some(idx) = inner.get_node_index(&canonical) else {
                     continue;
                 };
-                if seen_nodes[idx] {
+                if !seen_nodes.insert(idx) {
                     continue;
                 }
-                seen_nodes[idx] = true;
                 let target_obj = node.clone().unbind();
                 let Some(target_name) = inner.get_node_name(idx) else {
                     continue;
                 };
                 for &src_idx in inner.predecessors_indices(idx).unwrap_or(&[]) {
-                    let source_obj = py_nodes[src_idx].clone_ref(py);
+                    let source_obj = py_nodes.get_item(src_idx)?.unbind();
                     let value = match inner
                         .edge_attrs_by_indices(src_idx, idx)
                         .and_then(|attrs| attrs.get(attr_name))
@@ -14742,7 +14768,7 @@ impl PyDiGraph {
                 .map(<[usize]>::to_vec)
                 .unwrap_or_default();
             for src_idx in preds {
-                let source_obj = py_nodes[src_idx].clone_ref(py);
+                let source_obj = py_nodes.get_item(src_idx)?.unbind();
                 let source_name = self
                     .inner
                     .get_node_name(src_idx)
@@ -14774,8 +14800,19 @@ impl PyDiGraph {
         }
         let mut out: Vec<PyObject> = Vec::new();
         // nx dedups repeated nbunch nodes (out_edges([1,1,2]) == out_edges([1,2])).
-        let mut seen_nodes = vec![false; self.inner.node_count()];
-        let py_nodes = self.cached_node_key_vec(py);
+        // br-r37-c1-y603y: dedup by HashSet, not a whole-graph bitmap. A one-node
+        // request used to allocate and zero one byte per NODE, so the
+        // kernel scaled with the graph rather than with the nbunch —
+        // 3.0us at n=250 rising to 61.4us at n=8000 for the same single
+        // row. The undirected sibling has always used a HashSet.
+        let mut seen_nodes: std::collections::HashSet<usize> = std::collections::HashSet::new();
+        // br-r37-c1-y603y: bind the CACHED node-key tuple and index it, instead of
+        // `cached_node_key_vec`, which rebuilt a fresh Vec<PyObject> of EVERY node
+        // (increfing each) on every call. That is what made a one-node nbunch
+        // request cost O(V): the kernel doubled from 2.2us at n=250 to 59.0us at
+        // n=8000 while networkx stayed flat at 2.1us.
+        let py_nodes_keys = self.cached_node_key_tuple(py);
+        let py_nodes = py_nodes_keys.bind(py);
         let inner = &self.inner;
         let edge_py_attrs = &mut self.edge_py_attrs;
         for item in nbunch.try_iter()? {
@@ -14793,10 +14830,9 @@ impl PyDiGraph {
             let Some(idx) = inner.get_node_index(&canonical) else {
                 continue;
             };
-            if seen_nodes[idx] {
+            if !seen_nodes.insert(idx) {
                 continue;
             }
-            seen_nodes[idx] = true;
             let source_obj = node.clone().unbind();
             let Some(source_name) = inner.get_node_name(idx) else {
                 continue;
@@ -14805,7 +14841,7 @@ impl PyDiGraph {
                 let target_name = inner
                     .get_node_name(nbr_idx)
                     .expect("successor index should resolve during out_edges");
-                let nbr_obj = py_nodes[nbr_idx].clone_ref(py);
+                let nbr_obj = py_nodes.get_item(nbr_idx)?.unbind();
                 let attrs = edge_py_attrs
                     .entry(Self::edge_key(source_name, target_name))
                     .or_insert_with(|| match inner.edge_attrs_by_indices(idx, nbr_idx) {
@@ -14840,7 +14876,13 @@ impl PyDiGraph {
         if !self.succ_py_keys.is_empty() {
             return Ok(None);
         }
-        let py_nodes = self.cached_node_key_vec(py);
+        // br-r37-c1-y603y: bind the CACHED node-key tuple and index it, instead of
+        // `cached_node_key_vec`, which rebuilt a fresh Vec<PyObject> of EVERY node
+        // (increfing each) on every call. That is what made a one-node nbunch
+        // request cost O(V): the kernel doubled from 2.2us at n=250 to 59.0us at
+        // n=8000 while networkx stayed flat at 2.1us.
+        let py_nodes_keys = self.cached_node_key_tuple(py);
+        let py_nodes = py_nodes_keys.bind(py);
         let clean_string_attr = (!self.edges_dirty.load(Ordering::Relaxed))
             .then(|| data.downcast::<PyString>().ok())
             .flatten()
@@ -14850,7 +14892,12 @@ impl PyDiGraph {
             let inner = &self.inner;
             let edge_py_attrs = &mut self.edge_py_attrs;
             let mut out: Vec<PyObject> = Vec::new();
-            let mut seen_nodes = vec![false; self.inner.node_count()];
+            // br-r37-c1-y603y: dedup by HashSet, not a whole-graph bitmap. A one-node
+            // request used to allocate and zero one byte per NODE, so the
+            // kernel scaled with the graph rather than with the nbunch —
+            // 3.0us at n=250 rising to 61.4us at n=8000 for the same single
+            // row. The undirected sibling has always used a HashSet.
+            let mut seen_nodes: std::collections::HashSet<usize> = std::collections::HashSet::new();
             for item in nbunch.try_iter()? {
                 let node = item?;
                 if node.hash().is_err() {
@@ -14866,16 +14913,15 @@ impl PyDiGraph {
                 let Some(idx) = inner.get_node_index(&canonical) else {
                     continue;
                 };
-                if seen_nodes[idx] {
+                if !seen_nodes.insert(idx) {
                     continue;
                 }
-                seen_nodes[idx] = true;
                 let source_obj = node.clone().unbind();
                 let Some(source_name) = inner.get_node_name(idx) else {
                     continue;
                 };
                 for &nbr_idx in inner.successors_indices(idx).unwrap_or(&[]) {
-                    let nbr_obj = py_nodes[nbr_idx].clone_ref(py);
+                    let nbr_obj = py_nodes.get_item(nbr_idx)?.unbind();
                     let value = match inner
                         .edge_attrs_by_indices(idx, nbr_idx)
                         .and_then(|attrs| attrs.get(attr_name))
@@ -14938,7 +14984,7 @@ impl PyDiGraph {
                 .map(<[usize]>::to_vec)
                 .unwrap_or_default();
             for nbr_idx in succ {
-                let nbr_obj = py_nodes[nbr_idx].clone_ref(py);
+                let nbr_obj = py_nodes.get_item(nbr_idx)?.unbind();
                 let target_name = self
                     .inner
                     .get_node_name(nbr_idx)
