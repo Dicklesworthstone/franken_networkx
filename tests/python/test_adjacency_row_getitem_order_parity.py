@@ -135,3 +135,39 @@ def test_row_contents_and_membership_match_networkx(cls_name):
             assert len(gfx.adj[node]) == len(gnx.adj[node])
             for probe in ("a", "b", "c", "zz", 7):
                 assert (probe in gfx.adj[node]) == (probe in gnx.adj[node])
+
+
+@pytest.mark.parametrize("cls_name", CLASSES)
+@pytest.mark.parametrize(
+    "bad", [["x"], {"x": 1}, {"x"}, bytearray(b"x")],
+    ids=["list", "dict", "set", "bytearray"],
+)
+def test_unhashable_membership_in_a_row_raises_type_error(cls_name, bad):
+    """br-r37-c1-espyz: `v in G.adj[u]` hashes v, so unhashable is TypeError.
+
+    Simple `Graph` was the last class diverging here: its row is the NATIVE
+    AtlasView (br-r37-c1-ey6ob routes it there), whose probe canonicalises by
+    VALUE and never hashed, so it answered False where networkx raised. Checked
+    on BOTH a cold row and a materialised one, because the native view has two
+    membership branches and an answer that depends on which one is live would be
+    the same cache-state bug br-r37-c1-alll4 pinned for node membership.
+    """
+    gnx, gfx = _pair(cls_name)
+    cold = _outcome(lambda: bad in gfx.adj["a"])
+    assert cold == _outcome(lambda: bad in gnx.adj["a"])
+    assert cold[1] == "TypeError"
+
+    row_fx, row_nx = gfx.adj["a"], gnx.adj["a"]
+    list(row_fx)  # materialise the native row
+    list(row_nx)
+    warm = _outcome(lambda: bad in row_fx)
+    assert warm == _outcome(lambda: bad in row_nx)
+    assert warm[1] == "TypeError", "materialised row stopped hashing the key"
+
+
+@pytest.mark.parametrize("cls_name", CLASSES)
+def test_hashable_membership_is_unaffected_by_the_guard(cls_name):
+    """The guard must not change any answer for a hashable key."""
+    gnx, gfx = _pair(cls_name)
+    for probe in ("a", "b", "c", "zz", 0, 7, -1, 2.5, True, (1, 2), frozenset({1}), ""):
+        assert (probe in gfx.adj["a"]) == (probe in gnx.adj["a"]), probe

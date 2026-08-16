@@ -31,7 +31,11 @@ import franken_networkx as fnx
 
 CLASSES = ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"]
 # Graph's row is the native AtlasView — see br-r37-c1-espyz.
-UNHASHABLE_FIXED = ["DiGraph", "MultiGraph", "MultiDiGraph"]
+# br-r37-c1-espyz is FIXED, so simple Graph is folded back in and every class
+# holds the same contract. The residue pin that used to sit below — an assertion
+# that Graph answered False — did its job: it failed the moment the native
+# AtlasView started hashing, which is exactly what it was written to do.
+UNHASHABLE_FIXED = CLASSES
 
 
 def _build(lib, cls_name):
@@ -66,27 +70,12 @@ def test_membership_matches_networkx(cls_name, row_name, key):
 @pytest.mark.parametrize("row_name", list(ROWS))
 @pytest.mark.parametrize("bad", [["u"], {"u": 1}, {1, 2}], ids=["list", "dict", "set"])
 def test_unhashable_key_raises_typeerror(cls_name, row_name, bad):
-    """The guard, on both row spellings. Graph is excluded: br-r37-c1-espyz."""
+    """The guard, on both row spellings, on ALL FOUR classes (br-r37-c1-espyz)."""
     row = ROWS[row_name]
     for lib in (nx, fnx):
         graph = _build(lib, cls_name)
         with pytest.raises(TypeError):
             bad in row(graph, "a")
-
-
-@pytest.mark.parametrize("row_name", list(ROWS))
-def test_simple_graph_unhashable_is_the_known_residue(row_name):
-    """Pins the OPEN divergence so it cannot go quiet.
-
-    Deliberately an assertion about a bug: when br-r37-c1-espyz is fixed this
-    fails and says to fold Graph back into the test above.
-    """
-    row = ROWS[row_name]
-    graph = _build(fnx, "Graph")
-    assert (["u"] in row(graph, "a")) is False
-    reference = _build(nx, "Graph")
-    with pytest.raises(TypeError):
-        ["u"] in row(reference, "a")
 
 
 @pytest.mark.parametrize("cls_name", CLASSES)

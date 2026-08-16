@@ -1613,6 +1613,24 @@ impl AtlasView {
     }
 
     fn __contains__(&self, py: Python<'_>, v: &Bound<'_, PyAny>) -> PyResult<bool> {
+        // br-r37-c1-espyz: networkx answers this with `v in self._atlas[node]`,
+        // a dict probe that HASHES v — so an unhashable key is a TypeError, not
+        // False. `with_node_key_str` below canonicalises by VALUE and never
+        // hashes, so `['x'] in G.adj['a']` quietly returned False here while
+        // networkx raised. Simple `Graph` was the only class still diverging:
+        // its row is this native view (br-r37-c1-ey6ob routes it), while the
+        // other three carry the Python `AdjacencyView`, whose `__contains__`
+        // got the same explicit guard in br-r37-c1-hcn5w.
+        //
+        // The guard is nearly free on the hot path: `require_hashable_node_key`
+        // short-circuits on an exact `str`/`int`/`float`/`bool`, which are
+        // always hashable, so the common shape pays one type check and never
+        // hashes. It is applied ahead of BOTH branches so the contract does not
+        // depend on whether this view happens to have materialised its row —
+        // the materialised branch already raised, via `PyDict::contains`, and
+        // an answer that depends on cache state is the bug pattern
+        // br-r37-c1-alll4 pinned for node membership.
+        crate::require_hashable_node_key(v)?;
         if let Some(row) = &self.row {
             return row.bind(py).contains(v);
         }
