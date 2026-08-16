@@ -1745,6 +1745,63 @@ class AtlasView(_Mapping):
 _Mapping.register(_fnx.AtlasView)
 
 
+def _graph_is_filtered(graph, _depth=0):
+    """True when nx would be serving this graph through a FilterAtlas.
+
+    ``_FilteredGraphView`` is defined much further down this module, so it is
+    looked up at call time rather than captured at import.
+
+    A reverse view wrapping a subgraph keeps the filtered wording — nx's
+    reverse is a thin relabelling over the same filtered adjacency — so the
+    ``_graph`` chain is walked. The depth cap is a cycle guard, not a limit
+    anyone should be reaching.
+    """
+    filtered_cls = globals().get("_FilteredGraphView")
+    if filtered_cls is not None and isinstance(graph, filtered_cls):
+        return True
+    base = getattr(graph, "_graph", None)
+    if base is not None and base is not graph and _depth < 4:
+        return _graph_is_filtered(base, _depth + 1)
+    return False
+
+
+def _atlas_is_filtered(atlas):
+    """True for the filtered adjacency atlases, which carry nx's wording."""
+    filtered = tuple(
+        cls
+        for cls in (
+            globals().get("_FilteredAdjacencyView"),
+            globals().get("_FilteredNeighborMap"),
+        )
+        if cls is not None
+    )
+    return bool(filtered) and isinstance(atlas, filtered)
+
+
+def _missing_node_key_error(graph, node, atlas=None):
+    """br-r37-c1-k4nsd: the KeyError nx raises for an absent node.
+
+    nx has two different wordings and fnx had them exactly SWAPPED — the
+    filtered views said the bare key where nx says "Key n not found", and the
+    reverse view said "Key n not found" where nx says the bare key:
+
+        graph              probe            networkx                fnx (before)
+        G.subgraph(...)    adj['zzz']       KeyError('Key zzz ...') KeyError('zzz')
+        G.reverse()        adj['zzz']       KeyError('zzz')         KeyError('Key zzz ...')
+
+    A plain graph raises the bare key in both, which is why the wording has to
+    be decided per graph rather than per class: fnx's AdjacencyView serves
+    plain AND filtered graphs, so it cannot simply pick one.
+
+    The bare-key form also preserves the key's TYPE (int / tuple / ...) in
+    ``args``, which br-keystr deliberately established; the filtered form is a
+    formatted string in nx too, so both sides match nx exactly.
+    """
+    if _graph_is_filtered(graph) or (atlas is not None and _atlas_is_filtered(atlas)):
+        return KeyError(f"Key {node} not found")
+    return KeyError(node)
+
+
 class AdjacencyView(_Mapping):
     def __init__(
         self,
@@ -1828,12 +1885,20 @@ class AdjacencyView(_Mapping):
         # br-r37-c1-i9whv: hash-check for nx-shaped TypeError on
         # unhashable nodes (instead of falling through to KeyError).
         hash(node)
+        atlas = self._atlas()
         try:
-            self._atlas()[node]
+            atlas[node]
         except KeyError as exc:
             # br-keystr: preserve the original key type (int/tuple/...)
             # in the KeyError args instead of the Rust side's str repr.
-            raise KeyError(node) from exc
+            # br-r37-c1-k4nsd: ...unless the atlas underneath is a FILTERED
+            # one, which already raised nx's FilterAtlas wording — flattening
+            # that to the bare key is what made subgraphs disagree with nx.
+            # The atlas is inspected rather than the caught message, because
+            # a message-based test could not tell nx's wording apart from a
+            # Rust-side str repr, which is exactly what br-keystr must keep
+            # rewriting.
+            raise _missing_node_key_error(owner, node, atlas=atlas) from exc
         if type(owner) is Graph and not _has_networkx_private_storage(owner):
             # br-r37-c1-ey6ob: the native AtlasView owns a C-level
             # ``__getitem__`` slot, so the cold G[u][v] path avoids the
@@ -1988,10 +2053,13 @@ class MultiAdjacencyView(_Mapping):
                 lambda: self._atlas()[node],
                 multi_edge_owner=owner,
             )
+        atlas = self._atlas()
         try:
-            self._atlas()[node]
+            atlas[node]
         except KeyError as exc:
-            raise KeyError(node) from exc
+            # br-r37-c1-k4nsd: multigraph sibling of the AdjacencyView fix —
+            # this is the owner-less path, which is the one a subgraph takes.
+            raise _missing_node_key_error(owner, node, atlas=atlas) from exc
         return AdjacencyView(lambda: self._atlas()[node])
 
     def __repr__(self):
@@ -42537,7 +42605,11 @@ class _ReverseAdjacencyView(_Mapping):
 
     def __getitem__(self, node):
         if node not in self._view._graph:
-            raise KeyError(f"Key {node} not found")
+            # br-r37-c1-k4nsd: an UNFILTERED reverse view reaches a plain dict
+            # in nx, so it raises the bare key — the "Key n not found" wording
+            # belongs to FilterAtlas, i.e. only when something underneath is
+            # actually filtered.
+            raise _missing_node_key_error(self._view._graph, node)
         return _ReverseNeighborMap(self._view, node, reverse=self._reverse)
 
     def __repr__(self):
