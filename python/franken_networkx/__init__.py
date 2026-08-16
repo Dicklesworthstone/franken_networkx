@@ -2071,6 +2071,12 @@ class AdjacencyView(_Mapping):
         # captured G[u][v] AtlasView cache that pair's key iteration while this
         # AdjacencyView remains live across structural edge updates.
         self._fnx_multi_edge_owner = multi_edge_owner
+        # br-r37-c1-qq8vd: (nodes_seq, edges_seq) -> the dict.fromkeys snapshot
+        # __iter__ has to build for the dict_keyiterator type contract. It was
+        # rebuilt on EVERY iteration of the same row, which is what made
+        # list(MultiGraph.adj[u]) 0.307x while the simple-graph row — whose
+        # native iterator skips fromkeys entirely — was already 0.951x.
+        self._fnx_keys_snapshot = None
         # br-r37-c1-4rgsf: outer simple-graph adjacency views bind the raw
         # PyO3 node-count descriptor once. ``len(G.adj)`` is exactly the native
         # adjacency owner count, so avoid rebuilding the native adjacency
@@ -2115,6 +2121,25 @@ class AdjacencyView(_Mapping):
         # ``neighbors``/``successors``/``predecessors``.  Materialise
         # via ``dict.fromkeys`` so the iterator runtime type is
         # ``dict_keyiterator``.
+        #
+        # br-r37-c1-qq8vd: that fromkeys is an O(degree) dict build and it ran
+        # on EVERY iteration of the same row. Snapshot it against the graph's
+        # (nodes_seq, edges_seq) revision, which moves on any structural change
+        # to the key set; an attribute write cannot change the keys, so it
+        # correctly does not invalidate. Only a row that knows its owner can be
+        # keyed this way — the rest keep the unconditional rebuild.
+        owner = self._fnx_multi_edge_owner
+        if owner is not None:
+            try:
+                token = (owner.nodes_seq, owner.edges_seq)
+            except AttributeError:
+                return iter(dict.fromkeys(self._atlas()))
+            cached = self._fnx_keys_snapshot
+            if cached is not None and cached[0] == token:
+                return iter(cached[1])
+            keys = dict.fromkeys(self._atlas())
+            self._fnx_keys_snapshot = (token, keys)
+            return iter(keys)
         return iter(dict.fromkeys(self._atlas()))
 
     def __contains__(self, node):
