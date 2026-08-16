@@ -1660,13 +1660,7 @@ impl PyMultiDiGraph {
                     return Ok(None);
                 };
                 succ_saw = true;
-                let t = sf + x;
-                if sf.abs() >= x.abs() {
-                    sc += (sf - t) + x;
-                } else {
-                    sc += (x - t) + sf;
-                }
-                sf = t;
+                crate::neumaier_add(&mut sf, &mut sc, x);
             }
         }
         let mut pf = 0.0f64;
@@ -1680,13 +1674,7 @@ impl PyMultiDiGraph {
                     return Ok(None);
                 };
                 pred_saw = true;
-                let t = pf + x;
-                if pf.abs() >= x.abs() {
-                    pc += (pf - t) + x;
-                } else {
-                    pc += (x - t) + pf;
-                }
-                pf = t;
+                crate::neumaier_add(&mut pf, &mut pc, x);
             }
         }
         if !succ_saw && !pred_saw {
@@ -1721,13 +1709,7 @@ impl PyMultiDiGraph {
                     };
                     let x = *x;
                     succ_saw = true;
-                    let t = sf + x;
-                    if sf.abs() >= x.abs() {
-                        sc += (sf - t) + x;
-                    } else {
-                        sc += (x - t) + sf;
-                    }
-                    sf = t;
+                    crate::neumaier_add(&mut sf, &mut sc, x);
                 }
             }
         }
@@ -1742,13 +1724,7 @@ impl PyMultiDiGraph {
                     };
                     let x = *x;
                     pred_saw = true;
-                    let t = pf + x;
-                    if pf.abs() >= x.abs() {
-                        pc += (pf - t) + x;
-                    } else {
-                        pc += (x - t) + pf;
-                    }
-                    pf = t;
+                    crate::neumaier_add(&mut pf, &mut pc, x);
                 }
             }
         }
@@ -1815,13 +1791,7 @@ impl PyMultiDiGraph {
                         return Ok(None);
                     };
                     saw = true;
-                    let t = f + x;
-                    if f.abs() >= x.abs() {
-                        c += (f - t) + x;
-                    } else {
-                        c += (x - t) + f;
-                    }
-                    f = t;
+                    crate::neumaier_add(&mut f, &mut c, x);
                 }
             }
         } else {
@@ -1833,13 +1803,7 @@ impl PyMultiDiGraph {
                         return Ok(None);
                     };
                     saw = true;
-                    let t = f + x;
-                    if f.abs() >= x.abs() {
-                        c += (f - t) + x;
-                    } else {
-                        c += (x - t) + f;
-                    }
-                    f = t;
+                    crate::neumaier_add(&mut f, &mut c, x);
                 }
             }
         }
@@ -1874,13 +1838,7 @@ impl PyMultiDiGraph {
                     };
                     let x = *x;
                     saw = true;
-                    let t = f + x;
-                    if f.abs() >= x.abs() {
-                        c += (f - t) + x;
-                    } else {
-                        c += (x - t) + f;
-                    }
-                    f = t;
+                    crate::neumaier_add(&mut f, &mut c, x);
                 }
             }
         } else {
@@ -1891,13 +1849,7 @@ impl PyMultiDiGraph {
                     };
                     let x = *x;
                     saw = true;
-                    let t = f + x;
-                    if f.abs() >= x.abs() {
-                        c += (f - t) + x;
-                    } else {
-                        c += (x - t) + f;
-                    }
-                    f = t;
+                    crate::neumaier_add(&mut f, &mut c, x);
                 }
             }
         }
@@ -9336,13 +9288,7 @@ impl PyDiGraph {
                             }
                         };
                         saw = true;
-                        let t = fo + x;
-                        if fo.abs() >= x.abs() {
-                            co += (fo - t) + x;
-                        } else {
-                            co += (x - t) + fo;
-                        }
-                        fo = t;
+                        crate::neumaier_add(&mut fo, &mut co, x);
                     }
                 }
                 if build_in && let Some(preds) = self.inner.predecessors_indices(idx) {
@@ -9359,13 +9305,7 @@ impl PyDiGraph {
                             }
                         };
                         saw = true;
-                        let t = fi + x;
-                        if fi.abs() >= x.abs() {
-                            ci += (fi - t) + x;
-                        } else {
-                            ci += (x - t) + fi;
-                        }
-                        fi = t;
+                        crate::neumaier_add(&mut fi, &mut ci, x);
                     }
                 }
                 let value_obj = if !saw {
@@ -14389,13 +14329,7 @@ impl PyDiGraph {
                         _ => return Ok(None),
                     };
                     saw = true;
-                    let t = fo + x;
-                    if fo.abs() >= x.abs() {
-                        co += (fo - t) + x;
-                    } else {
-                        co += (x - t) + fo;
-                    }
-                    fo = t;
+                    crate::neumaier_add(&mut fo, &mut co, x);
                 }
             }
             if inc_in && let Some(preds) = self.inner.predecessors_indices(i) {
@@ -14409,13 +14343,7 @@ impl PyDiGraph {
                         _ => return Ok(None),
                     };
                     saw = true;
-                    let t = fi + x;
-                    if fi.abs() >= x.abs() {
-                        ci += (fi - t) + x;
-                    } else {
-                        ci += (x - t) + fi;
-                    }
-                    fi = t;
+                    crate::neumaier_add(&mut fi, &mut ci, x);
                 }
             }
             if !saw {

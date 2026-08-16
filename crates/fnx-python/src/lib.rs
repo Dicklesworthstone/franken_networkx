@@ -33,6 +33,48 @@ use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 
 pub(crate) type PyObject = Py<PyAny>;
 
+/// One step of CPython `sum()`'s float accumulation, compensation included.
+///
+/// br-r37-c1-ilj40: the 18 hand-rolled copies of this loop reproduced Neumaier
+/// (Kahan-Babuska) compensation faithfully but omitted CPython's behaviour once
+/// the running total leaves the finite range. With a single infinite term the
+/// compensation becomes `(0 - inf) + inf`, i.e. NaN, and the final `f + c`
+/// returns NaN where CPython returns the infinity:
+///
+/// ```text
+/// case                       builtin sum   raw neumaier   guarded
+/// [inf]                              inf            nan       inf
+/// [-inf]                            -inf            nan      -inf
+/// [1e308, 1e308]  (overflow)         inf            nan       inf
+/// [inf, -inf]                        nan            nan       nan
+/// [nan]                              nan            nan       nan
+/// [1.0, 1e100, 1.0, -1e100]          2.0            2.0       2.0
+/// [0.1] * 10                         1.0            1.0       1.0
+/// [1e16, 1.0, -1e16]                 1.0            1.0       1.0
+/// ```
+///
+/// The overflow row is the one that matters: `1e308 + 1e308` is ordinary FINITE
+/// input, so a graph of large finite weights silently produced NaN. The last
+/// three rows are where compensation is load-bearing; the guard leaves them
+/// untouched because it only fires when the total is already non-finite, at
+/// which point compensation is meaningless.
+#[inline]
+pub(crate) fn neumaier_add(total: &mut f64, comp: &mut f64, x: f64) {
+    let t = *total + x;
+    if !t.is_finite() {
+        *total = t;
+        *comp = 0.0;
+        return;
+    }
+    if total.abs() >= x.abs() {
+        *comp += (*total - t) + x;
+    } else {
+        *comp += (x - t) + *total;
+    }
+    *total = t;
+}
+
+
 /// The node-key mirror is a lookup-heavy cache; public graph order comes from
 /// the core `Graph`'s insertion-ordered `FxIndexMap`, not this map. Its keys
 /// are already admitted to that core map, so this does not add a new
@@ -11835,21 +11877,9 @@ impl PyMultiGraph {
                     return Ok(None);
                 };
                 saw = true;
-                let t = f + x;
-                if f.abs() >= x.abs() {
-                    c += (f - t) + x;
-                } else {
-                    c += (x - t) + f;
-                }
-                f = t;
+                neumaier_add(&mut f, &mut c, x);
                 if is_self {
-                    let ts = sf + x;
-                    if sf.abs() >= x.abs() {
-                        sc += (sf - ts) + x;
-                    } else {
-                        sc += (x - ts) + sf;
-                    }
-                    sf = ts;
+                    neumaier_add(&mut sf, &mut sc, x);
                 }
             }
         }
@@ -11902,21 +11932,9 @@ impl PyMultiGraph {
                     };
                     let x = *x;
                     saw = true;
-                    let t = f + x;
-                    if f.abs() >= x.abs() {
-                        c += (f - t) + x;
-                    } else {
-                        c += (x - t) + f;
-                    }
-                    f = t;
+                    neumaier_add(&mut f, &mut c, x);
                     if is_self {
-                        let ts = sf + x;
-                        if sf.abs() >= x.abs() {
-                            sc += (sf - ts) + x;
-                        } else {
-                            sc += (x - ts) + sf;
-                        }
-                        sf = ts;
+                        neumaier_add(&mut sf, &mut sc, x);
                     }
                 }
             }
@@ -15990,13 +16008,7 @@ impl PyGraph {
                     };
                     saw = true;
                     // Neumaier / Kahan-Babuska compensated add (== CPython float sum).
-                    let t = f + x;
-                    if f.abs() >= x.abs() {
-                        c += (f - t) + x;
-                    } else {
-                        c += (x - t) + f;
-                    }
-                    f = t;
+                    neumaier_add(&mut f, &mut c, x);
                     if i == j {
                         selfloop_w = Some(x);
                     }
@@ -16180,13 +16192,7 @@ impl PyGraph {
                             }
                         };
                         saw = true;
-                        let t = f + x;
-                        if f.abs() >= x.abs() {
-                            c += (f - t) + x;
-                        } else {
-                            c += (x - t) + f;
-                        }
-                        f = t;
+                        neumaier_add(&mut f, &mut c, x);
                         if idx == j {
                             selfloop_w = Some(x);
                         }
@@ -16559,6 +16565,65 @@ pub(crate) fn unwrap_infallible<T>(result: Result<T, Infallible>) -> T {
 mod tests {
     use super::*;
     use fnx_runtime::RuntimePolicy;
+
+    /// br-r37-c1-ilj40: `neumaier_add` must equal CPython's `sum()` exactly,
+    /// including once the running total leaves the finite range.
+    ///
+    /// The expected column is what CPython 3.13 `sum()` returns for each list;
+    /// it was measured, not derived. The last three cases are the ones where
+    /// compensation is load-bearing, and they are here so the non-finite guard
+    /// cannot be "fixed" by simply dropping compensation altogether.
+    fn fold(xs: &[f64]) -> f64 {
+        let mut f = 0.0f64;
+        let mut c = 0.0f64;
+        for &x in xs {
+            neumaier_add(&mut f, &mut c, x);
+        }
+        f + c
+    }
+
+    #[test]
+    fn neumaier_add_matches_cpython_sum_on_non_finite_totals() {
+        let inf = f64::INFINITY;
+        assert_eq!(fold(&[inf]), inf, "a single +inf must stay +inf, not NaN");
+        assert_eq!(fold(&[-inf]), -inf, "a single -inf must stay -inf, not NaN");
+        assert_eq!(fold(&[inf, 1.0]), inf);
+        assert_eq!(fold(&[1.0, inf]), inf);
+        // ORDINARY FINITE INPUT that overflows: this is the case a user reaches
+        // without ever writing an infinity.
+        assert_eq!(fold(&[1e308, 1e308]), inf);
+        assert_eq!(fold(&[-1e308, -1e308]), -inf);
+        // inf + -inf is genuinely NaN in CPython too.
+        assert!(fold(&[inf, -inf]).is_nan());
+        assert!(fold(&[f64::NAN]).is_nan());
+    }
+
+    #[test]
+    fn neumaier_add_still_compensates_where_it_matters() {
+        // Without compensation these lose the small terms entirely.
+        assert_eq!(fold(&[1.0, 1e100, 1.0, -1e100]), 2.0);
+        assert_eq!(fold(&[1e16, 1.0, -1e16]), 1.0);
+        // Ten 0.1s sum to exactly 1.0 under compensation, 0.9999999999999999
+        // under a naive fold.
+        assert_eq!(fold(&[0.1; 10]), 1.0);
+    }
+
+    #[test]
+    fn neumaier_add_handles_an_empty_and_single_term_fold() {
+        assert_eq!(fold(&[]), 0.0);
+        assert_eq!(fold(&[42.5]), 42.5);
+        assert_eq!(fold(&[0.0, -0.0]), 0.0);
+    }
+
+    #[test]
+    fn neumaier_add_recovers_after_a_non_finite_excursion() {
+        // Once the total is infinite it stays infinite; the reset of the
+        // compensation term must not resurrect a finite answer.
+        let inf = f64::INFINITY;
+        assert_eq!(fold(&[1e308, 1e308, -1.0, 1.0]), inf);
+        assert_eq!(fold(&[inf, 1.0, 2.0, 3.0]), inf);
+    }
+
 
     fn multigraph_ctor_edge_iterable_type<'py>(py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
         let locals = PyDict::new(py);
