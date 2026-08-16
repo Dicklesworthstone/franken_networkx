@@ -15678,3 +15678,72 @@ comparison_class=SELF-SPEEDUP
 campaign_output=false
 decision_gate=median_ci
 cv_role=report_only
+
+## IMPLEMENTATION BLOCKED (structural, no timing): the subclass fix for br-r37-c1-rgmef is impossible in pure Python — three verified facts, each independently fatal
+
+NO CERTIFICATION. `uptime` checked by this pane: 1-min 68.81 against 5-min 36.91
+— high and rising, rejected. Nothing below is a ratio; all three findings are
+structural and were established by construction, not by timing.
+
+**LAST TURN I PROPOSED A FIX AND CALLED IT FREE. I TRIED TO BUILD IT AND IT IS
+NOT BUILDABLE.** The proposal was a subclass of the existing adjacency view
+adding `__setitem__`, inheriting the identical `__getitem__` so reads cost
+nothing — verified at the time by `PrivateAdjView.__getitem__ is
+AdjacencyView.__getitem__` being True. That verification was of the wrong object.
+The write is `(G._adj[u]).__setitem__(v, ...)`, so the class that needs the
+method is the ROW, not the view, and the row does not cooperate:
+
+    FACT 1  G.adj[u] IS G._adj[u]        True on all four classes, same type
+    FACT 2  multigraph row's row_node    None (DiGraph's is 'a')
+    FACT 3  Graph's row type             native, "not an acceptable base type"
+
+**FACT 1 kills the simplest version.** Public and private rows are the SAME
+OBJECT, so a row cannot tell how it was reached. Adding `__setitem__` to the
+shared row class would make `G.adj[u][v] = ...` work — and networkx raises
+`TypeError` there, so that is a parity break in the opposite direction, trading
+one divergence for another.
+
+**FACT 2 kills the multigraph half.** To forward a write the row must call
+`add_edge(u, v, ...)` and therefore must know `u`. DiGraph rows carry
+`_fnx_row_node='a'` and `_fnx_owner`, so a DiGraph-only fix is viable. MultiGraph
+and MultiDiGraph rows carry `None` for both and only a `_fnx_multi_edge_owner`.
+Stamping `u` onto the row requires overriding the VIEW's `__getitem__` — the read
+path — at exactly the cost measured and rejected last turn: 2 to 4 Python calls
+per access, 1.84x same-invocation with both A/A nulls passing.
+
+**FACT 3 kills the Graph half outright.** `type(G._adj[u])` for `Graph` is the
+native `franken_networkx.AtlasView`, and subclassing raises `type
+'franken_networkx.AtlasView' is not an acceptable base type` — a pyo3 `pyclass`
+declared without `subclass`. The other three classes use Python rows and are
+subclassable, so this barrier is specific to `Graph` and is a Rust-side
+declaration, not a Python one.
+
+**CONCLUSION, reached now from the construction side and matching what the
+read-path constraint concluded from the cost side: write support belongs on the
+NATIVE object.** Two concrete routes, either of which unblocks it:
+
+  1. Add `__setitem__` / `__delitem__` to the native `AtlasView` and to the
+     multigraph row, gated so only the private accessor exposes them.
+  2. Declare the native `AtlasView` `#[pyclass(subclass)]` AND give multigraph
+     rows their owner and row_node, after which the pure-Python subclass fix
+     becomes viable across all four classes at zero read cost.
+
+Route 2 is the smaller Rust change but depends on multigraph rows carrying their
+key, which they currently do not.
+
+WHAT IS ALREADY IN PLACE for whoever takes it, so the next attempt starts from a
+gate rather than a guess: `test_private_adjacency_storage_mutability.py` (16
+passing, 6 `xfail(strict=True)`) says the write must start working;
+`test_private_adj_read_path_stays_native.py` (30 passing) says it must not cost a
+Python frame, asserting `_adj`'s read methods are THE SAME function objects as
+`adj`'s.
+
+The lesson is narrow and worth stating: "the subclass inherits the identical
+method, so it is free" was true of the class I checked and irrelevant to the
+class that needed the method. Verifying a design on the wrong object is
+indistinguishable from verifying it, right up until the build.
+
+PROVENANCE: structural, no ratio claimed. Pinned ELF sha256
+789dd9dead49c4a8dbeaf6747c1532a70639561afda92497e4b304fdb7ff59fd via PYTHONPATH.
+host thinkstation1, python 3.13.7, live networkx 3.6.1, disk 285G free. `uptime`
+observed by this pane: 1-min 68.81 / 5-min 36.91 at the decision (rejected).
