@@ -3257,6 +3257,13 @@ impl MultiDiAtlasView {
 
 #[pymethods]
 impl MultiDiAtlasView {
+    /// br-r37-c1-124xl: directed twin of `MultiAtlasView::__traverse__` — the
+    /// captured row wrapper makes graph -> cache -> wrapper -> view -> graph a
+    /// real cycle, and without a traverse it is uncollectable.
+    fn __traverse__(&self, visit: PyVisit<'_>) -> Result<(), PyTraverseError> {
+        visit.call(&self.graph)
+    }
+
     fn __getitem__(
         &self,
         py: Python<'_>,
@@ -3449,6 +3456,13 @@ impl MultiDiKeyDictView {
 
 #[pymethods]
 impl MultiDiKeyDictView {
+    /// br-r37-c1-124xl: directed twin of `MultiAtlasView::__traverse__` — the
+    /// captured row wrapper makes graph -> cache -> wrapper -> view -> graph a
+    /// real cycle, and without a traverse it is uncollectable.
+    fn __traverse__(&self, visit: PyVisit<'_>) -> Result<(), PyTraverseError> {
+        visit.call(&self.graph)
+    }
+
     fn __getitem__(&self, py: Python<'_>, key: &Bound<'_, PyAny>) -> PyResult<Py<PyDict>> {
         let internal_key = {
             let g = self.graph.borrow(py);

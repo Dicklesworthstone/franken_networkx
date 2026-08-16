@@ -6255,6 +6255,17 @@ impl MultiAtlasView {
 
 #[pymethods]
 impl MultiAtlasView {
+    /// br-r37-c1-124xl: this view holds a `Py<PyMultiGraph>`, and it is now
+    /// CAPTURED by the cached row wrapper rather than rebuilt per access — so
+    /// graph -> row cache -> wrapper -> this view -> graph is a real reference
+    /// cycle. Without a traverse the collector cannot see through it and the
+    /// whole graph leaks, which is the failure br-r37-c1-ea553 recorded for the
+    /// edge-attr mirrors. The graph itself implements `__clear__`, so making
+    /// the edge visible here is enough for the cycle to be broken.
+    fn __traverse__(&self, visit: PyVisit<'_>) -> Result<(), PyTraverseError> {
+        visit.call(&self.graph)
+    }
+
     fn __getitem__(&self, py: Python<'_>, v: &Bound<'_, PyAny>) -> PyResult<Py<MultiKeyDictView>> {
         let g = self.graph.borrow(py);
         let v_canon = node_key_to_string(py, v)?;
@@ -6422,6 +6433,12 @@ impl MultiKeyDictView {
 
 #[pymethods]
 impl MultiKeyDictView {
+    /// br-r37-c1-124xl: see `MultiAtlasView::__traverse__` — same cycle, one
+    /// level deeper (`G[u][v]` holds one of these).
+    fn __traverse__(&self, visit: PyVisit<'_>) -> Result<(), PyTraverseError> {
+        visit.call(&self.graph)
+    }
+
     fn __getitem__(&self, py: Python<'_>, key: &Bound<'_, PyAny>) -> PyResult<Py<PyDict>> {
         let mut g = self.graph.borrow_mut(py);
         let Some(internal_key) =
