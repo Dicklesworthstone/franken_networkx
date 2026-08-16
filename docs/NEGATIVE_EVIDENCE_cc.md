@@ -15470,7 +15470,6 @@ thinkstation1, governor `powersave`, python 3.13.7, live networkx 3.6.1, disk
 288G free. `uptime` observed by this pane: 1-min 7.63 / 5-min 19.35 at the
 decision (gate REJECTED, ratio 2.54), 7.34-7.37 across the ten-process sweep,
 6.75 at the idle-versus-busy test.
-
 ## CERTIFIED: `877548d15` is the FIRST lever in five to move the worst cell — multigraph unkeyed `get_edge_data` par=64 goes **0.0065x -> 0.0085x (1.31x)** (br-r37-c1-ptiz2, br-r37-c1-f3i50)
 
 comparison_class=SELF-SPEEDUP
@@ -15554,11 +15553,127 @@ live networkx 3.6.1, governor `powersave`, disk 286G free. `uptime` observed by
 this pane: 13.21 / 16.05 / 21.03 at the decision (gate PASSED), then 18.45 rising
 to 53.06 across the six runs, 55.29 at the end.
 
-Machine-readable claim block for the row above (the candidate ELF is the NEW arm;
-the OLD arm 789dd9dead49c4a8dbeaf6747c1532a70639561afda92497e4b304fdb7ff59fd is
-the alternated baseline and is named in the provenance paragraph):
+## 2026-08-16 GoldenBison KEEP-SELF: three hashes per parallel edge down to one, ELF-alternated at 1.35-1.41x — plus a CORRECTION to my own "sibling route" mechanism (br-r37-c1-ptiz2)
+
+### CORRECTION FIRST — my previous entry's mechanism was wrong
+
+Two entries ago I wrote that the sibling `G[u][v]` "reaches the SAME keydict and
+is FLAT", concluded that "routing it to the sibling's cached row is worth about
+48-52x", and called that bound measured rather than estimated. **The bound is not
+available and the mechanism was wrong.** I checked before building anything:
+
+    G._native_adjacency_row('u')['v']         ->  MultiKeyDictView,  341.6 ns
+    dict(G._native_adjacency_row('u')['v'])   ->                   28842.7 ns
+    G.get_edge_data('u','v')                  ->                   14128.3 ns
+
+The sibling is flat because `MultiKeyDictView` is LAZY — it never materialises the
+mapping. `get_edge_data` must return a real `dict` (networkx returns its live
+keydict, and `MultiKeyDictView` is not a `dict` subclass), and MATERIALISING that
+view costs 28842.7ns, i.e. **twice what `get_edge_data` already costs**. So the
+flatness cannot be borrowed; routing to the sibling would have made this row
+worse, not 50x better.
+
+WHAT I GOT WRONG METHODOLOGICALLY: I read a flat curve next to a growing one and
+inferred a shared structure the flat one could donate. A flat row can also mean
+the work is DEFERRED rather than cached, and those two have opposite consequences
+for a caller that must materialise. The distinguishing measurement — force the
+lazy view and time it — took one line, and I published the mechanism before
+running it. Same error class as the tier-ladder mechanism I withdrew earlier this
+session: an attack order derived from an unmeasured mechanism.
+
+networkx is O(1) here only because it STORES `_adj[u][v]` as a real dict and hands
+back the object. fnx stores edges natively and has no materialised keydict to
+return, so parity at O(1) requires caching the built dict per pair. That route is
+open but carries a hazard worth naming: fnx's cached keydict would not be wired to
+the native store, so a caller mutating the returned mapping (`d[k] = {}`) would
+corrupt the cache and show a phantom key that `G.edges` does not have, where
+networkx's live dict stays self-consistent. Not attempted here.
+
+### WHAT WAS SHIPPED, AND CERTIFIED
+
+The keydict loop hashed its `(String, String, usize)` key THREE times per parallel
+edge: `contains_key` then `get` inside `ensure_edge_py_attrs_with_key` (a reference
+return forces both on stable Rust), plus an `edge_py_keys` probe. At 130-character
+endpoints each of those hashes 260 bytes. Two changes:
+
+  1. `edge_py_attrs_cloned_with_key` returns an owned handle, so the hit path
+     returns out of ONE `get`.
+  2. `py_edge_key_with_key` skips the `edge_py_keys` probe entirely when that map
+     is EMPTY — which it is for every graph built with networkx's auto keys, the
+     common case. An empty map cannot hit, so this is behaviour-preserving by
+     construction.
+
+Three hashes per edge become one.
+
+ELF-ALTERNATED CERTIFICATION — the design I took from another pane after it
+refuted a row of mine earlier today. FOUR interleaved rounds, OLD/NEW/OLD/NEW,
+each arm a full harness invocation, all in ONE falling-load window, 41 rounds x 50
+reps x 400 calls/slot, 13/13 rows admissible in ALL EIGHT runs, every A/A null
+inside +/-0.02:
+
+    row              OLD 789dd9de (x4)              NEW 417fcb89 (x4)              ratio
+    MG  par=64       0.0052 0.0051 0.0051 0.0051    0.0072 0.0074 0.0072 0.0072    1.41x
+    MG  par=8        0.0354 0.0354 0.0350 0.0349    0.0468 0.0469 0.0469 0.0473    1.34x
+    MDG par=64       0.0050 0.0050 0.0052 0.0051    0.0071 0.0071 0.0070 0.0071    1.39x
+    MDG par=8        0.0346 0.0343 0.0353 0.0346    0.0460 0.0463 0.0466 0.0468    1.34x
+
+EVERY NEW READING EXCEEDS EVERY OLD READING — 16 against 16, no overlap on any
+row. Load fell monotonically across the window (11.35 -> 8.50), so drift favoured
+the LATER runs; because each NEW is bracketed by OLDs on both sides, the
+separation cannot be drift. **I claim the WORST BOUND min(NEW)/max(OLD) = 1.3846x
+on MG par=64 and 1.346x on MDG par=64**, not the 1.41x headline.
+
+### THE CHAIN ON THIS CELL IS NOW COMPLETE AND EVERY LINK IS ELF-ALTERNATED
+
+I could not certify the preceding hoist myself because I had not preserved the
+pre-hoist binary. Another pane had it pinned and did it, and their row is directly
+above this one:
+
+    36744765 -> 789dd9de   hoist the edge-key tuple out of the loop    1.31x   (their run)
+    789dd9de -> 417fcb89   three hashes per parallel edge down to one  1.35-1.41x (this run)
+    cumulative on the campaign's worst cell                            ~1.81x
+
+Their internal control is the cleanest form of the argument and is worth
+repeating: networkx read 123.4 / 124.3 / 124.4 / 125.2 / 126.2 / 127.3 ns across
+six runs while load tripled from 18 to 53 — a 3.2 percent spread. Only the fnx arm
+moved.
+
+A PROCESS NOTE THAT COST ME A GATE CYCLE. I first filed this row and its
+machine-readable block as TWO separate appends, and that pane's `## ` section
+landed in between — which truncated my row's section and attributed my block to
+their entry. **On a shared append-only ledger a row and its claim block must go in
+ONE append.** Same family as the git-index staging hazards already recorded for
+this checkout, but for file content rather than the index.
+
+NO COMPETITIVE CLAIM IS MADE. After the change this row still reads 0.0072x
+against networkx — a 139x loss. The residual is O(par) because one hash per edge
+is still one hash per edge and networkx does none; closing it needs the cached
+keydict described in the correction above, with the mutation hazard named there.
+
+NULL_NUMERIC_EVIDENCE: worst-bound self-speedup 1.346x (MDG par=64), 1.3846x on MG
+par=64; per-arm A/A nulls across all eight runs span [1.0053, 1.0123] and [0.9991,
+1.0036], every one inside the +/-0.02 admissibility bound.
+
+Tests: 65 in `tests/python/test_multi_get_edge_data_keydict_parity.py`, including
+`test_mixed_custom_and_auto_keys_in_one_graph` written specifically for the new
+`is_empty` guard — one pair with explicit keys makes the map NON-empty while the
+pair under test uses auto keys, which is the case that separates "empty map" from
+"this pair has no custom key". Full suite 59855 passed, 2 failed, both the
+pre-existing cross-test pollution tracked as br-r37-c1-2i3mf.
+
+PROVENANCE, self-reported in-process: harness `scripts/balanced_square_ab.py`
+sha256 a14359046e6fad0385d76a11d9c79ff36fcdf6bf9ba6b50e31de38a48212e2a0; host
+thinkstation1; rch_worker none (both arms in-process on same_host); governor
+powersave; runtime ISA avx2 avx sse4_2; python 3.13.7 x86_64; live networkx 3.6.1;
+PYTHONHASHSEED=0; taskset cores 40-47; square ABBAABBA; disk 288G free. The two
+arms are complete package copies selected by PYTHONPATH — the shared venv install
+was never overwritten, because this checkout is shared and swapping the installed
+`.so` would serve peers a foreign binary mid-run. OBSERVED loadavg per run in
+order 11.35 / 11.00 / 10.15 / 9.67 / 9.45 / 9.00 / 8.76 / 8.50, read by me from
+/proc/loadavg immediately before each arm.
 
 bench_elf_sha256=417fcb89fd3e5d7ada8d2b4f08dfd3de08624ad1148649212c882bfa2dcf8e19
+elf_sha256=417fcb89fd3e5d7ada8d2b4f08dfd3de08624ad1148649212c882bfa2dcf8e19
 comparison_class=SELF-SPEEDUP
 campaign_output=false
 decision_gate=median_ci
