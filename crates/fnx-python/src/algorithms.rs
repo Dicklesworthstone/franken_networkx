@@ -21163,6 +21163,28 @@ struct MultiDiDijkstraTargetScratch {
     all_int_paths: Vec<bool>,
     seen_epoch: Vec<u32>,
     finalized_epoch: Vec<u32>,
+    /// br-r37-c1-4q95e: `predecessors` needs its OWN epoch stamp.
+    ///
+    /// This scratch is a THREAD-LOCAL reused across every graph in the process.
+    /// `prepare` deliberately does not clear the parallel arrays — that is the
+    /// point of the epoch trick, it turns an O(n) reset into a counter bump — and
+    /// `distances`, `all_int_paths` and finalisation are each read through a stamp
+    /// check so a stale value reads as absent. `predecessors` was read RAW:
+    ///
+    ///     let predecessor = (scratch.predecessors[node_idx] != usize::MAX)
+    ///         .then_some(scratch.predecessors[node_idx]);
+    ///
+    /// so after a 30-node graph left `predecessors[1] = 22`, a later 3-node graph
+    /// reported node 1's predecessor as 22, and the caller's
+    /// `nodes[*parent_idx]` panicked with "index out of bounds: the len is 3 but
+    /// the index is 22". A PANIC, not an exception — it unwinds through the
+    /// interpreter — reachable from plain `single_source_dijkstra_path_length` in
+    /// any process that had already built a larger graph.
+    ///
+    /// `seen_epoch` cannot serve as the guard: the SOURCE node is stamped seen
+    /// (its distance is set to 0) while no predecessor is ever written for it, so
+    /// a stale predecessor would still be read for exactly that node.
+    pred_epoch: Vec<u32>,
     pq: BinaryHeap<PyDijkstraState>,
     chain: Vec<usize>,
     entries: Vec<(usize, f64, bool, Option<usize>)>,
@@ -21177,10 +21199,12 @@ impl MultiDiDijkstraTargetScratch {
             self.all_int_paths.resize(n, false);
             self.seen_epoch.resize(n, 0);
             self.finalized_epoch.resize(n, 0);
+            self.pred_epoch.resize(n, 0);
         }
         if self.epoch == u32::MAX {
             self.seen_epoch.fill(0);
             self.finalized_epoch.fill(0);
+            self.pred_epoch.fill(0);
             self.epoch = 0;
         }
         self.epoch += 1;
@@ -21196,6 +21220,21 @@ impl MultiDiDijkstraTargetScratch {
         } else {
             f64::INFINITY
         }
+    }
+
+    /// br-r37-c1-4q95e: the predecessor recorded for `node` DURING `epoch`, or
+    /// `None`. A value left by an earlier, larger graph reads as absent.
+    fn predecessor(&self, node: usize, epoch: u32) -> Option<usize> {
+        if self.pred_epoch[node] == epoch && self.predecessors[node] != usize::MAX {
+            Some(self.predecessors[node])
+        } else {
+            None
+        }
+    }
+
+    fn set_predecessor(&mut self, node: usize, predecessor: usize, epoch: u32) {
+        self.pred_epoch[node] = epoch;
+        self.predecessors[node] = predecessor;
     }
 
     fn set_distance(&mut self, node: usize, distance: f64, epoch: u32) {
@@ -21382,10 +21421,16 @@ fn multidigraph_dijkstra_target_path_rows(
                 scratch.chain.push(target_idx);
                 let mut current = target_idx;
                 while current != source_idx {
-                    current = scratch.predecessors[current];
-                    if current == usize::MAX {
+                    // br-r37-c1-4q95e: `None` covers both "no predecessor
+                    // recorded" (the old `usize::MAX` sentinel) and "the value
+                    // present belongs to an earlier graph's epoch". Both mean
+                    // this chain does not reach the source, which is NoPath —
+                    // breaking out instead would reverse a PARTIAL chain and
+                    // return it as if it were a real path.
+                    let Some(previous) = scratch.predecessor(current, epoch) else {
                         return MultiDiDijkstraTargetPath::NoPath;
-                    }
+                    };
+                    current = previous;
                     scratch.chain.push(current);
                 }
                 scratch.chain.reverse();
@@ -21408,7 +21453,7 @@ fn multidigraph_dijkstra_target_path_rows(
                 }
                 if next_distance < target_distance - PY_DISTANCE_COMPARISON_EPSILON {
                     scratch.set_distance(arc.target, next_distance, epoch);
-                    scratch.predecessors[arc.target] = node_idx;
+                    scratch.set_predecessor(arc.target, node_idx, epoch);
                     seq_counter += 1;
                     scratch.pq.push(PyDijkstraState {
                         dist: next_distance,
@@ -21536,8 +21581,7 @@ fn multidigraph_single_source_dijkstra_lengths_rows(
             }
             scratch.mark_finalized(node_idx, epoch);
             let node_all_int = scratch.path_all_int(node_idx, epoch);
-            let predecessor = (scratch.predecessors[node_idx] != usize::MAX)
-                .then_some(scratch.predecessors[node_idx]);
+            let predecessor = scratch.predecessor(node_idx, epoch);
             scratch
                 .entries
                 .push((node_idx, distance, node_all_int, predecessor));
@@ -21557,7 +21601,7 @@ fn multidigraph_single_source_dijkstra_lengths_rows(
                 if next_distance < target_distance - PY_DISTANCE_COMPARISON_EPSILON {
                     scratch.set_distance(arc.target, next_distance, epoch);
                     scratch.all_int_paths[arc.target] = node_all_int && arc.all_int;
-                    scratch.predecessors[arc.target] = node_idx;
+                    scratch.set_predecessor(arc.target, node_idx, epoch);
                     seq_counter += 1;
                     scratch.pq.push(PyDijkstraState {
                         dist: next_distance,
