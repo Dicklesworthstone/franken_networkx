@@ -725,9 +725,22 @@ def _edge_list_freshness_token(graph):
 
 # br-r37-c1-aq6jv: nbunch sizes at or below this walk the cached rows in
 # Python instead of calling the native kernel. MEASURED crossover, not a guess
-# — py-walk/native is 0.693x at nbunch=1, 0.981x at 8 and 1.105x at 16, so the
-# Python walk stops paying at 8. (My first guess of 32 was 1.219x, i.e. 22%
+# — py-walk/native was 0.693x at nbunch=1, 0.981x at 8 and 1.105x at 16, so the
+# Python walk stopped paying at 8. (The first guess of 32 was 1.219x, i.e. 22%
 # SLOWER than the kernel it replaced.)
+#
+# br-r37-c1-yjy9i: DO NOT set this to 0 for performance. The kernel is now
+# faster at EVERY nbunch size (py-walk/kernel 1.422x at 1 up to 2.222x at 128,
+# measured after br-r37-c1-y603y made the kernel O(rows)), so on pure timing
+# this threshold looks backwards — but it is also what makes small-nbunch
+# iteration LAZY, and that is what keeps fnx from over-raising during mutation.
+# Setting it to 0 was tried and resurrected the br-r37-c1-u5tyh over-raise on
+# BOTH Graph and DiGraph: `for e in G.edges(['a','b']): G.add_edge(...)` went
+# from completing (matching networkx) to RuntimeError. The kernel returns a
+# materialised list that the fail-fast guard then polices; the Python walk
+# iterates cached rows lazily, which reproduces networkx's semantics for free.
+# Raising the threshold is therefore a CORRECTNESS lever before it is a
+# performance one — see br-r37-c1-u5tyh.
 _EDGES_NBUNCH_PY_WALK_MAX = 8
 
 
@@ -6017,6 +6030,22 @@ class _DirectedDegreeView:
         self._weight = weight
         # br-r37-c1-pejo5: node revision at nbunch-resolution time.
         self._fnx_nodes_seq = getattr(graph, "nodes_seq", None)
+        # br-r37-c1-5noxi: decide the scalar-lookup route ONCE, here, instead
+        # of re-deriving it on every subscript. _node_degree answered
+        # `G.in_degree[n]` by re-running an isinstance pair and two string
+        # comparisons before it could call the native counter — two Python
+        # frames and ~0.45us of dispatch around a 0.18us native call, on an op
+        # networkx completes in 0.154us total. None of those questions can
+        # change for the life of the view: the weight is fixed at construction,
+        # the direction is fixed, and a graph does not change class.
+        self._fast_degree = None
+        if weight is None and not isinstance(
+            graph, (_FilteredGraphView, _ReverseDirectedViewBase)
+        ):
+            if adjacency_attr == "succ":
+                self._fast_degree = getattr(graph, "_native_out_degree", None)
+            elif adjacency_attr == "pred":
+                self._fast_degree = getattr(graph, "_native_in_degree", None)
 
     @property
     def _adjacency(self):
@@ -6208,7 +6237,11 @@ class _DirectedDegreeView:
             yield (node, self[node])
 
     def __getitem__(self, node):
-        degree = self._node_degree(node, self._weight)
+        # br-r37-c1-5noxi: the pre-resolved native counter, when this view has
+        # one. Identical answer to _node_degree's first branch — same method,
+        # same argument — with the branch itself hoisted to __init__.
+        fast = self._fast_degree
+        degree = fast(node) if fast is not None else self._node_degree(node, self._weight)
         # br-r37-c1-i89jx: nx's DiDegreeView.__getitem__ reads ``self._succ[n]``
         # / ``self._pred[n]``, so indexing a node that is not in the graph
         # raises KeyError. The unweighted native fast path in _node_degree
