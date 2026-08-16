@@ -12193,3 +12193,73 @@ improvement and if anything slightly worse.
 STATUS: loss recorded with an admissible, replicated substrate. The Python reroute
 is REFUTED above on this same bead. The remaining work is Rust-side: cProfile puts
 100% of the cost inside the native method with no Python frames above it.
+
+## MultiDiGraph `G.edges[u,v,k]` — measured LOSS 0.2716x vs networkx on the CURRENT ELF, lever NOT taken (br-r37-c1-tjp0g)
+
+comparison_class=INCUMBENT
+incumbent=networkx
+incumbent_same_invocation=true
+decision_gate=median_ci
+cv_role=report_only
+
+My worst measured vs-incumbent ratio, re-measured because the row it replaces was
+taken on ELF ecfc2d30, which no longer exists — a landed lever ages published
+claims, and the index-keyed lookaside (br-r37-c1-ptiz2) shipped since. That lever
+touched the simple-graph `EdgeView` ONLY, and this row confirms it: the
+multigraph numbers are unchanged, which is the scope result rather than a
+disappointment.
+
+A/A null control run 1, incumbent arm paired against itself in the same invocation: 1.0059x, inside the 0.02 bound.
+
+A/A null control run 1, fnx arm paired against itself in the same invocation: 1.0008x, inside the 0.02 bound.
+
+A/A null control run 2, incumbent arm paired against itself in the same invocation: 1.0046x, inside the 0.02 bound.
+
+A/A null control run 2, fnx arm paired against itself in the same invocation: 1.0027x, inside the 0.02 bound.
+
+A/B against live networkx 3.6.1 in the SAME invocation, ABBAABBA square, identical
+shape in both runs (81 rounds x 50 reps x 16 calls per slot), differing only in
+core set, gated on the bootstrap median CI. ALL SEVEN rows admitted in BOTH runs:
+
+| row | run 1 (cores 40-47) | run 2 (cores 48-55) | worst bound |
+|---|---|---|---|
+| `MDG G.edges[u,v,k]` | 0.2723x [0.2716, 0.2730] | 0.2894x [0.2890, 0.2908] | 0.2716x |
+| `MG G.edges[u,v,k]` | 0.3233x [0.3226, 0.3250] | 0.3394x [0.3379, 0.3410] | 0.3226x |
+| `MG (u,v,k) in G.edges()` | 0.3751x [0.3743, 0.3759] | 0.3736x [0.3726, 0.3749] | 0.3726x |
+| `MG G.has_edge(u,v,k)` | 0.4083x [0.4076, 0.4094] | 0.4117x [0.4106, 0.4139] | 0.4076x |
+| `MG G.get_edge_data(u,v,k)` | 0.4423x [0.4418, 0.4435] | 0.4457x [0.4432, 0.4474] | 0.4418x |
+| CONTROL `len(G)` | 2.1512x | 2.1518x | — |
+| CONTROL `n in G` | 1.5526x | 1.5394x | — |
+
+Ratio is t_networkx/t_fnx, so below 1.0 means fnx is slower.
+
+THE SUBSTRATE WAS UNUSUALLY GOOD and that is what makes the caveat meaningful:
+`CONTROL len(G)` reproduced across the two runs to 0.03 percent (2.1512x against
+2.1518x), 7 of 7 rows admitted in both, every null inside 1.0008-1.0122, and the
+host was calm (loadavg 13.9 and 13.3). Against that, the MDG row's own two runs
+are about 6 percent apart with NON-OVERLAPPING CIs. With a control that stable the
+spread cannot be blamed on ambient load — it belongs to the row. The worst bound
+is quoted and the spread is stated rather than averaged away.
+
+CONSISTENT WITH THE PRIOR BANKED ROWS, which is the point of re-running them: on
+the retired ELF at the same shape, MDG read 0.2715x/0.2719x against 0.2723x/0.2894x
+now, and `MG (u,v,k) in G.edges()` read 0.3632x worst bound after br-r37-c1-ki2ni
+against 0.3726x now. Nothing moved that should not have.
+
+LEVER NOT TAKEN. The key-length work that fixed the simple-graph subscript does
+not apply here unchanged: `_AssignedPrivateEdgeView` and the multigraph classes
+have their own keyed attribute storage, and the native `_fnx.DiEdgeView` is still
+not constructible from Python (br-r37-c1-bc7r4), marks the graph dirty on every
+read, and leaks the canonical key into `KeyError`. The open lever remains
+br-r37-c1-tjp0g's borrowed-canonical change in `PyDiGraph::get_edge_data`, plus
+extending the index-keyed lookaside idea to the keyed multigraph storage.
+
+PROVENANCE, self-reported in-process: harness `scripts/balanced_square_ab.py`
+sha256 eda09da2ca5f28698598af69fbe0e5c1d149975a4126bb7d7a2a6a3f71c9382f; host
+thinkstation1; rch_worker none, both arms in-process on the same host, and NO
+build was performed for this row — the existing binary was reused, verified by 0
+`.rs` files newer than the loaded `.so`; loaded ELF sha256
+2c3e0c53f4b0d9558998a21d5298d7e5912689ecbaf4db75fb1e346aa10af366; governor
+powersave; runtime ISA avx2 avx sse4_2; observed affinity 8 of 64 cpus; python
+3.13.7 x86_64; live networkx 3.6.1; PYTHONHASHSEED=0; loadavg 13.9 and 13.3 at the
+two run starts.
