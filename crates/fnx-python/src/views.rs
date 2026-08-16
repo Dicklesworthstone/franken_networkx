@@ -1017,6 +1017,39 @@ impl EdgeView {
                 Err(err) => Err(err),
             };
         }
+        // br-r37-c1-ptiz2: INDEX-keyed lookaside first, before any canonical is
+        // built at all. This is the whole lever: the string-keyed probe below
+        // hashes BOTH full-length canonical endpoints on every read, and above
+        // the 128-byte ArrayString the canonical itself becomes an owned heap
+        // String. Measured on `G.edges[u,v]` against node-key length — 1.17x
+        // growth below the buffer (hashing), a 2.03x STEP across it at canon
+        // bytes 128 -> 133 (allocation), linear above — while networkx stays
+        // flat at 92.6-92.7ns because CPython caches the str hash.
+        //
+        // Exact `str` only, mirroring `has_edge`, which is FLAT in key length
+        // for exactly this reason. `cached_exact_string_node_index` is itself
+        // `nodes_seq`-guarded, and the lookaside entry carries its own
+        // `nodes_seq`, so a node removal that renumbers indices makes this a
+        // MISS rather than a wrong hit.
+        //
+        // ORDER: the hit is existence proof (entries only exist for edges that
+        // were present), so `v`'s hashability is checked here exactly as it is
+        // on the string-keyed hit path below — networkx hashes `v` only once
+        // `u` resolves.
+        if u_item.is_exact_instance_of::<PyString>() && v_item.is_exact_instance_of::<PyString>() {
+            let g = self.graph.borrow(py);
+            let indices = (
+                g.cached_exact_string_node_index(py, &u_item)?,
+                g.cached_exact_string_node_index(py, &v_item)?,
+            );
+            if let (Some(ui), Some(vi)) = indices
+                && let Some(attrs) = g.cached_edge_py_attrs_by_index(py, ui, vi)
+            {
+                crate::require_hashable_node_key(&v_item)?;
+                g.mark_edges_dirty();
+                return Ok(attrs);
+            }
+        }
         // br-r37-c1-ey6ob: borrowed endpoint canonicals (see `__contains__`).
         // `materialize_edge_py_attrs` already takes `&str`.
         let mut u_buf = ArrayString::new();
@@ -1050,7 +1083,21 @@ impl EdgeView {
             return Err(missing_edge_key_error(edge));
         }
         g.mark_edges_dirty();
-        Ok(g.materialize_edge_py_attrs(py, u, v))
+        let attrs = g.materialize_edge_py_attrs(py, u, v);
+        // br-r37-c1-ptiz2: fill the index lookaside on the miss path, with the
+        // SAME dict the string-keyed mirror just recorded, so the two can never
+        // disagree about identity. Only for exact `str` endpoints, matching the
+        // probe above; anything else simply never populates it.
+        if u_item.is_exact_instance_of::<PyString>() && v_item.is_exact_instance_of::<PyString>() {
+            let indices = (
+                g.cached_exact_string_node_index(py, &u_item)?,
+                g.cached_exact_string_node_index(py, &v_item)?,
+            );
+            if let (Some(ui), Some(vi)) = indices {
+                g.remember_edge_py_attrs_by_index(py, ui, vi, &attrs);
+            }
+        }
+        Ok(attrs)
     }
 
     fn __repr__(&self, py: Python<'_>) -> String {

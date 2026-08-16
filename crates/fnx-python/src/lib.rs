@@ -2359,6 +2359,25 @@ pub(crate) struct PyGraph {
     /// primary mirror's tuple key requires owned Strings to probe; this nested
     /// map accepts `&str` endpoints directly and holds the same live dict.
     edge_py_attrs_by_endpoint: HashMap<String, HashMap<String, Py<PyDict>>>,
+    /// br-r37-c1-ptiz2: the same live dicts, keyed by NODE INDEX pair instead of
+    /// by canonical endpoint strings, so a repeated single-edge read costs O(1)
+    /// in key length rather than hashing both endpoints in full.
+    ///
+    /// `edge_py_attrs_by_endpoint` above hashes two full-length canonical
+    /// strings per read and allocates two owned Strings per materialise.
+    /// Measured on `G.edges[u,v]` against node-key length: 1.17x growth below
+    /// the 128-byte canonical buffer (the hashing), a 2.03x STEP across it at
+    /// canon bytes 128 -> 133 (the allocation), then linear growth above.
+    /// networkx is flat at 92.6-92.7ns throughout because CPython caches the
+    /// str hash.
+    ///
+    /// Each entry carries the `nodes_seq` it was recorded under. Node REMOVAL
+    /// renumbers indices, and `bump_edges_seq` — the existing invalidation —
+    /// guards EDGE identity and does NOT fire for that, so a bare index key
+    /// would resolve to a DIFFERENT edge and hand back the wrong dict. Storing
+    /// the seq per entry makes a stale entry a plain MISS and keeps the probe
+    /// `&self`, matching its string-keyed sibling.
+    edge_py_attrs_by_index: HashMap<(usize, usize), (u64, Py<PyDict>)>,
     /// Cached NetworkX-style adjacency rows for `to_dict_of_dicts`.
     pub(crate) dict_of_dicts_cache: Option<DictOfDictsCache>,
     /// Live NetworkX-style adjacency row mirrors for simple Graph view iteration.
@@ -2481,6 +2500,15 @@ impl PyGraph {
                 visit.call(attrs)?;
             }
         }
+        // br-r37-c1-ptiz2: the index-keyed lookaside holds the SAME strong refs,
+        // so it must be traversed too. CPython requires tp_traverse and tp_clear
+        // to cover the same references; omitting it leaves a self-referencing
+        // edge attr dict uncollectable, which is what
+        // test_direct_edge_attribute_self_reference_is_stored_and_collectable
+        // catches for the sibling map above.
+        for (_seq, attrs) in self.edge_py_attrs_by_index.values() {
+            visit.call(attrs)?;
+        }
         if let Some(cache) = &self.dict_of_dicts_cache {
             cache.traverse(visit)?;
         }
@@ -2514,6 +2542,7 @@ impl PyGraph {
         self.node_py_attrs.clear();
         self.edge_py_attrs.clear();
         self.edge_py_attrs_by_endpoint.clear();
+        self.edge_py_attrs_by_index.clear(); // br-r37-c1-ptiz2 (tp_clear half)
         self.has_edge_node_index_cache.clear(py);
         self.dict_of_dicts_cache = None;
         self.adj_row_py.clear();
@@ -2875,6 +2904,50 @@ impl PyGraph {
             .map(|attrs| attrs.clone_ref(py))
     }
 
+    /// br-r37-c1-ptiz2: the index-keyed twin of `cached_edge_py_attrs`.
+    ///
+    /// `&self`, exactly like its sibling: a stale entry is a plain MISS rather
+    /// than something to evict, which is why each entry carries the `nodes_seq`
+    /// it was recorded under instead of the map carrying one for all of them.
+    /// That matters because node REMOVAL renumbers indices while
+    /// `bump_edges_seq` — which guards edge identity — does not fire, so an
+    /// unguarded index key would resolve to a DIFFERENT edge and return the
+    /// wrong live dict. Pinned by
+    /// `tests/python/test_edge_attr_lookaside_identity_and_invalidation.py`,
+    /// whose negative case warms a late edge, removes an EARLIER node, and
+    /// re-reads.
+    pub(crate) fn cached_edge_py_attrs_by_index(
+        &self,
+        py: Python<'_>,
+        a: usize,
+        b: usize,
+    ) -> Option<Py<PyDict>> {
+        let key = if a <= b { (a, b) } else { (b, a) };
+        match self.edge_py_attrs_by_index.get(&key) {
+            Some((seq, attrs)) if *seq == self.nodes_seq => Some(attrs.clone_ref(py)),
+            _ => None,
+        }
+    }
+
+    /// Record a live edge attr dict under its endpoint INDEX pair.
+    ///
+    /// Stamped with the current `nodes_seq` so it self-invalidates on any node
+    /// add/remove without a sweep. Callers must already hold the dict that
+    /// `materialize_edge_py_attrs` returned, so this never constructs one and
+    /// cannot disagree with the string-keyed lookaside about identity.
+    pub(crate) fn remember_edge_py_attrs_by_index(
+        &mut self,
+        py: Python<'_>,
+        a: usize,
+        b: usize,
+        attrs: &Py<PyDict>,
+    ) {
+        let key = if a <= b { (a, b) } else { (b, a) };
+        let seq = self.nodes_seq;
+        self.edge_py_attrs_by_index
+            .insert(key, (seq, attrs.clone_ref(py)));
+    }
+
     pub(crate) fn edge_attr_py_value(
         &self,
         py: Python<'_>,
@@ -2917,6 +2990,7 @@ impl PyGraph {
             node_py_attrs: HashMap::new(),
             edge_py_attrs: HashMap::new(),
             edge_py_attrs_by_endpoint: HashMap::new(),
+            edge_py_attrs_by_index: HashMap::new(),
             adj_py_keys: HashMap::new(), // br-r37-c1-z6uka
             dict_of_dicts_cache: None,
             adj_row_py: HashMap::new(),
@@ -2949,9 +3023,14 @@ impl PyGraph {
     pub(crate) fn bump_edges_seq(&mut self) {
         self.edges_seq = self.edges_seq.wrapping_add(1);
         self.edge_py_attrs_by_endpoint.clear();
+        // br-r37-c1-ptiz2: same lifetime as the endpoint lookaside. The per-entry
+        // nodes_seq guard covers node RENUMBERING; this covers edge identity.
+        self.edge_py_attrs_by_index.clear();
     }
 
-    fn cached_exact_string_node_index(
+    // br-r37-c1-ptiz2: pub(crate) so views.rs EdgeView::__getitem__ can reach
+    // the index resolution that already keeps `has_edge` flat in key length.
+    pub(crate) fn cached_exact_string_node_index(
         &self,
         py: Python<'_>,
         key: &Bound<'_, PyAny>,
@@ -5518,7 +5597,9 @@ impl PyMultiGraph {
         self.edges_seq = self.edges_seq.wrapping_add(1);
     }
 
-    fn cached_exact_string_node_index(
+    // br-r37-c1-ptiz2: pub(crate) so views.rs EdgeView::__getitem__ can reach
+    // the index resolution that already keeps `has_edge` flat in key length.
+    pub(crate) fn cached_exact_string_node_index(
         &self,
         py: Python<'_>,
         key: &Bound<'_, PyAny>,
@@ -14768,6 +14849,7 @@ impl PyGraph {
             node_py_attrs: HashMap::with_capacity(self.node_py_attrs.len()),
             edge_py_attrs: HashMap::with_capacity(self.edge_py_attrs.len()),
             edge_py_attrs_by_endpoint: HashMap::new(),
+            edge_py_attrs_by_index: HashMap::new(),
             has_edge_node_index_cache: NodeIndexLookupCache::new(py),
             adj_py_keys: self.derive_copy_adj_py_keys(py, &self.inner), // br-r37-c1-z6uka
             dict_of_dicts_cache: None,
@@ -14962,6 +15044,7 @@ impl PyGraph {
             node_py_attrs,
             edge_py_attrs,
             edge_py_attrs_by_endpoint: HashMap::new(),
+            edge_py_attrs_by_index: HashMap::new(),
             has_edge_node_index_cache: NodeIndexLookupCache::new(py),
             adj_py_keys: HashMap::new(),
             dict_of_dicts_cache: None,
@@ -15011,6 +15094,7 @@ impl PyGraph {
             node_py_attrs: HashMap::new(),
             edge_py_attrs: HashMap::new(),
             edge_py_attrs_by_endpoint: HashMap::new(),
+            edge_py_attrs_by_index: HashMap::new(),
             has_edge_node_index_cache: NodeIndexLookupCache::new(py),
             adj_py_keys: HashMap::new(), // br-r37-c1-z6uka
             dict_of_dicts_cache: None,
@@ -15131,6 +15215,7 @@ impl PyGraph {
             node_py_attrs: HashMap::new(),
             edge_py_attrs: HashMap::new(),
             edge_py_attrs_by_endpoint: HashMap::new(),
+            edge_py_attrs_by_index: HashMap::new(),
             has_edge_node_index_cache: NodeIndexLookupCache::new(py),
             adj_py_keys: HashMap::new(),
             dict_of_dicts_cache: None,
@@ -15210,6 +15295,7 @@ impl PyGraph {
             node_py_attrs: HashMap::new(),
             edge_py_attrs: HashMap::new(),
             edge_py_attrs_by_endpoint: HashMap::new(),
+            edge_py_attrs_by_index: HashMap::new(),
             has_edge_node_index_cache: NodeIndexLookupCache::new(py),
             adj_py_keys: HashMap::new(), // br-r37-c1-z6uka
             dict_of_dicts_cache: None,
@@ -16365,6 +16451,7 @@ impl PyGraph {
             // hand out the ORIGINAL graph's dicts and alias the two graphs'
             // attributes. It refills lazily from the copies on first read.
             edge_py_attrs_by_endpoint: HashMap::new(),
+            edge_py_attrs_by_index: HashMap::new(),
             has_edge_node_index_cache: NodeIndexLookupCache::new(py),
             // SHARE the graph attrs dict (shallow copy)
             graph_attrs: self.graph_attrs.clone_ref(py),
