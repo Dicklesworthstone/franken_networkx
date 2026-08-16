@@ -11922,3 +11922,110 @@ the worst cheap primitive after br-r37-c1-7q6wh — but cProfile puts 100% of th
 cost inside the native method with no Python frames above it, so the work is
 Rust-side and the build freeze (/data at its 42G floor) puts it out of reach.
 Tracked on br-r37-c1-d1ajx.
+
+## 2026-08-16 GoldenBison CORRECTION to the allocator analysis: the SCALING is real, the TIER MECHANISM I published is NOT established (br-r37-c1-ptiz2)
+
+Correcting parts 1 and 2 above, same turn, before anyone acts on them. Two claims
+I made do not survive checking, and one does.
+
+WHAT STANDS. The measured scaling split is unchanged and reproducible: six public
+reads degrade without bound in node-key length (`get_edge_data` 7.12x,
+`G.edges[u,v]` 5.85x, `G[u][v]` 4.54x, `(u,v) in G.edges` 3.75x, `neighbors`
+3.12x, `degree` 2.93x) while five are flat and networkx is flat on all eleven
+(0.94-1.06x). `get_edge_data`'s ratio really does fall from 0.5035x to 0.0668x.
+That is an observation and it holds.
+
+CLAIM WITHDRAWN 1 — "`G.edges[u,v]` and `G[u][v]` route through `get_edge_data`,
+so it is the highest-leverage single site." FALSE for `Graph`. Instrumenting the
+instance shows ZERO `get_edge_data` hits for either: on an undirected graph
+`G.edges` is the NATIVE `_fnx.EdgeView` and its `__getitem__` is a C slot that
+calls Rust directly, never touching the Python-visible binding. The claim holds
+only for `DiGraph`, whose Python `_DiGraphEdgeView.__getitem__` does call
+`self._fnx_native_get_edge_data`. My sweep measured `Graph`, so the six unbounded
+rows are NOT evidence about `get_edge_data`'s call sites at all.
+
+CLAIM WITHDRAWN 2 — "the six unbounded rows are on tier 3 (`node_key_to_string`,
+owned heap String) and that is the mechanism." NOT ESTABLISHED. The native
+`EdgeView::__getitem__` (views.rs ~1022) canonicalises with
+`canonical_node_key_in` into `ArrayString` STACK buffers — tier 2, the same tier
+as `has_node`, which is flat. So a tier-2 operation grows 5.85x while another
+tier-2 operation does not, and the tier ladder does not separate them. The
+471:38:10 site counts are still accurate as counts; they are simply not the
+explanation for these rows.
+
+WHAT I CHECKED BEFORE WITHDRAWING, so the surviving control is not overstated
+either: `has_node`'s flatness might have been an artifact of probing ONE key
+repeatedly and hitting the present-key memo. Re-run with 200 DISTINCT keys per
+length it is still flat (growth 0.79-1.01x from length 4 to 4000), so the flat
+side of the split is real and not a memo artifact. Caveat that remains: the same
+200 key OBJECTS are reused across repeats, so a memo keyed on those objects would
+still hit. Defeating that needs fresh key objects per call, which changes what is
+measured, and I have not done it.
+
+MECHANISM IS THEREFORE OPEN. What is known: both the flat and the growing
+operations canonicalise the same way, so canonicalisation is NOT the
+discriminator. The growing ones all RETURN or BUILD something (an attr dict, a
+row, a neighbour list, a degree) while the flat ones return a bool, an int or a
+cached view — so the next hypothesis is the edge-attribute lookaside and
+`materialize_edge_py_attrs` / `cached_edge_py_attrs`, which are keyed by the
+canonical strings and so hash the FULL key on every access, against networkx's
+cached-hash dict which hashes zero bytes. That is a hypothesis, stated as one.
+
+NEXT EXPERIMENT, build-free and specific: compare `G.edges[u,v]` against
+`G.has_edge(u,v)` at increasing key length on the SAME graph. Both canonicalise
+identically; only the former touches the attribute lookaside. If the lookaside is
+the mechanism, `has_edge` stays flat and `edges[u,v]` grows — and that isolates it
+without a build.
+
+WHY THIS IS IN THE LEDGER RATHER THAN QUIETLY EDITED: parts 1 and 2 are published
+above with a specific mechanism and an attack order derived from it. Acting on
+that order would have started with `get_edge_data` on the strength of a routing
+claim that is false for the class I measured.
+
+## 2026-08-16 GoldenBison ALLOCATOR ANALYSIS PART 3: the mechanism is the EDGE-ATTRIBUTE LOOKASIDE, isolated by control (br-r37-c1-ptiz2)
+
+Ran the experiment the correction above specified, rather than leaving it as a
+proposal. Still build-free, still repeat-min with NO A/A null — NOT a banked
+ratio.
+
+THE ISOLATION. Same graph, same endpoints, same canonicalisation path
+(`canonical_node_key_in` into `ArrayString` for both). The ONLY difference is that
+`edges[u,v]` reaches the edge-attribute storage and `has_edge` does not:
+
+    key length          4      64     130     400    2000    4000
+    fnx has_edge    134.4    81.4   100.5    88.2    83.7    81.2  ns   FLAT
+    fnx edges[u,v]  213.3   166.6   347.1   457.5  1077.2  1697.6  ns   x7.96
+    nx  edges[u,v]   92.6    99.3   113.9    92.2    92.4    92.7  ns   FLAT
+
+`has_edge` does not grow at all across three orders of magnitude of key length.
+`edges[u,v]` grows 7.96x on the same graph. Canonicalisation is therefore NOT the
+discriminator — both do it identically — and the growth is in what happens after
+it.
+
+THIS REPLACES the tier-ladder mechanism published in part 2 and withdrawn in the
+correction above. The 471:38:10 tier counts remain accurate as counts and remain a
+reasonable target elsewhere; they are not the explanation for these six rows.
+
+WHERE IT POINTS: `cached_edge_py_attrs` / `materialize_edge_py_attrs` (views.rs
+~1040-1053) are keyed by the canonical ENDPOINT STRINGS, so every attribute access
+hashes the full key — O(key length) — and above the 128-byte `ArrayString` the
+canonical form becomes an owned heap `String` as well. networkx reaches the same
+dict through CPython's CACHED str hash, which is O(1) in key length and allocates
+nothing. That is why the incumbent is flat at 92.6-92.7ns while we are not.
+
+The 64 -> 130 step is visible in `edges[u,v]` (166.6 -> 347.1ns) and NOT in
+`has_edge` (81.4 -> 100.5ns, recovering to 83.7 by 2000), which is consistent with
+the buffer overflow mattering to the lookaside path specifically rather than to
+canonicalisation in general.
+
+WHAT THIS MEANS FOR THE SIX ROWS. All six that grow return or build something from
+attribute/row storage — an attr dict, a row, a neighbour list, a degree. All five
+that are flat return a bool, an int, or a cached view. That is the same split, seen
+from the other side, and it now has a located mechanism rather than a plausible
+one.
+
+STILL OPEN, and not to be asserted until measured: whether the dominant term is
+the hashing of long keys or the heap allocation above the buffer. Those are
+separable — hash a long key that FITS the buffer against one that does not — and
+that experiment is build-free too. I have not run it, so the honest statement is
+"key-length-proportional work in the attribute lookaside", not "allocation".
