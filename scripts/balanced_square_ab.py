@@ -444,11 +444,93 @@ def workload_incumbent_fixtures(reps: int):
     return build, ops
 
 
+def _weighted_plain_graph(module, nodes: int, edges: int, seed: int = 5):
+    """`_plain_graph` with a `weight` attribute, for the weighted fixtures."""
+    rng = random.Random(seed)
+    graph = module.Graph()
+    names = [str(i) for i in range(nodes)]
+    graph.add_nodes_from(names)
+    seen: set[tuple[int, int]] = set()
+    while len(seen) < edges:
+        a, b = rng.randrange(nodes), rng.randrange(nodes)
+        if a == b:
+            continue
+        pair = (min(a, b), max(a, b))
+        if pair in seen:
+            continue
+        seen.add(pair)
+        graph.add_edge(names[pair[0]], names[pair[1]], weight=1 + (a + b) % 19)
+    return graph, names
+
+
+def workload_incumbent_fixtures_2(reps: int):
+    """The second batch of p80x1 retry fixtures (16, 20, 22, 26, 36, 42).
+
+    Same rationale as `incumbent-fixtures`; split only so a run of one batch
+    stays inside a sane wall-clock. Fixture identity is again CONFIRMED against
+    each bead's recorded fingerprints rather than assumed:
+
+      p80x1.20   tie-sensitive path 0->1999 is [0,192,496,1859,1999]
+      p80x1.22   pagerank is 2000 floats summing to 0.9999999999999998
+      p80x1.16   300 outer mappings, 90000 inner items
+      p80x1.42   all_simple_edge_paths(0,5,cutoff=4) projects to 41 paths
+
+    p80x1.18/.20/.22 all record input SHA-256 03635cb9…, i.e. ONE shared
+    n=2000,m=8000,seed=7 graph. `_plain_graph` and `_simple_graph` consume the
+    rng identically, so they emit the same edge set and differ only in node
+    naming and attributes — which is why the .18 fingerprint matched under
+    `_simple_graph` while .20's path fingerprint matches under `_plain_graph`.
+    """
+
+    def build(module):
+        big, _names = _plain_graph(module, 2000, 8000, seed=7)
+        wsmall, _ = _weighted_plain_graph(module, 300, 1200, seed=11)
+        sparse, _ = _weighted_plain_graph(module, 600, 3000, seed=5)
+        plain_small, _ = _plain_graph(module, 300, 1200, seed=11)
+        paths, _ = _plain_graph(module, 200, 800, seed=13)
+        return big, (wsmall, sparse, plain_small, paths, module)
+
+    def ops(graph, fixture):
+        wsmall, sparse, plain_small, paths, module = fixture
+        return {
+            # p80x1.20
+            "shortest_path(0,1999) n=2000": lambda: module.shortest_path(
+                graph, "0", "1999"
+            ),
+            # p80x1.22
+            "pagerank n=2000": lambda: module.pagerank(graph),
+            # p80x1.16
+            "all_pairs_dijkstra_len n=300": lambda: {
+                k: dict(v)
+                for k, v in module.all_pairs_dijkstra_path_length(
+                    wsmall, weight="weight"
+                )
+            },
+            # p80x1.36
+            "all_pairs_shortest_path n=300": lambda: {
+                k: dict(v) for k, v in module.all_pairs_shortest_path(plain_small)
+            },
+            # p80x1.26
+            "to_scipy_sparse_array n=600": lambda: module.to_scipy_sparse_array(
+                sparse
+            ).toarray(),
+            # p80x1.42
+            "all_simple_edge_paths n=200": lambda: sum(
+                1 for _ in module.all_simple_edge_paths(paths, "0", "5", cutoff=4)
+            ),
+            # Control: untouched by any algorithm lever on this list.
+            "CONTROL number_of_edges": lambda: graph.number_of_edges(),
+        }
+
+    return build, ops
+
+
 WORKLOADS = {
     "view-reads": workload_view_reads,
     "view-reads-directed": workload_view_reads_directed,
     "algorithms": workload_algorithms,
     "incumbent-fixtures": workload_incumbent_fixtures,
+    "incumbent-fixtures-2": workload_incumbent_fixtures_2,
 }
 
 
@@ -467,6 +549,13 @@ def canonical(value):
     """
     if isinstance(value, float):
         return round(value, 12)
+    # A numpy/scipy result has no usable `!=`: comparing two arrays yields an
+    # elementwise array, so the gate's `got_nx != got_fx` raises "truth value of
+    # an array is ambiguous" instead of comparing anything. Project to nested
+    # lists and let the float rule above round each cell. This runs once per
+    # row BEFORE timing, so its cost is not in any measurement.
+    if hasattr(value, "tolist") and not isinstance(value, (bytes, bytearray)):
+        return canonical(value.tolist())
     if isinstance(value, dict):
         return sorted((str(k), canonical(v)) for k, v in value.items())
     if isinstance(value, (list, tuple)):
