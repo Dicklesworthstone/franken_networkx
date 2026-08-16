@@ -389,3 +389,44 @@ def test_arm_sampling_is_absent_by_default():
     """Harnesses that do not call sample_arm must not gain a bogus fragment."""
     assert WindowGuard().arm_fragment() == ""
     assert math.isnan(WindowGuard().arm_khz_skew_pct)
+
+
+def test_same_core_pct_detects_arms_on_different_cores():
+    """A ratio whose arms sat on different cores can be a frequency ratio.
+
+    Cores run at 1429-3943 MHz simultaneously on this host, so this is the check
+    that makes "both arms were comparable" a fact rather than an assumption.
+    """
+    guard = WindowGuard()
+    guard.arm_cpus = {"nx": [5, 5, 5, 5], "fnx": [9, 9, 9, 9]}
+    assert guard.same_core_pct == 0.0
+    assert guard.distinct_cores == 2
+
+
+def test_same_core_pct_is_100_when_arms_share_a_core():
+    guard = WindowGuard()
+    guard.arm_cpus = {"nx": [7, 7, 7, 7], "fnx": [7, 7, 7, 7]}
+    assert guard.same_core_pct == 100.0
+    assert guard.distinct_cores == 1
+
+
+def test_same_core_pct_counts_partial_migration():
+    guard = WindowGuard()
+    guard.arm_cpus = {"nx": [7, 7, 3, 7], "fnx": [7, 7, 7, 7]}
+    assert guard.same_core_pct == pytest.approx(75.0)
+
+
+def test_same_core_is_nan_without_two_arms():
+    guard = WindowGuard()
+    guard.arm_cpus = {"nx": [1, 1]}
+    assert math.isnan(guard.same_core_pct)
+
+
+def test_arm_fragment_reports_core_agreement():
+    guard = WindowGuard()
+    for arm in ("nx", "fnx"):
+        guard.arm_khz[arm] = [4_000_000]
+        guard.arm_loads[arm] = [12.5]
+        guard.arm_cpus[arm] = [7]
+    frag = guard.arm_fragment()
+    assert "same-core 100%" in frag and "1 core(s)" in frag

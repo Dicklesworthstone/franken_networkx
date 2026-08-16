@@ -16137,3 +16137,74 @@ the shared venv install was never touched. python 3.13.7 x86_64, live networkx
 3.6.1, disk 279G free. `uptime` observed: 23.70 / 25.14 at the decision (gate
 PASSED), 22.23-26.60 across the twelve runs. CPU clock observed per arm: 3987-4069
 MHz, per-arm skew 0.0-0.3 percent.
+
+## HOW THIS PANE ENSURES COMPARABLE CORES — the 2.87x cross-core spread is REAL and does NOT reach a busy benchmark; pinning changes the clock swing 10x and the ratio not at all (br-r37-c1-jycsb)
+
+NO CERTIFICATION. `uptime` checked by this pane: 1-min 33.10 against 5-min 37.86
+— rejected. All rows are diagnostics; the conclusions are categorical.
+
+**THE CROSS-CORE SPREAD IS CONFIRMED HERE.** Sampling all 64 cores at one
+instant, loadavg 36.75: **1429 to 3943 MHz, a 2.76x spread**, with 10 cores
+parked at 1429 and 39 above 3500. That matches frankenfs's 2.879x and the
+1429-vs-3946 observation. This pane earlier reported only a 1.26x spread; that
+was a different idle/active mix, not a contradiction.
+
+**BUT IT DOES NOT REACH A BUSY BENCHMARK, which is the question that matters for
+a ratio.** Sampling the whole machine WHILE this pane's benchmark ran:
+
+    my core cpu14 at 3990 MHz | machine 1429-4098, spread 2.87x | my core at the 70th percentile
+    my core cpu39 at 4015 MHz | machine 1429-4041, spread 2.83x | 83rd percentile
+    my core cpu42 at 4017 MHz | machine 1429-4046, spread 2.83x | 63rd percentile
+    my core cpu8  at 4039 MHz | machine 1429-4064, spread 2.84x | 80th percentile
+    my core cpu8  at 4052 MHz | machine 1429-4068, spread 2.85x | 92nd percentile
+
+The machine spans 2.87x and the core running the work is always in the boosted
+top group at 3990-4052 MHz. The 1429 MHz cores are the idle ones. A benchmark
+cannot land on a slow core and stay there, because having work is what makes a
+core fast — which is also why `taskset`-ing onto a "slow group" core earlier
+produced 4068 MHz and no slowdown.
+
+**HOW BOTH ARMS ARE KEPT COMPARABLE, stated as the mechanism plus its
+measurement.** Both arms run in the SAME PROCESS, alternating inside one
+`ABBAABBA` loop, so they share whatever core the process is on. That is
+structural, but it is not automatic — the scheduler migrates. Now measured, with
+per-arm core identity recorded:
+
+    mode                    ratio             same-core   cores touched   clock swing
+    unpinned                0.0074 / 0.0078   96% / 92%   7 / 10          21.5% / 23.0%
+    pinned taskset -c 14    0.0075 / 0.0079   100% / 100% 1 / 1           5.5% / 1.9%
+
+An earlier unpinned run migrated across **18 cores** with the arms co-resident
+only 86 percent of the time — and per-arm clock skew was still **0.0 percent**,
+because every core hosting the busy process was boosted to ~4018 MHz. Migration
+moves the work between cores that are all fast.
+
+**PINNING CHANGES THE CLOCK SWING BY ROUGHLY 10x AND THE RATIO NOT AT ALL.**
+Unpinned swings 21.5-23.0 percent; pinned swings 1.9-5.5 percent. The ratios
+overlap completely: 0.0074-0.0078 unpinned against 0.0075-0.0079 pinned. So
+migration was not biasing this measurement — but pinning is still worth doing,
+because it converts an argument into a guarantee for free.
+
+**WHAT THIS PANE WILL DO FROM NOW ON, and what its rows will say:**
+
+  * record per-arm loadavg, per-arm CPU MHz, `same-core` percentage and the
+    number of distinct cores touched — all now emitted automatically by
+    `WindowGuard.arm_fragment()`;
+  * treat `skew >= 5 percent` as `ARM-CLOCK-SKEW` and refuse to read the ratio;
+  * pin certification runs with `taskset` so `same-core` is 100 percent by
+    construction rather than by luck.
+
+A row from this pane now reads, verbatim: `per-arm [fnx: load 29.07 clock 4037
+MHz; nx: load 29.07 clock 4032 MHz] skew 0.1% same-core 100% over 1 core(s)`.
+That is the sentence answering "say how you ensured it".
+
+41 guard tests, no timing, runnable where benchmarking is forbidden.
+
+PROVENANCE: diagnostic, no ratio certified. Harness
+`/data/tmp/claude-1000/bsq_ged_guarded.py` with per-arm core/clock/load sampling.
+Pinned ELF sha256
+789dd9dead49c4a8dbeaf6747c1532a70639561afda92497e4b304fdb7ff59fd via PYTHONPATH;
+both arms in-process, same host, same invocation. host thinkstation1, 64 cores,
+governor `powersave`, python 3.13.7, live networkx 3.6.1, disk 280G free.
+`uptime` observed: 36.75 at the cross-core sample, 28.11-33.55 across the runs.
+CPU MHz observed per arm is in the rows above.

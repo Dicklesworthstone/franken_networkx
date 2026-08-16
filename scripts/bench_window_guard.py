@@ -64,6 +64,21 @@ def read_loadavg() -> float:
         return float(handle.read().split()[0])
 
 
+def read_current_cpu() -> int:
+    """Which core this process is running on right now; -1 if unreadable.
+
+    br-r37-c1-jycsb: cores run at very different clocks SIMULTANEOUSLY — 1429 to
+    3943 MHz observed here at one instant, a 2.76x spread, matching frankenfs's
+    2.879x. So a ratio whose two arms sat on different cores can be a frequency
+    ratio wearing a benchmark's clothes. Recording the core each arm ran on is
+    what turns "both arms were comparable" from an assumption into a fact.
+    """
+    try:
+        return int(open("/proc/self/stat", encoding="ascii").read().split()[38])
+    except Exception:  # noqa: BLE001 - never break a benchmark
+        return -1
+
+
 def read_cpu_khz(cpu: int | None = None) -> int:
     """Current clock of the core this process is on, in kHz; -1 if unreadable.
 
@@ -171,6 +186,7 @@ class WindowGuard:
     _cpu: list[float] = field(default_factory=list)
     arm_khz: dict[str, list[int]] = field(default_factory=dict)
     arm_loads: dict[str, list[float]] = field(default_factory=dict)
+    arm_cpus: dict[str, list[int]] = field(default_factory=dict)
 
     def sample(self) -> float:
         value = read_loadavg()
@@ -284,6 +300,7 @@ class WindowGuard:
         """
         self.arm_khz.setdefault(arm, []).append(read_cpu_khz())
         self.arm_loads.setdefault(arm, []).append(read_loadavg())
+        self.arm_cpus.setdefault(arm, []).append(read_current_cpu())
 
     def arm_khz_median(self, arm: str) -> float:
         live = [k for k in self.arm_khz.get(arm, []) if k > 0]
@@ -292,6 +309,35 @@ class WindowGuard:
     def arm_load_median(self, arm: str) -> float:
         vals = self.arm_loads.get(arm, [])
         return statistics.median(vals) if vals else float("nan")
+
+    @property
+    def same_core_pct(self) -> float:
+        """Percentage of sampled positions where ALL arms were on one core.
+
+        Both arms of a balanced square run in the SAME PROCESS, alternating
+        inside one loop, so they share a core unless the scheduler migrates the
+        process mid-run. That is the structural reason arm clock skew comes out
+        near zero — but it is a claim that should be measured, not assumed, since
+        a migration between arms is exactly how a cross-core clock spread would
+        leak into a ratio.
+        """
+        arms = list(self.arm_cpus)
+        if len(arms) < 2:
+            return float("nan")
+        n = min(len(self.arm_cpus[a]) for a in arms)
+        if n == 0:
+            return float("nan")
+        same = sum(
+            1 for i in range(n) if len({self.arm_cpus[a][i] for a in arms}) == 1
+        )
+        return 100.0 * same / n
+
+    @property
+    def distinct_cores(self) -> int:
+        seen = set()
+        for vals in self.arm_cpus.values():
+            seen.update(v for v in vals if v >= 0)
+        return len(seen)
 
     @property
     def arm_khz_skew_pct(self) -> float:
@@ -318,7 +364,10 @@ class WindowGuard:
                 f"{arm}: load {self.arm_load_median(arm):.2f} "
                 f"clock {self.arm_khz_median(arm) / 1000:.0f} MHz"
             )
-        return "per-arm [" + "; ".join(parts) + f"] skew {self.arm_khz_skew_pct:.1f}%; "
+        return (
+            "per-arm [" + "; ".join(parts) + f"] skew {self.arm_khz_skew_pct:.1f}% "
+            f"same-core {self.same_core_pct:.0f}% over {self.distinct_cores} core(s); "
+        )
 
     @property
     def median_interval_s(self) -> float:
