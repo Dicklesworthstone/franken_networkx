@@ -3763,9 +3763,22 @@ class _EdgeListWithSetAlgebra(list):
         if hint is None:
             return False
         self._fnx_len_hint = None
-        graph = getattr(self, "_fnx_live_graph", None) or getattr(
-            self, "_fnx_guard_graph", None
-        )
+        # br-r37-c1-ORTRUTH: `is None`, never `or` — the same rule _fnx_refresh
+        # states three lines below. An EMPTY graph is FALSY, so `or` silently
+        # discards a live graph that has been cleared and falls through to the
+        # guard graph (or to None), which is precisely the mutation
+        # br-r37-c1-af0ig was filed for. That bead fixed the refresh path and
+        # left this sibling on `or`.
+        #
+        # HONESTLY SCOPED: I could NOT reach the divergent state through the
+        # public API. On the paths I exercised neither attribute is set, so the
+        # expression returns None either way and the two forms agree. This is a
+        # consistency fix that removes a latent trap, not a demonstrated bug —
+        # the unit test below drives the helper directly because that is the
+        # only way I could distinguish the two forms.
+        graph = getattr(self, "_fnx_live_graph", None)
+        if graph is None:
+            graph = getattr(self, "_fnx_guard_graph", None)
         return graph is not None and hint == _edge_list_freshness_token(graph)
 
     def _fnx_walk_live_rows(self, spec):
