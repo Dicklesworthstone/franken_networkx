@@ -11816,3 +11816,72 @@ A/A nulls, then apply the tjp0g patch and re-run. The prediction is specific and
 falsifiable — after the patch the owned-path curve should flatten to the borrowed
 path's shape below 128 characters and keep a single step above it, rather than
 growing without bound.
+
+## 2026-08-16 GoldenBison ALLOCATOR ANALYSIS PART 2: six public reads are unbounded in key length, five are flat, and the tree already contains the fix (br-r37-c1-tjp0g)
+
+Follow-up to the part-1 entry, still under the build freeze, still repeat-min
+timings with NO A/A null — NOT a banked ratio, queued for ABBA when the freeze
+lifts.
+
+Part 1 showed `G.edges[u,v]` degrades without bound in node-key length. Sweeping
+the public read surface at key lengths 4 and 2000 splits it cleanly in two, and
+the split is the finding:
+
+| operation | ratio @4 | ratio @2000 | fnx growth | nx growth |
+|---|---|---|---|---|
+| `get_edge_data(u,v)` | 0.5035x | 0.0668x | **7.12x** | 0.94x |
+| `G.edges[u,v]` | 0.6464x | 0.1101x | **5.85x** | 1.00x |
+| `G[u][v]` | 0.8896x | 0.1859x | **4.54x** | 0.95x |
+| `(u,v) in G.edges` | 0.9122x | 0.2579x | **3.75x** | 1.06x |
+| `list(neighbors(u))` | 0.7682x | 0.2475x | **3.12x** | 1.01x |
+| `degree(u)` | 0.8904x | 0.2906x | **2.93x** | 0.96x |
+| `has_edge(u,v)` | 0.7564x | 0.7100x | 1.07x | 1.01x |
+| `G.adj[u]` | 0.7390x | 0.7277x | 1.02x | 1.00x |
+| `has_node(u)` | 0.8903x | 0.8856x | 1.01x | 1.00x |
+| `G.nodes[u]` | 1.2062x | 1.2232x | 0.99x | 1.00x |
+| `u in G` | 1.4941x | 1.4927x | 1.00x | 1.00x |
+
+networkx grows 0.94-1.06x on every single row, so the length axis is free for the
+incumbent and the growth is entirely ours.
+
+THE CONTROL PAIR IS THE ARGUMENT. `has_edge(u,v)` is FLAT (1.07x) while
+`get_edge_data(u,v)` grows 7.12x. Same two endpoints, same graph, same call shape,
+adjacent in the same binding file. Whatever differs between them IS the mechanism,
+and it is not hashing, not view construction and not the Python wrapper — all of
+which the two share.
+
+WHAT DIFFERS: there are THREE canonicalisation tiers in this tree, and the flat
+operations are already on the top one.
+
+  tier 1  `cached_exact_string_node_index` — for an exact `str`, resolve to a
+          CACHED node index and skip canonicalisation entirely. 10 call sites.
+          This is what makes `has_edge` flat (digraph.rs ~12622).
+  tier 2  `with_node_key_str` — build `"str:{len}:{s}"` in a 128-byte STACK
+          buffer, heap only above it. 38 call sites. `has_edge` falls back to
+          this, nested for both endpoints.
+  tier 3  `node_key_to_string` — always `format!` a fresh heap `String`.
+          471 call sites. This is what all six unbounded rows use, TWICE per
+          edge lookup.
+
+So the ratio is 471 : 38 : 10 in favour of the worst tier, and the six unbounded
+public reads are all on it while the five flat ones are not. `PyDiGraph::
+get_edge_data` (the br-r37-c1-tjp0g patch target) goes straight to two
+`node_key_to_string` calls with no tier-1 or tier-2 attempt at all.
+
+WHY THIS IS STRONGER THAN "USE THE BORROWED HELPER". The fix does not need to be
+invented or proved safe in the abstract — `has_edge` is a working, shipped,
+production example of both upper tiers on the identical two-endpoint problem,
+including the re-entrancy that br-r37-c1-oqvk5 once got wrong (a single
+`RefCell` scratch panicked when nested; the pooled version does not). The lever
+for each of the six rows is "do what `has_edge` already does", in tier order.
+
+RANKING FOR WHEN THE FREEZE LIFTS, worst first by growth:
+`get_edge_data` (7.12x) -> `G.edges[u,v]` (5.85x) -> `G[u][v]` (4.54x) ->
+`(u,v) in G.edges` (3.75x) -> `neighbors` (3.12x) -> `degree` (2.93x).
+`get_edge_data` is also the highest-leverage single site, because `G.edges[u,v]`
+and `G[u][v]` both route through it.
+
+FALSIFIER, unchanged from part 1 and still holding: if the growth were hashing
+rather than allocation, tier 2 would grow too, since it builds byte-identical
+canonical output in a stack buffer. `has_node` uses tier 2 and is flat to 1
+percent across three orders of magnitude.
