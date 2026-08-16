@@ -15254,3 +15254,81 @@ powersave; runtime ISA avx2 avx sse4_2; python 3.13.7 x86_64; live networkx
 3.6.1; PYTHONHASHSEED=0; square ABBAABBA; 61 rounds x 50 reps x 400 calls/slot;
 decision_gate=median_ci; cv_role=report_only; OBSERVED loadavg 15.13 (run 1) and
 12.97 (run 2), `uptime` run by me immediately before each.
+
+## CROSS-PROJECT CHECK ANSWERED: this pane's arms do NOT contend the way franken_numpy's do — but the check found a DIFFERENT hazard (br-r37-c1-ptiz2)
+
+THE QUESTION, from franken_numpy: its own arm slows the incumbent it is measured
+against, so the two arms are not independent, and an A/A null cannot catch that
+because both arms are perturbed together. Checked here against this pane's own
+harness rather than assumed either way.
+
+**METHOD.** One CONDITION per process, alternated by the driver so process-start
+drift is balanced, `(u,v) in G.edges` at keylen 2000, N=400, 60000 reps per block,
+18 samples per condition:
+
+    A  nx alone            franken_networkx never imported
+    B  nx + fnx imported   import only, no fnx graph built
+    C  nx + fnx exercised  fnx graph built AND its arm run, as the real harness does
+
+**RESULT — THE FNX ARM DOES NOT SLOW THE NX ARM. It slightly SPEEDS IT UP.**
+
+    cond   n   median ns    min      max     spread
+    A     18     112.97   108.78   130.26    21.48
+    B     18     111.69   109.40   117.47     8.07
+    C     18     109.15   107.99   133.00    25.01
+
+    C/A (fnx exercised vs nx alone)  0.9662   CI [0.9375, 0.9954]
+    B/A (import only)                0.9886   CI [0.9560, 1.0172]
+
+Importing fnx does nothing measurable (B/A straddles 1.0). EXERCISING it makes
+the nx arm about 3.4 percent FASTER, with the interval entirely below 1.0 —
+plausibly because the alternating block keeps caches and clocks warm, and because
+condition A carries the cold-start outliers (130.3, 128.4 ns) that C does not.
+
+**THE MIRROR WAS ALSO CHECKED**, since a one-sided answer would be worth little:
+
+    D  fnx alone            networkx never imported
+    E  fnx + nx exercised   nx graph built and its arm run
+
+    E/D (nx exercised vs fnx alone)  0.9936   CI [0.9640, 1.0310]  — straddles 1.0
+
+So neither arm slows the other. **The direction that does exist is CONSERVATIVE
+for this pane's win claims**: the incumbent is measured slightly FASTER inside the
+paired harness than alone, so a banked `t_nx/t_fnx` win is if anything
+understated. Applying the 3.4 percent to the certified `(u,v) in G.edges` win
+takes its 1.0618x worst bound to roughly 1.098x against a pristine-process
+baseline — which lands almost exactly on br-r37-c1-ptiz2's independently banked
+1.0972x. Two harnesses and two builds converging on the same number after a
+correction neither was tuned to produce.
+
+**BUT THE CHECK SURFACED A DIFFERENT HAZARD, and it is larger than the one it was
+looking for.** The fnx arm is BIMODAL ACROSS PROCESSES:
+
+    3 of 24 processes ran in a FAST mode   101.5 - 104.5 ns
+    21 of 24 ran in a SLOW mode            159.7 - 178.9 ns
+    ratio between modes                    1.66x
+    the paired ABBA harness reads          115.1 - 119.2 ns  — between the two
+
+A 1.66x difference decided at process start, present in BOTH condition D and E,
+so it is not contention. It matters because it means **absolute fnx nanoseconds
+are not comparable across harness shapes** — the standalone harness and the
+balanced-square harness disagree by up to 1.5x on the same operation, same ELF,
+same graph. Ratios measured within one invocation are unaffected, which is
+exactly what the balanced square exists to protect, and this pane's banked rows
+are all of that form. But any row quoting fnx ns against a figure from a
+differently-shaped harness would be comparing modes, not implementations.
+
+NOT YET EXPLAINED, and deliberately not guessed at: what selects the mode. It is
+process-level and stable within a process. Candidates worth testing are allocator
+arena layout, CPU/core assignment at start, and lookaside warmth. This is filed
+as the open half of this row.
+
+PROVENANCE: attribution-grade, no certification. `uptime` checked by this pane:
+1-min 12.67 against 5-min 18.54, ratio 1.46 — REJECTED as unstable, so no ratio
+here is offered as certified; the conclusions rest on direction and on 18-24
+samples per condition rather than on tight intervals. Loads observed across the
+runs: 8.01, 6.95, 6.45 at the starts, 25.13 and 40.77 by the end. Pinned ELF
+sha256 789dd9dead49c4a8dbeaf6747c1532a70639561afda92497e4b304fdb7ff59fd, built
+this turn from a `git archive` tree at `877548d15` under load — deliberately, per
+the finding that a pin build costs the quiet window it is meant to enable. host
+thinkstation1, python 3.13.7, live networkx 3.6.1, disk 288G free.
