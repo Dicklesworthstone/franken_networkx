@@ -11413,3 +11413,63 @@ stable across the artifact change even though the digits are not.
 
 STATUS: loss replicated on the current ELF with an admissible null. The lever
 stays OPEN and UNATTEMPTED, and it is measurable in-process with no build.
+
+## DiGraph `(u,v) in G.edges()` — measured LOSS 0.5670x vs networkx, lever NOT taken (br-r37-c1-p1tvg)
+
+comparison_class=INCUMBENT
+incumbent=networkx
+incumbent_same_invocation=true
+decision_gate=median_ci
+cv_role=report_only
+
+A measurement I had RUN but never written down: this row appeared in a directed
+sweep at 0.5975x and NULL-FAILED, so it was never bankable. Re-run here on the
+already-built binary at the slot shape that makes the nulls resolvable. No build
+was performed.
+
+A/A null control run 1, incumbent arm paired against itself in the same invocation: 1.0114x, inside the 0.02 bound.
+
+A/A null control run 1, fnx arm paired against itself in the same invocation: 1.0034x, inside the 0.02 bound.
+
+A/A null control run 2, incumbent arm paired against itself in the same invocation: 1.0101x, inside the 0.02 bound.
+
+A/A null control run 2, fnx arm paired against itself in the same invocation: 1.0043x, inside the 0.02 bound.
+
+A/B against live networkx 3.6.1 in the SAME invocation, ABBAABBA square, IDENTICAL
+shape in both runs (81 rounds x 50 reps x 8 calls per slot), gated on the
+bootstrap median CI:
+
+| row | run 1 (cores 40-47) | run 2 (cores 48-55) | worst bound | status |
+|---|---|---|---|---|
+| `(u,v) in D.edges()` | 0.5676x [0.5670, 0.5684] | 0.5702x [0.5694, 0.5712] | 0.5670x | BANKED |
+| `D.edges[u,v]` | 0.2765x [0.2762, 0.2769] | 0.2798x [0.2796, 0.2803] | 0.2762x | confirms the 0.2746x row |
+| `(v,u) in D.edges()` | 0.5810x NULL-FAILED | 0.5760x [0.5751, 0.5769] | — | UNBANKED, one admissible run |
+| `D.has_edge(u,v)` | 0.7142x NULL-FAILED | 0.7197x NULL-FAILED | — | UNBANKED |
+| CONTROL `len(D)` | 2.1334x | 2.1383x | — | agree to 0.2 percent |
+| CONTROL `n in D` | 1.5771x | 1.5635x | — | — |
+
+Ratio is t_networkx/t_fnx, so below 1.0 means fnx is slower.
+
+A METHOD ERROR I MADE AND CORRECTED, recorded because the wrong version looked
+better. My first replication attempt changed the core set AND the calls-per-slot
+together (8 to 12) and came back 6 of 6 admissible, which was tempting to bank.
+It is not a replication: `CONTROL len(D)` moved from 2.1334x to 2.6885x on that
+run, proving the slot shape materially changes what is being measured. The two
+runs above hold K fixed at 8 and differ only in core set, and their controls then
+agree to 0.2 percent. Change ONE variable per replication.
+
+`D.has_edge(u,v)` IS SHAPE-DEPENDENT and is not quoted for that reason: 0.7142x
+and 0.7197x at K=8 (both NULL-FAILING at 1.0275 and 1.0288) against 0.8228x at
+K=12 (admissible, single run). A 15 percent swing with calls-per-slot means this
+row is partly measuring per-call warmth rather than the operation, and it needs
+its own investigation before any number from it is used.
+
+PROVENANCE, self-reported in-process: harness `scripts/balanced_square_ab.py`
+sha256 286bb779e78758e01b56e369fd71ec9f24b5971d60c03472570a812fc0edf62c; host
+thinkstation1; rch_worker none, both arms in-process, and NO build was performed
+— the existing binary was reused, verified by 0 `.rs` files newer than the loaded
+`.so`; loaded ELF sha256
+ecfc2d30935a12eb0b61c3d00b38718026bcc36977c047b048463c1bf9a37fb8; governor
+powersave; runtime ISA avx2 avx sse4_2; observed affinity 8 of 64 cpus; python
+3.13.7 x86_64; live networkx 3.6.1; PYTHONHASHSEED=0; loadavg 8.83 and 8.96 at
+the two run starts.
