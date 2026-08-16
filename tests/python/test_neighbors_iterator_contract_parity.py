@@ -81,20 +81,15 @@ def test_neighbors_is_live_not_a_snapshot(cls_name):
     [
         "Graph",
         "DiGraph",
-        # br-r37-c1-dwy1n FIXED for MultiGraph: `neighbor_key_rows` is now
-        # maintained IN PLACE by add_edge/remove_edge instead of being dropped
-        # wholesale on a generation change, so an outstanding iterator walks the
-        # row that actually mutated and CPython raises the same RuntimeError.
+        # br-r37-c1-dwy1n FIXED on all four classes: the neighbour-row caches
+        # are now maintained IN PLACE by add_edge/remove_edge instead of being
+        # dropped wholesale on a generation change, so an outstanding iterator
+        # walks the row that actually mutated and CPython raises the same
+        # RuntimeError. MultiGraph keeps one row map; MultiDiGraph keeps two
+        # (succ and pred) and both are updated, since an edge u->v adds v to
+        # u's succ row and u to v's pred row.
         "MultiGraph",
-        pytest.param(
-            "MultiDiGraph",
-            marks=pytest.mark.xfail(
-                strict=True,
-                reason="br-r37-c1-dwy1n: MultiGraph is fixed; MultiDiGraph keeps "
-                "its succ/pred rows in digraph.rs and still needs the same "
-                "in-place maintenance",
-            ),
-        ),
+        "MultiDiGraph",
     ],
 )
 def test_mutation_during_iteration_raises_like_networkx(cls_name):

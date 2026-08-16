@@ -2095,6 +2095,92 @@ impl PyMultiDiGraph {
         dict
     }
 
+    /// br-r37-c1-dwy1n: maintain the cached direction rows IN PLACE.
+    ///
+    /// The MultiGraph half of this bead landed first; this is the same repair
+    /// for MultiDiGraph, which keeps TWO row maps instead of one. An edge
+    /// u -> v adds v to u's SUCC row and u to v's PRED row, so both must be
+    /// touched or `predecessors()` would keep serving a stale set even once
+    /// `successors()` was live.
+    ///
+    /// Updating the SAME `PyDict` is what reproduces networkx's
+    /// `RuntimeError: dictionary changed size during iteration` — the error is
+    /// CPython's dict versioning, not anything raised here.
+    fn cached_direction_row_set(
+        &mut self,
+        py: Python<'_>,
+        owner: &str,
+        nbr: &str,
+        successors: bool,
+    ) -> PyResult<()> {
+        let slot = if successors {
+            &self.succ_key_rows
+        } else {
+            &self.pred_key_rows
+        };
+        let Some(row) = slot
+            .as_ref()
+            .and_then(|(_, _, rows)| rows.get(owner))
+            .map(|row| row.clone_ref(py))
+        else {
+            return Ok(());
+        };
+        let py_nbr = if successors {
+            self.py_succ_key(py, owner, nbr)
+        } else {
+            self.py_pred_key(py, owner, nbr)
+        };
+        row.bind(py).set_item(py_nbr, py.None())?;
+        Ok(())
+    }
+
+    /// Drop one neighbour from a cached direction row, in place. The caller
+    /// decides WHEN: with parallel edges the pair stays adjacent until the last
+    /// one goes, and a premature deletion would raise a RuntimeError networkx
+    /// does not raise.
+    fn cached_direction_row_remove(
+        &self,
+        py: Python<'_>,
+        owner: &str,
+        nbr: &str,
+        successors: bool,
+    ) -> PyResult<()> {
+        let slot = if successors {
+            &self.succ_key_rows
+        } else {
+            &self.pred_key_rows
+        };
+        if let Some(row) = slot.as_ref().and_then(|(_, _, rows)| rows.get(owner)) {
+            let py_nbr = if successors {
+                self.py_succ_key(py, owner, nbr)
+            } else {
+                self.py_pred_key(py, owner, nbr)
+            };
+            let _ = row.bind(py).del_item(py_nbr);
+        }
+        Ok(())
+    }
+
+    /// Re-stamp both direction caches to the CURRENT generation after an
+    /// in-place update, so `direction_key_row`'s freshness check does not
+    /// discard the map that was just repaired.
+    fn restamp_direction_rows(&mut self) {
+        let (nodes, edges) = (self.nodes_seq, self.edges_seq);
+        for slot in [&mut self.succ_key_rows, &mut self.pred_key_rows] {
+            if let Some(entry) = slot.as_mut() {
+                entry.0 = nodes;
+                entry.1 = edges;
+            }
+        }
+    }
+
+    #[inline]
+    fn direction_rows_live(&self) -> bool {
+        [&self.succ_key_rows, &self.pred_key_rows]
+            .into_iter()
+            .any(|s| s.as_ref().is_some_and(|(_, _, rows)| !rows.is_empty()))
+    }
+
     /// br-r37-c1-bvwam: the `{neighbour: None}` row for one direction, cached
     /// under the current `(nodes_seq, edges_seq)` generation. See
     /// `PyMultiGraph::neighbor_key_row` — the row deliberately holds no edge
@@ -5317,8 +5403,20 @@ impl PyMultiDiGraph {
                 py_dict.bind(py).set_item(k, val)?;
             }
         }
+        // br-r37-c1-dwy1n: maintain live direction rows IN PLACE so an
+        // outstanding successors/predecessors/neighbors iterator sees the
+        // mutation and CPython raises the same RuntimeError networkx does. An
+        // edge from u to v adds v to u's SUCC row and u to v's PRED row, so
+        // both maps must be touched or predecessors() keeps a stale set.
+        if self.direction_rows_live() {
+            self.cached_direction_row_set(py, &u_canonical, &v_canonical, true)?;
+            self.cached_direction_row_set(py, &v_canonical, &u_canonical, false)?;
+        }
         // br-r37-c1-jft0i: bump edges_seq so view-materialization caches invalidate.
         self.bump_edges_seq();
+        if self.direction_rows_live() {
+            self.restamp_direction_rows();
+        }
         // br-paralleladd (bt): for a clean auto-add, external is None and
         // remember_edge_key echoes int(actual_key) (== public key); for the
         // remapped case it echoes the scanned public key.
@@ -5465,6 +5563,14 @@ impl PyMultiDiGraph {
         if let Some(explicit_key) = auto_removal_key {
             self.remove_edge_metadata(&u_canonical, &v_canonical, explicit_key);
         }
+        // br-r37-c1-dwy1n: drop the neighbour from live direction rows IN
+        // PLACE, but ONLY once the LAST parallel edge between the pair is gone.
+        // Removing one of several leaves them adjacent, and a premature
+        // deletion would raise a RuntimeError networkx does not raise.
+        if self.direction_rows_live() && !self.inner.has_edge(&u_canonical, &v_canonical) {
+            self.cached_direction_row_remove(py, &u_canonical, &v_canonical, true)?;
+            self.cached_direction_row_remove(py, &v_canonical, &u_canonical, false)?;
+        }
         if (!self.succ_py_keys.is_empty() || !self.pred_py_keys.is_empty())
             && !self.inner.has_edge(&u_canonical, &v_canonical)
         {
@@ -5475,6 +5581,9 @@ impl PyMultiDiGraph {
             self.pred_py_keys.remove(&(v_canonical, u_canonical));
         }
         self.bump_edges_seq();
+        if self.direction_rows_live() {
+            self.restamp_direction_rows();
+        }
         Ok(())
     }
 
