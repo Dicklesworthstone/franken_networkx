@@ -16659,3 +16659,100 @@ PYTHONPATH. host thinkstation1, 64 logical / 32 physical, SMT on, siblings paire
 (n, n+32), governor `powersave`. python 3.13.7, live networkx 3.6.1, disk 278G
 free. `uptime` observed: 55.23 / 34.75 at the decision, 61.33 at the first run,
 54.34 at the last. Sibling occupancy per run is in the table.
+
+## 2026-08-16 GoldenBison SMT CONTENTION MEASURED FOR THIS HARNESS: ratios shift up to 16%, direction-consistent per row family — and it is NOT common-mode as I wrote two rows ago (br-r37-c1-freqsens)
+
+Told that the cross-core spread's impact is harness-specific — networkx's arms run
+sequentially so they cannot contend, torch measured no movement, scipy a small
+effect, only fs a real defect — and to measure it here rather than inherit a
+conclusion. I had written in my own placement audit that sibling contention "is
+common-mode across arms that interleave in one process". **That was an assumption
+and it is wrong. Correcting it.**
+
+### EXPERIMENT 1, ratio vs core frequency — INCONCLUSIVE BY CONSTRUCTION, and the reason matters
+
+Ran the identical workload pinned to each of cpu40..47 in turn, recording each
+row's on-core clock and ratio, to ask whether ratio tracks clock. The achieved
+frequency range was **3704-3943 MHz, a spread of 1.06x** — nothing like the 2.87x
+seen across idle cores. **A core running the benchmark is never idle, so choosing
+a different CPU does not buy frequency diversity.** Across that 6% range the
+per-row correlations scatter from r=-0.708 to r=+0.694 with 8 points each and
+point in both directions, which is the signature of noise rather than an effect.
+
+The experiment cannot reach the regime in question without changing the governor,
+which this pane cannot do. Recorded as inconclusive rather than as evidence of no
+effect. `scripts/freq_sensitivity_probe.py`.
+
+### EXPERIMENT 2, SMT sibling contention — A REAL, DIRECTIONAL EFFECT
+
+This is the exposure that actually applies here: every CPU this pane benchmarks on
+is the second hyperthread of a physical core whose first thread runs other fleet
+work. Pin the harness to cpu45; alternate the SMT sibling cpu13 between IDLE and
+saturated by a spin loop; compare RATIOS, not absolute times. Conditions alternate
+IDLE/LOADED/IDLE/LOADED so host drift hits both equally — the harness's own
+alternation logic applied one level up. Three pairs, `scripts/smt_contention_probe.py`.
+
+    row                            IDLE (x3)                LOADED (x3)              per-pair L/I     direction
+    MG  get_edge_data par=64       0.1521 0.1661 0.1464     0.1384 0.1396 0.1386     0.910 0.840 0.947   ALL DOWN
+    MG  get_edge_data par=8        0.2060 median            0.1910 median            0.927               DOWN
+    MG  get_edge_data par=1        0.2129 median            0.1999 median            0.939               DOWN
+    CONTROL MG has_edge par=64     0.5899 0.6304 0.6224     0.5646 0.5686 0.5641     0.957 0.902 0.906   ALL DOWN
+    SIBLING MDG G[u][v] par=8      0.2421 0.2412 0.2499     0.2622 0.2628 0.2620     1.083 1.090 1.048   ALL UP
+    SIBLING MDG G[u][v] par=64     0.2494 median            0.2634 median            1.056               UP
+    SIBLING MG  G[u][v] par=64     0.2424 median            0.2577 median            1.063               UP
+    MDG get_edge_data par=64       0.0077 0.0074 0.0077     0.0077 0.0077 0.0076     1.000 1.041 0.987   MIXED
+
+**10 of 13 rows moved by more than 2%, the extremes are -16% and +9%, and the
+direction is CONSISTENT WITHIN A ROW FAMILY across all three pairs.** That rules
+out noise: noise does not make every `get_edge_data` row fall and every
+`G[u][v]` row rise in the same experiment.
+
+WHY IT IS NOT COMMON-MODE, which is where my earlier reasoning failed. Sequential
+arms cannot contend WITH EACH OTHER — that part was right, and it is why no row
+here was ever ARM-EXCLUSIVE. But SMT contention does not slow a core uniformly; it
+steals issue slots, and how much that costs depends on the instruction mix. The
+networkx arm and the fnx arm have different mixes, so a shared physical core taxes
+them by different factors and the RATIO moves. "Both arms meet the same
+contention" does not imply "both arms pay the same price for it".
+
+A telling detail: under LOADED the fnx-heavy rows became TIGHTER, not noisier —
+`MG get_edge_data par=64` reads 0.1384/0.1396/0.1386 loaded against
+0.1521/0.1661/0.1464 idle. Contention here is a systematic bias, not added
+variance, so a stable-looking row is not evidence of an unbiased one.
+
+### WHAT THIS DOES AND DOES NOT THREATEN
+
+It does NOT threaten the large claims. The keydict cache is ~20x; a 16% ratio
+shift cannot manufacture or destroy that, and it was independently reproduced at
+18.85x on an 8-CPU mask and 19.92x pinned to one CPU under different fleet load.
+
+It DOES threaten every near-parity row this pane has banked, and that is the part
+worth carrying forward. An 8-16% shift is exactly the size that separates 0.96x
+from 1.04x. **This is very likely part of the degree-lever story**: I banked
+1.0172x, another pane read 0.87-0.93x ELF-alternated, and my own re-measurement
+read 0.9605x/0.9792x. A contention-dependent bias of this magnitude, varying with
+whatever the sibling core happened to be running, is a mechanism that fits all
+three readings without any of them being wrong.
+
+### STANDING CHANGES TO MY PRACTICE
+
+1. For any row within ~20% of parity, record the SMT sibling's utilisation
+   alongside loadavg and MHz, and prefer a CPU whose sibling is quiet.
+2. Never again describe a shared-resource effect as common-mode without measuring
+   it. The reasoning "both arms experience X, therefore X cancels" is only valid
+   when both arms have the same sensitivity to X, which is an empirical question.
+3. ELF-alternation remains the strongest control available, because the sibling's
+   behaviour is roughly stationary across a short alternated window while it is
+   NOT stationary across separated runs.
+
+NO RATIO IS CERTIFIED IN THIS ROW. Observed loadavg 57.85 rising through the
+experiment, far outside any certification window; these are condition-alternated
+comparisons whose validity rests on the alternation and on direction consistency,
+not on window quiet. On-core clock read 3834-4024 MHz throughout, and the
+IDLE/LOADED clock medians differ by under 2.5% on every row — so the effect above
+is contention for execution resources, not a frequency difference between the two
+conditions.
+
+CLEANUP CONFIRMED: the spin children are started and killed inside a `finally`,
+and a post-run process scan found none surviving. An earlier `pgrep -c -f` reading
+of "2" was the pattern matching my own shell command line, not a leaked child.
