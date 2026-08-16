@@ -14864,3 +14864,72 @@ GiB; governor powersave; runtime ISA avx2 avx sse4_2; observed affinity 8 of 64
 cpus; python 3.13.7 x86_64; live networkx 3.6.1; PYTHONHASHSEED=0; OBSERVED
 loadavg 13.02 and 11.10 at the two banked run starts (`uptime` run by me
 immediately before each).
+
+## 2026-08-16 GoldenBison CORRECTION: my `1.0172x` degree claim does NOT reproduce — the lever is real, it lands BELOW parity (br-r37-c1-ptiz2)
+
+I banked `4c916aea3`'s degree lever as `incumbent_ratio=1.0172x` with
+`campaign_output=true` — a competitive claim that fnx beats networkx. Another pane
+certified the same lever with a stronger design and got 0.87-0.93x. I re-measured
+in MY OWN harness and got 0.9605x and 0.9792x. **The competitive claim is
+withdrawn.** The lever itself stands and is large.
+
+WHAT THE OTHER PANE DID BETTER, and it is worth copying rather than merely
+conceding. They kept the PRE-lever ELF on disk and ALTERNATED OLD and NEW arms
+inside one load window — `NEW 42e4b0d2` against `OLD 14d89d3d`, interleaved, at
+loadavg 8.39-8.89. My before/after was taken across time on two different ELFs
+under different load. ELF alternation inside one window controls for exactly the
+between-run common-mode drift I have been flagging all session and never actually
+controlled for. Their numbers:
+
+    keylen 3      0.9362, 0.8991        loadavg 7.76
+    keylen 2000   0.8702, 0.9141, 0.9324  loadavg 8.4-8.9
+    keylen 8000   0.8783, 0.8868        loadavg 11.78, 19.42
+
+They tested MY exact cell (keylen 8000) and both call protocols, so neither key
+length nor `G.degree[u]` vs `G.degree(u)` explains the gap.
+
+MY OWN RE-MEASUREMENT AGREES WITH THEM, which is what settles it. Same harness,
+same workload, current ELF 70c1e8f3, observed loadavg 15.77:
+
+    Graph degree(u) len=8000   0.9605x [0.9588, 0.9633]  nulls 1.0004/1.0027  ADMISSIBLE
+    Graph degree(u) len=8000   0.9792x [0.9775, 0.9817]  nulls 1.0040/1.0061  ADMISSIBLE
+    Graph degree(u) len=3      0.9490x [0.9472, 0.9530]  ADMISSIBLE
+    Graph degree(u) len=3      0.9676x [0.9645, 0.9696]  ADMISSIBLE
+
+Four admissible rows, every CI entirely below 1.0. 1.0172x does not reproduce in
+the harness that produced it.
+
+THE METHODOLOGICAL LESSON, which is the part I most need to carry forward. My two
+original runs read 1.0188x and 1.3551x — a 33 percent disagreement that I NOTED in
+the banked row and then banked anyway, on the reasoning that quoting the WORST
+bound of a disagreeing pair is conservative. It is not. When two runs disagree that
+badly, the whole PAIR can be displaced, and the low end of a displaced pair is
+still displaced. Six later measurements (four mine, two-plus theirs) cluster at
+0.87-0.98x, so both of my originals were high. **A 33 percent disagreement is a
+signal to take more runs, not to quote the lower one.** I applied exactly this rule
+correctly on the ki2ni row earlier — took four runs when two disagreed by 19
+percent — and then failed to apply it here.
+
+WHAT STANDS. The lever is real and large: this pane measured the pre-lever cell at
+0.1049x and the other pane's ELF-alternated pre-lever arm reproduces at
+0.2441-0.2509x across three replicates, against ~0.87-0.98x after. The mechanism
+recorded with it also stands — the native `DegreeView::__getitem__` built the
+canonical and hashed it twice, once for `has_node` and again for `degree`, where
+`has_node` already resolved through the cached index. Only the claim that it
+crosses parity is withdrawn.
+
+THE CORRECT CLASSIFICATION for that row is `comparison_class=SELF-SPEEDUP` with
+`campaign_output=false` — which is what I originally wrote before the preflight
+pushed me to `campaign_output=true` on the strength of a 1.0172x that was not
+real. The gate was right that a SELF-SPEEDUP row must not make a competitive
+claim; the correct fix was to drop the competitive claim, not to promote the row.
+
+PROVENANCE for the four re-measurement rows, self-reported in-process: harness
+`scripts/balanced_square_ab.py` sha256
+0a7f324a1681b7ddb912a8eec67f81857f08ab1650015536b1c2c8f5fac1b9f9; host
+thinkstation1; rch_worker none, both arms in-process; NO build performed — existing
+binary reused; loaded ELF sha256
+70c1e8f3e8577203ad90ad4b62c7886f7c1260e3a27f5255947050f12726428e; governor
+powersave; runtime ISA avx2 avx sse4_2; observed affinity 8 of 64 cpus; python
+3.13.7 x86_64; live networkx 3.6.1; PYTHONHASHSEED=0; OBSERVED loadavg 15.77 at
+both run starts (`uptime` run by me immediately before).
