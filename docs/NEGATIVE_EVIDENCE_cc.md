@@ -15396,3 +15396,77 @@ PROVENANCE: structural and categorical; no ratio certified. Pinned ELF sha256
 `git archive` tree at `877548d15`. host thinkstation1, governor `powersave`,
 python 3.13.7, live networkx 3.6.1, disk 288G free. `uptime` observed by this
 pane: 36.88 / 32.49 at the decision, 29.45, 21.92 and 13.88 across the probes.
+
+## CORRECTION TO MY OWN PREVIOUS ROW: the "1429-4292 MHz, 3.0x swing" figure was measured on an IDLE process and is NOT a benchmark condition (br-r37-c1-jycsb)
+
+NO CERTIFICATION. `uptime` checked by this pane: 1-min 7.63 against 5-min 19.35,
+ratio 2.54 — rejected as falling-not-settled. What follows is a diagnostic taken
+in that low-load moment precisely because the previous row named a low-load
+observation as its missing evidence.
+
+**THE PREVIOUS ROW OVERSTATED ITS CASE AND THIS RETRACTS THE HEADLINE.** It
+claimed this host's cores "swing 1429-4292 MHz (3.0x)" and concluded "a QUIET
+window is a SLOW window". Both halves are wrong as stated.
+
+**What the low-load window actually shows.** Ten processes at loadavg 7.34-7.37,
+each sampling the running core's clock alongside the timing:
+
+    ns       cpu   freq median   freq min   freq max
+    104.75     1      4292.2      4288.8     4292.3
+    101.94    16      4288.8      3433.7     4292.2
+    101.20    53      4288.8      2510.6     4292.2
+    101.25    23      4288.9      4267.3     4292.3
+    138.47    35      3433.8      3144.3     4288.8
+    102.43    14      4242.3      4239.0     4288.9
+    106.56    17      4139.2      4064.4     4217.4
+    100.47    20      4288.9      3433.7     4292.2
+    100.31    52      4292.2      4288.8     4292.2
+    104.94    22      4267.3      4238.9     4292.2
+
+Nine of ten cores ran at 4.14-4.29 GHz **at loadavg 7.3** and produced the FAST
+mode. A quiet window did NOT produce down-clocked cores, and the 160-179 ns
+cluster did not reappear.
+
+**Why the earlier figure was wrong: it sampled an IDLE process.** The 1429 MHz
+reading came from calling `guard.sample()` six times in a tight loop with no work
+between calls — a process doing nothing, on a core with nothing to boost for.
+Tested directly:
+
+    sampled while IDLE (no work between samples)   3434 MHz flat, 0 percent swing
+    sampled while BUSY (20 ms of work per sample)  3354-4292 MHz, median 4240, 22 percent swing
+
+A busy benchmark core lives at 3.35-4.29 GHz, a 22 percent range — not 3.0x. The
+instrument was measuring its own idleness.
+
+**AND THAT IS A REAL FLAW IN THE INSTRUMENT, now fixed.** `WindowGuard.sample()`
+runs at round START, before that round's blocks, so it reads the clock BEFORE the
+governor boosts for the work about to happen. Every clock number the guard
+reported was a pre-boost reading. `record_ratio()` now samples the clock too, so
+each round is bracketed pre-work and post-work and `khz_spread_pct` spans both.
+
+**WHAT SURVIVES, because it is directly observed rather than inferred.**
+Frequency does track timing within a single window: the one slow process above
+(138.47 ns) ran at a median 3433.8 MHz against ~4288 MHz for the fast ones — a
+1.25x clock ratio against a 1.36x timing ratio, same direction, same order. So
+core clock is a real covariate worth recording, which is why the instrumentation
+stays.
+
+**WHAT DOES NOT SURVIVE.** The mechanism for br-r37-c1-jycsb's original 1.66x
+split is NOT established. The 160-179 ns cluster has still never been observed
+with clock data attached, and the low-load window that was supposed to reproduce
+it produced the opposite. Hash seed is refuted; frequency is demoted from
+"mechanism found" to "a covariate that explains some within-window variation".
+The bead goes back to open on its central question.
+
+The honest lesson is about the previous row rather than about the host: I had a
+refuted alternative, a matching magnitude and a known governor, and I wrote
+"MECHANISM FOUND". Three consistent facts around an unobserved cause is a
+hypothesis, and the confirming observation I myself named as missing turned out
+to contradict it when taken.
+
+PROVENANCE: diagnostic, no ratio certified. Pinned ELF sha256
+789dd9dead49c4a8dbeaf6747c1532a70639561afda92497e4b304fdb7ff59fd. host
+thinkstation1, governor `powersave`, python 3.13.7, live networkx 3.6.1, disk
+288G free. `uptime` observed by this pane: 1-min 7.63 / 5-min 19.35 at the
+decision (gate REJECTED, ratio 2.54), 7.34-7.37 across the ten-process sweep,
+6.75 at the idle-versus-busy test.

@@ -175,7 +175,18 @@ class WindowGuard:
         return value
 
     def record_ratio(self, ratio: float) -> None:
+        """Record a round's ratio, and sample the clock AFTER its work.
+
+        `sample()` runs at round START, before any of that round's blocks, so it
+        reads the core clock BEFORE the governor has boosted for the work about
+        to happen. That is how this module recorded a 1429 MHz sample and led
+        this pane to overstate a 3.0x clock swing as a benchmark condition: an
+        idle core reads flat and low, a busy one boosts. Sampling here as well
+        brackets each round with a pre-work and a post-work clock, and
+        `khz_spread_pct` is computed over both.
+        """
         self.ratios.append(ratio)
+        self.khz.append(read_cpu_khz())
 
     # -- derived statistics -------------------------------------------------
 

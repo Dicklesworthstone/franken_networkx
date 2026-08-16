@@ -263,8 +263,24 @@ def test_provenance_line_carries_the_clock_when_available():
 
 
 def test_sample_collects_the_clock_series():
+    """Two clock samples per round: one at sample() before the round's work and
+    one at record_ratio() after it. See br-r37-c1-jycsb -- a pre-work sample
+    alone reads an unboosted core."""
     guard = WindowGuard()
     for _ in range(4):
         guard.sample()
         guard.record_ratio(0.5)
-    assert len(guard.khz) == 4
+    assert len(guard.khz) == 8
+
+
+def test_record_ratio_also_samples_the_clock():
+    """br-r37-c1-jycsb: sample() runs BEFORE a round's work, so it reads a
+    pre-boost clock. Bracketing each round with a post-work sample is what keeps
+    an idle-core reading from being mistaken for a benchmark condition."""
+    guard = WindowGuard()
+    for _ in range(3):
+        guard.sample()
+        guard.record_ratio(1.0)
+    assert len(guard.khz) == 6, "each round should contribute a pre- and post-work clock"
+    assert len(guard.loads) == 3
+    assert len(guard.ratios) == 3
