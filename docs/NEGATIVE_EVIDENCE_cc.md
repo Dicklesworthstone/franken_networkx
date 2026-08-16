@@ -13579,3 +13579,78 @@ by maturin `build --release` from its own `git archive` tree (`3929a9cc7` and
 PYTHONPATH so the shared venv install was never touched. python 3.13.7 x86_64,
 live networkx 3.6.1, disk 308G free. loadavg 14.7 at the window start, 23.9 at the
 end.
+
+## `(u,v) in G.edges` 0.0844x and `G.degree(u)` 0.0895x at 8000-char keys — the family that survives the lookaside fixes (br-r37-c1-ptiz2)
+
+comparison_class=INCUMBENT
+incumbent=networkx
+incumbent_same_invocation=true
+decision_gate=median_ci
+cv_role=report_only
+
+All three routes to the edge ATTR DICT are now fixed. These two are what is left,
+and they are a different mechanism: neither fetches an attribute dict, so neither
+touches the index lookaside at all.
+
+A/A null control run 1, incumbent arm paired against itself in the same invocation: 1.0124x, inside the 0.02 bound.
+
+A/A null control run 1, fnx arm paired against itself in the same invocation: 0.9993x, inside the 0.02 bound.
+
+A/A null control run 3, incumbent arm paired against itself in the same invocation: 1.0160x, inside the 0.02 bound.
+
+A/A null control run 3, fnx arm paired against itself in the same invocation: 1.0008x, inside the 0.02 bound.
+
+A/A null control for `degree(u)`, run 1, incumbent arm paired against itself in the same invocation: 0.9912x, inside the 0.02 bound.
+
+A/A null control for `degree(u)`, run 2, incumbent arm paired against itself in the same invocation: 1.0074x, inside the 0.02 bound.
+
+A/B against live networkx 3.6.1 in the SAME invocation, ABBAABBA square, 50 reps x
+400 calls per slot:
+
+| row | run 1 (61 rounds, 40-47) | run 2 (61 rounds, 48-55) | run 3 (81 rounds, 40-47) | worst bound |
+|---|---|---|---|---|
+| `Graph (u,v) in edges len=8000` | 0.0844x [0.0840, 0.0849] | 0.0856x NULL-FAILED | 0.0860x [0.0858, 0.0862] | **0.0840x** |
+| `Graph degree(u) len=8000` | 0.0971x [0.0967, 0.0979] | 0.0901x [0.0895, 0.0922] | — | **0.0895x** |
+| CONTROL `Graph G[u][v] len=8000` | 1.0213x | 0.8970x | — | 0.8928x |
+| CONTROL `Graph edges[u,v] len=8000` | 0.6861x | 0.6924x | — | 0.6776x |
+
+REPLICATION QUALITY DIFFERS BETWEEN THE TWO ROWS AND I AM NOT HIDING IT.
+`degree(u)` has two admissible runs at IDENTICAL shape, differing only in core
+set — a clean pair. `(u,v) in edges` does NOT: its two admissible runs are at 61
+and 81 rounds, so they differ in shape as well as core set, which breaks the
+change-one-variable rule I wrote after being burned by it earlier. Its three
+measured values are nonetheless 0.0844x, 0.0856x and 0.0860x — a 1.9 percent
+spread — so the VALUE is not in doubt even though the replication is not clean.
+Quoted at its worst bound with that stated.
+
+A GATE OBSERVATION THAT CONTRADICTS MY OWN INSTRUMENTATION. I established that
+this harness's null failures come from a within-round WARMING gradient that
+flattens as calls-per-slot rises, and that raising K is therefore a fix rather
+than a workaround. That held for every row so far — but `(u,v) in edges` NULL-
+FAILED at K=160 (1.0278) and again at K=400 (1.0242), while every other row in the
+same invocation went admissible at K=400. So this row has a null that resists
+K-scaling, which the warming model does not explain. I do not have a mechanism for
+it and am recording it as an open anomaly rather than assuming my earlier model
+covers it.
+
+WHY THESE TWO ARE A DIFFERENT PROBLEM FROM THE THREE ALREADY FIXED. `(u,v) in
+G.edges` is a MEMBERSHIP test and `degree(u)` is a COUNT — neither returns an
+attribute dict, so the index-keyed lookaside that fixed `edges[u,v]`,
+`get_edge_data` and `G[u][v]` has nothing to serve them. Their remaining
+key-length cost is in resolving the endpoints for a native `has_edge` / degree
+query, not in the attr storage. That is a separate lever and it is not the one I
+have been landing.
+
+FOR CONTEXT, the same screen on the current ELF shows what IS flat now:
+`G.adj[u]` 0.7058x -> 0.7116x, `G[u][v]` 0.9110x -> 0.9047x, `n in G` 1.3434x ->
+0.9370x, `G.nodes[u]` 1.5796x -> 1.1142x across lengths 3 to 8000.
+
+PROVENANCE, self-reported in-process: harness `scripts/balanced_square_ab.py`
+sha256 0a7f324a1681b7ddb912a8eec67f81857f08ab1650015536b1c2c8f5fac1b9f9; host
+thinkstation1; rch_worker none, both arms in-process on the same host, and NO
+build was performed — existing binary reused, verified by 0 `.rs` files newer than
+the loaded `.so`; loaded ELF sha256
+8f9d159a8ff369e5d0c21321ee881ad2e2931a62203bec11b2732da458d3b15b; governor
+powersave; runtime ISA avx2 avx sse4_2; observed affinity 8 of 64 cpus; python
+3.13.7 x86_64; live networkx 3.6.1; PYTHONHASHSEED=0; loadavg 26.1, 24.4 and 30.8
+at the three run starts.

@@ -701,6 +701,16 @@ def workload_multi_key_length(reps: int):
             table[f"Graph G[u][v] len={length}"] = (
                 lambda simple=simple, su=su, sv=sv: simple[su][sv]
             )
+            # br-r37-c1-ptiz2: the remaining unbounded family after all three
+            # attr-dict routes were fixed. `(u,v) in G.edges` is a MEMBERSHIP
+            # test, not an attr fetch, so it does not touch the lookaside at
+            # all — a different mechanism on the same key-length axis.
+            table[f"Graph (u,v) in edges len={length}"] = (
+                lambda simple=simple, su=su, sv=sv: (su, sv) in simple.edges
+            )
+            table[f"Graph degree(u) len={length}"] = (
+                lambda simple=simple, su=su: simple.degree(su)
+            )
         return table
 
     return build, ops
