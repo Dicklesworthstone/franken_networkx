@@ -17307,3 +17307,66 @@ comparison_class=SELF-SPEEDUP
 campaign_output=false
 decision_gate=median_ci
 cv_role=report_only
+
+## NOT LANDED: sharing the multigraph row key as `Arc<str>` buys ~2.5 percent, not the 19 percent its attribution predicted (br-r37-c1-2ndmw)
+
+comparison_class=SELF-SPEEDUP
+campaign_output=false
+decision_gate=median_ci
+cv_role=report_only
+elf_sha256=bba560418752d220...
+
+WINDOW: `uptime` 1-min 19.2 at the decision, but it degraded to 42-48 during the
+measurement, above this pane's own gate. Nothing here is certified, and the
+candidate was NOT landed on this evidence.
+
+**THE ATTRIBUTION THAT MOTIVATED IT.** `MultiAtlasView::__getitem__` — the native
+half of a multigraph `G.adj[u][v]` — does three O(key length) things: canonicalise
+`v`, hash both endpoints in `has_edge`, and `self.node.clone()` a `String` into
+the `MultiKeyDictView` it returns. Splitting the function with `__contains__`,
+which does the first two but not the last:
+
+    K       at[v] full   v in at   delta (view ctor + clone)
+    3           181.8      119.6        62.2
+    500         285.8      215.0        70.7
+    2000        587.8      446.0       141.8
+    8000       1446.5     1174.3       272.1
+
+At K=8000 the delta is 272 ns, 19 percent of the call, and it grows with key
+length — the signature of a per-subscript string copy. Converting
+`MultiAtlasView::node` and `MultiKeyDictView::{source,target}` to
+`std::sync::Arc<str>` makes that clone a refcount bump. Six type errors, all in
+`lib.rs`, no other file touched.
+
+**MEASURED: about 2.5 percent, not 19.** Built and alternated against a
+commit-pinned HEAD build, pinned to `cpu14`, K=8000:
+
+    base 1447.8 / 1447.4 / 1445.7 ns     candidate 1421.5 / 1380.0 / 1431.2 ns
+
+The base is remarkably stable (0.15 percent spread) and the candidate is lower in
+all three pairs, so the direction is real — but the magnitude is ~2.5 percent
+where the clone was supposedly 19 percent of the path. **The delta is therefore
+dominated by `Py::new` and the `MultiKeyDictView` allocation, not by copying the
+row key.** Sharing the string was the wrong target inside a correctly-measured
+component.
+
+**NOT LANDED, and the reason is the window rather than the direction.** 2.5
+percent is below this pane's documented noise — the same cell moves 13 percent
+between windows and a contended SMT sibling shifts a ratio 17 percent — and load
+ran 42-48 throughout, above the gate. Landing an unverifiable 2.5 percent Rust
+change into a shared checkout that peers are actively building in is not worth
+it. `lib.rs` is byte-identical to HEAD.
+
+WHAT THIS LEAVES: the native half of the multigraph cell is 46 percent of it, and
+within that half the dominant cost is the canonicalise-plus-`has_edge` pair
+(1174 ns of 1446 at K=8000), NOT the view construction. Anyone attacking this
+should go after resolving `v` by node INDEX rather than by canonical string —
+the br-r37-c1-ptiz2 shape — and should not repeat this pane's detour through the
+allocation.
+
+PROVENANCE: component attribution and a directional A/B; no ratio certified.
+Pinned to cpu14, one library per process, alternated. ELFs: commit-pinned HEAD
+build `bba560418752d220...` as base, a `git archive` HEAD tree plus the candidate
+`lib.rs` as the candidate arm. host thinkstation1, governor `powersave`, python
+3.13.7, live networkx 3.6.1, disk 234G free. `uptime`: 19.2 / 20.7 / 21.3 at the
+decision, 42.67-48.58 across the measurement. CPU clock observed 4015-4239 MHz.
