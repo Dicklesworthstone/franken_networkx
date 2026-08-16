@@ -45168,7 +45168,7 @@ class _FilteredGraphView:
         if (
             self._filter_edge_is_default
             and isinstance(self._filter_node, _NodeSetFilter)
-            # br-r37-c1-INDSM: ...but only when the keep set is a large enough
+            # br-r37-c1-5cqc2: ...but only when the keep set is a large enough
             # share of the parent. The native kernel walks the whole parent, so
             # for a SMALL keep set it is far slower than the pure-Python builder
             # below, which touches only the kept nodes and their rows. Measured
@@ -45879,7 +45879,7 @@ _INDUCED_NATIVE_KEEP_DIVISOR = 10
 def _induced_keep_is_small(filter_nodes, parent):
     """True when an induced copy should be built in Python, not by the kernel.
 
-    br-r37-c1-INDSM. The native induced-subgraph kernel walks the whole parent,
+    br-r37-c1-5cqc2. The native induced-subgraph kernel walks the whole parent,
     so it is the right tool only when the kept set is a large share of it. The
     divisor is the measured crossover rounded down; see the call site for the
     table. Returns False whenever the sizes cannot be established, so an unusual
