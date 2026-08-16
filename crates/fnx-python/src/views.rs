@@ -1579,6 +1579,26 @@ impl AtlasView {
     }
 
     fn __getitem__(&mut self, py: Python<'_>, v: &Bound<'_, PyAny>) -> PyResult<Py<PyDict>> {
+        // br-r37-c1-x7bqd: networkx subscripts a dict here, which HASHES v, so
+        // an unhashable key is a TypeError — not a KeyError, and not None from
+        // `get`. `canonical_node_key_in` below canonicalises by VALUE and never
+        // hashes, so `G[u][['x']]` raised KeyError and `G.adj[u].get(['x'])`
+        // quietly returned None.
+        //
+        // br-r37-c1-espyz fixed exactly this on `__contains__` of this same
+        // class and stopped there; `__getitem__` and the `get` that delegates to
+        // it kept the gap. Simple Graph is the only class where it is publicly
+        // reachable, because its row IS this native view — the other three carry
+        // a Python wrapper whose own hash masks it.
+        //
+        // Guarded ahead of BOTH branches, not just the unmaterialised one. The
+        // materialised branch already raises through `PyDict::get_item`, so
+        // guarding only the other would leave the answer depending on whether
+        // the row happened to be materialised, which is the cache-state bug
+        // pattern br-r37-c1-alll4 pinned. `require_hashable_node_key`
+        // short-circuits on an exact str/int/float/bool, so the common shape
+        // pays one type check and never hashes.
+        crate::require_hashable_node_key(v)?;
         if let Some(row) = &self.row {
             let Some(attrs) = row.bind(py).get_item(v)? else {
                 return Err(PyKeyError::new_err((v.clone().unbind(),)));

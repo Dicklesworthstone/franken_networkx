@@ -168,3 +168,61 @@ def test_membership_agrees_with_iteration_and_len(cls_name):
     assert len(rfx) == len(rnx)
     for neighbor in rnx:
         assert neighbor in rfx
+
+
+@pytest.mark.parametrize("cls_name", CLASSES)
+@pytest.mark.parametrize("bad", [["x"], {"x": 1}, {"x"}], ids=["list", "dict", "set"])
+@pytest.mark.parametrize(
+    "spelling",
+    ["adj-getitem", "adj-get", "graph-getitem"],
+)
+def test_unhashable_row_subscript_raises_type_error(cls_name, bad, spelling):
+    """br-r37-c1-x7bqd: subscripting a row hashes, so unhashable is TypeError.
+
+    br-r37-c1-espyz fixed this on ``__contains__`` of the native AtlasView and
+    stopped there; ``__getitem__`` and the ``get`` that delegates to it kept the
+    gap, so ``G[u][['x']]`` raised KeyError and ``G.adj[u].get(['x'])`` quietly
+    returned None. Publicly reachable on simple Graph only — its row IS the
+    native view, while the other three carry a Python wrapper whose own hash
+    masks it — but asserted on all four so the contract cannot drift apart again.
+    """
+    gnx, gfx = _pair(cls_name)
+    ops = {
+        "adj-getitem": lambda g: g.adj["a"][bad],
+        "adj-get": lambda g: g.adj["a"].get(bad),
+        "graph-getitem": lambda g: g["a"][bad],
+    }
+    op = ops[spelling]
+    got = _outcome(lambda: op(gfx))
+    assert got == _outcome(lambda: op(gnx))
+    assert got[1] == "TypeError"
+
+
+@pytest.mark.parametrize("cls_name", CLASSES)
+def test_missing_and_present_row_subscripts_are_unchanged(cls_name):
+    """The guard must not disturb the ordinary answers around it."""
+    gnx, gfx = _pair(cls_name)
+    assert _outcome(lambda: gfx.adj["a"]["zz"]) == _outcome(lambda: gnx.adj["a"]["zz"])
+    assert gfx.adj["a"].get("zz") is gnx.adj["a"].get("zz") is None
+    assert gfx.adj["a"].get("zz", 7) == gnx.adj["a"].get("zz", 7) == 7
+    assert dict(gfx.adj["a"]["b"]) == dict(gnx.adj["a"]["b"])
+    assert dict(gfx["a"]["b"]) == dict(gnx["a"]["b"])
+
+
+@pytest.mark.parametrize("cls_name", CLASSES)
+def test_unhashable_subscript_answer_does_not_depend_on_materialisation(cls_name):
+    """Guarded ahead of BOTH branches of the native view, not just one.
+
+    The materialised branch already raised through PyDict.get_item, so guarding
+    only the other would make the answer depend on whether the row happened to
+    be materialised.
+    """
+    for pre_read in (False, True):
+        gnx, gfx = _pair(cls_name)
+        rfx, rnx = gfx.adj["a"], gnx.adj["a"]
+        if pre_read:
+            list(rfx)
+            list(rnx)
+        got = _outcome(lambda: rfx[["x"]])
+        assert got == _outcome(lambda: rnx[["x"]]), f"pre_read={pre_read}"
+        assert got[1] == "TypeError"
