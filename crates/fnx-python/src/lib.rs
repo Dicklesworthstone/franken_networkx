@@ -14596,6 +14596,158 @@ impl PyGraph {
         Ok(new_graph)
     }
 
+    /// br-r37-c1-native-relabel-attr-roundtrip-u3vvm: `relabel_nodes(G, m,
+    /// copy=True)` without the attribute round-trip.
+    ///
+    /// The Python path is `H.add_nodes_from([(m(n), d) for n, d in
+    /// G.nodes(data=True)])` plus the edge equivalent, so every node and edge
+    /// attr dict is materialized OUT of the store and re-ingested back INTO a
+    /// new one. Measured split on 800 nodes / 3000 edges with 8 scalar attrs
+    /// each (harness B/min-of-repeats, worker LOCAL:thinkstation1): fnx's
+    /// materialization is already FASTER than networkx's (0.52 ms vs 0.97 ms on
+    /// the edges), and the whole 0.61x loss sits in the ingest — 4.10 ms against
+    /// networkx's 1.82 ms. A native `G.copy()` of the same graph, which clones
+    /// the store Rust-to-Rust and only `PyDict_Copy`s the mirrors, costs 1.70 ms.
+    /// That 1.70 vs 5.04 gap is the prize here.
+    ///
+    /// This deliberately models `copy` and NOT `subgraph`. A previous attempt on
+    /// this bead was subgraph-shaped, rebuilt attrs via
+    /// `py_dict_to_attr_map_with_mirror`, and so kept crossing the boundary it
+    /// was meant to avoid; it measured SLOWER and was reverted. Here the store
+    /// `AttrMap` is cloned Rust-to-Rust and the mirror is copied Python-to-Python,
+    /// exactly as `copy` does — neither is converted.
+    ///
+    /// Returns `None` when a gate is not met, and the caller keeps the Python
+    /// path. Gates:
+    ///   * MERGING mappings bail. Two old nodes landing on one new key make the
+    ///     result order- and attr-merge-sensitive, which the Python path already
+    ///     implements correctly.
+    ///   * a non-empty `adj_py_keys` bails (br-r37-c1-z6uka display overrides).
+    /// Node attrs are refreshed from the Python mirror where one exists, because
+    /// node-attr writes are NOT tracked by `edges_dirty` and the mirror is the
+    /// live dict handed to Python — the same reason `copy` refreshes them.
+    fn _native_relabel_copy(
+        &self,
+        py: Python<'_>,
+        mapping: &Bound<'_, PyDict>,
+    ) -> PyResult<Option<Self>> {
+        if !self.adj_py_keys.is_empty() {
+            return Ok(None);
+        }
+        let ordered = self.inner.nodes_ordered();
+        let mut renamed: HashMap<String, String> =
+            HashMap::with_capacity_and_hasher(ordered.len(), Default::default());
+        let mut new_keys: Vec<(String, PyObject)> = Vec::with_capacity(ordered.len());
+        let mut seen: std::collections::HashSet<String> =
+            std::collections::HashSet::with_capacity(ordered.len());
+        for canonical in &ordered {
+            let old_obj = self.py_node_key(py, canonical);
+            let (new_canonical, new_obj) = match mapping.get_item(old_obj.bind(py))? {
+                Some(target) => {
+                    // `None` is not a legal node. The Python path reaches that
+                    // rejection through `add_nodes_from`, which raises
+                    // ValueError("None cannot be a node") — `read_gexf(...,
+                    // relabel=True)` depends on it when a node carries no label.
+                    // Canonicalizing here would swallow it, so bail and let the
+                    // established path raise with its own wording.
+                    if target.is_none() {
+                        return Ok(None);
+                    }
+                    (node_key_to_string(py, &target)?, target.unbind())
+                }
+                None => ((*canonical).to_owned(), old_obj),
+            };
+            // Non-merging only: a duplicate new canonical means two source nodes
+            // collapse into one, and the merge semantics stay on the Python path.
+            if !seen.insert(new_canonical.clone()) {
+                return Ok(None);
+            }
+            renamed.insert((*canonical).to_owned(), new_canonical.clone());
+            new_keys.push((new_canonical, new_obj));
+        }
+
+        let mut inner = Graph::with_runtime_policy(self.inner.runtime_policy().clone());
+        let mut node_py_attrs: HashMap<String, Py<PyDict>> =
+            HashMap::with_capacity(self.node_py_attrs.len());
+        let mut nodes_with_attrs: Vec<(String, AttrMap)> = Vec::with_capacity(ordered.len());
+        for (index, canonical) in ordered.iter().enumerate() {
+            let new_canonical = &new_keys[index].0;
+            match self.node_py_attrs.get(*canonical) {
+                Some(attrs) => {
+                    // A materialized mirror is the live dict Python holds, and a
+                    // write through it does not touch the store, so it wins.
+                    let bound = attrs.bind(py);
+                    nodes_with_attrs.push((new_canonical.clone(), py_dict_to_attr_map(bound)?));
+                    node_py_attrs.insert(new_canonical.clone(), bound.copy()?.unbind());
+                }
+                None => {
+                    let attrs = self
+                        .inner
+                        .node_attrs(canonical)
+                        .cloned()
+                        .unwrap_or_else(AttrMap::new);
+                    nodes_with_attrs.push((new_canonical.clone(), attrs));
+                }
+            }
+        }
+        inner.extend_nodes_with_attrs_unrecorded(nodes_with_attrs);
+
+        let mut edge_py_attrs: HashMap<(String, String), Py<PyDict>> =
+            HashMap::with_capacity(self.edge_py_attrs.len());
+        let source_edges = self.inner.edges_ordered_borrowed();
+        let mut edges_with_attrs: Vec<(String, String, AttrMap)> =
+            Vec::with_capacity(source_edges.len());
+        for (u, v, attrs) in source_edges {
+            let new_u = renamed.get(u).expect("every source node was renamed");
+            let new_v = renamed.get(v).expect("every source node was renamed");
+            // The store AttrMap is cloned Rust-to-Rust; the mirror, when one has
+            // been materialized, is copied Python-to-Python. Neither converts.
+            if let Some(mirror) = self
+                .edge_py_attrs
+                .get(&Self::edge_key(u, v))
+                .or_else(|| self.edge_py_attrs.get(&Self::edge_key(v, u)))
+            {
+                edge_py_attrs.insert(
+                    Self::edge_key(new_u, new_v),
+                    mirror.bind(py).copy()?.unbind(),
+                );
+            }
+            edges_with_attrs.push((new_u.clone(), new_v.clone(), attrs.clone()));
+        }
+        inner.extend_edges_with_attrs_unrecorded(edges_with_attrs);
+
+        let mut node_key_map = PyNodeKeyMap::with_capacity_and_hasher(
+            new_keys.len(),
+            rustc_hash::FxBuildHasher,
+        );
+        for (new_canonical, obj) in new_keys {
+            node_key_map.insert(new_canonical, obj);
+        }
+
+        Ok(Some(Self {
+            inner,
+            node_key_map,
+            lazy_int_node_stop: 0,
+            node_py_attrs,
+            edge_py_attrs,
+            edge_py_attrs_by_endpoint: HashMap::new(),
+            has_edge_node_index_cache: NodeIndexLookupCache::new(py),
+            adj_py_keys: HashMap::new(),
+            dict_of_dicts_cache: None,
+            adj_row_py: HashMap::new(),
+            graph_attrs: self.graph_attrs.bind(py).copy()?.unbind(),
+            nodes_seq: 0,
+            edges_seq: 0,
+            // Same contract as `copy`: a dirty source yields a result that
+            // reconciles from the copied Python dicts on the next native read.
+            edges_dirty: AtomicBool::new(self.edges_dirty.load(Ordering::Relaxed)),
+            node_keys_cache: std::sync::Mutex::new(None),
+            node_iter_mirror: std::sync::Mutex::new(None),
+            instance_dict_gc: InstanceDictGc::new(),
+            node_data_mirror: std::sync::Mutex::new(None),
+        }))
+    }
+
     /// br-r37-c1-copynative: stable alias exposing the native order-preserving
     /// `copy` (above) to the Python `_copy_preserving_insertion_order` wrapper,
     /// which shadows `copy` at the Python class level. Lets exact-type
