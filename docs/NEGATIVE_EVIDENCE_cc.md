@@ -12069,3 +12069,86 @@ STATUS: loss recorded on the post-freeze ELF with admissible nulls. The lever is
 OPEN and UNATTEMPTED. The budget in
 tests/python/test_edges_nbunch_freshness_token_budget.py fails when the counts
 drop, so whoever lands it is told to update the numbers and bank the new ratio.
+
+## 2026-08-16 GoldenBison KEEP: index-keyed edge-attr lookaside removes the key-length scaling defect — **0.196x to 0.6993x at len=400** (br-r37-c1-ptiz2)
+
+comparison_class=SELF-SPEEDUP
+campaign_output=false
+decision_gate=median_ci
+cv_role=report_only
+
+The lever written and committed UNCOMPILED during the disk freeze (3f9ce2b6a) now
+compiles, passes, and delivers what its written prediction said it would.
+
+A/A null control, after, run 1, incumbent arm paired against itself in the same invocation: 0.9963x, inside the 0.02 bound.
+
+A/A null control, after, run 1, fnx arm paired against itself in the same invocation: 1.0195x, inside the 0.02 bound.
+
+A/A null control, after, run 2, incumbent arm paired against itself in the same invocation: 1.0005x, inside the 0.02 bound.
+
+A/A null control, after, run 2, fnx arm paired against itself in the same invocation: 1.0169x, inside the 0.02 bound.
+
+A/B against live networkx 3.6.1 in the SAME invocation, ABBAABBA square, 61 rounds
+x 50 reps x 160 calls per slot, workload `key-length-scaling`, gated on the
+bootstrap median CI. Rows ADMISSIBLE IN BOTH runs:
+
+| row | run 1 (cores 40-47) | run 2 (cores 48-55) | worst bound |
+|---|---|---|---|
+| `edges[u,v] len=3` | 0.7541x [0.7474, 0.7589] | 0.7523x [0.7420, 0.7546] | 0.7420x |
+| `edges[u,v] len=400` | 0.7478x [0.6993, 0.7543] | 0.7400x [0.7343, 0.7478] | 0.6993x |
+
+THE RESULT IS THE FLATNESS, not either number on its own. Before this change the
+ratio COLLAPSED with key length; after it, length is nearly free:
+
+    node-key length        4       130       400      2000      4000
+    BEFORE ratio       0.685x    0.263x    0.196x    0.128x    0.054x
+    AFTER  ratio       0.75x     0.749x    0.748x    0.780x    0.768x
+    BEFORE fnx ns      133.9     346.3     467.9     717.1    1707.8
+    AFTER  fnx ns      ~132      132.2     132.2     132.5     133.0
+
+fnx absolute time is now FLAT at ~132ns from length 64 to 4000 (0.62x growth),
+against 12.76x growth before. The 2.03x allocation STEP at the 128-byte canonical
+buffer boundary is gone: length 120 and length 130 both read 132ns. At length 4000
+the vs-incumbent ratio improves 0.054x -> 0.768x, about 14x.
+
+THE PREDICTION WAS WRITTEN BEFORE THE MEASUREMENT and is confirmed on every
+clause: len=130 improved most in absolute terms (346.3 -> 132.2ns), the curve
+flattened, and `CONTROL has_edge` did NOT move — 0.7408-0.7495x here against
+0.7100-0.7564x measured before the change, i.e. the lever stayed inside its scope.
+`CONTROL len(G)` is 1.81x in both runs and is untouched.
+
+NOT ADMITTED, so not quoted as results: `edges[u,v] len=120` and `len=130` each
+admitted in only ONE of the two runs (0.7382x/0.7426x and 0.7492x/0.7474x), and
+the `has_edge len=400` and `len(G)` controls null-failed in one run each. The host
+was heavily loaded and settling from a build spike — loadavg 20.5 and 19.4 at the
+two run starts against five-minute averages of 42.9 and 41.9 — and it took
+calls-per-slot 160 to make any row admissible at all; at 16 and 48 every row
+null-failed at 1.05-1.14. The shape is quoted with the numbers.
+
+WHAT THE LEVER IS: a parallel edge-attribute lookaside keyed by node INDEX pair
+instead of by canonical endpoint STRINGS, probed before any canonical is built.
+The string-keyed map hashed both full-length endpoints per read and allocated two
+owned Strings per materialise. Each index entry carries the `nodes_seq` it was
+recorded under, because node REMOVAL renumbers indices while `bump_edges_seq` —
+the existing invalidation — guards EDGE identity and does not fire for it; an
+unguarded index key would resolve to a DIFFERENT edge and return the wrong live
+dict.
+
+CORRECTNESS: 50 gate cases in
+tests/python/test_edge_attr_lookaside_identity_and_invalidation.py pass, including
+that negative case (warm a late edge, remove an EARLIER node, re-read). Full
+Python suite 59551 passed, 1463 skipped; the only two failures are the
+pre-existing cross-test pollution filed as br-r37-c1-2i3mf.
+
+It remains a LOSS against networkx (0.70-0.75x), so this is maintenance, not a
+competitive claim. What changed is that it is no longer an UNBOUNDED loss.
+
+PROVENANCE, self-reported in-process: harness `scripts/balanced_square_ab.py`
+sha256 eda09da2ca5f28698598af69fbe0e5c1d149975a4126bb7d7a2a6a3f71c9382f; host
+thinkstation1; rch_worker none, both arms in-process on the same host; loaded ELF
+sha256 2c3e0c53f4b0d9558998a21d5298d7e5912689ecbaf4db75fb1e346aa10af366 (BEFORE
+figures are from ELF ecfc2d30935a12eb0b61c3d00b38718026bcc36977c047b048463c1bf9a37fb8,
+which no longer exists on disk — they are repeat-min, not ABBA, and are quoted as
+shape rather than as banked rows); governor powersave; runtime ISA avx2 avx
+sse4_2; observed affinity 8 of 64 cpus; python 3.13.7 x86_64; live networkx 3.6.1;
+PYTHONHASHSEED=0; loadavg 20.5 and 19.4 at the two run starts.

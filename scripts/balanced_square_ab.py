@@ -595,8 +595,50 @@ def workload_view_reads_multi(reps: int):
     return build, ops
 
 
+def workload_key_length_scaling(reps: int):
+    """`G.edges[u,v]` against NODE-KEY LENGTH (br-r37-c1-ptiz2).
+
+    The axis no other workload varies, and the one that exposed the defect this
+    lever fixes. Lengths straddle the 128-byte canonical buffer
+    (`CANONICAL_KEY_STACK_BUF`), because the measured allocation step sits
+    exactly at canon bytes 128 -> 133, i.e. between node-key lengths 120 and 125.
+
+    `has_edge` is the CONTROL: it canonicalises identically but never reaches the
+    edge-attribute lookaside, and it was already flat in key length before the
+    change. If it moves, the lever leaked outside its scope.
+    """
+
+    def build(module):
+        graphs = {}
+        for length in (3, 120, 130, 400):
+            u, v = "u" * length, "v" * length
+            graph = module.Graph()
+            graph.add_edge(u, v, weight=1)
+            graphs[length] = (graph, u, v)
+        return graphs[3][0], graphs
+
+    def ops(graph, fixture):
+        table = {}
+        for length, (g, u, v) in fixture.items():
+            view = g.edges
+            table[f"edges[u,v] len={length}"] = (
+                lambda view=view, u=u, v=v: view[u, v]
+            )
+        for length in (3, 400):
+            g, u, v = fixture[length]
+            table[f"CONTROL has_edge len={length}"] = (
+                lambda g=g, u=u, v=v: g.has_edge(u, v)
+            )
+        base = fixture[3][0]
+        table["CONTROL len(G)"] = lambda: len(base)
+        return table
+
+    return build, ops
+
+
 WORKLOADS = {
     "view-reads": workload_view_reads,
+    "key-length-scaling": workload_key_length_scaling,
     "view-reads-directed": workload_view_reads_directed,
     "view-reads-multi": workload_view_reads_multi,
     "algorithms": workload_algorithms,
