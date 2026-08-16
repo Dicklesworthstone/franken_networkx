@@ -23502,12 +23502,36 @@ def _multigraph_collapse_min_weight(G, weight):
     simple.add_nodes_from(G)
     best = {}
     for _u, _v, _k, _attrs in G.edges(keys=True, data=True):
+        # br-r37-c1-r9k2m: `_numbers.Real` is an ABSTRACT BASE CLASS, so every
+        # `isinstance` against it runs `__instancecheck__` -> `_abc_subclasscheck`
+        # rather than a C-level type check. At two per edge that dominated the
+        # whole collapse: cProfile on an 800-node MultiGraph counted 6400
+        # `_abc._abc_instancecheck` calls costing 1341us, plus 808us of
+        # `__instancecheck__` and 791us of `__subclasscheck__`, inside a 4392us
+        # helper. Check the CONCRETE types first and fall back to the ABC only
+        # for exotic numerics (numpy scalars, Fraction, ...).
+        #
+        # `type(x) is int` is False for `bool` -- bool is a SUBCLASS of int -- so
+        # the exact-type test already excludes the case the original spelled out
+        # with a separate `isinstance(_raw, bool)`, and booleans simply fall
+        # through to the ABC branch where they behaved identically before.
         if isinstance(_attrs, dict) and weight in _attrs:
             _raw = _attrs[weight]
-            if not isinstance(_raw, bool) and not isinstance(_raw, _numbers.Real):
-                return None, True
+            _rt = type(_raw)
+            if _rt is not float and _rt is not int:
+                if not isinstance(_raw, bool) and not isinstance(_raw, _numbers.Real):
+                    return None, True
         _val = _attrs.get(weight, 1)
-        if isinstance(_val, _numbers.Real) and not _math.isnan(_val):
+        _vt = type(_val)
+        if _vt is int:
+            # An int is Real and can be neither NaN nor infinite.
+            if _val < 0:
+                return None, True
+        elif _vt is float:
+            if not _math.isnan(_val):
+                if _val < 0 or (_math.isinf(_val) and _val > 0):
+                    return None, True
+        elif isinstance(_val, _numbers.Real) and not _math.isnan(_val):
             if _val < 0 or (_math.isinf(_val) and _val > 0):
                 return None, True
         _pair = (_u, _v)
@@ -23532,7 +23556,14 @@ def _multigraph_collapse_min_weight_bellman(G, weight):
     for _u, _v, _k, _attrs in G.edges(keys=True, data=True):
         if isinstance(_attrs, dict) and weight in _attrs:
             _value = _attrs[weight]
-            if not isinstance(_value, bool):
+            # br-r37-c1-r9k2m: same ABC cost as the dijkstra collapse above.
+            _vt = type(_value)
+            if _vt is int:
+                pass  # Real, never NaN or infinite
+            elif _vt is float:
+                if _math.isnan(_value) or _math.isinf(_value):
+                    return None, True
+            elif not isinstance(_value, bool):
                 if not isinstance(_value, _numbers.Real):
                     return None, True
                 if isinstance(_value, float) and (
@@ -45134,7 +45165,29 @@ class _FilteredGraphView:
         # since nx's ``FilterAdjacency.__getitem__`` wraps the row filter in a
         # plain closure with no ``.nodes`` attribute and so always iterates the
         # parent's row.
-        if self._filter_edge_is_default and isinstance(self._filter_node, _NodeSetFilter):
+        if (
+            self._filter_edge_is_default
+            and isinstance(self._filter_node, _NodeSetFilter)
+            # br-r37-c1-INDSM: ...but only when the keep set is a large enough
+            # share of the parent. The native kernel walks the whole parent, so
+            # for a SMALL keep set it is far slower than the pure-Python builder
+            # below, which touches only the kept nodes and their rows. Measured
+            # fallback/native at N=8000, below 1.0 meaning the Python builder is
+            # faster:
+            #
+            #     keep      10     100     400    1600    4000    7000
+            #     Graph    0.050   0.206   0.565   1.235   2.295   1.678
+            #     DiGraph  0.044   0.137   0.396   0.890   1.704   1.853
+            #
+            # so the crossover is around N/10 for Graph and N/3 for DiGraph.
+            # N/10 is at or under both. Below it the whole call was O(parent):
+            # G.subgraph(10).copy() measured 0.0093x (Graph) and 0.0043x
+            # (DiGraph) against networkx at N=32000, and nx.ego_graph — which is
+            # subgraph(...).copy() underneath — rounded to 0.000x on all four
+            # classes. This gate does not change the k-core family the kernel was
+            # written for: those keep well over a tenth of the graph.
+            and not _induced_keep_is_small(self._filter_node.nodes, self._graph)
+        ):
             native_induced = getattr(self._graph, "_native_induced_subgraph_copy", None)
             if native_induced is not None:
                 order = self._induced_node_order(self._filter_node.nodes)
@@ -45818,6 +45871,24 @@ def _cached_adj_row_key_iter(owner, row_kind, row_node, row_getter):
     # Thin iter() wrapper over the cached keydict (None if uncacheable).
     keydict = _cached_adj_row_keydict(owner, row_kind, row_node, row_getter)
     return None if keydict is None else iter(keydict)
+
+
+_INDUCED_NATIVE_KEEP_DIVISOR = 10
+
+
+def _induced_keep_is_small(filter_nodes, parent):
+    """True when an induced copy should be built in Python, not by the kernel.
+
+    br-r37-c1-INDSM. The native induced-subgraph kernel walks the whole parent,
+    so it is the right tool only when the kept set is a large share of it. The
+    divisor is the measured crossover rounded down; see the call site for the
+    table. Returns False whenever the sizes cannot be established, so an unusual
+    graph keeps the previous behaviour rather than silently changing route.
+    """
+    try:
+        return _INDUCED_NATIVE_KEEP_DIVISOR * len(filter_nodes) < len(parent)
+    except TypeError:
+        return False
 
 
 def _cached_adj_row_keydicts(owner, row_kind, nodes, row_getter_for):
