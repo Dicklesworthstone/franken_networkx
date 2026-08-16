@@ -12692,3 +12692,75 @@ f862574e8ceca9148cbbca0325f2dd989e49e795b86ecdd461aa02aa496bfe81; governor
 powersave; runtime ISA avx2 avx sse4_2; observed affinity 8 of 64 cpus; python
 3.13.7 x86_64; live networkx 3.6.1; PYTHONHASHSEED=0; loadavg 9.2 and 10.0 at the
 two run starts.
+
+## SCOPE CORRECTION: br-r37-c1-ptiz2 fixed `Graph.edges[u,v]` ONLY — `Graph.get_edge_data` is 0.0224x at long keys (br-r37-c1-ptiz2)
+
+comparison_class=INCUMBENT
+incumbent=networkx
+incumbent_same_invocation=true
+decision_gate=median_ci
+cv_role=report_only
+
+I banked ptiz2 as removing "the key-length scaling defect" from the simple-graph
+subscript. That is true of the row I measured and NARROWER than it sounds. On the
+SAME `Graph`, at the SAME key length, in the SAME invocation:
+
+    Graph edges[u,v]      0.7365x   FLAT   (fixed)
+    Graph get_edge_data   0.0224x          (not fixed)
+
+Two routes to the SAME live attribute dict, differing by 33x. `edges[u,v]` goes
+through the native `EdgeView` C slot, which ptiz2 gave an index-keyed lookaside;
+`get_edge_data` is a separate `PyGraph` method that still builds and hashes the
+canonical endpoint strings. Anyone reading the earlier entry as "the simple graph
+is fixed" would be wrong, so this says otherwise in the same ledger.
+
+A/A null control run 1, incumbent arm paired against itself in the same invocation: 1.0026x, inside the 0.02 bound.
+
+A/A null control run 1, fnx arm paired against itself in the same invocation: 1.0000x, inside the 0.02 bound.
+
+A/A null control run 2, incumbent arm paired against itself in the same invocation: 1.0134x, inside the 0.02 bound.
+
+A/A null control run 2, fnx arm paired against itself in the same invocation: 1.0045x, inside the 0.02 bound.
+
+A/B against live networkx 3.6.1 in the SAME invocation, ABBAABBA square, 61 rounds
+x 50 reps x 160 calls per slot. All three rows admitted in BOTH runs:
+
+| row | run 1 (cores 40-47) | run 2 (cores 48-55) | worst bound |
+|---|---|---|---|
+| `MDG edges[u,v,k] len=8000` | 0.0175x [0.0175, 0.0176] | 0.0180x [0.0180, 0.0181] | **0.0175x** |
+| `Graph get_edge_data len=8000` | 0.0224x [0.0224, 0.0225] | 0.0229x [0.0228, 0.0230] | **0.0224x** |
+| `CONTROL Graph edges[u,v] len=8000` | 0.7379x [0.7365, 0.7391] | 0.7396x [0.7372, 0.7403] | 0.7365x |
+
+MEASURED UNDER EXTREME LOAD and quoted anyway, with the evidence: host loadavg was
+80.6 and 83.2 at the two run starts — the highest of this session by a factor of
+four. All six A/A nulls still came in at 0.9909-1.0138, the CIs are tight to the
+fourth decimal, and the control reproduced across runs to 0.2 percent. A balanced
+square is immune to load it shares equally between arms; that is the whole design,
+and this is the strongest demonstration of it so far.
+
+THE WHOLE UNBOUNDED FAMILY, screened at lengths 3 and 8000 (repeat-min, NOT ABBA,
+so these are shape not banked rows) — ptiz2 fixed exactly one member:
+
+    Graph edges[u,v]        0.6747x -> 0.9051x   FIXED, now improves with length
+    Graph get_edge_data     0.5253x -> 0.0222x   23.7x worse
+    Graph G[u][v]           0.9057x -> 0.0706x   12.8x worse
+    Graph list(neighbors)   0.8010x -> 0.0951x    8.4x worse
+    Graph (u,v) in edges    0.9970x -> 0.1125x    8.9x worse
+    Graph degree(u)         0.8459x -> 0.1179x    7.2x worse
+    MDG   edges[u,v,k]      0.2900x -> 0.0196x   14.8x worse
+
+THE NEXT LEVER IS UNUSUALLY CHEAP and does not collide with anyone. ptiz2 already
+added `edge_py_attrs_by_index` and its probe/fill helpers to `PyGraph` in
+`lib.rs`; `PyGraph::get_edge_data` simply does not consult them. Wiring it in is
+the same shape as the `EdgeView` call site that is already there and proven. It is
+also in a DIFFERENT file from the multigraph work another agent is mid-flight on
+(`digraph.rs`, br-r37-c1-4dsqk), so the two cannot conflict.
+
+PROVENANCE, self-reported in-process: harness `scripts/balanced_square_ab.py`
+sha256 52c13ec914a1de7f12010a8871928a5f05f2435518d1bc572bc1a09cbd11215b; host
+thinkstation1; rch_worker none, both arms in-process on the same host, and NO
+build was performed — existing binary reused; loaded ELF sha256
+f862574e8ceca9148cbbca0325f2dd989e49e795b86ecdd461aa02aa496bfe81; governor
+powersave; runtime ISA avx2 avx sse4_2; observed affinity 8 of 64 cpus; python
+3.13.7 x86_64; live networkx 3.6.1; PYTHONHASHSEED=0; loadavg 80.6 and 83.2 at the
+two run starts.

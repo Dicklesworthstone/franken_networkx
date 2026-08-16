@@ -685,6 +685,15 @@ def workload_multi_key_length(reps: int):
         # has_node is the FLAT control: node canonicalisation alone does not
         # scale, so a growing get_edge_data cannot be blamed on it.
         table["CONTROL MDG has_node len=2000"] = lambda: mdg_long.has_node(ul)
+        # br-r37-c1-ptiz2 SCOPE CHECK: that lever fixed the native EdgeView C
+        # slot, i.e. `Graph.edges[u,v]`. `Graph.get_edge_data` returns the SAME
+        # dict by a different route, so if it is NOT flat the fix was narrower
+        # than "the simple-graph subscript" and the ledger must say so.
+        for length in (3, 8000):
+            _m, simple, su, sv = fixture[length]
+            table[f"Graph get_edge_data len={length}"] = (
+                lambda simple=simple, su=su, sv=sv: simple.get_edge_data(su, sv)
+            )
         return table
 
     return build, ops
