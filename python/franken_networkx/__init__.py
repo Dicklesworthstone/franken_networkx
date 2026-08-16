@@ -45333,12 +45333,101 @@ class _FilteredGraphView:
             return [node for node in filter_nodes if node in parent_nodes]
         return [node for node in parent if node in filter_nodes]
 
+    def _copy_induced_multi_fast(self):
+        """br-r37-c1-pzw49: the multigraph half of the induced-copy fast path.
+
+        Multigraphs fell through to the generic filtered view, which re-tests
+        node visibility per endpoint and adds nodes and edges one call at a
+        time — cProfile at 40 copies of a 2000-node keep set showed
+        ``_node_visible`` alone at 10000 calls per copy. Walking only the kept
+        rows is the same work the simple-graph builder below already does.
+
+        WHAT MADE THIS NON-OBVIOUS, and why an earlier attempt of mine was
+        wrongly refuted: networkx's ORDER here comes from two applications of
+        the ``FilterAtlas`` rule, and they use different atlases.
+
+          * NODE order: keep-set order when ``2 * len(keep) < len(G)``, else
+            parent order.
+          * INNER ROW order: keep-set order when ``2 * len(keep) < len(row)``,
+            else parent row order — and this branch exists for multigraphs at
+            all only because ``FilterMultiInner`` carries ``NODE_OK.nodes``,
+            which a simple graph's ``FilterAtlas`` does not (br-r37-c1-9uod6).
+
+        With a keep set of half the graph the row test is FALSE (rows are far
+        shorter than the keep set) while with a small keep set it is TRUE, so
+        both branches are live in ordinary use. Verified 0 order divergences
+        over 72 cases spanning six keep fractions at three PYTHONHASHSEEDs.
+        """
+        parent = self._graph
+        # MULTIGRAPH ONLY, and that is a measured decision rather than a
+        # simplification. new/old wall clock, lower is better, two independent
+        # runs at N=4000:
+        #
+        #     MultiGraph     frac 0.1  0.590 / 0.623
+        #                    frac 0.5  0.652 / 0.574
+        #                    frac 0.9  0.772 / 0.817     consistent 1.2-1.7x
+        #
+        #     MultiDiGraph   frac 0.5  faster in one run, 1.047 in the next
+        #                    frac 0.8  0.904
+        #                    frac 0.9  1.145  (SLOWER)
+        #
+        # MultiDiGraph's runs disagree in SIGN, so there is no reliable win to
+        # take and one measured regression at a large keep set. Adopting it
+        # there on the strength of a single favourable run is exactly the
+        # mistake this file keeps recording. Left on the generic path.
+        if type(parent) is not MultiGraph:
+            return None
+        if not self._filter_edge_is_default or not isinstance(
+            self._filter_node, _NodeSetFilter
+        ):
+            return None
+        if _has_networkx_private_storage(parent):
+            return None
+        if self._copy_type() is not type(parent):
+            return None
+
+        # Iterate the filter's OWN set, never a rebuilt one. networkx's
+        # FilterAtlas iterates ``NODE_OK.nodes`` itself, and set ITERATION order
+        # depends on insertion history — so ``{n for n in ...}`` produces the
+        # same members in a different order and silently changes the result's
+        # node order. A first draft of this did exactly that and diverged on 12
+        # of 144 cases at two of three hash seeds while passing at the third.
+        within = self._filter_node.nodes
+        if 2 * len(within) < len(parent):
+            ordered = [node for node in within if node in parent]
+        else:
+            ordered = [node for node in parent.nodes() if node in within]
+
+        result = self._copy_type()()
+        result.graph.update(dict(parent.graph))
+        for node in ordered:
+            result.add_node(node, **dict(_node_attrs_for_view_graph(parent, node)))
+        directed = parent.is_directed()
+        seen = set()
+        for source in ordered:
+            row = parent.succ[source] if directed else parent[source]
+            candidates = within if 2 * len(within) < len(row) else row
+            for target in candidates:
+                if target not in within or target not in row:
+                    continue
+                if not directed and target in seen:
+                    continue
+                keydict = row[target]
+                for edge_key in keydict:
+                    result.add_edge(source, target, key=edge_key, **keydict[edge_key])
+            # AFTER the row, so a self-loop still emits (br-r37-c1-6yimw).
+            if not directed:
+                seen.add(source)
+        return result
+
     def _copy_induced_simple_fast(self):
         # br-r37-c1-esgfast: handle a non-default filter_edge too (e.g.
         # edge_subgraph) — apply the edge predicate directly in the
         # native raw_neighbors loop below instead of falling to the
         # O(parent) FilterAdjacency chain (~970k _node_visible calls).
-        if self.is_multigraph() or type(self._graph) not in (Graph, DiGraph):
+        if self.is_multigraph():
+            return self._copy_induced_multi_fast()
+        if type(self._graph) not in (Graph, DiGraph):
             return None
         raw_neighbors = _raw_neighbors_dispatch(self._graph)
         if raw_neighbors is None:
