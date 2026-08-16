@@ -697,11 +697,42 @@ def _FailFastEdgeIterator(graph, iterable, *, guard_edge_count=False):
     return _gen()
 
 
+def _edge_list_freshness_token(graph):
+    """br-r37-c1-af0ig: O(1) token that changes on any STRUCTURAL mutation.
+
+    ``nodes_seq`` / ``edges_seq`` are monotonic revision counters, so they
+    catch a mutation that leaves both counts unchanged — removing an edge and
+    adding another one is exactly the case a count-only check would miss, and
+    it is the case in this bead's repro. Counts are only the fallback, for
+    graphs that do not carry the counters (nx private storage / foreign
+    graph objects).
+
+    Returns None when no token can be computed, which callers treat as
+    "cannot tell" and therefore never refresh — the pre-existing snapshot
+    behaviour, rather than a wrong guess.
+    """
+    if not _has_networkx_private_storage(graph):
+        nodes_seq = getattr(graph, "nodes_seq", None)
+        if nodes_seq is not None:
+            edges_seq = getattr(graph, "edges_seq", None)
+            if edges_seq is not None:
+                return (nodes_seq, edges_seq)
+    try:
+        return (len(graph), graph.number_of_edges())
+    except Exception:  # noqa: BLE001 - a graph-like without either is not our problem
+        return None
+
+
 def _guarded_edge_list(result, graph, *, guard_edge_count=False):
     if not isinstance(result, _EdgeListWithSetAlgebra):
         result = _EdgeListWithSetAlgebra(result)
     result._fnx_guard_graph = graph
     result._fnx_guard_edge_count = guard_edge_count
+    # br-r37-c1-af0ig: stamp the graph revision this snapshot was taken at, so
+    # a later read can tell whether it is still current. The rebuild thunk is
+    # attached separately by _live_called_edge_view, which is the only place
+    # that knows the arguments the view was called with.
+    result._fnx_token = _edge_list_freshness_token(graph)
     return result
 
 
@@ -3050,9 +3081,47 @@ class _EdgeListWithSetAlgebra(list):
     so the result matches upstream NetworkX's set-like behaviour
     (expressions like edges | {...}, edges & {...}, edges == set) without
     breaking existing callers that iterate the value as a list.
+
+    br-r37-c1-af0ig: it is also a LIVE view. The contents are materialised
+    eagerly (so that argument errors still raise at call time, as nx's do),
+    but every read first checks the graph's revision token and re-materialises
+    if the graph has moved on. Without that, a view bound before a mutation
+    served deleted edges and hid added ones — networkx's views are live, and
+    fnx's own Graph.edges(...) already was, via the object-based EdgeDataView.
     """
 
+    def _fnx_refresh(self):
+        """Re-materialise if the graph has changed since this was built.
+
+        Costs one attribute read and a tuple compare when nothing has changed,
+        which is the overwhelmingly common case (build a view, read it once).
+        A view with no rebuild thunk — one handed straight to
+        ``_guarded_edge_list`` rather than produced through a decorated
+        ``__call__`` — keeps its old snapshot behaviour rather than guessing.
+        """
+        rebuild = getattr(self, "_fnx_rebuild", None)
+        if rebuild is None:
+            return
+        # `is None`, never `or`: an EMPTY graph is falsy, so `or` silently
+        # skipped the refresh for exactly the mutation that empties one —
+        # G.clear() — which is the case that most needs it.
+        graph = getattr(self, "_fnx_live_graph", None)
+        if graph is None:
+            graph = getattr(self, "_fnx_guard_graph", None)
+        if graph is None:
+            return
+        token = _edge_list_freshness_token(graph)
+        if token is None or token == getattr(self, "_fnx_token", None):
+            return
+        fresh = rebuild()
+        # list.__iter__ / list.__getitem__ deliberately: the rebuilt object is
+        # itself a live view, and going through its own __iter__ would re-enter
+        # this machinery (and its fail-fast guard) for no reason.
+        list.__setitem__(self, slice(None), list(list.__iter__(fresh)))
+        self._fnx_token = token
+
     def __iter__(self):
+        self._fnx_refresh()
         graph = getattr(self, "_fnx_guard_graph", None)
         if graph is None:
             return list.__iter__(self)
@@ -3095,6 +3164,7 @@ class _EdgeListWithSetAlgebra(list):
         # br-mgedgeeq: nx's MultiEdgeView inherits from _Set, so
         # `MG.edges(keys=True) == {...}` compares as sets. fnx's list
         # subclass previously required another list for equality.
+        self._fnx_refresh()
         if isinstance(other, (set, frozenset)):
             return set(self) == other
         return list.__eq__(self, other)
@@ -3104,6 +3174,51 @@ class _EdgeListWithSetAlgebra(list):
         if eq is NotImplemented:
             return NotImplemented
         return not eq
+
+    # br-r37-c1-af0ig: the remaining read paths. The set-algebra operators
+    # above already refresh, because every one of them goes through
+    # ``set(self)`` and therefore ``__iter__``. These five reach list's C
+    # slots directly, so they would otherwise answer from the stale buffer —
+    # ``len(view)`` in particular, which is how most callers size a view.
+    def __len__(self):
+        self._fnx_refresh()
+        return list.__len__(self)
+
+    def __contains__(self, item):
+        self._fnx_refresh()
+        return list.__contains__(self, item)
+
+    # NO __getitem__ REFRESH, deliberately and measured. Defining __getitem__
+    # on a list subclass takes the native guarded-edge iterator off the
+    # C-level list protocol and routes every element through a Python call:
+    # list(DiGraph.edges(data=True)) on 4k edges went 0.167ms -> 2.20ms, a 13x
+    # regression on the library's hottest accessor, for a method networkx does
+    # not even support (nx's data views raise TypeError on subscripting, so
+    # `v[0]` is fnx-only surface with nothing to be in parity with).
+    #
+    # The consequence, stated plainly: `v[0]` can hand back an element from
+    # before a mutation while `list(v)`, `len(v)`, `in` and `repr(v)` are all
+    # live. Indexing one of these views straddling a mutation is outside both
+    # nx's API and any in-tree caller.
+
+    def __repr__(self):
+        self._fnx_refresh()
+        return list.__repr__(self)
+
+    def __str__(self):
+        self._fnx_refresh()
+        return list.__str__(self)
+
+    def __reduce__(self):
+        # br-r37-c1-af0ig: the liveness machinery is a closure over the graph
+        # and the call arguments, and none of that is picklable — a list
+        # subclass otherwise pickles its instance __dict__ and takes the
+        # rebuild lambda with it, which broke the round-trip locked by
+        # br-r37-c1-edv-pkl. Pickle a refreshed, DETACHED snapshot: the graph
+        # does not travel with the view, so a restored view has nothing to be
+        # live against, which is what it was before this class became live.
+        self._fnx_refresh()
+        return (type(self), (list(list.__iter__(self)),))
 
     __hash__ = None
 
@@ -6477,6 +6592,94 @@ _DiGraphEdgeView.items = _adjacency_view_items
 _DiGraphEdgeView.values = _adjacency_view_values
 
 
+def _freeze_edge_view_nbunch(graph, args, kwargs):
+    """br-r37-c1-af0ig: pin an nbunch to the nodes that exist RIGHT NOW.
+
+    nx resolves the nbunch exactly once, in the data view's ``__init__``::
+
+        nbunch = dict.fromkeys(viewer._graph.nbunch_iter(nbunch))
+        self._nodes_nbrs = lambda: [(n, adjdict[n]) for n in nbunch]
+
+    so the node SET is frozen at construction while the adjacency behind it
+    stays live. A node named in the nbunch but absent at that moment is
+    dropped permanently — adding it later does not make its edges appear.
+    Re-resolving the caller's original nbunch on every rebuild would be live
+    in one step too many and start reporting those edges, so the resolved
+    list is what the rebuild replays.
+
+    Only a non-string iterable is frozen. A single-node nbunch keeps the
+    caller's original value, because that form carries its own missing-node
+    error contract (br-r37-c1-edges-snnb) which re-resolution must not skip.
+    """
+    nbunch = kwargs["nbunch"] if "nbunch" in kwargs else (args[0] if args else None)
+    if nbunch is None or isinstance(nbunch, (str, bytes)):
+        return args, kwargs
+    try:
+        present = [n for n in dict.fromkeys(nbunch) if n in graph]
+    except TypeError:
+        # Not iterable (single non-iterable node) or unhashable elements —
+        # both keep the original argument and its established contract.
+        return args, kwargs
+    if "nbunch" in kwargs:
+        return args, {**kwargs, "nbunch": present}
+    return (present,) + tuple(args[1:]), kwargs
+
+
+def _live_called_edge_view(original_call):
+    """br-r37-c1-af0ig: give a materialised ``edges(...)`` result a way back.
+
+    The three non-Graph edge views build their result through ~22 different
+    return statements (native kernels, nbunch kernels, adj-walk fallbacks).
+    Threading a rebuild through each one would be 22 chances to miss one — and
+    a missed path is invisible, because it fails only after a mutation. So the
+    thunk is attached HERE, at the single ``__call__`` boundary every one of
+    those paths returns through, which also means a path added later inherits
+    liveness without anyone remembering to wire it up.
+
+    The call is still made eagerly, so argument validation still raises at call
+    time exactly as before (nx raises there too). What changes is only that the
+    result can now rebuild itself when read after the graph has moved on.
+    """
+
+    def wrapped(self, *args, **kwargs):
+        result = original_call(self, *args, **kwargs)
+        # Object-based views (the bare ``edges()`` path returns ``self``) are
+        # already live; only the materialised list snapshots need this.
+        if type(result) is not type(self) and isinstance(result, _EdgeListWithSetAlgebra):
+            # The edges(...) paths record the graph via _guarded_edge_list; the
+            # directional ones do not, so fall back to the view's own graph.
+            # Deliberately stored under a SEPARATE name: writing
+            # _fnx_guard_graph here would also switch on the fail-fast
+            # mutation-during-iteration guard for views that never had it,
+            # which is a different contract from liveness and not this bead's.
+            graph = getattr(result, "_fnx_guard_graph", None)
+            if graph is None:
+                graph = getattr(self, "_graph", None)
+            if graph is not None:
+                args, kwargs = _freeze_edge_view_nbunch(graph, args, kwargs)
+                result._fnx_live_graph = graph
+                result._fnx_token = _edge_list_freshness_token(graph)
+                result._fnx_rebuild = lambda: original_call(self, *args, **kwargs)
+        return result
+
+    wrapped.__name__ = getattr(original_call, "__name__", "__call__")
+    wrapped.__qualname__ = getattr(original_call, "__qualname__", "__call__")
+    wrapped.__doc__ = original_call.__doc__
+    return wrapped
+
+
+# br-r37-c1-af0ig: applied to the classes the graph accessors ACTUALLY return
+# today, verified by identity rather than by name. The pre-existing live-view
+# patch two lines above binds ``_DIEDGE_VIEW_TYPE``, which was captured as
+# ``type(DiGraph().edges)`` early in this module — but the directed accessors
+# were since rebound to return _DiGraphEdgeView, so that patch now lands on a
+# class nothing reaches and the directed views silently went back to being
+# snapshots. Probing reachability here keeps that from recurring silently.
+for _live_view_cls in (_DiGraphEdgeView, _MultiGraphEdgeView, _MultiDiGraphEdgeView):
+    _live_view_cls.__call__ = _live_called_edge_view(_live_view_cls.__call__)
+del _live_view_cls
+
+
 # br-r37-c1-edvname: nx exposes per-direction × multi class names
 # for ``.edges.data()`` / ``.in_edges.data()`` / ``.out_edges.data()``:
 #
@@ -8119,6 +8322,15 @@ class _InMultiEdgeView(_DiEdgeMethodView):
     def data(self, data=True, default=None, nbunch=None, keys=False):
         return self(nbunch=nbunch, data=data, keys=keys, default=default)
 _InMultiEdgeView.__name__ = "InMultiEdgeView"
+
+
+# br-r37-c1-af0ig: G.in_edges(...) / G.out_edges(...) were frozen snapshots in
+# exactly the same way G.edges(...) was. All four direction × multi classes
+# above are empty subclasses of _DiEdgeMethodView, so patching the base once
+# covers every one of them — and covers any future sibling for free. This is
+# deliberately here rather than beside the _DiGraphEdgeView patch: these
+# classes do not exist yet at that point in the module.
+_DiEdgeMethodView.__call__ = _live_called_edge_view(_DiEdgeMethodView.__call__)
 
 
 def _make_edge_method_view_property(method, view_cls):
@@ -57270,6 +57482,21 @@ def relabel_nodes(G, mapping, copy=True):
             H.add_nodes_from([get(n, n) for n in G])
             H.add_edges_from([(get(u, u), get(v, v)) for u, v in G.edges()])
             return H
+
+        # br-r37-c1-native-relabel-attr-roundtrip-u3vvm: the attributed rebuild
+        # below round-trips every node and edge attr dict out of the store and
+        # back into a fresh one, which measured 0.43-0.68x vs networkx and got
+        # worse with attr count. The native kernel clones the store
+        # Rust-to-Rust and copies the mirrors Python-to-Python, converting
+        # neither. It returns None for the shapes it does not own (merging
+        # mappings, adjacency-row display overrides), and those keep this path.
+        if type(G) is Graph and isinstance(_map, dict):
+            native_relabel = getattr(G, "_native_relabel_copy", None)
+            if native_relabel is not None:
+                relabeled = native_relabel(_map)
+                if relabeled is not None:
+                    relabeled.graph.update(G.graph)
+                    return relabeled
 
         # br-r37-c1-k7dct: SubgraphView's class is _FilteredGraphView,
         # whose __init__ requires a ``graph`` arg — bare ``cls()`` fails.
