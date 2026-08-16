@@ -28219,32 +28219,52 @@ def ego_graph(G, n, radius=1, center=True, undirected=False, distance=None):
     # ``seen``) so the resulting ego graph's node order matches nx's
     # BFS-from-source ordering. Previously we collapsed to a set and
     # iterated arbitrary hash order.
+    # br-r37-c1-77okh: networkx branches on ``undirected`` FIRST and only then on
+    # ``distance``:
+    #
+    #     if undirected:
+    #         ... single_source_{dijkstra,shortest_path_length}(G.to_undirected(), ...)
+    #     else:
+    #         ... the same two over G
+    #
+    # fnx had the tests the other way round, so ``undirected`` was consulted only
+    # when ``distance`` was None AND the graph was directed. Two things were wrong.
+    #
+    # THE SERIOUS ONE: with a distance= given, ``undirected`` was ignored
+    # ENTIRELY, so a directed graph searched out-edges only and LOST NODES.
+    #
+    #     D: a->b, c->a, b->d ; ego_graph(D,'a',radius=2.0,distance='weight',undirected=True)
+    #     networkx -> ['a','b','c']        fnx -> ['a','b']       'c' vanished
+    #
+    # THE SUBTLER ONE: on an ALREADY-undirected graph, ``undirected=True`` sent
+    # fnx down the plain-BFS path over G while networkx still searches
+    # G.to_undirected() -- a fresh graph whose node insertion order can differ.
+    # Since the ego node order is set-iteration order (br-r37-c1-mqq4m), that
+    # changed node and edge ORDER on 1-6 of 18 cases at every PYTHONHASHSEED.
+    #
+    # Mirroring networkx's structure fixes both. The manual succ+pred walk that
+    # used to serve the directed case is gone: it produced the right node SET but
+    # not networkx's traversal ORDER, and order is observable here.
+    # NOTE the search base is the undirected COPY, while the edges below are still
+    # read from G -- exactly as networkx does, since it builds H from G.subgraph.
+    search_base = G.to_undirected() if undirected else G
     if distance is not None:
         # Weighted ego: include nodes within weighted distance <= radius.
-        sp = dict(single_source_dijkstra_path_length(G, n, weight=distance))
+        sp = dict(
+            single_source_dijkstra_path_length(search_base, n, weight=distance)
+        )
         sp = {node: dist for node, dist in sp.items() if dist <= radius}
         ordered_nodes = list(sp.keys())  # already in distance order
         nodes_within = set(ordered_nodes)
-    elif undirected and G.is_directed():
-        # Treat directed graph as undirected for BFS.
-        seen = {n: 0}
-        queue = [n]
-        while queue:
-            next_queue = []
-            for u in queue:
-                depth = seen[u]
-                if depth >= radius:
-                    continue
-                for v in G.successors(u):
-                    if v not in seen:
-                        seen[v] = depth + 1
-                        next_queue.append(v)
-                for v in G.predecessors(u):
-                    if v not in seen:
-                        seen[v] = depth + 1
-                        next_queue.append(v)
-            queue = next_queue
-        ordered_nodes = list(seen.keys())
+    elif undirected:
+        # Call the SAME function networkx calls, on the same base. A hand-rolled
+        # BFS over search_base.neighbors() gets the node SET right but not
+        # necessarily networkx's visit ORDER, and the ego node order is
+        # set-iteration order over that result, so the order is observable.
+        sp = dict(
+            single_source_shortest_path_length(search_base, n, cutoff=radius)
+        )
+        ordered_nodes = list(sp.keys())
         nodes_within = set(ordered_nodes)
     else:
         # Plain BFS (directed or undirected) honouring radius.
