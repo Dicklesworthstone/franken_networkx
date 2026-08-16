@@ -11885,3 +11885,40 @@ FALSIFIER, unchanged from part 1 and still holding: if the growth were hashing
 rather than allocation, tier 2 would grow too, since it builds byte-identical
 canonical output in a stack buffer. `has_node` uses tier 2 and is flat to 1
 percent across three orders of magnitude.
+
+---
+
+## REJECT (br-r37-c1-d1ajx): route get_edge_data through the row view instead of the native method
+
+LEVER: replace the native `get_edge_data(u, v)` with a Python route through the
+already-optimised row view (`G[u][v]`), the shape br-r37-c1-q4wzt used for the
+multigraph edge subscript.
+
+HYPOTHESIS: the row view is warm and pure-Python, so it undercuts the native
+call the way `self.nodes` undercut the native bulk filter in br-r37-c1-oaamq.
+
+MEASURED 2026-08-16, LOCAL:thinkstation1, MultiDiGraph N=2000. Substrate:
+balanced square ABBAABBA, 21 rounds x 20000 reps, base and candidate in ONE
+invocation, bootstrap median CI over rounds (10k resamples). No build.
+ELF sha256 ecfc2d30935a12eb0b61c3d00b38718026bcc36977c047b048463c1bf9a37fb8.
+
+    arm                                      us
+    base       native get_edge_data       0.3896
+    candidate  G[u][v] route              1.0309
+
+    base/candidate 0.3781x CI [0.3757, 0.3808] — the candidate is 2.65x SLOWER.
+
+A/A null control, paired(base, base) in the same invocation: base arm 0.9989x CI [0.9810, 1.0077] PASS; candidate arm 0.9992x CI [0.9820, 1.0156] PASS.
+Both A/A null CIs straddle 1.0, gated on the bootstrap median CI and not on CV, so the substrate is admissible and the 2.65x penalty sits far outside the null spread.
+
+REJECTED. The route is slower on every class measured, not only the multigraphs:
+fnx `G[u][v]` is 1.0385us vs 0.3935us native on MultiDiGraph, 1.0590 vs 0.3290 on
+MultiGraph, 0.4842 vs 0.2567 on DiGraph, 0.2082 vs 0.1539 on Graph. The
+`adj[u][v]` variant is the same story. br-r37-c1-oaamq's container swap worked
+because the incumbent container was genuinely dearer; here it is not.
+
+WHAT REMAINS: the gap is real — get_edge_data is 0.236x-0.524x against networkx,
+the worst cheap primitive after br-r37-c1-7q6wh — but cProfile puts 100% of the
+cost inside the native method with no Python frames above it, so the work is
+Rust-side and the build freeze (/data at its 42G floor) puts it out of reach.
+Tracked on br-r37-c1-d1ajx.
