@@ -45081,6 +45081,12 @@ def _assigned_private_digraph_successors(self, n):
         raise NetworkXError(f"The node {n} is not in the digraph.") from exc
 
 
+# br-r37-c1-8itxk: (class, method-name) -> is the class's binding one of
+# the raw PyO3 methods we are allowed to shadow. Keyed on the CLASS, so a
+# subclass gets its own answer; populated on first use of each pair.
+_SHADOWABLE_RAW_METHOD_CACHE: dict = {}
+
+
 def _install_private_method_shadows(self, storage):
     """Restore mapping-aware dispatch only on instances that need it.
 
@@ -45110,16 +45116,31 @@ def _install_private_method_shadows(self, storage):
     previous = storage.get(_PRIVATE_NODE_METHOD_SHADOWS) or {}
     installed = {}
 
+    owner_type = type(self)
+
     def install(name, fallback, raw_methods):
-        class_method = next(
-            (
-                base.__dict__[name]
-                for base in type(self).__mro__
-                if name in base.__dict__
-            ),
-            None,
-        )
-        if not any(class_method is raw_method for raw_method in raw_methods):
+        # br-r37-c1-8itxk: whether this CLASS exposes a shadowable raw
+        # method for `name` cannot differ between instances of it, but the old
+        # code re-derived it on every assignment — an MRO walk in a Python
+        # generator plus an `any()` over the raw-method tuple. A reverse view
+        # assigns three private overrides at construction and each one runs
+        # four of these, so DiGraph.reverse(copy=False) paid 12 MRO walks and
+        # 48 generator steps per call. Memoised per (class, name); the
+        # per-INSTANCE decisions below are untouched.
+        cache_key = (owner_type, name)
+        eligible = _SHADOWABLE_RAW_METHOD_CACHE.get(cache_key)
+        if eligible is None:
+            class_method = next(
+                (
+                    base.__dict__[name]
+                    for base in owner_type.__mro__
+                    if name in base.__dict__
+                ),
+                None,
+            )
+            eligible = any(class_method is raw_method for raw_method in raw_methods)
+            _SHADOWABLE_RAW_METHOD_CACHE[cache_key] = eligible
+        if not eligible:
             return
         current = storage.get(name, _PRIVATE_MISSING)
         if current is not _PRIVATE_MISSING and current is not previous.get(name):
