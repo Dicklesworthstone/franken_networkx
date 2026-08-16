@@ -636,8 +636,53 @@ def workload_key_length_scaling(reps: int):
     return build, ops
 
 
+def workload_multi_key_length(reps: int):
+    """MULTIGRAPH `G.edges[u,v,k]` against node-key length (br-r37-c1-tjp0g).
+
+    br-r37-c1-ptiz2 removed the key-length scaling defect from the SIMPLE-graph
+    `EdgeView` only. The multigraph classes keep their own keyed attribute
+    storage, so the defect should still be present here — and this workload is
+    what says so with an A/A null instead of an assertion.
+
+    The simple-Graph row at the same length is carried as a POSITIVE control: it
+    is the surface that was fixed, so it should be flat while the multigraph rows
+    are not. A run where both are flat, or both grow, means the fixture is
+    measuring something other than what it claims.
+    """
+
+    def build(module):
+        fixture = {}
+        for length in (3, 130, 2000):
+            u, v = "u" * length, "v" * length
+            mdg = module.MultiDiGraph()
+            mdg.add_edge(u, v, weight=1)
+            simple = module.Graph()
+            simple.add_edge(u, v, weight=1)
+            fixture[length] = (mdg, simple, u, v)
+        return fixture[3][0], fixture
+
+    def ops(graph, fixture):
+        table = {}
+        for length, (mdg, simple, u, v) in fixture.items():
+            mview, sview = mdg.edges, simple.edges
+            table[f"MDG edges[u,v,k] len={length}"] = (
+                lambda mview=mview, u=u, v=v: mview[u, v, 0]
+            )
+            table[f"CONTROL Graph edges[u,v] len={length}"] = (
+                lambda sview=sview, u=u, v=v: sview[u, v]
+            )
+        mdg3, _s, u3, v3 = fixture[3]
+        mdg_long, _s2, ul, vl = fixture[2000]
+        table["CONTROL MDG has_edge len=3"] = lambda: mdg3.has_edge(u3, v3, 0)
+        table["CONTROL MDG has_edge len=2000"] = lambda: mdg_long.has_edge(ul, vl, 0)
+        return table
+
+    return build, ops
+
+
 WORKLOADS = {
     "view-reads": workload_view_reads,
+    "multi-key-length": workload_multi_key_length,
     "key-length-scaling": workload_key_length_scaling,
     "view-reads-directed": workload_view_reads_directed,
     "view-reads-multi": workload_view_reads_multi,

@@ -12263,3 +12263,78 @@ build was performed for this row — the existing binary was reused, verified by
 powersave; runtime ISA avx2 avx sse4_2; observed affinity 8 of 64 cpus; python
 3.13.7 x86_64; live networkx 3.6.1; PYTHONHASHSEED=0; loadavg 13.9 and 13.3 at the
 two run starts.
+
+## MultiDiGraph `G.edges[u,v,k]` at long keys — measured LOSS 0.0519x vs networkx, THE worst row in this ledger (br-r37-c1-tjp0g)
+
+comparison_class=INCUMBENT
+incumbent=networkx
+incumbent_same_invocation=true
+decision_gate=median_ci
+cv_role=report_only
+
+My worst measured vs-incumbent ratio. The previously banked MDG row (0.2716x) is
+the SHORT-key point of this curve; at 2000-character node keys the same operation
+is 0.0519x, i.e. about 19x slower than networkx.
+
+A/A null control run 1, incumbent arm paired against itself in the same invocation: 1.0138x, inside the 0.02 bound.
+
+A/A null control run 1, fnx arm paired against itself in the same invocation: 1.0005x, inside the 0.02 bound.
+
+A/A null control run 2, incumbent arm paired against itself in the same invocation: 1.0168x, inside the 0.02 bound.
+
+A/A null control run 2, fnx arm paired against itself in the same invocation: 0.9991x, inside the 0.02 bound.
+
+A/B against live networkx 3.6.1 in the SAME invocation, ABBAABBA square, identical
+shape in both runs (61 rounds x 50 reps x 160 calls per slot), differing only in
+core set, gated on the bootstrap median CI:
+
+| row | run 1 (cores 40-47) | run 2 (cores 48-55) | worst bound |
+|---|---|---|---|
+| `MDG edges[u,v,k] len=2000` | 0.0520x [0.0519, 0.0521] | 0.0542x [0.0540, 0.0544] | **0.0519x** |
+| `MDG edges[u,v,k] len=130` | 0.1707x [0.1703, 0.1711] | 0.1873x [0.1856, 0.1876] | 0.1703x |
+| `MDG edges[u,v,k] len=3` | 0.2649x [0.2640, 0.2656] | 0.2778x [0.2772, 0.2782] | 0.2640x |
+| `CONTROL MDG has_edge len=2000` | 0.1843x [0.1839, 0.1855] | 0.1888x [0.1882, 0.1891] | 0.1839x |
+| `CONTROL MDG has_edge len=3` | 0.5242x [0.5222, 0.5265] | 0.5310x [0.5292, 0.5326] | 0.5222x |
+| `CONTROL Graph edges[u,v] len=3` | 0.7403x | 0.7374x | 0.6836x |
+| `CONTROL Graph edges[u,v] len=130` | 0.7448x | 0.7449x | 0.7033x |
+| `CONTROL Graph edges[u,v] len=2000` | NULL-FAILED | 0.6788x | — |
+
+Ratio is t_networkx/t_fnx, so below 1.0 means fnx is slower.
+
+THE POSITIVE CONTROL IS THE POINT OF THIS FIXTURE. `Graph.edges[u,v]` is the
+surface br-r37-c1-ptiz2 fixed, and it is FLAT across the same lengths in the same
+invocation — 0.7403x, 0.7448x, 0.7377x at 3, 130 and 2000. The multigraph row
+beside it collapses 0.2649x -> 0.1707x -> 0.0520x. Two operations, one fixture,
+one process, one ELF: the fixed surface does not care about key length and the
+unfixed one loses a factor of five across it. A run where BOTH were flat, or both
+collapsed, would have meant the fixture was measuring something other than what it
+claims; that is why the control is in the workload rather than in a comment.
+
+`MDG has_edge` degrades too (0.5242x -> 0.1843x), which is a genuine difference
+from the SIMPLE-graph `has_edge` — that one is flat in key length and was the
+control that originally isolated the mechanism. So the multigraph keyed storage
+carries the defect on BOTH the subscript and the membership path, where the simple
+graph carried it only on the subscript.
+
+SHAPE IS PART OF THE ROW. At calls-per-slot 16 every one of the eight rows
+NULL-FAILED at 1.07-1.13; at 160 seven of eight admitted in run 1 and eight of
+eight in run 2. Host loadavg was 17.9 and 17.0 at the two run starts. The quoted
+rows are the K=160 pair.
+
+WHY IT IS STILL OPEN: br-r37-c1-ptiz2's index-keyed lookaside does not port
+unchanged. The multigraph classes hold their own KEYED attribute storage — the
+edge key is part of the identity, so the map is not the same shape as the simple
+graph's endpoint pair — and `_AssignedPrivateEdgeView` has its own path again.
+`_fnx.DiEdgeView` remains not constructible from Python (br-r37-c1-bc7r4), marks
+the graph dirty on every read, and leaks the canonical key into `KeyError`, so it
+is not the route either.
+
+PROVENANCE, self-reported in-process: harness `scripts/balanced_square_ab.py`
+sha256 30aa88875295732430e9a66e6f5ed27ef0f33eee27c1aba3c4aadb8b197ad6b8; host
+thinkstation1; rch_worker none, both arms in-process on the same host, and NO
+build was performed — the existing binary was reused, verified by 0 `.rs` files
+newer than the loaded `.so`; loaded ELF sha256
+2c3e0c53f4b0d9558998a21d5298d7e5912689ecbaf4db75fb1e346aa10af366; governor
+powersave; runtime ISA avx2 avx sse4_2; observed affinity 8 of 64 cpus; python
+3.13.7 x86_64; live networkx 3.6.1; PYTHONHASHSEED=0; loadavg 17.9 and 17.0 at the
+two run starts.
