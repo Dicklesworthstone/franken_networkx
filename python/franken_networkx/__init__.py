@@ -44535,22 +44535,56 @@ class _FilteredGraphView:
                 na_keys = getattr(parent, "_native_adjacency_keys", None)
                 na_adj = getattr(parent, "_native_adjacency_dict", None)
                 na_row = getattr(parent, "_native_successor_row_dict", None)
-                if not data and na_keys is not None:
+                # br-r37-c1-w2zqe: read only the rows asked for. The hoist above
+                # took this from O(V*(V+E)) to O(V+E), which reads like a fix and
+                # measures like one at ONE parent size — but O(V+E) is still the
+                # whole parent where networkx is O(rows), so the ratio kept
+                # degrading without bound from a better starting point. Measured
+                # on DiGraph.edge_subgraph(5 edges).edges(): 0.2078x at N=500 and
+                # 0.0004x at N=32000, where fnx spends 28.9 ms against networkx's
+                # 11 us, and `us/N` RISES with N (372n -> 905n) so it is worse
+                # than linear in the parent.
+                #
+                # This is the SAME defect and the SAME remedy as
+                # br-r37-c1-thssf, one branch over: that bead fixed the
+                # default-edge-filter path used by subgraph(), and this is the
+                # NON-default one used by edge_subgraph() and restricted_view().
+                # Fixing one branch of a routine and not its sibling is exactly
+                # the partially-applied-fix trap thssf was written about.
+                #
+                # `na_row` is the per-source accessor already bound here for the
+                # data=True merge. Its key ORDER and VALUES were verified equal
+                # to both whole-graph snapshots over EVERY node at two parent
+                # sizes before substituting; the old `live.get(target,
+                # keyrow[target])` fallback implied they might disagree, and they
+                # do not — with `keyrow` now BEING `live`, that fallback is
+                # self-referential and drops out.
+                if not data and na_row is not None:
+                    for source in nodes:
+                        for target in na_row(source):
+                            if target in visible_set and filter_edge(source, target):
+                                fast.append((source, target))
+                elif data and na_row is not None:
+                    for source in nodes:
+                        live = na_row(source)
+                        for target in live:
+                            if target in visible_set and filter_edge(source, target):
+                                fast.append((source, target, live[target]))
+                elif not data and na_keys is not None:
+                    # Retained for a parent that exposes the whole-graph snapshot
+                    # but not the per-row accessor.
                     succ_keys = dict(na_keys())
                     for source in nodes:
                         for target in succ_keys[source]:
                             if target in visible_set and filter_edge(source, target):
                                 fast.append((source, target))
-                elif data and na_adj is not None and na_row is not None:
+                elif data and na_adj is not None:
                     full = na_adj()
                     for source in nodes:
-                        live = na_row(source)
                         keyrow = full[source]
                         for target in keyrow:
                             if target in visible_set and filter_edge(source, target):
-                                fast.append(
-                                    (source, target, live.get(target, keyrow[target]))
-                                )
+                                fast.append((source, target, keyrow[target]))
                 else:
                     for source in nodes:
                         row = _fast_succ_row(parent, source)
