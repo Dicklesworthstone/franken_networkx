@@ -16395,3 +16395,114 @@ concurrent. host thinkstation1, 64 logical / 32 physical, SMT on, governor
 `powersave`, python 3.13.7, live networkx 3.6.1, disk 280G free. `uptime`
 observed: 18.29 / 27.54 at the decision, 17.38-18.10 across the runs. Per-arm
 cpu, physical core and MHz are in the rows above.
+
+## 2026-08-16 GoldenBison PLACEMENT AUDIT: every bench CPU I use is an SMT sibling of a busy peer core, my arms never diverged, and the 20x survives a migration-free re-run (br-r37-c1-armplace)
+
+Asked to check arm placement before banking anything: which cores each arm ran
+on, whether they shared a physical core or an SMT sibling, and at what MHz. My
+harness could not answer any of the three — it recorded no CPU id at all — so the
+first work was making it able to.
+
+### 1. THE ARMS NEVER DIVERGED, AND THAT IS STRUCTURAL
+
+Both arms of every row in this harness run in ONE process, interleaved inside a
+single ABBAABBA square. They cannot occupy different CPUs simultaneously the way
+two competing processes can, and they share an affinity mask by construction.
+Measured rather than asserted: across every row of every run below, the arms'
+CPU sets were IDENTICAL and no row was flagged ARM-EXCLUSIVE.
+
+That is the difference from the failure another project hit. Two arms racing as
+separate processes can land on one physical core and starve each other; two arms
+taking turns in one process cannot.
+
+### 2. BUT EVERY CPU I BENCH ON IS THE SECOND THREAD OF A BUSY PHYSICAL CORE
+
+SMT is active, 64 logical on 32 physical. My standing pin `taskset -c 40-47` maps
+onto the siblings of cpu8-15:
+
+    cpu40<->8  cpu41<->9  cpu42<->10  cpu43<->11
+    cpu44<->12 cpu45<->13 cpu46<->14  cpu47<->15
+
+and those siblings are NOT idle — sampled over 2s: cpu8 42.6% busy, cpu9 49.5%,
+cpu14 37.2%, cpu15 16.7%. So every slot I have ever timed shared execution units
+with other fleet work. This is common-mode across interleaved arms, but it was
+invisible from the CPU numbers alone and is now emitted in the provenance block
+as `smt_siblings`.
+
+### 3. THE "1429-4235 MHz, 2.96x SPREAD" IS AN IDLE-SAMPLING ARTEFACT, AGAIN
+
+Sampling all 64 cores at one instant reproduces it exactly — min 1429.0, max
+4102.8, ratio 2.87x. But the cores reading 1429 are the ones that happen to be
+IDLE at the sampling instant, not cores running slow work. Per-core, same sample:
+
+    cpu44   7.0% busy -> 1429.0 MHz        cpu40  46.7% busy -> 4066.6 MHz
+    cpu13   2.5% busy -> 1429.0 MHz        cpu47  64.0% busy -> 4117.6 MHz
+
+`scaling_cur_freq` is instantaneous, so a 7%-busy core is caught idle 93% of the
+time. **A cross-core spread taken at one instant is not the frequency a running
+arm experiences.** This is the third appearance of the same artefact in this
+ledger — it produced the retracted 1429-4292 headline, it produced my own
+harness's would-be flat reading, and it produces this 2.96x. The only sound
+sample is one taken on the core that ran the work, immediately after it ran, which
+is what my harness now does: measured on-core during these runs, frequency was
+4136-4292 MHz throughout.
+
+### 4. MIGRATION IS REAL WITHIN AN 8-CPU MASK, AND IT SHOWS UP IN THE NULL
+
+An 8-CPU mask gives the scheduler eight places to move the process between slots.
+Caught in the act on a short run: one row reported `cpus=[42, 47]` — the process
+migrated mid-row — and that same row NULL-FAILED with a 20.0% within-row clock
+spread, against 0.1-1.6% for the rows that stayed put. Both arms still visited
+both CPUs, so it was not an arm-exclusive bias, but it is avoidable noise.
+
+Pinning to a SINGLE cpu removes it: every row of every run below reports
+`cpus=[45]`, within-row clock spread 0.1-6.0%, and no migration.
+
+### 5. THE BANKED 20x SURVIVES THE STRICTER REGIME
+
+My previous row banked the multigraph keydict cache at a worst bound of 18.85x
+from an 8-CPU mask with placement UNRECORDED. Re-run ELF-alternated, pinned to
+one CPU, placement recorded, three interleaved rounds, 41 x 50 x 400, all six runs
+13/13 ADMISSIBLE:
+
+    row                  OLD 417fcb89 (x3)        NEW 3ec26cd9 (x3)        placement
+    MG  par=64           0.0074 0.0073 0.0073     0.1568 0.1500 0.1474     cpus=[45] all
+    MDG par=64 CONTROL   0.0073 0.0072 0.0073     0.0076 0.0073 0.0074     cpus=[45] all
+
+**Worst bound min(NEW)/max(OLD) = 0.1474 / 0.0074 = 19.92x**, against the 18.85x
+already banked — so the earlier claim was if anything conservative, and it was not
+a placement artefact. The untouched directed class stayed flat again, on the same
+single CPU, which is the control doing its job a second time.
+
+Arm-to-arm clock skew across these six runs spans -0.08% to +0.02%. Observed
+loadavg 11.34 / 12.39 / 12.43 / 12.68 / 12.94 / 12.55.
+
+### WHAT CHANGED IN THE HARNESS
+
+`smt_sibling_map()` in the provenance block (`affinity_cpu_list` +
+`smt_siblings`); per-arm CPU ids collected in `_time_square`; `cpus_incumbent`,
+`cpus_fnx`, `cpus_shared`, `cpus_arm_exclusive` on every row dict; the placement
+printed on every row line as `cpus=[...]` or, when the arms differ, as
+`ARM-EXCLUSIVE=[...]`; and an ARM-EXCLUSIVE-CPU total at the end telling the
+reader to re-pin and re-measure. As with the clock-skew flag, this is NOT folded
+into `verdict` — the harness is shared and a new way to fail ADMISSIBLE would
+silently retire other panes' rows.
+
+STANDING CHANGE TO MY OWN PRACTICE: certify pinned to a SINGLE cpu, not a range.
+The mask bought nothing — one process, one runnable thread — and cost migration.
+
+PROVENANCE: harness `scripts/balanced_square_ab.py` sha256 ee9e0365b6d8d2f0df639ee16a07522695eca7f42f86f0d9f9935dc984e5c4a8; host
+thinkstation1; rch_worker none (both arms in-process on same_host); governor
+powersave; runtime ISA avx2 avx sse4_2; python 3.13.7 x86_64; live networkx 3.6.1;
+PYTHONHASHSEED=0; taskset -c 45 (SMT sibling cpu13); square ABBAABBA; disk 280G
+free; arms are complete package copies selected by PYTHONPATH, the shared venv
+install untouched. NULL_NUMERIC_EVIDENCE: per-arm A/A nulls across the six runs
+span [0.9980, 1.0191], every one inside the +/-0.02 bound; self-speedup worst
+bound 19.92x.
+
+bench_elf_sha256=3ec26cd9db02fb75f652aecca7fc5e480e3eb375a94a8460fb87aa575ca7ecdb
+elf_sha256=3ec26cd9db02fb75f652aecca7fc5e480e3eb375a94a8460fb87aa575ca7ecdb
+comparison_class=SELF-SPEEDUP
+campaign_output=false
+decision_gate=median_ci
+cv_role=report_only

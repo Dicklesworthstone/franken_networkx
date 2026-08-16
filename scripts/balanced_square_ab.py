@@ -176,6 +176,14 @@ def provenance() -> dict:
         "runtime_isa": ",".join(isa) or "baseline",
         "observed_os_threads": threads,
         "observed_affinity_cpus": len(os.sched_getaffinity(0)),
+        "affinity_cpu_list": sorted(os.sched_getaffinity(0)),
+        # br-r37-c1-armplace: SMT exposure of the pinned set. Every CPU here may
+        # be the second hyperthread of a physical core whose FIRST thread is
+        # running someone else's benchmark — on this host cpu40..47 are the
+        # siblings of cpu8..15. That contention is common-mode across arms that
+        # interleave in one process, but it is not visible from the CPU numbers
+        # alone, so it is stated rather than left to be discovered.
+        "smt_siblings": smt_sibling_map(),
         "python": platform.python_version(),
         "incumbent_networkx": nx.__version__,
         "pythonhashseed": os.environ.get("PYTHONHASHSEED", "<unset>"),
@@ -856,6 +864,37 @@ def time_slot(fn, *, collect_first: bool = False, calls: int = 1) -> int:
     return time.perf_counter_ns() - start
 
 
+def smt_sibling_map():
+    """`{pinned_cpu: [its thread siblings]}` for the CPUs this process may use.
+
+    br-r37-c1-armplace. A pinned CPU set says nothing about which PHYSICAL cores
+    it occupies. On this host `taskset -c 40-47` lands entirely on the SECOND
+    hyperthread of physical cores 8-15, so a peer benchmarking on cpu8-15 shares
+    execution units with every slot measured here. Both arms interleave in one
+    process and therefore meet that contention equally, but the exposure belongs
+    in the row rather than in someone's later reconstruction.
+    """
+    out = {}
+    try:
+        pinned = sorted(os.sched_getaffinity(0))
+    except OSError:
+        return out
+    for cpu in pinned:
+        try:
+            with open(
+                f"/sys/devices/system/cpu/cpu{cpu}/topology/thread_siblings_list"
+            ) as handle:
+                siblings = [
+                    int(part) for part in handle.read().strip().replace("-", ",").split(",")
+                ]
+        except (OSError, ValueError):
+            continue
+        others = [s for s in siblings if s != cpu]
+        if others:
+            out[cpu] = others
+    return out
+
+
 def sample_core_khz():
     """The RUNNING core's current frequency, in kHz, or None.
 
@@ -915,22 +954,27 @@ def _time_square(incumbent_fn, fnx_fn, gc_per_slot: bool, calls_per_slot: int = 
     """
     a_slots, b_slots = [], []
     a_khz, b_khz = [], []
+    a_cpus, b_cpus = [], []
     for slot in SQUARE:
         if slot == "A":
             a_slots.append(
                 time_slot(incumbent_fn, collect_first=gc_per_slot, calls=calls_per_slot)
             )
-            _, khz = sample_core_khz()
+            cpu, khz = sample_core_khz()
             if khz is not None:
                 a_khz.append(khz)
+            if cpu is not None:
+                a_cpus.append(cpu)
         else:
             b_slots.append(
                 time_slot(fnx_fn, collect_first=gc_per_slot, calls=calls_per_slot)
             )
-            _, khz = sample_core_khz()
+            cpu, khz = sample_core_khz()
             if khz is not None:
                 b_khz.append(khz)
-    return a_slots, b_slots, a_khz, b_khz
+            if cpu is not None:
+                b_cpus.append(cpu)
+    return a_slots, b_slots, a_khz, b_khz, a_cpus, b_cpus
 
 
 def bootstrap_ci(values, iters: int = 4000, seed: int = 3):
@@ -967,6 +1011,13 @@ def run_row(
 
     ratios, null_a, null_b = [], [], []
     khz_a, khz_b = [], []
+    # br-r37-c1-armplace: which logical CPUs each arm actually ran on. Both arms
+    # execute in ONE process, interleaved inside the square, so they share an
+    # affinity mask by construction — but the scheduler may still MIGRATE the
+    # process between slots, and a mask spanning 8 CPUs gives it 8 places to go.
+    # If arm A's slots landed on a different set from arm B's, the ratio is
+    # comparing two placements, and both A/A nulls read 1.0 through it.
+    cpus_a, cpus_b = set(), set()
     for _ in range(rounds):
         # One collect per ROUND, outside every timed slot, with the collector
         # left OFF for the whole square: both arms then meet the same GC state
@@ -991,11 +1042,13 @@ def run_row(
             for _ in range(max(ROUND_WARM_CALLS, calls_per_slot)):
                 incumbent_fn()
                 fnx_fn()
-            a_slots, b_slots, a_khz, b_khz = _time_square(
+            a_slots, b_slots, a_khz, b_khz, a_cpus, b_cpus = _time_square(
                 incumbent_fn, fnx_fn, gc_per_slot, calls_per_slot
             )
             khz_a.extend(a_khz)
             khz_b.extend(b_khz)
+            cpus_a.update(a_cpus)
+            cpus_b.update(b_cpus)
         finally:
             gc.enable()
         ratios.append(statistics.median(a_slots) / statistics.median(b_slots))
@@ -1051,6 +1104,10 @@ def run_row(
         "mhz_spread_pct": spread_pct,
         "clock_skew_pct": clock_skew,
         "clock_skewed": clock_skewed,
+        "cpus_incumbent": sorted(cpus_a),
+        "cpus_fnx": sorted(cpus_b),
+        "cpus_shared": sorted(cpus_a & cpus_b),
+        "cpus_arm_exclusive": sorted(cpus_a ^ cpus_b),
     }
 
 
@@ -1154,6 +1211,7 @@ def main(argv: list[str]) -> int:
     )
     admitted = 0
     skewed = 0
+    arm_exclusive_cpus = 0
     for name in selected:
         row = run_row(
             name,
@@ -1173,13 +1231,21 @@ def main(argv: list[str]) -> int:
                 f"skew {row['clock_skew_pct']:+.2f}% spread {row['mhz_spread_pct']:.1f}%"
                 f"{' SKEWED' if row['clock_skewed'] else ''}"
             )
+        exclusive = row["cpus_arm_exclusive"]
+        placement = (
+            f"cpus={row['cpus_shared']}"
+            if not exclusive
+            else f"cpus A={row['cpus_incumbent']} B={row['cpus_fnx']} ARM-EXCLUSIVE={exclusive}"
+        )
         print(
             f"  {name:22s} {row['ratio']:7.4f}x  CI [{low:.4f}, {high:.4f}]  "
             f"nulls {row['null_incumbent']:.4f}/{row['null_fnx']:.4f}  {clock}  "
-            f"{row['verdict']}"
+            f"{placement}  {row['verdict']}"
         )
         admitted += row["verdict"] == "ADMISSIBLE"
         skewed += bool(row["clock_skewed"])
+        if exclusive:
+            arm_exclusive_cpus += 1
 
     print(f"\n  loadavg_end              {os.getloadavg()}")
     if skewed:
@@ -1188,6 +1254,13 @@ def main(argv: list[str]) -> int:
             f"those squares ran at core frequencies differing by more than "
             f"{CLOCK_SKEW_BOUND_PCT}%. Both A/A nulls read 1.0 through this, so do "
             f"not treat a passing null as evidence against it."
+        )
+    if arm_exclusive_cpus:
+        print(
+            f"  ARM-EXCLUSIVE-CPU rows   {arm_exclusive_cpus}/{len(selected)} — one "
+            f"arm ran on a CPU the other never touched, so that row compares two "
+            f"placements as well as two implementations. Re-pin to a single CPU "
+            f"(taskset -c N) and re-measure before quoting it."
         )
     print(f"  admitted rows            {admitted}/{len(selected)}")
     if admitted == 0:
