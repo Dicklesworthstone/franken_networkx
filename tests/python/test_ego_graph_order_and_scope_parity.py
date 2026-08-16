@@ -131,9 +131,27 @@ def test_multigraph_ego_edges_are_the_right_SET_and_the_order_residue_is_bounded
                     if list(got.edges(data=True)) != list(want.edges(data=True)):
                         order_divergences += 1
     assert total >= 50, "this pin must actually sweep something"
-    assert order_divergences <= 6, (
+    # br-r37-c1-vv3sd: the COUNT is PYTHONHASHSEED-dependent and this bound was
+    # originally 6, which is the count at most seeds but not all. Measured on
+    # UNMODIFIED HEAD across seeds 0-9: 8 at seed 4, 7 at seed 5, <=6 at the
+    # other eight. pytest does not pin the seed, so a bound of 6 fails roughly
+    # one run in five for reasons that have nothing to do with the code.
+    #
+    # That flakiness is not academic: it made me REVERT a good lever. Applying
+    # the br-r37-c1-vv3sd reorder produced 8/54 on one unpinned run, I read that
+    # as a regression, and re-testing across the same ten seeds showed the
+    # distribution is IDENTICAL with and without the change.
+    #
+    # The bound is therefore the seed-sweep MAXIMUM, not the modal count, and
+    # the assertion says which so the next person does not "tighten" it back to
+    # 6 and reintroduce the flake. Tightening requires making the count
+    # deterministic first -- e.g. running this sweep in a fixed-seed subprocess
+    # the way test_multigraph_ego_edge_order_is_stable_across_hash_seeds does.
+    assert order_divergences <= 8, (
         f"multigraph ego edge-order residue GREW to {order_divergences}/{total}; "
-        "it was 6 when br-r37-c1-9uod6 was filed"
+        "the seed-sweep maximum was 8 (at PYTHONHASHSEED=4) when br-r37-c1-9uod6 "
+        "was filed, with 6 at most seeds -- this bound is the MAXIMUM across "
+        "seeds 0-9, not the modal count"
     )
 
 

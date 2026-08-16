@@ -3407,18 +3407,28 @@ class _MultiGraphEdgeView:
                 f"list(G.edges)[{edge.start}:{edge.stop}:{edge.step}]"
             )
         u, v, key = edge
-        hash(u)
-        hash(v)
-        hash(key)
         native_get_edge_data = self._fnx_native_get_edge_data
         if (
             key is not None
             and native_get_edge_data is not None
             and not _has_networkx_private_storage(self._graph)
         ):
-            data = native_get_edge_data(u, v, key, _PRIVATE_MISSING)
-            if data is not _PRIVATE_MISSING:
-                return data
+            # br-r37-c1-vv3sd: multigraph twin of br-r37-c1-q4wzt. On a HIT the
+            # native lookup hashes and resolves all three components itself, so
+            # the explicit hashes in front of it are duplicate work. Anything
+            # that is not a hit falls through to the ordered path below, which
+            # still hashes u, v, key in nx's order before the chained lookup, so
+            # the exception TYPE and ORDER are unchanged.
+            try:
+                data = native_get_edge_data(u, v, key, _PRIVATE_MISSING)
+            except TypeError:
+                pass
+            else:
+                if data is not _PRIVATE_MISSING:
+                    return data
+        hash(u)
+        hash(v)
+        hash(key)
         adj = self._graph.adj
         try:
             return adj[u][v][key]
@@ -3983,18 +3993,28 @@ class _MultiDiGraphEdgeView:
                 f"list(G.edges)[{edge.start}:{edge.stop}:{edge.step}]"
             )
         u, v, key = edge
-        hash(u)
-        hash(v)
-        hash(key)
         native_get_edge_data = self._fnx_native_get_edge_data
         if (
             key is not None
             and native_get_edge_data is not None
             and not _has_networkx_private_storage(self._graph)
         ):
-            data = native_get_edge_data(u, v, key, _PRIVATE_MISSING)
-            if data is not _PRIVATE_MISSING:
-                return data
+            # br-r37-c1-vv3sd: multigraph twin of br-r37-c1-q4wzt. On a HIT the
+            # native lookup hashes and resolves all three components itself, so
+            # the explicit hashes in front of it are duplicate work. Anything
+            # that is not a hit falls through to the ordered path below, which
+            # still hashes u, v, key in nx's order before the chained lookup, so
+            # the exception TYPE and ORDER are unchanged.
+            try:
+                data = native_get_edge_data(u, v, key, _PRIVATE_MISSING)
+            except TypeError:
+                pass
+            else:
+                if data is not _PRIVATE_MISSING:
+                    return data
+        hash(u)
+        hash(v)
+        hash(key)
         succ = self._graph.succ
         if u not in succ:
             raise KeyError(u)
