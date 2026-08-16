@@ -44451,10 +44451,33 @@ class _FilteredGraphView:
         # by writing directly to the override slot in vars(self).
         vars(self)[_GRAPH_ATTR_OVERRIDE] = graph.graph
         self._filter_node = filter_node or (lambda node: True)
+        # br-r37-c1-h8vqr: the NODE-filter twin of the edge flag just below,
+        # which already existed. Without it `_node_visible` calls a no-op lambda
+        # for every node it checks, and it is the hottest helper on every
+        # filtered walk -- cProfile counted 170 calls to answer a THREE-NODE
+        # degree query, because it runs once per endpoint of every edge visited.
+        # `edge_subgraph`, `restricted_view` and `subgraph_view(filter_edge=...)`
+        # all leave the node filter at its default, so this is the common shape
+        # rather than a corner.
+        self._filter_node_is_default = (
+            filter_node is None or filter_node is _subgraph_view_no_filter_default
+        )
         self._filter_edge_is_default = (
             filter_edge is None or filter_edge is _subgraph_view_no_filter_default
         )
         self._filter_edge = filter_edge or (lambda *args: True)
+        # br-r37-c1-h8vqr: whether the PARENT is a multigraph is fixed for the
+        # life of this view -- it is a property of the parent's class, and the
+        # parent cannot change class underneath us. `_edge_visible` consulted it
+        # per EDGE through `self.is_multigraph()` -> `self._graph.is_multigraph()`,
+        # two Python frames deep, and cProfile counted 129 such calls to answer a
+        # THREE-NODE degree query (25.5us of 192us). Resolve it once here.
+        #
+        # `is_multigraph()` itself is left delegating rather than answering from
+        # this flag: it is public API, a caller may reach it on a view whose
+        # parent was swapped by some path this constructor never saw, and the
+        # per-edge saving is already taken below.
+        self._fnx_parent_is_multigraph = graph.is_multigraph()
         self.frozen = True
         self.nodes = NodeView(self)
         self.adj = _filtered_public_adjacency_view(self)
@@ -44545,12 +44568,19 @@ class _FilteredGraphView:
         return self._graph.is_multigraph()
 
     def _node_visible(self, node):
+        # br-r37-c1-h8vqr: skip the no-op predicate call when the node filter is
+        # the default. Membership alone IS the answer then, and `in` is a C-level
+        # containment check against the parent.
+        if self._filter_node_is_default:
+            return node in self._graph
         return node in self._graph and self._filter_node(node)
 
     def _edge_visible(self, u, v, key=None):
         if not (self._node_visible(u) and self._node_visible(v)):
             return False
-        if self.is_multigraph():
+        # br-r37-c1-h8vqr: the cached flag, not `self.is_multigraph()` -- see
+        # __init__. This runs once per EDGE on every filtered walk.
+        if self._fnx_parent_is_multigraph:
             return self._filter_edge(u, v, key)
         return self._filter_edge(u, v)
 
