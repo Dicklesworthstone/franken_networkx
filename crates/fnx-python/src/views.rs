@@ -811,6 +811,36 @@ impl EdgeView {
         // hashed: `__hash__` runs arbitrary Python and could re-enter this
         // graph, which is how br-r37-c1-oqvk5 shipped a P0 RefCell panic.
         crate::require_hashable_node_key(&u_item)?;
+        // br-r37-c1-ptiz2: exact-`str` endpoints resolve by CACHED INDEX, which
+        // is O(1) in key length, instead of building two canonicals and hashing
+        // both in full.
+        //
+        // THIS IS br-r37-c1-p1tvg RE-RUN, AND THE LEDGER RECORDS THAT AS
+        // REJECTED. That rejection stands where it was measured and does not
+        // cover this regime. p1tvg tested SHORT keys, where this row already
+        // reads 1.0560x — fnx AHEAD of networkx — so there was nothing for an
+        // index path to win, and it correctly found "101 Ir/call removed, no
+        // measurable time". The cost being removed scales with key LENGTH: at
+        // 8000-character nodes the two `canonical_node_key_in` calls spill their
+        // `ArrayString` to the heap and `has_edge` then hashes ~16000 bytes, and
+        // this row measures 0.0844x. Re-running a rejected lever in a regime the
+        // rejection never tested is the point; the SHORT-key row is carried as a
+        // control in the same invocation so a regression there would show.
+        //
+        // Ordering is preserved rather than assumed: nx short-circuits an absent
+        // `u` to False BEFORE `v` is hashed, and that is only observable when
+        // hashing `v` can raise. `node_key_hash_cannot_raise` is true for an
+        // exact `str` — exactly this gate — so nothing observable is reordered.
+        if u_item.is_exact_instance_of::<PyString>() && v_item.is_exact_instance_of::<PyString>() {
+            let g = self.graph.borrow(py);
+            if let Some(u_index) = g.cached_exact_string_node_index(py, &u_item)? {
+                return Ok(match g.cached_exact_string_node_index(py, &v_item)? {
+                    Some(v_index) => g.inner.has_edge_by_indices(u_index, v_index),
+                    None => false,
+                });
+            }
+            return Ok(false);
+        }
         let mut u_buf = ArrayString::new();
         let mut v_buf = ArrayString::new();
         let u = match crate::canonical_node_key_in(py, &u_item, &mut u_buf) {

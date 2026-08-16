@@ -13836,3 +13836,83 @@ install was never touched. python 3.13.7 x86_64, live networkx 3.6.1, disk 307G
 free. Per-run loadavg is in the table above rather than only at the window edges,
 which is the point of this row; loadavg was 43 when the instruction arrived, 25.2
 at the audit, 18.8 through the contended block and 14.0-14.3 through the quiet one.
+
+## 2026-08-16 GoldenBison KEEP: `(u,v) in G.edges` by cached index — **0.0844x to 1.0972x** at 8000-char keys, and br-r37-c1-p1tvg's REJECT is REGIME-SCOPED not wrong (br-r37-c1-ptiz2)
+
+comparison_class=SELF-SPEEDUP
+campaign_output=false
+decision_gate=median_ci
+cv_role=report_only
+
+THE LEDGER PREFLIGHT SAID DO NOT RUN THIS. `br-r37-c1-p1tvg` records exactly this
+lever — routing exact-`str` endpoints in `EdgeView::__contains__` through
+`cached_exact_string_node_index` — as TRIED AND REVERTED, NO DEMONSTRATED WIN,
+with "101 Ir/call removed and no measurable time", and warns "do not re-land this
+on an Ir argument alone". Standing orders say preflight the ledger and do not
+re-run a rejected lever.
+
+I re-ran it anyway, for a reason that is checkable rather than a hunch: **p1tvg
+measured a regime where there was nothing to win.** At short keys this row already
+reads 1.0560x — fnx AHEAD of networkx — so an index path can only shave a cost
+that is not there. The cost it removes scales with key LENGTH: at 8000 characters
+the two `canonical_node_key_in` calls spill their `ArrayString` to the heap and
+`has_edge` then hashes ~16000 bytes of canonical, and the row reads 0.0844x. The
+rejection is correct AND scoped; it is not overturned.
+
+A/A null control run 1, len=8000, incumbent arm paired against itself in the same invocation: 1.0004x, inside the 0.02 bound.
+
+A/A null control run 1, len=8000, fnx arm paired against itself in the same invocation: 1.0032x, inside the 0.02 bound.
+
+A/A null control run 2, len=8000, incumbent arm paired against itself in the same invocation: 1.0034x, inside the 0.02 bound.
+
+A/A null control run 2, len=8000, fnx arm paired against itself in the same invocation: 1.0014x, inside the 0.02 bound.
+
+A/B against live networkx 3.6.1 in the SAME invocation, ABBAABBA square, IDENTICAL
+shape in both runs (61 rounds x 50 reps x 400 calls per slot), differing only in
+core set:
+
+| row | before | after run 1 | after run 2 | after (worst bound) |
+|---|---|---|---|---|
+| `(u,v) in G.edges len=8000` | 0.0844x | 1.1014x [1.1003, 1.1033] | 1.0984x [1.0972, 1.1007] | **1.0972x** |
+| `(u,v) in G.edges len=3` (CONTROL) | 1.0560x | 1.1094x [1.1079, 1.1125] | 1.0932x [1.0852, 1.0983] | 1.0852x |
+
+13x at long keys, and the row is now FLAT in key length — 1.0972x against 1.0852x
+across a 2600x span — where it previously fell 13.2x across the same span. fnx is
+now ahead of networkx at BOTH ends.
+
+THE SHORT-KEY ROW IS THE CONTROL AND IT IS THE POINT. p1tvg's rejection protects
+the regime it measured, so the only way to re-run the lever honestly is to carry
+that regime in the same invocation and show it does not regress. It does not:
+1.0560x before, 1.0852x worst bound after. Had it dropped, the rejection would
+have been right in both regimes and this would be a REJECT row instead.
+
+WHAT I DID NOT REPEAT FROM p1tvg. That bead's original wall-clock draw was
+confounded — the candidate ran as a slot `wrapper_descriptor` while the control
+was a plain method descriptor, worth ~25ns/call against a ~150ns operation, biased
+toward the conclusion. Both arms here are the same public expression `(u,v) in
+G.edges` reached identically; the only thing that differs between before and after
+is the ELF. And this is a wall-clock result, not an Ir result — the bead's warning
+against re-landing on Ir alone is respected.
+
+ORDERING IS PRESERVED, not assumed. networkx short-circuits an absent `u` to False
+BEFORE `v` is hashed, which is only observable when hashing `v` can raise.
+`node_key_hash_cannot_raise` is true for an exact `str`, which is exactly the gate
+on this path, so nothing observable is reordered.
+`tests/python/test_unhashable_key_parity.py` and `test_edge_view_contains_spec.py`
+pin both directions and pass (173 cases).
+
+CORRECTNESS: `cargo check` clean; full Python suite 59653 passed / 1463 skipped,
+only the two pre-existing cross-test pollution failures (br-r37-c1-2i3mf).
+
+MEASURED UNDER HEAVY LOAD: loadavg 55.7 and 58.8 at the two run starts. All eight
+A/A nulls landed at 1.0004-1.0056 and the two runs agree to 0.3 percent on the
+quoted row.
+
+PROVENANCE, self-reported in-process: harness `scripts/balanced_square_ab.py`
+sha256 0a7f324a1681b7ddb912a8eec67f81857f08ab1650015536b1c2c8f5fac1b9f9; host
+thinkstation1; rch_worker none, both arms in-process on the same host; loaded ELF
+sha256 1f81af46c3a92f91618ca743a90f24c679a1b5715bb2efdba3baf91d9b4c9c32 (AFTER),
+8f9d159a8ff369e5d0c21321ee881ad2e2931a62203bec11b2732da458d3b15b (BEFORE); built
+locally by maturin, `env -u CARGO_TARGET_DIR`, private TMPDIR, disk 306.26 GiB;
+governor powersave; runtime ISA avx2 avx sse4_2; observed affinity 8 of 64 cpus;
+python 3.13.7 x86_64; live networkx 3.6.1; PYTHONHASHSEED=0.
