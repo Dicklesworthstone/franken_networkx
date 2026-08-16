@@ -2095,6 +2095,16 @@ pub struct MultiDiGraph {
 }
 
 impl MultiDiGraph {
+    /// br-r37-c1-7qqr8: positional index of a node, matching
+    /// `DiGraph::get_node_index`. MultiDiGraph carried the
+    /// `NodeIndexLookupCache` (br-r37-c1-ic4cv) but only ever used its
+    /// present-set half, so there was no accessor to populate the index half
+    /// from — which is what the edge-attr index lookaside needs.
+    #[must_use]
+    pub fn get_node_index(&self, node: &str) -> Option<usize> {
+        self.nodes.get_index_of(node)
+    }
+
     /// br-r37-c1-7dpyg: structural clone with a FRESH RuntimePolicy —
     /// see Graph::clone_with_fresh_policy.
     #[must_use]

@@ -11480,6 +11480,7 @@ pub fn stochastic_graph_copy_multidigraph(
     }
 
     let new_graph = PyMultiDiGraph {
+        edge_py_attrs_by_index: HashMap::new(),
         has_edge_node_index_cache: crate::NodeIndexLookupCache::new(py),
         succ_key_rows: None,
         pred_key_rows: None,
@@ -15868,6 +15869,7 @@ pub fn multidigraph_transitive_closure(
     inner.extend_keyed_edges_with_attrs_unrecorded(closure_edges);
 
     let mut result = PyMultiDiGraph {
+        edge_py_attrs_by_index: HashMap::new(),
         has_edge_node_index_cache: crate::NodeIndexLookupCache::new(py),
         succ_key_rows: None,
         pred_key_rows: None,

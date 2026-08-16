@@ -12844,3 +12844,93 @@ NOT reproducible from a commit — see above), f862574e8ceca9148cbbca0325f2dd989
 2m17s, disk 314.51 -> 314.05 GiB; governor powersave; runtime ISA avx2 avx sse4_2;
 observed affinity 8 of 64 cpus; python 3.13.7 x86_64; live networkx 3.6.1;
 PYTHONHASHSEED=0; loadavg 88.3 and 66.3 at the two run starts.
+
+## 2026-08-16 KEEP: index-keyed edge-attr lookaside makes MDG `G.edges[u,v,k]` FLAT in node-key length — **0.0519x to 0.3058x at 2000-char keys** (br-r37-c1-7qqr8)
+
+comparison_class=SELF-SPEEDUP
+campaign_output=false
+decision_gate=median_ci
+cv_role=report_only
+elf_sha256=b3bf13e8c565e3f4924bf96c9d5dff3c9846e0d6d79717601742d4193ab5ed39
+
+SELF-SPEEDUP, not an incumbent win, and the distinction is the point: this row
+moves fnx from 0.0519x to 0.3058x against networkx and is still a LOSS, so it
+carries `campaign_output=false`. It is banked because the worst cell in the fleet
+ledger moved 5.9x and stopped depending on node-key length at all.
+
+A/A null control, after, run 1 (keylen 2000), incumbent arm paired against itself in the same invocation: 1.0090x, CI [0.9726, 1.0674], PASS.
+A/A null control, after, run 1 (keylen 2000), fnx arm paired against itself in the same invocation: 1.0142x, CI [0.9580, 1.0426], PASS.
+A/A null control, after, run 2 (keylen 2000), incumbent arm paired against itself in the same invocation: 0.9991x, CI [0.9778, 1.0406], PASS.
+A/A null control, after, run 2 (keylen 2000), fnx arm paired against itself in the same invocation: 0.9897x, CI [0.9777, 1.0033], PASS.
+A/A null control, after, keylen 3, incumbent arm paired against itself in the same invocation: 0.9989x, CI [0.9885, 1.0087], PASS.
+A/A null control, after, keylen 3, fnx arm paired against itself in the same invocation: 0.9967x, CI [0.9913, 1.0154], PASS.
+A/A null control, after, keylen 130, incumbent arm paired against itself in the same invocation: 0.9960x, CI [0.9847, 1.0100], PASS.
+A/A null control, after, keylen 130, fnx arm paired against itself in the same invocation: 0.9982x, CI [0.9791, 1.0613], PASS.
+
+THE WORST CELL IN THE FLEET LEDGER, and it is no longer key-length-dependent.
+`br-r37-c1-tjp0g` removed the two canonical ALLOCATIONS from
+`PyMultiDiGraph::get_edge_data` and banked what remained at 0.0519x. What remained
+was pure O(node key length) work on the STRINGS, all of it after the allocation was
+gone: `resolve_internal_edge_key` hashes both endpoints in `inner`, then
+`ensure_edge_py_attrs` allocates two owned Strings to build `Self::edge_key` and
+hashes them TWICE more (`contains_key`, then `get`). networkx is flat throughout
+because CPython caches a `str`'s hash in the object.
+
+THE LEVER is the multigraph twin of `br-r37-c1-ptiz2`: an `edge_py_attrs_by_index`
+map keyed by `(source index, target index, internal key)`, probed before any
+canonical is borrowed and before `inner` is touched, with both endpoint indices
+resolved through that same cached `str` hash via `cached_exact_string_node_index`.
+MultiDiGraph already carried the `NodeIndexLookupCache` (br-r37-c1-ic4cv) but used
+only its present-set half, so `MultiDiGraph::get_node_index` had to be added in
+fnx-classes to populate the index half.
+
+MEASURED, balanced square `ABBAABBA`, 21 rounds x 20000 reps, both arms in ONE
+invocation, bootstrap median CI over rounds (10k resamples), t_nx/t_fnx:
+
+    keylen    nx ns   fnx ns   ratio   CI                  A/A null nx        A/A null fnx
+    3         113.4    356.5   0.3193  [0.3175, 0.3199]    0.9989 PASS        0.9967 PASS
+    130       113.9    353.3   0.3237  [0.3201, 0.3249]    0.9960 PASS        0.9982 PASS
+    2000      121.2    390.9   0.3058  [0.2888, 0.3273]    1.0090 PASS        1.0142 PASS
+    2000 rep  118.3    373.5   0.3206  [0.2997, 0.3262]    0.9991 PASS        0.9897 PASS
+
+A/A NULL, positively recorded, same invocation, same positions: `paired(base, base)`
+built from each arm's early blocks against its late blocks — nx null 0.9989 / 0.9960 /
+1.0090 / 0.9991 and fnx null 0.9967 / 0.9982 / 1.0142 / 0.9897, all eight straddling
+1.0, so the arm split carries no position effect at any key length. Worst quoted
+bound across the two 2000-char runs is 0.2888.
+
+THE FLATNESS IS THE MECHANISM CHECK, and it is an internal control that does not
+depend on comparing against a previous ELF: br-r37-c1-tjp0g recorded this function
+growing **8.80x from key length 3 to 2000**. It now measures 356.5 -> 373.5 ns over
+that same span, about 1.05x. If the win had come from anything other than removing
+the key-length work — a build difference, a load ramp, a harness change — the growth
+curve would have been preserved and only the intercept would have moved.
+
+REPLICATION, which outranks the null: two independent runs on the shipped ELF at
+2000 chars, 0.3058 and 0.3206, CIs overlapping; plus two earlier runs on the
+functionally identical pre-comment-fix ELF at 0.3088 and 0.3013. Four runs, no
+disagreement in sign or magnitude.
+
+STILL A LOSS, stated plainly: 0.3058x is roughly 3.3x slower than networkx, not
+parity. The remaining ~240ns over networkx's ~118ns is the Python `OutMultiEdgeView.
+__getitem__` wrapper plus the PyO3 call, not key-length work — which is why the curve
+is flat. Whoever takes that next should not expect this lever to help again.
+
+CORRECTNESS: `cargo check -p fnx-python` clean. Full Python suite 59653 passed /
+1463 skipped, with only the two known cross-test pollution failures
+(`test_set_edge_attributes_bulk_parity[MultiDiGraph]` and
+`test_audit_classifies_barycenter_exception_type_drift`, br-r37-c1-2i3mf) which fail
+identically on unmodified HEAD and pass in isolation — verified in isolation here
+because one of them is a MultiDiGraph test and this lever touches MultiDiGraph.
+22 new cases in `tests/python/test_mdg_edge_attr_index_lookaside_parity.py` pin dict
+IDENTITY and both invalidation halves, since a stale index entry returns a live dict
+for the WRONG edge rather than raising.
+
+PROVENANCE, self-reported in-process: harness `/data/tmp/claude-1000/bsq_mdgedges.py`,
+host thinkstation1, rch_worker none — both arms in-process on the same host, same
+invocation. Loaded ELF sha256
+b3bf13e8c565e3f4924bf96c9d5dff3c9846e0d6d79717601742d4193ab5ed39, built locally by
+maturin `develop --release`, `env -u CARGO_TARGET_DIR`, private TMPDIR, 5m24s, disk
+314G free. python 3.13.7 x86_64, live networkx 3.6.1. loadavg 45.6 at the first run
+start and 42.9 at the last — HIGH, which is why the row is quoted on four replicates
+and its worst bound rather than on a single reading.
