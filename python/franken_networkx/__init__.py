@@ -46027,7 +46027,20 @@ def _has_networkx_private_storage(self):
     # This accessor is hit on every neighbors()/adjacency() call of fnx aux
     # graphs (millions of times in all_node_cuts / connectivity / flow), where
     # it was ~64% of runtime; per-call cost drops ~2.6x (318ns -> 120ns).
-    storage = vars(self)
+    # br-r37-c1-bnv3h: `self.__dict__` instead of `vars(self)`. Identical
+    # semantics — `vars(x)` returns `x.__dict__` — but an attribute load rather
+    # than a builtin CALL. Measured on a realistically-used 2000-node DiGraph:
+    # 109.6ns -> 91.9ns, stable across repeats.
+    #
+    # An `if not storage: return False` short-circuit was tried here and
+    # REJECTED as a measured regression: 97.7ns against 91.9ns without it. The
+    # instance dict of a real graph is NOT empty — a graph that has touched
+    # `.adj` or `.edges` carries 4-6 accessor-cache entries
+    # (`_fnx_view_adj`, `_fnx_getitem_atlas_cache`, `adj`, `edges`, ...) — so
+    # the branch never fires and only adds a test. It looks like a 2.16x win if
+    # measured on a graph whose accessors were never touched, which is not a
+    # graph any caller has.
+    storage = self.__dict__
     return (
         _PRIVATE_NODE_OVERRIDE in storage
         or _PRIVATE_ADJ_OVERRIDE in storage
