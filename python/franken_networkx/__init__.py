@@ -44646,22 +44646,39 @@ class _FilteredGraphView:
                 na_keys = getattr(parent, "_native_adjacency_keys", None)
                 na_adj = getattr(parent, "_native_adjacency_dict", None)
                 na_row = getattr(parent, "_native_successor_row_dict", None)
-                if not data and na_keys is not None:
+                # br-r37-c1-thssf: read ONLY the rows asked for. The hoist above
+                # took this from O(V*(V+E)) to O(V+E), but O(V+E) is still the
+                # WHOLE parent graph for a subgraph of ten nodes, and networkx is
+                # O(rows) — so the loss grew without bound with the parent's size
+                # (0.0015x at N=32000, 667x slower than nx) while the Graph,
+                # MultiGraph and MultiDiGraph siblings stayed flat and winning.
+                # The per-row accessor is already bound here for the data merge;
+                # it carries identical key order and identical values to the
+                # whole-graph snapshot (verified over every node at two sizes),
+                # so this is the same output at O(sum of the requested degrees).
+                if na_row is not None:
+                    for source in nodes:
+                        row = na_row(source)
+                        for target in row:
+                            if target in visible_keep:
+                                fast.append(
+                                    (source, target, row[target])
+                                    if data
+                                    else (source, target)
+                                )
+                elif not data and na_keys is not None:
                     succ_keys = dict(na_keys())
                     for source in nodes:
                         for target in succ_keys[source]:
                             if target in visible_keep:
                                 fast.append((source, target))
-                elif data and na_adj is not None and na_row is not None:
+                elif data and na_adj is not None:
                     full = na_adj()
                     for source in nodes:
-                        live = na_row(source)
                         keyrow = full[source]
                         for target in keyrow:
                             if target in visible_keep:
-                                fast.append(
-                                    (source, target, live.get(target, keyrow[target]))
-                                )
+                                fast.append((source, target, keyrow[target]))
                 else:
                     for source in nodes:
                         row = _fast_succ_row(parent, source)
