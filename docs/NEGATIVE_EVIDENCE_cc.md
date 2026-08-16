@@ -12424,3 +12424,46 @@ the loaded `.so`; loaded ELF sha256
 powersave; runtime ISA avx2 avx sse4_2; observed affinity 8 of 64 cpus; python
 3.13.7 x86_64; live networkx 3.6.1; PYTHONHASHSEED=0; loadavg 17.5 and 21.5 at the
 two run starts.
+
+---
+
+## get_edge_data — WORST row, re-measured on ELF f862574e (br-r37-c1-d1ajx)
+
+LEVER: none applied. This re-measures the project's worst vs-incumbent ratio
+because the extension changed underneath the previously banked figure.
+
+WHY RE-MEASURED: the row above was taken on ELF 2c3e0c53. A peer rebuilt to
+f862574e, and rows are only comparable within one sha, so the standing worst row
+was carrying a figure from a superseded artifact.
+
+MEASURED 2026-08-16, LOCAL:thinkstation1, live networkx 3.6.1, N=2000. Substrate:
+balanced square ABBAABBA, 21 rounds x 50000 reps, both arms in ONE invocation,
+bootstrap median CI over rounds (10k resamples). RCH_CARGO_WRAPPER_BYPASS=1
+exported; no build started by this pane. ELF sha256
+f862574e8ceca9148cbbca0325f2dd989e49e795b86ecdd461aa02aa496bfe81.
+
+    class          nx us     fnx us    t_nx/t_fnx   95% CI              prior (2c3e0c53)
+    MultiDiGraph   0.0743    0.3163      0.2345     [0.2334, 0.2355]      0.1967
+    MultiGraph     0.0763    0.3078      0.2461     [0.2448, 0.2477]      0.2492
+    DiGraph        0.0704    0.2294      0.3085     [0.3016, 0.3121]      0.3232
+    Graph          0.1170    0.2238      0.5120     [0.4933, 0.5228]      0.5065
+
+MultiDiGraph A/A null control, paired(base, base) in the same invocation: nx arm 0.9962x CI [0.9854, 1.0106] PASS; fnx arm 0.9981x CI [0.9770, 1.0114] PASS.
+MultiGraph A/A null control, paired(base, base) in the same invocation: nx arm 0.9926x PASS; fnx arm 1.0005x PASS.
+DiGraph A/A null control, paired(base, base) in the same invocation: nx arm 0.9844x PASS; fnx arm 1.0172x PASS.
+Graph A/A null control, paired(base, base) in the same invocation: nx arm 0.9904x PASS; fnx arm 0.9904x PASS.
+All ten A/A null medians straddle 1.0 -- including the replicate -- gated on the bootstrap median CI and not on CV, so the substrate is admissible and every gap sits far outside the null spread.
+
+REPLICATED: a second MultiDiGraph run gave 0.2329x CI [0.2257, 0.2366] against
+the first pass's 0.2345x, agreeing to 0.7%.
+
+WHAT CHANGED WITH THE ARTIFACT: MultiDiGraph moved 0.1967x -> 0.2345x, a 19%
+improvement, from a rebuild this pane did not make. The other three classes are
+flat to within measurement (0.2492 -> 0.2461, 0.3232 -> 0.3085, 0.5065 -> 0.5120).
+So something in the new extension helped the MultiDiGraph path specifically. That
+is worth knowing precisely because the previous entry recorded br-r37-c1-ptiz2's
+lookaside as NOT having moved this row -- whatever moved it now is a different
+change, and attributing it needs the intervening commits, not this measurement.
+
+STATUS: still the worst row in the project at 0.2345x. The Python reroute remains
+REFUTED on this bead (2.65x slower). The remaining work is Rust-side.
