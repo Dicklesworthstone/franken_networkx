@@ -12619,3 +12619,76 @@ f862574e8ceca9148cbbca0325f2dd989e49e795b86ecdd461aa02aa496bfe81; governor
 powersave; runtime ISA avx2 avx sse4_2; observed affinity 8 of 64 cpus; python
 3.13.7 x86_64; live networkx 3.6.1; PYTHONHASHSEED=0; loadavg 7.3 and 7.1 at the
 two run starts.
+
+## MDG `G.edges[u,v,k]` at 8000-char keys — measured LOSS 0.0185x, the worst cell measured in this project (br-r37-c1-tjp0g)
+
+comparison_class=INCUMBENT
+incumbent=networkx
+incumbent_same_invocation=true
+decision_gate=median_ci
+cv_role=report_only
+
+My worst measured vs-incumbent ratio. The previously banked 0.0558x is the
+len=2000 point; this asks where the curve actually bottoms out, because after
+br-r37-c1-ptiz2 flattened the SIMPLE-graph subscript the multigraph one is still
+unbounded, and "worst ratio" is only meaningful once you know that.
+
+A/A null control run 1, incumbent arm paired against itself in the same invocation: 1.0190x, inside the 0.02 bound.
+
+A/A null control run 1, fnx arm paired against itself in the same invocation: 1.0018x, inside the 0.02 bound.
+
+A/A null control run 2, incumbent arm paired against itself in the same invocation: 1.0149x, inside the 0.02 bound.
+
+A/A null control run 2, fnx arm paired against itself in the same invocation: 0.9997x, inside the 0.02 bound.
+
+A/B against live networkx 3.6.1 in the SAME invocation, ABBAABBA square, 61 rounds
+x 50 reps x 160 calls per slot, `--only len=8000`:
+
+| row | run 1 (cores 40-47) | run 2 (cores 48-55) | worst bound |
+|---|---|---|---|
+| `MDG edges[u,v,k] len=8000` | 0.0186x [0.0185, 0.0187] | 0.0186x [0.0186, 0.0187] | **0.0185x** |
+| `CONTROL Graph edges[u,v] len=8000` | 0.7705x [0.7667, 0.7757] | 0.7764x [0.7739, 0.7795] | 0.7667x |
+
+Identical medians in both runs. Ratio is t_networkx/t_fnx; 0.0185x is about 54x
+slower than networkx on a single edge subscript.
+
+THE TWO CURVES, SIDE BY SIDE, same fixture, same process, same ELF:
+
+    node-key length            3       130      2000      8000
+    Graph edges[u,v]      0.7654x   0.7419x   0.7259x   0.7667x   FLAT
+    MDG   edges[u,v,k]    0.2964x   0.1667x   0.0558x   0.0185x   UNBOUNDED
+
+The simple-graph subscript is flat to within 5 percent across a 2600x range of key
+length. The multigraph one degrades roughly linearly: 4x the key length from 2000
+to 8000 costs 3.0x the ratio. At 8000 characters the two operations differ by 41x
+IN THE SAME PROCESS. That is the clearest possible statement that this is a fixable
+implementation defect and not a property of multigraphs — one of the two was fixed
+and the other was not.
+
+WHY THE PREVIOUS LEVER DID NOT CLOSE IT, now precisely located. The borrowed-
+canonical change removed two `node_key_to_string` allocations from
+`PyMultiDiGraph::get_edge_data`, worth ~25 percent at short keys and ~10 percent
+at long ones. But `ensure_edge_py_attrs` immediately re-allocates them:
+`Self::edge_key(u, v, key)` is literally `(u.to_owned(), v.to_owned(), key)`, so
+the hot path builds TWO fresh Strings, then hashes both in full TWICE
+(`contains_key` followed by `get`). Removing two allocations upstream while two
+more happen downstream is exactly the ~10 percent that was measured.
+
+THE OPEN LEVER AND WHY IT IS NOT IN THIS COMMIT: an index-keyed lookaside for the
+multigraph attribute storage, keyed `(u_index, v_index, edge_key)` and guarded on
+`nodes_seq` and `edges_seq`, both of which `PyMultiDiGraph` already carries. It is
+the direct analogue of ptiz2. I scoped it and did not attempt it here: the field
+would need adding at 13 constructor sites which are SHARED in pattern with
+`PyDiGraph` (whose key shape is `(String, String)`, not `(String, String, usize)`),
+so a blanket edit breaks the wrong struct, and that is not a change to make
+half-carefully on a shared checkout. It needs its own unit of work.
+
+PROVENANCE, self-reported in-process: harness `scripts/balanced_square_ab.py`
+sha256 53c18552b2b31f9a6008712372e6efd46888c00ad625dd097633e5f5596a6e55; host
+thinkstation1; rch_worker none, both arms in-process on the same host, and NO
+build was performed — existing binary reused, verified by 0 `.rs` files newer than
+the loaded `.so`; loaded ELF sha256
+f862574e8ceca9148cbbca0325f2dd989e49e795b86ecdd461aa02aa496bfe81; governor
+powersave; runtime ISA avx2 avx sse4_2; observed affinity 8 of 64 cpus; python
+3.13.7 x86_64; live networkx 3.6.1; PYTHONHASHSEED=0; loadavg 9.2 and 10.0 at the
+two run starts.

@@ -652,7 +652,7 @@ def workload_multi_key_length(reps: int):
 
     def build(module):
         fixture = {}
-        for length in (3, 130, 2000):
+        for length in (3, 130, 2000, 8000):
             u, v = "u" * length, "v" * length
             mdg = module.MultiDiGraph()
             mdg.add_edge(u, v, weight=1)
