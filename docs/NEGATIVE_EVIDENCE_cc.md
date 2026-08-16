@@ -11473,3 +11473,71 @@ ecfc2d30935a12eb0b61c3d00b38718026bcc36977c047b048463c1bf9a37fb8; governor
 powersave; runtime ISA avx2 avx sse4_2; observed affinity 8 of 64 cpus; python
 3.13.7 x86_64; live networkx 3.6.1; PYTHONHASHSEED=0; loadavg 8.83 and 8.96 at
 the two run starts.
+
+## Graph `G.degree(n)` — measured LOSS 0.7226x vs networkx, plus three sibling rows (br-r37-c1-ey6ob)
+
+comparison_class=INCUMBENT
+incumbent=networkx
+incumbent_same_invocation=true
+decision_gate=median_ci
+cv_role=report_only
+
+Measurements RUN but never written down. The undirected view-read surface had
+been measured only at the harness default shape, where most of these rows
+NULL-FAIL, so none of them were bankable. Re-run here on the already-built binary
+at the shape that resolves the nulls. NO BUILD was performed.
+
+This also REFRESHES rows that were previously banked against ELF cf5056fd, which
+no longer exists; everything below is against the current ecfc2d30 binary.
+
+A/A null control run 1, incumbent arm paired against itself in the same invocation: 1.0079x, inside the 0.02 bound.
+
+A/A null control run 1, fnx arm paired against itself in the same invocation: 1.0048x, inside the 0.02 bound.
+
+A/A null control run 2, incumbent arm paired against itself in the same invocation: 1.0064x, inside the 0.02 bound.
+
+A/A null control run 2, fnx arm paired against itself in the same invocation: 1.0035x, inside the 0.02 bound.
+
+A/B against live networkx 3.6.1 in the SAME invocation, ABBAABBA square, IDENTICAL
+shape in both runs (81 rounds x 50 reps x 8 calls per slot), differing only in
+core set, gated on the bootstrap median CI. Only rows ADMISSIBLE IN BOTH runs are
+banked:
+
+| row | run 1 (cores 40-47) | run 2 (cores 48-55) | worst bound | status |
+|---|---|---|---|---|
+| `G.degree(n)` | 0.7306x [0.7287, 0.7333] | 0.7238x [0.7226, 0.7246] | 0.7226x | BANKED |
+| `G.adj[u]` | 0.7686x [0.7664, 0.7705] | 0.7290x [0.7278, 0.7301] | 0.7278x | BANKED, runs disagree |
+| `G.nodes.get(n)` | 0.8510x [0.8491, 0.8518] | 0.8382x [0.8251, 0.8568] | 0.8251x | BANKED |
+| `list(G.neighbors(n))` | 0.8850x [0.8820, 0.8879] | 0.8982x [0.8963, 0.9005] | 0.8820x | BANKED |
+| `G.nodes[n]` | 1.3919x | 1.3449x | 1.3437x | WIN |
+| `(u,v) in G.edges()` | 1.0934x | 1.0468x | 1.0376x | WIN |
+| CONTROL `len(G)` | 2.0598x | 2.1265x | — | agree to 3 percent |
+
+Ratio is t_networkx/t_fnx, so below 1.0 means fnx is slower.
+
+`G.degree(n)` replicates tightly — 0.7306x against 0.7238x, CIs nearly touching —
+and is the worst of the group. `G.adj[u]` is banked at its worst bound but its two
+runs do NOT overlap (0.7686x against 0.7290x, about 5 percent apart) with all four
+nulls passing, which is the standing caveat that a null certifies stationarity
+WITHIN a run and nothing about between-run load; loadavg was 24.0 and 23.7.
+
+NOT BANKED, because they were admissible in only one of the two runs: `n in G`
+(1.4513x then NULL-FAILED), `G.has_node(n)` (NULL-FAILED both, 1.0056x and
+1.0356x), `n in G.nodes()` (1.2164x then NULL-FAILED), and `G.edges[u,v]`
+(0.8133x then NULL-FAILED). They are recorded so the numbers are not lost, but one
+admissible run is not two and none of them should be quoted.
+
+WORTH NOTING ABOUT `G.has_node(n)`: it now reads 1.0056x and 1.0356x, where a
+sweep against the retired cf5056fd ELF had it at 0.9096x. That is a direction
+change, not a refinement, and it is exactly why rows carrying a dead ELF sha have
+to be re-measured rather than carried forward. Neither reading is banked here.
+
+PROVENANCE, self-reported in-process: harness `scripts/balanced_square_ab.py`
+sha256 286bb779e78758e01b56e369fd71ec9f24b5971d60c03472570a812fc0edf62c; host
+thinkstation1; rch_worker none, both arms in-process, and NO build was performed —
+the existing binary was reused, verified by 0 `.rs` files newer than the loaded
+`.so`; loaded ELF sha256
+ecfc2d30935a12eb0b61c3d00b38718026bcc36977c047b048463c1bf9a37fb8; governor
+powersave; runtime ISA avx2 avx sse4_2; observed affinity 8 of 64 cpus; python
+3.13.7 x86_64; live networkx 3.6.1; PYTHONHASHSEED=0; loadavg 24.0 and 23.7 at the
+two run starts.
