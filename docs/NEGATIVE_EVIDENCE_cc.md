@@ -17069,3 +17069,68 @@ TMPDIR, loaded via PYTHONPATH so the shared venv install was never touched. host
 thinkstation1, 64 logical / 32 physical, governor `powersave`. python 3.13.7,
 live networkx 3.6.1, disk 243G free. `uptime` observed: 16.2 / 16.2 / 18.1 at the
 decision, 13.37-14.08 across the three certification runs.
+
+## ATTRIBUTION: the row-view loss is entirely the CELL lookup, and it splits 46/54 between native canonicalisation and Python construction — the obvious Python fix is RULED OUT by parity (br-r37-c1-2ndmw)
+
+WINDOW VERIFIED BY THIS PANE: `uptime` gave 1-min 20.33, 5-min 27.16, 15-min
+23.64. Component measurements pinned to `cpu14` on commit-pinned HEAD ELF
+`bba560418752d220`; these are attribution figures, and the conclusions drawn from
+them are structural.
+
+**THE WORST CELL IS A PEER'S THIS TURN.** `br-r37-c1-0k6zl` (DiGraph
+`G.adj[u][v]`, certified at 0.0804x) is being implemented uncommitted by another
+pane — HEAD carries 0 mentions of that bead id and the working tree now carries
+7, up from 6 last turn. This pane took the next non-colliding cell instead.
+
+**THE ROW LOOKUP IS NOT THE PROBLEM.** Split at K=2000 (ns):
+
+    class          adj[u]   adj[u][v]   cell only   nx cell only
+    Graph           168.2      240.8        88.7        57.1
+    DiGraph         168.4     1824.5      1580.7        59.1
+    MultiGraph      157.3     1379.5      1193.0       123.0
+    MultiDiGraph    157.1     1294.7      1110.9       123.3
+
+`adj[u]` costs 157-168 ns on ALL FOUR classes — identical across the fixed class
+and the broken ones. The entire gap is the cell lookup, which is 9.7x nx on
+MultiGraph and 26.7x on DiGraph.
+
+**THE MULTIGRAPH CELL SPLITS IN TWO**, MultiGraph at K=2000:
+
+    row[v]   full path, fresh AtlasView        1265.6 ns
+    atlas[v] native MultiAtlasView C slot       582.7 ns   46 percent
+    hash(v)  alone                               39.7 ns
+    remainder: Python frame + construction      ~643 ns    54 percent
+
+So this is two levers, not one — roughly half is canonicalisation inside the
+native `MultiAtlasView.__getitem__`, and roughly half is the Python
+`AdjacencyView` frame plus constructing a fresh `AtlasView` per subscript.
+Fixing either alone caps out at about 2x.
+
+**AND THE OBVIOUS PYTHON-SIDE FIX IS RULED OUT BY PARITY.**
+`AdjacencyView.__getitem__` already has a warm cache that returns a cached
+`AtlasView` directly — but it is gated on `_fnx_owner`, which multigraph rows do
+not carry:
+
+    class          _fnx_owner   warm cache   repeat-call identity
+    Graph          None         NO           True   (cached natively)
+    DiGraph        DiGraph      YES          True
+    MultiGraph     None         NO           False
+    MultiDiGraph   None         NO           False
+
+Widening that gate to `_fnx_multi_edge_owner` would engage the cache and delete
+the per-call construction outright. It would also BREAK PARITY: networkx returns
+a FRESH wrapper from a multigraph `G.adj[u][v]`, identity False, and this pane's
+own `test_multigraph_row_view_contract.py` pins that agreement explicitly. The
+lever would trade a performance gap for a parity gap, and the test this pane
+landed earlier is what catches it. The construction has to become CHEAPER, not
+disappear.
+
+Recorded in passing: DiGraph already caches and so already returns identity-True
+where networkx returns a fresh wrapper — an existing divergence no bead covers,
+and a reason not to copy that pattern to the multigraph classes.
+
+PROVENANCE: attribution, no ratio certified. Pinned to cpu14, both libraries
+in-process, same invocation. Loaded ELF sha256 `bba560418752d220...` via
+PYTHONPATH; the shared venv install was never touched. host thinkstation1,
+governor `powersave`, python 3.13.7, live networkx 3.6.1, disk 239G free.
+`uptime` observed: 20.33 / 27.16 / 23.64 at the decision.
