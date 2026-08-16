@@ -8740,6 +8740,9 @@ _GRAPH_ATTR_OVERRIDE = "_fnx_graph_attr_override"
 _GRAPH_ATTR_MISSING = object()
 
 
+_GRAPH_ATTR_FACTORY_CACHE = {}
+
+
 class _GraphAttrsDescriptor:
     """Descriptor that adds an assignment path to the Rust-native
     read-only ``graph`` attribute."""
@@ -8772,7 +8775,19 @@ class _GraphAttrsDescriptor:
         # Lazily materialize through the factory on first access
         # (only when the subclass overrode it; the default ``dict``
         # path still uses the Rust-native fast path).
-        factory = getattr(objtype, "graph_attr_dict_factory", dict)
+        # br-r37-c1-7q6wh: whether a class overrides the factory cannot
+        # differ between instances of it, but this ran a full MRO walk on EVERY
+        # `G.graph` read — and `G.name` is `self.graph.get("name", "")`, so it
+        # paid it too. Measured at 0.0372us of a 0.2067us access. Memoised per
+        # class, the same shape as br-r37-c1-vaayu's shadow-installer memo and
+        # br-r37-c1-8itxk before it; the per-INSTANCE override check above is
+        # untouched. Same staleness envelope as those: it goes stale only if a
+        # CLASS's factory is rebound after an instance of it has been read, and
+        # module-level patching happens at import, before any instance exists.
+        factory = _GRAPH_ATTR_FACTORY_CACHE.get(objtype, _GRAPH_ATTR_MISSING)
+        if factory is _GRAPH_ATTR_MISSING:
+            factory = getattr(objtype, "graph_attr_dict_factory", dict)
+            _GRAPH_ATTR_FACTORY_CACHE[objtype] = factory
         if factory is not dict:
             existing = self._raw.__get__(obj, objtype)
             new_attrs = factory()
