@@ -2320,9 +2320,11 @@ class MultiAdjacencyView(_Mapping):
                 else None
             )
             if native is not None:
-                # br-r37-c1-znpkv: the row view live-reads its row, so it stays
-                # correct across EDGE churn; only a node add/remove can
-                # invalidate it, and nodes_seq keys the cache on exactly that.
+                # br-r37-c1-znpkv: the row view live-reads its row through the
+                # native binding on every access, so it stays correct across
+                # EDGE churn; only a node add/remove can invalidate it, and
+                # nodes_seq keys the cache on exactly that. Same contract the
+                # simple AdjacencyView has used since br-r37-c1-spg9n.
                 cache = self._fnx_row_cache
                 seq = owner.nodes_seq
                 if cache is None or cache[0] != seq:
@@ -2330,14 +2332,14 @@ class MultiAdjacencyView(_Mapping):
                     self._fnx_row_cache = cache
                 view = cache[1].get(node)
                 if view is None:
-                    # CAPTURE the row rather than re-fetching it on every
-                    # access, the same move br-r37-c1-124xl made on the G[u][v]
-                    # path. The returned object is a native MultiAtlasView that
-                    # stays LIVE across edge churn — verified: a captured row
-                    # sees a later add_edge and remove_edge. Node mutation
-                    # advances nodes_seq and drops this cache, which is what
-                    # stops a captured row outliving its node. Without the
-                    # capture, every len()/contains on the SAME cached view
+                    # br-r37-c1-znpkv: CAPTURE the row rather than re-fetching
+                    # it on every access, the same move br-r37-c1-124xl made on
+                    # the G[u][v] path. The returned object is a native
+                    # MultiAtlasView that stays LIVE across edge churn, so a
+                    # captured row still sees a later add_edge/remove_edge; node
+                    # mutation advances nodes_seq and drops this cache, which is
+                    # what stops a captured row outliving its node. Without the
+                    # capture every len()/contains on the SAME cached view
                     # crossed the PyO3 boundary again.
                     view = AdjacencyView(
                         (lambda row=native(node): row),
