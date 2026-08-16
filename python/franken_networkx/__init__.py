@@ -28297,9 +28297,45 @@ def ego_graph(G, n, radius=1, center=True, undirected=False, distance=None):
     for node in ordered_nodes:
         graph.add_node(node, **dict(G.nodes[node]))
     if G.is_multigraph():
-        for u, v, key, data in G.edges(keys=True, data=True):
-            if u in nodes_within and v in nodes_within:
-                graph.add_edge(u, v, key=key, **data)
+        # br-r37-c1-9uod6: walk ONLY the ego nodes' rows, like the simple-graph
+        # branch below, instead of materialising every edge in G and filtering
+        # (O(E_total) for a handful of rows) — and emit them in the order
+        # networkx does, which is NOT the parent row order.
+        #
+        # THE INNER ROW RULE DIFFERS BY CLASS, which is why this branch could not
+        # simply mirror the one below and why it was left behind when
+        # br-r37-c1-js9iw converted that one. nx builds the ego graph as
+        # G.subgraph(sp).copy(), and for a MULTIGRAPH the inner row is a
+        # FilterMultiInner whose NODE_OK HAS a `.nodes` attribute, so
+        # FilterAtlas.__iter__ takes its keep-set-order branch whenever
+        # 2 * len(keep) < len(row). For a simple Graph the inner row is a plain
+        # FilterAtlas whose NODE_OK has NO `.nodes`, so it always iterates the
+        # parent row. Read off networkx directly:
+        #
+        #     parent  G['n1']      ['n2','n19','n0','n3','n8','n6','n1']
+        #     multi   sub['n1']    ['n1','n2','n0']   == keep-set order
+        #     simple  sub['n1']    ['n2']             == parent row order
+        #
+        # so the existing note on _copy_induced_simple_fast ("the inner row
+        # order needs no such handoff") is right for simple graphs and wrong
+        # here. Reproducing the branch networkx takes gives 0 divergences over
+        # 208 randomised ego graphs; the old whole-edge-list walk gave 19.
+        directed = G.is_directed()
+        seen = set()
+        for u in ordered_nodes:
+            adj_u = G[u]
+            row = nodes_within if 2 * len(nodes_within) < len(adj_u) else adj_u
+            for v in row:
+                if v not in nodes_within or v not in adj_u:
+                    continue
+                if not directed and v in seen:
+                    continue
+                keydict = adj_u[v]
+                for edge_key in keydict:
+                    graph.add_edge(u, v, key=edge_key, **keydict[edge_key])
+            # AFTER the row, so a self-loop still emits (br-r37-c1-6yimw).
+            if not directed:
+                seen.add(u)
     else:
         # br-r37-c1-js9iw: walk ONLY the ego nodes' adjacency (O(E_subgraph))
         # instead of materializing every edge in G (O(E_total)) and filtering.

@@ -94,23 +94,29 @@ def test_simple_graph_ego_edge_order_matches_networkx(cls_name, order, radius, s
 
 
 @pytest.mark.parametrize("cls_name", ["MultiGraph", "MultiDiGraph"])
-def test_multigraph_ego_edges_are_the_right_SET_and_the_order_residue_is_bounded(
-    cls_name,
-):
-    """br-r37-c1-9uod6: multigraph ego EDGE order is a known residue.
+def test_multigraph_ego_edge_order_matches_networkx_exactly(cls_name):
+    """br-r37-c1-9uod6 is FIXED; this is now a plain parity assertion.
 
-    ego_graph's multigraph branch emits edges by walking ``G.edges(keys=True,
-    data=True)`` — every edge in the whole graph — and so yields them in G's
-    global edge order rather than the subgraph's node-major order networkx
-    produces. That is pre-existing and independent of the node-order fix: with
-    the old parent-scan ordering this same file failed 12 of 18 multigraph
-    cases, with the fix it fails 5, and the residue is edge ORDER only.
+    HISTORY, kept because it cost someone else real work. This started as a
+    bounded residue pin I wrote: the multigraph branch emitted edges by walking
+    every edge in G, so the order diverged, and I recorded the count with
+    ``<= 6``. Two things were wrong with that.
 
-    So this asserts what IS true today — the edge multiset is correct — and
-    bounds the residue rather than pretending it is absent. It will need
-    updating when br-r37-c1-9uod6 lands, which is the point.
+    First, the count is PYTHONHASHSEED-dependent, so the bound failed about one
+    run in five for reasons unrelated to the code — and it made the author of
+    br-r37-c1-vv3sd REVERT a good lever after reading a 8/54 run as a
+    regression. They widened the bound to the seed-sweep maximum and left a note.
+
+    Second, a ``<=`` bound cannot notice the bug being FIXED. I documented that
+    the pin "will need updating when br-r37-c1-9uod6 lands" but wrote an
+    assertion that passes at zero, so it would have sat here indefinitely
+    claiming a residue that no longer existed.
+
+    Both problems disappear with the underlying fix: nx's FilterMultiInner takes
+    the keep-set-order branch for the inner row, fnx now takes the same branch,
+    and the orders agree exactly. Exact equality is both stronger and immune to
+    the seed.
     """
-    order_divergences = 0
     total = 0
     for order in (12, 60, 600):
         for seed in (0, 3):
@@ -121,38 +127,10 @@ def test_multigraph_ego_edges_are_the_right_SET_and_the_order_residue_is_bounded
                     want = nx.ego_graph(gnx, source, radius=radius)
                     got = fnx.ego_graph(gfx, source, radius=radius)
                     assert list(got.nodes()) == list(want.nodes())
-                    assert sorted(
-                        (tuple(sorted(e[:2])), tuple(sorted(e[2].items())))
-                        for e in got.edges(data=True)
-                    ) == sorted(
-                        (tuple(sorted(e[:2])), tuple(sorted(e[2].items())))
-                        for e in want.edges(data=True)
-                    ), "the edge MULTISET must be right even where the order is not"
-                    if list(got.edges(data=True)) != list(want.edges(data=True)):
-                        order_divergences += 1
-    assert total >= 50, "this pin must actually sweep something"
-    # br-r37-c1-vv3sd: the COUNT is PYTHONHASHSEED-dependent and this bound was
-    # originally 6, which is the count at most seeds but not all. Measured on
-    # UNMODIFIED HEAD across seeds 0-9: 8 at seed 4, 7 at seed 5, <=6 at the
-    # other eight. pytest does not pin the seed, so a bound of 6 fails roughly
-    # one run in five for reasons that have nothing to do with the code.
-    #
-    # That flakiness is not academic: it made me REVERT a good lever. Applying
-    # the br-r37-c1-vv3sd reorder produced 8/54 on one unpinned run, I read that
-    # as a regression, and re-testing across the same ten seeds showed the
-    # distribution is IDENTICAL with and without the change.
-    #
-    # The bound is therefore the seed-sweep MAXIMUM, not the modal count, and
-    # the assertion says which so the next person does not "tighten" it back to
-    # 6 and reintroduce the flake. Tightening requires making the count
-    # deterministic first -- e.g. running this sweep in a fixed-seed subprocess
-    # the way test_multigraph_ego_edge_order_is_stable_across_hash_seeds does.
-    assert order_divergences <= 8, (
-        f"multigraph ego edge-order residue GREW to {order_divergences}/{total}; "
-        "the seed-sweep maximum was 8 (at PYTHONHASHSEED=4) when br-r37-c1-9uod6 "
-        "was filed, with 6 at most seeds -- this bound is the MAXIMUM across "
-        "seeds 0-9, not the modal count"
-    )
+                    assert list(got.edges(keys=True, data=True)) == list(
+                        want.edges(keys=True, data=True)
+                    ), (cls_name, order, seed, radius, source)
+    assert total >= 50, "this sweep must actually cover something"
 
 
 @pytest.mark.parametrize("order", [40, 400])
