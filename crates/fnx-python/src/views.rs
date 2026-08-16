@@ -12,7 +12,7 @@ use pyo3::exceptions::{PyKeyError, PyRuntimeError, PyTypeError, PyValueError};
 use pyo3::gc::{PyTraverseError, PyVisit};
 use pyo3::intern;
 use pyo3::prelude::*;
-use pyo3::types::{PyDict, PyIterator, PyModule, PySlice, PyTuple};
+use pyo3::types::{PyDict, PyIterator, PyModule, PySlice, PyString, PyTuple};
 
 /// Decide what a spec endpoint that will not canonicalise should do
 /// (br-r37-c1-dtrpe).
