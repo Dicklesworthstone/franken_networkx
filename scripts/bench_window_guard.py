@@ -68,6 +68,11 @@ def read_loadavg() -> float:
 # resolution gate in `end_arm`.
 _SIBLING_MIN_BLOCK_S = 0.05
 
+# br-r37-c1-jycsb: a sibling at 100 percent shifted this harness's ratio by 17
+# percent. Twenty percent is the occupancy above which a row is re-taken rather
+# than banked.
+_SIBLING_CONTENDED_PCT = 20.0
+
 
 def read_sibling_cpu(cpu: int) -> int:
     """The SMT sibling of `cpu`, or -1 if SMT is off or unreadable.
@@ -248,6 +253,8 @@ class WindowGuard:
     arm_sibling_busy: dict[str, list[float]] = field(default_factory=dict)
     arm_sibling_unresolved: dict[str, int] = field(default_factory=dict)
     _pending: dict[str, tuple[int, int, float]] = field(default_factory=dict)
+    _run_sib: tuple[int, int, float] | None = None
+    run_sibling_busy: float = float("nan")
 
     def sample(self) -> float:
         value = read_loadavg()
@@ -366,6 +373,35 @@ class WindowGuard:
         self.arm_phys.setdefault(arm, []).append(read_physical_core(cpu))
         sib = read_sibling_cpu(cpu)
         self._pending[arm] = (sib, read_cpu_busy_jiffies(sib), time.perf_counter())
+
+    def begin_run(self) -> None:
+        """Open a WHOLE-RUN sibling-utilisation measurement.
+
+        br-r37-c1-jycsb measured that a busy SMT sibling moves this harness's
+        ratio by 17 percent, hitting the two arms unequally (1.93x against
+        1.61x) so that interleaving does not cancel it. Per-ARM sibling load is
+        unmeasurable on a fast arm at jiffy resolution, but the WHOLE RUN spans
+        seconds and resolves easily — so this is the measurement that can
+        actually gate a row.
+
+        Pair with `end_run()` around the entire measurement loop.
+        """
+        cpu = read_current_cpu()
+        sib = read_sibling_cpu(cpu)
+        self._run_sib = (sib, read_cpu_busy_jiffies(sib), time.perf_counter())
+
+    def end_run(self) -> None:
+        got, self._run_sib = self._run_sib, None
+        if got is None:
+            return
+        sib, before, t0 = got
+        if sib < 0 or before < 0:
+            return
+        after = read_cpu_busy_jiffies(sib)
+        dt = time.perf_counter() - t0
+        if after < 0 or dt < _SIBLING_MIN_BLOCK_S:
+            return
+        self.run_sibling_busy = 100.0 * (after - before) / (dt * 100.0)
 
     def end_arm(self, arm: str) -> None:
         """Close an arm's block and record how busy its SMT SIBLING was.
@@ -564,6 +600,9 @@ class WindowGuard:
         skew = self.arm_khz_skew_pct
         if skew == skew and skew >= 5.0:
             return "ARM-CLOCK-SKEW"
+        run_sib = self.run_sibling_busy
+        if run_sib == run_sib and run_sib >= _SIBLING_CONTENDED_PCT:
+            return "SIBLING-CONTENDED"
         if self.arm_sibling_unresolved:
             return "SIBLING-UNRESOLVED"
         sib = self.sibling_busy_skew_pp
@@ -596,6 +635,7 @@ class WindowGuard:
             f"{self._runnable_fragment()}"
             f"{self._khz_fragment()}"
             f"{self.arm_fragment()}"
+            f"run-sibling {self.run_sibling_busy:.0f}%; "
             f"duty {self.duty_cycle:.2f} interval {self.median_interval_s * 1e3:.1f} ms; "
             f"corr(load, per-round ratio) {self.corr_load_ratio:+.3f}, "
             f"corr(runnable, per-round ratio) {self.corr_runnable_ratio:+.3f} "

@@ -25,6 +25,7 @@ from __future__ import annotations
 import importlib.util
 import math
 import sys
+import time
 from pathlib import Path
 
 import pytest
@@ -517,3 +518,64 @@ def test_the_resolution_threshold_is_several_jiffies():
     assert bench_window_guard._SIBLING_MIN_BLOCK_S >= 0.03, (
         "a threshold under ~3 jiffies re-admits the granularity artifact"
     )
+
+
+def test_whole_run_sibling_contention_gates_a_row():
+    """The gate br-r37-c1-jycsb's +17 percent finding demands.
+
+    Per-ARM sibling load is unmeasurable on a fast arm at jiffy resolution, but
+    the whole run spans seconds and resolves easily, so this is the measurement
+    that can actually reject a row.
+    """
+    guard = _guard([20.0] * 4, [0.9] * 4)
+    guard._wall = [0.0, 1.0, 2.0, 3.0]
+    guard._cpu = [0.0, 1.0, 2.0, 3.0]
+    guard.run_sibling_busy = 85.0
+    assert guard.verdict == "SIBLING-CONTENDED"
+    assert "run-sibling 85%" in guard.provenance_line()
+
+
+def test_quiet_sibling_does_not_gate():
+    guard = _guard([20.0] * 4, [0.9] * 4)
+    guard._wall = [0.0, 1.0, 2.0, 3.0]
+    guard._cpu = [0.0, 1.0, 2.0, 3.0]
+    guard.run_sibling_busy = 4.0
+    assert guard.verdict != "SIBLING-CONTENDED"
+
+
+def test_sibling_contention_outranks_unresolved_arms():
+    """A contended run is rejectable even when per-arm sibling load is unknown.
+
+    This is the common case for this pane: the fast arm cannot resolve sibling
+    load, so without the whole-run measurement the row would only be marked
+    UNRESOLVED and would still be bankable.
+    """
+    guard = _guard([20.0] * 4, [0.9] * 4)
+    guard._wall = [0.0, 1.0, 2.0, 3.0]
+    guard._cpu = [0.0, 1.0, 2.0, 3.0]
+    guard.arm_sibling_unresolved = {"nx": 84}
+    guard.run_sibling_busy = 90.0
+    assert guard.verdict == "SIBLING-CONTENDED"
+
+
+def test_the_contention_threshold_is_below_the_measured_effect():
+    """20 percent sits well under the 100 percent that cost 17 percent of ratio."""
+    assert 0 < bench_window_guard._SIBLING_CONTENDED_PCT <= 25.0
+
+
+def test_begin_and_end_run_produce_a_number_or_stay_nan():
+    guard = WindowGuard()
+    guard.begin_run()
+    x = 0
+    t = time.perf_counter()
+    while time.perf_counter() - t < 0.08:
+        x += 1
+    guard.end_run()
+    v = guard.run_sibling_busy
+    assert math.isnan(v) or v >= 0.0
+
+
+def test_end_run_without_begin_is_a_noop():
+    guard = WindowGuard()
+    guard.end_run()
+    assert math.isnan(guard.run_sibling_busy)

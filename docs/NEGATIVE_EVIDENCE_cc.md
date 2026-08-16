@@ -16583,3 +16583,79 @@ governor `powersave`, cross-core spread 1429-4264 MHz live. python 3.13.7, live
 networkx 3.6.1, disk 280G free. `uptime` observed: 12.32 / 16.73 at the decision
 (gate REJECTED), 11.57 at the first run and 13.66 at the last. Bench-core clock
 and sibling occupancy are in the table per row.
+
+## SIBLING GATE IMPLEMENTED AND PROVEN — and it shows my "idle sibling" CONTROL was 70 percent contended at loadavg 55 (br-r37-c1-jycsb)
+
+NO CERTIFICATION. `uptime` checked by this pane: 1-min 55.23 against 5-min 34.75,
+later 61.33 — high and rising, rejected. All rows are diagnostics.
+
+**FIRST, A CORRECTION TO HOW THIS PANE'S POSITION IS BEING SUMMARISED.** The
+fleet note reads "networkx runs arms sequentially so it cannot contend". That is
+true of the arms contending WITH EACH OTHER, and it is why this pane cannot have
+frankenfs's defect. It is NOT a claim of immunity, and this pane measured the
+opposite last turn: an external tenant on the SMT sibling moves this harness's
+ratio by **+17 percent**, because it hits the arms unequally (incumbent 1.93x
+slower, fnx 1.61x) and a balanced square only cancels disturbances that scale
+both arms alike. On the fleet's spectrum this pane sits with scipy and fs, not
+with torch.
+
+**THE GATE THAT FINDING DEMANDED IS NOW IMPLEMENTED.** Per-ARM sibling load is
+unmeasurable on a fast arm at jiffy resolution — established two turns ago, the
+nx block spans 0.046 jiffies — but the WHOLE RUN spans seconds and resolves
+easily. `begin_run()` / `end_run()` bracket the measurement loop,
+`run_sibling_busy` reports the pinned core's SMT sibling occupancy across it, and
+a verdict of `SIBLING-CONTENDED` fires at 20 percent, outranking
+`SIBLING-UNRESOLVED` so that a row whose per-arm figures are unknowable can still
+be rejected on the run-level one.
+
+**PROVEN END TO END, and the result is more useful than the synthetic case.**
+Running the guarded harness pinned to `cpu14`, with and without a spinner on its
+sibling `cpu46`, at host loadavg 55-61:
+
+    condition          ratio     run-sibling   verdict
+    IDLE sibling       0.0083      70.2%       SIBLING-CONTENDED
+    LOADED sibling     0.0089     100.0%       SIBLING-CONTENDED
+    IDLE sibling       0.0085      71.5%       SIBLING-CONTENDED
+    LOADED sibling     0.0091      99.9%       SIBLING-CONTENDED
+
+**The "IDLE" control was 70 percent contended.** At this host load, other tenants
+occupy `cpu46` whether or not this pane spins on it, so the nominally clean
+condition was not clean. The gate flags BOTH, correctly. Last turn the same
+"idle" condition read 9-38 percent at loadavg 12; at loadavg 55 it reads 70
+percent. Sibling occupancy tracks host load but is a DIFFERENT quantity, and only
+one of the two is visible in `uptime`.
+
+Note also that the measured gap between conditions shrank from 17 percent to 7
+percent — because the baseline was already half-contended, so the spinner had
+less left to take. An impact measured against a contaminated control understates
+the effect.
+
+**WHAT THIS IMPLIES FOR ROWS ALREADY BANKED, stated plainly.** This pane's
+certifications were taken at loadavg 18-53 and did not record sibling occupancy,
+because the instrument did not exist. Given 70 percent at loadavg 55 and 9-38
+percent at loadavg 12, several of those rows were probably taken with a partly
+contended sibling. They cannot be retro-checked. What can be said is that the
+ELF-ALTERNATED comparisons remain sound — NEW and OLD alternated within one
+window and shared whatever contention existed — while the ABSOLUTE ratios carry
+an unquantified sibling component, which is consistent with the 13 percent
+window-to-window spread this pane has already banked for one cell on one ELF.
+
+**AND THE HONEST CONSEQUENCE: this will make certification RARER on this host.**
+A 20 percent threshold is not obviously satisfiable at typical fleet load — it
+was already breached at loadavg 55 with no help from this pane. The correct
+response is to certify less often, not to raise the threshold, since the
+threshold was set at a fifth of an occupancy that demonstrably cost 17 percent of
+ratio.
+
+55 guard tests, no timing, runnable where benchmarking is forbidden. No stray
+processes: the spinner is started and stopped inside the same invocation and
+`pgrep` confirms none survive.
+
+PROVENANCE: diagnostic, no ratio certified. Harness
+`/data/tmp/claude-1000/gate_proof.py`, pinned to cpu14 via
+`os.sched_setaffinity`, both arms in-process, sequential, same invocation. Pinned
+ELF sha256 789dd9dead49c4a8dbeaf6747c1532a70639561afda92497e4b304fdb7ff59fd via
+PYTHONPATH. host thinkstation1, 64 logical / 32 physical, SMT on, siblings paired
+(n, n+32), governor `powersave`. python 3.13.7, live networkx 3.6.1, disk 278G
+free. `uptime` observed: 55.23 / 34.75 at the decision, 61.33 at the first run,
+54.34 at the last. Sibling occupancy per run is in the table.
