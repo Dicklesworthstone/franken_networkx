@@ -16318,3 +16318,80 @@ comparison_class=SELF-SPEEDUP
 campaign_output=false
 decision_gate=median_ci
 cv_role=report_only
+
+## ARM PLACEMENT AUDITED — this pane's arms CANNOT contend (sequential, one process), but the audit's own new metric produced a FALSE 45-point skew from jiffy granularity (br-r37-c1-jycsb)
+
+NO CERTIFICATION. `uptime` checked by this pane: 1-min 18.29 against 5-min 27.54
+— rejected on stability. All rows are diagnostics.
+
+**TOPOLOGY FIRST.** This host is **64 logical over 32 physical cores, SMT ON**,
+siblings paired `(n, n+32)`. Cross-core spread confirmed live at 1429-3943 MHz,
+2.76x.
+
+**WHY THIS PANE CANNOT HAVE frankenfs's DEFECT.** frankenfs found BOTH arms on
+one physical core, which is a contention bug when arms run CONCURRENTLY. This
+pane's arms run **sequentially inside one process** — an `ABBAABBA` loop, one
+block at a time, never overlapping. Sharing a core is therefore not a hazard
+here; it is the mechanism that makes the arms comparable. The measured
+consequence, per-arm clock skew, is **0.0-0.5 percent** across every run.
+
+**PLACEMENT, NOW RECORDED PER ARM.** `arm_fragment()` emits logical cpu,
+physical core, clock, load and SMT-sibling utilisation for each arm:
+
+    unpinned  fnx cpu33/phys1  4021 MHz | nx cpu12/phys12 4039 MHz | skew 0.5%  same-core 61% over 20 cores
+    unpinned  fnx cpu51/phys19 4117 MHz | nx cpu51/phys19 4119 MHz | skew 0.0%  same-core 89% over 12 cores
+    pinned    fnx cpu14/phys14 4091 MHz | nx cpu14/phys14 4089 MHz | skew 0.0%  same-core 100% over 1 core
+
+Unpinned, the process migrates across 12-20 cores and the arms are co-resident
+only 61-89 percent of the time. Pinned with `taskset`, 100 percent over one core.
+Ratios overlap either way (0.0073-0.0079), so migration was not biasing the
+result — but certification runs will be pinned, because a guarantee is cheaper
+than an argument.
+
+**THE AUDIT'S OWN METRIC WAS WRONG, AND CHECKING IT IS THE POINT OF THIS ROW.**
+The new SMT-sibling utilisation metric immediately reported a striking
+asymmetry — `fnx sib-busy 45%` against `nx sib-busy 0%` — and fired
+`ARM-SIBLING-SKEW`. That would have been a serious finding: an uncontrolled
+tenant loading the physical core during one arm and not the other is exactly the
+arm-correlated bias the balanced square cannot cancel.
+
+It was an artifact of my own instrument. `/proc/stat` counts JIFFIES, 10 ms
+apiece at USER_HZ=100. In this cell the two arms are wildly asymmetric in
+duration:
+
+    nx  arm block   77 ns x 6000 =  0.46 ms  = 0.046 jiffies  -> CANNOT resolve, reads 0 percent always
+    fnx arm block  10100 ns x 6000 = 60.6 ms = 6.1 jiffies    -> resolvable
+
+The nx arm read 0 percent in EVERY run because its measurement window is a
+twentieth of a single jiffy. The "45-point asymmetry" was the difference between
+a measured value and an unmeasurable one. A resolution gate now records blocks
+under 50 ms as UNRESOLVED rather than zero, and the verdict `SIBLING-UNRESOLVED`
+outranks `ARM-SIBLING-SKEW` so an unmeasurable arm can never manufacture a skew.
+Re-run with the gate: `nx sib-busy nan% (unresolved x84)`, verdict
+`SIBLING-UNRESOLVED`, no false skew.
+
+**THAT IS THE THIRD TIME THIS PANE'S OWN INSTRUMENT HAS FOOLED IT** — an idle
+process read as a host-wide clock swing, a duty-cycle detector defeated because
+reading `/proc` is itself CPU work, and now a jiffy-granularity artifact posing
+as arm-correlated contention. The pattern is consistent and worth naming: every
+one was a metric that looked plausible and had never been checked against a case
+where its answer was known in advance. "Audit your own instrument before blaming
+the host" has now paid three times here.
+
+**WHAT THIS MEANS FOR SIBLING LOAD GENERALLY**: on any cell where the two arms
+differ greatly in speed, sibling utilisation is simply not measurable on the fast
+arm at jiffy resolution, and no comparison between arms is available. That is a
+limit of the method, not a clean bill of health, and rows will say so rather than
+print a reassuring zero.
+
+49 guard tests, no timing, runnable where benchmarking is forbidden.
+
+PROVENANCE: diagnostic, no ratio certified. Harness
+`/data/tmp/claude-1000/bsq_ged_guarded.py`, `sample_arm`/`end_arm` paired around
+every block. Pinned ELF sha256
+789dd9dead49c4a8dbeaf6747c1532a70639561afda92497e4b304fdb7ff59fd via PYTHONPATH;
+both arms in-process, same host, same invocation, sequential and never
+concurrent. host thinkstation1, 64 logical / 32 physical, SMT on, governor
+`powersave`, python 3.13.7, live networkx 3.6.1, disk 280G free. `uptime`
+observed: 18.29 / 27.54 at the decision, 17.38-18.10 across the runs. Per-arm
+cpu, physical core and MHz are in the rows above.

@@ -430,3 +430,90 @@ def test_arm_fragment_reports_core_agreement():
         guard.arm_cpus[arm] = [7]
     frag = guard.arm_fragment()
     assert "same-core 100%" in frag and "1 core(s)" in frag
+
+
+def test_sibling_busy_skew_is_flagged():
+    """SMT sibling load that differs BETWEEN arms is arm-correlated bias.
+
+    Two arms running sequentially in one process never contend with each other,
+    but they share a physical core with an uncontrolled tenant. If that tenant
+    is busy during one arm and idle during the other, the balanced square does
+    not cancel it.
+    """
+    guard = WindowGuard()
+    guard.arm_sibling_busy = {"nx": [5.0] * 5, "fnx": [80.0] * 5}
+    guard._wall = [0.0, 1.0, 2.0]
+    guard._cpu = [0.0, 1.0, 2.0]
+    assert guard.sibling_busy_skew_pp == pytest.approx(75.0)
+    assert guard.verdict == "ARM-SIBLING-SKEW"
+
+
+def test_matched_sibling_load_does_not_flag():
+    guard = WindowGuard()
+    guard.arm_sibling_busy = {"nx": [40.0] * 5, "fnx": [43.0] * 5}
+    guard._wall = [0.0, 1.0, 2.0]
+    guard._cpu = [0.0, 1.0, 2.0]
+    assert guard.sibling_busy_skew_pp == pytest.approx(3.0)
+    assert guard.verdict != "ARM-SIBLING-SKEW"
+
+
+def test_clock_skew_outranks_sibling_skew():
+    guard = WindowGuard()
+    guard.arm_khz = {"nx": [4_200_000] * 3, "fnx": [3_800_000] * 3}
+    guard.arm_sibling_busy = {"nx": [5.0] * 3, "fnx": [80.0] * 3}
+    guard._wall = [0.0, 1.0, 2.0]
+    guard._cpu = [0.0, 1.0, 2.0]
+    assert guard.verdict == "ARM-CLOCK-SKEW"
+
+
+def test_sibling_topology_is_read_correctly():
+    """This host pairs siblings (n, n+32); the reader must handle real sysfs."""
+    sib = bench_window_guard.read_sibling_cpu(0)
+    assert sib == -1 or (isinstance(sib, int) and sib != 0)
+    assert bench_window_guard.read_physical_core(0) >= -1
+
+
+def test_end_arm_without_sample_is_a_noop():
+    """A harness that pairs them wrongly must not crash or invent data."""
+    guard = WindowGuard()
+    guard.end_arm("nx")
+    assert guard.arm_sibling_busy == {}
+    assert math.isnan(guard.sibling_busy_skew_pp)
+
+
+def test_short_blocks_are_recorded_unresolved_not_zero():
+    """The false ARM-SIBLING-SKEW this gate exists to prevent.
+
+    /proc/stat counts JIFFIES, 10 ms apiece. A block shorter than several
+    jiffies cannot observe a tick and reads 0 percent however busy the sibling
+    is. In this pane's worst cell the fnx block is ~61 ms and the nx block
+    ~0.46 ms, so nx read 0 percent in every run and the metric "found" a
+    45-point asymmetry that was pure granularity.
+    """
+    guard = WindowGuard()
+    for arm in ("nx", "fnx"):
+        guard.arm_khz[arm] = [4_000_000]
+        guard.arm_loads[arm] = [18.0]
+        guard.arm_cpus[arm] = [14]
+        guard.arm_phys[arm] = [14]
+    guard.arm_sibling_busy = {"fnx": [45.0] * 5}
+    guard.arm_sibling_unresolved = {"nx": 5}
+    guard._wall = [0.0, 1.0, 2.0]
+    guard._cpu = [0.0, 1.0, 2.0]
+    assert guard.verdict == "SIBLING-UNRESOLVED"
+    assert "unresolved x5" in guard.arm_fragment()
+
+
+def test_resolved_blocks_on_both_arms_allow_a_skew_verdict():
+    guard = WindowGuard()
+    guard.arm_sibling_busy = {"nx": [5.0] * 5, "fnx": [80.0] * 5}
+    guard._wall = [0.0, 1.0, 2.0]
+    guard._cpu = [0.0, 1.0, 2.0]
+    assert not guard.arm_sibling_unresolved
+    assert guard.verdict == "ARM-SIBLING-SKEW"
+
+
+def test_the_resolution_threshold_is_several_jiffies():
+    assert bench_window_guard._SIBLING_MIN_BLOCK_S >= 0.03, (
+        "a threshold under ~3 jiffies re-admits the granularity artifact"
+    )

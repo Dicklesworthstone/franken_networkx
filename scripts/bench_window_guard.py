@@ -64,6 +64,63 @@ def read_loadavg() -> float:
         return float(handle.read().split()[0])
 
 
+# A sibling-utilisation sample needs several jiffies to be meaningful; see the
+# resolution gate in `end_arm`.
+_SIBLING_MIN_BLOCK_S = 0.05
+
+
+def read_sibling_cpu(cpu: int) -> int:
+    """The SMT sibling of `cpu`, or -1 if SMT is off or unreadable.
+
+    This host is 64 logical over 32 physical cores, siblings paired (n, n+32).
+    Two arms running SEQUENTIALLY in one process never contend with each other —
+    but the sibling is an uncontrolled tenant sharing the physical core, and if
+    its load differs between arms that IS arm-correlated bias, which the balanced
+    square does not cancel.
+    """
+    try:
+        raw = open(
+            f"/sys/devices/system/cpu/cpu{cpu}/topology/thread_siblings_list",
+            encoding="ascii",
+        ).read().strip()
+    except Exception:  # noqa: BLE001
+        return -1
+    ids = []
+    for part in raw.split(","):
+        if "-" in part:
+            lo, hi = part.split("-")
+            ids.extend(range(int(lo), int(hi) + 1))
+        else:
+            ids.append(int(part))
+    others = [i for i in ids if i != cpu]
+    return others[0] if others else -1
+
+
+def read_cpu_busy_jiffies(cpu: int) -> int:
+    """Non-idle jiffies for one logical cpu from /proc/stat; -1 if unreadable."""
+    if cpu < 0:
+        return -1
+    try:
+        with open("/proc/stat", encoding="ascii") as handle:
+            for line in handle:
+                if line.startswith(f"cpu{cpu} "):
+                    f = [int(x) for x in line.split()[1:]]
+                    idle = f[3] + (f[4] if len(f) > 4 else 0)
+                    return sum(f) - idle
+    except Exception:  # noqa: BLE001
+        return -1
+    return -1
+
+
+def read_physical_core(cpu: int) -> int:
+    try:
+        return int(
+            open(f"/sys/devices/system/cpu/cpu{cpu}/topology/core_id", encoding="ascii").read()
+        )
+    except Exception:  # noqa: BLE001
+        return -1
+
+
 def read_current_cpu() -> int:
     """Which core this process is running on right now; -1 if unreadable.
 
@@ -187,6 +244,10 @@ class WindowGuard:
     arm_khz: dict[str, list[int]] = field(default_factory=dict)
     arm_loads: dict[str, list[float]] = field(default_factory=dict)
     arm_cpus: dict[str, list[int]] = field(default_factory=dict)
+    arm_phys: dict[str, list[int]] = field(default_factory=dict)
+    arm_sibling_busy: dict[str, list[float]] = field(default_factory=dict)
+    arm_sibling_unresolved: dict[str, int] = field(default_factory=dict)
+    _pending: dict[str, tuple[int, int, float]] = field(default_factory=dict)
 
     def sample(self) -> float:
         value = read_loadavg()
@@ -300,7 +361,59 @@ class WindowGuard:
         """
         self.arm_khz.setdefault(arm, []).append(read_cpu_khz())
         self.arm_loads.setdefault(arm, []).append(read_loadavg())
-        self.arm_cpus.setdefault(arm, []).append(read_current_cpu())
+        cpu = read_current_cpu()
+        self.arm_cpus.setdefault(arm, []).append(cpu)
+        self.arm_phys.setdefault(arm, []).append(read_physical_core(cpu))
+        sib = read_sibling_cpu(cpu)
+        self._pending[arm] = (sib, read_cpu_busy_jiffies(sib), time.perf_counter())
+
+    def end_arm(self, arm: str) -> None:
+        """Close an arm's block and record how busy its SMT SIBLING was.
+
+        Called after the block, paired with `sample_arm` before it. The value is
+        the sibling's non-idle jiffy rate over the block: near 100 means another
+        tenant was hammering the other half of the physical core for the whole
+        of that arm's measurement.
+        """
+        got = self._pending.pop(arm, None)
+        if got is None:
+            return
+        sib, before, t0 = got
+        if sib < 0 or before < 0:
+            return
+        after = read_cpu_busy_jiffies(sib)
+        dt = time.perf_counter() - t0
+        if after < 0 or dt <= 0:
+            return
+        # RESOLUTION GATE, added after this metric produced a false
+        # ARM-SIBLING-SKEW. /proc/stat counts JIFFIES, 10 ms apiece at
+        # USER_HZ=100. A block shorter than several jiffies cannot observe a
+        # tick and reads 0 percent no matter how busy the sibling is. In this
+        # pane's own worst cell the fnx block runs ~61 ms (6 jiffies) and the nx
+        # block ~0.46 ms (0.05 jiffies), so nx read 0 percent in EVERY run and
+        # the metric "found" a 45-point asymmetry that was pure granularity.
+        # Blocks that cannot resolve are recorded as unmeasured, not as zero.
+        if dt < _SIBLING_MIN_BLOCK_S:
+            self.arm_sibling_unresolved.setdefault(arm, 0)
+            self.arm_sibling_unresolved[arm] += 1
+            return
+        hz = 100.0  # USER_HZ on Linux
+        self.arm_sibling_busy.setdefault(arm, []).append(
+            100.0 * (after - before) / (dt * hz)
+        )
+
+    def arm_sibling_busy_median(self, arm: str) -> float:
+        vals = self.arm_sibling_busy.get(arm, [])
+        return statistics.median(vals) if vals else float("nan")
+
+    @property
+    def sibling_busy_skew_pp(self) -> float:
+        """Largest per-arm difference in SMT-sibling utilisation, percentage points."""
+        meds = [self.arm_sibling_busy_median(a) for a in self.arm_sibling_busy]
+        meds = [m for m in meds if m == m]
+        if len(meds) < 2:
+            return float("nan")
+        return max(meds) - min(meds)
 
     def arm_khz_median(self, arm: str) -> float:
         live = [k for k in self.arm_khz.get(arm, []) if k > 0]
@@ -362,7 +475,15 @@ class WindowGuard:
         for arm in sorted(self.arm_khz):
             parts.append(
                 f"{arm}: load {self.arm_load_median(arm):.2f} "
-                f"clock {self.arm_khz_median(arm) / 1000:.0f} MHz"
+                f"clock {self.arm_khz_median(arm) / 1000:.0f} MHz "
+                f"cpu{self.arm_cpus.get(arm, [-1])[-1]}"
+                f"/phys{self.arm_phys.get(arm, [-1])[-1]} "
+                f"sib-busy {self.arm_sibling_busy_median(arm):.0f}%"
+                + (
+                    f" (unresolved x{self.arm_sibling_unresolved[arm]})"
+                    if arm in self.arm_sibling_unresolved
+                    else ""
+                )
             )
         return (
             "per-arm [" + "; ".join(parts) + f"] skew {self.arm_khz_skew_pct:.1f}% "
@@ -443,6 +564,11 @@ class WindowGuard:
         skew = self.arm_khz_skew_pct
         if skew == skew and skew >= 5.0:
             return "ARM-CLOCK-SKEW"
+        if self.arm_sibling_unresolved:
+            return "SIBLING-UNRESOLVED"
+        sib = self.sibling_busy_skew_pp
+        if sib == sib and sib >= 20.0:
+            return "ARM-SIBLING-SKEW"
         for corr in (self.corr_load_ratio, self.corr_runnable_ratio):
             if corr == corr and abs(corr) >= 0.5:
                 return "PERTURBED"
