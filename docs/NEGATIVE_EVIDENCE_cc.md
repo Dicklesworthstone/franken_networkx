@@ -14993,3 +14993,97 @@ PROVENANCE: no ratio claimed. host thinkstation1, python 3.13.7, live networkx
 4m15s. `uptime` observed by this pane: 1-min 11.86 / 5-min 14.23 (gate PASSED)
 before the build; 57.79, 64.22, 66.04, 63.17 after it (gate REJECTED on level at
 each).
+
+## REJECTED LEVER (measured): the facade fix for br-r37-c1-rgmef costs **1.53-1.57x on a read path** — and my first guard against it protected something that never existed
+
+NO CERTIFICATION. `uptime` checked by this pane: 1-min 21.91 against 5-min 38.25,
+ratio 1.75 — rejected as unstable, and later 14.02 / 28.17, still unstable. All
+numbers below are ATTRIBUTION PROBES, quoted only because the effect is ~1.5x,
+far outside anything this window's noise produces.
+
+**THE LEVER, AND WHY IT WAS THE OBVIOUS ONE.** br-r37-c1-rgmef is that
+`G._adj[u][v] = {...}` raises in fnx and works in networkx, because networkx's
+`_adj` IS a raw dict. The repo already contains the pattern that fixes it:
+`_PrivateNodeFacade` wraps the NodeView in Python and forwards writes to
+`add_node`, which is exactly why `G._node[n]['k'] = v` works today. Copying it
+for adjacency is a twenty-line change.
+
+**MEASURED AND REJECTED**, prototyped against pinned ELF `36744765c50ddd08`:
+
+    _adj[u]      unwrapped 260.3 ns   wrapped 409.4 ns   +149.1 ns (1.57x)
+    _adj[u][v]   unwrapped 352.9 ns   wrapped 539.2 ns   +186.4 ns (1.53x)
+
+**SAME-INVOCATION A/A NULL CONTROL, which is what this rejection rests on.** Both
+arms are fnx-side, so this is a self-comparison and needs no incumbent: the base
+view and the facade prototype were interleaved `ABBAABBA`, 21 rounds x 40000
+reps, in ONE invocation, with `paired(base, base)` and `paired(candidate,
+candidate)` built from the same block positions.
+
+    _adj[u][v]   base 233.5 ns   facade 428.0 ns
+    paired(base, candidate) SLOWDOWN  1.8397x   CI [1.8340, 1.8459]
+    paired(base, base)      A/A null  0.9981    CI [0.9918, 1.0032]  PASS
+    paired(cand, cand)      A/A null  0.9975    CI [0.9944, 1.0028]  PASS
+
+A/A null control, base arm paired against itself in the same invocation: 0.9981x, CI [0.9918, 1.0032], PASS.
+A/A null control, candidate arm paired against itself in the same invocation: 0.9975x, CI [0.9944, 1.0028], PASS.
+
+Properly interleaved the slowdown is 1.84x, larger and far tighter than the
+1.53-1.57x the standalone probes suggested — the un-interleaved numbers were the
+optimistic ones.
+
+**CORROBORATED BY A DETERMINISTIC FRAME COUNT**, taken with `sys.setprofile` and
+independent of load entirely:
+
+    _adj[u]      unwrapped 2.00 calls   wrapped 4.00 calls   +2.00
+    _adj[u][v]   unwrapped 2.00 calls   wrapped 5.00 calls   +3.00
+
+Work is ADDED, exactly and countably — the interpreter executes two to three
+extra Python frames on every access, which is why no amount of re-measuring in a
+quieter window could rescue this design. A REJECT resting on a near-1.0 wall
+ratio would be unfalsifiable; this one does not.
+
+A 50 percent regression on a READ path, and not a niche one: networkx's own
+algorithms reach for `G._adj` directly — cluster, cycles, breadth_first_search,
+planarity, dominating, regular and tournament — so every delegated algorithm
+pays it. That trades a private-API parity bug for a regression across the
+algorithm surface, which is the surface fnx is strongest on. The `_node`
+precedent is safe only because `_node` is not read in inner loops.
+
+**THEN I PINNED THE WRONG CONSTRAINT, and the test caught me.** I wrote a guard
+asserting `_adj.__getitem__` must be a C-level slot, on the assumption that the
+260 ns baseline was native code. It is not — `type(G._adj)` is `AdjacencyView`
+and its `__getitem__` is an ordinary **Python function on all four classes**. The
+facade cost I measured was one Python frame stacked on another, and "keep it
+native" was protecting something that never existed. Seven of thirteen cases
+failed on the first run. The assumption alone, unrun, would have shipped a guard
+against the wrong design and made the right fix look forbidden.
+
+**THE FIX THAT IS ACTUALLY FREE**, which only became visible once the wrong
+premise was dropped: a SUBCLASS of the existing view. Verified —
+`PrivateAdjView.__getitem__ is AdjacencyView.__getitem__` evaluates True — so
+reads are the identical call object while `__setitem__` is added alongside.
+`_adj` returns the subclass; public `adj` keeps the base class and stays
+read-only, which is REQUIRED, since networkx raises `TypeError` on
+`G.adj[u][v] = ...` and so must fnx. A fix that made the shared view writable
+would repair the private path by breaking the public one.
+
+SCOPE NOTE, so the eventual fix is not over-built: the multigraph case
+`G._adj[u][v]['w'] = 9` that the probe flagged is networkx accepting a nonsense
+write into raw storage — it sets `keydict['w'] = 9`, a parallel edge whose key is
+`'w'` and whose attrs are the integer 9. Byte-for-byte emulation of raw-dict
+permissiveness is not the goal; the meaningful operations are
+`_adj[u][v] = {...}` and, for multigraphs, `_adj[u][v][key] = attrdict`.
+
+PINNED: `tests/python/test_private_adj_read_path_stays_native.py`, 30 passing. It
+asserts `_adj`'s read methods are THE SAME function objects as `adj`'s — so a
+facade fix fails and a subclass fix passes — plus that public `adj` stays
+read-only, plus a case proving the subclass shape is free rather than assuming
+it. It survives the repair instead of needing deletion with it.
+
+PROVENANCE: attribution only, no ratio certified. Pinned ELF sha256
+36744765c50ddd08c753eef59e0493763b672f71b506467827e9ecb548145224 via PYTHONPATH,
+built by maturin `build --release` from a `git archive` tree at `f1353bae3`;
+tests run against that pin. host thinkstation1, python 3.13.7, live networkx
+3.6.1, disk 291G free. `uptime` observed by this pane: 21.91 / 38.25 at the
+decision, 14.09 and 14.02 during the probes, 20.76 / 27.73 at the end — never a
+stable window, so nothing here is offered as a certified ratio.
