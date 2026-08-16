@@ -14141,7 +14141,12 @@ impl PyGraph {
             }
             Err(err) => return Err(err),
         };
-        Ok(row.bind(py).call_method0(intern!(py, "__iter__"))?.unbind())
+        // br-r37-c1-do7g5: `try_iter()` is PyObject_GetIter, the C-level
+        // protocol slot. `call_method0("__iter__")` did a Python-level
+        // attribute lookup on the dict's type and a full call to build the same
+        // `dict_keyiterator` — pure overhead on the hot path, since
+        // `G.neighbors(n)` is `iter(self._adj[n])` and nothing else.
+        Ok(row.bind(py).try_iter()?.into_any().unbind())
     }
 
     #[pyo3(name = "_native_adjacency_row_dict")]
@@ -14151,11 +14156,16 @@ impl PyGraph {
         node: &Bound<'_, PyAny>,
     ) -> PyResult<Py<PyDict>> {
         let canonical = node_key_to_string(py, node)?;
-        if !self.inner.has_node(&canonical) {
-            return Err(missing_key_error(node));
-        }
+        // br-r37-c1-do7g5: probe the cache FIRST. A cached row is existence
+        // proof — rows are only created for nodes that were present, and
+        // removal clears them — so the `has_node` IndexMap probe below is pure
+        // duplicate work on every hit, which is the common case once a row has
+        // been touched. Same ordering fix as br-r37-c1-dlqkq on `G.degree(n)`.
         if let Some(row) = self.adj_row_py.get(&canonical) {
             return Ok(row.clone_ref(py));
+        }
+        if !self.inner.has_node(&canonical) {
+            return Err(missing_key_error(node));
         }
         let row = PyDict::new(py);
         let neighbors: Vec<String> = self

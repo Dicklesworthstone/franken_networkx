@@ -1615,11 +1615,10 @@ impl AtlasView {
     }
 
     fn __iter__(&mut self, py: Python<'_>) -> PyResult<PyObject> {
-        Ok(self
-            .materialize(py)?
-            .bind(py)
-            .call_method0("__iter__")?
-            .unbind())
+        // br-r37-c1-do7g5: `try_iter()` is PyObject_GetIter, the C-level slot.
+        // `call_method0("__iter__")` looked the method up on the dict's type and
+        // called it to build the same `dict_keyiterator`.
+        Ok(self.materialize(py)?.bind(py).try_iter()?.into_any().unbind())
     }
 
     fn keys(mut slf: PyRefMut<'_, Self>, py: Python<'_>) -> PyResult<PyObject> {
