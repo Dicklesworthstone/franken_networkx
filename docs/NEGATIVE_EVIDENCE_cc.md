@@ -11190,3 +11190,77 @@ balanced square and a null it is 0.6899x. The 0.462x figure should not be quoted
 
 STATUS: loss recorded with an admissible null. The class-level exclusion stands
 on measurement, not on omission.
+
+## DiGraph `G.edges[u,v]` — measured LOSS 0.2746x vs networkx, borrow lever NOT taken yet (br-r37-c1-tjp0g)
+
+comparison_class=INCUMBENT
+incumbent=networkx
+incumbent_same_invocation=true
+decision_gate=median_ci
+cv_role=report_only
+
+My worst measured vs-incumbent ratio, re-measured on a freshly built extension so
+the row describes HEAD rather than a stale artifact.
+
+A/A null control run 1, incumbent arm paired against itself in the same invocation: 1.0132x, inside the 0.02 bound.
+
+A/A null control run 1, fnx arm paired against itself in the same invocation: 1.0068x, inside the 0.02 bound.
+
+A/A null control run 2, incumbent arm paired against itself in the same invocation: 1.0071x, inside the 0.02 bound.
+
+A/A null control run 2, fnx arm paired against itself in the same invocation: 0.9960x, inside the 0.02 bound.
+
+A/B against live networkx 3.6.1 in the SAME invocation, ABBAABBA square, gated on the bootstrap median CI:
+
+| run | cores | rounds x reps x calls/slot | ratio | CI | A/A nulls |
+|---|---|---|---|---|---|
+| 1 | 40-47 | 81 x 50 x 8 | 0.2805x | [0.2800, 0.2812] | 1.0132 / 1.0068 |
+| 2 | 48-55 | 81 x 50 x 8 | 0.2751x | [0.2746, 0.2756] | 1.0071 / 0.9960 |
+
+WORST BOUND: 0.2746x. Ratio is t_networkx/t_fnx, so below 1.0 means fnx is slower.
+
+THE TWO RUNS DO NOT OVERLAP, and that is reported rather than smoothed: [0.2800,
+0.2812] against [0.2746, 0.2756], about 2 percent apart, with all four A/A null
+controls passing. A passing null certifies stationarity WITHIN a run and says
+nothing about between-run common-mode load; host loadavg was 17.9 and 17.3 at the
+two starts, with peers building throughout.
+
+CONFIGURATION IS PART OF THE ROW. At the harness default (41 rounds x 400 reps,
+calls_per_slot 1) this row reads 0.3314x and 0.3338x but NULL-FAILS both times at
+1.1065 and 1.1235 — long slots on a loaded host drift within the square. Shorter
+slots with more of them (50 reps, 8 calls per slot, 81 rounds) is what made the
+nulls resolvable. A row measured at one shape is not automatically comparable to
+one measured at another, so the shape is quoted with the number.
+
+WHY IT IS SLOW, attributed rather than guessed (513.3ns total on the previous
+build): `_has_networkx_private_storage` 121.6ns, since improved to 91.9ns in
+cad02f7c7; the native `get_edge_data` 267.4ns; and about 124ns of Python frame,
+tuple unpack and attribute loads. networkx's WHOLE call is 171.7ns, so fnx's
+native lookup alone costs more than the entire incumbent operation.
+
+THE STRUCTURAL CAUSE: `type(G.edges).__dict__['__getitem__']` is a
+`wrapper_descriptor` on Graph — `fnx.EdgeView` IS the native `_fnx.EdgeView`, so
+the C slot serves it and it measures about 0.79x. On DiGraph, MultiGraph and
+MultiDiGraph it is a plain Python `function`. Same operation, roughly 3x internal
+spread.
+
+LEVER NOT TAKEN, and why. Routing `DiGraph.edges` to the existing native
+`_fnx.DiEdgeView` (br-r37-c1-bc7r4) is NOT a drop-in: its `__getitem__` calls
+`mark_edges_dirty()` on every read and raises `KeyError` carrying the CANONICAL
+key (`str:2:ab`) instead of networkx's "The edge (u, v) is not in the graph.",
+with no slice handling. It would trade a perf gap for parity defects. It is also
+not constructible from Python — `ext.DiEdgeView(D)` raises "cannot create
+instances" — so it needs Rust either way. The lever I do intend, replacing the two
+`node_key_to_string` allocations in `PyDiGraph::get_edge_data` with nested
+`with_node_key_str`, is written up on br-r37-c1-tjp0g and gated ahead of time by
+tests/python/test_edge_lookup_canonical_key_boundary_parity.py (74 cases,
+eb9f08626).
+
+PROVENANCE, self-reported in-process: harness `scripts/balanced_square_ab.py`
+sha256 f2e3f05885c7f7975dec03fce4effc06c6effb975e68014cafdf5097f7759a48; host
+thinkstation1; rch_worker none, both arms in-process on the same host with no
+remote build; loaded ELF sha256
+ecfc2d30935a12eb0b61c3d00b38718026bcc36977c047b048463c1bf9a37fb8, built locally
+by maturin at 2026-08-16 from HEAD; governor powersave; runtime ISA avx2 avx
+sse4_2; observed affinity 8 of 64 cpus; python 3.13.7 x86_64; live networkx 3.6.1;
+PYTHONHASHSEED=0.
