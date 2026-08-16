@@ -14009,3 +14009,84 @@ built by maturin `build --release` from a `git archive` tree at `3929a9cc7`;
 tests run against the shared venv install. python 3.13.7 x86_64, live networkx
 3.6.1, disk 307G free. loadavg 63 at the instruction, 18.7 during the attribution
 probes, 12.3 at the end — no certification attempted at any of them.
+
+## 2026-08-16 GoldenBison CERTIFICATION: the whole key-length family in ONE invocation, 21/21 admissible in BOTH runs, quietest host of the session (br-r37-c1-ptiz2)
+
+comparison_class=INCUMBENT
+incumbent=networkx
+incumbent_same_invocation=true
+decision_gate=median_ci
+cv_role=report_only
+
+Every row this campaign touched, measured together on one ELF at the quietest
+loadavg available (12.3 and 21.9, against 20-88 for most rows banked earlier).
+21 of 21 rows ADMISSIBLE in run 1 and 21 of 21 in run 2 — 42 admissible rows, no
+NULL-FAILED anywhere, every null inside 0.9876-1.0139.
+
+A/A null control, run 1, `Graph degree(u) len=8000`, incumbent arm paired against itself in the same invocation: 1.0023x, inside the 0.02 bound.
+
+A/A null control, run 1, `Graph degree(u) len=8000`, fnx arm paired against itself in the same invocation: 1.0004x, inside the 0.02 bound.
+
+A/A null control, run 2, `Graph degree(u) len=8000`, incumbent arm paired against itself in the same invocation: 1.0028x, inside the 0.02 bound.
+
+A/A null control, run 2, `Graph degree(u) len=8000`, fnx arm paired against itself in the same invocation: 1.0008x, inside the 0.02 bound.
+
+A/B against live networkx 3.6.1 in the SAME invocation, ABBAABBA square, 61 rounds
+x 50 reps x 400 calls per slot, identical shape in both runs, differing only in
+core set. Worst bound over the pair:
+
+| operation | len 3 | len 130 | len 2000 | len 8000 | verdict |
+|---|---|---|---|---|---|
+| `Graph (u,v) in edges` | 1.0777x | — | — | **1.0793x** | FLAT, fnx ahead |
+| `Graph G[u][v]` | 0.9232x | — | — | **0.9188x** | FLAT |
+| `Graph edges[u,v]` | 0.7010x | 0.6966x | 0.6969x | **0.6947x** | FLAT |
+| `Graph get_edge_data` | 0.6427x | — | — | **0.6597x** | FLAT |
+| `MDG get_edge_data` | 0.6613x | — | 0.6457x | — | FLAT |
+| `MDG edges[u,v,k]` | 0.3490x | 0.3610x | 0.3551x | **0.3553x** | FLAT |
+| `MDG has_node` | — | — | 0.9070x | — | — |
+| `Graph degree(u)` | 0.8335x | — | — | **0.1049x** | **UNBOUNDED, 8.0x** |
+| `MDG has_edge` | 0.4330x | — | 0.1726x | — | **UNBOUNDED, 2.5x** |
+
+WHAT THE CAMPAIGN ACHIEVED, stated against its own starting point. These same
+operations at 8000-character keys before the work:
+
+    Graph (u,v) in edges   0.0844x -> 1.0793x
+    Graph G[u][v]          0.0555x -> 0.9188x
+    Graph get_edge_data    0.0224x -> 0.6597x
+    Graph edges[u,v]       0.0224x -> 0.6947x
+    MDG   edges[u,v,k]     0.0175x -> 0.3553x   (another agent's lever, 8c1735d54)
+
+Five operations that degraded WITHOUT BOUND in node-key length are now flat to
+within a few percent across a 2600x span. That is the result, and it is the first
+time it has been measured end to end in a single invocation rather than assembled
+from rows taken hours and several ELFs apart.
+
+WHAT IS STILL BROKEN, and this is now my worst measured ratio: `Graph degree(u)`
+falls 0.8335x -> 0.1049x, an 8.0x degradation, and `MDG has_edge` falls 0.4330x ->
+0.1726x. Neither returns an attribute dict, so the index-keyed lookaside that
+fixed the other five has nothing to serve them; their cost is in resolving
+endpoints for a native degree/has_edge query. `Graph degree(u) len=8000` at
+0.1049x is where the next lever goes.
+
+THE QUIET HOST CHANGED SOMETHING REAL, not just the error bars. Rows banked
+earlier under load are systematically FLATTERED relative to these: `Graph
+get_edge_data len=8000` banked at 0.7012x under loadavg 20-26 reads 0.6597x here;
+`Graph edges[u,v] len=8000` banked at 0.7365x reads 0.6947x. Both differences are
+outside the CIs. The direction is consistent — a contended host compresses the
+ratio toward 1.0 because both arms wait — so the earlier numbers were optimistic
+by roughly 5 percent, and THESE are the ones to quote.
+
+MDG has_node reads 0.9070x here, below 1.0, where an earlier run had it at 1.1010x
+and I used it as "fnx is FASTER at resolving a long node key". Under a quiet host
+that claim does not hold; it is 0.91x. Withdrawn.
+
+PROVENANCE, self-reported in-process: harness `scripts/balanced_square_ab.py`
+sha256 0a7f324a1681b7ddb912a8eec67f81857f08ab1650015536b1c2c8f5fac1b9f9; host
+thinkstation1; rch_worker none, both arms in-process on the same host, and NO
+build was performed — existing binary reused, verified by 0 `.rs` files newer than
+the loaded `.so`; loaded ELF sha256
+1f81af46c3a92f91618ca743a90f24c679a1b5715bb2efdba3baf91d9b4c9c32; governor
+powersave; runtime ISA avx2 avx sse4_2; observed OS threads 1, observed affinity 8
+of 64 cpus; python 3.13.7 x86_64; live networkx 3.6.1; PYTHONHASHSEED=0;
+LOADAVG 12.34 at run 1 start (17.67 at end) and 21.93 at run 2 start — the
+quietest window of the session, recorded per instruction.
