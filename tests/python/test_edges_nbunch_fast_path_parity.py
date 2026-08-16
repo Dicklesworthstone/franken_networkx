@@ -197,13 +197,52 @@ def test_mutating_during_iteration_still_fails_fast(cls_name):
                 graph.add_edge("brand", "new")
 
 
-@pytest.mark.parametrize("cls_name", CLASSES)
-def test_nbunch_iteration_guard_is_stricter_than_networkx(cls_name):
-    """Pins the OPEN divergence so the exclusion above cannot rot.
+# The mutations networkx tolerates mid-iteration, and the ones it does not.
+# networkx has no policy here: its nbunch view walks the LIVE row dicts, so the
+# answer is whatever CPython says when the dict under iteration is resized.
+MUTATIONS_DURING_ITERATION = {
+    "add_edge_new_nodes": lambda g: g.add_edge("brand", "new"),
+    "add_edge_onto_iterated_row": lambda g: g.add_edge("a", "c"),
+    "add_node": lambda g: g.add_node("solo"),
+    "remove_edge_elsewhere": lambda g: g.remove_edge("c", "d"),
+    "remove_node_elsewhere": lambda g: g.remove_node("iso"),
+    "remove_frozen_node": lambda g: g.remove_node("a"),
+    "clear": lambda g: g.clear(),
+}
 
-    Deliberately an assertion about a bug: when br-r37-c1-u5tyh is fixed this
-    fails and tells whoever fixed it to fold the nbunch form back into the test
-    above, rather than leaving a silent hole.
+
+@pytest.mark.parametrize("mutation", list(MUTATIONS_DURING_ITERATION), ids=list(MUTATIONS_DURING_ITERATION))
+def test_graph_nbunch_iteration_matches_networkx_mutation_for_mutation(mutation):
+    """br-r37-c1-u5tyh on Graph: both directions, one mutation at a time.
+
+    fnx used to be wrong BOTH ways at once here — it raised where networkx
+    completes (adding a node, removing an unrelated node, clear) and completed
+    where networkx raises (adding an edge onto the row being iterated). Walking
+    the live rows gets every case right, so this asserts each one rather than
+    just "does not over-raise".
+    """
+    mutate = MUTATIONS_DURING_ITERATION[mutation]
+    outcomes = []
+    for lib in (nx, fnx):
+        graph = _build(lib, "Graph")
+        iterator = iter(graph.edges(["a", "b"]))
+        next(iterator)
+        try:
+            mutate(graph)
+            outcomes.append(("completed", len(list(iterator))))
+        except Exception as exc:  # noqa: BLE001
+            outcomes.append((type(exc).__name__, exc.args))
+    assert outcomes[1] == outcomes[0], mutation
+
+
+@pytest.mark.parametrize("cls_name", ["DiGraph", "MultiGraph", "MultiDiGraph"])
+def test_other_classes_still_over_raise_on_nbunch_iteration(cls_name):
+    """Pins the REMAINING divergence so the gap cannot go quiet.
+
+    br-r37-c1-u5tyh is fixed for Graph only: the other three classes reach
+    edges(nbunch) through entirely different view classes that still materialise
+    and guard. Deliberately an assertion about a bug — when they are fixed this
+    fails and says so.
     """
     graph = _build(fnx, cls_name)
     with pytest.raises(RuntimeError):

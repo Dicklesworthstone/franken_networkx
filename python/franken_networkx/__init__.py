@@ -962,6 +962,52 @@ class EdgeDataView:
                 projected.append(entry)
         return projected
 
+    def _walk_rows_lazily(self, data, default, data_is_none):
+        """br-r37-c1-u5tyh: iterate the LIVE rows, as networkx does.
+
+        networkx's nbunch edge view builds ``[(n, adjdict[n]) for n in nbunch]``
+        at iteration start and then walks each captured row dict. Its
+        mutate-during-iteration behaviour is therefore not a policy at all — it
+        is whatever CPython says when the dict you are walking is resized. That
+        is why nx completes when an unrelated node is added but raises when an
+        edge is added to a node whose row is being iterated.
+
+        fnx materialised the whole edge list up front and wrapped it in a
+        seq-token guard, which raises on ANY structural change. Against nx that
+        was wrong in both directions at once: it raised where nx completes
+        (adding a node, removing an unrelated node, clear) and completed where
+        nx raises (adding an edge onto a row under iteration).
+
+        Yielding out of the live row dicts gets all of it right for free, with
+        no guard and no token. Returns None when the rows are not available, so
+        the caller can fall back.
+        """
+        graph = self._graph
+        rows = []
+        for node in self._nbunch_list:
+            row = _cached_adj_row_keydict(graph, "adj", node, lambda: graph[node])
+            if row is None:
+                return None
+            rows.append((node, row))
+
+        def _walk():
+            seen = set()
+            for node, row in rows:
+                for nbr, edge_data in row.items():
+                    if nbr in seen:
+                        continue
+                    if data is False:
+                        yield (node, nbr)
+                    elif data is True:
+                        yield (node, nbr, edge_data)
+                    elif data_is_none:
+                        yield (node, nbr, default)
+                    else:
+                        yield (node, nbr, edge_data.get(data, default))
+                seen.add(node)
+
+        return _walk()
+
     def _materialize_via_adj_walk(self, data, default, data_is_none):
         """Mirror nx's UndirectedEdgeView.__call__ when nbunch is set:
         walk nbunch_list in user order, for each node iterate
@@ -1092,8 +1138,27 @@ class EdgeDataView:
             token, cached = handoff
             if token is not None and token == _edge_list_freshness_token(self._graph):
                 rows = cached
-        if rows is None:
-            rows = self._materialize()
+        if rows is not None:
+            # Came straight from the __len__ of the same list(); no user code
+            # can have run in between, so there is nothing to guard against.
+            return iter(rows)
+        # br-r37-c1-u5tyh: an explicit `for e in view:` CAN interleave user
+        # code, and that is where networkx's semantics live. Walk the live rows
+        # so CPython supplies them.
+        if (
+            self._graph is not None
+            and self._nbunch_list is not None
+            and type(self._graph) is Graph
+            and len(self._nbunch_list) <= _EDGES_NBUNCH_PY_WALK_MAX
+            and (self._data is False or self._data is True)
+        ):
+            self._raise_if_frozen_nbunch_node_removed()
+            lazy = self._walk_rows_lazily(
+                self._data, self._default, self._data is None
+            )
+            if lazy is not None:
+                return lazy
+        rows = self._materialize()
         if self._graph is None:
             return iter(rows)
         return _FailFastEdgeIterator(self._graph, rows)
