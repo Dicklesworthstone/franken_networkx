@@ -13263,3 +13263,83 @@ locally by maturin, `env -u CARGO_TARGET_DIR`, private TMPDIR, 1m21s, disk 310.9
 with only the two pre-existing br-r37-c1-2i3mf pollution failures; governor
 powersave; runtime ISA avx2 avx sse4_2; observed affinity 8 of 64 cpus; python
 3.13.7 x86_64; live networkx 3.6.1; PYTHONHASHSEED=0; loadavg 35.7 and 31.9.
+
+## Multigraph unkeyed `get_edge_data(u,v)` at 64 parallel edges — **0.0061x, now COMMIT-PINNED and reproducible**; the peer-hunk caveat on the prior row is RESOLVED (br-r37-c1-d1ajx, br-r37-c1-f3i50)
+
+THE PRIOR ROW'S WEAKEST PART WAS ITS ARTIFACT, and I said so when banking it: the
+ELF measured (`00a3b11ef4da3fc8`) was newer than an uncommitted 43-line peer hunk
+in `crates/fnx-python/src/lib.rs`, where `PyMultiGraph` lives, so the MultiGraph
+rows could have been measuring code that is not on main. This row closes that.
+
+METHOD. `git archive HEAD | tar -x` into a fresh directory, cold `maturin build
+--release` there with its own target tree, `.so` extracted from the wheel into
+that tree's own source package, and measured via `PYTHONPATH` — so the shared
+venv install was never touched and no peer was disturbed. The pinned tree's
+`lib.rs` is byte-identical to `HEAD:crates/fnx-python/src/lib.rs`; the shared
+working tree's is 43 lines longer.
+
+**THE BUILD IS REPRODUCIBLE, which is the useful by-product.** The cold isolated
+build of HEAD `ef0a5ed52` produced sha256
+`b3bf13e8c565e3f4924bf96c9d5dff3c9846e0d6d79717601742d4193ab5ed39` — BYTE-IDENTICAL
+to the extension I built two turns ago at commit `8c1735d54`. Those two commits
+differ only in docs and beads, so identical Rust source produced an identical
+artifact across two independent builds. That also converts the previous row's
+mtime-based inference into a fact: `00a3b11ef4da3fc8` is NOT what HEAD compiles
+to, so it did contain unlanded work.
+
+MEASURED ON THE PINNED ELF `b3bf13e8c565e3f4`, balanced square `ABBAABBA`, 21
+rounds, both arms in ONE invocation, bootstrap median CI over rounds (10k
+resamples), t_nx/t_fnx, N=500:
+
+    class          par    nx ns     fnx ns   ratio    CI                 nullNX  nullFNX
+    MultiGraph     64      76.4    12659.5   0.0061   [0.0059, 0.0062]   PASS    PASS
+    MultiGraph     64      76.4    12531.2   0.0061   [0.0060, 0.0062]   PASS    PASS  (replicate)
+    MultiGraph     16      75.2     3133.9   0.0237   [0.0235, 0.0242]   PASS    PASS
+    MultiDiGraph   16      77.4     3093.7   0.0253   [0.0251, 0.0257]   PASS    PASS
+    MultiGraph      1      77.8      320.8   0.2512   [0.2464, 0.2543]   PASS    PASS
+
+ALL TEN A/A NULLS PASS, where the prior row had one failing at 0.9308. That is
+worth stating precisely rather than as vindication: the earlier failure was a real
+7 percent position effect on one arm of one run, and it did not change the
+verdict then either. Replication across artifacts is what carries this cell, and
+it has now replicated on two different builds.
+
+THE CAVEAT IS RESOLVED IN THE DIRECTION OF NO EFFECT. Pinned against unpinned,
+same cells:
+
+    cell                 unpinned 00a3b11e   pinned b3bf13e8   delta
+    MultiGraph par=64    0.0061              0.0061            none
+    MultiGraph par=16    0.0259 / 0.0251     0.0237            ~6-8%
+    MultiDiGraph par=16  0.0263              0.0253            ~4%
+    MultiGraph par=1     0.2479              0.2512            ~1%
+
+The peer's unlanded hunk does not touch this cell. Every difference is a few
+percent against an effect of 164x, so the prior row's numbers stand as measured
+and its caveat can be retired rather than carried forward.
+
+A/A null control, pinned, par=64 run 1, incumbent arm paired against itself in the same invocation: 0.9866x, CI [0.9646, 1.0068], PASS.
+A/A null control, pinned, par=64 run 1, fnx arm paired against itself in the same invocation: 1.0087x, CI [0.9851, 1.0231], PASS.
+A/A null control, pinned, par=64 run 2, incumbent arm paired against itself in the same invocation: 1.0071x, CI [0.9850, 1.0620], PASS.
+A/A null control, pinned, par=64 run 2, fnx arm paired against itself in the same invocation: 0.9962x, CI [0.9857, 1.0118], PASS.
+A/A null control, pinned, par=16 MultiGraph, incumbent arm paired against itself in the same invocation: 1.0011x, CI [0.9900, 1.0121], PASS.
+A/A null control, pinned, par=16 MultiGraph, fnx arm paired against itself in the same invocation: 0.9892x, CI [0.9848, 1.0223], PASS.
+A/A null control, pinned, par=16 MultiDiGraph, incumbent arm paired against itself in the same invocation: 0.9929x, CI [0.9775, 1.0031], PASS.
+A/A null control, pinned, par=16 MultiDiGraph, fnx arm paired against itself in the same invocation: 1.0158x, CI [0.9667, 1.0278], PASS.
+A/A null control, pinned, par=1 MultiGraph, incumbent arm paired against itself in the same invocation: 0.9934x, CI [0.9384, 1.0140], PASS.
+A/A null control, pinned, par=1 MultiGraph, fnx arm paired against itself in the same invocation: 0.9971x, CI [0.8466, 1.0831], PASS.
+
+THE MECHANISM IS UNCHANGED and restated so this row stands alone: networkx returns
+`self._adj[u][v]` — the live keydict, constructed never — and is FLAT at 75-78 ns
+across a 64x span of parallel-edge count, while fnx builds a fresh dict per call
+and pays roughly 190 ns per parallel edge to insert each live per-edge attr dict.
+The same construction is the semantic divergence in br-r37-c1-f3i50: new-key
+insertion into the returned mapping reaches the graph in networkx and does not in
+fnx.
+
+PROVENANCE, self-reported in-process: harness `/data/tmp/claude-1000/bsq_ged_par.py`;
+host thinkstation1; rch_worker none — both arms in-process, same host, same
+invocation; loaded ELF sha256 b3bf13e8c565e3f4924bf96c9d5dff3c9846e0d6d79717601742d4193ab5ed39,
+built by maturin `build --release` from a `git archive HEAD` tree at `ef0a5ed52`,
+`env -u CARGO_TARGET_DIR` (that tree's own target), private TMPDIR, 2m32s cold,
+disk 311 -> 310 GiB. python 3.13.7 x86_64, live networkx 3.6.1. loadavg 21.6 at
+the first run start and 28.6 at the last.
