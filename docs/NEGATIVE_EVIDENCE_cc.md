@@ -13502,3 +13502,80 @@ locally by maturin, `env -u CARGO_TARGET_DIR`, private TMPDIR, disk 309.70 ->
 309.78 GiB; governor powersave; runtime ISA avx2 avx sse4_2; observed affinity 8
 of 64 cpus; python 3.13.7 x86_64; live networkx 3.6.1; PYTHONHASHSEED=0; loadavg
 20.3 and 19.8 at the two run starts.
+
+## Worst cell re-pinned on ELF `c20bfc50` — **0.0061x** unmoved by the AtlasView lever; and that lever's multigraph sibling was left behind at 0.1764x (br-r37-c1-d1ajx, br-r37-c1-f3i50, br-r37-c1-2ndmw)
+
+RE-PINNED AGAIN because HEAD's Rust moved again: `3929a9cc7` (perf(views):
+AtlasView caches its row's node index, br-r37-c1-ptiz2). Clean-room `git archive`
+build of HEAD produced
+`c20bfc507629211a660f489021101b7cad97eedc0f630658a01dd8d6e6030858`. Both this and
+the previous pinned ELF were measured ALTERNATING in one load window, each row its
+own balanced square.
+
+**THE WORST CELL DID NOT MOVE.** Multigraph unkeyed `get_edge_data`, par=64:
+
+    ELF            nx ns     fnx ns   ratio    CI                 nullNX  nullFNX
+    NEW c20bfc50    73.8    11781.2   0.0063   [0.0062, 0.0063]   PASS    PASS
+    OLD 9f5a8d8d    75.2    12097.7   0.0063   [0.0062, 0.0063]   FAIL    PASS
+    NEW c20bfc50    72.0    11849.2   0.0061   [0.0061, 0.0061]   PASS    PASS
+    OLD 9f5a8d8d    81.3    11745.0   0.0069   [0.0069, 0.0069]   PASS    PASS
+
+Two consecutive ptiz2 levers have now been tested against this cell and neither
+reaches it, which is the expected result and keeps corroborating the banked
+mechanism: the cost is one dict INSERTION per parallel edge into a per-call
+constructed dict, not any lookup those levers accelerate.
+
+I ALMOST FILED A CONTRADICTION AND WAS WRONG TO NEARLY DO SO. `3929a9cc7` claims
+`G[u][v] 0.0639x to 0.9237x`. Measured at SHORT keys against the immediately
+preceding ELF, simple Graph reads 0.8985x BEFORE the lever and 0.9364x after — a
+4 percent move, nothing like 14x, which looked like the headline was wrong. It is
+not. The lever targets the LONG-KEY regime, and measured there it is real and
+large:
+
+    class        ELF            nx ns    fnx ns   ratio    CI
+    Graph        OLD 9f5a8d8d   191.5   1144.2   0.1728   [0.1624, 0.1798]
+    Graph        NEW c20bfc50   224.5    232.3   0.9644   [0.8646, 1.0013]
+    MultiGraph   OLD 9f5a8d8d   331.9   1942.5   0.1719   [0.1660, 0.1855]
+    MultiGraph   NEW c20bfc50   295.9   1661.7   0.1764   [0.1734, 0.1797]
+
+THE LESSON IS ABOUT SCOPE, NOT ABOUT ANYONE BEING WRONG: a ratio measured outside
+a lever's target regime is not evidence against that lever. Checking the regime
+before writing the claim down cost one measurement and would have cost a
+retraction otherwise.
+
+**WHAT THE CHECK FOUND INSTEAD — a new laggard, filed as br-r37-c1-2ndmw.** The
+simple Graph row went 0.1728x -> 0.9644x; the multigraph row did not move,
+0.1719x -> 0.1764x. The two siblings started within 1 percent of each other, so
+they were not merely similar in ratio, they were the SAME COST — which is the
+strongest available evidence that the same cache applies to both. The winning
+sibling is the control and puts the ceiling at roughly parity. At short keys the
+multigraph row is 0.2599x against Graph's 0.9364x, so this is not a long-key
+artifact.
+
+TWO FAILING NULLS, RECORDED NOT HIDDEN. `OLD 9f5a8d8d` par=64 run 1 had an
+incumbent-arm null of 0.9860x, CI [0.9814, 0.9960] — a 1.4 percent position
+effect against a 158x effect, and its replicate nulled clean. `NEW c20bfc50`
+Graph keylen=2000 had an fnx-arm null of 1.0423x with a wide ratio CI
+[0.8646, 1.0013]; the direction there is unambiguous (fnx 1144.2 -> 232.3 ns) but
+the precise 0.9644x should be re-measured before being quoted to four digits, and
+br-r37-c1-2ndmw says so.
+
+A/A null control, NEW c20bfc50 par=64 run 1, incumbent arm paired against itself in the same invocation: 1.0049x, CI [0.9983, 1.0095], PASS.
+A/A null control, NEW c20bfc50 par=64 run 1, fnx arm paired against itself in the same invocation: 1.0002x, CI [0.9949, 1.0070], PASS.
+A/A null control, OLD 9f5a8d8d par=64 run 1, incumbent arm paired against itself in the same invocation: 0.9860x, CI [0.9814, 0.9960], FAIL.
+A/A null control, OLD 9f5a8d8d par=64 run 1, fnx arm paired against itself in the same invocation: 1.0018x, CI [0.9948, 1.0158], PASS.
+A/A null control, NEW c20bfc50 par=64 run 2, incumbent arm paired against itself in the same invocation: 1.0040x, CI [0.9965, 1.0156], PASS.
+A/A null control, NEW c20bfc50 par=64 run 2, fnx arm paired against itself in the same invocation: 1.0034x, CI [0.9981, 1.0101], PASS.
+A/A null control, OLD 9f5a8d8d par=64 run 2, incumbent arm paired against itself in the same invocation: 1.0038x, CI [0.9963, 1.0102], PASS.
+A/A null control, OLD 9f5a8d8d par=64 run 2, fnx arm paired against itself in the same invocation: 0.9977x, CI [0.9897, 1.0081], PASS.
+
+PROVENANCE, self-reported in-process: harnesses `/data/tmp/claude-1000/bsq_ged_par.py`,
+`bsq_getitem.py`, `bsq_getitem_k.py`; host thinkstation1; rch_worker none — both
+arms in-process, same host, same invocation. Loaded ELF sha256
+c20bfc507629211a660f489021101b7cad97eedc0f630658a01dd8d6e6030858 (NEW) and
+9f5a8d8df5c0c655b362fab6848e3de26d356e174eea93db1ca4959400937efc (OLD), each built
+by maturin `build --release` from its own `git archive` tree (`3929a9cc7` and
+`4c5c535ee`), `env -u CARGO_TARGET_DIR`, private TMPDIR, 2m02s cold, loaded via
+PYTHONPATH so the shared venv install was never touched. python 3.13.7 x86_64,
+live networkx 3.6.1, disk 308G free. loadavg 14.7 at the window start, 23.9 at the
+end.
