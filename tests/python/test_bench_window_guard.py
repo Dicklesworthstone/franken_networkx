@@ -188,3 +188,42 @@ def test_runnable_spread_sees_what_the_load_average_cannot():
     guard.runnable = [24, 30, 25, 38, 26, 31, 24, 29, 27, 33, 25, 30]
     assert guard.spread == 0.0, "the averaged signal is blind here, by construction"
     assert guard.runnable_spread == 14.0
+
+
+def test_certifiable_gate_rejects_a_falling_load(monkeypatch):
+    """The exact shape this pane was handed: 1-min 10.2 against 5-min 34.9.
+
+    Eyeballing the 1-minute number alone calls that a quiet host. It is a host
+    that was heavily loaded three minutes ago and may be again, which is the
+    volatility the fleet identified as the real blocker.
+    """
+    monkeypatch.setattr(bench_window_guard, "read_loadavg_triple", lambda: (10.2, 34.9, 36.0))
+    ok, reason = bench_window_guard.window_is_certifiable()
+    assert not ok
+    assert "level too high" in reason
+
+
+def test_certifiable_gate_rejects_a_close_but_unstable_pair(monkeypatch):
+    """Both LOW yet not close: 18.4 against 27.6 is a 1.5x gap, not a window.
+
+    The first threshold this pane wrote admitted exactly this and had to be
+    tightened; the case is pinned so it cannot drift back.
+    """
+    monkeypatch.setattr(bench_window_guard, "read_loadavg_triple", lambda: (18.4, 27.6, 30.0))
+    ok, reason = bench_window_guard.window_is_certifiable()
+    assert not ok
+    assert "unstable" in reason
+
+
+def test_certifiable_gate_accepts_low_and_close(monkeypatch):
+    monkeypatch.setattr(bench_window_guard, "read_loadavg_triple", lambda: (8.4, 9.1, 20.0))
+    ok, reason = bench_window_guard.window_is_certifiable()
+    assert ok
+    assert "stable" in reason
+
+
+def test_certifiable_gate_rejects_high_but_stable(monkeypatch):
+    """Stable is necessary, not sufficient — the level bound still applies."""
+    monkeypatch.setattr(bench_window_guard, "read_loadavg_triple", lambda: (60.0, 61.0, 60.0))
+    ok, _ = bench_window_guard.window_is_certifiable()
+    assert not ok

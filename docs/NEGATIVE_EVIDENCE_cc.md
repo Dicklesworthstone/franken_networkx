@@ -14641,3 +14641,58 @@ tests run against the shared venv install. python 3.13.7 x86_64, live networkx
 3.6.1, disk 297G free. `uptime` observed by this pane: 73.38 at the instruction,
 67.93 and 59.91 across the first diagnostic pass, 44.69 to 39.55 across the
 second. No certification attempted at any of them.
+
+## NO CERTIFICATION (window unstable: 1-min 10.10 against 5-min 32.47) — br-r37-c1-f3i50 is EIGHT divergences, not one, and the eighth rules out the obvious fix
+
+WINDOW REJECTED BY THE RULE, checked by this pane: `uptime` gave 1-min 10.10
+against 5-min 32.47, a 3.2x gap. Low-and-falling is not low-and-stable, so no
+ratio is claimed here. The gate is now machine-checked rather than eyeballed —
+`window_is_certifiable()` in `scripts/bench_window_guard.py` requires the 1- and
+5-minute averages to be both under 30 and within 1.25x. Its first threshold was
+1.5x and admitted an 18.4-against-27.6 window; that was too permissive and is now
+pinned as a rejection case.
+
+**THE SUBSTANTIVE FINDING is structural and needs no timing.** br-r37-c1-f3i50
+was filed as "new-key insertion does not reach the graph". Enumerated against
+networkx, that is one symptom of eight:
+
+    operation                        nx      fnx     diverges
+    identity across calls            True    False   yes
+    d[k]['w'] = 9 propagates         True    True    no
+    d[newkey] = {...} propagates     True    False   yes
+    d.update({...}) propagates       True    False   yes
+    del d[k] propagates              True    False   yes
+    d.pop(k) propagates              True    False   yes
+    d.clear() propagates             True    False   yes
+    d.setdefault(k, {}) propagates   True    False   yes
+    type(d) is dict                  True    True    no
+    reflects a LATER add_edge        True    False   yes
+
+**THE LAST ROW CHANGES WHAT THE FIX HAS TO BE.** Seven divergences are WRITES
+that fail to reach the graph, and a write-proxying mapping would cover every one
+of them — which is the fix a reader of the old bead would have built. But
+networkx's return value is also LIVE FOR READS: an edge added after the call
+appears in a mapping the caller is still holding. No snapshot achieves that at
+any cost, so the fix needs the live keydict and the bead stays blocked on
+br-r37-c1-himzq rather than being independently actionable.
+
+WHY IT SURVIVED THIS LONG: the one thing nearly every caller does —
+`G.get_edge_data(u, v)[k]['w'] = x` — is correct, because the inner attr dicts
+are the live ones. A check that exercised attribute mutation and stopped there
+reports this healthy.
+
+Pinned by `tests/python/test_unkeyed_get_edge_data_liveness_contract.py`: 9
+passing (value parity, type parity, an inner-mutation regression guard so a fix
+cannot deep-copy its way out, and the incumbent's own invariant) plus 18
+`xfail(strict=True)`, so the file flips from defect-record to acceptance-gate the
+moment the behaviour changes. One correction to my own first draft of it: the
+incumbent invariant is `get_edge_data(u,v) is G._adj[u][v]`, NOT `is G[u][v]` —
+`G[u][v]` wraps the row in a read-only `AtlasView` in both libraries, so the
+draft assertion failed on networkx itself for a reason unrelated to the defect.
+
+PROVENANCE: structural comparison, no timing claimed. Pinned ELF sha256
+42e4b0d2fefa0dc1dc7907b55d1c5fbe1026c24ce077f0c3feada77cd6abfe47 via PYTHONPATH;
+tests against the shared venv install. host thinkstation1, python 3.13.7, live
+networkx 3.6.1, disk 295G free. `uptime` observed by this pane: 1-min 10.10 /
+5-min 32.47 at the decision, 15.52 / 25.51 at the end — rejected as unstable at
+both.

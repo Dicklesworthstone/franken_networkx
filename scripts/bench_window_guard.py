@@ -63,6 +63,43 @@ def read_loadavg() -> float:
         return float(handle.read().split()[0])
 
 
+def read_loadavg_triple() -> tuple[float, float, float]:
+    """The 1-, 5- and 15-minute averages together."""
+    with open("/proc/loadavg", encoding="ascii") as handle:
+        parts = handle.read().split()
+    return float(parts[0]), float(parts[1]), float(parts[2])
+
+
+def window_is_certifiable(
+    level_max: float = 30.0, ratio_max: float = 1.25
+) -> tuple[bool, str]:
+    """Today's standing rule, machine-checked instead of eyeballed.
+
+    The rule is that the 1- and 5-minute averages must be CLOSE and both LOW.
+    Closeness is the half that eyeballing gets wrong: a 1-minute average of 10.1
+    against a 5-minute of 32.5 looks like a quiet host and is actually a host
+    that was heavily loaded 3 minutes ago and may be again — the volatility
+    mermaid identified, and the shape this pane measured when its "quietest
+    window of the session" at 6.12 produced a 17 percent A/A null and a 21-point
+    ratio interval.
+
+    Returns (ok, reason) rather than raising or sleeping: this pane's standing
+    orders forbid wait loops, so a caller checks, and if it is not certifiable
+    does code work instead.
+    """
+    one, five, _ = read_loadavg_triple()
+    if one > level_max or five > level_max:
+        return False, f"level too high: 1-min {one:.2f}, 5-min {five:.2f} (max {level_max:.0f})"
+    hi, lo = max(one, five), min(one, five)
+    ratio = hi / lo if lo > 0 else float("inf")
+    if ratio > ratio_max:
+        return False, (
+            f"unstable: 1-min {one:.2f} against 5-min {five:.2f}, "
+            f"ratio {ratio:.2f} (max {ratio_max:.2f}) — falling load is not a quiet host"
+        )
+    return True, f"stable: 1-min {one:.2f}, 5-min {five:.2f}, ratio {ratio:.2f}"
+
+
 def read_runnable() -> int:
     """Instantaneous count of RUNNABLE processes (field 4, before the slash).
 
