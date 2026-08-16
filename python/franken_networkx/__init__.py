@@ -2568,11 +2568,20 @@ def _multigraph_getitem_from_native_row(self, node):
     if view is not None:
         return view
     try:
-        self._native_adjacency_row(node)
+        row = self._native_adjacency_row(node)
     except KeyError as exc:
         raise KeyError(node) from exc
+    # br-r37-c1-124xl: CAPTURE the row instead of re-fetching it. The fetch
+    # above already had to happen (it is what raises KeyError for a missing
+    # node), and the object it returns is a native MultiAtlasView that stays
+    # LIVE across edge churn — verified: a captured row sees a later add_edge
+    # and remove_edge. The previous lambda called back into
+    # `_native_adjacency_row` on EVERY access of this cached wrapper, so a
+    # single `len(G[u][v])` crossed the PyO3 boundary twice for one row.
+    # Node mutation still advances nodes_seq and drops the wrapper cache above,
+    # which is what keeps a captured row from outliving its node.
     view = AdjacencyView(
-        lambda: self._native_adjacency_row(node),
+        lambda row=row: row,
         multi_edge_owner=self,
     )
     cache[1][node] = view
@@ -2606,11 +2615,14 @@ def _multidigraph_getitem_from_native_row(self, node):
     if view is not None:
         return view
     try:
-        self._native_successor_row(node)
+        row = self._native_successor_row(node)
     except KeyError as exc:
         raise KeyError(node) from exc
+    # br-r37-c1-124xl: capture the row, as the undirected twin does. The fetch
+    # above already happened to raise KeyError for a missing node, and the
+    # native successor row stays live across edge churn.
     view = AdjacencyView(
-        lambda: self._native_successor_row(node),
+        lambda row=row: row,
         multi_edge_owner=self,
     )
     cache[1][node] = view
@@ -2822,6 +2834,51 @@ class _DiGraphEdgeView:
             isinstance(nbunch, (list, tuple, set, frozenset))
             or (hasattr(nbunch, "__iter__") and not isinstance(nbunch, (str, bytes)))
         )
+        # br-r37-c1-124sk: the native nbunch kernels below are O(V) — they cost
+        # the same whether you ask for one row or all of them, so at n=8000 a
+        # ONE-node nbunch takes 61us where networkx takes 2.3us and the ratio
+        # falls without bound (0.35x at n=250, 0.034x at n=8000). For a small
+        # nbunch, walk the cached succ rows instead: they are the same live
+        # PyDict mirrors Graph's adjacency rows are, so this is O(rows asked
+        # for) like networkx, with no PyO3 crossing when warm.
+        if (
+            type(self._graph) is DiGraph
+            and iterable_nbunch
+            and (data is False or data is True)
+            and isinstance(nbunch, (list, tuple))
+            and len(nbunch) <= _EDGES_NBUNCH_PY_WALK_MAX
+        ):
+            rows = []
+            for source in nbunch:
+                # br-r37-c1-w5sa7: an UNHASHABLE nbunch element is nx's
+                # NetworkXError, not a silent skip. fnx's `in` swallows the
+                # TypeError and answers False, so without this the walk dropped
+                # the bad element and returned a short answer.
+                try:
+                    hash(source)
+                except TypeError:
+                    raise NetworkXError(
+                        f"Node {source} in sequence nbunch is not a valid node."
+                    )
+                if source not in self._graph:
+                    continue
+                row = _cached_adj_row_keydict(
+                    self._graph, "succ", source, lambda: self._graph.succ[source]
+                )
+                if row is None:
+                    rows = None
+                    break
+                rows.append((source, row))
+            if rows is not None:
+                if data is True:
+                    walked = [(u, v, attrs) for u, row in rows for v, attrs in row.items()]
+                else:
+                    walked = [(u, v) for u, row in rows for v in row]
+                return _guarded_edge_list(
+                    _wrap_edge_data_view(walked, _OutEdgeDataView),
+                    self._graph,
+                    guard_edge_count=True,
+                )
         if type(self._graph) is DiGraph and iterable_nbunch and (data is False or data is True):
             native_name = (
                 "_native_out_edges_nbunch_data"
@@ -3420,6 +3477,48 @@ class _EdgeListWithSetAlgebra(list):
     fnx's own Graph.edges(...) already was, via the object-based EdgeDataView.
     """
 
+    def _fnx_take_len_hint(self):
+        """True when a len() call immediately preceded this iteration."""
+        hint = getattr(self, "_fnx_len_hint", None)
+        if hint is None:
+            return False
+        self._fnx_len_hint = None
+        graph = getattr(self, "_fnx_live_graph", None) or getattr(
+            self, "_fnx_guard_graph", None
+        )
+        return graph is not None and hint == _edge_list_freshness_token(graph)
+
+    def _fnx_walk_live_rows(self, spec):
+        """br-r37-c1-u5tyh: yield out of the LIVE adjacency rows.
+
+        networkx captures ``[(n, adjdict[n]) for n in nbunch]`` once and walks
+        those row dicts, so its mutate-during-iteration behaviour is whatever
+        CPython says about the dict under iteration. Reproducing that means
+        walking the same objects, not guarding a materialised copy.
+
+        Directed out-edges are NOT deduplicated by the second endpoint — that
+        dedup belongs to the undirected view only.
+        """
+        row_kind, nbunch, data = spec
+        graph = getattr(self, "_fnx_live_graph", None)
+        if graph is None:
+            return None
+        rows = []
+        for node in nbunch:
+            row = _cached_adj_row_keydict(
+                graph, row_kind, node, lambda: getattr(graph, row_kind)[node]
+            )
+            if row is None:
+                return None
+            rows.append((node, row))
+
+        def _walk():
+            for node, row in rows:
+                for nbr, edge_data in row.items():
+                    yield (node, nbr, edge_data) if data else (node, nbr)
+
+        return _walk()
+
     def _fnx_refresh(self):
         """Re-materialise if the graph has changed since this was built.
 
@@ -3460,6 +3559,16 @@ class _EdgeListWithSetAlgebra(list):
         self._fnx_token = token
 
     def __iter__(self):
+        # br-r37-c1-u5tyh: a `list(view)` asks for the length first and nothing
+        # can run in between, so it keeps the materialised contents. An
+        # explicit `for e in view:` CAN interleave user code, and that is where
+        # networkx's semantics live — walk the live rows and let CPython supply
+        # them, exactly as the Graph path does.
+        spec = getattr(self, "_fnx_lazy_rows", None)
+        if spec is not None and not self._fnx_take_len_hint():
+            walk = self._fnx_walk_live_rows(spec)
+            if walk is not None:
+                return walk
         self._fnx_refresh()
         graph = getattr(self, "_fnx_guard_graph", None)
         if graph is None:
@@ -3521,6 +3630,10 @@ class _EdgeListWithSetAlgebra(list):
     # ``len(view)`` in particular, which is how most callers size a view.
     def __len__(self):
         self._fnx_refresh()
+        if getattr(self, "_fnx_lazy_rows", None) is not None:
+            graph = getattr(self, "_fnx_live_graph", None)
+            if graph is not None:
+                self._fnx_len_hint = _edge_list_freshness_token(graph)
         return list.__len__(self)
 
     def __contains__(self, item):
@@ -7215,6 +7328,21 @@ def _live_called_edge_view(original_call):
     """
 
     def wrapped(self, *args, **kwargs):
+        # br-r37-c1-u5tyh: materialise a ONE-SHOT nbunch before the call
+        # consumes it. A generator/iterator nbunch was drained by
+        # original_call, so the freeze that follows saw an exhausted iterator
+        # and recorded an EMPTY frozen nbunch — which then made every rebuild
+        # after a mutation (br-r37-c1-af0ig) answer with nothing. It was latent
+        # while only the first read mattered; walking the frozen list directly
+        # surfaced it immediately.
+        if args and not isinstance(
+            args[0], (list, tuple, set, frozenset, dict, str, bytes, range)
+        ) and args[0] is not None and hasattr(args[0], "__next__"):
+            args = (list(args[0]),) + tuple(args[1:])
+        elif "nbunch" in kwargs:
+            nbunch_kw = kwargs["nbunch"]
+            if nbunch_kw is not None and hasattr(nbunch_kw, "__next__"):
+                kwargs = {**kwargs, "nbunch": list(nbunch_kw)}
         result = original_call(self, *args, **kwargs)
         # Object-based views (the bare ``edges()`` path returns ``self``) are
         # already live; only the materialised list snapshots need this.
@@ -7240,6 +7368,24 @@ def _live_called_edge_view(original_call):
                 frozen = kwargs["nbunch"] if "nbunch" in kwargs else (args[0] if args else None)
                 if isinstance(frozen, list):
                     result._fnx_frozen_nbunch = frozen
+                    # br-r37-c1-u5tyh: DiGraph's out-edge rows are the same live
+                    # PyDict mirrors Graph's are, so the same live-row walk that
+                    # gave Graph networkx's iteration semantics works here. Record
+                    # what the call asked for; __iter__ does the walking.
+                    # OUT-direction only. in_edges walks the PRED rows AND
+                    # yields (predecessor, node) rather than (node, neighbour),
+                    # so pointing this at "succ" for it produced the wrong edges
+                    # entirely — caught by test_graph_utilities' in_edges case.
+                    # Rather than special-case the reversed tuple here, the
+                    # in-direction keeps the existing path.
+                    if (
+                        type(graph) is DiGraph
+                        and type(self).__qualname__ in ("_DiGraphEdgeView", "_OutEdgeView")
+                        and len(frozen) <= _EDGES_NBUNCH_PY_WALK_MAX
+                    ):
+                        data = kwargs.get("data", args[1] if len(args) > 1 else False)
+                        if data is False or data is True:
+                            result._fnx_lazy_rows = ("succ", frozen, data)
         return result
 
     wrapped.__name__ = getattr(original_call, "__name__", "__call__")

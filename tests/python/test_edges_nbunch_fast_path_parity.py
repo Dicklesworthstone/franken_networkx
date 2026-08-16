@@ -211,8 +211,9 @@ MUTATIONS_DURING_ITERATION = {
 }
 
 
+@pytest.mark.parametrize("cls_name", ["Graph", "DiGraph"])
 @pytest.mark.parametrize("mutation", list(MUTATIONS_DURING_ITERATION), ids=list(MUTATIONS_DURING_ITERATION))
-def test_graph_nbunch_iteration_matches_networkx_mutation_for_mutation(mutation):
+def test_simple_class_nbunch_iteration_matches_networkx_mutation_for_mutation(cls_name, mutation):
     """br-r37-c1-u5tyh on Graph: both directions, one mutation at a time.
 
     fnx used to be wrong BOTH ways at once here — it raised where networkx
@@ -224,7 +225,7 @@ def test_graph_nbunch_iteration_matches_networkx_mutation_for_mutation(mutation)
     mutate = MUTATIONS_DURING_ITERATION[mutation]
     outcomes = []
     for lib in (nx, fnx):
-        graph = _build(lib, "Graph")
+        graph = _build(lib, cls_name)
         iterator = iter(graph.edges(["a", "b"]))
         next(iterator)
         try:
@@ -235,14 +236,15 @@ def test_graph_nbunch_iteration_matches_networkx_mutation_for_mutation(mutation)
     assert outcomes[1] == outcomes[0], mutation
 
 
-@pytest.mark.parametrize("cls_name", ["DiGraph", "MultiGraph", "MultiDiGraph"])
-def test_other_classes_still_over_raise_on_nbunch_iteration(cls_name):
+@pytest.mark.parametrize("cls_name", ["MultiGraph", "MultiDiGraph"])
+def test_multigraphs_still_over_raise_on_nbunch_iteration(cls_name):
     """Pins the REMAINING divergence so the gap cannot go quiet.
 
-    br-r37-c1-u5tyh is fixed for Graph only: the other three classes reach
-    edges(nbunch) through entirely different view classes that still materialise
-    and guard. Deliberately an assertion about a bug — when they are fixed this
-    fails and says so.
+    br-r37-c1-u5tyh is fixed for Graph and DiGraph: the multigraphs reach
+    edges(nbunch) through view classes whose rows are nested key/attr mappings
+    with no live keys-row to walk — the same wall br-r37-c1-dwy1n hit.
+    Deliberately an assertion about a bug: when they are fixed this fails and
+    says so.
     """
     graph = _build(fnx, cls_name)
     with pytest.raises(RuntimeError):
@@ -260,3 +262,23 @@ def test_unhashable_nbunch_element_raises_networkxs_error(cls_name):
     assert _outcome(lambda g: list(g.edges([["un", "hashable"]])), gfx) == _outcome(
         lambda g: list(g.edges([["un", "hashable"]])), gnx
     )
+
+
+@pytest.mark.parametrize("cls_name", CLASSES)
+def test_one_shot_nbunch_survives_a_later_rebuild(cls_name):
+    """A generator nbunch is consumed by the call; the view must still know it.
+
+    br-r37-c1-u5tyh: the freeze ran AFTER the call had drained the generator, so
+    it recorded an empty nbunch and every rebuild after a mutation
+    (br-r37-c1-af0ig) answered with nothing. Latent while only the first read
+    mattered.
+    """
+    outcomes = []
+    for lib in (nx, fnx):
+        graph = _build(lib, cls_name)
+        view = graph.edges(n for n in ["a", "b"])
+        outcomes.append(sorted(map(str, view)))
+        graph.add_edge("b", "zz")
+        outcomes.append(sorted(map(str, view)))
+    assert outcomes[2:] == outcomes[:2]
+    assert outcomes[0]
