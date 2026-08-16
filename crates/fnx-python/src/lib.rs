@@ -2389,7 +2389,14 @@ impl PyGraph {
     ///
     /// A miss costs one extra set probe on top of the canonical path, which is
     /// the trade: absent keys pay for present keys.
-    fn exact_str_node_is_present(&self, py: Python<'_>, n: &Bound<'_, PyAny>) -> PyResult<bool> {
+    ///
+    /// br-r37-c1-uk664: `pub(crate)` so `views.rs`'s NodeView can use it too —
+    /// it was the last node view still on the plain canonical path.
+    pub(crate) fn exact_str_node_is_present(
+        &self,
+        py: Python<'_>,
+        n: &Bound<'_, PyAny>,
+    ) -> PyResult<bool> {
         let nodes_seq = self.nodes_seq;
         if self
             .has_edge_node_index_cache

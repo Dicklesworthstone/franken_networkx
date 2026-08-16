@@ -157,9 +157,14 @@ impl NodeView {
         // and nx's `n in self._nodes` would call it, so subclasses keep the
         // probe. Every non-str key keeps it too — that is where hashing
         // genuinely fails (a list, or a tuple containing one).
-        if !n.is_exact_instance_of::<pyo3::types::PyString>() {
-            n.hash()?;
+        // br-r37-c1-uk664: an exact `str` goes through the present-key memo, as
+        // the other three node views now do. This was the last one without it,
+        // which left the SIMPLE Graph the worst of the four on `n in G.nodes()`
+        // once its siblings were fixed.
+        if n.is_exact_instance_of::<pyo3::types::PyString>() {
+            return self.graph.borrow(py).exact_str_node_is_present(py, n);
         }
+        n.hash()?;
         // br-r37-c1-ey6ob: probe with the BORROWED canonical key. This is a
         // read-only membership test, so the owned `String` that
         // `node_key_to_string` returns existed only to be hashed and dropped —

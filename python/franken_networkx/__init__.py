@@ -46294,21 +46294,12 @@ MultiDiGraph.get_edge_data = _MULTIDIGRAPH_PRIVATE_AWARE_GET_EDGE_DATA
 # hash guards until their native slots grow the same check. The ordinary Graph
 # sibling moved that guard into Rust in br-r37-c1-m7xek, so wrapping it here
 # would reintroduce the hot Python frame that native slot removes.
-def _make_hashed_node_view_contains(raw_contains):
-    def __contains__(self, item):
-        hash(item)
-        return raw_contains(self, item)
-    return __contains__
-
-
-for _NodeViewCls in (
-    _fnx.DiNodeView,
-    _fnx.MultiGraphNodeView,
-    _fnx.MultiDiGraphNodeView,
-):
-    _NodeViewCls.__contains__ = _make_hashed_node_view_contains(
-        _NodeViewCls.__contains__
-    )
+# br-r37-c1-uk664: the Python `hash(item)` wrapper that used to be installed on
+# DiNodeView / MultiGraphNodeView / MultiDiGraphNodeView is GONE. It existed only
+# to enforce networkx's unhashable-key TypeError, and all three native slots now
+# do that themselves (br-r37-c1-alll4 for the multigraphs, br-r37-c1-uk664 for
+# the directed one) — exactly as the simple NodeView always has. Keeping it cost
+# a Python frame on every membership probe.
 Graph.number_of_nodes = _GRAPH_PRIVATE_AWARE_NUMBER_OF_NODES
 DiGraph.number_of_nodes = _DIGRAPH_PRIVATE_AWARE_NUMBER_OF_NODES
 MultiGraph.number_of_nodes = _MULTIGRAPH_PRIVATE_AWARE_NUMBER_OF_NODES

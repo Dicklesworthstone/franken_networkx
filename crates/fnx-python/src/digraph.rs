@@ -15667,9 +15667,20 @@ impl DiNodeView {
     }
 
     fn __contains__(&self, py: Python<'_>, n: &Bound<'_, PyAny>) -> PyResult<bool> {
-        let g = self.graph.borrow(py);
-        let canonical = node_key_to_string(py, n)?;
-        Ok(g.inner.has_node(&canonical))
+        // br-r37-c1-uk664: completes the family started in br-r37-c1-alll4 —
+        // exact `str` through the present-key memo, everything else
+        // hash-checked and probed with the borrowed canonical instead of a
+        // heap String per probe. The `n.hash()?` is what lets the Python
+        // `_make_hashed_node_view_contains` wrapper be removed: the slot now
+        // enforces networkx's unhashable-key TypeError itself, as the simple
+        // NodeView already did.
+        if n.is_exact_instance_of::<PyString>() {
+            return self.graph.borrow(py).exact_str_node_is_present(py, n);
+        }
+        n.hash()?;
+        crate::with_node_key_str(py, n, |canonical| {
+            self.graph.borrow(py).inner.has_node(canonical)
+        })
     }
 
     fn __iter__(&self, py: Python<'_>) -> PyResult<PyObject> {
