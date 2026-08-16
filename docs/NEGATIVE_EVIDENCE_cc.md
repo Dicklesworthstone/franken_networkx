@@ -14343,3 +14343,111 @@ locally by maturin, `env -u CARGO_TARGET_DIR`, private TMPDIR, disk 300.71 GiB;
 governor powersave; runtime ISA avx2 avx sse4_2; observed affinity 8 of 64 cpus;
 python 3.13.7 x86_64; live networkx 3.6.1; PYTHONHASHSEED=0; OBSERVED loadavg
 10.40 and 9.50 at the two run starts (`uptime` run by me immediately before each).
+
+## PARTIAL CERTIFICATION — `u in G` is a **1.59x WIN** (3 replicates); `(u,v) in G.edges` is DEFERRED, its verdict oscillates WIN/TIE and the quiet window closed mid-run (br-r37-c1-ptiz2)
+
+comparison_class=INCUMBENT
+campaign_output=true
+incumbent=networkx
+decision_gate=median_ci
+cv_role=report_only
+incumbent_same_invocation=true
+incumbent_ratio=1.5892x
+elf_sha256=14d89d3d0f3d826eedd6ea1324c366809fc406906843b4bbb55f6b0c0cee8668
+
+INCUMBENT WIN, same invocation, interleaved against live networkx 3.6.1: `u in G`
+at keylen 2000 reads 1.5892x / 1.6070x / 1.6107x with all three CIs entirely
+above 1.0. The DEFERRED and ORIENTATION rows below carry no verdict and are
+recorded as open work, not as claims.
+
+THE QUIET WINDOW CLOSED WHILE I WAS MEASURING, and the per-run loadavg records
+exactly when. `uptime` read 5.31 at the decision point — the quietest of the
+session — and this pane started the near-parity family immediately. Load then ran
+6.12 -> 16.52 -> 24.72 through the first pass and 29.63 -> 35.83 -> 44.75 ->
+46.93 -> 54.05 through the second. Everything above ~30 is reported as
+NOT CERTIFIED rather than dressed up, per the standing rule, and a failure to
+certify under load is not recorded as a loss.
+
+**METHODOLOGICAL FINDING, and it is the useful part of this window: a quiet
+loadavg does not certify a SHORT run.** These read ops cost 90-350 ns, so 21
+rounds x 12000 reps is about 0.4 s of arms per run — the pane's `get_edge_data`
+cell certifies cleanly because at ~12 us/call each run spans ~12 s and averages
+over transients. At 0.4 s a single scheduler excursion lands inside one block. The
+symptom is visible in the data rather than inferred: at loadavg 6.12,
+`(u,v) in G.edges` returned a ratio CI of [0.8954, 1.1021] — a 21-point spread on
+a near-parity verdict — with an incumbent-arm A/A null of **1.1743**, a 17 percent
+position effect, in the QUIETEST conditions of the session. Lengthening the runs
+5x (60000 reps) tightened the same op to CIs of about 0.03-0.07 even as load rose
+to 35. **Run duration, not just host quiet, is what certifies a fast op.**
+
+**CERTIFIED — `u in G`, Graph, keylen 2000: a 1.59x WIN**, three replicates:
+
+    loadavg   nx ns    fnx ns   verdict   ratio    CI
+    29.63     138.4      87.1   WIN       1.5892   [1.4918, 1.6166]
+    29.63      90.5      54.1   WIN       1.6070   [1.5328, 1.9459]
+    29.63     110.5      64.2   WIN       1.6107   [1.5480, 1.7563]
+
+All three CIs sit entirely above 1.0 and agree to within 1.4 percent. The
+absolute nanoseconds vary with load (nx 90.5-138.4) but the RATIO does not, which
+is the signature of ABBA interleaving cancelling a common-mode ramp. A 1.6x
+effect is far outside anything the contention on this host produces, so this one
+certifies despite the load. Five of six nulls pass; the sixth is 1.0099.
+
+**DEFERRED — `(u,v) in G.edges`, Graph, keylen 2000.** This is the row the fleet
+rule was written for, and it is NOT a loss:
+
+    loadavg   nx ns    fnx ns   verdict   ratio    CI
+    35.83     217.8     208.7   WIN       1.0420   [1.0091, 1.0725]
+    35.83     179.7     168.4   WIN       1.0915   [1.0460, 1.1109]
+    33.84     218.8     213.5   TIE       1.0293   [0.9922, 1.0631]
+
+The verdict OSCILLATES between WIN and TIE across replicates because the effect
+(3-9 percent) is the same size as the contention this pane measured earlier
+(13 percent swing on a near-parity row). `br-r37-c1-ptiz2` banks this cell as
+1.0972x; these readings are consistent with that and do not contradict it, but
+they cannot confirm a win either. It needs three replicates at loadavg under ~15
+with 60000-rep runs, and is left open rather than called.
+
+**CONSISTENT, NOT CERTIFIED — `Graph G[u][v]` at keylen 2000 is a LOSS around
+0.94-0.97**: 0.9733 / 0.9623 / 0.9403 at loadavg 36.9 / 36.9 / 44.8, which
+brackets the tightly certified 0.9348 / 0.9360 taken at loadavg 14.0 in the
+previous row. Load moved the readings by about 3 percent and did not change the
+verdict.
+
+**FIRST-PASS SURVEY at keylen 2000**, taken at loadavg 6.12-24.72 with short
+runs. Recorded as ORIENTATION, not as certified rows — the wide CIs above are why:
+
+    op                  nx ns    fnx ns   ratio    CI                 nulls
+    G[u][v]             238.8     241.6   0.9369   [0.9219, 0.9982]   P / FAIL
+    (u,v) in G.edges    152.4     140.3   1.0562   [0.8954, 1.1021]   P / P
+    G.edges[u,v]        195.6     287.3   0.6680   [0.6475, 0.6854]   P / P
+    get_edge_data       131.2     209.3   0.6317   [0.6244, 0.6345]   P / P
+    G.degree(u)         244.6    1058.7   0.2309   [0.2236, 0.2673]   P / P
+    G.has_edge(u,v)      90.6     128.3   0.7287   [0.6566, 0.7407]   P / P
+    u in G               81.2      50.6   1.5943   [1.5299, 1.6032]   P / P
+    G.adj[u][v]         287.8     485.5   0.6027   [0.5916, 0.6292]   P / P
+
+The orientation worth carrying forward: at long keys `Graph G.degree(u)` reads
+0.2309x — an order of magnitude worse than its neighbours and the largest
+uncertified Graph-class gap this pane has seen. That is the next certification
+target when a quiet window is available, ahead of re-running anything already
+settled.
+
+A/A null control, u in G run 1 (loadavg 29.63), incumbent arm paired against itself in the same invocation: 0.9842x, PASS. fnx arm: 0.9976x, PASS.
+A/A null control, u in G run 2 (loadavg 29.63), incumbent arm paired against itself in the same invocation: 1.0105x, PASS. fnx arm: 0.9946x, PASS.
+A/A null control, u in G run 3 (loadavg 29.63), incumbent arm paired against itself in the same invocation: 0.9771x, PASS. fnx arm: 1.0099x, FAIL.
+A/A null control, (u,v) in G.edges run 1 (loadavg 35.83), incumbent arm paired against itself in the same invocation: 0.9867x, PASS. fnx arm: 1.0249x, PASS.
+A/A null control, (u,v) in G.edges run 2 (loadavg 35.83), incumbent arm paired against itself in the same invocation: 0.9904x, PASS. fnx arm: 1.0171x, PASS.
+A/A null control, (u,v) in G.edges run 3 (loadavg 33.84), incumbent arm paired against itself in the same invocation: 0.9917x, PASS. fnx arm: 1.0057x, PASS.
+
+PROVENANCE, self-reported in-process: harness `/data/tmp/claude-1000/bsq_ops.py`;
+host thinkstation1; rch_worker none — both arms in-process, same host, same
+invocation. Loaded ELF sha256
+14d89d3d0f3d826eedd6ea1324c366809fc406906843b4bbb55f6b0c0cee8668, built by
+maturin `build --release` from a `git archive` tree at `d62e8349e`, `env -u
+CARGO_TARGET_DIR`, private TMPDIR, loaded via PYTHONPATH so the shared venv
+install was never touched; HEAD's Rust has not moved since, so this is still the
+artifact HEAD compiles to. python 3.13.7 x86_64, live networkx 3.6.1, disk 301G
+free. `uptime` observed by this pane: 5.31 at the decision point, then 6.12,
+16.52, 24.72, 29.63, 33.84, 35.83, 44.75, 46.93 and 54.05 — recorded per run
+above.
