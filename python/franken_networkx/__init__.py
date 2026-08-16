@@ -6112,6 +6112,41 @@ class _WeightAwareDegreeView:
         self._raw = raw_view
         self._direction = direction  # None | "in" | "out"
 
+    def _as_degree_view(self, weight, values=None, *, pairs=None):
+        """br-r37-c1-z4iod: return a VIEW, not a one-shot iterator.
+
+        The weighted whole-graph paths below each returned a raw
+        ``iter(zip(...))`` / generator. networkx returns a DegreeView, and the
+        difference is not cosmetic — a generator is exhausted by its first
+        consumer, so
+
+            deg = G.degree(weight='weight')
+            total = sum(d for _, d in deg)
+            top   = max(deg, key=lambda kv: kv[1])   # empty under fnx
+
+        gave a correct first answer and an empty second pass, with the failure
+        surfacing far from its cause. ``len()`` also raised
+        TypeError("object of type 'zip' has no len()"). MultiGraph and
+        MultiDiGraph already returned proper views from the same accessor, so
+        they were the in-tree control.
+
+        Pairs are materialised into a list because that is what makes the
+        result re-iterable and sized; the VALUES were already materialised by
+        the native accumulators, so this adds one list of tuples and keeps
+        every fast path above intact. ``view[node]`` still answers the WEIGHTED
+        degree, via the parent, for any node — not just the ones iterated.
+        """
+        if values is not None:
+            # Lazy: the view re-zips these against the graph's node order on
+            # every iteration, so nothing is materialised here.
+            return _filtered_degree_view(
+                self, None, weight=weight, owner=self, values=values, graph=self._graph
+            )
+        # The remaining producers are one-shot generators (dirty store /
+        # non-scalar weight fallbacks), so those DO have to be materialised to
+        # become re-iterable. They are the cold paths.
+        return _filtered_degree_view(self, None, weight=weight, pairs=list(pairs), owner=self)
+
     def __iter__(self):
         return iter(self._raw)
 
@@ -6370,7 +6405,7 @@ class _WeightAwareDegreeView:
                     if _iv is not None:
                         _vals = _iv(weight)
                         if _vals is not None:
-                            return iter(zip(self._graph, _vals))
+                            return self._as_degree_view(weight, _vals)
                     # br-r37-c1-wdegfval (bt): FLOAT weights get the same values-only
                     # store accumulator (Neumaier-compensated in Rust, bit-identical to
                     # builtins.sum), skipping the whole to_dict_of_dicts snapshot below.
@@ -6382,7 +6417,7 @@ class _WeightAwareDegreeView:
                     if _fv is not None:
                         _vals = _fv(weight)
                         if _vals is not None:
-                            return iter(zip(self._graph, _vals))
+                            return self._as_degree_view(weight, _vals)
                     dod = to_dict_of_dicts(self._graph)
 
                     def _weighted_degree_gen():
@@ -6393,7 +6428,7 @@ class _WeightAwareDegreeView:
                                 total = total + selfloop.get(weight, 1)
                             yield (node, total)
 
-                    return _weighted_degree_gen()
+                    return self._as_degree_view(weight, pairs=_weighted_degree_gen())
                 # br-cc-diwdegvals: simple DiGraph total weighted degree zips the
                 # cached node list (list(G) via node_iter_mirror, ~0.003ms) with a
                 # VALUES-only native accumulator (int-store fast path, else exact
@@ -6409,11 +6444,14 @@ class _WeightAwareDegreeView:
                         self._graph, "_native_weighted_degree_values", None
                     )
                     if values is not None:
-                        return iter(zip(self._graph, values(weight)))
+                        return self._as_degree_view(weight, values(weight))
                 native = getattr(self._graph, "_native_weighted_degree", None)
                 if native is not None:
-                    return iter(native(weight))
-            return ((n, self._weighted_value(n, weight)) for n in self._graph)
+                    return self._as_degree_view(weight, pairs=native(weight))
+            return self._as_degree_view(
+                weight,
+                pairs=((n, self._weighted_value(n, weight)) for n in self._graph),
+            )
         if nbunch in self._graph:
             return self._weighted_value(nbunch, weight)
         # br-r37-c1-degnbw (cc): iterable nbunch + str weight -> native weighted
@@ -6457,9 +6495,22 @@ class _FilteredDegreeView:
     (``type(view).__name__``) matches nx exactly.
     """
 
-    __slots__ = ("_raw", "_nodes", "_weight", "_parent", "_pairs")
+    __slots__ = ("_raw", "_nodes", "_weight", "_parent", "_pairs", "_values", "_vgraph")
 
-    def __init__(self, raw, nodes, weight=None, pairs=None):
+    def __init__(self, raw, nodes, weight=None, pairs=None, values=None, graph=None):
+        # br-r37-c1-z4iod: `values` is the lazy mode — a per-node value list
+        # straight from a native accumulator, zipped against the graph's node
+        # order on each iteration. `pairs` stays the eager mode for the paths
+        # that can only produce a one-shot generator.
+        self._values = values
+        self._vgraph = graph
+        if values is not None:
+            self._raw = raw
+            self._pairs = None
+            self._nodes = None
+            self._weight = weight
+            self._parent = raw if isinstance(raw, _WeightAwareDegreeView) else None
+            return
         self._raw = raw
         # br-r37-c1-degnbnative (cc): when `pairs` (precomputed (node, degree) from
         # the native subset kernel) is supplied, iteration serves it directly and
@@ -6479,13 +6530,22 @@ class _FilteredDegreeView:
         return self._raw[node]
 
     def __iter__(self):
+        # br-r37-c1-z4iod: a plain function returning an iterator, NOT a
+        # generator function — the values mode below has to hand back a fresh
+        # zip, and a `return` inside a generator would silently end iteration
+        # instead of returning it.
+        if self._values is not None:
+            # Fresh zip per call: re-iterable like nx's view, and still lazy,
+            # so the weighted whole-graph paths keep their native accumulator
+            # win instead of materialising a list of tuples up front.
+            return iter(zip(self._vgraph, self._values))
         if self._pairs is not None:
-            yield from iter(self._pairs)
-            return
-        for n in self._nodes:
-            yield (n, self._value(n))
+            return iter(self._pairs)
+        return ((n, self._value(n)) for n in self._nodes)
 
     def __len__(self):
+        if self._values is not None:
+            return len(self._values)
         return len(self._nodes)
 
     # br-r37-c1-p1uro: NO __contains__ ON PURPOSE. networkx's degree views do
@@ -6543,14 +6603,16 @@ _FilteredDegreeView.__qualname__ = "DegreeView"
 _FILTERED_DEGREE_VIEW_CLASSES = {}
 
 
-def _filtered_degree_view(raw, nodes, weight=None, pairs=None, owner=None):
+def _filtered_degree_view(
+    raw, nodes, weight=None, pairs=None, owner=None, values=None, graph=None
+):
     name = type(owner).__name__ if owner is not None else "DegreeView"
     cls = _FILTERED_DEGREE_VIEW_CLASSES.get(name)
     if cls is None:
         cls = type(name, (_FilteredDegreeView,), {"__slots__": ()})
         cls.__qualname__ = name
         _FILTERED_DEGREE_VIEW_CLASSES[name] = cls
-    return cls(raw, nodes, weight=weight, pairs=pairs)
+    return cls(raw, nodes, weight=weight, pairs=pairs, values=values, graph=graph)
 
 
 # br-r37-c1-viewnames: align ``type(view).__name__`` with nx so
