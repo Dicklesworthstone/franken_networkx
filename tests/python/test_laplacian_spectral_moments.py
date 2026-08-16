@@ -1,54 +1,102 @@
-"""Laplacian spectral moments tie the Laplacian spectrum to the degrees.
+"""Laplacian spectrum validated from the EIGENVALUE side, via degree identities.
 
-For L = D - A with eigenvalues mu_i:
-  sum_i mu_i      = trace(L)   = sum of degrees = 2|E|;
-  sum_i mu_i^2    = trace(L^2) = sum(d_i^2) + 2|E|;
-  every mu_i >= 0 (L is positive semidefinite) and the smallest is 0.
-This validates laplacian_spectrum from the eigenvalue side against the degree
-sequence (the zero-eigenvalue multiplicity = #components is checked elsewhere,
-5dkg5; this checks the moment/degree identities). Oracle-free, independent of
-networkx.
+br-r37-c1-sdxgk. For L = D - A the trace identities tie the spectrum directly to
+the degree sequence, with no reference implementation involved:
 
-No mocks: real fnx (numpy only to sum eigenvalue powers).
+    sum mu    = trace(L)   = sum of degrees = 2|E|
+    sum mu^2  = trace(L^2) = sum of d_i^2 + 2|E|
+                             (diagonal d_i^2 terms, plus one 1 per ordered
+                              adjacent pair from the off-diagonal -1 entries)
+
+plus two structural facts: L is positive semidefinite, so every mu >= 0, and the
+all-ones vector is always in the kernel, so the smallest eigenvalue is exactly 0.
+
+br-r37-c1-5dkg5 covers the zero-multiplicity = component-count result. This
+covers the moment/degree identities, which are independent of it: a spectrum
+that got the connectivity structure right can still be wrong about magnitudes.
+
+The second moment is the discriminating one — it is the only assertion here that
+would notice A being dropped from L (leaving just D), since trace(D) = trace(L).
 """
 
-from __future__ import annotations
-
 import math
-import random
 
+import numpy as np
 import pytest
+
 import franken_networkx as fnx
 
-np = pytest.importorskip("numpy")
+GRAPHS = {
+    "path_6": lambda: fnx.path_graph(6),
+    "path_10": lambda: fnx.path_graph(10),
+    "cycle_6": lambda: fnx.cycle_graph(6),
+    "cycle_9": lambda: fnx.cycle_graph(9),
+    "complete_5": lambda: fnx.complete_graph(5),
+    "complete_8": lambda: fnx.complete_graph(8),
+    "star_7": lambda: fnx.star_graph(7),
+    "bipartite_3_4": lambda: fnx.complete_bipartite_graph(3, 4),
+    "petersen": lambda: fnx.petersen_graph(),
+    "erdos_12_p3": lambda: fnx.erdos_renyi_graph(12, 0.3, seed=21),
+    "erdos_15_p4": lambda: fnx.erdos_renyi_graph(15, 0.4, seed=22),
+}
 
 
-@pytest.mark.parametrize("seed", range(30))
-def test_laplacian_moments_match_degrees(seed):
-    r = random.Random(seed)
-    n = r.randint(4, 9)
-    edges = [(u, v) for u in range(n) for v in range(u + 1, n) if r.random() < 0.45]
-    g = fnx.Graph(); g.add_nodes_from(range(n)); g.add_edges_from(edges)
-
-    mu = fnx.laplacian_spectrum(g).real
-    degs = np.array([d for _, d in g.degree()])
-    m = g.number_of_edges()
-
-    # First moment: trace(L) = sum of degrees = 2|E|.
-    assert mu.sum() == pytest.approx(2 * m, abs=1e-5)
-    assert mu.sum() == pytest.approx(degs.sum(), abs=1e-5)
-    # Second moment: trace(L^2) = sum(d^2) + 2|E|.
-    assert (mu ** 2).sum() == pytest.approx((degs ** 2).sum() + 2 * m, abs=1e-4)
-    # Positive semidefinite, with a zero eigenvalue.
-    assert mu.min() == pytest.approx(0.0, abs=1e-6)
-    assert mu.min() > -1e-6
+def _spectrum(graph):
+    return np.array(fnx.laplacian_spectrum(graph)).real
 
 
-@pytest.mark.parametrize("n", [3, 4, 5, 6])
-def test_complete_graph_laplacian_moments(n):
-    # K_n Laplacian spectrum: 0 once, n with multiplicity n-1.
-    mu = fnx.laplacian_spectrum(fnx.complete_graph(n)).real
-    assert mu.sum() == pytest.approx(n * (n - 1), abs=1e-5)        # = 2|E|
-    assert (mu ** 2).sum() == pytest.approx(n ** 2 * (n - 1), abs=1e-4)
-    # Sanity: |E| recovered from the first moment.
-    assert mu.sum() / 2 == pytest.approx(math.comb(n, 2), abs=1e-5)
+def _degrees(graph):
+    return [degree for _, degree in graph.degree()]
+
+
+@pytest.mark.parametrize("name", sorted(GRAPHS))
+def test_first_moment_is_twice_the_edge_count(name):
+    graph = GRAPHS[name]()
+    assert _spectrum(graph).sum() == pytest.approx(
+        2 * graph.number_of_edges(), rel=1e-9
+    )
+    assert _spectrum(graph).sum() == pytest.approx(sum(_degrees(graph)), rel=1e-9)
+
+
+@pytest.mark.parametrize("name", sorted(GRAPHS))
+def test_second_moment_is_sum_of_squared_degrees_plus_twice_edges(name):
+    """The identity that notices A being dropped from L = D - A."""
+    graph = GRAPHS[name]()
+    expected = sum(d * d for d in _degrees(graph)) + 2 * graph.number_of_edges()
+    assert (_spectrum(graph) ** 2).sum() == pytest.approx(expected, rel=1e-8)
+
+
+@pytest.mark.parametrize("name", sorted(GRAPHS))
+def test_laplacian_is_positive_semidefinite_with_a_zero_eigenvalue(name):
+    spectrum = sorted(_spectrum(GRAPHS[name]()))
+    assert spectrum[0] == pytest.approx(0.0, abs=1e-8)
+    assert min(spectrum) >= -1e-8, "L is PSD; no eigenvalue may be negative"
+
+
+@pytest.mark.parametrize("n", [2, 3, 4, 5, 6, 7, 8])
+def test_complete_graph_laplacian_spectrum_is_the_known_pair(n):
+    """L(K_n) has eigenvalue 0 once and n with multiplicity n-1."""
+    spectrum = sorted(_spectrum(fnx.complete_graph(n)))
+    assert spectrum[0] == pytest.approx(0.0, abs=1e-8)
+    for value in spectrum[1:]:
+        assert value == pytest.approx(float(n))
+
+
+@pytest.mark.parametrize("leaves", [2, 3, 4, 5, 7])
+def test_star_graph_laplacian_spectrum_is_zero_ones_and_n_plus_one(leaves):
+    """S_n: eigenvalues 0, 1 (multiplicity n-1) and n+1 — a non-regular check.
+
+    Every other closed form here is on a regular or near-regular graph, where a
+    routine confusing L with D would be harder to catch.
+    """
+    spectrum = sorted(_spectrum(fnx.star_graph(leaves)))
+    assert spectrum[0] == pytest.approx(0.0, abs=1e-8)
+    assert spectrum[-1] == pytest.approx(float(leaves + 1))
+    for value in spectrum[1:-1]:
+        assert value == pytest.approx(1.0)
+
+
+@pytest.mark.parametrize("name", sorted(GRAPHS))
+def test_spectrum_has_one_eigenvalue_per_node(name):
+    graph = GRAPHS[name]()
+    assert len(_spectrum(graph)) == graph.number_of_nodes()
