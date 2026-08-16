@@ -11302,3 +11302,79 @@ times during this session, so rows are only comparable within the same sha.
 
 STATUS: loss recorded with an admissible null. The lever is OPEN, its ceiling is
 measured at parity, and it is Rust-side.
+
+## MultiDiGraph `G.edges[u,v,k]` — measured LOSS 0.2545x vs networkx, lever NOT taken (br-r37-c1-tjp0g)
+
+comparison_class=INCUMBENT
+incumbent=networkx
+incumbent_same_invocation=true
+decision_gate=median_ci
+cv_role=report_only
+
+My worst measured vs-incumbent ratio, now that DiGraph `G.edges[u,v]` (0.2746x)
+is banked. The two multigraph classes had NO ABBA substrate at all — `view-reads`
+covers Graph and `view-reads-directed` covers DiGraph — so these ratios existed
+only as a scratch sweep against an ELF that no longer exists. `view-reads-multi`
+is added in this commit so they are measured rather than remembered.
+
+A/A null control run 1, incumbent arm paired against itself in the same invocation: 1.0104x, inside the 0.02 bound.
+
+A/A null control run 1, fnx arm paired against itself in the same invocation: 1.0021x, inside the 0.02 bound.
+
+A/A null control run 2, incumbent arm paired against itself in the same invocation: 1.0126x, inside the 0.02 bound.
+
+A/A null control run 2, fnx arm paired against itself in the same invocation: 1.0000x, inside the 0.02 bound.
+
+A/B against live networkx 3.6.1 in the SAME invocation, ABBAABBA square, 81 rounds x 50 reps x 8 calls per slot, gated on the bootstrap median CI:
+
+| row | run 1 (cores 40-47) | run 2 (cores 48-55) | worst bound |
+|---|---|---|---|
+| MultiDiGraph `G.edges[u,v,k]` | 0.2579x [0.2573, 0.2589] | 0.2554x [0.2545, 0.2561] | 0.2545x |
+| MultiGraph `G.edges[u,v,k]` | 0.3212x [0.3206, 0.3218] | 0.2923x [0.2900, 0.2934] | 0.2900x |
+| MultiGraph `(u,v,k) in G.edges()` | 0.2677x [0.2667, 0.2684] | 0.2858x [0.2843, 0.2871] | 0.2667x |
+| CONTROL `len(G)` | 1.9912x | 1.9903x | — |
+| CONTROL `n in G` | 1.5099x | 1.4760x | — |
+
+Ratio is t_networkx/t_fnx, so below 1.0 means fnx is slower. The MultiDiGraph row
+replicates tightly — 0.2579x against 0.2554x with CIs nearly touching.
+
+THE HOST WAS VERY BUSY and the row is quoted anyway, with the evidence for why
+that is defensible: loadavg was 40.9 and 48.5 at the two run starts, with peers
+building throughout. All eight A/A null controls passed, and the two CONTROL rows
+reproduced across runs to within 0.05 percent (1.9912x against 1.9903x) and 2.3
+percent. A substrate whose controls agree that closely across a 40-to-48 loadavg
+swing is measuring the arms, not the host. Shorter slots with more of them (50
+reps, 8 calls per slot, 81 rounds) is what makes the nulls resolvable under this
+load; at the harness default of 400 reps and one call per slot the equivalent
+DiGraph row NULL-FAILS at 1.1065.
+
+TWO ROWS THAT DID NOT ADMIT, so they are not quoted as results: MultiGraph
+`get_edge_data(u,v,k)` read 0.4538x and 0.4455x, and MultiGraph `has_edge(u,v,k)`
+read 0.4041x and 0.3737x, both NULL-FAILING in both runs at 1.0210 to 1.0354.
+They are consistent in direction and roughly 0.37x to 0.45x, but one admissible
+run is not two and neither has any, so they are recorded as unbanked.
+
+WHY, and it is the same structural cause as the DiGraph row: `type(G.edges).
+__dict__['__getitem__']` is a native `wrapper_descriptor` on Graph, because
+`fnx.EdgeView` IS `_fnx.EdgeView` and the C slot serves it — that row measures
+about 0.79x. On DiGraph, MultiGraph and MultiDiGraph it is a plain Python
+`function`. The keyed subscript is additionally a distinct code path: networkx's
+`OutMultiEdgeView.__getitem__` does `u, v, k = e`, a STRICT 3-unpack, so a
+multigraph subscript requires a 3-tuple and is not the 2-tuple row with a
+different receiver.
+
+LEVER NOT TAKEN. The `_fnx.DiEdgeView` routing idea (br-r37-c1-bc7r4) is not a
+drop-in — it marks the graph dirty on every read, leaks the CANONICAL key into
+`KeyError`, has no slice handling, and is not constructible from Python at all.
+The lever I intend is the borrowed-canonical-key change in `get_edge_data`,
+written up on br-r37-c1-tjp0g and gated ahead of time by
+tests/python/test_edge_lookup_canonical_key_boundary_parity.py (74 cases).
+
+PROVENANCE, self-reported in-process: harness `scripts/balanced_square_ab.py`
+sha256 286bb779e78758e01b56e369fd71ec9f24b5971d60c03472570a812fc0edf62c; host
+thinkstation1; rch_worker none, both arms in-process on the same host, and NO
+build was performed for this row — the already-built binary was reused, verified
+by 0 `.rs` files newer than the loaded `.so`; loaded ELF sha256
+ecfc2d30935a12eb0b61c3d00b38718026bcc36977c047b048463c1bf9a37fb8; governor
+powersave; runtime ISA avx2 avx sse4_2; observed affinity 8 of 64 cpus; python
+3.13.7 x86_64; live networkx 3.6.1; PYTHONHASHSEED=0.

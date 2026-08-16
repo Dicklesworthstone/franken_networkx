@@ -525,9 +525,80 @@ def workload_incumbent_fixtures_2(reps: int):
     return build, ops
 
 
+def _multi_graph(module, nodes: int, edges: int, *, directed: bool, seed: int = 11):
+    """An identically-shaped weighted multigraph in either library.
+
+    Parallel edges are deliberate: every 5th pair is added twice, so the keyed
+    subscript has more than key 0 to find and a row is not just a simple graph
+    wearing a multigraph type.
+    """
+    rng = random.Random(seed)
+    graph = (module.MultiDiGraph if directed else module.MultiGraph)()
+    names = [f"n{i}" for i in range(nodes)]
+    graph.add_nodes_from(names)
+    triples = []
+    while len(triples) < edges:
+        a, b = rng.randrange(nodes), rng.randrange(nodes)
+        if a == b:
+            continue
+        key = graph.add_edge(names[a], names[b], weight=1 + (a + b) % 19)
+        triples.append((names[a], names[b], key))
+        if len(triples) % 5 == 0 and len(triples) < edges:
+            key2 = graph.add_edge(names[a], names[b], weight=2 + (a + b) % 19)
+            triples.append((names[a], names[b], key2))
+    return graph, (names, triples)
+
+
+def workload_view_reads_multi(reps: int):
+    """The MULTIGRAPH twin of `view-reads` (br-r37-c1-ki2ni, br-r37-c1-tjp0g).
+
+    `view-reads` covers Graph and `view-reads-directed` covers DiGraph, so the
+    two multigraph classes had no ABBA row at all — their subscript ratios were
+    only ever measured by a scratch sweep on an ELF that no longer exists. They
+    are the worst rows on this surface, so they need a substrate rather than a
+    remembered number.
+
+    The keyed subscript is the point: `G.edges[u, v, k]` on a multigraph
+    REQUIRES a 3-tuple (networkx's OutMultiEdgeView does `u, v, k = e`), so this
+    is a genuinely different code path from the 2-tuple one the simple classes
+    take, not the same row with a different receiver.
+    """
+
+    def build(module):
+        undirected, (names, triples) = _multi_graph(module, 2000, 8000, directed=False)
+        directed, (dnames, dtriples) = _multi_graph(module, 2000, 8000, directed=True)
+        return undirected, (names, triples, directed, dnames, dtriples)
+
+    def ops(graph, fixture):
+        names, triples, digraph, _dnames, dtriples = fixture
+        rng = random.Random(7)
+        probe = [triples[rng.randrange(len(triples))] for _ in range(reps)]
+        dprobe = [dtriples[rng.randrange(len(dtriples))] for _ in range(reps)]
+        view, dview = graph.edges, digraph.edges
+        return {
+            "MG G.edges[u,v,k]": lambda: sum(len(view[u, v, k]) for u, v, k in probe),
+            "MDG G.edges[u,v,k]": lambda: sum(
+                len(dview[u, v, k]) for u, v, k in dprobe
+            ),
+            "MG (u,v,k) in G.edges()": lambda: sum(1 for t in probe if t in view),
+            "MG G.get_edge_data(u,v,k)": lambda: sum(
+                len(graph.get_edge_data(u, v, k)) for u, v, k in probe
+            ),
+            "MG G.has_edge(u,v,k)": lambda: sum(
+                1 for u, v, k in probe if graph.has_edge(u, v, k)
+            ),
+            # Controls: no edge-subscript lever can move a bare node count.
+            "CONTROL len(G)": lambda: sum(len(graph) for _ in range(reps)),
+            "CONTROL n in G": lambda: sum(1 for n in names[:reps] if n in graph),
+        }
+
+    return build, ops
+
+
 WORKLOADS = {
     "view-reads": workload_view_reads,
     "view-reads-directed": workload_view_reads_directed,
+    "view-reads-multi": workload_view_reads_multi,
     "algorithms": workload_algorithms,
     "incumbent-fixtures": workload_incumbent_fixtures,
     "incumbent-fixtures-2": workload_incumbent_fixtures_2,
