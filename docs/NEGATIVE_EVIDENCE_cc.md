@@ -11541,3 +11541,70 @@ ecfc2d30935a12eb0b61c3d00b38718026bcc36977c047b048463c1bf9a37fb8; governor
 powersave; runtime ISA avx2 avx sse4_2; observed affinity 8 of 64 cpus; python
 3.13.7 x86_64; live networkx 3.6.1; PYTHONHASHSEED=0; loadavg 24.0 and 23.7 at the
 two run starts.
+
+## 2026-08-16 GoldenBison KEEP: `G.degree(n)` exact-str fast path hoisted above the sequence test — **0.7226x to 0.8343x** (br-r37-c1-ey6ob)
+
+comparison_class=SELF-SPEEDUP
+campaign_output=false
+decision_gate=median_ci
+cv_role=report_only
+
+A pure-Python reordering in `_WeightAwareDegreeView.__call__`, shipped with NO
+build: the same ELF serves both the before and after rows, so the ELF sha is
+identical on each side and the only variable is the shim.
+
+A/A null control, before, run 1, incumbent arm paired against itself in the same invocation: 1.0079x, inside the 0.02 bound.
+
+A/A null control, before, run 1, fnx arm paired against itself in the same invocation: 1.0048x, inside the 0.02 bound.
+
+A/A null control, after, run 1, incumbent arm paired against itself in the same invocation: 0.9999x, inside the 0.02 bound.
+
+A/A null control, after, run 1, fnx arm paired against itself in the same invocation: 1.0008x, inside the 0.02 bound.
+
+A/A null control, after, run 2, incumbent arm paired against itself in the same invocation: 1.0051x, inside the 0.02 bound.
+
+A/A null control, after, run 2, fnx arm paired against itself in the same invocation: 1.0014x, inside the 0.02 bound.
+
+A/B against live networkx 3.6.1 in the SAME invocation, ABBAABBA square, identical
+shape throughout (81 rounds x 50 reps x 8 calls per slot), gated on the bootstrap
+median CI:
+
+| state | run 1 (cores 40-47) | run 2 (cores 48-55) | worst bound |
+|---|---|---|---|
+| before | 0.7306x [0.7287, 0.7333] | 0.7238x [0.7226, 0.7246] | 0.7226x |
+| after | 0.8361x [0.8343, 0.8370] | 0.8416x [0.8408, 0.8428] | 0.8343x |
+
+Worst-bound to worst-bound that is 0.7226x to 0.8343x, about 15.5 percent, and the
+two after-runs replicate to within 0.7 percent. It remains a LOSS against
+networkx, so this is maintenance, not a competitive claim.
+
+THE LEVER, and why it is not a micro-tune: the cost here is the WRAPPER, not the
+lookup. Measured on the same binary, the native `self._raw[n]` is 93.0ns while the
+whole `G.degree(n)` call was 252.5ns — 159.5ns of Python — against networkx's own
+76.6ns of wrapper over its 109.6ns subscript. fnx was paying roughly twice
+networkx's wrapper cost. The exact-`str` lookup already existed but sat BELOW a
+two-tuple `isinstance` that can never succeed for a `str`, because the sequence
+branch is guarded by `not isinstance(nbunch, (str, bytes))`. Hoisting it above
+that test is provably equivalent: exact `str` reached the identical body before,
+and a `str` SUBCLASS still fails `type(...) is str` and falls through unchanged.
+
+The gate stays `type(nbunch) is str` rather than `isinstance`, and that is
+required rather than stylistic: the native lookup resolves a key by its CHARACTERS
+and never calls `__hash__`, so an UNHASHABLE `str` subclass routed into it would
+return a degree NUMBER where networkx returns an empty view. Pinned by
+tests/python/test_degree_call_argument_shape_parity.py, 72 cases over 13 argument
+shapes x 4 graph classes, asserted against live networkx rather than recorded
+expectations.
+
+Full Python suite after the change: 59398 passed, 1461 skipped. The only two
+failures are the pre-existing cross-test pollution filed as br-r37-c1-2i3mf, which
+reproduce identically before this change.
+
+PROVENANCE, self-reported in-process: harness `scripts/balanced_square_ab.py`
+sha256 286bb779e78758e01b56e369fd71ec9f24b5971d60c03472570a812fc0edf62c; host
+thinkstation1; rch_worker none, both arms in-process, NO build performed for
+either side; loaded ELF sha256
+ecfc2d30935a12eb0b61c3d00b38718026bcc36977c047b048463c1bf9a37fb8 on BOTH sides;
+governor powersave; runtime ISA avx2 avx sse4_2; observed affinity 8 of 64 cpus;
+python 3.13.7 x86_64; live networkx 3.6.1; PYTHONHASHSEED=0; loadavg 24.0/23.7
+before and 24.8/23.5 after.

@@ -6908,6 +6908,37 @@ class _WeightAwareDegreeView:
             # on any missing node. Honour the nx contract: single-node
             # lookups preserve KeyError-style errors, iterable nbunches
             # filter to in-graph nodes only.
+            # br-r37-c1-ey6ob: hoist the EXACT-`str` lookup above the sequence
+            # test entirely. The sequence branch below is guarded by
+            # `not isinstance(nbunch, (str, bytes))`, so for an exact `str` it
+            # can never be taken — which means every `G.degree("n")` call was
+            # paying a two-tuple `isinstance` to learn something the `type(...)
+            # is str` test one block later already decides. Provably equivalent:
+            # exact `str` reached the identical `self._raw[nbunch]` body before,
+            # and a `str` SUBCLASS still fails `type(...) is str` and falls
+            # through to the unchanged sequence test.
+            #
+            # Worth doing because the wrapper, not the lookup, is the cost.
+            # Measured on ELF ecfc2d30: the native `self._raw[n]` is 93.0ns while
+            # the whole `G.degree(n)` call is 252.5ns, so 159.5ns is Python
+            # wrapper — against networkx's own 76.6ns of wrapper over its 109.6ns
+            # subscript. `G.degree(n)` is the worst row on this surface at
+            # 0.7226x.
+            #
+            # EXACT `str` only, and that is required rather than cosmetic: the
+            # native lookup resolves a key by its CHARACTERS and never calls
+            # `__hash__`, so an unhashable `str` subclass would come back with a
+            # NUMBER where networkx returns an empty view.
+            if type(nbunch) is str:
+                try:
+                    return self._raw[nbunch]
+                except (NodeNotFound, KeyError):
+                    # Absent: fall through to the str-iteration contract below,
+                    # where networkx's nbunch_iter walks the CHARACTERS.
+                    filtered = [n for n in nbunch if n in self._graph]
+                    return _filtered_degree_view(
+                        self._raw, filtered, owner=self, graph=self._graph
+                    )
             # br-r37-c1-dlqkq: `str` is excluded from the sequence branch either
             # way, so test that FIRST and short-circuit. The previous spelling
             # (`A or hasattr(...) and not isinstance(...)`) evaluated a 4-tuple
