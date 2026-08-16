@@ -2233,15 +2233,22 @@ class AdjacencyView(_Mapping):
         # is a closure over a fixed object. The row lookup was never the cost;
         # the frames were.
         #
-        # The hash stays, and it is not redundant here: the native
-        # MultiAtlasView / MultiDiAtlasView answer False for an unhashable key
-        # rather than raising, which is the same gap br-r37-c1-espyz closed on
-        # the simple AtlasView. Until that guard is mirrored onto the multi
-        # views this line IS the TypeError contract.
-        hash(node)
+        # br-r37-c1-mh4sg: a CAPTURED row no longer needs the explicit hash.
+        # The native MultiAtlasView / MultiDiAtlasView used to answer False for
+        # an unhashable key rather than raising — the same gap br-r37-c1-espyz
+        # closed on the simple AtlasView — so this line WAS the TypeError
+        # contract and removing it first would have been a silent parity
+        # regression bought with 66 ns. They now carry the guard themselves, so
+        # the captured path raises from the view and the hash is genuinely
+        # redundant there.
+        #
+        # The fallback keeps it. `_atlas()` can return shapes whose membership
+        # guarantee has not been established one by one, and a contract that
+        # holds only for the paths someone happened to check is not a contract.
         row = self._fnx_captured_row
         if row is not None:
             return node in row
+        hash(node)
         return node in self._atlas()
 
     def __getitem__(self, node):

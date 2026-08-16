@@ -3404,6 +3404,11 @@ impl MultiDiAtlasView {
     }
 
     fn __contains__(&self, py: Python<'_>, v: &Bound<'_, PyAny>) -> PyResult<bool> {
+        // br-r37-c1-mh4sg: see MultiAtlasView::__contains__ — networkx hashes
+        // this key, so an unhashable one is a TypeError and not False. Same gap
+        // br-r37-c1-espyz closed on the simple AtlasView, masked here by the
+        // explicit hash in the Python AdjacencyView sitting in front.
+        crate::require_hashable_node_key(v)?;
         let g = self.graph.borrow(py);
         let v_canon = node_key_to_string(py, v)?;
         let (source, target) = self.endpoint_pair(v_canon);

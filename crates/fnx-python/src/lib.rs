@@ -6349,6 +6349,18 @@ impl MultiAtlasView {
     }
 
     fn __contains__(&self, py: Python<'_>, v: &Bound<'_, PyAny>) -> PyResult<bool> {
+        // br-r37-c1-mh4sg: networkx answers this with a dict probe, which
+        // HASHES v, so an unhashable key is a TypeError and not False.
+        // `node_key_to_string` canonicalises by VALUE and never hashes, so
+        // `['x'] in row` quietly returned False here. Exactly the gap
+        // br-r37-c1-espyz closed on the simple `AtlasView`; the multi views were
+        // missed because the Python `AdjacencyView.__contains__` in front of
+        // them carries its own explicit `hash()` and was masking it.
+        //
+        // Nearly free: `require_hashable_node_key` short-circuits on an exact
+        // str/int/float/bool, which are always hashable, so the common shape
+        // pays one type check and never hashes.
+        require_hashable_node_key(v)?;
         let g = self.graph.borrow(py);
         let v_canon = node_key_to_string(py, v)?;
         Ok(g.inner.has_edge(&self.node, &v_canon))
