@@ -13071,6 +13071,155 @@ impl PyDiGraph {
         self.copy(py)
     }
 
+    /// br-r37-c1-u3vvm: directed mirror of `PyGraph::_native_relabel_copy`.
+    ///
+    /// The undirected twin landed and the directed one did not, and the measured
+    /// gap is exactly the shape of that omission (harness A, 41 rounds, dual A/A
+    /// nulls, two agreeing runs, worst bound quoted; nx 3.6.1, 400 nodes,
+    /// 1200 edges, ratio t_networkx/t_fnx):
+    ///
+    ///     attrs   Graph (has kernel)   DiGraph (no kernel)
+    ///     0            1.9852x               0.7668x
+    ///     3            0.9758x               0.5521x
+    ///     8            0.7436x               0.4228x
+    ///
+    /// Without the kernel the Python path does a full attributed ROUND-TRIP —
+    /// `nodes(data=True)` / `edges(data=True)` materialise every store `AttrMap`
+    /// into a fresh PyDict, the comprehension rebuilds tuples, and
+    /// `add_*_from` re-ingests every dict back into a Rust `AttrMap`. That is
+    /// O((V+E) * attrs) of pure boundary conversion networkx never pays, which
+    /// is why the loss deepens with attribute count.
+    ///
+    /// Everything here is modelled on the undirected kernel, INCLUDING its
+    /// gates, because those gates encode correctness the Python path implements
+    /// and this one does not:
+    ///   * a MERGING mapping bails — two old nodes on one new key make the
+    ///     result order- and attr-merge-sensitive;
+    ///   * a `None` mapping target bails, so `add_nodes_from` keeps raising its
+    ///     own ValueError("None cannot be a node") wording, which
+    ///     `read_gexf(relabel=True)` depends on;
+    ///   * non-empty display-key overrides bail (br-r37-c1-z6uka) — here that is
+    ///     BOTH `succ_py_keys` and `pred_py_keys`, the directed pair standing in
+    ///     for the undirected `adj_py_keys`.
+    ///
+    /// Node attrs are refreshed from the Python mirror where one exists: node
+    /// attribute writes are not tracked by `edges_dirty`, and the mirror is the
+    /// live dict Python holds, so it is authoritative. The store `AttrMap` is
+    /// cloned Rust-to-Rust and the mirror `PyDict_Copy`d Python-to-Python —
+    /// neither is converted, which is the entire point.
+    ///
+    /// The one real directed difference: edge mirrors are keyed by ORIENTED
+    /// endpoints, so unlike the undirected kernel there is no reverse-key
+    /// fallback when looking one up. Trying `(v, u)` here would attach the wrong
+    /// arc's attributes in a graph that holds both directions.
+    fn _native_relabel_copy(
+        &self,
+        py: Python<'_>,
+        mapping: &Bound<'_, PyDict>,
+    ) -> PyResult<Option<Self>> {
+        if !self.succ_py_keys.is_empty() || !self.pred_py_keys.is_empty() {
+            return Ok(None);
+        }
+        let ordered = self.inner.nodes_ordered();
+        let mut renamed: HashMap<String, String> = HashMap::with_capacity(ordered.len());
+        let mut new_keys: Vec<(String, PyObject)> = Vec::with_capacity(ordered.len());
+        let mut seen: std::collections::HashSet<String> =
+            std::collections::HashSet::with_capacity(ordered.len());
+        for canonical in &ordered {
+            let old_obj = self.py_node_key(py, canonical);
+            let (new_canonical, new_obj) = match mapping.get_item(old_obj.bind(py))? {
+                Some(target) => {
+                    if target.is_none() {
+                        return Ok(None);
+                    }
+                    (node_key_to_string(py, &target)?, target.unbind())
+                }
+                None => ((*canonical).to_owned(), old_obj),
+            };
+            if !seen.insert(new_canonical.clone()) {
+                return Ok(None);
+            }
+            renamed.insert((*canonical).to_owned(), new_canonical.clone());
+            new_keys.push((new_canonical, new_obj));
+        }
+
+        let mut inner = DiGraph::with_runtime_policy(self.inner.runtime_policy().clone());
+        let mut node_py_attrs: HashMap<String, Py<PyDict>> =
+            HashMap::with_capacity(self.node_py_attrs.len());
+        let mut nodes_with_attrs: Vec<(String, AttrMap)> = Vec::with_capacity(ordered.len());
+        for (index, canonical) in ordered.iter().enumerate() {
+            let new_canonical = &new_keys[index].0;
+            match self.node_py_attrs.get(*canonical) {
+                Some(attrs) => {
+                    let bound = attrs.bind(py);
+                    nodes_with_attrs.push((new_canonical.clone(), py_dict_to_attr_map(bound)?));
+                    node_py_attrs.insert(new_canonical.clone(), bound.copy()?.unbind());
+                }
+                None => {
+                    let attrs = self
+                        .inner
+                        .node_attrs(canonical)
+                        .cloned()
+                        .unwrap_or_else(AttrMap::new);
+                    nodes_with_attrs.push((new_canonical.clone(), attrs));
+                }
+            }
+        }
+        let _ = inner.extend_nodes_with_attrs_unrecorded(nodes_with_attrs);
+
+        let mut edge_py_attrs: HashMap<(String, String), Py<PyDict>> =
+            HashMap::with_capacity(self.edge_py_attrs.len());
+        let source_edges = self.inner.edges_ordered_borrowed();
+        let mut edges_with_attrs: Vec<(String, String, AttrMap)> =
+            Vec::with_capacity(source_edges.len());
+        for (u, v, attrs) in source_edges {
+            let new_u = renamed.get(u).expect("every source node was renamed");
+            let new_v = renamed.get(v).expect("every source node was renamed");
+            // Oriented lookup only — see the note above on why there is no
+            // reverse-key fallback in the directed kernel.
+            if let Some(mirror) = self.edge_py_attrs.get(&(u.to_owned(), v.to_owned())) {
+                edge_py_attrs.insert(
+                    (new_u.clone(), new_v.clone()),
+                    mirror.bind(py).copy()?.unbind(),
+                );
+            }
+            edges_with_attrs.push((new_u.clone(), new_v.clone(), attrs.clone()));
+        }
+        let _ = inner.extend_edges_with_attrs_unrecorded(edges_with_attrs);
+
+        let mut node_key_map: HashMap<String, PyObject> = HashMap::with_capacity(new_keys.len());
+        for (new_canonical, obj) in new_keys {
+            node_key_map.insert(new_canonical, obj);
+        }
+
+        Ok(Some(Self {
+            inner,
+            node_key_map,
+            node_py_attrs,
+            edge_py_attrs,
+            succ_py_keys: HashMap::new(),
+            pred_py_keys: HashMap::new(),
+            succ_row_py: HashMap::new(),
+            pred_row_py: HashMap::new(),
+            graph_attrs: self.graph_attrs.bind(py).copy()?.unbind(),
+            nodes_seq: 0,
+            edges_seq: 0,
+            // Same contract as `copy`: a dirty source yields a result that
+            // reconciles from the copied Python dicts on the next native read.
+            edges_dirty: AtomicBool::new(self.edges_dirty.load(Ordering::Relaxed)),
+            node_keys_cache: std::sync::Mutex::new(None),
+            node_data_mirror: std::sync::Mutex::new(None),
+            dict_of_dicts_cache: None,
+            edges_with_data_cache: None,
+            in_edges_with_data_cache: None,
+            in_edges_data_attr_cache: std::sync::Mutex::new(None),
+            edges_attr_dicts_cache: None,
+            has_edge_node_index_cache: NodeIndexLookupCache::new(py),
+            node_iter_mirror: std::sync::Mutex::new(None),
+            instance_dict_gc: crate::InstanceDictGc::new(),
+        }))
+    }
+
     fn subgraph(&self, py: Python<'_>, nodes: &Bound<'_, PyAny>) -> PyResult<Self> {
         let iter = PyIterator::from_object(nodes)?;
         let mut keep: std::collections::HashSet<String> = std::collections::HashSet::new();

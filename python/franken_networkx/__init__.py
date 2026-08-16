@@ -58510,7 +58510,13 @@ def relabel_nodes(G, mapping, copy=True):
         # Rust-to-Rust and copies the mirrors Python-to-Python, converting
         # neither. It returns None for the shapes it does not own (merging
         # mappings, adjacency-row display overrides), and those keep this path.
-        if type(G) is Graph and isinstance(_map, dict):
+        # br-r37-c1-u3vvm: DiGraph joins Graph here. It was the worst row in the
+        # family precisely because it lacked the kernel — measured 0.7668x /
+        # 0.5521x / 0.4228x at 0 / 3 / 8 attrs (worst bound, two agreeing runs)
+        # against Graph's 1.9852x / 0.9758x / 0.7436x with it. `type(G) is`
+        # rather than isinstance: a subclass may override add_node/add_edge and
+        # must keep the Python path that calls them.
+        if type(G) in (Graph, DiGraph) and isinstance(_map, dict):
             native_relabel = getattr(G, "_native_relabel_copy", None)
             if native_relabel is not None:
                 relabeled = native_relabel(_map)
