@@ -12152,3 +12152,44 @@ which no longer exists on disk — they are repeat-min, not ABBA, and are quoted
 shape rather than as banked rows); governor powersave; runtime ISA avx2 avx
 sse4_2; observed affinity 8 of 64 cpus; python 3.13.7 x86_64; live networkx 3.6.1;
 PYTHONHASHSEED=0; loadavg 20.5 and 19.4 at the two run starts.
+
+---
+
+## get_edge_data — WORST measured row, re-measured on the post-freeze ELF (br-r37-c1-d1ajx)
+
+LEVER: none applied. This is the ratio row for the gap whose only obvious Python
+lever was already refuted on this bead (routing through the row view measured
+2.65x SLOWER). Recorded here because it is the worst vs-incumbent ratio in the
+project and had never been banked as a ratio row with a null on any ELF.
+
+MEASURED 2026-08-16, LOCAL:thinkstation1, live networkx 3.6.1, N=2000. Substrate:
+balanced square ABBAABBA, 21 rounds x 50000 reps, both arms in ONE invocation,
+bootstrap median CI over rounds (10k resamples). RCH_CARGO_WRAPPER_BYPASS=1
+exported; measured against a locally built extension (env -u CARGO_TARGET_DIR,
+this repo's own target/). ELF sha256
+2c3e0c53f4b0d9558998a21d5298d7e5912689ecbaf4db75fb1e346aa10af366.
+
+    class          nx us     fnx us    t_nx/t_fnx   95% CI
+    MultiDiGraph   0.0755    0.3818      0.1967     [0.1955, 0.1977]
+    MultiGraph     0.0812    0.3255      0.2492     [0.2482, 0.2503]
+    DiGraph        0.0712    0.2209      0.3232     [0.3220, 0.3239]
+    Graph          0.0729    0.1435      0.5065     [0.5039, 0.5115]
+
+REPLICATED, because three of the eight A/A nulls in the first pass fell outside
+1.0 by half a percent. Two further MultiDiGraph runs: 0.1906x CI [0.1901, 0.1914]
+and 0.1914x CI [0.1900, 0.1927], against the first pass's 0.1967x. The three
+readings agree to within 3%, on an effect of 5x.
+
+MultiDiGraph A/A null control, paired(base, base) in the same invocation across three runs: nx arm 1.0027x, 0.9964x, 1.0000x; fnx arm 0.9933x, 0.9989x, 0.9996x.
+Every A/A null median sits within 0.7% of 1.0 and the run-to-run spread of the ratio is 3%, so the substrate is admissible and the 5x gap sits far outside both.
+The nulls that fell outside their CI did so by under 1% on a sub-microsecond row, and replication -- not the null -- is what settles it; this is the fifth time on this project that a failing null has refuted nothing.
+
+WHAT THIS ROW SETTLES: get_edge_data is the worst vs-incumbent ratio in the
+project at 0.1967x on MultiDiGraph, and br-r37-c1-ptiz2's index-keyed edge-attr
+lookaside, which landed between the previous reading and this one, did not move
+it -- the earlier figure on ELF ecfc2d30 was 0.236x and this is 0.197x, i.e. no
+improvement and if anything slightly worse.
+
+STATUS: loss recorded with an admissible, replicated substrate. The Python reroute
+is REFUTED above on this same bead. The remaining work is Rust-side: cProfile puts
+100% of the cost inside the native method with no Python frames above it.
