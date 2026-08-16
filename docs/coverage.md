@@ -38,16 +38,16 @@
 | `conversion` | 33 | 1 | 0 | 0 | 3 | 34 | 97.1% |
 | `drawing` | 118 | 3 | 0 | 0 | 18 | 121 | 97.5% |
 | `exceptions` | 28 | 0 | 0 | 0 | 1 | 28 | 100.0% |
-| `generators` | 441 | 3 | 0 | 0 | 79 | 444 | 99.3% |
+| `generators` | 444 | 0 | 0 | 0 | 79 | 444 | 100.0% |
 | `linalg` | 60 | 0 | 0 | 0 | 23 | 60 | 100.0% |
 | `package metadata` | 0 | 0 | 0 | 1 | 0 | 0 | — |
 | `package root` | 0 | 0 | 0 | 0 | 15 | 0 | — |
 | `readwrite` | 236 | 0 | 24 | 0 | 54 | 260 | 90.8% |
 | `runtime` | 2 | 0 | 0 | 0 | 1 | 2 | 100.0% |
 | `utils` | 150 | 0 | 0 | 0 | 21 | 150 | 100.0% |
-| **All families** | **3465** | **634** | **30** | **1** | **796** | **4129** | **83.9%** |
+| **All families** | **3468** | **631** | **30** | **1** | **796** | **4129** | **84.0%** |
 
-At the declared import-and-signature surface measured here, a real user can port **3465 of 4129 applicable NetworkX feature paths today (83.9%)**; the 634 partial and 30 missing paths are not counted as portable, and this is not a behavioral-conformance score.
+At the declared import-and-signature surface measured here, a real user can port **3468 of 4129 applicable NetworkX feature paths today (84.0%)**; the 631 partial and 30 missing paths are not counted as portable, and this is not a behavioral-conformance score.
 
 ## Exhaustive FeatureUniverse
 
@@ -4071,7 +4071,7 @@ At the declared import-and-signature surface measured here, a real user can port
 | `generators` | `networkx.generators.intersection.general_random_intersection_graph` | `callable` | `present` | `franken_networkx.generators.intersection.general_random_intersection_graph` | binding kind and signature match |
 | `generators` | `networkx.generators.intersection.k_random_intersection_graph` | `callable` | `present` | `franken_networkx.generators.intersection.k_random_intersection_graph` | binding kind and signature match |
 | `generators` | `networkx.generators.intersection.uniform_random_intersection_graph` | `callable` | `present` | `franken_networkx.generators.intersection.uniform_random_intersection_graph` | binding kind and signature match |
-| `generators` | `networkx.generators.interval_graph` | `callable` | `partial` | `franken_networkx.generators.interval_graph` | binding kind differs: NetworkX exposes `callable`, FrankenNetworkX exposes `module` |
+| `generators` | `networkx.generators.interval_graph` | `callable` | `present` | `franken_networkx.generators.interval_graph` | binding kind and signature match |
 | `generators` | `networkx.generators.interval_graph.interval_graph` | `callable` | `present` | `franken_networkx.generators.interval_graph.interval_graph` | binding kind and signature match |
 | `generators` | `networkx.generators.inverse_line_graph` | `callable` | `present` | `franken_networkx.generators.inverse_line_graph` | binding kind and signature match |
 | `generators` | `networkx.generators.is_regular_expander` | `callable` | `present` | `franken_networkx.generators.is_regular_expander` | binding kind and signature match |
@@ -4111,7 +4111,7 @@ At the declared import-and-signature surface measured here, a real user can port
 | `generators` | `networkx.generators.mycielskian` | `callable` | `present` | `franken_networkx.generators.mycielskian` | binding kind and signature match |
 | `generators` | `networkx.generators.navigable_small_world_graph` | `callable` | `present` | `franken_networkx.generators.navigable_small_world_graph` | binding kind and signature match |
 | `generators` | `networkx.generators.newman_watts_strogatz_graph` | `callable` | `present` | `franken_networkx.generators.newman_watts_strogatz_graph` | binding kind and signature match |
-| `generators` | `networkx.generators.nonisomorphic_trees` | `callable` | `partial` | `franken_networkx.generators.nonisomorphic_trees` | binding kind differs: NetworkX exposes `callable`, FrankenNetworkX exposes `module` |
+| `generators` | `networkx.generators.nonisomorphic_trees` | `callable` | `present` | `franken_networkx.generators.nonisomorphic_trees` | binding kind and signature match |
 | `generators` | `networkx.generators.nonisomorphic_trees.nonisomorphic_trees` | `callable` | `present` | `franken_networkx.generators.nonisomorphic_trees.nonisomorphic_trees` | binding kind and signature match |
 | `generators` | `networkx.generators.nonisomorphic_trees.number_of_nonisomorphic_trees` | `callable` | `present` | `franken_networkx.generators.nonisomorphic_trees.number_of_nonisomorphic_trees` | binding kind and signature match |
 | `generators` | `networkx.generators.null_graph` | `callable` | `present` | `franken_networkx.generators.null_graph` | binding kind and signature match |
@@ -4205,7 +4205,7 @@ At the declared import-and-signature surface measured here, a real user can port
 | `generators` | `networkx.generators.social.karate_club_graph` | `callable` | `present` | `franken_networkx.generators.social.karate_club_graph` | binding kind and signature match |
 | `generators` | `networkx.generators.social.les_miserables_graph` | `callable` | `present` | `franken_networkx.generators.social.les_miserables_graph` | binding kind and signature match |
 | `generators` | `networkx.generators.soft_random_geometric_graph` | `callable` | `present` | `franken_networkx.generators.soft_random_geometric_graph` | binding kind and signature match |
-| `generators` | `networkx.generators.spectral_graph_forge` | `callable` | `partial` | `franken_networkx.generators.spectral_graph_forge` | binding kind differs: NetworkX exposes `callable`, FrankenNetworkX exposes `module` |
+| `generators` | `networkx.generators.spectral_graph_forge` | `callable` | `present` | `franken_networkx.generators.spectral_graph_forge` | binding kind and signature match |
 | `generators` | `networkx.generators.spectral_graph_forge.spectral_graph_forge` | `callable` | `present` | `franken_networkx.generators.spectral_graph_forge.spectral_graph_forge` | binding kind and signature match |
 | `generators` | `networkx.generators.star_graph` | `callable` | `present` | `franken_networkx.generators.star_graph` | binding kind and signature match |
 | `generators` | `networkx.generators.stochastic` | `module` | `excluded` | `franken_networkx.generators.stochastic` | namespace container; its declared callable, class, and value members are enumerated as separate qualified FeatureUniverse rows |

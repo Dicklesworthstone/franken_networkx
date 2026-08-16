@@ -157,13 +157,26 @@ def test_feature_universe_classifies_every_path_without_rounding_partial_up():
     # assertion — which is also how four k_core-family REGRESSIONS
     # (present -> partial) slipped in unnoticed; those are repaired in
     # franken_networkx/core.py rather than absorbed into these numbers.
+    # br-r37-c1-s5pxs (bookkeeping only): 3465 -> 3468 present, 634 -> 631
+    # partial. THREE paths moved partial -> present and nothing moved the other
+    # way, verified by regenerating the matrix and diffing it row by row against
+    # the committed one:
+    #   networkx.generators.interval_graph
+    #   networkx.generators.nonisomorphic_trees
+    #   networkx.generators.spectral_graph_forge
+    # Each had been reported as `binding kind differs: NetworkX exposes
+    # `callable`, FrankenNetworkX exposes `module``; they now expose callables
+    # and the signatures match, which takes the `generators` family to 100%.
+    # That fix is somebody else's work landed alongside this bead — these
+    # counters are updated here only because they were left red by it, and the
+    # itemisation is recorded so the numbers stay auditable rather than nudged.
     # br-r37-c1-y14e9: 3403 -> 3465 present, 696 -> 634 partial. SIXTY-TWO paths
     # moved partial -> present and nothing moved the other way: every one is a
     # native method that was being charged for a method descriptor's
     # positional-only `self` marker. See the ratio assertion above.
     assert statuses == {
-        "present": 3465,
-        "partial": 634,
+        "present": 3468,
+        "partial": 631,
         "missing": 30,
         "n/a": 1,
         "excluded": 796,
@@ -194,8 +207,10 @@ def test_feature_universe_classifies_every_path_without_rounding_partial_up():
     # is pinned by test_a_real_positional_only_parameter_is_still_a_difference.
     #
     # br-r37-c1-9hnq3 previously moved 3399 -> 3403 (four paths, itemised below).
+    # br-r37-c1-s5pxs: 3465/4129 -> 3468/4129, three generators paths; see the
+    # itemised note above.
     assert statuses["present"] / applicable == pytest.approx(
-        0.8391862436425285
+        3468 / 4129
     )
 
 
@@ -233,8 +248,8 @@ def test_feature_universe_reports_every_family_not_only_a_headline():
     # br-r37-c1-y14e9: 3403 -> 3465 (82.4% -> 83.9%); see the itemised note on
     # test_feature_universe_classifies_every_path_without_rounding_partial_up.
     assert (
-        "a real user can port **3465 of 4129 applicable NetworkX feature "
-        "paths today (83.9%)**"
+        "a real user can port **3468 of 4129 applicable NetworkX feature "
+        "paths today (84.0%)**"
     ) in rendered
 
 
