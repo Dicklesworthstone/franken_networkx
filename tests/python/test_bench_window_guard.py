@@ -227,3 +227,44 @@ def test_certifiable_gate_rejects_high_but_stable(monkeypatch):
     monkeypatch.setattr(bench_window_guard, "read_loadavg_triple", lambda: (60.0, 61.0, 60.0))
     ok, _ = bench_window_guard.window_is_certifiable()
     assert not ok
+
+
+def test_khz_spread_pct_reports_a_clock_swing():
+    """br-r37-c1-jycsb: a row taken while the core clock moved is not comparable.
+
+    On a `powersave` host an idle core clocks DOWN, so this is the covariate
+    that may explain the 1.66x process-level split that load alone did not.
+    """
+    guard = _guard([20.0] * 6, [0.9] * 6)
+    guard.khz = [4_200_000, 4_200_000, 3_200_000, 4_200_000, 4_100_000, 4_200_000]
+    assert guard.khz_spread_pct == pytest.approx(100.0 * 1_000_000 / 4_200_000, rel=1e-6)
+
+
+def test_khz_spread_is_zero_at_a_steady_clock():
+    guard = _guard([20.0] * 4, [0.9] * 4)
+    guard.khz = [4_200_000] * 4
+    assert guard.khz_spread_pct == 0.0
+
+
+def test_unreadable_clock_degrades_to_a_note_not_a_crash():
+    """cpufreq is absent on plenty of hosts; a guard must never break a run."""
+    guard = _guard([20.0] * 4, [0.9] * 4)
+    guard.khz = [-1, -1, -1, -1]
+    assert math.isnan(guard.khz_spread_pct)
+    assert "cpu clock unavailable" in guard.provenance_line()
+
+
+def test_provenance_line_carries_the_clock_when_available():
+    guard = _guard([20.0] * 4, [0.9] * 4)
+    guard.khz = [4_200_000, 3_200_000, 4_200_000, 4_100_000]
+    line = guard.provenance_line()
+    for token in ("cpu clock median", "swing"):
+        assert token in line, token
+
+
+def test_sample_collects_the_clock_series():
+    guard = WindowGuard()
+    for _ in range(4):
+        guard.sample()
+        guard.record_ratio(0.5)
+    assert len(guard.khz) == 4

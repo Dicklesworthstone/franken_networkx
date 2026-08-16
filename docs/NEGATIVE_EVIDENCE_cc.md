@@ -15332,3 +15332,67 @@ sha256 789dd9dead49c4a8dbeaf6747c1532a70639561afda92497e4b304fdb7ff59fd, built
 this turn from a `git archive` tree at `877548d15` under load — deliberately, per
 the finding that a pin build costs the quiet window it is meant to enable. host
 thinkstation1, python 3.13.7, live networkx 3.6.1, disk 288G free.
+
+## MECHANISM FOUND for br-r37-c1-jycsb: this host's cores swing **1429-4292 MHz (3.0x)** under `powersave` — a QUIET window is a SLOW window, and loadavg cannot see it
+
+NO CERTIFICATION. `uptime` checked by this pane: 1-min 36.88 against 5-min 32.49
+— high, rejected. Everything below is structural or categorical: a 3.0x clock
+range and a 1.66x bimodal split are not artefacts a loaded host manufactures.
+
+**THE HYPOTHESIS I EXPECTED WAS REFUTED FIRST.** br-r37-c1-jycsb recorded the fnx
+arm at 101-104 ns in 3 processes and 160-179 ns in 21 others — same ELF, same
+graph, decided at process start. With 2000-character node keys the obvious
+candidate was PYTHONHASHSEED randomisation changing dict bucket distribution.
+Tested: 10 processes with a random seed against 10 with `PYTHONHASHSEED=0`. Both
+groups read 101-132 ns with no bimodality at all, and the fixed-seed group showed
+the same spread as the random one. **Hash seed is not the mechanism.**
+
+**WHAT IS.** This host runs the `powersave` governor. Sampling the running core's
+`scaling_cur_freq` alongside the timing:
+
+    at loadavg 22    every core 4.0-4.3 GHz      op 104-109 ns, tight
+    at loadavg 13.9  clock 1429-4292 MHz         a 3.0x swing WITHIN one run
+                     median 2861 MHz             swing 100.1 percent of median
+
+A 3.0x clock range more than accounts for a 1.66x timing split. And it explains
+the direction that looked backwards: the SLOW readings were taken at 1-minute
+loads of 6.5-8.0 while the 5-minute average was 12.8-14.8 — a host winding DOWN,
+whose cores wind down with it. **On this host a quiet window is a slow window**,
+because idle cores clock to 1.4 GHz.
+
+**THIS INVERTS THE QUIET-WINDOW DOCTRINE AND SUPPLIES MERMAID'S MECHANISM.** The
+fleet finding is that a stable moderate window beats a brief quiet spike. That is
+exactly what a frequency governor predicts: at moderate sustained load every core
+sits pinned near 4.2 GHz and stays there, while at idle the clock is free to roam
+across a 3x range mid-measurement. This pane's own history now reads consistently
+rather than paradoxically — `u in G` certified cleanly at loadavg 29.63, and the
+"quietest window of the session" at 6.12 produced a 21-point ratio interval and a
+17 percent A/A null.
+
+**AND THE LOAD-BASED GATE CANNOT SEE IT.** In the sample where the clock swung
+100.1 percent, `WindowGuard` still returned `[STABLE]` — per-round loadavg was
+identical across all six samples (13.88), runnable spread was 4, and both
+correlations were 0.000. Every load-derived signal reported a calm window while
+the core it was running on tripled its clock. A gate built only on load is blind
+to the largest source of variance on this host.
+
+**INSTRUMENTED.** `read_cpu_khz()` and a `khz` series are now sampled per round
+alongside load and runnable count, and `khz_spread_pct` plus a `cpu clock median
+/ min / max / swing` fragment appear in every `provenance_line()`. Rows can now
+record the clock they were taken at, which turns an unexplained 1.66x into a
+covariate. Degrades to `cpu clock unavailable` where `cpufreq` is absent, since a
+guard must never break a benchmark. 25 tests, no timing, runnable in the windows
+where benchmarking is forbidden.
+
+WHAT THIS DOES NOT CLAIM: the slow mode has still not been captured WITH
+frequency data attached, because a quiet host cannot be manufactured on demand
+and the windows offered this turn were all loaded. The mechanism is strongly
+supported — refuted alternative, matching magnitude, matching direction, known
+governor — but the confirming observation is a low-load run carrying its own
+clock record, and the instrument to take it now exists. That is the open half.
+
+PROVENANCE: structural and categorical; no ratio certified. Pinned ELF sha256
+789dd9dead49c4a8dbeaf6747c1532a70639561afda92497e4b304fdb7ff59fd, built from a
+`git archive` tree at `877548d15`. host thinkstation1, governor `powersave`,
+python 3.13.7, live networkx 3.6.1, disk 288G free. `uptime` observed by this
+pane: 36.88 / 32.49 at the decision, 29.45, 21.92 and 13.88 across the probes.

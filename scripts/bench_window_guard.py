@@ -63,6 +63,43 @@ def read_loadavg() -> float:
         return float(handle.read().split()[0])
 
 
+def read_cpu_khz(cpu: int | None = None) -> int:
+    """Current clock of the core this process is on, in kHz; -1 if unreadable.
+
+    ADDED BECAUSE LOAD ALONE DID NOT EXPLAIN A 1.66x SPLIT. br-r37-c1-jycsb
+    recorded the fnx arm running at 101-104 ns in 3 processes and 160-179 ns in
+    21 others, same ELF, same graph, decided at process start. Hash-seed
+    randomization was the leading hypothesis and was REFUTED — fixing
+    `PYTHONHASHSEED=0` left the distribution unchanged.
+
+    This host runs the `powersave` governor, and the slow readings were taken
+    when the 1-minute load was 6.5-8.0 while the 5-minute average was 12.8-14.8
+    — a host winding DOWN, whose cores clock down with it. Sampled at loadavg
+    22, every core read 4.0-4.3 GHz and the same operation took a tight
+    104-109 ns; one sample dipped to 3222 MHz mid-run.
+
+    That is a hypothesis with partial support, not a demonstration: the observed
+    frequency range (3.2-4.3 GHz, 1.32x) is the same ORDER as the timing split
+    (1.66x) but does not by itself account for all of it, and the slow mode has
+    not yet been captured WITH frequency data, because a quiet host cannot be
+    manufactured on demand. Recording the clock on every row is what will settle
+    it — and it inverts the usual instinct, since it predicts a QUIET window can
+    be slower and more variable than a moderately loaded one.
+    """
+    if cpu is None:
+        try:
+            cpu = int(open("/proc/self/stat", encoding="ascii").read().split()[38])
+        except Exception:  # noqa: BLE001 - never break a benchmark
+            return -1
+    try:
+        with open(
+            f"/sys/devices/system/cpu/cpu{cpu}/cpufreq/scaling_cur_freq", encoding="ascii"
+        ) as handle:
+            return int(handle.read())
+    except Exception:  # noqa: BLE001 - not all hosts expose cpufreq
+        return -1
+
+
 def read_loadavg_triple() -> tuple[float, float, float]:
     """The 1-, 5- and 15-minute averages together."""
     with open("/proc/loadavg", encoding="ascii") as handle:
@@ -128,11 +165,13 @@ class WindowGuard:
     loads: list[float] = field(default_factory=list)
     ratios: list[float] = field(default_factory=list)
     runnable: list[int] = field(default_factory=list)
+    khz: list[int] = field(default_factory=list)
 
     def sample(self) -> float:
         value = read_loadavg()
         self.loads.append(value)
         self.runnable.append(read_runnable())
+        self.khz.append(read_cpu_khz())
         return value
 
     def record_ratio(self, ratio: float) -> None:
@@ -215,6 +254,21 @@ class WindowGuard:
         return statistics.correlation(runnable, ratios)
 
     @property
+    def khz_spread_pct(self) -> float:
+        """Core-clock swing across the run, as a percentage of the median.
+
+        br-r37-c1-jycsb: on a `powersave` host an idle core clocks DOWN, so a
+        quiet window can be slower and more variable than a busy one. A row whose
+        clock moved during it is not comparable to one taken at a steady clock,
+        however good its loadavg looked.
+        """
+        live = [k for k in self.khz if k > 0]
+        if len(live) < 2:
+            return float("nan")
+        mid = statistics.median(live)
+        return 100.0 * (max(live) - min(live)) / mid if mid else float("nan")
+
+    @property
     def verdict(self) -> str:
         """Advisory only. Never rejects a row on its own — replication decides."""
         for corr in (self.corr_load_ratio, self.corr_runnable_ratio):
@@ -242,9 +296,20 @@ class WindowGuard:
             f"min {min(self.loads):.2f} max {max(self.loads):.2f} "
             f"iqr {self.iqr:.2f} relvol {self.relative_volatility:.2f}; "
             f"{self._runnable_fragment()}"
+            f"{self._khz_fragment()}"
             f"corr(load, per-round ratio) {self.corr_load_ratio:+.3f}, "
             f"corr(runnable, per-round ratio) {self.corr_runnable_ratio:+.3f} "
             f"[{self.verdict}]"
+        )
+
+    def _khz_fragment(self) -> str:
+        live = [k for k in self.khz if k > 0]
+        if not live:
+            return "cpu clock unavailable; "
+        return (
+            f"cpu clock median {statistics.median(live) / 1000:.0f} MHz "
+            f"min {min(live) / 1000:.0f} max {max(live) / 1000:.0f} "
+            f"swing {self.khz_spread_pct:.1f}%; "
         )
 
     def _runnable_fragment(self) -> str:
