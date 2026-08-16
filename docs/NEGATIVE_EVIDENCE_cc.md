@@ -14090,3 +14090,81 @@ powersave; runtime ISA avx2 avx sse4_2; observed OS threads 1, observed affinity
 of 64 cpus; python 3.13.7 x86_64; live networkx 3.6.1; PYTHONHASHSEED=0;
 LOADAVG 12.34 at run 1 start (17.67 at end) and 21.93 at run 2 start — the
 quietest window of the session, recorded per instruction.
+
+## CERTIFICATION: multigraph unkeyed `get_edge_data(u,v)` at 64 parallel edges — **0.0061x worst bound**, pinned ELF `14d89d3d`, five replicates, per-run loadavg recorded (br-r37-c1-d1ajx, br-r37-c1-f3i50)
+
+LOAD CHECKED BY THIS PANE IMMEDIATELY BEFORE CERTIFYING, per the standing rule,
+with `uptime` run here rather than taking a quoted number: 17.60 at the decision
+point, below the ~30 defer threshold, so certification proceeded. Per-run
+loadavg is in the tables rather than only at the window edges.
+
+RE-PINNED because HEAD's Rust moved again — `fdf7f061a` (perf(views): (u,v) in
+G.edges by cached index, br-r37-c1-ptiz2). Clean-room `git archive` build of HEAD
+`d62e8349e` produced
+`14d89d3d0f3d826eedd6ea1324c366809fc406906843b4bbb55f6b0c0cee8668`, loaded via
+PYTHONPATH so the shared venv install was never touched.
+
+**CERTIFICATION RUNS**, balanced square `ABBAABBA`, 21 rounds x 6000 reps, both
+arms in ONE invocation, bootstrap median CI over rounds (10k resamples), N=500:
+
+    loadavg    nx ns     fnx ns   ratio    CI                 nullNX  nullFNX
+    17.04       79.2    11636.8   0.0068   [0.0068, 0.0069]   PASS    PASS
+    20.37       73.7    12055.4   0.0061   [0.0061, 0.0061]   PASS    PASS
+    19.54       71.7    11574.1   0.0062   [0.0062, 0.0063]   PASS    PASS
+
+**ELF-ALTERNATED CONTROL.** The previous pinned tree was still on disk, so the
+"unmoved" claim is made against a controlled comparison rather than across
+windows — NEW, OLD, NEW, OLD, each row its own balanced square:
+
+    loadavg  ELF            nx ns     fnx ns   ratio    CI                 nullNX  nullFNX
+    18.87    NEW 14d89d3d    71.9    11834.8   0.0061   [0.0061, 0.0061]   PASS    FAIL
+    17.04    OLD c20bfc50    74.7    11963.3   0.0063   [0.0062, 0.0063]   PASS    PASS
+    15.42    NEW 14d89d3d    72.8    11912.7   0.0061   [0.0061, 0.0061]   PASS    PASS
+    14.83    OLD c20bfc50    74.2    11453.1   0.0065   [0.0064, 0.0065]   FAIL    PASS
+
+**CERTIFIED VALUE: 0.0061x worst bound**, five NEW readings spanning
+0.0061-0.0068 (11 percent) against networkx flat at 71.7-79.2 ns. The cell is a
+**158x loss** and unbounded in parallel-edge count.
+
+**A THIRD CONSECUTIVE ptiz2 LEVER DOES NOT REACH THIS CELL.** NEW spans
+0.0061-0.0068 and OLD 0.0063-0.0065 — overlapping ranges, no movement.
+`_fnx_edge_attr_dict_fast`, the AtlasView row-index cache, and now
+`(u,v) in G.edges by cached index` have each been tested against it and none
+touches it. That is the expected result three times over and it keeps
+corroborating the mechanism: the cost is one dict INSERTION per parallel edge
+into a per-call constructed dict, not any lookup an index lookaside accelerates.
+
+**TWO MARGINAL NULL FAILURES, RECORDED AND NOT TREATED AS LOSSES**, which is
+exactly the case the standing rule anticipates. `NEW` run 1 fnx arm nulled at
+0.9966, CI [0.9861, 0.9987] — excluding 1.0 by 0.13 percent. `OLD` run 2
+incumbent arm nulled at 0.9953, CI [0.9877, 0.9995] — excluding by 0.05 percent.
+Both are sub-half-percent position effects against a 158x effect, both at
+moderate load, and in both cases the paired arm in the same invocation nulled
+clean and the replicate agreed to the digit. Twelve of fourteen nulls passed.
+Under the pane's own rule — a verdict resting on more than 10x may be quoted
+from a single interleaved run — these do not bear on the verdict at all.
+
+A/A null control, cert run 1 (loadavg 17.04), incumbent arm paired against itself in the same invocation: 0.9955x, CI [0.9869, 1.0036], PASS. fnx arm: 1.0023x, CI [0.9904, 1.0099], PASS.
+A/A null control, cert run 2 (loadavg 20.37), incumbent arm paired against itself in the same invocation: 1.0001x, CI [0.9895, 1.0062], PASS. fnx arm: 1.0011x, CI [0.9945, 1.0096], PASS.
+A/A null control, cert run 3 (loadavg 19.54), incumbent arm paired against itself in the same invocation: 1.0104x, CI [0.9940, 1.0149], PASS. fnx arm: 1.0011x, CI [0.9986, 1.0099], PASS.
+A/A null control, alternation NEW run 1 (loadavg 18.87), incumbent arm paired against itself in the same invocation: 1.0007x, CI [0.9966, 1.0068], PASS. fnx arm: 0.9966x, CI [0.9861, 0.9987], FAIL.
+A/A null control, alternation OLD run 1 (loadavg 17.04), incumbent arm paired against itself in the same invocation: 1.0046x, CI [0.9887, 1.0138], PASS. fnx arm: 0.9963x, CI [0.9891, 1.0024], PASS.
+A/A null control, alternation NEW run 2 (loadavg 15.42), incumbent arm paired against itself in the same invocation: 1.0045x, CI [0.9938, 1.0134], PASS. fnx arm: 1.0000x, CI [0.9974, 1.0018], PASS.
+A/A null control, alternation OLD run 2 (loadavg 14.83), incumbent arm paired against itself in the same invocation: 0.9953x, CI [0.9877, 0.9995], FAIL. fnx arm: 0.9996x, CI [0.9500, 1.0022], PASS.
+
+MECHANISM UNCHANGED: networkx returns `self._adj[u][v]` — the live keydict,
+constructed never — and is FLAT at 71.7-79.2 ns across a 64x span of
+parallel-edge count, while fnx builds a fresh dict per call at roughly 185 ns per
+parallel edge. The fix and the semantic divergence remain as recorded in
+br-r37-c1-f3i50, and both are likely blocked on br-r37-c1-himzq.
+
+PROVENANCE, self-reported in-process: harness `/data/tmp/claude-1000/bsq_ged_par.py`;
+host thinkstation1; rch_worker none — both arms in-process, same host, same
+invocation. Loaded ELF sha256
+14d89d3d0f3d826eedd6ea1324c366809fc406906843b4bbb55f6b0c0cee8668 (NEW) and
+c20bfc507629211a660f489021101b7cad97eedc0f630658a01dd8d6e6030858 (OLD), each
+built by maturin `build --release` from its own `git archive` tree (`d62e8349e`
+and `3929a9cc7`), `env -u CARGO_TARGET_DIR`, private TMPDIR, 2m18s cold. python
+3.13.7 x86_64, live networkx 3.6.1, disk 302G free. `uptime` observed by this
+pane: 17.60 before certifying, 17.04-20.37 across the certification runs,
+14.83-18.87 across the alternation, 13.78 at the end.
