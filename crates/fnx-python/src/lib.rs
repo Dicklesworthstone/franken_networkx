@@ -14676,6 +14676,15 @@ impl PyGraph {
                 Some(attrs) => {
                     // A materialized mirror is the live dict Python holds, and a
                     // write through it does not touch the store, so it wins.
+                    //
+                    // br-r37-c1-n7gxs lever 1 (FULLY-LAZY: push AttrMap::new()
+                    // here and let the store reconcile from the mirror on the
+                    // first native read) was tried on this exact site and is
+                    // SAFE but SLOWER — `min_weighted_vertex_cover`, which reads
+                    // the Rust store directly, stayed byte-correct, while the
+                    // row went 0.7422x -> 0.5452x and 0.9482x -> 0.6925x on the
+                    // admissible draws. Do not re-apply it here without a
+                    // measurement.
                     let bound = attrs.bind(py);
                     nodes_with_attrs.push((new_canonical.clone(), py_dict_to_attr_map(bound)?));
                     node_py_attrs.insert(new_canonical.clone(), bound.copy()?.unbind());
