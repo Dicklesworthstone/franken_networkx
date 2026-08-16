@@ -221,6 +221,7 @@ fn di_report_to_pydigraph(py: Python<'_>, report: DiReadWriteReport) -> PyResult
         node_key_map,
         node_py_attrs,
         edge_py_attrs,
+        edge_py_attrs_by_index: HashMap::new(),
         has_edge_node_index_cache: crate::NodeIndexLookupCache::new(py),
         succ_py_keys: HashMap::new(), // br-r37-c1-z6uka
         pred_py_keys: HashMap::new(), // br-r37-c1-z6uka

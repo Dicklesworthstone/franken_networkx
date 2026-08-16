@@ -15967,6 +15967,7 @@ pub fn transitive_closure(
             node_key_map,
             node_py_attrs,
             edge_py_attrs: HashMap::new(),
+            edge_py_attrs_by_index: HashMap::new(),
             succ_py_keys: HashMap::new(),
             pred_py_keys: HashMap::new(),
             succ_row_py: HashMap::new(),

@@ -142,13 +142,20 @@ def test_multigraph_rows_are_bounded_in_key_length(cls_name, op_name):
 
 
 @pytest.mark.parametrize("op_name", sorted(SUBSCRIPTS))
-@pytest.mark.xfail(
-    strict=True,
-    reason="br-r37-c1-0k6zl: DiGraph rows re-canonicalise both endpoints per "
-    "subscript, so cost tracks key length -- 0.2906x at 3 characters falling to "
-    "0.0913x at 2000. Graph escapes it via the native row view's cached node "
-    "index; the multigraph classes do not show it and are asserted strictly above",
-)
+# br-r37-c1-0k6zl FIXED: the strict xfail below is REMOVED, not relaxed.
+#
+# It read: "DiGraph rows re-canonicalise both endpoints per subscript, so cost
+# tracks key length -- 0.2906x at 3 characters falling to 0.0913x at 2000."
+# That is no longer true. `PyDiGraph` now carries the same endpoint-index
+# lookaside `PyGraph` has, so `_fnx_edge_attr_dict_fast` — which the Python
+# `AtlasView` calls on every subscript — answers from two `usize`s instead of
+# re-canonicalising both endpoints three times over. `G.adj[u][v]` at 2000-char
+# keys moved 0.0804x -> 0.4691x and `G[u][v]` -> 0.5990x.
+#
+# `strict=True` is what surfaced the fix: the params XPASSED and the suite went
+# red rather than quietly passing an expected-failure. Leaving a strict xfail in
+# place after the defect is gone would hide the next regression behind an
+# expected failure, so it goes.
 def test_digraph_rows_are_bounded_in_key_length(op_name):
     fnx_growth, nx_growth, relative = _relative("DiGraph", SUBSCRIPTS[op_name])
     assert relative < MAX_RELATIVE_GROWTH, (

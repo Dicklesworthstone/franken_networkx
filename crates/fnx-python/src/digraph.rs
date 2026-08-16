@@ -128,6 +128,29 @@ pub struct PyDiGraph {
     pub(crate) edges_dirty: AtomicBool,
     /// Warm exact-string endpoints for `has_edge`; invalidated by `nodes_seq`.
     pub(crate) has_edge_node_index_cache: NodeIndexLookupCache,
+    /// br-r37-c1-0k6zl: directed twin of `PyGraph::edge_py_attrs_by_index` —
+    /// the live edge attr dict under its endpoint INDEX pair.
+    ///
+    /// `G.adj[u][v]` on a DiGraph measured 0.0804x against networkx at
+    /// 2000-character node keys, the worst cell this pane measures. The cause is
+    /// that only simple `Graph` reaches the native row view that
+    /// br-r37-c1-ptiz2 gave a cached row node index; `DiGraph` falls through to
+    /// the PYTHON `AtlasView`, whose per-subscript path calls
+    /// `_fnx_edge_attr_dict_fast` and re-canonicalises BOTH endpoints on every
+    /// access — O(key length) twice per lookup.
+    ///
+    /// This lookaside is what lets that function answer from two `usize`s, using
+    /// the node indices `cached_exact_string_node_index` resolves from CPython's
+    /// own cached `str` hash.
+    ///
+    /// NOT sorted, unlike the undirected version: u->v and v->u are distinct
+    /// edges with distinct attribute dicts here, so sorting the pair would serve
+    /// one direction's attributes for the other.
+    ///
+    /// Each entry carries the `nodes_seq` it was recorded under, because node
+    /// removal RENUMBERS indices — an unstamped entry would silently name a
+    /// DIFFERENT edge. `bump_edges_seq` clears the map for edge identity.
+    pub(crate) edge_py_attrs_by_index: HashMap<(usize, usize), (u64, Py<PyDict>)>,
     pub(crate) node_keys_cache: std::sync::Mutex<Option<(u64, Py<pyo3::types::PyTuple>)>>,
     /// br-r37-c1-4b5ie: mirror of PyGraph::node_data_mirror — caches the
     /// {node: attr_dict} dict (keyed on nodes_seq) so repeated
@@ -232,6 +255,11 @@ impl PyDiGraph {
         for attrs in self.edge_py_attrs.values() {
             visit.call(attrs)?;
         }
+        // br-r37-c1-0k6zl: same live dicts as `edge_py_attrs`, under a second
+        // key. Visited so a cycle through either is still collectable.
+        for (_seq, attrs) in self.edge_py_attrs_by_index.values() {
+            visit.call(attrs)?;
+        }
         self.has_edge_node_index_cache.traverse(visit)?;
         for key in self.succ_py_keys.values() {
             visit.call(key)?;
@@ -297,6 +325,7 @@ impl PyDiGraph {
         self.node_key_map.clear();
         self.node_py_attrs.clear();
         self.edge_py_attrs.clear();
+        self.edge_py_attrs_by_index.clear(); // br-r37-c1-0k6zl (tp_clear half)
         self.has_edge_node_index_cache.clear(py);
         self.succ_py_keys.clear();
         self.pred_py_keys.clear();
@@ -11353,6 +11382,7 @@ impl PyDiGraph {
             node_key_map: HashMap::new(),
             node_py_attrs: HashMap::new(),
             edge_py_attrs: HashMap::new(),
+            edge_py_attrs_by_index: HashMap::new(),
             succ_py_keys: HashMap::new(), // br-r37-c1-z6uka
             pred_py_keys: HashMap::new(), // br-r37-c1-z6uka
             succ_row_py: HashMap::new(),
@@ -11384,6 +11414,44 @@ impl PyDiGraph {
     #[inline]
     pub(crate) fn bump_edges_seq(&mut self) {
         self.edges_seq = self.edges_seq.wrapping_add(1);
+        // br-r37-c1-0k6zl: the index lookaside's per-entry `nodes_seq` stamp
+        // covers node RENUMBERING only. Edge identity — an edge removed and a
+        // different one added between two reads — is covered here.
+        self.edge_py_attrs_by_index.clear();
+    }
+
+    /// br-r37-c1-0k6zl: the live edge attr dict for a DIRECTED endpoint index
+    /// pair, or `None`. A hit is existence proof: entries are recorded only for
+    /// edges that were present, `bump_edges_seq` clears the map on any edge
+    /// mutation, and the per-entry stamp makes a post-removal index a MISS
+    /// rather than a wrong hit.
+    pub(crate) fn cached_edge_py_attrs_by_index(
+        &self,
+        py: Python<'_>,
+        source: usize,
+        target: usize,
+    ) -> Option<Py<PyDict>> {
+        match self.edge_py_attrs_by_index.get(&(source, target)) {
+            Some((seq, attrs)) if *seq == self.nodes_seq => Some(attrs.clone_ref(py)),
+            _ => None,
+        }
+    }
+
+    /// Record a live edge attr dict under its directed endpoint index pair.
+    ///
+    /// Callers must already hold the dict `materialize_edge_py_attrs` returned,
+    /// so this never constructs one and cannot disagree with the string-keyed
+    /// mirror about identity.
+    pub(crate) fn remember_edge_py_attrs_by_index(
+        &mut self,
+        py: Python<'_>,
+        source: usize,
+        target: usize,
+        attrs: &Py<PyDict>,
+    ) {
+        let seq = self.nodes_seq;
+        self.edge_py_attrs_by_index
+            .insert((source, target), (seq, attrs.clone_ref(py)));
     }
 
     fn cached_exact_string_node_index(
@@ -13130,6 +13198,7 @@ impl PyDiGraph {
                 node_key_map: HashMap::with_capacity(self.node_key_map.len()),
                 node_py_attrs: HashMap::new(),
                 edge_py_attrs: HashMap::new(),
+                edge_py_attrs_by_index: HashMap::new(),
                 succ_py_keys: HashMap::new(),
                 pred_py_keys: Self::clone_row_keys(py, &self.succ_py_keys),
                 succ_row_py: HashMap::new(),
@@ -13160,6 +13229,7 @@ impl PyDiGraph {
             node_key_map: HashMap::new(),
             node_py_attrs: HashMap::new(),
             edge_py_attrs: HashMap::new(),
+            edge_py_attrs_by_index: HashMap::new(),
             succ_py_keys: HashMap::new(), // br-r37-c1-z6uka
             pred_py_keys: Self::clone_row_keys(py, &self.succ_py_keys), // br-r37-c1-z6uka
             succ_row_py: HashMap::new(),
@@ -13406,6 +13476,7 @@ impl PyDiGraph {
             node_key_map: HashMap::with_capacity(self.node_key_map.len()),
             node_py_attrs: HashMap::with_capacity(self.node_py_attrs.len()),
             edge_py_attrs: HashMap::with_capacity(self.edge_py_attrs.len()),
+            edge_py_attrs_by_index: HashMap::new(),
             succ_py_keys: Self::clone_row_keys(py, &self.succ_py_keys), // br-r37-c1-z6uka
             pred_py_keys: HashMap::new(),                               // br-r37-c1-z6uka
             succ_row_py: HashMap::new(),
@@ -13591,6 +13662,7 @@ impl PyDiGraph {
             node_key_map,
             node_py_attrs,
             edge_py_attrs,
+            edge_py_attrs_by_index: HashMap::new(),
             succ_py_keys: HashMap::new(),
             pred_py_keys: HashMap::new(),
             succ_row_py: HashMap::new(),
@@ -13630,6 +13702,7 @@ impl PyDiGraph {
             node_key_map: HashMap::new(),
             node_py_attrs: HashMap::new(),
             edge_py_attrs: HashMap::new(),
+            edge_py_attrs_by_index: HashMap::new(),
             succ_py_keys: HashMap::new(), // br-r37-c1-z6uka
             pred_py_keys: HashMap::new(), // br-r37-c1-z6uka
             succ_row_py: HashMap::new(),
@@ -13734,6 +13807,7 @@ impl PyDiGraph {
             node_key_map: HashMap::new(),
             node_py_attrs: HashMap::new(),
             edge_py_attrs: HashMap::new(),
+            edge_py_attrs_by_index: HashMap::new(),
             succ_py_keys: HashMap::new(),
             pred_py_keys: HashMap::new(),
             succ_row_py: HashMap::new(),
@@ -13820,6 +13894,7 @@ impl PyDiGraph {
             node_key_map: HashMap::new(),
             node_py_attrs: HashMap::new(),
             edge_py_attrs: HashMap::new(),
+            edge_py_attrs_by_index: HashMap::new(),
             succ_py_keys: HashMap::new(), // br-r37-c1-z6uka
             pred_py_keys: HashMap::new(), // br-r37-c1-z6uka
             succ_row_py: HashMap::new(),
@@ -13950,6 +14025,20 @@ impl PyDiGraph {
         // inside the raw descriptor so ordinary graphs need no Python shim.
         u.hash()?;
         v.hash()?;
+        // br-r37-c1-0k6zl: INDEX-keyed probe first, the same one
+        // `_fnx_edge_attr_dict_fast` uses. This is a SECOND route to the same
+        // live dict, and wiring only the view path would leave it at 0.0920x
+        // while the subscript read 0.4691x — exactly the split br-r37-c1-ptiz2
+        // left behind on the simple graph and had to come back for.
+        if u.is_exact_instance_of::<PyString>()
+            && v.is_exact_instance_of::<PyString>()
+            && let Some(u_index) = self.cached_exact_string_node_index(py, u)?
+            && let Some(v_index) = self.cached_exact_string_node_index(py, v)?
+            && let Some(attrs) = self.cached_edge_py_attrs_by_index(py, u_index, v_index)
+        {
+            self.mark_edges_dirty();
+            return Ok(attrs.into_any());
+        }
         let u_c = node_key_to_string(py, u)?;
         let v_c = node_key_to_string(py, v)?;
         // br-r37-c1-d58s8: gate on the INNER edge, not mirror presence —
@@ -13960,7 +14049,15 @@ impl PyDiGraph {
             return Ok(default.unwrap_or_else(|| py.None()));
         }
         self.mark_edges_dirty();
-        Ok(self.materialize_edge_py_attrs(py, &u_c, &v_c).into_any())
+        let attrs = self.materialize_edge_py_attrs(py, &u_c, &v_c);
+        if u.is_exact_instance_of::<PyString>()
+            && v.is_exact_instance_of::<PyString>()
+            && let Some(u_index) = self.cached_exact_string_node_index(py, u)?
+            && let Some(v_index) = self.cached_exact_string_node_index(py, v)?
+        {
+            self.remember_edge_py_attrs_by_index(py, u_index, v_index, &attrs);
+        }
+        Ok(attrs.into_any())
     }
 
     /// br-r37-c1-atlasget (cc): O(1) single-directed-edge live attr dict for
@@ -13976,13 +14073,46 @@ impl PyDiGraph {
         u: &Bound<'_, PyAny>,
         v: &Bound<'_, PyAny>,
     ) -> PyResult<Option<Py<PyDict>>> {
+        // br-r37-c1-0k6zl: INDEX-keyed probe before any canonical is built.
+        //
+        // THIS FUNCTION IS THE MEASURED CELL. `DiGraph G.adj[u][v]` reads
+        // 0.0804x against networkx at 2000-character node keys because only
+        // simple `Graph` reaches the native row view that br-r37-c1-ptiz2 gave a
+        // cached row index; `DiGraph` falls through to the PYTHON `AtlasView`,
+        // which calls this on every subscript. Everything below is O(key
+        // length): two `node_key_to_string` heap allocations, then
+        // `inner.has_edge` hashes both endpoints again, then
+        // `materialize_edge_py_attrs` hashes them a third time. A hit here is one
+        // hash of two `usize`s, off CPython's own cached `str` hash.
+        //
+        // A hit is existence proof — see `cached_edge_py_attrs_by_index`.
+        if u.is_exact_instance_of::<PyString>()
+            && v.is_exact_instance_of::<PyString>()
+            && let Some(u_index) = self.cached_exact_string_node_index(py, u)?
+            && let Some(v_index) = self.cached_exact_string_node_index(py, v)?
+            && let Some(attrs) = self.cached_edge_py_attrs_by_index(py, u_index, v_index)
+        {
+            self.mark_edges_dirty();
+            return Ok(Some(attrs));
+        }
         let u_c = node_key_to_string(py, u)?;
         let v_c = node_key_to_string(py, v)?;
         if !self.inner.has_edge(&u_c, &v_c) {
             return Ok(None);
         }
         self.mark_edges_dirty();
-        Ok(Some(self.materialize_edge_py_attrs(py, &u_c, &v_c)))
+        let attrs = self.materialize_edge_py_attrs(py, &u_c, &v_c);
+        // Fill on the miss path with the SAME dict the string-keyed mirror just
+        // returned, so the two can never disagree about identity. Exact `str`
+        // only, matching the probe; anything else simply never populates it.
+        if u.is_exact_instance_of::<PyString>()
+            && v.is_exact_instance_of::<PyString>()
+            && let Some(u_index) = self.cached_exact_string_node_index(py, u)?
+            && let Some(v_index) = self.cached_exact_string_node_index(py, v)?
+        {
+            self.remember_edge_py_attrs_by_index(py, u_index, v_index, &attrs);
+        }
+        Ok(Some(attrs))
     }
 
     /// br-r37-c1-sjf4t: push the per-node and per-edge Python attribute
@@ -16082,6 +16212,7 @@ impl PyDiGraph {
                 .iter()
                 .map(|(k, v)| Ok((k.clone(), v.bind(py).copy()?.unbind())))
                 .collect::<PyResult<_>>()?,
+            edge_py_attrs_by_index: HashMap::new(),
             // SHARE the graph attrs dict (shallow copy)
             graph_attrs: self.graph_attrs.clone_ref(py),
             nodes_seq: 0,
