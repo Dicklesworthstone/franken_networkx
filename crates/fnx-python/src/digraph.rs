@@ -12272,6 +12272,28 @@ impl PyDiGraph {
         // descriptor directly. Preserve the eager Python hash contract and
         // reuse the persistent live successor row without a Python wrapper.
         n.hash()?;
+        // br-r37-c1-bvwam: this is `iter(self._succ[n])` in networkx — one
+        // CPython dict lookup on a str whose hash is cached in the object — so
+        // the three costs on the hit path are all removable, and each is a lever
+        // already proven on the undirected twin:
+        //
+        //   * the owned `String` canonical, mallocd and freed purely to look up
+        //     a borrowed key (br-r37-c1-oe93x),
+        //   * the `has_node` probe running BEFORE the row cache, when a cached
+        //     row is already existence proof — rows are only built for nodes
+        //     that were present, and `remove_node`, the bulk removal loop and
+        //     `clear` all drop them (br-r37-c1-do7g5),
+        //   * `call_method0("__iter__")`, a Python-level attribute lookup and
+        //     call that builds the same `dict_keyiterator` `try_iter()` gets
+        //     from the C protocol slot (br-r37-c1-do7g5).
+        //
+        // The miss path is unchanged and still allocates, because it needs an
+        // owned key to insert.
+        if let Some(row) = with_node_key_str(py, n, |canonical| {
+            self.succ_row_py.get(canonical).map(|row| row.clone_ref(py))
+        })? {
+            return Ok(row.bind(py).try_iter()?.into_any().unbind());
+        }
         let canonical = node_key_to_string(py, n)?;
         if !self.inner.has_node(&canonical) {
             return Err(NetworkXError::new_err(format!(
@@ -12280,7 +12302,7 @@ impl PyDiGraph {
             )));
         }
         let row = self.successor_row_dict_by_canonical(py, &canonical)?;
-        Ok(row.bind(py).call_method0("__iter__")?.unbind())
+        Ok(row.bind(py).try_iter()?.into_any().unbind())
     }
 
     /// Return a list of predecessors of node n.
