@@ -6633,14 +6633,39 @@ impl MultiAtlasView {
     }
 
     fn materialize(&self, py: Python<'_>) -> PyResult<Py<PyDict>> {
-        let g = self.graph.borrow(py);
+        // br-r37-c1-98tci: COLLECT UNDER THE SHARED BORROW, THEN RELEASE IT.
+        //
+        // This loop used to hold `self.graph.borrow(py)` while calling
+        // `MultiKeyDictView::materialize`, whose first statement is
+        // `self.graph.borrow_mut(py)`. A `borrow_mut` under a live `borrow` is a
+        // PyO3 PANIC rather than an exception, so `repr`, `str` and `==` on a
+        // `MultiAtlasView` unwound through the interpreter instead of raising.
+        // Every public path (`repr(G.adj[u])` and friends) was clean because
+        // those hand back the PYTHON AdjacencyView, which is why this survived.
+        //
+        // The neighbours and their display-key objects are the only things that
+        // need the borrow, so they are gathered first and the guard is dropped
+        // before any keydict is built. Order is preserved: `neighbors` yields
+        // insertion order and the pairs are consumed in the same sequence.
+        let pairs: Vec<(PyObject, String)> = {
+            let g = self.graph.borrow(py);
+            g.inner
+                .neighbors(&self.node)
+                .unwrap_or_default()
+                .into_iter()
+                .map(|neighbor| {
+                    // br-r37-c1-z6uka: the display object, not the canonical.
+                    let py_neighbor = g.py_adj_key(py, &self.node, neighbor);
+                    (py_neighbor, neighbor.to_owned())
+                })
+                .collect()
+        };
         let result = PyDict::new(py);
-        for neighbor in g.inner.neighbors(&self.node).unwrap_or_default() {
-            let py_neighbor = g.py_adj_key(py, &self.node, neighbor) /* br-r37-c1-z6uka */;
+        for (py_neighbor, neighbor) in pairs {
             let keydict = MultiKeyDictView::new(
                 self.graph.clone_ref(py),
                 self.node.clone(),
-                neighbor.to_owned(),
+                neighbor,
             )
             .materialize(py)?;
             result.set_item(py_neighbor, keydict.bind(py))?;
