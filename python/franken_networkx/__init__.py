@@ -2556,8 +2556,24 @@ class _DiGraphEdgeView:
         # has_edge already raises TypeError on unhashable u/v
         # (br-r37-c1-cvtv6) so unpack into has_edge handles both
         # the missing and unhashable cases correctly.
+        # br-r37-c1-60627: a SLICE must produce nx's typed, actionable error.
+        # Falling through to the unpack below gave a bare
+        # ``TypeError: cannot unpack non-iterable slice object`` — a different
+        # exception type AND no guidance, where nx names the view class and
+        # tells you to use ``list(G.edges)[...]``.
+        if isinstance(edge, slice):
+            raise NetworkXError(
+                f"{type(self).__name__} does not support slicing, try "
+                f"list(G.edges)[{edge.start}:{edge.stop}:{edge.step}]"
+            )
         u, v = edge
         hash(u)
+        # br-r37-c1-60627: `v` is hashed only AFTER `u`'s presence is
+        # established. nx evaluates `self._adjdict[u][v]`, so an absent `u`
+        # raises KeyError without `v` ever being hashed — hashing both up front
+        # turned that KeyError into a TypeError for an unhashable `v`.
+        if u not in self._graph:
+            raise KeyError(f"The edge {edge} is not in the graph.")
         hash(v)
         native_get_edge_data = self._fnx_native_get_edge_data
         if (
@@ -2910,6 +2926,14 @@ class _MultiGraphEdgeView:
         # missing case, masking which element was missing and
         # silently swallowing TypeError on unhashable.  Mirror nx
         # exactly via the unpack + chained dict lookup.
+        # br-r37-c1-60627: a SLICE must produce nx's typed, actionable error
+        # naming the view class, not the bare ``TypeError: cannot unpack
+        # non-iterable slice object`` the unpack below would raise.
+        if isinstance(edge, slice):
+            raise NetworkXError(
+                f"{type(self).__name__} does not support slicing, try "
+                f"list(G.edges)[{edge.start}:{edge.stop}:{edge.step}]"
+            )
         u, v, key = edge
         hash(u)
         hash(v)
@@ -3422,6 +3446,14 @@ class _MultiDiGraphEdgeView:
         # ``self._adjdict[u][v][k]``; mirror that contract for
         # nx-shape KeyError on missing element + TypeError on
         # unhashable.  Directed: no undirected fallback.
+        # br-r37-c1-60627: a SLICE must produce nx's typed, actionable error
+        # naming the view class, not the bare ``TypeError: cannot unpack
+        # non-iterable slice object`` the unpack below would raise.
+        if isinstance(edge, slice):
+            raise NetworkXError(
+                f"{type(self).__name__} does not support slicing, try "
+                f"list(G.edges)[{edge.start}:{edge.stop}:{edge.step}]"
+            )
         u, v, key = edge
         hash(u)
         hash(v)

@@ -25,11 +25,10 @@ import franken_networkx as fnx
 
 CLASSES = ["Graph", "DiGraph"]
 
-# br-r37-c1-60627: two pre-existing divergences live on the DIRECTED view, which
-# this bead's lever did not touch — a slice raises a bare TypeError instead of
-# networkx's NetworkXError, and an absent `u` hashes `v` before short-circuiting.
-# xfail-STRICT so fixing that bead turns these green loudly.
-_DIRECTED_XFAIL = {"unhashable-v-absent-u", "slice"}
+# br-r37-c1-60627 (FIXED): the directed view used to raise a bare TypeError on a
+# slice and hash `v` before establishing `u`'s presence. Both were xfail-STRICT
+# here until that bead landed; the markers are gone because they XPASSed, which
+# is what strict mode is for.
 
 
 class _Unhashable(str):
@@ -75,30 +74,13 @@ PROBES = {
 
 @pytest.mark.parametrize("cls_name", CLASSES)
 @pytest.mark.parametrize("probe_name", list(PROBES))
-def test_edge_subscript_matches_networkx(cls_name, probe_name, request):
-    if cls_name == "DiGraph" and probe_name in _DIRECTED_XFAIL:
-        request.node.add_marker(
-            pytest.mark.xfail(strict=True, reason="br-r37-c1-60627")
-        )
+def test_edge_subscript_matches_networkx(cls_name, probe_name):
     gnx, gfx = _pair(cls_name)
     probe = PROBES[probe_name]
     assert _outcome(probe, gfx) == _outcome(probe, gnx)
 
 
-@pytest.mark.parametrize(
-    "cls_name",
-    [
-        "Graph",
-        pytest.param(
-            "DiGraph",
-            marks=pytest.mark.xfail(
-                strict=True,
-                reason="br-r37-c1-60627: the directed view hashes v before "
-                "establishing u's presence",
-            ),
-        ),
-    ],
-)
+@pytest.mark.parametrize("cls_name", CLASSES)
 def test_unhashable_v_boundary_is_ordered_like_networkx(cls_name):
     """The exact hazard: the same unhashable `v`, on both sides of `u`.
 
