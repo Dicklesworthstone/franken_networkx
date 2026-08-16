@@ -45662,6 +45662,61 @@ def _assigned_private_digraph_successors(self, n):
 _SHADOWABLE_RAW_METHOD_CACHE: dict = {}
 
 
+_CLASS_SHADOWS_NOTHING_CACHE = {}
+
+
+def _class_shadows_nothing(owner_type):
+    """True when NO name this installer handles is shadowable on this class.
+
+    br-r37-c1-vaayu. br-r37-c1-8itxk memoised the per-(class, name) eligibility
+    inside ``install()``, which removed the MRO walks. What it could not remove
+    is the call itself: a reverse view assigns three private overrides at
+    construction, and each one still walks the whole installer body and calls
+    ``install()`` four times — twelve calls per ``reverse(copy=False)`` that can
+    never install anything.
+
+    They can never install anything because ELIGIBILITY IS A PROPERTY OF THE
+    CLASS, and a reverse view's class overrides those methods in Python, so none
+    of them is the raw PyO3 descriptor the installer is allowed to shadow.
+    Measured on the seven names this function handles:
+
+        reverse-view class    NONE eligible
+        DiGraph               all 7
+        Graph                 5
+
+    So the whole body is answerable once per class. Same memo key as
+    br-r37-c1-8itxk, therefore the same and no new staleness risk: it goes stale
+    only if a CLASS's binding for one of these names is replaced after the first
+    instance of that class has been used, and module-level patching all happens
+    at import, before any instance exists.
+    """
+    known = _CLASS_SHADOWS_NOTHING_CACHE.get(owner_type)
+    if known is None:
+        known = True
+        for name, raw_methods in (
+            ("has_node", _RAW_HAS_NODE_METHODS),
+            ("number_of_nodes", _RAW_NUMBER_OF_NODES_METHODS),
+            ("order", _RAW_NUMBER_OF_NODES_METHODS),
+            ("has_edge", _RAW_HAS_EDGE_METHODS),
+            ("get_edge_data", _RAW_GET_EDGE_DATA_METHODS),
+            ("neighbors", _RAW_DIGRAPH_NEIGHBOR_METHODS),
+            ("successors", _RAW_DIGRAPH_NEIGHBOR_METHODS),
+        ):
+            class_method = next(
+                (
+                    base.__dict__[name]
+                    for base in owner_type.__mro__
+                    if name in base.__dict__
+                ),
+                None,
+            )
+            if any(class_method is raw_method for raw_method in raw_methods):
+                known = False
+                break
+        _CLASS_SHADOWS_NOTHING_CACHE[owner_type] = known
+    return known
+
+
 def _install_private_method_shadows(self, storage):
     """Restore mapping-aware dispatch only on instances that need it.
 
@@ -45688,10 +45743,15 @@ def _install_private_method_shadows(self, storage):
     tracked bound-method identities also let deepcopy/pickle distinguish these
     internal shadows from genuine public instance attributes.
     """
+    owner_type = type(self)
+    # br-r37-c1-vaayu: nothing on this class is shadowable, so the whole body
+    # below is a no-op. Matches the `else` branch at the end exactly.
+    if _class_shadows_nothing(owner_type):
+        storage.pop(_PRIVATE_NODE_METHOD_SHADOWS, None)
+        return
+
     previous = storage.get(_PRIVATE_NODE_METHOD_SHADOWS) or {}
     installed = {}
-
-    owner_type = type(self)
 
     def install(name, fallback, raw_methods):
         # br-r37-c1-8itxk: whether this CLASS exposes a shadowable raw
