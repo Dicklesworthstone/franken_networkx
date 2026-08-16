@@ -13103,3 +13103,89 @@ b3bf13e8c565e3f4924bf96c9d5dff3c9846e0d6d79717601742d4193ab5ed39, built locally 
 maturin `develop --release`, `env -u CARGO_TARGET_DIR`, private TMPDIR. python
 3.13.7 x86_64, live networkx 3.6.1, disk 314G free. loadavg 25.4 at the first run
 start and 24.9 at the last.
+
+## Multigraph unkeyed `get_edge_data(u,v)` — **0.0061x at 64 parallel edges**, a new worst; and the sibling keydict readers are NOT in this class (br-r37-c1-d1ajx, br-r37-c1-f3i50)
+
+RE-MEASURED ON A NEW ELF. The previous row for this cell was banked on ELF
+`b3bf13e8c565e3f4`; a peer rebuilt the shared extension mid-session and it is now
+`00a3b11ef4da3fc8`, so this is a fresh reading rather than a re-bank of the same
+artifact.
+
+TWO CORRECTIONS TO MY OWN PRIOR ROW, both of which make the finding narrower and
+one of which I had asserted without measuring.
+
+**1. The sibling readers do NOT share the unbounded scaling.** The prior row
+implied a materialisation class; scanned at par 1 vs 16, only `get_edge_data`
+is linear in parallel-edge count. Everything else that hands back a keydict is
+flat (fnx ns at par=1 -> par=16):
+
+    MultiDiGraph  get_edge_data    354.1 -> 3211.3   9.07x   LINEAR
+    MultiDiGraph  G[u][v]         1142.3 -> 1639.3   1.44x   flat
+    MultiDiGraph  adj[u][v]        981.4 ->  968.5   0.99x   flat
+    MultiDiGraph  succ[u][v]       965.4 ->  950.7   0.98x   flat
+    MultiDiGraph  edges[u,v,0]     401.8 ->  396.1   0.99x   flat
+    MultiGraph    get_edge_data    344.3 -> 3025.3   8.79x   LINEAR
+    MultiGraph    G[u][v]         1165.5 -> 1181.2   1.01x   flat
+
+So the defect is the unkeyed `get_edge_data` branch specifically, not the
+keydict-returning family. `G[u][v]` is SLOWER in absolute terms at par=1 (1142ns
+against 354ns) and is still the less urgent problem, because it does not grow.
+
+**2. The par=64 extrapolation was mine and it was wrong in the safe direction.**
+The prior row predicted "roughly 0.007x" at par=64 without measuring it. Measured:
+**0.0061x**. The prediction is confirmed and slightly optimistic.
+
+MEASURED, balanced square `ABBAABBA`, 21 rounds, both arms in ONE invocation,
+bootstrap median CI over rounds (10k resamples), t_nx/t_fnx, N=500:
+
+    class          par    nx ns     fnx ns   ratio    CI                 nullNX   nullFNX
+    MultiGraph      1      74.0      304.7   0.2479   [0.2461, 0.2504]   PASS     PASS
+    MultiGraph     16      73.4     2838.1   0.0259   [0.0257, 0.0260]   PASS     PASS
+    MultiGraph     16      76.2     3229.6   0.0251   [0.0235, 0.0257]   PASS     PASS  (replicate)
+    MultiGraph     64      74.2    12408.9   0.0061   [0.0060, 0.0063]   PASS     PASS
+    MultiDiGraph   16      75.1     2969.9   0.0263   [0.0257, 0.0263]   FAIL     PASS
+
+networkx is FLAT at 73.4-76.2 ns across a 64x span of parallel-edge count while
+fnx goes 304.7 -> 2838.1 -> 12408.9 ns. The increments are about 169 ns per
+parallel edge from 1 to 16 and about 192 ns per edge from 16 to 64, i.e. linear
+with a per-entry cost of roughly 180 ns — one Python dict insertion of a live
+per-edge attr dict, paid on every call, which networkx never pays because it hands
+back `self._adj[u][v]` itself.
+
+A/A null control, MultiGraph par=64, incumbent arm paired against itself in the same invocation: 0.9963x, CI [0.9852, 1.0106], PASS.
+A/A null control, MultiGraph par=64, fnx arm paired against itself in the same invocation: 1.0087x, CI [0.9858, 1.0207], PASS.
+A/A null control, MultiGraph par=16 run 1, incumbent arm paired against itself in the same invocation: 0.9998x, CI [0.9962, 1.0046], PASS.
+A/A null control, MultiGraph par=16 run 1, fnx arm paired against itself in the same invocation: 1.0013x, CI [0.9975, 1.0146], PASS.
+A/A null control, MultiGraph par=16 run 2, incumbent arm paired against itself in the same invocation: 0.9872x, CI [0.9597, 1.0264], PASS.
+A/A null control, MultiGraph par=16 run 2, fnx arm paired against itself in the same invocation: 0.9932x, CI [0.9805, 1.0089], PASS.
+A/A null control, MultiDiGraph par=16, incumbent arm paired against itself in the same invocation: 0.9308x, CI [0.8806, 0.9995], FAIL.
+A/A null control, MultiDiGraph par=16, fnx arm paired against itself in the same invocation: 0.9973x, CI [0.9727, 1.0120], PASS.
+
+THE FAILING NULL IS RECORDED, NOT HIDDEN, and it is a real 7 percent position
+effect on the MultiDiGraph incumbent arm — much larger than the 0.28 percent one
+in the prior row. It does not move that row's verdict: the effect being measured
+is 38x, the fnx-arm null on the same invocation passed at 0.9973, and the
+MultiDiGraph value 0.0263x agrees with the two MultiGraph replicates (0.0259x,
+0.0251x) that both nulled clean. But it is the reason the headline is quoted from
+MultiGraph rather than MultiDiGraph.
+
+THE STABILITY CONTROL that makes the new ELF comparable to the old one: the par=1
+row reads 0.2479x here against 0.2482x on the previous ELF, and networkx reads
+74.0 ns against 77.3 ns. The cell did not move; the artifact changed underneath it.
+
+PROVENANCE CAVEAT — THIS ELF IS NOT PINNED TO A COMMIT, and it is the weakest part
+of this row. I did not build it. The installed `_fnx.abi3.so` (sha256
+00a3b11ef4da3fc8e9564284b849baf9125fa08b7dce844ab3be3fba2c303d99, mtime
+2026-08-16 14:36:43) is NEWER than an uncommitted 43-line peer hunk in
+`crates/fnx-python/src/lib.rs` (mtime 14:34:57), so it almost certainly contains
+unlanded work. `PyMultiGraph` lives in that file, so the MultiGraph rows above may
+be measuring code that is not on main. The MultiDiGraph path lives in
+`digraph.rs`, which is clean at HEAD `ee72f5ac9`, so the MultiDiGraph row is the
+one that corresponds to committed source — and it agrees. Anyone re-running this
+should rebuild from a clean tree first and expect the ratios to move by a few
+percent, not by an order of magnitude.
+
+PROVENANCE, self-reported in-process: harness `/data/tmp/claude-1000/bsq_ged_par.py`;
+host thinkstation1; rch_worker none — both arms in-process, same host, same
+invocation. python 3.13.7 x86_64, live networkx 3.6.1, disk 311G free. loadavg
+15.3 at the first run start and 16.5 at the last.
