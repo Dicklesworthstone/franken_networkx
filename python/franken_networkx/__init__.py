@@ -2117,6 +2117,24 @@ class AdjacencyView(_Mapping):
         # ``dict_keyiterator``.
         return iter(dict.fromkeys(self._atlas()))
 
+    def __contains__(self, node):
+        # br-r37-c1-hcn5w: answer membership from the ROW, not by building a
+        # value. Without this, `v in G.adj[u]` fell through to the Mapping ABC,
+        # whose __contains__ is `try: self[key]` — so a membership test
+        # constructed the whole inner keydict view and threw it away. That was
+        # 1.18us of the 1.6us on MultiGraph, and it is why `v in G.adj[u]`
+        # (0.244x) was worse than the len() next to it.
+        #
+        # br-r37-c1-i9whv contract: an UNHASHABLE key is nx's TypeError, not
+        # False. The explicit hash is required, not decorative — the native
+        # atlas's own __contains__ answers False for an unhashable argument, so
+        # delegating alone REGRESSED the multigraphs (they used to raise via
+        # the ABC's __getitem__, which hashed on the way to building the value).
+        # It also fixes simple Graph, which answered False here before this
+        # change because the ABC's except clause catches only KeyError.
+        hash(node)
+        return node in self._atlas()
+
     def __getitem__(self, node):
         # br-r37-c1-spg9n: warm fast-path — a token-valid cached AtlasView for
         # this row is returned directly (the view live-reads its row from Rust,
