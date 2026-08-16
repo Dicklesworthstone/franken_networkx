@@ -14451,3 +14451,112 @@ artifact HEAD compiles to. python 3.13.7 x86_64, live networkx 3.6.1, disk 301G
 free. `uptime` observed by this pane: 5.31 at the decision point, then 6.12,
 16.52, 24.72, 29.63, 33.84, 35.83, 44.75, 46.93 and 54.05 — recorded per run
 above.
+
+## CERTIFIED: `4c916aea3`'s degree lever is REAL (**0.2471x -> 0.9324x, 3.6x**) but lands BELOW parity in every regime this pane can reach — its claimed 1.0172x does not reproduce here (br-r37-c1-ptiz2); and a FOURTH ptiz2 lever still does not touch the worst cell (br-r37-c1-f3i50)
+
+LOAD CHECKED BY THIS PANE with `uptime` before certifying: 12.63, then 8.39-9.13
+across every certified run below — the quietest sustained block of the session.
+Rows taken above ~30 are marked NOT CERTIFIED and are not treated as losses.
+
+RE-PINNED because HEAD's Rust moved: `4c916aea3` (perf(views):
+DegreeView::__getitem__ by cached index). Clean-room `git archive` build of HEAD
+`bc63db7a9` produced
+`42e4b0d2fefa0dc1dc7907b55d1c5fbe1026c24ce077f0c3feada77cd6abfe47`. The
+PRE-lever pin `14d89d3d` was still on disk, so every comparison below is
+ELF-ALTERNATED in one window rather than taken across sessions.
+
+**THE WORST CELL IS UNTOUCHED BY A FOURTH CONSECUTIVE ptiz2 LEVER.**
+Multigraph unkeyed `get_edge_data`, par=64:
+
+    loadavg  ELF            nx ns     fnx ns   ratio    CI                 nullNX  nullFNX
+    8.50     NEW 42e4b0d2    70.7    11100.7   0.0064   [0.0064, 0.0064]   PASS    PASS
+    8.97     OLD 14d89d3d    71.1    11567.7   0.0062   [0.0061, 0.0062]   FAIL    PASS
+    9.13     NEW 42e4b0d2    70.7    11278.4   0.0063   [0.0062, 0.0063]   PASS    PASS
+    8.88     OLD 14d89d3d    71.5    10996.6   0.0065   [0.0065, 0.0065]   FAIL    PASS
+
+NEW 0.0063-0.0064 against OLD 0.0062-0.0065 — overlapping, no movement.
+`_fnx_edge_attr_dict_fast`, the AtlasView row-index cache, `(u,v) in G.edges` by
+cached index, and now the DegreeView index cache have each been tested against
+this cell and none reaches it. Four independent negative results. The two failing
+nulls are 1.0064 and 1.0021, position effects of 0.2-0.6 percent against a 156x
+effect, with paired arms clean.
+
+**THE DEGREE LEVER IS REAL AND LARGE**, certified ELF-alternated at loadavg
+8.39-8.89, `Graph G.degree(u)` at keylen 2000, 21 rounds x 60000 reps:
+
+    loadavg  ELF            nx ns    fnx ns   ratio    CI                 nulls
+    8.89     NEW 42e4b0d2   197.3     227.1   0.8702   [0.8646, 0.8718]   both PASS
+    8.73     OLD 14d89d3d   203.3     824.0   0.2471   [0.2462, 0.2475]   both PASS
+    8.60     NEW 42e4b0d2   198.7     218.2   0.9141   [0.9023, 0.9194]   both PASS
+    8.39     OLD 14d89d3d   204.7     838.4   0.2441   [0.2426, 0.2450]   both PASS
+    8.44     NEW 42e4b0d2   203.2     218.0   0.9324   [0.9308, 0.9470]   both PASS
+    8.72     OLD 14d89d3d   208.7     828.7   0.2509   [0.2488, 0.2517]   FAIL/PASS
+
+**0.2471x -> 0.9324x is a 3.6x move** — fnx 824-838 ns down to 218-227 ns, with
+the pre-lever arm reproducing to within 2.8 percent across three replicates. This
+pane flagged exactly this cell last turn as "the largest uncertified Graph-class
+gap"; it is now measured on both sides of the fix.
+
+**BUT IT LANDS BELOW PARITY IN EVERY REGIME THIS PANE CAN REACH.** `4c916aea3`
+claims 1.0172x. Certified post-lever readings, all LOSS with CIs entirely below
+1.0:
+
+    keylen 3       0.9362  [0.9163, 0.9387]   loadavg 7.76
+    keylen 3       0.8991  [0.8970, 0.9035]   loadavg 7.76
+    keylen 2000    0.8702 / 0.9141 / 0.9324   loadavg 8.4-8.9
+    keylen 8000    0.8783  [0.8688, 0.8900]   loadavg 11.78
+    keylen 8000    0.8868  [0.8698, 0.9062]   loadavg 19.42
+
+Key length is NOT the explanation — 3, 2000 and 8000 all read 0.87-0.94x.
+
+**THE CALL PROTOCOL WAS CHECKED AND IS ALSO NOT THE EXPLANATION.** The commit
+levers `DegreeView::__getitem__`, so `G.degree[u]` (subscript) is a different code
+path from `G.degree(u)` (call), and this pane has a banked lesson that call
+protocol alone can invert a verdict. Measured — but the window closed and these
+are **NOT CERTIFIED** (loadavg 41-55), recorded as directional only:
+
+    loadavg  ELF            nx ns    fnx ns   ratio
+    41.47    NEW 42e4b0d2   193.2     225.1   0.8557
+    42.95    OLD 14d89d3d   192.6    1043.9   0.1876
+    55.34    NEW 42e4b0d2   197.7     246.4   0.8037
+    55.34    OLD 14d89d3d   231.2    1145.5   0.1990
+
+The subscript form shows the SAME shape — a large real move (0.188x -> 0.856x,
+4.6x) landing below parity. So neither key length nor call protocol accounts for
+the gap between 0.86-0.93x here and 1.0172x there.
+
+**WHAT I AM AND AM NOT CLAIMING.** The lever is real and this pane's measurements
+corroborate its size, which is the substantive point. The residual disagreement is
+about whether it crosses 1.0, and this pane cannot explain it from the variables
+it controls: the remaining uncontrolled differences are graph SHAPE (N=400 here,
+and the probed node has degree 2 — a hub node would exercise a different cost) and
+harness. Two runs at loadavg 41-55 cannot settle a near-parity verdict anyway, per
+this pane's own rule. This is recorded as an open discrepancy for the lever's
+author, NOT as a refutation.
+
+A/A null control, worst cell NEW run 1 (loadavg 8.50), incumbent arm paired against itself in the same invocation: 1.0113x, CI [0.9984, 1.0165], PASS. fnx arm: 1.0005x, CI [0.9888, 1.0022], PASS.
+A/A null control, worst cell OLD run 1 (loadavg 8.97), incumbent arm paired against itself in the same invocation: 1.0064x, CI [1.0038, 1.0237], FAIL. fnx arm: 0.9989x, CI [0.9970, 1.0020], PASS.
+A/A null control, worst cell NEW run 2 (loadavg 9.13), incumbent arm paired against itself in the same invocation: 0.9974x, CI [0.9861, 1.0018], PASS. fnx arm: 0.9982x, CI [0.9956, 1.0017], PASS.
+A/A null control, worst cell OLD run 2 (loadavg 8.88), incumbent arm paired against itself in the same invocation: 1.0021x, CI [1.0001, 1.0081], FAIL. fnx arm: 1.0004x, CI [0.9987, 1.0011], PASS.
+A/A null control, degree NEW keylen 2000 run 1 (loadavg 8.89), incumbent arm paired against itself in the same invocation: 0.9997x, PASS. fnx arm: 1.0000x, PASS.
+A/A null control, degree OLD keylen 2000 run 1 (loadavg 8.73), incumbent arm paired against itself in the same invocation: 0.9995x, PASS. fnx arm: 1.0000x, PASS.
+A/A null control, degree NEW keylen 2000 run 2 (loadavg 8.60), incumbent arm paired against itself in the same invocation: 0.9991x, PASS. fnx arm: 1.0000x, PASS.
+A/A null control, degree OLD keylen 2000 run 2 (loadavg 8.39), incumbent arm paired against itself in the same invocation: 1.0003x, PASS. fnx arm: 0.9996x, PASS.
+A/A null control, degree NEW keylen 2000 run 3 (loadavg 8.44), incumbent arm paired against itself in the same invocation: 1.0002x, PASS. fnx arm: 1.0000x, PASS.
+A/A null control, degree OLD keylen 2000 run 3 (loadavg 8.72), incumbent arm paired against itself in the same invocation: 1.0009x, PASS. fnx arm: 0.9985x, FAIL.
+A/A null control, degree NEW keylen 3 run 1 (loadavg 7.76), incumbent arm paired against itself in the same invocation: 1.0003x, PASS. fnx arm: 1.0005x, PASS.
+A/A null control, degree NEW keylen 3 run 2 (loadavg 7.76), incumbent arm paired against itself in the same invocation: 0.9990x, PASS. fnx arm: 0.9977x, PASS.
+A/A null control, degree NEW keylen 8000 run 1 (loadavg 11.78), incumbent arm paired against itself in the same invocation: 1.0018x, PASS. fnx arm: 0.9905x, PASS.
+A/A null control, degree NEW keylen 8000 run 2 (loadavg 19.42), incumbent arm paired against itself in the same invocation: 0.9990x, PASS. fnx arm: 1.0139x, PASS.
+
+PROVENANCE, self-reported in-process: harnesses `/data/tmp/claude-1000/bsq_ged_par.py`
+and `bsq_ops.py`; host thinkstation1; rch_worker none — both arms in-process, same
+host, same invocation. Loaded ELF sha256
+42e4b0d2fefa0dc1dc7907b55d1c5fbe1026c24ce077f0c3feada77cd6abfe47 (NEW) and
+14d89d3d0f3d826eedd6ea1324c366809fc406906843b4bbb55f6b0c0cee8668 (OLD), each
+built by maturin `build --release` from its own `git archive` tree (`bc63db7a9`
+and `d62e8349e`), `env -u CARGO_TARGET_DIR`, private TMPDIR, 2m00s cold, loaded
+via PYTHONPATH so the shared venv install was never touched. python 3.13.7
+x86_64, live networkx 3.6.1, disk 298G free. `uptime` observed by this pane:
+12.63 before deciding, 8.39-9.13 across the certified block, 7.76-19.42 across the
+key-length sweep, and 41.47-62.29 across the uncertified subscript rows.
