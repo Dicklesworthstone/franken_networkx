@@ -347,10 +347,108 @@ def workload_algorithms(reps: int):
     return build, ops
 
 
+def _plain_graph(module, nodes: int, edges: int, seed: int = 11):
+    """Unweighted simple graph with bare `str(i)` node names.
+
+    Distinct from `_simple_graph` in two ways that the p80x1 fixtures depend
+    on: no node or edge attributes, and node names are `"0"`, `"1"`, ... rather
+    than `"n0"`. Those beads name a source node `"0"` and an unreached node
+    `135`, so the naming is part of the recorded fixture, not decoration.
+    """
+    rng = random.Random(seed)
+    graph = module.Graph()
+    names = [str(i) for i in range(nodes)]
+    graph.add_nodes_from(names)
+    seen: set[tuple[int, int]] = set()
+    while len(seen) < edges:
+        a, b = rng.randrange(nodes), rng.randrange(nodes)
+        if a == b:
+            continue
+        pair = (min(a, b), max(a, b))
+        if pair in seen:
+            continue
+        seen.add(pair)
+        graph.add_edge(names[pair[0]], names[pair[1]])
+    return graph, names
+
+
+def workload_incumbent_fixtures(reps: int):
+    """The p80x1 retry fixtures AT THE SIZES THOSE BEADS NAME.
+
+    `algorithms` above already serves this queue, but it runs everything on one
+    n=400,m=1600 graph, and every one of these beads names a different and
+    larger shape: p80x1.40 and p80x1.18 want n=2000,m=8000,seed=7; p80x1.30
+    wants n=1200,m=6000,seed=11; p80x1.12 wants n=300,m=1200,seed=11. Size is
+    not a detail on this surface — `subgraph(...).edges()` was 0.0015x before
+    br-r37-c1-cn8w4 and its ratio still degrades with node count from a better
+    starting point, so a row measured at n=400 does not answer a bead that
+    names n=2000. These rows exist to answer the beads as written.
+
+    FIXTURE IDENTITY IS CONFIRMED, not assumed. The beads record structural
+    fingerprints of the 2026-07-31 fixtures, and the builders below reproduce
+    every one of them exactly:
+
+      p80x1.18   500-node view, 497-edge timed output      -> 500 / 497
+      p80x1.30   1068 parent keys, 1199 reached, node 135
+                 the ONLY unreached node                   -> 1068 / 1199 / 135
+      p80x1.12   300 outer mappings, 90000 inner items     -> 300 / 90000
+
+    "only node 135 unreached" is the load-bearing one: it is a property of one
+    specific edge set, not of the shape, so matching it means this generator IS
+    the generator those beads used. The recorded input/output SHA-256s are not
+    re-derived here because the beads do not record the canonical byte encoding
+    they were taken over, and inventing one would prove nothing.
+    """
+
+    def build(module):
+        attributed, (names_2k, _e) = _simple_graph(module, 2000, 8000, seed=7)
+        dfs_graph, dfs_names = _plain_graph(module, 1200, 6000, seed=11)
+        apsp_graph, apsp_names = _plain_graph(module, 300, 1200, seed=11)
+        return attributed, (names_2k, dfs_graph, dfs_names, apsp_graph, apsp_names, module)
+
+    def ops(graph, fixture):
+        names_2k, dfs_graph, _dfs_names, apsp_graph, _apsp_names, module = fixture
+        # p80x1.18: "selects every fourth string node" of the n=2000 fixture.
+        quarter = names_2k[::4]
+        # p80x1.48 wants BOTH halves: the present probe and the missing probe.
+        # Only the present one is covered by `view-reads`, and a miss takes a
+        # different path through the key lookup than a hit.
+        rng = random.Random(7)
+        present = [names_2k[rng.randrange(len(names_2k))] for _ in range(512)]
+        missing = [f"absent{i}" for i in range(512)]
+        return {
+            # p80x1.40
+            "edges(data=True) n=2000": lambda: len(list(graph.edges(data=True))),
+            # p80x1.18
+            "subgraph(n/4)->edges n=2000": lambda: sorted(
+                graph.subgraph(quarter).edges()
+            ),
+            # p80x1.48, both halves
+            "has_node present x512": lambda: sum(
+                1 for n in present if graph.has_node(n)
+            ),
+            "has_node missing x512": lambda: sum(
+                1 for n in missing if graph.has_node(n)
+            ),
+            # p80x1.30
+            "dfs_successors n=1200": lambda: module.dfs_successors(dfs_graph, "0"),
+            # p80x1.12
+            "all_pairs_sp_length n=300": lambda: {
+                k: dict(v)
+                for k, v in module.all_pairs_shortest_path_length(apsp_graph)
+            },
+            # Control: nothing on this list can move a bare node count.
+            "CONTROL len(G)": lambda: len(graph),
+        }
+
+    return build, ops
+
+
 WORKLOADS = {
     "view-reads": workload_view_reads,
     "view-reads-directed": workload_view_reads_directed,
     "algorithms": workload_algorithms,
+    "incumbent-fixtures": workload_incumbent_fixtures,
 }
 
 
