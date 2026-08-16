@@ -12540,3 +12540,82 @@ locally by maturin, `env -u CARGO_TARGET_DIR`, private TMPDIR, 1m41s, disk 319.9
 -> 319.02 GiB; governor powersave; runtime ISA avx2 avx sse4_2; observed affinity
 8 of 64 cpus; python 3.13.7 x86_64; live networkx 3.6.1; PYTHONHASHSEED=0; loadavg
 16.0 and 16.2 at the two run starts.
+
+## MDG `G.edges[u,v,k]` at long keys — measured LOSS 0.0558x, now BANKED on the post-lever ELF (br-r37-c1-tjp0g)
+
+comparison_class=INCUMBENT
+incumbent=networkx
+incumbent_same_invocation=true
+decision_gate=median_ci
+cv_role=report_only
+
+My worst measured vs-incumbent ratio. This row FAILED to bank last turn — it
+admitted in one run only — so it is re-run here under quieter conditions (host
+loadavg 7.3 and 7.1 against 16.0 and 16.2 before) where 10 of 11 rows admitted in
+BOTH runs.
+
+A/A null control run 1, incumbent arm paired against itself in the same invocation: 1.0129x, inside the 0.02 bound.
+
+A/A null control run 1, fnx arm paired against itself in the same invocation: 1.0052x, inside the 0.02 bound.
+
+A/A null control run 2, incumbent arm paired against itself in the same invocation: 1.0115x, inside the 0.02 bound.
+
+A/A null control run 2, fnx arm paired against itself in the same invocation: 1.0015x, inside the 0.02 bound.
+
+A/B against live networkx 3.6.1 in the SAME invocation, ABBAABBA square, identical
+shape in both runs (61 rounds x 50 reps x 160 calls per slot), differing only in
+core set. Rows admissible in BOTH runs:
+
+| row | run 1 (cores 40-47) | run 2 (cores 48-55) | worst bound |
+|---|---|---|---|
+| `MDG edges[u,v,k] len=2000` | 0.0559x [0.0558, 0.0560] | 0.0566x [0.0563, 0.0568] | **0.0558x** |
+| `ATTRIB get_edge_data len=2000` | 0.0539x [0.0537, 0.0542] | 0.0538x [0.0536, 0.0540] | 0.0536x |
+| `MDG edges[u,v,k] len=130` | 0.1735x | 0.1670x | 0.1667x |
+| `MDG edges[u,v,k] len=3` | 0.2969x | 0.3005x | 0.2964x |
+| `ATTRIB get_edge_data len=3` | 0.4895x | 0.4832x | 0.4816x |
+| `CONTROL MDG has_edge len=2000` | 0.1805x | 0.1789x | 0.1783x |
+| `CONTROL MDG has_edge len=3` | 0.4939x | 0.5013x | 0.4928x |
+| `CONTROL Graph edges[u,v] len=3` | 0.7752x | 0.7694x | 0.7654x |
+| `CONTROL Graph edges[u,v] len=2000` | 0.7911x | 0.7280x | 0.7259x |
+
+Ratio is t_networkx/t_fnx, so below 1.0 means fnx is slower.
+
+THE STANDING CONTRAST, unchanged and still the clearest statement of the problem:
+`Graph.edges[u,v]` — the surface fixed by br-r37-c1-ptiz2 — is flat across the
+same lengths in the same invocation (0.7654x at length 3, 0.7259x at 2000), while
+the multigraph row beside it falls 0.2964x -> 0.1667x -> 0.0558x. One fixture, one
+process, one ELF.
+
+A SMALL EFFECT I FLAGGED LAST TURN AND CAN NOW SIZE. `CONTROL MDG has_edge len=3`
+read 0.5039x worst bound BEFORE the get_edge_data lever and 0.4928x after, about 2
+percent lower, with two admissible runs on each side and non-overlapping CIs. I
+did not touch `has_edge`. The plausible mechanism is code LAYOUT — the lever
+changed the size and shape of a neighbouring function in the same `impl` block,
+which moves instruction-cache alignment for everything after it. I am recording
+it as a measured 2 percent drop of unknown cause rather than calling it either a
+regression or noise; it is too small to act on and too consistent to ignore, and
+naming it now means the next person does not rediscover it as a mystery.
+
+NOT ADMITTED: `CONTROL MDG has_node len=2000` NULL-FAILED in both runs (1.0215 and
+1.0207) at values 1.0659x and 1.0528x. Same direction and similar magnitude, but
+the CIs do not overlap, so the failing-null exception does not apply and it is not
+quoted. Directionally it remains the control that matters — fnx is FASTER than
+networkx at resolving a 2000-character node key — but that statement now rests on
+earlier admissible runs, not on these.
+
+STILL THE WORST CELL. The borrowed-canonical lever (previous entry) moved
+`get_edge_data` at long keys from 0.0482x to about 0.0536x, roughly 10 percent,
+and the subscript sits at 0.0558x. The remaining cost is the O(key length) hashing
+in `resolve_internal_edge_key` and `ensure_edge_py_attrs`, which are still keyed by
+canonical STRINGS; the open lever is index-keying that storage, adapted to a key
+that is endpoint pair PLUS edge key.
+
+PROVENANCE, self-reported in-process: harness `scripts/balanced_square_ab.py`
+sha256 be5afae905c22946050772aa743b510dab7475986c298702cab783a3d5fd86b6; host
+thinkstation1; rch_worker none, both arms in-process on the same host, and NO
+build was performed — the existing binary was reused, verified by 0 `.rs` files
+newer than the loaded `.so`; loaded ELF sha256
+f862574e8ceca9148cbbca0325f2dd989e49e795b86ecdd461aa02aa496bfe81; governor
+powersave; runtime ISA avx2 avx sse4_2; observed affinity 8 of 64 cpus; python
+3.13.7 x86_64; live networkx 3.6.1; PYTHONHASHSEED=0; loadavg 7.3 and 7.1 at the
+two run starts.
