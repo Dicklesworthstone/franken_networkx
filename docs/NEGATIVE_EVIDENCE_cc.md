@@ -16208,3 +16208,113 @@ both arms in-process, same host, same invocation. host thinkstation1, 64 cores,
 governor `powersave`, python 3.13.7, live networkx 3.6.1, disk 280G free.
 `uptime` observed: 36.75 at the cross-core sample, 28.11-33.55 across the runs.
 CPU MHz observed per arm is in the rows above.
+
+## 2026-08-16 GoldenBison KEEP-SELF: the campaign's worst cell moves 0.0072x -> 0.1473x (~20x) by caching the multigraph keydict, with the untouched directed class as the control (br-r37-c1-ptiz2)
+
+networkx serves `get_edge_data(u, v)` on a multigraph in O(1) because it STORES
+`_adj[u][v]` as a real dict and hands the object back. fnx stores edges natively,
+had no materialised keydict, and rebuilt the mapping on every call — O(parallel
+edges) against networkx's O(1). That is the whole defect on the worst cell in this
+campaign, and two previous levers of mine only reduced its CONSTANT.
+
+`PyMultiGraph` now caches the built keydict per endpoint pair under the
+`(nodes_seq, edges_seq)` generation. Three design points, each of which is a way
+this could have been wrong:
+
+  - **The caller never receives the cached object; it gets a SHALLOW COPY.** That
+    keeps the observable contract EXACTLY as it was — a fresh mapping per call
+    whose values are the same live attribute dicts. Returning the cached object
+    would be faster still and would match networkx's object identity, but a caller
+    mutating that mapping (`d[k] = {}`) would corrupt the cache and then see a
+    phantom key `G.edges` does not have, because unlike networkx's live dict this
+    one is not wired to the native store. Copy 451ns against 16623ns to rebuild —
+    the copy is 3 percent of the saving, so buying the safety costs almost nothing.
+  - **Nested `HashMap<String, HashMap<String, _>>`, not a `(String, String)` tuple
+    key.** A `HashMap<String, _>` can be probed with a borrowed `&str` and a tuple
+    key cannot, and the endpoints at this point are already borrowed canonicals —
+    so the hit path allocates NOTHING. A tuple key would have added two
+    full-length node-key allocations per call to a path whose entire budget is
+    ~451ns.
+  - **The cache is traversed by the GC.** `neighbor_key_rows`, the existing cache
+    this is modelled on, is NOT in `traverse_python_refs` — safe there only because
+    its rows hold `None` values. These rows hold the user's edge ATTRIBUTE dicts,
+    and an attribute may reference the graph itself (`G[u][v][k]['g'] = G`).
+    Untraversed, that cycle would be invisible to the collector and the graph
+    would leak. Added to both `traverse_python_refs` and `clear_python_refs`.
+
+ELF-ALTERNATED CERTIFICATION, four interleaved rounds OLD/NEW/OLD/NEW, eight full
+harness invocations, 41 rounds x 50 reps x 400 calls/slot:
+
+    row                 OLD 417fcb89 (x4)                NEW 3ec26cd9 (x4)                ratio
+    MG  par=64          0.0071 0.0073 0.0074 0.0078      0.1470 0.1503 0.1475 0.1473      ~20x
+    MG  par=1           0.1489 0.1501 0.1482 0.1625      0.2200 0.2148 0.2143 0.2158      ~1.4x
+    MDG par=64 CONTROL  0.0071 0.0073 0.0073 0.0074      0.0074 0.0072 0.0075 0.0075      FLAT
+    MDG par=1  CONTROL  0.1442 0.1478 0.1452 0.1451      0.1478 0.1498 0.1454 0.1464      FLAT
+
+**THE CONTROL IS THE STRONGEST PART OF THIS ROW AND IT WAS NOT CONSTRUCTED FOR THE
+OCCASION.** The cache is implemented in `PyMultiGraph` ONLY. `PyMultiDiGraph`
+shares the workload, the harness, the window, the cores and the ELF, and differs
+only in not having the change — and it did not move, on either parallel count,
+across all eight runs. A window artefact, a load shift or a frequency effect would
+have moved both classes. Only the class I edited moved.
+
+WORST BOUND min(NEW)/max(OLD) = 0.1470 / 0.0078 = **18.85x** on MG par=64, which
+is what I claim rather than the ~21x best pairing. par=1 moves only ~1.4x, exactly
+as it should: with one parallel edge the rebuild loop runs once, so there is almost
+nothing for a cache to save, and a par=1 row that had jumped like par=64 would mean
+I was measuring call overhead rather than the loop.
+
+CLOCK AND LOAD, now recorded per arm as required. Arm-to-arm clock skew across all
+32 measured rows spans **-0.16% to +0.09%**, every one inside the 1% bound, and no
+row was flagged CLOCK-SKEWED. Core frequency ran 3940-4188 MHz throughout — note
+again that this is not a down-clocked host. Observed loadavg fell 33.55 -> 24.46
+across the window; because the arms alternate, the drift is common-mode.
+
+ONE ROW FAILED ITS NULL AND I AM NOT USING IT: round 2, cache arm, MG par=1, nulls
+1.0055/0.9556. Its ratio (0.2148x) agrees with its three replicates
+(0.2200/0.2143/0.2158), so this is the "failing null, consistent replicates" case —
+but the headline claim rests on MG par=64, where all eight rows are ADMISSIBLE and
+the per-arm A/A nulls span [0.9957, 1.0158], every one inside the +/-0.02 bound.
+
+STILL NO COMPETITIVE CLAIM. 0.1473x is a 6.8x loss to networkx. It was a 139x loss.
+The remaining gap is the shallow copy (~451ns against networkx's ~157ns to return
+an object it already holds) plus the two borrowed canonicalisations, and closing it
+means returning the cached object itself, which costs the mutation safety described
+above. `comparison_class=SELF-SPEEDUP`, `campaign_output=false`.
+
+NEXT, and it is now a mirror rather than a design problem: `PyMultiDiGraph` has the
+identical defect and is currently serving as this row's control at 0.0074x.
+
+Tests: 73 in `tests/python/test_multi_get_edge_data_keydict_parity.py`, 8 of them
+new for this lever — `test_keydict_cache_returns_a_copy_not_the_cached_object`
+(mutate the returned mapping, assert no phantom key survives),
+`test_every_mutation_invalidates_the_cached_keydict` across six mutation shapes
+including two that touch a DIFFERENT pair (the generation is global, so an
+unrelated edit must drop this pair too), and
+`test_cached_keydict_reflects_inner_attr_mutation` (the copy must be SHALLOW, so a
+write through `G[u][v][k]` stays visible). Full suite 59874 passed, 2 failed — both
+the pre-existing cross-test pollution tracked as br-r37-c1-2i3mf.
+
+A TEST-AUTHORING NOTE worth recording because it briefly looked like a lever bug:
+five of the six mutation cases failed on first run, and the cause was my test
+building its networkx reference inline with `weight=` only while the fnx graph came
+from a helper that also sets `tag=`. The invalidation was correct all along —
+`edges_seq` advanced 4 -> 5 and the key set matched networkx exactly. Build both
+sides of a differential test through the SAME helper.
+
+PROVENANCE, self-reported in-process: harness `scripts/balanced_square_ab.py`
+sha256 60c09d45a460539df11dc4cd7189a0b59dc2da1e9c5dbdd5424f6a4513974b86 (the
+MHz-instrumented revision, 111257d76); host thinkstation1; rch_worker none (both
+arms in-process on same_host); governor powersave; runtime ISA avx2 avx sse4_2;
+python 3.13.7 x86_64; live networkx 3.6.1; PYTHONHASHSEED=0; taskset cores 40-47;
+square ABBAABBA; disk 280G free. Arms are complete package copies selected by
+PYTHONPATH — the shared venv install was never overwritten. OBSERVED loadavg per
+run in order 33.55 / 33.10 / 30.89 / 29.07 / 28.43 / 26.27 / 25.58 / 25.67, and
+per-arm core MHz is printed on every row above.
+
+bench_elf_sha256=3ec26cd9db02fb75f652aecca7fc5e480e3eb375a94a8460fb87aa575ca7ecdb
+elf_sha256=3ec26cd9db02fb75f652aecca7fc5e480e3eb375a94a8460fb87aa575ca7ecdb
+comparison_class=SELF-SPEEDUP
+campaign_output=false
+decision_gate=median_ci
+cv_role=report_only

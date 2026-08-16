@@ -177,6 +177,98 @@ def test_returned_dicts_are_live_and_shared(class_name, par):
         assert graph[u][v][key]["written"] == key
 
 
+@pytest.mark.parametrize("class_name", ["MultiGraph"])
+def test_keydict_cache_returns_a_copy_not_the_cached_object(class_name):
+    """br-r37-c1-ptiz2: the caller must never receive the cached mapping.
+
+    The cache stores the built keydict and hands out a SHALLOW COPY. If it ever
+    returned the cached object itself, a caller mutating the mapping would
+    corrupt the cache and every later call would report a phantom key that
+    `G.edges` does not have — and unlike networkx's live dict, this one is not
+    wired to the native store, so the graph would never agree.
+    """
+    u, v = "u" * 130, "v" * 130
+    graph = _build(fnx, class_name, u, v, 8)
+
+    first = graph.get_edge_data(u, v)
+    first[9999] = {"phantom": True}  # mutate the mapping the caller was given
+
+    second = graph.get_edge_data(u, v)
+    assert 9999 not in second, (
+        "a mutation through the returned keydict leaked into the cache — the "
+        "caller was handed the cached object instead of a copy"
+    )
+    assert list(second.keys()) == list(range(8))
+    assert (u, v, 9999) not in graph.edges(keys=True)
+
+
+@pytest.mark.parametrize("class_name", ["MultiGraph"])
+@pytest.mark.parametrize(
+    "mutate",
+    [
+        pytest.param(lambda g, u, v: g.add_edge(u, v, weight="new"), id="add_parallel"),
+        pytest.param(lambda g, u, v: g.remove_edge(u, v), id="remove_one"),
+        pytest.param(lambda g, u, v: g.add_edge(u, "fresh"), id="add_other_edge"),
+        pytest.param(lambda g, u, v: g.add_node("lonely"), id="add_node"),
+        pytest.param(lambda g, u, v: g.remove_node("bulk0"), id="remove_other_node"),
+        pytest.param(lambda g, u, v: g.clear(), id="clear"),
+    ],
+)
+def test_every_mutation_invalidates_the_cached_keydict(class_name, mutate):
+    """A warm keydict must not survive ANY structural change.
+
+    The cache is stamped with `(nodes_seq, edges_seq)`, so this asserts the
+    stamps actually advance for each mutation shape rather than trusting that
+    they do. `add_other_edge` and `remove_other_node` touch a DIFFERENT pair on
+    purpose: the generation is global, so an unrelated mutation must drop this
+    pair's entry too, and a cache that only invalidated on same-pair edits would
+    pass every same-pair test and fail these.
+    """
+    u, v = "u" * 130, "v" * 130
+    graph = _build(fnx, class_name, u, v, 4)
+    graph.add_node("bulk0")
+
+    warm = graph.get_edge_data(u, v)
+    assert list(warm.keys()) == [0, 1, 2, 3]
+
+    mutate(graph, u, v)
+
+    after = graph.get_edge_data(u, v)
+    # Built through the SAME helper as the fnx graph — an inline reconstruction
+    # here silently dropped the `tag` attribute and made all five mutation cases
+    # fail on a difference the lever had nothing to do with.
+    reference = _build(nx, class_name, u, v, 4)
+    reference.add_node("bulk0")
+    mutate(reference, u, v)
+    expected = reference.get_edge_data(u, v)
+
+    if expected is None:
+        assert after is None
+    else:
+        assert list(after.keys()) == list(expected.keys())
+        assert {k: dict(d) for k, d in after.items()} == {
+            k: dict(d) for k, d in expected.items()
+        }
+
+
+@pytest.mark.parametrize("class_name", ["MultiGraph"])
+def test_cached_keydict_reflects_inner_attr_mutation(class_name):
+    """Copying the mapping must NOT copy the attribute dicts.
+
+    The values are the graph's live attr dicts, so a write through `G[u][v][k]`
+    has to be visible in a keydict served from the cache. A deep copy — or a
+    cache that snapshotted values — would break this while passing every
+    key-set assertion.
+    """
+    u, v = "u" * 130, "v" * 130
+    graph = _build(fnx, class_name, u, v, 4)
+    graph.get_edge_data(u, v)  # warm the cache
+
+    graph[u][v][2]["weight"] = "rewritten"
+    assert graph.get_edge_data(u, v)[2]["weight"] == "rewritten"
+    assert graph.get_edge_data(u, v)[2] is graph[u][v][2]
+
+
 @pytest.mark.parametrize("class_name", CLASSES)
 def test_absent_pair_returns_default(class_name):
     graph = _build(fnx, class_name, "x" * 130, "y" * 130, 3)

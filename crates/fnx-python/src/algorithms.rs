@@ -32943,6 +32943,7 @@ mod tests {
                 has_remapped_int_key: false,
                 has_edge_node_index_cache: crate::NodeIndexLookupCache::new(py),
                 neighbor_key_rows: None,
+            edge_keydict_cache: None,
             };
             let mut weighted_attrs = AttrMap::new();
             weighted_attrs.insert("weight".to_owned(), 1.0.into());

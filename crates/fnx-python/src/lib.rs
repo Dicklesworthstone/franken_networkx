@@ -4968,6 +4968,36 @@ pub(crate) struct PyMultiGraph {
     /// Python-side keydict cache it replaces did — br-r37-c1-dwy1n tracks that
     /// divergence from networkx and is NOT changed either way by this field.
     pub(crate) neighbor_key_rows: Option<(u64, u64, HashMap<String, Py<PyDict>>)>,
+    /// br-r37-c1-ptiz2: the `{key: attrs}` keydict for ONE endpoint pair, under
+    /// the `(nodes_seq, edges_seq)` generation it was built in.
+    ///
+    /// networkx serves `get_edge_data(u, v)` in O(1) because it STORES
+    /// `_adj[u][v]` as a real dict and hands the object back. fnx stores edges
+    /// natively and had to rebuild the mapping on every call, which is why this
+    /// call degraded without bound in the parallel-edge count — 0.0072x against
+    /// networkx at 64 parallel edges, the campaign's worst cell.
+    ///
+    /// NESTED rather than keyed by a `(String, String)` tuple so the hit path
+    /// allocates NOTHING: a `HashMap<String, _>` can be probed with a borrowed
+    /// `&str`, a tuple key cannot, and the endpoints here are already borrowed
+    /// canonicals. Endpoints are stored in sorted order because the graph is
+    /// undirected.
+    ///
+    /// A generation mismatch drops the whole map rather than repairing it —
+    /// same contract as `neighbor_key_rows`. That is what keeps this a cache and
+    /// not a second source of truth: any edge add/remove bumps `edges_seq` and
+    /// any node mutation bumps `nodes_seq`, so a stale keydict cannot outlive
+    /// the structure it describes.
+    ///
+    /// The cached dict is never handed out. Callers receive a SHALLOW COPY, so
+    /// the observable contract is unchanged from rebuilding it — a fresh mapping
+    /// per call whose VALUES are the same live attribute dicts. Returning the
+    /// cached object itself would be faster still and would match networkx's
+    /// object identity, but a caller mutating that mapping (`d[k] = {}`) would
+    /// then corrupt the cache and see a phantom key that `G.edges` does not
+    /// have, because unlike networkx's live dict this one is not wired to the
+    /// native store. The copy costs ~451ns against ~16623ns for the rebuild.
+    pub(crate) edge_keydict_cache: Option<(u64, u64, HashMap<String, HashMap<String, Py<PyDict>>>)>,
     pub(crate) instance_dict_gc: InstanceDictGc,
 }
 
@@ -5073,6 +5103,19 @@ impl PyMultiGraph {
             let mirror = self.node_iter_mirror.lock().unwrap();
             visit.call(mirror.as_ref())?;
         }
+        // br-r37-c1-ptiz2: the keydict cache MUST be traversed. Unlike
+        // `neighbor_key_rows`, whose rows hold only `None` values and so cannot
+        // participate in a cycle, these dicts hold the user's edge ATTRIBUTE
+        // dicts — and an attribute value may reference the graph itself
+        // (`G[u][v][k]['g'] = G`). Untraversed, that cycle would be invisible to
+        // the collector and the graph would leak.
+        if let Some((_, _, rows)) = &self.edge_keydict_cache {
+            for row in rows.values() {
+                for keydict in row.values() {
+                    visit.call(keydict)?;
+                }
+            }
+        }
         self.has_edge_node_index_cache.traverse(visit)
     }
 
@@ -5091,6 +5134,7 @@ impl PyMultiGraph {
         *self.edges_data_attr_cache.get_mut().unwrap() = None;
         self.edges_with_keys_cache = None;
         *self.node_iter_mirror.get_mut().unwrap() = None;
+        self.edge_keydict_cache = None;
         self.has_edge_node_index_cache.clear(py);
     }
 
@@ -5616,6 +5660,7 @@ impl PyMultiGraph {
     ) -> PyResult<Self> {
         Ok(Self {
             neighbor_key_rows: None,
+            edge_keydict_cache: None,
             edges_data_attr_cache: std::sync::Mutex::new(None),
             inner: MultiGraph::with_runtime_policy(runtime_policy),
             node_key_map: HashMap::new(),
@@ -7345,6 +7390,31 @@ impl PyMultiGraph {
                 .clone_ref(py)
                 .into_any())
         } else {
+            // br-r37-c1-ptiz2: serve a warm endpoint pair from the keydict cache.
+            //
+            // The rebuild below is O(parallel edges) and networkx is O(1), which
+            // is the entire defect on this row. A hit returns a SHALLOW COPY of
+            // the cached mapping: same observable contract as rebuilding (a
+            // fresh dict per call, values are the same live attribute dicts),
+            // at ~451ns against ~16623ns.
+            //
+            // The generation is checked FIRST and a stale one drops the whole
+            // map, so no keydict can survive an edge or node mutation.
+            let (lo, hi) = if u_c <= v_c { (u_c, v_c) } else { (v_c, u_c) };
+            let fresh = matches!(
+                &self.edge_keydict_cache,
+                Some((ns, es, _)) if *ns == self.nodes_seq && *es == self.edges_seq
+            );
+            if !fresh {
+                self.edge_keydict_cache = Some((self.nodes_seq, self.edges_seq, HashMap::new()));
+            }
+            if let Some((_, _, rows)) = &self.edge_keydict_cache
+                && let Some(cached) = rows.get(lo).and_then(|row| row.get(hi))
+            {
+                let copy = cached.bind(py).copy()?;
+                self.mark_edges_dirty();
+                return Ok(copy.into_any().unbind());
+            }
             let keys = self.inner.edge_keys(u_c, v_c).unwrap_or_default();
             if keys.is_empty() {
                 Ok(default.unwrap_or_else(|| py.None()))
@@ -7374,7 +7444,16 @@ impl PyMultiGraph {
                     let py_key = self.py_edge_key_with_key(py, k, &ek);
                     result.set_item(py_key, attrs.bind(py))?;
                 }
-                Ok(result.into_any().unbind())
+                // br-r37-c1-ptiz2: remember it, then hand back a COPY — the
+                // caller must never receive the cached object, or a mutation
+                // through it would corrupt the cache (see the field's note).
+                let copy = result.copy()?;
+                if let Some((_, _, rows)) = self.edge_keydict_cache.as_mut() {
+                    rows.entry(lo.to_owned())
+                        .or_default()
+                        .insert(hi.to_owned(), result.unbind());
+                }
+                Ok(copy.into_any().unbind())
             }
         }
     }
@@ -11014,6 +11093,7 @@ impl PyMultiGraph {
         // never-reordered succ. Keep the rebuild.
         let mut new_graph = Self {
             neighbor_key_rows: None,
+            edge_keydict_cache: None,
             edges_data_attr_cache: std::sync::Mutex::new(None),
             // br-r37-c1-7dpyg: fresh ledger, mode only (skip ledger clone)
             inner: MultiGraph::with_runtime_policy(fnx_runtime::RuntimePolicy::new(
@@ -11121,6 +11201,7 @@ impl PyMultiGraph {
         let deepcopy = py.import("copy")?.getattr("deepcopy")?;
         let mut new_graph = Self {
             neighbor_key_rows: None,
+            edge_keydict_cache: None,
             edges_data_attr_cache: std::sync::Mutex::new(None),
             inner: MultiGraph::with_runtime_policy(self.inner.runtime_policy().clone()),
             node_key_map: HashMap::new(),
@@ -11289,6 +11370,7 @@ impl PyMultiGraph {
         // the deep-copy of the Python attr dicts / key objects remains.
         let mut new_graph = Self {
             neighbor_key_rows: None,
+            edge_keydict_cache: None,
             edges_data_attr_cache: std::sync::Mutex::new(None),
             inner: self.inner.clone_with_fresh_policy(), // br-r37-c1-7dpyg: skip ledger
             node_key_map: HashMap::with_capacity(self.node_key_map.len()),
@@ -11366,6 +11448,7 @@ impl PyMultiGraph {
         // locked copy.copy contract — see test_adj_mapping_parity).
         Ok(Self {
             neighbor_key_rows: None,
+            edge_keydict_cache: None,
             edges_data_attr_cache: std::sync::Mutex::new(None),
             inner: self.inner.clone_with_fresh_policy(), // br-r37-c1-7dpyg: skip ledger
             node_key_map: self
@@ -11458,6 +11541,7 @@ impl PyMultiGraph {
 
         let mut new_graph = Self {
             neighbor_key_rows: None,
+            edge_keydict_cache: None,
             edges_data_attr_cache: std::sync::Mutex::new(None),
             inner: MultiGraph::with_runtime_policy(self.inner.runtime_policy().clone()),
             node_key_map: HashMap::new(),
@@ -11577,6 +11661,7 @@ impl PyMultiGraph {
         let mut involved_nodes: HashSet<String> = HashSet::new();
         let mut new_graph = Self {
             neighbor_key_rows: None,
+            edge_keydict_cache: None,
             edges_data_attr_cache: std::sync::Mutex::new(None),
             inner: MultiGraph::with_runtime_policy(self.inner.runtime_policy().clone()),
             node_key_map: HashMap::new(),
