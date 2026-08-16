@@ -23797,17 +23797,37 @@ def single_source_bellman_ford_path_length(G, source, weight="weight"):
     # quoted-repr variant.
     if source not in G:
         raise NodeNotFound(f"Source {source} not in G")
-    result = _raw_single_source_bellman_ford_path_length(G, source, weight=weight)
     # br-r37-c1-e9rea: the kernel emits the length dict in nx's SPFA
     # first-discovery order (not distance-sorted). Trust it directly.
     # br-ssintfloat: preserve int distances when all edge weights are int
     # (dict comprehension keeps insertion/discovery order).
+    #
+    # br-r37-c1-z8mfa: decide WHICH kernel to run before running one. This
+    # used to call the length kernel unconditionally and then, for any graph
+    # that is not all-int, run the FULL kernel as well to obtain paths --
+    # TWO complete Bellman-Ford traversals for one query. cProfile on an
+    # 800-node float-weighted Graph: 2.190ms in
+    # `single_source_bellman_ford_path_length` plus 1.355ms in
+    # `single_source_bellman_ford`, inside a 5.351ms call.
+    #
+    # The full kernel returns the distances as well as the paths, and the two
+    # were verified to agree on key ORDER and on VALUES across all-int,
+    # all-float and mixed weights, on Graph and DiGraph at two sizes, and to
+    # raise NetworkXUnbounded identically on a negative cycle. So the mixed
+    # branch can take its distances from the same traversal that gives it the
+    # paths, and the length kernel is only run when its result is sufficient.
+    #
+    # `_sp_edge_weights_all_int` is safe to consult FIRST: it was checked to
+    # return the same answer before and after a kernel call, including after a
+    # Python-side edge-attribute edit, so it does not depend on a sync that
+    # only a prior kernel run would have performed.
     if _sp_edge_weights_all_int(G, weight):
+        result = _raw_single_source_bellman_ford_path_length(G, source, weight=weight)
         return _sp_coerce_dist_to_int(dict(result))
-    # br-r37-c1-srczero: mixed graphs need per-path int-type propagation;
-    # fetch paths from the full kernel (same traversal).
+    # br-r37-c1-srczero: mixed graphs need per-path int-type propagation, and
+    # the paths come from the same traversal as these distances.
     dists, paths = _raw_single_source_bellman_ford(G, source, weight=weight)
-    return _sp_propagate_int_types(G, weight, dict(result), dict(paths))
+    return _sp_propagate_int_types(G, weight, dict(dists), dict(paths))
 
 
 def all_pairs_dijkstra_path(G, cutoff=None, weight="weight"):
