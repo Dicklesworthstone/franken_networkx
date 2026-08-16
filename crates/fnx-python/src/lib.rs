@@ -15937,13 +15937,52 @@ impl PyGraph {
         u: &Bound<'_, PyAny>,
         v: &Bound<'_, PyAny>,
     ) -> PyResult<Option<Py<PyDict>>> {
-        let u_c = node_key_to_string(py, u)?;
-        let v_c = node_key_to_string(py, v)?;
-        if !self.inner.has_edge(&u_c, &v_c) {
+        // br-r37-c1-ptiz2 THIRD ROUTE. `G[u][v]` reaches the same live attr dict
+        // through `AtlasView` and this function, and it was the last of three
+        // routes still on the string path: measured at 8000-character node keys,
+        // `G.edges[u,v]` 0.7213x and `G.get_edge_data()` 0.7238x against
+        // `G[u][v]` 0.0555x — 13x worse than its own siblings.
+        //
+        // It was also the worst-written of the three: `node_key_to_string`
+        // allocates an OWNED heap String per endpoint, where the sibling had at
+        // least moved to a borrowed `ArrayString`. So this pays an allocation
+        // AND two O(key length) hashes (`has_edge`, then the string-keyed
+        // lookaside) on every access.
+        //
+        // Index probe first, exactly as the other two routes now do. A hit is
+        // existence proof, and the entry's `nodes_seq` stamp makes a
+        // post-removal index a MISS rather than a wrong hit.
+        if u.is_exact_instance_of::<PyString>()
+            && v.is_exact_instance_of::<PyString>()
+            && let Some(u_index) = self.cached_exact_string_node_index(py, u)?
+            && let Some(v_index) = self.cached_exact_string_node_index(py, v)?
+            && let Some(attrs) = self.cached_edge_py_attrs_by_index(py, u_index, v_index)
+        {
+            self.mark_edges_dirty();
+            return Ok(Some(attrs));
+        }
+        // Borrowed canonicals on the miss path too, matching
+        // `PyGraph::get_edge_data` — `materialize_edge_py_attrs` already takes
+        // `&str`, so the owned Strings bought nothing.
+        let mut u_buf = ArrayString::new();
+        let mut v_buf = ArrayString::new();
+        let u_key = canonical_node_key_in(py, u, &mut u_buf)?;
+        let v_key = canonical_node_key_in(py, v, &mut v_buf)?;
+        let u_c = u_key.as_str();
+        let v_c = v_key.as_str();
+        if !self.inner.has_edge(u_c, v_c) {
             return Ok(None);
         }
         self.mark_edges_dirty();
-        Ok(Some(self.materialize_edge_py_attrs(py, &u_c, &v_c)))
+        let attrs = self.materialize_edge_py_attrs(py, u_c, v_c);
+        if u.is_exact_instance_of::<PyString>()
+            && v.is_exact_instance_of::<PyString>()
+            && let Some(u_index) = self.cached_exact_string_node_index(py, u)?
+            && let Some(v_index) = self.cached_exact_string_node_index(py, v)?
+        {
+            self.remember_edge_py_attrs_by_index(py, u_index, v_index, &attrs);
+        }
+        Ok(Some(attrs))
     }
 
     /// br-r37-c1-sjf4t: push the per-node and per-edge Python attribute

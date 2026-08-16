@@ -13189,3 +13189,77 @@ PROVENANCE, self-reported in-process: harness `/data/tmp/claude-1000/bsq_ged_par
 host thinkstation1; rch_worker none — both arms in-process, same host, same
 invocation. python 3.13.7 x86_64, live networkx 3.6.1, disk 311G free. loadavg
 15.3 at the first run start and 16.5 at the last.
+
+## Graph `G[u][v]` at 8000-char keys — 0.0555x to 0.0639x, and I CANNOT attribute the move to my change (br-r37-c1-ptiz2)
+
+comparison_class=INCUMBENT
+incumbent=networkx
+incumbent_same_invocation=true
+decision_gate=median_ci
+cv_role=report_only
+
+I patched `PyGraph::_fnx_edge_attr_dict_fast` expecting to close the 13x gap
+between `G[u][v]` and its two sibling routes. It moved 15 percent. The reason is
+that I patched a function `G[u][v]` does not call.
+
+A/A null control run 1, incumbent arm paired against itself in the same invocation: 0.9991x, inside the 0.02 bound.
+
+A/A null control run 1, fnx arm paired against itself in the same invocation: 0.9993x, inside the 0.02 bound.
+
+A/A null control run 2, incumbent arm paired against itself in the same invocation: 1.0086x, inside the 0.02 bound.
+
+A/A null control run 2, fnx arm paired against itself in the same invocation: 1.0020x, inside the 0.02 bound.
+
+A/B against live networkx 3.6.1 in the SAME invocation, ABBAABBA square, 61 rounds
+x 50 reps x 160 calls per slot. All four rows admitted in BOTH runs:
+
+| row | before (ELF b3bf13e8) | after run 1 | after run 2 | after (worst bound) |
+|---|---|---|---|---|
+| `Graph G[u][v] len=8000` | 0.0555x | 0.0640x | 0.0652x | 0.0639x |
+| `Graph get_edge_data len=8000` | 0.7238x | 0.7076x | 0.7066x | 0.7012x |
+| `CONTROL Graph edges[u,v] len=8000` | 0.7213x | 0.7393x | 0.7306x | 0.7270x |
+| `MDG edges[u,v,k] len=8000` | 0.3635x | 0.3658x | 0.3654x | 0.3644x |
+
+THE ATTRIBUTION IS NEGATIVE AND THAT IS THE POINT. `G[u]` on a simple Graph
+returns the NATIVE `AtlasView`, whose `__getitem__` is a `wrapper_descriptor` — a
+C slot in views.rs. It never reaches `_fnx_edge_attr_dict_fast`, the `PyGraph`
+method I changed. That method is not dead (the Python shim calls it in two
+places), so the change is a real improvement to whatever uses it, but it is NOT
+on this row's path and I am not claiming the 15 percent. The honest reading is
+that the move is unexplained — plausibly instruction-cache layout, plausibly the
+shim path in some cases, and I did not isolate which.
+
+THIS IS THE SECOND TIME THE SAME ERROR HAS COST ME A LEVER. Earlier I claimed
+`G.edges[u,v]` and `G[u][v]` "route through get_edge_data" and had to withdraw it
+after instrumenting; the same instrumentation would have caught this before the
+build. The rule I should have applied, and am writing down so it is not a third
+time: BEFORE patching a function to move a row, shadow it on the instance and
+confirm the row's operation actually calls it. A `wrapper_descriptor` on the view
+class is the tell that a native C slot bypasses every Python-visible attribute.
+
+THE REAL TARGET, now located by reading the C slot rather than guessing.
+`AtlasView::__getitem__` (views.rs ~1628) is already well optimised for the
+things I fixed elsewhere: `self.node` is stored ALREADY canonical, and `v` is
+canonicalised into a borrowed `ArrayString`. What remains is
+`g.cached_edge_py_attrs(py, &self.node, v_canon)` — the STRING-keyed lookaside,
+hashing two 8000-character canonicals on every access.
+
+WHY THE INDEX FIX DOES NOT PORT UNCHANGED, unlike the other two routes: those had
+a Python object for each endpoint, so `cached_exact_string_node_index` resolved
+both in O(1) via CPython's cached hash. Here `self.node` is a canonical STRING
+field on the view, not a Python object, so resolving its index per call would be
+the O(key length) hash the fix is meant to avoid. The lever therefore needs the
+row's node INDEX cached on the `AtlasView` struct itself, resolved once when the
+row is built. That is a struct change, not a call-site change, and it is the next
+unit of work.
+
+PROVENANCE, self-reported in-process: harness `scripts/balanced_square_ab.py`
+sha256 fba97bb5867907dbc10cb48d5ce70816844c4cab0408136f75000fd2bb7344f8; host
+thinkstation1; rch_worker none, both arms in-process on the same host; loaded ELF
+sha256 00a3b11ef4da3fc8e9564284b849baf9125fa08b7dce844ab3be3fba2c303d99 (AFTER),
+b3bf13e8c565e3f4924bf96c9d5dff3c9846e0d6d79717601742d4193ab5ed39 (BEFORE); built
+locally by maturin, `env -u CARGO_TARGET_DIR`, private TMPDIR, 1m21s, disk 310.97
+-> 310.81 GiB; `cargo check` clean; full Python suite 59653 passed / 1463 skipped
+with only the two pre-existing br-r37-c1-2i3mf pollution failures; governor
+powersave; runtime ISA avx2 avx sse4_2; observed affinity 8 of 64 cpus; python
+3.13.7 x86_64; live networkx 3.6.1; PYTHONHASHSEED=0; loadavg 35.7 and 31.9.
