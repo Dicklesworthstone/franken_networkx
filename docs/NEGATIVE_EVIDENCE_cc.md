@@ -11061,3 +11061,41 @@ this table — br-r37-c1-p80x1.22 and br-r37-c1-p80x1.18 were closed on it and h
 to be reopened the same day. What this table settles is narrower and still worth
 having: the RCH stable-target predicate those beads are parked on is not needed
 for whole-algorithm measurement, because both arms run in one local process.
+
+---
+
+## reverse(copy=False) — measured LOSS, next lever NOT taken (br-r37-c1-vaayu)
+
+LEVER: after br-r37-c1-vaayu short-circuited the private-method shadow installer
+per class, the named next lever was the setattr chain —
+`_digraph_setattr_with_cached_public_adjacency` (10 calls per reverse) and
+`_set_private_override` (3 per reverse).
+
+HYPOTHESIS: collapsing those per-reverse setattr calls closes the remaining gap
+the way the shadow-installer memo closed the previous one.
+
+MEASURED 2026-08-16, LOCAL:thinkstation1, live networkx 3.6.1, N=4000. Substrate:
+balanced square ABBAABBA, 21 rounds x 2000 reps, both arms in ONE invocation,
+bootstrap median CI over rounds (10k resamples). Pure-Python path, no build.
+ELF sha256 e702b0446310947af8c0e3aec1432fffd15cca86e39edfe29d34ca86bc1a613f.
+
+    class          nx us   fnx us   t_nx/t_fnx   95% CI
+    DiGraph        4.806    7.807     0.6150     [0.6063, 0.6186]
+    MultiDiGraph   5.272    7.849     0.6737     [0.6684, 0.6793]
+
+DiGraph A/A null control, paired(base, base) in the same invocation: nx arm 1.0026x CI [0.9978, 1.0062] PASS; fnx arm 0.9945x CI [0.9891, 1.0015] PASS.
+MultiDiGraph A/A null control, paired(base, base) in the same invocation: nx arm 1.0034x CI [0.9949, 1.0126] PASS; fnx arm 0.9970x CI [0.9916, 1.0340] PASS.
+All four A/A null CIs straddle 1.0, gated on the bootstrap median CI and not on CV, so the substrate is admissible and the 0.6150x / 0.6737x gap sits far outside the null spread.
+
+WHY THE LEVER WAS NOT TAKEN THIS TURN: the row is Python-level, so the Rust
+head-to-head bench does not cover it; and that bench cannot start on HEAD — it
+panics in setup before any measurement, on every filter and on `--list`, because
+its embedded extension lacks `_fnx_native_node_iter` that the shim reads at
+import (`__init__.py:2654`). That method is present in HEAD's Rust at 4 sites and
+on the installed `.so`, so this is a bench-vs-shim mismatch, not an rch artifact,
+and any ratio previously attributed to that bench is not a measurement anyone
+took. Disk at 51G sits below the 52G brake, so no build was started.
+
+STATUS: loss recorded. The lever is OPEN and UNATTEMPTED — not tried and
+rejected — and it is measurable in-process, making it the cheapest remaining row
+to attack.
