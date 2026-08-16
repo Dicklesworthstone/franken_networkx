@@ -8605,8 +8605,83 @@ for _cls in (Graph, DiGraph, MultiGraph, MultiDiGraph):
 # attrs after ``g.clear()``.  nx's ``Graph.clear`` does ``self.graph.clear()``
 # in-place — the dict identity is preserved, contents emptied.  Wrap
 # ``clear`` here to mirror that contract for the override.
+def _detach_rows_before_clear(graph):
+    """br-r37-c1-s5pxs: let a HELD adjacency row outlive clear().
+
+    networkx's ``G.adj[u]`` wraps the inner ``_adj[u]`` dict, and ``clear()``
+    rebinds ``_adj`` to a fresh dict — so a reference someone already holds keeps
+    its old contents: stale, but alive and readable. Graph and DiGraph already
+    match, because their rows are backed by a Rust-maintained live PyDict that
+    ``clear()`` drops from the map without emptying the dict object itself
+    (br-r37-c1-v9auw says so in as many words).
+
+    The multigraph rows are native views onto the graph's storage, so clearing
+    the storage emptied them — ``list(row)`` read ``[]`` where networkx reads
+    ``['b']``. Before br-r37-c1-znpkv captured the row it raised ``KeyError``
+    instead; neither answer was parity.
+
+    Snapshotting at CLEAR time rather than at capture time is what keeps the
+    liveness contracts that already match: a captured row must still see later
+    ``add_edge``/``remove_edge``/parallel-edge churn, and it does, because
+    nothing is frozen until the clear actually happens.
+
+    KNOWN LIMIT, stated rather than hidden: this reaches the rows the adjacency
+    view still has cached. A row obtained and then orphaned by a node mutation
+    (which advances ``nodes_seq`` and drops the cache) is not reachable from
+    here and keeps the old empty-after-clear behaviour. Covering that would need
+    the graph to track every row it ever handed out, which is an unbounded
+    retention hazard for a P3 divergence that needs a row held across a clear.
+    """
+    for view in tuple(vars(graph).values()):
+        for cache_name in ("_fnx_row_cache", "_fnx_atlas_cache"):
+            cache = getattr(view, cache_name, None)
+            if not cache:
+                continue
+            for row in tuple(cache[1].values()):
+                _detach_row(row)
+
+
+def _detach_row(row):
+    """Make one held adjacency row serve its current contents forever."""
+    if hasattr(row, "_atlas_getter"):
+        # A Python AdjacencyView/AtlasView: rebind the getter to a snapshot and
+        # cut every native read path, including the caches keyed by a revision
+        # that is about to move.
+        try:
+            snapshot = {
+                neighbor: AtlasView(lambda keys=dict(value): keys)
+                for neighbor, value in row.items()
+            }
+        except Exception:  # noqa: BLE001 - a detached row must never break clear()
+            return
+        row._atlas_getter = lambda snap=snapshot: snap
+        row._fnx_native_iter = None
+        row._fnx_native_len = None
+        row._fnx_keys_snapshot = None
+        row._fnx_atlas_cache = None
+        row._fnx_owner = None
+        row._fnx_multi_edge_owner = None
+        return
+    # A native `_fnx.AtlasView` (br-r37-c1-ey6ob routes simple Graph rows here).
+    # Its fields are not writable from Python, but it already has the mechanism:
+    # every read checks its own materialised `row` dict first, and `__iter__`
+    # is what fills that dict in. So exhausting the iterator IS the detach — no
+    # Rust change needed, and the cost is one O(degree) walk per cached row, paid
+    # only by callers who actually clear a graph whose rows were handed out.
+    try:
+        for _ in row:
+            pass
+    except Exception:  # noqa: BLE001
+        pass
+
+
 def _make_clear_with_attr_override(raw_clear):
     def clear(self):
+        # br-r37-c1-s5pxs: BEFORE the storage goes away, not after. All four
+        # classes need it -- the bead recorded Graph/DiGraph as already matching,
+        # and they do not: they raised KeyError, which is a worse divergence than
+        # the multigraphs' empty read.
+        _detach_rows_before_clear(self)
         raw_clear(self)
         override = vars(self).get(_GRAPH_ATTR_OVERRIDE, _GRAPH_ATTR_MISSING)
         if override is not _GRAPH_ATTR_MISSING and hasattr(override, "clear"):
