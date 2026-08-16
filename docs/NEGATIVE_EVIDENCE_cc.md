@@ -15904,3 +15904,79 @@ retire other panes' rows mid-campaign.
 
 NO RATIO IS CLAIMED IN THIS ROW. Load was 20-28 and rising throughout; every
 number here is an instrument reading, not a performance result.
+
+## THE FREQUENCY MAGNITUDE, ESTABLISHED: a BUSY benchmark core sits at 3.84-4.29 GHz across loadavg 7-44 — a ~12 percent range, not 1.26x, 1.66x or 3.0x (br-r37-c1-jycsb)
+
+NO CERTIFICATION. `uptime` checked by this pane: 1-min 17.80 against 5-min 33.47,
+ratio 1.88 — falling, not settled, rejected. Everything below is categorical or
+structural: clock-state splits of 1.26x and pinned/unpinned comparisons, none of
+which a load ramp manufactures.
+
+The magnitude was called unestablished. This establishes it, and the answer is
+that most of the apparent variation is an artifact of WHERE AND WHEN the clock is
+sampled rather than a property of the host.
+
+**STEP 1 — the busy/idle confound does NOT explain it.** Sampling both ways at
+the same instant, six times at loadavg 17.62:
+
+    idle-sampled   4040 / 3965 / 3990 / 4015 / 4018 / 3991 MHz
+    busy-sampled   3965 / 3990 / 3993 / 3990 / 3967 / 3973 MHz
+    busy/idle      0.98 / 1.01 / 1.00 / 0.99 / 0.99 / 1.00
+
+Within 2 percent. So the sampling STATE alone is not the mechanism, and this
+pane's earlier idle-versus-busy contrast was about the SWING, not the level.
+
+**STEP 2 — the cores really do split, and it is not what it looks like.** All 64
+cores read at one instant, loadavg 16.91:
+
+    36 cores at ~3374 MHz     28 cores at ~4238-4242 MHz
+    min 3374  max 4242  median 3391  spread 1.26x, cleanly bimodal
+
+That 1.26x is close to the 1.36x timing ratio this pane measured between its slow
+and fast processes, so core heterogeneity — P/E cores, separate CCDs — was the
+obvious hypothesis.
+
+**STEP 3 — REFUTED BY PINNING, which is why it was worth testing rather than
+adopting.** `taskset` onto a core from each group, running the real benchmark:
+
+    pinned cpu37 (slow group)   4068 MHz / 119.31 ns    3991 / 117.72    4039 / 106.81
+    pinned cpu13 (fast group)   4014 MHz / 128.49 ns    4037 / 144.66    3893 / 116.77
+
+Once a "slow group" core HAS WORK it boosts to 4068 MHz and is, if anything,
+faster than the "fast group" core. **The 3374/4240 split was idle cores versus
+active cores at that instant, not fixed hardware groups.** A core's sampled clock
+tells you whether that core was busy — not what your benchmark will run at.
+
+**THE ESTABLISHED MAGNITUDE.** Pooling every busy-core observation this pane has
+taken across the load range:
+
+    loadavg  7.3   4.14-4.29 GHz
+    loadavg 17.6   3.97-3.99 GHz
+    loadavg 17.8   3.89-4.07 GHz  (pinned, both groups)
+    loadavg 43.7   3.84 GHz median (3062-3915 range)
+
+**A busy benchmark core lives at 3.84-4.29 GHz across loadavg 7 to 44 — about a
+12 percent range.** That is the number to plan around. It is not 1.26x (that is
+idle versus active cores), not 1.66x (the unexplained process-level timing split,
+still open), and not 3.0x (this pane's retracted idle-sampling artifact).
+
+**WHAT THIS MEANS FOR THE PER-ROW RULE, which this pane supports and now
+sharpens: a recorded CPU MHz is only meaningful if sampled WHILE THE ARM IS
+RUNNING.** An idle-sampled clock reports the state of a core that was not doing
+your work. That is exactly what the `IDLE-SAMPLED` verdict added last turn
+detects — by wall interval, since duty cycle cannot see it — and it is why a
+figure like 2584 MHz at loadavg 22 should be checked for sampling state before
+being planned around. This pane does not reproduce a reading that low at any load
+it has observed while busy.
+
+STILL OPEN: br-r37-c1-jycsb's original 1.66x process-level timing split remains
+unexplained. Hash seed is refuted, idle sampling is refuted as the cause of the
+TIMING split, and core group is now refuted by pinning. A 12 percent clock range
+does not account for 1.66x.
+
+PROVENANCE: structural and categorical; no ratio certified. Pinned ELF sha256
+789dd9dead49c4a8dbeaf6747c1532a70639561afda92497e4b304fdb7ff59fd via PYTHONPATH.
+host thinkstation1, 64 cores, governor `powersave`, python 3.13.7, live networkx
+3.6.1, disk 279G free. `uptime` observed by this pane: 17.62, 17.08, 16.91, 17.80
+across the probes; 5-min 33.47-36.05 throughout, so the window was falling and
+never certifiable. CPU MHz observed per probe is in the tables above.
