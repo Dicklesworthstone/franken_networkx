@@ -11918,8 +11918,23 @@ impl MultiGraphNodeView {
     }
 
     fn __contains__(&self, py: Python<'_>, n: &Bound<'_, PyAny>) -> PyResult<bool> {
-        let canonical = node_key_to_string(py, n)?;
-        Ok(self.graph.borrow(py).inner.has_node(&canonical))
+        // br-r37-c1-alll4: this is the same question as `n in G`, which is a
+        // 1.93x WIN on this very graph, while this spelling was 0.34x — it
+        // heap-allocated a canonical String per probe and never consulted the
+        // present-key memo. Give it the treatment its `has_node` twin has.
+        //
+        // EXACT `str` goes through the memo (br-r37-c1-6n9vm): the set is keyed
+        // by the caller's Python object, so a `str` subclass that lies about
+        // `__hash__`/`__eq__` must keep the canonical path.
+        if n.is_exact_instance_of::<PyString>() {
+            return self.graph.borrow(py).exact_str_node_is_present(py, n);
+        }
+        // Everything else keeps nx's unhashable-key TypeError, then probes with
+        // the BORROWED canonical (stack buffer, no malloc per probe).
+        n.hash()?;
+        crate::with_node_key_str(py, n, |canonical| {
+            self.graph.borrow(py).inner.has_node(canonical)
+        })
     }
 
     fn __iter__(&self, py: Python<'_>) -> PyResult<PyObject> {

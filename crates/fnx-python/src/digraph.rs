@@ -8476,8 +8476,17 @@ impl MultiDiGraphNodeView {
     }
 
     fn __contains__(&self, py: Python<'_>, n: &Bound<'_, PyAny>) -> PyResult<bool> {
-        let canonical = node_key_to_string(py, n)?;
-        Ok(self.graph.borrow(py).inner.has_node(&canonical))
+        // br-r37-c1-alll4: directed twin of MultiGraphNodeView::__contains__ —
+        // exact `str` through the present-key memo, everything else
+        // hash-checked and probed with the borrowed canonical. See there for
+        // why the memo is gated on EXACT `str`.
+        if n.is_exact_instance_of::<PyString>() {
+            return self.graph.borrow(py).exact_str_node_is_present(py, n);
+        }
+        n.hash()?;
+        crate::with_node_key_str(py, n, |canonical| {
+            self.graph.borrow(py).inner.has_node(canonical)
+        })
     }
 
     fn __iter__(&self, py: Python<'_>) -> PyResult<PyObject> {
