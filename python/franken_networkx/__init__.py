@@ -46558,10 +46558,19 @@ Graph.neighbors = _fnx.Graph._native_neighbors_iter
 DiGraph.neighbors = _DIGRAPH_NEIGHBORS
 DiGraph.successors = _DIGRAPH_SUCCESSORS
 DiGraph.predecessors = _private_aware_digraph_predecessors()
-MultiGraph.neighbors = _private_aware_neighbors(_MULTIGRAPH_PRIVATE_AWARE_NEIGHBORS)
-MultiDiGraph.neighbors = _private_aware_neighbors(_MULTIDIGRAPH_PRIVATE_AWARE_NEIGHBORS, attr_name="succ")
-MultiDiGraph.successors = _private_aware_neighbors(_MULTIDIGRAPH_PRIVATE_AWARE_SUCCESSORS, attr_name="succ")
-MultiDiGraph.predecessors = _private_aware_neighbors(_MULTIDIGRAPH_PRIVATE_AWARE_PREDECESSORS, attr_name="pred")
+# br-r37-c1-bvwam: the multigraph classes join Graph on a native slot. The
+# `_private_aware_neighbors` wrapper they used to carry rebuilt the
+# `(nodes_seq, edges_seq)` token from two PyO3 property reads, allocated a tuple
+# to compare it and a second tuple to key the per-row cache, all to reach an
+# `iter()` that networkx reaches with one cached-hash dict probe — measured
+# 0.2515x (MultiGraph) and 0.2331x (MultiDiGraph) on iterator CREATION. The
+# native slots answer the private-storage case themselves, so no Python frame is
+# left behind to inspect the result. The wrapper stays in the module: the
+# `_ASSIGNED_*` private-storage view classes still bind it.
+MultiGraph.neighbors = _fnx.MultiGraph._native_neighbors_iter
+MultiDiGraph.neighbors = _fnx.MultiDiGraph._native_neighbors_iter
+MultiDiGraph.successors = _fnx.MultiDiGraph._native_neighbors_iter
+MultiDiGraph.predecessors = _fnx.MultiDiGraph._native_predecessors_iter
 
 Graph.adj = property(
     lambda self: _private_adj_mapping(self, _graph_adj_view),
