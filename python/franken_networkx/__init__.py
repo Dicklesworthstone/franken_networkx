@@ -460,25 +460,36 @@ def _graph_nbunch_iter(self, nbunch=None):
         return iter(self)
     if nbunch in self:
         return iter([nbunch])
-    # br-cc-nbunchbulk: for a RE-ITERABLE nbunch on a REAL graph, filter to in-graph
-    # members in ONE native call (int fast path for contiguous-int nodes) instead of
-    # the per-node `n in self.adj` PyO3 crossing below. Skipped for:
-    #  - generators (a native pass would half-consume them before the None fallback);
-    #  - proxy VIEWS (conversion/filtered/reverse), which carry a `_graph` parent and
-    #    an EMPTY native inner — their node membership lives behind the Python `self.adj`
-    #    proxy that the generator path uses, so the raw-inner native would drop nodes.
-    if isinstance(nbunch, (list, tuple, set, frozenset)) and not hasattr(self, "_graph"):
-        _bulk = getattr(self, "_nbunch_present", None)
-        if _bulk is not None:
-            _present = _bulk(nbunch)
-            if _present is not None:
-                return iter(_present)
-    adjacency = self.adj
+    # br-r37-c1-oaamq: the br-cc-nbunchbulk native bulk path used to sit here. It
+    # filtered a re-iterable nbunch in ONE native call to avoid the per-node
+    # `n in self.adj` crossing below, and against THAT baseline it was a real
+    # improvement. But `self.adj` was never the cheapest container, and the
+    # comparison was never made against the others. Measured, N=4000, filtering
+    # 2000 nodes, so each row is the same work:
+    #
+    #     networkx list(nbunch_iter)      88.3 us
+    #     native _nbunch_present         167.0 us   <- what was here
+    #     py `n in self.adj`             433.6 us   <- what it replaced
+    #     py `n in self.nodes`            93.3 us
+    #     py `n in self`                  78.5 us   <- cheapest, and beats nx
+    #
+    # so the bulk call was twice networkx's cost while a one-word change to the
+    # container is below it. nbunch_iter was the worst row in the whole sweep at
+    # 0.453x-0.515x across all four classes; it is the container, not the loop.
+    #
+    # REMOVING IT ALSO RESTORES TWO CONTRACTS, which is the better reason. nx's
+    # nbunch_iter returns a lazy GENERATOR over the live graph. The bulk call was
+    # eager, so a node added between the call and the iteration was invisible:
+    #
+    #     it = G.nbunch_iter(['a', 'b', 'later']); G.add_node('later'); list(it)
+    #     networkx -> ['a', 'b', 'later']      fnx -> ['a', 'b']
+    #
+    # on all four classes, and the returned type was list_iterator where nx's is
+    # generator. Both are back with the eager path gone.
 
     def bunch_iter(nlist, adj):
         try:
             for n in nlist:
-                hash(n)
                 if n in adj:
                     yield n
         except TypeError as err:
@@ -491,7 +502,16 @@ def _graph_nbunch_iter(self, nbunch=None):
                 exc = NetworkXError(f"Node {n} in sequence nbunch is not a valid node.")
             raise exc
 
-    return bunch_iter(nbunch, adjacency)
+    # `self.nodes`, not `self.adj`: same membership answer (adjacency keys ARE
+    # the nodes) and 3.3x cheaper. It also RAISES TypeError on an unhashable
+    # element the way nx's plain-dict membership does, which is what lets the
+    # explicit per-node ``hash(n)`` go — that call alone was 71.4us of the
+    # 181.2us total, i.e. more than networkx spends on the whole operation.
+    # ``Graph.__contains__`` cannot be used instead: it is marginally cheaper
+    # still (109.8us vs 129.7us) but ANSWERS FALSE for an unhashable node
+    # rather than raising, so it would need the hash back and end up dearer.
+    # Both keep working for the proxy views the old bulk path had to exclude.
+    return bunch_iter(nbunch, self.nodes)
 
 
 def _size_with_unweighted_int(size_impl):
