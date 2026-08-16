@@ -694,6 +694,13 @@ def workload_multi_key_length(reps: int):
             table[f"Graph get_edge_data len={length}"] = (
                 lambda simple=simple, su=su, sv=sv: simple.get_edge_data(su, sv)
             )
+            # br-r37-c1-ptiz2: the remaining unbounded family members. G[u][v]
+            # reaches the same attr dict through AtlasView rather than through
+            # the EdgeView slot or get_edge_data, so it is a THIRD route and was
+            # screened at 0.0706x while the other two are now ~0.7x.
+            table[f"Graph G[u][v] len={length}"] = (
+                lambda simple=simple, su=su, sv=sv: simple[su][sv]
+            )
         return table
 
     return build, ops

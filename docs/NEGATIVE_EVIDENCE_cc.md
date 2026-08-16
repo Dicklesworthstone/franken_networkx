@@ -12934,3 +12934,103 @@ maturin `develop --release`, `env -u CARGO_TARGET_DIR`, private TMPDIR, 5m24s, d
 314G free. python 3.13.7 x86_64, live networkx 3.6.1. loadavg 45.6 at the first run
 start and 42.9 at the last — HIGH, which is why the row is quoted on four replicates
 and its worst bound rather than on a single reading.
+
+## 2026-08-16 GoldenBison GATE INSTRUMENTATION: my A/A null rejects WITHIN-ROUND WARMING, not sporadic contention — opposite of torch's finding
+
+Answering the cross-project question directly: torch instrumented its
+certification gate and found it rejects SPORADIC CONTENDED SAMPLES for
+infrastructure reasons rather than performance ones. **The same does NOT apply
+here, and the instrumentation says why.**
+
+My gate is `balanced_square_ab.py`'s per-arm A/A null: within each round,
+`median(first-half slots) / median(second-half slots)`, then the median across
+rounds, rejected outside [0.98, 1.02].
+
+TEST 1 — is the null driven by a heavy tail? Trim the worst and best 10 percent of
+rounds and recompute. If sporadic samples drive it, the trimmed null collapses
+toward 1.0.
+
+    calls_per_slot=16   incumbent null 1.0148   trimmed10% 1.0148   34% of rounds >2% off, max 2.950
+                        fnx       null 1.0081   trimmed10% 1.0081   26% of rounds >2% off, max 4.327
+    calls_per_slot=160  incumbent null 1.0023   trimmed10% 1.0023   20% of rounds >2% off, max 1.284
+                        fnx       null 1.0007   trimmed10% 1.0007   28% of rounds >2% off, max 2.306
+
+Trimming changes the null by EXACTLY ZERO at every setting. Sporadic contended
+samples are abundant — a fifth to a third of individual rounds are more than 2
+percent off, with maxima up to 4.3x — and the median discards all of them by
+construction. So this gate cannot be rejecting on them.
+
+TEST 2 — what does move it? Median nanoseconds per call by SLOT POSITION across
+the ABBAABBA square:
+
+    calls_per_slot=16    pos 0A 1.022  3A 1.027  4A 1.000  7A 1.018    first/second 1.0152
+    calls_per_slot=160   pos 0A 1.000  3A 1.009  4A 1.000  7A 1.007    first/second 1.0012
+
+A monotone WARMING gradient inside each round: the early slots are systematically
+slower, and the size of the gradient tracks the observed null exactly (1.0152
+against a measured 1.0148). It shrinks by an order of magnitude when each slot
+holds more work, because the per-round `gc.collect()` leaves caches cold and
+`ROUND_WARM_CALLS = 2` does not refill them at low call counts.
+
+CONCLUSION, and it changes how earlier null failures should be read: when rows
+here NULL-FAILED at calls_per_slot 16 and 48 and passed at 160, the gate was
+CORRECTLY rejecting a biased measurement, not spuriously rejecting a good one.
+Raising calls-per-slot is a fix, not a workaround. Every row I have banked at
+K=160 is on the right side of that.
+
+## Graph `G[u][v]` at 8000-char keys — measured LOSS 0.0555x, the THIRD route to the same dict and the only one still unfixed (br-r37-c1-ptiz2)
+
+comparison_class=INCUMBENT
+incumbent=networkx
+incumbent_same_invocation=true
+decision_gate=median_ci
+cv_role=report_only
+
+A/A null control run 1, incumbent arm paired against itself in the same invocation: 0.9994x, inside the 0.02 bound.
+
+A/A null control run 1, fnx arm paired against itself in the same invocation: 1.0001x, inside the 0.02 bound.
+
+A/A null control run 2, incumbent arm paired against itself in the same invocation: 0.9997x, inside the 0.02 bound.
+
+A/A null control run 2, fnx arm paired against itself in the same invocation: 0.9997x, inside the 0.02 bound.
+
+A/B against live networkx 3.6.1 in the SAME invocation, ABBAABBA square, 61 rounds
+x 50 reps x 160 calls per slot. All four rows admitted in BOTH runs:
+
+| row | run 1 (cores 40-47) | run 2 (cores 48-55) | worst bound |
+|---|---|---|---|
+| `Graph G[u][v] len=8000` | 0.0555x [0.0555, 0.0557] | 0.0578x [0.0577, 0.0580] | **0.0555x** |
+| `Graph get_edge_data len=8000` | 0.7271x | 0.7247x | 0.7238x |
+| `CONTROL Graph edges[u,v] len=8000` | 0.7277x | 0.7314x | 0.7213x |
+| `MDG edges[u,v,k] len=8000` | 0.3641x | 0.3751x | 0.3635x |
+
+THREE ROUTES TO ONE DICT, on the same `Graph`, at the same key length, in the same
+invocation:
+
+    G.edges[u,v]        0.7213x   fixed by ptiz2 (native EdgeView C slot)
+    G.get_edge_data()   0.7238x   fixed by the previous entry (PyGraph method)
+    G[u][v]             0.0555x   NOT fixed — 13x worse than its two siblings
+
+`G[u][v]` reaches the attr dict through `AtlasView` and
+`_fnx_edge_attr_dict_fast`, a third call path that still resolves by canonical
+STRING. This is the same scope lesson as the previous entry, one level deeper:
+fixing a route fixes that route, and the only way to know which routes remain is
+to measure each one rather than reason about "the surface".
+
+The MDG row is another agent's landed work (commit 8c1735d54, br-r37-c1-7qqr8),
+not mine — it moved 0.0519x to ~0.3058x with the multigraph index-keyed lookaside
+and is reported here because it shared the invocation.
+
+ELF IS REPRODUCIBLE AGAIN. The previous entry's binary carried that agent's
+UNCOMMITTED changes and could not be rebuilt from history; theirs has since
+landed, `crates/` is clean, and ELF b3bf13e8 corresponds to commit 8c1735d54.
+
+PROVENANCE, self-reported in-process: harness `scripts/balanced_square_ab.py`
+sha256 fba97bb5867907dbc10cb48d5ce70816844c4cab0408136f75000fd2bb7344f8; host
+thinkstation1; rch_worker none, both arms in-process on the same host, and NO
+build was performed — existing binary reused, verified by 0 `.rs` files newer than
+the loaded `.so`; loaded ELF sha256
+b3bf13e8c565e3f4924bf96c9d5dff3c9846e0d6d79717601742d4193ab5ed39; governor
+powersave; runtime ISA avx2 avx sse4_2; observed affinity 8 of 64 cpus; python
+3.13.7 x86_64; live networkx 3.6.1; PYTHONHASHSEED=0; loadavg 28.7 and 28.4 at the
+two run starts.
