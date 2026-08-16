@@ -11154,3 +11154,39 @@ loaded ELF sha256
 e702b0446310947af8c0e3aec1432fffd15cca86e39edfe29d34ca86bc1a613f; governor
 powersave; runtime ISA avx2 avx sse4_2 fma; observed threads 8 of 64; python
 3.13.7 x86_64; PYTHONHASHSEED=0; loadavg 9.50 and 8.57 at the two run starts.
+
+---
+
+## MultiDiGraph subgraph(half).copy() — measured LOSS, row-walk lever NOT adopted (br-r37-c1-pzw49)
+
+LEVER: the row-scoped induced-copy walk that br-r37-c1-pzw49 landed for
+MultiGraph, extended to MultiDiGraph.
+
+HYPOTHESIS: walking only the kept rows beats the generic filtered view on
+MultiDiGraph as it does on MultiGraph, where it moved 0.465x/0.900x/0.941x to
+1.149x/1.644x/1.022x.
+
+MEASURED 2026-08-16, LOCAL:thinkstation1, live networkx 3.6.1, N=4000, keep set
+of half the nodes. Substrate: balanced square ABBAABBA, 21 rounds x 8 reps, both
+arms in ONE invocation, bootstrap median CI over rounds (10k resamples).
+Pure-Python path, no build. RCH_CARGO_WRAPPER_BYPASS=1 exported.
+ELF sha256 e702b0446310947af8c0e3aec1432fffd15cca86e39edfe29d34ca86bc1a613f.
+
+    class          nx us     fnx us    t_nx/t_fnx   95% CI
+    MultiDiGraph   11230.7   16285.4     0.6899     [0.6773, 0.7247]
+
+MultiDiGraph A/A null control, paired(base, base) in the same invocation: nx arm 1.0045x CI [0.9877, 1.0254] PASS; fnx arm 0.9964x CI [0.9847, 1.0667] PASS.
+Both A/A null CIs straddle 1.0, gated on the bootstrap median CI and not on CV, so the substrate is admissible and the 0.6899x gap sits outside the null spread.
+
+WHY THE LEVER WAS NOT ADOPTED HERE: before/after runs on this class disagree in
+SIGN. new/old wall clock, lower being faster: frac 0.5 came out faster in one run
+and 1.047 in the next; frac 0.8 gave 0.904; frac 0.9 gave 1.145, a REGRESSION.
+There is no reliable gain and one measured regression at a large keep set, so
+MultiDiGraph stays on the generic builder while MultiGraph took the walk.
+
+THIS ALSO CORRECTS THE CORRECTED LEDGER. br-r37-c1-ai3ws recorded this row at
+0.462x from a single-run sweep on a different fixture. Measured here with a
+balanced square and a null it is 0.6899x. The 0.462x figure should not be quoted.
+
+STATUS: loss recorded with an admissible null. The class-level exclusion stands
+on measurement, not on omission.
