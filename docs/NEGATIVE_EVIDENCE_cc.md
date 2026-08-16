@@ -15087,3 +15087,83 @@ tests run against that pin. host thinkstation1, python 3.13.7, live networkx
 3.6.1, disk 291G free. `uptime` observed by this pane: 21.91 / 38.25 at the
 decision, 14.09 and 14.02 during the probes, 20.76 / 27.73 at the end — never a
 stable window, so nothing here is offered as a certified ratio.
+
+## CERTIFIED, deferred row resolved: `(u,v) in G.edges` at keylen 2000 is a **WIN, 1.0618x worst bound**, 5/5 replicates — and it CORROBORATES br-r37-c1-ptiz2's 1.0972x
+
+comparison_class=INCUMBENT
+campaign_output=true
+incumbent=networkx
+incumbent_same_invocation=true
+incumbent_ratio=1.0675x
+decision_gate=median_ci
+cv_role=report_only
+elf_sha256=36744765c50ddd08c753eef59e0493763b672f71b506467827e9ecb548145224
+
+LOAD CHECKED BY THIS PANE before certifying: `uptime` gave 1-min 28.14 against
+5-min 24.67, ratio 1.14 — `window_is_certifiable()` returned `(True, 'stable')`.
+Per-run and per-ROUND loadavg are recorded below.
+
+**NO BUILD WAS OWED, which is why this window could be spent entirely on
+measurement.** HEAD's Rust has not moved since `f1353bae3`, so the existing pin
+`36744765c50ddd08` is still the artifact HEAD compiles to. That is the
+last-turn finding applied: a pin build costs the window it is meant to enable, so
+pins get built under load and quiet windows get spent on ratios.
+
+**THE DEFERRED ROW, RESOLVED.** This cell was banked DEFERRED with the verdict
+oscillating WIN / WIN / TIE (1.0420 / 1.0915 / 1.0293) at loadavg 33-36, and the
+note that it needed replicates in a quieter window. Five replicates at loadavg
+29.1-29.3, 21 rounds x 60000 reps, both arms in ONE invocation:
+
+    nx ns    fnx ns   verdict   ratio    CI                 nulls
+    135.0     119.2   WIN       1.1282   [1.1249, 1.1333]   PASS / PASS
+    132.0     115.1   WIN       1.1396   [1.1334, 1.1453]   FAIL / PASS
+    125.7     117.7   WIN       1.0675   [1.0618, 1.0696]   PASS / PASS
+    133.4     116.3   WIN       1.1485   [1.1403, 1.1521]   PASS / FAIL
+    124.8     116.3   WIN       1.0759   [1.0727, 1.0783]   PASS / PASS
+
+**5 of 5 WIN, every CI entirely above 1.0**, where the same cell could not hold a
+verdict at all fifteen loadavg points higher. The spread is 1.0675-1.1485 (7.6
+percent), so the ratio is not pinned to three digits, but the VERDICT is
+unanimous and the worst bound is **1.0618**. 8 of 10 nulls pass; the two failures
+are 0.9952 and 0.9909.
+
+**IT CORROBORATES THE PEER.** br-r37-c1-ptiz2 banks this cell at 1.0972x, which
+sits in the middle of the 1.0675-1.1485 range measured here on an independent
+build. This pane has now checked two ptiz2 claims against its own pins: the
+degree lever reproduced in size but not above parity, and this one reproduces
+outright.
+
+**THE VOLATILITY INSTRUMENT EARNED ITS KEEP, and its documented blind spot is
+visible in the output.** Per-round `loadavg` reads IDENTICAL across all 21 rounds
+of four of the five runs (`spread 0.00`, `relvol 0.00`) because each run is ~2
+seconds and the one-minute average refreshes on a ~5 second timer — exactly the
+defect that motivated sampling the instantaneous runnable count. The runnable
+signal did move (spreads of 5, 6, 7, 9 and 13) and carried the real correlation:
+`corr(runnable, per-round ratio)` ranged -0.317 to +0.143, all below the 0.5
+perturbation flag, and every run classified STABLE. Had only the averaged signal
+been recorded, four of five runs would have reported a perfectly flat window from
+an instrument that could not see.
+
+A/A null control, run 1 (loadavg 29.29), incumbent arm paired against itself in the same invocation: 1.0037x, PASS. fnx arm: 1.0008x, PASS.
+A/A null control, run 2 (loadavg 29.29), incumbent arm paired against itself in the same invocation: 0.9952x, FAIL. fnx arm: 0.9989x, PASS.
+A/A null control, run 3 (loadavg 29.10), incumbent arm paired against itself in the same invocation: 1.0018x, PASS. fnx arm: 1.0032x, PASS.
+A/A null control, run 4 (loadavg 29.10), incumbent arm paired against itself in the same invocation: 0.9939x, PASS. fnx arm: 0.9909x, FAIL.
+A/A null control, run 5 (loadavg 29.10), incumbent arm paired against itself in the same invocation: 1.0006x, PASS. fnx arm: 0.9977x, PASS.
+
+HONEST LIMIT ON THIS ROW: when it was deferred this pane wrote that it needed
+loadavg under ~15, and the window that arrived was 28-29. It was measured anyway
+because five replicates all landing above 1.0 with non-overlapping-from-1.0
+intervals settles the VERDICT even if it does not settle the third digit, and
+because the per-round instrument reports no perturbation. A tighter ratio still
+wants a genuinely quiet window; the win does not.
+
+PROVENANCE, self-reported in-process: harness
+`/data/tmp/claude-1000/bsq_guarded_op.py`, which stamps every row with
+`WindowGuard.provenance_line()`; host thinkstation1; rch_worker none — both arms
+in-process, same host, same invocation. Loaded ELF sha256
+36744765c50ddd08c753eef59e0493763b672f71b506467827e9ecb548145224 via PYTHONPATH,
+built by maturin `build --release` from a `git archive` tree at `f1353bae3`,
+`env -u CARGO_TARGET_DIR`, private TMPDIR; the shared venv install was never
+touched. python 3.13.7 x86_64, live networkx 3.6.1, disk 290G free. `uptime`
+observed by this pane: 1-min 28.14 / 5-min 24.67 at the decision (gate PASSED),
+30.70 at the first run, 29.10 at the last.
