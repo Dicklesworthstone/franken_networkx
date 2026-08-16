@@ -42619,6 +42619,13 @@ class _ReverseAdjacencyView(_Mapping):
         return len(self._view)
 
     def __getitem__(self, node):
+        # br-r37-c1-sc825: nx reaches a dict lookup here, so an UNHASHABLE
+        # index raises TypeError, not KeyError. The membership test below
+        # answers False for an unhashable argument instead of propagating, so
+        # without this the view reported "no such node" for something that is
+        # not a valid node at all. Every sibling view already opens this way —
+        # see br-r37-c1-i9whv, which established the contract.
+        hash(node)
         if node not in self._view._graph:
             # br-r37-c1-k4nsd: an UNFILTERED reverse view reaches a plain dict
             # in nx, so it raises the bare key — the "Key n not found" wording
@@ -43090,6 +43097,10 @@ class NodeView(_Mapping):
         return len(self._view)
 
     def __getitem__(self, node):
+        # br-r37-c1-sc825: sibling of the reverse-adjacency guard — nx's
+        # FilterAtlas hashes the key, so an unhashable index is a TypeError
+        # here too, not a KeyError about a node that was never valid.
+        hash(node)
         if not self._view._node_visible(node):
             raise KeyError(f"Key {node} not found")
         return _node_attrs_for_view_graph(self._view._graph, node)
