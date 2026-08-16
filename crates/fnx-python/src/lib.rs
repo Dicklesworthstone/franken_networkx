@@ -15861,6 +15861,26 @@ impl PyGraph {
         // the raw descriptor so ordinary graphs need no Python shim.
         u.hash()?;
         v.hash()?;
+        // br-r37-c1-ptiz2 SCOPE FIX: INDEX-keyed probe, before any canonical is
+        // built. A hit skips the canonical build, the string-keyed
+        // `inner.has_edge`, and the string-keyed lookaside — all three O(key
+        // length) — for one O(1) triple lookup. This is the same probe the
+        // native `EdgeView` C slot already had; only that call site was wired
+        // up, which is why `Graph.edges[u,v]` measured 0.7365x while this
+        // function measured 0.0224x at 8000-character keys.
+        //
+        // A hit is existence proof: entries exist only for edges that were
+        // present, and the entry's `nodes_seq` stamp makes a post-removal index
+        // a MISS rather than a wrong hit.
+        if u.is_exact_instance_of::<PyString>()
+            && v.is_exact_instance_of::<PyString>()
+            && let Some(u_index) = self.cached_exact_string_node_index(py, u)?
+            && let Some(v_index) = self.cached_exact_string_node_index(py, v)?
+            && let Some(attrs) = self.cached_edge_py_attrs_by_index(py, u_index, v_index)
+        {
+            self.mark_edges_dirty();
+            return Ok(attrs.into_any());
+        }
         // br-r37-c1-vz4v9: borrowed canonical keys — see the note on the
         // multigraph `get_edge_data`. Same absence of an interned-index fast
         // path, same two heap allocations per probe before this.
@@ -15874,7 +15894,29 @@ impl PyGraph {
             return Ok(default.unwrap_or_else(|| py.None()));
         }
         self.mark_edges_dirty();
-        Ok(self.materialize_edge_py_attrs(py, u_c, v_c).into_any())
+        let attrs = self.materialize_edge_py_attrs(py, u_c, v_c);
+        // br-r37-c1-ptiz2 SCOPE FIX: fill the index lookaside here too.
+        //
+        // That lever wired the index-keyed lookaside into the native `EdgeView`
+        // C slot only, so `Graph.edges[u,v]` went flat in key length while THIS
+        // function — a different route to the SAME live dict — kept paying the
+        // string path. Measured on the same graph at 8000-character keys:
+        // `edges[u,v]` 0.7365x against `get_edge_data` 0.0224x, a 33x gap
+        // between two ways of fetching one dict. The borrowed canonicals above
+        // (br-r37-c1-vz4v9) removed the ALLOCATION; the O(key length) HASHING in
+        // `has_edge` and `materialize_edge_py_attrs` is what remains.
+        //
+        // Exact `str` only, matching the `EdgeView` call site, and the entry
+        // carries its own `nodes_seq` stamp there so a node removal that
+        // renumbers indices is a MISS rather than a wrong hit.
+        if u.is_exact_instance_of::<PyString>()
+            && v.is_exact_instance_of::<PyString>()
+            && let Some(u_index) = self.cached_exact_string_node_index(py, u)?
+            && let Some(v_index) = self.cached_exact_string_node_index(py, v)?
+        {
+            self.remember_edge_py_attrs_by_index(py, u_index, v_index, &attrs);
+        }
+        Ok(attrs.into_any())
     }
 
     /// br-r37-c1-atlasget (cc): O(1) single-edge live attr dict for

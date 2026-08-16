@@ -12764,3 +12764,83 @@ f862574e8ceca9148cbbca0325f2dd989e49e795b86ecdd461aa02aa496bfe81; governor
 powersave; runtime ISA avx2 avx sse4_2; observed affinity 8 of 64 cpus; python
 3.13.7 x86_64; live networkx 3.6.1; PYTHONHASHSEED=0; loadavg 80.6 and 83.2 at the
 two run starts.
+
+## 2026-08-16 GoldenBison KEEP: `PyGraph::get_edge_data` wired to the index lookaside — **0.0224x to 0.7155x at 8000-char keys** (br-r37-c1-ptiz2)
+
+comparison_class=SELF-SPEEDUP
+campaign_output=false
+decision_gate=median_ci
+cv_role=report_only
+
+Closing the scope gap I recorded last turn. `ptiz2` gave the native `EdgeView` C
+slot an index-keyed lookaside and left `PyGraph::get_edge_data` — a different
+route to the SAME live dict — on the string path, 33x apart. This wires the second
+route to the lookaside that was already there.
+
+A/A null control run 1, incumbent arm paired against itself in the same invocation: 1.0166x, inside the 0.02 bound.
+
+A/A null control run 1, fnx arm paired against itself in the same invocation: 1.0097x, inside the 0.02 bound.
+
+A/A null control run 2, incumbent arm paired against itself in the same invocation: 1.0082x, inside the 0.02 bound.
+
+A/A null control run 2, fnx arm paired against itself in the same invocation: 1.0116x, inside the 0.02 bound.
+
+A/B against live networkx 3.6.1 in the SAME invocation, ABBAABBA square, 61 rounds
+x 50 reps x 160 calls per slot. All three rows admitted in BOTH runs:
+
+| row | before | after run 1 | after run 2 | after (worst bound) | change |
+|---|---|---|---|---|---|
+| `Graph get_edge_data len=8000` | 0.0224x | 0.7216x | 0.7264x | **0.7155x** | **32x** |
+| `CONTROL Graph edges[u,v] len=8000` | 0.7365x | 0.6979x | 0.7000x | 0.6807x | unchanged |
+| `MDG edges[u,v,k] len=8000` | 0.0175x | 0.3707x | 0.3570x | 0.3558x | NOT MINE — see below |
+
+The two routes to the same dict now AGREE: `get_edge_data` 0.7155x against
+`edges[u,v]` 0.6807x, where they were 33x apart. That is the specific prediction
+the scope-correction entry made, and it is what happened.
+
+THE MDG ROW IN THAT TABLE IS NOT MY WORK AND I AM NOT CLAIMING IT. It improved
+0.0175x -> 0.3558x in the same build, and my change cannot have caused that: I
+edited `impl PyGraph::get_edge_data` in lib.rs only, while `MDG edges[u,v,k]`
+resolves through `PyMultiDiGraph` in digraph.rs. That row is another agent's
+in-flight multigraph lookaside (br-r37-c1-4dsqk), which was uncommitted in the
+working tree when I built. It is reported here because it was in the same
+invocation and omitting it would misrepresent the table, and credited to them.
+
+THE BINARY IS NOT REPRODUCIBLE FROM A COMMIT, and that is a real limitation of
+this row rather than a footnote. ELF a9881fd6 was built from a tree containing
+another agent's UNCOMMITTED changes to `PyMultiGraph` (lib.rs) and
+`PyMultiDiGraph` (digraph.rs). My row is a `PyGraph` row, so those changes cannot
+reach it — different structs, different call paths — but nobody can rebuild this
+exact ELF from git history. The before figures come from ELF f862574e, which was
+clean. Anyone re-verifying should rebuild after br-r37-c1-4dsqk lands and expect
+the `Graph get_edge_data` row to reproduce and the MDG row to be whatever their
+final version delivers.
+
+MEASURED UNDER THE HEAVIEST LOAD OF THE SESSION: loadavg 88.3 and 66.3 at the two
+run starts. All six A/A nulls came in at 0.9948-1.0166 and the CIs are tight to
+the third decimal. `CONTROL Graph edges[u,v]` reads 0.6807x worst bound against
+0.7365x before — about 8 percent lower on an untouched surface, which under
+loadavg 88 I attribute to the host rather than to the change, and record rather
+than smooth.
+
+THE CHANGE: an index-keyed probe before any canonical is built, plus a fill on the
+miss path, both gated on exact `str` endpoints — the same shape as the `EdgeView`
+call site that was already proven. No new state: `edge_py_attrs_by_index` and its
+probe/fill helpers already existed on `PyGraph` from ptiz2 and were simply not
+consulted here. The entry's `nodes_seq` stamp is what makes a post-removal index a
+MISS rather than a wrong hit.
+
+CORRECTNESS: `cargo check` clean; full Python suite 59653 passed / 1463 skipped,
+only the two pre-existing cross-test pollution failures (br-r37-c1-2i3mf); the 124
+edge-path gate cases pass, including the negative case that warms a late edge,
+removes an EARLIER node so indices renumber, and re-reads.
+
+PROVENANCE, self-reported in-process: harness `scripts/balanced_square_ab.py`
+sha256 52c13ec914a1de7f12010a8871928a5f05f2435518d1bc572bc1a09cbd11215b; host
+thinkstation1; rch_worker none, both arms in-process on the same host; loaded ELF
+sha256 a9881fd6149417b3b587c9ce36abc43c552b21165a9507011106106d3fc2a583 (AFTER,
+NOT reproducible from a commit — see above), f862574e8ceca9148cbbca0325f2dd989e49e795b86ecdd461aa02aa496bfe81
+(BEFORE); built locally by maturin, `env -u CARGO_TARGET_DIR`, private TMPDIR,
+2m17s, disk 314.51 -> 314.05 GiB; governor powersave; runtime ISA avx2 avx sse4_2;
+observed affinity 8 of 64 cpus; python 3.13.7 x86_64; live networkx 3.6.1;
+PYTHONHASHSEED=0; loadavg 88.3 and 66.3 at the two run starts.
