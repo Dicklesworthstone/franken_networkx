@@ -116,6 +116,7 @@ fn report_to_pymultidigraph(
         has_edge_node_index_cache: crate::NodeIndexLookupCache::new(py),
         succ_key_rows: None,
         pred_key_rows: None,
+        edge_keydict_cache: None,
         in_edges_data_attr_cache: std::sync::Mutex::new(None),
         edges_data_attr_cache: std::sync::Mutex::new(None),
         inner: graph,

@@ -177,7 +177,7 @@ def test_returned_dicts_are_live_and_shared(class_name, par):
         assert graph[u][v][key]["written"] == key
 
 
-@pytest.mark.parametrize("class_name", ["MultiGraph"])
+@pytest.mark.parametrize("class_name", CLASSES)
 def test_keydict_cache_returns_a_copy_not_the_cached_object(class_name):
     """br-r37-c1-ptiz2: the caller must never receive the cached mapping.
 
@@ -202,7 +202,7 @@ def test_keydict_cache_returns_a_copy_not_the_cached_object(class_name):
     assert (u, v, 9999) not in graph.edges(keys=True)
 
 
-@pytest.mark.parametrize("class_name", ["MultiGraph"])
+@pytest.mark.parametrize("class_name", CLASSES)
 @pytest.mark.parametrize(
     "mutate",
     [
@@ -251,7 +251,7 @@ def test_every_mutation_invalidates_the_cached_keydict(class_name, mutate):
         }
 
 
-@pytest.mark.parametrize("class_name", ["MultiGraph"])
+@pytest.mark.parametrize("class_name", CLASSES)
 def test_cached_keydict_reflects_inner_attr_mutation(class_name):
     """Copying the mapping must NOT copy the attribute dicts.
 
@@ -299,3 +299,51 @@ def test_directed_orientation_is_not_sorted():
     graph.add_edge(v, u, weight="backward")
     assert graph.get_edge_data(u, v)[0]["weight"] == "forward"
     assert graph.get_edge_data(v, u)[0]["weight"] == "backward"
+
+
+def test_directed_keydict_cache_does_not_confuse_orientations():
+    """br-r37-c1-ptiz2: the DIRECTED cache must not sort its endpoints.
+
+    `PyMultiGraph::edge_key` sorts (u, v) because the graph is undirected;
+    `PyMultiDiGraph::edge_key` must not, because u->v and v->u are different
+    edges. The directed keydict cache is keyed the same way, so a mirror that
+    copied the undirected sorting would serve u->v's mapping for a v->u lookup —
+    and only when the endpoints happen to sort the wrong way round, which a test
+    using alphabetically ordered names would never reach.
+
+    The names here are deliberately reverse-sorted, and BOTH directions are
+    warmed before either is re-read, so a shared cache entry shows up as one
+    direction returning the other's keys.
+    """
+    u, v = "z" * 130, "a" * 130  # u > v, so a sorting cache would swap them
+    graph = fnx.MultiDiGraph()
+    for i in range(4):
+        graph.add_edge(u, v, weight=f"fwd{i}")
+    for i in range(2):
+        graph.add_edge(v, u, weight=f"rev{i}")
+
+    forward = graph.get_edge_data(u, v)
+    backward = graph.get_edge_data(v, u)
+    # Re-read after both are warm — a shared entry surfaces on the second pass.
+    forward_again = graph.get_edge_data(u, v)
+    backward_again = graph.get_edge_data(v, u)
+
+    assert list(forward) == list(forward_again) == [0, 1, 2, 3]
+    assert list(backward) == list(backward_again) == [0, 1]
+    assert [d["weight"] for d in forward_again.values()] == [
+        "fwd0",
+        "fwd1",
+        "fwd2",
+        "fwd3",
+    ]
+    assert [d["weight"] for d in backward_again.values()] == ["rev0", "rev1"]
+
+    reference = nx.MultiDiGraph()
+    for i in range(4):
+        reference.add_edge(u, v, weight=f"fwd{i}")
+    for i in range(2):
+        reference.add_edge(v, u, weight=f"rev{i}")
+    for a, b in ((u, v), (v, u)):
+        assert {k: dict(d) for k, d in graph.get_edge_data(a, b).items()} == {
+            k: dict(d) for k, d in reference.get_edge_data(a, b).items()
+        }

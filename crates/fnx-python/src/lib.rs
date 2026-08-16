@@ -11363,6 +11363,7 @@ impl PyMultiGraph {
             has_edge_node_index_cache: NodeIndexLookupCache::new(py),
             succ_key_rows: None,
             pred_key_rows: None,
+            edge_keydict_cache: None,
             in_edges_data_attr_cache: std::sync::Mutex::new(None),
             edges_data_attr_cache: std::sync::Mutex::new(None),
             inner: fnx_classes::digraph::MultiDiGraph::with_runtime_policy(
@@ -11860,6 +11861,7 @@ impl PyMultiGraph {
             has_edge_node_index_cache: NodeIndexLookupCache::new(py),
             succ_key_rows: None,
             pred_key_rows: None,
+            edge_keydict_cache: None,
             in_edges_data_attr_cache: std::sync::Mutex::new(None),
             edges_data_attr_cache: std::sync::Mutex::new(None),
             inner: fnx_classes::digraph::MultiDiGraph::with_runtime_policy(

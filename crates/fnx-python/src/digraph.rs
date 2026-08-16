@@ -403,6 +403,29 @@ pub struct PyMultiDiGraph {
     /// and likewise a cache rather than a live mirror.
     pub(crate) succ_key_rows: Option<(u64, u64, HashMap<String, Py<PyDict>>)>,
     pub(crate) pred_key_rows: Option<(u64, u64, HashMap<String, Py<PyDict>>)>,
+    /// br-r37-c1-ptiz2: directed mirror of `PyMultiGraph::edge_keydict_cache` —
+    /// the `{key: attrs}` mapping for ONE (source, target) pair, under the
+    /// `(nodes_seq, edges_seq)` generation it was built in.
+    ///
+    /// networkx serves the unkeyed `get_edge_data(u, v)` in O(1) because it
+    /// STORES `_adj[u][v]` as a real dict and returns the object; fnx rebuilt the
+    /// mapping per call, O(parallel edges). Caching it moved the undirected class
+    /// from 0.0072x to 0.1473x (~20x, ELF-alternated worst bound 18.85x, and
+    /// 19.92x re-run pinned to one CPU). This class was deliberately left
+    /// unchanged then so it could serve as that row's CONTROL — it stayed flat at
+    /// 0.0071-0.0076 across all eight alternated runs while the undirected class
+    /// moved 20x, which is what proved the effect was the code and not the
+    /// window. With the control's job done, it is now the worst measured cell and
+    /// gets the same treatment.
+    ///
+    /// NOT sorted by endpoint: `PyMultiDiGraph::edge_key` keeps (u, v) in the
+    /// given order because u->v and v->u are distinct edges here.
+    ///
+    /// Callers receive a SHALLOW COPY, never the cached object — see the
+    /// undirected field's note for why handing out the cached mapping would let a
+    /// caller's `d[k] = {}` corrupt it into a phantom key `G.edges` lacks.
+    pub(crate) edge_keydict_cache:
+        Option<(u64, u64, HashMap<String, HashMap<String, Py<PyDict>>>)>,
     /// br-r37-c1-7qqr8: the multigraph twin of `PyGraph::edge_py_attrs_by_index`
     /// (br-r37-c1-ptiz2), keyed by (source index, target index, internal key)
     /// instead of by the `(String, String, usize)` that `Self::edge_key` builds.
@@ -502,6 +525,17 @@ impl PyMultiDiGraph {
         for key in self.edge_py_keys.values() {
             visit.call(key)?;
         }
+        // br-r37-c1-ptiz2: the keydict cache holds the user's edge ATTRIBUTE
+        // dicts, and an attribute value may reference the graph itself
+        // (`G[u][v][k]['g'] = G`). Untraversed, that cycle is invisible to the
+        // collector and the graph leaks. Mirrors the undirected class.
+        if let Some((_, _, rows)) = &self.edge_keydict_cache {
+            for row in rows.values() {
+                for keydict in row.values() {
+                    visit.call(keydict)?;
+                }
+            }
+        }
         visit.call(&self.graph_attrs)?;
         {
             let cache = self.node_keys_cache.lock().unwrap();
@@ -577,6 +611,7 @@ impl PyMultiDiGraph {
         *self.edges_data_attr_cache.get_mut().unwrap() = None;
         self.edges_with_keys_cache = None;
         *self.node_iter_mirror.get_mut().unwrap() = None;
+        self.edge_keydict_cache = None;
         // br-r37-c1-ic4cv: the memo holds Python key objects, so it must be
         // dropped here or those objects stay reachable through a cleared graph.
         self.has_edge_node_index_cache.clear(py);
@@ -2393,6 +2428,7 @@ impl PyMultiDiGraph {
             edge_py_attrs_by_index: HashMap::new(),
             succ_key_rows: None,
             pred_key_rows: None,
+            edge_keydict_cache: None,
             has_edge_node_index_cache: crate::NodeIndexLookupCache::new(py),
             in_edges_data_attr_cache: std::sync::Mutex::new(None),
             edges_data_attr_cache: std::sync::Mutex::new(None),
@@ -7483,6 +7519,7 @@ impl PyMultiDiGraph {
             edge_py_attrs_by_index: HashMap::new(),
             succ_key_rows: None,
             pred_key_rows: None,
+            edge_keydict_cache: None,
             has_edge_node_index_cache: crate::NodeIndexLookupCache::new(py),
             in_edges_data_attr_cache: std::sync::Mutex::new(None),
             edges_data_attr_cache: std::sync::Mutex::new(None),
@@ -7538,6 +7575,7 @@ impl PyMultiDiGraph {
             edge_py_attrs_by_index: HashMap::new(),
             succ_key_rows: None,
             pred_key_rows: None,
+            edge_keydict_cache: None,
             has_edge_node_index_cache: crate::NodeIndexLookupCache::new(py),
             in_edges_data_attr_cache: std::sync::Mutex::new(None),
             edges_data_attr_cache: std::sync::Mutex::new(None),
@@ -7853,6 +7891,7 @@ impl PyMultiDiGraph {
             edge_py_attrs_by_index: HashMap::new(),
             succ_key_rows: None,
             pred_key_rows: None,
+            edge_keydict_cache: None,
             has_edge_node_index_cache: crate::NodeIndexLookupCache::new(py),
             in_edges_data_attr_cache: std::sync::Mutex::new(None),
             edges_data_attr_cache: std::sync::Mutex::new(None),
@@ -7933,6 +7972,7 @@ impl PyMultiDiGraph {
             edge_py_attrs_by_index: HashMap::new(),
             succ_key_rows: None,
             pred_key_rows: None,
+            edge_keydict_cache: None,
             has_edge_node_index_cache: crate::NodeIndexLookupCache::new(py),
             in_edges_data_attr_cache: std::sync::Mutex::new(None),
             edges_data_attr_cache: std::sync::Mutex::new(None),
@@ -8041,6 +8081,7 @@ impl PyMultiDiGraph {
             edge_py_attrs_by_index: HashMap::new(),
             succ_key_rows: None,
             pred_key_rows: None,
+            edge_keydict_cache: None,
             has_edge_node_index_cache: crate::NodeIndexLookupCache::new(py),
             in_edges_data_attr_cache: std::sync::Mutex::new(None),
             edges_data_attr_cache: std::sync::Mutex::new(None),
@@ -8130,6 +8171,7 @@ impl PyMultiDiGraph {
             edge_py_attrs_by_index: HashMap::new(),
             succ_key_rows: None,
             pred_key_rows: None,
+            edge_keydict_cache: None,
             has_edge_node_index_cache: crate::NodeIndexLookupCache::new(py),
             in_edges_data_attr_cache: std::sync::Mutex::new(None),
             edges_data_attr_cache: std::sync::Mutex::new(None),
@@ -8330,6 +8372,7 @@ impl PyMultiDiGraph {
             edge_py_attrs_by_index: HashMap::new(),
             succ_key_rows: None,
             pred_key_rows: None,
+            edge_keydict_cache: None,
             has_edge_node_index_cache: crate::NodeIndexLookupCache::new(py),
             in_edges_data_attr_cache: std::sync::Mutex::new(None),
             edges_data_attr_cache: std::sync::Mutex::new(None),
@@ -8677,6 +8720,27 @@ impl PyMultiDiGraph {
                     }
                     return Ok(Some(attrs.into_any()));
                 }
+                // br-r37-c1-ptiz2: serve a warm (source, target) pair from the
+                // keydict cache — directed mirror of `PyMultiGraph`. The
+                // rebuild below is O(parallel edges) where networkx is O(1),
+                // which is the whole defect. A hit returns a SHALLOW COPY, so
+                // the observable contract is unchanged. Endpoints are NOT
+                // sorted here: u->v and v->u are distinct edges.
+                let fresh = matches!(
+                    &self.edge_keydict_cache,
+                    Some((ns, es, _)) if *ns == self.nodes_seq && *es == self.edges_seq
+                );
+                if !fresh {
+                    self.edge_keydict_cache =
+                        Some((self.nodes_seq, self.edges_seq, HashMap::new()));
+                }
+                if let Some((_, _, rows)) = &self.edge_keydict_cache
+                    && let Some(cached) = rows.get(u_c).and_then(|row| row.get(v_c))
+                {
+                    let copy = cached.bind(py).copy()?;
+                    self.mark_edges_dirty();
+                    return Ok(Some(copy.into_any().unbind()));
+                }
                 let keys = self.inner.edge_keys(u_c, v_c).unwrap_or_default();
                 if keys.is_empty() {
                     return Ok(None);
@@ -8695,7 +8759,14 @@ impl PyMultiDiGraph {
                     let attrs = self.edge_py_attrs_cloned_with_key(py, u_c, v_c, k, &ek);
                     result.set_item(self.py_edge_key_with_key(py, k, &ek), attrs.bind(py))?;
                 }
-                Ok(Some(result.into_any().unbind()))
+                // br-r37-c1-ptiz2: remember it, hand back a COPY.
+                let copy = result.copy()?;
+                if let Some((_, _, rows)) = self.edge_keydict_cache.as_mut() {
+                    rows.entry(u_c.to_owned())
+                        .or_default()
+                        .insert(v_c.to_owned(), result.unbind());
+                }
+                Ok(Some(copy.into_any().unbind()))
             })?
         })??;
         Ok(found.unwrap_or_else(|| default.unwrap_or_else(|| py.None())))
