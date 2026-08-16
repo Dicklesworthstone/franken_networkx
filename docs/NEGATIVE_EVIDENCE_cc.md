@@ -16919,3 +16919,73 @@ comparison_class=SELF-SPEEDUP
 campaign_output=false
 decision_gate=median_ci
 cv_role=report_only
+
+## CERTIFIED: the worst cell MOVED 31x — multigraph unkeyed `get_edge_data` par=64 is now **0.2225x worst bound**, and is no longer unbounded (br-r37-c1-f3i50, br-r37-c1-ptiz2)
+
+WINDOW VERIFIED BY THIS PANE: `uptime` gave 1-min 17.06, 5-min 19.73, 15-min
+21.86 — converged; `window_is_certifiable()` returned `(True, 'stable', ratio
+1.11)`. Runs pinned to `cpu14`; per-arm loadavg and CPU MHz recorded on every
+row, and whole-run SMT sibling occupancy gated at 20 percent.
+
+MAIN COMPILES AGAIN: the `edge_keydict_cache` breakage reported last turn is
+resolved; peers landed the missing initialisers.
+
+**THE CELL THIS PANE HAS TRACKED SINCE IT WAS 0.0061x IS NOW 0.2225-0.2388x.**
+`54566abb2` (GoldenBison, keydict cache) is the lever. Commit-pinned build of
+HEAD, ELF `bba560418752d220`, `MultiDiGraph get_edge_data` at 64 parallel edges:
+
+    loadavg  clock      nx ns   fnx ns   ratio    CI                 nulls  per-arm skew  run-sibling
+    15.71    3968 MHz    76.2    324.2   0.2340   [0.2313, 0.2359]   P / P  0.0%          17%
+    15.73    4009 MHz    75.4    317.7   0.2388   [0.2360, 0.2411]   P / P  0.0%          14%
+    15.73    4005 MHz    74.6    334.7   0.2225   [0.2214, 0.2246]   P / P  0.1%           4%
+
+All six A/A nulls pass. `same-core 100% over 1 core(s)` on every run, per-arm
+clock skew 0.0-0.1 percent, sibling occupancy 4-17 percent — under the 20 percent
+gate this pane set after measuring that a contended sibling shifts a ratio 17
+percent.
+
+**AND THE UNBOUNDEDNESS IS GONE, which matters more than the ratio.** The defect
+was never a slow constant — it was linear growth in parallel-edge count, so the
+cell fell without limit. Measured across a 64x span on the same substrate:
+
+    parallel edges   nx      fnx before   ratio before   fnx after   ratio after
+    1                77 ns      312 ns       0.2482        157 ns      0.4935
+    16               78 ns     2838 ns       0.0259        211 ns      0.3680
+    64               77 ns    12409 ns       0.0061        329 ns      0.2373
+
+fnx grew roughly 40x across that span and now grows about 2x.
+
+**LANDED WITH IT: a regression guard on BOUNDEDNESS rather than on a ratio.**
+`tests/python/test_get_edge_data_parallel_edge_scaling.py`, 10 cases. A ratio
+threshold would be a timing assertion, and this pane has banked that absolute
+nanoseconds move 1.6x between windows and that a busy sibling shifts a ratio 17
+percent. Growth measured across parallel-edge count WITHIN one process is far
+more robust — both points share a window, a core and a clock, so the common-mode
+factors divide out. networkx's own growth is the control, and a separate test
+fails if THAT is not flat, so a bad window invalidates the comparison instead of
+convicting fnx. Measured margins today: nx growth 0.98x and 0.99x (flat, control
+good), fnx 1.88x and 1.77x, relative 1.92x and 1.78x against a bound of 8x —
+which the pre-fix ~40x would have blown through by a factor of five. The file
+also pins content, key order, and that a fresh call tracks later edge additions
+and removals, so a cache that reached O(1) by going stale fails rather than
+passes.
+
+WHAT REMAINS ON THIS CELL: 0.2373x is still a 4.2x loss, and it still grows ~2x
+across 64x parallel edges, which is the per-call COPY of the cached keydict —
+networkx hands back the mapping itself. Removing the copy is not a free lever:
+handing out the cached dict would give identity and read-liveness (two of the
+eight br-r37-c1-f3i50 divergences) but would let a caller's write corrupt the
+cache and be served to the next reader, which is strictly worse than a copy that
+merely loses the write. That still needs br-r37-c1-himzq's authoritative live
+row, unchanged.
+
+PROVENANCE, self-reported in-process: harness
+`/data/tmp/claude-1000/bsq_ged_guarded.py` with per-arm core/clock/load sampling
+and whole-run sibling gating; both arms in-process, sequential, same invocation,
+pinned to cpu14 via `taskset`. Loaded ELF sha256
+bba560418752d220... (commit-pinned build of HEAD from a `git archive` tree),
+`env -u CARGO_TARGET_DIR`, private TMPDIR, loaded via PYTHONPATH so the shared
+venv install was never touched. host thinkstation1, 64 logical / 32 physical, SMT
+on, governor `powersave`. python 3.13.7, live networkx 3.6.1, disk 252G free.
+`uptime` observed: 17.06 / 19.73 / 21.86 at the decision, 15.71-15.73 across the
+three certification runs. CPU MHz per arm is in the table.
