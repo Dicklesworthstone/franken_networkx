@@ -8404,32 +8404,63 @@ impl PyMultiDiGraph {
         if let Some(key_obj) = key {
             key_obj.hash()?;
         }
-        let u_c = node_key_to_string(py, u)?;
-        let v_c = node_key_to_string(py, v)?;
-        if let Some(key_obj) = key {
-            let Some(internal_key) = self.resolve_internal_edge_key(py, &u_c, &v_c, key_obj)?
-            else {
-                return Ok(default.unwrap_or_else(|| py.None()));
-            };
-            self.mark_edges_dirty();
-            Ok(self
-                .ensure_edge_py_attrs(py, &u_c, &v_c, internal_key)
-                .clone_ref(py)
-                .into_any())
-        } else {
-            let keys = self.inner.edge_keys(&u_c, &v_c).unwrap_or_default();
-            if keys.is_empty() {
-                Ok(default.unwrap_or_else(|| py.None()))
-            } else {
+        // br-r37-c1-tjp0g: BORROW both canonical endpoints instead of allocating
+        // a heap String for each.
+        //
+        // This function is the measured floor of the worst cell in the ledger.
+        // `MDG G.edges[u,v,k]` at 2000-character node keys is 0.0514x against
+        // networkx; `get_edge_data` ALONE measures 0.0482x, i.e. worse than the
+        // whole subscript, so the surrounding Python view adds almost nothing on
+        // top of it — 2173.4ns of 2413.8ns, about 90 percent, growing 8.80x from
+        // length 3 to 2000.
+        //
+        // WHY THE ALLOCATION IS THE TARGET, and how that was distinguished from
+        // hashing: swept across the 128-byte canonical buffer this function is
+        // perfectly SMOOTH (462.3 / 479.0 / 486.9 ns at lengths 120 / 125 / 130)
+        // with no step at all. The simple `Graph.edges[u,v]` showed a sharp 2.03x
+        // STEP at exactly that boundary before br-r37-c1-ptiz2, because it
+        // canonicalises into an `ArrayString` and only spills to the heap above
+        // it. A smooth curve with no boundary means this path never used a buffer
+        // — `node_key_to_string` allocates unconditionally. Meanwhile `has_node`
+        // on the SAME graph with the SAME 2000-character keys measures 1.1010x
+        // (fnx faster than networkx) and is flat, so resolving a long node key is
+        // not the cost; allocating one twice per lookup is.
+        //
+        // `with_node_key_str` is re-entrant BY DESIGN for exactly this nesting:
+        // it takes its scratch buffer OUT of a thread-local pool before running
+        // the callback, so an inner call gets its own. An earlier version used a
+        // single `RefCell` cell and nesting it for two endpoints panicked with
+        // "RefCell already borrowed", taking out every string-keyed `add_edge`
+        // (br-r37-c1-oqvk5). `PyGraph::has_edge` already nests it the same way.
+        let found = with_node_key_str(py, u, |u_c| -> PyResult<Option<PyObject>> {
+            with_node_key_str(py, v, |v_c| -> PyResult<Option<PyObject>> {
+                if let Some(key_obj) = key {
+                    let Some(internal_key) =
+                        self.resolve_internal_edge_key(py, u_c, v_c, key_obj)?
+                    else {
+                        return Ok(None);
+                    };
+                    self.mark_edges_dirty();
+                    return Ok(Some(
+                        self.ensure_edge_py_attrs(py, u_c, v_c, internal_key)
+                            .clone_ref(py)
+                            .into_any(),
+                    ));
+                }
+                let keys = self.inner.edge_keys(u_c, v_c).unwrap_or_default();
+                if keys.is_empty() {
+                    return Ok(None);
+                }
                 self.mark_edges_dirty();
                 let result = PyDict::new(py);
                 for k in keys {
-                    let attrs = self.ensure_edge_py_attrs(py, &u_c, &v_c, k).clone_ref(py);
-                    result.set_item(self.py_edge_key(py, &u_c, &v_c, k), attrs.bind(py))?;
+                    let attrs = self.ensure_edge_py_attrs(py, u_c, v_c, k).clone_ref(py);
+                    result.set_item(self.py_edge_key(py, u_c, v_c, k), attrs.bind(py))?;
                 }
-                Ok(result.into_any().unbind())
-            }
-        }
+                Ok(Some(result.into_any().unbind()))
+            })?
+        })??;
+        Ok(found.unwrap_or_else(|| default.unwrap_or_else(|| py.None())))
     }
 
     fn __getstate__(&self, py: Python<'_>) -> PyResult<PyObject> {

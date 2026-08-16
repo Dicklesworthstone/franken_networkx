@@ -12467,3 +12467,76 @@ change, and attributing it needs the intervening commits, not this measurement.
 
 STATUS: still the worst row in the project at 0.2345x. The Python reroute remains
 REFUTED on this bead (2.65x slower). The remaining work is Rust-side.
+
+## 2026-08-16 GoldenBison KEEP: borrowed canonicals in `PyMultiDiGraph::get_edge_data` — **0.3826x to 0.4778x short keys, 0.0482x to 0.0530x long** (br-r37-c1-tjp0g)
+
+comparison_class=SELF-SPEEDUP
+campaign_output=false
+decision_gate=median_ci
+cv_role=report_only
+
+The attack on the worst cell in the ledger. It works, and it is PARTIAL — the
+numbers below say by how much, and the remainder is located rather than left as
+"more work needed".
+
+A/A null control, after, run 1, incumbent arm paired against itself in the same invocation: 1.0089x, inside the 0.02 bound.
+
+A/A null control, after, run 1, fnx arm paired against itself in the same invocation: 1.0051x, inside the 0.02 bound.
+
+A/A null control, after, run 2, incumbent arm paired against itself in the same invocation: 1.0084x, inside the 0.02 bound.
+
+A/A null control, after, run 2, fnx arm paired against itself in the same invocation: 0.9993x, inside the 0.02 bound.
+
+A/B against live networkx 3.6.1 in the SAME invocation, ABBAABBA square, identical
+shape throughout (61 rounds x 50 reps x 160 calls per slot). BEFORE rows are the
+banked pair on ELF 2c3e0c53; AFTER rows are on ELF f862574e:
+
+| row | before (worst bound) | after run 1 | after run 2 | after (worst bound) | change |
+|---|---|---|---|---|---|
+| `ATTRIB get_edge_data len=3` | 0.3826x | 0.4794x | 0.4910x | **0.4778x** | +24.9% |
+| `ATTRIB get_edge_data len=2000` | 0.0482x | 0.0532x | 0.0539x | **0.0530x** | +10.0% |
+| `MDG edges[u,v,k] len=3` | 0.2385x | 0.2963x | 0.3042x | **0.2956x** | +23.9% |
+| `MDG edges[u,v,k] len=130` | 0.1672x | 0.1663x | 0.1670x | 0.1661x | unchanged |
+| CONTROL `Graph edges[u,v] len=3` | 0.7484x | 0.7632x | 0.7720x | 0.7632x | untouched |
+| CONTROL `Graph edges[u,v] len=2000` | 0.7449x (1 run) | 0.7585x | 0.7781x | 0.7585x | untouched |
+
+THE HONEST SHAPE OF THE WIN. Removing the two `node_key_to_string` heap
+allocations is worth about 25 percent at SHORT keys and only about 10 percent at
+LONG ones. That asymmetry is the finding: allocation is a roughly FIXED cost per
+call, so it dominates when the key is short and is swamped when the key is long.
+The remaining long-key cost is not allocation — it is the O(key length) HASHING
+still done by `resolve_internal_edge_key` and `ensure_edge_py_attrs`, which remain
+keyed by the canonical STRINGS. The row is still 0.0530x, so the worst cell is
+still the worst cell; it moved 10 percent, not 19x.
+
+WHAT THIS PREDICTS FOR THE NEXT LEVER, falsifiably: index-keying the multigraph
+attribute storage (the analogue of br-r37-c1-ptiz2, adapted to a key that is
+endpoint pair PLUS edge key) should do to the long-key end what borrowing just did
+to the short-key end. If it does not, the remaining cost is somewhere I have not
+looked.
+
+NOT BANKED: `MDG edges[u,v,k] len=2000` admitted in run 1 only (0.0565x, against
+0.0560x NULL-FAILED at 1.0204 in run 2). The two values agree closely but their
+CIs do NOT overlap, so the failing-null exception does not apply and it is
+recorded rather than quoted. `CONTROL MDG has_edge` also admitted in one run each
+and read slightly LOWER than before (0.4754x/0.5004x against 0.5039x); I did not
+touch `has_edge`, both runs are marginal, and I am not claiming a regression from
+one admissible reading — flagged for the next measurement rather than explained
+away.
+
+CORRECTNESS: `cargo check` clean, full Python suite 59631 passed / 1463 skipped
+with only the two pre-existing cross-test pollution failures (br-r37-c1-2i3mf).
+The 174 edge-path gate cases (lookaside identity/invalidation, multiedge contains,
+canonical-key boundary) all pass. The nested `with_node_key_str` borrow structure
+— two closures each capturing `&mut self` — compiled without complaint, which was
+the risk I had flagged when this patch was written during the freeze.
+
+PROVENANCE, self-reported in-process: harness `scripts/balanced_square_ab.py`
+sha256 be5afae905c22946050772aa743b510dab7475986c298702cab783a3d5fd86b6; host
+thinkstation1; rch_worker none, both arms in-process on the same host; loaded ELF
+sha256 f862574e8ceca9148cbbca0325f2dd989e49e795b86ecdd461aa02aa496bfe81 (AFTER),
+2c3e0c53f4b0d9558998a21d5298d7e5912689ecbaf4db75fb1e346aa10af366 (BEFORE); built
+locally by maturin, `env -u CARGO_TARGET_DIR`, private TMPDIR, 1m41s, disk 319.91
+-> 319.02 GiB; governor powersave; runtime ISA avx2 avx sse4_2; observed affinity
+8 of 64 cpus; python 3.13.7 x86_64; live networkx 3.6.1; PYTHONHASHSEED=0; loadavg
+16.0 and 16.2 at the two run starts.
