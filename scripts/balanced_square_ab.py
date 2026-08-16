@@ -721,8 +721,61 @@ def workload_multi_key_length(reps: int):
     return build, ops
 
 
+def workload_parallel_keydict(reps: int):
+    """Unkeyed multigraph `get_edge_data(u,v)` against the PARALLEL-EDGE count.
+
+    br-r37-c1-ptiz2. The axis here is the number of parallel edges between one
+    endpoint pair, not node-key length. networkx hands back its existing keydict
+    and is therefore O(1) in that count; fnx rebuilds the `{key: attrs}` mapping
+    per call, so it grew ~237ns per parallel edge and reached 0.0072x at par=64
+    — the worst cell measured in this campaign.
+
+    The lever hoists the `(String, String, usize)` edge key out of the loop, so
+    the four full-length string allocations per parallel edge become two per
+    call. The residual is the dict build itself.
+
+    THE CONTROLS MATTER MORE THAN THE SUBJECT HERE. par=1 is carried for every
+    class: at one parallel edge the loop body runs once, so the hoist can save
+    at most one redundant tuple and the row should barely move. A run where
+    par=1 improves as much as par=64 is measuring call overhead, not the loop.
+    `G[u][v]` is the SIBLING control — it reaches the same keydict by another
+    route and was already ~15x faster, so it bounds what closing this loop can
+    win. `has_edge` is the flat control: same endpoints, no keydict built.
+    """
+    PARALLEL = (1, 8, 64)
+
+    def build(module):
+        fixture = {}
+        for cls in ("MultiGraph", "MultiDiGraph"):
+            for par in PARALLEL:
+                u, v = "u" * 130, "v" * 130
+                graph = getattr(module, cls)()
+                for i in range(par):
+                    graph.add_edge(u, v, weight=i)
+                # Bulk so the pair is not the only thing in the graph.
+                for i in range(200):
+                    graph.add_edge(f"a{i}", f"b{i}")
+                fixture[(cls, par)] = (graph, u, v)
+        return fixture[("MultiGraph", 1)][0], fixture
+
+    def ops(graph, fixture):
+        table = {}
+        for (cls, par), (g, u, v) in fixture.items():
+            tag = "MG" if cls == "MultiGraph" else "MDG"
+            table[f"{tag} get_edge_data(u,v) par={par}"] = (
+                lambda g=g, u=u, v=v: g.get_edge_data(u, v)
+            )
+            table[f"SIBLING {tag} G[u][v] par={par}"] = lambda g=g, u=u, v=v: g[u][v]
+        mg64, u, v = fixture[("MultiGraph", 64)]
+        table["CONTROL MG has_edge par=64"] = lambda: mg64.has_edge(u, v)
+        return table
+
+    return build, ops
+
+
 WORKLOADS = {
     "view-reads": workload_view_reads,
+    "parallel-keydict": workload_parallel_keydict,
     "multi-key-length": workload_multi_key_length,
     "key-length-scaling": workload_key_length_scaling,
     "view-reads-directed": workload_view_reads_directed,

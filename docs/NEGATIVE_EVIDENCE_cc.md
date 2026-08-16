@@ -15167,3 +15167,90 @@ built by maturin `build --release` from a `git archive` tree at `f1353bae3`,
 touched. python 3.13.7 x86_64, live networkx 3.6.1, disk 290G free. `uptime`
 observed by this pane: 1-min 28.14 / 5-min 24.67 at the decision (gate PASSED),
 30.70 at the first run, 29.10 at the last.
+
+## 2026-08-16 GoldenBison ATTRIBUTION: the campaign's worst cell is unkeyed multigraph `get_edge_data` rebuilding its keydict — and the SIBLING route is already flat (br-r37-c1-ptiz2)
+
+THE CELL. Unkeyed `get_edge_data(u,v)` on a multigraph returns the whole
+`{key: attrs}` mapping for one endpoint pair. networkx hands back the keydict it
+already stores, so it is O(1) in the parallel-edge count. fnx rebuilds the
+mapping on every call, so it is O(par). Scaling probe, MultiGraph, 1-character
+node keys, par 1..128 (directional, loadavg 51 — NOT a certification, but the
+SHAPE is the finding and it is not a load artefact):
+
+    par      nx ns     fnx ns     ratio
+      1       95.3      360.3    0.2644
+      8       97.4     1626.1    0.0599
+     64      101.8    14211.8    0.0072
+    128      102.6    30365.9    0.0034
+
+nx flat at 95-103ns across a 128x range; fnx linear at ~237ns per parallel edge.
+That 0.0072x reproduces the 0.0063-0.0064x another pane reported for this cell,
+independently and on a different fixture.
+
+WHAT WAS ACTUALLY PAYING. Per parallel edge the loop called BOTH
+`ensure_edge_py_attrs` and `py_edge_key`, and each re-derives
+`Self::edge_key(u, v, k)`, which is `(u.to_owned(), v.to_owned(), k)`. So the
+loop allocated FOUR full-length node-key strings per parallel edge, every one of
+them byte-identical to the last, in order to vary a single `usize`. Hoisting the
+tuple out of the loop and overwriting `.2` leaves two allocations for the whole
+call — shipped as 877548d15 with 63 parity tests.
+
+THE HOIST IS A CONSTANT FACTOR AND I AM NOT CLAIMING MORE. Directional re-measure
+on the same probe at loadavg 32, explicitly NOT certified: par=64 14211.8 ->
+8674.7ns (1.64x), par=128 30365.9 -> 16997.3ns (1.79x). I did not keep the
+pre-lever ELF, so this has no ELF-alternated before/after and I am not banking it
+as a certified speedup. Stating that plainly because I banked a degree row
+earlier this session on weaker evidence than this and had to withdraw it.
+
+WHAT IS CERTIFIED — and the controls are the whole point. Two runs, different
+core sets, 13/13 rows admissible in BOTH, every A/A null inside the +/-0.02 bound:
+
+    row                              run 1 (cores 40-47)   run 2 (cores 48-55)
+    MG  get_edge_data par=1          0.1292x               0.1305x
+    MG  get_edge_data par=8          0.0360x               0.0349x
+    MG  get_edge_data par=64         0.0052x               0.0052x
+    MDG get_edge_data par=1          0.1228x               0.1246x
+    MDG get_edge_data par=8          0.0348x               0.0347x
+    MDG get_edge_data par=64         0.0051x               0.0051x
+    SIBLING MG  G[u][v] par=1        0.2805x               0.2557x
+    SIBLING MG  G[u][v] par=8        0.2736x               0.2492x
+    SIBLING MG  G[u][v] par=64       0.2691x               0.2425x
+    SIBLING MDG G[u][v] par=1        0.2736x               0.2495x
+    SIBLING MDG G[u][v] par=8        0.2731x               0.2493x
+    SIBLING MDG G[u][v] par=64       0.2794x               0.2565x
+    CONTROL MG has_edge par=64       0.6421x               0.6340x
+
+TWO THINGS FALL OUT OF THAT TABLE. First, `get_edge_data` still degrades ~25x
+from par=1 to par=64 AFTER the hoist, so removing the allocations did not remove
+the COMPLEXITY — three full tuple hashes per edge remain (`contains_key`, `get`,
+and the `edge_py_keys` probe). Second, and this is the actionable part: the
+sibling `G[u][v]` reaches the SAME keydict and is FLAT in the parallel count —
+0.2805/0.2736/0.2691 in run 1, 0.2557/0.2492/0.2425 in run 2, no trend across a
+64x range. So the flat behaviour already exists in this codebase on another
+route; `get_edge_data` simply does not use it. Routing it to the sibling's cached
+row is worth about 48-52x at par=64 (0.0052x -> ~0.25x) and that number is
+bounded by a measured row rather than estimated.
+
+The `par=1` rows are the fixture control: at one parallel edge the loop body runs
+once, and those rows sit at 0.12-0.13x rather than at the sibling's 0.25x, so
+even a single-iteration call pays roughly double the sibling. The gap is
+therefore not only the loop — part of it is per-call. `has_edge` at 0.63x is the
+flat control: same endpoints, same graph, no keydict built.
+
+A PARITY DIVERGENCE FOUND ALONGSIDE, not yet fixed. networkx's
+`get_edge_data(u,v)` returns its LIVE keydict, so `G.get_edge_data(u,v) is
+G.get_edge_data(u,v)` is True; in fnx it is False (both classes). The inner attr
+dicts ARE live and write-through works — verified against nx on MultiGraph and
+MultiDiGraph — so this is an identity divergence, not data loss. It shares a fix
+with the perf defect: caching the keydict fixes both at once.
+
+PROVENANCE, self-reported in-process by the harness: harness
+`scripts/balanced_square_ab.py` sha256
+a14359046e6fad0385d76a11d9c79ff36fcdf6bf9ba6b50e31de38a48212e2a0; host
+thinkstation1; rch_worker none (both arms in-process on same_host); NO build
+between the two runs — same binary; loaded ELF sha256
+789dd9dead49c4a8dbeaf6747c1532a70639561afda92497e4b304fdb7ff59fd; governor
+powersave; runtime ISA avx2 avx sse4_2; python 3.13.7 x86_64; live networkx
+3.6.1; PYTHONHASHSEED=0; square ABBAABBA; 61 rounds x 50 reps x 400 calls/slot;
+decision_gate=median_ci; cv_role=report_only; OBSERVED loadavg 15.13 (run 1) and
+12.97 (run 2), `uptime` run by me immediately before each.
