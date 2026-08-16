@@ -13736,3 +13736,103 @@ c20bfc507629211a660f489021101b7cad97eedc0f630658a01dd8d6e6030858, built by matur
 CARGO_TARGET_DIR`, private TMPDIR, loaded via PYTHONPATH so the shared venv
 install was never touched. python 3.13.7 x86_64, live networkx 3.6.1, disk 307G
 free. loadavg 18.6 at the window start and 39.9 at the end.
+
+## GATE AUDIT against the fleet host-contention finding — CONFIRMED: a near-parity row spread 13 percent under contention and 1.9 percent in a quiet window, with ALL TWELVE A/A nulls PASSING throughout (br-r37-c1-2ndmw, br-r37-c1-f3i50)
+
+FLEET FINDING UNDER TEST: torch's 21-lane board read zero-certified for four ticks
+and the cause was host contention; mermaid's per-CPU exclusivity gate is
+unachievable here for the same reason. Instruction: record loadavg on every row,
+and re-run a non-certifying row in a quiet window before calling it a loss.
+
+COMPLIANCE FIRST: every row this pane has banked already carries loadavg at window
+start and end, and the previous row explicitly refused to compare absolute
+nanoseconds across a quiet and a hot window. 153 A/A null lines are banked here.
+The reporting half was already in place; what follows is the part that was not.
+
+**CONTENTION CANNOT FALSIFY A 160x LOSS**, so testing this on my worst cell alone
+would have proved nothing. The finding bites where a verdict turns on a small
+difference. So a 160x LOSS row and a NEAR-PARITY row were interleaved, three each,
+with instantaneous loadavg captured immediately before every run — then the parity
+row was re-run three more times once the host went quiet.
+
+    load    row                              nx ns    fnx ns   ratio    nulls
+    21.36   LOSS   MG get_edge_data par=64    73.5   11383.6   0.0065   both PASS
+    20.38   PARITY Graph G[u][v] K=2000      179.2     191.3   0.9391   both PASS
+    20.38   LOSS   MG get_edge_data par=64    75.0   11355.4   0.0067   both PASS
+    18.89   PARITY Graph G[u][v] K=2000      186.6     195.5   0.9543   both PASS
+    18.89   LOSS   MG get_edge_data par=64    73.3   11727.4   0.0062   both PASS
+    18.82   PARITY Graph G[u][v] K=2000      187.2     221.6   0.8439   both PASS
+    ---- host went quiet ----
+    14.00   PARITY Graph G[u][v] K=2000      185.4     192.6   0.9632   both PASS
+    14.32   PARITY Graph G[u][v] K=2000      190.4     202.5   0.9448   both PASS
+    14.32   PARITY Graph G[u][v] K=2000      182.6     192.1   0.9525   both PASS
+
+**THE FLEET FINDING IS CONFIRMED, and the effect size is large.** The same cell,
+same ELF, same harness:
+
+    contended (load 18.8-20.4)   0.9391 / 0.9543 / 0.8439   spread 13.1 percent
+    quiet     (load 14.0-14.3)   0.9632 / 0.9448 / 0.9525   spread  1.9 percent
+
+The 0.8439 reading was a contention artifact, and re-running it in a quiet window
+— exactly the prescribed remedy — resolved it. Had it been banked as a loss it
+would have understated this cell by 11 percent.
+
+**THE LOSS ROW IS INDIFFERENT TO ALL OF IT**: 0.0065 / 0.0067 / 0.0062, an 8
+percent spread on a 158x effect. For rows of that size, loadavg recording is
+bookkeeping; no achievable contention on this host changes the conclusion.
+
+**ALL TWELVE A/A NULLS PASSED — CONTENDED AND QUIET ALIKE.** The null did not
+detect the 13 percent contended swing, and it did not distinguish the 0.8439
+outlier from the 0.9632 quiet reading. The incumbent arm was nearly fixed
+throughout (179.2 to 190.4 ns) while the fnx arm carried the whole excursion
+(191.3 to 221.6 ns). This is the already-banked "replication outranks the A/A
+null" lesson, now with a measured magnitude: **the null's blind spot on this
+substrate is at least 13 percent.**
+
+**LOADAVG RANKS WINDOWS, NOT RUNS**, and the distinction matters for how the
+fleet rule should be applied. Within the contended band the one-minute average was
+flat to 8 percent (20.38 / 18.89 / 18.82) while the ratio moved 13 percent, and
+the WORST reading came at the LOWEST load of those three — so it cannot be used to
+rank or reject individual runs. But crossing to a genuinely quieter window
+(14 against 19-20) collapsed the spread almost sevenfold. The correct use is as a
+gate on the WINDOW before measuring, not as a per-run covariate afterwards.
+
+**RULES THIS PANE NOW APPLIES:**
+
+  * Record loadavg per RUN, not only at window edges — done in the table above.
+  * A row whose verdict depends on a difference smaller than about 2x needs at
+    least three replicates IN A QUIET WINDOW, and is quoted to two significant
+    figures.
+  * A passing A/A null does not certify such a row. Twelve of twelve passed here
+    across a 13 percent swing.
+  * Rows at 10x or beyond may be quoted from a single interleaved run.
+
+**REVISED VALUE.** `Graph G[u][v]` at keylen 2000 on pinned ELF `c20bfc50` is
+**about 0.95x** (quiet window, 0.9448-0.9632, n=3), not the 0.84-0.96 band the
+contended readings suggested and not the 0.9644x single reading corrected in the
+previous row. That also sits slightly ABOVE `3929a9cc7`'s claimed 0.9237x, so the
+peer's figure was conservative rather than optimistic. br-r37-c1-2ndmw's
+sibling-gap argument strengthens: 0.95x against a multigraph side that reads
+0.1764 / 0.1793 / 0.1801 (a 3 percent band) is a **5.3x** gap, and no plausible
+contention closes it.
+
+A/A null control, LOSS run 1 (load 21.36), incumbent arm paired against itself in the same invocation: 1.0087x, CI [0.9968, 1.0188], PASS. fnx arm: 1.0051x, CI [0.9968, 1.0122], PASS.
+A/A null control, LOSS run 2 (load 20.38), incumbent arm paired against itself in the same invocation: 0.9899x, CI [0.9790, 1.0003], PASS. fnx arm: 1.0019x, CI [0.9891, 1.0097], PASS.
+A/A null control, LOSS run 3 (load 18.89), incumbent arm paired against itself in the same invocation: 0.9960x, CI [0.9890, 1.0057], PASS. fnx arm: 1.0001x, CI [0.9952, 1.0075], PASS.
+A/A null control, PARITY contended run 1 (load 20.38), incumbent arm paired against itself in the same invocation: 1.0014x, PASS. fnx arm: 1.0000x, PASS.
+A/A null control, PARITY contended run 2 (load 18.89), incumbent arm paired against itself in the same invocation: 0.9988x, PASS. fnx arm: 1.0023x, PASS.
+A/A null control, PARITY contended run 3 (load 18.82), incumbent arm paired against itself in the same invocation: 0.9930x, PASS. fnx arm: 0.9933x, PASS.
+A/A null control, PARITY quiet run 1 (load 14.00), incumbent arm paired against itself in the same invocation: 1.0044x, PASS. fnx arm: 1.0059x, PASS.
+A/A null control, PARITY quiet run 2 (load 14.32), incumbent arm paired against itself in the same invocation: 0.9986x, PASS. fnx arm: 0.9966x, PASS.
+A/A null control, PARITY quiet run 3 (load 14.32), incumbent arm paired against itself in the same invocation: 1.0024x, PASS. fnx arm: 0.9927x, PASS.
+
+PROVENANCE, self-reported in-process: harnesses `/data/tmp/claude-1000/bsq_ged_par.py`
+and `bsq_getitem_k.py`; host thinkstation1; rch_worker none — both arms
+in-process, same host, same invocation. Loaded ELF sha256
+c20bfc507629211a660f489021101b7cad97eedc0f630658a01dd8d6e6030858, built by maturin
+`build --release` from a `git archive` tree at `3929a9cc7`, `env -u
+CARGO_TARGET_DIR`, private TMPDIR, loaded via PYTHONPATH so the shared venv
+install was never touched. python 3.13.7 x86_64, live networkx 3.6.1, disk 307G
+free. Per-run loadavg is in the table above rather than only at the window edges,
+which is the point of this row; loadavg was 43 when the instruction arrived, 25.2
+at the audit, 18.8 through the contended block and 14.0-14.3 through the quiet one.
