@@ -786,8 +786,58 @@ def workload_parallel_keydict(reps: int):
     return build, ops
 
 
+def workload_digraph_rows(reps: int):
+    """DiGraph row subscripts against node-key length (br-r37-c1-0k6zl).
+
+    `DiGraph G.adj[u][v]` read 0.0804x at 2000-character keys — only simple
+    `Graph` reached the native row view with a cached row index, so `DiGraph`
+    fell to the Python `AtlasView` and re-canonicalised both endpoints per
+    subscript.
+
+    THE CONTROLS. `Graph` at the same length is the POSITIVE control: it was
+    already fixed, so it should be flat and comparatively high, and a run where
+    the DiGraph rows match it is the intended outcome rather than a suspicious
+    one. Length 3 is carried for every op as the SHORT-KEY control: the defect is
+    key-length driven, so a fix that also moved length 3 by the same factor would
+    mean I had changed per-call overhead rather than the canonicalisation.
+    `has_edge` is the flat control — same endpoints, no attr dict fetched.
+    """
+
+    def build(module):
+        fixture = {}
+        for length in (3, 2000):
+            u, v = "u" * length, "v" * length
+            digraph = module.DiGraph()
+            digraph.add_edge(u, v, weight=1)
+            simple = module.Graph()
+            simple.add_edge(u, v, weight=1)
+            for i in range(200):
+                digraph.add_edge(f"a{i}", f"b{i}")
+                simple.add_edge(f"a{i}", f"b{i}")
+            fixture[length] = (digraph, simple, u, v)
+        return fixture[3][0], fixture
+
+    def ops(graph, fixture):
+        table = {}
+        for length, (dg, simple, u, v) in fixture.items():
+            table[f"DG G.adj[u][v] len={length}"] = lambda dg=dg, u=u, v=v: dg.adj[u][v]
+            table[f"DG G[u][v] len={length}"] = lambda dg=dg, u=u, v=v: dg[u][v]
+            table[f"DG get_edge_data len={length}"] = (
+                lambda dg=dg, u=u, v=v: dg.get_edge_data(u, v)
+            )
+            table[f"CONTROL Graph adj[u][v] len={length}"] = (
+                lambda simple=simple, u=u, v=v: simple.adj[u][v]
+            )
+        dg_long, _s, ul, vl = fixture[2000]
+        table["CONTROL DG has_edge len=2000"] = lambda: dg_long.has_edge(ul, vl)
+        return table
+
+    return build, ops
+
+
 WORKLOADS = {
     "view-reads": workload_view_reads,
+    "digraph-rows": workload_digraph_rows,
     "parallel-keydict": workload_parallel_keydict,
     "multi-key-length": workload_multi_key_length,
     "key-length-scaling": workload_key_length_scaling,

@@ -17215,3 +17215,95 @@ libraries in-process, same invocation. Loaded ELF sha256 `bba560418752d220...`
 via PYTHONPATH; the shared venv install was never touched. host thinkstation1,
 governor `powersave`, python 3.13.7, live networkx 3.6.1, disk 237G free.
 `uptime` observed: 24.67 / 23.04 / 22.46.
+
+## 2026-08-16 GoldenBison KEEP-SELF: DiGraph rows get the endpoint-index lookaside — 0.0988x -> 0.4003x worst bound 4.03x, and get_edge_data 9.13x (br-r37-c1-0k6zl)
+
+The bead's diagnosis was already complete and correct, so this row is the fix and
+its certification rather than an investigation. Only simple `Graph` reached the
+native row view that br-r37-c1-ptiz2 gave a cached row node index; `DiGraph` fell
+through to the PYTHON `AtlasView`, which calls `_fnx_edge_attr_dict_fast` on EVERY
+subscript and re-canonicalises both endpoints each time — two heap allocations,
+then `inner.has_edge` hashes them again, then `materialize_edge_py_attrs` a third
+time, all O(key length).
+
+`PyDiGraph` now carries the same endpoint-index lookaside `PyGraph` has, so a hit
+is one hash of two `usize`s taken off CPython's own cached `str` hash.
+
+ELF-ALTERNATED, three interleaved rounds, pinned to cpu47 (SMT sibling cpu15 at
+2.0% when chosen), 41 x 50 x 400, **9/9 rows ADMISSIBLE in all six runs**:
+
+    row                        OLD 232f3d90 (x3)          NEW e7997a5e (x3)          worst bound
+    DG G.adj[u][v]  K=2000     0.0988 0.0989 0.0993       0.4264 0.4003 0.4226       4.03x
+    DG G[u][v]      K=2000     0.1138 0.1153 0.1142       0.5594 0.5196 0.5399       4.51x
+    DG get_edge_data K=2000    0.0624 0.0628 0.0641       0.5852 0.6064 0.6042       9.13x
+    CONTROL Graph adj[u][v]    0.6513 0.5946 0.6781       0.7297 0.6445 0.6403       overlapping
+    CONTROL DG has_edge        0.7409 0.7037 0.7391       0.6892 0.7085 0.7071       overlapping
+
+Every NEW reading exceeds every OLD reading on all three subject rows, 9 against
+9, with no overlap. **The DiGraph row family is no longer the worst cell: at
+0.40-0.60x it now sits alongside the `Graph` control at 0.64-0.73x, which is the
+surface br-r37-c1-ptiz2 already fixed and which this lever was aimed at matching.**
+
+THE CONTROLS DID THEIR JOB TWICE OVER. `Graph adj[u][v]` is code I did not touch
+and it did not move (0.5946-0.6781 against 0.6445-0.7297, overlapping); neither
+did `DG has_edge`, which uses the same endpoints and the same graph but fetches no
+attribute dict. So the movement is the attr-dict path, not the window and not node
+resolution generally.
+
+DISCLOSED: the OLD arm also predates the dijkstra scratch fix (016ef0e7d). That
+change touches only `MultiDiDijkstraTargetScratch` and cannot reach a DiGraph row
+subscript, and both controls — which would have moved if the two ELFs differed
+systematically — are flat. The alternation is otherwise clean.
+
+get_edge_data IS A SECOND ROUTE and was wired deliberately. Wiring only the view
+path would have left it at 0.0624x while the subscript read 0.42x — exactly the
+split br-r37-c1-ptiz2 left on the simple graph and had to return for. It is the
+largest single gain here at 9.13x.
+
+THE DIRECTION HAZARD, and why the tests look the way they do: the undirected
+lookaside SORTS its endpoint pair because u-v and v-u are one edge. Here they are
+two edges with two different attribute dicts, so a mirror that copied the sorting
+would serve one direction's attributes for the other — and only when the endpoints
+sort the wrong way round, which alphabetically-ordered test names never reach. The
+tests use reverse-sorted names and read both directions after warming both.
+Entries carry the `nodes_seq` they were recorded under, because node removal
+RENUMBERS indices and a stale entry names a DIFFERENT edge rather than going
+missing; `bump_edges_seq` covers edge identity; the map is traversed and cleared
+for GC.
+
+THE GUARD TEST XPASSED AND ITS MARKER IS REMOVED, not relaxed. The bead shipped
+with `test_row_subscript_key_length_scaling.py` marking the DiGraph params
+`xfail(strict=True)`. After this change they XPASS, which turned the suite red —
+which is exactly what `strict=True` is for. A strict xfail left in place after the
+defect is gone would hide the next regression behind an expected failure.
+
+STILL NO COMPETITIVE CLAIM: 0.4003x is a 2.5x loss to networkx, down from 10.1x.
+`comparison_class=SELF-SPEEDUP`, `campaign_output=false`.
+
+Tests: 20 new in `tests/python/test_digraph_edge_attr_index_lookaside.py` — both
+directions with reverse-sorted names, one-way edges (the reverse must still
+raise), renumbering after node removal, edge remove/re-add, accessor identity and
+write-through, a differential mutation sequence against networkx, non-`str` keys
+taking the old path, and 60 distinct 300-character keys each keeping their own
+dict. Full suite 59960 passed with only the XPASS pair, before that marker was
+removed.
+
+NULL_NUMERIC_EVIDENCE: per-arm A/A nulls across the six runs span [0.9825,
+1.0132], every one inside the +/-0.02 bound; self-speedup worst bound 4.03x on the
+bead's named cell.
+
+PROVENANCE: harness `scripts/balanced_square_ab.py` sha256 92e878eed845e64abaa62277ee185b4a6ef78ac880d6c385e230e6f6dd9c7c00; host
+thinkstation1; rch_worker none (both arms in-process on same_host); governor
+powersave; runtime ISA avx2 avx sse4_2; python 3.13.7 x86_64; live networkx 3.6.1;
+PYTHONHASHSEED=0; `taskset -c 47`; square ABBAABBA; disk 239G free; arms are
+complete package copies selected by PYTHONPATH, the shared venv install untouched.
+OBSERVED loadavg per run in order 19.64 / 20.79 / 20.33 / 22.06 / 21.26 / 22.76;
+per-arm core MHz printed on every row above (3965-4289 MHz, arm-to-arm clock skew
+-0.09% to +0.13%, every row `cpus=[47]`, no ARM-EXCLUSIVE).
+
+bench_elf_sha256=e7997a5ea067573a421cab18ab190f0caf3f3fd307be2d2bfad9939ff16d6ae7
+elf_sha256=e7997a5ea067573a421cab18ab190f0caf3f3fd307be2d2bfad9939ff16d6ae7
+comparison_class=SELF-SPEEDUP
+campaign_output=false
+decision_gate=median_ci
+cv_role=report_only
