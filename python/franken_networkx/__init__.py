@@ -42232,6 +42232,21 @@ class _ReverseDirectedViewBase:
         # (reverse().degree() was 54x nx). in_degree / out_degree keep the
         # swapped reverse path: their view class NAME must read In/Out, which
         # the parent's swapped views would not provide.
+        #
+        # br-r37-c1-nvm5i: the shortcut is only sound while self and the parent
+        # have the SAME NODE SET. `reverse(...).subgraph(...)` keeps this class
+        # in its MRO while filtering the nodes, so the parent's view answered
+        # for nodes the subgraph does not contain — `G.degree` reported all four
+        # nodes of the parent, at the parent's degrees, for a two-node subgraph
+        # whose own `nodes()` and `edges()` were correct.
+        #
+        # `isinstance(self, _FilteredGraphView)` is the exact discriminator: it
+        # is True only when SELF does the filtering. A reverse view OVER an
+        # already-filtered graph (`subgraph(...).reverse()`) is False and keeps
+        # the shortcut, which is right — there the parent's node set is already
+        # the filtered one.
+        if isinstance(self, _FilteredGraphView):
+            return super().degree
         return self._graph.degree
 
     def subgraph(self, nodes):
