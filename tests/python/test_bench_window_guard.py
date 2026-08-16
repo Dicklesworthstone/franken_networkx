@@ -284,3 +284,56 @@ def test_record_ratio_also_samples_the_clock():
     assert len(guard.khz) == 6, "each round should contribute a pre- and post-work clock"
     assert len(guard.loads) == 3
     assert len(guard.ratios) == 3
+
+
+def test_duty_cycle_flags_an_idle_sampled_window():
+    """The guard against this module's own worst mistake.
+
+    A clock reading only describes the work if the process was BUSY when taken.
+    Sampling in a tight loop with no work between calls once produced a 1429 MHz
+    reading that was reported as a 3.0x host-wide swing; it was a property of an
+    idle process.
+    """
+    guard = _guard([20.0] * 4, [0.9] * 4)
+    guard.khz = [3_400_000] * 4
+    guard._wall = [0.0, 2e-5, 4e-5, 6e-5]     # samples 20us apart: no work bracketed
+    guard._cpu = [0.0, 2e-5, 4e-5, 6e-5]      # duty ~1.0 -- reading /proc IS cpu work
+    assert guard.duty_cycle == pytest.approx(1.0)
+    assert guard.median_interval_s == pytest.approx(2e-5)
+    assert guard.verdict == "IDLE-SAMPLED", (
+        "duty cycle cannot detect this; the wall interval is what distinguishes it"
+    )
+
+
+def test_duty_cycle_passes_a_busy_window():
+    guard = _guard([20.0] * 4, [0.9] * 4)
+    guard.khz = [4_200_000] * 4
+    guard._wall = [0.0, 1.0, 2.0, 3.0]
+    guard._cpu = [0.0, 0.99, 1.98, 2.97]
+    assert guard.duty_cycle == pytest.approx(0.99)
+    assert guard.median_interval_s == pytest.approx(1.0)
+    assert guard.verdict != "IDLE-SAMPLED"
+
+
+def test_idle_sampling_outranks_the_correlation_flag():
+    """An idle-sampled window's correlations are not worth interpreting."""
+    guard = _guard(
+        [4.0, 5.0, 6.0, 7.0], [1.00, 0.96, 0.92, 0.88]
+    )
+    guard._wall = [0.0, 3e-5, 6e-5, 9e-5]
+    guard._cpu = [0.0, 3e-5, 6e-5, 9e-5]
+    assert guard.verdict == "IDLE-SAMPLED"
+
+
+def test_interval_metrics_are_nan_before_two_samples():
+    assert math.isnan(WindowGuard().duty_cycle)
+    assert math.isnan(WindowGuard().median_interval_s)
+
+
+def test_real_sampling_records_wall_and_cpu():
+    guard = WindowGuard()
+    for _ in range(3):
+        guard.sample()
+        guard.record_ratio(1.0)
+    assert len(guard._wall) == 3 and len(guard._cpu) == 3
+    assert "duty" in guard.provenance_line()

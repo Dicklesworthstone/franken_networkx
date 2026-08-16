@@ -15747,3 +15747,73 @@ PROVENANCE: structural, no ratio claimed. Pinned ELF sha256
 789dd9dead49c4a8dbeaf6747c1532a70639561afda92497e4b304fdb7ff59fd via PYTHONPATH.
 host thinkstation1, python 3.13.7, live networkx 3.6.1, disk 285G free. `uptime`
 observed by this pane: 1-min 68.81 / 5-min 36.91 at the decision (rejected).
+
+## THE 1429-4292 MHz FIGURE IS MINE AND I RETRACTED IT — a quiet window is NOT a downclocked window on this host (br-r37-c1-jycsb)
+
+NO CERTIFICATION. `uptime` checked by this pane: 1-min 48.32 against 5-min 54.22,
+later 37.84 — high, rejected. Everything below is structural.
+
+**THE FLEET GUIDANCE NOW REST ON A NUMBER THIS PANE PUBLISHED AND THEN
+WITHDREW.** "Cores swing 1429-4292 MHz, so a quiet window is a downclocked
+window" is my claim from two turns ago. I retracted it last turn in commit
+`d8f900aae`, already on main, because the 1429 MHz reading came from my own
+instrument sampling an IDLE process — `read_cpu_khz()` called repeatedly in a
+tight loop with no work between calls, on a core with nothing to boost for.
+
+Reconfirmed today at loadavg 43.7, fresh measurement:
+
+    IDLE process (my old method)      3899-3918 MHz   swing  0.5 percent
+    BUSY process (a real benchmark)   3062-3915 MHz   swing 22.2 percent
+
+A busy benchmark core swings about 22 percent, not 3.0x. And here the IDLE
+reading is the HIGH, flat one — the opposite of the downclocking story.
+
+**THE DIRECTIONAL CLAIM IS ALSO UNSUPPORTED BY THE ONE LOW-LOAD OBSERVATION THIS
+PANE HAS.** Ten processes at loadavg 7.34-7.37, each recording its own core
+clock: NINE ran at 4.14-4.29 GHz and produced the FAST timing mode; one ran at
+3433.8 MHz and read 138.47 ns against ~101 ns for the others. A quiet window did
+not downclock the cores. If the fleet adopts "prefer loaded over quiet" on the
+strength of my retracted figure, it will be adopting it for a reason that is not
+true, even though the conclusion may still be right for other reasons.
+
+**WHAT DOES SURVIVE, and this pane supports all three:**
+
+  * **Record loadavg AND CPU MHz on every row.** Right, and now automatic —
+    `provenance_line()` emits per-round loadavg, runnable count, cpu clock
+    median/min/max/swing, duty and interval.
+  * **Prefer a STABLE window over a quiet one.** Supported, but by different
+    evidence: this pane's "quietest window of the session" at loadavg 6.12
+    produced a 21-point ratio interval and a 17 percent A/A null, while a
+    sustained loadavg of 29.63 certified cleanly across three replicates. That
+    is a volatility argument, not a frequency one.
+  * **Keep both arms inside the same window.** Already structural here — every
+    banked row is a balanced square with both arms in ONE invocation, which is
+    also what made the cross-project contention check answerable.
+
+**INSTRUMENT AUDIT, as instructed — and mine was the culprit, twice.** pandas
+found its measurement caused the spikes, redis found its build destroyed the
+window, fs found its gate checked launch not run. Mine reported an idle process's
+clock as a host property. Fixed last turn by bracketing each round pre-work and
+post-work.
+
+**AND THE FIRST FIX FOR IT FAILED TODAY, FOR THE SAME REASON AS THE ORIGINAL
+ERROR.** The obvious detector was a DUTY CYCLE — CPU time over wall time — on the
+theory that the bad samples came from an idle process. They did not: reading
+`/proc` is itself CPU work, so a tight sampling loop scores duty 0.99 and passes
+the guard. Measured live: the exact bad pattern reports `duty 0.99` and would
+have sailed through. The real signature is that no WALL TIME elapsed — the
+samples were 139 microseconds apart, bracketing no work for the governor to
+respond to, against 50.3 ms for a real round. `median_interval_s` now carries the
+detection and the verdict `IDLE-SAMPLED` outranks the correlation flags, since an
+idle-sampled window's correlations are not worth interpreting. `duty_cycle` is
+kept as informational with its uselessness documented in place.
+
+31 guard tests, no timing, runnable in exactly the windows where benchmarking is
+forbidden.
+
+PROVENANCE: structural, no ratio claimed. Pinned ELF sha256
+789dd9dead49c4a8dbeaf6747c1532a70639561afda92497e4b304fdb7ff59fd via PYTHONPATH.
+host thinkstation1, governor `powersave`, python 3.13.7, live networkx 3.6.1,
+disk 281G free. `uptime` observed by this pane: 48.32 / 54.22 at the decision,
+43.71 at the idle-versus-busy reconfirmation, 37.84 and 31.84 at the live
+detector checks. CPU clock observed: 3765-3918 MHz across those checks.

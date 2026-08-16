@@ -54,6 +54,7 @@ that a failing gate is not a loss, and a row is judged by REPLICATION.
 from __future__ import annotations
 
 import statistics
+import time
 from dataclasses import dataclass, field
 
 
@@ -166,12 +167,16 @@ class WindowGuard:
     ratios: list[float] = field(default_factory=list)
     runnable: list[int] = field(default_factory=list)
     khz: list[int] = field(default_factory=list)
+    _wall: list[float] = field(default_factory=list)
+    _cpu: list[float] = field(default_factory=list)
 
     def sample(self) -> float:
         value = read_loadavg()
         self.loads.append(value)
         self.runnable.append(read_runnable())
         self.khz.append(read_cpu_khz())
+        self._wall.append(time.perf_counter())
+        self._cpu.append(time.process_time())
         return value
 
     def record_ratio(self, ratio: float) -> None:
@@ -265,6 +270,56 @@ class WindowGuard:
         return statistics.correlation(runnable, ratios)
 
     @property
+    def median_interval_s(self) -> float:
+        """Median wall time between consecutive samples.
+
+        THE ACTUAL SIGNATURE of the mistake this module made, after a first
+        attempt at detecting it also failed. I reported a 3.0x core-clock swing
+        that turned out to be an artifact of sampling in a tight loop with no
+        work between calls. The obvious guard was a DUTY CYCLE — CPU time over
+        wall time — on the theory that the process had been idle. It had not:
+        reading `/proc` is itself CPU work, so a tight sampling loop scores a
+        duty cycle near 1.0 and sails through. The detector failed for precisely
+        the reason the original claim did.
+
+        What actually distinguishes the bad sampling is that no WALL TIME
+        elapsed: the samples were microseconds apart, bracketing no work for the
+        governor to respond to. A benchmark round is milliseconds to seconds.
+        """
+        if len(self._wall) < 2:
+            return float("nan")
+        gaps = [b - a for a, b in zip(self._wall, self._wall[1:])]
+        return statistics.median(gaps) if gaps else float("nan")
+
+    @property
+    def duty_cycle(self) -> float:
+        """CPU time consumed per unit wall time between samples.
+
+        Informational only — see `median_interval_s` for why this does NOT
+        detect idle sampling: reading `/proc` is CPU work, so a tight sampling
+        loop scores near 1.0.
+
+        THE GUARD AGAINST THE MISTAKE THIS MODULE ITSELF MADE. A clock reading is
+        only a benchmark condition if the process was BUSY when it was taken. I
+        once sampled `read_cpu_khz()` fifteen times in a tight loop with no work
+        between calls, read 1429 MHz, and reported a 3.0x core-clock swing as a
+        property of the host. It was a property of an idle process: re-measured,
+        idle sampling reads flat (0.5 percent swing) while a busy benchmark core
+        swings 22 percent.
+
+        Near 1.0 means the process was computing between samples and the clock
+        readings describe the work. Well below 1.0 means it was waiting, and any
+        frequency conclusion drawn from those samples is about idleness.
+        """
+        if len(self._wall) < 2:
+            return float("nan")
+        wall = self._wall[-1] - self._wall[0]
+        cpu = self._cpu[-1] - self._cpu[0]
+        if wall <= 0:
+            return float("nan")
+        return cpu / wall
+
+    @property
     def khz_spread_pct(self) -> float:
         """Core-clock swing across the run, as a percentage of the median.
 
@@ -282,6 +337,9 @@ class WindowGuard:
     @property
     def verdict(self) -> str:
         """Advisory only. Never rejects a row on its own — replication decides."""
+        gap = self.median_interval_s
+        if gap == gap and gap < 1e-3:
+            return "IDLE-SAMPLED"
         for corr in (self.corr_load_ratio, self.corr_runnable_ratio):
             if corr == corr and abs(corr) >= 0.5:
                 return "PERTURBED"
@@ -308,6 +366,7 @@ class WindowGuard:
             f"iqr {self.iqr:.2f} relvol {self.relative_volatility:.2f}; "
             f"{self._runnable_fragment()}"
             f"{self._khz_fragment()}"
+            f"duty {self.duty_cycle:.2f} interval {self.median_interval_s * 1e3:.1f} ms; "
             f"corr(load, per-round ratio) {self.corr_load_ratio:+.3f}, "
             f"corr(runnable, per-round ratio) {self.corr_runnable_ratio:+.3f} "
             f"[{self.verdict}]"
