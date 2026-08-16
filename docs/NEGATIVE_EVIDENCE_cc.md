@@ -14933,3 +14933,63 @@ binary reused; loaded ELF sha256
 powersave; runtime ISA avx2 avx sse4_2; observed affinity 8 of 64 cpus; python
 3.13.7 x86_64; live networkx 3.6.1; PYTHONHASHSEED=0; OBSERVED loadavg 15.77 at
 both run starts (`uptime` run by me immediately before).
+
+## OPERATIONAL FINDING: a pin BUILD costs the stable window it is meant to enable — loadavg 11.9 -> 66.0 in four minutes, self-inflicted (br-r37-c1-ptiz2)
+
+NO CERTIFICATION, and the reason is this pane's own doing rather than the host's.
+
+The window was genuinely good and was verified before starting: `uptime` gave
+1-min 11.86 against 5-min 14.23, ratio 1.20, and `window_is_certifiable()`
+returned `(True, 'stable')`. HEAD's Rust had moved (`5182f6b1f`), so a fresh
+commit-pinned build was needed first. That build took **4m15s at 112 percent
+CPU** and drove loadavg from **11.86 to 57.79, then 66.04** — the gate that had
+just passed now rejects on level, and it had not recovered fifteen minutes later
+(63.17), because other panes are building into the same decay.
+
+**THE ORDERING WAS BACKWARDS AND THIS PANE HAS BEEN DOING IT BACKWARDS ALL
+SESSION.** Every previous turn built the pin at the START of the quiet window and
+then measured, which means every one of those certifications ran on a host still
+recovering from its own build. The two turns whose readings were tightest —
+loadavg 8.39-9.13 for the degree lever, 8.4-9.1 for the worst cell — were the
+ones where the pin already existed and no build preceded them. That is now an
+explanation rather than a coincidence.
+
+**THE RULE THAT FOLLOWS, and it inverts the obvious one:** build pins during
+LOADED windows, when certification is forbidden anyway and a build costs nothing
+that is not already lost, so that a stable window can be spent entirely on
+measurement. A quiet window is the scarce resource; a build is not. Concretely,
+the next time HEAD's Rust moves this pane should pin it immediately regardless of
+load, rather than waiting for quiet and then spending the quiet on `cargo`.
+
+WHAT DID GET DONE, all of it load-independent:
+
+  * Fresh commit-pinned build of HEAD `f1353bae3` — ELF sha256
+    `36744765c50ddd08c753eef59e0493763b672f71b506467827e9ecb548145224`.
+  * The rebuilt reference-semantics probe re-run against that new pin
+    reproduces the audit EXACTLY: **388 cells, 25 divergences**, same
+    classification as on `42e4b0d2` — 4 graph-level `private_write_adj`
+    (br-r37-c1-rgmef), 4 confirming br-r37-c1-f3i50, 16 benign row-identity,
+    1 probe-shape artifact. A structural audit reproducing across two
+    independently built ELFs is worth more than the same audit run twice on one.
+  * `/data/tmp/claude-1000/bsq_guarded_op.py` prepared: the ABBA harness now
+    stamps every row with `WindowGuard.provenance_line()`, so the deferred
+    `(u,v) in G.edges` certification will carry per-round loadavg, runnable-count
+    volatility and `corr(load, per-round ratio)` rather than window endpoints.
+
+STILL DEFERRED, unchanged and not a loss: `(u,v) in G.edges` at keylen 2000,
+whose verdict oscillated WIN/WIN/TIE (1.0420 / 1.0915 / 1.0293) at loadavg 33-36.
+It needs three 60000-rep replicates in a stable sub-15 window. The pin and the
+instrumented harness are now both ready, so the next such window can be spent
+entirely on it.
+
+Also noted: the shared repo's stale-`.so` guard blocks `pytest` for every pane
+while a peer's Rust sources are newer than the installed extension, which is why
+the parity suites were verified through the probe rather than through pytest this
+turn.
+
+PROVENANCE: no ratio claimed. host thinkstation1, python 3.13.7, live networkx
+3.6.1, disk 295G free. Pin built by maturin `build --release` from a
+`git archive` tree at `f1353bae3`, `env -u CARGO_TARGET_DIR`, private TMPDIR,
+4m15s. `uptime` observed by this pane: 1-min 11.86 / 5-min 14.23 (gate PASSED)
+before the build; 57.79, 64.22, 66.04, 63.17 after it (gate REJECTED on level at
+each).
