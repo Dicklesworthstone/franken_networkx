@@ -118,6 +118,7 @@ fn report_to_pymultidigraph(
         succ_key_rows: None,
         pred_key_rows: None,
         edge_keydict_cache: None,
+        edge_keydict_by_index: HashMap::new(),
         in_edges_data_attr_cache: std::sync::Mutex::new(None),
         edges_data_attr_cache: std::sync::Mutex::new(None),
         inner: graph,
