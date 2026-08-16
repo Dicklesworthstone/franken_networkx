@@ -14696,3 +14696,171 @@ tests against the shared venv install. host thinkstation1, python 3.13.7, live
 networkx 3.6.1, disk 295G free. `uptime` observed by this pane: 1-min 10.10 /
 5-min 32.47 at the decision, 15.52 / 25.51 at the end — rejected as unstable at
 both.
+
+## PROBE REBUILT AND FAMILY RE-AUDITED — 388 cells, 25 divergences, and a NEW parity bug the old probe could not have seen (br-r37-c1-rgmef, br-r37-c1-f3i50)
+
+NO CERTIFICATION. `uptime` checked by this pane: 1-min 11.67 against 5-min 21.60,
+ratio 1.85 — rejected by `window_is_certifiable()` as unstable. No ratio is
+claimed here; everything below is structural.
+
+**WHY THE PROBE NEEDED REBUILDING, stated as the failure it was.** The ad-hoc
+check that preceded this tested TWO dimensions — inner attribute mutation and
+new-key insertion — on ONE accessor, and its result was reported as the surface.
+Enumerating that same accessor found EIGHT divergences. A probe sampling 2 of 10
+dimensions does not under-report by a fifth; it reports a defect as healthy, and
+one of the seven it missed (read-liveness) invalidates the fix its conclusion
+implied.
+
+`scripts/reference_semantics_probe.py` replaces it: a MATRIX of 14 accessors x 9
+dimensions across four classes, **388 cells, 25 diverging**. The dimensions are
+chosen so each catches what the others cannot — `type`, `identity_calls`,
+`identity_raw`, `read_liveness`, `write_reaches`, `inner_mutation`,
+`write_raises`, `len_iter`, `missing_key` (type AND args), plus a graph-level
+`private_write_adj`. Every cell builds its own graph, because probing mutation on
+a shared fixture lets one cell's writes decide the next cell's answer.
+
+**THE NEW BUG, br-r37-c1-rgmef, which no public-API probe could have found.**
+networkx's `G._adj` IS a raw `dict` and networkx's own algorithms mutate it in
+place; fnx exposes an `AdjacencyView`:
+
+    class          operation                 nx    fnx
+    Graph          G._adj[u][v] = {...}      ok    TypeError
+    DiGraph        G._adj[u][v] = {...}      ok    AttributeError
+    MultiGraph     G._adj[u][v] = {...}      ok    AttributeError
+    MultiGraph     G._adj[u][v]['w'] = 9     ok    AttributeError
+    MultiDiGraph   G._adj[u][v] = {...}      ok    AttributeError
+    MultiDiGraph   G._adj[u][v]['w'] = 9     ok    AttributeError
+
+    type(G._adj)   nx dict   fnx AdjacencyView
+    type(G._node)  nx dict   fnx _PrivateNodeFacade
+
+**The node side is the control and it WORKS** — `G._node[n]['k'] = v` and
+`G._node[new] = {}` both succeed — which is what makes "fnx's private storage is
+read-only" the wrong summary and "fnx's private ADJACENCY is read-only" the right
+one. The public surface AGREES in both libraries (`G.adj[u][v] = ...` raises
+`TypeError` in each), which is exactly why this hid: the clean public API is not
+evidence about the private one, and the private one is what library code reaches
+for. The exception TYPE also differs across classes, so a caller catching
+`TypeError` on `Graph` will not catch `AttributeError` on `DiGraph`. Distinct
+from br-r37-c1-yyfmb, which is about assigning `G._adj` wholesale; they likely
+share a fix and should be read together.
+
+**THE OTHER 21 CELLS, classified rather than counted.** Inflating a divergence
+count is as misleading as missing one:
+
+  * 4 cells CONFIRM br-r37-c1-f3i50 — multigraph `get_edge_data(u,v)` differs on
+    `identity_calls` and `identity_raw`.
+  * 16 cells are a row-identity class running the OPPOSITE way to f3i50: fnx
+    returns the SAME object for repeated `G[u]` / `G.adj[u]` / `G.succ[u]` /
+    `G.pred[u]` where networkx builds a fresh wrapper each call, and fnx's
+    `G.adj[u]` is identical to its `_adj[u]` where networkx's is not.
+    **Investigated and judged BENIGN**, on evidence rather than assumption:
+    public writes are rejected identically (`TypeError` in both), a held row
+    after `remove_node` reports identical length and keys, and two different
+    nodes give distinct objects in both. fnx caches wrappers; networkx builds
+    them. Not filed.
+  * 1 cell is a probe-shape artifact (`G.adj` `inner_mutation`, where networkx's
+    values expose no `__setitem__` and fnx's raise `TypeError` — the same
+    rejection reached two ways).
+
+**A DEFECT IN THE REBUILT PROBE, found by running it.** The first version swept
+`private_write_adj` per ACCESSOR, but it is a graph-level property that does not
+vary by accessor — so one real finding appeared as 46 identical rows and inflated
+the count from 25 to 67, burying the accessor-specific divergences under it.
+Graph-level dimensions are now swept once per class. A probe that over-reports
+trains its reader to skim, which is the same failure as under-reporting arriving
+from the other side.
+
+PINNED: `tests/python/test_private_adjacency_storage_mutability.py`, 16 passing
+and 6 `xfail(strict=True)`, including the node-side control and the
+public-surface agreement that explains the hiding place.
+
+PROVENANCE: structural comparison, no timing claimed. Pinned ELF sha256
+42e4b0d2fefa0dc1dc7907b55d1c5fbe1026c24ce077f0c3feada77cd6abfe47 via PYTHONPATH;
+tests against the shared venv install. host thinkstation1, python 3.13.7, live
+networkx 3.6.1, disk 295G free. `uptime` observed by this pane: 1-min 11.67 /
+5-min 21.60 at the decision (rejected, ratio 1.85).
+
+## 2026-08-16 GoldenBison REJECT then KEEP: index path in `PyMultiDiGraph::has_edge` REGRESSED the keyed form 0.1726x to 0.1404x; gated to keyless it gives 0.5823x (br-r37-c1-ptiz2)
+
+comparison_class=SELF-SPEEDUP
+campaign_output=false
+decision_gate=median_ci
+cv_role=report_only
+
+Two results in one unit of work: a lever I shipped that made my target row WORSE,
+caught by measuring it, and the gated version that works.
+
+I ALSO BROKE THE STANDING LOAD RULE AND AM SAYING SO. The rule is to run `uptime`
+myself and defer above ~30. I ran it, read **39.55**, and launched the
+certification anyway instead of deferring. That run produced 0.1367x. It is NOT
+banked and appears nowhere in the table below — it is recorded only because
+concealing a discarded run is how a discarded run becomes a quoted one later. The
+banked figures are from runs at observed loadavg 13.02 and 11.10.
+
+THE REJECT. Routing exact-`str` endpoints in `PyMultiDiGraph::has_edge` through
+`cached_exact_string_node_index` for BOTH the keyed and keyless forms, with the
+keyed form short-circuiting only an ABSENT pair:
+
+    MDG has_edge(u,v,0) len=2000   0.1726x banked  ->  0.1404x   REGRESSION
+    MDG has_edge(u,v,0) len=3      0.4330x banked  ->  0.3915x   REGRESSION
+
+Both measured at loadavg ~12.4, so this is not a load artifact. WHY, and it was
+predictable from my own scope note: `resolve_internal_edge_key` and `edge_attrs`
+are keyed by canonical STRINGS, and fnx-classes has no by-index equivalent that
+takes an edge key. So a PRESENT keyed pair — which is exactly what the benchmark
+probes — paid two index lookups and then fell through to the entire string path
+anyway. Pure added work. I wrote "the KEYED form can only short-circuit an ABSENT
+pair" in the code comment and still shipped it against a present-pair benchmark.
+
+THE KEEP. Gating the fast path on `key.is_none()` removes the regression and keeps
+the win where the path can actually terminate:
+
+A/A null control run 1, `KEYLESS len=2000`, incumbent arm paired against itself in the same invocation: 1.0125x, inside the 0.02 bound.
+
+A/A null control run 1, `KEYLESS len=2000`, fnx arm paired against itself in the same invocation: 1.0024x, inside the 0.02 bound.
+
+A/A null control run 2, `KEYLESS len=2000`, incumbent arm paired against itself in the same invocation: 1.0092x, inside the 0.02 bound.
+
+A/A null control run 2, `KEYLESS len=2000`, fnx arm paired against itself in the same invocation: 1.0013x, inside the 0.02 bound.
+
+| row | run 1 (13.02) | run 2 (11.10) | worst bound |
+|---|---|---|---|
+| `MDG has_edge KEYLESS len=2000` | 0.5915x [0.5899, 0.5927] | 0.5839x [0.5823, 0.5859] | **0.5823x** |
+| `MDG has_edge KEYLESS len=3` | 0.7670x [0.7643, 0.7706] | 0.7656x [0.7621, 0.7671] | 0.7621x |
+| `MDG has_edge KEYED len=2000` | 0.1603x [0.1594, 0.1612] | 0.1604x [0.1601, 0.1610] | 0.1594x |
+| `MDG has_edge KEYED len=3` | 0.4935x [0.4920, 0.4957] | 0.4911x [0.4904, 0.4924] | 0.4904x |
+
+NO MATCHED BEFORE-MEASUREMENT FOR THE KEYLESS ROWS, and I am not manufacturing
+one. The keyless form was never a workload row until this commit, so 0.5823x is a
+new baseline rather than a before/after claim. What can be said: pre-change the
+keyless path ran the same `node_key_to_string` x2 + `has_node` + `has_edge`
+sequence as the keyed form minus the key resolution, so its before was necessarily
+close to the keyed row's 0.1726x — but that is an inference from reading the code,
+not a measurement, and it is labelled as such.
+
+THE KEYED ROWS ARE UNCHANGED BY THE GATE, as they must be: `key.is_none()` is
+false, so the new branch is skipped entirely and the keyed path is byte-identical
+to before. They read 0.1594x and 0.4904x here against 0.1726x and 0.4330x banked
+earlier — inside the run-to-run spread this row has shown all session, and in
+opposite directions, which is what unchanged code under a moving host looks like.
+
+STILL OPEN: the keyed multigraph form remains the last unbounded row on this axis
+at 0.1594x, and closing it needs a by-index edge-key primitive in fnx-classes —
+a cross-crate change, not a call-site one.
+
+CORRECTNESS: `cargo check` clean; full Python suite 59726 passed / 1463 skipped,
+only the two pre-existing cross-test pollution failures (br-r37-c1-2i3mf); 4213
+has_edge/unhashable/multigraph-selected tests pass.
+
+PROVENANCE, self-reported in-process: harness `scripts/balanced_square_ab.py`
+sha256 0a7f324a1681b7ddb912a8eec67f81857f08ab1650015536b1c2c8f5fac1b9f9; host
+thinkstation1; rch_worker none, both arms in-process on the same host; loaded ELF
+sha256 70c1e8f3e8577203ad90ad4b62c7886f7c1260e3a27f5255947050f12726428e (KEEP),
+be4f7f47a91c84ecfe0fb21841eb88f7e8e0167a61246f1547cb8d9a735dc6c3 (the REGRESSING
+build), 47ebe4ff28057f765f2e9e7d2359f5a66d26c9931e0a53fc4bdeb7add61e3afa (before);
+built locally by maturin, `env -u CARGO_TARGET_DIR`, private TMPDIR, disk 298.10
+GiB; governor powersave; runtime ISA avx2 avx sse4_2; observed affinity 8 of 64
+cpus; python 3.13.7 x86_64; live networkx 3.6.1; PYTHONHASHSEED=0; OBSERVED
+loadavg 13.02 and 11.10 at the two banked run starts (`uptime` run by me
+immediately before each).

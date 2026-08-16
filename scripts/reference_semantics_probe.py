@@ -236,6 +236,14 @@ DIMENSIONS = [
 def probe(cls_names):
     rows = []
     for cls_name in cls_names:
+        for dim_name, fn in GRAPH_DIMENSIONS:
+            out = {}
+            for lib, tag in ((nx, "nx"), (fnx, "fnx")):
+                try:
+                    out[tag] = fn(lib, cls_name, None)
+                except Exception as exc:  # noqa: BLE001
+                    out[tag] = f"PROBE-ERROR {type(exc).__name__}: {exc}"
+            rows.append((cls_name, "(graph-level)", dim_name, out["nx"], out["fnx"]))
         for acc_name, (applies, get) in ACCESSORS.items():
             if not applies(cls_name):
                 continue
