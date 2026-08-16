@@ -842,8 +842,56 @@ class EdgeDataView:
             except (NameError, TypeError):
                 graph = None
         self._graph = graph
+        # br-r37-c1-2pia7: nx resolves the nbunch ONCE, here in __init__:
+        #
+        #   nbunch = dict.fromkeys(viewer._graph.nbunch_iter(nbunch))
+        #   self._nodes_nbrs = lambda: [(n, adjdict[n]) for n in nbunch]
+        #
+        # so the node SET is frozen now while the adjacency behind it stays
+        # live. This view re-invokes the call on every read (that is what makes
+        # it live at all), and it kept the caller's RAW nbunch — so a node that
+        # was absent at construction became live later and started contributing
+        # its edges, which nx never does. Freeze it to what exists now.
+        #
+        # The frozen list is also what lets a read tell that one of ITS nodes
+        # has since been removed, which nx reports by raising from adjdict[n];
+        # see _raise_if_frozen_nbunch_node_removed.
+        self._nbunch_nodes_seq = None
+        if self._nbunch_list is not None and graph is not None:
+            self._nbunch_list = [n for n in self._nbunch_list if n in graph]
+            # Node revision at freeze time — see below.
+            self._nbunch_nodes_seq = getattr(graph, "nodes_seq", None)
+
+    def _raise_if_frozen_nbunch_node_removed(self):
+        """br-r37-c1-2pia7: nx's ``adjdict[n]`` raises once n is gone.
+
+        nx's lambda indexes the adjacency for every frozen nbunch node on each
+        iteration, so removing one of them turns a later read into a KeyError
+        rather than a quietly shorter answer. fnx's walks skip absent nodes —
+        correct for a node the caller named that never existed, wrong for one
+        that was resolved into the frozen set and has since been removed.
+
+        Gated on ``nodes_seq``, which is the whole point of doing it this way:
+        the scan is O(len(nbunch)) and these views are read repeatedly, so
+        running it unconditionally cost 0.64-0.90x on the nbunch paths (worst:
+        ``len(G.edges(nbunch))`` over every node). Only a NODE-set change can
+        invalidate a frozen node, and ``nodes_seq`` moves on exactly that — so
+        edge churn, the common case, costs one integer compare.
+        """
+        graph = self._graph
+        if self._nbunch_list is None or graph is None:
+            return
+        expected = self._nbunch_nodes_seq
+        if expected is not None:
+            current = getattr(graph, "nodes_seq", None)
+            if current is not None and current == expected:
+                return
+        for node in self._nbunch_list:
+            if node not in graph:
+                raise KeyError(node)
 
     def _materialize(self):
+        self._raise_if_frozen_nbunch_node_removed()
         data = self._data
         default = self._default
         data_is_none = data is None
@@ -989,6 +1037,10 @@ class EdgeDataView:
         # avoids materializing the whole tuple list twice. Simple Graph only;
         # otherwise fall back to the materialize-based count.
         elif self._nbunch_list is not None and type(self._graph) is Graph:
+            # br-r37-c1-2pia7: the native count skips absent nodes, so it must
+            # not run before the frozen-nbunch check that _materialize does —
+            # otherwise len() answers a number where nx raises.
+            self._raise_if_frozen_nbunch_node_removed()
             count = _fnx.edges_nbunch_count(self._graph, self._nbunch_list)
             if count is not None:
                 return count
@@ -3181,6 +3233,15 @@ class _EdgeListWithSetAlgebra(list):
         token = _edge_list_freshness_token(graph)
         if token is None or token == getattr(self, "_fnx_token", None):
             return
+        # br-r37-c1-2pia7: the graph moved — if it moved by removing one of the
+        # nodes this view's nbunch was resolved to, nx raises rather than
+        # answering with the survivors. Checked only on a token change, so an
+        # unchanged graph pays nothing.
+        frozen = getattr(self, "_fnx_frozen_nbunch", None)
+        if frozen is not None:
+            for node in frozen:
+                if node not in graph:
+                    raise KeyError(node)
         fresh = rebuild()
         # list.__iter__ / list.__getitem__ deliberately: the rebuilt object is
         # itself a live view, and going through its own __iter__ would re-enter
@@ -6176,7 +6237,18 @@ class _WeightAwareDegreeView:
             # on any missing node. Honour the nx contract: single-node
             # lookups preserve KeyError-style errors, iterable nbunches
             # filter to in-graph nodes only.
-            if isinstance(nbunch, (list, tuple, set, frozenset)) or hasattr(nbunch, "__iter__") and not isinstance(nbunch, (str, bytes)):
+            # br-r37-c1-dlqkq: `str` is excluded from the sequence branch either
+            # way, so test that FIRST and short-circuit. The previous spelling
+            # (`A or hasattr(...) and not isinstance(...)`) evaluated a 4-tuple
+            # isinstance AND a hasattr — which builds and swallows an
+            # AttributeError on miss — before rejecting every string key, the
+            # most common single-node argument there is. Same truth table:
+            # list/tuple/set/frozenset still take the branch, str/bytes still do
+            # not, and a non-iterable non-str still falls through.
+            if not isinstance(nbunch, (str, bytes)) and (
+                isinstance(nbunch, (list, tuple, set, frozenset))
+                or hasattr(nbunch, "__iter__")
+            ):
                 try:
                     hash(nbunch)
                     if nbunch in self._graph:
@@ -6236,12 +6308,33 @@ class _WeightAwareDegreeView:
             # (`if G.degree(n):`) crashed under fnx where it runs under nx.
             # A non-iterable argument (99) still raises, because nbunch_iter
             # raises on it; that case already matched and is preserved.
-            try:
-                present = nbunch in self._graph
-            except TypeError:
-                present = False
-            if present:
-                return self._raw[nbunch]
+            # br-r37-c1-dlqkq: for an EXACT `str`, ask for the DEGREE first and
+            # treat its failure as absence. The same contract, but one node
+            # resolution instead of two: the membership test canonicalized the
+            # key and probed the IndexMap, and then `self._raw[nbunch]` did both
+            # again on every successful lookup. Present nodes are the
+            # overwhelmingly common case, and paying twice for them made
+            # `G.degree(n)` the worst row on the read surface at 0.5073x.
+            #
+            # EXACT `str` only, and that is not a micro-optimization — it is
+            # required. The native lookup resolves a key by its CHARACTERS and
+            # never calls `__hash__`, so an unhashable `str` subclass would come
+            # back with a NUMBER where networkx returns an empty view (the
+            # membership test rejects it via the br-r37-c1-lvlu7 hashability
+            # contract). Anything that is not exactly `str` keeps the membership
+            # test, which already has that right.
+            if type(nbunch) is str:
+                try:
+                    return self._raw[nbunch]
+                except (NodeNotFound, KeyError):
+                    pass
+            else:
+                try:
+                    present = nbunch in self._graph
+                except TypeError:
+                    present = False
+                if present:
+                    return self._raw[nbunch]
             if isinstance(nbunch, (str, bytes)):
                 # Iterating bytes yields ints, which is also what nbunch_iter
                 # sees, so the element filter is correct for both types.
@@ -6728,6 +6821,13 @@ def _live_called_edge_view(original_call):
                 result._fnx_live_graph = graph
                 result._fnx_token = _edge_list_freshness_token(graph)
                 result._fnx_rebuild = lambda: original_call(self, *args, **kwargs)
+                # br-r37-c1-2pia7: keep the RESOLVED nbunch so a later read can
+                # tell that one of its own nodes has since been removed, which
+                # nx reports by raising from adjdict[n] rather than by quietly
+                # returning fewer edges.
+                frozen = kwargs["nbunch"] if "nbunch" in kwargs else (args[0] if args else None)
+                if isinstance(frozen, list):
+                    result._fnx_frozen_nbunch = frozen
         return result
 
     wrapped.__name__ = getattr(original_call, "__name__", "__call__")
