@@ -16830,3 +16830,92 @@ invocation, no strays (`pgrep` confirms). ELFs
 thinkstation1, 64 logical / 32 physical, SMT on, governor `powersave`. python
 3.13.7, live networkx 3.6.1, disk 276G free. `uptime`: 23.79 / 35.65 at the
 decision, 21.04 at the first run.
+
+## 2026-08-16 GoldenBison KEEP-SELF: MultiDiGraph keydict cache — the last of the worst cell, 0.0074x -> 0.1449x (18.34x), with the undirected class now the control (br-r37-c1-ptiz2)
+
+Directed mirror of 54566abb2, and the end of this cell. Unkeyed
+`get_edge_data(u, v)` rebuilt the `{key: attrs}` mapping on every call —
+O(parallel edges) where networkx STORES `_adj[u][v]` and returns it in O(1).
+
+MultiDiGraph was deliberately left unchanged when the undirected class was fixed
+so it could serve as THAT row's control; it stayed flat at 0.0071-0.0076 across
+all eight alternated runs while MultiGraph moved 20x, which is what proved the
+effect was the code rather than the window. With its control duty discharged it
+was the worst measured cell, and the roles now swap.
+
+THE ONE REAL DIFFERENCE FROM THE UNDIRECTED VERSION, and the reason the test
+matters: `PyMultiDiGraph::edge_key` does NOT sort its endpoints, because u->v and
+v->u are distinct edges. A mirror that copied the undirected sorting would serve
+one direction's mapping for the other — and only when the endpoints happen to sort
+the wrong way round, so a test using alphabetically ordered names would never
+reach it. `test_directed_keydict_cache_does_not_confuse_orientations` uses
+deliberately reverse-sorted names and warms BOTH directions before re-reading
+either, which is when a shared entry surfaces.
+
+Everything else mirrors: shallow copy handed out rather than the cached object,
+nested `HashMap<String, HashMap<String, _>>` so the hit path probes with borrowed
+`&str` and allocates nothing, and GC traversal because the rows hold user
+attribute dicts that may reference the graph.
+
+ELF-ALTERNATED CERTIFICATION, three interleaved rounds, pinned to a SINGLE cpu
+(my standing change after migration was caught inflating spread), placement
+recorded on every row, 41 x 50 x 400:
+
+    row                       OLD 3ec26cd9 (x3)          NEW 232f3d90 (x3)          placement
+    MDG par=64  SUBJECT       0.0079 0.0072 0.0074       0.1449 0.1453 0.1562       cpus=[41] all
+    MG  par=64  CONTROL       0.1554 0.1454 0.1485       0.1470 0.1477 0.1583       cpus=[41] all
+
+**Worst bound min(NEW)/max(OLD) = 0.1449 / 0.0079 = 18.34x.**
+
+THE CONTROL IS LOAD-BEARING HERE FOR A SECOND REASON, disclosed rather than
+buried. A peer is mid-edit on br-r37-c1-dwy1n and their uncommitted work is
+present in the NEW arm's binary but not the OLD one, because I had to rebuild to
+clear the stale-.so guard their edit tripped. So the two ELFs differ by my change
+AND theirs. The MultiGraph row is unchanged code in both arms and therefore
+measures exactly that contamination: **0.1554/0.1454/0.1485 against
+0.1470/0.1477/0.1583 — overlapping ranges, no systematic movement, medians within
+0.5 percent.** Their work touches `neighbors()` and the adjacency rows; this
+workload calls neither. The subject moved 18x on the same binaries the control
+found flat.
+
+My committed change contains none of their code: both shared files are staged as
+HEAD plus only my own hunks, produced by classifying every hunk of the working
+diff and dropping theirs, then verified — zero `dwy1n` markers and zero references
+to their new helpers in the staged diff, and every symbol my hunks reference
+already present in HEAD.
+
+PLACEMENT AND CLOCK, per the standing requirement. Every row `cpus=[41]`, no
+ARM-EXCLUSIVE rows, arm-to-arm clock skew -0.03% to +0.02%, cores 4039-4241 MHz.
+cpu41 was chosen because its SMT sibling cpu9 was the quietest available at 15.9%
+— and that sibling's utilisation then swung between 19% and 78% across the six
+runs while the MG control stayed flat, which is direct evidence that the
+alternated square absorbs sibling contention even when it is not stationary.
+Observed loadavg 27.15 / 27.85 / 32.55 / 29.08 / 26.71 / 24.70.
+
+STILL NO COMPETITIVE CLAIM: 0.1449x is a 6.9x loss to networkx, down from 135x.
+Both multigraph classes now sit at the same residual — the shallow copy plus two
+borrowed canonicalisations against networkx returning an object it already holds.
+`comparison_class=SELF-SPEEDUP`, `campaign_output=false`.
+
+Tests: 82 in `tests/python/test_multi_get_edge_data_keydict_parity.py`; the three
+cache tests written for the undirected class are widened to both, plus the
+orientation test above. Full suite 59902 passed, 3 failed — the two pre-existing
+pollution cases (br-r37-c1-2i3mf) and `test_neighbors_iterator_contract_parity`,
+which is the peer's own in-flight dwy1n test and unrelated to this path.
+
+NULL_NUMERIC_EVIDENCE: per-arm A/A nulls across the six runs span [0.9938,
+1.0087], every one inside the +/-0.02 bound; self-speedup worst bound 18.34x.
+
+PROVENANCE: harness `scripts/balanced_square_ab.py` sha256 ee9e0365b6d8d2f0df639ee16a07522695eca7f42f86f0d9f9935dc984e5c4a8; host
+thinkstation1; rch_worker none (both arms in-process on same_host); governor
+powersave; runtime ISA avx2 avx sse4_2; python 3.13.7 x86_64; live networkx 3.6.1;
+PYTHONHASHSEED=0; `taskset -c 41` (SMT sibling cpu9); square ABBAABBA; disk 271G
+free; arms are complete package copies selected by PYTHONPATH, the shared venv
+install untouched.
+
+bench_elf_sha256=232f3d90608cc6ebb004b88136751545ac804dac8f8beafc9cc141d9675d595e
+elf_sha256=232f3d90608cc6ebb004b88136751545ac804dac8f8beafc9cc141d9675d595e
+comparison_class=SELF-SPEEDUP
+campaign_output=false
+decision_gate=median_ci
+cv_role=report_only
