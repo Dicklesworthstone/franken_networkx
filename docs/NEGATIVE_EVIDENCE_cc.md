@@ -14168,3 +14168,100 @@ and `3929a9cc7`), `env -u CARGO_TARGET_DIR`, private TMPDIR, 2m18s cold. python
 3.13.7 x86_64, live networkx 3.6.1, disk 302G free. `uptime` observed by this
 pane: 17.60 before certifying, 17.04-20.37 across the certification runs,
 14.83-18.87 across the alternation, 13.78 at the end.
+
+## CERTIFICATION: multigraph row view `G[u][v]` — **0.1742x worst bound**, and the converted sibling is FLAT in key length while the multigraph is not (br-r37-c1-2ndmw)
+
+LOAD CHECKED BY THIS PANE with `uptime` immediately before certifying: 16.10,
+well below the ~30 defer threshold and the quietest certification window this
+pane has had. Per-run loadavg is in the table. No re-pin was needed — HEAD's Rust
+has not moved since `d62e8349e`, so
+`14d89d3d0f3d826eedd6ea1324c366809fc406906843b4bbb55f6b0c0cee8668` is still the
+artifact HEAD compiles to.
+
+WHY THIS CELL: the pane's worst cell (multigraph unkeyed `get_edge_data`, 0.0061x)
+was certified last turn on this same ELF with five replicates and an
+ELF-alternated control, and HEAD has not moved since, so re-running it would add
+nothing. This is the worst cell that had NOT been certified —
+br-r37-c1-2ndmw rested on attribution probes and one contended set.
+
+**CERTIFICATION**, balanced square `ABBAABBA`, 21 rounds x 15000 reps, both arms
+in ONE invocation, bootstrap median CI over rounds (10k resamples), N=400. Simple
+`Graph` is the CONVERTED SIBLING and serves as the control — it is the same
+operation on a class that already reaches the native row view:
+
+    loadavg  class          keylen   nx ns    fnx ns   ratio    CI                 nullNX  nullFNX
+    14.96    Graph          3        179.5     190.2   0.9438   [0.9427, 0.9461]   PASS    PASS
+    14.96    Graph          3        180.6     192.2   0.9400   [0.9370, 0.9435]   PASS    PASS
+    14.96    MultiGraph     3        267.0    1065.3   0.2505   [0.2487, 0.2513]   FAIL    PASS
+    14.48    MultiGraph     3        275.4    1095.4   0.2515   [0.2511, 0.2521]   PASS    PASS
+    14.48    MultiDiGraph   3        273.4    1039.5   0.2631   [0.2627, 0.2633]   PASS    PASS
+    14.04    MultiDiGraph   3        275.0    1039.1   0.2642   [0.2626, 0.2651]   FAIL    PASS
+    14.04    Graph          2000     177.1     189.8   0.9348   [0.9306, 0.9360]   PASS    PASS
+    14.04    Graph          2000     175.7     187.7   0.9360   [0.9343, 0.9394]   PASS    PASS
+    13.72    MultiGraph     2000     271.7    1552.1   0.1750   [0.1747, 0.1755]   PASS    PASS
+    13.72    MultiGraph     2000     274.0    1567.0   0.1742   [0.1700, 0.1752]   PASS    PASS
+    13.34    MultiDiGraph   2000     274.5    1444.8   0.1902   [0.1899, 0.1906]   PASS    PASS
+    13.34    MultiDiGraph   2000     291.4    1469.9   0.1988   [0.1976, 0.2002]   PASS    PASS
+
+Every replicate pair agrees within 0.5 percent except MultiDiGraph at keylen 2000
+(4.5 percent). 22 of 24 nulls PASS; the two failures are 1.0020 and 1.0033 —
+sub-half-percent position effects against 4x effects, both with their paired arm
+clean in the same invocation and their replicate agreeing to three digits. Not
+losses, per the standing rule.
+
+**CERTIFIED SIBLING GAPS**, which is what br-r37-c1-2ndmw needed:
+
+    keylen 3      Graph 0.942  vs  MultiGraph 0.251 (3.75x)  MultiDiGraph 0.264 (3.57x)
+    keylen 2000   Graph 0.935  vs  MultiGraph 0.175 (5.35x)  MultiDiGraph 0.195 (4.81x)
+
+**AND A SHARPER FINDING THAN "THE SIBLING WAS LEFT BEHIND".** The converted
+sibling is FLAT in key length — Graph reads 190.2 / 192.2 ns at keylen 3 and
+189.8 / 187.7 ns at keylen 2000, unchanged across a 667x span, because the ptiz2
+levers made that path key-length independent. The multigraph path is NOT:
+MultiGraph 1065.3 -> 1552.1 ns (+46 percent) and MultiDiGraph 1039.5 -> 1444.8 ns
+(+39 percent) over the same span, against networkx flat at 267-291 ns throughout.
+
+So the multigraph row view carries TWO separable costs, and a lever that fixes
+one will leave a measurable residue of the other:
+
+  * a FIXED ~790 ns per call of Python frames (1065.3 against networkx's 267.0 at
+    keylen 3), from never reaching the native row view at all — the
+    `type(owner) is Graph` gate; and
+  * a KEY-LENGTH cost of roughly +490 ns at 2000 characters that simple Graph no
+    longer pays, i.e. the canonical-rehash class the index lookasides removed
+    from Graph and never reached here.
+
+That is falsifiable: route multigraph rows onto a native view and the fixed
+component should collapse while the key-length slope survives until an index
+cache is added too. If the slope disappears with the frames, the two costs were
+never separable and this attribution is wrong.
+
+A/A null control, Graph keylen 3 run 1 (loadavg 14.96), incumbent arm paired against itself in the same invocation: 1.0000x, PASS. fnx arm: 1.0003x, PASS.
+A/A null control, Graph keylen 3 run 2 (loadavg 14.96), incumbent arm paired against itself in the same invocation: 0.9997x, PASS. fnx arm: 0.9998x, PASS.
+A/A null control, MultiGraph keylen 3 run 1 (loadavg 14.96), incumbent arm paired against itself in the same invocation: 1.0020x, FAIL. fnx arm: 1.0003x, PASS.
+A/A null control, MultiGraph keylen 3 run 2 (loadavg 14.48), incumbent arm paired against itself in the same invocation: 0.9999x, PASS. fnx arm: 0.9996x, PASS.
+A/A null control, MultiDiGraph keylen 3 run 1 (loadavg 14.48), incumbent arm paired against itself in the same invocation: 0.9998x, PASS. fnx arm: 0.9997x, PASS.
+A/A null control, MultiDiGraph keylen 3 run 2 (loadavg 14.04), incumbent arm paired against itself in the same invocation: 1.0033x, FAIL. fnx arm: 1.0002x, PASS.
+A/A null control, Graph keylen 2000 run 1 (loadavg 14.04), incumbent arm paired against itself in the same invocation: 1.0009x, PASS. fnx arm: 0.9988x, PASS.
+A/A null control, Graph keylen 2000 run 2 (loadavg 14.04), incumbent arm paired against itself in the same invocation: 1.0001x, PASS. fnx arm: 1.0007x, PASS.
+A/A null control, MultiGraph keylen 2000 run 1 (loadavg 13.72), incumbent arm paired against itself in the same invocation: 0.9998x, PASS. fnx arm: 0.9977x, PASS.
+A/A null control, MultiGraph keylen 2000 run 2 (loadavg 13.72), incumbent arm paired against itself in the same invocation: 1.0001x, PASS. fnx arm: 0.9993x, PASS.
+A/A null control, MultiDiGraph keylen 2000 run 1 (loadavg 13.34), incumbent arm paired against itself in the same invocation: 0.9999x, PASS. fnx arm: 0.9999x, PASS.
+A/A null control, MultiDiGraph keylen 2000 run 2 (loadavg 13.34), incumbent arm paired against itself in the same invocation: 0.9982x, PASS. fnx arm: 1.0026x, PASS.
+
+THE PARITY GATE IS ALREADY LANDED: `tests/python/test_multigraph_row_view_contract.py`,
+57 cases, pins inner-attr-dict identity, the read-only outer wrapper, exception
+type and args, key/row order, liveness, post-node-removal behaviour, the
+index-renumbering hazard, subgraph rows, directed succ-only rows, the Mapping
+surface and non-`str` keys — plus the gate itself, so it fails loudly when the
+lever lands rather than quietly certifying the old path.
+
+PROVENANCE, self-reported in-process: harness `/data/tmp/claude-1000/bsq_getitem_k.py`;
+host thinkstation1; rch_worker none — both arms in-process, same host, same
+invocation. Loaded ELF sha256
+14d89d3d0f3d826eedd6ea1324c366809fc406906843b4bbb55f6b0c0cee8668, built by
+maturin `build --release` from a `git archive` tree at `d62e8349e`, `env -u
+CARGO_TARGET_DIR`, private TMPDIR, loaded via PYTHONPATH so the shared venv
+install was never touched. python 3.13.7 x86_64, live networkx 3.6.1, disk 301G
+free. `uptime` observed by this pane: 16.10 before certifying, 13.34-14.96 across
+the runs, 13.07 at the end.
