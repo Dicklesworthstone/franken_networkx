@@ -13343,3 +13343,82 @@ built by maturin `build --release` from a `git archive HEAD` tree at `ef0a5ed52`
 `env -u CARGO_TARGET_DIR` (that tree's own target), private TMPDIR, 2m32s cold,
 disk 311 -> 310 GiB. python 3.13.7 x86_64, live networkx 3.6.1. loadavg 21.6 at
 the first run start and 28.6 at the last.
+
+## Multigraph unkeyed `get_edge_data(u,v)` — **0.0065x at 64 parallel edges on pinned ELF `9f5a8d8d`**; br-r37-c1-ptiz2's landed `_fnx_edge_attr_dict_fast` lever does NOT reach this cell (br-r37-c1-d1ajx, br-r37-c1-f3i50)
+
+RE-PINNED because HEAD's Rust moved. `5f244322e` (perf(graph): borrow+index
+`_fnx_edge_attr_dict_fast`, br-r37-c1-ptiz2) landed after the previous pinned
+build, so the prior row's artifact `b3bf13e8c565e3f4` was one Rust commit stale.
+Rebuilding HEAD `4c5c535ee` in a fresh `git archive` clean-room produced
+`9f5a8d8df5c0c655b362fab6848e3de26d356e174eea93db1ca4959400937efc`.
+
+THE DESIGN IS AN ELF-LEVEL BALANCED COMPARISON, not a cross-session one. Both
+clean-rooms were on disk, so rather than compare against numbers taken 30 minutes
+earlier under different load, the two ELFs were measured ALTERNATING in one load
+window — NEW, OLD, NEW, OLD — each row itself a balanced square. That makes the
+before/after a controlled comparison; a cross-session compare would have confounded
+the peer's lever with the load ramp.
+
+    ELF                par    nx ns     fnx ns   ratio    CI                 nulls
+    NEW 9f5a8d8d       64     128.3    19689.4   0.0065   [0.0055, 0.0068]   both PASS
+    OLD b3bf13e8       64      76.7    12330.1   0.0063   [0.0061, 0.0064]   both PASS
+    NEW 9f5a8d8d       64      77.7    11860.0   0.0065   [0.0065, 0.0065]   both PASS
+    OLD b3bf13e8       64      75.7    12425.6   0.0061   [0.0061, 0.0062]   both PASS
+    NEW 9f5a8d8d       16      74.7     3011.7   0.0258   [0.0245, 0.0261]   both PASS
+    OLD b3bf13e8       16      76.9     3041.6   0.0255   [0.0254, 0.0256]   both PASS
+    NEW 9f5a8d8d        1      75.2      290.2   0.2599   [0.2593, 0.2609]   both PASS
+
+ALL FOURTEEN A/A NULLS PASS.
+
+THE VERDICT IS A NEGATIVE ONE ABOUT SOMEONE ELSE'S LEVER, and it is worth banking
+precisely because that lever is a real win elsewhere. `5f244322e` moved
+`Graph G[u][v]` and does not reach multigraph unkeyed `get_edge_data`: at par=64
+the NEW ELF reads 11860.0 ns against the OLD's 12330.1 / 12425.6 ns, about 4
+percent, and at par=16 3011.7 against 3041.6 ns, about 1 percent. Both are
+run-to-run spread against a 154x gap. The cell is unchanged.
+
+That is the expected result rather than a surprising one, and it is consistent
+with the mechanism already banked: the cost here is one Python dict INSERTION per
+parallel edge in a per-call constructed dict, not the attr-dict lookup that
+`_fnx_edge_attr_dict_fast` accelerates. If the lever HAD moved this cell, the
+mechanism story would have needed revisiting.
+
+ONE READING IS FLAGGED, NOT DROPPED: the first NEW par=64 block ran into a load
+spike — 86 runnable processes at the window start — and its incumbent arm reads
+128.3 ns against the 74.7-77.7 ns every other block recorded. Its A/A nulls still
+passed and its ratio (0.0065) matches the clean replicate exactly, because ABBA
+interleaving cancels a common-mode ramp; but its CI is visibly wider
+([0.0055, 0.0068] against [0.0065, 0.0065]) and the absolute fnx figure of
+19689.4 ns should not be quoted as this cell's cost. The clean NEW replicate at
+11860.0 ns is the one to use.
+
+A/A null control, NEW 9f5a8d8d par=64 run 1, incumbent arm paired against itself in the same invocation: 1.0064x, CI [0.9652, 1.0203], PASS.
+A/A null control, NEW 9f5a8d8d par=64 run 1, fnx arm paired against itself in the same invocation: 1.0012x, CI [0.9765, 1.0208], PASS.
+A/A null control, OLD b3bf13e8 par=64 run 1, incumbent arm paired against itself in the same invocation: 0.9926x, CI [0.9745, 1.0078], PASS.
+A/A null control, OLD b3bf13e8 par=64 run 1, fnx arm paired against itself in the same invocation: 1.0046x, CI [0.9790, 1.0049], PASS.
+A/A null control, NEW 9f5a8d8d par=64 run 2, incumbent arm paired against itself in the same invocation: 0.9963x, CI [0.9905, 1.0069], PASS.
+A/A null control, NEW 9f5a8d8d par=64 run 2, fnx arm paired against itself in the same invocation: 0.9961x, CI [0.9902, 1.0092], PASS.
+A/A null control, OLD b3bf13e8 par=64 run 2, incumbent arm paired against itself in the same invocation: 1.0103x, CI [0.9872, 1.0218], PASS.
+A/A null control, OLD b3bf13e8 par=64 run 2, fnx arm paired against itself in the same invocation: 0.9989x, CI [0.9940, 1.0021], PASS.
+A/A null control, NEW 9f5a8d8d par=16, incumbent arm paired against itself in the same invocation: 0.9957x, CI [0.9478, 1.0203], PASS.
+A/A null control, NEW 9f5a8d8d par=16, fnx arm paired against itself in the same invocation: 0.9966x, CI [0.9789, 1.0236], PASS.
+A/A null control, OLD b3bf13e8 par=16, incumbent arm paired against itself in the same invocation: 1.0022x, CI [0.9895, 1.0069], PASS.
+A/A null control, OLD b3bf13e8 par=16, fnx arm paired against itself in the same invocation: 1.0006x, CI [0.9903, 1.0115], PASS.
+A/A null control, NEW 9f5a8d8d par=1, incumbent arm paired against itself in the same invocation: 1.0007x, CI [0.9976, 1.0069], PASS.
+A/A null control, NEW 9f5a8d8d par=1, fnx arm paired against itself in the same invocation: 1.0029x, CI [0.9941, 1.0101], PASS.
+
+MECHANISM UNCHANGED: networkx returns `self._adj[u][v]` — the live keydict — and
+is FLAT at 74.7-77.7 ns across a 64x span of parallel-edge count, while fnx builds
+a fresh dict per call at roughly 185 ns per parallel edge. Fix and semantic
+divergence remain as recorded in br-r37-c1-f3i50.
+
+PROVENANCE, self-reported in-process: harness `/data/tmp/claude-1000/bsq_ged_par.py`;
+host thinkstation1; rch_worker none — both arms in-process, same host, same
+invocation. Loaded ELF sha256
+9f5a8d8df5c0c655b362fab6848e3de26d356e174eea93db1ca4959400937efc (NEW) and
+b3bf13e8c565e3f4924bf96c9d5dff3c9846e0d6d79717601742d4193ab5ed39 (OLD), each
+built by maturin `build --release` from its own `git archive` tree (`4c5c535ee`
+and `ef0a5ed52`), `env -u CARGO_TARGET_DIR`, private TMPDIR, 2m32s cold, loaded
+via PYTHONPATH so the shared venv install was never touched. python 3.13.7
+x86_64, live networkx 3.6.1, disk 310G free. loadavg 25.3 at the window start and
+27.3 at the end, with the spike noted above inside it.
