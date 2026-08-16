@@ -5456,6 +5456,8 @@ class MultiGraphDegreeView:
         self._graph = graph
         self._nodes = nodes
         self._weight = weight
+        # br-r37-c1-pejo5: node revision at nbunch-resolution time.
+        self._fnx_nodes_seq = getattr(graph, "nodes_seq", None)
         # br-r37-c1-ylunk: the raw view is itself live. Bind it once with this
         # public DegreeView instead of re-running descriptor binding on every
         # scalar subscript.
@@ -5488,6 +5490,8 @@ class MultiGraphDegreeView:
         return len(self._nodes)
 
     def __iter__(self):
+        # br-r37-c1-pejo5
+        _degree_view_frozen_nodes_check(self)
         # br-r37-c1-wdeg: weighted total degree over all nodes routes to the
         # native bulk accumulator, which reproduces nx's exact per-node
         # summation order and numeric type while avoiding the per-node
@@ -5587,6 +5591,8 @@ class MultiDiGraphDegreeView:
         self._graph = graph
         self._nodes = nodes
         self._weight = weight
+        # br-r37-c1-pejo5: node revision at nbunch-resolution time.
+        self._fnx_nodes_seq = getattr(graph, "nodes_seq", None)
         self._raw_base_view = _MULTIDIGRAPH_DEGREE_DESCRIPTOR.__get__(
             graph, type(graph)
         )
@@ -5613,6 +5619,8 @@ class MultiDiGraphDegreeView:
         return len(self._nodes)
 
     def __iter__(self):
+        # br-r37-c1-pejo5
+        _degree_view_frozen_nodes_check(self)
         # br-r37-c1-wdeg: weighted total degree (in + out) over all nodes
         # routes to the native bulk accumulator (nx-exact succ-then-pred
         # summation order + numeric type), avoiding the per-node
@@ -5708,6 +5716,8 @@ class _DirectedDegreeView:
         self._adjacency_attr = adjacency_attr
         self._nodes = nodes
         self._weight = weight
+        # br-r37-c1-pejo5: node revision at nbunch-resolution time.
+        self._fnx_nodes_seq = getattr(graph, "nodes_seq", None)
 
     @property
     def _adjacency(self):
@@ -5780,6 +5790,8 @@ class _DirectedDegreeView:
         return len(self._nodes)
 
     def __iter__(self):
+        # br-r37-c1-pejo5
+        _degree_view_frozen_nodes_check(self)
         # br-r37-c1-degidx: unweighted full-graph iteration uses a single
         # native bulk call (one Rust loop) instead of N per-node
         # _native_*_degree PyO3 round-trips (each hashing the node key).
@@ -6519,6 +6531,42 @@ class _WeightAwareDegreeView:
         return _filtered_degree_view(self, filtered, weight=weight, owner=self, graph=self._graph)
 
 
+def _degree_view_frozen_nodes_check(view):
+    """br-r37-c1-pejo5: an nbunch degree view raises once a frozen node is gone.
+
+    networkx resolves the nbunch once and then indexes the adjacency for every
+    resolved node on each iteration, so removing one of them turns a later read
+    into ``KeyError``. fnx's proxies walked their frozen list and skipped
+    whatever was missing, answering with the survivors — right for a node the
+    caller NAMED that never existed (it is dropped at resolution and never
+    reaches this list), wrong for one that was resolved IN and has since been
+    removed.
+
+    Gated on ``nodes_seq``: only a node-set change can invalidate a frozen
+    node, so edge churn — the common case — costs one integer compare rather
+    than a walk of the nbunch. This mirrors _raise_if_frozen_nbunch_node_removed
+    on the edge side (br-r37-c1-2pia7); the two contracts are the same one, on
+    neighbouring accessors.
+    """
+    nodes = view._nodes
+    if nodes is None:
+        return
+    if getattr(view, "_whole_graph", False):
+        # An UNRESTRICTED view derives a node list for its own bookkeeping; it
+        # was never an nbunch, so nothing in it is "frozen" and a removed node
+        # simply drops out (br-r37-c1-vfc2t), it does not raise.
+        return
+    graph = view._graph
+    stamp = getattr(view, "_fnx_nodes_seq", None)
+    if stamp is not None:
+        current = getattr(graph, "nodes_seq", None)
+        if current is not None and current == stamp:
+            return
+    for node in nodes:
+        if node not in graph:
+            raise KeyError(node)
+
+
 class _FilteredDegreeView:
     """Proxy over a DegreeView that restricts iteration to a fixed node
     list while still answering ``view[node]`` lookups via the raw view.
@@ -6541,6 +6589,8 @@ class _FilteredDegreeView:
         "_vgraph",
         "_token",
         "_whole_graph",
+        "_fnx_nodes_seq",
+        "_graph",
     )
 
     def __init__(
@@ -6556,6 +6606,10 @@ class _FilteredDegreeView:
         # now; an nbunch-restricted one keeps its resolved node set frozen, which
         # is networkx's own semantics (br-r37-c1-2pia7).
         self._whole_graph = whole_graph
+        # br-r37-c1-pejo5: _graph/_fnx_nodes_seq give the shared frozen-node
+        # check the same two attributes the other degree proxies expose.
+        self._graph = graph
+        self._fnx_nodes_seq = getattr(graph, "nodes_seq", None)
         if values is not None:
             self._raw = raw
             self._pairs = None
@@ -6627,6 +6681,7 @@ class _FilteredDegreeView:
         return self._raw[node]
 
     def __iter__(self):
+        _degree_view_frozen_nodes_check(self)
         # br-r37-c1-z4iod: a plain function returning an iterator, NOT a
         # generator function — the values mode below has to hand back a fresh
         # zip, and a `return` inside a generator would silently end iteration

@@ -27,11 +27,13 @@ asserted:
   because that is what networkx does with an nbunch (br-r37-c1-2pia7) — only
   the degrees go live.
 
-KNOWN RESIDUE, excluded by name: after ``clear()``, a restricted view whose
-frozen nodes are all gone should raise KeyError (networkx indexes each frozen
-node), where fnx returns an empty result. That is the degree-view counterpart
-of br-r37-c1-2pia7's first clause, it reaches proxy classes this fix does not
-touch, and it is filed as br-r37-c1-pejo5.
+A restricted view whose frozen nodes have since been REMOVED raises KeyError on
+iteration, because networkx indexes the adjacency per frozen node — that is
+br-r37-c1-pejo5, now fixed, and ``clear`` is covered below. Note the asymmetry
+it turned on: ``len()`` does NOT raise, because networkx's ``__len__`` answers
+``len(self._nodes)`` without touching the adjacency at all. Both halves are
+asserted, since a check placed in ``__len__`` passes the iteration test while
+breaking the length one.
 """
 
 from __future__ import annotations
@@ -62,8 +64,8 @@ DIRECTED_UNRESTRICTED = {
     "out_degree": lambda g: g.out_degree,
 }
 
-# `clear` is deliberately absent — see the module docstring (br-r37-c1-pejo5).
 MUTATIONS = {
+    "clear": lambda g: g.clear(),
     "add_edge_existing_nodes": lambda g: g.add_edge(0, 3),
     "add_edge_new_nodes": lambda g: g.add_edge(8, 9),
     "remove_edge": lambda g: g.remove_edge(0, 1),
@@ -96,8 +98,26 @@ def _forms(cls_name, restricted):
 
 
 def _read(view):
-    """Contents, length and dict — never the length alone."""
-    return sorted(map(str, view)), len(view), sorted(dict(view).items(), key=str)
+    """Contents, length and dict — never the length alone.
+
+    Returns the exception signature instead of raising, because after a
+    ``clear()`` a restricted view is SUPPOSED to raise on iteration
+    (br-r37-c1-pejo5) while still answering ``len()`` — so the comparison has
+    to cover both outcomes rather than blow up on the first.
+    """
+    try:
+        contents = sorted(map(str, view))
+    except Exception as exc:  # noqa: BLE001
+        contents = (type(exc).__name__, exc.args)
+    try:
+        length = len(view)
+    except Exception as exc:  # noqa: BLE001
+        length = (type(exc).__name__, exc.args)
+    try:
+        mapping = sorted(dict(view).items(), key=str)
+    except Exception as exc:  # noqa: BLE001
+        mapping = (type(exc).__name__, exc.args)
+    return contents, length, mapping
 
 
 @pytest.mark.parametrize("cls_name", CLASSES)
@@ -189,3 +209,53 @@ def test_indexing_and_class_name_survive_a_mutation(cls_name):
             for node in (0, 1, 2):
                 assert view_fx[node] == view_nx[node], (name, node)
             assert type(view_fx).__name__ == type(view_nx).__name__, name
+
+
+@pytest.mark.parametrize("cls_name", CLASSES)
+def test_removing_a_frozen_node_raises_on_iteration_but_not_on_len(cls_name):
+    """br-r37-c1-pejo5, including the asymmetry that makes it easy to get wrong.
+
+    networkx's degree view indexes the adjacency for each frozen nbunch node
+    when it iterates, so a removed one raises; its ``__len__`` answers from the
+    frozen node list and never touches the adjacency, so it does NOT raise.
+    """
+    for name, form in _forms(cls_name, restricted=True).items():
+        outcomes = []
+        for lib in (nx, fnx):
+            graph = _build(lib, cls_name)
+            view = form(graph)
+            graph.remove_node(0)
+            try:
+                outcomes.append(("iter", sorted(map(str, view))))
+            except Exception as exc:  # noqa: BLE001
+                outcomes.append(("iter", type(exc).__name__, exc.args))
+            try:
+                outcomes.append(("len", len(view)))
+            except Exception as exc:  # noqa: BLE001
+                outcomes.append(("len", type(exc).__name__, exc.args))
+        assert outcomes[2:] == outcomes[:2], name
+        assert outcomes[0][1] == "KeyError", (name, outcomes[0])
+        assert outcomes[1][0] == "len" and not isinstance(outcomes[1][1], str), name
+
+
+@pytest.mark.parametrize("cls_name", CLASSES)
+def test_a_never_existing_nbunch_node_does_not_raise(cls_name):
+    """The boundary: it was dropped at resolution, so it is not frozen IN."""
+    outcomes = []
+    for lib in (nx, fnx):
+        graph = _build(lib, cls_name)
+        view = graph.degree([0, "ghost"])
+        graph.add_edge(5, 6)
+        outcomes.append(sorted(map(str, view)))
+    assert outcomes[1] == outcomes[0]
+
+
+@pytest.mark.parametrize("cls_name", CLASSES)
+def test_removing_a_node_outside_the_nbunch_does_not_raise(cls_name):
+    outcomes = []
+    for lib in (nx, fnx):
+        graph = _build(lib, cls_name)
+        view = graph.degree([0, 1])
+        graph.remove_node(3)
+        outcomes.append(sorted(map(str, view)))
+    assert outcomes[1] == outcomes[0]
