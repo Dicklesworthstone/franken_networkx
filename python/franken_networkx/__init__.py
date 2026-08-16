@@ -2071,7 +2071,7 @@ class AdjacencyView(_Mapping):
         # captured G[u][v] AtlasView cache that pair's key iteration while this
         # AdjacencyView remains live across structural edge updates.
         self._fnx_multi_edge_owner = multi_edge_owner
-        # br-r37-c1-qq8vd: (nodes_seq, edges_seq) -> the dict.fromkeys snapshot
+        # br-r37-c1-9ias7: (nodes_seq, edges_seq) -> the dict.fromkeys snapshot
         # __iter__ has to build for the dict_keyiterator type contract. It was
         # rebuilt on EVERY iteration of the same row, which is what made
         # list(MultiGraph.adj[u]) 0.307x while the simple-graph row — whose
@@ -2122,7 +2122,7 @@ class AdjacencyView(_Mapping):
         # via ``dict.fromkeys`` so the iterator runtime type is
         # ``dict_keyiterator``.
         #
-        # br-r37-c1-qq8vd: that fromkeys is an O(degree) dict build and it ran
+        # br-r37-c1-9ias7: that fromkeys is an O(degree) dict build and it ran
         # on EVERY iteration of the same row. Snapshot it against the graph's
         # (nodes_seq, edges_seq) revision, which moves on any structural change
         # to the key set; an attribute write cannot change the keys, so it

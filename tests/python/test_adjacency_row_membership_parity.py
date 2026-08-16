@@ -113,3 +113,61 @@ def test_membership_is_live_across_mutation(cls_name):
     assert ("zz" in rfx) == ("zz" in rnx) is True
     assert ("b" in rfx) == ("b" in rnx) is False
     assert len(rfx) == len(rnx)
+
+
+# --- br-r37-c1-9ias7: the key snapshot behind __iter__ ---------------------
+
+
+@pytest.mark.parametrize("cls_name", CLASSES)
+@pytest.mark.parametrize(
+    "mutation",
+    ["add_edge_new_nbr", "remove_edge", "parallel_edge", "add_node", "remove_other_node"],
+)
+def test_row_iteration_is_live_across_mutation(cls_name, mutation):
+    """__iter__ snapshots dict.fromkeys against (nodes_seq, edges_seq).
+
+    A snapshot is exactly the shape that goes stale, so every structural
+    mutation that can change a row's KEY SET is checked against networkx. An
+    attribute write deliberately is not: it cannot change the keys, so the
+    token correctly does not invalidate on it.
+
+    G.clear() is absent on purpose — a multigraph row held across a clear
+    diverges from networkx and did so before the snapshot existed
+    (br-r37-c1-s5pxs).
+    """
+    mutate = {
+        "add_edge_new_nbr": lambda g: g.add_edge("a", "c"),
+        "remove_edge": lambda g: g.remove_edge("a", "b"),
+        "parallel_edge": lambda g: g.add_edge("a", "b"),
+        "add_node": lambda g: g.add_node("zz"),
+        "remove_other_node": lambda g: g.remove_node("d"),
+    }[mutation]
+    readings = []
+    for lib in (nx, fnx):
+        graph = _build(lib, cls_name)
+        row = graph.adj["a"]
+        before = sorted(map(str, row))
+        mutate(graph)
+        readings.append((before, sorted(map(str, row)), len(row), sorted(map(str, row))))
+    assert readings[1] == readings[0]
+
+
+@pytest.mark.parametrize("cls_name", CLASSES)
+def test_row_iteration_type_is_dict_keyiterator(cls_name):
+    """br-r37-c1-adjitype: the snapshot exists to preserve this type."""
+    gnx, gfx = _build(nx, cls_name), _build(fnx, cls_name)
+    assert type(iter(gfx.adj["a"])).__name__ == type(iter(gnx.adj["a"])).__name__
+    assert type(iter(gfx["a"])).__name__ == type(iter(gnx["a"])).__name__
+
+
+@pytest.mark.parametrize("cls_name", CLASSES)
+def test_repeated_iteration_is_stable_and_matches_networkx(cls_name):
+    """The snapshot is reused; it must not drift or accumulate."""
+    gnx, gfx = _build(nx, cls_name), _build(fnx, cls_name)
+    rnx, rfx = gnx.adj["a"], gfx.adj["a"]
+    for _ in range(3):
+        assert list(rfx) == list(rnx)
+    gnx.add_edge("a", "zz")
+    gfx.add_edge("a", "zz")
+    for _ in range(3):
+        assert list(rfx) == list(rnx)
