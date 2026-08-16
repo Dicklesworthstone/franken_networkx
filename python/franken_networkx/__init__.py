@@ -6140,12 +6140,16 @@ class _WeightAwareDegreeView:
             # Lazy: the view re-zips these against the graph's node order on
             # every iteration, so nothing is materialised here.
             return _filtered_degree_view(
-                self, None, weight=weight, owner=self, values=values, graph=self._graph
+                self, None, weight=weight, owner=self, values=values, graph=self._graph,
+                whole_graph=True,
             )
         # The remaining producers are one-shot generators (dirty store /
         # non-scalar weight fallbacks), so those DO have to be materialised to
         # become re-iterable. They are the cold paths.
-        return _filtered_degree_view(self, None, weight=weight, pairs=list(pairs), owner=self, graph=self._graph)
+        return _filtered_degree_view(
+            self, None, weight=weight, pairs=list(pairs), owner=self, graph=self._graph,
+            whole_graph=True,
+        )
 
     def __iter__(self):
         return iter(self._raw)
@@ -6504,15 +6508,22 @@ class _FilteredDegreeView:
         "_values",
         "_vgraph",
         "_token",
+        "_whole_graph",
     )
 
-    def __init__(self, raw, nodes, weight=None, pairs=None, values=None, graph=None):
+    def __init__(
+        self, raw, nodes, weight=None, pairs=None, values=None, graph=None, whole_graph=False
+    ):
         # br-r37-c1-z4iod: `values` is the lazy mode — a per-node value list
         # straight from a native accumulator, zipped against the graph's node
         # order on each iteration. `pairs` stays the eager mode for the paths
         # that can only produce a one-shot generator.
         self._values = values
         self._vgraph = graph
+        # br-r37-c1-vfc2t: an UNRESTRICTED view spans whatever the graph holds
+        # now; an nbunch-restricted one keeps its resolved node set frozen, which
+        # is networkx's own semantics (br-r37-c1-2pia7).
+        self._whole_graph = whole_graph
         if values is not None:
             self._raw = raw
             self._pairs = None
@@ -6573,7 +6584,7 @@ class _FilteredDegreeView:
         view (the `values` mode, which has no `_nodes`) spans whatever the
         graph holds now, exactly as networkx's does.
         """
-        if self._nodes is not None:
+        if self._nodes is not None and not self._whole_graph:
             return self._nodes
         graph = self._graph_ref()
         return list(graph) if graph is not None else []
@@ -6600,12 +6611,14 @@ class _FilteredDegreeView:
         return ((n, self._value(n)) for n in self._nodes)
 
     def __len__(self):
-        if self._values is not None:
-            if self._snapshot_is_current():
-                return len(self._values)
-            # br-r37-c1-vfc2t: an unrestricted weighted view spans the graph's
-            # CURRENT nodes once its snapshot is stale.
+        # br-r37-c1-vfc2t: len() has to agree with iteration, so it consults
+        # the same freshness check. A stale snapshot falls back to the live
+        # node set, which for an unrestricted view is the graph's CURRENT
+        # nodes and for a restricted one is its frozen nbunch.
+        if not self._snapshot_is_current():
             return len(self._live_nodes())
+        if self._values is not None:
+            return len(self._values)
         return len(self._nodes)
 
     # br-r37-c1-p1uro: NO __contains__ ON PURPOSE. networkx's degree views do
@@ -6664,7 +6677,8 @@ _FILTERED_DEGREE_VIEW_CLASSES = {}
 
 
 def _filtered_degree_view(
-    raw, nodes, weight=None, pairs=None, owner=None, values=None, graph=None
+    raw, nodes, weight=None, pairs=None, owner=None, values=None, graph=None,
+    whole_graph=False,
 ):
     name = type(owner).__name__ if owner is not None else "DegreeView"
     cls = _FILTERED_DEGREE_VIEW_CLASSES.get(name)
@@ -6672,7 +6686,10 @@ def _filtered_degree_view(
         cls = type(name, (_FilteredDegreeView,), {"__slots__": ()})
         cls.__qualname__ = name
         _FILTERED_DEGREE_VIEW_CLASSES[name] = cls
-    return cls(raw, nodes, weight=weight, pairs=pairs, values=values, graph=graph)
+    return cls(
+        raw, nodes, weight=weight, pairs=pairs, values=values, graph=graph,
+        whole_graph=whole_graph,
+    )
 
 
 # br-r37-c1-viewnames: align ``type(view).__name__`` with nx so
