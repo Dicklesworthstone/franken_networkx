@@ -13654,3 +13654,85 @@ the loaded `.so`; loaded ELF sha256
 powersave; runtime ISA avx2 avx sse4_2; observed affinity 8 of 64 cpus; python
 3.13.7 x86_64; live networkx 3.6.1; PYTHONHASHSEED=0; loadavg 26.1, 24.4 and 30.8
 at the three run starts.
+
+## Worst cell holds at 0.0057-0.0063x on pinned `c20bfc50`; the flagged Graph row re-measures to **0.91x, not 0.9644x** — my number was the outlier, not the peer's (br-r37-c1-d1ajx, br-r37-c1-f3i50, br-r37-c1-2ndmw)
+
+NO RE-PIN THIS TIME: HEAD's Rust has not moved since `3929a9cc7`, so
+`c20bfc507629211a660f489021101b7cad97eedc0f630658a01dd8d6e6030858` is still the
+artifact HEAD compiles to and the previous row's ELF stands.
+
+**DEBT DISCHARGED, AND IT CHANGED THE NUMBER.** The previous row quoted
+`Graph G[u][v]` at keylen 2000 as 0.9644x from a single run whose fnx-arm A/A null
+FAILED (1.0423) with a wide ratio CI [0.8646, 1.0013], and flagged it as needing
+re-measurement before being quoted to four digits. Re-measured three times, all
+six nulls passing:
+
+    class        keylen    nx ns    fnx ns   ratio    CI                 nulls
+    Graph        2000      308.4     334.2   0.9208   [0.8993, 0.9390]   both PASS
+    Graph        2000      300.6     332.2   0.9018   [0.8930, 0.9290]   both PASS
+    Graph        2000      291.7     329.4   0.9082   [0.8807, 0.9793]   both PASS
+    MultiGraph   2000      441.3    2423.2   0.1793   [0.1716, 0.1828]   both PASS
+    MultiGraph   2000      454.5    2490.9   0.1801   [0.1717, 0.1899]   both PASS
+
+Graph is about **0.91x, not 0.9644x** — my single reading was roughly 5 percent
+high, which is precisely the failure mode the failing null warned about. The
+useful detail: `3929a9cc7`'s own commit message claimed 0.9237x, much closer to
+the replicated 0.91x than my outlier was. Last turn I was careful not to call the
+peer's headline wrong; the replication shows their number was the sound one and
+MINE was the one to distrust. A flagged reading that is never re-run is just a
+wrong number with a footnote.
+
+br-r37-c1-2ndmw's premise is unaffected and now firmer, both sides replicated:
+Graph ~0.91x against MultiGraph ~0.18x is a 5.1x sibling gap, and the multigraph
+side reproduces the earlier 0.1764x at 0.1793x / 0.1801x.
+
+**THE WORST CELL, re-measured in the same window:**
+
+    ELF          par    nx ns     fnx ns   ratio    CI                 nulls
+    c20bfc50     64      81.5    14686.4   0.0058   [0.0055, 0.0063]   both PASS
+    c20bfc50     64     111.5    14708.5   0.0057   [0.0056, 0.0062]   both PASS
+
+THIS WINDOW RAN HOT and the row is quoted accordingly. loadavg went 18.6 -> 39.9
+across it, with 75 runnable processes at the start; the incumbent arm reads
+81.5 / 111.5 ns against 72-74 ns in the previous window, and fnx reads ~14.7 us
+against ~11.8 us. The RATIOS are 0.0057-0.0058 against 0.0061-0.0063 — about 7
+percent apart, consistent with load, and the CIs here are visibly wider. The
+absolute nanosecond figures from this window must NOT be compared against the
+previous window's; the honest statement of this cell across both is
+**0.0057-0.0063x**, and the mechanism-level number (~185 ns per parallel edge)
+comes from the quieter window.
+
+THE PEER'S NEWLY REPORTED CELLS DO NOT BEAT IT. `cdad4c882` banks
+`(u,v) in G.edges` at 0.0844x and `degree(u)` at 0.0895x. Probed on this ELF
+across three axes — parallel-edge count, node count, and key length — both scale
+with KEY LENGTH ONLY and neither is unbounded:
+
+    op                  class        K=3 (N=500)   K=2000      N=4000, K=3
+    (u,v) in G.edges    Graph        1.0251        0.2121      0.8594
+    G.degree(u)         Graph        0.8033        0.2362      0.9000
+    (u,v) in G.edges    MultiGraph   0.3514        0.1357      0.4092
+    G.degree(u)         MultiGraph   1.5812        0.7828      1.7740
+
+Bounded in every axis, so none of them displaces multigraph unkeyed
+`get_edge_data`, which grows without limit in parallel-edge count. Worth noting
+`MultiGraph G.degree(u)` is a WIN at 1.58-1.90x and gets WORSE with key length
+rather than better, which is the opposite shape from the rest of that family.
+
+A/A null control, c20bfc50 par=64 run 1, incumbent arm paired against itself in the same invocation: 0.9885x, CI [0.9751, 1.0094], PASS.
+A/A null control, c20bfc50 par=64 run 1, fnx arm paired against itself in the same invocation: 1.0131x, CI [0.9575, 1.0237], PASS.
+A/A null control, c20bfc50 par=64 run 2, incumbent arm paired against itself in the same invocation: 0.9855x, CI [0.9065, 1.0101], PASS.
+A/A null control, c20bfc50 par=64 run 2, fnx arm paired against itself in the same invocation: 1.0100x, CI [0.9781, 1.0895], PASS.
+A/A null control, Graph keylen=2000 run 1, incumbent arm paired against itself in the same invocation: 0.9998x, PASS. fnx arm: 0.9950x, PASS.
+A/A null control, Graph keylen=2000 run 2, incumbent arm paired against itself in the same invocation: 0.9931x, PASS. fnx arm: 1.0021x, PASS.
+A/A null control, Graph keylen=2000 run 3, incumbent arm paired against itself in the same invocation: 1.0006x, PASS. fnx arm: 1.0094x, PASS.
+A/A null control, MultiGraph keylen=2000 run 1, incumbent arm paired against itself in the same invocation: 1.0034x, PASS. fnx arm: 1.0113x, PASS.
+A/A null control, MultiGraph keylen=2000 run 2, incumbent arm paired against itself in the same invocation: 0.9748x, PASS. fnx arm: 0.9896x, PASS.
+
+PROVENANCE, self-reported in-process: harnesses `/data/tmp/claude-1000/bsq_ged_par.py`
+and `bsq_getitem_k.py`; host thinkstation1; rch_worker none — both arms
+in-process, same host, same invocation. Loaded ELF sha256
+c20bfc507629211a660f489021101b7cad97eedc0f630658a01dd8d6e6030858, built by maturin
+`build --release` from a `git archive` tree at `3929a9cc7`, `env -u
+CARGO_TARGET_DIR`, private TMPDIR, loaded via PYTHONPATH so the shared venv
+install was never touched. python 3.13.7 x86_64, live networkx 3.6.1, disk 307G
+free. loadavg 18.6 at the window start and 39.9 at the end.
