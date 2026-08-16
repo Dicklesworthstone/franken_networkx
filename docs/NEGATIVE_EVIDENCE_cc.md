@@ -14265,3 +14265,81 @@ CARGO_TARGET_DIR`, private TMPDIR, loaded via PYTHONPATH so the shared venv
 install was never touched. python 3.13.7 x86_64, live networkx 3.6.1, disk 301G
 free. `uptime` observed by this pane: 16.10 before certifying, 13.34-14.96 across
 the runs, 13.07 at the end.
+
+## 2026-08-16 GoldenBison WIN: `DegreeView::__getitem__` by cached index — `G.degree(u)` **1.0172x vs networkx** at 8000-char keys, up from 0.1049x (br-r37-c1-ptiz2)
+
+comparison_class=INCUMBENT
+incumbent=networkx
+incumbent_same_invocation=true
+incumbent_ratio=1.0172x
+campaign_output=true
+decision_gate=median_ci
+cv_role=report_only
+
+CLASSIFICATION CORRECTED BY THE GATE, and it was right. I first filed this as
+`comparison_class=SELF-SPEEDUP` with `campaign_output=false` while the body
+claimed fnx now beats networkx. `perf_ledger_preflight.py` refused it — "SELF-
+SPEEDUP makes a competitive claim" — because those cannot both be true. The
+measurement IS a >1.0x same-invocation incumbent result, so it is a campaign
+output and is declared as one. The gate caught me under-declaring the header while
+over-claiming in the prose.
+
+LOADAVG OBSERVED BY ME, not quoted: `uptime` immediately before each run returned
+11.46 then 9.50 one-minute, far below the ~30 defer threshold. Recorded per the
+standing rule.
+
+A/A null control run 1, `degree(u) len=8000`, incumbent arm paired against itself in the same invocation: 1.0030x, inside the 0.02 bound.
+
+A/A null control run 1, `degree(u) len=8000`, fnx arm paired against itself in the same invocation: 1.0019x, inside the 0.02 bound.
+
+A/A null control run 2, `degree(u) len=8000`, incumbent arm paired against itself in the same invocation: 1.0033x, inside the 0.02 bound.
+
+A/A null control run 2, `degree(u) len=8000`, fnx arm paired against itself in the same invocation: 1.0035x, inside the 0.02 bound.
+
+A/B against live networkx 3.6.1 in the SAME invocation, ABBAABBA square, identical
+shape in both runs (61 rounds x 50 reps x 400 calls per slot):
+
+| row | before | run 1 | run 2 | worst bound |
+|---|---|---|---|---|
+| `Graph degree(u) len=8000` | 0.1049x | 1.0188x [1.0172, 1.0227] | 1.3551x [1.3499, 1.3579] | **1.0172x** |
+| `Graph degree(u) len=3` | 0.8335x | 1.0164x [1.0140, 1.0196] | 1.0026x STRADDLES-1 | 1.0140x (1 run) |
+
+THE TWO RUNS DISAGREE BY 33 PERCENT AND I AM QUOTING THE LOW ONE. 1.0188x against
+1.3551x, non-overlapping CIs, both admissible, at loadavg 10.4 and 9.5. Several
+CONTROL rows also NULL-FAILED in run 2 (`Graph edges[u,v]` at three lengths,
+1.0211-1.0308) while all 21 admitted in run 1 — so run 2 is the noisier run
+DESPITE the lower load. Low loadavg did not guarantee the cleaner measurement, and
+that is worth recording against the assumption that it would. The effect survives
+either way: 0.1049x to at worst 1.0172x is 9.7x and crosses 1.0.
+
+`degree(u) len=3` is NOT banked as a pair. Run 2 reports STRADDLES-1 — its CI
+[0.9953, 1.0139] crosses 1.0, so the SIGN of the comparison is undetermined there.
+One admissible run is not two; recorded rather than quoted.
+
+THE MECHANISM, attributed before the lever. `raw[u]` — the native
+`DegreeView::__getitem__` — was 1989.0ns of `G.degree(u)`'s 2169.5ns, i.e. 92
+percent, while `G.has_node(u)` on the SAME 8000-character key ran 49.7ns and flat.
+A 40x gap between two node lookups is not a property of degree. Reading the slot:
+it builds the `"str:{len}:{s}"` canonical then hashes it TWICE — once for
+`has_node`, again for `degree` — roughly 16000 bytes per call at this key length,
+where `has_node` already resolves through the cached index. The fix uses
+`cached_exact_string_node_index` plus `degree_by_index`, the primitive `degree`
+resolves to anyway once it has an index; self-loop equivalence to the string form
+is covered by `degree_by_index_selfloop_ab` in fnx-classes.
+
+CORRECTNESS: `cargo check` clean; 4166 degree-selected tests pass; full Python
+suite 59710 passed / 1463 skipped, only the two pre-existing cross-test pollution
+failures (br-r37-c1-2i3mf).
+
+WHAT REMAINS UNBOUNDED after this: `MDG has_edge`, 0.4852x at length 3 against
+0.1803x at 2000 in the same invocation. That is the last one on this axis.
+
+PROVENANCE, self-reported in-process: harness `scripts/balanced_square_ab.py`
+sha256 0a7f324a1681b7ddb912a8eec67f81857f08ab1650015536b1c2c8f5fac1b9f9; host
+thinkstation1; rch_worker none, both arms in-process on the same host; loaded ELF
+sha256 47ebe4ff28057f765f2e9e7d2359f5a66d26c9931e0a53fc4bdeb7add61e3afa (AFTER),
+1f81af46c3a92f91618ca743a90f24c679a1b5715bb2efdba3baf91d9b4c9c32 (BEFORE); built
+locally by maturin, `env -u CARGO_TARGET_DIR`, private TMPDIR, disk 300.71 GiB;
+governor powersave; runtime ISA avx2 avx sse4_2; observed affinity 8 of 64 cpus;
+python 3.13.7 x86_64; live networkx 3.6.1; PYTHONHASHSEED=0; OBSERVED loadavg
+10.40 and 9.50 at the two run starts (`uptime` run by me immediately before each).

@@ -1347,6 +1347,34 @@ impl DegreeView {
     }
 
     fn __getitem__(&self, py: Python<'_>, n: &Bound<'_, PyAny>) -> PyResult<usize> {
+        // br-r37-c1-ptiz2: exact-`str` resolves by CACHED INDEX and reads the
+        // degree by index — O(1) in key length.
+        //
+        // The borrowed-canonical path below still builds `"str:{len}:{s}"` and
+        // then hashes it TWICE: once for `has_node` and again for `degree`. At
+        // 8000-character nodes that is ~16000 bytes hashed per call, and it is
+        // 92 percent of `G.degree(u)` — measured 1989.0ns of 2169.5ns, against
+        // `G.has_node(u)` on the SAME key at 49.7ns because that already takes
+        // the index path. A 40x gap between two node lookups is not a property
+        // of degree; it is this function paying for a key the graph has already
+        // interned.
+        //
+        // `degree_by_index` is the same primitive `degree` resolves to once it
+        // has an index, and its self-loop equivalence to the string form is
+        // covered by `degree_by_index_selfloop_ab` in fnx-classes.
+        if n.is_exact_instance_of::<PyString>() {
+            let g = self.graph.borrow(py);
+            if let Some(index) = g.cached_exact_string_node_index(py, n)? {
+                return Ok(g.inner.degree_by_index(index));
+            }
+            drop(g);
+            return Err(match n.repr() {
+                Ok(repr) => {
+                    crate::NodeNotFound::new_err(format!("The node {repr} is not in the graph."))
+                }
+                Err(err) => err,
+            });
+        }
         // br-r37-c1-ey6ob: borrowed canonical probe (see NodeView::__contains__).
         // `G.degree[n]` reads a degree and never inserts, so the owned canonical
         // was a malloc/free per call.
