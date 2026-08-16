@@ -10880,7 +10880,12 @@ def shortest_path_length(G, source=None, target=None, weight=None, method="dijks
             return bellman_ford_path_length(G, source, target, weight=weight)
         if weight is not None:
             return dijkstra_path_length(G, source, target, weight=weight)
-        return _shortest_path_length_raw(G, source, target, weight=weight)
+        try:
+            return _shortest_path_length_raw(G, source, target, weight=weight)
+        except NetworkXNoPath:
+            # br-r37-c1-t27ad: same canonical-key leak as
+            # bidirectional_shortest_path above.
+            _reraise_no_path_with_display_keys(source, target)
 
     if source is not None:
         _validate_shortest_path_length_source_query(G, source, weight, method)
@@ -22848,6 +22853,27 @@ from franken_networkx._fnx import (
 )
 
 
+def _reraise_no_path_with_display_keys(source, target):
+    """br-r37-c1-t27ad: re-raise NetworkXNoPath with networkx's wording.
+
+    The native binding formats the CANONICAL node key into the message --
+    ``No path between str:1:a and str:1:z.`` -- where networkx uses the node as
+    the caller passed it. crates/fnx-python/src/algorithms.rs converts back with
+    ``py_node_key`` on the SUCCESS path and not on the error path.
+
+    The leak is STRING-key specific (int and tuple keys already round-trip), so
+    it hits the most common node type while looking clean in most fixtures.
+
+    Fixed here rather than in Rust because the shim already holds the caller's
+    own ``source`` and ``target``, and this is the established idiom for a
+    leaked native message in this file -- br-r37-c1-qmu8x does the same for
+    ``Source 'x' is not in G``. Re-raising unconditionally is safe: for these
+    functions the ONLY NetworkXNoPath condition is this one, and networkx's
+    message for it is exactly the string built below.
+    """
+    raise NetworkXNoPath(f"No path between {source} and {target}.") from None
+
+
 def bidirectional_shortest_path(G, source, target):
     """Return the shortest path between source and target via two-way BFS.
 
@@ -22866,7 +22892,10 @@ def bidirectional_shortest_path(G, source, target):
         raise NodeNotFound(f"Source {source} is not in G")
     if target not in G:
         raise NodeNotFound(f"Target {target} is not in G")
-    return _raw_bidirectional_shortest_path(G, source, target)
+    try:
+        return _raw_bidirectional_shortest_path(G, source, target)
+    except NetworkXNoPath:
+        _reraise_no_path_with_display_keys(source, target)
 
 
 def is_aperiodic(G):
