@@ -1017,17 +1017,30 @@ impl EdgeView {
         let mut u_buf = ArrayString::new();
         let mut v_buf = ArrayString::new();
         let u = crate::canonical_node_key_in(py, &u_item, &mut u_buf)?;
-        if !self.graph.borrow(py).inner.has_node(u.as_str()) {
-            return Err(missing_edge_key_error(edge));
-        }
-        crate::require_hashable_node_key(&v_item)?;
         let v = crate::canonical_node_key_in(py, &v_item, &mut v_buf)?;
         let (u, v) = (u.as_str(), v.as_str());
         let mut g = self.graph.borrow_mut(py);
+        // br-r37-c1-y2ww1: consult the endpoint lookaside BEFORE probing the
+        // graph for `u`. A hit is existence proof — the entry exists only for
+        // an edge that was present, and `bump_edges_seq` clears it on any
+        // structural mutation (br-r37-c1-ef8rt) — so the `has_node(u)` probe
+        // that used to run first was duplicate work on the common path. Same
+        // shape as br-r37-c1-dlqkq and br-r37-c1-do7g5.
+        //
+        // ORDER MATTERS and canonicalization does not hash. networkx evaluates
+        // `self._adjdict[u][v]`: `u` is hashed, and if `u` is ABSENT it raises
+        // KeyError WITHOUT ever hashing `v`. So `v`'s hashability is only
+        // checked once `u`'s presence is established — by the lookaside hit
+        // here, or by `has_node(u)` on the miss path below.
         if let Some(attrs) = g.cached_edge_py_attrs(py, u, v) {
+            crate::require_hashable_node_key(&v_item)?;
             g.mark_edges_dirty();
             return Ok(attrs);
         }
+        if !g.inner.has_node(u) {
+            return Err(missing_edge_key_error(edge));
+        }
+        crate::require_hashable_node_key(&v_item)?;
         if !g.inner.has_edge(u, v) {
             return Err(missing_edge_key_error(edge));
         }
