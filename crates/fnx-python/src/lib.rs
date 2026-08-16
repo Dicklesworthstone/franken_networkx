@@ -14194,15 +14194,30 @@ impl PyGraph {
         py: Python<'_>,
         node: &Bound<'_, PyAny>,
     ) -> PyResult<Py<PyDict>> {
-        let canonical = node_key_to_string(py, node)?;
         // br-r37-c1-do7g5: probe the cache FIRST. A cached row is existence
         // proof — rows are only created for nodes that were present, and
         // removal clears them — so the `has_node` IndexMap probe below is pure
         // duplicate work on every hit, which is the common case once a row has
         // been touched. Same ordering fix as br-r37-c1-dlqkq on `G.degree(n)`.
-        if let Some(row) = self.adj_row_py.get(&canonical) {
-            return Ok(row.clone_ref(py));
+        //
+        // br-r37-c1-bvwam: and probe it with a BORROWED canonical. This is the
+        // read path behind `G.neighbors(n)`, which is `iter(self._adj[n])` in
+        // networkx — one CPython dict lookup on a str whose hash is cached in
+        // the object. Building an owned `String` here malloc'd and freed on
+        // every hit purely to look up a borrowed key, the exact cost
+        // br-r37-c1-oe93x removed from `has_node` (a PYTHON has_node at 57ns was
+        // beating the native one at 119ns until that path existed).
+        // `with_node_key_str` produces the same canonical bytes for every key
+        // type — non-strings still fall through to `node_key_to_string` inside
+        // it, and `canonical_node_key_in_matches_the_owned_canonical` pins the
+        // two forms equal — so this probe covers what the owned one covered.
+        // Only the MISS path below allocates, because only it needs to insert.
+        if let Some(row) = with_node_key_str(py, node, |canonical| {
+            self.adj_row_py.get(canonical).map(|row| row.clone_ref(py))
+        })? {
+            return Ok(row);
         }
+        let canonical = node_key_to_string(py, node)?;
         if !self.inner.has_node(&canonical) {
             return Err(missing_key_error(node));
         }
