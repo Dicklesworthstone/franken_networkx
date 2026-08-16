@@ -743,6 +743,43 @@ def _edge_list_freshness_token(graph):
 # performance one — see br-r37-c1-u5tyh.
 _EDGES_NBUNCH_PY_WALK_MAX = 8
 
+# br-r37-c1-aq6jv: the threshold above is a FLOOR, not the whole rule, because
+# the native kernel it guards is O(graph order) while the Python walk is
+# O(nbunch). Measured, list(G.edges(nbunch)) in us, walk/kernel below 1.0 meaning
+# the Python walk is faster:
+#
+#     N        k=4     k=8     k=16    k=32
+#     2000     1.149   1.564   1.846   2.046     kernel wins everywhere
+#     8000     0.603   0.865   1.209   1.489     walk wins to k=8
+#     32000    0.256   0.358   0.688   0.900     walk wins everywhere tested
+#
+# So the crossover MOVES WITH N, and a fixed 8 is only right near N=2000 — which
+# is where it was tuned. networkx is flat at ~8us for a 10-node nbunch at every
+# N; fnx went 8.5us at N=500 to 36.6us at N=32000 on the same call, i.e. 0.935x
+# down to 0.217x. Scaling the limit with the graph's order tracks the crossover.
+#
+# ONE PER 1000 NODES fits the three measured crossings (N=2000 -> 3, N=8000 -> 9,
+# N=32000 -> 33) and stays under them, so the walk is taken only where it was
+# measured to win.
+#
+# THE DIRECTION IS CORRECTNESS-SAFE, which is why it is expressed as max(). The
+# note above records that LOWERING this to 0 resurrects the br-r37-c1-u5tyh
+# over-raise on Graph and DiGraph, because the Python walk is what reproduces
+# networkx's mutate-during-iteration semantics. Raising it can only route MORE
+# calls onto the walk, i.e. onto the more nx-faithful path.
+_EDGES_NBUNCH_PY_WALK_NODES_PER_EXTRA = 1000
+
+
+def _edges_nbunch_py_walk_limit(graph):
+    """Largest nbunch that should take the Python walk on this graph."""
+    try:
+        order = graph.number_of_nodes()
+    except Exception:  # noqa: BLE001 - any odd graph keeps the fixed floor
+        return _EDGES_NBUNCH_PY_WALK_MAX
+    return max(
+        _EDGES_NBUNCH_PY_WALK_MAX, order // _EDGES_NBUNCH_PY_WALK_NODES_PER_EXTRA
+    )
+
 
 def _guarded_edge_list(result, graph, *, guard_edge_count=False):
     if not isinstance(result, _EdgeListWithSetAlgebra):
@@ -1045,7 +1082,10 @@ class EdgeDataView:
         if (
             type(graph) is Graph
             and self._nbunch_list is not None
-            and len(self._nbunch_list) <= _EDGES_NBUNCH_PY_WALK_MAX
+            and (
+                len(self._nbunch_list) <= _EDGES_NBUNCH_PY_WALK_MAX
+                or len(self._nbunch_list) <= _edges_nbunch_py_walk_limit(graph)
+            )
         ):
             # No private-storage probe here: _cached_adj_row_keydict already
             # returns None for those graphs, and it was the second such call
@@ -1162,7 +1202,10 @@ class EdgeDataView:
             self._graph is not None
             and self._nbunch_list is not None
             and type(self._graph) is Graph
-            and len(self._nbunch_list) <= _EDGES_NBUNCH_PY_WALK_MAX
+            and (
+                len(self._nbunch_list) <= _EDGES_NBUNCH_PY_WALK_MAX
+                or len(self._nbunch_list) <= _edges_nbunch_py_walk_limit(self._graph)
+            )
             and (self._data is False or self._data is True)
         ):
             self._raise_if_frozen_nbunch_node_removed()
@@ -1199,7 +1242,9 @@ class EdgeDataView:
             # user code can run between CPython's length-hint call and the
             # __iter__ of the same list(): the cache is consumed once and
             # dropped, so it can never serve a later read across a mutation.
-            if len(self._nbunch_list) <= _EDGES_NBUNCH_PY_WALK_MAX:
+            if len(self._nbunch_list) <= _EDGES_NBUNCH_PY_WALK_MAX or len(
+                self._nbunch_list
+            ) <= _edges_nbunch_py_walk_limit(self._graph):
                 rows = self._materialize()
                 # Stamped with the graph revision: `len(v)` and the `list(v)`
                 # that follows it are adjacent in CPython, but a CALLER can do
