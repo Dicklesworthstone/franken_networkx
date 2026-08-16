@@ -337,3 +337,55 @@ def test_real_sampling_records_wall_and_cpu():
         guard.record_ratio(1.0)
     assert len(guard._wall) == 3 and len(guard._cpu) == 3
     assert "duty" in guard.provenance_line()
+
+
+def test_per_arm_clock_skew_is_detected():
+    """Arm-correlated bias is NOT cancelled by the balanced square.
+
+    A common-mode ramp affects both arms and interleaving removes it. A clock
+    difference that tracks WHICH ARM is running does not cancel, and round-level
+    sampling cannot see it at all.
+    """
+    guard = WindowGuard()
+    guard.arm_khz = {"nx": [4_200_000] * 5, "fnx": [3_800_000] * 5}
+    guard.arm_loads = {"nx": [20.0] * 5, "fnx": [20.0] * 5}
+    assert guard.arm_khz_median("nx") == 4_200_000
+    assert guard.arm_khz_skew_pct == pytest.approx(100.0 * 400_000 / 3_800_000)
+    guard._wall = [0.0, 1.0, 2.0]
+    guard._cpu = [0.0, 1.0, 2.0]
+    assert guard.verdict == "ARM-CLOCK-SKEW"
+
+
+def test_matched_arms_do_not_trip_the_skew_flag():
+    guard = WindowGuard()
+    guard.arm_khz = {"nx": [4_200_000] * 5, "fnx": [4_190_000] * 5}
+    guard.arm_loads = {"nx": [20.0] * 5, "fnx": [20.0] * 5}
+    guard._wall = [0.0, 1.0, 2.0]
+    guard._cpu = [0.0, 1.0, 2.0]
+    assert guard.arm_khz_skew_pct < 1.0
+    assert guard.verdict != "ARM-CLOCK-SKEW"
+
+
+def test_idle_sampling_outranks_arm_skew():
+    """An idle-sampled window's per-arm clocks are not worth interpreting."""
+    guard = WindowGuard()
+    guard.arm_khz = {"nx": [4_200_000] * 5, "fnx": [3_000_000] * 5}
+    guard.arm_loads = {"nx": [20.0] * 5, "fnx": [20.0] * 5}
+    guard._wall = [0.0, 2e-5, 4e-5]
+    guard._cpu = [0.0, 2e-5, 4e-5]
+    assert guard.verdict == "IDLE-SAMPLED"
+
+
+def test_arm_fragment_names_both_arms():
+    guard = WindowGuard()
+    for arm in ("nx", "fnx"):
+        guard.arm_khz[arm] = [4_000_000]
+        guard.arm_loads[arm] = [12.5]
+    frag = guard.arm_fragment()
+    assert "nx:" in frag and "fnx:" in frag and "skew" in frag
+
+
+def test_arm_sampling_is_absent_by_default():
+    """Harnesses that do not call sample_arm must not gain a bogus fragment."""
+    assert WindowGuard().arm_fragment() == ""
+    assert math.isnan(WindowGuard().arm_khz_skew_pct)

@@ -15980,3 +15980,69 @@ host thinkstation1, 64 cores, governor `powersave`, python 3.13.7, live networkx
 3.6.1, disk 279G free. `uptime` observed by this pane: 17.62, 17.08, 16.91, 17.80
 across the probes; 5-min 33.47-36.05 throughout, so the window was falling and
 never certifiable. CPU MHz observed per probe is in the tables above.
+
+## PER-ARM INSTRUMENTATION ADDED: arm clock skew measures 0.1-0.2 percent — and the same runs show my banked ratio carries ~13 percent WINDOW sensitivity (br-r37-c1-jycsb, br-r37-c1-f3i50)
+
+NO CERTIFICATION. `uptime` checked by this pane: 1-min 21.71 against 5-min 31.10
+— `window_is_certifiable()` rejects on LEVEL (5-min over 30). The rows below are
+diagnostics.
+
+**ON THE QUOTED 2884 MHz**, checked rather than assumed: sampled here at the same
+moment both ways, this host read **4104 MHz idle-sampled and 4015 MHz
+busy-sampled**. This pane does not reproduce 2884 MHz in either state at this
+load. Consistent with the established range — a busy core sits at 3.84-4.29 GHz
+across loadavg 7-44.
+
+**PER-ARM RECORDING IMPLEMENTED, because round-level sampling cannot see the
+hazard the instruction is aimed at.** A common-mode ramp moves both arms and the
+balanced square removes it; a clock difference that tracks WHICH ARM is running
+does not cancel — it is arm-correlated, the same class as the cross-project
+contention hazard. `sample_arm()` now records loadavg and core clock around each
+arm's block, `arm_khz_skew_pct` reports the largest per-arm median difference,
+and a verdict of `ARM-CLOCK-SKEW` fires at 5 percent, ranked below `IDLE-SAMPLED`
+since an idle-sampled window's per-arm clocks are not worth interpreting.
+
+**MEASURED, and the discipline holds:**
+
+    run 1  per-arm [fnx: load 16.64 clock 3940 MHz; nx: load 16.64 clock 3932 MHz]  skew 0.2%
+    run 2  per-arm [fnx: load 15.77 clock 4018 MHz; nx: load 15.77 clock 4015 MHz]  skew 0.1%
+
+Both arms are measured at the same clock and the same load to within a fifth of a
+percent. "Keep both arms in the same window" is now verified with a number rather
+than asserted.
+
+**BUT THE SAME RUNS QUALIFY A FIGURE I BANKED TWO TURNS AGO.** Same pinned ELF
+`789dd9de`, same cell, same harness — only the window differs:
+
+    window            loadavg    nx ns     fnx ns    ratio
+    earlier (banked)   18-53     123-127   14230-15036   0.0084-0.0086
+    this window        15.8-16.6  75.8-76.3  9950-9961    0.0076-0.0077
+
+**Both arms ran about 1.6x faster in the quieter window, and the RATIO still
+moved 10-13 percent.** Two things follow. First, absolute nanoseconds are not
+comparable across windows at all — a point this pane has made before and which is
+now quantified at 1.6x on both arms simultaneously. Second, and less comfortable:
+the ratio is far more stable than the absolutes but is NOT window-invariant. The
+certified `0.0085x` should be read as `0.0076-0.0086 depending on window`.
+
+That does not touch the certified FINDING, because that comparison was
+ELF-ALTERNATED inside one window — NEW and OLD walked the same ramp, and the 1.31x
+improvement came from six interleaved runs whose intervals did not overlap. It
+does mean the third digit of any single-window ratio on this cell is not
+meaningful, and it is a caution against comparing a ratio banked in one window
+against a ratio banked in another, by anyone, including across projects.
+
+A/A nulls on the diagnostic runs: 1.0040 / 1.0014 and 0.9992 / 1.0006, all PASS;
+duty 1.00, interval 242 ms, both windows classified STABLE.
+
+36 guard tests, no timing, runnable where benchmarking is forbidden.
+
+PROVENANCE: diagnostic, no ratio certified. Harness
+`/data/tmp/claude-1000/bsq_ged_guarded.py`, now calling `sample_arm()` around
+every block. Pinned ELF sha256
+789dd9dead49c4a8dbeaf6747c1532a70639561afda92497e4b304fdb7ff59fd via PYTHONPATH;
+both arms in-process, same host, same invocation. host thinkstation1, 64 cores,
+governor `powersave`, python 3.13.7, live networkx 3.6.1, disk 280G free.
+`uptime` observed by this pane: 21.71 / 31.10 / 34.71 at the decision (gate
+REJECTED on level), 16.64 and 15.77 across the two diagnostic runs. CPU MHz
+observed per arm is in the rows above.

@@ -169,6 +169,8 @@ class WindowGuard:
     khz: list[int] = field(default_factory=list)
     _wall: list[float] = field(default_factory=list)
     _cpu: list[float] = field(default_factory=list)
+    arm_khz: dict[str, list[int]] = field(default_factory=dict)
+    arm_loads: dict[str, list[float]] = field(default_factory=dict)
 
     def sample(self) -> float:
         value = read_loadavg()
@@ -269,6 +271,55 @@ class WindowGuard:
             return 0.0
         return statistics.correlation(runnable, ratios)
 
+    def sample_arm(self, arm: str) -> None:
+        """Record loadavg and core clock FOR ONE ARM, called around its block.
+
+        Round-level sampling cannot see a per-arm difference. If one arm
+        systematically lands on busier cores, or is consistently measured while
+        the clock is lower, that is a bias the balanced square does NOT cancel —
+        it is not common-mode, it is arm-correlated. `arm_khz_skew_pct` turns
+        that into a number, and it is the same class of hazard as the
+        cross-project contention finding: something that differs BETWEEN arms
+        rather than moving both together.
+        """
+        self.arm_khz.setdefault(arm, []).append(read_cpu_khz())
+        self.arm_loads.setdefault(arm, []).append(read_loadavg())
+
+    def arm_khz_median(self, arm: str) -> float:
+        live = [k for k in self.arm_khz.get(arm, []) if k > 0]
+        return statistics.median(live) if live else float("nan")
+
+    def arm_load_median(self, arm: str) -> float:
+        vals = self.arm_loads.get(arm, [])
+        return statistics.median(vals) if vals else float("nan")
+
+    @property
+    def arm_khz_skew_pct(self) -> float:
+        """Largest per-arm median clock difference, as a percentage.
+
+        Near zero means both arms were measured at the same clock, which is what
+        keeping both arms in one window is supposed to buy. A large value means
+        the arms were NOT measured under the same conditions however good the
+        window looked.
+        """
+        meds = [self.arm_khz_median(a) for a in self.arm_khz]
+        meds = [m for m in meds if m == m]
+        if len(meds) < 2:
+            return float("nan")
+        lo, hi = min(meds), max(meds)
+        return 100.0 * (hi - lo) / lo if lo else float("nan")
+
+    def arm_fragment(self) -> str:
+        if not self.arm_khz:
+            return ""
+        parts = []
+        for arm in sorted(self.arm_khz):
+            parts.append(
+                f"{arm}: load {self.arm_load_median(arm):.2f} "
+                f"clock {self.arm_khz_median(arm) / 1000:.0f} MHz"
+            )
+        return "per-arm [" + "; ".join(parts) + f"] skew {self.arm_khz_skew_pct:.1f}%; "
+
     @property
     def median_interval_s(self) -> float:
         """Median wall time between consecutive samples.
@@ -340,6 +391,9 @@ class WindowGuard:
         gap = self.median_interval_s
         if gap == gap and gap < 1e-3:
             return "IDLE-SAMPLED"
+        skew = self.arm_khz_skew_pct
+        if skew == skew and skew >= 5.0:
+            return "ARM-CLOCK-SKEW"
         for corr in (self.corr_load_ratio, self.corr_runnable_ratio):
             if corr == corr and abs(corr) >= 0.5:
                 return "PERTURBED"
@@ -366,6 +420,7 @@ class WindowGuard:
             f"iqr {self.iqr:.2f} relvol {self.relative_volatility:.2f}; "
             f"{self._runnable_fragment()}"
             f"{self._khz_fragment()}"
+            f"{self.arm_fragment()}"
             f"duty {self.duty_cycle:.2f} interval {self.median_interval_s * 1e3:.1f} ms; "
             f"corr(load, per-round ratio) {self.corr_load_ratio:+.3f}, "
             f"corr(runnable, per-round ratio) {self.corr_runnable_ratio:+.3f} "
