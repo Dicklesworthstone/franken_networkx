@@ -46423,18 +46423,56 @@ class _AssignedPrivateEdgeView:
             return self._graph.has_edge(u, v, edge[2])
         return self._graph.has_edge(u, v)
 
+    def _nx_view_name(self):
+        # br-r37-c1-4c6s7: this ONE class stands in for four networkx view
+        # classes, and the class name is observable — it is interpolated into
+        # the slicing error. The ordinary (non-private) fnx path already
+        # reports all four nx names correctly; this view was the only outlier.
+        multi = self._graph.is_multigraph()
+        directed = self._graph.is_directed()
+        if multi:
+            return "OutMultiEdgeView" if directed else "MultiEdgeView"
+        return "OutEdgeView" if directed else "EdgeView"
+
     def __getitem__(self, edge):
-        u, v = edge[:2]
-        if self._graph.is_multigraph() and len(edge) >= 3:
-            key = edge[2]
-            data = self._graph.get_edge_data(u, v, key=key)
-            if data is None:
-                raise KeyError(edge)
-            return data
-        data = self._graph.get_edge_data(u, v)
-        if data is None:
-            raise KeyError(edge)
-        return data
+        # br-r37-c1-4c6s7: mirror networkx's reportviews exactly. This used to
+        # be ``u, v = edge[:2]`` with an OPTIONAL third element for multigraphs,
+        # which is not the incumbent contract in three separate ways:
+        #
+        #   * nx unpacks STRICTLY — ``u, v = e`` for simple graphs and
+        #     ``u, v, k = e`` for multigraphs. A multigraph subscript therefore
+        #     REQUIRES a 3-tuple; ``G.edges['a','b']`` is a ValueError, not a
+        #     lookup. The old slice-and-length-check accepted both arities on
+        #     both graph kinds.
+        #   * the unpack happens BEFORE any lookup or hashing, so an arity error
+        #     beats an unhashable-endpoint error. We raised TypeError where nx
+        #     raises ValueError.
+        #   * a slice must raise nx's typed, actionable NetworkXError. Indexing
+        #     a slice gave a bare "'slice' object is not subscriptable".
+        #
+        # Compared with exception ARGS, not just types — several of these read
+        # as green on a type-only sweep (br-r37-c1-4c6s7 lists all 11 cases).
+        if isinstance(edge, slice):
+            raise NetworkXError(
+                f"{self._nx_view_name()} does not support slicing, try "
+                f"list(G.edges)[{edge.start}:{edge.stop}:{edge.step}]"
+            )
+        # Read through `.adj`, which under assigned private storage IS the
+        # assigned mapping — the same mapping nx's `_adjdict` points at. Going
+        # via `get_edge_data` consulted a different store.
+        adj = self._graph.adj
+        if self._graph.is_multigraph():
+            u, v, key = edge
+            # nx's OutMultiEdgeView does NOT customise this message, so the raw
+            # KeyError carries whichever dict level actually failed.
+            return adj[u][v][key]
+        u, v = edge
+        try:
+            return adj[u][v]
+        except KeyError:
+            # Deliberately an implicit chain, as in nx: it re-raises inside the
+            # `except` without `from None`, so __context__ stays set.
+            raise KeyError(f"The edge {edge} is not in the graph.")
 
     def data(self, data=True, default=None, nbunch=None, keys=False):
         return self(nbunch=nbunch, data=data, keys=keys, default=default)
