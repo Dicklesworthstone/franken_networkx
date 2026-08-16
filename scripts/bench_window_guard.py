@@ -1,0 +1,223 @@
+"""Per-round load sampling for balanced-square benchmarks — measure VOLATILITY, not just level.
+
+WHY THIS EXISTS. The fleet finding (mermaid, 2026-08-16) is that the blocker on
+certification is host VOLATILITY rather than absolute load: a stable moderate
+window beats a brief quiet spike. This pane's own history is consistent with that
+and cannot prove it, which is the point of this module.
+
+    loadavg 6.12 at window start, spiking to 24.72   `(u,v) in G.edges`
+                                                     ratio CI [0.8954, 1.1021]
+                                                     incumbent A/A null 1.1743
+    loadavg 8.39-9.13, flat across the block         `G.degree(u)`
+                                                     ratio CI [0.8646, 0.8718]
+    loadavg 29.63, flat                              `u in G` certified, three
+                                                     replicates within 1.4%
+
+The quietest window produced the WORST interval and a 17 percent null; a
+sustained loadavg of 29 certified cleanly. But those runs also differed in
+DURATION (12000 against 60000 reps per block), and this pane has separately shown
+duration alone tightens a fast op's CI by 3-7x. So level, volatility and duration
+are mutually confounded in every row banked so far, and no honest conclusion can
+be drawn from them about which one matters.
+
+WHAT THIS SEPARATES THEM. A single `uptime` before and after a run cannot
+distinguish "quiet throughout" from "quiet at both ends with a spike in the
+middle" — which is exactly the failure mode suspected. Sampling per ROUND turns
+load into a series that can be correlated against the per-round ratio series the
+balanced square already produces:
+
+  * `spread` and `iqr` describe the window's stability independent of its level;
+  * `corr_load_ratio` is the DIRECT test — if contention perturbs the measured
+    ratio, rounds that ran hot should deviate systematically. A balanced square
+    is supposed to cancel a common-mode ramp, so a correlation near zero under
+    HIGH volatility is evidence the design is working, and a strong one is
+    evidence it is not.
+
+That last number is what no amount of endpoint `uptime` recording can give, and
+it is most informative precisely when the host is at its worst — so it can be
+collected in windows where certification is forbidden.
+
+USAGE, from a balanced-square harness:
+
+    from bench_window_guard import WindowGuard
+    guard = WindowGuard()
+    for _ in range(ROUNDS):
+        guard.sample()                     # once per round, before its blocks
+        ...
+        guard.record_ratio(round_ratio)    # the round's A/B ratio
+    print(guard.report())
+
+The verdict is advisory. It never rejects a row by itself: this pane's rule is
+that a failing gate is not a loss, and a row is judged by REPLICATION.
+"""
+
+from __future__ import annotations
+
+import statistics
+from dataclasses import dataclass, field
+
+
+def read_loadavg() -> float:
+    """One-minute load average. Read from /proc so it costs no subprocess."""
+    with open("/proc/loadavg", encoding="ascii") as handle:
+        return float(handle.read().split()[0])
+
+
+def read_runnable() -> int:
+    """Instantaneous count of RUNNABLE processes (field 4, before the slash).
+
+    FOUND BY RUNNING THIS MODULE AGAINST A REAL BENCHMARK, which is the only
+    reason it exists. The one-minute load average in `/proc/loadavg` is
+    recomputed on a ~5 second timer, so a benchmark whose rounds are shorter
+    than that reads the IDENTICAL value every round and the guard reports
+    `spread 0.00, iqr 0.00` — a perfectly stable window, from an instrument that
+    simply could not see. Observed directly: a 21-round run of
+    `Graph G[u][v]` at loadavg 60 returned twenty-one identical samples, while a
+    longer run in the same window recorded 59.91 to 67.13.
+
+    That is the same duration trap this pane already documented for benchmarks
+    themselves, reappearing one level up in the tool built to police it. The
+    runnable count has no averaging window, so it moves within a single round
+    and gives the volatility measure something to see on short runs.
+    """
+    with open("/proc/loadavg", encoding="ascii") as handle:
+        return int(handle.read().split()[3].split("/")[0])
+
+
+@dataclass
+class WindowGuard:
+    """Collects a per-round load series alongside the per-round ratio series."""
+
+    loads: list[float] = field(default_factory=list)
+    ratios: list[float] = field(default_factory=list)
+    runnable: list[int] = field(default_factory=list)
+
+    def sample(self) -> float:
+        value = read_loadavg()
+        self.loads.append(value)
+        self.runnable.append(read_runnable())
+        return value
+
+    def record_ratio(self, ratio: float) -> None:
+        self.ratios.append(ratio)
+
+    # -- derived statistics -------------------------------------------------
+
+    @property
+    def level(self) -> float:
+        return statistics.median(self.loads) if self.loads else float("nan")
+
+    @property
+    def spread(self) -> float:
+        """max - min. The blunt volatility measure, sensitive to one spike."""
+        return (max(self.loads) - min(self.loads)) if self.loads else float("nan")
+
+    @property
+    def iqr(self) -> float:
+        """Interquartile range — volatility that a single excursion cannot fake.
+
+        Reported ALONGSIDE spread rather than instead of it, because the two
+        disagree in the informative case: one spike gives a large spread and a
+        small IQR, sustained churn gives both.
+        """
+        if len(self.loads) < 4:
+            return float("nan")
+        ordered = sorted(self.loads)
+        mid = len(ordered) // 2
+        lower = statistics.median(ordered[:mid])
+        upper = statistics.median(ordered[-mid:])
+        return upper - lower
+
+    @property
+    def relative_volatility(self) -> float:
+        """spread / level — 8 to 24 is far worse at level 8 than at level 80."""
+        lvl = self.level
+        if not lvl:
+            return float("nan")
+        return self.spread / lvl
+
+    @property
+    def corr_load_ratio(self) -> float:
+        """Pearson correlation of per-round load against per-round ratio.
+
+        THE POINT OF THE MODULE. Near zero means the balanced square cancelled
+        the contention it ran through; large in magnitude means it did not, and
+        the row should be re-run whatever its endpoint loadavg said.
+        """
+        n = min(len(self.loads), len(self.ratios))
+        if n < 3:
+            return float("nan")
+        loads, ratios = self.loads[:n], self.ratios[:n]
+        if len(set(loads)) < 2 or len(set(ratios)) < 2:
+            return 0.0
+        return statistics.correlation(loads, ratios)
+
+    @property
+    def runnable_spread(self) -> float:
+        """Volatility from the INSTANTANEOUS signal, usable on short runs.
+
+        `spread` reads the one-minute average and is blind whenever a run is
+        shorter than that average's ~5 second refresh; this is not. When the two
+        disagree — a flat `spread` with a moving `runnable_spread` — believe this
+        one and treat the window as volatile.
+        """
+        if not self.runnable:
+            return float("nan")
+        return float(max(self.runnable) - min(self.runnable))
+
+    @property
+    def corr_runnable_ratio(self) -> float:
+        """Correlation against the instantaneous signal rather than the average."""
+        n = min(len(self.runnable), len(self.ratios))
+        if n < 3:
+            return float("nan")
+        runnable = [float(v) for v in self.runnable[:n]]
+        ratios = self.ratios[:n]
+        if len(set(runnable)) < 2 or len(set(ratios)) < 2:
+            return 0.0
+        return statistics.correlation(runnable, ratios)
+
+    @property
+    def verdict(self) -> str:
+        """Advisory only. Never rejects a row on its own — replication decides."""
+        for corr in (self.corr_load_ratio, self.corr_runnable_ratio):
+            if corr == corr and abs(corr) >= 0.5:
+                return "PERTURBED"
+        if self.relative_volatility >= 1.0:
+            return "VOLATILE"
+        if self.level >= 30.0:
+            return "LOADED-STABLE"
+        return "STABLE"
+
+    def report(self) -> str:
+        return (
+            f"window: level {self.level:.2f} spread {self.spread:.2f} "
+            f"iqr {self.iqr:.2f} relvol {self.relative_volatility:.2f} "
+            f"runspread {self.runnable_spread:.0f} "
+            f"corr(load,ratio) {self.corr_load_ratio:+.3f} "
+            f"corr(run,ratio) {self.corr_runnable_ratio:+.3f} -> {self.verdict}"
+        )
+
+    def provenance_line(self) -> str:
+        """One line to paste into a banked row's provenance block."""
+        return (
+            f"loadavg per round: n={len(self.loads)} median {self.level:.2f} "
+            f"min {min(self.loads):.2f} max {max(self.loads):.2f} "
+            f"iqr {self.iqr:.2f} relvol {self.relative_volatility:.2f}; "
+            f"{self._runnable_fragment()}"
+            f"corr(load, per-round ratio) {self.corr_load_ratio:+.3f}, "
+            f"corr(runnable, per-round ratio) {self.corr_runnable_ratio:+.3f} "
+            f"[{self.verdict}]"
+        )
+
+    def _runnable_fragment(self) -> str:
+        """Empty-safe. A guard is stamped onto every banked row, so it must
+        never raise — a caller that only recorded loads (or a hand-built guard
+        in a test) would otherwise take `min()` over an empty list and take the
+        benchmark down with it."""
+        if not self.runnable:
+            return "runnable unsampled; "
+        return (
+            f"runnable min {min(self.runnable)} max {max(self.runnable)} "
+            f"spread {self.runnable_spread:.0f}; "
+        )

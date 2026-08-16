@@ -14560,3 +14560,84 @@ via PYTHONPATH so the shared venv install was never touched. python 3.13.7
 x86_64, live networkx 3.6.1, disk 298G free. `uptime` observed by this pane:
 12.63 before deciding, 8.39-9.13 across the certified block, 7.76-19.42 across the
 key-length sweep, and 41.47-62.29 across the uncertified subscript rows.
+
+## INSTRUMENT (no certification — loadavg 73-90): per-round volatility sampling for the balanced square, and the blind spot found by running it
+
+NO CERTIFICATION THIS WINDOW. `uptime` read by this pane at 73.38 with the 5- and
+15-minute averages at 59.04 and 39.44 — a sustained ramp, not a spike. Every
+number below is a DIAGNOSTIC of the measurement window itself, not a ratio claim.
+
+**THE FLEET FINDING IS PLAUSIBLE AND MY OWN DATA CANNOT TEST IT.** mermaid's
+result is that host VOLATILITY rather than absolute load blocks certification —
+a stable moderate window beats a brief quiet spike. This pane's history looks
+consistent with that:
+
+    loadavg 6.12 start, spiking to 24.72   `(u,v) in G.edges` CI [0.8954, 1.1021], null 1.1743
+    loadavg 8.39-9.13, flat                `G.degree(u)` CI [0.8646, 0.8718]
+    loadavg 29.63, flat                    `u in G` certified, 3 replicates within 1.4%
+
+The quietest window produced the WORST interval and a 17 percent null; a sustained
+loadavg of 29 certified cleanly. **But those runs also differed in DURATION** —
+12000 against 60000 reps per block — and this pane separately showed duration
+alone tightens a fast op's CI by 3-7x. Level, volatility and duration are
+mutually confounded in every row banked here, so no honest conclusion can be
+drawn from them about which one matters. Rather than assert the fleet finding on
+data that cannot support it, this turn builds the instrument that separates them.
+
+**`scripts/bench_window_guard.py`** samples load per ROUND instead of at the
+window edges, which is the distinction that matters: a single `uptime` before and
+after cannot tell "quiet throughout" from "quiet at both ends with a spike in the
+middle". It reports `spread` and `iqr` (which disagree in the informative case —
+one excursion inflates spread and leaves iqr flat), `relative_volatility`
+(spread/level, since a swing of 16 is catastrophic at level 8 and trivial at 80),
+and `corr(load, per-round ratio)` — **the direct test of whether contention
+actually reached the measurement.** A balanced square is supposed to cancel a
+common-mode ramp, so a correlation near zero under high volatility is evidence
+the design works, and a strong one condemns the row whatever its endpoint loadavg
+said. That number cannot be obtained from endpoint sampling at all, and it is
+most informative precisely when the host is at its worst — so it is collectable
+in exactly the windows where certification is forbidden.
+
+**RUNNING IT IMMEDIATELY EXPOSED A BLIND SPOT IN IT**, which is the useful part.
+The first diagnostic pass reported, for `Graph G[u][v]` at loadavg 60:
+
+    spread 0.00  iqr 0.00  relvol 0.00  -> a perfectly stable window
+
+That is false. `/proc/loadavg`'s one-minute average is recomputed on a ~5 second
+timer, and that run finished faster, so all 21 rounds read the IDENTICAL value —
+the guard was not seeing stability, it was seeing nothing. The longer run in the
+same window recorded 59.91 to 67.13. **This is the same duration trap this pane
+documented for benchmarks, reappearing one level up in the tool built to police
+it.** Fixed by also sampling `/proc/loadavg` field 4, the instantaneous count of
+runnable processes, which has no averaging window. Re-run, the same near-parity
+cell reports `spread 0.00` but `runspread 6` — the averaged signal still blind,
+the instantaneous one working.
+
+**DIAGNOSTIC RESULT, and it favours the balanced square.** At loadavg 39-42 with
+21 per-round samples:
+
+    cell                              ratio    CI width  corr(load,r)  corr(runnable,r)
+    MG get_edge_data par=64 (158x)    0.0073     2.3%      -0.002          -0.159
+    Graph G[u][v] K=2000 (parity)     0.8653     1.8%      +0.000          +0.368
+
+Both correlations are weak, so on this substrate ABBA interleaving is largely
+cancelling the contention it runs through — consistent with `u in G` certifying
+cleanly at loadavg 29.63. The near-parity cell shows the larger runnable
+correlation (+0.368), which is the direction the fleet finding predicts and is
+below the 0.5 flag; it is a hypothesis to test with more windows, not a result.
+
+**A SECOND DEFECT, found by the tests rather than by running:**
+`provenance_line()` raised `ValueError` on a guard whose runnable series was
+never sampled. A guard is stamped onto every banked row, so it must degrade to a
+note rather than take a benchmark down; fixed and pinned.
+`tests/python/test_bench_window_guard.py`, 16 cases, carries no timing and is
+runnable in the windows where benchmarking is forbidden.
+
+PROVENANCE, self-reported in-process: harness `/data/tmp/claude-1000/bsq_guarded.py`;
+host thinkstation1; rch_worker none. Measured against pinned ELF sha256
+42e4b0d2fefa0dc1dc7907b55d1c5fbe1026c24ce077f0c3feada77cd6abfe47 via PYTHONPATH,
+built by maturin `build --release` from a `git archive` tree at `bc63db7a9`;
+tests run against the shared venv install. python 3.13.7 x86_64, live networkx
+3.6.1, disk 297G free. `uptime` observed by this pane: 73.38 at the instruction,
+67.93 and 59.91 across the first diagnostic pass, 44.69 to 39.55 across the
+second. No certification attempted at any of them.
