@@ -2152,8 +2152,20 @@ class AdjacencyView(_Mapping):
         # one. Lets repeated G[n] / G.adj[n] skip the per-call existence probe +
         # AtlasView construction (6x slower than nx -> parity).
         self._fnx_atlas_cache = None
+        # br-r37-c1-fr4me: the CAPTURED row, when the getter is known to be a
+        # constant. br-r37-c1-znpkv's multigraph rows are built as
+        # ``AdjacencyView(lambda row=native(node): row)`` — a closure that
+        # returns the same object forever — and reaching it cost TWO Python
+        # frames per membership test, ``_atlas()`` plus the lambda itself.
+        # Holding the row directly removes both. Set by the caller that knows
+        # the getter is constant; every other view leaves it None and keeps the
+        # getter, because their getters genuinely re-evaluate.
+        self._fnx_captured_row = None
 
     def _atlas(self):
+        row = self._fnx_captured_row
+        if row is not None:
+            return row
         return self._atlas_getter()
 
     def __len__(self):
@@ -2211,7 +2223,25 @@ class AdjacencyView(_Mapping):
         # the ABC's __getitem__, which hashed on the way to building the value).
         # It also fixes simple Graph, which answered False here before this
         # change because the ABC's except clause catches only KeyError.
+        #
+        # br-r37-c1-fr4me: on a CAPTURED row, go straight at it. cProfile put
+        # this whole lookup at four Python frames on a multigraph — this
+        # __contains__, MultiAdjacencyView.__getitem__, _atlas() and the
+        # capture lambda — against ONE on simple Graph, whose row is a native
+        # view with a C-level contains slot. Two of those four are pure
+        # indirection: _atlas() is `return self._atlas_getter()` and the getter
+        # is a closure over a fixed object. The row lookup was never the cost;
+        # the frames were.
+        #
+        # The hash stays, and it is not redundant here: the native
+        # MultiAtlasView / MultiDiAtlasView answer False for an unhashable key
+        # rather than raising, which is the same gap br-r37-c1-espyz closed on
+        # the simple AtlasView. Until that guard is mirrored onto the multi
+        # views this line IS the TypeError contract.
         hash(node)
+        row = self._fnx_captured_row
+        if row is not None:
+            return node in row
         return node in self._atlas()
 
     def __getitem__(self, node):
@@ -2441,10 +2471,15 @@ class MultiAdjacencyView(_Mapping):
                     # what stops a captured row outliving its node. Without the
                     # capture every len()/contains on the SAME cached view
                     # crossed the PyO3 boundary again.
+                    captured = native(node)
                     view = AdjacencyView(
-                        (lambda row=native(node): row),
+                        (lambda row=captured: row),
                         multi_edge_owner=owner,
                     )
+                    # br-r37-c1-fr4me: the getter above is a closure over a
+                    # FIXED object, so hand the row itself to the view and let
+                    # membership skip both _atlas() and the lambda.
+                    view._fnx_captured_row = captured
                     cache[1][node] = view
                 return view
             return AdjacencyView(
@@ -8709,6 +8744,10 @@ def _detach_row(row):
         except Exception:  # noqa: BLE001 - a detached row must never break clear()
             return
         row._atlas_getter = lambda snap=snapshot: snap
+        # br-r37-c1-fr4me: the captured row is consulted BEFORE the getter, so a
+        # detach that rebound only the getter would leave membership reading the
+        # live row it was meant to cut loose from.
+        row._fnx_captured_row = snapshot
         row._fnx_native_iter = None
         row._fnx_native_len = None
         row._fnx_keys_snapshot = None
