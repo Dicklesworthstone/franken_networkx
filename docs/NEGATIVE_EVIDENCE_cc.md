@@ -16046,3 +16046,94 @@ governor `powersave`, python 3.13.7, live networkx 3.6.1, disk 280G free.
 `uptime` observed by this pane: 21.71 / 31.10 / 34.71 at the decision (gate
 REJECTED on level), 16.64 and 15.77 across the two diagnostic runs. CPU MHz
 observed per arm is in the rows above.
+
+## CERTIFIED: `877548d15` reaches BOTH multigraph classes — MultiGraph **1.21x**, MultiDiGraph **1.17x**, measured in ONE window; and my earlier 1.31x was 8.6 percent window-inflated (br-r37-c1-f3i50, br-r37-c1-ptiz2)
+
+comparison_class=SELF-SPEEDUP
+campaign_output=false
+decision_gate=median_ci
+cv_role=report_only
+elf_sha256=789dd9dead49c4a8dbeaf6747c1532a70639561afda92497e4b304fdb7ff59fd
+
+WINDOW VERIFIED BY THIS PANE: `uptime` gave 1-min 23.70 against 5-min 25.14,
+ratio 1.06 — `window_is_certifiable()` returned `(True, 'stable')`. Busy-sampled
+CPU clock 4054 MHz at the decision. Per-arm loadavg and clock are recorded on
+every row below, per the standing rule. No build was owed: HEAD's Rust has not
+moved since `877548d15`.
+
+**WHAT WAS NEW.** The certified 1.31x for this lever covered MultiGraph only;
+MultiDiGraph had never been measured post-lever. ELF-ALTERNATED NEW/OLD, three
+pairs per class, 21 rounds x 6000 reps, both arms in ONE invocation:
+
+    class          ELF            loadavg  nx ns    fnx ns   ratio    CI                 per-arm skew
+    MultiDiGraph   NEW 789dd9de     22.23    77.8   9860.2   0.0079   [0.0079, 0.0080]   0.1%
+    MultiDiGraph   OLD 36744765     22.46    81.7  12741.5   0.0065   [0.0063, 0.0072]   0.0%
+    MultiDiGraph   NEW 789dd9de     25.95    79.1  10944.3   0.0076   [0.0072, 0.0079]   0.3%
+    MultiDiGraph   OLD 36744765     26.60    75.1  11740.2   0.0064   [0.0064, 0.0066]   0.0%
+    MultiDiGraph   NEW 789dd9de     24.58    76.3  10331.5   0.0074   [0.0073, 0.0075]   0.0%
+    MultiDiGraph   OLD 36744765     23.33    77.0  11774.7   0.0066   [0.0064, 0.0067]   0.1%
+    MultiGraph     NEW 789dd9de     25.82    76.3  10213.0   0.0076   [0.0074, 0.0077]   —
+    MultiGraph     OLD 36744765     25.82    77.9  12849.0   0.0062   [0.0060, 0.0063]   —
+    MultiGraph     NEW 789dd9de     25.65    76.4  10270.9   0.0076   [0.0074, 0.0078]   —
+    MultiGraph     OLD 36744765     25.65    77.6  12628.0   0.0063   [0.0062, 0.0064]   —
+    MultiGraph     NEW 789dd9de     25.49    77.2  10247.1   0.0076   [0.0075, 0.0076]   —
+    MultiGraph     OLD 36744765     25.49    77.2  12970.1   0.0064   [0.0061, 0.0065]   —
+
+    MultiGraph     0.0063 -> 0.0076 = 1.21x   fnx 12849 -> 10247 ns = 1.25x
+    MultiDiGraph   0.0065 -> 0.0076 = 1.17x   fnx 11775 -> 10332 ns = 1.14x
+
+**The lever reaches BOTH classes, and by nearly the same amount — 1.21x against
+1.17x, 3.2 percent apart.** Every NEW reading sits above every OLD reading of its
+class with non-overlapping intervals. Per-arm clock skew is 0.0-0.3 percent
+throughout, so both arms of every pair were measured at the same clock.
+
+**AND THIS CORRECTS A COMPARISON I WOULD OTHERWISE HAVE MADE.** Taken alone, the
+MultiDiGraph 1.17x measured here against the MultiGraph **1.31x** banked two
+turns ago reads as the lever helping MultiGraph substantially more. Measured in
+the SAME window, the two classes are 3.2 percent apart and the earlier figure is
+**8.6 percent high** relative to a same-window MultiGraph measurement of 1.21x.
+The class difference was mostly window artifact.
+
+This is the caveat banked last turn, now with a concrete case: **even an
+ELF-ALTERNATED improvement ratio carries about 8 percent window sensitivity.**
+Interleaving removes common-mode drift WITHIN a window; it does not make the
+resulting number portable BETWEEN windows. The rule this pane will follow is that
+two levers, classes or builds may only be compared by magnitude if their
+measurements share a window — and if they do not, the comparison must be
+re-taken, not adjusted.
+
+The certified FINDING from two turns ago is unaffected: that the lever moves this
+cell, established by six interleaved runs with non-overlapping intervals. Only
+its magnitude is refined, from 1.31x to 1.21x measured against a same-window
+control.
+
+TWO RUNS FLAGGED, reported not dropped: `OLD` MultiDiGraph runs 2 and 3 show
+`corr(runnable, per-round ratio)` of +0.502 and +0.644, past the 0.5 flag, and the
+guard classified them PERTURBED. Their values (0.0064, 0.0066) bracket the
+unflagged first OLD reading (0.0065), so the flag did not distort the comparison.
+
+A/A null control, MDG NEW run 1 (loadavg 22.23, 3990 MHz), incumbent arm paired against itself in the same invocation: 0.9953x, PASS. fnx arm: 0.9996x, PASS.
+A/A null control, MDG OLD run 1 (loadavg 22.46, 4068 MHz), incumbent arm paired against itself in the same invocation: 1.0548x, PASS. fnx arm: 1.0074x, PASS.
+A/A null control, MDG NEW run 2 (loadavg 25.95, 4040 MHz), incumbent arm paired against itself in the same invocation: 0.9909x, PASS. fnx arm: 0.9862x, PASS.
+A/A null control, MDG OLD run 2 (loadavg 26.60, 3990 MHz), incumbent arm paired against itself in the same invocation: 1.0004x, PASS. fnx arm: 1.0032x, PASS.
+A/A null control, MDG NEW run 3 (loadavg 24.58, 3990 MHz), incumbent arm paired against itself in the same invocation: 1.0051x, PASS. fnx arm: 1.0014x, PASS.
+A/A null control, MDG OLD run 3 (loadavg 23.33, 3990 MHz), incumbent arm paired against itself in the same invocation: 0.9912x, PASS. fnx arm: 0.9967x, PASS.
+A/A null control, MG NEW runs (loadavg 25.5-25.8), incumbent arm paired against itself in the same invocation: 1.0050x, 1.0030x, 1.0018x, all PASS. fnx arm: 1.0229x, 1.0066x, 0.9996x, all PASS.
+A/A null control, MG OLD runs (loadavg 25.5-25.8), incumbent arm paired against itself in the same invocation: 1.0001x, 0.9950x, 1.0035x, all PASS. fnx arm: 1.0155x, 0.9996x, 1.0003x, all PASS.
+
+Still a 130x loss on both classes, still unbounded in parallel-edge count, and
+the fix is unchanged: br-r37-c1-f3i50 needs the live keydict, blocked on
+br-r37-c1-himzq.
+
+PROVENANCE, self-reported in-process: harness
+`/data/tmp/claude-1000/bsq_ged_guarded.py`, sampling loadavg and CPU clock PER
+ARM around every block; host thinkstation1, 64 cores, governor `powersave`;
+rch_worker none — both arms in-process, same host, same invocation. Loaded ELF
+sha256 789dd9dead49c4a8dbeaf6747c1532a70639561afda92497e4b304fdb7ff59fd (NEW) and
+36744765c50ddd08c753eef59e0493763b672f71b506467827e9ecb548145224 (OLD), each built
+by maturin `build --release` from its own `git archive` tree (`877548d15`,
+`f1353bae3`), `env -u CARGO_TARGET_DIR`, private TMPDIR, loaded via PYTHONPATH so
+the shared venv install was never touched. python 3.13.7 x86_64, live networkx
+3.6.1, disk 279G free. `uptime` observed: 23.70 / 25.14 at the decision (gate
+PASSED), 22.23-26.60 across the twelve runs. CPU clock observed per arm: 3987-4069
+MHz, per-arm skew 0.0-0.3 percent.
