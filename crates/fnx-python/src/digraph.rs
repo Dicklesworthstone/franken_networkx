@@ -1223,7 +1223,21 @@ impl PyMultiDiGraph {
         key: usize,
     ) -> &Py<PyDict> {
         let ek = Self::edge_key(u, v, key);
-        if !self.edge_py_attrs.contains_key(&ek) {
+        self.ensure_edge_py_attrs_with_key(py, u, v, key, &ek)
+    }
+
+    /// br-r37-c1-ptiz2: `ensure_edge_py_attrs` against a CALLER-OWNED edge key,
+    /// mirroring `PyMultiGraph::ensure_edge_py_attrs_with_key`. Only the miss
+    /// path clones, so a warm loop over parallel edges allocates nothing.
+    fn ensure_edge_py_attrs_with_key(
+        &mut self,
+        py: Python<'_>,
+        u: &str,
+        v: &str,
+        key: usize,
+        ek: &(String, String, usize),
+    ) -> &Py<PyDict> {
+        if !self.edge_py_attrs.contains_key(ek) {
             let dict = match self.inner.edge_attrs(u, v, key) {
                 Some(attrs) => attr_map_to_pydict(py, attrs)
                     .expect("stored string-keyed edge attrs must convert to Python"),
@@ -1232,7 +1246,7 @@ impl PyMultiDiGraph {
             self.edge_py_attrs.insert(ek.clone(), dict);
         }
         self.edge_py_attrs
-            .get(&ek)
+            .get(ek)
             .expect("edge attr entry inserted above")
     }
 
@@ -2002,12 +2016,22 @@ impl PyMultiDiGraph {
     }
 
     fn py_edge_key(&self, py: Python<'_>, u: &str, v: &str, key: usize) -> PyObject {
-        self.edge_py_keys
-            .get(&Self::edge_key(u, v, key))
-            .map_or_else(
-                || unwrap_infallible(key.into_pyobject(py)).into_any().unbind(),
-                |obj| obj.clone_ref(py),
-            )
+        self.py_edge_key_with_key(py, key, &Self::edge_key(u, v, key))
+    }
+
+    /// br-r37-c1-ptiz2: `py_edge_key` against a CALLER-OWNED edge key. Mirrors
+    /// `PyMultiGraph::py_edge_key_with_key` — see that note for why a loop over
+    /// one endpoint pair's parallel edges must not re-derive the tuple per key.
+    fn py_edge_key_with_key(
+        &self,
+        py: Python<'_>,
+        key: usize,
+        ek: &(String, String, usize),
+    ) -> PyObject {
+        self.edge_py_keys.get(ek).map_or_else(
+            || unwrap_infallible(key.into_pyobject(py)).into_any().unbind(),
+            |obj| obj.clone_ref(py),
+        )
     }
 
     /// br-r37-c1-bvwam: the `{neighbour: None}` row for one direction, cached
@@ -8631,9 +8655,19 @@ impl PyMultiDiGraph {
                 }
                 self.mark_edges_dirty();
                 let result = PyDict::new(py);
+                // br-r37-c1-ptiz2: build the endpoint half of the edge key ONCE
+                // — see the matching note in `PyMultiGraph::get_edge_data`. Both
+                // helpers below called `Self::edge_key`, which does
+                // `u.to_owned(), v.to_owned()`, so this loop allocated four
+                // full-length node-key strings per parallel edge to vary one
+                // `usize`.
+                let mut ek = Self::edge_key(u_c, v_c, 0);
                 for k in keys {
-                    let attrs = self.ensure_edge_py_attrs(py, u_c, v_c, k).clone_ref(py);
-                    result.set_item(self.py_edge_key(py, u_c, v_c, k), attrs.bind(py))?;
+                    ek.2 = k;
+                    let attrs = self
+                        .ensure_edge_py_attrs_with_key(py, u_c, v_c, k, &ek)
+                        .clone_ref(py);
+                    result.set_item(self.py_edge_key_with_key(py, k, &ek), attrs.bind(py))?;
                 }
                 Ok(Some(result.into_any().unbind()))
             })?

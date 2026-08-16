@@ -5429,12 +5429,27 @@ impl PyMultiGraph {
     }
 
     fn py_edge_key(&self, py: Python<'_>, u: &str, v: &str, key: usize) -> PyObject {
-        self.edge_py_keys
-            .get(&Self::edge_key(u, v, key))
-            .map_or_else(
-                || unwrap_infallible(key.into_pyobject(py)).into_any().unbind(),
-                |obj| obj.clone_ref(py),
-            )
+        self.py_edge_key_with_key(py, key, &Self::edge_key(u, v, key))
+    }
+
+    /// br-r37-c1-ptiz2: `py_edge_key` against a CALLER-OWNED edge key.
+    ///
+    /// `Self::edge_key` allocates two owned `String`s (`u.to_owned()`,
+    /// `v.to_owned()`). Inside a loop over the parallel edges of ONE endpoint
+    /// pair those two strings are byte-identical on every iteration and only the
+    /// `usize` varies, so re-deriving the whole tuple per key allocates
+    /// `2 * parallel_edges` strings to express `parallel_edges` distinct
+    /// integers. Callers that already hold the tuple mutate `.2` and reuse it.
+    fn py_edge_key_with_key(
+        &self,
+        py: Python<'_>,
+        key: usize,
+        ek: &(String, String, usize),
+    ) -> PyObject {
+        self.edge_py_keys.get(ek).map_or_else(
+            || unwrap_infallible(key.into_pyobject(py)).into_any().unbind(),
+            |obj| obj.clone_ref(py),
+        )
     }
 
     /// br-paralleladd (bt): record whether a stored public key REMAPS the int
@@ -7296,9 +7311,29 @@ impl PyMultiGraph {
             } else {
                 self.mark_edges_dirty();
                 let result = PyDict::new(py);
+                // br-r37-c1-ptiz2: build the endpoint half of the edge key ONCE.
+                //
+                // Both `ensure_edge_py_attrs` and `py_edge_key` call
+                // `Self::edge_key(u, v, k)` internally, and that helper does
+                // `u.to_owned(), v.to_owned()` — so this loop allocated FOUR
+                // full-length node-key strings per parallel edge, all of them
+                // byte-identical across iterations, to vary one `usize`. That is
+                // the whole reason this call degrades linearly in the parallel
+                // count while networkx (which hands back its existing keydict) is
+                // flat: measured 360ns at par=1 rising to 30366ns at par=128,
+                // against a flat 95-103ns for nx.
+                //
+                // Reusing one tuple and overwriting `.2` leaves exactly two
+                // allocations for the whole call. The residual O(par) is then the
+                // dict build itself, which is the same floor the sibling
+                // `G[u][v]` already sits at.
+                let mut ek = Self::edge_key(u_c, v_c, 0);
                 for k in keys {
-                    let attrs = self.ensure_edge_py_attrs(py, u_c, v_c, k).clone_ref(py);
-                    let py_key = self.py_edge_key(py, u_c, v_c, k);
+                    ek.2 = k;
+                    let attrs = self
+                        .ensure_edge_py_attrs_with_key(py, u_c, v_c, k, &ek)
+                        .clone_ref(py);
+                    let py_key = self.py_edge_key_with_key(py, k, &ek);
                     result.set_item(py_key, attrs.bind(py))?;
                 }
                 Ok(result.into_any().unbind())
