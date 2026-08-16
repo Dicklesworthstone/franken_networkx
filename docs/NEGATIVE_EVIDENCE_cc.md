@@ -13034,3 +13034,72 @@ b3bf13e8c565e3f4924bf96c9d5dff3c9846e0d6d79717601742d4193ab5ed39; governor
 powersave; runtime ISA avx2 avx sse4_2; observed affinity 8 of 64 cpus; python
 3.13.7 x86_64; live networkx 3.6.1; PYTHONHASHSEED=0; loadavg 28.7 and 28.4 at the
 two run starts.
+
+## MDG `get_edge_data(u,v)` unkeyed — measured LOSS **0.0274x at 16 parallel edges**, the worst cell measured in this project, and UNBOUNDED (br-r37-c1-d1ajx, br-r37-c1-f3i50)
+
+BANKED ON THE SHIPPED ELF, no lever attached — this row is the measurement, and
+the attribution that came with it.
+
+`br-r37-c1-d1ajx` carries the headline "get_edge_data is 0.208x-0.521x". That is
+not a fixed range. For MULTIgraphs the ratio is unbounded in parallel-edge count,
+because the two libraries do structurally different work: networkx's
+`MultiDiGraph.get_edge_data(u, v)` with `key=None` returns `self._adj[u][v]` —
+the LIVE keydict, constructed never — while fnx BUILDS a fresh `PyDict` per call
+and inserts one entry per parallel edge. So networkx is flat and fnx is linear.
+
+MEASURED, balanced square `ABBAABBA`, 21 rounds x 15000 reps, both arms in ONE
+invocation, bootstrap median CI over rounds (10k resamples), t_nx/t_fnx, N=500:
+
+    par     nx ns    fnx ns   ratio    CI                  A/A null nx    A/A null fnx
+    1        77.3     311.8   0.2482   [0.2474, 0.2487]    1.0019 PASS    1.0018 PASS
+    4        75.2     811.8   0.0926   [0.0925, 0.0929]    1.0030 PASS    0.9961 PASS
+    16       77.6    2827.8   0.0274   [0.0273, 0.0274]    0.9996 PASS    0.9992 PASS
+    16 rep   78.7    2880.1   0.0274   [0.0273, 0.0275]    1.0029 PASS    1.0002 PASS
+
+**0.0274x is the worst cell measured in this project**, beating the 0.0519x
+`MDG edges[u,v,k]` cell that br-r37-c1-tjp0g called the worst in the fleet. And
+there is no worst: at par=64 it would be roughly 0.007x.
+
+A/A null control, par=16 run 1, incumbent arm paired against itself in the same invocation: 0.9996x, CI [0.9919, 1.0060], PASS.
+A/A null control, par=16 run 1, fnx arm paired against itself in the same invocation: 0.9992x, CI [0.9919, 1.0036], PASS.
+A/A null control, par=16 run 2, incumbent arm paired against itself in the same invocation: 1.0029x, CI [0.9941, 1.0097], PASS.
+A/A null control, par=16 run 2, fnx arm paired against itself in the same invocation: 1.0002x, CI [0.9956, 1.0083], PASS.
+
+TWO SUBSTRATES AGREE, which is what makes the scaling claim more than one curve:
+the par=1 row (0.2482x, N=500) reproduces a separately built flat-graph
+measurement at N=2000 taken on the same ELF — 0.2462x, 0.2491x, 0.2467x across
+three runs. One of those three had a FAILING nx-arm null (0.9972x, CI [0.9944,
+0.9997], excluding 1.0 by 0.28 percent). It is recorded rather than hidden, and it
+does not move the verdict: a 0.28 percent position effect on one arm is two orders
+of magnitude below a 4x effect, and the other five nulls on that substrate passed.
+Replication, not the null, is what carries this row.
+
+THIS IS ALSO A SEMANTIC DIVERGENCE, filed as br-r37-c1-f3i50, and it is the same
+cause:
+
+    d = g.get_edge_data('a', 'b')   # two parallel edges
+    d[0]['w'] = 99                  # inner attr mutation
+    d['newkey'] = {'w': 7}          # NEW KEY insertion
+
+    nx    inner propagates: True    new-key propagates: True
+    fnx   inner propagates: True    new-key propagates: False
+
+fnx's outer dict is a copy, so key insertion never reaches the graph; its VALUES
+are the live per-edge dicts, which is why the inner half agrees. A reader who only
+checked attribute mutation would have called this correct.
+
+WHAT THIS PREDICTS, falsifiably: any fix that keeps constructing a dict leaves BOTH
+the divergence and the O(parallel edges) cost in place, so the two must be fixed
+together by handing back a live keydict mirror. br-r37-c1-himzq — multigraph rows
+have no live PyDict mirror — is the substrate that would allow it, which means this
+is probably blocked on himzq rather than independently fixable. If someone lands a
+mirror and this row does not move, the cost was never the construction.
+
+PROVENANCE, self-reported in-process: harness `/data/tmp/claude-1000/bsq_ged_par.py`
+(scaling rows) and `/data/tmp/claude-1000/bsq_ged2.py` (flat rows); host
+thinkstation1; rch_worker none — both arms in-process, same host, same invocation.
+Loaded ELF sha256
+b3bf13e8c565e3f4924bf96c9d5dff3c9846e0d6d79717601742d4193ab5ed39, built locally by
+maturin `develop --release`, `env -u CARGO_TARGET_DIR`, private TMPDIR. python
+3.13.7 x86_64, live networkx 3.6.1, disk 314G free. loadavg 25.4 at the first run
+start and 24.9 at the last.
