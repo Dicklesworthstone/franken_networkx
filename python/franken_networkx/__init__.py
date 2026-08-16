@@ -723,6 +723,14 @@ def _edge_list_freshness_token(graph):
         return None
 
 
+# br-r37-c1-aq6jv: nbunch sizes at or below this walk the cached rows in
+# Python instead of calling the native kernel. MEASURED crossover, not a guess
+# — py-walk/native is 0.693x at nbunch=1, 0.981x at 8 and 1.105x at 16, so the
+# Python walk stops paying at 8. (My first guess of 32 was 1.219x, i.e. 22%
+# SLOWER than the kernel it replaced.)
+_EDGES_NBUNCH_PY_WALK_MAX = 8
+
+
 def _guarded_edge_list(result, graph, *, guard_edge_count=False):
     if not isinstance(result, _EdgeListWithSetAlgebra):
         result = _EdgeListWithSetAlgebra(result)
@@ -856,6 +864,7 @@ class EdgeDataView:
         # The frozen list is also what lets a read tell that one of ITS nodes
         # has since been removed, which nx reports by raising from adjdict[n];
         # see _raise_if_frozen_nbunch_node_removed.
+        self._len_handoff = None
         self._nbunch_nodes_seq = None
         if self._nbunch_list is not None and graph is not None:
             self._nbunch_list = [n for n in self._nbunch_list if n in graph]
@@ -959,6 +968,59 @@ class EdgeDataView:
         adj[node] yielding (u, v) plus optional data, skipping
         edges where the second endpoint has already been visited."""
         graph = self._graph
+        # br-r37-c1-aq6jv: for a SMALL nbunch, crossing into Rust costs more than
+        # doing the walk in Python. The native kernel below is ~3.7us of fixed
+        # cost per call regardless of how little it is asked for, while
+        # networkx does the whole single-node call in ~4.2us — so at nbunch=1
+        # fnx was 0.356x purely on the boundary crossing.
+        #
+        # The per-row keydict cache already holds each row as a LIVE Python dict
+        # (the same persistent mirror neighbors() iterates, invalidated by the
+        # nodes_seq/edges_seq token), so a warm walk touches no PyO3 at all.
+        # This is nx's own algorithm and order: nbunch order outer, adjacency
+        # order inner, second endpoint deduped via `seen`, and the node joins
+        # `seen` AFTER its row so a self-loop still emits (br-r37-c1-6yimw).
+        #
+        # Threshold is measured, not guessed — see the bead: the crossover
+        # against the native kernel is between 10 and 100 rows.
+        if (
+            type(graph) is Graph
+            and self._nbunch_list is not None
+            and len(self._nbunch_list) <= _EDGES_NBUNCH_PY_WALK_MAX
+        ):
+            # No private-storage probe here: _cached_adj_row_keydict already
+            # returns None for those graphs, and it was the second such call
+            # per edges() invocation.
+            rows = []
+            for node in self._nbunch_list:
+                row = _cached_adj_row_keydict(
+                    graph, "adj", node, lambda: graph[node]
+                )
+                if row is None:
+                    rows = None
+                    break
+                rows.append((node, row))
+            if rows is not None:
+                seen = set()
+                result = []
+                append = result.append
+                for node, row in rows:
+                    for nbr, edge_data in row.items():
+                        if nbr in seen:
+                            continue
+                        if data is False:
+                            append((node, nbr))
+                        elif data is True:
+                            # The LIVE attr dict, exactly as nx and the native
+                            # kernel yield — not a copy.
+                            append((node, nbr, edge_data))
+                        elif data_is_none:
+                            append((node, nbr, default))
+                        else:
+                            append((node, nbr, edge_data.get(data, default)))
+                    seen.add(node)
+                return result
+
         # br-r37-c1-ipm32: a native kernel walks ONLY the nbunch rows in Rust
         # (nx UndirectedEdgeView(nbunch) order + undirected dedup), attaching the
         # SAME live edge dict object nx yields (via edge_py_attrs) — no full-graph
@@ -1021,9 +1083,20 @@ class EdgeDataView:
         return edge
 
     def __iter__(self):
+        # br-r37-c1-aq6jv: consume the handoff from an immediately preceding
+        # __len__ (see there). Popped, never reused.
+        handoff = self._len_handoff
+        rows = None
+        if handoff is not None:
+            self._len_handoff = None
+            token, cached = handoff
+            if token is not None and token == _edge_list_freshness_token(self._graph):
+                rows = cached
+        if rows is None:
+            rows = self._materialize()
         if self._graph is None:
-            return iter(self._materialize())
-        return _FailFastEdgeIterator(self._graph, self._materialize())
+            return iter(rows)
+        return _FailFastEdgeIterator(self._graph, rows)
 
     def __len__(self):
         if self._nbunch_list is None and self._graph is not None:
@@ -1041,6 +1114,23 @@ class EdgeDataView:
             # not run before the frozen-nbunch check that _materialize does —
             # otherwise len() answers a number where nx raises.
             self._raise_if_frozen_nbunch_node_removed()
+            # br-r37-c1-aq6jv: for a SMALL nbunch the walk is cheaper than the
+            # native count, and `list(view)` asks for the length and then
+            # immediately iterates — so materialise once and hand the SAME list
+            # to the __iter__ that follows. The handoff is safe only because no
+            # user code can run between CPython's length-hint call and the
+            # __iter__ of the same list(): the cache is consumed once and
+            # dropped, so it can never serve a later read across a mutation.
+            if len(self._nbunch_list) <= _EDGES_NBUNCH_PY_WALK_MAX:
+                rows = self._materialize()
+                # Stamped with the graph revision: `len(v)` and the `list(v)`
+                # that follows it are adjacent in CPython, but a CALLER can do
+                # len(v), mutate, then iterate — and that must see the
+                # mutation. Without the stamp this handoff reintroduced exactly
+                # the staleness br-r37-c1-af0ig removed, which is how the test
+                # for it caught this.
+                self._len_handoff = (_edge_list_freshness_token(self._graph), rows)
+                return len(rows)
             count = _fnx.edges_nbunch_count(self._graph, self._nbunch_list)
             if count is not None:
                 return count
@@ -1113,6 +1203,27 @@ def _edge_view_call_with_nbunch_first(edge_view_call):
     _unset = object()
 
     def wrapped(self, *args, **kwargs):
+        # br-r37-c1-aq6jv: short-circuit the overwhelmingly common call shape —
+        # ONE positional list nbunch, with at most a `data=` keyword. The
+        # normalisation below is general enough to cover single-node, tuple-key,
+        # str/bytes and three-positional forms, and paid ~2.5us per call to
+        # establish that none of them applies. A `list` cannot be a node (it is
+        # unhashable), so every one of those questions has a known answer here.
+        # Everything the fast path skips is a CHECK, not work: the resulting
+        # EdgeDataView is constructed with exactly the same arguments.
+        if type(args) is tuple and len(args) == 1 and type(args[0]) is list:
+            if not kwargs:
+                return EdgeDataView(
+                    edge_view_call, self, data=False, default=None, nbunch_list=args[0]
+                )
+            if len(kwargs) == 1 and "data" in kwargs:
+                return EdgeDataView(
+                    edge_view_call,
+                    self,
+                    data=kwargs["data"],
+                    default=None,
+                    nbunch_list=args[0],
+                )
         nbunch = kwargs.pop("nbunch", _unset)
         data = kwargs.pop("data", _unset)
         default = kwargs.pop("default", _unset)
@@ -1170,7 +1281,17 @@ def _edge_view_call_with_nbunch_first(edge_view_call):
             # for unhashable nbunch (lists/sets) and returns False, so
             # those fall through to sequence handling unchanged.
             whole_is_node = False
-            if owner is not None and not isinstance(nbunch, (str, bytes)):
+            # br-r37-c1-aq6jv: a `list` is UNHASHABLE, so it can never be a node
+            # key — the membership probe below could only ever raise TypeError
+            # and be swallowed. Raising and catching an exception on every
+            # ordinary `G.edges([...])` call is pure overhead, and the list form
+            # is the common one. Sets/dicts are equally unhashable but rarer, so
+            # they keep the general path rather than growing the check.
+            if (
+                owner is not None
+                and type(nbunch) is not list
+                and not isinstance(nbunch, (str, bytes))
+            ):
                 try:
                     whole_is_node = nbunch in owner
                 except TypeError:
