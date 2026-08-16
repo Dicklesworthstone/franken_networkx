@@ -15817,3 +15817,90 @@ host thinkstation1, governor `powersave`, python 3.13.7, live networkx 3.6.1,
 disk 281G free. `uptime` observed by this pane: 48.32 / 54.22 at the decision,
 43.71 at the idle-versus-busy reconfirmation, 37.84 and 31.84 at the live
 detector checks. CPU clock observed: 3765-3918 MHz across those checks.
+
+## 2026-08-16 GoldenBison INSTRUMENT AUDIT: my harness recorded no clock at all, and the arms of a square are frequency-symmetric to 0.2% (br-r37-c1-clockrow)
+
+Directed to record CPU MHz alongside loadavg on every row, on the premise that
+this host's `powersave` cores "swing 1429-4292 MHz" so a QUIET window is a
+DOWNCLOCKED one. I audited my own instrument before adopting the premise, and
+both halves of that are worth writing down.
+
+### THE PREMISE IS ALREADY RETRACTED IN THIS LEDGER, BY ITS AUTHOR
+
+The 1429-4292 MHz figure is retracted two rows above (`d8f900aae`, br-r37-c1-jycsb)
+by the pane that measured it. Their retraction is direct, not inferred:
+
+  - At loadavg 7.3, NINE OF TEN cores ran at 4.14-4.29 GHz and produced the FAST
+    timing mode. A quiet window did not produce down-clocked cores.
+  - The 1429 MHz reading came from sampling an IDLE process — `guard.sample()`
+    called in a tight loop with no work between calls. Measured directly: idle
+    sampling reads 3434 MHz flat at 0 percent swing, BUSY sampling reads
+    3354-4292 MHz, median 4240, 22 percent swing. **22 percent, not 3.0x.**
+  - Their guard sampled at round START, before the governor boosted for the work
+    about to run, so every clock number it had reported was pre-boost.
+
+So "a quiet window is a slow window" is contradicted by its own source. What
+SURVIVES is the useful half, and it is why recording MHz is still right:
+frequency tracks timing WITHIN a window — their one slow process ran 3433.8 MHz
+against ~4288 for the fast ones, a 1.25x clock ratio against a 1.36x timing
+ratio, same direction.
+
+### MY OWN INSTRUMENT WAS WORSE: IT RECORDED NO CLOCK AT ALL
+
+`balanced_square_ab.py` read `scaling_governor` from **cpu0** and never sampled
+any core's frequency. The harness runs under `taskset`, so cpu0 is a core that
+never executed a slot — the one clock-adjacent number in my provenance block
+described a CPU that did no work.
+
+Then the fix's own first version was broken, and it failed SILENTLY:
+`os.sched_getcpu()` does not exist in this CPython (3.13), so `sample_core_khz()`
+returned `(None, None)` on every call. Every row would have printed
+"clk unavailable" while the harness looked instrumented. Caught by a self-test
+that asserted a plausible reading rather than by running the harness and glancing
+at output. The running CPU now comes from `/proc/self/stat` field 39.
+
+Validated against the exact failure mode that produced the retracted figure —
+same experiment, my instrument, loadavg 22:
+
+    sampled while IDLE               median 3914.8 MHz  min 3914.8  max 3914.8  spread 0.0%
+    sampled while BUSY (20ms work)   median 3917.9 MHz  min 3875.2  max 3942.9  spread 1.7%
+
+Idle sampling reports a flat, unrepresentative number; busy sampling shows the
+real range. Sampling is therefore done immediately AFTER each timed slot, while
+the core is still hot, and outside every timed region so it cannot contaminate a
+duration.
+
+### THE MEASUREMENT THAT MATTERS FOR A RATIO IS ARM SKEW, AND IT IS CLEAN
+
+An absolute clock describes the window; it does not by itself invalidate a ratio.
+What would invalidate one is ARM ASYMMETRY — one arm systematically boosted and
+the other not. That bias is invisible to everything this harness checks, because
+each arm's own first half and second half are equally affected, so BOTH A/A nulls
+read 1.0 through it. Same blind spot as the per-slot GC collect already
+documented in `time_slot`.
+
+Now measured per arm rather than assumed. Thirteen rows, `parallel-keydict`,
+loadavg 20.7, cores 40-43:
+
+    arm-to-arm clock skew   +0.00% to +0.20% on all 13 rows
+    within-row spread       0.6% to 1.3%
+    absolute clock          3954-3990 MHz
+
+The interleaved square does what it claims: both arms meet the same core
+frequency, so frequency error is common-mode and cancels in the ratio. That also
+means my ELF-alternated row from the previous tick is safe on this axis — its
+arms alternated inside one window by construction.
+
+Note the absolute numbers against the premise: at loadavg 20.7 this host ran
+3954-3990 MHz, and at loadavg 22 the busy-core range was 3875-3943 MHz. Neither
+is a down-clocked host, and neither is anywhere near 1429 MHz.
+
+WHAT CHANGED IN THE HARNESS: `sample_core_khz()`; per-arm clock collection in
+`_time_square`; `mhz_incumbent` / `mhz_fnx` / `mhz_spread_pct` / `clock_skew_pct`
+on every row dict; the clock printed on every row line; a `CLOCK-SKEWED` total at
+the end. The skew flag is deliberately NOT folded into `verdict` — this harness is
+shared, and adding a new way for a row to stop being ADMISSIBLE would silently
+retire other panes' rows mid-campaign.
+
+NO RATIO IS CLAIMED IN THIS ROW. Load was 20-28 and rising throughout; every
+number here is an instrument reading, not a performance result.

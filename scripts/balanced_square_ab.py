@@ -93,6 +93,11 @@ import franken_networkx._fnx as _fnx_ext
 
 SQUARE = "ABBAABBA"
 NULL_BOUND = 0.02
+# br-r37-c1-clockrow: the two arms of one square interleave, so they should meet
+# the same core frequency. A skew wider than this between the arms' median clocks
+# is a bias on the RATIO that both A/A nulls read as 1.0, so it is flagged on the
+# row rather than left for the reader to infer from a whole-run average.
+CLOCK_SKEW_BOUND_PCT = 1.0
 # br-r37-c1-7x25w: untimed calls per arm after the per-round collect. One was
 # not enough at reps=400 — the incumbent arm still showed a first/second-half
 # null of 1.1084 — because the collect leaves the caches cold and a single call
@@ -851,24 +856,81 @@ def time_slot(fn, *, collect_first: bool = False, calls: int = 1) -> int:
     return time.perf_counter_ns() - start
 
 
+def sample_core_khz():
+    """The RUNNING core's current frequency, in kHz, or None.
+
+    br-r37-c1-clockrow. This host runs the `powersave` governor and its cores do
+    change frequency under load, so a row that reports only `loadavg` is not
+    reporting its own conditions. Two design points, both of which another pane
+    got wrong and then corrected in this ledger:
+
+    1. SAMPLE THE CORE THAT RAN THE WORK, not `cpu0`. The harness is pinned with
+       `taskset`, so `cpu0`'s governor file describes a core that never executed
+       a slot. This reads `sched_getcpu()`.
+
+    2. SAMPLE WHILE THE CORE IS HOT — immediately AFTER a timed slot, never
+       before one. A sample taken at round start reads the clock the governor had
+       settled on for an IDLE process, i.e. before it boosted for the work about
+       to happen. That pre-boost sampling is what produced a "1429-4292 MHz, 3.0x
+       swing" figure that its own author later retracted: sampling an idle
+       process read 3434 MHz flat, while sampling a BUSY one read 3354-4292 MHz,
+       a 22 percent range. The instrument was measuring its own idleness.
+
+    The read itself is outside every timed region, so it cannot contaminate a
+    slot's duration.
+
+    THE PORTABILITY TRAP THIS ALREADY HIT: `os.sched_getcpu()` does NOT exist in
+    this CPython (3.13), so a first version of this function returned
+    `(None, None)` on every call and the harness would have printed
+    "clk unavailable" on every row while looking like it was recording clocks.
+    The running CPU comes from `/proc/self/stat` field 39 instead, which needs the
+    `rsplit(') ')` because a process name can itself contain spaces and
+    parentheses.
+    """
+    try:
+        with open("/proc/self/stat") as handle:
+            cpu = int(handle.read().rsplit(") ", 1)[1].split()[36])
+    except (OSError, ValueError, IndexError):
+        return None, None
+    try:
+        with open(f"/sys/devices/system/cpu/cpu{cpu}/cpufreq/scaling_cur_freq") as handle:
+            return cpu, int(handle.read().strip())
+    except (OSError, ValueError):
+        return cpu, None
+
+
 def _time_square(incumbent_fn, fnx_fn, gc_per_slot: bool, calls_per_slot: int = 1):
-    """Run one `ABBAABBA` square and return the two arms' slot timings.
+    """Run one `ABBAABBA` square and return the two arms' slot timings and clocks.
 
     The square is what makes a busy host measurable: each arm occupies the same
     set of slot POSITIONS, so drift across the round hits both equally instead
     of biasing one.
+
+    The per-arm clock samples exist to CHECK that claim rather than assume it. An
+    arm-asymmetric core frequency — one arm consistently boosted, the other not —
+    biases the ratio while leaving both A/A nulls at 1.0, because each arm's own
+    first half and second half are equally affected. That is the same blind spot
+    the per-slot GC collect had (see `time_slot`), and it is invisible to every
+    check this harness performs unless the clock is recorded per arm.
     """
     a_slots, b_slots = [], []
+    a_khz, b_khz = [], []
     for slot in SQUARE:
         if slot == "A":
             a_slots.append(
                 time_slot(incumbent_fn, collect_first=gc_per_slot, calls=calls_per_slot)
             )
+            _, khz = sample_core_khz()
+            if khz is not None:
+                a_khz.append(khz)
         else:
             b_slots.append(
                 time_slot(fnx_fn, collect_first=gc_per_slot, calls=calls_per_slot)
             )
-    return a_slots, b_slots
+            _, khz = sample_core_khz()
+            if khz is not None:
+                b_khz.append(khz)
+    return a_slots, b_slots, a_khz, b_khz
 
 
 def bootstrap_ci(values, iters: int = 4000, seed: int = 3):
@@ -904,6 +966,7 @@ def run_row(
         fnx_fn()
 
     ratios, null_a, null_b = [], [], []
+    khz_a, khz_b = [], []
     for _ in range(rounds):
         # One collect per ROUND, outside every timed slot, with the collector
         # left OFF for the whole square: both arms then meet the same GC state
@@ -928,9 +991,11 @@ def run_row(
             for _ in range(max(ROUND_WARM_CALLS, calls_per_slot)):
                 incumbent_fn()
                 fnx_fn()
-            a_slots, b_slots = _time_square(
+            a_slots, b_slots, a_khz, b_khz = _time_square(
                 incumbent_fn, fnx_fn, gc_per_slot, calls_per_slot
             )
+            khz_a.extend(a_khz)
+            khz_b.extend(b_khz)
         finally:
             gc.enable()
         ratios.append(statistics.median(a_slots) / statistics.median(b_slots))
@@ -950,6 +1015,30 @@ def run_row(
         verdict = "STRADDLES-1"
     else:
         verdict = "ADMISSIBLE"
+
+    # Per-ARM clock, and the asymmetry between them. `clock_skew` is the number
+    # that matters for the RATIO: the arms interleave inside one square, so they
+    # should meet the same frequency, and a skew is a bias no A/A null can see.
+    # The absolute median and spread describe the window itself — a row taken at
+    # 3.4 GHz and one taken at 4.3 GHz are not the same measurement even when
+    # both are admissible and both nulls pass.
+    mhz_a = statistics.median(khz_a) / 1000.0 if khz_a else None
+    mhz_b = statistics.median(khz_b) / 1000.0 if khz_b else None
+    all_khz = khz_a + khz_b
+    if all_khz:
+        spread_pct = 100.0 * (max(all_khz) - min(all_khz)) / statistics.median(all_khz)
+    else:
+        spread_pct = None
+    clock_skew = (
+        100.0 * (mhz_a - mhz_b) / ((mhz_a + mhz_b) / 2.0)
+        if mhz_a is not None and mhz_b is not None
+        else None
+    )
+    # Deliberately NOT folded into `verdict`: this harness is shared, and adding
+    # a new way for a row to stop being ADMISSIBLE would silently retire other
+    # panes' rows mid-campaign. The skew is reported on the row and totalled at
+    # the end instead, so it informs the reader without changing the contract.
+    clock_skewed = clock_skew is not None and abs(clock_skew) > CLOCK_SKEW_BOUND_PCT
     return {
         "label": label,
         "ratio": ratio,
@@ -957,6 +1046,11 @@ def run_row(
         "null_incumbent": n_a,
         "null_fnx": n_b,
         "verdict": verdict,
+        "mhz_incumbent": mhz_a,
+        "mhz_fnx": mhz_b,
+        "mhz_spread_pct": spread_pct,
+        "clock_skew_pct": clock_skew,
+        "clock_skewed": clock_skewed,
     }
 
 
@@ -1059,6 +1153,7 @@ def main(argv: list[str]) -> int:
         f"   null bound +/-{NULL_BOUND}"
     )
     admitted = 0
+    skewed = 0
     for name in selected:
         row = run_row(
             name,
@@ -1070,13 +1165,30 @@ def main(argv: list[str]) -> int:
             calls_per_slot=args.calls_per_slot,
         )
         low, high = row["ci"]
+        if row["mhz_incumbent"] is None:
+            clock = "clk unavailable"
+        else:
+            clock = (
+                f"clk {row['mhz_incumbent']:.0f}/{row['mhz_fnx']:.0f}MHz "
+                f"skew {row['clock_skew_pct']:+.2f}% spread {row['mhz_spread_pct']:.1f}%"
+                f"{' SKEWED' if row['clock_skewed'] else ''}"
+            )
         print(
             f"  {name:22s} {row['ratio']:7.4f}x  CI [{low:.4f}, {high:.4f}]  "
-            f"nulls {row['null_incumbent']:.4f}/{row['null_fnx']:.4f}  {row['verdict']}"
+            f"nulls {row['null_incumbent']:.4f}/{row['null_fnx']:.4f}  {clock}  "
+            f"{row['verdict']}"
         )
         admitted += row["verdict"] == "ADMISSIBLE"
+        skewed += bool(row["clock_skewed"])
 
     print(f"\n  loadavg_end              {os.getloadavg()}")
+    if skewed:
+        print(
+            f"  CLOCK-SKEWED rows        {skewed}/{len(selected)} — the two arms of "
+            f"those squares ran at core frequencies differing by more than "
+            f"{CLOCK_SKEW_BOUND_PCT}%. Both A/A nulls read 1.0 through this, so do "
+            f"not treat a passing null as evidence against it."
+        )
     print(f"  admitted rows            {admitted}/{len(selected)}")
     if admitted == 0:
         print("  NO ADMISSIBLE ROW — do not quote any number from this run.")
