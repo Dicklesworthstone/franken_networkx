@@ -5518,7 +5518,7 @@ class MultiGraphDegreeView:
                     if "is not iterable" in str(exc):
                         raise NetworkXError(f"Node {nbunch} is not in the graph.")
                     raise NetworkXError(str(exc))
-                return _filtered_degree_view(self, None, pairs=pairs, owner=self)
+                return _filtered_degree_view(self, None, pairs=pairs, owner=self, graph=self._graph)
         nodes = list(self._graph.nbunch_iter(nbunch))
         return type(self)(self._graph, nodes=nodes, weight=weight)
 
@@ -5643,7 +5643,7 @@ class MultiDiGraphDegreeView:
                     if "is not iterable" in str(exc):
                         raise NetworkXError(f"Node {nbunch} is not in the graph.")
                     raise NetworkXError(str(exc))
-                return _filtered_degree_view(self, None, pairs=pairs, owner=self)
+                return _filtered_degree_view(self, None, pairs=pairs, owner=self, graph=self._graph)
         nodes = list(self._graph.nbunch_iter(nbunch))
         return type(self)(self._graph, nodes=nodes, weight=weight)
 
@@ -5929,7 +5929,7 @@ class _DirectedDegreeView:
                     if "is not iterable" in str(exc):
                         raise NetworkXError(f"Node {nbunch} is not in the graph.")
                     raise NetworkXError(str(exc))
-                return _filtered_degree_view(self, None, pairs=pairs, owner=self)
+                return _filtered_degree_view(self, None, pairs=pairs, owner=self, graph=self._graph)
         nodes = list(self._graph.nbunch_iter(nbunch))
         return type(self)(self._graph, self._adjacency_attr, nodes=nodes, weight=weight)
 
@@ -6145,7 +6145,7 @@ class _WeightAwareDegreeView:
         # The remaining producers are one-shot generators (dirty store /
         # non-scalar weight fallbacks), so those DO have to be materialised to
         # become re-iterable. They are the cold paths.
-        return _filtered_degree_view(self, None, weight=weight, pairs=list(pairs), owner=self)
+        return _filtered_degree_view(self, None, weight=weight, pairs=list(pairs), owner=self, graph=self._graph)
 
     def __iter__(self):
         return iter(self._raw)
@@ -6308,7 +6308,7 @@ class _WeightAwareDegreeView:
                         pairs = native(nbunch)
                     except TypeError as exc:
                         raise NetworkXError(str(exc))
-                    return _filtered_degree_view(self._raw, None, pairs=pairs, owner=self)
+                    return _filtered_degree_view(self._raw, None, pairs=pairs, owner=self, graph=self._graph)
                 filtered = []
                 for n in nbunch:
                     try:
@@ -6329,7 +6329,7 @@ class _WeightAwareDegreeView:
                 # with "list index out of range" / TypeError. Wrap the
                 # filtered result in a small proxy that preserves both
                 # behaviours without touching the Rust binding.
-                return _filtered_degree_view(self._raw, filtered, owner=self)
+                return _filtered_degree_view(self._raw, filtered, owner=self, graph=self._graph)
             # br-r37-c1-1x6aq: nx's DegreeView.__call__ answers with an int
             # ONLY when the node is present:
             #
@@ -6374,7 +6374,7 @@ class _WeightAwareDegreeView:
                 # Iterating bytes yields ints, which is also what nbunch_iter
                 # sees, so the element filter is correct for both types.
                 filtered = [n for n in nbunch if n in self._graph]
-                return _filtered_degree_view(self._raw, filtered, owner=self)
+                return _filtered_degree_view(self._raw, filtered, owner=self, graph=self._graph)
             raise NetworkXError(f"Node {nbunch} is not in the graph.")
         # Weighted path
         if nbunch is None:
@@ -6471,7 +6471,7 @@ class _WeightAwareDegreeView:
                     pairs = native(nbunch, weight)
                 except TypeError as exc:
                     raise NetworkXError(str(exc))
-                return _filtered_degree_view(self, None, weight=weight, pairs=pairs, owner=self)
+                return _filtered_degree_view(self, None, weight=weight, pairs=pairs, owner=self, graph=self._graph)
         # br-degexc: a single hashable nbunch that isn't in the graph
         # must raise NetworkXError, matching NX. Falling through to
         # ``[n for n in nbunch ...]`` would TypeError on non-iterables
@@ -6480,7 +6480,7 @@ class _WeightAwareDegreeView:
             filtered = [n for n in nbunch if n in self._graph]
         except TypeError:
             raise NetworkXError(f"Node {nbunch} is not in the graph.")
-        return _filtered_degree_view(self, filtered, weight=weight, owner=self)
+        return _filtered_degree_view(self, filtered, weight=weight, owner=self, graph=self._graph)
 
 
 class _FilteredDegreeView:
@@ -6495,7 +6495,16 @@ class _FilteredDegreeView:
     (``type(view).__name__``) matches nx exactly.
     """
 
-    __slots__ = ("_raw", "_nodes", "_weight", "_parent", "_pairs", "_values", "_vgraph")
+    __slots__ = (
+        "_raw",
+        "_nodes",
+        "_weight",
+        "_parent",
+        "_pairs",
+        "_values",
+        "_vgraph",
+        "_token",
+    )
 
     def __init__(self, raw, nodes, weight=None, pairs=None, values=None, graph=None):
         # br-r37-c1-z4iod: `values` is the lazy mode — a per-node value list
@@ -6510,6 +6519,7 @@ class _FilteredDegreeView:
             self._nodes = None
             self._weight = weight
             self._parent = raw if isinstance(raw, _WeightAwareDegreeView) else None
+            self._token = self._freshness()
             return
         self._raw = raw
         # br-r37-c1-degnbnative (cc): when `pairs` (precomputed (node, degree) from
@@ -6523,6 +6533,50 @@ class _FilteredDegreeView:
         # need the parent to compute weighted values; otherwise raw is
         # the Rust DegreeView for unweighted access.
         self._parent = raw if isinstance(raw, _WeightAwareDegreeView) else None
+        self._token = self._freshness()
+
+    # br-r37-c1-vfc2t: networkx's degree views are LIVE. Both snapshot modes
+    # here (`pairs` from the native subset kernel, `values` from the native
+    # weighted accumulator) were computed at construction and never refreshed,
+    # so a view bound before a mutation reported pre-mutation degrees — and a
+    # degree is a number, so a stale one is indistinguishable from a correct
+    # one.
+    #
+    # No rebuild thunk is needed, because the third mode is ALREADY live: it
+    # walks `_nodes` and calls `_value(n)`, which reads through to the graph.
+    # So a stale snapshot just steps aside and lets that path answer. The node
+    # SET stays frozen either way, which is what networkx does with an nbunch
+    # (see br-r37-c1-2pia7); only the degrees go live.
+    def _freshness(self):
+        graph = self._graph_ref()
+        return None if graph is None else _edge_list_freshness_token(graph)
+
+    def _graph_ref(self):
+        if self._vgraph is not None:
+            return self._vgraph
+        parent = self._parent
+        return getattr(parent, "_graph", None) if parent is not None else None
+
+    def _snapshot_is_current(self):
+        token = self._token
+        if token is None:
+            # No token could be computed at construction (foreign graph), so
+            # there is nothing to compare against — keep the old behaviour
+            # rather than guess.
+            return True
+        return self._freshness() == token
+
+    def _live_nodes(self):
+        """The nodes to report when a snapshot has gone stale.
+
+        Restricted views keep their frozen node list; an unrestricted weighted
+        view (the `values` mode, which has no `_nodes`) spans whatever the
+        graph holds now, exactly as networkx's does.
+        """
+        if self._nodes is not None:
+            return self._nodes
+        graph = self._graph_ref()
+        return list(graph) if graph is not None else []
 
     def _value(self, node):
         if self._weight is not None and self._parent is not None:
@@ -6534,6 +6588,8 @@ class _FilteredDegreeView:
         # generator function — the values mode below has to hand back a fresh
         # zip, and a `return` inside a generator would silently end iteration
         # instead of returning it.
+        if not self._snapshot_is_current():
+            return ((n, self._value(n)) for n in self._live_nodes())
         if self._values is not None:
             # Fresh zip per call: re-iterable like nx's view, and still lazy,
             # so the weighted whole-graph paths keep their native accumulator
@@ -6545,7 +6601,11 @@ class _FilteredDegreeView:
 
     def __len__(self):
         if self._values is not None:
-            return len(self._values)
+            if self._snapshot_is_current():
+                return len(self._values)
+            # br-r37-c1-vfc2t: an unrestricted weighted view spans the graph's
+            # CURRENT nodes once its snapshot is stale.
+            return len(self._live_nodes())
         return len(self._nodes)
 
     # br-r37-c1-p1uro: NO __contains__ ON PURPOSE. networkx's degree views do
