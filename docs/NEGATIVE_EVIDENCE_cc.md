@@ -11378,3 +11378,38 @@ by 0 `.rs` files newer than the loaded `.so`; loaded ELF sha256
 ecfc2d30935a12eb0b61c3d00b38718026bcc36977c047b048463c1bf9a37fb8; governor
 powersave; runtime ISA avx2 avx sse4_2; observed affinity 8 of 64 cpus; python
 3.13.7 x86_64; live networkx 3.6.1; PYTHONHASHSEED=0.
+
+---
+
+## reverse(copy=False) — REPLICATED on a new ELF, still the worst row (br-r37-c1-vaayu)
+
+LEVER: unchanged from the row banked earlier in this file — the setattr chain
+`_digraph_setattr_with_cached_public_adjacency` (10 calls per reverse) and
+`_set_private_override` (3 per reverse).
+
+WHY RE-MEASURED: the earlier row was taken on ELF e702b044... The extension has
+since been rebuilt to ecfc2d30..., and rows are only comparable within one sha,
+so the worst row in the project was carrying a figure from a stale artifact.
+
+MEASURED 2026-08-16, LOCAL:thinkstation1, live networkx 3.6.1, N=4000. Substrate:
+balanced square ABBAABBA, 21 rounds x 2000 reps, both arms in ONE invocation,
+bootstrap median CI over rounds (10k resamples). Pure-Python path, no build; the
+already-built extension was re-run. RCH_CARGO_WRAPPER_BYPASS=1 exported.
+ELF sha256 ecfc2d30935a12eb0b61c3d00b38718026bcc36977c047b048463c1bf9a37fb8.
+
+    class          nx us   fnx us   t_nx/t_fnx   95% CI            prior (e702b044)
+    DiGraph        4.780    7.700     0.6243     [0.6155, 0.6275]   0.6150
+    MultiDiGraph   5.011    7.760     0.6486     [0.6430, 0.6516]   0.6737
+
+DiGraph A/A null control, paired(base, base) in the same invocation: nx arm 0.9973x CI [0.9802, 1.0047] PASS; fnx arm 1.0054x CI [0.9713, 1.0392] PASS.
+MultiDiGraph A/A null control, paired(base, base) in the same invocation: nx arm 1.0060x CI [0.9922, 1.0309] PASS; fnx arm 1.0003x CI [0.9884, 1.0435] PASS.
+All four A/A null CIs straddle 1.0, gated on the bootstrap median CI and not on CV, so the substrate is admissible and both gaps sit outside the null spread.
+
+WHAT THE REPLICATION SETTLES: DiGraph moved 0.6150x to 0.6243x and MultiDiGraph
+0.6737x to 0.6486x across a rebuild. Neither CI overlaps its counterpart, so the
+two artifacts genuinely differ — but both agree the row is a LOSS near 0.62-0.65x,
+and DiGraph remains the worst measured ratio in the project. The conclusion is
+stable across the artifact change even though the digits are not.
+
+STATUS: loss replicated on the current ELF with an admissible null. The lever
+stays OPEN and UNATTEMPTED, and it is measurable in-process with no build.
