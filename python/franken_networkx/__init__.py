@@ -46062,9 +46062,16 @@ def _set_private_override(self, attr_name, value):
         for name in cached:
             storage.pop(name, None)
         storage.pop(_DESCRIPTOR_CACHED_VIEWS, None)
-    register_gc_dict = getattr(self, "_fnx_register_gc_dict", None)
-    if register_gc_dict is not None:
-        register_gc_dict(storage)
+    # br-r37-c1-vaayu: the explicit registration that used to sit here was
+    # redundant. Every class's __setattr__ wrapper ends in
+    # `self._fnx_register_gc_dict(vars(self))` — verified on all four — and the
+    # only names this helper is ever called with are the four
+    # `_fnx_private_*_override` keys, none of which is in any class's
+    # public-adjacency early-return set ({adj, succ, pred}), so the setattr
+    # below ALWAYS reaches that registration with the same dict object.
+    # `vars(self)` is identity-stable, so registering twice registered the same
+    # dict twice. Cost was a getattr plus a PyO3 call on each of the three
+    # override assignments a reverse view makes at construction.
     setattr(self, attr_name, value)
     if attr_name == _PRIVATE_NODE_OVERRIDE:
         mark_private_node_override = getattr(self, "_fnx_set_private_node_override", None)
