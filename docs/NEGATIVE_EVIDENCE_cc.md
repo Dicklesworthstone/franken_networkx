@@ -17134,3 +17134,84 @@ in-process, same invocation. Loaded ELF sha256 `bba560418752d220...` via
 PYTHONPATH; the shared venv install was never touched. host thinkstation1,
 governor `powersave`, python 3.13.7, live networkx 3.6.1, disk 239G free.
 `uptime` observed: 20.33 / 27.16 / 23.64 at the decision.
+
+## REJECTED LEVER: slimming `AtlasView.__init__` buys 22.5 ns of a 1265 ns path — and the diagnosis that motivated it was an unfair comparison (br-r37-c1-2ndmw)
+
+comparison_class=SELF-SPEEDUP
+campaign_output=false
+decision_gate=median_ci
+cv_role=report_only
+elf_sha256=bba560418752d220...
+
+WINDOW: `uptime` 1-min 24.67, 5-min 23.04, 15-min 22.46 — converged. Component
+figures pinned to `cpu14`. The rejection rests on an effect SMALLER than this
+pane's own documented noise, which is stated below rather than papered over.
+
+**THE WORST CELL IS STILL A PEER'S.** `br-r37-c1-0k6zl` (DiGraph `G.adj[u][v]`,
+0.0804x) remains uncommitted work in another pane — HEAD carries 0 mentions, the
+working tree 7, and an untracked `test_digraph_edge_attr_index_lookaside.py`
+alongside. This pane took the multigraph cell instead, for the second turn
+running, rather than duplicate.
+
+**THE LEVER.** A multigraph `G.adj[u][v]` constructs a fresh `AtlasView` on every
+subscript — the warm cache in `AdjacencyView.__getitem__` is gated on
+`_fnx_owner`, which multigraph rows do not carry. Measured, that constructor cost
+390.9 ns against networkx's 118.5 ns for an `AtlasView` that assigns ONE
+attribute, where fnx assigns eight. Moving the five `None`/`False` defaults to
+class attributes should have removed most of the gap.
+
+**MEASURED AND REJECTED, and interleaving reversed the sign.** Timed
+separately, base against candidate read 390.9 -> 368.4 ns, a 5.8 percent
+"improvement" — about 1.7 percent of the 1265 ns cell path, already below this
+pane's documented 13 percent window sensitivity. Timed PROPERLY, both variants in
+ONE invocation, `ABBAABBA`, 21 rounds x 40000 reps, bootstrap median CI:
+
+    base 260.9 ns    candidate 261.8 ns
+    paired(base, candidate) SPEEDUP  0.9971x  CI [0.9928, 0.9992]
+    paired(base, base)      A/A null 0.9952   CI [0.9675, 1.0033]  PASS
+    paired(cand, cand)      A/A null 1.0050   CI [0.9982, 1.0146]  PASS
+
+**The candidate is 0.3 percent SLOWER, with the interval excluding 1.0 on the
+slow side and both A/A nulls passing.** The separate-timing "win" was an
+un-interleaved cross-measurement — the precise trap this pane has banked twice
+before, and it flipped a verdict here. The change was reverted; the file is
+byte-identical to HEAD.
+
+**AND THE DIAGNOSIS BEHIND IT WAS WRONG — an unfair comparison.** The
+390.9-against-118.5 figure charged the fnx arm a per-call CLOSURE allocation that
+the networkx arm never paid, because fnx's constructor takes a lazy getter and
+networkx's takes an already-built dict. Re-measured with a pre-made getter so
+neither arm allocates:
+
+    fnx AtlasView(pre-made getter)      252.2 ns
+    nx  AtlasView(dict)                 185.7 ns
+    closure allocation alone             76.7 ns
+
+**The real constructor gap is 66.5 ns, not 272 ns.** "Eight attribute stores
+against one" was never the explanation; the residual is ABC/`Mapping`
+construction, which the class-default change cannot touch.
+
+**THE CORRECTED CELL BUDGET**, MultiGraph `G.adj[u][v]` at K=2000:
+
+    full path                                  1265.6 ns
+      native MultiAtlasView C slot              582.7 ns   46 percent
+      AtlasView construction                    252.2 ns   20 percent  (66.5 over nx)
+      closure allocation for the lazy getter     76.7 ns    6 percent
+      remainder: AdjacencyView frame, hash,
+        cache-miss logic, try/except            ~354 ns    28 percent
+
+The two items worth attacking are the native lookup and the `AdjacencyView`
+frame. The constructor is a distant third and mostly irreducible.
+
+**WHAT THIS COST AND WHY IT IS BANKED**: an unfair A-vs-B is exactly the failure
+this pane keeps finding in its own instruments, and it produced a plausible,
+specific, wrong explanation that survived until the lever was built and measured.
+Building it was how the comparison got checked. The negative result is banked so
+the next reader does not re-derive "eight attribute stores" from the same
+lopsided measurement.
+
+PROVENANCE: component attribution, no ratio certified. Pinned to cpu14, both
+libraries in-process, same invocation. Loaded ELF sha256 `bba560418752d220...`
+via PYTHONPATH; the shared venv install was never touched. host thinkstation1,
+governor `powersave`, python 3.13.7, live networkx 3.6.1, disk 237G free.
+`uptime` observed: 24.67 / 23.04 / 22.46.
