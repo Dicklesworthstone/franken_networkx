@@ -11099,3 +11099,58 @@ took. Disk at 51G sits below the 52G brake, so no build was started.
 STATUS: loss recorded. The lever is OPEN and UNATTEMPTED — not tried and
 rejected — and it is measurable in-process, making it the cheapest remaining row
 to attack.
+
+## 2026-08-16 GoldenBison REJECT: empty-instance-dict short-circuit in `_has_networkx_private_storage` — **0.9268x** (br-r37-c1-bnv3h)
+
+comparison_class=SELF-SPEEDUP
+campaign_output=false
+decision_gate=median_ci
+cv_role=report_only
+
+A/A null control run 1, base arm paired against itself in the same invocation: 1.0017x CI [0.9993, 1.0096], inside the 0.02 bound.
+
+A/A null control run 1, candidate arm paired against itself in the same invocation: 1.0013x CI [1.0000, 1.0025], inside the 0.02 bound.
+
+A/A null control run 2, base arm paired against itself in the same invocation: 1.0050x CI [0.9984, 1.0078], inside the 0.02 bound.
+
+A/A null control run 2, candidate arm paired against itself in the same invocation: 1.0001x CI [0.9987, 1.0025], inside the 0.02 bound.
+
+All eight A/A null controls passed numerically: 1.0017x, 1.0013x, 1.0050x, 1.0001x on the realistic fixture and 1.0010x, 1.0003x, 1.0008x, 1.0022x on the fresh-graph fixture.
+
+A/B paired in the SAME invocation as those A/A null controls, ABBAABBA square, gated on the bootstrap median CI:
+
+| arm pairing | run | ratio | CI | base ns | candidate ns |
+|---|---|---|---|---|---|
+| base vs candidate, realistic fixture | 1 (cores 40-47, 41 rounds x 400 reps) | 0.9342x | [0.9304, 0.9366] | 87.3 | 93.5 |
+| base vs candidate, realistic fixture | 2 (cores 48-55, 31 rounds x 500 reps) | 0.9283x | [0.9268, 0.9346] | 87.5 | 94.1 |
+| base vs candidate, fresh fixture | 1 | 0.9351x | [0.9331, 0.9368] | 85.8 | 91.8 |
+| base vs candidate, fresh fixture | 2 | 0.9302x | [0.9291, 0.9329] | 86.1 | 92.7 |
+
+LEVER: add `if not storage: return False` ahead of the four `_PRIVATE_*_OVERRIDE`
+membership checks, so a graph with an empty instance dict skips all four.
+HYPOTHESIS: the common case has an empty `__dict__`, so those four probes are paid
+to learn nothing. MEASURED: 0.9268x worst bound over both runs, i.e. a 6.6 percent
+REGRESSION, base 87.3ns against candidate 93.5ns. Ratio is base/candidate, so below
+1.0 means the candidate is slower. WHY REJECTED: the premise is false. A real
+graph's instance dict is not empty — 4 entries after construction and 6 once `.adj`
+or `.edges` is touched, from the accessor caches `_fnx_view_adj`,
+`_fnx_getitem_atlas_cache`, `adj`, `edges`, `_fnx_descriptor_cached_views` — so the
+branch never fires and only adds a test.
+
+THE TRAP THAT MADE THIS LOOK LIKE A 2.16x WIN: measured on a graph that had never
+touched `.adj` or `.edges`, the guard reads 102.8ns against 47.5ns. That graph has
+an empty instance dict and no caller has one. Build the fixture the way a caller
+would.
+
+WHAT DID SURVIVE, shipped separately in cad02f7c7: `vars(self)` to `self.__dict__`
+in the same function, 109.6ns to 91.9ns, an attribute load rather than a builtin
+call, differenced against the old implementation over 120 graph/attribute/noise
+states with zero divergences.
+
+PROVENANCE, self-reported in-process: harness `guard_ab.py` sha256
+1c0c05c69df46515784ebcffa074c07d159b20bc35ff9e250b34b8f93e33c1c8; host
+thinkstation1; rch_worker none, both arms pure Python in-process with no build;
+loaded ELF sha256
+e702b0446310947af8c0e3aec1432fffd15cca86e39edfe29d34ca86bc1a613f; governor
+powersave; runtime ISA avx2 avx sse4_2 fma; observed threads 8 of 64; python
+3.13.7 x86_64; PYTHONHASHSEED=0; loadavg 9.50 and 8.57 at the two run starts.
