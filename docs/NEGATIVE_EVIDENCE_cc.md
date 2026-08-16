@@ -12338,3 +12338,89 @@ newer than the loaded `.so`; loaded ELF sha256
 powersave; runtime ISA avx2 avx sse4_2; observed affinity 8 of 64 cpus; python
 3.13.7 x86_64; live networkx 3.6.1; PYTHONHASHSEED=0; loadavg 17.9 and 17.0 at the
 two run starts.
+
+## MDG `G.edges[u,v,k]` at long keys, 0.0514x — ATTRIBUTED to `PyMultiDiGraph::get_edge_data` (br-r37-c1-tjp0g)
+
+comparison_class=INCUMBENT
+incumbent=networkx
+incumbent_same_invocation=true
+decision_gate=median_ci
+cv_role=report_only
+
+The worst cell in this ledger, now attributed with the attribution itself measured
+ABBA rather than inferred by subtraction.
+
+A/A null control run 1, incumbent arm paired against itself in the same invocation: 1.0123x, inside the 0.02 bound.
+
+A/A null control run 1, fnx arm paired against itself in the same invocation: 1.0019x, inside the 0.02 bound.
+
+A/A null control run 2, incumbent arm paired against itself in the same invocation: 1.0068x, inside the 0.02 bound.
+
+A/A null control run 2, fnx arm paired against itself in the same invocation: 1.0020x, inside the 0.02 bound.
+
+A/B against live networkx 3.6.1 in the SAME invocation, ABBAABBA square, identical
+shape in both runs (61 rounds x 50 reps x 160 calls per slot), differing only in
+core set. Rows admissible in BOTH runs:
+
+| row | run 1 (cores 40-47) | run 2 (cores 48-55) | worst bound |
+|---|---|---|---|
+| `MDG edges[u,v,k] len=2000` | 0.0516x [0.0515, 0.0518] | 0.0516x [0.0514, 0.0518] | **0.0514x** |
+| `ATTRIB MDG get_edge_data len=2000` | 0.0488x [0.0486, 0.0490] | 0.0484x [0.0482, 0.0487] | **0.0482x** |
+| `ATTRIB MDG get_edge_data len=3` | 0.3842x | 0.3852x | 0.3826x |
+| `MDG edges[u,v,k] len=130` | 0.1717x | 0.1673x | 0.1672x |
+| `MDG edges[u,v,k] len=3` | 0.2460x | 0.2675x | 0.2385x |
+| `CONTROL MDG has_edge len=2000` | 0.1845x | 0.1811x | 0.1805x |
+| `CONTROL MDG has_edge len=3` | 0.5207x | 0.5047x | 0.5039x |
+| `CONTROL Graph edges[u,v] len=3` | 0.7625x | 0.7588x | 0.7484x |
+
+THE ATTRIBUTION. `get_edge_data(u,v,k)` alone measures 0.0482x at length 2000 —
+WORSE than the whole subscript's 0.0514x, i.e. it is not merely the dominant term,
+it IS the floor and the surrounding Python view adds almost nothing on top. In
+absolute terms it is 2173.4ns of the subscript's 2413.8ns, about 90 percent, and
+it grows 8.80x from length 3 to 2000 while the whole call grows 5.44x.
+
+THE CONTROL THAT RULES OUT NODE CANONICALISATION. `MDG has_node` at length 2000
+measures **1.1010x** — fnx is FASTER than networkx there, and flat in key length
+(65.2ns at length 3 against 51.1ns at 2000). Same graph, same 2000-character keys,
+same invocation. So resolving a long node key is not the problem; what happens
+after it is. (That row admitted in run 1 only, 1.1010x against 1.0728x
+NULL-FAILED in run 2 — consistent in direction and magnitude, but recorded as one
+admissible run, not two.)
+
+THE MECHANISM, and it is NOT the same as the simple graph's. Sweeping length
+across the 128-byte canonical buffer, `MDG get_edge_data` is perfectly SMOOTH —
+462.3ns at length 120, 479.0ns at 125, 486.9ns at 130 — with no step at all, and
+grows continuously to 2224.8ns at 2000. The simple `Graph.edges[u,v]` showed a
+sharp 2.03x STEP at exactly that boundary before it was fixed, because it
+canonicalised into an `ArrayString` stack buffer and only spilled to the heap
+above it. A smooth curve with no boundary means this path NEVER uses the buffer:
+`PyMultiDiGraph::get_edge_data` (digraph.rs ~8392) calls `node_key_to_string`
+TWICE — owned heap `String`s unconditionally — then does string-keyed
+`resolve_internal_edge_key` and `ensure_edge_py_attrs`.
+
+SO THE TIER EXPLANATION IS RIGHT HERE AND WAS WRONG WHERE I FIRST APPLIED IT. I
+published a tier-ladder mechanism for the simple-graph rows and WITHDREW it in the
+correction above, because that surface uses tier 2 (`canonical_node_key_in` into a
+stack buffer) and therefore could not be explained by owned allocation. This
+surface genuinely is tier 3, and the boundary sweep is what distinguishes them:
+a STEP at 128 means a buffer that spills, a SMOOTH curve means no buffer at all.
+
+WHY THE ptiz2 FIX DOES NOT PORT. That lever added an index-keyed lookaside beside
+a string-keyed one whose key is an endpoint PAIR. Multigraph attribute storage is
+keyed by endpoint pair PLUS edge key, so it is a different map shape, and the
+allocation here is upstream of the lookaside in `node_key_to_string` rather than
+in the lookaside's own keying. The multigraph lever is therefore the tier-2/tier-3
+change — borrowed canonicals via `with_node_key_str`, as
+`PyGraph::has_edge` already does for two endpoints — which is br-r37-c1-tjp0g's
+original patch, now with a measured target: 0.0482x on the function that owns 90
+percent of the cost.
+
+PROVENANCE, self-reported in-process: harness `scripts/balanced_square_ab.py`
+sha256 be5afae905c22946050772aa743b510dab7475986c298702cab783a3d5fd86b6; host
+thinkstation1; rch_worker none, both arms in-process on the same host, and NO
+build was performed — existing binary reused, verified by 0 `.rs` files newer than
+the loaded `.so`; loaded ELF sha256
+2c3e0c53f4b0d9558998a21d5298d7e5912689ecbaf4db75fb1e346aa10af366; governor
+powersave; runtime ISA avx2 avx sse4_2; observed affinity 8 of 64 cpus; python
+3.13.7 x86_64; live networkx 3.6.1; PYTHONHASHSEED=0; loadavg 17.5 and 21.5 at the
+two run starts.

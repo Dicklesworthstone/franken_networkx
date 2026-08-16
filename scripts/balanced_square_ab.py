@@ -675,6 +675,16 @@ def workload_multi_key_length(reps: int):
         mdg_long, _s2, ul, vl = fixture[2000]
         table["CONTROL MDG has_edge len=3"] = lambda: mdg3.has_edge(u3, v3, 0)
         table["CONTROL MDG has_edge len=2000"] = lambda: mdg_long.has_edge(ul, vl, 0)
+        # br-r37-c1-tjp0g attribution rows: get_edge_data is ~90% of the
+        # subscript at long keys, so it is measured directly rather than
+        # inferred by subtraction.
+        table["ATTRIB MDG get_edge_data len=3"] = lambda: mdg3.get_edge_data(u3, v3, 0)
+        table["ATTRIB MDG get_edge_data len=2000"] = (
+            lambda: mdg_long.get_edge_data(ul, vl, 0)
+        )
+        # has_node is the FLAT control: node canonicalisation alone does not
+        # scale, so a growing get_edge_data cannot be blamed on it.
+        table["CONTROL MDG has_node len=2000"] = lambda: mdg_long.has_node(ul)
         return table
 
     return build, ops
