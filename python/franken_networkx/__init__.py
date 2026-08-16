@@ -2320,9 +2320,30 @@ class MultiAdjacencyView(_Mapping):
         return iter(dict.fromkeys(self._atlas()))
 
     def __getitem__(self, node):
+        # br-r37-c1-i7jta: probe the per-row cache FIRST. Everything this used
+        # to do ahead of the cache — an explicit hash, a full `node not in
+        # owner` graph-membership probe, and a getattr for the native row
+        # binding — is work the cache has already answered, because a cached row
+        # is EXISTENCE PROOF: rows are only cached for nodes that had one, and
+        # every node removal bumps `nodes_seq`, which is the key. Same ordering
+        # argument as br-r37-c1-do7g5 on `_native_adjacency_row_dict` and
+        # br-r37-c1-dlqkq on `G.degree(n)`. The simple `AdjacencyView` above has
+        # been cache-first since br-r37-c1-spg9n and measured 0.685x against
+        # networkx where this one measured 0.337x.
+        #
+        # The br-r37-c1-i9whv TypeError contract survives the reorder because
+        # `dict.get` hashes its argument, so an unhashable node raises TypeError
+        # here exactly as the explicit `hash` did; the slow path below keeps the
+        # explicit `hash` for the cache-stale and owner-less cases.
+        owner = self._fnx_owner
+        if owner is not None:
+            cache = self._fnx_row_cache
+            if cache is not None and cache[0] == owner.nodes_seq:
+                view = cache[1].get(node)
+                if view is not None:
+                    return view
         # br-r37-c1-i9whv: hash-check for nx-shaped TypeError parity.
         hash(node)
-        owner = self._fnx_owner
         if owner is not None:
             # br-r37-c1-ka7fd: membership must be tested against the ADJACENCY,
             # not the node view. networkx's `G.adj` IS `_adj`, so `G.adj[x]`
