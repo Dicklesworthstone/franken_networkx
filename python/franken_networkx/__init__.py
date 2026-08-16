@@ -1891,6 +1891,15 @@ class AtlasView(_Mapping):
             except KeyError:
                 return False
             return True
+        # br-r37-c1-i44vx: serve an already-resolved live keydict WITHOUT the
+        # _keydict() frame, mirroring __getitem__'s br-r37-c1-atlasget hunk
+        # above. _keydict() returns this same object as its first branch after
+        # the multi-edge check, so this is the identical answer with one Python
+        # frame removed — and the frame was a third of the membership cost on a
+        # row whose native dict is already cached.
+        live = self._fnx_live_keydict
+        if live is not None:
+            return node in live
         keydict = self._keydict()
         if keydict is not None:
             return node in keydict
