@@ -16756,3 +16756,77 @@ conditions.
 CLEANUP CONFIRMED: the spin children are started and killed inside a `finally`,
 and a post-run process scan found none surviving. An earlier `pgrep -c -f` reading
 of "2" was the pattern matching my own shell command line, not a leaked child.
+
+## AUDIT CLOSED — and it invalidates MORE than expected: SMT contention AMPLIFIES build-to-build improvements, 1.23x idle to 1.95x loaded (br-r37-c1-jycsb, br-r37-c1-f3i50, br-r37-c1-ptiz2)
+
+NO CERTIFICATION. `uptime`: 1-min 23.79 against 5-min 35.65 — rejected. This is
+an impact measurement, applied and removed by this pane, so it does not need a
+certifiable window.
+
+**THE ASSUMPTION I WAS ABOUT TO RETIRE THE AUDIT ON WAS WRONG.** Having measured
+that a busy sibling shifts an nx-versus-fnx ratio by 17 percent — because the two
+arms have unequal sensitivity — I reasoned that a NEW-versus-OLD comparison of two
+fnx BUILDS would be protected, since both arms are the same implementation. I
+tested it instead of asserting it:
+
+    sibling   NEW/OLD improvement
+    idle      1.2363x   (min 1.1357  max 1.3885)
+    loaded    1.9554x   (min 1.9535  max 1.9633)
+    idle      1.2344x   (min 1.1727  max 1.4268)
+    loaded    1.9385x   (min 1.9233  max 1.9503)
+
+**The improvement reads 1.23x with the sibling idle and 1.94x with it loaded — a
+58 percent inflation.** Build-to-build comparisons are MORE sibling-sensitive
+than the incumbent comparison, not less.
+
+**THE MECHANISM IS COHERENT AND WORTH PASSING ON.** SMT contention halves the
+execution resources available to a core. A build that does MORE work per call
+loses MORE when those resources are taken away. `877548d15` removed two of three
+hashes per parallel edge, so `OLD` does strictly more work than `NEW` — and under
+contention `OLD` suffers disproportionately, widening the gap. **Contended
+measurements systematically OVERSTATE an optimisation's benefit**, by more than
+half in this case. That is the opposite of the intuition that noise washes
+improvements out.
+
+**WHAT THE AUDIT INVALIDATES, stated per row rather than in general:**
+
+  * `(u,v) in G.edges` WIN, worst bound **1.0618x** — DOWNGRADED TO PROVISIONAL.
+    Its margin over parity is 6.2 percent against a sibling effect of 17 percent.
+    Five replicates all landing above 1.0 is not sufficient when an uncontrolled
+    variable is three times the margin. It needs a re-run under the sibling gate
+    before it is a win.
+  * `877548d15` improvement, MultiGraph **1.21x** and MultiDiGraph **1.17x** —
+    QUALIFIED, not retracted. Both were taken at loadavg ~25 without sibling
+    occupancy recorded. The idle-sibling value measured here, 1.234x, is
+    consistent with them, so they are most likely near-idle readings; but the
+    honest statement is now **"1.21x measured, with sibling occupancy
+    unrecorded, in a range that runs 1.23x idle to 1.95x contended"**.
+  * `u in G` WIN **1.5892x** — STANDS. A 59 percent margin is not threatened by
+    17 percent.
+  * The loss rows (`get_edge_data` 0.0076-0.0085x, multigraph row view 0.1742x) —
+    STAND. Nothing at 130x or 5x is at risk from tens of percent.
+  * That the lever MOVES the cell — STANDS. Six interleaved runs with
+    non-overlapping intervals establish direction regardless of magnitude.
+
+**THE AUDIT IS NOW CLOSED.** Its four findings, in the order they were forced:
+arms are sequential and cannot self-contend; per-arm clock skew is 0.0-0.5
+percent and pinning does not move the ratio; an external sibling tenant moves the
+incumbent ratio 17 percent through unequal arm sensitivity; and build-to-build
+improvements are inflated up to 58 percent by the same mechanism. Three of this
+pane's own instruments were found defective along the way — an idle-process clock
+reading, a duty-cycle detector defeated because reading `/proc` is CPU work, and
+a jiffy-granularity artifact posing as arm skew. The gate that closes it
+(`SIBLING-CONTENDED` at 20 percent whole-run occupancy) is implemented, proven,
+and covered by 55 tests.
+
+Next work is levers, not instruments.
+
+PROVENANCE: impact measurement, no ratio certified. Harness
+`/data/tmp/claude-1000/improv_smt.py`; both builds loaded in one process, pinned
+to cpu14, spinner on sibling cpu46 started and stopped inside the same
+invocation, no strays (`pgrep` confirms). ELFs
+789dd9dead49c4a8dbeaf6747c1532a70639561afda92497e4b304fdb7ff59fd (NEW) and
+36744765c50ddd08c753eef59e0493763b672f71b506467827e9ecb548145224 (OLD). host
+thinkstation1, 64 logical / 32 physical, SMT on, governor `powersave`. python
+3.13.7, live networkx 3.6.1, disk 276G free. `uptime`: 23.79 / 35.65 at the
+decision, 21.04 at the first run.
