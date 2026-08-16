@@ -28189,10 +28189,29 @@ def ego_graph(G, n, radius=1, center=True, undirected=False, distance=None):
         ordered_nodes = list(seen.keys())
         nodes_within = set(ordered_nodes)
 
-    # br-r37-c1-fauol: nx.ego_graph uses G.subgraph(sp).copy(), which
-    # iterates the result in G's original insertion order (filtered to
-    # nodes_within). Match that contract instead of BFS-visit order.
-    ordered_nodes = [node for node in G.nodes() if node in nodes_within]
+    # br-r37-c1-fauol / br-r37-c1-mqq4m: nx.ego_graph is G.subgraph(sp).copy(),
+    # so the node order is FilterAtlas.__iter__'s, and that rule has TWO
+    # branches. fauol implemented only the second one:
+    #
+    #     node_ok_shorter = 2 * len(NODE_OK.nodes) < len(atlas)
+    #     if node_ok_shorter:  (n for n in NODE_OK.nodes if n in atlas)
+    #     else:                (n for n in atlas if NODE_OK(n))
+    #
+    # For an ego set small relative to the graph — the overwhelmingly common
+    # case — networkx takes the FIRST branch, and ``NODE_OK.nodes`` is the SET
+    # that ``show_nodes`` built, so the order is set-iteration order, not the
+    # parent's. Scanning the parent produced the wrong order in 5 of 6 spot
+    # checks (nx ['n3','n0','n171'] vs fnx ['n0','n3','n171']) AND made the
+    # whole call O(parent): 0.044x vs networkx at N=32000, against 0.544x at
+    # N=2000, because networkx is flat here and fnx was not.
+    #
+    # Taking the branch networkx takes fixes the order and the complexity at
+    # once: it reads only the ego set. ``nodes_within`` is already the set built
+    # from the BFS order, exactly as networkx's ``set(sp)`` is.
+    if 2 * len(nodes_within) < len(G):
+        ordered_nodes = [node for node in nodes_within if node in G]
+    else:
+        ordered_nodes = [node for node in G.nodes() if node in nodes_within]
 
     # br-r37-c1-s8w2p: SubgraphView class can't be empty-constructed.
     graph = _concrete_class_for(G)()
