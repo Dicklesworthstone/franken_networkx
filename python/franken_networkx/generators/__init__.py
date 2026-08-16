@@ -74,7 +74,21 @@ def _register_franken_generator_submodules():
         proxy.__spec__ = None
         _overlay_franken_generators(proxy.__dict__)
         sys.modules[alias] = proxy
-        globals()[name] = proxy
+        # br-r37-c1-cd05u (found auditing br-r37-c1-3f37f): bind the ATTRIBUTE
+        # only where networkx binds a module
+        # there itself. Three nx generator submodules share their name with the
+        # function they export — interval_graph, nonisomorphic_trees and
+        # spectral_graph_forge — and networkx's own ``from .interval_graph
+        # import *`` runs after the submodule import, so ``nx.generators.
+        # interval_graph`` is the FUNCTION. Rebinding unconditionally replaced
+        # the function the star-import above had already put in globals() with a
+        # module, and a module is not callable: ``fnx.generators.interval_graph
+        # (...)`` raised TypeError where networkx returned a graph. The
+        # sys.modules registration is unconditional regardless, so
+        # ``import franken_networkx.generators.interval_graph`` keeps working —
+        # exactly the duality networkx itself has.
+        if isinstance(getattr(_src, name, None), types.ModuleType):
+            globals()[name] = proxy
 
 
 _overlay_franken_generators(globals())
