@@ -2976,6 +2976,33 @@ class _DiGraphEdgeView:
                 f"list(G.edges)[{edge.start}:{edge.stop}:{edge.step}]"
             )
         u, v = edge
+        native_get_edge_data = self._fnx_native_get_edge_data
+        if (
+            native_get_edge_data is not None
+            and not _has_networkx_private_storage(self._graph)
+        ):
+            # br-r37-c1-q4wzt: on a HIT the native lookup already established
+            # both endpoints, so the explicit `hash(u)`, the `u in self._graph`
+            # membership probe and `hash(v)` below are duplicate work -- measured
+            # at 41.7ns for the membership probe alone on a call whose whole
+            # networkx equivalent is 115.2ns. Try the lookup FIRST and keep the
+            # careful ordering for everything that is not a hit.
+            try:
+                data = native_get_edge_data(u, v, _PRIVATE_MISSING)
+            except TypeError:
+                # An unhashable endpoint. Fall through to the ordered path so
+                # the exception TYPE and ORDER stay nx's rather than whatever
+                # the native canonicaliser raised.
+                pass
+            else:
+                if data is not _PRIVATE_MISSING:
+                    return data
+                # Absent: reproduce nx's ordering exactly before raising.
+                hash(u)
+                if u not in self._graph:
+                    raise KeyError(f"The edge {edge} is not in the graph.")
+                hash(v)
+                raise KeyError(f"The edge {edge} is not in the graph.")
         hash(u)
         # br-r37-c1-60627: `v` is hashed only AFTER `u`'s presence is
         # established. nx evaluates `self._adjdict[u][v]`, so an absent `u`
@@ -2984,15 +3011,6 @@ class _DiGraphEdgeView:
         if u not in self._graph:
             raise KeyError(f"The edge {edge} is not in the graph.")
         hash(v)
-        native_get_edge_data = self._fnx_native_get_edge_data
-        if (
-            native_get_edge_data is not None
-            and not _has_networkx_private_storage(self._graph)
-        ):
-            data = native_get_edge_data(u, v, _PRIVATE_MISSING)
-            if data is not _PRIVATE_MISSING:
-                return data
-            raise KeyError(f"The edge {edge} is not in the graph.")
         if not self._graph.has_edge(u, v):
             raise KeyError(f"The edge {edge} is not in the graph.")
         return self._graph.succ[u][v]
