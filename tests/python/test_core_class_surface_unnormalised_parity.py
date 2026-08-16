@@ -192,52 +192,16 @@ CALLED_VIEWS = {
     "edges(data='w')": lambda g: g.edges(data="w"),
     "edges(nbunch)": lambda g: g.edges([0, 1]),
     "nodes(data=True)": lambda g: g.nodes(data=True),
+    # Moved back out of KNOWN_STALE when br-r37-c1-vfc2t landed.
+    "degree(nbunch)": lambda g: g.degree([0, 1]),
+    "degree(weight='w')": lambda g: g.degree(weight="w"),
 }
 DIRECTED_CALLED_VIEWS = {
     "in_edges(data=True)": lambda g: g.in_edges(data=True),
     "out_edges(data=True)": lambda g: g.out_edges(data=True),
     "in_degree(nbunch)": lambda g: g.in_degree([0, 1]),
-}
-# NOT in the liveness set above: degree(nbunch) and out_degree(nbunch) are
-# frozen snapshots on HEAD and report pre-mutation degrees — br-r37-c1-vfc2t,
-# found by this very file. Named here rather than quietly omitted, so the gap
-# is visible and the exclusion can be deleted when that bead lands.
-KNOWN_STALE_CALLED_VIEWS = {
-    "degree(nbunch)": lambda g: g.degree([0, 1]),
     "out_degree(nbunch)": lambda g: g.out_degree([0, 1]),
-    # The UNRESTRICTED weighted view is a snapshot too: its per-node values are
-    # taken from a native accumulator at construction. Pre-existing, verified
-    # against the commit before br-r37-c1-z4iod, which changed only whether the
-    # result was re-iterable.
-    "degree(weight='w')": lambda g: g.degree(weight="w"),
 }
-
-
-@pytest.mark.parametrize("cls_name", CLASSES)
-def test_known_stale_degree_views_are_still_stale(cls_name):
-    """Pins the OPEN defect so the exclusion above cannot go quietly wrong.
-
-    br-r37-c1-vfc2t is not fixed yet. If someone fixes it, this test fails and
-    tells them to move these entries back into the live set rather than leaving
-    a silent hole in the coverage. It is deliberately an assertion about a bug,
-    not a skip.
-    """
-    gnx, gfx = _pair(cls_name)
-    stale = []
-    for name, probe in KNOWN_STALE_CALLED_VIEWS.items():
-        if cls_name not in DIRECTED and name.startswith("out_degree"):
-            continue
-        held_nx, held_fx = probe(gnx), probe(gfx)
-        for graph in (gnx, gfx):
-            graph.add_edge(0, 3, w=5)
-        if list(held_fx) != list(held_nx):
-            stale.append(name)
-    assert stale, (
-        "br-r37-c1-vfc2t appears FIXED: move these back into CALLED_VIEWS "
-        "and delete KNOWN_STALE_CALLED_VIEWS"
-    )
-
-
 def _called_for(cls_name):
     probes = dict(CALLED_VIEWS)
     if cls_name in DIRECTED:

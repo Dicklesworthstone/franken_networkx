@@ -31,7 +31,7 @@ KNOWN RESIDUE, excluded by name: after ``clear()``, a restricted view whose
 frozen nodes are all gone should raise KeyError (networkx indexes each frozen
 node), where fnx returns an empty result. That is the degree-view counterpart
 of br-r37-c1-2pia7's first clause, it reaches proxy classes this fix does not
-touch, and it is filed as br-r37-c1-ta5wq.
+touch, and it is filed as br-r37-c1-pejo5.
 """
 
 from __future__ import annotations
@@ -62,7 +62,7 @@ DIRECTED_UNRESTRICTED = {
     "out_degree": lambda g: g.out_degree,
 }
 
-# `clear` is deliberately absent — see the module docstring (br-r37-c1-ta5wq).
+# `clear` is deliberately absent — see the module docstring (br-r37-c1-pejo5).
 MUTATIONS = {
     "add_edge_existing_nodes": lambda g: g.add_edge(0, 3),
     "add_edge_new_nodes": lambda g: g.add_edge(8, 9),
