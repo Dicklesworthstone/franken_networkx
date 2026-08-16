@@ -12029,3 +12029,43 @@ the hashing of long keys or the heap allocation above the buffer. Those are
 separable — hash a long key that FITS the buffer against one that does not — and
 that experiment is build-free too. I have not run it, so the honest statement is
 "key-length-proportional work in the attribute lookaside", not "allocation".
+
+---
+
+## edges([n]) — measured LOSS on the post-freeze ELF, token count tracks the ratio (br-r37-c1-cnwof)
+
+LEVER: widen the lazy per-row walk past its `type(self._graph) is Graph` gate, so
+the other three classes stop re-deriving the freshness token at every step of a
+single `list(G.edges([n]))`.
+
+HYPOTHESIS: the freshness-token count is the cost, and Graph — which needs one
+token because it already takes the walk — shows what the others could reach.
+
+MEASURED 2026-08-16, LOCAL:thinkstation1, live networkx 3.6.1, N=2000. Substrate:
+balanced square ABBAABBA, 21 rounds x 20000 reps, both arms in ONE invocation,
+bootstrap median CI over rounds (10k resamples). RCH_CARGO_WRAPPER_BYPASS=1
+exported. Local build into the repo's own target/ with env -u CARGO_TARGET_DIR.
+ELF sha256 2c3e0c53f4b0d9558998a21d5298d7e5912689ecbaf4db75fb1e346aa10af366.
+
+    class          nx us   fnx us   t_nx/t_fnx   95% CI              tokens
+    DiGraph        2.333    5.545     0.4174     [0.4142, 0.4234]      4
+    MultiGraph     3.130    5.497     0.5613     [0.5572, 0.5671]      4
+    MultiDiGraph   2.972    5.173     0.5729     [0.5713, 0.5773]      5
+    Graph          2.889    4.580     0.6280     [0.6235, 0.6304]      1
+
+DiGraph A/A null control, paired(base, base) in the same invocation: nx arm 1.0096x PASS; fnx arm 0.9886x PASS.
+MultiGraph A/A null control, paired(base, base) in the same invocation: nx arm 1.0011x PASS; fnx arm 1.0071x PASS.
+MultiDiGraph A/A null control, paired(base, base) in the same invocation: nx arm 0.9985x PASS; fnx arm 0.9977x PASS.
+Graph A/A null control, paired(base, base) in the same invocation: nx arm 0.9975x PASS; fnx arm 1.0000x PASS.
+All eight A/A null medians straddle 1.0, gated on the bootstrap median CI and not on CV, so the substrate is admissible and every gap sits far outside the null spread.
+
+WHAT THE ROW ESTABLISHES: the token count and the ratio move together. Graph
+pays ONE token and is the best row at 0.6280x; DiGraph pays four and is the worst
+at 0.4174x. That is consistent with the hypothesis and is the reason to widen the
+gate — but it is correlation across four points, not a demonstrated cause, and
+the lever has NOT been applied yet.
+
+STATUS: loss recorded on the post-freeze ELF with admissible nulls. The lever is
+OPEN and UNATTEMPTED. The budget in
+tests/python/test_edges_nbunch_freshness_token_budget.py fails when the counts
+drop, so whoever lands it is told to update the numbers and bank the new ratio.
