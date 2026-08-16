@@ -84,11 +84,20 @@ def test_reversing_the_nbunch_tracks_networkx(cls_name, size):
     backward = list(reversed(forward))
     assert _shape(gfx.subgraph(forward)) == _shape(gnx.subgraph(forward))
     assert _shape(gfx.subgraph(backward)) == _shape(gnx.subgraph(backward))
-    # Content is order-independent even where iteration order is not.
+    # Content is order-independent even where iteration order is not — but for
+    # an UNDIRECTED graph the emitted tuple's orientation follows node
+    # iteration order, so (u, v) and (v, u) are the same edge reported
+    # differently. networkx does exactly the same; comparing the raw strings
+    # made this assertion fail on roughly one PYTHONHASHSEED in twelve, which
+    # is how I shipped it. Normalise the orientation, then compare.
+    def _unordered(view):
+        return sorted(tuple(sorted(edge[:2])) for edge in view.edges)
+
     assert sorted(gfx.subgraph(backward).nodes) == sorted(gfx.subgraph(forward).nodes)
-    assert sorted(map(str, gfx.subgraph(backward).edges)) == sorted(
-        map(str, gfx.subgraph(forward).edges)
-    )
+    assert _unordered(gfx.subgraph(backward)) == _unordered(gfx.subgraph(forward))
+    # And the same normalisation against networkx, for both orderings.
+    assert _unordered(gfx.subgraph(forward)) == _unordered(gnx.subgraph(forward))
+    assert _unordered(gfx.subgraph(backward)) == _unordered(gnx.subgraph(backward))
 
 
 @pytest.mark.parametrize("cls_name", CLASSES)

@@ -2209,6 +2209,12 @@ class MultiAdjacencyView(_Mapping):
         native_contains=None,
     ):
         self._atlas_getter = atlas_getter
+        # br-r37-c1-znpkv: per-row view cache, keyed on nodes_seq — the same
+        # shape AdjacencyView has carried since br-r37-c1-spg9n. G.adj[u] built
+        # a fresh AdjacencyView AND a fresh closure on every subscript, which
+        # was 0.70us of the 0.88us that made MultiGraph len(G.adj[u]) the worst
+        # row on the surface at 0.219x.
+        self._fnx_row_cache = None
         # br-r37-c1-spg9n: the owning graph, for cheap membership/len/contains
         # without materialising the whole {node:{nbr:{key:attrs}}} dict. Sparse:
         # the pickle reconstructor + reverse views pass owner=None and keep the
@@ -2296,10 +2302,31 @@ class MultiAdjacencyView(_Mapping):
                 else None
             )
             if native is not None:
-                return AdjacencyView(
-                    lambda: native(node),
-                    multi_edge_owner=owner,
-                )
+                # br-r37-c1-znpkv: the row view live-reads its row, so it stays
+                # correct across EDGE churn; only a node add/remove can
+                # invalidate it, and nodes_seq keys the cache on exactly that.
+                cache = self._fnx_row_cache
+                seq = owner.nodes_seq
+                if cache is None or cache[0] != seq:
+                    cache = (seq, {})
+                    self._fnx_row_cache = cache
+                view = cache[1].get(node)
+                if view is None:
+                    # CAPTURE the row rather than re-fetching it on every
+                    # access, the same move br-r37-c1-124xl made on the G[u][v]
+                    # path. The returned object is a native MultiAtlasView that
+                    # stays LIVE across edge churn — verified: a captured row
+                    # sees a later add_edge and remove_edge. Node mutation
+                    # advances nodes_seq and drops this cache, which is what
+                    # stops a captured row outliving its node. Without the
+                    # capture, every len()/contains on the SAME cached view
+                    # crossed the PyO3 boundary again.
+                    view = AdjacencyView(
+                        (lambda row=native(node): row),
+                        multi_edge_owner=owner,
+                    )
+                    cache[1][node] = view
+                return view
             return AdjacencyView(
                 lambda: self._atlas()[node],
                 multi_edge_owner=owner,
