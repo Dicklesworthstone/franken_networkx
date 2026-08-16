@@ -396,6 +396,13 @@ pub struct PyMultiDiGraph {
     /// `__contains__` paid the full canonical rebuild on every probe.
     /// Values are native node indices, invalidated by `nodes_seq`.
     pub(crate) has_edge_node_index_cache: crate::NodeIndexLookupCache,
+    /// br-r37-c1-bvwam: per-node `{successor: None}` and `{predecessor: None}`
+    /// rows backing `G.neighbors(n)` / `G.successors(n)` / `G.predecessors(n)`,
+    /// with the `(nodes_seq, edges_seq)` generation they were built under. See
+    /// `PyMultiGraph::neighbor_key_rows` — same contract, one map per direction,
+    /// and likewise a cache rather than a live mirror.
+    pub(crate) succ_key_rows: Option<(u64, u64, HashMap<String, Py<PyDict>>)>,
+    pub(crate) pred_key_rows: Option<(u64, u64, HashMap<String, Py<PyDict>>)>,
     pub(crate) instance_dict_gc: crate::InstanceDictGc,
 }
 
@@ -2023,6 +2030,119 @@ impl PyMultiDiGraph {
             )
     }
 
+    /// br-r37-c1-bvwam: the `{neighbour: None}` row for one direction, cached
+    /// under the current `(nodes_seq, edges_seq)` generation. See
+    /// `PyMultiGraph::neighbor_key_row` — the row deliberately holds no edge
+    /// attributes, since `neighbors`/`successors`/`predecessors` iterate keys.
+    fn direction_key_row(
+        &mut self,
+        py: Python<'_>,
+        node: &Bound<'_, PyAny>,
+        kind: MultiDiAdjKind,
+    ) -> PyResult<Py<PyDict>> {
+        let (nodes_seq, edges_seq) = (self.nodes_seq, self.edges_seq);
+        let successors = matches!(kind, MultiDiAdjKind::Successors);
+        let slot = if successors {
+            &mut self.succ_key_rows
+        } else {
+            &mut self.pred_key_rows
+        };
+        let fresh = matches!(
+            slot, Some((nodes, edges, _)) if *nodes == nodes_seq && *edges == edges_seq
+        );
+        if !fresh {
+            *slot = Some((nodes_seq, edges_seq, HashMap::new()));
+        }
+        if let Some(row) = crate::with_node_key_str(py, node, |canonical| {
+            let slot = if successors {
+                &self.succ_key_rows
+            } else {
+                &self.pred_key_rows
+            };
+            slot.as_ref()
+                .and_then(|(_, _, rows)| rows.get(canonical))
+                .map(|row| row.clone_ref(py))
+        })? {
+            return Ok(row);
+        }
+        let canonical = node_key_to_string(py, node)?;
+        if !self.inner.has_node(&canonical) {
+            return Err(crate::missing_key_error(node));
+        }
+        let neighbors: Vec<String> = if successors {
+            self.inner.successors(&canonical)
+        } else {
+            self.inner.predecessors(&canonical)
+        }
+        .unwrap_or_default()
+        .into_iter()
+        .map(str::to_owned)
+        .collect();
+        let row = PyDict::new(py);
+        for neighbor in &neighbors {
+            // br-r37-c1-z6uka display objects, and note the pred row's edge runs
+            // neighbour -> canonical, so the owner/neighbour pair is reversed
+            // relative to the succ row.
+            let py_neighbor = if successors {
+                self.py_succ_key(py, &canonical, neighbor)
+            } else {
+                self.py_pred_key(py, &canonical, neighbor)
+            };
+            row.set_item(py_neighbor, py.None())?;
+        }
+        let row = row.unbind();
+        let slot = if successors {
+            &mut self.succ_key_rows
+        } else {
+            &mut self.pred_key_rows
+        };
+        if let Some((_, _, rows)) = slot.as_mut() {
+            rows.insert(canonical, row.clone_ref(py));
+        }
+        Ok(row)
+    }
+
+    /// br-r37-c1-bvwam: shared body of `_native_neighbors_iter` and
+    /// `_native_predecessors_iter`.
+    fn native_direction_iter(
+        slf: &Bound<'_, Self>,
+        n: &Bound<'_, PyAny>,
+        kind: MultiDiAdjKind,
+    ) -> PyResult<PyObject> {
+        let py = slf.py();
+        // nx's `self._succ[n]` hashes `n` first (br-r37-c1-lvlu7).
+        crate::require_hashable_node_key(n)?;
+        if slf.borrow().instance_dict_gc.has_private_override() {
+            let attr = if matches!(kind, MultiDiAdjKind::Successors) {
+                pyo3::intern!(py, "succ")
+            } else {
+                pyo3::intern!(py, "pred")
+            };
+            let adjacency = slf.getattr(attr)?;
+            return match adjacency.get_item(n) {
+                Ok(row) => Ok(row.try_iter()?.into_any().unbind()),
+                Err(err) if err.is_instance_of::<pyo3::exceptions::PyKeyError>(py) => {
+                    Err(NetworkXError::new_err(format!(
+                        "The node {} is not in the digraph.",
+                        n.str()?
+                    )))
+                }
+                Err(err) => Err(err),
+            };
+        }
+        let row = match slf.borrow_mut().direction_key_row(py, n, kind) {
+            Ok(row) => row,
+            Err(err) if err.is_instance_of::<pyo3::exceptions::PyKeyError>(py) => {
+                return Err(NetworkXError::new_err(format!(
+                    "The node {} is not in the digraph.",
+                    n.str()?
+                )));
+            }
+            Err(err) => return Err(err),
+        };
+        Ok(row.bind(py).try_iter()?.into_any().unbind())
+    }
+
     /// br-r37-c1-z6uka: succ-cell display object (see PyDiGraph::py_succ_key;
     /// a multi cell is created by the FIRST key of a (u, v) pair and parallel
     /// keys reuse it).
@@ -2181,6 +2301,8 @@ impl PyMultiDiGraph {
         runtime_policy: RuntimePolicy,
     ) -> PyResult<Self> {
         Ok(Self {
+            succ_key_rows: None,
+            pred_key_rows: None,
             has_edge_node_index_cache: crate::NodeIndexLookupCache::new(py),
             in_edges_data_attr_cache: std::sync::Mutex::new(None),
             edges_data_attr_cache: std::sync::Mutex::new(None),
@@ -5481,6 +5603,21 @@ impl PyMultiDiGraph {
         self.successors(py, n)
     }
 
+    /// br-r37-c1-bvwam: `iter(self._succ[n])`, the way networkx spells
+    /// `G.neighbors(n)` and `G.successors(n)`. See
+    /// `PyMultiGraph::native_neighbors_iter` for why the private-storage case is
+    /// answered here and why `signature = (n)` is mandatory.
+    #[pyo3(name = "_native_neighbors_iter", signature = (n))]
+    fn native_neighbors_iter(slf: &Bound<'_, Self>, n: &Bound<'_, PyAny>) -> PyResult<PyObject> {
+        Self::native_direction_iter(slf, n, MultiDiAdjKind::Successors)
+    }
+
+    /// br-r37-c1-bvwam: `iter(self._pred[n])`.
+    #[pyo3(name = "_native_predecessors_iter", signature = (n))]
+    fn native_predecessors_iter(slf: &Bound<'_, Self>, n: &Bound<'_, PyAny>) -> PyResult<PyObject> {
+        Self::native_direction_iter(slf, n, MultiDiAdjKind::Predecessors)
+    }
+
     fn clear(&mut self, py: Python<'_>) -> PyResult<()> {
         self.inner = MultiDiGraph::with_runtime_policy(self.inner.runtime_policy().clone());
         self.node_key_map.clear();
@@ -7206,6 +7343,8 @@ impl PyMultiDiGraph {
         // edge_dirty_keys clean. (We also drop the rebuild's eager empty edge attr
         // PyDicts — lazy materialize is identity-preserving, br-r37-c1-aab122464.)
         let mut new_graph = Self {
+            succ_key_rows: None,
+            pred_key_rows: None,
             has_edge_node_index_cache: crate::NodeIndexLookupCache::new(py),
             in_edges_data_attr_cache: std::sync::Mutex::new(None),
             edges_data_attr_cache: std::sync::Mutex::new(None),
@@ -7258,6 +7397,8 @@ impl PyMultiDiGraph {
     fn _native_to_directed_deepcopy(&self, py: Python<'_>) -> PyResult<Self> {
         let deepcopy = py.import("copy")?.getattr("deepcopy")?;
         let mut new_graph = Self {
+            succ_key_rows: None,
+            pred_key_rows: None,
             has_edge_node_index_cache: crate::NodeIndexLookupCache::new(py),
             in_edges_data_attr_cache: std::sync::Mutex::new(None),
             edges_data_attr_cache: std::sync::Mutex::new(None),
@@ -7351,6 +7492,7 @@ impl PyMultiDiGraph {
             node_iter_mirror: std::sync::Mutex::new(None),
             instance_dict_gc: crate::InstanceDictGc::new(),
             has_edge_node_index_cache: crate::NodeIndexLookupCache::new(py),
+            neighbor_key_rows: None,
         };
         let mut node_batch: Vec<(String, fnx_classes::AttrMap)> =
             Vec::with_capacity(self.inner.node_count());
@@ -7568,6 +7710,8 @@ impl PyMultiDiGraph {
         // insertion order exactly; only the deep-copy of the Python attr dicts /
         // key objects remains.
         let mut new_graph = Self {
+            succ_key_rows: None,
+            pred_key_rows: None,
             has_edge_node_index_cache: crate::NodeIndexLookupCache::new(py),
             in_edges_data_attr_cache: std::sync::Mutex::new(None),
             edges_data_attr_cache: std::sync::Mutex::new(None),
@@ -7645,6 +7789,8 @@ impl PyMultiDiGraph {
         // dicts are clone_ref'd so attrs stay SHARED (shallow-copy
         // semantics); row-key override maps clone exactly.
         Ok(Self {
+            succ_key_rows: None,
+            pred_key_rows: None,
             has_edge_node_index_cache: crate::NodeIndexLookupCache::new(py),
             in_edges_data_attr_cache: std::sync::Mutex::new(None),
             edges_data_attr_cache: std::sync::Mutex::new(None),
@@ -7750,6 +7896,8 @@ impl PyMultiDiGraph {
         }
 
         let mut new_graph = Self {
+            succ_key_rows: None,
+            pred_key_rows: None,
             has_edge_node_index_cache: crate::NodeIndexLookupCache::new(py),
             in_edges_data_attr_cache: std::sync::Mutex::new(None),
             edges_data_attr_cache: std::sync::Mutex::new(None),
@@ -7836,6 +7984,8 @@ impl PyMultiDiGraph {
         let iter = PyIterator::from_object(edges)?;
         let mut involved_nodes: HashSet<String> = HashSet::new();
         let mut new_graph = Self {
+            succ_key_rows: None,
+            pred_key_rows: None,
             has_edge_node_index_cache: crate::NodeIndexLookupCache::new(py),
             in_edges_data_attr_cache: std::sync::Mutex::new(None),
             edges_data_attr_cache: std::sync::Mutex::new(None),
@@ -7976,6 +8126,7 @@ impl PyMultiDiGraph {
             node_iter_mirror: std::sync::Mutex::new(None),
             instance_dict_gc: crate::InstanceDictGc::new(),
             has_edge_node_index_cache: crate::NodeIndexLookupCache::new(py),
+            neighbor_key_rows: None,
         };
 
         for (canonical, py_key) in &self.node_key_map {
@@ -8031,6 +8182,8 @@ impl PyMultiDiGraph {
             Some(HashSet::new())
         };
         let mut new_graph = Self {
+            succ_key_rows: None,
+            pred_key_rows: None,
             has_edge_node_index_cache: crate::NodeIndexLookupCache::new(py),
             in_edges_data_attr_cache: std::sync::Mutex::new(None),
             edges_data_attr_cache: std::sync::Mutex::new(None),
@@ -9497,6 +9650,7 @@ impl PyDiGraph {
         }
         self.py_node_key(py, nbr)
     }
+
 
     /// br-r37-c1-z6uka: pred-row display object.
     pub(crate) fn py_pred_key(&self, py: Python<'_>, owner: &str, nbr: &str) -> PyObject {

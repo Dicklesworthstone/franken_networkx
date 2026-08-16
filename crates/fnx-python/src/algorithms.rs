@@ -11481,6 +11481,8 @@ pub fn stochastic_graph_copy_multidigraph(
 
     let new_graph = PyMultiDiGraph {
         has_edge_node_index_cache: crate::NodeIndexLookupCache::new(py),
+        succ_key_rows: None,
+        pred_key_rows: None,
         in_edges_data_attr_cache: std::sync::Mutex::new(None),
         edges_data_attr_cache: std::sync::Mutex::new(None),
         inner,
@@ -15867,6 +15869,8 @@ pub fn multidigraph_transitive_closure(
 
     let mut result = PyMultiDiGraph {
         has_edge_node_index_cache: crate::NodeIndexLookupCache::new(py),
+        succ_key_rows: None,
+        pred_key_rows: None,
         in_edges_data_attr_cache: std::sync::Mutex::new(None),
         edges_data_attr_cache: std::sync::Mutex::new(None),
         inner,
@@ -32928,6 +32932,7 @@ mod tests {
                 edges_data_attr_cache: std::sync::Mutex::new(None),
                 has_remapped_int_key: false,
                 has_edge_node_index_cache: crate::NodeIndexLookupCache::new(py),
+                neighbor_key_rows: None,
             };
             let mut weighted_attrs = AttrMap::new();
             weighted_attrs.insert("weight".to_owned(), 1.0.into());

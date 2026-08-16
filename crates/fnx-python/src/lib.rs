@@ -4835,6 +4835,18 @@ pub(crate) struct PyMultiGraph {
     /// br-r37-c1-paof2: warm exact-string endpoints for keyless `has_edge`.
     /// Values are native node indices and are invalidated by `nodes_seq`.
     pub(crate) has_edge_node_index_cache: NodeIndexLookupCache,
+    /// br-r37-c1-bvwam: per-node `{neighbour: None}` rows backing
+    /// `G.neighbors(n)`, with the `(nodes_seq, edges_seq)` generation they were
+    /// built under. Unlike `PyGraph::adj_row_py` these are NOT maintained in
+    /// place by the mutators and hold no edge attributes — they exist only so
+    /// the key iterator networkx builds with `iter(self._adj[n])` can be served
+    /// without rebuilding a dict per call. A generation mismatch drops the whole
+    /// map rather than repairing it, which is what keeps this a cache and not a
+    /// second source of truth. Because it is a cache, an iterator handed out
+    /// before a mutation keeps walking the row it was given, exactly as the
+    /// Python-side keydict cache it replaces did — br-r37-c1-dwy1n tracks that
+    /// divergence from networkx and is NOT changed either way by this field.
+    pub(crate) neighbor_key_rows: Option<(u64, u64, HashMap<String, Py<PyDict>>)>,
     pub(crate) instance_dict_gc: InstanceDictGc,
 }
 
@@ -5078,6 +5090,63 @@ impl PyMultiGraph {
             return obj.clone_ref(py);
         }
         self.py_node_key(py, nbr)
+    }
+
+    /// br-r37-c1-bvwam: the `{neighbour: None}` row backing `G.neighbors(n)`,
+    /// cached under the current `(nodes_seq, edges_seq)` generation.
+    ///
+    /// The row holds NO edge attributes on purpose. `neighbors` only ever
+    /// iterates keys, and materialising the `{key: attrs}` cell dicts that
+    /// `_native_successor_row_dict` builds would pay O(parallel edges) of PyO3
+    /// per neighbour for values nothing reads.
+    pub(crate) fn neighbor_key_row(
+        &mut self,
+        py: Python<'_>,
+        node: &Bound<'_, PyAny>,
+    ) -> PyResult<Py<PyDict>> {
+        // A stale generation is dropped WHOLESALE rather than repaired: rows are
+        // cheap to rebuild and reasoning about which of them an arbitrary
+        // mutation invalidated is exactly the complexity this avoids.
+        let fresh = matches!(
+            &self.neighbor_key_rows,
+            Some((nodes, edges, _)) if *nodes == self.nodes_seq && *edges == self.edges_seq
+        );
+        if !fresh {
+            self.neighbor_key_rows = Some((self.nodes_seq, self.edges_seq, HashMap::new()));
+        }
+        // Borrowed probe, no allocation on the hit path — see the same lever on
+        // `PyGraph::native_adjacency_row_dict`.
+        if let Some(row) = with_node_key_str(py, node, |canonical| {
+            self.neighbor_key_rows
+                .as_ref()
+                .and_then(|(_, _, rows)| rows.get(canonical))
+                .map(|row| row.clone_ref(py))
+        })? {
+            return Ok(row);
+        }
+        let canonical = node_key_to_string(py, node)?;
+        if !self.inner.has_node(&canonical) {
+            return Err(missing_key_error(node));
+        }
+        let neighbors: Vec<String> = self
+            .inner
+            .neighbors(&canonical)
+            .unwrap_or_default()
+            .into_iter()
+            .map(str::to_owned)
+            .collect();
+        let row = PyDict::new(py);
+        for neighbor in &neighbors {
+            // br-r37-c1-z6uka: the display object, not the canonical string —
+            // an adjacency cell can carry its own key object.
+            let py_neighbor = self.py_adj_key(py, &canonical, neighbor);
+            row.set_item(py_neighbor, py.None())?;
+        }
+        let row = row.unbind();
+        if let Some((_, _, rows)) = self.neighbor_key_rows.as_mut() {
+            rows.insert(canonical, row.clone_ref(py));
+        }
+        Ok(row)
     }
 
     /// br-r37-c1-z6uka: see PyGraph::derive_copy_adj_py_keys — nx's u-major
@@ -5370,6 +5439,7 @@ impl PyMultiGraph {
         runtime_policy: RuntimePolicy,
     ) -> PyResult<Self> {
         Ok(Self {
+            neighbor_key_rows: None,
             edges_data_attr_cache: std::sync::Mutex::new(None),
             inner: MultiGraph::with_runtime_policy(runtime_policy),
             node_key_map: HashMap::new(),
@@ -9728,6 +9798,54 @@ impl PyMultiGraph {
         }
     }
 
+    /// br-r37-c1-bvwam: `G.neighbors(n)` as networkx spells it —
+    /// `iter(self._adj[n])`, one dict lookup and one iterator, nothing else.
+    ///
+    /// The Python wrapper this replaces (`_private_aware_neighbors`) paid, on
+    /// every warm call, a `vars(self)` snapshot, four private-override
+    /// membership tests, two PyO3 property reads to rebuild the
+    /// `(nodes_seq, edges_seq)` token, a tuple allocation to compare it and a
+    /// second tuple allocation to key the per-row cache — all to reach an
+    /// `iter()` that networkx reaches with a single cached-hash dict probe. The
+    /// measured cost was 0.2515x on iterator CREATION.
+    ///
+    /// The private-storage case is answered HERE rather than by a Python
+    /// caller, because a caller that had to inspect the result would put back
+    /// the frame this exists to remove — the same reasoning as
+    /// `PyGraph::native_neighbors_iter`.
+    ///
+    /// `signature = (n)` is mandatory: without it pyo3 makes the argument
+    /// positional-only and `G.neighbors(n=...)`, which networkx accepts, stops
+    /// working.
+    #[pyo3(name = "_native_neighbors_iter", signature = (n))]
+    fn native_neighbors_iter(slf: &Bound<'_, Self>, n: &Bound<'_, PyAny>) -> PyResult<PyObject> {
+        let py = slf.py();
+        // nx's `self._adj[n]` hashes `n` first, so an unhashable node raises
+        // TypeError rather than reporting absence (br-r37-c1-lvlu7).
+        require_hashable_node_key(n)?;
+        if slf.borrow().instance_dict_gc.has_private_override() {
+            let adjacency = slf.getattr(intern!(py, "adj"))?;
+            return match adjacency.get_item(n) {
+                Ok(row) => Ok(row.try_iter()?.into_any().unbind()),
+                Err(err) if err.is_instance_of::<PyKeyError>(py) => Err(NetworkXError::new_err(
+                    format!("The node {} is not in the graph.", n.str()?),
+                )),
+                Err(err) => Err(err),
+            };
+        }
+        let row = match slf.borrow_mut().neighbor_key_row(py, n) {
+            Ok(row) => row,
+            Err(err) if err.is_instance_of::<PyKeyError>(py) => {
+                return Err(NetworkXError::new_err(format!(
+                    "The node {} is not in the graph.",
+                    n.str()?
+                )));
+            }
+            Err(err) => return Err(err),
+        };
+        Ok(row.bind(py).try_iter()?.into_any().unbind())
+    }
+
     /// Number of nodes (called by ``len(G)``).
     ///
     /// br-r37-c1-l7ww9: assigned `_node` storage wins, as it does for
@@ -10687,6 +10805,7 @@ impl PyMultiGraph {
         // directed sibling is safe because reorder_pred rebuilds pred from the
         // never-reordered succ. Keep the rebuild.
         let mut new_graph = Self {
+            neighbor_key_rows: None,
             edges_data_attr_cache: std::sync::Mutex::new(None),
             // br-r37-c1-7dpyg: fresh ledger, mode only (skip ledger clone)
             inner: MultiGraph::with_runtime_policy(fnx_runtime::RuntimePolicy::new(
@@ -10793,6 +10912,7 @@ impl PyMultiGraph {
     fn _native_to_undirected_deepcopy(&self, py: Python<'_>) -> PyResult<Self> {
         let deepcopy = py.import("copy")?.getattr("deepcopy")?;
         let mut new_graph = Self {
+            neighbor_key_rows: None,
             edges_data_attr_cache: std::sync::Mutex::new(None),
             inner: MultiGraph::with_runtime_policy(self.inner.runtime_policy().clone()),
             node_key_map: HashMap::new(),
@@ -10862,6 +10982,8 @@ impl PyMultiGraph {
         // the bindings tolerate absent entries throughout).
         let mut mdg = crate::digraph::PyMultiDiGraph {
             has_edge_node_index_cache: NodeIndexLookupCache::new(py),
+            succ_key_rows: None,
+            pred_key_rows: None,
             in_edges_data_attr_cache: std::sync::Mutex::new(None),
             edges_data_attr_cache: std::sync::Mutex::new(None),
             inner: fnx_classes::digraph::MultiDiGraph::with_runtime_policy(
@@ -10957,6 +11079,7 @@ impl PyMultiGraph {
         // preserving node + edge + parallel-key insertion order exactly; only
         // the deep-copy of the Python attr dicts / key objects remains.
         let mut new_graph = Self {
+            neighbor_key_rows: None,
             edges_data_attr_cache: std::sync::Mutex::new(None),
             inner: self.inner.clone_with_fresh_policy(), // br-r37-c1-7dpyg: skip ledger
             node_key_map: HashMap::with_capacity(self.node_key_map.len()),
@@ -11033,6 +11156,7 @@ impl PyMultiGraph {
         // buckets). Node/edge attr dicts are independent COPIES (fnx's
         // locked copy.copy contract — see test_adj_mapping_parity).
         Ok(Self {
+            neighbor_key_rows: None,
             edges_data_attr_cache: std::sync::Mutex::new(None),
             inner: self.inner.clone_with_fresh_policy(), // br-r37-c1-7dpyg: skip ledger
             node_key_map: self
@@ -11124,6 +11248,7 @@ impl PyMultiGraph {
         }
 
         let mut new_graph = Self {
+            neighbor_key_rows: None,
             edges_data_attr_cache: std::sync::Mutex::new(None),
             inner: MultiGraph::with_runtime_policy(self.inner.runtime_policy().clone()),
             node_key_map: HashMap::new(),
@@ -11242,6 +11367,7 @@ impl PyMultiGraph {
 
         let mut involved_nodes: HashSet<String> = HashSet::new();
         let mut new_graph = Self {
+            neighbor_key_rows: None,
             edges_data_attr_cache: std::sync::Mutex::new(None),
             inner: MultiGraph::with_runtime_policy(self.inner.runtime_policy().clone()),
             node_key_map: HashMap::new(),
@@ -11348,6 +11474,8 @@ impl PyMultiGraph {
     fn to_directed(&self, py: Python<'_>) -> PyResult<crate::digraph::PyMultiDiGraph> {
         let mut mdg = crate::digraph::PyMultiDiGraph {
             has_edge_node_index_cache: NodeIndexLookupCache::new(py),
+            succ_key_rows: None,
+            pred_key_rows: None,
             in_edges_data_attr_cache: std::sync::Mutex::new(None),
             edges_data_attr_cache: std::sync::Mutex::new(None),
             inner: fnx_classes::digraph::MultiDiGraph::with_runtime_policy(
