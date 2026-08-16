@@ -13916,3 +13916,96 @@ sha256 1f81af46c3a92f91618ca743a90f24c679a1b5715bb2efdba3baf91d9b4c9c32 (AFTER),
 locally by maturin, `env -u CARGO_TARGET_DIR`, private TMPDIR, disk 306.26 GiB;
 governor powersave; runtime ISA avx2 avx sse4_2; observed affinity 8 of 64 cpus;
 python 3.13.7 x86_64; live networkx 3.6.1; PYTHONHASHSEED=0.
+
+## ATTRIBUTION (not a certification row): the multigraph row-view gap is a FIXED ~810 ns of Python frames, not O(degree) — and two of my own hypotheses were refuted before any code was written (br-r37-c1-2ndmw)
+
+NO CERTIFICATION THIS WINDOW. loadavg was 63 when this work started, so no row
+below is offered as a certified ratio; the numbers are ATTRIBUTION PROBES, taken
+at loadavg 18.7 and quoted only where the effect is an order of magnitude or a
+structural fact that contention cannot manufacture. Per-run loadavg is recorded
+as the fleet finding requires, and the certifying re-runs are deferred to a quiet
+window.
+
+**THE GATE, which is a structural fact and load-independent.** br-r37-c1-2ndmw
+was filed as "multigraph AtlasView rows did not get ptiz2's node-index cache".
+That understates it. The index cache is DOWNSTREAM of a much bigger gate —
+multigraphs never reach the native row view at all:
+
+    AdjacencyView.__getitem__:
+        if type(owner) is Graph and not _has_networkx_private_storage(owner):
+            view = _fnx.AtlasView(owner, node)          # native, C slot
+        else:
+            view = AtlasView(lambda: self._atlas()[node], ...)   # PYTHON
+
+DiGraph, MultiGraph and MultiDiGraph all fall to the Python `AtlasView`, whose
+multigraph branch short-circuits on its FIRST line —
+`if self._fnx_multi_edge_owner is not None: return self._atlas()[node]` — which
+bypasses the live-keydict, generation-cached and single-edge-native fast paths
+below it. ptiz2's node index lives on the native class, so it was never
+reachable from a multigraph.
+
+**HYPOTHESIS 1, REFUTED: O(degree) per subscript.** The simple-graph fast path
+carries a comment that distinct `G[u][v]` was "0.04x vs nx precisely because each
+cold access built u's entire row (O(degree))". Multigraphs bypass that fix, so
+the natural guess is that they still pay it. They do not:
+
+    class          degree     nx ns     fnx ns   ratio
+    Graph               2     330.7      343.0   0.9642
+    Graph              20     196.8      203.7   0.9661
+    Graph             200     192.4      206.3   0.9326
+    Graph            2000     213.4      211.0   1.0115
+    MultiGraph          2     296.4     1112.9   0.2663
+    MultiGraph         20     291.2     1084.1   0.2686
+    MultiGraph        200     269.6     1661.0   0.1623
+    MultiGraph       2000     362.4     1420.7   0.2551
+    MultiDiGraph        2     284.1     1119.6   0.2537
+    MultiDiGraph     2000     292.7     1090.4   0.2685
+
+FLAT across a 1000x span of degree. `_atlas()` returns an identity-stable
+`MultiAtlasView`, so the row is not rebuilt per call. Had I skipped this probe I
+would have built a single-edge fetch to avoid a row build that never happens.
+(The 1661.0 outlier is contention, which is exactly why this is an attribution
+table and not a banked row.)
+
+**HYPOTHESIS 2, REFUTED: a view-vs-copy divergence.** `G[u][v]` returns a
+non-identical object per call in fnx — the same shape as the real defect one
+level over in unkeyed `get_edge_data` (br-r37-c1-f3i50). Checked against
+networkx rather than assumed:
+
+    lib   class          identity   inner mutation   new-key insertion
+    nx    MultiGraph     False      propagates       raises TypeError
+    fnx   MultiGraph     False      propagates       raises TypeError
+    nx    MultiDiGraph   False      propagates       raises TypeError
+    fnx   MultiDiGraph   False      propagates       raises TypeError
+
+Exact agreement. networkx returns the LIVE keydict from `get_edge_data` and a
+READ-ONLY wrapper from `G[u][v]`, so "make it live" is the correct fix in f3i50
+and would be a REGRESSION here. Two adjacent entry points, opposite correct
+answers.
+
+**SO THE GAP IS A FIXED ~810 ns/call** — networkx ~290 ns against fnx ~1100 ns —
+of Python frames where simple Graph gets a C slot. Not complexity, not a bug.
+Closing it means routing multigraph rows onto a native view, and the
+native-view-classes lesson in this repo is that routing a native view into place
+is a PARITY change before it is a performance one.
+
+**TESTS LANDED FIRST, deliberately.** `tests/python/test_multigraph_row_view_contract.py`,
+57 cases, is the parity gate the eventual lever must pass, written before the
+lever rather than after it. It pins inner-attr-dict IDENTITY — the binding
+constraint, since `G[u][v][key]['w'] = x` is the documented mutation path and a
+native view returning freshly built inner dicts would satisfy every value
+comparison and break every mutating caller — plus the read-only outer wrapper,
+exception type AND args (a type-only check reports false green), key and row
+order, liveness under later edge mutation, behaviour after the owner node is
+removed, the index-renumbering hazard, subgraph rows, directed succ-only rows,
+the full Mapping surface, and non-`str` keys. A final test pins the GATE itself
+so the file fails loudly once the lever lands, rather than quietly continuing to
+certify the old path.
+
+PROVENANCE, self-reported in-process: host thinkstation1; rch_worker none; both
+arms in-process, same host, same invocation. Measured against pinned ELF sha256
+c20bfc507629211a660f489021101b7cad97eedc0f630658a01dd8d6e6030858 via PYTHONPATH,
+built by maturin `build --release` from a `git archive` tree at `3929a9cc7`;
+tests run against the shared venv install. python 3.13.7 x86_64, live networkx
+3.6.1, disk 307G free. loadavg 63 at the instruction, 18.7 during the attribution
+probes, 12.3 at the end — no certification attempted at any of them.
