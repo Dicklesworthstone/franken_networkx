@@ -3526,23 +3526,34 @@ class _MultiGraphEdgeView:
         # `has_edge` now hashes `u` first and short-circuits on an absent `u`
         # before touching `v`, which is the order that keeps
         # `("missing", Unhashable()) in M.edges` False rather than a TypeError.
-        if not _has_networkx_private_storage(self._graph):
-            try:
-                return self._graph.has_edge(u, v, key)
-            except KeyError:
-                return False
-        adj = self._graph.adj
+        # br-r37-c1-ki2ni: the private-storage WALK below was UNREACHABLE, and
+        # the `_has_networkx_private_storage` probe that selected it could never
+        # be True on this class. Assigning ANY private attribute swaps
+        # `G.edges` for `_AssignedPrivateEdgeView` — verified for `_adj`,
+        # `_node`, `_succ` and `_pred` on both multigraph classes — so a
+        # `MultiEdgeView` instance only ever exists on a graph with no private
+        # storage. The probe was 91.9ns, 38% of this wrapper, spent on every
+        # call to choose a branch that could not be taken.
+        #
+        # Dead-code removal, so no behaviour can change: the 48-cell matrix
+        # (2 classes x up to 5 override kinds x 6 edge shapes) is identical
+        # before and after. Measured 500.3ns -> 349.9ns on the probe row.
+        #
+        # NB it does NOT fix the divergences that matrix shows — those live in
+        # `_AssignedPrivateEdgeView` and are filed as br-r37-c1-x3rj1. I first
+        # wrote this comment claiming the removal fixed one of them; it does
+        # not, because the override cases never reach this code at all.
+        #
+        # br-r37-c1-lvlu7: TypeError is still NOT caught. nx's body is
+        # `k in self._adjdict[u][v]` inside `except KeyError`, so an unhashable
+        # endpoint raises out of the dict and must raise here too — and
+        # `has_edge` hashes `u` first and short-circuits on an absent `u` before
+        # touching `v`, which is the order that keeps
+        # `("missing", Unhashable()) in M.edges` False rather than a TypeError.
         try:
-            if u in adj and v in adj[u]:
-                return key in adj[u][v]
-            # The undirected adjacency is symmetric, so this only matters when
-            # `u` itself is absent; nx reaches the same answer through one
-            # `self._adjdict[u][v]` and a caught KeyError.
-            if v in adj and u in adj[v]:
-                return key in adj[v][u]
-        except (KeyError, TypeError):
+            return self._graph.has_edge(u, v, key)
+        except KeyError:
             return False
-        return False
 
     def __call__(self, nbunch=None, data=False, keys=False, default=None):
         # br-r37-c1-msf5j: when called with all-default args, return a
@@ -4005,17 +4016,14 @@ class _MultiDiGraphEdgeView:
         # br-r37-c1-6fs77 perf half: see the undirected twin. `has_edge` is
         # oriented on a directed multigraph, so it answers this directly.
         # br-r37-c1-lvlu7: TypeError is NOT caught — see the undirected twin.
-        if not _has_networkx_private_storage(self._graph):
-            try:
-                return self._graph.has_edge(u, v, key)
-            except KeyError:
-                return False
-        succ = self._graph.succ
+        # br-r37-c1-ki2ni: unreachable private-storage walk removed — see the
+        # undirected twin. Assigning `_adj` / `_node` / `_succ` / `_pred` swaps
+        # `G.edges` for `_AssignedPrivateEdgeView`, so an `OutMultiEdgeView`
+        # only ever exists on a graph with no private storage and the
+        # `_has_networkx_private_storage` probe could never be True here.
         try:
-            if u not in succ or v not in succ[u]:
-                return False
-            return key in succ[u][v]
-        except (KeyError, TypeError):
+            return self._graph.has_edge(u, v, key)
+        except KeyError:
             return False
 
     def __getitem__(self, edge):

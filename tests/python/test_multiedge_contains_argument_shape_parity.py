@@ -125,3 +125,32 @@ def test_contains_matches_networkx_under_assigned_private_storage(
         assert _outcome(fnx_graph, edge) == _outcome(nx_graph, edge), (
             f"{class_name} with override={override}: {edge!r} diverged"
         )
+
+
+@pytest.mark.parametrize("class_name", CLASSES)
+@pytest.mark.parametrize("attribute", ["_adj", "_node", "_succ", "_pred"])
+def test_assigning_private_storage_swaps_the_view_class(class_name, attribute):
+    """The invariant that made the private-storage walk removable.
+
+    `MultiEdgeView.__contains__` no longer probes `_has_networkx_private_storage`
+    or walks the adjacency, because assigning ANY private attribute replaces
+    `G.edges` with `_AssignedPrivateEdgeView`. A `MultiEdgeView` therefore only
+    ever exists on a graph with no private storage, and the probe could never be
+    True there.
+
+    If that ever stops holding, the removed walk becomes reachable again and its
+    absence becomes a correctness bug — so this asserts the swap directly rather
+    than trusting the reasoning.
+    """
+    graph = getattr(fnx, class_name)()
+    graph.add_edge("a", "b")
+    assert type(graph.edges).__name__ in ("MultiEdgeView", "OutMultiEdgeView")
+
+    if attribute in ("_succ", "_pred") and class_name == "MultiGraph":
+        pytest.skip("undirected multigraphs have no succ/pred storage")
+    setattr(graph, attribute, {"a": {}, "b": {}})
+    assert type(graph.edges).__name__ == "_AssignedPrivateEdgeView", (
+        f"assigning {attribute} on {class_name} left G.edges as "
+        f"{type(graph.edges).__name__}; the unreachable-walk assumption in "
+        f"MultiEdgeView.__contains__ no longer holds"
+    )

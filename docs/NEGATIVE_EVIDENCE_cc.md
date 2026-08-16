@@ -11668,3 +11668,80 @@ ecfc2d30935a12eb0b61c3d00b38718026bcc36977c047b048463c1bf9a37fb8; governor
 powersave; runtime ISA avx2 avx sse4_2; observed affinity 8 of 64 cpus; python
 3.13.7 x86_64; live networkx 3.6.1; PYTHONHASHSEED=0; loadavg 38.9 and 32.8 at the
 two run starts.
+
+## 2026-08-16 GoldenBison KEEP: unreachable private-storage walk removed from multigraph `__contains__` — **0.2825x to 0.3632x** (br-r37-c1-ki2ni)
+
+comparison_class=SELF-SPEEDUP
+campaign_output=false
+decision_gate=median_ci
+cv_role=report_only
+
+A pure-Python dead-code removal, shipped with NO build under the disk freeze: the
+same ELF serves the before and after rows, so the shim is the only variable.
+
+A/A null control, before, run 1, incumbent arm paired against itself in the same invocation: 1.0097x, inside the 0.02 bound.
+
+A/A null control, before, run 1, fnx arm paired against itself in the same invocation: 1.0025x, inside the 0.02 bound.
+
+A/A null control, after, run 3, incumbent arm paired against itself in the same invocation: 1.0086x, inside the 0.02 bound.
+
+A/A null control, after, run 3, fnx arm paired against itself in the same invocation: 1.0031x, inside the 0.02 bound.
+
+A/A null control, after, run 4, incumbent arm paired against itself in the same invocation: 1.0066x, inside the 0.02 bound.
+
+A/A null control, after, run 4, fnx arm paired against itself in the same invocation: 1.0025x, inside the 0.02 bound.
+
+A/B against live networkx 3.6.1 in the SAME invocation, ABBAABBA square, identical
+shape throughout (81 rounds x 50 reps x 16 calls per slot), gated on the bootstrap
+median CI. Every run below was ADMISSIBLE:
+
+| state | run | cores | ratio | CI |
+|---|---|---|---|---|
+| before | 1 | 40-47 | 0.2887x | [0.2872, 0.2900] |
+| before | 2 | 48-55 | 0.2842x | [0.2825, 0.2850] |
+| after | 1 | 40-47 | 0.4385x | [0.4374, 0.4405] |
+| after | 2 | 48-55 | 0.3693x | [0.3686, 0.3717] |
+| after | 3 | 40-47 | 0.3647x | [0.3637, 0.3656] |
+| after | 4 | 48-55 | 0.3647x | [0.3632, 0.3669] |
+
+Worst bound 0.2825x before, 0.3632x after — about 29 percent. It remains a LOSS
+against networkx, so this is maintenance, not a competitive claim.
+
+FOUR AFTER-RUNS, NOT TWO, and the reason is recorded rather than hidden: the first
+two disagreed by 19 percent with both nulls passing, which is not a result. Runs 3
+and 4 returned 0.3647x IDENTICALLY on different core sets, and run 2 sits at
+0.3693x, so three of four cluster within 1.3 percent and run 1's 0.4385x is the
+outlier. The worst bound quoted is from the cluster, not from the flattering
+outlier. Had I stopped at two runs I would have banked either a 19-percent-wrong
+number or nothing.
+
+THE CHANGE: `MultiEdgeView.__contains__` and its directed twin probed
+`_has_networkx_private_storage` (91.9ns, 38 percent of this wrapper) to choose
+between a native `has_edge` call and an adjacency WALK. The walk was
+UNREACHABLE. Assigning any private attribute — `_adj`, `_node`, `_succ` or
+`_pred` — swaps `G.edges` for `_AssignedPrivateEdgeView`, so a `MultiEdgeView`
+instance only ever exists on a graph with no private storage and the probe could
+never be True. Verified directly for all four attributes on both classes, and
+pinned by a test that asserts the class swap, so if that invariant ever breaks the
+removal is caught rather than silently becoming a correctness bug.
+
+A CLAIM I MADE AND WITHDREW. I first justified this as also FIXING a divergence:
+on a MultiDiGraph with an assigned `_pred`, `('c','d') in M.edges` answers True
+where networkx says False. It does not fix it, for exactly the reason the removal
+is safe — the override cases never reach this code at all. That divergence lives
+in `_AssignedPrivateEdgeView` and is filed under br-r37-c1-x3rj1. The 48-cell
+override matrix is identical before and after, which is the correct evidence for a
+dead-code removal.
+
+Full Python suite after the change: 59448 passed, 1463 skipped. The only two
+failures are the pre-existing cross-test pollution filed as br-r37-c1-2i3mf.
+
+PROVENANCE, self-reported in-process: harness `scripts/balanced_square_ab.py`
+sha256 286bb779e78758e01b56e369fd71ec9f24b5971d60c03472570a812fc0edf62c; host
+thinkstation1; rch_worker none, both arms in-process, NO build performed for
+either side — existing binary reused, verified by 0 `.rs` files newer than the
+loaded `.so`; loaded ELF sha256
+ecfc2d30935a12eb0b61c3d00b38718026bcc36977c047b048463c1bf9a37fb8 on BOTH sides;
+governor powersave; runtime ISA avx2 avx sse4_2; observed affinity 8 of 64 cpus;
+python 3.13.7 x86_64; live networkx 3.6.1; PYTHONHASHSEED=0; loadavg 38.9/32.8
+before and 7.9/7.6/7.4/7.2 after.
