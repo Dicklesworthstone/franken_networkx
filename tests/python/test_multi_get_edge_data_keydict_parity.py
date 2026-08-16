@@ -112,6 +112,53 @@ def test_custom_public_keys_survive(class_name):
 
 
 @pytest.mark.parametrize("class_name", CLASSES)
+def test_mixed_custom_and_auto_keys_in_one_graph(class_name):
+    """The `edge_py_keys.is_empty()` guard is GLOBAL, the keys are per-edge.
+
+    br-r37-c1-ptiz2 skips the public-key lookup entirely when no edge in the
+    graph has an explicit key, because probing an empty map still costs a full
+    hash of both node keys. This is the case that distinguishes "empty map" from
+    "this pair has no custom key": one pair carries explicit keys, so the map is
+    NON-empty, while the pair under test uses networkx's auto keys and must
+    still come back with plain integers.
+
+    A guard keyed on the wrong emptiness — or one that short-circuited when the
+    map merely lacks THIS pair — would return the auto pair's keys correctly here
+    and only fail once some unrelated edge in the graph was given a key, which is
+    exactly the shape that survives a narrow test.
+    """
+    auto_u, auto_v = "auto_u" * 20, "auto_v" * 20
+    named_u, named_v = "named_u" * 20, "named_v" * 20
+
+    graphs = {}
+    for name, mod in (("fnx", fnx), ("nx", nx)):
+        graph = getattr(mod, class_name)()
+        for i in range(6):
+            graph.add_edge(auto_u, auto_v, weight=i)
+        for label in ("first", "second"):
+            graph.add_edge(named_u, named_v, key=label, weight=label)
+        graphs[name] = graph
+
+    auto_got = graphs["fnx"].get_edge_data(auto_u, auto_v)
+    auto_want = graphs["nx"].get_edge_data(auto_u, auto_v)
+    assert list(auto_got.keys()) == list(auto_want.keys()) == [0, 1, 2, 3, 4, 5]
+    assert all(isinstance(k, int) for k in auto_got), (
+        "auto keys came back as something other than plain ints while another "
+        "edge in the same graph carried explicit keys"
+    )
+    assert {k: dict(d) for k, d in auto_got.items()} == {
+        k: dict(d) for k, d in auto_want.items()
+    }
+
+    named_got = graphs["fnx"].get_edge_data(named_u, named_v)
+    named_want = graphs["nx"].get_edge_data(named_u, named_v)
+    assert list(named_got.keys()) == list(named_want.keys()) == ["first", "second"]
+    assert {k: dict(d) for k, d in named_got.items()} == {
+        k: dict(d) for k, d in named_want.items()
+    }
+
+
+@pytest.mark.parametrize("class_name", CLASSES)
 @pytest.mark.parametrize("par", [1, 4, 16])
 def test_returned_dicts_are_live_and_shared(class_name, par):
     """The keydict must hand back the graph's LIVE attr dicts.

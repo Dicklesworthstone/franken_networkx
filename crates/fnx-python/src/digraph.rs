@@ -2021,17 +2021,43 @@ impl PyMultiDiGraph {
 
     /// br-r37-c1-ptiz2: `py_edge_key` against a CALLER-OWNED edge key. Mirrors
     /// `PyMultiGraph::py_edge_key_with_key` — see that note for why a loop over
-    /// one endpoint pair's parallel edges must not re-derive the tuple per key.
+    /// one endpoint pair's parallel edges must not re-derive the tuple per key,
+    /// and why an empty `edge_py_keys` is skipped rather than probed.
     fn py_edge_key_with_key(
         &self,
         py: Python<'_>,
         key: usize,
         ek: &(String, String, usize),
     ) -> PyObject {
+        if self.edge_py_keys.is_empty() {
+            return unwrap_infallible(key.into_pyobject(py)).into_any().unbind();
+        }
         self.edge_py_keys.get(ek).map_or_else(
             || unwrap_infallible(key.into_pyobject(py)).into_any().unbind(),
             |obj| obj.clone_ref(py),
         )
+    }
+
+    /// br-r37-c1-ptiz2: single-probe attr fetch for the keydict loop. Mirrors
+    /// `PyMultiGraph::edge_py_attrs_cloned_with_key`.
+    fn edge_py_attrs_cloned_with_key(
+        &mut self,
+        py: Python<'_>,
+        u: &str,
+        v: &str,
+        key: usize,
+        ek: &(String, String, usize),
+    ) -> Py<PyDict> {
+        if let Some(dict) = self.edge_py_attrs.get(ek) {
+            return dict.clone_ref(py);
+        }
+        let dict = match self.inner.edge_attrs(u, v, key) {
+            Some(attrs) => attr_map_to_pydict(py, attrs)
+                .expect("stored string-keyed edge attrs must convert to Python"),
+            None => PyDict::new(py).unbind(),
+        };
+        self.edge_py_attrs.insert(ek.clone(), dict.clone_ref(py));
+        dict
     }
 
     /// br-r37-c1-bvwam: the `{neighbour: None}` row for one direction, cached
@@ -8664,9 +8690,7 @@ impl PyMultiDiGraph {
                 let mut ek = Self::edge_key(u_c, v_c, 0);
                 for k in keys {
                     ek.2 = k;
-                    let attrs = self
-                        .ensure_edge_py_attrs_with_key(py, u_c, v_c, k, &ek)
-                        .clone_ref(py);
+                    let attrs = self.edge_py_attrs_cloned_with_key(py, u_c, v_c, k, &ek);
                     result.set_item(self.py_edge_key_with_key(py, k, &ek), attrs.bind(py))?;
                 }
                 Ok(Some(result.into_any().unbind()))

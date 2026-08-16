@@ -5440,16 +5440,56 @@ impl PyMultiGraph {
     /// `usize` varies, so re-deriving the whole tuple per key allocates
     /// `2 * parallel_edges` strings to express `parallel_edges` distinct
     /// integers. Callers that already hold the tuple mutate `.2` and reuse it.
+    ///
+    /// The `is_empty` guard is not a micro-optimisation: `edge_py_keys` holds
+    /// only edges given an EXPLICIT public key, so it is empty for every graph
+    /// built with networkx's auto keys — the common case. Probing it costs a
+    /// full hash of the tuple, i.e. of both node keys, and at 130-character
+    /// endpoints that is 260 bytes hashed per parallel edge to discover that a
+    /// map with no entries has no entry. An empty map cannot hit, so skipping it
+    /// is behaviour-preserving by construction.
     fn py_edge_key_with_key(
         &self,
         py: Python<'_>,
         key: usize,
         ek: &(String, String, usize),
     ) -> PyObject {
+        if self.edge_py_keys.is_empty() {
+            return unwrap_infallible(key.into_pyobject(py)).into_any().unbind();
+        }
         self.edge_py_keys.get(ek).map_or_else(
             || unwrap_infallible(key.into_pyobject(py)).into_any().unbind(),
             |obj| obj.clone_ref(py),
         )
+    }
+
+    /// br-r37-c1-ptiz2: the keydict loop's attr fetch, as ONE hash-map probe.
+    ///
+    /// `ensure_edge_py_attrs_with_key` returns a reference, which on stable Rust
+    /// forces `contains_key` followed by `get` — two full hashes of the
+    /// `(String, String, usize)` key on the HIT path, which is every iteration
+    /// after the first call. Returning an owned handle instead lets the hit path
+    /// return directly out of a single `get`, so a warm keydict build hashes
+    /// each key once rather than three times (this, plus the `edge_py_keys`
+    /// probe above).
+    fn edge_py_attrs_cloned_with_key(
+        &mut self,
+        py: Python<'_>,
+        u: &str,
+        v: &str,
+        key: usize,
+        ek: &(String, String, usize),
+    ) -> Py<PyDict> {
+        if let Some(dict) = self.edge_py_attrs.get(ek) {
+            return dict.clone_ref(py);
+        }
+        let dict = match self.inner.edge_attrs(u, v, key) {
+            Some(attrs) => attr_map_to_pydict(py, attrs)
+                .expect("stored string-keyed edge attrs must convert to Python"),
+            None => PyDict::new(py).unbind(),
+        };
+        self.edge_py_attrs.insert(ek.clone(), dict.clone_ref(py));
+        dict
     }
 
     /// br-paralleladd (bt): record whether a stored public key REMAPS the int
@@ -7330,9 +7370,7 @@ impl PyMultiGraph {
                 let mut ek = Self::edge_key(u_c, v_c, 0);
                 for k in keys {
                     ek.2 = k;
-                    let attrs = self
-                        .ensure_edge_py_attrs_with_key(py, u_c, v_c, k, &ek)
-                        .clone_ref(py);
+                    let attrs = self.edge_py_attrs_cloned_with_key(py, u_c, v_c, k, &ek);
                     let py_key = self.py_edge_key_with_key(py, k, &ek);
                     result.set_item(py_key, attrs.bind(py))?;
                 }

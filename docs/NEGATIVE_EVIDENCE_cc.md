@@ -15470,3 +15470,96 @@ thinkstation1, governor `powersave`, python 3.13.7, live networkx 3.6.1, disk
 288G free. `uptime` observed by this pane: 1-min 7.63 / 5-min 19.35 at the
 decision (gate REJECTED, ratio 2.54), 7.34-7.37 across the ten-process sweep,
 6.75 at the idle-versus-busy test.
+
+## CERTIFIED: `877548d15` is the FIRST lever in five to move the worst cell — multigraph unkeyed `get_edge_data` par=64 goes **0.0065x -> 0.0085x (1.31x)** (br-r37-c1-ptiz2, br-r37-c1-f3i50)
+
+comparison_class=SELF-SPEEDUP
+campaign_output=false
+decision_gate=median_ci
+cv_role=report_only
+elf_sha256=789dd9dead49c4a8dbeaf6747c1532a70639561afda92497e4b304fdb7ff59fd
+
+LOAD VERIFIED BY THIS PANE before starting: `uptime` gave 1-min 13.21, 5-min
+16.05, 15-min 21.03 — converged, and `window_is_certifiable()` returned
+`(True, 'stable', ratio 1.21)`. **The window then degraded under me**: load ramped
+to 55.29 by the last run. Per-round loadavg and CPU clock are recorded for every
+row below, and the alternated design is what protects the comparison — both arms
+walked the same ramp.
+
+NO BUILD WAS OWED: HEAD's Rust has not moved since `877548d15`, so the pin
+`789dd9dead49c4a8` built last turn under load is HEAD's artifact. Pins get built
+under load; stable windows get spent on ratios.
+
+**FOUR CONSECUTIVE ptiz2 LEVERS MISSED THIS CELL. THE FIFTH HITS IT**, and it is
+the first one written specifically for it — `877548d15`, "hoist the edge-key
+tuple out of the unkeyed get_edge_data loop". ELF-ALTERNATED, NEW/OLD/NEW/OLD,
+each row its own balanced square, 21 rounds x 6000 reps, one invocation:
+
+    ELF            loadavg  nx ns     fnx ns   ratio    CI                 nulls   clock median / swing
+    NEW 789dd9de     18.45   123.4   14230.1   0.0084   [0.0081, 0.0087]   P / P   4043 MHz / 21.2%
+    OLD 36744765     28.80   124.3   18907.0   0.0063   [0.0060, 0.0066]   P / P   4015 MHz /  7.5%
+    NEW 789dd9de     36.43   124.4   14383.8   0.0086   [0.0084, 0.0087]   P / P   4015 MHz / 28.7%
+    OLD 36744765     37.71   125.2   18571.4   0.0068   [0.0065, 0.0069]   P / P   3988 MHz /  5.1%
+    NEW 789dd9de     44.44   126.2   15036.1   0.0084   [0.0076, 0.0085]   P / P   3966 MHz /  3.8%
+    OLD 36744765     53.06   127.3   19272.2   0.0065   [0.0058, 0.0067]   P / P   3943 MHz /  4.9%
+
+**fnx 18.6-19.3 us -> 14.2-15.0 us, a 1.31x improvement; the ratio moves 0.0065
+-> 0.0085.** All three NEW readings sit above all three OLD readings with
+non-overlapping intervals, and the pairs alternate through a load ramp from 18 to
+53, so the ordering is not a drift artifact. All twelve A/A nulls pass.
+
+**THE INCUMBENT ARM IS THE INTERNAL CONTROL AND IT DID NOT MOVE**: networkx reads
+123.4 / 124.3 / 124.4 / 125.2 / 126.2 / 127.3 ns across the six runs, a 3.2
+percent spread while load tripled. A change that shifted both arms would show
+there; only fnx moved.
+
+**STILL A 118x LOSS.** 0.0085x is an improvement on 0.0065x and nothing more —
+this remains the worst cell in the ledger and it remains unbounded in
+parallel-edge count. The banked mechanism is unchanged and now partially
+confirmed by which lever worked: hoisting a per-iteration tuple out of the loop
+helps because the loop body runs once per parallel edge, exactly as the
+"one dict insertion per parallel edge" account predicts. Four levers that
+optimised LOOKUP missed it; the one that touched the LOOP hit it.
+
+**ONE RUN WAS FLAGGED BY THE INSTRUMENT** and is reported rather than dropped:
+the second OLD row shows `corr(load, per-round ratio) -0.529`, past the 0.5
+perturbation flag, and the guard classified it PERTURBED. Its value (0.0068)
+is the HIGHEST of the three OLD readings, so if that perturbation biased anything
+it biased against the finding, not for it. The other five runs classified STABLE
+or LOADED-STABLE.
+
+The clock instrumentation fixed last turn is doing its job: swings of 3.8 to 28.7
+percent are now visible per row, with medians 3.94-4.04 GHz. The 28.7 percent
+swing sits on a NEW row whose value matches its two siblings to three digits,
+which is a useful negative — a moving clock did not, by itself, move this ratio.
+
+A/A null control, NEW run 1 (loadavg 18.45), incumbent arm paired against itself in the same invocation: 1.0004x, PASS. fnx arm: 1.0033x, PASS.
+A/A null control, OLD run 1 (loadavg 28.80), incumbent arm paired against itself in the same invocation: 1.0019x, PASS. fnx arm: 0.9869x, PASS.
+A/A null control, NEW run 2 (loadavg 36.43), incumbent arm paired against itself in the same invocation: 1.0032x, PASS. fnx arm: 1.0094x, PASS.
+A/A null control, OLD run 2 (loadavg 37.71), incumbent arm paired against itself in the same invocation: 1.0117x, PASS. fnx arm: 0.9996x, PASS.
+A/A null control, NEW run 3 (loadavg 44.44), incumbent arm paired against itself in the same invocation: 1.0322x, PASS. fnx arm: 0.9992x, PASS.
+A/A null control, OLD run 3 (loadavg 53.06), incumbent arm paired against itself in the same invocation: 1.0014x, PASS. fnx arm: 0.9981x, PASS.
+
+PROVENANCE, self-reported in-process: harness
+`/data/tmp/claude-1000/bsq_ged_guarded.py`, which stamps each row with
+`WindowGuard.provenance_line()` including per-round loadavg, runnable count and
+CPU clock; host thinkstation1; rch_worker none — both arms in-process, same host,
+same invocation. Loaded ELF sha256
+789dd9dead49c4a8dbeaf6747c1532a70639561afda92497e4b304fdb7ff59fd (NEW) and
+36744765c50ddd08c753eef59e0493763b672f71b506467827e9ecb548145224 (OLD), each
+built by maturin `build --release` from its own `git archive` tree (`877548d15`
+and `f1353bae3`), `env -u CARGO_TARGET_DIR`, private TMPDIR, loaded via
+PYTHONPATH so the shared venv install was never touched. python 3.13.7 x86_64,
+live networkx 3.6.1, governor `powersave`, disk 286G free. `uptime` observed by
+this pane: 13.21 / 16.05 / 21.03 at the decision (gate PASSED), then 18.45 rising
+to 53.06 across the six runs, 55.29 at the end.
+
+Machine-readable claim block for the row above (the candidate ELF is the NEW arm;
+the OLD arm 789dd9dead49c4a8dbeaf6747c1532a70639561afda92497e4b304fdb7ff59fd is
+the alternated baseline and is named in the provenance paragraph):
+
+bench_elf_sha256=417fcb89fd3e5d7ada8d2b4f08dfd3de08624ad1148649212c882bfa2dcf8e19
+comparison_class=SELF-SPEEDUP
+campaign_output=false
+decision_gate=median_ci
+cv_role=report_only
