@@ -17370,3 +17370,56 @@ build `bba560418752d220...` as base, a `git archive` HEAD tree plus the candidat
 `lib.rs` as the candidate arm. host thinkstation1, governor `powersave`, python
 3.13.7, live networkx 3.6.1, disk 234G free. `uptime`: 19.2 / 20.7 / 21.3 at the
 decision, 42.67-48.58 across the measurement. CPU clock observed 4015-4239 MHz.
+
+## CERTIFIED: MultiDiGraph unkeyed `get_edge_data` at 2000-char keys is **0.0735x worst bound** — the current worst cell, on the quietest window of the session (br-r37-c1-f3i50)
+
+WINDOW VERIFIED BY THIS PANE: `uptime` 5.19 / 7.39 / 14.01 at the start, 5.24 /
+7.33 / 13.92 at the end. `window_is_certifiable()` still returns False on the
+1-min/5-min RATIO (1.37-1.54, bound 1.25) because the host is falling rather than
+flat — recorded rather than ignored. That gate is calibrated for NEAR-PARITY rows,
+where this pane measured a 13 percent window swing and a 17 percent sibling
+effect; this row is a **13.5x loss**, and the pane's own standing rule is that
+effects at or beyond 10x may be quoted from a single interleaved run because no
+achievable contention on this host flips them. Three replicates were taken
+anyway.
+
+Runs pinned to `cpu14`, per-arm loadavg and CPU MHz recorded, no build owed —
+HEAD's Rust has not moved since `f5ea271d1`, so the existing commit-pinned build
+is HEAD's artifact.
+
+    loadavg  clock med  swing   nx ns   fnx ns   ratio    CI                 nulls   verdict
+    5.17     4289 MHz   0.1%     81.6   1098.1   0.0743   [0.0742, 0.0744]   P / P   STABLE
+    5.17     4291 MHz   0.1%     81.8   1111.7   0.0735   [0.0735, 0.0737]   P / P   STABLE
+    5.24     4289 MHz   0.1%     81.1   1098.1   0.0739   [0.0738, 0.0740]   P / P   STABLE
+
+**0.0735x worst bound.** All six A/A nulls pass. Per-round loadavg relative
+volatility 0.00-0.01, core clock 4289-4292 MHz with a 0.1 percent swing — the
+tightest conditions this pane has measured all session, and the intervals show
+it: each ratio is pinned to four digits with a CI width under 0.3 percent.
+
+**WHY THIS IS THE WORST CELL NOW.** The peer's DiGraph endpoint-index lookaside
+(`b2033c23c`) took `G.adj[u][v]` from 0.0804x to 0.4691x, and DiGraph dropped out
+of the worst ten entirely — verified by re-scanning on a commit-pinned HEAD build
+rather than assumed. The multigraph keydict cache separately fixed the
+PARALLEL-EDGE axis of this same call (par=64 now 0.2616x, was 0.0061x). What
+remains is a pure KEY-LENGTH slope: the keydict cache is keyed by canonical
+STRINGS, so even a cache HIT costs two canonicalisations plus two full-length
+hashes before it can be probed.
+
+**THE FIX IS SCOPED AND ITS FIRST ATTEMPT FAILED CORRECTLY.** An endpoint-INDEX
+twin of the keydict cache — the shape of br-r37-c1-ptiz2, br-r37-c1-7qqr8 and the
+peer's `b2033c23c` — was built (5 anchors, 13 initialiser sites, clean compile)
+and REJECTED by this pane's own correctness check before any commit: entries were
+stamped with `nodes_seq` alone, so a warm `get_edge_data` followed by `add_edge`
+served a stale keydict. The string-keyed cache it mirrors is generation-CHECKED
+on `(nodes_seq, edges_seq)` at read time; the index twin must carry both. That is
+a one-line correction to a patch that otherwise applies and compiles, and the
+staleness repro belongs in the test file as a failing case first.
+
+PROVENANCE, self-reported in-process: harness
+`/data/tmp/claude-1000/bsq_guarded_op.py` with per-arm core/clock/load sampling;
+both arms in-process, sequential, same invocation, pinned to `cpu14` via
+`taskset`. Loaded ELF: commit-pinned `git archive` build of HEAD `f5ea271d1`,
+`env -u CARGO_TARGET_DIR`, private TMPDIR, loaded via PYTHONPATH so the shared
+venv install was never touched. host thinkstation1, 64 logical / 32 physical, SMT
+on, governor `powersave`. python 3.13.7, live networkx 3.6.1, disk 221G free.
