@@ -18933,3 +18933,89 @@ canonicals can be skipped or only one.
 `neighbors` at 0.22x on ALL FOUR classes is the other unattacked shape here --
 uniform across classes, which usually means a shared wrapper rather than a
 per-class storage issue.
+
+## 2026-08-17 GoldenBison KEEP-SELF: the edges(nbunch) per-EDGE half — 0.5001x -> 0.9371x, the cell is CLOSED (br-r37-c1-nbidx)
+
+Certifies the second and final half of this bead. `edge_key(u_name, v_name)`
+built an owned canonical from BOTH endpoint names to look up `edge_py_attrs` -
+at 2000-character keys roughly 4000 bytes allocated, copied and hashed PER EDGE.
+`cached_edge_py_attrs_by_index` answers it from two `usize`s.
+
+THE ADMITTED PAIR, `edges(nbunch=200, data=True)` at 2000-character keys, arms
+alternated A B A B A B, both arms built from the SAME working tree so they differ
+ONLY in this lever:
+
+    A (88fad0c0, per-ITEM only)  0.5001x  CI [0.4966, 0.5035]  nulls 1.0135/1.0119  ADMISSIBLE
+    B (9acd61fc, per-EDGE)       0.9371x  CI [0.9312, 0.9411]  nulls 0.9964/1.0186  ADMISSIBLE
+
+Self-speedup 1.874x from two ADJACENT invocations. Pooled over all six:
+
+    A  0.5000x 0.4729x 0.5001x   median 0.5000x
+    B  0.9180x 0.9007x 0.9371x   median 0.9180x
+
+Pooled self-speedup 1.836x, separation complete - the worst B (0.9007x) beats the
+best A (0.5001x) by 80 percent.
+
+THE CELL IS CLOSED. Across both halves of this bead the row went 0.2788x ->
+0.4589x -> 0.9636x direct, and 0.5001x -> 0.9371x under the gate. It is now
+within 6 percent of networkx on the axis where it was 3.6x behind. The strict
+xfail that had pinned the defect since it was found XPASSED and is now a
+regression lock, with its ASSERTION AND BOUND UNCHANGED from the day it was
+written.
+
+A TRAP THAT NEARLY COST ME THE WHOLE CERTIFICATION, recorded because it is a
+SHARED-CHECKOUT hazard and not specific to this bead. I built the baseline arm
+from `HEAD~1`. Between my commit and the build a peer landed `f9a79de85`, so
+`HEAD~1` had become MY OWN commit and the "baseline" wheel was bit-identical to
+the candidate - same ELF sha256 for both arms. Nothing about the run would have
+looked wrong: both arms load, both parity-gate, both produce plausible ratios,
+and the measured self-speedup would have been 1.00x, i.e. a FALSE NEGATIVE
+reported as "the lever does nothing". Comparing the two ELF shas caught it.
+Pin baseline arms by explicit commit SHA (`ddadbe96e^`), never by `HEAD~N`, and
+always assert the two arm ELFs DIFFER before measuring.
+
+CONTROLS. `edges(nbunch=5)` len=2000: A 0.6118x 0.5932x 0.5946x, B 0.5735x
+0.5961x 0.5888x - flat, as a per-edge fix must be when there are five edges and
+fixed per-call overhead dominates. Whole-graph `edges(data=True)` len=2000: A
+6.7730x 6.7623x 6.8563x, B 6.8752x 6.9251x 6.8321x. B reads 1.7 percent higher on
+all three, which I am NOT claiming as an effect: the whole-graph path is the
+views.rs list cache and this lever is in readwrite.rs, and B ran second in every
+pair while loadavg crept 12.51 -> 13.67 across the sequence. It is reported
+because it is a consistent direction, not because it is significant.
+
+A/A null control, measured: the two admitted rows report 1.0135/1.0119 (A) and
+0.9964/1.0186 (B), all four inside [0.9964, 1.0186]. Across all six invocations
+the subject nulls span [0.9964, 1.0444], and the five that failed are all above
+1 - the same direction and a similar magnitude in both arms.
+
+STILL campaign_output=false: 0.9371x is a LOSS to networkx, by 6 percent. The
+remaining gap is COLD-CALL cost - a lookaside must be populated before it can be
+read, so the first call on a fresh graph still pays every canonical, measured
+0.2494x cold against 0.9636x warm. Anyone quoting the warm number owes the cold
+one alongside it.
+
+SUBSTRATE. host thinkstation1, governor `powersave`, 64 CPUs, avx2, python
+3.13.7, live networkx 3.6.1, no rch worker. Workload `nbunch-key-length`,
+reps 8, rounds 81, warmup 60, square ABBAABBA, bootstrap median CI. NO BUILD ran
+inside the measurement window; both wheels were built beforehand. Per-arm
+observed loadavg 12.51/11.98/12.85 (A1), 12.55/12.00/12.85 (B1),
+12.42/11.98/12.84 (A2), 13.03/12.12/12.88 (B2), 13.03/12.13/12.88 (A3, admitted),
+13.67/12.28/12.92 (B3, admitted); mean CPU at invocation start 2682, 2880, 2795,
+3052, 2802, 2884 MHz; per-row clock 4118-4289 MHz with arm-to-arm skew at or
+below 0.02 percent on every row quoted. Both arms include an unrelated PEER'S
+UNCOMMITTED work in lib.rs and digraph.rs, identically, which is why they were
+built from one tree rather than from two checkouts. disk 159G free.
+
+bench_elf_sha256=9acd61fce1b332257930f6b51824e0ff4e3352acab32216d015217108f38d9bf
+elf_sha256=9acd61fce1b332257930f6b51824e0ff4e3352acab32216d015217108f38d9bf
+baseline_elf_sha256=88fad0c0b59d117c8f3461ead548f1032203710d1ca7ea836e332e99425e7292
+harness_sha256=be8b894ba4bf883fe866d2d246e171a3f30edbdffad308f910f6dcd784f42807
+comparison_class=SELF-SPEEDUP
+self_speedup=1.874x
+incumbent=networkx
+incumbent_same_invocation=true
+incumbent_ratio_before=0.5001x
+incumbent_ratio_after=0.9371x
+campaign_output=false
+decision_gate=median_ci
+cv_role=report_only
