@@ -224,3 +224,57 @@ def test_direction_is_preserved(cls_name):
         g.add_edge("pred", "src")
     assert _same(gnx, gfx, "src")
     assert _nbrs(gfx, "src") == ["dst"], "neighbors leaked a predecessor"
+
+
+NEIGHBOUR_ROW = (
+    "br-r37-c1-txkrn: on MultiGraph a NEIGHBOUR's warm row keeps a node that was "
+    "removed — neighbors('a') reports 'hub' after remove_node('hub'). Third "
+    "manifestation of the same laundering: remove_node bumps nodes_seq but never "
+    "drops the row, and the next add_edge calls restamp_neighbor_rows, writing "
+    "the current sequences over the stale one. Undirected only; MultiDiGraph "
+    "keeps per-direction rows and is correct here."
+)
+
+MDG_SUCC_CLEAR = (
+    "br-r37-c1-txkrn: MultiDiGraph::clear() clears neither succ_key_rows nor "
+    "pred_key_rows, so successors() reports a pre-clear neighbour. Same defect "
+    "as the MultiGraph clear() half fixed in 73da7cdd1, which did not match "
+    "because the directed clear() has a different shape and TWO maps."
+)
+
+
+@pytest.mark.parametrize(
+    "cls_name",
+    [
+        "Graph",
+        "DiGraph",
+        pytest.param("MultiGraph", marks=pytest.mark.xfail(strict=True, reason=NEIGHBOUR_ROW)),
+        "MultiDiGraph",
+    ],
+)
+def test_a_neighbours_row_drops_a_removed_node(cls_name):
+    """Not the removed node's OWN row — the row of a node that merely pointed at
+    it. Warmed first, because a cold read cannot expose a stale cache."""
+    gnx, gfx = _pair(cls_name)
+    for g in (gnx, gfx):
+        g.add_edge("hub", "a")
+        g.add_edge("a", "b")
+    assert _same(gnx, gfx, "a")            # warm A's row
+    for g in (gnx, gfx):
+        g.remove_node("hub")
+        g.add_edge("a", "c")               # triggers the restamp
+    assert _same(gnx, gfx, "a"), "a neighbour's row still reports the removed node"
+
+
+@pytest.mark.xfail(strict=True, reason=MDG_SUCC_CLEAR)
+def test_successors_after_clear_on_the_directed_multigraph():
+    """The directed row caches are per-direction, so `successors` has its own
+    exposure to the clear() defect."""
+    gnx, gfx = _pair("MultiDiGraph")
+    for g in (gnx, gfx):
+        g.add_edge("hub", "a")
+    assert sorted(map(str, gfx.successors("hub"))) == sorted(map(str, gnx.successors("hub")))
+    for g in (gnx, gfx):
+        g.clear()
+        g.add_edge("hub", "z")
+    assert sorted(map(str, gfx.successors("hub"))) == sorted(map(str, gnx.successors("hub")))

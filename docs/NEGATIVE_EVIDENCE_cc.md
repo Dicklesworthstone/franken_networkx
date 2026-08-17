@@ -19173,3 +19173,90 @@ self_speedup=11.94x
 campaign_output=true
 decision_gate=median_ci
 cv_role=report_only
+
+---
+
+## `neighbors` measured, a prior claim of mine RETRACTED, and a bug family mapped (2026-08-17)
+
+### RETRACTION first
+
+The surface re-scan banked earlier said:
+
+> `neighbors` at 0.22x on ALL FOUR classes is the other unattacked shape here --
+> uniform across classes, which usually means a shared wrapper rather than a
+> per-class storage issue.
+
+The number is right and **the reasoning was wrong**. It is not a shared-wrapper
+constant: it is a KEY-LENGTH slope, and the scan happened to use 2000-character
+keys. Measured directly at degree 2:
+
+    K=2     iter-only  246.5 ns   ratio 0.656
+    K=100   iter-only  267.8 ns   ratio 0.578
+    K=500   iter-only  621.3 ns   ratio 0.255
+    K=2000  iter-only 1055.7 ns   ratio 0.149
+
+`has_edge`, which already has an index route, is FLAT over the same span (200.4
+against 198.8 ns). So `neighbors` is the same slope class this pane has been
+removing, not a new one. Anyone taking "uniform across classes implies a shared
+wrapper" from the earlier row would have looked in the wrong place.
+
+`neighbors` is also NOT O(degree): iter-only reads 194.9 / 212.8 / 199.3 ns at
+degree 8 / 32 / 128. And one reading I nearly built on -- 660.1 ns at degree 2 --
+did NOT reproduce: five repeats gave 227-238 ns. It was a first-touch artefact,
+and it is recorded here so the number is not resurrected from the scratch logs.
+
+### The mechanism, and why the fix is an index twin
+
+`G.neighbors(n)` is `iter(self._adj[n])` in networkx: one dict lookup on a str
+whose hash CPython caches. fnx reaches a cached row dict, but probes `adj_row_py`
+with a canonical built by `with_node_key_str` -- which COPIES the key's bytes
+into a buffer and then HASHES them. So the cache HIT is O(node key length). The
+fix is the same index twin used for the keydict and for `has_edge`. It is
+written and compiles (27 initialisers across four files) but is NOT landed: the
+host went to 4G disk mid-turn, and it should be built and measured before it
+ships.
+
+### What writing its guard tests actually found
+
+Running the guards against the PRE-change build -- which this pane does to prove
+a guard guards rather than describes -- failed FOUR of them. That is a bug
+family, unrelated to the perf work, and it is the reason the perf lever was set
+aside:
+
+    G = MultiGraph(); G.add_edge("hub", "a")
+    list(G.neighbors("hub"))        # warm
+    G.clear(); G.add_edge("hub", "z")
+    list(G.neighbors("hub"))        # nx ['z'], fnx ['a', 'z']
+
+THE STAMP DOES NOT SAVE IT, and that is the interesting part. `neighbor_key_rows`
+is stamped with `(nodes_seq, edges_seq)` and every one of these mutations bumps a
+sequence, so a stale entry should be rejected on read. But leaving the map
+non-empty keeps `neighbor_rows_live()` true, and the next `add_edge` calls
+`cached_neighbor_row_set` then `restamp_neighbor_rows`, writing the CURRENT
+sequences onto the stale rows. **The stamp that should have caught the staleness
+is overwritten by the very next mutation**, so the row is laundered into looking
+fresh and stays wrong for the life of the graph. A generation stamp is only worth
+what its invalidation discipline is worth.
+
+Four manifestations, one mechanism:
+
+    MultiGraph    clear() then add_edge          FIXED in 73da7cdd1
+    MultiDiGraph  clear() then add_edge          open -- clear() has a different
+                                                 shape and TWO maps
+                                                 (succ_key_rows, pred_key_rows),
+                                                 so the one-line fix missed it;
+                                                 successors() is affected too
+    MultiGraph    remove_node + re-add           open -- remove_node never drops
+    MultiDiGraph  remove_node + re-add           the row, it only bumps the seq
+    MultiGraph    a NEIGHBOUR's row keeps a      open -- undirected only;
+                  removed node                   MultiDiGraph is correct here
+                                                 because its rows are
+                                                 per-direction
+
+Filed as br-r37-c1-txkrn. Pinned by
+`tests/python/test_neighbors_row_index_twin.py`: 42 passing cases bounding any
+fix and 5 strict xfails recording what is still wrong.
+
+NO MEASUREMENT IS CERTIFIED HERE. The ratios above are single-window readings
+taken while load moved between 27 and 48, recorded to locate a defect rather than
+to size a win.
