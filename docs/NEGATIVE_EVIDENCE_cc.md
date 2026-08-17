@@ -19886,3 +19886,59 @@ comparison_class=SELF-SPEEDUP
 campaign_output=false
 decision_gate=median_ci
 cv_role=report_only
+
+## 2026-08-17 GoldenBison MUTATION READING: bare add_edge 1.10x-1.16x, with a scaling-shape control (br-r37-c1-aenoattr)
+
+NOT A SQUARE-CERTIFIED ROW, deliberately. Mutation and build arms are
+non-stationary, so `balanced_square_ab.py`'s A/A null is the wrong instrument
+here - `mutation_arms_fail_aa_nulls`. The substitute is an ALTERNATED reading
+across four OLD/NEW pairs plus a SCALING-SHAPE control, which is what
+distinguishes a real per-edge saving from a fixed offset or a window artefact.
+
+WINDOW: this is the cleanest one this pane has measured in. loadavg 10.63-10.86
+one-minute, 13.37-13.46 five-minute, ZERO build processes for the entire
+sequence (`ps` sampled at every one of the eight invocations, all zero). Arms are
+Python packages over one shared ELF, so no build was needed or run.
+
+    E      OLD median    NEW median   ratio    separation
+    500      2625.3us      2321.9us   1.131x   max NEW 2378.2 < min OLD 2624.6
+    1000     4111.8us      3538.2us   1.162x   max NEW 3703.4 < min OLD 4019.2
+    2000     6720.3us      6038.5us   1.113x   max NEW 6409.2 < min OLD 6662.5
+    4000    12568.2us     11410.9us   1.101x   max NEW 11772.0 < min OLD 12392.0
+
+Complete separation at ALL FOUR sizes: every one of the 16 NEW measurements beats
+every one of the 16 OLD measurements at the same size.
+
+THE SCALING SHAPE IS THE CONTROL, and it is the reason this reading is worth
+more than the 1.116x taken under 888 percent CPU last turn. Each measurement
+carries a FIXED ~1300us of `add_nodes_from(600)` before any edge is added.
+Subtracting it, the saving is per EDGE and lands in 0.29-0.61us/edge across the
+four sizes - which brackets the ~0.5us/edge that cProfile attributed to the
+removed `has_edge` call. A fixed offset would have shown a saving that stayed
+constant in ABSOLUTE terms while the ratio collapsed toward 1.0 as E grew; a
+window artefact would not have tracked edge count at all. Both are excluded.
+
+EMPIRICAL NULL, since there is no A/A square: each arm's own spread across its
+four alternations. At E=4000, OLD spans 12392.0-12684.8 (2.4 percent) and NEW
+11175.7-11772.0 (5.3 percent), against a 10.1 percent effect. At E=1000, OLD
+spans 4019.2-4323.0 (7.6 percent) and NEW 3520.3-3703.4 (5.2 percent), against a
+16.2 percent effect. The effect exceeds each arm's own across-run spread at every
+size, which is the strongest statement this substrate supports for a
+non-stationary workload.
+
+WHAT WAS REMOVED. The simple-graph `add_edge` shim called `has_edge(u, v)` on
+every call. It exists ONLY to drive the attribute merge branch, so with no
+attributes it canonicalised BOTH endpoints - the same O(key length) work
+`raw_add_edge` was about to redo - to choose between a no-op and a no-op.
+Equivalence was verified against networkx before removal: a bare re-add leaves
+the datadict untouched, adds no edge and returns None in both libraries.
+
+STILL A LOSS TO NETWORKX and this does not change that. It is one tractable piece
+of the 0.055x construction defect recorded in br-r37-c1-convkey2; networkx stores
+REFERENCES to the caller's `str` objects while fnx owns, copies and hashes every
+key. The remaining gap is architectural.
+
+SUBSTRATE. host thinkstation1, governor `powersave`, 64 CPUs, python 3.13.7,
+no rch worker, K=2000 node keys, 600 distinct nodes, `min` of 7 rounds x 3 reps.
+Per-invocation mean CPU 2431, 2891, 2802, 2759, 3128, 2807, 2540, 3061 MHz.
+disk 128G free. No build in or out of the window.
