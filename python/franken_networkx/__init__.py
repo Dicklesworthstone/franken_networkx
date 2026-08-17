@@ -46567,6 +46567,63 @@ def _assigned_private_number_of_nodes(self):
     return len(self)
 
 
+def _assigned_private_add_node(self, node_for_adding, **attr):
+    """add_node for a graph carrying assigned private storage (br-r37-c1-wv3cu).
+
+    networkx's storage IS the assigned mapping, so `add_node` edits it in place
+    and the caller sees the change through their own reference. Measured: after
+    `G._adj = assigned; G.add_edge('p','q')`, nx's `assigned` holds p and q while
+    fnx's did not.
+
+    fnx can have a SPLIT store — `G._adj = {...}` leaves `_node` native — so the
+    two halves are written by their own routes rather than by copying networkx's
+    body verbatim:
+
+      * the native store gains the node through the raw method, which keeps
+        `_node`, node_count and every native reader consistent;
+      * each ASSIGNED mapping gains its own row, which is what makes the write
+        visible to the reads br-r37-c1-vbe1o just corrected.
+
+    Attribute semantics follow networkx: a NEW node takes `attr`, an existing one
+    has `attr` merged into whatever it already carries.
+    """
+    if node_for_adding is None:
+        raise ValueError("None cannot be a node")
+
+    storage = vars(self)
+    raw = _RAW_ADD_NODE_BY_CLASS.get(type(self))
+    if raw is not None:
+        raw(self, node_for_adding, **attr)
+
+    node_map = storage.get(_PRIVATE_NODE_OVERRIDE)
+    if node_map is not None:
+        existing = node_map.get(node_for_adding)
+        if existing is None:
+            node_map[node_for_adding] = dict(attr)
+        else:
+            existing.update(attr)
+
+    for key in (_PRIVATE_ADJ_OVERRIDE, _PRIVATE_SUCC_OVERRIDE, _PRIVATE_PRED_OVERRIDE):
+        mapping = storage.get(key)
+        if mapping is not None and node_for_adding not in mapping:
+            mapping[node_for_adding] = {}
+
+
+# The CURRENT class attribute, not the pre-rebinding raw: `install()` tests the
+# class's live method against this tuple to decide eligibility, and `add_node`
+# has since been rebound by the None-rejecting wrapper. Passing the raw
+# references made the shadow silently not install -- the mutation sweep stayed at
+# 82 with the code present and unreachable.
+_RAW_ADD_NODE_BY_CLASS = {
+    Graph: Graph.add_node,
+    DiGraph: DiGraph.add_node,
+    MultiGraph: MultiGraph.add_node,
+    MultiDiGraph: MultiDiGraph.add_node,
+}
+
+_RAW_ADD_NODE_METHODS = tuple(_RAW_ADD_NODE_BY_CLASS.values())
+
+
 def _assigned_private_has_edge_simple(self, u, v):
     hash(u)
     hash(v)
@@ -46799,6 +46856,10 @@ def _install_private_method_shadows(self, storage):
             else _assigned_private_has_edge_simple
         )
         install("has_edge", fallback, _RAW_HAS_EDGE_METHODS)
+        # br-r37-c1-wv3cu: the WRITE side. networkx mutates the assigned
+        # mapping in place, so a graph carrying one needs add_node routed
+        # there as well as to the native store.
+        install("add_node", _assigned_private_add_node, _RAW_ADD_NODE_METHODS)
         edge_data_fallback = (
             _assigned_private_get_edge_data_multi
             if isinstance(self, (MultiGraph, MultiDiGraph))
