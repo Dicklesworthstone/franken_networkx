@@ -63,10 +63,33 @@ def _build(lib, cls, n=12):
     return g
 
 
+# ORDER is a contract only for the views that WALK THE PARENT. For the others,
+# both libraries short-circuit to iterating their OWN `set` of admitted nodes
+# (networkx's FilterAtlas.__iter__ does `2 * len(NODE_OK.nodes) < len(atlas)`;
+# fnx copied that), and two equal sets built by different insertion orders
+# iterate differently under hash randomisation. Measured on a 30-node graph:
+# fnx and networkx disagreed on edge_subgraph node ORDER at 11 of 12
+# PYTHONHASHSEED values, agreeing on the SET every time.
+#
+# An earlier revision of this file asserted order for all six constructors. It
+# passed - at 8 seeds - only because the 12-node fixture is small enough that the
+# two sets happen to land in the same layout. That is a test passing by luck, so
+# the assertion is split by what each constructor actually guarantees.
+ORDER_STABLE = ("restricted_view", "restricted_view_edges", "as_view")
+SET_ONLY = ("subgraph", "edge_subgraph", "induced_subgraph")
+
+
 def _views(lib, g):
     """Every filtered-view constructor, paired by label across libraries."""
-    nodes = list(g)[:5]
-    edges = list(g.edges(keys=True))[:3] if g.is_multigraph() else list(g.edges())[:3]
+    nodes = [str(n) for n in list(g)[:5]]
+    edges = [
+        tuple(map(str, e))
+        for e in (
+            list(g.edges(keys=True))[:3]
+            if g.is_multigraph()
+            else list(g.edges())[:3]
+        )
+    ]
     return {
         "restricted_view": lib.restricted_view(g, nodes, []),
         "restricted_view_edges": lib.restricted_view(g, [], edges),
@@ -77,15 +100,25 @@ def _views(lib, g):
     }
 
 
+def _assert_matches(fv, xv, cls, label):
+    """Order where order is a contract; the node SET everywhere."""
+    assert sorted(str(n) for n in fv) == sorted(
+        str(n) for n in xv
+    ), f"{cls}/{label}: node SET diverged"
+    assert len(fv) == len(xv), f"{cls}/{label}: len diverged"
+    if label in ORDER_STABLE:
+        assert [str(n) for n in fv] == [
+            str(n) for n in xv
+        ], f"{cls}/{label}: iteration order diverged"
+
+
 @pytest.mark.parametrize("cls", CLASSES)
-def test_iteration_order_matches_networkx(cls):
+def test_iteration_matches_networkx(cls):
     got, want = _build(fnx, cls), _build(nx, cls)
     fv, xv = _views(fnx, got), _views(nx, want)
+    assert set(fv) == set(ORDER_STABLE) | set(SET_ONLY), "a constructor is unclassified"
     for label in fv:
-        assert [str(n) for n in fv[label]] == [
-            str(n) for n in xv[label]
-        ], f"{cls}/{label}: iteration order diverged"
-        assert len(fv[label]) == len(xv[label]), f"{cls}/{label}: len diverged"
+        _assert_matches(fv[label], xv[label], cls, label)
 
 
 @pytest.mark.parametrize("cls", CLASSES)
@@ -98,9 +131,22 @@ def test_iteration_tracks_a_mutating_parent(cls):
     got.add_edge("fresh", "n3")
     want.add_edge("fresh", "n3")
     for label in fv:
-        assert [str(n) for n in fv[label]] == [
-            str(n) for n in xv[label]
-        ], f"{cls}/{label}: diverged after the parent mutated"
+        _assert_matches(fv[label], xv[label], cls, label)
+
+
+@pytest.mark.parametrize("cls", CLASSES)
+@pytest.mark.parametrize("n", [12, 30, 60], ids=lambda v: f"n{v}")
+def test_parent_walking_views_hold_order_at_every_size(cls, n):
+    """The order contract, at the sizes where the set-derived ones break.
+
+    restricted_view walks the parent, so its order is the parent's at ANY size -
+    which is what makes it the right place to assert order at all.
+    """
+    got, want = _build(fnx, cls, n=n), _build(nx, cls, n=n)
+    hidden = [str(q) for q in list(got)[:4]]
+    fv, xv = fnx.restricted_view(got, hidden, []), nx.restricted_view(want, hidden, [])
+    assert [str(q) for q in fv] == [str(q) for q in xv]
+    assert [str(q) for q in fv] == [str(q) for q in got if str(q) not in set(hidden)]
 
 
 @pytest.mark.parametrize("cls", CLASSES)

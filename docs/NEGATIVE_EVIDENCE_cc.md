@@ -22247,3 +22247,117 @@ comparison_class=SELF-SPEEDUP
 campaign_output=false
 decision_gate=median_ci
 cv_role=report_only
+
+## 2026-08-17 GoldenBison KEEP: the filtered-view counting fallback paid three Python frames per node (br-r37-c1-h0t5k)
+
+Following the residual named in br-r37-c1-x3829's own row. With `__iter__` fixed,
+the profile put the remaining time in `__len__`'s fallback `sum(1 for _ in self)`,
+which per node resumes a genexpr, resumes `__iter__`'s generator, AND calls the
+filter - three Python-level frame operations to produce a number that needs only
+the filter's answer. Reaching past `__iter__` to the parent and letting `map`/`sum`
+loop in C leaves ONE frame per node, the predicate call, which is irreducible for
+a Python-level filter.
+
+    return sum(map(bool, map(self._filter_node, self._graph)))
+
+MEASURED, same-tree arms (scripts/make_python_arms.py, shared ELF, only
+__init__.py differing, 22 diff lines), each arm computing its own fnx-vs-networkx
+ratio in-process, arms alternated, median with 10000-resample bootstrap CI, 21
+rounds x 4 invocations, 50 reps per cell, seed 20260817:
+
+    N     workload               HEAD baseline            with lever
+    800   len(restricted_view)   0.7403 [0.7279, 0.7598]  0.9575 [0.9506, 0.9840]
+    800   list(rv.nodes())       0.8330 [0.8101, 0.8453]  0.9680 [0.9328, 0.9907]
+    200   len(restricted_view)   0.5654 [0.5456, 0.5813]  0.6652 [0.6524, 0.7070]
+    200   list(rv.nodes())       0.6848 [0.6654, 0.7152]  0.7885 [0.7758, 0.8460]
+
+All four pairs DISJOINT. restricted_view len at 800 nodes is now 0.9575, which is
+parity within the interval. MHz 3990-4142 per arm, skew 0.00-0.19 percent - not a
+frequency ratio in a costume. loadavg 25.87 rising to 26.68, below the campaign
+defer threshold, CPU idle 84.9 percent measured over a 2-second interval, disk
+197G, no build.
+
+THE N=200 ROWS ARE NOISY AND I AM NOT DRESSING THEM UP: cv 105.0 and 91.5 percent
+on the two `list(rv.nodes())` cells, and the baseline N=200 A/A null came back
+1.0717 [1.0121, 1.1056] - a null that misses the bound in the same direction as
+the effect. At 200 nodes the work per call is small enough that a GC pass lands
+inside a timed block. Those two rows are reported as corroborating DIRECTION only.
+The N=800 rows carry the finding: cv 5.13 and 7.78 percent on the len cells, nulls
+0.9773-0.9930, intervals disjoint by more than their own width.
+
+SCOPE, checked rather than assumed: there are FOUR `sum(1 for _ in self)`
+fallbacks in the shim and only this one is the lever. The other three dedup
+through a `yielded` set, filter on edge visibility, or honour a reverse flag, so
+their `__iter__` is not a bare parent walk and `map` over the parent would not be
+equivalent. They are deliberately untouched and the code comment says why, so the
+next reader does not "finish the job" and break them.
+
+WHY REACHING PAST `__iter__` IS SAFE HERE AND NOWHERE ELSE: control reaches this
+line only when the node filter is non-default and carries neither `.length` nor
+`.nodes` - exactly the case where `__iter__` walks the parent applying the filter
+and does nothing else. The three branches above it all return first. `bool` is
+load-bearing, not decoration: a filter may return any truthy value and `sum` would
+ADD it; networkx counts nodes, so the map must too. A filter returning 7 is in the
+parity test.
+
+A/A null control, same invocation, the SAME callable in both arm slots: baseline
+1.0067 [0.9841, 1.0949] and 1.0717 [1.0121, 1.1056] at N=200, 0.9837 [0.9578,
+1.0032] and 0.9930 [0.9716, 1.0088] at N=800; lever 1.0158 [0.9946, 1.1235] and
+1.0191 [0.9978, 1.0893] at N=200, 0.9773 [0.9343, 1.0023] and 0.9892 [0.9723,
+1.0188] at N=800. The N=200 nulls are the weak ones and are reported rather than
+re-rolled; the N=800 nulls sit inside 2 percent on all four.
+
+PROVENANCE: arms armA (HEAD 6f83d8003 plus this one hunk) and armB (HEAD
+6f83d8003 unmodified), snapshotted from ONE tree read by
+scripts/make_python_arms.py, sharing ONE .so, 22 diff lines confined to
+__init__.py. Driver certify_lenmap.py under each arm by PYTHONPATH. python
+3.13.7, live networkx 3.6.1, host thinkstation1, disk 197G. The hunk was rebased
+onto 8f1168c4e before commit because HEAD advanced during the run; the rebase
+moved no line of the hunk.
+
+bench_elf_sha256=4d65542f9058ae02de4dbf1ea74ae3165e0c162cf9d233fe6958d0fa7b29d6d0
+elf_sha256=4d65542f9058ae02de4dbf1ea74ae3165e0c162cf9d233fe6958d0fa7b29d6d0
+comparison_class=SELF-SPEEDUP
+campaign_output=false
+decision_gate=median_ci
+cv_role=report_only
+
+## 2026-08-17 GoldenBison FINDING: a test I committed this session asserted an ORDER that neither library guarantees (br-r37-c1-x3829)
+
+Self-inflicted, found the same day, fixed in the commit that follows. Worth a row
+because the failure mode is "green test, no contract".
+
+`test_iteration_order_matches_networkx` asserted fnx and networkx yield filtered-
+view nodes in the SAME ORDER, for all six view constructors. It passed - at eight
+PYTHONHASHSEED values - and it was wrong. Three of those constructors do not walk
+the parent at all: networkx's `FilterAtlas.__iter__` short-circuits to iterating
+the FILTER's own node set when `2 * len(NODE_OK.nodes) < len(atlas)`, and fnx
+copied that. Two equal sets built by different insertion orders iterate in
+different orders under hash randomisation.
+
+MEASURED, 30-node graph, `edge_subgraph` over 4 edges, one process per seed:
+
+    PYTHONHASHSEED 0..11    ORDER differed at 11 of 12 seeds
+                            the node SET matched at 12 of 12
+
+The 12-node fixture passed only because two 5-element sets that small happen to
+land in the same table layout. THE TEST WAS PASSING BY LUCK, and it would have
+started failing on some future machine or seed, at which point it reads as a
+regression in whatever change happened to be in flight.
+
+FIXED by splitting the assertion along what each constructor actually guarantees:
+ORDER for the three that walk the parent (restricted_view both spellings, and
+as_view), the node SET and length for all six, plus a new case that pins the
+order contract for restricted_view at n=12, 30 and 60 - the sizes where the
+set-derived ones diverge. 40 tests became 52, and they pass at every seed that
+broke the old assertion.
+
+THE GENERAL LESSON, which is why this is banked rather than quietly fixed: a
+parity test must assert what the two libraries CONTRACT, not what they happened
+to agree on when the fixture was written. Order that comes out of a `set` is the
+common case of this. A small fixture actively HIDES it - the smaller the set, the
+likelier two of them agree by accident.
+
+No measurement in this row - it is a correctness finding about a test. loadavg
+14.30/23.58/22.66, disk 197G, no build.
+

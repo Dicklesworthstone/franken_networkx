@@ -45461,7 +45461,27 @@ class _FilteredGraphView:
         filter_nodes = getattr(self._filter_node, "nodes", None)
         if filter_nodes is not None:
             return sum(1 for node in filter_nodes if node in self._graph)
-        return sum(1 for _ in self)
+        # br-r37-c1-h0t5k: the counting fallback. `sum(1 for _ in self)` pays
+        # THREE Python-level frame operations per node - the genexpr resumes,
+        # `__iter__`'s generator resumes, and the filter is called - to produce a
+        # number that only needs the filter's answer. Reaching past `__iter__` to
+        # the parent and letting `map`/`sum` loop in C leaves ONE frame per node,
+        # the predicate call itself, which is irreducible for a Python filter.
+        #
+        # Reaching past `__iter__` is equivalent HERE and nowhere else: control
+        # only arrives at this line when the filter is non-default and carries
+        # neither `.length` nor `.nodes` - precisely the case where `__iter__`
+        # walks the parent applying the filter and nothing else. The three
+        # branches above all return before this point.
+        #
+        # `bool` is not decoration: a filter may return any truthy value and
+        # `sum` would ADD it. networkx counts nodes, so the map must too.
+        #
+        # The three sibling `sum(1 for _ in self)` fallbacks in this file are NOT
+        # this lever and are deliberately untouched - they dedup through a
+        # `yielded` set, filter on edge visibility, or honour a reverse flag, so
+        # their `__iter__` is not a bare parent walk.
+        return sum(map(bool, map(self._filter_node, self._graph)))
 
     def __contains__(self, node):
         return self._node_visible(node)
