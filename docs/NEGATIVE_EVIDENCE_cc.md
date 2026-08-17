@@ -19075,3 +19075,101 @@ fixed in `61545a2ae`; both have since been re-certified in gate-passing windows.
 Several runs returned `SIBLING-CONTENDED`, which this pane records on every row
 but has never treated as blocking. So there is nothing here to re-run on account
 of an inverted argmin.
+
+## 2026-08-17 GoldenBison KEEP: MultiDiGraph.in_edges(nbunch) 0.1875x -> 2.2392x, and the A/A null is ARM-ASYMMETRIC (br-r37-c1-mdginb)
+
+Two results from one set of runs. The second matters more than the first.
+
+### The lever
+
+`_digraph_in_edges_data_cache` already existed as a written, documented mirror of
+`_digraph_out_edges_data_cache`. The out helper was wired at FOUR call sites, the
+in helper at exactly ONE, and `MultiDiGraph.in_edges(nbunch, ...)` was the member
+of the family that paid its native kernel on every repeated call. Pure Python; the
+two arms share a BYTE-IDENTICAL ELF (`92873d9e`) and differ only in `__init__.py`,
+which is the correct control for a Python-level change.
+
+    in_edges(nbunch,data) len=2000   OLD 0.1875x 0.1949x 0.1831x   median 0.1875x
+                                     NEW 2.2392x 2.2867x 2.2367x   median 2.2392x
+    with keys=True       len=2000    OLD 0.1570x -> NEW 2.3059x
+    len=3                            OLD 0.9225x -> NEW 2.3466x
+
+Self-speedup 11.94x, crossing from a heavy loss to a WIN against networkx. The
+separation is total: every NEW invocation is more than 11x every OLD one.
+
+CONTROL, the untouched `out_edges` twin on the same class, same invocations:
+len=2000 OLD 2.3017x 2.3506x 2.2783x against NEW 2.2411x 2.2811x 2.2935x, and
+len=3 OLD 2.3926x 2.4190x 2.3334x against NEW 2.2339x 2.3086x 2.3024x. Unchanged,
+though it reads 1-4 percent LOWER on NEW in both lengths; I am not claiming that
+as an effect, and it is the wrong sign to flatter this row.
+
+### The finding: my A/A null is arm-asymmetric, and it is not a bound problem
+
+Prompted by frankenpandas, who found their 2 percent null limit sitting exactly at
+their MEDIAN null deviation. I measured mine over all 36 rows of these six
+invocations, 72 null values:
+
+                median   mean     p75      p90      max    over the gate
+    null_a      0.0112   0.0116   0.0167   0.0217   0.0550    16.7 percent
+    null_b      0.0496   0.0519   0.0640   0.0776   0.1244    91.7 percent
+    pooled      0.0226   0.0317   0.0525   0.0643   0.1244    54.2 percent
+
+My pooled median deviation is 0.0226 against a 0.0200 gate, so mine sits PAST the
+median rather than at it - more than half of all null values fail by construction.
+But the pooled number hides the real shape. SIGNED medians: null_a 0.9991,
+null_b 1.0496. Arm A is networkx and arm B is fnx, so the INCUMBENT arm is
+stationary and the FNX arm drifts about +5 percent within every square, in the
+same direction, in 91.7 percent of rows.
+
+THAT IS NOT A CALIBRATION PROBLEM AND MUST NOT BE FIXED BY WIDENING THE BOUND.
+Relaxing to +/-0.03 takes admissible rows from 3/36 to 7/36; +/-0.05 still leaves
+about half of arm B outside, because 0.0496 IS its median. A bound wide enough to
+admit arm B routinely would be wider than many effects this campaign measures.
+
+CONSEQUENCE FOR EVERY ROW THIS PANE HAS BANKED, stated plainly: the gate is a
+SURVIVORSHIP FILTER on the fnx arm. In these runs the OLD arm admitted 3 of 18
+rows and the NEW arm 0 of 18 - and NEW is the FASTER arm, whose slots are shorter
+and therefore more exposed to whatever the drift is. That is the same pattern as
+the two earlier certifications on this pane, where the faster arm never admitted
+and the slower one did. A gate that preferentially rejects the fast arm will
+systematically UNDERSTATE improvements, which is the safe direction for a
+campaign claim but the wrong direction for deciding what to work on next.
+
+WHAT I AM NOT CLAIMING. I have measured the drift, not explained it. Candidates
+not yet separated: generational GC on an arm that allocates far more Python
+objects per slot than networkx does, and cache warming inside the square that 60
+warmup rounds do not finish. The next step is to instrument arm B slot-by-slot
+rather than to adjust a threshold.
+
+WHY THIS ROW IS STILL SAFE TO QUOTE. The separation is 11.94x. A 5 percent
+within-square drift cannot manufacture a 12x gap, the drift is present in BOTH
+arms' runs and in the same direction, and the untouched `out_edges` control moved
+by 1-4 percent in the OPPOSITE direction to the claim. The number I would not
+quote from these runs is a 2-percent-scale one.
+
+A/A null control, measured: subject nulls were 1.0112/1.0262, 0.9925/1.0190 and
+1.0146/1.0529 on OLD, and 1.0055/1.1029, 0.9999/1.0640 and 0.9922/1.0721 on NEW.
+The two admitted rows are OLD 0.1875x (nulls 0.9995/1.0144) and OLD 0.1949x
+(nulls 0.9925/1.0190). All twelve values sit inside [0.9922, 1.1029].
+
+SUBSTRATE. host thinkstation1, governor `powersave`, 64 CPUs, avx2, python
+3.13.7, live networkx 3.6.1, no rch worker. Workload `mdg-in-edges-nbunch`,
+reps 8, rounds 81, warmup 60, square ABBAABBA, bootstrap median CI. NO BUILD ran
+in the measurement window and none was needed - both arms are Python-only copies
+over one shared ELF. Per-arm observed loadavg 14.09/18.58/19.43, 13.98/18.42/19.36,
+13.60/18.19/19.28, 13.28/17.97/19.19, 12.86/17.80/19.13, 12.50/17.56/19.04; mean
+CPU at invocation start 2825, 3345, 2760, 2455, 2374, 3267 MHz; per-row clock
+4114-4289 MHz, arm-to-arm skew at or below 0.13 percent. disk 157G free.
+
+bench_elf_sha256=92873d9e31c1d7d2f59ca55122efc341d5a72114ef5402e91f4b40917eaa64e4
+elf_sha256=92873d9e31c1d7d2f59ca55122efc341d5a72114ef5402e91f4b40917eaa64e4
+harness_sha256=6666f40f2e68b4bbbfa0cd325f2f7636a7eb8d5210dd120916fe5e29dded5f67
+comparison_class=INCUMBENT
+incumbent=networkx
+incumbent_same_invocation=true
+incumbent_ratio=2.2392x
+incumbent_ratio_before=0.1875x
+self_speedup=11.94x
+campaign_output=true
+decision_gate=median_ci
+cv_role=report_only

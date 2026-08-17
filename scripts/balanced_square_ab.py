@@ -1134,9 +1134,53 @@ def workload_nbunch_key_length(reps: int):
     return build, ops
 
 
+def workload_mdg_in_edges_nbunch(reps: int):
+    """`MultiDiGraph.in_edges(nbunch, ...)` against its own out_edges twin.
+
+    br-r37-c1-mdginb. The in/out pair on one class is the cleanest control a
+    family lever can have: both call a native nbunch kernel, both return the same
+    shape, and only one of them was routed through the family's last-call memo.
+    `out_edges` is therefore carried in every run as an UNTOUCHED sibling - if it
+    moves, the change reached further than the one call site it edited.
+
+    All rows materialise a list of comparable size, so one `--reps` suits them
+    all; see `nbunch-key-length` for what happens when it does not.
+    """
+    edges, big = 300, 200
+
+    def build(module):
+        graphs = {}
+        for length in (3, 2000):
+            graph = module.MultiDiGraph()
+            for i in range(edges):
+                graph.add_edge(
+                    f"a{i}".ljust(length, "x"), f"b{i}".ljust(length, "y"), weight=i
+                )
+            graphs[length] = (graph, list(graph.nodes()))
+        return graphs[3][0], graphs
+
+    def ops(graph, fixture):
+        table = {}
+        for length, (g, nodes) in fixture.items():
+            nb = nodes[:big]
+            table[f"in_edges(nbunch,data) len={length}"] = (
+                lambda g=g, nb=nb: list(g.in_edges(nb, data=True))
+            )
+            table[f"in_edges(nbunch,data,keys) len={length}"] = (
+                lambda g=g, nb=nb: list(g.in_edges(nb, data=True, keys=True))
+            )
+            table[f"CONTROL out_edges(nbunch,data) len={length}"] = (
+                lambda g=g, nb=nb: list(g.out_edges(nb, data=True))
+            )
+        return table
+
+    return build, ops
+
+
 WORKLOADS = {
     "view-reads": workload_view_reads,
     "nbunch-key-length": workload_nbunch_key_length,
+    "mdg-in-edges-nbunch": workload_mdg_in_edges_nbunch,
     "edges-data": workload_edges_data,
     "has-node-membership": workload_has_node_membership,
     "digraph-rows": workload_digraph_rows,
