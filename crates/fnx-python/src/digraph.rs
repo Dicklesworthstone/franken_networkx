@@ -7889,11 +7889,34 @@ impl PyMultiDiGraph {
         // accumulating result (the old per-edge path queried the result
         // graph and paid two ledger records per arc); the miss path
         // replicates the kernel's len-then-probe auto-key allocation.
+        //
+        // br-r37-c1-convkey: keyed by node POSITION, not by an owned (String,
+        // String). At 2000-character node keys the old key allocated and copied
+        // ~4000 bytes PER EDGE and then hashed those bytes on every probe, which
+        // is why this kernel grew 9.17x from 3- to 2000-character keys while
+        // networkx stayed flat (0.98x). Positions come from one borrowed
+        // name->index map built once over `nodes_ordered()`, so the per-edge
+        // work is one hash of the target name plus a 16-byte pair hash.
+        //
+        // The third field holds the mirror dict already installed for
+        // (pair, actual_key). We are the only writer of `ug.edge_py_attrs` in
+        // this loop, so consulting it here is equivalent to the previous
+        // `get(edge_key).or_else(get(edge_key_rev))` probe -- and it removes BOTH
+        // of those canonical builds from the merge path and one from the insert
+        // path.
+        let name_to_idx: std::collections::HashMap<&str, usize> = self
+            .inner
+            .nodes_ordered()
+            .into_iter()
+            .enumerate()
+            .map(|(i, n)| (n, i))
+            .collect();
         let mut pair_keys: std::collections::HashMap<
-            (String, String),
+            (usize, usize),
             (
                 std::collections::HashMap<String, usize>,
                 std::collections::HashSet<usize>,
+                std::collections::HashMap<usize, Py<PyDict>>,
             ),
         > = std::collections::HashMap::new();
         let mut edge_batch: Vec<(String, String, usize, fnx_classes::AttrMap)> = Vec::new();
@@ -7915,11 +7938,14 @@ impl PyMultiDiGraph {
                     };
                     let py_key = self.py_edge_key(py, source, target, key);
                     let lookup = crate::edge_key_lookup_string(py, py_key.bind(py).as_any())?;
-                    let pair = if *source <= *target {
-                        (source.to_owned(), target.to_owned())
+                    // Sorted by NAME, exactly as before, so the pair identity is
+                    // unchanged -- only its representation is.
+                    let (lo, hi) = if *source <= *target {
+                        (source, target)
                     } else {
-                        (target.to_owned(), source.to_owned())
+                        (target, source)
                     };
+                    let pair = (name_to_idx[lo], name_to_idx[hi]);
                     let entry = pair_keys.entry(pair).or_default();
                     let actual_key = match entry.0.get(&lookup) {
                         Some(&existing) => existing,
@@ -7938,19 +7964,19 @@ impl PyMultiDiGraph {
                     // arc actually carries attrs (an empty dict's update
                     // is a no-op; absent entries are tolerated).
                     if let Some(py_attrs) = mirror {
-                        let edge_key = crate::PyMultiGraph::edge_key(source, target, actual_key);
-                        let edge_key_rev =
-                            crate::PyMultiGraph::edge_key(target, source, actual_key);
-                        if let Some(existing_attrs) = ug
-                            .edge_py_attrs
-                            .get(&edge_key)
-                            .or_else(|| ug.edge_py_attrs.get(&edge_key_rev))
-                        {
-                            existing_attrs
-                                .bind(py)
-                                .update(py_attrs.bind(py).as_mapping())?;
-                        } else {
-                            ug.edge_py_attrs.insert(edge_key, py_attrs);
+                        let entry = pair_keys.entry(pair).or_default();
+                        match entry.2.get(&actual_key) {
+                            Some(existing_attrs) => {
+                                existing_attrs
+                                    .bind(py)
+                                    .update(py_attrs.bind(py).as_mapping())?;
+                            }
+                            None => {
+                                let edge_key =
+                                    crate::PyMultiGraph::edge_key(source, target, actual_key);
+                                entry.2.insert(actual_key, py_attrs.clone_ref(py));
+                                ug.edge_py_attrs.insert(edge_key, py_attrs);
+                            }
                         }
                     }
                     ug.remember_edge_key_object(py, source, target, actual_key, &py_key);
