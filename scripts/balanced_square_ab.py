@@ -131,6 +131,17 @@ ROUND_WARM_CALLS = 2
 # ---------------------------------------------------------------------------
 def provenance() -> dict:
     elf = _fnx_ext.__file__
+    # br-r37-c1-shimprov: the shim is resolved from the IMPORTED module, not from
+    # the repo path, so an arm running out of a package copy reports the copy it
+    # actually executed rather than the tree it was made from.
+    _SHIM_PATH = fnx.__file__
+    try:
+        with open(_SHIM_PATH, "rb") as handle:
+            _shim_bytes = handle.read()
+        _shim_sha = hashlib.sha256(_shim_bytes).hexdigest()
+        _shim_lines = _shim_bytes.count(b"\n")
+    except OSError:
+        _shim_sha, _shim_lines = "unavailable", -1
     with open(elf, "rb") as handle:
         elf_sha = hashlib.sha256(handle.read()).hexdigest()
     harness = Path(__file__).resolve()
@@ -174,6 +185,24 @@ def provenance() -> dict:
         "elf_sha256": elf_sha,
         "governor": governor,
         "runtime_isa": ",".join(isa) or "baseline",
+        # br-r37-c1-shimprov: record the PYTHON SHIM, not just the extension.
+        #
+        # Every row here already carried an ELF sha256, which pins the Rust half
+        # and nothing else. The half it does not pin is the one that actually
+        # inverted a ratio on this host: an installed `franken_networkx/__init__.py`
+        # 2751 lines and twelve days behind the repo made `G.adj[u]` at
+        # 2000-character keys read 0.1568x where the repo shim read 0.8530x — the
+        # same call, the SAME extension, a 5.4x difference traceable entirely to
+        # the Python layer, and it sent an investigation after a defect that had
+        # already been fixed.
+        #
+        # Both arms of an ELF-alternated run are usually copies of the same tree,
+        # so the shim cancels — but that is an assumption a row should state
+        # rather than rely on. With this recorded, two rows can be compared after
+        # the fact and a shim mismatch is visible instead of silent.
+        "shim": _SHIM_PATH,
+        "shim_sha256": _shim_sha,
+        "shim_lines": _shim_lines,
         "observed_os_threads": threads,
         "observed_affinity_cpus": len(os.sched_getaffinity(0)),
         "affinity_cpu_list": sorted(os.sched_getaffinity(0)),
