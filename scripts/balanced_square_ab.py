@@ -1075,8 +1075,68 @@ def workload_edges_data(reps: int):
     return build, ops
 
 
+def workload_nbunch_key_length(reps: int):
+    """`G.edges(nbunch, data=True)` against NODE-KEY LENGTH (br-r37-c1-nbidx).
+
+    The axis this call grows on while networkx stays flat. No other workload
+    passes an nbunch at all, which is why the defect sat unmeasured by this
+    harness while three separate levers were aimed at it.
+
+    THE CONTROLS ARE THE POINT. The lever changed how nbunch ITEMS resolve to
+    node indices, so:
+
+    * WHOLE-GRAPH `edges(data=True)` takes no nbunch and is served from the list
+      cache (br-r37-c1-ml7s5). It must not move. If it does, the change leaked
+      past the nbunch path.
+    * A SMALL nbunch is carried at both lengths because there is no key-length
+      effect there at all (0.6190x at K=3 against 0.6171x at K=2000). A
+      five-item probe reports this surface healthy, so the row that reports
+      healthy is kept next to the row that does not.
+
+    EVERY ROW HERE COSTS ROUGHLY THE SAME PER SLOT, deliberately. A first draft
+    also carried `has_edge` and `len(G)` as controls and every row of the run
+    failed its A/A null, including `len(G)`, which cannot plausibly have
+    regressed. One `--reps` is shared by all rows, so at the reps these
+    materializing calls need (8) a `len(G)` slot is ~400ns of timer noise while
+    an `edges(nbunch=200)` slot is ~2ms. The null was reporting a defect in the
+    WORKLOAD, not the subject. Cheap controls for this lever belong in
+    `key-length-scaling`, which already carries `has_edge` at a reps that suits
+    it. This is why the fix was to equalise slot duration rather than to widen a
+    bound.
+    """
+    edges, big = 300, 200
+
+    def build(module):
+        graphs = {}
+        for length in (3, 2000):
+            graph = module.Graph()
+            for i in range(edges):
+                graph.add_edge(
+                    f"a{i}".ljust(length, "x"), f"b{i}".ljust(length, "y"), weight=i
+                )
+            graphs[length] = (graph, list(graph.nodes()))
+        return graphs[3][0], graphs
+
+    def ops(graph, fixture):
+        table = {}
+        for length, (g, nodes) in fixture.items():
+            for size in (5, big):
+                nb = nodes[:size]
+                table[f"edges(nbunch={size},data) len={length}"] = (
+                    lambda g=g, nb=nb: list(g.edges(nb, data=True))
+                )
+        for length, (g, nodes) in fixture.items():
+            table[f"CONTROL edges(data) whole len={length}"] = (
+                lambda g=g: list(g.edges(data=True))
+            )
+        return table
+
+    return build, ops
+
+
 WORKLOADS = {
     "view-reads": workload_view_reads,
+    "nbunch-key-length": workload_nbunch_key_length,
     "edges-data": workload_edges_data,
     "has-node-membership": workload_has_node_membership,
     "digraph-rows": workload_digraph_rows,

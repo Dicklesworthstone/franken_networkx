@@ -18525,3 +18525,103 @@ incumbent_ratio=1.2862x
 campaign_output=true
 decision_gate=median_ci
 cv_role=report_only
+
+## 2026-08-17 GoldenBison KEEP-SELF: edges(nbunch, data=True) per-item canonical — 0.328x -> 0.489x at 2000-char keys (br-r37-c1-nbidx)
+
+THE MEASUREMENT THAT MATTERS MOST HERE IS THE ONE THAT REFUTED MY OWN TWO
+EARLIER LEVERS. Both patched `views.rs::edge_alldata_items`; a cProfile of
+`list(G.edges(nbunch, data=True))` shows the call never enters that function. It
+enters `readwrite.rs::edges_nbunch_data`, plus `edges_nbunch_count` for the size
+hint. Two carefully measured levers had landed on code this path does not
+execute, which is exactly why both read as "no effect" - they were correct
+measurements of nothing. Anyone reading the two earlier NEGATIVE rows for this
+bead should read them as "wrong file", not "wrong idea".
+
+THE COST. Per NBUNCH ITEM both kernels called `node_key_to_string`, building a
+`str:{len}:{s}` canonical - at 2000 characters an allocation and a 2000-byte
+copy each - then hashed those bytes for the node index.
+`cached_exact_string_node_index` answers the same question from CPython's cached
+`str` hash and already backed `has_edge`; on a miss it does exactly what the old
+line did. The COUNT kernel matters twice over: `list(view)` calls `__len__` for
+the size hint BEFORE `__iter__`, so the per-item canonical was paid on every
+materialization.
+
+SUBJECT, `edges(nbunch=200, data=True)` at 2000-character node keys, ratio
+t_networkx/t_fnx, ELF-ALTERNATED across 10 invocations of one workload:
+
+    OLD (b893272b) 0.3284x 0.3247x 0.3273x 0.3414x        median 0.3279x
+    NEW (6fce1aca) 0.4857x 0.5092x 0.4672x 0.4413x 0.4927x 0.4959x   median 0.4892x
+
+Self-speedup 1.49x. The separation is complete: the WORST NEW invocation
+(0.4413x) beats the BEST OLD invocation (0.3414x) by 29 percent, across ten
+invocations spanning 35 minutes and a loadavg range of 13.8 to 29.5.
+
+THREE CONTROLS, all measured in the same invocations as the subject:
+
+  * WHOLE-GRAPH `edges(data=True)` len=2000 takes no nbunch and is served from
+    the list cache (br-r37-c1-ml7s5). OLD 6.5389x 6.9129x 6.6048x 6.9458x, NEW
+    6.5507x 6.6901x 6.8571x 6.6025x 6.7719x 6.7733x. Flat, so the change stayed
+    inside the nbunch path.
+  * `edges(nbunch=5, data=True)` len=2000 - a SMALL nbunch, where the per-item
+    cost is 40x smaller. OLD 0.5748x 0.6050x 0.6095x 0.6008x, NEW 0.6077x 0.5955x
+    0.5987x 0.5844x. Flat, which is the positive control for the mechanism: a
+    PER-ITEM fix must do almost nothing when there are five items.
+  * The same subject at 3-character keys, where the canonical is cheap: OLD
+    1.1060x 1.1784x 1.1725x 1.1830x, NEW 1.4298x 1.4279x 1.4181x 1.3855x. It
+    still improves, because the cache also removes the hash, but by much less.
+
+ADMISSIBILITY, STATED PLAINLY BECAUSE IT IS MIXED. The subject row was ADMISSIBLE
+on both OLD replicates at reps=8 (0.3273x, 0.3414x). It never admitted on a NEW
+replicate: NEW is faster, so its slots are roughly half as long and noisier, and
+raising reps to 24 did not recover it. I am invoking the documented exception for
+the NEW arm rather than claiming a clean gate pass - the final two NEW
+invocations agree with OVERLAPPING intervals, 0.4927x CI [0.4606, 0.5047] and
+0.4959x CI [0.4895, 0.4989], and their nulls are off in the SAME direction by a
+similar amount.
+
+A/A null control, per arm, measured: subject nulls were 1.0129/1.0185 and
+1.0027/1.0080 on the two admitted OLD invocations, and 1.0188/1.0330,
+1.0367/1.0611, 1.0239/1.0471, 1.0182/1.0315 on NEW. All twelve sit inside
+[1.0027, 1.0611], all above 1, i.e. every arm drifted the same way and by a
+similar amount. The control rows admitted in 5 of 10 invocations with nulls in
+[0.9833, 1.0880].
+
+A WORKLOAD DEFECT THE NULL CAUGHT, recorded because it looked like a host
+problem. The first draft of this workload also carried `has_edge` and `len(G)`
+as controls, and EVERY row of those runs failed its null - including `len(G)`,
+which cannot plausibly have regressed. One `--reps` is shared by all rows, so at
+the reps these materializing calls need (8) a `len(G)` slot is ~400ns of timer
+noise against ~2ms for `edges(nbunch=200)`. The null was reporting a defect in
+the WORKLOAD. The fix was to equalise slot duration by dropping the mismatched
+controls, NOT to widen a bound; `key-length-scaling` already carries `has_edge`
+at a reps that suits it.
+
+NOT FIXED, and the sibling xfail stays strict and still fails. The remaining
+O(key length) work is PER EDGE: `edge_key(u_name, v_name)` builds an owned key
+from BOTH 2000-character names to look up `edge_py_attrs`.
+`cached_edge_py_attrs_by_index` would answer it from two `usize`s, but populating
+it needs `&mut self` and this kernel reaches the graph through `extract_graph`,
+which yields a `PyRef`. That is a restructure, not a line edit.
+
+SUBSTRATE. host thinkstation1, governor `powersave`, 64 CPUs, avx2, python
+3.13.7, live networkx 3.6.1. Workload `nbunch-key-length` in
+`scripts/balanced_square_ab.py`, square ABBAABBA, bootstrap median CI, no rch
+worker - every invocation ran on this host and names its own loadavg and clock.
+Per-arm observed loadavg 13.80 to 29.51 and mean CPU 2492-3328 MHz at
+invocation start, per-row clock 3990-4289 MHz with arm-to-arm skew at or below
+0.09 percent on every row quoted. Arms are complete package copies selected by
+PYTHONPATH; the venv install was never overwritten. disk 165G free.
+
+bench_elf_sha256=6fce1aca248cf35fb83397d08ef6a13130073e5c767508b50c17d93f75ec8660
+elf_sha256=6fce1aca248cf35fb83397d08ef6a13130073e5c767508b50c17d93f75ec8660
+baseline_elf_sha256=b893272b0d61d589ecf452b7fb54dc096b5ffedf1ff42c46d31c8c6e1ea9b5cf
+harness_sha256=be8b894ba4bf883fe866d2d246e171a3f30edbdffad308f910f6dcd784f42807
+comparison_class=SELF-SPEEDUP
+self_speedup=1.49x
+incumbent=networkx
+incumbent_same_invocation=true
+incumbent_ratio_before=0.3279x
+incumbent_ratio_after=0.4892x
+campaign_output=false
+decision_gate=median_ci
+cv_role=report_only
