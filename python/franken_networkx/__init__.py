@@ -220,7 +220,9 @@ def _digraph_out_edges(self, nbunch=None, data=False, default=None):
         native = getattr(self, "_native_out_edges_nbunch_no_data", None)
         if native is not None:
             try:
-                result = native(nbunch)
+                result = _nbunch_data_cache(
+                        self, "_fnx_out_edges_nb_nodata_cache", nbunch, native
+                    )
             except TypeError as exc:
                 raise NetworkXError(str(exc))
             if result is not None:
@@ -255,7 +257,9 @@ def _digraph_out_edges(self, nbunch=None, data=False, default=None):
         native = getattr(self, "_native_out_edges_nbunch_data_key", None)
         if native is not None:
             try:
-                result = native(nbunch, data, default)
+                result = _nbunch_data_cache(
+                        self, "_fnx_out_edges_nb_key_cache", nbunch, native, data, default
+                    )
             except TypeError as exc:
                 raise NetworkXError(str(exc))
             if result is not None:
@@ -306,9 +310,14 @@ def _digraph_in_edges(self, nbunch=None, data=False, default=None):
                     # the directed pair matches (was 0.68x on the repeated view).
                     result = _digraph_in_edges_data_cache(self, nbunch, native)
                 elif data is False:
-                    result = native(nbunch)
+                    result = _nbunch_data_cache(
+                        self, "_fnx_in_edges_nb_nodata_cache", nbunch, native
+                    )
                 else:
-                    result = native(nbunch, data, default)
+                    result = _nbunch_data_cache(
+                        self, "_fnx_in_edges_nb_key_cache",
+                        nbunch, native, data, default,
+                    )
             except TypeError as exc:
                 raise NetworkXError(str(exc))
             if result is not None:
@@ -340,7 +349,9 @@ def _multidigraph_out_edges(self, nbunch=None, data=False, keys=False, default=N
         native = getattr(self, "_native_mdg_out_edges_nbunch_no_data", None)
         if native is not None:
             try:
-                result = native(nbunch, keys)
+                result = _nbunch_data_cache(
+                        self, "_fnx_mdg_out_edges_nb_nodata_cache", nbunch, native, keys
+                    )
             except TypeError as exc:
                 raise NetworkXError(str(exc))
             if result is not None:
@@ -377,7 +388,9 @@ def _multidigraph_out_edges(self, nbunch=None, data=False, keys=False, default=N
         native = getattr(self, "_native_mdg_out_edges_nbunch_data_key", None)
         if native is not None:
             try:
-                result = native(nbunch, data, default, keys)
+                result = _nbunch_data_cache(
+                        self, "_fnx_mdg_out_edges_nb_key_cache", nbunch, native, data, default, keys
+                    )
             except TypeError as exc:
                 raise NetworkXError(str(exc))
             if result is not None:
@@ -429,11 +442,22 @@ def _multidigraph_in_edges(self, nbunch=None, data=False, keys=False, default=No
                 # while `_digraph_out_edges_data_cache` was wired at four, so this
                 # was the one nbunch edge-view in the family paying the native
                 # kernel on every repeated call.
-                if data is True or data is False:
-                    result = _digraph_in_edges_data_cache(self, nbunch, native, keys)
+                # br-r37-c1-dinbfam: data=True and data=False call DIFFERENT
+                # natives but with IDENTICAL native_args (just `keys`), so a
+                # shared slot made their cache keys equal and data=False was
+                # served data=True's rows. Separate slots, one per spelling.
+                if data is True:
+                    result = _nbunch_data_cache(
+                        self, "_fnx_mdg_in_edges_nb_data_cache", nbunch, native, keys
+                    )
+                elif data is False:
+                    result = _nbunch_data_cache(
+                        self, "_fnx_mdg_in_edges_nb_nodata_cache", nbunch, native, keys
+                    )
                 else:
-                    result = _digraph_in_edges_data_cache(
-                        self, nbunch, native, data, default, keys
+                    result = _nbunch_data_cache(
+                        self, "_fnx_mdg_in_edges_nb_key_cache",
+                        nbunch, native, data, default, keys,
                     )
             except TypeError as exc:
                 raise NetworkXError(str(exc))
@@ -3208,7 +3232,10 @@ class _DiGraphEdgeView:
                             self._graph, nbunch, native
                         )
                     else:
-                        native_result = native(nbunch)
+                        native_result = _nbunch_data_cache(
+                            self._graph, "_fnx_out_edges_nb_nodata_cache",
+                            nbunch, native,
+                        )
                 except TypeError as exc:
                     raise NetworkXError(str(exc))
                 if native_result is not None:
@@ -3226,7 +3253,10 @@ class _DiGraphEdgeView:
             native = getattr(self._graph, "_native_out_edges_nbunch_data_key", None)
             if native is not None:
                 try:
-                    native_result = native(nbunch, data, default)
+                    native_result = _nbunch_data_cache(
+                        self._graph, "_fnx_out_edges_nb_key_cache",
+                        nbunch, native, data, default,
+                    )
                 except TypeError as exc:
                     raise NetworkXError(str(exc))
                 if native_result is not None:
@@ -4232,7 +4262,10 @@ class _MultiDiGraphEdgeView:
                             self._graph, nbunch, native, keys
                         )
                     else:
-                        native_res = native(nbunch, keys)
+                        native_res = _nbunch_data_cache(
+                            self._graph, "_fnx_mdg_out_edges_nb_nodata_cache",
+                            nbunch, native, keys,
+                        )
                 except TypeError as exc:
                     raise NetworkXError(str(exc))
                 if native_res is not None:
@@ -4259,7 +4292,10 @@ class _MultiDiGraphEdgeView:
             if native is not None:
                 try:
                     # br-r37-c1-outedgesnbattr (cc): native now takes a keys arg (False here).
-                    native_res = native(nbunch, data, default, keys)
+                    native_res = _nbunch_data_cache(
+                        self._graph, "_fnx_mdg_out_edges_nb_key_cache",
+                        nbunch, native, data, default, keys,
+                    )
                 except TypeError as exc:
                     raise NetworkXError(str(exc))
                 if native_res is not None:
