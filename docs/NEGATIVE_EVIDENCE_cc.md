@@ -21375,3 +21375,59 @@ incumbent_ratio=0.7675x
 campaign_output=false
 decision_gate=median_ci
 cv_role=report_only
+
+## 2026-08-17 GoldenBison CLOCK PROVENANCE: the CONSTRUCTION sizing re-instrumented — the two-defect conclusion holds (br-r37-c1-convkey2)
+
+Discharging the commitment in the row above, which said the construction and
+mutation rows had NOT been re-instrumented and that nobody should quote a
+few-percent figure from them until they were. This re-measures the sizing that
+the whole "construction is TWO defects" conclusion rests on, with the arms
+INTERLEAVED ABBA inside one process and the running core's frequency sampled
+after every timed block.
+
+    key length    fnx        nx       ratio     previously   fnx MHz  nx MHz  skew
+        3        954.6us   626.0us   0.6558x     0.6091x       4068    4089  -0.53%
+       64       1151.0us   650.3us   0.5650x     0.5211x       4099    4095   0.11%
+     2000       3650.9us   655.0us   0.1794x     0.1740x       4065    4066  -0.02%
+      INT        889.4us   681.7us   0.7665x     0.7446x       4058    4056   0.03%
+
+Every arm pair shared its cores (a=[17,22,52] and b=[17,22,52] at K=2000, and so
+on), and arm-to-arm clock skew was at or below 0.53 percent, its worst at the
+K=3 row. So these ratios are not frequency ratios in a costume; the arms met the
+same cores at the same clock because they were interleaved in one process.
+
+THE CONCLUSION IS UNCHANGED AND NOW HAS PROVENANCE:
+
+  * a FLAT term of about 1.30x is present with INTEGER keys - no canonicalisation,
+    no owned key, no string hashing at all - so interning cannot touch it;
+  * a KEY-LENGTH term on top takes 0.7665x down to 0.1794x at 2000 characters;
+  * the ceiling for an interning project is therefore the INT row, 0.7665x - still
+    a loss - and the flat term is the larger share until keys pass ~128
+    characters.
+
+Every ratio came out 2-8 percent HIGHER (better for fnx) than the sequential-loop
+figures, in the same direction for all four points. That is the size of the error
+the old form carried here: not enough to move the argument, but the instrumented
+numbers are the ones to quote, and the earlier ones should not be cited to more
+precision than "about".
+
+STILL NOT RE-INSTRUMENTED, so the caveat narrows rather than disappears: the
+add_edge shim decomposition (0.7483x / 0.9305x) and the bare-add_edge alternation
+(1.067x-1.16x) were taken with the sequential form. The 1.067x figure in
+particular is at the scale where a 0.5 percent skew matters, and it should be
+re-measured with this instrument before anyone relies on it.
+
+Method: ABBA x 7 rounds x 3 reps after 6 warm-up iterations, min per arm, one
+process, per-arm core id and kHz captured after every block. loadavg
+14.10/16.57/18.31, ZERO peer builds, no build of my own. disk 99G.
+
+bench_elf_sha256=f934861b2e97439800f7b7f9c8fdb23aeb2208f1f41216828c03d052e3e09b72
+elf_sha256=f934861b2e97439800f7b7f9c8fdb23aeb2208f1f41216828c03d052e3e09b72
+harness_sha256=977bc0ab382ada602af2a28daf2fc20bf62bc1a1d93489b71932e63a0de1f5f9
+comparison_class=INCUMBENT
+incumbent=networkx
+incumbent_same_invocation=true
+incumbent_ratio=0.7665x
+campaign_output=false
+decision_gate=median_ci
+cv_role=report_only
