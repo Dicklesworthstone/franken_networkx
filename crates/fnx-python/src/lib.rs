@@ -5035,6 +5035,26 @@ pub(crate) struct PyMultiGraph {
     /// already parametrised over BOTH multigraph classes.
     pub(crate) edge_keydict_by_index:
         HashMap<(usize, usize), (u64, u64, usize, Py<PyDict>)>,
+    /// br-r37-c1-f3i50: the KEYED twin of `edge_keydict_by_index`, and the
+    /// undirected mirror of `PyMultiDiGraph::edge_py_attrs_by_index`.
+    ///
+    /// The index-keyed caches on this class all serve the UNKEYED branch
+    /// (`key.is_none()`). The keyed branch — `G.edges[u, v, k]` — still resolved
+    /// both endpoints as canonical strings on every call, which is O(node key
+    /// length), and it measured **0.0754x at 2000-character keys**: a 13x loss
+    /// and the worst cell on this surface. MultiDiGraph has had this cache since
+    /// br-r37-c1-7qqr8; the undirected class simply never got it, which is the
+    /// directed/undirected mirror lag that has produced several levers already.
+    ///
+    /// Keyed by SORTED endpoint positions plus the internal key, because this
+    /// graph is undirected and `Self::edge_key` sorts — u-v and v-u are the same
+    /// edge and must share an entry, unlike the directed twin which must not
+    /// sort.
+    ///
+    /// Each entry carries the `nodes_seq` it was recorded under: node removal
+    /// RENUMBERS positions, so an unstamped entry would name a DIFFERENT edge
+    /// rather than go missing. `bump_edges_seq` clears the map for edge identity.
+    pub(crate) edge_py_attrs_by_index: HashMap<(usize, usize, usize), (u64, Py<PyDict>)>,
     pub(crate) instance_dict_gc: InstanceDictGc,
 }
 
@@ -5146,6 +5166,9 @@ impl PyMultiGraph {
         // dicts — and an attribute value may reference the graph itself
         // (`G[u][v][k]['g'] = G`). Untraversed, that cycle would be invisible to
         // the collector and the graph would leak.
+        for (_seq, attrs) in self.edge_py_attrs_by_index.values() {
+            visit.call(attrs)?;
+        }
         if let Some((_, _, rows)) = &self.edge_keydict_cache {
             for row in rows.values() {
                 for (_expected_len, keydict) in row.values() {
@@ -5173,6 +5196,7 @@ impl PyMultiGraph {
         *self.node_iter_mirror.get_mut().unwrap() = None;
         self.edge_keydict_cache = None;
         self.edge_keydict_by_index.clear(); // br-r37-c1-2ndmw
+        self.edge_py_attrs_by_index.clear(); // br-r37-c1-f3i50
         self.has_edge_node_index_cache.clear(py);
     }
 
@@ -5763,6 +5787,7 @@ impl PyMultiGraph {
             neighbor_key_rows: None,
             edge_keydict_cache: None,
             edge_keydict_by_index: HashMap::new(), // br-r37-c1-2ndmw
+            edge_py_attrs_by_index: HashMap::new(), // br-r37-c1-f3i50
             edges_data_attr_cache: std::sync::Mutex::new(None),
             inner: MultiGraph::with_runtime_policy(runtime_policy),
             node_key_map: HashMap::new(),
@@ -5797,10 +5822,60 @@ impl PyMultiGraph {
     #[inline]
     pub(crate) fn bump_edges_seq(&mut self) {
         self.edges_seq = self.edges_seq.wrapping_add(1);
+        // br-r37-c1-f3i50: the keyed lookaside stores ONLY `nodes_seq`, which
+        // covers position RENUMBERING. Edge identity — an edge removed and a
+        // different one added between two reads, reusing the same internal key —
+        // is covered here. The sibling `edge_keydict_by_index` carries both seqs
+        // inside its value and so needs no clear; this one does.
+        self.edge_py_attrs_by_index.clear();
     }
 
     // br-r37-c1-ptiz2: pub(crate) so views.rs EdgeView::__getitem__ can reach
     // the index resolution that already keeps `has_edge` flat in key length.
+    /// br-r37-c1-f3i50: the live attr dict for a KEYED undirected edge, by
+    /// endpoint positions plus internal key, or `None`.
+    ///
+    /// A hit is existence proof: entries are recorded only for edges that were
+    /// present, `bump_edges_seq` clears the map on any edge mutation, and the
+    /// per-entry `nodes_seq` stamp makes a post-removal position a MISS rather
+    /// than a wrong hit.
+    ///
+    /// The endpoint pair is SORTED because this graph is undirected — u-v and
+    /// v-u are one edge and must share an entry. The directed twin deliberately
+    /// does not sort.
+    pub(crate) fn cached_keyed_edge_attrs_by_index(
+        &self,
+        py: Python<'_>,
+        a: usize,
+        b: usize,
+        internal_key: usize,
+    ) -> Option<Py<PyDict>> {
+        let (lo, hi) = if a <= b { (a, b) } else { (b, a) };
+        match self.edge_py_attrs_by_index.get(&(lo, hi, internal_key)) {
+            Some((seq, attrs)) if *seq == self.nodes_seq => Some(attrs.clone_ref(py)),
+            _ => None,
+        }
+    }
+
+    /// Record a live keyed edge attr dict under its endpoint positions.
+    ///
+    /// Callers must already hold the dict `ensure_edge_py_attrs` returned, so
+    /// this never constructs one and cannot disagree with the string-keyed
+    /// mirror about identity.
+    pub(crate) fn remember_keyed_edge_attrs_by_index(
+        &mut self,
+        py: Python<'_>,
+        a: usize,
+        b: usize,
+        internal_key: usize,
+        attrs: &Py<PyDict>,
+    ) {
+        let (lo, hi) = if a <= b { (a, b) } else { (b, a) };
+        let seq = self.nodes_seq;
+        self.edge_py_attrs_by_index
+            .insert((lo, hi, internal_key), (seq, attrs.clone_ref(py)));
+    }
+
     pub(crate) fn cached_exact_string_node_index(
         &self,
         py: Python<'_>,
@@ -7489,6 +7564,32 @@ impl PyMultiGraph {
         // an explicit multiedge key.
         u.hash()?;
         v.hash()?;
+        // br-r37-c1-f3i50: KEYED index probe, before any canonical is built.
+        //
+        // `G.edges[u, v, k]` measured 0.0754x at 2000-character node keys — the
+        // worst cell on this surface — because everything below is O(node key
+        // length): both endpoints canonicalise, `resolve_internal_edge_key`
+        // hashes them, and `ensure_edge_py_attrs` hashes them again. A hit here
+        // is one hash of three `usize`s, off CPython's cached `str` hash.
+        //
+        // MultiDiGraph has had this since br-r37-c1-7qqr8; the undirected class
+        // never got it. Gated exactly like that twin: an exact nonnegative
+        // `PyInt` public key IS the internal key while `has_remapped_int_key` is
+        // false, so nothing is skipped, only repeated. Anything else falls
+        // through unchanged.
+        if let Some(key_obj) = key
+            && !self.has_remapped_int_key
+            && key_obj.is_exact_instance_of::<PyInt>()
+            && u.is_exact_instance_of::<PyString>()
+            && v.is_exact_instance_of::<PyString>()
+            && let Ok(internal_key) = key_obj.extract::<usize>()
+            && let Some(ui) = self.cached_exact_string_node_index(py, u)?
+            && let Some(vi) = self.cached_exact_string_node_index(py, v)?
+            && let Some(attrs) = self.cached_keyed_edge_attrs_by_index(py, ui, vi, internal_key)
+        {
+            self.mark_edges_dirty();
+            return Ok(attrs.into_any());
+        }
         if let Some(key_obj) = key {
             key_obj.hash()?;
         }
@@ -7554,10 +7655,21 @@ impl PyMultiGraph {
                 return Ok(default.unwrap_or_else(|| py.None()));
             };
             self.mark_edges_dirty();
-            Ok(self
+            let attrs = self
                 .ensure_edge_py_attrs(py, u_c, v_c, internal_key)
-                .clone_ref(py)
-                .into_any())
+                .clone_ref(py);
+            // br-r37-c1-f3i50: fill the keyed index lookaside with the SAME dict
+            // the string-keyed mirror just returned, so the two can never
+            // disagree about identity. Exact `str` endpoints only, matching the
+            // probe at the top of this function.
+            if u.is_exact_instance_of::<PyString>()
+                && v.is_exact_instance_of::<PyString>()
+                && let Some(ui) = self.cached_exact_string_node_index(py, u)?
+                && let Some(vi) = self.cached_exact_string_node_index(py, v)?
+            {
+                self.remember_keyed_edge_attrs_by_index(py, ui, vi, internal_key, &attrs);
+            }
+            Ok(attrs.into_any())
         } else {
             // br-r37-c1-ptiz2: serve a warm endpoint pair from the keydict cache.
             //
@@ -11334,6 +11446,7 @@ impl PyMultiGraph {
             neighbor_key_rows: None,
             edge_keydict_cache: None,
             edge_keydict_by_index: HashMap::new(), // br-r37-c1-2ndmw
+            edge_py_attrs_by_index: HashMap::new(), // br-r37-c1-f3i50
             edges_data_attr_cache: std::sync::Mutex::new(None),
             // br-r37-c1-7dpyg: fresh ledger, mode only (skip ledger clone)
             inner: MultiGraph::with_runtime_policy(fnx_runtime::RuntimePolicy::new(
@@ -11443,6 +11556,7 @@ impl PyMultiGraph {
             neighbor_key_rows: None,
             edge_keydict_cache: None,
             edge_keydict_by_index: HashMap::new(), // br-r37-c1-2ndmw
+            edge_py_attrs_by_index: HashMap::new(), // br-r37-c1-f3i50
             edges_data_attr_cache: std::sync::Mutex::new(None),
             inner: MultiGraph::with_runtime_policy(self.inner.runtime_policy().clone()),
             node_key_map: HashMap::new(),
@@ -11615,6 +11729,7 @@ impl PyMultiGraph {
             neighbor_key_rows: None,
             edge_keydict_cache: None,
             edge_keydict_by_index: HashMap::new(), // br-r37-c1-2ndmw
+            edge_py_attrs_by_index: HashMap::new(), // br-r37-c1-f3i50
             edges_data_attr_cache: std::sync::Mutex::new(None),
             inner: self.inner.clone_with_fresh_policy(), // br-r37-c1-7dpyg: skip ledger
             node_key_map: HashMap::with_capacity(self.node_key_map.len()),
@@ -11694,6 +11809,7 @@ impl PyMultiGraph {
             neighbor_key_rows: None,
             edge_keydict_cache: None,
             edge_keydict_by_index: HashMap::new(), // br-r37-c1-2ndmw
+            edge_py_attrs_by_index: HashMap::new(), // br-r37-c1-f3i50
             edges_data_attr_cache: std::sync::Mutex::new(None),
             inner: self.inner.clone_with_fresh_policy(), // br-r37-c1-7dpyg: skip ledger
             node_key_map: self
@@ -11788,6 +11904,7 @@ impl PyMultiGraph {
             neighbor_key_rows: None,
             edge_keydict_cache: None,
             edge_keydict_by_index: HashMap::new(), // br-r37-c1-2ndmw
+            edge_py_attrs_by_index: HashMap::new(), // br-r37-c1-f3i50
             edges_data_attr_cache: std::sync::Mutex::new(None),
             inner: MultiGraph::with_runtime_policy(self.inner.runtime_policy().clone()),
             node_key_map: HashMap::new(),
@@ -11909,6 +12026,7 @@ impl PyMultiGraph {
             neighbor_key_rows: None,
             edge_keydict_cache: None,
             edge_keydict_by_index: HashMap::new(), // br-r37-c1-2ndmw
+            edge_py_attrs_by_index: HashMap::new(), // br-r37-c1-f3i50
             edges_data_attr_cache: std::sync::Mutex::new(None),
             inner: MultiGraph::with_runtime_policy(self.inner.runtime_policy().clone()),
             node_key_map: HashMap::new(),
