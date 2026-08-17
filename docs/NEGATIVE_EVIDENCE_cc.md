@@ -17763,3 +17763,99 @@ separate passes. host thinkstation1, governor `powersave`, python 3.13.7, live
 networkx 3.6.1, disk 209G free. Lever landed as `ec03791b4`; guard suite
 `tests/python/test_adjacency_getitem_existence_probe_parity.py`, 50 cases plus 2
 strict xfails.
+
+---
+
+## STANDING — br-r37-c1-2ndmw, and the MultiGraph keydict index mirror (2026-08-16)
+
+### STANDING: the multigraph row cell, certified 1.1515x
+
+Banked as a standing result. `MultiGraph.adj[u][v]` second subscript, K=2000,
+certified at **1.1515x** (replicate range 1.1436-1.1603) across three gate-passing
+runs plus a fourth measurement from an independent harness design at 1.160x —
+four numbers, two designs, 1.5 percent spread. Six A/A nulls within 0.7 percent
+of unity, highest null CI bound 1.0243 against a lowest effect CI bound of
+1.1288. Full detail in the certification entry above. The cell itself REMAINS a
+loss at 0.0937x -> 0.1083x; the standing is the size of the improvement, not a
+claim that the cell is won.
+
+### The next worst cell, and it was a missing sibling
+
+Scanning the row/cell surface across all four classes at K=1 and K=2000 put
+`MultiGraph.get_edge_data` at the bottom by a clear margin:
+
+    0.0738   K=2000  MultiGraph    get_edge_data   nx  82.6ns   fnx 1119.5ns
+    0.1191   K=2000  MultiDiGraph  row[v]
+    0.1252   K=2000  MultiGraph    row[v]
+    ...
+    0.4847   K=2000  MultiDiGraph  get_edge_data   nx  81.4ns   fnx  168.0ns
+
+The directed sibling on the identical workload read 0.4847x — 6.6x apart, purely
+because br-r37-c1-f3i50's index-keyed keydict twin shipped for `PyMultiDiGraph`
+and was never mirrored to `PyMultiGraph`. The winning sibling is the control, so
+the expected result was known before the change was written.
+
+MEASURED, alternated `[base cand cand base][base cand cand base]`, one arm per
+invocation, 15 rounds x 20000 reps, pinned `cpu14`, K=2000:
+
+    base   nx 84.7  fnx 1093.8   0.0774   load 20.56  MHz 4097->4075
+    cand   nx 86.3  fnx  158.0   0.5462   load 20.56  MHz 4063->4033
+    cand   nx 85.2  fnx  157.1   0.5425   load 20.56  MHz 4067->4039
+    base   nx 85.1  fnx 1106.4   0.0770   load 20.43  MHz 4089->4064
+    base   nx 89.3  fnx 1094.3   0.0816   load 20.43  MHz 4045->4192
+    cand   nx 82.8  fnx  154.2   0.5367   load 20.43  MHz 4139->4171
+    cand   nx 83.6  fnx  150.0   0.5573   load 20.43  MHz 4217->4189
+    base   nx 82.4  fnx 1062.3   0.0775   load 20.43  MHz 4142->4217
+
+fnx 1094.05ns -> 155.65ns, **7.03x**, ratio 0.0775x -> 0.5444x, arms not
+overlapping. An earlier square on the same pair read 6.86x. Gate passing: 1-min
+20.43-20.56 against 5-min 20.19-20.41, ratio under 1.02, level under 21.
+
+THE SLOPE IS WHAT WAS REMOVED, and it is the honest way to read this row. The
+candidate is FLAT in key length — 154.5-160.7 ns at K=1 and 150.0-158.0 ns at
+K=2000 — where the base climbs 164.3 -> 1094 ns, a 6.6x slope. K=1 is unchanged
+or slightly better. An index probe removes a length-dependent term, not a
+constant, so a graph with short node keys sees nothing from this and a graph with
+long ones sees all of it.
+
+### TWO NEAR-MISSES WORTH RECORDING, because both would have destroyed work
+
+**The first draft of this patch would have REVERTED a peer's landed commit.**
+`ed315dd2d` landed on this exact cache DURING the build, taking the same call
+0.2311x -> 0.4663x by a different mechanism: it hands the cached dict back live
+under an entry-count guard instead of copying it. My patch was written against
+the pre-`ed315dd2d` field type. It was caught only because the staged blob's diff
+against HEAD showed **37 deletions in a change that only adds** — the deletions
+were their commit. The check that saved it was cheap and mechanical: a pure
+addition must produce zero deletions, so anything else means the base moved. The
+patch was rebased and now COMPOSES with theirs: parallel-edge axis theirs,
+key-length axis this one, and the twin carries their count guard and live return
+so their identity contract survives this path.
+
+**The base and candidate binaries were briefly IDENTICAL.** After restoring the
+pin tree to HEAD, cargo reported `Finished in 0.10s` and did not rebuild, because
+the restored sources had older mtimes than the artifacts — so the "base" `.so`
+was a byte-identical copy of the candidate. Caught by md5-ing the two before
+measuring; measuring then would have compared the change against itself and
+returned ~1.0x. Both binaries are md5-checked as distinct before any timing now,
+and the committed source was rebuilt to a byte-identical binary to the one
+measured.
+
+VERIFICATION: guard suites identical on both arms (95 passed, 17 xfailed).
+`tests/python/test_multidigraph_keydict_index_invalidation.py` is already
+parametrised over BOTH multigraph classes, so its warm-then-mutate cases cover
+this class as written — warm-then-add at short and 2000-character keys,
+warm-then-remove-one, warm-then-remove-all, node-removal renumbering, attribute
+edits, the reversed-pair case the order normalisation exists for, and non-`str`
+endpoints past the exact-`str` gate. Full suite on an earlier build of this
+change against its own base: 99 failed / 59811 passed on BOTH arms, zero
+regressions.
+
+PROVENANCE: harness `/data/tmp/claude-1000/bench_mg.py`, one arm per invocation
+with per-arm loadavg and `cpu14` `scaling_cur_freq` sampled at block boundaries,
+pinned via `taskset -c 14`. Arms are two `git archive` pins of `ed315dd2d`, one
+patched, each built `cargo build --release -p fnx-python --features
+pyo3/abi3-py310` with `RCH_CARGO_WRAPPER_BYPASS=1` and a PRIVATE
+`CARGO_TARGET_DIR` (never the shared one), loaded via PYTHONPATH so the venv
+install was never touched. host thinkstation1, governor `powersave`, python
+3.13.7, live networkx 3.6.1, disk 192G free.
