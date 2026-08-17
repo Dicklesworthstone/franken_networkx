@@ -19448,3 +19448,34 @@ conjunction at 8.3 percent: essentially every rejection was arm B, and a bare
 about slot positions was corrected, and the drift arithmetic above is now recorded
 at the definition of `NULL_BOUND` so the next reader inherits the number instead
 of the feeling.
+
+## 2026-08-17 GoldenBison SWEEP TABLE COMPLETION: the three unmeasured cells, filled (br-r37-c1-gnbmemo)
+
+Completes the table banked earlier today, which carried three cells as
+"unmeasured" because simple `Graph.edges(nbunch)` was wired during a disk
+emergency with builds and benchmarks barred. Appended rather than edited in place,
+because that table is a banked reading and rewriting it would destroy the record
+of what was known when.
+
+    Graph.edges(nbunch, data=True)    0.6894x -> 2.1409x
+    Graph.edges(nbunch, data=False)   0.9319x -> 1.9896x
+    Graph.edges(nbunch, data=<key>)   0.9473x -> 2.0719x
+
+ALL 24 SPELLINGS of the nbunch edge-view family now beat networkx. The family
+opened at eleven losses as low as 0.1282x.
+
+Same status as the table it completes: DIRECT READINGS, min of 7 rounds x 15 in
+one process, no ABBA square, no A/A null, NOT gate-certified. Observed loadavg
+22.90/46.23/135.99 - the 1-minute figure is under the bar but the 5- and
+15-minute figures show a host still recovering from an external build cycle, so
+these are reference numbers and I am not treating them as a certification. The
+three certified cells in this family keep their own rows with per-arm loadavg,
+CPU MHz and ELF shas.
+
+VERIFIED ON THE FULL IN-TREE SUITE at the same time, which the pure-Python
+commits of the last three turns had never had: 60512 passed, 1464 skipped, 50
+xfailed. The only 2 failures are
+`test_installed_package_matches_repo_shim.py`, which compare against a STALE
+`~/.local/lib/python3.13/site-packages/franken_networkx` dated 2026-08-02. That
+install is not on this venv's path (imports resolve to the repo), the failures
+predate all of this work, and removing it is not this pane's call.

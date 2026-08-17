@@ -7,12 +7,18 @@ directed family). A scan of 4 classes x {edges, in_edges, out_edges} x
 member still unmemoized, at 0.6894x / 0.9319x / 0.9473x against networkx at
 2000-character node keys.
 
-THE PERFORMANCE NUMBER FOR THIS COMMIT IS NOT MEASURED. It was written during a
-disk emergency (13G free, external build running) under an explicit
-no-benchmarks instruction, so only correctness was verified. The before-figures
-above are from the family scan in br-r37-c1-dinbfam; the after-figure is
-deliberately absent rather than guessed, and this docstring should be updated
-with a measured pair when a window permits.
+MEASURED, in the first window that permitted it (min of 7 rounds x 15, loadavg
+22.90/46.23/135.99, direct reading and NOT gate-certified):
+
+                        before      after
+    data=True          0.6894x     2.1409x
+    data=False         0.9319x     1.9896x
+    data=<key>         0.9473x     2.0719x
+
+The commit that landed this deliberately carried NO after-number rather than a
+guessed one, because it was written during a disk emergency (13G free, external
+build running) under a no-benchmarks instruction. These are the promised figures.
+With them, all 24 spellings of the nbunch edge-view family beat networkx.
 
 TWO THINGS HERE ARE NOT LIKE THE OTHER FAMILY MEMBERS, and both are why this file
 exists rather than a parametrize case bolted onto a sibling:
