@@ -18,6 +18,15 @@ at 100 percent. A pane trusting the loadavg figure would have started a five
 minute harness run into one of the busiest states of the day. The gate is right
 and the summary statistic is wrong; this tool reports what the gate reports.
 
+AGGREGATE IDLE DOES NOT PREDICT IT EITHER, and for a structural reason worth
+stating because it is the natural second guess after loadavg. The gate is
+PER-CORE, so a minority of saturated cores - which is exactly what a build looks
+like - is diluted away by the idle majority. Measured 2026-08-17: 15 of 64 CPUs
+over the bound, several at 100 percent, while cumulative idle read 76.7 percent.
+An "88 percent idle" host is consistent with roughly seven fully pinned cores and
+is still a refusal. Idle above 80 percent is NECESSARY for admission and nowhere
+near SUFFICIENT; only the per-core check answers the question.
+
 IT DOES NOT WEAKEN OR REPLACE THE GATE. It imports the harness's own constants
 and scope function, so it cannot drift from them, and it is advisory only - the
 harness still runs its full admission sequence. A pass here means "worth
@@ -73,7 +82,15 @@ def check(windows: int) -> tuple[bool, list, dict]:
                 worst = offenders
         else:
             clear += 1
+    with open("/proc/stat", encoding="utf-8") as handle:
+        parts = handle.readline().split()
+    total = sum(int(x) for x in parts[1:])
+    idle_pct = 100.0 * int(parts[4]) / max(1, total)
+    import os as _os
+
     return clear == windows, sorted(worst.items(), key=lambda kv: -kv[1]), {
+        "loadavg": _os.getloadavg(),
+        "idle_pct": idle_pct,
         "bound": bound,
         "sample_s": sample_s,
         "scope_size": len(scope),
@@ -92,6 +109,14 @@ def main(argv: list[str]) -> int:
         f"gate: all {info['scope_size']} CPUs < {info['bound'] * 100:.0f}% busy for "
         f"{info['clear_windows_required']} consecutive {info['sample_s']:.0f}s windows "
         f"(harness retries up to {info['max_windows']})"
+    )
+    # Report the two summary statistics people actually quote, next to the
+    # per-core verdict, so their disagreement is visible in ONE line rather than
+    # discovered after a five-minute refusal.
+    print(
+        f"summary stats (NEITHER predicts this gate): "
+        f"loadavg {info['loadavg'][0]:.2f}/{info['loadavg'][1]:.2f}/"
+        f"{info['loadavg'][2]:.2f}, aggregate idle {info['idle_pct']:.1f}%"
     )
     if ok:
         print(f"WOULD ATTEMPT: {args.windows}/{args.windows} sampled windows clear.")

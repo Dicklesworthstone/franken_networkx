@@ -93,3 +93,41 @@ def test_it_never_claims_admission():
     source = SCRIPT.read_text()
     assert "Advisory only" in source
     assert "does not weaken" in source.lower() or "DOES NOT WEAKEN" in source
+
+
+def test_it_reports_loadavg_and_idle_beside_the_verdict():
+    """Both summary stats must appear NEXT TO the per-core answer.
+
+    br-r37-c1-d4xot: two fleet briefs in two days called this host a clean window
+    on the strength of a summary statistic. loadavg 12.33 and loadavg 15.94 both
+    looked fine and both refused; aggregate idle is no better, because the gate is
+    PER-CORE and a minority of saturated cores is diluted by the idle majority -
+    measured 15 of 64 CPUs over the bound at 76.7 percent idle. Printing them
+    together is what makes the disagreement visible in one line instead of after a
+    five-minute refusal.
+    """
+    mod = _load()
+    _ok, _off, info = mod.check(1)
+    assert len(info["loadavg"]) == 3
+    assert 0.0 <= info["idle_pct"] <= 100.0
+
+    proc = subprocess.run(
+        [sys.executable, str(SCRIPT)], capture_output=True, text=True, timeout=120
+    )
+    assert "loadavg" in proc.stdout
+    assert "aggregate idle" in proc.stdout
+    assert "NEITHER predicts this gate" in proc.stdout
+
+
+def test_idle_and_percore_can_disagree_by_construction():
+    """The arithmetic behind the warning, so it is not just an assertion.
+
+    N saturated cores out of M give roughly (M-N)/M aggregate idle, so a host can
+    read 88 percent idle with ~7 cores pinned and still fail a per-core bound.
+    """
+    cores, pinned = 64, 7
+    aggregate_idle = 100.0 * (cores - pinned) / cores
+    assert aggregate_idle > 80.0, "this host would look quiet by the idle statistic"
+    # ...while pinned cores sit at 100 percent, far over a 20 percent bound.
+    assert 100.0 > 20.0
+
