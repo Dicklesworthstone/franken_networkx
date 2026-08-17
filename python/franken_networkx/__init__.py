@@ -4629,6 +4629,16 @@ def _multidigraph_edges(self):
 
 
 def _simple_graph_adjacency(self):
+    # br-r37-c1-vbe1o: a graph carrying ASSIGNED private storage yields that
+    # mapping's rows, exactly as networkx does (`iter(self._adj.items())`). The
+    # native paths below read the Rust store and cannot see it, and the final
+    # fallback iterates the node view, so a node carried only by an assigned
+    # `_adj` never appeared at all.
+    #
+    # The PRIVATE `_adj` on purpose: the public `adj` is now a read-only view,
+    # and networkx hands out the live raw rows here.
+    if _nbunch_membership_container(self) is not None:
+        return iter(self._adj.items())
     # br-adjiter: nx.Graph.adjacency() returns a dict_itemiterator — an
     # iterator, not a materialised list. User code calling
     # ``next(G.adjacency())`` TypeErrored on fnx previously. Yield
@@ -4688,6 +4698,17 @@ def _multigraph_adjacency(self):
     # instead of unwrapping self.adj[node] via the per-element MultiAdjacencyView
     # lambda chain (~33000x slower than nx). Identical snapshot; iterating the
     # native dict's items yields the same (node, inner_dict) pairs.
+    # br-r37-c1-vbe1o: a graph carrying ASSIGNED private storage yields that
+    # mapping's rows, exactly as networkx does (`iter(self._adj.items())`). The
+    # native paths below read the Rust store and cannot see it, and the final
+    # fallback iterates the node view, so a node carried only by an assigned
+    # `_adj` never appeared at all.
+    #
+    # The PRIVATE `_adj` on purpose: the public `adj` is now a read-only view,
+    # and networkx hands out the live raw rows here.
+    if _nbunch_membership_container(self) is not None:
+        return iter(self._adj.items())
+
     native = getattr(self, "_native_adjacency_dict", None)
     if native is not None:
         return iter(native().items())
