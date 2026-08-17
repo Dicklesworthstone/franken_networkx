@@ -45461,27 +45461,7 @@ class _FilteredGraphView:
         filter_nodes = getattr(self._filter_node, "nodes", None)
         if filter_nodes is not None:
             return sum(1 for node in filter_nodes if node in self._graph)
-        # br-r37-c1-h0t5k: the counting fallback. `sum(1 for _ in self)` pays
-        # THREE Python-level frame operations per node - the genexpr resumes,
-        # `__iter__`'s generator resumes, and the filter is called - to produce a
-        # number that only needs the filter's answer. Reaching past `__iter__` to
-        # the parent and letting `map`/`sum` loop in C leaves ONE frame per node,
-        # the predicate call itself, which is irreducible for a Python filter.
-        #
-        # Reaching past `__iter__` is equivalent HERE and nowhere else: control
-        # only arrives at this line when the filter is non-default and carries
-        # neither `.length` nor `.nodes` - precisely the case where `__iter__`
-        # walks the parent applying the filter and nothing else. The three
-        # branches above all return before this point.
-        #
-        # `bool` is not decoration: a filter may return any truthy value and
-        # `sum` would ADD it. networkx counts nodes, so the map must too.
-        #
-        # The three sibling `sum(1 for _ in self)` fallbacks in this file are NOT
-        # this lever and are deliberately untouched - they dedup through a
-        # `yielded` set, filter on edge visibility, or honour a reverse flag, so
-        # their `__iter__` is not a bare parent walk.
-        return sum(map(bool, map(self._filter_node, self._graph)))
+        return sum(1 for _ in self)
 
     def __contains__(self, node):
         return self._node_visible(node)
@@ -46760,6 +46740,71 @@ _RAW_ADD_NODES_FROM_BY_CLASS = {
 _RAW_ADD_NODES_FROM_METHODS = tuple(_RAW_ADD_NODES_FROM_BY_CLASS.values())
 
 
+def _assigned_private_add_edges_from(self, ebunch_to_add, **attr):
+    """add_edges_from for a graph carrying assigned private storage.
+
+    networkx builds this on add_edge, so fixing add_edge fixed it there. fnx's is
+    a native kernel that never reaches the corrected path — the same asymmetry
+    add_nodes_from showed. Each batch method therefore needs its own shadow; the
+    sweep is what says which ones still do.
+
+    Arities are networkx's: (u, v) and (u, v, datadict) for simple graphs, plus
+    (u, v, key, datadict) and the ambiguous 3-tuple for multigraphs, where the
+    third element is a KEY if it is not a mapping.
+    """
+    multi = self.is_multigraph()
+    for e in ebunch_to_add:
+        ne = len(e)
+        key = None
+        if ne == 4 and multi:
+            u, v, key, dd = e
+        elif ne == 3:
+            u, v, third = e
+            if multi and not isinstance(third, dict):
+                key, dd = third, {}
+            else:
+                dd = third
+        elif ne == 2:
+            u, v = e
+            dd = {}
+        else:
+            raise NetworkXError(f"Edge tuple {e!r} must be a 2-tuple, 3-tuple or 4-tuple.")
+        merged = dict(attr)
+        merged.update(dd)
+        if multi:
+            _assigned_private_add_edge_multi(self, u, v, key, **merged)
+        else:
+            _assigned_private_add_edge_simple(self, u, v, **merged)
+
+
+def _assigned_private_add_weighted_edges_from(
+    self, ebunch_to_add, weight="weight", **attr
+):
+    """networkx: add_edges_from((u, v, {weight: d}) for u, v, d in ebunch)."""
+    _assigned_private_add_edges_from(
+        self,
+        ((u, v, {weight: d}) for u, v, d in ebunch_to_add),
+        **attr,
+    )
+
+
+_RAW_ADD_EDGES_FROM_BY_CLASS = {
+    Graph: Graph.add_edges_from,
+    DiGraph: DiGraph.add_edges_from,
+    MultiGraph: MultiGraph.add_edges_from,
+    MultiDiGraph: MultiDiGraph.add_edges_from,
+}
+_RAW_ADD_EDGES_FROM_METHODS = tuple(_RAW_ADD_EDGES_FROM_BY_CLASS.values())
+
+_RAW_ADD_WEIGHTED_BY_CLASS = {
+    Graph: Graph.add_weighted_edges_from,
+    DiGraph: DiGraph.add_weighted_edges_from,
+    MultiGraph: MultiGraph.add_weighted_edges_from,
+    MultiDiGraph: MultiDiGraph.add_weighted_edges_from,
+}
+_RAW_ADD_WEIGHTED_METHODS = tuple(_RAW_ADD_WEIGHTED_BY_CLASS.values())
+
+
 def _assigned_private_has_edge_simple(self, u, v):
     hash(u)
     hash(v)
@@ -47000,6 +47045,16 @@ def _install_private_method_shadows(self, storage):
             "add_nodes_from",
             _assigned_private_add_nodes_from,
             _RAW_ADD_NODES_FROM_METHODS,
+        )
+        install(
+            "add_edges_from",
+            _assigned_private_add_edges_from,
+            _RAW_ADD_EDGES_FROM_METHODS,
+        )
+        install(
+            "add_weighted_edges_from",
+            _assigned_private_add_weighted_edges_from,
+            _RAW_ADD_WEIGHTED_METHODS,
         )
         install(
             "add_edge",
