@@ -46624,6 +46624,122 @@ _RAW_ADD_NODE_BY_CLASS = {
 _RAW_ADD_NODE_METHODS = tuple(_RAW_ADD_NODE_BY_CLASS.values())
 
 
+def _assigned_private_edge_targets(self, storage):
+    """(forward, backward) assigned mappings an edge write must reach.
+
+    Undirected: the same mapping twice, written u->v and v->u. Directed: the succ
+    side forward and the pred side backward, either of which may be absent
+    because fnx allows a partial assignment where networkx does not.
+    """
+    adj = storage.get(_PRIVATE_ADJ_OVERRIDE)
+    if self.is_directed():
+        succ = storage.get(_PRIVATE_SUCC_OVERRIDE)
+        if succ is None:
+            succ = adj
+        return succ, storage.get(_PRIVATE_PRED_OVERRIDE)
+    return adj, adj
+
+
+def _assigned_private_write_edge(self, u, v, key, attr, storage):
+    """Put one edge into whichever assigned mappings this graph carries."""
+    forward, backward = _assigned_private_edge_targets(self, storage)
+    multi = self.is_multigraph()
+
+    def row(mapping, node):
+        existing = mapping.get(node)
+        if existing is None:
+            existing = mapping[node] = {}
+        return existing
+
+    if multi:
+        # networkx keeps ONE keydict per (u, v) and shares the attr dict between
+        # both directions of an undirected edge.
+        fwd_keys = row(forward, u).setdefault(v, {}) if forward is not None else None
+        datadict = None
+        if fwd_keys is not None:
+            datadict = fwd_keys.get(key)
+            if datadict is None:
+                datadict = fwd_keys[key] = {}
+            datadict.update(attr)
+        if backward is not None and (backward is not forward or u != v):
+            back_keys = row(backward, v).setdefault(u, {})
+            back_keys[key] = datadict if datadict is not None else dict(attr)
+        return
+
+    datadict = None
+    if forward is not None:
+        fwd_row = row(forward, u)
+        datadict = fwd_row.get(v)
+        if datadict is None:
+            datadict = {}
+        datadict.update(attr)
+        fwd_row[v] = datadict
+        row(forward, v)
+    if backward is not None:
+        back_row = row(backward, v)
+        back_row[u] = datadict if datadict is not None else dict(attr)
+        row(backward, u)
+
+
+def _assigned_private_add_edge_simple(self, u_of_edge, v_of_edge, **attr):
+    """add_edge for a graph carrying assigned private storage (br-r37-c1-wv3cu)."""
+    storage = vars(self)
+    raw = _RAW_ADD_EDGE_BY_CLASS.get(type(self))
+    if raw is not None:
+        raw(self, u_of_edge, v_of_edge, **attr)
+    _assigned_private_add_node(self, u_of_edge)
+    _assigned_private_add_node(self, v_of_edge)
+    _assigned_private_write_edge(self, u_of_edge, v_of_edge, None, attr, storage)
+
+
+def _assigned_private_add_edge_multi(self, u_of_edge, v_of_edge, key=None, **attr):
+    """Multigraph add_edge: the key is part of the address, not an attribute."""
+    storage = vars(self)
+    raw = _RAW_ADD_EDGE_BY_CLASS.get(type(self))
+    if raw is not None:
+        if key is None:
+            key = raw(self, u_of_edge, v_of_edge, **attr)
+        else:
+            raw(self, u_of_edge, v_of_edge, key, **attr)
+    _assigned_private_add_node(self, u_of_edge)
+    _assigned_private_add_node(self, v_of_edge)
+    _assigned_private_write_edge(self, u_of_edge, v_of_edge, key, attr, storage)
+    return key
+
+
+def _assigned_private_add_nodes_from(self, nodes_for_adding, **attr):
+    """networkx delegates this to add_node; fnx's native batch does not.
+
+    That asymmetry is why the sweep showed add_node fixed while add_nodes_from
+    still diverged — the batch kernel never reached the corrected path.
+    """
+    for node in nodes_for_adding:
+        if isinstance(node, tuple) and len(node) == 2 and isinstance(node[1], dict):
+            name, node_attr = node
+            merged = dict(attr)
+            merged.update(node_attr)
+            _assigned_private_add_node(self, name, **merged)
+        else:
+            _assigned_private_add_node(self, node, **attr)
+
+
+_RAW_ADD_EDGE_BY_CLASS = {
+    Graph: Graph.add_edge,
+    DiGraph: DiGraph.add_edge,
+    MultiGraph: MultiGraph.add_edge,
+    MultiDiGraph: MultiDiGraph.add_edge,
+}
+_RAW_ADD_EDGE_METHODS = tuple(_RAW_ADD_EDGE_BY_CLASS.values())
+
+_RAW_ADD_NODES_FROM_BY_CLASS = {
+    Graph: Graph.add_nodes_from,
+    DiGraph: DiGraph.add_nodes_from,
+    MultiGraph: MultiGraph.add_nodes_from,
+    MultiDiGraph: MultiDiGraph.add_nodes_from,
+}
+_RAW_ADD_NODES_FROM_METHODS = tuple(_RAW_ADD_NODES_FROM_BY_CLASS.values())
+
+
 def _assigned_private_has_edge_simple(self, u, v):
     hash(u)
     hash(v)
@@ -46860,6 +46976,18 @@ def _install_private_method_shadows(self, storage):
         # mapping in place, so a graph carrying one needs add_node routed
         # there as well as to the native store.
         install("add_node", _assigned_private_add_node, _RAW_ADD_NODE_METHODS)
+        install(
+            "add_nodes_from",
+            _assigned_private_add_nodes_from,
+            _RAW_ADD_NODES_FROM_METHODS,
+        )
+        install(
+            "add_edge",
+            _assigned_private_add_edge_multi
+            if isinstance(self, (MultiGraph, MultiDiGraph))
+            else _assigned_private_add_edge_simple,
+            _RAW_ADD_EDGE_METHODS,
+        )
         edge_data_fallback = (
             _assigned_private_get_edge_data_multi
             if isinstance(self, (MultiGraph, MultiDiGraph))
