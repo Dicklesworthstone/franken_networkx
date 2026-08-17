@@ -10362,6 +10362,16 @@ impl PyMultiGraph {
         self.edge_py_attrs.clear();
         self.adj_py_keys.clear(); // br-r37-c1-z6uka
         self.edge_py_keys.clear();
+        // br-r37-c1-clrow: DROP THE NEIGHBOUR ROW CACHE, like every other mirror
+        // above. It is stamped with (nodes_seq, edges_seq) and both are bumped
+        // below, so a survivor would normally be rejected on read -- but leaving
+        // the map non-empty keeps `neighbor_rows_live()` true, and the next
+        // `add_edge` calls `cached_neighbor_row_set` then
+        // `restamp_neighbor_rows`, writing the CURRENT sequences onto the stale
+        // rows. The stamp that should have caught the staleness is overwritten
+        // by the very next mutation, so `G.neighbors(n)` reported a phantom
+        // neighbour from before the clear, permanently.
+        self.neighbor_key_rows = None;
         self.edge_mirrors_stale = false;
         self.graph_attrs = PyDict::new(py).unbind();
         // Clear the live mirror in place so an in-flight iter raises like nx.
@@ -12529,6 +12539,16 @@ impl PyMultiGraph {
         self.edge_py_attrs.clear();
         self.adj_py_keys.clear(); // br-r37-c1-u3qyn
         self.edge_py_keys.clear();
+        // br-r37-c1-clrow: DROP THE NEIGHBOUR ROW CACHE, like every other mirror
+        // above. It is stamped with (nodes_seq, edges_seq) and both are bumped
+        // below, so a survivor would normally be rejected on read -- but leaving
+        // the map non-empty keeps `neighbor_rows_live()` true, and the next
+        // `add_edge` calls `cached_neighbor_row_set` then
+        // `restamp_neighbor_rows`, writing the CURRENT sequences onto the stale
+        // rows. The stamp that should have caught the staleness is overwritten
+        // by the very next mutation, so `G.neighbors(n)` reported a phantom
+        // neighbour from before the clear, permanently.
+        self.neighbor_key_rows = None;
         self.edge_mirrors_stale = false;
         self.graph_attrs = PyDict::new(py).unbind();
 
