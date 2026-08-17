@@ -5237,6 +5237,74 @@ mod tests {
         );
     }
 
+    /// br-r37-c1-f3i50: two helpers on the SAME struct use DIFFERENT index
+    /// spaces, so you cannot infer the space from where a function lives.
+    ///
+    /// The test above pins that `MgSlabStorage::has_edge_by_pair` is SLOT-keyed.
+    /// `MgSlabStorage::node_index_matches_int` sits in the same `impl`, is named
+    /// in the same style, and is POSITION-keyed: it calls
+    /// `node_order.get_index(index)`, which is the IndexMap POSITION, not the
+    /// stored slot. So it composes correctly with `MultiGraph::get_node_index`
+    /// and would be WRONG to pair with `has_edge_by_pair`.
+    ///
+    /// I got this backwards first: the helper delegates to `slab_store()`, which
+    /// reads like slot territory, and I wrote the opposite assertion and watched
+    /// it fail. Reading the body is the only way to know. That is exactly why
+    /// this is pinned rather than left to the next reader's inference.
+    ///
+    /// SECOND FACT, and the one that bites: once a node is removed, name and
+    /// position stop agreeing for EVERY surviving node, so this predicate goes
+    /// uniformly false on a graph whose int nodes are all still present. A
+    /// caller treating it as "is int N in the graph" would answer no for nodes
+    /// that plainly exist.
+    #[test]
+    fn multigraph_node_index_matches_int_is_position_keyed_not_slot_keyed() {
+        let mut g = MultiGraph::new(CompatibilityMode::Strict);
+        for name in ["0", "1", "2", "3"] {
+            g.add_node(name);
+        }
+
+        // Fresh graph: name, position and slot all coincide — the trap state.
+        for idx in 0..4 {
+            assert!(
+                g.node_index_matches_int(idx),
+                "on a fresh graph int {idx} sits at position {idx}"
+            );
+            assert_eq!(g.get_node_index(&idx.to_string()), Some(idx));
+            assert_eq!(g.slab_store().node_slot(&idx.to_string()), Some(idx));
+        }
+
+        g.remove_node("0");
+
+        // Node "3" survives; its SLOT is unchanged and its POSITION has moved.
+        let slot_3 = g.slab_store().node_slot("3").expect("node 3 survives");
+        let pos_3 = g.get_node_index("3").expect("node 3 survives");
+        assert_eq!(slot_3, 3, "slots are stable across removals");
+        assert_eq!(pos_3, 2, "positions compact after a removal");
+        assert_ne!(slot_3, pos_3, "the two spaces have diverged");
+
+        // POSITION-KEYED: asking with the out-of-range slot is simply absent,
+        // which is what proves the argument is a position and not a slot — a
+        // slot-keyed predicate would have answered for the live node 3.
+        assert!(
+            !g.node_index_matches_int(slot_3),
+            "slot {slot_3} is past the end of a 3-node order, so a position-keyed              predicate reports absent; if this ever answers true the argument has              become slot-keyed and every caller must be re-derived"
+        );
+
+        // And the predicate is now uniformly false, because no surviving name
+        // equals its position — even though all three nodes are present.
+        for idx in 0..3 {
+            assert!(
+                !g.node_index_matches_int(idx),
+                "after the removal no name equals its position, so int {idx} must                  not report as sitting at position {idx}"
+            );
+            assert!(
+                g.has_node(&(idx + 1).to_string()),
+                "...while the node itself is still very much present"
+            );
+        }
+    }
+
     use super::{AttrMap, Graph, GraphError, MultiGraph};
     use fnx_runtime::{CgseValue, CompatibilityMode, DecisionAction, DecisionRecord};
     use proptest::prelude::*;
