@@ -2805,6 +2805,7 @@ _multigraph_adj_view = _cached_view(
         owner=self,
         native_iter=_MULTIGRAPH_ADJ_NATIVE_ITER.__get__(self, MultiGraph),
         native_contains=_MULTIGRAPH_ADJ_NATIVE_CONTAINS.__get__(self, MultiGraph),
+        native_len=_MULTIGRAPH_ADJ_NATIVE_LEN.__get__(self, MultiGraph),
     ),
 )
 
@@ -2843,6 +2844,7 @@ _multidigraph_adj_view = _cached_view(
         native_contains=_MULTIDIGRAPH_ADJ_NATIVE_CONTAINS.__get__(
             self, MultiDiGraph
         ),
+        native_len=_MULTIDIGRAPH_ADJ_NATIVE_LEN.__get__(self, MultiDiGraph),
     ),
 )
 
@@ -2881,6 +2883,7 @@ _multidigraph_succ_view = _cached_view(
         native_contains=_MULTIDIGRAPH_ADJ_NATIVE_CONTAINS.__get__(
             self, MultiDiGraph
         ),
+        native_len=_MULTIDIGRAPH_ADJ_NATIVE_LEN.__get__(self, MultiDiGraph),
     ),
 )
 
@@ -2895,6 +2898,7 @@ _multidigraph_pred_view = _cached_view(
         native_contains=_MULTIDIGRAPH_ADJ_NATIVE_CONTAINS.__get__(
             self, MultiDiGraph
         ),
+        native_len=_MULTIDIGRAPH_ADJ_NATIVE_LEN.__get__(self, MultiDiGraph),
     ),
 )
 
@@ -49564,7 +49568,17 @@ class _ConversionAdjacencyView(_Mapping):
         return len(self._view)
 
     def __getitem__(self, node):
-        if node not in self._view._graph:
+        # br-r37-c1-2r06n: the wrapped graph's ADJACENCY decides, not its node
+        # view. nx's `to_directed(as_view=True)` builds a view whose `_succ` IS
+        # the source graph's `_adj`, so a node carried only by an assigned `_adj`
+        # is present here. Asking `node not in self._view._graph` asked the node
+        # set, and since `_Mapping.__contains__` routes through this subscript,
+        # it also made `u in view.succ` answer False -- which is why rewriting
+        # `has_successor` alone changed nothing.
+        #
+        # The two are the same set on an ordinary graph, one adjacency row per
+        # node, so this is the previous behaviour there.
+        if node not in self._view._graph.adj:
             raise KeyError(f"Key {node} not found")
         return _ConversionNeighborMap(self._view, node, reverse=self._reverse)
 
@@ -50053,16 +50067,17 @@ class _DirectedGraphConversionView(_ConversionGraphViewBase):
         return self._graph.has_edge(u, v)
 
     def has_successor(self, u, v):
-        # br-r37-c1-ppiei: NOT the same fix as the module-level pair. Switching
-        # this to `u in self.succ` changes nothing, because the view's own
-        # succ/pred do not reflect an assigned `_adj` on the WRAPPED graph --
-        # measured, all four of these still return False where nx returns True.
-        # The defect here is upstream of this expression and is tracked
-        # separately rather than papered over with a no-op edit.
-        return u in self._graph and v in self.succ[u]
+        # br-r37-c1-ppiei / br-r37-c1-2r06n: the MAPPING decides, as it does for
+        # the module-level pair. This needed BOTH halves -- rewriting it alone
+        # was a measured no-op, because `_ConversionAdjacencyView` membership
+        # asked the wrapped graph's node view. That is fixed now, so this
+        # expression finally means what it says.
+        succ = self.succ
+        return u in succ and v in succ[u]
 
     def has_predecessor(self, u, v):
-        return u in self._graph and v in self.pred[u]
+        pred = self.pred
+        return u in pred and v in pred[u]
 
     def in_degree(self, nbunch=None, weight=None):
         return self._directed_degree(self.pred, nbunch, weight)
@@ -50095,16 +50110,17 @@ class _DirectedMultiGraphConversionView(_ConversionGraphViewBase):
         return self._graph.has_edge(u, v, key)
 
     def has_successor(self, u, v):
-        # br-r37-c1-ppiei: NOT the same fix as the module-level pair. Switching
-        # this to `u in self.succ` changes nothing, because the view's own
-        # succ/pred do not reflect an assigned `_adj` on the WRAPPED graph --
-        # measured, all four of these still return False where nx returns True.
-        # The defect here is upstream of this expression and is tracked
-        # separately rather than papered over with a no-op edit.
-        return u in self._graph and v in self.succ[u]
+        # br-r37-c1-ppiei / br-r37-c1-2r06n: the MAPPING decides, as it does for
+        # the module-level pair. This needed BOTH halves -- rewriting it alone
+        # was a measured no-op, because `_ConversionAdjacencyView` membership
+        # asked the wrapped graph's node view. That is fixed now, so this
+        # expression finally means what it says.
+        succ = self.succ
+        return u in succ and v in succ[u]
 
     def has_predecessor(self, u, v):
-        return u in self._graph and v in self.pred[u]
+        pred = self.pred
+        return u in pred and v in pred[u]
 
     def in_degree(self, nbunch=None, weight=None):
         return self._directed_degree(self.pred, nbunch, weight)
