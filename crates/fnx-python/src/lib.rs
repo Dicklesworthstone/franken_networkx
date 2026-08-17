@@ -5036,7 +5036,21 @@ pub(crate) struct PyMultiGraph {
     /// before a mutation keeps walking the row it was given, exactly as the
     /// Python-side keydict cache it replaces did — br-r37-c1-dwy1n tracks that
     /// divergence from networkx and is NOT changed either way by this field.
-    pub(crate) neighbor_key_rows: Option<(u64, u64, HashMap<String, Py<PyDict>>)>,
+    /// br-r37-c1-nbrow: a SECOND map in the same tuple, keyed by node INDEX.
+    ///
+    /// The string-keyed map is probed with a canonical built from the key's
+    /// bytes and then hashed, so a cache HIT was O(node key length): MultiGraph
+    /// `neighbors` read 0.6543x at K=2 against 0.1409x at K=2000. The index map
+    /// resolves the node through CPython's cached `str` hash instead.
+    ///
+    /// It lives INSIDE the existing `(nodes_seq, edges_seq, ...)` tuple on
+    /// purpose. That tuple is dropped wholesale when either sequence moves, so
+    /// both maps are created, invalidated and dropped together and cannot
+    /// desynchronise. This adds a lookup path, not a second cache with its own
+    /// lifetime -- which is the whole difference from `PyGraph`'s twin, where
+    /// the underlying map has no stamp and the twin needed one.
+    pub(crate) neighbor_key_rows:
+        Option<(u64, u64, HashMap<String, Py<PyDict>>, HashMap<usize, Py<PyDict>>)>,
     /// br-r37-c1-ptiz2: the `{key: attrs}` keydict for ONE endpoint pair, under
     /// the `(nodes_seq, edges_seq)` generation it was built in.
     ///
@@ -5405,19 +5419,46 @@ impl PyMultiGraph {
         // mutation invalidated is exactly the complexity this avoids.
         let fresh = matches!(
             &self.neighbor_key_rows,
-            Some((nodes, edges, _)) if *nodes == self.nodes_seq && *edges == self.edges_seq
+            Some((nodes, edges, _, _)) if *nodes == self.nodes_seq && *edges == self.edges_seq
         );
         if !fresh {
-            self.neighbor_key_rows = Some((self.nodes_seq, self.edges_seq, HashMap::new()));
+            self.neighbor_key_rows = Some((
+                self.nodes_seq,
+                self.edges_seq,
+                HashMap::new(),
+                HashMap::new(),
+            ));
+        }
+        // br-r37-c1-nbrow: INDEX probe first, before any canonical exists. Same
+        // lever as `PyGraph::native_adjacency_row_dict`; the borrowed probe
+        // below still copies and hashes the key's bytes, which is the whole
+        // key-length slope on this call.
+        if node.is_exact_instance_of::<PyString>()
+            && let Some(index) = self.cached_exact_string_node_index(py, node)?
+            && let Some(row) = self
+                .neighbor_key_rows
+                .as_ref()
+                .and_then(|(_, _, _, by_index)| by_index.get(&index))
+                .map(|row| row.clone_ref(py))
+        {
+            return Ok(row);
         }
         // Borrowed probe, no allocation on the hit path — see the same lever on
         // `PyGraph::native_adjacency_row_dict`.
         if let Some(row) = with_node_key_str(py, node, |canonical| {
             self.neighbor_key_rows
                 .as_ref()
-                .and_then(|(_, _, rows)| rows.get(canonical))
+                .and_then(|(_, _, rows, _)| rows.get(canonical))
                 .map(|row| row.clone_ref(py))
         })? {
+            // br-r37-c1-nbrow: fill the index map from a string hit too, so a
+            // row first touched by a non-string caller still gets the fast route.
+            if node.is_exact_instance_of::<PyString>()
+                && let Some(index) = self.cached_exact_string_node_index(py, node)?
+                && let Some((_, _, _, by_index)) = self.neighbor_key_rows.as_mut()
+            {
+                by_index.insert(index, row.clone_ref(py));
+            }
             return Ok(row);
         }
         let canonical = node_key_to_string(py, node)?;
@@ -5439,8 +5480,18 @@ impl PyMultiGraph {
             row.set_item(py_neighbor, py.None())?;
         }
         let row = row.unbind();
-        if let Some((_, _, rows)) = self.neighbor_key_rows.as_mut() {
+        // br-r37-c1-nbrow: resolve the index BEFORE the mutable borrow below.
+        let index = if node.is_exact_instance_of::<PyString>() {
+            self.cached_exact_string_node_index(py, node)?
+        } else {
+            None
+        };
+        if let Some((_, _, rows, by_index)) = self.neighbor_key_rows.as_mut() {
             rows.insert(canonical, row.clone_ref(py));
+            // The SAME dict object under both keys, so the two cannot disagree.
+            if let Some(index) = index {
+                by_index.insert(index, row.clone_ref(py));
+            }
         }
         Ok(row)
     }
@@ -5463,7 +5514,7 @@ impl PyMultiGraph {
         let Some(row) = self
             .neighbor_key_rows
             .as_ref()
-            .and_then(|(_, _, rows)| rows.get(owner))
+            .and_then(|(_, _, rows, _)| rows.get(owner))
             .map(|row| row.clone_ref(py))
         else {
             return Ok(());
@@ -5480,7 +5531,7 @@ impl PyMultiGraph {
         if let Some(row) = self
             .neighbor_key_rows
             .as_ref()
-            .and_then(|(_, _, rows)| rows.get(owner))
+            .and_then(|(_, _, rows, _)| rows.get(owner))
         {
             let py_nbr = self.py_adj_key(py, owner, nbr);
             let _ = row.bind(py).del_item(py_nbr);
@@ -5505,7 +5556,7 @@ impl PyMultiGraph {
     fn neighbor_rows_live(&self) -> bool {
         self.neighbor_key_rows
             .as_ref()
-            .is_some_and(|(_, _, rows)| !rows.is_empty())
+            .is_some_and(|(_, _, rows, _)| !rows.is_empty())
     }
 
     /// br-r37-c1-z6uka: see PyGraph::derive_copy_adj_py_keys — nx's u-major
