@@ -20625,3 +20625,95 @@ Method: direct calls to the captured `_GRAPH_ADD_EDGE_RAW` /
 exception ARGS and resulting node list - a type-only comparison would have called
 the unhashable cases green in both libraries. loadavg 21.40/18.63/17.13, one peer
 build running, no build of my own, disk 121G.
+
+---
+
+## br-r37-c1-sznaj CERTIFIED — 4.05x on DiGraph.successors at K=2000, and the K=2 control says it is the key length (2026-08-17)
+
+`e7b75669c` routed `PyDiGraph::successors` through a node-INDEX probe, resolving
+the node through CPython's cached `str` hash instead of building a canonical.
+`DiGraph.neighbors` delegates to the same function, so both calls were carrying
+the cost. NO BUILD was run for this certification -- both arms were already
+retained from the landing turn, which is the whole reason it was cheap enough to
+run in this window.
+
+### THE ARMS WERE DISCRIMINATED BEFORE THEY WERE TIMED
+
+The previous attempt in this bead was a NO-OP that type-checked, built, and
+passed 113 tests and a 300-graph differential (voided, `2def1be87`). What caught
+it was measuring the UNPATCHED arm. So that came first here too:
+
+    arm            successors K=2    successors K=2000    shape
+    so_dinb          111.4 ns            603.4 ns         SLOPED  -> base
+    so_dinb2         118.0 ns            115.2 ns         FLAT    -> candidate
+
+That is what identified which binary was which -- the release builds carry no
+field names, so `strings` cannot tell them apart and md5 only proves they differ.
+The base is sloped and the candidate is flat: this one is not a no-op.
+
+### FOUR SQUARES, BOTH ORDERS
+
+    square  order                gate            K=2000 improvement        CI
+    1       [base cand cand base] PASS 1.10          4.0538        [3.5513, 4.1284]
+    2       [cand base base cand] FAIL rising        4.1127        [4.0776, 4.1501]
+    3       [base cand cand base] PASS 1.03          4.1063        [4.0242, 4.1674]
+    4       [cand base base cand] PASS 1.08          4.1849        [4.0541, 4.2920]
+
+**CERTIFIED: 4.05x**, quoted at the worst of the four (range 4.0538-4.1849, a 3.2
+percent spread). Square 2 gate-failed on ARRIVING external load and is shown only
+because it agrees with the three that passed; it is not what the figure rests on.
+The two orders bracket each other rather than separating, so there is no position
+effect of the kind that has bitten this campaign before.
+
+### THE NEGATIVE CONTROL IS INTERNAL, AND IT IS NOT PERFECTLY FLAT
+
+The mechanism is a key-length term, so K=2 rode along in the SAME invocation as a
+control: it must NOT move 4x. It does not -- 1.0145 / 1.0261 / 1.0149 / 1.0261.
+
+But it is not unity either, and three of the four intervals exclude unity. The
+A/A nulls span 0.9898-1.0117, about plus or minus 1.2 percent, against a K=2
+effect of 1.5-2.6 percent, so it sits just above the null band rather than
+clearly inside it. The mechanistically honest reading is that the index probe
+also saves a small CONSTANT -- it skips `with_node_key_str`'s buffer copy even
+for a two-character key -- so a couple of percent at K=2 is expected rather than
+alarming. **The DIRECTION is consistent and the magnitude is bounded at a few
+percent, not certified.** What the control was there to exclude, a whole-host
+common-mode shift masquerading as the effect, it does exclude: nothing that moves
+K=2000 by 4x moves K=2 by 2 percent.
+
+### WHAT THIS DOES NOT CLAIM: IT IS STILL A LOSS AGAINST NX
+
+    vs networkx        base            candidate
+    K=2000          0.1429-0.1448    0.5766-0.5954
+
+So the row is a **SELF-SPEEDUP that converts a 0.14x loss into a 0.59x loss**. It
+is not a win over nx and must not be quoted as one. At K=2000 nx answers in about
+88 ns and fnx in about 150 ns; the remaining gap is a separate question and is
+not addressed here. The 4.05x figure describes the distance travelled, not the
+destination.
+
+PER-ARM: base loadavg medians 22.08 / 23.69 / 17.51 / 15.75 with clocks 4178 /
+4268 / 4219 / 4204 MHz; cand loadavg medians 24.29 / 23.69 / 17.51 / 15.75 with
+clocks 4168 / 4269 / 4194 / 4230 MHz. Arm clock medians differ by 0.02-0.62
+percent, the largest in square 3 which passed its gate. Verdicts were
+SIBLING-CONTENDED on squares 2-4 and clean on square 1; the contention is
+external -- no build was run by this pane in this window.
+
+A/A null control, same invocation, measured: base 0.9898 [0.9639, 1.0099] and
+cand 0.9967 [0.9800, 1.0189]; base 1.0061 [0.9968, 1.0227] and cand 0.9985
+[0.9759, 1.0179]; base 0.9991 [0.9865, 1.0283] and cand 1.0009 [0.9896, 1.0170];
+base 0.9968 [0.9740, 1.0039] and cand 1.0117 [0.9803, 1.0337].
+
+PROVENANCE: driver `/data/tmp/claude-1000/certify_sznaj.py` on `cpu15`, spawning
+`sznaj_worker.py` pinned to `cpu14`. Arms are two retained package trees,
+`test_dinb` (base, ELF sha256 937ec4678152ca984d3ab332...) and `test_dinb2`
+(candidate, ELF sha256 c35cadc62cb0839969c0aaf2...), each a full package with its
+own `.so` so no cross-arm shim contamination is possible. 21 rounds x 4
+invocations per square, 6 x 20000 reps per invocation per cell, bootstrap median
+CI over 10000 resamples, fixed seed 20260817. host thinkstation1, governor
+`powersave`, python 3.13.7, live networkx 3.6.1, disk 121G free, HEAD 3f0525f63.
+
+comparison_class=SELF-SPEEDUP
+campaign_output=false
+decision_gate=median_ci
+cv_role=report_only
