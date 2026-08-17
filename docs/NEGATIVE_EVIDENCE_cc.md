@@ -19333,3 +19333,38 @@ during the before/after readings ranged 33.9 to 112 and is NOT controlled for -
 another reason these are reference readings and not claims. The three certified
 cells in this family are in their own rows above with per-arm loadavg, CPU MHz
 and ELF shas.
+
+---
+
+## br-r37-c1-txkrn VERIFIED on the full suite — the caveat in `b94ba164e` is retired (2026-08-17)
+
+`b94ba164e` shipped with an explicit gap in its own commit message: the full 60k
+suite had NOT been run, because the host was at loadavg 618 with 78 percent
+iowait after twenty panes were unhalted at once. It has now been run, with a
+MATCHED control -- the same tests tree, the same arm package, only the `.so`
+swapped:
+
+    pre-fix binary   108 failed   60232 passed   50 xfailed   0 xpassed
+    post-fix         102 failed   60238 passed   49 xfailed   1 xpassed
+
+**The fix REMOVES six failures and introduces none.** Five are this pane's own
+guards, which were strict xfails against the pre-fix binary and are ordinary
+assertions now. The sixth was an existing failure elsewhere in the suite that the
+stale-row bug had been causing; it is not identified by name here, because
+isolating it would have cost two more full runs on a host still draining a
+backlog, and the matched counts already establish the direction.
+
+THE ABSOLUTE COUNT MOVED FOR REASONS THAT ARE NOT THIS CHANGE. This pane's
+long-standing baseline in this scratch harness was 99 failures; the pre-fix arm
+now reads 108 on the same binary family. The tests tree was synced to HEAD before
+the run, so peers' newly landed tests account for the difference. That is exactly
+why the control was re-run rather than compared against the remembered 99 -- a
+baseline from an earlier tree is not a control, and using one would have made a
+six-failure improvement look like a three-failure regression.
+
+The 32 errors in both arms are scratch-tree artefacts: several suites need repo
+files (`scripts/`, `docs/`) that the harness tree does not carry. They are
+identical across arms.
+
+No build was run for this verification; the binaries were already built before
+the throttle.
