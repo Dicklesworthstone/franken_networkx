@@ -22022,3 +22022,46 @@ Method note: the idle figures quoted here are INTERVAL measurements. Earlier row
 of mine quoted a since-boot average by mistake (fixed in the same tool); those
 should be read as "idle cannot predict the gate", not as instantaneous readings.
 loadavg 11.65/17.66/22.37 at the final sample, disk 205G, no build this turn.
+
+## 2026-08-17 GoldenBison CORRECTION: the quiescence blocker is CROSS-PROJECT, so a franken_networkx build pause cannot fix it (br-r37-c1-d4xot)
+
+The row above concluded that discharging the clause-3 predicate needs "a
+coordinated pause of every pane's builds and benchmarks". That ask is WRONG and
+would have sent people to do something ineffective. Correcting it.
+
+Measured at the cleanest host state recorded yet - loadavg 10.75, interval idle
+78.1 percent, and ZERO cargo/rustc/maturin processes anywhere on the machine:
+
+    WOULD REFUSE: 22 CPUs over the bound.
+    cpu36=91.0%, cpu40=91.0%, cpu39=90.0%, cpu47=74.3%, cpu22=65.3%, ...
+
+No builds at all, and 22 cores still over. So the CPU was attributed by project:
+
+    frankentorch     597% CPU  (~6.0 cores)   a torch benchmark, python -c "import torch..."
+    smartedgar       299% CPU  (~3.0 cores)   three "smartedgar download --all-forms" processes
+    other            424% CPU  (~4.2 cores)   br, am, zsh and the claude panes themselves
+
+THE BLOCKER IS NOT OURS. A franken_networkx build freeze - which is what this
+project's briefs keep granting and lifting, and what my own previous row asked
+for - cannot clear this gate, because franken_networkx contributes essentially
+none of the offending load. The two largest consumers are another project's
+benchmark and another project's bulk download.
+
+THIS ALSO EXPLAINS THE SIX-FOR-SIX REFUSALS. Across loadavg 11 to 26 I was
+watching franken_networkx build activity and correlating it with refusals; the
+correlation was weak because the load was never mainly ours. The one sample with
+zero builds refused just as firmly as the sample with five.
+
+REVISED ASK: the pause must be HOST-WIDE ACROSS PROJECTS and must include
+frankentorch benchmarks and smartedgar downloads. Only whoever coordinates
+between projects can grant that.
+
+GENERAL LESSON, which is why this is a ledger row and not just a bead comment: on
+a shared box, "is my project quiet?" is not the same question as "is the host
+quiet?", and a per-project build freeze is not a host-wide quiescence guarantee.
+Every ratio measured here is exposed to the other projects' load, which is the
+argument for in-process ABBA with both arms on one clock - that substrate is
+robust to a busy neighbour in a way a cross-run comparison is not.
+
+loadavg 10.75/13.94/19.68, interval idle 78.1 percent, build procs 0, disk 205G,
+no build this turn, nothing certified.
