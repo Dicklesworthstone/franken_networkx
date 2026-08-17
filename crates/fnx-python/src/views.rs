@@ -1941,13 +1941,46 @@ impl AtlasView {
         Self::copy_row(py, row.bind(py))
     }
 
-    fn __eq__(&mut self, py: Python<'_>, other: &Bound<'_, PyAny>) -> PyResult<bool> {
-        let m = self.materialize(py)?;
-        m.bind(py).eq(other)
+    // br-r37-c1-ynpbt: A VIEW MUST EQUAL ITSELF.
+    //
+    // This materialised `self` into a dict and compared `dict == other`,
+    // delegating the AtlasView-vs-AtlasView case to Python's reflected
+    // comparison. `dict.__eq__(AtlasView)` returns NotImplemented, so Python
+    // calls the OTHER view's `__eq__` -- which needs a `borrow_mut` while this
+    // method's `&mut self` borrow is still live. The reflected call therefore
+    // cannot complete and Python falls back to identity, so `r == r` was
+    // FALSE. Reflexivity is a language-level invariant: any caller that put
+    // these rows in a set, deduplicated them, or asserted `x == x` was
+    // silently wrong.
+    //
+    // Comparing against a plain dict always worked, which is exactly why this
+    // survived -- the natural test writes `row == {...}`.
+    //
+    // Handled explicitly rather than by reflection now. Identical objects
+    // short-circuit; two distinct views compare as their materialised
+    // mappings. Each `borrow_mut` is a temporary dropped before the other side
+    // is touched, so the nested borrow that broke the reflected path cannot
+    // recur.
+    //
+    // Only simple `Graph` rows reach this class, via the `type(owner) is Graph`
+    // fast path in `AdjacencyView.__getitem__`; the other three classes are
+    // Python-backed, were already correct, and are the control in
+    // `tests/python/test_view_repr_and_equality_parity.py`.
+    fn __eq__(slf: &Bound<'_, Self>, other: &Bound<'_, PyAny>) -> PyResult<bool> {
+        if slf.is(other) {
+            return Ok(true);
+        }
+        let py = slf.py();
+        let mine = slf.borrow_mut().materialize(py)?;
+        if let Ok(other_view) = other.downcast::<Self>() {
+            let theirs = other_view.borrow_mut().materialize(py)?;
+            return mine.bind(py).eq(theirs.bind(py));
+        }
+        mine.bind(py).eq(other)
     }
 
-    fn __ne__(&mut self, py: Python<'_>, other: &Bound<'_, PyAny>) -> PyResult<bool> {
-        Ok(!self.__eq__(py, other)?)
+    fn __ne__(slf: &Bound<'_, Self>, other: &Bound<'_, PyAny>) -> PyResult<bool> {
+        Ok(!Self::__eq__(slf, other)?)
     }
 
     fn __str__(&mut self, py: Python<'_>) -> PyResult<String> {
