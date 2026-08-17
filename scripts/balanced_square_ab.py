@@ -835,8 +835,63 @@ def workload_digraph_rows(reps: int):
     return build, ops
 
 
+def workload_has_node_membership(reps: int):
+    """`has_node` / `n in G` on BOTH halves, present and missing (br-r37-c1-770z8).
+
+    networkx pays ONE dict lookup whether the key is present or absent, reusing
+    the hash CPython caches on every `str`. fnx's HIT could early-return from the
+    present-key cache, but a MISS fell through to a rebuilt `str:{len}:{s}`
+    canonical and hashed that — a second hash of the same characters. So the miss
+    was the worse half (0.7177x against 0.9096x) and no present-key cache could
+    ever touch it.
+
+    BOTH HALVES ARE CARRIED because a change that helps the miss and regresses
+    the hit is not a win — the hit is the common case, and measuring only the
+    named defect would hide that.
+
+    `n in G` is carried because `PyGraph.__contains__` routes through the same
+    helper, so this is two public surfaces rather than one.
+
+    THE REQUIRED CONTROL is the pair of rows on a graph whose node-iteration
+    mirror was NEVER materialised. The lever answers from that mirror only when
+    it already exists, and deliberately does not build it — materialising is O(N)
+    and membership is a single-key question. If the control MOVES, the mirror is
+    being built as a side effect and the lever is paying a hidden O(N).
+    """
+    N = 2000
+
+    def build(module):
+        fixture = {}
+        for materialised in (True, False):
+            graph = module.Graph()
+            for i in range(N):
+                graph.add_node(f"n{i}")
+            for i in range(N - 1):
+                graph.add_edge(f"n{i}", f"n{i + 1}")
+            if materialised:
+                # Force the node-iteration mirror to exist, as any prior
+                # iteration of the graph would.
+                list(graph.nodes())
+            fixture[materialised] = graph
+        return fixture[True], fixture
+
+    def ops(graph, fixture):
+        present, missing = "n1000", "absent-key"
+        table = {}
+        for materialised, g in fixture.items():
+            tag = "" if materialised else "CONTROL nomirror "
+            table[f"{tag}has_node PRESENT"] = lambda g=g: g.has_node(present)
+            table[f"{tag}has_node MISSING"] = lambda g=g: g.has_node(missing)
+            table[f"{tag}n in G PRESENT"] = lambda g=g: present in g
+            table[f"{tag}n in G MISSING"] = lambda g=g: missing in g
+        return table
+
+    return build, ops
+
+
 WORKLOADS = {
     "view-reads": workload_view_reads,
+    "has-node-membership": workload_has_node_membership,
     "digraph-rows": workload_digraph_rows,
     "parallel-keydict": workload_parallel_keydict,
     "multi-key-length": workload_multi_key_length,

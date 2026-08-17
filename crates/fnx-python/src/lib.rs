@@ -2458,46 +2458,6 @@ impl PyGraph {
         py: Python<'_>,
         n: &Bound<'_, PyAny>,
     ) -> PyResult<bool> {
-        // br-r37-c1-770z8: answer from the node-iteration mirror when it already
-        // exists, so an ABSENT key costs one dict probe instead of a rebuilt
-        // canonical.
-        //
-        // THE DEFECT: networkx pays ONE dict lookup whether the key is present or
-        // absent, reusing the hash CPython caches on every `str`. Here a HIT can
-        // early-return from the present-key cache below, but a MISS falls through
-        // to `with_node_key_str` + `inner.has_node`, which builds the
-        // `str:{len}:{s}` canonical and hashes THAT — a second hash of the same
-        // characters. Length-controlled: fnx hit 55.0ns / miss 68.9ns, against nx
-        // hit 44.0ns / miss 41.7ns. The present-key cache can only ever
-        // short-circuit a hit, which is why the miss is the worse half (0.7177x
-        // against 0.9096x).
-        //
-        // The mirror is a `PyDict` keyed by the node key OBJECTS, so `contains`
-        // uses CPython's cached `str` hash — one lookup, exactly networkx's cost
-        // — and it answers ABSENT as cheaply as PRESENT.
-        //
-        // THREE LOAD-BEARING DETAILS, none of which may be "simplified":
-        //  1. The guard is bound in its OWN block so the mutex is released before
-        //     `contains` re-enters Python. Holding it across a Python call
-        //     deadlocks.
-        //  2. It must NOT call `node_iter_mirror_or_init`. Materialising is O(N)
-        //     and this is a single-key question; forcing it would be a large
-        //     regression on the first probe of a big graph. Use the mirror only
-        //     if it already exists.
-        //  3. Reached only for an exact `PyString` (both callers gate on
-        //     `is_exact_instance_of::<PyString>()`), so a dict `contains` using
-        //     `__eq__` is correct. Do not hoist above that gate.
-        //
-        // SAFETY: `node_iter_mirror` is what node ITERATION is served from, so
-        // drift would already be a visible wrong-nodes bug. Fuzzed across ~4800
-        // post-mutation checks over all four classes: zero drift.
-        let mirror = {
-            let guard = self.node_iter_mirror.lock().unwrap();
-            guard.as_ref().map(|dict| dict.clone_ref(py))
-        };
-        if let Some(mirror) = mirror {
-            return mirror.bind(py).contains(n);
-        }
         let nodes_seq = self.nodes_seq;
         if self
             .has_edge_node_index_cache
