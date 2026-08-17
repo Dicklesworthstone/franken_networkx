@@ -20018,3 +20018,100 @@ invocations. Per-arm observed loadavg 11.71/10.43/17.52, 11.14/10.35/17.42,
 CPU at invocation start 2952, 3217, 2382, 2519, 2612, 2454 MHz; per-row clock
 4214-4289 MHz, arm-to-arm skew at or below 0.20 percent. ONE build, df 127G
 checked immediately before it, and it ran BEFORE the measurement window. disk 127G.
+
+---
+
+## CERTIFIED — Graph 4.64x and MultiGraph 4.69x on `neighbors`, and a NEGATIVE CONTROL that caught contamination (2026-08-17)
+
+Certifies `01850ea48` (Graph) and `b66accfcf` (MultiGraph). Eight squares total,
+ALL gate-passing, in the quietest windows of the session (1-minute 6.75-13.47).
+
+CERTIFIED, quoted conservatively at the worst square of each set:
+
+    Graph.neighbors        4.64x  (range 4.6379-5.1558)   vs-nx 0.1301x -> 0.6026x
+    MultiGraph.neighbors   4.69x  (range 4.6918-4.8208)   vs-nx 0.1390x -> 0.6520x
+
+    GRAPH PAIR  so_txkrn -> so_nbrow
+    sq  gate       Graph          CI          MultiGraph (control)
+    1   PASS 1.11  5.1205  [4.7188, 5.1600]        1.0700
+    2   PASS 1.15  5.0823  [5.0369, 5.1195]        1.0748
+    3   PASS 1.19  5.1558  [5.0971, 5.1907]        1.0919
+    4   PASS 1.04  4.6379  [4.5969, 4.9610]        1.0630   swapped, verdict STABLE
+
+    MULTIGRAPH PAIR  so_nbrow -> so_mgnb
+    sq  gate       MultiGraph     CI          Graph (control)
+    1   PASS 1.13  4.7726  [4.1662, 4.8274]        0.9488
+    2   PASS 1.09  4.8043  [4.7482, 4.8593]        0.9440
+    3   PASS 1.08  4.8208  [4.5350, 4.9054]        0.9482
+    4   PASS 1.24  4.6918  [4.6559, 4.8140]        0.9403   swapped
+
+### THE NEGATIVE CONTROL DID ITS JOB, AND THE NEWS IS NOT GOOD
+
+Each worker measures BOTH classes, so every square carries an internal control:
+the Graph pair changed only Graph, so MultiGraph should read 1.00; the MultiGraph
+pair changed only MultiGraph, so Graph should read 1.00. Neither does.
+
+    Graph pair    -> MultiGraph control  1.0630 - 1.0919   (~7 percent FASTER)
+    MultiGraph pair -> Graph control     0.9403 - 0.9488   (~6 percent SLOWER)
+
+Consistent across four squares each, with intervals far tighter than the drift.
+**These arm pairs are HEAD-to-HEAD, not patch-isolated.** Each `.so` was built
+from a `git archive` of HEAD at the time, and peers landed commits between those
+builds, so every pair carries their changes as well as mine. The controls are
+measuring that, and they are the reason it is visible at all.
+
+WHAT THIS DOES AND DOES NOT COST THE ROWS. The target effects are 4.6-5.2x
+against contamination of 6-9 percent, so the ATTRIBUTION of the large effect is
+not in doubt -- nothing in a 7 percent drift produces a 5x change, and the
+mechanism (a key-length slope going flat) is independently confirmed by the
+K=2 against K=2000 readings in the landing commits. What is affected is the
+PRECISION of the quoted multiple: some fraction of a percent-level tail belongs
+to peers, not to this pane. Quoting the worst square of each set is the
+conservative response and is what is done above.
+
+**THE Graph CONTROL AT 0.94 IS A SEPARATE FINDING AND SHOULD BE FOLLOWED UP.**
+Graph.neighbors is ~6 percent SLOWER in `so_mgnb` than in `so_nbrow`, repeatably.
+The MultiGraph change in between touches `neighbor_key_rows`, which simple Graph
+does not use, so this is either a peer's change or a real cost this pane's work
+imposed on a path it did not intend to touch. It is small, it is consistent, and
+it is recorded here rather than left in a scratch log.
+
+A/A null control, same invocation, measured. GRAPH pair: base 0.9927
+[0.9749, 1.0094] / cand 0.9960 [0.9849, 1.0059]; base 1.0035 [0.9857, 1.0205] /
+cand 0.9993 [0.9950, 1.0080]; base 1.0008 [0.9828, 1.0162] / cand 0.9998
+[0.9980, 1.0053]; base 1.0029 [0.9951, 1.0099] / cand 0.9945 [0.9829, 1.0029].
+MULTIGRAPH pair: base 1.0065 [0.9892, 1.0274] / cand 1.0024 [0.9811, 1.0222];
+base 1.0014 [0.9824, 1.0106] / cand 1.0044 [0.9805, 1.0240]; base 1.0094
+[0.9854, 1.0358] / cand 0.9965 [0.9350, 1.0109]; base 1.0029 [0.9840, 1.0148] /
+cand 1.0025 [0.9275, 1.0274]. All sixteen lie inside [0.9275, 1.0358], against a
+lowest effect bound of 4.1662 -- separated by a factor of 4.0.
+
+PER-ARM. Graph pair: base loadavg medians 9.30 / 12.40 / 11.42 / 10.02 with
+clocks 4290 / 4266 / 4270 / 4278 MHz; cand medians 9.30 / 12.29 / 11.42 / 10.02
+with clocks 4290 / 4281 / 4277 / 4268 MHz. MultiGraph pair: base medians 8.73 /
+9.00 / 13.32 / 13.42 with clocks 4288 / 4284 / 4152 / 4198 MHz; cand medians the
+same loads with clocks 4288 / 4282 / 4122 / 4178 MHz. Arm clock medians differ by
+0.0-0.7 percent. Window levels 8.73-13.42, relative volatility 0.05-0.40.
+
+Square 4 of the Graph set returned the verdict `STABLE`; square 4 of the
+MultiGraph set returned `ARM-CLOCK-SKEW` (medians 0.5 percent apart, the verdict
+keys on extremes); the other six returned `SIBLING-CONTENDED`, as most rows on
+this host do.
+
+BOTH CELLS REMAIN LOSSES, at roughly 0.60x and 0.65x. What was removed is a
+key-length SLOPE; the per-call floor is what is left.
+
+PROVENANCE: drivers `/data/tmp/claude-1000/certify_g.py` and `certify_m.py` (and
+their `swap` variants) on `cpu15`, spawning
+`/data/tmp/claude-1000/nb2_worker.py` pinned to `cpu14`. 21 rounds x 4
+invocations, 6 x 20000 reps per invocation per class, bootstrap median CI over
+10000 resamples with a fixed seed, per-round sampling by
+`scripts/bench_window_guard.py`. NO BUILD was run for this certification. Every
+worker invocation re-asserts both classes' neighbours against networkx before
+timing. host thinkstation1, governor `powersave`, python 3.13.7, live networkx
+3.6.1, disk 127G free.
+
+comparison_class=SELF-SPEEDUP
+campaign_output=false
+decision_gate=median_ci
+cv_role=report_only
