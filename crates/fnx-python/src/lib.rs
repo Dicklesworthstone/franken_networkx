@@ -2465,6 +2465,43 @@ impl PyGraph {
         {
             return Ok(true);
         }
+        // br-r37-c1-770z8, second attempt. The first one (38d20bb65, reverted in
+        // 84f90b10e) put this probe ABOVE the present-key early return and
+        // returned straight out of it, so `remember_present` was never reached,
+        // the cache never warmed, and every HIT paid a dict probe instead of the
+        // O(1) cached-index return. ELF-alternated, that read as
+        // has_node PRESENT 0.9061/0.9544/0.8912 -> 0.8100/0.8150/0.8336 — a
+        // regression on the common case, which is why it went back out.
+        //
+        // Two changes make it a win on both halves instead of a trade:
+        //  1. It sits BELOW the early return, so a warm hit never reaches it.
+        //  2. A mirror hit WARMS the present-key cache before returning, so the
+        //     hit path converges to the O(1) return after one call instead of
+        //     being starved forever.
+        //
+        // The MISS is what this is for: networkx answers absent in one dict
+        // lookup off CPython's cached `str` hash, while the fallthrough below
+        // builds a `str:{len}:{s}` canonical and hashes it a second time. That
+        // asymmetry is the whole defect (miss 0.7177x against hit 0.9096x), and
+        // the present-key cache can only ever short-circuit a hit.
+        //
+        // Load-bearing, unchanged from the first attempt: the mutex guard is
+        // released before `contains` re-enters Python (holding it deadlocks);
+        // the mirror is used ONLY if it already exists, never materialised here,
+        // because building it is O(N) and this is a single-key question; and
+        // this is reached only for an exact `PyString`, so dict `contains` using
+        // `__eq__` is correct.
+        let mirror = {
+            let guard = self.node_iter_mirror.lock().unwrap();
+            guard.as_ref().map(|dict| dict.clone_ref(py))
+        };
+        if let Some(mirror) = mirror {
+            let present = mirror.bind(py).contains(n)?;
+            if present {
+                self.has_edge_node_index_cache.remember_present(py, n)?;
+            }
+            return Ok(present);
+        }
         // br-r37-c1-oe93x: borrowed canonical key — no String alloc.
         let present = with_node_key_str(py, n, |canonical| self.inner.has_node(canonical))?;
         if present {
