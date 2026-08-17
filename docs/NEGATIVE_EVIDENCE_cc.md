@@ -20196,3 +20196,74 @@ incumbent_ratio_after=0.3572x
 campaign_output=false
 decision_gate=median_ci
 cv_role=report_only
+
+---
+
+## br-r37-c1-gnm8m ISOLATED — about half the Graph slowdown is OURS, and I burned the window that could have proved it (2026-08-17)
+
+The negative control on the previous certification showed `Graph.neighbors` ~6
+percent slower across the `so_nbrow -> so_mgnb` pair, and two explanations were
+open: peers' commits landed between those builds, or `b66accfcf` genuinely costs
+simple Graph something. The filed experiment was to build the two arms from the
+SAME base so the only difference is the hunk. That has now been run.
+
+METHOD. One `git archive` pin of HEAD, built twice: arm A as-is, arm B with
+`git show b66accfcf -- lib.rs | patch -R` applied. Verified scoped: the
+MultiGraph 4-tuple is gone from arm B (0 occurrences) while the Graph twin's
+`adj_row_py_by_index` remains (14 occurrences), so the ONLY difference is the
+MultiGraph index map. Binaries md5-distinct.
+
+    square             Graph (isolated)        CI            MultiGraph
+    1                      0.9647     [0.9597, 1.0083]         5.2050
+    2                      0.9646     [0.8963, 0.9809]         5.4141
+    3                      0.9588     [0.9384, 0.9845]         5.4257
+    4  swapped             0.9743     [0.9463, 0.9984]         5.4010
+
+TWO ANSWERS, both worth having:
+
+**About half the Graph slowdown is ours.** Patch-isolated it is 0.959-0.974,
+roughly 3.5 percent; HEAD-to-HEAD it read 0.940-0.949, roughly 6 percent. So the
+change does appear to cost simple Graph something, and peers' commits in the
+window account for the rest. All four squares agree in DIRECTION, every one below
+unity, which is the part that is solid.
+
+**The MultiGraph gain is LARGER when isolated**, 5.2050-5.4257 against the
+4.69-4.82 certified from the contaminated pair. The certified figure is therefore
+conservative, which is the direction one wants a contaminated estimate to err in,
+though that is luck rather than design.
+
+### WHAT IS WRONG WITH THIS ROW, stated plainly
+
+**ALL FOUR SQUARES FAILED THE GATE** -- RISING, 1-minute 11.55/13.27/14.43/14.24
+against 5-minutes of 8.67/9.57/10.20/10.49. The cause was ME: this ran in the
+quietest window of the campaign (5.59/5.57/5.56, ratio 1.00) and I spent it on
+TWO release builds before measuring. The standing instruction not to build in the
+window one intends to measure in exists exactly for this, and I had it in front
+of me. The window is gone and the numbers below it are indicative.
+
+**The effect is not cleanly separated from the nulls.** At ~3.5 percent it sits
+close to the A/A band: base nulls read 0.9902 / 1.0070 / 1.0134 / 1.0050 and
+square 2's Graph interval [0.8963, 0.9809] overlaps its own base null interval
+[0.9886, 1.0674]. Four squares agreeing in direction is real evidence; the
+MAGNITUDE is not certified and should not be quoted as 3.5 percent without a
+clean re-run.
+
+**What a clean re-run needs**: the two arms are already built and retained
+(`so_iso_with`, `so_iso_without`), so it needs NO build at all -- only a window
+where the averages agree. That is the entire remaining cost, and it is the direct
+consequence of having spent this one badly.
+
+PER-ARM: base loadavg medians 11.80 / 13.84 / 14.29 / 14.70 with clocks 4228 /
+4168 / 4200 / 4220 MHz; cand medians the same loads with clocks 4226 / 4172 /
+4212 / 4228 MHz. Arm clock medians differ by 0.05-0.29 percent. Squares 2 and 3
+returned ARM-CLOCK-SKEW, 1 and 4 SIBLING-CONTENDED.
+
+A/A null control, same invocation, measured: base 0.9902 [0.9674, 1.0015] and
+cand 1.0017 [0.9955, 1.0078]; base 1.0070 [0.9886, 1.0674] and cand 1.0002
+[0.9897, 1.0088]; base 1.0134 [0.9998, 1.0287] and cand 1.0002 [0.9817, 1.0115];
+base 1.0050 [0.9873, 1.0192] and cand 0.9967 [0.9930, 1.0159].
+
+comparison_class=SELF-SPEEDUP
+campaign_output=false
+decision_gate=median_ci
+cv_role=report_only
