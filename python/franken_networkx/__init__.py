@@ -1739,6 +1739,8 @@ def _adjacency_view_get(self, node, default=None):
 # ``__name__`` is set to the bare nx name so drop-in code branching on
 # ``type(view).__name__`` still sees ``KeysView``/``ItemsView``/``ValuesView``.
 from collections.abc import ItemsView as _ItemsViewABC
+from collections.abc import KeysView as _KeysViewABC  # br-r37-c1-dfivn
+from collections.abc import ValuesView as _ValuesViewABC  # br-r37-c1-dfivn
 from collections.abc import KeysView as _KeysViewABC
 from collections.abc import ValuesView as _ValuesViewABC
 
@@ -9300,6 +9302,49 @@ class _DiEdgeMethodView:
     def __init__(self, graph, method):
         self._graph = graph
         self._method = method
+
+    # br-r37-c1-dfivn: THE MAPPING SURFACE. networkx's In/OutEdgeView are
+    # Mappings — `G.out_edges[u, v]` returns the edge attribute dict and
+    # `get`/`keys`/`values`/`items` all work. This class had none of it, so
+    # `G.out_edges[u, v]` raised TypeError ("not subscriptable") and the rest
+    # raised AttributeError, on both directed classes.
+    #
+    # It hid because `G.edges` is a DIFFERENT class that happens to share the
+    # name `OutEdgeView` and does have the surface: every check of
+    # `type(...).__name__`, iteration, length, containment and the call forms
+    # agreed. Only a protocol sweep separated them.
+    #
+    # Subscripting DELEGATES to `G.edges`, which is correct rather than merely
+    # convenient: networkx keys both views by the edge tuple in natural
+    # (source, target) order — `InEdgeView.__getitem__` is `self._adjdict[v][u]`
+    # over `G._pred`, i.e. the same attrs `G.edges[u, v]` yields. Delegating
+    # also inherits the arity behaviour, where a multigraph raises ValueError
+    # for a 2-tuple and resolves a 3-tuple.
+    def __getitem__(self, edge):
+        return self._graph.edges[edge]
+
+    def get(self, edge, default=None):
+        # Mapping.get semantics: a MISSING key yields the default, but a
+        # malformed one still raises. networkx propagates the ValueError a
+        # bad-arity multigraph key produces, so only KeyError is caught here.
+        try:
+            return self[edge]
+        except KeyError:
+            return default
+
+    # Built from THIS view's own iteration, not from `G.edges`: the in and out
+    # views iterate in different orders (networkx walks `_pred` for one and
+    # `_succ` for the other) and the existing tests pin fnx matching each view's
+    # order. The ABC wrappers give real view objects, as networkx returns,
+    # rather than lists.
+    def keys(self):
+        return _KeysViewABC(self)
+
+    def values(self):
+        return _ValuesViewABC(self)
+
+    def items(self):
+        return _ItemsViewABC(self)
 
     def __iter__(self):
         # br-r37-c1-iev-mditer: nx's MultiInEdgeView/MultiOutEdgeView

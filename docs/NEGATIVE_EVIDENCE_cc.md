@@ -18220,3 +18220,56 @@ ledger. Caching the view itself is separately CLOSED:
 So the honest next step on this cell is a different construction strategy
 entirely rather than a cheaper constructor, and it needs a measurement to justify
 it, which this host cannot currently provide.
+
+## 2026-08-16 GoldenBison ARTIFACT AUDIT: 16 certified, landed proof dirs never reached this ledger — the same gap another project found, larger (br-r37-c1-ml7s5)
+
+Asked to check my own repo for certified results sitting in artifacts and
+recorded in no ledger, after another pane found 28. Answer: YES, the gap exists
+here. Measured rather than assumed, and narrowed three times because the first
+two numbers were wrong in the alarming direction.
+
+    tests/artifacts/perf proof dirs                         1065
+    ...whose docs contain a ratio                            790
+    ...that cite a bead id                                   699
+        and that bead APPEARS in this ledger                 130
+        and it does NOT                                      569
+    ...citing no bead id at all                               91
+
+THE 783 AND 660 NUMBERS ARE BOTH WRONG, and I am recording the walk because the
+overstatement is the easy mistake here. Matching proof-dir NAMES against the
+ledger gives 783 "unreferenced" — meaningless, because this ledger cites BEAD
+IDS, not directory names. Matching bead ids gives 660 orphans, still wrong,
+because a directory containing a ratio is not a certified row: most are
+exploratory sweeps or measured rejections, which is exactly what an artifact
+directory is FOR.
+
+THE HONEST NUMBER requires both a gate marker (ADMISSIBLE / STRICT-GATE / nulls
+clean / worst bound / CERTIFIED) and a ship-or-keep verdict in the same document:
+
+    proof dirs that are certified AND shipped                 21
+    ...whose bead never reaches this ledger                    16
+
+Sixteen. Named, so nobody has to re-derive them: 04z53.44 bfs-tree-node-key-hoist,
+zk204 write-gml-native, q60fc dfs-labeled-edges, attrmixborrow, chordaltwmcs,
+bkpivotdeg, chordalmcs, misbucket, numassortborrow, bfslayidx, edfsidx, girthidx,
+selfloopidx, voterankidx, ego-graph-return-direct (no bead at all), and one more.
+
+NONE ARE MINE. Zero of the sixteen are GoldenBison's; they are earlier panes'
+(cc, boldfalcon, cod). I am not reporting a clean bill for myself as if that
+settled it — the point is that the fleet loses certified work at this rate
+regardless of who produced it.
+
+WHY IT MATTERS BEYOND BOOKKEEPING. Several of these are levers I have since
+re-derived from MEMORY rather than from the ledger — attrmixborrow,
+numassortborrow, chordalmcs and misbucket all sit in my own notes with their
+ratios. So the work was not lost to me personally; it was lost to anyone reading
+the ledger, which is the artifact the campaign treats as authoritative. A
+certified row that exists only in a proof directory and one agent's memory is a
+row the next pane will pay to measure again.
+
+WHAT WOULD CLOSE IT, and it is not a sweep: the proof-dir writer should emit the
+ledger row, or the preflight should refuse a proof dir whose bead has no ledger
+entry. Filing the numbers here is the smaller half.
+
+NO RATIO IS CLAIMED IN THIS ROW. It is an inventory of this repository, taken at
+loadavg 21, with no build and no measurement.

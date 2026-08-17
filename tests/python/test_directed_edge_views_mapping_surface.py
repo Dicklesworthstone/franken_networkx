@@ -30,9 +30,15 @@ and returns the same dict networkx does, which is what makes this a missing
 sibling rather than an unimplemented feature: the surface exists one name over.
 That sibling is pinned as a passing test below so a fix cannot regress it.
 
-NOT ATTEMPTED HERE. Wiring the Mapping surface onto these views needs a build to
-verify, and the host is under a build halt (5-minute loadavg ~190). The
-divergence is recorded strictly so it cannot rot.
+FIXED. `_DiEdgeMethodView` now carries `__getitem__` / `get` / `keys` /
+`values` / `items`. Subscripting delegates to `G.edges`, which is correct
+rather than convenient: networkx keys BOTH views by the edge tuple in natural
+(source, target) order — `InEdgeView.__getitem__` is `self._adjdict[v][u]`
+over `G._pred`, i.e. the same attrs `G.edges[u, v]` returns — and delegating
+inherits the arity behaviour, where a multigraph raises ValueError for a
+2-tuple and resolves a 3-tuple. `keys`/`values`/`items` are built from each
+view's OWN iteration, because the in and out views iterate in different
+orders.
 """
 
 from __future__ import annotations
@@ -43,15 +49,6 @@ import pytest
 import franken_networkx as fnx
 
 DIRECTED = ["DiGraph", "MultiDiGraph"]
-
-XFAIL = pytest.mark.xfail(
-    strict=True,
-    reason="br-r37-c1-dfivn: fnx's InEdgeView / OutEdgeView are not Mappings — "
-    "no __getitem__, get, items, keys or values — while networkx's are. Found by "
-    "a systematic protocol sweep; same defect class as br-r37-c1-p1dbu. Needs a "
-    "build to fix and verify, which the build halt currently forbids.",
-)
-
 
 def _pair(cls_name):
     gnx, gfx = getattr(nx, cls_name)(), getattr(fnx, cls_name)()
@@ -71,7 +68,7 @@ def _outcome(fn):
 # ------------------------------------------------------------------ divergences
 
 
-@pytest.mark.parametrize("cls_name", [pytest.param(c, marks=XFAIL) for c in DIRECTED])
+@pytest.mark.parametrize("cls_name", DIRECTED)
 @pytest.mark.parametrize("view", ["in_edges", "out_edges"])
 def test_directed_edge_view_is_subscriptable_like_networkx(cls_name, view):
     gnx, gfx = _pair(cls_name)
@@ -81,7 +78,7 @@ def test_directed_edge_view_is_subscriptable_like_networkx(cls_name, view):
     assert got == want, f"{cls_name}.{view}[{key}]: nx={want} fnx={got}"
 
 
-@pytest.mark.parametrize("cls_name", [pytest.param(c, marks=XFAIL) for c in DIRECTED])
+@pytest.mark.parametrize("cls_name", DIRECTED)
 @pytest.mark.parametrize("attr", ["get", "items", "keys", "values"])
 @pytest.mark.parametrize("view", ["in_edges", "out_edges"])
 def test_directed_edge_view_keeps_the_mapping_surface(cls_name, attr, view):
@@ -90,7 +87,7 @@ def test_directed_edge_view_keeps_the_mapping_surface(cls_name, attr, view):
     assert hasattr(getattr(gfx, view), attr), f"{cls_name}.{view} lost .{attr}"
 
 
-@pytest.mark.parametrize("cls_name", [pytest.param(c, marks=XFAIL) for c in DIRECTED])
+@pytest.mark.parametrize("cls_name", DIRECTED)
 @pytest.mark.parametrize("view", ["in_edges", "out_edges"])
 def test_directed_edge_view_wrong_arity_raises_the_same_exception(cls_name, view):
     """Even where BOTH fail the exception diverges: networkx raises ValueError

@@ -919,11 +919,97 @@ def cmd_selfcheck(*, quiet: bool = False) -> int:
     return 0
 
 
+PROOF_ROOT = "tests/artifacts/perf/"
+# A proof directory is only held to the ledger when it CLAIMS something: both a
+# gate marker and a ship/keep verdict. Exploratory sweeps and measured rejections
+# are exactly what an artifact directory is for and are not required to appear.
+_PROOF_GATE = re.compile(
+    r"ADMISSIBLE|STRICT[- ]GATE|nulls? (?:pass|clean)|worst[ _]bound|CERTIFIED", re.I
+)
+_PROOF_VERDICT = re.compile(r"\bSHIPPED\b|\bKEEP\b|\bWIN\b", re.I)
+_PROOF_BEAD = re.compile(r"br-[a-z0-9]+-c\d+-[a-z0-9.]+", re.I)
+
+
+def staged_proof_dirs() -> list[tuple[str, set[str]]]:
+    """(proof dir, bead ids) for proof-dir docs ADDED in this commit.
+
+    Only newly staged files. The 16 pre-existing orphans this check was written
+    for must not block anyone's unrelated commit — the point is to stop the
+    inventory growing, not to hold the fleet hostage to its history.
+    """
+    try:
+        names = subprocess.run(
+            ["git", "diff", "--cached", "--name-only", "--diff-filter=A"],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        ).stdout.split()
+    except (OSError, subprocess.SubprocessError):
+        return []
+    claims: dict[str, set[str]] = {}
+    for name in names:
+        if not name.startswith(PROOF_ROOT) or not name.endswith(".md"):
+            continue
+        try:
+            text = git_text(":", REPO / name)
+        except Exception:  # pragma: no cover - unreadable blob
+            continue
+        if not (_PROOF_GATE.search(text) and _PROOF_VERDICT.search(text)):
+            continue
+        parts = name.split("/")
+        proof_dir = "/".join(parts[:3]) if len(parts) > 3 else name
+        claims.setdefault(proof_dir, set()).update(
+            b.lower() for b in _PROOF_BEAD.findall(text)
+        )
+    return sorted(claims.items())
+
+
+def cmd_check_proof_dirs() -> int:
+    """A newly added, certified proof dir must name a bead this ledger records.
+
+    br-r37-c1-ml7s5. Measured on this repo: of 1065 proof directories, 21 carry
+    BOTH a gate marker and a ship/keep verdict, and 16 of those cite a bead that
+    appears in no ledger. Certified work that lives only in an artifact directory
+    is work the next pane pays to measure again — four of the sixteen are levers
+    this pane later re-derived from memory rather than from the ledger.
+
+    Filing that inventory does not stop it growing. This does.
+    """
+    offenders = []
+    ledger_text = ""
+    for path in LEDGERS:
+        try:
+            ledger_text += path.read_text(errors="replace").lower()
+        except OSError:
+            continue
+    for proof_dir, beads in staged_proof_dirs():
+        if beads and any(b in ledger_text for b in beads):
+            continue
+        offenders.append((proof_dir, sorted(beads)))
+    if not offenders:
+        return 0
+    print(
+        f"BLOCKED: {len(offenders)} newly added proof dir(s) claim a certified "
+        "result whose bead appears in no ledger."
+    )
+    for proof_dir, beads in offenders:
+        named = ", ".join(beads) if beads else "NO BEAD ID IN THE DOCS"
+        print(f"  - {proof_dir}: {named}")
+    print(
+        "  A proof directory that records a gate marker AND a ship/keep verdict "
+        "is a certified result. Add its row to docs/NEGATIVE_EVIDENCE_cc.md in "
+        "THIS commit, or drop the verdict wording if it is exploratory."
+    )
+    return 1
+
+
 def cmd_check_staged() -> int:
     if cmd_selfcheck(quiet=True) != 0:
         print("BLOCKED: the staged gate failed its own defect-class selfcheck.")
         return 2
-    return cmd_check_rows(staged_sections(), "in the staged index")
+    rc = cmd_check_rows(staged_sections(), "in the staged index")
+    proof_rc = cmd_check_proof_dirs()
+    return rc or proof_rc
 
 
 def cmd_prior_art(terms: list[str]) -> int:
