@@ -5645,6 +5645,12 @@ impl PyMultiDiGraph {
     }
 
     fn remove_node(&mut self, py: Python<'_>, n: &Bound<'_, PyAny>) -> PyResult<()> {
+        // br-r37-c1-txkrn: drop BOTH direction row caches. A stale row here is
+        // not caught by its own generation stamp -- `restamp_neighbor_rows` on
+        // the next `add_edge` overwrites the stamp with the current sequences
+        // and launders the row into looking fresh.
+        self.succ_key_rows = None;
+        self.pred_key_rows = None;
         let canonical = node_key_to_string(py, n)?;
         if !self.inner.has_node(&canonical) {
             return Err(crate::NetworkXError::new_err(format!(
@@ -5710,6 +5716,12 @@ impl PyMultiDiGraph {
     }
 
     fn remove_nodes_from(&mut self, py: Python<'_>, nodes: &Bound<'_, PyAny>) -> PyResult<()> {
+        // br-r37-c1-txkrn: drop BOTH direction row caches. A stale row here is
+        // not caught by its own generation stamp -- `restamp_neighbor_rows` on
+        // the next `add_edge` overwrites the stamp with the current sequences
+        // and launders the row into looking fresh.
+        self.succ_key_rows = None;
+        self.pred_key_rows = None;
         // br-r37-c1-mgrnf2: batch inner removal AND kill the O(k·degree) per-node
         // succ/pred edge_keys walk. The old version looped inner.remove_node
         // (three O(|V|) shift_removes each => O(k·|V|)) and walked
@@ -5958,6 +5970,12 @@ impl PyMultiDiGraph {
     }
 
     fn clear(&mut self, py: Python<'_>) -> PyResult<()> {
+        // br-r37-c1-txkrn: drop BOTH direction row caches. A stale row here is
+        // not caught by its own generation stamp -- `restamp_neighbor_rows` on
+        // the next `add_edge` overwrites the stamp with the current sequences
+        // and launders the row into looking fresh.
+        self.succ_key_rows = None;
+        self.pred_key_rows = None;
         self.inner = MultiDiGraph::with_runtime_policy(self.inner.runtime_policy().clone());
         self.node_key_map.clear();
         self.node_py_attrs.clear();
@@ -5974,6 +5992,12 @@ impl PyMultiDiGraph {
     }
 
     fn clear_edges(&mut self) {
+        // br-r37-c1-txkrn: drop BOTH direction row caches. A stale row here is
+        // not caught by its own generation stamp -- `restamp_neighbor_rows` on
+        // the next `add_edge` overwrites the stamp with the current sequences
+        // and launders the row into looking fresh.
+        self.succ_key_rows = None;
+        self.pred_key_rows = None;
         self.inner.clear_edges();
         self.edge_py_attrs.clear();
         self.succ_py_keys.clear(); // br-r37-c1-z6uka

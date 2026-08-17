@@ -38,20 +38,7 @@ import franken_networkx as fnx
 
 CLASSES = ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"]
 
-REMOVE_READD = (
-    "br-r37-c1-clrow, SECOND half: removing a node and re-adding it leaves a "
-    "stale neighbour row on BOTH multigraph classes. Distinct from the clear() "
-    "half fixed here — clear() empties the map, whereas remove_node leaves the "
-    "removed node's own row behind and the re-add resurrects it. Found by this "
-    "file; not fixed, because the fix needs a build and the host is under a "
-    "build halt."
-)
 
-MDG_CLEAR = (
-    "br-r37-c1-clrow: MultiDiGraph::clear() has a different code shape from "
-    "MultiGraph::clear(), so the one-line drop of neighbor_key_rows landed only "
-    "on the undirected class. Same defect, same fix, needs a build to verify."
-)
 LONG = "z" * 2000
 
 
@@ -128,15 +115,7 @@ def test_warm_then_remove_a_node_renumbers_indices(cls_name):
     assert _same(gnx, gfx, "n3")
 
 
-@pytest.mark.parametrize(
-    "cls_name",
-    [
-        "Graph",
-        "DiGraph",
-        pytest.param("MultiGraph", marks=pytest.mark.xfail(strict=True, reason=REMOVE_READD)),
-        pytest.param("MultiDiGraph", marks=pytest.mark.xfail(strict=True, reason=REMOVE_READD)),
-    ],
-)
+@pytest.mark.parametrize("cls_name", CLASSES)
 def test_warm_then_remove_and_readd_the_same_node(cls_name):
     """A re-added node may land on a different index with a different row."""
     gnx, gfx = _pair(cls_name)
@@ -151,15 +130,7 @@ def test_warm_then_remove_and_readd_the_same_node(cls_name):
     assert _same(gnx, gfx, "other")
 
 
-@pytest.mark.parametrize(
-    "cls_name",
-    [
-        "Graph",
-        "DiGraph",
-        "MultiGraph",
-        pytest.param("MultiDiGraph", marks=pytest.mark.xfail(strict=True, reason=MDG_CLEAR)),
-    ],
-)
+@pytest.mark.parametrize("cls_name", CLASSES)
 def test_warm_then_clear_the_graph(cls_name):
     """`clear()` empties the string-keyed cache; a twin entry outliving it would
     serve a dict that in-place maintenance can no longer reach."""
@@ -226,32 +197,10 @@ def test_direction_is_preserved(cls_name):
     assert _nbrs(gfx, "src") == ["dst"], "neighbors leaked a predecessor"
 
 
-NEIGHBOUR_ROW = (
-    "br-r37-c1-txkrn: on MultiGraph a NEIGHBOUR's warm row keeps a node that was "
-    "removed — neighbors('a') reports 'hub' after remove_node('hub'). Third "
-    "manifestation of the same laundering: remove_node bumps nodes_seq but never "
-    "drops the row, and the next add_edge calls restamp_neighbor_rows, writing "
-    "the current sequences over the stale one. Undirected only; MultiDiGraph "
-    "keeps per-direction rows and is correct here."
-)
-
-MDG_SUCC_CLEAR = (
-    "br-r37-c1-txkrn: MultiDiGraph::clear() clears neither succ_key_rows nor "
-    "pred_key_rows, so successors() reports a pre-clear neighbour. Same defect "
-    "as the MultiGraph clear() half fixed in 73da7cdd1, which did not match "
-    "because the directed clear() has a different shape and TWO maps."
-)
 
 
-@pytest.mark.parametrize(
-    "cls_name",
-    [
-        "Graph",
-        "DiGraph",
-        pytest.param("MultiGraph", marks=pytest.mark.xfail(strict=True, reason=NEIGHBOUR_ROW)),
-        "MultiDiGraph",
-    ],
-)
+
+@pytest.mark.parametrize("cls_name", CLASSES)
 def test_a_neighbours_row_drops_a_removed_node(cls_name):
     """Not the removed node's OWN row — the row of a node that merely pointed at
     it. Warmed first, because a cold read cannot expose a stale cache."""
@@ -266,7 +215,6 @@ def test_a_neighbours_row_drops_a_removed_node(cls_name):
     assert _same(gnx, gfx, "a"), "a neighbour's row still reports the removed node"
 
 
-@pytest.mark.xfail(strict=True, reason=MDG_SUCC_CLEAR)
 def test_successors_after_clear_on_the_directed_multigraph():
     """The directed row caches are per-direction, so `successors` has its own
     exposure to the clear() defect."""

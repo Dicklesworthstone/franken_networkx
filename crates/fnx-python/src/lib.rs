@@ -7977,6 +7977,11 @@ impl PyMultiGraph {
     }
 
     fn remove_node(&mut self, py: Python<'_>, n: &Bound<'_, PyAny>) -> PyResult<()> {
+        // br-r37-c1-txkrn: drop the neighbour row cache. A stale row here is
+        // not caught by its own generation stamp -- `restamp_neighbor_rows` on
+        // the next `add_edge` overwrites the stamp with the current sequences
+        // and launders the row into looking fresh.
+        self.neighbor_key_rows = None;
         let canonical = node_key_to_string(py, n)?;
         if !self.inner.has_node(&canonical) {
             return Err(crate::NetworkXError::new_err(format!(
@@ -8026,6 +8031,11 @@ impl PyMultiGraph {
     }
 
     fn remove_nodes_from(&mut self, py: Python<'_>, nodes: &Bound<'_, PyAny>) -> PyResult<()> {
+        // br-r37-c1-txkrn: drop the neighbour row cache. A stale row here is
+        // not caught by its own generation stamp -- `restamp_neighbor_rows` on
+        // the next `add_edge` overwrites the stamp with the current sequences
+        // and launders the row into looking fresh.
+        self.neighbor_key_rows = None;
         // br-r37-c1-mgrnf: batch the inner removal. The old per-node loop called
         // `inner.remove_node` k times, and MultiGraph::remove_node does two
         // O(|V|) `shift_remove`s per call, so `remove_nodes_from` was O(k·|V|)
@@ -10382,6 +10392,11 @@ impl PyMultiGraph {
     }
 
     fn clear_edges(&mut self) {
+        // br-r37-c1-txkrn: drop the neighbour row cache. A stale row here is
+        // not caught by its own generation stamp -- `restamp_neighbor_rows` on
+        // the next `add_edge` overwrites the stamp with the current sequences
+        // and launders the row into looking fresh.
+        self.neighbor_key_rows = None;
         self.inner.clear_edges();
         if !self.edge_py_attrs.is_empty() || !self.edge_py_keys.is_empty() {
             self.edge_mirrors_stale = true;
