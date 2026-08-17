@@ -845,6 +845,33 @@ def _primitive_nbunch_cache_key(graph, nbunch):
     return (graph.nodes_seq, graph.edges_seq, nbunch_key)
 
 
+def _nbunch_data_cache(graph, slot, nbunch, native, *native_args):
+    """Slot-parameterised form of the two helpers below (br-r37-c1-mgednb).
+
+    The directed pair each own one hard-coded attribute because each class has
+    exactly one nbunch edge-view. ``MultiGraph.edges`` has TWO native nbunch call
+    sites on the same object - ``data=True`` and ``data=<key>`` - so they are
+    given separate slots. Sharing one slot would still be CORRECT, because the
+    key carries ``native_args``, but the two spellings would evict each other on
+    every alternation and the memo would never hit.
+
+    The cached tuple holds the SAME live attr-dict objects the native returned,
+    and a fresh ``list`` is handed out per call, so nx's live-view semantics are
+    preserved and no caller can mutate another caller's result.
+    """
+    key = _primitive_nbunch_cache_key(graph, nbunch)
+    if key is not None and native_args:
+        key = (*key, *native_args)
+    if key is not None:
+        cached = getattr(graph, slot, None)
+        if cached is not None and cached[0] == key:
+            return list(cached[1])
+    result = native(nbunch, *native_args)
+    if result is not None and key is not None:
+        setattr(graph, slot, (key, tuple(result)))
+    return result
+
+
 def _digraph_out_edges_data_cache(graph, nbunch, native, *native_args):
     key = _primitive_nbunch_cache_key(graph, nbunch)
     if key is not None and native_args:
@@ -3652,7 +3679,10 @@ class _MultiGraphEdgeView:
             native = getattr(self._graph, "_native_mg_edges_nbunch_no_data", None)
             if native is not None:
                 try:
-                    native_res = native(nbunch, keys)
+                    native_res = _nbunch_data_cache(
+                        self._graph, "_fnx_mg_edges_nbunch_nodata_cache",
+                        nbunch, native, keys,
+                    )
                 except TypeError as exc:
                     raise NetworkXError(str(exc))
                 if native_res is not None:
@@ -3670,7 +3700,10 @@ class _MultiGraphEdgeView:
             native = getattr(self._graph, "_native_mg_edges_nbunch_data", None)
             if native is not None:
                 try:
-                    native_res = native(nbunch, keys)
+                    native_res = _nbunch_data_cache(
+                        self._graph, "_fnx_mg_edges_nbunch_data_cache",
+                        nbunch, native, keys,
+                    )
                 except TypeError as exc:
                     raise NetworkXError(str(exc))
                 if native_res is not None:
@@ -3686,7 +3719,10 @@ class _MultiGraphEdgeView:
             native = getattr(self._graph, "_native_mg_edges_nbunch_data_key", None)
             if native is not None:
                 try:
-                    native_res = native(nbunch, data, default, keys)
+                    native_res = _nbunch_data_cache(
+                        self._graph, "_fnx_mg_edges_nbunch_key_cache",
+                        nbunch, native, data, default, keys,
+                    )
                 except TypeError as exc:
                     raise NetworkXError(str(exc))
                 if native_res is not None:
