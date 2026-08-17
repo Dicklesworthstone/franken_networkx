@@ -21162,3 +21162,80 @@ incumbent_ratio_after=0.4931x
 campaign_output=false
 decision_gate=median_ci
 cv_role=report_only
+
+---
+
+## br-r37-c1-2r06n — the private-storage degree fix cost 3.2 percent on `out_degree(n)`, and the cost is now gone (2026-08-17)
+
+A correctness fix that touches a hot path owes a measurement, and this one had
+not been given one when it landed (`daf5ce550`). NO BUILD was run: both arms are
+the same `.so` with two different `__init__.py`, so the pair isolates the Python
+change exactly.
+
+### THE FIRST READING FOUND A REAL COST
+
+    cell                          base/cand        CI
+    out_degree(n)  call             0.9690   [0.9577, 0.9793]
+    out_degree[n]  subscript        0.9933   [0.9682, 1.0168]
+    dict(out_degree) NEG CONTROL    0.9965   [0.9828, 1.0072]
+
+Ratios are base/cand, so below 1 means the CANDIDATE IS SLOWER. The call form was
+**3.2 percent slower and its interval excluded unity**, while the `__iter__`
+negative control — a path the change does not touch — came back flat at 0.9965
+and both A/A nulls were tight (0.9946, 0.9955). A host artifact would have moved
+the control too, so the cost was the change.
+
+MECHANISM: the fix had written the membership target inline,
+`nbunch in (self._graph.succ if self._fnx_private_storage else self._graph)`.
+That is one extra attribute load and a branch on a ~416 ns call, which is the
+right order of magnitude for 3 percent.
+
+### PRECOMPUTING THE CONTAINER REMOVES IT
+
+The choice cannot change for the life of the view, so it moved to `__init__` as
+`self._fnx_member_of`, leaving the hot path with exactly the ONE attribute load
+it had before the fix.
+
+    square                     call        CI                 item      iter (NEG)
+    1  [base cand cand base]  1.0034  [0.9824, 1.0408]      1.0150      1.0055
+    2  [cand base base cand]  0.9979  [0.9599, 1.1010]      1.0366      1.0007
+
+Both orders straddle unity and agree with each other, so the 3.2 percent is gone
+rather than moved. **NO SPEEDUP IS CLAIMED HERE** — the honest reading is
+"indistinguishable from the pre-fix code", which is exactly what a correctness
+fix on a hot path should cost.
+
+### WHAT IS WEAK IN THE SECOND PAIR, STATED
+
+The post-fix intervals are much WIDER than the first reading's ([0.9599, 1.1010]
+against [0.9577, 0.9793]), and square 2's candidate A/A null is 1.0102
+[1.0021, 1.1319], which excludes unity. By the standing rule — a failing null is
+not disqualifying if the effect runs the same direction and magnitude, but a
+passing null is not sufficient without overlapping intervals — square 2's effect
+interval overlaps its own null interval, so that square cannot separate effect
+from noise. It is reported because it agrees in direction with square 1, not
+because it independently establishes anything. The claim rests on square 1's
+tighter pair plus their agreement.
+
+PER-ARM: first reading base loadavg median 10.78 at 4288 MHz, cand 10.80 at 4290
+MHz. After the refinement, square 1 base 9.64 at 4228 MHz and cand 9.64 at 4236
+MHz; square 2 base 11.61 at 4188 MHz and cand 11.61 at 4194 MHz. Arm clock
+medians differ by 0.05-0.19 percent. Verdicts ARM-CLOCK-SKEW then
+SIBLING-CONTENDED twice; no build was run by this pane in any of the three.
+
+A/A null control, same invocation, measured: first reading base 0.9946
+[0.9876, 1.0085] and cand 0.9955 [0.9813, 1.0047]; square 1 base 0.9923
+[0.9714, 1.0297] and cand 0.9984 [0.9816, 1.0141]; square 2 base 0.9963
+[0.9643, 1.0203] and cand 1.0102 [1.0021, 1.1319].
+
+PROVENANCE: driver `/data/tmp/claude-1000/certify_deg.py` on `cpu15`, spawning
+`deg_worker.py` pinned to `cpu14`. Arms are ONE `.so` (md5-identical, verified)
+with `__init__.py` from `daf5ce550` and its parent `14efd56de`; the candidate for
+the post-refinement squares carries the precompute on top. 400-node DiGraph, 21
+rounds x 4 invocations per square, 6 x 20000 reps per cell per invocation
+(iteration 6 x 40), bootstrap median CI over 10000 resamples, fixed seed
+20260817. host thinkstation1, governor `powersave`, python 3.13.7, live networkx
+3.6.1, disk 104G free.
+
+decision_gate=median_ci
+cv_role=report_only
