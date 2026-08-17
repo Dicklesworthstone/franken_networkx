@@ -19368,3 +19368,83 @@ identical across arms.
 
 No build was run for this verification; the binaries were already built before
 the throttle.
+
+## 2026-08-17 GoldenBison GATE AUDIT: three shapes, computed not measured (br-r37-c1-gateaudit)
+
+Prompted by frankenfs (a SPREAD gate sitting at its median null), frankenscipy (a
+clock gate biased against the faster arm) and this repository's own arm-asymmetric
+A/A null. Done as ARITHMETIC on the gate definitions plus the 36 rows already
+banked, during a no-build no-measure window, so it cost no compute.
+
+### 1. The layout is exonerated, which makes the arm asymmetry worse
+
+`SQUARE = "ABBAABBA"` gives arm A slots {0,3,4,7} and arm B slots {1,2,5,6}. The
+harness docstring claimed the arms "occupy the same set of slot POSITIONS". That
+is FALSE - the sets are disjoint. Only their means coincide, both 3.5.
+
+The distinction decides what the null can see. Modelling slot cost c(t):
+
+    LINEAR ramp  c(t)=1+g*t          null_A - null_B = 0.00000 at every g
+    DECAYING     c(t)=1+d*exp(-t/T)  null_A - null_B = +0.0008 to +0.1332
+                                     (T in 1..8, d in 0.2..0.5) - ALWAYS POSITIVE
+
+So the square is exactly balanced against steady drift, and against a decaying
+transient it can only ever inflate arm A's null relative to arm B's, because A's
+first half {0,3} contains slot 0, which carries the largest transient.
+
+MEASURED over 36 rows: null_A median 0.9991, null_B median 1.0496, i.e. B high by
++0.0505 - the OPPOSITE SIGN to anything the layout can produce. The layout is
+therefore not the cause and is partially MASKING the effect: the fnx-intrinsic
+drift is at least the +0.0505 observed, plus whatever positional advantage arm B
+enjoys. This is the first evidence that separates "where the slots sit" from
+"what the fnx arm does", and it rules out the cheaper explanation.
+
+### 2. The bound asserts a host-stability claim nobody had written down
+
+The null is mean(slots 0,3)/mean(slots 4,7), so against a linear ramp it is
+(2+3g)/(2+11g) and the bound admits g up to 2*bound/(8-11*bound):
+
+    +/-0.02  ->  0.514% per slot,  3.60% across the square
+    +/-0.03  ->  0.782% per slot,  5.48% across the square
+    +/-0.05  ->  1.342% per slot,  9.40% across the square
+
+The +/-0.02 gate is the assertion "this host does not drift more than 3.6 percent
+over eight consecutive slots". Written that way it is plainly near the operating
+point of a machine this campaign routinely measures through at loadavg 100-600.
+That is the frankenfs shape: a threshold whose implied physical claim sits at,
+not outside, the conditions of use.
+
+NOT RELAXED, and the reason is quantitative rather than stubborn. Arm B's median
+|null-1| is 0.0496, so a bound loose enough to admit it routinely would exceed
+0.05 - wider than many effects this campaign is asked to resolve. Widening trades
+a KNOWN rejection for an UNKNOWN false accept. The response is to fix the arm's
+drift.
+
+### 3. The gate is noisier than the quantity it gates
+
+Both statistics come from the SAME four slots per arm. The ratio is
+median(4)/median(4); the null is mean(2)/mean(2). Simulated at 5 percent
+per-slot noise over 20000 trials, the null's error sd is 1.29x the ratio's
+(0.0498 against 0.0386). A row can therefore carry a ratio precise enough to be
+meaningful while its null fails on estimator granularity alone. Both are medians
+over `rounds`, so averaging does not remove the 1.29x - it scales both equally.
+
+### 4. A structural blind spot, noted rather than fixed
+
+`STRADDLES-1` fires when the CI contains 1.0, so a row that is GENUINELY AT
+PARITY can never be admitted however precisely it is measured. That is correct
+for a claim - "we did not resolve a difference" is not a result - but it means
+this ledger cannot record a confirmed no-difference. Absence of parity rows here
+is not evidence that none exist, and nobody should read the ledger as a census.
+
+### What changed in code
+
+Reporting only; NO THRESHOLD MOVED. `NULL-FAILED` became `NULL-FAILED(A|B|AB)`,
+naming the arm, because `nulls_ok` is a CONJUNCTION - symmetric in form, and in
+practice dominated by the less stationary arm. Over the 36 banked rows arm A
+alone would have passed 83.3 percent and arm B alone 8.3 percent, with the
+conjunction at 8.3 percent: essentially every rejection was arm B, and a bare
+"NULL-FAILED" hid that behind a symmetric-looking rule. The false docstring claim
+about slot positions was corrected, and the drift arithmetic above is now recorded
+at the definition of `NULL_BOUND` so the next reader inherits the number instead
+of the feeling.

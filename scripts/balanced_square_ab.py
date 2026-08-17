@@ -22,8 +22,16 @@ busy:
     by its second-half slots, which must come out 1.0. A null is what detects
     the contention this gate was trying to exclude — so contention is caught
     per-row, after the fact, instead of being excluded up front.
-  * A row whose null leaves [0.98, 1.02] is reported NULL-FAILED and its ratio
-    is not a result. REFUSING is the point; see `mutation_arms_fail_aa_nulls`.
+  * A row whose null leaves [0.98, 1.02] is reported NULL-FAILED(A|B|AB), naming
+    the arm that failed, and its ratio is not a result. REFUSING is the point;
+    see `mutation_arms_fail_aa_nulls`. The arm is named because the rule is a
+    CONJUNCTION: it looks symmetric, but it is dominated by whichever arm is less
+    stationary, and on this repository that is always the fnx arm.
+  * A row whose CI contains 1.0 is STRADDLES-1, also not a result. Note what that
+    means structurally: a row that is genuinely AT PARITY can never be admitted,
+    however precisely it is measured. That is correct for a claim ("we did not
+    resolve a difference") but it means the ledger cannot record a confirmed
+    no-difference, so absence of parity rows is not evidence that none exist.
 
 It is NOT a replacement for perf_harness.py's contract rows. It is the
 substrate to use when the gate cannot be met, which is most of the time.
@@ -94,6 +102,26 @@ import franken_networkx as fnx
 import franken_networkx._fnx as _fnx_ext
 
 SQUARE = "ABBAABBA"
+# br-r37-c1-gateaudit: WHAT THIS BOUND ACTUALLY DEMANDS, computed rather than
+# felt. The null is mean(first two slots)/mean(last two) for one arm, whose slots
+# sit at positions 0,3 and 4,7. Against a linear ramp c(t)=1+g*t that is
+# (2+3g)/(2+11g), so the bound admits g up to 2*bound/(8-11*bound):
+#
+#     +/-0.02  ->  0.514% per slot,  3.60% across the square
+#     +/-0.03  ->  0.782% per slot,  5.48% across the square
+#     +/-0.05  ->  1.342% per slot,  9.40% across the square
+#
+# So 0.02 asserts the host does not drift more than about 3.6 percent over eight
+# consecutive slots. On this host, under the external build cycles this campaign
+# routinely measures through, that is near the operating point rather than
+# comfortably outside it -- which is exactly the shape frankenfs and
+# frankenpandas each found in their own gates.
+#
+# The bound is deliberately NOT relaxed. Measured over 36 rows, arm B's median
+# |null-1| was 0.0496: a bound loose enough to admit it routinely would be wider
+# than many effects this campaign is asked to resolve, so widening would trade a
+# known rejection for an unknown false accept. The response is to fix the arm's
+# drift, not the threshold. See the KEEP row for br-r37-c1-mdginb.
 NULL_BOUND = 0.02
 # br-r37-c1-clockrow: the two arms of one square interleave, so they should meet
 # the same core frequency. A skew wider than this between the arms' median clocks
@@ -1337,9 +1365,28 @@ def sample_core_khz():
 def _time_square(incumbent_fn, fnx_fn, gc_per_slot: bool, calls_per_slot: int = 1):
     """Run one `ABBAABBA` square and return the two arms' slot timings and clocks.
 
-    The square is what makes a busy host measurable: each arm occupies the same
-    set of slot POSITIONS, so drift across the round hits both equally instead
-    of biasing one.
+    The square is what makes a busy host measurable: each arm's slot positions
+    have the same MEAN (A holds 0,3,4,7 and B holds 1,2,5,6; both average 3.5),
+    so drift across the round hits both equally instead of biasing one.
+
+    br-r37-c1-gateaudit: that sentence used to claim the arms occupy "the same
+    set of slot positions", which is false - the sets are disjoint. Only their
+    means coincide, and the distinction decides what the A/A null can see:
+
+      * Against a LINEAR ramp the balance is exact. Modelled at c(t)=1+g*t, the
+        two nulls agree to 5 decimal places at every g. Nothing about a steady
+        drift can separate the arms.
+      * Against a DECAYING transient it is NOT exact, and the residual always
+        favours B. A's first half is {0,3} and B's is {1,2}; slot 0 carries the
+        largest transient, so A's first half is inflated more. Modelled at
+        c(t)=1+d*exp(-t/tau), null_A exceeds null_B by +0.0008 to +0.1332 across
+        tau in 1..8 and d in 0.2..0.5 - always positive.
+
+    This matters because the MEASURED asymmetry runs the other way: over 36 rows
+    the median null_A was 0.9991 and null_B 1.0496, i.e. B high by +0.0505. The
+    layout can only push that difference NEGATIVE, so it cannot be the cause and
+    is in fact masking part of it. Whatever inflates arm B is a property of the
+    fnx arm, not of where its slots sit.
 
     The per-arm clock samples exist to CHECK that claim rather than assume it. An
     arm-asymmetric core frequency — one arm consistently boosted, the other not —
@@ -1457,9 +1504,19 @@ def run_row(
     ratio = statistics.median(ratios)
     low, high = bootstrap_ci(ratios)
     n_a, n_b = statistics.median(null_a), statistics.median(null_b)
-    nulls_ok = abs(n_a - 1.0) <= NULL_BOUND and abs(n_b - 1.0) <= NULL_BOUND
+    # br-r37-c1-gateaudit: NAME THE ARM THAT FAILED. `nulls_ok` is a conjunction,
+    # so it is symmetric in FORM and dominated in PRACTICE by whichever arm is
+    # less stationary. Measured over 36 rows: arm A alone would have passed 83.3
+    # percent of the time and arm B alone 8.3 percent, and the conjunction passed
+    # 8.3 percent — so essentially every rejection was arm B, and a bare
+    # "NULL-FAILED" hid that behind a symmetric-looking rule. The BOUND is
+    # unchanged; only the reporting is.
+    a_ok = abs(n_a - 1.0) <= NULL_BOUND
+    b_ok = abs(n_b - 1.0) <= NULL_BOUND
+    nulls_ok = a_ok and b_ok
     if not nulls_ok:
-        verdict = "NULL-FAILED"
+        culprit = "A" if not a_ok and b_ok else "B" if a_ok and not b_ok else "AB"
+        verdict = f"NULL-FAILED({culprit})"
     elif low <= 1.0 <= high:
         verdict = "STRADDLES-1"
     else:
