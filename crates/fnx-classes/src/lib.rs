@@ -3505,6 +3505,21 @@ mod multigraph_storage {
             self.node_order.get(name).copied()
         }
 
+        /// br-r37-c1-2ndmw: the stable SLOT of the node at an insertion-order
+        /// POSITION, in O(1) and without hashing a node key.
+        ///
+        /// This is the missing conversion between the two index spaces. Callers
+        /// hold POSITIONS (`get_node_index`, and the cached exact-string index
+        /// on the Python side); the edge map is keyed by SLOTS. Feeding one to
+        /// the other reports a real edge as ABSENT once a node has been removed
+        /// -- see `multigraph_node_slot_and_position_are_distinct_index_spaces`.
+        /// `node_order` maps name to slot in insertion order, so the slot at a
+        /// position is just that entry's value.
+        #[must_use]
+        pub fn slot_at_position(&self, position: usize) -> Option<usize> {
+            self.node_order.get_index(position).map(|(_, slot)| *slot)
+        }
+
         /// br-r37-c1-thp6w S30: node is isolated (mirror of
         /// `MultiGraph::is_isolate`) — present with an empty adjacency row.
         #[must_use]
@@ -4148,22 +4163,35 @@ impl MultiGraph {
     /// alloc); the caller (`PyMultiGraph::has_edge`) guards each index with
     /// `node_index_matches_int` so the identity `index == int-value` holds
     /// (any removal / remap that broke it fails the guard and falls through to
-    /// the String path).
+    /// the String path). Mirror of `Graph::has_edge_by_indices`.
     ///
-    /// br-r37-c1-2ndmw: NOT AN O(1) INDEX FAST PATH, despite the name. Unlike
-    /// `Graph::has_edge_by_indices`, which is a direct `contains_key` on a
-    /// position-keyed edge map, this resolves BOTH indices back to names and
-    /// calls the string `has_edge` -- so it costs two node-key hashes and is
-    /// O(node key length), not O(1). It cannot simply be pointed at the
-    /// slot-keyed `MgSlabStorage::has_edge_by_pair`, because the index this
-    /// takes is a POSITION (`get_node_index`) while that map is keyed by SLOT
-    /// (`node_slot`); the two coincide only until a node is removed, after
-    /// which feeding one to the other silently reports a real edge as absent.
-    /// Pinned by `multigraph_node_slot_and_position_are_distinct_index_spaces`.
+    /// br-r37-c1-2ndmw: THIS TAKES A POSITION AND THE EDGE MAP IS KEYED BY SLOT,
+    /// which is the whole subtlety. It used to bridge the two spaces by
+    /// resolving both positions back to NAMES and calling the string
+    /// `has_edge`, which re-hashes both node keys -- so this was O(node key
+    /// length) while `Graph::has_edge_by_indices` was a genuine O(1)
+    /// `contains_key`, and every caller taking the "index fast path"
+    /// (`PyMultiGraph::has_edge`, the edge-view probe, the algorithms bulk
+    /// paths) still paid for the key length it was trying to avoid.
+    ///
+    /// `slot_at_position` bridges the same gap in O(1) with no hashing, and
+    /// substitutes an EQUAL value rather than changing behaviour:
+    /// `MgSlabStorage::has_edge(l, r)` is itself defined as `node_order.get(l)`
+    /// and `node_order.get(r)` followed by `has_edge_by_pair`, and the slot
+    /// `get(name)` returns for an entry is the slot `get_index(position)`
+    /// returns for that same entry.
+    ///
+    /// What must NEVER happen is passing the position straight to
+    /// `has_edge_by_pair`: the spaces coincide only until a node is removed,
+    /// after which that reports a real edge as absent. Pinned by
+    /// `multigraph_node_slot_and_position_are_distinct_index_spaces`, and the
+    /// equivalence pinned by
+    /// `multigraph_has_edge_by_indices_matches_the_string_path_across_removals`.
     #[must_use]
     pub fn has_edge_by_indices(&self, li: usize, ri: usize) -> bool {
-        match (self.get_node_name(li), self.get_node_name(ri)) {
-            (Some(left), Some(right)) => self.has_edge(left, right),
+        let store = self.slab_store();
+        match (store.slot_at_position(li), store.slot_at_position(ri)) {
+            (Some(left), Some(right)) => store.has_edge_by_pair(left, right),
             _ => false,
         }
     }
@@ -5153,6 +5181,59 @@ impl MultiGraph {
 
 #[cfg(test)]
 mod tests {
+    /// br-r37-c1-2ndmw: `has_edge_by_indices` must agree with the string path
+    /// for EVERY pair, including after removals move the positions away from the
+    /// slots.
+    ///
+    /// The implementation no longer resolves positions back to names; it
+    /// converts position to slot and probes the slot-keyed edge map directly.
+    /// That is only correct if the slot at a position is the slot the name at
+    /// that position maps to, which is an IndexMap invariant rather than
+    /// something this crate enforces — so it is asserted here exhaustively
+    /// rather than assumed, against the string lookup as the oracle.
+    #[test]
+    fn multigraph_has_edge_by_indices_matches_the_string_path_across_removals() {
+        let mut g = MultiGraph::new(CompatibilityMode::Strict);
+        let names: Vec<String> = (0..8).map(|i| format!("n{i}")).collect();
+        for name in &names {
+            g.add_node(name.as_str());
+        }
+        for (a, b) in [(0, 1), (2, 3), (3, 5), (5, 7), (0, 7), (4, 4)] {
+            g.add_edge(names[a].as_str(), names[b].as_str()).unwrap();
+        }
+
+        // Removals chosen to shift positions out from under the slots, plus a
+        // re-add so a reused slot is exercised too.
+        for step in 0..4 {
+            if step == 1 {
+                g.remove_node("n0");
+            }
+            if step == 2 {
+                g.remove_node("n4");
+            }
+            if step == 3 {
+                g.add_node("n8");
+                g.add_edge("n8", "n3").unwrap();
+            }
+            let live: Vec<String> = g.nodes_ordered().iter().map(|s| (*s).to_string()).collect();
+            for (li, left) in live.iter().enumerate() {
+                for (ri, right) in live.iter().enumerate() {
+                    let by_index = g.has_edge_by_indices(li, ri);
+                    let by_name = g.has_edge(left.as_str(), right.as_str());
+                    assert_eq!(
+                        by_index, by_name,
+                        "step {step}: has_edge_by_indices({li}, {ri}) disagreed with \
+                         has_edge({left:?}, {right:?})"
+                    );
+                }
+            }
+            // Out-of-range positions must answer false, not panic.
+            let n = live.len();
+            assert!(!g.has_edge_by_indices(n, 0));
+            assert!(!g.has_edge_by_indices(0, n + 50));
+        }
+    }
+
     /// br-r37-c1-2ndmw: THE SLOT AND THE POSITION ARE DIFFERENT INDEX SPACES,
     /// and confusing them is a silent wrong-answer bug rather than a type error.
     ///
