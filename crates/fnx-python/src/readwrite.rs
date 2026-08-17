@@ -1706,8 +1706,14 @@ pub fn edges_nbunch_data(
     let mut seen = vec![false; n];
     let mut result: Vec<(PyObject, PyObject, PyObject)> = Vec::new();
     for nb in &nbunch {
-        let name = node_key_to_string(py, nb)?;
-        let Some(u_idx) = pg.inner.get_node_index(&name) else {
+        // br-r37-c1-nbidx: resolve through the warm exact-`str` index cache
+        // rather than building a `str:{len}:{s}` canonical per item. On a miss
+        // this does exactly what the old line did; on a hit it answers from
+        // CPython's own cached `str` hash and never touches the key bytes.
+        // At 2000-character node keys the canonical was an allocation and a
+        // 2000-byte copy PER NBUNCH ITEM, which is the axis this call grows on
+        // while networkx stays flat.
+        let Some(u_idx) = pg.cached_exact_string_node_index(py, nb)? else {
             // nx skips nbunch nodes that are not in the graph.
             continue;
         };
@@ -1767,8 +1773,11 @@ pub fn edges_nbunch_count(
     let mut seen = vec![false; n];
     let mut count: usize = 0;
     for nb in &nbunch {
-        let name = node_key_to_string(py, nb)?;
-        let Some(u_idx) = pg.inner.get_node_index(&name) else {
+        // br-r37-c1-nbidx: same warm-index resolution as edges_nbunch_data.
+        // This one matters twice over — `list(view)` calls `__len__` for the
+        // size hint BEFORE `__iter__`, so an unfixed count walk would re-pay the
+        // per-item canonical on every materialization.
+        let Some(u_idx) = pg.cached_exact_string_node_index(py, nb)? else {
             continue;
         };
         if let Some(neighbors) = pg.inner.neighbors_indices(u_idx) {
