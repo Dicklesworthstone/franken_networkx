@@ -46,7 +46,6 @@ It is not a ratio gate and will not fail on a slow host.
 
 from __future__ import annotations
 
-import statistics
 import time
 
 import networkx as nx
@@ -56,15 +55,26 @@ import franken_networkx as fnx
 
 EDGES = 300
 KEY_LEN = 2000
+SHORT_KEY = 3
+LARGE_NBUNCH = 200
+# Measured: fnx grows 4.24x across the key-length axis at this nbunch while
+# networkx grows 1.01x, i.e. relative ~4.2x. The bound sits well below that and
+# well above the noise. It is NOT guessed - the sibling scaling file records a
+# draft that guessed a bound and had its strict xfail XPASS as a result.
+MAX_RELATIVE_GROWTH = 2.5
 
 
-def _build(lib):
+def _build_at(lib, key_len: int):
     graph = lib.Graph()
     for i in range(EDGES):
         graph.add_edge(
-            f"a{i}".ljust(KEY_LEN, "x"), f"b{i}".ljust(KEY_LEN, "y"), weight=i
+            f"a{i}".ljust(key_len, "x"), f"b{i}".ljust(key_len, "y"), weight=i
         )
     return graph, list(graph.nodes())
+
+
+def _build(lib):
+    return _build_at(lib, KEY_LEN)
 
 
 def _time(graph, nbunch, reps: int = 30, rounds: int = 5) -> float:
@@ -92,23 +102,47 @@ def test_nbunch_results_match_networkx():
         )
 
 
-def test_cost_rises_with_nbunch_size_and_networkx_does_not():
-    """The attribution: fnx pays per nbunch ITEM, networkx does not.
+@pytest.mark.xfail(
+    strict=True,
+    reason="br-r37-c1-nbidx: Graph.edges(nbunch, data=True) grows with NODE-KEY "
+    "LENGTH at a large nbunch while networkx stays flat. Measured at nbunch=200: "
+    "fnx 66.4us at K=3 against 281.8us at K=2000 (4.24x), networkx 82.5us against "
+    "83.7us (1.01x). At K=3 the row is a 1.2425x WIN and at K=2000 it is 0.2971x. "
+    "The per-item canonical build is the cost; the fix is to resolve nbunch items "
+    "through the cached exact-str index path.",
+)
+def test_nbunch_edges_data_is_bounded_in_key_length():
+    """The defect: cost tracks KEY LENGTH at a large nbunch, networkx does not.
 
-    Both libraries are measured on the same shapes, so a slow host moves both.
-    The claim is a RATIO of growth, not an absolute time.
+    MEASURED SHAPE, and the reason this is the assertion rather than the earlier
+    draft's. My first version compared growth across NBUNCH SIZE and asserted
+    fnx grew 4x faster than networkx. That failed, because networkx iterates the
+    nbunch too and grows with it as well - roughly 21x from 5 to 200 items. The
+    axis that separates the two libraries is KEY LENGTH at a fixed nbunch, where
+    networkx is flat by construction and fnx is not.
+
+    At a SMALL nbunch there is no key-length effect at all (0.6190x at K=3
+    against 0.6171x at K=2000), which is why the large nbunch is the one measured
+    - a five-item probe would have reported this surface healthy.
     """
-    fnx_graph, nodes = _build(fnx)
-    nx_graph, _ = _build(nx)
-    small, large = nodes[:5], nodes[:200]
+    fnx_short, short_nodes = _build_at(fnx, SHORT_KEY)
+    fnx_long, long_nodes = _build_at(fnx, KEY_LEN)
+    nx_short, nx_short_nodes = _build_at(nx, SHORT_KEY)
+    nx_long, nx_long_nodes = _build_at(nx, KEY_LEN)
 
-    fnx_growth = _time(fnx_graph, large) / _time(fnx_graph, small)
-    nx_growth = _time(nx_graph, large) / _time(nx_graph, small)
+    fnx_growth = _time(fnx_long, long_nodes[:LARGE_NBUNCH]) / _time(
+        fnx_short, short_nodes[:LARGE_NBUNCH]
+    )
+    nx_growth = _time(nx_long, nx_long_nodes[:LARGE_NBUNCH]) / _time(
+        nx_short, nx_short_nodes[:LARGE_NBUNCH]
+    )
+    relative = fnx_growth / nx_growth
 
-    assert fnx_growth > 4.0 * nx_growth, (
-        f"fnx edges(nbunch) grew {fnx_growth:.1f}x from a 5-item to a 200-item "
-        f"nbunch against networkx's {nx_growth:.1f}x. If this has FALLEN, the "
-        "per-item canonical build was fixed — delete this test and its bead."
+    assert relative < MAX_RELATIVE_GROWTH, (
+        f"edges(nbunch, data=True) grew {fnx_growth:.2f}x across "
+        f"{SHORT_KEY}->{KEY_LEN} character keys at a {LARGE_NBUNCH}-item nbunch, "
+        f"against networkx's {nx_growth:.2f}x (relative {relative:.2f}x, bound "
+        f"{MAX_RELATIVE_GROWTH}x)"
     )
 
 
@@ -119,9 +153,7 @@ def test_whole_graph_call_is_not_the_expensive_one():
     the nbunch reading above would be measuring something else entirely.
     """
     graph, nodes = _build(fnx)
-    whole = _time(graph, None) if False else None  # nbunch=None takes another path
-    del whole
-    graph.edges(data=True)  # warm the cache
+    list(graph.edges(data=True))  # warm the whole-graph list cache
     start = time.perf_counter()
     for _ in range(30):
         list(graph.edges(data=True))
