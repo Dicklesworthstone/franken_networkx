@@ -117,24 +117,36 @@ def test_rows_compare_equal_to_the_plain_dict_on_every_class(cls_name):
 # ------------------------------------------------------- br-r37-c1-ih59i: repr
 
 
+_PRIVATE_CLASS_XFAIL = pytest.mark.xfail(
+    strict=True,
+    reason="br-r37-c1-ih59i, class-name half: these two shapes hand back the "
+    "private base `_EdgeListWithSetAlgebra` rather than a canonically-named "
+    "subclass, so the repr fix deliberately leaves them as a bare list — "
+    "printing a private class name would be worse than the list it replaces. "
+    "Fixing this needs the call path to return the canonical class.",
+)
+
+
 @pytest.mark.parametrize(
-    "cls_name",
+    ("cls_name", "form"),
     [
-        pytest.param(
-            name,
-            marks=pytest.mark.xfail(
-                strict=True,
-                reason="br-r37-c1-ih59i: edge data views are list subclasses that "
-                "never override __repr__, so they print as a bare list where "
-                "networkx prints ClassName([...]). Needs a build to verify a fix; "
-                "halted.",
-            ),
-        )
-        for name in REPR_AFFECTED
+        ("Graph", "data"),
+        ("Graph", "nbunch"),
+        ("DiGraph", "data"),
+        ("DiGraph", "nbunch"),
+        ("MultiGraph", "data"),
+        ("MultiDiGraph", "data"),
+        pytest.param("MultiGraph", "nbunch", marks=_PRIVATE_CLASS_XFAIL),
+        pytest.param("MultiDiGraph", "nbunch", marks=_PRIVATE_CLASS_XFAIL),
     ],
 )
-@pytest.mark.parametrize("form", ["data", "nbunch"])
-def test_edge_data_view_repr_names_its_class(cls_name, form):
+def test_edge_data_view_repr_matches_networkx_exactly(cls_name, form):
+    """Not just the class name — the whole repr string.
+
+    Six of the eight shapes now match networkx byte for byte. The two xfailed
+    are the ones whose class is still private; they are a separate half of the
+    same bead, not a failure of this fix.
+    """
     gnx, gfx = _pair(cls_name)
     call = (
         (lambda g: g.edges(data=True))
@@ -142,7 +154,19 @@ def test_edge_data_view_repr_names_its_class(cls_name, form):
         else (lambda g: g.edges(["a", "b"]))
     )
     want, got = repr(call(gnx)), repr(call(gfx))
-    assert got.split("(")[0] == want.split("(")[0], f"nx={want[:60]} fnx={got[:60]}"
+    assert got == want, f"nx={want[:70]} fnx={got[:70]}"
+
+
+@pytest.mark.parametrize("cls_name", ALL)
+def test_edge_data_view_repr_stays_live(cls_name):
+    """The repr change kept `_fnx_refresh()` first, so a repr taken after a
+    mutation must show the new edge. Pins the property the old implementation
+    had and the fix had to preserve."""
+    gnx, gfx = _pair(cls_name)
+    vnx, vfx = gnx.edges(data=True), gfx.edges(data=True)
+    for graph in (gnx, gfx):
+        graph.add_edge("c", "d", w=9.0)
+    assert ("'c', 'd'" in repr(vfx)) == ("'c', 'd'" in repr(vnx))
 
 
 @pytest.mark.xfail(

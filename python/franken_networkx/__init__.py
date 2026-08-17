@@ -3784,6 +3784,14 @@ class _MultiGraphEdgeView:
 class _EdgeListWithSetAlgebra(list):
     """List subclass that supports set-algebra operators.
 
+    br-r37-c1-ih59i: it also carries `__repr__`, because inheriting
+    `list.__repr__` printed these views as bare list syntax where networkx
+    prints `ClassName([...])` — visible on any `print()` or log of a view, and
+    on all three classes whose data views subclass this one. Simple `Graph` was
+    already correct because its `EdgeDataView` is an `object` subclass rather
+    than a list, which is what identified this as the defect rather than the
+    convention.
+
     Returned by MultiGraph.edges(keys=...) / MultiDiGraph.edges(keys=...)
     so the result matches upstream NetworkX's set-like behaviour
     (expressions like edges | {...}, edges & {...}, edges == set) without
@@ -3987,8 +3995,28 @@ class _EdgeListWithSetAlgebra(list):
     # nx's API and any in-tree caller.
 
     def __repr__(self):
+        # br-r37-c1-ih59i: print like networkx — `ClassName([...])` — instead of
+        # the bare `[...]` that `list.__repr__` gives. The refresh below is
+        # unchanged and still runs first: these are LIVE views, so a repr must
+        # reflect the current graph.
+        #
+        # Simple `Graph` was already correct because its `EdgeDataView` is an
+        # `object` subclass rather than a list, which is what identified this as
+        # a defect in the list-backed views rather than a house convention.
+        #
+        # GUARDED ON A PUBLIC NAME, deliberately. `MultiGraph.edges(nbunch)` and
+        # `MultiDiGraph.edges(nbunch)` still hand back this BASE class rather
+        # than a canonically-named subclass, so `type(self).__name__` there is
+        # the private `_EdgeListWithSetAlgebra`. Printing that would leak an
+        # internal class into user-visible output — worse than the bare list it
+        # replaces — so those keep the list form until the class-name half of
+        # this bead is fixed. The shapes whose class is already canonically
+        # named gain networkx's exact repr.
         self._fnx_refresh()
-        return list.__repr__(self)
+        name = type(self).__name__
+        if name.startswith("_"):
+            return list.__repr__(self)
+        return f"{name}({list.__repr__(self)})"
 
     def __str__(self):
         self._fnx_refresh()
