@@ -18022,3 +18022,84 @@ comparison_class=SELF-SPEEDUP
 campaign_output=false
 decision_gate=median_ci
 cv_role=report_only
+
+## 2026-08-16 GoldenBison KEEP-SELF: the undirected keyed subscript goes UNBOUNDED -> FLAT, 24.15x at 8000-character keys (br-r37-c1-f3i50)
+
+`MultiGraph G.edges[u, v, k]` resolved both endpoints as canonical strings on
+every call, so its cost tracked node-key length without bound. Every index-keyed
+cache on this class served the UNKEYED branch; MultiDiGraph has had the KEYED one
+since br-r37-c1-7qqr8 and the undirected class never got it. 3d8d4f7a8 adds it,
+keyed by SORTED endpoint positions plus the internal key.
+
+ELF-ALTERNATED, OLD e6006f2e against NEW b828d1e2, three interleaved rounds,
+pinned to cpu45, 41 x 50 x 400, EVERY row ADMISSIBLE in all six runs:
+
+    row                       OLD (x3)                  NEW (x3)                  worst bound
+    MG edges[u,v,k] len=3     0.2435 0.2449 0.2458      0.3783 0.3776 0.3796      1.536x
+    MG edges[u,v,k] len=2000  0.0471 0.0460 0.0460      0.3778 0.3793 0.3738      7.937x
+    MG edges[u,v,k] len=8000  0.0153 0.0150 0.0154      0.3719 0.3774 0.3806      24.15x
+
+THE SHAPE IS THE RESULT AND THE BOUND IS A CONSEQUENCE. The OLD arm falls 16x
+across the key-length axis — 0.2435 at 3 characters to 0.0153 at 8000 — because
+the cost was O(node key length). The NEW arm reads 0.3783 / 0.3778 / 0.3719 over
+the same 2667x range: FLAT. The row is no longer unbounded, which is the property
+that mattered; 24.15x is simply where that flatness is measured against the worst
+point of the old curve. Quoting only the 24.15x would misdescribe the change.
+
+THE ROW DID NOT EXIST BEFORE THIS COMMIT, and that is the reusable finding. The
+`multi-key-length` workload carried `MDG edges[u,v,k]` and no undirected twin, so
+the surface with the defect was the one nobody measured — which is exactly how
+the directed class got the keyed cache and the undirected class did not. **A
+surface with no row is a surface nobody re-measures.** When a workload covers one
+half of a directed/undirected pair, that asymmetry is itself a lead.
+
+BOTH ARMS SHARE git_head 3d8d4f7a888cc013a7d954846a4262bf66e6f401 and an
+identical shim sha, built from one tree with no pull between them. That is
+checked rather than assumed after a peer commit landing between two builds
+silently inverted an earlier certification of mine (see 0a0533f92).
+
+DISCLOSED: one of the six runs started at loadavg 33.98, above the ~30 bar this
+pane works to. It is reported rather than dropped because the arms alternate, all
+six runs are 100 percent admissible, every A/A null is inside the bound, and the
+OLD and NEW ranges do not come close to overlapping on any row — the smallest gap
+is 0.2458 against 0.3776. No conclusion here depends on that run.
+
+NO COMPETITIVE CLAIM: 0.3719x at 8000 characters is still a 2.7x loss to
+networkx, which does a chained dict lookup and no key work at all.
+`comparison_class=SELF-SPEEDUP`, `campaign_output=false`.
+
+CORRECTNESS, since an index-keyed edge cache has three ways to be silently wrong
+and this one is undirected, which the directed twin is not:
+  * ORIENTATION — `u-v` and `v-u` are ONE edge here, so the position pair is
+    SORTED; the directed twin must NOT sort. Tested by warming forward and
+    reading reversed.
+  * NODE RENUMBERING — removal compacts positions, so a surviving entry names a
+    DIFFERENT edge rather than going missing. Entries carry `nodes_seq`.
+  * EDGE IDENTITY — an edge removed and re-added REUSING the same internal key
+    must not be served stale. This map stores only `nodes_seq`, so
+    `bump_edges_seq` clears it, whereas the sibling `edge_keydict_by_index`
+    carries both sequence numbers in its value and needs no clear. That asymmetry
+    is commented at the clear site because getting it wrong is a stale read.
+19 tests across three key lengths straddling the 128-byte canonical buffer, with
+`KeyError` args compared against live networkx. Full suite 60075 passed.
+
+NULL_NUMERIC_EVIDENCE: per-arm A/A nulls across the six runs span [0.9986,
+1.0166], every one inside the +/-0.02 bound; self-speedup worst bound 24.15x at
+len=8000 and 1.536x at len=3.
+
+PROVENANCE: harness `scripts/balanced_square_ab.py`, workload `multi-key-length`
+(the `MG edges[u,v,k]` rows added in this commit); host thinkstation1; rch_worker
+none (both arms in-process on same_host); git_head
+3d8d4f7a888cc013a7d954846a4262bf66e6f401, git_dirty clean, IDENTICAL on both
+arms; governor powersave; runtime ISA avx2 avx sse4_2; python 3.13.7 x86_64; live
+networkx 3.6.1; PYTHONHASHSEED=0; `taskset -c 45`; square ABBAABBA; disk 188G
+free. OBSERVED loadavg per run in order 27.34 / 33.98 / 31.38 / 28.80 / 27.25 /
+25.19; core clock 3965-4141 MHz; arm-to-arm clock skew -0.07% to +0.28%; every
+row `cpus=[45]`, no ARM-EXCLUSIVE rows.
+
+bench_elf_sha256=b828d1e2745ffecf92e6d2bde1e6264fc5acb1f5b3d8ce71e0d2497941a9b281
+elf_sha256=b828d1e2745ffecf92e6d2bde1e6264fc5acb1f5b3d8ce71e0d2497941a9b281
+comparison_class=SELF-SPEEDUP
+campaign_output=false
+decision_gate=median_ci
+cv_role=report_only
