@@ -14330,6 +14330,31 @@ impl PyGraph {
     ) -> PyResult<()> {
         let u = u_of_edge;
         let v = v_of_edge;
+        // br-r37-c1-aeshim: reject None and unhashable endpoints HERE. Of the
+        // four native `add_edge` kernels only `PyMultiGraph::add_edge` did, and
+        // this is a copy of its block. Measured against networkx by exception
+        // TYPE, ARGS and resulting node list, the unvalidated kernels diverged in
+        // 10 of 10 cases - and the unhashable ones did worse than raise wrongly:
+        // the object was STORED as a node and the graph became permanently
+        // unreadable, `G.nodes()` raising `TypeError: unhashable type` from a
+        // call site unrelated to the add. That is invisible through the public
+        // API only because the Python `add_edge` shim validates first; anything
+        // reaching the kernel directly got the corruption.
+        //
+        // Ordering matches networkx: u is created BEFORE v is examined, so a bad
+        // v leaves u on the graph.
+        if u.is_none() {
+            return Err(PyValueError::new_err("None cannot be a node"));
+        }
+        u.hash()?;
+        if v.is_none() {
+            self.add_node(py, u, None)?;
+            return Err(PyValueError::new_err("None cannot be a node"));
+        }
+        if v.hash().is_err() {
+            self.add_node(py, u, None)?;
+            v.hash()?;
+        }
         let u_canonical = node_key_to_string(py, u)?;
         let v_canonical = node_key_to_string(py, v)?;
 
