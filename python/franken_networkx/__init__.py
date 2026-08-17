@@ -6536,9 +6536,30 @@ class _DirectedDegreeView:
         # networkx completes in 0.154us total. None of those questions can
         # change for the life of the view: the weight is fixed at construction,
         # the direction is fixed, and a graph does not change class.
+        # br-r37-c1-2r06n: a graph carrying networkx private storage must not use
+        # the native counters at all -- they read the Rust store, which does not
+        # know about an assigned `_succ`/`_pred`/`_node`. `out_degree('ZZ')` for a
+        # node carried only by an assigned `_succ` answered 0 from the native
+        # counter, which then failed the membership probe in __getitem__ and
+        # raised KeyError where nx returns 1.
+        #
+        # Resolved ONCE here rather than per lookup, which is only sound because
+        # `_set_private_override` drops the cached degree views when it installs
+        # storage -- verified that the view is otherwise reused across the
+        # assignment, so an __init__-time answer would go stale. Ordinary graphs
+        # pay one dict membership test per VIEW, not per degree lookup.
+        ov = vars(graph)
+        self._fnx_private_storage = (
+            _PRIVATE_NODE_OVERRIDE in ov
+            or _PRIVATE_ADJ_OVERRIDE in ov
+            or _PRIVATE_SUCC_OVERRIDE in ov
+            or _PRIVATE_PRED_OVERRIDE in ov
+        )
         self._fast_degree = None
-        if weight is None and not isinstance(
-            graph, (_FilteredGraphView, _ReverseDirectedViewBase)
+        if (
+            weight is None
+            and not self._fnx_private_storage
+            and not isinstance(graph, (_FilteredGraphView, _ReverseDirectedViewBase))
         ):
             if adjacency_attr == "succ":
                 self._fast_degree = getattr(graph, "_native_out_degree", None)
@@ -6561,8 +6582,15 @@ class _DirectedDegreeView:
         # for multi (O(degree)). The native out_degree/in_degree gives the
         # identical count (distinct-successor count for simple, edge-multiplicity
         # sum for multi). Both PyDiGraph and PyMultiDiGraph expose the methods.
-        if weight is None and not isinstance(
-            self._graph, (_FilteredGraphView, _ReverseDirectedViewBase)
+        if (
+            weight is None
+            # br-r37-c1-2r06n: assigned private storage is invisible to the Rust
+            # store the native counters read, exactly as a filtered view's empty
+            # base is.
+            and not self._fnx_private_storage
+            and not isinstance(
+                self._graph, (_FilteredGraphView, _ReverseDirectedViewBase)
+            )
         ):
             # br-r37-c1-vfytj/revrow: the native _native_*_degree paths read
             # the graph's Rust base, which is EMPTY for a filtered/subgraph
@@ -6585,6 +6613,8 @@ class _DirectedDegreeView:
         if (
             weight is not None
             and type(self._graph) is DiGraph
+            # br-r37-c1-2r06n: same reason as the unweighted counters above.
+            and not self._fnx_private_storage
             and not isinstance(
                 self._graph, (_FilteredGraphView, _ReverseDirectedViewBase)
             )
@@ -6754,7 +6784,7 @@ class _DirectedDegreeView:
         # with any edges pays nothing, and it lives in __getitem__ rather than
         # in _node_degree so that ITERATION — which visits only nodes already
         # known to be present, including isolated ones — is untouched.
-        if degree == 0:
+        if degree == 0 and not self._fnx_private_storage:
             # ``hash`` first: nx reaches this through a dict lookup, so an
             # UNHASHABLE index raises TypeError there, not KeyError. fnx's
             # ``in`` swallows that TypeError and answers False, which would
@@ -6763,6 +6793,12 @@ class _DirectedDegreeView:
             hash(node)
             if node not in self._graph:
                 raise KeyError(node)
+        # br-r37-c1-2r06n: the probe is SKIPPED under private storage rather
+        # than re-pointed at the assigned mapping. With storage assigned the
+        # native counters are already off, so `_node_degree` reached
+        # `self._adjacency[node]` and that subscript raised nx's KeyError by
+        # itself; probing `node not in self._graph` on top of it would re-ask the
+        # NODE view, which is the wrong authority and the whole bug.
         return degree
 
     def __bool__(self):
@@ -6776,7 +6812,16 @@ class _DirectedDegreeView:
         if nbunch is None:
             return type(self)(self._graph, self._adjacency_attr, weight=weight)
         try:
-            if nbunch in self._graph:
+            # br-r37-c1-2r06n: nx's DiDegreeView sets `_nodes = self._succ` and
+            # asks `nbunch in self._nodes`, so the SUCC MAPPING decides whether a
+            # single argument is a node -- for the in-degree view too, which is
+            # why nx's in_degree and out_degree disagree under an assigned
+            # `_succ`. That asymmetry is nx's and is matched here rather than
+            # smoothed. `nbunch in self._graph` asked the node view instead and
+            # got it wrong in both directions: it returned a VIEW for a node
+            # carried only by `_succ` (nx returns an int) and an INT for a node
+            # carried only by `_node` (nx returns a view).
+            if nbunch in (self._graph.succ if self._fnx_private_storage else self._graph):
                 return self._node_degree(nbunch, weight)
         except TypeError:
             pass
@@ -46439,6 +46484,16 @@ def _set_private_override(self, attr_name, value):
         mark_private_dir_override = getattr(self, "_fnx_set_private_dir_override", None)
         if mark_private_dir_override is not None:
             mark_private_dir_override()
+    # br-r37-c1-2r06n: drop cached degree views so they are rebuilt knowing this
+    # graph now carries private storage. The views resolve that question ONCE, in
+    # __init__, to keep it off the per-lookup path -- which is only sound if an
+    # assignment cannot outlive the answer. It otherwise can: the view is cached
+    # in this same instance dict and was measured being reused across the
+    # assignment, still holding the native counter that cannot see the new store.
+    _drop = vars(self)
+    _drop.pop("_fnx_view_out_degree", None)
+    _drop.pop("_fnx_view_in_degree", None)
+    _drop.pop("_fnx_view_degree", None)
     _install_private_method_shadows(self, storage)
 
 
