@@ -19942,3 +19942,79 @@ SUBSTRATE. host thinkstation1, governor `powersave`, 64 CPUs, python 3.13.7,
 no rch worker, K=2000 node keys, 600 distinct nodes, `min` of 7 rounds x 3 reps.
 Per-invocation mean CPU 2431, 2891, 2802, 2759, 3128, 2807, 2540, 3061 MHz.
 disk 128G free. No build in or out of the window.
+
+## 2026-08-17 GoldenBison RETRACTION: convkey2 was not "no effect" — it was a 4.7 percent REGRESSION, and is reverted (br-r37-c1-convkey2)
+
+I re-tested my OWN negative claim in the cleanest window this pane has had, and
+it was worse than I reported. The original reading was taken with a peer build
+running and said "measured nothing" (key-length growth 9.94x -> 9.70x).
+ELF-alternated in a zero-build window, the change is a measurable REGRESSION on
+the very kernel it touched.
+
+    DiGraph.to_undirected()  -- THE kernel convkey2 changed
+        OLD (9d1fded1)  0.3750x  0.3726x  0.3763x   median 0.3750x
+        NEW (b33f48ea)  0.3531x  0.3586x  0.3572x   median 0.3572x   0.953x
+
+    MultiDiGraph.to_undirected()  -- untouched by convkey2
+        OLD 0.3647x   NEW 0.3561x   0.977x
+    MultiDiGraph.copy()           -- untouched by convkey2
+        OLD 0.4047x   NEW 0.3951x   0.976x
+
+Separation on the subject is complete: the best NEW invocation (0.3586x) is worse
+than the worst OLD one (0.3726x). 15 of 18 rows ADMISSIBLE.
+
+READ THE CONTROLS BEFORE READING THE SUBJECT. All three rows read about 2.4
+percent lower on NEW, including two kernels this commit never touched. That is a
+COMMON-MODE offset between the arms which I cannot attribute, and it is exactly
+what `balanced_square_gc_collect_confound` warns about: passing nulls certify
+nothing about common-mode bias. Net of it the subject is a further -2.3 percent,
+which is at the edge of what this substrate resolves. So the defensible claim is
+NOT "a 4.7 percent regression" but "no benefit, and the point estimate is
+negative on the changed kernel while the untouched controls move less".
+
+THE MECHANISM, which is the reusable part. The lever built a `name -> index` map
+to key the `seen` set by position, paying ONE HASH OF EVERY NODE NAME up front to
+save two owned Strings per ARC. This fixture has 600 NODES and 300 EDGES - more
+nodes than edges - so the map costs more than the per-arc saving it buys. An
+index-map trick only pays when EDGES >> NODES, and I never checked that ratio
+before applying it. That is a precondition, not a detail.
+
+REVERTED. Only my two hunks were reverted, not the file: a peer landed
+`0a898a4f6` in `digraph.rs` after my commit and their work is untouched. The
+restored code carries a comment naming the edge/node precondition so the next
+reader does not re-apply it blind. No new build was needed - the reverted binary
+is the OLD arm's wheel, already built for this certification.
+
+WHAT SURVIVES. The ROOT-CAUSE finding from the same commit is unaffected and in
+fact strengthened: graph construction is 0.055x at 2000-character keys, the
+conversion cost is a constant fraction of construction cost in BOTH libraries,
+and shaving per-arc allocations does not move it. This retraction is the second
+piece of evidence for that conclusion - the first was a lever that did nothing,
+this is one that did slightly worse than nothing.
+
+A CAVEAT I AM RAISING AGAINST MY OWN CERTIFIED ROW. br-r37-c1-convkey certified
+1.12x on the MultiDiGraph kernel using the SAME name->index trick PLUS a mirror
+dict handle that removed two `edge_key` rebuilds per arc. Its effect (complete
+separation over six invocations) is not in doubt, but its MECHANISM attribution
+now is: on this evidence the index map was probably a small NEGATIVE there too,
+and the whole gain came from the mirror handle. The row's number stands; its
+explanation should be read with that in mind.
+
+A/A null control, same invocation, measured on the subject row
+(`DiGraph.to_undirected()`), one pair per invocation: OLD 0.9889/1.0160,
+0.9844/1.0057 and 0.9867/1.0023; NEW 0.9869/1.0056, 0.9854/0.9999 and
+0.9814/0.9967. All twelve sit inside [0.9814, 1.0160], i.e. every one is inside
+the +/-0.02 bound, and all six subject rows were ADMISSIBLE. This is the rare
+case on this repository where BOTH arms' nulls pass on every invocation - the
+~6ms slot length is long enough that the estimator noise which fails the
+microsecond read rows does not bite. The regression is therefore measured
+against clean nulls, not excused past failing ones.
+
+SUBSTRATE. host thinkstation1, governor `powersave`, 64 CPUs, python 3.13.7, live
+networkx 3.6.1, no rch worker. Workload `conversions`, reps 2, rounds 41, warmup
+12, square ABBAABBA. ZERO build processes sampled at every one of the six
+invocations. Per-arm observed loadavg 11.71/10.43/17.52, 11.14/10.35/17.42,
+11.05/10.34/17.38, 10.73/10.29/17.32, 10.39/10.23/17.23, 10.20/10.19/17.18; mean
+CPU at invocation start 2952, 3217, 2382, 2519, 2612, 2454 MHz; per-row clock
+4214-4289 MHz, arm-to-arm skew at or below 0.20 percent. ONE build, df 127G
+checked immediately before it, and it ran BEFORE the measurement window. disk 127G.
