@@ -17950,3 +17950,75 @@ networkx, including the reversed pair, before it times anything. Window sampled
 per round by `scripts/bench_window_guard.py`. Bootstrap median CI, 10000
 resamples, fixed seed. host thinkstation1, governor `powersave`, python 3.13.7,
 live networkx 3.6.1, disk 187G free.
+
+## 2026-08-16 GoldenBison KEEP-SELF: the live keydict is worth 2.081x at par=64 and makes the row FLAT — but only on the path it actually serves (br-r37-c1-f3i50)
+
+ed315dd2d replaced a per-read copy of the cached multigraph keydict with the
+cached dict itself under an entry-count guard. It was banked directional only.
+This certifies it — after two failed attempts that are worth more than the number.
+
+WHERE THE CHANGE ACTUALLY RUNS, and this is the correction. The exact-`str`
+request never reaches it: 05d29a0f1 added an INDEX-KEYED keydict cache that
+short-circuits earlier, so with `str` endpoints BOTH arms return identical
+objects and an A/B measures nothing. Non-`str` node keys are the only path that
+reaches the string-keyed block. Verified by object identity rather than by
+reading the code:
+
+    node keys     OLD arm same-object     NEW arm same-object
+    str           True                    True     <- peer's index cache, not mine
+    int           False                   True     <- my block
+    tuple         False                   True     <- my block
+
+So this row certifies the change on int/tuple node keys. The `str` case belongs to
+05d29a0f1 and is already banked by that pane at 7.03x.
+
+ELF-ALTERNATED, OLD 52f8df06 against NEW 3911546a, three interleaved rounds,
+pinned to cpu45, 41 x 50 x 400, every row ADMISSIBLE in all six runs:
+
+    row                        OLD (x3)                  NEW (x3)                  worst bound
+    MG-INTKEY get_edge_data par=1    0.4477 0.4967 0.5015   0.6210 0.5921 0.5889   1.174x
+    MG-INTKEY get_edge_data par=8    0.4254 0.4645 0.4660   0.5998 0.5940 0.5944   1.275x
+    MG-INTKEY get_edge_data par=64   0.2600 0.2832 0.2749   0.5972 0.5904 0.5894   2.081x
+
+THE SHAPE IS THE POINT, more than the worst bound. OLD degrades with the parallel
+count — 0.50 at par=1 falling to 0.28 at par=64 — because it copied the mapping
+on every read. NEW is FLAT: 0.62 / 0.60 / 0.59 across a 64x range. The O(parallel
+edges) term is gone, which is what the change was for; the 2.081x at par=64 is
+just where that flatness happens to be measured.
+
+BOTH ARMS SHARE `git_head` 3c064dcbe535b10ef9da9889241e30367e7edea5, and that is
+not decoration. My PREVIOUS attempt at this certification was invalidated because
+a peer landed 05d29a0f1 between my two builds, so the arm labelled OLD contained
+their 7.03x win and the alternation reported my change as a 3x regression with
+13/13 rows admissible and every null clean. The `git_head` field added in
+0a0533f92 exists because of that failure, and this row is the first to use it as
+evidence rather than as a label.
+
+WHAT GAVE THAT AWAY, worth repeating: the gap was 3x AT par=1, where a change to
+how a 64-entry mapping is returned cannot matter. A large effect in a cell the
+change cannot reach is a substrate problem, not a finding.
+
+NO COMPETITIVE CLAIM: 0.5894x at par=64 is still a 1.70x loss to networkx, which
+returns its stored keydict and does no work at all.
+`comparison_class=SELF-SPEEDUP`, `campaign_output=false`.
+
+NULL_NUMERIC_EVIDENCE: per-arm A/A nulls across the six runs span [0.9848,
+1.0092], every one inside the +/-0.02 bound; self-speedup worst bound 2.081x.
+
+PROVENANCE: harness `scripts/balanced_square_ab.py`, workload `parallel-keydict`
+(the `MG-INTKEY` rows added in this commit, because no existing row reached the
+code); host thinkstation1; rch_worker none (both arms in-process on same_host);
+git_head 3c064dcbe535b10ef9da9889241e30367e7edea5, git_dirty clean, IDENTICAL on
+both arms; shim sha256 59c7ce2bf87e2b87f0a1576f5dee395f00a7ba0f11b413462f8a1530c975b3f0,
+identical on both arms; governor powersave; runtime ISA avx2 avx sse4_2; python
+3.13.7 x86_64; live networkx 3.6.1; PYTHONHASHSEED=0; `taskset -c 45`; square
+ABBAABBA; disk 188G free. OBSERVED loadavg per run in order 17.25 / 16.75 / 16.50
+/ 16.11 / 16.02 / 15.09; core clock 4015-4257 MHz; arm-to-arm clock skew -0.06%
+to +0.02%; every row `cpus=[45]`, no ARM-EXCLUSIVE rows.
+
+bench_elf_sha256=3911546a3126572bd78e4ddf0be5c40eafbcef14fd207134c9bf824e2fd87ec9
+elf_sha256=3911546a3126572bd78e4ddf0be5c40eafbcef14fd207134c9bf824e2fd87ec9
+comparison_class=SELF-SPEEDUP
+campaign_output=false
+decision_gate=median_ci
+cv_role=report_only

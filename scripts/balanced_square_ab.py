@@ -835,12 +835,32 @@ def workload_parallel_keydict(reps: int):
                 for i in range(200):
                     graph.add_edge(f"a{i}", f"b{i}")
                 fixture[(cls, par)] = (graph, u, v)
+        # br-r37-c1-f3i50: INT node keys, because the exact-`str` request is
+        # served by the index-keyed cache added in 05d29a0f1 and never reaches
+        # the string-keyed keydict path at all.
+        #
+        # This cost a certification: an A/B of the string-keyed change measured
+        # nothing, because with `str` endpoints BOTH arms short-circuit earlier
+        # and return identical objects. Non-`str` node keys are the ONLY way to
+        # exercise it — verified by object identity, which differs between the
+        # arms for int and tuple keys and is identical for str.
+        for par in PARALLEL:
+            graph = module.MultiGraph()
+            for i in range(par):
+                graph.add_edge(1, 2, weight=i)
+            for i in range(200):
+                graph.add_edge(10 + i, 1000 + i)
+            fixture[("MultiGraph-intkeys", par)] = (graph, 1, 2)
         return fixture[("MultiGraph", 1)][0], fixture
 
     def ops(graph, fixture):
         table = {}
         for (cls, par), (g, u, v) in fixture.items():
-            tag = "MG" if cls == "MultiGraph" else "MDG"
+            tag = {
+                "MultiGraph": "MG",
+                "MultiDiGraph": "MDG",
+                "MultiGraph-intkeys": "MG-INTKEY",
+            }[cls]
             table[f"{tag} get_edge_data(u,v) par={par}"] = (
                 lambda g=g, u=u, v=v: g.get_edge_data(u, v)
             )
