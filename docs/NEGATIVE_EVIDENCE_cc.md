@@ -19260,3 +19260,76 @@ fix and 5 strict xfails recording what is still wrong.
 NO MEASUREMENT IS CERTIFIED HERE. The ratios above are single-window readings
 taken while load moved between 27 and 48, recorded to locate a defect rather than
 to size a win.
+
+## 2026-08-17 GoldenBison SWEEP TABLE: the nbunch edge-view family, 24 spellings measured before and after (br-r37-c1-dinbfam)
+
+NOT A VERDICT ROW AND NOT GATE-CERTIFIED. These are direct measurements
+(min of 5 rounds x 12 reps, one process, no ABBA square, no A/A null), banked as
+a reference map of the surface rather than as a claim. Three of the cells here
+were certified separately and those rows carry the provenance; everything else in
+this table is a direct reading and should be treated as such. Recorded during a
+disk emergency with builds barred, which is also why the last cell has no after
+number.
+
+THE MAP. 4 classes x {edges, in_edges, out_edges} x {data=True, data=False,
+data=<key>}, 300 edges, 2000-character node keys, nbunch of 200. Ratio is
+t_networkx / t_fnx, so >1 means fnx faster.
+
+                                        before      after
+    Graph.edges(data=True)             0.6894x     unmeasured
+    Graph.edges(data=False)            0.9319x     unmeasured
+    Graph.edges(data=<key>)            0.9473x     unmeasured
+    DiGraph.edges(data=True)           1.5147x     1.5660x
+    DiGraph.edges(data=False)          0.5216x     1.5111x
+    DiGraph.edges(data=<key>)          0.2705x     1.7006x
+    DiGraph.in_edges(data=True)        1.7702x     1.8093x
+    DiGraph.in_edges(data=False)       0.6835x     4.5547x
+    DiGraph.in_edges(data=<key>)       0.2778x     1.9102x
+    DiGraph.out_edges(data=True)       1.7797x     1.7901x
+    DiGraph.out_edges(data=False)      0.6811x     4.5865x
+    DiGraph.out_edges(data=<key>)      0.2781x     1.8877x
+    MultiGraph.edges(data=True)        0.1592x     2.6196x
+    MultiGraph.edges(data=False)       0.2172x     2.7759x
+    MultiGraph.edges(data=<key>)       0.1933x     2.8756x
+    MultiDiGraph.edges(data=True)      2.4660x     2.3906x
+    MultiDiGraph.edges(data=False)     0.2478x     2.5354x
+    MultiDiGraph.edges(data=<key>)     0.2382x     2.6514x
+    MultiDiGraph.in_edges(data=True)   0.1282x     2.9319x
+    MultiDiGraph.in_edges(data=False)  0.1282x     2.9199x
+    MultiDiGraph.in_edges(data=<key>)  0.1282x     3.1761x
+    MultiDiGraph.out_edges(data=True)  2.3154x     2.8426x
+    MultiDiGraph.out_edges(data=False) 0.2616x     2.9235x
+    MultiDiGraph.out_edges(data=<key>) 0.2410x     3.1488x
+
+21 of 24 now beat networkx. The 3 unmeasured cells are simple `Graph.edges`,
+wired last (br-r37-c1-gnbmemo) with no window to measure in.
+
+THE PATTERN IS THE WHOLE POINT, and it was invisible until the table existed.
+Every memoized spelling won and every unmemoized one lost, with no exceptions in
+24 rows. Only `data=True` had ever been wired, because each earlier lever fixed
+the ONE spelling whose ratio someone had happened to measure. The helper
+(`_digraph_out_edges_data_cache`) had been written, documented and correct since
+br-r37-c1-ipm32; the deficit was entirely in which call sites reached it.
+
+HOW THE COST HID FOR SO LONG. A one-spelling probe reports this surface healthy:
+`DiGraph.out_edges(data=True)` read 1.78x while its own `data=False` sibling read
+0.68x and its `data=<key>` sibling 0.28x, on the same method of the same class in
+the same process. Any sweep that samples one argument spelling per method - which
+is what every earlier sweep of this surface did - sees the winning one and moves
+on.
+
+A BUG THE TABLE ALSO PRODUCED. Extending the memo to `MultiDiGraph.in_edges`
+(br-r37-c1-mdginb) gave `data=True` and `data=False` the SAME cache slot, and
+because those two spellings call different kernels with identical `native_args`
+their keys collided: `data=False` returned 3-tuples WITH attribute dicts. That
+regression sat in main for two commits and is fixed in 8d14f5b32. The interleaved
+spelling test in the mdginb file did not catch it - the fixture could not tell
+the two answers apart. Interleaving is necessary and not sufficient; the fixture
+has to distinguish the results.
+
+SUBSTRATE. host thinkstation1, governor `powersave`, 64 CPUs, python 3.13.7,
+live networkx 3.6.1, no rch worker, in-tree package under PYTHONPATH. Loadavg
+during the before/after readings ranged 33.9 to 112 and is NOT controlled for -
+another reason these are reference readings and not claims. The three certified
+cells in this family are in their own rows above with per-arm loadavg, CPU MHz
+and ELF shas.
