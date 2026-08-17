@@ -21488,3 +21488,48 @@ incumbent_same_invocation=false
 campaign_output=false
 decision_gate=median_ci
 cv_role=report_only
+
+## 2026-08-17 GoldenBison NEGATIVE SWEEP: the core read API has NO graph-size-tracking cell (br-r37-c1-fvgetattr)
+
+The "hold the REQUEST fixed, grow the GRAPH" instrument found two unbounded cells
+in the view family this session (attribute miss, `view.copy()`), so I pointed it
+at the core read API to see whether the shape repeats there. IT DOES NOT, and a
+clean negative sweep is worth banking so nobody re-runs it.
+
+Ten operations, request held fixed on the same two nodes, graph grown 200 -> 3200
+nodes:
+
+    op                    N=200      N=3200    fnx growth   nx growth   ratio@3200
+    G.has_edge(u,v)      0.233us    0.139us      0.60x        0.55x      0.7325x
+    u in G               0.065us    0.066us      1.01x        1.03x      1.4683x
+    G.degree(u)          0.297us    0.303us      1.02x        1.00x      2.1828x
+    len(G)               0.058us    0.065us      1.13x        1.24x      1.7283x
+    G.number_of_edges    0.196us    0.204us      1.04x       16.59x   7487.5424x
+    G[u]                 0.244us    0.253us      1.04x        1.11x      0.7717x
+    G[u][v]              1.098us    1.230us      1.12x        0.97x      0.2563x
+    list(G.neighbors)    0.244us    0.244us      1.00x        0.92x      0.7282x
+    G.get_edge_data      0.198us    0.209us      1.06x        0.96x      0.4909x
+    G.adj[u]             0.201us    0.194us      0.97x        1.03x      0.8367x
+
+EVERY fnx growth is at or below 1.13x. The unbounded shape is a VIEW phenomenon on
+this codebase, not a general one - views hold a parent and can fall back to
+materialising it, while the core reads go straight to native storage. That is a
+useful boundary: future sweeps with this instrument should target anything that
+WRAPS a graph, and can skip the direct API.
+
+TWO THINGS THE SWEEP TURNED UP IN PASSING, neither a defect of ours:
+
+  * `G.number_of_edges()` on a MultiDiGraph is where NETWORKX tracks graph size -
+    16.59x growth against fnx's 1.04x, giving 7487x at N=3200. fnx answers from a
+    counter; nx sums the adjacency. Recorded because a 7487x row is the kind of
+    number that looks like a measurement error and is not.
+  * `G[u][v]` at 0.2563x is the worst BOUNDED read cell and is flat in graph size,
+    so it is an ordinary constant-factor target, not an unbounded one. It is the
+    known `atlasview_single_edge_getitem` cell, previously worked from 0.04x to
+    0.18x and now reading 0.2563x.
+
+Method: min of 5 rounds x 200 reps after 50 warm-up iterations, per-arm core id
+and kHz sampled after every timed block. loadavg 15.49/14.84/16.77, TWO peer
+builds running. No build of my own. disk 99G. No ABBA square: the claim is that
+ten growth curves are flat, and each fnx curve is compared against its own
+networkx curve measured in the same loop.
