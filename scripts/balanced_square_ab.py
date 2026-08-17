@@ -1258,8 +1258,52 @@ def workload_nbunch_family(reps: int):
     return build, ops
 
 
+def workload_conversions(reps: int):
+    """Whole-graph conversion kernels against node-key length (br-r37-c1-convkey).
+
+    These are ~6ms operations, four orders of magnitude heavier than the read
+    rows, so `--reps` must be small; see `nbunch-key-length` for why mixing slot
+    durations inside one workload breaks the A/A null.
+
+    `copy()` is carried as a NEAR-CONTROL rather than a true one: it runs a
+    different kernel that this lever does not touch, but it shares the same
+    per-edge canonical-churn defect, so it should stay put while
+    `to_undirected` moves. `len(G)` is deliberately NOT here.
+    """
+    edges, length = 300, 2000
+
+    def build(module):
+        fixture = {}
+        for cls in ("MultiDiGraph", "DiGraph"):
+            graph = getattr(module, cls)()
+            for i in range(edges):
+                graph.add_edge(
+                    f"a{i}".ljust(length, "x"), f"b{i}".ljust(length, "y"), weight=i
+                )
+            fixture[cls] = graph
+        return fixture["MultiDiGraph"], fixture
+
+    def ops(graph, fixture):
+        table = {}
+        for cls, g in fixture.items():
+            # The harness parity-gates op RESULTS across arms and graph objects
+            # do not compare equal, so each row returns a cheap comparable
+            # summary of the converted graph. number_of_edges() is O(1) here and
+            # adds nothing measurable to a ~6ms conversion.
+            table[f"{cls}.to_undirected()"] = (
+                lambda g=g: g.to_undirected().number_of_edges()
+            )
+        table["NEAR-CONTROL MultiDiGraph.copy()"] = (
+            lambda g=fixture["MultiDiGraph"]: g.copy().number_of_edges()
+        )
+        return table
+
+    return build, ops
+
+
 WORKLOADS = {
     "view-reads": workload_view_reads,
+    "conversions": workload_conversions,
     "nbunch-family": workload_nbunch_family,
     "nbunch-key-length": workload_nbunch_key_length,
     "mdg-in-edges-nbunch": workload_mdg_in_edges_nbunch,

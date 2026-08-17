@@ -19570,3 +19570,89 @@ self_speedup=4.79x
 campaign_output=true
 decision_gate=median_ci
 cv_role=report_only
+
+## 2026-08-17 GoldenBison KEEP-SELF: conversion merge-bucket keyed by position — 0.2861x -> 0.3203x, and a spot-reading that INVERTED (br-r37-c1-convkey)
+
+THE MOST USEFUL THING IN THIS ROW IS THAT MY OWN SPOT-READING HAD THE SIGN
+BACKWARDS. Before certifying I timed the two staged arms once each, 3 rounds of 5
+reps, unalternated: OLD 6221.7us against NEW 7099.7us, i.e. my lever appeared to
+be a 1.14x REGRESSION. The ELF-alternated square says the opposite with complete
+separation. The commit-time reading that motivated the lever (0.2618x -> 0.3129x)
+was also unalternated and compared numbers taken ten minutes apart under
+different load - right conclusion, invalid method. Two unalternated readings of
+the same change, one of each sign. This is the across-run drift trap in its purest
+observed form: at ~6ms per operation and a host moving between 16 and 30 loadavg,
+a single spot-reading of a 12 percent effect is a coin flip.
+
+SUBJECT, `MultiDiGraph.to_undirected()` at 2000-character node keys, arms
+alternated OLD/NEW three times each:
+
+    OLD (07d7515a)  0.2825x  0.2861x  0.2901x    median 0.2861x
+    NEW (d0c3e42f)  0.3154x  0.3203x  0.3274x    median 0.3203x
+
+Self-speedup 1.120x. Separation is complete: the worst NEW invocation (0.3154x)
+beats the best OLD one (0.2901x). Four of the six subject rows were ADMISSIBLE.
+
+TWO CONTROLS, both untouched by this lever, both measured in the same
+invocations:
+
+    CONTROL DiGraph.to_undirected()   OLD 0.3375x   NEW 0.3314x   0.982x
+    NEAR-CONTROL MultiDiGraph.copy()  OLD 0.3674x   NEW 0.3582x   0.975x
+
+`DiGraph.to_undirected` is a genuine control: it is a DIFFERENT kernel
+(`digraph.rs` PyDiGraph->PyGraph) that this commit does not touch. Both controls
+drift about -2 percent while the subject moves +12 percent, so the effect is
+5-6x the control drift and in the opposite direction. I report the controls'
+-2 percent as inter-run variability, not as a regression - it is exactly the
+few-percent scale this substrate cannot resolve.
+
+WHAT THE LEVER DID. The kernel built roughly five owned canonicals per edge at
+2000-4000 bytes each. This removes two: the merge bucket is keyed by node
+POSITION instead of an owned (String, String), and the bucket now carries the
+mirror dict handle so the merge path rebuilds no canonical and the insert path
+builds one instead of two. PARTIAL - key-length growth is still 7.65x, and the
+remaining two allocations need index-space adjacency the MultiDiGraph core does
+not expose (it has `has_edge_by_indices` but no `successors_indices`).
+
+ADMISSIBILITY 16 of 18, THE BEST THIS PANE HAS RECORDED, and the reason is
+mechanical: these are ~6ms operations, so a timed slot is four orders of
+magnitude longer than the microsecond read rows that admitted 1 of 42 earlier
+today. Slot DURATION is the discriminator for null stability, which is the
+predicted consequence of the estimator-granularity finding in
+br-r37-c1-gateaudit - the null is a mean-of-2 over mean-of-2 and its relative
+noise falls as the slot lengthens. Read rows are not intrinsically less
+trustworthy; they are measured with a gate that is proportionally noisier on
+them.
+
+A/A null control, measured: subject nulls were 1.0318/0.9935, 1.0127/0.9852 and
+1.0129/0.9879 on OLD, and 1.0166/0.9891, 1.0034/0.9782 and 1.0122/1.0060 on NEW.
+All twelve sit inside [0.9782, 1.0318]. Note both arms straddle 1.0 here rather
+than arm B sitting high - the arm asymmetry seen on the read rows does not appear
+at this slot length, which is consistent with it being an estimator-noise effect
+amplified on short slots.
+
+SUBSTRATE. host thinkstation1, governor `powersave`, 64 CPUs, avx2, python
+3.13.7, live networkx 3.6.1, no rch worker. Workload `conversions`, reps 2,
+rounds 41, warmup 12, square ABBAABBA, bootstrap median CI. ONE build this turn
+for the OLD arm, df 130G checked immediately before it, and NO build ran inside
+the measurement window - `ps` confirmed no cargo/rustc/maturin before starting.
+Per-arm observed loadavg 24.22/31.31/53.34, 22.84/30.91/53.09, 20.32/30.10/52.59,
+19.18/29.70/52.34, 17.68/29.04/51.88, 16.83/28.67/51.64; mean CPU at invocation
+start 2206, 2815, 2681, 3035, 2310, 2894 MHz; per-row clock 4016-4192 MHz with
+arm-to-arm skew at or below 0.28 percent. OLD ran first in every pair while load
+fell monotonically, which favours NEW - but both controls moved NEGATIVE over the
+same sequence, so the ordering did not manufacture the subject's gain. disk 130G.
+
+bench_elf_sha256=d0c3e42f5aa234122fa30d59deb89079ce5ab4b75c24895810236d54ffcf9320
+elf_sha256=d0c3e42f5aa234122fa30d59deb89079ce5ab4b75c24895810236d54ffcf9320
+baseline_elf_sha256=07d7515ae2aee53f17cb8a3bfaddf7008b4963c841d52e50b140678df3f4edc1
+harness_sha256=427598ef94dd0bed524dfe4be3066430c9a1b5f2b4011b06f1a68d1318da96e0
+comparison_class=SELF-SPEEDUP
+self_speedup=1.120x
+incumbent=networkx
+incumbent_same_invocation=true
+incumbent_ratio_before=0.2861x
+incumbent_ratio_after=0.3203x
+campaign_output=false
+decision_gate=median_ci
+cv_role=report_only
