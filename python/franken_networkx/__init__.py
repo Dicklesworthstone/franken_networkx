@@ -2941,6 +2941,23 @@ def _multigraph_getitem_from_native_row(self, node):
     view = cache[1].get(node)
     if view is not None:
         return view
+    # br-r37-c1-2r06n: assigned private storage is the authority, and the native
+    # row below cannot see it — `G['ZZ']` raised KeyError for a node carried only
+    # by an assigned `_adj`, where the simple classes answer it because their
+    # `_graph_getitem_from_adj` reads the private-aware `self.adj[node]`.
+    #
+    # Placed AFTER the cache probe on purpose: the warm path — the same node
+    # looked up again — returns above and pays nothing for this. Only a MISS,
+    # which already costs a native call, tests the two keys, and `storage` is a
+    # dict already in hand.
+    #
+    # The private result is deliberately NOT cached. The assigned mapping is an
+    # ordinary dict the caller may mutate, and this cache is keyed on nodes_seq,
+    # which such a mutation does not advance; a cached row would go stale with
+    # nothing to invalidate it. `_set_private_override` also drops this cache, so
+    # a row cached BEFORE the assignment cannot be served afterwards.
+    if _PRIVATE_NODE_OVERRIDE in storage or _PRIVATE_ADJ_OVERRIDE in storage:
+        return self.adj[node]
     try:
         row = self._native_adjacency_row(node)
     except KeyError as exc:
@@ -2988,6 +3005,16 @@ def _multidigraph_getitem_from_native_row(self, node):
     view = cache[1].get(node)
     if view is not None:
         return view
+    # br-r37-c1-2r06n: the directed twin of the note in the undirected version —
+    # same authority, same cache-miss placement, same reason for not caching the
+    # private result. `_succ` counts here as well as `_adj`, since `G[n]` on a
+    # directed graph reads the successor side.
+    if (
+        _PRIVATE_NODE_OVERRIDE in storage
+        or _PRIVATE_ADJ_OVERRIDE in storage
+        or _PRIVATE_SUCC_OVERRIDE in storage
+    ):
+        return self.adj[node]
     try:
         row = self._native_successor_row(node)
     except KeyError as exc:
@@ -46625,6 +46652,11 @@ def _set_private_override(self, attr_name, value):
     _drop.pop("_fnx_view_out_degree", None)
     _drop.pop("_fnx_view_in_degree", None)
     _drop.pop("_fnx_view_degree", None)
+    # br-r37-c1-2r06n: and the G[node] row cache, so a row cached BEFORE this
+    # assignment cannot be served after it. The multigraph `__getitem__` paths
+    # consult private storage only on a cache MISS, which is what keeps the warm
+    # path free — that is sound only if the assignment forces a miss.
+    _drop.pop("_fnx_getitem_atlas_cache", None)
     _install_private_method_shadows(self, storage)
 
 
