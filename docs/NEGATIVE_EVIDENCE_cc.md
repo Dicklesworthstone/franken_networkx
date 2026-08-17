@@ -21603,3 +21603,67 @@ governor `powersave`, python 3.13.7, live networkx 3.6.1, disk 97G free.
 
 decision_gate=median_ci
 cv_role=report_only
+
+## 2026-08-17 GoldenBison KEEP-SELF: len() on a default-filter view — 0.0002x to 0.5845x, 3135x, measured on the LANDED commit (br-r37-c1-vlenall)
+
+Third unbounded cell in the view family, found by the same instrument as the other
+two, and the first one I had to land three times.
+
+    N       before      after      ratio before -> after   fnxMHz  nxMHz  skew
+     200   32.409us   0.244us      0.0023x -> 0.5177x       3940   3940   0.00%
+    3200  498.425us   0.159us      0.0002x -> 0.5845x       4142   4142   0.00%
+
+    growth across a 16x parent   15.73x  ->  0.65x
+    A/A control                  0.1623us vs 0.1610us, null 0.9917, MHz 4116/4116
+
+3135x at N=3200, and the curve is FLAT. Another unbounded term became a constant;
+the residual 0.58x is an ordinary cell and campaign_output stays false.
+
+CONSTRUCTION WAS NEVER THE PROBLEM, and separating it is what kept the
+attribution honest: `copy(as_view=True)` construction is flat at 0.68x while the
+READ grew 16.65x. A sweep timing "build a view and read it" as one unit would have
+reported 10.99x growth and blamed the constructor.
+
+WHY THE GUARD IS SAFE. `_filter_node_is_default` is the view constructor's own
+flag, verified True for `copy(as_view=True)` (len == parent len) and False for
+`subgraph()` and `edge_subgraph()` (len < parent len). An EDGE filter cannot
+remove a NODE, so a default node filter is sufficient alone. Parity re-checked in
+the same invocation as the commit.
+
+THIS EDIT WAS LOST TWICE BEFORE IT LANDED, and the second loss is the one worth
+recording because it produced a FALSE COMMIT. Peers br-r37-c1-2r06n and
+br-r37-c1-vbe1o are actively rewriting this file and this function:
+
+  1. First loss - overwritten by `a729d240b` ("restore the dropped native_len
+     wiring") while uncommitted. I caught it because the guard test started
+     failing, re-measured HEAD to check the peer's work had not already fixed it
+     (it had not, 15.73x remained), and re-applied.
+  2. Second loss - `391593a00` landed between my edit and my `git add`, so I
+     staged THEIR version. Commit `0b41b6e48` is titled as this fix and contains
+     ONLY the two test files. Main carried a guard test whose subject was absent
+     for one commit. Caught by measuring after committing and finding the ratio
+     unchanged, then grepping the commit itself.
+
+    THE RULE: on a contended file, patch + verify + `git add` + commit must be ONE
+    shell invocation. A gap the length of a test run is enough to lose the edit,
+    and `git commit` will happily succeed with a message describing work it does
+    not contain. Verify with `git show <sha>:<file> | grep` AFTER committing, not
+    with `git status` before.
+
+Method: ABBA x 9 rounds x 200 reps after 50 warm-up iterations, min per arm, one
+process, per-arm core id and kHz after every block. loadavg 16.72/18.33/19.93,
+TWO peer builds running - recorded, and the A/A null of 0.9917 bounds their
+effect. No build of my own; pure Python. disk 88G.
+
+bench_elf_sha256=f934861b2e97439800f7b7f9c8fdb23aeb2208f1f41216828c03d052e3e09b72
+elf_sha256=f934861b2e97439800f7b7f9c8fdb23aeb2208f1f41216828c03d052e3e09b72
+harness_sha256=977bc0ab382ada602af2a28daf2fc20bf62bc1a1d93489b71932e63a0de1f5f9
+comparison_class=SELF-SPEEDUP
+self_speedup=3135x
+incumbent=networkx
+incumbent_same_invocation=true
+incumbent_ratio_before=0.0002x
+incumbent_ratio_after=0.5845x
+campaign_output=false
+decision_gate=median_ci
+cv_role=report_only
