@@ -77,6 +77,8 @@ import hashlib
 import os
 import platform
 import random
+import pathlib
+import subprocess
 import socket
 import statistics
 import sys
@@ -134,6 +136,25 @@ def provenance() -> dict:
     # br-r37-c1-shimprov: the shim is resolved from the IMPORTED module, not from
     # the repo path, so an arm running out of a package copy reports the copy it
     # actually executed rather than the tree it was made from.
+    # Resolved from the REPO, not the arm: an arm is a copy of the tree, so the
+    # tree it was copied from is what identifies its content. Reported as
+    # "unavailable" rather than failing when git is absent or this is not a
+    # checkout, since the harness must still run in those setups.
+    def _git(*args: str) -> str:
+        try:
+            out = subprocess.run(
+                ["git", "-C", str(pathlib.Path(__file__).resolve().parent.parent), *args],
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+            return out.stdout.strip() if out.returncode == 0 else "unavailable"
+        except (OSError, subprocess.SubprocessError):
+            return "unavailable"
+
+    _git_head = _git("rev-parse", "HEAD")
+    _git_dirty = "dirty" if _git("status", "--porcelain", "--", "crates") else "clean"
+
     _SHIM_PATH = fnx.__file__
     try:
         with open(_SHIM_PATH, "rb") as handle:
@@ -203,6 +224,22 @@ def provenance() -> dict:
         "shim": _SHIM_PATH,
         "shim_sha256": _shim_sha,
         "shim_lines": _shim_lines,
+        # br-r37-c1-shimprov: the TREE the running build came from.
+        #
+        # This is the confound that shim_sha256 alone does not catch, and it cost
+        # a whole certification. On a shared checkout, an arm built at 21:12
+        # silently contains every peer commit landed since the arm built at
+        # 21:07 — so an "OLD vs NEW" pair can differ by far more than your own
+        # hunk. Measured: a pair meant to isolate one keydict change came out 3x
+        # apart AT par=1, where that change cannot matter, because the later arm
+        # had absorbed a peer's index-keying commit worth 7.03x. The labels were
+        # not wrong; the trees were.
+        #
+        # Recording HEAD makes that visible on the row instead of requiring
+        # someone to reconstruct build times from git log afterwards. Two arms
+        # that do not share a git_head are not an A/B of your change.
+        "git_head": _git_head,
+        "git_dirty": _git_dirty,
         "observed_os_threads": threads,
         "observed_affinity_cpus": len(os.sched_getaffinity(0)),
         "affinity_cpu_list": sorted(os.sched_getaffinity(0)),
