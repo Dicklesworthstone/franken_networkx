@@ -877,6 +877,7 @@ def workload_has_node_membership(reps: int):
 
     def ops(graph, fixture):
         present, missing = "n1000", "absent-key"
+        keys = [f"n{i}" for i in range(N)]
         table = {}
         for materialised, g in fixture.items():
             tag = "" if materialised else "CONTROL nomirror "
@@ -884,6 +885,43 @@ def workload_has_node_membership(reps: int):
             table[f"{tag}has_node MISSING"] = lambda g=g: g.has_node(missing)
             table[f"{tag}n in G PRESENT"] = lambda g=g: present in g
             table[f"{tag}n in G MISSING"] = lambda g=g: missing in g
+
+        # br-r37-c1-770z8: ROTATE over every present key, not just one.
+        #
+        # A single-key warm loop cannot tell a working present-key cache from a
+        # broken one, and that ambiguity cost two wrong conclusions on this bead.
+        # Measured on one key the hit reads 61.5ns against a 81.6ns miss, so the
+        # cache plainly serves hits; but an earlier build read 85.3 present
+        # against 85.7 missing and I concluded from that pair alone that the
+        # cache "never warms". It does. One key is simply not enough evidence
+        # either way.
+        #
+        # Rotating touches every entry of the present-key set, so it exercises
+        # the set at realistic occupancy instead of hammering one slot. The
+        # index arithmetic is identical in both arms and cancels in the ratio.
+        # The cycle length must DIVIDE calls-per-slot, or each slot sees a
+        # different stretch of keys and the A/A null correctly rejects the row
+        # as slot-asymmetric — measured: a monotonic counter over all 2000 keys
+        # gave null 0.9024. A 100-key cycle divides the 400-call slot exactly
+        # four times, so every slot performs the identical key sequence.
+        cycle = keys[:100]
+        counter = {"i": 0}
+
+        def rotating(g):
+            counter["i"] = (counter["i"] + 1) % len(cycle)
+            return g.has_node(cycle[counter["i"]])
+
+        rotating_graph = fixture[True]
+        # DIAGNOSTIC-ONLY, and named so nobody quotes it as a certified row.
+        # Even with a cycle that divides the slot, this row NULL-FAILS routinely
+        # (measured 1.0460/1.0604): touching 100 distinct keys per slot defeats
+        # the warming symmetry the square relies on, in a way a single-key row
+        # does not. It is here to answer "is the present-key cache serving hits
+        # at realistic occupancy", which one key cannot answer, NOT to produce a
+        # bankable ratio.
+        table["DIAGNOSTIC has_node PRESENT rotating"] = (
+            lambda g=rotating_graph: rotating(g)
+        )
         return table
 
     return build, ops
