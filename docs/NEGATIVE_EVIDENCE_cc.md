@@ -18691,3 +18691,75 @@ comparison_class=SELF-SPEEDUP
 campaign_output=false
 decision_gate=median_ci
 cv_role=report_only
+
+## 2026-08-17 GoldenBison KEEP-SELF: the edges(nbunch) certification UPGRADED — the NEW arm now admits, 0.3270x -> 0.5137x (br-r37-c1-nbidx)
+
+UPGRADES THE ROW ABOVE, which certified this lever at 1.49x but had to invoke the
+documented failing-null exception because the NEW arm never once passed the gate
+in six invocations. That caveat is now retired on evidence rather than argued
+away: in a quiet window both arms admitted, and they admitted as ADJACENT
+invocations of one alternating sequence.
+
+THE ADMITTED PAIR, `edges(nbunch=200, data=True)` at 2000-character keys, arms
+alternated O N O N O N with NO BUILD started in the window:
+
+    OLD (b893272b)  0.3270x  CI [0.3256, 0.3302]  nulls 1.0144/1.0107  ADMISSIBLE
+    NEW (6fce1aca)  0.5137x  CI [0.5111, 0.5175]  nulls 1.0056/1.0118  ADMISSIBLE
+
+Self-speedup 1.571x from the two admitted rows. Both ran on cpu 47 ALONE at
+4289/4289 MHz with arm-to-arm clock skew 0.00 percent and a 0.1 percent
+cross-core spread, which is the cleanest placement this pane has recorded - the
+two arms were not merely on the same host but on the same core at the same clock.
+
+WHY THIS WINDOW AND NOT THE LAST ONE. frankenfs reported that a single local
+release-perf build took its loadavg from 21.66 to 55.25 and closed the very
+window it meant to measure in. Both arms here were already built and retained in
+the scratchpad from the previous session, so this certification started no build
+at all. The earlier run, where NEW never admitted, sat at loadavg 13.8-29.5; this
+one ran at 8.36-11.09 throughout.
+
+POOLED ACROSS ALL 16 INVOCATIONS now on record for this subject:
+
+    OLD  0.3284x 0.3247x 0.3273x 0.3414x 0.3375x 0.3270x 0.3192x   median 0.3273x
+    NEW  0.4857x 0.5092x 0.4672x 0.4413x 0.4927x 0.4959x 0.4763x
+         0.5137x 0.4082x                                           median 0.4857x
+
+Pooled self-speedup 1.484x, matching the 1.49x banked above. The separation
+remains complete: the worst NEW invocation (0.4082x) still beats the best OLD one
+(0.3414x) by 19.6 percent, now across two windows a day apart in load.
+
+CONTROLS held in this window as well. Whole-graph `edges(data=True)` len=2000:
+OLD 6.8641x 6.6477x 6.7657x, NEW 6.7246x 6.7473x 6.6696x - overlapping, so the
+change stayed inside the nbunch path. `edges(nbunch=5)` len=2000: OLD 0.6038x
+0.5869x 0.5863x, NEW 0.5960x 0.5941x 0.5887x - flat, the positive control for a
+PER-ITEM mechanism.
+
+A/A null control, measured: the two admitted rows report 1.0144/1.0107 (OLD) and
+1.0056/1.0118 (NEW), all four inside [1.0056, 1.0144]. Across all six invocations
+in this window the subject nulls span [1.0015, 1.0917], every one above 1.
+
+STILL campaign_output=false: 0.5137x is a large improvement and remains a LOSS to
+networkx. The per-edge `edge_key` canonical described in the row above is
+untouched and is what stands between this and 1.0x.
+
+SUBSTRATE. host thinkstation1, governor `powersave`, 64 CPUs, avx2, python
+3.13.7, live networkx 3.6.1, no rch worker. Workload `nbunch-key-length`,
+reps 8, rounds 81, warmup 60, square ABBAABBA, bootstrap median CI. Per-arm
+observed loadavg 9.39/11.60/15.86 (OLD rep1), 9.68/11.62/15.84 (NEW rep1),
+10.18/11.69/15.84 (OLD rep2, admitted), 10.49/11.73/15.83 (NEW rep2, admitted),
+11.09/11.84/15.84 (OLD rep3), 11.08/11.82/15.82 (NEW rep3); mean CPU at
+invocation start 2827, 2430, 2839, 3117, 3401, 2779 MHz. disk 165G free.
+
+bench_elf_sha256=6fce1aca248cf35fb83397d08ef6a13130073e5c767508b50c17d93f75ec8660
+elf_sha256=6fce1aca248cf35fb83397d08ef6a13130073e5c767508b50c17d93f75ec8660
+baseline_elf_sha256=b893272b0d61d589ecf452b7fb54dc096b5ffedf1ff42c46d31c8c6e1ea9b5cf
+harness_sha256=be8b894ba4bf883fe866d2d246e171a3f30edbdffad308f910f6dcd784f42807
+comparison_class=SELF-SPEEDUP
+self_speedup=1.571x
+incumbent=networkx
+incumbent_same_invocation=true
+incumbent_ratio_before=0.3270x
+incumbent_ratio_after=0.5137x
+campaign_output=false
+decision_gate=median_ci
+cv_role=report_only
