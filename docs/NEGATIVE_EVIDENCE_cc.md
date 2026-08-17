@@ -19479,3 +19479,94 @@ xfailed. The only 2 failures are
 `~/.local/lib/python3.13/site-packages/franken_networkx` dated 2026-08-02. That
 install is not on this venv's path (imports resolve to the repo), the failures
 predate all of this work, and removing it is not this pane's call.
+
+## 2026-08-17 GoldenBison KEEP: the nbunch family memo, 4.8x-9.3x on six spellings, control FLAT (br-r37-c1-dinbfam)
+
+ARMS DIFFER ONLY IN `__init__.py` AND SHARE A BYTE-IDENTICAL ELF (`496635be`).
+OLD is the shim at `6ba1cf4f4^`, before any of this family's four levers; NEW is
+HEAD. I checked that every commit touching `__init__.py` in that range is one of
+my four - there are no peer changes in the window, so the arms isolate this lever
+and nothing else. Both arms were verified to differ behaviourally before timing
+(95.9us against 17.2us on one spelling, identical row counts), which is the check
+whose absence nearly voided an earlier certification.
+
+SUBJECT ROWS, medians of three invocations per arm, ratio t_networkx/t_fnx:
+
+                                        OLD       NEW      self-speedup
+    DiGraph.out_edges(nb,data=False)    0.7520x   3.6028x     4.79x
+    DiGraph.out_edges(nb,data=weight)   0.3091x   1.5379x     4.98x
+    DiGraph.in_edges(nb,data=weight)    0.3096x   1.5723x     5.08x
+    MultiDiGraph.out_edges(data=False)  0.2789x   2.2324x     8.00x
+    MultiDiGraph.out_edges(data=weight) 0.2748x   2.4602x     8.95x
+    MultiDiGraph.in_edges(data=weight)  0.2597x   2.4159x     9.30x
+
+    CONTROL DiGraph.out_edges(data=True) 1.4797x  1.4698x     0.993x
+
+THE CONTROL IS THE LOAD-BEARING ROW. `data=True` reached this memo before any of
+these levers and is untouched by them. It moved 0.7 percent - in the unhelpful
+direction - while the six subject rows moved 4.8x to 9.3x. Because the two arms
+are Python packages over ONE shared ELF, a control that had moved could not have
+been a compiler artefact and would have implicated the harness or the window.
+
+Separation is complete on all six: the worst NEW invocation beats the best OLD
+one by more than 4x on every row.
+
+ADMISSIBILITY: 1 of 42 rows. I am not going to dress that up. But the new
+per-arm null diagnostic makes the reason legible for the first time, and it is
+not ambiguity about the effect:
+
+    failures attributable to arm B (fnx) alone   24
+    failures attributable to both arms           17
+    failures attributable to arm A (networkx)     0
+
+ZERO of the 41 failures were arm A alone. Arm A never failed a null without arm B
+failing it too. That is the arm-asymmetric null from br-r37-c1-mdginb confirmed
+PROSPECTIVELY on a different workload, a different lever and a different pair of
+arms, by the `NULL-FAILED(A|B|AB)` reporting added in br-r37-c1-gateaudit - an
+instrument change that cost no compute and immediately produced evidence its
+predecessor could not.
+
+The single admitted row is an OLD-arm row (MultiDiGraph.out_edges(data=weight)
+0.2748x, nulls 1.0000/1.0199). OLD is the SLOWER arm here, so its slots are
+longer and steadier - the same survivorship pattern as this pane's three earlier
+certifications, where the faster arm never admits. The gate is again biased
+toward understating the improvement.
+
+WHY THIS IS STILL QUOTABLE. The smallest effect here is 4.79x and the control
+moved 0.7 percent. A 5 percent within-square drift on one arm cannot manufacture
+a 4.8x gap, and it cannot leave the control flat while moving six subject rows.
+The numbers I would NOT quote from these runs are any at the few-percent scale -
+including, specifically, the control's own 0.7 percent, which I report as "flat"
+and not as a regression.
+
+A/A null control, measured: subject nulls span [0.9826, 1.1671] across all 42
+rows, and the single admitted row reports 1.0000/1.0199. Arm A's nulls sit in
+[0.9798, 1.0784] and arm B's in [1.0199, 1.1671] - disjoint above 1.0784, which
+is the asymmetry stated as an interval rather than a median.
+
+SUBSTRATE. host thinkstation1, governor `powersave`, 64 CPUs, avx2, python
+3.13.7, live networkx 3.6.1, no rch worker. Workload `nbunch-family`, reps 8,
+rounds 81, warmup 60, square ABBAABBA, bootstrap median CI. ONE build this turn,
+df 146G checked immediately before it, and NO build inside the measurement
+window - both arms are Python-only copies over the shared ELF. Per-arm observed
+loadavg 26.81/32.67/109.07, 25.88/32.28/108.13, 27.12/32.34/107.33,
+27.66/32.29/106.52, 30.11/32.59/105.42, 28.48/32.16/104.50; mean CPU at
+invocation start 2831, 3170, 3380, 3434, 3251, 3200 MHz; per-row clock
+3843-4068 MHz with arm-to-arm skew at or below 0.11 percent on every row quoted.
+The 15-minute loadavg was still above 100 throughout, falling from an external
+build cycle; the 5-minute figure was FLAT at 32.2-32.7 across all six
+invocations, which is why the window was taken as settled rather than falling.
+disk 136G free.
+
+bench_elf_sha256=496635beca2ae82b0f9eebe997741440addf6015c9408a1a02590740a645e249
+elf_sha256=496635beca2ae82b0f9eebe997741440addf6015c9408a1a02590740a645e249
+harness_sha256=1855ce9ef2ae655dd5e5d3863a3a91d05d5a76325883b3ed1bd50d7099ddb57f
+comparison_class=INCUMBENT
+incumbent=networkx
+incumbent_same_invocation=true
+incumbent_ratio=1.5379x
+incumbent_ratio_before=0.3091x
+self_speedup=4.79x
+campaign_output=true
+decision_gate=median_ci
+cv_role=report_only

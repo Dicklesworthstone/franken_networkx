@@ -1205,8 +1205,62 @@ def workload_mdg_in_edges_nbunch(reps: int):
     return build, ops
 
 
+def workload_nbunch_family(reps: int):
+    """The nbunch edge-view family's previously-unmemoized spellings.
+
+    br-r37-c1-dinbfam. Four levers wired one memo helper into every nbunch
+    edge-view call site across the four graph classes. Only `data=True` had ever
+    been wired, so `data=False` and `data=<key>` were paying their native kernel
+    on every repeated call.
+
+    THE CONTROL IS THE SPELLING THAT WAS ALREADY MEMOIZED.
+    `DiGraph.out_edges(nbunch, data=True)` reached the memo before any of this
+    work and is untouched by it; it read 1.7797x before and 1.7901x after on
+    direct measurement. If it moves here, something other than the intended
+    change is acting on the arms - which matters more than usual because the two
+    arms are PYTHON packages over one shared ELF, so an unexpected move cannot be
+    a compiler artefact and would point at the harness or the window.
+
+    Every row materialises a list of the same order of size, so one `--reps`
+    suits them all; see `nbunch-key-length` for what happens when it does not.
+    """
+    edges, big, length = 300, 200, 2000
+
+    def build(module):
+        fixture = {}
+        for cls in ("DiGraph", "MultiDiGraph"):
+            graph = getattr(module, cls)()
+            for i in range(edges):
+                graph.add_edge(
+                    f"a{i}".ljust(length, "x"), f"b{i}".ljust(length, "y"), weight=i
+                )
+            fixture[cls] = (graph, list(graph.nodes())[:big])
+        return fixture["DiGraph"][0], fixture
+
+    def ops(graph, fixture):
+        table = {}
+        for cls, (g, nb) in fixture.items():
+            table[f"{cls}.out_edges(nb,data=False)"] = (
+                lambda g=g, nb=nb: list(g.out_edges(nb, data=False))
+            )
+            table[f"{cls}.out_edges(nb,data=weight)"] = (
+                lambda g=g, nb=nb: list(g.out_edges(nb, data="weight"))
+            )
+            table[f"{cls}.in_edges(nb,data=weight)"] = (
+                lambda g=g, nb=nb: list(g.in_edges(nb, data="weight"))
+            )
+        dg, dnb = fixture["DiGraph"]
+        table["CONTROL DiGraph.out_edges(nb,data=True)"] = (
+            lambda g=dg, nb=dnb: list(g.out_edges(nb, data=True))
+        )
+        return table
+
+    return build, ops
+
+
 WORKLOADS = {
     "view-reads": workload_view_reads,
+    "nbunch-family": workload_nbunch_family,
     "nbunch-key-length": workload_nbunch_key_length,
     "mdg-in-edges-nbunch": workload_mdg_in_edges_nbunch,
     "edges-data": workload_edges_data,
