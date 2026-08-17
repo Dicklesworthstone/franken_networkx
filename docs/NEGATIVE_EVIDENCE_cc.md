@@ -19735,3 +19735,69 @@ self_speedup=1.93x
 campaign_output=true
 decision_gate=median_ci
 cv_role=report_only
+
+## 2026-08-17 GoldenBison ROOT CAUSE: the conversion family is downstream of O(key-length) NODE INSERTION — build is 0.055x (br-r37-c1-convkey2)
+
+A second conversion lever that MEASURED NOTHING, and the reason it measured
+nothing is worth more than the lever.
+
+WHAT WAS TRIED. `DiGraph::_native_to_undirected_deepcopy` allocated roughly eight
+owned Strings per arc: a `(String, String)` pair for the `seen` set, TWO MORE
+built purely to PROBE `edge_py_attrs` (a tuple key cannot be borrow-probed), the
+forward and reverse canonical keys, and the batch push. This removed four of them
+- `seen` keyed by node POSITION, and a reused scratch pair for the probe so it
+costs a copy and a hash but no allocator traffic.
+
+WHAT IT MEASURED, on the axis that is immune to across-run drift because it is an
+in-process comparison:
+
+    DiGraph.to_undirected key-length growth   9.94x  ->  9.70x
+
+Nothing. Two percent, well inside the noise of this substrate. Removing HALF the
+per-arc allocations moved the growth axis by essentially zero, which falsifies
+the mechanism story I told when certifying the sibling lever
+(br-r37-c1-convkey, 1.12x): if per-arc canonical churn were the dominant cost,
+this should have moved.
+
+WHERE THE COST ACTUALLY IS. Time the conversion against building the SAME graph
+from scratch, in one process:
+
+                    BUILD fnx   BUILD nx    to_undirected fnx   conv/build fnx   conv/build nx
+    K=3               673.1us     310.7us            491.9us            0.73            4.38
+    K=2000           5747.5us     316.0us           4074.7us            0.71            4.08
+
+The conversion costs a CONSTANT fraction of construction in both libraries -
+0.73 -> 0.71 for fnx, 4.38 -> 4.08 for networkx - across a key-length axis that
+changes the absolute numbers by 8.5x. A conversion kernel is not specially
+defective; it is paying whatever a node insertion costs, and doing so a fixed
+number of times.
+
+THE ACTUAL DEFECT IS GRAPH CONSTRUCTION:
+
+    add_edge loop, 300 edges / 600 nodes    K=3      K=2000    growth
+    fnx                                    673.1us  5747.5us    8.54x
+    networkx                               310.7us   316.0us    1.02x
+    ratio (t_nx / t_fnx)                    0.46x     0.055x
+
+0.055x at 2000-character keys - an 18x loss, and the worst cell this pane has
+measured by an order of magnitude. networkx is flat because it stores REFERENCES
+to the caller's `str` objects; fnx owns, copies and hashes every key, repeatedly.
+
+That is architectural, not a missing fast path, and it is upstream of the whole
+conversion family, of `copy()`, and of every generator that builds a graph. It
+should be attacked as its own bead with a real design (key interning, or storing
+the Python `str` object and hashing it once) rather than by shaving allocations
+off individual kernels - which is exactly what this row demonstrates does not
+work.
+
+THE CODE STILL LANDED, and I want to be exact about why: it is correctness-
+neutral, proven by the 90-case conversion parity matrix, and it strictly removes
+work. It is NOT a win and is not claimed as one; the growth figure above is the
+honest result. Anyone tempted to shave the remaining four allocations should read
+the conv/build ratios first.
+
+Substrate note: measured with a PEER BUILD running throughout (`ps` showed
+cargo-nextest + rustc), loadavg 18.69/25.23/37.97, one build of my own for the
+change itself with df 119G checked immediately before it. The growth and
+conv/build figures are in-process RATIOS, which is why they survive that
+contention; no cross-run ratio is quoted from this window.

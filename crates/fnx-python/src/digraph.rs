@@ -13531,8 +13531,27 @@ impl PyDiGraph {
         g.inner.extend_nodes_with_attrs_unrecorded(node_batch);
         let mut edge_batch: Vec<(String, String, fnx_classes::AttrMap)> =
             Vec::with_capacity(self.inner.edge_count());
-        let mut seen: std::collections::HashSet<(String, String)> =
+        // br-r37-c1-convkey2: node POSITIONS, not owned names. The old set
+        // allocated and copied two Strings PER ARC purely to record "seen", and
+        // at 2000-character keys that is ~4000 bytes of memcpy plus a
+        // 4000-byte hash for every arc. Positions come from one borrowed
+        // name->index map built once.
+        let name_to_idx: std::collections::HashMap<&str, usize> = self
+            .inner
+            .nodes_ordered()
+            .into_iter()
+            .enumerate()
+            .map(|(i, n)| (n, i))
+            .collect();
+        let mut seen: std::collections::HashSet<(usize, usize)> =
             std::collections::HashSet::with_capacity(self.inner.edge_count());
+        // br-r37-c1-convkey2: `edge_py_attrs` is keyed by an OWNED (String,
+        // String) and a tuple key cannot be borrow-probed, so the old code built
+        // two throwaway Strings on every arc just to READ the map. This scratch
+        // pair is filled in place instead: after the first arc its buffers are
+        // already large enough, so the probe costs a copy and a hash but no
+        // allocator traffic at all.
+        let mut probe: (String, String) = (String::new(), String::new());
         // br-inedges-distorefix (bt): see PyGraph::_native_to_directed_deepcopy —
         // a NON-pristine mirror (one stray get_edge_data/subgraph.copy entry) made
         // the `None => Default` arm drop store-only edges' attrs. Read the store
@@ -13541,9 +13560,9 @@ impl PyDiGraph {
         for source in self.inner.nodes_ordered() {
             for target in self.inner.successors(source).unwrap_or_default() {
                 let unordered = if source <= target {
-                    (source.to_owned(), target.to_owned())
+                    (name_to_idx[source], name_to_idx[target])
                 } else {
-                    (target.to_owned(), source.to_owned())
+                    (name_to_idx[target], name_to_idx[source])
                 };
                 if seen.insert(unordered) {
                     // first touch of this undirected cell: nx keeps the
@@ -13553,10 +13572,11 @@ impl PyDiGraph {
                     let u_obj = self.py_node_key(py, source);
                     g.maybe_store_adj_key(py, target, source, u_obj.bind(py));
                 }
-                let rust_attrs = match self
-                    .edge_py_attrs
-                    .get(&(source.to_owned(), target.to_owned()))
-                {
+                probe.0.clear();
+                probe.0.push_str(source);
+                probe.1.clear();
+                probe.1.push_str(target);
+                let rust_attrs = match self.edge_py_attrs.get(&probe) {
                     Some(attrs) => {
                         let py_attrs = crate::deepcopy_py_dict(py, &deepcopy, attrs)?;
                         let rust_attrs = py_dict_to_attr_map(py_attrs.bind(py))?;
