@@ -47425,9 +47425,21 @@ class _AssignedPrivateEdgeView:
         return self._rows(nbunch=nbunch, data=data, keys=keys)
 
     def __iter__(self):
+        # br-r37-c1-vbe1o: ITERATING a multigraph edge view is not the same as
+        # CALLING it. nx's MultiEdgeView.__iter__ yields KEYED (u, v, k) tuples,
+        # while `G.edges(...)` with the default `keys=False` yields (u, v). fnx's
+        # ordinary multigraph view already matches nx (3-tuples); only this
+        # private-storage view returned 2-tuples, because it delegated to the
+        # CALL form.
+        if self._graph.is_multigraph():
+            return iter(self(keys=True))
         return iter(self())
 
     def __len__(self):
+        # Same asymmetry: nx counts parallel edges individually, which the
+        # keys=False form collapses.
+        if self._graph.is_multigraph():
+            return len(self(keys=True))
         return len(self())
 
     def __contains__(self, edge):
