@@ -234,6 +234,15 @@ impl PyDiGraph {
         self.instance_dict_gc.set_private_adj_override();
     }
 
+    /// br-r37-c1-pauth: the `_succ` / `_pred` twin, carrying the ef8rt argument
+    /// one level down — `_succ` can be assigned without `_adj`, so the adj flag
+    /// cannot stand in for it. Without this the directed multigraph accessors,
+    /// which are native slots gated on `has_private_override`, read straight
+    /// past an assigned `_succ` and reported a present node absent.
+    fn _fnx_set_private_dir_override(&mut self) {
+        self.instance_dict_gc.set_private_dir_override();
+    }
+
     fn __traverse__(&self, visit: PyVisit<'_>) -> Result<(), PyTraverseError> {
         self.instance_dict_gc.traverse(visit.clone())?;
         self.traverse_python_refs(&visit)
@@ -553,6 +562,15 @@ impl PyMultiDiGraph {
     /// when the adjacency it reads has been replaced.
     fn _fnx_set_private_adj_override(&mut self) {
         self.instance_dict_gc.set_private_adj_override();
+    }
+
+    /// br-r37-c1-pauth: the `_succ` / `_pred` twin, carrying the ef8rt argument
+    /// one level down — `_succ` can be assigned without `_adj`, so the adj flag
+    /// cannot stand in for it. Without this the directed multigraph accessors,
+    /// which are native slots gated on `has_private_override`, read straight
+    /// past an assigned `_succ` and reported a present node absent.
+    fn _fnx_set_private_dir_override(&mut self) {
+        self.instance_dict_gc.set_private_dir_override();
     }
 
     fn __traverse__(&self, visit: PyVisit<'_>) -> Result<(), PyTraverseError> {

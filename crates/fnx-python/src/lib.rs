@@ -2210,6 +2210,21 @@ pub(crate) struct InstanceDictGc {
     /// now, so the check has to be here rather than in the Python wrapper that
     /// used to own it.
     private_adj_override: bool,
+    /// br-r37-c1-pauth: the `_succ` / `_pred` twin, by the SAME argument the
+    /// `_adj` flag above is written down with.
+    ///
+    /// That argument — "`_adj` can be assigned without `_node`, so the node
+    /// flag cannot stand in for it" — applies unchanged one level down: `_succ`
+    /// can be assigned without `_adj`, so the adj flag cannot stand in for it
+    /// either. The ef8rt fix was applied to `_adj` and never carried to the
+    /// directed pair, which left `has_private_override` answering FALSE for a
+    /// graph that plainly carries private storage. The directed multigraph
+    /// accessors are native slots that ask exactly this question, so they read
+    /// straight past an assigned `_succ` and reported a present node absent.
+    ///
+    /// One flag covers both directions: it only gates whether the slot must
+    /// consult Python at all, and the slot then reads the direction it wants.
+    private_dir_override: bool,
 }
 
 impl InstanceDictGc {
@@ -2218,6 +2233,7 @@ impl InstanceDictGc {
             dict: None,
             private_node_override: false,
             private_adj_override: false,
+            private_dir_override: false,
         }
     }
 
@@ -2246,13 +2262,22 @@ impl InstanceDictGc {
         self.private_adj_override = true;
     }
 
+    /// br-r37-c1-pauth: mark an assigned `_succ` or `_pred`.
+    pub(crate) fn set_private_dir_override(&mut self) {
+        self.private_dir_override = true;
+    }
+
     /// Does this graph carry networkx private storage at all?
     ///
     /// br-r37-c1-6mxtl: the read paths ported out of Python need one question
     /// answered before they may use the native store, and both flags are set
     /// through the same single install funnel.
     pub(crate) const fn has_private_override(&self) -> bool {
-        self.private_node_override || self.private_adj_override
+        // br-r37-c1-pauth: `private_dir_override` belongs in this OR for the
+        // reason the other two are in it — a graph carrying an assigned `_succ`
+        // or `_pred` carries private storage, whatever else it does or does not
+        // also carry.
+        self.private_node_override || self.private_adj_override || self.private_dir_override
     }
 
     /// The `_adj` row an edge subscript must read for a graph carrying

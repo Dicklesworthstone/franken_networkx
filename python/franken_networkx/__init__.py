@@ -46373,6 +46373,16 @@ def _set_private_override(self, attr_name, value):
         mark_private_adj_override = getattr(self, "_fnx_set_private_adj_override", None)
         if mark_private_adj_override is not None:
             mark_private_adj_override()
+    elif attr_name in (_PRIVATE_SUCC_OVERRIDE, _PRIVATE_PRED_OVERRIDE):
+        # br-r37-c1-ppiei: same funnel, same reason, one level down. The
+        # directed multigraph accessors are native slots, so an assigned
+        # `_succ` or `_pred` has to reach the Rust side exactly as `_adj` does;
+        # `_succ` can be assigned without `_adj`, so the adj flag cannot stand
+        # in for it. Undirected classes never take this branch and the getattr
+        # guard covers any class that does not define the marker.
+        mark_private_dir_override = getattr(self, "_fnx_set_private_dir_override", None)
+        if mark_private_dir_override is not None:
+            mark_private_dir_override()
     _install_private_method_shadows(self, storage)
 
 
@@ -47767,10 +47777,24 @@ def _private_aware_digraph_predecessors():
                     raise NetworkXError(f"The node {n} is not in the digraph.") from exc
                 cache[n] = keydict
             return iter(keydict)
+        # br-r37-c1-ppiei: the ASSIGNED mapping is the authority, not the node
+        # view. nx is `iter(self._pred[n])` with the KeyError reshaped, so a
+        # node reachable only through assigned private storage is answered and
+        # a node the mapping lacks is refused -- and `n not in self` got both
+        # backwards. It rejected a node present only in an assigned `_pred`
+        # (nx returns its predecessors), and it ADMITTED a node present only in
+        # an assigned `_node`, letting the raw KeyError out of `adjacency[n]`
+        # past every caller catching NetworkXError.
+        #
+        # `adjacency[n]` hashes `n` exactly as nx's subscript does, so an
+        # unhashable node still raises TypeError rather than reporting absence
+        # (br-r37-c1-lvlu7).
         adjacency = self.pred
-        if n not in self:
-            raise NetworkXError(f"The node {n} is not in the graph.")
-        return iter(adjacency[n])
+        try:
+            row = adjacency[n]
+        except KeyError as exc:
+            raise NetworkXError(f"The node {n} is not in the digraph.") from exc
+        return iter(row)
 
     return predecessors
 
