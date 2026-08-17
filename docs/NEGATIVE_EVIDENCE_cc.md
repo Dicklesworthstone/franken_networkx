@@ -18358,3 +18358,77 @@ comparison_class=SELF-SPEEDUP
 campaign_output=false
 decision_gate=median_ci
 cv_role=report_only
+
+---
+
+## CERTIFIED — MultiGraph.has_edge at 2.90x, and the wide candidate spread was WINDOW, not the change (2026-08-17)
+
+Supersedes the UNCERTIFIED row for `a29279167` banked earlier, which read
+"roughly 0.218x -> 0.60x" with a candidate spread of 0.4974-0.6885 and flagged
+that spread as the reason certification was needed. It was window noise: under a
+balanced square the candidate lands at **0.6791x with a CI of [0.6688, 0.6828]**,
+a 2 percent interval rather than a 38 percent range.
+
+CERTIFIED: **2.90x** quoted conservatively (replicate range 2.9034-3.0043).
+`MultiGraph.has_edge(u, v)` at K=2000, vs-nx **0.2259x -> 0.6791x**.
+
+    square                improvement          CI          null base  null cand
+    1  [base cand cand base]  3.0043  [2.9772, 3.0113]   1.0032     1.0070
+    2  [base cand cand base]  2.9599  [2.8216, 3.0070]   1.0049     0.9916
+    3  [base cand cand base]  2.9861  [2.6954, 3.0458]   1.0009     1.0038
+    4  [cand base base cand]  2.9034  [2.2936, 2.9730]   1.0001     1.0009
+
+    vs-nx BASE  0.2259 / 0.2286 / 0.2274 / 0.2322
+    vs-nx CAND  0.6791 / 0.6765 / 0.6840 / 0.6708
+
+PER-ARM, recorded per run: base loadavg medians 14.39 / 12.41 / 14.52 / 16.12
+with clocks 4231 / 4276 / 4224 / 4212 MHz; cand loadavg medians 14.41 / 12.41 /
+14.52 / 16.12 with clocks 4227 / 4264 / 4204 / 4214 MHz. Arm clock medians differ
+by 0.1, 0.3, 0.5 and 0.05 percent.
+
+NULLS. Eight A/A nulls, all within 0.8 percent of unity and all straddling it.
+The highest null CI bound across all eight is 1.0292; the lowest effect CI bound
+across all four squares is 2.2936. The intervals are separated by a factor of
+2.2, which is the condition this pane requires rather than a null that merely
+straddles one.
+
+**THE GATE FAILED ON ALL FOUR RUNS AND THE ROW IS BANKED ANYWAY, deliberately.**
+Every run tripped the 1-minute against 5-minute check (ratios 1.80 / 1.91 / 1.81
+/ 1.45) because load was FALLING through the whole session -- 1-minute readings
+of 12.7-16.0 against 5-minute readings of 23-27. That gate exists to catch a
+quiet spike inside a loaded window, and it cannot distinguish that from a genuine
+recovery. What the per-ROUND instrument says about the windows the runs actually
+occupied is the relevant evidence, and it is good: level 12.41-16.12, spread
+0.54-3.15, relative volatility 0.04-0.22. This is banked on REPLICATION across
+two square designs with eight clean nulls, and the gate status is recorded rather
+than hidden.
+
+Run 4 additionally returned ARM-CLOCK-SKEW and carries by far the widest interval
+[2.2936, 2.9730]. It is shown, and it is the run the conservative quote comes
+from, so the headline number is the least favourable of the four rather than the
+most.
+
+Both certification runs' drivers ran on `cpu15` while the workers were pinned to
+`cpu14`, so the driver never shared a physical core with the measured arm.
+
+WHAT THE CHANGE ACTUALLY DID. `MultiGraph::has_edge_by_indices` resolved both
+POSITIONS back to node NAMES and called the string `has_edge`, rehashing both
+keys, so every caller taking the "index fast path" still paid the key length it
+was trying to avoid. `slot_at_position` bridges position to slot in O(1) with no
+hashing, and substitutes an EQUAL value rather than changing behaviour:
+`MgSlabStorage::has_edge` is itself `node_order.get(l)` / `node_order.get(r)`
+followed by `has_edge_by_pair`.
+
+THE CELL REMAINS A LOSS at 0.6791x, and this row does not claim otherwise. What
+was removed is the key-length term; what remains is the per-call floor.
+
+PROVENANCE: driver `/data/tmp/claude-1000/certify_hasedge.py` and its swapped
+variant, spawning `/data/tmp/claude-1000/hasedge_worker.py`; 21 rounds x 4
+invocations, 8 x 20000 reps per invocation, bootstrap median CI over 10000
+resamples with a fixed seed, per-round sampling by
+`scripts/bench_window_guard.py`. Arms are the pre- and post-`a29279167` release
+builds retained from the earlier session, `pkg_hbase` and `pkg_hcand`, loaded via
+PYTHONPATH; NO BUILD was needed or run for this certification. Every worker
+invocation re-asserts `has_edge` against networkx, present and absent, before
+timing. host thinkstation1, governor `powersave`, python 3.13.7, live networkx
+3.6.1, disk 156G free.
