@@ -47327,9 +47327,26 @@ class _AssignedPrivateDegreeView:
         self._nodes = nodes
         self._weight = weight
 
+    def _nodes_authority(self):
+        """nx's ``_nodes`` for a DegreeView: ``self._succ``.
+
+        br-r37-c1-vbe1o: on an undirected graph ``_succ`` IS ``_adj``, and on a
+        directed one it is the successor side — for the TOTAL-degree view too,
+        which is why nx's ``G.degree`` raises KeyError for a node an assigned
+        ``_succ`` carries but ``_pred`` does not. Either way the authority is a
+        MAPPING, never the node view: ``iter(self._graph)`` dropped a node the
+        assigned adjacency carried and admitted one only an assigned ``_node``
+        carried.
+
+        This whole class exists only for graphs carrying private storage, so no
+        ordinary graph reaches this and there is nothing to measure.
+        """
+        graph = self._graph
+        return graph.succ if graph.is_directed() else graph.adj
+
     def _iter_nodes(self):
         if self._nodes is None:
-            return iter(self._graph)
+            return iter(self._nodes_authority())
         return iter(self._nodes)
 
     def _edge_weight(self, attrs):
@@ -47632,7 +47649,8 @@ class _AssignedPrivateDegreeView:
 
     def __len__(self):
         if self._nodes is None:
-            return len(self._graph)
+            # br-r37-c1-vbe1o: nx is len(self._nodes), i.e. len(self._succ).
+            return len(self._nodes_authority())
         return len(self._nodes)
 
     def __getitem__(self, node):
@@ -47645,12 +47663,18 @@ class _AssignedPrivateDegreeView:
             return self
         if nbunch is None:
             return type(self)(self._graph, weight=weight)
+        # br-r37-c1-vbe1o: the MAPPING decides whether a single argument is a
+        # node, exactly as in nx's `nbunch in self._nodes`. Asking the node view
+        # returned a whole DegreeView where nx returns an int — a RETURN-TYPE
+        # divergence, so a caller doing arithmetic on it got a TypeError rather
+        # than a wrong number.
+        authority = self._nodes_authority()
         try:
-            if nbunch in self._graph:
+            if nbunch in authority:
                 return type(self)(self._graph, weight=weight)[nbunch]
         except TypeError:
             pass
-        nodes = [node for node in nbunch if node in self._graph]
+        nodes = [node for node in nbunch if node in authority]
         return type(self)(self._graph, nodes=nodes, weight=weight)
 
     def __repr__(self):
