@@ -520,6 +520,45 @@ def _nbunch_membership_container(graph):
     return None
 
 
+def _nbunch_filter_container(graph):
+    """The container `nbunch_iter` should test membership against.
+
+    br-r37-c1-vbe1o: networkx filters with `n in self._adj`, a plain dict, so its
+    per-node test is a C hash lookup. fnx used `self.nodes`, whose
+    `__contains__` crosses into PyO3 every time — measured 0.70x against
+    networkx over a 1000-node nbunch, about 15 ns per node, which is the whole
+    gap.
+
+    The graph already maintains a real dict of node keys (the mirror the native
+    node iterator walks), so the same KIND of container networkx uses is
+    available for free. READ-ONLY: this is the live mirror, not a copy, and
+    nbunch_iter only tests membership against it.
+
+    Dict membership raises TypeError on an unhashable key exactly as networkx's
+    does, which is the property br-r37-c1-oaamq relied on when it dropped the
+    per-node `hash()`. That is why this is a safe swap and `Graph.__contains__`
+    was not — that one answers False instead of raising.
+
+    Falls back to `graph.nodes` for anything without the native method (proxy,
+    filtered and conversion views), which keeps the previously measured
+    behaviour there.
+    """
+    private = _nbunch_membership_container(graph)
+    if private is not None:
+        return private
+    # CONCRETE graphs only. A filtered / conversion / reverse view SUBCLASSES the
+    # native class, so the accessor exists on it, but its Rust base is EMPTY
+    # (`super().__new__` with no nodes) — the mirror would come back empty and
+    # filter every node out. Caught by test_to_directed_view_nbunch_argument on
+    # Graph and MultiGraph, which is exactly the failure mode
+    # br-r37-c1-kum9v records for the other native fast paths.
+    if type(graph) in (Graph, DiGraph, MultiGraph, MultiDiGraph):
+        node_dict = getattr(graph, "_fnx_node_key_dict", None)
+        if node_dict is not None:
+            return node_dict()
+    return graph.nodes
+
+
 def _graph_nbunch_iter(self, nbunch=None):
     # br-r37-c1-nbunchnone (cc): nbunch=None is iteration over ALL nodes; route it
     # to the cheap cached node iterator (iter(self)) BEFORE building self.adj — the
@@ -599,8 +638,7 @@ def _graph_nbunch_iter(self, nbunch=None):
     # The check is per CALL, not per node, so it amortises over the whole
     # nbunch and the ordinary path keeps the cheap container the note above
     # earned.
-    container = _nbunch_membership_container(self)
-    return bunch_iter(nbunch, self.nodes if container is None else container)
+    return bunch_iter(nbunch, _nbunch_filter_container(self))
 
 
 def _size_with_unweighted_int(size_impl):
@@ -2323,6 +2361,14 @@ class AdjacencyView(_Mapping):
         # the getter is constant; every other view leaves it None and keeps the
         # getter, because their getters genuinely re-evaluate.
         self._fnx_captured_row = None
+        # br-r37-c1-rowcache: when True the __getitem__ atlas cache is keyed on
+        # (nodes_seq, edges_seq) rather than nodes_seq alone. Set ONLY on views
+        # whose subscript returns something an EDGE change can destroy - a ROW
+        # view, where row[v] must start raising KeyError once the last u->v edge
+        # goes. Node-level views leave it False: G[u] stays valid while u exists,
+        # so making them edge-sensitive would discard good entries on every
+        # add_edge.
+        self._fnx_edge_sensitive = False
 
     def _atlas(self):
         row = self._fnx_captured_row
@@ -2422,7 +2468,18 @@ class AdjacencyView(_Mapping):
         owner = self._fnx_owner
         cache = self._fnx_atlas_cache
         if owner is not None:
-            seq = owner.nodes_seq
+            # br-r37-c1-rowcache: a ROW view's subscript returns the keydict for
+            # edge (u, v), which an edge removal invalidates WITHOUT touching
+            # nodes_seq - measured: dropping the last u->v edge left nodes_seq at
+            # 1 and moved edges_seq 1 -> 2, after which row[v] must raise
+            # KeyError. A nodes_seq-only cache would keep serving a view for an
+            # edge that no longer exists, so those views opt into the two-part
+            # token. Everything else keeps nodes_seq.
+            seq = (
+                (owner.nodes_seq, owner.edges_seq)
+                if self._fnx_edge_sensitive
+                else owner.nodes_seq
+            )
             if cache is None or cache[0] != seq:
                 cache = (seq, {})
                 self._fnx_atlas_cache = cache
@@ -3065,7 +3122,11 @@ def _multigraph_getitem_from_native_row(self, node):
     view = AdjacencyView(
         lambda row=row: row,
         multi_edge_owner=self,
+        owner=self,
     )
+    # br-r37-c1-rowcache: this row's subscript hands out per-edge keydicts, so
+    # its cache must drop on edge churn, not only on node churn.
+    view._fnx_edge_sensitive = True
     cache[1][node] = view
     return view
 
@@ -3123,7 +3184,11 @@ def _multidigraph_getitem_from_native_row(self, node):
     view = AdjacencyView(
         lambda row=row: row,
         multi_edge_owner=self,
+        owner=self,
     )
+    # br-r37-c1-rowcache: this row's subscript hands out per-edge keydicts, so
+    # its cache must drop on edge churn, not only on node churn.
+    view._fnx_edge_sensitive = True
     cache[1][node] = view
     return view
 
