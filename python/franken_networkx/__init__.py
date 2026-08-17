@@ -7078,7 +7078,14 @@ class _DirectedDegreeView:
         # + per-node native-degree calls. Reuse _FilteredDegreeView with `self` as
         # the raw view so view[node] still answers in/out degree for any node;
         # iteration serves the precomputed pairs. Errors map to NetworkXError.
-        if weight is None:
+        #
+        # br-r37-c1-vbe1o: NOT under assigned private storage. This native subset
+        # kernel reads the Rust store, so for a node carried only by an assigned
+        # mapping it returns no pair and the call yields an EMPTY view — where
+        # networkx builds a view over that node and then raises KeyError from the
+        # degree lookup. The other native paths in this class already carry this
+        # gate; this one was missed.
+        if weight is None and not self._fnx_private_storage:
             if self._adjacency_attr == "succ":
                 native = getattr(self._graph, "_native_out_degree_pairs_subset", None)
             elif self._adjacency_attr == "pred":
@@ -45415,23 +45422,8 @@ class _FilteredGraphView:
                     if node in self._graph:
                         yield node
                 return
-        # br-r37-c1-x3829: we are iterating the PARENT's own nodes, so the
-        # membership half of `_node_visible` - `node in self._graph` - is
-        # provably true for every node yielded here and was a wasted C-level
-        # containment check per node per walk. And when the node filter is the
-        # default there is no predicate to apply either, so the whole walk is
-        # the parent's iteration. Measured on restricted_view, which walks every
-        # parent node: 0.2747x against networkx at 800 nodes, 0.8970x after.
-        #
-        # `_node_visible` is left untouched for every OTHER caller - membership
-        # is load-bearing there, because those nodes arrive from outside the
-        # parent (`__contains__`, `_nbunch`, `_edge_visible`).
-        if self._filter_node_is_default:
-            yield from self._graph
-            return
-        filter_node = self._filter_node
         for node in self._graph:
-            if filter_node(node):
+            if self._node_visible(node):
                 yield node
 
     def __len__(self):
@@ -49140,6 +49132,35 @@ def _copy_preserving_insertion_order(self, as_view=False):
     result.add_nodes_from(
         (node, dict(attrs)) for node, attrs in self.nodes(data=True)
     )
+    # br-r37-c1-vbe1o: under assigned private storage, networkx's copy() does NOT
+    # go through the edge VIEW — it iterates the raw mapping:
+    #
+    #     add_edges_from((u, v, d.copy()) for u, nbrs in self._adj.items()
+    #                                     for v, d in nbrs.items())
+    #
+    # The difference is visible and not academic: the undirected edge view emits
+    # each edge once via a seen-set, so a one-sided row like {'ZZ': {'b': {}}}
+    # is SKIPPED (its partner 'b' was already seen) and 'ZZ' never reaches the
+    # copy. The raw double loop has no dedup, so networkx's copy carries the node
+    # and fnx's did not. Measured: nx.copy() -> [ZZ, a, b], fnx -> [a, b], while
+    # BOTH report nodes(data=True) == [a, b] and edges(data=True) == [(a, b)] —
+    # so the views agree and only copy() diverged.
+    if _captured_private_overrides(self):
+        adjacency = self._adj
+        if self.is_multigraph():
+            result.add_edges_from(
+                (u, v, key, dict(attrs))
+                for u, nbrs in adjacency.items()
+                for v, keydict in nbrs.items()
+                for key, attrs in keydict.items()
+            )
+        else:
+            result.add_edges_from(
+                (u, v, dict(attrs))
+                for u, nbrs in adjacency.items()
+                for v, attrs in nbrs.items()
+            )
+        return result
     if self.is_multigraph():
         # Use 4-tuples so an edge attribute literally named "key" doesn't
         # collide with add_edge's positional key parameter.
