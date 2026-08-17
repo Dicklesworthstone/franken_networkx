@@ -21533,3 +21533,73 @@ and kHz sampled after every timed block. loadavg 15.49/14.84/16.77, TWO peer
 builds running. No build of my own. disk 99G. No ABBA square: the claim is that
 ten growth curves are flat, and each fnx curve is compared against its own
 networkx curve measured in the same loop.
+
+---
+
+## br-r37-c1-2r06n — the multigraph `G[node]` getitem fix: INDICATIVE ONLY, the window failed under me (2026-08-17)
+
+`bbd099d51` put a private-storage test into the multigraph `__getitem__`, placed
+AFTER the row-cache probe so a warm repeat lookup returns before reaching it.
+That placement is the whole perf argument, so it owes a measurement. This is the
+attempt, and it is **NOT A CERTIFICATION** — the gate failed at square start
+(1-min 36.59 against a 30 ceiling) and per-arm loadavg medians during the run
+were 46.12 and 44.53. External load arrived mid-square; no build was run by this
+pane.
+
+    cell                        base/cand              CI
+    G[n] MultiGraph              1.0140     [0.9868, 1.0361]
+    G[n] MultiDiGraph            1.0082     [0.9889, 1.0194]
+    G[n] Graph  NEG CONTROL      0.9943     [0.9585, 1.0055]
+
+All three straddle unity, which is what "the warm path is untouched" predicts,
+and the negative control — the simple `Graph`, already correct and not modified —
+straddles it too. The common-mode cell also straddles: networkx is byte-identical
+in both arms and read 1.0116 [0.9909, 1.0308], so the square was not measuring a
+frequency difference between the arms.
+
+**But a square run at loadavg 45 cannot certify anything**, including a null
+result. Three cells straddling unity under that much contention is weak evidence
+of no effect, not strong evidence — the intervals are wide because the host was
+noisy, and wide intervals straddle unity whether or not an effect exists. The
+honest statement is: no cost was DETECTED, at a resolution too poor to have
+detected a small one.
+
+### THE INCUMBENT NUMBER, which this change does not move
+
+    vs networkx        base      cand
+    MultiGraph        0.6850    0.6731
+    MultiDiGraph      0.6776    0.6819
+    Graph             1.1417    1.1716
+
+INCUMBENT IS NETWORKX. `G[node]` on the multigraph classes is about **0.68x** —
+roughly 47 percent slower than networkx — and this correctness fix neither helps
+nor hurts that. The simple `Graph` is 1.14x. That 0.68x is a standing deficit on
+a hot path and is worth its own lever; it is NOT what this row is about.
+
+(The third vs-nx row is labelled `DiGraph.adj` in the raw driver output from a
+derived-script label that was not updated; the cell measured is `Graph[node]`.
+Recorded here so the raw log is not misread later.)
+
+PER-ARM: base loadavg median 46.12 with clock median 4058 MHz (min 3843, max
+4228); cand loadavg median 44.53 with clock median 4062 MHz (min 3876, max 4247).
+Arm clock medians differ by 0.10 percent, so the arms saw the same silicon state
+even though the host was busy — the contention is real but symmetric. Guard
+verdict SIBLING-CONTENDED.
+
+A/A null control, same invocation, measured: base 1.0154 [0.9851, 1.0649] and
+cand 0.9986 [0.9760, 1.0185].
+
+WHAT IS OWED: one square in a window that passes the gate. Both arms are retained
+(`arm_gi_base`, `arm_gi_cand`, one `.so` md5-identical between them), so the
+re-run costs no build and only needs a quiet host.
+
+PROVENANCE: driver `/data/tmp/claude-1000/certify_gi.py` on `cpu15`, spawning
+`gi_worker.py` pinned to `cpu14`. Arms are `bbd099d51` and its parent, sharing one
+`.so`; discriminated behaviourally before timing — base raises KeyError for
+`MultiGraph['ZZ']` under an assigned `_adj`, cand returns `['b']`. 400-node
+graphs, 21 rounds x 4 invocations, 6 x 40000 reps per cell per invocation,
+bootstrap median CI over 10000 resamples, fixed seed 20260817. host thinkstation1,
+governor `powersave`, python 3.13.7, live networkx 3.6.1, disk 97G free.
+
+decision_gate=median_ci
+cv_role=report_only
