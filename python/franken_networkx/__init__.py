@@ -46549,6 +46549,10 @@ def _private_override(self, attr_name):
 # never went through the descriptor, and dropping that one would expose the
 # bare ``_FilteredGraphView.nodes`` function as a bound method.
 _PRIVATE_NODE_METHOD_SHADOWS = "_fnx_private_node_method_shadows"
+# br-r37-c1-shwst: the predicate state the shadows above were installed FOR.
+# The `_fnx_` prefix is load-bearing - the copy/deepcopy path at the top of
+# this file skips every key with it, so this stays out of copies and pickles.
+_PRIVATE_SHADOW_STATE = "_fnx_private_shadow_state"
 _RAW_HAS_NODE_METHODS = (
     _GRAPH_PRIVATE_AWARE_HAS_NODE,
     _DIGRAPH_PRIVATE_AWARE_HAS_NODE,
@@ -47155,9 +47159,40 @@ def _install_private_method_shadows(self, storage):
     # below is a no-op. Matches the `else` branch at the end exactly.
     if _class_shadows_nothing(owner_type):
         storage.pop(_PRIVATE_NODE_METHOD_SHADOWS, None)
+        storage.pop(_PRIVATE_SHADOW_STATE, None)
         return
 
     previous = storage.get(_PRIVATE_NODE_METHOD_SHADOWS) or {}
+
+    # br-r37-c1-shwst: which shadows this instance needs is decided ENTIRELY by
+    # the two booleans below plus the class, and the class cannot change under a
+    # live instance. A filtered view assigns THREE private overrides at
+    # construction and every assignment re-ran this whole body, re-binding and
+    # re-storing an identical set of methods: 21 `install` calls per view for a
+    # MultiDiGraph, of which 14 rebuilt what the first seven had just made.
+    #
+    # The guard is deliberately NOT "previous is non-empty". It compares the
+    # recorded state, because a later assignment CAN legitimately widen the set -
+    # adding a node override after an adj override moves (False, True) to
+    # (True, True) and genuinely needs has_node/number_of_nodes/order installed.
+    # Skipping on non-emptiness alone would silently drop those.
+    node_override = _PRIVATE_NODE_OVERRIDE in storage
+    any_override = node_override or (
+        _PRIVATE_ADJ_OVERRIDE in storage
+        or _PRIVATE_SUCC_OVERRIDE in storage
+        or _PRIVATE_PRED_OVERRIDE in storage
+    )
+    state = (node_override, any_override)
+    if previous and storage.get(_PRIVATE_SHADOW_STATE) == state:
+        # Only skip while every shadow we installed is still OURS. A caller that
+        # replaced one with its own method must fall through, because `install`
+        # has a per-name rule for exactly that case and it is not ours to guess.
+        for shadow_name, shadow_bound in previous.items():
+            if storage.get(shadow_name) is not shadow_bound:
+                break
+        else:
+            return
+
     installed = {}
 
     def install(name, fallback, raw_methods):
@@ -47191,7 +47226,7 @@ def _install_private_method_shadows(self, storage):
         storage[name] = bound
         installed[name] = bound
 
-    if _PRIVATE_NODE_OVERRIDE in storage:
+    if node_override:
         install("has_node", _assigned_private_has_node, _RAW_HAS_NODE_METHODS)
         install(
             "number_of_nodes",
@@ -47203,12 +47238,7 @@ def _install_private_method_shadows(self, storage):
             _assigned_private_number_of_nodes,
             _RAW_NUMBER_OF_NODES_METHODS,
         )
-    if (
-        _PRIVATE_NODE_OVERRIDE in storage
-        or _PRIVATE_ADJ_OVERRIDE in storage
-        or _PRIVATE_SUCC_OVERRIDE in storage
-        or _PRIVATE_PRED_OVERRIDE in storage
-    ):
+    if any_override:
         fallback = (
             _assigned_private_has_edge_multi
             if isinstance(self, (MultiGraph, MultiDiGraph))
@@ -47268,8 +47298,10 @@ def _install_private_method_shadows(self, storage):
             )
     if installed:
         storage[_PRIVATE_NODE_METHOD_SHADOWS] = installed
+        storage[_PRIVATE_SHADOW_STATE] = state
     else:
         storage.pop(_PRIVATE_NODE_METHOD_SHADOWS, None)
+        storage.pop(_PRIVATE_SHADOW_STATE, None)
 
 
 def _set_private_override(self, attr_name, value):
