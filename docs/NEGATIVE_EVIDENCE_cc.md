@@ -20456,3 +20456,58 @@ this is not the quiet window the decision rule asks for, and the "not
 demonstrated" verdict is the conservative reading rather than a final one. ONE
 build (the OLD arm), df 126G checked immediately before it, run BEFORE the
 measurement. disk 126G.
+
+## 2026-08-17 GoldenBison SIZING: construction is TWO defects, and interning is the smaller one at realistic key lengths (br-r37-c1-convkey2)
+
+Correcting my own conclusion from the row above before anyone acts on it. I wrote
+that "the construction defect ... is that fnx OWNS AND RE-HASHES its keys where
+networkx holds a reference. Interning is the only lever with the right shape."
+That is true at 2000-character keys and MISLEADING everywhere else.
+
+Building 1000 edges over 600 nodes, sweeping key length, fnx and networkx timed
+in the SAME process (so these are in-process ratios, not cross-run):
+
+    key length     fnx        nx      ratio
+         3       990.2us   603.2us   0.6091x
+        16      1030.3us   615.0us   0.5969x
+        64      1158.4us   603.6us   0.5211x
+       128      1278.2us   638.1us   0.4992x
+       256      1443.2us   637.9us   0.4420x
+      1024      2612.0us   612.6us   0.2345x
+      2000      3509.4us   610.8us   0.1740x
+       INT       861.4us   641.4us   0.7446x
+
+networkx is FLAT at 603-641us across every key length AND for integer keys. fnx
+is not, but the crucial number is the INT row: with NO canonicalisation, no
+owned key, no string hashing of any kind, fnx still loses 1.34x.
+
+SO THERE ARE TWO DEFECTS, not one:
+
+  1. A FLAT per-call overhead of about 1.34x, present at every key length and for
+     integer keys. Interning cannot touch it.
+  2. A key-length-scaling term on top, worth 1.14x at K=16, 1.34x at K=64, 1.68x
+     at K=256 and 4.07x at K=2000 (fnx at that length divided by fnx on ints).
+
+WHAT THAT MEANS FOR WHERE TO AIM. Interning is worth up to 4.07x at 2000-character
+keys and about 1.34x at 64 - and 64 characters is already a generous node name.
+At every length the FLAT overhead is the larger share until keys pass roughly 128
+characters. An interning project justified by the 0.1740x headline would be sized
+against the least representative point on the curve.
+
+AND THE CEILING IS NOT PARITY. Even if interning removed the key-length term
+completely, construction would land at the INT row: 0.7446x. Still a loss. The
+flat 1.34x is a separate investigation and nobody has started it - I have not
+profiled what fnx does per add_edge that networkx does not, only established that
+it is not key handling.
+
+THIS ALSO RETIRES A WORRY I HAD, so it is worth stating: the 2000-character
+fixture is NOT manufacturing this defect. fnx loses 0.61x at THREE-character keys
+and 0.74x on integers. The fixture exaggerates the magnitude and misattributes the
+CAUSE, but the cell is real at every size, which is why the campaign was right to
+be here even though it was aiming at the wrong term.
+
+Method note: no ABBA square and no A/A null - these are fnx-vs-networkx readings
+inside one process at each key length, which is the comparison that survives
+contention, and the SHAPE across seven key lengths plus the integer control is
+what carries the argument rather than any single ratio. loadavg 17.40/17.54/16.17,
+one peer build running. No build of my own; disk 123G.
