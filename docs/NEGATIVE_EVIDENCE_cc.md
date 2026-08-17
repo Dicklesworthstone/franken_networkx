@@ -21918,3 +21918,60 @@ comparison_class=SELF-SPEEDUP
 campaign_output=false
 decision_gate=median_ci
 cv_role=report_only
+
+## 2026-08-17 GoldenBison G[u] 0.6510x -> 0.8892x, and why the obvious fix for G[u][v] is WRONG (br-r37-c1-gcreg)
+
+Two results. The second is the one worth reading, and it is restated here because
+the commit that carried it was damaged: backticks in a git -m message were
+substituted by the shell and three phrases were deleted, leaving "gated on , and
+rows are built with  but no ,". Amending a pushed commit on a shared branch needs
+a force-push, so the ledger is the repair.
+
+### The win, same shape as the freeze cell
+
+`_multidigraph_getitem_from_native_row` called
+`self._fnx_register_gc_dict(vars(self))` on EVERY `G[n]`, including cache hits,
+re-registering the same dict object each time. On a hit there is nothing new to
+track, so it now sits on the miss branch beside the assignment it exists for.
+Two sites, directed and undirected.
+
+    G[u]      0.238us -> 0.187us   0.6510x -> 0.8892x   MHz 3995/4002  skew -0.16%
+    G[u][v]   0.969us -> 0.950us   0.2937x -> 0.3057x   MHz 4046/4046  skew  0.00%
+    A/A control on G[u]: 0.183us vs 0.183us, null 0.9993
+
+`G[u]` is now near parity. This is the third instance of one pattern - freeze()
+(br-r37-c1-frzsetattr) was the first, and both were per-call GC-dict registration
+that only a mutation needs. Worth grepping `_fnx_register_gc_dict` for other
+callers on read paths.
+
+### Why G[u][v] barely moved, and the trap in fixing it
+
+Decomposed: `G[u]` is 0.6510x but `row[v]` on a HELD row is 0.1934x - 0.662us
+against networkx's 0.128us. So the cost is the INNER subscript. cProfile shows
+`AtlasView.__init__` running ONCE PER SUBSCRIPT: the warm cache in
+`AtlasView.__getitem__` is gated on the view having an owner
+(`self._fnx_owner is not None`), and rows are constructed with
+`multi_edge_owner=self` but no `owner=`, so the cache never engages and a fresh
+view is built on every call.
+
+THE OBVIOUS FIX - pass `owner=self` - IS WRONG, and this is the part to keep. That
+cache is keyed on `owner.nodes_seq`. Removing the last u->v edge leaves
+`nodes_seq` UNCHANGED and bumps `edges_seq`: measured directly, nodes_seq 1 -> 1
+while edges_seq 1 -> 2, after which `row['b']` must raise KeyError. A
+nodes_seq-keyed cache would go on serving a view for an edge that no longer
+exists - a correctness bug traded for ~3x on a read.
+
+A correct version needs a token including `edges_seq`, which is a real change to a
+hot caching path. NOT ATTEMPTED: this file was clobbered under me three times
+today and a subtle cache-invalidation change is not something to rush at the end
+of a long session. The measurement, the mechanism and the trap are recorded so the
+next attempt starts past all three.
+
+PARITY for what did ship: 0 divergences across four classes - rows read three
+times each, after an edge removal, after a node add, and after gc.collect().
+2704 tests pass on the getitem/adj/atlas surface.
+
+NOTHING CERTIFIED: host_quiet_check reports WOULD REFUSE, 36 CPUs over the 20
+percent bound, interval idle 66.8 percent, loadavg 22.65/22.30/25.09. The figures
+above are in-process ABBA on one clock - valid under contention, and bounded by
+the A/A null of 0.9993. No build. disk 209G.
