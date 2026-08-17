@@ -20511,3 +20511,60 @@ inside one process at each key length, which is the comparison that survives
 contention, and the SHAPE across seven key lengths plus the integer control is
 what carries the argument rather than any single ratio. loadavg 17.40/17.54/16.17,
 one peer build running. No build of my own; disk 123G.
+
+## 2026-08-17 GoldenBison ATTRIBUTION: the FLAT construction term is 78 percent the Python add_edge shim (br-r37-c1-aeshim)
+
+The row above established a flat ~1.34x construction loss present even on INTEGER
+keys, and said nobody had profiled it. This profiles it.
+
+FIRST, A FAILED INSTRUMENT WORTH RECORDING. cProfile reports fnx and networkx
+building the identical graph in 0.036s EACH - no difference at all - while
+wall-clock says 861us against 641us. The profiler's per-call tax lands on whoever
+makes more PYTHON calls, which is networkx, and it erases exactly the gap being
+measured. cProfile is sound for locating cost INSIDE fnx and must not be used for
+fnx-versus-networkx attribution. I nearly concluded "no flat defect exists" from
+it.
+
+DIRECT TIMING, no profiler, integer keys so no canonicalisation is involved,
+600 nodes + 1000 edges:
+
+    fnx via the public shim     1289.9us     0.7483x vs networkx
+    fnx via the RAW native      1037.4us     0.9305x vs networkx
+    networkx                     965.3us
+
+    shim tax  252.5us = 20 percent of fnx's own time
+              ... but 78 percent of the 324.6us GAP to networkx
+
+    per edge: fnx shim 1.148us, fnx raw 0.896us, networkx 0.731us
+    add_nodes_from: fnx 141.5us against networkx 234.3us - fnx is 1.66x FASTER,
+    so node insertion was never part of this.
+
+THIS CORRECTS A FINDING I HAD RECORDED AS SETTLED. My own note
+`add_edge_loss_is_native_not_shim` says "add_edge's loss is NOT the Python shim
+(22.4 percent, under the 40 percent bar)". The 20 percent measured here agrees
+with that number exactly - and the conclusion drawn from it was still wrong,
+because it measured the shim as a share of FNX'S OWN TIME. As a share of the
+DEFICIT it is the dominant term. Those are different questions and only the second
+one tells you where to work. A component can be a fifth of your runtime and
+four-fifths of your disadvantage.
+
+WHAT THE SHIM DOES, and why this looks tractable: two `hash()` builtin calls, two
+None checks and a try/except per call - and the NATIVE `add_edge` already performs
+the same validation, including the nx-specific ordering where a bad v leaves u on
+the graph. On this reading the shim is duplicating work the kernel already does.
+The bare-call early return added in br-r37-c1-aenoattr sits AFTER that validation,
+so it still pays for it.
+
+CEILING: removing the duplication entirely would take integer-key construction
+from 0.7483x to about 0.9305x. Still short of parity, but it is the largest
+single term on this surface and it is Python-level, not architectural - unlike
+the key-length term, which needs interning.
+
+NOT YET ATTEMPTED. The error-ordering semantics are the risk: `test_add_edge_bare
+_skips_has_edge_probe` already compares exception TYPE AND ARGS against networkx
+for None and unhashable endpoints, bare and attributed, which is the gate any
+such change must pass.
+
+Method: in-process timings, min of 9 rounds x 3 reps, no ABBA square (mutation
+workload). loadavg 14.24/17.31/16.53, one peer build running, no build of my own.
+disk 123G.
