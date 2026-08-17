@@ -109,10 +109,14 @@ def test_bounded_classes_stay_bounded(cls_name):
 
 @pytest.mark.xfail(
     strict=True,
-    reason="br-r37-c1-f3i50: Graph edges(data=True) grows with node-key length "
-    "while its directed twin is flat — 114.9us at K=3 against 713.5us at K=2000, "
-    "0.4538x vs networkx which is flat at ~322us. The directed path does not do "
-    "this, so the work is a per-element canonical rebuild the twin avoids.",
+    reason="br-r37-c1-ml7s5: PARTLY FIXED and still over the bound. The per-edge "
+    "`PyGraph::edge_key` String probe is gone (index lookaside), which took K=2000 "
+    "from 713.5us/0.4538x to 142.3us/1.3629x — now a WIN against networkx rather "
+    "than a loss. But growth is still 2.74x (51.9us -> 142.3us) against networkx's "
+    "1.05x, i.e. relative 2.6x, just over the 2.5 bound. The residual is in the "
+    "same function: `key_vec` is rebuilt PER CALL, hashing every node's canonical "
+    "name, so it is O(V * key length) per materialisation. Caching it by nodes_seq "
+    "is the next step. The bound is deliberately NOT relaxed to make this pass.",
 )
 def test_graph_edges_data_is_bounded_in_key_length():
     fnx_growth, nx_growth, relative = _relative("Graph")
