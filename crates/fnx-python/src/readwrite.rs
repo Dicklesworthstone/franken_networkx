@@ -228,6 +228,7 @@ fn di_report_to_pydigraph(py: Python<'_>, report: DiReadWriteReport) -> PyResult
         succ_py_keys: HashMap::new(), // br-r37-c1-z6uka
         pred_py_keys: HashMap::new(), // br-r37-c1-z6uka
         succ_row_py: HashMap::new(),
+        succ_row_py_by_index: HashMap::new(), // br-r37-c1-sznaj
         pred_row_py: HashMap::new(),
         graph_attrs: py_graph_attrs.unbind(),
         nodes_seq: 0,

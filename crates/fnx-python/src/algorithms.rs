@@ -15973,6 +15973,7 @@ pub fn transitive_closure(
             succ_py_keys: HashMap::new(),
             pred_py_keys: HashMap::new(),
             succ_row_py: HashMap::new(),
+            succ_row_py_by_index: HashMap::new(), // br-r37-c1-sznaj
             pred_row_py: HashMap::new(),
             graph_attrs: pyo3::types::PyDict::new(py).unbind(),
             nodes_seq: 0,
