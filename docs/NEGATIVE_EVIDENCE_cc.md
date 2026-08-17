@@ -18851,3 +18851,85 @@ incumbent_ratio=1.2715x
 campaign_output=true
 decision_gate=median_ci
 cv_role=report_only
+
+---
+
+## SURFACE RE-SCAN in a gate-passing window, and the next lever isolated to one argument (2026-08-17)
+
+Nothing was queued for certification, so the window was spent re-ranking the
+surface. The previous ranking predates several landed levers, and targets were
+being chosen from it.
+
+WINDOW: gate PASS, 1-minute 10.43 against 5-minute 11.30, ratio 1.08. Per-op
+loadavg 10.52-10.92, core clock 4288-4292 MHz throughout. Ranking scan, not a
+certification: each op is a median of five interleaved repeats. `.so`
+`9c19411826b6`, which was 56 seconds STALE against a peer's in-flight `views.rs`
+edit -- flagged because that peer's work is on `edges(nbunch)`, so that one op's
+reading is one edit behind. No build was started in the measured window.
+
+WORST CELLS AT K=2000, ratio vs networkx:
+
+    0.1322  MultiGraph    (u,v) in G.edges   nx  155.4  fnx 1176.0
+    0.1386  MultiDiGraph  (u,v) in G.edges   nx  159.9  fnx 1153.4
+    0.2021  MultiDiGraph  G[u][v]            nx  299.1  fnx 1479.6
+    0.2068  MultiDiGraph  row[v]             nx  272.3  fnx 1316.2
+    0.2204  Graph         neighbors          nx  168.9  fnx  766.5
+    0.2264  MultiGraph    neighbors          nx  167.1  fnx  738.2
+    0.2656  MultiDiGraph  has_edge           nx   91.3  fnx  343.8
+    0.3161  MultiGraph    G[u][v]            nx  294.7  fnx  932.3
+    0.3411  MultiGraph    row[v]             nx  271.9  fnx  797.2
+
+### The MultiDiGraph gap is NOT the cheap missing sibling it looks like
+
+`MultiDiGraph` lags `MultiGraph` on exactly the ops this pane fixed -- `row[v]`
+0.2068x against 0.3411x, and `v in row` 0.4353x where MultiGraph is a certified
+WIN. The obvious read is "mirror the lever to the directed class".
+
+That is REFUTED and must not be attempted: `MultiDiGraph` keys its edges by
+`DirectedEdgeKeyRef` (strings), so it has no index-keyed edge map and its
+`has_edge_by_indices` resolves both positions back to NAMES. Routing through it
+buys nothing. Closing that gap is a storage change, not a mirror. This was
+established when `has_edge` was fixed and is restated here because the ranking
+makes the wrong move look obvious.
+
+### The worst cell isolates to ONE ARGUMENT
+
+`(u,v) in G.edges` is the worst cell on the surface. Three measurements narrow it
+completely.
+
+FIRST, it is not the Python wrapper and not an O(E) scan. The shim's
+`_MultiGraphEdgeView.__contains__` already routes to a native
+`has_edge(u, v, key)`, and the cost is flat in edge count: 540.6 ns at E=10
+against 549.6 ns at E=400.
+
+SECOND, it is purely key length:
+
+    Graph         K=2 1.0712x   K=2000 1.0645x   flat, already a WIN
+    MultiGraph    K=2 0.4141x   K=2000 0.1525x   571.0 -> 1540.9 ns
+    MultiDiGraph  K=2 0.4322x   K=2000 0.1585x   549.2 -> 1472.6 ns
+
+THIRD, and this is the whole finding, it is one ARGUMENT of one function:
+
+    MultiGraph native has_edge   K=2      K=2000
+      2-arg  has_edge(u, v)      181.2     175.6   FLAT
+      3-arg  has_edge(u, v, k)   360.5    1303.2   3.6x
+
+Both fast paths in `PyMultiGraph::has_edge` are gated on `key.is_none()`. Supply
+a key and control falls through to `node_key_to_string(u)`, `has_node(u_c)`,
+`node_key_to_string(v)`, `resolve_internal_edge_key(u_c, v_c, key)` and
+`edge_attrs(u_c, v_c, internal)` -- four or more operations linear in node key
+length. The 2-arg form is flat because br-r37-c1-2ndmw's `slot_at_position` gave
+it an O(1) position-to-slot bridge; the keyed form never got one.
+
+Filed as br-r37-c1-s8dj1. The primitive already exists:
+`MgSlabStorage::edge_attrs_by_pair(l, r, key)` is slot-keyed, and
+`slot_at_position` bridges to it, so a `MultiGraph::edge_attrs_by_indices`
+mirroring `has_edge_by_indices` is the shape of the fix. ONE QUESTION DECIDES
+whether it is complete or partial and should be answered before any patch:
+`resolve_internal_edge_key` takes canonical `&str`, so whether the public-to-
+internal edge key mapping is reachable by index determines whether both
+canonicals can be skipped or only one.
+
+`neighbors` at 0.22x on ALL FOUR classes is the other unattacked shape here --
+uniform across classes, which usually means a shared wrapper rather than a
+per-class storage issue.
