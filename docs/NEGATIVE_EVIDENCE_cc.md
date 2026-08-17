@@ -19019,3 +19019,59 @@ incumbent_ratio_after=0.9371x
 campaign_output=false
 decision_gate=median_ci
 cv_role=report_only
+
+---
+
+## br-r37-c1-s8dj1 — a caveat RETIRED by byte-identity, and the certification pair built (2026-08-17)
+
+### The caveat is gone, and it was retired by evidence rather than by assertion
+
+`7827c4d00` shipped with an explicit warning in its own commit message: the
+binary that had been tested was built from a pin of the PREVIOUS HEAD, because a
+peer landed `lib.rs` changes during the build. The committed hunk was therefore
+"the same patch re-applied to the newer base at the same unique anchor" -- true,
+but not the same thing as having tested what was committed.
+
+Both arms have now been built fresh from the actual commits:
+
+    base  04ea9579d  so md5 e789955f8444
+    cand  7827c4d00  so md5 a7166843a909
+
+The candidate is **BYTE-IDENTICAL** to `so_s8dj1.so`, the binary that passed the
+22 new guard tests, the 400-graph randomized differential and the 99/60103 full
+suite. So the peer's intervening `lib.rs` changes did not alter the compiled
+output on this path, and the tested artefact and the committed source are the
+same program. The caveat is retired on evidence.
+
+Both arms re-validated on the fresh builds: 250 randomized graphs with node
+removals, every `(a, b, k)` probed for keyed `has_edge` plus `(a, b) in G.edges`
+— 0 mismatches against networkx on BOTH arms.
+
+### The certification pair is built and the row is NOT certified
+
+Harness `/data/tmp/claude-1000/certify_s8dj1.py` over
+`/data/tmp/claude-1000/s8dj1_worker.py`, with commit-pinned arms `pkg_cbase` and
+`pkg_ccand`. It is ready to run in the next build-free window.
+
+**THIS WINDOW WAS SPENT BUILDING, SO NOTHING IS CERTIFIED FROM IT.** Two release
+builds ran here; a measurement taken in the window that produced its own arms is
+exactly the contamination the fleet warned about. A 3-round smoke run was taken
+only to prove the harness executes, and its numbers are recorded as INDICATIVE
+and must not be quoted:
+
+    edges-in         4.4579x   vs-nx 0.1217x -> 0.5425x
+    keyed has_edge   7.0710x   vs-nx 0.0846x -> 0.6060x
+
+Three rounds is a smoke test, not a square; the A/A nulls it produced (0.9833 and
+0.9736) are correspondingly loose and are further reason not to read anything
+into the medians.
+
+### On the placement gate
+
+No placement gate has blocked a certification on this pane. The two rows that
+were blocked -- `has_edge` and the row-membership pair -- failed on the
+LOAD-DIRECTION gate, which was a defect in this pane's own instrument and was
+fixed in `61545a2ae`; both have since been re-certified in gate-passing windows.
+Several runs returned `SIBLING-CONTENDED`, which this pane records on every row
+but has never treated as blocking. So there is nothing here to re-run on account
+of an inverted argmin.
