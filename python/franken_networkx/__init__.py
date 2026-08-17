@@ -177,11 +177,22 @@ class EdgePartition(_Enum):
 
 
 def _directed_graph_has_successor(self, u, v):
-    return u in self and v in self.succ[u]
+    # br-r37-c1-ppiei sibling: nx is `u in self._succ and v in self._succ[u]`,
+    # so the MAPPING decides whether `u` exists -- not the node view. `u in self`
+    # asked the wrong authority, and under an assigned `_succ` carrying a node
+    # the native store does not, this returned False where nx returns True: a
+    # SILENT wrong answer rather than a raised one.
+    #
+    # Reading `self.succ` once also drops the separate `u in self` native call
+    # the old form paid on top of the property read it already made.
+    succ = self.succ
+    return u in succ and v in succ[u]
 
 
 def _directed_graph_has_predecessor(self, u, v):
-    return u in self and v in self.pred[u]
+    # The `_pred` twin of the above; same authority, same reasoning.
+    pred = self.pred
+    return u in pred and v in pred[u]
 
 
 def _digraph_out_edges(self, nbunch=None, data=False, default=None):
@@ -44969,6 +44980,11 @@ def _multigraph_filtered_target_order(row, filter_chain):
     return targets
 
 
+# br-r37-c1-fvgetattr: memoised one-edge graphs, keyed by the PARENT class,
+# used to answer "could this attribute exist?" without copying the parent.
+_FILTERED_VIEW_ATTR_PROBE = {}
+
+
 class _FilteredGraphView:
     adjlist_inner_dict_factory = dict
     adjlist_outer_dict_factory = dict
@@ -45090,6 +45106,34 @@ class _FilteredGraphView:
     def __getattr__(self, name):
         if name in _FILTERED_VIEW_MUTATORS:
             return _frozen
+        # br-r37-c1-fvgetattr: an attribute MISS must not materialise the parent.
+        # The old body was `return getattr(self.copy(), name)`, and copy() walks
+        # the PARENT: hasattr on a four-node subgraph of a 3200-node parent cost
+        # 394us and raised AttributeError anyway - 0.0008x against networkx,
+        # growing linearly in the parent with no floor. Misses are ordinary:
+        # hasattr, duck-typing probes, copy, pickle and repr machinery all ask
+        # for names a graph does not have.
+        #
+        # When this runs the name is already absent from the whole MRO, so the
+        # copy can only help for attributes that exist as INSTANCE state. A
+        # memoised ONE-EDGE graph of the parent's class carries that state and
+        # costs nothing, so it answers "could this exist?" without the parent.
+        # If there is no `_graph` (an object mid-construction, or a view shape
+        # that does not keep one) the old behaviour is kept unchanged.
+        if name.startswith("__") or name == "_graph":
+            raise AttributeError(name)
+        parent = self.__dict__.get("_graph")
+        if parent is not None:
+            parent_cls = type(parent)
+            probe = _FILTERED_VIEW_ATTR_PROBE.get(parent_cls)
+            if probe is None:
+                probe = parent_cls()
+                probe.add_edge("__fnx_attr_probe_u__", "__fnx_attr_probe_v__")
+                _FILTERED_VIEW_ATTR_PROBE[parent_cls] = probe
+            if not hasattr(probe, name):
+                raise AttributeError(
+                    f"{type(self).__name__!r} object has no attribute {name!r}"
+                )
         return getattr(self.copy(), name)
 
     # br-r37-c1-fgvfrz: peer commit 9b9f47f2 (br-r37-c1-rcd0e) added
@@ -49436,6 +49480,34 @@ class _ConversionGraphViewBase:
     def __getattr__(self, name):
         if name in _FILTERED_VIEW_MUTATORS:
             return _frozen
+        # br-r37-c1-fvgetattr: an attribute MISS must not materialise the parent.
+        # The old body was `return getattr(self.copy(), name)`, and copy() walks
+        # the PARENT: hasattr on a four-node subgraph of a 3200-node parent cost
+        # 394us and raised AttributeError anyway - 0.0008x against networkx,
+        # growing linearly in the parent with no floor. Misses are ordinary:
+        # hasattr, duck-typing probes, copy, pickle and repr machinery all ask
+        # for names a graph does not have.
+        #
+        # When this runs the name is already absent from the whole MRO, so the
+        # copy can only help for attributes that exist as INSTANCE state. A
+        # memoised ONE-EDGE graph of the parent's class carries that state and
+        # costs nothing, so it answers "could this exist?" without the parent.
+        # If there is no `_graph` (an object mid-construction, or a view shape
+        # that does not keep one) the old behaviour is kept unchanged.
+        if name.startswith("__") or name == "_graph":
+            raise AttributeError(name)
+        parent = self.__dict__.get("_graph")
+        if parent is not None:
+            parent_cls = type(parent)
+            probe = _FILTERED_VIEW_ATTR_PROBE.get(parent_cls)
+            if probe is None:
+                probe = parent_cls()
+                probe.add_edge("__fnx_attr_probe_u__", "__fnx_attr_probe_v__")
+                _FILTERED_VIEW_ATTR_PROBE[parent_cls] = probe
+            if not hasattr(probe, name):
+                raise AttributeError(
+                    f"{type(self).__name__!r} object has no attribute {name!r}"
+                )
         return getattr(self.copy(), name)
 
     # br-r37-c1-cvfrz: a conversion view's class is built with the
@@ -49799,6 +49871,12 @@ class _DirectedGraphConversionView(_ConversionGraphViewBase):
         return self._graph.has_edge(u, v)
 
     def has_successor(self, u, v):
+        # br-r37-c1-ppiei: NOT the same fix as the module-level pair. Switching
+        # this to `u in self.succ` changes nothing, because the view's own
+        # succ/pred do not reflect an assigned `_adj` on the WRAPPED graph --
+        # measured, all four of these still return False where nx returns True.
+        # The defect here is upstream of this expression and is tracked
+        # separately rather than papered over with a no-op edit.
         return u in self._graph and v in self.succ[u]
 
     def has_predecessor(self, u, v):
@@ -49835,6 +49913,12 @@ class _DirectedMultiGraphConversionView(_ConversionGraphViewBase):
         return self._graph.has_edge(u, v, key)
 
     def has_successor(self, u, v):
+        # br-r37-c1-ppiei: NOT the same fix as the module-level pair. Switching
+        # this to `u in self.succ` changes nothing, because the view's own
+        # succ/pred do not reflect an assigned `_adj` on the WRAPPED graph --
+        # measured, all four of these still return False where nx returns True.
+        # The defect here is upstream of this expression and is tracked
+        # separately rather than papered over with a no-op edit.
         return u in self._graph and v in self.succ[u]
 
     def has_predecessor(self, u, v):
