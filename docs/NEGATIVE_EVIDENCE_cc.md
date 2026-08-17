@@ -19656,3 +19656,82 @@ incumbent_ratio_after=0.3203x
 campaign_output=false
 decision_gate=median_ci
 cv_role=report_only
+
+## 2026-08-17 GoldenBison KEEP: the UNDIRECTED nbunch halves — 1.9x-12.5x, measured through a peer's build (br-r37-c1-mgednb, br-r37-c1-gnbmemo)
+
+The two family members certified nowhere else. Both levers were landed during
+disk emergencies with benchmarks barred, so both carried only direct readings
+until now. Arms are PYTHON packages over a byte-identical ELF and I started NO
+build, so this measurement added nothing to the host.
+
+    row                              OLD        NEW      self-speedup
+    MultiGraph.edges(nb,data=True)   0.1749x   2.1808x     12.47x
+    MultiGraph.edges(nb,data=False)  0.2289x   2.1943x      9.59x
+    MultiGraph.edges(nb,data=weight) 0.2053x   2.3019x     11.21x
+    Graph.edges(nb,data=True)        0.8872x   1.7240x      1.94x
+    Graph.edges(nb,data=False)       0.7411x   1.6215x      2.19x
+    Graph.edges(nb,data=weight)      0.8878x   1.7128x      1.93x
+
+Separation is complete on all six: the worst NEW invocation beats the best OLD
+one on every row. All six cross from a LOSS to a WIN against networkx.
+
+THE WINDOW WAS NOT CLEAN AND THE BRIEF SAID IT WAS. I was told no builds were
+running; `ps` at the moment I checked showed a peer's `cargo-nextest` +
+`rustc` at 117 percent CPU, started about 20 seconds earlier. Build-process
+counts sampled at each invocation ran 3, 11, 7, 7, 4, 6. That is roughly one core
+of 64, so I proceeded and recorded it rather than discarding the window - but the
+number is in this row because a reader should not have to take "clean window" on
+trust. This is the second time this campaign that a quoted host state was stale
+on arrival; checking it myself is the only reason it is documented.
+
+ADMISSIBILITY 0 of 36, and the per-arm diagnostic says why:
+
+    failures attributable to arm B (fnx) alone   22
+    failures attributable to both arms           14
+    failures attributable to arm A (networkx)     0
+
+CUMULATIVELY, across every row measured since the `NULL-FAILED(A|B|AB)`
+reporting landed: 77 null failures, 46 arm B alone, 31 both, and ZERO arm A
+alone. Not one row in 77 has failed because the incumbent arm drifted. That is no
+longer a suggestive median difference - it is a categorical property of this
+substrate, and it means the gate as written is an fnx-arm stability test wearing
+a symmetric-looking conjunction.
+
+These are 40-microsecond operations, the short-slot regime where
+br-r37-c1-gateaudit predicted the null is proportionally noisiest; the ~6ms
+conversion rows admitted 16 of 18 in a worse-looking window earlier today. Slot
+duration, not result quality, is what separates those two admission rates.
+
+WHY THIS IS STILL QUOTABLE. The smallest effect is 1.93x and the largest 12.47x.
+A 5 percent one-arm drift cannot manufacture a 12x gap, and the OLD arm's own
+spread across invocations (e.g. Graph.edges(data=False) 0.9360, 0.6993, 0.7411)
+is far smaller than the gap to any NEW invocation. What I would NOT quote from
+these runs is the difference between, say, 1.93x and 1.94x.
+
+A/A null control, measured: across all 36 rows the nulls span [0.9961, 1.1822].
+Arm A's nulls sit in [0.9978, 1.0748] and arm B's in [1.0300, 1.1822] - disjoint
+above 1.0748, the same shape as the mdginb row and now on a third workload.
+
+SUBSTRATE. host thinkstation1, governor `powersave`, 64 CPUs, avx2, python
+3.13.7, live networkx 3.6.1, no rch worker. Workload `undirected-nbunch`,
+reps 8, rounds 81, warmup 60, square ABBAABBA, bootstrap median CI. NO BUILD of
+mine, in or out of the window; arms are Python-only copies over one shared ELF
+(`famOLD` = shim at 6ba1cf4f4^, `famNEW` = HEAD shim, verified byte-identical to
+the working tree before use). Per-arm observed loadavg 17.55/24.77/44.34,
+20.13/25.06/44.23, 29.54/26.92/44.53, 29.14/26.91/44.33, 29.37/26.99/44.27,
+28.12/26.80/44.02; mean CPU at invocation start 3404, 3946, 3990, 3853, 2582,
+2766 MHz; per-row clock 3818-4140 MHz, arm-to-arm skew at or below 0.44 percent.
+disk 122G free.
+
+bench_elf_sha256=496635beca2ae82b0f9eebe997741440addf6015c9408a1a02590740a645e249
+elf_sha256=496635beca2ae82b0f9eebe997741440addf6015c9408a1a02590740a645e249
+harness_sha256=977bc0ab382ada602af2a28daf2fc20bf62bc1a1d93489b71932e63a0de1f5f9
+comparison_class=INCUMBENT
+incumbent=networkx
+incumbent_same_invocation=true
+incumbent_ratio=1.6215x
+incumbent_ratio_before=0.7411x
+self_speedup=1.93x
+campaign_output=true
+decision_gate=median_ci
+cv_role=report_only

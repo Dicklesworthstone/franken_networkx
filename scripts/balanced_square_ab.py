@@ -1301,8 +1301,52 @@ def workload_conversions(reps: int):
     return build, ops
 
 
+def workload_undirected_nbunch(reps: int):
+    """`MultiGraph.edges(nbunch)` and `Graph.edges(nbunch)` (br-r37-c1-mgednb,
+    br-r37-c1-gnbmemo).
+
+    The two family members certified nowhere else. The directed family was
+    certified as `nbunch-family`; these are the undirected halves, whose levers
+    were landed during disk emergencies with benchmarks barred and so carry only
+    direct readings.
+
+    All three data spellings are carried for each class because the whole point
+    of this family was that only ONE spelling had ever been wired, and a
+    one-spelling probe reported the surface healthy.
+    """
+    edges, big, length = 300, 200, 2000
+
+    def build(module):
+        fixture = {}
+        for cls in ("MultiGraph", "Graph"):
+            graph = getattr(module, cls)()
+            for i in range(edges):
+                graph.add_edge(
+                    f"a{i}".ljust(length, "x"), f"b{i}".ljust(length, "y"), weight=i
+                )
+            fixture[cls] = (graph, list(graph.nodes())[:big])
+        return fixture["MultiGraph"][0], fixture
+
+    def ops(graph, fixture):
+        table = {}
+        for cls, (g, nb) in fixture.items():
+            table[f"{cls}.edges(nb,data=True)"] = (
+                lambda g=g, nb=nb: list(g.edges(nb, data=True))
+            )
+            table[f"{cls}.edges(nb,data=False)"] = (
+                lambda g=g, nb=nb: list(g.edges(nb, data=False))
+            )
+            table[f"{cls}.edges(nb,data=weight)"] = (
+                lambda g=g, nb=nb: list(g.edges(nb, data="weight"))
+            )
+        return table
+
+    return build, ops
+
+
 WORKLOADS = {
     "view-reads": workload_view_reads,
+    "undirected-nbunch": workload_undirected_nbunch,
     "conversions": workload_conversions,
     "nbunch-family": workload_nbunch_family,
     "nbunch-key-length": workload_nbunch_key_length,
