@@ -46825,6 +46825,164 @@ _RAW_ADD_WEIGHTED_BY_CLASS = {
 _RAW_ADD_WEIGHTED_METHODS = tuple(_RAW_ADD_WEIGHTED_BY_CLASS.values())
 
 
+def _assigned_private_mappings(self, storage):
+    """Every assigned mapping this graph carries, adjacency-side first."""
+    out = []
+    for key in (_PRIVATE_ADJ_OVERRIDE, _PRIVATE_SUCC_OVERRIDE, _PRIVATE_PRED_OVERRIDE):
+        mapping = storage.get(key)
+        if mapping is not None and mapping not in out:
+            out.append(mapping)
+    return out
+
+
+def _assigned_private_remove_node(self, n):
+    """remove_node for a graph carrying assigned private storage (br-r37-c1-wv3cu).
+
+    networkx deletes the node's row AND every back-reference to it:
+
+        nbrs = list(_adj[n]); del _node[n]
+        for u in nbrs: del _adj[u][n]
+        del _adj[n]
+
+    The back-references are the part that a naive `del mapping[n]` misses — the
+    node would vanish from the keys while still appearing inside its neighbours'
+    rows, which is a corrupt graph rather than a partial fix.
+
+    Existence is decided by the ASSIGNED mapping, since that is the storage: a
+    node present only natively is still absent as far as networkx is concerned.
+    """
+    storage = vars(self)
+    mappings = _assigned_private_mappings(self, storage)
+    node_map = storage.get(_PRIVATE_NODE_OVERRIDE)
+
+    # networkx's order decides the contract, and it needs BOTH:
+    #
+    #     nbrs = list(_adj[n])      # KeyError if absent from the adjacency
+    #     del _node[n]              # KeyError if absent from the node mapping
+    #
+    # so a node present in an assigned `_adj` but not in `_node` RAISES, and so
+    # does the reverse. My first version accepted either and got remove_node('a')
+    # right while breaking remove_node('ZZ') — the sweep went 32 to 30 instead of
+    # 32 to 7, which is what said the authority was wrong rather than missing.
+    if n not in self._adj or n not in self._node:
+        raise NetworkXError(f"The node {n} is not in the graph.")
+
+    raw = _RAW_REMOVE_NODE_BY_CLASS.get(type(self))
+    if raw is not None:
+        try:
+            raw(self, n)
+        except Exception:  # noqa: BLE001 - absent natively is fine; storage rules
+            pass
+
+    if node_map is not None:
+        node_map.pop(n, None)
+    for mapping in mappings:
+        for nbr in list(mapping.get(n, ())):
+            row = mapping.get(nbr)
+            if row is not None:
+                row.pop(n, None)
+        for row in mapping.values():
+            row.pop(n, None)
+        mapping.pop(n, None)
+
+
+def _assigned_private_remove_edge(self, u, v, key=None):
+    """remove_edge: drop the pair from every assigned mapping, both directions."""
+    storage = vars(self)
+    mappings = _assigned_private_mappings(self, storage)
+    multi = self.is_multigraph()
+
+    found = False
+    for mapping in mappings:
+        row = mapping.get(u)
+        if row is not None and v in row:
+            found = True
+    if not found:
+        raise NetworkXError(f"The edge {u}-{v} is not in the graph.")
+
+    raw = _RAW_REMOVE_EDGE_BY_CLASS.get(type(self))
+    if raw is not None:
+        try:
+            raw(self, u, v, key) if (multi and key is not None) else raw(self, u, v)
+        except Exception:  # noqa: BLE001 - the assigned mapping is the authority
+            pass
+
+    for mapping in mappings:
+        for a, b in ((u, v), (v, u)):
+            row = mapping.get(a)
+            if row is None or b not in row:
+                continue
+            if multi:
+                keydict = row[b]
+                if key is None:
+                    keydict.pop(next(iter(keydict)), None)
+                else:
+                    keydict.pop(key, None)
+                if not keydict:
+                    row.pop(b, None)
+            else:
+                row.pop(b, None)
+            if a == b:
+                break
+
+
+def _assigned_private_clear(self):
+    """clear(): networkx empties the assigned mappings themselves."""
+    storage = vars(self)
+    raw = _RAW_CLEAR_BY_CLASS.get(type(self))
+    if raw is not None:
+        raw(self)
+    node_map = storage.get(_PRIVATE_NODE_OVERRIDE)
+    if node_map is not None:
+        node_map.clear()
+    for mapping in _assigned_private_mappings(self, storage):
+        mapping.clear()
+
+
+def _assigned_private_clear_edges(self):
+    """clear_edges(): rows survive, their contents do not."""
+    storage = vars(self)
+    raw = _RAW_CLEAR_EDGES_BY_CLASS.get(type(self))
+    if raw is not None:
+        raw(self)
+    for mapping in _assigned_private_mappings(self, storage):
+        for row in mapping.values():
+            row.clear()
+
+
+_RAW_REMOVE_NODE_BY_CLASS = {
+    Graph: Graph.remove_node,
+    DiGraph: DiGraph.remove_node,
+    MultiGraph: MultiGraph.remove_node,
+    MultiDiGraph: MultiDiGraph.remove_node,
+}
+_RAW_REMOVE_NODE_METHODS = tuple(_RAW_REMOVE_NODE_BY_CLASS.values())
+
+_RAW_REMOVE_EDGE_BY_CLASS = {
+    Graph: Graph.remove_edge,
+    DiGraph: DiGraph.remove_edge,
+    MultiGraph: MultiGraph.remove_edge,
+    MultiDiGraph: MultiDiGraph.remove_edge,
+}
+_RAW_REMOVE_EDGE_METHODS = tuple(_RAW_REMOVE_EDGE_BY_CLASS.values())
+
+_RAW_CLEAR_BY_CLASS = {
+    Graph: Graph.clear,
+    DiGraph: DiGraph.clear,
+    MultiGraph: MultiGraph.clear,
+    MultiDiGraph: MultiDiGraph.clear,
+}
+_RAW_CLEAR_METHODS = tuple(_RAW_CLEAR_BY_CLASS.values())
+
+_RAW_CLEAR_EDGES_BY_CLASS = {
+    Graph: Graph.clear_edges,
+    DiGraph: DiGraph.clear_edges,
+    MultiGraph: MultiGraph.clear_edges,
+    MultiDiGraph: MultiDiGraph.clear_edges,
+}
+_RAW_CLEAR_EDGES_METHODS = tuple(_RAW_CLEAR_EDGES_BY_CLASS.values())
+
+
 def _assigned_private_has_edge_simple(self, u, v):
     hash(u)
     hash(v)
@@ -47066,6 +47224,10 @@ def _install_private_method_shadows(self, storage):
             _assigned_private_add_nodes_from,
             _RAW_ADD_NODES_FROM_METHODS,
         )
+        install("remove_node", _assigned_private_remove_node, _RAW_REMOVE_NODE_METHODS)
+        install("remove_edge", _assigned_private_remove_edge, _RAW_REMOVE_EDGE_METHODS)
+        install("clear", _assigned_private_clear, _RAW_CLEAR_METHODS)
+        install("clear_edges", _assigned_private_clear_edges, _RAW_CLEAR_EDGES_METHODS)
         install(
             "add_edges_from",
             _assigned_private_add_edges_from,
