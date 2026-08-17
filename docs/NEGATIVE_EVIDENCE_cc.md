@@ -21766,3 +21766,60 @@ incumbent=networkx
 campaign_output=true
 decision_gate=median_ci
 cv_role=report_only
+
+## 2026-08-17 GoldenBison freeze() 0.0768x -> 0.2803x, measured and PARKED behind a file reservation (br-r37-c1-frzsetattr)
+
+Measured, parity-checked, and deliberately NOT committed: `HazyRiver` holds an
+exclusive Agent Mail reservation on `python/franken_networkx/__init__.py` until
+20:01:14Z. The pre-commit guard refused, which is it working, and I did not set
+`AGENT_MAIL_GUARD_MODE=warn`. The patch is parked outside the repo; this row is so
+the measurement is not lost if it is never applied.
+
+THE CELL. `freeze(G)` read 0.0820x at 200 nodes and 0.0768x at 3200 - FLAT in
+graph size, so a per-call constant rather than a scaling defect. Reads on the
+frozen graph are already fine (1.76x and 2.05x WINS), so the whole loss is in the
+freeze itself.
+
+THE CAUSE. Every `setattr` on an fnx graph runs the class's custom
+`__setattr__`, which ends in `self._fnx_register_gc_dict(vars(self))`.
+`vars(self)` returns the SAME dict object each time, so `freeze()` re-registered
+one dict TWELVE times per call. The cost was per-assignment bookkeeping, not the
+assignments - networkx's `freeze` just rebinds the names and costs 0.285us.
+
+THE CHANGE. The eleven method shadows go straight into the instance dict;
+`G.frozen = True` is left on the normal path so the dict is still registered
+exactly once per freeze. None of the eleven names is in
+`_MULTIDIGRAPH_PUBLIC_ADJ_PROPERTIES`, `_DIRECTED_CACHED_PUBLIC_NAMES` or
+`_CLASS_PREDICATE_NAMES`, so the custom path did nothing for them beyond the plain
+write and that redundant registration.
+
+    N=200    6.13us -> 0.979us    0.0820x -> 0.2906x
+    N=3200   3.91us -> 1.018us    0.0768x -> 0.2803x
+    per-arm MHz 4010/4010 and 4144/4145, skew 0.00% and -0.03%
+    A/A control 1.023us vs 1.028us, null 1.0047, MHz 4089/4089
+
+STILL A LOSS at 0.28x and not claimed otherwise: networkx is 0.285us and we are
+1.0us. The residue is eleven `hasattr` guards plus the dict writes. The guards
+stay - `freeze()` can be handed a view - and they are cheap next to what was
+removed.
+
+PARITY: 0 divergences across all four classes. `is_frozen`, the `frozen`
+attribute, and all eleven mutators compared by exception TYPE AND MESSAGE, plus
+node and edge counts unchanged. Message comparison matters here because `_frozen`'s
+error text is the observable contract. 279 freeze/frozen tests pass.
+
+WHAT THE RESERVATION EXPLAINS, which is worth more than the cell. I had this same
+file clobbered TWICE earlier today while uncommitted - once by `a729d240b`, once
+by `391593a00` landing between my edit and my `git add`. The second produced
+commit `0b41b6e48`, titled as a `len()` fix and containing ONLY test files,
+because I staged someone else's version of the shim; main carried a guard test
+whose subject was absent until `05c31def6`. All three episodes have one cause: I
+was editing a file another agent had formally reserved, and I never checked.
+`check_file_reservation_conflicts` answers that in one call and I should have been
+using it before touching any shared file.
+
+Method: in-process ABBA, 9 rounds x 200 reps after 50 warm-up iterations, min per
+arm, per-arm core id and kHz after every block. Host genuinely busy: loadavg
+32.32/32.28/28.16, cumulative idle 76.6 percent, 15-17 CPUs over the harness
+bound, so NOTHING was certified through the perf harness this tick and no
+admission attempt was made. disk 214G. No build.
