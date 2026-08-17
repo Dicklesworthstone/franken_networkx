@@ -129,3 +129,67 @@ def test_networkx_is_flat_on_the_same_axis():
         "networkx grew on this axis too, so the fixture measures something other "
         "than the defect"
     )
+
+
+# br-r37-c1-fvgetattr: the family sweep. The copy-fallback was found in
+# _FilteredGraphView by measurement and in _ConversionGraphViewBase by accident
+# (a patch assertion matched twice instead of once). Rather than trust that two
+# is all there are, every view kind that reaches a __getattr__ fallback is pinned
+# here on the same axis. _ReverseDirectedViewBase already raised AttributeError
+# directly and is carried as the was-always-correct member of the family.
+VIEW_KINDS = [
+    ("edge_subgraph", lambda g: g.edge_subgraph(list(g.edges(keys=True))[:3])),
+    ("subgraph", lambda g: g.subgraph(list(g.nodes())[:4])),
+    ("to_undirected_as_view", lambda g: g.to_undirected(as_view=True)),
+    ("reverse_as_view", lambda g: g.reverse(copy=False)),
+]
+
+
+@pytest.mark.parametrize("label,make", VIEW_KINDS, ids=[k[0] for k in VIEW_KINDS])
+def test_every_view_kind_is_flat_in_the_parent(label, make):
+    """No view kind may pay for its parent on an attribute MISS.
+
+    Measured after the fix, parent 200 -> 3200 with the view held small:
+    edge_subgraph 0.64x, subgraph 1.01x, to_undirected(as_view) 1.03x,
+    reverse(copy=False) 0.96x.
+    """
+
+    def build(parent_nodes):
+        graph = fnx.MultiDiGraph()
+        for i in range(parent_nodes):
+            graph.add_edge(f"n{i}", f"n{(i + 1) % parent_nodes}", w=i)
+        return make(graph)
+
+    small = _time_miss(build(SMALL_PARENT))
+    large = _time_miss(build(LARGE_PARENT))
+    growth = large / small
+    assert growth < MAX_GROWTH, (
+        f"{label}: a failed attribute lookup grew {growth:.2f}x when only the "
+        f"PARENT went from {SMALL_PARENT} to {LARGE_PARENT} nodes "
+        f"({small * 1e6:.2f}us -> {large * 1e6:.2f}us)"
+    )
+
+
+@pytest.mark.parametrize("label,make", VIEW_KINDS, ids=[k[0] for k in VIEW_KINDS])
+def test_every_view_kind_still_raises_attributeerror(label, make):
+    """The cost fix must not change the behaviour it was hiding behind."""
+    graph = fnx.MultiDiGraph()
+    for i in range(40):
+        graph.add_edge(f"n{i}", f"n{(i + 1) % 40}", w=i)
+    view = make(graph)
+    for name in ("totally_missing_attr", "_nope", "shape"):
+        with pytest.raises(AttributeError):
+            getattr(view, name)
+
+
+@pytest.mark.parametrize("label,make", VIEW_KINDS, ids=[k[0] for k in VIEW_KINDS])
+def test_every_view_kind_still_serves_real_attributes(label, make):
+    """The probe must not start refusing attributes that DO exist."""
+    graph = fnx.MultiDiGraph()
+    for i in range(12):
+        graph.add_edge(f"n{i}", f"n{(i + 1) % 12}", w=i)
+    view = make(graph)
+    assert view.number_of_nodes() >= 1
+    assert isinstance(view.is_directed(), bool)
+    assert isinstance(view.is_multigraph(), bool)
+    assert view.graph is not None

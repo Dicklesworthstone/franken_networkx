@@ -21055,3 +21055,50 @@ incumbent_ratio_after=0.5015x
 campaign_output=false
 decision_gate=median_ci
 cv_role=report_only
+
+## 2026-08-17 GoldenBison correction and family sweep for the view attribute-miss fix (br-r37-c1-fvgetattr)
+
+A FACTUAL CORRECTION TO THE ROW ABOVE FIRST. It says the copy-fallback lived in
+`_FilteredGraphView` and `_MultiDiGraphEdgeView`. The second class is wrong: it is
+`_ConversionGraphViewBase`. I derived that name by looking up the class owning
+"line 4465" when 4465 was a RELATIVE offset from the start of `_FilteredGraphView`
+produced by an `awk ... | grep -n` pipeline, not an absolute file line. The code
+that shipped is correct - both real sites were patched, because the patch matched
+on the four-line body rather than on my belief about where it lived - but the
+commit message names the wrong class and this row is the correction.
+
+THE SWEEP I SHOULD HAVE RUN BEFORE CLAIMING "TWO CLASSES". Every `__getattr__` in
+the shim, with the class that owns it:
+
+    _ApproximationNamespace     namespace forwarder, not a view - unaffected
+    _ReverseDirectedViewBase    raises AttributeError directly - ALREADY CORRECT
+    _FilteredGraphView          had the copy-fallback - FIXED
+    _ConversionGraphViewBase    had the copy-fallback - FIXED
+    _LiveMultiEdgeDataView      forwards to the nx top-level namespace - unaffected
+
+So the family is three view classes, two of which were defective and one of which
+was already right. `_ReverseDirectedViewBase` is the interesting member: it shows
+the correct shape was already known in this codebase and simply had not been
+applied to its siblings - the same missing-sibling pattern as
+`family_memo_one_spelling_wired`, now on its fourth appearance in this campaign.
+
+MEASURED AFTER THE FIX, view held small, parent 200 -> 3200:
+
+    edge_subgraph            0.64x growth
+    subgraph                 1.01x
+    to_undirected(as_view)   1.03x   <- the _ConversionGraphViewBase path
+    reverse(copy=False)      0.96x   <- was always correct
+
+All flat. `to_undirected(as_view=True)` confirms the second fix was needed and
+works; `reverse(copy=False)` confirms the fixture would have shown growth if
+growth existed.
+
+The guard file now pins all four view kinds on the growth axis, plus two
+behavioural checks per kind: that a miss still raises `AttributeError`, and that
+real attributes are still served - a probe that started refusing attributes which
+DO exist would be a worse defect than the one it replaced. 16 tests. View surface
+7626 passed.
+
+Method: in-process growth shapes, min of 5 rounds x 200 reps. loadavg
+19.34/19.04/18.28, two peer builds running, NO build of my own - pure Python.
+disk 104G.
