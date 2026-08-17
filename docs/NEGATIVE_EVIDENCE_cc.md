@@ -20717,3 +20717,103 @@ comparison_class=SELF-SPEEDUP
 campaign_output=false
 decision_gate=median_ci
 cv_role=report_only
+
+## 2026-08-17 GoldenBison add_edge shim hoist: a real 1.074x, given up on correctness grounds (br-r37-c1-aeshim)
+
+FILED AS A RECORD, NOT AS A VERDICT ROW, and the reason is worth stating because
+it is a gap in the gate rather than in the evidence. The preflight contract keys
+a verdict on words like "reverted" and then demands EITHER a same-invocation
+paired A/A null OR an unchanged instructions/cycles/syscalls/allocations/faults
+count. My evidence is neither: the arms are two Python packages in separate
+processes, which cannot produce a same-invocation pair, and the decisive counter
+here is ACCESSOR CALLS (6 against 0), a metric the contract does not name. Rather
+than reword this until a lexical filter passes it, or dress a correctness
+decision as a measurement one, it is recorded plainly with all of its evidence
+below. Anyone tightening the gate should treat "counted calls into a named
+accessor" as a first-class mechanism.
+
+THIS IS NOT A PERFORMANCE VERDICT. The change measured FASTER, with separation,
+and is being given up because it changes behaviour. The preflight gate's verdict
+contract wants a same-invocation paired A/A null, which two Python packages in
+separate processes structurally cannot produce; rather than reword a correctness
+reversion until it passes a measurement contract, it is filed here as what it is.
+The across-invocation null below is offered for what it is worth, not as a
+substitute for that contract.
+
+The perf half of the shim lever, measured, working, and REVERTED because it is
+not correct.
+
+WHAT WAS TRIED. Having moved endpoint validation into all four native kernels
+(1823044a2), the Python shim's None and `hash()` checks became duplication on the
+bare path, so the `if not attr: return raw_add_edge(...)` early return was hoisted
+ABOVE them. The attributed path kept the validation, because it calls
+`self.has_edge` and `self[u][v]` before reaching the kernel.
+
+IT WORKS, AND THAT IS NOT ENOUGH. Integer keys, 600 nodes + 1000 edges, arms
+alternated three times each (pure Python over one shared ELF):
+
+    OLD  912.4us  898.3us  900.2us    median 900.2us    0.7231x vs networkx
+    NEW  850.4us  837.9us  820.3us    median 837.9us    0.7684x vs networkx
+
+1.074x with COMPLETE separation - the worst NEW run (850.4us) beats the best OLD
+one (898.3us). Against the 0.7483x -> 0.9305x ceiling for removing the whole shim
+tax, this collects about a third of it, the rest being the Python call itself.
+
+WHY IT IS GIVEN UP. `test_views_never_materialise_the_parent` fails 3 of 61 with
+the change and passes 61 of 61 without it, deterministically - 3 runs each way.
+The failure is not cosmetic: `MultiDiGraph.edge_subgraph.adj[u]` calls the
+whole-graph accessor `_native_edge_view_list` six times to answer a request about
+a handful of rows, which the test names as the br-r37-c1-thssf / br-r37-c1-ymf62
+defect returning.
+
+I DO NOT UNDERSTAND THE MECHANISM AND I AM SAYING SO. The edited branch is the
+SIMPLE-graph shim; `MultiDiGraph` uses the `is_multigraph=True` branch, which this
+change does not touch. Both arms share one ELF, so the kernel is identical. The
+only behavioural difference on the bare path is that two `hash()` builtins and two
+`is None` checks no longer run before `raw_add_edge`. How that reaches a
+MultiDiGraph subgraph view's accessor counting is unexplained, and until it is,
+the 1.074x is not bankable - a speedup whose side effects you cannot account for
+is a liability, not a result.
+
+A/A NULL CONTROL, run for this row on byte-identical arms (`shOLD` against a
+verbatim copy of itself), same fixture, same protocol, same alternation:
+
+    arm A   883.1us  883.3us  877.1us    median 883.1us
+    arm A'  900.3us  872.3us  885.2us    median 885.2us
+    null ratio 0.9976, i.e. |null - 1| = 0.0024, inside the +/-0.02 bound, and
+    the two arms' ranges overlap completely (877.1-883.3 against 872.3-900.3),
+    which is what identical arms must do.
+
+The A/B separation measured above (900.2us against 837.9us, 1.074x, no overlap)
+is about thirty times that null deviation. So the speedup is real on this
+substrate and the reversion is not hiding a null result.
+
+COUNTED MECHANISM, which is what makes this evidence rather than an opinion. The
+failing test is itself a COUNTER: it patches the whole-graph accessors and asserts
+the call map is empty for a request scoped to a few rows. Counted calls to
+`_native_edge_view_list` while answering `MultiDiGraph.edge_subgraph.adj[u]`:
+
+    OLD shim   0 calls   (assertion sees {})
+    NEW shim   6 calls   (assertion sees {'_native_edge_view_list': 6})
+
+Deterministic across repeated runs: 3 of 3 invocations fail on NEW, 2 of 2 pass on
+OLD, same fixture, same shared ELF, same process shape. That is a counted change
+in work performed - six whole-graph materialisations that the old arm did not do -
+not a timing inference, and it is why no A/A null is quoted: the decision rests on
+an exact call count, not on a ratio.
+
+WHAT THE NEXT ATTEMPT SHOULD DO: instrument which accessor path
+`edge_subgraph.adj[u]` takes under each arm rather than reasoning about which shim
+branch "should" be involved. The obvious story - that a simple-graph shim cannot
+affect a multigraph view - is exactly the kind of reasoning this campaign has had
+refuted three times now (the nbunch levers patched a file the call never entered;
+the shim was assumed redundant and was load-bearing; an ablation arm measured its
+own compile fix).
+
+The kernel validation from 1823044a2 STAYS: it is a correctness fix, closes 10 of
+10 parity divergences, and is green on the full suite.
+
+Method: in-process timings, min of 9 rounds x 3 reps, mutation workload so no ABBA
+square. Peer builds present throughout (`ps` per invocation: 4,4,4,4,6,7).
+loadavg 14.46/16.80/17.47. No build of my own this turn - both arms are Python
+packages over the shared ELF. disk 120G.
