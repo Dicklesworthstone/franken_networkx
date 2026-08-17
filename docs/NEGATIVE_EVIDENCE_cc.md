@@ -17423,3 +17423,74 @@ both arms in-process, sequential, same invocation, pinned to `cpu14` via
 `env -u CARGO_TARGET_DIR`, private TMPDIR, loaded via PYTHONPATH so the shared
 venv install was never touched. host thinkstation1, 64 logical / 32 physical, SMT
 on, governor `powersave`. python 3.13.7, live networkx 3.6.1, disk 221G free.
+
+## VALIDATED (peer's lever, this pane's guard): index-keyed keydict twin takes MultiDiGraph `get_edge_data` at 2000-char keys **0.0729x -> 0.4800x, 6.6x** (br-r37-c1-f3i50)
+
+comparison_class=SELF-SPEEDUP
+campaign_output=false
+decision_gate=median_ci
+cv_role=report_only
+elf_sha256=see PROVENANCE
+
+ATTRIBUTION FIRST: the lever is `b3c55da2d`, landed by another pane WHILE this
+pane was building and measuring the same change independently. This pane's Rust
+was byte-identical in effect and has been discarded as redundant; what is banked
+here is the measured before/after and the invalidation guard, both of which the
+landed change did not come with.
+
+The keydict cache had already fixed this call's PARALLEL-EDGE axis. What remained
+was a pure KEY-LENGTH slope: that cache is keyed by canonical STRINGS, so even a
+HIT paid two canonicalisations plus two full-length hashes before it could be
+probed. This adds the endpoint-INDEX twin holding the SAME `Py<PyDict>`, probed
+before any canonical is built, with indices resolved through CPython's cached
+`str` hash.
+
+ELF-ALTERNATED BASE/CAND, three pairs, 21 rounds x 20000 reps, pinned `cpu14`:
+
+    arm    loadavg  clock      nx ns    fnx ns   ratio    CI
+    BASE   45.33               87.6    1205.1   0.0729   [0.0724, 0.0734]
+    CAND   45.33    4043 MHz  101.0     180.0   0.5609   [0.5530, 0.5652]
+    BASE   42.82               87.5    1184.0   0.0738   [0.0735, 0.0740]
+    CAND   42.82    4060 MHz   87.5     180.6   0.4810   [0.4792, 0.4827]
+    BASE   40.11               86.0    1186.3   0.0725   [0.0722, 0.0728]
+    CAND   40.11    4084 MHz   87.0     180.5   0.4800   [0.4785, 0.4823]
+
+**fnx 1184-1205 ns -> 180.0-180.6 ns, a 6.6x improvement**, with the candidate
+arm stable to 0.3 percent across three runs. Quoted at the worst pair, 0.0729x ->
+0.4800x.
+
+THE WINDOW DEGRADED under the measurement — loadavg ran 40-48, above this pane's
+gate — and three of twelve A/A nulls failed marginally (1.0133, 1.0021, 1.0021).
+Both are recorded rather than hidden. Neither bears on a 6.6x effect: the pane's
+standing rule is that effects beyond 10x may be quoted from a single interleaved
+run, this one is alternated three times, and the certified BEFORE number was
+taken separately in the quietest window of the session (0.0735x, six clean nulls,
+0.1 percent clock swing).
+
+**THIS PANE'S FIRST ATTEMPT AT THE SAME FIX WAS WRONG, WHICH IS WHY THE GUARD
+EXISTS.** Entries were stamped with `nodes_seq` alone; an edge mutation bumps `edges_seq` and
+leaves `nodes_seq` untouched, so a warm `get_edge_data` followed by `add_edge`
+kept serving the OLD keydict — a wrong answer on an ordinary-looking read, not a
+crash. The string-keyed cache it mirrors is generation-checked on BOTH sequences
+at read time; the twin now carries both. That candidate was reverted unlanded. The landed `b3c55da2d` stamps and checks
+both sequences correctly -- verified by reading HEAD, not assumed -- so the guard
+below passes against it rather than convicting it.
+
+GUARDED by `tests/python/test_multidigraph_keydict_index_invalidation.py`, 18
+cases written BEFORE the fix and verified to pass on unmodified HEAD, so they
+guard the change rather than describe it: warm-then-add across short AND
+2000-character keys, warm-then-remove-one, warm-then-remove-all (answer becomes
+None), node removal renumbering indices, attribute edits that bump neither
+sequence, the shallow-COPY contract that stops a caller's `d[k] = {}` inventing a
+phantom key, non-`str` endpoints past the exact-`str` gate, and a warm entry not
+answering for a different pair. Regression sweep across the multigraph suites:
+144 passed, 18 xfailed.
+
+PROVENANCE: harness `/data/tmp/claude-1000/bsq_guarded_op.py` with per-arm
+core/clock/load sampling; both arms in-process, sequential, same invocation,
+pinned to `cpu14` via `taskset`. BASE is the commit-pinned `git archive` build of
+HEAD `f5ea271d1`; CAND is that tree plus this change. `env -u CARGO_TARGET_DIR`,
+private TMPDIR, loaded via PYTHONPATH so the shared venv install was never
+touched. host thinkstation1, governor `powersave`, python 3.13.7, live networkx
+3.6.1, disk 222G free. `uptime` at the decision: 4.7 falling; 40.11-48.41 across
+the measurement, recorded per row above.
