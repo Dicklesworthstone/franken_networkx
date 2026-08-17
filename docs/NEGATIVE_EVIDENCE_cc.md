@@ -19801,3 +19801,88 @@ cargo-nextest + rustc), loadavg 18.69/25.23/37.97, one build of my own for the
 change itself with df 119G checked immediately before it. The growth and
 conv/build figures are in-process RATIOS, which is why they survive that
 contention; no cross-run ratio is quoted from this window.
+
+---
+
+## CERTIFIED — MultiDiGraph direction rows: neighbors 4.53x, predecessors 4.46x, and the slope is gone (2026-08-17)
+
+Certifies `0a898a4f6`. Four squares, ALL gate-passing, in the quietest windows
+this pane has measured in (level 9.20-10.63).
+
+CERTIFIED, quoted conservatively at the worst square of the four:
+
+    neighbors      4.53x   (range 4.5347-4.6051)   vs-nx 0.1399x -> 0.6355x
+    predecessors   4.46x   (range 4.4559-4.5617)
+
+    sq  order                  gate       neighbors        CI          predecessors
+    1   [base cand cand base]  PASS 1.72   4.5756  [4.3219, 4.6323]      4.4559
+    2   [base cand cand base]  PASS 1.62   4.5347  [4.4794, 4.6117]      4.5241
+    3   [base cand cand base]  PASS 1.50   4.6051  [4.5408, 4.6518]      4.5617
+    4   [cand base base cand]  PASS 1.39   4.5934  [4.2739, 4.6180]      4.5491
+
+    vs-nx BASE neighbors  0.1401 / 0.1414 / 0.1401 / 0.1399
+    vs-nx CAND neighbors  0.6466 / 0.6439 / 0.6473 / 0.6355
+    vs-nx BASE predecess  0.1388 / 0.1401 / 0.1395 / 0.1391
+    vs-nx CAND predecess  0.6246 / 0.6358 / 0.6378 / 0.6327
+
+PER-ARM: base loadavg medians 9.20 / 9.42 / 10.37 / 10.63 with clocks 4281 /
+4265 / 4264 / 4252 MHz; cand medians 9.20 / 9.42 / 10.36 / 10.63 with clocks
+4284 / 4268 / 4260 / 4250 MHz. Arm clock MEDIANS differ by 0.07, 0.07, 0.09 and
+0.05 percent. Window levels 9.20-10.63, spread 0.58-1.06, relative volatility
+0.06-0.10.
+
+A/A null control, same invocation, measured: base 1.0028 [0.9982, 1.0084] and
+cand 0.9995 [0.9947, 1.0085] in square 1; base 1.0063 [0.9936, 1.0195] and cand
+1.0051 [1.0018, 1.0118] in square 2; base 1.0143 [1.0049, 1.0278] and cand 1.0072
+[0.9988, 1.0247] in square 3; base 0.9922 [0.9787, 1.0085] and cand 1.0028
+[0.8929, 1.0169] in square 4. All eight lie inside [0.8929, 1.0278], against a
+lowest effect bound of 4.2739 -- separated by a factor of 4.2.
+
+### THREE THINGS THAT ARE NOT CLEAN, RECORDED RATHER THAN OMITTED
+
+**Square 3's base null does NOT straddle unity.** It reads 1.0143 with a CI of
+[1.0049, 1.0278], so the whole interval sits above 1. That is a 1.4 percent
+drift, against a 353 percent effect, and the other seven nulls straddle unity
+normally. It is recorded because a null that misses is exactly the thing a pane
+is tempted to drop, and because square 3 is otherwise the tightest square of the
+four -- so this is not a case of one bad square, it is one bad statistic inside a
+good one.
+
+**Squares 3 and 4 returned ARM-CLOCK-SKEW.** The verdict is driven by the clock
+EXTREMES, not the medians: arm clock medians differ by 0.09 and 0.05 percent
+while the min-to-max span within a run reaches 4122-4292 MHz. The medians are the
+quantity the ratio actually depends on, and they agree to under a tenth of a
+percent, so the verdict is noted and not treated as disqualifying -- but it is
+noted, because this pane's rule is that a verdict is recorded on every row.
+
+**Squares 1 and 2 returned SIBLING-CONTENDED**, as most rows on this host do.
+
+### What the change did
+
+The cache HIT probed a String-keyed map with a canonical built by
+`with_node_key_str`, which copies the key's bytes and then hashes them, so the
+hit was O(node key length). The index map lives INSIDE the existing
+`(nodes_seq, edges_seq, ...)` tuple, so both maps are created, invalidated and
+dropped together and cannot desynchronise.
+
+THE SLOPE IS GONE and that is the durable result rather than the ratio: measured
+alongside, the candidate reads 193.5 ns at K=2 against 191.0 ns at K=2000 for
+`neighbors`, where the base ran 0.6707x at K=2 and 0.1455x at K=2000. THE CELL
+REMAINS A LOSS at roughly 0.64x, and this row claims only the build-over-build
+speedup.
+
+PROVENANCE: driver `/data/tmp/claude-1000/certify_nb.py` (and its `swap`
+variant) on `cpu15`, spawning `/data/tmp/claude-1000/nb_worker.py` pinned to
+`cpu14`, so the driver never shared a physical core with the measured arm. 21
+rounds x 4 invocations, 6 x 20000 reps per invocation per metric, bootstrap
+median CI over 10000 resamples with a fixed seed, per-round sampling by
+`scripts/bench_window_guard.py`. Arms are the retained release builds either side
+of `0a898a4f6`; NO BUILD was run for this certification. Every worker invocation
+re-asserts neighbors AND predecessors against networkx before timing. host
+thinkstation1, governor `powersave`, python 3.13.7, live networkx 3.6.1, disk
+128G free.
+
+comparison_class=SELF-SPEEDUP
+campaign_output=false
+decision_gate=median_ci
+cv_role=report_only
