@@ -430,8 +430,21 @@ pub struct PyMultiDiGraph {
     /// with the `(nodes_seq, edges_seq)` generation they were built under. See
     /// `PyMultiGraph::neighbor_key_rows` — same contract, one map per direction,
     /// and likewise a cache rather than a live mirror.
-    pub(crate) succ_key_rows: Option<(u64, u64, HashMap<String, Py<PyDict>>)>,
-    pub(crate) pred_key_rows: Option<(u64, u64, HashMap<String, Py<PyDict>>)>,
+    /// br-r37-c1-nbrow: each carries a SECOND map, keyed by the owner's node
+    /// INDEX, inside the same generation tuple.
+    ///
+    /// The String-keyed map is probed with a canonical built from the key's
+    /// bytes and then hashed, so a cache HIT was O(node key length): these read
+    /// 0.6707x at K=2 against 0.1455x at K=2000. Resolving the owner through
+    /// CPython's cached `str` hash removes that.
+    ///
+    /// Inside the existing tuple on purpose: the tuple is dropped wholesale when
+    /// either sequence moves, so both maps are created, invalidated and dropped
+    /// together and cannot desynchronise. A lookup path, not a second cache.
+    pub(crate) succ_key_rows:
+        Option<(u64, u64, HashMap<String, Py<PyDict>>, HashMap<usize, Py<PyDict>>)>,
+    pub(crate) pred_key_rows:
+        Option<(u64, u64, HashMap<String, Py<PyDict>>, HashMap<usize, Py<PyDict>>)>,
     /// br-r37-c1-ptiz2: directed mirror of `PyMultiGraph::edge_keydict_cache` —
     /// the `{key: attrs}` mapping for ONE (source, target) pair, under the
     /// `(nodes_seq, edges_seq)` generation it was built in.
@@ -2176,7 +2189,7 @@ impl PyMultiDiGraph {
         };
         let Some(row) = slot
             .as_ref()
-            .and_then(|(_, _, rows)| rows.get(owner))
+            .and_then(|(_, _, rows, _)| rows.get(owner))
             .map(|row| row.clone_ref(py))
         else {
             return Ok(());
@@ -2206,7 +2219,7 @@ impl PyMultiDiGraph {
         } else {
             &self.pred_key_rows
         };
-        if let Some(row) = slot.as_ref().and_then(|(_, _, rows)| rows.get(owner)) {
+        if let Some(row) = slot.as_ref().and_then(|(_, _, rows, _)| rows.get(owner)) {
             let py_nbr = if successors {
                 self.py_succ_key(py, owner, nbr)
             } else {
@@ -2234,7 +2247,7 @@ impl PyMultiDiGraph {
     fn direction_rows_live(&self) -> bool {
         [&self.succ_key_rows, &self.pred_key_rows]
             .into_iter()
-            .any(|s| s.as_ref().is_some_and(|(_, _, rows)| !rows.is_empty()))
+            .any(|s| s.as_ref().is_some_and(|(_, _, rows, _)| !rows.is_empty()))
     }
 
     /// br-r37-c1-bvwam: the `{neighbour: None}` row for one direction, cached
@@ -2255,10 +2268,32 @@ impl PyMultiDiGraph {
             &mut self.pred_key_rows
         };
         let fresh = matches!(
-            slot, Some((nodes, edges, _)) if *nodes == nodes_seq && *edges == edges_seq
+            slot, Some((nodes, edges, _, _)) if *nodes == nodes_seq && *edges == edges_seq
         );
         if !fresh {
-            *slot = Some((nodes_seq, edges_seq, HashMap::new()));
+            *slot = Some((nodes_seq, edges_seq, HashMap::new(), HashMap::new()));
+        }
+        // br-r37-c1-nbrow: INDEX probe first, before any canonical exists. The
+        // borrowed probe below still copies and hashes the key's bytes, which is
+        // the whole key-length slope on this call.
+        let owner_index = if node.is_exact_instance_of::<PyString>() {
+            self.cached_exact_string_node_index(py, node)?
+        } else {
+            None
+        };
+        if let Some(index) = owner_index {
+            let slot = if successors {
+                &self.succ_key_rows
+            } else {
+                &self.pred_key_rows
+            };
+            if let Some(row) = slot
+                .as_ref()
+                .and_then(|(_, _, _, by_index)| by_index.get(&index))
+                .map(|row| row.clone_ref(py))
+            {
+                return Ok(row);
+            }
         }
         if let Some(row) = crate::with_node_key_str(py, node, |canonical| {
             let slot = if successors {
@@ -2267,9 +2302,21 @@ impl PyMultiDiGraph {
                 &self.pred_key_rows
             };
             slot.as_ref()
-                .and_then(|(_, _, rows)| rows.get(canonical))
+                .and_then(|(_, _, rows, _)| rows.get(canonical))
                 .map(|row| row.clone_ref(py))
         })? {
+            // br-r37-c1-nbrow: backfill the index map from a string hit, so a
+            // row first touched by a non-string caller still gets the fast route.
+            if let Some(index) = owner_index {
+                let slot = if successors {
+                    &mut self.succ_key_rows
+                } else {
+                    &mut self.pred_key_rows
+                };
+                if let Some((_, _, _, by_index)) = slot.as_mut() {
+                    by_index.insert(index, row.clone_ref(py));
+                }
+            }
             return Ok(row);
         }
         let canonical = node_key_to_string(py, node)?;
@@ -2303,8 +2350,12 @@ impl PyMultiDiGraph {
         } else {
             &mut self.pred_key_rows
         };
-        if let Some((_, _, rows)) = slot.as_mut() {
+        if let Some((_, _, rows, by_index)) = slot.as_mut() {
             rows.insert(canonical, row.clone_ref(py));
+            // br-r37-c1-nbrow: the SAME dict object under both keys.
+            if let Some(index) = owner_index {
+                by_index.insert(index, row.clone_ref(py));
+            }
         }
         Ok(row)
     }
