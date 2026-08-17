@@ -46850,6 +46850,20 @@ def _private_succ_mapping(self, fallback):
     override = _private_override(self, _PRIVATE_SUCC_OVERRIDE)
     if override is not _PRIVATE_MISSING:
         return override
+    # br-r37-c1-vbe1o: on a DIRECTED graph `_adj` and `_succ` are ONE mapping in
+    # networkx — both names are bound to `_CachedPropertyResetterAdjAndSucc`,
+    # whose `__set__` writes both — so `G._adj = {...}` assigns the successor
+    # side. Verified directly: in nx `g._adj is g._succ` is True before any
+    # assignment, and assigning either name makes the node visible through both.
+    #
+    # `_private_directed_adj_mapping` already reads the succ override, so the
+    # `_succ`-then-read-`_adj` direction worked. This is the missing MIRROR, and
+    # its absence was the whole `_adj`-on-directed group in the sweep: successors,
+    # has_successor, out_degree, len(G.succ) and neighbors all read the native
+    # succ view and reported a node the assigned `_adj` plainly carried.
+    adj_override = _private_override(self, _PRIVATE_ADJ_OVERRIDE)
+    if adj_override is not _PRIVATE_MISSING:
+        return adj_override
     return fallback(self)
 
 
