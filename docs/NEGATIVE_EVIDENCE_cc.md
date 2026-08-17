@@ -18625,3 +18625,69 @@ incumbent_ratio_after=0.4892x
 campaign_output=false
 decision_gate=median_ci
 cv_role=report_only
+
+---
+
+## UPGRADED — MultiGraph.has_edge re-certified in a GATE-PASSING window (2026-08-17)
+
+The `has_edge` row was banked earlier with all four squares FAILING the gate,
+because load was falling and the check was a symmetric ratio. The gate is now
+direction-aware (`61545a2ae`), so the row has been re-taken in a window it
+actually admits. It reproduces.
+
+    run                     gate         improvement          CI          verdict
+    1  [base cand cand base] PASS 1.06   2.9452  [2.3238, 3.0266]  SIBLING-CONTENDED
+    2  [base cand cand base] PASS 1.01   3.0006  [2.9845, 3.0136]  SIBLING-CONTENDED
+    3  [base cand cand base] PASS 1.01   3.0171  [2.9933, 3.0299]  STABLE
+    4  [cand base base cand] PASS 1.03   3.0104  [2.9699, 3.0200]  SIBLING-CONTENDED
+
+    vs-nx BASE  0.2311 / 0.2268 / 0.2264 / 0.2268
+    vs-nx CAND  0.6778 / 0.6806 / 0.6816 / 0.6802
+
+EIGHT SQUARES ACROSS TWO SESSIONS now stand behind this row: the four above plus
+the four banked earlier (2.9034, 2.9599, 2.9861, 3.0043). The full range is
+2.9034-3.0171, a 3.9 percent spread, and the certified figure stays at the
+conservative **2.90x** from the earlier session rather than being revised upward
+to this session's better numbers.
+
+The vs-networkx candidate reading TIGHTENED as well: 0.6778-0.6816 here against
+0.6708-0.6840 before, a 0.6 percent spread against 2.0 percent.
+
+RUN 3 RETURNED THE VERDICT `STABLE`. That is the first fully clean window verdict
+this pane has recorded — every other run this session and last returned
+SIBLING-CONTENDED. It is also the run with the tightest interval
+[2.9933, 3.0299], which is the expected relationship and worth noting as a
+consistency check on the instrument rather than as a separate claim.
+
+PER-ARM: base loadavg medians 17.40 / 16.79 / 16.39 / 15.65 with clocks 4241 /
+4103 / 4241 / 4266 MHz; cand medians 17.40 / 16.79 / 16.39 / 15.65 with clocks
+4258 / 4100 / 4240 / 4265 MHz. Arm clock medians differ by 0.4, 0.07, 0.02 and
+0.02 percent. Window levels 15.65-17.40, spread 0.52-2.07, relative volatility
+0.03-0.12.
+
+A/A null control, same invocation, measured: base 0.9962 [0.9871, 1.0042] and
+cand 0.9991 [0.9886, 1.0039] in run 1; base 1.0023 [0.9930, 1.0070] and cand
+0.9950 [0.9892, 1.0036] in run 2; base 1.0008 [0.9956, 1.0038] and cand 1.0005
+[0.9856, 1.0079] in run 3; base 0.9989 [0.9924, 1.0121] and cand 1.0003 [0.9728,
+1.0126] in run 4. All eight sit inside [0.9728, 1.0126], against a lowest effect
+bound of 2.3238.
+
+THE CELL REMAINS A LOSS against networkx at 0.68x, and nothing here claims
+otherwise. The certified quantity is the build-over-build speedup: what the
+change removed is the key-length term, and the per-call floor is what is left.
+This is maintenance, not a competitive result.
+
+PROVENANCE: driver `/data/tmp/claude-1000/certify_hasedge.py` and its swapped
+variant on `cpu15`, spawning `/data/tmp/claude-1000/hasedge_worker.py` pinned to
+`cpu14`; 21 rounds x 4 invocations, 8 x 20000 reps per invocation, bootstrap
+median CI over 10000 resamples with a fixed seed, per-round sampling by
+`scripts/bench_window_guard.py`. Arms are the retained pre- and
+post-`a29279167` release builds (`pkg_hbase`, `pkg_hcand`); NO BUILD was needed
+or run. Every worker invocation re-asserts `has_edge` against networkx, present
+and absent, before timing. host thinkstation1, governor `powersave`, python
+3.13.7, live networkx 3.6.1, disk 165G free.
+
+comparison_class=SELF-SPEEDUP
+campaign_output=false
+decision_gate=median_ci
+cv_role=report_only
