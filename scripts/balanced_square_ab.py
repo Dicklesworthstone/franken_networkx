@@ -1025,8 +1025,59 @@ def workload_has_node_membership(reps: int):
     return build, ops
 
 
+def workload_edges_data(reps: int):
+    """`list(G.edges(data=True))` against node-key length (br-r37-c1-ml7s5).
+
+    The simple Graph rebuilt every tuple on every call and probed the attr mirror
+    with a per-edge `(String, String)` canonical key, so the call grew with node
+    key length while its directed twin stayed flat — 0.4538x at K=2000 against a
+    networkx that is flat at ~322us.
+
+    BOTH KEY LENGTHS ARE CARRIED because the defect is invisible at K=3, where
+    the row was already a 2.8x WIN. A single-length row cannot distinguish
+    "slower" from "unbounded", and unbounded was the property that mattered.
+
+    THE OTHER THREE CLASSES ARE THE CONTROLS, and they are not decorative: the
+    change is `PyGraph`-only, so DiGraph and both multigraph classes must not
+    move. They also guard the reverse failure — an earlier run of the scaling
+    test called DiGraph regressed at loadavg 53 when a direct measurement showed
+    it flat, so a control that moves here means the window, not the code.
+    """
+
+    def build(module):
+        fixture = {}
+        for cls in ("Graph", "DiGraph", "MultiGraph", "MultiDiGraph"):
+            for length in (3, 2000):
+                graph = getattr(module, cls)()
+                for i in range(300):
+                    graph.add_edge(
+                        f"a{i}".ljust(length, "x"),
+                        f"b{i}".ljust(length, "y"),
+                        weight=i,
+                    )
+                fixture[(cls, length)] = graph
+        return fixture[("Graph", 3)], fixture
+
+    def ops(graph, fixture):
+        table = {}
+        for (cls, length), g in fixture.items():
+            tag = {
+                "Graph": "G",
+                "DiGraph": "CONTROL DG",
+                "MultiGraph": "CONTROL MG",
+                "MultiDiGraph": "CONTROL MDG",
+            }[cls]
+            table[f"{tag} edges(data=True) len={length}"] = (
+                lambda g=g: list(g.edges(data=True))
+            )
+        return table
+
+    return build, ops
+
+
 WORKLOADS = {
     "view-reads": workload_view_reads,
+    "edges-data": workload_edges_data,
     "has-node-membership": workload_has_node_membership,
     "digraph-rows": workload_digraph_rows,
     "parallel-keydict": workload_parallel_keydict,

@@ -18273,3 +18273,88 @@ entry. Filing the numbers here is the smaller half.
 
 NO RATIO IS CLAIMED IN THIS ROW. It is an inventory of this repository, taken at
 loadavg 21, with no build and no measurement.
+
+## 2026-08-17 GoldenBison KEEP-SELF: the whole-graph edges(data=True) list cache — 5.687x at 2000-char keys, and UNBOUNDED becomes FLAT (br-r37-c1-ml7s5)
+
+`PyMultiGraph` has cached its materialised `data=True` tuples under
+`(nodes_seq, edges_seq, keys)` since br-r37-c1-o07ax. The simple `Graph` rebuilt
+every tuple on every call, and with it a `key_vec` that hashes every node's full
+canonical name — so the call tracked node-key length while all three other
+classes stayed flat. a2a95b2e1 gave `PyGraph` the same cache. This certifies it.
+
+ELF-ALTERNATED, OLD 63a8c56b against NEW b893272b, three interleaved rounds,
+pinned to cpu45, 31 rounds x 3 reps x 8 calls/slot:
+
+    row                          OLD (x3)                  NEW (x3)                  worst bound
+    G edges(data=True) len=3     3.4298 3.4567 3.4382      7.8717 7.7405 7.7676      2.239x
+    G edges(data=True) len=2000  1.3555 1.3375 1.3542      7.7545 7.7935 7.7084      5.687x
+    CONTROL DG   len=3           5.1032 5.1632 5.3294      5.2713 5.2047 5.1651      overlapping
+    CONTROL DG   len=2000        5.0857 5.2141 5.2987      5.2634 5.2504 5.1332      overlapping
+    CONTROL MG   len=3           6.6550 6.6138 6.7454      6.5284 6.5785 6.7288      overlapping
+    CONTROL MG   len=2000        6.6755 6.6519 6.8057      6.6551 6.6850 6.8054      overlapping
+    CONTROL MDG  len=3           9.3020 9.3920 9.5148      9.1907 9.4375 9.5489      overlapping
+    CONTROL MDG  len=2000        9.3282 9.4770 9.6139      9.6330 9.6738 9.6674      overlapping
+
+THE SHAPE, again, is the result. The OLD arm falls 2.5x across the key-length
+axis — 3.4298 at 3 characters to 1.3555 at 2000 — because the work was O(node key
+length). The NEW arm reads 7.8717 against 7.7545 over the same 667x range: FLAT.
+5.687x is where that flatness happens to meet the worst point of the old curve.
+
+THE CONTROLS ARE THE ARGUMENT. The change is `PyGraph`-only. DiGraph, MultiGraph
+and MultiDiGraph share the workload, the harness, the window, the core and the
+ELF pair, and differ only in not having it — and none of them moved, at either
+key length, across all six runs. A window artefact or a frequency effect would
+have moved all four.
+
+THIS PARTICULAR CONTROL SET WAS EARNED. An earlier run of the scaling guard
+reported DiGraph REGRESSED at 4.66x growth, at loadavg 53, while a direct
+measurement taken in the same minute showed it flat (29.7us against 28.7us). That
+was contention, not code, and it is why the guard's estimator is now min() across
+rounds rather than the median: contention can only make a sample slower, so the
+minimum is the least contaminated. The BOUND was not touched.
+
+DISCLOSED, three of the 48 measured rows failed their A/A null: OLD G len=2000 in
+round 2 (0.9774), and two control rows in rounds 1-2. The subject conclusion does
+not rest on any of them — G len=2000 is ADMISSIBLE in both remaining OLD rounds
+(1.3555, 1.3542) and in all three NEW rounds, and the OLD and NEW ranges are
+separated by a factor of 5.7 with no overlap anywhere.
+
+NO COMPETITIVE CLAIM IS NEEDED HERE, but it is worth stating what changed: this
+row began at 0.4538x against networkx, a 2.2x LOSS, before the index probe
+(9e436e76c) and this cache. It now reads 7.75x, a win, and is flat in key length.
+`comparison_class=SELF-SPEEDUP`, `campaign_output=false` — the certified quantity
+is the self-speedup between the two ELFs, not the incumbent ratio.
+
+CORRECTNESS, because a whole-list cache has three ways to be silently wrong and
+all three are pinned by guards landed BEFORE it:
+  * structural invalidation — add/remove edge moves `edges_seq`, node mutation
+    moves `nodes_seq` (36 cases, test_edges_data_reflects_mutations.py);
+  * liveness — the tuples hold the graph's LIVE attr dicts, so identity and
+    write-through must survive (48 cases, test_edges_data_attr_dict_liveness.py);
+  * request confusion — `edges()` and `edges(nbunch=...)` are different requests
+    at the SAME generation, so the filtered branch must never touch this cache
+    (test_edges_nbunch_and_full_list_do_not_share_a_cache.py).
+An attribute write moves NEITHER counter and is visible only because the cached
+tuples hold the live dict, so it passes whether or not the stamps work; it is
+asserted separately for exactly that reason.
+
+NULL_NUMERIC_EVIDENCE: per-arm A/A nulls across the six runs span [0.9774,
+1.0438], with 45 of 48 rows inside the +/-0.02 bound; self-speedup worst bound
+5.687x at len=2000 and 2.239x at len=3.
+
+PROVENANCE: harness `scripts/balanced_square_ab.py`, workload `edges-data` (added
+in this commit — no row existed for this surface, which is how the defect
+survived); host thinkstation1; rch_worker none (both arms in-process on
+same_host); git_head cee30203f4bc87e82b1363515666ddb0059ff0b8, IDENTICAL on both
+arms and checked rather than assumed; governor powersave; runtime ISA avx2 avx
+sse4_2; python 3.13.7 x86_64; live networkx 3.6.1; PYTHONHASHSEED=0; `taskset -c
+45`; square ABBAABBA; disk 150G free. OBSERVED loadavg per run in order 25.29 /
+25.42 / 27.80 / 27.82 / 27.99 / 27.83; core clock 3982-4191 MHz; arm-to-arm clock
+skew -0.17% to +0.34%; every row `cpus=[45]`, no ARM-EXCLUSIVE rows.
+
+bench_elf_sha256=b893272b0d61d589ecf452b7fb54dc096b5ffedf1ff42c46d31c8c6e1ea9b5cf
+elf_sha256=b893272b0d61d589ecf452b7fb54dc096b5ffedf1ff42c46d31c8c6e1ea9b5cf
+comparison_class=SELF-SPEEDUP
+campaign_output=false
+decision_gate=median_ci
+cv_role=report_only
