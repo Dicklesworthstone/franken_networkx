@@ -2772,6 +2772,44 @@ def _native_len_adjacency_view(native_base):
     return _NativeLenAdjacencyView
 
 
+def _native_len_multi_adjacency_view(native_base):
+    """br-r37-c1-m1k0q: a `MultiAdjacencyView` whose `__len__` is a C slot.
+
+    The multigraph twin of `_native_len_adjacency_view`. `len(MultiGraph.adj)`
+    was 0.781x networkx while `len(DiGraph.adj)` was 1.386x — same operation,
+    same number — because only the simple classes got the C-slot `__len__`.
+
+    ONLY `__len__` (and `__bool__`, which agrees) is wanted from the native base.
+    Every other method is bound back explicitly, because inheriting them would
+    drop Python behaviour the multigraph view owns: the per-row cache, the
+    private-storage-aware `__contains__`, and the nx-shaped repr.
+    """
+
+    class _NativeLenMultiAdjacencyView(native_base, MultiAdjacencyView):
+        def __new__(cls, atlas_getter, *, owner=None, **kwargs):
+            return native_base.__new__(cls, owner)
+
+        def __init__(self, atlas_getter, **kwargs):
+            MultiAdjacencyView.__init__(self, atlas_getter, **kwargs)
+
+        __getitem__ = MultiAdjacencyView.__getitem__
+        __iter__ = MultiAdjacencyView.__iter__
+        __contains__ = MultiAdjacencyView.__contains__
+        __repr__ = MultiAdjacencyView.__repr__
+
+    _NativeLenMultiAdjacencyView.__name__ = "MultiAdjacencyView"
+    _NativeLenMultiAdjacencyView.__qualname__ = "MultiAdjacencyView"
+    return _NativeLenMultiAdjacencyView
+
+
+_MULTIGRAPH_NATIVE_LEN_ADJ_VIEW = _native_len_multi_adjacency_view(
+    _fnx.MultiAdjacencyLenView
+)
+_MULTIDIGRAPH_NATIVE_LEN_ADJ_VIEW = _native_len_multi_adjacency_view(
+    _fnx.MultiDiAdjacencyLenView
+)
+
+
 _GRAPH_NATIVE_LEN_ADJ_VIEW = _native_len_adjacency_view(_fnx.AdjacencyView)
 _DIGRAPH_NATIVE_LEN_ADJ_VIEW = _native_len_adjacency_view(_fnx.DiAdjacencyView)
 
@@ -2800,7 +2838,7 @@ _MULTIDIGRAPH_ADJ_NATIVE_LEN = MultiDiGraph.number_of_nodes
 
 _multigraph_adj_view = _cached_view(
     "_fnx_view_adj",
-    lambda self: MultiAdjacencyView(
+    lambda self: _MULTIGRAPH_NATIVE_LEN_ADJ_VIEW(
         lambda: _MULTIGRAPH_ADJ_DESCRIPTOR.__get__(self, MultiGraph),
         owner=self,
         native_iter=_MULTIGRAPH_ADJ_NATIVE_ITER.__get__(self, MultiGraph),
@@ -2836,7 +2874,7 @@ _digraph_adj_view = _cached_view(
 
 _multidigraph_adj_view = _cached_view(
     "_fnx_view_adj",
-    lambda self: MultiAdjacencyView(
+    lambda self: _MULTIDIGRAPH_NATIVE_LEN_ADJ_VIEW(
         lambda: _MULTIDIGRAPH_ADJ_DESCRIPTOR.__get__(self, MultiDiGraph),
         owner=self,
         row_kind="succ",

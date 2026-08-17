@@ -13018,6 +13018,56 @@ impl PyMultiGraph {
     }
 }
 
+/// br-r37-c1-m1k0q: `__len__` provider for `MultiGraph.adj`.
+///
+/// `subclass` is the whole point: the Python `MultiAdjacencyView` inherits from
+/// this so `len(G.adj)` resolves to the C slot below instead of a Python frame,
+/// exactly as br-r37-c1-5gam7 did for the simple classes. ONLY `__len__` and
+/// `__bool__` are taken from here; everything else about `G.adj` keeps coming
+/// from the Python class, which sits after this one in the MRO.
+///
+/// The count is the RAW node count, deliberately: br-r37-c1-2r06n established
+/// that `owner.number_of_nodes()` is shadowed under private storage while
+/// `__iter__` keeps yielding the adjacency's own keys, so answering the shadowed
+/// count made `len(view)` disagree with `len(list(view))`.
+#[pyclass(module = "franken_networkx", subclass)]
+pub(crate) struct MultiAdjacencyLenView {
+    /// `None` once `__clear__` has run - the handle must be nullable so
+    /// `tp_clear` can break the `graph -> view -> graph` cycle.
+    graph: Option<Py<PyMultiGraph>>,
+}
+
+#[pymethods]
+impl MultiAdjacencyLenView {
+    #[new]
+    fn py_new(graph: Py<PyMultiGraph>) -> Self {
+        Self { graph: Some(graph) }
+    }
+
+    fn __traverse__(
+        &self,
+        visit: pyo3::gc::PyVisit<'_>,
+    ) -> Result<(), pyo3::gc::PyTraverseError> {
+        visit.call(&self.graph)
+    }
+
+    fn __clear__(&mut self) {
+        self.graph = None;
+    }
+
+    fn __len__(&self, py: Python<'_>) -> usize {
+        self.graph
+            .as_ref()
+            .map_or(0, |graph| graph.borrow(py).inner.node_count())
+    }
+
+    fn __bool__(&self, py: Python<'_>) -> bool {
+        self.graph
+            .as_ref()
+            .is_some_and(|graph| graph.borrow(py).inner.node_count() > 0)
+    }
+}
+
 /// NodeView for MultiGraph — supports ``len``, ``in``, iteration, and ``G.nodes(data=True)``.
 #[pyclass]
 pub(crate) struct MultiGraphNodeView {
@@ -19868,6 +19918,7 @@ fn _fnx(m: &Bound<'_, PyModule>) -> PyResult<()> {
 
     // MultiGraph view classes
     m.add_class::<MultiGraphNodeView>()?;
+    m.add_class::<MultiAdjacencyLenView>()?; // br-r37-c1-m1k0q
     m.add_class::<MultiGraphEdgeView>()?;
     m.add_class::<MultiGraphDegreeView>()?;
     m.add_class::<MultiAtlasView>()?;
