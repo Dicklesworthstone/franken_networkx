@@ -54,6 +54,24 @@ LARGE_PARENT = 3200
 MAX_GROWTH = 2.0
 
 
+
+def _best_growth(measure, build_small, build_large, attempts: int = 3) -> float:
+    """Smallest growth ratio across `attempts` independent measurements.
+
+    A growth assertion inside the full suite competes with every other test for
+    the machine, and contention can only make a sample SLOWER - so a single
+    reading can inflate the ratio arbitrarily. Taking the BEST of several is the
+    same reasoning that makes `min()` the right per-round statistic, applied one
+    level up. Without this the guard fails intermittently in the suite while
+    passing every time standalone, which trains people to ignore it.
+    """
+    best = float("inf")
+    for _ in range(attempts):
+        small = measure(build_small())
+        large = measure(build_large())
+        best = min(best, large / small)
+    return best
+
 def _view(lib, parent_nodes: int):
     graph = getattr(lib, "MultiDiGraph")()
     for i in range(parent_nodes):
@@ -111,9 +129,9 @@ def test_failed_lookup_cost_does_not_track_parent_size():
     the part that matters: the unbounded term is gone. The bound below is
     unchanged from when this test failed.
     """
-    small = _time_miss(_view(fnx, SMALL_PARENT))
-    large = _time_miss(_view(fnx, LARGE_PARENT))
-    growth = large / small
+    growth = _best_growth(
+        _time_miss, lambda: _view(fnx, SMALL_PARENT), lambda: _view(fnx, LARGE_PARENT)
+    )
     assert growth < MAX_GROWTH, (
         f"a failed attribute lookup on a fixed 4-node view grew {growth:.2f}x "
         f"when only the PARENT went from {SMALL_PARENT} to {LARGE_PARENT} nodes "
@@ -123,9 +141,10 @@ def test_failed_lookup_cost_does_not_track_parent_size():
 
 def test_networkx_is_flat_on_the_same_axis():
     """The control: nx's own filtered view does not pay for the parent."""
-    small = _time_miss(_view(nx, SMALL_PARENT))
-    large = _time_miss(_view(nx, LARGE_PARENT))
-    assert large / small < MAX_GROWTH, (
+    growth = _best_growth(
+        _time_miss, lambda: _view(nx, SMALL_PARENT), lambda: _view(nx, LARGE_PARENT)
+    )
+    assert growth < MAX_GROWTH, (
         "networkx grew on this axis too, so the fixture measures something other "
         "than the defect"
     )
@@ -160,9 +179,9 @@ def test_every_view_kind_is_flat_in_the_parent(label, make):
             graph.add_edge(f"n{i}", f"n{(i + 1) % parent_nodes}", w=i)
         return make(graph)
 
-    small = _time_miss(build(SMALL_PARENT))
-    large = _time_miss(build(LARGE_PARENT))
-    growth = large / small
+    growth = _best_growth(
+        _time_miss, lambda: build(SMALL_PARENT), lambda: build(LARGE_PARENT)
+    )
     assert growth < MAX_GROWTH, (
         f"{label}: a failed attribute lookup grew {growth:.2f}x when only the "
         f"PARENT went from {SMALL_PARENT} to {LARGE_PARENT} nodes "
@@ -217,9 +236,9 @@ def test_view_copy_cost_does_not_track_parent_size():
     and 40.07us -> 41.90us after (1.05x), while networkx stayed flat at ~32us.
     The ratio had been falling 0.4079x -> 0.2542x -> 0.0812x with no floor.
     """
-    small = _time_copy(_view(fnx, SMALL_PARENT))
-    large = _time_copy(_view(fnx, LARGE_PARENT))
-    growth = large / small
+    growth = _best_growth(
+        _time_copy, lambda: _view(fnx, SMALL_PARENT), lambda: _view(fnx, LARGE_PARENT)
+    )
     assert growth < MAX_GROWTH, (
         f"view.copy() grew {growth:.2f}x when only the PARENT went from "
         f"{SMALL_PARENT} to {LARGE_PARENT} nodes "
@@ -228,9 +247,10 @@ def test_view_copy_cost_does_not_track_parent_size():
 
 
 def test_networkx_copy_is_flat_on_the_same_axis():
-    small = _time_copy(_view(nx, SMALL_PARENT))
-    large = _time_copy(_view(nx, LARGE_PARENT))
-    assert large / small < MAX_GROWTH, "fixture measures something other than the defect"
+    growth = _best_growth(
+        _time_copy, lambda: _view(nx, SMALL_PARENT), lambda: _view(nx, LARGE_PARENT)
+    )
+    assert growth < MAX_GROWTH, "fixture measures something other than the defect"
 
 
 @pytest.mark.parametrize("cls", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
