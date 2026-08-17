@@ -18103,3 +18103,120 @@ comparison_class=SELF-SPEEDUP
 campaign_output=false
 decision_gate=median_ci
 cv_role=report_only
+
+---
+
+## BANKED, UNCERTIFIED — two landed levers on the multigraph probe path (2026-08-16)
+
+Both rows were measured in windows that FAILED this pane's gate, and both are
+recorded as indicative rather than certified. They are banked now because the
+host has since gone into I/O saturation (1-minute loadavg 404.65, 473 blocked
+processes, active swapping at si 170 / so 3006 with 15.9 GB of swap in use), so
+re-measuring is impossible and leaving the numbers only in commit messages would
+lose them. Both are QUEUED FOR CERTIFICATION in the next quiet window.
+
+### 1. `MultiGraph.has_edge` — a29279167, roughly 0.218x -> 0.60x at K=2000
+
+`MultiGraph::has_edge_by_indices` only LOOKED like an index fast path: it
+resolved both positions back to NAMES and called the string `has_edge`, rehashing
+both node keys. `Graph` and `DiGraph` are genuine O(1) here; the multigraph was
+the laggard, so every caller taking the "index fast path" — `PyMultiGraph::has_edge`,
+the edge-view probe, the algorithms bulk paths — still paid the key length it was
+trying to avoid.
+
+The fix substitutes an EQUAL value rather than changing behaviour.
+`MgSlabStorage::has_edge(l, r)` is itself defined as `node_order.get(l)` and
+`node_order.get(r)` to obtain SLOTS, then `has_edge_by_pair`. `slot_at_position(p)`
+is `node_order.get_index(p).1` — the same slot for the same entry, in O(1) with no
+hashing.
+
+ALTERNATED `[base cand cand base]`, pinned `cpu14`, per-arm load 21.13 throughout,
+per-arm clock base 4075 / 4164 MHz and cand 4179 / 4119 MHz:
+
+    K=2000  has_edge present   base 0.2182 / 0.2144    cand 0.4974 / 0.6885
+    K=2000  has_edge absent    base 0.2226 / 0.2157    cand 0.6483 / 0.6477
+    K=1     has_edge present   base 0.5527 / 0.4252    cand 0.6669 / 0.5655
+    K=2000  (u,v) in G.edges   base 0.1246 / 0.1238    cand 0.1198 / 0.1190
+
+**UNCERTIFIED**: the window degraded mid-run to a 1-minute 21.13 against a
+5-minute 28.53, ratio 1.35 against the 1.25 gate. The candidate spread
+(0.4974-0.6885) is wide and is exactly what a clean window needs to tighten.
+
+`(u,v) in G.edges` is UNCHANGED and no claim is made for it — it does not route
+through this predicate. K=1 improves as well, because the old path paid two
+`get_node_name` lookups and two string hashes regardless of key length.
+
+MultiDiGraph is deliberately excluded: it keys edges by `DirectedEdgeKeyRef`
+(strings), so there is no index-keyed edge map to convert into and the same fix
+would be a storage change.
+
+### 2. `v in G.adj[u]` — e14a64fca, 0.314x -> 1.31x, crossing from loss to WIN
+
+The row membership probe built a canonical `String` for `v` and then called the
+string `has_edge`, hashing both node keys: three operations linear in key length
+for a question that is O(1) once both endpoints are indices. It was 447.5 ns of a
+1102.1 ns `row[v]` at K=2000 — the largest single item — against 129.3 ns at K=1.
+
+**This lever was REFUSED two turns earlier and the refusal was correct.** At that
+point `has_edge_by_indices` still round-tripped through names, so routing through
+it would have bought nothing; and feeding a POSITION to the slot-keyed
+`has_edge_by_pair` instead reports a real edge as ABSENT after any node removal.
+Row 1 above is what made row 2 possible.
+
+ALTERNATED `[base cand cand base]` x2, pinned `cpu14`, per-arm load 29.48-31.38,
+per-arm clock 4016-4095 MHz:
+
+    v in row  K=2000  base  489.4 / 492.7 / 498.6 ns   0.3146 / 0.3160 / 0.3140
+    v in row  K=2000  cand  117.8 / 118.2 / 119.4 ns   1.2737 / 1.3156 / 1.3119
+    row[v]    K=2000  base 1053.4 / 1073.8 / 1075.1    0.1248 / 0.1186 / 0.1198
+    row[v]    K=2000  cand  625.3 /  625.6 /  641.3    0.2073 / 0.2002 / 0.2026
+    v in row  K=1     base  317.8 (0.9350)   cand 118.0 (1.3810)
+    row[v]    K=1     base 1340.1 (0.1755)   cand 649.9 (0.2102)
+
+`v in row` 492 -> 118.8 ns, **4.1x**, and it crosses from a loss to a WIN at
+1.31x — fnx now faster than networkx on this probe. `row[v]` 1067 -> 635 ns,
+1.68x, 0.120x -> 0.201x. THE SLOPE IS GONE: the probe reads 118.0 ns at K=1 and
+119.4 ns at K=2000.
+
+**UNCERTIFIED**: 1-minute 31.38 against 5-minute 23.95, ratio 1.31 against the
+1.25 gate.
+
+TWO BASE ROUNDS ARE VISIBLY INFLATED and are shown rather than dropped — `v in
+row` 814.0 ns and `row[v]` 2068.0 ns, plus the K=1 base pair at 317.8 / 1340.1.
+In each the networkx arm inflated by the same factor within the same invocation,
+so the RATIOS held (0.3585 against 0.3140-0.3160; 0.1127 against 0.1186-0.1248).
+That is the reason this pane quotes ratios rather than absolute nanoseconds, and
+it is also why those rounds are not evidence of anything except host noise.
+
+The staleness this introduces is NEW — the string path could not go stale — so
+the row's captured position is stamped with `nodes_seq` and the guard suite
+concentrates there: 400 randomized graphs with node removals, HOLDING row views
+across the mutation, every pair probed, matching networkx on both arms.
+
+### Ledger read: what the next lever on this cell is, and what it is NOT
+
+With both landed, `row[v]` at K=2000 is ~635 ns against networkx's ~130 ns. The
+remaining budget, from the decomposition taken on HEAD before these changes and
+adjusted for the probe now costing ~118 ns:
+
+    AtlasView ctor + closure   ~346 ns   ~55 percent   CONSTANT in key length
+    `in` probe                  ~118 ns   ~19 percent   now flat
+    frame / attribute loads     ~136 ns   ~21 percent
+    hash(node) + _atlas()        ~98 ns   ~15 percent
+
+The cell is now dominated by a CONSTANT — the Python `AtlasView` construction —
+not by a slope, which inverts the shape it had all session. That matters because
+the two levers that have worked repeatedly here (index lookaside, borrowed
+canonical) both attack slopes and have nothing left to remove.
+
+**The obvious next move is already REJECTED and should not be re-attempted
+without a new idea.** Moving `AtlasView.__init__`'s five `None`/`False` instance
+stores to class attributes measured 0.9971x — slower — because the `if x is not
+None` guards cost as much as the stores they skip. That is banked earlier in this
+ledger. Caching the view itself is separately CLOSED:
+`test_the_outer_keydict_wrapper_matches_networkx_in_mutability` pins
+`row_a is not row_b` for multigraph cells deliberately.
+
+So the honest next step on this cell is a different construction strategy
+entirely rather than a cheaper constructor, and it needs a measurement to justify
+it, which this host cannot currently provide.
