@@ -22,7 +22,23 @@ forever.
 
 No archived run currently retains those samples (`grep -rl ratio_samples` over
 tests/artifacts, docs and artifacts returns nothing), which is the only reason
-this cannot be run today. Capturing one is a shell redirect.
+this cannot be run today.
+
+CAPTURING ONE IS NOT A SHELL REDIRECT, and an earlier version of this docstring
+said it was (br-r37-c1-d4xot, corrected 2026-08-17 after trying it).
+`perf_harness.py` calls `require_host_wide_quiescence` at `pre_setup`, which is
+fail-closed over the ENTIRE effective host cpuset - `_host_wide_cpu_scope()`, no
+env var, no taskset scoping - and demands all cores under
+`HOST_WIDE_MAX_BUSY_FRACTION` (0.20) for `HOST_WIDE_ADMISSION_CLEAR_WINDOWS` (5)
+consecutive one-second windows inside `HOST_WIDE_ADMISSION_MAX_WINDOWS` (300).
+
+On a shared fleet that is a COORDINATED BUILD PAUSE, not an opportunistic moment.
+Measured refusal on 2026-08-17 at loadavg 12.33/10.13/9.87 - a figure that looks
+quiet and is not, because loadavg cannot see per-core occupancy: 52 of 64 CPUs
+were above 5 percent busy, offenders up to 100 percent. Do not weaken the gate to
+get the run through; loosening an exclusivity check to answer a gate-loosening
+question is circular, and this bead names that failure mode for
+MAX_NULL_MEDIAN_BIAS already.
 
 WHAT IT DOES NOT DO. It does not change any gate, and it is not evidence for
 changing one on its own — it computes the table the predicate asks for so a human
