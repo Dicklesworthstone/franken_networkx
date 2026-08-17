@@ -10893,6 +10893,28 @@ impl PyMultiGraph {
         Ok(mirror.bind(py).call_method0("__iter__")?.unbind())
     }
 
+    /// br-r37-c1-vbe1o: the node-key mirror DICT, for membership tests.
+    ///
+    /// `nbunch_iter` filters with `n in <container>` once per node. networkx's
+    /// container is `self._adj`, a plain dict, so the test is a C hash lookup;
+    /// fnx used `self.nodes`, whose `__contains__` crosses into PyO3 every time
+    /// — measured 0.70x against networkx over a 1000-node nbunch, which is
+    /// ~15 ns per node and the whole gap.
+    ///
+    /// The mirror is the same dict `_fnx_native_node_iter` above iterates, so it
+    /// is already maintained and authoritative; only its ITERATOR was reachable
+    /// from Python. Handing out the dict makes fnx's membership container the
+    /// same KIND of object networkx's is.
+    ///
+    /// Callers must treat it as READ-ONLY — it is the live mirror, not a copy.
+    /// The `_fnx_` name marks it private for that reason. Dict membership also
+    /// raises TypeError on an unhashable key exactly as networkx's does, which
+    /// is what lets `nbunch_iter` keep going without an explicit `hash()`.
+    fn _fnx_node_key_dict(slf: PyRef<'_, Self>) -> PyResult<Py<PyDict>> {
+        let py = slf.py();
+        slf.node_iter_mirror_or_init(py)
+    }
+
     // br-r37-c1-snabulk: native bulk set_node_attributes(values, name)
     // — one Rust loop over the values dict (mirror is authoritative;
     // inner refreshed at copy/export; missing nodes skipped per nx).
@@ -15732,6 +15754,28 @@ impl PyGraph {
         let py = slf.py();
         let mirror = slf.node_iter_mirror_or_init(py)?;
         Ok(mirror.bind(py).call_method0("__iter__")?.unbind())
+    }
+
+    /// br-r37-c1-vbe1o: the node-key mirror DICT, for membership tests.
+    ///
+    /// `nbunch_iter` filters with `n in <container>` once per node. networkx's
+    /// container is `self._adj`, a plain dict, so the test is a C hash lookup;
+    /// fnx used `self.nodes`, whose `__contains__` crosses into PyO3 every time
+    /// — measured 0.70x against networkx over a 1000-node nbunch, which is
+    /// ~15 ns per node and the whole gap.
+    ///
+    /// The mirror is the same dict `_fnx_native_node_iter` above iterates, so it
+    /// is already maintained and authoritative; only its ITERATOR was reachable
+    /// from Python. Handing out the dict makes fnx's membership container the
+    /// same KIND of object networkx's is.
+    ///
+    /// Callers must treat it as READ-ONLY — it is the live mirror, not a copy.
+    /// The `_fnx_` name marks it private for that reason. Dict membership also
+    /// raises TypeError on an unhashable key exactly as networkx's does, which
+    /// is what lets `nbunch_iter` keep going without an explicit `hash()`.
+    fn _fnx_node_key_dict(slf: PyRef<'_, Self>) -> PyResult<Py<PyDict>> {
+        let py = slf.py();
+        slf.node_iter_mirror_or_init(py)
     }
 
     /// Get adjacency dict for node (called by ``G[n]``).
