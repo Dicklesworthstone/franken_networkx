@@ -228,3 +228,86 @@ def test_ci_variant_is_reachable_from_the_cli(tmp_path):
     # which is the rescorer failing CLOSED and is the correct behaviour).
     assert "invalid choice" not in (accepted.stderr or "")
     assert "invalid choice" in (rejected.stderr or "")
+
+
+# br-r37-c1-d4xot: PROPERTIES OF THE CANDIDATE VARIANTS, derived from constructed
+# cases rather than from the suite. These are NOT the integrity table the bead
+# demands - that needs an admitted run - but they are decidable now, and they say
+# what to look for when the table finally exists.
+def test_relative_variant_forgives_a_tightly_biased_null_when_the_effect_is_large():
+    """The sharpest edge on `relative`, and the reason to read its table closely.
+
+    A null centred at 0.91 with a spread of +/-0.001 over 21 samples is not draw
+    noise - it is a measurement that is genuinely biased by 9 percent. `current`
+    and `ci` both veto it. `relative` ADMITS it, because it forgives any bias
+    smaller than the effect / RELATIVE_K, and the effect here is 4.4x.
+
+    That is the inversion worth naming: `relative` is most forgiving exactly when
+    the effect is largest, which is when an experimenter is most likely to accept
+    a biased null as a result. It may still be the right trade, but the bead's
+    WIN/LOSE table is what should decide it, not the size of the headline number.
+    """
+    mod = _load_rescorer()
+    tight_biased = [0.91 + 0.0001 * (i % 3) for i in range(21)]
+    clean = [1.0 + 0.0001 * (i % 3) for i in range(21)]
+    assert mod._clause3("current", tight_biased, clean, 4.4) is False
+    assert mod._clause3("ci", tight_biased, clean, 4.4) is False
+    assert mod._clause3("relative", tight_biased, clean, 4.4) is True
+
+
+def test_pooled_variant_can_mask_a_single_arm_bias():
+    """`pooled` averages the arms, and this bead's failures are SINGLE-arm.
+
+    The demonstration evidence reports run2 vetoed by the nx null (0.9772) and
+    run7 by the fnx null (0.9574) - different arms on different runs. Pooling
+    mixes a biased arm with a clean one, so a bias big enough to matter in one
+    arm can land inside the bound once halved.
+    """
+    mod = _load_rescorer()
+    biased = [0.962 + 0.0001 * (i % 3) for i in range(21)]
+    clean = [1.0 + 0.0001 * (i % 3) for i in range(21)]
+    assert mod._clause3("current", biased, clean, 4.4) is False
+    assert mod._clause3("pooled", biased, clean, 4.4) is True
+
+
+def test_every_variant_still_admits_a_clean_null():
+    """None of the candidates may reject a null that is genuinely centred."""
+    mod = _load_rescorer()
+    clean = [1.0 + 0.0005 * (i % 5) for i in range(21)]
+    for variant in ("current", "pooled", "relative", "ci"):
+        assert mod._clause3(variant, clean, clean, 4.4) is True, variant
+
+
+def test_rescorer_parses_a_realistic_stdout_capture(tmp_path):
+    """End-to-end: the real capture will be a JSON line inside other output.
+
+    Worth pinning because the one quiet window this bead is waiting for must not
+    be spent discovering that the parser chokes on surrounding harness chatter.
+    """
+    import json
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    script = Path(__file__).resolve().parents[2] / "scripts" / "rescore_clause3.py"
+    rows = [
+        {
+            "label": "synthetic",
+            "ratio_samples": [4.4 + 0.001 * (i % 5) for i in range(21)],
+            "null_nx_samples": [1.0 + 0.0005 * (i % 3) for i in range(21)],
+            "null_fnx_samples": [1.0 - 0.0005 * (i % 3) for i in range(21)],
+        }
+    ]
+    capture = tmp_path / "run.txt"
+    capture.write_text(
+        "perf_harness starting\nhost thinkstation1\n"
+        f"benchmark_results_json={json.dumps(rows)}\ndone\n"
+    )
+    proc = subprocess.run(
+        [sys.executable, str(script), str(capture), "--variant", "ci"],
+        capture_output=True, text=True, timeout=180,
+    )
+    assert proc.returncode == 0, proc.stderr
+    assert "1 of 1 rows carry raw samples" in proc.stdout
+    assert "variant: ci" in proc.stdout
+    assert "must be reverted" in proc.stdout  # the predicate reminder survives
