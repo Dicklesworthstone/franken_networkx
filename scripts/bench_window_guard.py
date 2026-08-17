@@ -55,6 +55,7 @@ from __future__ import annotations
 
 import statistics
 import time
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 
 
@@ -183,6 +184,75 @@ def read_loadavg_triple() -> tuple[float, float, float]:
     with open("/proc/loadavg", encoding="ascii") as handle:
         parts = handle.read().split()
     return float(parts[0]), float(parts[1]), float(parts[2])
+
+
+def _cpu_ticks(cores: set[str]) -> dict[str, tuple[int, int, int]]:
+    """(total, idle, iowait) jiffies for the named cpuN lines."""
+    out: dict[str, tuple[int, int, int]] = {}
+    with open("/proc/stat", encoding="ascii") as handle:
+        for line in handle:
+            name = line.split(maxsplit=1)[0]
+            if name in cores:
+                fields = [int(x) for x in line.split()[1:]]
+                out[name] = (sum(fields), fields[3], fields[4])
+    return out
+
+
+def core_busy_pct(cores: Sequence[int], interval: float = 2.0) -> dict[int, float]:
+    """LIVE busy percentage per core, sampled over `interval` seconds.
+
+    Neither loadavg nor machine-wide idle answers the question a PINNED
+    benchmark actually asks. Measured on this host 2026-08-17 within one minute:
+
+        loadavg 32.54          -- the level rule below says BLOCKED
+        machine-wide idle 69%  -- looks like a quiet host
+        cpu14 busy 35.4%, cpu15 busy 53.2%   -- the cores the bench pins to
+
+    All three are true at once. loadavg counts uninterruptible tasks that are not
+    competing for CPU, so it over-reports; machine-wide idle averages over cores
+    the benchmark will never touch, so it under-reports for a pinned run. Only
+    the per-core figure describes the contention the measurement will actually
+    experience, and here it disagreed with the machine-wide number by enough to
+    invert the decision.
+
+    `/proc/stat`'s counters are cumulative since boot, so a single read is
+    useless for this — the sample interval is the whole point.
+    """
+    names = {f"cpu{c}" for c in cores}
+    first = _cpu_ticks(names)
+    time.sleep(interval)
+    second = _cpu_ticks(names)
+    busy: dict[int, float] = {}
+    for name in names:
+        if name not in first or name not in second:
+            continue
+        total = second[name][0] - first[name][0]
+        idle = second[name][1] - first[name][1]
+        if total > 0:
+            busy[int(name[3:])] = 100.0 * (total - idle) / total
+    return busy
+
+
+def cores_are_quiet(
+    cores: Sequence[int],
+    busy_max: float = 15.0,
+    interval: float = 2.0,
+) -> tuple[bool, str]:
+    """Are the cores this run will PIN to actually free?
+
+    Answers the question `window_is_certifiable` cannot: that one reads the
+    machine, this one reads the seats the benchmark will sit in. Use BOTH — a
+    quiet machine with a busy bench core still produces a contended measurement,
+    and a loaded machine with free bench cores may be perfectly measurable.
+    """
+    busy = core_busy_pct(cores, interval)
+    if not busy:
+        return False, "no per-core samples (cores absent from /proc/stat?)"
+    worst_core, worst = max(busy.items(), key=lambda kv: kv[1])
+    detail = ", ".join(f"cpu{c} {b:.1f}% busy" for c, b in sorted(busy.items()))
+    if worst > busy_max:
+        return False, f"bench cores CONTENDED: {detail} (max {busy_max:.0f}%)"
+    return True, f"bench cores quiet: {detail}"
 
 
 def window_is_certifiable(
