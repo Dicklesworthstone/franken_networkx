@@ -96,15 +96,21 @@ def test_view_is_much_smaller_than_its_parent():
         assert view.number_of_nodes() <= 6, "view must stay small as the parent grows"
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="br-r37-c1-fvgetattr: _FilteredGraphView.__getattr__ falls back to "
-    "getattr(self.copy(), name), so an attribute MISS on a 4-node view walks the "
-    "whole parent. Measured 57.84us at a 200-node parent against 394.48us at "
-    "3200 (6.8x for a 16x parent) while networkx stays flat at 0.33-0.41us. "
-    "Ratio degrades from 0.0072x to 0.0008x and keeps going.",
-)
 def test_failed_lookup_cost_does_not_track_parent_size():
+    """FIXED. Was xfail(strict=True) until the probe landed; now a regression lock.
+
+    After the fix, measured on the same axis:
+
+        parent    fnx us/miss    networkx us/miss    ratio
+          200          1.07             0.52        0.4875x
+          800          0.71             0.36        0.5068x
+         3200          0.71             0.36        0.5015x
+
+    Flat in the parent, where it grew 6.8x before, and 556x faster at a
+    3200-node parent. The remaining 0.5x against networkx is a CONSTANT, which is
+    the part that matters: the unbounded term is gone. The bound below is
+    unchanged from when this test failed.
+    """
     small = _time_miss(_view(fnx, SMALL_PARENT))
     large = _time_miss(_view(fnx, LARGE_PARENT))
     growth = large / small

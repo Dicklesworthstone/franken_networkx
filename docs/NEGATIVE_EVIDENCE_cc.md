@@ -20986,3 +20986,72 @@ Method: in-process timings, min of 5 rounds x 200 reps, no ABBA square needed -
 the claim is a growth shape measured within one process, and the networkx arm is
 the control. loadavg 20.75/17.96/17.06, two peer builds running, no build of my
 own. disk 113G.
+
+## 2026-08-17 GoldenBison KEEP: the campaign's worst cell FIXED — 0.0008x to 0.5015x, and the unbounded term is gone (br-r37-c1-fvgetattr)
+
+The defect banked in the row above, repaired in the quiet window it was waiting
+for. `__getattr__` on a filtered view fell back to `getattr(self.copy(), name)`,
+and `copy()` walks the PARENT, so every attribute MISS on a small view paid for
+the whole parent and then raised `AttributeError` anyway.
+
+    parent    before    after     ratio before -> after    speedup
+      200    57.84us   1.07us     0.0072x -> 0.4875x         54x
+      800   127.14us   0.71us     0.0026x -> 0.5068x        179x
+     3200   394.48us   0.71us     0.0008x -> 0.5015x        556x
+
+THE SPEEDUP IS NOT THE RESULT. The result is that the cost is now FLAT in the
+parent - 1.07, 0.71, 0.71 microseconds - where before it grew 6.8x for a 16x
+parent with no floor. A ratio that degrades without bound is a different kind of
+defect from a large constant, and only the first can make a graph unusable at
+scale. What remains is a constant 0.5x against networkx, which is an ordinary
+cell.
+
+THE FIX. When `__getattr__` runs, the name is already absent from the entire MRO
+(the synthetic view class inherits the canonical graph class), so `self.copy()`
+can only ever help for attributes that exist as INSTANCE state on a copy.
+A memoised ONE-EDGE graph of the PARENT'S class carries exactly that state and
+costs nothing, so it answers "could this name exist?" without touching the
+parent. Only on a hit is the copy paid for. Dunders and `_graph` short-circuit
+before the probe - dunders are most of what copy/pickle/repr machinery asks for,
+and `_graph` would recurse.
+
+IT DEGRADES SAFELY. If the object has no `_graph` in its instance dict - mid
+construction, or a view shape that does not keep one - the original behaviour is
+used unchanged. The probe narrows a fallback; it never becomes the only path.
+
+THE DEFECT WAS IN TWO CLASSES, NOT ONE. The identical four-line fallback appears
+in `_FilteredGraphView` and in `_MultiDiGraphEdgeView`. I only found the second
+because my first patch attempt asserted its anchor matched exactly once and it
+matched twice - the assertion I had added for a different reason. Both are fixed.
+
+VERIFICATION. The strict xfail banked with the defect XPASSED and is now a
+regression lock with its ASSERTION AND BOUND UNCHANGED from when it failed. Full
+suite 60734 passed, only the 2 known stale-`~/.local` failures. The networkx
+control on the same axis still passes, so the fixture still measures the axis it
+claims to.
+
+A/A null control is not applicable in the usual form and I am saying why rather
+than omitting it: both arms here are the SAME process and the SAME binary, and
+the measured quantity is a GROWTH CURVE across parent sizes, not a two-arm ratio.
+The control that does the work is networkx measured on the identical axis in the
+identical loop: 0.52us, 0.36us, 0.36us before and after, i.e. flat to within
+0.16us across a 16x parent, which bounds the drift this fixture can carry. The
+subject moved 57.84 -> 1.07, 127.14 -> 0.71, 394.48 -> 0.71 microseconds; every
+one of those is two orders of magnitude outside that band.
+
+Method: in-process timings, min of 5 rounds x 200 reps, growth shape within one
+process with networkx as the control - no ABBA square, because the claim is that
+a curve flattened, not that a ratio moved. loadavg 8.29/13.89/15.72, one peer
+build running, NO build of my own - this is a pure-Python fix. disk 111G.
+
+bench_elf_sha256=f934861b2e97439800f7b7f9c8fdb23aeb2208f1f41216828c03d052e3e09b72
+elf_sha256=f934861b2e97439800f7b7f9c8fdb23aeb2208f1f41216828c03d052e3e09b72
+comparison_class=SELF-SPEEDUP
+self_speedup=556x
+incumbent=networkx
+incumbent_same_invocation=true
+incumbent_ratio_before=0.0008x
+incumbent_ratio_after=0.5015x
+campaign_output=false
+decision_gate=median_ci
+cv_role=report_only
