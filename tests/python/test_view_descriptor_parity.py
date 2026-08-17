@@ -1300,7 +1300,11 @@ def test_graph_private_adj_assignment_invalidates_public_cache():
     graph._adj = assigned
 
     assert "adj" not in vars(graph)
-    assert graph.adj is assigned
+    # br-r37-c1-vbe1o: public accessor = read-only view over the assigned
+    # mapping; identity holds on the PRIVATE name only, as in networkx.
+    assert graph._adj is assigned
+    assert graph.adj is not assigned
+    assert dict(graph.adj) == assigned
     assert graph.adj is not old_view
     assert list(graph.neighbors("n0")) == ["n1"]
 
@@ -1393,7 +1397,14 @@ def test_digraph_private_adjacency_assignment_invalidates_public_caches(
 
     assert all(name not in vars(graph) for name in ("adj", "succ", "pred"))
     for name in public_names:
-        assert getattr(graph, name) is assigned
+        # br-r37-c1-vbe1o: the PUBLIC accessor is a read-only view over the
+        # assigned mapping, not the mapping itself. Verified against live
+        # networkx per class: `G.adj is assigned` is False there and
+        # `G._adj is assigned` is True. Asserting identity on the public name
+        # pinned fnx's old raw return rather than nx's contract.
+        assert getattr(graph, name) is not assigned
+        assert dict(getattr(graph, name)) == assigned
+        assert getattr(graph, f"_{name}") is assigned
         assert getattr(graph, name) is not old_views[name]
 
 
@@ -1650,7 +1661,14 @@ def test_multidigraph_private_adjacency_assignment_invalidates_public_caches(
 
     assert all(name not in vars(graph) for name in ("adj", "succ", "pred"))
     for name in public_names:
-        assert getattr(graph, name) is assigned
+        # br-r37-c1-vbe1o: the PUBLIC accessor is a read-only view over the
+        # assigned mapping, not the mapping itself. Verified against live
+        # networkx per class: `G.adj is assigned` is False there and
+        # `G._adj is assigned` is True. Asserting identity on the public name
+        # pinned fnx's old raw return rather than nx's contract.
+        assert getattr(graph, name) is not assigned
+        assert dict(getattr(graph, name)) == assigned
+        assert getattr(graph, f"_{name}") is assigned
         assert getattr(graph, name) is not old_views[name]
 
 

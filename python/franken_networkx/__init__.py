@@ -46539,7 +46539,11 @@ def _assigned_private_has_edge_simple(self, u, v):
     # is an instance shadow installed ONLY on graphs carrying private storage, so
     # ordinary graphs never reach it and no perf claim is needed.
     try:
-        neighbors = self.adj[u]
+        # br-r37-c1-vbe1o: the RAW `_adj`, not the public `adj`. networkx reads
+        # `self._adj[u]` here; now that the public accessor returns a read-only
+        # view, going through it would hand back AtlasView rows where networkx
+        # hands back plain dicts.
+        neighbors = self._adj[u]
     except KeyError:
         return False
     return v in neighbors
@@ -46552,7 +46556,11 @@ def _assigned_private_has_edge_multi(self, u, v, key=None):
         hash(key)
     # br-r37-c1-vbe1o: same authority fix as the simple variant above.
     try:
-        neighbors = self.adj[u]
+        # br-r37-c1-vbe1o: the RAW `_adj`, not the public `adj`. networkx reads
+        # `self._adj[u]` here; now that the public accessor returns a read-only
+        # view, going through it would hand back AtlasView rows where networkx
+        # hands back plain dicts.
+        neighbors = self._adj[u]
     except KeyError:
         return False
     if v not in neighbors:
@@ -46567,7 +46575,9 @@ def _assigned_private_get_edge_data_simple(self, u, v, default=None):
     hash(v)
     if not self.has_edge(u, v):
         return default
-    return self.adj[u][v]
+    # br-r37-c1-vbe1o: raw `_adj` -- networkx returns the live attr dict here,
+    # and the public view would wrap it in an AtlasView.
+    return self._adj[u][v]
 
 
 def _assigned_private_get_edge_data_multi(
@@ -46579,7 +46589,8 @@ def _assigned_private_get_edge_data_multi(
         hash(key)
     if not self.has_edge(u, v, key):
         return default
-    edge_data = self.adj[u][v]
+    # br-r37-c1-vbe1o: raw `_adj`, as networkx does.
+    edge_data = self._adj[u][v]
     if key is not None:
         return edge_data[key]
     return edge_data
@@ -47010,6 +47021,31 @@ def _private_directed_adj_mapping(self, fallback):
         return succ_override
     return fallback(self)
 
+
+def _read_only_private_mapping(graph, mapping):
+    """Wrap an ASSIGNED private mapping the way networkx's public accessor does.
+
+    br-r37-c1-vbe1o: `G.adj` in networkx is a read-only view over `self._adj` --
+    read-only at BOTH levels, with the inner row an AtlasView. fnx handed back
+    the raw assigned dict, so `G.adj["QQ"] = {}` was ACCEPTED where networkx
+    raises TypeError. The private `G._adj` is raw in networkx too, and is
+    deliberately left alone: `G._adj is assigned` is True there and False for
+    `G.adj`, which is the split this restores.
+
+    The wrapper CLASS follows the graph: networkx uses MultiAdjacencyView for the
+    multigraph classes and AdjacencyView for the simple ones. Using one for all
+    would leave `type(G.adj)` wrong on half the classes -- caught before landing
+    by comparing the type against live networkx per class.
+
+    A plain dict is wrapped; anything already a view (the ordinary non-private
+    path) is returned untouched, so this costs nothing when no storage is
+    assigned.
+    """
+    if type(mapping) is dict:
+        if graph.is_multigraph():
+            return MultiAdjacencyView(lambda: mapping)
+        return AdjacencyView(lambda: mapping)
+    return mapping
 
 def _private_succ_mapping(self, fallback):
     override = _private_override(self, _PRIVATE_SUCC_OVERRIDE)
@@ -48460,7 +48496,10 @@ MultiDiGraph.successors = _fnx.MultiDiGraph._native_neighbors_iter
 MultiDiGraph.predecessors = _fnx.MultiDiGraph._native_predecessors_iter
 
 Graph.adj = property(
-    lambda self: _private_adj_mapping(self, _graph_adj_view),
+    lambda self: _read_only_private_mapping(
+        self,
+        _private_adj_mapping(self, _graph_adj_view)
+    ),
     lambda self, value: _set_private_override(self, _PRIVATE_ADJ_OVERRIDE, value),
 )
 Graph._adj = property(
@@ -48472,7 +48511,10 @@ Graph._node = property(
     lambda self, value: _set_private_override(self, _PRIVATE_NODE_OVERRIDE, value),
 )
 DiGraph.adj = property(
-    lambda self: _private_directed_adj_mapping(self, _digraph_adj_view),
+    lambda self: _read_only_private_mapping(
+        self,
+        _private_directed_adj_mapping(self, _digraph_adj_view)
+    ),
     lambda self, value: _set_private_override(self, _PRIVATE_ADJ_OVERRIDE, value),
 )
 DiGraph._adj = property(
@@ -48480,7 +48522,10 @@ DiGraph._adj = property(
     lambda self, value: _set_private_override(self, _PRIVATE_ADJ_OVERRIDE, value),
 )
 DiGraph.succ = property(
-    lambda self: _private_succ_mapping(self, _digraph_succ_view),
+    lambda self: _read_only_private_mapping(
+        self,
+        _private_succ_mapping(self, _digraph_succ_view)
+    ),
     lambda self, value: _set_private_override(self, _PRIVATE_SUCC_OVERRIDE, value),
 )
 DiGraph._succ = property(
@@ -48488,7 +48533,10 @@ DiGraph._succ = property(
     lambda self, value: _set_private_override(self, _PRIVATE_SUCC_OVERRIDE, value),
 )
 DiGraph.pred = property(
-    lambda self: _private_pred_mapping(self, _digraph_pred_view),
+    lambda self: _read_only_private_mapping(
+        self,
+        _private_pred_mapping(self, _digraph_pred_view)
+    ),
     lambda self, value: _set_private_override(self, _PRIVATE_PRED_OVERRIDE, value),
 )
 DiGraph._pred = property(
@@ -48500,7 +48548,10 @@ DiGraph._node = property(
     lambda self, value: _set_private_override(self, _PRIVATE_NODE_OVERRIDE, value),
 )
 MultiGraph.adj = property(
-    lambda self: _private_adj_mapping(self, _multigraph_adj_view),
+    lambda self: _read_only_private_mapping(
+        self,
+        _private_adj_mapping(self, _multigraph_adj_view)
+    ),
     lambda self, value: _set_private_override(self, _PRIVATE_ADJ_OVERRIDE, value),
 )
 MultiGraph._adj = property(
@@ -48512,7 +48563,10 @@ MultiGraph._node = property(
     lambda self, value: _set_private_override(self, _PRIVATE_NODE_OVERRIDE, value),
 )
 MultiDiGraph.adj = property(
-    lambda self: _private_directed_adj_mapping(self, _multidigraph_adj_view),
+    lambda self: _read_only_private_mapping(
+        self,
+        _private_directed_adj_mapping(self, _multidigraph_adj_view)
+    ),
     lambda self, value: _set_private_override(self, _PRIVATE_ADJ_OVERRIDE, value),
 )
 MultiDiGraph._adj = property(
@@ -48520,7 +48574,10 @@ MultiDiGraph._adj = property(
     lambda self, value: _set_private_override(self, _PRIVATE_ADJ_OVERRIDE, value),
 )
 MultiDiGraph.succ = property(
-    lambda self: _private_succ_mapping(self, _multidigraph_succ_view),
+    lambda self: _read_only_private_mapping(
+        self,
+        _private_succ_mapping(self, _multidigraph_succ_view)
+    ),
     lambda self, value: _set_private_override(self, _PRIVATE_SUCC_OVERRIDE, value),
 )
 MultiDiGraph._succ = property(
@@ -48528,7 +48585,10 @@ MultiDiGraph._succ = property(
     lambda self, value: _set_private_override(self, _PRIVATE_SUCC_OVERRIDE, value),
 )
 MultiDiGraph.pred = property(
-    lambda self: _private_pred_mapping(self, _multidigraph_pred_view),
+    lambda self: _read_only_private_mapping(
+        self,
+        _private_pred_mapping(self, _multidigraph_pred_view)
+    ),
     lambda self, value: _set_private_override(self, _PRIVATE_PRED_OVERRIDE, value),
 )
 MultiDiGraph._pred = property(
