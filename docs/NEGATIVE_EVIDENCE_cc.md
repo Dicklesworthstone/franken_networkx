@@ -20817,3 +20817,53 @@ Method: in-process timings, min of 9 rounds x 3 reps, mutation workload so no AB
 square. Peer builds present throughout (`ps` per invocation: 4,4,4,4,6,7).
 loadavg 14.46/16.80/17.47. No build of my own this turn - both arms are Python
 packages over the shared ELF. disk 120G.
+
+## 2026-08-17 GoldenBison the shim-hoist side effect, LOCALISED to view construction (br-r37-c1-aeshim)
+
+Following the instruction I left in the row above - instrument the accessor path
+rather than reason about which shim branch "should" be involved. Reasoning said a
+simple-graph shim cannot affect a MultiDiGraph view. Instrumentation disagrees,
+and now names where.
+
+REPRODUCER, 12 lines, no pytest: build a MultiDiGraph of 8 attributed edges, take
+`g.edge_subgraph(first 3 edges)`, read `.adj[n]`. Wrap
+`MultiDiGraph._native_edge_view_list` to count calls.
+
+    shOLD (HEAD shim)      0 calls
+    shNEW (hoisted shim)   2 calls
+
+THE CALL CHAIN, captured from the first hit under shNEW:
+
+    _multigraph_edge_subgraph
+      edge_subgraph
+        subgraph_view
+          _generic_filtered_graph_view
+            __init__                                     <- view CONSTRUCTION
+              _multidigraph_setattr_with_cached_public_adjacency
+                _set_private_override
+                  __getattr__                            <- a lookup MISSES
+                    copy
+                      parent.edges(keys=True, data=True) <- whole-graph walk
+
+So the whole-graph materialisation happens while CONSTRUCTING the subgraph view,
+not while reading it, and it is reached through a `__getattr__` - which by
+definition only runs when ordinary attribute lookup has already failed. Something
+the view's `__init__` expects to find is absent under the hoisted shim and present
+under HEAD, and the fallback for its absence is `copy()`.
+
+WHAT IS STILL UNKNOWN, stated so nobody mistakes this for a diagnosis: WHICH
+attribute misses. I instrumented `MultiDiGraph.__getattr__` under both arms and
+recorded ZERO misses on either, so the `__getattr__` in that stack belongs to the
+view class rather than the graph - I patched the wrong object. The next step is to
+wrap `__getattr__` on the class that `_generic_filtered_graph_view` actually
+constructs.
+
+WHY THIS MATTERS BEYOND MY REVERTED CHANGE. A view constructor that falls back to
+copying the entire parent when an attribute lookup misses is fragile independent
+of what caused the miss: any future change to which caches `add_edge` populates
+can silently turn a scoped view into a whole-graph copy, and the only thing
+standing between that and a shipped regression is one test's call counter. That
+is worth a bead of its own whether or not the shim hoist is ever retried.
+
+Method: direct instrumentation, both arms Python packages over one shared ELF, no
+build. loadavg 13.76/15.36/16.46, one peer build running. disk 118G.
