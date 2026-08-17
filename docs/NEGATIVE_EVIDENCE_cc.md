@@ -21321,3 +21321,57 @@ incumbent_ratio_after=0.8113x
 campaign_output=false
 decision_gate=median_ci
 cv_role=report_only
+
+## 2026-08-17 GoldenBison CLOCK PROVENANCE: my two view claims re-measured with per-arm MHz — both hold (br-r37-c1-vcopynb, br-r37-c1-fvgetattr)
+
+A GAP IN MY OWN LAST FOUR ROWS, closed. Those measurements were plain in-process
+timing loops: they recorded loadavg but NOT per-arm MHz, and they timed fnx and
+networkx SEQUENTIALLY, so the two arms could have sat on different cores at
+different frequencies. On a `powersave` host with cores ranging 1400-4300 MHz
+that is enough to manufacture a ratio, and "the ratio is a frequency ratio in a
+costume" is the correct criticism of the form I was using.
+
+RE-MEASURED with the arms INTERLEAVED ABBA inside ONE process, and the running
+core's frequency sampled immediately AFTER each timed block (`sample_core_khz`
+from `balanced_square_ab.py`, which reads `sched_getcpu()` rather than cpu0 and
+samples while the core is hot):
+
+    subject (parent 3200)   fnx      nx      ratio     fnx MHz  nx MHz  skew    cores
+    view.copy()           42.10us  32.31us  0.7675x     4068     4068  -0.00%  both cpu0
+    getattr MISS           0.74us   0.37us  0.5009x     4089     4089   0.00%  both cpu0
+
+THE CONFOUNDER IS EXCLUDED STRUCTURALLY, NOT JUST RECORDED. Both arms ran in one
+process, interleaved, so they met the SAME core (cpu0 for every block) at the
+SAME frequency - arm-to-arm skew 0.00 percent on both subjects. That is stronger
+than reporting two clocks and hoping they match: there was only ever one clock.
+
+BOTH CLAIMS HOLD, with small honest corrections to the figures:
+
+    view.copy()    previously reported 0.8113x, properly instrumented 0.7675x
+    getattr MISS   previously reported 0.4931x, properly instrumented 0.5009x
+
+Within about 6 percent of the earlier numbers and in the same direction, so the
+sequential loops were not badly wrong here - but they were not entitled to the
+precision they implied, and the instrumented values are the ones to quote.
+
+WHAT I AM NOT CLAIMING. This re-measurement covers the two view rows. The earlier
+mutation and construction rows on this ledger were taken with the same
+sequential-loop form and have NOT been re-instrumented; their loadavg is recorded
+but their per-arm clock is not, and anyone quoting a few-percent figure from them
+should re-measure first. The large ones (54x, 590x, 9.2x) are not in doubt at any
+plausible clock spread.
+
+Method: ABBA x 9 rounds x 30 reps after 50 warm-up iterations, min per arm, one
+process, per-arm core id and kHz captured after every block. loadavg
+15.43/19.75/19.62, ZERO peer builds, no build of my own. disk 100G.
+
+bench_elf_sha256=f934861b2e97439800f7b7f9c8fdb23aeb2208f1f41216828c03d052e3e09b72
+elf_sha256=f934861b2e97439800f7b7f9c8fdb23aeb2208f1f41216828c03d052e3e09b72
+harness_sha256=977bc0ab382ada602af2a28daf2fc20bf62bc1a1d93489b71932e63a0de1f5f9
+comparison_class=INCUMBENT
+incumbent=networkx
+incumbent_same_invocation=true
+incumbent_ratio=0.7675x
+campaign_output=false
+decision_gate=median_ci
+cv_role=report_only
