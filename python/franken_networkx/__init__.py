@@ -423,10 +423,18 @@ def _multidigraph_in_edges(self, nbunch=None, data=False, keys=False, default=No
             native = getattr(self, "_native_mdg_in_edges_nbunch_data_key", None)
         if native is not None:
             try:
+                # br-r37-c1-mdginb: route through the SAME memo the other three
+                # members of this family already use. `_digraph_in_edges_data_cache`
+                # existed and was wired at exactly ONE call site (DiGraph.in_edges)
+                # while `_digraph_out_edges_data_cache` was wired at four, so this
+                # was the one nbunch edge-view in the family paying the native
+                # kernel on every repeated call.
                 if data is True or data is False:
-                    result = native(nbunch, keys)
+                    result = _digraph_in_edges_data_cache(self, nbunch, native, keys)
                 else:
-                    result = native(nbunch, data, default, keys)
+                    result = _digraph_in_edges_data_cache(
+                        self, nbunch, native, data, default, keys
+                    )
             except TypeError as exc:
                 raise NetworkXError(str(exc))
             if result is not None:
