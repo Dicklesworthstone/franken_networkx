@@ -453,8 +453,7 @@ pub struct PyMultiDiGraph {
     /// Callers receive a SHALLOW COPY, never the cached object — see the
     /// undirected field's note for why handing out the cached mapping would let a
     /// caller's `d[k] = {}` corrupt it into a phantom key `G.edges` lacks.
-    pub(crate) edge_keydict_cache:
-        Option<(u64, u64, HashMap<String, HashMap<String, Py<PyDict>>>)>,
+    pub(crate) edge_keydict_cache: Option<(u64, u64, HashMap<String, HashMap<String, Py<PyDict>>>)>,
     /// br-r37-c1-f3i50: the endpoint-INDEX twin of `edge_keydict_cache` above.
     ///
     /// That cache removed the O(parallel edges) rebuild, but it is keyed by
@@ -2329,12 +2328,9 @@ impl PyMultiDiGraph {
             let adjacency = slf.getattr(attr)?;
             return match adjacency.get_item(n) {
                 Ok(row) => Ok(row.try_iter()?.into_any().unbind()),
-                Err(err) if err.is_instance_of::<pyo3::exceptions::PyKeyError>(py) => {
-                    Err(NetworkXError::new_err(format!(
-                        "The node {} is not in the digraph.",
-                        n.str()?
-                    )))
-                }
+                Err(err) if err.is_instance_of::<pyo3::exceptions::PyKeyError>(py) => Err(
+                    NetworkXError::new_err(format!("The node {} is not in the digraph.", n.str()?)),
+                ),
                 Err(err) => Err(err),
             };
         }
@@ -2507,7 +2503,10 @@ impl PyMultiDiGraph {
         py: Python<'_>,
         key: &Bound<'_, PyAny>,
     ) -> PyResult<Option<usize>> {
-        if let Some(index) = self.has_edge_node_index_cache.get(py, self.nodes_seq, key)? {
+        if let Some(index) = self
+            .has_edge_node_index_cache
+            .get(py, self.nodes_seq, key)?
+        {
             return Ok(Some(index));
         }
         let canonical = node_key_to_string(py, key)?;
@@ -8910,7 +8909,9 @@ impl PyMultiDiGraph {
                         return Ok(None);
                     };
                     self.mark_edges_dirty();
-                    let attrs = self.ensure_edge_py_attrs(py, u_c, v_c, internal_key).clone_ref(py);
+                    let attrs = self
+                        .ensure_edge_py_attrs(py, u_c, v_c, internal_key)
+                        .clone_ref(py);
                     // br-r37-c1-7qqr8: fill the index lookaside on the miss
                     // path with the SAME dict the string-keyed mirror just
                     // recorded, so the two can never disagree about identity.
@@ -10156,7 +10157,6 @@ impl PyDiGraph {
         }
         self.py_node_key(py, nbr)
     }
-
 
     /// br-r37-c1-z6uka: pred-row display object.
     pub(crate) fn py_pred_key(&self, py: Python<'_>, owner: &str, nbr: &str) -> PyObject {
