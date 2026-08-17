@@ -20267,3 +20267,90 @@ comparison_class=SELF-SPEEDUP
 campaign_output=false
 decision_gate=median_ci
 cv_role=report_only
+
+---
+
+## CERTIFIED (isolated) — MultiGraph 5.33x, and the Graph cost is REAL at ~3 percent, at this harness's resolution limit (2026-08-17)
+
+The clean re-run the previous entry said it owed. NO BUILD was run: both arms
+were already retained, which is exactly why the re-run was cheap. Six squares,
+three of them gate-passing.
+
+    square  gate        Graph (isolated)        CI          MultiGraph   verdict
+    1       PASS 1.10       0.9687     [0.9612, 0.9756]      5.4587      STABLE
+    2       PASS 1.14       0.9849     [0.9563, 1.0016]      5.3436      SIBLING
+    3       PASS 1.01       0.9739     [0.9562, 1.0221]      5.3938      SIBLING
+    4       FAIL 1.36       0.9591     [0.9456, 0.9648]      5.3265      SIBLING
+    5       FAIL 1.51       0.9798     [0.9712, 0.9967]      5.3942      ARM-CLOCK
+    6       FAIL 1.30       0.9647     [0.9466, 0.9812]      5.4713      SIBLING
+
+Squares 4-6 failed on ARRIVING EXTERNAL load, not on anything this pane did --
+no build was run this turn. They are shown because they agree with the three
+that passed, which is the only reason to show a gate-failing square at all.
+
+### CERTIFIED: the MultiGraph gain, isolated
+
+**5.33x**, quoted at the worst of six (range 5.3265-5.4713, a 2.7 percent
+spread). This SUPERSEDES nothing -- the earlier certified 4.69x came from a
+HEAD-to-HEAD pair carrying peers' commits, and both figures are honest about
+what they measured. The isolated number is the one that describes THIS change,
+and it is larger, so the shipped certification was conservative.
+
+### THE GRAPH COST IS REAL, AND SMALLER THAN THE FIRST ESTIMATE
+
+All SIX squares sit below unity: 0.9591-0.9849, median 0.9697. Six of six in one
+direction is not chance. The gate-passing three give 0.9687-0.9849, median
+0.9739 -- so the honest figure is **about 3 percent**, not the 3.5 percent the
+noisy run suggested and not the 6 percent the contaminated HEAD-to-HEAD pair
+showed.
+
+**IT SITS AT THIS HARNESS'S RESOLUTION LIMIT AND THAT IS THE HONEST CAVEAT.** The
+twelve A/A nulls across these six squares span 0.9879-1.0232, i.e. plus or minus
+about 2 percent, against an effect of about 3 percent. Two of the three
+gate-passing squares have Graph intervals that straddle unity ([0.9563, 1.0016]
+and [0.9562, 1.0221]). Only square 1 -- the one that returned the verdict
+`STABLE`, with the tightest nulls of the set -- excludes unity outright at
+[0.9612, 0.9756].
+
+So the DIRECTION is established and the MAGNITUDE is bounded rather than
+measured: somewhere around 2-4 percent. Resolving it further would need either
+many more squares or a lower-variance instrument, and it is not obvious that is
+worth it for a 3 percent cost bought with a 5.3x gain on the sibling class.
+
+MECHANISM, unresolved: simple `Graph` does not use `neighbor_key_rows` at all, so
+this is not a logic cost. The change retypes a tuple threaded through shared code
+paths, so the plausible causes are code layout and inlining rather than work
+done. That is consistent with the size -- a few percent, no algorithmic
+component -- and with its being invisible in the K=2 against K=2000 comparison,
+which is flat on both arms.
+
+RECOMMENDATION: accept and record rather than chase. The trade is a ~3 percent
+regression on `Graph.neighbors` against a 5.33x improvement on
+`MultiGraph.neighbors`, both measured on the same pair of binaries. Reverting
+would give the 3 percent back and lose the 5.3x.
+
+PER-ARM: base loadavg medians 10.34 / 10.06 / 11.67 / 17.30 / 19.03 / 17.58 with
+clocks 4290 / 4284 / 4240 / 4243 / 4191 / 4126 MHz; cand medians the same loads
+with clocks 4290 / 4263 / 4216 / 4238 / 4214 / 4178 MHz. Arm clock medians differ
+by 0.0-1.3 percent, the largest in square 6 which is gate-failing anyway.
+
+A/A null control, same invocation, measured: base 1.0044 [0.9876, 1.0121] and
+cand 0.9976 [0.9949, 1.0079]; base 0.9888 [0.9770, 1.0063] and cand 1.0076
+[0.9949, 1.0141]; base 1.0232 [0.9753, 1.0488] and cand 0.9932 [0.9867, 1.0042];
+base 0.9985 [0.9936, 1.0198] and cand 0.9955 [0.9590, 1.0163]; base 1.0069
+[0.9665, 1.0114] and cand 0.9995 [0.9797, 1.0486]; base 0.9893 [0.9666, 1.0016]
+and cand 0.9879 [0.9616, 1.0083].
+
+PROVENANCE: driver `/data/tmp/claude-1000/certify_iso.py` on `cpu15`, spawning
+`nb2_worker.py` pinned to `cpu14`. Arms are ONE `git archive` pin of HEAD built
+twice, the second with `b66accfcf`'s lib.rs hunk reverted -- scope verified by
+counting the MultiGraph 4-tuple (0 in the reverted arm) and the Graph twin's
+`adj_row_py_by_index` (14, retained). 21 rounds x 4 invocations, 6 x 20000 reps
+per invocation per class, bootstrap median CI over 10000 resamples, fixed seed.
+host thinkstation1, governor `powersave`, python 3.13.7, live networkx 3.6.1,
+disk 128G free.
+
+comparison_class=SELF-SPEEDUP
+campaign_output=false
+decision_gate=median_ci
+cv_role=report_only
