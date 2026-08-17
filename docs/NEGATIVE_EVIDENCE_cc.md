@@ -22065,3 +22065,87 @@ robust to a busy neighbour in a way a cross-run comparison is not.
 
 loadavg 10.75/13.94/19.68, interval idle 78.1 percent, build procs 0, disk 205G,
 no build this turn, nothing certified.
+
+---
+
+## br-r37-c1-vbe1o CERTIFIED — nbunch_iter's membership container: 0.70x becomes 1.006x against the incumbent (2026-08-17)
+
+`nbunch_iter(subset)` was 0.70x networkx, which my own earlier row named as the
+cell a future lever should take. networkx filters with `n in self._adj`, a plain
+dict, so each per-node test is a C hash lookup; fnx filtered with
+`n in self.nodes`, whose `__contains__` crosses into PyO3 every time — about 15 ns
+per node over a 1000-node nbunch, which is the whole gap. The graph already
+maintained the dict (the mirror the native node iterator walks); only its
+ITERATOR had been reachable from Python, so the fix was to expose the dict
+(`_fnx_node_key_dict`, ee0b9a4a2) and filter against it.
+
+    cell                          square 1                     square 2
+    nbunch_iter(subset)     1.4159 [1.3990, 1.4387]   1.4314 [1.4049, 1.4834]
+    nbunch_iter() ALL       0.9906 [0.9855, 0.9984]   0.9930 [0.9853, 1.0080]
+    nbunch_iter(single)     1.0081 [1.0012, 1.0279]   1.0152 [1.0024, 1.0181]
+
+**CERTIFIED 1.4159x** on the subset branch, quoted at the worst of the two.
+
+### AGAINST THE INCUMBENT, THE CELL CROSSES OVER
+
+    vs networkx              base             cand
+    nbunch_iter(subset)   0.7021 / 0.6944   1.0058 / 1.0059
+    nbunch_iter() ALL     1.0142 / 1.0076   1.0142 / 1.0107
+    nbunch_iter(single)   1.0186 / 1.0255   1.0424 / 1.0317
+
+INCUMBENT IS NETWORKX. **0.70x becomes 1.006x** — the 30 percent deficit is gone
+and the cell now sits at parity, reproducibly in both orders (1.0058, 1.0059).
+That is the number this lever was aimed at.
+
+### THE `ALL` CELL IS NOT AN EFFECT, AND THE COMMON-MODE CELL IS WHY I CAN SAY SO
+
+Square 1's ALL cell reads 0.9906 with an interval that EXCLUDES unity, which in
+isolation looks like a 1 percent regression on a branch this change does not
+touch. It is not. The common-mode cell — networkx, byte-identical in both arms,
+timed in the same invocation — reads 0.9918 in that square and 0.9897 in the
+other, i.e. the same magnitude and the same direction as the "effect". The ALL
+cell also straddles unity in square 2 (0.9930 [0.9853, 1.0080]).
+
+So the honest reading is that both are the same host drift, and the ALL branch is
+unchanged — which is what the diff says too, since the `nbunch is None` path was
+deliberately left alone. Without the common-mode cell I would have had to report a
+1 percent regression I could not explain; with it, the explanation is arithmetic.
+
+PER-ARM: square 1 base loadavg median 21.39 at 4158 MHz (min 4005, max 4288)
+against cand 21.39 at 4152 MHz (4010-4288), a 0.14 percent clock difference;
+square 2 base 33.17 at 4116 MHz (3816-4225) against cand 33.17 at 4094 MHz
+(3816-4290), 0.53 percent. Machine idle 84 percent with 1 percent iowait at the
+start; bench cores cpu28/cpu29 measured 1.7 and 3.7 percent busy immediately
+before square 1. `bench_core_busy` read 99.6 percent during both squares, which
+per the correction recorded earlier means only that the worker held the seat.
+Both squares returned SIBLING-CONTENDED.
+
+A/A null control, same invocation, measured: square 1 base 0.9868
+[0.9740, 1.0085] and cand 0.9965 [0.9893, 1.0054]; square 2 base 0.9921
+[0.9812, 1.0181] and cand 1.0024 [0.9608, 1.0115].
+
+### WHAT THE ARMS ISOLATE, after an earlier square failed to
+
+The previous attempt at this measurement was VOID: its candidate had been built
+from the shared working tree and had absorbed a peer's in-flight rowcache work,
+so the square was measuring two changes at once and reported a failure that was
+not mine. These arms are ONE `.so` with `__init__.py` differing by a SINGLE LINE —
+the container `nbunch_iter` filters against — with both files written outside the
+repo. Discriminated before timing: base reports container type `NodeView`, cand
+reports `dict`.
+
+PROVENANCE: driver `/data/tmp/claude-1000/certify_nbd.py` on `cpu29`, spawning
+`nb_worker.py` pinned to `cpu28` via `BENCH_CORE`. 2000-node graphs, 21 rounds x
+4 invocations per square, 6 x 200 reps for the bulk cells and 6 x 20000 for the
+single-node cell, bootstrap median CI over 10000 resamples, fixed seed 20260817.
+In-process loaded-ELF SHA-256, read from `fnx._fnx.__file__` inside each arm:
+5414680e8534657aabc448a52d9e981c6f7eeeb6a39689b0... for BOTH arms -- identical by design, which is what makes this pair
+isolate the single Python line.
+host thinkstation1, governor `powersave`, python 3.13.7, live networkx 3.6.1,
+disk 203G free.
+
+comparison_class=INCUMBENT
+incumbent=networkx
+campaign_output=true
+decision_gate=median_ci
+cv_role=report_only
