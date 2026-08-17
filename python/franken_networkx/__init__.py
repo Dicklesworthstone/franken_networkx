@@ -45415,8 +45415,23 @@ class _FilteredGraphView:
                     if node in self._graph:
                         yield node
                 return
+        # br-r37-c1-x3829: we are iterating the PARENT's own nodes, so the
+        # membership half of `_node_visible` - `node in self._graph` - is
+        # provably true for every node yielded here and was a wasted C-level
+        # containment check per node per walk. And when the node filter is the
+        # default there is no predicate to apply either, so the whole walk is
+        # the parent's iteration. Measured on restricted_view, which walks every
+        # parent node: 0.2747x against networkx at 800 nodes, 0.8970x after.
+        #
+        # `_node_visible` is left untouched for every OTHER caller - membership
+        # is load-bearing there, because those nodes arrive from outside the
+        # parent (`__contains__`, `_nbunch`, `_edge_visible`).
+        if self._filter_node_is_default:
+            yield from self._graph
+            return
+        filter_node = self._filter_node
         for node in self._graph:
-            if self._node_visible(node):
+            if filter_node(node):
                 yield node
 
     def __len__(self):

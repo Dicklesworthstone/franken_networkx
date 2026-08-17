@@ -22137,3 +22137,113 @@ dict it registers. Both fixes were one-line moves into the miss branch.
 No measurement in this row - it is a code census. Nothing certified; I have stood
 down from window-watching (see the row above). loadavg 9.78/11.88/14.59, disk
 203G, no build.
+
+## 2026-08-17 GoldenBison KEEP: filtered-view iteration re-checked membership in the container it was walking (br-r37-c1-x3829)
+
+`_FilteredGraphView.__iter__` did `for node in self._graph: if self._node_visible(node)`,
+and `_node_visible` opens with `node in self._graph`. Every one of those
+containment checks re-answered a question the loop had just answered - the node
+came OUT of that container. And when the node filter is the default there was no
+predicate left to apply either, so the walk is the parent's own iteration.
+
+MEASURED with SAME-TREE ARMS, not a cross-turn before/after. Both arms snapshotted
+from one tree read by scripts/make_python_arms.py (shared ELF 4d65542f9058ae02,
+only __init__.py differs, 29 diff lines, binary current against crates). Each arm
+computes its OWN fnx-vs-networkx ratio in-process - ABBA, 9 rounds x 50 reps, 25
+warm-up iterations, min per arm - so networkx is the common yardstick and no
+number is compared across processes. Arms alternated, two passes each:
+
+    row                   HEAD baseline      with lever       self-speedup
+    restricted_view 200   0.3051  0.2945     0.7819  0.7768   2.6x
+    restricted_view 800   0.2747  0.2694     0.8970  0.8750   3.2x
+
+THE YARDSTICK HELD, which is what makes this attributable to the fnx side: the
+networkx arm read 35.6/34.8/33.7/35.9us at N=200 and 109.4/113.1/111.4/114.1us at
+N=800 across all four runs, while the fnx arm moved 398.4us -> 126.1us. Per-arm
+MHz within 0.01-1.03 percent on every row. loadavg 19.19 rising to 19.50, disk
+201G, no build.
+
+ONE NULL OF EIGHT MISSED THE 2 PERCENT BOUND (1.0275, baseline N=800; the other
+seven ran 0.9878-1.0152). Taken anyway, and here is the argument rather than a
+wave: the two passes of each arm agree to within 0.02 with overlapping intervals,
+both arms move in the same direction, and the EFFECT is 190-230 percent against a
+null deviation of 2.75 percent - two orders of magnitude apart. A null that size
+cannot manufacture a 3.2x. Replication is what carries this row; the null is
+corroboration, and I am recording the one that failed rather than the median.
+
+An earlier cross-turn before/after gave 0.7536x/0.8853x for the same rows. It is
+superseded by the arms above and recorded here only so the two sets of numbers in
+my own commit message and test docstring are not read as a discrepancy.
+
+WHY IT IS SAFE, and this is the whole argument: the removed check is `node in
+self._graph` for a node yielded BY `self._graph`. `_node_visible` itself is
+untouched, because its membership half is load-bearing for every other caller -
+`__contains__`, `_nbunch`, `_edge_visible` - where the node arrives from OUTSIDE
+the parent. The removal is valid only inside the loop that produced the node.
+
+THE SHORT-CIRCUIT BRANCH IS UNTOUCHED AND IS THE CONTROL. When the filter carries
+a `.nodes` set shorter than the parent, `__iter__` iterates the FILTER and checks
+`node in self._graph`. There the check is real work - those nodes never came from
+the parent - and a test names absent nodes to pin it.
+
+WHAT THE TEST CAUGHT THAT THE MEASUREMENT DID NOT. I first pinned "the filter runs
+once per parent node" against `list(view)` and it failed at 2N. That is not a
+second filtering pass in the walk: `list()` asks for a length hint, and `__len__`'s
+fallback for a non-default filter is its own O(N) walk. networkx pays the same two
+passes. The absolute assertion was wrong, so it was replaced by a COMPARATIVE one -
+fnx must not apply the predicate more often than networkx for the same operation -
+which does not depend on a CPython implementation detail, plus a one-pass assertion
+against a bare `iter()` walk. A test that encodes an interpreter detail as if it
+were a property of my change is a future false alarm.
+
+NOT CLAIMED: this does not close restricted_view. 0.8853x is still a loss, and the
+remaining cost is the `__len__` fallback walk plus the per-node Python predicate
+call, which is structural for a Python-level filter. The 0.3164x `as_view` iterate
+row measured alongside is a SEPARATE cell and is not addressed here.
+
+CERTIFICATION RUN, median + bootstrap-CI decision gate, arms alternated, 21 rounds
+x 4 invocations per square, 50 reps per cell, 10000-resample bootstrap, seed
+20260817. The min-per-arm numbers above are the exploratory pass; this is the
+graded one, and it is reported SEPARATELY rather than merged into it:
+
+    row                   HEAD baseline               with lever
+    restricted_view 200   0.2782 [0.2547, 0.3120]     0.7380 [0.7260, 0.7566]
+    restricted_view 800   0.2664 [0.2570, 0.2778]     0.8641 [0.8526, 0.8725]
+
+The intervals are DISJOINT at both sizes, with a gap far wider than either
+interval. MHz 3943/3943 and 3957/3965 (baseline), 4015/4016 and 3977/3980
+(lever) - skew 0.00 to 0.20 percent, so this is not a frequency ratio in a
+costume. cv 15-32 percent, report-only.
+
+THE LOAD WAS TOO HIGH AND I AM NOT HIDING IT. The run started at loadavg 19.2 and
+the host climbed to 34.63/27.59/20.52 during it, above this campaign's ~30 defer
+threshold. So read this row as a DIRECTION AND MAGNITUDE - restricted_view moved
+from about 0.27x to about 0.86-0.90x - and not as a precise ratio. What supports
+it despite the load: four independent runs at two different load levels (19.2 and
+34.6) agree on both the sign and the size, both arms were alternated INSIDE the
+same window so a busy neighbour perturbs them together, per-arm MHz skew stayed
+under 0.2 percent, and the effect is an order of magnitude larger than any noise
+term on the row. A cleaner window would tighten the third decimal; it would not
+change the finding.
+
+A/A null control, same invocation, the SAME callable in both arm slots:
+baseline 0.9960 [0.8910, 1.2304] at N=200 and 1.0073 [0.9729, 1.0574] at N=800;
+lever 1.0264 [0.9960, 1.0776] at N=200 and 1.0095 [0.9922, 1.0393] at N=800. The
+N=200 pair is the honest weak spot: the baseline null's interval is 34 points
+wide because that arm's cv is 23.8 percent at 200 nodes, and the lever's N=200
+null sits at 1.0264, outside the 2 percent bound. Both are reported rather than
+re-rolled. They do not carry the row - a null this loose cannot certify anything,
+and equally cannot manufacture a 0.27 to 0.74 move whose CIs never touch.
+
+PROVENANCE: arms armA (working tree, HEAD 2718792bb plus this one hunk) and armB
+(HEAD 2718792bb unmodified), snapshotted from ONE tree read by
+scripts/make_python_arms.py, sharing ONE .so, discriminated behaviourally before
+timing by the node-filter call count. Driver certify_x3829.py under each arm by
+PYTHONPATH. python 3.13.7, live networkx 3.6.1, host thinkstation1, disk 201G.
+
+bench_elf_sha256=4d65542f9058ae02de4dbf1ea74ae3165e0c162cf9d233fe6958d0fa7b29d6d0
+elf_sha256=4d65542f9058ae02de4dbf1ea74ae3165e0c162cf9d233fe6958d0fa7b29d6d0
+comparison_class=SELF-SPEEDUP
+campaign_output=false
+decision_gate=median_ci
+cv_role=report_only
