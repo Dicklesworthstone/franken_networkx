@@ -20568,3 +20568,60 @@ such change must pass.
 Method: in-process timings, min of 9 rounds x 3 reps, no ABBA square (mutation
 workload). loadavg 14.24/17.31/16.53, one peer build running, no build of my own.
 disk 123G.
+
+## 2026-08-17 GoldenBison REFUTED then REDIRECTED: the add_edge shim cannot be removed — it must be MOVED, and one native already shows how (br-r37-c1-aeshim)
+
+The row above proposed removing the duplicate validation from the Python
+`add_edge` shim, worth 0.7483x -> 0.9305x on integer-key construction, and said
+the native "already performs the same validation". I tested that premise before
+writing any code. IT IS FALSE, in all ten cases I checked.
+
+RAW NATIVE `Graph`/`DiGraph` `add_edge`, called directly, against networkx:
+
+    u=None,   v='b'    native ACCEPTS, node None added   nx ValueError
+    u='a',    v=None   native ACCEPTS, node None added   nx ValueError
+    u=['x'],  v='b'    native ACCEPTS                    nx TypeError
+    u='a',    v=['x']  native ACCEPTS                    nx TypeError
+    u=None,   v=None   native ACCEPTS                    nx ValueError
+
+    10 of 10 divergences across Graph and DiGraph.
+
+The unhashable cases are worse than a wrong exception. The native STORES the
+list as a node and the graph becomes permanently unreadable - `G.nodes()` then
+raises `TypeError: unhashable type: 'list'` from a call site unrelated to the
+add. That is precisely the corruption the shim's own comment (br-r37-c1-m0io3,
+br-r37-c1-mae-keyhash) was written to prevent. The shim is fully load-bearing and
+deleting it would trade a 1.34x construction win for silent state corruption.
+
+SO THE PROPOSAL IS REFUTED. Not "measured and small" - refuted before a line was
+written, by testing the premise instead of trusting my own reading of the kernel.
+I had read validation code in `lib.rs` and assumed it was `PyGraph`'s; it belongs
+to `PyMultiGraph`, whose `impl` block starts earlier in the same file.
+
+AND THAT IS THE REDIRECT, because it is the missing-sibling shape again:
+
+    MultiGraph    native validates    MATCHES networkx exactly (both cases)
+    MultiDiGraph  native does NOT     DIVERGES
+    Graph         native does NOT     DIVERGES
+    DiGraph       native does NOT     DIVERGES
+
+ONE of the four natives already implements this correctly. The lever is not to
+REMOVE the Python validation but to MOVE it into the three natives that lack it,
+with `PyMultiGraph::add_edge` as the reference implementation already in the tree
+and already parity-tested. Only then can the simple-graph shim be deleted, and
+the 0.7483x -> 0.9305x ceiling on integer-key construction still applies because
+the work moves from Python to Rust rather than disappearing.
+
+A SECOND, SMALLER PRIZE FALLS OUT: `MultiDiGraph`'s native diverging from
+networkx on None and unhashable endpoints is a PARITY BUG in its own right,
+currently masked by the shim. It is only invisible because every public call goes
+through the wrapper - anything that reaches the native directly, now or later,
+gets the corruption. That should be fixed on correctness grounds regardless of
+whether the performance work ever happens.
+
+Method: direct calls to the captured `_GRAPH_ADD_EDGE_RAW` /
+`_DIGRAPH_ADD_EDGE_RAW` / `_MULTIGRAPH_ADD_EDGE_RAW` /
+`_MULTIDIGRAPH_ADD_EDGE_RAW` objects, compared against networkx by exception TYPE,
+exception ARGS and resulting node list - a type-only comparison would have called
+the unhashable cases green in both libraries. loadavg 21.40/18.63/17.13, one peer
+build running, no build of my own, disk 121G.
