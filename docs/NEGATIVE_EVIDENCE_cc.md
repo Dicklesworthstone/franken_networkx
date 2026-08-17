@@ -20354,3 +20354,54 @@ comparison_class=SELF-SPEEDUP
 campaign_output=false
 decision_gate=median_ci
 cv_role=report_only
+
+---
+
+## VOID — the DiGraph row-dict index twin was a NO-OP, caught before landing (2026-08-17)
+
+A fresh surface scan on the current HEAD binary (no build needed -- no commit had
+touched `crates/` since the last one) put `DiGraph.neighbors` at 0.2340x, and a
+direct key-length probe confirmed it as the last class still sloped:
+
+    Graph         K=2 146.4 (0.601)   K=2000 144.2 (0.599)   FLAT
+    DiGraph       K=2 134.9 (0.656)   K=2000 640.3 (0.133)   SLOPED
+    MultiGraph    K=2 126.3 (0.689)   K=2000 128.2 (0.664)   FLAT
+    MultiDiGraph  K=2 133.8 (0.655)   K=2000 133.8 (0.654)   FLAT
+
+A textbook missing sibling: three classes fixed, one not.
+
+I WROTE THE WRONG FIX. `PyDiGraph::_native_successor_row_dict` and its
+predecessor twin do pay three O(node key length) operations
+(`node_key_to_string`, `has_node`, then the string map probe), so they LOOK like
+the slope. An index twin was written for both, with `nodes_seq` stamps, clearing
+at both `.clear()` sites, GC traverse, and 12 initialiser sites across four
+files. It type-checked and built.
+
+IT CHANGED NOTHING. Measured on the built arm against the unpatched one:
+
+    predecessors, UNPATCHED   K=2 293.7 ns (0.302)   K=2000 296.4 ns (0.326)
+    predecessors, PATCHED     K=2 297.4 ns (0.290)   K=2000 297.7 ns (0.298)
+    neighbors,    PATCHED     K=2 131.0 ns (0.660)   K=2000 600.9 ns (0.142)  STILL SLOPED
+
+`predecessors` was ALREADY flat before the change, so the "flat" reading proved
+nothing, and `neighbors` was untouched. The row-dict functions are simply not on
+these paths: `DiGraph.neighbors` resolves to a native `fn neighbors` that
+delegates to `PyDiGraph::successors`, and `predecessors` goes through
+`native_direction_iter`. The patch is dead weight -- two fields, two probes and
+12 initialiser sites for zero measured benefit -- and is NOT landed.
+
+**WHAT CAUGHT IT.** Not the type-checker, not the 113 passing guard tests, not
+the 300-graph differential with 0 mismatches -- all of those pass happily on a
+no-op. It was measuring `predecessors` on the UNPATCHED arm before claiming the
+flatness as a win. The patched arm alone showed "predecessors flat, neighbors
+sloped", which reads like a half-success; only the before-number showed it was a
+no-success. A candidate-only reading cannot tell a fix from a no-op, and this row
+exists because that is easy to forget when the candidate looks reasonable.
+
+THE REAL TARGET is `PyDiGraph::successors`, which `neighbors` delegates to
+(`fn neighbors(&self, py, n) { self.successors(py, n) }`). That is where the
+canonical is built for the hot path. Filed as br-r37-c1-sznaj. The next attempt should patch it and verify
+against the UNPATCHED arm before writing a line of the commit message.
+
+No measurement here is certified; these are single-window readings taken to
+decide whether a patch worked, and they answered that decisively.
