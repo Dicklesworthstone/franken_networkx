@@ -20115,3 +20115,84 @@ comparison_class=SELF-SPEEDUP
 campaign_output=false
 decision_gate=median_ci
 cv_role=report_only
+
+## 2026-08-17 GoldenBison KEEP-SELF: convkey replicates at 1.303x in the quietest window — and my ABLATION was invalid by construction (br-r37-c1-convkey)
+
+Run in the quietest window of the campaign (loadavg 5.64/5.58/5.56 at the start,
+all three averages agreeing) to settle a caveat I had raised against my OWN
+certified row. It settled half of it and exposed a design error in how I tried to
+settle the other half.
+
+THREE ARMS, one shared workload, alternated A B C three times:
+
+    A (07d7515a)  neither change        0.2818x 0.2742x 0.2668x   median 0.2742x
+    B (9d1fded1)  both changes          0.3610x 0.3572x 0.3237x   median 0.3572x
+    C (96d75f3d)  mirror handle ONLY    0.3219x 0.3160x 0.2899x   median 0.3160x
+
+A -> B is 1.303x. The earlier certification of this lever measured 1.120x on the
+same kernel in a busier window; the effect REPLICATES and is larger here. That
+part is a straightforward strengthening of the banked row.
+
+THE ABLATION IS INVALID AND I AM DISCARDING IT. Arm C was supposed to be "convkey
+minus the index map". It is not. Reverting the bucket key to an owned
+(String, String) makes `pair` move into `pair_keys.entry(pair)`, and the kernel
+consults that bucket TWICE per arc, so arm C needs `pair.clone()` at both sites -
+two whole owned String pairs per arc that NEITHER arm A nor arm B ever paid. Arm
+C is therefore biased SLOW by construction, and the tempting readings from it
+(mirror handle 1.152x, index map a further 1.130x) are not attributable. I built
+the ablation, measured it, and only then noticed the clone I had introduced to
+make it compile.
+
+SO THE CAVEAT STANDS UNRESOLVED. I previously wrote, against my own row, that
+"the index map was probably a small NEGATIVE there too and the whole gain came
+from the mirror handle". This run does not refute that and does not confirm it.
+What it establishes is only a bound: arm C is a PESSIMISTIC mirror-handle-only
+arm, so the mirror handle alone is worth AT LEAST the 1.152x it shows. Settling
+the split needs an arm that removes the index map WITHOUT adding clones - which
+means restructuring the bucket lookup to borrow, not a two-line revert.
+
+THE GENERAL LESSON, which is why this is banked rather than dropped: an ablation
+arm must remove work and add NONE. If reverting one half of a change forces new
+code to satisfy the borrow checker, the arm is measuring your compile fix, not
+the half you removed. I have no evidence this has bitten any earlier row on this
+campaign - every prior arm was a whole-commit revert - but the failure mode is
+invisible in the numbers, which all looked plausible and ordered.
+
+CONTROLS were poor here and I am not leaning on them. NEAR-CONTROL
+`MultiDiGraph.copy()` read A 0.3628x, B 0.3824x, C 0.3495x - a 9 percent spread
+across arms on a kernel none of them changes, wider than in the earlier
+conversion runs. Two peer build processes were present for eight of the nine
+invocations (the brief said none; `ps` sampled per invocation showed 2, 2, 2, 2,
+0, 2, 2, 2, 2). The subject's A->B gap is 30 percent, comfortably outside that,
+but nothing at the few-percent scale from this run should be quoted.
+
+A/A null control, same invocation, measured on the subject row: A 0.9987/0.9708,
+1.0164/0.9776, 0.9940/0.9893; B 1.0123/0.9979, 1.0010/1.0039, 1.0216/0.9781;
+C 1.0266/1.0060, 1.0287/0.9858, 1.0327/0.9756. All eighteen sit inside
+[0.9708, 1.0327]. Five of the nine subject rows were ADMISSIBLE, including two of
+three arm-B rows.
+
+SUBSTRATE. host thinkstation1, governor `powersave`, 64 CPUs, avx2, python
+3.13.7, live networkx 3.6.1, no rch worker. Workload `conversions`, reps 2,
+rounds 41, warmup 12, square ABBAABBA, bootstrap median CI. ONE build (arm C),
+df 129G checked immediately before it, run BEFORE the measurement window.
+Per-arm observed loadavg 10.29/7.64/6.34, 9.94/7.61/6.34, 9.64/7.62/6.36,
+9.51/7.63/6.37, 9.27/7.64/6.38, 9.25/7.67/6.40, 9.52/7.78/6.45, 9.48/7.80/6.46,
+9.62/7.89/6.51; mean CPU at invocation start 2104, 2695, 3079, 3136, 2294, 2716,
+3157, 2673, 2469 MHz; per-row clock 4139-4289 MHz, arm-to-arm skew at or below
+0.27 percent. disk 128G free.
+
+bench_elf_sha256=9d1fded1a630685af92df7053907eef3f04fa01f6435367bc585426e01075ff6
+elf_sha256=9d1fded1a630685af92df7053907eef3f04fa01f6435367bc585426e01075ff6
+baseline_elf_sha256=07d7515ae2aee53f17cb8a3bfaddf7008b4963c841d52e50b140678df3f4edc1
+ablation_elf_sha256=96d75f3d1cbb628689705e5c9e240335ef470f3147f52e240c3b460ec858eebb
+harness_sha256=977bc0ab382ada602af2a28daf2fc20bf62bc1a1d93489b71932e63a0de1f5f9
+comparison_class=SELF-SPEEDUP
+self_speedup=1.303x
+incumbent=networkx
+incumbent_same_invocation=true
+incumbent_ratio_before=0.2742x
+incumbent_ratio_after=0.3572x
+campaign_output=false
+decision_gate=median_ci
+cv_role=report_only
