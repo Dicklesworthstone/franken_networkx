@@ -3608,6 +3608,17 @@ class _MultiGraphEdgeView:
                         guard_edge_count=True,
                     )
                 if keys:
+                    # br-r37-c1-p1dbu: nx returns `self` here (its
+                    # `MultiEdgeView.__call__` short-circuits whenever there is
+                    # no nbunch and no data), so `G.edges(keys=True) is G.edges`
+                    # and the result keeps the Mapping surface. This returns a
+                    # LIST SUBCLASS carrying the same class NAME instead, so
+                    # `.items()` / `.keys()` / `.values()` are missing.
+                    #
+                    # DO NOT "fix" this by returning `self`: `__iter__` reaches
+                    # `_direct_multi_edge_iter`, which caches this call's result
+                    # and iterates it, so `return self` is infinite recursion.
+                    # Attempted and reverted — see the bead.
                     return _guarded_edge_list(
                         _wrap_edge_data_view(result, _MultiEdgeView),
                         self._graph,
