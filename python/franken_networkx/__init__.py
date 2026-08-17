@@ -493,6 +493,33 @@ def _multidigraph_in_edges(self, nbunch=None, data=False, keys=False, default=No
     return result
 
 
+def _nbunch_membership_container(graph):
+    """The ADJACENCY when this graph carries assigned private storage, else None.
+
+    br-r37-c1-vbe1o: nx's `nbunch_iter` reads `self._adj` — both to iterate when
+    `nbunch is None` and to filter a sequence. fnx used the node view for both,
+    which gives the same answer on an ordinary graph and the WRONG one on a graph
+    carrying assigned storage, where the node set and the adjacency differ. It
+    was wrong in both directions at once: a node carried only by an assigned
+    `_adj` was filtered out, and one carried only by an assigned `_node` was let
+    through.
+
+    Returning None rather than the node view lets each caller keep its own cheap
+    default — `iter(self)` for the None branch, `self.nodes` for the filter —
+    which is what preserves the containers br-r37-c1-oaamq measured and chose.
+    The private lookup happens once per CALL, not once per node.
+    """
+    storage = vars(graph)
+    if (
+        _PRIVATE_NODE_OVERRIDE in storage
+        or _PRIVATE_ADJ_OVERRIDE in storage
+        or _PRIVATE_SUCC_OVERRIDE in storage
+        or _PRIVATE_PRED_OVERRIDE in storage
+    ):
+        return graph.adj
+    return None
+
+
 def _graph_nbunch_iter(self, nbunch=None):
     # br-r37-c1-nbunchnone (cc): nbunch=None is iteration over ALL nodes; route it
     # to the cheap cached node iterator (iter(self)) BEFORE building self.adj — the
@@ -500,8 +527,16 @@ def _graph_nbunch_iter(self, nbunch=None):
     # (0.09x vs nx) just to iterate the view's keys. self.adj is still built for the
     # membership-filter path below (its __contains__ is the fast container there).
     if nbunch is None:
-        return iter(self)
+        # br-r37-c1-vbe1o: nx is `iter(self._adj)`. On an ordinary graph that is
+        # the node set and `iter(self)` is the cheap way to say it; under
+        # assigned private storage the two differ and the ADJACENCY is the one
+        # nx iterates. The private branch is the rare one and pays for itself.
+        container = _nbunch_membership_container(self)
+        return iter(self) if container is None else iter(container)
     if nbunch in self:
+        # nx tests the NODE view here (`elif nbunch in self`), not the adjacency
+        # -- the same two-rule split the degree view needed. Left as-is on
+        # purpose.
         return iter([nbunch])
     # br-r37-c1-oaamq: the br-cc-nbunchbulk native bulk path used to sit here. It
     # filtered a re-iterable nbunch in ONE native call to avoid the per-node
@@ -554,7 +589,18 @@ def _graph_nbunch_iter(self, nbunch=None):
     # still (109.8us vs 129.7us) but ANSWERS FALSE for an unhashable node
     # rather than raising, so it would need the hash back and end up dearer.
     # Both keep working for the proxy views the old bulk path had to exclude.
-    return bunch_iter(nbunch, self.nodes)
+    #
+    # br-r37-c1-vbe1o: "same membership answer" holds for an ORDINARY graph and
+    # not for one carrying assigned private storage, where the node view and the
+    # adjacency are different sets. nx filters this branch on `self._adj`, so a
+    # node carried only by an assigned `_adj` must survive the filter and one
+    # carried only by an assigned `_node` must not — fnx had both backwards.
+    #
+    # The check is per CALL, not per node, so it amortises over the whole
+    # nbunch and the ordinary path keeps the cheap container the note above
+    # earned.
+    container = _nbunch_membership_container(self)
+    return bunch_iter(nbunch, self.nodes if container is None else container)
 
 
 def _size_with_unweighted_int(size_impl):
@@ -2970,12 +3016,19 @@ def _multigraph_getitem_from_native_row(self, node):
     # it exactly as the simple-graph path above does.  Node mutations advance
     # nodes_seq and discard the cache before the next lookup.
     storage = vars(self)
-    self._fnx_register_gc_dict(storage)
     cache = storage.get("_fnx_getitem_atlas_cache")
     seq = self.nodes_seq
     if cache is None or cache[0] != seq:
+        # br-r37-c1-gcreg: register only when we actually PUT something in the
+        # instance dict. This ran on every `G[n]` including cache hits, and
+        # `_fnx_register_gc_dict(vars(self))` re-registers the same dict object
+        # every time - the identical per-call bookkeeping that made freeze()
+        # 0.0768x (br-r37-c1-frzsetattr). On a hit there is nothing new to
+        # track, so the registration belongs on the miss branch beside the
+        # assignment it exists for.
         cache = (seq, {})
         storage["_fnx_getitem_atlas_cache"] = cache
+        self._fnx_register_gc_dict(storage)
     view = cache[1].get(node)
     if view is not None:
         return view
@@ -3034,12 +3087,19 @@ def _multidigraph_getitem_from_native_row(self, node):
     # Directed sibling of br-r37-c1-fy913.  The cached AdjacencyView calls the
     # native successor-row binding lazily, so structural edge updates stay live.
     storage = vars(self)
-    self._fnx_register_gc_dict(storage)
     cache = storage.get("_fnx_getitem_atlas_cache")
     seq = self.nodes_seq
     if cache is None or cache[0] != seq:
+        # br-r37-c1-gcreg: register only when we actually PUT something in the
+        # instance dict. This ran on every `G[n]` including cache hits, and
+        # `_fnx_register_gc_dict(vars(self))` re-registers the same dict object
+        # every time - the identical per-call bookkeeping that made freeze()
+        # 0.0768x (br-r37-c1-frzsetattr). On a hit there is nothing new to
+        # track, so the registration belongs on the miss branch beside the
+        # assignment it exists for.
         cache = (seq, {})
         storage["_fnx_getitem_atlas_cache"] = cache
+        self._fnx_register_gc_dict(storage)
     view = cache[1].get(node)
     if view is not None:
         return view
