@@ -31986,6 +31986,21 @@ def freeze(G):
     br-r37-c1-cfcls: Convert nx input to fnx for consistent return type.
     """
     G = _coerce_arg_to_fnx_graph(G)
+    # br-r37-c1-frzsetattr: write the method shadows straight into the instance
+    # dict, and let only the LAST assignment go through the normal path.
+    #
+    # Every setattr on an fnx graph runs the class's custom __setattr__, which
+    # ends in self._fnx_register_gc_dict(vars(self)). vars(self) is the SAME dict
+    # object each time, so freezing re-registered one dict TWELVE times per call -
+    # and freeze() measured 0.0768-0.0820x against networkx, which just rebinds
+    # the names. The cost was per-assignment bookkeeping, not the assignments.
+    #
+    # None of these names is in _MULTIDIGRAPH_PUBLIC_ADJ_PROPERTIES,
+    # _DIRECTED_CACHED_PUBLIC_NAMES or _CLASS_PREDICATE_NAMES, so the custom path
+    # would do nothing for them except the plain write and that redundant
+    # registration. `G.frozen = True` is deliberately left on the normal path, so
+    # the instance dict is still registered exactly once per freeze.
+    instance_dict = vars(G)
     for name in (
         "add_node",
         "add_nodes_from",
@@ -32000,7 +32015,7 @@ def freeze(G):
         "clear_edges",
     ):
         if hasattr(G, name):
-            setattr(G, name, _frozen)
+            instance_dict[name] = _frozen
     G.frozen = True
     return G
 
