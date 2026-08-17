@@ -21667,3 +21667,102 @@ incumbent_ratio_after=0.5845x
 campaign_output=false
 decision_gate=median_ci
 cv_role=report_only
+
+---
+
+## br-r37-c1-m1k0q CERTIFIED — the multigraph adjacency `__len__` becomes a C slot: 0.77x to 1.34x against the incumbent (2026-08-17)
+
+`len(MultiGraph.adj)` was 0.77x networkx while `len(DiGraph.adj)` was 1.36x, on
+the same operation returning the same number. br-r37-c1-5gam7 gave only the
+simple classes a `__len__` that is a C slot; this is the multigraph twin.
+
+### IT NEEDED RUST, AND THAT WAS PROBED RATHER THAN ASSUMED
+
+Of every native view class, ONLY `AdjacencyView` and `DiAdjacencyView` are
+subclassable — 5gam7 added `subclass` to exactly those two — and both REJECT a
+multigraph owner (`'MultiGraph' object is not an instance of 'Graph'`). There is
+no native `MultiAdjacencyView`; `MultiAtlasView` is the inner per-row view. So
+two minimal `subclass` pyclasses were added.
+
+### CERTIFIED
+
+    cell                          square 1                     square 2
+    len(MultiDiGraph.adj)   1.7561 [1.7463, 1.7803]   1.7639 [1.6711, 1.7956]
+    len(MultiGraph.adj)     1.7503 [1.7342, 1.7801]   1.7444 [1.6418, 1.7680]
+    len(DiGraph.adj)  NEG   0.9867 [0.9742, 0.9964]   0.9971 [0.9419, 1.0215]
+
+base/cand, so above 1 is the candidate being faster. **1.74x self-speedup**,
+quoted at the worst square of each row. Square 2 gate-FAILED at start on arriving
+load (1-min 14.40 against 5-min 10.94) and is shown because it agrees with square
+1, which passed; the figures rest on square 1.
+
+### AGAINST THE INCUMBENT IT CROSSES FROM LOSS TO WIN
+
+    vs networkx          base             cand
+    MultiDiGraph.adj   0.7634 / 0.7525   1.3441 / 1.3366
+    MultiGraph.adj     0.7680 / 0.7748   1.3621 / 1.3490
+    DiGraph.adj  NEG   1.3581 / 1.3545   1.3568 / 1.3535
+
+INCUMBENT IS NETWORKX. **0.77x becomes 1.34x** — quoted at the worst square. The
+landing point is the giveaway that the mechanism is the one claimed: both
+multigraph classes arrive at 1.34-1.36x, which is where the UNTOUCHED
+`DiGraph.adj` control already sat (1.3535-1.3581), and that control did not move
+in either square. The bead predicted "roughly 1.3x if the multigraph classes
+reach the shape the simple ones already have"; they reached it.
+
+### THE CLOCK CONFOUNDER IS INSTRUMENTED
+
+Both arms pin to the SAME core and interleave inside a square, so cross-core
+spread cannot separate them by construction. Beyond that the square carries a
+direct common-mode cell: networkx is timed in the same invocation and is
+BYTE-IDENTICAL in both arms, so `base_nx / cand_nx` must be 1. It is — 0.9962
+[0.9701, 1.0150] and 0.9928 [0.9787, 0.9986]. A 1.74x that were really a
+frequency ratio in a costume would have dragged that cell with it.
+
+### WHAT IS WEAK, STATED
+
+Square 2's common-mode cell is 0.9928 [0.9787, 0.9986], marginally excluding
+unity, and square 2 is the gate-failing one. The effect it reports (1.74x) is two
+orders of magnitude larger than that 0.7 percent, so it cannot be manufactured by
+it, but square 2 is the noisier square and is quoted only where it is the worse
+of the two. Square 1's negative control is 0.9867 [0.9742, 0.9964], also
+marginally below unity — 1.3 percent, opposite in direction to a 74 percent
+effect.
+
+PER-ARM: square 1 base loadavg median 12.39 with clock median 4127 MHz (min 3942,
+max 4240) against cand 12.39 and 4095 MHz (min 3992, max 4253), a 0.78 percent
+clock difference; square 2 base 14.64 at 4156 MHz (4041-4257) against cand 14.64
+at 4139 MHz (3985-4281), 0.41 percent. Both squares returned SIBLING-CONTENDED on
+external load.
+
+A/A null control, same invocation, measured: square 1 base 0.9835
+[0.9756, 1.0140] and cand 1.0015 [0.9661, 1.0114]; square 2 base 1.0028
+[0.9706, 1.0153] and cand 1.0012 [0.9819, 1.0304].
+
+PARITY: the new pyclasses expose only `__new__`, traverse/clear, `__len__` and
+`__bool__`; every other method is rebound to the Python `MultiAdjacencyView`, so
+the parity surface is those two slots. The count is the RAW node count
+deliberately — br-r37-c1-2r06n established that the shadowed
+`number_of_nodes()` makes `len(view)` disagree with `len(list(view))` under
+private storage. Regression 9295 passed / 0 failed across 193 files, including
+those consistency tests.
+
+PROVENANCE: driver `/data/tmp/claude-1000/certify_m1k0q.py` on `cpu15`, spawning
+`len_worker.py` pinned to `cpu14`. Both arms share ONE `.so`, in-process
+loaded-ELF SHA-256
+5fe0dad0e05c0b2694d7cd3558c99e0ef39bf01be4f2cb1d32f3e9ccd84f2005 read from
+`fnx._fnx.__file__` inside each arm — identical by design, so the pair isolates
+the Python routing and the native classes are simply unused in the base arm.
+Arms discriminated structurally before timing: `__len__` resolves to
+`MultiAdjacencyView` in base and `MultiAdjacencyLenView` in cand. 400-node
+graphs, 21 rounds x 4 invocations per square, 6 x 40000 reps per cell per
+invocation, bootstrap median CI over 10000 resamples, fixed seed 20260817. host
+thinkstation1, governor `powersave`, python 3.13.7, live networkx 3.6.1, disk
+220G free, one release build (the first attempt failed to compile and produced no
+artifact; see the commit).
+
+comparison_class=INCUMBENT
+incumbent=networkx
+campaign_output=true
+decision_gate=median_ci
+cv_role=report_only
