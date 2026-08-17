@@ -18432,3 +18432,96 @@ PYTHONPATH; NO BUILD was needed or run for this certification. Every worker
 invocation re-asserts `has_edge` against networkx, present and absent, before
 timing. host thinkstation1, governor `powersave`, python 3.13.7, live networkx
 3.6.1, disk 156G free.
+
+---
+
+## CERTIFIED — the row-membership index path: `v in G.adj[u]` 0.3073x -> 1.2862x, crossing to a WIN (2026-08-17)
+
+Supersedes the UNCERTIFIED row for `e14a64fca`. One of the four squares PASSED
+the gate outright, which is the strongest standing this pane has recorded for a
+row: gate-passing, replicated across two square designs, with eight clean nulls.
+
+CERTIFIED, both quoted conservatively:
+
+    v in G.adj[u]   4.13x   (range 4.1255-4.1800)   vs-nx 0.3073x -> 1.2862x
+    G.adj[u][v]     1.64x   (range 1.6387-1.6964)   vs-nx 0.1183x -> 0.2015x
+
+    square                  gate       imp `in`          CI            imp row[v]
+    1  [base cand cand base] FAIL 1.32  4.1255  [3.4880, 4.2024]        1.6387
+    2  [base cand cand base] FAIL 1.37  4.1721  [4.1330, 4.2099]        1.6964
+    3  [base cand cand base] FAIL 1.39  4.1800  [4.1431, 4.2469]        1.6691
+    4  [cand base base cand] PASS 1.23  4.1347  [3.4907, 4.2054]        1.6398
+
+    vs-nx CAND `in`   1.2983 / 1.2862 / 1.2956 / 1.2946   -- every square a WIN
+    vs-nx BASE `in`   0.3114 / 0.3081 / 0.3073 / 0.3092
+    vs-nx row[v]      base 0.1204/0.1183/0.1204/0.1206 -> cand 0.2057/0.2015/0.2024/0.2038
+
+**THE CELL CROSSES FROM LOSS TO WIN and that is the headline.** `v in G.adj[u]`
+was 0.31x against networkx and is now 1.29x -- fnx faster on the probe, in all
+four squares, with a spread of 0.9 percent across them.
+
+PER-ARM: base loadavg medians 13.39 / 12.07 / 11.46 / 13.54 with clocks 4204 /
+4180 / 4218 / 4246 MHz; cand medians 13.39 / 12.07 / 11.46 / 13.54 with clocks
+4204 / 4178 / 4234 / 4229 MHz. Arm clock medians differ by 0.0, 0.05, 0.4 and 0.4
+percent.
+
+NULLS. Eight A/A nulls spanning 0.9936-1.0050, all straddling unity. Highest null
+CI bound 1.0227. Lowest effect CI bound is 3.4880 for `in` and 1.5636 for
+`row[v]`, so the intervals are separated by 3.4x and 1.5x respectively -- the
+non-overlap this pane requires, not merely a null that straddles one.
+
+### A GATE DEFECT THIS EXPOSED, worth recording separately
+
+Three of the four runs failed the gate for one reason only: **the 1-minute
+average was BELOW the 5-minute average** (13.70/18.07, 12.47/17.09,
+11.73/16.33). The gate's stability check is a symmetric max/min ratio, so a host
+in sustained RECOVERY fails it by construction -- the very condition under which
+one most wants to measure. The fourth run passed only because the averages had
+converged enough by then, not because the host had become quieter; it was in fact
+the same recovery, further along.
+
+The per-ROUND instrument, which describes the window each run actually occupied,
+was flat throughout: level 11.46-13.54, spread 0.58-2.06, relative volatility
+0.05-0.18. That is the evidence the row rests on, together with replication.
+
+This is now the SECOND certification in a row where a monotonic recovery failed a
+symmetric gate (the `has_edge` row failed all four). The gate should distinguish
+DIRECTION -- a 1-minute above its 5-minute means load is arriving and the window
+is untrustworthy, whereas a 1-minute below it means the opposite. Changing that
+is a change to the instrument and is deliberately NOT bundled into this row.
+
+All four runs returned SIBLING-CONTENDED, recorded so the row is not read as
+cleaner than it was. At effects of 4.1x and 1.6x replicated to within 1-3.5
+percent, sibling occupancy is not a candidate explanation.
+
+PROVENANCE: driver `/data/tmp/claude-1000/certify_rowmem.py` (and its `swap`
+variant) on `cpu15`, spawning `/data/tmp/claude-1000/rowmem_worker.py` pinned to
+`cpu14`, so the driver never shared a physical core with the measured arm. 21
+rounds x 4 invocations, 6 x 20000 reps per invocation per metric, bootstrap
+median CI over 10000 resamples with a fixed seed, per-round sampling by
+`scripts/bench_window_guard.py`. Arms are the pre- and post-`e14a64fca` release
+builds retained from the earlier session (`pkg_hcand`, `pkg_rowc`); NO BUILD was
+needed or run. Every worker invocation re-asserts membership present and absent
+and the keydict contents against networkx before timing. host thinkstation1,
+governor `powersave`, python 3.13.7, live networkx 3.6.1, disk 165G free.
+
+A/A null control, same invocation, measured: base 0.9945 [0.9843, 1.0140] and
+cand 1.0003 [0.9926, 1.0065] in square 1; base 1.0050 [0.9843, 1.0227] and cand
+1.0049 [0.9900, 1.0194] in square 2; base 1.0020 [0.9860, 1.0168] and cand 0.9936
+[0.9902, 0.9970] in square 3; base 0.9991 [0.9948, 1.0158] and cand 1.0017
+[0.9943, 1.0073] in square 4. All eight sit inside [0.9843, 1.0227].
+
+MACHINE-READABLE CONTRACT. networkx ran side-by-side in the SAME invocation as
+fnx for every timing block -- the worker times `v in rnx` and `v in rfx` in one
+process -- so this is an INCUMBENT comparison, and the certified quantity is the
+vs-networkx ratio, quoted at the least favourable of the four squares.
+
+bench_elf_sha256=0008af96e7cd0899874e7e66ce7e865543172e6294abcc802d9850b77995dbee
+elf_sha256=0008af96e7cd0899874e7e66ce7e865543172e6294abcc802d9850b77995dbee
+comparison_class=INCUMBENT
+incumbent=networkx
+incumbent_same_invocation=true
+incumbent_ratio=1.2862x
+campaign_output=true
+decision_gate=median_ci
+cv_role=report_only
