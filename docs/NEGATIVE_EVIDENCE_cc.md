@@ -20931,3 +20931,58 @@ Method: pure-Python arms over one shared ELF, min of 9 rounds x 3 reps, mutation
 workload so no ABBA square. loadavg 14.58/16.64/16.61 throughout; peer builds 0,
 0, 2, 2, 2, 2 across the six invocations. ONE build this turn (HEAD, to settle the
 stale-binary question), df 119G checked immediately before it. disk 118G.
+
+## 2026-08-17 GoldenBison the WORST CELL of the campaign: a failed attribute lookup on a filtered view walks the whole parent — 0.0008x and degrading (br-r37-c1-fvgetattr)
+
+`_FilteredGraphView.__getattr__` ends in `return getattr(self.copy(), name)`.
+`copy()` materialises the view, which walks the PARENT - so an attribute MISS on a
+four-node subgraph of a 3200-node parent pays for the entire parent and then
+raises `AttributeError` anyway.
+
+MEASURED with the view held CONSTANT at 4 nodes and only the parent grown - the
+`scale_the_request_not_the_graph` instrument:
+
+    parent    fnx us/miss    networkx us/miss    ratio
+      200        57.84             0.41         0.0072x
+      800       127.14             0.33         0.0026x
+     3200       394.48             0.33         0.0008x
+
+networkx is FLAT. fnx grows linearly in the parent, so the ratio has no floor - it
+is 1250x at 3200 nodes and worse at every larger size. Every previously recorded
+worst cell on this campaign was a fixed multiple; this one is unbounded.
+
+IT IS NOT AN EXOTIC PATH. An attribute miss is not a programming error, it is how
+Python asks questions. `hasattr(view, x)`, duck-typing probes for `__wrapped__`,
+`shape` or `__array__`, `copy`, `pickle`, and the repr machinery inside pytest and
+IPython all probe attributes a graph does not have. EVERY such probe silently
+copies the parent. Measured directly: four different missing names, one
+whole-graph accessor call each, all four ending in AttributeError.
+
+HOW IT WAS FOUND, which is worth recording because it was a by-product. This came
+out of the stale-binary mess in the row above: while instrumenting why a view
+constructor reached `copy()`, the answer turned out to be "because a `__getattr__`
+missed", and the interesting question stopped being MY miss and became "what does
+ANY miss cost?". The retraction was expensive and produced a better find than the
+lever it retracted.
+
+LANDED AS A GUARD, NOT A FIX, and the reason is honest: when `__getattr__` fires
+the name is already absent from the whole MRO - the synthetic view class inherits
+the canonical graph class, so ordinary lookup has already failed - which means
+`self.copy()` can only ever help for attributes that exist as INSTANCE state on a
+copy. Raising immediately would be wrong for exactly those. The candidate fix is a
+memoised probe against an EMPTY graph of the same class (instance attributes set
+in `__init__` exist there too, and it costs nothing), but it needs validating
+against any attribute that only appears once a graph holds data, and that wants a
+quiet window rather than a turn with two peer builds running.
+
+The guard asserts a SCALING SHAPE, not a ratio: hold the view fixed, grow the
+parent 16x, and require under 2x cost. Measured growth is 6.8x and a fix should
+give ~1x, so the bound cannot fire on a slow host. `strict=True`, so it reddens
+the suite the day this is repaired. A networkx control on the same axis is
+carried in the same file, because a fixture that grew for both libraries would
+prove nothing.
+
+Method: in-process timings, min of 5 rounds x 200 reps, no ABBA square needed -
+the claim is a growth shape measured within one process, and the networkx arm is
+the control. loadavg 20.75/17.96/17.06, two peer builds running, no build of my
+own. disk 113G.
