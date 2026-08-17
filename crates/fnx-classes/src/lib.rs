@@ -4148,7 +4148,18 @@ impl MultiGraph {
     /// alloc); the caller (`PyMultiGraph::has_edge`) guards each index with
     /// `node_index_matches_int` so the identity `index == int-value` holds
     /// (any removal / remap that broke it fails the guard and falls through to
-    /// the String path). Mirror of `Graph::has_edge_by_indices`.
+    /// the String path).
+    ///
+    /// br-r37-c1-2ndmw: NOT AN O(1) INDEX FAST PATH, despite the name. Unlike
+    /// `Graph::has_edge_by_indices`, which is a direct `contains_key` on a
+    /// position-keyed edge map, this resolves BOTH indices back to names and
+    /// calls the string `has_edge` -- so it costs two node-key hashes and is
+    /// O(node key length), not O(1). It cannot simply be pointed at the
+    /// slot-keyed `MgSlabStorage::has_edge_by_pair`, because the index this
+    /// takes is a POSITION (`get_node_index`) while that map is keyed by SLOT
+    /// (`node_slot`); the two coincide only until a node is removed, after
+    /// which feeding one to the other silently reports a real edge as absent.
+    /// Pinned by `multigraph_node_slot_and_position_are_distinct_index_spaces`.
     #[must_use]
     pub fn has_edge_by_indices(&self, li: usize, ri: usize) -> bool {
         match (self.get_node_name(li), self.get_node_name(ri)) {
@@ -5142,6 +5153,90 @@ impl MultiGraph {
 
 #[cfg(test)]
 mod tests {
+    /// br-r37-c1-2ndmw: THE SLOT AND THE POSITION ARE DIFFERENT INDEX SPACES,
+    /// and confusing them is a silent wrong-answer bug rather than a type error.
+    ///
+    /// `MultiGraph::get_node_index` returns `node_order.get_index_of(name)` — a
+    /// POSITION in the IndexMap. `MgSlabStorage::has_edge_by_pair` is keyed on
+    /// `node_order.get(name)` — the stored SLOT. On a graph that has never had a
+    /// node removed these are equal, which is precisely what makes the confusion
+    /// dangerous: every fresh-graph test passes and the divergence only appears
+    /// after a removal, as a `false` from an edge that exists.
+    ///
+    /// WHY THIS TEST EXISTS. `MultiGraph::has_edge_by_indices` reads like an
+    /// O(1) index fast path — it is named like one and documented as a "Mirror
+    /// of `Graph::has_edge_by_indices`", which genuinely is one
+    /// (`edges.contains_key(&canon_pair)`). It is not. It resolves both indices
+    /// back to NAMES and calls the string `has_edge`, so it is O(node key
+    /// length). Anyone optimising the multigraph row probe will find the
+    /// slot-keyed `has_edge_by_pair`, reach for a cached `get_node_index`, and
+    /// ship a read that returns the wrong answer after any node removal. That
+    /// was attempted on this pane and stopped by this test.
+    ///
+    /// The assertions below pin all three facts: the positions move, the
+    /// position-keyed lookup is WRONG, and the slot-keyed lookup is RIGHT.
+    #[test]
+    fn multigraph_node_slot_and_position_are_distinct_index_spaces() {
+        let mut g = MultiGraph::new(CompatibilityMode::Strict);
+        for name in ["n0", "n1", "n2", "n3"] {
+            g.add_node(name);
+        }
+        g.add_edge("n2", "n3").unwrap();
+        assert!(g.has_edge("n2", "n3"));
+
+        // Before any removal the two spaces agree, which is the trap.
+        let pos_before = (g.get_node_index("n2"), g.get_node_index("n3"));
+        let slot_before = (
+            g.slab_store().node_slot("n2"),
+            g.slab_store().node_slot("n3"),
+        );
+        assert_eq!(
+            pos_before, slot_before,
+            "on a graph with no removals the position and the slot coincide — \
+             this is why confusing them survives fresh-graph testing"
+        );
+
+        g.remove_node("n0");
+
+        let (Some(p2), Some(p3)) = (g.get_node_index("n2"), g.get_node_index("n3")) else {
+            panic!("nodes vanished after removing an unrelated node");
+        };
+        let (Some(s2), Some(s3)) = (
+            g.slab_store().node_slot("n2"),
+            g.slab_store().node_slot("n3"),
+        ) else {
+            panic!("slots vanished after removing an unrelated node");
+        };
+
+        // The edge is untouched: only an unrelated node was removed.
+        assert!(
+            g.has_edge("n2", "n3"),
+            "removing an unrelated node must not remove this edge"
+        );
+
+        // The positions MOVED and the slots did not follow them.
+        assert_ne!(
+            (p2, p3),
+            (s2, s3),
+            "after a removal the position and slot spaces must diverge; if this \
+             ever holds, re-derive whether the fast path below is now safe"
+        );
+
+        // THE TRAP: position indices through the slot-keyed edge map are WRONG.
+        assert!(
+            !g.slab_store().has_edge_by_pair(p2, p3),
+            "position indices happened to answer correctly here — that is luck, \
+             not a contract; do not take it as licence to feed get_node_index() \
+             into has_edge_by_pair()"
+        );
+
+        // THE CORRECT SPACE: slots answer correctly.
+        assert!(
+            g.slab_store().has_edge_by_pair(s2, s3),
+            "slot indices must agree with the string lookup"
+        );
+    }
+
     use super::{AttrMap, Graph, GraphError, MultiGraph};
     use fnx_runtime::{CgseValue, CompatibilityMode, DecisionAction, DecisionRecord};
     use proptest::prelude::*;
