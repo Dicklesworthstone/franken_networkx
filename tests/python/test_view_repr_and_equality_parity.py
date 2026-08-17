@@ -20,8 +20,8 @@ br-r37-c1-ynpbt — Graph.adj[u] IS NOT EQUAL TO ITSELF
 compares unequal to ITSELF. Reflexivity is a language-level invariant — anything
 that puts these in a set, dedupes them, or asserts `x == x` is silently wrong.
 
-ONLY simple `Graph` diverges; DiGraph, MultiGraph and MultiDiGraph are all
-correct. That is the tell: `Graph` is the class whose rows the shim routes to the
+FIXED. Only simple `Graph` diverged; DiGraph, MultiGraph and MultiDiGraph were
+already correct. That is the tell: `Graph` is the class whose rows the shim routes to the
 NATIVE `_fnx.AtlasView` (the `type(owner) is Graph` fast path in
 `AdjacencyView.__getitem__`), so the native view's `__eq__` is the suspect and
 the three Python-backed siblings are the control. They are pinned as passing
@@ -69,27 +69,37 @@ def _pair(cls_name):
 # --------------------------------------------------- br-r37-c1-ynpbt: equality
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="br-r37-c1-ynpbt: fnx's native AtlasView (simple Graph rows only) is "
-    "not equal to itself — __eq__ handles a plain dict but not another view of "
-    "its own type, breaking reflexivity. Needs a build to fix; halted.",
-)
-def test_simple_graph_adjacency_row_equals_itself():
-    """Reflexivity. `x == x` must hold for any object."""
-    _, gfx = _pair("Graph")
+@pytest.mark.parametrize("cls_name", ALL)
+def test_adjacency_row_equals_itself(cls_name):
+    """Reflexivity. `x == x` must hold for any object.
+
+    br-r37-c1-ynpbt: this was FALSE on simple Graph — the native AtlasView
+    materialised itself into a dict and left the view-vs-view case to Python's
+    reflected comparison, which could not complete under the live `&mut self`
+    borrow, so Python fell back to identity. Now handled explicitly.
+    """
+    _, gfx = _pair(cls_name)
     row = gfx.adj["a"]
     assert (row == row) is True
+    assert (row != row) is False
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="br-r37-c1-ynpbt: two AtlasViews over the same row compare unequal on "
-    "simple Graph. Needs a build to fix; halted.",
-)
-def test_simple_graph_adjacency_rows_of_the_same_node_are_equal():
-    gnx, gfx = _pair("Graph")
+@pytest.mark.parametrize("cls_name", ALL)
+def test_adjacency_rows_of_the_same_node_are_equal(cls_name):
+    gnx, gfx = _pair(cls_name)
     assert (gfx.adj["a"] == gfx.adj["a"]) == (gnx.adj["a"] == gnx.adj["a"])
+
+
+@pytest.mark.parametrize("cls_name", ALL)
+def test_rows_of_different_nodes_stay_unequal(cls_name):
+    """The fix must not make everything equal — the failure mode of a
+    short-circuit that is too eager."""
+    gnx, gfx = _pair(cls_name)
+    for graph in (gnx, gfx):
+        graph.add_edge("x", "y", w=9.0)
+    assert (gfx.adj["a"] == gfx.adj["x"]) == (gnx.adj["a"] == gnx.adj["x"])
+    assert (gfx.adj["a"] != gfx.adj["x"]) == (gnx.adj["a"] != gnx.adj["x"])
+    assert (gfx.adj["a"] == 42) == (gnx.adj["a"] == 42)
 
 
 @pytest.mark.parametrize("cls_name", ["DiGraph", "MultiGraph", "MultiDiGraph"])

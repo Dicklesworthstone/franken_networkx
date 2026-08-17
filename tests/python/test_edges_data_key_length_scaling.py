@@ -64,7 +64,19 @@ def _build(lib, cls_name: str, key_len: int):
     return graph
 
 
-def _time(graph, reps: int = 40, rounds: int = 5) -> float:
+def _time(graph, reps: int = 40, rounds: int = 7) -> float:
+    """MINIMUM across rounds, not the median.
+
+    These assertions are strict and timing-based, so a false failure reddens the
+    suite for every agent on a shared host. Contention can only ever make a
+    sample SLOWER, so the minimum is the least contaminated estimator; the median
+    still carries whatever load was present for half the rounds.
+
+    Measured need: at loadavg 53 the median estimator reported DiGraph growing
+    4.66x and failed the strict assertion, while a direct measurement taken at
+    the same moment showed it flat (29.7us at 3-character keys against 28.7us at
+    2000). That was pure contention, not a regression.
+    """
     list(graph.edges(data=True))  # warm any per-generation cache
     samples = []
     for _ in range(rounds):
@@ -72,7 +84,7 @@ def _time(graph, reps: int = 40, rounds: int = 5) -> float:
         for _ in range(reps):
             list(graph.edges(data=True))
         samples.append((time.perf_counter() - start) / reps)
-    return statistics.median(samples)
+    return min(samples)
 
 
 def _growth(lib, cls_name: str) -> float:
@@ -107,17 +119,16 @@ def test_bounded_classes_stay_bounded(cls_name):
     )
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="br-r37-c1-ml7s5: PARTLY FIXED and still over the bound. The per-edge "
-    "`PyGraph::edge_key` String probe is gone (index lookaside), which took K=2000 "
-    "from 713.5us/0.4538x to 142.3us/1.3629x — now a WIN against networkx rather "
-    "than a loss. But growth is still 2.74x (51.9us -> 142.3us) against networkx's "
-    "1.05x, i.e. relative 2.6x, just over the 2.5 bound. The residual is in the "
-    "same function: `key_vec` is rebuilt PER CALL, hashing every node's canonical "
-    "name, so it is O(V * key length) per materialisation. Caching it by nodes_seq "
-    "is the next step. The bound is deliberately NOT relaxed to make this pass.",
-)
+# br-r37-c1-ml7s5 FIXED: the xfail that stood here is REMOVED, not relaxed.
+#
+# It read "PARTLY FIXED and still over the bound". The whole-graph list cache
+# closed the rest: at K=2000 Graph reads 5.2558x against networkx (42.5us -> 56.9us
+# across a 667x key-length range) where it began at 0.4538x/713.5us. Growth is
+# 1.34x against networkx's own, inside the 2.5x bound.
+#
+# A strict xfail left in place after the defect is gone would hide the next
+# regression behind an expected failure, so this is now an ordinary strict
+# assertion like the other three classes.
 def test_graph_edges_data_is_bounded_in_key_length():
     fnx_growth, nx_growth, relative = _relative("Graph")
     assert relative < MAX_RELATIVE_GROWTH, (
