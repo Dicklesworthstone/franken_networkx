@@ -4997,7 +4997,8 @@ pub(crate) struct PyMultiGraph {
     /// then corrupt the cache and see a phantom key that `G.edges` does not
     /// have, because unlike networkx's live dict this one is not wired to the
     /// native store. The copy costs ~451ns against ~16623ns for the rebuild.
-    pub(crate) edge_keydict_cache: Option<(u64, u64, HashMap<String, HashMap<String, Py<PyDict>>>)>,
+    pub(crate) edge_keydict_cache:
+        Option<(u64, u64, HashMap<String, HashMap<String, (usize, Py<PyDict>)>>)>,
     pub(crate) instance_dict_gc: InstanceDictGc,
 }
 
@@ -5111,7 +5112,7 @@ impl PyMultiGraph {
         // the collector and the graph would leak.
         if let Some((_, _, rows)) = &self.edge_keydict_cache {
             for row in rows.values() {
-                for keydict in row.values() {
+                for (_expected_len, keydict) in row.values() {
                     visit.call(keydict)?;
                 }
             }
@@ -7497,11 +7498,37 @@ impl PyMultiGraph {
                 self.edge_keydict_cache = Some((self.nodes_seq, self.edges_seq, HashMap::new()));
             }
             if let Some((_, _, rows)) = &self.edge_keydict_cache
-                && let Some(cached) = rows.get(lo).and_then(|row| row.get(hi))
+                && let Some((expected_len, cached)) = rows.get(lo).and_then(|row| row.get(hi))
             {
-                let copy = cached.bind(py).copy()?;
-                self.mark_edges_dirty();
-                return Ok(copy.into_any().unbind());
+                // br-r37-c1-f3i50: hand back the CACHED dict, not a copy, guarded
+                // by its entry count.
+                //
+                // networkx returns `self._adj[u][v]` itself, so repeated reads
+                // are the SAME object. Copying diverged from that AND made the
+                // read O(parallel edges) — 0.2311x at par=64, the worst
+                // vs-incumbent cell measured on this pane. The copy existed so a
+                // caller mutating the returned mapping could not corrupt the
+                // cache.
+                //
+                // The length guard replaces that protection without paying
+                // O(par): an insert or delete changes the entry count, the next
+                // read sees the mismatch and rebuilds, so the mapping agrees with
+                // `G.edges` and `number_of_edges` again. That is exactly the
+                // self-consistency `test_insertion_does_not_corrupt_the_graph_
+                // either_way` pins.
+                //
+                // It does NOT make insertion create a real edge the way networkx
+                // does; that needs a write-through mapping, and its xfail stays.
+                // On a MISMATCH, fall through to the rebuild below rather than
+                // copying — the cached dict is the one that was tampered with,
+                // so copying it would propagate the phantom key instead of
+                // healing it. The rebuild re-inserts under the same pair key and
+                // overwrites the stale entry.
+                if cached.bind(py).len() == *expected_len {
+                    let live = cached.clone_ref(py);
+                    self.mark_edges_dirty();
+                    return Ok(live.into_any());
+                }
             }
             let keys = self.inner.edge_keys(u_c, v_c).unwrap_or_default();
             if keys.is_empty() {
@@ -7535,13 +7562,14 @@ impl PyMultiGraph {
                 // br-r37-c1-ptiz2: remember it, then hand back a COPY — the
                 // caller must never receive the cached object, or a mutation
                 // through it would corrupt the cache (see the field's note).
-                let copy = result.copy()?;
+                let stored_len = result.len();
+                let live = result.clone().unbind();
                 if let Some((_, _, rows)) = self.edge_keydict_cache.as_mut() {
                     rows.entry(lo.to_owned())
                         .or_default()
-                        .insert(hi.to_owned(), result.unbind());
+                        .insert(hi.to_owned(), (stored_len, result.unbind()));
                 }
-                Ok(copy.into_any().unbind())
+                Ok(live.into_any())
             }
         }
     }

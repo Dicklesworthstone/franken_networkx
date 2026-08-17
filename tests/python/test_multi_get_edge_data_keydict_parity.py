@@ -178,28 +178,53 @@ def test_returned_dicts_are_live_and_shared(class_name, par):
 
 
 @pytest.mark.parametrize("class_name", CLASSES)
-def test_keydict_cache_returns_a_copy_not_the_cached_object(class_name):
-    """br-r37-c1-ptiz2: the caller must never receive the cached mapping.
+def test_tampering_with_the_returned_keydict_self_heals(class_name):
+    """br-r37-c1-f3i50: the cache is now handed out LIVE, and heals on tamper.
 
-    The cache stores the built keydict and hands out a SHALLOW COPY. If it ever
-    returned the cached object itself, a caller mutating the mapping would
-    corrupt the cache and every later call would report a phantom key that
-    `G.edges` does not have — and unlike networkx's live dict, this one is not
-    wired to the native store, so the graph would never agree.
+    This test previously required a COPY on every read. That was the safe way to
+    stop a caller's mutation corrupting the cache, but it cost O(parallel edges)
+    per read and diverged from networkx, which returns `self._adj[u][v]` itself
+    so repeated reads are the same object.
+
+    The copy is gone. What protects the cache now is an entry-count guard: a
+    caller that inserts or deletes changes the count, the next read sees the
+    mismatch and REBUILDS from the graph rather than copying the tampered dict.
+    So a phantom key survives exactly until the next read, and the mapping,
+    `G.edges` and `number_of_edges` never disagree with each other.
+
+    The undirected class has the live path; the directed one is another pane's
+    work in progress (its `edge_keydict_by_index`), so only self-consistency is
+    asserted for both and identity is asserted where it is implemented.
     """
     u, v = "u" * 130, "v" * 130
     graph = _build(fnx, class_name, u, v, 8)
 
     first = graph.get_edge_data(u, v)
-    first[9999] = {"phantom": True}  # mutate the mapping the caller was given
+    first[9999] = {"phantom": True}  # tamper with the mapping we were handed
 
     second = graph.get_edge_data(u, v)
     assert 9999 not in second, (
-        "a mutation through the returned keydict leaked into the cache — the "
-        "caller was handed the cached object instead of a copy"
+        "the phantom key survived a second read — the count guard did not "
+        "rebuild, so the cache stayed corrupted"
     )
     assert list(second.keys()) == list(range(8))
     assert (u, v, 9999) not in graph.edges(keys=True)
+    assert graph.number_of_edges() == 8
+
+
+def test_undirected_repeated_reads_return_the_same_object():
+    """br-r37-c1-f3i50: identity parity with networkx, on the class that has it.
+
+    networkx returns its own keydict, so `g.get_edge_data(u,v) is
+    g.get_edge_data(u,v)`. Dropping the per-read copy makes that true for
+    MultiGraph. Asserted against live networkx so it cannot drift.
+    """
+    u, v = "u" * 130, "v" * 130
+    reference = _build(nx, "MultiGraph", u, v, 4)
+    assert reference.get_edge_data(u, v) is reference.get_edge_data(u, v)
+
+    graph = _build(fnx, "MultiGraph", u, v, 4)
+    assert graph.get_edge_data(u, v) is graph.get_edge_data(u, v)
 
 
 @pytest.mark.parametrize("class_name", CLASSES)

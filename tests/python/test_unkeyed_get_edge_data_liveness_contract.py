@@ -111,8 +111,24 @@ def test_networkx_returns_its_own_live_keydict(cls_name):
 # --- the divergences ------------------------------------------------------
 
 
-@pytest.mark.parametrize("cls_name", MULTI)
-@pytest.mark.xfail(strict=True, reason="br-r37-c1-f3i50: fnx returns a fresh dict per call")
+@pytest.mark.parametrize(
+    "cls_name",
+    [
+        # MultiGraph FIXED by br-r37-c1-f3i50: the unkeyed keydict is now handed
+        # back live under an entry-count guard instead of copied per call, so
+        # repeated reads are the same object. Strict expectation now.
+        "MultiGraph",
+        # MultiDiGraph still builds per call — that half is held by the pane that
+        # added `edge_keydict_by_index`. strict=True so it flips red when landed.
+        pytest.param(
+            "MultiDiGraph",
+            marks=pytest.mark.xfail(
+                strict=True,
+                reason="br-r37-c1-f3i50: directed keydict still built per call",
+            ),
+        ),
+    ],
+)
 def test_returned_mapping_is_the_same_object_across_calls(cls_name):
     gfx = _pair(cls_name)[1]
     assert gfx.get_edge_data("a", "b") is gfx.get_edge_data("a", "b")
