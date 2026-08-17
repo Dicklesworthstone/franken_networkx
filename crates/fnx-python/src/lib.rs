@@ -8289,12 +8289,36 @@ impl PyMultiGraph {
         let v_was_new = !self.node_key_map.contains_key(&v_canonical);
         let __was_new = u_was_new || v_was_new;
 
-        self.node_key_map
-            .entry(u_canonical.clone())
-            .or_insert_with(|| u.clone().unbind());
-        self.node_key_map
-            .entry(v_canonical.clone())
-            .or_insert_with(|| v.clone().unbind());
+        // br-r37-c1-aeclone: `entry()` takes an OWNED key, so this cloned the
+        // canonical on EVERY add_edge - at 2000-character node keys two ~2000-byte
+        // allocations and copies per call - to reach an `or_insert_with` that
+        // almost never fires, because both endpoints already exist after a node's
+        // first touch. `u_was_new`/`v_was_new` are computed immediately above from
+        // THIS SAME map (`node_key_map.contains_key`), so the insert is simply made
+        // conditional. Removes work and adds NONE: no new map, no extra probe, no
+        // extra hash. (br-r37-c1-convkey2 is the cautionary case - an index map
+        // that paid a per-NODE hash to save per-EDGE work and measured worse.)
+        //
+        // NOT applied to the two sites that derive `u_was_new` from
+        // `inner.has_node`: that is a DIFFERENT map, and `node_key_map` can lack
+        // an entry for a node the core already has.
+        if u_was_new {
+            self.node_key_map
+                .insert(u_canonical.clone(), u.clone().unbind());
+        }
+        // The `v_canonical != u_canonical` guard restores `or_insert_with`
+        // semantics EXACTLY. `entry().or_insert_with()` does not overwrite an
+        // existing entry; `insert()` does. Both endpoints can canonicalise to the
+        // SAME key - `G.add_edge(12, 12.0)` is one node in networkx, as is any
+        // self-loop - and in that case both `u_was_new` and `v_was_new` were
+        // computed as true before either insert ran, so an unguarded second
+        // insert would clobber u's display object with v's. That is precisely
+        // what it did: `test_adj_row_key_parity` showed fnx displaying '12'
+        // where networkx displays '12.0'.
+        if v_was_new && v_canonical != u_canonical {
+            self.node_key_map
+                .insert(v_canonical.clone(), v.clone().unbind());
+        }
         if __was_new {
             self.bump_nodes_seq();
             // Keep the node-iteration mirror live (nx order: u before v).
@@ -10176,12 +10200,36 @@ impl PyMultiGraph {
         let u_was_new = !self.node_key_map.contains_key(&u_canonical);
         let v_was_new = !self.node_key_map.contains_key(&v_canonical);
         let was_new_node = u_was_new || v_was_new;
-        self.node_key_map
-            .entry(u_canonical.clone())
-            .or_insert_with(|| u.clone().unbind());
-        self.node_key_map
-            .entry(v_canonical.clone())
-            .or_insert_with(|| v.clone().unbind());
+        // br-r37-c1-aeclone: `entry()` takes an OWNED key, so this cloned the
+        // canonical on EVERY add_edge - at 2000-character node keys two ~2000-byte
+        // allocations and copies per call - to reach an `or_insert_with` that
+        // almost never fires, because both endpoints already exist after a node's
+        // first touch. `u_was_new`/`v_was_new` are computed immediately above from
+        // THIS SAME map (`node_key_map.contains_key`), so the insert is simply made
+        // conditional. Removes work and adds NONE: no new map, no extra probe, no
+        // extra hash. (br-r37-c1-convkey2 is the cautionary case - an index map
+        // that paid a per-NODE hash to save per-EDGE work and measured worse.)
+        //
+        // NOT applied to the two sites that derive `u_was_new` from
+        // `inner.has_node`: that is a DIFFERENT map, and `node_key_map` can lack
+        // an entry for a node the core already has.
+        if u_was_new {
+            self.node_key_map
+                .insert(u_canonical.clone(), u.clone().unbind());
+        }
+        // The `v_canonical != u_canonical` guard restores `or_insert_with`
+        // semantics EXACTLY. `entry().or_insert_with()` does not overwrite an
+        // existing entry; `insert()` does. Both endpoints can canonicalise to the
+        // SAME key - `G.add_edge(12, 12.0)` is one node in networkx, as is any
+        // self-loop - and in that case both `u_was_new` and `v_was_new` were
+        // computed as true before either insert ran, so an unguarded second
+        // insert would clobber u's display object with v's. That is precisely
+        // what it did: `test_adj_row_key_parity` showed fnx displaying '12'
+        // where networkx displays '12.0'.
+        if v_was_new && v_canonical != u_canonical {
+            self.node_key_map
+                .insert(v_canonical.clone(), v.clone().unbind());
+        }
         if was_new_node {
             self.bump_nodes_seq();
             // Keep the node-iteration mirror live (nx order: u before v).
