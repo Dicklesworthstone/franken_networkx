@@ -143,3 +143,88 @@ def test_claim_incumbent_single_source_shortest_path_has_complete_oracle(monkeyp
     assert fixture["complete_output_sha256"] == (
         "29f652f086c2aa346957d904b30b78ad41d55e2841f2e872125a94078f526d65"
     )
+
+
+# br-r37-c1-d4xot: the `ci` variant is the offline analogue of the bead's
+# "re-draw the null and take the median of medians" candidate. It is strictly
+# more permissive than `current`, so the properties worth pinning are the ones
+# that stop it becoming a blanket pass.
+def _load_rescorer():
+    import importlib.util
+    from pathlib import Path
+
+    script = Path(__file__).resolve().parents[2] / "scripts" / "rescore_clause3.py"
+    spec = importlib.util.spec_from_file_location("rescore_under_test", script)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_ci_variant_rejects_a_genuinely_biased_null():
+    """A null that is tightly centred away from 1.0 must STILL be vetoed.
+
+    This is the property that separates 'one noisy draw' from 'a biased
+    measurement'. Clause 3 exists to catch the second, and a variant that
+    stopped catching it would be the loosening the bead forbids.
+    """
+    mod = _load_rescorer()
+    biased = [0.90 + 0.0001 * i for i in range(21)]  # tight, centred ~0.901
+    assert mod._clause3("current", biased, biased, 4.4) is False
+    assert mod._clause3("ci", biased, biased, 4.4) is False
+
+
+def test_ci_variant_admits_a_noisy_null_centred_on_one():
+    """A wide null whose spread reaches the band is draw noise, not bias."""
+    mod = _load_rescorer()
+    noisy = [1.0 + (0.06 if i % 2 else -0.05) for i in range(21)]
+    assert mod._clause3("ci", noisy, noisy, 4.4) is True
+
+
+def test_ci_is_never_stricter_than_current():
+    """Pinned because the WIN/LOSE integrity table assumes this direction.
+
+    If `ci` could veto a row `current` admits, 'newly undecidable' rows would
+    appear and the table's reading would change.
+    """
+    mod = _load_rescorer()
+    import random
+
+    rng = random.Random(11)
+    for _ in range(200):
+        centre = rng.uniform(0.93, 1.07)
+        spread = rng.uniform(0.0, 0.08)
+        samples = [centre + rng.uniform(-spread, spread) for _ in range(21)]
+        if mod._clause3("current", samples, samples, 3.0):
+            assert mod._clause3("ci", samples, samples, 3.0), (
+                "ci vetoed a row current admits"
+            )
+
+
+def test_ci_variant_is_reachable_from_the_cli(tmp_path):
+    """Exercise the real CLI: an unknown --variant must be rejected, `ci` accepted.
+
+    The first version of this test asserted that the string "ci" appeared in the
+    source file, which would pass on any comment mentioning it. Running the
+    parser is the only check that the choice is actually wired.
+    """
+    import json
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    script = Path(__file__).resolve().parents[2] / "scripts" / "rescore_clause3.py"
+    rows = tmp_path / "rows.json"
+    rows.write_text(json.dumps([]))
+
+    accepted = subprocess.run(
+        [sys.executable, str(script), str(rows), "--variant", "ci"],
+        capture_output=True, text=True,
+    )
+    rejected = subprocess.run(
+        [sys.executable, str(script), str(rows), "--variant", "not-a-variant"],
+        capture_output=True, text=True,
+    )
+    # `ci` must get past argument parsing (it then fails on the empty capture,
+    # which is the rescorer failing CLOSED and is the correct behaviour).
+    assert "invalid choice" not in (accepted.stderr or "")
+    assert "invalid choice" in (rejected.stderr or "")

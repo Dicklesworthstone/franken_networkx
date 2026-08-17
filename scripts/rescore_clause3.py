@@ -50,6 +50,23 @@ CLAUSE VARIANTS, from the bead:
   current   worst arm |null median - 1| <= MAX_NULL_MEDIAN_BIAS
   pooled    |median(all null ratios, BOTH arms) - 1| <= MAX_NULL_MEDIAN_BIAS
   relative  worst arm bias <= MAX, OR bias <= |candidate median - 1| / RELATIVE_K
+  ci        the worst arm's null median CI must INTERSECT [1-MAX, 1+MAX]
+
+`ci` is the offline analogue of the bead's first candidate - "re-draw the null on
+failure (bounded retries) and require the MEDIAN of null medians to clear - turns
+one noisy draw into an estimate". IT IS NOT THE SAME THING and must not be
+reported as if it were: a real re-draw gathers NEW samples, while this reuses the
+one draw the run produced and asks whether its median is DISTINGUISHABLE from the
+allowed band given that draw's own spread. It answers "is this bias real, or is it
+draw noise?" without a second run, which is the question the bead says clause 3
+currently cannot tell apart. A re-draw variant cannot be scored from an archived
+capture at all, so if the fleet ever wants that exact rule it needs a harness
+change and a fresh run - `ci` is what an archived capture CAN decide.
+
+Note `ci` is strictly more permissive than `current`: any row it vetoes, `current`
+vetoes too. That is precisely why the bead's WIN/LOSE integrity table exists, and
+adding this variant is not an endorsement of it. If it admits only wins, it is a
+loosening and must be rejected on that evidence.
 
 Clauses 1 (candidate CI excludes 1) and 2 (effect deviation > 2x null half-width)
 are held fixed throughout; only clause 3 varies, so a row that flips can only have
@@ -96,6 +113,15 @@ def _clause3(name, nx_samples, fnx_samples, effect_median):
     if name == "relative":
         return (worst <= MAX_NULL_MEDIAN_BIAS
                 or worst <= abs(effect_median - 1.0) / RELATIVE_K)
+    if name == "ci":
+        # Pass when the worst arm's null median CI still REACHES the allowed
+        # band, i.e. the observed bias is not distinguishable from draw noise.
+        # Uses the same bootstrap as clauses 1 and 2 so the three stay comparable.
+        for samples in (nx_samples, fnx_samples):
+            lo, hi = _median_ci(samples)
+            if lo > 1.0 + MAX_NULL_MEDIAN_BIAS or hi < 1.0 - MAX_NULL_MEDIAN_BIAS:
+                return False
+        return True
     raise ValueError(name)
 
 
@@ -190,7 +216,9 @@ def rescore_rows(rows, variant):
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("capture", help="harness stdout capture, or a JSON array of rows")
-    ap.add_argument("--variant", default="pooled", choices=("pooled", "relative"))
+    ap.add_argument(
+        "--variant", default="pooled", choices=("pooled", "relative", "ci")
+    )
     ap.add_argument("--json", action="store_true", help="emit the publication table as JSON")
     args = ap.parse_args(argv)
 
