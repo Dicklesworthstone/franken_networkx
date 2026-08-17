@@ -520,6 +520,39 @@ def _nbunch_membership_container(graph):
     return None
 
 
+def _nbunch_filter_container(graph):
+    """The container `nbunch_iter` should test membership against.
+
+    br-r37-c1-vbe1o: networkx filters with `n in self._adj`, a plain dict, so its
+    per-node test is a C hash lookup. fnx used `self.nodes`, whose
+    `__contains__` crosses into PyO3 every time -- measured 0.70x against
+    networkx over a 1000-node nbunch, about 15 ns per node, which is the gap.
+
+    The graph already maintains a real dict of node keys (the mirror the native
+    node iterator walks), reachable as `_fnx_node_key_dict`. READ-ONLY: it is the
+    live mirror, not a copy, and nbunch_iter only tests membership against it.
+
+    Dict membership raises TypeError on an unhashable key exactly as networkx's
+    does, which is the property br-r37-c1-oaamq relied on when it dropped the
+    per-node `hash()`. That is why this is a safe swap and `Graph.__contains__`
+    was not -- that one answers False instead of raising.
+
+    CONCRETE graphs only. A filtered / conversion / reverse view SUBCLASSES the
+    native class so the accessor exists on it, but its Rust base is EMPTY: the
+    mirror would come back empty and filter every node out. That is the failure
+    br-r37-c1-kum9v records for the other native fast paths, and
+    test_to_directed_view_nbunch_argument catches it.
+    """
+    private = _nbunch_membership_container(graph)
+    if private is not None:
+        return private
+    if type(graph) in (Graph, DiGraph, MultiGraph, MultiDiGraph):
+        node_dict = getattr(graph, "_fnx_node_key_dict", None)
+        if node_dict is not None:
+            return node_dict()
+    return graph.nodes
+
+
 def _graph_nbunch_iter(self, nbunch=None):
     # br-r37-c1-nbunchnone (cc): nbunch=None is iteration over ALL nodes; route it
     # to the cheap cached node iterator (iter(self)) BEFORE building self.adj — the
@@ -599,8 +632,7 @@ def _graph_nbunch_iter(self, nbunch=None):
     # The check is per CALL, not per node, so it amortises over the whole
     # nbunch and the ordinary path keeps the cheap container the note above
     # earned.
-    container = _nbunch_membership_container(self)
-    return bunch_iter(nbunch, self.nodes if container is None else container)
+    return bunch_iter(nbunch, _nbunch_filter_container(self))
 
 
 def _size_with_unweighted_int(size_impl):
