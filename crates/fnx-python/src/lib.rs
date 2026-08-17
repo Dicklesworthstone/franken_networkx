@@ -10462,6 +10462,48 @@ impl PyMultiGraph {
                 .zip(v_index)
                 .is_some_and(|(ui, vi)| self.inner.has_edge_by_indices(ui, vi)));
         }
+        // br-r37-c1-s8dj1: the KEYED exact-string path, which had no index route
+        // at all because both fast paths above are gated on `key.is_none()`.
+        //
+        // Measured on this function: the 2-arg form is FLAT in node key length
+        // (181.2ns at K=2, 175.6ns at K=2000) while the 3-arg form grew 3.6x
+        // (360.5ns to 1303.2ns). That slope is the whole of `(u, v) in G.edges`,
+        // the worst cell on the surface at 0.1322x against networkx, because the
+        // shim's `_MultiGraphEdgeView.__contains__` routes here with key 0.
+        //
+        // WHY THE CANONICALS CAN BE SKIPPED. `resolve_internal_edge_key`
+        // short-circuits when the display-key space is pristine and the key is
+        // an exact int: the public integer key IS the internal usize key, so no
+        // string is needed to derive it, and the canonicals below were used only
+        // to reach `edge_attrs`. `edge_attrs_by_indices` reaches the same entry
+        // by position. Remapped, float and string keys are excluded here and
+        // keep the existing scan untouched.
+        //
+        // ORDERING IS PRESERVED. br-r37-c1-lvlu7 requires an absent `u` to
+        // answer False without hashing `v`, which is why the string path below
+        // interleaves the checks. That concern cannot arise here: this path is
+        // gated on both endpoints being exact `str` and the key an exact `int`,
+        // all of which are always hashable, so no user `__hash__` can run and
+        // the resolution order is unobservable. An absent endpoint still returns
+        // False without touching the other.
+        if !self.has_remapped_int_key
+            && u.is_exact_instance_of::<PyString>()
+            && v.is_exact_instance_of::<PyString>()
+            && let Some(edge_key) = key
+            && edge_key.is_exact_instance_of::<PyInt>()
+            && let Ok(internal_key) = edge_key.extract::<usize>()
+        {
+            let Some(u_index) = self.cached_exact_string_node_index(py, u)? else {
+                return Ok(false);
+            };
+            let Some(v_index) = self.cached_exact_string_node_index(py, v)? else {
+                return Ok(false);
+            };
+            return Ok(self
+                .inner
+                .edge_attrs_by_indices(u_index, v_index, internal_key)
+                .is_some());
+        }
         let u_c = node_key_to_string(py, u)?;
         // br-r37-c1-lvlu7: absent `u` short-circuits before `v` is hashed.
         if !self.inner.has_node(&u_c) {

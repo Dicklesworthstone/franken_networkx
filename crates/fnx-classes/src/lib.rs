@@ -4196,6 +4196,32 @@ impl MultiGraph {
         }
     }
 
+    /// br-r37-c1-s8dj1: attributes of a KEYED edge, addressed by node POSITION.
+    ///
+    /// The keyed sibling of [`Self::has_edge_by_indices`], and it exists for the
+    /// same reason: `PyMultiGraph::has_edge` had an O(1) path only while `key`
+    /// was `None`, so `(u, v) in G.edges` -- which passes key 0 -- paid two
+    /// canonicalisations and several node-key hashes and grew 3.6x from 2- to
+    /// 2000-character keys while the keyless form stayed flat.
+    ///
+    /// Takes POSITIONS and converts them to SLOTS, exactly as the keyless
+    /// sibling does. Passing a position straight to the slot-keyed store
+    /// reports a real edge as absent after any node removal -- see
+    /// `multigraph_node_slot_and_position_are_distinct_index_spaces`.
+    #[must_use]
+    pub fn edge_attrs_by_indices(
+        &self,
+        li: usize,
+        ri: usize,
+        key: usize,
+    ) -> Option<&AttrMap> {
+        let store = self.slab_store();
+        match (store.slot_at_position(li), store.slot_at_position(ri)) {
+            (Some(left), Some(right)) => store.edge_attrs_by_pair(left, right, key),
+            _ => None,
+        }
+    }
+
     #[must_use]
     pub fn nodes_ordered(&self) -> Vec<&str> {
         self.slab_store()
