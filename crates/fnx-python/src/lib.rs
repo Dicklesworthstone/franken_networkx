@@ -4999,6 +4999,42 @@ pub(crate) struct PyMultiGraph {
     /// native store. The copy costs ~451ns against ~16623ns for the rebuild.
     pub(crate) edge_keydict_cache:
         Option<(u64, u64, HashMap<String, HashMap<String, (usize, Py<PyDict>)>>)>,
+    /// br-r37-c1-2ndmw: the endpoint-INDEX twin of `edge_keydict_cache` above,
+    /// mirroring what br-r37-c1-f3i50 did for `PyMultiDiGraph`.
+    ///
+    /// COMPOSES WITH br-r37-c1-ed315dd2d RATHER THAN REPLACING IT. That change
+    /// removed the O(parallel edges) copy by handing back the cached dict live
+    /// under an entry-count guard. It left the OTHER axis alone: reaching that
+    /// cache still canonicalises both endpoints into a buffer and then hashes
+    /// both canonicals in full, so a hit is still O(node key length). Measured
+    /// before this twin, `MultiGraph.get_edge_data` ran 0.0743x against networkx
+    /// at 2000-character keys while the DIRECTED sibling, which already had the
+    /// twin, ran 0.4847x on the identical workload.
+    ///
+    /// Probed BEFORE any canonical is built, with indices resolved through
+    /// CPython's cached `str` hash, so a warm read is O(1) in key length.
+    ///
+    /// Holds the SAME `Py<PyDict>` the string-keyed cache holds AND the same
+    /// entry-count guard, and returns it LIVE, not copied — so ed315dd2d's
+    /// contract that repeated reads are the same object, as networkx's are, is
+    /// preserved through this path too. A length mismatch falls through to the
+    /// rebuild for exactly the reason it does there: the cached dict is the one
+    /// that was tampered with, so trusting it would propagate a phantom key.
+    ///
+    /// UNDIRECTED, so the index pair IS order-normalised — the directed twin
+    /// deliberately is not. The normalisation is on index order while the string
+    /// cache normalises on canonical string order; they need only be internally
+    /// consistent, since each maps an unordered pair onto one key regardless of
+    /// argument order.
+    ///
+    /// STAMPED WITH BOTH SEQUENCES, and that is not optional. The first attempt
+    /// at the directed version carried `nodes_seq` alone and served a STALE
+    /// keydict after `add_edge`, because an edge mutation bumps `edges_seq` and
+    /// leaves `nodes_seq` untouched. Pinned by the warm-then-mutate cases in
+    /// `tests/python/test_multidigraph_keydict_index_invalidation.py`, which is
+    /// already parametrised over BOTH multigraph classes.
+    pub(crate) edge_keydict_by_index:
+        HashMap<(usize, usize), (u64, u64, usize, Py<PyDict>)>,
     pub(crate) instance_dict_gc: InstanceDictGc,
 }
 
@@ -5136,6 +5172,7 @@ impl PyMultiGraph {
         self.edges_with_keys_cache = None;
         *self.node_iter_mirror.get_mut().unwrap() = None;
         self.edge_keydict_cache = None;
+        self.edge_keydict_by_index.clear(); // br-r37-c1-2ndmw
         self.has_edge_node_index_cache.clear(py);
     }
 
@@ -5725,6 +5762,7 @@ impl PyMultiGraph {
         Ok(Self {
             neighbor_key_rows: None,
             edge_keydict_cache: None,
+            edge_keydict_by_index: HashMap::new(), // br-r37-c1-2ndmw
             edges_data_attr_cache: std::sync::Mutex::new(None),
             inner: MultiGraph::with_runtime_policy(runtime_policy),
             node_key_map: HashMap::new(),
@@ -7454,6 +7492,48 @@ impl PyMultiGraph {
         if let Some(key_obj) = key {
             key_obj.hash()?;
         }
+        // br-r37-c1-2ndmw: INDEX-keyed keydict probe, before ANY canonical is
+        // built. Mirrors br-r37-c1-f3i50 on the directed sibling, which this
+        // call was 6.5x behind on the identical workload purely for want of it.
+        //
+        // This sits IN FRONT OF the string-keyed cache and does not replace it.
+        // That cache (and ed315dd2d's count guard on it) removes the O(parallel
+        // edges) rebuild and the copy; what it cannot remove is the cost of
+        // REACHING it, which is two canonicalisations and two full-length
+        // hashes — the entire remaining key-length slope on this call. These
+        // indices come from CPython's cached `str` hash instead.
+        //
+        // ORDER-NORMALISED, because this graph is undirected and the string
+        // cache it mirrors normalises too. Without this, `G.get_edge_data(v, u)`
+        // would miss an entry filled by `G.get_edge_data(u, v)`.
+        //
+        // Unkeyed calls only: `key.is_none()` is the branch returning the whole
+        // keydict. The generation check is on BOTH sequences, matching what the
+        // string cache is checked against — `nodes_seq` alone let a warm read
+        // survive an `add_edge` and hand back a stale mapping. A hit is
+        // existence proof: entries are recorded only for pairs that had edges.
+        //
+        // The entry-count guard and the LIVE return are carried over from
+        // ed315dd2d deliberately: this path must not reintroduce the copy it
+        // removed, nor lose the identity contract that makes repeated reads the
+        // same object as networkx's are. A mismatch falls through to the
+        // rebuild rather than trusting a dict that was tampered with.
+        if key.is_none()
+            && u.is_exact_instance_of::<PyString>()
+            && v.is_exact_instance_of::<PyString>()
+            && let Some(ui) = self.cached_exact_string_node_index(py, u)?
+            && let Some(vi) = self.cached_exact_string_node_index(py, v)?
+            && let Some((ns, es, expected_len, cached)) = self
+                .edge_keydict_by_index
+                .get(&if ui <= vi { (ui, vi) } else { (vi, ui) })
+            && *ns == self.nodes_seq
+            && *es == self.edges_seq
+            && cached.bind(py).len() == *expected_len
+        {
+            let live = cached.clone_ref(py);
+            self.mark_edges_dirty();
+            return Ok(live.into_any());
+        }
         // br-r37-c1-vz4v9: this body had no fast path — it canonicalized BOTH
         // endpoints onto the heap on every call, so each `get_edge_data` probe
         // malloc'd and freed two Strings purely to look them up. The membership
@@ -7564,6 +7644,22 @@ impl PyMultiGraph {
                 // through it would corrupt the cache (see the field's note).
                 let stored_len = result.len();
                 let live = result.clone().unbind();
+                // br-r37-c1-2ndmw: fill the index twin with the SAME object and
+                // the SAME count guard the string-keyed cache stores, so a warm
+                // read by either key hands back one live mapping, and stamp BOTH
+                // sequences. The pair is order-normalised to match the probe.
+                if u.is_exact_instance_of::<PyString>() && v.is_exact_instance_of::<PyString>() {
+                    let indices = (
+                        self.cached_exact_string_node_index(py, u)?,
+                        self.cached_exact_string_node_index(py, v)?,
+                    );
+                    if let (Some(ui), Some(vi)) = indices {
+                        let (ns, es) = (self.nodes_seq, self.edges_seq);
+                        let pair = if ui <= vi { (ui, vi) } else { (vi, ui) };
+                        self.edge_keydict_by_index
+                            .insert(pair, (ns, es, stored_len, live.clone_ref(py)));
+                    }
+                }
                 if let Some((_, _, rows)) = self.edge_keydict_cache.as_mut() {
                     rows.entry(lo.to_owned())
                         .or_default()
@@ -11237,6 +11333,7 @@ impl PyMultiGraph {
         let mut new_graph = Self {
             neighbor_key_rows: None,
             edge_keydict_cache: None,
+            edge_keydict_by_index: HashMap::new(), // br-r37-c1-2ndmw
             edges_data_attr_cache: std::sync::Mutex::new(None),
             // br-r37-c1-7dpyg: fresh ledger, mode only (skip ledger clone)
             inner: MultiGraph::with_runtime_policy(fnx_runtime::RuntimePolicy::new(
@@ -11345,6 +11442,7 @@ impl PyMultiGraph {
         let mut new_graph = Self {
             neighbor_key_rows: None,
             edge_keydict_cache: None,
+            edge_keydict_by_index: HashMap::new(), // br-r37-c1-2ndmw
             edges_data_attr_cache: std::sync::Mutex::new(None),
             inner: MultiGraph::with_runtime_policy(self.inner.runtime_policy().clone()),
             node_key_map: HashMap::new(),
@@ -11516,6 +11614,7 @@ impl PyMultiGraph {
         let mut new_graph = Self {
             neighbor_key_rows: None,
             edge_keydict_cache: None,
+            edge_keydict_by_index: HashMap::new(), // br-r37-c1-2ndmw
             edges_data_attr_cache: std::sync::Mutex::new(None),
             inner: self.inner.clone_with_fresh_policy(), // br-r37-c1-7dpyg: skip ledger
             node_key_map: HashMap::with_capacity(self.node_key_map.len()),
@@ -11594,6 +11693,7 @@ impl PyMultiGraph {
         Ok(Self {
             neighbor_key_rows: None,
             edge_keydict_cache: None,
+            edge_keydict_by_index: HashMap::new(), // br-r37-c1-2ndmw
             edges_data_attr_cache: std::sync::Mutex::new(None),
             inner: self.inner.clone_with_fresh_policy(), // br-r37-c1-7dpyg: skip ledger
             node_key_map: self
@@ -11687,6 +11787,7 @@ impl PyMultiGraph {
         let mut new_graph = Self {
             neighbor_key_rows: None,
             edge_keydict_cache: None,
+            edge_keydict_by_index: HashMap::new(), // br-r37-c1-2ndmw
             edges_data_attr_cache: std::sync::Mutex::new(None),
             inner: MultiGraph::with_runtime_policy(self.inner.runtime_policy().clone()),
             node_key_map: HashMap::new(),
@@ -11807,6 +11908,7 @@ impl PyMultiGraph {
         let mut new_graph = Self {
             neighbor_key_rows: None,
             edge_keydict_cache: None,
+            edge_keydict_by_index: HashMap::new(), // br-r37-c1-2ndmw
             edges_data_attr_cache: std::sync::Mutex::new(None),
             inner: MultiGraph::with_runtime_policy(self.inner.runtime_policy().clone()),
             node_key_map: HashMap::new(),
