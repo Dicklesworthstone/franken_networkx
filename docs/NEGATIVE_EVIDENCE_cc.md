@@ -21431,3 +21431,60 @@ incumbent_ratio=0.7665x
 campaign_output=false
 decision_gate=median_ci
 cv_role=report_only
+
+## 2026-08-17 GoldenBison CLOCK PROVENANCE: the add_edge hoist re-measured in ONE process — 1.0657x confirmed, and an invalid instrument discarded first (br-r37-c1-aeshim)
+
+Discharging the last outstanding item from my own caveat: the 1.067x bare
+`add_edge` figure was taken with two PACKAGES in two PROCESSES, which the
+one-process clock instrument cannot hold, and it sits at the scale where a
+0.5 percent skew matters.
+
+RECONSTRUCTED IN ONE PROCESS so both arms share a clock: two plain Python
+functions over the same kernel, differing ONLY in whether the validation block
+runs. Arms interleaved ABBA, core frequency sampled after every timed block.
+
+    keys      hoisted    pre-hoist   speedup   hoistMHz  preMHz   skew
+    int       784.5us     836.0us    1.0657x     4140     4142   -0.05%
+       3      866.0us     939.4us    1.0847x     4289     4292   -0.08%
+    2000     3413.9us    3530.8us    1.0342x     4142     4141    0.04%
+
+    A/A control (hoisted vs hoisted, int keys)   795.2us vs 795.1us
+                                                 null 0.9999, MHz 4142/4152
+
+CONFIRMED. The two-process figure was 1.067x; the one-process figure with shared
+clocks is 1.0657x on the same key type - agreement to three decimal places, which
+is better than either measurement deserves and is reported as coincidence, not
+precision. Skew at or below 0.08 percent on every row, and an A/A null of 0.9999.
+
+I DISCARDED MY OWN FIRST ATTEMPT AT THIS, which is the part worth reading. My
+initial in-process reconstruction compared `g.add_edge(u, v)` - the real shim,
+which collects `**attr` - against a plain positional helper. It reported 0.9484x
+and 0.9760x, i.e. that the hoist was a REGRESSION. That was the kwargs-dict cost
+of the real shim's signature, present in one arm and absent from the other: the
+CALL PROTOCOL confound this ledger already records under
+`name_the_harness_and_call_protocol_confound`. Rebuilding both arms as plain
+functions with an IDENTICAL `(g, u, v, **attr)` signature moved the answer from
+0.9484x to 1.0657x - a 12 percent swing produced entirely by how the control was
+called, on the same host in the same minute.
+
+That is also why the int row of the discarded run showed 1.96 percent clock skew
+while every row of the valid run shows at or below 0.08: the invalid arms were
+doing different amounts of work and drifting apart, and the skew was a symptom
+rather than the cause. A control that matches the candidate's call protocol
+tends to match its clock too.
+
+Method: ABBA x 9 rounds x 3 reps after 4 warm-up iterations, min per arm, one
+process, per-arm core id and kHz after every block, 600 nodes + 1000 edges.
+loadavg 15.71/16.27/17.75, TWO peer builds running - recorded, and the A/A null
+of 0.9999 bounds what they did to this measurement. No build of my own. disk 97G.
+
+bench_elf_sha256=f934861b2e97439800f7b7f9c8fdb23aeb2208f1f41216828c03d052e3e09b72
+elf_sha256=f934861b2e97439800f7b7f9c8fdb23aeb2208f1f41216828c03d052e3e09b72
+harness_sha256=977bc0ab382ada602af2a28daf2fc20bf62bc1a1d93489b71932e63a0de1f5f9
+comparison_class=SELF-SPEEDUP
+self_speedup=1.0657x
+incumbent=networkx
+incumbent_same_invocation=false
+campaign_output=false
+decision_gate=median_ci
+cv_role=report_only
