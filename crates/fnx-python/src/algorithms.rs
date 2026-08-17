@@ -25946,6 +25946,7 @@ pub fn power_rust(py: Python<'_>, g: &Bound<'_, PyAny>, k: usize) -> PyResult<Py
         adj_py_keys: HashMap::new(), // br-r37-c1-z6uka
         dict_of_dicts_cache: None,
         adj_row_py: HashMap::new(),
+        adj_row_py_by_index: HashMap::new(), // br-r37-c1-nbrow
         graph_attrs: PyDict::new(py).unbind(),
         nodes_seq: 0,
         edges_seq: 0,
@@ -26068,6 +26069,7 @@ pub fn ego_graph_rust(
         adj_py_keys: HashMap::new(), // br-r37-c1-z6uka
         dict_of_dicts_cache: None,
         adj_row_py: HashMap::new(),
+        adj_row_py_by_index: HashMap::new(), // br-r37-c1-nbrow
         graph_attrs: PyDict::new(py).unbind(),
         nodes_seq: 0,
         edges_seq: 0,
@@ -26211,6 +26213,7 @@ pub fn full_join_rust(
         adj_py_keys: HashMap::new(), // br-r37-c1-z6uka
         dict_of_dicts_cache: None,
         adj_row_py: HashMap::new(),
+        adj_row_py_by_index: HashMap::new(), // br-r37-c1-nbrow
         graph_attrs: PyDict::new(py).unbind(),
         nodes_seq: 0,
         edges_seq: 0,
@@ -26253,6 +26256,7 @@ pub fn identified_nodes_rust(
         adj_py_keys: HashMap::new(), // br-r37-c1-z6uka
         dict_of_dicts_cache: None,
         adj_row_py: HashMap::new(),
+        adj_row_py_by_index: HashMap::new(), // br-r37-c1-nbrow
         graph_attrs: PyDict::new(py).unbind(),
         nodes_seq: 0,
         edges_seq: 0,
@@ -26354,6 +26358,7 @@ pub fn dedensify_rust(
         adj_py_keys: HashMap::new(), // br-r37-c1-z6uka
         dict_of_dicts_cache: None,
         adj_row_py: HashMap::new(),
+        adj_row_py_by_index: HashMap::new(), // br-r37-c1-nbrow
         graph_attrs: PyDict::new(py).unbind(),
         nodes_seq: 0,
         edges_seq: 0,
@@ -26529,6 +26534,7 @@ pub fn quotient_graph_rust(
         adj_py_keys: HashMap::new(), // br-r37-c1-z6uka
         dict_of_dicts_cache: None,
         adj_row_py: HashMap::new(),
+        adj_row_py_by_index: HashMap::new(), // br-r37-c1-nbrow
         graph_attrs: PyDict::new(py).unbind(),
         nodes_seq: 0,
         edges_seq: 0,
@@ -27071,6 +27077,7 @@ pub fn gomory_hu_tree_rust(
         adj_py_keys: HashMap::new(), // br-r37-c1-z6uka
         dict_of_dicts_cache: None,
         adj_row_py: HashMap::new(),
+        adj_row_py_by_index: HashMap::new(), // br-r37-c1-nbrow
         graph_attrs: PyDict::new(py).unbind(),
         nodes_seq: 0,
         edges_seq: 0,
@@ -27132,6 +27139,7 @@ pub fn snap_aggregation_rust(
         adj_py_keys: HashMap::new(), // br-r37-c1-z6uka
         dict_of_dicts_cache: None,
         adj_row_py: HashMap::new(),
+        adj_row_py_by_index: HashMap::new(), // br-r37-c1-nbrow
         graph_attrs: PyDict::new(py).unbind(),
         nodes_seq: 0,
         edges_seq: 0,

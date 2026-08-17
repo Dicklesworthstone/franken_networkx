@@ -2411,6 +2411,30 @@ pub(crate) struct PyGraph {
     pub(crate) dict_of_dicts_cache: Option<DictOfDictsCache>,
     /// Live NetworkX-style adjacency row mirrors for simple Graph view iteration.
     pub(crate) adj_row_py: HashMap<String, Py<PyDict>>,
+    /// br-r37-c1-nbrow: the node-INDEX twin of `adj_row_py` above.
+    ///
+    /// `G.neighbors(n)` is `iter(self._adj[n])` in networkx -- one dict lookup
+    /// on a str whose hash CPython caches. Here the cache HIT probed
+    /// `adj_row_py` with a canonical built by `with_node_key_str`, which copies
+    /// the key's bytes into a buffer and then hashes them, so the hit was O(node
+    /// key length): 246.5 ns at K=2 against 1055.7 ns at K=2000, a 4.3x slope,
+    /// where `has_edge` over the same span is flat at 200.4/198.8 ns.
+    ///
+    /// Holds the SAME `Py<PyDict>` the string-keyed map holds, so the two cannot
+    /// disagree about a row's contents.
+    ///
+    /// STAMPED WITH `nodes_seq` ALONE, which is verified rather than assumed --
+    /// the keydict twin was once stamped this way and served a value an EDGE
+    /// mutation had invalidated. That cannot happen here: both sites that
+    /// `adj_row_py.remove(...)` bump `nodes_seq` immediately, so a removed row's
+    /// stamp goes stale by itself; and edge changes MAINTAIN the row dict IN
+    /// PLACE rather than replacing it, so they are visible through the twin
+    /// without invalidation.
+    ///
+    /// CLEARED wherever `adj_row_py` is cleared, and that part is load-bearing:
+    /// a twin entry outliving a cleared `adj_row_py` would keep serving a dict
+    /// that in-place maintenance can no longer find, i.e. stale contents.
+    pub(crate) adj_row_py_by_index: HashMap<usize, (u64, Py<PyDict>)>,
     /// Graph-level attribute dict.
     pub(crate) graph_attrs: Py<PyDict>,
     /// Monotonic counter bumped on every node add/remove (br-r37-c1-39d82).
@@ -2552,6 +2576,10 @@ impl PyGraph {
         for row in self.adj_row_py.values() {
             visit.call(row)?;
         }
+        // br-r37-c1-nbrow: same dicts as `adj_row_py`, under a second key.
+        for (_seq, row) in self.adj_row_py_by_index.values() {
+            visit.call(row)?;
+        }
         visit.call(&self.graph_attrs)?;
         {
             let cache = self.node_keys_cache.lock().unwrap();
@@ -2584,6 +2612,7 @@ impl PyGraph {
         self.has_edge_node_index_cache.clear(py);
         self.dict_of_dicts_cache = None;
         self.adj_row_py.clear();
+        self.adj_row_py_by_index.clear(); // br-r37-c1-nbrow
         self.graph_attrs.bind(py).clear();
         *self.node_keys_cache.get_mut().unwrap() = None;
         *self.node_iter_mirror.get_mut().unwrap() = None;
@@ -3033,6 +3062,7 @@ impl PyGraph {
             adj_py_keys: HashMap::new(), // br-r37-c1-z6uka
             dict_of_dicts_cache: None,
             adj_row_py: HashMap::new(),
+            adj_row_py_by_index: HashMap::new(), // br-r37-c1-nbrow
             graph_attrs: PyDict::new(py).unbind(),
             nodes_seq: 0,
             edges_seq: 0,
@@ -14559,6 +14589,7 @@ impl PyGraph {
         self.edge_py_attrs.clear();
         self.adj_py_keys.clear(); // br-r37-c1-z6uka
         self.adj_row_py.clear();
+        self.adj_row_py_by_index.clear(); // br-r37-c1-nbrow
         self.graph_attrs = PyDict::new(py).unbind();
         self.node_iter_mirror_clear(py)?;
         self.bump_nodes_seq();
@@ -15153,9 +15184,37 @@ impl PyGraph {
         // it, and `canonical_node_key_in_matches_the_owned_canonical` pins the
         // two forms equal — so this probe covers what the owned one covered.
         // Only the MISS path below allocates, because only it needs to insert.
+        // br-r37-c1-nbrow: INDEX probe first, before any canonical exists.
+        //
+        // The borrowed-canonical probe below already avoids a malloc, but it
+        // still COPIES the key's bytes into a buffer and then HASHES them, so a
+        // cache hit was O(node key length) -- 246.5 ns at K=2 against 1055.7 ns
+        // at K=2000. This resolves the node through CPython's cached `str` hash
+        // instead, exactly as `has_edge` does, and `has_edge` is flat over that
+        // span.
+        //
+        // Exact `str` only; every other key type falls through unchanged. A hit
+        // is existence proof, so the `has_node` probe further down is skipped on
+        // it, matching what the string-keyed hit already did.
+        if node.is_exact_instance_of::<PyString>()
+            && let Some(index) = self.cached_exact_string_node_index(py, node)?
+            && let Some((seq, row)) = self.adj_row_py_by_index.get(&index)
+            && *seq == self.nodes_seq
+        {
+            return Ok(row.clone_ref(py));
+        }
         if let Some(row) = with_node_key_str(py, node, |canonical| {
             self.adj_row_py.get(canonical).map(|row| row.clone_ref(py))
         })? {
+            // br-r37-c1-nbrow: fill the twin from the string hit too, so a row
+            // first touched by a non-index caller still gets the fast route.
+            if node.is_exact_instance_of::<PyString>()
+                && let Some(index) = self.cached_exact_string_node_index(py, node)?
+            {
+                let seq = self.nodes_seq;
+                self.adj_row_py_by_index
+                    .insert(index, (seq, row.clone_ref(py)));
+            }
             return Ok(row);
         }
         let canonical = node_key_to_string(py, node)?;
@@ -15179,6 +15238,15 @@ impl PyGraph {
             row.set_item(py_neighbor, attrs.bind(py))?;
         }
         let row = row.unbind();
+        // br-r37-c1-nbrow: fill the index twin with the SAME dict object, so the
+        // two keys cannot disagree and in-place edge maintenance reaches both.
+        if node.is_exact_instance_of::<PyString>()
+            && let Some(index) = self.cached_exact_string_node_index(py, node)?
+        {
+            let seq = self.nodes_seq;
+            self.adj_row_py_by_index
+                .insert(index, (seq, row.clone_ref(py)));
+        }
         self.adj_row_py.insert(canonical, row.clone_ref(py));
         Ok(row)
     }
@@ -15557,6 +15625,7 @@ impl PyGraph {
             adj_py_keys: self.derive_copy_adj_py_keys(py, &self.inner), // br-r37-c1-z6uka
             dict_of_dicts_cache: None,
             adj_row_py: HashMap::new(),
+            adj_row_py_by_index: HashMap::new(), // br-r37-c1-nbrow
             graph_attrs: self.graph_attrs.bind(py).copy()?.unbind(),
             nodes_seq: 0,
             edges_seq: 0,
@@ -15753,6 +15822,7 @@ impl PyGraph {
             adj_py_keys: HashMap::new(),
             dict_of_dicts_cache: None,
             adj_row_py: HashMap::new(),
+            adj_row_py_by_index: HashMap::new(), // br-r37-c1-nbrow
             graph_attrs: self.graph_attrs.bind(py).copy()?.unbind(),
             nodes_seq: 0,
             edges_seq: 0,
@@ -15804,6 +15874,7 @@ impl PyGraph {
             adj_py_keys: HashMap::new(), // br-r37-c1-z6uka
             dict_of_dicts_cache: None,
             adj_row_py: HashMap::new(),
+            adj_row_py_by_index: HashMap::new(), // br-r37-c1-nbrow
             graph_attrs: self.graph_attrs.bind(py).copy()?.unbind(),
             nodes_seq: 0,
             edges_seq: 0,
@@ -15926,6 +15997,7 @@ impl PyGraph {
             adj_py_keys: HashMap::new(),
             dict_of_dicts_cache: None,
             adj_row_py: HashMap::new(),
+            adj_row_py_by_index: HashMap::new(), // br-r37-c1-nbrow
             graph_attrs: self.graph_attrs.bind(py).copy()?.unbind(),
             nodes_seq: 0,
             edges_seq: 0,
@@ -16007,6 +16079,7 @@ impl PyGraph {
             adj_py_keys: HashMap::new(), // br-r37-c1-z6uka
             dict_of_dicts_cache: None,
             adj_row_py: HashMap::new(),
+            adj_row_py_by_index: HashMap::new(), // br-r37-c1-nbrow
             graph_attrs: self.graph_attrs.bind(py).copy()?.unbind(),
             nodes_seq: 0,
             edges_seq: 0,
@@ -17229,6 +17302,7 @@ impl PyGraph {
             // exactly like dict_of_dicts_cache above.
             edges_alldata_cache: None,
             adj_row_py: HashMap::new(),
+            adj_row_py_by_index: HashMap::new(), // br-r37-c1-nbrow
             node_py_attrs: self
                 .node_py_attrs
                 .iter()

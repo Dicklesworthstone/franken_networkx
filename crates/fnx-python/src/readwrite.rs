@@ -158,6 +158,7 @@ fn report_to_pygraph(py: Python<'_>, report: ReadWriteReport) -> PyResult<PyGrap
         adj_py_keys: HashMap::new(), // br-r37-c1-z6uka
         dict_of_dicts_cache: None,
         adj_row_py: HashMap::new(),
+        adj_row_py_by_index: HashMap::new(), // br-r37-c1-nbrow
         graph_attrs: py_graph_attrs.unbind(),
         nodes_seq: 0,
         edges_seq: 0,
@@ -838,6 +839,7 @@ fn read_adjlist_simple(py: Python<'_>, path: &str) -> PyResult<Option<PyGraph>> 
         adj_py_keys: HashMap::new(), // br-r37-c1-z6uka
         dict_of_dicts_cache: None,
         adj_row_py: HashMap::new(),
+        adj_row_py_by_index: HashMap::new(), // br-r37-c1-nbrow
         graph_attrs: PyDict::new(py).unbind(),
         nodes_seq: 0,
         edges_seq: 0,
@@ -1145,6 +1147,7 @@ fn parse_edgelist_simple_content(
         adj_py_keys: HashMap::new(), // br-r37-c1-z6uka
         dict_of_dicts_cache: None,
         adj_row_py: HashMap::new(),
+        adj_row_py_by_index: HashMap::new(), // br-r37-c1-nbrow
         graph_attrs: PyDict::new(py).unbind(),
         nodes_seq: 0,
         edges_seq: 0,

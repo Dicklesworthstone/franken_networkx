@@ -46,6 +46,7 @@ fn report_to_pygraph(py: Python<'_>, graph: fnx_classes::Graph) -> PyResult<PyGr
         adj_py_keys: HashMap::new(), // br-r37-c1-z6uka
         dict_of_dicts_cache: None,
         adj_row_py: HashMap::new(),
+        adj_row_py_by_index: HashMap::new(), // br-r37-c1-nbrow
         graph_attrs: PyDict::new(py).unbind(),
         nodes_seq: 0,
         edges_seq: 0,
@@ -263,6 +264,7 @@ pub fn grid_2d_graph_simple(py: Python<'_>, m: usize, n: usize) -> PyResult<PyGr
         adj_py_keys: HashMap::new(), // br-r37-c1-z6uka
         dict_of_dicts_cache: None,
         adj_row_py: HashMap::new(),
+        adj_row_py_by_index: HashMap::new(), // br-r37-c1-nbrow
         graph_attrs: PyDict::new(py).unbind(),
         nodes_seq: 0,
         edges_seq: 0,
@@ -315,6 +317,7 @@ fn tuple_lattice_pygraph(
         adj_py_keys: HashMap::new(),
         dict_of_dicts_cache: None,
         adj_row_py: HashMap::new(),
+        adj_row_py_by_index: HashMap::new(), // br-r37-c1-nbrow
         graph_attrs: PyDict::new(py).unbind(),
         nodes_seq: 0,
         edges_seq: 0,
@@ -501,6 +504,7 @@ pub fn grid_graph_native(
         adj_py_keys: HashMap::new(),
         dict_of_dicts_cache: None,
         adj_row_py: HashMap::new(),
+        adj_row_py_by_index: HashMap::new(), // br-r37-c1-nbrow
         graph_attrs: PyDict::new(py).unbind(),
         nodes_seq: 0,
         edges_seq: 0,
@@ -573,6 +577,7 @@ pub fn kneser_graph_native(py: Python<'_>, n: usize, k: usize) -> PyResult<PyGra
         adj_py_keys: HashMap::new(), // br-r37-c1-z6uka
         dict_of_dicts_cache: None,
         adj_row_py: HashMap::new(),
+        adj_row_py_by_index: HashMap::new(), // br-r37-c1-nbrow
         graph_attrs: PyDict::new(py).unbind(),
         nodes_seq: 0,
         edges_seq: 0,
@@ -639,6 +644,7 @@ pub fn caveman_graph_native(py: Python<'_>, l: usize, k: usize) -> PyResult<PyGr
         adj_py_keys: HashMap::new(),
         dict_of_dicts_cache: None,
         adj_row_py: HashMap::new(),
+        adj_row_py_by_index: HashMap::new(), // br-r37-c1-nbrow
         graph_attrs: PyDict::new(py).unbind(),
         nodes_seq: 0,
         edges_seq: 0,
@@ -705,6 +711,7 @@ pub fn full_rary_tree_native(py: Python<'_>, r: usize, n: usize) -> PyResult<PyG
         adj_py_keys: HashMap::new(),
         dict_of_dicts_cache: None,
         adj_row_py: HashMap::new(),
+        adj_row_py_by_index: HashMap::new(), // br-r37-c1-nbrow
         graph_attrs: PyDict::new(py).unbind(),
         nodes_seq: 0,
         edges_seq: 0,
@@ -932,6 +939,7 @@ pub fn random_lobster_graph_lazy_int(
         adj_py_keys: HashMap::new(),
         dict_of_dicts_cache: None,
         adj_row_py: HashMap::new(),
+        adj_row_py_by_index: HashMap::new(), // br-r37-c1-nbrow
         graph_attrs: PyDict::new(py).unbind(),
         nodes_seq: 0,
         edges_seq: 0,
@@ -1029,6 +1037,7 @@ pub fn random_regular_graph_pyset_order(
         adj_py_keys: HashMap::new(),
         dict_of_dicts_cache: None,
         adj_row_py: HashMap::new(),
+        adj_row_py_by_index: HashMap::new(), // br-r37-c1-nbrow
         graph_attrs: PyDict::new(py).unbind(),
         nodes_seq: 0,
         edges_seq: 0,
