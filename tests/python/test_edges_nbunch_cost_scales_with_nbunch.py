@@ -32,12 +32,25 @@ against 0.2788x. Removing 600 per-edge hashes and adding 60 per-node ones is a
 wash, which is only possible if neither was the cost. The change was reverted;
 this scaling shape is what should have been measured first.
 
-THE FIX, for whoever takes it: resolve nbunch items to node positions through
-the cached exact-``str`` index path, which reuses CPython's cached string hash,
-instead of building a canonical per item. That is the same lever already landed
-for ``get_edge_data``, the keyed subscript and the attr mirror. It needs the
-nbunch collection loop restructured so the string set is built only for the
-fallback path that actually walks names.
+TWO FIXES HAVE BEEN TRIED AND BOTH MEASURED NOTHING. Recorded so the next
+attempt starts past them rather than repeating them:
+
+  1. A POSITION MASK replacing the per-edge name filter — the filter does
+     ``node_set.contains(left) || node_set.contains(right)``, two full canonical
+     hashes per edge, 600 on this fixture. Measured 0.2804x against a 0.2788x
+     baseline. Nothing.
+  2. RESOLVING nbunch items through the cached exact-``str`` index path, so no
+     canonical is built per item — the same lever that worked for
+     ``get_edge_data``, the keyed subscript and the attr mirror. The nbunch
+     collection was deferred and split per branch so only the name-walking
+     fallback pays for canonicals. Measured 0.2379x against 0.2971x on the same
+     shape. Nothing, or slightly worse.
+
+Both were reverted; ``crates/`` is byte-identical to HEAD. Between them they
+eliminate the two obvious readings of the linear-in-nbunch shape below, which
+means the per-item cost is NOT the canonical build and NOT the per-edge filter.
+The next attempt should PROFILE the filtered path rather than reason about it —
+this pane has now guessed the mechanism twice and been wrong twice.
 
 The assertion here is deliberately loose. It pins the SHAPE — cost rising with
 nbunch — because that is what identifies the defect and what a fix must flatten.
