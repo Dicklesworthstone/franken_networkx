@@ -21823,3 +21823,98 @@ arm, per-arm core id and kHz after every block. Host genuinely busy: loadavg
 32.32/32.28/28.16, cumulative idle 76.6 percent, 15-17 CPUs over the harness
 bound, so NOTHING was certified through the perf harness this tick and no
 admission attempt was made. disk 214G. No build.
+
+---
+
+## br-r37-c1-2r06n CERTIFIED — the multigraph `G[node]` fix is not a cost, it is a small gain (2026-08-17)
+
+The measurement this bead has owed since `bbd099d51`, which added a
+private-storage test to the multigraph `__getitem__` placed AFTER the row-cache
+probe. Two earlier attempts were banked indicative-only: one ran at loadavg 45,
+and one ran on cores that were 1.0 percent busy when surveyed and 27-31 percent
+busy by the time the square started. This one ran on cores measured at 0.3
+percent busy immediately before, and the numbers are an order of magnitude
+tighter.
+
+    cell                          square 1                     square 2
+    G[n] MultiGraph         1.0217 [1.0115, 1.0287]   1.0118 [0.9994, 1.0261]
+    G[n] MultiDiGraph       1.0143 [1.0064, 1.0181]   1.0147 [1.0071, 1.0249]
+    G[n] Graph  NEG CONTROL 0.9975 [0.9926, 1.0031]   0.9927 [0.9843, 1.0087]
+
+base/cand, so above 1 is the candidate being FASTER. **The fix is a ~1.2-1.5
+percent gain, not a cost** — quoted at the worst square of each row, so
+MultiGraph 1.0118 and MultiDiGraph 1.0143. MultiDiGraph excludes unity in BOTH
+squares; MultiGraph excludes it in square 1 and marginally straddles in square 2
+(lower bound 0.9994), so the MultiDiGraph row is the better-supported of the two.
+
+The untouched simple `Graph` negative control straddles unity in both squares,
+and the A/A nulls do NOT overlap the effect intervals — square 1 base null
+[0.9784, 1.0070] against a MultiGraph effect of [1.0115, 1.0287]. That
+separation is what makes a 1-2 percent effect reportable at all.
+
+### THE CLOCK CONFOUNDER, AND WHY THIS SQUARE IS BELIEVABLE
+
+Per-arm clock medians were **4288 MHz against 4288 MHz** in square 1 — identical
+— and 4253 against 4266 MHz (0.31 percent) in square 2. Both arms pin to the same
+core and interleave, and the common-mode cell (networkx, byte-identical in both
+arms, timed in the same invocation) straddles unity in both squares: 0.9945
+[0.9846, 1.0041] and 0.9930 [0.9723, 1.0171].
+
+### AGAINST THE INCUMBENT, UNCHANGED AND STILL BAD
+
+    vs networkx        base             cand
+    MultiGraph        0.6601 / 0.6651   0.6763 / 0.6741
+    MultiDiGraph      0.6585 / 0.6596   0.6670 / 0.6719
+    Graph  NEG        1.1170 / 1.1191   1.1139 / 1.1164
+
+INCUMBENT IS NETWORKX. `G[node]` on the multigraph classes is about **0.67x** —
+roughly a third slower than networkx — and this correctness fix moves it by about
+a percent. The simple `Graph` is 1.12x. That 0.67x is a standing deficit on a hot
+path and wants its own lever; it is not what this row is about.
+
+### A CORRECTION TO MY OWN INSTRUMENT, MADE HERE BECAUSE THIS RUN EXPOSED IT
+
+I shipped `begin_bench_core_watch()` last turn claiming it answers "was the bench
+core quiet THROUGHOUT the run?". **It does not, and this row is the evidence.** It
+read 99.6 percent and 99.7 percent busy during these two squares — which is my
+OWN worker saturating the core it was given. A competitor's cycles and my own are
+the same cycles to that counter, so for a saturating benchmark the number is
+pinned near 100 whether or not anyone else is present, and it cannot detect
+contention.
+
+What it DOES establish is the converse, which is still worth having: a reading
+well BELOW 100 would mean the worker was being descheduled and did not have the
+core. So it is a "did I get the seat" check, not an "is anyone else in it" check.
+The pre-run `cores_are_quiet()` sample remains the contention detector, and the
+A/A null remains the real one. The guard's documentation and tests are corrected
+in the same commit as this row.
+
+PER-ARM: square 1 base loadavg median 16.87 at 4288 MHz (min 4178, max 4292)
+against cand 16.87 at 4288 MHz (min 4165, max 4292); square 2 base 12.19 at 4253
+MHz (3867-4292) against cand 12.19 at 4266 MHz (3894-4292). Machine idle was 90
+percent with 0 percent iowait at square start, against a loadavg of 32.40 — the
+two disagree and the idle figure is the one that matched the per-core reality.
+Bench cores cpu26/cpu27 measured 0.3 percent busy immediately before square 1 and
+3.0/1.0 percent before square 2. Square 1 returned verdict STABLE; square 2
+SIBLING-CONTENDED. Both squares' gate FAILED at start on the 5-minute recovery
+bound (29.89 and similar) while the 1-minute was 19.94 and falling — recorded
+because it is the standing rule, and overruled here by the per-core evidence,
+the identical arm clocks, the flat control and the non-overlapping nulls.
+
+A/A null control, same invocation, measured: square 1 base 0.9873
+[0.9784, 1.0070] and cand 1.0026 [0.9975, 1.0040]; square 2 base 0.9989
+[0.9874, 1.0065] and cand 1.0048 [0.9857, 1.0137].
+
+PROVENANCE: driver `/data/tmp/claude-1000/certify_gi.py` on `cpu27`, spawning
+`gi_worker.py` pinned to `cpu26` via `BENCH_CORE`. Arms `arm_gi_base` (parent of
+bbd099d51) and `arm_gi_cand` (bbd099d51), sharing ONE `.so`; discriminated
+behaviourally before timing — base raises KeyError for `MultiGraph['ZZ']` under
+an assigned `_adj`, cand returns `['b']`. 400-node graphs, 21 rounds x 4
+invocations per square, 6 x 40000 reps per cell per invocation, bootstrap median
+CI over 10000 resamples, fixed seed 20260817. host thinkstation1, governor
+`powersave`, python 3.13.7, live networkx 3.6.1, disk 212G free.
+
+comparison_class=SELF-SPEEDUP
+campaign_output=false
+decision_gate=median_ci
+cv_role=report_only

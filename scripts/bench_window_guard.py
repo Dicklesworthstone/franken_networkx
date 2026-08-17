@@ -507,10 +507,24 @@ class WindowGuard:
         ITSELF by 4.2 percent against an effect of ~1 percent, and the row could
         not be taken.
 
-        A pre-run check answers "was it quiet?"; this answers "was it quiet
-        THROUGHOUT?", which is the question a banked row actually needs. Pair
-        with `end_bench_core_watch()` around the whole measurement loop, and
-        report `bench_core_busy` on the row next to loadavg and MHz.
+        CORRECTION (2026-08-17, same day): the sentence this docstring first
+        carried — "a pre-run check answers 'was it quiet?', this answers 'was it
+        quiet THROUGHOUT?'" — WAS WRONG, and the first two squares to use it are
+        the evidence. It read 99.6 and 99.7 percent busy during runs whose bench
+        core was measured at 0.3 percent busy immediately before. That is the
+        WORKER saturating the core it was given: a competitor's cycles and the
+        benchmark's own are the same cycles to this counter, so for a saturating
+        workload the number sits near 100 whether or not anyone else is there.
+
+        SO WHAT IS IT FOR. The converse, which is still worth having: a reading
+        well BELOW 100 means the worker was descheduled and did NOT have the core
+        to itself. It is a "did I get the seat" check, not an "is anyone else in
+        it" check. Report it beside loadavg and MHz for that reason, and do not
+        read a high value as evidence of a quiet core.
+
+        The contention detectors remain `cores_are_quiet()` sampled immediately
+        before the run, and — the only one that actually gates a row — the A/A
+        null. Pair with `end_bench_core_watch()` around the measurement loop.
         """
         self.bench_core_id = core
         self._bench_core = (core, read_cpu_busy_jiffies(core), time.perf_counter())
