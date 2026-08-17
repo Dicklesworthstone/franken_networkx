@@ -114,3 +114,32 @@ def test_ordinary_graphs_are_unchanged(cls):
     for n in ("a", "b", "c", "iso"):
         assert gfx.degree(n) == gnx.degree(n)
     assert dict(gfx.degree(["a", "b"])) == dict(gnx.degree(["a", "b"]))
+
+
+@pytest.mark.parametrize("cls", ALL)
+def test_a_string_nbunch_is_one_node_not_its_characters(cls):
+    """nx's nbunch_iter has TWO rules and the degree view must honour both.
+
+    A SINGLE node -- tested with ``nbunch in self``, the node view -- yields
+    ``[nbunch]``; anything else is filtered by ``n in self._adj``, the
+    ADJACENCY. A plain ``for node in nbunch`` split a string into characters, so
+    ``G.degree('ZZ')`` for a node carried only by an assigned ``_node`` produced
+    an empty view where networkx produces a view over ``['ZZ']`` that raises on
+    lookup.
+
+    The list form is asserted alongside deliberately: it goes down the OTHER
+    rule, and an earlier attempt that delegated to fnx's own ``nbunch_iter``
+    fixed the string case while breaking this one -- fnx's version filters the
+    second rule on the node view rather than the adjacency.
+    """
+    expected_str = out(lambda: dict(build(nx, cls, "_node", NODE).degree("ZZ")))
+    got_str = out(lambda: dict(build(fnx, cls, "_node", NODE).degree("ZZ")))
+    assert got_str == expected_str, "string nbunch"
+
+    expected_list = out(lambda: dict(build(nx, cls, "_node", NODE).degree(["ZZ"])))
+    got_list = out(lambda: dict(build(fnx, cls, "_node", NODE).degree(["ZZ"])))
+    assert got_list == expected_list, "list nbunch"
+    assert expected_str != expected_list, (
+        "nx contract moved: the two nbunch rules no longer differ, so this test "
+        "no longer pins what it was written to pin"
+    )

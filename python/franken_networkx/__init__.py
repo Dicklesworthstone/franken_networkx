@@ -47712,7 +47712,26 @@ class _AssignedPrivateDegreeView:
                 return type(self)(self._graph, weight=weight)[nbunch]
         except TypeError:
             pass
-        nodes = [node for node in nbunch if node in authority]
+        # br-r37-c1-vbe1o: nx builds this list as `list(G.nbunch_iter(nbunch))`,
+        # and nbunch_iter has TWO rules, not one:
+        #
+        #   * a SINGLE node -- `nbunch in self`, the node view -- yields [nbunch];
+        #   * anything else is filtered by `n in self._adj`, the ADJACENCY.
+        #
+        # Both are reproduced here rather than delegating to fnx's own
+        # `nbunch_iter`, which filters the second case on the node view instead
+        # of the adjacency. Delegating imported that divergence: `G.degree(['ZZ'])`
+        # started raising KeyError where nx returns {}. Fixing nbunch_iter itself
+        # is the better repair and is tracked separately -- it is a hot path, and
+        # this class is not.
+        #
+        # The single-node rule is what the plain `for node in nbunch` was missing:
+        # it split a STRING argument into characters, so `G.degree('ZZ')` gave an
+        # empty view where nx gives a view over ['ZZ'] that raises on lookup.
+        if isinstance(nbunch, (str, bytes)) or not hasattr(nbunch, "__iter__"):
+            nodes = [nbunch] if nbunch in self._graph else []
+        else:
+            nodes = [node for node in nbunch if node in authority]
         return type(self)(self._graph, nodes=nodes, weight=weight)
 
     def __repr__(self):
