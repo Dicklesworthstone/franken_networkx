@@ -131,3 +131,32 @@ def test_idle_and_percore_can_disagree_by_construction():
     # ...while pinned cores sit at 100 percent, far over a 20 percent bound.
     assert 100.0 > 20.0
 
+
+def test_idle_is_measured_over_an_interval_not_since_boot():
+    """/proc/stat counters are CUMULATIVE; a single read is a lifetime average.
+
+    br-r37-c1-d4xot. The first version of this tool read /proc/stat once and
+    divided, and therefore printed 76.6-76.7 percent at EVERY load sampled on
+    2026-08-17 - a near-idle host and a host running five builds gave the same
+    figure, because both are dominated by two days of uptime. A quiet-window
+    signal that cannot move is worse than none: it looks like corroboration.
+
+    This is a structural check on `check()` rather than a behavioural one, and
+    deliberately so: moving aggregate idle on a 64-core box takes several busy
+    cores, and a test has no business loading a shared host to prove a point.
+    """
+    import inspect
+
+    mod = _load()
+    source = inspect.getsource(mod.check)
+    assert "idle_b - idle_a" in source, "idle must be a difference of two reads"
+    assert "total_b - total_a" in source, "the divisor must be the interval total"
+    # The single-read form this replaced.
+    assert "int(parts[4]) / max(1, total)" not in source
+
+
+def test_idle_reading_is_plausible_and_bounded():
+    mod = _load()
+    _ok, _off, info = mod.check(1)
+    assert 0.0 <= info["idle_pct"] <= 100.0
+

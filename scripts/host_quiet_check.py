@@ -82,11 +82,24 @@ def check(windows: int) -> tuple[bool, list, dict]:
                 worst = offenders
         else:
             clear += 1
-    with open("/proc/stat", encoding="utf-8") as handle:
-        parts = handle.readline().split()
-    total = sum(int(x) for x in parts[1:])
-    idle_pct = 100.0 * int(parts[4]) / max(1, total)
+    # br-r37-c1-d4xot: idle must be a DELTA over an interval, not the first line
+    # of /proc/stat. Those counters are cumulative SINCE BOOT, so a single read
+    # yields a lifetime average that barely moves: an earlier version of this
+    # tool printed 76.6-76.7 percent at every load sampled on 2026-08-17, from a
+    # near-idle host to one running five builds. That is not a quiet-window
+    # signal, it is the machine's uptime history.
     import os as _os
+    import time as _time
+
+    def _idle_snapshot():
+        with open("/proc/stat", encoding="utf-8") as handle:
+            parts = handle.readline().split()
+        return sum(int(x) for x in parts[1:]), int(parts[4])
+
+    total_a, idle_a = _idle_snapshot()
+    _time.sleep(sample_s)
+    total_b, idle_b = _idle_snapshot()
+    idle_pct = 100.0 * (idle_b - idle_a) / max(1, total_b - total_a)
 
     return clear == windows, sorted(worst.items(), key=lambda kv: -kv[1]), {
         "loadavg": _os.getloadavg(),
