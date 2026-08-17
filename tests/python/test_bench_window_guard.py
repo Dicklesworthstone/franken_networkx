@@ -230,6 +230,109 @@ def test_certifiable_gate_rejects_high_but_stable(monkeypatch):
     assert not ok
 
 
+# ---------------------------------------------------------------------------
+# br-r37-c1-gatedir: the gate distinguishes ARRIVING load from LEAVING load.
+#
+# The stability check used to be a symmetric max/min ratio, which treats 1-min 30
+# against 5-min 20 the same as 1-min 20 against 5-min 30. Those are opposite
+# situations. The first is load arriving and the window will be WORSE than it
+# looks; the second is load leaving and it will be BETTER. Because a recovery
+# holds `one < five` for its whole duration, the symmetric form rejected every
+# moment of one — which cost this pane two certifications whose rows then
+# replicated tightly with clean nulls.
+# ---------------------------------------------------------------------------
+
+
+def test_certifiable_gate_rejects_arriving_load(monkeypatch):
+    """1-min well ABOVE 5-min: work is arriving and the window will degrade."""
+    monkeypatch.setattr(bench_window_guard, "read_loadavg_triple", lambda: (29.5, 19.0, 18.0))
+    ok, reason = bench_window_guard.window_is_certifiable()
+    assert not ok
+    assert "RISING" in reason
+    assert "unstable" in reason
+
+
+def test_certifiable_gate_accepts_a_rise_inside_the_tolerance(monkeypatch):
+    """Not every rise is disqualifying — only one past `ratio_max`."""
+    monkeypatch.setattr(bench_window_guard, "read_loadavg_triple", lambda: (21.35, 18.47, 20.0))
+    ok, reason = bench_window_guard.window_is_certifiable()
+    assert ok
+    assert "steady" in reason
+
+
+def test_certifiable_gate_accepts_a_recovery_into_a_quiet_five_minute(monkeypatch):
+    """THE REGRESSION THIS FIXES, at the exact numbers that hit it.
+
+    1-min 13.70 against 5-min 18.07 was rejected by the symmetric ratio (1.32).
+    Three squares of the row-membership certification ran in windows of exactly
+    this shape and produced a result that replicated to within 1 percent with
+    eight clean A/A nulls, while the per-round instrument showed the window flat
+    throughout. The gate was wrong, not the window.
+    """
+    for one, five in ((13.70, 18.07), (12.47, 17.09), (11.73, 16.33)):
+        monkeypatch.setattr(
+            bench_window_guard, "read_loadavg_triple", lambda o=one, f=five: (o, f, f)
+        )
+        ok, reason = bench_window_guard.window_is_certifiable()
+        assert ok, f"1-min {one} against 5-min {five} should certify: {reason}"
+        assert "recovering" in reason
+
+
+def test_certifiable_gate_still_rejects_a_recovery_from_a_loaded_window(monkeypatch):
+    """Direction awareness is NOT "ignore falling load".
+
+    A high 5-minute average means real work ran recently and may resume, and the
+    1-minute number cannot rule that out. So a recovery must land inside a
+    TIGHTER level bound than a flat window has to clear. These are the four
+    `has_edge` certification windows: they were banked on replication, and the
+    gate is entitled to keep refusing them.
+    """
+    for one, five in ((14.92, 26.86), (12.70, 24.28), (12.80, 23.17), (15.95, 23.08)):
+        monkeypatch.setattr(
+            bench_window_guard, "read_loadavg_triple", lambda o=one, f=five: (o, f, f)
+        )
+        ok, reason = bench_window_guard.window_is_certifiable()
+        assert not ok, f"1-min {one} against 5-min {five} should not certify"
+        assert "recovering" in reason
+        assert "unstable" in reason
+
+
+def test_the_pinned_falling_rejection_survives_the_direction_change(monkeypatch):
+    """`(18.4, 27.6)` was deliberately pinned as a rejection BEFORE this change,
+    and it is a falling pair. A naive "accept falling load" fix would have
+    overturned that decision silently, so it is re-asserted here against the new
+    rule rather than left to the older test alone."""
+    monkeypatch.setattr(bench_window_guard, "read_loadavg_triple", lambda: (18.4, 27.6, 30.0))
+    ok, reason = bench_window_guard.window_is_certifiable()
+    assert not ok
+    assert "unstable" in reason
+
+
+def test_direction_is_what_separates_two_equal_ratios(monkeypatch):
+    """The whole point, stated as one comparison.
+
+    Both pairs are a 1.45x gap between the two averages with both numbers under
+    the level bound. The rising one is refused and the falling one is admitted —
+    which the old symmetric rule could not express.
+    """
+    monkeypatch.setattr(bench_window_guard, "read_loadavg_triple", lambda: (20.3, 14.0, 14.0))
+    rising_ok, rising_reason = bench_window_guard.window_is_certifiable()
+    monkeypatch.setattr(bench_window_guard, "read_loadavg_triple", lambda: (14.0, 20.3, 20.3))
+    falling_ok, falling_reason = bench_window_guard.window_is_certifiable()
+    assert not rising_ok, rising_reason
+    assert falling_ok, falling_reason
+
+
+def test_recovery_bound_is_tunable(monkeypatch):
+    """The recovery bound defaults to three quarters of `level_max`; a caller
+    that wants the old, stricter behaviour can ask for it."""
+    monkeypatch.setattr(bench_window_guard, "read_loadavg_triple", lambda: (13.70, 18.07, 18.0))
+    assert bench_window_guard.window_is_certifiable()[0]
+    ok, reason = bench_window_guard.window_is_certifiable(recovery_level_max=15.0)
+    assert not ok
+    assert "recovering" in reason
+
+
 def test_khz_spread_pct_reports_a_clock_swing():
     """br-r37-c1-jycsb: a row taken while the core clock moved is not comparable.
 

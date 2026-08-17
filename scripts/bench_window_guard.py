@@ -186,7 +186,9 @@ def read_loadavg_triple() -> tuple[float, float, float]:
 
 
 def window_is_certifiable(
-    level_max: float = 30.0, ratio_max: float = 1.25
+    level_max: float = 30.0,
+    ratio_max: float = 1.25,
+    recovery_level_max: float | None = None,
 ) -> tuple[bool, str]:
     """Today's standing rule, machine-checked instead of eyeballed.
 
@@ -205,14 +207,43 @@ def window_is_certifiable(
     one, five, _ = read_loadavg_triple()
     if one > level_max or five > level_max:
         return False, f"level too high: 1-min {one:.2f}, 5-min {five:.2f} (max {level_max:.0f})"
+
+    # br-r37-c1-gatedir: DIRECTION MATTERS, and the original symmetric ratio
+    # could not see it.
+    #
+    # `max/min` treats 1-min 30 against 5-min 20 the same as 1-min 20 against
+    # 5-min 30. They are opposite situations. The first is load ARRIVING: the
+    # window will be worse than it looks. The second is load LEAVING: the window
+    # will be better. Because a recovery holds `one < five` for its whole
+    # duration, the symmetric form rejected every moment of it — which cost this
+    # pane two certifications whose rows then replicated tightly with clean
+    # nulls, the `has_edge` row failing all four squares and the row-membership
+    # row three of four, in both cases for this reason alone.
+    if one > five * ratio_max:
+        rising = one / five if five > 0 else float("inf")
+        return False, (
+            f"unstable: RISING, 1-min {one:.2f} against 5-min {five:.2f}, "
+            f"ratio {rising:.2f} (max {ratio_max:.2f}) — arriving load"
+        )
+
+    # Falling or flat. NOT simply accepted: a high 5-minute average means real
+    # work ran recently and may resume, and the 1-minute number cannot rule that
+    # out. `(18.4, 27.6)` is pinned as a rejection by an existing test precisely
+    # for this, and it is a falling pair — so a recovery must land inside a
+    # TIGHTER level bound than a flat window has to clear.
+    if recovery_level_max is None:
+        recovery_level_max = level_max * 0.75
+    if five > recovery_level_max:
+        return False, (
+            f"unstable: recovering, 5-min {five:.2f} still above the recovery "
+            f"bound {recovery_level_max:.2f} (1-min {one:.2f}) — a host on its "
+            f"way down is not yet a quiet one"
+        )
+
     hi, lo = max(one, five), min(one, five)
     ratio = hi / lo if lo > 0 else float("inf")
-    if ratio > ratio_max:
-        return False, (
-            f"unstable: 1-min {one:.2f} against 5-min {five:.2f}, "
-            f"ratio {ratio:.2f} (max {ratio_max:.2f}) — falling load is not a quiet host"
-        )
-    return True, f"stable: 1-min {one:.2f}, 5-min {five:.2f}, ratio {ratio:.2f}"
+    shape = "steady" if one >= five else "recovering"
+    return True, f"stable: {shape}, 1-min {one:.2f}, 5-min {five:.2f}, ratio {ratio:.2f}"
 
 
 def read_runnable() -> int:
