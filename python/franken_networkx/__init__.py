@@ -4565,15 +4565,28 @@ def _make_none_rejecting_add_edge(raw_add_edge, is_multigraph=False):
             except TypeError:
                 self.add_node(u_of_edge)
                 raise
-            edge_exists = self.has_edge(u_of_edge, v_of_edge)
-            if edge_exists:
-                if attr:
-                    merged_attr = dict(self[u_of_edge][v_of_edge])
-                    merged_attr.update(attr)
-                    result = raw_add_edge(self, u_of_edge, v_of_edge, **merged_attr)
-                    self[u_of_edge][v_of_edge].update(merged_attr)
-                    return result
-                return None
+            # br-r37-c1-aenoattr: the has_edge probe exists ONLY to drive the
+            # attribute MERGE below, so with no attributes it is pure waste - and
+            # it is not cheap waste: it canonicalises BOTH endpoints, which at
+            # 2000-character node keys is the same O(key length) work
+            # `raw_add_edge` is about to do again. Bare `G.add_edge(u, v)` was
+            # paying for two full endpoint resolutions to decide between a no-op
+            # and a no-op.
+            #
+            # Verified against networkx before removing it, on Graph and DiGraph:
+            # re-adding an existing edge with NO attributes leaves the datadict
+            # untouched, adds no edge and returns None in both libraries, so
+            # calling `raw_add_edge` unconditionally here is what nx does anyway.
+            # The multigraph branch above never had this probe, because there a
+            # repeat add creates a new parallel edge.
+            if not attr:
+                return raw_add_edge(self, u_of_edge, v_of_edge)
+            if self.has_edge(u_of_edge, v_of_edge):
+                merged_attr = dict(self[u_of_edge][v_of_edge])
+                merged_attr.update(attr)
+                result = raw_add_edge(self, u_of_edge, v_of_edge, **merged_attr)
+                self[u_of_edge][v_of_edge].update(merged_attr)
+                return result
             return raw_add_edge(self, u_of_edge, v_of_edge, **attr)
 
     return add_edge
