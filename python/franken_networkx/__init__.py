@@ -520,39 +520,6 @@ def _nbunch_membership_container(graph):
     return None
 
 
-def _nbunch_filter_container(graph):
-    """The container `nbunch_iter` should test membership against.
-
-    br-r37-c1-vbe1o: networkx filters with `n in self._adj`, a plain dict, so its
-    per-node test is a C hash lookup. fnx used `self.nodes`, whose
-    `__contains__` crosses into PyO3 every time -- measured 0.70x against
-    networkx over a 1000-node nbunch, about 15 ns per node, which is the gap.
-
-    The graph already maintains a real dict of node keys (the mirror the native
-    node iterator walks), reachable as `_fnx_node_key_dict`. READ-ONLY: it is the
-    live mirror, not a copy, and nbunch_iter only tests membership against it.
-
-    Dict membership raises TypeError on an unhashable key exactly as networkx's
-    does, which is the property br-r37-c1-oaamq relied on when it dropped the
-    per-node `hash()`. That is why this is a safe swap and `Graph.__contains__`
-    was not -- that one answers False instead of raising.
-
-    CONCRETE graphs only. A filtered / conversion / reverse view SUBCLASSES the
-    native class so the accessor exists on it, but its Rust base is EMPTY: the
-    mirror would come back empty and filter every node out. That is the failure
-    br-r37-c1-kum9v records for the other native fast paths, and
-    test_to_directed_view_nbunch_argument catches it.
-    """
-    private = _nbunch_membership_container(graph)
-    if private is not None:
-        return private
-    if type(graph) in (Graph, DiGraph, MultiGraph, MultiDiGraph):
-        node_dict = getattr(graph, "_fnx_node_key_dict", None)
-        if node_dict is not None:
-            return node_dict()
-    return graph.nodes
-
-
 def _graph_nbunch_iter(self, nbunch=None):
     # br-r37-c1-nbunchnone (cc): nbunch=None is iteration over ALL nodes; route it
     # to the cheap cached node iterator (iter(self)) BEFORE building self.adj — the
@@ -632,7 +599,8 @@ def _graph_nbunch_iter(self, nbunch=None):
     # The check is per CALL, not per node, so it amortises over the whole
     # nbunch and the ordinary path keeps the cheap container the note above
     # earned.
-    return bunch_iter(nbunch, _nbunch_filter_container(self))
+    container = _nbunch_membership_container(self)
+    return bunch_iter(nbunch, self.nodes if container is None else container)
 
 
 def _size_with_unweighted_int(size_impl):
@@ -674,6 +642,12 @@ def _size_with_unweighted_int(size_impl):
 def _number_of_edges_with_endpoints(number_of_edges_impl):
     def number_of_edges(self, u=None, v=None):
         if u is None and v is None:
+            # br-r37-c1-vbe1o: the private-storage case is NOT handled here. This
+            # factory is one of two same-named definitions; the live one for a
+            # graph carrying assigned storage is the instance-level wrapper
+            # further down (freevar `raw_number_of_edges`), which is where the
+            # derivation belongs. Editing this one changed nothing — the third
+            # dead-twin in this campaign, caught by the sweep count not moving.
             return number_of_edges_impl(self)
         if v is None:
             if u not in self:
@@ -48177,7 +48151,23 @@ def _private_aware_number_of_edges(raw_number_of_edges):
         if not _has_networkx_private_storage(self):
             return raw_number_of_edges(self, u, v)
         if u is None and v is None:
-            return len(self.edges(keys=True)) if self.is_multigraph() else len(self.edges)
+            # br-r37-c1-vbe1o: nx does not COUNT here, it DERIVES.
+            # `number_of_edges()` is `int(self.size())` and `size()` is
+            # `sum(d for _, d in self.degree()) // 2`, so the answer comes from
+            # the DEGREE view — which already reads assigned storage.
+            #
+            # Counting `len(self.edges)` instead disagreed on the directed
+            # classes, where nx RAISES: total degree needs both `_succ[n]` and
+            # `_pred[n]`, so a node carried only by an assigned `_succ`/`_adj`
+            # has no `_pred` row and networkx propagates the KeyError. fnx
+            # returned a plausible number instead. That single spot accounted
+            # for 15 sweep cases, because `size()` and `nx.density` both derive
+            # from it.
+            #
+            # Undirected classes already agreed; the degree formula keeps them
+            # agreeing, since multi-degree counts parallel edges with the
+            # multiplicity that makes the halving exact.
+            return int(sum(d for _, d in self.degree()) // 2)
         if v is None:
             raise TypeError("number_of_edges() missing 1 required positional argument: 'u'")
         if not self.has_edge(u, v):

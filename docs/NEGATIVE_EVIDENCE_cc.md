@@ -22107,3 +22107,33 @@ survivable for cross-run comparison, which is why three separate rows this
 session had to be retracted or re-measured when I used one.
 
 loadavg 7.60/13.37/15.66, interval idle 82.3 percent, disk 204G, no build.
+
+## 2026-08-17 GoldenBison SWEEP CLOSED: no further per-call GC registrations on read paths (br-r37-c1-gcreg)
+
+Following my own lead. Two levers today came from the same defect - a per-call
+`self._fnx_register_gc_dict(vars(self))` on a path where only a mutation needs it:
+`freeze()` (br-r37-c1-frzsetattr, 0.0768x to 0.2803x) and the getitem row cache
+(br-r37-c1-gcreg, `G[u]` 0.6510x to 0.8892x). I said the symbol was worth grepping
+for other read-path callers. It was, and the answer is that there are none left.
+
+All 13 occurrences classified:
+
+    4   the four classes' `__setattr__` implementations        MUTATION - correct
+    1   `_init_absorbing_dict_of_dicts.__init__`               CONSTRUCTION - correct
+    2   the getitem row caches, directed and undirected        FIXED today
+    1   `freeze()`                                             FIXED today
+    5   comments, and two `getattr(obj, ...)` probe sites      not calls
+
+So the pattern is fully mined: every surviving caller registers because it has
+just put something new in the instance dict, which is exactly when registration
+is needed. A negative sweep is worth banking so the next reader does not repeat
+the grep.
+
+WHAT THE PATTERN WAS, generalised, since it paid twice: `vars(self)` returns the
+SAME dict object on every call, so re-registering it per call is pure overhead.
+The tell is a registration call that sits OUTSIDE the branch that mutates the
+dict it registers. Both fixes were one-line moves into the miss branch.
+
+No measurement in this row - it is a code census. Nothing certified; I have stood
+down from window-watching (see the row above). loadavg 9.78/11.88/14.59, disk
+203G, no build.
