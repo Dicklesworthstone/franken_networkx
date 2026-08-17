@@ -2342,6 +2342,35 @@ pub(crate) struct PyGraph {
     /// Range fast path marker: canonical integer nodes in ``0..stop`` can be
     /// displayed as Python ints even when node_key_map has not materialized them.
     pub(crate) lazy_int_node_stop: i64,
+    /// br-r37-c1-ml7s5: materialised `edges(data=True)` tuples for the WHOLE
+    /// graph, under the `(nodes_seq, edges_seq)` generation they were built in.
+    ///
+    /// `PyMultiGraph::_native_edge_view_list` has had this since
+    /// br-r37-c1-o07ax; the simple-graph path rebuilds every tuple on every
+    /// call, which is the residual left after the index probe took K=2000 from
+    /// 713.5us/0.4538x to 142.3us/1.3629x. A hit skips `edge_alldata_items`
+    /// entirely, and with it the per-call `key_vec` rebuild that hashes every
+    /// node's full canonical name.
+    ///
+    /// WHOLE-GRAPH ONLY, and that restriction is the correctness of this cache
+    /// rather than a simplification. `edges()` and `edges(nbunch=...)` are
+    /// DIFFERENT REQUESTS at the SAME generation, answered by two branches that
+    /// both call `edge_alldata_items` — one with `None`, one with
+    /// `Some(&node_set)`. Storing under the generation alone and consulting from
+    /// both would serve whichever ran first: warm the full list then ask for a
+    /// subset and every edge comes back; warm a subset then ask for the full
+    /// list and edges are silently lost. Both are wrong answers with the right
+    /// types, and no mutation test can catch them because the generation never
+    /// moves. So the nbunch branch must NEVER read or write this field.
+    /// `tests/python/test_edges_nbunch_and_full_list_do_not_share_a_cache.py`
+    /// pins that in both orders on one graph.
+    ///
+    /// The tuples hold the graph's LIVE attribute dicts, so an attribute write
+    /// is visible through a cache hit with no invalidation at all — correct, and
+    /// also the case that passes whether or not the stamps work. The stamps
+    /// exist for structural change: `add_edge`/`remove_edge` move `edges_seq`
+    /// and node mutations move `nodes_seq`.
+    pub(crate) edges_alldata_cache: Option<(u64, u64, Vec<PyObject>)>,
     /// br-r37-c1-z6uka: per-adjacency-ROW display objects. nx's `_adj[u]`
     /// dict keeps the py object passed in the call that CREATED that cell,
     /// which can differ from the `_node` (first-wins) object when
@@ -2509,6 +2538,14 @@ impl PyGraph {
         for (_seq, attrs) in self.edge_py_attrs_by_index.values() {
             visit.call(attrs)?;
         }
+        // br-r37-c1-ml7s5: the cached tuples hold the graph LIVE edge attribute
+        // dicts, and an attribute value may reference the graph itself, so an
+        // untraversed cycle here would leak.
+        if let Some((_, _, tuples)) = &self.edges_alldata_cache {
+            for tuple in tuples {
+                visit.call(tuple)?;
+            }
+        }
         if let Some(cache) = &self.dict_of_dicts_cache {
             cache.traverse(visit)?;
         }
@@ -2543,6 +2580,7 @@ impl PyGraph {
         self.edge_py_attrs.clear();
         self.edge_py_attrs_by_endpoint.clear();
         self.edge_py_attrs_by_index.clear(); // br-r37-c1-ptiz2 (tp_clear half)
+        self.edges_alldata_cache = None; // br-r37-c1-ml7s5 (tp_clear half)
         self.has_edge_node_index_cache.clear(py);
         self.dict_of_dicts_cache = None;
         self.adj_row_py.clear();
@@ -2987,6 +3025,7 @@ impl PyGraph {
             inner: Graph::with_runtime_policy(runtime_policy),
             node_key_map: PyNodeKeyMap::default(),
             lazy_int_node_stop: 0,
+            edges_alldata_cache: None, // br-r37-c1-ml7s5
             node_py_attrs: HashMap::new(),
             edge_py_attrs: HashMap::new(),
             edge_py_attrs_by_endpoint: HashMap::new(),
@@ -15432,6 +15471,7 @@ impl PyGraph {
                 rustc_hash::FxBuildHasher,
             ),
             lazy_int_node_stop: 0,
+            edges_alldata_cache: None, // br-r37-c1-ml7s5
             node_py_attrs: HashMap::with_capacity(self.node_py_attrs.len()),
             edge_py_attrs: HashMap::with_capacity(self.edge_py_attrs.len()),
             edge_py_attrs_by_endpoint: HashMap::new(),
@@ -15627,6 +15667,7 @@ impl PyGraph {
             inner,
             node_key_map,
             lazy_int_node_stop: 0,
+            edges_alldata_cache: None, // br-r37-c1-ml7s5
             node_py_attrs,
             edge_py_attrs,
             edge_py_attrs_by_endpoint: HashMap::new(),
@@ -15677,6 +15718,7 @@ impl PyGraph {
             inner: Graph::with_runtime_policy(self.inner.runtime_policy().clone()),
             node_key_map: PyNodeKeyMap::default(),
             lazy_int_node_stop: 0,
+            edges_alldata_cache: None, // br-r37-c1-ml7s5
             node_py_attrs: HashMap::new(),
             edge_py_attrs: HashMap::new(),
             edge_py_attrs_by_endpoint: HashMap::new(),
@@ -15798,6 +15840,7 @@ impl PyGraph {
                 .induced_subgraph_ordered(&indices, self.inner.runtime_policy().clone()),
             node_key_map: PyNodeKeyMap::default(),
             lazy_int_node_stop: 0,
+            edges_alldata_cache: None, // br-r37-c1-ml7s5
             node_py_attrs: HashMap::new(),
             edge_py_attrs: HashMap::new(),
             edge_py_attrs_by_endpoint: HashMap::new(),
@@ -15878,6 +15921,7 @@ impl PyGraph {
             inner: Graph::with_runtime_policy(self.inner.runtime_policy().clone()),
             node_key_map: PyNodeKeyMap::default(),
             lazy_int_node_stop: 0,
+            edges_alldata_cache: None, // br-r37-c1-ml7s5
             node_py_attrs: HashMap::new(),
             edge_py_attrs: HashMap::new(),
             edge_py_attrs_by_endpoint: HashMap::new(),

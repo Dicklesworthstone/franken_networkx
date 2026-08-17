@@ -972,8 +972,37 @@ impl EdgeView {
                 }
                 let node_count = g.inner.node_count();
                 let nodes_seq = g.nodes_seq;
-                let items = edge_alldata_items(py, &mut g, None)?;
-                (items, node_count, nodes_seq)
+                // br-r37-c1-ml7s5: serve the WHOLE-GRAPH list from the cache.
+                //
+                // PyMultiGraph has had this since br-r37-c1-o07ax; the simple
+                // graph rebuilt every tuple on every call, which is the residual
+                // after the index probe took K=2000 from 713.5us/0.4538x to
+                // 142.3us/1.3629x. A hit skips edge_alldata_items entirely, and
+                // with it the per-call key_vec rebuild that hashes every node's
+                // full canonical name.
+                //
+                // This branch is `nbunch = None`. The FILTERED branch above must
+                // never read or write this cache: edges() and edges(nbunch=...)
+                // are different requests at the SAME generation, so sharing an
+                // entry returns every edge for a subset request, or silently
+                // loses edges for a whole-graph one — wrong answers no mutation
+                // test can catch, because the generation never moves.
+                let edges_seq = g.edges_seq;
+                if let Some((ns, es, cached)) = &g.edges_alldata_cache
+                    && *ns == nodes_seq
+                    && *es == edges_seq
+                {
+                    let items = cached.iter().map(|t| t.clone_ref(py)).collect();
+                    (items, node_count, nodes_seq)
+                } else {
+                    let items = edge_alldata_items(py, &mut g, None)?;
+                    g.edges_alldata_cache = Some((
+                        nodes_seq,
+                        edges_seq,
+                        items.iter().map(|t| t.clone_ref(py)).collect(),
+                    ));
+                    (items, node_count, nodes_seq)
+                }
             }
             _ => {
                 let g = self.graph.borrow(py);

@@ -25937,6 +25937,7 @@ pub fn power_rust(py: Python<'_>, g: &Bound<'_, PyAny>, k: usize) -> PyResult<Py
         inner: result,
         node_key_map: PyNodeKeyMap::default(),
         lazy_int_node_stop: 0,
+        edges_alldata_cache: None, // br-r37-c1-ml7s5
         node_py_attrs: std::collections::HashMap::new(),
         edge_py_attrs: std::collections::HashMap::new(),
         edge_py_attrs_by_endpoint: std::collections::HashMap::new(),
@@ -26058,6 +26059,7 @@ pub fn ego_graph_rust(
         inner: result,
         node_key_map: PyNodeKeyMap::default(),
         lazy_int_node_stop: 0,
+        edges_alldata_cache: None, // br-r37-c1-ml7s5
         node_py_attrs: std::collections::HashMap::new(),
         edge_py_attrs: std::collections::HashMap::new(),
         edge_py_attrs_by_endpoint: std::collections::HashMap::new(),
@@ -26200,6 +26202,7 @@ pub fn full_join_rust(
         inner: result,
         node_key_map: PyNodeKeyMap::default(),
         lazy_int_node_stop: 0,
+        edges_alldata_cache: None, // br-r37-c1-ml7s5
         node_py_attrs: std::collections::HashMap::new(),
         edge_py_attrs: std::collections::HashMap::new(),
         edge_py_attrs_by_endpoint: std::collections::HashMap::new(),
@@ -26241,6 +26244,7 @@ pub fn identified_nodes_rust(
         inner: result,
         node_key_map: PyNodeKeyMap::default(),
         lazy_int_node_stop: 0,
+        edges_alldata_cache: None, // br-r37-c1-ml7s5
         node_py_attrs: std::collections::HashMap::new(),
         edge_py_attrs: std::collections::HashMap::new(),
         edge_py_attrs_by_endpoint: std::collections::HashMap::new(),
@@ -26341,6 +26345,7 @@ pub fn dedensify_rust(
         inner: result_graph,
         node_key_map: PyNodeKeyMap::default(),
         lazy_int_node_stop: 0,
+        edges_alldata_cache: None, // br-r37-c1-ml7s5
         node_py_attrs: std::collections::HashMap::new(),
         edge_py_attrs: std::collections::HashMap::new(),
         edge_py_attrs_by_endpoint: std::collections::HashMap::new(),
@@ -26515,6 +26520,7 @@ pub fn quotient_graph_rust(
         inner: result,
         node_key_map: PyNodeKeyMap::default(),
         lazy_int_node_stop: 0,
+        edges_alldata_cache: None, // br-r37-c1-ml7s5
         node_py_attrs: std::collections::HashMap::new(),
         edge_py_attrs: std::collections::HashMap::new(),
         edge_py_attrs_by_endpoint: std::collections::HashMap::new(),
@@ -27056,6 +27062,7 @@ pub fn gomory_hu_tree_rust(
         inner: result,
         node_key_map: PyNodeKeyMap::default(),
         lazy_int_node_stop: 0,
+        edges_alldata_cache: None, // br-r37-c1-ml7s5
         node_py_attrs: std::collections::HashMap::new(),
         edge_py_attrs: std::collections::HashMap::new(),
         edge_py_attrs_by_endpoint: std::collections::HashMap::new(),
@@ -27116,6 +27123,7 @@ pub fn snap_aggregation_rust(
         inner: result,
         node_key_map: PyNodeKeyMap::default(),
         lazy_int_node_stop: 0,
+        edges_alldata_cache: None, // br-r37-c1-ml7s5
         node_py_attrs: std::collections::HashMap::new(),
         edge_py_attrs: std::collections::HashMap::new(),
         edge_py_attrs_by_endpoint: std::collections::HashMap::new(),

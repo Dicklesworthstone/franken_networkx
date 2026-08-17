@@ -37,6 +37,7 @@ fn report_to_pygraph(py: Python<'_>, graph: fnx_classes::Graph) -> PyResult<PyGr
         inner: graph,
         node_key_map,
         lazy_int_node_stop: 0,
+        edges_alldata_cache: None, // br-r37-c1-ml7s5
         node_py_attrs: HashMap::new(),
         edge_py_attrs: HashMap::new(),
         edge_py_attrs_by_endpoint: HashMap::new(),
@@ -253,6 +254,7 @@ pub fn grid_2d_graph_simple(py: Python<'_>, m: usize, n: usize) -> PyResult<PyGr
         inner: graph,
         node_key_map,
         lazy_int_node_stop: 0,
+        edges_alldata_cache: None, // br-r37-c1-ml7s5
         node_py_attrs: HashMap::new(),
         edge_py_attrs: HashMap::new(),
         edge_py_attrs_by_endpoint: HashMap::new(),
@@ -304,6 +306,7 @@ fn tuple_lattice_pygraph(
         inner: graph,
         node_key_map,
         lazy_int_node_stop: 0,
+        edges_alldata_cache: None, // br-r37-c1-ml7s5
         node_py_attrs,
         edge_py_attrs: HashMap::new(),
         edge_py_attrs_by_endpoint: HashMap::new(),
@@ -489,6 +492,7 @@ pub fn grid_graph_native(
         inner: graph,
         node_key_map,
         lazy_int_node_stop: 0,
+        edges_alldata_cache: None, // br-r37-c1-ml7s5
         node_py_attrs: HashMap::new(),
         edge_py_attrs: HashMap::new(),
         edge_py_attrs_by_endpoint: HashMap::new(),
@@ -560,6 +564,7 @@ pub fn kneser_graph_native(py: Python<'_>, n: usize, k: usize) -> PyResult<PyGra
         inner: graph,
         node_key_map,
         lazy_int_node_stop: 0,
+        edges_alldata_cache: None, // br-r37-c1-ml7s5
         node_py_attrs: HashMap::new(),
         edge_py_attrs: HashMap::new(),
         edge_py_attrs_by_endpoint: HashMap::new(),
@@ -625,6 +630,7 @@ pub fn caveman_graph_native(py: Python<'_>, l: usize, k: usize) -> PyResult<PyGr
         inner: graph,
         node_key_map: PyNodeKeyMap::default(),
         lazy_int_node_stop,
+        edges_alldata_cache: None, // br-r37-c1-ml7s5
         node_py_attrs: HashMap::new(),
         edge_py_attrs: HashMap::new(),
         edge_py_attrs_by_endpoint: HashMap::new(),
@@ -690,6 +696,7 @@ pub fn full_rary_tree_native(py: Python<'_>, r: usize, n: usize) -> PyResult<PyG
         inner: graph,
         node_key_map: PyNodeKeyMap::default(),
         lazy_int_node_stop,
+        edges_alldata_cache: None, // br-r37-c1-ml7s5
         node_py_attrs: HashMap::new(),
         edge_py_attrs: HashMap::new(),
         edge_py_attrs_by_endpoint: HashMap::new(),
@@ -916,6 +923,7 @@ pub fn random_lobster_graph_lazy_int(
         inner: graph,
         node_key_map: PyNodeKeyMap::default(),
         lazy_int_node_stop,
+        edges_alldata_cache: None, // br-r37-c1-ml7s5
         node_py_attrs: HashMap::new(),
         edge_py_attrs: HashMap::new(),
         edge_py_attrs_by_endpoint: HashMap::new(),
@@ -1012,6 +1020,7 @@ pub fn random_regular_graph_pyset_order(
         inner: graph,
         node_key_map: PyNodeKeyMap::default(),
         lazy_int_node_stop,
+        edges_alldata_cache: None, // br-r37-c1-ml7s5
         node_py_attrs: HashMap::new(),
         edge_py_attrs: HashMap::new(),
         edge_py_attrs_by_endpoint: HashMap::new(),
