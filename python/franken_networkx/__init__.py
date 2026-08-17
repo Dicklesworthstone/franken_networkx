@@ -4552,6 +4552,20 @@ def _make_none_rejecting_add_edge(raw_add_edge, is_multigraph=False):
             return raw_add_edge(self, u_for_edge, v_for_edge, key=key, **attr)
     else:
         def add_edge(self, u_of_edge, v_of_edge, **attr):
+            # br-r37-c1-aeshim: with NO attributes there is nothing this wrapper
+            # does that the kernel does not now do itself. Since 1823044a2 all
+            # four native kernels reject None and unhashable endpoints with
+            # networkx's exception type, args and partial-state ordering (u
+            # created before v is examined), so the checks below are duplication
+            # on this path - two hash() builtins, two None tests and a
+            # try/except per call, with the kernel repeating all of it.
+            #
+            # Hoisted ABOVE the validation, not merely before the has_edge probe
+            # as in br-r37-c1-aenoattr. The attributed path KEEPS the validation
+            # because it calls self.has_edge and self[u][v] before reaching the
+            # kernel, and those must not see a bad endpoint.
+            if not attr:
+                return raw_add_edge(self, u_of_edge, v_of_edge)
             # br-r37-c1 mutation-state batch 2: u before v (see above).
             if u_of_edge is None:
                 raise ValueError("None cannot be a node")
@@ -4579,8 +4593,6 @@ def _make_none_rejecting_add_edge(raw_add_edge, is_multigraph=False):
             # calling `raw_add_edge` unconditionally here is what nx does anyway.
             # The multigraph branch above never had this probe, because there a
             # repeat add creates a new parallel edge.
-            if not attr:
-                return raw_add_edge(self, u_of_edge, v_of_edge)
             if self.has_edge(u_of_edge, v_of_edge):
                 merged_attr = dict(self[u_of_edge][v_of_edge])
                 merged_attr.update(attr)

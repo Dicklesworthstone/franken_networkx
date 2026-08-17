@@ -20867,3 +20867,67 @@ is worth a bead of its own whether or not the shim hoist is ever retried.
 
 Method: direct instrumentation, both arms Python packages over one shared ELF, no
 build. loadavg 13.76/15.36/16.46, one peer build running. disk 118G.
+
+## 2026-08-17 GoldenBison CORRECTION: my two previous rows blamed my own change for a STALE-BINARY artifact (br-r37-c1-aeshim)
+
+Retracting the substance of the two rows above. Both concluded that hoisting the
+bare `add_edge` return above the shim validation caused
+`test_views_never_materialise_the_parent` to fail 3 of 61. It does not. Neither
+finding survives, and the way they failed is the point.
+
+TWO INDEPENDENT ERRORS, stacked:
+
+1. CONTAMINATED ARMS. I built `shOLD` from `git show HEAD:__init__.py` and
+   `shNEW` by copying the WORKING TREE. Between those two acts HEAD moved: a peer
+   landed `9feeec528`, which changes `__init__.py` AND `lib.rs`. So my arms
+   differed by my 5-line hoist PLUS a peer's whole commit. I have written the
+   rule "arms must differ only by the lever" into this ledger twice and still
+   copied a live working tree into one arm.
+2. A STALE BINARY UNDER BOTH. `9feeec528`'s Python half was in HEAD; its Rust half
+   was not in my `.so`, which I had built earlier. HEAD's Python against a `.so`
+   that predates it is exactly what the repository's stale-`.so` guard exists to
+   prevent - and I had been routing around that guard all session by running
+   pytest from outside the conftest, which is sound for a pure-Python change and
+   was NOT sound here, because the tree had stopped being pure-Python under me.
+
+THE DISCRIMINATING TESTS, each cheap and each skipped at the time:
+
+    arms differing ONLY by my hoist, both stale .so   BOTH fail 3 of 61
+    HEAD shim + freshly built HEAD .so                61 of 61 pass
+    HEAD shim + my hoist + freshly built .so          61 of 61 pass
+
+So the failures were never my change and were never a regression in main either.
+I came within one commit of reporting a live regression in `main` against a peer's
+work, on evidence that was an artifact of my own build hygiene.
+
+WHAT THE COUNTED EVIDENCE WAS REALLY SHOWING. The accessor-call counter (6 against
+0) and the `__getattr__` miss on `_fnx_set_private_dir_override` were both REAL -
+and both were signatures of the stale binary, not of the shim. `9feeec528`
+introduced that attribute on the Python side; the native half that satisfies it
+was missing from my `.so`, so the view constructor's lookup missed and fell back
+to `copy()`. A counted mechanism can be perfectly measured and still be evidence
+about the wrong thing.
+
+THE LEVER IS RESTORED, with an honest and weaker number. Arms rebuilt from the
+CURRENT tree over one freshly built shared ELF, differing only in the 16 diff
+lines of the hoist:
+
+    v3OLD  893.7us  920.9us  872.2us    median 893.7us    0.7157x vs networkx
+    v3NEW  837.4us  811.3us  878.7us    median 837.4us    0.7545x vs networkx
+
+1.067x on the absolute, and NOT completely separated - v3NEW's third run
+(878.7us) is slower than v3OLD's third (872.2us). All three vs-networkx ratios
+favour NEW. The earlier 1.074x "with complete separation" was measured on the
+contaminated pair and should not be quoted; this weaker figure is the one that
+stands. Full suite 60713 passed with the hoist in place.
+
+THE RULE I ALREADY HAD AND BROKE, restated so it is unmissable: build BOTH arms
+from the SAME tree state in the SAME act, and re-verify the binary is current
+whenever the tree stops being the one you started with. A peer commit landing
+between two `cp -r` calls is enough to invalidate everything downstream, and
+nothing in the numbers looks wrong when it happens.
+
+Method: pure-Python arms over one shared ELF, min of 9 rounds x 3 reps, mutation
+workload so no ABBA square. loadavg 14.58/16.64/16.61 throughout; peer builds 0,
+0, 2, 2, 2, 2 across the six invocations. ONE build this turn (HEAD, to settle the
+stale-binary question), df 119G checked immediately before it. disk 118G.
