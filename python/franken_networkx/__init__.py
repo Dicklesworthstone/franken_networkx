@@ -1216,8 +1216,23 @@ class EdgeDataView:
         # to_dict_of_dicts routing overbuilt the whole graph for a partial
         # nbunch). data=False / data=None skip the dict attach entirely.
         if type(graph) is Graph and self._nbunch_list is not None:
-            rows = _fnx.edges_nbunch_data(
-                graph, self._nbunch_list, data is True or isinstance(data, str)
+            # br-r37-c1-gnbmemo: the last member of the nbunch edge-view family
+            # to get the memo. `with_data` rides in native_args, so the
+            # attrs/no-attrs shapes cannot answer for each other.
+            #
+            # ALIASING NOTE, because the `data is True` branch below returns this
+            # list DIRECTLY and its comment relied on it being freshly built per
+            # call: `_nbunch_data_cache` returns the native's own fresh list on a
+            # miss and a NEW `list(...)` over the cached tuple on a hit, so the
+            # caller never receives the cached container itself. The tuples and
+            # attr dicts inside are shared, which is what nx's live-view
+            # semantics require.
+            rows = _nbunch_data_cache(
+                graph,
+                "_fnx_simple_edges_nb_cache",
+                self._nbunch_list,
+                lambda nb, flag: _fnx.edges_nbunch_data(graph, nb, flag),
+                data is True or isinstance(data, str),
             )
             if rows is not None:
                 if data is False:
