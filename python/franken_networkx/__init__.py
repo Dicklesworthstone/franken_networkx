@@ -46255,6 +46255,25 @@ def _has_networkx_private_storage(self):
     # than a builtin CALL. Measured on a realistically-used 2000-node DiGraph:
     # 109.6ns -> 91.9ns, stable across repeats.
     #
+    # br-r37-c1-bnv3h: MOVING THIS PROBE INTO RUST WAS TRIED AND IS SLOWER.
+    # The obvious next idea, once the probe is known to be load-bearing and
+    # ~117ns of a 357-546ns subscript, is to fuse it into the native
+    # `get_edge_data` so the hot path makes ONE PyO3 call instead of two. A
+    # `_fnx_edge_data_or_private` doing exactly that was written and measured on
+    # a realistically-used 2000-node DiGraph at 2000-character keys:
+    #
+    #     current subscript  G.edges[u, v]              357.0 ns
+    #     this probe alone                              117.3 ns
+    #     plain native get_edge_data                    130.1 ns
+    #     FUSED native (probe + lookup, one call)       401.3 ns
+    #
+    # The fused call is slower than the two separate calls (247.4ns) and slower
+    # than the whole subscript it was meant to speed up. Reading the instance
+    # dict from PyO3 — `slf.getattr("__dict__")` plus a `borrow_mut` and a
+    # re-dispatch — costs MORE than CPython's own `self.__dict__` load, which is
+    # a single specialised opcode. Rust is not automatically cheaper than
+    # CPython for a CPython data-structure access.
+    #
     # An `if not storage: return False` short-circuit was tried here and
     # REJECTED as a measured regression: 97.7ns against 91.9ns without it. The
     # instance dict of a real graph is NOT empty — a graph that has touched
