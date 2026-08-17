@@ -46362,8 +46362,17 @@ def _assigned_private_number_of_nodes(self):
 def _assigned_private_has_edge_simple(self, u, v):
     hash(u)
     hash(v)
-    if u not in self:
-        return False
+    # br-r37-c1-vbe1o: NO node-view probe. nx is `v in self._adj[u]` with the
+    # KeyError caught, so the ADJACENCY is the sole authority on whether `u`
+    # exists. `u not in self` asked the node view, and under an assigned `_adj`
+    # carrying a node the native store lacks it returned False where nx returns
+    # True -- a SILENT wrong boolean, with `get_edge_data` inheriting it through
+    # its `self.has_edge(...)` delegation and answering None where nx answers {}.
+    #
+    # The `except KeyError` below already produces nx's answer for a genuinely
+    # absent `u`, so the probe was never load-bearing, only wrong. This function
+    # is an instance shadow installed ONLY on graphs carrying private storage, so
+    # ordinary graphs never reach it and no perf claim is needed.
     try:
         neighbors = self.adj[u]
     except KeyError:
@@ -46376,8 +46385,7 @@ def _assigned_private_has_edge_multi(self, u, v, key=None):
     hash(v)
     if key is not None:
         hash(key)
-    if u not in self:
-        return False
+    # br-r37-c1-vbe1o: same authority fix as the simple variant above.
     try:
         neighbors = self.adj[u]
     except KeyError:
@@ -47813,7 +47821,15 @@ def _private_aware_has_node(raw_has_node):
 
 
 def _private_aware_has_edge_simple(raw_has_edge):
-    """has_edge wrapper for non-multigraph types — nx signature is (u, v)."""
+    """has_edge wrapper for non-multigraph types — nx signature is (u, v).
+
+    br-r37-c1-vbe1o: DEAD — this factory is defined and never called. The live
+    private-storage path is the instance shadow `_assigned_private_has_edge_simple`
+    near the top of the private-storage section. Editing THIS one is a silent
+    no-op; it cost me a cycle before a sweep showed the divergence count
+    unchanged. Kept only so the name resolves for anything that greps for it;
+    it should be deleted once someone confirms no external caller binds it.
+    """
     def has_edge(self, u, v):
         # br-r37-c1-hashed-he: nx's has_edge propagates ``TypeError:
         # unhashable type: 'X'`` on unhashable u or v (the underlying
@@ -47876,7 +47892,11 @@ def _private_aware_has_edge_multi(raw_has_edge):
 
 def _private_aware_get_edge_data_simple(raw_get_edge_data):
     """get_edge_data wrapper for non-multigraph types — nx signature is
-    (u, v, default=None) (br-r37-c1-gyn8z)."""
+    (u, v, default=None) (br-r37-c1-gyn8z).
+
+    br-r37-c1-vbe1o: DEAD, exactly as the has_edge factory above — the live path
+    is `_assigned_private_get_edge_data_simple`.
+    """
     def get_edge_data(self, u, v, default=None):
         # br-r37-c1-ged-hash: nx propagates ``TypeError: unhashable
         # type: 'X'`` from the underlying ``self._adj[u]`` lookup;

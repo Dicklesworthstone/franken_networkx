@@ -133,21 +133,16 @@ def test_assigned_adjacency_edge_membership_matches_networkx(cls_name, store):
                 row.append((type(exc).__name__,))
         results.append(row)
     want, got = results
-    # br-r37-c1-yyfmb: the EDGE half of this mechanism does not read the
-    # assigned mapping, so fnx answers False/None where networkx answers
-    # True/{}. Verified PRE-EXISTING against an unmodified HEAD with the
-    # br-r37-c1-vaayu change reverted, so it is not this bead's doing. Recorded
-    # as the current state rather than asserted away; this pin fails -- and
-    # should be replaced by `assert got == want` -- when yyfmb lands.
-    assert got[1] == want[1], "membership for an absent edge must still agree"
-    if got == want:
-        pytest.fail(
-            "br-r37-c1-yyfmb appears FIXED: assigned-adjacency edge dispatch now "
-            "matches networkx. Replace this pin with a direct equality assertion."
-        )
-    assert got[0] == ("ok", False) and got[2] == ("ok", None), (
-        f"br-r37-c1-yyfmb residue CHANGED shape: {got!r} (was False/None)"
-    )
+    # br-r37-c1-yyfmb is FIXED (br-r37-c1-vbe1o), so the pin that used to record
+    # the divergence has become the direct equality assertion it asked to become.
+    #
+    # The cause was a node-view probe -- `u not in self` -- in front of the
+    # adjacency lookup in the private-storage has_edge shadow. networkx is
+    # `v in self._adj[u]` with the KeyError caught, so the mapping decides
+    # whether `u` exists; the probe made fnx answer False/None for an edge
+    # carried only by an assigned mapping. get_edge_data inherited it by
+    # delegating to has_edge.
+    assert got == want
 
 
 @pytest.mark.parametrize("cls_name", ["DiGraph", "MultiDiGraph"])
