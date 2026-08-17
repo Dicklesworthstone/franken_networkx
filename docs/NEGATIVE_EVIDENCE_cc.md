@@ -17859,3 +17859,94 @@ pyo3/abi3-py310` with `RCH_CARGO_WRAPPER_BYPASS=1` and a PRIVATE
 `CARGO_TARGET_DIR` (never the shared one), loaded via PYTHONPATH so the venv
 install was never touched. host thinkstation1, governor `powersave`, python
 3.13.7, live networkx 3.6.1, disk 192G free.
+
+---
+
+## CERTIFIED — MultiGraph keydict index mirror at 6.97x, and an A/A null that was POSITION, proven by swapping the square (2026-08-16)
+
+CERTIFIED: **6.97x** quoted conservatively (replicate range 6.86-7.03), landed as
+`05d29a0f1`. `MultiGraph.get_edge_data(u, v)` unkeyed, K=2000, vs-nx **0.0773x
+-> 0.5444x**.
+
+FOUR SQUARES, two harness generations:
+
+    square                          improvement       CI                gate
+    [base cand cand base] (landed)     6.86x          --                --
+    [base cand cand base] (landed)     7.03x          --                --
+    [base cand cand base] (certify)    7.0329x   [6.9175, 7.2055]   PASS 1.14
+    [cand base base cand] (certify)    6.9703x   [6.9326, 7.1343]   FAIL 1.25
+
+    vs-nx BASE   0.0773x  [0.0771, 0.0779] and [0.0768, 0.0777]
+    vs-nx CAND   0.5444x  [0.5388, 0.5500] and 0.5469x [0.5358, 0.5503]
+
+Per-arm, 21 rounds x 4 invocations each: base loadavg median 15.60 (14.90-15.89)
+MHz median 4151 (4028-4246); cand loadavg median 15.60 (14.90-15.89) MHz median
+4130 (3987-4267). Swapped square: base load 13.56 (13.35-14.15) MHz 4141
+(4016-4288); cand load 13.56 (13.35-14.15) MHz 4125 (4005-4242). Arm clock
+medians differ by 0.5 percent and 0.4 percent.
+
+### The A/A null that failed was POSITION, and swapping the square proved it
+
+The first certification returned a base A/A null of 0.9860 whose CI
+[0.9692, 0.9937] does NOT straddle one, while the cand null straddled cleanly.
+Read naively that is a failing null on the base arm.
+
+It is not an arm effect, it is a POSITION effect, and the square's own geometry
+caused it: in `[base cand cand base]` the base arm occupies positions 1 and 4 —
+the two ends of the round — while cand occupies the adjacent middle. Any
+monotone within-round drift is therefore charged almost entirely to base and
+almost not at all to cand. The parity split was measuring ORDER.
+
+RE-RUN WITH THE SQUARE SWAPPED to `[cand base base cand]`, which moves base to
+the adjacent middle and cand to the ends:
+
+    square                  base null                    cand null
+    [base cand cand base]   0.9860  [0.9692, 0.9937]     0.9898  [0.9722, 1.0199]
+    [cand base base cand]   0.9967  [0.9805, 1.0057]     1.0046  [0.9866, 1.0142]
+
+The failure followed the POSITION, not the arm: whichever arm sits at 1-and-4
+picks up the drift and whichever sits adjacent does not. Base's null goes from
+excluding one to straddling it purely by being moved, with no change to either
+binary. This is diagnosed by construction rather than argued, which is the only
+way this pane will retire a failing null.
+
+It would not have mattered either way. The largest null deviation across all four
+nulls is 1.4 percent; the effect is 597 percent. The highest null CI bound is
+1.0199 against a lowest effect CI bound of 6.9175 — the intervals are separated
+by a factor of 6.8. A 1.4 percent position artefact cannot manufacture a 7x
+result, and the four squares agree to 2.5 percent across two harness generations.
+
+The second square's gate FAILED at the boundary (1-min 13.38 against 5-min 16.77,
+ratio exactly 1.25 against a 1.25 bar, falling load). Recorded rather than
+dropped: its result agrees with the gate-PASSING square to 0.9 percent, which is
+this pane's standing position that a failing gate is not a loss and replication
+outranks the gate.
+
+Both certification runs returned SIBLING-CONTENDED. At an effect of 7x with four
+agreeing squares, sibling occupancy is not a candidate explanation; it is
+recorded so the row is not read as cleaner than it was.
+
+### What the change actually removes
+
+A SLOPE, not a constant. The candidate is flat in key length — 154.5-160.7 ns at
+K=1 against 150.0-158.0 ns at K=2000 — where the base climbs 164.3 -> 1094 ns,
+6.6x. A graph with short node keys sees none of this; a graph with long ones sees
+all of it.
+
+THE CELL IS STILL A LOSS AT BOTH LENGTHS and this row does not claim otherwise:
+0.51-0.52x at K=1 before against 0.52-0.54x after, and 0.0773x at K=2000 before
+against 0.5444x after. What changed is that the loss no longer GROWS with key
+length — K=2000 now costs what K=1 costs. Closing the remaining ~0.54x is a
+different problem from the one this change solved.
+
+PROVENANCE: driver `/data/tmp/claude-1000/certify_mg.py` (and its swapped
+variant) on `cpu15`, spawning `/data/tmp/claude-1000/mg_worker.py` pinned to
+`cpu14` so the driver never shares a physical core with the measured arm. Arms
+are two `git archive` pins of `ed315dd2d`, one patched, built `cargo build
+--release -p fnx-python --features pyo3/abi3-py310` with
+`RCH_CARGO_WRAPPER_BYPASS=1` and a PRIVATE `CARGO_TARGET_DIR`, md5-verified
+DISTINCT before any timing. Every worker invocation re-asserts the result against
+networkx, including the reversed pair, before it times anything. Window sampled
+per round by `scripts/bench_window_guard.py`. Bootstrap median CI, 10000
+resamples, fixed seed. host thinkstation1, governor `powersave`, python 3.13.7,
+live networkx 3.6.1, disk 187G free.
