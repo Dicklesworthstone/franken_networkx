@@ -18763,3 +18763,91 @@ incumbent_ratio_after=0.5137x
 campaign_output=false
 decision_gate=median_ci
 cv_role=report_only
+
+---
+
+## UPGRADED — the row-membership index path re-certified with ALL FOUR squares gate-passing, and the figures REVISED DOWN (2026-08-17)
+
+The row-membership row was banked with only one of four squares passing the gate.
+Re-taken in the quietest window of the session with the direction-aware gate
+(`61545a2ae`), all four pass. Eight squares across two sessions now stand behind
+it.
+
+    run                     gate         imp `in`          CI           imp row[v]
+    1  [base cand cand base] PASS 1.31   4.1536  [4.1201, 4.1996]        1.7197
+    2  [base cand cand base] PASS 1.07   4.1643  [4.0859, 4.2362]        1.6911
+    3  [base cand cand base] PASS 1.20   4.0754  [3.5243, 4.1696]        1.6042
+    4  [cand base base cand] PASS 1.19   4.1878  [4.1157, 4.2252]        1.6708
+
+    vs-nx CAND `in`   1.2814 / 1.2715 / 1.2941 / 1.2807   -- a WIN in every square
+    vs-nx BASE `in`   0.3089 / 0.3069 / 0.3136 / 0.3063
+    vs-nx row[v]      base 0.1191/0.1198/0.1223/0.1206 -> cand 0.2022/0.2020/0.2049/0.2001
+
+**THE CERTIFIED FIGURES MOVE DOWN, not up.** This session contains the two worst
+squares of the eight, so the conservative quote follows them:
+
+    v in G.adj[u]   4.08x  (was 4.13x)   vs-nx 0.3063x -> 1.2715x  (was 1.2862x)
+    G.adj[u][v]     1.60x  (was 1.64x)   vs-nx 0.1191x -> 0.2001x
+
+Eight-square range 4.0754-4.1878 for `in`, a 2.7 percent spread. The earlier
+figures were not wrong; they were quoted from four squares and four more have
+since been measured, two of them slightly less favourable. Revising toward the
+worse number is what "conservative" has to mean if it is to mean anything --
+the same rule that stopped the `has_edge` figure being revised UPWARD when its
+re-take came back better.
+
+The crossing is undisturbed: `v in G.adj[u]` is a WIN against networkx in all
+eight squares, the weakest reading being 1.2715x.
+
+PER-ARM: base loadavg medians 10.18 / 13.13 / 15.64 / 14.79 with clocks 4288 /
+4207 / 4216 / 4229 MHz; cand medians 10.18 / 13.13 / 15.70 / 14.79 with clocks
+4288 / 4218 / 4190 / 4216 MHz. Arm clock medians differ by 0.0, 0.3, 0.6 and 0.3
+percent. Window levels 10.18-15.64, spread 0.41-4.29, relative volatility
+0.03-0.33.
+
+THE WINDOW ROSE UNDER THE RUNS, from a 1-minute of 8.81 to 15.72, so runs 1-2
+were admitted as `recovering` and runs 3-4 as `steady`. All four passed, and the
+results do not track the level: run 1 at load 10.18 and run 4 at 14.79 differ by
+0.8 percent. Run 3 carries much the widest interval [3.5243, 4.1696] despite
+having the FLATTEST window of the four (spread 0.41, relative volatility 0.03),
+which is a useful reminder that window flatness and interval width are not the
+same quantity.
+
+**THE OLD GATE WOULD HAVE REFUSED RUN 1 OUTRIGHT** at ratio 1.31 -- the quietest
+window of the entire session, 1-minute 8.81. That is the defect the direction fix
+removed, demonstrated on the very next measurement after landing it.
+
+A/A null control, same invocation, measured: base 0.9946 [0.9747, 1.0139] and
+cand 1.0017 [0.9903, 1.0079] in run 1; base 0.9996 [0.9776, 1.0081] and cand
+0.9856 [0.9706, 1.0040] in run 2; base 0.9933 [0.9843, 1.0065] and cand 1.0021
+[0.9944, 1.0232] in run 3; base 1.0071 [0.9949, 1.0213] and cand 0.9959 [0.9850,
+1.0157] in run 4. All eight sit inside [0.9706, 1.0232], against a lowest effect
+bound of 3.5243 for `in` and 1.5707 for `row[v]`.
+
+All four returned SIBLING-CONTENDED, recorded so the row is not read as cleaner
+than it was.
+
+PROVENANCE: driver `/data/tmp/claude-1000/certify_rowmem.py` and its `swap`
+variant on `cpu15`, spawning `/data/tmp/claude-1000/rowmem_worker.py` pinned to
+`cpu14`; 21 rounds x 4 invocations, 6 x 20000 reps per invocation per metric,
+bootstrap median CI over 10000 resamples with a fixed seed, per-round sampling by
+`scripts/bench_window_guard.py`. Arms are the retained pre- and
+post-`e14a64fca` release builds (`pkg_hcand`, `pkg_rowc`); NO BUILD was needed or
+run, and none was started on this host during the measurement. Every worker
+invocation re-asserts membership present and absent and the keydict contents
+against networkx before timing. host thinkstation1, governor `powersave`, python
+3.13.7, live networkx 3.6.1, disk 165G free.
+
+MACHINE-READABLE CONTRACT. networkx ran side-by-side in the SAME invocation as
+fnx for every timing block, so this is an INCUMBENT comparison; the certified
+quantity is the vs-networkx ratio, quoted at the weakest of the eight squares.
+
+bench_elf_sha256=0008af96e7cd0899874e7e66ce7e865543172e6294abcc802d9850b77995dbee
+elf_sha256=0008af96e7cd0899874e7e66ce7e865543172e6294abcc802d9850b77995dbee
+comparison_class=INCUMBENT
+incumbent=networkx
+incumbent_same_invocation=true
+incumbent_ratio=1.2715x
+campaign_output=true
+decision_gate=median_ci
+cv_role=report_only
