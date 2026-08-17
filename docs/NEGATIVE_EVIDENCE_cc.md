@@ -17567,7 +17567,7 @@ at K=2000:
 fnx 1260.7ns -> 1086.5ns at the medians, **1.160x**, ratio 0.1038x -> 0.1206x.
 Every `post` round is faster than every `pre` round — the arms do not overlap.
 
-**UNCERTIFIED, and quoted as such.** Load sat at 20.55 with the 1-minute and
+**UNCERTIFIED, and quoted as such — SUPERSEDED, see the certified entry below (1.1515x, gate passing, three replicates).** Load sat at 20.55 with the 1-minute and
 5-minute figures 19.63 against 26.82, a 1.37 spread against this pane's 1.25
 gate, so the window does not certify however clean the separation looks. The
 effect is banked on complete arm separation across an alternated square, not on
@@ -17687,3 +17687,79 @@ comparison_class=SELF-SPEEDUP
 campaign_output=false
 decision_gate=median_ci
 cv_role=report_only
+
+---
+
+## br-r37-c1-2ndmw CERTIFIED — 1.1515x, and two independent harnesses agree to 1.5 percent (2026-08-16)
+
+Supersedes the UNCERTIFIED quote in the entry above. That row was banked on
+complete arm separation in a window whose 1-minute against 5-minute spread was
+1.37 against this pane's 1.25 gate; this one is taken with the gate PASSING and
+replicated three times.
+
+CERTIFIED: **1.1515x** (replicate range 1.1436-1.1603), the multigraph row cell
+`MultiGraph.adj[u][v]` at K=2000, second subscript only.
+
+    run  improvement      CI                 null pre  null post  vs-nx pre -> post  load   MHz pre/post  sib
+     1   1.1436   [1.1288, 1.1762]   1.0048   0.9898     0.0962 -> 0.1114     16.99   4123 / 4116    29%
+     2   1.1515   [1.1446, 1.1662]   1.0030   1.0073     0.0937 -> 0.1083     16.77   4109 / 4112     6%
+     3   1.1603   [1.1490, 1.1790]   1.0017   1.0049     0.0914 -> 0.1061     16.95   4068 / 4068     8%
+
+Gate PASSED at the start of every run (1-min 16.30/16.75/16.77 against 5-min
+20.02/19.85/19.80, ratios 1.23/1.19/1.18, all under the 1.25 bar). Windows were
+flat: level 16.77-16.99, relative volatility 0.00-0.04, per-arm clock skew
+0.0-0.2 percent, clock swing 5.7-6.7 percent.
+
+NULLS. Six A/A nulls, all within 0.7 percent of unity: pre 1.0048 / 1.0030 /
+1.0017, post 0.9898 / 1.0073 / 1.0049. The highest null CI bound across all six
+is 1.0243; the lowest effect CI bound across all three runs is 1.1288. The
+intervals do not overlap, which is the condition this pane requires rather than
+merely a null that straddles one.
+
+**THE STRONGEST EVIDENCE HERE IS NOT THE NULLS, IT IS CROSS-HARNESS
+REPLICATION.** The row above was measured by a DIFFERENT harness design —
+one arm per invocation, two shim trees on PYTHONPATH, arms compared across
+processes — and read 1.160x. This harness puts both arms in ONE process by
+binding each version of `AdjacencyView.__getitem__` onto the class per block.
+Four measurements across two harness designs: 1.1436, 1.1515, 1.1603, 1.160,
+a spread of 1.5 percent. That matters because this pane has separately recorded
+that harness disagreement runs as large as worker disagreement, roughly 2x, with
+nulls passing on both sides; two designs agreeing to 1.5 percent is a much
+stronger claim than three replicates of one design.
+
+WHY BOTH ARMS IN ONE PROCESS IS LEGITIMATE HERE. The change is pure Python in a
+single method, so the arms differ only in which function object is bound to
+`AdjacencyView.__getitem__`. Same interpreter, same extension, same graph
+objects, and — the part that matters — the same CALL PROTOCOL: both arms are a
+plain Python function reached through the type's subscript slot, so the
+slot-as-function asymmetry that inverted an earlier verdict on this pane cannot
+arise. The two implementations are EXTRACTED FROM GIT at `ec03791b4^` and
+`ec03791b4` and exec'd against the live module globals, not retyped, so every
+name they close over resolves exactly as in the shipped shim. Both arms are
+asserted equal to networkx on the measured cell before either is timed.
+
+SIBLING NOTE, recorded rather than hidden: run 1 returned SIBLING-CONTENDED at
+29 percent sibling occupancy, above this pane's 20 percent re-take bar, so it was
+re-taken — runs 2 and 3 came back at 6 and 8 percent. Run 1 is shown because its
+result is indistinguishable from the other two (1.1436 against 1.1515 and
+1.1603), which is itself evidence that the balanced square absorbed the sibling
+load as common mode. It is not counted toward the certification.
+
+THE EFFECT IS SMALL AND THE CELL IS STILL A LOSS. 0.0937x -> 0.1083x at the
+median replicate. The remaining gap is not this probe: `in` still canonicalises
+and still hashes an O(K) key, so it removed an allocation and a node-key clone
+and nothing else. The absolute vs-nx ratios also moved between windows (0.1038
+-> 0.1206 in the earlier row against 0.0937 -> 0.1083 here) while the
+IMPROVEMENT ratio held to 1.5 percent, which is the usual pattern on this host
+and the reason improvement rather than absolute ratio is what gets certified.
+
+PROVENANCE: harness `/data/tmp/claude-1000/certify_2ndmw.py`, both arms in one
+invocation, balanced square `[A B B A A B B A]` per round, 21 rounds x 20000
+reps per block, bootstrap median CI over 10000 resamples with a fixed seed,
+pinned `cpu14` via `taskset`. Window sampled per round by
+`scripts/bench_window_guard.py`: per-arm loadavg, per-arm `scaling_cur_freq`,
+runnable count, sibling occupancy. Arms interleaved INSIDE the loop, never as
+separate passes. host thinkstation1, governor `powersave`, python 3.13.7, live
+networkx 3.6.1, disk 209G free. Lever landed as `ec03791b4`; guard suite
+`tests/python/test_adjacency_getitem_existence_probe_parity.py`, 50 cases plus 2
+strict xfails.
