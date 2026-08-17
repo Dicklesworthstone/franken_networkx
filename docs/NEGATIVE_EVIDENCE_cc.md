@@ -20405,3 +20405,54 @@ against the UNPATCHED arm before writing a line of the commit message.
 
 No measurement here is certified; these are single-window readings taken to
 decide whether a patch worked, and they answered that decisively.
+
+## 2026-08-17 GoldenBison NOT DEMONSTRATED: the add_edge conditional insert, three metrics, no separation (br-r37-c1-aeclone)
+
+Discharging a commitment I made in the commit that landed this: "needs an
+ELF-alternated reading in a quiet window before any claim; if it does not measure
+positive it should be reverted." Here is the reading.
+
+ARMS differ only in `lib.rs` (`8a549039` vs `b6d04d61`), alternated four times
+each. Three independent metrics, medians of four:
+
+    metric                 OLD        NEW      ratio   separated?
+    build E=1000       3581.0us   3567.2us    1.004x   NO - ranges overlap
+    build E=4000      11585.9us  11390.8us    1.017x   NO - ranges overlap
+    re-add 2000 edges  4504.7us   4333.4us    1.040x   NO - ranges overlap
+
+ALL TWELVE measurements point the same way and NOTHING separates. Compare the
+standard this campaign has been holding: every certified row on this ledger shows
+the worst NEW invocation beating the best OLD one. None of these three do.
+
+VERDICT: NOT DEMONSTRATED. The point estimates are consistently positive, which
+is why this is not a retraction, but 1.004x on the metric the change should most
+affect (bulk construction) is indistinguishable from zero on this substrate. The
+change is retained on CORRECTNESS-neutral, fewer-allocations grounds only, and no
+performance claim is attached to it anywhere.
+
+WHY IT PROBABLY DOES SO LITTLE, which is the useful part. The clone it removes is
+one of many O(key length) operations in the same call: `add_edge` still builds
+two canonicals, probes `node_key_map` twice, and calls `inner.has_edge` - roughly
+six 2000-byte hashes plus two 2000-byte allocations per call. Removing two of
+those allocations is a small share, and the guard added to preserve
+`or_insert_with` semantics costs a string comparison back. This is the THIRD
+allocation-shaving lever on this campaign to measure at or below noise
+(br-r37-c1-convkey2 measured worse and was reverted), and together they are
+consistent evidence for the same conclusion: the construction defect is not a
+pile of removable allocations, it is that fnx OWNS AND RE-HASHES its keys where
+networkx holds a reference. Interning is the only lever with the right shape.
+
+DECISION RULE, recorded so this does not sit unresolved: if a future quiet-window
+alternation cannot separate this either, it should be reverted rather than
+carried. It is not load-bearing for anything.
+
+SUBSTRATE. host thinkstation1, governor `powersave`, 64 CPUs, python 3.13.7,
+K=2000 node keys, 600 nodes, min of 7 rounds x 3 reps, mutation workload so NO
+balanced square (mutation arms are non-stationary). Per-arm observed loadavg
+18.19/17.22/15.41 for six invocations and 20.18/17.65/15.56 for two; mean CPU at
+invocation start 2990, 2559, 3312, 3355, 3132, 3439, 3412, 3149 MHz. PEER BUILDS
+WERE PRESENT THROUGHOUT - `ps` per invocation showed 5, 5, 4, 4, 4, 4, 4, 4 - so
+this is not the quiet window the decision rule asks for, and the "not
+demonstrated" verdict is the conservative reading rather than a final one. ONE
+build (the OLD arm), df 126G checked immediately before it, run BEFORE the
+measurement. disk 126G.
