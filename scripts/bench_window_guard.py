@@ -356,6 +356,11 @@ class WindowGuard:
     _pending: dict[str, tuple[int, int, float]] = field(default_factory=dict)
     _run_sib: tuple[int, int, float] | None = None
     run_sibling_busy: float = float("nan")
+    # br-r37-c1-9i169 follow-up: busy share of the core the WORKER is pinned to,
+    # measured across the whole run rather than sampled before it.
+    _bench_core: tuple[int, int, float] | None = None
+    bench_core_busy: float = float("nan")
+    bench_core_id: int = -1
 
     def sample(self) -> float:
         value = read_loadavg()
@@ -490,6 +495,38 @@ class WindowGuard:
         cpu = read_current_cpu()
         sib = read_sibling_cpu(cpu)
         self._run_sib = (sib, read_cpu_busy_jiffies(sib), time.perf_counter())
+
+    def begin_bench_core_watch(self, core: int) -> None:
+        """Watch the core the WORKER is pinned to, for the whole run.
+
+        br-r37-c1-9i169: `cores_are_quiet()` samples BEFORE the run and there is
+        a race. Measured 2026-08-17: cpu16 and cpu28 read 1.0 percent busy on a
+        survey, and 27-31 percent busy by the time the square started ~30 seconds
+        later — the fleet moved in between. That square's base A/A null came back
+        1.0417 with its interval excluding unity, i.e. the arm differed from
+        ITSELF by 4.2 percent against an effect of ~1 percent, and the row could
+        not be taken.
+
+        A pre-run check answers "was it quiet?"; this answers "was it quiet
+        THROUGHOUT?", which is the question a banked row actually needs. Pair
+        with `end_bench_core_watch()` around the whole measurement loop, and
+        report `bench_core_busy` on the row next to loadavg and MHz.
+        """
+        self.bench_core_id = core
+        self._bench_core = (core, read_cpu_busy_jiffies(core), time.perf_counter())
+
+    def end_bench_core_watch(self) -> None:
+        got, self._bench_core = self._bench_core, None
+        if got is None:
+            return
+        core, before, t0 = got
+        if core < 0 or before < 0:
+            return
+        after = read_cpu_busy_jiffies(core)
+        dt = time.perf_counter() - t0
+        if after < 0 or dt < _SIBLING_MIN_BLOCK_S:
+            return
+        self.bench_core_busy = 100.0 * (after - before) / (dt * 100.0)
 
     def end_run(self) -> None:
         got, self._run_sib = self._run_sib, None

@@ -110,3 +110,47 @@ def test_the_machine_rule_and_the_core_rule_are_independent():
     cores = inspect.signature(guard.cores_are_quiet).parameters
     assert "level_max" in machine and "cores" not in machine
     assert "busy_max" in cores and "level_max" not in cores
+
+
+def test_bench_core_watch_measures_the_whole_block(monkeypatch):
+    """A pre-run sample answers 'was it quiet?'; this answers 'was it quiet THROUGHOUT?'.
+
+    br-r37-c1-9i169: cpu16/cpu28 surveyed at 1.0% busy and were 27-31% busy when
+    the square actually started ~30s later. The row that came out had a base A/A
+    null of 1.0417 — the arm differing from itself by more than the effect. A
+    banked row needs the during-run figure, not the before-run one.
+    """
+    ticks = iter([1_000, 1_400])  # 400 busy jiffies
+    clock = iter([100.0, 104.0])  # over 4 seconds -> 100% busy
+    monkeypatch.setattr(guard, "read_cpu_busy_jiffies", lambda _c: next(ticks))
+    monkeypatch.setattr(guard.time, "perf_counter", lambda: next(clock))
+
+    g = guard.WindowGuard()
+    g.begin_bench_core_watch(28)
+    g.end_bench_core_watch()
+    assert g.bench_core_id == 28
+    assert g.bench_core_busy == pytest.approx(100.0)
+
+
+def test_bench_core_watch_is_nan_until_used():
+    """An unwatched run must not silently report a quiet core."""
+    g = guard.WindowGuard()
+    assert g.bench_core_busy != g.bench_core_busy  # NaN
+    assert g.bench_core_id == -1
+
+
+def test_end_without_begin_is_a_no_op():
+    g = guard.WindowGuard()
+    g.end_bench_core_watch()
+    assert g.bench_core_busy != g.bench_core_busy  # still NaN, not 0.0
+
+
+def test_a_too_short_block_is_refused_rather_than_reported(monkeypatch):
+    """Jiffy resolution cannot measure a sub-block; NaN beats a wrong number."""
+    monkeypatch.setattr(guard, "read_cpu_busy_jiffies", lambda _c: 10)
+    clock = iter([100.0, 100.0001])
+    monkeypatch.setattr(guard.time, "perf_counter", lambda: next(clock))
+    g = guard.WindowGuard()
+    g.begin_bench_core_watch(28)
+    g.end_bench_core_watch()
+    assert g.bench_core_busy != g.bench_core_busy  # NaN
