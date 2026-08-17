@@ -6699,11 +6699,34 @@ impl PyMultiGraph {
 struct MultiAtlasView {
     graph: Py<PyMultiGraph>,
     node: String,
+    /// br-r37-c1-2ndmw: `(nodes_seq, position)` of `node`, captured when the row
+    /// view is built, so `__contains__` does not have to hash this row's node
+    /// key on every membership test.
+    ///
+    /// The POSITION, not the slot — `has_edge_by_indices` takes positions and
+    /// does the slot conversion itself, and handing a position to the
+    /// slot-keyed map instead reports real edges as absent once a node has been
+    /// removed (pinned by
+    /// `multigraph_node_slot_and_position_are_distinct_index_spaces`).
+    ///
+    /// STAMPED, because positions are renumbered by node add/remove. A stale
+    /// stamp means this position may now name a DIFFERENT node, so the probe
+    /// falls back to the string path rather than trusting it. `None` is the
+    /// same fallback, used where the view is built without a graph borrow.
+    node_pos: Option<(u64, usize)>,
 }
 
 impl MultiAtlasView {
-    fn new(graph: Py<PyMultiGraph>, node: String) -> Self {
-        Self { graph, node }
+    /// br-r37-c1-2ndmw: `node_pos` is the row's stamped position, supplied by a
+    /// caller that already holds the graph and the canonical key. `None` means
+    /// "no fast path" and every membership test falls back to the string probe,
+    /// so a caller that cannot cheaply resolve a position simply passes it.
+    fn new_with_pos(
+        graph: Py<PyMultiGraph>,
+        node: String,
+        node_pos: Option<(u64, usize)>,
+    ) -> Self {
+        Self { graph, node, node_pos }
     }
 
     fn materialize(&self, py: Python<'_>) -> PyResult<Py<PyDict>> {
@@ -6787,6 +6810,31 @@ impl MultiAtlasView {
         // pays one type check and never hashes.
         require_hashable_node_key(v)?;
         let g = self.graph.borrow(py);
+        // br-r37-c1-2ndmw: INDEX PATH. The string path below builds a canonical
+        // for `v` and then hashes BOTH node keys inside `has_edge` — three
+        // O(node key length) operations for a question that is O(1) once both
+        // endpoints are resolved to indices. Measured at 447.5 ns of a 1102.1 ns
+        // `row[v]` at K=2000 against 129.3 ns at K=1, i.e. almost pure key
+        // length.
+        //
+        // `cached_exact_string_node_index` resolves `v` through CPython's cached
+        // `str` hash, and this row's own position was captured when the view was
+        // built. BOTH ARE POSITIONS, which `has_edge_by_indices` expects and
+        // converts to slots itself; a position handed to the slot-keyed map
+        // directly reports a real edge as absent after any node removal.
+        //
+        // Gated on the stamp: node add/remove renumbers positions, so a stale
+        // `nodes_seq` means this position may now name a different node and the
+        // probe must fall through rather than answer from it. This is only
+        // worth doing since a29279167 made `has_edge_by_indices` a true O(1)
+        // path; before that it resolved both positions back to names.
+        if let Some((seq, u_index)) = self.node_pos
+            && seq == g.nodes_seq
+            && v.is_exact_instance_of::<PyString>()
+            && let Some(v_index) = g.cached_exact_string_node_index(py, v)?
+        {
+            return Ok(g.inner.has_edge_by_indices(u_index, v_index));
+        }
         let v_canon = node_key_to_string(py, v)?;
         Ok(g.inner.has_edge(&self.node, &v_canon))
     }
@@ -10674,7 +10722,18 @@ impl PyMultiGraph {
         if !slf.inner.has_node(&canonical) {
             return Err(missing_key_error(n));
         }
-        Py::new(py, MultiAtlasView::new(Py::from(slf), canonical))
+        // br-r37-c1-2ndmw: resolve this row's POSITION once, here, where the
+        // canonical already exists — the row view is cached per node, so every
+        // later membership test on it reuses this instead of re-hashing the
+        // node key. Stamped with `nodes_seq` so a renumbering invalidates it.
+        let node_pos = slf
+            .inner
+            .get_node_index(&canonical)
+            .map(|index| (slf.nodes_seq, index));
+        Py::new(
+            py,
+            MultiAtlasView::new_with_pos(Py::from(slf), canonical, node_pos),
+        )
     }
 
     fn _native_to_dict_of_dicts_live(
@@ -17408,7 +17467,11 @@ class FnxMultiGraphCtorEdgeIterable:
                 Some(0)
             );
         }
-        Ok(MultiAtlasView::new(Py::new(py, graph)?, "hub".to_owned()))
+        Ok(MultiAtlasView::new_with_pos(
+            Py::new(py, graph)?,
+            "hub".to_owned(),
+            None,
+        ))
     }
 
     fn multikeydict_len_allocating(view: &MultiKeyDictView, py: Python<'_>) -> usize {
