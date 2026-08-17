@@ -17494,3 +17494,124 @@ private TMPDIR, loaded via PYTHONPATH so the shared venv install was never
 touched. host thinkstation1, governor `powersave`, python 3.13.7, live networkx
 3.6.1, disk 222G free. `uptime` at the decision: 4.7 falling; 40.11-48.41 across
 the measurement, recorded per row above.
+
+---
+
+## br-r37-c1-2ndmw — the multigraph row cell, and a stale benchmark substrate underneath it (2026-08-16)
+
+**THE SUBSTRATE FINDING IS THE IMPORTANT HALF OF THIS ENTRY.** Everything below
+the perf row is a consequence of it.
+
+### The installed package was twelve days behind the checkout, and nothing checked
+
+`tests/python/conftest.py` puts `<repo>/python` at the front of `sys.path` and
+refuses to run when the in-tree `_fnx.abi3.so` is older than the Rust sources.
+That keeps PYTEST honest. It does nothing for anything else: a plain `python3 -c
+"import franken_networkx"` — and therefore every benchmark, profile and one-off
+timing script that does not replicate conftest's `sys.path` surgery — imports
+the copy in site-packages, which is refreshed only by `maturin develop` or a
+wheel install and by nothing else at all.
+
+Measured 2026-08-16, the installed shim was **62761 lines against the repo's
+65512** — 2751 lines and twelve days behind, missing `_fnx_captured_row`
+entirely. The installed `_fnx.abi3.so` differed from the in-tree one by content
+(sha256 `ee7363ce…` against `58513798…`); its mtime reads 1980-01-01, because
+wheel builds normalise timestamps, so the mtime rule that guards the in-tree
+copy cannot guard this one.
+
+What that did to a reading, same call, same machine, same extension:
+
+| `MultiGraph.adj[u]`, K=2000 | ratio vs networkx |
+|---|---|
+| through the INSTALLED shim | 0.1568x |
+| through the REPO shim | **0.8530x** |
+
+A 5.4x difference in the reported ratio, and the stale reading pointed at a
+"defect" that had already been fixed. This pane spent the first half of a
+session decomposing the wrong half of a call because of it. The whole-cell
+`G.adj[u][v]` number moved the same way, 0.1084x installed against 0.1905x repo.
+
+GUARDED by `tests/python/test_installed_package_matches_repo_shim.py`: the shim
+compared by content, the extension compared by content rather than mtime, plus a
+test pinning the assumption the other two rest on (that pytest resolves the
+checkout, not the install). It SKIPS where no separate installed copy exists,
+which is a legitimate setup. **It is RED on this host right now, on both halves,
+and that is the finding rather than a defect in the test.**
+
+### The perf row it was hiding
+
+With the substrate corrected, the live defect on this cell is the second
+subscript, not the first. `adj[u]` is already 0.8530x; `row[v]` is 0.1095x.
+
+`AdjacencyView.__getitem__` used `atlas[node]` purely as a presence probe and
+discarded the result. On a multigraph row the atlas is a native `MultiAtlasView`
+whose `__getitem__` allocates a whole `MultiKeyDictView` (cloning the row's node
+key on the way), and the `AtlasView` returned re-derives that same value lazily
+through its own getter — so the object was built, dropped, and built again on
+first use. At K=2000 the discarded build was **830.4 ns of a 1724.4 ns call,
+48.2 percent**. `in` answers through `has_edge` without materialising anything.
+
+ALTERNATED A/B, `[pre post post pre][pre post post pre]`, one arm per
+invocation, 15 rounds x 20000 reps per arm, pinned `cpu14`, `MultiGraph.adj[u][v]`
+at K=2000:
+
+    pre    nx  136.3ns   fnx 1265.9ns   0.1076   load 20.55  MHz 4139->4039
+    post   nx  133.5ns   fnx 1112.4ns   0.1200   load 20.55  MHz 4174->3985
+    post   nx  131.1ns   fnx 1070.4ns   0.1225   load 20.55  MHz 4288->4031
+    pre    nx  128.9ns   fnx 1283.1ns   0.1005   load 20.55  MHz 4167->4030
+    pre    nx  130.5ns   fnx 1247.5ns   0.1046   load 20.55  MHz 4064->4067
+    post   nx  128.9ns   fnx 1059.1ns   0.1217   load 20.55  MHz 4042->4067
+    post   nx  130.1ns   fnx 1102.5ns   0.1180   load 20.55  MHz 4042->4039
+    pre    nx  129.4ns   fnx 1255.5ns   0.1031   load 20.55  MHz 4042->4067
+
+fnx 1260.7ns -> 1086.5ns at the medians, **1.160x**, ratio 0.1038x -> 0.1206x.
+Every `post` round is faster than every `pre` round — the arms do not overlap.
+
+**UNCERTIFIED, and quoted as such.** Load sat at 20.55 with the 1-minute and
+5-minute figures 19.63 against 26.82, a 1.37 spread against this pane's 1.25
+gate, so the window does not certify however clean the separation looks. The
+effect is banked on complete arm separation across an alternated square, not on
+a certified window, and it should be re-run in a quiet window before the
+magnitude is quoted anywhere load-sensitive.
+
+**THE WHOLE-CELL EFFECT IS FAR SMALLER THAN THE COMPONENT SHARE SUGGESTS, and
+that is worth stating plainly.** The discarded build was 48.2 percent of the
+call, but replacing an 830.4 ns `__getitem__` with a ~570 ns `__contains__` nets
+~174 ns, not 830 ns — `in` still canonicalises and still hashes an O(K) key, so
+it removes the allocation and the key clone and nothing else. A component's
+share of a call is an upper bound on what deleting it can buy, never an estimate
+of what replacing it will.
+
+### What was checked and NOT changed
+
+- Caching the cell view is CLOSED, verified rather than assumed:
+  `test_the_outer_keydict_wrapper_matches_networkx_in_mutability` pins
+  `row_a is not row_b` for multigraph cells deliberately, and explains why the
+  same shape is correct one level down and a regression here.
+- A REAL pre-existing divergence surfaced and is now pinned strict-xfail:
+  br-r37-c1-k4nsd's FilterAtlas wording was never mirrored to the multigraph
+  subgraph row, so fnx raises `KeyError('s1')` where networkx raises
+  `KeyError('Key s1 not found')`. Reproduced identically against unmodified
+  HEAD, so it is not this change. The multigraph subgraph row reaches
+  `AdjacencyView.__getitem__` with `owner=None` and an atlas that is itself a
+  nested Python `AdjacencyView`, so both signals `_missing_node_key_error`
+  decides on read False. Fixing it means threading the filtered signal through
+  that construction — a separate change, deliberately not smuggled into this one.
+
+ATTRIBUTION: the shim change landed as `ec03791b4`, committed by another pane
+from this pane's working tree while this pane was running the regression sweep;
+its message quotes this pane's 830.4/1724.4/48.2 figures. The guard suite
+`tests/python/test_adjacency_getitem_existence_probe_parity.py` (50 cases + 2
+strict xfails, verified to produce identical results against unmodified HEAD)
+was swept into that commit as an untracked file. This is the second such
+collision in two turns; see the `b3c55da2d` entry above.
+
+PROVENANCE: harness `/data/tmp/claude-1000/bench_cell.py`, one arm per
+invocation with per-arm loadavg and `cpu14` `scaling_cur_freq` sampled at round
+boundaries, pinned via `taskset -c 14`. Arms are two `git archive`-free shim
+trees built from `ec03791b4^` and `ec03791b4`, each symlinking the SAME in-tree
+`_fnx.abi3.so`, loaded via PYTHONPATH so the shared venv install was never
+touched — which is also why the extension is identical across arms and the
+measured delta is purely the Python change. Full suite against the modified
+shim: 59873 passed, 1474 skipped, 30 xfailed. host thinkstation1, governor
+`powersave`, python 3.13.7, live networkx 3.6.1, disk 219G free.
