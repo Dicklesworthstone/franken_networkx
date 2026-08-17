@@ -17146,6 +17146,11 @@ impl PyGraph {
             lazy_int_node_stop: self.lazy_int_node_stop,
             adj_py_keys: self.clone_adj_py_keys(py), // br-r37-c1-z6uka
             dict_of_dicts_cache: None,
+            // br-r37-c1-ml7s5: MUST be present here too. The field was added with
+            // six initialisers and PyGraph::__copy__ was missed, which broke the
+            // build for the whole crate. A fresh copy starts with a cold cache,
+            // exactly like dict_of_dicts_cache above.
+            edges_alldata_cache: None,
             adj_row_py: HashMap::new(),
             node_py_attrs: self
                 .node_py_attrs
