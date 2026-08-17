@@ -17615,3 +17615,75 @@ touched — which is also why the extension is identical across arms and the
 measured delta is purely the Python change. Full suite against the modified
 shim: 59873 passed, 1474 skipped, 30 xfailed. host thinkstation1, governor
 `powersave`, python 3.13.7, live networkx 3.6.1, disk 219G free.
+
+## 2026-08-16 GoldenBison KEEP-SELF: has_node/`n in G` MISS improves 1.116x and 1.171x — with a measured 0.971x regression on the has_node HIT, stated not buried (br-r37-c1-770z8)
+
+networkx answers absent in ONE dict lookup off CPython's cached `str` hash. fnx's
+fallthrough builds a `str:{len}:{s}` canonical and hashes it a second time, so
+the MISS was the worse half (0.7177x against 0.9096x) and the present-key cache
+could only ever short-circuit a HIT. The lever answers from the node-iteration
+mirror — a PyDict keyed by the node key objects — when that mirror already
+exists, and warms the present-key cache from it.
+
+THIS IS THE SECOND ATTEMPT. The first (38d20bb65) put the probe ABOVE the
+present-key early return and returned straight out of it, so `remember_present`
+was never reached, the cache never warmed, and every hit paid a dict probe:
+has_node PRESENT 0.9061/0.9544/0.8912 -> 0.8100/0.8150/0.8336. Reverted in
+84f90b10e. This version sits BELOW the early return and warms the cache.
+
+ELF-ALTERNATED, BASE 76d30d1951eda6a8 against FIX 58513798822a7e7c, pinned to cpu41, three
+interleaved rounds, 41 x 40 x 400, **8/8 rows ADMISSIBLE in ALL SIX runs**:
+
+    row                 BASE (x3)                      FIX (x3)                       self-ratio
+    has_node MISSING    0.7169 0.7211 0.7134           0.8151 0.8048 0.8147           1.116x
+    n in G   MISSING    1.0541 1.0524 0.9952           1.2339 1.2592 1.2513           1.171x
+    n in G   PRESENT    1.5632 1.5695 1.5708           1.5783 1.5727 1.5388           flat, overlapping
+    has_node PRESENT    1.0566 1.0590 1.0487           1.0193 1.0138 1.0155           0.971x REGRESSION
+
+THE HIT REGRESSION IS REAL AND I AM NOT ROUNDING IT AWAY. Worst bound
+min(FIX)/max(BASE) = 1.0138/1.0590 = 0.957x; best case 1.0193/1.0487 = 0.972x.
+The two arms do not overlap on that row in any round. It is 3.6 percent, against
+11.6 and 17.1 percent gains on the two MISS rows and no change on `n in G`
+PRESENT, so the change is net positive — but it is a regression on the common
+case and the bead that specified this lever explicitly warned against exactly
+that. A reviewer should weigh it, not discover it.
+
+WHY THE HIT STILL LOSES, as far as the data goes: if the present-key early return
+fired, the added block would never execute and the row would be identical. A
+consistent non-overlapping gap means it does NOT fire for this key, so the hit
+takes the mirror probe and the mirror probe is marginally slower than the
+canonical path it replaced. `n in G` PRESENT is FLAT across the same change,
+which says the two surfaces reach this helper differently — that asymmetry is the
+thread to pull for anyone finishing this.
+
+Load was settled and converging for the whole window: OBSERVED loadavg per run in
+order 18.83 / 23.56 / 22.72 / 22.72 / 21.62 / 20.93, against a 15-minute figure
+of 25.8, i.e. the 1-minute figure sat below the longer averages throughout. Core
+clock 4015-4267 MHz, arm-to-arm skew +0.00% to +0.17%, every row `cpus=[41]`, no
+ARM-EXCLUSIVE rows.
+
+The measurement itself needed fixing before it could say anything:
+CALLS-PER-SLOT 25 -> 400. At 25 every row NULL-FAILED with nulls of 1.01-1.23 and
+an earlier attempt at this same comparison produced 0/8 admissible twice. The
+per-round work was simply too small to dominate the round's warming gradient.
+
+NULL_NUMERIC_EVIDENCE: per-arm A/A nulls across the six runs span [0.9947,
+1.0139], every one inside the +/-0.02 bound; self-speedup worst bound 1.116x on
+has_node MISSING and 1.171x on `n in G` MISSING.
+
+NO COMPETITIVE CLAIM: has_node MISSING is still 0.8151x, a 1.23x loss to
+networkx. `comparison_class=SELF-SPEEDUP`, `campaign_output=false`.
+
+PROVENANCE: harness `scripts/balanced_square_ab.py`, workload `has-node-membership`
+(landed in-repo so this is reproducible); host thinkstation1; rch_worker none
+(both arms in-process on same_host); governor powersave; runtime ISA avx2 avx
+sse4_2; python 3.13.7 x86_64; live networkx 3.6.1; PYTHONHASHSEED=0; `taskset -c
+41`; square ABBAABBA; disk 210G free; arms are complete package copies selected by
+PYTHONPATH, the shared venv install untouched.
+
+bench_elf_sha256=58513798822a7e7c534c1054a0a869fe104780493dcfc22151149e81344d7165
+elf_sha256=58513798822a7e7c534c1054a0a869fe104780493dcfc22151149e81344d7165
+comparison_class=SELF-SPEEDUP
+campaign_output=false
+decision_gate=median_ci
+cv_role=report_only
