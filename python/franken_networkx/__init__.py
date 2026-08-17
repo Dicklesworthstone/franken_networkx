@@ -2486,6 +2486,7 @@ class MultiAdjacencyView(_Mapping):
         row_kind="adj",
         native_iter=None,
         native_contains=None,
+        native_len=None,
     ):
         self._atlas_getter = atlas_getter
         # br-r37-c1-znpkv: per-row view cache, keyed on nodes_seq — the same
@@ -2514,12 +2515,26 @@ class MultiAdjacencyView(_Mapping):
         # ownerless/private-adjacency views omit this binding and keep the
         # mapping fallback.
         self._fnx_native_contains = native_contains
+        # br-r37-c1-2r06n: the raw, UNSHADOWED node count -- the `__len__` twin
+        # of the `native_contains` binding above. Reverse, reconstructed and
+        # snapshot views pass none and keep the fallbacks below.
+        self._fnx_native_len = native_len
 
     def _atlas(self):
         return self._atlas_getter()
 
     def __len__(self):
         # nx: len(G.adj) == number of nodes. Avoid materialising _atlas().
+        #
+        # br-r37-c1-2r06n: through the RAW count when one is bound, not
+        # `owner.number_of_nodes()`. That method is shadowed on any instance
+        # carrying private storage, so it answered an assigned `_node` mapping
+        # while `__iter__` kept yielding the adjacency's own keys. The two are
+        # equal on an ordinary graph, so this is the same answer there, reached
+        # without the shadow lookup.
+        native_len = self._fnx_native_len
+        if native_len is not None:
+            return native_len()
         owner = self._fnx_owner
         if owner is not None:
             return owner.number_of_nodes()
@@ -2773,6 +2788,16 @@ _MULTIGRAPH_ADJ_NATIVE_ITER = MultiGraph._fnx_native_node_iter
 _MULTIDIGRAPH_ADJ_NATIVE_ITER = MultiDiGraph._fnx_native_node_iter
 _MULTIGRAPH_ADJ_NATIVE_CONTAINS = MultiGraph.has_node
 _MULTIDIGRAPH_ADJ_NATIVE_CONTAINS = MultiDiGraph.has_node
+# br-r37-c1-2r06n: the raw node count, bound for the same reason as the raw
+# `has_node` above, and the multigraph twin of the AdjacencyView `native_len`
+# that already exists for the simple classes. `owner.number_of_nodes()` is
+# SHADOWED on any instance carrying private storage, so it answered an assigned
+# `_node` mapping while `__iter__` went on yielding the adjacency's own keys --
+# which an independent `_node` override must not change. `len(view)` then
+# disagreed with `len(list(view))` on ONE object, across all four
+# MultiAdjacencyView users.
+_MULTIGRAPH_ADJ_NATIVE_LEN = MultiGraph.number_of_nodes
+_MULTIDIGRAPH_ADJ_NATIVE_LEN = MultiDiGraph.number_of_nodes
 
 
 _multigraph_adj_view = _cached_view(
@@ -2782,6 +2807,7 @@ _multigraph_adj_view = _cached_view(
         owner=self,
         native_iter=_MULTIGRAPH_ADJ_NATIVE_ITER.__get__(self, MultiGraph),
         native_contains=_MULTIGRAPH_ADJ_NATIVE_CONTAINS.__get__(self, MultiGraph),
+        native_len=_MULTIGRAPH_ADJ_NATIVE_LEN.__get__(self, MultiGraph),
     ),
 )
 
@@ -2820,6 +2846,7 @@ _multidigraph_adj_view = _cached_view(
         native_contains=_MULTIDIGRAPH_ADJ_NATIVE_CONTAINS.__get__(
             self, MultiDiGraph
         ),
+        native_len=_MULTIDIGRAPH_ADJ_NATIVE_LEN.__get__(self, MultiDiGraph),
     ),
 )
 
@@ -2858,6 +2885,7 @@ _multidigraph_succ_view = _cached_view(
         native_contains=_MULTIDIGRAPH_ADJ_NATIVE_CONTAINS.__get__(
             self, MultiDiGraph
         ),
+        native_len=_MULTIDIGRAPH_ADJ_NATIVE_LEN.__get__(self, MultiDiGraph),
     ),
 )
 
@@ -2872,6 +2900,7 @@ _multidigraph_pred_view = _cached_view(
         native_contains=_MULTIDIGRAPH_ADJ_NATIVE_CONTAINS.__get__(
             self, MultiDiGraph
         ),
+        native_len=_MULTIDIGRAPH_ADJ_NATIVE_LEN.__get__(self, MultiDiGraph),
     ),
 )
 
@@ -6579,6 +6608,14 @@ class _DirectedDegreeView:
 
     def _iter_nodes(self):
         if self._nodes is None:
+            # br-r37-c1-2r06n: nx's `_nodes` is `self._succ`, NOT the node view,
+            # and that holds for the IN-degree view as much as the out-degree
+            # one. Under an assigned `_succ` the two differ, and iterating the
+            # node view silently dropped a node the mapping carries.
+            # `_fnx_member_of` is the graph itself on an ordinary graph, so that
+            # case keeps the original path exactly.
+            if self._fnx_private_storage:
+                return iter(self._fnx_member_of)
             return iter(self._graph)
         return iter(self._nodes)
 
@@ -6649,12 +6686,33 @@ class _DirectedDegreeView:
 
     def __len__(self):
         if self._nodes is None:
+            # br-r37-c1-2r06n: nx is `len(self._nodes)`, i.e. `len(self._succ)`.
+            # With `_node` assigned that is SMALLER than the node view, and with
+            # `_succ` assigned it is larger -- this answered the node count both
+            # times.
+            if self._fnx_private_storage:
+                return len(self._fnx_member_of)
             return len(self._graph)
         return len(self._nodes)
 
     def __iter__(self):
         # br-r37-c1-pejo5
         _degree_view_frozen_nodes_check(self)
+        # br-r37-c1-2r06n: EVERY native bulk path below reads the Rust store,
+        # which cannot see an assigned `_succ`/`_pred`/`_node` -- the same reason
+        # the per-node counters are turned off in __init__. One early exit to the
+        # generic loop rather than a flag on each of the four guards: that loop
+        # yields `(node, self[node])`, and both halves of it are already
+        # private-aware.
+        #
+        # This is also what makes iteration agree with nx on the case where nx
+        # RAISES: with `_succ` assigned, `dict(G.in_degree)` iterates the succ
+        # keys and then looks each up in `_pred`, so a node carried only by
+        # `_succ` raises KeyError rather than being silently skipped.
+        if self._fnx_private_storage:
+            for node in self._iter_nodes():
+                yield (node, self[node])
+            return
         # br-r37-c1-degidx: unweighted full-graph iteration uses a single
         # native bulk call (one Rust loop) instead of N per-node
         # _native_*_degree PyO3 round-trips (each hashing the node key).
