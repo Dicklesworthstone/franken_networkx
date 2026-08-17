@@ -372,3 +372,77 @@ def test_directed_keydict_cache_does_not_confuse_orientations():
         assert {k: dict(d) for k, d in graph.get_edge_data(a, b).items()} == {
             k: dict(d) for k, d in reference.get_edge_data(a, b).items()
         }
+
+
+# --- br-r37-c1-f3i50: the identity-int fast path -------------------------
+
+
+def test_int_keys_match_networkx_and_are_live():
+    """Int node keys take the index fast path and keep the live contract."""
+    graph, reference = fnx.MultiGraph(), nx.MultiGraph()
+    for g in (graph, reference):
+        for i in range(8):
+            g.add_edge(1, 2, weight=i)
+    got, want = graph.get_edge_data(1, 2), reference.get_edge_data(1, 2)
+    assert list(got.keys()) == list(want.keys())
+    assert {k: dict(d) for k, d in got.items()} == {k: dict(d) for k, d in want.items()}
+    # identity parity, the property the live return exists for
+    assert graph.get_edge_data(1, 2) is graph.get_edge_data(1, 2)
+
+
+def test_int_fast_path_degrades_after_node_removal_rather_than_lying():
+    """THE safety case for the int arm.
+
+    The fast path trusts an int only when the node with that NAME sits at that
+    exact POSITION (`node_index_matches_int`). Removing a node compacts
+    positions, so no surviving name equals its position any more and the arm
+    stops firing — the slow path answers instead.
+
+    A version that resolved the int to a position WITHOUT that check, or that
+    used the slot space, would keep firing and return a different node's edges.
+    So this asserts the answers stay correct across a removal that shifts every
+    position, against live networkx.
+    """
+    graph, reference = fnx.MultiGraph(), nx.MultiGraph()
+    for g in (graph, reference):
+        for name in (0, 1, 2, 3):
+            g.add_node(name)
+        g.add_edge(2, 3, weight="two-three")
+        g.add_edge(1, 2, weight="one-two")
+
+    assert graph.get_edge_data(2, 3)[0]["weight"] == "two-three"
+    graph.remove_node(0)
+    reference.remove_node(0)
+
+    for a, b in ((2, 3), (1, 2)):
+        assert {k: dict(d) for k, d in graph.get_edge_data(a, b).items()} == {
+            k: dict(d) for k, d in reference.get_edge_data(a, b).items()
+        }, f"edge {a}-{b} diverged after the removal shifted every position"
+    assert graph.get_edge_data(1, 3) is None
+    assert graph.number_of_edges() == reference.number_of_edges()
+
+
+def test_bool_keys_are_not_treated_as_int_positions():
+    """`True`/`False` are `int` subclasses and would alias positions 1 and 0.
+
+    The gate uses `is_exact_instance_of`, which excludes `bool`. If it ever
+    relaxed to `isinstance`, `G.get_edge_data(True, False)` would answer with
+    the edges of nodes 1 and 0.
+    """
+    graph, reference = fnx.MultiGraph(), nx.MultiGraph()
+    for g in (graph, reference):
+        g.add_edge(0, 1, weight="ints")
+    assert graph.get_edge_data(True, False) == reference.get_edge_data(True, False)
+    assert graph.get_edge_data(0, 1)[0]["weight"] == "ints"
+
+
+def test_non_identity_ints_take_the_slow_path_correctly():
+    """An int that does NOT sit at its own position must still answer right."""
+    graph, reference = fnx.MultiGraph(), nx.MultiGraph()
+    for g in (graph, reference):
+        g.add_node("filler")
+        g.add_edge(7, 9, weight="seven-nine")
+    assert {k: dict(d) for k, d in graph.get_edge_data(7, 9).items()} == {
+        k: dict(d) for k, d in reference.get_edge_data(7, 9).items()
+    }
+    assert graph.get_edge_data(0, 1) is None
