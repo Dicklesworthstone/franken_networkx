@@ -21102,3 +21102,63 @@ DO exist would be a worse defect than the one it replaced. 16 tests. View surfac
 Method: in-process growth shapes, min of 5 rounds x 200 reps. loadavg
 19.34/19.04/18.28, two peer builds running, NO build of my own - pure Python.
 disk 104G.
+
+## 2026-08-17 GoldenBison KEEP-SELF: the worst cell CERTIFIED — 590x at a 3200-node parent, arms built by the enforcing builder (br-r37-c1-fvgetattr)
+
+The fix banked two rows above was measured across separate runs, which is the
+cross-run comparison this campaign has had invert on it twice. This is the
+alternated version, with the arms constructed by
+`scripts/make_python_arms.py` - the builder written after arm contamination cost
+me two retracted rows. It reported, before any timing: shared ELF
+`f934861b`, differing files `['__init__.py']` ONLY, 61 diff lines, binary current
+against `crates/**/*.rs`. The OLD arm was reconstructed by reverting ONLY the fix
+hunks out of HEAD, so no peer change can be in the difference.
+
+    parent 200      OLD 56.71us  56.28us  57.25us    median 56.71us
+                    NEW  1.05us   0.66us   1.05us    median  1.05us   54.0x
+    parent 3200     OLD 389.50us 386.32us 392.44us   median 389.50us
+                    NEW   0.67us   0.66us   0.65us   median   0.66us  590.2x
+
+    vs networkx     parent 200    0.0059x -> 0.4924x
+                    parent 3200   0.0008x -> 0.4931x
+
+Separation is not merely complete, it is a different order of magnitude: the
+WORST NEW measurement (1.05us) beats the BEST OLD one (56.28us) by 53x. No
+plausible substrate effect spans that.
+
+THE SHAPE IS THE RESULT, AGAIN. Growth across a 16x parent: OLD 6.87x, NEW 0.63x.
+The old path's ratio fell from 0.0059x to 0.0008x as the parent grew and had no
+floor; the new path sits at 0.49x at both sizes. An unbounded term became a
+constant. The residual 0.49x is an ordinary cell and is NOT claimed as a win -
+campaign_output stays false.
+
+CONTROL: networkx on the identical axis in the identical loop read 0.32-0.51us
+across all twelve measurements, flat, which is what makes the fixture's growth
+attributable to fnx rather than to the loop.
+
+A/A null is not quoted and here is why rather than a silent omission: the arms are
+separate processes, so the same-invocation paired null this ledger's contract asks
+for cannot be produced. What stands in its place is the networkx arm measured
+inside every one of the six invocations (twelve readings, spread 0.19us) and an
+effect three orders of magnitude larger. A null control exists to bound drift; a
+drift that could explain 590x would have shown up as networkx moving too.
+
+SUBSTRATE. host thinkstation1, governor `powersave`, 64 CPUs, python 3.13.7, live
+networkx 3.6.1, no rch worker. Pure-Python arms over ONE shared ELF; NO build of
+mine, in or out of the window. Per-invocation loadavg 10.80/18.28/18.72
+throughout; mean CPU at invocation start 2760, 2788, 3346, 3194, 2801, 3071 MHz;
+peer builds present at 3, 3, 3, 2, 2, 2 processes - recorded because the brief
+said one, and irrelevant at this effect size. min of 5 rounds x 200 reps.
+disk 104G.
+
+bench_elf_sha256=f934861b2e97439800f7b7f9c8fdb23aeb2208f1f41216828c03d052e3e09b72
+elf_sha256=f934861b2e97439800f7b7f9c8fdb23aeb2208f1f41216828c03d052e3e09b72
+comparison_class=SELF-SPEEDUP
+self_speedup=590.2x
+incumbent=networkx
+incumbent_same_invocation=true
+incumbent_ratio_before=0.0008x
+incumbent_ratio_after=0.4931x
+campaign_output=false
+decision_gate=median_ci
+cv_role=report_only
