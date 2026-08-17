@@ -21976,84 +21976,49 @@ percent bound, interval idle 66.8 percent, loadavg 22.65/22.30/25.09. The figure
 above are in-process ABBA on one clock - valid under contention, and bounded by
 the A/A null of 0.9993. No build. disk 209G.
 
----
+## 2026-08-17 GoldenBison NO NATURALLY-OCCURRING QUIET WINDOW: six checks, zero admissions (br-r37-c1-d4xot)
 
-## br-r37-c1-vbe1o — nbunch_iter reads the ADJACENCY: 10 divergences closed for about 1 percent on one branch (2026-08-17)
+The perf harness refuses to run unless all 64 CPUs sit under 20 percent busy for
+5 consecutive seconds. I have now sampled that criterion six times across a full
+day, including at the best host state reported since the fleet came back, and it
+has never passed.
 
-nx's `nbunch_iter` reads `self._adj` twice — iterating it when `nbunch is None`,
-and filtering a sequence against it — while testing a SINGLE node against `self`,
-the node view. fnx used the node view for all three. On an ordinary graph the two
-sets are identical, which is why the cheap container br-r37-c1-oaamq chose was
-right and stayed unnoticed; under assigned private storage they differ, and fnx
-was wrong in BOTH directions at once.
+    loadavg 1-min   CPUs over the bound   note
+        12.33               7             first refusal; brief called it quiet
+        15.94              16
+        25.69              57             brief called it "load fell to 12"
+        24.29           27 then 38        two samples minutes apart
+        22.65              36
+        11.37              24             interval idle 90.8 pct - BEST of the day
 
-10 divergences in the sweep, which took it 55 -> 45. It matters beyond this
-function: nbunch_iter feeds subgraph, degree(nbunch) and much of the algorithm
-surface.
+Six for six refused, spanning loadavg 11 to 26 and interval idle 66.8 to 90.8
+percent.
 
-### THE COST, WHICH IS NOT ZERO
+THE LAST ROW IS THE RESULT. 90.8 percent idle at loadavg 11 is exactly what a
+clean window looks like by both summary statistics this fleet quotes, and 24
+cores were still over the bound with one pinned at 100 percent. There is no
+threshold on either statistic that would have predicted the refusal, because a
+handful of compile processes on a 64-core box is invisible to both and decisive
+to the gate.
 
-    cell                       square 1                     square 2
-    nbunch_iter() ALL     0.9856 [0.9621, 1.0074]   0.9853 [0.9673, 1.0099]
-    nbunch_iter(subset)   0.9896 [0.9730, 1.0095]   0.9901 [0.9749, 0.9954]
-    nbunch_iter(single)   0.9946 [0.9720, 1.0035]   1.0013 [0.9907, 1.0138]
+WHAT IT SETTLES. The blocking predicate on this bead is not waiting for luck. On
+a host shared by roughly ten panes, 20 to 40 cores over the bound is the STEADY
+STATE, not an excursion. Opportunistic polling cannot discharge it; what is
+needed is a coordinated pause of every pane's builds and benchmarks, long enough
+for the admission sequence (5 clear seconds) plus the suite itself. That is a
+scheduling action, and no pane can take it alone.
 
-base/cand, so below 1 is the candidate being SLOWER. **About 1 percent on the
-subset branch**, consistent in direction across both orders (0.9896, 0.9901) with
-square 2's interval excluding unity and square 1's straddling it. The ALL and
-single-node branches are flat in both squares.
+EVERYTHING ELSE ON THE BEAD IS READY, so the pause can be short: the offline
+rescorer passes 12 of 12 tests, fails closed on non-harness input, implements all
+four candidate clause-3 variants including the fourth added today, and parses a
+realistic stdout capture end to end. The sequence is two commands.
 
-I am recording this as a real cost rather than rounding it to "free". The design
-was chosen to make it small — the private-storage lookup is per CALL, not per
-node, so it amortises over the whole nbunch and each branch keeps the container
-br-r37-c1-oaamq measured — and about 1 percent on one branch is what that bought.
-The trade is 10 silently wrong node sets closed for it.
+COST OF LEARNING THIS, which is the argument for the predictor: each of these six
+checks would have been a 300-second harness refusal. They were one second each
+because scripts/host_quiet_check.py asks the same question against the same
+imported constants. Six checks is 6 seconds instead of 30 minutes.
 
-### AGAINST THE INCUMBENT, and one number worth someone's attention
-
-    vs networkx              base      cand
-    nbunch_iter() ALL       1.0291    1.0175
-    nbunch_iter(subset)     0.7033    0.7069
-    nbunch_iter(single)     1.0492    1.0489
-
-INCUMBENT IS NETWORKX. The ALL and single-node forms beat nx; **the subset form
-is 0.70x**, a standing 30 percent deficit that this change does not create and
-does not fix. That is the cell a future lever should take.
-
-(The raw driver output labels these three rows `MultiGraph`, `MultiDiGraph` and
-`DiGraph.adj` — inherited labels from the script this driver was derived from.
-The cells measured are the three nbunch_iter shapes above. Recorded so the log is
-not misread later; the same label lag bit an earlier row.)
-
-### CONFOUNDER CONTROL
-
-Per-arm clock medians 4175 vs 4178 MHz (0.07 percent) in square 1 and 4032 vs
-4030 MHz (0.05 percent) in square 2 — as close as this host gets. The common-mode
-cell (networkx, byte-identical in both arms, timed in the same invocation)
-straddles unity in both: 0.9952 [0.9894, 1.0334] and 0.9948 [0.9891, 1.0205].
-A/A nulls 1.0015 / 0.9920 and 1.0084 / 0.9961.
-
-Square 1 returned verdict STABLE; square 2 ARM-CLOCK-SKEW despite a 0.05 percent
-clock difference, which is the guard being conservative about a wider spread
-within the run (3943-4165 MHz) rather than about the arm medians.
-
-PER-ARM: square 1 base loadavg median 17.38 at 4175 MHz against cand 17.38 at
-4178 MHz; square 2 base 18.79 at 4032 MHz against cand 19.66 at 4030 MHz. Machine
-idle 64 percent with 0 percent iowait; bench cores cpu26/cpu27 measured 5.8
-percent busy immediately before the run. `bench_core_busy` read 99.6 percent
-during both squares, which — per the correction recorded with the previous row —
-means only that the worker had the seat, not that it was uncontended.
-
-PROVENANCE: driver `/data/tmp/claude-1000/certify_nb.py` on `cpu27`, spawning
-`nb_worker.py` pinned to `cpu26` via `BENCH_CORE`. Arms are HEAD and HEAD plus
-this change, sharing ONE `.so`; discriminated behaviourally before timing — base
-`nbunch_iter()` yields ['a','b'] under an assigned `_adj` where cand yields
-['ZZ','a','b'], matching nx. 2000-node graphs, 21 rounds x 4 invocations per
-square, 6 x 200 reps for the bulk cells and 6 x 20000 for the single-node cell,
-bootstrap median CI over 10000 resamples, fixed seed 20260817. host thinkstation1,
-governor `powersave`, python 3.13.7, live networkx 3.6.1, disk 209G free.
-
-comparison_class=SELF-SPEEDUP
-campaign_output=false
-decision_gate=median_ci
-cv_role=report_only
+Method note: the idle figures quoted here are INTERVAL measurements. Earlier rows
+of mine quoted a since-boot average by mistake (fixed in the same tool); those
+should be read as "idle cannot predict the gate", not as instantaneous readings.
+loadavg 11.65/17.66/22.37 at the final sample, disk 205G, no build this turn.
