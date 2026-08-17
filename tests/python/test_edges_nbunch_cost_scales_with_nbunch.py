@@ -1,60 +1,52 @@
-"""``edges(nbunch, data=True)`` costs per NBUNCH ITEM, not per edge.
+"""``edges(nbunch, data=True)``: CLOSED, 0.2788x -> 0.9636x at 2000-char keys.
 
-br-r37-c1-nbidx. Landed as an attribution guard, not a fix: the fix is specified
-below and is not yet written.
+br-r37-c1-nbidx. This file began as an attribution guard for a defect nobody had
+located, carried a strict xfail through four attempts, and is now a regression
+lock. The history is kept because the two DEAD ENDS cost more than the fix did.
 
-THE DEFECT. ``Graph.edges(nbunch, data=True)`` reads 0.2788x against networkx at
-2000-character node keys while its DIRECTED twin is flat at 1.1224x — the fourth
-directed/undirected asymmetry found on this surface. networkx is flat across the
-same axis (34.1us at 3 characters, 27.8us at 2000).
+THE DEFECT AS FOUND. ``Graph.edges(nbunch, data=True)`` read 0.2788x against
+networkx at 2000-character node keys while its DIRECTED twin was flat at
+1.1224x — the fourth directed/undirected asymmetry found on this surface.
+networkx is flat across the same axis by construction.
 
-WHERE THE COST IS, measured rather than assumed, on one graph of 300 edges at
-K=2000 with only the nbunch size varied:
+TWO REASONED FIXES, BOTH MEASURED, BOTH WORTH NOTHING:
 
-    nbunch=1        5.0 us
-    nbunch=10      19.0 us
-    nbunch=60      92.1 us
-    nbunch=300    456.9 us
-    nbunch=600    965.4 us
-    whole graph    23.5 us   (served from the list cache, br-r37-c1-ml7s5)
+  1. A POSITION MASK replacing the per-edge name filter. 0.2804x against a
+     0.2788x baseline.
+  2. RESOLVING nbunch items through the cached exact-``str`` index path — the
+     lever that had already worked for ``get_edge_data``, the keyed subscript
+     and the attr mirror. 0.2379x against 0.2971x.
 
-Linear in the NBUNCH, at roughly 1.6us per item, on a graph whose edge count
-never changes. So the cost is per-item work while collecting the nbunch —
-``node_key_to_string`` builds a ``str:{len}:{s}`` canonical for every item, which
-at 2000 characters is an allocation and a copy each — and NOT the per-edge
-filter.
+WHY BOTH MEASURED NOTHING, which is the reusable lesson and was invisible from
+reading the code. Both patched ``views.rs::edge_alldata_items``. A cProfile of
+the actual call shows it never enters that function: it enters
+``readwrite.rs::edges_nbunch_data``, plus ``edges_nbunch_count`` for the size
+hint. Two careful measurements of code the path does not execute. Read those two
+NEGATIVE results as "wrong file", not "wrong idea" — hypothesis 2 was in fact
+half the eventual fix, applied to the wrong function.
 
-A HYPOTHESIS THIS TEST EXISTS TO KILL. The obvious reading is that the per-edge
-filter is to blame: it does ``node_set.contains(left) || node_set.contains(right)``,
-two full canonical hashes per edge, 600 of them here. I implemented a position
-MASK to replace exactly that, measured it, and it changed nothing — 0.2804x
-against 0.2788x. Removing 600 per-edge hashes and adding 60 per-node ones is a
-wash, which is only possible if neither was the cost. The change was reverted;
-this scaling shape is what should have been measured first.
+WHAT ACTUALLY FIXED IT, once the profile named the right file — both halves the
+same lever, an O(key length) canonical replaced by an index:
 
-TWO FIXES HAVE BEEN TRIED AND BOTH MEASURED NOTHING. Recorded so the next
-attempt starts past them rather than repeating them:
+  * PER NBUNCH ITEM, ``node_key_to_string`` built a ``str:{len}:{s}`` canonical.
+    Replaced by ``cached_exact_string_node_index``.      0.2788x -> 0.4589x
+  * PER EDGE, ``edge_key(u_name, v_name)`` built an owned key from BOTH endpoint
+    names — ~4000 bytes allocated, copied and hashed per edge. Replaced by
+    ``cached_edge_py_attrs_by_index``.                   0.4589x -> 0.9636x
 
-  1. A POSITION MASK replacing the per-edge name filter — the filter does
-     ``node_set.contains(left) || node_set.contains(right)``, two full canonical
-     hashes per edge, 600 on this fixture. Measured 0.2804x against a 0.2788x
-     baseline. Nothing.
-  2. RESOLVING nbunch items through the cached exact-``str`` index path, so no
-     canonical is built per item — the same lever that worked for
-     ``get_edge_data``, the keyed subscript and the attr mirror. The nbunch
-     collection was deferred and split per branch so only the name-walking
-     fallback pays for canonicals. Measured 0.2379x against 0.2971x on the same
-     shape. Nothing, or slightly worse.
+The second half needed a MUTABLE graph borrow to populate the lookaside, which
+``extract_graph`` cannot give; the kernel now takes ``PyRefMut`` directly and
+returns ``None`` if it cannot, falling back to the Python walk rather than
+panicking on a read path.
 
-Both were reverted; ``crates/`` is byte-identical to HEAD. Between them they
-eliminate the two obvious readings of the linear-in-nbunch shape below, which
-means the per-item cost is NOT the canonical build and NOT the per-edge filter.
-The next attempt should PROFILE the filtered path rather than reason about it —
-this pane has now guessed the mechanism twice and been wrong twice.
+WARM-CALL COST. A lookaside must be populated before it can be read, so the
+first call on a fresh graph is unchanged: 0.2494x cold against 0.9636x warm at
+K=2000. That is the honest limit of this fix and it is asserted nowhere, so it is
+recorded here.
 
-The assertion here is deliberately loose. It pins the SHAPE — cost rising with
-nbunch — because that is what identifies the defect and what a fix must flatten.
-It is not a ratio gate and will not fail on a slow host.
+The assertion below pins the SHAPE — cost rising with key length — because that
+is what identified the defect. It is not a ratio gate and will not fail on a slow
+host.
 """
 
 from __future__ import annotations
@@ -62,7 +54,6 @@ from __future__ import annotations
 import time
 
 import networkx as nx
-import pytest
 
 import franken_networkx as fnx
 
@@ -115,17 +106,26 @@ def test_nbunch_results_match_networkx():
         )
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="br-r37-c1-nbidx: Graph.edges(nbunch, data=True) grows with NODE-KEY "
-    "LENGTH at a large nbunch while networkx stays flat. Measured at nbunch=200: "
-    "fnx 66.4us at K=3 against 281.8us at K=2000 (4.24x), networkx 82.5us against "
-    "83.7us (1.01x). At K=3 the row is a 1.2425x WIN and at K=2000 it is 0.2971x. "
-    "The per-item canonical build is the cost; the fix is to resolve nbunch items "
-    "through the cached exact-str index path.",
-)
 def test_nbunch_edges_data_is_bounded_in_key_length():
-    """The defect: cost tracks KEY LENGTH at a large nbunch, networkx does not.
+    """FIXED, and this is now a regression lock rather than an xfail.
+
+    It was ``xfail(strict=True)`` from the day the defect was found until
+    br-r37-c1-nbidx closed both halves of it, at which point it XPASSED and
+    reddened the suite - which is the entire reason the marker was strict. The
+    marker is gone; the ASSERTION and its bound are unchanged from the day it was
+    written, so what passes now is the same statement that failed then.
+
+    Measured across the two levers, nbunch=200, min of 7 rounds of 30:
+
+        original                    0.2788x     relative growth 4.24x
+        after the per-ITEM fix      0.4589x
+        after the per-EDGE fix      0.9636x     relative growth 1.84x
+
+    THE COST IS WARM-CALL COST. The first call on a fresh graph still pays the
+    full canonical for every edge, because a lookaside has to be populated before
+    it can be read: measured 0.2494x cold at K=2000 against 0.9636x warm. This
+    test times a warmed graph, like every other lookaside test in this suite, and
+    the sibling file records the cold number so nobody has to rediscover it.
 
     MEASURED SHAPE, and the reason this is the assertion rather than the earlier
     draft's. My first version compared growth across NBUNCH SIZE and asserted

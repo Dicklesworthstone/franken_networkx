@@ -1697,58 +1697,95 @@ pub fn edges_nbunch_data(
     nbunch: Vec<Bound<'_, PyAny>>,
     with_data: bool,
 ) -> PyResult<Option<Vec<(PyObject, PyObject, PyObject)>>> {
-    let gr = extract_graph(g)?;
-    let GraphRef::Undirected(pg) = &gr else {
+    // br-r37-c1-nbidx (per-edge half): a MUTABLE borrow, so the endpoint-index
+    // attribute lookaside can be POPULATED here and not merely read. The
+    // previous route through `extract_graph` yields a `PyRef`, which is why the
+    // certified row for the per-item half had to leave this half undone.
+    //
+    // Failing to borrow mutably is not an error: every non-`Graph` class landed
+    // here already returned `None` and let the Python `_materialize_via_adj_walk`
+    // fallback answer, so an outstanding borrow takes the same correct-but-slower
+    // path instead of panicking. That is deliberate — a `borrow_mut` panic on a
+    // read path is exactly the P0 shape this pane shipped once before.
+    let Ok(mut pg_guard) = g.extract::<pyo3::PyRefMut<'_, PyGraph>>() else {
         return Ok(None);
     };
-    let node_names = pg.inner.nodes_ordered();
-    let n = node_names.len();
-    let mut seen = vec![false; n];
     let mut result: Vec<(PyObject, PyObject, PyObject)> = Vec::new();
-    for nb in &nbunch {
-        // br-r37-c1-nbidx: resolve through the warm exact-`str` index cache
-        // rather than building a `str:{len}:{s}` canonical per item. On a miss
-        // this does exactly what the old line did; on a hit it answers from
-        // CPython's own cached `str` hash and never touches the key bytes.
-        // At 2000-character node keys the canonical was an allocation and a
-        // 2000-byte copy PER NBUNCH ITEM, which is the axis this call grows on
-        // while networkx stays flat.
-        let Some(u_idx) = pg.cached_exact_string_node_index(py, nb)? else {
-            // nx skips nbunch nodes that are not in the graph.
-            continue;
-        };
-        let u_name = node_names[u_idx];
-        let py_u = pg.py_node_key(py, u_name);
-        if let Some(neighbors) = pg.inner.neighbors_indices(u_idx) {
-            for &v_idx in neighbors {
-                if seen[v_idx] {
-                    continue;
-                }
-                let v_name = node_names[v_idx];
-                let py_v = pg.py_node_key(py, v_name);
-                let data_obj = if with_data {
-                    let ek = PyGraph::edge_key(u_name, v_name);
-                    match pg.edge_py_attrs.get(&ek) {
-                        Some(edge_dict) => edge_dict.clone_ref(py).into_any(),
-                        // br-inedges-distorefix (bt): a bulk-built graph leaves the
-                        // Python mirror EMPTY, so a store-only edge had no edge_py_attrs
-                        // entry -> the old empty-dict made edges(nbunch, data='attr')
-                        // read the DEFAULT (None) for every edge and edges(nbunch,
-                        // data=True) drop all attrs. Materialize the dict from the
-                        // CgseValue store. (Same bulk-built store-only class as the
-                        // in_edges/dag fixes.)
-                        None => match pg.inner.edge_attrs(u_name, v_name) {
-                            Some(attrs) => attr_map_to_pydict(py, attrs)?.into_any(),
-                            None => PyDict::new(py).into_any().unbind(),
-                        },
+    // Endpoint pairs whose live attr dict came from the STRING mirror and so may
+    // be recorded under their indices. Applied after the immutable phase ends,
+    // because `node_names` borrows from `pg.inner`.
+    let mut to_remember: Vec<(usize, usize, Py<PyDict>)> = Vec::new();
+    {
+        let pg = &*pg_guard;
+        let node_names = pg.inner.nodes_ordered();
+        let n = node_names.len();
+        let mut seen = vec![false; n];
+        for nb in &nbunch {
+            // br-r37-c1-nbidx: resolve through the warm exact-`str` index cache
+            // rather than building a `str:{len}:{s}` canonical per item. On a miss
+            // this does exactly what the old line did; on a hit it answers from
+            // CPython's own cached `str` hash and never touches the key bytes.
+            // At 2000-character node keys the canonical was an allocation and a
+            // 2000-byte copy PER NBUNCH ITEM, which is the axis this call grows on
+            // while networkx stays flat.
+            let Some(u_idx) = pg.cached_exact_string_node_index(py, nb)? else {
+                // nx skips nbunch nodes that are not in the graph.
+                continue;
+            };
+            let u_name = node_names[u_idx];
+            let py_u = pg.py_node_key(py, u_name);
+            if let Some(neighbors) = pg.inner.neighbors_indices(u_idx) {
+                for &v_idx in neighbors {
+                    if seen[v_idx] {
+                        continue;
                     }
-                } else {
-                    py.None()
-                };
-                result.push((py_u.clone_ref(py), py_v, data_obj));
+                    let v_name = node_names[v_idx];
+                    let py_v = pg.py_node_key(py, v_name);
+                    let data_obj = if with_data {
+                        // br-r37-c1-nbidx (per-edge half): the index lookaside first.
+                        // `edge_key` builds an owned canonical from BOTH endpoint
+                        // names, so at 2000-character keys it allocated and copied
+                        // ~4000 bytes PER EDGE and then hashed them. Two `usize`s
+                        // answer the same question once the pair is warm.
+                        if let Some(edge_dict) = pg.cached_edge_py_attrs_by_index(py, u_idx, v_idx)
+                        {
+                            edge_dict.into_any()
+                        } else {
+                            let ek = PyGraph::edge_key(u_name, v_name);
+                            match pg.edge_py_attrs.get(&ek) {
+                                Some(edge_dict) => {
+                                    // Only the STRING-mirror dict is recorded. The
+                                    // store-materialized branch below builds a FRESH
+                                    // dict per call; recording one would start
+                                    // aliasing a dict that was never the live mirror
+                                    // and quietly change what a caller can mutate.
+                                    to_remember.push((u_idx, v_idx, edge_dict.clone_ref(py)));
+                                    edge_dict.clone_ref(py).into_any()
+                                }
+                                // br-inedges-distorefix (bt): a bulk-built graph leaves the
+                                // Python mirror EMPTY, so a store-only edge had no edge_py_attrs
+                                // entry -> the old empty-dict made edges(nbunch, data='attr')
+                                // read the DEFAULT (None) for every edge and edges(nbunch,
+                                // data=True) drop all attrs. Materialize the dict from the
+                                // CgseValue store. (Same bulk-built store-only class as the
+                                // in_edges/dag fixes.)
+                                None => match pg.inner.edge_attrs(u_name, v_name) {
+                                    Some(attrs) => attr_map_to_pydict(py, attrs)?.into_any(),
+                                    None => PyDict::new(py).into_any().unbind(),
+                                },
+                            }
+                        }
+                    } else {
+                        py.None()
+                    };
+                    result.push((py_u.clone_ref(py), py_v, data_obj));
+                }
             }
+            seen[u_idx] = true;
         }
-        seen[u_idx] = true;
+    }
+    for (u_idx, v_idx, attrs) in &to_remember {
+        pg_guard.remember_edge_py_attrs_by_index(py, *u_idx, *v_idx, attrs);
     }
     Ok(Some(result))
 }
