@@ -21239,3 +21239,85 @@ rounds x 4 invocations per square, 6 x 20000 reps per cell per invocation
 
 decision_gate=median_ci
 cv_role=report_only
+
+## 2026-08-17 GoldenBison KEEP-SELF: view.copy() no longer pays for the parent — 0.0812x to 0.8113x, found by sweeping the instrument (br-r37-c1-vcopynb)
+
+FOUND BY APPLYING THE INSTRUMENT THAT CAUGHT THE LAST ONE, systematically instead
+of once. Ten operations on a four-node view, parent grown 200 -> 3200:
+
+    len, number_of_edges, nodes, edges, adj[u], degree, membership,
+    has_edge, repr                             0.79x - 1.04x   FLAT
+    view.copy()                                6.95x           TRACKS THE PARENT
+
+networkx was flat on every one. So nine operations were already right and one was
+not, and the sweep took a single command.
+
+    parent     before      after     ratio before -> after
+      200     82.31us    40.07us     0.4079x -> 0.8060x
+      800    121.31us    40.59us     0.2542x -> 1.0409x   (crosses to a WIN)
+     3200    384.39us    41.90us     0.0812x -> 0.8113x   (9.2x faster)
+
+Growth across a 16x parent: 6.95x before, 1.05x after. Another unbounded term
+turned into a constant.
+
+TWO CALL SITES, AND PATCHING ONE MOVED NOTHING. The whole-parent scan appears in
+the `_fnx_materialized_cache` helper AND in `_FilteredGraphView.copy` itself. I
+patched the helper first - the site the earlier `__getattr__` stack had shown me -
+measured 0.0778x against 0.0812x, and only then profiled: `filter_edge` was still
+being called 3200 times per copy, once per PARENT edge. A stack trace proves a
+function was CALLED, not that it dominates. The second site was the live one.
+
+THE FIX AND WHY IT KEEPS ORDER. `br-r37-c1-edgesubcopy` deliberately scans the
+parent and applies the cheap set-lookup filter, because iterating the filtered
+VIEW's edges paid per-edge wrapper overhead. That is right when the selection is
+most of the parent and O(parent) when it is three edges of 3200. Restricting the
+scan to the selection's ENDPOINTS visits the same nodes in the same sequence and
+merely skips nodes holding no selected edge, so emitted edge ORDER is unchanged -
+which matters, because order is observable and the original comment records that
+byte-identity was verified. Re-verified here against networkx over 4 classes x 3
+parent sizes x 5 selection sizes: 0 divergences INCLUDING ORDER, compared as
+lists. Guarded on endpoint count so a selection spanning most of the parent keeps
+the original whole-parent scan, which is faster there.
+
+SUITE STATUS, STATED CAREFULLY. My tree fails 3 tests; HEAD fails 7. All 3 of
+mine also fail on HEAD, including
+`test_write_gexf_classified_as_py_wrapper_not_nx_delegated`, which passes
+standalone on BOTH arms and is therefore an ordering interaction that predates
+this change. I do NOT claim to have fixed the other 4: I could not identify them
+from the tail of the run and both candidate files pass standalone on both arms.
+What is established is that this change introduces no failure.
+
+A/A NULL CONTROL, same invocation, interleaved A/A/A on the identical view:
+
+    parent  200    0.9767 and 1.0054      fnx 38.57us   nx 32.74us   0.8490x
+    parent 3200    1.0115 and 1.0642      fnx 40.40us   nx 32.88us   0.8139x
+
+Three of the four nulls sit inside 1.06 and two inside the +/-0.02 bound. The
+fourth (1.0642) is reported rather than dropped; the effect it sits under is 9.2x.
+
+A WARM-UP TRAP FOUND WHILE PRODUCING THAT NULL, worth recording. My first attempt
+at a same-invocation A/A read 1.4339 at parent=200 - a 43 percent "null" on two
+timings of the SAME code in the SAME process. The cause was that the harness
+warmed with a single call and the first timed block still carried cold-cache work,
+so whichever arm was measured FIRST was penalised. Fifty warm-up iterations before
+any timing brought it to 0.9767. Any A/B I had run on that pattern would have
+been biased toward whichever arm ran second, and nothing in the numbers would have
+looked wrong. The figures in this row use the warmed form; the growth conclusion
+is unchanged (38.57 -> 40.40us, 1.05x across a 16x parent).
+
+Method: in-process growth shapes, min of 7 rounds x 30 reps after 50 warm-up
+iterations, networkx measured on the identical axis as the control. No ABBA square - the claim is that a curve
+flattened. loadavg 13.72/15.77/17.58, FOUR peer builds running, no build of my
+own - pure Python. disk 103G.
+
+bench_elf_sha256=f934861b2e97439800f7b7f9c8fdb23aeb2208f1f41216828c03d052e3e09b72
+elf_sha256=f934861b2e97439800f7b7f9c8fdb23aeb2208f1f41216828c03d052e3e09b72
+comparison_class=SELF-SPEEDUP
+self_speedup=9.2x
+incumbent=networkx
+incumbent_same_invocation=true
+incumbent_ratio_before=0.0812x
+incumbent_ratio_after=0.8113x
+campaign_output=false
+decision_gate=median_ci
+cv_role=report_only

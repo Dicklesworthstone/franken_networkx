@@ -193,3 +193,69 @@ def test_every_view_kind_still_serves_real_attributes(label, make):
     assert isinstance(view.is_directed(), bool)
     assert isinstance(view.is_multigraph(), bool)
     assert view.graph is not None
+
+
+# br-r37-c1-vcopynb: `view.copy()` had the SAME shape as the attribute-miss
+# defect - a request scoped to a small view paying for the parent - and it was
+# found by sweeping every view operation on the axis that caught the first one.
+# Two call sites had to be fixed: the `_fnx_materialized_cache` helper and
+# `_FilteredGraphView.copy` itself. Patching only the first moved NOTHING,
+# because the second was the one the profile actually reached.
+def _time_copy(view, reps: int = 30, rounds: int = 5) -> float:
+    view.copy()
+    samples = []
+    for _ in range(rounds):
+        start = time.perf_counter()
+        for _ in range(reps):
+            view.copy()
+        samples.append((time.perf_counter() - start) / reps)
+    return min(samples)
+
+
+def test_view_copy_cost_does_not_track_parent_size():
+    """Measured 82.31us -> 384.39us across a 16x parent before the fix (6.95x),
+    and 40.07us -> 41.90us after (1.05x), while networkx stayed flat at ~32us.
+    The ratio had been falling 0.4079x -> 0.2542x -> 0.0812x with no floor.
+    """
+    small = _time_copy(_view(fnx, SMALL_PARENT))
+    large = _time_copy(_view(fnx, LARGE_PARENT))
+    growth = large / small
+    assert growth < MAX_GROWTH, (
+        f"view.copy() grew {growth:.2f}x when only the PARENT went from "
+        f"{SMALL_PARENT} to {LARGE_PARENT} nodes "
+        f"({small * 1e6:.1f}us -> {large * 1e6:.1f}us)"
+    )
+
+
+def test_networkx_copy_is_flat_on_the_same_axis():
+    small = _time_copy(_view(nx, SMALL_PARENT))
+    large = _time_copy(_view(nx, LARGE_PARENT))
+    assert large / small < MAX_GROWTH, "fixture measures something other than the defect"
+
+
+@pytest.mark.parametrize("cls", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("take", [1, 3, 7])
+def test_view_copy_matches_networkx_including_edge_ORDER(cls, take):
+    """The fix narrows a scan, so ORDER is the property most at risk.
+
+    The whole-parent scan it replaces was chosen precisely because it preserved
+    parent-adjacency order; restricting it to the selection's endpoints keeps
+    that order only because the same nodes are visited in the same sequence.
+    Compared as a LIST, not a set.
+    """
+    n = 60
+    got, want = getattr(fnx, cls)(), getattr(nx, cls)()
+    for g in (got, want):
+        for i in range(n):
+            g.add_edge(f"n{i}", f"n{(i + 1) % n}", w=i)
+    keys = got.is_multigraph()
+    ge = (list(got.edges(keys=True)) if keys else list(got.edges()))[:take]
+    xe = (list(want.edges(keys=True)) if keys else list(want.edges()))[:take]
+    cf, cx = got.edge_subgraph(ge).copy(), want.edge_subgraph(xe).copy()
+
+    def rows(graph):
+        it = graph.edges(keys=True, data=True) if keys else graph.edges(data=True)
+        return [(str(a), str(b)) + tuple(rest) for a, b, *rest in it]
+
+    assert rows(cf) == rows(cx)
+    assert [str(z) for z in cf.nodes()] == [str(z) for z in cx.nodes()]
