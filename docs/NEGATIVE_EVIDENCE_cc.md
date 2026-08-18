@@ -23755,3 +23755,62 @@ decoration.
 
 loadavg 48 at both measurements, disk 68G. NO BUILD of mine ran for this row -
 the HEAD arm is the wheel from the 0.12s warm build recorded above, reused.
+
+## 2026-08-18 GoldenBison REJECT: I optimised a function that never runs for this shape (br-r37-c1-y2r2b)
+
+Tried the obvious Python half of the `edges(data=key)` gap. It is a no-op, and
+the COUNTED mechanism says why: the code I changed does not execute.
+
+WHAT I CHANGED. `EdgeDataView._materialize_data_as_key` projects `(u, v, attrs)`
+to `(u, v, attrs.get(key, default))` with a per-entry `len(entry)` test, an
+unpack, an `isinstance` and an `append`. The arity is fixed per graph, so I
+hoisted the branch above the loop into two comprehensions - textbook.
+
+COUNTED MECHANISM, two arms sharing HEAD's ELF (c0f918fe91aecf4b, asserted equal
+inside both processes), `list(G.edges(data="weight", default=1))` on 4000 edges,
+5 invocations, cProfile call counts:
+
+    arm                    total python calls    builtins.len calls
+    HEAD shim                        20137                    25
+    hoisted projection               20137                    25
+
+IDENTICAL - not "within noise", identical.
+
+ALLOCATIONS ARE UNCHANGED TOO, which is the counted mechanism this REJECT rests
+on: no work was removed. Same two arms, same request, three independent
+tracemalloc replicates of 5 reps each:
+
+    HEAD shim            allocations 321328 / 321112 / 321056 bytes   min 321056
+    hoisted projection   allocations 321328 / 321112 / 321056 bytes   min 321056
+
+Measured allocations were unchanged between the two arms - 321056 bytes in both,
+across three paired replicates - which is the counted proof that no work was
+removed. A change that removes real work cannot leave measured allocations
+identical, replicate for replicate.
+
+And `builtins.len` is called 25 times, five per invocation, not 20000. The per-entry `len(entry)` I removed was never
+being executed: `edges(data=key)` on a simple Graph does not reach
+`_materialize_data_as_key` at all. I optimised dead code for this shape, which is
+why the wall-clock arms also agreed (1.028ms vs 1.032ms, 0.4 percent).
+
+WHERE THE TIME ACTUALLY GOES, since the profile answers it: the ONLY per-edge
+Python work is `_gen` at __init__.py:812 - 20005 calls for 20000 edges, exactly
+one per edge. That is the FAIL-FAST MUTATION GUARD, a generator frame plus two
+`nodes_seq`/`edges_seq` reads per yielded edge, and it wraps every edge
+iteration. It is load-bearing: it is what raises `RuntimeError: dictionary
+changed size during iteration` in step with networkx.
+
+AND THE data=key DEFICIT IS NOT IN PYTHON AT ALL. `data=True` stands at 2.4560x
+against networkx and `data=key` at 0.9697x, yet both walk `_gen` once per edge
+with the same total call count. A difference that does not appear in the Python
+counts is native-side, so it cannot be closed in the shim - consistent with the
+simple `Graph` lacking `_native_edges_data_key` while the DIRECTED classes have
+it and route to it. That is the missing-native-sibling shape this ledger has now
+recorded five times this week, and it needs a build.
+
+REVERTED. 25 lines of extra code for zero counted work removed is not worth
+carrying, and the profile that proves it is worth more than the change was.
+
+loadavg 31.54/30.22/27.02, disk 64G, no build - both arms reuse the wheel from
+the earlier 0.12s warm build. The call counts are load-independent by
+construction, which is why the REJECT rests on them rather than on the timings.
