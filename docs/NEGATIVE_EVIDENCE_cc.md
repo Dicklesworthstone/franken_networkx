@@ -23075,3 +23075,77 @@ must be written, not borrowed from the twin.
 23 tests. loadavg 9.77/11.12/11.06, disk 27G, no cargo, no benchmarks - this row
 makes no timing claim, and the ~24ms figure it cites is quoted from the existing
 source comment, not re-measured.
+
+## 2026-08-18 GoldenBison FINDING + FIX: unweighted dict(G.degree()) walked every node in PYTHON on both multigraph classes (br-r37-c1-9iro1)
+
+Found with a NEW INSTRUMENT written this turn, committed as
+scripts/read_call_scaling_probe.py. No timing claim - the finding, the fix and
+the verification are all in CALL COUNTS, which is what made this possible at all
+under a build freeze on a host at loadavg 16.
+
+THE INSTRUMENT, and why it is not the probe already next to it.
+`batch_call_scaling_probe.py` asks whether a batch MUTATOR's per-call cost tracks
+node count, in microseconds. This one holds a small READ fixed - one degree, one
+edge lookup, a two-node subgraph - grows the PARENT, and counts Python-level
+calls. A complexity defect is a SHAPE, and a count shows the shape with no
+interval to argue about, does not move when a neighbour starts a build, and
+survives a benchmark ban.
+
+THE SWEEP. Twenty read operations across four classes, sizes 200 -> 800. Every
+row flat except the two known-inherent controls... and this:
+
+    class          200 nodes   800 nodes   ratio
+    Graph                 41          41    1.00   served natively
+    DiGraph               41          41    1.00   served natively
+    MultiGraph         12161       48161    3.96   walked in Python
+    MultiDiGraph       12161       48161    3.96   walked in Python
+
+THE CAUSE, read after the probe pointed at it. Both multigraph degree views route
+their WEIGHTED spellings to native accumulators, and the simple classes serve
+`dict(G.degree())` natively, but the UNWEIGHTED multigraph case fell through to
+
+    return ((node, self[node]) for node in self._iter_nodes())
+
+paying a Python frame, a `hash(node)` and a lookup per node. `_raw_base_view` -
+the native multigraph DegreeView, already constructed in `__init__` and already
+used by `__getitem__` for exactly this unweighted case - yields the same pairs.
+The fix is `return iter(self._raw_base_view)` under `_weight is None and _nodes
+is None`. Both multigraph rows now read 101 FLAT: the growth term is gone.
+
+THE DIRECTED SIBLING WAS FOUND BY THE PROBE, NOT BY READING, and that is the part
+worth carrying forward. Fixing MultiGraph left MultiDiGraph still at x3.96,
+because it is served by a SEPARATE view class with its own copy of the method.
+Re-running the probe surfaced it in one line. Reading the patched file would not
+have - I had already read it and moved on.
+
+VERIFIED: 48 view-cases compared pair-for-pair against networkx (four classes x
+six shapes x the degree/in_degree/out_degree views), 0 divergences, covering
+parallel edges, self-loops, isolated nodes, empty and single-node graphs. The
+weighted all-node, weighted nbunch, unweighted nbunch, subscript and len()
+spellings are asserted untouched, because the gate must not capture them.
+RE-ITERABILITY is asserted separately: the replacement returns an iterator over a
+live view rather than a generator, and a one-shot iterator would have passed
+every single-pass test in the file.
+
+FULL SUITE: 61419 passed, 45 failed, 39 errors - the SAME failure count AND the
+same per-file composition as the pre-change baseline (15 coverage_gaps, 9
+host_quiet_check, 4 verify_docs, 3 unused_raw_exposures, 2 shortest_path, 2
+perf_harness_exclusivity, then singles). Those are artefacts of running the
+relocated tree outside the checkout, unchanged by this work.
+
+TWO FALSE ALARMS OF MY OWN, both caught before they reached the ledger. My first
+parity sweep reported "SCALAR DIFF" on empty graphs for all four classes - it was
+comparing two distinct DegreeView OBJECTS with `!=`, because `degree('n0')` on an
+empty graph returns a view rather than a scalar. And the probe's own negative
+control fired on first run: `dict(G.degree())` read FLAT on the simple classes
+because that scan happens in RUST, where cProfile cannot see it. Rather than
+delete the control I made it the tool's worked example, labelled in the output as
+"flat (scan is NATIVE - not O(1))" - because a reader who takes flat to mean O(1)
+will be badly wrong, and the tool should say so itself.
+
+NOT MEASURED: the wall-clock effect. The probe reports Python-level calls, and
+the honest claim is that ~3 Python calls per node became ~0 with the growth term
+removed. At measurement, compare `dict(G.degree())` on MultiGraph and
+MultiDiGraph against networkx at several sizes with per-arm MHz.
+
+loadavg 16.39/14.76/13.08, disk 27G, no cargo, no benchmarks.

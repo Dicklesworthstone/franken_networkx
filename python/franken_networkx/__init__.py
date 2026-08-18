@@ -6690,6 +6690,26 @@ class MultiGraphDegreeView:
     def __iter__(self):
         # br-r37-c1-pejo5
         _degree_view_frozen_nodes_check(self)
+        # br-r37-c1-mgdegiter: the UNWEIGHTED all-node walk. Both weighted
+        # spellings below route to a native accumulator, and the simple classes
+        # serve `dict(G.degree())` natively too - but for a multigraph the
+        # unweighted case fell through to the per-node generator at the end of
+        # this method, paying a Python frame plus `hash(node)` plus a lookup FOR
+        # EVERY NODE. Found with scripts/read_call_scaling_probe.py: at 200->800
+        # nodes `dict(G.degree())` read 12161->48161 Python calls (x3.96) on
+        # MultiGraph and MultiDiGraph, against a flat 41 on Graph and DiGraph
+        # where the same request is served natively.
+        #
+        # `_raw_base_view` is that native multigraph DegreeView, already built in
+        # __init__. Iterating it directly is byte-equal to the generator it
+        # replaces AND to networkx: verified pair-for-pair on both classes over a
+        # fixture carrying parallel edges, a self-loop and an isolated node.
+        #
+        # Gated on `_weight is None` because that is exactly when `__getitem__`
+        # would have delegated to `_raw_base_view[node]` anyway; a weighted view
+        # must keep its own summation and is handled below.
+        if self._nodes is None and self._weight is None:
+            return iter(self._raw_base_view)
         # br-r37-c1-wdeg: weighted total degree over all nodes routes to the
         # native bulk accumulator, which reproduces nx's exact per-node
         # summation order and numeric type while avoiding the per-node
@@ -6819,6 +6839,23 @@ class MultiDiGraphDegreeView:
     def __iter__(self):
         # br-r37-c1-pejo5
         _degree_view_frozen_nodes_check(self)
+        # br-r37-c1-mgdegiter: the UNWEIGHTED all-node walk, directed sibling of
+        # the fix in MultiDegreeView.__iter__ above. Same defect, same cause: the
+        # weighted spellings route to a native accumulator and the simple classes
+        # serve `dict(G.degree())` natively, but the unweighted multigraph case
+        # fell through to the per-node generator at the end of this method - a
+        # Python frame plus `hash(node)` plus a lookup for EVERY node.
+        # scripts/read_call_scaling_probe.py read 12161->48161 Python calls across
+        # 200->800 nodes (x3.96) against a flat 41 on Graph and DiGraph.
+        #
+        # THIS SIBLING WAS FOUND BY THE PROBE, NOT BY READING: fixing MultiGraph
+        # alone left MultiDiGraph still scaling, because it is served by a
+        # SEPARATE view class with its own copy of this method. Iterating
+        # `_raw_base_view` is byte-equal to the generator it replaces and to
+        # networkx, verified pair-for-pair over parallel edges, a self-loop and an
+        # isolated node.
+        if self._nodes is None and self._weight is None:
+            return iter(self._raw_base_view)
         # br-r37-c1-wdeg: weighted total degree (in + out) over all nodes
         # routes to the native bulk accumulator (nx-exact succ-then-pred
         # summation order + numeric type), avoiding the per-node
