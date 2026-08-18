@@ -26418,6 +26418,75 @@ def flush_node_attrs_to_native_store(graph, nodes=None):
             graph.add_node(node, **dict(attrs))
 
 
+def flush_edge_attrs_to_native_store(graph, edges=None):
+    """Push Python-side EDGE attributes into the typed store native kernels read.
+
+    br-r37-c1-edge-attr-typed-store-pk1nb: the edge-side sibling of
+    br-r37-c1-303zo, and NOT the same defect. Edge attributes written after
+    `add_edges_from` never reach the typed store, and unlike the node side
+    `copy()` does NOT repair it:
+
+        edges at construction   nx 10   fnx 10.0   after copy() 10.0   ok
+        edges written after     nx 10   fnx  0.0   after copy()  0.0   DIVERGES
+
+    measured on `_fnx.min_cost_flow_cost` with the node demands attached through
+    `add_node` in BOTH arms, so the node-side gap is not the variable. The Python
+    view is identical either way, which is what makes it silent.
+
+    THE MECHANISM matches the node side: re-issuing `add_edge(u, v, **attrs)`
+    reaches the typed store. Verified 0.0 -> 10.0, and verified non-destructive on
+    all four classes -- edge count, endpoints, multigraph KEYS and attributes all
+    unchanged, because a multigraph re-issue passes the key explicitly and so
+    updates that edge rather than adding a parallel one.
+
+    IT TRIPS br-r37-c1-igdzi BY CONSTRUCTION, which is the reason it is not wired
+    in anywhere. The flush must READ each attr dict in order to re-issue it, and
+    handing out a live attr dict is exactly what marks the weighted store
+    permanently dirty. Coarse in-process observation, NOT a certified row (single
+    process, no per-arm MHz, taken under a build freeze): `size(weight)` on a
+    4000-edge path read 290 us clean, 2016 us after `edges(data=True)`, and
+    2471 us after a flush re-issue. So calling this repairs one store and disables
+    the other's fast path for the life of the graph.
+
+    That trade is real and unmeasured, so this lands as a tested primitive rather
+    than as a call from a write path. A caller who needs a native kernel to see
+    post-construction edge attributes can invoke it knowingly; wiring it is a
+    decision for a build window.
+
+    `edges` limits the flush to an iterable of `(u, v)` pairs, or `(u, v, key)` on
+    a multigraph. The default walks every edge. Edges with no attributes are
+    skipped, so a graph that never attached any pays only the walk.
+    """
+    multi = graph.is_multigraph()
+    if edges is None:
+        selected = (
+            list(graph.edges(keys=True, data=True))
+            if multi
+            else list(graph.edges(data=True))
+        )
+    elif multi:
+        selected = []
+        for item in edges:
+            if len(item) == 3:
+                u, v, key = item
+            else:
+                u, v = item
+                key = next(iter(graph[u][v]))
+            selected.append((u, v, key, graph[u][v][key]))
+    else:
+        selected = [(u, v, graph[u][v]) for u, v in edges]
+
+    for item in selected:
+        if multi:
+            u, v, key, attrs = item
+            if attrs:
+                graph.add_edge(u, v, key, **dict(attrs))
+        else:
+            u, v, attrs = item
+            if attrs:
+                graph.add_edge(u, v, **dict(attrs))
+
+
 def set_node_attributes(G, values, name=None):
     """_Set node attributes from a dictionary or scalar.
 
