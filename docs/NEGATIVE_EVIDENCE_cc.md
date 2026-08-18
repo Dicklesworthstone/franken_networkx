@@ -23930,3 +23930,60 @@ value read is unchanged, only the endpoint keys got cheaper.
 
 loadavg 65.51/53.38/37.02, run queue ~10 of 4846 threads at sample, disk 62G, no
 cargo. NO measurement in this row.
+
+## 2026-08-18 GoldenBison UNBUILT: the NBUNCH sibling of the Attr index walk (br-r37-c1-lecmc)
+
+NEVER COMPILED, NEVER TIMED - /data at 50G under the throttle with no cargo of any
+kind, and the host at loadavg 64-78 with a run queue reported at 101. No
+measurement is claimed anywhere in this row.
+
+Applying to my OWN change, one commit later, the rule this ledger keeps recording:
+fix the sibling. `62c1a52ac` gave the ALL-EDGES `Attr` / `AttrWithDefault` branch
+the index walk that `AllData` has had since br-r37-c1-2a00r. The `edges(nbunch,
+data=<key>)` branch is the same code with a node filter on it, and it still called
+`py_node_key` + `py_adj_key` per surviving edge - hashing each endpoint's full
+canonical name twice - while the `AllData` arm directly above it already reaches
+`edge_alldata_items` and its index walk. Left alone, the next reader measures one
+spelling, fixes it, and is surprised by the other.
+
+THE FILTER MOVED ONTO THE INDEXED NAMES, which is the only substantive difference
+from the all-edges version: `node_set.contains(nodes[u]) || node_set.contains(
+nodes[v])` is the same predicate on the same strings, without building a Python
+key object to reach them. Capacity is deliberately left to the Vec rather than
+`with_capacity(edge_count())` - a one-node nbunch on a large graph keeps very few
+edges, and pre-sizing to the whole edge list is exactly the shape
+br-r37-c1-124sk warns about on this call.
+
+Value semantics, the `adj_py_keys` gate and the absence of a cache are unchanged
+from the all-edges walk, for the reasons recorded there: the value still comes
+from `edge_attr_py_value`, this branch still yields a VALUE rather than a live
+attr dict and so still marks nothing dirty (br-r37-c1-igdzi), and no cache is
+added because an Attr request varies by key and default while
+`edges_alldata_cache` is keyed on generation alone.
+
+STATIC CHECKS, since rustc cannot see this: brace and paren deltas against HEAD
+are both ZERO, and the enclosing `let items: Vec<PyObject> = if matches!(...)`
+statement balances exactly - 17 braces open, 17 closed, parens 62/62. My first
+region check reported "unbalanced" and was a SLICE ARTIFACT: it started at the
+comment, inside the block, so it never saw the opener. Worth recording because
+the obvious reading of that output is a real defect.
+
+TESTS: 104 now, up from 72, PASSING TODAY against the old path. The added cases
+cover the nbunch spelling specifically - six nbunch shapes including an absent
+node, an isolated node, a self-loop-only node and the empty list, across three
+keys and two defaults - plus that the nbunch endpoints are the graph's OWN node
+objects. The filter now runs on indexed names, so a wrong index -> name mapping
+would change WHICH edges survive rather than merely their endpoint objects, and
+that is what these pin.
+
+ONE FAILURE IN THE BLAST RADIUS IS NOT MINE AND CANNOT BE: 12116 passed with
+`test_edges_nbunch_cost_scales_with_nbunch::test_whole_graph_call_is_not_the_expensive_one`
+failing. It is a TIMING assertion, the host is at run queue 101, and my change is
+UNBUILT - the running .so does not contain it. The other two failures
+(coverage_gaps, review_mode_goldens) are the established repo-path baseline.
+
+AT REBUILD: compile, keep this file at 104 passed, then measure both spellings -
+all-edges and nbunch - against the 0.9697x baseline in a quiet window with per-arm
+MHz, and re-run that nbunch timing test once the queue is sane.
+
+loadavg 64.08/63.26/45.48, disk 50G falling to 49G during the test run, no cargo.
