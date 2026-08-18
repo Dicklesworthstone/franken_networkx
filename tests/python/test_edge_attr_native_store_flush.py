@@ -143,3 +143,90 @@ def test_the_bug_is_still_there_without_the_flush():
         "post-construction edge attrs now reach the typed store — if the store "
         "was fixed, flush_edge_attrs_to_native_store is dead code"
     )
+
+
+# --- the census of EDGE-attr kernels ----------------------------------------
+#
+# Enumerated from the RUST side, which is the lesson br-r37-c1-303zo's audit
+# taught the hard way: the Python-side name is not a reliable index of what
+# exists (that audit nearly missed two kernels bound under a `_rust` suffix).
+# Grepping crates/fnx-algorithms for an edge-attr read with a default on miss
+# finds exactly two beyond min_cost_flow:
+#
+#     prim_raw_edge_weight  13376  .edge_attrs(u,v).get(w).as_f64().unwrap_or(1.0)
+#     find_negative_cycle   33113  .edge_attrs(u,v).get(w).as_f64().unwrap_or(1.0)
+#
+# Both are affected, and both are repaired by the flush.
+
+
+def _weighted_triangle(route, weights):
+    graph = fnx.Graph()
+    if route == "at_construction":
+        graph.add_edges_from(
+            [(u, v, {"weight": w}) for (u, v), w in weights.items()]
+        )
+        return graph
+    graph.add_edges_from(list(weights))
+    for (u, v), w in weights.items():
+        graph[u][v]["weight"] = w
+    return graph
+
+
+# a-b and b-c are cheap, a-c is expensive: the MST must avoid a-c. With every
+# weight defaulted to 1.0 the kernel cannot tell them apart and takes a-c.
+_MST_WEIGHTS = {("a", "b"): 1.0, ("b", "c"): 1.0, ("a", "c"): 10.0}
+_CORRECT_MST = [("a", "b"), ("b", "c")]
+_STALE_MST = [("a", "b"), ("a", "c")]
+
+# one genuinely negative edge: invisible if the weights are not seen.
+_NEG_WEIGHTS = {("a", "b"): -5.0, ("b", "c"): 1.0, ("a", "c"): 1.0}
+_CORRECT_CYCLE = ["a", "b", "a"]
+
+
+def _prim(graph):
+    edges = fnx._fnx.prim_spanning_edges(
+        graph, "weight", True, list(range(graph.number_of_nodes())), False
+    )
+    return sorted(tuple(sorted((u, v))) for u, v, *_ in edges)
+
+
+def test_prim_is_correct_when_edge_attrs_reach_the_store():
+    """The control."""
+    assert _prim(_weighted_triangle("at_construction", _MST_WEIGHTS)) == _CORRECT_MST
+
+
+def test_prim_takes_the_WRONG_edge_without_the_flush():
+    """Pins the defect: every weight defaults to 1.0, so the heavy edge is taken."""
+    assert _prim(_weighted_triangle("written_after", _MST_WEIGHTS)) == _STALE_MST, (
+        "prim no longer reads a stale edge store — if the store was fixed, "
+        "flush_edge_attrs_to_native_store is dead code for this kernel"
+    )
+
+
+def test_flush_repairs_prim():
+    graph = _weighted_triangle("written_after", _MST_WEIGHTS)
+    fnx.flush_edge_attrs_to_native_store(graph)
+    assert _prim(graph) == _CORRECT_MST
+
+
+def test_find_negative_cycle_is_correct_when_edge_attrs_reach_the_store():
+    """The control."""
+    graph = _weighted_triangle("at_construction", _NEG_WEIGHTS)
+    assert fnx._fnx.find_negative_cycle(graph, "a", "weight") == _CORRECT_CYCLE
+
+
+def test_find_negative_cycle_MISSES_the_cycle_without_the_flush():
+    """The negative edge defaults to 1.0, so the cycle vanishes entirely.
+
+    This one does not merely return a wrong number — it raises, claiming no
+    negative cycle exists on a graph that has one.
+    """
+    graph = _weighted_triangle("written_after", _NEG_WEIGHTS)
+    with pytest.raises(Exception, match="[Nn]o negative cycle"):
+        fnx._fnx.find_negative_cycle(graph, "a", "weight")
+
+
+def test_flush_repairs_find_negative_cycle():
+    graph = _weighted_triangle("written_after", _NEG_WEIGHTS)
+    fnx.flush_edge_attrs_to_native_store(graph)
+    assert fnx._fnx.find_negative_cycle(graph, "a", "weight") == _CORRECT_CYCLE
