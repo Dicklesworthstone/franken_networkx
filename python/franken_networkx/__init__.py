@@ -17808,6 +17808,12 @@ def _concrete_class_for(G):
     return Graph
 
 
+# br-r37-c1-coercefast: the exact concrete fnx classes, for the pass-through
+# check at the top of ``_coerce_arg_to_fnx_graph``. A frozenset of TYPES is
+# looked up by hash; the ``isinstance`` chain it precedes walks an MRO per call.
+_CONCRETE_FNX_GRAPH_TYPES = frozenset((Graph, DiGraph, MultiGraph, MultiDiGraph))
+
+
 def _coerce_arg_to_fnx_graph(G):
     """br-r37-c1-i2uub: coerce an nx.Graph-typed arg to the matching
     fnx graph class so PyO3-bound Rust operators (which strictly
@@ -17829,6 +17835,24 @@ def _coerce_arg_to_fnx_graph(G):
     to a concrete fnx graph (preserving only the view's visible
     nodes + edges + attrs) before crossing the Rust boundary.
     """
+    # br-r37-c1-coercefast: the overwhelmingly common argument is a graph that is
+    # ALREADY a concrete fnx class, and for it this function is a pass-through -
+    # but it reached that conclusion only after three failed `isinstance` view
+    # checks, each walking an MRO, and a fourth `isinstance` against a 4-tuple.
+    # This helper is called at the top of 244 public functions, so that is a
+    # per-call tax on essentially the whole API surface.
+    #
+    # An EXACT type check is safe here and an `isinstance` one would not be: the
+    # view classes below deliberately SUBCLASS the canonical fnx types (they are
+    # added as a second base for isinstance parity), which is exactly why they
+    # must be tested before the `isinstance` branch at the end. `type(G) in ...`
+    # cannot match a subclass, so a view can never take this path.
+    #
+    # Behaviour is unchanged for everything else, including a user subclass of
+    # fnx.Graph: it misses this check, finds all three view checks False, and
+    # reaches the same `isinstance` pass-through it does today.
+    if type(G) in _CONCRETE_FNX_GRAPH_TYPES:
+        return G
     if isinstance(G, _FilteredGraphView):
         return _materialize_filtered_view(G)
     # br-r37-c1-revview: _ReverseDirectedView and _ReverseMultiDirectedView

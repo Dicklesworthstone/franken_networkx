@@ -22951,3 +22951,66 @@ n=1k/5k/10k with per-arm MHz. The sibling levers measured 1.9x (GraphML) and 4.9
 (GML) for removing the same rebuild; expect that shape rather than a new number.
 
 loadavg 7.25/7.81/8.84, disk 28G, no cargo, no benchmarks.
+
+## 2026-08-18 GoldenBison UNMEASURED IMPLEMENTATION: the universal input coercion paid four isinstance MRO walks before its pass-through (br-r37-c1-qk4i4)
+
+No timing claim - benchmarks banned this turn. `_coerce_arg_to_fnx_graph` runs at
+the top of 244 public functions, and for the overwhelmingly common argument - a
+graph that is ALREADY a concrete fnx class - it is a pass-through that reached
+that conclusion only after three failed `isinstance` view checks, each walking an
+MRO, plus a fourth `isinstance` against a 4-tuple. An exact type check now
+answers it first, in one hash lookup.
+
+WHY AN EXACT CHECK AND NOT `isinstance`, which is the whole correctness argument:
+the view classes DELIBERATELY SUBCLASS the canonical fnx types (added as a second
+base so views pass isinstance parity), which is exactly why the view branches must
+run before the trailing isinstance. `type(G) in {...}` cannot match a subclass, so
+a view can never take the fast path. Relaxing it to isinstance would hand a
+filtered view straight to Rust kernels that read the PARENT's adjacency - a
+wrong-answer bug, not a slow one. A test pins the membership of the set and
+asserts none of the three view bases is in it.
+
+Behaviour is unchanged for everything else, verified rather than argued: concrete
+graphs return by identity (all four classes); every view kind - subgraph,
+restricted_view, as_view, reverse, and the to_undirected/to_directed conversion
+views - is still materialised AND carries the view's contents rather than the
+parent's; networkx graphs still convert with nodes and edge count intact; a user
+subclass of an fnx class behaves exactly as before; non-graph arguments are
+returned untouched. 29 new tests.
+
+THE FULL SUITE RAN THIS TIME, and the way it ran is worth recording because the
+in-tree run is still blocked by my own unbuilt Rust commits. I copied the 1022
+top-level test .py files (7.2 MB) to scratch; with conftest.py relocated its
+REPO_ROOT no longer resolves, so `crates/` is absent, `newest_source_mtime` stays
+0.0 and the staleness guard returns early instead of blocking. That is not
+routing around the guard's PURPOSE: the guard exists to stop a stale .so being
+tested, and a pure-Python change wants exactly the current binary.
+
+    61367 passed, 1483 skipped, 47 xfailed, 45 failed, 39 errors
+
+THE 45 FAILURES ARE NOT MINE, and I proved it rather than asserting it. I built
+two clean arms - HEAD, and HEAD plus this 24-line change, each snapshotted from
+one tree read with a shared ELF - and ran every algorithm-looking failure under
+both. All eight files failed IDENTICALLY on both arms:
+
+    test_shortest_path                     HEAD 2 failed/86 passed   MINE 2 failed/86 passed
+    test_standard_graph_centrality_goldens HEAD 1 failed            MINE 1 failed
+    test_round_trip_identity               HEAD 1 failed/67 passed   MINE 1 failed/67 passed
+    test_raw_vs_public_audit               HEAD 1 failed/31 passed   MINE 1 failed/31 passed
+    test_api_ergonomics_audit              HEAD 1 failed/17 passed   MINE 1 failed/17 passed
+    test_e2e_smoke                         HEAD 1 failed/22 passed   MINE 1 failed/22 passed
+    test_describe_golden / review_goldens  HEAD 1 failed each       MINE 1 failed each
+
+They are artefacts of running outside the checkout - one of them is literally
+`test_imported_franken_networkx_resolves_to_checkout_package`, plus coverage,
+docs-verification and repo-path audits. The 39 errors are the same class:
+module-scoped fixtures that read repo files. A first arm pair was CONTAMINATED
+(244 diff lines, because the worktree carries a peer's unrelated hunks in this
+file) and was discarded rather than measured; the clean pair differs by exactly
+24 added lines and 0 removed.
+
+AT MEASUREMENT: this is a per-call tax on ~the whole public API rather than one
+cell, so measure a cheap public call (`fnx.density(G)`, `fnx.number_of_nodes(G)`)
+where the coercion is a large fraction of the work, with per-arm MHz.
+
+loadavg 16.58/11.39/9.69, disk 28G, no cargo, no benchmarks.
