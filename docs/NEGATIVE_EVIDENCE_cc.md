@@ -23354,3 +23354,70 @@ untouched - only Graph was mapped, because only Graph exposes a dirty-gated
 kernel to probe with.
 
 loadavg 4.78/5.80/7.26, disk 27G, no cargo, no benchmarks.
+
+## 2026-08-18 GoldenBison SIBLING CENSUS: PyGraph was the OUTLIER — the multigraph classes already solved the neighbors row, better (br-r37-c1-3rtyk)
+
+Follow-up to yesterday's fix, run because my own census rule says to check the
+siblings of any change. It found that the design I reached for is one the
+multigraph classes have carried all along, in a stronger form.
+
+WHAT THE SIBLINGS DO. `PyMultiGraph::native_neighbors_iter` does not use the
+attr-bearing row builder at all. It calls `neighbor_key_row`, a `{neighbour:
+None}` row cached under `(nodes_seq, edges_seq)`, whose doc comment states the
+whole argument:
+
+    The row holds NO edge attributes on purpose. `neighbors` only ever iterates
+    keys, and materialising the `{key: attrs}` cell dicts that
+    `_native_successor_row_dict` builds would pay O(parallel edges) of PyO3 per
+    neighbour for values nothing reads.
+
+That is the same reasoning I arrived at from the store side, written down for the
+multigraph classes at br-r37-c1-bvwam. `neighbor_key_row` contains no
+`mark_edges_dirty` — verified across its whole span — so the multigraph classes
+never had this contamination in the first place. PyGraph reused the full
+attr-materialising row builder instead, and that is the entire defect.
+
+THIS VALIDATES THE FIX AND SUPERSEDES IT. Not marking is correct, and it is what
+I committed. But the sibling design is strictly better: a key-only row never
+materialises the attr dicts, so it saves O(degree) of PyO3 per call AND cannot
+contaminate, because nothing enters `edge_py_attrs` to contaminate WITH. My
+change stops the poisoning; the port would stop the work as well.
+
+WHY I HAVE NOT PORTED IT IN THE SAME BREATH, stated so it reads as a decision and
+not an omission. It would be a second unbuilt change to the same function, and
+whoever finally compiles this would have to untangle two overlapping edits to one
+code path with no compiler between them. `neighbor_key_row` carries its own
+generation-keyed cache; PyGraph's existing row is SHARED with `G[u]`, so a
+key-only row is not a drop-in — it is a new cache with its own invalidation, and
+that is not something to write blind on top of an already-unbuilt commit. The
+spec is now precise enough that it can be taken in one sitting once a build is
+possible, and it should supersede rather than stack on br-r37-c1-3rtyk.
+
+WHAT THE REMAINING CONTAMINANTS NEED, and one genuinely new fact that shrinks it.
+`G[u][v]`, `get_edge_data`, `edges[u,v]`, `adj[u][v]`, `list(G[u].items())` and
+`edges(data=True)` all really do hand a live dict to the caller, so they must stay
+conservative unless the flag becomes per-edge. My earlier note called for a new
+per-edge exposure set. THAT SET ALREADY EXISTS AND NEEDS NO NEW STATE:
+`materialize_edge_py_attrs` inserts into `edge_py_attrs` keyed by canonical
+endpoints, so an edge is in that map exactly when its live dict has been
+materialised. An edge is "exposed" iff `edge_py_attrs` holds it.
+
+Verified from Python that the mirror is authoritative where it exists: writing
+through a handed-out dict (`G[u][v]["w"] = 999`, never touching the graph API)
+moves `size(weight)` 55.0 -> 1053.0 and `degree(weight)` to 1009, identical to
+networkx. So a mirror-first / store-fallback read is correct per edge with no
+global flag at all - which is precisely what `PyMultiGraph::edge_weight_exact_f64`
+already does.
+
+THE OBSTACLE, named so the next attempt does not rediscover it:
+`_native_weighted_degree_int_values` loops over node/neighbour INDICES and reads
+`edge_attrs_by_indices(i, j)`, while `edge_py_attrs` is keyed by canonical
+STRINGS. A per-edge mirror check therefore needs an index-keyed mirror view;
+`edge_py_attrs_by_index` exists on the multigraph side, and whether the simple
+class has a usable twin is the first thing to check. I did not restructure that
+kernel blind: `edges_dirty` has 73 mark sites whose meanings are mixed - some
+exposure, some mutation - and a one-line relaxation of its gate cannot be shown
+sound by reading alone.
+
+loadavg 5.83/8.30/8.02, disk 27G, no cargo, no benchmarks. No timing claim: the
+55.0 -> 1053.0 figures are correctness observations, not measurements.
