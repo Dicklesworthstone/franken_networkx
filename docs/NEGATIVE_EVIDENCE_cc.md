@@ -22836,3 +22836,60 @@ fixture still produces the edge.
 
 loadavg 9.84/10.90/10.28, disk 29G, no cargo, no benchmarks - this row makes no
 timing claim.
+
+## 2026-08-18 GoldenBison UNMEASURED IMPLEMENTATION: multigraph write_edgelist stopped converting the whole graph through _to_nx (br-r37-c1-ton6l)
+
+No timing claim. The conversion removal was MEASURED for the simple classes by
+br-r37-c1-04z53.9187 - 570.136ms to 30.158ms on a real n=10k ca-AstroPh export,
+where serialisation was 52.469 percent of the summed wall clock. This row extends
+that fix to the two classes it excluded and establishes only that the cheaper
+route emits networkx's exact bytes. The multigraph ratio has not been measured
+(build freeze, 29G, no benchmarks).
+
+THE GAP. That lever left `not G.is_multigraph()` on the OUTER gate of
+`write_edgelist`, so every multigraph export still paid a whole-graph `_to_nx(G)`
+conversion to produce output networkx writes from a plain loop. nx's writer is
+that loop for EVERY class:
+
+    for line in generate_edgelist(G, delimiter, data):
+        path.write((line + "\n").encode(encoding))
+
+so the conversion buys nothing for multigraphs either. This is the same
+partially-applied-fix shape as the weighted-degree float family earlier today: a
+lever landed for the classes the author was measuring and the siblings kept the
+old path, with nothing failing because the old path is CORRECT, only slow.
+
+WHY IT IS SAFE, verified before the gate moved: fnx's `generate_edgelist` is
+byte-identical to networkx's for the multigraph classes - 96 combinations of
+class x data-spelling x delimiter, and as WRITTEN BYTES for both bool spellings.
+That check is what turned up br-r37-c1-5xl85, the missing-key divergence fixed in
+the commit before this one; the byte-identity claim is only true BECAUSE that
+went first, which is the order these two commits must be read in.
+
+THE NATIVE RUST WRITER STAYS SIMPLE-GRAPH-ONLY. It has no parallel-edge key
+handling and this change does not ask it to grow one - the class check moved from
+the outer gate onto that branch, rather than being deleted.
+
+VERIFIED, all byte comparisons of written output rather than line lists: 80
+combinations across four classes x bool and key-list data x file-object and path
+forms x non-default delimiter/encoding/comments, 0 divergences. A new test file
+adds 33 cases, and the readwrite/edgelist suite plus every `generate_edgelist`
+consumer (including `bipartite.write_edgelist`) passes at 411.
+
+A TEST OF MINE PASSED VACUOUSLY AND I CAUGHT IT ON THE CONTROL. I asserted the
+native writer is never reached for a multigraph, using a string-labelled fixture.
+The control - the same assertion inverted for a simple Graph - FAILED, which is
+how I learned the native writer only fires for INT-labelled graphs carrying at
+most one attribute per edge. A string-labelled fixture bails it for unrelated
+reasons, so my multigraph assertion would have held no matter what the gate said.
+Both now use the int-labelled single-attribute shape, so the pair differs only in
+graph CLASS. Without the control the vacuous test would have shipped looking
+green. This is the second time today a test of mine passed for the wrong reason;
+both were caught by an assertion that had to fail.
+
+AT MEASUREMENT, whenever the volume frees: compare multigraph
+write_edgelist(data=False) and (data=True) at n=1k/5k/10k against networkx with
+per-arm MHz, expecting the same shape as the simple-class result rather than a
+new number.
+
+loadavg 9.84/10.90/10.28, disk 29G, no cargo, no benchmarks.

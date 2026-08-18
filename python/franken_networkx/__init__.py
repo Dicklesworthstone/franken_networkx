@@ -25568,16 +25568,11 @@ def _write_adjlist_generate_fast(G, path, comments, delimiter, encoding):
 def write_edgelist(G, path, comments="#", delimiter=" ", data=True, encoding="utf-8"):
     """Write a graph as a list of edges.
 
-    The default simple-graph surface uses either the Rust-native writer or the
-    exact local generate/write loop. Multigraphs and non-default formatting
-    kwargs delegate to NetworkX so their public semantics remain exact.
+    The default surface uses either the Rust-native writer (simple graphs) or the
+    exact local generate/write loop. Non-default formatting kwargs and non-bool
+    ``data`` delegate to NetworkX so their public semantics remain exact.
     """
-    if (
-        comments == "#"
-        and delimiter == " "
-        and encoding == "utf-8"
-        and not G.is_multigraph()
-    ):
+    if comments == "#" and delimiter == " " and encoding == "utf-8":
         if data is False:
             # br-r37-c1-04z53.9187: omitting attrs needs only the exact local
             # generate/write loop; converting the whole graph through `_to_nx`
@@ -25592,9 +25587,29 @@ def write_edgelist(G, path, comments="#", delimiter=" ", data=True, encoding="ut
                 data=data,
                 encoding=encoding,
             )
-        if _edgelist_native_writer_preserves_node_labels(
-            G
-        ) and not _edgelist_has_multiattr_edge(G):
+        # br-r37-c1-ton6l: the multigraph half of br-r37-c1-04z53.9187.
+        # That lever removed the `_to_nx(G)` conversion for SIMPLE graphs only -
+        # 570.136ms to 30.158ms on a real n=10k export - and left
+        # `not G.is_multigraph()` on the outer gate, so every multigraph export
+        # still paid the whole-graph conversion for output networkx produces from
+        # a plain loop. nx's `write_edgelist` is that loop for EVERY class:
+        #
+        #     for line in generate_edgelist(G, delimiter, data):
+        #         path.write((line + "\n").encode(encoding))
+        #
+        # and fnx's `generate_edgelist` is byte-identical to networkx's for the
+        # multigraph classes - verified over 96 class x data-spelling x delimiter
+        # combinations, and as WRITTEN BYTES for both bool spellings, after
+        # br-r37-c1-5xl85 fixed the missing-key divergence found doing exactly
+        # this check. So the conversion buys nothing here either.
+        #
+        # The NATIVE writer stays simple-graph-only: it has no parallel-edge key
+        # handling, and nothing about this change asks it to grow one.
+        if (
+            not G.is_multigraph()
+            and _edgelist_native_writer_preserves_node_labels(G)
+            and not _edgelist_has_multiattr_edge(G)
+        ):
             return _rust_write_edgelist(G, path)
         # br-cc-wredge-genfast: default-args string/tuple-node OR multi-attr graphs
         # no longer pay the _to_nx(G) conversion in _write_edgelist_via_nx (and no
