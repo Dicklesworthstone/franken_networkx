@@ -50515,6 +50515,34 @@ def _materialize_attrs_before_convert(method):
     @_functools.wraps(method)
     def wrapped(self, *args, **kwargs):
         result = method(self, *args, **kwargs)
+        # br-r37-c1-hgmnp: ``as_view=True`` returns a LIVE view, and the guard
+        # below is a copy-path guard - it exists because the NATIVE conversion
+        # walks a lazy edge mirror that can miss attrs on a freshly batch-built
+        # graph. A view copies nothing, so there is no copy to drop attrs from;
+        # it answers every query by reading through ``self`` on the public
+        # display-key path, which is the very path that syncs the mirror.
+        #
+        # Worse, the probe cannot even MEASURE a view. The conversion-view
+        # classes hold an EMPTY Rust base on purpose (br-r37-c1-y2b8t), so
+        # ``graph_has_any_edge_attrs(result)`` reads that empty base and returns
+        # False on every attributed graph - the guard then materialises the
+        # source O(E) and redoes the conversion, on EVERY call, for a result
+        # that was never wrong. That made a documented O(1) view O(E):
+        # 0.156x of networkx at 400 edges decaying to 0.018x at 6400, against a
+        # flat ~7us nx, while the ``reverse(copy=False)`` sibling stayed flat.
+        #
+        # Test the RESULT, not the arguments. Reading ``as_view`` off the call
+        # is a trap: ``DiGraph.to_undirected`` is
+        # ``(self, reciprocal=False, as_view=False)``, so its first positional
+        # is ``reciprocal`` - and networkx agrees, ``to_undirected(True)`` on a
+        # directed path graph yields ZERO edges in both libraries. A positional
+        # ``args[0]`` fallback would have skipped this guard for a genuine COPY
+        # whenever a caller passed ``reciprocal`` positionally, which is exactly
+        # the silent attr loss the guard exists to prevent. The result type
+        # cannot be fooled by a signature, and it is the honest predicate: what
+        # matters is that a live view came back, not how it was asked for.
+        if isinstance(result, _ConversionGraphViewBase):
+            return result
         if self.number_of_edges() and _fnx.graph_has_any_attrs(self):
             # br-r37-c1-todirprobe (cc): the old probe materialised the WHOLE result
             # EdgeView (`result.edges(data=True)`, ~28% of to_directed/to_undirected
