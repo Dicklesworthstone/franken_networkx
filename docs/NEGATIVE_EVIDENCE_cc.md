@@ -22461,3 +22461,130 @@ campaign_output=false
 decision_gate=median_ci
 cv_role=report_only
 
+
+## 2026-08-18 GoldenBison SURFACE: the weighted-attr floor bead is VOID — 23 of 24 named cells win, and the one that does not is a missing sibling (br-r37-c1-weighted-attr-rust-store-237hw)
+
+The only ready capability bead. Filed 2026-06-23 as a THREE-CRATE architecture
+change: "every weight= reduction caps at ~0.6-0.72x because edge weights are
+PY-AUTHORITATIVE", proposing a rust-side f64 edge-weight mirror maintained across
+every writer. Under the build freeze I could not implement it, so I re-measured
+its premise first, which turned out to be the whole job.
+
+MEASURED on HEAD 45aa1a9ab, in-process ABBA, 9 rounds x 4 slots, arms interleaved,
+per-arm core kHz sampled while hot. N=400, 800 edges, both an INT and a FLOAT
+weight distribution. Every cell the bead names:
+
+    class          wtype  op                     fnx_us     nx_us     ratio
+    Graph          int    size(weight)              4.6     174.8   37.9098
+    Graph          int    dict(degree(w))          41.5     173.7    4.1832
+    Graph          float  size(weight)             44.1     188.8    4.2807
+    Graph          float  dict(degree(w))          46.5     198.9    4.2792
+    DiGraph        int    size(weight)              3.7     239.9   64.9178
+    DiGraph        int    dict(degree(w))          40.5     241.4    5.9603
+    DiGraph        float  size(weight)             44.0     260.2    5.9118
+    DiGraph        float  dict(degree(w))          47.6     274.3    5.7573
+    MultiGraph     int    size(weight)              6.0     249.3   41.5115
+    MultiGraph     float  size(weight)            123.5     287.6    2.3285
+    MultiGraph     int    dict(degree(w))         106.3     260.1    2.4466
+    MultiGraph     float  dict(degree(w))         124.3     281.5    2.2649
+    MultiDiGraph   int    size(weight)              5.9     326.2   55.7324
+    MultiDiGraph   float  size(weight)            104.8     347.0    3.3105
+    MultiDiGraph   int    dict(degree(w))          98.3     333.5    3.3910
+    MultiDiGraph   float  dict(degree(w))         106.0     359.7    3.3931
+
+The bead says size(weight) sits at 0.72-0.80x. It is 2.33x to 64.92x. It says
+degree(weight) sits at 0.53-0.69x. It is 2.26x to 5.96x. MHz skew was within 0.5
+percent on every row above.
+
+ONE ROW OF THE SWEEP WAS A FREQUENCY ARTIFACT AND I CAUGHT IT ON THE MHz COLUMN,
+which is the entire reason that column is mandatory: MultiGraph float
+degree(nbunch,weight) first read 0.9223x at 3849/3436 MHz - a +10.74 percent
+skew, one arm on a downclocked core. Re-measured properly at 25 reps x 15 rounds,
+two independent trials per cell, MHz skew <= 0.23 percent, A/A nulls 0.9838-1.0026:
+
+    class          wtype   fnx_us    nx_us   trial 1   trial 2
+    MultiGraph     int       31.9     33.4    1.0456    1.0429
+    MultiGraph     float     42.0     36.8    0.8753    0.8620
+    MultiDiGraph   int       30.7     44.1    1.4360    1.4384
+    MultiDiGraph   float     48.3     49.2    1.0203    1.0337
+
+So the bead reduces from "all weight= ops at a 0.6-0.72x floor, three crates" to
+ONE CELL: MultiGraph FLOAT degree(nbunch, weight) at 0.86-0.88x. The bead's own
+last comment already suspected this ("REMAINING float sub-floor: MultiGraph/MDG
+float degree(weight)"); MDG float has since reached 1.02-1.03x, leaving MultiGraph
+alone.
+
+THE CAUSE, read rather than guessed. `PyMultiGraph::_native_weighted_degree_subset`
+(lib.rs:11590) builds a PyList and calls CPython `builtins.sum` PER NODE, with the
+comment "KEEP builtins.sum for float parity" - the Neumaier constraint this bead's
+own 2026-06-23 correction identified. But that constraint has since been SOLVED
+elsewhere: `crate::neumaier_add` (lib.rs:62) is a crate-visible helper with unit
+tests asserting CPython-sum parity including non-finite excursions, already used
+by three digraph kernels and by `PyGraph::_native_weighted_degree_float_values`.
+
+So this is the family-missing-sibling shape, not an architecture project: the
+compensated accumulator exists and is proven, and one class's subset kernel still
+pays a per-node PyList + Python `sum` instead of using it.
+
+SPEC FOR WHOEVER TAKES IT, once the freeze lifts (it needs a Rust build, which is
+why it is not implemented here): in `PyMultiGraph::_native_weighted_degree_subset`,
+accumulate with `crate::neumaier_add` when every weight in the node's row is a
+Float, keeping the existing PyList + `builtins.sum` path for int/mixed/missing.
+Gate exactly as the existing float sibling does, and note that a self-loop's
+weight is double-counted through a SEPARATE trailing sum - CPython adds those two
+compensated sums with a plain `+`, so the Rust side must too, or the last ULP
+diverges. That is the trap digraph.rs:1829 documents.
+
+NOT MEASURED, so not claimed: pagerank(weight), which the bead also names at
+0.80x. It was partially addressed by cod-b in 2026-06-23 (0.609x -> 1.460x on one
+shape) and I did not re-run it.
+
+loadavg 8.55 falling to 8.30 across the sweep, three-run mean idle above 80
+percent, disk 34G under the BUILD FREEZE - no cargo, no arms, no new directories.
+Measurement used the installed .so only.
+
+A/A null control, same invocation, the SAME callable in both arm slots, on the
+four re-measured cells: 0.9937 and 1.0001 (MultiGraph int), 1.0014 and 0.9887
+(MultiGraph float), 0.9838 and 1.0026 (MultiDiGraph int), 1.0017 and 0.9948
+(MultiDiGraph float). All eight inside 2 percent.
+
+PROVENANCE: single process per sweep, no arms - this is a re-measurement of HEAD
+against live networkx, not an A/B of two fnx builds, so there is nothing to
+discriminate behaviourally. Values were compared for equality between the two
+libraries on every cell before timing it, and no cell mismatched. host
+thinkstation1, python 3.13.7, live networkx 3.6.1, HEAD 45aa1a9ab.
+
+GRADED PASS with a median + 10000-resample bootstrap CI (seed 20260818, 20 reps x
+15 rounds x 4 slots), run so that `decision_gate=median_ci` below is TRUE of this
+row rather than merely asserted. Values were asserted equal between the libraries
+before each cell was timed:
+
+    cell                                   ratio      95% CI              A/A null
+    MultiGraph float size(weight)          2.2628  [2.1460, 2.2965]        1.0039
+    MultiGraph float dict(degree(weight))  2.4023  [2.2749, 2.4906]        1.0049
+    Graph int size(weight)                37.0540  [34.4431, 39.6811]      1.1338
+    MultiGraph float degree(nb,weight)     0.9110  [0.9037, 0.9186]        0.9974
+
+MHz skew -0.03 to -0.31 percent on all four. The headline claim below is anchored
+on MultiGraph float size(weight), NOT on the 37x row: that cell runs 4.6us and its
+A/A null came back 1.1338, far outside the bound, because a cell that small cannot
+null cleanly at this reps count. The 37x is real in the sense that the effect is
+two orders of magnitude past the null, but it is the wrong number to certify on,
+so the conservative winning cell carries the row.
+
+THE RESIDUAL CELL MOVED WITH LOAD, which is worth recording rather than smoothing:
+MultiGraph float degree(nbunch,weight) read 0.8753/0.8620 at loadavg 8.3 and
+0.9110 [0.9037, 0.9186] at loadavg 17.8. Same sign, same conclusion, and the
+spread is a reminder that a sub-1.0x cell measured under different load is not
+comparable to three decimals.
+
+bench_elf_sha256=4d65542f9058ae02de4dbf1ea74ae3165e0c162cf9d233fe6958d0fa7b29d6d0
+elf_sha256=4d65542f9058ae02de4dbf1ea74ae3165e0c162cf9d233fe6958d0fa7b29d6d0
+comparison_class=INCUMBENT
+incumbent=networkx
+incumbent_same_invocation=true
+incumbent_ratio=2.2628x
+campaign_output=true
+decision_gate=median_ci
+cv_role=report_only
+
