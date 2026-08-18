@@ -23863,3 +23863,70 @@ one no-op and retracted two findings, is not.
 
 No measurement in this row beyond the counts already banked above. loadavg
 19.39/23.64/24.98, disk 63G, no build.
+
+## 2026-08-18 GoldenBison UNBUILT IMPLEMENTATION: the all-edges Attr branch now walks by index, like AllData already did (br-r37-c1-lecmc)
+
+NEVER COMPILED - /data at 62G under a no-cargo throttle, and the host is at
+loadavg 65-81 with a run queue near 90, so nothing here could be built OR timed.
+No measurement is claimed. This is the change the correction row above pointed at.
+
+THE ASYMMETRY, established over the previous two rows. The all-edges EdgeView
+materialisation splits on the parsed data mode. `AllData` walks by node INDEX -
+`edge_alldata_items` builds the index -> Python-key vector ONCE
+(br-r37-c1-2a00r) - and is additionally served whole from `edges_alldata_cache`.
+The data-bearing `Attr` / `AttrWithDefault` branch instead called `py_node_key` +
+`py_adj_key` PER EDGE, hashing each endpoint's full canonical name twice per
+edge; a node of degree d is hashed about d times across its incident edges. That
+is the entire measured gap: `edges(data=True)` 2.4560x against networkx,
+`edges(data=key)` 0.9697x, with IDENTICAL Python call counts for both spellings.
+
+WHAT I WROTE. The same index walk for that branch: build `nodes_ordered()` and
+the key vector once, walk `edges_ordered_indices()`, index the vector for both
+endpoints. Gated on `adj_py_keys.is_empty()` for exactly the reason
+`edge_alldata_items` is - with non-uniform adjacency-row key objects
+(br-r37-c1-z6uka) a neighbour's display object can differ from the node's own key
+and only `py_adj_key` knows that - and falling through to the untouched per-edge
+path otherwise.
+
+TWO THINGS DELIBERATELY NOT DONE. The VALUE still comes from
+`edge_attr_py_value`, so the mirror-first / store-fallback semantics are
+unchanged and this branch keeps yielding a VALUE rather than a live attr dict -
+it marks nothing dirty, unlike `AllData` (br-r37-c1-igdzi). And NO CACHE is
+added: `edges_alldata_cache` is keyed on (nodes_seq, edges_seq) alone, while an
+Attr request also varies by attribute name and default, so sharing an entry would
+serve one key's values for another key's request. That cache's own comment names
+this as a wrong-answer class no mutation test can catch, because the generation
+never moves.
+
+A COMPILE ERROR CAUGHT BY STATIC REVIEW, before it was committed. My first draft
+ended the fast path with `return Ok((items, node_count, nodes_seq))`. The
+enclosing function is `__iter__ -> PyResult<Py<NodeViewIterator>>` and the tuple
+is bound by a `let (items, node_count, nodes_seq) = match ...` - so that `return`
+would have returned a tuple from a function declared to return an iterator, and
+would not have compiled. Rewritten as an expression feeding the same `let`.
+
+STATIC CHECKS IN PLACE OF A COMPILER: brace and paren deltas against HEAD are
+both ZERO and the inserted region is independently balanced; every symbol used
+(`nodes_ordered`, `edges_ordered_indices`, `py_node_key`, `edge_attr_py_value`,
+`tuple_object`, `adj_py_keys`) already appears either in this same function or in
+`edge_alldata_items`; and every call I make takes `&self`, which is why holding
+`nodes: Vec<&str>` borrowed from `g.inner` across them is sound - that is exactly
+what forced `edge_alldata_items` to field-split PyGraph, and this path avoids the
+problem by never touching the `&mut` materialise route.
+
+TESTS: 72, committed, PASSING TODAY against the old path. They pin the contract
+rather than the speed - values and order against networkx across four classes,
+three keys and four defaults; that the endpoints are the graph's OWN node objects
+rather than copies, which is precisely what the `key_vec[u]` handout could
+regress and nothing else would notice; non-string and tuple node keys, where a
+wrong index -> name mapping would silently pair the wrong endpoints; and that
+`data=True` still hands out the LIVE dict while `data=key` still yields a plain
+value, which is the semantic difference the change must preserve.
+
+AT REBUILD: compile first, then this file must stay at 72 passed, then measure
+`edges(data=key)` against the 0.9697x baseline in a quiet window with per-arm
+MHz. Expect it to approach `data=True`'s 2.4560x rather than exceed it - the
+value read is unchanged, only the endpoint keys got cheaper.
+
+loadavg 65.51/53.38/37.02, run queue ~10 of 4846 threads at sample, disk 62G, no
+cargo. NO measurement in this row.

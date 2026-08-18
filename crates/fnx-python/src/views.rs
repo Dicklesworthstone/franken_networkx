@@ -1010,7 +1010,74 @@ impl EdgeView {
                 let node_count = g.inner.node_count();
                 let nodes_seq = g.nodes_seq;
                 // br-r37-c1-eqedg: use edges_ordered_borrowed to avoid string cloning in Rust
-                let items: Vec<PyObject> = g
+                // br-r37-c1-lecmc: INDEX WALK for the all-edges data-bearing
+                // branch - the lever `edge_alldata_items` carries at
+                // br-r37-c1-2a00r, which this branch never received.
+                //
+                // `py_node_key` + `py_adj_key` hash each endpoint's full
+                // canonical name, twice per edge, on every call; a node of
+                // degree d is hashed ~d times across its incident edges.
+                // AllData stopped doing that by building the node-index ->
+                // Python-key Vec ONCE and walking `edges_ordered_indices()`.
+                // That is the measured asymmetry: `edges(data=True)` stands at
+                // 2.4560x against networkx while `edges(data=<key>)` sits at
+                // 0.9697x, with IDENTICAL Python-level call counts for the two
+                // spellings (20137 either way), so the difference is here.
+                //
+                // The VALUE path is deliberately untouched: `edge_attr_py_value`
+                // keeps its mirror-first / store-fallback semantics, and this
+                // branch still yields a VALUE rather than a live attr dict, so
+                // unlike AllData it marks nothing dirty (br-r37-c1-igdzi). Only
+                // the endpoint keys get cheaper.
+                //
+                // Gated on `adj_py_keys.is_empty()` for the same reason
+                // `edge_alldata_items` is: with non-uniform adjacency-row key
+                // objects (br-r37-c1-z6uka) a neighbour's display object can
+                // differ from the node's own key and only `py_adj_key` knows it.
+                // Non-empty falls through to the original per-edge path below.
+                //
+                // NO CACHE IS ADDED. `edges_alldata_cache` is keyed on
+                // (nodes_seq, edges_seq) alone; an Attr request also varies by
+                // attribute name and default, so sharing an entry would serve
+                // one key's values for another key's request - the wrong-answer
+                // class that cache's own comment warns about, invisible to
+                // mutation tests because the generation never moves.
+                let index_walk: Option<Vec<PyObject>> = if g.adj_py_keys.is_empty() {
+                    let nodes: Vec<&str> = g.inner.nodes_ordered();
+                    let key_vec: Vec<PyObject> =
+                        nodes.iter().map(|n| g.py_node_key(py, n)).collect();
+                    let mut built: Vec<PyObject> = Vec::with_capacity(g.inner.edge_count());
+                    for (u, v) in g.inner.edges_ordered_indices() {
+                        let left = nodes[u];
+                        let right = nodes[v];
+                        let py_u = key_vec[u].clone_ref(py);
+                        let py_v = key_vec[v].clone_ref(py);
+                        let tuple = match &self.data {
+                            NodeViewData::NoData => tuple_object(py, &[py_u, py_v])?,
+                            NodeViewData::Attr(attr_name) => {
+                                let val = g
+                                    .edge_attr_py_value(py, left, right, attr_name)?
+                                    .unwrap_or_else(|| py.None());
+                                tuple_object(py, &[py_u, py_v, val])?
+                            }
+                            NodeViewData::AttrWithDefault(attr_name, def_val) => {
+                                let val = g
+                                    .edge_attr_py_value(py, left, right, attr_name)?
+                                    .unwrap_or_else(|| def_val.clone_ref(py));
+                                tuple_object(py, &[py_u, py_v, val])?
+                            }
+                            NodeViewData::AllData => unreachable!(),
+                        };
+                        built.push(tuple);
+                    }
+                    Some(built)
+                } else {
+                    None
+                };
+                let items: Vec<PyObject> = if let Some(built) = index_walk {
+                    built
+                } else {
+                    g
                     .inner
                     .edges_ordered_borrowed()
                     .into_iter()
@@ -1039,7 +1106,8 @@ impl EdgeView {
                             NodeViewData::AllData => unreachable!(),
                         }
                     })
-                    .collect::<PyResult<Vec<_>>>()?;
+                    .collect::<PyResult<Vec<_>>>()?
+                };
                 (items, node_count, nodes_seq)
             }
         };
