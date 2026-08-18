@@ -23814,3 +23814,52 @@ carrying, and the profile that proves it is worth more than the change was.
 loadavg 31.54/30.22/27.02, disk 64G, no build - both arms reuse the wheel from
 the earlier 0.12s warm build. The call counts are load-independent by
 construction, which is why the REJECT rests on them rather than on the timings.
+
+## 2026-08-18 GoldenBison CORRECTION: the data=key native is NOT missing — it exists and takes the unoptimised branch (br-r37-c1-y2r2b)
+
+Third correction in a day of them, and this one retracts a claim I made twice in
+this ledger: that the simple `Graph` LACKS a native for `edges(data=<key>)` and
+that the fix is a missing sibling port from the directed classes. Both statements
+are wrong.
+
+HOW I GOT THERE. `hasattr(g, "_native_edges_data_key")` is False on a simple
+Graph and True on a DiGraph, so I concluded the undirected path had no native.
+The symbol is genuinely absent - but it is not the path. The undirected
+`edges(data="weight")` is served by the EdgeView's OWN Rust `__call__`, which
+parses `data` into `NodeViewData::{NoData, AllData, Attr, AttrWithDefault}` and
+handles a string key natively. `_materialize` only delegates to
+`_materialize_data_as_key` for NON-string keys (callables, ints, tuples), which
+is exactly why my instrumentation showed that function never running.
+
+WHERE THE GAP ACTUALLY IS, and it is one branch, not a missing kernel. In
+`views.rs` the EdgeView materialisation splits on the parsed mode:
+
+    NodeViewData::AllData  -> edge_alldata_items(...)      one-pass, br-r37-c1-2zudj
+    everything else        -> edges_ordered_borrowed() ... generic per-edge route
+
+`AllData` received a one-pass field-split materialisation and `Attr` never did.
+That is the same partially-applied-fix shape this ledger keeps recording, but
+INSIDE a native rather than as an absent symbol - which is precisely why a
+`hasattr` probe could not see it and why I misread it twice.
+
+IT LINES UP WITH THE MEASUREMENTS. On HEAD, `edges(data=True)` is 2.4560x against
+networkx and `edges(data=key)` is 0.9697x, while the Python call counts are
+IDENTICAL for both spellings (20137, one `_gen` guard frame per edge). A
+difference that is invisible in Python and tracks exactly the AllData/Attr branch
+split is that branch split.
+
+ONE THING THE SLOW BRANCH DOES BETTER, worth keeping when it is fixed:
+`edge_alldata_items` calls `mark_edges_dirty()` - it hands out live attr dicts,
+so it must - while the Attr branch yields VALUES and marks nothing. The directed
+kernel's own doc makes the same point. So `data=key` is currently slower AND
+cleaner, and a one-pass Attr materialisation should keep the value semantics
+rather than borrowing AllData's dict handout.
+
+NOT WRITTEN. This needs Rust and /data is at 63G under a no-cargo throttle, so a
+change here could be neither compiled nor measured. Recording the exact branch
+and the reason a `hasattr` probe misses it is what makes the next build window
+productive; writing a one-pass Attr path blind, on the day I have already shipped
+one no-op and retracted two findings, is not.
+
+No measurement in this row beyond the counts already banked above. loadavg
+19.39/23.64/24.98, disk 63G, no build.
