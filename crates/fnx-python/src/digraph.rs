@@ -1006,6 +1006,12 @@ impl PyMultiDiGraph {
 
         let one = 1i64.into_pyobject(py)?.into_any();
         let sum_fn = py.import("builtins")?.getattr("sum")?;
+        // br-r37-c1-mdgwdegsubf: same authority split the ALL-NODE weighted degree
+        // paths use (`_native_weighted_degree` and
+        // `native_weighted_directional_degree`). Store-backed reads cover
+        // bulk-built graphs, whose live mirror is empty; a dirty graph has pending
+        // mirror edits, so the PyObject twin is the correct reader there.
+        let store_clean = !self.edges_dirty.load(Ordering::Relaxed);
         let mut out: Vec<(PyObject, PyObject)> = Vec::new();
         for item in nbunch.try_iter()? {
             let node = item?;
@@ -1020,6 +1026,59 @@ impl PyMultiDiGraph {
             }
             let canonical = node_key_to_string(py, &node)?;
             if !self.inner.has_node(&canonical) {
+                continue;
+            }
+            // br-r37-c1-mdgwdegsubf: the FLOAT fast path this kernel was missing,
+            // for all THREE spellings it serves (degree / out_degree / in_degree
+            // with an nbunch). The int sibling above is all-or-nothing over the
+            // whole nbunch, so one float weight anywhere sent every node to the
+            // per-node PyList + `builtins.sum` below. Measured 1.0203/1.0337
+            // against networkx for MultiDiGraph float degree(nbunch, weight) while
+            // the INT spelling of the same call ran 1.4360/1.4384 - the gap is the
+            // missing path, not the class.
+            //
+            // Nothing new is computed. These are the same per-node accumulators
+            // the ALL-NODE paths already use, documented bit-identical to
+            // `builtins.sum` (Neumaier/KBN, verified 30k cases). Justified for
+            // THIS caller by the fallbacks agreeing: the per-edge value fetch in
+            // the loops below is character-for-character the same expression as
+            // the one in the all-node fallbacks those helpers were proven against.
+            //
+            // Total is `sum(succ) + sum(pred)` - TWO independent compensated sums
+            // added with a plain `+`, which `weighted_total_degree_float_node`
+            // reproduces; In/Out are a single compensated sum over one direction.
+            // Both return None on ANY non-float or absent value (networkx's
+            // default int 1) and on an edgeless node or direction (networkx's int
+            // 0), so int, mixed, missing-weight and isolated-node parity all stay
+            // on the exact fallback.
+            //
+            // Pairs are keyed on the ORIGINAL nbunch object, as the fallback does.
+            let float_total = match kind {
+                DegreeKind::Total => {
+                    if store_clean {
+                        self.weighted_total_degree_float_node_store(&canonical, weight)
+                    } else {
+                        self.weighted_total_degree_float_node(py, &canonical, weight)?
+                    }
+                }
+                DegreeKind::Out | DegreeKind::In => {
+                    let outgoing = matches!(kind, DegreeKind::Out);
+                    if store_clean {
+                        self.weighted_directional_degree_float_node_store(
+                            &canonical, weight, outgoing,
+                        )
+                    } else {
+                        self.weighted_directional_degree_float_node(
+                            py, &canonical, weight, outgoing,
+                        )?
+                    }
+                }
+            };
+            if let Some(total) = float_total {
+                out.push((
+                    node.clone().unbind(),
+                    pyo3::types::PyFloat::new(py, total).into_any().unbind(),
+                ));
                 continue;
             }
             let build_out = matches!(kind, DegreeKind::Total | DegreeKind::Out);

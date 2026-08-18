@@ -22662,3 +22662,72 @@ WHAT MUST BE DONE AT REBUILD, in order:
 loadavg 31.74/16.49/10.81 at the time of writing - far too loud to certify
 anything, which is academic since nothing here can be measured until it compiles.
 Disk 31G. No cargo, no arms, no new directories.
+
+## 2026-08-18 GoldenBison UNBUILT IMPLEMENTATION: the MultiDiGraph float weighted-degree subset path, all three spellings (br-r37-c1-mdgwdegsubf)
+
+NOT A VERDICT ROW. Never compiled, never measured - disk 29G under the build
+freeze. Directed sibling of br-r37-c1-mgwdegsubf, written the same turn.
+
+THE GAP. `PyMultiDiGraph::weighted_degree_subset_impl` serves all THREE nbunch
+spellings - degree, in_degree, out_degree - through one function, and had an int
+fast path and no float one. The int sibling is ALL-OR-NOTHING over the whole
+nbunch, so one float weight anywhere sent every node to a per-node PyList +
+`builtins.sum`. My 2026-08-18 numbers show the gap plainly: MultiDiGraph FLOAT
+degree(nbunch,weight) ran 1.0203/1.0337 while the INT spelling of the SAME call
+ran 1.4360/1.4384. That is the missing path, not the class.
+
+WHAT I WROTE. The routing step, dispatching on DegreeKind:
+Total to `weighted_total_degree_float_node{,_store}`, In/Out to
+`weighted_directional_degree_float_node{,_store}` with the `outgoing` flag -
+the same per-node accumulators the ALL-NODE paths already use, under the same
+`edges_dirty` authority split.
+
+THE CORRECTNESS ARGUMENT IS THE SAME SHAPE AS THE UNDIRECTED ONE AND WAS CHECKED
+THE SAME WAY. Those helpers are documented bit-identical to `builtins.sum`
+against the ALL-NODE fallbacks. I extracted the per-edge value fetch from both
+the all-node and the subset fallback loops and compared them: FOUR occurrences,
+ONE distinct expression, character for character. The remaining textual
+difference between the two loops is the `build_out`/`build_in` guards and the
+list variable names, neither of which touches a value. So the helpers are proven
+against exactly the arithmetic the subset path falls back to.
+
+A CORRECTNESS SUSPICION I CHECKED AND DISPROVED, recorded because the next reader
+will have it too: the MDG subset fallback reads ONLY `edge_py_attrs` and defaults
+to int 1 on a miss, with no store fallback - unlike the MultiGraph one, which
+falls through to `edge_attr_py_value`. That reads like a bulk-built graph (empty
+mirror) would silently score every edge as 1. It does not: probed across all four
+classes, bulk-built and per-edge-built, float weights, degree(nbunch,weight)
+matches networkx exactly in all eight combinations. Something upstream populates
+the mirror before this kernel runs. Not a bug - but do not "fix" it on the
+strength of reading that branch alone.
+
+TESTS: 23, committed, ALREADY PASSING on the current binary, which still contains
+the fallback. Bit-pattern comparisons over compensation-sensitive fixtures, plus
+the three things the undirected sibling cannot cover:
+  * TOTAL IS TWO SUMS, NOT ONE FOLD. nx computes `sum(succ) + sum(pred)` as two
+    independent compensated sums added with a plain `+`. Concatenating both
+    directions into a single compensated sum is a DIFFERENT number in the last
+    ULP, so the fixture cancels within each direction (1e16, 1.0, -1e16 on each
+    side) to make the difference observable, and the expected value is pinned
+    against Python's own `sum(succ) + sum(pred)` rather than against fnx.
+  * SELF-LOOPS land twice in the total and once in each single direction, checked
+    as a delta against the same graph without loops.
+  * AN EDGELESS DIRECTION must yield networkx's int 0 - a source asked for
+    in_degree, a sink asked for out_degree - and the TYPE is asserted, since the
+    helpers return None there precisely so the int-0 survives.
+
+AT REBUILD, in order: compile (a type error remains the likeliest defect in
+anything rustc has not seen); then this file and its undirected sibling must stay
+at 23 and 21 passed; then the full suite, because four shared helpers now have a
+second caller each; then measure against 1.0203/1.0337 with per-arm MHz in a
+quiet window.
+
+STATIC CHECKS DONE IN PLACE OF A COMPILER: `Ordering` is imported at digraph.rs:26;
+`self.edges_dirty.load(Ordering::Relaxed)` has three precedents in this same impl
+(873, 1321, 1342); `DegreeKind` is `#[derive(Clone, Copy)]`, so the added `match
+kind` cannot move a value the existing `matches!` calls use afterwards; all four
+helper signatures were read and the argument types match; the PyFloat conversion
+and the original-nbunch-object keying are character copies of the proven
+all-node call sites.
+
+loadavg 6.39/8.59/9.31, disk 29G, no cargo, no benchmarks, no new directories.
