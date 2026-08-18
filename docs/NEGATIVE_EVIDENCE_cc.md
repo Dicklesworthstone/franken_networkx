@@ -23653,3 +23653,65 @@ per-arm MHz 4014-4119 with skew at or under 0.44 percent on every row above.
 Disk 90G. These ratios are reported with that load on the record; the regression
 they show is an order of magnitude larger than anything load explains, but the
 third decimal is not to be quoted.
+
+## 2026-08-18 GoldenBison RETRACTION: the "P1 regression" was a stale INSTALLED .so, and my float subset levers actually WORK (br-r37-c1-1a875 VOID, br-r37-c1-mgwdegsubf / mdgwdegsubf CONFIRMED)
+
+RETRACTING THE ROW ABOVE. There is no regression in HEAD. I measured the binary
+installed in the shared checkout and assumed it was HEAD's. It was not.
+
+    python/franken_networkx/_fnx.abi3.so   8c48c59a696420c3   INSTALLED, stale
+    target/release/lib_fnx.so              c0f918fe91aecf4b   HEAD
+
+No crate has been committed since 17:45, and a `maturin build --release` of HEAD
+with `env -u CARGO_TARGET_DIR` finishes in 0.12s - fully warm, nothing to
+rebuild - producing c0f918fe. So the installed 8c48c59a was built somewhere else:
+it matches a build run in /data/tmp/claude-1000/wt_before, the BEFORE side of a
+peer's A/B, installed over the shared tree.
+
+MEASURED BACK TO BACK, same script, same process conditions, both arms inside the
+same loadavg window (48.64/31.41/24.98 - far too loud to certify, which is why
+these are attribution numbers and not a certification):
+
+    cell                          installed 8c48c59a   HEAD c0f918fe
+    Graph degree(weight)                 0.7295            4.5889
+    Graph size(weight)                   6.0252           66.9929
+    MultiGraph int degree(nb,w)          0.0995            1.0815
+    MultiGraph float degree(nb,w)        0.1964            1.9206
+    MultiDiGraph int degree(nb,w)        0.1385            1.4666
+    MultiDiGraph float degree(nb,w)      0.3349            2.5981
+
+Every cell is healthy on HEAD. The "17x regression on MultiGraph int" was the
+stale artifact, and so was every other row in the retracted entry.
+
+MY OWN LEVERS ARE CONFIRMED BY THE SAME RUN, against the pre-build baselines I
+recorded this week:
+
+    MultiGraph float degree(nb,w)    0.8753 / 0.8620  ->  1.9206   br-r37-c1-mgwdegsubf
+    MultiDiGraph float degree(nb,w)  1.0203 / 1.0337  ->  2.5981   br-r37-c1-mdgwdegsubf
+
+Both cross 1.0x; the undirected one was the last member of the weighted-attr
+family still under networkx, and it is now 1.92x. These were written unbuilt, so
+this is the first time either has been executed.
+
+HOW I GOT IT WRONG, because the mechanism is more useful than the apology. My own
+memory carries a `stale_install_benchmark_trap` note - verify the install equals
+HEAD before trusting any ratio - and I did not apply it, because on this checkout
+the installed .so has been the ONLY arm all week: the freeze meant nobody could
+rebuild, so "installed" and "HEAD" were necessarily the same thing and I stopped
+checking. The freeze lifting is exactly what broke that equivalence, and it broke
+it silently, in the direction that makes good code look broken.
+
+THE CHEAP GUARD, which costs one line inside the benchmark process:
+
+    hashlib.sha256(open(fnx._fnx.__file__,'rb').read()).hexdigest()[:16]
+
+compared against `target/release/lib_fnx.so`. My certify scripts already PRINT
+the loaded ELF sha - the provenance discipline this campaign runs on - but I
+printed it and never compared it to anything. A recorded sha is not a check.
+
+NOT OVERWRITTEN: the installed .so is a peer's live A/B artifact and reverting it
+is their call, not mine. Fleet warned by agent mail with the shas and the guard.
+
+loadavg 48.64 at the graded pair, disk 79G. Neither arm is a certification; the
+separations are 5x to 10x and the arms ran back to back in one window, which is
+enough to attribute but not to publish a ratio.
