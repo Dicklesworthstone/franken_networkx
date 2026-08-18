@@ -22893,3 +22893,61 @@ per-arm MHz, expecting the same shape as the simple-class result rather than a
 new number.
 
 loadavg 9.84/10.90/10.28, disk 29G, no cargo, no benchmarks.
+
+## 2026-08-18 GoldenBison UNMEASURED IMPLEMENTATION: GEXF was the last serialiser still rebuilding the whole graph (br-r37-c1-ymuxk)
+
+No timing claim - benchmarks are banned this turn. Found by censusing every
+remaining `_to_nx` call site in the package, after the same partially-applied-fix
+shape paid twice earlier today (the weighted-degree float family, and multigraph
+write_edgelist).
+
+THE CENSUS, which is the reusable part. Ten `_to_nx(` sites in the shim turned out
+to be comment text; the real conversions live in `readwrite`, and every one of
+them had already been fixed EXCEPT GEXF:
+
+    writer     direct-write lever            classes covered
+    GML        br-r37-c1-gmldirect (4.9x)    all four
+    GraphML    br-r37-c1-grphmldirect (1.9x) all four
+    edgelist   br-r37-c1-04z53.9187 + ton6l  all four (multigraph half landed today)
+    adjlist    br-cc-wadj-genfast            string/tuple-labelled
+    GEXF       NONE                          - rebuilt the graph every time
+
+All four GEXF helpers - `_write_gexf_via_nx`, `_write_gexf_simple_via_nx`,
+`_generate_gexf_via_nx`, `_generate_gexf_simple_via_nx` - called
+`_multigraph_to_nx(G)` or `_simple_to_nx(G)` before delegating, rebuilding an
+entire networkx graph to produce output nx's `GEXFWriter` derives from ITERATION
+alone: it touches only nodes(data=True), edges(data=True[, keys]), graph,
+is_directed() and is_multigraph(), all of which an fnx graph exposes
+nx-compatibly. That is the identical argument the GML and GraphML levers rest on.
+
+WHY THE CHECK WAS NECESSARY RATHER THAN THE ARGUMENT ALONE: `write_gexf` is
+`@open_file(1, mode="wb")`, so the direct route has to re-wrap the undispatched
+function itself or it silently loses nx's filename-or-handle contract. Verified
+72 combinations - four classes x three versions (1.2draft/1.1draft/1.3) x
+prettyprint on and off, for generate, write-to-handle and write-to-path - 0
+divergences.
+
+TWO GATES, both asserted rather than assumed. EXACT CONCRETE TYPES ONLY: a
+subgraph view reports as `Graph` while its filtering lives in Python wrappers, so
+handing it straight to nx's writer would serialise the PARENT. Views keep the
+rebuild, and a test asserts both that the conversion still runs for a view and
+that the view's output excludes the parent's nodes.
+
+THE BYTE TESTS CANNOT SEE THE LEVER, which is the whole point of it - both routes
+emit identical output. So the conversion helpers are SPIED on: they must not be
+called for a concrete graph, and must be called for a view. Without that pair the
+suite would stay green if the fast path were silently removed. Two of my tests
+earlier today passed for the wrong reason, so this file was written with that
+failure mode in mind from the start.
+
+58 new tests; 907 serialisation tests (gexf/gml/graphml/edgelist/adjlist) pass.
+The full suite still cannot run - my own unbuilt Rust commits keep the .so older
+than the newest .rs and the conftest guard blocks pytest repo-wide - so these ran
+from outside the guarded directory against the current binary, which is the right
+binary for a pure-Python change.
+
+AT MEASUREMENT: compare write_gexf and generate_gexf against networkx at
+n=1k/5k/10k with per-arm MHz. The sibling levers measured 1.9x (GraphML) and 4.9x
+(GML) for removing the same rebuild; expect that shape rather than a new number.
+
+loadavg 7.25/7.81/8.84, disk 28G, no cargo, no benchmarks.

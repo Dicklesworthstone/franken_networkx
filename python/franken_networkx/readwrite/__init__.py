@@ -2580,6 +2580,27 @@ def _read_gexf_via_nx(raw_bytes, *, version="1.2draft"):
     return _from_nx_graph(nx_graph)
 
 
+def _gexf_writes_directly(G):
+    """Can nx's GEXF writer read this graph without a rebuild?
+
+    br-r37-c1-ymuxk: nx's ``GEXFWriter`` only iterates ``nodes(data=True)``,
+    ``edges(data=True[, keys])``, ``graph``, ``is_directed()`` and
+    ``is_multigraph()`` — all of which an fnx graph exposes nx-compatibly. So
+    the four GEXF helpers below can hand it the fnx graph itself instead of
+    rebuilding an entire nx graph first, which is the same lever GML
+    (br-r37-c1-gmldirect) and GraphML (br-r37-c1-grphmldirect) already carry.
+    GEXF was the sibling that never got it.
+
+    EXACT CONCRETE TYPES ONLY, and this is the load-bearing restriction rather
+    than caution: a filtered or subgraph view reports as ``Graph`` while its
+    filtering lives in Python wrappers, so it must keep round-tripping through
+    the conversion. That is the identical limit the GML and GraphML gates state.
+    """
+    import franken_networkx as fnx
+
+    return type(G) in (fnx.Graph, fnx.DiGraph, fnx.MultiGraph, fnx.MultiDiGraph)
+
+
 def _write_gexf_via_nx(G, path, *, encoding, prettyprint, version):
     """Delegate multigraph serialisation to upstream nx.write_gexf.
 
@@ -2587,6 +2608,24 @@ def _write_gexf_via_nx(G, path, *, encoding, prettyprint, version):
     PY_WRAPPER.
     """
     from networkx.readwrite.gexf import write_gexf as _upstream_write_gexf
+
+    # br-r37-c1-ymuxk: write straight from the fnx graph, skipping the
+    # `_multigraph_to_nx` rebuild. `write_gexf` is `@open_file(1, mode="wb")`,
+    # so the undispatched function is re-wrapped to preserve nx's
+    # filename-or-handle contract exactly as the GML helper does.
+    if _gexf_writes_directly(G):
+        raw_writer = getattr(_upstream_write_gexf, "__wrapped__", None)
+        if raw_writer is not None:
+            from networkx.utils import open_file
+
+            open_file(1, mode="wb")(raw_writer)(
+                G,
+                path,
+                encoding=encoding,
+                prettyprint=prettyprint,
+                version=version,
+            )
+            return
 
     _upstream_write_gexf(
         _multigraph_to_nx(G),
@@ -2605,6 +2644,21 @@ def _write_gexf_simple_via_nx(G, path, *, encoding, prettyprint, version):
     """
     from networkx.readwrite.gexf import write_gexf as _upstream_write_gexf
 
+    # br-r37-c1-ymuxk: same direct write as the multigraph helper above.
+    if _gexf_writes_directly(G):
+        raw_writer = getattr(_upstream_write_gexf, "__wrapped__", None)
+        if raw_writer is not None:
+            from networkx.utils import open_file
+
+            open_file(1, mode="wb")(raw_writer)(
+                G,
+                path,
+                encoding=encoding,
+                prettyprint=prettyprint,
+                version=version,
+            )
+            return
+
     _upstream_write_gexf(
         _simple_to_nx(G),
         path,
@@ -2622,8 +2676,12 @@ def _generate_gexf_via_nx(G, *, encoding, prettyprint, version):
     """
     from networkx.readwrite.gexf import generate_gexf as _upstream_generate_gexf
 
+    # br-r37-c1-ymuxk: generate straight from the fnx graph when it is a
+    # concrete class; nx's generate_gexf only iterates the graph, so the
+    # _multigraph_to_nx rebuild bought nothing. Views keep the conversion.
+    source = G if _gexf_writes_directly(G) else _multigraph_to_nx(G)
     yield from _upstream_generate_gexf(
-        _multigraph_to_nx(G),
+        source,
         encoding=encoding,
         prettyprint=prettyprint,
         version=version,
@@ -2639,8 +2697,12 @@ def _generate_gexf_simple_via_nx(G, *, encoding, prettyprint, version):
     """
     from networkx.readwrite.gexf import generate_gexf as _upstream_generate_gexf
 
+    # br-r37-c1-ymuxk: generate straight from the fnx graph when it is a
+    # concrete class; nx's generate_gexf only iterates the graph, so the
+    # _simple_to_nx rebuild bought nothing. Views keep the conversion.
+    source = G if _gexf_writes_directly(G) else _simple_to_nx(G)
     yield from _upstream_generate_gexf(
-        _simple_to_nx(G),
+        source,
         encoding=encoding,
         prettyprint=prettyprint,
         version=version,
