@@ -22731,3 +22731,40 @@ and the original-nbunch-object keying are character copies of the proven
 all-node call sites.
 
 loadavg 6.39/8.59/9.31, disk 29G, no cargo, no benchmarks, no new directories.
+
+## 2026-08-18 GoldenBison SURFACE: the weighted-degree subset float family, censused — two of four classes had the sibling, and they were the two that won
+
+Closing note on br-r37-c1-mgwdegsubf and br-r37-c1-mdgwdegsubf. After writing
+both patches I checked the OTHER two classes to see whether I had invented a
+pattern or restored one. I had restored one:
+
+    class            subset float fast path        measured float degree(nb,weight)
+    PyGraph          PRESENT  (br-r37-c1-wdegfnb)          1.9384x
+    PyDiGraph        PRESENT  (br-r37-c1-wdegfnbdi)        2.5067x
+    PyMultiGraph     MISSING  -> added, unbuilt        0.8753 / 0.8620
+    PyMultiDiGraph   MISSING  -> added, unbuilt        1.0203 / 1.0337
+
+The two classes that already had the float sibling are the two that beat
+networkx comfortably. The two that lacked it are the two slowest cells in the
+family, and the only ones at or below parity. That is the whole diagnosis, and
+the winning siblings are the control - I did not have to argue from first
+principles that the missing path was the cause, because the same call on the same
+shapes is fast exactly where the path exists.
+
+It also bounds the claim honestly: the two additions are expected to move their
+cells toward the 1.9-2.5x the simple classes already show, NOT to some new
+number. If a rebuild measures them far above that, the reading is that something
+else changed, not that the lever over-delivered.
+
+WHY THE MULTIGRAPH CLASSES WERE THE LAGGARDS, since it is the reusable part: both
+of their subset kernels reach the float case through a per-node PyList +
+`builtins.sum`, and both had an int fast path sitting immediately above it that
+is ALL-OR-NOTHING over the whole nbunch. A single float weight anywhere in the
+nbunch therefore discarded the fast path for every node in it. The simple classes
+got their float sibling in a separate pass (bt, br-r37-c1-wdegfnb / wdegfnbdi);
+the multigraph pair was never done, and nothing failed in the meantime because
+the fallback is CORRECT - only slow. A missing fast path is invisible to every
+parity test by construction.
+
+No measurement in this row - it is a source census plus the four ratios already
+banked today. loadavg 6.39/8.59/9.31, disk 29G, no cargo, no benchmarks.
