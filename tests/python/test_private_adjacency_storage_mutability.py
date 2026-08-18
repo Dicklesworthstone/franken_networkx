@@ -96,20 +96,15 @@ def test_private_node_storage_accepts_mutation_in_both(cls_name):
 #                the design. A multigraph needs THREE levels rather than two,
 #                because `_adj[u][v]` is the KEYDICT: the write context is
 #                carried down to it as a (u, v) PAIR.
-_STILL_OPEN = {
-    "Graph": "native _fnx.AtlasView row is not declared `subclass` in Rust",
-}
-_BY_CLASS = [
-    pytest.param(
-        name,
-        marks=pytest.mark.xfail(
-            strict=True, reason=f"br-r37-c1-rgmef: {_STILL_OPEN[name]}"
-        ),
-    )
-    if name in _STILL_OPEN
-    else name
-    for name in ALL
-]
+# EMPTY as of br-r37-c1-rgmef's last class. Graph was blocked in RUST: its public
+# row is the native `_fnx.AtlasView` and that pyclass was not declared
+# `subclass`, so no writable row subclass could be built in Python, and handing it
+# the Python AtlasView instead would have made its private row's read methods
+# differ from its public row's — which the read-path lock forbids by measurement.
+# The attribute landed unbuilt in 613a36120 and is now built, correct (49 failed /
+# 61277 passed, byte-identical failure set) and certified free on G[u] (1.1587x
+# before / 1.1580x after vs networkx, common-mode 0.9999) in 33dda34a3.
+_BY_CLASS = list(ALL)  # every class is fixed; nothing left to xfail
 
 
 @pytest.mark.parametrize("cls_name", _BY_CLASS)
@@ -186,20 +181,6 @@ def test_private_adjacency_nested_attr_assignment_reaches_the_graph(cls_name):
     gfx = _pair(cls_name)[1]
     gfx._adj["a"]["b"]["w"] = 9.0
     assert gfx["a"]["b"]["w"] == 9.0
-
-
-@pytest.mark.parametrize("cls_name", sorted(_STILL_OPEN))
-def test_the_rejection_is_currently_inconsistent_across_classes(cls_name):
-    """Records the SHAPE of the defect, and passes today.
-
-    `Graph` raises `TypeError` while the other three raise `AttributeError`, so
-    a caller cannot write one except clause. This is deliberately not an xfail:
-    it documents current behaviour, and when br-r37-c1-rgmef is fixed the writes
-    stop raising and this test needs deleting along with the xfails above.
-    """
-    gfx = _pair(cls_name)[1]
-    with pytest.raises((TypeError, AttributeError)):
-        gfx._adj["a"]["zz"] = _cell(cls_name)
 
 
 @pytest.mark.parametrize("cls_name", ["DiGraph", "MultiDiGraph"])

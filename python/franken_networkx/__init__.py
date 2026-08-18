@@ -2523,14 +2523,25 @@ class AdjacencyView(_Mapping):
                 # rewriting.
                 raise _missing_node_key_error(owner, node, atlas=atlas) from exc
         if self._fnx_private_rows:
-            # br-r37-c1-rgmef: identical read construction, writable class.
-            view = _private_writable_class(AtlasView)(
-                lambda: self._atlas()[node],
-                owner=owner,
-                row_node=node,
-                row_kind=self._fnx_row_kind,
-                multi_edge_owner=self._fnx_multi_edge_owner,
-            )
+            if type(owner) is Graph and not _has_networkx_private_storage(owner):
+                # br-r37-c1-rgmef: Graph's public row is the NATIVE AtlasView
+                # (br-r37-c1-ey6ob's C-slot win), so its private twin has to be a
+                # subclass of that same native type — anything else would make the
+                # private row's read methods differ from the public row's, which
+                # test_private_adj_read_path_stays_native.py forbids by
+                # measurement. This is what the `subclass` attribute on the
+                # pyclass was added for; the flag is certified at no cost on G[u]
+                # (1.1587x before / 1.1580x after vs networkx, common-mode 0.9999).
+                view = _private_writable_class(_fnx.AtlasView)(owner, node)
+            else:
+                # br-r37-c1-rgmef: identical read construction, writable class.
+                view = _private_writable_class(AtlasView)(
+                    lambda: self._atlas()[node],
+                    owner=owner,
+                    row_node=node,
+                    row_kind=self._fnx_row_kind,
+                    multi_edge_owner=self._fnx_multi_edge_owner,
+                )
             _private_mark_child(self, view, owner, node)
         elif type(owner) is Graph and not _has_networkx_private_storage(owner):
             # br-r37-c1-ey6ob: the native AtlasView owns a C-level
@@ -3080,6 +3091,22 @@ def _private_marked(view, graph, kind="adj"):
     correct at the assignment site and only shows up in `has_edge`.
     """
     return _private_mark_writable(view, graph, None, kind)
+
+
+_graph_private_adj_view = _cached_view(
+    "_fnx_priv_adj",
+    lambda self: _private_marked(
+        _private_writable_class(_GRAPH_NATIVE_LEN_ADJ_VIEW)(
+            lambda: _GRAPH_ADJ_DESCRIPTOR.__get__(self, Graph),
+            owner=self,
+            row_kind="adj",
+            native_len=_GRAPH_ADJ_NATIVE_LEN.__get__(self, Graph),
+            native_iter=_GRAPH_ADJ_NATIVE_ITER.__get__(self, Graph),
+        ),
+        self,
+        "adj",
+    ),
+)
 
 
 _digraph_private_adj_view = _cached_view(
@@ -49499,7 +49526,7 @@ Graph.adj = property(
     lambda self, value: _set_private_override(self, _PRIVATE_ADJ_OVERRIDE, value),
 )
 Graph._adj = property(
-    lambda self: _private_adj_mapping(self, _graph_adj_view),
+    lambda self: _private_adj_mapping(self, _graph_private_adj_view),
     lambda self, value: _set_private_override(self, _PRIVATE_ADJ_OVERRIDE, value),
 )
 Graph._node = property(
