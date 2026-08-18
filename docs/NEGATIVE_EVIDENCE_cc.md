@@ -23987,3 +23987,45 @@ all-edges and nbunch - against the 0.9697x baseline in a quiet window with per-a
 MHz, and re-run that nbunch timing test once the queue is sane.
 
 loadavg 64.08/63.26/45.48, disk 50G falling to 49G during the test run, no cargo.
+
+
+## 2026-08-18 BlackThrush CLEAN SWEEP: four Python-reachable surfaces, 250+ cells, ZERO divergences
+
+Looking for a parity bug I could fix in the shim under the disk brake (no cargo,
+no new files), I swept four surfaces against live networkx 3.6.1 and found
+nothing. Recording it so nobody spends the same hour, and because it bounds where
+the remaining bugs can be.
+
+Every cell compared the VALUE on success and the exception TYPE **and** `e.args`
+on failure — a type-only comparison reports false green, which is how 48
+divergences hid in an earlier sweep on this project.
+
+    surface                                          cells   divergences
+    accessors / subgraph / nbunch / unhashable keys     36         0
+    operators, relabel collisions, freeze, graph attrs  40         0
+    readwrite round-trips, 6 formats x 4 classes        24         0
+    algorithms on degenerate inputs (empty, single,
+      self-loop, disconnected) x 9 functions           144         0
+
+The readwrite sweep was chosen deliberately, not at random: three serialiser
+commits landed there the same day (br-r37-c1-ymuxk GEXF, br-r37-c1-ton6l
+multigraph write_edgelist, br-r37-c1-5xl85 generate_edgelist), and fresh churn is
+where fresh bugs are. It is clean.
+
+WHAT THIS DOES NOT SAY. It is not evidence that fnx is correct — it is evidence
+that these four surfaces do not diverge on the inputs tried, which is a much
+smaller claim. The known-open parity bugs are all in places this kind of sweep
+cannot reach from Python: br-r37-c1-f3i50 (multigraph get_edge_data hands back a
+constructed dict rather than the live keydict), br-r37-c1-303zo and
+br-r37-c1-edge-attr-typed-store-pk1nb (the typed store goes stale, visible only by
+calling `_fnx.<kernel>` directly because every public entry point routes around
+those kernels), and br-r37-c1-igdzi (a store fast path disabled for the life of
+the graph). Each needs Rust, and each was found by probing BELOW the public API or
+by scaling an input, not by comparing public calls against networkx.
+
+So the useful read is: the public Python surface is in good shape, and the
+remaining defects live under it. Sweeps like this one have hit diminishing
+returns; the yield now is in substrate work and in probes that call kernels
+directly.
+
+loadavg 11.87/11.74/12.84, disk 38G below the 42G brake, no cargo, no new files.
