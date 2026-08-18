@@ -23213,3 +23213,72 @@ via the PACKAGE path rather than `__file__`, because the freeze workflow copies
 the test tree elsewhere to run it.
 
 loadavg 6.07/6.37/9.25, disk 27G, no cargo, no benchmarks.
+
+## 2026-08-18 GoldenBison FINDING, and a correction to my own bead: G.neighbors() permanently disables the weighted-store fast path (br-r37-c1-igdzi)
+
+No timing claim - the timed half is already in the bead (2026-08-16: Graph
+size(weight) 4.395x -> 0.733x after ONE contaminating read, a 6.0x self-
+regression that never lifts). What is new is the TRIGGER SET, which is the one
+thing establishable without a build, and which is far wider than I recorded.
+
+MY OWN BEAD BISECTED TEN OPERATIONS AND NAMED `edges(data=True)`. It never tried
+the two most common edge reads in the library. Mapped today on Graph:
+
+    CONTAMINATES                              SAFE
+    G.neighbors(u)                            G.edges()
+    G.neighbors(u) UNCONSUMED                 G.edges(data="w")
+    G[u][v]                                   G.edges(data="w", default=0)
+    G.adj[u][v]                               G[u]        (the ROW is fine)
+    G.get_edge_data(u, v)                     G.adj[u]
+    G.edges[u, v]                             G.nodes(data=True)
+    list(G[u].items())                        G.degree(), degree(weight=), size(weight=)
+    list(G.edges(data=True))                  G.has_edge(), G.number_of_edges()
+
+`G.neighbors(u)` is the headline. It is the single most common read in the
+library - every traversal makes it - and MERELY CALLING IT contaminates, without
+consuming the returned iterator at all. So in practice the fast path is gone
+almost immediately on any graph an algorithm has touched, not just on one whose
+edge data was read.
+
+THE PATTERN IS EXPOSURE, NOT MUTATION, and the safe/unsafe split is exactly that
+line: handing out an inner attr DICT - or an iterator that can reach one - marks
+the store dirty, because the caller could write through it. Returning VALUES, or
+the row object itself, does not. `G[u]` is safe while `list(G[u].items())` is
+not, which is the cleanest statement of the rule.
+
+ACTIONABLE TODAY, without a build: prefer `edges(data="weight")` over
+`edges(data=True)`. It returns values, is on the safe list, and is the spelling
+most weighted code actually wants.
+
+THIS CORRECTS THE REACHABILITY OF MY OWN RECENT WORK, and I would rather say so
+than let those rows over-read. The MultiGraph and MultiDiGraph float weighted-
+degree fast paths I committed unbuilt this week (br-r37-c1-mgwdegsubf,
+br-r37-c1-mdgwdegsubf) select their store-backed reader on `!edges_dirty` - the
+same flag. Any traversal on the graph sends them to the PyObject mirror twin
+instead. They are still correct and still the right code; their store half is
+simply less reachable in real programs than the ledger rows implied, and the
+combined benefit will not be visible until this defect is fixed.
+
+WHY IT STILL NEEDS A BUILD. `Graph.neighbors` is `_fnx.Graph._native_neighbors_iter`
+- the contamination happens inside Rust, so there is no shim-level fix. The bead's
+direction stands: distinguish MATERIALISED from MUTATED with a write barrier or a
+version counter on the attr dicts.
+
+SCOPE, a real limit and not a hedge: only `Graph` exposes a dirty-gated kernel to
+Python (`_native_weighted_degree_int_values` returns None once dirty), so only
+`Graph` can be mapped this way. I searched every `_native_weighted*` and
+`_native_size*` symbol on all four classes for one that flips after a known
+contaminant; Graph has exactly one and the other three have NONE. The bead's
+timed rows show the same collapse on all four classes, so the defect is not
+Graph-only, but the per-operation trigger set for the other three is UNVERIFIED
+and I have not asserted it.
+
+SHIPPED: tests/python/test_weighted_store_contamination_map.py, 23 tests pinning
+both columns plus permanence and parity. It pins a DEFECT on purpose - when the
+write barrier lands, the CONTAMINATES assertions must be inverted one at a time,
+deliberately. Until then it stops the SAFE column silently shrinking, which would
+be a real regression today and is invisible to every other test. Parity is
+asserted on both sides of contamination: size and degree return identical answers
+before and after, and match networkx - this is a performance defect only.
+
+loadavg 6.25/6.26/8.04, disk 27G, no cargo, no benchmarks.
