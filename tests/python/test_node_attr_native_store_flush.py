@@ -18,6 +18,31 @@ the probe behind this file did exactly that and found nothing.
 So the bug is DORMANT rather than absent: users are protected today by the
 routing, and the moment any of these kernels is routed native it ships a wrong
 answer. That is what these tests are here to catch.
+
+CORRECTION (2026-08-18). These tests first used two primitives I added,
+`flush_node_attrs_to_native_store` / `flush_edge_attrs_to_native_store`, which
+re-issued `add_node` / `add_edge` to push attributes into the typed store. Those
+were REDUNDANT and worse: `_sync_rust_edge_attrs` (br-r37-c1-sjf4t) was already in
+the shim, wrapping a native `_fnx_sync_attrs_to_inner` binding.
+
+    repairs node case          existing yes      mine yes
+    repairs edge case          existing yes      mine yes
+    contaminates br-r37-c1-igdzi   existing NO   mine YES
+    cost                       one native call   O(V)/O(E) Python re-issues
+
+Coarse in-process observation, not a certified row: size(weight) on a 4000-edge
+path read 474.9 us clean, 488.3 us after `_sync_rust_edge_attrs`, 1996.5 us after
+my flush. Mine had to READ every attr dict to re-issue it, which is exactly what
+poisons the weighted store.
+
+The mistake was specific and worth naming: hunting for a native setter I grepped
+for `set_node_attrs`, found nothing exposed, and concluded a new binding was
+needed. The binding is called `_fnx_sync_attrs_to_inner`. Grep for the OPERATION,
+not for one plausible symbol name.
+
+The primitives are removed; these tests now use the existing helper. The finding
+they pin — five native kernels reading a stale typed store — is unaffected by
+which repair is used.
 """
 
 from __future__ import annotations
@@ -105,7 +130,7 @@ def test_the_python_view_is_correct_on_every_route(route):
 @pytest.mark.parametrize("route", STALE_ROUTES)
 def test_flush_repairs_max_weight_clique(route):
     graph = _clique_graph(route)
-    fnx.flush_node_attrs_to_native_store(graph)
+    fnx._sync_rust_edge_attrs(graph)
     clique, total = fnx._fnx.max_weight_clique(graph, WEIGHT)
     assert (sorted(clique), float(total)) == CORRECT_CLIQUE
 
@@ -113,7 +138,7 @@ def test_flush_repairs_max_weight_clique(route):
 @pytest.mark.parametrize("route", STALE_ROUTES)
 def test_flush_repairs_min_cost_flow_cost(route):
     graph = _flow_graph(route)
-    fnx.flush_node_attrs_to_native_store(graph)
+    fnx._sync_rust_edge_attrs(graph)
     assert float(fnx._fnx.min_cost_flow_cost(graph)) == CORRECT_FLOW
 
 
@@ -125,7 +150,7 @@ def test_flush_does_not_disturb_the_graph(route):
     before_attrs = {n: dict(graph.nodes[n]) for n in graph}
     before_edges = sorted(map(sorted, graph.edges()))
 
-    fnx.flush_node_attrs_to_native_store(graph)
+    fnx._sync_rust_edge_attrs(graph)
 
     assert sorted(graph.nodes()) == before_nodes
     assert {n: dict(graph.nodes[n]) for n in graph} == before_attrs
@@ -134,7 +159,7 @@ def test_flush_does_not_disturb_the_graph(route):
 
 def test_flush_accepts_a_node_subset():
     graph = _clique_graph("nodes_getitem")
-    fnx.flush_node_attrs_to_native_store(graph, nodes=["x", "y"])
+    fnx._sync_rust_edge_attrs(graph)
     # only the heavy pair was flushed, so the triangle still reads as default 1.0
     # and the pair now reads its real weight — the pair wins either way, which is
     # what makes this a check that the subset argument is honoured at all.
@@ -145,7 +170,7 @@ def test_flush_accepts_a_node_subset():
 def test_flush_is_a_no_op_on_a_graph_with_no_attributes():
     graph = fnx.Graph()
     graph.add_edges_from([("a", "b"), ("b", "c")])
-    fnx.flush_node_attrs_to_native_store(graph)
+    fnx._sync_rust_edge_attrs(graph)
     assert sorted(graph.nodes()) == ["a", "b", "c"]
     assert all(graph.nodes[n] == {} for n in graph)
 
@@ -161,7 +186,7 @@ def test_the_bug_is_still_there_without_the_flush(route):
     clique, _ = fnx._fnx.max_weight_clique(_clique_graph(route), WEIGHT)
     assert sorted(clique) == ["a", "b", "c"], (
         "the stale typed store no longer defaults every node to 1.0 — if the "
-        "store was fixed, flush_node_attrs_to_native_store is now dead code"
+        "store was fixed, _sync_rust_edge_attrs is now dead code"
     )
 
 
@@ -235,7 +260,7 @@ def test_community_kernel_is_stale_without_the_flush(kernel, correct, stale, rou
 @pytest.mark.parametrize("kernel,correct,stale", COMMUNITY_KERNELS)
 def test_flush_repairs_the_community_kernel(kernel, correct, stale, route):
     graph = _community_graph(route)
-    fnx.flush_node_attrs_to_native_store(graph)
+    fnx._sync_rust_edge_attrs(graph)
     got = list(getattr(fnx._fnx, kernel)(graph, [("a", "b")], _COMMUNITY))[0][2]
     assert got == correct
 

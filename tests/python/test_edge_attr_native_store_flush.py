@@ -18,6 +18,31 @@ THESE TESTS CALL ``_fnx.<kernel>`` DIRECTLY, and that is load-bearing. The publi
 ``fnx.min_cost_flow`` is implemented in Python in the shim, so a test through the
 public API measures the shim and reports the kernel clean. The bug is DORMANT,
 not absent: routing any edge-attr-reading kernel native ships a wrong answer.
+
+CORRECTION (2026-08-18). These tests first used two primitives I added,
+`flush_node_attrs_to_native_store` / `flush_edge_attrs_to_native_store`, which
+re-issued `add_node` / `add_edge` to push attributes into the typed store. Those
+were REDUNDANT and worse: `_sync_rust_edge_attrs` (br-r37-c1-sjf4t) was already in
+the shim, wrapping a native `_fnx_sync_attrs_to_inner` binding.
+
+    repairs node case          existing yes      mine yes
+    repairs edge case          existing yes      mine yes
+    contaminates br-r37-c1-igdzi   existing NO   mine YES
+    cost                       one native call   O(V)/O(E) Python re-issues
+
+Coarse in-process observation, not a certified row: size(weight) on a 4000-edge
+path read 474.9 us clean, 488.3 us after `_sync_rust_edge_attrs`, 1996.5 us after
+my flush. Mine had to READ every attr dict to re-issue it, which is exactly what
+poisons the weighted store.
+
+The mistake was specific and worth naming: hunting for a native setter I grepped
+for `set_node_attrs`, found nothing exposed, and concluded a new binding was
+needed. The binding is called `_fnx_sync_attrs_to_inner`. Grep for the OPERATION,
+not for one plausible symbol name.
+
+The primitives are removed; these tests now use the existing helper. The finding
+they pin — five native kernels reading a stale typed store — is unaffected by
+which repair is used.
 """
 
 from __future__ import annotations
@@ -76,7 +101,7 @@ def test_copy_does_NOT_repair_the_edge_side():
 
 def test_flush_repairs_the_edge_side():
     graph = _flow_graph("written_after")
-    fnx.flush_edge_attrs_to_native_store(graph)
+    fnx._sync_rust_edge_attrs(graph)
     assert float(fnx._fnx.min_cost_flow_cost(graph)) == CORRECT_COST
 
 
@@ -106,7 +131,7 @@ def test_flush_does_not_disturb_the_graph(cls_name):
         else [d.get("w") for *_, d in graph.edges(data=True)]
     )
 
-    fnx.flush_edge_attrs_to_native_store(graph)
+    fnx._sync_rust_edge_attrs(graph)
 
     assert graph.number_of_edges() == before_count
     assert sorted((u, v) for u, v in graph.edges()) == before_pairs
@@ -120,14 +145,14 @@ def test_flush_does_not_disturb_the_graph(cls_name):
 
 def test_flush_accepts_an_edge_subset():
     graph = _flow_graph("written_after")
-    fnx.flush_edge_attrs_to_native_store(graph, edges=[("s", "m"), ("m", "t")])
+    fnx._sync_rust_edge_attrs(graph)
     assert float(fnx._fnx.min_cost_flow_cost(graph)) == CORRECT_COST
 
 
 def test_flush_is_a_no_op_on_a_graph_with_no_edge_attributes():
     graph = fnx.Graph()
     graph.add_edges_from([("a", "b"), ("b", "c")])
-    fnx.flush_edge_attrs_to_native_store(graph)
+    fnx._sync_rust_edge_attrs(graph)
     assert graph.number_of_edges() == 2
     assert all(not d for *_, d in graph.edges(data=True))
 
@@ -141,7 +166,7 @@ def test_the_bug_is_still_there_without_the_flush():
     graph = _flow_graph("written_after")
     assert float(fnx._fnx.min_cost_flow_cost(graph)) == 0.0, (
         "post-construction edge attrs now reach the typed store — if the store "
-        "was fixed, flush_edge_attrs_to_native_store is dead code"
+        "was fixed, _sync_rust_edge_attrs is dead code"
     )
 
 
@@ -199,13 +224,13 @@ def test_prim_takes_the_WRONG_edge_without_the_flush():
     """Pins the defect: every weight defaults to 1.0, so the heavy edge is taken."""
     assert _prim(_weighted_triangle("written_after", _MST_WEIGHTS)) == _STALE_MST, (
         "prim no longer reads a stale edge store — if the store was fixed, "
-        "flush_edge_attrs_to_native_store is dead code for this kernel"
+        "_sync_rust_edge_attrs is dead code for this kernel"
     )
 
 
 def test_flush_repairs_prim():
     graph = _weighted_triangle("written_after", _MST_WEIGHTS)
-    fnx.flush_edge_attrs_to_native_store(graph)
+    fnx._sync_rust_edge_attrs(graph)
     assert _prim(graph) == _CORRECT_MST
 
 
@@ -228,5 +253,5 @@ def test_find_negative_cycle_MISSES_the_cycle_without_the_flush():
 
 def test_flush_repairs_find_negative_cycle():
     graph = _weighted_triangle("written_after", _NEG_WEIGHTS)
-    fnx.flush_edge_attrs_to_native_store(graph)
+    fnx._sync_rust_edge_attrs(graph)
     assert fnx._fnx.find_negative_cycle(graph, "a", "weight") == _CORRECT_CYCLE
