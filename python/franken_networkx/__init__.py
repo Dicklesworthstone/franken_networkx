@@ -10644,21 +10644,31 @@ def _has_negative_edge_weight_for_dijkstra(G, weight, *, _skip_sync=False):
                     nonfinite = None
                 if nonfinite is False:
                     return False
-            for _, _, attrs in G.edges(data=True):
-                value = attrs.get(weight, 1)
+            # br-r37-c1-4m4wb: `data=weight` yields the VALUE, not the live attr
+            # dict. `data=True` hands out the dict and so permanently disables
+            # the weighted-store fast path for the whole graph
+            # (br-r37-c1-igdzi: size(weight) 4.395x -> 0.733x, never lifts) --
+            # and this guard runs on every weighted shortest-path call. Only
+            # `weight` is read here, so nothing needs the dict. `default=1`
+            # reproduces `attrs.get(weight, 1)` exactly.
+            for _, _, value in G.edges(data=weight, default=1):
                 if isinstance(value, _numbers.Real) and value == -_math.inf:
                     return True
             return False
 
+    # br-r37-c1-4m4wb: values, not live attr dicts -- see the note above. This is
+    # the branch MULTIGRAPHS always take, because the native negative scan
+    # returns None for them, so before this every weighted shortest-path call on
+    # a multigraph poisoned that graph's weighted store as a side effect of a
+    # guard that only ever reads one key.
     if G.is_multigraph():
-        edge_iter = G.edges(keys=True, data=True)
-        attrs_iter = (attrs for _, _, _, attrs in edge_iter)
+        values_iter = (
+            value for _, _, _, value in G.edges(keys=True, data=weight, default=1)
+        )
     else:
-        edge_iter = G.edges(data=True)
-        attrs_iter = (attrs for _, _, attrs in edge_iter)
+        values_iter = (value for _, _, value in G.edges(data=weight, default=1))
 
-    for attrs in attrs_iter:
-        value = attrs.get(weight, 1)
+    for value in values_iter:
         # br-r37-c1-djk-neginf: also catches ``-inf`` (drop the
         # isfinite filter — ``-inf < 0`` is True, NaN comparisons
         # all yield False so neither broken case re-enters here).
