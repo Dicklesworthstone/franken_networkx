@@ -1391,10 +1391,18 @@ print(G.edges["alice", "bob"])
 The `weight=` kwarg on weighted algorithms is the attribute name to read:
 
 ```python
-fnx.shortest_path(G, "a", "z", weight="cost")     # use the "cost" attribute
-fnx.shortest_path(G, "a", "z", weight="weight")   # default
-fnx.shortest_path(G, "a", "z", weight=None)       # ignore weights → BFS
-fnx.shortest_path(G, "a", "z", weight=lambda u,v,d: d.get("cost", 1) + d.get("toll", 0))
+# A graph carrying BOTH attributes the examples below read, so each call means
+# something different on the same edges. Named `W` rather than `G` so it does not
+# shadow the running example graph used by the surrounding sections.
+W = fnx.Graph()
+W.add_edge("a", "m", weight=1.0, cost=5.0, toll=2.0)
+W.add_edge("m", "z", weight=1.0, cost=5.0, toll=2.0)
+W.add_edge("a", "z", weight=3.0, cost=1.0, toll=0.0)
+
+fnx.shortest_path(W, "a", "z", weight="cost")     # use the "cost" attribute → ['a', 'z']
+fnx.shortest_path(W, "a", "z", weight="weight")   # default                  → ['a', 'm', 'z']
+fnx.shortest_path(W, "a", "z", weight=None)       # ignore weights → BFS     → ['a', 'z']
+fnx.shortest_path(W, "a", "z", weight=lambda u,v,d: d.get("cost", 1) + d.get("toll", 0))
 # ↑ callable form: fnx accepts it but may delegate to nx depending on the algorithm
 #   (see docs/delegation_ledger.md for the per-algorithm contract)
 ```
@@ -1477,17 +1485,32 @@ nx.shortest_path(G_fnx, 0, 9, backend="franken_networkx")
 ### Format conversion in one line
 
 ```python
+import tempfile, pathlib
 import franken_networkx as fnx
 
-G = fnx.read_gml("input.gml")
-fnx.write_graphml(G, "output.xml")
-fnx.write_edgelist(G, "output.edgelist")
-fnx.write_gexf(G, "output.gexf")
+# Self-contained so the snippet actually runs: it makes its own input and writes
+# into a temp dir rather than reading an "input.gml" that has to exist and
+# littering four files into the working directory.
+with tempfile.TemporaryDirectory() as tmp:
+    out = pathlib.Path(tmp)
+    seed = fnx.Graph()
+    seed.add_edge("a", "b", weight=1.0)
+    fnx.write_gml(seed, str(out / "input.gml"))
+
+    converted = fnx.read_gml(str(out / "input.gml"))
+    fnx.write_graphml(converted, str(out / "output.xml"))
+    fnx.write_edgelist(converted, str(out / "output.edgelist"))
+    fnx.write_gexf(converted, str(out / "output.gexf"))
 ```
 
 ### Drawing (delegated to matplotlib via NetworkX)
 
-```python
+<!-- skip-verify: matplotlib is an OPTIONAL dependency and is not installed in the
+     verification environment, and this snippet writes an image file. Marked with
+     the verifier's own `skip-verify` fence tag (scripts/verify_docs.py) rather
+     than by relaxing the verifier. -->
+
+```python skip-verify
 import franken_networkx as fnx
 import matplotlib.pyplot as plt
 
