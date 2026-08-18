@@ -22588,3 +22588,77 @@ campaign_output=true
 decision_gate=median_ci
 cv_role=report_only
 
+
+## 2026-08-18 GoldenBison UNBUILT IMPLEMENTATION: the MultiGraph float weighted-degree subset path (br-r37-c1-mgwdegsubf)
+
+NOT A VERDICT ROW. Nothing here has been compiled or measured - the volume is at
+31G under a build freeze. This records code written from source reading, the
+argument for why it is correct, and exactly what has to be checked once someone
+can build. Whoever compiles it should treat every number below as the TARGET, not
+as a result.
+
+THE CELL, from my 2026-08-18 re-measurement: MultiGraph FLOAT
+degree(nbunch, weight) at 0.8753/0.8620, the last member of the weighted-attr
+family still under networkx. The int spelling of the same call runs 1.0456/1.0429
+and MultiDiGraph float runs 1.0203/1.0337, so this is one class's one path.
+
+WHAT WAS WRONG. `PyMultiGraph::_native_weighted_degree_subset` tries
+`weighted_degree_subset_py_int_impl` and then falls through to a per-node PyList
++ `builtins.sum`. The int sibling is ALL-OR-NOTHING over the whole nbunch, so a
+single float weight anywhere sends every node to the slow path. There was no
+float sibling.
+
+WHAT I WROTE. Not a new algorithm - a routing step. `PyMultiGraph` ALREADY owns
+two per-node float accumulators, `weighted_degree_float_node` (mirror twin) and
+`weighted_degree_float_node_store` (store twin), which the ALL-NODE weighted
+degree path uses under an `edges_dirty` authority split. The subset loop now
+performs that same step before building its PyList, with the same split.
+
+THE CORRECTNESS ARGUMENT, and it is checkable without a compiler. Those two
+helpers are documented bit-identical to `builtins.sum` against the ALL-NODE
+fallback loop. I extracted both fallback loops and compared them
+programmatically: after normalising the borrow forms (`&node` / `node.as_str()`)
+THE TWO LOOPS ARE TEXTUALLY IDENTICAL, 2160 vs 2179 characters, zero differing
+characters. So the helpers are proven against exactly the code the subset path
+falls back to, which is why this reuses them rather than proving anything new.
+
+The helpers return None on ANY non-float value, on a missing weight (networkx's
+default int 1), and on an edgeless node (networkx's int 0), so int, mixed,
+missing-weight and isolated-node cases stay on the exact path. The self-loop
+double count that networkx's undirected MultiDegreeView performs lives INSIDE the
+helpers as a SECOND compensated sum added to the first with a plain `+` - the
+ULP-sensitive detail digraph.rs:1829 documents.
+
+TESTS ARE COMMITTED AND ALREADY PASS - 21 of them, on the CURRENT binary, which
+still contains the fallback. That is deliberate: they pin the behaviour the fast
+path must reproduce, so the rebuild either keeps them green or has found a real
+divergence. They compare the BIT PATTERN of every result rather than `==`,
+because a plain left-to-right fold passes any test written with small tidy
+weights and diverges exactly where compensation matters. Fixtures include
+1e16 next to 1.0, forty copies of 0.1, and a 1e308 overflow row, plus bulk-built
+vs per-edge-built graphs (store twin vs mirror twin), a mutated graph (authority
+flips back to the mirror), self-loop-only nodes, and a cross-check that
+degree(nbunch) agrees with degree() with no reference to networkx at all.
+
+I RAN THOSE TESTS FROM OUTSIDE tests/python. My own edit made the .so older than
+the newest .rs, which trips the conftest staleness guard and blocks pytest
+REPO-WIDE for every agent until someone rebuilds. Before my edit the margin was
+seven minutes (digraph.rs 16:36:27, .so 16:43:19 on 2026-08-17). I did NOT touch
+the .so mtime to clear it: that would leave the whole fleet silently testing a
+binary that does not contain the change, which is the trap this ledger already
+records twice. Running the copy outside the guarded directory validates the tests
+against HEAD's behaviour, which is all they can validate today.
+
+WHAT MUST BE DONE AT REBUILD, in order:
+  1. compile - this code has never been through rustc, and a type error is the
+     single most likely defect in it;
+  2. run tests/python/test_multigraph_weighted_degree_subset_float.py, which
+     must stay at 21 passed;
+  3. run the full suite - the shared helpers are now reachable from a second
+     caller, so a latent assumption in them would surface here first;
+  4. only then measure, in a quiet window with per-arm MHz, against the
+     0.8753/0.8620 baseline.
+
+loadavg 31.74/16.49/10.81 at the time of writing - far too loud to certify
+anything, which is academic since nothing here can be measured until it compiles.
+Disk 31G. No cargo, no arms, no new directories.

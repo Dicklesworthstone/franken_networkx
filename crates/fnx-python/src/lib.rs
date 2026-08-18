@@ -11599,6 +11599,12 @@ impl PyMultiGraph {
 
         let one = 1i64.into_pyobject(py)?.into_any();
         let sum_fn = py.import("builtins")?.getattr("sum")?;
+        // br-r37-c1-mgwdegsubf: same authority split the ALL-NODE weighted degree
+        // path uses (see `native_weighted_total_degree` above). On a clean graph
+        // the CgseValue store is authoritative, so exact floats are read straight
+        // from it with no per-edge PyObject; on a dirty graph the live mirror is
+        // authoritative and the PyObject twin is the correct reader.
+        let store_authoritative = !self.edges_dirty.load(Ordering::Relaxed);
         let mut out: Vec<(PyObject, PyObject)> = Vec::new();
         for item in nbunch.try_iter()? {
             let node_obj = item?;
@@ -11613,6 +11619,41 @@ impl PyMultiGraph {
             }
             let node = node_key_to_string(py, &node_obj)?;
             if !self.inner.has_node(&node) {
+                continue;
+            }
+            // br-r37-c1-mgwdegsubf: the FLOAT fast path this kernel was missing.
+            // The int sibling above (`weighted_degree_subset_py_int_impl`) is
+            // all-or-nothing over the whole nbunch, so a float-weighted graph fell
+            // straight through to the per-node PyList + `builtins.sum` below —
+            // measured 0.8753/0.8620 against networkx at N=400 while the int
+            // spelling of the SAME call ran 1.0456/1.0429 and MultiDiGraph float
+            // ran 1.0203/1.0337. This was the last cell of the weighted-attr
+            // family still below nx (see the 2026-08-18 ledger row).
+            //
+            // Nothing new is computed here. `weighted_degree_float_node{,_store}`
+            // are the per-node accumulators the ALL-NODE path already uses, both
+            // documented bit-identical to `builtins.sum` (Neumaier/KBN, verified
+            // 30k cases) and both returning None on ANY non-float value, on a
+            // missing weight (nx's default int 1), and on an edgeless node (nx's
+            // int 0) — so int, mixed, missing-weight and isolated-node parity all
+            // stay on the exact PyList+sum fallback below. The self-loop double
+            // count nx's undirected MultiDegreeView performs lives INSIDE those
+            // helpers, as a SECOND compensated sum added to the first with a plain
+            // `+`, which is the ULP-sensitive detail (digraph.rs:1829).
+            //
+            // The fallback keys its pairs on the ORIGINAL nbunch object, not on
+            // `py_node_key`, so this path must do the same or a caller that passed
+            // an equal-but-distinct node object would get a different key back.
+            let float_total = if store_authoritative {
+                self.weighted_degree_float_node_store(&node, weight)
+            } else {
+                self.weighted_degree_float_node(py, &node, weight)?
+            };
+            if let Some(total) = float_total {
+                out.push((
+                    node_obj.clone().unbind(),
+                    pyo3::types::PyFloat::new(py, total).into_any().unbind(),
+                ));
                 continue;
             }
             let values = pyo3::types::PyList::empty(py);
