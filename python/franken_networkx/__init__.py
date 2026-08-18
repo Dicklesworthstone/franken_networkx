@@ -2524,18 +2524,14 @@ class AdjacencyView(_Mapping):
                 raise _missing_node_key_error(owner, node, atlas=atlas) from exc
         if self._fnx_private_rows:
             # br-r37-c1-rgmef: identical read construction, writable class.
-            view = _private_mark_writable(
-                _private_writable_class(AtlasView)(
-                    lambda: self._atlas()[node],
-                    owner=owner,
-                    row_node=node,
-                    row_kind=self._fnx_row_kind,
-                    multi_edge_owner=self._fnx_multi_edge_owner,
-                ),
-                owner,
-                node,
-                self._fnx_row_kind,
+            view = _private_writable_class(AtlasView)(
+                lambda: self._atlas()[node],
+                owner=owner,
+                row_node=node,
+                row_kind=self._fnx_row_kind,
+                multi_edge_owner=self._fnx_multi_edge_owner,
             )
+            _private_mark_child(self, view, owner, node)
         elif type(owner) is Graph and not _has_networkx_private_storage(owner):
             # br-r37-c1-ey6ob: the native AtlasView owns a C-level
             # ``__getitem__`` slot, so the cold G[u][v] path avoids the
@@ -2585,6 +2581,10 @@ _MULTI_NATIVE_ROW_ATTR = {
 
 
 class MultiAdjacencyView(_Mapping):
+    # br-r37-c1-rgmef: True only on a private twin, which makes the
+    # shared __getitem__ below build writable rows.
+    _fnx_private_rows = False
+
     def __init__(
         self,
         atlas_getter,
@@ -2702,6 +2702,13 @@ class MultiAdjacencyView(_Mapping):
                     return view
         # br-r37-c1-i9whv: hash-check for nx-shaped TypeError parity.
         hash(node)
+        # br-r37-c1-rgmef: chosen once per COLD lookup. The warm-cache return
+        # above has already fired, so a cached row never reaches this.
+        _row_cls = (
+            _private_writable_class(AdjacencyView)
+            if self._fnx_private_rows
+            else AdjacencyView
+        )
         if owner is not None:
             # br-r37-c1-ka7fd: membership must be tested against the ADJACENCY,
             # not the node view. networkx's `G.adj` IS `_adj`, so `G.adj[x]`
@@ -2746,20 +2753,27 @@ class MultiAdjacencyView(_Mapping):
                     # capture every len()/contains on the SAME cached view
                     # crossed the PyO3 boundary again.
                     captured = native(node)
-                    view = AdjacencyView(
+                    view = _row_cls(
                         (lambda row=captured: row),
                         multi_edge_owner=owner,
                     )
+                    if self._fnx_private_rows:
+                        _private_mark_writable(
+                            view, owner, node, _private_parent_kind(self)
+                        )
                     # br-r37-c1-fr4me: the getter above is a closure over a
                     # FIXED object, so hand the row itself to the view and let
                     # membership skip both _atlas() and the lambda.
                     view._fnx_captured_row = captured
                     cache[1][node] = view
                 return view
-            return AdjacencyView(
+            row_view = _row_cls(
                 lambda: self._atlas()[node],
                 multi_edge_owner=owner,
             )
+            if self._fnx_private_rows:
+                _private_mark_writable(row_view, owner, node, _private_parent_kind(self))
+            return row_view
         atlas = self._atlas()
         try:
             atlas[node]
@@ -2767,7 +2781,10 @@ class MultiAdjacencyView(_Mapping):
             # br-r37-c1-k4nsd: multigraph sibling of the AdjacencyView fix —
             # this is the owner-less path, which is the one a subgraph takes.
             raise _missing_node_key_error(owner, node, atlas=atlas) from exc
-        return AdjacencyView(lambda: self._atlas()[node])
+        row_view = _row_cls(lambda: self._atlas()[node])
+        if self._fnx_private_rows:
+            _private_mark_writable(row_view, owner, node, _private_parent_kind(self))
+        return row_view
 
     def __repr__(self):
         # br-r37-c1-k147g: print the underlying mapping like nx does.
@@ -3054,10 +3071,15 @@ _multidigraph_pred_view = _cached_view(
 # a twin cannot be cloned from instance state -- it has to be built.
 
 
-def _private_marked(view, graph):
-    return _private_mark_writable(
-        view, graph, None, getattr(view, "_fnx_row_kind", "adj")
-    )
+def _private_marked(view, graph, kind="adj"):
+    """Mark a top-level private view with the direction it represents.
+
+    The kind is passed in rather than read off the view. `MultiAdjacencyView`
+    does not carry `_fnx_row_kind`, so deriving it defaulted every multigraph
+    `_pred` twin to "adj" and wrote its edges BACKWARDS -- a bug that reads
+    correct at the assignment site and only shows up in `has_edge`.
+    """
+    return _private_mark_writable(view, graph, None, kind)
 
 
 _digraph_private_adj_view = _cached_view(
@@ -3071,6 +3093,7 @@ _digraph_private_adj_view = _cached_view(
             native_iter=_DIGRAPH_ADJ_NATIVE_ITER.__get__(self, DiGraph),
         ),
         self,
+        "succ",
     ),
 )
 
@@ -3086,6 +3109,7 @@ _digraph_private_succ_view = _cached_view(
             native_iter=_DIGRAPH_ADJ_NATIVE_ITER.__get__(self, DiGraph),
         ),
         self,
+        "succ",
     ),
 )
 
@@ -3101,6 +3125,79 @@ _digraph_private_pred_view = _cached_view(
             native_iter=_DIGRAPH_ADJ_NATIVE_ITER.__get__(self, DiGraph),
         ),
         self,
+        "pred",
+    ),
+)
+
+
+_multigraph_private_adj_view = _cached_view(
+    "_fnx_priv_adj",
+    lambda self: _private_marked(
+        _private_writable_class(_MULTIGRAPH_NATIVE_LEN_ADJ_VIEW)(
+            lambda: _MULTIGRAPH_ADJ_DESCRIPTOR.__get__(self, MultiGraph),
+            owner=self,
+            native_iter=_MULTIGRAPH_ADJ_NATIVE_ITER.__get__(self, MultiGraph),
+            native_contains=_MULTIGRAPH_ADJ_NATIVE_CONTAINS.__get__(self, MultiGraph),
+            native_len=_MULTIGRAPH_ADJ_NATIVE_LEN.__get__(self, MultiGraph),
+        ),
+        self,
+    ),
+)
+
+
+_multidigraph_private_adj_view = _cached_view(
+    "_fnx_priv_adj",
+    lambda self: _private_marked(
+        _private_writable_class(_MULTIDIGRAPH_NATIVE_LEN_ADJ_VIEW)(
+            lambda: _MULTIDIGRAPH_ADJ_DESCRIPTOR.__get__(self, MultiDiGraph),
+            owner=self,
+            row_kind="succ",
+            native_iter=_MULTIDIGRAPH_ADJ_NATIVE_ITER.__get__(self, MultiDiGraph),
+            native_contains=_MULTIDIGRAPH_ADJ_NATIVE_CONTAINS.__get__(
+                self, MultiDiGraph
+            ),
+            native_len=_MULTIDIGRAPH_ADJ_NATIVE_LEN.__get__(self, MultiDiGraph),
+        ),
+        self,
+        "succ",
+    ),
+)
+
+
+_multidigraph_private_succ_view = _cached_view(
+    "_fnx_priv_succ",
+    lambda self: _private_marked(
+        _private_writable_class(MultiAdjacencyView)(
+            lambda: _MULTIDIGRAPH_SUCC_DESCRIPTOR.__get__(self, MultiDiGraph),
+            owner=self,
+            row_kind="succ",
+            native_iter=_MULTIDIGRAPH_ADJ_NATIVE_ITER.__get__(self, MultiDiGraph),
+            native_contains=_MULTIDIGRAPH_ADJ_NATIVE_CONTAINS.__get__(
+                self, MultiDiGraph
+            ),
+            native_len=_MULTIDIGRAPH_ADJ_NATIVE_LEN.__get__(self, MultiDiGraph),
+        ),
+        self,
+        "succ",
+    ),
+)
+
+
+_multidigraph_private_pred_view = _cached_view(
+    "_fnx_priv_pred",
+    lambda self: _private_marked(
+        _private_writable_class(MultiAdjacencyView)(
+            lambda: _MULTIDIGRAPH_PRED_DESCRIPTOR.__get__(self, MultiDiGraph),
+            owner=self,
+            row_kind="pred",
+            native_iter=_MULTIDIGRAPH_ADJ_NATIVE_ITER.__get__(self, MultiDiGraph),
+            native_contains=_MULTIDIGRAPH_ADJ_NATIVE_CONTAINS.__get__(
+                self, MultiDiGraph
+            ),
+            native_len=_MULTIDIGRAPH_ADJ_NATIVE_LEN.__get__(self, MultiDiGraph),
+        ),
+        self,
+        "pred",
     ),
 )
 
@@ -47741,14 +47838,72 @@ def _private_write_target(view, other):
     node = getattr(view, "_fnx_write_node", None)
     if node is None:
         return owner, None, None
-    if getattr(view, "_fnx_write_kind", "adj") == "pred":
+    kind = getattr(view, "_fnx_write_kind", "adj")
+    if kind == "keydict":
+        # `node` is the (u, v) pair; `other` is the edge key, handled by caller.
+        return owner, node[0], node[1]
+    if kind == "pred":
         return owner, other, node
     return owner, node, other
+
+
+def _private_parent_kind(view):
+    """The direction a child of `view` inherits.
+
+    The WRITE kind wins over the read-side `_fnx_row_kind`, because
+    `MultiAdjacencyView` does not carry the latter -- deriving it there defaulted
+    every multigraph `_pred` row to "adj" and wrote its edges BACKWARDS.
+    """
+    return getattr(view, "_fnx_write_kind", None) or getattr(
+        view, "_fnx_row_kind", "adj"
+    )
+
+
+def _private_mark_child(parent, child, owner, node):
+    """Attach write context to a child view, one level down from `parent`.
+
+    On a MULTIgraph the child of a ROW is a KEYDICT: `_adj[u][v]` addresses the
+    edge (u, v), not a neighbour, so it carries the PAIR and a kind of its own.
+    `_fnx_multi_edge_owner` is what identifies a multigraph row -- it is the
+    argument such rows are built with and simple rows are not.
+    """
+    write_owner = getattr(parent, "_fnx_write_owner", None) or owner
+    parent_node = getattr(parent, "_fnx_write_node", None)
+    if parent.__dict__.get("_fnx_multi_edge_owner") is not None and parent_node is not None:
+        if getattr(parent, "_fnx_write_kind", "adj") == "pred":
+            pair = (node, parent_node)
+        else:
+            pair = (parent_node, node)
+        return _private_mark_writable(child, write_owner, pair, "keydict")
+    return _private_mark_writable(
+        child, write_owner, node, getattr(parent, "_fnx_write_kind", None)
+        or getattr(parent, "_fnx_row_kind", "adj")
+    )
+
+
+def _private_keydict_setitem(self, owner, u, v, key, value):
+    """`_adj[u][v][key] = attrs` -- `key` is the EDGE key, not a neighbour."""
+    if not isinstance(value, _Mapping):
+        raise TypeError(
+            "fnx: a multigraph keydict entry must be a mapping of edge "
+            f"attributes; got {type(value).__name__}. networkx accepts any "
+            "value because its keydict is a raw dict, but fnx stores edge "
+            "attributes in a typed store with no representation for a "
+            "non-mapping (br-r37-c1-rgmef)."
+        )
+    if owner.has_edge(u, v, key):
+        existing = owner.adj[u][v][key]
+        existing.clear()
+        existing.update(value)
+        return
+    owner.add_edge(u, v, key, **dict(value))
 
 
 def _private_view_setitem(self, key, value):
     """Item assignment into private storage, as networkx's raw dict allows."""
     owner, u, v = _private_write_target(self, key)
+    if u is not None and getattr(self, "_fnx_write_kind", "adj") == "keydict":
+        return _private_keydict_setitem(self, owner, u, v, key, value)
     if u is None:
         if not isinstance(value, _Mapping):
             raise TypeError(
@@ -47764,6 +47919,25 @@ def _private_view_setitem(self, key, value):
         row = self[key]
         for other, cell in value.items():
             row[other] = cell
+        return
+
+    if owner.is_multigraph():
+        # `_adj[u][v] = {key: attrs}` replaces the whole parallel-edge set.
+        if not isinstance(value, _Mapping):
+            raise TypeError(
+                "fnx: a multigraph adjacency row maps a neighbour to a keydict; "
+                f"got {type(value).__name__} (br-r37-c1-rgmef)."
+            )
+        if owner.has_edge(u, v):
+            for edge_key in list(owner.adj[u][v]):
+                owner.remove_edge(u, v, edge_key)
+        for edge_key, edge_attrs in value.items():
+            if not isinstance(edge_attrs, _Mapping):
+                raise TypeError(
+                    "fnx: multigraph edge attributes must be a mapping; got "
+                    f"{type(edge_attrs).__name__} (br-r37-c1-rgmef)."
+                )
+            owner.add_edge(u, v, edge_key, **dict(edge_attrs))
         return
 
     attrs = dict(value) if value else {}
@@ -49329,7 +49503,7 @@ MultiGraph.adj = property(
     lambda self, value: _set_private_override(self, _PRIVATE_ADJ_OVERRIDE, value),
 )
 MultiGraph._adj = property(
-    lambda self: _private_adj_mapping(self, _multigraph_adj_view),
+    lambda self: _private_adj_mapping(self, _multigraph_private_adj_view),
     lambda self, value: _set_private_override(self, _PRIVATE_ADJ_OVERRIDE, value),
 )
 MultiGraph._node = property(
@@ -49344,7 +49518,7 @@ MultiDiGraph.adj = property(
     lambda self, value: _set_private_override(self, _PRIVATE_ADJ_OVERRIDE, value),
 )
 MultiDiGraph._adj = property(
-    lambda self: _private_directed_adj_mapping(self, _multidigraph_adj_view),
+    lambda self: _private_directed_adj_mapping(self, _multidigraph_private_adj_view),
     lambda self, value: _set_private_override(self, _PRIVATE_ADJ_OVERRIDE, value),
 )
 MultiDiGraph.succ = property(
@@ -49355,7 +49529,7 @@ MultiDiGraph.succ = property(
     lambda self, value: _set_private_override(self, _PRIVATE_SUCC_OVERRIDE, value),
 )
 MultiDiGraph._succ = property(
-    lambda self: _private_succ_mapping(self, _multidigraph_succ_view),
+    lambda self: _private_succ_mapping(self, _multidigraph_private_succ_view),
     lambda self, value: _set_private_override(self, _PRIVATE_SUCC_OVERRIDE, value),
 )
 MultiDiGraph.pred = property(
@@ -49366,7 +49540,7 @@ MultiDiGraph.pred = property(
     lambda self, value: _set_private_override(self, _PRIVATE_PRED_OVERRIDE, value),
 )
 MultiDiGraph._pred = property(
-    lambda self: _private_pred_mapping(self, _multidigraph_pred_view),
+    lambda self: _private_pred_mapping(self, _multidigraph_private_pred_view),
     lambda self, value: _set_private_override(self, _PRIVATE_PRED_OVERRIDE, value),
 )
 MultiDiGraph._node = property(

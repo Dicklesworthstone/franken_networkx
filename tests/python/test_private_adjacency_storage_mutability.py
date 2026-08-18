@@ -91,12 +91,13 @@ def test_private_node_storage_accepts_mutation_in_both(cls_name):
 #                row's read methods differ from the public row's, which
 #                test_private_adj_read_path_stays_native.py forbids. A one-line
 #                Rust change unblocks it.
-#   Multi*       blocked in PYTHON. A private twin can be built, but its READS
-#                diverge from the public view's, which the same lock catches.
+#   Multi*       FIXED. The first attempt's twin had reads that diverged from
+#                the public view; the cause was its construction arguments, not
+#                the design. A multigraph needs THREE levels rather than two,
+#                because `_adj[u][v]` is the KEYDICT: the write context is
+#                carried down to it as a (u, v) PAIR.
 _STILL_OPEN = {
     "Graph": "native _fnx.AtlasView row is not declared `subclass` in Rust",
-    "MultiGraph": "private twin's reads diverge from the public view",
-    "MultiDiGraph": "private twin's reads diverge from the public view",
 }
 _BY_CLASS = [
     pytest.param(
@@ -165,6 +166,21 @@ def test_the_complete_pattern_library_code_uses_agrees_with_networkx():
 
 
 @pytest.mark.parametrize("cls_name", ["MultiGraph", "MultiDiGraph"])
+def test_private_keydict_mapping_assignment_reaches_the_graph(cls_name):
+    """`_adj[u][v][key] = {...}` adds a parallel edge under a chosen key.
+
+    This is the half of the nested multigraph case that IS representable, and it
+    is the operation library code actually performs. The still-xfail sibling
+    below writes a non-mapping, which fnx has no representation for.
+    """
+    gnx, gfx = _pair(cls_name)
+    for graph in (gnx, gfx):
+        graph._adj["a"]["b"][7] = {"w": 9.0}
+    assert gfx["a"]["b"][7]["w"] == gnx["a"]["b"][7]["w"] == 9.0
+    assert gfx.number_of_edges("a", "b") == gnx.number_of_edges("a", "b") == 2
+
+
+@pytest.mark.parametrize("cls_name", ["MultiGraph", "MultiDiGraph"])
 @pytest.mark.xfail(strict=True, reason="br-r37-c1-rgmef: multigraph keydicts are read-only too")
 def test_private_adjacency_nested_attr_assignment_reaches_the_graph(cls_name):
     gfx = _pair(cls_name)[1]
@@ -184,6 +200,81 @@ def test_the_rejection_is_currently_inconsistent_across_classes(cls_name):
     gfx = _pair(cls_name)[1]
     with pytest.raises((TypeError, AttributeError)):
         gfx._adj["a"]["zz"] = _cell(cls_name)
+
+
+@pytest.mark.parametrize("cls_name", ["DiGraph", "MultiDiGraph"])
+def test_private_pred_writes_are_not_reversed_at_either_level(cls_name):
+    """Direction must survive BOTH levels of a `_pred` write.
+
+    This exists because it broke, twice, in ways that read correct at the
+    assignment site and only showed up in `has_edge`:
+
+      * the top-level twin derived its direction from `_fnx_row_kind`, which
+        `MultiAdjacencyView` does not carry, so every multigraph `_pred` view
+        was marked "adj";
+      * the ROW then inherited that same wrong default, so even fixing the view
+        left `_pred[v][u]` writing the edge backwards.
+
+    The keydict case below is the strong one, because networkx agrees with it
+    exactly: on nx `_pred[b][a]` IS the same keydict object as `_adj[a][b]`, so
+    writing a key there adds a real parallel edge a -> b.
+    """
+    multi = cls_name.startswith("Multi")
+    gnx, gfx = _pair(cls_name)
+    if multi:
+        for graph in (gnx, gfx):
+            graph._pred["b"]["a"][5] = {"w": 8.0}
+        assert gfx["a"]["b"][5]["w"] == gnx["a"]["b"][5]["w"] == 8.0
+        assert gfx.number_of_edges("a", "b") == gnx.number_of_edges("a", "b") == 2
+        assert gfx.has_edge("b", "a") == gnx.has_edge("b", "a") is False
+
+    # the row level: fnx writes the whole edge where nx half-writes, but the
+    # DIRECTION is not the part that may differ.
+    gfx2 = _pair(cls_name)[1]
+    gfx2._pred["a"]["zz"] = {0: {"w": 3.0}} if multi else {"w": 3.0}
+    assert gfx2.has_edge("zz", "a") is True
+    assert gfx2.has_edge("a", "zz") is False
+
+
+@pytest.mark.parametrize("cls_name", ["DiGraph", "MultiDiGraph"])
+def test_row_REPLACEMENT_copies_and_does_not_alias_the_caller_dict(cls_name):
+    """The limit of this fix, found on real networkx algorithm code.
+
+    `networkx/algorithms/approximation/kcomponents.py` (`_AntiGraph.subgraph`)
+    does exactly this:
+
+        Gnbrs = G.adjlist_inner_dict_factory()
+        G._adj[n] = Gnbrs
+        for nbr, d in self._adj[n].items():
+            if nbr in G._adj:
+                Gnbrs[nbr] = d          # <-- writes the CALLER's dict
+                G._adj[nbr][n] = d
+
+    On networkx the row IS `Gnbrs`, so the writes on the marked line land in the
+    graph. fnx has ONE native store and no per-row override, so `_adj[n] = d`
+    can only COPY d's contents; the caller's dict is not adopted as storage and
+    later writes to it are invisible. Running that exact pattern gives networkx
+    4 edges and fnx 1.
+
+    WHAT IS AND IS NOT FIXED, stated precisely rather than as "rgmef is done":
+    item assignment INTO an existing row -- `_adj[u][v] = ...`, which is the
+    bead's whole table -- works. REPLACING a row with a dict you keep mutating
+    does not, and cannot without a per-row storage override that does not exist.
+    """
+    gfx = _pair(cls_name)[1]
+    handed_over = {}
+    gfx._adj["a"] = handed_over
+    assert gfx.has_edge("a", "b") is False, "row replacement must clear the row"
+
+    cell = {0: {"w": 1.0}} if cls_name.startswith("Multi") else {"w": 1.0}
+    handed_over["c"] = cell
+    assert gfx.has_edge("a", "c") is False, (
+        "fnx copies on row replacement; if this ever starts passing, the caller's"
+        " dict became live storage and this file should say so"
+    )
+    # the supported form reaches the graph
+    gfx._adj["a"]["c"] = cell
+    assert gfx.has_edge("a", "c") is True
 
 
 @pytest.mark.parametrize("cls_name", ALL)
