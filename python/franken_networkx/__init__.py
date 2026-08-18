@@ -26527,6 +26527,17 @@ def number_of_selfloops(G):
     # the per-node has_edge probe (and faster than networkx). Each node has at
     # most one self-loop in a simple graph, so the count is the node count.
     if not G.is_multigraph():
+        # br-r37-c1-hkijj: `len(...)` of a node list, NOT the count-returning
+        # `_fnx.number_of_selfloops_rust`, and that is deliberate. The count
+        # function is exported, unreferenced, and returns identical answers on
+        # every class - so replacing this line with it looks like a free cleanup
+        # that drops a list materialisation. It would REGRESS DiGraph: it calls
+        # `gr.undirected()`, which builds the whole O(|V| + |E|) undirected copy,
+        # and that projection was the entire former cost of this function on a
+        # DiGraph (~24ms at 3600 edges). `nodes_with_selfloops_rust` grew a
+        # directed O(|V|) index scan precisely to avoid it. No test can catch the
+        # swap - the outputs are equal - so the guard is this comment plus the
+        # routing assertion in tests/python/test_selfloop_count_routing.py.
         try:
             return len(_fnx.nodes_with_selfloops_rust(G))
         except Exception:

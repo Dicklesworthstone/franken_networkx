@@ -23014,3 +23014,64 @@ cell, so measure a cheap public call (`fnx.density(G)`, `fnx.number_of_nodes(G)`
 where the coercion is a large fraction of the work, with per-arm MHz.
 
 loadavg 16.58/11.39/9.69, disk 28G, no cargo, no benchmarks.
+
+## 2026-08-18 GoldenBison TRAP DOCUMENTED: a dead native twin that is CORRECT and SLOWER, guarded by routing rather than value (br-r37-c1-hkijj)
+
+Not a lever - the lever I went looking for turned out to be a trap, and the
+deliverable is the guard against it.
+
+WHAT I WAS DOING. Censusing materialize-to-count patterns (`len(list(...))`,
+`sum(1 for ...)`) after the readwrite family came up mined out. `number_of_selfloops`
+spells its simple-graph answer
+
+    len(_fnx.nodes_with_selfloops_rust(G))
+
+- building a Python list of self-loop NODES purely to take its length - while the
+extension exports `_fnx.number_of_selfloops_rust`, which returns the count
+directly. That is a textbook materialize-to-count fix, and the native counter is
+referenced from nowhere, so it looked like free cleanup of a dead export.
+
+WHY IT IS WRONG. `number_of_selfloops_rust` opens with `gr.undirected()`, which
+builds the whole O(|V| + |E|) undirected copy. The doc comment on
+`nodes_with_selfloops_rust` records that projection as the ENTIRE former cost of
+`number_of_selfloops` on a DiGraph (~24ms at 3600 edges) - which is exactly why
+that function grew a directed branch scanning `(i, i)` pairs in O(|V|) and became
+the wired path. The "dead export" is dead BECAUSE it is the superseded slower
+twin, not because nobody got round to it.
+
+VERIFIED IDENTICAL, which is the dangerous part: on Graph, DiGraph, MultiGraph
+and MultiDiGraph the two routes return the same count. So no value test, golden,
+or parity sweep can ever catch the swap. Under a build freeze no benchmark can
+either. When two implementations agree on OUTPUT, the only testable difference is
+WHICH ONE RUNS - the same conclusion the GEXF conversion spies reached earlier
+today from the opposite direction.
+
+SHIPPED, three layers because any one of them can be missed:
+  * a doc comment at the definition marking it DEAD AND A TRAP, stating the
+    projection cost and saying what to build instead if a count-only kernel is
+    ever wanted (the same directed O(|V|) index scan);
+  * a comment at the call site explaining why `len(...)` of a node list is
+    deliberate and not an oversight;
+  * tests/python/test_selfloop_count_routing.py, which spies on the twin and
+    asserts it is never reached, across all four classes.
+
+THE GUARD WAS CHECKED FOR VACUITY BEFORE IT SHIPPED. A "never called" assertion
+is exactly the shape that passed for the wrong reason twice earlier today, so I
+verified the spy actually observes a call by invoking the twin through the same
+patched attribute: it registered. A swapped call site would be detected.
+
+ALSO DEAD: `selfloop_edges_rust` - exported, referenced from nowhere in Python or
+Rust, carrying the same `undirected()` projection, and narrower than the
+`_native_selfloop_edges` method that serves the real `data=`/`keys=` spellings.
+Documented in place rather than deleted, because deleting Rust under a freeze
+means shipping an uncompilable change on top of two already-unbuilt commits.
+
+NOT CLAIMED: that the surviving `len(nodes_with_selfloops_rust(G))` is optimal.
+It still materialises one PyObject per self-loop node to produce an integer. A
+count-only kernel with the DIRECTED index scan would remove that, and is the
+right thing to write once a build is possible - the point of this row is that it
+must be written, not borrowed from the twin.
+
+23 tests. loadavg 9.77/11.12/11.06, disk 27G, no cargo, no benchmarks - this row
+makes no timing claim, and the ~24ms figure it cites is quoted from the existing
+source comment, not re-measured.

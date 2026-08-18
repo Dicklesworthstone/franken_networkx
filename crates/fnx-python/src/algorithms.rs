@@ -26675,6 +26675,14 @@ pub fn harmonic_diameter_rust(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<
 // ---------------------------------------------------------------------------
 
 /// Return self-loop edges.
+///
+/// br-r37-c1-hkijj — DEAD: exported, but referenced from nowhere in Python or
+/// Rust. The public `selfloop_edges` uses the per-class
+/// `Graph::_native_selfloop_edges` method instead, which serves the `data=` and
+/// `keys=` spellings this function cannot. It carries the same `gr.undirected()`
+/// projection as its sibling above, so it is a slower route for directed graphs
+/// as well as a narrower one. Left in place rather than deleted under the build
+/// freeze; a reader reaching for it should read that sibling's note first.
 #[pyfunction]
 pub fn selfloop_edges_rust(
     py: Python<'_>,
@@ -26690,6 +26698,25 @@ pub fn selfloop_edges_rust(
 }
 
 /// Count self-loops.
+///
+/// br-r37-c1-hkijj — DEAD, AND A TRAP. Nothing in Python calls this. It is
+/// CORRECT for every graph class (verified: identical counts to the wired path
+/// on Graph/DiGraph/MultiGraph/MultiDiGraph), which is exactly what makes it
+/// dangerous: `number_of_selfloops` currently spells the simple case
+/// `len(_fnx.nodes_with_selfloops_rust(G))`, and swapping in this
+/// count-returning function looks like an obvious cleanup that removes a list
+/// materialisation.
+///
+/// It would REGRESS DiGraph. `gr.undirected()` below builds the whole
+/// O(|V| + |E|) undirected copy, and the doc comment on
+/// `nodes_with_selfloops_rust` records that projection as the ENTIRE former
+/// cost of `number_of_selfloops` on a DiGraph (~24ms at 3600 edges) — which is
+/// why that function grew a directed branch scanning `(i, i)` pairs in O(|V|)
+/// and became the wired path instead.
+///
+/// No test can catch the swap, because the outputs are identical; only a
+/// benchmark or this comment can. If a count-only kernel is ever wanted, give
+/// it the same directed O(|V|) index scan rather than reviving this one.
 #[pyfunction]
 pub fn number_of_selfloops_rust(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<usize> {
     let gr = extract_graph(g)?;
