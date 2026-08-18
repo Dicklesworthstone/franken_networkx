@@ -2257,10 +2257,36 @@ def generate_edgelist(G, delimiter=" ", data=True):
             for u, v in G.edges():
                 yield delimiter.join([str(u), str(v)])
     else:
-        # data is a list of attribute keys
+        # data is a list of attribute keys.
+        #
+        # br-r37-c1-5xl85: this used ``d.get(k, "")``, which emits an EMPTY
+        # FIELD for an absent key and so writes a TRAILING DELIMITER networkx
+        # never writes -- ``"a d "`` where networkx yields ``"a d"``. networkx
+        # does:
+        #
+        #     e = [u, v]
+        #     try:
+        #         e.extend(d[k] for k in data)
+        #     except KeyError:
+        #         pass
+        #
+        # which STOPS at the first missing key. ``list.extend`` consumes the
+        # generator lazily and appends as it goes, so values BEFORE the missing
+        # key are kept and everything from that key onward is dropped -- not
+        # merely the absent one. Requesting ``["weight", "color"]`` on an edge
+        # carrying only ``weight`` yields ``"a b 2"``, and on an edge carrying
+        # neither yields ``"a b"``.
+        #
+        # Reproduced exactly rather than approximated, because this is a
+        # byte-level output contract: these lines land in files that round-trip
+        # through ``read_edgelist``, where a stray empty field becomes a real
+        # column and shifts every later one.
         for u, v, d in G.edges(data=True):
             bits = [str(u), str(v)]
-            bits.extend(str(d.get(k, "")) for k in data)
+            try:
+                bits.extend(str(d[k]) for k in data)
+            except KeyError:
+                pass
             yield delimiter.join(bits)
 
 

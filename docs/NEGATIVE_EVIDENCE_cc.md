@@ -22768,3 +22768,71 @@ parity test by construction.
 
 No measurement in this row - it is a source census plus the four ratios already
 banked today. loadavg 6.39/8.59/9.31, disk 29G, no cargo, no benchmarks.
+
+## 2026-08-18 GoldenBison PARITY BUG, all four classes: generate_edgelist(data=[keys]) BLANKED a missing key instead of stopping (br-r37-c1-5xl85)
+
+A correctness row, not a perf row. Found while checking whether fnx's
+`generate_edgelist` was byte-identical to networkx's for MULTIGRAPHS - the answer
+was no, and the reason had nothing to do with multigraphs: it hit all four
+classes.
+
+    fnx   'a d '     'a b 2 '     'a b 2 red'
+    nx    'a d'      'a b 2'      'a b 2 red'
+
+fnx built each line with `d.get(k, "")`, substituting an EMPTY FIELD for an
+absent attribute, so lines grew a trailing delimiter networkx never writes.
+networkx does something different IN KIND:
+
+    e = [u, v]
+    try:
+        e.extend(d[k] for k in data)
+    except KeyError:
+        pass
+
+`list.extend` consumes the generator lazily and appends as it goes, so the first
+missing key ABORTS THE REST. Values before it survive; the absent key AND EVERY
+KEY AFTER IT are dropped. That is not expressible as a per-key default, which is
+why the fix is a rewrite rather than a strip().
+
+THE CONSEQUENCE THAT MAKES IT MORE THAN COSMETIC: requesting the same key set in
+a different ORDER produces a different line for the same edge. On an edge
+carrying `color` but not `weight`, `["weight","color"]` yields `"d a"` while
+`["color","weight"]` yields `"d a blue"`. And these lines are a FILE FORMAT -
+they round-trip through `read_edgelist`, where a stray empty field is a real
+column that shifts every later value.
+
+SCOPE, checked rather than assumed:
+  * ALL FOUR graph classes were affected, not just the multigraphs I was looking
+    at. The `data=True` and `data=False` spellings were already correct and are
+    pinned as the control.
+  * `write_edgelist` was NOT affected: it routes `data` that is neither True nor
+    False to `_write_edgelist_via_nx`, so the bad branch was unreachable from
+    there. `bipartite.write_edgelist` DOES pass a key list straight through it,
+    and is covered by the tests below.
+  * A grep for the same `.get(k, "")` shape across the package found NO other
+    site, and `generate_edgelist` is the only `generate_*` writer that takes a
+    key list.
+
+VERIFIED: 96 combinations of class x data-spelling x delimiter agree with
+networkx line for line after the fix, 0 divergences (8 before). New test file
+carries 180 cases; the 6 existing readwrite/edgelist files plus the 3 files that
+consume `generate_edgelist` (including bipartite) pass at 350.
+
+I COULD NOT RUN THE FULL SUITE, and the reason is my own doing: my earlier
+unbuilt Rust commits make the .so older than the newest .rs, which trips the
+conftest staleness guard and blocks pytest repo-wide. I ran these tests from
+outside the guarded directory against the current binary, which is the correct
+binary for validating a pure-Python change. That is the standing cost of
+committing Rust unbuilt, and it is worth stating plainly rather than leaving the
+next reader to infer why a parity fix shipped without a full-suite line.
+
+A TEST OF MINE FAILED FOR THE WRONG REASON AND I FIXED THE TEST, noted because it
+is the same class of error as the bug: I selected the edge under test with
+`line.startswith("d a")`, but an UNDIRECTED graph emits that edge as `"a d"`. The
+filter matched nothing for Graph and MultiGraph, so the assertion compared an
+empty list against an empty list and would have passed for two of four classes
+regardless of behaviour. Now selected by endpoint SET, with a guard asserting the
+fixture still produces the edge.
+
+loadavg 9.84/10.90/10.28, disk 29G, no cargo, no benchmarks - this row makes no
+timing claim.
