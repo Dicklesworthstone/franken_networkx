@@ -1303,6 +1303,63 @@ impl EdgeView {
                 edge_alldata_items(py, &mut g, Some(&node_set))?
             } else {
                 let g = self.graph.borrow(py);
+                // br-r37-c1-lecmc: the NBUNCH sibling of the all-edges index walk
+                // in `__iter__`. Same defect, same fix: this called
+                // `py_node_key` + `py_adj_key` per surviving edge, hashing each
+                // endpoint's full canonical name twice, where the `AllData` arm
+                // directly above already reaches `edge_alldata_items` and its
+                // index walk. Found by applying to my own change the rule this
+                // ledger keeps recording - fix the sibling, or the next reader
+                // measures one spelling and is surprised by the other.
+                //
+                // The node filter moves onto the INDEXED names, so it is the
+                // same predicate on the same strings, just without rebuilding a
+                // Python key object to get there. Capacity is left to the Vec:
+                // a one-node nbunch on a large graph keeps very few edges, and
+                // `with_capacity(edge_count())` would allocate the whole edge
+                // list for it.
+                //
+                // Value semantics, the `adj_py_keys` gate and the absence of a
+                // cache are all exactly as in the all-edges walk - see that
+                // comment for why each is load-bearing.
+                let index_walk: Option<Vec<PyObject>> = if g.adj_py_keys.is_empty() {
+                    let nodes: Vec<&str> = g.inner.nodes_ordered();
+                    let key_vec: Vec<PyObject> =
+                        nodes.iter().map(|n| g.py_node_key(py, n)).collect();
+                    let mut built: Vec<PyObject> = Vec::new();
+                    for (u, v) in g.inner.edges_ordered_indices() {
+                        let left = nodes[u];
+                        let right = nodes[v];
+                        if !(node_set.contains(left) || node_set.contains(right)) {
+                            continue;
+                        }
+                        let py_u = key_vec[u].clone_ref(py);
+                        let py_v = key_vec[v].clone_ref(py);
+                        let tuple = match &view_data {
+                            NodeViewData::NoData => tuple_object(py, &[py_u, py_v])?,
+                            NodeViewData::Attr(attr_name) => {
+                                let val = g
+                                    .edge_attr_py_value(py, left, right, attr_name)?
+                                    .unwrap_or_else(|| py.None());
+                                tuple_object(py, &[py_u, py_v, val])?
+                            }
+                            NodeViewData::AttrWithDefault(attr_name, def_val) => {
+                                let val = g
+                                    .edge_attr_py_value(py, left, right, attr_name)?
+                                    .unwrap_or_else(|| def_val.clone_ref(py));
+                                tuple_object(py, &[py_u, py_v, val])?
+                            }
+                            NodeViewData::AllData => unreachable!(),
+                        };
+                        built.push(tuple);
+                    }
+                    Some(built)
+                } else {
+                    None
+                };
+                if let Some(built) = index_walk {
+                    built
+                } else {
                 // br-r37-c1-eqedg: use edges_ordered_borrowed to avoid string cloning
                 g.inner
                     .edges_ordered_borrowed()
@@ -1331,6 +1388,7 @@ impl EdgeView {
                         }
                     })
                     .collect::<PyResult<Vec<_>>>()?
+                }
             };
             Ok(items.into_pyobject(py)?.into_any().unbind())
         } else {

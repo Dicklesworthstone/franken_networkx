@@ -136,6 +136,45 @@ def test_empty_and_single_edge_graphs(cls):
 
 
 @pytest.mark.parametrize("cls", CLASSES)
+@pytest.mark.parametrize("key", ["weight", "color", "absent"])
+@pytest.mark.parametrize("default", [1, None])
+def test_nbunch_values_and_order_match_networkx(cls, key, default):
+    """br-r37-c1-lecmc: the NBUNCH branch got the same index walk.
+
+    Its filter moved onto the indexed names, so a wrong index -> name mapping
+    would change WHICH edges survive, not just their endpoint objects.
+    """
+    got, want = _build(fnx, cls), _build(nx, cls)
+    for nbunch in (["a"], ["a", "c"], ["e"], ["isolated"], ["a", "absent_node"], []):
+        g_rows = [
+            tuple(map(str, e)) for e in got.edges(nbunch, data=key, default=default)
+        ]
+        w_rows = [
+            tuple(map(str, e)) for e in want.edges(nbunch, data=key, default=default)
+        ]
+        assert g_rows == w_rows, f"{cls}: nbunch {nbunch!r} diverged"
+
+
+@pytest.mark.parametrize("cls", CLASSES)
+def test_nbunch_endpoints_are_the_graphs_own_node_objects(cls):
+    graph = _build(fnx, cls)
+    by_value = {str(n): n for n in graph.nodes()}
+    for edge in graph.edges(["a", "c"], data="weight", default=1):
+        assert edge[0] is by_value[str(edge[0])]
+        assert edge[1] is by_value[str(edge[1])]
+
+
+@pytest.mark.parametrize("cls", CLASSES)
+def test_nbunch_selfloop_and_isolated_are_handled(cls):
+    """The filter is `left in set or right in set`; a self-loop hits both."""
+    got, want = _build(fnx, cls), _build(nx, cls)
+    for nbunch in (["e"], ["isolated"]):
+        assert [tuple(map(str, x)) for x in got.edges(nbunch, data="weight", default=0)] == [
+            tuple(map(str, x)) for x in want.edges(nbunch, data="weight", default=0)
+        ]
+
+
+@pytest.mark.parametrize("cls", CLASSES)
 def test_view_tracks_mutation(cls):
     """The key_vec is built per call, so a stale one would show up here."""
     got, want = _build(fnx, cls), _build(nx, cls)
