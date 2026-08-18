@@ -163,3 +163,98 @@ def test_the_bug_is_still_there_without_the_flush(route):
         "the stale typed store no longer defaults every node to 1.0 — if the "
         "store was fixed, flush_node_attrs_to_native_store is now dead code"
     )
+
+
+# --- the community-attribute kernels ---------------------------------------
+#
+# These were nearly recorded as UNREACHABLE. `hasattr(fnx._fnx,
+# "cn_soundarajan_hopcroft")` is False, and the shim's public
+# `cn_soundarajan_hopcroft` is a pure-Python implementation that reads the Python
+# store and cannot hit this gap — so both the obvious checks say "no native
+# kernel here". The binding exists under a `_rust` SUFFIX
+# (`_fnx.cn_soundarajan_hopcroft_rust`), and it does `py.allow_threads(...)`
+# around the kernel, which is the GIL-released shape this bead describes.
+#
+# Guessing the symbol name is what almost lost this. Both kernels are affected.
+
+_COMMUNITY = "community"
+
+
+def _community_graph(route):
+    """Two candidates sharing neighbours, one of which shares their community.
+
+    Community-SENSITIVE: with the attribute visible, `c` is in the same community
+    as `a` and `b` and contributes a bonus; `d` is not. A kernel that cannot see
+    the attribute loses exactly that bonus, which is the detectable fault.
+    """
+    communities = {"a": 0, "b": 0, "c": 0, "d": 1}
+    graph = fnx.Graph()
+    if route == "add_node":
+        for node, community in communities.items():
+            graph.add_node(node, **{_COMMUNITY: community})
+        graph.add_edges_from([("a", "c"), ("b", "c"), ("a", "d"), ("b", "d")])
+        return graph
+
+    graph.add_nodes_from(communities)
+    graph.add_edges_from([("a", "c"), ("b", "c"), ("a", "d"), ("b", "d")])
+    if route == "nodes_getitem":
+        for node, community in communities.items():
+            graph.nodes[node][_COMMUNITY] = community
+    elif route == "set_node_attributes":
+        fnx.set_node_attributes(graph, communities, _COMMUNITY)
+    return graph
+
+
+COMMUNITY_KERNELS = (
+    ("cn_soundarajan_hopcroft_rust", 3.0, 2.0),
+    ("ra_index_soundarajan_hopcroft_rust", 0.5, 0.0),
+)
+
+
+@pytest.mark.parametrize("kernel,correct,stale", COMMUNITY_KERNELS)
+def test_community_kernel_is_correct_when_attrs_reach_the_store(kernel, correct, stale):
+    """The control."""
+    graph = _community_graph("add_node")
+    got = list(getattr(fnx._fnx, kernel)(graph, [("a", "b")], _COMMUNITY))[0][2]
+    assert got == correct
+
+
+@pytest.mark.parametrize("route", STALE_ROUTES)
+@pytest.mark.parametrize("kernel,correct,stale", COMMUNITY_KERNELS)
+def test_community_kernel_is_stale_without_the_flush(kernel, correct, stale, route):
+    """Pins the DEFECT: the community bonus is silently lost."""
+    graph = _community_graph(route)
+    got = list(getattr(fnx._fnx, kernel)(graph, [("a", "b")], _COMMUNITY))[0][2]
+    assert got == stale, (
+        f"{kernel} no longer reads a stale store — if it was fixed, the flush is "
+        "dead code for this kernel"
+    )
+
+
+@pytest.mark.parametrize("route", STALE_ROUTES)
+@pytest.mark.parametrize("kernel,correct,stale", COMMUNITY_KERNELS)
+def test_flush_repairs_the_community_kernel(kernel, correct, stale, route):
+    graph = _community_graph(route)
+    fnx.flush_node_attrs_to_native_store(graph)
+    got = list(getattr(fnx._fnx, kernel)(graph, [("a", "b")], _COMMUNITY))[0][2]
+    assert got == correct
+
+
+@pytest.mark.parametrize("route", STALE_ROUTES)
+def test_the_PUBLIC_community_api_is_unaffected(route):
+    """Why the public surface hides this: the shim implements it in Python.
+
+    This is the control that makes the divergence above meaningful — a test
+    written against the public API reports the family healthy on every route.
+    """
+    import networkx as nx
+
+    graph = _community_graph(route)
+    reference = nx.Graph()
+    for node, community in {"a": 0, "b": 0, "c": 0, "d": 1}.items():
+        reference.add_node(node, community=community)
+    reference.add_edges_from([("a", "c"), ("b", "c"), ("a", "d"), ("b", "d")])
+
+    got = [(u, v, p) for u, v, p in fnx.cn_soundarajan_hopcroft(graph, [("a", "b")])]
+    want = [(u, v, p) for u, v, p in nx.cn_soundarajan_hopcroft(reference, [("a", "b")])]
+    assert got == want
