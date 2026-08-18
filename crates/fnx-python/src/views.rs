@@ -1645,7 +1645,20 @@ impl AdjacencyView {
 // makes `G[u][v]` and `v in G[u]` O(1) and is LIVE (reflects later edge
 // additions) like nx, fixing the prior snapshot divergence. (br-r37-c1-njs5g)
 // ---------------------------------------------------------------------------
-#[pyclass(module = "franken_networkx", mapping)]
+// br-r37-c1-rgmef: `subclass` is the PREREQUISITE for making plain `Graph`'s
+// private `_adj` rows writable. `G._adj[u][v] = {...}` works on networkx and
+// raised on fnx; the fix is a writable SUBCLASS of the row view, so that reads
+// stay the same function objects (see
+// tests/python/test_private_adj_read_path_stays_native.py, which measured a
+// wrapper at ~1.55x and rejected it). DiGraph is fixed already because its row
+// is the Python `AtlasView`. Graph's row is THIS type, and without `subclass`
+// `type("X", (AtlasView,), {})` raises "not an acceptable base type".
+//
+// UNBUILT: committed under a disk freeze, so it is compiled and measured later.
+// This type is on br-r37-c1-ey6ob's hot `G[u]` C-slot path, and `subclass` sets
+// Py_TPFLAGS_BASETYPE, so the rebuild must re-measure that path before the
+// Python half is wired up.
+#[pyclass(module = "franken_networkx", mapping, subclass)]
 pub struct AtlasView {
     /// `None` once `__clear__` has run — see [`cleared_view_error`].
     /// `AdjacencyView::__getitem__` hands out an AtlasView holding its OWN

@@ -2016,6 +2016,10 @@ def _adjacency_view_values(self):
 
 
 class AtlasView(_Mapping):
+    # br-r37-c1-rgmef: True only on a private twin, which makes the
+    # shared __getitem__ below build writable rows.
+    _fnx_private_rows = False
+
     def __init__(
         self,
         atlas_getter,
@@ -2309,6 +2313,10 @@ def _missing_node_key_error(graph, node, atlas=None):
 
 
 class AdjacencyView(_Mapping):
+    # br-r37-c1-rgmef: True only on a private twin, which makes the
+    # shared __getitem__ below build writable rows.
+    _fnx_private_rows = False
+
     def __init__(
         self,
         atlas_getter,
@@ -2514,7 +2522,21 @@ class AdjacencyView(_Mapping):
                 # Rust-side str repr, which is exactly what br-keystr must keep
                 # rewriting.
                 raise _missing_node_key_error(owner, node, atlas=atlas) from exc
-        if type(owner) is Graph and not _has_networkx_private_storage(owner):
+        if self._fnx_private_rows:
+            # br-r37-c1-rgmef: identical read construction, writable class.
+            view = _private_mark_writable(
+                _private_writable_class(AtlasView)(
+                    lambda: self._atlas()[node],
+                    owner=owner,
+                    row_node=node,
+                    row_kind=self._fnx_row_kind,
+                    multi_edge_owner=self._fnx_multi_edge_owner,
+                ),
+                owner,
+                node,
+                self._fnx_row_kind,
+            )
+        elif type(owner) is Graph and not _has_networkx_private_storage(owner):
             # br-r37-c1-ey6ob: the native AtlasView owns a C-level
             # ``__getitem__`` slot, so the cold G[u][v] path avoids the
             # Python AtlasView frame while retaining the same persistent row
@@ -3022,6 +3044,63 @@ _multidigraph_pred_view = _cached_view(
             self, MultiDiGraph
         ),
         native_len=_MULTIDIGRAPH_ADJ_NATIVE_LEN.__get__(self, MultiDiGraph),
+    ),
+)
+
+
+# br-r37-c1-rgmef: DiGraph's private twins, each constructed with exactly the
+# same arguments as the public view above it. A native-backed view class
+# inherits `__new__` from `_fnx.AdjacencyView` and requires those arguments, so
+# a twin cannot be cloned from instance state -- it has to be built.
+
+
+def _private_marked(view, graph):
+    return _private_mark_writable(
+        view, graph, None, getattr(view, "_fnx_row_kind", "adj")
+    )
+
+
+_digraph_private_adj_view = _cached_view(
+    "_fnx_priv_adj",
+    lambda self: _private_marked(
+        _private_writable_class(_DIGRAPH_NATIVE_LEN_ADJ_VIEW)(
+            lambda: _DIGRAPH_ADJ_DESCRIPTOR.__get__(self, DiGraph),
+            owner=self,
+            row_kind="succ",
+            native_len=_DIGRAPH_ADJ_NATIVE_LEN.__get__(self, DiGraph),
+            native_iter=_DIGRAPH_ADJ_NATIVE_ITER.__get__(self, DiGraph),
+        ),
+        self,
+    ),
+)
+
+
+_digraph_private_succ_view = _cached_view(
+    "_fnx_priv_succ",
+    lambda self: _private_marked(
+        _private_writable_class(AdjacencyView)(
+            lambda: _DIGRAPH_SUCC_DESCRIPTOR.__get__(self, DiGraph),
+            owner=self,
+            row_kind="succ",
+            native_len=_DIGRAPH_ADJ_NATIVE_LEN.__get__(self, DiGraph),
+            native_iter=_DIGRAPH_ADJ_NATIVE_ITER.__get__(self, DiGraph),
+        ),
+        self,
+    ),
+)
+
+
+_digraph_private_pred_view = _cached_view(
+    "_fnx_priv_pred",
+    lambda self: _private_marked(
+        _private_writable_class(AdjacencyView)(
+            lambda: _DIGRAPH_PRED_DESCRIPTOR.__get__(self, DiGraph),
+            owner=self,
+            row_kind="pred",
+            native_len=_DIGRAPH_ADJ_NATIVE_LEN.__get__(self, DiGraph),
+            native_iter=_DIGRAPH_ADJ_NATIVE_ITER.__get__(self, DiGraph),
+        ),
+        self,
     ),
 )
 
@@ -47543,6 +47622,118 @@ def _private_directed_adj_mapping(self, fallback):
     return fallback(self)
 
 
+# br-r37-c1-rgmef: the writable private adjacency surface.
+#
+# tests/python/test_private_adj_read_path_stays_native.py is a spec on this bead
+# and it DISQUALIFIES the obvious fix by measurement: a facade wrapping the view
+# costs +149 ns on `_adj[u]` and +186 ns on `_adj[u][v]` (~1.55x) on a path that
+# networkx's own algorithms walk directly. I built that facade first and the
+# lock caught it. What follows is the design the lock prescribes -- a SUBCLASS,
+# which inherits the identical read functions and adds `__setitem__` alongside.
+#
+# SCOPE: DiGraph only, for two different reasons that are worth keeping apart.
+#   Graph    blocked in RUST. Its public row is the native `_fnx.AtlasView`
+#            (br-r37-c1-ey6ob's C-slot win), and that pyclass was not declared
+#            `subclass`, so no writable row subclass can be built in Python.
+#            Handing it the Python `AtlasView` instead would make the private
+#            row's read methods differ from the public row's -- exactly what the
+#            lock forbids. crates/fnx-python/src/views.rs now carries the
+#            `subclass` attribute; it is UNBUILT under the disk freeze.
+#   Multi*   blocked in PYTHON. A twin can be built, but its READS diverge from
+#            the public view's and the lock's
+#            `test_private_adj_reads_agree_with_the_public_view` catches it, so
+#            they stay on the read-only view rather than land half-working.
+#
+# WRITE CONTEXT IS CARRIED SEPARATELY, in `_fnx_write_*` attributes set AFTER
+# construction rather than through the constructor, so every read argument stays
+# byte-identical to the public view's.
+
+_PRIVATE_WRITABLE_CLASSES = {}
+
+
+def _private_writable_class(base):
+    """A writable subclass of `base`, memoised. Overrides nothing that reads."""
+    cls = _PRIVATE_WRITABLE_CLASSES.get(base)
+    if cls is None:
+        cls = type(
+            "Private" + base.__name__,
+            (base,),
+            {
+                "__setitem__": _private_view_setitem,
+                "__delitem__": _private_view_delitem,
+                # propagates one level down: a private view builds private rows.
+                "_fnx_private_rows": True,
+            },
+        )
+        _PRIVATE_WRITABLE_CLASSES[base] = cls
+    return cls
+
+
+def _private_mark_writable(view, owner, node, kind):
+    view._fnx_write_owner = owner
+    view._fnx_write_node = node
+    view._fnx_write_kind = kind
+    return view
+
+
+def _private_write_target(view, other):
+    """(owner, u, v) for writing `other` into `view`; u is None at the top level.
+
+    `_pred[v][u] = cell` describes the edge u -> v, so a pred row swaps its
+    endpoints. The row already knows its kind, so nothing new is threaded in.
+    """
+    owner = getattr(view, "_fnx_write_owner", None)
+    if owner is None:
+        raise TypeError(
+            "fnx: this private view has no owning graph to write to "
+            "(br-r37-c1-rgmef)"
+        )
+    node = getattr(view, "_fnx_write_node", None)
+    if node is None:
+        return owner, None, None
+    if getattr(view, "_fnx_write_kind", "adj") == "pred":
+        return owner, other, node
+    return owner, node, other
+
+
+def _private_view_setitem(self, key, value):
+    """Item assignment into private storage, as networkx's raw dict allows."""
+    owner, u, v = _private_write_target(self, key)
+    if u is None:
+        if not isinstance(value, _Mapping):
+            raise TypeError(
+                "fnx: an adjacency row must be a mapping; got "
+                f"{type(value).__name__} (br-r37-c1-rgmef)."
+            )
+        owner.add_node(key)
+        reverse = getattr(self, "_fnx_write_kind", "adj") == "pred"
+        for other in list(self[key]):
+            a, b = (other, key) if reverse else (key, other)
+            if owner.has_edge(a, b):
+                owner.remove_edge(a, b)
+        row = self[key]
+        for other, cell in value.items():
+            row[other] = cell
+        return
+
+    attrs = dict(value) if value else {}
+    if owner.has_edge(u, v):
+        # networkx REPLACES the cell, so the previous attributes go with it.
+        existing = owner.adj[u][v]
+        existing.clear()
+        existing.update(attrs)
+        return
+    owner.add_edge(u, v, **attrs)
+
+
+def _private_view_delitem(self, key):
+    owner, u, v = _private_write_target(self, key)
+    if u is None:
+        owner.remove_node(key)
+        return
+    owner.remove_edge(u, v)
+
+
 def _read_only_private_mapping(graph, mapping):
     """Wrap an ASSIGNED private mapping the way networkx's public accessor does.
 
@@ -49051,7 +49242,7 @@ DiGraph.adj = property(
     lambda self, value: _set_private_override(self, _PRIVATE_ADJ_OVERRIDE, value),
 )
 DiGraph._adj = property(
-    lambda self: _private_directed_adj_mapping(self, _digraph_adj_view),
+    lambda self: _private_directed_adj_mapping(self, _digraph_private_adj_view),
     lambda self, value: _set_private_override(self, _PRIVATE_ADJ_OVERRIDE, value),
 )
 DiGraph.succ = property(
@@ -49062,7 +49253,7 @@ DiGraph.succ = property(
     lambda self, value: _set_private_override(self, _PRIVATE_SUCC_OVERRIDE, value),
 )
 DiGraph._succ = property(
-    lambda self: _private_succ_mapping(self, _digraph_succ_view),
+    lambda self: _private_succ_mapping(self, _digraph_private_succ_view),
     lambda self, value: _set_private_override(self, _PRIVATE_SUCC_OVERRIDE, value),
 )
 DiGraph.pred = property(
@@ -49073,7 +49264,7 @@ DiGraph.pred = property(
     lambda self, value: _set_private_override(self, _PRIVATE_PRED_OVERRIDE, value),
 )
 DiGraph._pred = property(
-    lambda self: _private_pred_mapping(self, _digraph_pred_view),
+    lambda self: _private_pred_mapping(self, _digraph_private_pred_view),
     lambda self, value: _set_private_override(self, _PRIVATE_PRED_OVERRIDE, value),
 )
 DiGraph._node = property(
