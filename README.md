@@ -1581,10 +1581,15 @@ If you're working in a third-party library that hands you `nx.Graph` instances, 
 ```python
 import networkx as nx
 
-# Either: globally
-nx.config.backend_priority = ["franken_networkx"]
+# Pretend this came from a library that only speaks nx.
+third_party_graph = nx.karate_club_graph()
 
-# Or: with a context manager (NetworkX ≥ 3.4)
+# Either: globally — shown, not executed here, because setting it GLOBALLY is
+# process-wide and would change dispatch for every later example in this file.
+#
+#     nx.config.backend_priority = ["franken_networkx"]
+
+# Or: with a context manager (NetworkX >= 3.4), which scopes the change.
 with nx.config(backend_priority=["franken_networkx"]):
     pr = nx.pagerank(third_party_graph)
 ```
@@ -1863,9 +1868,19 @@ Bit-for-bit reproducible graph analytics with fnx. The recipe below is usable as
 ### 1. Pin the inputs
 
 ```python
-import os, hashlib, franken_networkx as fnx
+import os, hashlib, atexit, shutil, tempfile, franken_networkx as fnx
 
-GRAPH_INPUT = "datasets/snapshot_2026Q2.edgelist"
+# In your pipeline GRAPH_INPUT is your own dataset:
+#
+#     GRAPH_INPUT = "datasets/snapshot_2026Q2.edgelist"
+#
+# The recipe below is executable as written, so it stands up a tiny stand-in
+# and removes it at exit — later steps in this section read it back.
+_pinned_dir = tempfile.mkdtemp(prefix="fnx-readme-")
+atexit.register(shutil.rmtree, _pinned_dir, True)
+GRAPH_INPUT = os.path.join(_pinned_dir, "snapshot.edgelist")
+with open(GRAPH_INPUT, "w") as f:
+    f.write("a b\nb c\nc a\n")
 
 # Compute and log the SHA-256 of the input. Any drift here is the first
 # place to look if reproducibility breaks downstream.
@@ -1946,7 +1961,11 @@ print(nx.shortest_path(G, 0, 33))
 
 ### Pattern: `import networkx as nx` → `import franken_networkx as nx` (standalone mode)
 
-```python
+<!-- skip-verify: an illustrative Before/After fragment. Executing it would rebind
+     `nx` to franken_networkx for every later block in this file, since
+     scripts/verify_docs.py concatenates the blocks into one script. -->
+
+```python skip-verify
 # Before
 import networkx as nx
 
@@ -1958,7 +1977,10 @@ This works unchanged for paths marked `present` in `docs/coverage.md`. Paths mar
 
 ### Pattern: type checks on `nx.Graph`
 
-```python
+<!-- skip-verify: illustrative Before/After fragment — `g` is a stand-in for the
+     caller's own graph and the bodies are literal `...`. -->
+
+```python skip-verify
 # Before
 if isinstance(g, nx.Graph): ...
 
