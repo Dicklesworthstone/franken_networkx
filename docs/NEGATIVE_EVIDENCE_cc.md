@@ -23715,3 +23715,43 @@ is their call, not mine. Fleet warned by agent mail with the shas and the guard.
 loadavg 48.64 at the graded pair, disk 79G. Neither arm is a certification; the
 separations are 5x to 10x and the arms ran back to back in one window, which is
 enough to attribute but not to publish a ratio.
+
+## 2026-08-18 GoldenBison SECOND RETRACTION from the same stale binary: edges(data=key) is PARITY, not 0.15x (br-r37-c1-y2r2b re-scoped)
+
+Applying the correction from the row above to my other finding of the day, before
+anyone acts on it. It was measured on the same stale installed .so and it is also
+wrong.
+
+    arm                        edges(data=True)        edges(data=key)
+    stale 8c48c59a             0.3242x                 0.1471x
+    HEAD  c0f918fe             2.4560x                 0.9697x
+
+fnx 0.461ms vs networkx 1.133ms for `data=True` - a WIN, not a loss - and
+1.019ms vs 0.988ms for `data=key`, which is parity. The "0.15x on a public API"
+headline is void.
+
+WHAT SURVIVES IS SMALLER AND STILL REAL: inside fnx the key spelling costs 2.21x
+the dict spelling (1.019 vs 0.461ms) where networkx charges 0.87x. Because
+`data=True` stands at 2.46x against the incumbent while `data=key` sits at 0.97x,
+closing that internal gap is worth roughly 2.5x on the key spelling. That is an
+improvement from parity, not a rescue from a 7x loss, and the bead's priority
+should fall accordingly.
+
+THE REVERT IT MOTIVATED STAYS CORRECT. br-r37-c1-4m4wb rested on the key/True
+ratio INSIDE fnx, and that ratio survives the correction: 2.21x on HEAD against
+2.88x on the stale binary. Paying 2.2x on a per-call O(E) scan to avoid store
+contamination is still the wrong trade. A conclusion drawn from a bad arm can
+still be right for a reason the bad arm did not distort - but it has to be
+re-derived, not assumed, and this one was.
+
+TWO FALSE FINDINGS IN ONE DAY, BOTH MINE, BOTH FROM ONE CAUSE. Under the freeze
+the installed .so was the only arm anyone had, so "installed" and "HEAD" were
+necessarily the same object and I stopped distinguishing them. The freeze lifting
+broke that equivalence silently and in the direction that makes healthy code look
+broken. The guard costs one line and I already had it: my certify scripts print
+the loaded ELF sha on every run. I printed it every time and never once compared
+it to `target/release/lib_fnx.so`. Provenance you record but do not check is
+decoration.
+
+loadavg 48 at both measurements, disk 68G. NO BUILD of mine ran for this row -
+the HEAD arm is the wheel from the 0.12s warm build recorded above, reused.
