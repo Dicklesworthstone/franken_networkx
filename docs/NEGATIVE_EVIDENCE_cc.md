@@ -10012,7 +10012,7 @@ by ~2x on the SAME ELF minutes apart — `scripts/balanced_square_ab.py
 build. Both pass their nulls. Until that is resolved, the DIRECTION here (the
 wrapper is ~11-12% of this probe, and the Rust reaches instruction parity
 without it) is what this row supports; the absolute vs-incumbent level is not
-settled by it. Filed as its own bead.
+settled by it. Filed as br-r37-c1-y2r2b.
 
 comparison_class=SELF-SPEEDUP
 campaign_output=false
@@ -23521,3 +23521,76 @@ fails on exactly the two `neighbors` cases when this lands, which is the signal
 to move them to SAFE.
 
 loadavg 10.22/8.19/8.23, disk 26G, no cargo, no benchmarks.
+
+## 2026-08-18 GoldenBison REVERTED MY OWN FIX ON MEASUREMENT, and found a bigger loss underneath (br-r37-c1-4m4wb)
+
+The extension got built (someone else's slot, .so rebuilt 18:08), so for the
+first time this week I could measure what I had been committing unbuilt. The
+first thing I measured was my own change, and it was wrong.
+
+WHAT I ASSUMED, unmeasured: that `edges(data=weight, default=1)` is cheaper than
+`edges(data=True)` + `attrs.get(weight, 1)` - it yields a value instead of
+materialising a live attr dict per edge, and it avoids the store contamination
+that handing out live dicts causes (br-r37-c1-igdzi). It looked free.
+
+WHAT IS TRUE, 4000 edges, min of 9 blocks:
+
+    fnx   data=True + attrs.get   2.52 ms     data=key   7.27 ms    2.88x
+    networkx  the same pair       0.92 ms                0.99 ms    1.07x
+
+The contamination fix was being bought with a 2.9x slowdown on an O(E) scan that
+runs on every weighted shortest-path call. Both guards - the negative one I had
+already pushed as 08e53c023, and the +inf sibling I had not - are back on
+`data=True`.
+
+THE 70 PARITY TESTS COULD NOT HAVE CAUGHT THIS, and that is the lesson worth
+keeping. They pin the guards' ANSWER, and both spellings agree by construction -
+that equality is precisely why the swap was safe to make. A test that pins
+behaviour cannot pin an implementation choice made for a side effect, and this
+one could only be settled by a build.
+
+THE FINDING UNDERNEATH IS LARGER THAN THE GUARD. INDICATIVE ONLY - taken at
+loadavg 23 rising to 31, and the `data=key` row's A/A null came back 1.1347,
+which is nowhere near admissible. Recorded so it can be certified in a quiet
+window, not as a result:
+
+    edges(data="weight")   fnx 15.698ms  nx  2.387ms  0.1520x  MHz 3918/3889  aa 1.1347
+    edges(data=True)+get   fnx  3.802ms  nx  1.473ms  0.3875x  MHz 3855/3868  aa 0.9719
+
+Both spellings lose to networkx, but the KEY spelling loses two and a half times
+worse, and networkx itself charges only 1.07x for it. Five shim call sites
+already use `data=key` - in community, scc and tree code - and every user who
+asks for one attribute by name pays it. Filed as br-r37-c1-y2r2b.
+
+It is also the blocker for fixing the guard contamination properly: the value
+spelling is the natural fix, and it will stay a bad trade until `edges(data=key)`
+is fixed.
+
+A/A null control, same invocation, the SAME callable in both arm slots, run
+immediately after each paired square in the same process: 1.1347 for the
+`edges(data=key)` arm and 0.9719 for the `edges(data=True)` arm. The first is
+inadmissible and is why the 0.1520x row above is marked INDICATIVE rather than
+carried as a result; the second is inside bound, which is what lets the 0.3875x
+row stand as the comparison it is contrasted against. Decision on the REVERT
+itself does NOT rest on either: it rests on the 2.52ms vs 7.27ms min-of-9 pair
+above, where the arms differ by 2.88x - an effect far outside anything a 13
+percent null can produce - and on networkx charging 1.07x for the same swap.
+comparison_class=SELF-SPEEDUP
+campaign_output=false
+decision_gate=median_ci
+cv_role=report_only
+
+INDEPENDENT AND NOT MINE, checked because it surfaced in the same run:
+test_dijkstra_inf_perf::test_inf_gate_native_short_circuits_on_finite_graph fails
+on HEAD at 12.5ms against a 8.9ms Python baseline, stable over three runs, and it
+still fails with my revert applied. It is not in the established baseline set, so
+it is a real recent regression - but at loadavg 22-28 on a pure timing assertion
+I am not diagnosing it further here.
+
+ALSO CONFIRMED BY THE BUILD: br-r37-c1-3rtyk WORKS. `G.neighbors()` no longer
+poisons the weighted store - the two `neighbors` cases in
+tests/python/test_weighted_store_contamination_map.py now FAIL, which is the
+expiry signal that file was written to give. They should move to the SAFE column.
+
+loadavg 23.52/25.22/19.64 at the start of the graded pair, 31.49 by the end.
+Disk 112G.
