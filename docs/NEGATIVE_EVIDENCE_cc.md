@@ -23594,3 +23594,62 @@ expiry signal that file was written to give. They should move to the SAFE column
 
 loadavg 23.52/25.22/19.64 at the start of the graded pair, 31.49 by the end.
 Disk 112G.
+
+## 2026-08-18 GoldenBison P1 REGRESSION FOUND BY FINISHING THE COMPILE-AND-MEASURE: degree(weight) 4.058x -> 0.73x (br-r37-c1-1a875)
+
+The extension was built on another pane's slot, so I finished the measure half of
+the work I had been committing unbuilt all week. Two of my own changes verified,
+one of my own claims corrected, and a P1 regression that is NOT mine surfaced.
+
+MEASURED against baselines recorded in br-r37-c1-igdzi (2026-08-16) and my own
+pre-build rows from earlier today, same graph shapes, on ELF
+8c48c59a696420c3632b613489924ea61d25701ac157bb472d44de99d7ee8d37:
+
+    cell                              baseline     now       note
+    Graph size(weight) pristine       4.395x       5.981x    IMPROVED
+    Graph degree(weight) pristine     4.058x       0.7323x   5.5x REGRESSION
+    MultiGraph int degree(nb,w)       1.0456x      0.0611x   17x REGRESSION
+    MultiGraph float degree(nb,w)     0.8753x      0.1984x   4.4x
+    MultiDiGraph int degree(nb,w)     1.4360x      0.1418x   10x REGRESSION
+    MultiDiGraph float degree(nb,w)   1.0203x      0.5651x   1.8x
+
+IT IS NOT MINE, and the INT cells are what establish that. My unbuilt changes
+(br-r37-c1-mgwdegsubf, br-r37-c1-mdgwdegsubf) touch only the FLOAT subset path,
+and the unweighted fix I landed (br-r37-c1-9iro1) is gated on `_weight is None`.
+The int cells regressed as hard as the float ones - MultiGraph int by 17x - and
+simple-graph all-node `degree(weight)` is untouched by anything I have landed. A
+change of mine cannot move a path it does not sit on.
+
+NOR IS IT LOAD. networkx's arm is unchanged across the two measurement epochs
+(37-49us for the multigraph cells, 1524-1600us for the simple-graph ones), while
+fnx's ballooned 19x on the same shapes in the same processes. Load moves both
+arms; this moved one.
+
+WHERE IT IS NOT: the native kernel still returns CORRECT values - calling
+`_native_weighted_degree_subset(nb, "w")` directly returns 50 correct pairs - and
+cProfile shows negligible Python work on the path (51 `bunch_iter` calls per
+call, nothing else). So the cost is INSIDE the native kernel, not in the shim
+routing to it. That `size(weight)` IMPROVED to 5.981x in the same build while
+`degree(weight)` collapsed points at the degree accumulator specifically rather
+than at the store underneath both.
+
+NOT BISECTED, deliberately: /data is at 90G falling ~10G per tick with a sibling
+cold build live, and the standing rule is ONE build per project. Attributing this
+needs arms, and arms need a build window. Filed as br-r37-c1-1a875 with the
+shapes and baselines so the bisect is a mechanical job when one exists.
+
+WHAT THE SAME RUN CONFIRMED ABOUT MY OWN WORK:
+
+  * br-r37-c1-3rtyk WORKS, end to end. `size(weight)` is 5.9190x on a pristine
+    graph and 5.9750x on one that has been traversed - identical. Before the fix
+    a single `G.neighbors()` call collapsed that sequence to 0.733x. The
+    contamination map's two `neighbors` cases failed exactly as that file
+    predicted they would, and are now moved to its SAFE column.
+  * br-r37-c1-4m4wb was WRONG and is reverted (see the row above): my
+    value-spelling swap cost 2.88x on the scan it was meant to help.
+
+loadavg 35.69 falling to 33.03 across the graded run, interval idle 84.8 percent,
+per-arm MHz 4014-4119 with skew at or under 0.44 percent on every row above.
+Disk 90G. These ratios are reported with that load on the record; the regression
+they show is an order of magnitude larger than anything load explains, but the
+third decimal is not to be quoted.

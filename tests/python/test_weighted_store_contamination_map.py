@@ -18,8 +18,9 @@ THE HEADLINE, and it is worse than the bead says. The bead bisected ten
 operations and named ``edges(data=True)``. It never tried the two most common
 edge reads in the library:
 
-    G.neighbors(u)          CONTAMINATES - and merely CALLING it does, without
-                            consuming the returned iterator at all
+    G.neighbors(u)          FIXED 2026-08-18 (br-r37-c1-3rtyk) - it CONTAMINATED,
+                            and merely CALLING it did, without consuming the
+                            returned iterator at all. Now SAFE.
     G[u][v]                 CONTAMINATES
     G.get_edge_data(u, v)   CONTAMINATES
     G.edges[u, v]           CONTAMINATES
@@ -65,17 +66,7 @@ import pytest
 
 import franken_networkx as fnx
 
-# br-r37-c1-3rtyk: THE TWO neighbors CASES ARE EXPECTED TO FLIP TO ``SAFE``.
-# The fix is committed but UNBUILT (build freeze): `native_adjacency_row_dict`
-# was split so the row builder no longer marks the store dirty and the mark moved
-# to the pymethod that actually hands the dict to Python, which `neighbors` never
-# does. These assertions are truthful for the CURRENT binary and will fail the
-# moment that Rust is compiled - at which point move both entries into ``SAFE``
-# and say so in br-r37-c1-3rtyk. That failure is the intended signal, not a
-# surprise: it is how whoever builds learns the fix took effect.
 CONTAMINATING = {
-    "neighbors": lambda g: list(g.neighbors("n0")),
-    "neighbors_uniterated": lambda g: g.neighbors("n0"),
     "getitem_edge": lambda g: g["n0"]["n1"],
     "adj_edge": lambda g: g.adj["n0"]["n1"],
     "get_edge_data": lambda g: g.get_edge_data("n0", "n1"),
@@ -85,6 +76,17 @@ CONTAMINATING = {
 }
 
 SAFE = {
+    # br-r37-c1-3rtyk: MOVED HERE FROM ``CONTAMINATING`` when the fix was built
+    # (2026-08-18). `native_adjacency_row_dict` was split so the row builder no
+    # longer marks the store dirty; the mark moved to the pymethod that actually
+    # hands the dict to Python, which `neighbors` never calls. This file said the
+    # two cases would fail the moment that Rust compiled, and they did - that
+    # failure was the intended signal and this is the follow-through it asked
+    # for. Verified against the built extension: both spellings now leave the
+    # weighted-store fast path live, while `G[u][v]` and `edges(data=True)`
+    # still contaminate, so the gate moved for these two only.
+    "neighbors": lambda g: list(g.neighbors("n0")),
+    "neighbors_uniterated": lambda g: g.neighbors("n0"),
     "edges": lambda g: list(g.edges()),
     "edges_data_key": lambda g: list(g.edges(data="w")),
     "edges_data_key_default": lambda g: list(g.edges(data="w", default=0)),
