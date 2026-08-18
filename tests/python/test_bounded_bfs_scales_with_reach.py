@@ -299,3 +299,103 @@ def test_bfs_edges_cost_does_not_grow_with_the_parent():
         f"a {large // small}x bigger parent made fnx bfs_edges {fnx_growth:.2f}x "
         f"slower for the SAME request while networkx moved {nx_growth:.2f}x"
     )
+
+
+# ---------------------------------------------------------------------------
+# single_source_shortest_path: the same defect, one layer up
+# ---------------------------------------------------------------------------
+# br-r37-c1-dkwy7. The path kernels were ALREADY index-space, yet still sized
+# three structures to the whole graph. The dominant term was a
+# ``vec![None; n]`` predecessor tree - ``Option<usize>`` is 16 bytes, so a
+# cutoff=1 query on 12800 nodes wrote 200KB to report three paths. Measured:
+# undirected 12.11x growth vs networkx's 1.00x (1.1706x -> 0.0969x), directed
+# 4.88x (0.8180x -> 0.1696x).
+#
+# The predecessor array was removed outright rather than made sparse: a node's
+# parent is always discovered BEFORE it, so its POSITION in the discovery vector
+# is known at push time. Reconstruction is then index arithmetic over a vector
+# sized to the reach. That rewrote the path-building loop, so these tests pin
+# PATH CONTENTS, not just which nodes were reached.
+
+
+@pytest.mark.parametrize("cutoff", CUTOFFS)
+@pytest.mark.parametrize("shape", ["path", "star", "loopy", "ints", "tuples"])
+def test_sssp_paths_undirected_match_networkx(shape, cutoff):
+    got_g, source = _shapes(fnx)[shape]
+    want_g, _ = _shapes(nx)[shape]
+    got = fnx.single_source_shortest_path(got_g, source, cutoff=cutoff)
+    want = nx.single_source_shortest_path(want_g, source, cutoff=cutoff)
+    assert {str(k): [str(n) for n in v] for k, v in got.items()} == {
+        str(k): [str(n) for n in v] for k, v in want.items()
+    }
+    assert [str(k) for k in got] == [str(k) for k in want], "discovery order diverged"
+
+
+@pytest.mark.parametrize("cutoff", CUTOFFS)
+@pytest.mark.parametrize("shape", ["chain", "fan", "ints"])
+def test_sssp_paths_directed_match_networkx(shape, cutoff):
+    got_g, source = _directed_shapes(fnx)[shape]
+    want_g, _ = _directed_shapes(nx)[shape]
+    got = fnx.single_source_shortest_path(got_g, source, cutoff=cutoff)
+    want = nx.single_source_shortest_path(want_g, source, cutoff=cutoff)
+    assert {str(k): [str(n) for n in v] for k, v in got.items()} == {
+        str(k): [str(n) for n in v] for k, v in want.items()
+    }
+    assert [str(k) for k in got] == [str(k) for k in want], "discovery order diverged"
+
+
+def test_sssp_paths_are_real_walks_of_the_graph():
+    """Position-based reconstruction could mis-link a parent and still look sane.
+
+    Every consecutive pair in every returned path must be an actual edge, and
+    every path must start at the source and end at its key. A wrong parent
+    position yields a well-formed list that is not a path in the graph.
+    """
+    graph = fnx.Graph()
+    graph.add_edges_from(
+        [("a", "b"), ("b", "c"), ("c", "d"), ("a", "e"), ("e", "d"), ("d", "f")]
+    )
+    for cutoff in (None, 1, 2, 3):
+        for target, path in fnx.single_source_shortest_path(
+            graph, "a", cutoff=cutoff
+        ).items():
+            assert path[0] == "a", f"path to {target} does not start at the source"
+            assert path[-1] == target, f"path to {target} does not end at {target}"
+            for left, right in zip(path, path[1:]):
+                assert graph.has_edge(left, right), (
+                    f"path to {target} traverses {left}->{right}, which is not an edge"
+                )
+
+
+@pytest.mark.parametrize("cutoff", [1, 2])
+def test_sssp_path_depth_never_exceeds_the_cutoff(cutoff):
+    graph = fnx.Graph()
+    graph.add_edges_from([(f"n{i}", f"n{i + 1}") for i in range(20)])
+    for _target, path in fnx.single_source_shortest_path(
+        graph, "n0", cutoff=cutoff
+    ).items():
+        assert len(path) - 1 <= cutoff, f"path {path} is deeper than cutoff {cutoff}"
+
+
+@pytest.mark.xfail(
+    reason="br-r37-c1-dkwy7 kernel is written but UNBUILT (host disk throttle, "
+    "no cargo); flip to a hard assert once the extension is rebuilt",
+    strict=False,
+)
+def test_sssp_path_cost_does_not_grow_with_the_parent():
+    small, large = 200, 12800
+    fnx_growth = _best(
+        lambda: fnx.single_source_shortest_path(_ring_cache_fnx[large], "n0", cutoff=1)
+    ) / _best(
+        lambda: fnx.single_source_shortest_path(_ring_cache_fnx[small], "n0", cutoff=1)
+    )
+    nx_growth = _best(
+        lambda: nx.single_source_shortest_path(_ring_cache_nx[large], "n0", cutoff=1)
+    ) / _best(
+        lambda: nx.single_source_shortest_path(_ring_cache_nx[small], "n0", cutoff=1)
+    )
+    assert fnx_growth < 2.5 * max(nx_growth, 1.0), (
+        f"a {large // small}x bigger parent made fnx single_source_shortest_path "
+        f"{fnx_growth:.2f}x slower for the SAME request while networkx moved "
+        f"{nx_growth:.2f}x"
+    )

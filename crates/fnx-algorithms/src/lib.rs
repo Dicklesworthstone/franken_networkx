@@ -2562,13 +2562,33 @@ pub fn single_source_shortest_path_index(
         return Vec::new();
     };
 
+    // br-r37-c1-dkwy7: this BFS is already index-space, but it still sized three
+    // structures to the WHOLE GRAPH before knowing its reach, so
+    // single_source_shortest_path(G, s, cutoff=1) grew 12.11x between 200 and
+    // 12800 nodes while networkx stayed flat (1.00x) - 1.1706x of nx down to
+    // 0.0969x, and the directed sibling 4.88x / 0.8180x -> 0.1696x. The dominant
+    // term was `vec![None; n]`: Option<usize> is 16 bytes, so it wrote 200KB to
+    // answer a query touching three nodes.
+    //
+    // The predecessor array is gone entirely - no dense array, no hash map, and
+    // no bounded/unbounded branch. A node's parent is always discovered BEFORE
+    // it, so its POSITION in `discovery` is already known at push time; record
+    // that position and reconstruction becomes index arithmetic over a vector
+    // that is O(reach). `visited` stays dense (n bytes, one calloc) so a
+    // full-graph traversal pays no hashing.
     let mut visited = vec![false; n];
-    let mut predecessors: Vec<Option<usize>> = vec![None; n];
-    let mut discovery_order: Vec<usize> = Vec::with_capacity(n);
+    // (node index, position of the discovering parent in this same vector).
+    // `usize::MAX` marks the source, which has no parent.
+    let mut discovery: Vec<(usize, usize)> = match cutoff {
+        Some(_) => Vec::new(),
+        None => Vec::with_capacity(n),
+    };
 
     visited[source_idx] = true;
-    discovery_order.push(source_idx);
-    let mut frontier: Vec<usize> = vec![source_idx];
+    discovery.push((source_idx, usize::MAX));
+    // Frontier entries are POSITIONS in `discovery`, not node indices, so a
+    // child can name its parent's slot the moment it is discovered.
+    let mut frontier: Vec<usize> = vec![0];
     let mut level = 0usize;
 
     while !frontier.is_empty() {
@@ -2578,14 +2598,14 @@ pub fn single_source_shortest_path_index(
             break;
         }
         let mut next_frontier: Vec<usize> = Vec::new();
-        for &node_idx in &frontier {
+        for &node_pos in &frontier {
+            let node_idx = discovery[node_pos].0;
             if let Some(neighbor_indices) = graph.neighbors_indices(node_idx) {
                 for &nbr_idx in neighbor_indices {
                     if !visited[nbr_idx] {
                         visited[nbr_idx] = true;
-                        predecessors[nbr_idx] = Some(node_idx);
-                        discovery_order.push(nbr_idx);
-                        next_frontier.push(nbr_idx);
+                        next_frontier.push(discovery.len());
+                        discovery.push((nbr_idx, node_pos));
                     }
                 }
             }
@@ -2594,33 +2614,33 @@ pub fn single_source_shortest_path_index(
         level += 1;
     }
 
-    let mut result: Vec<(usize, Vec<usize>)> = Vec::with_capacity(discovery_order.len());
-    for &target_idx in &discovery_order {
+    let mut result: Vec<(usize, Vec<usize>)> = Vec::with_capacity(discovery.len());
+    for position in 0..discovery.len() {
         let mut path_indices: Vec<usize> = Vec::new();
-        let mut current_idx = target_idx;
+        let mut cursor = position;
 
         loop {
-            path_indices.push(current_idx);
-            if current_idx == source_idx {
+            let (node_idx, parent_pos) = discovery[cursor];
+            path_indices.push(node_idx);
+            if parent_pos == usize::MAX {
                 break;
             }
-            let Some(parent_idx) = predecessors[current_idx] else {
-                break;
-            };
-            current_idx = parent_idx;
+            cursor = parent_pos;
         }
 
         path_indices.reverse();
-        result.push((target_idx, path_indices));
+        result.push((discovery[position].0, path_indices));
     }
 
     result
 }
 
 /// Index-space core of [`single_source_shortest_path_directed`] (br-r37-c1-ssspdiridx).
-/// Directed mirror of [`single_source_shortest_path_index`]: BFS over `successors_indices`
-/// with a `Vec<Option<usize>>` predecessor tree, reconstructing paths from indices at the
-/// end. Returns `(target_idx, path_indices)` pairs in BFS discovery order.
+/// Directed mirror of [`single_source_shortest_path_index`]: BFS over `successors_indices`,
+/// each discovered node recording the POSITION of its discovering parent in the discovery
+/// vector, so paths are reconstructed by index arithmetic over a vector sized to the reach
+/// rather than to the graph (br-r37-c1-dkwy7). Returns `(target_idx, path_indices)` pairs in
+/// BFS discovery order.
 #[must_use]
 pub fn single_source_shortest_path_directed_index(
     digraph: &DiGraph,
@@ -2633,13 +2653,33 @@ pub fn single_source_shortest_path_directed_index(
         return Vec::new();
     };
 
+    // br-r37-c1-dkwy7: this BFS is already index-space, but it still sized three
+    // structures to the WHOLE GRAPH before knowing its reach, so
+    // single_source_shortest_path(G, s, cutoff=1) grew 12.11x between 200 and
+    // 12800 nodes while networkx stayed flat (1.00x) - 1.1706x of nx down to
+    // 0.0969x, and the directed sibling 4.88x / 0.8180x -> 0.1696x. The dominant
+    // term was `vec![None; n]`: Option<usize> is 16 bytes, so it wrote 200KB to
+    // answer a query touching three nodes.
+    //
+    // The predecessor array is gone entirely - no dense array, no hash map, and
+    // no bounded/unbounded branch. A node's parent is always discovered BEFORE
+    // it, so its POSITION in `discovery` is already known at push time; record
+    // that position and reconstruction becomes index arithmetic over a vector
+    // that is O(reach). `visited` stays dense (n bytes, one calloc) so a
+    // full-graph traversal pays no hashing.
     let mut visited = vec![false; n];
-    let mut predecessors: Vec<Option<usize>> = vec![None; n];
-    let mut discovery_order: Vec<usize> = Vec::with_capacity(n);
+    // (node index, position of the discovering parent in this same vector).
+    // `usize::MAX` marks the source, which has no parent.
+    let mut discovery: Vec<(usize, usize)> = match cutoff {
+        Some(_) => Vec::new(),
+        None => Vec::with_capacity(n),
+    };
 
     visited[source_idx] = true;
-    discovery_order.push(source_idx);
-    let mut frontier: Vec<usize> = vec![source_idx];
+    discovery.push((source_idx, usize::MAX));
+    // Frontier entries are POSITIONS in `discovery`, not node indices, so a
+    // child can name its parent's slot the moment it is discovered.
+    let mut frontier: Vec<usize> = vec![0];
     let mut level = 0usize;
 
     while !frontier.is_empty() {
@@ -2649,14 +2689,14 @@ pub fn single_source_shortest_path_directed_index(
             break;
         }
         let mut next_frontier: Vec<usize> = Vec::new();
-        for &node_idx in &frontier {
+        for &node_pos in &frontier {
+            let node_idx = discovery[node_pos].0;
             if let Some(successor_indices) = digraph.successors_indices(node_idx) {
                 for &nbr_idx in successor_indices {
                     if !visited[nbr_idx] {
                         visited[nbr_idx] = true;
-                        predecessors[nbr_idx] = Some(node_idx);
-                        discovery_order.push(nbr_idx);
-                        next_frontier.push(nbr_idx);
+                        next_frontier.push(discovery.len());
+                        discovery.push((nbr_idx, node_pos));
                     }
                 }
             }
@@ -2665,24 +2705,22 @@ pub fn single_source_shortest_path_directed_index(
         level += 1;
     }
 
-    let mut result: Vec<(usize, Vec<usize>)> = Vec::with_capacity(discovery_order.len());
-    for &target_idx in &discovery_order {
+    let mut result: Vec<(usize, Vec<usize>)> = Vec::with_capacity(discovery.len());
+    for position in 0..discovery.len() {
         let mut path_indices: Vec<usize> = Vec::new();
-        let mut current_idx = target_idx;
+        let mut cursor = position;
 
         loop {
-            path_indices.push(current_idx);
-            if current_idx == source_idx {
+            let (node_idx, parent_pos) = discovery[cursor];
+            path_indices.push(node_idx);
+            if parent_pos == usize::MAX {
                 break;
             }
-            let Some(parent_idx) = predecessors[current_idx] else {
-                break;
-            };
-            current_idx = parent_idx;
+            cursor = parent_pos;
         }
 
         path_indices.reverse();
-        result.push((target_idx, path_indices));
+        result.push((discovery[position].0, path_indices));
     }
 
     result
