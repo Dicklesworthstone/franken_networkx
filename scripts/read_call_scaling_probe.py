@@ -83,12 +83,18 @@ CONTROLS = {"len(restricted_view)", "list(view)[:2]"}
 # The negative control, and the tool's own caveat made executable: an all-node
 # request whose scan lives in RUST. It reads flat, which is the correct answer to
 # "does the shim loop over the parent" and the wrong answer to "is this O(1)".
-NATIVE_SCAN_EXHIBITS = {"dict(G.degree())"}
+NATIVE_SCAN_EXHIBITS = {"dict(G.degree())", "list(G.neighbors(hub))"}
 
 # Under --metric allocations the question changes. An operation whose RESULT is
 # O(parent) MUST allocate O(parent) - that is not a defect, it is the answer
 # being big. These are expected to scale on that metric and only on it.
-RESULT_SCALES_WITH_PARENT = {"dict(G.degree())", "list(view)[:2]", "len(restricted_view)"}
+RESULT_SCALES_WITH_PARENT = {
+    "dict(G.degree())",
+    "list(view)[:2]",
+    "len(restricted_view)",
+    "list(G.neighbors(hub))",
+    "list(G.edges([hub]))",
+}
 
 
 def build(cls: str, n: int, axis: str = "nodes"):
@@ -102,6 +108,23 @@ def build(cls: str, n: int, axis: str = "nodes"):
     the right question: does a per-node read track the global edge count?
     """
     graph = getattr(fnx, cls)()
+    if axis == "degree":
+        # br-r37-c1-fzk1l: grow ONE node's DEGREE. Does a read that should be
+        # O(1) in the degree - has_edge(u,v), G[u][v], nodes[u] - scan the row
+        # instead? The probed pair is always the FIRST edge added, so an
+        # implementation that scans and stops on a match would still read flat;
+        # growth here means the whole row is touched.
+        #
+        # HONEST CONFOUND: in a SIMPLE graph you cannot grow a node's degree
+        # without adding neighbours, so the node count grows too, and a bare
+        # "SCALES" on this axis could in principle be node-count scaling. The
+        # inference is only clean BECAUSE the nodes axis is run first and shows
+        # these same reads flat in node count; degree is then the only variable
+        # left. Do not read a degree-axis finding without that companion sweep.
+        graph.add_edge("hub", "first", w=1)
+        for k in range(n):
+            graph.add_edge("hub", "leaf%d" % k, w=k + 2)
+        return graph
     if axis == "nodes":
         for i in range(n):
             graph.add_edge("n%d" % i, "n%d" % ((i + 1) % n), w=i)
@@ -185,8 +208,10 @@ def total_calls(fn, reps: int) -> int:
     return sum(nc for (_cc, nc, _tt, _ct, _cs) in pstats.Stats(profiler).stats.values())
 
 
-def operations(graph):
+def operations(graph, axis="nodes"):
     """(label, thunk) pairs: each thunk is a FIXED-size request."""
+    if axis == "degree":
+        return degree_axis_operations(graph)
     u, v = "n0", "n1"
     keep = [str(x) for x in list(graph)[:3]]
     one_edge = [tuple(map(str, e)) for e in list(graph.edges(keys=True) if graph.is_multigraph() else graph.edges())[:1]]
@@ -240,6 +265,41 @@ def operations(graph):
     return ops
 
 
+def degree_axis_operations(graph):
+    """Reads that must be O(1) in the queried node's degree.
+
+    ``hub`` gains neighbours as the axis grows; ``first`` is always its FIRST
+    neighbour, so an implementation that scans the row and stops on a match
+    would look flat here. Anything that grows is touching the whole row.
+    """
+    hub, first = "hub", "first"
+    ops = [
+        ("has_edge(hub,first)", lambda: graph.has_edge(hub, first)),
+        ("hub in G", lambda: hub in graph),
+        ("G.nodes[hub]", lambda: graph.nodes[hub]),
+        ("G.degree(hub)", lambda: graph.degree(hub)),
+        ("get_edge_data(hub,first)", lambda: graph.get_edge_data(hub, first)),
+        ("G.nodes[first]", lambda: graph.nodes[first]),
+        ("has_edge(first,hub)", lambda: graph.has_edge(first, hub)),
+        ("G.degree(first)", lambda: graph.degree(first)),
+        ("number_of_edges(h,f)", lambda: graph.number_of_edges(hub, first)),
+        # controls: these are O(degree) by definition
+        ("list(G.neighbors(hub))", lambda: list(graph.neighbors(hub))),
+        ("list(G.edges([hub]))", lambda: list(graph.edges([hub]))),
+    ]
+    if not graph.is_multigraph():
+        ops.insert(0, ("G[hub][first]", lambda: graph[hub][first]))
+    return ops
+
+
+# Only the Python-side O(degree) read is a positive control here.
+# ``list(G.neighbors(hub))`` walks the row in RUST, so at the call metric it
+# reads FLAT - the same native-scan caveat ``dict(G.degree())`` carries on the
+# nodes axis. It is an exhibit, not a control, and mislabelling it would have the
+# probe warn that it had gone blind on every degree-axis run.
+DEGREE_AXIS_CONTROLS = {"list(G.edges([hub]))"}
+
+
 def main(argv: list[str]) -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--sizes", nargs=2, type=int, default=[200, 800], metavar=("SMALL", "LARGE"))
@@ -253,9 +313,9 @@ def main(argv: list[str]) -> int:
     )
     ap.add_argument(
         "--axis",
-        choices=("nodes", "multiplicity"),
+        choices=("nodes", "multiplicity", "degree"),
         default="nodes",
-        help="what to grow: the node count, or unrelated edge multiplicity",
+        help="what to grow: node count, unrelated edge multiplicity, or one node's degree",
     )
     args = ap.parse_args(argv[1:])
 
@@ -269,7 +329,7 @@ def main(argv: list[str]) -> int:
     unsupported: dict[str, str] = {}
     for n in (small, large):
         graph = build(args.cls, n, axis=args.axis)
-        for label, thunk in operations(graph):
+        for label, thunk in operations(graph, args.axis):
             # allocations need more reps to clear allocator noise (see the
             # docstring: 20 reps produced a phantom x2.63 on next(iter(G)))
             measure = total_calls if args.metric == "calls" else total_allocations
@@ -295,9 +355,18 @@ def main(argv: list[str]) -> int:
             continue
         a, b = ab
         ratio = b / max(a, 1)
-        expected = (
-            CONTROLS if args.metric == "calls" else RESULT_SCALES_WITH_PARENT
-        )
+        # The expected-to-scale set depends on BOTH axis and metric. Under
+        # --metric allocations the question is always "is the RESULT big", so
+        # result-sized reads are expected on every axis; the per-axis control
+        # sets only describe the CALL metric. Conflating the two had the degree
+        # axis report list(G.neighbors(hub)) as a finding, when a list of
+        # `degree` items is simply the answer it was asked for.
+        if args.metric == "allocations":
+            expected = RESULT_SCALES_WITH_PARENT
+        elif args.axis == "degree":
+            expected = DEGREE_AXIS_CONTROLS
+        else:
+            expected = CONTROLS
         if ratio > 2.0:
             verdict = "SCALES (expected)" if label in expected else "SCALES <-- FINDING"
             if label not in expected:
@@ -312,7 +381,10 @@ def main(argv: list[str]) -> int:
             verdict = "mild"
         print(f"{label:<24}{a:>12}{b:>12}{ratio:>8.2f}  {verdict}")
 
-    for label in (CONTROLS if args.axis == "nodes" else ()):
+    positive = CONTROLS if args.axis == "nodes" else (
+        DEGREE_AXIS_CONTROLS if args.axis == "degree" else ()
+    )
+    for label in positive:
         if label in counts and len(counts[label]) == 2:
             a, b = counts[label]
             if b / max(a, 1) <= 2.0:

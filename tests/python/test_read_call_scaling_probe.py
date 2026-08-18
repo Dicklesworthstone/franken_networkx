@@ -113,6 +113,17 @@ def test_the_multiplicity_axis_holds_the_node_count_fixed(cls):
 
 
 @pytest.mark.parametrize("cls", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+def test_the_degree_axis_actually_grows_the_hub_degree(cls):
+    """Otherwise the axis is measuring nothing it claims to."""
+    small = probe.build(cls, 200, axis="degree")
+    large = probe.build(cls, 800, axis="degree")
+    assert large.degree("hub") > small.degree("hub")
+    # and the probed pair must stay the FIRST neighbour at both sizes, so a
+    # short-circuiting scan cannot masquerade as O(1)
+    assert small.has_edge("hub", "first") and large.has_edge("hub", "first")
+
+
+@pytest.mark.parametrize("cls", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
 def test_the_nodes_axis_actually_grows_nodes(cls):
     small = probe.build(cls, 200, axis="nodes")
     large = probe.build(cls, 800, axis="nodes")

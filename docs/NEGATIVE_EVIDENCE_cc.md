@@ -23421,3 +23421,47 @@ sound by reading alone.
 
 loadavg 5.83/8.30/8.02, disk 27G, no cargo, no benchmarks. No timing claim: the
 55.0 -> 1053.0 figures are correctness observations, not measurements.
+
+## 2026-08-18 GoldenBison INSTRUMENT: a DEGREE axis, and 24 clean sweeps across three axes (br-r37-c1-fzk1l)
+
+No timing claim. Third axis on scripts/read_call_scaling_probe.py, added because
+the two existing ones could not ask this question: does a read that should be
+O(1) in a node's DEGREE scan the whole row instead?
+
+    has_edge(hub, first)      G[hub][first]        get_edge_data(hub, first)
+    G.nodes[hub]              G.degree(hub)        number_of_edges(hub, first)
+    has_edge(first, hub)      G.nodes[first]       G.degree(first)
+
+THE PROBED PAIR IS ALWAYS THE FIRST EDGE ADDED. That is the part that makes the
+axis mean anything: an implementation that scans the row and stops on a match
+would read FLAT if the probe asked about a late neighbour. Asking about the
+first one means growth can only come from touching the whole row.
+
+RESULT: 8 sweeps clean - four classes x {calls, allocations} - every one of those
+reads flat in degree. Combined with the earlier work the instrument now reports
+24 clean sweeps across three axes and two metrics, with one real finding to its
+name (the multigraph dict(G.degree()) node walk, fixed).
+
+AN HONEST CONFOUND, DOCUMENTED IN THE TOOL rather than left for a reader to hit:
+in a SIMPLE graph you cannot grow a node's degree without adding neighbours, so
+the node count grows on this axis too, and a bare SCALES verdict here could in
+principle be node-count scaling. The inference is clean ONLY because the nodes
+axis is run first and shows these same reads flat in node count - degree is then
+the only variable left. The docstring says so, and a self-test asserts the axis
+really does grow `hub`'s degree and really does keep `first` as its first
+neighbour at both sizes.
+
+A CONTROL BUG THE SWEEP FOUND IN THE TOOL ITSELF, which is the third such this
+week and the reason the self-tests exist. The degree axis reported
+`list(G.neighbors(hub))` as a FINDING under --metric allocations. It is not one -
+a list of `degree` items is precisely the answer that read was asked for. The
+expected-to-scale set was keyed on the AXIS alone, when under the allocations
+metric the question is always "is the RESULT big", independently of axis. Now
+keyed on both. Separately, `list(G.neighbors(hub))` had to move from the
+degree-axis positive controls to the native-scan exhibits: it walks the row in
+RUST, so at the call metric it reads flat, and as a control it would have made
+the probe warn that it had gone blind on every degree-axis run.
+
+15 self-tests now, up from 11.
+
+loadavg 11.67/8.45/7.90, disk 27G, no cargo, no benchmarks.
