@@ -23282,3 +23282,75 @@ asserted on both sides of contamination: size and degree return identical answer
 before and after, and match networkx - this is a performance defect only.
 
 loadavg 6.25/6.26/8.04, disk 27G, no cargo, no benchmarks.
+
+## 2026-08-18 GoldenBison UNBUILT IMPLEMENTATION: G.neighbors() poisoned the weighted store by building a row it only reads keys from (br-r37-c1-3rtyk)
+
+NEVER COMPILED - disk 27G under the freeze. Committed unbuilt on instruction.
+Fixes the highest-impact half of br-r37-c1-igdzi, whose measured cost is
+Graph.size(weight) 4.395x -> 0.733x for the life of the graph.
+
+THE MECHANISM, traced rather than guessed. `G.neighbors(n)` is
+`_fnx.Graph._native_neighbors_iter`, which calls `native_adjacency_row_dict` -
+and that builder materialises `{neighbour: LIVE attr dict}` and marks the WHOLE
+graph dirty. `neighbors` then iterates only the KEYS. A `dict_keyiterator` cannot
+reach a dict's values, so the caller is handed nothing that could be written
+through, and the conservative mark buys nothing. Yesterday's map showed the
+consequence: merely CALLING neighbors, without consuming the iterator,
+permanently disables the weighted fast path.
+
+THE FIX IS TO MARK AT THE HANDOUT, NOT AT THE CONSTRUCTION. The builder is split:
+`adjacency_row_dict_unexposed` builds and caches the row and marks nothing; the
+`_native_adjacency_row_dict` pymethod - which Python really does call, in five
+places in the shim - calls it and then marks, because that is where the live dict
+reaches a caller. `native_neighbors_iter` uses the unexposed builder. A
+handed-out dict stays authoritative, so no read can go stale; this is not the
+re-sync interim I marked do-not-land, which traded a visible perf loss for a
+silent wrong answer.
+
+THE MARK HAD TO MOVE TO THE WRAPPER RATHER THAN BECOME A FLAG, because the
+builder has cache-hit early returns. A row first built by `neighbors` (no mark)
+and later handed to Python must still mark on that second call - putting the mark
+in the wrapper covers every exit including the cached ones. The `is_empty` guard
+preserves the old condition exactly: a row with no neighbours exposed no attr
+dict and marked nothing before either.
+
+A SNAPSHOT WAS RULED OUT BY MEASUREMENT, not by taste. Serving neighbours from a
+copied Vec would be simpler and would avoid the row entirely - but fnx currently
+raises `RuntimeError: dictionary changed size during iteration` when the row is
+mutated mid-iteration, and I verified today that it matches networkx on that for
+ALL FOUR classes. A snapshot silently drops that. The live row has to stay, which
+is exactly why the fix is about WHERE the mark goes.
+
+STATIC CHECKS DONE IN PLACE OF A COMPILER, since rustc has not seen this:
+  * the moved body sits in the PLAIN `impl PyGraph` block (line 2519), not in
+    `#[pymethods]` - a new method there would be a new native export and the
+    repo's unused-raw-exposures audit would flag it;
+  * the wrapper sits in the `#[pymethods]` block (header at 13660) and keeps the
+    `#[pyo3(name = "_native_adjacency_row_dict")]` name, so the five Python call
+    sites are unchanged;
+  * brace balance across the file is unchanged, and the extracted block was
+    asserted balanced before it was moved;
+  * `adjacency_row_dict_unexposed` is defined once and called twice - by
+    `native_neighbors_iter` and by the wrapper;
+  * `mark_edges_dirty()` count in lib.rs is unchanged at 24: the mark MOVED, it
+    was not removed;
+  * `is_empty()` was swapped for `len() != 0` on the PyDict, purely to sit on the
+    older and more certain pyo3 API surface in a commit no compiler will check.
+
+THE TEST NOW CARRIES ITS OWN EXPIRY. tests/python/test_weighted_store_contamination_map.py
+still asserts that `neighbors` CONTAMINATES, which is truthful for the current
+binary and will FAIL the moment this Rust is compiled. That failure is the
+intended signal - it is how whoever builds learns the fix took effect - and the
+file says so at the point of the assertion. The other two tests in that file that
+needed a contaminant were switched from `neighbors` to `edges(data=True)`, which
+stays conservative by design, so exactly TWO cases should flip and nothing else.
+
+NOT FIXED, and not claimed: `G[u][v]`, `get_edge_data`, `edges[u,v]`,
+`adj[u][v]`, `list(G[u].items())` and `edges(data=True)` all still contaminate.
+Those genuinely hand a live dict to the caller; making them per-edge rather than
+whole-graph is the separate design recorded on br-r37-c1-igdzi and needs the
+per-edge exposure set, not this change. The three multigraph classes are
+untouched - only Graph was mapped, because only Graph exposes a dirty-gated
+kernel to probe with.
+
+loadavg 4.78/5.80/7.26, disk 27G, no cargo, no benchmarks.

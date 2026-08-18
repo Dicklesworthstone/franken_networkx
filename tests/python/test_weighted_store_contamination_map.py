@@ -31,6 +31,14 @@ edge reads in the library:
 so in practice the fast path is disabled almost immediately on any graph an
 algorithm touches.
 
+A FIX FOR THE ``neighbors`` HALF IS COMMITTED BUT UNBUILT (br-r37-c1-3rtyk): the
+row builder no longer marks the store, and the mark moved to the pymethod that
+actually hands the dict to Python - which ``neighbors`` never calls. When that
+Rust is compiled the two ``neighbors`` cases must move to SAFE; their failure is
+the signal the fix landed. Every other test here contaminates via
+``edges(data=True)``, which stays conservative by design, so only those two
+should move.
+
 WHAT STAYS SAFE, which is the actionable half for callers today:
 
     G.edges()               safe
@@ -57,6 +65,14 @@ import pytest
 
 import franken_networkx as fnx
 
+# br-r37-c1-3rtyk: THE TWO neighbors CASES ARE EXPECTED TO FLIP TO ``SAFE``.
+# The fix is committed but UNBUILT (build freeze): `native_adjacency_row_dict`
+# was split so the row builder no longer marks the store dirty and the mark moved
+# to the pymethod that actually hands the dict to Python, which `neighbors` never
+# does. These assertions are truthful for the CURRENT binary and will fail the
+# moment that Rust is compiled - at which point move both entries into ``SAFE``
+# and say so in br-r37-c1-3rtyk. That failure is the intended signal, not a
+# surprise: it is how whoever builds learns the fix took effect.
 CONTAMINATING = {
     "neighbors": lambda g: list(g.neighbors("n0")),
     "neighbors_uniterated": lambda g: g.neighbors("n0"),
@@ -143,7 +159,10 @@ def test_contaminating_reads_are_still_the_known_set(label):
 def test_contamination_is_permanent():
     """Nothing recovers it, which is what makes the defect expensive."""
     g = _graph()
-    list(g.neighbors("n0"))
+    # br-r37-c1-3rtyk: contaminate via edges(data=True), NOT neighbors. The
+    # neighbors half is fixed-but-unbuilt, so using it here would make this test
+    # fail after the rebuild for a reason that has nothing to do with permanence.
+    list(g.edges(data=True))
     assert not _store_fast_path_live(g)
     g.add_edge("fresh_a", "fresh_b", w=1)
     assert not _store_fast_path_live(g)
@@ -165,7 +184,7 @@ def test_the_weighted_answers_stay_correct_either_way():
 
     before_size = clean.size(weight="w")
     before_degree = dict((str(k), v) for k, v in clean.degree(weight="w"))
-    list(clean.neighbors("n0"))  # contaminate
+    list(clean.edges(data=True))  # contaminate (see br-r37-c1-3rtyk note above)
     assert not _store_fast_path_live(clean)
 
     assert clean.size(weight="w") == before_size == reference.size(weight="w")

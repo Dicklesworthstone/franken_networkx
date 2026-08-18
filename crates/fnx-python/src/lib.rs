@@ -2517,6 +2517,113 @@ impl PyGraph {
 }
 
 impl PyGraph {
+    /// br-r37-c1-3rtyk: the row builder, WITHOUT marking the store dirty.
+    ///
+    /// This body used to mark inside itself, which meant `G.neighbors(n)` -
+    /// `iter(self._adj[n])` in networkx, and the most common read in the
+    /// library - permanently disabled the weighted-store fast path. It builds
+    /// `{neighbour: LIVE attr dict}` and then iterates only the KEYS, and a
+    /// `dict_keyiterator` cannot reach the values, so nothing is exposed to the
+    /// caller and there is nothing to be conservative about. Measured cost of
+    /// the old behaviour: `Graph.size(weight)` 4.395x -> 0.733x for the life of
+    /// the graph (br-r37-c1-igdzi), after a single traversal.
+    ///
+    /// The mark now lives in the `_native_adjacency_row_dict` pymethod below,
+    /// which is where the dict actually reaches Python - five call sites in the
+    /// shim. Marking at the HANDOUT rather than at CONSTRUCTION is the whole
+    /// change; a handed-out dict stays authoritative, so no read can go stale.
+    ///
+    /// NOT a snapshot. Serving neighbours from a copied Vec would drop the
+    /// `RuntimeError: dictionary changed size during iteration` that CPython
+    /// raises when the row is mutated mid-iteration - verified today that fnx
+    /// matches networkx on that for all four classes, so the live row must stay.
+    fn adjacency_row_dict_unexposed(
+        &mut self,
+        py: Python<'_>,
+        node: &Bound<'_, PyAny>,
+    ) -> PyResult<Py<PyDict>> {
+        // br-r37-c1-do7g5: probe the cache FIRST. A cached row is existence
+        // proof — rows are only created for nodes that were present, and
+        // removal clears them — so the `has_node` IndexMap probe below is pure
+        // duplicate work on every hit, which is the common case once a row has
+        // been touched. Same ordering fix as br-r37-c1-dlqkq on `G.degree(n)`.
+        //
+        // br-r37-c1-bvwam: and probe it with a BORROWED canonical. This is the
+        // read path behind `G.neighbors(n)`, which is `iter(self._adj[n])` in
+        // networkx — one CPython dict lookup on a str whose hash is cached in
+        // the object. Building an owned `String` here malloc'd and freed on
+        // every hit purely to look up a borrowed key, the exact cost
+        // br-r37-c1-oe93x removed from `has_node` (a PYTHON has_node at 57ns was
+        // beating the native one at 119ns until that path existed).
+        // `with_node_key_str` produces the same canonical bytes for every key
+        // type — non-strings still fall through to `node_key_to_string` inside
+        // it, and `canonical_node_key_in_matches_the_owned_canonical` pins the
+        // two forms equal — so this probe covers what the owned one covered.
+        // Only the MISS path below allocates, because only it needs to insert.
+        // br-r37-c1-nbrow: INDEX probe first, before any canonical exists.
+        //
+        // The borrowed-canonical probe below already avoids a malloc, but it
+        // still COPIES the key's bytes into a buffer and then HASHES them, so a
+        // cache hit was O(node key length) -- 246.5 ns at K=2 against 1055.7 ns
+        // at K=2000. This resolves the node through CPython's cached `str` hash
+        // instead, exactly as `has_edge` does, and `has_edge` is flat over that
+        // span.
+        //
+        // Exact `str` only; every other key type falls through unchanged. A hit
+        // is existence proof, so the `has_node` probe further down is skipped on
+        // it, matching what the string-keyed hit already did.
+        if node.is_exact_instance_of::<PyString>()
+            && let Some(index) = self.cached_exact_string_node_index(py, node)?
+            && let Some((seq, row)) = self.adj_row_py_by_index.get(&index)
+            && *seq == self.nodes_seq
+        {
+            return Ok(row.clone_ref(py));
+        }
+        if let Some(row) = with_node_key_str(py, node, |canonical| {
+            self.adj_row_py.get(canonical).map(|row| row.clone_ref(py))
+        })? {
+            // br-r37-c1-nbrow: fill the twin from the string hit too, so a row
+            // first touched by a non-index caller still gets the fast route.
+            if node.is_exact_instance_of::<PyString>()
+                && let Some(index) = self.cached_exact_string_node_index(py, node)?
+            {
+                let seq = self.nodes_seq;
+                self.adj_row_py_by_index
+                    .insert(index, (seq, row.clone_ref(py)));
+            }
+            return Ok(row);
+        }
+        let canonical = node_key_to_string(py, node)?;
+        if !self.inner.has_node(&canonical) {
+            return Err(missing_key_error(node));
+        }
+        let row = PyDict::new(py);
+        let neighbors: Vec<String> = self
+            .inner
+            .neighbors(&canonical)
+            .unwrap_or_default()
+            .into_iter()
+            .map(str::to_owned)
+            .collect();
+        for neighbor in neighbors {
+            let py_neighbor = self.py_adj_key(py, &canonical, &neighbor);
+            let attrs = self.materialize_edge_py_attrs(py, &canonical, &neighbor);
+            row.set_item(py_neighbor, attrs.bind(py))?;
+        }
+        let row = row.unbind();
+        // br-r37-c1-nbrow: fill the index twin with the SAME dict object, so the
+        // two keys cannot disagree and in-place edge maintenance reaches both.
+        if node.is_exact_instance_of::<PyString>()
+            && let Some(index) = self.cached_exact_string_node_index(py, node)?
+        {
+            let seq = self.nodes_seq;
+            self.adj_row_py_by_index
+                .insert(index, (seq, row.clone_ref(py)));
+        }
+        self.adj_row_py.insert(canonical, row.clone_ref(py));
+        Ok(row)
+    }
+
     /// br-r37-c1-6n9vm: membership for an EXACT `str`, through the present-key
     /// set.
     ///
@@ -15404,7 +15511,7 @@ impl PyGraph {
                 Err(err) => Err(err),
             };
         }
-        let row = match slf.borrow_mut().native_adjacency_row_dict(py, n) {
+        let row = match slf.borrow_mut().adjacency_row_dict_unexposed(py, n) {
             Ok(row) => row,
             Err(err) if err.is_instance_of::<PyKeyError>(py) => {
                 return Err(NetworkXError::new_err(format!(
@@ -15422,94 +15529,21 @@ impl PyGraph {
         Ok(row.bind(py).try_iter()?.into_any().unbind())
     }
 
+    /// br-r37-c1-3rtyk: hands the LIVE row to Python, so THIS is the exposure
+    /// point and this is where the store is marked dirty. The builder above no
+    /// longer marks. The `is_empty` guard preserves the previous condition
+    /// exactly: a row with no neighbours exposes no attr dict and marked
+    /// nothing before either.
     #[pyo3(name = "_native_adjacency_row_dict")]
     fn native_adjacency_row_dict(
         &mut self,
         py: Python<'_>,
         node: &Bound<'_, PyAny>,
     ) -> PyResult<Py<PyDict>> {
-        // br-r37-c1-do7g5: probe the cache FIRST. A cached row is existence
-        // proof — rows are only created for nodes that were present, and
-        // removal clears them — so the `has_node` IndexMap probe below is pure
-        // duplicate work on every hit, which is the common case once a row has
-        // been touched. Same ordering fix as br-r37-c1-dlqkq on `G.degree(n)`.
-        //
-        // br-r37-c1-bvwam: and probe it with a BORROWED canonical. This is the
-        // read path behind `G.neighbors(n)`, which is `iter(self._adj[n])` in
-        // networkx — one CPython dict lookup on a str whose hash is cached in
-        // the object. Building an owned `String` here malloc'd and freed on
-        // every hit purely to look up a borrowed key, the exact cost
-        // br-r37-c1-oe93x removed from `has_node` (a PYTHON has_node at 57ns was
-        // beating the native one at 119ns until that path existed).
-        // `with_node_key_str` produces the same canonical bytes for every key
-        // type — non-strings still fall through to `node_key_to_string` inside
-        // it, and `canonical_node_key_in_matches_the_owned_canonical` pins the
-        // two forms equal — so this probe covers what the owned one covered.
-        // Only the MISS path below allocates, because only it needs to insert.
-        // br-r37-c1-nbrow: INDEX probe first, before any canonical exists.
-        //
-        // The borrowed-canonical probe below already avoids a malloc, but it
-        // still COPIES the key's bytes into a buffer and then HASHES them, so a
-        // cache hit was O(node key length) -- 246.5 ns at K=2 against 1055.7 ns
-        // at K=2000. This resolves the node through CPython's cached `str` hash
-        // instead, exactly as `has_edge` does, and `has_edge` is flat over that
-        // span.
-        //
-        // Exact `str` only; every other key type falls through unchanged. A hit
-        // is existence proof, so the `has_node` probe further down is skipped on
-        // it, matching what the string-keyed hit already did.
-        if node.is_exact_instance_of::<PyString>()
-            && let Some(index) = self.cached_exact_string_node_index(py, node)?
-            && let Some((seq, row)) = self.adj_row_py_by_index.get(&index)
-            && *seq == self.nodes_seq
-        {
-            return Ok(row.clone_ref(py));
-        }
-        if let Some(row) = with_node_key_str(py, node, |canonical| {
-            self.adj_row_py.get(canonical).map(|row| row.clone_ref(py))
-        })? {
-            // br-r37-c1-nbrow: fill the twin from the string hit too, so a row
-            // first touched by a non-index caller still gets the fast route.
-            if node.is_exact_instance_of::<PyString>()
-                && let Some(index) = self.cached_exact_string_node_index(py, node)?
-            {
-                let seq = self.nodes_seq;
-                self.adj_row_py_by_index
-                    .insert(index, (seq, row.clone_ref(py)));
-            }
-            return Ok(row);
-        }
-        let canonical = node_key_to_string(py, node)?;
-        if !self.inner.has_node(&canonical) {
-            return Err(missing_key_error(node));
-        }
-        let row = PyDict::new(py);
-        let neighbors: Vec<String> = self
-            .inner
-            .neighbors(&canonical)
-            .unwrap_or_default()
-            .into_iter()
-            .map(str::to_owned)
-            .collect();
-        if !neighbors.is_empty() {
+        let row = self.adjacency_row_dict_unexposed(py, node)?;
+        if row.bind(py).len() != 0 {
             self.mark_edges_dirty();
         }
-        for neighbor in neighbors {
-            let py_neighbor = self.py_adj_key(py, &canonical, &neighbor);
-            let attrs = self.materialize_edge_py_attrs(py, &canonical, &neighbor);
-            row.set_item(py_neighbor, attrs.bind(py))?;
-        }
-        let row = row.unbind();
-        // br-r37-c1-nbrow: fill the index twin with the SAME dict object, so the
-        // two keys cannot disagree and in-place edge maintenance reaches both.
-        if node.is_exact_instance_of::<PyString>()
-            && let Some(index) = self.cached_exact_string_node_index(py, node)?
-        {
-            let seq = self.nodes_seq;
-            self.adj_row_py_by_index
-                .insert(index, (seq, row.clone_ref(py)));
-        }
-        self.adj_row_py.insert(canonical, row.clone_ref(py));
         Ok(row)
     }
 
