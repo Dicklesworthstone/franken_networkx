@@ -26372,6 +26372,52 @@ def _native_edge_mapping_has_exact_tuple_keys(values, arity):
     )
 
 
+def flush_node_attrs_to_native_store(graph, nodes=None):
+    """Push Python-side node attributes into the TYPED store native kernels read.
+
+    br-r37-c1-303zo: a graph carries two node-attribute stores. The Python paths
+    write `node_py_attrs`; native kernels read the typed Rust store reached by
+    `Graph::node_attrs`. Attributes attached AFTER construction land only in the
+    former, and a kernel that misses takes a DEFAULT rather than raising -- so the
+    answer is plausible and wrong, while `G.nodes(data=True)` shows the right
+    values throughout. Measured on the kernels directly:
+
+        _fnx.max_weight_clique   attrs via add_node -> (x,y) 20.0   CORRECT
+                                 attrs written after -> (a,b,c) 3.0  every node
+                                                                     defaulted to 1.0
+        _fnx.min_cost_flow_cost  attrs via add_node -> 10.0         CORRECT
+                                 attrs written after -> 0.0         no demand seen
+
+    THE MECHANISM: `add_node(n, **attrs)` on an EXISTING node reaches the typed
+    store -- that is why route A is correct -- so re-issuing it flushes the gap.
+    Verified: after this call the two kernels above return the same answers they
+    give when the attributes were passed to `add_node` in the first place, with
+    the Python-visible view and the node set unchanged.
+
+    NOT WIRED IN ANYWHERE YET, ON PURPOSE. The natural site is
+    `set_node_attributes`, whose native fast paths (br-r37-c1-snabulk) bypass the
+    typed store -- but calling this there adds an `add_node` per touched node to a
+    path that was optimised precisely to avoid per-node work, and that trade
+    cannot be measured under the current build freeze. It is landed as a tested
+    primitive so the flush exists and is correct; wiring it is a measurement
+    decision for a build window.
+
+    It also cannot fix every route. `G.nodes[n][k] = v` hands out a plain
+    `builtins.dict` (the same type networkx hands out), so there is no Python-side
+    hook on that write at all -- that route needs the store fixed in Rust.
+
+    `nodes` limits the flush to an iterable of nodes; the default walks the graph.
+    Nodes with no attributes are skipped, so a graph that never attached any pays
+    only the walk.
+    """
+    if nodes is None:
+        nodes = list(graph)
+    for node in nodes:
+        attrs = graph.nodes.get(node)
+        if attrs:
+            graph.add_node(node, **dict(attrs))
+
+
 def set_node_attributes(G, values, name=None):
     """_Set node attributes from a dictionary or scalar.
 

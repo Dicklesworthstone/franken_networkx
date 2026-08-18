@@ -1,0 +1,165 @@
+"""br-r37-c1-303zo — the typed node-attribute store goes stale, and the flush fixes it.
+
+A graph carries two node-attribute stores. The Python paths write
+``node_py_attrs``; native kernels read the typed Rust store reached by
+``Graph::node_attrs``. Attributes attached AFTER construction land only in the
+former, and a kernel that misses takes a DEFAULT rather than raising, so it
+returns a plausible WRONG answer while ``G.nodes(data=True)`` shows the right
+values throughout.
+
+THESE TESTS CALL ``_fnx.<kernel>`` DIRECTLY, AND THAT IS LOAD-BEARING. Every
+public entry point routes around these kernels — ``fnx.max_weight_clique``
+delegates to networkx, ``fnx.min_cost_flow`` is implemented in Python in the
+shim, and ``approximation.min_weighted_vertex_cover`` IS networkx's own function
+(the br-r37-c1-bdswh fix). A test driving the public API reports every kernel
+clean; that verdict measures the delegation, not the kernel. The first version of
+the probe behind this file did exactly that and found nothing.
+
+So the bug is DORMANT rather than absent: users are protected today by the
+routing, and the moment any of these kernels is routed native it ships a wrong
+answer. That is what these tests are here to catch.
+"""
+
+from __future__ import annotations
+
+import pytest
+
+import franken_networkx as fnx
+
+WEIGHT = "weight"
+
+
+def _clique_graph(route):
+    """A cheap triangle against a heavier pair.
+
+    Weight-SENSITIVE by construction: unweighted the triangle wins on size (3
+    nodes), weighted the pair wins on total weight (20 vs 3). A kernel that
+    defaults every node to 1.0 therefore returns the TRIANGLE — the fault is
+    detectable, which the bead notes its own first witness was not.
+    """
+    weights = {"a": 1, "b": 1, "c": 1, "x": 10, "y": 10}
+    graph = fnx.Graph()
+    if route == "add_node":
+        for node, weight in weights.items():
+            graph.add_node(node, **{WEIGHT: weight})
+        graph.add_edges_from([("a", "b"), ("b", "c"), ("a", "c"), ("x", "y")])
+        return graph
+
+    graph.add_nodes_from(weights)
+    graph.add_edges_from([("a", "b"), ("b", "c"), ("a", "c"), ("x", "y")])
+    if route == "nodes_getitem":
+        for node, weight in weights.items():
+            graph.nodes[node][WEIGHT] = weight
+    elif route == "set_node_attributes":
+        fnx.set_node_attributes(graph, weights, WEIGHT)
+    else:  # pragma: no cover
+        raise ValueError(route)
+    return graph
+
+
+def _flow_graph(route):
+    """Demand lives on NODES, so a missed demand silently changes the problem."""
+    demands = {"s": -5, "t": 5}
+    graph = fnx.DiGraph()
+    if route == "add_node":
+        graph.add_node("s", demand=-5)
+        graph.add_node("m")
+        graph.add_node("t", demand=5)
+    else:
+        graph.add_nodes_from(["s", "m", "t"])
+    # edge attrs at CONSTRUCTION: writing them afterwards trips the edge-side
+    # version of this same gap and would confound the node-attr variable.
+    graph.add_edges_from(
+        [
+            ("s", "m", {"weight": 1, "capacity": 10}),
+            ("m", "t", {"weight": 1, "capacity": 10}),
+        ]
+    )
+    if route == "nodes_getitem":
+        for node, demand in demands.items():
+            graph.nodes[node]["demand"] = demand
+    elif route == "set_node_attributes":
+        fnx.set_node_attributes(graph, demands, "demand")
+    return graph
+
+
+CORRECT_CLIQUE = (["x", "y"], 20.0)
+CORRECT_FLOW = 10.0
+STALE_ROUTES = ["nodes_getitem", "set_node_attributes"]
+
+
+def test_the_construction_route_that_reaches_the_typed_store_is_correct():
+    """The control. Without this, a failure below could be an unrelated bug."""
+    clique, total = fnx._fnx.max_weight_clique(_clique_graph("add_node"), WEIGHT)
+    assert (sorted(clique), float(total)) == CORRECT_CLIQUE
+    assert float(fnx._fnx.min_cost_flow_cost(_flow_graph("add_node"))) == CORRECT_FLOW
+
+
+@pytest.mark.parametrize("route", STALE_ROUTES)
+def test_the_python_view_is_correct_on_every_route(route):
+    """Why this is silent: nothing looks wrong from Python."""
+    graph = _clique_graph(route)
+    assert [graph.nodes[n][WEIGHT] for n in ("a", "x")] == [1, 10]
+
+
+@pytest.mark.parametrize("route", STALE_ROUTES)
+def test_flush_repairs_max_weight_clique(route):
+    graph = _clique_graph(route)
+    fnx.flush_node_attrs_to_native_store(graph)
+    clique, total = fnx._fnx.max_weight_clique(graph, WEIGHT)
+    assert (sorted(clique), float(total)) == CORRECT_CLIQUE
+
+
+@pytest.mark.parametrize("route", STALE_ROUTES)
+def test_flush_repairs_min_cost_flow_cost(route):
+    graph = _flow_graph(route)
+    fnx.flush_node_attrs_to_native_store(graph)
+    assert float(fnx._fnx.min_cost_flow_cost(graph)) == CORRECT_FLOW
+
+
+@pytest.mark.parametrize("route", STALE_ROUTES)
+def test_flush_does_not_disturb_the_graph(route):
+    """It re-issues add_node, so pin that it adds no nodes and loses no attrs."""
+    graph = _clique_graph(route)
+    before_nodes = sorted(graph.nodes())
+    before_attrs = {n: dict(graph.nodes[n]) for n in graph}
+    before_edges = sorted(map(sorted, graph.edges()))
+
+    fnx.flush_node_attrs_to_native_store(graph)
+
+    assert sorted(graph.nodes()) == before_nodes
+    assert {n: dict(graph.nodes[n]) for n in graph} == before_attrs
+    assert sorted(map(sorted, graph.edges())) == before_edges
+
+
+def test_flush_accepts_a_node_subset():
+    graph = _clique_graph("nodes_getitem")
+    fnx.flush_node_attrs_to_native_store(graph, nodes=["x", "y"])
+    # only the heavy pair was flushed, so the triangle still reads as default 1.0
+    # and the pair now reads its real weight — the pair wins either way, which is
+    # what makes this a check that the subset argument is honoured at all.
+    clique, total = fnx._fnx.max_weight_clique(graph, WEIGHT)
+    assert (sorted(clique), float(total)) == CORRECT_CLIQUE
+
+
+def test_flush_is_a_no_op_on_a_graph_with_no_attributes():
+    graph = fnx.Graph()
+    graph.add_edges_from([("a", "b"), ("b", "c")])
+    fnx.flush_node_attrs_to_native_store(graph)
+    assert sorted(graph.nodes()) == ["a", "b", "c"]
+    assert all(graph.nodes[n] == {} for n in graph)
+
+
+@pytest.mark.parametrize("route", STALE_ROUTES)
+def test_the_bug_is_still_there_without_the_flush(route):
+    """Pins the DEFECT itself, so this file fails if the flush stops being needed.
+
+    If the typed store is ever fixed at the source (in Rust), this test starts
+    failing — which is the signal to delete the flush and this file with it,
+    rather than leaving a primitive nobody needs.
+    """
+    clique, _ = fnx._fnx.max_weight_clique(_clique_graph(route), WEIGHT)
+    assert sorted(clique) == ["a", "b", "c"], (
+        "the stale typed store no longer defaults every node to 1.0 — if the "
+        "store was fixed, flush_node_attrs_to_native_store is now dead code"
+    )
