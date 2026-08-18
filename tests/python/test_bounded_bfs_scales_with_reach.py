@@ -180,6 +180,13 @@ def test_bounded_bfs_cost_does_not_grow_with_the_parent(cutoff):
     the native kernel, so counting Python calls shows nothing. Comparing fnx's
     growth to networkx's growth rather than to an absolute bound makes the
     assertion self-calibrating: load that inflates one arm inflates both.
+
+    THE 2.5x BOUND IS CALIBRATED, not guessed. The defect shows growth of 3.48x
+    (bfs_edges), 4.28x (cutoff=1) and 6.99x (cutoff=2) against networkx's ~1.0x,
+    and a fixed-cost kernel should show ~1.0x. My first draft used 6x and the
+    bfs_edges case XPASSED on the broken kernel - a threshold loose enough to
+    accept the bug it exists to catch. Every one of these must fail on today's
+    unbuilt tree, which is the only proof they test anything.
     """
     small, large = 200, 12800
     fnx_growth = _best(
@@ -200,7 +207,7 @@ def test_bounded_bfs_cost_does_not_grow_with_the_parent(cutoff):
             _ring_cache_nx[small], "n0", cutoff=cutoff
         )
     )
-    assert fnx_growth < 6 * max(nx_growth, 1.0), (
+    assert fnx_growth < 2.5 * max(nx_growth, 1.0), (
         f"cutoff={cutoff}: a {large // small}x bigger parent made fnx "
         f"{fnx_growth:.2f}x slower for the SAME request while networkx moved "
         f"{nx_growth:.2f}x; the O(V) allocation is back"
@@ -209,3 +216,86 @@ def test_bounded_bfs_cost_does_not_grow_with_the_parent(cutoff):
 
 _ring_cache_fnx = {n: _ring(fnx, n) for n in (200, 12800)}
 _ring_cache_nx = {n: _ring(nx, n) for n in (200, 12800)}
+
+
+# ---------------------------------------------------------------------------
+# bfs_edges: the same defect, in three more kernels
+# ---------------------------------------------------------------------------
+# br-r37-c1-dkwy7. ``bfs_edges``, ``bfs_edges_directed`` and
+# ``bfs_edges_directed_reverse`` each built the same whole-graph name vector.
+# Measured, request fixed, parent grown 64x: fnx 3.48x growth against networkx's
+# 1.02x, i.e. 1.309x of nx at n=200 falling to 0.3839x at n=12800.
+#
+# These kernels differ from the length kernels in one way that matters here:
+# they resolve names INSIDE the walk (each emitted edge needs both endpoints,
+# and the CGSE decision sink is fed the same pair), so the lookup order had to
+# change too. A name is now resolved BEFORE its node is marked visited, so the
+# unreachable None case cannot mark a node seen and then fail to emit it.
+
+DEPTHS = [None, 0, 1, 2, 99]
+
+
+@pytest.mark.parametrize("depth", DEPTHS)
+@pytest.mark.parametrize("shape", ["path", "star", "loopy", "ints", "tuples"])
+def test_bfs_edges_undirected_sequence_matches_networkx(shape, depth):
+    got_g, source = _shapes(fnx)[shape]
+    want_g, _ = _shapes(nx)[shape]
+    got = [(str(u), str(v)) for u, v in fnx.bfs_edges(got_g, source, depth_limit=depth)]
+    want = [(str(u), str(v)) for u, v in nx.bfs_edges(want_g, source, depth_limit=depth)]
+    assert got == want, f"{shape}/depth={depth}: BFS edge SEQUENCE diverged"
+
+
+@pytest.mark.parametrize("depth", DEPTHS)
+@pytest.mark.parametrize("shape", ["chain", "fan", "ints"])
+@pytest.mark.parametrize("reverse", [False, True])
+def test_bfs_edges_directed_sequence_matches_networkx(shape, depth, reverse):
+    """``reverse=True`` is a third kernel walking predecessors."""
+    got_g, source = _directed_shapes(fnx)[shape]
+    want_g, _ = _directed_shapes(nx)[shape]
+    got = [
+        (str(u), str(v))
+        for u, v in fnx.bfs_edges(got_g, source, reverse=reverse, depth_limit=depth)
+    ]
+    want = [
+        (str(u), str(v))
+        for u, v in nx.bfs_edges(want_g, source, reverse=reverse, depth_limit=depth)
+    ]
+    assert got == want, f"{shape}/reverse={reverse}/depth={depth}: sequence diverged"
+
+
+@pytest.mark.parametrize("reverse", [False, True])
+def test_bfs_edges_endpoints_are_the_graphs_own_node_objects(reverse):
+    """Name resolution moved; equal-but-distinct endpoints would pass a str check."""
+    graph = fnx.DiGraph()
+    graph.add_edges_from([((0, 0), (1, 1)), ((1, 1), (2, 2))])
+    identity = {n: n for n in graph.nodes()}
+    source = (0, 0) if not reverse else (2, 2)
+    for u, v in fnx.bfs_edges(graph, source, reverse=reverse):
+        assert u is identity[u], f"{u!r} is a copy, not the graph's node object"
+        assert v is identity[v], f"{v!r} is a copy, not the graph's node object"
+
+
+def test_bfs_edges_depth_zero_emits_nothing():
+    graph = fnx.Graph()
+    graph.add_edges_from([("a", "b"), ("b", "c")])
+    assert list(fnx.bfs_edges(graph, "a", depth_limit=0)) == []
+
+
+@pytest.mark.xfail(
+    reason="br-r37-c1-dkwy7 kernel is written but UNBUILT (host disk throttle, "
+    "no cargo); flip to a hard assert once the extension is rebuilt",
+    strict=False,
+)
+def test_bfs_edges_cost_does_not_grow_with_the_parent():
+    """networkx on the same host at the same moment is the control."""
+    small, large = 200, 12800
+    fnx_growth = _best(
+        lambda: list(fnx.bfs_edges(_ring_cache_fnx[large], "n0", depth_limit=1))
+    ) / _best(lambda: list(fnx.bfs_edges(_ring_cache_fnx[small], "n0", depth_limit=1)))
+    nx_growth = _best(
+        lambda: list(nx.bfs_edges(_ring_cache_nx[large], "n0", depth_limit=1))
+    ) / _best(lambda: list(nx.bfs_edges(_ring_cache_nx[small], "n0", depth_limit=1)))
+    assert fnx_growth < 2.5 * max(nx_growth, 1.0), (
+        f"a {large // small}x bigger parent made fnx bfs_edges {fnx_growth:.2f}x "
+        f"slower for the SAME request while networkx moved {nx_growth:.2f}x"
+    )

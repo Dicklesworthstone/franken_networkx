@@ -22966,9 +22966,16 @@ pub fn dfs_postorder_nodes_directed(
 pub fn bfs_edges(graph: &Graph, source: &str, depth_limit: Option<usize>) -> Vec<(String, String)> {
     let mut cgse_sink = cgse_begin(CgseReferenceAlgorithm::Bfs);
 
+    // br-r37-c1-dkwy7: a depth-limited BFS must cost what it REACHES. Building a
+    // Vec<&str> of every node name before the walk made bfs_edges(depth_limit=1)
+    // grow 3.48x between 200 and 12800 nodes while networkx stayed flat (1.02x)
+    // - 1.309x of nx down to 0.3839x, decaying. Names now come from
+    // `get_node_name` (IndexMap `get_index`, O(1)) once per node actually
+    // dequeued or discovered, which is strictly fewer lookups than the vector
+    // had entries. `visited` stays dense; see the sibling in
+    // single_source_shortest_path_length_with_parents_borrowed for why.
     let max_depth = depth_limit.unwrap_or(usize::MAX);
-    let nodes: Vec<&str> = graph.nodes_ordered();
-    let n = nodes.len();
+    let n = graph.node_count();
 
     let Some(source_idx) = graph.get_node_index(source) else {
         cgse_publish(
@@ -22992,11 +22999,17 @@ pub fn bfs_edges(graph: &Graph, source: &str, depth_limit: Option<usize>) -> Vec
             continue;
         }
         if let Some(neighbor_indices) = graph.neighbors_indices(node_idx) {
-            let node_str = nodes[node_idx];
+            let Some(node_str) = graph.get_node_name(node_idx) else {
+                continue;
+            };
             for &nbr_idx in neighbor_indices {
                 if !visited[nbr_idx] {
+                    // Resolved BEFORE marking visited so the unreachable None
+                    // case cannot strand a node as seen-but-never-emitted.
+                    let Some(nbr_str) = graph.get_node_name(nbr_idx) else {
+                        continue;
+                    };
                     visited[nbr_idx] = true;
-                    let nbr_str = nodes[nbr_idx];
                     cgse_record_decision(&mut cgse_sink, nbr_str, node_str);
                     edges.push((node_str.to_owned(), nbr_str.to_owned()));
                     queue.push_back((nbr_idx, depth + 1));
@@ -23040,9 +23053,16 @@ pub fn bfs_edges_directed(
         );
         return edges;
     };
+    // br-r37-c1-dkwy7: a depth-limited BFS must cost what it REACHES. Building a
+    // Vec<&str> of every node name before the walk made bfs_edges(depth_limit=1)
+    // grow 3.48x between 200 and 12800 nodes while networkx stayed flat (1.02x)
+    // - 1.309x of nx down to 0.3839x, decaying. Names now come from
+    // `get_node_name` (IndexMap `get_index`, O(1)) once per node actually
+    // dequeued or discovered, which is strictly fewer lookups than the vector
+    // had entries. `visited` stays dense; see the sibling in
+    // single_source_shortest_path_length_with_parents_borrowed for why.
     let csr = digraph.csr();
-    let names = digraph.nodes_ordered();
-    let mut visited = vec![false; names.len()];
+    let mut visited = vec![false; digraph.node_count()];
     visited[source_idx] = true;
     let mut queue: VecDeque<(u32, usize)> = VecDeque::new();
     queue.push_back((u32::try_from(source_idx).unwrap_or(u32::MAX), 0));
@@ -23051,14 +23071,19 @@ pub fn bfs_edges_directed(
         if depth >= max_depth {
             continue;
         }
+        let Some(node_str) = digraph.get_node_name(node as usize) else {
+            continue;
+        };
         for &nbr in csr.successors(node as usize) {
             if !visited[nbr as usize] {
+                // Resolved BEFORE marking visited so the unreachable None case
+                // cannot strand a node as seen-but-never-emitted.
+                let Some(nbr_str) = digraph.get_node_name(nbr as usize) else {
+                    continue;
+                };
                 visited[nbr as usize] = true;
-                cgse_record_decision(&mut cgse_sink, names[nbr as usize], names[node as usize]);
-                edges.push((
-                    names[node as usize].to_owned(),
-                    names[nbr as usize].to_owned(),
-                ));
+                cgse_record_decision(&mut cgse_sink, nbr_str, node_str);
+                edges.push((node_str.to_owned(), nbr_str.to_owned()));
                 queue.push_back((nbr, depth + 1));
             }
         }
@@ -23099,9 +23124,16 @@ pub fn bfs_edges_directed_reverse(
         );
         return edges;
     };
+    // br-r37-c1-dkwy7: a depth-limited BFS must cost what it REACHES. Building a
+    // Vec<&str> of every node name before the walk made bfs_edges(depth_limit=1)
+    // grow 3.48x between 200 and 12800 nodes while networkx stayed flat (1.02x)
+    // - 1.309x of nx down to 0.3839x, decaying. Names now come from
+    // `get_node_name` (IndexMap `get_index`, O(1)) once per node actually
+    // dequeued or discovered, which is strictly fewer lookups than the vector
+    // had entries. `visited` stays dense; see the sibling in
+    // single_source_shortest_path_length_with_parents_borrowed for why.
     let csr = digraph.csr();
-    let names = digraph.nodes_ordered();
-    let mut visited = vec![false; names.len()];
+    let mut visited = vec![false; digraph.node_count()];
     visited[source_idx] = true;
     let mut queue: VecDeque<(u32, usize)> = VecDeque::new();
     queue.push_back((u32::try_from(source_idx).unwrap_or(u32::MAX), 0));
@@ -23110,14 +23142,19 @@ pub fn bfs_edges_directed_reverse(
         if depth >= max_depth {
             continue;
         }
+        let Some(node_str) = digraph.get_node_name(node as usize) else {
+            continue;
+        };
         for &nbr in csr.predecessors(node as usize) {
             if !visited[nbr as usize] {
+                // Resolved BEFORE marking visited so the unreachable None case
+                // cannot strand a node as seen-but-never-emitted.
+                let Some(nbr_str) = digraph.get_node_name(nbr as usize) else {
+                    continue;
+                };
                 visited[nbr as usize] = true;
-                cgse_record_decision(&mut cgse_sink, names[nbr as usize], names[node as usize]);
-                edges.push((
-                    names[node as usize].to_owned(),
-                    names[nbr as usize].to_owned(),
-                ));
+                cgse_record_decision(&mut cgse_sink, nbr_str, node_str);
+                edges.push((node_str.to_owned(), nbr_str.to_owned()));
                 queue.push_back((nbr, depth + 1));
             }
         }
