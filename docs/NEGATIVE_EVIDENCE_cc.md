@@ -23465,3 +23465,59 @@ the probe warn that it had gone blind on every degree-axis run.
 15 self-tests now, up from 11.
 
 loadavg 11.67/8.45/7.90, disk 27G, no cargo, no benchmarks.
+
+## 2026-08-18 GoldenBison SCOPED, NOT WRITTEN: the key-only neighbours row is a FIVE-SITE port with a correctness failure mode (br-r37-c1-3rtyk)
+
+No timing claim. Closes the analysis of the superior design found yesterday, with
+the exact site list a build can execute in one sitting - and with the reason it is
+not written under the freeze stated as evidence rather than as caution.
+
+WHAT I WENT TO PORT. `PyMultiGraph` serves `G.neighbors(n)` from
+`neighbor_key_row`, a `{neighbour: None}` row that never materialises edge attrs.
+It is strictly better than the fix I landed for PyGraph: mine stops the store
+being poisoned, the port also stops the O(degree) of PyO3 spent building attr
+dicts that nothing reads.
+
+WHY IT IS NOT A DROP-IN, read out of the multigraph implementation rather than
+assumed. The cache is not merely generation-keyed. It has THREE coordinated
+parts, and the third exists only because the first two conflict:
+
+  1. `neighbor_key_row` - wholesale invalidation when `(nodes_seq, edges_seq)`
+     moves. Its own comment: a stale generation is dropped WHOLESALE rather than
+     repaired, because reasoning about which rows a mutation invalidated is the
+     complexity it avoids.
+  2. IN-PLACE maintenance on edge add and edge removal (br-r37-c1-dwy1n, two
+     sites), inserting and dropping single neighbours in the LIVE dict.
+  3. `restamp_neighbor_rows` - without which the freshness check in (1) sees the
+     bumped `edges_seq`, discards the map, and hands out a rebuilt dict,
+     DEFEATING the maintenance in (2). Its doc says exactly that.
+
+Plus the struct field and `neighbor_rows_live`. Five sites.
+
+THE PART THAT MAKES IT CORRECTNESS-CRITICAL RATHER THAN PERF-CRITICAL. Item (2)
+is what preserves `RuntimeError: dictionary changed size during iteration` when
+the graph is mutated mid-iteration. Verified today that fnx matches networkx on
+that for all four classes - both raise, both hand back a `dict_keyiterator`. A
+port that misses the restamp at ONE mutation site does not merely lose speed: the
+next caller iterates a rebuilt dict and either misses a neighbour or sees a stale
+one, SILENTLY.
+
+That is the distinction from the fix I did land. br-r37-c1-3rtyk moved a mark
+between two sites and could be argued safe by counting `mark_edges_dirty` call
+sites before and after (24 both times, verified). This cannot be argued safe by
+counting anything. Five coordinated sites, whose interaction was subtle enough
+that upstream needed a dedicated function to stop two of them fighting, must not
+be transcribed into a tree that cannot be type-checked, let alone run.
+
+WHAT A BUILD SHOULD DO, in order: port the field, `neighbor_key_row`,
+`restamp_neighbor_rows` and `neighbor_rows_live` from `PyMultiGraph` to
+`PyGraph`; wire the two in-place maintenance sites next to
+`PyGraph::cached_adj_set_edge`, which already maintains `adj_row_py` the same way
+and is the sibling the multigraph comment itself points at; repoint
+`native_neighbors_iter` at the key row; then REPLACE the br-r37-c1-3rtyk hunk
+rather than keeping both, since a key-only row makes the mark-at-handout split
+moot for neighbours. `tests/python/test_weighted_store_contamination_map.py`
+fails on exactly the two `neighbors` cases when this lands, which is the signal
+to move them to SAFE.
+
+loadavg 10.22/8.19/8.23, disk 26G, no cargo, no benchmarks.
