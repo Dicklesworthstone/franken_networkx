@@ -1428,9 +1428,14 @@ The sync helper only runs ahead of algorithms that *read* edge attributes (`dijk
 Attributes survive a round-trip through every native I/O format:
 
 ```python
-fnx.write_graphml(G, "g.xml")     # types preserved via <data attr.type=...>
-fnx.write_gml(G,     "g.gml")     # typed scalars
-fnx.write_gexf(G,    "g.gexf")    # typed attributes
+import os, tempfile
+
+# Written into a temp dir so running the docs verifier does not leave files in
+# the working tree; in your own code these are just paths.
+with tempfile.TemporaryDirectory() as _io_dir:
+    fnx.write_graphml(G, os.path.join(_io_dir, "g.xml"))   # types preserved via <data attr.type=...>
+    fnx.write_gml(G,     os.path.join(_io_dir, "g.gml"))   # typed scalars
+    fnx.write_gexf(G,    os.path.join(_io_dir, "g.gexf"))  # typed attributes
 data = fnx.node_link_data(G)      # JSON with type tags
 ```
 
@@ -2021,7 +2026,11 @@ class MyGraph(fnx.Graph):
 
 ### Pattern: NetworkX-only algorithms via fallback
 
-```python
+<!-- skip-verify: `some_obscure_algorithm` is a deliberately fictional stand-in,
+     and this fragment sets backend_priority GLOBALLY, which would change dispatch
+     for every later block in this file. -->
+
+```python skip-verify
 # Before: calling an algorithm fnx doesn't natively support
 import networkx as nx
 nx.config.backend_priority = ["franken_networkx"]
@@ -2129,7 +2138,10 @@ How to write code that flips cleanly between fnx and nx without surprises.
 
 ### Prefer `fnx.X(G)` to `G.X()` where both exist
 
-```python
+<!-- skip-verify: a style illustration on a stand-in `G`, and its second line is
+     labelled as not universally available, so it cannot execute either. -->
+
+```python skip-verify
 # Both work, but the module-level form is the documented contract.
 fnx.shortest_path(G, "a", "z")        # preferred
 G.shortest_path("a", "z")              # not all graph types expose this
@@ -2141,7 +2153,9 @@ The audit ledgers track the *public* surface. Anything starting with `_` (e.g. `
 
 ### Catch the broadest reasonable exception
 
-```python
+<!-- skip-verify: a Good/Bad style illustration on a stand-in `G`; parts of it are deliberately wrong by design. -->
+
+```python skip-verify
 # Brittle (won't catch NetworkXNoPath, since it's under NetworkXUnfeasible)
 try:
     path = fnx.shortest_path(G, s, t)
@@ -2160,7 +2174,9 @@ except fnx.NetworkXException:
 
 ### Use named kwargs for keyword-only parameters
 
-```python
+<!-- skip-verify: a Good/Bad style illustration on a stand-in `G`; parts of it are deliberately wrong by design. -->
+
+```python skip-verify
 # Good
 fnx.shortest_path(G, "a", "z", weight="weight")
 fnx.pagerank(G, alpha=0.85, max_iter=100, tol=1e-6)
@@ -2173,7 +2189,9 @@ fnx.pagerank(G, 0.85, 100, 1e-6)   # works today, may not tomorrow
 
 Same rule as NetworkX:
 
-```python
+<!-- skip-verify: a Good/Bad style illustration on a stand-in `G`; parts of it are deliberately wrong by design. -->
+
+```python skip-verify
 # Bad
 for u in G.nodes():
     if G.degree(u) == 0:
@@ -2189,7 +2207,9 @@ for u in isolates:
 
 `G.subgraph([...])` returns a view, not a fresh graph. If you want to pickle it or pass it across an async boundary, call `.copy()`:
 
-```python
+<!-- skip-verify: a Good/Bad style illustration on a stand-in `G`; parts of it are deliberately wrong by design. -->
+
+```python skip-verify
 sub = G.subgraph(important_nodes)         # view; aliases G
 sub_copy = G.subgraph(important_nodes).copy()  # standalone graph
 pickle.dumps(sub_copy)                    # ← this is what you want for IPC
