@@ -1,6 +1,6 @@
 """A cutoff-bounded BFS must cost what it REACHES, not what the graph HOLDS.
 
-br-r37-c1-bndbfs. Both single-source BFS-length kernels allocated O(V) before
+br-r37-c1-dkwy7. Both single-source BFS-length kernels allocated O(V) before
 knowing how far they would walk:
 
   * ``nodes_ordered()`` built a ``Vec<&str>`` of EVERY node name up front, in
@@ -167,7 +167,7 @@ def _ring(lib, n):
 
 
 @pytest.mark.xfail(
-    reason="br-r37-c1-bndbfs kernel is written but UNBUILT (host disk throttle, "
+    reason="br-r37-c1-dkwy7 kernel is written but UNBUILT (host disk throttle, "
     "no cargo); this asserts the fix and must flip to a hard assert once the "
     "extension is rebuilt",
     strict=False,

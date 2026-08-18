@@ -2810,7 +2810,7 @@ pub fn single_source_shortest_path_length_with_parents_borrowed<'a>(
     };
     let n = graph.node_count();
 
-    // br-r37-c1-bndbfs: a CUTOFF-bounded BFS must cost what it REACHES, not
+    // br-r37-c1-dkwy7: a CUTOFF-bounded BFS must cost what it REACHES, not
     // what the graph HOLDS. `nodes_ordered()` built a Vec<&str> of every node
     // in the graph before we knew whether we would touch three of them, so
     // `single_source_shortest_path_length(G, s, cutoff=1)` grew 4.28x between
@@ -2912,7 +2912,7 @@ pub fn single_source_shortest_path_length_directed_with_parents(
     let csr = digraph.csr();
     let n = digraph.node_count();
 
-    // br-r37-c1-bndbfs: the undirected sibling's defect, plus one of its own.
+    // br-r37-c1-dkwy7: the undirected sibling's defect, plus one of its own.
     // `nodes_ordered()` materialised every node name before the walk, and
     // `parent` was a second O(V) array (n * 4 bytes, filled with u32::MAX) that
     // was only ever READ for the nodes actually discovered. Both are now paid
