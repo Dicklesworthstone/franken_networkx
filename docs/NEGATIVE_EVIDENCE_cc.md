@@ -23149,3 +23149,67 @@ removed. At measurement, compare `dict(G.degree())` on MultiGraph and
 MultiDiGraph against networkx at several sizes with per-arm MHz.
 
 loadavg 16.39/14.76/13.08, disk 27G, no cargo, no benchmarks.
+
+## 2026-08-18 GoldenBison INSTRUMENT HARDENED + 16 CLEAN SWEEPS: the read surface has no O(parent) cliffs left, and the allocation metric had to be calibrated first (br-r37-c1-9iro1)
+
+No timing claim. Follow-on to this morning's probe, which found the multigraph
+`dict(G.degree())` node walk. Widened it from 20 read operations to 46, added a
+second AXIS and a second METRIC, then swept.
+
+THE RESULT, first, because it is a negative one and negatives get buried: SIXTEEN
+sweeps - four classes x {nodes, multiplicity} axes x {calls, allocations} metrics
+- ZERO findings. The 46 probed reads include every small-request spelling I could
+name: `G[u]`, `G[u][v]`, `get_edge_data`, `edges[u,v]`, `adj[u]`, `nodes[u]`,
+`len(G.nodes/edges/adj)`, `number_of_edges()` both spellings, `next(iter(G))`,
+`nbunch_iter([u])`, `edges([u], data=True)`, `edge_subgraph(one_edge)`,
+`common_neighbors`, plus the same requests against subgraph / restricted_view /
+as_view. The shim is not looping over the parent for any of them.
+
+THE SECOND AXIS. `--axis multiplicity` holds the NODE count fixed at 60 and piles
+parallel edges onto a pair the probed reads never mention. A read about `n0` that
+grows when `n40-n41` gains 800 parallel edges is scanning the edge set. Nothing
+did. That axis is not reachable by the node-growth axis and is where multigraph
+code is likeliest to leak, so it is worth having even though it found nothing.
+
+THE SECOND METRIC, AND THE CALIBRATION IT NEEDED. `--metric allocations` exists
+to cover the call metric's documented blind spot: a native kernel that
+materialises a Vec<PyObject> of every node costs ZERO Python calls and is
+invisible to cProfile, but every one of those objects comes from the Python
+allocator. That is a real blind spot - `number_of_selfloops` building a node list
+to take its length (br-r37-c1-hkijj) is exactly this shape.
+
+It reported THREE FINDINGS. All three were FALSE, and I disproved each by hand
+across five sizes at higher reps before believing any of them:
+
+    next(iter(G))                  x2.63  ->  flat 98-196 B over 200..3200 nodes
+    G.edge_subgraph(one_edge)      x1.32  ->  non-monotonic 997/1338/2036/3176 B
+    list(G.edges([u],data=True))   x3.45  ->  flat 25.9/26.4/25.2/70.5 B per class
+
+The allocator's fill state moves these numbers far more than the operations do.
+The metric now runs 5x the reps AND takes the MINIMUM of two independent
+replicates per cell - allocator noise is one-sided, so the smaller of two runs is
+much closer to the truth than either alone. After that, all four classes report
+zero. The three false positives are recorded in the tool's own docstring, because
+the next person to run it will get a lead and needs to know the base rate.
+
+A REAL CONSTANT-FACTOR DIFFERENCE, noted and NOT claimed as a defect:
+`list(G.edges([u], data=True))` allocates 70.5 bytes/call on MultiDiGraph against
+25-26 on the other three classes, for the same single result. Flat in the parent,
+so not a complexity bug and not something this instrument can adjudicate.
+
+TWO TOOL BUGS FIXED, both of which had already cost results: an unsupported
+operation (`common_neighbors` on a directed graph) raised out of the sweep and
+killed every row after it - now reported as `n/a` with the exception name. And
+the positive-control check fired misleadingly on the multiplicity axis, where the
+node-count controls are SUPPOSED to be flat; controls are now metric- and
+axis-aware.
+
+THE PROBE NOW HAS ITS OWN TESTS, 11 of them, and the load-bearing one plants a
+deliberately O(parent) read and asserts the probe SEES it. Without that, "0
+findings" is indistinguishable from a probe that has gone blind - which is the
+precise failure its own in-tool note warns about, and which I have no other way
+to detect while every sweep legitimately returns zero. The tests locate the probe
+via the PACKAGE path rather than `__file__`, because the freeze workflow copies
+the test tree elsewhere to run it.
+
+loadavg 6.07/6.37/9.25, disk 27G, no cargo, no benchmarks.
