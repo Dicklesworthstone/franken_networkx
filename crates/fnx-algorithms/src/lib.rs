@@ -2805,18 +2805,32 @@ pub fn single_source_shortest_path_length_with_parents_borrowed<'a>(
     source: &str,
     cutoff: Option<usize>,
 ) -> Vec<(&'a str, usize, Option<&'a str>)> {
-    let nodes: Vec<&str> = graph.nodes_ordered();
-    let n = nodes.len();
-
     let Some(source_idx) = graph.get_node_index(source) else {
         return Vec::new();
     };
+    let n = graph.node_count();
 
-    // Track results in BFS order as we discover nodes
-    let mut result: Vec<(&str, usize, Option<&str>)> = Vec::with_capacity(n);
+    // br-r37-c1-bndbfs: a CUTOFF-bounded BFS must cost what it REACHES, not
+    // what the graph HOLDS. `nodes_ordered()` built a Vec<&str> of every node
+    // in the graph before we knew whether we would touch three of them, so
+    // `single_source_shortest_path_length(G, s, cutoff=1)` grew 4.28x between
+    // 200 and 12800 nodes while networkx's stayed flat (1.01x) - fnx went from
+    // 1.05x of nx to 0.25x, and kept decaying. Walk in INDEX space and resolve
+    // names ONCE at the end, for the reached nodes only: `get_node_name` is an
+    // IndexMap `get_index`, O(1), and is called strictly fewer times than the
+    // vector had entries, so the unbounded case cannot regress either.
+    //
+    // `visited` stays dense. It is n BYTES from a single calloc (usually
+    // untouched zero pages) rather than n fat pointers plus a full walk of the
+    // node map, and keeping it dense means a large-cutoff traversal that really
+    // does reach everything pays no hashing. That is the remaining O(V) term.
+    let mut order: Vec<(usize, usize, Option<usize>)> = match cutoff {
+        Some(_) => Vec::new(),
+        None => Vec::with_capacity(n),
+    };
     let mut visited = vec![false; n];
     visited[source_idx] = true;
-    result.push((nodes[source_idx], 0, None));
+    order.push((source_idx, 0, None));
 
     let mut frontier: Vec<usize> = vec![source_idx];
     let mut level = 0usize;
@@ -2833,7 +2847,7 @@ pub fn single_source_shortest_path_length_with_parents_borrowed<'a>(
                 for &nbr_idx in neighbor_indices {
                     if !visited[nbr_idx] {
                         visited[nbr_idx] = true;
-                        result.push((nodes[nbr_idx], level + 1, Some(nodes[node_idx])));
+                        order.push((nbr_idx, level + 1, Some(node_idx)));
                         next_frontier.push(nbr_idx);
                     }
                 }
@@ -2843,7 +2857,20 @@ pub fn single_source_shortest_path_length_with_parents_borrowed<'a>(
         level += 1;
     }
 
-    result
+    // Every index here came out of this graph's own adjacency, so `get_node_name`
+    // cannot miss; `filter_map` keeps that infallible case total rather than
+    // panicking inside a library on a state that cannot arise.
+    order
+        .into_iter()
+        .filter_map(|(idx, dist, parent_idx)| {
+            let name = graph.get_node_name(idx)?;
+            let parent = match parent_idx {
+                Some(p) => Some(graph.get_node_name(p)?),
+                None => None,
+            };
+            Some((name, dist, parent))
+        })
+        .collect()
 }
 
 /// Return shortest path lengths from a single source for a directed graph (unweighted, BFS).
@@ -2883,13 +2910,23 @@ pub fn single_source_shortest_path_length_directed_with_parents(
         return Vec::new();
     };
     let csr = digraph.csr();
-    let names = digraph.nodes_ordered();
-    let n = names.len();
+    let n = digraph.node_count();
+
+    // br-r37-c1-bndbfs: the undirected sibling's defect, plus one of its own.
+    // `nodes_ordered()` materialised every node name before the walk, and
+    // `parent` was a second O(V) array (n * 4 bytes, filled with u32::MAX) that
+    // was only ever READ for the nodes actually discovered. Both are now paid
+    // per REACHED node: the discovering parent rides along in `order`, and
+    // names are resolved once at the end via `get_node_name` (IndexMap
+    // `get_index`, O(1)). `visited` stays dense - see the undirected sibling
+    // for why that one is worth keeping.
     let mut visited = vec![false; n];
-    let mut parent: Vec<u32> = vec![u32::MAX; n];
-    let mut order: Vec<(u32, usize)> = Vec::with_capacity(n);
+    let mut order: Vec<(u32, usize, Option<u32>)> = match cutoff {
+        Some(_) => Vec::new(),
+        None => Vec::with_capacity(n),
+    };
     visited[source_idx] = true;
-    order.push((u32::try_from(source_idx).unwrap_or(u32::MAX), 0));
+    order.push((u32::try_from(source_idx).unwrap_or(u32::MAX), 0, None));
 
     let mut frontier: Vec<u32> = vec![u32::try_from(source_idx).unwrap_or(u32::MAX)];
     let mut level = 0usize;
@@ -2904,8 +2941,7 @@ pub fn single_source_shortest_path_length_directed_with_parents(
             for &nbr in csr.successors(node as usize) {
                 if !visited[nbr as usize] {
                     visited[nbr as usize] = true;
-                    parent[nbr as usize] = node;
-                    order.push((nbr, level + 1));
+                    order.push((nbr, level + 1, Some(node)));
                     next_frontier.push(nbr);
                 }
             }
@@ -2914,19 +2950,17 @@ pub fn single_source_shortest_path_length_directed_with_parents(
         level += 1;
     }
 
+    // Indices come from this graph's own CSR, so `get_node_name` cannot miss;
+    // `filter_map` keeps the impossible case total instead of panicking.
     order
         .into_iter()
-        .map(|(idx, dist)| {
-            let p = parent[idx as usize];
-            (
-                names[idx as usize].to_owned(),
-                dist,
-                if p == u32::MAX {
-                    None
-                } else {
-                    Some(names[p as usize].to_owned())
-                },
-            )
+        .filter_map(|(idx, dist, parent_idx)| {
+            let name = digraph.get_node_name(idx as usize)?.to_owned();
+            let parent = match parent_idx {
+                Some(p) => Some(digraph.get_node_name(p as usize)?.to_owned()),
+                None => None,
+            };
+            Some((name, dist, parent))
         })
         .collect()
 }
