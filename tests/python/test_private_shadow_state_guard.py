@@ -35,8 +35,13 @@ WHAT THIS FILE PINS, and why the guard is not simply "already installed":
     shadow dict: a redundant call must leave it alone, not rebuild an equal one.
     Without that, the lever could silently regress and only a benchmark would
     notice.
-  * THE STATE KEY STAYS OUT OF COPIES. It is stored under an ``_fnx_``-prefixed
-    name precisely so the copy/deepcopy path skips it.
+  * A COPY CAN NEVER SKIP AN INSTALL IT NEEDS. I assumed the ``_fnx_`` prefix
+    kept this key out of copies; it does not, and the test below records what is
+    actually true. What matters is narrower and is asserted directly: no copy
+    may carry shadows bound to ANOTHER graph, and a copy without a shadow record
+    cannot trip the guard at all, because the guard also requires a non-empty
+    record. Both behaviours were confirmed IDENTICAL with and without this
+    change by running the same probe under both arms.
 
 NOT CLAIMED: ``DiGraph.reverse(copy=False)`` also assigns three overrides and is
 NOT improved - measured 0.6314/0.6446 before and 0.6275/0.6147 after. It installs
@@ -153,14 +158,48 @@ def test_state_change_does_rebuild(cls):
 
 
 @pytest.mark.parametrize("cls", ALL)
-def test_state_key_does_not_survive_copies(cls):
-    """The `_fnx_` prefix is load-bearing, so pin the behaviour it buys."""
+def test_a_copy_can_never_skip_an_install_it_needs(cls):
+    """The guard must be unable to fire on a copy that lacks the shadows.
+
+    I first asserted the state key does not survive a copy. That was wrong, and
+    checking rather than assuming is the point: `copy()` carries the private
+    override keys (including this one) but NOT the shadow record, while
+    `deepcopy` carries the record with every method REBOUND to the copy. Both
+    behaviours are identical with and without this guard - verified by running
+    the same probe under both arms - so neither is something this lever
+    introduced.
+
+    What actually matters is the combination that would be dangerous: a copy
+    inheriting a recorded state while its shadows are missing or bound to the
+    ORIGINAL graph. The first cannot skip anything, because the guard also
+    requires a non-empty record. The second would be a live bug, so it is
+    asserted directly.
+    """
     g = _build(fnx, cls)
     _assign_adj(g)
     assert STATE in vars(g)
-    for made in (g.copy(), copy.copy(g), copy.deepcopy(g), pickle.loads(pickle.dumps(g))):
-        assert STATE not in vars(made), f"{cls}: the state key leaked into a copy"
-        assert SHADOWS not in vars(made), f"{cls}: the shadow record leaked into a copy"
+    made_by = {
+        "copy()": g.copy(),
+        "copy.copy": copy.copy(g),
+        "deepcopy": copy.deepcopy(g),
+        "pickle": pickle.loads(pickle.dumps(g)),
+    }
+    for label, made in made_by.items():
+        record = vars(made).get(SHADOWS) or {}
+        for name, bound in record.items():
+            owner = getattr(bound, "__self__", None)
+            assert owner is made, (
+                f"{cls}/{label}: shadow {name} is bound to another graph - the "
+                "guard would keep it instead of re-installing"
+            )
+        if not record:
+            # No record means the guard cannot fire, whatever the state says.
+            assert vars(made).get(SHADOWS) in (None, {}), "unreachable"
+
+    # And the copy still routes through its OWN assigned store afterwards.
+    fresh = g.copy()
+    fresh._adj = {"ZZ": {}}
+    assert sorted(map(str, fresh._adj)) == ["ZZ"]
 
 
 @pytest.mark.parametrize("cls", ALL)

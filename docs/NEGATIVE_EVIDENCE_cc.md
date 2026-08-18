@@ -22361,3 +22361,103 @@ likelier two of them agree by accident.
 No measurement in this row - it is a correctness finding about a test. loadavg
 14.30/23.58/22.66, disk 197G, no build.
 
+
+## 2026-08-18 GoldenBison KEEP: private method shadows reinstalled once per override assignment, and the test that shipped RED (br-r37-c1-shwst)
+
+TWO things in one row, because they are one episode.
+
+FIRST, THE LEVER. Which shadows an instance needs is decided ENTIRELY by two
+booleans - is a node override present, is ANY private override present - plus the
+class, and a live instance cannot change class. A filtered view assigns THREE
+private overrides at construction (adj, succ, pred) and every assignment re-ran
+the whole install body, re-binding and re-storing an identical set of methods.
+Counted, not guessed: 21 `install` calls per MultiDiGraph view, of which 14
+rebuilt what the first seven had just made. Guarding on the recorded state plus
+shadow identity took it to 7.
+
+MEASURED 2026-08-17, same-tree arms (scripts/make_python_arms.py, shared ELF, 46
+diff lines confined to __init__.py), each arm computing its own fnx-vs-networkx
+ratio in-process, median with 10000-resample bootstrap CI, 21 rounds x 4
+invocations, 60 reps per cell, seed 20260817. TWO passes with the ARM ORDER
+REVERSED between them:
+
+    workload                  HEAD baseline      with guard
+    restricted_view ctor 200  0.2984 / 0.2942    0.3450 / 0.3538
+    restricted_view ctor 800  0.2946 / 0.2969    0.3390 / 0.3527
+    subgraph ctor 200         0.3185 / 0.3225    0.3746 / 0.3848
+    subgraph ctor 800         0.3113 / 0.3152    0.3579 / 0.3664
+    list(rv.nodes()) 800      0.9537 / 0.9670    0.9932 / 0.9931
+
+Construction 1.15-1.19x, and the composite `list(rv.nodes())` at 800 nodes
+reaches 0.9932 - parity within the interval, closing the cell that br-r37-c1-x3829
+opened at 0.2795x. Per-arm MHz 4064-4291, skew 0.00-0.25 percent on every row
+except one baseline cell that landed on a downclocked core at 3173/3148 (skew
+0.80 percent, both arms together, and it is a NOT-CLAIMED row anyway). loadavg
+11.18 falling to 9.68 across the four runs, disk 187G at the time.
+
+NOT CLAIMED, and measured rather than assumed: `DiGraph.reverse(copy=False)` also
+assigns three private overrides and is NOT improved - 0.6314/0.6446 before,
+0.6275/0.6147 after, intervals overlapping and the second pass slightly LOWER.
+The reason is countable: a reverse view installs ZERO shadows, because nothing on
+that path is eligible, so the guard has nothing to skip. A test asserts the zero
+so that this note fails loudly if eligibility ever changes.
+
+THE A/A NULLS ARE THE WEAK PART and replication is what carries this. Several
+construction nulls came back 1.01-1.03 with upper CI bounds as wide as 1.25 - the
+constructor cells are small enough that a GC pass lands inside a timed block.
+That is precisely why both arms were run TWICE with the order reversed: the
+baseline never exceeded 0.3225 and the guarded arm never fell below 0.3390 on the
+same workload, across four independent processes. A 3 percent null cannot produce
+a separation that never overlaps in four runs.
+
+SECOND, AND THE MORE IMPORTANT HALF: THE TEST SHIPPED RED, AND NOT BY THE PERSON
+WHO WROTE IT. I was capped mid-task with the guard and its test file sitting
+UNCOMMITTED in the shared checkout, the test in a known-broken state - four
+assertions I had just discovered were wrong. A peer picked the working tree up
+and committed it as 17f7e18e9, bead id and all, including the four failing
+assertions. `main` was red for every agent running that file until this commit.
+
+WHAT WAS WRONG WITH IT: I asserted that the new `_fnx_private_shadow_state` key
+stays out of copies, reasoning that the deepcopy path skips `_fnx_`-prefixed keys.
+It does not - `copy()` carries the private override keys INCLUDING this one, while
+`deepcopy` carries the shadow record with every method rebound to the copy. I
+assumed the mechanism instead of running it.
+
+Both behaviours were then verified IDENTICAL with and without the guard by running
+the same probe under both arms, so neither is something the lever introduced. The
+assertion is replaced by the invariant that actually matters: no copy may carry
+shadows bound to ANOTHER graph, and a copy without a shadow record cannot trip the
+guard at all, because the guard also requires a non-empty record.
+
+THE LESSON, which is about the checkout and not about copies: on a shared tree an
+uncommitted file is not private, and a KNOWN-BROKEN intermediate state is not safe
+to leave lying in it. Either finish it, revert it, or park it in a stash - my own
+stash list already has two entries doing exactly that. Leaving a red test in the
+tree exports my unfinished work as somebody else's commit.
+
+A/A null control, same invocation, the SAME callable in both arm slots. Baseline:
+1.0099 [1.0007, 1.1914] and 1.0065 [0.9798, 1.0288] at N=200, 1.0090 [0.9978,
+1.2006] and 1.0014 [0.9803, 1.0188] at N=800; pass two 1.0297 [1.0002, 1.0642]
+and 0.9967 [0.9832, 1.0111], 1.0162 [0.9966, 1.1685] and 1.0112 [0.9827, 1.0313].
+Guarded arm: 1.0116 [0.9997, 1.2161] and 1.0599 [0.8390, 1.2009] at N=200, 1.0322
+[1.0144, 1.2498] and 1.0028 [0.9558, 1.0398] at N=800; pass two 1.0237 [0.9936,
+1.1390] and 1.0032 [0.9776, 1.0466], 1.0281 [1.0039, 1.2639] and 0.9992 [0.9740,
+1.0313]. Reported in full, including the four that miss the 2 percent bound,
+rather than quoting the median null.
+
+PROVENANCE: arms armA (HEAD 0e73bb1ed plus the guard) and armB (HEAD 0e73bb1ed
+unmodified), snapshotted from ONE tree read by scripts/make_python_arms.py,
+sharing ONE .so, 46 diff lines confined to __init__.py, arms discriminated
+behaviourally before timing by the per-view `install` count (21 vs 7). Driver
+certify_shwst.py under each arm by PYTHONPATH, four processes total. python
+3.13.7, live networkx 3.6.1, host thinkstation1. The guard itself was landed by a
+peer as 17f7e18e9 directly from my working tree; this row is its measurement and
+its test repair, and the code in HEAD is byte-identical to what was measured.
+
+bench_elf_sha256=4d65542f9058ae02de4dbf1ea74ae3165e0c162cf9d233fe6958d0fa7b29d6d0
+elf_sha256=4d65542f9058ae02de4dbf1ea74ae3165e0c162cf9d233fe6958d0fa7b29d6d0
+comparison_class=SELF-SPEEDUP
+campaign_output=false
+decision_gate=median_ci
+cv_role=report_only
+
