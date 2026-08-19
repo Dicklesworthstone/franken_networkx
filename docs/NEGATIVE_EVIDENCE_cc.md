@@ -24469,3 +24469,76 @@ weight cannot be summed by the float accumulator. Only the global bail on an exi
 merge is the defect. So the fix is scoped to whichever of edges_dirty / the index view the
 merge disturbs, and the acceptance test is the row "existing edge, NON-weight attr only",
 which must become OK while "NEW edge with a NON-weight attr" must stay None.
+
+## 2026-08-19 — the weighted-store contaminant was a redundant Python merge in add_edge (br-r37-c1-weightupdate-9rts1)
+
+FIXED, and it was a redundant Python merge, not a store-design problem (GoldenBison, 2026-08-19).
+
+ROOT CAUSE, traced to one branch. `Graph.add_edge` / `DiGraph.add_edge` handled the
+"edge already exists" case in the SHIM:
+
+    merged = dict(self[u][v]); merged.update(attr)
+    raw_add_edge(self, u, v, **merged)
+    self[u][v].update(merged)
+
+Both subscripts HAND OUT the live edge attr dict, and a handout marks the weighted store
+dirty for the life of the graph. Adding a BRAND-NEW edge skipped the branch and went
+straight to the kernel, which is why new edges never contaminated and existing ones always
+did -- that asymmetry is what exposed it. Python frames for one `add_edge`:
+
+    existing edge: ['add_edge', '_graph_getitem_from_adj', ..., '__getitem__', '_atlas', ...]
+    new edge:      ['add_edge']
+
+THE BLOCK WAS REDUNDANT. Verified on Graph AND DiGraph, against networkx, BEFORE deleting:
+  * the kernel MERGES -- RAW(color='red') on an edge holding {weight, tag} yields
+    {weight, tag, color}; it does not replace;
+  * it preserves LIVE-DICT IDENTITY by itself -- a dict the caller already holds is the
+    same object afterwards and observes the update, which is the contract the second
+    subscript looked like it existed to uphold;
+  * every repeat-add shape (overwrite / add a key / overwrite+add / no attrs / attrs onto
+    a bare edge) already matched networkx through the kernel alone.
+The `has_edge` probe went with it: it existed only to select that branch, and it
+canonicalises BOTH endpoints, which at long node keys repeats the kernel's own work.
+
+ACCEPTANCE TEST FROM THE FILING, met exactly: "existing edge, NON-weight attr only" must
+become OK while "NEW edge with a NON-weight attr" must stay None.
+
+    state                                    before   after
+    clean                                        OK      OK
+    existing edge, weight -> FLOAT             None      OK
+    existing edge, NON-weight attr only        None      OK   <- the acceptance row
+    existing edge, empty attr dict               OK      OK
+    NEW edge with a float weight                 OK      OK
+    NEW edge with a NON-weight attr            None    None   <- correctly unchanged
+    G[u][v]['color'] = 'red'                   None    None   <- correctly unchanged
+
+The last two are legitimate and must stay: a new edge with no weight genuinely cannot be
+served by a pure-float accumulator, and `G[u][v][...] =` is a real handout, which belongs
+to br-r37-c1-igdzi.
+
+EFFECT, measured on the pre-fix arm (loadavg 76, so DIRECTIONAL not certified -- the gap
+is 5-6x, far outside anything this window's noise can produce, but no quiet window was
+available and no ratio is banked):
+
+    class     nx us    clean            after one existing-edge update
+    Graph    1036.3    204.9 (5.057x)   1146.0 (0.904x)   5.6x self-regression
+    DiGraph  2102.2    335.6 (6.265x)   1932.4 (1.088x)   5.8x self-regression
+
+DiGraph is affected as badly as Graph, which the original filing did not establish.
+
+TESTS: tests/python/test_repeat_add_edge_keeps_store_clean.py. The regression assertion is
+a FRAME COUNT (does `size(weight=...)` call `to_dict_of_dicts`?), load-independent so it
+means the same thing at loadavg 76 as at 6.
+
+TWO THINGS I GOT WRONG FIRST, recorded because both produced a green test that guarded
+nothing:
+  1. The first helper probed the native accumulators and returned True if ANY of the three
+     answered. It PASSED on the unfixed arm -- vacuous -- because a non-gating accessor
+     masked the gating one.
+  2. Rewritten as a frame count it bites on Graph, but the DiGraph parametrization still
+     passed unfixed: DiGraph's shim calls `_native_weighted_degree_values`
+     unconditionally and never falls back, so its regression is INSIDE the native call and
+     has no Python-side signal. The test is therefore Graph-only, with DiGraph covered by
+     the parity and correctness assertions and its perf half recorded here. Narrowing it
+     was the honest option; leaving it green across both classes would have implied
+     coverage that did not exist.
