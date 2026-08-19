@@ -2,6 +2,15 @@
 
 All notable changes to FrankenNetworkX are documented in this file.
 
+Scope window: project inception on 2026-02-13 through HEAD on 2026-08-19.
+
+## Version Timeline
+
+| Version | Kind | Date | Summary |
+|---------|------|------|---------|
+| Unreleased | commits on `main` | 2026-06-21 → 2026-08-19 | vs-NetworkX native-store/views campaign + 2026-08-19 janitor docs-reorg |
+| [`v0.2.0`](https://github.com/Dicklesworthstone/franken_networkx/releases/tag/v0.2.0) | Release | 2026-06-21 | First tagged GitHub Release |
+
 `v0.2.0` is the first tagged release **and** the only GitHub Release
 ([`v0.2.0`](https://github.com/Dicklesworthstone/franken_networkx/releases/tag/v0.2.0),
 2026-06-21). The historical timeline below is reconstructed from the commit
@@ -23,6 +32,10 @@ Scope: after [`v0.2.0`](https://github.com/Dicklesworthstone/franken_networkx/re
 on 2026-08-19. No later tag or GitHub Release exists. This is a
 vs-NetworkX native-store and views campaign on the already-parity surface,
 still driven by the `br-r37-c1-*` bead cycle. It is not a new public API era.
+
+### Closed workstreams
+
+- `br-r37-c1-*` bead cycle (native-store / views). Tracker: [`.beads/issues.jsonl`](https://github.com/Dicklesworthstone/franken_networkx/blob/main/.beads/issues.jsonl).
 
 ### 2026-08-19 — Repo-janitor docs-reorg
 
