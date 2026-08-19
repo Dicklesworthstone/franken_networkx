@@ -3767,11 +3767,35 @@ struct MultiDiAtlasView {
     graph: Py<PyMultiDiGraph>,
     node: String,
     kind: MultiDiAdjKind,
+    /// br-r37-c1-2ndmw: this row's node POSITION, stamped with the `nodes_seq`
+    /// it was resolved under. Directed twin of `MultiAtlasView::node_pos`.
+    ///
+    /// `node` is the CANONICAL STRING, so answering a membership test from it
+    /// costs an O(node key length) canonicalisation of the probe plus two key
+    /// hashes inside `has_edge`. Capturing the row's position once, where the
+    /// canonical already exists, makes every later probe on the row O(1).
+    ///
+    /// The stamp is load-bearing: node removal RENUMBERS positions, so a stale
+    /// entry would not merely miss, it would name a DIFFERENT node and report
+    /// another edge's presence. Mismatched seq means fall through to the
+    /// string path.
+    node_pos: Option<(u64, usize)>,
 }
 
 impl MultiDiAtlasView {
-    fn new(graph: Py<PyMultiDiGraph>, node: String, kind: MultiDiAdjKind) -> Self {
-        Self { graph, node, kind }
+    /// br-r37-c1-2ndmw: `node_pos` is the row's stamped position, supplied by a
+    /// caller that already holds the graph and the canonical key. `None` means
+    /// "no fast path" and every membership test falls back to the string probe,
+    /// so a caller that cannot cheaply resolve a position simply passes it.
+    /// Mirrors `MultiAtlasView::new_with_pos`, which likewise has no positionless
+    /// constructor — one would silently opt a call site out of the fast path.
+    fn new_with_pos(
+        graph: Py<PyMultiDiGraph>,
+        node: String,
+        kind: MultiDiAdjKind,
+        node_pos: Option<(u64, usize)>,
+    ) -> Self {
+        Self { graph, node, kind, node_pos }
     }
 
     fn endpoint_pair(&self, other: String) -> (String, String) {
@@ -3836,6 +3860,38 @@ impl MultiDiAtlasView {
         // explicit hash in the Python AdjacencyView sitting in front.
         crate::require_hashable_node_key(v)?;
         let g = self.graph.borrow(py);
+        // br-r37-c1-2ndmw: INDEX PATH, the directed twin of
+        // `MultiAtlasView::__contains__`. The string path below canonicalises
+        // `v` and then hashes BOTH endpoint keys inside `has_edge` — three
+        // O(node key length) operations for a question that is O(1) once both
+        // endpoints are positions. This probe is what the Python
+        // `AdjacencyView.__getitem__` runs on EVERY `G[u][v]`, so the whole row
+        // subscript was unbounded in key length while the undirected sibling
+        // was already flat: measured 149.8 ns at K=3 against 1386.0 ns at
+        // K=8000, i.e. essentially pure key length.
+        //
+        // ORIENTATION IS NOT OPTIONAL. `has_edge_by_indices` is source-major,
+        // and this row is the SOURCE for a successor row but the TARGET for a
+        // predecessor row, so the positions swap with `kind`. Handing them over
+        // in row order would answer about the reversed edge — which on a
+        // digraph is a different edge, and on this fixture would silently
+        // report absent. `endpoint_pair` makes the same choice for the string
+        // path and the two must agree.
+        //
+        // Both values are POSITIONS (insertion-order indices), which
+        // `has_edge_by_indices` resolves back to names itself; the stamp guards
+        // the renumbering that a node removal causes.
+        if let Some((seq, row_index)) = self.node_pos
+            && seq == g.nodes_seq
+            && v.is_exact_instance_of::<PyString>()
+            && let Some(other_index) = g.cached_exact_string_node_index(py, v)?
+        {
+            let (source_idx, target_idx) = match self.kind {
+                MultiDiAdjKind::Successors => (row_index, other_index),
+                MultiDiAdjKind::Predecessors => (other_index, row_index),
+            };
+            return Ok(g.inner.has_edge_by_indices(source_idx, target_idx));
+        }
         let v_canon = node_key_to_string(py, v)?;
         let (source, target) = self.endpoint_pair(v_canon);
         Ok(g.inner.has_edge(&source, &target))
@@ -6345,9 +6401,23 @@ impl PyMultiDiGraph {
         if !slf.inner.has_node(&canonical) {
             return Err(crate::missing_key_error(n));
         }
+        // br-r37-c1-2ndmw: resolve this row's POSITION once, here, where the
+        // canonical already exists. The row view is reused for every membership
+        // test on it, so this replaces an O(node key length) canonicalisation
+        // per probe with one lookup. Stamped with `nodes_seq` so a renumbering
+        // invalidates it. Mirrors `_native_multi_row` on the undirected side.
+        let node_pos = slf
+            .inner
+            .get_node_index(&canonical)
+            .map(|index| (slf.nodes_seq, index));
         Py::new(
             py,
-            MultiDiAtlasView::new(Py::from(slf), canonical, MultiDiAdjKind::Successors),
+            MultiDiAtlasView::new_with_pos(
+                Py::from(slf),
+                canonical,
+                MultiDiAdjKind::Successors,
+                node_pos,
+            ),
         )
     }
 
@@ -6400,9 +6470,23 @@ impl PyMultiDiGraph {
         if !slf.inner.has_node(&canonical) {
             return Err(crate::missing_key_error(n));
         }
+        // br-r37-c1-2ndmw: resolve this row's POSITION once, here, where the
+        // canonical already exists. The row view is reused for every membership
+        // test on it, so this replaces an O(node key length) canonicalisation
+        // per probe with one lookup. Stamped with `nodes_seq` so a renumbering
+        // invalidates it. Mirrors `_native_multi_row` on the undirected side.
+        let node_pos = slf
+            .inner
+            .get_node_index(&canonical)
+            .map(|index| (slf.nodes_seq, index));
         Py::new(
             py,
-            MultiDiAtlasView::new(Py::from(slf), canonical, MultiDiAdjKind::Predecessors),
+            MultiDiAtlasView::new_with_pos(
+                Py::from(slf),
+                canonical,
+                MultiDiAdjKind::Predecessors,
+                node_pos,
+            ),
         )
     }
 
@@ -19628,12 +19712,11 @@ def fnx_keyed_attr_edges(mixed):
 
         let graph = Py::new(py, graph)?;
         Ok((
-            MultiDiAtlasView::new(
+            MultiDiAtlasView::new_with_pos(
                 graph.clone_ref(py),
                 "hub".to_owned(),
-                MultiDiAdjKind::Successors,
-            ),
-            MultiDiAtlasView::new(graph, "hub".to_owned(), MultiDiAdjKind::Predecessors),
+                MultiDiAdjKind::Successors, None),
+            MultiDiAtlasView::new_with_pos(graph, "hub".to_owned(), MultiDiAdjKind::Predecessors, None),
         ))
     }
 
@@ -19669,13 +19752,12 @@ def fnx_keyed_attr_edges(mixed):
             let mut graph = PyMultiDiGraph::new_empty_with_policy(py, RuntimePolicy::default())?;
             assert!(graph.inner.add_node("hub".to_owned()));
             let graph = Py::new(py, graph)?;
-            let successors = MultiDiAtlasView::new(
+            let successors = MultiDiAtlasView::new_with_pos(
                 graph.clone_ref(py),
                 "hub".to_owned(),
-                MultiDiAdjKind::Successors,
-            );
+                MultiDiAdjKind::Successors, None);
             let predecessors =
-                MultiDiAtlasView::new(graph, "hub".to_owned(), MultiDiAdjKind::Predecessors);
+                MultiDiAtlasView::new_with_pos(graph, "hub".to_owned(), MultiDiAdjKind::Predecessors, None);
 
             assert_eq!(successors.__len__(py), 0);
             assert_eq!(predecessors.__len__(py), 0);
