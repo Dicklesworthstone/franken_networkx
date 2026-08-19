@@ -820,11 +820,16 @@ def _FailFastEdgeIterator(graph, iterable, *, guard_edge_count=False, nbunch_row
     if nbunch_rows is not None and use_seq_guard:
         try:
             degree_of = graph.degree
-            # ONE crossing for the whole nbunch, not one per node. The per-node
-            # spelling cost ~2x on this call: at nbunch=50 it made 50 PyO3
-            # round-trips before a walk that yields ~50 edges, so the snapshot
-            # dominated the iteration it was guarding.
-            row_sizes = dict(degree_of(list(nbunch_rows)))
+            # PER-NODE, deliberately, even though it is N crossings. The
+            # batched `degree(list)` spelling reads TWO freshness tokens on
+            # MultiGraph where the scalar reads none, which
+            # test_edges_nbunch_freshness_token_budget catches as a regression -
+            # and it bought only ~0.15x of the ~1.7x this snapshot costs. The
+            # real recovery is moving the snapshot into the native iterator
+            # (br-r37-c1-brjpz), where a row size is an array read rather than a
+            # crossing at all; buying a slice of it here for two tokens is the
+            # wrong trade.
+            row_sizes = {node: degree_of(node) for node in nbunch_rows}
         except Exception:  # noqa: BLE001 - an odd graph keeps the coarse guard
             row_sizes = None
         if row_sizes is not None:
