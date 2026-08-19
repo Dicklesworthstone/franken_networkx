@@ -2077,6 +2077,34 @@ impl Graph {
         // from ~9|E| to ~3|E| (the O(|V|+|E|) renumber floor stays; killing
         // it needs stable node ids, see docs/NEGATIVE_EVIDENCE.md).
 
+        // br-r37-c1-qxtlj: the renumber exists because `nodes.shift_remove`
+        // moves every position ABOVE `idx` down by one. When `idx` IS the last
+        // position there is nothing above it, so no index changes anywhere; and
+        // when the node is additionally isolated, no edge references it either.
+        // Both of the O(|V|+|E|) repairs below are then provably no-ops over
+        // their whole input, and the only real work is dropping two trailing
+        // slots.
+        //
+        // This is not a dent in the compact-index wall - a node in the middle
+        // still renumbers, and that floor needs stable ids (see
+        // docs/NEGATIVE_EVIDENCE.md). It is the case the wall did not have to
+        // cover, and it is the common one: a scratch node added and removed
+        // again. Measured before this: removing ONE isolated node from a
+        // 12800-node Graph cost 264.86us against networkx's 0.61us (0.0023x),
+        // and cost the SAME whether the node sat at the first index or the
+        // last - the fast path simply was not there.
+        //
+        // The isolation test reads the integer adjacency row, which is the same
+        // source step 3 below treats as authoritative for incident edges. A
+        // self-loop puts `idx` in its own row, so a looped node is non-empty
+        // here and takes the general path.
+        if idx + 1 == self.nodes.len() && self.adj_indices[idx].is_empty() {
+            self.adj_indices.remove(idx);
+            self.nodes.shift_remove(node);
+            self.revision = self.revision.saturating_add(1);
+            return true;
+        }
+
         // 1. Drop the node's own adjacency-index vec (outer Vec shifts to stay
         //    aligned with `nodes` after the shift_remove below).
         self.adj_indices.remove(idx);

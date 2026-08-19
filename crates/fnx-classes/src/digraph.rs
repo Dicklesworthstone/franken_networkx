@@ -1749,6 +1749,27 @@ impl DiGraph {
             .nodes
             .get_index_of(node)
             .expect("node existence checked above");
+
+        // br-r37-c1-qxtlj: undirected sibling's fast path, same reasoning. The
+        // incident-edge removal above is already O(degree) here, so what is left
+        // to skip is the succ/pred index repair, which walks EVERY row to drop
+        // references to `idx` and decrement the indices that shifted down. When
+        // `idx` is the last position nothing shifts, and when both rows are
+        // empty no row references it, so that repair is a no-op over its whole
+        // input. Measured before this: one isolated node off a 12800-node
+        // DiGraph cost 178.22us against networkx's 0.71us (0.0040x), the same
+        // whether the node sat first or last.
+        if node_idx + 1 == self.nodes.len()
+            && self.succ_indices[node_idx].is_empty()
+            && self.pred_indices[node_idx].is_empty()
+        {
+            self.nodes.shift_remove(node);
+            self.succ_indices.remove(node_idx);
+            self.pred_indices.remove(node_idx);
+            self.revision = self.revision.saturating_add(1);
+            return true;
+        }
+
         let targets: Vec<usize> = self.succ_indices[node_idx].clone();
         for t in targets {
             self.edges.swap_remove(&(node_idx, t));
