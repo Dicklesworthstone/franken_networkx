@@ -1323,9 +1323,26 @@ impl EdgeView {
                 // cache are all exactly as in the all-edges walk - see that
                 // comment for why each is load-bearing.
                 let index_walk: Option<Vec<PyObject>> = if g.adj_py_keys.is_empty() {
+                    // br-r37-c1-lecmc, CORRECTED: the first version of this walk
+                    // built `key_vec` eagerly - a Python object for EVERY NODE IN
+                    // THE GRAPH - and only then filtered to the nbunch. For a
+                    // 50-node request that made a fixed question cost more as the
+                    // graph grew: measured 1.8106x of networkx at 2000 nodes
+                    // decaying to 0.7812x at 16000, i.e. from a win to a loss,
+                    // while networkx stayed flat at ~34us. The all-edges sibling
+                    // above is entitled to the eager vector because it emits every
+                    // node; this branch is not, and I gave it one anyway.
+                    //
+                    // Keys are now built on first use and reused across edges, so
+                    // the cost is one per node actually EMITTED. The walk itself
+                    // stays over `edges_ordered_indices` because that is what
+                    // reproduces networkx's edge ORDER for an nbunch query;
+                    // switching to a per-node adjacency walk would be O(degree)
+                    // but is an ordering change, which is a parity question and
+                    // not this fix.
                     let nodes: Vec<&str> = g.inner.nodes_ordered();
-                    let key_vec: Vec<PyObject> =
-                        nodes.iter().map(|n| g.py_node_key(py, n)).collect();
+                    let mut key_cache: std::collections::HashMap<usize, PyObject> =
+                        std::collections::HashMap::new();
                     let mut built: Vec<PyObject> = Vec::new();
                     for (u, v) in g.inner.edges_ordered_indices() {
                         let left = nodes[u];
@@ -1333,8 +1350,14 @@ impl EdgeView {
                         if !(node_set.contains(left) || node_set.contains(right)) {
                             continue;
                         }
-                        let py_u = key_vec[u].clone_ref(py);
-                        let py_v = key_vec[v].clone_ref(py);
+                        let py_u = key_cache
+                            .entry(u)
+                            .or_insert_with(|| g.py_node_key(py, left))
+                            .clone_ref(py);
+                        let py_v = key_cache
+                            .entry(v)
+                            .or_insert_with(|| g.py_node_key(py, right))
+                            .clone_ref(py);
                         let tuple = match &view_data {
                             NodeViewData::NoData => tuple_object(py, &[py_u, py_v])?,
                             NodeViewData::Attr(attr_name) => {
