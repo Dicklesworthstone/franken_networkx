@@ -7617,6 +7617,24 @@ impl PyMultiDiGraph {
         self.degree_pairs_subset_impl(py, nbunch, DegreeKind::In)
     }
 
+    /// br-r37-c1-brjpz: the TOTAL sibling of the two above, which was the only
+    /// one of the three never exposed. `degree_pairs_subset_impl` already
+    /// handled `DegreeKind::Total` - Graph, DiGraph and MultiGraph all surface
+    /// it as `_native_degree_pairs_subset`, and MultiDiGraph did not, so callers
+    /// on this class alone fell back to a per-node `degree()` loop.
+    ///
+    /// That fallback is the nbunch row-guard snapshot (br-r37-c1-hihrf), which
+    /// needs a pre-mutation size for every row in the nbunch. On MultiGraph the
+    /// raw helper does it in 11.58us against 17.33us for the loop, for zero
+    /// freshness tokens; MultiDiGraph was paying the loop for want of six lines.
+    fn _native_degree_pairs_subset(
+        &self,
+        py: Python<'_>,
+        nbunch: &Bound<'_, PyAny>,
+    ) -> PyResult<Vec<(PyObject, usize)>> {
+        self.degree_pairs_subset_impl(py, nbunch, DegreeKind::Total)
+    }
+
     #[getter]
     fn adj(&self, py: Python<'_>) -> PyResult<Py<PyDict>> {
         self.adjacency(py)
