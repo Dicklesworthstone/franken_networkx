@@ -5,8 +5,8 @@ use fnx_cgse::{
     ReferenceAlgorithm as CgseReferenceAlgorithm, WitnessSink as CgseWitnessSink,
     with_ledger as with_cgse_ledger, witness_collection_enabled as cgse_witness_collection_enabled,
 };
-use fnx_classes::digraph::DiGraph;
-use fnx_classes::{AttrMap, Graph};
+use fnx_classes::digraph::{DiGraph, MultiDiGraph};
+use fnx_classes::{AttrMap, Graph, MultiGraph};
 use fnx_runtime::{CgseValue, RuntimePolicy};
 use mt19937::{MT19937, gen_res53};
 use mwmatching::{Matching as BlossomMatching, SENTINEL as BLOSSOM_SENTINEL};
@@ -10567,6 +10567,89 @@ pub fn digraph_has_negative_edge_weight(digraph: &DiGraph, weight_attr: &str) ->
             && value < 0.0
         {
             return true;
+        }
+    }
+    false
+}
+
+/// br-r37-c1-mgnegscan-8l53h: `MultiGraph` counterpart to
+/// [`graph_has_negative_edge_weight`].
+///
+/// It exists so the dijkstra negative-weight guard stops falling back to a
+/// per-edge PYTHON walk for the multigraph classes: `graph_has_negative_edge_weight`
+/// in the PyO3 layer returned `None` for both multigraph arms, and the shim reads
+/// `None` as "no native scan", so `MultiGraph` and `MultiDiGraph` paid a full Python
+/// pass over every edge on EVERY weighted shortest-path call while the simple classes
+/// were served natively.
+///
+/// PARALLEL EDGES ARE THE POINT. `edges_ordered_borrowed` yields one tuple per
+/// PARALLEL edge (u, v, key, attrs), so a negative weight hiding on the second edge of
+/// a pair is found. A scan that looked at one edge per (u, v) would miss it and let
+/// dijkstra run where networkx delegates — a silent wrong answer, not a slow one.
+///
+/// SEMANTICS ARE MIRRORED, NOT IMPROVED: only FINITE negatives count, exactly as the
+/// simple-class scans do. The Python layer depends on that — it runs a separate `-inf`
+/// sweep afterwards precisely because this scan does not report `-inf`. Reporting it
+/// here would change which graphs get delegated to networkx.
+#[must_use]
+pub fn multigraph_has_negative_edge_weight(graph: &MultiGraph, weight_attr: &str) -> bool {
+    for (left, right, key, attrs) in graph.edges_ordered_borrowed() {
+        let _ = (left, right, key);
+        if let Some(value) = attrs.get(weight_attr).and_then(|v| v.as_f64())
+            && value.is_finite()
+            && value < 0.0
+        {
+            return true;
+        }
+    }
+    false
+}
+
+/// `MultiDiGraph` counterpart to [`multigraph_has_negative_edge_weight`].
+#[must_use]
+pub fn multidigraph_has_negative_edge_weight(digraph: &MultiDiGraph, weight_attr: &str) -> bool {
+    for (source, target, key, attrs) in digraph.edges_ordered_borrowed() {
+        let _ = (source, target, key);
+        if let Some(value) = attrs.get(weight_attr).and_then(|v| v.as_f64())
+            && value.is_finite()
+            && value < 0.0
+        {
+            return true;
+        }
+    }
+    false
+}
+
+/// br-r37-c1-mgnegscan-8l53h: `MultiGraph` counterpart to
+/// [`graph_has_nonfinite_edge_weight`].
+///
+/// Needed alongside the negative scan rather than instead of it: the shim consults
+/// BOTH, and leaving this one returning `None` for multigraphs would keep the Python
+/// `-inf` sweep in place even once the negative scan was native.
+#[must_use]
+pub fn multigraph_has_nonfinite_edge_weight(graph: &MultiGraph, weight_attr: &str) -> bool {
+    for (left, right, key, attrs) in graph.edges_ordered_borrowed() {
+        let _ = (left, right, key);
+        if let Some(raw) = attrs.get(weight_attr) {
+            match raw.as_f64() {
+                Some(v) if v.is_finite() => continue,
+                _ => return true,
+            }
+        }
+    }
+    false
+}
+
+/// `MultiDiGraph` counterpart to [`multigraph_has_nonfinite_edge_weight`].
+#[must_use]
+pub fn multidigraph_has_nonfinite_edge_weight(digraph: &MultiDiGraph, weight_attr: &str) -> bool {
+    for (source, target, key, attrs) in digraph.edges_ordered_borrowed() {
+        let _ = (source, target, key);
+        if let Some(raw) = attrs.get(weight_attr) {
+            match raw.as_f64() {
+                Some(v) if v.is_finite() => continue,
+                _ => return true,
+            }
         }
     }
     false

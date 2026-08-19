@@ -10948,10 +10948,18 @@ def _has_negative_edge_weight_for_dijkstra(G, weight, *, _skip_sync=False):
     # helper for simple Graph/DiGraph (the common dispatcher hot path).
     # The previous Python iteration over G.edges() cost ~50 ms on
     # BA5000 — it dominated dijkstra_path wall time even though the
-    # Rust algorithm itself is faster than nx. The native helper
-    # returns None for multigraphs; fall back to the Python scan in
-    # that case so multi-edge attrs are inspected correctly.
-    if _native_has_negative_edge_weight is not None and not G.is_multigraph():
+    # Rust algorithm itself is faster than nx.
+    #
+    # br-r37-c1-mgnegscan-8l53h: the `not G.is_multigraph()` gate that stood
+    # here is GONE. The native helper used to return None for multigraphs, so
+    # both multigraph classes fell to the Python walk below on EVERY weighted
+    # shortest-path call — 1635 and 1236 Python frames for one guard call on a
+    # 400-edge graph, against 4 for the simple classes. Both multigraph arms
+    # are now wired natively and walk PARALLEL edges individually, so the gate
+    # only forced a slow path. `native is None` below still handles anything
+    # the native layer cannot extract, which is what keeps the Python fallback
+    # correct rather than dead.
+    if _native_has_negative_edge_weight is not None:
         try:
             native = _native_has_negative_edge_weight(G, weight)
         except Exception:
@@ -10974,10 +10982,11 @@ def _has_negative_edge_weight_for_dijkstra(G, weight, *, _skip_sync=False):
             # there's no -inf either. Skip the Python -inf sweep
             # entirely. Cuts the gate from ~60 ms to ~15 ms on
             # BA5000-density graphs.
-            if (
-                _native_has_nonfinite_edge_weight is not None
-                and not G.is_multigraph()
-            ):
+            # br-r37-c1-mgnegscan-8l53h: multigraph gate removed here too. The
+            # shim consults BOTH helpers, so leaving this one gated would have
+            # kept the per-edge Python -inf sweep for multigraphs even with the
+            # negative scan native.
+            if _native_has_nonfinite_edge_weight is not None:
                 if not _skip_sync:
                     _sync_rust_edge_attrs(G)
                 try:
@@ -11064,7 +11073,14 @@ def _has_positive_infinity_edge_weight_for_dijkstra(G, weight, *, _skip_sync=Fal
     # into the Rust inner graph first (post-creation
     # ``G[u][v]['weight'] = ...`` mutations don't otherwise reach the
     # native scan; see br-r37-c1-sjf4t for the sync helper rationale).
-    if _native_has_nonfinite_edge_weight is not None and not G.is_multigraph():
+    # br-r37-c1-mgnegscan-8l53h: multigraph gate removed, same as in the
+    # negative-weight guard. This runs on the same weighted shortest-path calls,
+    # so leaving it gated would have kept the per-edge Python walk for both
+    # multigraph classes and left the bead's actual cost in place. The
+    # `_sync_rust_edge_attrs` call stays inside this branch and now applies to
+    # multigraphs too, which is required: a post-creation `G[u][v]['weight'] = x`
+    # does not otherwise reach the native scan.
+    if _native_has_nonfinite_edge_weight is not None:
         if not _skip_sync:
             _sync_rust_edge_attrs(G)
         try:

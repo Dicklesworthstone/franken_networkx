@@ -3545,7 +3545,29 @@ pub fn graph_has_negative_edge_weight(
                 fnx_algorithms::digraph_has_negative_edge_weight(inner, weight_attr)
             }))
         }
-        GraphRef::MultiUndirected { .. } | GraphRef::MultiDirected { .. } => None,
+        // br-r37-c1-mgnegscan-8l53h: the multigraph arms used to return None, and the
+        // Python shim reads None as "no native scan available" and falls back to a
+        // per-edge walk over G.edges(keys=True, data=True). So MultiGraph and
+        // MultiDiGraph paid a full Python pass over every edge on EVERY weighted
+        // shortest-path call, while Graph and DiGraph were served here. Measured on a
+        // 400-edge graph before this: 1635 and 1236 Python frames for one guard call
+        // against 4 for the simple classes.
+        //
+        // The core scans walk PARALLEL edges individually, which is the case a
+        // (u, v)-only scan would get wrong: a negative weight on the second edge of a
+        // pair must still delegate to networkx.
+        GraphRef::MultiUndirected { mg, .. } => {
+            let inner = &mg.inner;
+            Some(py.allow_threads(|| {
+                fnx_algorithms::multigraph_has_negative_edge_weight(inner, weight_attr)
+            }))
+        }
+        GraphRef::MultiDirected { mdg, .. } => {
+            let inner = &mdg.inner;
+            Some(py.allow_threads(|| {
+                fnx_algorithms::multidigraph_has_negative_edge_weight(inner, weight_attr)
+            }))
+        }
     };
     Ok(result)
 }
@@ -4408,8 +4430,11 @@ pub fn graph_has_explicit_nonunit_weight_fast(
 /// (br-r37-c1-s0tno) to decide whether to delegate to nx without
 /// paying ~40 ms of Python edge iteration on BA5000.
 ///
-/// Returns ``Ok(None)`` for multigraphs — caller falls back to the
-/// Python scan in that case.
+/// br-r37-c1-mgnegscan-8l53h: multigraphs are served natively too now. This
+/// returned ``Ok(None)`` for them, which the shim reads as "no native scan"
+/// and answers with a per-edge Python walk; both multigraph arms are wired
+/// below. ``Ok(None)`` is still possible for a graph this layer cannot
+/// extract, and the shim's fallback stays for that case.
 #[pyfunction]
 #[pyo3(signature = (g, weight_attr))]
 pub fn graph_has_nonfinite_edge_weight(
@@ -4431,7 +4456,22 @@ pub fn graph_has_nonfinite_edge_weight(
                 fnx_algorithms::digraph_has_nonfinite_edge_weight(inner, weight_attr)
             }))
         }
-        GraphRef::MultiUndirected { .. } | GraphRef::MultiDirected { .. } => None,
+        // br-r37-c1-mgnegscan-8l53h: wired for the same reason as the negative scan
+        // above, and it has to be done in the SAME change. The shim consults both, so
+        // leaving this one returning None would keep the per-edge Python `-inf` sweep
+        // for multigraphs even once the negative scan was native.
+        GraphRef::MultiUndirected { mg, .. } => {
+            let inner = &mg.inner;
+            Some(py.allow_threads(|| {
+                fnx_algorithms::multigraph_has_nonfinite_edge_weight(inner, weight_attr)
+            }))
+        }
+        GraphRef::MultiDirected { mdg, .. } => {
+            let inner = &mdg.inner;
+            Some(py.allow_threads(|| {
+                fnx_algorithms::multidigraph_has_nonfinite_edge_weight(inner, weight_attr)
+            }))
+        }
     };
     Ok(result)
 }
