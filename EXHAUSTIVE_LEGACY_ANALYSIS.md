@@ -19,10 +19,10 @@ Legacy corpus:
 - Upstream oracle: `networkx/networkx`
 
 Project contracts:
-- `/data/projects/franken_networkx/COMPREHENSIVE_SPEC_FOR_FRANKENNETWORKX_V1.md`
+- `/data/projects/franken_networkx/docs/planning/COMPREHENSIVE_SPEC_FOR_FRANKENNETWORKX_V1.md`
 - `/data/projects/franken_networkx/EXISTING_NETWORKX_STRUCTURE.md`
-- `/data/projects/franken_networkx/PLAN_TO_PORT_NETWORKX_TO_RUST.md`
-- `/data/projects/franken_networkx/PROPOSED_ARCHITECTURE.md`
+- `/data/projects/franken_networkx/docs/planning/PLAN_TO_PORT_NETWORKX_TO_RUST.md`
+- `/data/projects/franken_networkx/docs/planning/PROPOSED_ARCHITECTURE.md`
 - `/data/projects/franken_networkx/FEATURE_PARITY.md`
 
 Important specification gap:
@@ -174,7 +174,7 @@ Definition of done for Phase-2:
 ## 11. Residual Gaps and Risks
 
 - sections 14-20 now exist; top release risk is benchmark-budget calibration on representative graph classes.
-- `PROPOSED_ARCHITECTURE.md` crate map formatting contains literal `\n`; normalize before automation.
+- `docs/planning/PROPOSED_ARCHITECTURE.md` crate map formatting contains literal `\n`; normalize before automation.
 - backend and conversion routes need broad fixture breadth to avoid silent compatibility drift.
 
 ## 12. Deep-Pass Hotspot Inventory (Measured)

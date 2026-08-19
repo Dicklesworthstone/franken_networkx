@@ -1699,7 +1699,7 @@ Algorithm calls release the GIL during their inner loops, with the following con
 | [docs/api_ergonomics_audit.md](docs/api_ergonomics_audit.md) | Signature-drift report |
 | [docs/contributing.md](docs/contributing.md) | Development setup |
 | [AGENTS.md](AGENTS.md) | Guide for AI coding agents working in this repo |
-| [COMPREHENSIVE_SPEC_FOR_FRANKENNETWORKX_V1.md](COMPREHENSIVE_SPEC_FOR_FRANKENNETWORKX_V1.md) | V1 specification |
+| [docs/planning/COMPREHENSIVE_SPEC_FOR_FRANKENNETWORKX_V1.md](docs/planning/COMPREHENSIVE_SPEC_FOR_FRANKENNETWORKX_V1.md) | V1 specification |
 | [FEATURE_PARITY.md](FEATURE_PARITY.md) | Family-by-family parity inventory |
 
 ---

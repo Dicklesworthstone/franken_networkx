@@ -200,6 +200,7 @@ storage.sqlite3-wal.corrupt-*
 
 # Slash-skill loop progress output (leaks into the tree; regenerated each run)
 .skill-loop-progress.md
+.skill-loop-progress-*.md
 
 # perf rotated profile snapshot (companion to the already-ignored perf.data)
 perf.data.old
