@@ -64,7 +64,7 @@ fn doc_pass00_gap_matrix_covers_all_headings_and_has_quant_targets() {
     ];
 
     for doc in expected_docs {
-        let headings = heading_paths(&root.join(doc));
+        let headings = heading_paths(&root.join("docs/planning").join(doc));
         let expected = headings.into_iter().collect::<BTreeSet<_>>();
         let observed = sections
             .iter()

@@ -30,7 +30,7 @@ jobs:
         run: |
           set -euo pipefail
           max_commits=50
-          files=(README.md FEATURE_PARITY.md CHANGELOG.md)
+          files=(README.md docs/planning/FEATURE_PARITY.md CHANGELOG.md)
           for file in "${files[@]}"; do
             if [[ ! -f "$file" ]]; then
               echo "::error file=${file}::missing required documentation file"

@@ -17,6 +17,7 @@ TARGET_DOCS = [
     "EXHAUSTIVE_LEGACY_ANALYSIS.md",
     "EXISTING_NETWORKX_STRUCTURE.md",
 ]
+PLANNING_DIR = "docs/planning"
 
 TOPIC_KEYWORDS = {
     "legacy_anchor_specificity": ["legacy", "anchor", "path", "module", "symbol"],
@@ -155,7 +156,7 @@ def build_gap_matrix(repo_root: Path) -> dict[str, Any]:
     all_sections: list[dict[str, Any]] = []
 
     for rel_path in TARGET_DOCS:
-        path = repo_root / rel_path
+        path = repo_root / PLANNING_DIR / rel_path
         for section in extract_sections(path):
             words = section_word_count(section.content)
             lines = max(0, section.end_line - section.start_line)
@@ -213,7 +214,7 @@ def build_gap_matrix(repo_root: Path) -> dict[str, Any]:
         "target_docs": [
             {
                 "path": rel_path,
-                "source_hash": doc_sha256(repo_root / rel_path),
+                "source_hash": doc_sha256(repo_root / PLANNING_DIR / rel_path),
             }
             for rel_path in TARGET_DOCS
         ],

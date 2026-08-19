@@ -111,7 +111,7 @@ Run this audit once per quarter or after major CGSE policy changes:
 2. **Durability**: regenerate/scrub/decode RaptorQ sidecars for conformance + perf artifacts.
 3. **Security hygiene**: UBS scan (fail-on-warning) and threat-model updates for high-risk parsers.
 4. **Performance**: re-run `scripts/run_benchmark_gate.sh` and archive to `artifacts/perf/history/`.
-5. **Documentation**: ensure `README.md` and `FEATURE_PARITY.md` match the latest surface.
+5. **Documentation**: ensure `README.md` and `docs/planning/FEATURE_PARITY.md` match the latest surface.
 
 Record the audit run date and summary in the beads tracker.
 

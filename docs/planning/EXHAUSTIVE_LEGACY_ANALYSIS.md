@@ -20,10 +20,10 @@ Legacy corpus:
 
 Project contracts:
 - `/data/projects/franken_networkx/docs/planning/COMPREHENSIVE_SPEC_FOR_FRANKENNETWORKX_V1.md`
-- `/data/projects/franken_networkx/EXISTING_NETWORKX_STRUCTURE.md`
+- `/data/projects/franken_networkx/docs/planning/EXISTING_NETWORKX_STRUCTURE.md`
 - `/data/projects/franken_networkx/docs/planning/PLAN_TO_PORT_NETWORKX_TO_RUST.md`
 - `/data/projects/franken_networkx/docs/planning/PROPOSED_ARCHITECTURE.md`
-- `/data/projects/franken_networkx/FEATURE_PARITY.md`
+- `/data/projects/franken_networkx/docs/planning/FEATURE_PARITY.md`
 
 Important specification gap:
 - the comprehensive spec currently defines sections `0-13` then jumps to `21`; missing sections for crate contracts/conformance matrix/threat matrix/perf budgets/CI/RaptorQ envelope must be backfilled.

@@ -889,7 +889,7 @@ CI is structured as a strict, sequential gate topology in [`.github/workflows/ci
 
 | Gate | Job | Purpose |
 |---|---|---|
-| **G0** | docs freshness | `README.md`, `FEATURE_PARITY.md`, `CHANGELOG.md` may not lag HEAD by more than 50 commits. |
+| **G0** | docs freshness | `README.md`, `docs/planning/FEATURE_PARITY.md`, `CHANGELOG.md` may not lag HEAD by more than 50 commits. |
 | **G1** | fmt | `cargo fmt --all -- --check` on nightly. |
 | **G2** | clippy | `cargo clippy --workspace --all-targets -- -D warnings` on Ubuntu + macOS + Windows. |
 | **G3** | rust tests | `cargo test --workspace` on Ubuntu + macOS + Windows. |
@@ -1700,7 +1700,7 @@ Algorithm calls release the GIL during their inner loops, with the following con
 | [docs/contributing.md](docs/contributing.md) | Development setup |
 | [AGENTS.md](AGENTS.md) | Guide for AI coding agents working in this repo |
 | [docs/planning/COMPREHENSIVE_SPEC_FOR_FRANKENNETWORKX_V1.md](docs/planning/COMPREHENSIVE_SPEC_FOR_FRANKENNETWORKX_V1.md) | V1 specification |
-| [FEATURE_PARITY.md](FEATURE_PARITY.md) | Family-by-family parity inventory |
+| [docs/planning/FEATURE_PARITY.md](docs/planning/FEATURE_PARITY.md) | Family-by-family parity inventory |
 
 ---
 
@@ -2414,7 +2414,7 @@ Check `docs/upstream_divergence_ledger.md` for the canonical list.
 
 ### "My CI is failing G0 (docs freshness)"
 
-This gate fires if `README.md`, `FEATURE_PARITY.md`, or `CHANGELOG.md` hasn't been touched in 50+ commits. Touch the file in the same PR that introduces a substantive change, or batch a `chore(docs):` commit before merging.
+This gate fires if `README.md`, `docs/planning/FEATURE_PARITY.md`, or `CHANGELOG.md` hasn't been touched in 50+ commits. Touch the file in the same PR that introduces a substantive change, or batch a `chore(docs):` commit before merging.
 
 ---
 

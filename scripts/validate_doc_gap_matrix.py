@@ -13,6 +13,7 @@ TARGET_DOCS = [
     "EXHAUSTIVE_LEGACY_ANALYSIS.md",
     "EXISTING_NETWORKX_STRUCTURE.md",
 ]
+PLANNING_DIR = Path("docs/planning")
 
 
 def load_json(path: Path) -> dict[str, Any]:
@@ -100,7 +101,7 @@ def main() -> int:
             section_rows_by_doc.setdefault(doc, []).append(row)
 
     for doc in TARGET_DOCS:
-        headings = extract_heading_paths(Path(doc))
+        headings = extract_heading_paths(PLANNING_DIR / doc)
         expected = {(path, line) for path, line in headings}
         observed = set()
         for row in section_rows_by_doc.get(doc, []):
