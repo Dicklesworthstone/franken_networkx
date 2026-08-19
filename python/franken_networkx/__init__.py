@@ -2162,6 +2162,28 @@ class AtlasView(_Mapping):
     _fnx_live_keydict = None
     _fnx_kd_cache = None
     _fnx_edge_fast = None
+    # br-r37-c1-2ndmw: the multigraph CELL's resolved atlas — the native
+    # `MultiKeyDictView` for one (u, v) pair — memoised on first use.
+    #
+    # `_atlas_getter` on a cell is `lambda: row._atlas()[v]`, so it RE-RESOLVED
+    # the pair through the native row on every single operation, and that
+    # resolution is O(node key length) twice over (it canonicalises `v`, hashes
+    # both endpoint keys inside `has_edge`, and clones the row key into the new
+    # view). Measured on a warm cell, `G[u][v][k]`:
+    #
+    #     K=3     fnx 769.6 ns   nx  71.0 ns   0.093x   of which _atlas()  423.4
+    #     K=2000  fnx 3300.1 ns  nx  51.3 ns   0.018x   of which _atlas() 2933.0
+    #
+    # so at long keys 89 percent of an edge-attribute read was re-deriving a
+    # handle it already had. The `MultiKeyDictView` reads THROUGH to the graph
+    # on every call — key add/remove and attribute writes are all visible
+    # through a held one — so memoising the handle changes no answer while the
+    # pair exists, and where it does change one it moves TOWARD networkx: see
+    # `_atlas` below.
+    #
+    # Class default, not a constructor store, because the cell is constructed
+    # per subscript (see the note above); non-cell views store it per instance.
+    _fnx_captured_atlas = None
 
     def __init__(
         self,
@@ -2213,8 +2235,43 @@ class AtlasView(_Mapping):
             self._fnx_live_keydict = None
             self._fnx_kd_cache = None
             self._fnx_edge_fast = None
+            # NOT `_fnx_captured_atlas`: only a cell ever reads it, and `_atlas`
+            # checks `_fnx_multi_edge_owner` before it, so a non-cell view never
+            # touches the attribute at all and does not need the store.
 
     def _atlas(self):
+        # br-r37-c1-2ndmw: serve the memoised cell atlas. Only a multigraph cell
+        # ever fills this, and only after its first resolution, so a view whose
+        # getter genuinely re-evaluates keeps re-evaluating.
+        #
+        # AND IT IS A PARITY FIX, not only a cost one. When the LAST parallel
+        # edge of a pair is removed, networkx's `G[u][v]` keeps serving the
+        # keydict object it captured — empty — because an `AtlasView` in
+        # networkx holds the dict itself:
+        #
+        #     nx   after removing every key:  sorted(cell) == []   cell[0] -> KeyError(0)
+        #     fnx  before this change:        sorted(cell) -> KeyError('b')
+        #
+        # fnx re-resolved the pair, found it gone, and raised the ROW's KeyError
+        # from an operation on a cell the caller already holds. Holding the
+        # native view instead reproduces networkx exactly, including the key in
+        # the error. The re-add case still diverges (networkx shows the stale
+        # empty dict where fnx shows the new keys), and it diverged identically
+        # before this change — it is not introduced here.
+        # THE MULTI CHECK COMES FIRST, and the order is measured, not stylistic.
+        # `_atlas()` is shared by every AtlasView in the module, so a memo probe
+        # ahead of it charges two extra attribute reads to views that can never
+        # fill it. Reading `_fnx_captured_atlas` first cost the `DiGraph G[u][v]`
+        # control 0.5149x -> 0.4702x, a disjoint 9 percent on a row this lever
+        # does not touch. Gating on `_fnx_multi_edge_owner` — already an
+        # instance attribute every other method on this class reads — leaves the
+        # non-cell path at ONE extra read and no extra store.
+        if self._fnx_multi_edge_owner is not None:
+            atlas = self._fnx_captured_atlas
+            if atlas is None:
+                atlas = self._atlas_getter()
+                self._fnx_captured_atlas = atlas
+            return atlas
         return self._atlas_getter()
 
     def _multi_edge_keydict(self, *, materialize):
@@ -10064,6 +10121,10 @@ def _detach_row(row):
         # detach that rebound only the getter would leave membership reading the
         # live row it was meant to cut loose from.
         row._fnx_captured_row = snapshot
+        # br-r37-c1-2ndmw: same reason one level down. `_atlas()` consults the
+        # memoised cell atlas BEFORE the getter, so a detach that rebound only
+        # the getter would leave a cell reading the live view it was cut from.
+        row._fnx_captured_atlas = None
         row._fnx_native_iter = None
         row._fnx_native_len = None
         row._fnx_keys_snapshot = None

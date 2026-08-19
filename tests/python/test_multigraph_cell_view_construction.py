@@ -25,8 +25,13 @@ this wrong:
      `_atlas()`, and skips the explicit `hash(node)` on that path — which also
      required wiring `_fnx_captured_row` on the `G[u]` row builders, where
      br-r37-c1-fr4me had wired it only on `G.adj[u]`.
+  4. `AtlasView._atlas` memoises the multigraph CELL's resolved native
+     `MultiKeyDictView`. The getter was `lambda: row._atlas()[v]`, so every
+     operation on a held cell re-resolved the pair — 423.4 ns of a 769.6 ns
+     `cell[k]` at K=3 and 2933.0 ns of 3300.1 ns at K=2000, against networkx's
+     71.0 ns and 48.4 ns. That one is also a PARITY FIX; see below.
 
-THE THREE NEGATIVE CASES, one per change:
+THE FOUR NEGATIVE CASES, one per change:
 
   * A class default is SHARED. If a later cache fill ever assigned to the class
     instead of the instance, one row's warm keydict would be served to every
@@ -46,6 +51,15 @@ THE THREE NEGATIVE CASES, one per change:
     networkx returns a FRESH mapping from a multigraph `G[u][v]` on every call,
     so `row[v] is row[v]` is False there; caching would be a parity break that
     looks like a much bigger win.
+  * Memoising the cell's atlas is only safe because a `MultiKeyDictView` reads
+    THROUGH to the graph — key add/remove and attribute writes are all visible
+    through a held one. A memo of a MATERIALISED mapping would pass every
+    single-shot test and go stale on the first mutation, so
+    `test_memoised_cell_atlas_stays_live` mutates in three ways after the memo
+    is filled. And where the memo does change an answer it moves TOWARD
+    networkx: after the last parallel edge of a pair is removed, networkx keeps
+    serving the (now empty) keydict while fnx used to raise the ROW's KeyError
+    from the cell. That is asserted against networkx's own exception args.
 
 These are read-path contracts, not timings — nothing here asserts a duration.
 """
@@ -373,3 +387,138 @@ def test_row_subscript_values_match_networkx(cls_name):
         assert key in cell_fnx
         assert dict(cell_fnx[key]) == dict(cell_nx[key]) if graph_nx.is_multigraph() else True
     assert ("absent" in cell_fnx) == ("absent" in cell_nx)
+
+
+# ---------------------------------------------------------------------------
+# 7. the memoised cell atlas (br-r37-c1-2ndmw, second lever)
+# ---------------------------------------------------------------------------
+@pytest.mark.parametrize("cls_name", MULTI_CLASSES)
+def test_cell_after_all_parallel_edges_removed_matches_networkx(cls_name):
+    """A PARITY FIX, and the reason the memo is more than a cost change.
+
+    networkx's `G[u][v]` wraps the keydict OBJECT, so when the last parallel
+    edge of the pair goes away the held cell keeps serving that dict — now
+    empty — and `cell[0]` raises `KeyError(0)`. fnx used to re-resolve the pair
+    through the native row on every operation, find it gone, and raise the ROW's
+    `KeyError('vvv')` from an operation on a cell the caller already held:
+
+        nx   sorted(cell) == []          cell[0] -> KeyError(0)
+        fnx  sorted(cell) -> KeyError('vvv')
+
+    Memoising the resolved native view reproduces networkx exactly, key included.
+
+    THE FIX IS CONDITIONAL ON THE CELL HAVING BEEN READ, and that is asserted
+    deliberately by the `sorted()` below rather than left implicit: the memo
+    fills on the FIRST resolution, so a cell that is constructed and never
+    touched before the pair vanishes has nothing to serve and still raises the
+    row's KeyError. Resolving eagerly at construction would make it
+    unconditional and would also put the 700-2900 ns resolution back on every
+    `G[u][v]`, which is the cost this bead just removed. The residual is pinned
+    by `test_untouched_cell_after_removal_still_diverges_from_networkx`.
+    """
+    graph_nx, graph_fnx, u, v = _pair(cls_name)
+    cell_nx, cell_fnx = graph_nx[u][v], graph_fnx[u][v]
+
+    keys = sorted(cell_nx)
+    assert sorted(cell_fnx) == keys  # <- the read that fills the memo
+    for key in keys:
+        graph_nx.remove_edge(u, v, key)
+        graph_fnx.remove_edge(u, v, key)
+
+    assert sorted(cell_fnx) == sorted(cell_nx) == []
+    assert len(cell_fnx) == len(cell_nx) == 0
+
+    with pytest.raises(KeyError) as nx_exc:
+        cell_nx[0]
+    with pytest.raises(KeyError) as fnx_exc:
+        cell_fnx[0]
+    assert fnx_exc.value.args == nx_exc.value.args
+
+
+@pytest.mark.parametrize("cls_name", MULTI_CLASSES)
+def test_memoised_cell_atlas_stays_live(cls_name):
+    """The memo holds a LIVE native view, not a snapshot.
+
+    `MultiKeyDictView` reads through to the graph on every call, which is the
+    whole reason the handle is safe to keep. If a future change ever memoised a
+    materialised dict instead, every one of these would go stale.
+    """
+    graph_nx, graph_fnx, u, v = _pair(cls_name)
+    cell_nx, cell_fnx = graph_nx[u][v], graph_fnx[u][v]
+
+    for graph in (graph_nx, graph_fnx):
+        graph.add_edge(u, v, weight=3)
+    assert sorted(cell_fnx) == sorted(cell_nx)
+
+    first = sorted(cell_nx)[0]
+    for graph in (graph_nx, graph_fnx):
+        graph.remove_edge(u, v, first)
+    assert sorted(cell_fnx) == sorted(cell_nx)
+
+    live = sorted(cell_nx)[0]
+    cell_nx[live]["weight"] = 41
+    cell_fnx[live]["weight"] = 41
+    assert dict(cell_fnx[live]) == dict(cell_nx[live])
+    assert graph_fnx.get_edge_data(u, v, live)["weight"] == 41
+
+
+def test_non_cell_views_do_not_memoise_their_atlas():
+    """Only a multigraph cell memoises; a genuinely varying getter must not.
+
+    `_atlas()` is shared by every AtlasView in the module, and most of them have
+    getters that re-evaluate on purpose. Memoising one of those would freeze a
+    view that is supposed to track its source.
+    """
+    box = [{"a": {}}]
+    view = fnx.AtlasView(lambda: box[0])
+    assert sorted(view) == ["a"]
+    box[0] = {"b": {}}
+    assert sorted(view) == ["b"], "a non-cell AtlasView froze its atlas"
+    assert view._fnx_captured_atlas is None
+
+
+@pytest.mark.parametrize("cls_name", MULTI_CLASSES)
+def test_detach_clears_the_memoised_cell_atlas(cls_name):
+    """`_detach_row` rebinds the getter; the memo is consulted BEFORE it.
+
+    A detach that left a stale memo behind would leave the row reading the live
+    graph it was explicitly cut loose from, which is the same trap
+    br-r37-c1-fr4me hit one level up with `_fnx_captured_row`.
+    """
+    _graph_nx, graph_fnx, u, v = _pair(cls_name)
+    row = graph_fnx.adj[u]
+    before = dict(row[v])
+    assert before
+
+    graph_fnx.clear()
+
+    assert dict(row[v]) == before
+    assert row._fnx_captured_atlas is None
+
+
+@pytest.mark.parametrize("cls_name", MULTI_CLASSES)
+def test_untouched_cell_after_removal_still_diverges_from_networkx(cls_name):
+    """The RESIDUAL, pinned so it is a known quantity and not a surprise.
+
+    The memo fills on first resolution, so a cell built and never read before
+    its pair is removed has no handle to serve and falls back to re-resolving —
+    which raises the ROW's KeyError where networkx serves an empty mapping. This
+    asserts the divergence rather than hiding it; whoever makes the fix
+    unconditional should delete this test, and if they do it by resolving
+    eagerly at construction they need a fresh measurement of `G[u][v]` first.
+    """
+    graph_nx, graph_fnx, u, v = _pair(cls_name)
+    cell_nx, cell_fnx = graph_nx[u][v], graph_fnx[u][v]  # never read
+
+    for key in sorted(graph_nx.get_edge_data(u, v)):
+        graph_nx.remove_edge(u, v, key)
+        graph_fnx.remove_edge(u, v, key)
+
+    assert sorted(cell_nx) == []
+    with pytest.raises(KeyError) as exc:
+        sorted(cell_fnx)
+    assert exc.value.args == (v,), (
+        "the untouched-cell residual changed shape — if it is now fixed, delete "
+        "this test and the caveat it pins in "
+        "test_cell_after_all_parallel_edges_removed_matches_networkx"
+    )

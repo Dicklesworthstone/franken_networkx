@@ -24818,3 +24818,112 @@ against a networkx dict probe, the per-call lambda closure at ~53 ns, and the re
 positional constructor. Routing the multigraph row onto a native class with a C getitem
 slot, the treatment simple Graph already has, is still the structural lever; this one just
 established that half the gap was never in the lookup at all.
+
+## 2026-08-19 — the multigraph cell re-derived a handle it already had: held-cell G[u][v][key] 1.3-1.5x, and a parity fix (br-r37-c1-2ndmw)
+
+DONE (EmeraldMeadow, 2026-08-19). Second Python-shim lever on this bead; identical ELF on
+both arms again.
+
+THE FIRST LEVER MADE THE CELL CHEAP TO BUILD. This one is about what the build hands back.
+A multigraph cell is a Python AtlasView whose getter is `lambda: row._atlas()[v]`, so EVERY
+operation on a cell the caller already holds re-resolved the pair through the native row --
+canonicalising v with format!, hashing both endpoint keys inside has_edge, and cloning the
+row key into a fresh MultiKeyDictView. Decomposed on a warm cell:
+
+    K=3     fnx 769.6 ns   nx  71.0 ns   0.093x   of which _atlas()  423.4  (55 pct)
+    K=2000  fnx 3300.1 ns  nx  48.4 ns   0.018x   of which _atlas() 2933.0  (89 pct)
+
+At 2000-character keys, 89 percent of an edge-attribute read was re-deriving a handle the
+view was already holding. MultiKeyDictView reads THROUGH to the graph on every call, so
+memoising it changes no answer while the pair exists.
+
+BANKED ROWS, vs NetworkX 3.6.1 live in the same invocation, ratio t_networkx / t_fnx.
+Two runs per arm, order prev/after/after/prev:
+
+    row                                   prev             after            move
+    MultiGraph   held cell[key] len=3     0.2348 0.2438     0.3504 0.3823    1.53x disjoint
+    MultiGraph   held cell[key] len=2000  0.1231 0.1245     0.1561 0.1781    1.35x disjoint
+    MultiDiGraph held cell[key] len=3     0.2409 0.2345     0.3764 0.3558    1.54x disjoint
+    MultiDiGraph held cell[key] len=2000  0.1009 0.1056     0.1400 0.1306    1.31x disjoint
+    ONESHOT MG   G[u][v][key] len=2000    0.2087 0.2099     0.2001 0.2066    0.97x
+    ONESHOT MDG  G[u][v][key] len=2000    0.1894 0.1872     0.1682 0.1731    0.91x
+    MG   held cell iter len=2000          0.3701 0.3585     0.3370 0.3479    0.94x
+    MDG  held cell iter len=2000          0.3795 0.3504     0.3542 0.3328    0.94x
+    CONTROL MG   G[u][v] len=2000         0.4888 0.4990     0.4851 0.4935    0.99x
+    CONTROL MDG  G[u][v] len=2000         0.4202 0.4448     0.4085 0.4255    0.97x
+    CONTROL DiGraph G[u][v] len=3         0.4830 0.5220     0.5101 0.5099    1.02x
+    CONTROL DiGraph G[u][v] len=2000      0.4811 0.5212     0.4987 0.5072    1.00x
+    CONTROL MG   has_edge len=2000        0.7148 0.7345     0.6341 0.6818    0.91x
+
+The control band in this window is -9 pct to +2 pct, wider than the row-subscript run
+earlier today; the subjects are +31 to +54 pct and disjoint on all four. Corrected by the
+worst control the range is 1.44-1.69x and by the best 1.28-1.51x, so the honest statement is
+roughly 1.3-1.5x on held-cell key access. Every null failed on both arms again (0.92-1.74),
+the same common-mode ramp recorded earlier on this bead.
+
+TWO PREDICTIONS WERE MADE BEFORE THE RUN AND BOTH HELD, which is why the four subject rows
+are believable at all:
+  1. The ONESHOT rows CANNOT benefit -- a fresh cell has nothing memoised -- and they did
+     not move (0.91-0.97x, inside the control band).
+  2. The held-cell ITERATION rows cannot benefit either, because br-r37-c1-spg9n already
+     caches that keydict against a (nodes_seq, edges_seq) token and never reaches _atlas()
+     when warm. They did not move (0.94x, inside the control band).
+A run where either had moved with the subject would have been measuring call overhead.
+
+IT IS ALSO A PARITY FIX, and that half needs no benchmark. networkx's G[u][v] wraps the
+keydict OBJECT, so when the last parallel edge of a pair is removed the held cell keeps
+serving it -- now empty. fnx re-resolved, found the pair gone, and raised the ROW's KeyError
+from a cell the caller already held:
+
+    after removing every key of the pair       nx                fnx before        fnx after
+    sorted(cell)                               []                KeyError('vvv')   []
+    cell[0]                                    KeyError(0)       KeyError('vvv')   KeyError(0)
+
+CONDITIONAL, AND THE CONDITION IS RECORDED RATHER THAN GLOSSED: the memo fills on first
+resolution, so a cell built and never read before its pair vanishes still diverges. Making
+it unconditional means resolving eagerly at construction, which puts 700-2900 ns back on
+every G[u][v] -- the cost this bead just removed. The residual is pinned by
+test_untouched_cell_after_removal_still_diverges_from_networkx so it is a known quantity.
+
+REJECTED SUB-LEVER, caught by its own control and fixed before landing. The memo probe was
+first written at the TOP of AtlasView._atlas, ahead of the multi check. _atlas is shared by
+every AtlasView in the module, so that charged two extra attribute reads to views that can
+never fill it, and the DiGraph G[u][v] control went 0.5057/0.5195 -> 0.4987/0.4816 and
+0.5149 -> 0.4702 -- a disjoint 9 percent loss on a row the lever does not touch. Gating on
+_fnx_multi_edge_owner first (already an instance attribute every other method reads) and
+dropping the non-cell constructor store restored it to 1.00x and 1.02x, overlapping, with
+the subject rows unchanged. SECOND TIME TODAY that a shared read path punished a
+construction-side saving on this same class; the general rule is that a probe placed ahead
+of a type check is paid by every shape, not just the one it was written for.
+
+PROVENANCE. scripts/balanced_square_ab.py workload multigraph-cell-subscript (added in this
+commit), full nineteen-row set, ABBAABBA, 41 rounds, 400 reps per slot, taskset -c 40-47,
+PYTHONHASHSEED=0, LOCAL:thinkstation1. Four runs 12:13-12:14 EDT, arms alternated
+prev/after/after/prev, loadavg 24.6-26.7 one-minute against 21.0-21.4 five-minute and
+19.9-20.1 fifteen-minute, iowait 0. Per-arm clocks 3944-4212 MHz, arm skew 0.00-0.27 pct,
+cross-core spread 1.2-24.5 pct. ELF b0fac72e9d965ffd on BOTH arms, verified in-process by
+--expect-elf on all four runs; the arms are symlink trees differing only in __init__.py, so
+there is no binary codegen floor on this row either.
+
+BUILD SLOT: acquire_build_slot was attempted three times this session and refused every time
+with "Build slots are disabled. Enable WORKTREES_ENABLED". Recording it because the standing
+orders require taking the slot before a timed run and it cannot be taken in this deployment;
+the mitigation used instead was one measurement process at a time pinned to cpus 40-47, with
+per-arm clock and loadavg on every row.
+
+CORRECTNESS GATE RAN IN A SHADOW TREE, because a peer's uncommitted digraph.rs is newer than
+the shared .so and conftest's stale-extension guard blocks ALL in-tree pytest. The shadow
+tree is a copy of tests/python plus symlinks; with crates/ absent the guard returns early.
+62584 passed, 14 failed, and all 14 are packaging/docs/ledger-gate tests that read repo
+paths which do not exist in a shadow tree -- verified identical on the arm before this lever.
+TWO SHADOW-TREE TRAPS worth recording for whoever copies this: without PYTHONPATH the
+ego-graph parity test's CHILD process imports site-packages instead of the tree (22 of 24
+false order divergences at PYTHONHASHSEED=0), and test_shortest_path needs a
+legacy_networkx_code symlink. Both looked exactly like real regressions.
+
+WHAT IS LEFT, split out as br-r37-c1-6r00i because it needs a Rust build:
+MultiKeyDictView.__getitem__ is still 1905-2771 ns at K=2000 against networkx's ~48 ns, and
+it grows with node-key length while networkx is flat. PyGraph::edge_key clones BOTH node
+keys into a (String, String, usize) tuple on every call and edge_py_attrs is a std HashMap
+probed TWICE (contains_key then get) -- roughly three SipHash passes over 4 KB plus two
+allocations per edge-attribute read, on a hit where the entry already exists.

@@ -1490,6 +1490,96 @@ def workload_undirected_nbunch(reps: int):
     return build, ops
 
 
+def workload_multigraph_cell_subscript(reps: int):
+    """`G[u][v][key]` on a HELD multigraph cell (br-r37-c1-2ndmw, second lever).
+
+    br-r37-c1-2ndmw's first lever made `G[u][v]` cheaper to CONSTRUCT. This one
+    is about what the construction hands back. A multigraph cell is a Python
+    `AtlasView` whose getter is `lambda: row._atlas()[v]`, so every operation on
+    a cell the caller already holds RE-RESOLVED the pair through the native row
+    -- canonicalising `v`, hashing both endpoint keys inside `has_edge`, and
+    cloning the row key into a fresh `MultiKeyDictView`. Decomposed on a warm
+    cell before the lever:
+
+        K=3     fnx 769.6 ns   nx  71.0 ns   0.093x   of which _atlas()  423.4
+        K=2000  fnx 3300.1 ns  nx  48.4 ns   0.018x   of which _atlas() 2933.0
+
+    so at long keys 89 percent of an edge-attribute read was re-deriving a
+    handle the view already had.
+
+    THE CONTROLS. `G[u][v]` (no key) is the SIBLING control: it is the row
+    subscript the first lever moved and this one must not disturb, and it does
+    not resolve the cell atlas at all. `DiGraph G[u][v]` is the NON-MULTI
+    control -- it shares `AtlasView._atlas`, which now carries one extra
+    attribute read, so it is where a general regression would show. `has_edge`
+    is the flat control: same endpoints, no view built. K=3 is the SHORT-KEY
+    control on every subject row, because the mechanism removed is O(node key
+    length); a change that moved K=3 by the same factor as K=2000 would be
+    per-call overhead, not the re-resolution.
+
+    NOTE the subject holds ONE cell for the whole run, which is the read-heavy
+    shape (`d = G[u][v]` then repeated key access, and iteration over a
+    keydict). The one-shot `G[u][v][key]` row is carried alongside because it is
+    the shape that CANNOT benefit -- a fresh cell has nothing memoised -- and a
+    run where the one-shot moves as much as the held cell is measuring
+    something else.
+    """
+    LENGTHS = (3, 2000)
+    PARALLEL = 4
+
+    def build(module):
+        fixture = {}
+        for cls in ("MultiGraph", "MultiDiGraph", "DiGraph"):
+            for length in LENGTHS:
+                u, v = "u" * length, "v" * length
+                graph = getattr(module, cls)()
+                if graph.is_multigraph():
+                    for i in range(PARALLEL):
+                        graph.add_edge(u, v, weight=i)
+                else:
+                    graph.add_edge(u, v, weight=0)
+                # Bulk, so the probed pair is not the only row in the graph.
+                for i in range(200):
+                    graph.add_edge("a" + str(i), "b" + str(i))
+                fixture[(cls, length)] = (graph, u, v)
+        return fixture[("MultiGraph", 3)][0], fixture
+
+    def ops(graph, fixture):
+        table = {}
+        for (cls, length), (g, u, v) in fixture.items():
+            tag = {
+                "MultiGraph": "MultiGraph  ",
+                "MultiDiGraph": "MultiDiGraph",
+                "DiGraph": "DiGraph     ",
+            }[cls]
+            if cls == "DiGraph":
+                # NON-MULTI control: shares AtlasView._atlas, cannot memoise.
+                label = "CONTROL " + tag + " G[u][v] len=" + str(length)
+                table[label] = lambda g=g, u=u, v=v: g[u][v]
+                continue
+            # SUBJECT: one cell held for the whole run, key read repeatedly.
+            cell = g[u][v]
+            table[tag + " held cell[key] len=" + str(length)] = (
+                lambda c=cell: c[0]
+            )
+            table[tag + " held cell iter len=" + str(length)] = (
+                lambda c=cell: list(c)
+            )
+            # Cannot benefit: a fresh cell has nothing memoised.
+            table["ONESHOT " + tag + " G[u][v][key] len=" + str(length)] = (
+                lambda g=g, u=u, v=v: g[u][v][0]
+            )
+            # SIBLING control: the row subscript, which resolves no cell atlas.
+            table["CONTROL " + tag + " G[u][v] len=" + str(length)] = (
+                lambda g=g, u=u, v=v: g[u][v]
+            )
+        long_mg, ul, vl = fixture[("MultiGraph", 2000)]
+        table["CONTROL MG has_edge len=2000"] = lambda: long_mg.has_edge(ul, vl)
+        return table
+
+    return build, ops
+
+
 WORKLOADS = {
     "view-reads": workload_view_reads,
     "undirected-nbunch": workload_undirected_nbunch,
@@ -1507,6 +1597,7 @@ WORKLOADS = {
     "view-reads-multi": workload_view_reads_multi,
     "edge-subscript-binding": workload_edge_subscript_binding,
     "row-subscript-family": workload_row_subscript_family,
+    "multigraph-cell-subscript": workload_multigraph_cell_subscript,
     "algorithms": workload_algorithms,
     "incumbent-fixtures": workload_incumbent_fixtures,
     "incumbent-fixtures-2": workload_incumbent_fixtures_2,
