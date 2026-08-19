@@ -479,6 +479,72 @@ def workload_edge_subscript_binding(reps: int):
     return build, ops
 
 
+def workload_row_subscript_family(reps: int):
+    """`G[u][v]` on all four classes against node-key length (br-r37-c1-2ndmw).
+
+    br-r37-c1-ptiz2 landed a cached row INDEX on the native `_fnx.AtlasView`
+    (3929a9cc7) and took simple `Graph` from 0.1728x to ~0.91x at 2000-character
+    keys. Its siblings did not move. The reason is a class-identity split that a
+    name check cannot see: there are TWO classes called `AtlasView`, and `G[u]`
+    hands back a different one per graph class --
+
+        Graph        -> native _fnx.AtlasView   MRO [AtlasView, object]      C slot
+        DiGraph      -> PYTHON AtlasView        MRO [..., Mapping, ...]      function
+        MultiGraph   -> PYTHON AdjacencyView                                 function
+        MultiDiGraph -> PYTHON AdjacencyView                                 function
+
+    so only Graph reaches the cache. Frames per subscript, counted with
+    sys.setprofile because that is load-independent: Graph 0, DiGraph 1,
+    MultiGraph 4, MultiDiGraph 4, against networkx's 1 / 1 / 2 / 2.
+
+    THE CONTROLS. `Graph` at the same length is the POSITIVE control -- it is
+    already fixed, so it bounds what the others can reach and a run where they
+    match it is the intended outcome, not a suspicious one. `len=3` is the
+    SHORT-KEY control on every row: this defect is driven by re-canonicalising an
+    O(key length) string per subscript, so a change that moved len=3 by the same
+    factor would have altered per-call overhead instead. `has_edge` is the flat
+    control -- same endpoints, no attr dict or keydict built.
+
+    NOTE the multigraph rows return the KEYDICT and the simple rows return the
+    edge attr dict. Those are different objects, which is what networkx returns
+    too; the rows are comparable to their own incumbent arm, not to each other.
+    """
+    LENGTHS = (3, 2000)
+    CLASSES = ("Graph", "DiGraph", "MultiGraph", "MultiDiGraph")
+
+    def build(module):
+        fixture = {}
+        for cls in CLASSES:
+            for length in LENGTHS:
+                u, v = "u" * length, "v" * length
+                graph = getattr(module, cls)()
+                graph.add_edge(u, v, weight=1)
+                # Bulk, so the probed pair is not the only row in the graph.
+                for i in range(200):
+                    graph.add_edge(f"a{i}", f"b{i}")
+                fixture[(cls, length)] = (graph, u, v)
+        return fixture[("Graph", 3)][0], fixture
+
+    def ops(graph, fixture):
+        table = {}
+        for (cls, length), (g, u, v) in fixture.items():
+            tag = {
+                "Graph": "Graph       ",
+                "DiGraph": "DiGraph     ",
+                "MultiGraph": "MultiGraph  ",
+                "MultiDiGraph": "MultiDiGraph",
+            }[cls]
+            label = f"{tag} G[u][v] len={length}"
+            if cls == "Graph":
+                label = f"POSCONTROL {label}"
+            table[label] = lambda g=g, u=u, v=v: g[u][v]
+        long_mg, ul, vl = fixture[("MultiGraph", 2000)]
+        table["CONTROL MG has_edge len=2000"] = lambda: long_mg.has_edge(ul, vl)
+        return table
+
+    return build, ops
+
+
 def workload_algorithms(reps: int):
     """Whole-algorithm rows, for the br-r37-c1-p80x1 conversion queue.
 
@@ -1440,6 +1506,7 @@ WORKLOADS = {
     "view-reads-directed": workload_view_reads_directed,
     "view-reads-multi": workload_view_reads_multi,
     "edge-subscript-binding": workload_edge_subscript_binding,
+    "row-subscript-family": workload_row_subscript_family,
     "algorithms": workload_algorithms,
     "incumbent-fixtures": workload_incumbent_fixtures,
     "incumbent-fixtures-2": workload_incumbent_fixtures_2,
