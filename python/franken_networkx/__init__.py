@@ -820,7 +820,11 @@ def _FailFastEdgeIterator(graph, iterable, *, guard_edge_count=False, nbunch_row
     if nbunch_rows is not None and use_seq_guard:
         try:
             degree_of = graph.degree
-            row_sizes = {node: degree_of(node) for node in nbunch_rows}
+            # ONE crossing for the whole nbunch, not one per node. The per-node
+            # spelling cost ~2x on this call: at nbunch=50 it made 50 PyO3
+            # round-trips before a walk that yields ~50 edges, so the snapshot
+            # dominated the iteration it was guarding.
+            row_sizes = dict(degree_of(list(nbunch_rows)))
         except Exception:  # noqa: BLE001 - an odd graph keeps the coarse guard
             row_sizes = None
         if row_sizes is not None:
@@ -837,20 +841,25 @@ def _FailFastEdgeIterator(graph, iterable, *, guard_edge_count=False, nbunch_row
                 # which is exactly the MultiDiGraph case: out-edges only, so
                 # nbunch[0] contributes one item and the next belongs to
                 # nbunch[1].
-                previous_owner = None
+                previous = None
                 for item in it:
                     if graph.nodes_seq != exp_nodes or (
                         exp_edges is not None and graph.edges_seq != exp_edges
                     ):
-                        if (
-                            previous_owner in row_sizes
-                            and degree_of(previous_owner) != row_sizes[previous_owner]
-                        ):
+                        # Only now is it worth asking WHICH row we are in. Doing
+                        # `item[0]` per element instead cost 2x on this loop -
+                        # the guard runs once per edge, so the untriggered path
+                        # must stay two integer compares and one store.
+                        try:
+                            owner = previous[0]
+                        except (TypeError, IndexError, KeyError):
+                            owner = None
+                        if owner in row_sizes and degree_of(owner) != row_sizes[owner]:
                             raise RuntimeError(_err)
                         exp_nodes = graph.nodes_seq
                         if exp_edges is not None:
                             exp_edges = graph.edges_seq
-                    previous_owner = item[0] if isinstance(item, tuple) and item else None
+                    previous = item
                     yield item
 
             return _gen_rows()
@@ -1033,7 +1042,13 @@ def _guarded_edge_list(result, graph, *, guard_edge_count=False, nbunch_rows=Non
     result._fnx_guard_edge_count = guard_edge_count
     # br-r37-c1-hihrf: the nbunch this view was called with, so iteration can
     # apply networkx's row rule instead of the coarse "anything changed" one.
-    result._fnx_nbunch_rows = nbunch_rows
+    #
+    # MATERIALISED, because callers pass `graph.nbunch_iter(...)`, which is a
+    # one-shot generator. Stored as-is it was consumed by the FIRST iteration and
+    # every later one saw an empty snapshot and silently stopped guarding - the
+    # view kept its rule for one pass and lost it thereafter. A view is iterated
+    # more than once by design, so that is a real hole rather than a slow path.
+    result._fnx_nbunch_rows = None if nbunch_rows is None else tuple(nbunch_rows)
     # br-r37-c1-af0ig: stamp the graph revision this snapshot was taken at, so
     # a later read can tell whether it is still current. The rebuild thunk is
     # attached separately by _live_called_edge_view, which is the only place
@@ -5224,26 +5239,32 @@ def _make_none_rejecting_add_edge(raw_add_edge, is_multigraph=False):
             except TypeError:
                 self.add_node(u_of_edge)
                 raise
-            # br-r37-c1-aenoattr: the has_edge probe exists ONLY to drive the
-            # attribute MERGE below, so with no attributes it is pure waste - and
-            # it is not cheap waste: it canonicalises BOTH endpoints, which at
-            # 2000-character node keys is the same O(key length) work
-            # `raw_add_edge` is about to do again. Bare `G.add_edge(u, v)` was
-            # paying for two full endpoint resolutions to decide between a no-op
-            # and a no-op.
+            # br-r37-c1-weightupdate-9rts1: NO has_edge probe and NO Python-side
+            # merge. What stood here read `self[u][v]` to merge the existing
+            # attributes, called the kernel with the union, then subscripted
+            # AGAIN to update the live dict. Both subscripts HAND OUT the live
+            # edge attr dict, which marks the weighted store dirty for the life
+            # of the graph -- so updating one edge's weight cost every later
+            # `size(weight=...)` / `degree(weight=...)` on the whole graph 5.2x,
+            # permanently, and all-or-nothing (one updated edge cost the same as
+            # 2000). Adding a BRAND-NEW edge never did this, because it took the
+            # kernel path below; that asymmetry is what exposed it.
             #
-            # Verified against networkx before removing it, on Graph and DiGraph:
-            # re-adding an existing edge with NO attributes leaves the datadict
-            # untouched, adds no edge and returns None in both libraries, so
-            # calling `raw_add_edge` unconditionally here is what nx does anyway.
-            # The multigraph branch above never had this probe, because there a
-            # repeat add creates a new parallel edge.
-            if self.has_edge(u_of_edge, v_of_edge):
-                merged_attr = dict(self[u_of_edge][v_of_edge])
-                merged_attr.update(attr)
-                result = raw_add_edge(self, u_of_edge, v_of_edge, **merged_attr)
-                self[u_of_edge][v_of_edge].update(merged_attr)
-                return result
+            # The block was redundant, verified on Graph and DiGraph against
+            # networkx before removing it rather than after:
+            #   * the kernel MERGES - RAW(color='red') on an edge holding
+            #     {weight, tag} yields {weight, tag, color}, it does not replace;
+            #   * it preserves LIVE-DICT IDENTITY on its own - a dict the caller
+            #     already held is the same object afterwards and observes the
+            #     update, which is the contract the second subscript looked like
+            #     it existed to uphold;
+            #   * every repeat-add shape (overwrite, add a key, overwrite+add,
+            #     no attrs) matches networkx through the kernel alone.
+            # Pinned by tests/python/test_repeat_add_edge_keeps_store_clean.py.
+            #
+            # The has_edge probe went with it: it existed only to choose this
+            # branch, and it canonicalises BOTH endpoints, which at long node
+            # keys is the same O(key length) work the kernel does again.
             return raw_add_edge(self, u_of_edge, v_of_edge, **attr)
 
     return add_edge

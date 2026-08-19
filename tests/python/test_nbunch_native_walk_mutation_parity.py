@@ -217,3 +217,37 @@ def test_every_class_raises_when_the_walked_row_changes(class_name):
     assert _iterate_with_mutation(fnx, class_name, "add_edge_to_walked_row") == (
         "RuntimeError",
     )
+
+
+@pytest.mark.parametrize("class_name", CLASSES)
+@pytest.mark.parametrize("iteration", [1, 2, 3])
+def test_the_row_guard_survives_repeated_iteration(class_name, iteration):
+    """A view is iterated more than once; the guard must hold every time.
+
+    br-r37-c1-hihrf: the nbunch was first stored as `graph.nbunch_iter(...)`,
+    a ONE-SHOT generator. The first iteration consumed it and every later one
+    saw an empty row snapshot and silently stopped guarding - so the view
+    matched networkx on pass one and diverged on pass two. Caught by iterating
+    the same view twice, which no single-pass test would have done.
+    """
+    graph = getattr(fnx, class_name)()
+    reference = getattr(nx, class_name)()
+    for g in (graph, reference):
+        g.add_edges_from([(f"n{i}", f"n{(i + 1) % 50}") for i in range(50)])
+
+    def outcome(g):
+        view = g.edges(["n0", "n1", "n2"])
+        for _ in range(iteration - 1):
+            for _edge in view:
+                pass
+        try:
+            seen = 0
+            for _edge in view:
+                seen += 1
+                if seen == 1:
+                    g.add_edge("n0", "brand")   # resize the row being walked
+            return ("completes", seen)
+        except RuntimeError:
+            return ("RuntimeError",)
+
+    assert outcome(graph) == outcome(reference)
