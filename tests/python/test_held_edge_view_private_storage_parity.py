@@ -27,10 +27,11 @@ WHY BOTH ORDERS, NOT JUST THE FIXED ONE: `view_after` is what
 precisely the case in which the old and new behaviour AGREE. Testing only the
 broken order would let a later "fix" that drops the construction-time check pass.
 
-`Graph` is xfail: its `G.edges` is the native `_fnx.EdgeView` whose `__getitem__`
-is a C slot doing its own per-call `private_adj_row` probe, so it still carries the
-defect this module fixes in the three Python views. Removing the xfail is the gate
-on the Rust half.
+All four classes are asserted. `Graph` was the one xfail when this module landed --
+its `G.edges` is the native `_fnx.EdgeView` whose `__getitem__` is a C slot that did
+the same per-call `private_adj_row` probe -- and the Rust half landed in 0d880b385,
+so `NATIVE_SLOT_DEFECT` is empty and Graph is now held to the same contract as the
+other three. Matrix: 0 divergent cells of 32.
 """
 
 import networkx as nx
