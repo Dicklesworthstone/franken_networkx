@@ -4220,7 +4220,16 @@ class _MultiGraphEdgeView:
                             self._graph,
                             guard_edge_count=True,
                         )
-                    return _guarded_edge_list(result, self._graph, guard_edge_count=True)
+                    # br-r37-c1-hihrf: nx names this MultiEdgeDataView. THIS is
+                    # the live return for `MG.edges(nbunch)` - the native
+                    # no-data fast path - and it was handing back an unnamed
+                    # list. The Python fallback below needed the same fix and
+                    # is NOT the one that runs.
+                    return _guarded_edge_list(
+                        _wrap_edge_data_view(result, _MultiEdgeDataView),
+                        self._graph,
+                        guard_edge_count=True,
+                    )
         # br-r37-c1-mgedgenb (cc): data=True one-pass (same lambda-chain path was
         # ~0.09x). Emits live attr dicts; None -> Python loop for display-override.
         if data is True and _iterable_nb:
@@ -4289,13 +4298,31 @@ class _MultiGraphEdgeView:
         # br-r37-c1-mekvc (cycle 214): keys=True (data=False) wraps
         # in canonical ``MultiEdgeView`` so both
         # ``type(view).__name__`` and ``(u, v) in view`` match nx.
+        #
+        # br-r37-c1-hihrf: NOT changed to MultiEdgeDataView even though that is
+        # what nx names this spelling WITH an nbunch. The wrapper also carries
+        # the any-key ``__contains__``, and swapping it would move a second
+        # thing: nx RAISES IndexError for ``(u, v) in MG.edges(nb, keys=True)``
+        # (its __contains__ reads e[2] without a length check) where fnx answers
+        # True. Name and containment have to be decided together there; the
+        # plain-nbunch return below has no such coupling.
         if keys:
             return _guarded_edge_list(
                 _wrap_edge_data_view(result, _MultiEdgeView),
                 self._graph,
                 guard_edge_count=True,
             )
-        return _guarded_edge_list(result, self._graph, guard_edge_count=True)
+        # br-r37-c1-hihrf: nx returns MultiEdgeDataView here, not a bare list.
+        # The two data spellings above already wrap; this one was left unnamed,
+        # so `type(MG.edges(nbunch)).__name__` read `_EdgeListWithSetAlgebra`.
+        # Pure naming - `_MultiEdgeDataView` is `pass` over the same list base,
+        # and the containment table for this spelling already matches nx on
+        # every query, so only the name and repr move.
+        return _guarded_edge_list(
+            _wrap_edge_data_view(result, _MultiEdgeDataView),
+            self._graph,
+            guard_edge_count=True,
+        )
 
     def __eq__(self, other):
         # br-r37-c1-eveq: see _DiGraphEdgeView.__eq__. nx's
@@ -4811,7 +4838,14 @@ class _MultiDiGraphEdgeView:
                             self._graph,
                             guard_edge_count=True,
                         )
-                    return _guarded_edge_list(nres, self._graph, guard_edge_count=True)
+                    # br-r37-c1-hihrf: nx names this OutMultiEdgeDataView. THIS
+                    # is the live return for `MDG.edges(nbunch)` - the native
+                    # no-data fast path - and it handed back an unnamed list.
+                    return _guarded_edge_list(
+                        _wrap_edge_data_view(nres, _OutMultiEdgeDataView),
+                        self._graph,
+                        guard_edge_count=True,
+                    )
         if _it_nb and data is not False and data is not True and not keys:
             native = getattr(self._graph, "_native_mdg_out_edges_nbunch_data_key", None)
             if native is not None:
@@ -4865,13 +4899,23 @@ class _MultiDiGraphEdgeView:
         # br-r37-c1-mekvc (cycle 214): keys=True (data=False) wraps
         # in canonical ``OutMultiEdgeView`` so both
         # ``type(view).__name__`` and ``(u, v) in view`` match nx.
+        #
+        # br-r37-c1-hihrf: left alone for the same reason as the undirected
+        # twin - the wrapper carries containment semantics that nx decides
+        # differently for this spelling, so the name cannot move on its own.
         if keys:
             return _guarded_edge_list(
                 _wrap_edge_data_view(result, _OutMultiEdgesKeysView),
                 self._graph,
                 guard_edge_count=True,
             )
-        return _guarded_edge_list(result, self._graph, guard_edge_count=True)
+        # br-r37-c1-hihrf: nx names this OutMultiEdgeDataView; fnx returned a
+        # bare list. Pure naming, as in the undirected twin.
+        return _guarded_edge_list(
+            _wrap_edge_data_view(result, _OutMultiEdgeDataView),
+            self._graph,
+            guard_edge_count=True,
+        )
 
     keys = _multi_edge_keys
     items = _multi_edge_items

@@ -127,16 +127,6 @@ def test_rows_compare_equal_to_the_plain_dict_on_every_class(cls_name):
 # ------------------------------------------------------- br-r37-c1-ih59i: repr
 
 
-_PRIVATE_CLASS_XFAIL = pytest.mark.xfail(
-    strict=True,
-    reason="br-r37-c1-ih59i, class-name half: these two shapes hand back the "
-    "private base `_EdgeListWithSetAlgebra` rather than a canonically-named "
-    "subclass, so the repr fix deliberately leaves them as a bare list — "
-    "printing a private class name would be worse than the list it replaces. "
-    "Fixing this needs the call path to return the canonical class.",
-)
-
-
 @pytest.mark.parametrize(
     ("cls_name", "form"),
     [
@@ -146,16 +136,21 @@ _PRIVATE_CLASS_XFAIL = pytest.mark.xfail(
         ("DiGraph", "nbunch"),
         ("MultiGraph", "data"),
         ("MultiDiGraph", "data"),
-        pytest.param("MultiGraph", "nbunch", marks=_PRIVATE_CLASS_XFAIL),
-        pytest.param("MultiDiGraph", "nbunch", marks=_PRIVATE_CLASS_XFAIL),
+        # br-r37-c1-hihrf: these two were xfailed because the nbunch call path
+        # returned the private `_EdgeListWithSetAlgebra` base. It now returns
+        # the canonical MultiEdgeDataView / OutMultiEdgeDataView, so the whole
+        # repr matches networkx byte for byte and all eight shapes are asserted.
+        ("MultiGraph", "nbunch"),
+        ("MultiDiGraph", "nbunch"),
     ],
 )
 def test_edge_data_view_repr_matches_networkx_exactly(cls_name, form):
     """Not just the class name — the whole repr string.
 
-    Six of the eight shapes now match networkx byte for byte. The two xfailed
-    are the ones whose class is still private; they are a separate half of the
-    same bead, not a failure of this fix.
+    All eight shapes match networkx byte for byte. The last two - the
+    multigraph nbunch forms - were xfailed while their call path returned the
+    private `_EdgeListWithSetAlgebra` base; br-r37-c1-hihrf made that path
+    return the canonical class, which is what the xfail reason asked for.
     """
     gnx, gfx = _pair(cls_name)
     call = (
