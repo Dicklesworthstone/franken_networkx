@@ -53,18 +53,16 @@ import franken_networkx as fnx
 
 # Cells measured to diverge today. Anything NOT listed here is asserted to match,
 # so this set is a claim in both directions: shrink it when the kernel is fixed.
+# br-r37-c1-hihrf: the MULTIGRAPH cells are gone - the nbunch guard now applies
+# networkx's row rule, so those classes no longer raise where networkx completes.
+# What is left is the SIMPLE classes above `_edges_nbunch_py_walk_limit`
+# (max(8, order // 250)), where the call leaves the faithful Python walk for the
+# native kernel and the coarse guard still applies. Those call sites do not yet
+# pass their nbunch to the guard; the two multigraph ones do.
 DIVERGENT = {
     ("Graph", 500, 16),
     ("DiGraph", 500, 16),
     ("DiGraph", 20000, 16),
-    ("MultiGraph", 500, 4),
-    ("MultiGraph", 500, 16),
-    ("MultiGraph", 20000, 4),
-    ("MultiGraph", 20000, 16),
-    ("MultiDiGraph", 500, 4),
-    ("MultiDiGraph", 500, 16),
-    ("MultiDiGraph", 20000, 4),
-    ("MultiDiGraph", 20000, 16),
 }
 
 CLASSES = ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"]
@@ -161,7 +159,14 @@ MUTATIONS = {
     "remove_later_nbunch_edge": lambda g: g.remove_edge("n3", "n4"),
 }
 
-# Only the multigraph classes diverge, and only where networkx does NOT raise.
+# br-r37-c1-hihrf: mutations that touch a nbunch row the walk has NOT reached
+# yet. networkx re-reads each row lazily when it gets there, so it sees the
+# change; fnx materialises the multigraph nbunch result up front, so it does not.
+# This is a VALUE difference (edge count), never a spurious raise, and it is the
+# last thing standing between here and full parity - it needs a lazy multigraph
+# nbunch view, which the simple classes already have and the list-subclass
+# multigraph ones do not.
+LAZY_ROW_DIVERGENT = {"add_edge_to_later_nbunch_node", "remove_later_nbunch_edge"}
 FAITHFUL_CLASSES = {"Graph", "DiGraph"}
 
 
@@ -184,10 +189,12 @@ def _iterate_with_mutation(lib, class_name, mutation):
 @pytest.mark.parametrize("class_name", CLASSES)
 def test_mutation_kind_matches_networkx(class_name, mutation):
     expected = _iterate_with_mutation(nx, class_name, mutation)
-    if class_name not in FAITHFUL_CLASSES and expected[0] != "RuntimeError":
+    if class_name not in FAITHFUL_CLASSES and mutation in LAZY_ROW_DIVERGENT:
         pytest.xfail(
-            "the nx-faithful nbunch walk is not wired for the multigraph "
-            "classes, so they raise on every mutation (br-r37-c1-hihrf)"
+            "fnx materialises the multigraph nbunch result, so a mutation to a "
+            "row the walk has not reached yet is not picked up; networkx reads "
+            "each row lazily (br-r37-c1-hihrf). A VALUE difference, not a "
+            "spurious raise."
         )
     actual = _iterate_with_mutation(fnx, class_name, mutation)
     assert actual == expected, (

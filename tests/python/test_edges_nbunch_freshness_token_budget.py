@@ -48,7 +48,11 @@ TOKEN_BUDGET = {
     "Graph": 1,
     "DiGraph": 4,
     "MultiGraph": 4,
-    "MultiDiGraph": 5,
+    # br-r37-c1-hihrf: 5 -> 4. Routing the nbunch view off the native guarded
+    # iterator onto the Python one (so it can apply networkx's row rule) also
+    # dropped a token read per call. The test asked for this to be banked when
+    # it happened.
+    "MultiDiGraph": 4,
 }
 
 

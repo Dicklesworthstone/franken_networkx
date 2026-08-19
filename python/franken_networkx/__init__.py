@@ -784,7 +784,7 @@ def _remove_node_with_networkx_missing_node_error(remove_node_impl, *, graph_kin
     return remove_node
 
 
-def _FailFastEdgeIterator(graph, iterable, *, guard_edge_count=False):
+def _FailFastEdgeIterator(graph, iterable, *, guard_edge_count=False, nbunch_rows=None):
     # br-r37-c1-edgesdataperf: O(1) per-element staleness check against
     # snapshotted counts/revisions (was an O(N) tuple-build + compare per
     # __next__, i.e. O(E*N)). nx's contract: mutating the graph SIZE during
@@ -805,6 +805,56 @@ def _FailFastEdgeIterator(graph, iterable, *, guard_edge_count=False):
     )
     it = iter(iterable)
     _err = "dictionary changed size during iteration"
+
+    # br-r37-c1-hihrf: an NBUNCH iteration is not iterating the node dict, so
+    # networkx cannot see a node added elsewhere. Its `MultiEdgeDataView.__iter__`
+    # walks `self._nbunch` and then each node's adjacency dict, so the only
+    # mutation it can notice is one that resizes the row it is standing in.
+    # The guard above answers a coarser question - "did ANYTHING change" - and
+    # so raised on five mutations networkx completes through.
+    #
+    # The sequence compare stays the only per-item work. It becomes a TRIGGER:
+    # the expensive row question is asked only once a mutation has actually been
+    # observed, and the snapshot is then refreshed so an irrelevant mutation
+    # does not re-arm it for every remaining item.
+    if nbunch_rows is not None and use_seq_guard:
+        try:
+            degree_of = graph.degree
+            row_sizes = {node: degree_of(node) for node in nbunch_rows}
+        except Exception:  # noqa: BLE001 - an odd graph keeps the coarse guard
+            row_sizes = None
+        if row_sizes is not None:
+
+            def _gen_rows():
+                exp_nodes = graph.nodes_seq
+                exp_edges = graph.edges_seq if guard_edge_count else None
+                # The row networkx is standing in is the one owning the item it
+                # JUST yielded, not the next one - a mutation lands between two
+                # `next()` calls, and CPython's dict iterator reports it on the
+                # following step even when that step is the one that would end
+                # the row. Checking the NEXT item's owner therefore misses a
+                # change to a row whose last item has already been handed out,
+                # which is exactly the MultiDiGraph case: out-edges only, so
+                # nbunch[0] contributes one item and the next belongs to
+                # nbunch[1].
+                previous_owner = None
+                for item in it:
+                    if graph.nodes_seq != exp_nodes or (
+                        exp_edges is not None and graph.edges_seq != exp_edges
+                    ):
+                        if (
+                            previous_owner in row_sizes
+                            and degree_of(previous_owner) != row_sizes[previous_owner]
+                        ):
+                            raise RuntimeError(_err)
+                        exp_nodes = graph.nodes_seq
+                        if exp_edges is not None:
+                            exp_edges = graph.edges_seq
+                    previous_owner = item[0] if isinstance(item, tuple) and item else None
+                    yield item
+
+            return _gen_rows()
+
     if use_seq_guard:
         exp_nodes_seq = graph.nodes_seq
         exp_edges_seq = graph.edges_seq if guard_edge_count else None
@@ -976,11 +1026,14 @@ def _edges_nbunch_py_walk_limit(graph):
     )
 
 
-def _guarded_edge_list(result, graph, *, guard_edge_count=False):
+def _guarded_edge_list(result, graph, *, guard_edge_count=False, nbunch_rows=None):
     if not isinstance(result, _EdgeListWithSetAlgebra):
         result = _EdgeListWithSetAlgebra(result)
     result._fnx_guard_graph = graph
     result._fnx_guard_edge_count = guard_edge_count
+    # br-r37-c1-hihrf: the nbunch this view was called with, so iteration can
+    # apply networkx's row rule instead of the coarse "anything changed" one.
+    result._fnx_nbunch_rows = nbunch_rows
     # br-r37-c1-af0ig: stamp the graph revision this snapshot was taken at, so
     # a later read can tell whether it is still current. The rebuild thunk is
     # attached separately by _live_called_edge_view, which is the only place
@@ -4231,6 +4284,7 @@ class _MultiGraphEdgeView:
                         _wrap_edge_data_view(result, _MultiEdgeDataView),
                         self._graph,
                         guard_edge_count=True,
+                        nbunch_rows=self._graph.nbunch_iter(nbunch),
                     )
         # br-r37-c1-mgedgenb (cc): data=True one-pass (same lambda-chain path was
         # ~0.09x). Emits live attr dicts; None -> Python loop for display-override.
@@ -4517,7 +4571,17 @@ class _EdgeListWithSetAlgebra(list):
         if graph is None:
             return list.__iter__(self)
         guard_edge_count = getattr(self, "_fnx_guard_edge_count", False)
-        if guard_edge_count and not _has_networkx_private_storage(graph):
+        nbunch_rows = getattr(self, "_fnx_nbunch_rows", None)
+        # br-r37-c1-hihrf: the native guarded iterator carries the coarse
+        # "anything changed" rule in Rust. An nbunch view needs networkx's row
+        # rule, so it takes the Python guard - the same one simple Graph's
+        # EdgeDataView already uses, which is why that class was already
+        # faithful. Non-nbunch iteration is untouched and keeps the native path.
+        if (
+            nbunch_rows is None
+            and guard_edge_count
+            and not _has_networkx_private_storage(graph)
+        ):
             native_iter = getattr(graph, "_native_guarded_edge_list_iter", None)
             if native_iter is not None:
                 return native_iter(self)
@@ -4525,6 +4589,7 @@ class _EdgeListWithSetAlgebra(list):
             graph,
             list.__iter__(self),
             guard_edge_count=guard_edge_count,
+            nbunch_rows=nbunch_rows,
         )
 
     def __and__(self, other):
@@ -4849,6 +4914,7 @@ class _MultiDiGraphEdgeView:
                         _wrap_edge_data_view(nres, _OutMultiEdgeDataView),
                         self._graph,
                         guard_edge_count=True,
+                        nbunch_rows=self._graph.nbunch_iter(nbunch),
                     )
         if _it_nb and data is not False and data is not True and not keys:
             native = getattr(self._graph, "_native_mdg_out_edges_nbunch_data_key", None)

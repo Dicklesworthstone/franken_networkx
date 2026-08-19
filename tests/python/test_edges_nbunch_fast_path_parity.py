@@ -211,7 +211,16 @@ MUTATIONS_DURING_ITERATION = {
 }
 
 
-@pytest.mark.parametrize("cls_name", ["Graph", "DiGraph"])
+# br-r37-c1-hihrf: the multigraph classes reach this test too now. Two mutation
+# kinds still diverge there, and they are NOT the guard this bead fixed - they
+# are `_raise_if_frozen_nbunch_node_removed`, which fires when an nbunch node
+# disappears. networkx completes those because it is holding the row dict it
+# already fetched: removing the node from the graph does not resize that dict,
+# so its iteration is undisturbed.
+FROZEN_NODE_DIVERGENT = {"remove_frozen_node", "clear"}
+
+
+@pytest.mark.parametrize("cls_name", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
 @pytest.mark.parametrize("mutation", list(MUTATIONS_DURING_ITERATION), ids=list(MUTATIONS_DURING_ITERATION))
 def test_simple_class_nbunch_iteration_matches_networkx_mutation_for_mutation(cls_name, mutation):
     """br-r37-c1-u5tyh on Graph: both directions, one mutation at a time.
@@ -222,6 +231,12 @@ def test_simple_class_nbunch_iteration_matches_networkx_mutation_for_mutation(cl
     the live rows gets every case right, so this asserts each one rather than
     just "does not over-raise".
     """
+    if cls_name.startswith("Multi") and mutation in FROZEN_NODE_DIVERGENT:
+        pytest.xfail(
+            "the frozen-nbunch guard raises when an nbunch node disappears; "
+            "networkx completes because it already holds the row dict "
+            "(br-r37-c1-hihrf, separate from the row-rule guard)"
+        )
     mutate = MUTATIONS_DURING_ITERATION[mutation]
     outcomes = []
     for lib in (nx, fnx):
@@ -237,22 +252,22 @@ def test_simple_class_nbunch_iteration_matches_networkx_mutation_for_mutation(cl
 
 
 @pytest.mark.parametrize("cls_name", ["MultiGraph", "MultiDiGraph"])
-def test_multigraphs_still_over_raise_on_nbunch_iteration(cls_name):
-    """Pins the REMAINING divergence so the gap cannot go quiet.
+def test_multigraphs_no_longer_over_raise_on_nbunch_iteration(cls_name):
+    """br-r37-c1-hihrf: this used to pin the over-raise; now it pins its absence.
 
-    br-r37-c1-u5tyh is fixed for Graph and DiGraph: the multigraphs reach
-    edges(nbunch) through view classes whose rows are nested key/attr mappings
-    with no live keys-row to walk — the same wall br-r37-c1-dwy1n hit.
-    Deliberately an assertion about a bug: when they are fixed this fails and
-    says so.
+    The multigraph nbunch guard applied a coarse "did anything change" rule and
+    raised on a mutation networkx completes through. It now applies networkx's
+    own rule - only a change to the row being iterated raises - so adding an
+    unrelated edge mid-iteration completes on both sides, with the same count.
     """
     graph = _build(fnx, cls_name)
-    with pytest.raises(RuntimeError):
-        for _edge in graph.edges(["a", "b", "c"]):
-            graph.add_edge("brand", "new")
     reference = _build(nx, cls_name)
-    for _edge in reference.edges(["a", "b", "c"]):
-        reference.add_edge("brand", "new")
+    got, want = [], []
+    for target, source in ((got, graph), (want, reference)):
+        for _edge in source.edges(["a", "b", "c"]):
+            source.add_edge("brand", "new")
+            target.append(_edge)
+    assert len(got) == len(want)
 
 
 @pytest.mark.parametrize("cls_name", CLASSES)
