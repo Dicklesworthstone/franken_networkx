@@ -1701,6 +1701,8 @@ Algorithm calls release the GIL during their inner loops, with the following con
 | [AGENTS.md](AGENTS.md) | Guide for AI coding agents working in this repo |
 | [docs/planning/COMPREHENSIVE_SPEC_FOR_FRANKENNETWORKX_V1.md](docs/planning/COMPREHENSIVE_SPEC_FOR_FRANKENNETWORKX_V1.md) | V1 specification |
 | [docs/planning/FEATURE_PARITY.md](docs/planning/FEATURE_PARITY.md) | Family-by-family parity inventory |
+| [docs/planning/EXISTING_NETWORKX_STRUCTURE.md](docs/planning/EXISTING_NETWORKX_STRUCTURE.md) | Upstream NetworkX structure catalog |
+| [docs/planning/EXHAUSTIVE_LEGACY_ANALYSIS.md](docs/planning/EXHAUSTIVE_LEGACY_ANALYSIS.md) | Legacy-path audit the conformance harness targets |
 
 ---
 

@@ -2,17 +2,122 @@
 
 All notable changes to FrankenNetworkX are documented in this file.
 
-`v0.2.0` is the first tagged release. The historical timeline below is
-reconstructed exhaustively from the commit history on `main` before the first
-release cut (2,729 commits, 2026-02-13 through 2026-05-17). Sections are
-organized by capability area rather than raw diff order. Every link points to
-the actual commit on GitHub.
+`v0.2.0` is the first tagged release **and** the only GitHub Release
+([`v0.2.0`](https://github.com/Dicklesworthstone/franken_networkx/releases/tag/v0.2.0),
+2026-06-21). The historical timeline below is reconstructed from the commit
+history on `main`. Pre-release reconstruction (2,729 commits, 2026-02-13 through
+2026-05-17) is preserved in the dated sections. A current-window update on
+2026-08-19 covers post-`v0.2.0` through HEAD: **2,505 non-merge commits**,
+bringing `main` to **8,124** commits. Sections are organized by capability
+area rather than raw diff order. Every link points to the actual commit on
+GitHub.
 
 Repository: <https://github.com/Dicklesworthstone/franken_networkx>
 
 ---
 
 ## Unreleased
+
+Scope: after [`v0.2.0`](https://github.com/Dicklesworthstone/franken_networkx/releases/tag/v0.2.0)
+(2026-06-21) through HEAD [`1bb74c331e`](https://github.com/Dicklesworthstone/franken_networkx/commit/1bb74c331e8f75f751a1d855f472971423ab4a65)
+on 2026-08-19. No later tag or GitHub Release exists. This is a
+vs-NetworkX native-store and views campaign on the already-parity surface,
+still driven by the `br-r37-c1-*` bead cycle. It is not a new public API era.
+
+### 2026-08-19 — Repo-janitor docs-reorg
+
+Root planning and parity documents moved into [`docs/planning/`](docs/planning/).
+Live janitor commits:
+
+- [`29c8a12d6a`](https://github.com/Dicklesworthstone/franken_networkx/commit/29c8a12d6af3eeec16825fef921733d0d906d27e)
+  untrack skill-loop scratch; move `COMPREHENSIVE_SPEC_FOR_FRANKENNETWORKX_V1.md`,
+  `PLAN_TO_PORT_NETWORKX_TO_RUST.md`, and `PROPOSED_ARCHITECTURE.md` into
+  `docs/planning/`.
+- [`d9476556bf`](https://github.com/Dicklesworthstone/franken_networkx/commit/d9476556bfb089d7e894478c95a2c24585d5af10)
+  untrack beads recovery snapshots already gitignored.
+- [`2c03ced352`](https://github.com/Dicklesworthstone/franken_networkx/commit/2c03ced3525e0d743e02307a2d84f9685b1f5195)
+  drop agent-identity leaks and root scratch artifacts.
+- [`1bb74c331e`](https://github.com/Dicklesworthstone/franken_networkx/commit/1bb74c331e8f75f751a1d855f472971423ab4a65)
+  move remaining root planning/parity docs:
+  `FEATURE_PARITY.md`, `EXHAUSTIVE_LEGACY_ANALYSIS.md`, and
+  `EXISTING_NETWORKX_STRUCTURE.md` → `docs/planning/`.
+
+Canonical paths: [`docs/planning/FEATURE_PARITY.md`](docs/planning/FEATURE_PARITY.md),
+[`docs/planning/EXHAUSTIVE_LEGACY_ANALYSIS.md`](docs/planning/EXHAUSTIVE_LEGACY_ANALYSIS.md),
+[`docs/planning/EXISTING_NETWORKX_STRUCTURE.md`](docs/planning/EXISTING_NETWORKX_STRUCTURE.md).
+The G0 docs-freshness gate now tracks `README.md`,
+`docs/planning/FEATURE_PARITY.md`, and `CHANGELOG.md`.
+
+### 2026-08 — Native views, weighted store, and vs-incumbent campaign (1,212 commits)
+
+August is the densest post-release month (400 `chore`, 228 `perf`, 206 `test`,
+122 `fix`). Work concentrates on MultiGraph/MultiDiGraph view parity, the
+typed weighted store, and Dijkstra/size kernels that stop paying a Python
+frame per edge.
+
+**Delivered capability**
+
+- Native two-level `size(weight)` scalar for float and mixed weights
+  (DiGraph 2018 Python frames → 2).
+- MultiGraph / MultiDiGraph adjacency and edge views: C-slot `__len__`,
+  held-cell lookaside, nbunch ROW-rule guards, networkx view type names.
+- Typed mixed int/float weighted-degree accumulators; `copy()` starts with a
+  clean weighted store (measured 6.1× recovery of a contamination loss).
+- Dijkstra weight guards go native for multigraphs (1635 Python frames → 3);
+  cutoff-bounded / lazy expansion work in the `dkwy7` vein.
+- Bounded-traversal closeout: `0.0040× → 1.3853×` vs NetworkX, then the
+  remaining vein marked mined-out.
+
+**Representative commits**
+
+- [`4768b6f8b9`](https://github.com/Dicklesworthstone/franken_networkx/commit/4768b6f8b9) `size(weight)` two-level native scalar
+- [`758bfcd2ec`](https://github.com/Dicklesworthstone/franken_networkx/commit/758bfcd2ecd5) MultiGraph `G[u][v][key]` lookaside
+- [`d08539f623`](https://github.com/Dicklesworthstone/franken_networkx/commit/d08539f623) native multigraph Dijkstra weight guards
+- [`21f87b0e55`](https://github.com/Dicklesworthstone/franken_networkx/commit/21f87b0e55dd) `copy()` clean weighted store
+- [`64ab81a4f2`](https://github.com/Dicklesworthstone/franken_networkx/commit/64ab81a4f203) bounded-traversal vein closed
+- [`a2a95b2e14`](https://github.com/Dicklesworthstone/franken_networkx/commit/a2a95b2e14) PyGraph list cache `0.45× → 5.26×`
+- [`1823044a2a`](https://github.com/Dicklesworthstone/franken_networkx/commit/1823044a2a) unhashable-endpoint `add_edge` corruption fix
+
+### 2026-07 — Native-store performance campaign (912 commits)
+
+July is almost entirely `perf` (555) plus measured rejections. The pattern is
+profile a vs-NetworkX row, land a store-backed kernel or reject the lever,
+and write a negative-evidence note. PyO3 boundary floors (single-call
+`has_edge`, attributed construction) are certified as not cutover-fixable.
+
+**Delivered capability**
+
+- Compact One/Many buckets ~3.5× over the String store (`thp6w`).
+- Native wheel-graph batch-by-index insertion (24.28×, byte-identical).
+- Native `greedy_color` connected-sequential strategies (`0.32× → 1.72–3.47×`).
+- Bellman-Ford MultiGraph/MultiDiGraph min-weight collapse (`0.32× → 0.96×` /
+  `0.14× → 0.61×`).
+- Native integer-adjacency `common_neighbors`; MultiGraph connected-components
+  reuse indexed adjacency.
+- Batched personalized PageRank over shared CSR.
+
+**Representative commits**
+
+- [`2dd1210a8a`](https://github.com/Dicklesworthstone/franken_networkx/commit/2dd1210a8a) `wheel_graph` batch-by-index
+- [`6e95251148`](https://github.com/Dicklesworthstone/franken_networkx/commit/6e95251148) One/Many compact buckets
+- [`8c139fc1b6`](https://github.com/Dicklesworthstone/franken_networkx/commit/8c139fc1b6) native `greedy_color` strategies
+- [`4f898a7d18`](https://github.com/Dicklesworthstone/franken_networkx/commit/4f898a7d18) Bellman-Ford MultiGraph collapse
+- [`0d31465c6f`](https://github.com/Dicklesworthstone/franken_networkx/commit/0d31465c6f) native multigraph Dijkstra weight gate
+- [`eaf7d9cb55`](https://github.com/Dicklesworthstone/franken_networkx/commit/eaf7d9cb55) batched personalized PageRank
+
+### 2026-06-22 — 2026-06-30 — First post-release levers (381 commits)
+
+Immediate post-`v0.2.0` work is docs plus the first native-store scalars:
+`size(weight)` `0.62–0.87× → 19.6×` (cargo bench) / 31–39× vs NetworkX,
+MultiDiGraph `add_edge` auto-key `O(N²) → O(N)`, cached MultiGraph
+`edges(data=<attr>)`, and native `greedy_tsp`.
+
+**Representative commits**
+
+- [`548f6f7f92`](https://github.com/Dicklesworthstone/franken_networkx/commit/548f6f7f92) native `size(weight)` store scalar
+- [`8b939e3f7e`](https://github.com/Dicklesworthstone/franken_networkx/commit/8b939e3f7e) MultiDiGraph `add_edge` auto-key
+- [`a41e0e70c0`](https://github.com/Dicklesworthstone/franken_networkx/commit/a41e0e70c0) native `greedy_tsp`
+- [`d955a50303`](https://github.com/Dicklesworthstone/franken_networkx/commit/d955a50303) native DiGraph `in_edges(nbunch)`
 
 ### Added
 
@@ -328,7 +433,7 @@ to the fnx top level:
 
 - **CI restructured into G0..G8 sequential gates** with `rch` optional in
   scripts ([c8e3b3df](https://github.com/Dicklesworthstone/franken_networkx/commit/c8e3b3df));
-  docs-freshness gate (G0) enforces README/FEATURE_PARITY/CHANGELOG cannot
+  docs-freshness gate (G0) enforces README/`docs/planning/FEATURE_PARITY.md`/CHANGELOG cannot
   drift more than 50 commits behind HEAD; fuzz smoke (G7b), docs verifier
   (G4c), examples (G4d), conformance (G5), performance SLO (G6), UBS (G7),
   RaptorQ durability (G8).
