@@ -24590,3 +24590,52 @@ NO RATIO IS BANKED. The host ran loadavg 49 with run queue 72 for this whole uni
 `acquire_build_slot` is disabled in this deployment (WORKTREES_ENABLED off), so nothing
 timed was certified. The evidence here is entirely load-independent by design, which is why
 the work was possible at all in that window.
+
+## 2026-08-19 — copy.copy(G) is an ALIAS in networkx and an independent copy in fnx: 16 of 20 cells (br-r37-c1-copyshare-2h5uj)
+
+ENUMERATED, and it is FAR bigger than I filed (GoldenBison, 2026-08-19).
+
+I filed this as "copy.copy(G) shares edge attr dicts in networkx and does not in fnx".
+Enumerated properly against networkx on all four classes -- write through the SOURCE, ask
+what the copy observes -- 16 of 20 cells diverge, and the edge attrs are only one of them:
+
+    probe                      nx shares   fnx shares   classes affected
+    graph attrs dict             True        True       none (shim shares it explicitly)
+    node attr dict               True        False      all four
+    edge attr dict               True        False      all four
+    STRUCTURE (add a node)       True        False      all four
+    STRUCTURE (add an edge)      True        False      all four
+
+networkx defines no `__copy__` on Graph, so `copy.copy(G)` takes the default: a new
+instance whose `__dict__` is copied shallowly, which means `_adj` and `_node` are the SAME
+dict objects. It is an ALIAS. fnx shares only the graph attrs dict, so `copy.copy(G)`
+behaves roughly like `G.copy()` -- a different operation with a different contract.
+
+A FALSE CLAIM IN THE SOURCE, corrected rather than deleted because it would stop the next
+reader looking. `_graph_shallowcopy` carried:
+
+    "The Rust path also shares node/edge attr dicts, matching nx's shared-storage
+     behavior for attribute mutation."
+
+That is false on all four classes for both node and edge attrs, per the table above. The
+comment now records the measured table and the reason.
+
+WHY IT IS NOT A SMALL FIX, and this is the part that matters for whoever takes it. It is
+NOT reachable by re-pointing `_adj` / `_node` at the source's mappings: br-r37-c1-4wqn9
+tried exactly that and it caused SILENT WRITE-LOSS -- `h.add_edge` wrote to h's own Rust
+store while `h.edges` read through the override pointing at g, so writes disappeared. The
+independent-structure copy that stands today is the fix FOR that bug. Getting nx's
+semantics needs two Python graph objects backed by ONE Rust store, which the store does not
+support; br-r37-c1-himzq is the neighbouring gap in the same area.
+
+THE STRUCTURE ROWS DECIDE THE SHAPE OF THE FIX. A write-proxying attr mapping would cover
+the two attribute rows and still fail the two structure rows, because those require the
+copy to see nodes and edges added to the source afterwards. So a proxy object is not
+enough, exactly as br-r37-c1-f3i50 concluded for the keydict.
+
+PINNED: tests/python/test_shallow_copy_shares_storage_parity.py -- 4 pass (the graph-attrs
+sharing that does work, carried as a regression guard) and 16 xfail(strict=True), so the
+module becomes the acceptance test the moment a shared backing store lands.
+
+Load-independent throughout: this is a behavioural parity enumeration, no timing, taken on
+a disk-bound host where nothing timed was permitted.

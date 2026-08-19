@@ -50131,8 +50131,32 @@ def _graph_shallowcopy(self):
     # br-r37-c1-o1i86: route exact graph types through the raw Rust
     # __copy__ — self.copy() RE-DERIVES adjacency rows (nx.copy()
     # semantics), but copy.copy must show the SOURCE's rows (nx shares
-    # _adj outright). The Rust path also shares node/edge attr dicts,
-    # matching nx's shared-storage behavior for attribute mutation.
+    # _adj outright).
+    #
+    # br-r37-c1-copyshare-2h5uj: THE CLAIM THAT STOOD HERE IS FALSE, and it is
+    # corrected rather than deleted because it would stop the next reader
+    # looking. It said "The Rust path also shares node/edge attr dicts,
+    # matching nx's shared-storage behavior for attribute mutation". Measured
+    # against networkx on all four classes, writing through the SOURCE and
+    # asking what the copy observes — 16 of 20 cells diverge:
+    #
+    #     probe                     nx shares   fnx shares
+    #     graph attrs dict            True        True     (shared just below)
+    #     node attr dict              True        False
+    #     edge attr dict              True        False
+    #     STRUCTURE (add a node)      True        False
+    #     STRUCTURE (add an edge)     True        False
+    #
+    # networkx's copy.copy is an ALIAS: `_adj` / `_node` are the same dict
+    # objects, so structure and every attribute dict are shared. fnx shares
+    # only the graph attrs dict below; everything else is an independent copy.
+    # That is not a small gap — `copy.copy(G)` is effectively `G.copy()` here.
+    #
+    # It is also not fixable by re-pointing `_adj` / `_node`: br-r37-c1-4wqn9
+    # (cited above) tried exactly that and it caused SILENT WRITE-LOSS, because
+    # h.add_edge wrote to h's own Rust store while h.edges read through the
+    # override at g. A real fix needs two Python graph objects sharing ONE Rust
+    # store, which is a capability the store does not have.
     raw = _RAW_GRAPH_SHALLOWCOPY.get(type(self))
     if raw is not None:
         result = raw(self)
