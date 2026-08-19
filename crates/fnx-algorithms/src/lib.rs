@@ -22631,11 +22631,20 @@ fn topological_generations_orig_string(digraph: &DiGraph) -> Option<TopologicalG
 pub fn dfs_edges(graph: &Graph, source: &str, depth_limit: Option<usize>) -> Vec<(String, String)> {
     let mut cgse_sink = cgse_begin(CgseReferenceAlgorithm::Dfs);
 
+    // br-r37-c1-dkwy7: same defect as the bfs_edges family. Building every node
+    // name up front made dfs_edges(depth_limit=1) grow 5.17x between 200 and
+    // 12800 nodes (directed 5.28x) while networkx stayed flat at 1.00x -
+    // 1.1058x of nx down to 0.2130x. Names now come from `get_node_name`
+    // (IndexMap `get_index`, O(1)) once per edge emitted, and the stack and
+    // result vectors no longer reserve the whole graph for a bounded walk.
+    // `visited` stays dense; see the sssp siblings for why.
     let max_depth = depth_limit.unwrap_or(usize::MAX);
-    let nodes = graph.nodes_ordered();
-    let n = nodes.len();
+    let n = graph.node_count();
     let mut visited = vec![false; n];
-    let mut edges: Vec<(String, String)> = Vec::with_capacity(n.saturating_sub(1));
+    let mut edges: Vec<(String, String)> = match depth_limit {
+        Some(_) => Vec::new(),
+        None => Vec::with_capacity(n.saturating_sub(1)),
+    };
 
     let Some(source_idx) = graph.get_node_index(source) else {
         cgse_publish(
@@ -22647,7 +22656,10 @@ pub fn dfs_edges(graph: &Graph, source: &str, depth_limit: Option<usize>) -> Vec
         return edges;
     };
 
-    let mut stack: Vec<(usize, usize, usize)> = Vec::with_capacity(n);
+    let mut stack: Vec<(usize, usize, usize)> = match depth_limit {
+        Some(_) => Vec::new(),
+        None => Vec::with_capacity(n),
+    };
 
     visited[source_idx] = true;
     // Push children of source in reverse order for deterministic DFS.
@@ -22665,9 +22677,15 @@ pub fn dfs_edges(graph: &Graph, source: &str, depth_limit: Option<usize>) -> Vec
         if visited[node_idx] {
             continue;
         }
+        // Resolved before the visited mark is consumed further down; both
+        // indices came from this graph's own adjacency so neither can miss.
+        let (Some(parent), Some(node)) = (
+            graph.get_node_name(parent_idx),
+            graph.get_node_name(node_idx),
+        ) else {
+            continue;
+        };
         visited[node_idx] = true;
-        let parent = nodes[parent_idx];
-        let node = nodes[node_idx];
         cgse_record_decision(&mut cgse_sink, node, parent);
         edges.push((parent.to_owned(), node.to_owned()));
         if depth < max_depth
@@ -22716,9 +22734,15 @@ pub fn dfs_edges_directed(
         );
         return edges;
     };
+    // br-r37-c1-dkwy7: same defect as the bfs_edges family. Building every node
+    // name up front made dfs_edges(depth_limit=1) grow 5.17x between 200 and
+    // 12800 nodes (directed 5.28x) while networkx stayed flat at 1.00x -
+    // 1.1058x of nx down to 0.2130x. Names now come from `get_node_name`
+    // (IndexMap `get_index`, O(1)) once per edge emitted, and the stack and
+    // result vectors no longer reserve the whole graph for a bounded walk.
+    // `visited` stays dense; see the sssp siblings for why.
     let csr = digraph.csr();
-    let names = digraph.nodes_ordered();
-    let mut visited = vec![false; names.len()];
+    let mut visited = vec![false; digraph.node_count()];
     visited[source_idx] = true;
     let mut stack: Vec<(u32, u32, usize)> = Vec::new();
 
@@ -22735,12 +22759,15 @@ pub fn dfs_edges_directed(
         if visited[node as usize] {
             continue;
         }
+        let (Some(parent_name), Some(node_name)) = (
+            digraph.get_node_name(parent as usize),
+            digraph.get_node_name(node as usize),
+        ) else {
+            continue;
+        };
         visited[node as usize] = true;
-        cgse_record_decision(&mut cgse_sink, names[node as usize], names[parent as usize]);
-        edges.push((
-            names[parent as usize].to_owned(),
-            names[node as usize].to_owned(),
-        ));
+        cgse_record_decision(&mut cgse_sink, node_name, parent_name);
+        edges.push((parent_name.to_owned(), node_name.to_owned()));
         if depth < max_depth {
             for &succ in csr.successors(node as usize).iter().rev() {
                 if !visited[succ as usize] {

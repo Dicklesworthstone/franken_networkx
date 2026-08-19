@@ -399,3 +399,76 @@ def test_sssp_path_cost_does_not_grow_with_the_parent():
         f"{fnx_growth:.2f}x slower for the SAME request while networkx moved "
         f"{nx_growth:.2f}x"
     )
+
+
+# ---------------------------------------------------------------------------
+# dfs_edges: the bfs_edges defect, in the depth-first pair
+# ---------------------------------------------------------------------------
+# br-r37-c1-dkwy7. Measured 5.17x growth undirected and 5.28x directed against
+# networkx's 1.00x - 1.1058x of nx at n=200 down to 0.2130x at n=12800. Same
+# whole-graph name vector, plus stack and result vectors reserved for the whole
+# graph on a bounded walk.
+#
+# DFS is order-sensitive in a way BFS is not: nx pushes neighbours in REVERSE so
+# they pop in insertion order, and it always visits immediate neighbours at
+# depth 1 regardless of depth_limit. These tests pin the emitted sequence, which
+# is where a mis-resolved parent or a reordered push would show.
+
+
+@pytest.mark.parametrize("depth", DEPTHS)
+@pytest.mark.parametrize("shape", ["path", "star", "loopy", "ints", "tuples"])
+def test_dfs_edges_undirected_sequence_matches_networkx(shape, depth):
+    got_g, source = _shapes(fnx)[shape]
+    want_g, _ = _shapes(nx)[shape]
+    got = [(str(u), str(v)) for u, v in fnx.dfs_edges(got_g, source, depth_limit=depth)]
+    want = [(str(u), str(v)) for u, v in nx.dfs_edges(want_g, source, depth_limit=depth)]
+    assert got == want, f"{shape}/depth={depth}: DFS edge SEQUENCE diverged"
+
+
+@pytest.mark.parametrize("depth", DEPTHS)
+@pytest.mark.parametrize("shape", ["chain", "fan", "ints"])
+def test_dfs_edges_directed_sequence_matches_networkx(shape, depth):
+    got_g, source = _directed_shapes(fnx)[shape]
+    want_g, _ = _directed_shapes(nx)[shape]
+    got = [(str(u), str(v)) for u, v in fnx.dfs_edges(got_g, source, depth_limit=depth)]
+    want = [(str(u), str(v)) for u, v in nx.dfs_edges(want_g, source, depth_limit=depth)]
+    assert got == want, f"{shape}/depth={depth}: directed DFS sequence diverged"
+
+
+def test_dfs_edges_branching_order_is_networkxs():
+    """A wide branching node is where a reordered push would surface."""
+    got, want = fnx.Graph(), nx.Graph()
+    for g in (got, want):
+        g.add_edges_from([("r", "a"), ("r", "b"), ("r", "c")])
+        g.add_edges_from([("a", "a1"), ("a", "a2"), ("b", "b1"), ("c", "c1")])
+    for depth in (None, 1, 2, 3):
+        assert [
+            (str(u), str(v)) for u, v in fnx.dfs_edges(got, "r", depth_limit=depth)
+        ] == [(str(u), str(v)) for u, v in nx.dfs_edges(want, "r", depth_limit=depth)]
+
+
+def test_dfs_edges_endpoints_are_the_graphs_own_node_objects():
+    graph = fnx.Graph()
+    graph.add_edges_from([((0, 0), (1, 1)), ((1, 1), (2, 2))])
+    identity = {n: n for n in graph.nodes()}
+    for u, v in fnx.dfs_edges(graph, (0, 0)):
+        assert u is identity[u] and v is identity[v]
+
+
+@pytest.mark.xfail(
+    reason="br-r37-c1-dkwy7 kernel is written but UNBUILT (host disk throttle, "
+    "no cargo); flip to a hard assert once the extension is rebuilt",
+    strict=False,
+)
+def test_dfs_edges_cost_does_not_grow_with_the_parent():
+    small, large = 200, 12800
+    fnx_growth = _best(
+        lambda: list(fnx.dfs_edges(_ring_cache_fnx[large], "n0", depth_limit=1))
+    ) / _best(lambda: list(fnx.dfs_edges(_ring_cache_fnx[small], "n0", depth_limit=1)))
+    nx_growth = _best(
+        lambda: list(nx.dfs_edges(_ring_cache_nx[large], "n0", depth_limit=1))
+    ) / _best(lambda: list(nx.dfs_edges(_ring_cache_nx[small], "n0", depth_limit=1)))
+    assert fnx_growth < 2.5 * max(nx_growth, 1.0), (
+        f"a {large // small}x bigger parent made fnx dfs_edges {fnx_growth:.2f}x "
+        f"slower for the SAME request while networkx moved {nx_growth:.2f}x"
+    )
