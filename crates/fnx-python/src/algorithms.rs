@@ -5566,19 +5566,24 @@ fn multigraph_sssp_length_with_parents_orig_string<'a>(
 /// br-r37-c1-kk2xh: simple Graph single-source shortest paths stay in
 /// node-index space and emit from a predecessor table, matching the MultiGraph
 /// path emitter without allocating one full path Vec per discovered target.
-fn graph_sssp_predecessors_index<'a>(
-    graph: &'a fnx_classes::Graph,
+fn graph_sssp_predecessors_index(
+    graph: &fnx_classes::Graph,
     source: &str,
     cutoff: Option<usize>,
-) -> (Vec<&'a str>, Option<usize>, Vec<usize>, Vec<usize>) {
-    let nodes = graph.nodes_ordered();
+) -> (Option<usize>, Vec<usize>, std::collections::HashMap<usize, usize>) {
+    // br-r37-c1-dkwy7: no whole-graph name vector and no dense predecessor
+    // array. `nodes_ordered()` existed only to feed the emitter a table it
+    // indexed O(reached) times, and the predecessor array was written for the
+    // nodes discovered but ALLOCATED and filled for every node in the graph.
+    // Both are now paid per REACHED node; `seen` stays dense (one byte a node,
+    // probed on every neighbour of every expansion).
     let Some(source_idx) = graph.get_node_index(source) else {
-        return (nodes, None, Vec::new(), Vec::new());
+        return (None, Vec::new(), std::collections::HashMap::new());
     };
 
-    let n = nodes.len();
+    let n = graph.node_count();
     let mut seen = vec![false; n];
-    let mut predecessor = vec![usize::MAX; n];
+    let mut predecessor: std::collections::HashMap<usize, usize> = std::collections::HashMap::new();
     let mut discovery = Vec::with_capacity(n);
     let mut frontier = vec![source_idx];
     let mut next = Vec::new();
@@ -5599,7 +5604,7 @@ fn graph_sssp_predecessors_index<'a>(
             for &neighbor_idx in neighbors {
                 if neighbor_idx < n && !seen[neighbor_idx] {
                     seen[neighbor_idx] = true;
-                    predecessor[neighbor_idx] = node_idx;
+                    predecessor.insert(neighbor_idx, node_idx);
                     discovery.push(neighbor_idx);
                     next.push(neighbor_idx);
                 }
@@ -5609,7 +5614,7 @@ fn graph_sssp_predecessors_index<'a>(
         depth += 1;
     }
 
-    (nodes, Some(source_idx), discovery, predecessor)
+    (Some(source_idx), discovery, predecessor)
 }
 
 /// br-r37-c1-ubizp (cod-a): single-source shortest PATHS over a MultiGraph's
@@ -5617,25 +5622,30 @@ fn graph_sssp_predecessors_index<'a>(
 /// store one predecessor per discovered node and let the Python emitter stream
 /// path reconstruction from that parent table. This avoids cloning every
 /// parent's path for every child and skips String materialization in the kernel.
-fn multigraph_sssp_predecessors_index<'a>(
-    mg: &'a fnx_classes::MultiGraph,
+fn multigraph_sssp_predecessors_index(
+    mg: &fnx_classes::MultiGraph,
     source: &str,
     cutoff: Option<usize>,
-) -> (Vec<&'a str>, Option<usize>, Vec<usize>, Vec<usize>) {
+) -> (Option<usize>, Vec<usize>, std::collections::HashMap<usize, usize>) {
+    // br-r37-c1-dkwy7: no whole-graph name vector and no dense predecessor
+    // array. `nodes_ordered()` existed only to feed the emitter a table it
+    // indexed O(reached) times, and the predecessor array was written for the
+    // nodes discovered but ALLOCATED and filled for every node in the graph.
+    // Both are now paid per REACHED node; `seen` stays dense (one byte a node,
+    // probed on every neighbour of every expansion).
     // br-r37-c1-dkwy7: this hashed EVERY node name into a temporary index map
     // before a cutoff-bounded BFS could take its first step, so
     // single_source_shortest_path(cutoff=1) grew 44.22x between 200 and 12800
     // nodes while networkx stayed flat (0.98x) - 0.7135x of nx down to 0.0158x.
     // MultiGraph already carries that map: get_node_index is an IndexMap lookup,
     // so a neighbour pays the same single hash without the O(V) build in front.
-    let nodes = mg.nodes_ordered();
     let Some(source_idx) = mg.get_node_index(source) else {
-        return (nodes, None, Vec::new(), Vec::new());
+        return (None, Vec::new(), std::collections::HashMap::new());
     };
 
-    let n = nodes.len();
+    let n = mg.node_count();
     let mut seen = vec![false; n];
-    let mut predecessor = vec![usize::MAX; n];
+    let mut predecessor: std::collections::HashMap<usize, usize> = std::collections::HashMap::new();
     let mut discovery = match cutoff {
         Some(_) => Vec::new(),
         None => Vec::with_capacity(n),
@@ -5653,8 +5663,10 @@ fn multigraph_sssp_predecessors_index<'a>(
         }
         next.clear();
         for &node_idx in &frontier {
-            let node = nodes[node_idx];
-            let Some(nbrs) = mg.neighbors_iter(node) else {
+            let Some(nbrs) = mg
+                .get_node_name(node_idx)
+                .and_then(|node| mg.neighbors_iter(node))
+            else {
                 continue;
             };
             for v in nbrs {
@@ -5662,7 +5674,7 @@ fn multigraph_sssp_predecessors_index<'a>(
                     && !seen[nbr_idx]
                 {
                     seen[nbr_idx] = true;
-                    predecessor[nbr_idx] = node_idx;
+                    predecessor.insert(nbr_idx, node_idx);
                     discovery.push(nbr_idx);
                     next.push(nbr_idx);
                 }
@@ -5672,7 +5684,7 @@ fn multigraph_sssp_predecessors_index<'a>(
         depth += 1;
     }
 
-    (nodes, Some(source_idx), discovery, predecessor)
+    (Some(source_idx), discovery, predecessor)
 }
 
 /// MultiDiGraph sibling of `multigraph_sssp_predecessors_index`.
@@ -5683,11 +5695,17 @@ fn multigraph_sssp_predecessors_index<'a>(
 /// can stay in index space without a per-node row lookup or per-neighbor hash
 /// lookup. That keeps NetworkX's parent/tie-break order and avoids the old
 /// simple-DiGraph projection/String path rebuild.
-fn multidigraph_sssp_predecessors_index<'a>(
-    mdg: &'a fnx_classes::digraph::MultiDiGraph,
+fn multidigraph_sssp_predecessors_index(
+    mdg: &fnx_classes::digraph::MultiDiGraph,
     source: &str,
     cutoff: Option<usize>,
-) -> (Vec<&'a str>, Option<usize>, Vec<usize>, Vec<usize>) {
+) -> (Option<usize>, Vec<usize>, std::collections::HashMap<usize, usize>) {
+    // br-r37-c1-dkwy7: no whole-graph name vector and no dense predecessor
+    // array. `nodes_ordered()` existed only to feed the emitter a table it
+    // indexed O(reached) times, and the predecessor array was written for the
+    // nodes discovered but ALLOCATED and filled for every node in the graph.
+    // Both are now paid per REACHED node; `seen` stays dense (one byte a node,
+    // probed on every neighbour of every expansion).
     // br-r37-c1-dkwy7: finding the source was a LINEAR SCAN over every node
     // name, comparing strings, before a cutoff-bounded BFS could start - which
     // is why MultiDiGraph was the worst row on this bead:
@@ -5696,15 +5714,14 @@ fn multidigraph_sssp_predecessors_index<'a>(
     // slower than the incumbent for a one-hop question. get_node_index is an
     // IndexMap lookup, O(1), and indexes the SAME order nodes_ordered() yields,
     // so source_idx is unchanged.
-    let nodes = mdg.nodes_ordered();
     let Some(source_idx) = mdg.get_node_index(source) else {
-        return (nodes, None, Vec::new(), Vec::new());
+        return (None, Vec::new(), std::collections::HashMap::new());
     };
 
-    let n = nodes.len();
+    let n = mdg.node_count();
     let csr = mdg.csr();
     let mut seen = vec![false; n];
-    let mut predecessor = vec![usize::MAX; n];
+    let mut predecessor: std::collections::HashMap<usize, usize> = std::collections::HashMap::new();
     let mut discovery = match cutoff {
         Some(_) => Vec::new(),
         None => Vec::with_capacity(n),
@@ -5726,7 +5743,7 @@ fn multidigraph_sssp_predecessors_index<'a>(
                 let successor_idx = successor as usize;
                 if successor_idx < n && !seen[successor_idx] {
                     seen[successor_idx] = true;
-                    predecessor[successor_idx] = node_idx;
+                    predecessor.insert(successor_idx, node_idx);
                     discovery.push(successor_idx);
                     next.push(successor_idx);
                 }
@@ -5736,25 +5753,33 @@ fn multidigraph_sssp_predecessors_index<'a>(
         depth += 1;
     }
 
-    (nodes, Some(source_idx), discovery, predecessor)
+    (Some(source_idx), discovery, predecessor)
 }
 
-fn emit_paths_dict_discovery_parent_index(
+fn emit_paths_dict_discovery_parent_index<'n>(
     py: Python<'_>,
     gr: &GraphRef<'_>,
-    nodes: &[&str],
+    name_of: impl Fn(usize) -> Option<&'n str>,
     source_idx: usize,
     source_obj: PyObject,
     discovery: &[usize],
-    predecessor: &[usize],
+    predecessor: &std::collections::HashMap<usize, usize>,
 ) -> PyResult<pyo3::Py<PyDict>> {
-    let mut disp: Vec<Option<PyObject>> =
-        std::iter::repeat_with(|| None).take(nodes.len()).collect();
-    disp[source_idx] = Some(source_obj.clone_ref(py));
+    // br-r37-c1-dkwy7: both maps are keyed by node index and hold one entry per
+    // DISCOVERED node. They were Vec<Option<..>> sized to the whole graph, so a
+    // cutoff-bounded walk that reached three nodes still allocated and None-filled
+    // two vectors of node_count. Every index reached below is in `discovery` - a
+    // parent is always discovered before its children - so nothing is lost.
+    let mut disp: std::collections::HashMap<usize, PyObject> =
+        std::collections::HashMap::with_capacity(discovery.len());
+    disp.insert(source_idx, source_obj.clone_ref(py));
     for &node_idx in discovery {
         if node_idx != source_idx {
-            let parent_idx = predecessor[node_idx];
-            disp[node_idx] = Some(gr.py_row_key(py, nodes[parent_idx], nodes[node_idx]));
+            let parent_idx = predecessor.get(&node_idx).copied().unwrap_or(usize::MAX);
+            disp.insert(
+                node_idx,
+                gr.py_row_key(py, name_of(parent_idx).unwrap_or_default(), name_of(node_idx).unwrap_or_default()),
+            );
         }
     }
 
@@ -5765,14 +5790,14 @@ fn emit_paths_dict_discovery_parent_index(
     // predecessor chain through Rust for every target.  This matters most for
     // deep graphs, where the output itself is necessarily quadratic but the
     // temporary Rust stack traversal was an additional full pass over it.
-    let mut path_cache: Vec<Option<Py<PyList>>> =
-        std::iter::repeat_with(|| None).take(nodes.len()).collect();
+    let mut path_cache: std::collections::HashMap<usize, Py<PyList>> =
+        std::collections::HashMap::with_capacity(discovery.len());
     for &node_idx in discovery {
         let py_path = if node_idx == source_idx {
             PyList::new(py, [source_obj.clone_ref(py)])?
         } else {
-            let parent_idx = predecessor[node_idx];
-            let Some(parent_path) = path_cache.get(parent_idx).and_then(Option::as_ref) else {
+            let parent_idx = predecessor.get(&node_idx).copied().unwrap_or(usize::MAX);
+            let Some(parent_path) = path_cache.get(&parent_idx) else {
                 return Err(PyRuntimeError::new_err(
                     "single_source_shortest_path parent path missing",
                 ));
@@ -5781,44 +5806,70 @@ fn emit_paths_dict_discovery_parent_index(
                 .bind(py)
                 .call_method0("copy")?
                 .downcast_into::<PyList>()?;
-            let node_obj = match &disp[node_idx] {
+            let node_obj = match disp.get(&node_idx) {
                 Some(obj) => obj.clone_ref(py),
-                None => gr.py_node_key(py, nodes[node_idx]),
+                None => gr.py_node_key(py, name_of(node_idx).unwrap_or_default()),
             };
             copied.append(node_obj)?;
             copied
         };
-        let key = match &disp[node_idx] {
+        let key = match disp.get(&node_idx) {
             Some(obj) => obj.clone_ref(py),
-            None => gr.py_node_key(py, nodes[node_idx]),
+            None => gr.py_node_key(py, name_of(node_idx).unwrap_or_default()),
         };
         dict.set_item(key, &py_path)?;
-        path_cache[node_idx] = Some(py_path.unbind());
+        path_cache.insert(node_idx, py_path.unbind());
     }
     Ok(dict.unbind())
 }
 
-fn emit_paths_dict_uniform_parent_index(
+fn emit_paths_dict_uniform_parent_index<'n>(
     py: Python<'_>,
     gr: &GraphRef<'_>,
-    nodes: &[&str],
+    name_of: impl Fn(usize) -> Option<&'n str>,
     source_idx: usize,
     source_obj: PyObject,
     discovery: &[usize],
-    predecessor: &[usize],
+    predecessor: &std::collections::HashMap<usize, usize>,
 ) -> PyResult<pyo3::Py<PyDict>> {
-    let mut py_nodes: Vec<PyObject> = nodes.iter().map(|node| gr.py_node_key(py, node)).collect();
-    py_nodes[source_idx] = source_obj;
+    // br-r37-c1-dkwy7: this built a Python object for EVERY NODE IN THE GRAPH -
+    // one gr.py_node_key call per node - and a path cache sized to the graph,
+    // before emitting paths for the handful of nodes a cutoff-bounded search
+    // actually reached. That is why the path-returning rows kept scaling after
+    // their kernels were fixed: the O(V) term had moved up here. Both are now
+    // keyed by node index and hold one entry per DISCOVERED node. Every index
+    // this needs is in `discovery` - a node's parent is always discovered before
+    // it - so nothing is resolved that the walk did not reach.
+    let mut py_nodes: std::collections::HashMap<usize, PyObject> =
+        std::collections::HashMap::with_capacity(discovery.len());
+    for &node_idx in discovery {
+        let key = if node_idx == source_idx {
+            source_obj.clone_ref(py)
+        } else {
+            let Some(name) = name_of(node_idx) else {
+                return Err(PyRuntimeError::new_err(
+                    "single_source_shortest_path node index out of bounds",
+                ));
+            };
+            gr.py_node_key(py, name)
+        };
+        py_nodes.insert(node_idx, key);
+    }
+    let node_key = |idx: usize| -> PyResult<PyObject> {
+        py_nodes.get(&idx).map(|obj| obj.clone_ref(py)).ok_or_else(|| {
+            PyRuntimeError::new_err("single_source_shortest_path node key missing")
+        })
+    };
 
     let dict = PyDict::new(py);
-    let mut path_cache: Vec<Option<Py<PyList>>> =
-        std::iter::repeat_with(|| None).take(nodes.len()).collect();
+    let mut path_cache: std::collections::HashMap<usize, Py<PyList>> =
+        std::collections::HashMap::with_capacity(discovery.len());
     for &node_idx in discovery {
         let py_path = if node_idx == source_idx {
-            PyList::new(py, [py_nodes[source_idx].clone_ref(py)])?
+            PyList::new(py, [node_key(source_idx)?])?
         } else {
-            let parent_idx = predecessor[node_idx];
-            let Some(parent_path) = path_cache.get(parent_idx).and_then(Option::as_ref) else {
+            let parent_idx = predecessor.get(&node_idx).copied().unwrap_or(usize::MAX);
+            let Some(parent_path) = path_cache.get(&parent_idx) else {
                 return Err(PyRuntimeError::new_err(
                     "single_source_shortest_path parent path missing",
                 ));
@@ -5827,11 +5878,11 @@ fn emit_paths_dict_uniform_parent_index(
                 .bind(py)
                 .call_method0("copy")?
                 .downcast_into::<PyList>()?;
-            copied.append(py_nodes[node_idx].clone_ref(py))?;
+            copied.append(node_key(node_idx)?)?;
             copied
         };
-        dict.set_item(py_nodes[node_idx].clone_ref(py), &py_path)?;
-        path_cache[node_idx] = Some(py_path.unbind());
+        dict.set_item(node_key(node_idx)?, &py_path)?;
+        path_cache.insert(node_idx, py_path.unbind());
     }
     Ok(dict.unbind())
 }
@@ -14697,7 +14748,7 @@ pub fn single_source_shortest_path(
     // br-r37-c1-6hpa9: kernel (BFS) order + discovery objects.
     if let GraphRef::MultiDirected { mdg, .. } = &gr {
         let inner = &mdg.inner;
-        let (nodes, source_idx, discovery, predecessor) =
+        let (source_idx, discovery, predecessor) =
             py.allow_threads(|| multidigraph_sssp_predecessors_index(inner, &source_key, cutoff));
         let Some(source_idx) = source_idx else {
             return Ok(PyDict::new(py).into_any().unbind());
@@ -14706,7 +14757,7 @@ pub fn single_source_shortest_path(
             emit_paths_dict_uniform_parent_index(
                 py,
                 &gr,
-                &nodes,
+                |i| inner.get_node_name(i),
                 source_idx,
                 source.clone().unbind(),
                 &discovery,
@@ -14716,7 +14767,7 @@ pub fn single_source_shortest_path(
             emit_paths_dict_discovery_parent_index(
                 py,
                 &gr,
-                &nodes,
+                |i| inner.get_node_name(i),
                 source_idx,
                 source.clone().unbind(),
                 &discovery,
@@ -14738,7 +14789,7 @@ pub fn single_source_shortest_path(
     // the gr.undirected() simple-Graph conversion (was ~25x slower).
     if let GraphRef::MultiUndirected { mg, .. } = &gr {
         let inner = &mg.inner;
-        let (nodes, source_idx, discovery, predecessor) =
+        let (source_idx, discovery, predecessor) =
             py.allow_threads(|| multigraph_sssp_predecessors_index(inner, &source_key, cutoff));
         let Some(source_idx) = source_idx else {
             return Ok(PyDict::new(py).into_any().unbind());
@@ -14746,7 +14797,7 @@ pub fn single_source_shortest_path(
         let dict = emit_paths_dict_discovery_parent_index(
             py,
             &gr,
-            &nodes,
+            |i| inner.get_node_name(i),
             source_idx,
             source.clone().unbind(),
             &discovery,
@@ -14757,7 +14808,7 @@ pub fn single_source_shortest_path(
     // br-r37-c1-kk2xh: simple Graph mirrors the MultiGraph parent-table emitter
     // so the kernel does not allocate a full index path Vec for every target.
     let inner = gr.undirected();
-    let (nodes, source_idx, discovery, predecessor) =
+    let (source_idx, discovery, predecessor) =
         py.allow_threads(|| graph_sssp_predecessors_index(inner, &source_key, cutoff));
     let Some(source_idx) = source_idx else {
         return Ok(PyDict::new(py).into_any().unbind());
@@ -14765,7 +14816,7 @@ pub fn single_source_shortest_path(
     let dict = emit_paths_dict_discovery_parent_index(
         py,
         &gr,
-        &nodes,
+        |i| inner.get_node_name(i),
         source_idx,
         source.clone().unbind(),
         &discovery,
@@ -23129,22 +23180,27 @@ fn floyd_warshall_predecessor_and_distance(
     ))
 }
 
-fn emit_bidirectional_index_path(
+/// br-r37-c1-dkwy7: takes a RESOLVER, not a whole-graph name table. Every caller
+/// used to hand this a nodes_ordered() vector - O(V) built per call - which the
+/// body then indexed only O(path) times. The kernels below stopped allocating
+/// per-graph state, but this layer kept the last O(V) term above them, which is
+/// why the path-returning rows went on scaling after the kernels were fixed.
+fn emit_bidirectional_index_path<'n>(
     py: Python<'_>,
     gr: &GraphRef<'_>,
-    nodes: &[&str],
+    name_of: impl Fn(usize) -> Option<&'n str>,
     path: &[(usize, Option<usize>, bool)],
     source: &Bound<'_, PyAny>,
     target: &Bound<'_, PyAny>,
 ) -> PyResult<Vec<PyObject>> {
     path.iter()
         .map(|(node_idx, parent_idx, from_reverse)| {
-            let node = nodes.get(*node_idx).ok_or_else(|| {
+            let node = name_of(*node_idx).ok_or_else(|| {
                 NetworkXError::new_err("internal bidirectional path index out of bounds")
             })?;
             match parent_idx {
                 Some(parent_idx) => {
-                    let parent = nodes.get(*parent_idx).ok_or_else(|| {
+                    let parent = name_of(*parent_idx).ok_or_else(|| {
                         NetworkXError::new_err("internal bidirectional parent index out of bounds")
                     })?;
                     if *from_reverse {
@@ -23264,80 +23320,72 @@ fn bidirectional_index_meta_from_rows(
     Some(out)
 }
 
-fn multigraph_bidirectional_shortest_path_index_meta<'a>(
-    mg: &'a fnx_classes::MultiGraph,
+fn multigraph_bidirectional_shortest_path_index_meta(
+    mg: &fnx_classes::MultiGraph,
     source: &str,
     target: &str,
-) -> Option<(Vec<&'a str>, Vec<(usize, Option<usize>, bool)>)> {
-    // br-r37-c1-dkwy7: this built a HashMap of EVERY node name -> index on every
-    // call, hashing the whole graph's node set before a two-hop query could
-    // start. bidirectional_shortest_path grew 67.39x on MultiGraph and 68.01x on
-    // MultiDiGraph between 200 and 12800 nodes while networkx stayed flat (0.98x)
-    // - 0.6388x of nx down to 0.0093x, and 0.5988x down to 0.0088x. The graph
-    // classes already carry the map this rebuilt: `get_node_index` is an
-    // IndexMap lookup, O(1), so a neighbour costs the same single hash it cost
-    // through the temporary map, without the O(V) build in front of it.
-    let nodes = mg.nodes_ordered();
+) -> Option<Vec<(usize, Option<usize>, bool)>> {
+    // br-r37-c1-dkwy7: no nodes_ordered() and no per-call index map. The row
+    // closures resolve one name per EXPANDED node through get_node_name, and
+    // map each neighbour back through get_node_index - both O(1) IndexMap
+    // operations on the map the graph already owns.
     let source_idx = mg.get_node_index(source)?;
     let target_idx = mg.get_node_index(target)?;
-    let path = bidirectional_index_meta_from_rows(
+    bidirectional_index_meta_from_rows(
         source_idx,
         target_idx,
-        nodes.len(),
+        mg.node_count(),
         |v| {
-            mg.neighbors(nodes[v])
+            mg.get_node_name(v)
+                .and_then(|name| mg.neighbors(name))
                 .unwrap_or_default()
                 .into_iter()
                 .filter_map(|node| mg.get_node_index(node))
                 .collect()
         },
         |v| {
-            mg.neighbors(nodes[v])
+            mg.get_node_name(v)
+                .and_then(|name| mg.neighbors(name))
                 .unwrap_or_default()
                 .into_iter()
                 .filter_map(|node| mg.get_node_index(node))
                 .collect()
         },
-    )?;
-    Some((nodes, path))
+    )
 }
 
-fn multidigraph_bidirectional_shortest_path_index_meta<'a>(
-    mdg: &'a fnx_classes::digraph::MultiDiGraph,
+fn multidigraph_bidirectional_shortest_path_index_meta(
+    mdg: &fnx_classes::digraph::MultiDiGraph,
     source: &str,
     target: &str,
-) -> Option<(Vec<&'a str>, Vec<(usize, Option<usize>, bool)>)> {
-    // br-r37-c1-dkwy7: this built a HashMap of EVERY node name -> index on every
-    // call, hashing the whole graph's node set before a two-hop query could
-    // start. bidirectional_shortest_path grew 67.39x on MultiGraph and 68.01x on
-    // MultiDiGraph between 200 and 12800 nodes while networkx stayed flat (0.98x)
-    // - 0.6388x of nx down to 0.0093x, and 0.5988x down to 0.0088x. The graph
-    // classes already carry the map this rebuilt: `get_node_index` is an
-    // IndexMap lookup, O(1), so a neighbour costs the same single hash it cost
-    // through the temporary map, without the O(V) build in front of it.
-    let nodes = mdg.nodes_ordered();
+) -> Option<Vec<(usize, Option<usize>, bool)>> {
+    // br-r37-c1-dkwy7: no nodes_ordered() and no per-call index map. The row
+    // closures resolve one name per EXPANDED node through get_node_name, and
+    // map each neighbour back through get_node_index - both O(1) IndexMap
+    // operations on the map the graph already owns.
     let source_idx = mdg.get_node_index(source)?;
     let target_idx = mdg.get_node_index(target)?;
-    let path = bidirectional_index_meta_from_rows(
+    bidirectional_index_meta_from_rows(
         source_idx,
         target_idx,
-        nodes.len(),
+        mdg.node_count(),
         |v| {
-            mdg.successors(nodes[v])
+            mdg.get_node_name(v)
+                .and_then(|name| mdg.successors(name))
                 .unwrap_or_default()
                 .into_iter()
                 .filter_map(|node| mdg.get_node_index(node))
                 .collect()
         },
         |v| {
-            mdg.predecessors(nodes[v])
+            mdg.get_node_name(v)
+                .and_then(|name| mdg.predecessors(name))
                 .unwrap_or_default()
                 .into_iter()
                 .filter_map(|node| mdg.get_node_index(node))
                 .collect()
         },
-    )?;
-    Some((nodes, path))
+    )
 }
 
 /// Return shortest path between source and target using bidirectional BFS.
@@ -23364,15 +23412,29 @@ fn bidirectional_shortest_path(
         let inner = &mdg.inner;
         let indexed =
             py.allow_threads(|| multidigraph_bidirectional_shortest_path_index_meta(inner, &s, &t));
-        indexed.map(|(nodes, path)| {
-            emit_bidirectional_index_path(py, &gr, &nodes, &path, source, target)
+        indexed.map(|path| {
+            emit_bidirectional_index_path(
+                py,
+                &gr,
+                |i| inner.get_node_name(i),
+                &path,
+                source,
+                target,
+            )
         })
     } else if let GraphRef::MultiUndirected { mg, .. } = &gr {
         let inner = &mg.inner;
         let indexed =
             py.allow_threads(|| multigraph_bidirectional_shortest_path_index_meta(inner, &s, &t));
-        indexed.map(|(nodes, path)| {
-            emit_bidirectional_index_path(py, &gr, &nodes, &path, source, target)
+        indexed.map(|path| {
+            emit_bidirectional_index_path(
+                py,
+                &gr,
+                |i| inner.get_node_name(i),
+                &path,
+                source,
+                target,
+            )
         })
     } else if gr.is_directed() {
         let inner = gr.digraph().expect("is_directed checked above");
@@ -23380,8 +23442,14 @@ fn bidirectional_shortest_path(
             fnx_algorithms::bidirectional_shortest_path_directed_index_meta(inner, &s, &t)
         });
         indexed.map(|path| {
-            let nodes = inner.nodes_ordered();
-            emit_bidirectional_index_path(py, &gr, &nodes, &path, source, target)
+            emit_bidirectional_index_path(
+                py,
+                &gr,
+                |i| inner.get_node_name(i),
+                &path,
+                source,
+                target,
+            )
         })
     } else {
         let inner = gr.undirected();
@@ -23389,8 +23457,14 @@ fn bidirectional_shortest_path(
             fnx_algorithms::bidirectional_shortest_path_index_meta(inner, &s, &t)
         });
         indexed.map(|path| {
-            let nodes = inner.nodes_ordered();
-            emit_bidirectional_index_path(py, &gr, &nodes, &path, source, target)
+            emit_bidirectional_index_path(
+                py,
+                &gr,
+                |i| inner.get_node_name(i),
+                &path,
+                source,
+                target,
+            )
         })
     };
     match result {

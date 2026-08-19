@@ -166,12 +166,6 @@ def _ring(lib, n):
     return graph
 
 
-@pytest.mark.xfail(
-    reason="br-r37-c1-dkwy7 kernel is written but UNBUILT (host disk throttle, "
-    "no cargo); this asserts the fix and must flip to a hard assert once the "
-    "extension is rebuilt",
-    strict=False,
-)
 @pytest.mark.parametrize("cutoff", [1, 2])
 def test_bounded_bfs_cost_does_not_grow_with_the_parent(cutoff):
     """networkx on the SAME host at the SAME moment is the control.
@@ -281,11 +275,6 @@ def test_bfs_edges_depth_zero_emits_nothing():
     assert list(fnx.bfs_edges(graph, "a", depth_limit=0)) == []
 
 
-@pytest.mark.xfail(
-    reason="br-r37-c1-dkwy7 kernel is written but UNBUILT (host disk throttle, "
-    "no cargo); flip to a hard assert once the extension is rebuilt",
-    strict=False,
-)
 def test_bfs_edges_cost_does_not_grow_with_the_parent():
     """networkx on the same host at the same moment is the control."""
     small, large = 200, 12800
@@ -377,11 +366,6 @@ def test_sssp_path_depth_never_exceeds_the_cutoff(cutoff):
         assert len(path) - 1 <= cutoff, f"path {path} is deeper than cutoff {cutoff}"
 
 
-@pytest.mark.xfail(
-    reason="br-r37-c1-dkwy7 kernel is written but UNBUILT (host disk throttle, "
-    "no cargo); flip to a hard assert once the extension is rebuilt",
-    strict=False,
-)
 def test_sssp_path_cost_does_not_grow_with_the_parent():
     small, large = 200, 12800
     fnx_growth = _best(
@@ -455,11 +439,6 @@ def test_dfs_edges_endpoints_are_the_graphs_own_node_objects():
         assert u is identity[u] and v is identity[v]
 
 
-@pytest.mark.xfail(
-    reason="br-r37-c1-dkwy7 kernel is written but UNBUILT (host disk throttle, "
-    "no cargo); flip to a hard assert once the extension is rebuilt",
-    strict=False,
-)
 def test_dfs_edges_cost_does_not_grow_with_the_parent():
     small, large = 200, 12800
     fnx_growth = _best(
@@ -519,11 +498,6 @@ def test_dfs_postorder_cutoff_node_omission_matches_networkx(depth):
     assert "r" in got_seq, "the root must still close with a normal reverse event"
 
 
-@pytest.mark.xfail(
-    reason="br-r37-c1-dkwy7 kernel is written but UNBUILT (host disk throttle, "
-    "no cargo); flip to a hard assert once the extension is rebuilt",
-    strict=False,
-)
 def test_dfs_postorder_cost_does_not_grow_with_the_parent():
     small, large = 200, 12800
     fnx_growth = _best(
@@ -641,11 +615,6 @@ def test_bidirectional_directed_respects_orientation():
         fnx.bidirectional_shortest_path(got, "d", "a")
 
 
-@pytest.mark.xfail(
-    reason="br-r37-c1-dkwy7 kernel is written but UNBUILT (host disk throttle, "
-    "no cargo); flip to a hard assert once the extension is rebuilt",
-    strict=False,
-)
 def test_bidirectional_cost_does_not_grow_with_the_parent():
     small, large = 200, 12800
     fnx_growth = _best(
@@ -742,11 +711,6 @@ def test_multigraph_bounded_traversals_match_networkx(cls):
 
 
 @pytest.mark.parametrize("cls", MULTI)
-@pytest.mark.xfail(
-    reason="br-r37-c1-dkwy7 kernel is written but UNBUILT (host disk throttle, "
-    "no cargo); flip to a hard assert once the extension is rebuilt",
-    strict=False,
-)
 def test_multigraph_bidirectional_cost_does_not_grow_with_the_parent(cls):
     small, large = 200, 12800
     rings = {
@@ -821,11 +785,6 @@ def test_last_inserted_node_as_source(cls):
 
 
 @pytest.mark.parametrize("cls", MULTI)
-@pytest.mark.xfail(
-    reason="br-r37-c1-dkwy7 kernel is written but UNBUILT (host disk throttle, "
-    "no cargo); flip to a hard assert once the extension is rebuilt",
-    strict=False,
-)
 def test_multigraph_sssp_path_cost_does_not_grow_with_the_parent(cls):
     small, large = 200, 12800
     rings = {
@@ -960,11 +919,6 @@ def test_dijkstra_disconnected_and_missing_source():
         fnx.single_source_dijkstra_path_length(graph, "absent", cutoff=1)
 
 
-@pytest.mark.xfail(
-    reason="br-r37-c1-dkwy7 kernel is written but UNBUILT (the project's other "
-    "pane holds the single build slot); flip to a hard assert once rebuilt",
-    strict=False,
-)
 def test_dijkstra_cutoff_cost_does_not_grow_with_the_parent():
     small, large = 200, 12800
     rings = {}
