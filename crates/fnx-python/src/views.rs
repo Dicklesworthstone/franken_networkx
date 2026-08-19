@@ -651,6 +651,11 @@ fn edge_alldata_items(
 pub struct EdgeView {
     graph: Py<PyGraph>,
     data: NodeViewData,
+    /// br-r37-c1-hvw2e-8smdi: the private adjacency mapping as it stood WHEN
+    /// THIS VIEW WAS BUILT, or `None` for an ordinary graph. networkx binds
+    /// `self._adjdict` in `__init__` and never re-reads it, so a held view is
+    /// blind to a later `G._adj = ...`; this field is that binding.
+    private_adj: Option<PyObject>,
 }
 
 impl EdgeView {
@@ -678,6 +683,9 @@ impl EdgeView {
         visit.call(&self.graph)?;
         if let NodeViewData::AttrWithDefault(_, default) = &self.data {
             visit.call(default)?;
+        }
+        if let Some(mapping) = &self.private_adj {
+            visit.call(mapping)?;
         }
         Ok(())
     }
@@ -1160,12 +1168,22 @@ impl EdgeView {
         // ASSIGNED adjacency, not the native store — `G._adj = {...}` replaces
         // exactly what this subscript returns. One bool test for every ordinary
         // graph; the Python wrapper this slot replaced owned the same branch.
-        if let Some(row) = self
-            .graph
-            .borrow(py)
-            .instance_dict_gc
-            .private_adj_row(py, &u_item)?
-        {
+        // br-r37-c1-hvw2e-8smdi: read the mapping THIS VIEW CAPTURED, never the
+        // graph's current one. The previous version re-probed private storage on
+        // every subscript, so a held view noticed a `G._adj` assigned after it
+        // was built - the inverse of networkx, which binds `_adjdict` in
+        // `__init__` and cannot see a later reassignment. That made fnx raise
+        // KeyError where networkx returns the edge. It also cost a probe per
+        // call; this costs one `Option` test.
+        if let Some(mapping) = self.private_adj.as_ref() {
+            let mapping = mapping.bind(py);
+            let row = match mapping.get_item(&u_item) {
+                Ok(row) => row,
+                Err(err) if err.is_instance_of::<PyKeyError>(py) => {
+                    return Err(missing_edge_key_error(edge));
+                }
+                Err(err) => return Err(err),
+            };
             if row.is_none() {
                 return Err(missing_edge_key_error(edge));
             }
@@ -1419,11 +1437,20 @@ impl EdgeView {
             if let (Some(def), NodeViewData::Attr(attr)) = (default, &view_data) {
                 view_data = NodeViewData::AttrWithDefault(attr.clone(), def.clone().unbind());
             }
+            // Captured for the derived view at ITS construction, exactly as
+            // networkx rebinds `_adjdict` in the new view's `__init__`.
+            let private_adj = self
+                .graph
+                .borrow(py)
+                .instance_dict_gc
+                .private_adj_mapping(py)?
+                .map(pyo3::Bound::unbind);
             let view = Py::new(
                 py,
                 EdgeView {
                     graph: self.graph.clone_ref(py),
                     data: view_data,
+                    private_adj,
                 },
             )?;
             Ok(view.into_any())
@@ -2269,11 +2296,17 @@ pub fn new_node_view(py: Python<'_>, graph: Py<PyGraph>) -> PyResult<Py<NodeView
 }
 
 pub fn new_edge_view(py: Python<'_>, graph: Py<PyGraph>) -> PyResult<Py<EdgeView>> {
+    let private_adj = graph
+        .borrow(py)
+        .instance_dict_gc
+        .private_adj_mapping(py)?
+        .map(pyo3::Bound::unbind);
     Py::new(
         py,
         EdgeView {
             graph,
             data: NodeViewData::NoData,
+            private_adj,
         },
     )
 }

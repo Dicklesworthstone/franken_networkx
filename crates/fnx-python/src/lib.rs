@@ -2333,6 +2333,29 @@ impl InstanceDictGc {
     }
 
     /// The assigned `_node` mapping, if this graph has one.
+    /// The `_adj` MAPPING a graph carrying networkx private storage exposes, or
+    /// `None` for an ordinary graph.
+    ///
+    /// br-r37-c1-hvw2e-8smdi: the sibling `private_adj_row` answers "what row
+    /// should THIS subscript read", which is the right question for a per-call
+    /// probe and the wrong one for a view. networkx binds the mapping ONCE, in
+    /// `EdgeView.__init__`, and `__getitem__` never re-reads `G._adj` - so a
+    /// view that already exists cannot observe a later reassignment. Handing the
+    /// mapping out lets the native view capture it at construction and match
+    /// that contract instead of inverting it.
+    pub(crate) fn private_adj_mapping<'py>(
+        &self,
+        py: Python<'py>,
+    ) -> PyResult<Option<Bound<'py, PyAny>>> {
+        if !self.private_adj_override {
+            return Ok(None);
+        }
+        let Some(dict) = self.dict.as_ref() else {
+            return Ok(None);
+        };
+        dict.bind(py).get_item("_fnx_private_adj_override")
+    }
+
     fn private_node_mapping<'py>(&self, py: Python<'py>) -> PyResult<Option<Bound<'py, PyAny>>> {
         if !self.private_node_override {
             return Ok(None);

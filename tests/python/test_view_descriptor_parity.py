@@ -669,17 +669,13 @@ def test_held_simple_edge_view_matches_networkx_after_private_assignment(
     assignment therefore still answers from the pre-assignment adjacency: the
     native edge is found and the private edge is absent.
 
-    So the old test encoded a DIVERGENCE as the contract. It is rewritten
-    against networkx here, which is also what makes the remaining Graph defect
-    visible: `Graph.edges` is the native `_fnx.EdgeView` whose C-slot
-    `__getitem__` re-probes private storage on every call, so it is inverted on
-    BOTH lookups and xfails below. The old spelling reported that as a pass.
+    So the old test encoded a DIVERGENCE as the contract. Rewriting it against
+    networkx is what made the remaining Graph defect visible - `Graph.edges` is
+    the native `_fnx.EdgeView`, whose C-slot `__getitem__` re-probed private
+    storage on every call and was inverted on BOTH lookups, and the old spelling
+    reported that as a pass. The slot now captures the mapping at construction
+    (br-r37-c1-hvw2e-8smdi, Rust half), so Graph is checked here like the rest.
     """
-    if cls_name == "Graph":
-        pytest.xfail(
-            "native _fnx.EdgeView C slot re-probes private storage per call "
-            "(br-r37-c1-hvw2e-8smdi, Rust half)"
-        )
     expected = _held_simple_edge_view_outcomes(nx, cls_name)
     actual = _held_simple_edge_view_outcomes(fnx, cls_name)
     assert actual == expected, (

@@ -42,8 +42,11 @@ CLASSES = ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"]
 PRIVATE_ATTRS = ["_adj", "_succ", "_pred", "_node"]
 ORDERS = ["view_before", "view_after"]
 
-# The cells where fnx's native EdgeView C slot still diverges. Graph only.
-NATIVE_SLOT_DEFECT = {("Graph", "_adj", "view_before")}
+# Formerly {("Graph", "_adj", "view_before")}: the native EdgeView C slot used to
+# re-probe private storage on every subscript, so a HELD view saw a `G._adj`
+# assigned after it was built. The slot now captures the mapping at construction
+# (br-r37-c1-hvw2e-8smdi, Rust half), so every cell is checked against networkx.
+NATIVE_SLOT_DEFECT: set[tuple[str, str, str]] = set()
 
 
 def _subscript(module, class_name, private_attr, order):
