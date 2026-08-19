@@ -8427,7 +8427,22 @@ impl PyMultiDiGraph {
             graph_attrs: self.graph_attrs.bind(py).copy()?.unbind(),
             nodes_seq: 0,
             edges_seq: 0,
-            edges_dirty: AtomicBool::new(self.edges_dirty.load(Ordering::Relaxed)),
+            // br-r37-c1-igdzi: START CLEAN. `copy()` deep-copies every edge attr
+            // dict, so the dicts this graph holds were created HERE and no caller
+            // can hold a reference to one. The dirty flag exists to record that a
+            // live dict was handed out and may be written behind the store's back;
+            // that is a fact about the SOURCE graph's dicts, not about these.
+            // Propagating it made one `edges(data=True)` cost 5.4x on every later
+            // weighted read of every copy, forever, on a graph nobody had mutated.
+            // Verified behaviourally, not assumed: writing through the source's
+            // attr dict is NOT visible in the copy, on all four classes and in
+            // networkx too. `subgraph(all).copy()` already starts clean and is the
+            // control proving a clean start is both safe and sufficient.
+            // NOTE `__copy__` deliberately still propagates: it is the shallow-copy
+            // protocol, networkx SHARES attr dicts there (fnx currently does not,
+            // which is a separate parity bug), and it must propagate the moment
+            // that is fixed.
+            edges_dirty: AtomicBool::new(false),
             edge_dirty_keys: self.cloned_edge_dirty_keys(),
             node_keys_cache: std::sync::Mutex::new(None),
             node_data_mirror: std::sync::Mutex::new(None),
@@ -14036,7 +14051,22 @@ impl PyDiGraph {
             graph_attrs: self.graph_attrs.bind(py).copy()?.unbind(),
             nodes_seq: 0,
             edges_seq: 0,
-            edges_dirty: AtomicBool::new(self.edges_dirty.load(Ordering::Relaxed)),
+            // br-r37-c1-igdzi: START CLEAN. `copy()` deep-copies every edge attr
+            // dict, so the dicts this graph holds were created HERE and no caller
+            // can hold a reference to one. The dirty flag exists to record that a
+            // live dict was handed out and may be written behind the store's back;
+            // that is a fact about the SOURCE graph's dicts, not about these.
+            // Propagating it made one `edges(data=True)` cost 5.4x on every later
+            // weighted read of every copy, forever, on a graph nobody had mutated.
+            // Verified behaviourally, not assumed: writing through the source's
+            // attr dict is NOT visible in the copy, on all four classes and in
+            // networkx too. `subgraph(all).copy()` already starts clean and is the
+            // control proving a clean start is both safe and sufficient.
+            // NOTE `__copy__` deliberately still propagates: it is the shallow-copy
+            // protocol, networkx SHARES attr dicts there (fnx currently does not,
+            // which is a separate parity bug), and it must propagate the moment
+            // that is fixed.
+            edges_dirty: AtomicBool::new(false),
             node_keys_cache: std::sync::Mutex::new(None),
             node_data_mirror: std::sync::Mutex::new(None),
             dict_of_dicts_cache: None,
