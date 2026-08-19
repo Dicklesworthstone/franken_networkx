@@ -24718,3 +24718,103 @@ NO RATIO CLAIMED. Every figure here is a frame count. The host reached loadavg 2
 iowait 63 pct during the final suite run and build slots are disabled in this deployment,
 so nothing timed was run; the wall-clock win from deleting an O(E) Python pass per call
 still needs a quiet window to state as a ratio.
+
+## 2026-08-19 — the multigraph cell wrapper was mostly keyword matching: MultiGraph G[u][v] 0.37x to 0.47x (br-r37-c1-2ndmw)
+
+DONE (EmeraldMeadow, 2026-08-19). Python-shim lever, no Rust change.
+
+THE ATTRIBUTION FIRST, because it moved the target. The bead's standing story was that
+multigraph rows never reach the native row view, so the fix was to route them onto one.
+Decomposing the current call at 2000-character keys says the row lookup is not the cost and
+neither is the native probe:
+
+    fnx row[v] FULL                     606.5 ns
+    nx  row[v] FULL                     129.9 ns
+    hash(v) explicitly                   23.7 ns
+    row._atlas()  frame + constant lambda 58.1 ns
+    v in atlas  native MultiAtlasView     58.5 ns
+    AtlasView(...) construction         318.1 ns   <- 52 percent
+
+and 132 ns of that constructor is KEYWORD MATCHING alone. Same body, same eight stores,
+called with four keywords is 262.3 ns and called positionally is 130.1 ns on CPython 3.13.7
+(baseline loop 8.4 ns). networkx answers the whole subscript in 129.9 ns, so the star in
+one signature cost more than networkx spends on the entire operation. The wrapper cannot be
+cached away — networkx returns a fresh mapping per multigraph subscript and row[v] is
+row[v] is False there — so the construction had to get CHEAPER, not disappear.
+
+THREE CHANGES, all in the shim:
+  1. AtlasView.__init__ loses its keyword-only star; the hot call site passes positionally.
+     Every existing keyword call site still means what it meant.
+  2. Three fields whose only constructor value is None become class defaults, on the
+     multigraph-cell shape only (see the REJECTED sub-lever below).
+  3. AdjacencyView.__getitem__ reads _fnx_captured_row directly instead of calling
+     _atlas(), and skips the explicit hash(node) on that path. This required wiring
+     _fnx_captured_row on the G[u] row builders, where br-r37-c1-fr4me had wired it only on
+     G.adj[u] — the two spellings of the same row had disagreed since.
+
+BANKED ROWS, vs NetworkX 3.6.1 live in the same invocation. RATIO = t_networkx / t_fnx.
+
+    row                             before (3 runs)        after (2 runs)      move
+    MultiGraph   G[u][v] len=3      0.3680 0.3456 0.3813   0.4543 0.4710       1.26x  disjoint
+    MultiGraph   G[u][v] len=2000   0.3656 0.3704 0.3828   0.4653 0.4698       1.26x  disjoint
+    MultiDiGraph G[u][v] len=3      0.3766 0.3779 0.3741   0.4459 0.4615       1.21x  disjoint
+    MultiDiGraph G[u][v] len=2000   0.3501 0.3513 0.3241   0.3956 0.4096       1.19x  disjoint
+    CONTROL   MG has_edge len=2000  0.6457 0.6759 0.6651   0.6255 0.6511       0.97x  overlap
+    POSCONTROL Graph len=3          0.6717 0.7205 0.7007   0.7280 0.7194       1.03x  overlap
+    POSCONTROL Graph len=2000       0.6464 0.7187 0.7381   0.7061 0.6972       0.99x  overlap
+    CONTROL   DiGraph len=3         0.4911 0.5185 0.4950   0.4884 0.4954       0.99x  overlap
+    CONTROL   DiGraph len=2000      0.5057 0.5195 0.5109   0.4999 0.4991       0.98x  marginal
+
+Every control sits in a +3/-3 percent band; every subject row is +19 to +26 percent and
+disjoint across all five runs. Correcting the subject by each control gives 1.22x to 1.30x
+for MultiGraph and 1.16x to 1.25x for MultiDiGraph, so the honest statement is roughly
+1.2x on all four multigraph rows, not the 1.26x point estimate.
+
+PROVENANCE. scripts/balanced_square_ab.py workload row-subscript-family, full nine-row set
+(not --only), ABBAABBA, 41 rounds, 400 reps per slot, taskset -c 40-47, PYTHONHASHSEED=0,
+OPENBLAS_NUM_THREADS=1, LOCAL:thinkstation1, no rch worker, no build of mine in the window.
+Seven runs 11:29-11:32 EDT, arms alternated before/after/after/before then after/before/after.
+loadavg 12.7-18.5 one-minute against 12.4-13.1 five-minute — a STABLE regime, not a quiet
+one. Per-arm clocks 4040-4289 MHz with arm skew 0.00-0.10 percent on every row and
+cross-core spread 1.2-11.4 percent; both arms of every square ran in the same window.
+
+THIS LEVER HAS NO BINARY NOISE FLOOR, which is the one methodological advantage of a
+pure-Python change. Both arms load the IDENTICAL extension, ELF a6a70cdf9631ad18, verified
+IN-PROCESS by --expect-elf on all seven runs; the arms are two symlink trees differing only
+in __init__.py. So the ~5 percent whole-binary codegen movement that bounds every
+single-lever Rust A/B in this crate (recorded on this same bead, 2026-08-19 10:18) does not
+apply, and the controls sitting inside 3 percent are measuring window drift alone. A peer
+rebuilt the shared .so at 11:39:44, seven minutes AFTER the last measurement.
+
+EVERY NULL FAILED, on both arms, in all seven runs (1.02 to 1.90), and that is not
+recoverable by waiting. Both arms ramp in the same direction across the rounds of a square,
+which is the common-mode shape the bound is not built to pass; the verdict therefore rests
+on replication (3 before, 2 after), disjointness, and controls that do not move. Same
+finding the 10:18 comment on this bead recorded for the Rust half.
+
+REJECTED SUB-LEVER, measured and reverted inside this lever. Making the three None fields
+class defaults UNCONDITIONALLY is a net LOSS on rows that read them. A class default is an
+instance-dict miss, so every read of a never-written field pays a type-dict fallback on top,
+and a DiGraph row is built once and then reads all three on EVERY subscript — its owner is
+None, so _keydict() returns early and they are never written at all. Measured:
+
+    DiGraph G[u][v] len=3      0.4911/0.5185 before  ->  0.4778/0.4627  unconditional
+    DiGraph G[u][v] len=2000   0.5057/0.5195 before  ->  0.4971/0.4816  unconditional
+
+a disjoint 4-5 percent loss on a row this lever has no business touching, while the
+multigraph rows gained. Gating the class defaults on multi_edge_owner is not None restored
+DiGraph to 0.4884/0.4999 and 0.4954/0.4991 (overlapping the before band) and cost the
+multigraph rows nothing. The general form: a class default trades ONE store at construction
+for a slower read of every never-written access, so it only pays on an object that is
+constructed more often than it is read. A multigraph cell is; an adjacency row is not.
+
+FOUND AND NOT FIXED HERE (filed separately, br-r37-c1-wdgb8): a multigraph row
+held from G[u] raises KeyError after G.clear() where networkx still serves its contents.
+Only the G.adj[u] builder is reached by _detach_row. PRE-EXISTING — it reproduces
+identically on the arm before this lever — and out of scope for a construction-cost change.
+
+WHAT IS LEFT ON THIS CELL, with the current decomposition: the native contains at 58.5 ns
+against a networkx dict probe, the per-call lambda closure at ~53 ns, and the remaining
+positional constructor. Routing the multigraph row onto a native class with a C getitem
+slot, the treatment simple Graph already has, is still the structural lever; this one just
+established that half the gap was never in the lookup at all.

@@ -2134,15 +2134,50 @@ class AtlasView(_Mapping):
     # shared __getitem__ below build writable rows.
     _fnx_private_rows = False
 
+    # br-r37-c1-2ndmw: CLASS-LEVEL DEFAULTS for the three fields whose only
+    # constructor value is None. An instance attribute that is written solely by
+    # a later cache fill can start life on the class: reads resolve to this same
+    # None through the normal attribute protocol, and the first write still
+    # shadows it per instance. Three STORE_ATTRs leave the constructor, which is
+    # 52 percent of a multigraph `G[u][v]` (318.1 ns of 606.5 ns at K=2000) and
+    # is paid FRESH on every subscript, because networkx returns a new wrapper
+    # per call on a multigraph and caching this view would be a parity break
+    # (`row[v] is row[v]` is False in networkx — pinned in
+    # test_multigraph_row_view_contract.py).
+    #
+    # THEY ARE NOT FREE FOR EVERY VIEW, WHICH IS WHY `__init__` STILL STORES
+    # THEM ON THE NON-MULTI SHAPE. A class default is a MISS in the instance
+    # dict, so every read of a never-written field pays the type-dict fallback
+    # on top. That is the right trade for a multigraph CELL, which is
+    # constructed per subscript and whose `__getitem__` short-circuits on
+    # `_fnx_multi_edge_owner` before touching any of the three. It is the wrong
+    # trade for a `DiGraph` row, which is built once and then reads
+    # `_fnx_live_keydict`, `_fnx_kd_cache` and `_fnx_edge_fast` on EVERY
+    # subscript — and whose owner is None, so `_keydict()` returns early and
+    # those fields are never written at all. Measured: making them
+    # unconditionally class-level moved `DiGraph G[u][v]` from 0.4911/0.5185x to
+    # 0.4778/0.4627x, a disjoint 4-5 percent LOSS on a row this lever has no
+    # business touching, while the multigraph rows gained. The branch below buys
+    # the construction saving only where the reads do not pay for it.
+    _fnx_live_keydict = None
+    _fnx_kd_cache = None
+    _fnx_edge_fast = None
+
     def __init__(
         self,
         atlas_getter,
-        *,
         owner=None,
         row_node=None,
         row_kind="adj",
         multi_edge_owner=None,
     ):
+        # br-r37-c1-2ndmw: these were KEYWORD-ONLY, and the star cost more than
+        # every attribute store put together. Measured on this interpreter
+        # (3.13.7), the identical body called with four keywords is 262.3 ns and
+        # positionally is 130.1 ns — 132 ns of pure name matching on a call that
+        # networkx answers end to end in 129.9 ns. They stay keyword-ACCEPTING,
+        # so no existing call site changes meaning; only the hot multigraph cell
+        # construction in `AdjacencyView.__getitem__` passes positionally.
         self._atlas_getter = atlas_getter
         self._fnx_owner = owner
         self._fnx_row_node = row_node
@@ -2160,17 +2195,24 @@ class AtlasView(_Mapping):
         # captured row objects detached-but-readable exactly like nx's inner
         # adjacency dicts. This lets every neighbor lookup skip mutation-counter
         # reads without sacrificing liveness.
-        self._fnx_live_keydict = None
+        #   `_fnx_live_keydict` — class default None, see above.
         # br-r37-c1-spg9n: ((nodes_seq, edges_seq), keydict) — the row's
         # {nbr: <value>} keydict, cached on the (already per-node-cached) view so
         # iteration/len/membership are pure-Python dict ops like nx's
         # iter/len/in over self._adj[n] (3-5x slower -> parity). The keydict is
         # the same object the graph-level row cache holds; both rebuild on any
         # structural change (nodes_seq/edges_seq token).
-        self._fnx_kd_cache = None
+        #   `_fnx_kd_cache` — class default None, see above.
         # br-r37-c1-ey6ob: memoised owner._fnx_edge_attr_dict_fast. None = not
         # looked up yet, False = looked up and absent, else the bound method.
-        self._fnx_edge_fast = None
+        #   `_fnx_edge_fast` — class default None, see above.
+        if multi_edge_owner is None:
+            # Not a multigraph cell: this view will be read many times per
+            # construction, so pay the three stores once and keep every later
+            # read an instance-dict hit. See the class-default note above.
+            self._fnx_live_keydict = None
+            self._fnx_kd_cache = None
+            self._fnx_edge_fast = None
 
     def _atlas(self):
         return self._atlas_getter()
@@ -2593,14 +2635,31 @@ class AdjacencyView(_Mapping):
         # br-r37-c1-i9whv: hash-check for nx-shaped TypeError on
         # unhashable nodes (instead of falling through to KeyError).
         #
-        # br-r37-c1-2ndmw: LOAD-BEARING, and not merely for unhashable keys —
-        # the `in` probe below CANNOT replace it. The native multi atlas's
-        # `__contains__` answers False for an unhashable key instead of
-        # raising (`node_key_to_string` canonicalises by value and never
-        # hashes), so dropping this line would silently turn nx's TypeError
-        # into a KeyError. Same gap br-r37-c1-mh4sg closed one level down.
-        hash(node)
-        atlas = self._atlas()
+        # br-r37-c1-2ndmw: LOAD-BEARING ON THE FALLBACK, and the reason is not
+        # only unhashable keys — a `_atlas()` whose membership contract has not
+        # been established one by one cannot be trusted to raise, and a contract
+        # that holds only for the paths someone happened to check is not a
+        # contract. So the getter path keeps it.
+        #
+        # br-r37-c1-2ndmw (cc): on a CAPTURED row it is redundant, exactly as
+        # `__contains__` above already concluded for itself. The captured row is
+        # either a native `MultiAtlasView`/`MultiDiAtlasView` — whose
+        # `__contains__` and `__getitem__` both run `require_hashable_node_key`
+        # since br-r37-c1-mh4sg, so an unhashable key is a TypeError with the
+        # same "unhashable type: 'list'" message networkx produces — or the
+        # plain dict snapshot `_detach_row` installs, where `in` hashes by
+        # definition. Both probes below therefore raise nx's TypeError on their
+        # own. The stale claim this comment used to make (that the native multi
+        # atlas answers False for an unhashable key) predates br-r37-c1-mh4sg
+        # and is pinned as false by
+        # test_multigraph_cell_view_construction.py::test_unhashable_cell_key_raises_typeerror_on_the_captured_row.
+        #
+        # Also skips the `_atlas()` frame plus its lambda, the same two frames
+        # br-r37-c1-fr4me removed from `__contains__` and left here.
+        atlas = self._fnx_captured_row
+        if atlas is None:
+            hash(node)
+            atlas = self._atlas()
         # br-r37-c1-2ndmw: ask for EXISTENCE, do not build a value to throw away.
         #
         # This was `atlas[node]` inside a bare try, used purely as a presence
@@ -2664,12 +2723,14 @@ class AdjacencyView(_Mapping):
             # mirror for Mapping-wide operations and detached-row parity.
             view = _fnx.AtlasView(owner, node)
         else:
+            # br-r37-c1-2ndmw: POSITIONAL. Same five arguments, same order as the
+            # signature; keyword matching alone was 132 ns of this 606.5 ns call.
             view = AtlasView(
                 lambda: self._atlas()[node],
-                owner=owner,
-                row_node=node,
-                row_kind=self._fnx_row_kind,
-                multi_edge_owner=self._fnx_multi_edge_owner,
+                owner,
+                node,
+                self._fnx_row_kind,
+                self._fnx_multi_edge_owner,
             )
         if owner is not None:
             cache[1][node] = view
@@ -3422,6 +3483,13 @@ def _multigraph_getitem_from_native_row(self, node):
         lambda row=row: row,
         multi_edge_owner=self,
     )
+    # br-r37-c1-2ndmw: br-r37-c1-fr4me added `_fnx_captured_row` and wired it on
+    # the `G.adj[u]` row builder but NOT here on `G[u]`, so the two spellings of
+    # the same row disagreed and the `G[u][v]` form kept paying `_atlas()` plus
+    # the constant lambda on every cell lookup. The getter above is a closure
+    # over a FIXED object, which is exactly the precondition that attribute
+    # documents.
+    view._fnx_captured_row = row
     cache[1][node] = view
     return view
 
@@ -3480,6 +3548,9 @@ def _multidigraph_getitem_from_native_row(self, node):
         lambda row=row: row,
         multi_edge_owner=self,
     )
+    # br-r37-c1-2ndmw: directed twin of the capture note in the undirected
+    # builder — the same missing wiring, and the same reason it is sound here.
+    view._fnx_captured_row = row
     cache[1][node] = view
     return view
 
@@ -8129,6 +8200,23 @@ class _WeightAwareDegreeView:
                     )
                     if _fv is not None:
                         _vals = _fv(weight)
+                        if _vals is not None:
+                            return self._as_degree_view(weight, _vals)
+                    # br-r37-c1-weightupdate-9rts1: a MIXED int/float graph
+                    # satisfies neither pure accumulator above, so it fell to the
+                    # exact gen below on EVERY weighted read (0.83x nx, where a
+                    # single-type graph is 4.9x). The mixed accumulator sums an
+                    # exact integer prefix per node and promotes to a compensated
+                    # float on that node's first float value, exactly as CPython's
+                    # sum() does, so the RESULT TYPE stays per-node nx-identical
+                    # (int where nx gives int). Returns None on a dirty store, a
+                    # non-numeric weight, i64 overflow, or an integer past 2**53,
+                    # which keeps those on the byte-identical gen path.
+                    _mv = getattr(
+                        self._graph, "_native_weighted_degree_mixed_values", None
+                    )
+                    if _mv is not None:
+                        _vals = _mv(weight)
                         if _vals is not None:
                             return self._as_degree_view(weight, _vals)
                     dod = to_dict_of_dicts(self._graph)
