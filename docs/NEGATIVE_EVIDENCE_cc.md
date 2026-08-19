@@ -24673,3 +24673,48 @@ DiGraph row is a single timed measurement taken on a contended host, and it shou
 re-run in a quiet window before the bead is worked. The host was disk-bound this tick
 (five local builds, iowait reported at 32 pct) and build slots are disabled in this
 deployment, so I could not re-run it.
+
+## 2026-08-19 — the dijkstra weight guards go native for multigraphs: 1635 Python frames to 3 (br-r37-c1-mgnegscan-8l53h)
+
+DONE (GoldenBison, 2026-08-19). Landed d08539f62.
+
+    Python frames for ONE guard call, 400-edge graph
+    class          before   after
+    Graph               4       3
+    DiGraph             4       3
+    MultiGraph       1635       3
+    MultiDiGraph     1236       3
+
+Four core scans added to fnx-algorithms (negative + nonfinite, undirected + directed
+multigraph), both PyO3 match arms wired, and BOTH `not G.is_multigraph()` gates removed
+from the shim. All of that had to be one change: the shim consults both scans, so wiring
+the Rust without removing the gates changes nothing, and removing one gate leaves the other
+walk in place. The +inf guard carried the same gate on the same calls, so it is included.
+
+SEMANTICS MIRRORED, NOT IMPROVED: only FINITE negatives count, exactly as the simple-class
+scans do, because the shim runs a separate -inf sweep afterwards that depends on the native
+scan NOT reporting -inf.
+
+PARALLEL EDGES were the correctness risk and are covered: `edges_ordered_borrowed` yields
+one tuple per parallel edge, and the test puts the negative weight on the SECOND edge of a
+pair. A (u, v)-keyed scan returns False there and fnx would run its own dijkstra where
+networkx delegates and raises -- a wrong answer, not a slow one.
+
+Verified in BOTH directions: 26 pass on the fixed tree, and exactly the four multigraph
+frame-count cases FAIL against HEAD's shim. The correctness assertions pass on both arms,
+as they should -- the Python walk was correct, just slow.
+
+ALSO CORRECTED, not deleted: the pyfunction doc claiming it "Returns Ok(None) for
+multigraphs" and the shim comment claiming "The native helper returns None for
+multigraphs". Both were true and are now false.
+
+STILL THERE, and separate: MultiGraph's dijkstra shows one Python frame per edge from
+`_multigraph_collapse_min_weight`, which collapses parallel edges to the min-weight edge
+before running the simple-graph algorithm. That is an algorithm step rather than a guard,
+and MultiDiGraph does not do it (5 frames total for the whole call). Worth its own bead if
+anyone wants the multigraph shortest-path path fully native.
+
+NO RATIO CLAIMED. Every figure here is a frame count. The host reached loadavg 235 with
+iowait 63 pct during the final suite run and build slots are disabled in this deployment,
+so nothing timed was run; the wall-clock win from deleting an O(E) Python pass per call
+still needs a quiet window to state as a ratio.
