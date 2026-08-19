@@ -97,3 +97,48 @@ def test_the_fixtures_can_actually_catch_a_one_pass_kernel(class_name):
         "two-level sum, so the parity tests above cannot catch that kernel — "
         "make the weights more adversarial" % class_name
     )
+
+
+@pytest.mark.parametrize("class_name", CLASSES)
+def test_size_refusal_boundaries_match_networkx(class_name):
+    """Inputs a native kernel must refuse rather than approximate.
+
+    Each of these is a case where summing in Rust would either lose precision or
+    change the type of the arithmetic. Whatever the kernel does — answer or
+    decline to the exact formula — the result has to be networkx's, exceptions
+    included.
+    """
+    cases = {
+        "int total past 2**53": [("a", "b", 2**53 + 1), ("a", "c", 2**53 + 3)],
+        "bool weight": [("a", "b", True), ("a", "c", 3), ("a", "d", 1.5)],
+        "string weight": [("a", "b", 1.5), ("a", "c", "not a number")],
+        "float and bignum": [("a", "b", 2**53 + 1), ("a", "c", 0.5)],
+        "negative and zero": [("a", "b", -0.0), ("a", "c", 0.0), ("a", "d", -2.5)],
+        "infinity": [("a", "b", float("inf")), ("a", "c", 1.5)],
+    }
+    for name, edges in cases.items():
+        got, want = getattr(fnx, class_name)(), getattr(nx, class_name)()
+        for graph in (got, want):
+            graph.add_node("lonely")
+            for u, v, w in edges:
+                graph.add_edge(u, v, weight=w)
+
+        def outcome(graph):
+            try:
+                value = graph.size(weight="weight")
+                return ("ok", repr(value), type(value).__name__)
+            except Exception as exc:
+                return ("raise", type(exc).__name__, exc.args)
+
+        assert outcome(got) == outcome(want), "%s: %s diverged" % (class_name, name)
+
+
+@pytest.mark.parametrize("class_name", CLASSES)
+def test_a_weightless_edge_contributes_int_one(class_name):
+    """`dd.get(weight, 1)` — the default is the INT 1, even beside floats."""
+    got, want = getattr(fnx, class_name)(), getattr(nx, class_name)()
+    for graph in (got, want):
+        graph.add_edge("a", "b", weight=2.5)
+        graph.add_edge("a", "c")
+        graph.add_edge("d", "e")
+    assert repr(got.size(weight="weight")) == repr(want.size(weight="weight"))

@@ -666,6 +666,22 @@ def _size_with_unweighted_int(size_impl):
             fast = self._weighted_size_fast(weight)
             if fast is not None:
                 return fast
+            # br-r37-c1-7pzs9: the scalar above is INT-only (it sums each edge
+            # once, which is exact for ints and wrong for floats), so every
+            # float/mixed graph fell to the degree route below and materialised N
+            # (node, PyFloat) pairs to produce ONE number — 2 Python frames for an
+            # int graph against ~2N for a float one. This sibling reproduces nx's
+            # TWO-LEVEL sum natively (compensated per node, compensated fold over
+            # the node totals, then the halving), which a one-pass edge sum does
+            # NOT: it diverges from nx on 7% of uniform(0,1) graphs and 30% of
+            # wide-range ones. Returns None on a dirty store, a non-numeric
+            # weight, overflow, or an integer total past 2**53, which keeps those
+            # on the byte-identical formula below.
+            fast = getattr(self, "_weighted_size_fast_float", None)
+            if fast is not None:
+                fast = fast(weight)
+                if fast is not None:
+                    return fast
         s = sum(d for _, d in self.degree(weight=weight))
         return s / 2
 
