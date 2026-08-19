@@ -17347,6 +17347,137 @@ impl PyGraph {
         Ok(Some(out))
     }
 
+    /// br-r37-c1-weightupdate-9rts1: MIXED int/float sibling of the two
+    /// accumulators above, for a graph whose weights are not all one type.
+    /// Such a graph satisfies NEITHER pure accumulator, so every weighted read
+    /// fell to the exact `to_dict_of_dicts` gen — 0.83x nx where a single-type
+    /// graph is 4.9x. That fallback was CORRECT (once one edge holds an int and
+    /// the rest hold floats the graph genuinely IS mixed); it was just the
+    /// missing fast path, not a defect.
+    ///
+    /// THE CONTRACT IS THE TYPE, NOT ONLY THE VALUE. nx decides per NODE, via
+    /// `builtins.sum`: a node whose incident weights are all int yields an int,
+    /// and one float anywhere in THAT node's row makes it a float. Promoting the
+    /// whole graph to float would return 7.0 where nx returns 7 on a graph that
+    /// merely holds a float on some OTHER node — and `7 == 7.0`, so a
+    /// value-only test passes and the divergence ships silently. Pinned by
+    /// tests/python/test_mixed_weight_degree_type_parity.py (24 cases, each
+    /// asserting type ALONGSIDE value).
+    ///
+    /// So this mirrors CPython's `sum` rather than approximating it: accumulate
+    /// an exact integer while every value seen for this node is an int, and on
+    /// the FIRST float convert that integer prefix to f64 and continue with the
+    /// same Neumaier compensation the float sibling uses — which is what
+    /// `builtin_sum_impl` itself does when its int fast loop meets a float. A
+    /// node that never sees a float emits a PyInt; an edgeless node emits nx's
+    /// int `0` (`sum(())`); and a self-loop's weight is added a second time
+    /// OUTSIDE the compensated sum, matching the gen's
+    /// `total = sum(...) + selfloop.get(weight, 1)`.
+    ///
+    /// Refuses rather than approximates, falling to the exact gen on: a dirty
+    /// store; a bool/str/map weight (nx's `sum` would take its generic
+    /// `PyNumber_Add` path there, and `bool` is not `PyLong_CheckExact`); i64
+    /// overflow on the integer prefix; and any integer beyond 2**53 that would
+    /// have to cross into a float total, where f64 no longer holds it exactly.
+    /// A MISSING weight is NOT a bail — it is nx's default int `1`
+    /// (`dd.get(weight, 1)`), exactly as the int sibling already treats it, so a
+    /// float graph with one weightless edge lands here too.
+    fn _native_weighted_degree_mixed_values(
+        &self,
+        py: Python<'_>,
+        weight: &str,
+    ) -> PyResult<Option<Vec<PyObject>>> {
+        if self.edges_dirty.load(Ordering::Relaxed) {
+            return Ok(None);
+        }
+        // 2**53 — the largest integer magnitude an f64 holds exactly.
+        const EXACT_F64_INT: i128 = 1i128 << 53;
+        let n = self.inner.node_count();
+        let mut out: Vec<PyObject> = Vec::with_capacity(n);
+        for i in 0..n {
+            let mut int_total: i128 = 0; // exact prefix, until the first float
+            let mut float_total = 0.0f64;
+            let mut comp = 0.0f64;
+            let mut is_float = false;
+            // Kept in its own type so the second add below reproduces nx's
+            // `int + int` vs `float + int` exactly.
+            let mut selfloop: Option<Result<i128, f64>> = None;
+            if let Some(nbrs) = self.inner.neighbors_indices(i) {
+                for &j in nbrs {
+                    let value = match self
+                        .inner
+                        .edge_attrs_by_indices(i, j)
+                        .map(|a| a.get(weight))
+                    {
+                        Some(Some(CgseValue::Int(v))) => Ok(i128::from(*v)),
+                        Some(Some(CgseValue::Float(v))) => Err(*v),
+                        Some(Some(_)) => return Ok(None), // bool/str/map -> generic
+                        _ => Ok(1i128),                   // missing weight -> nx's 1
+                    };
+                    match value {
+                        Ok(w) => {
+                            if is_float {
+                                if w.abs() > EXACT_F64_INT {
+                                    return Ok(None);
+                                }
+                                neumaier_add(&mut float_total, &mut comp, w as f64);
+                            } else {
+                                let Some(t) = int_total.checked_add(w) else {
+                                    return Ok(None);
+                                };
+                                int_total = t;
+                            }
+                        }
+                        Err(x) => {
+                            if !is_float {
+                                // First float for this node: CPython converts the
+                                // integer prefix to double here and continues.
+                                if int_total.abs() > EXACT_F64_INT {
+                                    return Ok(None);
+                                }
+                                float_total = int_total as f64;
+                                comp = 0.0;
+                                is_float = true;
+                            }
+                            neumaier_add(&mut float_total, &mut comp, x);
+                        }
+                    }
+                    if i == j {
+                        selfloop = Some(value);
+                    }
+                }
+            }
+            if is_float {
+                let mut total = float_total + comp;
+                if let Some(w) = selfloop {
+                    // nx's undirected DegreeView counts a self-loop's weight twice.
+                    total += match w {
+                        Ok(v) => {
+                            if v.abs() > EXACT_F64_INT {
+                                return Ok(None);
+                            }
+                            v as f64
+                        }
+                        Err(x) => x,
+                    };
+                }
+                out.push(pyo3::types::PyFloat::new(py, total).into_any().unbind());
+            } else {
+                if let Some(Ok(w)) = selfloop {
+                    let Some(t) = int_total.checked_add(w) else {
+                        return Ok(None);
+                    };
+                    int_total = t;
+                }
+                let Ok(total) = i64::try_from(int_total) else {
+                    return Ok(None);
+                };
+                out.push(total.into_pyobject(py)?.into_any().unbind());
+            }
+        }
+        Ok(Some(out))
+    }
+
     /// br-r37-c1-yo1nt: native weighted degree, returning the full
     /// ``(node, total)`` sequence in node order. The Python
     /// `_WeightAwareDegreeView` weighted path builds ``dict(G.adj[node])``

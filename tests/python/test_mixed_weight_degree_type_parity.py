@@ -115,3 +115,67 @@ def test_cross_type_write_does_not_change_the_answer(class_name):
         graph.add_edge("n0", "n1", weight=99)      # cross-type write
     assert _typed_degrees(got) == _typed_degrees(want)
     assert got.size(weight="weight") == want.size(weight="weight")
+
+
+@pytest.mark.parametrize("class_name", CLASSES)
+def test_bool_weights_match_networkx(class_name):
+    """`bool` is an int subclass, but not `PyLong_CheckExact`.
+
+    networkx's `sum` therefore takes its generic `PyNumber_Add` path and still
+    answers with an int. A numeric accumulator must not quietly treat True as 1
+    in a float total; refusing the graph is fine, answering differently is not.
+    """
+    got, want = getattr(fnx, class_name)(), getattr(nx, class_name)()
+    for graph in (got, want):
+        graph.add_edge("a", "b", weight=True)
+        graph.add_edge("a", "c", weight=3)
+        graph.add_edge("a", "d", weight=1.5)
+    assert _typed_degrees(got) == _typed_degrees(want)
+    assert got.size(weight="weight") == want.size(weight="weight")
+
+
+@pytest.mark.parametrize("class_name", CLASSES)
+def test_a_missing_weight_on_a_float_graph_defaults_to_int_one(class_name):
+    """`dd.get(weight, 1)` — an unweighted edge contributes the INT 1.
+
+    A float graph with one weightless edge is mixed for exactly this reason, so
+    it lands on the same path as an int/float mixture and must agree per node.
+    """
+    got, want = getattr(fnx, class_name)(), getattr(nx, class_name)()
+    for graph in (got, want):
+        graph.add_edge("a", "b", weight=2.5)
+        graph.add_edge("a", "c")               # no weight at all -> 1
+        graph.add_edge("plain", "other")       # neither endpoint weighted
+    assert _typed_degrees(got) == _typed_degrees(want)
+    assert got.size(weight="weight") == want.size(weight="weight")
+
+
+@pytest.mark.parametrize("class_name", CLASSES)
+def test_a_large_int_beside_a_float_matches_networkx(class_name):
+    """The 2**53 case where the integer prefix must CROSS into a float total.
+
+    Unlike the all-int graph above, here the node holds a float too, so the
+    integer can no longer stay exact. Whatever the accumulator does — refuse, or
+    convert the way CPython's own sum does — the answer has to be networkx's.
+    """
+    got, want = getattr(fnx, class_name)(), getattr(nx, class_name)()
+    for graph in (got, want):
+        graph.add_edge("a", "b", weight=2**53 + 1)
+        graph.add_edge("a", "c", weight=0.5)
+    assert _typed_degrees(got) == _typed_degrees(want)
+    assert got.size(weight="weight") == want.size(weight="weight")
+
+
+@pytest.mark.parametrize("class_name", CLASSES)
+def test_isolated_zero_and_negative_weights_keep_networkxs_types(class_name):
+    """`sum(())` is the INT 0, not 0.0 — even on a graph full of floats."""
+    got, want = getattr(fnx, class_name)(), getattr(nx, class_name)()
+    for graph in (got, want):
+        graph.add_node("isolated")
+        graph.add_edge("a", "b", weight=0)
+        graph.add_edge("a", "c", weight=-4)
+        graph.add_edge("d", "e", weight=-2.5)
+        graph.add_edge("d", "f", weight=0.0)
+    assert _typed_degrees(got) == _typed_degrees(want)
+    assert _typed_degrees(got)["isolated"][1] == "int"
+    assert got.size(weight="weight") == want.size(weight="weight")
