@@ -3795,7 +3795,12 @@ impl MultiDiAtlasView {
         kind: MultiDiAdjKind,
         node_pos: Option<(u64, usize)>,
     ) -> Self {
-        Self { graph, node, kind, node_pos }
+        Self {
+            graph,
+            node,
+            kind,
+            node_pos,
+        }
     }
 
     fn endpoint_pair(&self, other: String) -> (String, String) {
@@ -19715,8 +19720,15 @@ def fnx_keyed_attr_edges(mixed):
             MultiDiAtlasView::new_with_pos(
                 graph.clone_ref(py),
                 "hub".to_owned(),
-                MultiDiAdjKind::Successors, None),
-            MultiDiAtlasView::new_with_pos(graph, "hub".to_owned(), MultiDiAdjKind::Predecessors, None),
+                MultiDiAdjKind::Successors,
+                None,
+            ),
+            MultiDiAtlasView::new_with_pos(
+                graph,
+                "hub".to_owned(),
+                MultiDiAdjKind::Predecessors,
+                None,
+            ),
         ))
     }
 
@@ -19755,9 +19767,15 @@ def fnx_keyed_attr_edges(mixed):
             let successors = MultiDiAtlasView::new_with_pos(
                 graph.clone_ref(py),
                 "hub".to_owned(),
-                MultiDiAdjKind::Successors, None);
-            let predecessors =
-                MultiDiAtlasView::new_with_pos(graph, "hub".to_owned(), MultiDiAdjKind::Predecessors, None);
+                MultiDiAdjKind::Successors,
+                None,
+            );
+            let predecessors = MultiDiAtlasView::new_with_pos(
+                graph,
+                "hub".to_owned(),
+                MultiDiAdjKind::Predecessors,
+                None,
+            );
 
             assert_eq!(successors.__len__(py), 0);
             assert_eq!(predecessors.__len__(py), 0);
