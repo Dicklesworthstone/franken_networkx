@@ -661,3 +661,110 @@ def test_bidirectional_cost_does_not_grow_with_the_parent():
         f"{fnx_growth:.2f}x slower for a two-hop query while networkx moved "
         f"{nx_growth:.2f}x"
     )
+
+
+# ---------------------------------------------------------------------------
+# The MULTIGRAPH mirrors, which were far worse than the simple-graph originals
+# ---------------------------------------------------------------------------
+# br-r37-c1-dkwy7. The multigraph bidirectional helpers built a HashMap of EVERY
+# node name -> index on every call - hashing the whole node set before a two-hop
+# query could start - on top of the same dense parent arrays. Measured growth
+# 200 -> 12800 nodes, against networkx's 0.98x:
+#
+#     MultiGraph    bidirectional_shortest_path   67.39x   0.6388x -> 0.0093x
+#     MultiDiGraph  bidirectional_shortest_path   68.01x   0.5988x -> 0.0088x
+#     MultiGraph    single_source_shortest_path   44.22x   0.7135x -> 0.0158x
+#     MultiDiGraph  single_source_shortest_path   81.30x   0.3236x -> 0.0040x
+#
+# The graph classes already carry the map the helpers rebuilt: get_node_index is
+# an IndexMap lookup, so a neighbour costs the same single hash it cost through
+# the temporary, without the O(V) build in front of it. Parallel edges are the
+# thing to pin here - a multigraph neighbour row repeats a node once per parallel
+# edge, so a per-neighbour index lookup runs more often than the old map build
+# did, and any divergence would show up as a duplicated or reordered path node.
+
+MULTI = ["MultiGraph", "MultiDiGraph"]
+
+
+def _multi_with_parallel_edges(lib, cls):
+    graph = getattr(lib, cls)()
+    graph.add_edge("s", "a")
+    graph.add_edge("s", "a")          # parallel
+    graph.add_edge("a", "t")
+    graph.add_edge("s", "b")
+    graph.add_edge("b", "c")
+    graph.add_edge("c", "t")
+    graph.add_edge("t", "t")          # self-loop
+    return graph
+
+
+@pytest.mark.parametrize("cls", MULTI)
+def test_multigraph_bidirectional_path_matches_networkx(cls):
+    got = _multi_with_parallel_edges(fnx, cls)
+    want = _multi_with_parallel_edges(nx, cls)
+    for src, dst in (("s", "t"), ("s", "s"), ("s", "a"), ("a", "t")):
+        assert [str(n) for n in fnx.bidirectional_shortest_path(got, src, dst)] == [
+            str(n) for n in nx.bidirectional_shortest_path(want, src, dst)
+        ], f"{cls}: {src}->{dst} diverged"
+
+
+@pytest.mark.parametrize("cls", MULTI)
+def test_multigraph_bidirectional_path_is_a_real_walk(cls):
+    graph = _multi_with_parallel_edges(fnx, cls)
+    path = fnx.bidirectional_shortest_path(graph, "s", "t")
+    assert len(path) == len(set(path)), f"{cls}: parallel edges duplicated a node"
+    for left, right in zip(path, path[1:]):
+        assert graph.has_edge(left, right), f"{cls}: {left}->{right} is not an edge"
+
+
+@pytest.mark.parametrize("cls", MULTI)
+def test_multigraph_bounded_traversals_match_networkx(cls):
+    """The other multigraph mirrors on this bead, pinned at the public API."""
+    got = _multi_with_parallel_edges(fnx, cls)
+    want = _multi_with_parallel_edges(nx, cls)
+    for cutoff in (None, 0, 1, 2):
+        assert dict(
+            fnx.single_source_shortest_path_length(got, "s", cutoff=cutoff)
+        ) == dict(nx.single_source_shortest_path_length(want, "s", cutoff=cutoff))
+        assert {
+            str(k): [str(x) for x in v]
+            for k, v in fnx.single_source_shortest_path(got, "s", cutoff=cutoff).items()
+        } == {
+            str(k): [str(x) for x in v]
+            for k, v in nx.single_source_shortest_path(want, "s", cutoff=cutoff).items()
+        }
+        assert [
+            (str(u), str(v))
+            for u, v in fnx.bfs_edges(got, "s", depth_limit=cutoff)
+        ] == [
+            (str(u), str(v)) for u, v in nx.bfs_edges(want, "s", depth_limit=cutoff)
+        ]
+
+
+@pytest.mark.parametrize("cls", MULTI)
+@pytest.mark.xfail(
+    reason="br-r37-c1-dkwy7 kernel is written but UNBUILT (host disk throttle, "
+    "no cargo); flip to a hard assert once the extension is rebuilt",
+    strict=False,
+)
+def test_multigraph_bidirectional_cost_does_not_grow_with_the_parent(cls):
+    small, large = 200, 12800
+    rings = {
+        n: (_multi_ring(fnx, cls, n), _multi_ring(nx, cls, n)) for n in (small, large)
+    }
+    fnx_growth = _best(
+        lambda: fnx.bidirectional_shortest_path(rings[large][0], "n0", "n2")
+    ) / _best(lambda: fnx.bidirectional_shortest_path(rings[small][0], "n0", "n2"))
+    nx_growth = _best(
+        lambda: nx.bidirectional_shortest_path(rings[large][1], "n0", "n2")
+    ) / _best(lambda: nx.bidirectional_shortest_path(rings[small][1], "n0", "n2"))
+    assert fnx_growth < 2.5 * max(nx_growth, 1.0), (
+        f"{cls}: a {large // small}x bigger parent made fnx {fnx_growth:.2f}x "
+        f"slower for a two-hop query while networkx moved {nx_growth:.2f}x"
+    )
+
+
+def _multi_ring(lib, cls, n):
+    graph = getattr(lib, cls)()
+    graph.add_edges_from([(f"n{i}", f"n{(i + 1) % n}") for i in range(n)])
+    return graph

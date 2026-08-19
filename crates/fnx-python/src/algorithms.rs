@@ -23162,10 +23162,18 @@ fn bidirectional_index_meta_from_rows(
         return Some(vec![(source_idx, None, false)]);
     }
 
+    // br-r37-c1-dkwy7: sparse parent maps, exactly as in the simple-graph twin
+    // (fnx_algorithms::bidirectional_index_meta_impl). Two whole-graph
+    // Option<usize> arrays - 32 bytes per node in the graph - were allocated
+    // before the first expansion of a search whose entire purpose is to meet
+    // early. A missing key means what None meant. The `seen` marks stay dense:
+    // one byte per node, probed on every neighbour of every expansion.
     let mut pred_seen = vec![false; node_count];
     let mut succ_seen = vec![false; node_count];
-    let mut pred_parent = vec![None; node_count];
-    let mut succ_parent = vec![None; node_count];
+    let mut pred_parent: std::collections::HashMap<usize, usize> =
+        std::collections::HashMap::new();
+    let mut succ_parent: std::collections::HashMap<usize, usize> =
+        std::collections::HashMap::new();
     pred_seen[source_idx] = true;
     succ_seen[target_idx] = true;
 
@@ -23180,7 +23188,7 @@ fn bidirectional_index_meta_from_rows(
                 for w in succ_row(v) {
                     if !pred_seen[w] {
                         pred_seen[w] = true;
-                        pred_parent[w] = Some(v);
+                        pred_parent.insert(w, v);
                         forward.push(w);
                     }
                     if succ_seen[w] {
@@ -23195,7 +23203,7 @@ fn bidirectional_index_meta_from_rows(
                 for w in pred_row(v) {
                     if !succ_seen[w] {
                         succ_seen[w] = true;
-                        succ_parent[w] = Some(v);
+                        succ_parent.insert(w, v);
                         reverse.push(w);
                     }
                     if pred_seen[w] {
@@ -23216,7 +23224,7 @@ fn bidirectional_index_meta_from_rows(
         if c == source_idx {
             break;
         }
-        cur = pred_parent[c];
+        cur = pred_parent.get(&c).copied();
     }
     if back.last().copied() != Some(source_idx) {
         return None;
@@ -23228,14 +23236,15 @@ fn bidirectional_index_meta_from_rows(
         if node == w {
             out.push((node, Some(returning_v), from_reverse));
         } else {
-            out.push((node, pred_parent[node], false));
+            out.push((node, pred_parent.get(&node).copied(), false));
         }
     }
 
-    let mut cur = succ_parent[w];
+    let mut cur = succ_parent.get(&w).copied();
     while let Some(c) = cur {
-        out.push((c, succ_parent[c], true));
-        cur = succ_parent[c];
+        let parent = succ_parent.get(&c).copied();
+        out.push((c, parent, true));
+        cur = parent;
     }
 
     Some(out)
@@ -23246,15 +23255,17 @@ fn multigraph_bidirectional_shortest_path_index_meta<'a>(
     source: &str,
     target: &str,
 ) -> Option<(Vec<&'a str>, Vec<(usize, Option<usize>, bool)>)> {
+    // br-r37-c1-dkwy7: this built a HashMap of EVERY node name -> index on every
+    // call, hashing the whole graph's node set before a two-hop query could
+    // start. bidirectional_shortest_path grew 67.39x on MultiGraph and 68.01x on
+    // MultiDiGraph between 200 and 12800 nodes while networkx stayed flat (0.98x)
+    // - 0.6388x of nx down to 0.0093x, and 0.5988x down to 0.0088x. The graph
+    // classes already carry the map this rebuilt: `get_node_index` is an
+    // IndexMap lookup, O(1), so a neighbour costs the same single hash it cost
+    // through the temporary map, without the O(V) build in front of it.
     let nodes = mg.nodes_ordered();
-    let node_indices: std::collections::HashMap<&'a str, usize> = nodes
-        .iter()
-        .copied()
-        .enumerate()
-        .map(|(idx, node)| (node, idx))
-        .collect();
-    let source_idx = *node_indices.get(source)?;
-    let target_idx = *node_indices.get(target)?;
+    let source_idx = mg.get_node_index(source)?;
+    let target_idx = mg.get_node_index(target)?;
     let path = bidirectional_index_meta_from_rows(
         source_idx,
         target_idx,
@@ -23263,14 +23274,14 @@ fn multigraph_bidirectional_shortest_path_index_meta<'a>(
             mg.neighbors(nodes[v])
                 .unwrap_or_default()
                 .into_iter()
-                .filter_map(|node| node_indices.get(node).copied())
+                .filter_map(|node| mg.get_node_index(node))
                 .collect()
         },
         |v| {
             mg.neighbors(nodes[v])
                 .unwrap_or_default()
                 .into_iter()
-                .filter_map(|node| node_indices.get(node).copied())
+                .filter_map(|node| mg.get_node_index(node))
                 .collect()
         },
     )?;
@@ -23282,15 +23293,17 @@ fn multidigraph_bidirectional_shortest_path_index_meta<'a>(
     source: &str,
     target: &str,
 ) -> Option<(Vec<&'a str>, Vec<(usize, Option<usize>, bool)>)> {
+    // br-r37-c1-dkwy7: this built a HashMap of EVERY node name -> index on every
+    // call, hashing the whole graph's node set before a two-hop query could
+    // start. bidirectional_shortest_path grew 67.39x on MultiGraph and 68.01x on
+    // MultiDiGraph between 200 and 12800 nodes while networkx stayed flat (0.98x)
+    // - 0.6388x of nx down to 0.0093x, and 0.5988x down to 0.0088x. The graph
+    // classes already carry the map this rebuilt: `get_node_index` is an
+    // IndexMap lookup, O(1), so a neighbour costs the same single hash it cost
+    // through the temporary map, without the O(V) build in front of it.
     let nodes = mdg.nodes_ordered();
-    let node_indices: std::collections::HashMap<&'a str, usize> = nodes
-        .iter()
-        .copied()
-        .enumerate()
-        .map(|(idx, node)| (node, idx))
-        .collect();
-    let source_idx = *node_indices.get(source)?;
-    let target_idx = *node_indices.get(target)?;
+    let source_idx = mdg.get_node_index(source)?;
+    let target_idx = mdg.get_node_index(target)?;
     let path = bidirectional_index_meta_from_rows(
         source_idx,
         target_idx,
@@ -23299,14 +23312,14 @@ fn multidigraph_bidirectional_shortest_path_index_meta<'a>(
             mdg.successors(nodes[v])
                 .unwrap_or_default()
                 .into_iter()
-                .filter_map(|node| node_indices.get(node).copied())
+                .filter_map(|node| mdg.get_node_index(node))
                 .collect()
         },
         |v| {
             mdg.predecessors(nodes[v])
                 .unwrap_or_default()
                 .into_iter()
-                .filter_map(|node| node_indices.get(node).copied())
+                .filter_map(|node| mdg.get_node_index(node))
                 .collect()
         },
     )?;
