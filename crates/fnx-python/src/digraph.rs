@@ -217,6 +217,84 @@ pub struct PyDiGraph {
     pub(crate) instance_dict_gc: crate::InstanceDictGc,
 }
 
+/// br-r37-c1-weightupdate-9rts1: one group of a weighted degree, summed the way
+/// CPython's `sum` types it — an exact integer prefix that promotes to a
+/// Neumaier-compensated float on the FIRST float value, and not before.
+///
+/// Directed degree needs this per GROUP, not per node: nx computes
+/// `sum(succ) + sum(pred)`, so an all-int successor row stays an int even when
+/// the predecessor row holds a float, and the promotion happens in the final
+/// add. Folding both rows into one accumulator would type the answer correctly
+/// by luck on most graphs and wrongly whenever only one row is float.
+#[derive(Clone, Copy)]
+struct MixedSum {
+    int_total: i128,
+    f: f64,
+    c: f64,
+    is_float: bool,
+}
+
+impl MixedSum {
+    /// The largest integer magnitude an f64 holds exactly.
+    const EXACT_F64_INT: i128 = 1i128 << 53;
+
+    fn new() -> Self {
+        Self { int_total: 0, f: 0.0, c: 0.0, is_float: false }
+    }
+
+    /// Returns false when the caller must fall back to the exact path.
+    fn add_int(&mut self, w: i128) -> bool {
+        if self.is_float {
+            if w.abs() > Self::EXACT_F64_INT {
+                return false;
+            }
+            crate::neumaier_add(&mut self.f, &mut self.c, w as f64);
+        } else {
+            let Some(t) = self.int_total.checked_add(w) else {
+                return false;
+            };
+            self.int_total = t;
+        }
+        true
+    }
+
+    fn add_float(&mut self, x: f64) -> bool {
+        if !self.is_float {
+            // CPython converts the integer prefix to double at exactly this point.
+            if self.int_total.abs() > Self::EXACT_F64_INT {
+                return false;
+            }
+            self.f = self.int_total as f64;
+            self.c = 0.0;
+            self.is_float = true;
+        }
+        crate::neumaier_add(&mut self.f, &mut self.c, x);
+        true
+    }
+
+    /// `Ok` for an integer sum, `Err` for a float one — the shape the combine
+    /// step needs to reproduce Python's `int + float` promotion. An empty group
+    /// is `Ok(0)`, which is nx's `sum(())`.
+    fn value(&self) -> Result<i128, f64> {
+        if self.is_float { Err(self.f + self.c) } else { Ok(self.int_total) }
+    }
+}
+
+/// `sum(a) + sum(b)` with Python's promotion rule: int only when BOTH are int.
+fn mixed_combine(a: Result<i128, f64>, b: Result<i128, f64>) -> Option<Result<i128, f64>> {
+    fn as_f64(v: Result<i128, f64>) -> Option<f64> {
+        match v {
+            Ok(i) if i.abs() > MixedSum::EXACT_F64_INT => None,
+            Ok(i) => Some(i as f64),
+            Err(x) => Some(x),
+        }
+    }
+    match (a, b) {
+        (Ok(x), Ok(y)) => x.checked_add(y).map(Ok),
+        _ => Some(Err(as_f64(a)? + as_f64(b)?)),
+    }
+}
+
 #[pymethods]
 impl PyDiGraph {
     fn _fnx_register_gc_dict(&mut self, dict: &Bound<'_, PyDict>) {
@@ -15645,6 +15723,93 @@ impl PyDiGraph {
     /// Values-only TOTAL weighted degree, node-index order (no per-node py_node_key).
     /// The Python DiDegreeView zips these with the cached node list — the win the
     /// unweighted degcounts path carries. Int-store fast path, else exact.
+    /// br-r37-c1-weightupdate-9rts1: MIXED int/float sibling of the int and float
+    /// store accumulators above. A graph holding both types satisfied neither, so
+    /// every weighted read fell to `weighted_degree_exact_values` — the per-node
+    /// PyList + `builtins.sum` path this whole family exists to avoid.
+    ///
+    /// Types per GROUP and then combines, because that is what nx does: the total
+    /// degree is `sum(succ) + sum(pred)`, so an all-int successor row stays int
+    /// even beside a float predecessor row, and the promotion happens in the final
+    /// add. A self-loop appears in BOTH rows and is counted in both, exactly as the
+    /// int and float siblings already do.
+    ///
+    /// Refuses (-> exact path) on a dirty store, a bool/str/map weight, i64
+    /// overflow, or an integer past 2**53 that would have to cross into a float.
+    /// A missing weight is nx's default int 1, as in the int sibling.
+    fn weighted_degree_mixed_store_values(
+        &self,
+        py: Python<'_>,
+        weight: &str,
+        inc_out: bool,
+        inc_in: bool,
+    ) -> PyResult<Option<Vec<PyObject>>> {
+        if self.edges_dirty.load(Ordering::Relaxed) {
+            return Ok(None);
+        }
+        let n = self.inner.node_count();
+        let mut out: Vec<PyObject> = Vec::with_capacity(n);
+        for i in 0..n {
+            let mut acc_out = MixedSum::new();
+            let mut acc_in = MixedSum::new();
+            if inc_out && let Some(succs) = self.inner.successors_indices(i) {
+                for &j in succs {
+                    let ok = match self
+                        .inner
+                        .edge_attrs_by_indices(i, j)
+                        .map(|a| a.get(weight))
+                    {
+                        Some(Some(CgseValue::Int(v))) => acc_out.add_int(i128::from(*v)),
+                        Some(Some(CgseValue::Float(v))) => acc_out.add_float(*v),
+                        Some(Some(_)) => false,
+                        _ => acc_out.add_int(1),
+                    };
+                    if !ok {
+                        return Ok(None);
+                    }
+                }
+            }
+            if inc_in && let Some(preds) = self.inner.predecessors_indices(i) {
+                for &j in preds {
+                    let ok = match self
+                        .inner
+                        .edge_attrs_by_indices(j, i)
+                        .map(|a| a.get(weight))
+                    {
+                        Some(Some(CgseValue::Int(v))) => acc_in.add_int(i128::from(*v)),
+                        Some(Some(CgseValue::Float(v))) => acc_in.add_float(*v),
+                        Some(Some(_)) => false,
+                        _ => acc_in.add_int(1),
+                    };
+                    if !ok {
+                        return Ok(None);
+                    }
+                }
+            }
+            // Same match arms as the exact path: total -> o + i; out-only -> o;
+            // in-only -> i.
+            let deg = match (inc_out, inc_in) {
+                (true, true) => mixed_combine(acc_out.value(), acc_in.value()),
+                (true, false) => Some(acc_out.value()),
+                (false, true) => Some(acc_in.value()),
+                (false, false) => Some(Ok(0)),
+            };
+            let Some(deg) = deg else {
+                return Ok(None);
+            };
+            match deg {
+                Ok(total) => {
+                    let Ok(total_i64) = i64::try_from(total) else {
+                        return Ok(None);
+                    };
+                    out.push(total_i64.into_py_any(py)?);
+                }
+                Err(x) => out.push(pyo3::types::PyFloat::new(py, x).into_any().unbind()),
+            }
+        }
+        Ok(Some(out))
+    }
+
     fn _native_weighted_degree_values(
         &self,
         py: Python<'_>,
@@ -15654,6 +15819,9 @@ impl PyDiGraph {
             return Ok(v);
         }
         if let Some(v) = self.weighted_degree_float_store_values(py, weight, true, true)? {
+            return Ok(v);
+        }
+        if let Some(v) = self.weighted_degree_mixed_store_values(py, weight, true, true)? {
             return Ok(v);
         }
         self.weighted_degree_exact_values(py, weight, true, true)
@@ -15671,6 +15839,9 @@ impl PyDiGraph {
         if let Some(v) = self.weighted_degree_float_store_values(py, weight, true, false)? {
             return Ok(v);
         }
+        if let Some(v) = self.weighted_degree_mixed_store_values(py, weight, true, false)? {
+            return Ok(v);
+        }
         self.weighted_degree_exact_values(py, weight, true, false)
     }
 
@@ -15684,6 +15855,9 @@ impl PyDiGraph {
             return Ok(v);
         }
         if let Some(v) = self.weighted_degree_float_store_values(py, weight, false, true)? {
+            return Ok(v);
+        }
+        if let Some(v) = self.weighted_degree_mixed_store_values(py, weight, false, true)? {
             return Ok(v);
         }
         self.weighted_degree_exact_values(py, weight, false, true)
