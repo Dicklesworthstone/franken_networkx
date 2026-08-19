@@ -10978,12 +10978,29 @@ def _has_negative_edge_weight_for_dijkstra(G, weight, *, _skip_sync=False):
                     nonfinite = None
                 if nonfinite is False:
                     return False
-            # br-r37-c1-4m4wb REVERTED -- see the note on the +inf guard below.
-            # `data=weight` avoids handing out live attr dicts but costs 2.88x
-            # `data=True` in fnx (measured), so it bought a contamination fix
-            # with a 2.9x slowdown on this scan.
-            for _, _, attrs in G.edges(data=True):
-                value = attrs.get(weight, 1)
+            # br-r37-c1-4m4wb RE-LANDED, and the revert note it replaces had the
+            # trade the wrong way round. `data=True` hands out the live attr
+            # dicts, which marks the weighted store dirty for the LIFE OF THE
+            # GRAPH; `data=weight` yields values and marks nothing. The revert
+            # kept `data=True` because the key spelling measured 2.88x the dict
+            # spelling ON THIS SCAN -- but that is a ONE-TIME cost on a scan that
+            # only runs when the graph already has a non-finite weight, and what
+            # it bought was a PERMANENT ~5x on every later size(weight=...) /
+            # degree(weight=...) the caller makes (br-r37-c1-igdzi). A one-off
+            # 2.88x on a rare path is not worth a permanent whole-graph penalty.
+            #
+            # REPRODUCED before changing it, load-independently: on a `Graph`
+            # carrying a +inf or -inf weight, calling this guard left
+            # `size(weight=...)` taking the whole-graph to_dict_of_dicts fallback;
+            # on an all-finite graph the sweep is skipped and nothing happens,
+            # which is why an ordinary dijkstra call never showed it. DiGraph does
+            # not reach that fallback at all, so `Graph` is the case that pays.
+            #
+            # Equivalent by construction: the old code read `attrs.get(weight, 1)`
+            # and `data=weight, default=1` yields exactly that value, so the
+            # -inf test below is unchanged. Pinned by
+            # tests/python/test_dijkstra_guard_keeps_store_clean.py.
+            for _, _, value in G.edges(data=weight, default=1):
                 if isinstance(value, _numbers.Real) and value == -_math.inf:
                     return True
             return False
