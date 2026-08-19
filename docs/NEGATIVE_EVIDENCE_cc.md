@@ -25103,3 +25103,80 @@ read repo paths absent from a shadow tree. clippy adds no new warning (the crate
 `private_adj_row` dead-code warning is pre-existing and present on the before arm's build
 output too). `cargo fmt --check` has 9 pre-existing diffs in this crate from other agents;
 my hunk is clean, and the one diff it did introduce was fixed before the final build.
+
+## REJECT: letting the mixed accumulator subsume the int and float ones (br-r37-c1-weightupdate-9rts1)
+
+THE IDEA, and it was mine. After landing the mixed int/float weighted-degree accumulator
+(ab7984e2d undirected, 3b93a4e66 directed) it sits BEHIND the int and float ones: the
+dispatch tries int, then float, then mixed. A mixed graph therefore pays two refusals before
+reaching the kernel that can answer it, and each refusal scans until it meets the value it
+cannot handle. Moving one int edge from node 0 to node 1500 of a 2000-node float ring costs
+34 percent (156.3us pure / 180.9us early / 242.1us late, one invocation, matched clocks), so
+those rescans are real and not small.
+
+Since the mixed accumulator already answers pure-int and pure-float graphs correctly on its
+own — it emits a PyInt when no float is seen for a node — it could REPLACE both and delete
+the double refusal outright. That is the change this row rejects.
+
+WHAT IT COSTS THE COMMON CASE. Forced A/B on ONE graph object in one invocation, calling the
+two kernels directly as pymethods, so there is no dispatch change, no fixture difference and
+no second build to confound it. Ratios are per-round and paired; the statistic is the
+bootstrap median with a 95 percent CI.
+
+Graph int: base 93.7us, candidate 100.7us.
+  cost paired(base, candidate): 1.0811x CI [1.0696, 1.0877].
+  A/A null control, paired(base, base) in the same invocation: base arm 1.0022x CI [0.9951,
+  1.0041] PASS; candidate arm 0.9975x CI [0.9954, 1.0008] PASS.
+
+Graph float: base 88.6us, candidate 111.7us.
+  cost paired(base, candidate): 1.2629x CI [1.2618, 1.2651].
+  A/A null control, paired(base, base) in the same invocation: base arm 1.0010x CI [0.9986,
+  1.0029] PASS; candidate arm 0.9974x CI [0.9944, 1.0010] PASS.
+
+DiGraph int: base 84.7us, candidate 87.2us.
+  cost paired(base, candidate): 1.0292x CI [1.0252, 1.0326].
+  A/A null control, paired(base, base) in the same invocation: base arm 0.9984x CI [0.9955,
+  1.0012] PASS; candidate arm 0.9980x CI [0.9963, 1.0009] PASS.
+
+DiGraph float: base 88.8us, candidate 112.4us.
+  cost paired(base, candidate): 1.2635x CI [1.2540, 1.2715].
+  A/A null control, paired(base, base) in the same invocation: base arm 0.9925x CI [0.9877,
+  0.9989] FAIL; candidate arm 0.9982x CI [0.9949, 1.0032] PASS.
+
+THE ONE FAILING NULL IS REPORTED, NOT BURIED, and it does not rescue the idea. The DiGraph
+float base arm nulls at 0.9925, a 0.75 percent bias, against an effect of 26.35 percent — the
+effect is 35x the null deviation and the two intervals are nowhere near overlapping. The bias
+also runs the WRONG way to manufacture this result: the null says the base arm got slightly
+FASTER when measured against itself, which would shrink a base-vs-candidate cost, not inflate
+it. The other seven nulls pass.
+
+Subsuming taxes every pure-float graph about 26 percent to save mixed graphs up to 34 percent.
+Pure-type graphs are the overwhelmingly common case and are the certified 5.12x row; mixed
+graphs are the ones that until this week sat at 0.83x. Trading the common case down to help
+the rare one is the wrong direction, so the dispatch stays int -> float -> mixed.
+
+The int rows are the control that makes this readable: 1.03-1.08x says the mixed kernel is
+NOT generically slower, it is specifically slower where it must carry the promotion branch
+through a long float run. That is also why the float cost is so much larger than the int one.
+
+REPLICATION, which outranks the nulls: an independent earlier run in the same window at
+loadavg 8.3 gave 1.0794 / 1.2313 / 1.0264 / 1.2642 for the same four rows against this run
+loadavg 14.2 giving 1.0811 / 1.2629 / 1.0292 / 1.2635. Same ordering, same magnitudes, two
+load regimes.
+
+WHAT WOULD STILL BE WORTH DOING, and is not this: the waste is the RESCAN, not the branch.
+A float accumulator that, on meeting an Int, handed its partial state to the mixed one and
+resumed from that index would pay neither the rescan nor the pure-graph tax. That is a
+refactor of the two kernels rather than a dispatch reorder, and it is unmeasured.
+
+PROVENANCE. Single binary, elf b0fac72e9d965ffd, my own build; no before/after arms are
+involved because both kernels ship in it. Measured against a FULLY FROZEN private package
+(every .py copied, zero symlinks, shim sha 8a2ea93c) because a peer held the build slot and
+would otherwise have rewritten the shim mid-run. Harness scripts/balanced_square_ab.py, ABBA
+inside each round, N=2000, 25 reps x 25 rounds x 10 warm, 4000 bootstrap resamples, values
+AND element types asserted identical between the two kernels before any timing. Per-arm CPU
+matched on every row (4114-4217 MHz, identical to the sampled resolution), per-arm loadavg
+14.2, iowait 0-2 ticks per square. Host loadavg 8.0-14.2 across the two runs, runq 5, CPU
+idle 89. acquire_build_slot is disabled in this deployment, so I verified by hand that no
+benchmark was running fleet-wide and that the only franken_networkx build in flight was the
+peer's (PIDs 562956/562969), which cannot touch a frozen arm.
