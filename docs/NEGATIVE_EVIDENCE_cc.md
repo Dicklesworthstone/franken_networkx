@@ -24123,3 +24123,90 @@ Per-arm clocks were recorded on every row and the arms were never compared acros
 frequency split: skew was 0.00-0.13% with both arms pinned to cpus 40-47, so the
 cross-core spread this campaign treats as its dominant confounder is not in these
 numbers.
+## 2026-08-19 — a key-length defect that was only in HALF the family (br-r37-c1-2ndmw)
+
+RE-MEASURED ON HEAD, AND THE PREMISE IS HALF WRONG (GoldenBison, 2026-08-19).
+
+This bead says the multigraph AtlasView rows missed br-r37-c1-ptiz2's node-index cache and
+that the row subscript is key-length driven. On HEAD only ONE of the two rows still is.
+Held-row `r[v]`, fnx ns, same invocation:
+
+    class          L=3      L=100    L=1000   L=8000   growth
+    MultiGraph     658.6    654.6    643.9     641.5    0.97x   already FLAT
+    MultiDiGraph   727.0    819.6   1002.3    2128.0    2.93x   the only unbounded row
+    Graph          140.1    128.3    124.6     120.0    0.86x   (fixed sibling)
+
+So MultiGraph's length term was already gone by the time this bead was worked, and
+MultiDiGraph was the entire remaining defect. THE BANKED RATIOS ARE ALSO STALE: this bead
+records MultiGraph at 0.1764-0.1801x; on HEAD the same row reads ~0.40x, and MultiDiGraph
+~0.32x, measured in one process with Graph as a live positive control:
+
+    Graph        G[u][v] len=2000   ~0.71x     (bead's ~0.91x, itself now stale)
+    DiGraph      G[u][v] len=2000   ~0.56x
+    MultiGraph   G[u][v] len=2000   ~0.40x     (bead says 0.1764x)
+    MultiDiGraph G[u][v] len=2000   ~0.32x
+
+A CLASS-IDENTITY SPLIT IS WHY ONLY Graph WAS FIXED, and a name check cannot see it: there
+are TWO classes called `AtlasView` and `G[u]` returns a different one per graph class.
+
+    Graph        -> native _fnx.AtlasView   MRO [AtlasView, object]   C slot     0 frames
+    DiGraph      -> PYTHON AtlasView        MRO [.., Mapping, ..]     function   1 frame
+    MultiGraph   -> PYTHON AdjacencyView                              function   4 frames
+    MultiDiGraph -> PYTHON AdjacencyView                              function   4 frames
+
+(networkx pays 1/1/2/2.) Only the native one carries ptiz2's cached row index.
+
+WHERE THE MultiDiGraph LENGTH TERM ACTUALLY LIVED. Not in the keydict build and not in
+`get_edge_data`, which is flat for both multigraphs (139-199 ns). It was the EXISTENCE
+PROBE that the Python `AdjacencyView.__getitem__` runs on every subscript:
+
+    v in atlas    MultiAtlasView (MG)     119.6 ns at L=3 ->    78.7 ns at L=8000   FLAT
+    v in atlas    MultiDiAtlasView (MDG)  149.8 ns at L=3 ->  1386.0 ns at L=8000   O(len)
+
+The undirected `MultiAtlasView::__contains__` already had the stamped-position index path
+(added under this bead); the directed twin never got it. Classic sibling-laggard shape,
+with the winning sibling sitting right next to it as the control.
+
+WHAT LANDED: e7ceb5702 (the port, from my working tree, and its own message says UNBUILT),
+ecd9b5a4b (parity tests), d8671df69 (built it, measured it, rustfmt).
+
+MEASURED, arms built with the IDENTICAL command from the same tree and differing only in
+this change — before 1db0a347c4ac5df3, after 3dda5a4b1da46682. A first A/B was VOID and is
+not quoted: I used a peer's in-tree .so as the before arm and every row INCLUDING the
+untouched Graph and MultiGraph controls moved 8-20 percent, which is a build-flags
+difference wearing a code change's clothes. Rebuilt matched, the controls go flat.
+
+    held-row r[v]         L=3               L=8000
+    MultiDiGraph          768.8 -> 674.5    2012.5 -> 1596.2   SUBJECT
+    MultiGraph            644.5 -> 648.6     640.1 ->  636.6   control, flat
+    Graph                 109.3 -> 103.4     109.7 ->  101.5   control, flat
+
+    vs NetworkX, balanced square, 2 runs/arm, taskset -c 40-47, per-arm clocks recorded
+    (skew 0.00-0.05 percent), loadavg 22-29:
+    MultiDiGraph G[u][v] len=2000   0.2975 0.2926  ->  0.3608 0.3385
+    MultiDiGraph G[u][v] len=3      0.3463 0.3584  ->  0.3809 0.3726
+    MultiGraph   G[u][v] len=3      0.3735 0.3735  ->  0.3819 0.3764   control
+    Graph        G[u][v] len=2000   0.6620 0.6923  ->  0.6807 0.6859   control
+
+Every after-run exceeds every before-run on the subject at both key lengths while both
+controls interleave: roughly 1.19x at 2000-character keys and 1.07x at 3. NOT banked as a
+single ratio — the nulls failed and the host never left loadavg 22-29 — so the claim is
+direction with flat controls, not a certified figure.
+
+THE VEIN IS NOT CLOSED, AND THE REMAINING TERM IS NAMED. Growth is still 2.37x from L=3 to
+L=8000 after the port, because the index path bottoms out in
+`MultiDiGraph::has_edge_by_indices`, which resolves BOTH positions back to NAMES and calls
+`has_edge` — hashing two full-length strings. That is exactly where the undirected sibling
+was before a29279167 made it a true O(1) slot path. So the port removed the probe's own
+canonicalisation and left the two hashes underneath it.
+
+WHY THE NEXT STEP IS NOT A MIRROR PORT, and this is the part worth reading before anyone
+takes it: `MultiGraph` answers O(1) through a SLAB STORE (`slot_at_position` +
+`has_edge_by_pair`). `MultiDiGraph` has no slab store at all. Its `csr_cache` does give
+index-addressed rows (`MultiDiCsr::successors(idx) -> &[u32]`, positions in `nodes`
+insertion order, so the index space is right), but `build_csr` is O(V+E) with a
+`get_index_of` string hash PER EDGE and is rebuilt on every revision bump. Putting that
+behind a hot membership probe would make any read-after-write workload rebuild the whole
+CSR, which is a much worse regression than the 2.37x it would fix. Either give MultiDiGraph
+a real slab store, or find a probe that is O(1) without a per-revision rebuild. Left open
+deliberately rather than guessed at.
