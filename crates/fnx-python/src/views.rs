@@ -1341,15 +1341,27 @@ impl EdgeView {
                 // cache are all exactly as in the all-edges walk - see that
                 // comment for why each is load-bearing.
                 let index_walk: Option<Vec<PyObject>> = if g.adj_py_keys.is_empty() {
-                    // br-r37-c1-lecmc, CORRECTED: the first version of this walk
-                    // built `key_vec` eagerly - a Python object for EVERY NODE IN
-                    // THE GRAPH - and only then filtered to the nbunch. For a
-                    // 50-node request that made a fixed question cost more as the
-                    // graph grew: measured 1.8106x of networkx at 2000 nodes
-                    // decaying to 0.7812x at 16000, i.e. from a win to a loss,
-                    // while networkx stayed flat at ~34us. The all-edges sibling
-                    // above is entitled to the eager vector because it emits every
-                    // node; this branch is not, and I gave it one anyway.
+                    // br-r37-c1-lecmc / br-r37-c1-hihrf: keys are built on first
+                    // use rather than one per node in the graph, so this branch
+                    // costs one key per node it actually emits.
+                    //
+                    // READ THIS BEFORE MEASURING ANYTHING HERE. This walk is NOT
+                    // what serves `G.edges(nbunch)`. That returns the PYTHON
+                    // `EdgeDataView` in __init__.py, whose `__iter__` walks
+                    // adjacency rows itself; this arm is reached only through the
+                    // native view's own nbunch iteration. I attributed a measured
+                    // decay (1.8106x of networkx at 2000 nodes falling to 0.7812x
+                    // at 16000) to the eager key vector that used to live here,
+                    // changed it, and measured EXACTLY ZERO effect - because this
+                    // code did not run. Two signals had already said so: removing
+                    // 16000 eager key constructions cannot be free, and the
+                    // emission order matched networkx's strictly nbunch-major
+                    // order, which a filtered global scan cannot produce.
+                    //
+                    // The lazy keys are kept because they are correct and cost
+                    // nothing, not because they bought anything. The real cost is
+                    // in a native helper called from the Python walk; see
+                    // br-r37-c1-hihrf for the localisation.
                     //
                     // Keys are now built on first use and reused across edges, so
                     // the cost is one per node actually EMITTED. The walk itself
