@@ -24080,3 +24080,46 @@ fix is to match the sibling. Census of the pattern across tests/python: 2 files
 build a subprocess env, 1 was wrong, now 0.
 
 loadavg 43.84/40.57/30.65 at write time, disk 302G, ELF 62cbd5c990611d71, no cargo.
+
+### The measured row for br-r37-c1-hvw2e-8smdi (2026-08-18, same day, later window)
+
+The frame-count claim above is now joined by a vs-incumbent TIMING row for the one
+class where both arms replicated. Substrate: scripts/balanced_square_ab.py workload
+edge-subscript-binding, ABBAABBA, 41 rounds, 400 reps/slot, taskset -c 40-47,
+PYTHONHASHSEED=0. Both arms are symlink packages of IDENTICAL SHAPE differing only in
+__init__.py (commit 78512acab vs its parent), so the comparison is the commit and
+nothing else -- package location, sys.path order and the .so are common to both.
+elf_sha256 62cbd5c990611d71 on BOTH arms, verified in-process by --expect-elf.
+LOCAL:thinkstation1, nx 3.6.1, no rch worker, no build in the window.
+
+    row                          before      after     verdict
+    Graph  G.edges[u,v]  CONTROL 0.8412x -> 0.8400x    0.999x  no separation
+    DiGraph  G.edges[u,v]        0.4739x -> 0.6311x    1.332x  IMPROVED
+    MultiGraph   G.edges[u,v,k]  NOT REPLICATED        unbanked
+    MultiDiGraph G.edges[u,v,k]  NOT REPLICATED (before arm)   unbanked
+    CONTROL len(G)               NOT REPLICATED        unbanked
+
+Worst bound = min p10 over the two runs that AGREED, adjudicated by script rather
+than by eye (scratchpad/adjudicate.py names which pair it used for every row).
+Three paired runs; a fourth was DISCARDED, not quoted: a peer rebuilt the .so
+between its two arms and --expect-elf aborted the second, so it had no comparable
+partner. That guard is the only reason the run was caught.
+
+WHAT MAKES THIS ROW WORTH ANYTHING: the Graph row is the control and it is the same
+code before and after -- Graph.edges is the native _fnx.EdgeView, which this commit
+does not touch -- and it comes out at 0.999x across the same six runs that move
+DiGraph by 1.332x. A drifting host moves the control too; this one did not move.
+
+WHAT IS NOT CLAIMED. Every row failed its A/A null, excused only where both nulls of
+a run were off in the SAME direction within 2x (a common-mode ramp, which an ABBA
+square cancels); the detail is printed per banked row. loadavg ran 24-44 for the
+entire window and never fell to a quiet regime, which is why MultiGraph and
+MultiDiGraph do not bank despite every after-run exceeding every before-run
+(0.7037-0.8128 vs 0.5344-0.6112, and 0.6850-0.7792 vs 0.5027-0.5932). Those two are
+directionally consistent and NOT certified. CONTROL len(G) also failed to replicate,
+which is the honest read on how contended this window was.
+
+Per-arm clocks were recorded on every row and the arms were never compared across a
+frequency split: skew was 0.00-0.13% with both arms pinned to cpus 40-47, so the
+cross-core spread this campaign treats as its dominant confounder is not in these
+numbers.
