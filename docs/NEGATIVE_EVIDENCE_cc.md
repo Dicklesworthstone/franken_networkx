@@ -24292,3 +24292,63 @@ partially-applied-fix pattern in reverse. Measuring all four in one invocation i
 that out, and none moved. My figures run higher than the certified 5.687x because the fixture
 and row context differ; they corroborate direction and boundedness and do not supersede that
 row.
+
+## 2026-08-19 — half the weighted-store contamination is recoverable, and refcount is not the barrier (br-r37-c1-igdzi)
+
+HALF THE COST IS RECOVERED, AND ONE MORE FIX DIRECTION IS REFUTED (GoldenBison, 2026-08-19).
+
+REPRODUCED ON HEAD first, 4000 edges, live NetworkX 3.6.1 in the same invocation,
+taskset -c 40-47: clean 405.4us / 4.302x, after one edges(data=True) 2189.9us / 0.796x.
+The defect is real and current.
+
+LANDED (21f87b0e5): `copy()` now starts with a CLEAN store on all four classes.
+
+    state                          before              after
+    copy() of contaminated        2352.3us  0.801x     385.3us  4.976x   <- 6.1x
+    clean                          413.2us  4.562x     416.3us  4.605x   control
+    after edges(data=True)        2322.9us  0.812x    2264.0us  0.847x   control, untouched
+    rebuilt via add_edges_from     401.4us  4.697x     378.5us  5.066x   control
+    subgraph().copy()              387.8us  4.861x     376.6us  5.092x   control, already clean
+    fresh control                  421.5us  4.473x     419.5us  4.571x   control
+
+All arms agree on the value (31970.0). The subject lands on top of subgraph(all).copy(),
+which ALREADY started clean -- the two copy paths disagreed with each other about the same
+safety property, and the one that was right is the control proving the fix is sufficient.
+
+WHY IT IS SOUND, verified before changing anything rather than argued: `copy()`
+deep-copies every attr dict, so writing through the SOURCE's dict is not visible in the
+copy, on all four classes and in networkx too. The dirty flag records that a live dict was
+handed out and may be written behind the store's back; that is a fact about the source's
+dicts, not about dicts the copy just created. And the copy RE-DIRTIES the moment it hands
+one of its own out: 387.6us before handing out, 2482.3us after, with the write visible
+(31970.0 -> 41970.0). That is the property BlackThrush's objection to the "re-sync"
+proposal turns on, and it is now asserted for all four classes in
+tests/python/test_copy_starts_with_a_clean_weighted_store.py.
+
+THE HEADLINE IS STILL OPEN: the ORIGINAL graph stays contaminated (0.847x).
+
+REFUTED, so nobody spends the hour: REFCOUNT AS A WRITE BARRIER. With the 3.12 dict
+watcher unavailable under abi3 (BlackThrush, confirmed), the one remaining abi3-safe way
+to prove "nobody can write to this dict" is `Py_REFCNT == 1`, reachable from PyO3 via
+`Py::get_refcnt`. It does not work here. Measured: the store itself holds THREE strong
+references to a freshly fetched edge attr dict, and FIVE after a `list(edges(data=True))`
+-- the materialisation adds internal cache references and dropping the caller's list does
+not release them. So the count never falls to 1, and the only version that could work
+compares against "the number of references the store believes it holds". That is a silent
+wrong-answer bug waiting to happen: one cache that forgets to account for itself makes the
+barrier claim safety it does not have, and the symptom is a stale weight, not a crash.
+Not worth the risk for this payoff.
+
+WHAT IS STILL WORTH TRYING, in rough order:
+  * `_native_relabel_copy` (2 sites) also makes fresh dicts -- verified behaviourally,
+    same probe as copy() -- and still propagates. Left out of 21f87b0e5 only because it
+    was not measured. Cheap follow-on.
+  * Narrowing the dirty SCOPE from whole-graph to per-edge, so `get_edge_data(u, v)` does
+    not cost the whole store. Does not help the bulk `edges(data=True)` case.
+  * Accepting a per-version wheel to get the dict watcher, which is a packaging decision
+    and belongs to whoever owns releases, not to this bead.
+
+NOT A FIX BUT WORTH KNOWING FOR CALLERS: contamination IS escapable today, just not via
+`copy()` before this change -- `G.subgraph(G.nodes()).copy()` and rebuilding via
+`add_edges_from(G.edges(data=True))` both produce a clean store (4.86x and 4.70x on the
+contaminated fixture).
