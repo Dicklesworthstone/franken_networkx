@@ -24352,3 +24352,120 @@ NOT A FIX BUT WORTH KNOWING FOR CALLERS: contamination IS escapable today, just 
 `copy()` before this change -- `G.subgraph(G.nodes()).copy()` and rebuilding via
 `add_edges_from(G.edges(data=True))` both produce a clean store (4.86x and 4.70x on the
 contaminated fixture).
+
+## 2026-08-19 — updating one edge weight costs the whole graph 5.2x, permanently (br-r37-c1-weightupdate-9rts1)
+
+MEASURED on HEAD (GoldenBison, 2026-08-19). Found by chasing an anomaly, not by looking for it.
+
+UPDATING ONE EDGE'S WEIGHT PERMANENTLY COSTS THE WHOLE GRAPH 5.2x ON EVERY WEIGHTED READ.
+N=2000 undirected, live NetworkX 3.6.1 in the same invocation, taskset -c 40-47:
+
+    state                                   fnx us    ratio vs nx
+    clean                                    201.8       4.549x
+    add_edge on an EXISTING edge, w/ attrs  1042.8       0.880x   <- 5.2x self-regression
+    G[u][v]['weight'] = x                   1119.3       0.820x
+    add_edge on an EXISTING edge, no attrs   184.9       4.747x   clean
+    add_edge of a BRAND-NEW edge, w/ attrs   186.1       4.717x   clean
+    add_edges_from with a duplicate          188.5       4.655x   clean
+
+Semantics are unaffected: repeat-add matches networkx exactly (verified by value).
+
+IT IS ALL-OR-NOTHING, not per edge. Updating ONE edge costs the same as updating all 2000:
+
+    edges updated   1      2     10    100   1000   2000
+    fnx us       1042.8 1043.9 1066.6 1062.7 1061.3 1081.1
+
+so this is a whole-graph bail, not a mirror-read charged per edge. Same shape for the
+G[u][v] spelling (1 edge 1119.3us, 1000 edges 1109.9us).
+
+THE MECHANISM, traced rather than inferred. `G.size(weight=...)` and
+`G.degree(weight=...)` funnel through the shim's degree path, which tries
+`_native_weighted_degree_int_values` then `_native_weighted_degree_float_values` and
+falls back to a whole-graph `to_dict_of_dicts` + Python sum when both return None. Frame
+counts for one `size(weight)` call at N=2000: 2017 clean vs 10019 after one update, with
+`to_dict_of_dicts` and `_weighted_degree_gen` appearing only in the second. Calling the
+accumulators directly gives the trigger table:
+
+    state                                    int_values   float_values   (float-weighted graph)
+    clean                                          None             OK
+    add_edge on EXISTING edge, with attrs          None           None   <- trigger
+    add_edge on EXISTING edge, NO attrs            None             OK
+    add_edge of BRAND-NEW edge, with attrs         None             OK
+    G[u][v]['weight'] = x                          None           None
+    list(edges(data=True))                         None           None
+
+identical pattern with int weights (int_values OK/None instead). So the trigger is
+precisely MERGING ATTRIBUTES INTO AN EXISTING EDGE, and `to_dict_of_dicts` itself is NOT
+the regression -- it measures a flat 143-146us in every state.
+
+WHY THIS IS NOT br-r37-c1-igdzi, though they share the fallback: igdzi's trigger is
+`edges(data=True)` HANDING OUT live dicts, where marking dirty is conservative but
+defensible. Here fnx wrote the value ITSELF and updated both the native store and the
+Python mirror in the same call, so nothing is stale and there is nothing to be
+conservative about. `add_edge` of a BRAND-NEW edge with attributes runs the same mirror
+insert and stays clean, which is the control showing the mark is not inherent to writing
+attributes.
+
+WHY IT MATTERS: updating an edge weight is not an exotic operation -- it is the inner
+loop of flow, matching, iterative reweighting, and any "load the graph then adjust the
+weights" script. The penalty is invisible, applies to a graph the caller mutated only
+through the public API, and never lifts.
+
+FIRST THING TO DO, and it is small: find which mark site the existing-edge attr merge
+reaches that the new-edge insert does not. `PyGraph::add_edge` (crates/fnx-python/src/lib.rs
+around 14607) contains no `mark_edges_dirty` in its own body, so the flag is being set by
+something the merge path calls and the create path does not. The three-way control above
+(new edge / existing without attrs / existing with attrs) isolates it to a single branch.
+
+NEGATIVE CASE any fix must carry: after the update, a weighted read must still see the
+NEW weight. A fix that simply stops marking dirty without confirming the native store was
+updated would serve the stale weight -- the same silent-wrong-answer failure that sank the
+re-sync proposal on br-r37-c1-igdzi. Assert against networkx, on all four classes, for
+both the `add_edge` and `G[u][v][w] =` spellings.
+
+RELATED, and worth checking in the same pass: `add_edges_from` with a duplicate does NOT
+contaminate while `add_edge` with the same duplicate does, so the two spellings already
+disagree and the non-contaminating one is the model.
+
+REFINING MY OWN FILING (GoldenBison, 2026-08-19), and correcting one row of the table above.
+
+`_native_weighted_degree_float_values` can return None for three different reasons, and
+the bead's original table did not separate them:
+
+    1. edges_dirty is set                    -- a GLOBAL exposure flag
+    2. edge_attrs_by_indices(i, j) is None   -- the index view lost that edge
+    3. the weight is not a Float             -- includes a MISSING weight, since the
+                                                accumulator is a pure-float sum
+
+Updating a NON-weight attribute on an existing edge discriminates them: it runs the same
+merge but leaves `weight` alone, so reason 3 cannot fire.
+
+    state                                        float_values
+    clean                                                  OK
+    existing edge, weight set to a FLOAT                 None
+    existing edge, weight set to an INT                  None
+    existing edge, NON-weight attr only                  None   <- rules out reason 3
+    existing edge, empty attr dict                         OK
+    NEW edge with a float weight                           OK
+    NEW edge with a NON-weight attr                      None   <- see below
+    existing edge, G[u][v]['color'] = 'red'              None
+
+CONCLUSION, sharper than the original filing: the trigger is MERGING ANY NON-EMPTY
+ATTRIBUTE SET INTO AN EXISTING EDGE. It is independent of which attribute, and of the
+weight's type or presence, so it is reason 1 or 2 -- a global bail -- and NOT the weight
+value itself.
+
+CORRECTION TO THE TABLE ABOVE. I listed "add_edge of a BRAND-NEW edge, with attrs -> OK"
+as the control showing the mark is not inherent to writing attributes. That row is real
+but it passes for a narrower reason than I implied: it was carrying a `weight`. A new edge
+added with a NON-weight attribute returns None too -- legitimately, under reason 3, because
+that edge then genuinely has no weight and a pure-float accumulator cannot serve it. So the
+honest control is "existing edge, empty attr dict -> OK" plus "NEW edge WITH a weight ->
+OK"; a bare "new edges are fine" reading of the original table would send someone looking
+in the wrong place.
+
+WHAT THIS MEANS FOR THE FIX. Reason 3 is correct behaviour and must stay: an edge with no
+weight cannot be summed by the float accumulator. Only the global bail on an existing-edge
+merge is the defect. So the fix is scoped to whichever of edges_dirty / the index view the
+merge disturbs, and the acceptance test is the row "existing edge, NON-weight attr only",
+which must become OK while "NEW edge with a NON-weight attr" must stay None.
