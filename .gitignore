@@ -33,6 +33,7 @@ franken_networkx_illustration.png
 
 # Local agent/task metadata
 .bv/
+/AGENT_NAME
 
 # Ephemeral agent/runtime artifacts
 storage.sqlite3
