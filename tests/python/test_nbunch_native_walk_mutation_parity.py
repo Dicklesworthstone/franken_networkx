@@ -20,11 +20,16 @@ first yielded edge:
     MultiDiGraph     500        4   completes          RuntimeError   <-
     MultiDiGraph   20000       16   completes          RuntimeError   <-
 
-So the faithful Python walk is effectively UNDIRECTED-GRAPH-ONLY: the multigraph
-classes diverge at every size tested including nbunch=4, DiGraph diverges above
-the fixed floor at any order, and only Graph is rescued - and only when
-``_edges_nbunch_py_walk_limit`` (``max(8, order // 250)``) happens to cover the
-nbunch.
+Two separate things are going on, and the mutation-kind sweep at the bottom of
+this file separates them:
+
+  * Graph and DiGraph DO have the faithful walk, and inside the gate they
+    reproduce networkx on every mutation kind tested - including the one where
+    networkx itself raises. They diverge only once the nbunch exceeds
+    ``_edges_nbunch_py_walk_limit`` (``max(8, order // 250)``) and the call is
+    handed to the kernel.
+  * MultiGraph and MultiDiGraph never reach it at all: they raise at nbunch=4 on
+    a 500-node graph, which is comfortably inside the gate.
 
 WHY IT WAS NOT CAUGHT. The existing coverage in
 test_edges_nbunch_py_walk_threshold_parity.py builds an order-20000 graph, where
@@ -114,3 +119,94 @@ def test_the_undirected_gate_is_what_rescues_graph():
     large = _iterate_and_mutate(fnx, "Graph", 20000, 16)
     assert small == ("RuntimeError",), small
     assert large == _iterate_and_mutate(nx, "Graph", 20000, 16)
+
+
+# ---------------------------------------------------------------------------
+# WHICH mutations diverge, not just which sizes
+# ---------------------------------------------------------------------------
+# br-r37-c1-hihrf. Sweeping mutation KIND at a size below the gate's floor
+# localises the defect much more sharply than sweeping size did. Measured at
+# nbunch=[n0..n3], order 500, mutation applied after the first yielded edge:
+#
+#   mutation                   Graph    DiGraph   MultiGraph   MultiDiGraph
+#   add edge new<->new         match    match     RAISES       RAISES
+#   add node only              match    match     RAISES       RAISES
+#   add edge TO nbunch[0]      match*   match*    match*       match*
+#   add edge TO nbunch[3]      match    match     RAISES       RAISES
+#   add edge far from nbunch   match    match     RAISES       RAISES
+#   remove far edge            match    match     RAISES       RAISES
+#   remove nbunch[3] edge      match    match     RAISES       RAISES
+#
+#   (*) the one case where networkx ITSELF raises: nbunch[0]'s row is the row
+#       being iterated when the mutation lands, so CPython's own dict guard
+#       fires. Graph and DiGraph reproduce that exactly.
+#
+# So Graph and DiGraph are faithful on ALL SEVEN kinds - including the subtle
+# one - while the multigraph classes raise on six of seven, i.e. on everything
+# except the case where raising is correct. The faithful walk is simply NOT
+# WIRED for MultiGraph/MultiDiGraph.
+#
+# That matters for how this gets fixed: the shared per-edge guard in
+# _FailFastEdgeIterator is NOT the thing to change. It is already producing
+# networkx's answer wherever the walk is reached. The work is to reach the walk
+# on the multigraph classes.
+
+MUTATIONS = {
+    "add_edge_new_to_new": lambda g: g.add_edge("brand", "new"),
+    "add_node_only": lambda g: g.add_node("brand"),
+    "add_edge_to_walked_row": lambda g: g.add_edge("n0", "brand"),
+    "add_edge_to_later_nbunch_node": lambda g: g.add_edge("n3", "brand"),
+    "add_edge_far_from_nbunch": lambda g: g.add_edge("n250", "brand"),
+    "remove_far_edge": lambda g: g.remove_edge("n250", "n251"),
+    "remove_later_nbunch_edge": lambda g: g.remove_edge("n3", "n4"),
+}
+
+# Only the multigraph classes diverge, and only where networkx does NOT raise.
+FAITHFUL_CLASSES = {"Graph", "DiGraph"}
+
+
+def _iterate_with_mutation(lib, class_name, mutation):
+    graph = getattr(lib, class_name)()
+    graph.add_edges_from([(f"n{i}", f"n{(i + 1) % 500}") for i in range(500)])
+    nbunch = [f"n{i}" for i in range(4)]
+    try:
+        seen = 0
+        for _edge in graph.edges(nbunch):
+            seen += 1
+            if seen == 1:
+                MUTATIONS[mutation](graph)
+        return ("completes", seen)
+    except RuntimeError:
+        return ("RuntimeError",)
+
+
+@pytest.mark.parametrize("mutation", sorted(MUTATIONS))
+@pytest.mark.parametrize("class_name", CLASSES)
+def test_mutation_kind_matches_networkx(class_name, mutation):
+    expected = _iterate_with_mutation(nx, class_name, mutation)
+    if class_name not in FAITHFUL_CLASSES and expected[0] != "RuntimeError":
+        pytest.xfail(
+            "the nx-faithful nbunch walk is not wired for the multigraph "
+            "classes, so they raise on every mutation (br-r37-c1-hihrf)"
+        )
+    actual = _iterate_with_mutation(fnx, class_name, mutation)
+    assert actual == expected, (
+        f"{class_name}, mutation={mutation}: networkx {expected}, fnx {actual}"
+    )
+
+
+@pytest.mark.parametrize("class_name", CLASSES)
+def test_every_class_raises_when_the_walked_row_changes(class_name):
+    """The case networkx DOES raise on, which all four classes get right.
+
+    Mutating nbunch[0]'s row while that row is the one being iterated is a real
+    concurrent modification, and CPython's dict guard fires for networkx. This
+    is the control that keeps the xfails above honest: they are about raising
+    where networkx does NOT, never about failing to raise where it does.
+    """
+    assert _iterate_with_mutation(nx, class_name, "add_edge_to_walked_row") == (
+        "RuntimeError",
+    )
+    assert _iterate_with_mutation(fnx, class_name, "add_edge_to_walked_row") == (
+        "RuntimeError",
+    )
