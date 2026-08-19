@@ -18,13 +18,15 @@ second one was.
 PURE NAMING. Both wrappers are ``pass`` over the same list base, so values, set
 algebra and containment are untouched - asserted below rather than assumed.
 
-THE keys=True SPELLING IS DELIBERATELY LEFT DIVERGENT, and it is not an
-oversight. nx names it ``MultiEdgeDataView`` too, but fnx's ``_MultiEdgeView``
-wrapper also carries an any-key ``__contains__``, and networkx's own
-``__contains__`` for this spelling RAISES IndexError on a 2-tuple (it reads
-``e[2]`` with no length check) where fnx answers True. Renaming would silently
-move containment as well, so the name and the semantics have to be decided
-together. Pinned as xfail so the decision is visible rather than forgotten.
+THE keys=True SPELLING NEEDED NAME AND SEMANTICS MOVED TOGETHER. nx serves it
+from ``MultiEdgeDataView``, not the ``MultiEdgeView`` that serves the no-nbunch
+spelling, and the two disagree about ``__contains__``: nx reads ``e[2]`` with no
+length check, so a 2-tuple raises IndexError - but only for an edge the view
+carries, since a miss returns False first. fnx answered True, which is MORE
+permissive than the incumbent, the dangerous direction for a drop-in because code
+that passes on fnx would crash on networkx. Both classes now mirror nx, including
+the orientation asymmetry: the undirected view matches ``(v, u, k)``, the
+directed one does not.
 """
 
 from __future__ import annotations
@@ -59,12 +61,6 @@ def test_nbunch_view_type_name_matches_networkx(class_name, kwargs):
 
 
 @pytest.mark.parametrize("class_name", MULTI)
-@pytest.mark.xfail(
-    reason="nx names this MultiEdgeDataView, but fnx's wrapper also supplies an "
-    "any-key __contains__ and nx's own __contains__ raises IndexError on a "
-    "2-tuple here; name and semantics must move together (br-r37-c1-hihrf)",
-    strict=False,
-)
 def test_nbunch_keys_view_type_name_matches_networkx(class_name):
     got, want = _pair(class_name)
     assert (
@@ -91,3 +87,28 @@ def test_set_algebra_survives_the_wrapper(class_name):
     view = got.edges(["a"])
     assert set(map(tuple, view)) & {("a", "b")} == {("a", "b")}
     assert sorted(map(tuple, set(map(tuple, view)) | {("z", "z")}))[-1] == ("z", "z")
+
+
+@pytest.mark.parametrize("class_name", MULTI)
+def test_keys_view_containment_mirrors_networkx(class_name):
+    """Every query shape, including the two nx answers with an exception.
+
+    The IndexError is not raised artificially - the implementation reads
+    ``edge[2]`` in the same place nx does, after the same membership test, so it
+    arises the same way and only for an edge the view actually carries.
+    """
+    got, want = _pair(class_name)
+    gv, wv = got.edges(["a"], keys=True), want.edges(["a"], keys=True)
+
+    def answer(view, query):
+        try:
+            return repr(query in view)
+        except Exception as exc:  # noqa: BLE001 - the exception IS the contract
+            return type(exc).__name__
+
+    for query in (
+        ("a", "b"), ("b", "a"),
+        ("a", "b", 0), ("a", "b", 1), ("a", "b", 9), ("b", "a", 0),
+        ("x", "y"), ("x", "y", 0),
+    ):
+        assert answer(gv, query) == answer(wv, query), query

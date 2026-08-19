@@ -4215,8 +4215,10 @@ class _MultiGraphEdgeView:
                 if native_res is not None:
                     result = _EdgeListWithSetAlgebra(native_res)
                     if keys:
+                        # br-r37-c1-hihrf: nbunch spelling -> nx's
+                        # MultiEdgeDataView semantics, not MultiEdgeView's.
                         return _guarded_edge_list(
-                            _wrap_edge_data_view(result, _MultiEdgeView),
+                            _wrap_edge_data_view(result, _MultiEdgeDataKeysView),
                             self._graph,
                             guard_edge_count=True,
                         )
@@ -4833,8 +4835,10 @@ class _MultiDiGraphEdgeView:
                         # the canonical _OutMultiEdgesKeysView (a list-wrapper) — NOT
                         # _OutMultiEdgeView (a _DiEdgeMethodView needing (graph,method),
                         # which raised TypeError once the keys=True kernel un-gated).
+                        # br-r37-c1-hihrf: with an nbunch nx serves this from
+                        # OutMultiEdgeDataView, whose containment differs.
                         return _guarded_edge_list(
-                            _wrap_edge_data_view(nres, _OutMultiEdgesKeysView),
+                            _wrap_edge_data_view(nres, _OutMultiEdgeDataKeysView),
                             self._graph,
                             guard_edge_count=True,
                         )
@@ -8710,6 +8714,68 @@ _OutMultiEdgeDataView.__name__ = "OutMultiEdgeDataView"
 class _InMultiEdgeDataView(_EdgeListWithSetAlgebra):
     pass
 _InMultiEdgeDataView.__name__ = "InMultiEdgeDataView"
+
+
+# br-r37-c1-hihrf: nx serves ``MG.edges(nbunch, keys=True)`` from
+# ``MultiEdgeDataView``, NOT the ``MultiEdgeView`` that serves the no-nbunch
+# spelling below, and the two disagree about ``__contains__``. nx's:
+#
+#     def __contains__(self, e):
+#         u, v = e[:2]
+#         if self._nbunch is not None and u not in self._nbunch and v not in self._nbunch:
+#             return False
+#         ... kdict lookup, KeyError -> False ...
+#         if self.keys is True:
+#             k = e[2]          # <- no length check
+#
+# so a 2-tuple raises IndexError, but only for an edge this view actually
+# carries: a miss returns False before the key is ever read. fnx answered True
+# there, which is MORE permissive than the incumbent - the dangerous direction
+# for a drop-in, because code that passes here would crash on networkx.
+#
+# The IndexError is not raised artificially below; the same ``e[2]`` is written
+# in the same place, after the same membership test, so it falls out exactly as
+# nx's does.
+
+class _MultiEdgeDataKeysView(_EdgeListWithSetAlgebra):
+    """``MultiGraph.edges(nbunch, keys=True)`` — items are ``(u, v, key)``.
+
+    Mirrors nx's ``MultiEdgeDataView.__contains__`` for ``keys=True``:
+    a 3-tuple is an exact match in either endpoint order, and a 2-tuple raises
+    IndexError if the edge is present and returns False if it is not.
+    """
+
+    _reverse_ok = True
+
+    def __contains__(self, edge):
+        try:
+            u, v = edge[0], edge[1]
+        except (TypeError, IndexError, KeyError):
+            return list.__contains__(self, edge)
+        present = any(
+            (item[0] == u and item[1] == v)
+            or (self._reverse_ok and item[0] == v and item[1] == u)
+            for item in self
+        )
+        if not present:
+            return False
+        key = edge[2]  # nx reads e[2] here with no length check
+        if list.__contains__(self, (u, v, key)):
+            return True
+        return self._reverse_ok and list.__contains__(self, (v, u, key))
+
+
+_MultiEdgeDataKeysView.__name__ = "MultiEdgeDataView"
+
+
+class _OutMultiEdgeDataKeysView(_MultiEdgeDataKeysView):
+    """Directed twin. nx's ``OutMultiEdgeDataView`` never tries the reverse
+    orientation - it looks up ``self._adjdict[u][v]`` and stops."""
+
+    _reverse_ok = False
+
+
+_OutMultiEdgeDataKeysView.__name__ = "OutMultiEdgeDataView"
 
 
 # br-r37-c1-mekvc (cycle 214): nx's ``MultiGraph.edges(keys=True)``
