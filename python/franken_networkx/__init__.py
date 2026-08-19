@@ -933,7 +933,40 @@ _EDGES_NBUNCH_PY_WALK_NODES_PER_EXTRA = 250
 
 
 def _edges_nbunch_py_walk_limit(graph):
-    """Largest nbunch that should take the Python walk on this graph."""
+    """Largest nbunch that should take the Python walk on this graph.
+
+    br-r37-c1-hihrf: I RETIRED THE ORDER-SCALED TERM HERE AND PUT IT BACK. The
+    perf half of my reasoning holds and the correctness half did not, so the
+    finding is recorded rather than the change kept.
+
+    What is true: the note above justifies the scaling with "the native kernel it
+    guards is O(graph order) while the Python walk is O(nbunch)", and that premise
+    is STALE. Re-measured on ELF 85f4c2bd with both paths FORCED at the same size,
+    list(G.edges(nbunch)) in microseconds:
+
+        N       nbunch    python    native    py/native
+        2000        50     32.34     15.56       2.08x
+        8000        50     33.39     15.69       2.13x
+        16000       50     32.77     15.71       2.09x
+        32000       50     32.91     16.00       2.06x
+        32000      200    116.79     49.18       2.37x
+
+    The native column is FLAT across a 16x range in N, where the old table's
+    kernel column grew with N. So on perf grounds alone the scaling now routes
+    work to the slower path, and a 50-node nbunch steps from 1.83x of networkx at
+    N=8000 to 0.87x at N=16000 as order // 250 crosses 50.
+
+    Why it stays anyway: the walk is not merely a faster path for small nbunch,
+    it is the NX-FAITHFUL one. Returning the fixed floor failed
+    test_mutation_during_iteration_still_matches_networkx at nbunch 9 and 16 -
+    the br-r37-c1-u5tyh semantics the note above warns about. Parity outranks a
+    2x, so the gate keeps buying it.
+
+    The real fix is to make the NATIVE kernel reproduce networkx's
+    mutate-during-iteration behaviour; then this gate can drop to the floor and
+    take the 2x everywhere. Until then the scaling is load-bearing for
+    correctness, not tuning. See br-r37-c1-hihrf.
+    """
     try:
         order = graph.number_of_nodes()
     except Exception:  # noqa: BLE001 - any odd graph keeps the fixed floor
