@@ -24268,3 +24268,27 @@ quieter window: it will not, because the host was not the cause.
 
 NOT BANKED: len=3 is disjoint at 1.082x but that is inside twice the Graph control's binary
 noise, so it is reported and not claimed.
+
+## 2026-08-19 — independent corroboration closes br-r37-c1-ml7s5, and no sibling regressed
+
+The edges(data=True) key-length defect is fixed (peers: 3c942d59c UNCOMPILED, a2a95b2e1
+compiled and certified 0.4538x -> 5.2558x, rows in 3b446e3ba at 5.687x). Re-measured
+independently on HEAD, ELF e4f2221910e85744, 300 edges, taskset -c 40-47, loadavg 14.94,
+NetworkX 3.6.1 live in the same invocation:
+
+    class          K=3 ratio    K=2000 ratio   fnx growth K3->K2000
+    Graph            7.2892x        7.1564x        1.02x
+    DiGraph          4.4069x        4.3662x        1.00x
+    MultiGraph       6.8006x        6.8527x        0.99x
+    MultiDiGraph     8.2200x        8.2944x        1.01x
+
+against the banked 0.4538x and 6.2x growth for Graph. ALL FOUR are now flat in node-key
+length and all four beat the incumbent. The guard now passes 5/5 with its strict xfail
+REMOVED rather than relaxed, which is the gate the bead specified.
+
+WHY THIS IS WORTH A LINE RATHER THAN JUST A CLOSE: the fix was certified on Graph alone, and
+a cache added for one class is exactly the shape that silently regresses its siblings — the
+partially-applied-fix pattern in reverse. Measuring all four in one invocation is what rules
+that out, and none moved. My figures run higher than the certified 5.687x because the fixture
+and row context differ; they corroborate direction and boundedness and do not supersede that
+row.
