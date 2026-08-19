@@ -842,3 +842,150 @@ def test_multigraph_sssp_path_cost_does_not_grow_with_the_parent(cls):
         f"single_source_shortest_path {fnx_growth:.2f}x slower for a one-hop "
         f"request while networkx moved {nx_growth:.2f}x"
     )
+
+
+# ---------------------------------------------------------------------------
+# Weighted: cutoff-bounded Dijkstra
+# ---------------------------------------------------------------------------
+# br-r37-c1-dkwy7, the worst row on the bead and the one I would not write blind
+# under the throttle. single_source_dijkstra_path_length(cutoff=1) grew 39.37x
+# between 200 and 12800 nodes against networkx's 0.99x - 0.9324x of the incumbent
+# down to 0.0235x, i.e. 42x SLOWER than networkx - because the bounded search
+# materialised the ENTIRE weighted graph first (every node, every edge, an
+# attribute lookup per edge) and then allocated four dense O(V) arrays.
+#
+# The bounded path now expands rows lazily with sparse state. The unbounded path
+# is untouched: a search that may settle every node is entitled to dense arrays.
+#
+# THIS IS CORRECTNESS-CRITICAL IN A WAY THE BFS KERNELS WERE NOT - a wrong
+# Dijkstra returns wrong DISTANCES, not merely slow ones. So the invariants are
+# pinned by name:
+#   * key order is FINALIZATION order, which is networkx's dict order;
+#   * integer weights must yield integer distances (the all_int propagation);
+#   * ties must break the way networkx's heap breaks them;
+#   * the cutoff is inclusive and applied before relaxation.
+
+
+def _weighted(lib, directed=False, floats=False):
+    graph = lib.DiGraph() if directed else lib.Graph()
+    w = (lambda x: x + 0.5) if floats else (lambda x: x)
+    graph.add_edge("s", "a", weight=w(1))
+    graph.add_edge("a", "b", weight=w(1))
+    graph.add_edge("b", "c", weight=w(1))
+    graph.add_edge("s", "d", weight=w(2))
+    graph.add_edge("d", "c", weight=w(1))
+    graph.add_edge("s", "z", weight=w(9))
+    graph.add_edge("c", "e", weight=0)          # zero-weight edge
+    graph.add_node("island")                    # unreachable
+    return graph
+
+
+@pytest.mark.parametrize("directed", [False, True])
+@pytest.mark.parametrize("floats", [False, True])
+@pytest.mark.parametrize("cutoff", [None, 0, 1, 2, 3, 100])
+def test_dijkstra_cutoff_distances_and_order_match_networkx(directed, floats, cutoff):
+    got = fnx.single_source_dijkstra_path_length(
+        _weighted(fnx, directed, floats), "s", cutoff=cutoff
+    )
+    want = nx.single_source_dijkstra_path_length(
+        _weighted(nx, directed, floats), "s", cutoff=cutoff
+    )
+    assert dict(got) == dict(want), f"directed={directed} floats={floats} cutoff={cutoff}"
+    assert [str(k) for k in got] == [str(k) for k in want], (
+        "key order is finalization order and is networkx's dict order"
+    )
+
+
+@pytest.mark.parametrize("directed", [False, True])
+@pytest.mark.parametrize("cutoff", [None, 2, 3])
+def test_integer_weights_keep_integer_distance_types(directed, cutoff):
+    """The all_int propagation: a float here is a silent type regression."""
+    got = fnx.single_source_dijkstra_path_length(
+        _weighted(fnx, directed, floats=False), "s", cutoff=cutoff
+    )
+    want = nx.single_source_dijkstra_path_length(
+        _weighted(nx, directed, floats=False), "s", cutoff=cutoff
+    )
+    for key, distance in got.items():
+        reference = want[key]
+        assert isinstance(distance, type(reference)) or (
+            isinstance(distance, (int, float)) and isinstance(reference, (int, float))
+            and isinstance(distance, int) == isinstance(reference, int)
+        ), f"{key}: fnx {distance!r} ({type(distance).__name__}) vs nx {reference!r}"
+
+
+@pytest.mark.parametrize("cutoff", [None, 1, 2])
+def test_equal_weight_ties_break_like_networkx(cutoff):
+    """Two equal-cost routes: which parent wins is the heap's tie-break."""
+    got, want = fnx.Graph(), nx.Graph()
+    for g in (got, want):
+        g.add_edge("s", "p", weight=1)
+        g.add_edge("s", "q", weight=1)
+        g.add_edge("p", "t", weight=1)
+        g.add_edge("q", "t", weight=1)
+    assert dict(
+        fnx.single_source_dijkstra_path_length(got, "s", cutoff=cutoff)
+    ) == dict(nx.single_source_dijkstra_path_length(want, "s", cutoff=cutoff))
+    assert [
+        str(k) for k in fnx.single_source_dijkstra_path_length(got, "s", cutoff=cutoff)
+    ] == [
+        str(k) for k in nx.single_source_dijkstra_path_length(want, "s", cutoff=cutoff)
+    ]
+
+
+def test_dijkstra_cutoff_is_inclusive_and_excludes_beyond():
+    graph, reference = _weighted(fnx), _weighted(nx)
+    for cutoff in (1, 2, 3):
+        got = fnx.single_source_dijkstra_path_length(graph, "s", cutoff=cutoff)
+        assert got == nx.single_source_dijkstra_path_length(
+            reference, "s", cutoff=cutoff
+        )
+        assert all(d <= cutoff for d in got.values()), f"cutoff={cutoff} leaked"
+    assert "z" not in fnx.single_source_dijkstra_path_length(graph, "s", cutoff=3)
+    assert "z" in fnx.single_source_dijkstra_path_length(graph, "s", cutoff=9)
+
+
+def test_dijkstra_disconnected_and_missing_source():
+    graph, reference = _weighted(fnx), _weighted(nx)
+    for cutoff in (None, 1):
+        assert "island" not in fnx.single_source_dijkstra_path_length(
+            graph, "s", cutoff=cutoff
+        )
+        assert dict(
+            fnx.single_source_dijkstra_path_length(graph, "island", cutoff=cutoff)
+        ) == dict(
+            nx.single_source_dijkstra_path_length(reference, "island", cutoff=cutoff)
+        )
+    with pytest.raises(fnx.NodeNotFound):
+        fnx.single_source_dijkstra_path_length(graph, "absent", cutoff=1)
+
+
+@pytest.mark.xfail(
+    reason="br-r37-c1-dkwy7 kernel is written but UNBUILT (the project's other "
+    "pane holds the single build slot); flip to a hard assert once rebuilt",
+    strict=False,
+)
+def test_dijkstra_cutoff_cost_does_not_grow_with_the_parent():
+    small, large = 200, 12800
+    rings = {}
+    for n in (small, large):
+        gf, gx = fnx.Graph(), nx.Graph()
+        for g in (gf, gx):
+            g.add_edges_from(
+                [(f"n{i}", f"n{(i + 1) % n}", {"weight": 1}) for i in range(n)]
+            )
+        rings[n] = (gf, gx)
+    fnx_growth = _best(
+        lambda: fnx.single_source_dijkstra_path_length(rings[large][0], "n0", cutoff=1)
+    ) / _best(
+        lambda: fnx.single_source_dijkstra_path_length(rings[small][0], "n0", cutoff=1)
+    )
+    nx_growth = _best(
+        lambda: nx.single_source_dijkstra_path_length(rings[large][1], "n0", cutoff=1)
+    ) / _best(
+        lambda: nx.single_source_dijkstra_path_length(rings[small][1], "n0", cutoff=1)
+    )
+    assert fnx_growth < 2.5 * max(nx_growth, 1.0), (
+        f"a {large // small}x bigger parent made fnx dijkstra {fnx_growth:.2f}x "
+        f"slower for a cutoff=1 request while networkx moved {nx_growth:.2f}x"
+    )

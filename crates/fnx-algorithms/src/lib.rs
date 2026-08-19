@@ -34057,6 +34057,34 @@ pub fn single_source_dijkstra_path_length_typed_with_pred(
     let Some(source_idx) = graph.get_node_index(source) else {
         return Vec::new();
     };
+    // br-r37-c1-dkwy7: a bounded search expands lazily instead of materialising
+    // the whole weighted graph first. Only the cutoff case diverges; the
+    // unbounded build below is byte-for-byte what it always was.
+    if let Some(limit) = cutoff {
+        let indexed = single_source_dijkstra_typed_lazy(source_idx, limit, |u, row| {
+            row.clear();
+            if let Some(neighbors) = graph.neighbors_indices(u) {
+                for &v in neighbors {
+                    let (weight, is_int) =
+                        graph_edge_weight_or_default_idx_typed(graph, u, v, weight_attr);
+                    row.push((v, weight, is_int));
+                }
+            }
+        });
+        return indexed
+            .into_iter()
+            .filter_map(|(idx, distance, all_int, predecessor)| {
+                let name = graph.get_node_name(idx as usize)?.to_owned();
+                let parent = if predecessor == u32::MAX {
+                    None
+                } else {
+                    Some(graph.get_node_name(predecessor as usize)?.to_owned())
+                };
+                Some((name, distance, all_int, parent))
+            })
+            .collect();
+    }
+
     let names = graph.nodes_ordered();
     let n = names.len();
     let mut offsets = Vec::with_capacity(n + 1);
@@ -34157,7 +34185,35 @@ pub fn single_source_dijkstra_path_length_typed_with_pred_directed(
     let Some(source_idx) = digraph.get_node_index(source) else {
         return Vec::new();
     };
+    // br-r37-c1-dkwy7: see the undirected sibling. The CSR itself is
+    // revision-cached, so the per-call cost this removes is the weight/type
+    // rebuild - an attribute lookup for EVERY edge in the graph - plus the four
+    // dense arrays inside the search.
     let csr = digraph.csr();
+    if let Some(limit) = cutoff {
+        let indexed = single_source_dijkstra_typed_lazy(source_idx, limit, |u, row| {
+            row.clear();
+            for &v in csr.successors(u) {
+                let v_usize = v as usize;
+                let (weight, is_int) =
+                    digraph_edge_weight_or_default_idx_typed(digraph, u, v_usize, weight_attr);
+                row.push((v_usize, weight, is_int));
+            }
+        });
+        return indexed
+            .into_iter()
+            .filter_map(|(idx, distance, all_int, predecessor)| {
+                let name = digraph.get_node_name(idx as usize)?.to_owned();
+                let parent = if predecessor == u32::MAX {
+                    None
+                } else {
+                    Some(digraph.get_node_name(predecessor as usize)?.to_owned())
+                };
+                Some((name, distance, all_int, parent))
+            })
+            .collect();
+    }
+
     let names = digraph.nodes_ordered();
     let mut weights: Vec<f64> = Vec::with_capacity(csr.succ_targets.len());
     let mut weight_is_int: Vec<bool> = Vec::with_capacity(csr.succ_targets.len());
@@ -34280,6 +34336,104 @@ fn single_source_dijkstra_typed_csr(
         )
     })
     .collect()
+}
+
+/// br-r37-c1-dkwy7: bounded Dijkstra that expands rows LAZILY.
+///
+/// A cutoff-bounded Dijkstra settles a neighbourhood, but the CSR-slice search
+/// below is fed by callers that first materialise the ENTIRE weighted graph -
+/// every node, every edge, and an attribute lookup per edge - and it then
+/// allocates four dense O(V) arrays of its own (distances 8n, predecessors 4n,
+/// all_int_paths n, finalized n). single_source_dijkstra_path_length(cutoff=1)
+/// therefore grew 39.37x between 200 and 12800 nodes while networkx stayed flat,
+/// from 0.9324x of the incumbent to 0.0235x - 42x SLOWER than networkx.
+///
+/// This variant is used ONLY when a cutoff is present; the unbounded path is
+/// untouched, because a search that may settle every node is entitled to dense
+/// arrays and one CSR pass. `expand` fills a caller-owned buffer, which keeps
+/// the neighbour rows borrow-free and costs no allocation per expansion.
+///
+/// Every invariant of the dense search is preserved deliberately:
+///   * `finalize_order` is the RETURN order and networkx's dict order, appended
+///     on FIRST finalization, never on relaxation;
+///   * `all_int_paths` propagates as `all_int_paths[u] && is_int`, which is what
+///     keeps integer weights yielding integer distances;
+///   * both epsilon comparisons keep their original directions - the stale-pop
+///     skip adds it, the improvement test subtracts it;
+///   * the cutoff is applied to `next_dist` BEFORE relaxation.
+fn single_source_dijkstra_typed_lazy<F>(
+    source_idx: usize,
+    cutoff: f64,
+    mut expand: F,
+) -> IndexedTypedPredDistances
+where
+    F: FnMut(usize, &mut Vec<(usize, f64, bool)>),
+{
+    let mut distances: HashMap<usize, f64> = HashMap::new();
+    let mut predecessors: HashMap<usize, u32> = HashMap::new();
+    let mut all_int_paths: HashMap<usize, bool> = HashMap::new();
+    let mut finalized: HashSet<usize> = HashSet::new();
+    let mut finalize_order: Vec<u32> = Vec::new();
+    let mut pq: BinaryHeap<DijkstraState<u32>> = BinaryHeap::new();
+    let mut seq_counter: u64 = 0;
+    let mut row: Vec<(usize, f64, bool)> = Vec::new();
+
+    distances.insert(source_idx, 0.0);
+    all_int_paths.insert(source_idx, true);
+    seq_counter += 1;
+    pq.push(DijkstraState {
+        dist: 0.0,
+        seq: seq_counter,
+        node: u32::try_from(source_idx).unwrap_or(u32::MAX),
+    });
+
+    while let Some(DijkstraState {
+        dist: d, node: u, ..
+    }) = pq.pop()
+    {
+        let u_usize = u as usize;
+        let known = distances.get(&u_usize).copied().unwrap_or(f64::INFINITY);
+        if d > known + DISTANCE_COMPARISON_EPSILON {
+            continue;
+        }
+        if finalized.insert(u_usize) {
+            finalize_order.push(u);
+        }
+
+        let u_all_int = all_int_paths.get(&u_usize).copied().unwrap_or(false);
+        expand(u_usize, &mut row);
+        for &(v, weight, is_int) in &row {
+            let next_dist = d + weight;
+            if next_dist > cutoff {
+                continue;
+            }
+            let current = distances.get(&v).copied().unwrap_or(f64::INFINITY);
+            if next_dist < current - DISTANCE_COMPARISON_EPSILON {
+                distances.insert(v, next_dist);
+                predecessors.insert(v, u);
+                all_int_paths.insert(v, u_all_int && is_int);
+                seq_counter += 1;
+                pq.push(DijkstraState {
+                    dist: next_dist,
+                    seq: seq_counter,
+                    node: u32::try_from(v).unwrap_or(u32::MAX),
+                });
+            }
+        }
+    }
+
+    finalize_order
+        .into_iter()
+        .map(|idx| {
+            let idx_usize = idx as usize;
+            (
+                idx,
+                distances.get(&idx_usize).copied().unwrap_or(f64::INFINITY),
+                all_int_paths.get(&idx_usize).copied().unwrap_or(false),
+                predecessors.get(&idx_usize).copied().unwrap_or(u32::MAX),
+            )
+        })
+        .collect()
 }
 
 fn single_source_dijkstra_typed_csr_indexed(
