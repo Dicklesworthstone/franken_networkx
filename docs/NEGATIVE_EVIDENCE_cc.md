@@ -24210,3 +24210,61 @@ behind a hot membership probe would make any read-after-write workload rebuild t
 CSR, which is a much worse regression than the 2.37x it would fix. Either give MultiDiGraph
 a real slab store, or find a probe that is O(1) without a per-revision rebuild. Left open
 deliberately rather than guessed at.
+
+
+## 2026-08-19 — certifying the MultiDiAtlasView row index, and measuring the binary noise floor (br-r37-c1-2ndmw)
+
+CERTIFIED IN A QUIET WINDOW, AND CONTROL-CORRECTED (GoldenBison, 2026-08-19). The earlier
+comment reported this lever as direction-with-flat-controls because the host never left
+loadavg 22-44. It has now been re-run in the quietest window of the session and pooled with
+the loud one, so the row is banked with its noise floor measured rather than assumed.
+
+BANKED ROW
+
+    MultiDiGraph G[u][v] len=2000    0.2829-0.2930x  ->  0.3412-0.3478x    1.201x
+      DISJOINT across all 8 runs, in two load regimes (loadavg 6.2-6.8 and 15.4-23.3).
+
+    MultiDiGraph G[u][v] len=3       0.3387-0.3613x  ->  0.3670-0.3846x    1.082x  disjoint
+    MultiGraph   G[u][v] len=2000    CONTROL                               1.020x  not disjoint
+    MultiGraph   G[u][v] len=3       CONTROL                               1.007x  not disjoint
+    Graph        G[u][v] len=2000    CONTROL                               1.055x  disjoint
+
+PROVENANCE. scripts/balanced_square_ab.py workload row-subscript-family, ABBAABBA, 41 rounds,
+400 reps/slot, taskset -c 40-47, PYTHONHASHSEED=0, NetworkX 3.6.1 live in the SAME invocation,
+LOCAL:thinkstation1, no rch worker, no build in the window.
+Arms elf 1db0a347c4ac5df3 (before) / 3dda5a4b1da46682 (after), shim 4d5baf46d8ec221a on BOTH,
+verified in-process by --expect-elf. Both arms built by ME with the identical command
+(cargo build --release -p fnx-python --lib) from the same tree, toggling only digraph.rs.
+Quiet session: per-arm clocks 4289/4289 MHz on EVERY row, skew 0.00 percent, cross-core spread
+0.1-0.2 percent, loadavg 6.21/6.21/6.83/6.69, iowait 0, idle 92-93 percent.
+Loud session: 3938-4068 MHz, skew 0.00-0.05 percent, loadavg 15.35-23.28, iowait 0.
+Run order ALTERNATED (before, after, after, before) in both sessions.
+
+THE CONTROL THAT MATTERS IS MultiGraph, NOT Graph. MultiGraph G[u][v] reaches its keydict
+through the SAME Python `AdjacencyView.__getitem__` and the same kind of native atlas as the
+subject; it is the closest thing to the subject that this change cannot touch, and it does not
+move (1.020x and 1.007x, neither disjoint). Graph goes through a native C slot instead --
+a different path -- and it drifted 1.055x. Correcting the subject by each control gives
+1.177x, 1.193x and 1.138x, so the honest range is roughly 1.14-1.19x.
+
+AND THE Graph CONTROL IS ITSELF A FINDING, recorded because it bounds every single-lever A/B
+in this repo: two builds made with the IDENTICAL command from the same source, differing only
+in one function in digraph.rs, disagree by ~5.5 percent on a Graph row neither build changes.
+That is whole-binary codegen/layout movement, not logic. So ~5 percent is the floor below
+which a single-lever ratio in this crate cannot be attributed to the lever at all, however
+clean the window. It is why the subject is quoted as a range and not as 1.201x.
+
+WHY EVERY NULL FAILED EVEN AT LOADAVG 6.2, and why that is not a defect in the row. In the
+quiet window the two arms behave DIFFERENTLY: the incumbent arm's null is stationary
+(0.9743-1.0815, several inside +/-0.02) while the fnx arm's null is 1.1038-1.1964 in ALL 20
+rows -- including the rows this change does not touch. With no load ramp to blame, that is a
+real ~12-18 percent warm-up in the fnx arm across the rounds of a run, not contention. It is
+common to BOTH arms of the A/B (both are fnx), so it cannot produce a difference between them,
+and in an ABBA square it largely cancels in the ratio. My banking rule's "same direction within
+2x" clause is designed for a common-mode ramp and correctly refuses this shape (one arm
+stationary, one drifting), which is why the verdict rests on REPLICATION plus DISJOINTNESS
+plus the controls instead. Recorded so nobody re-runs this hoping the null will pass in a
+quieter window: it will not, because the host was not the cause.
+
+NOT BANKED: len=3 is disjoint at 1.082x but that is inside twice the Graph control's binary
+noise, so it is reported and not claimed.
