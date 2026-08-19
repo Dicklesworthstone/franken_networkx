@@ -768,3 +768,77 @@ def _multi_ring(lib, cls, n):
     graph = getattr(lib, cls)()
     graph.add_edges_from([(f"n{i}", f"n{(i + 1) % n}") for i in range(n)])
     return graph
+
+
+# br-r37-c1-dkwy7. The multigraph sssp helpers: MultiGraph hashed every node name
+# into a temporary index map per call (44.22x growth, 0.7135x -> 0.0158x), and
+# MultiDiGraph found its source by LINEAR SCAN over every node name with string
+# comparison (81.30x growth, 0.3236x -> 0.0040x - 250x slower than networkx at
+# 12800 nodes). Both now use get_node_index.
+#
+# THAT SUBSTITUTION HAS A PRECONDITION worth testing rather than trusting:
+# get_node_index must index the SAME order nodes_ordered() yields, because the
+# returned source_idx is used against a `nodes` vector built from the latter. If
+# the two ever disagreed - most plausibly after node removals renumber storage -
+# the BFS would start from the WRONG NODE and return a confident, wrong answer.
+
+
+@pytest.mark.parametrize("cls", MULTI + ["Graph", "DiGraph"])
+def test_source_index_survives_node_removal_renumbering(cls):
+    """Removals are where an index/order disagreement would surface."""
+    got, want = getattr(fnx, cls)(), getattr(nx, cls)()
+    for g in (got, want):
+        g.add_edges_from([(f"n{i}", f"n{i + 1}") for i in range(12)])
+        g.add_edge("last", "n0")
+        g.remove_node("n3")
+        g.remove_node("n7")
+        g.add_edge("fresh", "n11")
+
+    for source in ("n0", "last", "fresh", "n11"):
+        assert dict(fnx.single_source_shortest_path_length(got, source)) == dict(
+            nx.single_source_shortest_path_length(want, source)
+        ), f"{cls}: length from {source} diverged after removals"
+        assert {
+            str(k): [str(x) for x in v]
+            for k, v in fnx.single_source_shortest_path(got, source).items()
+        } == {
+            str(k): [str(x) for x in v]
+            for k, v in nx.single_source_shortest_path(want, source).items()
+        }, f"{cls}: paths from {source} diverged after removals"
+
+
+@pytest.mark.parametrize("cls", MULTI)
+def test_last_inserted_node_as_source(cls):
+    """A linear scan and an index map differ most obviously at the far end."""
+    got, want = getattr(fnx, cls)(), getattr(nx, cls)()
+    for g in (got, want):
+        g.add_edges_from([(f"n{i}", f"n{i + 1}") for i in range(30)])
+        g.add_edge("omega", "n30")
+    for cutoff in (None, 1, 2):
+        assert dict(
+            fnx.single_source_shortest_path_length(got, "omega", cutoff=cutoff)
+        ) == dict(nx.single_source_shortest_path_length(want, "omega", cutoff=cutoff))
+
+
+@pytest.mark.parametrize("cls", MULTI)
+@pytest.mark.xfail(
+    reason="br-r37-c1-dkwy7 kernel is written but UNBUILT (host disk throttle, "
+    "no cargo); flip to a hard assert once the extension is rebuilt",
+    strict=False,
+)
+def test_multigraph_sssp_path_cost_does_not_grow_with_the_parent(cls):
+    small, large = 200, 12800
+    rings = {
+        n: (_multi_ring(fnx, cls, n), _multi_ring(nx, cls, n)) for n in (small, large)
+    }
+    fnx_growth = _best(
+        lambda: fnx.single_source_shortest_path(rings[large][0], "n0", cutoff=1)
+    ) / _best(lambda: fnx.single_source_shortest_path(rings[small][0], "n0", cutoff=1))
+    nx_growth = _best(
+        lambda: nx.single_source_shortest_path(rings[large][1], "n0", cutoff=1)
+    ) / _best(lambda: nx.single_source_shortest_path(rings[small][1], "n0", cutoff=1))
+    assert fnx_growth < 2.5 * max(nx_growth, 1.0), (
+        f"{cls}: a {large // small}x bigger parent made fnx "
+        f"single_source_shortest_path {fnx_growth:.2f}x slower for a one-hop "
+        f"request while networkx moved {nx_growth:.2f}x"
+    )

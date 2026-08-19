@@ -5622,21 +5622,24 @@ fn multigraph_sssp_predecessors_index<'a>(
     source: &str,
     cutoff: Option<usize>,
 ) -> (Vec<&'a str>, Option<usize>, Vec<usize>, Vec<usize>) {
+    // br-r37-c1-dkwy7: this hashed EVERY node name into a temporary index map
+    // before a cutoff-bounded BFS could take its first step, so
+    // single_source_shortest_path(cutoff=1) grew 44.22x between 200 and 12800
+    // nodes while networkx stayed flat (0.98x) - 0.7135x of nx down to 0.0158x.
+    // MultiGraph already carries that map: get_node_index is an IndexMap lookup,
+    // so a neighbour pays the same single hash without the O(V) build in front.
     let nodes = mg.nodes_ordered();
-    let node_indices: rustc_hash::FxHashMap<&'a str, usize> = nodes
-        .iter()
-        .copied()
-        .enumerate()
-        .map(|(idx, node)| (node, idx))
-        .collect();
-    let Some(&source_idx) = node_indices.get(source) else {
+    let Some(source_idx) = mg.get_node_index(source) else {
         return (nodes, None, Vec::new(), Vec::new());
     };
 
     let n = nodes.len();
     let mut seen = vec![false; n];
     let mut predecessor = vec![usize::MAX; n];
-    let mut discovery = Vec::with_capacity(n);
+    let mut discovery = match cutoff {
+        Some(_) => Vec::new(),
+        None => Vec::with_capacity(n),
+    };
     let mut frontier = vec![source_idx];
     let mut next = Vec::new();
     let mut depth = 0usize;
@@ -5655,7 +5658,7 @@ fn multigraph_sssp_predecessors_index<'a>(
                 continue;
             };
             for v in nbrs {
-                if let Some(&nbr_idx) = node_indices.get(v)
+                if let Some(nbr_idx) = mg.get_node_index(v)
                     && !seen[nbr_idx]
                 {
                     seen[nbr_idx] = true;
@@ -5685,8 +5688,16 @@ fn multidigraph_sssp_predecessors_index<'a>(
     source: &str,
     cutoff: Option<usize>,
 ) -> (Vec<&'a str>, Option<usize>, Vec<usize>, Vec<usize>) {
+    // br-r37-c1-dkwy7: finding the source was a LINEAR SCAN over every node
+    // name, comparing strings, before a cutoff-bounded BFS could start - which
+    // is why MultiDiGraph was the worst row on this bead:
+    // single_source_shortest_path(cutoff=1) grew 81.30x between 200 and 12800
+    // nodes against networkx's 1.00x, from 0.3236x of nx to 0.0040x - 250x
+    // slower than the incumbent for a one-hop question. get_node_index is an
+    // IndexMap lookup, O(1), and indexes the SAME order nodes_ordered() yields,
+    // so source_idx is unchanged.
     let nodes = mdg.nodes_ordered();
-    let Some(source_idx) = nodes.iter().position(|&node| node == source) else {
+    let Some(source_idx) = mdg.get_node_index(source) else {
         return (nodes, None, Vec::new(), Vec::new());
     };
 
@@ -5694,7 +5705,10 @@ fn multidigraph_sssp_predecessors_index<'a>(
     let csr = mdg.csr();
     let mut seen = vec![false; n];
     let mut predecessor = vec![usize::MAX; n];
-    let mut discovery = Vec::with_capacity(n);
+    let mut discovery = match cutoff {
+        Some(_) => Vec::new(),
+        None => Vec::with_capacity(n),
+    };
     let mut frontier = vec![source_idx];
     let mut next = Vec::new();
     let mut depth = 0usize;
