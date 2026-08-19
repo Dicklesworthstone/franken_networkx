@@ -24542,3 +24542,51 @@ nothing:
      the parity and correctness assertions and its perf half recorded here. Narrowing it
      was the honest option; leaving it green across both classes would have implied
      coverage that did not exist.
+
+## 2026-08-19 — the dijkstra guard stops poisoning the caller's store, and the bead is narrower than filed (br-r37-c1-4m4wb)
+
+FIX ROW, not a rejection. This records a lever LANDED (eb48b0a73) plus a re-scoping of the bead. It quotes an earlier reversion only as history; nothing is rejected here, and no ratio is banked.
+
+FIXED, AND THE BEAD IS NARROWER THAN FILED (GoldenBison, 2026-08-19). Landed eb48b0a73.
+
+WHAT REPRODUCED ON HEAD, established before changing anything, all load-independent
+(frame count: does `size(weight=...)` take the whole-graph `to_dict_of_dicts` fallback?):
+
+  * An ordinary dijkstra call on an ALL-FINITE graph contaminates NOTHING, on any of the
+    four classes. The `-inf` sweep is reached only when the native non-finite scan reports
+    True, so a normal weighted shortest path never touches it. The bead reads as though
+    every call poisons the store; it does not.
+  * The case that DOES pay is `Graph` carrying a `+inf` or `-inf` weight. There the guard
+    left `size(weight=...)` on the fallback permanently. `DiGraph` never reaches that
+    fallback at all, so it does not pay.
+  * "Multigraphs take that Python walk on EVERY weighted shortest-path call" is TRUE as a
+    walk -- MultiGraph and MultiDiGraph each walk one Python frame per edge when the guard
+    runs, while Graph and DiGraph are served natively in 4 frames -- but that walk does NOT
+    contaminate. It is a per-edge Python cost, not a store defect. Split out below.
+
+THE FIX RE-LANDS A REVERTED LEVER, deliberately. The note in the source kept `data=True`
+because `data=weight` measured 2.88x on this scan. That trade was backwards: the 2.88x is a
+ONE-TIME cost on a scan that only runs when the graph already holds a non-finite weight,
+and what it bought was a PERMANENT whole-graph penalty on every later weighted read
+(br-r37-c1-igdzi measures that class at ~5x). Scoped to that one sweep; the multigraph walk
+is left on `data=True` on purpose, because changing it would pay the same 2.88x for a
+contamination that measurement says is not there.
+
+    Graph, weight +inf   before: falls back   after: does not
+    Graph, weight -inf   before: falls back   after: does not
+    Graph, all finite    before: clean        after: clean
+    DiGraph, every case  before: clean        after: clean
+
+Equivalence is by construction -- the old code read `attrs.get(weight, 1)` and
+`data=weight, default=1` yields exactly that -- but it is ASSERTED, not assumed: the
+guard's verdict (-inf reported, +inf not), end-to-end shortest-path behaviour against
+networkx including the exception it delegates, and the missing-weight-key default.
+
+Pinned by tests/python/test_dijkstra_guard_keeps_store_clean.py, verified in BOTH
+directions: 12 pass on the fixed tree, and both non-finite parametrizations FAIL on an arm
+rebuilt from HEAD with the `data=True` sweep restored.
+
+NO RATIO IS BANKED. The host ran loadavg 49 with run queue 72 for this whole unit and
+`acquire_build_slot` is disabled in this deployment (WORKTREES_ENABLED off), so nothing
+timed was certified. The evidence here is entirely load-independent by design, which is why
+the work was possible at all in that window.
