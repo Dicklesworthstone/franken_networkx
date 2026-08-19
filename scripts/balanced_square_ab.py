@@ -545,6 +545,60 @@ def workload_row_subscript_family(reps: int):
     return build, ops
 
 
+def workload_multigraph_weighted_paths(reps: int):
+    """Weighted shortest paths on all four classes (br-r37-c1-mgnegscan-8l53h).
+
+    The dijkstra weight guards (`_has_negative_edge_weight_for_dijkstra` and its `+inf`
+    sibling) used to fall back to a per-edge PYTHON walk for MultiGraph and MultiDiGraph:
+    the native scans returned None for both multigraph arms and the shim gated on
+    `not G.is_multigraph()`. Both guards run on EVERY weighted shortest-path call, so the
+    walk cost O(E) Python frames per call -- 1635 and 1236 frames for one guard call on a
+    400-edge graph, against 4 for the simple classes.
+
+    That change was landed on frame counts alone, in a window at loadavg 235 with iowait
+    63 percent. This workload is what turns it into a vs-incumbent ratio.
+
+    THE CONTROLS ARE THE POINT. `Graph` and `DiGraph` run the same call and were ALREADY
+    native, so they must not move; they separate "the guard got cheaper" from "the whole
+    dijkstra path got cheaper". An UNWEIGHTED multigraph shortest path is carried as well:
+    it never consults the weight guards at all, so it bounds how much of any multigraph
+    movement could come from anything other than this change.
+
+    `reps` is ignored -- an algorithm call is its own unit of work, and `--calls-per-slot`
+    decides how many go in a timed slot.
+    """
+
+    def build(module):
+        graphs = {}
+        for cls in ("Graph", "DiGraph", "MultiGraph", "MultiDiGraph"):
+            g = getattr(module, cls)()
+            for i in range(1200):
+                g.add_edge(f"n{i}", f"n{(i * 7 + 3) % 1200}", weight=float(i % 17))
+            graphs[cls] = g
+        return graphs["MultiGraph"], (graphs, module)
+
+    def ops(graph, fixture):
+        graphs, module = fixture
+        labels = {
+            "Graph": "CONTROL Graph",
+            "DiGraph": "CONTROL DiGraph",
+            "MultiGraph": "MultiGraph  ",
+            "MultiDiGraph": "MultiDiGraph",
+        }
+        table = {}
+        for cls, g in graphs.items():
+            table[f"{labels[cls]} sssp(weight)"] = lambda g=g, m=module: dict(
+                m.single_source_dijkstra_path_length(g, "n0", weight="weight")
+            )
+        mg = graphs["MultiGraph"]
+        table["CONTROL MultiGraph sssp UNWEIGHTED"] = lambda mg=mg, m=module: dict(
+            m.single_source_shortest_path_length(mg, "n0")
+        )
+        return table
+
+    return build, ops
+
+
 def workload_algorithms(reps: int):
     """Whole-algorithm rows, for the br-r37-c1-p80x1 conversion queue.
 
@@ -1490,6 +1544,7 @@ def workload_undirected_nbunch(reps: int):
     return build, ops
 
 
+
 def workload_multigraph_cell_subscript(reps: int):
     """`G[u][v][key]` on a HELD multigraph cell (br-r37-c1-2ndmw, second lever).
 
@@ -1610,6 +1665,7 @@ WORKLOADS = {
     "edge-subscript-binding": workload_edge_subscript_binding,
     "row-subscript-family": workload_row_subscript_family,
     "multigraph-cell-subscript": workload_multigraph_cell_subscript,
+    "multigraph-weighted-paths": workload_multigraph_weighted_paths,
     "algorithms": workload_algorithms,
     "incumbent-fixtures": workload_incumbent_fixtures,
     "incumbent-fixtures-2": workload_incumbent_fixtures_2,
