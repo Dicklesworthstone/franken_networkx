@@ -3432,8 +3432,11 @@ class _DiGraphEdgeView:
         # OutEdgeView -> MultiAdjacencyView -> AdjacencyView -> AtlasView
         # after a redundant has_edge probe. Bind the raw exact-type descriptor
         # once, as the keyed multigraph views already do. Subclasses and
-        # NetworkX-private storage retain the generic mapping path, and the
-        # per-call guard keeps a held view live if private storage lands later.
+        # NetworkX-private storage retain the generic mapping path.
+        # br-r37-c1-hvw2e-8smdi: this construction-time decision is the ONLY one; the
+        # subscript does not re-check. networkx captures `_adjdict` in its own
+        # __init__ and never re-reads it, so a view built before an override
+        # must not see that override.
         raw_get_edge_data = globals().get(
             "_DIGRAPH_PRIVATE_AWARE_GET_EDGE_DATA"
         )
@@ -3507,10 +3510,20 @@ class _DiGraphEdgeView:
             )
         u, v = edge
         native_get_edge_data = self._fnx_native_get_edge_data
-        if (
-            native_get_edge_data is not None
-            and not _has_networkx_private_storage(self._graph)
-        ):
+        if native_get_edge_data is not None:
+            # br-r37-c1-hvw2e-8smdi: NO per-call private-storage re-check. This
+            # slot used to re-run `_has_networkx_private_storage(self._graph)`
+            # on every subscript so a HELD view would notice an override that
+            # landed after it was built. That is a parity DEFECT, not a
+            # requirement: networkx's OutEdgeView.__init__ does
+            # `self._adjdict = G._succ if hasattr(G, "succ") else G._adj` and
+            # `__getitem__` reads only that captured mapping, so reassigning
+            # `G._adj` / `G._succ` CANNOT affect a view that already exists.
+            # The re-check made fnx raise KeyError where nx returns the edge,
+            # on all four classes (6 divergent cells; see the parity matrix in
+            # tests/python/test_held_edge_view_private_storage_parity.py).
+            # The construction-time decision in __init__ is the correct and
+            # sufficient one, and it is what nx's captured `_adjdict` means.
             # br-r37-c1-q4wzt: on a HIT the native lookup already established
             # both endpoints, so the explicit `hash(u)`, the `u in self._graph`
             # membership probe and `hash(v)` below are duplicate work -- measured
@@ -3897,8 +3910,11 @@ class _MultiGraphEdgeView:
         # allocate/traverse four Python view layers before reaching the native
         # edge store.  Bind the raw PyO3 descriptor once for ordinary exact-type
         # graphs; subclasses and NetworkX-private storage retain the generic
-        # mapping chain below.  The per-call private-storage guard keeps a held
-        # edge view live if ``graph._adj`` is installed after this view is built.
+        # mapping chain below.  br-r37-c1-hvw2e-8smdi: this is the ONLY private-storage
+        # decision the view makes. It used to be re-checked on every subscript so
+        # a held view would notice a late ``graph._adj``; networkx's MultiEdgeView
+        # binds ``self._adjdict = G._adj`` in __init__ and never re-reads it, so
+        # that re-check inverted the contract rather than upholding it.
         self._fnx_native_get_edge_data = (
             _MULTIGRAPH_PRIVATE_AWARE_GET_EDGE_DATA.__get__(graph, MultiGraph)
             if type(graph) is MultiGraph and not _has_networkx_private_storage(graph)
@@ -3944,11 +3960,20 @@ class _MultiGraphEdgeView:
             )
         u, v, key = edge
         native_get_edge_data = self._fnx_native_get_edge_data
-        if (
-            key is not None
-            and native_get_edge_data is not None
-            and not _has_networkx_private_storage(self._graph)
-        ):
+        if key is not None and native_get_edge_data is not None:
+            # br-r37-c1-hvw2e-8smdi: NO per-call private-storage re-check. This
+            # slot used to re-run `_has_networkx_private_storage(self._graph)`
+            # on every subscript so a HELD view would notice an override that
+            # landed after it was built. That is a parity DEFECT, not a
+            # requirement: networkx's OutEdgeView.__init__ does
+            # `self._adjdict = G._succ if hasattr(G, "succ") else G._adj` and
+            # `__getitem__` reads only that captured mapping, so reassigning
+            # `G._adj` / `G._succ` CANNOT affect a view that already exists.
+            # The re-check made fnx raise KeyError where nx returns the edge,
+            # on all four classes (6 divergent cells; see the parity matrix in
+            # tests/python/test_held_edge_view_private_storage_parity.py).
+            # The construction-time decision in __init__ is the correct and
+            # sufficient one, and it is what nx's captured `_adjdict` means.
             # br-r37-c1-vv3sd: multigraph twin of br-r37-c1-q4wzt. On a HIT the
             # native lookup hashes and resolves all three components itself, so
             # the explicit hashes in front of it are duplicate work. Anything
@@ -3962,6 +3987,25 @@ class _MultiGraphEdgeView:
             else:
                 if data is not _PRIVATE_MISSING:
                     return data
+                # br-r37-c1-hvw2e-8smdi: a MISS on a view that captured the NATIVE
+                # store must be shaped from that store, not from `self._graph.adj`.
+                # The generic tail below re-reads the graph's CURRENT adjacency,
+                # which is private-storage-aware, so a `G._adj` assigned after
+                # this view was built would answer a lookup the incumbent
+                # resolves against its captured `_adjdict` (networkx's
+                # MultiEdgeView binds `self._adjdict = G._adj` in __init__ and
+                # never re-reads it). Probing natively keeps nx's KeyError shape
+                # -- first missing element of u, v, key -- without materialising
+                # an AdjacencyView, which would also dirty the edge store.
+                hash(u)
+                hash(v)
+                hash(key)
+                graph = self._graph
+                if not graph.has_node(u):
+                    raise KeyError(u)
+                if not graph.has_edge(u, v):
+                    raise KeyError(v)
+                raise KeyError(key)
         hash(u)
         hash(v)
         hash(key)
@@ -4619,11 +4663,20 @@ class _MultiDiGraphEdgeView:
             )
         u, v, key = edge
         native_get_edge_data = self._fnx_native_get_edge_data
-        if (
-            key is not None
-            and native_get_edge_data is not None
-            and not _has_networkx_private_storage(self._graph)
-        ):
+        if key is not None and native_get_edge_data is not None:
+            # br-r37-c1-hvw2e-8smdi: NO per-call private-storage re-check. This
+            # slot used to re-run `_has_networkx_private_storage(self._graph)`
+            # on every subscript so a HELD view would notice an override that
+            # landed after it was built. That is a parity DEFECT, not a
+            # requirement: networkx's OutEdgeView.__init__ does
+            # `self._adjdict = G._succ if hasattr(G, "succ") else G._adj` and
+            # `__getitem__` reads only that captured mapping, so reassigning
+            # `G._adj` / `G._succ` CANNOT affect a view that already exists.
+            # The re-check made fnx raise KeyError where nx returns the edge,
+            # on all four classes (6 divergent cells; see the parity matrix in
+            # tests/python/test_held_edge_view_private_storage_parity.py).
+            # The construction-time decision in __init__ is the correct and
+            # sufficient one, and it is what nx's captured `_adjdict` means.
             # br-r37-c1-vv3sd: multigraph twin of br-r37-c1-q4wzt. On a HIT the
             # native lookup hashes and resolves all three components itself, so
             # the explicit hashes in front of it are duplicate work. Anything
@@ -4637,6 +4690,25 @@ class _MultiDiGraphEdgeView:
             else:
                 if data is not _PRIVATE_MISSING:
                     return data
+                # br-r37-c1-hvw2e-8smdi: a MISS on a view that captured the NATIVE
+                # store must be shaped from that store, not from `self._graph.adj`.
+                # The generic tail below re-reads the graph's CURRENT adjacency,
+                # which is private-storage-aware, so a `G._adj` assigned after
+                # this view was built would answer a lookup the incumbent
+                # resolves against its captured `_adjdict` (networkx's
+                # MultiEdgeView binds `self._adjdict = G._adj` in __init__ and
+                # never re-reads it). Probing natively keeps nx's KeyError shape
+                # -- first missing element of u, v, key -- without materialising
+                # an AdjacencyView, which would also dirty the edge store.
+                hash(u)
+                hash(v)
+                hash(key)
+                graph = self._graph
+                if not graph.has_node(u):
+                    raise KeyError(u)
+                if not graph.has_edge(u, v):
+                    raise KeyError(v)
+                raise KeyError(key)
         hash(u)
         hash(v)
         hash(key)

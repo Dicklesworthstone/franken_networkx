@@ -33,6 +33,7 @@ bug survived its first review.
 
 from __future__ import annotations
 
+import os
 import random
 import subprocess
 import sys
@@ -214,12 +215,22 @@ def test_order_parity_holds_under_several_hash_seeds(hashseed):
     seeds and failed on 3. Running in a subprocess is the only way to vary
     PYTHONHASHSEED, since it is fixed at interpreter start.
     """
+    # br-r37-c1-hvw2e-8smdi: INHERIT the environment and override only the seed, as
+    # the sibling seed-sweep in test_misc_tier2_parity.py already does. Building
+    # a clean `env={"PYTHONHASHSEED": ..., "PATH": ...}` dropped PYTHONPATH, so
+    # the child imported whatever `franken_networkx` sits in site-packages
+    # instead of the tree under test. That is not a hypothetical: measured on
+    # 2026-08-18 the child reported 19/24 order divergences against a
+    # two-week-old installed build while the tree it was supposed to be testing
+    # reported 0/24 — a RED that says nothing about this checkout. The failure
+    # direction is the dangerous one too: an installed package that happens to
+    # be healthy would turn a genuine tree regression GREEN.
     proc = subprocess.run(
         [sys.executable, "-c", _SEED_CHILD],
         capture_output=True,
         text=True,
         timeout=600,
-        env={"PYTHONHASHSEED": hashseed, "PATH": "/usr/bin:/bin"},
+        env={**os.environ, "PYTHONHASHSEED": hashseed},
     )
     assert proc.returncode == 0, proc.stderr[-2000:]
     bad, total = proc.stdout.strip().split("/")

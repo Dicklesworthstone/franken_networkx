@@ -24029,3 +24029,54 @@ returns; the yield now is in substrate work and in probes that call kernels
 directly.
 
 loadavg 11.87/11.74/12.84, disk 38G below the 42G brake, no cargo, no new files.
+
+## 2026-08-18 — a per-call parity GUARD that was itself the parity defect (br-r37-c1-hvw2e-8smdi)
+
+REFUTED PRIOR, and it was one of mine. br-r37-c1-bnv3h recorded, as "tested, not
+assumed", that fnx's edge-view `__getitem__` must re-probe private storage on every
+call because "the native `get_edge_data` returns {'w': 1} for an edge that an
+assigned `G._adj` override HIDES, on all three affected classes, where networkx
+raises KeyError. Removing the probe would have been a silent parity regression
+bought with 21%."
+
+The first half is right: the raw native `get_edge_data` really does ignore an
+override, so the guard is load-bearing SOMEWHERE. The conclusion is wrong, because
+the test behind it built the view AFTER assigning the override — the one ordering in
+which the per-call guard and the construction-time guard agree. Build the view
+FIRST, which is what "held view" means, and the direction reverses: networkx
+captures `self._adjdict = G._succ if hasattr(G, "succ") else G._adj` once in
+`__init__` and `__getitem__` never re-reads it, so nx returns the edge and fnx
+raised KeyError.
+
+    4 classes x 4 private attrs x {view built before, after} = 32 cells
+    before: 6 divergent, ALL in the view-built-BEFORE order
+    after:  1 divergent (Graph only — the native C slot, still open)
+    randomized subscript differential comparing exception ARGS: 10,400 cases, 0 divergent
+
+Two lessons worth more than the fix. (1) A guard justified by a probe is only as
+good as the probe's SETUP; this one tested the ordering under which the guard does
+nothing. (2) Two repo tests asserted fnx's own answers here with no incumbent arm,
+so they passed while encoding the divergence — and the Graph half, which is still
+broken, passed them too. Rewriting them against networkx is what made the Graph
+defect visible.
+
+NOT A ROW. The same change removes a Python frame per subscript (2 -> 1, matching
+networkx; Graph's native slot is 0), counted with sys.setprofile because that is
+load-independent. No vs-incumbent TIMING ratio is claimed: the host sat at loadavg
+24-44 across this window and the balanced-square fnx-arm nulls were failing, so the
+ratio was not measurable to the standard. The frame count is certified; the ratio is
+explicitly not.
+
+ALSO FOUND, and it invalidates any verdict that test produced:
+`test_order_parity_holds_under_several_hash_seeds` spawned its seed-varying child
+with `env={"PYTHONHASHSEED": seed, "PATH": "/usr/bin:/bin"}` — a clean env with no
+PYTHONPATH — so the child imported the SITE-PACKAGES build, not the tree. Measured
+here: 19/24 order divergences against a two-week-old installed package versus 0/24
+for the tree it was supposed to be testing. It was reporting a RED about a build
+nobody was changing, and the symmetric failure is worse: a healthy installed package
+would have turned a genuine tree regression GREEN. Its sibling seed sweep in
+test_misc_tier2_parity.py already did it correctly with `{**os.environ, ...}`; the
+fix is to match the sibling. Census of the pattern across tests/python: 2 files
+build a subprocess env, 1 was wrong, now 0.
+
+loadavg 43.84/40.57/30.65 at write time, disk 302G, ELF 62cbd5c990611d71, no cargo.

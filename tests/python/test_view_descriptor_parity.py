@@ -615,12 +615,13 @@ def test_simple_edge_view_getitem_returns_live_native_attr_dict(cls_name):
     assert held_edges["left", "right"] == {"replacement": True}
 
 
-@pytest.mark.parametrize("cls_name", ["Graph", "DiGraph"])
-def test_held_simple_edge_view_falls_back_after_private_storage_assignment(
-    cls_name,
-):
-    """A held exact-type view must stop reading native storage after override."""
-    graph = getattr(fnx, cls_name)()
+def _held_simple_edge_view_outcomes(module, cls_name):
+    """Build a view, THEN assign private storage, and report both lookups.
+
+    Factored out so the assertion below compares fnx against networkx running
+    the identical scenario rather than against a remembered constant.
+    """
+    graph = getattr(module, cls_name)()
     graph.add_edge("native-u", "native-v", old=True)
     held_edges = graph.edges
     graph._node = {"private-u": {}, "private-v": {}}
@@ -640,9 +641,51 @@ def test_held_simple_edge_view_falls_back_after_private_storage_assignment(
             "private-v": {"private-u": {"private": True}},
         }
 
-    assert held_edges["private-u", "private-v"] == {"private": True}
-    with pytest.raises(KeyError, match="is not in the graph"):
-        held_edges["native-u", "native-v"]
+    outcomes = {}
+    for label, subscript in (
+        ("private", ("private-u", "private-v")),
+        ("native", ("native-u", "native-v")),
+    ):
+        try:
+            outcomes[label] = ("ok", repr(held_edges[subscript]))
+        except Exception as exc:  # noqa: BLE001 - the exception IS the contract
+            outcomes[label] = (type(exc).__name__, repr(exc.args))
+    return outcomes
+
+
+@pytest.mark.parametrize("cls_name", ["Graph", "DiGraph"])
+def test_held_simple_edge_view_matches_networkx_after_private_assignment(
+    cls_name,
+):
+    """A held view must answer from the storage it CAPTURED, as networkx does.
+
+    br-r37-c1-hvw2e-8smdi. This assertion used to read "a held exact-type view must
+    stop reading native storage after override" and pinned fnx's own answers
+    with no incumbent arm: the private edge resolving to {'private': True} and
+    the native edge raising KeyError. networkx does the exact OPPOSITE, and its
+    source says why -- `OutEdgeView.__init__` captures
+    `self._adjdict = G._succ if hasattr(G, "succ") else G._adj` once, and
+    `__getitem__` reads only that captured mapping. A view built BEFORE the
+    assignment therefore still answers from the pre-assignment adjacency: the
+    native edge is found and the private edge is absent.
+
+    So the old test encoded a DIVERGENCE as the contract. It is rewritten
+    against networkx here, which is also what makes the remaining Graph defect
+    visible: `Graph.edges` is the native `_fnx.EdgeView` whose C-slot
+    `__getitem__` re-probes private storage on every call, so it is inverted on
+    BOTH lookups and xfails below. The old spelling reported that as a pass.
+    """
+    if cls_name == "Graph":
+        pytest.xfail(
+            "native _fnx.EdgeView C slot re-probes private storage per call "
+            "(br-r37-c1-hvw2e-8smdi, Rust half)"
+        )
+    expected = _held_simple_edge_view_outcomes(nx, cls_name)
+    actual = _held_simple_edge_view_outcomes(fnx, cls_name)
+    assert actual == expected, (
+        f"{cls_name}: a held G.edges view must answer from the adjacency it "
+        f"captured at construction. networkx gave {expected}, fnx gave {actual}."
+    )
 
 
 @pytest.mark.parametrize("cls_name", ["Graph", "DiGraph"])
@@ -1544,9 +1587,8 @@ def test_multiedge_keyed_getitem_missing_errors_match_networkx(cls_name):
         assert fnx_error.value.args == nx_error.value.args
 
 
-def test_held_multiedge_view_falls_back_after_private_storage_assignment():
-    """A held ordinary view must not read stale native storage after ``_adj``."""
-    graph = fnx.MultiGraph()
+def _held_multiedge_view_outcomes(module):
+    graph = module.MultiGraph()
     graph.add_edge(1, 2, key=0, old=True)
     held_edges = graph.edges
     graph._adj = {
@@ -1554,9 +1596,29 @@ def test_held_multiedge_view_falls_back_after_private_storage_assignment():
         8: {7: {3: {"private": True}}},
     }
 
-    assert held_edges[7, 8, 3] == {"private": True}
-    with pytest.raises(KeyError, match="1"):
-        held_edges[1, 2, 0]
+    outcomes = {}
+    for label, subscript in (("private", (7, 8, 3)), ("native", (1, 2, 0))):
+        try:
+            outcomes[label] = ("ok", repr(held_edges[subscript]))
+        except Exception as exc:  # noqa: BLE001 - the exception IS the contract
+            outcomes[label] = (type(exc).__name__, repr(exc.args))
+    return outcomes
+
+
+def test_held_multiedge_view_matches_networkx_after_private_assignment():
+    """The multigraph twin of the simple-view contract above (br-r37-c1-hvw2e-8smdi).
+
+    Same correction: this asserted fnx's own answers -- private edge found,
+    native edge KeyError -- where networkx's MultiEdgeView captures `G._adj` in
+    `__init__` and so answers the other way round for a view that already
+    existed when `_adj` was assigned.
+    """
+    expected = _held_multiedge_view_outcomes(nx)
+    actual = _held_multiedge_view_outcomes(fnx)
+    assert actual == expected, (
+        "a held MultiGraph.edges view must answer from the adjacency it "
+        f"captured at construction. networkx gave {expected}, fnx gave {actual}."
+    )
 
 
 @pytest.mark.parametrize("cls_name", ["MultiGraph", "MultiDiGraph"])
