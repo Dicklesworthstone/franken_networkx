@@ -399,6 +399,86 @@ def workload_view_reads_directed(reps: int):
     return build, ops
 
 
+def workload_edge_subscript_binding(reps: int):
+    """All four classes' edge subscript in ONE process (br-r37-c1-bnv3h).
+
+    bnv3h's table is a CROSS-CLASS comparison — its whole argument is that the
+    binding type of `__getitem__` (native C slot vs Python function) predicts
+    the ratio — but the four rows it compares live in three different
+    workloads, so they were measured in three different processes and three
+    different row contexts. Per this file's own ROW CONTEXT warning that makes
+    them not strictly comparable, which is exactly the property the claim
+    rests on. Here they share one process, one fixture scale and one window.
+
+    SPELLING. The multigraph rows use the 3-tuple `G.edges[u, v, k]` because
+    networkx's MultiEdgeView does `u, v, k = e` and raises ValueError on a
+    2-tuple, so the unkeyed spelling has no incumbent arm at all. The simple
+    classes use the 2-tuple. These are the comparable spellings, not the same
+    one, and the row labels say which is which.
+
+    This workload measures; it does not check which binding served each row.
+    Read that off `type(G.edges).__getitem__` separately before interpreting
+    the table, because the binding is the claim's independent variable and a
+    future change can move a class across it without the ratio saying so.
+    """
+
+    def build(module):
+        undirected, (names, edges) = _simple_graph(module, 2000, 8000)
+        directed, (dnames, dedges) = _directed_graph(module, 2000, 8000)
+        multi, (mnames, mtriples) = _multi_graph(module, 2000, 8000, directed=False)
+        multidi, (mdnames, mdtriples) = _multi_graph(module, 2000, 8000, directed=True)
+        fixture = (
+            names,
+            edges,
+            directed,
+            [(dnames[a], dnames[b]) for a, b in dedges],
+            multi,
+            mtriples,
+            multidi,
+            mdtriples,
+        )
+        return undirected, fixture
+
+    def ops(graph, fixture):
+        (
+            names,
+            edges,
+            digraph,
+            dedges,
+            multi,
+            mtriples,
+            multidi,
+            mdtriples,
+        ) = fixture
+        rng = random.Random(7)
+        gprobe = [edges[rng.randrange(len(edges))] for _ in range(reps)]
+        dprobe = [dedges[rng.randrange(len(dedges))] for _ in range(reps)]
+        mprobe = [mtriples[rng.randrange(len(mtriples))] for _ in range(reps)]
+        mdprobe = [mdtriples[rng.randrange(len(mdtriples))] for _ in range(reps)]
+        gview = graph.edges
+        dview = digraph.edges
+        mview = multi.edges
+        mdview = multidi.edges
+        return {
+            "Graph        G.edges[u,v]": lambda: sum(
+                len(gview[u, v]) for u, v in gprobe
+            ),
+            "DiGraph      G.edges[u,v]": lambda: sum(
+                len(dview[u, v]) for u, v in dprobe
+            ),
+            "MultiGraph   G.edges[u,v,k]": lambda: sum(
+                len(mview[u, v, k]) for u, v, k in mprobe
+            ),
+            "MultiDiGraph G.edges[u,v,k]": lambda: sum(
+                len(mdview[u, v, k]) for u, v, k in mdprobe
+            ),
+            # Control: no edge-subscript lever can move a bare node count.
+            "CONTROL len(G)": lambda: sum(len(graph) for _ in range(reps)),
+        }
+
+    return build, ops
+
+
 def workload_algorithms(reps: int):
     """Whole-algorithm rows, for the br-r37-c1-p80x1 conversion queue.
 
@@ -1359,6 +1439,7 @@ WORKLOADS = {
     "key-length-scaling": workload_key_length_scaling,
     "view-reads-directed": workload_view_reads_directed,
     "view-reads-multi": workload_view_reads_multi,
+    "edge-subscript-binding": workload_edge_subscript_binding,
     "algorithms": workload_algorithms,
     "incumbent-fixtures": workload_incumbent_fixtures,
     "incumbent-fixtures-2": workload_incumbent_fixtures_2,
