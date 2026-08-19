@@ -75,6 +75,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "python"))
 
 import franken_networkx as fnx  # noqa: E402
+from franken_networkx import _PRIVATE_ADJ_OVERRIDE  # noqa: E402
 
 MULTI_CLASSES = ("MultiGraph", "MultiDiGraph")
 ALL_CLASSES = ("Graph", "DiGraph", "MultiGraph", "MultiDiGraph")
@@ -522,3 +523,72 @@ def test_untouched_cell_after_removal_still_diverges_from_networkx(cls_name):
         "this test and the caveat it pins in "
         "test_cell_after_all_parallel_edges_removed_matches_networkx"
     )
+
+
+# ---------------------------------------------------------------------------
+# 8. the warm keydict path (br-r37-c1-2ndmw, third lever)
+# ---------------------------------------------------------------------------
+def test_warm_keydict_is_only_reachable_after_the_cold_guards():
+    """The warm path skips the class check; this is the invariant that allows it.
+
+    `_multi_edge_keydict`'s fast path returns `cached[1]` without re-checking
+    `type(owner) in (MultiGraph, MultiDiGraph)`. That is sound only because a
+    non-None `_fnx_kd_cache` on a view with a non-None `_fnx_multi_edge_owner`
+    can ONLY have been written by the cold path, which does check it against
+    this same owner object. If some other writer ever fills that field on a
+    multi-owned view, the fast path starts answering for a class it was never
+    validated against — so the invariant is asserted directly.
+    """
+    graph = fnx.MultiGraph()
+    graph.add_edge("a", "b", weight=1)
+    cell = graph["a"]["b"]
+
+    assert cell._fnx_multi_edge_owner is graph
+    assert cell._fnx_kd_cache is None, "a fresh cell must start cold"
+
+    list(cell)  # cold path: runs every guard, then fills
+    cached = cell._fnx_kd_cache
+    assert cached is not None
+    assert type(graph) in (fnx.MultiGraph, fnx.MultiDiGraph)
+
+    # And a view whose owner is NOT a multigraph never reaches the fill at all,
+    # so it can never present a warm entry to the fast path.
+    plain = fnx.Graph()
+    plain.add_edge("a", "b")
+    impostor = fnx.AtlasView(lambda: {"b": {}}, None, "a", "adj", plain)
+    assert impostor._multi_edge_keydict(True) is None
+    assert impostor._fnx_kd_cache is None
+    assert impostor._multi_edge_keydict(False) is None
+
+
+def test_private_storage_assigned_after_the_cache_still_wins():
+    """The private-storage guard is NOT skippable and stays on the warm path.
+
+    An nx-compatible `_adj` can be assigned to the owner AFTER the keydict was
+    cached, and from then on it — not the native store — is the authority. The
+    warm path inlines the four membership tests rather than dropping them, so a
+    later assignment still diverts the read.
+    """
+    graph = fnx.MultiGraph()
+    graph.add_edge("a", "b", weight=1)
+    cell = graph["a"]["b"]
+    list(cell)
+    assert cell._fnx_kd_cache is not None
+
+    graph.__dict__[_PRIVATE_ADJ_OVERRIDE] = {"a": {"b": {0: {"weight": 1}}}}
+    assert cell._multi_edge_keydict(False) is None, (
+        "the warm path served a cached keydict after private storage was "
+        "assigned to the owner"
+    )
+    assert cell._multi_edge_keydict(True) is None
+
+
+def test_multi_edge_keydict_accepts_positional_materialize():
+    """The keyword-only star is gone; both spellings must still mean the same."""
+    graph = fnx.MultiGraph()
+    graph.add_edge("a", "b", weight=1)
+    cell = graph["a"]["b"]
+    assert cell._multi_edge_keydict(False) is None  # cold, non-materialising
+    warm = cell._multi_edge_keydict(True)
+    assert warm is not None
+    assert cell._multi_edge_keydict(materialize=False) is warm

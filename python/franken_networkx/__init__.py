@@ -2274,9 +2274,50 @@ class AtlasView(_Mapping):
             return atlas
         return self._atlas_getter()
 
-    def _multi_edge_keydict(self, *, materialize):
+    def _multi_edge_keydict(self, materialize):
+        # br-r37-c1-2ndmw: WARM PATH FIRST, and `materialize` is positional now.
+        #
+        # This helper is what `__len__`, `__iter__`, `__contains__` and `keys()`
+        # all go through on a multigraph cell, and it re-ran the full guard set
+        # on every one of them. Decomposed on a warm cell, `len(cell)` is
+        # 349.7 ns against networkx's 51.0 ns, and 265.0 ns of that is this
+        # call:
+        #
+        #     _has_networkx_private_storage(owner)   ~77 ns   (a CALL frame)
+        #     type(owner) not in (MG, MDG)           ~49 ns
+        #     (owner.nodes_seq, owner.edges_seq)     ~48 ns   (two PyO3 getters)
+        #     the keyword-only `materialize`         ~30 ns
+        #     len(keydict) itself                     17.5 ns
+        #
+        # THE TYPE CHECK IS SKIPPABLE ON THE WARM PATH, and the reason is an
+        # invariant rather than an optimism: a non-None `_fnx_kd_cache` on a
+        # view whose `_fnx_multi_edge_owner` is not None can ONLY have been
+        # written by the cold path below, which checks the type against THIS
+        # same owner object — and an object's type does not change under it.
+        # (`_keydict` reaches its own non-multi cache fill only when
+        # `_fnx_multi_edge_owner` IS None, so the two never share an entry.)
+        # Pinned by test_warm_keydict_is_only_reachable_after_the_cold_guards.
+        #
+        # THE PRIVATE-STORAGE CHECK IS NOT SKIPPABLE, because an nx-compatible
+        # `_adj` can be assigned to the owner AFTER this cache was filled, and
+        # then the row's authority changes. It stays — inlined, because the
+        # helper's own comment records that ~30 ns of its 91.9 ns is the call
+        # frame, and this is the one place that calls it per element access.
         owner = self._fnx_multi_edge_owner
         cached = self._fnx_kd_cache
+        if cached is not None and owner is not None:
+            storage = owner.__dict__
+            if not (
+                _PRIVATE_NODE_OVERRIDE in storage
+                or _PRIVATE_ADJ_OVERRIDE in storage
+                or _PRIVATE_SUCC_OVERRIDE in storage
+                or _PRIVATE_PRED_OVERRIDE in storage
+            ):
+                try:
+                    if cached[0] == (owner.nodes_seq, owner.edges_seq):
+                        return cached[1]
+                except AttributeError:
+                    return None
         if owner is None or (cached is None and not materialize):
             return None
         if type(owner) not in (MultiGraph, MultiDiGraph):
@@ -2297,7 +2338,7 @@ class AtlasView(_Mapping):
 
     def _keydict(self):
         if self._fnx_multi_edge_owner is not None:
-            return self._multi_edge_keydict(materialize=True)
+            return self._multi_edge_keydict(True)
         live = self._fnx_live_keydict
         if live is not None:
             return live
@@ -2326,7 +2367,7 @@ class AtlasView(_Mapping):
             # Do not pay the owner/private/token helper on the cold length-only
             # path: the native exact-size method is the shipped 118-153x seam.
             if self._fnx_kd_cache is not None:
-                keydict = self._multi_edge_keydict(materialize=False)
+                keydict = self._multi_edge_keydict(False)
                 if keydict is not None:
                     return len(keydict)
             return len(self._atlas())
@@ -2346,7 +2387,7 @@ class AtlasView(_Mapping):
         # TypeError on unhashable). Serve from the keydict so it is pure-Python.
         if self._fnx_multi_edge_owner is not None:
             if self._fnx_kd_cache is not None:
-                keydict = self._multi_edge_keydict(materialize=False)
+                keydict = self._multi_edge_keydict(False)
                 if keydict is not None:
                     return node in keydict
             try:

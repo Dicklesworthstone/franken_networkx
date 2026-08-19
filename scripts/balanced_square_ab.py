@@ -1565,6 +1565,18 @@ def workload_multigraph_cell_subscript(reps: int):
             table[tag + " held cell iter len=" + str(length)] = (
                 lambda c=cell: list(c)
             )
+            # br-r37-c1-2ndmw third lever: len / in / keys reach the keydict
+            # through `_multi_edge_keydict`, whose guard set ran in full on
+            # every call. They are FLAT in key length -- the cached keydict
+            # answers them -- so they isolate the guard cost from the
+            # string-keyed native lookup that `cell[key]` pays.
+            list(cell)  # warm the keydict, so these measure the WARM path
+            table[tag + " held cell len len=" + str(length)] = (
+                lambda c=cell: len(c)
+            )
+            table[tag + " held cell in len=" + str(length)] = (
+                lambda c=cell: 0 in c
+            )
             # Cannot benefit: a fresh cell has nothing memoised.
             table["ONESHOT " + tag + " G[u][v][key] len=" + str(length)] = (
                 lambda g=g, u=u, v=v: g[u][v][0]

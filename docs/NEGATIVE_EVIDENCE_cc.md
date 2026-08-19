@@ -24927,3 +24927,100 @@ it grows with node-key length while networkx is flat. PyGraph::edge_key clones B
 keys into a (String, String, usize) tuple on every call and edge_py_attrs is a std HashMap
 probed TWICE (contains_key then get) -- roughly three SipHash passes over 4 KB plus two
 allocations per edge-attribute read, on a hit where the entry already exists.
+
+## 2026-08-19 — the warm keydict path re-ran guards its own fill had already passed: len/in/iter on a held multigraph cell 1.1-1.2x (br-r37-c1-2ndmw)
+
+DONE (EmeraldMeadow, 2026-08-19). Third Python-shim lever on this bead, identical ELF on
+both arms (b0fac72e9d965ffd).
+
+WHY THESE ROWS AND NOT THE OBVIOUS ONES. Sweeping the whole cell surface splits it cleanly
+by whether the operation touches a node key:
+
+    MultiGraph cell, K=3 -> K=2000        fnx ns             ratio
+      cell[0]        275.3  -> 1896.9     UNBOUNDED in K     0.2322 -> 0.0325
+      cell.get(0)    295.4  -> 1996.2     UNBOUNDED          0.2705 -> 0.0400
+      items()       2593.4  -> 9202.7     UNBOUNDED          0.3029 -> 0.0840
+      values()      2451.8  -> 9525.0     UNBOUNDED          0.2753 -> 0.0722
+      dict(cell)    2108.0  -> 9117.9     UNBOUNDED          0.3667 -> 0.0837
+      len(cell)      380.0  ->  372.8     FLAT               0.1735 -> 0.1692
+      list(cell)     846.2  ->  823.9     FLAT               0.2189 -> 0.2172
+      0 in cell      365.9  ->  356.3     FLAT               0.2349 -> 0.2353
+      keys()         710.8  ->  706.9     FLAT               0.6773 -> 0.6762
+
+The unbounded half is ONE defect -- every one of them is per-key
+`MultiKeyDictView.__getitem__` in Rust -- and it is filed as br-r37-c1-6r00i, which needs a
+build. The FLAT half is pure shim and is what this lever takes.
+
+THE MECHANISM. `len`, `iter`, `in` and `keys` on a multigraph cell all go through
+`AtlasView._multi_edge_keydict`, which re-ran its full guard set on every call. Decomposed
+on a warm cell where `len(cell)` is 349.7 ns against networkx's 51.0 ns:
+
+    _has_networkx_private_storage(owner)   ~77 ns   (a CALL frame)
+    type(owner) not in (MG, MDG)           ~49 ns
+    (owner.nodes_seq, owner.edges_seq)     ~48 ns   (two PyO3 getters)
+    the keyword-only `materialize`         ~30 ns
+    len(keydict) itself                     17.5 ns
+
+so 265.0 ns of a 349.7 ns call was guard work re-establishing what the cache fill had
+already established. Warm path moved to the front, type check dropped on it, private-storage
+check inlined, `materialize` made positional: 265.0 -> 204.3 ns and `len(cell)` 349.7 ->
+275.9 ns standalone.
+
+THE TYPE CHECK IS DROPPED ON AN INVARIANT, NOT AN OPTIMISM. A non-None `_fnx_kd_cache` on a
+view with a non-None `_fnx_multi_edge_owner` can ONLY have been written by the cold path,
+which checks the type against THAT SAME owner object, and an object's type does not change
+under it. `_keydict` reaches its own non-multi fill only when `_fnx_multi_edge_owner` IS
+None, so the two never share an entry. Asserted directly by
+test_warm_keydict_is_only_reachable_after_the_cold_guards, including that a view owned by a
+plain Graph never gets an entry at all.
+
+THE PRIVATE-STORAGE CHECK IS NOT DROPPED, and that asymmetry is the point: an nx-compatible
+`_adj` can be assigned to the owner AFTER the cache was filled, and from then on it is the
+authority. It stays, inlined without the helper's call frame.
+test_private_storage_assigned_after_the_cache_still_wins assigns one after the fill and
+requires the warm path to refuse.
+
+BANKED ROWS, vs NetworkX 3.6.1 live in the same invocation, two runs per arm, order
+prev/after/after/prev, in the quietest window of the session:
+
+    row                                     prev             after            move
+    MultiGraph   held cell len len=3        0.3202 0.3354    0.3800 0.3632     1.14x
+    MultiGraph   held cell len len=2000     0.3374 0.3147    0.3712 0.3615     1.11x
+    MultiGraph   held cell in  len=2000     0.3678 0.3808    0.4654 0.4122     1.17x
+    MultiGraph   held cell iter len=3       0.3411 0.3368    0.4379 0.3828     1.21x
+    MultiDiGraph held cell len len=3        0.3219 0.3155    0.4045 0.3639     1.20x
+    MultiDiGraph held cell len len=2000     0.3141 0.3120    0.3874 0.3621     1.20x
+    MultiDiGraph held cell in  len=2000     0.3675 0.3849    0.4720 0.4159     1.18x
+    MultiDiGraph held cell iter len=2000    0.3458 0.3440    0.4083 0.3779     1.14x
+    CONTROL MultiGraph   G[u][v] len=2000   0.5020 0.4970    0.4872 0.4977     0.99x
+    CONTROL MultiDiGraph G[u][v] len=2000   0.4583 0.4474    0.4367 0.4147     0.94x
+    CONTROL DiGraph      G[u][v] len=3      0.5001 0.4715    0.5001 0.4897     1.02x
+    CONTROL DiGraph      G[u][v] len=2000   0.4928 0.5021    0.5025 0.4635     0.97x
+    CONTROL MG has_edge  len=2000           0.7088 0.7138    0.7240 0.6736     0.98x
+
+ALL TWELVE subject rows moved up (the four K=3 `in` and `iter` rows not tabulated above are
+1.15-1.16x and marginal); every control is inside 0.94-1.02. Twelve of twelve in the same
+direction is worth more here than any single row's interval, because the per-row spread is
+the same size as the effect. Corrected by the mean control the honest range is 1.15-1.23x,
+so quote roughly 1.1-1.2x.
+
+PROVENANCE. balanced_square_ab.py workload multigraph-cell-subscript, extended in this commit
+with the len and `in` rows, 41 rounds, 400 reps, taskset -c 40-47, PYTHONHASHSEED=0, four
+runs 12:29-12:30 EDT alternated prev/after/after/prev. loadavg 11.1-11.9 / 12.8-13.1 /
+15.5-15.7 -- the quietest AND most stable window of this session, one-minute below
+five-minute below fifteen-minute. iowait 0. Per-arm clocks 4064-4289 MHz, arm skew
+0.00-0.02 pct on every row. ELF b0fac72e9d965ffd on BOTH arms, verified in-process.
+Nulls failed on both arms again (0.91-1.35), same common-mode ramp; note it is MILDER in
+this quiet window than in the loud ones (1.35 max here against 1.90 earlier), which is
+consistent with contention adding to a ramp that exists without it.
+
+A NOTE ON RUN-WITHIN-ARM ORDER, because it is visible in this table and would otherwise look
+like noise: the FIRST after-run reads systematically higher than the second on every single
+row (e.g. MG iter K=3 0.4379 then 0.3828). The same shape appears in the prev pair. That is
+the position effect the balanced square removes WITHIN a row and cannot remove BETWEEN runs,
+which is why the arm summary uses both runs and why single-run before/after comparisons on
+this repository are not trustworthy.
+
+CORRECTNESS GATE: 62587 passed in the shadow tree, 14 failed, all 14 the same
+packaging/docs/ledger-gate tests that read repo paths absent from a shadow tree and verified
+identical on the arm before this lever.
