@@ -24639,3 +24639,37 @@ module becomes the acceptance test the moment a shared backing store lands.
 
 Load-independent throughout: this is a behavioural parity enumeration, no timing, taken on
 a disk-bound host where nothing timed was permitted.
+
+## 2026-08-19 — no shim-side fix for the neighbors() contaminant, and its DiGraph row needs re-measuring (br-r37-c1-3rtyk)
+
+NO SHIM-SIDE FIX EXISTS HERE (GoldenBison, 2026-08-19). Load-independent, no timing.
+
+My last two wins in this family (br-r37-c1-weightupdate-9rts1, br-r37-c1-4m4wb) were both
+Python-shim handouts found by frame-tracing, so the first question worth asking before
+committing to a build was whether neighbors() has one too. It does not:
+
+    class          Python frames for list(G.neighbors(n))
+    Graph                    1   (the probe's own lambda)
+    DiGraph                  1
+    MultiGraph               1
+    MultiDiGraph             1
+
+neighbors() is fully native on all four classes, so this bead's fix is genuinely native
+(mark at the handout, use the unexposed row builder, as filed) and needs a build. Nobody
+should go looking for a shim-side edges(data=True) to swap.
+
+AND THE CONTAMINATION CLAIM NEEDS RE-MEASURING BEFORE IT IS ACTED ON. I recorded last tick
+that DiGraph went 5.874x -> 1.140x after 200 neighbors() calls. That was a TIMING result.
+Re-checked now with the boolean store-state accessors each class exposes, none flips:
+
+    Graph        float_values True -> True,  int_values False -> False
+    DiGraph      _native_weighted_degree_values True -> True
+    Multi*       no accessor exposed
+
+That is not a refutation -- DiGraph's accessor returns non-None whether or not the store is
+usable (established while working br-r37-c1-weightupdate-9rts1), so it CANNOT see this
+defect, and the multigraphs expose nothing at all. It means the only evidence for the
+DiGraph row is a single timed measurement taken on a contended host, and it should be
+re-run in a quiet window before the bead is worked. The host was disk-bound this tick
+(five local builds, iowait reported at 32 pct) and build slots are disabled in this
+deployment, so I could not re-run it.
