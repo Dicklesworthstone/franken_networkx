@@ -820,16 +820,24 @@ def _FailFastEdgeIterator(graph, iterable, *, guard_edge_count=False, nbunch_row
     if nbunch_rows is not None and use_seq_guard:
         try:
             degree_of = graph.degree
-            # PER-NODE, deliberately, even though it is N crossings. The
-            # batched `degree(list)` spelling reads TWO freshness tokens on
-            # MultiGraph where the scalar reads none, which
-            # test_edges_nbunch_freshness_token_budget catches as a regression -
-            # and it bought only ~0.15x of the ~1.7x this snapshot costs. The
-            # real recovery is moving the snapshot into the native iterator
-            # (br-r37-c1-brjpz), where a row size is an array read rather than a
-            # crossing at all; buying a slice of it here for two tokens is the
-            # wrong trade.
-            row_sizes = {node: degree_of(node) for node in nbunch_rows}
+            # br-r37-c1-brjpz: ONE raw native call where the class offers it.
+            # `_native_degree_pairs_subset` returns the same numbers as `degree`
+            # (asserted below by the parity tests) for 0 freshness tokens and
+            # about half the time of the per-node loop - 11.58us vs 17.33us for a
+            # 50-node nbunch on MultiGraph.
+            #
+            # NOT the batched `graph.degree(list)` spelling: that builds a
+            # DegreeView and reads TWO tokens on MultiGraph, which
+            # test_edges_nbunch_freshness_token_budget correctly caught as a
+            # regression when I tried it.
+            #
+            # MultiDiGraph does not expose the raw helper, so it keeps the
+            # per-node loop - N crossings, but still token-free.
+            pairs = getattr(graph, "_native_degree_pairs_subset", None)
+            if pairs is not None:
+                row_sizes = dict(pairs(list(nbunch_rows)))
+            else:
+                row_sizes = {node: degree_of(node) for node in nbunch_rows}
         except Exception:  # noqa: BLE001 - an odd graph keeps the coarse guard
             row_sizes = None
         if row_sizes is not None:
