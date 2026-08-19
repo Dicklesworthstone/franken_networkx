@@ -7038,6 +7038,10 @@ impl MultiAtlasView {
                 self.graph.clone_ref(py),
                 self.node.clone(),
                 neighbor,
+                // br-r37-c1-6r00i: no positions here. This walk yields NAMES,
+                // and resolving each back to an index would cost the very hash
+                // the lookaside exists to avoid.
+                None,
             )
             .materialize(py)?;
             result.set_item(py_neighbor, keydict.bind(py))?;
@@ -7065,9 +7069,34 @@ impl MultiAtlasView {
         if !g.inner.has_edge(&self.node, &v_canon) {
             return Err(PyKeyError::new_err((v.clone().unbind(),)));
         }
+        // br-r37-c1-6r00i: HAND THE POSITIONS DOWN. This is the one place that
+        // builds a cell view and already holds both indices cheaply -- this
+        // row's own stamped position, and `v`'s off CPython's cached `str` hash
+        // -- so the keydict it returns can serve `G[u][v][key]` without ever
+        // touching a node key again. Every later read on that cell is what
+        // pays: `cell[key]` at 2000-character keys was 1896.9 ns against
+        // networkx's 61.6 ns, and all of the slope is the endpoint strings.
+        //
+        // Both are POSITIONS, which is what `cached_keyed_edge_attrs_by_index`
+        // expects; the stamp is what makes a post-removal position a miss
+        // instead of a wrong hit. A failure to resolve either one is simply
+        // `None` and the string path below is unchanged.
+        let mut endpoints = None;
+        if let Some((seq, u_index)) = self.node_pos
+            && seq == g.nodes_seq
+            && v.is_exact_instance_of::<PyString>()
+            && let Some(v_index) = g.cached_exact_string_node_index(py, v)?
+        {
+            endpoints = Some((seq, u_index, v_index));
+        }
         Py::new(
             py,
-            MultiKeyDictView::new(self.graph.clone_ref(py), self.node.clone(), v_canon),
+            MultiKeyDictView::new(
+                self.graph.clone_ref(py),
+                self.node.clone(),
+                v_canon,
+                endpoints,
+            ),
         )
     }
 
@@ -7153,6 +7182,7 @@ impl MultiAtlasView {
                         self.graph.clone_ref(py),
                         self.node.clone(),
                         neighbor.to_owned(),
+                        None, // br-r37-c1-6r00i: name walk, see `materialize`
                     ),
                 )?,
             ));
@@ -7193,6 +7223,7 @@ impl MultiAtlasView {
                 self.graph.clone_ref(py),
                 self.node.clone(),
                 neighbor.to_owned(),
+                None, // br-r37-c1-6r00i: name walk, see `materialize`
             )
             .copy(py)?;
             result.set_item(py_neighbor, keydict)?;
@@ -7232,14 +7263,34 @@ struct MultiKeyDictView {
     graph: Py<PyMultiGraph>,
     source: String,
     target: String,
+    /// br-r37-c1-6r00i: `(nodes_seq, source position, target position)` of this
+    /// pair, captured where the caller already held them, so `__getitem__` can
+    /// reach the keyed index lookaside without touching either node key.
+    ///
+    /// STAMPED, because node add/remove RENUMBERS positions: a stale stamp means
+    /// these may now name DIFFERENT nodes, so the probe falls back to the string
+    /// path rather than trusting them. `None` is the same fallback, used by every
+    /// caller that cannot supply positions cheaply.
+    endpoints: Option<(u64, usize, usize)>,
 }
 
 impl MultiKeyDictView {
-    fn new(graph: Py<PyMultiGraph>, source: String, target: String) -> Self {
+    /// br-r37-c1-6r00i: `endpoints` is the stamped position pair, supplied by a
+    /// caller that already holds the graph and both indices. `None` means "no
+    /// fast path". There is deliberately NO positionless constructor -- the same
+    /// choice `MultiAtlasView::new_with_pos` made -- because one would silently
+    /// opt a call site out of the lookaside and nothing would fail.
+    fn new(
+        graph: Py<PyMultiGraph>,
+        source: String,
+        target: String,
+        endpoints: Option<(u64, usize, usize)>,
+    ) -> Self {
         Self {
             graph,
             source,
             target,
+            endpoints,
         }
     }
 
@@ -7270,6 +7321,45 @@ impl MultiKeyDictView {
     }
 
     fn __getitem__(&self, py: Python<'_>, key: &Bound<'_, PyAny>) -> PyResult<Py<PyDict>> {
+        // br-r37-c1-6r00i: KEYED INDEX PROBE, before anything touches a node key.
+        //
+        // THIS IS THE THIRD ROUTE TO THE EDGE ATTR DICT AND THE ONE THAT WAS
+        // LEFT BEHIND. `cached_keyed_edge_attrs_by_index` was added by
+        // br-r37-c1-f3i50 and wired into `get_edge_data(u, v, k)` /
+        // `G.edges[u, v, k]`; `G[u][v][k]` arrives here instead and never got
+        // it. Measured on a held cell, MultiGraph:
+        //
+        //     cell[0]  K=3    275.3 ns   nx 63.9 ns   0.2322x
+        //     cell[0]  K=2000 1896.9 ns  nx 61.6 ns   0.0325x
+        //
+        // networkx is FLAT across a 667x span and fnx is not, because everything
+        // below is O(node key length): `resolve_internal_edge_key` hashes both
+        // endpoints, `PyGraph::edge_key` CLONES both into a
+        // `(String, String, usize)`, and the `edge_py_attrs` probe then hashes
+        // that tuple -- twice, since `ensure_edge_py_attrs_with_key` does a
+        // `contains_key` and then a `get`. A hit here is one hash of three
+        // `usize`s.
+        //
+        // GATED EXACTLY LIKE THE SHIPPED TWIN in `get_edge_data`: an exact
+        // nonnegative `PyInt` public key IS the internal key while
+        // `has_remapped_int_key` is false, so nothing is skipped, only repeated.
+        // A hit is existence proof -- entries are recorded only for edges that
+        // were present, `bump_edges_seq` clears the map on any edge mutation,
+        // and the per-entry `nodes_seq` stamp makes a post-removal position a
+        // miss. Anything else falls through completely unchanged.
+        {
+            let g = self.graph.borrow(py);
+            if let Some((seq, a, b)) = self.endpoints
+                && seq == g.nodes_seq
+                && !g.has_remapped_int_key
+                && key.is_exact_instance_of::<PyInt>()
+                && let Ok(internal_key) = key.extract::<usize>()
+                && let Some(attrs) = g.cached_keyed_edge_attrs_by_index(py, a, b, internal_key)
+            {
+                g.mark_edges_dirty();
+                return Ok(attrs);
+            }
+        }
         let mut g = self.graph.borrow_mut(py);
         let Some(internal_key) =
             g.resolve_internal_edge_key(py, &self.source, &self.target, key)?
@@ -7277,10 +7367,20 @@ impl MultiKeyDictView {
             return Err(PyKeyError::new_err((key.clone().unbind(),)));
         };
         g.mark_edges_dirty();
-        Ok(
-            g.ensure_edge_py_attrs(py, &self.source, &self.target, internal_key)
-                .clone_ref(py),
-        )
+        let attrs = g
+            .ensure_edge_py_attrs(py, &self.source, &self.target, internal_key)
+            .clone_ref(py);
+        // br-r37-c1-6r00i: fill the lookaside with the SAME dict the
+        // string-keyed mirror just returned, so the two can never disagree about
+        // identity -- the rule the `get_edge_data` twin states for itself. The
+        // stamp is re-checked because `resolve_internal_edge_key` above can
+        // renumber nothing, but a caller between construction and this read can.
+        if let Some((seq, a, b)) = self.endpoints
+            && seq == g.nodes_seq
+        {
+            g.remember_keyed_edge_attrs_by_index(py, a, b, internal_key, &attrs);
+        }
+        Ok(attrs)
     }
 
     fn __contains__(&self, py: Python<'_>, key: &Bound<'_, PyAny>) -> PyResult<bool> {
@@ -18195,6 +18295,7 @@ class FnxMultiGraphCtorEdgeIterable:
             Py::new(py, graph)?,
             "left".to_owned(),
             "right".to_owned(),
+            None,
         ))
     }
 
@@ -18320,11 +18421,13 @@ class FnxMultiGraphCtorEdgeIterable:
                 view.graph.clone_ref(py),
                 "right".to_owned(),
                 "left".to_owned(),
+                None,
             );
             let self_loop = MultiKeyDictView::new(
                 view.graph.clone_ref(py),
                 "left".to_owned(),
                 "left".to_owned(),
+                None,
             );
             assert_eq!(view.__len__(py), multikeydict_len_allocating(&view, py));
             assert_eq!(view.__len__(py), 0);

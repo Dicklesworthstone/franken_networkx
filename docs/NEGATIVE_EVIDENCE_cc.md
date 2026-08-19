@@ -25024,3 +25024,82 @@ this repository are not trustworthy.
 CORRECTNESS GATE: 62587 passed in the shadow tree, 14 failed, all 14 the same
 packaging/docs/ledger-gate tests that read repo paths absent from a shadow tree and verified
 identical on the arm before this lever.
+
+## 2026-08-19 — the third route to the edge attr dict finally gets the index lookaside: MultiGraph G[u][v][key] 0.16x to 0.46x, and FLAT in key length (br-r37-c1-6r00i)
+
+DONE (EmeraldMeadow, 2026-08-19). Rust; both arms built by me from the same tree with the
+identical command, one lever apart.
+
+THE DEFECT WAS A PARTIALLY APPLIED FIX, not a missing idea. `cached_keyed_edge_attrs_by_index`
+shipped with br-r37-c1-f3i50 and was wired into `get_edge_data(u, v, k)` and `G.edges[u, v, k]`.
+`G[u][v][k]` arrives at `MultiKeyDictView::__getitem__` instead and never got it, so it kept
+the string path: `resolve_internal_edge_key` hashes both endpoints, `PyGraph::edge_key` CLONES
+both into a `(String, String, usize)`, and the `edge_py_attrs` probe hashes that tuple TWICE
+(`contains_key` then `get`). Everything in that list is O(node key length); networkx is flat.
+
+BANKED ROWS, vs NetworkX 3.6.1 live in the same invocation, ratio t_networkx / t_fnx, four
+runs per arm across two semantically identical binaries, order before/after/after/before:
+
+    row                                    before                     after                   move
+    MultiGraph   held cell[key] len=3      0.3029 0.3400 0.3375 0.3479  0.5000 0.4673 0.4739 0.4536  1.39x
+    MultiGraph   held cell[key] len=2000   0.1402 0.1544 0.1623 0.1625  0.4957 0.4624 0.4585 0.4698  2.94x
+    MultiGraph   ONESHOT G[u][v][key] 2000 0.1933 0.1838 0.1886 0.1855  0.2687 0.2586 0.2671 0.2574  1.40x
+    MultiGraph   held cell iter len=2000   0.3701 0.4158 0.4312 ...      0.3970 0.3936 ...            0.96x
+    CONTROL MultiDiGraph cell[key] len=3   0.3028 0.3386 0.3474 0.3343  0.3163 0.3165 0.3211 0.3534  0.99x
+    CONTROL MultiDiGraph cell[key] len=2000 0.1144 0.1250 0.1313 0.1216 0.1130 0.1148 0.1214 0.1254  0.98x
+    CONTROL MultiGraph   G[u][v] len=2000  0.4734 0.4750 0.4607 0.4720  0.4814 0.4760 0.4825 0.4693  1.02x
+    CONTROL DiGraph      G[u][v] len=2000  0.4590 0.4727 0.4687 0.4471  0.4728 0.4667 0.4916 0.4978  1.05x
+    CONTROL MG has_edge  len=2000          0.5802 0.6100 0.6269 0.6086  0.6452 0.6634 0.6192 0.6740  1.06x
+
+THE SHAPE MATTERS MORE THAN THE RATIO. Before the lever the row DECAYS with node-key length:
+0.34x at K=3 down to 0.16x at K=2000. After it, 0.47x and 0.46x — FLAT across a 667x span,
+which is what networkx does. This is a complexity change, not a constant factor, and the
+2.94x at K=2000 is a point on a curve that was unbounded.
+
+THE CONTROL IS UNUSUALLY GOOD, and it is why this row does not need the noise-floor caveat
+the other levers carry. MultiDiGraph runs the SAME operation, in the SAME workload, in the
+SAME process, through `digraph.rs` — which this change does not touch. It measures 0.99x and
+0.98x across eight runs. A whole-binary codegen artifact would have moved it; nothing did.
+
+THE STAMP IS LOAD-BEARING, AND MY FIRST GUARD TEST DID NOT PROVE IT. Node removal renumbers
+positions, so an unstamped entry does not miss — it names a DIFFERENT pair and hands back
+another edge's live attr dict. I wrote the obvious test (warm, remove nodes, re-read) and it
+PASSED on a build with the stamp comparison deleted, because a stale cell probes its OLD
+positions and the entry filed there is still its own. A guard that passes on the unguarded
+build is worthless, so the sequence was sharpened until it reproduced:
+
+    1. warm the lookaside for (uu, vv) at positions (6, 7);
+    2. remove two ISOLATED padding nodes — renumbers (xx, yy) onto (6, 7), and does NOT bump
+       edges_seq, so the map is not cleared;
+    3. READ the decoy through a fresh cell, which re-files entry (6, 7, 0) with its dict;
+    4. re-read the stale cell.
+
+On the negative-control binary step 4 returns {'w': 3} — edge (xx, yy)'s attributes for a
+read of edge (uu, vv), a silently wrong VALUE. With the stamp it misses and falls back.
+A negative-control binary was BUILT for this, not reasoned about: 1 failed / 27 passed
+unstamped, 28 passed stamped.
+
+WHAT I DID NOT DO: the directed twin. `MultiDiKeyDictView` in digraph.rs has the same gap and
+is left for a following commit, deliberately — it is what made MultiDiGraph a clean control
+for this measurement, and mirroring it in the same commit would have destroyed that.
+br-r37-c1-6r00i stays open for it.
+
+PROVENANCE. Both arms built by ME, `RCH_CARGO_WRAPPER_BYPASS=1 env -u CARGO_TARGET_DIR cargo
+build --release -p fnx-python --lib`, no [RCH] line in either, from the same tree, toggling
+only lib.rs. Before elf dbe29e0e1b83ccf0; after elf abe0e3683f37a66e and, after a
+formatting-only rewrite of one match into a let-chain, 0726a9700da19726 — both after-binaries
+measured separately and agreeing. Verified in-process by --expect-elf on all eight runs.
+Workload multigraph-cell-subscript, 41 rounds, 400 reps, taskset -c 40-47, PYTHONHASHSEED=0,
+runs 13:02 and 13:18-13:19 EDT, loadavg 8.7-14.0 one-minute against 10.7-15.0 five-minute,
+iowait 0, per-arm clocks 4043-4292 MHz, arm skew 0.00-0.21 pct. Nulls failed on both arms
+throughout (0.95-1.67), the same common-mode ramp recorded all day.
+Build slot: acquire_build_slot is disabled in this deployment (refused four times today), so
+I verified by hand that no franken_networkx build was in flight — zero local rustc/cargo/
+maturin, the only rch jobs on the host belonging to other projects, and the shared .so
+untouched for an hour — and announced the claim in Agent Mail before starting.
+
+CORRECTNESS: 62667 passed in the shadow tree, 14 failed, all 14 the packaging/docs tests that
+read repo paths absent from a shadow tree. clippy adds no new warning (the crate's one
+`private_adj_row` dead-code warning is pre-existing and present on the before arm's build
+output too). `cargo fmt --check` has 9 pre-existing diffs in this crate from other agents;
+my hunk is clean, and the one diff it did introduce was fixed before the final build.
