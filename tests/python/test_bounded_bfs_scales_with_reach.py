@@ -545,3 +545,119 @@ def test_dfs_postorder_cost_does_not_grow_with_the_parent():
         f"{fnx_growth:.2f}x slower for the SAME request while networkx moved "
         f"{nx_growth:.2f}x"
     )
+
+
+# ---------------------------------------------------------------------------
+# bidirectional_shortest_path: the algorithm whose whole point is stopping early
+# ---------------------------------------------------------------------------
+# br-r37-c1-dkwy7. Two-way BFS meets in the middle and touches a neighbourhood,
+# not a graph - yet it allocated two whole-graph parent arrays before the first
+# expansion (Option<usize> is 16 bytes, so 32 bytes per node in the graph to
+# answer a query that meets in two hops). Measured 9.41x growth against
+# networkx's 0.99x: 2.0786x of nx at n=200 down to 0.2185x at n=12800.
+#
+# The parent maps are sparse now; the two `seen` marks stay dense because they
+# are probed on every neighbour of every expansion. Reconstruction reads the
+# parent maps by node index, and a missing key means exactly what None meant, so
+# these tests pin the RECONSTRUCTED PATH rather than merely its endpoints.
+#
+# NOTE: the live binding is bidirectional_shortest_path_index_meta, NOT the
+# `pub fn bidirectional_shortest_path` in the same crate - that one still builds
+# nodes_ordered() and is off the Python path entirely.
+
+
+def _bidir_shapes(lib):
+    grid = lib.Graph()
+    for i in range(5):
+        for j in range(5):
+            if i < 4:
+                grid.add_edge((i, j), (i + 1, j))
+            if j < 4:
+                grid.add_edge((i, j), (i, j + 1))
+    two_routes = lib.Graph()
+    two_routes.add_edges_from(
+        [("s", "a"), ("a", "t"), ("s", "b"), ("b", "c"), ("c", "t")]
+    )
+    disconnected = lib.Graph()
+    disconnected.add_edges_from([("x", "y"), ("p", "q")])
+    return {"grid": grid, "two_routes": two_routes, "disconnected": disconnected}
+
+
+@pytest.mark.parametrize(
+    "shape,src,dst",
+    [
+        ("grid", (0, 0), (4, 4)),
+        ("grid", (0, 0), (0, 0)),
+        ("grid", (2, 2), (2, 3)),
+        ("two_routes", "s", "t"),
+        ("two_routes", "s", "s"),
+    ],
+)
+def test_bidirectional_path_matches_networkx(shape, src, dst):
+    got = fnx.bidirectional_shortest_path(_bidir_shapes(fnx)[shape], src, dst)
+    want = nx.bidirectional_shortest_path(_bidir_shapes(nx)[shape], src, dst)
+    assert [str(n) for n in got] == [str(n) for n in want]
+
+
+def test_bidirectional_path_is_a_real_walk_of_the_graph():
+    """Sparse parents are read by index; a wrong lookup yields a plausible list.
+
+    Deliberately NOT an object-identity test. The other kernels here do assert
+    identity, but bidirectional_shortest_path cannot: measured on a tuple-keyed
+    grid, NETWORKX ITSELF returns a mix of the graph's own node objects and
+    equal-but-distinct ones ([False, True, False, False, False] over a 5-node
+    path), so identity is not a contract either library offers on this call and
+    asserting it would pin an accident. What IS checkable is that the path is a
+    genuine walk - a mis-read parent map produces a well-formed list of real
+    nodes that is not connected end to end.
+    """
+    graph = _bidir_shapes(fnx)["grid"]
+    path = fnx.bidirectional_shortest_path(graph, (0, 0), (4, 4))
+    assert path[0] == (0, 0) and path[-1] == (4, 4)
+    assert len(path) == len(set(path)), "the path revisits a node"
+    for left, right in zip(path, path[1:]):
+        assert graph.has_edge(left, right), f"{left}->{right} is not an edge"
+    want = nx.bidirectional_shortest_path(_bidir_shapes(nx)["grid"], (0, 0), (4, 4))
+    assert len(path) == len(want), "path length differs from networkx's"
+
+
+def test_bidirectional_no_path_still_raises_like_networkx():
+    got, want = _bidir_shapes(fnx)["disconnected"], _bidir_shapes(nx)["disconnected"]
+    with pytest.raises(Exception) as got_exc:
+        fnx.bidirectional_shortest_path(got, "x", "q")
+    with pytest.raises(Exception) as want_exc:
+        nx.bidirectional_shortest_path(want, "x", "q")
+    assert type(got_exc.value).__name__ == type(want_exc.value).__name__
+
+
+def test_bidirectional_directed_respects_orientation():
+    got, want = fnx.DiGraph(), nx.DiGraph()
+    for g in (got, want):
+        g.add_edges_from([("a", "b"), ("b", "c"), ("c", "d")])
+    assert [str(n) for n in fnx.bidirectional_shortest_path(got, "a", "d")] == [
+        str(n) for n in nx.bidirectional_shortest_path(want, "a", "d")
+    ]
+    with pytest.raises(Exception):
+        fnx.bidirectional_shortest_path(got, "d", "a")
+
+
+@pytest.mark.xfail(
+    reason="br-r37-c1-dkwy7 kernel is written but UNBUILT (host disk throttle, "
+    "no cargo); flip to a hard assert once the extension is rebuilt",
+    strict=False,
+)
+def test_bidirectional_cost_does_not_grow_with_the_parent():
+    small, large = 200, 12800
+    fnx_growth = _best(
+        lambda: fnx.bidirectional_shortest_path(_ring_cache_fnx[large], "n0", "n2")
+    ) / _best(
+        lambda: fnx.bidirectional_shortest_path(_ring_cache_fnx[small], "n0", "n2")
+    )
+    nx_growth = _best(
+        lambda: nx.bidirectional_shortest_path(_ring_cache_nx[large], "n0", "n2")
+    ) / _best(lambda: nx.bidirectional_shortest_path(_ring_cache_nx[small], "n0", "n2"))
+    assert fnx_growth < 2.5 * max(nx_growth, 1.0), (
+        f"a {large // small}x bigger parent made fnx bidirectional_shortest_path "
+        f"{fnx_growth:.2f}x slower for a two-hop query while networkx moved "
+        f"{nx_growth:.2f}x"
+    )
