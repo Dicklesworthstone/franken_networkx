@@ -291,3 +291,62 @@ def test_long_node_keys_behave_exactly_as_short_ones(cls_name):
             assert dict(cell_fnx[key]) == dict(cell_nx[key]), (keylen, key)
         assert sorted(cell_fnx) == sorted(cell_nx)
         assert cell_fnx[0] is graph_fnx.get_edge_data(u, v, 0)
+
+
+# ---------------------------------------------------------------------------
+# 6. the directed-only hazard: orientation
+# ---------------------------------------------------------------------------
+def test_predecessor_rows_answer_for_the_forward_edge():
+    """The one risk the directed twin carries that the undirected one does not.
+
+    `cached_edge_py_attrs_by_index` is SOURCE-MAJOR on a digraph and deliberately
+    does not normalise, because (u, v) and (v, u) are two different edges. A
+    predecessor row's own node is the TARGET, not the source, so the positions
+    have to be swapped by `kind` before they are filed or probed. Handing them
+    over in row order would file and probe the REVERSED edge — which exists here,
+    with different attributes, so the mistake is a wrong VALUE and not a miss.
+    """
+    for module in (nx, fnx):
+        graph = module.MultiDiGraph()
+        graph.add_edge("aa", "bb", w="a->b k0")
+        graph.add_edge("aa", "bb", w="a->b k1")
+        graph.add_edge("bb", "aa", w="b->a k0")
+
+        assert graph.succ["aa"]["bb"][0]["w"] == "a->b k0"
+        assert graph.pred["bb"]["aa"][0]["w"] == "a->b k0"
+        assert graph.succ["bb"]["aa"][0]["w"] == "b->a k0"
+        assert graph.pred["aa"]["bb"][0]["w"] == "b->a k0"
+
+        # succ and pred are two routes to ONE edge, so one dict.
+        assert graph.succ["aa"]["bb"][0] is graph.pred["bb"]["aa"][0]
+        assert graph.succ["bb"]["aa"][0] is graph.pred["aa"]["bb"][0]
+        # ...and the two orientations are two edges, so not the same dict.
+        assert graph.succ["aa"]["bb"][0] is not graph.succ["bb"]["aa"][0]
+
+
+def test_warming_through_a_predecessor_row_does_not_poison_the_reverse_edge():
+    """Fill the lookaside via the swapped path, then read the other direction."""
+    for module in (nx, fnx):
+        graph = module.MultiDiGraph()
+        graph.add_edge("aa", "bb", w="fwd")
+        graph.add_edge("bb", "aa", w="rev")
+
+        graph.pred["bb"]["aa"][0]  # warm through a PREDECESSOR row
+
+        assert graph.succ["aa"]["bb"][0]["w"] == "fwd"
+        assert graph.succ["bb"]["aa"][0]["w"] == "rev"
+        assert graph["aa"]["bb"][0]["w"] == "fwd"
+        assert graph["bb"]["aa"][0]["w"] == "rev"
+
+
+def test_directed_self_loop_is_not_confused_with_either_orientation():
+    """Both positions equal, so a swap bug hides here — pin it explicitly."""
+    for module in (nx, fnx):
+        graph = module.MultiDiGraph()
+        graph.add_edge("aa", "aa", w="loop")
+        graph.add_edge("aa", "bb", w="out")
+        graph.add_edge("bb", "aa", w="in")
+        assert graph["aa"]["aa"][0]["w"] == "loop"
+        assert graph.pred["aa"]["aa"][0]["w"] == "loop"
+        assert graph["aa"]["bb"][0]["w"] == "out"
+        assert graph["bb"]["aa"][0]["w"] == "in"

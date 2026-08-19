@@ -25180,3 +25180,66 @@ matched on every row (4114-4217 MHz, identical to the sampled resolution), per-a
 idle 89. acquire_build_slot is disabled in this deployment, so I verified by hand that no
 benchmark was running fleet-wide and that the only franken_networkx build in flight was the
 peer's (PIDs 562956/562969), which cannot touch a frozen arm.
+
+## 2026-08-19 — the directed twin of the keyed lookaside: MultiDiGraph G[u][v][key] 1.66x, and the residual is NOT the lookup (br-r37-c1-6r00i)
+
+DONE (EmeraldMeadow, 2026-08-19). Mirrors the undirected commit onto
+`MultiDiKeyDictView`, which gives up the control that commit used.
+
+BANKED, vs NetworkX 3.6.1 live in the same invocation, two runs per arm, order
+before/after/after/before, before = the undirected-only binary at HEAD:
+
+    row                                     before           after            move
+    MultiDiGraph held cell[key] len=3       0.2984 0.3369    0.3698 0.3648    1.16x disjoint
+    MultiDiGraph held cell[key] len=2000    0.1204 0.1250    0.2064 0.1996    1.66x disjoint
+    MultiDiGraph ONESHOT [u][v][key] 2000   0.1750 0.1710    0.2114 0.2096    1.22x disjoint
+    MultiDiGraph ONESHOT [u][v][key] len=3  0.2997 0.2976    0.3018 0.2912    0.99x
+    CONTROL MultiGraph held cell[key] 2000  0.4369 0.5196    0.4767 0.4667    0.99x
+    CONTROL MultiDiGraph G[u][v] len=2000   0.4339 0.4115    0.4483 0.4369    1.05x
+    CONTROL DiGraph      G[u][v] len=2000   0.4633 0.4589    0.4900 0.4756    1.05x
+    CONTROL MG has_edge  len=2000           0.6577 0.6655    0.6342 0.6618    0.98x
+
+ORIENTATION WAS THE ONE NEW RISK AND IT IS PINNED, not argued.
+`cached_edge_py_attrs_by_index` is SOURCE-MAJOR on a digraph and deliberately does not
+normalise, so a predecessor row -- whose own node is the TARGET -- must swap its positions
+before filing or probing. Getting that wrong files and probes the REVERSED edge, which on
+these fixtures exists with different attributes, so it is a wrong VALUE. Three tests cover
+it: succ/pred reaching one dict per direction and two dicts across directions, warming
+through a predecessor row and then reading both orientations, and a self-loop (where both
+positions are equal, which is where a swap bug hides).
+
+THE INTERESTING PART IS THE RESIDUAL, because it says the remaining directed gap is NOT the
+lookup at all. After the lever, per-read `cell[key]` at pinned cpus:
+
+    MultiGraph     K=3    149.6 ns   K=2000   148.6 ns   FLAT
+    MultiDiGraph   K=3    216.2 ns   K=2000  1039.7 ns   STILL O(node key length)
+
+networkx is 46-47 ns on all four. The undirected class is now flat; the directed one is not,
+and the difference is not in the probe. `PyMultiDiGraph::mark_edge_dirty` is called on every
+edge-attr read and does:
+
+    if let Some(keys) = self.edge_dirty_keys.lock().unwrap().as_mut() {
+        keys.insert(Self::edge_key(u, v, key));
+    }
+
+`Self::edge_key` CLONES BOTH node keys into a `(String, String, usize)`, and the HashSet
+insert then hashes ~4 KB of it. `clean_edge_dirty_keys()` returns `Some(HashSet::new())`, so
+PER-EDGE DIRTY TRACKING IS ON BY DEFAULT on every MultiDiGraph -- it is not an opt-in
+diagnostic. The undirected class does the same job with one `AtomicBool` store. So the
+directed class pays two allocations, two 2000-byte memcpys and a 4 KB hash per edge-attribute
+READ purely for dirty bookkeeping, and that is the entire remaining slope.
+
+THAT IS THE NEXT LEVER ON THIS BEAD and it is a different one: making the dirty set
+index-keyed, or storing the position triple the lookaside already carries instead of the
+string triple. Not attempted here -- it is a separate change with its own correctness surface
+(`should_sync_dirty_edge` consumes the set), and one lever per commit.
+
+PROVENANCE. Both arms built by ME with the identical command; before elf 0726a9700da19726
+(HEAD, undirected half only), after elf 861e2c5bc8118bfa, verified in-process by --expect-elf
+on all four runs. Workload multigraph-cell-subscript, 41 rounds, 400 reps, taskset -c 40-47,
+PYTHONHASHSEED=0, 13:30 EDT, loadavg 14.8-17.8 one-minute against 14.2-14.7 five-minute and
+14.6-14.8 fifteen-minute -- a STABLE regime. iowait 0, per-arm clocks 4239-4289 MHz, arm skew
+0.00-0.04 pct. Nulls failed on both arms (0.96-1.38), same common-mode ramp.
+Gate: 62670 passed in the shadow tree, 14 failed, all 14 the packaging/docs tests that read
+repo paths absent from a shadow tree. clippy adds no new warning; my hunk is fmt-clean (the
+crate has 4 pre-existing fmt diffs in digraph.rs from other agents).

@@ -227,7 +227,7 @@ pub struct PyDiGraph {
 /// add. Folding both rows into one accumulator would type the answer correctly
 /// by luck on most graphs and wrongly whenever only one row is float.
 #[derive(Clone, Copy)]
-struct MixedSum {
+pub(crate) struct MixedSum {
     int_total: i128,
     f: f64,
     c: f64,
@@ -236,14 +236,14 @@ struct MixedSum {
 
 impl MixedSum {
     /// The largest integer magnitude an f64 holds exactly.
-    const EXACT_F64_INT: i128 = 1i128 << 53;
+    pub(crate) const EXACT_F64_INT: i128 = 1i128 << 53;
 
-    fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self { int_total: 0, f: 0.0, c: 0.0, is_float: false }
     }
 
     /// Returns false when the caller must fall back to the exact path.
-    fn add_int(&mut self, w: i128) -> bool {
+    pub(crate) fn add_int(&mut self, w: i128) -> bool {
         if self.is_float {
             if w.abs() > Self::EXACT_F64_INT {
                 return false;
@@ -258,7 +258,7 @@ impl MixedSum {
         true
     }
 
-    fn add_float(&mut self, x: f64) -> bool {
+    pub(crate) fn add_float(&mut self, x: f64) -> bool {
         if !self.is_float {
             // CPython converts the integer prefix to double at exactly this point.
             if self.int_total.abs() > Self::EXACT_F64_INT {
@@ -275,13 +275,13 @@ impl MixedSum {
     /// `Ok` for an integer sum, `Err` for a float one — the shape the combine
     /// step needs to reproduce Python's `int + float` promotion. An empty group
     /// is `Ok(0)`, which is nx's `sum(())`.
-    fn value(&self) -> Result<i128, f64> {
+    pub(crate) fn value(&self) -> Result<i128, f64> {
         if self.is_float { Err(self.f + self.c) } else { Ok(self.int_total) }
     }
 }
 
 /// `sum(a) + sum(b)` with Python's promotion rule: int only when BOTH are int.
-fn mixed_combine(a: Result<i128, f64>, b: Result<i128, f64>) -> Option<Result<i128, f64>> {
+pub(crate) fn mixed_combine(a: Result<i128, f64>, b: Result<i128, f64>) -> Option<Result<i128, f64>> {
     fn as_f64(v: Result<i128, f64>) -> Option<f64> {
         match v {
             Ok(i) if i.abs() > MixedSum::EXACT_F64_INT => None,
@@ -3902,7 +3902,7 @@ impl MultiDiAtlasView {
                 MultiDiAdjKind::Predecessors => g.py_pred_key(py, &self.node, neighbor),
             };
             let (source, target) = self.endpoint_pair(neighbor.to_owned());
-            let keydict = MultiDiKeyDictView::new(self.graph.clone_ref(py), source, target)
+            let keydict = MultiDiKeyDictView::new(self.graph.clone_ref(py), source, target, None)
                 .materialize(py)?;
             result.set_item(py_neighbor, keydict.bind(py))?;
         }
@@ -3930,9 +3930,28 @@ impl MultiDiAtlasView {
         if !g.inner.has_edge(&source, &target) {
             return Err(PyKeyError::new_err((v.clone().unbind(),)));
         }
+        // br-r37-c1-6r00i: hand the positions down, so every later
+        // `G[u][v][key]` on the returned cell skips both endpoint strings.
+        // Directed twin of the undirected wiring; ORIENTATION IS NOT OPTIONAL,
+        // because this row is the SOURCE for a successor row and the TARGET for
+        // a predecessor row, and `cached_edge_py_attrs_by_index` is source-major
+        // and does not normalise. Handing them over in row order would file and
+        // probe the REVERSED edge, which on a digraph is a different edge.
+        // `__contains__` above makes exactly the same swap.
+        let mut endpoints = None;
+        if let Some((seq, row_index)) = self.node_pos
+            && seq == g.nodes_seq
+            && v.is_exact_instance_of::<PyString>()
+            && let Some(other_index) = g.cached_exact_string_node_index(py, v)?
+        {
+            endpoints = Some(match self.kind {
+                MultiDiAdjKind::Successors => (seq, row_index, other_index),
+                MultiDiAdjKind::Predecessors => (seq, other_index, row_index),
+            });
+        }
         Py::new(
             py,
-            MultiDiKeyDictView::new(self.graph.clone_ref(py), source, target),
+            MultiDiKeyDictView::new(self.graph.clone_ref(py), source, target, endpoints),
         )
     }
 
@@ -4032,7 +4051,7 @@ impl MultiDiAtlasView {
                 py_neighbor,
                 Py::new(
                     py,
-                    MultiDiKeyDictView::new(self.graph.clone_ref(py), source, target),
+                    MultiDiKeyDictView::new(self.graph.clone_ref(py), source, target, None),
                 )?,
             ));
         }
@@ -4078,7 +4097,7 @@ impl MultiDiAtlasView {
             };
             let (source, target) = self.endpoint_pair(neighbor.to_owned());
             let keydict =
-                MultiDiKeyDictView::new(self.graph.clone_ref(py), source, target).copy(py)?;
+                MultiDiKeyDictView::new(self.graph.clone_ref(py), source, target, None).copy(py)?;
             result.set_item(py_neighbor, keydict)?;
         }
         Ok(result.unbind())
@@ -4116,14 +4135,38 @@ struct MultiDiKeyDictView {
     graph: Py<PyMultiDiGraph>,
     source: String,
     target: String,
+    /// br-r37-c1-6r00i: `(nodes_seq, source position, target position)` of this
+    /// pair, captured where the caller already held them, so `__getitem__` can
+    /// reach the index lookaside without touching either node key. Directed twin
+    /// of `MultiKeyDictView::endpoints`.
+    ///
+    /// SOURCE-MAJOR AND NOT SORTED, unlike the undirected twin: on a digraph
+    /// (u, v) and (v, u) are two different edges and must not share an entry.
+    /// `endpoint_pair` makes the same choice for the string path and the two
+    /// have to agree.
+    ///
+    /// STAMPED, because node add/remove RENUMBERS positions: a stale stamp means
+    /// these may now name DIFFERENT nodes, so the probe falls back to the string
+    /// path rather than trusting them.
+    endpoints: Option<(u64, usize, usize)>,
 }
 
 impl MultiDiKeyDictView {
-    fn new(graph: Py<PyMultiDiGraph>, source: String, target: String) -> Self {
+    /// br-r37-c1-6r00i: `endpoints` is the stamped position pair. `None` means
+    /// "no fast path". No positionless constructor, matching
+    /// `MultiDiAtlasView::new_with_pos` -- one would silently opt a call site
+    /// out of the lookaside and nothing would fail.
+    fn new(
+        graph: Py<PyMultiDiGraph>,
+        source: String,
+        target: String,
+        endpoints: Option<(u64, usize, usize)>,
+    ) -> Self {
         Self {
             graph,
             source,
             target,
+            endpoints,
         }
     }
 
@@ -4156,6 +4199,42 @@ impl MultiDiKeyDictView {
     }
 
     fn __getitem__(&self, py: Python<'_>, key: &Bound<'_, PyAny>) -> PyResult<Py<PyDict>> {
+        // br-r37-c1-6r00i: KEYED INDEX PROBE, the directed twin of the one in
+        // `MultiKeyDictView::__getitem__`. `cached_edge_py_attrs_by_index`
+        // shipped with br-r37-c1-7qqr8 and was wired into
+        // `get_edge_data(u, v, k)`; this route -- `G[u][v][k]` -- never got it,
+        // and everything below is O(node key length):
+        // `resolve_internal_edge_key` hashes both endpoints and
+        // `ensure_edge_py_attrs` builds a `(String, String, usize)` from them.
+        //
+        // The undirected half landed first, on purpose, so that this class could
+        // serve as its untouched CONTROL (it measured 0.98-0.99x while the
+        // undirected subject moved 2.94x). This commit gives up that control and
+        // takes the row.
+        //
+        // Gated exactly like the shipped twin: an exact nonnegative `PyInt`
+        // public key IS the internal key while `has_remapped_int_key` is false.
+        // A hit is existence proof -- entries are recorded only for edges that
+        // were present, `bump_edges_seq` clears the map on any edge mutation,
+        // and the `nodes_seq` stamp makes a post-removal position a miss rather
+        // than a wrong hit.
+        {
+            let g = self.graph.borrow(py);
+            if let Some((seq, u_index, v_index)) = self.endpoints
+                && seq == g.nodes_seq
+                && !g.has_remapped_int_key
+                && key.is_exact_instance_of::<PyInt>()
+                && let Ok(internal_key) = key.extract::<usize>()
+                && let Some(attrs) =
+                    g.cached_edge_py_attrs_by_index(py, u_index, v_index, internal_key)
+            {
+                // Cheap on the common path: `mark_edge_dirty` only builds an
+                // edge key when per-edge dirty tracking is switched on, which it
+                // is not by default, so the two `&str` arguments cost nothing.
+                g.mark_edge_dirty(&self.source, &self.target, internal_key);
+                return Ok(attrs);
+            }
+        }
         let internal_key = {
             let g = self.graph.borrow(py);
             let Some(internal_key) =
@@ -4167,10 +4246,19 @@ impl MultiDiKeyDictView {
         };
         let mut g = self.graph.borrow_mut(py);
         g.mark_edge_dirty(&self.source, &self.target, internal_key);
-        Ok(
-            g.ensure_edge_py_attrs(py, &self.source, &self.target, internal_key)
-                .clone_ref(py),
-        )
+        let attrs = g
+            .ensure_edge_py_attrs(py, &self.source, &self.target, internal_key)
+            .clone_ref(py);
+        // br-r37-c1-6r00i: fill the lookaside with the SAME dict the
+        // string-keyed mirror just returned, so the two can never disagree about
+        // identity -- which is load-bearing here, because the caller may mutate
+        // the dict in place.
+        if let Some((seq, u_index, v_index)) = self.endpoints
+            && seq == g.nodes_seq
+        {
+            g.remember_edge_py_attrs_by_index(py, u_index, v_index, internal_key, &attrs);
+        }
+        Ok(attrs)
     }
 
     fn __contains__(&self, py: Python<'_>, key: &Bound<'_, PyAny>) -> PyResult<bool> {
@@ -12873,6 +12961,85 @@ impl PyDiGraph {
         self.inner.weighted_size_int(weight).map(|t| t as f64)
     }
 
+    /// br-r37-c1-7pzs9: FLOAT/MIXED sibling of `_weighted_size_fast`, the directed
+    /// twin of `PyGraph::_weighted_size_fast_float`. The integer kernel above sums
+    /// each edge once, which is exact for ints and wrong for floats, because float
+    /// addition is not associative and nx's size is a TWO-LEVEL sum.
+    ///
+    /// Directed adds a third level of care: nx's per-node degree is
+    /// `sum(succ[n].values()) + sum(pred[n].values())`, two independent sums added
+    /// at the end, so an all-int successor row stays int beside a float
+    /// predecessor row and the promotion happens in that final add — the same rule
+    /// `weighted_degree_mixed_store_values` implements. A self-loop appears in both
+    /// rows and is counted in both, which the halving then undoes.
+    ///
+    /// Refuses (-> nx's own degree formula) on a dirty store, a bool/str/map
+    /// weight, i128 overflow, or an integer that would have to cross into a float
+    /// total; and the final `/2` is gated on the integer total staying within
+    /// 2**53, since Python's `int / 2` is correctly rounded where `t as f64 / 2.0`
+    /// stops being so.
+    fn _weighted_size_fast_float(&self, weight: &str) -> Option<f64> {
+        if self.edges_dirty.load(Ordering::Relaxed) {
+            return None;
+        }
+        let mut outer = MixedSum::new();
+        for i in 0..self.inner.node_count() {
+            let mut acc_out = MixedSum::new();
+            let mut acc_in = MixedSum::new();
+            if let Some(succs) = self.inner.successors_indices(i) {
+                for &j in succs {
+                    let ok = match self
+                        .inner
+                        .edge_attrs_by_indices(i, j)
+                        .map(|a| a.get(weight))
+                    {
+                        Some(Some(CgseValue::Int(v))) => acc_out.add_int(i128::from(*v)),
+                        Some(Some(CgseValue::Float(v))) => acc_out.add_float(*v),
+                        Some(Some(_)) => false,
+                        _ => acc_out.add_int(1),
+                    };
+                    if !ok {
+                        return None;
+                    }
+                }
+            }
+            if let Some(preds) = self.inner.predecessors_indices(i) {
+                for &j in preds {
+                    let ok = match self
+                        .inner
+                        .edge_attrs_by_indices(j, i)
+                        .map(|a| a.get(weight))
+                    {
+                        Some(Some(CgseValue::Int(v))) => acc_in.add_int(i128::from(*v)),
+                        Some(Some(CgseValue::Float(v))) => acc_in.add_float(*v),
+                        Some(Some(_)) => false,
+                        _ => acc_in.add_int(1),
+                    };
+                    if !ok {
+                        return None;
+                    }
+                }
+            }
+            let total = mixed_combine(acc_out.value(), acc_in.value())?;
+            let ok = match total {
+                Ok(t) => outer.add_int(t),
+                Err(x) => outer.add_float(x),
+            };
+            if !ok {
+                return None;
+            }
+        }
+        match outer.value() {
+            Ok(t) => {
+                if t.abs() > MixedSum::EXACT_F64_INT {
+                    return None;
+                }
+                Some(t as f64 / 2.0)
+            }
+            Err(x) => Some(x / 2.0),
+        }
+    }
+
     /// Number of edges, optionally weighted.
     #[pyo3(signature = (weight=None))]
     fn size(&self, py: Python<'_>, weight: Option<&str>) -> PyResult<f64> {
@@ -19976,6 +20143,7 @@ def fnx_keyed_attr_edges(mixed):
             Py::new(py, graph)?,
             "source".to_owned(),
             "target".to_owned(),
+            None,
         ))
     }
 
@@ -20066,11 +20234,13 @@ def fnx_keyed_attr_edges(mixed):
                 forward.graph.clone_ref(py),
                 "target".to_owned(),
                 "source".to_owned(),
+                None,
             );
             let self_loop = MultiDiKeyDictView::new(
                 forward.graph.clone_ref(py),
                 "source".to_owned(),
                 "source".to_owned(),
+                None,
             );
             assert_eq!(
                 forward.__len__(py),
