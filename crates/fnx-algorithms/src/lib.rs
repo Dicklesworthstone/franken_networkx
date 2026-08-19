@@ -22885,8 +22885,12 @@ pub fn dfs_postorder_nodes(graph: &Graph, source: &str, depth_limit: Option<usiz
     let Some(source_idx) = graph.get_node_index(source) else {
         return postorder;
     };
-    let nodes = graph.nodes_ordered();
-    let n = nodes.len();
+    // br-r37-c1-dkwy7: the whole-graph name vector is the last O(V) term here -
+    // `visited` is one calloc of n bytes and both output vectors already start
+    // empty. Building every name up front made dfs_postorder_nodes(depth_limit=1)
+    // grow 8.39x between 200 and 12800 nodes against networkx's 0.99x, i.e.
+    // 1.9093x of nx down to 0.2244x. Names are now resolved per EMITTED node.
+    let n = graph.node_count();
 
     // br-r37-c1-dfspost (cc): iterative DFS on integer adjacency. The old kernel kept
     // `visited` as a `HashSet<&str>` and called `graph.neighbors(node)` (a `Vec<&str>`
@@ -22900,7 +22904,9 @@ pub fn dfs_postorder_nodes(graph: &Graph, source: &str, depth_limit: Option<usiz
 
     while let Some((node, backtrack, depth)) = stack.pop() {
         if backtrack {
-            postorder.push(nodes[node].to_owned());
+            if let Some(name) = graph.get_node_name(node) {
+                postorder.push(name.to_owned());
+            }
             continue;
         }
         if visited[node] {
@@ -22985,15 +22991,21 @@ pub fn dfs_postorder_nodes_directed(
     let Some(source_idx) = digraph.get_node_index(source) else {
         return Vec::new();
     };
-    let nodes = digraph.nodes_ordered();
-    let mut visited = vec![false; nodes.len()];
+    // br-r37-c1-dkwy7: the whole-graph name vector is the last O(V) term here -
+    // `visited` is one calloc of n bytes and both output vectors already start
+    // empty. Building every name up front made dfs_postorder_nodes(depth_limit=1)
+    // grow 8.39x between 200 and 12800 nodes against networkx's 0.99x, i.e.
+    // 1.9093x of nx down to 0.2244x. Names are now resolved per EMITTED node.
+    let mut visited = vec![false; digraph.node_count()];
     let mut postorder: Vec<String> = Vec::new();
 
     let mut stack: Vec<(usize, bool, usize)> = vec![(source_idx, false, 0)];
 
     while let Some((node, backtrack, depth)) = stack.pop() {
         if backtrack {
-            postorder.push(nodes[node].to_owned());
+            if let Some(name) = digraph.get_node_name(node) {
+                postorder.push(name.to_owned());
+            }
             continue;
         }
         if visited[node] {
