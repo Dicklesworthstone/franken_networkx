@@ -10144,14 +10144,32 @@ def _detach_rows_before_clear(graph):
     ``add_edge``/``remove_edge``/parallel-edge churn, and it does, because
     nothing is frozen until the clear actually happens.
 
-    KNOWN LIMIT, stated rather than hidden: this reaches the rows the adjacency
-    view still has cached. A row obtained and then orphaned by a node mutation
-    (which advances ``nodes_seq`` and drops the cache) is not reachable from
-    here and keeps the old empty-after-clear behaviour. Covering that would need
-    the graph to track every row it ever handed out, which is an unbounded
-    retention hazard for a P3 divergence that needs a row held across a clear.
+    br-r37-c1-wdgb8: TWO CACHES, NOT ONE, and missing the second made the fix
+    above hold for ``G.adj[u]`` and not for ``G[u]``. The adjacency view keeps
+    its rows on itself (``_fnx_row_cache`` / ``_fnx_atlas_cache``), but
+    ``G[u]`` is served by ``_multigraph_getitem_from_native_row`` and its
+    siblings, which cache on the GRAPH's instance dict under
+    ``_fnx_getitem_atlas_cache``. The sweep below walks ``vars(graph)`` looking
+    for views with those attributes, and that entry is a plain
+    ``(nodes_seq, {node: row})`` tuple, so ``getattr(tuple, ...)`` skipped it
+    silently. Measured before the fix: ``G.adj[u][v]`` served its snapshot on
+    all four classes while ``G[u][v]`` raised ``KeyError('vvv')``, where
+    networkx serves the snapshot for both.
+
+    KNOWN LIMIT, stated rather than hidden: this reaches the rows either cache
+    still holds. A row obtained and then orphaned by a node mutation (which
+    advances ``nodes_seq`` and drops the cache) is not reachable from here and
+    keeps the old empty-after-clear behaviour. Covering that would need the
+    graph to track every row it ever handed out, which is an unbounded retention
+    hazard for a divergence that needs a row held across a clear.
     """
-    for view in tuple(vars(graph).values()):
+    storage = vars(graph)
+    # br-r37-c1-wdgb8: the `G[u]` cache, which lives on the graph itself.
+    own_rows = storage.get("_fnx_getitem_atlas_cache")
+    if own_rows:
+        for row in tuple(own_rows[1].values()):
+            _detach_row(row)
+    for view in tuple(storage.values()):
         for cache_name in ("_fnx_row_cache", "_fnx_atlas_cache"):
             cache = getattr(view, cache_name, None)
             if not cache:
