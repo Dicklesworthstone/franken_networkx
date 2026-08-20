@@ -17332,6 +17332,87 @@ impl PyGraph {
         self.inner.weighted_size_int(weight).map(|t| t as f64)
     }
 
+    /// br-r37-c1-7pzs9: FLOAT/MIXED sibling of `_weighted_size_fast`. The integer
+    /// kernel above sums each edge ONCE, which is exact and therefore correct for
+    /// ints — and is exactly why it is int-only. Float addition is not
+    /// associative, so a one-pass edge sum does NOT reproduce nx's
+    /// `sum(d for _, d in G.degree(weight)) / 2`: measured against nx alone it
+    /// disagrees for 7 percent of graphs with uniform(0,1) weights and 30 percent
+    /// with wide-range weights (pinned in
+    /// tests/python/test_weighted_size_float_summation_order_parity.py, which also
+    /// asserts its own fixtures can catch that wrong kernel).
+    ///
+    /// So this walks the SAME two levels nx does, at the cost of visiting each
+    /// edge twice: a compensated per-node total (self-loop weight added a second
+    /// time OUTSIDE the compensated sum, as in
+    /// `_native_weighted_degree_float_values`), then a compensated fold over those
+    /// per-node totals, then the halving. `MixedSum` carries CPython's int-prefix
+    /// promotion at BOTH levels, which is load-bearing: an isolated node
+    /// contributes int 0 and an all-int node an int, so the outer sum genuinely
+    /// starts integral and promotes partway through on a mixed graph.
+    ///
+    /// Refuses (-> nx's own degree formula) on a dirty store, a bool/str/map
+    /// weight, i128 overflow, or any integer that would have to cross into a float
+    /// total. The final `/2` is gated on the integer total staying within 2**53,
+    /// because Python's `int / 2` is correctly rounded while `t as f64 / 2.0` is
+    /// not once `t` is no longer exactly representable.
+    fn _weighted_size_fast_float(&self, weight: &str) -> Option<f64> {
+        if self.edges_dirty.load(Ordering::Relaxed) {
+            return None;
+        }
+        let mut outer = crate::digraph::MixedSum::new();
+        for i in 0..self.inner.node_count() {
+            let mut node = crate::digraph::MixedSum::new();
+            let mut selfloop: Option<Result<i128, f64>> = None;
+            if let Some(nbrs) = self.inner.neighbors_indices(i) {
+                for &j in nbrs {
+                    let value = match self
+                        .inner
+                        .edge_attrs_by_indices(i, j)
+                        .map(|a| a.get(weight))
+                    {
+                        Some(Some(CgseValue::Int(v))) => Ok(i128::from(*v)),
+                        Some(Some(CgseValue::Float(v))) => Err(*v),
+                        Some(Some(_)) => return None,
+                        _ => Ok(1i128),
+                    };
+                    let ok = match value {
+                        Ok(w) => node.add_int(w),
+                        Err(x) => node.add_float(x),
+                    };
+                    if !ok {
+                        return None;
+                    }
+                    if i == j {
+                        selfloop = Some(value);
+                    }
+                }
+            }
+            // nx: `total = sum(...)`, then `+ nbrs[n][weight]` for a self-loop —
+            // the second add sits OUTSIDE the compensated sum.
+            let mut total = node.value();
+            if let Some(w) = selfloop {
+                total = crate::digraph::mixed_combine(total, w)?;
+            }
+            let ok = match total {
+                Ok(t) => outer.add_int(t),
+                Err(x) => outer.add_float(x),
+            };
+            if !ok {
+                return None;
+            }
+        }
+        match outer.value() {
+            Ok(t) => {
+                if t.abs() > crate::digraph::MixedSum::EXACT_F64_INT {
+                    return None;
+                }
+                Some(t as f64 / 2.0)
+            }
+            Err(x) => Some(x / 2.0),
+        }
+    }
+
     /// br-cc-undegvals: values-only INT total weighted degree in node-index order
     /// (NO per-node `py_node_key`, NO whole-graph `to_dict_of_dicts`). The Python
     /// total-degree gen zips these with the cached node list — the same win the
