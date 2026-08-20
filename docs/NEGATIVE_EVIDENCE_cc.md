@@ -25243,3 +25243,105 @@ PYTHONHASHSEED=0, 13:30 EDT, loadavg 14.8-17.8 one-minute against 14.2-14.7 five
 Gate: 62670 passed in the shadow tree, 14 failed, all 14 the packaging/docs tests that read
 repo paths absent from a shadow tree. clippy adds no new warning; my hunk is fmt-clean (the
 crate has 4 pre-existing fmt diffs in digraph.rs from other agents).
+
+## 2026-08-20 — the directed dirty-key residual is CONDITIONAL, and the cheap fix trades reads for syncs — verdict DEFERRED, no code landed (br-r37-c1-6r00i)
+
+EmeraldMeadow, 2026-08-20. Lever built, probed, and left unlanded; digraph.rs is restored to
+HEAD. The measurements are the output.
+
+THIS SECTION DELIBERATELY DOES NOT BANK A VERDICT, and that is the ledger gate working as
+intended rather than a formatting workaround. I first wrote it as a REJECT row and
+`scripts/perf_ledger_preflight.py` blocked the commit VOID-NONULL: a rejection needs a
+same-invocation A/A null or a counted mechanism, and all I have on the deciding number (the
+sync-side cost) is repeat-min timing between two of my own binaries. The gate is right. The
+attribution below is solid and load-independent in shape; the COST side is a signal, not a
+certified row, and the verdict waits on the run named at the bottom.
+
+THE LEVER. Yesterday's directed-twin commit left a residual and named it precisely:
+`PyMultiDiGraph::mark_edge_dirty` runs on every edge-attr read and does
+`keys.insert(Self::edge_key(u, v, key))`, cloning BOTH node keys into a
+`(String, String, usize)` and hashing ~4 KB. The obvious fix is to call the whole-graph
+`mark_edges_dirty()` instead on the lookaside hit path -- which is what the SHIPPED
+`get_edge_data` keyed fast path already does, so it looked like another partially applied fix.
+
+ATTRIBUTION CONFIRMED, by building a probe binary rather than reasoning:
+
+    MultiDiGraph cell[key], per read     K=3        K=2000
+      HEAD                              216.2 ns   1039.7 ns    grows
+      whole-graph marker probe          172.4 ns    174.6 ns    FLAT
+
+So the entire directed key-length slope is that one tuple, and removing it makes the
+directed class match the undirected one (which is 164 ns flat). That much is settled.
+
+AND THEN THE ACCOUNTING KILLED IT. Two findings, neither of which was visible from the code:
+
+1. THE RESIDUAL IS CONDITIONAL ON GRAPH STATE. `mark_edge_dirty` only pays the tuple while
+   `edge_dirty_keys` is `Some`; the `if let Some(keys)` skips it entirely when the set is
+   `None`. Per-read `cell[key]` at K=2000:
+
+       graph state                            HEAD      probe
+       fresh graph, set is Some              976.1 ns   175.8 ns
+       after edges(data=True), set is None   162.7 ns   167.8 ns
+       after a sync, set is Some(empty)      978.3 ns   167.7 ns
+
+   So the cost is already ZERO on any graph that has seen a bulk edge-data read, and the
+   lever buys nothing there. It is worth 5.6-5.8x on a FRESH graph and on a POST-SYNC graph,
+   which is the state a weighted-algorithm loop cycles through -- so not a corner case, but
+   not the universal win the read row alone suggests.
+
+2. THE FILTER IS NOT DEAD CODE; SETTING IT TO None COSTS SYNCS. `mark_edges_dirty()` sets
+   `edge_dirty_keys = None`, which makes `should_sync_dirty_edge` return true for EVERY
+   mirrored edge, so a later sync converts the whole mirror instead of the marked subset.
+   Measured on the shape where that matters -- 30 pairs mirrored via unkeyed
+   `get_edge_data` (which mirrors without marking), one edge marked, then repeated
+   sync+read:
+
+       read + size(weight) per cycle    HEAD 18149.9 ns    probe 20172.3 ns    +11 pct
+
+   That +11 pct is with only 30 mirrored edges. It scales with the mirror, and the workloads
+   that sync most are exactly the ones br-r37-c1-iyu0a optimised (pagerank, matrix
+   exporters, weighted shortest paths).
+
+WHERE THAT LEAVES IT: a lever that moves cost from reads to syncs is only a win if the
+read:sync ratio and the mirror size say so, and the +11 pct above is not measured well enough
+to settle it either way. So nothing landed. WHAT WOULD SETTLE IT: a
+`balanced_square_ab.py` workload whose row is one edge-attr read plus one weighted native
+call (`size(weight=)`), carried at three mirror sizes so the sync side shows its scaling,
+run on both binaries with the harness's own per-arm A/A null in the same invocation. Until
+that exists this is an attribution result and an open question, not a verdict.
+
+WHAT THE RIGHT FIX LOOKS LIKE, specified so the next attempt does not re-run this one.
+Keep the precision, move the STRING work off the read path rather than deleting it:
+
+  * on the lookaside hit path, push `(nodes_seq, u_index, v_index, internal_key)` onto a
+    pending queue -- four `usize`s, no allocation, no hashing of node keys;
+  * DRAIN that queue at every point that READS `edge_dirty_keys` (the two
+    `should_sync_dirty_edge` call sites and `cloned_edge_dirty_keys`, three places),
+    resolving each position back to a name via `nodes_ordered()` and inserting into the
+    existing string set. Same set contents at the moment it is consulted, so
+    `should_sync_dirty_edge` needs no change at all;
+  * a queued entry whose `nodes_seq` no longer matches CANNOT be resolved, because positions
+    renumber. Do not discard it -- that would silently drop dirtiness and serve a stale
+    weight. Fall back to `edge_dirty_keys = None` for that drain, which is conservative and
+    rare (it needs a node add/remove between a fast-path read and a sync).
+
+That version has no trade in it: reads become O(1) and syncs do the same work they do today.
+
+A DESIGN I CONSIDERED AND SET ASIDE, recorded because it looks attractive and is not
+testable here: memoise on the view that this edge was already marked in the current dirty
+epoch, and skip the mark while the epoch holds. It is sound on paper -- the attr caches are
+only filled when `!edges_dirty` (digraph.rs ~951), and `edges_dirty` stays true for the whole
+epoch, so nothing can go stale. But I could not construct a Python-observable case where a
+BROKEN version of it returns a wrong answer: `_fnx_sync_attrs_to_inner` resets the set, yet a
+mutation made through a handed-out dict is still picked up afterwards without any intervening
+read. A guard I cannot make fail is a guard I will not ship behind -- the same rule that
+caught my first stamp test yesterday.
+
+PROVENANCE. Both binaries built by ME with the identical command
+(RCH_CARGO_WRAPPER_BYPASS=1 env -u CARGO_TARGET_DIR cargo build --release -p fnx-python
+--lib), no [RCH] line; HEAD elf 874fd9776c6cf280, probe elf 35448040031ee56a. Per-read and
+per-cycle figures are repeat-min over 7 rounds, taskset -c 40-47, loadavg 16.4-21.7 at
+12:26-12:32 EDT, /data 215-228G. These are ATTRIBUTION PROBES against fnx's own two
+binaries, not vs-incumbent certification rows -- no A/A null, and none is claimed. The
+vs-incumbent row this lever would have moved (MultiDiGraph held cell[key] len=2000, 0.205x)
+stands where yesterday's commit left it.
