@@ -17413,6 +17413,104 @@ impl PyGraph {
         }
     }
 
+    /// INSTRUMENT for br-r37-c1-mtncv — NOT a shipping path and NOT wired into
+    /// `size()`. Its return value is numerically MEANINGLESS by construction.
+    ///
+    /// `_weighted_size_fast_float` above costs 105.4us where the one-pass
+    /// integer `weighted_size_int` costs 14.7us on the same graph size, both
+    /// returning a single scalar so allocation is not the difference. Three
+    /// things differ: two visits per edge instead of one, a per-pair attr lookup
+    /// on each visit, and compensated arithmetic. The two visits are inherent to
+    /// nx's summation order. This probe removes ONLY the lookup — same walk,
+    /// same MixedSum, same Neumaier — by deriving the per-edge value from the
+    /// neighbour index. The value depends on `j` so it cannot be hoisted or
+    /// constant-folded out of the loop, which would fake a speedup.
+    ///
+    /// baseline minus this probe = the cost of `edge_attrs_by_indices`.
+    fn _probe_size_no_lookup(&self, _weight: &str) -> Option<f64> {
+        if self.edges_dirty.load(Ordering::Relaxed) {
+            return None;
+        }
+        let mut outer = crate::digraph::MixedSum::new();
+        for i in 0..self.inner.node_count() {
+            let mut node = crate::digraph::MixedSum::new();
+            let mut selfloop: Option<Result<i128, f64>> = None;
+            if let Some(nbrs) = self.inner.neighbors_indices(i) {
+                for &j in nbrs {
+                    // The ONLY change from the shipped kernel: no store lookup.
+                    let value: Result<i128, f64> = Err((j as f64) + 0.5);
+                    let ok = match value {
+                        Ok(w) => node.add_int(w),
+                        Err(x) => node.add_float(x),
+                    };
+                    if !ok {
+                        return None;
+                    }
+                    if i == j {
+                        selfloop = Some(value);
+                    }
+                }
+            }
+            let mut total = node.value();
+            if let Some(w) = selfloop {
+                total = crate::digraph::mixed_combine(total, w)?;
+            }
+            let ok = match total {
+                Ok(t) => outer.add_int(t),
+                Err(x) => outer.add_float(x),
+            };
+            if !ok {
+                return None;
+            }
+        }
+        match outer.value() {
+            Ok(t) => Some(t as f64 / 2.0),
+            Err(x) => Some(x / 2.0),
+        }
+    }
+
+    /// INSTRUMENT for br-r37-c1-mtncv — NOT a shipping path, and its result is
+    /// NOT bit-identical to networkx, which is the whole reason the shipped
+    /// kernel does what it does. Same walk and the SAME per-pair lookup as
+    /// `_weighted_size_fast_float`, but plain f64 addition instead of the
+    /// MixedSum int-prefix promotion and Neumaier compensation.
+    ///
+    /// baseline minus this probe = the cost of the compensated arithmetic and
+    /// its bookkeeping. Between the two probes the 7.1x gap is accounted for.
+    fn _probe_size_no_compensation(&self, weight: &str) -> Option<f64> {
+        if self.edges_dirty.load(Ordering::Relaxed) {
+            return None;
+        }
+        let mut outer = 0.0f64;
+        for i in 0..self.inner.node_count() {
+            let mut node = 0.0f64;
+            let mut selfloop: Option<f64> = None;
+            if let Some(nbrs) = self.inner.neighbors_indices(i) {
+                for &j in nbrs {
+                    let x = match self
+                        .inner
+                        .edge_attrs_by_indices(i, j)
+                        .map(|a| a.get(weight))
+                    {
+                        Some(Some(CgseValue::Int(v))) => *v as f64,
+                        Some(Some(CgseValue::Float(v))) => *v,
+                        Some(Some(_)) => return None,
+                        _ => 1.0,
+                    };
+                    node += x;
+                    if i == j {
+                        selfloop = Some(x);
+                    }
+                }
+            }
+            if let Some(w) = selfloop {
+                node += w;
+            }
+            outer += node;
+        }
+        Some(outer / 2.0)
+    }
+
     /// br-cc-undegvals: values-only INT total weighted degree in node-index order
     /// (NO per-node `py_node_key`, NO whole-graph `to_dict_of_dicts`). The Python
     /// total-degree gen zips these with the cached node list — the same win the
