@@ -1647,6 +1647,94 @@ def workload_multigraph_cell_subscript(reps: int):
     return build, ops
 
 
+
+def workload_multidigraph_dirty_sync(reps: int):
+    """One edge-attr READ paired with one weighted native call (br-r37-c1-6r00i).
+
+    THIS ROW EXISTS TO SETTLE A DEFERRED VERDICT, and its shape is the argument.
+    `PyMultiDiGraph::mark_edge_dirty` runs on every `G[u][v][key]` and clones
+    both node keys into a `(String, String, usize)`, which is the whole directed
+    key-length slope: 216.2 ns at K=3 against 1039.7 ns at K=2000, where the
+    undirected class is flat at ~164 ns. The cheap fix -- call the whole-graph
+    `mark_edges_dirty()` instead, as the shipped `get_edge_data` fast path
+    already does -- makes the read flat (172.4 / 174.6 ns). But it sets
+    `edge_dirty_keys` to None, and a later sync then converts the WHOLE mirror
+    instead of the marked subset. So it moves cost from reads to syncs, and
+    whether that pays is exactly what this workload measures.
+
+    THE MIRROR SIZE IS THE AXIS. `build` mirrors M endpoint pairs with unkeyed
+    `get_edge_data`, which materialises an attr dict WITHOUT marking it dirty --
+    the one shape where the per-edge filter has something to filter. The timed
+    op is then one keyed read (which marks) plus one `size(weight=)` (which
+    syncs). If the filter is load-bearing, the sync side grows with M on a build
+    that discards it and stays flat on one that keeps it; if it is not, both are
+    flat and the read-side win is free.
+
+    THE CONTROLS, and why each one:
+      * READ-ONLY at each M -- the same keyed read with no sync. It isolates the
+        half the lever makes faster, and it must NOT move with M.
+      * SYNC-ONLY at each M -- `size(weight=)` with no preceding read. On a clean
+        graph this returns early, so it bounds how much of the paired row is the
+        weighted call itself rather than the conversion.
+      * MultiGraph at the largest M -- the undirected twin, whose marker is a
+        single AtomicBool and which this change cannot touch. It is the flat
+        control that a whole-binary codegen artifact would move and the lever
+        would not.
+      * K=3 alongside K=2000 on the read rows, because the mechanism removed is
+        O(node key length): a change that moved K=3 by the same factor would be
+        per-call overhead, not the tuple.
+
+    NOTE the timed op CYCLES the graph dirty -> clean -> dirty rather than
+    building state up, so it is stationary across reps; a monotone mutation arm
+    would fail its own A/A null (see `mutation_arms_fail_aa_nulls`).
+    """
+    MIRRORS = (30, 300)
+    LENGTHS = (3, 2000)
+
+    def build(module):
+        fixture = {}
+        for cls in ("MultiDiGraph", "MultiGraph"):
+            for mirror in MIRRORS:
+                for length in LENGTHS:
+                    if cls == "MultiGraph" and (mirror != MIRRORS[-1] or length != 2000):
+                        continue
+                    n = mirror + 8
+                    names = [("n" + str(i)).ljust(length, "z") for i in range(n)]
+                    graph = getattr(module, cls)()
+                    for i in range(n - 1):
+                        graph.add_edge(names[i], names[i + 1], w=1.0)
+                    # Mirror M pairs WITHOUT marking them dirty. Unkeyed
+                    # get_edge_data materialises the keydict and does not mark,
+                    # which is what gives the per-edge filter something to do.
+                    for i in range(mirror):
+                        graph.get_edge_data(names[i], names[i + 1])
+                    fixture[(cls, mirror, length)] = (graph, names[0], names[1])
+        first = fixture[("MultiDiGraph", MIRRORS[0], LENGTHS[0])][0]
+        return first, fixture
+
+    def ops(graph, fixture):
+        table = {}
+        for (cls, mirror, length), (g, u, v) in fixture.items():
+            tag = "MultiDiGraph" if cls == "MultiDiGraph" else "MultiGraph  "
+            stem = tag + " m=" + str(mirror) + " len=" + str(length)
+            cell = g[u][v]
+            if cls == "MultiGraph":
+                table["CONTROL " + stem + " read+sync"] = (
+                    lambda g=g, c=cell: (c[0], g.size(weight="w"))
+                )
+                continue
+            table[stem + " read+sync"] = (
+                lambda g=g, c=cell: (c[0], g.size(weight="w"))
+            )
+            table["CONTROL " + stem + " read-only"] = lambda c=cell: c[0]
+            table["CONTROL " + stem + " sync-only"] = (
+                lambda g=g: g.size(weight="w")
+            )
+        return table
+
+    return build, ops
+
+
 WORKLOADS = {
     "view-reads": workload_view_reads,
     "undirected-nbunch": workload_undirected_nbunch,
@@ -1665,6 +1753,7 @@ WORKLOADS = {
     "edge-subscript-binding": workload_edge_subscript_binding,
     "row-subscript-family": workload_row_subscript_family,
     "multigraph-cell-subscript": workload_multigraph_cell_subscript,
+    "multidigraph-dirty-sync": workload_multidigraph_dirty_sync,
     "multigraph-weighted-paths": workload_multigraph_weighted_paths,
     "algorithms": workload_algorithms,
     "incumbent-fixtures": workload_incumbent_fixtures,
