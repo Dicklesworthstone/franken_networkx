@@ -1703,11 +1703,23 @@ def workload_multidigraph_dirty_sync(reps: int):
                     graph = getattr(module, cls)()
                     for i in range(n - 1):
                         graph.add_edge(names[i], names[i + 1], w=1.0)
-                    # Mirror M pairs WITHOUT marking them dirty. Unkeyed
-                    # get_edge_data materialises the keydict and does not mark,
-                    # which is what gives the per-edge filter something to do.
+                    # Mirror M pairs and then FLUSH, which is the only way to
+                    # reach "mirrored but not dirty" -- the one state in which
+                    # the per-edge filter has anything to filter.
+                    #
+                    # THE OBVIOUS FIXTURE IS WRONG AND COST A RUN. Mirroring
+                    # with unkeyed `get_edge_data` looks right (it materialises
+                    # the keydict) but that call ALSO does `mark_edges_dirty()`,
+                    # which sets `edge_dirty_keys` to None -- the very state
+                    # this workload exists to compare against. Both arms then
+                    # skip the per-edge tuple, both rows read the same, and the
+                    # measurement answers a question nobody asked. Keyed reads
+                    # mark PRECISELY, and the trailing weighted call flushes the
+                    # dirty set back to Some(empty) while leaving the mirror
+                    # populated.
                     for i in range(mirror):
-                        graph.get_edge_data(names[i], names[i + 1])
+                        graph[names[i]][names[i + 1]][0]
+                    graph.size(weight="w")
                     fixture[(cls, mirror, length)] = (graph, names[0], names[1])
         first = fixture[("MultiDiGraph", MIRRORS[0], LENGTHS[0])][0]
         return first, fixture
