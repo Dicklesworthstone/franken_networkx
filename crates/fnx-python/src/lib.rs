@@ -2502,6 +2502,30 @@ pub(crate) struct PyGraph {
     pub(crate) edges_seq: u64,
     /// Monotonic dirty marker for Python-visible edge attr dict handouts.
     pub(crate) edges_dirty: AtomicBool,
+    /// br-r37-c1-igdzi: WHICH edges' live attr dicts escaped, when that is
+    /// known — index pairs, low index first.
+    ///
+    /// `edges_dirty` above is one bit for the WHOLE graph and it never lifts,
+    /// so a single `G[u][v]` permanently disables every store-backed weighted
+    /// read: `size(weight)` measured 6.12x against networkx clean and 0.73x
+    /// after one edge subscript, on a graph nobody mutated. The store is still
+    /// authoritative for every edge whose dict never left Rust; the flag simply
+    /// cannot say which those are.
+    ///
+    /// `None` means exactly that — "unknown scope, assume all" — and is what
+    /// `mark_edges_dirty` sets. THE DEFAULT IS DELIBERATELY THE CONSERVATIVE
+    /// ONE: every existing exposure site funnels through `mark_edges_dirty`, so
+    /// a site nobody converted keeps today's whole-graph behaviour and no
+    /// reader can be told an escaped edge is clean. Only a site that names its
+    /// edge — `mark_edge_exposed` — narrows anything, and once the scope is
+    /// `None` it never returns to `Some`, exactly as the bool never lifts.
+    ///
+    /// POSITIONS, so the weighted kernels (which walk `neighbors_indices`) can
+    /// probe without spelling node keys back out. Node add/remove RENUMBERS
+    /// them, so `bump_nodes_seq` drops the whole set to `None` rather than
+    /// carrying stamps per entry: renumbering is rare next to edge reads, and
+    /// widening is always the safe direction.
+    pub(crate) exposed_edges: std::sync::Mutex<Option<rustc_hash::FxHashSet<(usize, usize)>>>,
     /// Warm exact-string endpoints for `has_edge`. Values are compact native
     /// node indices and become invalid when a node mutation renumbers storage.
     has_edge_node_index_cache: NodeIndexLookupCache,
@@ -3222,6 +3246,8 @@ impl PyGraph {
             nodes_seq: 0,
             edges_seq: 0,
             edges_dirty: AtomicBool::new(false),
+            // br-r37-c1-igdzi: a new graph has handed out nothing.
+            exposed_edges: std::sync::Mutex::new(Some(rustc_hash::FxHashSet::default())),
             has_edge_node_index_cache: NodeIndexLookupCache::new(py),
             node_keys_cache: std::sync::Mutex::new(None),
             node_iter_mirror: std::sync::Mutex::new(None),
@@ -3237,6 +3263,13 @@ impl PyGraph {
     #[inline]
     pub(crate) fn bump_nodes_seq(&mut self) {
         self.nodes_seq = self.nodes_seq.wrapping_add(1);
+        // br-r37-c1-igdzi: a node add or remove RENUMBERS positions, so the
+        // recorded pairs may now name different edges. Dropping individual
+        // entries would lose the fact that those dicts escaped and let a later
+        // read serve a stale weight, so the scope widens to the whole graph —
+        // the same direction `mark_edges_dirty` takes, and the reason no entry
+        // needs its own stamp.
+        *self.exposed_edges.lock().unwrap() = None;
     }
 
     /// Bump the edge-mutation counter after any edge add/remove
@@ -3250,6 +3283,17 @@ impl PyGraph {
         // br-r37-c1-ptiz2: same lifetime as the endpoint lookaside. The per-entry
         // nodes_seq guard covers node RENUMBERING; this covers edge identity.
         self.edge_py_attrs_by_index.clear();
+        // br-r37-c1-igdzi: EDGE IDENTITY, for the escape scope too. A pair whose
+        // edge is removed and re-added is a different edge under the same two
+        // positions, and correcting the store by a dict that belonged to the old
+        // one would be a wrong answer rather than a slow one.
+        //
+        // Read the flag first: while the store is clean the scope is unused and
+        // will be re-armed by the next handout anyway, so an ordinary build loop
+        // pays one relaxed atomic load per edge and never takes the lock.
+        if self.edges_dirty.load(Ordering::Relaxed) {
+            *self.exposed_edges.lock().unwrap() = None;
+        }
     }
 
     // br-r37-c1-ptiz2: pub(crate) so views.rs EdgeView::__getitem__ can reach
@@ -3278,6 +3322,104 @@ impl PyGraph {
     #[inline]
     pub(crate) fn mark_edges_dirty(&self) {
         self.edges_dirty.store(true, Ordering::Relaxed);
+        // br-r37-c1-igdzi: this is the unnamed-scope mark. Whatever escaped, we
+        // cannot say which edge it belonged to, so the per-edge set stops being
+        // usable. Keeping this in the existing funnel is what makes the narrow
+        // set safe by default: a handout site that was never converted lands
+        // here and widens, instead of silently leaving the store trusted.
+        *self.exposed_edges.lock().unwrap() = None;
+    }
+
+    /// br-r37-c1-igdzi: `mark_edges_dirty` for a site that hands out ONE known
+    /// edge's dict and can name its endpoints as node indices.
+    ///
+    /// Records the pair instead of erasing the scope, so a later weighted read
+    /// can take the store for every OTHER edge and consult only this one's live
+    /// dict. Callers must pass indices valid under the CURRENT `nodes_seq` —
+    /// they come from the same lookups the handout already performed.
+    #[inline]
+    pub(crate) fn mark_edge_exposed(&self, u_index: usize, v_index: usize) {
+        let mut scope = self.exposed_edges.lock().unwrap();
+        // THE CLEAN GRAPH RE-ARMS THE SCOPE, and this is not an optimisation.
+        // A clean store means nothing that could be written behind its back is
+        // outstanding — that is what the flag not being set MEANS — so at the
+        // moment it is first set, the complete escape scope is this one edge,
+        // whatever the field happened to say beforehand. Without this the set
+        // never gets used at all: `bump_nodes_seq` widens on every node ADD, so
+        // an ordinary `add_edge` loop leaves a brand-new graph already unknown.
+        // The swap and the insert are under one lock so two threads cannot both
+        // read "was clean" and each start their own scope.
+        if !self.edges_dirty.swap(true, Ordering::Relaxed) {
+            *scope = Some(rustc_hash::FxHashSet::default());
+        }
+        if let Some(exposed) = scope.as_mut() {
+            let pair = if u_index <= v_index {
+                (u_index, v_index)
+            } else {
+                (v_index, u_index)
+            };
+            exposed.insert(pair);
+        }
+    }
+
+    /// br-r37-c1-igdzi: name-keyed front door for `mark_edge_exposed`, for the
+    /// handout sites that hold canonical endpoints rather than indices. Resolves
+    /// both, and WIDENS to the whole graph if either lookup fails — an edge we
+    /// cannot name a position for is one we cannot exclude later.
+    #[inline]
+    pub(crate) fn mark_edge_exposed_by_name(&self, u: &str, v: &str) {
+        match (self.inner.get_node_index(u), self.inner.get_node_index(v)) {
+            (Some(ui), Some(vi)) => self.mark_edge_exposed(ui, vi),
+            _ => self.mark_edges_dirty(),
+        }
+    }
+
+    /// br-r37-c1-igdzi: the weight of ONE edge whose live dict escaped, read
+    /// from that dict rather than from the store.
+    ///
+    /// `None` means "cannot answer" — the caller must fall back to the exact
+    /// Python path, never to the store, because the store is precisely what this
+    /// edge's dict may disagree with. `Some(None)` is the different and
+    /// legitimate answer "the dict has no such key", which is nx's
+    /// default-weight case and not an error.
+    ///
+    /// Positions, not names, because the weighted kernels walk
+    /// `neighbors_indices`; the two `get_node_name` lookups are index arithmetic
+    /// on the same `IndexMap` that walk is already reading.
+    pub(crate) fn escaped_edge_weight<'py>(
+        &self,
+        py: Python<'py>,
+        i: usize,
+        j: usize,
+        weight: &str,
+    ) -> Option<Option<Bound<'py, PyAny>>> {
+        let u = self.inner.get_node_name(i)?;
+        let v = self.inner.get_node_name(j)?;
+        let attrs = self.cached_edge_py_attrs(py, u, v)?;
+        attrs.bind(py).get_item(weight).ok()
+    }
+
+    /// br-r37-c1-igdzi: the escaped-edge scope a weighted kernel must honour.
+    ///
+    /// `Ok(None)` — nothing escaped, so the store answers every edge; this is
+    /// the clean graph and the only state that existed before this bead.
+    /// `Ok(Some(guard))` — the store answers every edge EXCEPT the ones named in
+    /// the set. `Err(())` — dirty with an unknown scope, the one case a kernel
+    /// still cannot serve at all.
+    ///
+    /// Returns the GUARD rather than a copy so that a set of any size costs no
+    /// allocation on the read path; the caller holds it for the walk, which is
+    /// sound because nothing inside a weighted read marks an edge exposed.
+    #[allow(clippy::type_complexity)]
+    pub(crate) fn weighted_read_scope(
+        &self,
+    ) -> Result<Option<std::sync::MutexGuard<'_, Option<rustc_hash::FxHashSet<(usize, usize)>>>>, ()>
+    {
+        if !self.edges_dirty.load(Ordering::Relaxed) {
+            return Ok(None);
+        }
+        let guard = self.exposed_edges.lock().unwrap();
+        if guard.is_none() { Err(()) } else { Ok(Some(guard)) }
     }
 
     fn cached_adj_set_edge(&mut self, py: Python<'_>, owner: &str, nbr: &str) -> PyResult<()> {
@@ -16104,6 +16246,9 @@ impl PyGraph {
             // which is a separate parity bug), and it must propagate the moment
             // that is fixed.
             edges_dirty: AtomicBool::new(false),
+            // br-r37-c1-igdzi: clean start, so the escape scope is empty for the
+            // same reason the flag is false — these dicts were created here.
+            exposed_edges: std::sync::Mutex::new(Some(rustc_hash::FxHashSet::default())),
             node_keys_cache: std::sync::Mutex::new(None),
             node_iter_mirror: std::sync::Mutex::new(None),
             instance_dict_gc: InstanceDictGc::new(),
@@ -16300,6 +16445,12 @@ impl PyGraph {
             // Same contract as `copy`: a dirty source yields a result that
             // reconciles from the copied Python dicts on the next native read.
             edges_dirty: AtomicBool::new(self.edges_dirty.load(Ordering::Relaxed)),
+            // br-r37-c1-igdzi: this one propagates the flag, so it propagates
+            // the WIDEST scope with it. Whether relabel could start clean the
+            // way `copy` now does is the open follow-on recorded on the bead —
+            // it makes fresh dicts, but that has not been measured, and
+            // inheriting the conservative scope keeps this commit to one claim.
+            exposed_edges: std::sync::Mutex::new(None),
             node_keys_cache: std::sync::Mutex::new(None),
             node_iter_mirror: std::sync::Mutex::new(None),
             instance_dict_gc: InstanceDictGc::new(),
@@ -16350,6 +16501,10 @@ impl PyGraph {
             nodes_seq: 0,
             edges_seq: 0,
             edges_dirty: AtomicBool::new(false),
+            // br-r37-c1-igdzi: a subgraph copies its attr dicts and hands out
+            // none of them at construction, so it starts with an empty scope —
+            // the same reasoning that already makes its dirty flag false.
+            exposed_edges: std::sync::Mutex::new(Some(rustc_hash::FxHashSet::default())),
             node_keys_cache: std::sync::Mutex::new(None),
             node_iter_mirror: std::sync::Mutex::new(None),
             instance_dict_gc: InstanceDictGc::new(),
@@ -16473,6 +16628,10 @@ impl PyGraph {
             nodes_seq: 0,
             edges_seq: 0,
             edges_dirty: AtomicBool::new(false),
+            // br-r37-c1-igdzi: a subgraph copies its attr dicts and hands out
+            // none of them at construction, so it starts with an empty scope —
+            // the same reasoning that already makes its dirty flag false.
+            exposed_edges: std::sync::Mutex::new(Some(rustc_hash::FxHashSet::default())),
             node_keys_cache: std::sync::Mutex::new(None),
             node_iter_mirror: std::sync::Mutex::new(None),
             instance_dict_gc: InstanceDictGc::new(),
@@ -16555,6 +16714,10 @@ impl PyGraph {
             nodes_seq: 0,
             edges_seq: 0,
             edges_dirty: AtomicBool::new(false),
+            // br-r37-c1-igdzi: a subgraph copies its attr dicts and hands out
+            // none of them at construction, so it starts with an empty scope —
+            // the same reasoning that already makes its dirty flag false.
+            exposed_edges: std::sync::Mutex::new(Some(rustc_hash::FxHashSet::default())),
             node_keys_cache: std::sync::Mutex::new(None),
             node_iter_mirror: std::sync::Mutex::new(None),
             instance_dict_gc: InstanceDictGc::new(),
@@ -17129,7 +17292,9 @@ impl PyGraph {
             && let Some(v_index) = self.cached_exact_string_node_index(py, v)?
             && let Some(attrs) = self.cached_edge_py_attrs_by_index(py, u_index, v_index)
         {
-            self.mark_edges_dirty();
+            // br-r37-c1-igdzi: one edge's dict escapes here and both positions
+            // were just resolved, so the escape scope keeps its name.
+            self.mark_edge_exposed(u_index, v_index);
             return Ok(attrs.into_any());
         }
         // br-r37-c1-vz4v9: borrowed canonical keys — see the note on the
@@ -17144,7 +17309,8 @@ impl PyGraph {
         if !self.inner.has_edge(u_c, v_c) {
             return Ok(default.unwrap_or_else(|| py.None()));
         }
-        self.mark_edges_dirty();
+        // br-r37-c1-igdzi: still exactly one edge, so the flag carries its name.
+        self.mark_edge_exposed_by_name(u_c, v_c);
         let attrs = self.materialize_edge_py_attrs(py, u_c, v_c);
         // br-r37-c1-ptiz2 SCOPE FIX: fill the index lookaside here too.
         //
@@ -17207,7 +17373,11 @@ impl PyGraph {
             && let Some(v_index) = self.cached_exact_string_node_index(py, v)?
             && let Some(attrs) = self.cached_edge_py_attrs_by_index(py, u_index, v_index)
         {
-            self.mark_edges_dirty();
+            // br-r37-c1-igdzi: THIS is the funnel `G[u][v]` actually reaches —
+            // `AtlasView` is a Python class, so the native view slots are not on
+            // this path at all, and marking the whole graph here is what made
+            // one edge subscript cost every later weighted read.
+            self.mark_edge_exposed(u_index, v_index);
             return Ok(Some(attrs));
         }
         // Borrowed canonicals on the miss path too, matching
@@ -17222,7 +17392,8 @@ impl PyGraph {
         if !self.inner.has_edge(u_c, v_c) {
             return Ok(None);
         }
-        self.mark_edges_dirty();
+        // br-r37-c1-igdzi: one edge, so the mark carries its name.
+        self.mark_edge_exposed_by_name(u_c, v_c);
         let attrs = self.materialize_edge_py_attrs(py, u_c, v_c);
         if u.is_exact_instance_of::<PyString>()
             && v.is_exact_instance_of::<PyString>()
@@ -17325,11 +17496,50 @@ impl PyGraph {
     /// `_native_weighted_degree` has no store fast path at all (it always builds a
     /// per-node PyList + `builtins.sum`), so weighted `size` paid full per-node
     /// PyObject materialisation; this skips straight to the store scalar.
-    fn _weighted_size_fast(&self, weight: &str) -> Option<f64> {
-        if self.edges_dirty.load(Ordering::Relaxed) {
-            return None;
+    ///
+    /// br-r37-c1-igdzi: SCOPE-AWARE. A dirty store no longer ends this call when
+    /// the escape scope names its edges — the store scalar still sums every
+    /// edge, and each escaped edge is then CORRECTED by the difference between
+    /// its live dict and what the store believes.
+    ///
+    /// A correction, not a re-walk, and that is why this is the kernel worth
+    /// converting. `weighted_size_int` sums each edge once with no per-edge
+    /// Python object, so the escaped edges cost O(escaped) on top of a walk that
+    /// was happening anyway: one edge subscript adds ONE dict read. The per-edge
+    /// version of the same idea was built for
+    /// `_native_weighted_degree_int_values` and measured SLOWER than the Python
+    /// fallback it replaced, which is why that kernel keeps its plain gate.
+    ///
+    /// Refuses — to the exact `sum(degree)/2` formula, never to the store —
+    /// whenever an escaped edge cannot be accounted for exactly: a live value
+    /// that is not an exact int (a bool included), a pair the store no longer
+    /// holds because the edge was removed after the handout, or i128 overflow. A
+    /// missing key is not a refusal: it is nx's default weight of 1, applied to
+    /// both sides of the correction.
+    fn _weighted_size_fast(&self, py: Python<'_>, weight: &str) -> Option<f64> {
+        let scope = self.weighted_read_scope().ok()?;
+        let mut total = self.inner.weighted_size_int(weight)?;
+        if let Some(escaped) = scope.as_deref().and_then(Option::as_ref) {
+            for &(i, j) in escaped {
+                let stored = match self.inner.edge_attrs_by_indices(i, j).map(|a| a.get(weight)) {
+                    Some(Some(CgseValue::Int(v))) => i128::from(*v),
+                    // The scalar above already refused any non-int, so the only
+                    // other shapes reaching here are an absent key (nx's 1) and
+                    // an edge the store no longer holds.
+                    Some(None) => 1,
+                    _ => return None,
+                };
+                let live = match self.escaped_edge_weight(py, i, j, weight)? {
+                    None => 1,
+                    Some(value) if value.is_exact_instance_of::<PyInt>() => {
+                        value.extract::<i128>().ok()?
+                    }
+                    Some(_) => return None,
+                };
+                total = total.checked_add(live.checked_sub(stored)?)?;
+            }
         }
-        self.inner.weighted_size_int(weight).map(|t| t as f64)
+        Some(total as f64)
     }
 
     /// br-r37-c1-7pzs9: FLOAT/MIXED sibling of `_weighted_size_fast`. The integer
@@ -17582,6 +17792,15 @@ impl PyGraph {
         py: Python<'_>,
         weight: &str,
     ) -> PyResult<Option<Vec<PyObject>>> {
+        // br-r37-c1-igdzi: NOT scope-aware, and that is a measured decision
+        // rather than an omission. A version of this kernel that consulted the
+        // escape scope per edge was built and timed: 4000 edges, live networkx
+        // in the same invocation, `degree(weight)` went 2468us clean to 3058us
+        // with the probe against a 2189us Python fallback — so honouring the
+        // scope here is SLOWER than giving up, and the row it was meant to save
+        // (0.64x clean) is not a win to begin with. `_weighted_size_fast` is
+        // where the scope pays, because its clean path is a single store scalar
+        // rather than a per-node walk. See the note there.
         if self.edges_dirty.load(Ordering::Relaxed) {
             return Ok(None);
         }
@@ -17666,6 +17885,9 @@ impl PyGraph {
         py: Python<'_>,
         weight: &str,
     ) -> PyResult<Option<Vec<PyObject>>> {
+        // br-r37-c1-igdzi: not scope-aware, for the reason measured on the int
+        // sibling above — the per-edge probe costs more than the fallback it
+        // replaces on this shape.
         if self.edges_dirty.load(Ordering::Relaxed) {
             return Ok(None);
         }
@@ -18106,6 +18328,11 @@ impl PyGraph {
             nodes_seq: 0,
             edges_seq: 0,
             edges_dirty: AtomicBool::new(self.edges_dirty.load(Ordering::Relaxed)),
+            // br-r37-c1-igdzi: `copy.copy` is the SHALLOW protocol and shares
+            // attr dicts, so anything the source handed out is reachable through
+            // this graph too. It inherits the flag and takes the widest scope —
+            // the one case where starting clean would be unsound.
+            exposed_edges: std::sync::Mutex::new(None),
             node_keys_cache: std::sync::Mutex::new(None),
             node_iter_mirror: std::sync::Mutex::new(None),
             instance_dict_gc: InstanceDictGc::new(),

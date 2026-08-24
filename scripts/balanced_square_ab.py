@@ -1303,6 +1303,80 @@ def workload_edges_data(reps: int):
     return build, ops
 
 
+def workload_weighted_store_escape(reps: int):
+    """Weighted reads on a graph whose edge dicts have ESCAPED (br-r37-c1-igdzi).
+
+    ``edges_dirty`` was one bit for the whole graph, so a single ``G[u][v]`` —
+    one edge, read, never written — permanently sent ``size(weight)`` and
+    ``degree(weight)`` off the store and onto the exact Python path, on a graph
+    nobody had mutated. The fix records WHICH edges escaped, so the store still
+    answers the rest.
+
+    THE FIXTURE STATE IS THE SUBJECT, which is why every row here builds its own
+    graph and then contaminates it in `build`. A weighted row timed on a FRESH
+    graph measures a state most real graphs are never in, and that is precisely
+    how this defect stayed invisible: the store-backed kernels were all
+    benchmarked clean.
+
+    THE CONTROLS ARE CHOSEN TO FAIL IF I AM WRONG ABOUT THE MECHANISM:
+
+      * CLEAN is the row the fix must not touch — it never enters the new branch
+        at all, so a move there is the binary or the window, not the change.
+      * ONE-EDGE ESCAPE is the subject.
+      * BULK is `edges(data=True)`, which escapes every dict at once and names
+        none of them. It is deliberately NOT narrowed, so it must stay where it
+        was; if it moves, the scope is being narrowed somewhere it cannot be
+        justified, and that is a wrong-answer risk rather than a bonus.
+      * ROW ESCAPE (`list(G[u].items())`) is the same argument one level down.
+      * has_edge is an unweighted read on the same fixtures — it shares the
+        fixture and the store but not the branch.
+
+    Both int and float weights, because they are two separate accumulators with
+    different refusal rules (the float kernel refuses a missing key, the int one
+    defaults it to 1), and a fix that only reached one of them would read as a
+    win on a single-type row.
+    """
+
+    def build(module):
+        fixture = {}
+        for kind, weight_of in (("int", lambda i: i + 1), ("float", lambda i: i + 0.5)):
+            for state in ("clean", "one-edge", "bulk", "row"):
+                graph = module.Graph()
+                for i in range(4000):
+                    graph.add_edge(f"n{i}", f"n{(i + 1) % 4000}", weight=weight_of(i))
+                # Put the fixture into the state the row is about, ONCE, here —
+                # the timed callable below must not re-contaminate, or it would
+                # be timing the handout instead of the weighted read.
+                if state == "one-edge":
+                    graph["n0"]["n1"]
+                elif state == "bulk":
+                    list(graph.edges(data=True))
+                elif state == "row":
+                    list(graph["n0"].items())
+                fixture[(kind, state)] = graph
+        return fixture[("int", "clean")], fixture
+
+    def ops(graph, fixture):
+        table = {}
+        for (kind, state), g in fixture.items():
+            tag = {
+                "clean": "CONTROL clean",
+                "one-edge": "SUBJECT after ONE G[u][v]",
+                "bulk": "CONTROL after edges(data=True)",
+                "row": "CONTROL after list(G[u].items())",
+            }[state]
+            table[f"{tag} size(weight) {kind}"] = lambda g=g: g.size(weight="weight")
+            table[f"{tag} degree(weight) {kind}"] = lambda g=g: list(
+                g.degree(weight="weight")
+            )
+        table["CONTROL has_edge (unweighted)"] = (
+            lambda g=fixture[("int", "one-edge")]: g.has_edge("n10", "n11")
+        )
+        return table
+
+    return build, ops
+
+
 def workload_nbunch_key_length(reps: int):
     """`G.edges(nbunch, data=True)` against NODE-KEY LENGTH (br-r37-c1-nbidx).
 
@@ -1767,6 +1841,7 @@ WORKLOADS = {
     "multigraph-cell-subscript": workload_multigraph_cell_subscript,
     "multidigraph-dirty-sync": workload_multidigraph_dirty_sync,
     "multigraph-weighted-paths": workload_multigraph_weighted_paths,
+    "weighted-store-escape": workload_weighted_store_escape,
     "algorithms": workload_algorithms,
     "incumbent-fixtures": workload_incumbent_fixtures,
     "incumbent-fixtures-2": workload_incumbent_fixtures_2,

@@ -163,6 +163,9 @@ fn report_to_pygraph(py: Python<'_>, report: ReadWriteReport) -> PyResult<PyGrap
         nodes_seq: 0,
         edges_seq: 0,
         edges_dirty: AtomicBool::new(false),
+        // br-r37-c1-igdzi: a graph just read from a file has handed out
+        // nothing, so its escape scope is the empty set, not the unknown one.
+        exposed_edges: std::sync::Mutex::new(Some(rustc_hash::FxHashSet::default())),
         node_keys_cache: std::sync::Mutex::new(None),
         node_iter_mirror: std::sync::Mutex::new(None),
         instance_dict_gc: crate::InstanceDictGc::new(),
@@ -845,6 +848,9 @@ fn read_adjlist_simple(py: Python<'_>, path: &str) -> PyResult<Option<PyGraph>> 
         nodes_seq: 0,
         edges_seq: 0,
         edges_dirty: AtomicBool::new(false),
+        // br-r37-c1-igdzi: a graph just read from a file has handed out
+        // nothing, so its escape scope is the empty set, not the unknown one.
+        exposed_edges: std::sync::Mutex::new(Some(rustc_hash::FxHashSet::default())),
         node_keys_cache: std::sync::Mutex::new(None),
         node_iter_mirror: std::sync::Mutex::new(None),
         instance_dict_gc: crate::InstanceDictGc::new(),
@@ -1153,6 +1159,9 @@ fn parse_edgelist_simple_content(
         nodes_seq: 0,
         edges_seq: 0,
         edges_dirty: AtomicBool::new(false),
+        // br-r37-c1-igdzi: a graph just read from a file has handed out
+        // nothing, so its escape scope is the empty set, not the unknown one.
+        exposed_edges: std::sync::Mutex::new(Some(rustc_hash::FxHashSet::default())),
         node_keys_cache: std::sync::Mutex::new(None),
         node_iter_mirror: std::sync::Mutex::new(None),
         instance_dict_gc: crate::InstanceDictGc::new(),

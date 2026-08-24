@@ -21,12 +21,26 @@ edge reads in the library:
     G.neighbors(u)          FIXED 2026-08-18 (br-r37-c1-3rtyk) - it CONTAMINATED,
                             and merely CALLING it did, without consuming the
                             returned iterator at all. Now SAFE.
-    G[u][v]                 CONTAMINATES
-    G.get_edge_data(u, v)   CONTAMINATES
-    G.edges[u, v]           CONTAMINATES
-    G.adj[u][v]             CONTAMINATES
+    G[u][v]                 CONTAMINATES  (this gate; see below)
+    G.get_edge_data(u, v)   CONTAMINATES  (this gate; see below)
+    G.edges[u, v]           CONTAMINATES  (this gate; see below)
+    G.adj[u][v]             CONTAMINATES  (this gate; see below)
     list(G[u].items())      CONTAMINATES
     list(G.edges(data=True))CONTAMINATES
+
+WHAT THIS FILE MEASURES IS ONE GATE, AND br-r37-c1-igdzi MOVED A DIFFERENT ONE
+(2026-08-23). The four single-edge reads now record WHICH edge's dict escaped,
+and `size(weight)`'s store scalar uses that: it sums the store as before and
+corrects the named edges from their live dicts, so one `G[u][v]` no longer costs
+the whole scalar. Measured, 4000 edges, live networkx in the same invocation:
+`size(weight)` after one `G[u][v]` reads 4.36-5.01x where the fallback path it
+used to take reads 0.74x.
+
+The probe below is `_native_weighted_degree_int_values`, which is NOT scope-aware
+- a version that was measured SLOWER than the fallback it would replace, so it
+kept its plain dirty gate. So these four rows still read CONTAMINATES here and
+that is accurate for THIS gate. The scope-aware half is asserted, with the
+answers rather than the gates, in test_weighted_store_escaped_edge_scope.py.
 
 ``neighbors`` is the single most common read there is - every traversal makes it -
 so in practice the fast path is disabled almost immediately on any graph an

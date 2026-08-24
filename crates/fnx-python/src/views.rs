@@ -1225,7 +1225,10 @@ impl EdgeView {
                 && let Some(attrs) = g.cached_edge_py_attrs_by_index(py, ui, vi)
             {
                 crate::require_hashable_node_key(&v_item)?;
-                g.mark_edges_dirty();
+                // br-r37-c1-igdzi: `G.edges[u, v]` escapes ONE edge's dict and
+                // both positions are already in hand, so record the edge rather
+                // than the whole graph.
+                g.mark_edge_exposed(ui, vi);
                 return Ok(attrs);
             }
         }
@@ -1251,7 +1254,8 @@ impl EdgeView {
         // here, or by `has_node(u)` on the miss path below.
         if let Some(attrs) = g.cached_edge_py_attrs(py, u, v) {
             crate::require_hashable_node_key(&v_item)?;
-            g.mark_edges_dirty();
+            // br-r37-c1-igdzi: same single edge, reached by name.
+            g.mark_edge_exposed_by_name(u, v);
             return Ok(attrs);
         }
         if !g.inner.has_node(u) {
@@ -1261,7 +1265,8 @@ impl EdgeView {
         if !g.inner.has_edge(u, v) {
             return Err(missing_edge_key_error(edge));
         }
-        g.mark_edges_dirty();
+        // br-r37-c1-igdzi: still exactly one edge, so the flag carries its name.
+        g.mark_edge_exposed_by_name(u, v);
         let attrs = g.materialize_edge_py_attrs(py, u, v);
         // br-r37-c1-ptiz2: fill the index lookaside on the miss path, with the
         // SAME dict the string-keyed mirror just recorded, so the two can never
@@ -2024,14 +2029,19 @@ impl AtlasView {
             && let Some(v_index) = g.cached_exact_string_node_index(py, v)?
             && let Some(attrs) = g.cached_edge_py_attrs_by_index(py, u_index, v_index)
         {
-            g.mark_edges_dirty();
+            // br-r37-c1-igdzi: ONE edge escaped, and this path already knows
+            // both of its positions — so name it instead of condemning the whole
+            // graph. This is the row subscript `G[u][v]`, which measured as
+            // destructive as a full `edges(data=True)`: 6.12x to 0.73x.
+            g.mark_edge_exposed(u_index, v_index);
             return Ok(attrs);
         }
         let mut v_buf = ArrayString::new();
         let v_key = crate::canonical_node_key_in(py, v, &mut v_buf)?;
         let v_canon = v_key.as_str();
         if let Some(attrs) = g.cached_edge_py_attrs(py, &self.node, v_canon) {
-            g.mark_edges_dirty();
+            // br-r37-c1-igdzi: same single edge, reached by name.
+            g.mark_edge_exposed_by_name(&self.node, v_canon);
             return Ok(attrs);
         }
         if !g.inner.has_edge(&self.node, v_canon) {
@@ -2041,7 +2051,8 @@ impl AtlasView {
         // `G[u][v]['w'] = x` mutates the live edge attrs — flag the edge store
         // dirty so a later native read reconciles it (matches the old eager
         // `G[u]`, which marked dirty unconditionally).
-        g.mark_edges_dirty();
+        // br-r37-c1-igdzi: still exactly one edge, so the flag carries its name.
+        g.mark_edge_exposed_by_name(&self.node, v_canon);
         let attrs = g.materialize_edge_py_attrs(py, &self.node, v_canon);
         // br-r37-c1-ptiz2: fill the index lookaside with the SAME dict the
         // string-keyed mirror just returned, so the two can never disagree
