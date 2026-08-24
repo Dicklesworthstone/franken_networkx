@@ -8927,7 +8927,15 @@ def _live_called_edge_view(original_call):
             if graph is not None:
                 args, kwargs = _freeze_edge_view_nbunch(graph, args, kwargs)
                 result._fnx_live_graph = graph
-                result._fnx_token = _edge_list_freshness_token(graph)
+                # `_guarded_edge_list` has already stamped the materialised
+                # result on the common edges(nbunch) routes. No user code can
+                # run between that call returning and this decorator attaching
+                # the rebuild thunk, so recomputing the same freshness token
+                # only repeats two PyO3 revision reads and a private-storage
+                # probe. Preserve that authoritative stamp; directional paths
+                # which did not use `_guarded_edge_list` still get one here.
+                if not hasattr(result, "_fnx_token"):
+                    result._fnx_token = _edge_list_freshness_token(graph)
                 result._fnx_rebuild = lambda: original_call(self, *args, **kwargs)
                 # br-r37-c1-2pia7: keep the RESOLVED nbunch so a later read can
                 # tell that one of its own nodes has since been removed, which

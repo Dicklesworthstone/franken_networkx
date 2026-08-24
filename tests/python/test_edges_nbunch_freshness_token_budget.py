@@ -46,13 +46,15 @@ CLASSES = ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"]
 # Lower is better; these are ceilings, not targets.
 TOKEN_BUDGET = {
     "Graph": 1,
-    "DiGraph": 4,
-    "MultiGraph": 4,
+    # br-r37-c1-cnwof: `_live_called_edge_view` now preserves the fresh
+    # `_guarded_edge_list` stamp instead of immediately recomputing it.
+    "DiGraph": 3,
+    "MultiGraph": 3,
     # br-r37-c1-hihrf: 5 -> 4. Routing the nbunch view off the native guarded
     # iterator onto the Python one (so it can apply networkx's row rule) also
     # dropped a token read per call. The test asked for this to be banked when
     # it happened.
-    "MultiDiGraph": 4,
+    "MultiDiGraph": 3,
 }
 
 
