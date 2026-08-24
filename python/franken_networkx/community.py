@@ -349,7 +349,7 @@ def greedy_modularity_communities(
     )
 
 
-def asyn_lpa_communities(G, weight=None, seed=None):
+def asyn_lpa_communities(G, weight=None, seed=None, *, backend=None, **backend_kwargs):
     """Communities via asynchronous label propagation.
 
     br-r37-c1-h4bad: the ``from networkx.algorithms.community import *``
@@ -375,6 +375,9 @@ def asyn_lpa_communities(G, weight=None, seed=None):
     through to nx for safety (directed/multigraph adjacency & weight
     semantics differ from the simple-graph fast path).
     """
+    _fnx._validate_backend_dispatch_keywords(
+        "asyn_lpa_communities", backend, backend_kwargs
+    )
     from networkx.utils import create_py_random_state, groups
 
     if not isinstance(
@@ -479,7 +482,9 @@ def asyn_lpa_communities(G, weight=None, seed=None):
     return _gen()
 
 
-def fast_label_propagation_communities(G, *, weight=None, seed=None):
+def fast_label_propagation_communities(
+    G, *, weight=None, seed=None, backend=None, **backend_kwargs
+):
     """Communities via fast label propagation (Traag & Šubelj 2023).
 
     br-r37-c1-0gjy3: same ``import *`` re-export tax as
@@ -497,6 +502,9 @@ def fast_label_propagation_communities(G, *, weight=None, seed=None):
     delegates to nx (directed uses pred+succ and in_edges; weighted reads
     edge data — different code paths).
     """
+    _fnx._validate_backend_dispatch_keywords(
+        "fast_label_propagation_communities", backend, backend_kwargs
+    )
     from collections import deque
 
     from networkx.utils import create_py_random_state, groups
@@ -679,7 +687,7 @@ def __getattr__(name):  # pragma: no cover — defensive passthrough
         ) from exc
 
 
-def is_partition(G, communities):
+def is_partition(G, communities, *, backend=None, **backend_kwargs):
     """Return True iff ``communities`` is a partition of the nodes of ``G``.
 
     br-r37-c1-commpart: re-exported from networkx as ``@nx._dispatchable``, so
@@ -688,6 +696,7 @@ def is_partition(G, communities):
     — ~52x slower than nx. networkx's exact predicate run in-process (uses only
     ``len(G)`` and ``n in G``, no nx helpers) — byte-identical.
     """
+    _fnx._validate_backend_dispatch_keywords("is_partition", backend, backend_kwargs)
     if not isinstance(communities, list):
         communities = list(communities)
     # Snapshot the node set ONCE so per-element membership is a pure-Python set
@@ -697,7 +706,7 @@ def is_partition(G, communities):
     return len(gnodes) == len(nodes) == sum(len(c) for c in communities)
 
 
-def partition_quality(G, partition):
+def partition_quality(G, partition, *, backend=None, **backend_kwargs):
     """Return ``(coverage, performance)`` of ``partition`` of ``G``.
 
     br-r37-c1-commpart: same ``@nx._dispatchable`` conversion tax as
@@ -706,6 +715,9 @@ def partition_quality(G, partition):
     networkx's ``@require_partition`` raises on an invalid partition and the
     multigraph ``performance == -1.0`` contract.
     """
+    _fnx._validate_backend_dispatch_keywords(
+        "partition_quality", backend, backend_kwargs
+    )
     from itertools import combinations as _combinations
 
     if not is_partition(G, partition):
