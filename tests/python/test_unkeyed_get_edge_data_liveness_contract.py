@@ -111,27 +111,31 @@ def test_networkx_returns_its_own_live_keydict(cls_name):
 # --- the divergences ------------------------------------------------------
 
 
-@pytest.mark.parametrize(
-    "cls_name",
-    [
-        # MultiGraph FIXED by br-r37-c1-f3i50: the unkeyed keydict is now handed
-        # back live under an entry-count guard instead of copied per call, so
-        # repeated reads are the same object. Strict expectation now.
-        "MultiGraph",
-        # MultiDiGraph still builds per call — that half is held by the pane that
-        # added `edge_keydict_by_index`. strict=True so it flips red when landed.
-        pytest.param(
-            "MultiDiGraph",
-            marks=pytest.mark.xfail(
-                strict=True,
-                reason="br-r37-c1-f3i50: directed keydict still built per call",
-            ),
-        ),
-    ],
-)
+@pytest.mark.parametrize("cls_name", MULTI)
 def test_returned_mapping_is_the_same_object_across_calls(cls_name):
     gfx = _pair(cls_name)[1]
     assert gfx.get_edge_data("a", "b") is gfx.get_edge_data("a", "b")
+
+
+@pytest.mark.parametrize("cls_name", MULTI)
+def test_returned_row_and_adjacency_view_share_live_attribute_dicts(cls_name):
+    """A mutation through either access route is immediately visible through the other.
+
+    ``G[u][v]`` is an AtlasView rather than the raw keydict, so it cannot be
+    identical to ``get_edge_data(u, v)``.  Its per-key attribute dictionaries
+    are nevertheless the same live objects, which is the observable
+    write-through contract this row must preserve.
+    """
+    gfx = _pair(cls_name)[1]
+    returned = gfx.get_edge_data("a", "b")
+    adjacency = gfx["a"]["b"]
+
+    assert returned[0] is adjacency[0]
+    returned[0]["w"] = 41.0
+    assert adjacency[0]["w"] == 41.0
+
+    adjacency[1]["w"] = 42.0
+    assert returned[1]["w"] == 42.0
 
 
 @pytest.mark.parametrize("cls_name", MULTI)
@@ -195,10 +199,6 @@ def test_clear_reaches_the_graph(cls_name):
 
 
 @pytest.mark.parametrize("cls_name", MULTI)
-@pytest.mark.xfail(
-    strict=True,
-    reason="br-r37-c1-f3i50: THE row that decides the fix — a snapshot cannot be live for reads",
-)
 def test_held_mapping_reflects_a_later_add_edge(cls_name):
     """A write-proxy would satisfy every other xfail here and still fail this.
 
