@@ -31,6 +31,7 @@ from collections.abc import (
     Set as _Set,
 )
 from copy import deepcopy as _deepcopy
+from dataclasses import dataclass as _dataclass, field as _field
 from enum import Enum as _Enum
 from functools import wraps as _wraps
 import gzip as _gzip
@@ -1546,6 +1547,13 @@ class EdgeDataView:
         rows = self._materialize()
         if self._graph is None:
             return iter(rows)
+        # br-r37-c1-hihrf: the coarse guard here is a KNOWN parity divergence for
+        # an nbunch above the walk gate — networkx completes where this raises —
+        # and passing `nbunch_rows=self._nbunch_list` to get the row rule fixes
+        # that at sizes 4 through 120 but was REVERTED as a measured loss: the
+        # row rule needs a per-row size baseline, and taking it costs
+        # O(nbunch x key length). See the bead for the numbers and the shape a
+        # cheaper baseline would have to have.
         return _FailFastEdgeIterator(self._graph, rows)
 
     def __len__(self):
@@ -7109,6 +7117,34 @@ _MULTIGRAPH_NODE_VIEW_CALL = _MULTIGRAPH_NODE_VIEW_TYPE.__call__
 _MULTIDIGRAPH_NODE_VIEW_CALL = _MULTIDIGRAPH_NODE_VIEW_TYPE.__call__
 
 
+def _weighted_multidegree_value(graph, node, weight):
+    """Return one weighted total degree without re-entering a degree view."""
+
+    def edge_weight(attrs):
+        return attrs.get(weight, 1)
+
+    if graph.is_directed():
+        return sum(
+            edge_weight(attrs)
+            for keydict in graph.succ[node].values()
+            for attrs in keydict.values()
+        ) + sum(
+            edge_weight(attrs)
+            for keydict in graph.pred[node].values()
+            for attrs in keydict.values()
+        )
+
+    neighbors = graph.adj[node]
+    total = sum(
+        edge_weight(attrs)
+        for keydict in neighbors.values()
+        for attrs in keydict.values()
+    )
+    if node in neighbors:
+        total += sum(edge_weight(attrs) for attrs in neighbors[node].values())
+    return total
+
+
 class MultiGraphDegreeView:
     # br-r37-c1-mdvname: nx exposes MultiGraph.degree as
     # ``MultiDegreeView``. Rename the fnx wrapper class to match.
@@ -7203,7 +7239,7 @@ class MultiGraphDegreeView:
         hash(node)
         if self._weight is None:
             return self._raw_base_view[node]
-        return degree(self._graph, node, weight=self._weight)
+        return _weighted_multidegree_value(self._graph, node, self._weight)
 
     def __bool__(self):
         return bool(len(self))
@@ -7219,7 +7255,7 @@ class MultiGraphDegreeView:
             if nbunch in self._graph:
                 if weight is None:
                     return self._raw_base_view[nbunch]
-                return degree(self._graph, nbunch, weight=weight)
+                return _weighted_multidegree_value(self._graph, nbunch, weight)
         except TypeError:
             pass
         # br-r37-c1-degnbnative (cc): unweighted multi total-degree(nbunch) — one
@@ -7349,7 +7385,7 @@ class MultiDiGraphDegreeView:
         hash(node)
         if self._weight is None:
             return self._raw_base_view[node]
-        return degree(self._graph, node, weight=self._weight)
+        return _weighted_multidegree_value(self._graph, node, self._weight)
 
     def __bool__(self):
         return bool(len(self))
@@ -7365,7 +7401,7 @@ class MultiDiGraphDegreeView:
             if nbunch in self._graph:
                 if weight is None:
                     return self._raw_base_view[nbunch]
-                return degree(self._graph, nbunch, weight=weight)
+                return _weighted_multidegree_value(self._graph, nbunch, weight)
         except TypeError:
             pass
         # br-r37-c1-degnbnative (cc): unweighted multi total-degree(nbunch) — one
@@ -8927,7 +8963,15 @@ def _live_called_edge_view(original_call):
             if graph is not None:
                 args, kwargs = _freeze_edge_view_nbunch(graph, args, kwargs)
                 result._fnx_live_graph = graph
-                result._fnx_token = _edge_list_freshness_token(graph)
+                # `_guarded_edge_list` has already stamped the materialised
+                # result on the common edges(nbunch) routes. No user code can
+                # run between that call returning and this decorator attaching
+                # the rebuild thunk, so recomputing the same freshness token
+                # only repeats two PyO3 revision reads and a private-storage
+                # probe. Preserve that authoritative stamp; directional paths
+                # which did not use `_guarded_edge_list` still get one here.
+                if not hasattr(result, "_fnx_token"):
+                    result._fnx_token = _edge_list_freshness_token(graph)
                 result._fnx_rebuild = lambda: original_call(self, *args, **kwargs)
                 # br-r37-c1-2pia7: keep the RESOLVED nbunch so a later read can
                 # tell that one of its own nodes has since been removed, which
@@ -10909,6 +10953,18 @@ class SpanningTreeIterator:
         NaN-weighted edges before enumeration.
     """
 
+    @_dataclass(order=True)
+    class Partition:
+        """A candidate spanning-tree partition ordered by its tree weight."""
+
+        mst_weight: float
+        partition_dict: dict = _field(compare=False)
+
+        def __copy__(self):
+            return SpanningTreeIterator.Partition(
+                self.mst_weight, self.partition_dict.copy()
+            )
+
     def __init__(self, G, weight="weight", minimum=True, ignore_nan=False):
         self.G = G
         self.weight = weight
@@ -10974,6 +11030,18 @@ class ArborescenceIterator:
     init_partition : tuple, optional
         ``(included_edges, excluded_edges)`` to constrain the enumeration.
     """
+
+    @_dataclass(order=True)
+    class Partition:
+        """A candidate arborescence partition ordered by its tree weight."""
+
+        mst_weight: float
+        partition_dict: dict = _field(compare=False)
+
+        def __copy__(self):
+            return ArborescenceIterator.Partition(
+                self.mst_weight, self.partition_dict.copy()
+            )
 
     def __init__(self, G, weight="weight", minimum=True, init_partition=None):
         self.G = G
@@ -16648,13 +16716,20 @@ def dfs_predecessors(G, source=None, depth_limit=None, *, sort_neighbors=None):
 def dfs_successors(G, source=None, depth_limit=None, *, sort_neighbors=None):
     """Return (node, [successors]) dict from DFS.
 
-    br-r37-c1-20swv: same dict-key-order drift as
-    ``dfs_predecessors``. Build via dfs_edges walk so the dict's
-    iteration order matches nx's DFS-discovery contract.
+    The unsorted path is assembled from the native canonical DFS edge stream,
+    which preserves NetworkX's DFS-discovery dict order without rebuilding a
+    Python ``defaultdict`` from the public ``dfs_edges`` generator.
     """
     # br-r37-c1-eghxq: accept nx-typed inputs.
     G = _coerce_arg_to_fnx_graph(G)
+    if source is not None:
+        hash(source)
+    depth_limit = _normalize_bfs_depth_limit(depth_limit)
+    if depth_limit is _DEPTH_EMPTY:
+        depth_limit = 0
     try:
+        if sort_neighbors is None:
+            return _dfs_successors_raw(G, source=source, depth_limit=depth_limit)
         from collections import defaultdict as _defaultdict
         succs = _defaultdict(list)
         for u, v in dfs_edges(G, source=source, depth_limit=depth_limit, sort_neighbors=sort_neighbors):
@@ -47464,7 +47539,9 @@ def _assigned_private_number_of_nodes(self):
     return len(self)
 
 
-def _assigned_private_add_node(self, node_for_adding, **attr):
+def _assigned_private_add_node(
+    self, node_for_adding, *, _sync_native=True, _preserve_assigned_row=False, **attr
+):
     """add_node for a graph carrying assigned private storage (br-r37-c1-wv3cu).
 
     networkx's storage IS the assigned mapping, so `add_node` edits it in place
@@ -47488,8 +47565,13 @@ def _assigned_private_add_node(self, node_for_adding, **attr):
         raise ValueError("None cannot be a node")
 
     storage = vars(self)
+    # Record membership before the native call.  Graph.add_node decides whether
+    # to replace an adjacency row from `_node`, not from `_adj`; an assigned
+    # `_adj` can therefore contain a stale row for a node which is new to the
+    # graph.  NetworkX replaces that row rather than merging it.
+    known_to_node_store = node_for_adding in self._node
     raw = _RAW_ADD_NODE_BY_CLASS.get(type(self))
-    if raw is not None:
+    if _sync_native and raw is not None:
         raw(self, node_for_adding, **attr)
 
     node_map = storage.get(_PRIVATE_NODE_OVERRIDE)
@@ -47502,7 +47584,10 @@ def _assigned_private_add_node(self, node_for_adding, **attr):
 
     for key in (_PRIVATE_ADJ_OVERRIDE, _PRIVATE_SUCC_OVERRIDE, _PRIVATE_PRED_OVERRIDE):
         mapping = storage.get(key)
-        if mapping is not None and node_for_adding not in mapping:
+        if mapping is not None and (
+            node_for_adding not in mapping
+            or (not known_to_node_store and not _preserve_assigned_row)
+        ):
             mapping[node_for_adding] = {}
 
 
@@ -47535,6 +47620,62 @@ def _assigned_private_edge_targets(self, storage):
             succ = adj
         return succ, storage.get(_PRIVATE_PRED_OVERRIDE)
     return adj, adj
+
+
+def _assigned_private_edge_node_exists(self, node, storage):
+    """Apply the membership authority used by NetworkX's ``add_edge`` body."""
+    if not self.is_directed() and not self.is_multigraph():
+        return node in self._node
+    forward, _ = _assigned_private_edge_targets(self, storage)
+    if forward is not None:
+        return node in forward
+    if self.is_directed():
+        return node in self._succ
+    return node in self._adj
+
+
+def _assigned_private_prepare_edge_nodes(self, u, v, storage):
+    """Prepare node rows without letting the native edge writer invent nodes.
+
+    MultiGraph and directed ``add_edge`` test their adjacency mapping, whereas
+    the native graph can be missing a node which exists only in an assigned
+    mapping.  Calling the native edge method first then silently inserts that
+    node into the native node store.  Graph instead tests ``_node`` and must
+    replace a stale assigned adjacency row for a genuinely new node.
+    """
+    if (
+        not self.is_directed()
+        and not self.is_multigraph()
+        and _PRIVATE_NODE_OVERRIDE in storage
+    ):
+        for node in (u, v):
+            if node in self._node and node not in self._adj:
+                # This is Graph.add_edge's direct ``self._adj[node]`` lookup
+                # after its `_node` membership check; preserve its KeyError.
+                raise KeyError(node)
+
+    forward, _ = _assigned_private_edge_targets(self, storage)
+    exists = {
+        u: _assigned_private_edge_node_exists(self, u, storage),
+        v: _assigned_private_edge_node_exists(self, v, storage),
+    }
+    # With an assigned adjacency, a node can exist there while being absent
+    # from fnx's native `_node`.  The raw edge writer would create it natively,
+    # which NetworkX does not do for these classes.  Keep this exceptional write
+    # entirely on the assigned mapping; ordinary graphs continue through Rust.
+    python_only = (
+        forward is not None
+        and (self.is_directed() or self.is_multigraph())
+        and any(exists[node] and node not in self._node for node in (u, v))
+    )
+    for node in (u, v):
+        _assigned_private_add_node(
+            self,
+            node,
+            _sync_native=not (python_only and exists[node]),
+            _preserve_assigned_row=python_only and exists[node],
+        )
+    return python_only
 
 
 def _assigned_private_write_edge(self, u, v, key, attr, storage):
@@ -47581,25 +47722,29 @@ def _assigned_private_write_edge(self, u, v, key, attr, storage):
 def _assigned_private_add_edge_simple(self, u_of_edge, v_of_edge, **attr):
     """add_edge for a graph carrying assigned private storage (br-r37-c1-wv3cu)."""
     storage = vars(self)
+    python_only = _assigned_private_prepare_edge_nodes(self, u_of_edge, v_of_edge, storage)
     raw = _RAW_ADD_EDGE_BY_CLASS.get(type(self))
-    if raw is not None:
+    if not python_only and raw is not None:
         raw(self, u_of_edge, v_of_edge, **attr)
-    _assigned_private_add_node(self, u_of_edge)
-    _assigned_private_add_node(self, v_of_edge)
     _assigned_private_write_edge(self, u_of_edge, v_of_edge, None, attr, storage)
 
 
 def _assigned_private_add_edge_multi(self, u_of_edge, v_of_edge, key=None, **attr):
     """Multigraph add_edge: the key is part of the address, not an attribute."""
     storage = vars(self)
+    python_only = _assigned_private_prepare_edge_nodes(self, u_of_edge, v_of_edge, storage)
     raw = _RAW_ADD_EDGE_BY_CLASS.get(type(self))
-    if raw is not None:
+    if not python_only and raw is not None:
         if key is None:
             key = raw(self, u_of_edge, v_of_edge, **attr)
         else:
             raw(self, u_of_edge, v_of_edge, key, **attr)
-    _assigned_private_add_node(self, u_of_edge)
-    _assigned_private_add_node(self, v_of_edge)
+    elif key is None:
+        forward, _ = _assigned_private_edge_targets(self, storage)
+        keydict = forward.get(u_of_edge, {}).get(v_of_edge, {}) if forward else {}
+        key = len(keydict)
+        while key in keydict:
+            key += 1
     _assigned_private_write_edge(self, u_of_edge, v_of_edge, key, attr, storage)
     return key
 
@@ -47742,7 +47887,23 @@ def _assigned_private_remove_node(self, n):
     # right while breaking remove_node('ZZ') — the sweep went 32 to 30 instead of
     # 32 to 7, which is what said the authority was wrong rather than missing.
     if n not in self._adj or n not in self._node:
-        raise NetworkXError(f"The node {n} is not in the graph.")
+        graph_kind = "digraph" if self.is_directed() else "graph"
+        raise NetworkXError(f"The node {n} is not in the {graph_kind}.")
+
+    directed_mapping_data = None
+    if self.is_directed():
+        forward, backward = _assigned_private_edge_targets(self, storage)
+        # Capture both sides before the native removal mutates its own rows.
+        # A private `_succ` can coexist with a native `_pred`, and looking up
+        # the latter afterwards turns NetworkX's successful removal into a
+        # KeyError merely because fnx has already removed the native node.
+        successors = (
+            list(forward.get(n, ())) if forward is not None else list(self._succ[n])
+        )
+        predecessors = (
+            list(backward.get(n, ())) if backward is not None else list(self._pred[n])
+        )
+        directed_mapping_data = (forward, backward, successors, predecessors)
 
     raw = _RAW_REMOVE_NODE_BY_CLASS.get(type(self))
     if raw is not None:
@@ -47753,28 +47914,59 @@ def _assigned_private_remove_node(self, n):
 
     if node_map is not None:
         node_map.pop(n, None)
-    for mapping in mappings:
-        for nbr in list(mapping.get(n, ())):
-            row = mapping.get(nbr)
-            if row is not None:
+    if self.is_directed():
+        assert directed_mapping_data is not None
+        forward, backward, successors, predecessors = directed_mapping_data
+        # DiGraph.remove_node uses successors to edit `_pred`, and predecessors
+        # to edit `_succ`.  With only one side assigned, it must not scan every
+        # row in that mapping: an edge visible only on the assigned successor
+        # side has no matching native predecessor and therefore survives, just
+        # as it does in NetworkX's split private storage.
+        if forward is not None:
+            for predecessor in predecessors:
+                row = forward.get(predecessor)
+                if row is not None:
+                    row.pop(n, None)
+            forward.pop(n, None)
+        if backward is not None:
+            for successor in successors:
+                row = backward.get(successor)
+                if row is not None:
+                    row.pop(n, None)
+            backward.pop(n, None)
+    else:
+        for mapping in mappings:
+            for nbr in list(mapping.get(n, ())):
+                row = mapping.get(nbr)
+                if row is not None:
+                    row.pop(n, None)
+            for row in mapping.values():
                 row.pop(n, None)
-        for row in mapping.values():
-            row.pop(n, None)
-        mapping.pop(n, None)
+            mapping.pop(n, None)
 
 
 def _assigned_private_remove_edge(self, u, v, key=None):
     """remove_edge: drop the pair from every assigned mapping, both directions."""
     storage = vars(self)
-    mappings = _assigned_private_mappings(self, storage)
     multi = self.is_multigraph()
+    if self.is_directed():
+        forward, backward = _assigned_private_edge_targets(self, storage)
+        targets = [(forward, u, v)] if forward is not None else []
+        if backward is not None:
+            targets.append((backward, v, u))
+    else:
+        adjacency = storage.get(_PRIVATE_ADJ_OVERRIDE)
+        targets = [(adjacency, u, v), (adjacency, v, u)] if adjacency is not None else []
 
-    found = False
-    for mapping in mappings:
-        row = mapping.get(u)
-        if row is not None and v in row:
-            found = True
-    if not found:
+    # Assigning `_node` does not replace the edge mapping.  In that split state
+    # the native adjacency remains NetworkX's authority for remove_edge.
+    if not targets:
+        raw = _RAW_REMOVE_EDGE_BY_CLASS.get(type(self))
+        if raw is not None:
+            return raw(self, u, v, key) if (multi and key is not None) else raw(self, u, v)
+
+    forward_mapping, forward_u, forward_v = targets[0]
+    if forward_mapping is None or forward_v not in forward_mapping.get(forward_u, {}):
         raise NetworkXError(f"The edge {u}-{v} is not in the graph.")
 
     raw = _RAW_REMOVE_EDGE_BY_CLASS.get(type(self))
@@ -47784,23 +47976,36 @@ def _assigned_private_remove_edge(self, u, v, key=None):
         except Exception:  # noqa: BLE001 - the assigned mapping is the authority
             pass
 
-    for mapping in mappings:
-        for a, b in ((u, v), (v, u)):
-            row = mapping.get(a)
-            if row is None or b not in row:
-                continue
-            if multi:
-                keydict = row[b]
-                if key is None:
-                    keydict.pop(next(iter(keydict)), None)
-                else:
-                    keydict.pop(key, None)
-                if not keydict:
-                    row.pop(b, None)
+    seen = set()
+    for mapping, a, b in targets:
+        if mapping is None or (id(mapping), a, b) in seen:
+            continue
+        seen.add((id(mapping), a, b))
+        row = mapping.get(a)
+        if row is None or b not in row:
+            continue
+        if multi:
+            keydict = row[b]
+            if key is None:
+                keydict.popitem()
             else:
+                keydict.pop(key, None)
+            if not keydict:
                 row.pop(b, None)
-            if a == b:
-                break
+        else:
+            row.pop(b, None)
+
+
+def _assigned_private_remove_edges_from(self, ebunch):
+    """NetworkX's tolerant batch removal, routed through assigned storage."""
+    for edge in ebunch:
+        u, v = edge[:2]
+        try:
+            _assigned_private_remove_edge(self, u, v)
+        except NetworkXError:
+            # ``remove_edges_from`` ignores edges that are absent at the time
+            # each entry is visited; singular ``remove_edge`` must still raise.
+            continue
 
 
 def _assigned_private_clear(self):
@@ -47842,6 +48047,14 @@ _RAW_REMOVE_EDGE_BY_CLASS = {
     MultiDiGraph: MultiDiGraph.remove_edge,
 }
 _RAW_REMOVE_EDGE_METHODS = tuple(_RAW_REMOVE_EDGE_BY_CLASS.values())
+
+_RAW_REMOVE_EDGES_FROM_BY_CLASS = {
+    Graph: Graph.remove_edges_from,
+    DiGraph: DiGraph.remove_edges_from,
+    MultiGraph: MultiGraph.remove_edges_from,
+    MultiDiGraph: MultiDiGraph.remove_edges_from,
+}
+_RAW_REMOVE_EDGES_FROM_METHODS = tuple(_RAW_REMOVE_EDGES_FROM_BY_CLASS.values())
 
 _RAW_CLEAR_BY_CLASS = {
     Graph: Graph.clear,
@@ -48129,6 +48342,11 @@ def _install_private_method_shadows(self, storage):
         )
         install("remove_node", _assigned_private_remove_node, _RAW_REMOVE_NODE_METHODS)
         install("remove_edge", _assigned_private_remove_edge, _RAW_REMOVE_EDGE_METHODS)
+        install(
+            "remove_edges_from",
+            _assigned_private_remove_edges_from,
+            _RAW_REMOVE_EDGES_FROM_METHODS,
+        )
         install("clear", _assigned_private_clear, _RAW_CLEAR_METHODS)
         install("clear_edges", _assigned_private_clear_edges, _RAW_CLEAR_EDGES_METHODS)
         install(
@@ -52260,7 +52478,7 @@ def reverse(G, copy=True):
 
 def nodes(G):
     """Return nodes of G (global function form)."""
-    return G.nodes
+    return G.nodes()
 
 
 def _global_nbunch_nodes(G, nbunch):
@@ -52852,129 +53070,11 @@ def triangles(G, nodes=None):
 
 def edges(G, nbunch=None):
     """Return edges of G (global function form)."""
-    if nbunch is None:
-        return G.edges
-
-    nbunch_nodes = _global_nbunch_nodes(G, nbunch)
-    if G.is_directed():
-        result = []
-        if G.is_multigraph():
-            for u in nbunch_nodes:
-                if u not in G:
-                    continue
-                for v, keydict in G[u].items():
-                    for _key in keydict:
-                        result.append((u, v))
-            return result
-
-        for u in nbunch_nodes:
-            if u not in G:
-                continue
-            for v in G[u]:
-                result.append((u, v))
-        return result
-
-    if G.is_multigraph():
-        seen = set()
-        result = []
-        for u in nbunch_nodes:
-            if u not in G:
-                continue
-            for v, keydict in G[u].items():
-                for key in keydict:
-                    marker = (frozenset((u, v)), key)
-                    if marker in seen:
-                        continue
-                    seen.add(marker)
-                    result.append((u, v))
-        return result
-
-    seen = set()
-    result = []
-    for u in nbunch_nodes:
-        if u not in G:
-            continue
-        for v in G[u]:
-            marker = frozenset((u, v))
-            if marker in seen:
-                continue
-            seen.add(marker)
-            result.append((u, v))
-    return result
+    return G.edges(nbunch)
 
 
 def degree(G, nbunch=None, weight=None):
     """Return degree view of G (global function form)."""
-    if weight is None:
-        if nbunch is None:
-            return G.degree
-        try:
-            if nbunch in G:
-                return G.degree[nbunch]
-        except TypeError:
-            pass
-
-        nbunch_nodes = _global_nbunch_nodes(G, nbunch)
-        return ((node, G.degree[node]) for node in nbunch_nodes)
-
-    def edge_weight(attrs):
-        return attrs.get(weight, 1)
-
-    def weighted_degree(node):
-        # br-r37-c1-wdeg: match nx's *exact* DegreeView summation, which is a
-        # FLAT ``sum()`` over the (neighbor, key) attribute values plus a
-        # separate self-loop term — NOT a per-neighbor ``edge_total`` grouped
-        # fold. CPython's ``sum`` is Neumaier-compensated for floats and the
-        # association of the running total matters, so grouping per neighbor
-        # (or doubling a self-loop inline) drifts ~1 ULP from nx.
-        if G.is_multigraph():
-            if G.is_directed():
-                succs = G.succ[node]
-                preds = G.pred[node]
-                return sum(
-                    edge_weight(d) for kd in succs.values() for d in kd.values()
-                ) + sum(
-                    edge_weight(d) for kd in preds.values() for d in kd.values()
-                )
-
-            nbrs = G.adj[node]
-            total = sum(
-                edge_weight(d) for kd in nbrs.values() for d in kd.values()
-            )
-            if node in nbrs:
-                total += sum(edge_weight(d) for d in nbrs[node].values())
-            return total
-
-        if G.is_directed():
-            succs = G.succ[node]
-            preds = G.pred[node]
-            return sum(edge_weight(dd) for dd in succs.values()) + sum(
-                edge_weight(dd) for dd in preds.values()
-            )
-
-        nbrs = G.adj[node]
-        total = sum(edge_weight(dd) for dd in nbrs.values())
-        if node in nbrs:
-            total += edge_weight(nbrs[node])
-        return total
-
-    if nbunch is None:
-        return ((node, weighted_degree(node)) for node in G.nodes)
-
-    try:
-        if nbunch in G:
-            return weighted_degree(nbunch)
-    except TypeError:
-        pass
-
-    # br-r37-c1-degnative (cc): the iterable-nbunch weighted path built a Python
-    # generator calling weighted_degree(node) which iterates G.adj[node] through
-    # PyO3 per multi-edge -> 0.043x for MultiGraph degree(nbunch, weight) (the
-    # official core_laggards bench). The native DegreeView's iterable-nbunch path
-    # is byte-identical to nx (same dup/missing-node handling + self-loop doubling)
-    # and does NOT recurse (unlike the single-node/None paths, which the MultiGraph
-    # view delegates back to this function) -> 0.043x -> 0.64x, 15x self. The
-    # None + single-node branches above stay Python to avoid that recursion.
     return G.degree(nbunch, weight=weight)
 
 
