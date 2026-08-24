@@ -31,6 +31,7 @@ from collections.abc import (
     Set as _Set,
 )
 from copy import deepcopy as _deepcopy
+from dataclasses import dataclass as _dataclass, field as _field
 from enum import Enum as _Enum
 from functools import wraps as _wraps
 import gzip as _gzip
@@ -10917,6 +10918,18 @@ class SpanningTreeIterator:
         NaN-weighted edges before enumeration.
     """
 
+    @_dataclass(order=True)
+    class Partition:
+        """A candidate spanning-tree partition ordered by its tree weight."""
+
+        mst_weight: float
+        partition_dict: dict = _field(compare=False)
+
+        def __copy__(self):
+            return SpanningTreeIterator.Partition(
+                self.mst_weight, self.partition_dict.copy()
+            )
+
     def __init__(self, G, weight="weight", minimum=True, ignore_nan=False):
         self.G = G
         self.weight = weight
@@ -10982,6 +10995,18 @@ class ArborescenceIterator:
     init_partition : tuple, optional
         ``(included_edges, excluded_edges)`` to constrain the enumeration.
     """
+
+    @_dataclass(order=True)
+    class Partition:
+        """A candidate arborescence partition ordered by its tree weight."""
+
+        mst_weight: float
+        partition_dict: dict = _field(compare=False)
+
+        def __copy__(self):
+            return ArborescenceIterator.Partition(
+                self.mst_weight, self.partition_dict.copy()
+            )
 
     def __init__(self, G, weight="weight", minimum=True, init_partition=None):
         self.G = G
