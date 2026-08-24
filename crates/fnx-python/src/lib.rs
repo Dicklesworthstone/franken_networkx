@@ -6060,6 +6060,53 @@ impl PyMultiGraph {
     /// Without this the freshness check in `neighbor_key_row` would see the
     /// bumped `edges_seq`, discard the map, and hand the next caller a rebuilt
     /// dict — defeating the in-place maintenance above.
+    /// br-r37-c1-pyzv0: drop a node from every live neighbour row IN PLACE.
+    ///
+    /// networkx removes a node with `for u in nbrs: del self._adj[u][n]`, and
+    /// that in-place `del` is the whole reason an open `G.neighbors(u)` raises:
+    /// CPython raises RuntimeError only when the dict the ITERATOR HOLDS changes
+    /// size. Dropping the cache instead — which still happens, immediately after
+    /// this, for the laundering reason br-r37-c1-txkrn records — is invisible to
+    /// an iterator already walking a row, because the row it holds is simply
+    /// orphaned rather than edited. So fnx completed the loop and reported the
+    /// pre-removal neighbours where networkx raised.
+    ///
+    /// The node's OWN row is deliberately left alone: networkx drops it from
+    /// `_adj` without touching the dict, so an iterator over it completes there
+    /// too, and clearing it here would make fnx raise where networkx does not.
+    fn neighbor_key_rows_drop_node_in_place(&mut self, py: Python<'_>, canonical: &str) {
+        if self.neighbor_key_rows.is_none() {
+            return;
+        }
+        let neighbors: Vec<String> = self
+            .inner
+            .neighbors(canonical)
+            .map(|nbrs| nbrs.into_iter().map(str::to_owned).collect())
+            .unwrap_or_default();
+        for nb in neighbors {
+            let _ = self.cached_neighbor_row_remove(py, &nb, canonical);
+        }
+    }
+
+    /// br-r37-c1-pyzv0: empty every live neighbour row IN PLACE, matching
+    /// networkx's `for nbr_dict in self._adj.values(): nbr_dict.clear()`.
+    ///
+    /// `clear()` on the graph is NOT this: networkx clears only the outer
+    /// mapping there, leaving each row dict intact, so an in-flight iterator
+    /// completes — which fnx already matched by dropping the cache.
+    fn neighbor_key_rows_clear_in_place(&self, py: Python<'_>) {
+        if let Some((_, _, rows, by_index)) = &self.neighbor_key_rows {
+            for row in rows.values() {
+                let _ = row.bind(py).call_method0("clear");
+            }
+            // The index twin holds the SAME dict objects, but a row reached only
+            // through it would otherwise survive uncleared.
+            for row in by_index.values() {
+                let _ = row.bind(py).call_method0("clear");
+            }
+        }
+    }
+
     fn restamp_neighbor_rows(&mut self) {
         let (nodes, edges) = (self.nodes_seq, self.edges_seq);
         if let Some(entry) = self.neighbor_key_rows.as_mut() {
@@ -8681,11 +8728,6 @@ impl PyMultiGraph {
     }
 
     fn remove_node(&mut self, py: Python<'_>, n: &Bound<'_, PyAny>) -> PyResult<()> {
-        // br-r37-c1-txkrn: drop the neighbour row cache. A stale row here is
-        // not caught by its own generation stamp -- `restamp_neighbor_rows` on
-        // the next `add_edge` overwrites the stamp with the current sequences
-        // and launders the row into looking fresh.
-        self.neighbor_key_rows = None;
         let canonical = node_key_to_string(py, n)?;
         if !self.inner.has_node(&canonical) {
             return Err(crate::NetworkXError::new_err(format!(
@@ -8693,6 +8735,19 @@ impl PyMultiGraph {
                 n.repr()?
             )));
         }
+        // br-r37-c1-pyzv0: edit the live rows BEFORE dropping the cache, so an
+        // in-flight `G.neighbors(u)` sees the removal and raises like networkx.
+        // The drop below stays: it is what keeps a stale row from being
+        // laundered, and it cannot deliver the raise on its own.
+        self.neighbor_key_rows_drop_node_in_place(py, &canonical);
+        // br-r37-c1-txkrn: drop the neighbour row cache. A stale row here is
+        // not caught by its own generation stamp -- `restamp_neighbor_rows` on
+        // the next `add_edge` overwrites the stamp with the current sequences
+        // and launders the row into looking fresh.
+        //
+        // Now reached only AFTER the presence check, so a failed removal leaves
+        // the cache alone -- it mutated nothing, so nothing went stale.
+        self.neighbor_key_rows = None;
         self.live_keydict_rows
             .remove_touching_in_place(py, &canonical);
 
@@ -8737,11 +8792,6 @@ impl PyMultiGraph {
     }
 
     fn remove_nodes_from(&mut self, py: Python<'_>, nodes: &Bound<'_, PyAny>) -> PyResult<()> {
-        // br-r37-c1-txkrn: drop the neighbour row cache. A stale row here is
-        // not caught by its own generation stamp -- `restamp_neighbor_rows` on
-        // the next `add_edge` overwrites the stamp with the current sequences
-        // and launders the row into looking fresh.
-        self.neighbor_key_rows = None;
         // br-r37-c1-mgrnf: batch the inner removal. The old per-node loop called
         // `inner.remove_node` k times, and MultiGraph::remove_node does two
         // O(|V|) `shift_remove`s per call, so `remove_nodes_from` was O(k·|V|)
@@ -8765,6 +8815,17 @@ impl PyMultiGraph {
             self.bump_nodes_seq();
             return Ok(());
         }
+        // br-r37-c1-pyzv0: edit the live rows BEFORE the drop below, while
+        // `inner` still knows each removed node's neighbours, so an in-flight
+        // `G.neighbors(u)` sees the removal and raises like networkx.
+        for canonical in &present {
+            self.neighbor_key_rows_drop_node_in_place(py, canonical);
+        }
+        // br-r37-c1-txkrn: drop the neighbour row cache. A stale row here is
+        // not caught by its own generation stamp -- `restamp_neighbor_rows` on
+        // the next `add_edge` overwrites the stamp with the current sequences
+        // and launders the row into looking fresh.
+        self.neighbor_key_rows = None;
         for canonical in &present {
             self.live_keydict_rows
                 .remove_touching_in_place(py, canonical);
@@ -11187,6 +11248,14 @@ impl PyMultiGraph {
     }
 
     fn clear_edges(&mut self, py: Python<'_>) {
+        // br-r37-c1-pyzv0: empty the live rows IN PLACE first. networkx clears
+        // each row dict here (`for nbr_dict in self._adj.values()`), which is
+        // what an open `G.neighbors(n)` iterator sees; dropping the cache alone
+        // left the iterator walking an orphaned row and completing where
+        // networkx raises. `clear()` on the graph is deliberately NOT given this
+        // treatment -- networkx clears only the outer mapping there, so the
+        // iterator completes, and fnx already matches.
+        self.neighbor_key_rows_clear_in_place(py);
         // br-r37-c1-txkrn: drop the neighbour row cache. A stale row here is
         // not caught by its own generation stamp -- `restamp_neighbor_rows` on
         // the next `add_edge` overwrites the stamp with the current sequences
