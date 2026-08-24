@@ -211,15 +211,6 @@ MUTATIONS_DURING_ITERATION = {
 }
 
 
-# br-r37-c1-hihrf: the multigraph classes reach this test too now. Two mutation
-# kinds still diverge there, and they are NOT the guard this bead fixed - they
-# are `_raise_if_frozen_nbunch_node_removed`, which fires when an nbunch node
-# disappears. networkx completes those because it is holding the row dict it
-# already fetched: removing the node from the graph does not resize that dict,
-# so its iteration is undisturbed.
-FROZEN_NODE_DIVERGENT = {"remove_frozen_node", "clear"}
-
-
 @pytest.mark.parametrize("cls_name", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
 @pytest.mark.parametrize("mutation", list(MUTATIONS_DURING_ITERATION), ids=list(MUTATIONS_DURING_ITERATION))
 def test_simple_class_nbunch_iteration_matches_networkx_mutation_for_mutation(cls_name, mutation):
@@ -231,12 +222,6 @@ def test_simple_class_nbunch_iteration_matches_networkx_mutation_for_mutation(cl
     the live rows gets every case right, so this asserts each one rather than
     just "does not over-raise".
     """
-    if cls_name.startswith("Multi") and mutation in FROZEN_NODE_DIVERGENT:
-        pytest.xfail(
-            "the frozen-nbunch guard raises when an nbunch node disappears; "
-            "networkx completes because it already holds the row dict "
-            "(br-r37-c1-hihrf, separate from the row-rule guard)"
-        )
     mutate = MUTATIONS_DURING_ITERATION[mutation]
     outcomes = []
     for lib in (nx, fnx):

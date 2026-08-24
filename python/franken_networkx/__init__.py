@@ -802,7 +802,14 @@ def _remove_node_with_networkx_missing_node_error(remove_node_impl, *, graph_kin
     return remove_node
 
 
-def _FailFastEdgeIterator(graph, iterable, *, guard_edge_count=False, nbunch_rows=None):
+def _FailFastEdgeIterator(
+    graph,
+    iterable,
+    *,
+    guard_edge_count=False,
+    nbunch_rows=None,
+    ignore_removed_nbunch_row=False,
+):
     # br-r37-c1-edgesdataperf: O(1) per-element staleness check against
     # snapshotted counts/revisions (was an O(N) tuple-build + compare per
     # __next__, i.e. O(E*N)). nx's contract: mutating the graph SIZE during
@@ -885,8 +892,16 @@ def _FailFastEdgeIterator(graph, iterable, *, guard_edge_count=False, nbunch_row
                             owner = previous[0]
                         except (TypeError, IndexError, KeyError):
                             owner = None
-                        if owner in row_sizes and degree_of(owner) != row_sizes[owner]:
-                            raise RuntimeError(_err)
+                        if owner in row_sizes:
+                            # MultiEdgeDataView holds the source row it already
+                            # entered.  Removing that source (including clear())
+                            # detaches the native row but does not resize the
+                            # captured dict in NetworkX, so the remaining
+                            # materialised rows must still drain.  A present
+                            # owner keeps the normal live-row size check.
+                            if not (ignore_removed_nbunch_row and owner not in graph):
+                                if degree_of(owner) != row_sizes[owner]:
+                                    raise RuntimeError(_err)
                         exp_nodes = graph.nodes_seq
                         if exp_edges is not None:
                             exp_edges = graph.edges_seq
@@ -4841,6 +4856,7 @@ class _EdgeListWithSetAlgebra(list):
             list.__iter__(self),
             guard_edge_count=guard_edge_count,
             nbunch_rows=nbunch_rows,
+            ignore_removed_nbunch_row=graph.is_multigraph(),
         )
 
     def __and__(self, other):
