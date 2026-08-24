@@ -191,6 +191,76 @@ def reverse_view(G):
     return _fnx.reverse_view(G)
 
 
+def add_star(G_to_add_to, nodes_for_star, **attr):
+    """Add a star through the native functional API."""
+    import franken_networkx as _fnx
+
+    return _fnx.add_star(G_to_add_to, nodes_for_star, **attr)
+
+
+def all_neighbors(graph, node):
+    """Return all native neighbors of a node."""
+    import franken_networkx as _fnx
+
+    return _fnx.all_neighbors(graph, node)
+
+
+def common_neighbors(G, u, v):
+    """Return native common neighbors of two nodes."""
+    import franken_networkx as _fnx
+
+    return _fnx.common_neighbors(G, u, v)
+
+
+def degree_histogram(G):
+    """Return the native graph's degree histogram."""
+    import franken_networkx as _fnx
+
+    return _fnx.degree_histogram(G)
+
+
+def is_path(G, path):
+    """Return whether path is valid in the native graph."""
+    import franken_networkx as _fnx
+
+    return _fnx.is_path(G, path)
+
+
+def nodes_with_selfloops(G):
+    """Return native nodes that have a self-loop."""
+    import franken_networkx as _fnx
+
+    return _fnx.nodes_with_selfloops(G)
+
+
+def non_edges(graph):
+    """Return missing native graph edges."""
+    import franken_networkx as _fnx
+
+    return _fnx.non_edges(graph)
+
+
+def non_neighbors(graph, node):
+    """Return native non-neighbors of a node."""
+    import franken_networkx as _fnx
+
+    return _fnx.non_neighbors(graph, node)
+
+
+def path_weight(G, path, weight):
+    """Return the native graph's total path weight."""
+    import franken_networkx as _fnx
+
+    return _fnx.path_weight(G, path, weight)
+
+
+def selfloop_edges(G, data=False, keys=False, default=None):
+    """Return native graph self-loop edges."""
+    import franken_networkx as _fnx
+
+    return _fnx.selfloop_edges(G, data=data, keys=keys, default=default)
+
+
 def _install_fnx_native_class_types():
     import franken_networkx as _fnx
 

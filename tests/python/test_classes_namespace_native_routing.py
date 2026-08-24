@@ -204,3 +204,43 @@ def test_classes_live_view_helpers_match_legacy_oracle():
         legacy.classes.reverse_view(legacy.Graph())
     with pytest.raises(fnx.NetworkXNotImplemented):
         fnx_classes.reverse_view(fnx.Graph())
+
+
+def test_classes_scalar_topology_helpers_match_legacy_oracle():
+    legacy = _legacy_networkx()
+    legacy_graph = legacy.Graph()
+    graph = fnx.Graph()
+    legacy.classes.add_star(legacy_graph, ["hub", "a", "b"], weight=3)
+    fnx_classes.add_star(graph, ["hub", "a", "b"], weight=3)
+    for candidate in (legacy_graph, graph):
+        candidate.add_edge("a", "a", weight=5)
+        candidate.add_node("isolated")
+
+    assert list(fnx_classes.all_neighbors(graph, "hub")) == list(
+        legacy.classes.all_neighbors(legacy_graph, "hub")
+    )
+    assert list(fnx_classes.common_neighbors(graph, "a", "b")) == list(
+        legacy.classes.common_neighbors(legacy_graph, "a", "b")
+    )
+    assert fnx_classes.degree_histogram(graph) == legacy.classes.degree_histogram(
+        legacy_graph
+    )
+    assert fnx_classes.is_path(graph, ["a", "hub", "b"]) is legacy.classes.is_path(
+        legacy_graph, ["a", "hub", "b"]
+    )
+    assert fnx_classes.is_path(graph, ["a", "isolated"]) is legacy.classes.is_path(
+        legacy_graph, ["a", "isolated"]
+    )
+    assert list(fnx_classes.nodes_with_selfloops(graph)) == list(
+        legacy.classes.nodes_with_selfloops(legacy_graph)
+    )
+    assert list(fnx_classes.non_edges(graph)) == list(legacy.classes.non_edges(legacy_graph))
+    assert list(fnx_classes.non_neighbors(graph, "hub")) == list(
+        legacy.classes.non_neighbors(legacy_graph, "hub")
+    )
+    assert fnx_classes.path_weight(graph, ["a", "hub", "b"], "weight") == (
+        legacy.classes.path_weight(legacy_graph, ["a", "hub", "b"], "weight")
+    )
+    assert list(fnx_classes.selfloop_edges(graph, data=True, default=None)) == list(
+        legacy.classes.selfloop_edges(legacy_graph, data=True, default=None)
+    )
