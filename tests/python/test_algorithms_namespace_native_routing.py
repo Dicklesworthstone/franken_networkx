@@ -203,3 +203,32 @@ def test_isolates_namespace_signature_and_results_match_oracle():
         list(actual(graph, backend="missing"))
     with pytest.raises(TypeError):
         list(actual(graph, unexpected=True))
+
+
+@pytest.mark.parametrize("name", ["triad_type", "triadic_census", "triads_by_type"])
+def test_triads_namespace_signature_and_results_match_oracle(name):
+    actual = getattr(fnx_algorithms, name)
+    expected = getattr(nx.algorithms, name)
+    assert str(inspect.signature(actual)) in {str(inspect.signature(expected))}
+
+    graph = fnx.DiGraph([(0, 1), (1, 2), (2, 0), (2, 3)])
+    nx_graph = nx.DiGraph(graph.edges())
+    if name == "triad_type":
+        actual_value = actual(fnx.DiGraph([(0, 1), (1, 2)]), backend="networkx")
+        expected_value = expected(nx.DiGraph([(0, 1), (1, 2)]), backend="networkx")
+    elif name == "triadic_census":
+        actual_value = actual(graph, nodelist=[0, 1], backend="networkx")
+        expected_value = expected(nx_graph, nodelist=[0, 1], backend="networkx")
+    else:
+        actual_value = {
+            kind: [set(triad) for triad in triads]
+            for kind, triads in actual(graph, backend="networkx").items()
+        }
+        expected_value = {
+            kind: [set(triad) for triad in triads]
+            for kind, triads in expected(nx_graph, backend="networkx").items()
+        }
+    assert actual_value == expected_value
+
+    with pytest.raises(ImportError):
+        actual(graph, backend="missing")
