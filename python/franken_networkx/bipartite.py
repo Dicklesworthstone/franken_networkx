@@ -291,7 +291,7 @@ def degrees(B, nodes, weight=None, *, backend=None, **backend_kwargs):
 
 
 def biadjacency_matrix(
-    B,
+    G,
     row_order,
     column_order=None,
     dtype=None,
@@ -321,6 +321,7 @@ def biadjacency_matrix(
     _fnx._validate_backend_dispatch_keywords(
         "biadjacency_matrix", backend, backend_kwargs
     )
+    B = G
     nlen = len(row_order)
     if nlen == 0:
         raise _nx.NetworkXError("row_order is empty list")

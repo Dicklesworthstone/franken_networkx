@@ -4,6 +4,7 @@ bipartivity. Identical fixed bipartite graphs. Zero divergences.
 """
 import importlib
 import importlib.util
+import inspect
 import io
 import random
 import sys
@@ -238,6 +239,11 @@ def test_bipartite_centrality_backend_signatures_match_networkx():
 def test_biadjacency_matrix_backend_signature_matches_legacy_oracle():
     module = importlib.import_module("franken_networkx.bipartite")
     legacy = _legacy_networkx()
+    actual_parameters = inspect.signature(module.biadjacency_matrix).parameters
+    expected_parameters = inspect.signature(
+        legacy.algorithms.bipartite.biadjacency_matrix
+    ).parameters
+    assert actual_parameters == expected_parameters
     graph, legacy_graph = _mk(fnx), _mk(legacy)
     graph[0][6]["weight"] = 3
     legacy_graph[0][6]["weight"] = 3
