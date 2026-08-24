@@ -62299,10 +62299,18 @@ def relabel_nodes(G, mapping, copy=True):
                     relabeled.graph.update(G.graph)
                     return relabeled
 
-        # br-r37-c1-k7dct: SubgraphView's class is _FilteredGraphView,
-        # whose __init__ requires a ``graph`` arg — bare ``cls()`` fails.
-        # Route through the canonical-class resolver.
-        H = _concrete_class_for(G)()
+        # A genuine fnx subclass follows NetworkX's ``G.__class__()``
+        # construction rule.  Filtered views synthesize a subclass whose
+        # constructor requires the backing graph, so they remain materialized
+        # as the canonical concrete flavor.
+        if (
+            isinstance(G, (Graph, DiGraph, MultiGraph, MultiDiGraph))
+            and not isinstance(G, _FilteredGraphView)
+            and type(G) not in _CONCRETE_FNX_GRAPH_TYPES
+        ):
+            H = type(G)()
+        else:
+            H = _concrete_class_for(G)()
         H.graph.update(G.graph)
         # br-r37-c1-nodebatch: H is FRESH, so batch the relabeled nodes through
         # add_nodes_from (native attributed-node batch for simple Graph; one

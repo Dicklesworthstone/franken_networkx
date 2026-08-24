@@ -197,45 +197,69 @@ def test_graph_level_attributes_are_carried():
     assert dict(ofx.graph) == dict(onx.graph)
 
 
-def test_subclass_does_not_reach_the_kernel():
-    """`type(G) is` gating, asserted through behaviour rather than a counter.
+@pytest.mark.parametrize(
+    ("fnx_cls", "nx_cls"),
+    [
+        (fnx.Graph, nx.Graph),
+        (fnx.DiGraph, nx.DiGraph),
+        (fnx.MultiGraph, nx.MultiGraph),
+        (fnx.MultiDiGraph, nx.MultiDiGraph),
+    ],
+)
+def test_relabel_copy_preserves_real_graph_subclasses(fnx_cls, nx_cls):
+    """NetworkX constructs a copy with ``G.__class__()``, not its base class."""
 
-    My first attempt asserted that a subclass's ``add_nodes_from`` override was
-    still called, and it FAILED — not because the kernel swallowed it, but
-    because the Python path builds ``_concrete_class_for(G)()`` and therefore
-    calls the override on the CONCRETE class, never on the subclass. So the
-    counter proved nothing either way. What the gate actually has to guarantee
-    is that a subclass produces the same graph as before, which is checked here
-    against live networkx contents.
+    class FnxSub(fnx_cls):
+        def marker(self):
+            return "preserved"
 
-    That investigation surfaced a separate, PRE-EXISTING divergence: networkx
-    preserves the subclass type through ``relabel_nodes(copy=True)`` and fnx
-    returns the concrete class. Verified against HEAD without this change, on
-    both Graph and DiGraph, so it is not caused by the kernel — filed as its own
-    bead and deliberately NOT asserted here, because pinning current behaviour
-    would cement the divergence.
-    """
-
-    class Sub(fnx.DiGraph):
+    class NxSub(nx_cls):
         pass
 
-    graph = Sub()
-    graph.add_edge("a", "b", w=1)
-    graph.add_node("c", k=2)
-    out = fnx.relabel_nodes(graph, {"a": "A"}, copy=True)
+    actual = FnxSub()
+    expected_input = NxSub()
+    for graph in (actual, expected_input):
+        graph.add_edge("a", "b", w=1)
+        graph.add_node("c", k=2)
+        graph.graph["kind"] = "subclass"
 
-    reference = nx.DiGraph()
-    reference.add_edge("a", "b", w=1)
-    reference.add_node("c", k=2)
-    expected = nx.relabel_nodes(reference, {"a": "A"}, copy=True)
+    out = fnx.relabel_nodes(actual, {"a": "A"}, copy=True)
+    expected = nx.relabel_nodes(expected_input, {"a": "A"}, copy=True)
 
-    assert list(out) == list(expected)
-    assert [(u, v, dict(d)) for u, v, d in out.edges(data=True)] == [
-        (u, v, dict(d)) for u, v, d in expected.edges(data=True)
-    ]
-    assert {n: dict(d) for n, d in out.nodes(data=True)} == {
-        n: dict(d) for n, d in expected.nodes(data=True)
-    }
+    assert type(out) is FnxSub
+    assert type(expected) is NxSub
+    assert out.marker() == "preserved"
+    assert _shape(out) == _shape(expected)
+
+
+@pytest.mark.parametrize(
+    ("fnx_cls", "nx_cls"),
+    [
+        (fnx.Graph, nx.Graph),
+        (fnx.DiGraph, nx.DiGraph),
+        (fnx.MultiGraph, nx.MultiGraph),
+        (fnx.MultiDiGraph, nx.MultiDiGraph),
+    ],
+)
+def test_relabel_copy_still_materializes_filtered_views(fnx_cls, nx_cls):
+    """The view's synthetic class needs a backing graph and cannot be called."""
+
+    actual_parent = fnx_cls()
+    expected_parent = nx_cls()
+    for graph in (actual_parent, expected_parent):
+        graph.add_edge("a", "b", w=1)
+        graph.add_edge("b", "outside")
+
+    actual_view = actual_parent.subgraph(["a", "b"])
+    expected_view = expected_parent.subgraph(["a", "b"])
+    assert type(actual_view) is not fnx_cls
+
+    out = fnx.relabel_nodes(actual_view, {"a": "A"}, copy=True)
+    expected = nx.relabel_nodes(expected_view, {"a": "A"}, copy=True)
+
+    assert type(out) is fnx_cls
+    assert type(expected) is nx_cls
+    assert _shape(out) == _shape(expected)
 
 
 def test_undirected_kernel_is_unaffected():
