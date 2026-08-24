@@ -134,3 +134,29 @@ def test_remutation_after_kernel_resyncs(graph_cls, is_multi):
     # Second mutation, after the marker may have been reset by the first run.
     _set_ab_bc_to_short_path(graph, is_multi, lambda u, v, key=None: graph[u][v][key] if is_multi else graph[u][v])
     _assert_weighted_kernel_sees_mutation(graph)
+
+
+def test_multidigraph_indexed_dirty_mark_broadens_after_node_renumbering():
+    """A stale endpoint position must not mark a different edge at sync time.
+
+    Warm the held keydict so its second subscript takes the indexed path, then
+    remove two earlier isolated nodes. The old `(source, target)` positions now
+    name the decoy edge. A naive deferred conversion would sync that decoy and
+    silently lose the live mutation on ``u -> v``; a sequence-stamped queue
+    must broaden to the existing all-mirrors fallback instead.
+    """
+    graph = fnx.MultiDiGraph()
+    drop_a, drop_b, u, v, decoy_u, decoy_v = "drop-a", "drop-b", "u", "v", "x", "y"
+    graph.add_nodes_from((drop_a, drop_b, u, v, decoy_u, decoy_v))
+    graph.add_edge(u, v, key=0, weight=10)
+    graph.add_edge(decoy_u, decoy_v, key=0, weight=100)
+
+    cell = graph.adj[u][v]
+    cell[0]  # fill the keyed lookaside through the string path
+    assert fnx.shortest_path_length(graph, u, v, weight="weight") == 10  # reset dirty state
+
+    cell[0]["weight"] = 1  # queued indexed dirty mark at the old positions
+    graph.remove_node(drop_a)
+    graph.remove_node(drop_b)
+
+    assert fnx.shortest_path_length(graph, u, v, weight="weight") == 1

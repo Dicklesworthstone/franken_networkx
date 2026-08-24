@@ -12961,8 +12961,6 @@ pub fn dfs_successors(
 ) -> PyResult<Py<PyDict>> {
     let _ = sort_neighbors;
     let gr = extract_graph(g)?;
-
-    let dict = PyDict::new(py);
     let source_key = match source {
         Some(s) => {
             let k = node_key_to_string(py, s)?;
@@ -12977,89 +12975,48 @@ pub fn dfs_successors(
         None => None,
     };
 
-    match source_key {
-        Some(source_key) => {
-            let succs = match &gr {
-                GraphRef::Directed { dg, .. } => {
-                    let __dg_inner = &dg.inner;
-                    py.allow_threads(|| {
-                        fnx_algorithms::dfs_successors_directed(
-                            __dg_inner,
-                            &source_key,
-                            depth_limit,
-                        )
-                    })
-                }
-
-                GraphRef::Undirected(pg) => {
-                    let inner = &pg.inner;
-
-                    py.allow_threads(|| {
-                        fnx_algorithms::dfs_successors(inner, &source_key, depth_limit)
-                    })
-                }
-                _ => {
-                    if gr.is_directed() {
-                        let __gr_digraph = gr.digraph().expect("is_directed checked above");
-                        py.allow_threads(|| {
-                            fnx_algorithms::dfs_successors_directed(
-                                __gr_digraph,
-                                &source_key,
-                                depth_limit,
-                            )
-                        })
-                    } else {
-                        let inner = gr.undirected();
-
-                        py.allow_threads(|| {
-                            fnx_algorithms::dfs_successors(inner, &source_key, depth_limit)
-                        })
-                    }
-                }
-            };
-
-            for (parent, children) in &succs {
-                let py_children: Vec<PyObject> =
-                    children.iter().map(|c| gr.py_node_key(py, c)).collect();
-                dict.set_item(gr.py_node_key(py, parent), py_children)?;
+    // The Python wrapper used to iterate ``dfs_edges`` and rebuild this dict
+    // with a defaultdict.  Keep that stream's discovery order, but assemble
+    // the complete mapping here: each Rust row is converted once into an
+    // exactly-sized PyList and no Python generator/defaultdict frame runs per
+    // edge.
+    let edges = dfs_edges_canonical(py, &gr, source_key.clone(), depth_limit);
+    let mut display: HashMap<String, PyObject> = HashMap::with_capacity(edges.len() + 1);
+    if let (Some(key), Some(seed)) = (&source_key, source) {
+        display.insert(key.clone(), seed.clone().unbind());
+    }
+    let mut row_positions: HashMap<String, usize> = HashMap::with_capacity(edges.len());
+    let mut rows: Vec<(String, Vec<PyObject>)> = Vec::new();
+    for (parent, child) in edges {
+        let parent_display = display
+            .get(parent.as_str())
+            .map_or_else(|| gr.py_node_key(py, &parent), |obj| obj.clone_ref(py));
+        display
+            .entry(parent.clone())
+            .or_insert_with(|| parent_display.clone_ref(py));
+        let child_display = gr.py_row_key(py, &parent, &child);
+        display.insert(child, child_display.clone_ref(py));
+        let row_index = match row_positions.get(parent.as_str()) {
+            Some(index) => *index,
+            None => {
+                let index = rows.len();
+                row_positions.insert(parent.clone(), index);
+                rows.push((parent, Vec::new()));
+                index
             }
-        }
-        None => {
-            let nodes = gr.nodes_ordered();
-            if nodes.is_empty() {
-                return Ok(dict.unbind());
-            }
-            let edges = match &gr {
-                GraphRef::Directed { dg, .. } => {
-                    let __dg_inner = &dg.inner;
-                    py.allow_threads(|| dfs_forest_directed(__dg_inner, &nodes, depth_limit).0)
-                }
-                GraphRef::Undirected(pg) => {
-                    let inner = &pg.inner;
-                    py.allow_threads(|| dfs_forest_undirected(inner, &nodes, depth_limit).0)
-                }
-                _ => {
-                    if gr.is_directed() {
-                        let __gr_digraph = gr.digraph().expect("is_directed checked above");
-                        py.allow_threads(|| {
-                            dfs_forest_directed(__gr_digraph, &nodes, depth_limit).0
-                        })
-                    } else {
-                        let inner = gr.undirected();
-                        py.allow_threads(|| dfs_forest_undirected(inner, &nodes, depth_limit).0)
-                    }
-                }
-            };
-            let mut succs: HashMap<String, Vec<String>> = HashMap::new();
-            for (parent, child) in edges {
-                succs.entry(parent).or_default().push(child);
-            }
-            for (parent, children) in &succs {
-                let py_children: Vec<PyObject> =
-                    children.iter().map(|c| gr.py_node_key(py, c)).collect();
-                dict.set_item(gr.py_node_key(py, parent), py_children)?;
-            }
-        }
+        };
+        rows[row_index].1.push(child_display);
+    }
+
+    let dict = PyDict::new(py);
+    for (parent, children) in rows {
+        let parent_display = display
+            .get(parent.as_str())
+            .expect("DFS parent display inserted with its first edge");
+        // PyList::new allocates the final exact length before filling from the
+        // Rust row, avoiding the Python wrapper's list growth and copy path.
+        let child_list = PyList::new(py, children)?;
+        dict.set_item(parent_display, child_list)?;
     }
     Ok(dict.unbind())
 }
@@ -16452,7 +16409,7 @@ pub fn preferential_attachment(
     py: Python<'_>,
     g: &Bound<'_, PyAny>,
     ebunch: Option<&Bound<'_, PyAny>>,
-) -> PyResult<Vec<(PyObject, PyObject, f64)>> {
+) -> PyResult<Py<PyList>> {
     let gr = extract_graph(g)?;
     require_not_multigraph(&gr)?;
     require_undirected(&gr, "preferential_attachment")?;
@@ -16460,10 +16417,21 @@ pub fn preferential_attachment(
     validate_link_prediction_pairs(&gr, &pairs)?;
     let inner = gr.undirected();
     let result = py.allow_threads(|| fnx_algorithms::preferential_attachment(inner, &pairs));
-    Ok(result
+    let triples = result
         .into_iter()
-        .map(|(u, v, s)| (gr.py_node_key(py, &u), gr.py_node_key(py, &v), s))
-        .collect())
+        .map(|(u, v, score)| {
+            PyTuple::new(
+                py,
+                [
+                    gr.py_node_key(py, &u),
+                    gr.py_node_key(py, &v),
+                    PyFloat::new(py, score).into_any().unbind(),
+                ],
+            )
+            .map(|triple| triple.into_any().unbind())
+        })
+        .collect::<PyResult<Vec<_>>>()?;
+    Ok(PyList::new(py, triples)?.unbind())
 }
 
 /// Compute the resource allocation index for all node pairs in ebunch.
@@ -33224,8 +33192,8 @@ mod tests {
                 has_remapped_int_key: false,
                 has_edge_node_index_cache: crate::NodeIndexLookupCache::new(py),
                 neighbor_key_rows: None,
-            edge_keydict_cache: None,
-            live_keydict_rows: crate::live_keydict::LiveKeydictRows::default(),
+                edge_keydict_cache: None,
+                live_keydict_rows: crate::live_keydict::LiveKeydictRows::default(),
             };
             let mut weighted_attrs = AttrMap::new();
             weighted_attrs.insert("weight".to_owned(), 1.0.into());

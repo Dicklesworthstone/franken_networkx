@@ -157,6 +157,17 @@ def test_dfs_successors_with_depth_limit():
 
 
 @needs_nx
+@pytest.mark.parametrize("depth_limit", [0, 1.9, float("inf"), float("nan")])
+def test_dfs_successors_native_unsorted_depth_normalization_matches_nx(depth_limit):
+    edges = [("a", "b"), ("b", "c"), ("a", "d")]
+    g = _make_graph(fnx, edges)
+    gx = _make_graph(nx, edges)
+    assert fnx.dfs_successors(g, "a", depth_limit=depth_limit) == nx.dfs_successors(
+        gx, "a", depth_limit=depth_limit
+    )
+
+
+@needs_nx
 def test_dfs_predecessors_with_sort_neighbors():
     """The sort_neighbors path was already correct; verify still works."""
     edges = [("a", "b"), ("a", "c"), ("a", "d")]

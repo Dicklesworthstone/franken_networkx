@@ -27,6 +27,7 @@ import networkx as nx
 import pytest
 
 import franken_networkx as fnx
+import franken_networkx._fnx as raw
 
 
 def _pair(n=120, m=400, seed=7):
@@ -63,6 +64,18 @@ def test_scores_are_ints_not_floats():
         # hide a degenerate scorer that returned a truth value.
         assert isinstance(score, int) and not isinstance(score, bool)
         assert not isinstance(score, float)
+
+
+def test_native_result_buffer_empty_graph_and_typed_float_scores():
+    """The direct binding keeps an empty graph empty and materializes f64 scores."""
+    assert raw.preferential_attachment(fnx.Graph()) == []
+
+    graph = fnx.Graph()
+    graph.add_edge("left", "right")
+    result = raw.preferential_attachment(graph, [("left", "right")])
+    assert isinstance(result, list)
+    assert isinstance(result[0], tuple)
+    assert isinstance(result[0][2], float)
 
 
 def test_matches_the_generic_scorer_it_replaced():
