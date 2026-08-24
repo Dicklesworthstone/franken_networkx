@@ -268,6 +268,35 @@ def test_biadjacency_matrix_backend_signature_matches_legacy_oracle():
         module.biadjacency_matrix(graph, sorted(_TOP), unexpected=True)
 
 
+def test_minimum_weight_full_matching_signature_matches_legacy_oracle():
+    module = importlib.import_module("franken_networkx.bipartite")
+    legacy = _legacy_networkx()
+    graph = fnx.Graph()
+    legacy_graph = legacy.Graph()
+    for candidate in (graph, legacy_graph):
+        candidate.add_weighted_edges_from(
+            [("u", "x", 4), ("u", "y", 1), ("v", "x", 2), ("v", "y", 3)]
+        )
+
+    actual_parameters = inspect.signature(module.minimum_weight_full_matching).parameters
+    expected_parameters = inspect.signature(
+        legacy.algorithms.bipartite.minimum_weight_full_matching
+    ).parameters
+    assert actual_parameters == expected_parameters
+    actual = module.minimum_weight_full_matching(
+        graph, {"u", "v"}, backend="networkx"
+    )
+    expected = legacy.algorithms.bipartite.minimum_weight_full_matching(
+        legacy_graph, {"u", "v"}, backend="networkx"
+    )
+    assert sorted(actual.items()) == sorted(expected.items())
+
+    with pytest.raises(ImportError):
+        module.minimum_weight_full_matching(graph, {"u", "v"}, backend="missing")
+    with pytest.raises(TypeError):
+        module.minimum_weight_full_matching(graph, {"u", "v"}, unexpected=True)
+
+
 def test_bipartite_min_edge_cover_routes_through_fnx(monkeypatch):
     module = importlib.import_module("franken_networkx.bipartite")
     via_algorithms = importlib.import_module("franken_networkx.algorithms.bipartite")

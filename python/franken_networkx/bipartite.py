@@ -573,7 +573,9 @@ def node_redundancy(G, nodes=None, *, backend=None, **backend_kwargs):
     )
 
 
-def minimum_weight_full_matching(G, top_nodes=None, weight="weight"):
+def minimum_weight_full_matching(
+    G, top_nodes=None, weight="weight", *, backend=None, **backend_kwargs
+):
     """Minimum-weight full matching of bipartite ``G`` (rectangular LAP).
 
     br-r37-c1-n4dwd: re-exported from networkx as an ``@nx._dispatchable``, so
@@ -587,6 +589,9 @@ def minimum_weight_full_matching(G, top_nodes=None, weight="weight"):
     inf-padded weight matrix, and the SciPy assignment all match nx exactly
     (verified across heavy integer-weight tie cases). nx-typed inputs delegate.
     """
+    _fnx._validate_backend_dispatch_keywords(
+        "minimum_weight_full_matching", backend, backend_kwargs
+    )
     if isinstance(G, _nx.Graph):
         return _nx_bipartite.minimum_weight_full_matching(G, top_nodes, weight)
     import numpy as _np
