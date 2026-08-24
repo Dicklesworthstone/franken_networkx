@@ -430,9 +430,53 @@ fn node_key_to_string(py: Python<'_>, key: &Bound<'_, PyAny>) -> PyResult<String
         let s = s.to_str()?;
         return Ok(format!("str:{}:{s}", s.len()));
     }
-    // bool is a subclass of int, so extract::<i64>() handles both —
-    // True → "1", False → "0", aligning with hash(True)==hash(1),
-    // hash(False)==hash(0).
+    // br-r37-c1-keyextract: CONCRETE TYPE PROBES BEFORE ANY `extract`.
+    //
+    // br-ctaxkey removed the discarded `PyErr` for STRING keys and left it in
+    // place for every other type, so a float or tuple key still paid one failed
+    // `extract::<i64>()` — and a tuple paid a failed `extract::<f64>()` on top,
+    // because both sat ahead of the tuple branch. Measured on the node batch at
+    // 5000 keys, against the string path as the control:
+    //
+    //   str 271.5 ns/node   int 326.3 (+54.8)   float integral 540.2 (+268.8)
+    //   float fractional 870.8 (+599.4)   all-int tuple 880.9 (+609.4)
+    //
+    // One failed extract is ~269 ns, which is the whole gap: the float and tuple
+    // paths were not slow, they were queued behind an exception they could never
+    // satisfy. `downcast` is a C-level type check that builds nothing.
+    //
+    // The four concrete types answer in full here. The `extract` chain BELOW is
+    // kept in its original order for everything else, because it is reachable by
+    // conversion rather than by type — a numpy integer is not a `PyInt` but does
+    // supply `__index__`, and it must still canonicalize to the same decimal it
+    // did before. Only objects that are none of str/int/float/tuple reach it, and
+    // those never paid the failed extract twice anyway.
+    //
+    // bool is a subclass of int, so this branch handles both — True → "1",
+    // False → "0", aligning with hash(True)==hash(1), hash(False)==hash(0).
+    if key.downcast::<PyInt>().is_ok() {
+        if let Ok(i) = key.extract::<i64>() {
+            return Ok(i.to_string());
+        }
+        return exact_int_decimal(py, key);
+    }
+    if key.downcast::<PyFloat>().is_ok()
+        && let Ok(f) = key.extract::<f64>()
+    {
+        return float_key_canonical(py, key, f);
+    }
+    // An EXACT tuple cannot satisfy `__index__` or `__float__`, so it answers
+    // here or by repr and never touches the extract chain. Subclasses keep the
+    // old route below, where an inherited conversion still wins as it used to.
+    if key.is_exact_instance_of::<PyTuple>() {
+        if let Ok(t) = key.downcast::<PyTuple>()
+            && let Some(canonical) = exact_int_tuple_canonical(t)
+        {
+            return Ok(canonical);
+        }
+        let repr = key.repr()?;
+        return Ok(repr.to_string());
+    }
     if let Ok(i) = key.extract::<i64>() {
         return Ok(i.to_string());
     }
@@ -451,26 +495,7 @@ fn node_key_to_string(py: Python<'_>, key: &Bound<'_, PyAny>) -> PyResult<String
     // Floats that exactly represent an integer in i64 range collide
     // (by hash + ==) with their int counterpart in Python dicts.
     if let Ok(f) = key.extract::<f64>() {
-        // br-r37-c1-dr1h9: the bound is EXCLUSIVE at 2**63. `i64::MAX as f64`
-        // rounds UP to 2**63, so `f <= i64::MAX as f64` admitted 2**63 itself
-        // and `f as i64` saturated it onto i64::MAX — aliasing the float 2**63
-        // onto the distinct integer key 2**63-1.
-        if f.is_finite() && f.fract() == 0.0 {
-            if f >= i64::MIN as f64 && f < I64_RANGE_END_F64 {
-                return Ok((f as i64).to_string());
-            }
-            // br-r37-c1-9q5kq: integral but WIDER than i64. Python hashes such a
-            // float equal to the int of the same value and compares them ==, so
-            // they are ONE dict key — `repr()` here would emit
-            // "1.8446744073709552e+19" against the int's "18446744073709551616"
-            // and SPLIT the node. Worse, the split node carried no display key,
-            // so `number_of_nodes()` reported 2 while `nodes()` yielded 1.
-            if let Ok(as_int) = key.call_method0(pyo3::intern!(py, "__int__")) {
-                return exact_int_decimal(py, &as_int);
-            }
-        }
-        let repr = key.repr()?;
-        return Ok(repr.to_string());
+        return float_key_canonical(py, key, f);
     }
     // br-r37-c1-y7m24: all-int tuples — the node-key shape of grid_2d /
     // hypercube / kneser and most relabeled lattices — get their canonical
@@ -481,41 +506,74 @@ fn node_key_to_string(py: Python<'_>, key: &Bound<'_, PyAny>) -> PyResult<String
     // elements only: bool is excluded (repr "True" differs) and ints
     // outside i64 fall back to repr (their canonical already came from
     // repr, so the formats stay consistent).
-    if let Ok(t) = key.downcast::<PyTuple>() {
-        let n = t.len();
-        if n > 0 {
-            let mut parts: Vec<i64> = Vec::with_capacity(n);
-            let mut all_int = true;
-            for item in t.iter() {
-                if item.is_exact_instance_of::<PyInt>()
-                    && let Ok(v) = item.extract::<i64>()
-                {
-                    parts.push(v);
-                    continue;
-                }
-                all_int = false;
-                break;
-            }
-            if all_int {
-                let mut s = String::with_capacity(n * 6 + 2);
-                s.push('(');
-                for (i, v) in parts.iter().enumerate() {
-                    if i > 0 {
-                        s.push_str(", ");
-                    }
-                    s.push_str(&v.to_string());
-                }
-                if n == 1 {
-                    s.push(',');
-                }
-                s.push(')');
-                return Ok(s);
-            }
-        }
+    if let Ok(t) = key.downcast::<PyTuple>()
+        && let Some(canonical) = exact_int_tuple_canonical(t)
+    {
+        return Ok(canonical);
     }
     // For other hashable types, use repr as the canonical key.
     let repr = key.repr()?;
     Ok(repr.to_string())
+}
+
+/// The float half of `node_key_to_string`, shared by the concrete-type probe
+/// and the `__float__` fallback so the two cannot drift apart.
+fn float_key_canonical(py: Python<'_>, key: &Bound<'_, PyAny>, f: f64) -> PyResult<String> {
+    // br-r37-c1-dr1h9: the bound is EXCLUSIVE at 2**63. `i64::MAX as f64`
+    // rounds UP to 2**63, so `f <= i64::MAX as f64` admitted 2**63 itself
+    // and `f as i64` saturated it onto i64::MAX — aliasing the float 2**63
+    // onto the distinct integer key 2**63-1.
+    if f.is_finite() && f.fract() == 0.0 {
+        if f >= i64::MIN as f64 && f < I64_RANGE_END_F64 {
+            return Ok((f as i64).to_string());
+        }
+        // br-r37-c1-9q5kq: integral but WIDER than i64. Python hashes such a
+        // float equal to the int of the same value and compares them ==, so
+        // they are ONE dict key — `repr()` here would emit
+        // "1.8446744073709552e+19" against the int's "18446744073709551616"
+        // and SPLIT the node. Worse, the split node carried no display key,
+        // so `number_of_nodes()` reported 2 while `nodes()` yielded 1.
+        if let Ok(as_int) = key.call_method0(pyo3::intern!(py, "__int__")) {
+            return exact_int_decimal(py, &as_int);
+        }
+    }
+    let repr = key.repr()?;
+    Ok(repr.to_string())
+}
+
+/// br-r37-c1-y7m24: the all-int tuple canonical, byte-identical to CPython's
+/// tuple repr ("(0, 1)", singleton "(0,)"). `None` for every other tuple, whose
+/// canonical still comes from `repr` so the two formats stay consistent.
+/// Exact-int elements only: bool is excluded (repr "True" differs) and ints
+/// outside i64 fall back to repr.
+fn exact_int_tuple_canonical(t: &Bound<'_, PyTuple>) -> Option<String> {
+    let n = t.len();
+    if n == 0 {
+        return None;
+    }
+    let mut parts: Vec<i64> = Vec::with_capacity(n);
+    for item in t.iter() {
+        if item.is_exact_instance_of::<PyInt>()
+            && let Ok(v) = item.extract::<i64>()
+        {
+            parts.push(v);
+            continue;
+        }
+        return None;
+    }
+    let mut s = String::with_capacity(n * 6 + 2);
+    s.push('(');
+    for (i, v) in parts.iter().enumerate() {
+        if i > 0 {
+            s.push_str(", ");
+        }
+        s.push_str(&v.to_string());
+    }
+    if n == 1 {
+        s.push(',');
+    }
+    s.push(')');
+    Some(s)
 }
 
 /// br-r37-c1-ymeml: detect an fnx-native graph instance and return its
