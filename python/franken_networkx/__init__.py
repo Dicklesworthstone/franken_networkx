@@ -14147,9 +14147,10 @@ def _all_flow_caps_integral(G, capacity):
 
 
 def _coerce_flow_value(value, all_int):
-    if not all_int:
-        return value
-    if isinstance(value, float) and value.is_integer():
+    # NetworkX initializes a zero flow/cut as an integer even when every
+    # capacity is a float.  Non-zero values retain the capacity's float type,
+    # while integral-capacity inputs retain the existing integer coercion.
+    if isinstance(value, float) and value.is_integer() and (all_int or value == 0.0):
         return int(value)
     return value
 
@@ -19687,6 +19688,47 @@ def _transitive_reduction_via_parity(G):
 
 def degree_histogram(G):
     """Returns a list of the frequency of each degree value."""
+    # br-r37-c1-deghistdead: the native kernel existed, was exported, was
+    # imported here as `_raw_degree_histogram` - and was never called. The
+    # Python body below built a `Counter` over N `(node, degree)` tuples
+    # instead, which is what networkx does, so the port was paying nx's
+    # algorithm to match nx's answer. Measured on a 1200-node/4800-edge Graph,
+    # release build, live networkx 3.6.1 in the same invocation, min of 9:
+    #
+    #     python body   124.2 us      networkx   158.3 us     1.27x
+    #     native kernel   1.7 us                             95.17x
+    #
+    # THE GUARD IS THE WHOLE DESIGN, because the kernel reads the Rust store
+    # directly and two shapes make that the wrong store to read:
+    #
+    #   * a VIEW subclasses the native class, so the kernel accepts it and its
+    #     Rust base is EMPTY - measured, it returns [] where networkx returns
+    #     [3, 6, 1] (br-r37-c1-kum9v is this failure for the other native fast
+    #     paths). Type IDENTITY excludes it; `isinstance` would not.
+    #   * a graph carrying ASSIGNED private storage answers from that mapping,
+    #     not from the Rust store.
+    #
+    # A networkx graph passed in raises TypeError from the kernel, so it must
+    # not reach it either; the type check covers that too.
+    #
+    # WIRING IT AS A DROP-IN COST 53 TEST FAILURES FIRST, and that is why the
+    # kernel now answers `None` for the classes it cannot serve. It computed a
+    # SIMPLE-graph histogram, so it disagreed wherever degree is not the
+    # neighbour count:
+    #
+    #     Graph a-a, a-b        nx [0,1,0,1]   kernel [0,1,1]   self-loop is 2
+    #     MultiGraph a-b x2     nx [0,1,1,1]   kernel [0,2,1]   multiplicity
+    #     MultiDiGraph a-b x2   nx [0,0,2]     kernel [0,2]
+    #
+    # The self-loop half is fixed in the kernel; the multiplicity and
+    # directed-reciprocal halves are not reachable from the undirected
+    # projection it reads, so the binding restricts itself to undirected simple
+    # graphs and returns None otherwise. `None` - not an exception and not a
+    # guess - is what lets this stay a pure fast path.
+    if type(G) is Graph and not _has_networkx_private_storage(G):
+        native = _raw_degree_histogram(G)
+        if native is not None:
+            return native
     degree_view = G.degree
     if callable(degree_view):
         degree_view = degree_view()
@@ -24541,6 +24583,7 @@ from franken_networkx._fnx import (
     dijkstra_path_length as _raw_dijkstra_path_length,
     multidigraph_dijkstra_path_target as _raw_multidigraph_dijkstra_path_target,
     multidigraph_dijkstra_path_length_target as _raw_multidigraph_dijkstra_path_length_target,
+    multidigraph_single_source_dijkstra as _raw_mdg_ss_dijkstra,
     multidigraph_single_source_dijkstra_path_length as _raw_mdg_ss_dijkstra_path_length,
     bellman_ford_path_length as _raw_bellman_ford_path_length,
     single_source_dijkstra as _raw_single_source_dijkstra,
@@ -25257,11 +25300,11 @@ def single_source_dijkstra(G, source, target=None, cutoff=None, weight="weight")
     # x cutoff x directed sweep. Only the genuinely-unhandleable cases
     # (negative / +inf / non-numeric / callable weight) still delegate, via
     # `_should_delegate_dijkstra_to_networkx`.
-    # br-cc-mgdijkstra-dir: DIRECTED multigraph -> collapse to the simple min-weight
-    # DiGraph and recurse. Byte-exact for BOTH distances AND paths (directed
-    # edges(keys,data) is node-major over out-edges, so the collapsed adjacency
-    # order == the multigraph out-adjacency order -> identical tie-breaking). Fixes
-    # single_source_dijkstra AND single_source_dijkstra_path (delegates here).
+    # br-r37-c1-0kvxh: directed multigraphs have a native Dijkstra walk with
+    # finalize-order predecessors, so source-wide path queries need not collapse
+    # every parallel edge into a temporary DiGraph before answering. The native
+    # result carries both dictionaries; single_source_dijkstra_path delegates here
+    # and receives the same path dictionary.
     if G.is_directed() and G.is_multigraph() and isinstance(weight, str):
         # br-cc-mgssd-target: with a concrete target and no cutoff,
         # single_source_dijkstra is a single-pair query — route straight to the
@@ -25293,8 +25336,9 @@ def single_source_dijkstra(G, source, target=None, cutoff=None, weight="weight")
                 raise NetworkXNoPath(f"No path to {target}.") from None
             if _len is not None and _path is not None:
                 return _len, _path
-        _simple, _delegate = _multigraph_collapse_min_weight(G, weight)
-        if _delegate:
+        if source not in G:
+            raise NodeNotFound(f"Node {source} not found in graph")
+        if _sp_weights_need_networkx_for_type_parity(G, weight):
             return _call_networkx_for_parity(
                 "single_source_dijkstra",
                 G,
@@ -25303,9 +25347,22 @@ def single_source_dijkstra(G, source, target=None, cutoff=None, weight="weight")
                 cutoff=cutoff,
                 weight=weight,
             )
-        return single_source_dijkstra(
-            _simple, source, target=target, cutoff=cutoff, weight=weight
-        )
+        _direct = _raw_mdg_ss_dijkstra(G, source, weight=weight, cutoff=cutoff)
+        if _direct is None:
+            return _call_networkx_for_parity(
+                "single_source_dijkstra",
+                G,
+                source,
+                target=target,
+                cutoff=cutoff,
+                weight=weight,
+            )
+        dists, paths = _direct
+        if target is not None:
+            if target not in dists:
+                raise NetworkXNoPath(f"No path to {target}.")
+            return dists[target], paths[target]
+        return dists, paths
     if _should_delegate_dijkstra_to_networkx(G, weight):
         return _call_networkx_for_parity(
             "single_source_dijkstra",
@@ -51746,6 +51803,9 @@ def _graph_to_undirected_deepcopy_fastpath(wrapped):
             and not _has_networkx_private_storage(self)
             and self.to_undirected_class() is Graph
         ):
+            native = getattr(self, "_native_to_undirected_deepcopy", None)
+            if native is not None:
+                return native()
             return _deepcopy(self)
         return wrapped(self, as_view=as_view)
 
