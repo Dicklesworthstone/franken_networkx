@@ -564,6 +564,21 @@ _fnx_broadcasting = _importlib.import_module("franken_networkx.broadcasting")
 _sys.modules[f"{__name__}.broadcasting"] = _fnx_broadcasting
 broadcasting = _fnx_broadcasting  # Override in module globals
 
+
+# Keep flattened broadcasting helpers on their exact public contracts while
+# resolving the implementation through the fnx leaf module.
+def tree_broadcast_center(G, *, backend=None, **backend_kwargs):
+    return _fnx_broadcasting.tree_broadcast_center(
+        G, backend=backend, **backend_kwargs
+    )
+
+
+def tree_broadcast_time(G, node=None, *, backend=None, **backend_kwargs):
+    return _fnx_broadcasting.tree_broadcast_time(
+        G, node=node, backend=backend, **backend_kwargs
+    )
+
+
 _fnx_communicability_alg = _importlib.import_module(
     "franken_networkx.communicability_alg"
 )

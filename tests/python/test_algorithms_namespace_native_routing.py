@@ -1068,6 +1068,45 @@ def test_flattened_boundary_namespace_routes_to_leaf_module(monkeypatch, name):
     assert getattr(fnx_algorithms, name)("graph", "left") is marker
 
 
+@pytest.mark.parametrize("name", ["tree_broadcast_center", "tree_broadcast_time"])
+def test_flattened_broadcasting_namespace_matches_legacy_oracle(name):
+    legacy = _legacy_networkx()
+    actual = getattr(fnx_algorithms, name)
+    expected = getattr(legacy.algorithms, name)
+    assert str(inspect.signature(actual)) == str(inspect.signature(expected))
+
+    graph = fnx.balanced_tree(2, 2)
+    legacy_graph = legacy.balanced_tree(2, 2)
+    if name == "tree_broadcast_center":
+        actual_value = actual(graph)
+        expected_value = expected(legacy_graph)
+        missing_call = lambda: actual(graph, backend="missing")
+        unexpected_call = lambda: actual(graph, unexpected=True)
+    else:
+        actual_value = actual(graph, node=0)
+        expected_value = expected(legacy_graph, node=0)
+        missing_call = lambda: actual(graph, backend="missing")
+        unexpected_call = lambda: actual(graph, unexpected=True)
+    assert actual_value == expected_value
+
+    with pytest.raises(ImportError):
+        missing_call()
+    with pytest.raises(TypeError):
+        unexpected_call()
+
+
+@pytest.mark.parametrize("name", ["tree_broadcast_center", "tree_broadcast_time"])
+def test_flattened_broadcasting_namespace_routes_to_leaf_module(monkeypatch, name):
+    marker = object()
+
+    def sentinel(*args, **kwargs):
+        assert args == ("graph",)
+        return marker
+
+    monkeypatch.setattr(fnx_algorithms.broadcasting, name, sentinel)
+    assert getattr(fnx_algorithms, name)("graph") is marker
+
+
 def test_flattened_bfs_reachability_namespace_signatures_and_results_match_oracle():
     graph = fnx.path_graph(4)
     nx_graph = nx.path_graph(4)
