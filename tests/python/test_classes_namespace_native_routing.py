@@ -304,3 +304,33 @@ def test_classes_attribute_helpers_match_legacy_oracle_and_backend_contract():
         legacy.classes.set_edge_attributes(legacy_graph, {}, unexpected=True)
     with pytest.raises(type(legacy_error.value)):
         fnx_classes.set_edge_attributes(graph, {}, unexpected=True)
+
+
+def test_classes_edge_property_helpers_match_legacy_oracle_and_errors():
+    legacy = _legacy_networkx()
+    legacy_graph = legacy.Graph([("a", "a", {"weight": -2}), ("a", "b", {"weight": 3})])
+    graph = fnx.Graph([("a", "a", {"weight": -2}), ("a", "b", {"weight": 3})])
+
+    for helper in (
+        "number_of_selfloops",
+        "is_weighted",
+        "is_negatively_weighted",
+    ):
+        legacy_helper = getattr(legacy.classes, helper)
+        fnx_helper = getattr(fnx_classes, helper)
+        assert fnx_helper(graph, backend="networkx") == legacy_helper(
+            legacy_graph, backend="networkx"
+        )
+
+    assert fnx_classes.is_weighted(graph, edge=("a", "b")) is legacy.classes.is_weighted(
+        legacy_graph, edge=("a", "b")
+    )
+    assert fnx_classes.is_negatively_weighted(
+        graph, edge=("a", "a")
+    ) is legacy.classes.is_negatively_weighted(legacy_graph, edge=("a", "a"))
+
+    with pytest.raises(legacy.NetworkXError) as legacy_error:
+        legacy.classes.is_weighted(legacy_graph, edge=("missing", "edge"))
+    with pytest.raises(fnx.NetworkXError) as fnx_error:
+        fnx_classes.is_weighted(graph, edge=("missing", "edge"))
+    assert str(fnx_error.value) == str(legacy_error.value)
