@@ -528,6 +528,38 @@ _fnx_boundary = _importlib.import_module("franken_networkx.boundary")
 _sys.modules[f"{__name__}.boundary"] = _fnx_boundary
 boundary = _fnx_boundary  # Override in module globals
 
+
+# Preserve the public contracts of the flattened boundary helpers while routing
+# to the live fnx leaf module, instead of the generic native-router below.
+def edge_boundary(
+    G,
+    nbunch1,
+    nbunch2=None,
+    data=False,
+    keys=False,
+    default=None,
+    *,
+    backend=None,
+    **backend_kwargs,
+):
+    return _fnx_boundary.edge_boundary(
+        G,
+        nbunch1,
+        nbunch2=nbunch2,
+        data=data,
+        keys=keys,
+        default=default,
+        backend=backend,
+        **backend_kwargs,
+    )
+
+
+def node_boundary(G, nbunch1, nbunch2=None, *, backend=None, **backend_kwargs):
+    return _fnx_boundary.node_boundary(
+        G, nbunch1, nbunch2=nbunch2, backend=backend, **backend_kwargs
+    )
+
+
 _fnx_broadcasting = _importlib.import_module("franken_networkx.broadcasting")
 _sys.modules[f"{__name__}.broadcasting"] = _fnx_broadcasting
 broadcasting = _fnx_broadcasting  # Override in module globals
