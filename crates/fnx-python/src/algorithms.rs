@@ -18748,10 +18748,31 @@ fn line_graph_fast(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Option<PyOb
 
 #[pyfunction]
 #[pyo3(signature = (g,))]
-fn degree_histogram(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Vec<usize>> {
-    let gr = extract_graph(g)?;
-    let inner = gr.undirected();
-    Ok(py.allow_threads(|| fnx_algorithms::degree_histogram(inner)))
+fn degree_histogram(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Option<Vec<usize>>> {
+    // br-r37-c1-deghistdead: UNDIRECTED SIMPLE ONLY, and `None` for everything
+    // else so the Python caller falls back rather than receiving a plausible
+    // wrong list.
+    //
+    // This used to take `gr.undirected()` for every class, which is not
+    // networkx's degree on three of the four:
+    //
+    //   DiGraph        a->b and b->a is degree 2 per node; the undirected
+    //                  projection collapses them to 1
+    //   MultiGraph     parallel edges count with multiplicity; the projection
+    //                  keeps one
+    //   MultiDiGraph   both of the above at once
+    //
+    // Measured against networkx before this change: MultiGraph a-b twice gave
+    // [0,2,1] against nx's [0,1,1,1]. The kernel was never called, so nothing
+    // caught it - wiring it up as a drop-in cost 53 test failures, which is the
+    // evidence that this restriction is the fix rather than a hedge.
+    let Ok(pg) = g.extract::<PyRef<'_, PyGraph>>() else {
+        return Ok(None);
+    };
+    let inner = &pg.inner;
+    Ok(Some(py.allow_threads(|| {
+        fnx_algorithms::degree_histogram(inner)
+    })))
 }
 
 // ===========================================================================

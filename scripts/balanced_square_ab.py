@@ -796,6 +796,11 @@ def workload_incumbent_fixtures(reps: int):
                 for k, v in module.all_pairs_shortest_path_length(apsp_graph)
             },
             # Control: nothing on this list can move a bare node count.
+            # br-r37-c1-deghistdead: the native kernel was exported, imported by
+            # the shim, and never called, so this row measured networkx's own
+            # algorithm re-implemented in Python. Carried here because nothing
+            # in the workload set touched it - which is how it stayed unnoticed.
+            "degree_histogram n=2000": lambda: module.degree_histogram(graph),
             "CONTROL len(G)": lambda: len(graph),
         }
 

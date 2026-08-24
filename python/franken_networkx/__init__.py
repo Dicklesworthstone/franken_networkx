@@ -19688,6 +19688,47 @@ def _transitive_reduction_via_parity(G):
 
 def degree_histogram(G):
     """Returns a list of the frequency of each degree value."""
+    # br-r37-c1-deghistdead: the native kernel existed, was exported, was
+    # imported here as `_raw_degree_histogram` - and was never called. The
+    # Python body below built a `Counter` over N `(node, degree)` tuples
+    # instead, which is what networkx does, so the port was paying nx's
+    # algorithm to match nx's answer. Measured on a 1200-node/4800-edge Graph,
+    # release build, live networkx 3.6.1 in the same invocation, min of 9:
+    #
+    #     python body   124.2 us      networkx   158.3 us     1.27x
+    #     native kernel   1.7 us                             95.17x
+    #
+    # THE GUARD IS THE WHOLE DESIGN, because the kernel reads the Rust store
+    # directly and two shapes make that the wrong store to read:
+    #
+    #   * a VIEW subclasses the native class, so the kernel accepts it and its
+    #     Rust base is EMPTY - measured, it returns [] where networkx returns
+    #     [3, 6, 1] (br-r37-c1-kum9v is this failure for the other native fast
+    #     paths). Type IDENTITY excludes it; `isinstance` would not.
+    #   * a graph carrying ASSIGNED private storage answers from that mapping,
+    #     not from the Rust store.
+    #
+    # A networkx graph passed in raises TypeError from the kernel, so it must
+    # not reach it either; the type check covers that too.
+    #
+    # WIRING IT AS A DROP-IN COST 53 TEST FAILURES FIRST, and that is why the
+    # kernel now answers `None` for the classes it cannot serve. It computed a
+    # SIMPLE-graph histogram, so it disagreed wherever degree is not the
+    # neighbour count:
+    #
+    #     Graph a-a, a-b        nx [0,1,0,1]   kernel [0,1,1]   self-loop is 2
+    #     MultiGraph a-b x2     nx [0,1,1,1]   kernel [0,2,1]   multiplicity
+    #     MultiDiGraph a-b x2   nx [0,0,2]     kernel [0,2]
+    #
+    # The self-loop half is fixed in the kernel; the multiplicity and
+    # directed-reciprocal halves are not reachable from the undirected
+    # projection it reads, so the binding restricts itself to undirected simple
+    # graphs and returns None otherwise. `None` - not an exception and not a
+    # guess - is what lets this stay a pure fast path.
+    if type(G) is Graph and not _has_networkx_private_storage(G):
+        native = _raw_degree_histogram(G)
+        if native is not None:
+            return native
     degree_view = G.degree
     if callable(degree_view):
         degree_view = degree_view()
