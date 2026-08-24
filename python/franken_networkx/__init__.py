@@ -58386,7 +58386,11 @@ def edge_subgraph(G, edges):
 
     return subgraph_view(
         G,
-        filter_node=_NodeSetFilter(nodes, copy_nodes=False),
+        # NetworkX passes this set through ``show_nodes``, which constructs a
+        # second set.  Its CPython table layout is observable when the filtered
+        # view uses the sparse-node iteration shortcut, and in turn determines
+        # directed edge emission order.
+        filter_node=_NodeSetFilter(nodes),
         filter_edge=filter_edge,
     )
 
