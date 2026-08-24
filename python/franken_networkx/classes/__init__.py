@@ -13,6 +13,8 @@ explicitly imports through it for compatibility with nx-style
 introspection.
 """
 
+import inspect as _inspect
+
 import networkx.classes as _nx_classes
 from networkx.classes import *  # noqa: F401, F403
 from networkx.classes.filters import no_filter as _no_filter
@@ -393,6 +395,23 @@ def _install_fnx_native_class_types():
 
 
 _install_fnx_native_class_types()
+
+
+def _install_native_graph_predicate_signatures():
+    """Keep native graph predicate introspection aligned with NetworkX."""
+    for _class_name in _FNX_NATIVE_CLASS_TYPES:
+        _native_class = globals().get(_class_name)
+        _networkx_class = getattr(_nx_classes, _class_name, None)
+        if _native_class is None or _networkx_class is None:
+            continue
+        for _method_name in ("is_directed", "is_multigraph"):
+            _native_method = getattr(_native_class, _method_name, None)
+            _networkx_method = getattr(_networkx_class, _method_name, None)
+            if _native_method is not None and _networkx_method is not None:
+                _native_method.__signature__ = _inspect.signature(_networkx_method)
+
+
+_install_native_graph_predicate_signatures()
 
 
 def _install_classes_child_aliases():
