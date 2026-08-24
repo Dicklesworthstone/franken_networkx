@@ -16529,6 +16529,34 @@ impl PyGraph {
         }))
     }
 
+    /// Native deep-copy path for ``Graph.to_undirected()``.
+    ///
+    /// A same-type conversion is not a structural no-op in NetworkX: its
+    /// ``add_edges_from`` walk rebuilds adjacency rows in first-touch edge order.
+    /// ``copy`` already performs that row reorder; replace its shallow attribute
+    /// copies with deep copies so this retains the conversion contract.
+    fn _native_to_undirected_deepcopy(&self, py: Python<'_>) -> PyResult<Self> {
+        let deepcopy = py.import("copy")?.getattr("deepcopy")?;
+        let mut new_graph = self.copy(py)?;
+        new_graph.graph_attrs = deepcopy_py_dict(py, &deepcopy, &self.graph_attrs)?;
+
+        for (node, attrs) in &self.node_py_attrs {
+            let copied = deepcopy_py_dict(py, &deepcopy, attrs)?;
+            new_graph
+                .inner
+                .replace_node_attrs(node, py_dict_to_attr_map(copied.bind(py))?);
+            new_graph.node_py_attrs.insert(node.clone(), copied);
+        }
+        for ((u, v), attrs) in &self.edge_py_attrs {
+            let copied = deepcopy_py_dict(py, &deepcopy, attrs)?;
+            new_graph
+                .inner
+                .replace_edge_attrs(u, v, py_dict_to_attr_map(copied.bind(py))?);
+            new_graph.edge_py_attrs.insert((u.clone(), v.clone()), copied);
+        }
+        Ok(new_graph)
+    }
+
     /// br-r37-c1-copynative: stable alias exposing the native order-preserving
     /// `copy` (above) to the Python `_copy_preserving_insertion_order` wrapper,
     /// which shadows `copy` at the Python class level. Lets exact-type

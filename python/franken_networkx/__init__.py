@@ -51762,6 +51762,9 @@ def _graph_to_undirected_deepcopy_fastpath(wrapped):
             and not _has_networkx_private_storage(self)
             and self.to_undirected_class() is Graph
         ):
+            native = getattr(self, "_native_to_undirected_deepcopy", None)
+            if native is not None:
+                return native()
             return _deepcopy(self)
         return wrapped(self, as_view=as_view)
 
