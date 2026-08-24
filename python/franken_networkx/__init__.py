@@ -3722,9 +3722,18 @@ def _direct_multi_edge_iter(view, exact_graph_type):
         graph_vars = vars(graph)
         cached = graph_vars.get("_fnx_direct_multi_edge_iter_cache")
         if cached is None or cached[0] != state:
-            cached = (state, view(keys=True))
+            # This is deliberately the native keyed materialization rather
+            # than ``view(keys=True)``.  The public no-nbunch keyed call is
+            # the view itself, as it is in NetworkX; refilling this private
+            # iterator cache through that public call would therefore recurse
+            # through ``MultiEdgeView.__iter__``.
+            cached = (state, graph._native_edge_view_list(False, True, None))
             graph_vars["_fnx_direct_multi_edge_iter_cache"] = cached
-        return iter(cached[1])
+        return _FailFastEdgeIterator(
+            graph,
+            iter(cached[1]),
+            guard_edge_count=True,
+        )
     return _FailFastEdgeIterator(
         graph,
         view(keys=True),
@@ -4430,6 +4439,14 @@ class _MultiGraphEdgeView:
         # MultiEdgeDataView.
         if nbunch is None and data is False and keys is False:
             return _LiveMultiEdgeCallView(self._graph, directed=False)
+        if (
+            nbunch is None
+            and data is False
+            and keys is True
+            and type(self._graph) is MultiGraph
+            and not _has_networkx_private_storage(self._graph)
+        ):
+            return self
         # br-r37-c1-mgedges: all-edges path builds the result natively
         # (node-major over adjacency with canonical dedup, matching nx exactly)
         # instead of triple-looping self.adj[source] via the MultiAdjacencyView
@@ -5074,6 +5091,14 @@ class _MultiDiGraphEdgeView:
         # _MultiGraphEdgeView.__call__).
         if nbunch is None and data is False and keys is False:
             return _LiveMultiEdgeCallView(self._graph, directed=True)
+        if (
+            nbunch is None
+            and data is False
+            and keys is True
+            and type(self._graph) is MultiDiGraph
+            and not _has_networkx_private_storage(self._graph)
+        ):
+            return self
         # br-r37-c1-tmuly: build the edge list from the native MultiDiGraphEdgeView
         # (iterates inner.edges_ordered() in nx order, reusing the live edge attr
         # dicts) instead of the pure-Python triple-loop over succ[source].items()
