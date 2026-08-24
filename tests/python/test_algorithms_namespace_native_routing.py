@@ -435,3 +435,29 @@ def test_tree_predicate_namespace_signature_and_results_match_oracle(name):
     )
     with pytest.raises(ImportError):
         actual(graph, backend="missing")
+
+
+@pytest.mark.parametrize(
+    "name",
+    ["local_node_connectivity", "local_edge_connectivity", "is_locally_k_edge_connected"],
+)
+def test_local_connectivity_namespace_signature_and_results_match_oracle(name):
+    actual = getattr(fnx_algorithms.connectivity, name)
+    expected = getattr(nx.algorithms.connectivity, name)
+    assert str(inspect.signature(actual)) in {str(inspect.signature(expected))}
+
+    graph = fnx.cycle_graph(4)
+    nx_graph = nx.cycle_graph(4)
+    if name == "is_locally_k_edge_connected":
+        actual_value = actual(graph, 0, 2, 2, backend="networkx")
+        expected_value = expected(nx_graph, 0, 2, 2, backend="networkx")
+    else:
+        actual_value = actual(graph, 0, 2, backend="networkx")
+        expected_value = expected(nx_graph, 0, 2, backend="networkx")
+    assert actual_value == expected_value
+
+    with pytest.raises(ImportError):
+        if name == "is_locally_k_edge_connected":
+            actual(graph, 0, 2, 2, backend="missing")
+        else:
+            actual(graph, 0, 2, backend="missing")

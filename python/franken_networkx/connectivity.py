@@ -68,8 +68,8 @@ for _name in _FNX_NATIVE_CONNECTIVITY_NAMES:
 
 def local_node_connectivity(
     G,
-    source,
-    target,
+    s,
+    t,
     flow_func=None,
     auxiliary=None,
     residual=None,
@@ -102,15 +102,15 @@ def local_node_connectivity(
         and cutoff is None
         and backend is None
         and not backend_kwargs
-        and source != target
-        and source in G
-        and target in G
+        and s != t
+        and s in G
+        and t in G
     ):
-        return _fnx.node_connectivity(G, source, target)
+        return _fnx.node_connectivity(G, s, t)
     return _nx_connectivity.local_node_connectivity(
         G,
-        source,
-        target,
+        s,
+        t,
         flow_func=flow_func,
         auxiliary=auxiliary,
         residual=residual,
