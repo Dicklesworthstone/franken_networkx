@@ -133,3 +133,54 @@ def test_community_namespace_dispatch_contract_matches_oracle(name):
         actual(graph, unexpected=True) if name.endswith("communities") else actual(
             graph, partition, unexpected=True
         )
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "contracted_edge",
+        "contracted_nodes",
+        "identified_nodes",
+        "equivalence_classes",
+        "quotient_graph",
+    ],
+)
+def test_minors_namespace_signature_and_results_match_oracle(name):
+    actual = getattr(fnx_algorithms, name)
+    expected = getattr(nx.algorithms, name)
+    assert str(inspect.signature(actual)) in {str(inspect.signature(expected))}
+
+    relation = lambda left, right: (left - right) % 2 == 0
+    if name == "equivalence_classes":
+        actual_value = actual([1, 2, 3, 4], relation)
+        expected_value = expected([1, 2, 3, 4], relation)
+        assert actual_value == expected_value
+        with pytest.raises(TypeError):
+            actual([1, 2], relation, unexpected=True)
+        return
+
+    graph = fnx.path_graph(4)
+    nx_graph = nx.path_graph(4)
+    if name == "contracted_edge":
+        actual_graph = actual(graph, (1, 2), backend="networkx")
+        expected_graph = expected(nx_graph, (1, 2), backend="networkx")
+    elif name in {"contracted_nodes", "identified_nodes"}:
+        actual_graph = actual(graph, 1, 2, backend="networkx")
+        expected_graph = expected(nx_graph, 1, 2, backend="networkx")
+    else:
+        partition = [{0, 1}, {2, 3}]
+        actual_graph = actual(graph, partition, backend="networkx")
+        expected_graph = expected(nx_graph, partition, backend="networkx")
+
+    assert set(actual_graph) == set(expected_graph)
+    assert {frozenset(edge) for edge in actual_graph.edges} == {
+        frozenset(edge) for edge in expected_graph.edges
+    }
+
+    with pytest.raises(ImportError):
+        if name == "contracted_edge":
+            actual(graph, (1, 2), backend="missing")
+        elif name in {"contracted_nodes", "identified_nodes"}:
+            actual(graph, 1, 2, backend="missing")
+        else:
+            actual(graph, [{0, 1}, {2, 3}], backend="missing")

@@ -649,6 +649,114 @@ def greedy_color(
     )
 
 
+def contracted_edge(
+    G,
+    edge,
+    self_loops=True,
+    copy=True,
+    *,
+    store_contraction_as="contraction",
+    backend=None,
+    **backend_kwargs,
+):
+    import franken_networkx as _fnx_call
+
+    return _fnx_call.contracted_edge(
+        G,
+        edge,
+        self_loops=self_loops,
+        copy=copy,
+        store_contraction_as=store_contraction_as,
+        backend=backend,
+        **backend_kwargs,
+    )
+
+
+def contracted_nodes(
+    G,
+    u,
+    v,
+    self_loops=True,
+    copy=True,
+    *,
+    store_contraction_as="contraction",
+    backend=None,
+    **backend_kwargs,
+):
+    import franken_networkx as _fnx_call
+
+    return _fnx_call.contracted_nodes(
+        G,
+        u,
+        v,
+        self_loops=self_loops,
+        copy=copy,
+        store_contraction_as=store_contraction_as,
+        backend=backend,
+        **backend_kwargs,
+    )
+
+
+def equivalence_classes(iterable, relation):
+    import franken_networkx as _fnx_call
+
+    return _fnx_call.equivalence_classes(iterable, relation)
+
+
+def identified_nodes(
+    G,
+    u,
+    v,
+    self_loops=True,
+    copy=True,
+    *,
+    store_contraction_as="contraction",
+    backend=None,
+    **backend_kwargs,
+):
+    import franken_networkx as _fnx_call
+
+    return _fnx_call.identified_nodes(
+        G,
+        u,
+        v,
+        self_loops=self_loops,
+        copy=copy,
+        store_contraction_as=store_contraction_as,
+        backend=backend,
+        **backend_kwargs,
+    )
+
+
+def quotient_graph(
+    G,
+    partition,
+    edge_relation=None,
+    node_data=None,
+    edge_data=None,
+    weight="weight",
+    relabel=False,
+    create_using=None,
+    *,
+    backend=None,
+    **backend_kwargs,
+):
+    import franken_networkx as _fnx_call
+
+    return _fnx_call.quotient_graph(
+        G,
+        partition,
+        edge_relation=edge_relation,
+        node_data=node_data,
+        edge_data=edge_data,
+        weight=weight,
+        relabel=relabel,
+        create_using=create_using,
+        backend=backend,
+        **backend_kwargs,
+    )
+
+
 def __getattr__(name):
     import networkx.algorithms as _src
 
