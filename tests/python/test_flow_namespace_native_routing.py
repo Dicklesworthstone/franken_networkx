@@ -11,10 +11,15 @@ br-r37-c1-ojs7g
 
 from __future__ import annotations
 
-import networkx as nx
-import pytest
+import importlib.util
+import inspect
+import sys
+from functools import lru_cache
+from pathlib import Path
 
 import franken_networkx as fnx
+import networkx as nx
+import pytest
 from franken_networkx import flow as fnx_flow
 from franken_networkx.algorithms import flow as fnx_alg_flow
 
@@ -32,6 +37,23 @@ _ROUTED_NAMES = (
     "minimum_cut_value",
     "network_simplex",
 )
+
+
+@lru_cache(maxsize=1)
+def _legacy_networkx():
+    module_name = "franken_networkx_legacy_networkx_flow_surface"
+    legacy_init = (
+        Path(__file__).resolve().parents[2]
+        / "legacy_networkx_code"
+        / "networkx"
+        / "networkx"
+        / "__init__.py"
+    )
+    spec = importlib.util.spec_from_file_location(module_name, legacy_init)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[module_name] = module
+    spec.loader.exec_module(module)
+    return module
 
 
 def _max_flow_graph(lib):
@@ -92,6 +114,14 @@ def test_flow_namespace_routes_through_top_level_fnx(monkeypatch, name):
 def test_flow_namespace_function_is_not_networkx_version(name):
     assert getattr(fnx_flow, name) is not getattr(nx.algorithms.flow, name)
     assert getattr(fnx_alg_flow, name) is getattr(fnx_flow, name)
+
+
+@pytest.mark.parametrize("name", _ROUTED_NAMES)
+def test_flow_namespace_signatures_match_legacy_networkx(name):
+    legacy = _legacy_networkx()
+    assert str(inspect.signature(getattr(fnx_flow, name))) == str(
+        inspect.signature(getattr(legacy.algorithms.flow, name))
+    )
 
 
 def test_flow_namespace_max_flow_and_min_cut_values_match_networkx():
