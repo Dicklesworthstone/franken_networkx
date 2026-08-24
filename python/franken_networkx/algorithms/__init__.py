@@ -623,6 +623,32 @@ def make_max_clique_graph(G, create_using=None, *, backend=None, **backend_kwarg
     )
 
 
+# br-r37-c1-ozpfa: these colouring functions are native top-level routes, but
+# the generic flattened-name installer above erases their public signatures.
+# Keep the namespace spelling on the same dispatch path, including backend
+# selection and rejection, with the exact NetworkX call contracts.
+def equitable_color(G, num_colors, *, backend=None, **backend_kwargs):
+    import franken_networkx as _fnx_call
+
+    return _fnx_call.equitable_color(
+        G, num_colors, backend=backend, **backend_kwargs
+    )
+
+
+def greedy_color(
+    G, strategy="largest_first", interchange=False, *, backend=None, **backend_kwargs
+):
+    import franken_networkx as _fnx_call
+
+    return _fnx_call.greedy_color(
+        G,
+        strategy=strategy,
+        interchange=interchange,
+        backend=backend,
+        **backend_kwargs,
+    )
+
+
 def __getattr__(name):
     import networkx.algorithms as _src
 
