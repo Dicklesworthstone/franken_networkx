@@ -1209,6 +1209,39 @@ impl Graph {
         (changed, existed, attrs_count, inserted_index)
     }
 
+    /// Resolve an endpoint for `add_edge_with_attrs`, creating an empty node
+    /// bucket only when it is absent.
+    ///
+    /// `add_edge_with_attrs` receives borrowed endpoint names.  Sending a miss
+    /// through `get_index_of` and then `add_node_with_attrs_unrecorded` used to
+    /// hash that same borrowed name twice: once to discover the miss and once
+    /// more for the raw-entry insert.  Keep the no-attribute specialization
+    /// here so the edge path can decide and insert from one raw entry while the
+    /// general `add_node_with_attrs_unrecorded` path continues to move an owned
+    /// caller key into its vacant bucket.
+    ///
+    /// The storage effects deliberately match an empty-attribute call to
+    /// `add_node_with_attrs_unrecorded`: an inserted node appends exactly one
+    /// adjacency slot and advances `revision` once; an existing node is a
+    /// no-op.  The caller owns the one operation-level ledger record.
+    fn resolve_empty_node_for_edge_unrecorded(&mut self, node: &str) -> (usize, bool) {
+        let node_hash = self.nodes.hasher().hash_one(node);
+        match self
+            .nodes
+            .raw_entry_mut_v1()
+            .from_key_hashed_nocheck(node_hash, node)
+        {
+            RawEntryMut::Occupied(entry) => (entry.index(), false),
+            RawEntryMut::Vacant(entry) => {
+                let index = entry.index();
+                entry.insert_hashed_nocheck(node_hash, node.to_owned(), AttrMap::new());
+                self.adj_indices.push(Vec::new());
+                self.revision = self.revision.saturating_add(1);
+                (index, true)
+            }
+        }
+    }
+
     pub fn add_node_with_attrs(
         &mut self,
         node: impl AsRef<str> + Into<String>,
@@ -1814,46 +1847,24 @@ impl Graph {
         // for N nodes), and follows br-r37-c1-eo88t, which removed the other
         // redundant record from this same function. A caller-visible
         // `add_node` still records — only this internal path is unrecorded.
-        // br-r37-c1-jc9e4: resolve each endpoint with ONE probe, not two.
-        // `contains_key` and `get_index_of` hash the same String key against
-        // the same map and `get_index_of` already answers both questions, so
-        // the pair was two String hashes per endpoint where one does. A
-        // self-loop is resolved without probing the second endpoint at all,
-        // since `left == right` makes the indices equal by construction.
+        // br-r37-c1-jc9e4: resolve each endpoint with ONE raw-entry probe.
+        // A missing endpoint formerly did `get_index_of` followed by
+        // `add_node_with_attrs_unrecorded`, which probed the same borrowed key
+        // a second time before it could insert.  The specialized resolver
+        // returns the existing index or inserts the empty bucket from that
+        // single raw entry. A self-loop is resolved without probing the second
+        // endpoint at all, since `left == right` makes the indices equal by
+        // construction.
         //
         // Order is untouched: the left endpoint is still resolved and
         // autocreated before the right one, and `IndexMap` appends, so
         // autocreating the right endpoint cannot move the left one's index.
-        let mut left_autocreated = false;
-        let left_key_idx = match self.nodes.get_index_of(left) {
-            Some(index) => index,
-            None => {
-                let (_, _, _, Some(index)) =
-                    self.add_node_with_attrs_unrecorded(left, AttrMap::new())
-                else {
-                    unreachable!("autocreation must insert its missing left endpoint");
-                };
-                left_autocreated = true;
-                index
-            }
-        };
-        let mut right_autocreated = false;
-        let right_key_idx = if left == right {
-            right_autocreated = left_autocreated;
-            left_key_idx
+        let (left_key_idx, left_autocreated) =
+            self.resolve_empty_node_for_edge_unrecorded(left);
+        let (right_key_idx, right_autocreated) = if left == right {
+            (left_key_idx, left_autocreated)
         } else {
-            match self.nodes.get_index_of(right) {
-                Some(index) => index,
-                None => {
-                    let (_, _, _, Some(index)) =
-                        self.add_node_with_attrs_unrecorded(right, AttrMap::new())
-                    else {
-                        unreachable!("autocreation must insert its missing right endpoint");
-                    };
-                    right_autocreated = true;
-                    index
-                }
-            }
+            self.resolve_empty_node_for_edge_unrecorded(right)
         };
         let edge_key = Self::canon_pair(left_key_idx, right_key_idx);
         let self_loop = left == right;
@@ -8466,6 +8477,30 @@ mod tests {
         assert_eq!(graph.edge_count(), 2);
         assert_eq!(graph.nodes_ordered(), vec!["a", "b", "c"]);
         assert_eq!(graph.neighbors("a"), Some(vec!["b", "c"]));
+    }
+
+    #[test]
+    fn add_edge_empty_endpoint_resolution_preserves_autocreation_effects() {
+        let mut graph = Graph::strict();
+        let before = graph.revision();
+
+        graph
+            .add_edge("c", "a")
+            .expect("fresh endpoints should be autocreated");
+
+        // The single-probe endpoint resolver keeps the public storage effects
+        // of two empty add_node calls plus the new edge mutation: first-seen
+        // node order, one adjacency bucket per node, and three revision bumps.
+        assert_eq!(graph.nodes_ordered(), vec!["c", "a"]);
+        assert_eq!(graph.neighbors("c"), Some(vec!["a"]));
+        assert_eq!(graph.neighbors("a"), Some(vec!["c"]));
+        assert_eq!(graph.revision(), before + 3);
+
+        graph
+            .add_edge("a", "c")
+            .expect("an existing empty edge is a no-op");
+        assert_eq!(graph.nodes_ordered(), vec!["c", "a"]);
+        assert_eq!(graph.revision(), before + 3);
     }
 
     #[test]
