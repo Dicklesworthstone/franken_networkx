@@ -123,3 +123,43 @@ def test_classes_functional_views_match_legacy_oracle_and_remain_live(graph_type
     graph.add_edge("a", "late", weight=5)
     assert list(edges) == list(legacy_edges)
     assert degree["a"] == legacy_degree["a"]
+
+
+def test_high_use_classes_functional_helpers_match_legacy_oracle():
+    legacy = _legacy_networkx()
+    legacy_graph = legacy.Graph()
+    graph = fnx.Graph()
+
+    for helper, nodes in (
+        (legacy.classes.add_path, ["a", "b", "c"]),
+        (fnx_classes.add_path, ["a", "b", "c"]),
+    ):
+        helper(legacy_graph if helper is legacy.classes.add_path else graph, nodes, weight=2)
+    legacy.classes.add_cycle(legacy_graph, ["c", "d", "e"], color="blue")
+    fnx_classes.add_cycle(graph, ["c", "d", "e"], color="blue")
+
+    assert list(fnx_classes.neighbors(graph, "c")) == list(
+        legacy.classes.neighbors(legacy_graph, "c")
+    )
+    assert fnx_classes.number_of_nodes(graph) == legacy.classes.number_of_nodes(
+        legacy_graph
+    )
+    assert fnx_classes.number_of_edges(graph) == legacy.classes.number_of_edges(
+        legacy_graph
+    )
+    assert fnx_classes.density(graph) == legacy.classes.density(legacy_graph)
+
+    legacy_subgraph = legacy.classes.subgraph(legacy_graph, ["a", "b", "c"])
+    subgraph = fnx_classes.subgraph(graph, ["a", "b", "c"])
+    assert list(subgraph.nodes) == list(legacy_subgraph.nodes)
+    assert list(subgraph.edges) == list(legacy_subgraph.edges)
+
+    legacy_edge_subgraph = legacy.classes.edge_subgraph(legacy_graph, [("a", "b")])
+    edge_subgraph = fnx_classes.edge_subgraph(graph, [("a", "b")])
+    assert list(edge_subgraph.edges) == list(legacy_edge_subgraph.edges)
+    assert fnx_classes.is_directed(graph) is legacy.classes.is_directed(legacy_graph)
+
+    legacy_directed = legacy.classes.to_directed(legacy_graph)
+    directed = fnx_classes.to_directed(graph)
+    assert list(directed.edges) == list(legacy_directed.edges)
+    assert not fnx_classes.to_undirected(directed).is_directed()

@@ -85,6 +85,83 @@ def degree(G, nbunch=None, weight=None):
     return _fnx.degree(G, nbunch, weight)
 
 
+def add_cycle(G_to_add_to, nodes_for_cycle, **attr):
+    """Add a cycle through the native functional API."""
+    import franken_networkx as _fnx
+
+    return _fnx.add_cycle(G_to_add_to, nodes_for_cycle, **attr)
+
+
+def add_path(G_to_add_to, nodes_for_path, **attr):
+    """Add a path through the native functional API."""
+    import franken_networkx as _fnx
+
+    return _fnx.add_path(G_to_add_to, nodes_for_path, **attr)
+
+
+def density(G):
+    """Return graph density through the native functional API."""
+    import franken_networkx as _fnx
+
+    return _fnx.density(G)
+
+
+def edge_subgraph(G, edges):
+    """Return an edge-induced native subgraph."""
+    import franken_networkx as _fnx
+
+    return _fnx.edge_subgraph(G, edges)
+
+
+def is_directed(G):
+    """Return whether a native graph is directed."""
+    import franken_networkx as _fnx
+
+    return _fnx.is_directed(G)
+
+
+def neighbors(G, n):
+    """Return the native graph's neighbor iterator."""
+    import franken_networkx as _fnx
+
+    return _fnx.neighbors(G, n)
+
+
+def number_of_edges(G):
+    """Return the native graph's edge count."""
+    import franken_networkx as _fnx
+
+    return _fnx.number_of_edges(G)
+
+
+def number_of_nodes(G):
+    """Return the native graph's node count."""
+    import franken_networkx as _fnx
+
+    return _fnx.number_of_nodes(G)
+
+
+def subgraph(G, nbunch):
+    """Return a native induced subgraph."""
+    import franken_networkx as _fnx
+
+    return _fnx.subgraph(G, nbunch)
+
+
+def to_directed(graph):
+    """Convert a native graph to a directed graph."""
+    import franken_networkx as _fnx
+
+    return _fnx.to_directed(graph)
+
+
+def to_undirected(graph):
+    """Convert a native graph to an undirected graph."""
+    import franken_networkx as _fnx
+
+    return _fnx.to_undirected(graph)
+
+
 def _install_fnx_native_class_types():
     import franken_networkx as _fnx
 
