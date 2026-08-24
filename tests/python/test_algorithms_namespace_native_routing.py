@@ -592,6 +592,21 @@ def test_flattened_dfs_namespace_signature_and_results_match_oracle(name):
         actual(graph, 0, backend="missing")
 
 
+@pytest.mark.parametrize("name", ["edge_bfs", "edge_dfs"])
+def test_flattened_edge_traversal_namespace_signature_and_results_match_oracle(name):
+    actual = getattr(fnx_algorithms, name)
+    expected = getattr(nx.algorithms, name)
+    assert str(inspect.signature(actual)) in {str(inspect.signature(expected))}
+
+    graph = fnx.path_graph(4)
+    nx_graph = nx.path_graph(4)
+    assert list(actual(graph, 0, backend="networkx")) == list(
+        expected(nx_graph, 0, backend="networkx")
+    )
+    with pytest.raises(ImportError):
+        actual(graph, 0, backend="missing")
+
+
 @pytest.mark.parametrize(
     "name",
     ["edge_connectivity", "node_connectivity", "minimum_edge_cut", "minimum_node_cut"],

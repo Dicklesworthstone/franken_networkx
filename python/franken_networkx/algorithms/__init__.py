@@ -974,6 +974,30 @@ def dfs_tree(
     )
 
 
+def edge_bfs(G, source=None, orientation=None, *, backend=None, **backend_kwargs):
+    import franken_networkx as _fnx_call
+
+    return _fnx_call.edge_bfs(
+        G,
+        source=source,
+        orientation=orientation,
+        backend=backend,
+        **backend_kwargs,
+    )
+
+
+def edge_dfs(G, source=None, orientation=None, *, backend=None, **backend_kwargs):
+    import franken_networkx as _fnx_call
+
+    return _fnx_call.edge_dfs(
+        G,
+        source=source,
+        orientation=orientation,
+        backend=backend,
+        **backend_kwargs,
+    )
+
+
 def __getattr__(name):
     import networkx.algorithms as _src
 
