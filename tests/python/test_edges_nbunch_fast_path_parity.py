@@ -270,6 +270,37 @@ def test_multigraphs_no_longer_over_raise_on_nbunch_iteration(cls_name):
     assert len(got) == len(want)
 
 
+@pytest.mark.parametrize("cls_name", ["MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {"keys": True},
+        {"data": True},
+        {"data": "weight"},
+        {"keys": True, "data": True},
+        {"keys": True, "data": "weight"},
+    ],
+)
+def test_multigraph_nbunch_data_and_keys_follow_the_live_row_rule(cls_name, kwargs):
+    """All native nbunch result shapes ignore a mutation outside their rows.
+
+    The no-data/no-keys spelling already passed ``nbunch_rows`` to the shared
+    guard.  The data/key kernels returned through sibling branches without it,
+    so they raised on a new edge that NetworkX's live row walk never touches.
+    """
+    outcomes = []
+    for lib in (nx, fnx):
+        graph = _build(lib, cls_name)
+        iterator = iter(graph.edges(["a", "b"], **kwargs))
+        first = next(iterator)
+        graph.add_edge("brand", "new")
+        try:
+            outcomes.append(("completed", first, len(list(iterator))))
+        except Exception as exc:  # noqa: BLE001 - differential exception shape
+            outcomes.append((type(exc).__name__, exc.args))
+    assert outcomes[1] == outcomes[0]
+
+
 @pytest.mark.parametrize("cls_name", CLASSES)
 def test_unhashable_nbunch_element_raises_networkxs_error(cls_name):
     """br-r37-c1-w5sa7: the short-circuit must not bypass this translation."""

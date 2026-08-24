@@ -4513,6 +4513,7 @@ class _MultiGraphEdgeView:
                             _wrap_edge_data_view(result, _MultiEdgeDataKeysView),
                             self._graph,
                             guard_edge_count=True,
+                            nbunch_rows=self._graph.nbunch_iter(nbunch),
                         )
                     # br-r37-c1-hihrf: nx names this MultiEdgeDataView. THIS is
                     # the live return for `MG.edges(nbunch)` - the native
@@ -4543,6 +4544,7 @@ class _MultiGraphEdgeView:
                         _wrap_edge_data_view(result, _MultiEdgeDataView),
                         self._graph,
                         guard_edge_count=True,
+                        nbunch_rows=self._graph.nbunch_iter(nbunch),
                     )
         # br-r37-c1-mgedgenbdk (cc): data=<key> one-pass (was the Python adj-chain,
         # ~0.11x). Projects attrs.get(data, default) per edge; None -> Python loop.
@@ -4562,6 +4564,7 @@ class _MultiGraphEdgeView:
                         _wrap_edge_data_view(result, _MultiEdgeDataView),
                         self._graph,
                         guard_edge_count=True,
+                        nbunch_rows=self._graph.nbunch_iter(nbunch),
                     )
         result = _EdgeListWithSetAlgebra()
         seen = set()
@@ -4589,6 +4592,9 @@ class _MultiGraphEdgeView:
                 _wrap_edge_data_view(result, _MultiEdgeDataView),
                 self._graph,
                 guard_edge_count=True,
+                nbunch_rows=(
+                    self._graph.nbunch_iter(nbunch) if nbunch is not None else None
+                ),
             )
         # br-r37-c1-mekvc (cycle 214): keys=True (data=False) wraps
         # in canonical ``MultiEdgeView`` so both
@@ -4606,6 +4612,9 @@ class _MultiGraphEdgeView:
                 _wrap_edge_data_view(result, _MultiEdgeView),
                 self._graph,
                 guard_edge_count=True,
+                nbunch_rows=(
+                    self._graph.nbunch_iter(nbunch) if nbunch is not None else None
+                ),
             )
         # br-r37-c1-hihrf: nx returns MultiEdgeDataView here, not a bare list.
         # The two data spellings above already wrap; this one was left unnamed,
@@ -4617,6 +4626,9 @@ class _MultiGraphEdgeView:
             _wrap_edge_data_view(result, _MultiEdgeDataView),
             self._graph,
             guard_edge_count=True,
+            nbunch_rows=(
+                self._graph.nbunch_iter(nbunch) if nbunch is not None else None
+            ),
         )
 
     def __eq__(self, other):
@@ -5141,6 +5153,7 @@ class _MultiDiGraphEdgeView:
                             _wrap_edge_data_view(nres, _OutMultiEdgeDataView),
                             self._graph,
                             guard_edge_count=True,
+                            nbunch_rows=self._graph.nbunch_iter(nbunch),
                         )
                     if keys:
                         # br-r37-c1-mdgoutedge (cc): keys=True (data=False) wraps in
@@ -5153,6 +5166,7 @@ class _MultiDiGraphEdgeView:
                             _wrap_edge_data_view(nres, _OutMultiEdgeDataKeysView),
                             self._graph,
                             guard_edge_count=True,
+                            nbunch_rows=self._graph.nbunch_iter(nbunch),
                         )
                     # br-r37-c1-hihrf: nx names this OutMultiEdgeDataView. THIS
                     # is the live return for `MDG.edges(nbunch)` - the native
@@ -5180,6 +5194,7 @@ class _MultiDiGraphEdgeView:
                         _wrap_edge_data_view(result, _OutMultiEdgeDataView),
                         self._graph,
                         guard_edge_count=True,
+                        nbunch_rows=self._graph.nbunch_iter(nbunch),
                     )
         result = _EdgeListWithSetAlgebra()
         if data is False or data is True or isinstance(data, str):
@@ -5212,6 +5227,9 @@ class _MultiDiGraphEdgeView:
                 _wrap_edge_data_view(result, _OutMultiEdgeDataView),
                 self._graph,
                 guard_edge_count=True,
+                nbunch_rows=(
+                    self._graph.nbunch_iter(nbunch) if nbunch is not None else None
+                ),
             )
         # br-r37-c1-mekvc (cycle 214): keys=True (data=False) wraps
         # in canonical ``OutMultiEdgeView`` so both
@@ -5225,6 +5243,9 @@ class _MultiDiGraphEdgeView:
                 _wrap_edge_data_view(result, _OutMultiEdgesKeysView),
                 self._graph,
                 guard_edge_count=True,
+                nbunch_rows=(
+                    self._graph.nbunch_iter(nbunch) if nbunch is not None else None
+                ),
             )
         # br-r37-c1-hihrf: nx names this OutMultiEdgeDataView; fnx returned a
         # bare list. Pure naming, as in the undirected twin.
@@ -5232,6 +5253,9 @@ class _MultiDiGraphEdgeView:
             _wrap_edge_data_view(result, _OutMultiEdgeDataView),
             self._graph,
             guard_edge_count=True,
+            nbunch_rows=(
+                self._graph.nbunch_iter(nbunch) if nbunch is not None else None
+            ),
         )
 
     keys = _multi_edge_keys
