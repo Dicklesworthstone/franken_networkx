@@ -26096,6 +26096,9 @@ pub fn power_rust(py: Python<'_>, g: &Bound<'_, PyAny>, k: usize) -> PyResult<Py
         nodes_seq: 0,
         edges_seq: 0,
         edges_dirty: AtomicBool::new(false),
+        // br-r37-c1-igdzi: a freshly built result graph has handed out nothing,
+        // so its escape scope is the empty set rather than the unknown one.
+        exposed_edges: std::sync::Mutex::new(Some(rustc_hash::FxHashSet::default())),
         node_keys_cache: std::sync::Mutex::new(None),
         node_iter_mirror: std::sync::Mutex::new(None),
         instance_dict_gc: crate::InstanceDictGc::new(),
@@ -26219,6 +26222,9 @@ pub fn ego_graph_rust(
         nodes_seq: 0,
         edges_seq: 0,
         edges_dirty: AtomicBool::new(false),
+        // br-r37-c1-igdzi: a freshly built result graph has handed out nothing,
+        // so its escape scope is the empty set rather than the unknown one.
+        exposed_edges: std::sync::Mutex::new(Some(rustc_hash::FxHashSet::default())),
         node_keys_cache: std::sync::Mutex::new(None),
         node_iter_mirror: std::sync::Mutex::new(None),
         instance_dict_gc: crate::InstanceDictGc::new(),
@@ -26363,6 +26369,9 @@ pub fn full_join_rust(
         nodes_seq: 0,
         edges_seq: 0,
         edges_dirty: AtomicBool::new(false),
+        // br-r37-c1-igdzi: a freshly built result graph has handed out nothing,
+        // so its escape scope is the empty set rather than the unknown one.
+        exposed_edges: std::sync::Mutex::new(Some(rustc_hash::FxHashSet::default())),
         node_keys_cache: std::sync::Mutex::new(None),
         node_iter_mirror: std::sync::Mutex::new(None),
         instance_dict_gc: crate::InstanceDictGc::new(),
@@ -26406,6 +26415,9 @@ pub fn identified_nodes_rust(
         nodes_seq: 0,
         edges_seq: 0,
         edges_dirty: AtomicBool::new(false),
+        // br-r37-c1-igdzi: a freshly built result graph has handed out nothing,
+        // so its escape scope is the empty set rather than the unknown one.
+        exposed_edges: std::sync::Mutex::new(Some(rustc_hash::FxHashSet::default())),
         node_keys_cache: std::sync::Mutex::new(None),
         node_iter_mirror: std::sync::Mutex::new(None),
         instance_dict_gc: crate::InstanceDictGc::new(),
@@ -26508,6 +26520,9 @@ pub fn dedensify_rust(
         nodes_seq: 0,
         edges_seq: 0,
         edges_dirty: AtomicBool::new(false),
+        // br-r37-c1-igdzi: a freshly built result graph has handed out nothing,
+        // so its escape scope is the empty set rather than the unknown one.
+        exposed_edges: std::sync::Mutex::new(Some(rustc_hash::FxHashSet::default())),
         node_keys_cache: std::sync::Mutex::new(None),
         node_iter_mirror: std::sync::Mutex::new(None),
         instance_dict_gc: crate::InstanceDictGc::new(),
@@ -26684,6 +26699,9 @@ pub fn quotient_graph_rust(
         nodes_seq: 0,
         edges_seq: 0,
         edges_dirty: AtomicBool::new(false),
+        // br-r37-c1-igdzi: a freshly built result graph has handed out nothing,
+        // so its escape scope is the empty set rather than the unknown one.
+        exposed_edges: std::sync::Mutex::new(Some(rustc_hash::FxHashSet::default())),
         node_keys_cache: std::sync::Mutex::new(None),
         node_iter_mirror: std::sync::Mutex::new(None),
         instance_dict_gc: crate::InstanceDictGc::new(),
@@ -27254,6 +27272,9 @@ pub fn gomory_hu_tree_rust(
         nodes_seq: 0,
         edges_seq: 0,
         edges_dirty: AtomicBool::new(false),
+        // br-r37-c1-igdzi: a freshly built result graph has handed out nothing,
+        // so its escape scope is the empty set rather than the unknown one.
+        exposed_edges: std::sync::Mutex::new(Some(rustc_hash::FxHashSet::default())),
         node_keys_cache: std::sync::Mutex::new(None),
         node_iter_mirror: std::sync::Mutex::new(None),
         instance_dict_gc: crate::InstanceDictGc::new(),
@@ -27316,6 +27337,9 @@ pub fn snap_aggregation_rust(
         nodes_seq: 0,
         edges_seq: 0,
         edges_dirty: AtomicBool::new(false),
+        // br-r37-c1-igdzi: a freshly built result graph has handed out nothing,
+        // so its escape scope is the empty set rather than the unknown one.
+        exposed_edges: std::sync::Mutex::new(Some(rustc_hash::FxHashSet::default())),
         node_keys_cache: std::sync::Mutex::new(None),
         node_iter_mirror: std::sync::Mutex::new(None),
         instance_dict_gc: crate::InstanceDictGc::new(),
