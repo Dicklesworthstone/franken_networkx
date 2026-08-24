@@ -50710,6 +50710,11 @@ DiGraph.predecessors = _private_aware_digraph_predecessors()
 MultiGraph.neighbors = _fnx.MultiGraph._native_neighbors_iter
 MultiDiGraph.neighbors = _fnx.MultiDiGraph._native_neighbors_iter
 MultiDiGraph.successors = _fnx.MultiDiGraph._native_neighbors_iter
+# br-r37-c1-predrow-8vytj: the DiGraph twin, bound the same way and for the same
+# reason. The Python body it replaces kept its own keydict cache in the instance
+# dict; the native iterator probes the node-index twin of `pred_row_py` instead,
+# which is what keeps it flat in node key length.
+DiGraph.predecessors = _fnx.DiGraph._native_predecessors_iter
 MultiDiGraph.predecessors = _fnx.MultiDiGraph._native_predecessors_iter
 
 Graph.adj = property(

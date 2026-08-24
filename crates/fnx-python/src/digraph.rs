@@ -138,6 +138,22 @@ pub struct PyDiGraph {
     /// dict in-place maintenance could no longer reach. Both `.remove()` sites
     /// bump `nodes_seq` on the next lines, so removals self-invalidate.
     pub(crate) succ_row_py_by_index: HashMap<usize, (u64, Py<PyDict>)>,
+    /// br-r37-c1-predrow-8vytj: the node-INDEX twin of `pred_row_py`, mirroring
+    /// `succ_row_py_by_index` above.
+    ///
+    /// The earlier attempt at this (2def1be87) was voided as a NO-OP, and
+    /// correctly: `predecessors_method` walked `inner.predecessors` from a fresh
+    /// canonical and never read `pred_row_py`, so a twin in front of a map
+    /// nobody consulted bought nothing. The retry predicate was that the path
+    /// start reading the row map -- which is what `_native_predecessors_iter`
+    /// below does, so the twin now sits where the lookups actually happen.
+    ///
+    /// STAMPED with `nodes_seq` and CLEARED wherever `pred_row_py` is cleared,
+    /// on the identical argument documented for the successor twin: a twin entry
+    /// outliving a cleared map serves a dict that in-place maintenance can no
+    /// longer reach, which br-r37-c1-txkrn recorded five wrong-answer
+    /// manifestations of.
+    pub(crate) pred_row_py_by_index: HashMap<usize, (u64, Py<PyDict>)>,
     pub(crate) graph_attrs: Py<PyDict>,
     /// br-r37-c1-39d82: see PyGraph::nodes_seq.
     pub(crate) nodes_seq: u64,
@@ -386,6 +402,9 @@ impl PyDiGraph {
             visit.call(key)?;
         }
         // br-r37-c1-sznaj: same dicts as `succ_row_py`, under a second key.
+        for (_seq, row) in self.pred_row_py_by_index.values() {
+            visit.call(row)?;
+        }
         for (_seq, row) in self.succ_row_py_by_index.values() {
             visit.call(row)?;
         }
@@ -454,6 +473,7 @@ impl PyDiGraph {
         self.succ_row_py.clear();
         self.pred_row_py.clear();
         self.succ_row_py_by_index.clear(); // br-r37-c1-sznaj
+        self.pred_row_py_by_index.clear(); // br-r37-c1-predrow-8vytj
         self.graph_attrs.bind(py).clear();
         *self.node_keys_cache.get_mut().unwrap() = None;
         *self.node_data_mirror.get_mut().unwrap() = None;
@@ -12407,6 +12427,7 @@ impl PyDiGraph {
             pred_py_keys: HashMap::new(), // br-r37-c1-z6uka
             succ_row_py: HashMap::new(),
             succ_row_py_by_index: HashMap::new(), // br-r37-c1-sznaj
+            pred_row_py_by_index: HashMap::new(), // br-r37-c1-predrow-8vytj
             pred_row_py: HashMap::new(),
             graph_attrs: PyDict::new(py).unbind(),
             nodes_seq: 0,
@@ -14079,6 +14100,90 @@ impl PyDiGraph {
         Ok(row.bind(py).try_iter()?.into_any().unbind())
     }
 
+    /// br-r37-c1-predrow-8vytj: `iter(self._pred[n])`, the predecessor twin of
+    /// `successors` above.
+    ///
+    /// `DiGraph.predecessors` was the last Python-bodied read on this class: it
+    /// kept its OWN keydict cache in the instance dict, keyed on
+    /// `(nodes_seq, edges_seq)`, and called `_native_predecessor_row_dict` on a
+    /// miss. Two controls said that was the binding and not the question -- the
+    /// same class's `successors` ran 0.819x against networkx where this ran
+    /// 0.383x, and `MultiDiGraph.predecessors`, which IS native, ran 0.775x.
+    ///
+    /// The Python cache made the shim FLAT in node key length (389.9 ns at K=3
+    /// against 396.4 ns at K=2000), so a native path that resolved through a
+    /// fresh canonical would have been slower at long keys, not faster. That is
+    /// why this probes the INDEX twin first, exactly as `successors` does: a hit
+    /// costs one dict lookup on a `str` whose hash CPython already cached.
+    ///
+    /// A cached row is existence proof -- rows are built only for nodes that
+    /// were present, and removal and `clear` drop them -- so `has_node` is paid
+    /// only on the miss path.
+    #[pyo3(name = "_native_predecessors_iter", signature = (n))]
+    fn native_predecessors_iter(slf: &Bound<'_, Self>, n: &Bound<'_, PyAny>) -> PyResult<PyObject> {
+        let py = slf.py();
+        // br-r37-c1-lvlu7: nx's `self._pred[n]` hashes `n` first, so an
+        // unhashable node raises TypeError rather than reporting absence.
+        n.hash()?;
+        // br-r37-c1-ppiei: a graph carrying ASSIGNED private storage reads the
+        // assigned mapping, which is the authority over the native store -- an
+        // assigned `_pred` can carry a node the store has never seen, and can
+        // omit one the store still holds. Answered HERE, exactly as the
+        // multigraph twin does, because the Python body this replaced owned the
+        // check and binding the bare native without it reported the store's
+        // predecessors for a node networkx says is absent.
+        if slf.borrow().instance_dict_gc.has_private_override() {
+            let adjacency = slf.getattr(pyo3::intern!(py, "pred"))?;
+            return match adjacency.get_item(n) {
+                Ok(row) => Ok(row.try_iter()?.into_any().unbind()),
+                Err(err) if err.is_instance_of::<pyo3::exceptions::PyKeyError>(py) => Err(
+                    NetworkXError::new_err(format!("The node {} is not in the digraph.", n.str()?)),
+                ),
+                Err(err) => return Err(err),
+            };
+        }
+        let mut this = slf.borrow_mut();
+        let index = if n.is_exact_instance_of::<PyString>() {
+            this.cached_exact_string_node_index(py, n)?
+        } else {
+            None
+        };
+        if let Some(index) = index
+            && let Some((seq, row)) = this.pred_row_py_by_index.get(&index)
+            && *seq == this.nodes_seq
+        {
+            return Ok(row.bind(py).try_iter()?.into_any().unbind());
+        }
+        if let Some(row) = with_node_key_str(py, n, |canonical| {
+            this.pred_row_py.get(canonical).map(|row| row.clone_ref(py))
+        })? {
+            // Backfill, so a row first touched by a non-string caller still gets
+            // the fast route afterwards.
+            if let Some(index) = index {
+                let seq = this.nodes_seq;
+                this.pred_row_py_by_index
+                    .insert(index, (seq, row.clone_ref(py)));
+            }
+            return Ok(row.bind(py).try_iter()?.into_any().unbind());
+        }
+        let canonical = node_key_to_string(py, n)?;
+        if !this.inner.has_node(&canonical) {
+            return Err(NetworkXError::new_err(format!(
+                "The node {} is not in the digraph.",
+                n.str()?
+            )));
+        }
+        let row = this.predecessor_row_dict_by_canonical(py, &canonical)?;
+        // The SAME dict object under both keys, so the two cannot disagree and
+        // in-place edge maintenance reaches both.
+        if let Some(index) = index {
+            let seq = this.nodes_seq;
+            this.pred_row_py_by_index
+                .insert(index, (seq, row.clone_ref(py)));
+        }
+        Ok(row.bind(py).try_iter()?.into_any().unbind())
+    }
+
     /// Return a list of predecessors of node n.
     #[pyo3(name = "predecessors")]
     fn predecessors_method(&self, py: Python<'_>, n: &Bound<'_, PyAny>) -> PyResult<Vec<PyObject>> {
@@ -14219,6 +14324,7 @@ impl PyDiGraph {
         self.succ_row_py.clear();
         self.pred_row_py.clear();
         self.succ_row_py_by_index.clear(); // br-r37-c1-sznaj
+        self.pred_row_py_by_index.clear(); // br-r37-c1-predrow-8vytj
         self.graph_attrs = PyDict::new(py).unbind();
         // Clear the live mirror in place so an in-flight iter raises like nx.
         self.node_iter_mirror_clear(py)?;
@@ -14362,6 +14468,7 @@ impl PyDiGraph {
                 pred_py_keys: Self::clone_row_keys(py, &self.succ_py_keys),
                 succ_row_py: HashMap::new(),
                 succ_row_py_by_index: HashMap::new(), // br-r37-c1-sznaj
+                pred_row_py_by_index: HashMap::new(), // br-r37-c1-predrow-8vytj
                 pred_row_py: HashMap::new(),
                 graph_attrs: self.graph_attrs.bind(py).copy()?.unbind(),
                 nodes_seq: 0,
@@ -14394,6 +14501,7 @@ impl PyDiGraph {
             pred_py_keys: Self::clone_row_keys(py, &self.succ_py_keys), // br-r37-c1-z6uka
             succ_row_py: HashMap::new(),
             succ_row_py_by_index: HashMap::new(), // br-r37-c1-sznaj
+            pred_row_py_by_index: HashMap::new(), // br-r37-c1-predrow-8vytj
             pred_row_py: HashMap::new(),
             graph_attrs: self.graph_attrs.bind(py).copy()?.unbind(),
             nodes_seq: 0,
@@ -14650,6 +14758,7 @@ impl PyDiGraph {
             pred_py_keys: HashMap::new(),                               // br-r37-c1-z6uka
             succ_row_py: HashMap::new(),
             succ_row_py_by_index: HashMap::new(), // br-r37-c1-sznaj
+            pred_row_py_by_index: HashMap::new(), // br-r37-c1-predrow-8vytj
             pred_row_py: HashMap::new(),
             graph_attrs: self.graph_attrs.bind(py).copy()?.unbind(),
             nodes_seq: 0,
@@ -14852,6 +14961,7 @@ impl PyDiGraph {
             pred_py_keys: HashMap::new(),
             succ_row_py: HashMap::new(),
             succ_row_py_by_index: HashMap::new(), // br-r37-c1-sznaj
+            pred_row_py_by_index: HashMap::new(), // br-r37-c1-predrow-8vytj
             pred_row_py: HashMap::new(),
             graph_attrs: self.graph_attrs.bind(py).copy()?.unbind(),
             nodes_seq: 0,
@@ -14893,6 +15003,7 @@ impl PyDiGraph {
             pred_py_keys: HashMap::new(), // br-r37-c1-z6uka
             succ_row_py: HashMap::new(),
             succ_row_py_by_index: HashMap::new(), // br-r37-c1-sznaj
+            pred_row_py_by_index: HashMap::new(), // br-r37-c1-predrow-8vytj
             pred_row_py: HashMap::new(),
             graph_attrs: self.graph_attrs.bind(py).copy()?.unbind(),
             nodes_seq: 0,
@@ -14999,6 +15110,7 @@ impl PyDiGraph {
             pred_py_keys: HashMap::new(),
             succ_row_py: HashMap::new(),
             succ_row_py_by_index: HashMap::new(), // br-r37-c1-sznaj
+            pred_row_py_by_index: HashMap::new(), // br-r37-c1-predrow-8vytj
             pred_row_py: HashMap::new(),
             graph_attrs: self.graph_attrs.bind(py).copy()?.unbind(),
             nodes_seq: 0,
@@ -15087,6 +15199,7 @@ impl PyDiGraph {
             pred_py_keys: HashMap::new(), // br-r37-c1-z6uka
             succ_row_py: HashMap::new(),
             succ_row_py_by_index: HashMap::new(), // br-r37-c1-sznaj
+            pred_row_py_by_index: HashMap::new(), // br-r37-c1-predrow-8vytj
             pred_row_py: HashMap::new(),
             graph_attrs: self.graph_attrs.bind(py).copy()?.unbind(),
             nodes_seq: 0,
@@ -17509,6 +17622,7 @@ impl PyDiGraph {
             pred_py_keys: Self::clone_row_keys(py, &self.pred_py_keys), // br-r37-c1-z6uka
             succ_row_py: HashMap::new(),
             succ_row_py_by_index: HashMap::new(), // br-r37-c1-sznaj
+            pred_row_py_by_index: HashMap::new(), // br-r37-c1-predrow-8vytj
             pred_row_py: HashMap::new(),
             node_py_attrs: self
                 .node_py_attrs

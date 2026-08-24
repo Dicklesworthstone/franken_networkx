@@ -151,3 +151,136 @@ def test_ordinary_graphs_are_untouched_by_the_flag():
         missing, got_missing = both(cls, {}, accessor, "nope")
         assert missing[0] == "NetworkXError"
         assert got_missing == missing
+
+
+# ------------------------------------- the native predecessors path (2026-08-24)
+#
+# br-r37-c1-predrow-8vytj: `DiGraph.predecessors` was the last Python-bodied read
+# on the directed classes. It kept its own keydict cache in the instance dict and
+# called `_native_predecessor_row_dict` on a miss, which cost 389.9 ns against
+# the same class's native `successors` at 184.7 ns. It is now
+# `_native_predecessors_iter`, probing a node-INDEX twin of `pred_row_py`.
+#
+# THE PRIVATE-STORAGE BRANCH MOVED INTO RUST WITH IT, and that is what the tests
+# above guard. Binding the bare native WITHOUT it was measured returning the
+# STORE's predecessors for a node networkx says is absent -- caught before
+# landing, and pinned here so it cannot come back.
+#
+# The rest is the index twin: it is stamped with `nodes_seq`, and a twin entry
+# outliving a cleared row map serves a dict that in-place maintenance can no
+# longer reach -- br-r37-c1-txkrn recorded five wrong-answer manifestations of
+# exactly that on the successor side.
+
+import pytest as _pytest
+
+
+def _directed_pair(cls_name):
+    return getattr(nx, cls_name)(), getattr(fnx, cls_name)()
+
+
+@_pytest.mark.parametrize("cls_name", ["DiGraph", "MultiDiGraph"])
+def test_predecessors_is_the_native_iterator(cls_name):
+    """Pins the WIRING. The answer stays right if this regresses to Python, so
+    only an identity check notices the fast path going away."""
+    assert (
+        getattr(fnx, cls_name).predecessors.__name__ == "_native_predecessors_iter"
+    ), "predecessors is no longer bound to the native iterator"
+
+
+@_pytest.mark.parametrize("cls_name", ["DiGraph", "MultiDiGraph"])
+def test_predecessors_tracks_mutation_through_the_index_twin(cls_name):
+    """Build the row, warm the twin, then mutate every way that moves indices."""
+    ref, fx = _directed_pair(cls_name)
+    for i in range(6):
+        ref.add_edge(f"s{i}", "target")
+        fx.add_edge(f"s{i}", "target")
+
+    def agree(label):
+        for node in ("target", "s0", "s3", "fresh"):
+            got = sorted(map(str, fx.predecessors(node))) if fx.has_node(node) else None
+            want = sorted(map(str, ref.predecessors(node))) if ref.has_node(node) else None
+            assert got == want, (label, node)
+
+    for _ in range(50):  # warm the row and its index twin
+        list(fx.predecessors("target"))
+    agree("warm")
+
+    for graph in (ref, fx):
+        graph.add_edge("fresh", "target")
+    agree("after add")
+
+    for graph in (ref, fx):
+        graph.remove_edge("s2", "target")
+    agree("after edge removal")
+
+    for graph in (ref, fx):
+        graph.remove_node("s0")          # renumbers every later node position
+    agree("after node removal")
+
+    for graph in (ref, fx):
+        graph.add_node("s0")
+        graph.add_edge("s0", "target")   # re-added at a NEW index
+    agree("after re-add")
+
+    for graph in (ref, fx):
+        graph.clear_edges()
+    agree("after clear_edges")
+
+
+@_pytest.mark.parametrize("cls_name", ["DiGraph", "MultiDiGraph"])
+def test_predecessors_order_and_key_types_match(cls_name):
+    """networkx yields insertion order, and the keys come back as themselves."""
+    ref, fx = _directed_pair(cls_name)
+    sources = ["b", "a", 7, (1, 2), 3.5, "z" * 2000]
+    for graph in (ref, fx):
+        for s in sources:
+            graph.add_edge(s, "sink")
+
+    assert list(map(repr, fx.predecessors("sink"))) == list(map(repr, ref.predecessors("sink")))
+    assert [type(p) for p in fx.predecessors("sink")] == [type(p) for p in ref.predecessors("sink")]
+
+
+@_pytest.mark.parametrize("cls_name", ["DiGraph", "MultiDiGraph"])
+def test_predecessors_of_an_absent_node_raises_networkxs_error(cls_name):
+    ref, fx = _directed_pair(cls_name)
+    for graph in (ref, fx):
+        graph.add_edge("a", "b")
+
+    with _pytest.raises(nx.NetworkXError) as fx_err:
+        list(fx.predecessors("absent"))
+    with _pytest.raises(nx.NetworkXError) as ref_err:
+        list(ref.predecessors("absent"))
+    assert str(fx_err.value) == str(ref_err.value)
+
+
+@_pytest.mark.parametrize("cls_name", ["DiGraph", "MultiDiGraph"])
+def test_predecessors_of_an_unhashable_node_raises_typeerror(cls_name):
+    """br-r37-c1-lvlu7: nx's `self._pred[n]` hashes first."""
+    ref, fx = _directed_pair(cls_name)
+    for graph in (ref, fx):
+        graph.add_edge("a", "b")
+
+    with _pytest.raises(TypeError):
+        list(fx.predecessors(["unhashable"]))
+    with _pytest.raises(TypeError):
+        list(ref.predecessors(["unhashable"]))
+
+
+@_pytest.mark.parametrize("cls_name", ["DiGraph", "MultiDiGraph"])
+def test_a_mutation_during_predecessor_iteration_matches_networkx(cls_name):
+    """The row is live, so an in-flight iterator must behave as networkx's does."""
+
+    def drive(graph):
+        for i in range(5):
+            graph.add_edge(f"s{i}", "target")
+        try:
+            seen = 0
+            for _ in graph.predecessors("target"):
+                seen += 1
+                if seen == 1:
+                    graph.add_edge("late", "target")
+            return ("completed", seen)
+        except RuntimeError:
+            return ("RuntimeError",)
+
+    assert drive(getattr(fnx, cls_name)()) == drive(getattr(nx, cls_name)())

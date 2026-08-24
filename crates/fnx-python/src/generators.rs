@@ -76,7 +76,8 @@ fn report_to_pydigraph(
         succ_py_keys: HashMap::new(), // br-r37-c1-z6uka
         pred_py_keys: HashMap::new(), // br-r37-c1-z6uka
         succ_row_py: HashMap::new(),
-        succ_row_py_by_index: HashMap::new(), // br-r37-c1-sznaj
+        succ_row_py_by_index: HashMap::new(),
+        pred_row_py_by_index: HashMap::new(), // br-r37-c1-predrow-8vytj // br-r37-c1-sznaj
         pred_row_py: HashMap::new(),
         graph_attrs: PyDict::new(py).unbind(),
         nodes_seq: 0,
