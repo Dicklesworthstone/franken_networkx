@@ -66,6 +66,38 @@ for _name in _FNX_NATIVE_CONNECTIVITY_NAMES:
     globals()[_name] = _make_fnx_connectivity_router(_name)
 
 
+def edge_connectivity(
+    G, s=None, t=None, flow_func=None, cutoff=None, *, backend=None, **backend_kwargs
+):
+    return _fnx.edge_connectivity(
+        G,
+        s=s,
+        t=t,
+        flow_func=flow_func,
+        cutoff=cutoff,
+        backend=backend,
+        **backend_kwargs,
+    )
+
+
+def node_connectivity(G, s=None, t=None, flow_func=None, *, backend=None, **backend_kwargs):
+    return _fnx.node_connectivity(
+        G, s=s, t=t, flow_func=flow_func, backend=backend, **backend_kwargs
+    )
+
+
+def minimum_edge_cut(G, s=None, t=None, flow_func=None, *, backend=None, **backend_kwargs):
+    return _fnx.minimum_edge_cut(
+        G, s=s, t=t, flow_func=flow_func, backend=backend, **backend_kwargs
+    )
+
+
+def minimum_node_cut(G, s=None, t=None, flow_func=None, *, backend=None, **backend_kwargs):
+    return _fnx.minimum_node_cut(
+        G, s=s, t=t, flow_func=flow_func, backend=backend, **backend_kwargs
+    )
+
+
 def local_node_connectivity(
     G,
     s,
