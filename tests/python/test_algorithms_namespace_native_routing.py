@@ -24,7 +24,8 @@ _SAMPLE_FUNCS = [
     "connected_components", "adamic_adar_index", "wiener_index",
     "betweenness_centrality", "pagerank", "find_cliques", "is_chordal",
     "topological_sort", "maximum_flow", "node_connectivity",
-    "transitivity", "triangles", "minimum_spanning_edges",
+    "transitivity", "triangles", "minimum_spanning_edges", "equitable_color",
+    "greedy_color",
 ]
 _CLASSES = [
     "ArborescenceIterator", "EdgePartition", "NetworkXTreewidthBoundExceeded",
@@ -74,3 +75,61 @@ def test_routed_function_values_match_networkx():
         nx.wiener_index(nx.complete_graph(4))
     )
     assert fnx_algorithms.transitivity(g) == pytest.approx(nx.transitivity(ng))
+
+
+@pytest.mark.parametrize("name", ["equitable_color", "greedy_color"])
+def test_coloring_namespace_signature_and_backend_contract_match_oracle(name):
+    actual = getattr(fnx_algorithms, name)
+    expected = getattr(nx, name)
+    actual_shape = inspect.signature(actual)
+    expected_shape = inspect.signature(expected)
+    assert str(actual_shape) in {str(expected_shape)}
+
+    graph = fnx.path_graph(2)
+    nx_graph = nx.path_graph(2)
+    if name == "equitable_color":
+        assert actual(graph, 2) == expected(nx_graph, 2)
+    else:
+        assert actual(graph, strategy="largest_first") == expected(
+            nx_graph, strategy="largest_first"
+        )
+
+    with pytest.raises(ImportError):
+        actual(graph, 2, backend="missing") if name == "equitable_color" else actual(
+            graph, backend="missing"
+        )
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "asyn_lpa_communities",
+        "fast_label_propagation_communities",
+        "is_partition",
+        "partition_quality",
+    ],
+)
+def test_community_namespace_dispatch_contract_matches_oracle(name):
+    actual = getattr(fnx_algorithms.community, name)
+    expected = getattr(nx.algorithms.community, name)
+    assert str(inspect.signature(actual)) in {str(inspect.signature(expected))}
+
+    graph = fnx.path_graph(3)
+    nx_graph = nx.path_graph(3)
+    partition = [{0, 1, 2}]
+    if name in {"asyn_lpa_communities", "fast_label_propagation_communities"}:
+        actual_value = {frozenset(group) for group in actual(graph, seed=7)}
+        expected_value = {frozenset(group) for group in expected(nx_graph, seed=7)}
+    else:
+        actual_value = actual(graph, partition, backend="networkx")
+        expected_value = expected(nx_graph, partition, backend="networkx")
+    assert actual_value == expected_value
+
+    with pytest.raises(ImportError):
+        actual(graph, backend="missing") if name.endswith("communities") else actual(
+            graph, partition, backend="missing"
+        )
+    with pytest.raises(TypeError):
+        actual(graph, unexpected=True) if name.endswith("communities") else actual(
+            graph, partition, unexpected=True
+        )
