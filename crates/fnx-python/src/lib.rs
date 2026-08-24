@@ -17737,6 +17737,15 @@ impl PyGraph {
         py: Python<'_>,
         weight: &str,
     ) -> PyResult<Option<Vec<PyObject>>> {
+        // br-r37-c1-igdzi: NOT scope-aware, and that is a measured decision
+        // rather than an omission. A version of this kernel that consulted the
+        // escape scope per edge was built and timed: 4000 edges, live networkx
+        // in the same invocation, `degree(weight)` went 2468us clean to 3058us
+        // with the probe against a 2189us Python fallback — so honouring the
+        // scope here is SLOWER than giving up, and the row it was meant to save
+        // (0.64x clean) is not a win to begin with. `_weighted_size_fast` is
+        // where the scope pays, because its clean path is a single store scalar
+        // rather than a per-node walk. See the note there.
         if self.edges_dirty.load(Ordering::Relaxed) {
             return Ok(None);
         }
@@ -17794,15 +17803,9 @@ impl PyGraph {
         py: Python<'_>,
         weight: &str,
     ) -> PyResult<Option<Vec<PyObject>>> {
-        // br-r37-c1-igdzi: NOT scope-aware, and that is a measured decision
-        // rather than an omission. A version of this kernel that consulted the
-        // escape scope per edge was built and timed: 4000 edges, live networkx
-        // in the same invocation, `degree(weight)` went 2468us clean to 3058us
-        // with the probe against a 2189us Python fallback — so honouring the
-        // scope here is SLOWER than giving up, and the row it was meant to save
-        // (0.64x clean) is not a win to begin with. `_weighted_size_fast` is
-        // where the scope pays, because its clean path is a single store scalar
-        // rather than a per-node walk. See the note there.
+        // br-r37-c1-igdzi: not scope-aware, for the reason measured on the int
+        // sibling above — the per-edge probe costs more than the fallback it
+        // replaces on this shape.
         if self.edges_dirty.load(Ordering::Relaxed) {
             return Ok(None);
         }
@@ -17887,9 +17890,6 @@ impl PyGraph {
         py: Python<'_>,
         weight: &str,
     ) -> PyResult<Option<Vec<PyObject>>> {
-        // br-r37-c1-igdzi: not scope-aware, for the reason measured on the int
-        // sibling above — the per-edge probe costs more than the fallback it
-        // replaces on this shape.
         if self.edges_dirty.load(Ordering::Relaxed) {
             return Ok(None);
         }
