@@ -998,6 +998,69 @@ def edge_dfs(G, source=None, orientation=None, *, backend=None, **backend_kwargs
     )
 
 
+def dfs_preorder_nodes(
+    G,
+    source=None,
+    depth_limit=None,
+    *,
+    sort_neighbors=None,
+    backend=None,
+    **backend_kwargs,
+):
+    import franken_networkx as _fnx_call
+
+    return _fnx_call.dfs_preorder_nodes(
+        G,
+        source=source,
+        depth_limit=depth_limit,
+        sort_neighbors=sort_neighbors,
+        backend=backend,
+        **backend_kwargs,
+    )
+
+
+def dfs_postorder_nodes(
+    G,
+    source=None,
+    depth_limit=None,
+    *,
+    sort_neighbors=None,
+    backend=None,
+    **backend_kwargs,
+):
+    import franken_networkx as _fnx_call
+
+    return _fnx_call.dfs_postorder_nodes(
+        G,
+        source=source,
+        depth_limit=depth_limit,
+        sort_neighbors=sort_neighbors,
+        backend=backend,
+        **backend_kwargs,
+    )
+
+
+def dfs_labeled_edges(
+    G,
+    source=None,
+    depth_limit=None,
+    *,
+    sort_neighbors=None,
+    backend=None,
+    **backend_kwargs,
+):
+    import franken_networkx as _fnx_call
+
+    return _fnx_call.dfs_labeled_edges(
+        G,
+        source=source,
+        depth_limit=depth_limit,
+        sort_neighbors=sort_neighbors,
+        backend=backend,
+        **backend_kwargs,
+    )
+
+
 def __getattr__(name):
     import networkx.algorithms as _src
 
