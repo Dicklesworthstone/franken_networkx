@@ -13,6 +13,7 @@ br-r37-c1-nhbni
 from __future__ import annotations
 
 import inspect
+import math
 
 import pytest
 import networkx as nx
@@ -526,6 +527,31 @@ def test_tree_coding_namespace_signature_and_results_match_oracle(name):
     assert actual_value == expected_value
     with pytest.raises(ImportError):
         missing_call()
+
+
+def test_spanning_tree_count_namespace_signature_and_results_match_oracle():
+    actual = fnx_algorithms.tree.number_of_spanning_trees
+    expected = nx.algorithms.tree.number_of_spanning_trees
+    assert str(inspect.signature(actual)) in {str(inspect.signature(expected))}
+
+    # NetworkX computes this through a floating-point determinant. On K4 its
+    # own result is 16.000000000000007 rather than the exact count 16, so the
+    # only permitted slack is that measured oracle roundoff—not a broad test
+    # tolerance. The epsilon bound makes the derivation auditable.
+    nx_count = expected(nx.complete_graph(4), backend="networkx")
+    oracle_roundoff = abs(nx_count - round(nx_count))
+    assert oracle_roundoff <= 8 * math.ulp(float(nx_count))
+    assert actual(fnx.complete_graph(4), backend="networkx") == pytest.approx(
+        nx_count, abs=oracle_roundoff, rel=0
+    )
+
+    # A tree has one spanning tree and neither implementation needs a
+    # determinant-roundoff allowance for this integer-exact case.
+    assert actual(fnx.path_graph(4), backend="networkx") == expected(
+        nx.path_graph(4), backend="networkx"
+    ) == 1.0
+    with pytest.raises(ImportError):
+        actual(fnx.complete_graph(4), backend="missing")
 
 
 @pytest.mark.parametrize(

@@ -219,6 +219,12 @@ def to_prufer_sequence(T, *, backend=None, **backend_kwargs):
     return _fnx.to_prufer_sequence(T, backend=backend, **backend_kwargs)
 
 
+def number_of_spanning_trees(G, *, root=None, weight=None, backend=None, **backend_kwargs):
+    return _fnx.number_of_spanning_trees(
+        G, root=root, weight=weight, backend=backend, **backend_kwargs
+    )
+
+
 def center(G):
     """Return the center of an undirected tree using fnx's center wrapper."""
     if G.is_directed():
