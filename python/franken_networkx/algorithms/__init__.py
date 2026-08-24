@@ -753,6 +753,21 @@ _fnx_graphical = _importlib.import_module("franken_networkx.graphical")
 _sys.modules[f"{__name__}.graphical"] = _fnx_graphical
 graphical = _fnx_graphical  # Override in module globals
 
+
+# The flattened spellings are public entry points in their own right.  Keep
+# their contracts at this boundary while leaving validation and the native
+# implementation with the graphical leaf module.
+def is_graphical(sequence, method="eg", *, backend=None, **backend_kwargs):
+    return _fnx_graphical.is_graphical(
+        sequence, method=method, backend=backend, **backend_kwargs
+    )
+
+
+def is_digraphical(in_sequence, out_sequence, *, backend=None, **backend_kwargs):
+    return _fnx_graphical.is_digraphical(
+        in_sequence, out_sequence, backend=backend, **backend_kwargs
+    )
+
 _fnx_hierarchy = _importlib.import_module("franken_networkx.hierarchy")
 _sys.modules[f"{__name__}.hierarchy"] = _fnx_hierarchy
 hierarchy = _fnx_hierarchy  # Override in module globals

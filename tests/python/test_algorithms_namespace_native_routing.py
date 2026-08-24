@@ -1107,6 +1107,46 @@ def test_flattened_broadcasting_namespace_routes_to_leaf_module(monkeypatch, nam
     assert getattr(fnx_algorithms, name)("graph") is marker
 
 
+@pytest.mark.parametrize(
+    ("name", "args", "kwargs"),
+    [
+        ("is_graphical", ([3, 3, 2, 2, 2],), {"method": "hh"}),
+        ("is_graphical", ([3, 3, 3],), {}),
+        ("is_digraphical", ([1, 1, 1], [1, 1, 1]), {}),
+        ("is_digraphical", ([2, 1], [1, 1]), {}),
+    ],
+)
+def test_flattened_graphical_namespace_matches_legacy_oracle(name, args, kwargs):
+    legacy = _legacy_networkx()
+    actual = getattr(fnx_algorithms, name)
+    expected = getattr(legacy.algorithms, name)
+    assert str(inspect.signature(actual)) == str(inspect.signature(expected))
+    assert actual(*args, **kwargs) == expected(*args, **kwargs)
+
+    with pytest.raises(ImportError):
+        actual(*args, backend="missing")
+    with pytest.raises(TypeError):
+        actual(*args, unexpected=True)
+
+
+@pytest.mark.parametrize(
+    ("name", "args"),
+    [
+        ("is_graphical", ("sequence",)),
+        ("is_digraphical", ("in-sequence", "out-sequence")),
+    ],
+)
+def test_flattened_graphical_namespace_routes_to_leaf_module(monkeypatch, name, args):
+    marker = object()
+
+    def sentinel(*call_args, **kwargs):
+        assert call_args == args
+        return marker
+
+    monkeypatch.setattr(fnx_algorithms.graphical, name, sentinel)
+    assert getattr(fnx_algorithms, name)(*args) is marker
+
+
 def test_flattened_bfs_reachability_namespace_signatures_and_results_match_oracle():
     graph = fnx.path_graph(4)
     nx_graph = nx.path_graph(4)
