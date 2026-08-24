@@ -244,3 +244,28 @@ def test_classes_scalar_topology_helpers_match_legacy_oracle():
     assert list(fnx_classes.selfloop_edges(graph, data=True, default=None)) == list(
         legacy.classes.selfloop_edges(legacy_graph, data=True, default=None)
     )
+
+
+@pytest.mark.parametrize("with_data", (True, False))
+def test_classes_lifecycle_helpers_match_legacy_oracle(with_data):
+    legacy = _legacy_networkx()
+    legacy_graph = legacy.Graph(graph_label="legacy")
+    graph = fnx.Graph(graph_label="legacy")
+    for candidate in (legacy_graph, graph):
+        candidate.add_node("node", label="kept")
+        candidate.add_edge("node", "other", weight=4)
+
+    legacy_copy = legacy.classes.create_empty_copy(legacy_graph, with_data=with_data)
+    copied = fnx_classes.create_empty_copy(graph, with_data=with_data)
+    assert list(copied.nodes(data=True)) == list(legacy_copy.nodes(data=True))
+    assert copied.graph == legacy_copy.graph
+    assert list(copied.edges(data=True)) == list(legacy_copy.edges(data=True))
+
+    assert fnx_classes.is_frozen(graph) is legacy.classes.is_frozen(legacy_graph)
+    assert fnx_classes.freeze(graph) is graph
+    assert legacy.classes.freeze(legacy_graph) is legacy_graph
+    assert fnx_classes.is_frozen(graph) is legacy.classes.is_frozen(legacy_graph)
+    with pytest.raises(legacy.NetworkXError):
+        legacy_graph.add_node("blocked")
+    with pytest.raises(fnx.NetworkXError):
+        graph.add_node("blocked")

@@ -261,6 +261,27 @@ def selfloop_edges(G, data=False, keys=False, default=None):
     return _fnx.selfloop_edges(G, data=data, keys=keys, default=default)
 
 
+def create_empty_copy(G, with_data=True):
+    """Create an empty native graph preserving the requested data."""
+    import franken_networkx as _fnx
+
+    return _fnx.create_empty_copy(G, with_data)
+
+
+def freeze(G):
+    """Freeze a native graph against mutation."""
+    import franken_networkx as _fnx
+
+    return _fnx.freeze(G)
+
+
+def is_frozen(G):
+    """Return whether a native graph is frozen."""
+    import franken_networkx as _fnx
+
+    return _fnx.is_frozen(G)
+
+
 def _install_fnx_native_class_types():
     import franken_networkx as _fnx
 
