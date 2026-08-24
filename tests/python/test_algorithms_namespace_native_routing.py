@@ -83,6 +83,23 @@ _FLATTENED_WEIGHTED_SHORTEST_PATH_NAMES = [
     "single_source_dijkstra_path",
     "single_source_dijkstra_path_length",
 ]
+_FLATTENED_DAG_NAMES = [
+    "all_topological_sorts",
+    "ancestors",
+    "antichains",
+    "dag_longest_path",
+    "dag_longest_path_length",
+    "dag_to_branching",
+    "descendants",
+    "is_aperiodic",
+    "is_directed_acyclic_graph",
+    "lexicographical_topological_sort",
+    "topological_generations",
+    "topological_sort",
+    "transitive_closure",
+    "transitive_closure_dag",
+    "transitive_reduction",
+]
 
 
 @lru_cache(maxsize=1)
@@ -198,6 +215,27 @@ def test_flattened_weighted_shortest_path_signature_matches_legacy_networkx(name
 
 @pytest.mark.parametrize("name", _FLATTENED_WEIGHTED_SHORTEST_PATH_NAMES)
 def test_flattened_weighted_shortest_path_routes_to_fnx(monkeypatch, name):
+    marker = object()
+
+    def sentinel(*args, **kwargs):
+        assert args == ("payload",)
+        assert kwargs == {"flag": True}
+        return marker
+
+    monkeypatch.setattr(fnx, name, sentinel)
+    assert getattr(fnx_algorithms, name)("payload", flag=True) is marker
+
+
+@pytest.mark.parametrize("name", _FLATTENED_DAG_NAMES)
+def test_flattened_dag_signature_matches_legacy_networkx(name):
+    legacy = _legacy_networkx()
+    assert str(inspect.signature(getattr(fnx_algorithms, name))) == str(
+        inspect.signature(getattr(legacy.algorithms, name))
+    )
+
+
+@pytest.mark.parametrize("name", _FLATTENED_DAG_NAMES)
+def test_flattened_dag_routes_to_fnx(monkeypatch, name):
     marker = object()
 
     def sentinel(*args, **kwargs):

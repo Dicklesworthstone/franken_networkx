@@ -505,6 +505,40 @@ def _make_flattened_weighted_shortest_path_router(_name):
 for _name in _FNX_FLATTENED_WEIGHTED_SHORTEST_PATH_NAMES:
     globals()[_name] = _make_flattened_weighted_shortest_path_router(_name)
 
+_FNX_FLATTENED_DAG_NAMES = (
+    "all_topological_sorts",
+    "ancestors",
+    "antichains",
+    "dag_longest_path",
+    "dag_longest_path_length",
+    "dag_to_branching",
+    "descendants",
+    "is_aperiodic",
+    "is_directed_acyclic_graph",
+    "lexicographical_topological_sort",
+    "topological_generations",
+    "topological_sort",
+    "transitive_closure",
+    "transitive_closure_dag",
+    "transitive_reduction",
+)
+
+
+def _make_flattened_dag_router(_name):
+    def _routed(*args, **kwargs):
+        import franken_networkx as _fnx_call
+
+        return getattr(_fnx_call, _name)(*args, **kwargs)
+
+    _routed.__name__ = _name
+    _routed.__qualname__ = _name
+    _routed.__signature__ = _inspect.signature(getattr(_nx_algorithms, _name))
+    return _routed
+
+
+for _name in _FNX_FLATTENED_DAG_NAMES:
+    globals()[_name] = _make_flattened_dag_router(_name)
+
 _fnx_cycles = _importlib.import_module("franken_networkx.cycles")
 _sys.modules[f"{__name__}.cycles"] = _fnx_cycles
 cycles = _fnx_cycles  # Override in module globals
