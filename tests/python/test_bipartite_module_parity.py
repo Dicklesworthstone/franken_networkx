@@ -160,6 +160,26 @@ def test_bipartite_partition_matching_backend_signatures_match_networkx():
         module.sets(fnx_graph, unexpected=True)
 
 
+def test_bipartite_basic_metrics_backend_signatures_match_networkx():
+    module = importlib.import_module("franken_networkx.bipartite")
+    fnx_graph, nx_graph = _mk(fnx), _mk(nx)
+
+    assert module.density(fnx_graph, _TOP, backend="networkx") == nxb.density(
+        nx_graph, _TOP, backend="networkx"
+    )
+    assert _D(module.degree_centrality(fnx_graph, _TOP, backend="networkx")) == _D(
+        nxb.degree_centrality(nx_graph, _TOP, backend="networkx")
+    )
+    actual_top, actual_bottom = module.degrees(
+        fnx_graph, _TOP, weight=None, backend="networkx"
+    )
+    expected_top, expected_bottom = nxb.degrees(
+        nx_graph, _TOP, weight=None, backend="networkx"
+    )
+    assert list(actual_top) == list(expected_top)
+    assert list(actual_bottom) == list(expected_bottom)
+
+
 def test_bipartite_min_edge_cover_routes_through_fnx(monkeypatch):
     module = importlib.import_module("franken_networkx.bipartite")
     via_algorithms = importlib.import_module("franken_networkx.algorithms.bipartite")

@@ -234,7 +234,7 @@ def write_edgelist(
         path.write(line.encode(encoding))
 
 
-def density(B, nodes):
+def density(B, nodes, *, backend=None, **backend_kwargs):
     """Return the density of bipartite graph ``B``.
 
     br-r37-c1-bipdense: networkx's bipartite.density is re-exported as an
@@ -243,6 +243,7 @@ def density(B, nodes):
     graph). Computed directly here (networkx's exact formula) so it is
     byte-identical and ~20x FASTER than networkx. Works on fnx and nx inputs.
     """
+    _fnx._validate_backend_dispatch_keywords("density", backend, backend_kwargs)
     n = len(B)
     m = B.number_of_edges()
     nb = len(nodes)
@@ -252,7 +253,7 @@ def density(B, nodes):
     return m / (2 * nb * nt) if B.is_directed() else m / (nb * nt)
 
 
-def degree_centrality(G, nodes):
+def degree_centrality(G, nodes, *, backend=None, **backend_kwargs):
     """Bipartite degree centrality, keyed by node.
 
     br-r37-c1-bipdense: same ``@nx._dispatchable`` overhead as :func:`density`
@@ -260,6 +261,9 @@ def degree_centrality(G, nodes):
     networkx's exact algorithm directly on ``G`` -- byte-identical (values and
     dict key order) and ~17x faster than the dispatched path.
     """
+    _fnx._validate_backend_dispatch_keywords(
+        "degree_centrality", backend, backend_kwargs
+    )
     top = set(nodes)
     bottom = set(G) - top
     s = 1.0 / len(bottom)
@@ -269,7 +273,7 @@ def degree_centrality(G, nodes):
     return centrality
 
 
-def degrees(B, nodes, weight=None):
+def degrees(B, nodes, weight=None, *, backend=None, **backend_kwargs):
     """Return ``(degX, degY)`` for the two bipartite node sets of ``B``.
 
     br-r37-c1-bipdeg: re-exported from networkx as an ``@nx._dispatchable``, so
@@ -280,6 +284,7 @@ def degrees(B, nodes, weight=None):
     sets/order) with no conversion. ``nodes`` is one set (the Y set); the first
     returned view is the OTHER set (X = B - nodes).
     """
+    _fnx._validate_backend_dispatch_keywords("degrees", backend, backend_kwargs)
     bottom = set(nodes)
     top = set(B) - bottom
     return (B.degree(top, weight=weight), B.degree(bottom, weight=weight))
@@ -472,7 +477,7 @@ def average_clustering(G, nodes=None, mode="dot"):
     return sum(ccs[v] for v in nodes) / len(nodes)
 
 
-def degree_centrality(G, nodes):
+def degree_centrality(G, nodes, *, backend=None, **backend_kwargs):
     """Bipartite degree centrality (br-r37-c1-bipdc, cc).
 
     nx calls ``G.degree(top)`` then ``G.degree(bottom)`` — two per-nbunch DegreeView
@@ -480,6 +485,9 @@ def degree_centrality(G, nodes):
     is native (~12us); filter it in G-node order, which is exactly the order nx's
     ``G.degree(nbunch)`` (nbunch_iter) yields, so the result dict is byte-identical.
     """
+    _fnx._validate_backend_dispatch_keywords(
+        "degree_centrality", backend, backend_kwargs
+    )
     top = set(nodes)
     bottom = set(G) - top
     all_deg = dict(G.degree())
