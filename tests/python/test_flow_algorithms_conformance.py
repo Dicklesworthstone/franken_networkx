@@ -385,6 +385,31 @@ def test_high_level_flow_boolean_capacity_preserves_networkx_int_type(
     assert isinstance(fnx_cut_value, int)
 
 
+@pytest.mark.parametrize("graph_cls", [fnx.Graph, fnx.DiGraph])
+@pytest.mark.parametrize("function_name", ["maximum_flow_value", "minimum_cut_value"])
+@pytest.mark.parametrize(
+    "edges",
+    [
+        [("s", "x", 0.0), ("x", "t", 0.0)],
+        [("s", "x", 1.0), ("x", "q", 1.0), ("y", "t", 1.0)],
+    ],
+    ids=["zero_float_path", "disconnected_float_path"],
+)
+def test_high_level_flow_zero_float_result_preserves_networkx_int_type(
+    graph_cls, function_name, edges,
+):
+    fnx_graph = graph_cls()
+    nx_graph = nx.DiGraph() if graph_cls is fnx.DiGraph else nx.Graph()
+    for u, v, capacity in edges:
+        fnx_graph.add_edge(u, v, capacity=capacity)
+        nx_graph.add_edge(u, v, capacity=capacity)
+
+    actual = getattr(fnx, function_name)(fnx_graph, "s", "t")
+    expected = getattr(nx, function_name)(nx_graph, "s", "t")
+    assert actual == expected == 0
+    assert type(actual) is type(expected) is int
+
+
 @pytest.mark.parametrize("algorithm", ALGORITHMS)
 def test_source_equals_target_raises_or_zero(algorithm):
     """``s == t`` is degenerate — both libraries must mirror exactly

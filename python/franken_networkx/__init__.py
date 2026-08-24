@@ -14147,9 +14147,10 @@ def _all_flow_caps_integral(G, capacity):
 
 
 def _coerce_flow_value(value, all_int):
-    if not all_int:
-        return value
-    if isinstance(value, float) and value.is_integer():
+    # NetworkX initializes a zero flow/cut as an integer even when every
+    # capacity is a float.  Non-zero values retain the capacity's float type,
+    # while integral-capacity inputs retain the existing integer coercion.
+    if isinstance(value, float) and value.is_integer() and (all_int or value == 0.0):
         return int(value)
     return value
 
