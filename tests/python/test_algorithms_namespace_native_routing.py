@@ -123,6 +123,21 @@ _FLATTENED_CLUSTER_NAMES = [
     "square_clustering",
     "generalized_degree",
 ]
+_FLATTENED_ASSORTATIVITY_NAMES = [
+    "attribute_assortativity_coefficient",
+    "attribute_mixing_dict",
+    "attribute_mixing_matrix",
+    "average_degree_connectivity",
+    "average_neighbor_degree",
+    "degree_assortativity_coefficient",
+    "degree_mixing_dict",
+    "degree_mixing_matrix",
+    "degree_pearson_correlation_coefficient",
+    "mixing_dict",
+    "node_attribute_xy",
+    "node_degree_xy",
+    "numeric_assortativity_coefficient",
+]
 
 
 @lru_cache(maxsize=1)
@@ -250,6 +265,52 @@ def test_flattened_cluster_routes_to_leaf_module(monkeypatch, name):
 
     monkeypatch.setattr(fnx_algorithms.cluster, name, sentinel)
     assert getattr(fnx_algorithms, name)("graph", flag=True) is marker
+
+
+@pytest.mark.parametrize("name", _FLATTENED_ASSORTATIVITY_NAMES)
+def test_flattened_assortativity_signature_matches_legacy_oracle(name):
+    legacy = _legacy_networkx()
+    actual = getattr(fnx_algorithms, name)
+    expected = getattr(legacy.algorithms, name)
+    assert str(inspect.signature(actual)) == str(inspect.signature(expected))
+
+
+@pytest.mark.parametrize("name", _FLATTENED_ASSORTATIVITY_NAMES)
+def test_flattened_assortativity_routes_to_leaf_module(monkeypatch, name):
+    marker = object()
+
+    def sentinel(*args, **kwargs):
+        assert args == ("payload",)
+        assert kwargs == {"flag": True}
+        return marker
+
+    monkeypatch.setattr(fnx_algorithms.assortativity, name, sentinel)
+    assert getattr(fnx_algorithms, name)("payload", flag=True) is marker
+
+
+def test_flattened_assortativity_values_and_backend_rejection_match_oracle():
+    legacy = _legacy_networkx()
+    graph = fnx.Graph([(0, 1), (0, 2), (0, 3), (3, 4)])
+    legacy_graph = legacy.Graph(list(graph.edges()))
+    attributes = {0: "hub", 1: "leaf", 2: "leaf", 3: "middle", 4: "leaf"}
+    fnx.set_node_attributes(graph, attributes, "kind")
+    legacy.set_node_attributes(legacy_graph, attributes, "kind")
+
+    assert fnx_algorithms.attribute_mixing_dict(graph, "kind") == (
+        legacy.algorithms.attribute_mixing_dict(legacy_graph, "kind")
+    )
+    assert fnx_algorithms.average_neighbor_degree(graph) == pytest.approx(
+        legacy.algorithms.average_neighbor_degree(legacy_graph)
+    )
+    assert list(fnx_algorithms.node_attribute_xy(graph, "kind")) == list(
+        legacy.algorithms.node_attribute_xy(legacy_graph, "kind")
+    )
+    assert fnx_algorithms.mixing_dict([(1, 2), (1, 2), (2, 1)]) == (
+        legacy.algorithms.mixing_dict([(1, 2), (1, 2), (2, 1)])
+    )
+
+    with pytest.raises(ImportError):
+        fnx_algorithms.degree_assortativity_coefficient(graph, backend="missing")
 
 
 @pytest.mark.parametrize("name", _FLATTENED_LINK_PREDICTION_NAMES)

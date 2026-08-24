@@ -373,6 +373,41 @@ _alias_nx_child_modules(
     "networkx.algorithms.assortativity", f"{__name__}.assortativity"
 )
 
+# These common flattened spellings are native routes, but the generic
+# flattened-name installer below would otherwise replace them with a
+# ``*args, **kwargs`` wrapper. Keep the upstream signatures while resolving the
+# leaf implementation when called so that backend validation stays in the
+# assortativity module.
+_FNX_FLATTENED_ASSORTATIVITY_NAMES = (
+    "attribute_assortativity_coefficient",
+    "attribute_mixing_dict",
+    "attribute_mixing_matrix",
+    "average_degree_connectivity",
+    "average_neighbor_degree",
+    "degree_assortativity_coefficient",
+    "degree_mixing_dict",
+    "degree_mixing_matrix",
+    "degree_pearson_correlation_coefficient",
+    "mixing_dict",
+    "node_attribute_xy",
+    "node_degree_xy",
+    "numeric_assortativity_coefficient",
+)
+
+
+def _make_flattened_assortativity_router(_name):
+    def _routed(*args, **kwargs):
+        return getattr(_fnx_assortativity, _name)(*args, **kwargs)
+
+    _routed.__name__ = _name
+    _routed.__qualname__ = _name
+    _routed.__signature__ = _inspect.signature(getattr(_nx_algorithms, _name))
+    return _routed
+
+
+for _name in _FNX_FLATTENED_ASSORTATIVITY_NAMES:
+    globals()[_name] = _make_flattened_assortativity_router(_name)
+
 import franken_networkx.summarization as _fnx_summarization
 _sys.modules[f"{__name__}.summarization"] = _fnx_summarization
 summarization = _fnx_summarization  # Override in module globals
