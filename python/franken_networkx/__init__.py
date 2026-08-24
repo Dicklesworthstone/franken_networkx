@@ -4182,7 +4182,8 @@ class _LiveMultiEdgeCallView:
         return (u in adj and v in adj[u]) or (v in adj and u in adj[v])
 
     def __repr__(self):
-        return f"MultiEdgeDataView({list(self)!r})"
+        name = "OutMultiEdgeDataView" if self._directed else "MultiEdgeDataView"
+        return f"{name}({list(self)!r})"
 
     def __eq__(self, other):
         if isinstance(other, (set, frozenset)):

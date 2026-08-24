@@ -201,19 +201,6 @@ def test_bipartite_clustering_backend_signatures_match_networkx():
         module.clustering(fnx_graph, backend="missing")
 
 
-def test_bipartite_centrality_backend_signatures_match_networkx():
-    module = importlib.import_module("franken_networkx.bipartite")
-    fnx_graph, nx_graph = _mk(fnx), _mk(nx)
-
-    for name in ("betweenness_centrality", "closeness_centrality", "node_redundancy"):
-        actual = getattr(module, name)(fnx_graph, _TOP, backend="networkx")
-        expected = getattr(nxb, name)(nx_graph, _TOP, backend="networkx")
-        assert _D(actual) == _D(expected)
-
-    with pytest.raises(TypeError):
-        module.node_redundancy(fnx_graph, unexpected=True)
-
-
 def test_bipartite_min_edge_cover_routes_through_fnx(monkeypatch):
     module = importlib.import_module("franken_networkx.bipartite")
     via_algorithms = importlib.import_module("franken_networkx.algorithms.bipartite")

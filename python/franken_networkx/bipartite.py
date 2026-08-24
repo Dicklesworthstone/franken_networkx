@@ -513,7 +513,7 @@ def degree_centrality(G, nodes, *, backend=None, **backend_kwargs):
     return centrality
 
 
-def node_redundancy(G, nodes=None, *, backend=None, **backend_kwargs):
+def node_redundancy(G, nodes=None):
     """Node redundancy coefficients ``{node: rc(v)}`` for bipartite ``G``.
 
     br-r37-c1-g6wla: re-exported from networkx as an ``@nx._dispatchable``, so
@@ -527,9 +527,6 @@ def node_redundancy(G, nodes=None, *, backend=None, **backend_kwargs):
     ``nodes=None`` (all nodes) case takes the native path; an explicit ``nodes``
     subset, nx-typed / directed / multigraph inputs delegate to nx.
     """
-    _fnx._validate_backend_dispatch_keywords(
-        "node_redundancy", backend, backend_kwargs
-    )
     native = getattr(_fnx._fnx, "node_redundancy_overlaps", None)
     if (
         native is not None
@@ -647,9 +644,6 @@ def spectral_bipartivity(G, nodes=None, weight="weight"):
 
     nodelist = list(G)
     A = _fnx.to_numpy_array(G, nodelist, weight=weight)
-    _fnx._validate_backend_dispatch_keywords(
-        "node_redundancy", backend, backend_kwargs
-    )
     if nodes is None:
         lam = _np.linalg.eigvalsh(A)
         return float(_np.cosh(lam).sum() / _np.exp(lam).sum())
@@ -795,7 +789,7 @@ def is_bipartite_node_set(G, nodes, *, backend=None, **backend_kwargs):
     return True
 
 
-def betweenness_centrality(G, nodes, *, backend=None, **backend_kwargs):
+def betweenness_centrality(G, nodes):
     """Bipartite betweenness centrality, computed via the fnx-native kernel.
 
     br-r37-c1-kp3o0: networkx's ``bipartite.betweenness_centrality`` is
@@ -815,9 +809,6 @@ def betweenness_centrality(G, nodes, *, backend=None, **backend_kwargs):
     divergence. Dict key order is byte-identical to nx and the result is
     deterministic across runs. ~28-31x FASTER than the re-exported path.
     """
-    _fnx._validate_backend_dispatch_keywords(
-        "betweenness_centrality", backend, backend_kwargs
-    )
     top = set(nodes)
     bottom = set(G) - top
     n = len(top)
@@ -842,9 +833,7 @@ def betweenness_centrality(G, nodes, *, backend=None, **backend_kwargs):
     return betweenness
 
 
-def closeness_centrality(
-    G, nodes, normalized=True, *, backend=None, **backend_kwargs
-):
+def closeness_centrality(G, nodes, normalized=True):
     """Bipartite closeness centrality, computed via fnx-native BFS.
 
     br-r37-c1-kp3o0: networkx's ``bipartite.closeness_centrality`` is
@@ -859,9 +848,6 @@ def closeness_centrality(
     """
     closeness = {}
     path_length = _fnx.single_source_shortest_path_length
-    _fnx._validate_backend_dispatch_keywords(
-        "closeness_centrality", backend, backend_kwargs
-    )
     top = set(nodes)
     bottom = set(G) - top
     n = len(top)
