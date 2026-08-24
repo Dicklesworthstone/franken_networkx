@@ -22126,6 +22126,98 @@ fn multidigraph_single_source_dijkstra_path_length(
     Ok(Some(dict.into_any().unbind()))
 }
 
+/// Return both weighted distances and paths from one MultiDiGraph source.
+///
+/// This is the path-bearing sibling of
+/// [`multidigraph_single_source_dijkstra_path_length`]. The native walk already
+/// records each finalised node's predecessor, so rebuilding a simple graph just
+/// to ask for paths would throw that work away and turn a native traversal into
+/// an O(E) Python edge walk.
+#[pyfunction]
+#[pyo3(signature = (g, source, weight="weight", cutoff=None))]
+fn multidigraph_single_source_dijkstra(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    source: &Bound<'_, PyAny>,
+    weight: &str,
+    cutoff: Option<f64>,
+) -> PyResult<Option<(PyObject, PyObject)>> {
+    sync_rust_edge_attrs_if_available(g)?;
+    let gr = extract_graph(g)?;
+    let source_key = node_key_to_string(py, source)?;
+    validate_node_str(&gr, &source_key, "Source")?;
+    let GraphRef::MultiDirected { mdg, .. } = &gr else {
+        return Ok(None);
+    };
+
+    let inner = &mdg.inner;
+    let rows = multidigraph_dijkstra_rows_for_graph(mdg, weight);
+    let result = match rows {
+        Some(rows) => py.allow_threads(|| {
+            multidigraph_single_source_dijkstra_lengths_rows(&rows, &source_key, cutoff)
+        }),
+        None => py.allow_threads(|| {
+            multidigraph_single_source_dijkstra_lengths_borrowed(inner, &source_key, weight, cutoff)
+        }),
+    };
+    let MultiDiDijkstraSourceLengths::Entries(entries) = result else {
+        return Ok(None);
+    };
+    let Some(&(source_idx, _, _, _)) = entries.first() else {
+        return Ok(Some((
+            PyDict::new(py).into_any().unbind(),
+            PyDict::new(py).into_any().unbind(),
+        )));
+    };
+
+    let nodes = inner.nodes_ordered();
+    let discovery: Vec<usize> = entries
+        .iter()
+        .map(|(node_idx, _, _, _)| *node_idx)
+        .collect();
+    let predecessors: HashMap<usize, usize> = entries
+        .iter()
+        .filter_map(|(node_idx, _, _, predecessor)| predecessor.map(|parent| (*node_idx, parent)))
+        .collect();
+    let paths = emit_paths_dict_discovery_parent_index(
+        py,
+        &gr,
+        |index| nodes.get(index).copied(),
+        source_idx,
+        source.clone().unbind(),
+        &discovery,
+        &predecessors,
+    )?;
+
+    let mut display: HashMap<String, PyObject> = HashMap::with_capacity(entries.len() + 1);
+    display.insert(source_key, source.clone().unbind());
+    for (node_idx, _, _, predecessor) in &entries {
+        if let Some(parent_idx) = predecessor {
+            display.insert(
+                nodes[*node_idx].to_owned(),
+                gr.py_row_key(py, nodes[*parent_idx], nodes[*node_idx]),
+            );
+        }
+    }
+    let distances = PyDict::new(py);
+    for (node_idx, distance, all_int, _) in &entries {
+        let node = nodes[*node_idx];
+        let key = gr.disp_or_node_key(py, &display, node);
+        if *all_int
+            && distance.is_finite()
+            && distance.fract() == 0.0
+            && *distance >= i128::MIN as f64
+            && *distance <= i128::MAX as f64
+        {
+            distances.set_item(key, PyInt::new(py, *distance as i128))?;
+        } else {
+            distances.set_item(key, distance)?;
+        }
+    }
+
+    Ok(Some((distances.into_any().unbind(), paths.into_any())))
+}
+
 /// Return the shortest path length from source to target using Bellman-Ford.
 #[pyfunction]
 #[pyo3(signature = (g, source, target, weight="weight"))]
@@ -28198,6 +28290,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
         multidigraph_single_source_dijkstra_path_length,
         m
     )?)?;
+    m.add_function(wrap_pyfunction!(multidigraph_single_source_dijkstra, m)?)?;
     // Connectivity
     m.add_function(wrap_pyfunction!(is_connected, m)?)?;
     m.add_function(wrap_pyfunction!(connected_components, m)?)?;

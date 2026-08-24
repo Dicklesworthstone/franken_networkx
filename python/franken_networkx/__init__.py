@@ -24541,6 +24541,7 @@ from franken_networkx._fnx import (
     dijkstra_path_length as _raw_dijkstra_path_length,
     multidigraph_dijkstra_path_target as _raw_multidigraph_dijkstra_path_target,
     multidigraph_dijkstra_path_length_target as _raw_multidigraph_dijkstra_path_length_target,
+    multidigraph_single_source_dijkstra as _raw_mdg_ss_dijkstra,
     multidigraph_single_source_dijkstra_path_length as _raw_mdg_ss_dijkstra_path_length,
     bellman_ford_path_length as _raw_bellman_ford_path_length,
     single_source_dijkstra as _raw_single_source_dijkstra,
@@ -25257,11 +25258,11 @@ def single_source_dijkstra(G, source, target=None, cutoff=None, weight="weight")
     # x cutoff x directed sweep. Only the genuinely-unhandleable cases
     # (negative / +inf / non-numeric / callable weight) still delegate, via
     # `_should_delegate_dijkstra_to_networkx`.
-    # br-cc-mgdijkstra-dir: DIRECTED multigraph -> collapse to the simple min-weight
-    # DiGraph and recurse. Byte-exact for BOTH distances AND paths (directed
-    # edges(keys,data) is node-major over out-edges, so the collapsed adjacency
-    # order == the multigraph out-adjacency order -> identical tie-breaking). Fixes
-    # single_source_dijkstra AND single_source_dijkstra_path (delegates here).
+    # br-r37-c1-0kvxh: directed multigraphs have a native Dijkstra walk with
+    # finalize-order predecessors, so source-wide path queries need not collapse
+    # every parallel edge into a temporary DiGraph before answering. The native
+    # result carries both dictionaries; single_source_dijkstra_path delegates here
+    # and receives the same path dictionary.
     if G.is_directed() and G.is_multigraph() and isinstance(weight, str):
         # br-cc-mgssd-target: with a concrete target and no cutoff,
         # single_source_dijkstra is a single-pair query — route straight to the
@@ -25293,8 +25294,9 @@ def single_source_dijkstra(G, source, target=None, cutoff=None, weight="weight")
                 raise NetworkXNoPath(f"No path to {target}.") from None
             if _len is not None and _path is not None:
                 return _len, _path
-        _simple, _delegate = _multigraph_collapse_min_weight(G, weight)
-        if _delegate:
+        if source not in G:
+            raise NodeNotFound(f"Node {source} not found in graph")
+        if _sp_weights_need_networkx_for_type_parity(G, weight):
             return _call_networkx_for_parity(
                 "single_source_dijkstra",
                 G,
@@ -25303,9 +25305,22 @@ def single_source_dijkstra(G, source, target=None, cutoff=None, weight="weight")
                 cutoff=cutoff,
                 weight=weight,
             )
-        return single_source_dijkstra(
-            _simple, source, target=target, cutoff=cutoff, weight=weight
-        )
+        _direct = _raw_mdg_ss_dijkstra(G, source, weight=weight, cutoff=cutoff)
+        if _direct is None:
+            return _call_networkx_for_parity(
+                "single_source_dijkstra",
+                G,
+                source,
+                target=target,
+                cutoff=cutoff,
+                weight=weight,
+            )
+        dists, paths = _direct
+        if target is not None:
+            if target not in dists:
+                raise NetworkXNoPath(f"No path to {target}.")
+            return dists[target], paths[target]
+        return dists, paths
     if _should_delegate_dijkstra_to_networkx(G, weight):
         return _call_networkx_for_parity(
             "single_source_dijkstra",
