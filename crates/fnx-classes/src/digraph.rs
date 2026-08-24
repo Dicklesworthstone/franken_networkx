@@ -2641,6 +2641,33 @@ impl MultiDiGraph {
         }
     }
 
+    /// br-r37-c1-s8dj1: how many PARALLEL edges a pair carries, addressed by
+    /// node POSITION. `number_of_edges(u, v)` built two owned canonicals and
+    /// hashed the pair to answer what is a bucket length, and measured 0.272x
+    /// of networkx at 2000-character keys — the worst surviving row on this
+    /// class after the keyed `has_edge` path landed.
+    ///
+    /// Falls back to the name path while the lookaside is still warming up, so
+    /// it inherits the same amortisation guard rather than forcing a build.
+    #[must_use]
+    pub fn edge_key_count_by_indices(&self, source_idx: usize, target_idx: usize) -> usize {
+        if let Some(position) = self.edge_pair_position(source_idx, target_idx) {
+            return position
+                .and_then(|found| self.edges.get_index(found))
+                .map_or(0, |(_, keyed)| keyed.len());
+        }
+        match (
+            self.get_node_name(source_idx),
+            self.get_node_name(target_idx),
+        ) {
+            (Some(source), Some(target)) => self
+                .edges
+                .get(&DirectedEdgeKeyRef::new(source, target))
+                .map_or(0, IndexMap::len),
+            _ => 0,
+        }
+    }
+
     /// br-r37-c1-s8dj1: attributes of a KEYED directed edge, addressed by node
     /// POSITION — the directed twin of `MultiGraph::edge_attrs_by_indices`, and
     /// the primitive whose absence is why `PyMultiDiGraph::has_edge` left its

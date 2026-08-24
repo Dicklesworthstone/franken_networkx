@@ -9559,6 +9559,23 @@ impl PyMultiDiGraph {
     ) -> PyResult<usize> {
         match (u, v) {
             (Some(u_node), Some(v_node)) => {
+                // br-r37-c1-s8dj1: exact-`str` endpoints answer from node
+                // POSITIONS. This built two owned canonicals and hashed the pair
+                // to report what is a bucket length, and measured 0.272x of
+                // networkx at 2000-character keys — the worst surviving row on
+                // this class once the keyed `has_edge` path landed. Every other
+                // endpoint shape keeps the canonical path below.
+                if u_node.is_exact_instance_of::<PyString>()
+                    && v_node.is_exact_instance_of::<PyString>()
+                {
+                    let Some(u_index) = self.cached_exact_string_node_index(py, u_node)? else {
+                        return Ok(0);
+                    };
+                    let Some(v_index) = self.cached_exact_string_node_index(py, v_node)? else {
+                        return Ok(0);
+                    };
+                    return Ok(self.inner.edge_key_count_by_indices(u_index, v_index));
+                }
                 let u_c = node_key_to_string(py, u_node)?;
                 let v_c = node_key_to_string(py, v_node)?;
                 Ok(self

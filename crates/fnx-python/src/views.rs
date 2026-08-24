@@ -991,11 +991,7 @@ impl EdgeView {
                         cached.set_item(index, item)?;
                     }
                     let cached = cached.unbind();
-                    g.edges_alldata_cache = Some((
-                        nodes_seq,
-                        edges_seq,
-                        cached.clone_ref(py),
-                    ));
+                    g.edges_alldata_cache = Some((nodes_seq, edges_seq, cached.clone_ref(py)));
                     cached
                 }
             };
@@ -1006,7 +1002,9 @@ impl EdgeView {
                 .map(Bound::unbind);
         }
         let (items, node_count, nodes_seq) = match &self.data {
-            NodeViewData::AllData => unreachable!("AllData returns through the cached dict iterator"),
+            NodeViewData::AllData => {
+                unreachable!("AllData returns through the cached dict iterator")
+            }
             _ => {
                 let g = self.graph.borrow(py);
                 // br-r37-c1-eqedg: use O(1) node_count() instead of allocating nodes_ordered() Vec
@@ -1080,36 +1078,35 @@ impl EdgeView {
                 let items: Vec<PyObject> = if let Some(built) = index_walk {
                     built
                 } else {
-                    g
-                    .inner
-                    .edges_ordered_borrowed()
-                    .into_iter()
-                    .map(|(left, right, _attrs)| {
-                        let py_u = g.py_node_key(py, left);
-                        let py_v = g.py_adj_key(py, left, right); // br-r37-c1-z6uka
-                        // br-r37-c1-7gxek: the canonical edge_key + edge_py_attrs lookup
-                        // are only needed by the data-bearing variants. Computing them
-                        // eagerly cost 2 String clones + a hashmap probe per edge on the
-                        // plain `G.edges()` (NoData) hot path where they are discarded;
-                        // resolve them lazily inside the branches that use them.
-                        match &self.data {
-                            NodeViewData::NoData => tuple_object(py, &[py_u, py_v]),
-                            NodeViewData::Attr(attr_name) => {
-                                let val = g
-                                    .edge_attr_py_value(py, left, right, attr_name)?
-                                    .unwrap_or_else(|| py.None());
-                                tuple_object(py, &[py_u, py_v, val])
+                    g.inner
+                        .edges_ordered_borrowed()
+                        .into_iter()
+                        .map(|(left, right, _attrs)| {
+                            let py_u = g.py_node_key(py, left);
+                            let py_v = g.py_adj_key(py, left, right); // br-r37-c1-z6uka
+                            // br-r37-c1-7gxek: the canonical edge_key + edge_py_attrs lookup
+                            // are only needed by the data-bearing variants. Computing them
+                            // eagerly cost 2 String clones + a hashmap probe per edge on the
+                            // plain `G.edges()` (NoData) hot path where they are discarded;
+                            // resolve them lazily inside the branches that use them.
+                            match &self.data {
+                                NodeViewData::NoData => tuple_object(py, &[py_u, py_v]),
+                                NodeViewData::Attr(attr_name) => {
+                                    let val = g
+                                        .edge_attr_py_value(py, left, right, attr_name)?
+                                        .unwrap_or_else(|| py.None());
+                                    tuple_object(py, &[py_u, py_v, val])
+                                }
+                                NodeViewData::AttrWithDefault(attr_name, def_val) => {
+                                    let val = g
+                                        .edge_attr_py_value(py, left, right, attr_name)?
+                                        .unwrap_or_else(|| def_val.clone_ref(py));
+                                    tuple_object(py, &[py_u, py_v, val])
+                                }
+                                NodeViewData::AllData => unreachable!(),
                             }
-                            NodeViewData::AttrWithDefault(attr_name, def_val) => {
-                                let val = g
-                                    .edge_attr_py_value(py, left, right, attr_name)?
-                                    .unwrap_or_else(|| def_val.clone_ref(py));
-                                tuple_object(py, &[py_u, py_v, val])
-                            }
-                            NodeViewData::AllData => unreachable!(),
-                        }
-                    })
-                    .collect::<PyResult<Vec<_>>>()?
+                        })
+                        .collect::<PyResult<Vec<_>>>()?
                 };
                 (items, node_count, nodes_seq)
             }
@@ -1414,34 +1411,34 @@ impl EdgeView {
                 if let Some(built) = index_walk {
                     built
                 } else {
-                // br-r37-c1-eqedg: use edges_ordered_borrowed to avoid string cloning
-                g.inner
-                    .edges_ordered_borrowed()
-                    .into_iter()
-                    .filter(|(left, right, _)| {
-                        node_set.contains(*left) || node_set.contains(*right)
-                    })
-                    .map(|(left, right, _attrs)| {
-                        let py_u = g.py_node_key(py, left);
-                        let py_v = g.py_adj_key(py, left, right); // br-r37-c1-z6uka
-                        match &view_data {
-                            NodeViewData::NoData => tuple_object(py, &[py_u, py_v]),
-                            NodeViewData::Attr(attr_name) => {
-                                let val = g
-                                    .edge_attr_py_value(py, left, right, attr_name)?
-                                    .unwrap_or_else(|| py.None());
-                                tuple_object(py, &[py_u, py_v, val])
+                    // br-r37-c1-eqedg: use edges_ordered_borrowed to avoid string cloning
+                    g.inner
+                        .edges_ordered_borrowed()
+                        .into_iter()
+                        .filter(|(left, right, _)| {
+                            node_set.contains(*left) || node_set.contains(*right)
+                        })
+                        .map(|(left, right, _attrs)| {
+                            let py_u = g.py_node_key(py, left);
+                            let py_v = g.py_adj_key(py, left, right); // br-r37-c1-z6uka
+                            match &view_data {
+                                NodeViewData::NoData => tuple_object(py, &[py_u, py_v]),
+                                NodeViewData::Attr(attr_name) => {
+                                    let val = g
+                                        .edge_attr_py_value(py, left, right, attr_name)?
+                                        .unwrap_or_else(|| py.None());
+                                    tuple_object(py, &[py_u, py_v, val])
+                                }
+                                NodeViewData::AttrWithDefault(attr_name, def_val) => {
+                                    let val = g
+                                        .edge_attr_py_value(py, left, right, attr_name)?
+                                        .unwrap_or_else(|| def_val.clone_ref(py));
+                                    tuple_object(py, &[py_u, py_v, val])
+                                }
+                                NodeViewData::AllData => unreachable!(),
                             }
-                            NodeViewData::AttrWithDefault(attr_name, def_val) => {
-                                let val = g
-                                    .edge_attr_py_value(py, left, right, attr_name)?
-                                    .unwrap_or_else(|| def_val.clone_ref(py));
-                                tuple_object(py, &[py_u, py_v, val])
-                            }
-                            NodeViewData::AllData => unreachable!(),
-                        }
-                    })
-                    .collect::<PyResult<Vec<_>>>()?
+                        })
+                        .collect::<PyResult<Vec<_>>>()?
                 }
             };
             Ok(items.into_pyobject(py)?.into_any().unbind())
@@ -2105,7 +2102,12 @@ impl AtlasView {
         // br-r37-c1-do7g5: `try_iter()` is PyObject_GetIter, the C-level slot.
         // `call_method0("__iter__")` looked the method up on the dict's type and
         // called it to build the same `dict_keyiterator`.
-        Ok(self.materialize(py)?.bind(py).try_iter()?.into_any().unbind())
+        Ok(self
+            .materialize(py)?
+            .bind(py)
+            .try_iter()?
+            .into_any()
+            .unbind())
     }
 
     fn keys(mut slf: PyRefMut<'_, Self>, py: Python<'_>) -> PyResult<PyObject> {

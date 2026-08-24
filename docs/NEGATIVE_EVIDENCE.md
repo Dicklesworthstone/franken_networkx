@@ -16732,6 +16732,8 @@ passed its list/value equality assertions before timing both rows. A final
 reverted-tree rerun of the same focused bench, with the benchmark row kept and
 production code removed, measured FNX `15.793 ms` vs NetworkX `5.2914 ms`
 (`0.335x` vs NetworkX).
+=======
+passed its list/value equality assertions before timing both rows.
 
 Decision: REVERTED. The borrowed stream avoids the triples allocation but does
 not move the dominant Python tuple/value materialization cost, and it regressed
