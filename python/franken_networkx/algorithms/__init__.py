@@ -802,6 +802,94 @@ def chordal_graph_treewidth(G, *, backend=None, **backend_kwargs):
     return _fnx_call.chordal_graph_treewidth(G, backend=backend, **backend_kwargs)
 
 
+def bfs_edges(
+    G,
+    source,
+    reverse=False,
+    depth_limit=None,
+    sort_neighbors=None,
+    *,
+    backend=None,
+    **backend_kwargs,
+):
+    import franken_networkx as _fnx_call
+
+    return _fnx_call.bfs_edges(
+        G,
+        source,
+        reverse=reverse,
+        depth_limit=depth_limit,
+        sort_neighbors=sort_neighbors,
+        backend=backend,
+        **backend_kwargs,
+    )
+
+
+def bfs_predecessors(
+    G,
+    source,
+    depth_limit=None,
+    sort_neighbors=None,
+    *,
+    backend=None,
+    **backend_kwargs,
+):
+    import franken_networkx as _fnx_call
+
+    return _fnx_call.bfs_predecessors(
+        G,
+        source,
+        depth_limit=depth_limit,
+        sort_neighbors=sort_neighbors,
+        backend=backend,
+        **backend_kwargs,
+    )
+
+
+def bfs_successors(
+    G,
+    source,
+    depth_limit=None,
+    sort_neighbors=None,
+    *,
+    backend=None,
+    **backend_kwargs,
+):
+    import franken_networkx as _fnx_call
+
+    return _fnx_call.bfs_successors(
+        G,
+        source,
+        depth_limit=depth_limit,
+        sort_neighbors=sort_neighbors,
+        backend=backend,
+        **backend_kwargs,
+    )
+
+
+def bfs_tree(
+    G,
+    source,
+    reverse=False,
+    depth_limit=None,
+    sort_neighbors=None,
+    *,
+    backend=None,
+    **backend_kwargs,
+):
+    import franken_networkx as _fnx_call
+
+    return _fnx_call.bfs_tree(
+        G,
+        source,
+        reverse=reverse,
+        depth_limit=depth_limit,
+        sort_neighbors=sort_neighbors,
+        backend=backend,
+        **backend_kwargs,
+    )
+
+
 def __getattr__(name):
     import networkx.algorithms as _src
 

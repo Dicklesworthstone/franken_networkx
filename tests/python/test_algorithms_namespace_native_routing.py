@@ -554,6 +554,25 @@ def test_spanning_tree_count_namespace_signature_and_results_match_oracle():
         actual(fnx.complete_graph(4), backend="missing")
 
 
+@pytest.mark.parametrize("name", ["bfs_edges", "bfs_predecessors", "bfs_successors", "bfs_tree"])
+def test_flattened_bfs_namespace_signature_and_results_match_oracle(name):
+    actual = getattr(fnx_algorithms, name)
+    expected = getattr(nx.algorithms, name)
+    assert str(inspect.signature(actual)) in {str(inspect.signature(expected))}
+
+    graph = fnx.path_graph(4)
+    nx_graph = nx.path_graph(4)
+    actual_value = actual(graph, 0, backend="networkx")
+    expected_value = expected(nx_graph, 0, backend="networkx")
+    if name == "bfs_tree":
+        assert set(actual_value) == set(expected_value)
+        assert set(actual_value.edges) == set(expected_value.edges)
+    else:
+        assert list(actual_value) == list(expected_value)
+    with pytest.raises(ImportError):
+        actual(graph, 0, backend="missing")
+
+
 @pytest.mark.parametrize(
     "name",
     ["edge_connectivity", "node_connectivity", "minimum_edge_cut", "minimum_node_cut"],
