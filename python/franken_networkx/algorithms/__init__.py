@@ -19,6 +19,7 @@ raised ``ModuleNotFoundError``.
 
 import sys as _sys
 import importlib as _importlib
+import inspect as _inspect
 import pkgutil as _pkgutil
 
 import networkx.algorithms as _nx_algorithms
@@ -480,6 +481,31 @@ isolate = _fnx_isolate  # Override in module globals
 _fnx_link_prediction = _importlib.import_module("franken_networkx.link_prediction")
 _sys.modules[f"{__name__}.link_prediction"] = _fnx_link_prediction
 link_prediction = _fnx_link_prediction  # Override in module globals
+
+_FNX_FLATTENED_LINK_PREDICTION_NAMES = (
+    "resource_allocation_index",
+    "jaccard_coefficient",
+    "adamic_adar_index",
+    "preferential_attachment",
+    "cn_soundarajan_hopcroft",
+    "ra_index_soundarajan_hopcroft",
+    "within_inter_cluster",
+    "common_neighbor_centrality",
+)
+
+
+def _make_flattened_link_prediction_router(_name):
+    def _routed(*args, **kwargs):
+        return getattr(_fnx_link_prediction, _name)(*args, **kwargs)
+
+    _routed.__name__ = _name
+    _routed.__qualname__ = _name
+    _routed.__signature__ = _inspect.signature(getattr(_nx_algorithms, _name))
+    return _routed
+
+
+for _name in _FNX_FLATTENED_LINK_PREDICTION_NAMES:
+    globals()[_name] = _make_flattened_link_prediction_router(_name)
 
 _fnx_lowest_common_ancestors = _importlib.import_module(
     "franken_networkx.lowest_common_ancestors"

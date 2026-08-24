@@ -12,8 +12,12 @@ br-r37-c1-nhbni
 
 from __future__ import annotations
 
+import importlib.util
 import inspect
 import math
+import sys
+from functools import lru_cache
+from pathlib import Path
 
 import pytest
 import networkx as nx
@@ -32,6 +36,33 @@ _CLASSES = [
     "ArborescenceIterator", "EdgePartition", "NetworkXTreewidthBoundExceeded",
     "SpanningTreeIterator",
 ]
+_FLATTENED_LINK_PREDICTION_NAMES = [
+    "resource_allocation_index",
+    "jaccard_coefficient",
+    "adamic_adar_index",
+    "preferential_attachment",
+    "cn_soundarajan_hopcroft",
+    "ra_index_soundarajan_hopcroft",
+    "within_inter_cluster",
+    "common_neighbor_centrality",
+]
+
+
+@lru_cache(maxsize=1)
+def _legacy_networkx():
+    module_name = "franken_networkx_legacy_networkx_algorithms_surface"
+    legacy_init = (
+        Path(__file__).resolve().parents[2]
+        / "legacy_networkx_code"
+        / "networkx"
+        / "networkx"
+        / "__init__.py"
+    )
+    spec = importlib.util.spec_from_file_location(module_name, legacy_init)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[module_name] = module
+    spec.loader.exec_module(module)
+    return module
 
 
 def test_no_flattened_function_still_bound_to_networkx():
@@ -76,6 +107,27 @@ def test_routed_function_values_match_networkx():
         nx.wiener_index(nx.complete_graph(4))
     )
     assert fnx_algorithms.transitivity(g) == pytest.approx(nx.transitivity(ng))
+
+
+@pytest.mark.parametrize("name", _FLATTENED_LINK_PREDICTION_NAMES)
+def test_flattened_link_prediction_signature_matches_legacy_networkx(name):
+    legacy = _legacy_networkx()
+    assert str(inspect.signature(getattr(fnx_algorithms, name))) == str(
+        inspect.signature(getattr(legacy.algorithms, name))
+    )
+
+
+@pytest.mark.parametrize("name", _FLATTENED_LINK_PREDICTION_NAMES)
+def test_flattened_link_prediction_routes_to_leaf_module(monkeypatch, name):
+    marker = object()
+
+    def sentinel(*args, **kwargs):
+        assert args == ("payload",)
+        assert kwargs == {"flag": True}
+        return marker
+
+    monkeypatch.setattr(fnx_algorithms.link_prediction, name, sentinel)
+    assert getattr(fnx_algorithms, name)("payload", flag=True) is marker
 
 
 @pytest.mark.parametrize("name", ["equitable_color", "greedy_color"])
