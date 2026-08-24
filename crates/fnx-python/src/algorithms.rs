@@ -5626,7 +5626,11 @@ fn graph_sssp_predecessors_index(
     graph: &fnx_classes::Graph,
     source: &str,
     cutoff: Option<usize>,
-) -> (Option<usize>, Vec<usize>, std::collections::HashMap<usize, usize>) {
+) -> (
+    Option<usize>,
+    Vec<usize>,
+    std::collections::HashMap<usize, usize>,
+) {
     // br-r37-c1-dkwy7: no whole-graph name vector and no dense predecessor
     // array. `nodes_ordered()` existed only to feed the emitter a table it
     // indexed O(reached) times, and the predecessor array was written for the
@@ -5682,7 +5686,11 @@ fn multigraph_sssp_predecessors_index(
     mg: &fnx_classes::MultiGraph,
     source: &str,
     cutoff: Option<usize>,
-) -> (Option<usize>, Vec<usize>, std::collections::HashMap<usize, usize>) {
+) -> (
+    Option<usize>,
+    Vec<usize>,
+    std::collections::HashMap<usize, usize>,
+) {
     // br-r37-c1-dkwy7: no whole-graph name vector and no dense predecessor
     // array. `nodes_ordered()` existed only to feed the emitter a table it
     // indexed O(reached) times, and the predecessor array was written for the
@@ -5755,7 +5763,11 @@ fn multidigraph_sssp_predecessors_index(
     mdg: &fnx_classes::digraph::MultiDiGraph,
     source: &str,
     cutoff: Option<usize>,
-) -> (Option<usize>, Vec<usize>, std::collections::HashMap<usize, usize>) {
+) -> (
+    Option<usize>,
+    Vec<usize>,
+    std::collections::HashMap<usize, usize>,
+) {
     // br-r37-c1-dkwy7: no whole-graph name vector and no dense predecessor
     // array. `nodes_ordered()` existed only to feed the emitter a table it
     // indexed O(reached) times, and the predecessor array was written for the
@@ -5834,7 +5846,11 @@ fn emit_paths_dict_discovery_parent_index<'n>(
             let parent_idx = predecessor.get(&node_idx).copied().unwrap_or(usize::MAX);
             disp.insert(
                 node_idx,
-                gr.py_row_key(py, name_of(parent_idx).unwrap_or_default(), name_of(node_idx).unwrap_or_default()),
+                gr.py_row_key(
+                    py,
+                    name_of(parent_idx).unwrap_or_default(),
+                    name_of(node_idx).unwrap_or_default(),
+                ),
             );
         }
     }
@@ -5912,9 +5928,10 @@ fn emit_paths_dict_uniform_parent_index<'n>(
         py_nodes.insert(node_idx, key);
     }
     let node_key = |idx: usize| -> PyResult<PyObject> {
-        py_nodes.get(&idx).map(|obj| obj.clone_ref(py)).ok_or_else(|| {
-            PyRuntimeError::new_err("single_source_shortest_path node key missing")
-        })
+        py_nodes
+            .get(&idx)
+            .map(|obj| obj.clone_ref(py))
+            .ok_or_else(|| PyRuntimeError::new_err("single_source_shortest_path node key missing"))
     };
 
     let dict = PyDict::new(py);
@@ -18770,9 +18787,9 @@ fn degree_histogram(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Option<Vec
         return Ok(None);
     };
     let inner = &pg.inner;
-    Ok(Some(py.allow_threads(|| {
-        fnx_algorithms::degree_histogram(inner)
-    })))
+    Ok(Some(
+        py.allow_threads(|| fnx_algorithms::degree_histogram(inner)),
+    ))
 }
 
 // ===========================================================================
@@ -23383,10 +23400,8 @@ fn bidirectional_index_meta_from_rows(
     // one byte per node, probed on every neighbour of every expansion.
     let mut pred_seen = vec![false; node_count];
     let mut succ_seen = vec![false; node_count];
-    let mut pred_parent: std::collections::HashMap<usize, usize> =
-        std::collections::HashMap::new();
-    let mut succ_parent: std::collections::HashMap<usize, usize> =
-        std::collections::HashMap::new();
+    let mut pred_parent: std::collections::HashMap<usize, usize> = std::collections::HashMap::new();
+    let mut succ_parent: std::collections::HashMap<usize, usize> = std::collections::HashMap::new();
     pred_seen[source_idx] = true;
     succ_seen[target_idx] = true;
 
@@ -26193,6 +26208,8 @@ pub fn power_rust(py: Python<'_>, g: &Bound<'_, PyAny>, k: usize) -> PyResult<Py
         dict_of_dicts_cache: None,
         adj_row_py: HashMap::new(),
         adj_row_py_by_index: HashMap::new(), // br-r37-c1-nbrow
+        neighbor_key_rows: HashMap::new(),   // br-r37-c1-3rtyk
+        neighbor_key_rows_by_index: HashMap::new(), // br-r37-c1-3rtyk
         graph_attrs: PyDict::new(py).unbind(),
         nodes_seq: 0,
         edges_seq: 0,
@@ -26319,6 +26336,8 @@ pub fn ego_graph_rust(
         dict_of_dicts_cache: None,
         adj_row_py: HashMap::new(),
         adj_row_py_by_index: HashMap::new(), // br-r37-c1-nbrow
+        neighbor_key_rows: HashMap::new(),   // br-r37-c1-3rtyk
+        neighbor_key_rows_by_index: HashMap::new(), // br-r37-c1-3rtyk
         graph_attrs: PyDict::new(py).unbind(),
         nodes_seq: 0,
         edges_seq: 0,
@@ -26466,6 +26485,8 @@ pub fn full_join_rust(
         dict_of_dicts_cache: None,
         adj_row_py: HashMap::new(),
         adj_row_py_by_index: HashMap::new(), // br-r37-c1-nbrow
+        neighbor_key_rows: HashMap::new(),   // br-r37-c1-3rtyk
+        neighbor_key_rows_by_index: HashMap::new(), // br-r37-c1-3rtyk
         graph_attrs: PyDict::new(py).unbind(),
         nodes_seq: 0,
         edges_seq: 0,
@@ -26512,6 +26533,8 @@ pub fn identified_nodes_rust(
         dict_of_dicts_cache: None,
         adj_row_py: HashMap::new(),
         adj_row_py_by_index: HashMap::new(), // br-r37-c1-nbrow
+        neighbor_key_rows: HashMap::new(),   // br-r37-c1-3rtyk
+        neighbor_key_rows_by_index: HashMap::new(), // br-r37-c1-3rtyk
         graph_attrs: PyDict::new(py).unbind(),
         nodes_seq: 0,
         edges_seq: 0,
@@ -26617,6 +26640,8 @@ pub fn dedensify_rust(
         dict_of_dicts_cache: None,
         adj_row_py: HashMap::new(),
         adj_row_py_by_index: HashMap::new(), // br-r37-c1-nbrow
+        neighbor_key_rows: HashMap::new(),   // br-r37-c1-3rtyk
+        neighbor_key_rows_by_index: HashMap::new(), // br-r37-c1-3rtyk
         graph_attrs: PyDict::new(py).unbind(),
         nodes_seq: 0,
         edges_seq: 0,
@@ -26796,6 +26821,8 @@ pub fn quotient_graph_rust(
         dict_of_dicts_cache: None,
         adj_row_py: HashMap::new(),
         adj_row_py_by_index: HashMap::new(), // br-r37-c1-nbrow
+        neighbor_key_rows: HashMap::new(),   // br-r37-c1-3rtyk
+        neighbor_key_rows_by_index: HashMap::new(), // br-r37-c1-3rtyk
         graph_attrs: PyDict::new(py).unbind(),
         nodes_seq: 0,
         edges_seq: 0,
@@ -27369,6 +27396,8 @@ pub fn gomory_hu_tree_rust(
         dict_of_dicts_cache: None,
         adj_row_py: HashMap::new(),
         adj_row_py_by_index: HashMap::new(), // br-r37-c1-nbrow
+        neighbor_key_rows: HashMap::new(),   // br-r37-c1-3rtyk
+        neighbor_key_rows_by_index: HashMap::new(), // br-r37-c1-3rtyk
         graph_attrs: PyDict::new(py).unbind(),
         nodes_seq: 0,
         edges_seq: 0,
@@ -27434,6 +27463,8 @@ pub fn snap_aggregation_rust(
         dict_of_dicts_cache: None,
         adj_row_py: HashMap::new(),
         adj_row_py_by_index: HashMap::new(), // br-r37-c1-nbrow
+        neighbor_key_rows: HashMap::new(),   // br-r37-c1-3rtyk
+        neighbor_key_rows_by_index: HashMap::new(), // br-r37-c1-3rtyk
         graph_attrs: PyDict::new(py).unbind(),
         nodes_seq: 0,
         edges_seq: 0,
