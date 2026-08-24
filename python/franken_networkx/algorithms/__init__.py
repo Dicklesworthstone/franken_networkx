@@ -890,6 +890,90 @@ def bfs_tree(
     )
 
 
+def dfs_edges(
+    G,
+    source=None,
+    depth_limit=None,
+    *,
+    sort_neighbors=None,
+    backend=None,
+    **backend_kwargs,
+):
+    import franken_networkx as _fnx_call
+
+    return _fnx_call.dfs_edges(
+        G,
+        source=source,
+        depth_limit=depth_limit,
+        sort_neighbors=sort_neighbors,
+        backend=backend,
+        **backend_kwargs,
+    )
+
+
+def dfs_predecessors(
+    G,
+    source=None,
+    depth_limit=None,
+    *,
+    sort_neighbors=None,
+    backend=None,
+    **backend_kwargs,
+):
+    import franken_networkx as _fnx_call
+
+    return _fnx_call.dfs_predecessors(
+        G,
+        source=source,
+        depth_limit=depth_limit,
+        sort_neighbors=sort_neighbors,
+        backend=backend,
+        **backend_kwargs,
+    )
+
+
+def dfs_successors(
+    G,
+    source=None,
+    depth_limit=None,
+    *,
+    sort_neighbors=None,
+    backend=None,
+    **backend_kwargs,
+):
+    import franken_networkx as _fnx_call
+
+    return _fnx_call.dfs_successors(
+        G,
+        source=source,
+        depth_limit=depth_limit,
+        sort_neighbors=sort_neighbors,
+        backend=backend,
+        **backend_kwargs,
+    )
+
+
+def dfs_tree(
+    G,
+    source=None,
+    depth_limit=None,
+    *,
+    sort_neighbors=None,
+    backend=None,
+    **backend_kwargs,
+):
+    import franken_networkx as _fnx_call
+
+    return _fnx_call.dfs_tree(
+        G,
+        source=source,
+        depth_limit=depth_limit,
+        sort_neighbors=sort_neighbors,
+        backend=backend,
+        **backend_kwargs,
+    )
+
+
 def __getattr__(name):
     import networkx.algorithms as _src
 
