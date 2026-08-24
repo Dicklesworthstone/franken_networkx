@@ -184,3 +184,22 @@ def test_minors_namespace_signature_and_results_match_oracle(name):
             actual(graph, 1, 2, backend="missing")
         else:
             actual(graph, [{0, 1}, {2, 3}], backend="missing")
+
+
+def test_isolates_namespace_signature_and_results_match_oracle():
+    actual = fnx_algorithms.isolates
+    expected = nx.algorithms.isolates
+    assert str(inspect.signature(actual)) in {str(inspect.signature(expected))}
+
+    graph = fnx.Graph([(0, 1)])
+    graph.add_nodes_from([2, 3])
+    nx_graph = nx.Graph([(0, 1)])
+    nx_graph.add_nodes_from([2, 3])
+    assert list(actual(graph, backend="networkx")) == list(
+        expected(nx_graph, backend="networkx")
+    )
+
+    with pytest.raises(ImportError):
+        list(actual(graph, backend="missing"))
+    with pytest.raises(TypeError):
+        list(actual(graph, unexpected=True))

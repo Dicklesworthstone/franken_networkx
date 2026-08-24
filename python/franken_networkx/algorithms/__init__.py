@@ -757,6 +757,13 @@ def quotient_graph(
     )
 
 
+def isolates(G, *, backend=None, **backend_kwargs):
+    import franken_networkx as _fnx_call
+
+    _fnx_call._validate_backend_dispatch_keywords("isolates", backend, backend_kwargs)
+    return _fnx_call.isolates(G)
+
+
 def __getattr__(name):
     import networkx.algorithms as _src
 
