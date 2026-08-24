@@ -461,6 +461,50 @@ def _make_flattened_cuts_router(_name):
 for _name in _FNX_FLATTENED_CUT_NAMES:
     globals()[_name] = _make_flattened_cuts_router(_name)
 
+_FNX_FLATTENED_WEIGHTED_SHORTEST_PATH_NAMES = (
+    "all_pairs_bellman_ford_path",
+    "all_pairs_bellman_ford_path_length",
+    "all_pairs_dijkstra",
+    "all_pairs_dijkstra_path",
+    "all_pairs_dijkstra_path_length",
+    "bellman_ford_path",
+    "bellman_ford_path_length",
+    "bellman_ford_predecessor_and_distance",
+    "bidirectional_dijkstra",
+    "dijkstra_path",
+    "dijkstra_path_length",
+    "dijkstra_predecessor_and_distance",
+    "find_negative_cycle",
+    "goldberg_radzik",
+    "johnson",
+    "multi_source_dijkstra",
+    "multi_source_dijkstra_path",
+    "multi_source_dijkstra_path_length",
+    "negative_edge_cycle",
+    "single_source_bellman_ford",
+    "single_source_bellman_ford_path",
+    "single_source_bellman_ford_path_length",
+    "single_source_dijkstra",
+    "single_source_dijkstra_path",
+    "single_source_dijkstra_path_length",
+)
+
+
+def _make_flattened_weighted_shortest_path_router(_name):
+    def _routed(*args, **kwargs):
+        import franken_networkx as _fnx_call
+
+        return getattr(_fnx_call, _name)(*args, **kwargs)
+
+    _routed.__name__ = _name
+    _routed.__qualname__ = _name
+    _routed.__signature__ = _inspect.signature(getattr(_nx_algorithms, _name))
+    return _routed
+
+
+for _name in _FNX_FLATTENED_WEIGHTED_SHORTEST_PATH_NAMES:
+    globals()[_name] = _make_flattened_weighted_shortest_path_router(_name)
+
 _fnx_cycles = _importlib.import_module("franken_networkx.cycles")
 _sys.modules[f"{__name__}.cycles"] = _fnx_cycles
 cycles = _fnx_cycles  # Override in module globals

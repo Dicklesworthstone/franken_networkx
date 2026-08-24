@@ -56,6 +56,33 @@ _FLATTENED_CUT_NAMES = [
     "normalized_cut_size",
     "volume",
 ]
+_FLATTENED_WEIGHTED_SHORTEST_PATH_NAMES = [
+    "all_pairs_bellman_ford_path",
+    "all_pairs_bellman_ford_path_length",
+    "all_pairs_dijkstra",
+    "all_pairs_dijkstra_path",
+    "all_pairs_dijkstra_path_length",
+    "bellman_ford_path",
+    "bellman_ford_path_length",
+    "bellman_ford_predecessor_and_distance",
+    "bidirectional_dijkstra",
+    "dijkstra_path",
+    "dijkstra_path_length",
+    "dijkstra_predecessor_and_distance",
+    "find_negative_cycle",
+    "goldberg_radzik",
+    "johnson",
+    "multi_source_dijkstra",
+    "multi_source_dijkstra_path",
+    "multi_source_dijkstra_path_length",
+    "negative_edge_cycle",
+    "single_source_bellman_ford",
+    "single_source_bellman_ford_path",
+    "single_source_bellman_ford_path_length",
+    "single_source_dijkstra",
+    "single_source_dijkstra_path",
+    "single_source_dijkstra_path_length",
+]
 
 
 @lru_cache(maxsize=1)
@@ -158,6 +185,27 @@ def test_flattened_cuts_routes_to_leaf_module(monkeypatch, name):
         return marker
 
     monkeypatch.setattr(fnx_algorithms.cuts, name, sentinel)
+    assert getattr(fnx_algorithms, name)("payload", flag=True) is marker
+
+
+@pytest.mark.parametrize("name", _FLATTENED_WEIGHTED_SHORTEST_PATH_NAMES)
+def test_flattened_weighted_shortest_path_signature_matches_legacy_networkx(name):
+    legacy = _legacy_networkx()
+    assert str(inspect.signature(getattr(fnx_algorithms, name))) == str(
+        inspect.signature(getattr(legacy.algorithms, name))
+    )
+
+
+@pytest.mark.parametrize("name", _FLATTENED_WEIGHTED_SHORTEST_PATH_NAMES)
+def test_flattened_weighted_shortest_path_routes_to_fnx(monkeypatch, name):
+    marker = object()
+
+    def sentinel(*args, **kwargs):
+        assert args == ("payload",)
+        assert kwargs == {"flag": True}
+        return marker
+
+    monkeypatch.setattr(fnx, name, sentinel)
     assert getattr(fnx_algorithms, name)("payload", flag=True) is marker
 
 
