@@ -46,6 +46,16 @@ _FLATTENED_LINK_PREDICTION_NAMES = [
     "within_inter_cluster",
     "common_neighbor_centrality",
 ]
+_FLATTENED_CUT_NAMES = [
+    "boundary_expansion",
+    "conductance",
+    "cut_size",
+    "edge_expansion",
+    "mixing_expansion",
+    "node_expansion",
+    "normalized_cut_size",
+    "volume",
+]
 
 
 @lru_cache(maxsize=1)
@@ -127,6 +137,27 @@ def test_flattened_link_prediction_routes_to_leaf_module(monkeypatch, name):
         return marker
 
     monkeypatch.setattr(fnx_algorithms.link_prediction, name, sentinel)
+    assert getattr(fnx_algorithms, name)("payload", flag=True) is marker
+
+
+@pytest.mark.parametrize("name", _FLATTENED_CUT_NAMES)
+def test_flattened_cuts_signature_matches_legacy_networkx(name):
+    legacy = _legacy_networkx()
+    assert str(inspect.signature(getattr(fnx_algorithms, name))) == str(
+        inspect.signature(getattr(legacy.algorithms, name))
+    )
+
+
+@pytest.mark.parametrize("name", _FLATTENED_CUT_NAMES)
+def test_flattened_cuts_routes_to_leaf_module(monkeypatch, name):
+    marker = object()
+
+    def sentinel(*args, **kwargs):
+        assert args == ("payload",)
+        assert kwargs == {"flag": True}
+        return marker
+
+    monkeypatch.setattr(fnx_algorithms.cuts, name, sentinel)
     assert getattr(fnx_algorithms, name)("payload", flag=True) is marker
 
 

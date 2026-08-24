@@ -436,6 +436,31 @@ _fnx_cuts = _importlib.import_module("franken_networkx.cuts")
 _sys.modules[f"{__name__}.cuts"] = _fnx_cuts
 cuts = _fnx_cuts  # Override in module globals
 
+_FNX_FLATTENED_CUT_NAMES = (
+    "boundary_expansion",
+    "conductance",
+    "cut_size",
+    "edge_expansion",
+    "mixing_expansion",
+    "node_expansion",
+    "normalized_cut_size",
+    "volume",
+)
+
+
+def _make_flattened_cuts_router(_name):
+    def _routed(*args, **kwargs):
+        return getattr(_fnx_cuts, _name)(*args, **kwargs)
+
+    _routed.__name__ = _name
+    _routed.__qualname__ = _name
+    _routed.__signature__ = _inspect.signature(getattr(_nx_algorithms, _name))
+    return _routed
+
+
+for _name in _FNX_FLATTENED_CUT_NAMES:
+    globals()[_name] = _make_flattened_cuts_router(_name)
+
 _fnx_cycles = _importlib.import_module("franken_networkx.cycles")
 _sys.modules[f"{__name__}.cycles"] = _fnx_cycles
 cycles = _fnx_cycles  # Override in module globals
