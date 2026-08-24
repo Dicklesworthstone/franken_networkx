@@ -178,20 +178,36 @@ class EdgePartition(_Enum):
 
 
 def _directed_graph_has_successor(self, u, v):
-    # br-r37-c1-ppiei sibling: nx is `u in self._succ and v in self._succ[u]`,
-    # so the MAPPING decides whether `u` exists -- not the node view. `u in self`
-    # asked the wrong authority, and under an assigned `_succ` carrying a node
-    # the native store does not, this returned False where nx returns True: a
-    # SILENT wrong answer rather than a raised one.
+    # br-r37-c1-s8dj1: on a plain directed graph this IS `has_edge(u, v)` --
+    # networkx defines both as `u in self._succ and v in self._succ[u]` -- and
+    # `has_edge` is the NATIVE method, now answering from node positions. The
+    # form below materialises a successor ROW to answer a membership question,
+    # which cost 464.0 ns against `has_edge`'s 123.3 ns for the same answer on
+    # the same graph. The equivalence is asserted against networkx itself in
+    # tests/python/test_has_successor_uses_the_native_edge_path.py rather than
+    # taken on faith.
     #
-    # Reading `self.succ` once also drops the separate `u in self` native call
-    # the old form paid on top of the property read it already made.
+    # THE ROW FORM IS KEPT FOR ASSIGNED PRIVATE STORAGE, and that is the whole
+    # reason it is written this way: br-r37-c1-ppiei found that the MAPPING
+    # decides whether `u` exists, not the node view, so under an assigned
+    # `_succ` carrying a node the native store does not, asking the store
+    # returns False where networkx returns True -- a SILENT wrong answer.
+    if type(self) in _NATIVE_DIRECTED_EDGE_CLASSES and not _has_networkx_private_storage(
+        self
+    ):
+        return self.has_edge(u, v)
     succ = self.succ
     return u in succ and v in succ[u]
 
 
 def _directed_graph_has_predecessor(self, u, v):
-    # The `_pred` twin of the above; same authority, same reasoning.
+    # The `_pred` twin of the above; same authority, same reasoning. Note the
+    # ARGUMENT ORDER: `has_predecessor(u, v)` asks whether v -> u exists, so the
+    # native call is `has_edge(v, u)`.
+    if type(self) in _NATIVE_DIRECTED_EDGE_CLASSES and not _has_networkx_private_storage(
+        self
+    ):
+        return self.has_edge(v, u)
     pred = self.pred
     return u in pred and v in pred[u]
 
@@ -50338,6 +50354,10 @@ def _private_aware_number_of_nodes(raw_number_of_nodes):
 # br-r37-c1-s8dj1: the classes whose native `number_of_edges_between` is the
 # whole of `number_of_edges(u, v)` -- no edge filtering, no subclass override.
 _NATIVE_EDGE_COUNT_CLASSES = (Graph, DiGraph, MultiGraph, MultiDiGraph)
+# br-r37-c1-s8dj1: the directed classes whose `has_successor`/`has_predecessor`
+# are exactly `has_edge`. Defined here, after the classes exist, and read at CALL
+# time by the shims near the top of this module.
+_NATIVE_DIRECTED_EDGE_CLASSES = (DiGraph, MultiDiGraph)
 
 
 def _private_aware_number_of_edges(raw_number_of_edges):
