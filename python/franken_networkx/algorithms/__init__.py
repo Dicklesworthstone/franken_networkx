@@ -887,6 +887,32 @@ _sys.modules[f"{__name__}.wiener"] = _fnx_wiener
 wiener = _fnx_wiener  # Override in module globals
 
 
+# Preserve the four flattened distance-index contracts rather than letting the
+# generic native router obscure their optional weight and backend parameters.
+def wiener_index(G, weight=None, *, backend=None, **backend_kwargs):
+    return _fnx_wiener.wiener_index(
+        G, weight=weight, backend=backend, **backend_kwargs
+    )
+
+
+def schultz_index(G, weight=None, *, backend=None, **backend_kwargs):
+    return _fnx_wiener.schultz_index(
+        G, weight=weight, backend=backend, **backend_kwargs
+    )
+
+
+def gutman_index(G, weight=None, *, backend=None, **backend_kwargs):
+    return _fnx_wiener.gutman_index(
+        G, weight=weight, backend=backend, **backend_kwargs
+    )
+
+
+def hyper_wiener_index(G, weight=None, *, backend=None, **backend_kwargs):
+    return _fnx_wiener.hyper_wiener_index(
+        G, weight=weight, backend=backend, **backend_kwargs
+    )
+
+
 # br-r37-c1-nhbni: ``from networkx.algorithms import *`` flattens networkx's
 # functions into this namespace, so ``from franken_networkx.algorithms import X``
 # resolved to nx's implementation wherever fnx has a native top-level ``fnx.X``.

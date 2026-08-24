@@ -1185,6 +1185,43 @@ def test_flattened_isolate_namespace_routes_to_leaf_module(monkeypatch, name, ar
     assert getattr(fnx_algorithms, name)(*args) is marker
 
 
+_FLATTENED_WIENER_NAMES = [
+    "wiener_index",
+    "schultz_index",
+    "gutman_index",
+    "hyper_wiener_index",
+]
+
+
+@pytest.mark.parametrize("name", _FLATTENED_WIENER_NAMES)
+def test_flattened_wiener_namespace_matches_legacy_oracle(name):
+    legacy = _legacy_networkx()
+    actual = getattr(fnx_algorithms, name)
+    expected = getattr(legacy.algorithms, name)
+    assert str(inspect.signature(actual)) == str(inspect.signature(expected))
+
+    graph = fnx.path_graph(4)
+    legacy_graph = legacy.path_graph(4)
+    assert actual(graph) == expected(legacy_graph)
+
+    with pytest.raises(ImportError):
+        actual(graph, backend="missing")
+    with pytest.raises(TypeError):
+        actual(graph, unexpected=True)
+
+
+@pytest.mark.parametrize("name", _FLATTENED_WIENER_NAMES)
+def test_flattened_wiener_namespace_routes_to_leaf_module(monkeypatch, name):
+    marker = object()
+
+    def sentinel(*args, **kwargs):
+        assert args == ("graph",)
+        return marker
+
+    monkeypatch.setattr(fnx_algorithms.wiener, name, sentinel)
+    assert getattr(fnx_algorithms, name)("graph") is marker
+
+
 def test_flattened_bfs_reachability_namespace_signatures_and_results_match_oracle():
     graph = fnx.path_graph(4)
     nx_graph = nx.path_graph(4)
