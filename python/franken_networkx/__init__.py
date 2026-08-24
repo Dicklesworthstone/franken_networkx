@@ -49269,6 +49269,22 @@ class _AssignedPrivateEdgeView:
         return len(self())
 
     def __contains__(self, edge):
+        if self._graph.is_multigraph():
+            # This view exists because a NetworkX private mapping was assigned,
+            # so adjacency (not the native store) is the authority.  A two-item
+            # probe means key zero rather than "any parallel edge".
+            N = len(edge)
+            if N == 3:
+                u, v, key = edge
+            elif N == 2:
+                u, v = edge
+                key = 0
+            else:
+                raise ValueError("MultiEdge must have length 2 or 3")
+            try:
+                return key in self._graph.adj[u][v]
+            except KeyError:
+                return False
         try:
             u, v = edge[:2]
         except (TypeError, ValueError):
