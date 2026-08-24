@@ -163,3 +163,44 @@ def test_high_use_classes_functional_helpers_match_legacy_oracle():
     directed = fnx_classes.to_directed(graph)
     assert list(directed.edges) == list(legacy_directed.edges)
     assert not fnx_classes.to_undirected(directed).is_directed()
+
+
+def test_classes_live_view_helpers_match_legacy_oracle():
+    legacy = _legacy_networkx()
+    legacy_graph = legacy.DiGraph([("a", "b"), ("b", "c"), ("c", "a")])
+    graph = fnx.DiGraph([("a", "b"), ("b", "c"), ("c", "a")])
+
+    legacy_induced = legacy.classes.induced_subgraph(legacy_graph, ["a", "b"])
+    induced = fnx_classes.induced_subgraph(graph, ["a", "b"])
+    assert list(induced.edges) == list(legacy_induced.edges)
+
+    legacy_filtered = legacy.classes.subgraph_view(
+        legacy_graph,
+        filter_node=lambda node: node != "c",
+        filter_edge=lambda source, target: source != "b",
+    )
+    filtered = fnx_classes.subgraph_view(
+        graph,
+        filter_node=lambda node: node != "c",
+        filter_edge=lambda source, target: source != "b",
+    )
+    assert list(filtered.edges) == list(legacy_filtered.edges)
+
+    legacy_restricted = legacy.classes.restricted_view(
+        legacy_graph, ["c"], [("a", "b")]
+    )
+    restricted = fnx_classes.restricted_view(graph, ["c"], [("a", "b")])
+    assert list(restricted.edges) == list(legacy_restricted.edges)
+
+    legacy_reversed = legacy.classes.reverse_view(legacy_graph)
+    reversed_view = fnx_classes.reverse_view(graph)
+    assert list(reversed_view.edges) == list(legacy_reversed.edges)
+
+    legacy_graph.add_edge("b", "late")
+    graph.add_edge("b", "late")
+    assert list(reversed_view.edges) == list(legacy_reversed.edges)
+
+    with pytest.raises(legacy.NetworkXNotImplemented):
+        legacy.classes.reverse_view(legacy.Graph())
+    with pytest.raises(fnx.NetworkXNotImplemented):
+        fnx_classes.reverse_view(fnx.Graph())

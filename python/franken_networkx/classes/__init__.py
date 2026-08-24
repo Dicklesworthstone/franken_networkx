@@ -15,6 +15,7 @@ introspection.
 
 import networkx.classes as _nx_classes
 from networkx.classes import *  # noqa: F401, F403
+from networkx.classes.filters import no_filter as _no_filter
 
 __all__ = list(
     getattr(_nx_classes, "__all__", ())
@@ -160,6 +161,34 @@ def to_undirected(graph):
     import franken_networkx as _fnx
 
     return _fnx.to_undirected(graph)
+
+
+def induced_subgraph(G, nbunch):
+    """Return a native induced live subgraph."""
+    import franken_networkx as _fnx
+
+    return _fnx.induced_subgraph(G, nbunch)
+
+
+def subgraph_view(G, *, filter_node=_no_filter, filter_edge=_no_filter):
+    """Return a filtered native live view."""
+    import franken_networkx as _fnx
+
+    return _fnx.subgraph_view(G, filter_node=filter_node, filter_edge=filter_edge)
+
+
+def restricted_view(G, nodes, edges):
+    """Return a native view excluding selected nodes and edges."""
+    import franken_networkx as _fnx
+
+    return _fnx.restricted_view(G, nodes, edges)
+
+
+def reverse_view(G):
+    """Return a native directed reverse view."""
+    import franken_networkx as _fnx
+
+    return _fnx.reverse_view(G)
 
 
 def _install_fnx_native_class_types():
