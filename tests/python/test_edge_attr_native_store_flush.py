@@ -82,15 +82,8 @@ def test_edge_attrs_at_construction_reach_the_typed_store():
     assert float(fnx._fnx.min_cost_flow_cost(graph)) == CORRECT_COST
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "br-r37-c1-edge-attr-typed-store-pk1nb: post-construction edge "
-        "attribute writes must update the native typed store"
-    ),
-)
 def test_post_construction_edge_attrs_reach_the_typed_store_without_a_flush():
-    """Regression contract for the root store repair, not its manual workaround."""
+    """Raw native kernels synchronize live edge dictionaries before reading."""
     graph = _flow_graph("written_after")
     assert float(fnx._fnx.min_cost_flow_cost(graph)) == CORRECT_COST
 
@@ -170,17 +163,9 @@ def test_flush_is_a_no_op_on_a_graph_with_no_edge_attributes():
     assert all(not d for *_, d in graph.edges(data=True))
 
 
-def test_the_bug_is_still_there_without_the_flush():
-    """Pins the DEFECT, so this file fails if the flush stops being needed.
-
-    If the typed store is ever fixed in Rust, this starts failing — the signal to
-    delete the primitive and this file rather than leave dead code behind.
-    """
+def test_raw_min_cost_flow_synchronizes_without_the_manual_flush():
     graph = _flow_graph("written_after")
-    assert float(fnx._fnx.min_cost_flow_cost(graph)) == 0.0, (
-        "post-construction edge attrs now reach the typed store — if the store "
-        "was fixed, _sync_rust_edge_attrs is dead code"
-    )
+    assert float(fnx._fnx.min_cost_flow_cost(graph)) == CORRECT_COST
 
 
 # --- the census of EDGE-attr kernels ----------------------------------------
@@ -233,12 +218,8 @@ def test_prim_is_correct_when_edge_attrs_reach_the_store():
     assert _prim(_weighted_triangle("at_construction", _MST_WEIGHTS)) == _CORRECT_MST
 
 
-def test_prim_takes_the_WRONG_edge_without_the_flush():
-    """Pins the defect: every weight defaults to 1.0, so the heavy edge is taken."""
-    assert _prim(_weighted_triangle("written_after", _MST_WEIGHTS)) == _STALE_MST, (
-        "prim no longer reads a stale edge store — if the store was fixed, "
-        "_sync_rust_edge_attrs is dead code for this kernel"
-    )
+def test_prim_synchronizes_post_construction_edge_attrs():
+    assert _prim(_weighted_triangle("written_after", _MST_WEIGHTS)) == _CORRECT_MST
 
 
 def test_flush_repairs_prim():
@@ -253,15 +234,9 @@ def test_find_negative_cycle_is_correct_when_edge_attrs_reach_the_store():
     assert fnx._fnx.find_negative_cycle(graph, "a", "weight") == _CORRECT_CYCLE
 
 
-def test_find_negative_cycle_MISSES_the_cycle_without_the_flush():
-    """The negative edge defaults to 1.0, so the cycle vanishes entirely.
-
-    This one does not merely return a wrong number — it raises, claiming no
-    negative cycle exists on a graph that has one.
-    """
+def test_find_negative_cycle_synchronizes_post_construction_edge_attrs():
     graph = _weighted_triangle("written_after", _NEG_WEIGHTS)
-    with pytest.raises(Exception, match="[Nn]o negative cycle"):
-        fnx._fnx.find_negative_cycle(graph, "a", "weight")
+    assert fnx._fnx.find_negative_cycle(graph, "a", "weight") == _CORRECT_CYCLE
 
 
 def test_flush_repairs_find_negative_cycle():
