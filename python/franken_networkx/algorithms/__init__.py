@@ -500,6 +500,26 @@ _fnx_bridges = _importlib.import_module("franken_networkx.bridges")
 _sys.modules[f"{__name__}.bridges"] = _fnx_bridges
 bridges = _fnx_bridges  # Override in module globals
 
+
+# ``bridges`` itself is a callable module, but these two flattened helpers are
+# functions. Spell their public call contracts out so the generic native-router
+# pass below does not demote them to ``*args, **kwargs``.
+def has_bridges(G, root=None, *, backend=None, **backend_kwargs):
+    return _fnx_bridges.has_bridges(
+        G, root=root, backend=backend, **backend_kwargs
+    )
+
+
+def local_bridges(G, with_span=True, weight=None, *, backend=None, **backend_kwargs):
+    return _fnx_bridges.local_bridges(
+        G,
+        with_span=with_span,
+        weight=weight,
+        backend=backend,
+        **backend_kwargs,
+    )
+
+
 _fnx_asteroidal = _importlib.import_module("franken_networkx.asteroidal")
 _sys.modules[f"{__name__}.asteroidal"] = _fnx_asteroidal
 asteroidal = _fnx_asteroidal  # Override in module globals

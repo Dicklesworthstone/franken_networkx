@@ -985,6 +985,48 @@ def test_flattened_efficiency_namespace_routes_to_leaf_module(monkeypatch, name)
         assert getattr(fnx_algorithms, name)("graph") is marker
 
 
+@pytest.mark.parametrize("name", ["has_bridges", "local_bridges"])
+def test_flattened_bridges_namespace_matches_legacy_oracle(name):
+    legacy = _legacy_networkx()
+    actual = getattr(fnx_algorithms, name)
+    expected = getattr(legacy.algorithms, name)
+    assert str(inspect.signature(actual)) == str(inspect.signature(expected))
+
+    graph = fnx.path_graph(4)
+    legacy_graph = legacy.path_graph(4)
+    if name == "has_bridges":
+        actual_value = actual(graph)
+        expected_value = expected(legacy_graph)
+        missing_call = lambda: actual(graph, backend="missing")
+        unexpected_call = lambda: actual(graph, unexpected=True)
+    else:
+        actual_value = list(actual(graph, with_span=False))
+        expected_value = list(expected(legacy_graph, with_span=False))
+        missing_call = lambda: list(actual(graph, backend="missing"))
+        unexpected_call = lambda: list(actual(graph, unexpected=True))
+    assert actual_value == expected_value
+
+    with pytest.raises(ImportError):
+        missing_call()
+    with pytest.raises(TypeError):
+        unexpected_call()
+
+
+@pytest.mark.parametrize("name", ["has_bridges", "local_bridges"])
+def test_flattened_bridges_namespace_routes_to_leaf_module(monkeypatch, name):
+    marker = object()
+
+    def sentinel(*args, **kwargs):
+        assert args == ("graph",)
+        return marker
+
+    monkeypatch.setattr(fnx_algorithms.bridges, name, sentinel)
+    if name == "has_bridges":
+        assert fnx_algorithms.has_bridges("graph") is marker
+    else:
+        assert fnx_algorithms.local_bridges("graph") is marker
+
+
 def test_flattened_bfs_reachability_namespace_signatures_and_results_match_oracle():
     graph = fnx.path_graph(4)
     nx_graph = nx.path_graph(4)
