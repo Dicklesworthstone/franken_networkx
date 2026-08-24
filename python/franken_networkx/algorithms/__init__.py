@@ -784,6 +784,12 @@ def triads_by_type(G, *, backend=None, **backend_kwargs):
     return _fnx_call.triads_by_type(G, backend=backend, **backend_kwargs)
 
 
+def core_number(G, *, backend=None, **backend_kwargs):
+    import franken_networkx as _fnx_call
+
+    return _fnx_call.core_number(G, backend=backend, **backend_kwargs)
+
+
 def __getattr__(name):
     import networkx.algorithms as _src
 

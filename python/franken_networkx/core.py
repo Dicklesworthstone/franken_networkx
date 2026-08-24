@@ -36,11 +36,6 @@ __all__ = list(
     )
 )
 
-# br-r37-c1-2qsqf: ``from networkx.algorithms.core import *`` above left
-# ``core_number`` and ``k_truss`` bound to networkx's implementations, so
-# ``fnx.core.core_number`` etc. silently resolved to nx's instead of fnx's
-# native versions. Route these via call-time closure wrappers (import-order
-# robust).
 # br-r37-c1-b78jl: ``k_core``/``k_shell``/``k_crust``/``k_corona`` used to carry a
 # SECOND native-routing implementation here, separate from the one in
 # ``franken_networkx/__init__.py``. It had two defects the duplication hid:
@@ -59,29 +54,14 @@ __all__ = list(
 # invisible because the FeatureUniverse extractor could not import networkx, so
 # every test that would have caught it errored out first.
 #
-# `core_number` and `k_truss` keep the generic router: they are already carried
-# at that grade in the pinned numbers, so changing them is a separate call.
-_FNX_NATIVE_CORE_NAMES = (
-    "core_number",
-    "k_truss",
-)
+def core_number(G, *, backend=None, **backend_kwargs):
+    """Return the core number for each node in ``G``."""
+    return _fnx.core_number(G, backend=backend, **backend_kwargs)
 
 
-def _make_fnx_core_router(_fn_name):
-    def _routed(*args, **kwargs):
-        return getattr(_fnx, _fn_name)(*args, **kwargs)
-
-    _routed.__name__ = _fn_name
-    _routed.__qualname__ = _fn_name
-    _routed.__doc__ = (
-        f"Route to ``franken_networkx.{_fn_name}`` (fnx-native). See "
-        f"``networkx.algorithms.core.{_fn_name}`` for semantics."
-    )
-    return _routed
-
-
-for _name in _FNX_NATIVE_CORE_NAMES:
-    globals()[_name] = _make_fnx_core_router(_name)
+def k_truss(G, k, *, backend=None, **backend_kwargs):
+    """Return the maximal k-truss of ``G``."""
+    return _fnx.k_truss(G, k, backend=backend, **backend_kwargs)
 
 
 def k_core(G, k=None, core_number=None, *, backend=None, **backend_kwargs):

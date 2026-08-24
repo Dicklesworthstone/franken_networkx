@@ -232,3 +232,40 @@ def test_triads_namespace_signature_and_results_match_oracle(name):
 
     with pytest.raises(ImportError):
         actual(graph, backend="missing")
+
+
+@pytest.mark.parametrize("name", ["core_number", "k_truss"])
+def test_core_namespace_signature_and_results_match_oracle(name):
+    actual = getattr(fnx_algorithms.core, name)
+    expected = getattr(nx.algorithms.core, name)
+    assert str(inspect.signature(actual)) in {str(inspect.signature(expected))}
+
+    graph = fnx.cycle_graph(4)
+    nx_graph = nx.cycle_graph(4)
+    if name == "core_number":
+        actual_value = actual(graph, backend="networkx")
+        expected_value = expected(nx_graph, backend="networkx")
+    else:
+        actual_value = actual(graph, 2, backend="networkx")
+        expected_value = expected(nx_graph, 2, backend="networkx")
+    if name == "core_number":
+        assert actual_value == expected_value
+    else:
+        assert set(actual_value) == set(expected_value)
+        assert {frozenset(edge) for edge in actual_value.edges} == {
+            frozenset(edge) for edge in expected_value.edges
+        }
+
+    with pytest.raises(ImportError):
+        actual(graph, backend="missing") if name == "core_number" else actual(
+            graph, 2, backend="missing"
+        )
+
+
+def test_flattened_core_number_signature_matches_oracle():
+    actual = fnx_algorithms.core_number
+    expected = nx.algorithms.core_number
+    assert str(inspect.signature(actual)) in {str(inspect.signature(expected))}
+    assert actual(fnx.cycle_graph(4), backend="networkx") == expected(
+        nx.cycle_graph(4), backend="networkx"
+    )
