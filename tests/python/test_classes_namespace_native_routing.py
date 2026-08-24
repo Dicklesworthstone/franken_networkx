@@ -269,3 +269,38 @@ def test_classes_lifecycle_helpers_match_legacy_oracle(with_data):
         legacy_graph.add_node("blocked")
     with pytest.raises(fnx.NetworkXError):
         graph.add_node("blocked")
+
+
+def test_classes_attribute_helpers_match_legacy_oracle_and_backend_contract():
+    legacy = _legacy_networkx()
+    legacy_graph = legacy.Graph([("a", "b"), ("b", "c")])
+    graph = fnx.Graph([("a", "b"), ("b", "c")])
+
+    legacy.classes.set_node_attributes(
+        legacy_graph, {"a": 1, "b": 2}, "tier", backend="networkx"
+    )
+    fnx_classes.set_node_attributes(
+        graph, {"a": 1, "b": 2}, "tier", backend="networkx"
+    )
+    legacy.classes.set_edge_attributes(
+        legacy_graph, {("a", "b"): 4}, "cost", backend="networkx"
+    )
+    fnx_classes.set_edge_attributes(
+        graph, {("a", "b"): 4}, "cost", backend="networkx"
+    )
+
+    assert fnx_classes.get_node_attributes(graph, "tier", default=0) == (
+        legacy.classes.get_node_attributes(legacy_graph, "tier", default=0)
+    )
+    assert fnx_classes.get_edge_attributes(graph, "cost", default=0) == (
+        legacy.classes.get_edge_attributes(legacy_graph, "cost", default=0)
+    )
+
+    with pytest.raises(ImportError):
+        legacy.classes.get_node_attributes(legacy_graph, "tier", backend="missing")
+    with pytest.raises(ImportError):
+        fnx_classes.get_node_attributes(graph, "tier", backend="missing")
+    with pytest.raises(TypeError) as legacy_error:
+        legacy.classes.set_edge_attributes(legacy_graph, {}, unexpected=True)
+    with pytest.raises(type(legacy_error.value)):
+        fnx_classes.set_edge_attributes(graph, {}, unexpected=True)

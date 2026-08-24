@@ -282,6 +282,46 @@ def is_frozen(G):
     return _fnx.is_frozen(G)
 
 
+def get_node_attributes(G, name, default=None, *, backend=None, **backend_kwargs):
+    """Return node attributes through the native functional API."""
+    import franken_networkx as _fnx
+
+    _fnx._validate_backend_dispatch_keywords(
+        "get_node_attributes", backend, backend_kwargs
+    )
+    return _fnx.get_node_attributes(G, name, default)
+
+
+def get_edge_attributes(G, name, default=None, *, backend=None, **backend_kwargs):
+    """Return edge attributes through the native functional API."""
+    import franken_networkx as _fnx
+
+    _fnx._validate_backend_dispatch_keywords(
+        "get_edge_attributes", backend, backend_kwargs
+    )
+    return _fnx.get_edge_attributes(G, name, default)
+
+
+def set_node_attributes(G, values, name=None, *, backend=None, **backend_kwargs):
+    """Set node attributes through the native functional API."""
+    import franken_networkx as _fnx
+
+    _fnx._validate_backend_dispatch_keywords(
+        "set_node_attributes", backend, backend_kwargs
+    )
+    return _fnx.set_node_attributes(G, values, name)
+
+
+def set_edge_attributes(G, values, name=None, *, backend=None, **backend_kwargs):
+    """Set edge attributes through the native functional API."""
+    import franken_networkx as _fnx
+
+    _fnx._validate_backend_dispatch_keywords(
+        "set_edge_attributes", backend, backend_kwargs
+    )
+    return _fnx.set_edge_attributes(G, values, name)
+
+
 def _install_fnx_native_class_types():
     import franken_networkx as _fnx
 
