@@ -100,6 +100,11 @@ _FLATTENED_DAG_NAMES = [
     "transitive_closure_dag",
     "transitive_reduction",
 ]
+_FLATTENED_EFFICIENCY_NAMES = [
+    "efficiency",
+    "global_efficiency",
+    "local_efficiency",
+]
 
 
 @lru_cache(maxsize=1)
@@ -791,6 +796,48 @@ def test_flattened_dfs_ordering_namespace_signature_and_results_match_oracle(nam
     )
     with pytest.raises(ImportError):
         actual(graph, 0, backend="missing")
+
+
+@pytest.mark.parametrize("name", _FLATTENED_EFFICIENCY_NAMES)
+def test_flattened_efficiency_namespace_matches_legacy_oracle(name):
+    legacy = _legacy_networkx()
+    actual = getattr(fnx_algorithms, name)
+    expected = getattr(legacy.algorithms, name)
+    assert str(inspect.signature(actual)) == str(inspect.signature(expected))
+
+    graph = fnx.path_graph(3)
+    legacy_graph = legacy.path_graph(3)
+    if name == "efficiency":
+        actual_value = actual(graph, 0, 2)
+        expected_value = expected(legacy_graph, 0, 2)
+        missing_call = lambda: actual(graph, 0, 2, backend="missing")
+        unexpected_call = lambda: actual(graph, 0, 2, unexpected=True)
+    else:
+        actual_value = actual(graph)
+        expected_value = expected(legacy_graph)
+        missing_call = lambda: actual(graph, backend="missing")
+        unexpected_call = lambda: actual(graph, unexpected=True)
+    assert actual_value == pytest.approx(expected_value)
+
+    with pytest.raises(ImportError):
+        missing_call()
+    with pytest.raises(TypeError):
+        unexpected_call()
+
+
+@pytest.mark.parametrize("name", _FLATTENED_EFFICIENCY_NAMES)
+def test_flattened_efficiency_namespace_routes_to_leaf_module(monkeypatch, name):
+    marker = object()
+
+    def sentinel(*args, **kwargs):
+        assert kwargs == {"backend": None}
+        return marker
+
+    monkeypatch.setattr(fnx_algorithms.efficiency_measures, name, sentinel)
+    if name == "efficiency":
+        assert fnx_algorithms.efficiency("graph", "u", "v") is marker
+    else:
+        assert getattr(fnx_algorithms, name)("graph") is marker
 
 
 def test_flattened_bfs_reachability_namespace_signatures_and_results_match_oracle():
