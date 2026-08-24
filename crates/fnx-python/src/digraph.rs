@@ -488,6 +488,37 @@ pub struct PyMultiDiGraph {
     /// Precise maybe-dirty keys for keyed live edge-dict access. `None` means
     /// a broad mutable edge-attr view escaped, so every mirror must be replayed.
     pub(crate) edge_dirty_keys: std::sync::Mutex<Option<HashSet<(String, String, usize)>>>,
+    /// br-r37-c1-6r00i: edges marked dirty by the index-lookaside read path,
+    /// held as `(nodes_seq, source index, target index, internal key)` instead
+    /// of the `(String, String, usize)` `edge_dirty_keys` wants.
+    ///
+    /// WHY A SECOND CONTAINER AT ALL. `mark_edge_dirty` clones BOTH node keys
+    /// and hashes the tuple, so `G[u][v][k]` was O(node key length) even on a
+    /// lookaside HIT that touched no string: 216 ns at 3-char keys against
+    /// 1040 ns at 2000-char ones, while the undirected class is flat. Deleting
+    /// the per-edge precision instead (marking the whole graph dirty, which the
+    /// keyed `get_edge_data` path does) was measured and REJECTED — it moves
+    /// the cost onto every later sync, which then converts the WHOLE mirror.
+    ///
+    /// So the STRING work moves off the read path rather than out of the
+    /// system: pushing four usizes here costs no allocation and no node-key
+    /// hashing, and `drain_pending_edge_dirty` resolves positions back to names
+    /// at each of the three places that READ `edge_dirty_keys`. The set is
+    /// therefore identical at the moment it is consulted and
+    /// `should_sync_dirty_edge` needs no change.
+    ///
+    /// STAMPED, because node removal RENUMBERS positions: an entry whose
+    /// `nodes_seq` no longer matches cannot be resolved, and dropping it would
+    /// silently lose dirtiness and serve a stale weight. The drain falls back
+    /// to `edge_dirty_keys = None` for that case — conservative, and rare.
+    ///
+    /// A SET, not a queue: a read loop hits the same edge over and over, and an
+    /// append-only queue would grow without bound across a benchmark's repeat
+    /// rounds. FxHash over four usizes is a few ns and repeats do not allocate,
+    /// so the container stays bounded by the distinct edges read since the last
+    /// drain — the same bound `edge_dirty_keys` itself carries.
+    pub(crate) pending_edge_dirty_positions:
+        std::sync::Mutex<rustc_hash::FxHashSet<(u64, usize, usize, usize)>>,
     pub(crate) node_keys_cache:
         std::sync::Mutex<Option<(u64, Py<pyo3::types::PyTuple>, Py<pyo3::types::PySet>)>>,
     /// br-r37-c1-4b5ie: see PyGraph::node_data_mirror — nodes_seq-keyed
@@ -578,6 +609,7 @@ pub struct PyMultiDiGraph {
     /// undirected field's note for why handing out the cached mapping would let a
     /// caller's `d[k] = {}` corrupt it into a phantom key `G.edges` lacks.
     pub(crate) edge_keydict_cache: Option<(u64, u64, HashMap<String, HashMap<String, Py<PyDict>>>)>,
+    pub(crate) live_keydict_rows: crate::live_keydict::LiveKeydictRows,
     /// br-r37-c1-f3i50: the endpoint-INDEX twin of `edge_keydict_cache` above.
     ///
     /// That cache removed the O(parallel edges) rebuild, but it is keyed by
@@ -724,6 +756,7 @@ impl PyMultiDiGraph {
                 }
             }
         }
+        self.live_keydict_rows.traverse(visit)?;
         visit.call(&self.graph_attrs)?;
         {
             let cache = self.node_keys_cache.lock().unwrap();
@@ -800,6 +833,7 @@ impl PyMultiDiGraph {
         self.edges_with_keys_cache = None;
         *self.node_iter_mirror.get_mut().unwrap() = None;
         self.edge_keydict_cache = None;
+        self.live_keydict_rows.clear_in_place(py);
         self.edge_keydict_by_index.clear(); // br-r37-c1-f3i50
         // br-r37-c1-ic4cv: the memo holds Python key objects, so it must be
         // dropped here or those objects stay reachable through a cleared graph.
@@ -1473,7 +1507,68 @@ impl PyMultiDiGraph {
     }
 
     fn cloned_edge_dirty_keys(&self) -> std::sync::Mutex<Option<HashSet<(String, String, usize)>>> {
+        // br-r37-c1-6r00i: this is one of the three places that READ the dirty
+        // set, so the queued positions have to be folded in first — a copy that
+        // missed them would start life claiming a mutated edge is clean.
+        self.drain_pending_edge_dirty();
         std::sync::Mutex::new(self.edge_dirty_keys.lock().unwrap().clone())
+    }
+
+    pub(crate) fn cloned_current_edge_dirty_keys(
+        &self,
+    ) -> Option<HashSet<(String, String, usize)>> {
+        self.drain_pending_edge_dirty();
+        self.edge_dirty_keys.lock().unwrap().clone()
+    }
+
+    /// br-r37-c1-6r00i: resolve everything `mark_edge_dirty_by_index` queued
+    /// into `edge_dirty_keys`, so the set is exactly what it would have been
+    /// had the read path built the string key itself.
+    ///
+    /// CALLED BY EVERY READER of `edge_dirty_keys`, and that list is the whole
+    /// contract: `cloned_edge_dirty_keys`, `reverse`, and the two
+    /// `_fnx_sync_*_to_inner` entry points. A reader added later that forgets
+    /// this call sees a stale set, which is a wrong-answer bug rather than a
+    /// slow one.
+    fn drain_pending_edge_dirty(&self) {
+        let mut pending = self.pending_edge_dirty_positions.lock().unwrap();
+        if pending.is_empty() {
+            return;
+        }
+        let mut dirty = self.edge_dirty_keys.lock().unwrap();
+        // `None` already means "every mirror must be replayed", which is
+        // strictly broader than anything queued here.
+        let Some(keys) = dirty.as_mut() else {
+            pending.clear();
+            return;
+        };
+        // Positions renumber on node removal, so an entry whose stamp no longer
+        // matches may now name DIFFERENT nodes. Dropping it would lose the
+        // dirtiness and serve a stale weight, so widen to "all dirty" instead.
+        // Entries that ARE resolvable still go in precisely; the widen only has
+        // to cover the ones that are not.
+        let mut widen = false;
+        for (seq, u_index, v_index, key) in pending.drain() {
+            // A position with no name is unreachable while the stamp holds —
+            // `nodes_seq` bumps on every node add and remove — but the same
+            // widen-rather-than-drop rule covers it if that ever changes.
+            if seq != self.nodes_seq {
+                widen = true;
+                continue;
+            }
+            match (
+                self.inner.get_node_name(u_index),
+                self.inner.get_node_name(v_index),
+            ) {
+                (Some(u), Some(v)) => {
+                    keys.insert(Self::edge_key(u, v, key));
+                }
+                _ => widen = true,
+            }
+        }
+        if widen {
+            *dirty = None;
+        }
     }
 
     fn should_sync_dirty_edge(
@@ -2801,6 +2896,7 @@ impl PyMultiDiGraph {
             succ_key_rows: None,
             pred_key_rows: None,
             edge_keydict_cache: None,
+            live_keydict_rows: crate::live_keydict::LiveKeydictRows::default(),
             edge_keydict_by_index: HashMap::new(),
             has_edge_node_index_cache: crate::NodeIndexLookupCache::new(py),
             in_edges_data_attr_cache: std::sync::Mutex::new(None),
@@ -2818,6 +2914,7 @@ impl PyMultiDiGraph {
             edges_seq: 0,
             edges_dirty: AtomicBool::new(false),
             edge_dirty_keys: Self::clean_edge_dirty_keys(),
+            pending_edge_dirty_positions: std::sync::Mutex::new(rustc_hash::FxHashSet::default()),
             node_keys_cache: std::sync::Mutex::new(None),
             node_data_mirror: std::sync::Mutex::new(None),
             dict_of_dicts_cache: None,
@@ -2849,7 +2946,9 @@ impl PyMultiDiGraph {
     #[inline]
     pub(crate) fn mark_edges_dirty(&self) {
         self.edges_dirty.store(true, Ordering::Relaxed);
+        let mut pending = self.pending_edge_dirty_positions.lock().unwrap();
         *self.edge_dirty_keys.lock().unwrap() = None;
+        pending.clear();
         // br-inedges-attrcache (bt): an attr mutation that dirties the graph
         // invalidates the frozen scalar snapshots (edges_seq is NOT bumped on
         // attr edits, so the seq key cannot catch it).
@@ -2861,6 +2960,30 @@ impl PyMultiDiGraph {
         self.edges_dirty.store(true, Ordering::Relaxed);
         if let Some(keys) = self.edge_dirty_keys.lock().unwrap().as_mut() {
             keys.insert(Self::edge_key(u, v, key));
+        }
+        *self.in_edges_data_attr_cache.lock().unwrap() = None;
+        *self.edges_data_attr_cache.lock().unwrap() = None;
+    }
+
+    /// br-r37-c1-6r00i: `mark_edge_dirty` for a caller that already holds the
+    /// endpoints as STAMPED POSITIONS and would otherwise have to spell them
+    /// back out as strings.
+    ///
+    /// Same effect, deferred: the position triple is queued and
+    /// `drain_pending_edge_dirty` turns it into the identical
+    /// `(String, String, usize)` at every point that reads the set. What is
+    /// avoided per call is two `String` allocations, two memcpys of the node
+    /// keys and a SipHash over both of them — on a 2000-char key that was
+    /// ~870 ns of the ~1040 ns a `G[u][v][k]` read cost.
+    ///
+    /// Queued ONLY while per-edge tracking is live. With the set already `None`
+    /// the graph is wholly dirty, the entry could never narrow anything, and
+    /// skipping keeps the queue from growing on graphs that never sync.
+    fn mark_edge_dirty_by_index(&self, seq: u64, u_index: usize, v_index: usize, key: usize) {
+        self.edges_dirty.store(true, Ordering::Relaxed);
+        let mut pending = self.pending_edge_dirty_positions.lock().unwrap();
+        if self.edge_dirty_keys.lock().unwrap().is_some() {
+            pending.insert((seq, u_index, v_index, key));
         }
         *self.in_edges_data_attr_cache.lock().unwrap() = None;
         *self.edges_data_attr_cache.lock().unwrap() = None;
@@ -4228,10 +4351,14 @@ impl MultiDiKeyDictView {
                 && let Some(attrs) =
                     g.cached_edge_py_attrs_by_index(py, u_index, v_index, internal_key)
             {
-                // Cheap on the common path: `mark_edge_dirty` only builds an
-                // edge key when per-edge dirty tracking is switched on, which it
-                // is not by default, so the two `&str` arguments cost nothing.
-                g.mark_edge_dirty(&self.source, &self.target, internal_key);
+                // br-r37-c1-6r00i: the dirty mark is BY POSITION here. The
+                // string form was not free after all — per-edge tracking is ON
+                // by default (`clean_edge_dirty_keys` hands back
+                // `Some(HashSet::new())`), so this line cloned both node keys
+                // and hashed them on every read and was the entire reason the
+                // row still grew with key length after the lookaside landed.
+                // The positions are the ones just verified against `nodes_seq`.
+                g.mark_edge_dirty_by_index(seq, u_index, v_index, internal_key);
                 return Ok(attrs);
             }
         }
@@ -5865,10 +5992,14 @@ impl PyMultiDiGraph {
         };
 
         let ek = Self::edge_key(&u_canonical, &v_canonical, actual_key);
+        // Own a Python reference before mutating any other graph state below;
+        // `Entry` otherwise keeps `edge_py_attrs` mutably borrowed across the
+        // direction-cache and stable-keydict updates.
         let py_dict = self
             .edge_py_attrs
             .entry(ek)
-            .or_insert_with(|| PyDict::new(py).unbind());
+            .or_insert_with(|| PyDict::new(py).unbind())
+            .clone_ref(py);
         if let Some(a) = attr {
             for (k, val) in a.iter() {
                 py_dict.bind(py).set_item(k, val)?;
@@ -5892,7 +6023,13 @@ impl PyMultiDiGraph {
         // remember_edge_key echoes int(actual_key) (== public key); for the
         // remapped case it echoes the scanned public key.
         let external = key.or_else(|| auto_public_key.as_ref().map(|o| o.bind(py)));
-        Ok(self.remember_edge_key(py, &u_canonical, &v_canonical, actual_key, external))
+        let public_key =
+            self.remember_edge_key(py, &u_canonical, &v_canonical, actual_key, external);
+        if let Some(row) = self.live_keydict_rows.get(py, &u_canonical, &v_canonical) {
+            row.bind(py)
+                .set_item(public_key.bind(py), py_dict.bind(py))?;
+        }
+        Ok(public_key)
     }
 
     #[pyo3(signature = (ebunch_to_add, **attr))]
@@ -6021,6 +6158,10 @@ impl PyMultiDiGraph {
                 .edge_keys(&u_canonical, &v_canonical)
                 .and_then(|keys| keys.last().copied()),
         };
+        let live_row_key = auto_removal_key.map(|internal_key| {
+            let edge_key = Self::edge_key(&u_canonical, &v_canonical, internal_key);
+            self.py_edge_key_with_key(py, internal_key, &edge_key)
+        });
         let removed = self
             .inner
             .remove_edge(&u_canonical, &v_canonical, auto_removal_key);
@@ -6033,6 +6174,19 @@ impl PyMultiDiGraph {
         }
         if let Some(explicit_key) = auto_removal_key {
             self.remove_edge_metadata(&u_canonical, &v_canonical, explicit_key);
+        }
+        let pair_remaining = self.inner.has_edge(&u_canonical, &v_canonical);
+        if pair_remaining {
+            if let (Some(row_key), Some(row)) = (
+                live_row_key,
+                self.live_keydict_rows.get(py, &u_canonical, &v_canonical),
+            ) && row.bind(py).contains(row_key.bind(py))?
+            {
+                row.bind(py).del_item(row_key.bind(py))?;
+            }
+        } else {
+            self.live_keydict_rows
+                .remove_in_place(py, &u_canonical, &v_canonical);
         }
         // br-r37-c1-dwy1n: drop the neighbour from live direction rows IN
         // PLACE, but ONLY once the LAST parallel edge between the pair is gone.
@@ -6072,6 +6226,8 @@ impl PyMultiDiGraph {
                 n.repr()?
             )));
         }
+        self.live_keydict_rows
+            .remove_touching_in_place(py, &canonical);
 
         // surgically remove attributes for incident edges before removing node from inner graph
         let mut had_incident_edges = false;
@@ -6158,6 +6314,10 @@ impl PyMultiDiGraph {
         if present.is_empty() {
             self.bump_nodes_seq();
             return Ok(());
+        }
+        for canonical in &present {
+            self.live_keydict_rows
+                .remove_touching_in_place(py, canonical);
         }
         // Node-side mirror purge — O(k), independent of degree.
         for canonical in &present {
@@ -6397,6 +6557,7 @@ impl PyMultiDiGraph {
         self.succ_py_keys.clear(); // br-r37-c1-z6uka
         self.pred_py_keys.clear(); // br-r37-c1-z6uka
         self.edge_py_keys.clear();
+        self.live_keydict_rows.clear_in_place(py);
         self.graph_attrs = PyDict::new(py).unbind();
         // Clear the live mirror in place so an in-flight iter raises like nx.
         self.node_iter_mirror_clear(py)?;
@@ -6405,7 +6566,7 @@ impl PyMultiDiGraph {
         Ok(())
     }
 
-    fn clear_edges(&mut self) {
+    fn clear_edges(&mut self, py: Python<'_>) {
         // br-r37-c1-txkrn: drop BOTH direction row caches. A stale row here is
         // not caught by its own generation stamp -- `restamp_neighbor_rows` on
         // the next `add_edge` overwrites the stamp with the current sequences
@@ -6417,6 +6578,7 @@ impl PyMultiDiGraph {
         self.succ_py_keys.clear(); // br-r37-c1-z6uka
         self.pred_py_keys.clear(); // br-r37-c1-z6uka
         self.edge_py_keys.clear();
+        self.live_keydict_rows.clear_in_place(py);
         self.bump_edges_seq(); // br-r37-c1-jft0i
     }
 
@@ -8192,6 +8354,7 @@ impl PyMultiDiGraph {
             succ_key_rows: None,
             pred_key_rows: None,
             edge_keydict_cache: None,
+            live_keydict_rows: crate::live_keydict::LiveKeydictRows::default(),
             edge_keydict_by_index: HashMap::new(),
             has_edge_node_index_cache: crate::NodeIndexLookupCache::new(py),
             in_edges_data_attr_cache: std::sync::Mutex::new(None),
@@ -8227,6 +8390,7 @@ impl PyMultiDiGraph {
             edges_seq: 0,
             edges_dirty: AtomicBool::new(false),
             edge_dirty_keys: Self::clean_edge_dirty_keys(),
+            pending_edge_dirty_positions: std::sync::Mutex::new(rustc_hash::FxHashSet::default()),
             node_keys_cache: std::sync::Mutex::new(None),
             node_data_mirror: std::sync::Mutex::new(None),
             dict_of_dicts_cache: None,
@@ -8249,6 +8413,7 @@ impl PyMultiDiGraph {
             succ_key_rows: None,
             pred_key_rows: None,
             edge_keydict_cache: None,
+            live_keydict_rows: crate::live_keydict::LiveKeydictRows::default(),
             edge_keydict_by_index: HashMap::new(),
             has_edge_node_index_cache: crate::NodeIndexLookupCache::new(py),
             in_edges_data_attr_cache: std::sync::Mutex::new(None),
@@ -8266,6 +8431,7 @@ impl PyMultiDiGraph {
             edges_seq: 0,
             edges_dirty: AtomicBool::new(false),
             edge_dirty_keys: Self::clean_edge_dirty_keys(),
+            pending_edge_dirty_positions: std::sync::Mutex::new(rustc_hash::FxHashSet::default()),
             node_keys_cache: std::sync::Mutex::new(None),
             node_data_mirror: std::sync::Mutex::new(None),
             dict_of_dicts_cache: None,
@@ -8345,6 +8511,7 @@ impl PyMultiDiGraph {
             has_edge_node_index_cache: crate::NodeIndexLookupCache::new(py),
             neighbor_key_rows: None,
             edge_keydict_cache: None,
+            live_keydict_rows: crate::live_keydict::LiveKeydictRows::default(),
             edge_keydict_by_index: HashMap::new(), // br-r37-c1-2ndmw
             edge_py_attrs_by_index: HashMap::new(), // br-r37-c1-f3i50
         };
@@ -8594,6 +8761,7 @@ impl PyMultiDiGraph {
             succ_key_rows: None,
             pred_key_rows: None,
             edge_keydict_cache: None,
+            live_keydict_rows: crate::live_keydict::LiveKeydictRows::default(),
             edge_keydict_by_index: HashMap::new(),
             has_edge_node_index_cache: crate::NodeIndexLookupCache::new(py),
             in_edges_data_attr_cache: std::sync::Mutex::new(None),
@@ -8627,7 +8795,11 @@ impl PyMultiDiGraph {
             // which is a separate parity bug), and it must propagate the moment
             // that is fixed.
             edges_dirty: AtomicBool::new(false),
+            // br-r37-c1-6r00i: `cloned_edge_dirty_keys` drains first, so the
+            // clone above already carries what was queued and the new graph
+            // starts with nothing pending.
             edge_dirty_keys: self.cloned_edge_dirty_keys(),
+            pending_edge_dirty_positions: std::sync::Mutex::new(rustc_hash::FxHashSet::default()),
             node_keys_cache: std::sync::Mutex::new(None),
             node_data_mirror: std::sync::Mutex::new(None),
             dict_of_dicts_cache: None,
@@ -8691,6 +8863,7 @@ impl PyMultiDiGraph {
             succ_key_rows: None,
             pred_key_rows: None,
             edge_keydict_cache: None,
+            live_keydict_rows: crate::live_keydict::LiveKeydictRows::default(),
             edge_keydict_by_index: HashMap::new(),
             has_edge_node_index_cache: crate::NodeIndexLookupCache::new(py),
             in_edges_data_attr_cache: std::sync::Mutex::new(None),
@@ -8724,7 +8897,11 @@ impl PyMultiDiGraph {
             nodes_seq: 0,
             edges_seq: 0,
             edges_dirty: AtomicBool::new(self.edges_dirty.load(Ordering::Relaxed)),
+            // br-r37-c1-6r00i: `cloned_edge_dirty_keys` drains first, so the
+            // clone above already carries what was queued and the new graph
+            // starts with nothing pending.
             edge_dirty_keys: self.cloned_edge_dirty_keys(),
+            pending_edge_dirty_positions: std::sync::Mutex::new(rustc_hash::FxHashSet::default()),
             node_keys_cache: std::sync::Mutex::new(None),
             node_data_mirror: std::sync::Mutex::new(None),
             dict_of_dicts_cache: None,
@@ -8801,6 +8978,7 @@ impl PyMultiDiGraph {
             succ_key_rows: None,
             pred_key_rows: None,
             edge_keydict_cache: None,
+            live_keydict_rows: crate::live_keydict::LiveKeydictRows::default(),
             edge_keydict_by_index: HashMap::new(),
             has_edge_node_index_cache: crate::NodeIndexLookupCache::new(py),
             in_edges_data_attr_cache: std::sync::Mutex::new(None),
@@ -8818,6 +8996,7 @@ impl PyMultiDiGraph {
             edges_seq: 0,
             edges_dirty: AtomicBool::new(false),
             edge_dirty_keys: Self::clean_edge_dirty_keys(),
+            pending_edge_dirty_positions: std::sync::Mutex::new(rustc_hash::FxHashSet::default()),
             node_keys_cache: std::sync::Mutex::new(None),
             node_data_mirror: std::sync::Mutex::new(None),
             dict_of_dicts_cache: None,
@@ -8892,6 +9071,7 @@ impl PyMultiDiGraph {
             succ_key_rows: None,
             pred_key_rows: None,
             edge_keydict_cache: None,
+            live_keydict_rows: crate::live_keydict::LiveKeydictRows::default(),
             edge_keydict_by_index: HashMap::new(),
             has_edge_node_index_cache: crate::NodeIndexLookupCache::new(py),
             in_edges_data_attr_cache: std::sync::Mutex::new(None),
@@ -8909,6 +9089,7 @@ impl PyMultiDiGraph {
             edges_seq: 0,
             edges_dirty: AtomicBool::new(false),
             edge_dirty_keys: Self::clean_edge_dirty_keys(),
+            pending_edge_dirty_positions: std::sync::Mutex::new(rustc_hash::FxHashSet::default()),
             node_keys_cache: std::sync::Mutex::new(None),
             node_data_mirror: std::sync::Mutex::new(None),
             dict_of_dicts_cache: None,
@@ -9035,6 +9216,7 @@ impl PyMultiDiGraph {
             has_edge_node_index_cache: crate::NodeIndexLookupCache::new(py),
             neighbor_key_rows: None,
             edge_keydict_cache: None,
+            live_keydict_rows: crate::live_keydict::LiveKeydictRows::default(),
             edge_keydict_by_index: HashMap::new(), // br-r37-c1-2ndmw
             edge_py_attrs_by_index: HashMap::new(), // br-r37-c1-f3i50
         };
@@ -9086,6 +9268,9 @@ impl PyMultiDiGraph {
 
     fn reverse(&self, py: Python<'_>) -> PyResult<Self> {
         let source_edges_dirty = self.edges_dirty.load(Ordering::Relaxed);
+        // br-r37-c1-6r00i: reader of the dirty set — resolve the queued
+        // positions before consulting it (see `drain_pending_edge_dirty`).
+        self.drain_pending_edge_dirty();
         let dirty_edge_keys = if source_edges_dirty {
             self.edge_dirty_keys.lock().unwrap().clone()
         } else {
@@ -9096,6 +9281,7 @@ impl PyMultiDiGraph {
             succ_key_rows: None,
             pred_key_rows: None,
             edge_keydict_cache: None,
+            live_keydict_rows: crate::live_keydict::LiveKeydictRows::default(),
             edge_keydict_by_index: HashMap::new(),
             has_edge_node_index_cache: crate::NodeIndexLookupCache::new(py),
             in_edges_data_attr_cache: std::sync::Mutex::new(None),
@@ -9116,6 +9302,7 @@ impl PyMultiDiGraph {
             edges_seq: 0,
             edges_dirty: AtomicBool::new(false),
             edge_dirty_keys: Self::clean_edge_dirty_keys(),
+            pending_edge_dirty_positions: std::sync::Mutex::new(rustc_hash::FxHashSet::default()),
             node_keys_cache: std::sync::Mutex::new(None),
             node_data_mirror: std::sync::Mutex::new(None),
             dict_of_dicts_cache: None,
@@ -9272,6 +9459,9 @@ impl PyMultiDiGraph {
         if !self.edges_dirty.load(Ordering::Relaxed) {
             return Ok(());
         }
+        // br-r37-c1-6r00i: reader of the dirty set — resolve the queued
+        // positions before consulting it (see `drain_pending_edge_dirty`).
+        self.drain_pending_edge_dirty();
         let dirty_keys = self.edge_dirty_keys.lock().unwrap().clone();
         let edges: Vec<(String, String, usize, AttrMap)> = self
             .edge_py_attrs
@@ -9297,6 +9487,7 @@ impl PyMultiDiGraph {
         // token never let the caches engage. A later edge-dict access re-marks dirty,
         // so post-mutation reads stay correct.
         self.edges_dirty.store(false, Ordering::Relaxed);
+        self.pending_edge_dirty_positions.lock().unwrap().clear();
         *self.edge_dirty_keys.lock().unwrap() = Some(HashSet::new());
         Ok(())
     }
@@ -9314,6 +9505,9 @@ impl PyMultiDiGraph {
         if !self.edges_dirty.load(Ordering::Relaxed) {
             return Ok(());
         }
+        // br-r37-c1-6r00i: reader of the dirty set — resolve the queued
+        // positions before consulting it (see `drain_pending_edge_dirty`).
+        self.drain_pending_edge_dirty();
         let dirty_keys = self.edge_dirty_keys.lock().unwrap().clone();
         let edges: Vec<(String, String, usize, AttrMap)> = self
             .edge_py_attrs
@@ -9339,6 +9533,7 @@ impl PyMultiDiGraph {
         // token never let the caches engage. A later edge-dict access re-marks dirty,
         // so post-mutation reads stay correct.
         self.edges_dirty.store(false, Ordering::Relaxed);
+        self.pending_edge_dirty_positions.lock().unwrap().clear();
         *self.edge_dirty_keys.lock().unwrap() = Some(HashSet::new());
         Ok(())
     }
@@ -9403,9 +9598,9 @@ impl PyMultiDiGraph {
         // survive an `add_edge` and hand back a stale mapping. A hit is
         // existence proof: entries are recorded only for pairs that had edges.
         //
-        // The COPY preserves the contract -- handing out the cached mapping
-        // would let a caller's `d[k] = {}` corrupt it into a phantom key that
-        // `G.edges` does not have.
+        // The persistent row is returned directly: it is updated by native
+        // structural mutators, so a held `get_edge_data` result keeps the
+        // incumbent's live-read behavior without rebuilding a dict here.
         if key.is_none()
             && u.is_exact_instance_of::<PyString>()
             && v.is_exact_instance_of::<PyString>()
@@ -9415,9 +9610,9 @@ impl PyMultiDiGraph {
             && *ns == self.nodes_seq
             && *es == self.edges_seq
         {
-            let copy = cached.bind(py).copy()?;
+            let live = cached.clone_ref(py);
             self.mark_edges_dirty();
-            return Ok(copy.into_any().unbind());
+            return Ok(live.into_any());
         }
         // br-r37-c1-tjp0g: BORROW both canonical endpoints instead of allocating
         // a heap String for each.
@@ -9488,6 +9683,10 @@ impl PyMultiDiGraph {
                     self.edge_keydict_cache =
                         Some((self.nodes_seq, self.edges_seq, HashMap::new()));
                 }
+                if let Some(live) = self.live_keydict_rows.get(py, u_c, v_c) {
+                    self.mark_edges_dirty();
+                    return Ok(Some(live.into_any()));
+                }
                 if let Some((_, _, rows)) = &self.edge_keydict_cache
                     && let Some(cached) = rows.get(u_c).and_then(|row| row.get(v_c))
                 {
@@ -9513,8 +9712,6 @@ impl PyMultiDiGraph {
                     let attrs = self.edge_py_attrs_cloned_with_key(py, u_c, v_c, k, &ek);
                     result.set_item(self.py_edge_key_with_key(py, k, &ek), attrs.bind(py))?;
                 }
-                // br-r37-c1-ptiz2: remember it, hand back a COPY.
-                let copy = result.copy()?;
                 let stored = result.unbind();
                 // br-r37-c1-f3i50: fill the index twin with the SAME object the
                 // string-keyed cache stores, so a warm read by either key hands
@@ -9533,9 +9730,11 @@ impl PyMultiDiGraph {
                 if let Some((_, _, rows)) = self.edge_keydict_cache.as_mut() {
                     rows.entry(u_c.to_owned())
                         .or_default()
-                        .insert(v_c.to_owned(), stored);
+                        .insert(v_c.to_owned(), stored.clone_ref(py));
                 }
-                Ok(Some(copy.into_any().unbind()))
+                self.live_keydict_rows
+                    .insert(u_c.to_owned(), v_c.to_owned(), stored.clone_ref(py));
+                Ok(Some(stored.into_any()))
             })?
         })??;
         Ok(found.unwrap_or_else(|| default.unwrap_or_else(|| py.None())))

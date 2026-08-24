@@ -913,7 +913,7 @@ impl EdgeView {
         Ok(g.inner.has_edge(u.as_str(), v.as_str()))
     }
 
-    fn __iter__(&self, py: Python<'_>) -> PyResult<Py<NodeViewIterator>> {
+    fn __iter__(&self, py: Python<'_>) -> PyResult<PyObject> {
         // br-r37-c1-2a00r: NoData fast path — `list(G.edges())` was ~2.4x slower
         // than nx because each edge endpoint went through py_node_key/py_adj_key,
         // hashing the canonical String in a HashMap<String, PyObject> per node
@@ -967,51 +967,46 @@ impl EdgeView {
                         expected_count: Some(node_count),
                         expected_seq: Some(nodes_seq),
                     },
-                );
+                )
+                .map(|iterator| iterator.into_any());
             }
         }
-        let (items, node_count, nodes_seq) = match &self.data {
-            NodeViewData::AllData => {
-                // br-r37-c1-2zudj: one-pass field-split materialization (see
-                // edge_alldata_items) — was a two-pass owned-String collection.
-                let mut g = self.graph.borrow_mut(py);
-                if g.inner.edge_count() > 0 {
-                    g.mark_edges_dirty();
-                }
-                let node_count = g.inner.node_count();
-                let nodes_seq = g.nodes_seq;
-                // br-r37-c1-ml7s5: serve the WHOLE-GRAPH list from the cache.
-                //
-                // PyMultiGraph has had this since br-r37-c1-o07ax; the simple
-                // graph rebuilt every tuple on every call, which is the residual
-                // after the index probe took K=2000 from 713.5us/0.4538x to
-                // 142.3us/1.3629x. A hit skips edge_alldata_items entirely, and
-                // with it the per-call key_vec rebuild that hashes every node's
-                // full canonical name.
-                //
-                // This branch is `nbunch = None`. The FILTERED branch above must
-                // never read or write this cache: edges() and edges(nbunch=...)
-                // are different requests at the SAME generation, so sharing an
-                // entry returns every edge for a subset request, or silently
-                // loses edges for a whole-graph one — wrong answers no mutation
-                // test can catch, because the generation never moves.
-                let edges_seq = g.edges_seq;
-                if let Some((ns, es, cached)) = &g.edges_alldata_cache
-                    && *ns == nodes_seq
-                    && *es == edges_seq
+        if matches!(self.data, NodeViewData::AllData) {
+            let mut g = self.graph.borrow_mut(py);
+            if g.inner.edge_count() > 0 {
+                g.mark_edges_dirty();
+            }
+            let nodes_seq = g.nodes_seq;
+            let edges_seq = g.edges_seq;
+            let cached = match &g.edges_alldata_cache {
+                Some((cached_nodes_seq, cached_edges_seq, cached))
+                    if *cached_nodes_seq == nodes_seq && *cached_edges_seq == edges_seq =>
                 {
-                    let items = cached.iter().map(|t| t.clone_ref(py)).collect();
-                    (items, node_count, nodes_seq)
-                } else {
+                    cached.clone_ref(py)
+                }
+                _ => {
                     let items = edge_alldata_items(py, &mut g, None)?;
+                    let cached = PyDict::new(py);
+                    for (index, item) in items.iter().enumerate() {
+                        cached.set_item(index, item)?;
+                    }
+                    let cached = cached.unbind();
                     g.edges_alldata_cache = Some((
                         nodes_seq,
                         edges_seq,
-                        items.iter().map(|t| t.clone_ref(py)).collect(),
+                        cached.clone_ref(py),
                     ));
-                    (items, node_count, nodes_seq)
+                    cached
                 }
-            }
+            };
+            return cached
+                .bind(py)
+                .call_method0("values")?
+                .call_method0("__iter__")
+                .map(Bound::unbind);
+        }
+        let (items, node_count, nodes_seq) = match &self.data {
+            NodeViewData::AllData => unreachable!("AllData returns through the cached dict iterator"),
             _ => {
                 let g = self.graph.borrow(py);
                 // br-r37-c1-eqedg: use O(1) node_count() instead of allocating nodes_ordered() Vec
@@ -1128,6 +1123,7 @@ impl EdgeView {
                 expected_seq: Some(nodes_seq),
             },
         )
+        .map(|iterator| iterator.into_any())
     }
 
     /// networkx's `EdgeView.__getitem__`, natively (br-r37-c1-ef8rt)::
@@ -1225,7 +1221,10 @@ impl EdgeView {
                 && let Some(attrs) = g.cached_edge_py_attrs_by_index(py, ui, vi)
             {
                 crate::require_hashable_node_key(&v_item)?;
-                g.mark_edges_dirty();
+                // br-r37-c1-igdzi: `G.edges[u, v]` escapes ONE edge's dict and
+                // both positions are already in hand, so record the edge rather
+                // than the whole graph.
+                g.mark_edge_exposed(ui, vi);
                 return Ok(attrs);
             }
         }
@@ -1251,7 +1250,8 @@ impl EdgeView {
         // here, or by `has_node(u)` on the miss path below.
         if let Some(attrs) = g.cached_edge_py_attrs(py, u, v) {
             crate::require_hashable_node_key(&v_item)?;
-            g.mark_edges_dirty();
+            // br-r37-c1-igdzi: same single edge, reached by name.
+            g.mark_edge_exposed_by_name(u, v);
             return Ok(attrs);
         }
         if !g.inner.has_node(u) {
@@ -1261,7 +1261,8 @@ impl EdgeView {
         if !g.inner.has_edge(u, v) {
             return Err(missing_edge_key_error(edge));
         }
-        g.mark_edges_dirty();
+        // br-r37-c1-igdzi: still exactly one edge, so the flag carries its name.
+        g.mark_edge_exposed_by_name(u, v);
         let attrs = g.materialize_edge_py_attrs(py, u, v);
         // br-r37-c1-ptiz2: fill the index lookaside on the miss path, with the
         // SAME dict the string-keyed mirror just recorded, so the two can never
@@ -2024,14 +2025,19 @@ impl AtlasView {
             && let Some(v_index) = g.cached_exact_string_node_index(py, v)?
             && let Some(attrs) = g.cached_edge_py_attrs_by_index(py, u_index, v_index)
         {
-            g.mark_edges_dirty();
+            // br-r37-c1-igdzi: ONE edge escaped, and this path already knows
+            // both of its positions — so name it instead of condemning the whole
+            // graph. This is the row subscript `G[u][v]`, which measured as
+            // destructive as a full `edges(data=True)`: 6.12x to 0.73x.
+            g.mark_edge_exposed(u_index, v_index);
             return Ok(attrs);
         }
         let mut v_buf = ArrayString::new();
         let v_key = crate::canonical_node_key_in(py, v, &mut v_buf)?;
         let v_canon = v_key.as_str();
         if let Some(attrs) = g.cached_edge_py_attrs(py, &self.node, v_canon) {
-            g.mark_edges_dirty();
+            // br-r37-c1-igdzi: same single edge, reached by name.
+            g.mark_edge_exposed_by_name(&self.node, v_canon);
             return Ok(attrs);
         }
         if !g.inner.has_edge(&self.node, v_canon) {
@@ -2041,7 +2047,8 @@ impl AtlasView {
         // `G[u][v]['w'] = x` mutates the live edge attrs — flag the edge store
         // dirty so a later native read reconciles it (matches the old eager
         // `G[u]`, which marked dirty unconditionally).
-        g.mark_edges_dirty();
+        // br-r37-c1-igdzi: still exactly one edge, so the flag carries its name.
+        g.mark_edge_exposed_by_name(&self.node, v_canon);
         let attrs = g.materialize_edge_py_attrs(py, &self.node, v_canon);
         // br-r37-c1-ptiz2: fill the index lookaside with the SAME dict the
         // string-keyed mirror just returned, so the two can never disagree

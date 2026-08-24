@@ -10,6 +10,7 @@ mod algorithms;
 mod cgse;
 pub(crate) mod digraph;
 mod generators;
+mod live_keydict;
 mod network_simplex;
 mod readwrite;
 mod views;
@@ -2418,7 +2419,7 @@ pub(crate) struct PyGraph {
     /// also the case that passes whether or not the stamps work. The stamps
     /// exist for structural change: `add_edge`/`remove_edge` move `edges_seq`
     /// and node mutations move `nodes_seq`.
-    pub(crate) edges_alldata_cache: Option<(u64, u64, Vec<PyObject>)>,
+    pub(crate) edges_alldata_cache: Option<(u64, u64, Py<PyDict>)>,
     /// br-r37-c1-z6uka: per-adjacency-ROW display objects. nx's `_adj[u]`
     /// dict keeps the py object passed in the call that CREATED that cell,
     /// which can differ from the `_node` (first-wins) object when
@@ -2502,6 +2503,30 @@ pub(crate) struct PyGraph {
     pub(crate) edges_seq: u64,
     /// Monotonic dirty marker for Python-visible edge attr dict handouts.
     pub(crate) edges_dirty: AtomicBool,
+    /// br-r37-c1-igdzi: WHICH edges' live attr dicts escaped, when that is
+    /// known — index pairs, low index first.
+    ///
+    /// `edges_dirty` above is one bit for the WHOLE graph and it never lifts,
+    /// so a single `G[u][v]` permanently disables every store-backed weighted
+    /// read: `size(weight)` measured 6.12x against networkx clean and 0.73x
+    /// after one edge subscript, on a graph nobody mutated. The store is still
+    /// authoritative for every edge whose dict never left Rust; the flag simply
+    /// cannot say which those are.
+    ///
+    /// `None` means exactly that — "unknown scope, assume all" — and is what
+    /// `mark_edges_dirty` sets. THE DEFAULT IS DELIBERATELY THE CONSERVATIVE
+    /// ONE: every existing exposure site funnels through `mark_edges_dirty`, so
+    /// a site nobody converted keeps today's whole-graph behaviour and no
+    /// reader can be told an escaped edge is clean. Only a site that names its
+    /// edge — `mark_edge_exposed` — narrows anything, and once the scope is
+    /// `None` it never returns to `Some`, exactly as the bool never lifts.
+    ///
+    /// POSITIONS, so the weighted kernels (which walk `neighbors_indices`) can
+    /// probe without spelling node keys back out. Node add/remove RENUMBERS
+    /// them, so `bump_nodes_seq` drops the whole set to `None` rather than
+    /// carrying stamps per entry: renumbering is rare next to edge reads, and
+    /// widening is always the safe direction.
+    pub(crate) exposed_edges: std::sync::Mutex<Option<rustc_hash::FxHashSet<(usize, usize)>>>,
     /// Warm exact-string endpoints for `has_edge`. Values are compact native
     /// node indices and become invalid when a node mutation renumbers storage.
     has_edge_node_index_cache: NodeIndexLookupCache,
@@ -2721,9 +2746,7 @@ impl PyGraph {
         // dicts, and an attribute value may reference the graph itself, so an
         // untraversed cycle here would leak.
         if let Some((_, _, tuples)) = &self.edges_alldata_cache {
-            for tuple in tuples {
-                visit.call(tuple)?;
-            }
+            visit.call(tuples)?;
         }
         if let Some(cache) = &self.dict_of_dicts_cache {
             cache.traverse(visit)?;
@@ -3222,6 +3245,8 @@ impl PyGraph {
             nodes_seq: 0,
             edges_seq: 0,
             edges_dirty: AtomicBool::new(false),
+            // br-r37-c1-igdzi: a new graph has handed out nothing.
+            exposed_edges: std::sync::Mutex::new(Some(rustc_hash::FxHashSet::default())),
             has_edge_node_index_cache: NodeIndexLookupCache::new(py),
             node_keys_cache: std::sync::Mutex::new(None),
             node_iter_mirror: std::sync::Mutex::new(None),
@@ -3237,6 +3262,21 @@ impl PyGraph {
     #[inline]
     pub(crate) fn bump_nodes_seq(&mut self) {
         self.nodes_seq = self.nodes_seq.wrapping_add(1);
+        // The cached edge tuples are stored as dict values so whole-graph
+        // `edges(data=True)` can use CPython's C-level dict-value iterator.
+        // Clearing that dict in place, rather than merely dropping our handle,
+        // preserves NetworkX's fail-fast contract for an iterator that was
+        // obtained before the node-set mutation.
+        if let Some((_, _, cached)) = &self.edges_alldata_cache {
+            Python::attach(|py| cached.bind(py).clear());
+        }
+        // br-r37-c1-igdzi: a node add or remove RENUMBERS positions, so the
+        // recorded pairs may now name different edges. Dropping individual
+        // entries would lose the fact that those dicts escaped and let a later
+        // read serve a stale weight, so the scope widens to the whole graph —
+        // the same direction `mark_edges_dirty` takes, and the reason no entry
+        // needs its own stamp.
+        *self.exposed_edges.lock().unwrap() = None;
     }
 
     /// Bump the edge-mutation counter after any edge add/remove
@@ -3250,6 +3290,17 @@ impl PyGraph {
         // br-r37-c1-ptiz2: same lifetime as the endpoint lookaside. The per-entry
         // nodes_seq guard covers node RENUMBERING; this covers edge identity.
         self.edge_py_attrs_by_index.clear();
+        // br-r37-c1-igdzi: EDGE IDENTITY, for the escape scope too. A pair whose
+        // edge is removed and re-added is a different edge under the same two
+        // positions, and correcting the store by a dict that belonged to the old
+        // one would be a wrong answer rather than a slow one.
+        //
+        // Read the flag first: while the store is clean the scope is unused and
+        // will be re-armed by the next handout anyway, so an ordinary build loop
+        // pays one relaxed atomic load per edge and never takes the lock.
+        if self.edges_dirty.load(Ordering::Relaxed) {
+            *self.exposed_edges.lock().unwrap() = None;
+        }
     }
 
     // br-r37-c1-ptiz2: pub(crate) so views.rs EdgeView::__getitem__ can reach
@@ -3278,6 +3329,104 @@ impl PyGraph {
     #[inline]
     pub(crate) fn mark_edges_dirty(&self) {
         self.edges_dirty.store(true, Ordering::Relaxed);
+        // br-r37-c1-igdzi: this is the unnamed-scope mark. Whatever escaped, we
+        // cannot say which edge it belonged to, so the per-edge set stops being
+        // usable. Keeping this in the existing funnel is what makes the narrow
+        // set safe by default: a handout site that was never converted lands
+        // here and widens, instead of silently leaving the store trusted.
+        *self.exposed_edges.lock().unwrap() = None;
+    }
+
+    /// br-r37-c1-igdzi: `mark_edges_dirty` for a site that hands out ONE known
+    /// edge's dict and can name its endpoints as node indices.
+    ///
+    /// Records the pair instead of erasing the scope, so a later weighted read
+    /// can take the store for every OTHER edge and consult only this one's live
+    /// dict. Callers must pass indices valid under the CURRENT `nodes_seq` —
+    /// they come from the same lookups the handout already performed.
+    #[inline]
+    pub(crate) fn mark_edge_exposed(&self, u_index: usize, v_index: usize) {
+        let mut scope = self.exposed_edges.lock().unwrap();
+        // THE CLEAN GRAPH RE-ARMS THE SCOPE, and this is not an optimisation.
+        // A clean store means nothing that could be written behind its back is
+        // outstanding — that is what the flag not being set MEANS — so at the
+        // moment it is first set, the complete escape scope is this one edge,
+        // whatever the field happened to say beforehand. Without this the set
+        // never gets used at all: `bump_nodes_seq` widens on every node ADD, so
+        // an ordinary `add_edge` loop leaves a brand-new graph already unknown.
+        // The swap and the insert are under one lock so two threads cannot both
+        // read "was clean" and each start their own scope.
+        if !self.edges_dirty.swap(true, Ordering::Relaxed) {
+            *scope = Some(rustc_hash::FxHashSet::default());
+        }
+        if let Some(exposed) = scope.as_mut() {
+            let pair = if u_index <= v_index {
+                (u_index, v_index)
+            } else {
+                (v_index, u_index)
+            };
+            exposed.insert(pair);
+        }
+    }
+
+    /// br-r37-c1-igdzi: name-keyed front door for `mark_edge_exposed`, for the
+    /// handout sites that hold canonical endpoints rather than indices. Resolves
+    /// both, and WIDENS to the whole graph if either lookup fails — an edge we
+    /// cannot name a position for is one we cannot exclude later.
+    #[inline]
+    pub(crate) fn mark_edge_exposed_by_name(&self, u: &str, v: &str) {
+        match (self.inner.get_node_index(u), self.inner.get_node_index(v)) {
+            (Some(ui), Some(vi)) => self.mark_edge_exposed(ui, vi),
+            _ => self.mark_edges_dirty(),
+        }
+    }
+
+    /// br-r37-c1-igdzi: the weight of ONE edge whose live dict escaped, read
+    /// from that dict rather than from the store.
+    ///
+    /// `None` means "cannot answer" — the caller must fall back to the exact
+    /// Python path, never to the store, because the store is precisely what this
+    /// edge's dict may disagree with. `Some(None)` is the different and
+    /// legitimate answer "the dict has no such key", which is nx's
+    /// default-weight case and not an error.
+    ///
+    /// Positions, not names, because the weighted kernels walk
+    /// `neighbors_indices`; the two `get_node_name` lookups are index arithmetic
+    /// on the same `IndexMap` that walk is already reading.
+    pub(crate) fn escaped_edge_weight<'py>(
+        &self,
+        py: Python<'py>,
+        i: usize,
+        j: usize,
+        weight: &str,
+    ) -> Option<Option<Bound<'py, PyAny>>> {
+        let u = self.inner.get_node_name(i)?;
+        let v = self.inner.get_node_name(j)?;
+        let attrs = self.cached_edge_py_attrs(py, u, v)?;
+        attrs.bind(py).get_item(weight).ok()
+    }
+
+    /// br-r37-c1-igdzi: the escaped-edge scope a weighted kernel must honour.
+    ///
+    /// `Ok(None)` — nothing escaped, so the store answers every edge; this is
+    /// the clean graph and the only state that existed before this bead.
+    /// `Ok(Some(guard))` — the store answers every edge EXCEPT the ones named in
+    /// the set. `Err(())` — dirty with an unknown scope, the one case a kernel
+    /// still cannot serve at all.
+    ///
+    /// Returns the GUARD rather than a copy so that a set of any size costs no
+    /// allocation on the read path; the caller holds it for the walk, which is
+    /// sound because nothing inside a weighted read marks an edge exposed.
+    #[allow(clippy::type_complexity)]
+    pub(crate) fn weighted_read_scope(
+        &self,
+    ) -> Result<Option<std::sync::MutexGuard<'_, Option<rustc_hash::FxHashSet<(usize, usize)>>>>, ()>
+    {
+        if !self.edges_dirty.load(Ordering::Relaxed) {
+            return Ok(None);
+        }
+        let guard = self.exposed_edges.lock().unwrap();
+        if guard.is_none() { Err(()) } else { Ok(Some(guard)) }
     }
 
     fn cached_adj_set_edge(&mut self, py: Python<'_>, owner: &str, nbr: &str) -> PyResult<()> {
@@ -5237,6 +5386,7 @@ pub(crate) struct PyMultiGraph {
     /// native store. The copy costs ~451ns against ~16623ns for the rebuild.
     pub(crate) edge_keydict_cache:
         Option<(u64, u64, HashMap<String, HashMap<String, (usize, Py<PyDict>)>>)>,
+    pub(crate) live_keydict_rows: crate::live_keydict::LiveKeydictRows,
     /// br-r37-c1-2ndmw: the endpoint-INDEX twin of `edge_keydict_cache` above,
     /// mirroring what br-r37-c1-f3i50 did for `PyMultiDiGraph`.
     ///
@@ -5414,6 +5564,7 @@ impl PyMultiGraph {
                 }
             }
         }
+        self.live_keydict_rows.traverse(visit)?;
         self.has_edge_node_index_cache.traverse(visit)
     }
 
@@ -5433,6 +5584,7 @@ impl PyMultiGraph {
         self.edges_with_keys_cache = None;
         *self.node_iter_mirror.get_mut().unwrap() = None;
         self.edge_keydict_cache = None;
+        self.live_keydict_rows.clear_in_place(py);
         self.edge_keydict_by_index.clear(); // br-r37-c1-2ndmw
         self.edge_py_attrs_by_index.clear(); // br-r37-c1-f3i50
         self.has_edge_node_index_cache.clear(py);
@@ -6061,6 +6213,7 @@ impl PyMultiGraph {
         Ok(Self {
             neighbor_key_rows: None,
             edge_keydict_cache: None,
+            live_keydict_rows: crate::live_keydict::LiveKeydictRows::default(),
             edge_keydict_by_index: HashMap::new(), // br-r37-c1-2ndmw
             edge_py_attrs_by_index: HashMap::new(), // br-r37-c1-f3i50
             edges_data_attr_cache: std::sync::Mutex::new(None),
@@ -8145,6 +8298,10 @@ impl PyMultiGraph {
                     return Ok(live.into_any());
                 }
             }
+            if let Some(live) = self.live_keydict_rows.get(py, lo, hi) {
+                self.mark_edges_dirty();
+                return Ok(live.into_any());
+            }
             let keys = self.inner.edge_keys(u_c, v_c).unwrap_or_default();
             if keys.is_empty() {
                 Ok(default.unwrap_or_else(|| py.None()))
@@ -8178,7 +8335,7 @@ impl PyMultiGraph {
                 // caller must never receive the cached object, or a mutation
                 // through it would corrupt the cache (see the field's note).
                 let stored_len = result.len();
-                let live = result.clone().unbind();
+                let live = result.unbind();
                 // br-r37-c1-2ndmw: fill the index twin with the SAME object and
                 // the SAME count guard the string-keyed cache stores, so a warm
                 // read by either key hands back one live mapping, and stamp BOTH
@@ -8198,8 +8355,10 @@ impl PyMultiGraph {
                 if let Some((_, _, rows)) = self.edge_keydict_cache.as_mut() {
                     rows.entry(lo.to_owned())
                         .or_default()
-                        .insert(hi.to_owned(), (stored_len, result.unbind()));
+                        .insert(hi.to_owned(), (stored_len, live.clone_ref(py)));
                 }
+                self.live_keydict_rows
+                    .insert(lo.to_owned(), hi.to_owned(), live.clone_ref(py));
                 Ok(live.into_any())
             }
         }
@@ -8325,6 +8484,8 @@ impl PyMultiGraph {
                 n.repr()?
             )));
         }
+        self.live_keydict_rows
+            .remove_touching_in_place(py, &canonical);
 
         // surgically remove attributes for incident edges before removing node from inner graph
         let neighbors = self
@@ -8394,6 +8555,10 @@ impl PyMultiGraph {
         if present.is_empty() {
             self.bump_nodes_seq();
             return Ok(());
+        }
+        for canonical in &present {
+            self.live_keydict_rows
+                .remove_touching_in_place(py, canonical);
         }
         // br-r37-c1-mgrnf2: node-side mirror purge is O(k), independent of degree.
         for canonical in &present {
@@ -8679,10 +8844,14 @@ impl PyMultiGraph {
         };
 
         let ek = Self::edge_key(&u_canonical, &v_canonical, actual_key);
+        // Own a Python reference before mutating any other graph state below;
+        // `Entry` otherwise keeps `edge_py_attrs` mutably borrowed across the
+        // row-cache and stable-keydict updates.
         let py_dict = self
             .edge_py_attrs
             .entry(ek)
-            .or_insert_with(|| PyDict::new(py).unbind());
+            .or_insert_with(|| PyDict::new(py).unbind())
+            .clone_ref(py);
         if let Some(a) = attr {
             // br-r37-c1-aefbatch: single C-level dict.update instead of N
             // per-item set_item calls (see PyGraph::add_edge).
@@ -8706,7 +8875,18 @@ impl PyMultiGraph {
         // Prefer the user's explicit key; otherwise echo the nx-computed public
         // auto key (NOT the internal usize key).
         let external = key.or_else(|| auto_public_key.as_ref().map(|o| o.bind(py)));
-        Ok(self.remember_edge_key(py, &u_canonical, &v_canonical, actual_key, external))
+        let public_key =
+            self.remember_edge_key(py, &u_canonical, &v_canonical, actual_key, external);
+        let (lo, hi) = if u_canonical <= v_canonical {
+            (&u_canonical, &v_canonical)
+        } else {
+            (&v_canonical, &u_canonical)
+        };
+        if let Some(row) = self.live_keydict_rows.get(py, lo, hi) {
+            row.bind(py)
+                .set_item(public_key.bind(py), py_dict.bind(py))?;
+        }
+        Ok(public_key)
     }
 
     /// br-r37-c1-urle5: native plain-edge batch for `add_edges_from([(u, v), ...])`
@@ -10651,6 +10831,10 @@ impl PyMultiGraph {
                 .edge_keys(&u_canonical, &v_canonical)
                 .and_then(|keys| keys.last().copied()),
         };
+        let live_row_key = auto_removal_key.map(|internal_key| {
+            let edge_key = Self::edge_key(&u_canonical, &v_canonical, internal_key);
+            self.py_edge_key_with_key(py, internal_key, &edge_key)
+        });
         // br-r37-c1-rmedge-oE (cc): capture the pair's INTERNAL bucket keys
         // BEFORE removal so the pair-empty purge below can drop the exact
         // mirror slots in O(bucket) instead of the O(|E|) scan over the whole
@@ -10687,7 +10871,24 @@ impl PyMultiGraph {
             // metamorphic fuzz seeds 48/184/203).
             self.remove_edge_metadata(&u_canonical, &v_canonical, removed_key);
         }
-        if !self.inner.has_edge(&u_canonical, &v_canonical) {
+        let pair_remaining = self.inner.has_edge(&u_canonical, &v_canonical);
+        if pair_remaining {
+            if let (Some(row_key), Some(row)) = (
+                live_row_key,
+                self.live_keydict_rows.get(py, &u_canonical, &v_canonical),
+            ) && row.bind(py).contains(row_key.bind(py))?
+            {
+                row.bind(py).del_item(row_key.bind(py))?;
+            }
+        } else {
+            let (lo, hi) = if u_canonical <= v_canonical {
+                (&u_canonical, &v_canonical)
+            } else {
+                (&v_canonical, &u_canonical)
+            };
+            self.live_keydict_rows.remove_in_place(py, lo, hi);
+        }
+        if !pair_remaining {
             if !self.adj_py_keys.is_empty() {
                 // br-r37-c1-z6uka: the LAST parallel key removed empties the
                 // adjacency cell — drop its row overrides (a re-add creates
@@ -10756,6 +10957,7 @@ impl PyMultiGraph {
         self.edge_py_attrs.clear();
         self.adj_py_keys.clear(); // br-r37-c1-z6uka
         self.edge_py_keys.clear();
+        self.live_keydict_rows.clear_in_place(py);
         // br-r37-c1-clrow: DROP THE NEIGHBOUR ROW CACHE, like every other mirror
         // above. It is stamped with (nodes_seq, edges_seq) and both are bumped
         // below, so a survivor would normally be rejected on read -- but leaving
@@ -10775,13 +10977,14 @@ impl PyMultiGraph {
         Ok(())
     }
 
-    fn clear_edges(&mut self) {
+    fn clear_edges(&mut self, py: Python<'_>) {
         // br-r37-c1-txkrn: drop the neighbour row cache. A stale row here is
         // not caught by its own generation stamp -- `restamp_neighbor_rows` on
         // the next `add_edge` overwrites the stamp with the current sequences
         // and launders the row into looking fresh.
         self.neighbor_key_rows = None;
         self.inner.clear_edges();
+        self.live_keydict_rows.clear_in_place(py);
         if !self.edge_py_attrs.is_empty() || !self.edge_py_keys.is_empty() {
             self.edge_mirrors_stale = true;
         }
@@ -12057,6 +12260,7 @@ impl PyMultiGraph {
         let mut new_graph = Self {
             neighbor_key_rows: None,
             edge_keydict_cache: None,
+            live_keydict_rows: crate::live_keydict::LiveKeydictRows::default(),
             edge_keydict_by_index: HashMap::new(), // br-r37-c1-2ndmw
             edge_py_attrs_by_index: HashMap::new(), // br-r37-c1-f3i50
             edges_data_attr_cache: std::sync::Mutex::new(None),
@@ -12167,6 +12371,7 @@ impl PyMultiGraph {
         let mut new_graph = Self {
             neighbor_key_rows: None,
             edge_keydict_cache: None,
+            live_keydict_rows: crate::live_keydict::LiveKeydictRows::default(),
             edge_keydict_by_index: HashMap::new(), // br-r37-c1-2ndmw
             edge_py_attrs_by_index: HashMap::new(), // br-r37-c1-f3i50
             edges_data_attr_cache: std::sync::Mutex::new(None),
@@ -12241,6 +12446,7 @@ impl PyMultiGraph {
             succ_key_rows: None,
             pred_key_rows: None,
             edge_keydict_cache: None,
+            live_keydict_rows: crate::live_keydict::LiveKeydictRows::default(),
             edge_keydict_by_index: HashMap::new(),
             in_edges_data_attr_cache: std::sync::Mutex::new(None),
             edges_data_attr_cache: std::sync::Mutex::new(None),
@@ -12260,6 +12466,7 @@ impl PyMultiGraph {
             edges_seq: 0,
             edges_dirty: AtomicBool::new(false),
             edge_dirty_keys: crate::digraph::PyMultiDiGraph::clean_edge_dirty_keys(),
+            pending_edge_dirty_positions: std::sync::Mutex::new(rustc_hash::FxHashSet::default()),
             node_keys_cache: std::sync::Mutex::new(None),
             node_data_mirror: std::sync::Mutex::new(None),
             dict_of_dicts_cache: None,
@@ -12340,6 +12547,7 @@ impl PyMultiGraph {
         let mut new_graph = Self {
             neighbor_key_rows: None,
             edge_keydict_cache: None,
+            live_keydict_rows: crate::live_keydict::LiveKeydictRows::default(),
             edge_keydict_by_index: HashMap::new(), // br-r37-c1-2ndmw
             edge_py_attrs_by_index: HashMap::new(), // br-r37-c1-f3i50
             edges_data_attr_cache: std::sync::Mutex::new(None),
@@ -12435,6 +12643,7 @@ impl PyMultiGraph {
         Ok(Self {
             neighbor_key_rows: None,
             edge_keydict_cache: None,
+            live_keydict_rows: crate::live_keydict::LiveKeydictRows::default(),
             edge_keydict_by_index: HashMap::new(), // br-r37-c1-2ndmw
             edge_py_attrs_by_index: HashMap::new(), // br-r37-c1-f3i50
             edges_data_attr_cache: std::sync::Mutex::new(None),
@@ -12530,6 +12739,7 @@ impl PyMultiGraph {
         let mut new_graph = Self {
             neighbor_key_rows: None,
             edge_keydict_cache: None,
+            live_keydict_rows: crate::live_keydict::LiveKeydictRows::default(),
             edge_keydict_by_index: HashMap::new(), // br-r37-c1-2ndmw
             edge_py_attrs_by_index: HashMap::new(), // br-r37-c1-f3i50
             edges_data_attr_cache: std::sync::Mutex::new(None),
@@ -12652,6 +12862,7 @@ impl PyMultiGraph {
         let mut new_graph = Self {
             neighbor_key_rows: None,
             edge_keydict_cache: None,
+            live_keydict_rows: crate::live_keydict::LiveKeydictRows::default(),
             edge_keydict_by_index: HashMap::new(), // br-r37-c1-2ndmw
             edge_py_attrs_by_index: HashMap::new(), // br-r37-c1-f3i50
             edges_data_attr_cache: std::sync::Mutex::new(None),
@@ -12763,6 +12974,7 @@ impl PyMultiGraph {
             succ_key_rows: None,
             pred_key_rows: None,
             edge_keydict_cache: None,
+            live_keydict_rows: crate::live_keydict::LiveKeydictRows::default(),
             edge_keydict_by_index: HashMap::new(),
             in_edges_data_attr_cache: std::sync::Mutex::new(None),
             edges_data_attr_cache: std::sync::Mutex::new(None),
@@ -12782,6 +12994,7 @@ impl PyMultiGraph {
             edges_seq: 0,
             edges_dirty: AtomicBool::new(false),
             edge_dirty_keys: crate::digraph::PyMultiDiGraph::clean_edge_dirty_keys(),
+            pending_edge_dirty_positions: std::sync::Mutex::new(rustc_hash::FxHashSet::default()),
             node_keys_cache: std::sync::Mutex::new(None),
             node_data_mirror: std::sync::Mutex::new(None),
             dict_of_dicts_cache: None,
@@ -16104,6 +16317,9 @@ impl PyGraph {
             // which is a separate parity bug), and it must propagate the moment
             // that is fixed.
             edges_dirty: AtomicBool::new(false),
+            // br-r37-c1-igdzi: clean start, so the escape scope is empty for the
+            // same reason the flag is false — these dicts were created here.
+            exposed_edges: std::sync::Mutex::new(Some(rustc_hash::FxHashSet::default())),
             node_keys_cache: std::sync::Mutex::new(None),
             node_iter_mirror: std::sync::Mutex::new(None),
             instance_dict_gc: InstanceDictGc::new(),
@@ -16300,6 +16516,12 @@ impl PyGraph {
             // Same contract as `copy`: a dirty source yields a result that
             // reconciles from the copied Python dicts on the next native read.
             edges_dirty: AtomicBool::new(self.edges_dirty.load(Ordering::Relaxed)),
+            // br-r37-c1-igdzi: this one propagates the flag, so it propagates
+            // the WIDEST scope with it. Whether relabel could start clean the
+            // way `copy` now does is the open follow-on recorded on the bead —
+            // it makes fresh dicts, but that has not been measured, and
+            // inheriting the conservative scope keeps this commit to one claim.
+            exposed_edges: std::sync::Mutex::new(None),
             node_keys_cache: std::sync::Mutex::new(None),
             node_iter_mirror: std::sync::Mutex::new(None),
             instance_dict_gc: InstanceDictGc::new(),
@@ -16350,6 +16572,10 @@ impl PyGraph {
             nodes_seq: 0,
             edges_seq: 0,
             edges_dirty: AtomicBool::new(false),
+            // br-r37-c1-igdzi: a subgraph copies its attr dicts and hands out
+            // none of them at construction, so it starts with an empty scope —
+            // the same reasoning that already makes its dirty flag false.
+            exposed_edges: std::sync::Mutex::new(Some(rustc_hash::FxHashSet::default())),
             node_keys_cache: std::sync::Mutex::new(None),
             node_iter_mirror: std::sync::Mutex::new(None),
             instance_dict_gc: InstanceDictGc::new(),
@@ -16473,6 +16699,10 @@ impl PyGraph {
             nodes_seq: 0,
             edges_seq: 0,
             edges_dirty: AtomicBool::new(false),
+            // br-r37-c1-igdzi: a subgraph copies its attr dicts and hands out
+            // none of them at construction, so it starts with an empty scope —
+            // the same reasoning that already makes its dirty flag false.
+            exposed_edges: std::sync::Mutex::new(Some(rustc_hash::FxHashSet::default())),
             node_keys_cache: std::sync::Mutex::new(None),
             node_iter_mirror: std::sync::Mutex::new(None),
             instance_dict_gc: InstanceDictGc::new(),
@@ -16555,6 +16785,10 @@ impl PyGraph {
             nodes_seq: 0,
             edges_seq: 0,
             edges_dirty: AtomicBool::new(false),
+            // br-r37-c1-igdzi: a subgraph copies its attr dicts and hands out
+            // none of them at construction, so it starts with an empty scope —
+            // the same reasoning that already makes its dirty flag false.
+            exposed_edges: std::sync::Mutex::new(Some(rustc_hash::FxHashSet::default())),
             node_keys_cache: std::sync::Mutex::new(None),
             node_iter_mirror: std::sync::Mutex::new(None),
             instance_dict_gc: InstanceDictGc::new(),
@@ -17129,7 +17363,9 @@ impl PyGraph {
             && let Some(v_index) = self.cached_exact_string_node_index(py, v)?
             && let Some(attrs) = self.cached_edge_py_attrs_by_index(py, u_index, v_index)
         {
-            self.mark_edges_dirty();
+            // br-r37-c1-igdzi: one edge's dict escapes here and both positions
+            // were just resolved, so the escape scope keeps its name.
+            self.mark_edge_exposed(u_index, v_index);
             return Ok(attrs.into_any());
         }
         // br-r37-c1-vz4v9: borrowed canonical keys — see the note on the
@@ -17144,7 +17380,8 @@ impl PyGraph {
         if !self.inner.has_edge(u_c, v_c) {
             return Ok(default.unwrap_or_else(|| py.None()));
         }
-        self.mark_edges_dirty();
+        // br-r37-c1-igdzi: still exactly one edge, so the flag carries its name.
+        self.mark_edge_exposed_by_name(u_c, v_c);
         let attrs = self.materialize_edge_py_attrs(py, u_c, v_c);
         // br-r37-c1-ptiz2 SCOPE FIX: fill the index lookaside here too.
         //
@@ -17207,7 +17444,11 @@ impl PyGraph {
             && let Some(v_index) = self.cached_exact_string_node_index(py, v)?
             && let Some(attrs) = self.cached_edge_py_attrs_by_index(py, u_index, v_index)
         {
-            self.mark_edges_dirty();
+            // br-r37-c1-igdzi: THIS is the funnel `G[u][v]` actually reaches —
+            // `AtlasView` is a Python class, so the native view slots are not on
+            // this path at all, and marking the whole graph here is what made
+            // one edge subscript cost every later weighted read.
+            self.mark_edge_exposed(u_index, v_index);
             return Ok(Some(attrs));
         }
         // Borrowed canonicals on the miss path too, matching
@@ -17222,7 +17463,8 @@ impl PyGraph {
         if !self.inner.has_edge(u_c, v_c) {
             return Ok(None);
         }
-        self.mark_edges_dirty();
+        // br-r37-c1-igdzi: one edge, so the mark carries its name.
+        self.mark_edge_exposed_by_name(u_c, v_c);
         let attrs = self.materialize_edge_py_attrs(py, u_c, v_c);
         if u.is_exact_instance_of::<PyString>()
             && v.is_exact_instance_of::<PyString>()
@@ -17325,11 +17567,50 @@ impl PyGraph {
     /// `_native_weighted_degree` has no store fast path at all (it always builds a
     /// per-node PyList + `builtins.sum`), so weighted `size` paid full per-node
     /// PyObject materialisation; this skips straight to the store scalar.
-    fn _weighted_size_fast(&self, weight: &str) -> Option<f64> {
-        if self.edges_dirty.load(Ordering::Relaxed) {
-            return None;
+    ///
+    /// br-r37-c1-igdzi: SCOPE-AWARE. A dirty store no longer ends this call when
+    /// the escape scope names its edges — the store scalar still sums every
+    /// edge, and each escaped edge is then CORRECTED by the difference between
+    /// its live dict and what the store believes.
+    ///
+    /// A correction, not a re-walk, and that is why this is the kernel worth
+    /// converting. `weighted_size_int` sums each edge once with no per-edge
+    /// Python object, so the escaped edges cost O(escaped) on top of a walk that
+    /// was happening anyway: one edge subscript adds ONE dict read. The per-edge
+    /// version of the same idea was built for
+    /// `_native_weighted_degree_int_values` and measured SLOWER than the Python
+    /// fallback it replaced, which is why that kernel keeps its plain gate.
+    ///
+    /// Refuses — to the exact `sum(degree)/2` formula, never to the store —
+    /// whenever an escaped edge cannot be accounted for exactly: a live value
+    /// that is not an exact int (a bool included), a pair the store no longer
+    /// holds because the edge was removed after the handout, or i128 overflow. A
+    /// missing key is not a refusal: it is nx's default weight of 1, applied to
+    /// both sides of the correction.
+    fn _weighted_size_fast(&self, py: Python<'_>, weight: &str) -> Option<f64> {
+        let scope = self.weighted_read_scope().ok()?;
+        let mut total = self.inner.weighted_size_int(weight)?;
+        if let Some(escaped) = scope.as_deref().and_then(Option::as_ref) {
+            for &(i, j) in escaped {
+                let stored = match self.inner.edge_attrs_by_indices(i, j).map(|a| a.get(weight)) {
+                    Some(Some(CgseValue::Int(v))) => i128::from(*v),
+                    // The scalar above already refused any non-int, so the only
+                    // other shapes reaching here are an absent key (nx's 1) and
+                    // an edge the store no longer holds.
+                    Some(None) => 1,
+                    _ => return None,
+                };
+                let live = match self.escaped_edge_weight(py, i, j, weight)? {
+                    None => 1,
+                    Some(value) if value.is_exact_instance_of::<PyInt>() => {
+                        value.extract::<i128>().ok()?
+                    }
+                    Some(_) => return None,
+                };
+                total = total.checked_add(live.checked_sub(stored)?)?;
+            }
         }
-        self.inner.weighted_size_int(weight).map(|t| t as f64)
+        Some(total as f64)
     }
 
     /// br-r37-c1-7pzs9: FLOAT/MIXED sibling of `_weighted_size_fast`. The integer
@@ -17356,25 +17637,58 @@ impl PyGraph {
     /// total. The final `/2` is gated on the integer total staying within 2**53,
     /// because Python's `int / 2` is correctly rounded while `t as f64 / 2.0` is
     /// not once `t` is no longer exactly representable.
-    fn _weighted_size_fast_float(&self, weight: &str) -> Option<f64> {
-        if self.edges_dirty.load(Ordering::Relaxed) {
-            return None;
-        }
+    ///
+    /// br-r37-c1-igdzi: SCOPE-AWARE, like its integer sibling but by re-reading
+    /// rather than by correcting. Float addition is not associative, so a delta
+    /// applied at the end would change the summation ORDER and stop reproducing
+    /// nx's two-level sum — the exact property this kernel exists to preserve.
+    /// The escaped edges are therefore read in place, at the point in the walk
+    /// where the store value would have been consumed.
+    ///
+    /// That is the per-edge probe shape that lost in
+    /// `_native_weighted_degree_int_values`, and it is worth it HERE for a
+    /// reason that is measurable rather than aesthetic: that kernel's clean path
+    /// is a per-node walk building N Python objects (2468us at 4000 edges) so
+    /// the probe could not pay for itself, while this one's is a bare
+    /// two-level store walk with no per-edge PyObject at all (166us), against a
+    /// 1875us Python fallback. The margin is what makes the same probe a win.
+    fn _weighted_size_fast_float(&self, py: Python<'_>, weight: &str) -> Option<f64> {
+        let scope = self.weighted_read_scope().ok()?;
+        let escaped = scope.as_deref().and_then(Option::as_ref);
         let mut outer = crate::digraph::MixedSum::new();
         for i in 0..self.inner.node_count() {
             let mut node = crate::digraph::MixedSum::new();
             let mut selfloop: Option<Result<i128, f64>> = None;
             if let Some(nbrs) = self.inner.neighbors_indices(i) {
                 for &j in nbrs {
-                    let value = match self
-                        .inner
-                        .edge_attrs_by_indices(i, j)
-                        .map(|a| a.get(weight))
+                    let value = if let Some(escaped) = escaped
+                        && escaped.contains(&if i <= j { (i, j) } else { (j, i) })
                     {
-                        Some(Some(CgseValue::Int(v))) => Ok(i128::from(*v)),
-                        Some(Some(CgseValue::Float(v))) => Err(*v),
-                        Some(Some(_)) => return None,
-                        _ => Ok(1i128),
+                        // The live dict is authoritative for this edge. Same
+                        // three shapes the store arm accepts — an exact int, an
+                        // exact float, or an absent key taking nx's default of
+                        // 1 — and a refusal for anything else, including a bool.
+                        match self.escaped_edge_weight(py, i, j, weight)? {
+                            None => Ok(1i128),
+                            Some(v) if v.is_exact_instance_of::<PyInt>() => {
+                                Ok(v.extract::<i128>().ok()?)
+                            }
+                            Some(v) if v.is_exact_instance_of::<PyFloat>() => {
+                                Err(v.extract::<f64>().ok()?)
+                            }
+                            Some(_) => return None,
+                        }
+                    } else {
+                        match self
+                            .inner
+                            .edge_attrs_by_indices(i, j)
+                            .map(|a| a.get(weight))
+                        {
+                            Some(Some(CgseValue::Int(v))) => Ok(i128::from(*v)),
+                            Some(Some(CgseValue::Float(v))) => Err(*v),
+                            Some(Some(_)) => return None,
+                            _ => Ok(1i128),
+                        }
                     };
                     let ok = match value {
                         Ok(w) => node.add_int(w),
@@ -17525,6 +17839,15 @@ impl PyGraph {
         py: Python<'_>,
         weight: &str,
     ) -> PyResult<Option<Vec<PyObject>>> {
+        // br-r37-c1-igdzi: NOT scope-aware, and that is a measured decision
+        // rather than an omission. A version of this kernel that consulted the
+        // escape scope per edge was built and timed: 4000 edges, live networkx
+        // in the same invocation, `degree(weight)` went 2468us clean to 3058us
+        // with the probe against a 2189us Python fallback — so honouring the
+        // scope here is SLOWER than giving up, and the row it was meant to save
+        // (0.64x clean) is not a win to begin with. `_weighted_size_fast` is
+        // where the scope pays, because its clean path is a single store scalar
+        // rather than a per-node walk. See the note there.
         if self.edges_dirty.load(Ordering::Relaxed) {
             return Ok(None);
         }
@@ -17582,6 +17905,9 @@ impl PyGraph {
         py: Python<'_>,
         weight: &str,
     ) -> PyResult<Option<Vec<PyObject>>> {
+        // br-r37-c1-igdzi: not scope-aware, for the reason measured on the int
+        // sibling above — the per-edge probe costs more than the fallback it
+        // replaces on this shape.
         if self.edges_dirty.load(Ordering::Relaxed) {
             return Ok(None);
         }
@@ -18106,6 +18432,11 @@ impl PyGraph {
             nodes_seq: 0,
             edges_seq: 0,
             edges_dirty: AtomicBool::new(self.edges_dirty.load(Ordering::Relaxed)),
+            // br-r37-c1-igdzi: `copy.copy` is the SHALLOW protocol and shares
+            // attr dicts, so anything the source handed out is reachable through
+            // this graph too. It inherits the flag and takes the widest scope —
+            // the one case where starting clean would be unsound.
+            exposed_edges: std::sync::Mutex::new(None),
             node_keys_cache: std::sync::Mutex::new(None),
             node_iter_mirror: std::sync::Mutex::new(None),
             instance_dict_gc: InstanceDictGc::new(),
