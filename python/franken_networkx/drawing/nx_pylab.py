@@ -858,25 +858,11 @@ def display(G, canvas=None, **kwargs):
     return buffer.getvalue()
 
 
-def draw_bipartite(G, *, top_nodes=None, **kwargs):
-    """Draw a bipartite graph using a bipartite layout when positions are omitted.
+def draw_bipartite(G, **kwargs):
+    """Draw the graph ``G`` with a bipartite layout.
 
-    br-r37-c1-bvf5w / br-r37-c1-5b7i4: nx's signature is ``(G, **kwargs)``;
-    fnx exposes the optional ``top_nodes`` as a keyword-only argument so
-    callers can supply the bipartite partition without routing through
-    bipartite_sets. Keyword-only keeps positional arity aligned with nx
-    so drop-in callers that pass extra positionals fail with the same
-    TypeError on both libraries. ``pos`` and ``top_nodes`` may still be
-    passed via kwargs; if neither is given, ``top_nodes`` is computed
-    via ``bipartite_sets``.
+    This intentionally mirrors NetworkX's convenience wrapper: it computes
+    the layout without consuming any drawing keyword and forwards those
+    keywords directly to :func:`draw`.
     """
-    pos = kwargs.pop("pos", None)
-    if pos is None:
-        if top_nodes is None:
-            # br-r37-c1-bipx-removed: top-level fnx.bipartite_sets
-            # was removed in favour of nx-namespaced fnx.bipartite.sets.
-            from franken_networkx import bipartite as _bp
-
-            top_nodes, _ = _bp.sets(G)
-        pos = bipartite_layout(G, top_nodes)
-    return draw(G, pos=pos, **kwargs)
+    return draw(G, pos=bipartite_layout(G), **kwargs)

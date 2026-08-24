@@ -7,9 +7,7 @@ Companion to ``scripts/api_ergonomics_audit.py``. Locks in:
    ``write_edgelist``, ``parse_edgelist``) have signatures matching
    ``networkx`` exactly. These are the highest-traffic IO/conversion
    points; signature drift here breaks adoption.
-3. The remaining intentional ergonomic extension
-   (``draw_bipartite`` adds ``top_nodes``) is stable; if it changes
-   shape we want a re-classification, not silent drift.
+3. ``draw_bipartite`` preserves the NetworkX public signature.
 """
 
 from __future__ import annotations
@@ -74,15 +72,13 @@ def test_io_family_signature_matches_networkx(name):
 
 
 # ---------------------------------------------------------------------------
-# Intentional extensions (must not regress)
+# Drawing parity
 # ---------------------------------------------------------------------------
 
 
-def test_draw_bipartite_keeps_top_nodes_extension():
-    sig = inspect.signature(fnx.draw_bipartite)
-    params = list(sig.parameters.values())
-    assert [p.name for p in params] == ["G", "top_nodes", "kwargs"], (
-        f"br-r37-c1-bvf5w extension changed shape: {[p.name for p in params]}"
+def test_draw_bipartite_signature_matches_networkx():
+    assert str(inspect.signature(fnx.draw_bipartite)) == str(
+        inspect.signature(nx.draw_bipartite)
     )
 
 
