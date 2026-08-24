@@ -274,6 +274,34 @@ _alias_nx_child_modules(
     "networkx.algorithms.isomorphism", f"{__name__}.isomorphism"
 )
 
+# The flattened spellings are common public entry points.  Keep their exact
+# NetworkX signatures while resolving the implementation at call time from the
+# native leaf module, rather than retaining the generic ``*args, **kwargs``
+# router installed below.
+_FNX_FLATTENED_ISOMORPHISM_NAMES = (
+    "is_isomorphic",
+    "could_be_isomorphic",
+    "fast_could_be_isomorphic",
+    "faster_could_be_isomorphic",
+    "vf2pp_is_isomorphic",
+    "vf2pp_isomorphism",
+    "vf2pp_all_isomorphisms",
+)
+
+
+def _make_flattened_isomorphism_router(_name):
+    def _routed(*args, **kwargs):
+        return getattr(_fnx_isomorphism, _name)(*args, **kwargs)
+
+    _routed.__name__ = _name
+    _routed.__qualname__ = _name
+    _routed.__signature__ = _inspect.signature(getattr(_nx_algorithms, _name))
+    return _routed
+
+
+for _name in _FNX_FLATTENED_ISOMORPHISM_NAMES:
+    globals()[_name] = _make_flattened_isomorphism_router(_name)
+
 _fnx_cluster = _importlib.import_module("franken_networkx.cluster")
 _sys.modules[f"{__name__}.cluster"] = _fnx_cluster
 cluster = _fnx_cluster  # Override in module globals

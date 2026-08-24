@@ -105,6 +105,15 @@ _FLATTENED_EFFICIENCY_NAMES = [
     "global_efficiency",
     "local_efficiency",
 ]
+_FLATTENED_ISOMORPHISM_NAMES = [
+    "is_isomorphic",
+    "could_be_isomorphic",
+    "fast_could_be_isomorphic",
+    "faster_could_be_isomorphic",
+    "vf2pp_is_isomorphic",
+    "vf2pp_isomorphism",
+    "vf2pp_all_isomorphisms",
+]
 
 
 @lru_cache(maxsize=1)
@@ -166,6 +175,39 @@ def test_routed_function_values_match_networkx():
         nx.wiener_index(nx.complete_graph(4))
     )
     assert fnx_algorithms.transitivity(g) == pytest.approx(nx.transitivity(ng))
+
+
+@pytest.mark.parametrize("name", _FLATTENED_ISOMORPHISM_NAMES)
+def test_flattened_isomorphism_signature_and_results_match_legacy_oracle(name):
+    legacy = _legacy_networkx()
+    actual = getattr(fnx_algorithms, name)
+    expected = getattr(legacy.algorithms, name)
+    assert str(inspect.signature(actual)) == str(inspect.signature(expected))
+
+    graph = fnx.path_graph(3)
+    legacy_graph = legacy.path_graph(3)
+    actual_value = actual(graph, graph)
+    expected_value = expected(legacy_graph, legacy_graph)
+    if name == "vf2pp_all_isomorphisms":
+        assert list(actual_value) == list(expected_value)
+    else:
+        assert actual_value == expected_value
+
+    with pytest.raises(ImportError):
+        actual(graph, graph, backend="missing")
+
+
+@pytest.mark.parametrize("name", _FLATTENED_ISOMORPHISM_NAMES)
+def test_flattened_isomorphism_routes_to_leaf_module(monkeypatch, name):
+    marker = object()
+
+    def sentinel(*args, **kwargs):
+        assert args == ("left", "right")
+        assert kwargs == {"flag": True}
+        return marker
+
+    monkeypatch.setattr(fnx_algorithms.isomorphism, name, sentinel)
+    assert getattr(fnx_algorithms, name)("left", "right", flag=True) is marker
 
 
 @pytest.mark.parametrize("name", _FLATTENED_LINK_PREDICTION_NAMES)
