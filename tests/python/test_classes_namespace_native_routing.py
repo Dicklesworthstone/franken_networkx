@@ -13,6 +13,7 @@ br-r37-c1-2qsqf
 from __future__ import annotations
 
 import importlib.util
+import inspect
 import sys
 from functools import lru_cache
 from pathlib import Path
@@ -23,6 +24,7 @@ import pytest
 from franken_networkx import classes as fnx_classes
 
 _TYPES = ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"]
+_GRAPH_PREDICATES = ("is_directed", "is_multigraph")
 _FUNCS = [
     "add_cycle", "add_path", "all_neighbors", "create_empty_copy", "degree",
     "degree_histogram", "density", "edges", "induced_subgraph", "is_directed",
@@ -72,6 +74,26 @@ def test_imported_graph_type_instantiates_fnx_native():
     assert fnx_classes.number_of_edges(g) == 2
     dg = DiGraph([(0, 1)])
     assert isinstance(dg, fnx.DiGraph)
+
+
+@pytest.mark.parametrize("graph_type", _TYPES)
+@pytest.mark.parametrize("predicate", _GRAPH_PREDICATES)
+def test_native_graph_predicate_signatures_and_errors_match_legacy_oracle(
+    graph_type, predicate
+):
+    legacy = _legacy_networkx()
+    actual_class = getattr(fnx_classes, graph_type)
+    expected_class = getattr(legacy.classes, graph_type)
+    actual_predicate = getattr(actual_class, predicate)
+    expected_predicate = getattr(expected_class, predicate)
+
+    assert str(inspect.signature(actual_predicate)) == str(
+        inspect.signature(expected_predicate)
+    )
+    assert actual_predicate(actual_class()) is expected_predicate(expected_class())
+
+    with pytest.raises(TypeError):
+        actual_predicate(actual_class(), "unexpected")
 
 
 def test_helper_function_values_match_networkx():

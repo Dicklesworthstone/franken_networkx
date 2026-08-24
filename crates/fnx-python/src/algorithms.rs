@@ -5626,7 +5626,11 @@ fn graph_sssp_predecessors_index(
     graph: &fnx_classes::Graph,
     source: &str,
     cutoff: Option<usize>,
-) -> (Option<usize>, Vec<usize>, std::collections::HashMap<usize, usize>) {
+) -> (
+    Option<usize>,
+    Vec<usize>,
+    std::collections::HashMap<usize, usize>,
+) {
     // br-r37-c1-dkwy7: no whole-graph name vector and no dense predecessor
     // array. `nodes_ordered()` existed only to feed the emitter a table it
     // indexed O(reached) times, and the predecessor array was written for the
@@ -5682,7 +5686,11 @@ fn multigraph_sssp_predecessors_index(
     mg: &fnx_classes::MultiGraph,
     source: &str,
     cutoff: Option<usize>,
-) -> (Option<usize>, Vec<usize>, std::collections::HashMap<usize, usize>) {
+) -> (
+    Option<usize>,
+    Vec<usize>,
+    std::collections::HashMap<usize, usize>,
+) {
     // br-r37-c1-dkwy7: no whole-graph name vector and no dense predecessor
     // array. `nodes_ordered()` existed only to feed the emitter a table it
     // indexed O(reached) times, and the predecessor array was written for the
@@ -5755,7 +5763,11 @@ fn multidigraph_sssp_predecessors_index(
     mdg: &fnx_classes::digraph::MultiDiGraph,
     source: &str,
     cutoff: Option<usize>,
-) -> (Option<usize>, Vec<usize>, std::collections::HashMap<usize, usize>) {
+) -> (
+    Option<usize>,
+    Vec<usize>,
+    std::collections::HashMap<usize, usize>,
+) {
     // br-r37-c1-dkwy7: no whole-graph name vector and no dense predecessor
     // array. `nodes_ordered()` existed only to feed the emitter a table it
     // indexed O(reached) times, and the predecessor array was written for the
@@ -5834,7 +5846,11 @@ fn emit_paths_dict_discovery_parent_index<'n>(
             let parent_idx = predecessor.get(&node_idx).copied().unwrap_or(usize::MAX);
             disp.insert(
                 node_idx,
-                gr.py_row_key(py, name_of(parent_idx).unwrap_or_default(), name_of(node_idx).unwrap_or_default()),
+                gr.py_row_key(
+                    py,
+                    name_of(parent_idx).unwrap_or_default(),
+                    name_of(node_idx).unwrap_or_default(),
+                ),
             );
         }
     }
@@ -5912,9 +5928,10 @@ fn emit_paths_dict_uniform_parent_index<'n>(
         py_nodes.insert(node_idx, key);
     }
     let node_key = |idx: usize| -> PyResult<PyObject> {
-        py_nodes.get(&idx).map(|obj| obj.clone_ref(py)).ok_or_else(|| {
-            PyRuntimeError::new_err("single_source_shortest_path node key missing")
-        })
+        py_nodes
+            .get(&idx)
+            .map(|obj| obj.clone_ref(py))
+            .ok_or_else(|| PyRuntimeError::new_err("single_source_shortest_path node key missing"))
     };
 
     let dict = PyDict::new(py);
@@ -18748,10 +18765,31 @@ fn line_graph_fast(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Option<PyOb
 
 #[pyfunction]
 #[pyo3(signature = (g,))]
-fn degree_histogram(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Vec<usize>> {
-    let gr = extract_graph(g)?;
-    let inner = gr.undirected();
-    Ok(py.allow_threads(|| fnx_algorithms::degree_histogram(inner)))
+fn degree_histogram(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Option<Vec<usize>>> {
+    // br-r37-c1-deghistdead: UNDIRECTED SIMPLE ONLY, and `None` for everything
+    // else so the Python caller falls back rather than receiving a plausible
+    // wrong list.
+    //
+    // This used to take `gr.undirected()` for every class, which is not
+    // networkx's degree on three of the four:
+    //
+    //   DiGraph        a->b and b->a is degree 2 per node; the undirected
+    //                  projection collapses them to 1
+    //   MultiGraph     parallel edges count with multiplicity; the projection
+    //                  keeps one
+    //   MultiDiGraph   both of the above at once
+    //
+    // Measured against networkx before this change: MultiGraph a-b twice gave
+    // [0,2,1] against nx's [0,1,1,1]. The kernel was never called, so nothing
+    // caught it - wiring it up as a drop-in cost 53 test failures, which is the
+    // evidence that this restriction is the fix rather than a hedge.
+    let Ok(pg) = g.extract::<PyRef<'_, PyGraph>>() else {
+        return Ok(None);
+    };
+    let inner = &pg.inner;
+    Ok(Some(
+        py.allow_threads(|| fnx_algorithms::degree_histogram(inner)),
+    ))
 }
 
 // ===========================================================================
@@ -22126,6 +22164,98 @@ fn multidigraph_single_source_dijkstra_path_length(
     Ok(Some(dict.into_any().unbind()))
 }
 
+/// Return both weighted distances and paths from one MultiDiGraph source.
+///
+/// This is the path-bearing sibling of
+/// [`multidigraph_single_source_dijkstra_path_length`]. The native walk already
+/// records each finalised node's predecessor, so rebuilding a simple graph just
+/// to ask for paths would throw that work away and turn a native traversal into
+/// an O(E) Python edge walk.
+#[pyfunction]
+#[pyo3(signature = (g, source, weight="weight", cutoff=None))]
+fn multidigraph_single_source_dijkstra(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    source: &Bound<'_, PyAny>,
+    weight: &str,
+    cutoff: Option<f64>,
+) -> PyResult<Option<(PyObject, PyObject)>> {
+    sync_rust_edge_attrs_if_available(g)?;
+    let gr = extract_graph(g)?;
+    let source_key = node_key_to_string(py, source)?;
+    validate_node_str(&gr, &source_key, "Source")?;
+    let GraphRef::MultiDirected { mdg, .. } = &gr else {
+        return Ok(None);
+    };
+
+    let inner = &mdg.inner;
+    let rows = multidigraph_dijkstra_rows_for_graph(mdg, weight);
+    let result = match rows {
+        Some(rows) => py.allow_threads(|| {
+            multidigraph_single_source_dijkstra_lengths_rows(&rows, &source_key, cutoff)
+        }),
+        None => py.allow_threads(|| {
+            multidigraph_single_source_dijkstra_lengths_borrowed(inner, &source_key, weight, cutoff)
+        }),
+    };
+    let MultiDiDijkstraSourceLengths::Entries(entries) = result else {
+        return Ok(None);
+    };
+    let Some(&(source_idx, _, _, _)) = entries.first() else {
+        return Ok(Some((
+            PyDict::new(py).into_any().unbind(),
+            PyDict::new(py).into_any().unbind(),
+        )));
+    };
+
+    let nodes = inner.nodes_ordered();
+    let discovery: Vec<usize> = entries
+        .iter()
+        .map(|(node_idx, _, _, _)| *node_idx)
+        .collect();
+    let predecessors: HashMap<usize, usize> = entries
+        .iter()
+        .filter_map(|(node_idx, _, _, predecessor)| predecessor.map(|parent| (*node_idx, parent)))
+        .collect();
+    let paths = emit_paths_dict_discovery_parent_index(
+        py,
+        &gr,
+        |index| nodes.get(index).copied(),
+        source_idx,
+        source.clone().unbind(),
+        &discovery,
+        &predecessors,
+    )?;
+
+    let mut display: HashMap<String, PyObject> = HashMap::with_capacity(entries.len() + 1);
+    display.insert(source_key, source.clone().unbind());
+    for (node_idx, _, _, predecessor) in &entries {
+        if let Some(parent_idx) = predecessor {
+            display.insert(
+                nodes[*node_idx].to_owned(),
+                gr.py_row_key(py, nodes[*parent_idx], nodes[*node_idx]),
+            );
+        }
+    }
+    let distances = PyDict::new(py);
+    for (node_idx, distance, all_int, _) in &entries {
+        let node = nodes[*node_idx];
+        let key = gr.disp_or_node_key(py, &display, node);
+        if *all_int
+            && distance.is_finite()
+            && distance.fract() == 0.0
+            && *distance >= i128::MIN as f64
+            && *distance <= i128::MAX as f64
+        {
+            distances.set_item(key, PyInt::new(py, *distance as i128))?;
+        } else {
+            distances.set_item(key, distance)?;
+        }
+    }
+
+    Ok(Some((distances.into_any().unbind(), paths.into_any())))
+}
+
 /// Return the shortest path length from source to target using Bellman-Ford.
 #[pyfunction]
 #[pyo3(signature = (g, source, target, weight="weight"))]
@@ -23270,10 +23400,8 @@ fn bidirectional_index_meta_from_rows(
     // one byte per node, probed on every neighbour of every expansion.
     let mut pred_seen = vec![false; node_count];
     let mut succ_seen = vec![false; node_count];
-    let mut pred_parent: std::collections::HashMap<usize, usize> =
-        std::collections::HashMap::new();
-    let mut succ_parent: std::collections::HashMap<usize, usize> =
-        std::collections::HashMap::new();
+    let mut pred_parent: std::collections::HashMap<usize, usize> = std::collections::HashMap::new();
+    let mut succ_parent: std::collections::HashMap<usize, usize> = std::collections::HashMap::new();
     pred_seen[source_idx] = true;
     succ_seen[target_idx] = true;
 
@@ -26080,6 +26208,8 @@ pub fn power_rust(py: Python<'_>, g: &Bound<'_, PyAny>, k: usize) -> PyResult<Py
         dict_of_dicts_cache: None,
         adj_row_py: HashMap::new(),
         adj_row_py_by_index: HashMap::new(), // br-r37-c1-nbrow
+        neighbor_key_rows: HashMap::new(),   // br-r37-c1-3rtyk
+        neighbor_key_rows_by_index: HashMap::new(), // br-r37-c1-3rtyk
         graph_attrs: PyDict::new(py).unbind(),
         nodes_seq: 0,
         edges_seq: 0,
@@ -26206,6 +26336,8 @@ pub fn ego_graph_rust(
         dict_of_dicts_cache: None,
         adj_row_py: HashMap::new(),
         adj_row_py_by_index: HashMap::new(), // br-r37-c1-nbrow
+        neighbor_key_rows: HashMap::new(),   // br-r37-c1-3rtyk
+        neighbor_key_rows_by_index: HashMap::new(), // br-r37-c1-3rtyk
         graph_attrs: PyDict::new(py).unbind(),
         nodes_seq: 0,
         edges_seq: 0,
@@ -26353,6 +26485,8 @@ pub fn full_join_rust(
         dict_of_dicts_cache: None,
         adj_row_py: HashMap::new(),
         adj_row_py_by_index: HashMap::new(), // br-r37-c1-nbrow
+        neighbor_key_rows: HashMap::new(),   // br-r37-c1-3rtyk
+        neighbor_key_rows_by_index: HashMap::new(), // br-r37-c1-3rtyk
         graph_attrs: PyDict::new(py).unbind(),
         nodes_seq: 0,
         edges_seq: 0,
@@ -26399,6 +26533,8 @@ pub fn identified_nodes_rust(
         dict_of_dicts_cache: None,
         adj_row_py: HashMap::new(),
         adj_row_py_by_index: HashMap::new(), // br-r37-c1-nbrow
+        neighbor_key_rows: HashMap::new(),   // br-r37-c1-3rtyk
+        neighbor_key_rows_by_index: HashMap::new(), // br-r37-c1-3rtyk
         graph_attrs: PyDict::new(py).unbind(),
         nodes_seq: 0,
         edges_seq: 0,
@@ -26504,6 +26640,8 @@ pub fn dedensify_rust(
         dict_of_dicts_cache: None,
         adj_row_py: HashMap::new(),
         adj_row_py_by_index: HashMap::new(), // br-r37-c1-nbrow
+        neighbor_key_rows: HashMap::new(),   // br-r37-c1-3rtyk
+        neighbor_key_rows_by_index: HashMap::new(), // br-r37-c1-3rtyk
         graph_attrs: PyDict::new(py).unbind(),
         nodes_seq: 0,
         edges_seq: 0,
@@ -26683,6 +26821,8 @@ pub fn quotient_graph_rust(
         dict_of_dicts_cache: None,
         adj_row_py: HashMap::new(),
         adj_row_py_by_index: HashMap::new(), // br-r37-c1-nbrow
+        neighbor_key_rows: HashMap::new(),   // br-r37-c1-3rtyk
+        neighbor_key_rows_by_index: HashMap::new(), // br-r37-c1-3rtyk
         graph_attrs: PyDict::new(py).unbind(),
         nodes_seq: 0,
         edges_seq: 0,
@@ -27256,6 +27396,8 @@ pub fn gomory_hu_tree_rust(
         dict_of_dicts_cache: None,
         adj_row_py: HashMap::new(),
         adj_row_py_by_index: HashMap::new(), // br-r37-c1-nbrow
+        neighbor_key_rows: HashMap::new(),   // br-r37-c1-3rtyk
+        neighbor_key_rows_by_index: HashMap::new(), // br-r37-c1-3rtyk
         graph_attrs: PyDict::new(py).unbind(),
         nodes_seq: 0,
         edges_seq: 0,
@@ -27321,6 +27463,8 @@ pub fn snap_aggregation_rust(
         dict_of_dicts_cache: None,
         adj_row_py: HashMap::new(),
         adj_row_py_by_index: HashMap::new(), // br-r37-c1-nbrow
+        neighbor_key_rows: HashMap::new(),   // br-r37-c1-3rtyk
+        neighbor_key_rows_by_index: HashMap::new(), // br-r37-c1-3rtyk
         graph_attrs: PyDict::new(py).unbind(),
         nodes_seq: 0,
         edges_seq: 0,
@@ -28198,6 +28342,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
         multidigraph_single_source_dijkstra_path_length,
         m
     )?)?;
+    m.add_function(wrap_pyfunction!(multidigraph_single_source_dijkstra, m)?)?;
     // Connectivity
     m.add_function(wrap_pyfunction!(is_connected, m)?)?;
     m.add_function(wrap_pyfunction!(connected_components, m)?)?;

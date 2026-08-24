@@ -28760,9 +28760,19 @@ pub fn degree_histogram(graph: &Graph) -> Vec<usize> {
     // `neighbor_count`. Compact node indices map one-to-one to adjacency rows.
     let mut hist = Vec::new();
     for node_idx in 0..graph.node_count() {
-        let degree = graph
-            .neighbors_indices(node_idx)
-            .map_or(0, |neighbors| neighbors.len());
+        // br-r37-c1-deghistdead: a SELF-LOOP is degree TWO. The adjacency row
+        // lists the self index once, and counting the row's length therefore
+        // reported 1 - so `Graph` with edges a-a and a-b gave [0,1,1] where
+        // networkx gives [0,1,0,1]. The doc comment above claimed a match with
+        // networkx while this was true, which is how the defect survived: the
+        // kernel was exported, imported by the shim as `_raw_degree_histogram`,
+        // and never called, so nothing ever compared it.
+        let degree = graph.neighbors_indices(node_idx).map_or(0, |neighbors| {
+            neighbors
+                .iter()
+                .map(|&other| if other == node_idx { 2 } else { 1 })
+                .sum::<usize>()
+        });
         if degree >= hist.len() {
             hist.resize(degree + 1, 0);
         }
@@ -91369,6 +91379,62 @@ mod lu_pade_tests {
         let spectrum = unweighted_laplacian_spectrum(&graph, Some("weight"), 8).unwrap();
         assert!(spectrum[0].abs() < 1e-10, "{}", spectrum[0]);
         assert!((spectrum[1] - 2.0).abs() < 1e-10, "{}", spectrum[1]);
+    }
+
+    #[test]
+    fn degree_histogram_counts_a_self_loop_twice() {
+        // br-r37-c1-deghistdead: networkx's degree counts a self-loop TWICE, so
+        // a graph with edges a-a and a-b has degrees {a: 3, b: 1} and the
+        // histogram [0, 1, 0, 1]. This counted the adjacency ROW LENGTH, which
+        // lists the self index once, and produced [0, 1, 1] - a plausible
+        // histogram that is not networkx's.
+        //
+        // It went unnoticed because nothing called the kernel: it was exported
+        // by the binding and imported by the Python shim as
+        // `_raw_degree_histogram`, and the shim computed its own answer. The
+        // doc comment claimed a networkx match the whole time.
+        use super::degree_histogram;
+        use fnx_classes::Graph;
+        use fnx_runtime::CompatibilityMode;
+
+        let mut graph = Graph::new(CompatibilityMode::Strict);
+        assert!(graph.add_node("a".to_owned()));
+        assert!(graph.add_node("b".to_owned()));
+        graph.add_edge("a", "a").unwrap();
+        graph.add_edge("a", "b").unwrap();
+
+        assert_eq!(degree_histogram(&graph), vec![0, 1, 0, 1]);
+    }
+
+    #[test]
+    fn degree_histogram_without_self_loops_is_the_neighbour_count() {
+        // The control for the case above: where no edge contributes twice, the
+        // histogram is unchanged by the self-loop fix.
+        use super::degree_histogram;
+        use fnx_classes::Graph;
+        use fnx_runtime::CompatibilityMode;
+
+        let mut graph = Graph::new(CompatibilityMode::Strict);
+        for node in ["a", "b", "c"] {
+            assert!(graph.add_node(node.to_owned()));
+        }
+        graph.add_edge("a", "b").unwrap();
+        graph.add_edge("b", "c").unwrap();
+
+        assert_eq!(degree_histogram(&graph), vec![0, 2, 1]);
+    }
+
+    #[test]
+    fn degree_histogram_of_an_isolated_node_and_of_nothing() {
+        use super::degree_histogram;
+        use fnx_classes::Graph;
+        use fnx_runtime::CompatibilityMode;
+
+        let mut graph = Graph::new(CompatibilityMode::Strict);
+        assert!(degree_histogram(&graph).is_empty());
+
+        assert!(graph.add_node("lonely".to_owned()));
+        assert_eq!(degree_histogram(&graph), vec![1]);
     }
 
     #[test]

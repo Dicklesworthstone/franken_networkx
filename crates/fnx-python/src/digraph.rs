@@ -239,7 +239,12 @@ impl MixedSum {
     pub(crate) const EXACT_F64_INT: i128 = 1i128 << 53;
 
     pub(crate) fn new() -> Self {
-        Self { int_total: 0, f: 0.0, c: 0.0, is_float: false }
+        Self {
+            int_total: 0,
+            f: 0.0,
+            c: 0.0,
+            is_float: false,
+        }
     }
 
     /// Returns false when the caller must fall back to the exact path.
@@ -276,12 +281,19 @@ impl MixedSum {
     /// step needs to reproduce Python's `int + float` promotion. An empty group
     /// is `Ok(0)`, which is nx's `sum(())`.
     pub(crate) fn value(&self) -> Result<i128, f64> {
-        if self.is_float { Err(self.f + self.c) } else { Ok(self.int_total) }
+        if self.is_float {
+            Err(self.f + self.c)
+        } else {
+            Ok(self.int_total)
+        }
     }
 }
 
 /// `sum(a) + sum(b)` with Python's promotion rule: int only when BOTH are int.
-pub(crate) fn mixed_combine(a: Result<i128, f64>, b: Result<i128, f64>) -> Option<Result<i128, f64>> {
+pub(crate) fn mixed_combine(
+    a: Result<i128, f64>,
+    b: Result<i128, f64>,
+) -> Option<Result<i128, f64>> {
     fn as_f64(v: Result<i128, f64>) -> Option<f64> {
         match v {
             Ok(i) if i.abs() > MixedSum::EXACT_F64_INT => None,
@@ -583,10 +595,18 @@ pub struct PyMultiDiGraph {
     /// Inside the existing tuple on purpose: the tuple is dropped wholesale when
     /// either sequence moves, so both maps are created, invalidated and dropped
     /// together and cannot desynchronise. A lookup path, not a second cache.
-    pub(crate) succ_key_rows:
-        Option<(u64, u64, HashMap<String, Py<PyDict>>, HashMap<usize, Py<PyDict>>)>,
-    pub(crate) pred_key_rows:
-        Option<(u64, u64, HashMap<String, Py<PyDict>>, HashMap<usize, Py<PyDict>>)>,
+    pub(crate) succ_key_rows: Option<(
+        u64,
+        u64,
+        HashMap<String, Py<PyDict>>,
+        HashMap<usize, Py<PyDict>>,
+    )>,
+    pub(crate) pred_key_rows: Option<(
+        u64,
+        u64,
+        HashMap<String, Py<PyDict>>,
+        HashMap<usize, Py<PyDict>>,
+    )>,
     /// br-r37-c1-ptiz2: directed mirror of `PyMultiGraph::edge_keydict_cache` —
     /// the `{key: attrs}` mapping for ONE (source, target) pair, under the
     /// `(nodes_seq, edges_seq)` generation it was built in.
@@ -2513,6 +2533,61 @@ impl PyMultiDiGraph {
             if let Some(entry) = slot.as_mut() {
                 entry.0 = nodes;
                 entry.1 = edges;
+            }
+        }
+    }
+
+    /// br-r37-c1-pyzv0: drop a node from every live direction row IN PLACE.
+    ///
+    /// networkx's directed `remove_node` does `for u in nbrs: del self._pred[u][n]`
+    /// and `for u in self._pred[n]: del self._succ[u][n]`, and that in-place `del`
+    /// is what an open `G.neighbors(u)` iterator sees — CPython raises only when
+    /// the dict the ITERATOR HOLDS changes size. Dropping the caches instead
+    /// (which still happens right after this, for the laundering reason
+    /// br-r37-c1-txkrn records) merely orphans the row the iterator is walking,
+    /// so it completed and reported the pre-removal neighbours.
+    ///
+    /// The removed node's OWN rows are left alone: networkx drops them from
+    /// `_succ`/`_pred` without touching the dicts, so an iterator over one of
+    /// them completes there too.
+    fn direction_rows_drop_node_in_place(&mut self, py: Python<'_>, canonical: &str) {
+        if self.succ_key_rows.is_none() && self.pred_key_rows.is_none() {
+            return;
+        }
+        let succs: Vec<String> = self
+            .inner
+            .successors(canonical)
+            .map(|s| s.into_iter().map(str::to_owned).collect())
+            .unwrap_or_default();
+        let preds: Vec<String> = self
+            .inner
+            .predecessors(canonical)
+            .map(|p| p.into_iter().map(str::to_owned).collect())
+            .unwrap_or_default();
+        // A successor loses it from its PRED row; a predecessor from its SUCC row.
+        for s in succs {
+            let _ = self.cached_direction_row_remove(py, &s, canonical, false);
+        }
+        for p in preds {
+            let _ = self.cached_direction_row_remove(py, &p, canonical, true);
+        }
+    }
+
+    /// br-r37-c1-pyzv0: empty every live direction row IN PLACE, matching
+    /// networkx's per-row `clear()` in `clear_edges`. `clear()` on the graph is
+    /// NOT this — there networkx clears only the outer mappings, so an in-flight
+    /// iterator completes and fnx already matches by dropping the caches.
+    fn direction_rows_clear_in_place(&self, py: Python<'_>) {
+        for slot in [&self.succ_key_rows, &self.pred_key_rows] {
+            if let Some((_, _, rows, by_index)) = slot {
+                for row in rows.values() {
+                    let _ = row.bind(py).call_method0("clear");
+                }
+                // The index twin holds the SAME dict objects, but a row reached
+                // only through it would otherwise survive uncleared.
+                for row in by_index.values() {
+                    let _ = row.bind(py).call_method0("clear");
+                }
             }
         }
     }
@@ -6213,12 +6288,6 @@ impl PyMultiDiGraph {
     }
 
     fn remove_node(&mut self, py: Python<'_>, n: &Bound<'_, PyAny>) -> PyResult<()> {
-        // br-r37-c1-txkrn: drop BOTH direction row caches. A stale row here is
-        // not caught by its own generation stamp -- `restamp_neighbor_rows` on
-        // the next `add_edge` overwrites the stamp with the current sequences
-        // and launders the row into looking fresh.
-        self.succ_key_rows = None;
-        self.pred_key_rows = None;
         let canonical = node_key_to_string(py, n)?;
         if !self.inner.has_node(&canonical) {
             return Err(crate::NetworkXError::new_err(format!(
@@ -6226,6 +6295,20 @@ impl PyMultiDiGraph {
                 n.repr()?
             )));
         }
+        // br-r37-c1-pyzv0: edit the live rows BEFORE the drop, so an in-flight
+        // `G.neighbors(u)` sees the removal and raises like networkx. The drop
+        // stays: it is what keeps a stale row from being laundered, and it
+        // cannot deliver the raise on its own.
+        self.direction_rows_drop_node_in_place(py, &canonical);
+        // br-r37-c1-txkrn: drop BOTH direction row caches. A stale row here is
+        // not caught by its own generation stamp -- `restamp_neighbor_rows` on
+        // the next `add_edge` overwrites the stamp with the current sequences
+        // and launders the row into looking fresh.
+        //
+        // Now reached only AFTER the presence check, so a failed removal leaves
+        // the caches alone -- it mutated nothing, so nothing went stale.
+        self.succ_key_rows = None;
+        self.pred_key_rows = None;
         self.live_keydict_rows
             .remove_touching_in_place(py, &canonical);
 
@@ -6286,12 +6369,6 @@ impl PyMultiDiGraph {
     }
 
     fn remove_nodes_from(&mut self, py: Python<'_>, nodes: &Bound<'_, PyAny>) -> PyResult<()> {
-        // br-r37-c1-txkrn: drop BOTH direction row caches. A stale row here is
-        // not caught by its own generation stamp -- `restamp_neighbor_rows` on
-        // the next `add_edge` overwrites the stamp with the current sequences
-        // and launders the row into looking fresh.
-        self.succ_key_rows = None;
-        self.pred_key_rows = None;
         // br-r37-c1-mgrnf2: batch inner removal AND kill the O(k·degree) per-node
         // succ/pred edge_keys walk. The old version looped inner.remove_node
         // (three O(|V|) shift_removes each => O(k·|V|)) and walked
@@ -6315,6 +6392,18 @@ impl PyMultiDiGraph {
             self.bump_nodes_seq();
             return Ok(());
         }
+        // br-r37-c1-pyzv0: edit the live rows BEFORE the drop below, while
+        // `inner` still knows each removed node's successors and predecessors,
+        // so an in-flight `G.neighbors(u)` raises like networkx.
+        for canonical in &present {
+            self.direction_rows_drop_node_in_place(py, canonical);
+        }
+        // br-r37-c1-txkrn: drop BOTH direction row caches. A stale row here is
+        // not caught by its own generation stamp -- `restamp_neighbor_rows` on
+        // the next `add_edge` overwrites the stamp with the current sequences
+        // and launders the row into looking fresh.
+        self.succ_key_rows = None;
+        self.pred_key_rows = None;
         for canonical in &present {
             self.live_keydict_rows
                 .remove_touching_in_place(py, canonical);
@@ -6444,16 +6533,19 @@ impl PyMultiDiGraph {
         // 58.0ns and flat — roughly 9x for what is the same node resolution
         // twice over, because `has_node` already takes the index path.
         //
-        // KEYLESS ONLY, and that gate is a MEASURED correction rather than
-        // caution. I first ran this path for the keyed form too, short-circuiting
-        // only an ABSENT pair — and it REGRESSED the keyed row from 0.1726x to
-        // 0.1404x at 2000-character keys (both measured at loadavg ~12). The
-        // reason is plain once measured: `resolve_internal_edge_key` and
-        // `edge_attrs` are keyed by canonical STRINGS and fnx-classes has no
-        // by-index equivalent taking an edge key, so a PRESENT keyed pair paid
+        // WAS KEYLESS ONLY, and the reason is worth keeping: running this path
+        // for the keyed form too once REGRESSED the keyed row from 0.1726x to
+        // 0.1404x at 2000-character keys, because `resolve_internal_edge_key`
+        // and `edge_attrs` are keyed by canonical STRINGS and fnx-classes had no
+        // by-index equivalent taking an edge key — so a PRESENT keyed pair paid
         // two index lookups and then fell through to the whole string path
-        // anyway. Extra work, nothing removed. The keyed form is left alone
-        // until that primitive exists.
+        // anyway. Extra work, nothing removed.
+        //
+        // br-r37-c1-s8dj1: that primitive now exists
+        // (`MultiDiGraph::edge_attrs_by_indices`), and the keyed branch below
+        // uses it. `has_edge_by_indices` is a real index path now rather than a
+        // name round-trip, so THIS branch finally buys what it was written to
+        // buy as well.
         //
         // ORDER IS PRESERVED: nx raises KeyError from `self._succ[u]` for an
         // absent source and answers False WITHOUT hashing `v`, which is what the
@@ -6470,6 +6562,36 @@ impl PyMultiDiGraph {
                 Some(v_index) => self.inner.has_edge_by_indices(u_index, v_index),
                 None => false,
             });
+        }
+        // br-r37-c1-s8dj1: the KEYED exact-string path, mirroring the one
+        // PyMultiGraph carries. `resolve_internal_edge_key` short-circuits when
+        // the display-key space is pristine and the key is an exact int -- the
+        // public integer key IS the internal usize key -- so the canonicals were
+        // needed only to reach `edge_attrs`, and `edge_attrs_by_indices` reaches
+        // the same entry by position. Remapped, float and string keys are
+        // excluded and keep the existing scan.
+        //
+        // ORDERING: br-r37-c1-lvlu7 requires an absent source to answer False
+        // without hashing `v`. That cannot be observed here -- both endpoints are
+        // exact `str` and the key an exact `int`, all always hashable, so no user
+        // `__hash__` can run and the resolution order is invisible.
+        if !self.has_remapped_int_key
+            && u.is_exact_instance_of::<PyString>()
+            && v.is_exact_instance_of::<PyString>()
+            && let Some(edge_key) = key
+            && edge_key.is_exact_instance_of::<PyInt>()
+            && let Ok(internal_key) = edge_key.extract::<usize>()
+        {
+            let Some(u_index) = self.cached_exact_string_node_index(py, u)? else {
+                return Ok(false);
+            };
+            let Some(v_index) = self.cached_exact_string_node_index(py, v)? else {
+                return Ok(false);
+            };
+            return Ok(self
+                .inner
+                .edge_attrs_by_indices(u_index, v_index, internal_key)
+                .is_some());
         }
         let u_c = node_key_to_string(py, u)?;
         // br-r37-c1-lvlu7: absent source short-circuits before `v` is hashed.
@@ -6567,6 +6689,11 @@ impl PyMultiDiGraph {
     }
 
     fn clear_edges(&mut self, py: Python<'_>) {
+        // br-r37-c1-pyzv0: empty the live rows IN PLACE first -- networkx clears
+        // each row dict here, which is what an open `G.neighbors(n)` iterator
+        // sees. Dropping the caches alone left it walking an orphaned row and
+        // completing where networkx raises.
+        self.direction_rows_clear_in_place(py);
         // br-r37-c1-txkrn: drop BOTH direction row caches. A stale row here is
         // not caught by its own generation stamp -- `restamp_neighbor_rows` on
         // the next `add_edge` overwrites the stamp with the current sequences
@@ -9432,6 +9559,23 @@ impl PyMultiDiGraph {
     ) -> PyResult<usize> {
         match (u, v) {
             (Some(u_node), Some(v_node)) => {
+                // br-r37-c1-s8dj1: exact-`str` endpoints answer from node
+                // POSITIONS. This built two owned canonicals and hashed the pair
+                // to report what is a bucket length, and measured 0.272x of
+                // networkx at 2000-character keys — the worst surviving row on
+                // this class once the keyed `has_edge` path landed. Every other
+                // endpoint shape keeps the canonical path below.
+                if u_node.is_exact_instance_of::<PyString>()
+                    && v_node.is_exact_instance_of::<PyString>()
+                {
+                    let Some(u_index) = self.cached_exact_string_node_index(py, u_node)? else {
+                        return Ok(0);
+                    };
+                    let Some(v_index) = self.cached_exact_string_node_index(py, v_node)? else {
+                        return Ok(0);
+                    };
+                    return Ok(self.inner.edge_key_count_by_indices(u_index, v_index));
+                }
                 let u_c = node_key_to_string(py, u_node)?;
                 let v_c = node_key_to_string(py, v_node)?;
                 Ok(self
@@ -9916,10 +10060,7 @@ impl MultiDiAdjacencyLenView {
         Self { graph: Some(graph) }
     }
 
-    fn __traverse__(
-        &self,
-        visit: pyo3::gc::PyVisit<'_>,
-    ) -> Result<(), pyo3::gc::PyTraverseError> {
+    fn __traverse__(&self, visit: pyo3::gc::PyVisit<'_>) -> Result<(), pyo3::gc::PyTraverseError> {
         visit.call(&self.graph)
     }
 

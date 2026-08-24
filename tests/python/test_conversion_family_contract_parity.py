@@ -100,3 +100,23 @@ def test_to_undirected_is_deep_and_ordered_like_networkx(cls_name):
     # DEEP: result's nested node container is independent of the original.
     Uf.nodes[0]["meta"]["id"] = 999
     assert Gf.nodes[0]["meta"]["id"] == 0, "to_undirected must deep-copy node attrs"
+
+
+def test_graph_to_undirected_rebuilds_adversarial_rows_and_deep_copies_attrs():
+    # The first edge touching n29 in the conversion walk is (n8, n29), even
+    # though n29's source row first saw n25.  A deepcopy preserves the latter;
+    # NetworkX's same-type conversion rebuilds the former.
+    edges = [("n8", "n16"), ("n29", "n25"), ("n8", "n29")]
+    Gn, Gf = nx.Graph(), fnx.Graph()
+    for graph in (Gn, Gf):
+        graph.add_edges_from((u, v, {"payload": [u, v]}) for u, v in edges)
+        graph.graph["payload"] = ["graph"]
+
+    Un, Uf = Gn.to_undirected(), Gf.to_undirected()
+    assert list(Uf.adj["n29"]) == list(Un.adj["n29"]) == ["n8", "n25"]
+    assert list(Uf.edges(data=True)) == list(Un.edges(data=True))
+
+    Uf.graph["payload"].append("changed")
+    Uf["n8"]["n29"]["payload"].append("changed")
+    assert Gf.graph["payload"] == ["graph"]
+    assert Gf["n8"]["n29"]["payload"] == ["n8", "n29"]

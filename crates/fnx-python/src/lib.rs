@@ -75,7 +75,6 @@ pub(crate) fn neumaier_add(total: &mut f64, comp: &mut f64, x: f64) {
     *total = t;
 }
 
-
 /// The node-key mirror is a lookup-heavy cache; public graph order comes from
 /// the core `Graph`'s insertion-ordered `FxIndexMap`, not this map. Its keys
 /// are already admitted to that core map, so this does not add a new
@@ -420,6 +419,21 @@ fn exact_int_decimal(py: Python<'_>, value: &Bound<'_, PyAny>) -> PyResult<Strin
         .extract::<String>()
 }
 
+/// br-r37-c1-numtower-29ggu: `float.__repr__` called UNBOUND, so a float
+/// SUBCLASS canonicalizes by VALUE rather than by its own spelling — exactly
+/// what `exact_int_decimal` above already does for int subclasses.
+///
+/// `numpy.float64` is a `float` subclass holding the identical double, so Python
+/// hashes it equal to that float and compares it `==`: it is ONE dict key and
+/// networkx has ONE node. `key.repr()` spelled it "np.float64(1.5)" against the
+/// float's "1.5" and split the node in two.
+fn float_value_repr(py: Python<'_>, value: &Bound<'_, PyAny>) -> PyResult<String> {
+    py.get_type::<PyFloat>()
+        .getattr(pyo3::intern!(py, "__repr__"))?
+        .call1((value,))?
+        .extract::<String>()
+}
+
 fn node_key_to_string(py: Python<'_>, key: &Bound<'_, PyAny>) -> PyResult<String> {
     // br-ctaxkey: `downcast::<PyString>()` is a cheap isinstance check that
     // builds NO Python exception on a non-string, unlike `extract::<String>()`
@@ -431,9 +445,61 @@ fn node_key_to_string(py: Python<'_>, key: &Bound<'_, PyAny>) -> PyResult<String
         let s = s.to_str()?;
         return Ok(format!("str:{}:{s}", s.len()));
     }
-    // bool is a subclass of int, so extract::<i64>() handles both —
-    // True → "1", False → "0", aligning with hash(True)==hash(1),
-    // hash(False)==hash(0).
+    // br-r37-c1-keyextract-rwsvk: CONCRETE TYPE PROBES BEFORE ANY `extract`.
+    //
+    // br-ctaxkey removed the discarded `PyErr` for STRING keys and left it in
+    // place for every other type, so a float or tuple key still paid one failed
+    // `extract::<i64>()` — and a tuple paid a failed `extract::<f64>()` on top,
+    // because both sat ahead of the tuple branch. Measured on the node batch at
+    // 5000 keys, against the string path as the control:
+    //
+    //   str 271.5 ns/node   int 326.3 (+54.8)   float integral 540.2 (+268.8)
+    //   float fractional 870.8 (+599.4)   all-int tuple 880.9 (+609.4)
+    //
+    // One failed extract is ~269 ns, which is the whole gap: the float and tuple
+    // paths were not slow, they were queued behind an exception they could never
+    // satisfy. `downcast` is a C-level type check that builds nothing.
+    //
+    // The four concrete types answer in full here. The `extract` chain BELOW is
+    // kept in its original order for everything else, because it is reachable by
+    // conversion rather than by type — a numpy integer is not a `PyInt` but does
+    // supply `__index__`, and it must still canonicalize to the same decimal it
+    // did before. Only objects that are none of str/int/float/tuple reach it, and
+    // those never paid the failed extract twice anyway.
+    //
+    // bool is a subclass of int, so this branch handles both — True → "1",
+    // False → "0", aligning with hash(True)==hash(1), hash(False)==hash(0).
+    if key.downcast::<PyInt>().is_ok() {
+        if let Ok(i) = key.extract::<i64>() {
+            return Ok(i.to_string());
+        }
+        return exact_int_decimal(py, key);
+    }
+    if key.downcast::<PyFloat>().is_ok()
+        && let Ok(f) = key.extract::<f64>()
+    {
+        return float_key_canonical(py, key, f);
+    }
+    // An EXACT tuple cannot satisfy `__index__` or `__float__`, so it answers
+    // here or by repr and never touches the extract chain. Subclasses keep the
+    // old route below, where an inherited conversion still wins as it used to.
+    if key.is_exact_instance_of::<PyTuple>() {
+        if let Ok(t) = key.downcast::<PyTuple>() {
+            if let Some(canonical) = exact_int_tuple_canonical(t) {
+                return Ok(canonical);
+            }
+            // br-r37-c1-numtower-29ggu: a tuple the fast path cannot serve still
+            // has to agree with its bool-free twin -- `('a', True)` and
+            // `('a', 1)` are one dict key in Python. Normalising the bools away
+            // and reprting THAT keeps the canonical format exactly CPython's
+            // tuple repr while making the two spellings land on one node.
+            if let Some(normalized) = tuple_with_bools_as_ints(py, t)? {
+                return Ok(normalized.repr()?.to_string());
+            }
+        }
+        let repr = key.repr()?;
+        return Ok(repr.to_string());
+    }
     if let Ok(i) = key.extract::<i64>() {
         return Ok(i.to_string());
     }
@@ -452,26 +518,7 @@ fn node_key_to_string(py: Python<'_>, key: &Bound<'_, PyAny>) -> PyResult<String
     // Floats that exactly represent an integer in i64 range collide
     // (by hash + ==) with their int counterpart in Python dicts.
     if let Ok(f) = key.extract::<f64>() {
-        // br-r37-c1-dr1h9: the bound is EXCLUSIVE at 2**63. `i64::MAX as f64`
-        // rounds UP to 2**63, so `f <= i64::MAX as f64` admitted 2**63 itself
-        // and `f as i64` saturated it onto i64::MAX — aliasing the float 2**63
-        // onto the distinct integer key 2**63-1.
-        if f.is_finite() && f.fract() == 0.0 {
-            if f >= i64::MIN as f64 && f < I64_RANGE_END_F64 {
-                return Ok((f as i64).to_string());
-            }
-            // br-r37-c1-9q5kq: integral but WIDER than i64. Python hashes such a
-            // float equal to the int of the same value and compares them ==, so
-            // they are ONE dict key — `repr()` here would emit
-            // "1.8446744073709552e+19" against the int's "18446744073709551616"
-            // and SPLIT the node. Worse, the split node carried no display key,
-            // so `number_of_nodes()` reported 2 while `nodes()` yielded 1.
-            if let Ok(as_int) = key.call_method0(pyo3::intern!(py, "__int__")) {
-                return exact_int_decimal(py, &as_int);
-            }
-        }
-        let repr = key.repr()?;
-        return Ok(repr.to_string());
+        return float_key_canonical(py, key, f);
     }
     // br-r37-c1-y7m24: all-int tuples — the node-key shape of grid_2d /
     // hypercube / kneser and most relabeled lattices — get their canonical
@@ -482,41 +529,133 @@ fn node_key_to_string(py: Python<'_>, key: &Bound<'_, PyAny>) -> PyResult<String
     // elements only: bool is excluded (repr "True" differs) and ints
     // outside i64 fall back to repr (their canonical already came from
     // repr, so the formats stay consistent).
-    if let Ok(t) = key.downcast::<PyTuple>() {
-        let n = t.len();
-        if n > 0 {
-            let mut parts: Vec<i64> = Vec::with_capacity(n);
-            let mut all_int = true;
-            for item in t.iter() {
-                if item.is_exact_instance_of::<PyInt>()
-                    && let Ok(v) = item.extract::<i64>()
-                {
-                    parts.push(v);
-                    continue;
-                }
-                all_int = false;
-                break;
-            }
-            if all_int {
-                let mut s = String::with_capacity(n * 6 + 2);
-                s.push('(');
-                for (i, v) in parts.iter().enumerate() {
-                    if i > 0 {
-                        s.push_str(", ");
-                    }
-                    s.push_str(&v.to_string());
-                }
-                if n == 1 {
-                    s.push(',');
-                }
-                s.push(')');
-                return Ok(s);
-            }
-        }
+    if let Ok(t) = key.downcast::<PyTuple>()
+        && let Some(canonical) = exact_int_tuple_canonical(t)
+    {
+        return Ok(canonical);
     }
     // For other hashable types, use repr as the canonical key.
     let repr = key.repr()?;
     Ok(repr.to_string())
+}
+
+/// The float half of `node_key_to_string`, shared by the concrete-type probe
+/// and the `__float__` fallback so the two cannot drift apart.
+fn float_key_canonical(py: Python<'_>, key: &Bound<'_, PyAny>, f: f64) -> PyResult<String> {
+    // br-r37-c1-dr1h9: the bound is EXCLUSIVE at 2**63. `i64::MAX as f64`
+    // rounds UP to 2**63, so `f <= i64::MAX as f64` admitted 2**63 itself
+    // and `f as i64` saturated it onto i64::MAX — aliasing the float 2**63
+    // onto the distinct integer key 2**63-1.
+    if f.is_finite() && f.fract() == 0.0 {
+        if f >= i64::MIN as f64 && f < I64_RANGE_END_F64 {
+            return Ok((f as i64).to_string());
+        }
+        // br-r37-c1-9q5kq: integral but WIDER than i64. Python hashes such a
+        // float equal to the int of the same value and compares them ==, so
+        // they are ONE dict key — `repr()` here would emit
+        // "1.8446744073709552e+19" against the int's "18446744073709551616"
+        // and SPLIT the node. Worse, the split node carried no display key,
+        // so `number_of_nodes()` reported 2 while `nodes()` yielded 1.
+        if let Ok(as_int) = key.call_method0(pyo3::intern!(py, "__int__")) {
+            return exact_int_decimal(py, &as_int);
+        }
+    }
+    // br-r37-c1-numtower-29ggu: by VALUE, not by the object's own spelling.
+    //
+    // Only a float SUBCLASS is affected -- for an exact float this returns
+    // precisely what `key.repr()` returned -- and for one it is the fix: a
+    // subclass is the same double, so Python calls it the same dict key.
+    //
+    // Reached ONLY for a genuine `PyFloat`; a Decimal or Fraction arrives here
+    // through the `extract::<f64>()` fallback instead, and must NOT be given
+    // this treatment. See the caller.
+    //
+    // An EXACT float skips it: `repr(x)` IS `float.__repr__(x)` there, so the
+    // unbound lookup would be three Python operations to reproduce one. Only a
+    // subclass can spell itself differently, and only a subclass pays for it.
+    if key.downcast::<PyFloat>().is_ok() && !key.is_exact_instance_of::<PyFloat>() {
+        return float_value_repr(py, key);
+    }
+    let repr = key.repr()?;
+    Ok(repr.to_string())
+}
+
+/// br-r37-c1-numtower-29ggu: a copy of `t` with every bool inside it replaced by
+/// the int it equals, recursively through nested tuples. `None` when there was
+/// no bool to replace, so the ordinary path pays only the scan.
+///
+/// Safe by construction: `True == 1` and `False == 0` hold unconditionally in
+/// Python, so this can only merge keys Python already calls equal -- it can
+/// never merge two keys Python keeps apart.
+fn tuple_with_bools_as_ints<'py>(
+    py: Python<'py>,
+    t: &Bound<'py, PyTuple>,
+) -> PyResult<Option<Bound<'py, PyTuple>>> {
+    let mut changed = false;
+    let mut items: Vec<Bound<'py, PyAny>> = Vec::with_capacity(t.len());
+    for item in t.iter() {
+        if item.is_instance_of::<PyBool>() {
+            changed = true;
+            let value: i64 = if item.is_truthy()? { 1 } else { 0 };
+            items.push(value.into_pyobject(py)?.into_any());
+        } else if let Ok(inner) = item.downcast::<PyTuple>() {
+            match tuple_with_bools_as_ints(py, inner)? {
+                Some(normalized) => {
+                    changed = true;
+                    items.push(normalized.into_any());
+                }
+                None => items.push(item),
+            }
+        } else {
+            items.push(item);
+        }
+    }
+    if !changed {
+        return Ok(None);
+    }
+    Ok(Some(PyTuple::new(py, items)?))
+}
+
+/// br-r37-c1-y7m24: the all-int tuple canonical, byte-identical to CPython's
+/// tuple repr ("(0, 1)", singleton "(0,)"). `None` for every other tuple, whose
+/// canonical still comes from `repr` so the two formats stay consistent.
+/// Exact-int elements only: bool is excluded (repr "True" differs) and ints
+/// outside i64 fall back to repr.
+fn exact_int_tuple_canonical(t: &Bound<'_, PyTuple>) -> Option<String> {
+    let n = t.len();
+    if n == 0 {
+        return None;
+    }
+    let mut parts: Vec<i64> = Vec::with_capacity(n);
+    for item in t.iter() {
+        // br-r37-c1-numtower-29ggu: a bool is admitted as the INT IT EQUALS.
+        // It used to be excluded because `repr(True)` is "True", which would
+        // have produced a canonical that is not CPython's tuple repr — but the
+        // consequence was that `(True, 1)` canonicalized to "(True, 1)" while
+        // `(1, 1)` took this path to "(1, 1)", and Python calls those tuples
+        // equal and hashes them alike. Writing the value keeps the format AND
+        // merges the node, because `True == 1` is unconditional.
+        if (item.is_exact_instance_of::<PyInt>() || item.is_instance_of::<PyBool>())
+            && let Ok(v) = item.extract::<i64>()
+        {
+            parts.push(v);
+            continue;
+        }
+        return None;
+    }
+    let mut s = String::with_capacity(n * 6 + 2);
+    s.push('(');
+    for (i, v) in parts.iter().enumerate() {
+        if i > 0 {
+            s.push_str(", ");
+        }
+        s.push_str(&v.to_string());
+    }
+    if n == 1 {
+        s.push(',');
+    }
+    s.push(')');
+    Some(s)
 }
 
 /// br-r37-c1-ymeml: detect an fnx-native graph instance and return its
@@ -2484,6 +2623,34 @@ pub(crate) struct PyGraph {
     /// a twin entry outliving a cleared `adj_row_py` would keep serving a dict
     /// that in-place maintenance can no longer find, i.e. stale contents.
     pub(crate) adj_row_py_by_index: HashMap<usize, (u64, Py<PyDict>)>,
+    /// br-r37-c1-3rtyk: the KEY-ONLY neighbour rows behind `G.neighbors(n)`.
+    ///
+    /// `adj_row_py` answers `G[n]`, so every cell it builds is a LIVE edge
+    /// attribute dict, and building one costs `materialize_edge_py_attrs`: four
+    /// owned `String`s, a `PyDict` and two map entries PER NEIGHBOUR. A
+    /// `dict_keyiterator` cannot reach a value, so `neighbors()` paid all of it
+    /// to be discarded -- ~860 ns of the ~890 ns cold per-neighbour cost, against
+    /// a Rust-side neighbour walk of ~28 ns.
+    ///
+    /// So this is a SECOND row per node, holding `{neighbour: None}`. It cannot
+    /// be folded into `adj_row_py`, whose values are handed out for real, and it
+    /// carries the SAME key objects (`py_adj_key`, honouring the
+    /// br-r37-c1-z6uka display overrides) so the two rows iterate identically.
+    ///
+    /// A CACHE, NOT A SNAPSHOT, and that is load-bearing: networkx raises
+    /// RuntimeError when the graph is mutated during `neighbors()` iteration,
+    /// which happens only if the dict the iterator holds is the one mutation
+    /// edits. These rows are therefore maintained IN PLACE by the same funnels
+    /// that maintain `adj_row_py`, never rebuilt behind an open iterator -- and
+    /// every guard asking whether a mirror is live must ask `py_adj_rows_live()`
+    /// rather than `adj_row_py`, because a key row goes stale just as easily.
+    pub(crate) neighbor_key_rows: HashMap<String, Py<PyDict>>,
+    /// br-r37-c1-3rtyk: the node-INDEX twin of `neighbor_key_rows`, exactly as
+    /// `adj_row_py_by_index` twins `adj_row_py` and for the same reason -- the
+    /// borrowed-canonical probe copies and hashes the key's bytes, making a hit
+    /// O(node key length). Holds the SAME dict object under both keys, stamped
+    /// with `nodes_seq` on the identical argument the twin above documents.
+    pub(crate) neighbor_key_rows_by_index: HashMap<usize, (u64, Py<PyDict>)>,
     /// Graph-level attribute dict.
     pub(crate) graph_attrs: Py<PyDict>,
     /// Monotonic counter bumped on every node add/remove (br-r37-c1-39d82).
@@ -2672,6 +2839,83 @@ impl PyGraph {
         Ok(row)
     }
 
+    /// br-r37-c1-3rtyk: the KEY-ONLY row behind `G.neighbors(n)`.
+    ///
+    /// Same probe order as `adjacency_row_dict_unexposed` above -- index twin,
+    /// then borrowed canonical, then build -- and the same existence contract: a
+    /// cached row proves the node was present, so the `has_node` probe is only
+    /// paid on a miss. The one difference is the cell value: `None` rather than
+    /// a materialised attr dict, which is the whole point (see the field docs).
+    ///
+    /// Never marks the store dirty. Nothing enters `edge_py_attrs` here, so
+    /// there is no escaped dict to declare -- the contamination this bead opened
+    /// on cannot arise from this path at all, rather than being merely deferred.
+    fn neighbor_key_row(
+        &mut self,
+        py: Python<'_>,
+        node: &Bound<'_, PyAny>,
+    ) -> PyResult<Py<PyDict>> {
+        if node.is_exact_instance_of::<PyString>()
+            && let Some(index) = self.cached_exact_string_node_index(py, node)?
+            && let Some((seq, row)) = self.neighbor_key_rows_by_index.get(&index)
+            && *seq == self.nodes_seq
+        {
+            return Ok(row.clone_ref(py));
+        }
+        if let Some(row) = with_node_key_str(py, node, |canonical| {
+            self.neighbor_key_rows
+                .get(canonical)
+                .map(|row| row.clone_ref(py))
+        })? {
+            if node.is_exact_instance_of::<PyString>()
+                && let Some(index) = self.cached_exact_string_node_index(py, node)?
+            {
+                let seq = self.nodes_seq;
+                self.neighbor_key_rows_by_index
+                    .insert(index, (seq, row.clone_ref(py)));
+            }
+            return Ok(row);
+        }
+        let canonical = node_key_to_string(py, node)?;
+        if !self.inner.has_node(&canonical) {
+            return Err(missing_key_error(node));
+        }
+        let row = PyDict::new(py);
+        let neighbors: Vec<String> = self
+            .inner
+            .neighbors(&canonical)
+            .unwrap_or_default()
+            .into_iter()
+            .map(str::to_owned)
+            .collect();
+        for neighbor in neighbors {
+            let py_neighbor = self.py_adj_key(py, &canonical, &neighbor);
+            row.set_item(py_neighbor, py.None())?;
+        }
+        let row = row.unbind();
+        if node.is_exact_instance_of::<PyString>()
+            && let Some(index) = self.cached_exact_string_node_index(py, node)?
+        {
+            let seq = self.nodes_seq;
+            self.neighbor_key_rows_by_index
+                .insert(index, (seq, row.clone_ref(py)));
+        }
+        self.neighbor_key_rows.insert(canonical, row.clone_ref(py));
+        Ok(row)
+    }
+
+    /// br-r37-c1-3rtyk: TRUE when ANY live Python adjacency mirror exists.
+    ///
+    /// Both row maps go stale the same way, so every bulk fast path that skips
+    /// row maintenance and every in-place maintenance gate must ask this rather
+    /// than `adj_row_py` alone. Asking only about the attr rows would let a
+    /// batch run while key rows were live, and leave them describing an
+    /// adjacency that no longer exists.
+    #[inline]
+    pub(crate) fn py_adj_rows_live(&self) -> bool {
+        !self.adj_row_py.is_empty() || !self.neighbor_key_rows.is_empty()
+    }
+
     /// br-r37-c1-6n9vm: membership for an EXACT `str`, through the present-key
     /// set.
     ///
@@ -2758,6 +3002,12 @@ impl PyGraph {
         for (_seq, row) in self.adj_row_py_by_index.values() {
             visit.call(row)?;
         }
+        // br-r37-c1-3rtyk: `neighbor_key_rows` is deliberately NOT traversed.
+        // The rows above hold the user's edge ATTRIBUTE dicts, and an attribute
+        // value may reference the graph itself, so an untraversed cycle there
+        // would leak. A key row holds `None` for every cell and so cannot reach
+        // back to the graph at all. `clear_python_refs` still drops them, which
+        // costs nothing and keeps tp_clear total.
         visit.call(&self.graph_attrs)?;
         {
             let cache = self.node_keys_cache.lock().unwrap();
@@ -2791,6 +3041,8 @@ impl PyGraph {
         self.dict_of_dicts_cache = None;
         self.adj_row_py.clear();
         self.adj_row_py_by_index.clear(); // br-r37-c1-nbrow
+        self.neighbor_key_rows.clear(); // br-r37-c1-3rtyk
+        self.neighbor_key_rows_by_index.clear(); // br-r37-c1-3rtyk
         self.graph_attrs.bind(py).clear();
         *self.node_keys_cache.get_mut().unwrap() = None;
         *self.node_iter_mirror.get_mut().unwrap() = None;
@@ -3241,6 +3493,8 @@ impl PyGraph {
             dict_of_dicts_cache: None,
             adj_row_py: HashMap::new(),
             adj_row_py_by_index: HashMap::new(), // br-r37-c1-nbrow
+            neighbor_key_rows: HashMap::new(),   // br-r37-c1-3rtyk
+            neighbor_key_rows_by_index: HashMap::new(), // br-r37-c1-3rtyk
             graph_attrs: PyDict::new(py).unbind(),
             nodes_seq: 0,
             edges_seq: 0,
@@ -3426,10 +3680,22 @@ impl PyGraph {
             return Ok(None);
         }
         let guard = self.exposed_edges.lock().unwrap();
-        if guard.is_none() { Err(()) } else { Ok(Some(guard)) }
+        if guard.is_none() {
+            Err(())
+        } else {
+            Ok(Some(guard))
+        }
     }
 
     fn cached_adj_set_edge(&mut self, py: Python<'_>, owner: &str, nbr: &str) -> PyResult<()> {
+        // br-r37-c1-3rtyk: the two rows are maintained INDEPENDENTLY. A node can
+        // hold a key row without an attr row (it was read through `neighbors()`
+        // and never through `G[n]`), so an early return on a missing attr row
+        // would silently leave the key row describing the old adjacency.
+        if let Some(row) = self.neighbor_key_rows.get(owner).map(|r| r.clone_ref(py)) {
+            let py_nbr = self.py_adj_key(py, owner, nbr);
+            row.bind(py).set_item(py_nbr, py.None())?;
+        }
         let Some(row) = self.adj_row_py.get(owner).map(|row| row.clone_ref(py)) else {
             return Ok(());
         };
@@ -3444,11 +3710,30 @@ impl PyGraph {
             let py_nbr = self.py_adj_key(py, owner, nbr);
             let _ = row.bind(py).del_item(py_nbr);
         }
+        self.cached_neighbor_key_row_remove(py, owner, nbr);
         Ok(())
+    }
+
+    /// br-r37-c1-3rtyk: drop one neighbour from a live key row, if that row
+    /// exists. Separate from `cached_adj_remove_key` because the edge-removal
+    /// paths delete from `adj_row_py` inline, with a `py_adj_key` computed
+    /// BEFORE the store mutation and the display overrides are dropped; they
+    /// call this beside their own `del_item` rather than reordering that.
+    fn cached_neighbor_key_row_remove(&self, py: Python<'_>, owner: &str, nbr: &str) {
+        if let Some(row) = self.neighbor_key_rows.get(owner) {
+            let py_nbr = self.py_adj_key(py, owner, nbr);
+            let _ = row.bind(py).del_item(py_nbr);
+        }
     }
 
     fn cached_adj_clear_edges_in_place(&self, py: Python<'_>) -> PyResult<()> {
         for row in self.adj_row_py.values() {
+            row.bind(py).call_method0("clear")?;
+        }
+        // br-r37-c1-3rtyk: IN PLACE for the same reason as the rows above -- an
+        // open `neighbors()` iterator must see the mutation and raise, which a
+        // replacement dict would not deliver.
+        for row in self.neighbor_key_rows.values() {
             row.bind(py).call_method0("clear")?;
         }
         Ok(())
@@ -3855,7 +4140,7 @@ impl PyGraph {
     ) -> PyResult<bool> {
         const EXACT_INT_ATTR_INDEX_BATCH_MIN: usize = 8;
         if self.inner.edge_count() != 0
-            || !self.adj_row_py.is_empty()
+            || self.py_adj_rows_live()
             || !self.edge_py_attrs.is_empty()
             || !self.int_prefix_display_keys_are_plain_ints(py)
         {
@@ -4005,7 +4290,7 @@ impl PyGraph {
     ) -> PyResult<bool> {
         const INT_LABEL_ATTR_BATCH_MIN: usize = 8;
         if self.inner.edge_count() != 0
-            || !self.adj_row_py.is_empty()
+            || self.py_adj_rows_live()
             || !self.edge_py_attrs.is_empty()
             || !self.int_prefix_display_keys_are_plain_ints(py)
         {
@@ -4052,7 +4337,7 @@ impl PyGraph {
         ebunch_to_add: &Bound<'_, PyAny>,
     ) -> PyResult<bool> {
         const EXACT_INT_INDEX_BATCH_MIN: usize = 8;
-        if !self.adj_row_py.is_empty() || !self.int_prefix_display_keys_are_plain_ints(py) {
+        if self.py_adj_rows_live() || !self.int_prefix_display_keys_are_plain_ints(py) {
             return Ok(false);
         }
 
@@ -4187,7 +4472,7 @@ impl PyGraph {
         ebunch_to_add: &Bound<'_, PyAny>,
     ) -> PyResult<bool> {
         const PLAIN_EDGE_BATCH_MIN: usize = 8;
-        if !self.adj_row_py.is_empty() {
+        if self.py_adj_rows_live() {
             return Ok(false);
         }
         if self.try_add_fresh_exact_int_prefix_edge_batch(py, ebunch_to_add)? {
@@ -4726,7 +5011,7 @@ impl PyGraph {
             || !self.adj_py_keys.is_empty()
             || !self.node_py_attrs.is_empty()
             || !self.edge_py_attrs.is_empty()
-            || !self.adj_row_py.is_empty()
+            || self.py_adj_rows_live()
         {
             return Ok(false);
         }
@@ -4927,7 +5212,7 @@ impl PyGraph {
             || !self.adj_py_keys.is_empty()
             || !self.node_py_attrs.is_empty()
             || !self.edge_py_attrs.is_empty()
-            || !self.adj_row_py.is_empty()
+            || self.py_adj_rows_live()
         {
             return Ok(false);
         }
@@ -5009,7 +5294,7 @@ impl PyGraph {
         reuse_materialized_dict_as_mirror: bool,
     ) -> PyResult<bool> {
         const ATTR_EDGE_BATCH_MIN: usize = 8;
-        if !self.adj_row_py.is_empty() {
+        if self.py_adj_rows_live() {
             return Ok(false);
         }
         // br-r37-c1-edgebatchlossless (cc): a non-scalar per-edge OR global attr can't
@@ -5353,8 +5638,12 @@ pub(crate) struct PyMultiGraph {
     /// desynchronise. This adds a lookup path, not a second cache with its own
     /// lifetime -- which is the whole difference from `PyGraph`'s twin, where
     /// the underlying map has no stamp and the twin needed one.
-    pub(crate) neighbor_key_rows:
-        Option<(u64, u64, HashMap<String, Py<PyDict>>, HashMap<usize, Py<PyDict>>)>,
+    pub(crate) neighbor_key_rows: Option<(
+        u64,
+        u64,
+        HashMap<String, Py<PyDict>>,
+        HashMap<usize, Py<PyDict>>,
+    )>,
     /// br-r37-c1-ptiz2: the `{key: attrs}` keydict for ONE endpoint pair, under
     /// the `(nodes_seq, edges_seq)` generation it was built in.
     ///
@@ -5384,8 +5673,11 @@ pub(crate) struct PyMultiGraph {
     /// then corrupt the cache and see a phantom key that `G.edges` does not
     /// have, because unlike networkx's live dict this one is not wired to the
     /// native store. The copy costs ~451ns against ~16623ns for the rebuild.
-    pub(crate) edge_keydict_cache:
-        Option<(u64, u64, HashMap<String, HashMap<String, (usize, Py<PyDict>)>>)>,
+    pub(crate) edge_keydict_cache: Option<(
+        u64,
+        u64,
+        HashMap<String, HashMap<String, (usize, Py<PyDict>)>>,
+    )>,
     pub(crate) live_keydict_rows: crate::live_keydict::LiveKeydictRows,
     /// br-r37-c1-2ndmw: the endpoint-INDEX twin of `edge_keydict_cache` above,
     /// mirroring what br-r37-c1-f3i50 did for `PyMultiDiGraph`.
@@ -5421,8 +5713,7 @@ pub(crate) struct PyMultiGraph {
     /// leaves `nodes_seq` untouched. Pinned by the warm-then-mutate cases in
     /// `tests/python/test_multidigraph_keydict_index_invalidation.py`, which is
     /// already parametrised over BOTH multigraph classes.
-    pub(crate) edge_keydict_by_index:
-        HashMap<(usize, usize), (u64, u64, usize, Py<PyDict>)>,
+    pub(crate) edge_keydict_by_index: HashMap<(usize, usize), (u64, u64, usize, Py<PyDict>)>,
     /// br-r37-c1-f3i50: the KEYED twin of `edge_keydict_by_index`, and the
     /// undirected mirror of `PyMultiDiGraph::edge_py_attrs_by_index`.
     ///
@@ -5851,6 +6142,53 @@ impl PyMultiGraph {
     /// Without this the freshness check in `neighbor_key_row` would see the
     /// bumped `edges_seq`, discard the map, and hand the next caller a rebuilt
     /// dict — defeating the in-place maintenance above.
+    /// br-r37-c1-pyzv0: drop a node from every live neighbour row IN PLACE.
+    ///
+    /// networkx removes a node with `for u in nbrs: del self._adj[u][n]`, and
+    /// that in-place `del` is the whole reason an open `G.neighbors(u)` raises:
+    /// CPython raises RuntimeError only when the dict the ITERATOR HOLDS changes
+    /// size. Dropping the cache instead — which still happens, immediately after
+    /// this, for the laundering reason br-r37-c1-txkrn records — is invisible to
+    /// an iterator already walking a row, because the row it holds is simply
+    /// orphaned rather than edited. So fnx completed the loop and reported the
+    /// pre-removal neighbours where networkx raised.
+    ///
+    /// The node's OWN row is deliberately left alone: networkx drops it from
+    /// `_adj` without touching the dict, so an iterator over it completes there
+    /// too, and clearing it here would make fnx raise where networkx does not.
+    fn neighbor_key_rows_drop_node_in_place(&mut self, py: Python<'_>, canonical: &str) {
+        if self.neighbor_key_rows.is_none() {
+            return;
+        }
+        let neighbors: Vec<String> = self
+            .inner
+            .neighbors(canonical)
+            .map(|nbrs| nbrs.into_iter().map(str::to_owned).collect())
+            .unwrap_or_default();
+        for nb in neighbors {
+            let _ = self.cached_neighbor_row_remove(py, &nb, canonical);
+        }
+    }
+
+    /// br-r37-c1-pyzv0: empty every live neighbour row IN PLACE, matching
+    /// networkx's `for nbr_dict in self._adj.values(): nbr_dict.clear()`.
+    ///
+    /// `clear()` on the graph is NOT this: networkx clears only the outer
+    /// mapping there, leaving each row dict intact, so an in-flight iterator
+    /// completes — which fnx already matched by dropping the cache.
+    fn neighbor_key_rows_clear_in_place(&self, py: Python<'_>) {
+        if let Some((_, _, rows, by_index)) = &self.neighbor_key_rows {
+            for row in rows.values() {
+                let _ = row.bind(py).call_method0("clear");
+            }
+            // The index twin holds the SAME dict objects, but a row reached only
+            // through it would otherwise survive uncleared.
+            for row in by_index.values() {
+                let _ = row.bind(py).call_method0("clear");
+            }
+        }
+    }
+
     fn restamp_neighbor_rows(&mut self) {
         let (nodes, edges) = (self.nodes_seq, self.edges_seq);
         if let Some(entry) = self.neighbor_key_rows.as_mut() {
@@ -7149,12 +7487,12 @@ impl MultiAtlasView {
     /// caller that already holds the graph and the canonical key. `None` means
     /// "no fast path" and every membership test falls back to the string probe,
     /// so a caller that cannot cheaply resolve a position simply passes it.
-    fn new_with_pos(
-        graph: Py<PyMultiGraph>,
-        node: String,
-        node_pos: Option<(u64, usize)>,
-    ) -> Self {
-        Self { graph, node, node_pos }
+    fn new_with_pos(graph: Py<PyMultiGraph>, node: String, node_pos: Option<(u64, usize)>) -> Self {
+        Self {
+            graph,
+            node,
+            node_pos,
+        }
     }
 
     fn materialize(&self, py: Python<'_>) -> PyResult<Py<PyDict>> {
@@ -8200,9 +8538,9 @@ impl PyMultiGraph {
             && v.is_exact_instance_of::<PyString>()
             && let Some(ui) = self.cached_exact_string_node_index(py, u)?
             && let Some(vi) = self.cached_exact_string_node_index(py, v)?
-            && let Some((ns, es, expected_len, cached)) = self
-                .edge_keydict_by_index
-                .get(&if ui <= vi { (ui, vi) } else { (vi, ui) })
+            && let Some((ns, es, expected_len, cached)) =
+                self.edge_keydict_by_index
+                    .get(&if ui <= vi { (ui, vi) } else { (vi, ui) })
             && *ns == self.nodes_seq
             && *es == self.edges_seq
             && cached.bind(py).len() == *expected_len
@@ -8472,11 +8810,6 @@ impl PyMultiGraph {
     }
 
     fn remove_node(&mut self, py: Python<'_>, n: &Bound<'_, PyAny>) -> PyResult<()> {
-        // br-r37-c1-txkrn: drop the neighbour row cache. A stale row here is
-        // not caught by its own generation stamp -- `restamp_neighbor_rows` on
-        // the next `add_edge` overwrites the stamp with the current sequences
-        // and launders the row into looking fresh.
-        self.neighbor_key_rows = None;
         let canonical = node_key_to_string(py, n)?;
         if !self.inner.has_node(&canonical) {
             return Err(crate::NetworkXError::new_err(format!(
@@ -8484,6 +8817,19 @@ impl PyMultiGraph {
                 n.repr()?
             )));
         }
+        // br-r37-c1-pyzv0: edit the live rows BEFORE dropping the cache, so an
+        // in-flight `G.neighbors(u)` sees the removal and raises like networkx.
+        // The drop below stays: it is what keeps a stale row from being
+        // laundered, and it cannot deliver the raise on its own.
+        self.neighbor_key_rows_drop_node_in_place(py, &canonical);
+        // br-r37-c1-txkrn: drop the neighbour row cache. A stale row here is
+        // not caught by its own generation stamp -- `restamp_neighbor_rows` on
+        // the next `add_edge` overwrites the stamp with the current sequences
+        // and launders the row into looking fresh.
+        //
+        // Now reached only AFTER the presence check, so a failed removal leaves
+        // the cache alone -- it mutated nothing, so nothing went stale.
+        self.neighbor_key_rows = None;
         self.live_keydict_rows
             .remove_touching_in_place(py, &canonical);
 
@@ -8528,11 +8874,6 @@ impl PyMultiGraph {
     }
 
     fn remove_nodes_from(&mut self, py: Python<'_>, nodes: &Bound<'_, PyAny>) -> PyResult<()> {
-        // br-r37-c1-txkrn: drop the neighbour row cache. A stale row here is
-        // not caught by its own generation stamp -- `restamp_neighbor_rows` on
-        // the next `add_edge` overwrites the stamp with the current sequences
-        // and launders the row into looking fresh.
-        self.neighbor_key_rows = None;
         // br-r37-c1-mgrnf: batch the inner removal. The old per-node loop called
         // `inner.remove_node` k times, and MultiGraph::remove_node does two
         // O(|V|) `shift_remove`s per call, so `remove_nodes_from` was O(k·|V|)
@@ -8556,6 +8897,17 @@ impl PyMultiGraph {
             self.bump_nodes_seq();
             return Ok(());
         }
+        // br-r37-c1-pyzv0: edit the live rows BEFORE the drop below, while
+        // `inner` still knows each removed node's neighbours, so an in-flight
+        // `G.neighbors(u)` sees the removal and raises like networkx.
+        for canonical in &present {
+            self.neighbor_key_rows_drop_node_in_place(py, canonical);
+        }
+        // br-r37-c1-txkrn: drop the neighbour row cache. A stale row here is
+        // not caught by its own generation stamp -- `restamp_neighbor_rows` on
+        // the next `add_edge` overwrites the stamp with the current sequences
+        // and launders the row into looking fresh.
+        self.neighbor_key_rows = None;
         for canonical in &present {
             self.live_keydict_rows
                 .remove_touching_in_place(py, canonical);
@@ -10978,6 +11330,14 @@ impl PyMultiGraph {
     }
 
     fn clear_edges(&mut self, py: Python<'_>) {
+        // br-r37-c1-pyzv0: empty the live rows IN PLACE first. networkx clears
+        // each row dict here (`for nbr_dict in self._adj.values()`), which is
+        // what an open `G.neighbors(n)` iterator sees; dropping the cache alone
+        // left the iterator walking an orphaned row and completing where
+        // networkx raises. `clear()` on the graph is deliberately NOT given this
+        // treatment -- networkx clears only the outer mapping there, so the
+        // iterator completes, and fnx already matches.
+        self.neighbor_key_rows_clear_in_place(py);
         // br-r37-c1-txkrn: drop the neighbour row cache. A stale row here is
         // not caught by its own generation stamp -- `restamp_neighbor_rows` on
         // the next `add_edge` overwrites the stamp with the current sequences
@@ -13565,10 +13925,7 @@ impl MultiAdjacencyLenView {
         Self { graph: Some(graph) }
     }
 
-    fn __traverse__(
-        &self,
-        visit: pyo3::gc::PyVisit<'_>,
-    ) -> Result<(), pyo3::gc::PyTraverseError> {
+    fn __traverse__(&self, visit: pyo3::gc::PyVisit<'_>) -> Result<(), pyo3::gc::PyTraverseError> {
         visit.call(&self.graph)
     }
 
@@ -14664,7 +15021,7 @@ impl PyGraph {
             || !self.adj_py_keys.is_empty()
             || !self.node_py_attrs.is_empty()
             || !self.edge_py_attrs.is_empty()
-            || !self.adj_row_py.is_empty()
+            || self.py_adj_rows_live()
         {
             return Ok(false);
         }
@@ -14782,10 +15139,7 @@ impl PyGraph {
         // FRESH gate: no existing nodes/edges/mirror state, so a batch never
         // has to merge into pre-existing storage (appends to a non-empty graph
         // fall through to the per-node loop).
-        if self.inner.node_count() != 0
-            || self.inner.edge_count() != 0
-            || !self.adj_row_py.is_empty()
-        {
+        if self.inner.node_count() != 0 || self.inner.edge_count() != 0 || self.py_adj_rows_live() {
             return Ok(false);
         }
         if let Ok(list) = nodes_to_add.downcast::<PyList>() {
@@ -14847,6 +15201,7 @@ impl PyGraph {
                 .retain(|(a, b), _| a != &canonical && b != &canonical);
         }
         self.adj_row_py.remove(&canonical);
+        self.neighbor_key_rows.remove(&canonical); // br-r37-c1-3rtyk
         self.bump_nodes_seq();
         // br-r37-c1-jft0i: removing a node with incident edges also mutates the
         // edge set, so bump edges_seq to invalidate edge-keyed caches.
@@ -14896,6 +15251,7 @@ impl PyGraph {
             self.node_key_map.remove(canonical);
             self.node_py_attrs.remove(canonical);
             self.adj_row_py.remove(canonical);
+            self.neighbor_key_rows.remove(canonical); // br-r37-c1-3rtyk
         }
         if !self.adj_py_keys.is_empty() {
             // br-r37-c1-z6uka: drop adjacency-row overrides touching removed nodes.
@@ -15018,7 +15374,7 @@ impl PyGraph {
         self.inner
             .add_edge_with_attrs(u_canonical.clone(), v_canonical.clone(), rust_attrs)
             .map_err(|e| NetworkXError::new_err(e.to_string()))?;
-        if was_new_edge && !self.adj_row_py.is_empty() {
+        if was_new_edge && self.py_adj_rows_live() {
             self.cached_adj_set_edge(py, &u_canonical, &v_canonical)?;
             if u_canonical != v_canonical {
                 self.cached_adj_set_edge(py, &v_canonical, &u_canonical)?;
@@ -15188,7 +15544,7 @@ impl PyGraph {
             let _ = self
                 .inner
                 .add_edge_with_attrs(u_s.clone(), v_s.clone(), empty_attrs.clone());
-            if was_new_edge && !self.adj_row_py.is_empty() {
+            if was_new_edge && self.py_adj_rows_live() {
                 self.cached_adj_set_edge(py, &u_s, &v_s)?;
                 if u_s != v_s {
                     self.cached_adj_set_edge(py, &v_s, &u_s)?;
@@ -15248,6 +15604,12 @@ impl PyGraph {
         {
             let _ = row.bind(py).del_item(py_u_key);
         }
+        // br-r37-c1-3rtyk: the key rows carry the same neighbour keys and must
+        // lose the edge in place too, or `neighbors()` keeps reporting it.
+        self.cached_neighbor_key_row_remove(py, &u_canonical, &v_canonical);
+        if u_canonical != v_canonical {
+            self.cached_neighbor_key_row_remove(py, &v_canonical, &u_canonical);
+        }
         if !self.adj_py_keys.is_empty() {
             // br-r37-c1-z6uka: re-adding the edge later creates FRESH
             // adjacency cells (nx deletes the row entries) — drop overrides.
@@ -15287,6 +15649,11 @@ impl PyGraph {
             {
                 let _ = row.bind(py).del_item(py_u_key);
             }
+            // br-r37-c1-3rtyk: same in-place drop for the key rows.
+            self.cached_neighbor_key_row_remove(py, &u_c, &v_c);
+            if u_c != v_c {
+                self.cached_neighbor_key_row_remove(py, &v_c, &u_c);
+            }
             if !self.adj_py_keys.is_empty() {
                 // br-r37-c1-z6uka: drop adjacency-row overrides for the removed edge.
                 self.adj_py_keys.remove(&(u_c.clone(), v_c.clone()));
@@ -15310,6 +15677,8 @@ impl PyGraph {
         self.adj_py_keys.clear(); // br-r37-c1-z6uka
         self.adj_row_py.clear();
         self.adj_row_py_by_index.clear(); // br-r37-c1-nbrow
+        self.neighbor_key_rows.clear(); // br-r37-c1-3rtyk
+        self.neighbor_key_rows_by_index.clear(); // br-r37-c1-3rtyk
         self.graph_attrs = PyDict::new(py).unbind();
         self.node_iter_mirror_clear(py)?;
         self.bump_nodes_seq();
@@ -15862,7 +16231,11 @@ impl PyGraph {
                 Err(err) => Err(err),
             };
         }
-        let row = match slf.borrow_mut().adjacency_row_dict_unexposed(py, n) {
+        // br-r37-c1-3rtyk: the KEY-ONLY row, not the attr-bearing one this used
+        // to share with `G[n]`. A `dict_keyiterator` cannot reach a value, so
+        // every attr dict that builder materialised was built to be thrown away
+        // -- ~860 ns per neighbour of a ~890 ns cold call.
+        let row = match slf.borrow_mut().neighbor_key_row(py, n) {
             Ok(row) => row,
             Err(err) if err.is_instance_of::<PyKeyError>(py) => {
                 return Err(NetworkXError::new_err(format!(
@@ -16295,6 +16668,8 @@ impl PyGraph {
             dict_of_dicts_cache: None,
             adj_row_py: HashMap::new(),
             adj_row_py_by_index: HashMap::new(), // br-r37-c1-nbrow
+            neighbor_key_rows: HashMap::new(),   // br-r37-c1-3rtyk
+            neighbor_key_rows_by_index: HashMap::new(), // br-r37-c1-3rtyk
             graph_attrs: self.graph_attrs.bind(py).copy()?.unbind(),
             nodes_seq: 0,
             edges_seq: 0,
@@ -16488,10 +16863,8 @@ impl PyGraph {
         }
         inner.extend_edges_with_attrs_unrecorded(edges_with_attrs);
 
-        let mut node_key_map = PyNodeKeyMap::with_capacity_and_hasher(
-            new_keys.len(),
-            rustc_hash::FxBuildHasher,
-        );
+        let mut node_key_map =
+            PyNodeKeyMap::with_capacity_and_hasher(new_keys.len(), rustc_hash::FxBuildHasher);
         for (new_canonical, obj) in new_keys {
             node_key_map.insert(new_canonical, obj);
         }
@@ -16510,6 +16883,8 @@ impl PyGraph {
             dict_of_dicts_cache: None,
             adj_row_py: HashMap::new(),
             adj_row_py_by_index: HashMap::new(), // br-r37-c1-nbrow
+            neighbor_key_rows: HashMap::new(),   // br-r37-c1-3rtyk
+            neighbor_key_rows_by_index: HashMap::new(), // br-r37-c1-3rtyk
             graph_attrs: self.graph_attrs.bind(py).copy()?.unbind(),
             nodes_seq: 0,
             edges_seq: 0,
@@ -16527,6 +16902,36 @@ impl PyGraph {
             instance_dict_gc: InstanceDictGc::new(),
             node_data_mirror: std::sync::Mutex::new(None),
         }))
+    }
+
+    /// Native deep-copy path for ``Graph.to_undirected()``.
+    ///
+    /// A same-type conversion is not a structural no-op in NetworkX: its
+    /// ``add_edges_from`` walk rebuilds adjacency rows in first-touch edge order.
+    /// ``copy`` already performs that row reorder; replace its shallow attribute
+    /// copies with deep copies so this retains the conversion contract.
+    fn _native_to_undirected_deepcopy(&self, py: Python<'_>) -> PyResult<Self> {
+        let deepcopy = py.import("copy")?.getattr("deepcopy")?;
+        let mut new_graph = self.copy(py)?;
+        new_graph.graph_attrs = deepcopy_py_dict(py, &deepcopy, &self.graph_attrs)?;
+
+        for (node, attrs) in &self.node_py_attrs {
+            let copied = deepcopy_py_dict(py, &deepcopy, attrs)?;
+            new_graph
+                .inner
+                .replace_node_attrs(node, py_dict_to_attr_map(copied.bind(py))?);
+            new_graph.node_py_attrs.insert(node.clone(), copied);
+        }
+        for ((u, v), attrs) in &self.edge_py_attrs {
+            let copied = deepcopy_py_dict(py, &deepcopy, attrs)?;
+            new_graph
+                .inner
+                .replace_edge_attrs(u, v, py_dict_to_attr_map(copied.bind(py))?);
+            new_graph
+                .edge_py_attrs
+                .insert((u.clone(), v.clone()), copied);
+        }
+        Ok(new_graph)
     }
 
     /// br-r37-c1-copynative: stable alias exposing the native order-preserving
@@ -16568,6 +16973,8 @@ impl PyGraph {
             dict_of_dicts_cache: None,
             adj_row_py: HashMap::new(),
             adj_row_py_by_index: HashMap::new(), // br-r37-c1-nbrow
+            neighbor_key_rows: HashMap::new(),   // br-r37-c1-3rtyk
+            neighbor_key_rows_by_index: HashMap::new(), // br-r37-c1-3rtyk
             graph_attrs: self.graph_attrs.bind(py).copy()?.unbind(),
             nodes_seq: 0,
             edges_seq: 0,
@@ -16695,6 +17102,8 @@ impl PyGraph {
             dict_of_dicts_cache: None,
             adj_row_py: HashMap::new(),
             adj_row_py_by_index: HashMap::new(), // br-r37-c1-nbrow
+            neighbor_key_rows: HashMap::new(),   // br-r37-c1-3rtyk
+            neighbor_key_rows_by_index: HashMap::new(), // br-r37-c1-3rtyk
             graph_attrs: self.graph_attrs.bind(py).copy()?.unbind(),
             nodes_seq: 0,
             edges_seq: 0,
@@ -16781,6 +17190,8 @@ impl PyGraph {
             dict_of_dicts_cache: None,
             adj_row_py: HashMap::new(),
             adj_row_py_by_index: HashMap::new(), // br-r37-c1-nbrow
+            neighbor_key_rows: HashMap::new(),   // br-r37-c1-3rtyk
+            neighbor_key_rows_by_index: HashMap::new(), // br-r37-c1-3rtyk
             graph_attrs: self.graph_attrs.bind(py).copy()?.unbind(),
             nodes_seq: 0,
             edges_seq: 0,
@@ -17592,7 +18003,11 @@ impl PyGraph {
         let mut total = self.inner.weighted_size_int(weight)?;
         if let Some(escaped) = scope.as_deref().and_then(Option::as_ref) {
             for &(i, j) in escaped {
-                let stored = match self.inner.edge_attrs_by_indices(i, j).map(|a| a.get(weight)) {
+                let stored = match self
+                    .inner
+                    .edge_attrs_by_indices(i, j)
+                    .map(|a| a.get(weight))
+                {
                     Some(Some(CgseValue::Int(v))) => i128::from(*v),
                     // The scalar above already refused any non-int, so the only
                     // other shapes reaching here are an absent key (nx's 1) and
@@ -18410,6 +18825,8 @@ impl PyGraph {
             edges_alldata_cache: None,
             adj_row_py: HashMap::new(),
             adj_row_py_by_index: HashMap::new(), // br-r37-c1-nbrow
+            neighbor_key_rows: HashMap::new(),   // br-r37-c1-3rtyk
+            neighbor_key_rows_by_index: HashMap::new(), // br-r37-c1-3rtyk
             node_py_attrs: self
                 .node_py_attrs
                 .iter()
@@ -18689,7 +19106,6 @@ mod tests {
         assert_eq!(fold(&[1e308, 1e308, -1.0, 1.0]), inf);
         assert_eq!(fold(&[inf, 1.0, 2.0, 3.0]), inf);
     }
-
 
     fn multigraph_ctor_edge_iterable_type<'py>(py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
         let locals = PyDict::new(py);

@@ -162,6 +162,29 @@ class TestSingleSourceDijkstra:
             g_fnx, "a", weight="weight"
         ) == nx.single_source_dijkstra(g_nx, "a", weight="weight")
 
+    @pytest.mark.parametrize("cutoff", [None, 3])
+    def test_multidigraph_paths_match_networkx_without_collapse(self, monkeypatch, cutoff):
+        fg = fnx.MultiDiGraph()
+        ng = nx.MultiDiGraph()
+        for graph in (fg, ng):
+            graph.add_edge("s", "a", weight=9)
+            graph.add_edge("s", "a", weight=2)
+            graph.add_edge("s", "b", weight=5)
+            graph.add_edge("a", "b", weight=1)
+            graph.add_edge("a", "t", weight=4)
+            graph.add_edge("b", "t", weight=1)
+
+        def collapse_must_not_run(*_args, **_kwargs):
+            raise AssertionError("native MultiDiGraph Dijkstra route regressed to collapse")
+
+        monkeypatch.setattr(fnx, "_multigraph_collapse_min_weight", collapse_must_not_run)
+        assert fnx.single_source_dijkstra(
+            fg, "s", cutoff=cutoff, weight="weight"
+        ) == nx.single_source_dijkstra(ng, "s", cutoff=cutoff, weight="weight")
+        assert fnx.single_source_dijkstra_path(
+            fg, "s", cutoff=cutoff, weight="weight"
+        ) == nx.single_source_dijkstra_path(ng, "s", cutoff=cutoff, weight="weight")
+
 
 class TestDirectedMultiSourceDijkstra:
     def test_only_reaches_successors(self):

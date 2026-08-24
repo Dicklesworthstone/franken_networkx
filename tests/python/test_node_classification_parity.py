@@ -14,13 +14,35 @@ br-r37-c1-9gol0
 
 from __future__ import annotations
 
+import importlib.util
+import inspect
 import random
+import sys
+from functools import lru_cache
+from pathlib import Path
 
-import pytest
-import networkx as nx
 import franken_networkx as fnx
+import networkx as nx
+import pytest
 from franken_networkx.algorithms import node_classification as fnx_nc
 from networkx.algorithms import node_classification as nx_nc
+
+
+@lru_cache(maxsize=1)
+def _legacy_networkx():
+    module_name = "franken_networkx_legacy_node_classification_oracle"
+    legacy_init = (
+        Path(__file__).resolve().parents[2]
+        / "legacy_networkx_code"
+        / "networkx"
+        / "networkx"
+        / "__init__.py"
+    )
+    spec = importlib.util.spec_from_file_location(module_name, legacy_init)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[module_name] = module
+    spec.loader.exec_module(module)
+    return module
 
 
 def _labeled_pair(seed, p=0.4):
@@ -94,3 +116,23 @@ def test_no_labels_raises_like_networkx(fn):
         getattr(fnx_nc, fn)(fg)
     with pytest.raises(nx.NetworkXError):
         getattr(nx_nc, fn)(ng)
+
+
+@pytest.mark.parametrize("fn", ["harmonic_function", "local_and_global_consistency"])
+def test_node_classification_public_contract_matches_legacy_oracle(fn):
+    legacy = _legacy_networkx()
+    actual = getattr(fnx_nc, fn)
+    expected = getattr(legacy.algorithms.node_classification, fn)
+    assert str(inspect.signature(actual)) == str(inspect.signature(expected))
+
+    graph = fnx.path_graph(4)
+    legacy_graph = legacy.path_graph(4)
+    for candidate in (graph, legacy_graph):
+        candidate.nodes[0]["label"] = "left"
+        candidate.nodes[3]["label"] = "right"
+    assert actual(graph) == expected(legacy_graph)
+
+    with pytest.raises(ImportError):
+        actual(graph, backend="missing")
+    with pytest.raises(TypeError):
+        actual(graph, unexpected=True)

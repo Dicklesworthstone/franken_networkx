@@ -140,6 +140,53 @@ impl MultiDiCsr {
 
 type MultiDiCsrCache = std::sync::Arc<std::sync::RwLock<Option<(u64, std::sync::Arc<MultiDiCsr>)>>>;
 
+/// br-r37-c1-s8dj1: node POSITION pair -> position in `edges`.
+type EdgePairMap = std::collections::HashMap<(usize, usize), usize, rustc_hash::FxBuildHasher>;
+
+/// br-r37-c1-s8dj1: the pair lookaside, stamped with the graph revision.
+///
+/// CLONES COLD, AND IS NEVER SHARED. `MultiDiGraph` derives `Clone`, which would
+/// otherwise hand both copies the same cache. The stamp does not rescue an
+/// INCREMENTALLY maintained map from that: the two graphs' revisions advance
+/// independently and can COINCIDE, so the clone updates the shared map and
+/// stamps its own revision, and the original then reads a map describing a
+/// different graph. A cold clone costs one rebuild and removes the class.
+#[derive(Debug, Default)]
+pub(crate) struct EdgePairIndex {
+    map: std::sync::RwLock<Option<(u64, EdgePairMap)>>,
+    /// br-r37-c1-s8dj1: the revision the warm-up counter belongs to.
+    probed_revision: std::sync::atomic::AtomicU64,
+    /// Probes seen at that revision without an index. See `PAIR_INDEX_WARMUP`.
+    probes_since_build: std::sync::atomic::AtomicUsize,
+}
+
+impl Clone for EdgePairIndex {
+    fn clone(&self) -> Self {
+        Self::default()
+    }
+}
+
+/// br-r37-c1-s8dj1: probes at one revision before the O(E) map is built.
+///
+/// THE GUARD EXISTS BECAUSE THE BUILD IS NOT FREE. Building costs a hash per
+/// endpoint of every edge, so a caller that probes a large graph a HANDFUL of
+/// times would pay O(E) to save O(node key length) — measured at E=8000 as
+/// 6308 ns/probe against 592 ns for the undirected class, a loss on exactly the
+/// sparse-probing shape that never benefits.
+///
+/// SO THE THRESHOLD SCALES WITH THE BUILD IT AMORTISES, and a constant will not
+/// do: 64 probes justify a build at E=100 and are nowhere near justifying one at
+/// E=8000. Waiting until the caller has made roughly half as many probes as the
+/// build costs entries bounds the waste at a small constant factor of the work
+/// already spent, which is the ordinary amortisation rule. Below the threshold
+/// the string path answers, exactly as the class did before this index existed.
+const PAIR_INDEX_WARMUP_FLOOR: usize = 64;
+
+#[inline]
+fn pair_index_warmup(edge_pairs: usize) -> usize {
+    PAIR_INDEX_WARMUP_FLOOR.max(edge_pairs / 2)
+}
+
 #[derive(Debug, Clone)]
 pub struct DiGraph {
     mode: CompatibilityMode,
@@ -2113,6 +2160,30 @@ pub struct MultiDiGraph {
     runtime_policy: RuntimePolicy,
     edge_count: usize,
     csr_cache: MultiDiCsrCache,
+    /// br-r37-c1-s8dj1: (source position, target position) -> position in
+    /// `edges`, so an edge can be reached without hashing the node keys.
+    ///
+    /// Every level of this graph's storage is keyed by `String`, so resolving an
+    /// edge cost a hash of the whole node key however the caller arrived — which
+    /// is why `has_edge_by_indices` could only convert its indices BACK to names,
+    /// and the directed class kept a 3.7x key-length slope on `has_edge(u, v)`
+    /// and 4.4x on the keyed form while the slot-addressed undirected twin sat at
+    /// networkx's own 1.9x.
+    ///
+    /// BUILT LAZILY AND MAINTAINED INCREMENTALLY. A first attempt rebuilt it on
+    /// every revision change, which made an add-then-check loop O(E) per probe
+    /// and measured 137x slower than networkx at E=8000 — the rebuild was worse
+    /// than the hashing it removed. Adds now patch the map in O(1), because
+    /// inserting into `edges` APPENDS and adding a node APPENDS, so no existing
+    /// position moves.
+    ///
+    /// THE STAMP IS THE SAFETY NET, not merely an optimisation. Removals do move
+    /// both index spaces (`remove_node` shift-removes from `nodes`,
+    /// `remove_edge` swap-removes from `edges`) and are deliberately NOT patched
+    /// here: they bump `revision` without re-stamping, so the next read finds a
+    /// stale stamp and rebuilds. Any mutation path not handled explicitly
+    /// therefore degrades to a correct rebuild rather than a wrong answer.
+    edge_pair_index: EdgePairIndex,
 }
 
 impl MultiDiGraph {
@@ -2140,6 +2211,7 @@ impl MultiDiGraph {
             runtime_policy: RuntimePolicy::new(self.mode),
             edge_count: self.edge_count,
             csr_cache: self.csr_cache.clone(),
+            edge_pair_index: EdgePairIndex::default(),
         }
     }
 
@@ -2207,6 +2279,7 @@ impl MultiDiGraph {
             runtime_policy: RuntimePolicy::new(mode),
             edge_count: 0,
             csr_cache: std::sync::Arc::default(),
+            edge_pair_index: EdgePairIndex::default(),
         }
     }
 
@@ -2223,6 +2296,7 @@ impl MultiDiGraph {
             runtime_policy,
             edge_count: 0,
             csr_cache: std::sync::Arc::default(),
+            edge_pair_index: EdgePairIndex::default(),
         }
     }
 
@@ -2359,8 +2433,205 @@ impl MultiDiGraph {
     /// nodes. Names come from the node table by index (borrowed); the caller
     /// guards each index with `node_index_matches_int`. Mirror of
     /// `Graph::has_edge_by_indices`.
+    /// br-r37-c1-s8dj1: O(E) rebuild of the pair lookaside. Paid on the first
+    /// probe, and again after any mutation that did not patch it.
+    fn build_edge_pair_index(&self) -> EdgePairMap {
+        let mut built =
+            EdgePairMap::with_capacity_and_hasher(self.edges.len(), rustc_hash::FxBuildHasher);
+        for (position, edge_key) in self.edges.keys().enumerate() {
+            if let Some(source_idx) = self.nodes.get_index_of(edge_key.source.as_str())
+                && let Some(target_idx) = self.nodes.get_index_of(edge_key.target.as_str())
+            {
+                built.insert((source_idx, target_idx), position);
+            }
+        }
+        built
+    }
+
+    /// br-r37-c1-s8dj1: position of the (source, target) bucket in `edges`,
+    /// addressed by node POSITION and never by name.
+    /// TRI-STATE: `None` means "no index available, use the name path" -- which
+    /// is what the warm-up guard returns until a caller has proved it will probe
+    /// enough to amortise the build. `Some(inner)` is an authoritative answer,
+    /// `inner` being the bucket position or `None` for absent.
+    fn edge_pair_position(&self, source_idx: usize, target_idx: usize) -> Option<Option<usize>> {
+        use std::sync::atomic::Ordering;
+        if let Ok(guard) = self.edge_pair_index.map.read()
+            && let Some((stamp, map)) = guard.as_ref()
+            && *stamp == self.revision
+        {
+            return Some(map.get(&(source_idx, target_idx)).copied());
+        }
+        let revision = self.revision;
+        if self.edge_pair_index.probed_revision.load(Ordering::Relaxed) != revision {
+            self.edge_pair_index
+                .probed_revision
+                .store(revision, Ordering::Relaxed);
+            self.edge_pair_index
+                .probes_since_build
+                .store(1, Ordering::Relaxed);
+            return None;
+        }
+        let seen = self
+            .edge_pair_index
+            .probes_since_build
+            .fetch_add(1, Ordering::Relaxed)
+            + 1;
+        if seen < pair_index_warmup(self.edges.len()) {
+            return None;
+        }
+        let built = self.build_edge_pair_index();
+        let found = built.get(&(source_idx, target_idx)).copied();
+        if let Ok(mut guard) = self.edge_pair_index.map.write() {
+            *guard = Some((revision, built));
+        }
+        Some(found)
+    }
+
+    /// br-r37-c1-s8dj1: patch the lookaside through an edge ADD rather than
+    /// letting the stamp drop it, which is what made the rebuild version a loss
+    /// on add-then-check loops.
+    ///
+    /// Sound because an add MOVES NOTHING: `IndexMap::insert` appends, so a new
+    /// pair takes the last position and every existing position stands, and a
+    /// node added by this same call appends to `nodes` so every existing node
+    /// position stands too.
+    ///
+    /// Costs nothing on a graph nobody has probed: the liveness check comes
+    /// first, and a cold cache returns before any node-key hash is paid.
+    fn pair_index_note_edge_added(
+        &mut self,
+        previous_revision: u64,
+        source: &str,
+        target: &str,
+        new_pair_position: Option<usize>,
+    ) {
+        match self.edge_pair_index.map.get_mut() {
+            Ok(Some((stamp, _))) if *stamp == previous_revision => {}
+            _ => return,
+        }
+        let resolved = match new_pair_position {
+            Some(position) => match (
+                self.nodes.get_index_of(source),
+                self.nodes.get_index_of(target),
+            ) {
+                (Some(source_idx), Some(target_idx)) => Some(((source_idx, target_idx), position)),
+                // Cannot describe the new edge: drop rather than half-patch.
+                _ => {
+                    if let Ok(slot) = self.edge_pair_index.map.get_mut() {
+                        *slot = None;
+                    }
+                    return;
+                }
+            },
+            None => None,
+        };
+        let current = self.revision;
+        if let Ok(Some((stamp, map))) = self.edge_pair_index.map.get_mut() {
+            if let Some((pair, position)) = resolved {
+                map.insert(pair, position);
+            }
+            *stamp = current;
+        }
+    }
+
+    /// br-r37-c1-s8dj1: is the pair index worth maintaining right now? A graph
+    /// nobody has probed carries no map, and must pay nothing for one.
+    fn edge_pair_index_is_live(&self, at_revision: u64) -> bool {
+        matches!(
+            self.edge_pair_index.map.read().as_deref(),
+            Ok(Some((stamp, _))) if *stamp == at_revision
+        )
+    }
+
+    /// br-r37-c1-s8dj1: patch the lookaside through an edge REMOVAL.
+    ///
+    /// `remove_edge` SWAP-removes the bucket when its last key goes, which moves
+    /// exactly ONE entry: whatever sat last now sits in the freed slot. That is a
+    /// bounded repair, unlike `remove_node`, which shift-removes from `nodes` and
+    /// renumbers every later node — that one still drops the map and rebuilds,
+    /// which is proportionate because the removal itself is already O(V+E).
+    ///
+    /// `dropped_position` is `None` when the bucket survived (a parallel key went
+    /// but the pair remains), in which case nothing moved and only the stamp
+    /// needs carrying forward.
+    fn pair_index_note_edge_removed(
+        &mut self,
+        previous_revision: u64,
+        source: &str,
+        target: &str,
+        dropped_position: Option<usize>,
+    ) {
+        match self.edge_pair_index.map.get_mut() {
+            Ok(Some((stamp, _))) if *stamp == previous_revision => {}
+            _ => return,
+        }
+        let removed_pair = match dropped_position {
+            Some(_) => match (
+                self.nodes.get_index_of(source),
+                self.nodes.get_index_of(target),
+            ) {
+                (Some(source_idx), Some(target_idx)) => Some((source_idx, target_idx)),
+                _ => {
+                    if let Ok(slot) = self.edge_pair_index.map.get_mut() {
+                        *slot = None;
+                    }
+                    return;
+                }
+            },
+            None => None,
+        };
+        // The entry that swap_remove relocated into the freed slot, if any.
+        let relocated = match dropped_position {
+            Some(position) if position < self.edges.len() => match self.edges.get_index(position) {
+                Some((moved_key, _)) => {
+                    let moved_source = moved_key.source.clone();
+                    let moved_target = moved_key.target.clone();
+                    match (
+                        self.nodes.get_index_of(moved_source.as_str()),
+                        self.nodes.get_index_of(moved_target.as_str()),
+                    ) {
+                        (Some(source_idx), Some(target_idx)) => {
+                            Some(((source_idx, target_idx), position))
+                        }
+                        _ => {
+                            if let Ok(slot) = self.edge_pair_index.map.get_mut() {
+                                *slot = None;
+                            }
+                            return;
+                        }
+                    }
+                }
+                None => None,
+            },
+            _ => None,
+        };
+        let current = self.revision;
+        if let Ok(Some((stamp, map))) = self.edge_pair_index.map.get_mut() {
+            if let Some(pair) = removed_pair {
+                map.remove(&pair);
+            }
+            if let Some((pair, position)) = relocated {
+                map.insert(pair, position);
+            }
+            *stamp = current;
+        }
+    }
+
+    /// br-r37-c1-s8dj1: now a REAL index path.
+    ///
+    /// It used to resolve both indices back to names and call `has_edge(&str,
+    /// &str)`, which hashes the full-length keys again — so a caller's O(1)
+    /// index resolution bought nothing, and `PyMultiDiGraph`'s exact-string
+    /// branch (br-r37-c1-ptiz2) inherited the slope it was written to remove.
+    ///
+    /// An `edges` bucket is dropped as soon as its last key goes (see
+    /// `remove_edge`), so membership of the pair map is exactly `has_edge`.
     #[must_use]
     pub fn has_edge_by_indices(&self, source_idx: usize, target_idx: usize) -> bool {
+        if let Some(position) = self.edge_pair_position(source_idx, target_idx) {
+            return position.is_some();
+        }
         match (
             self.get_node_name(source_idx),
             self.get_node_name(target_idx),
@@ -2368,6 +2639,55 @@ impl MultiDiGraph {
             (Some(source), Some(target)) => self.has_edge(source, target),
             _ => false,
         }
+    }
+
+    /// br-r37-c1-s8dj1: how many PARALLEL edges a pair carries, addressed by
+    /// node POSITION. `number_of_edges(u, v)` built two owned canonicals and
+    /// hashed the pair to answer what is a bucket length, and measured 0.272x
+    /// of networkx at 2000-character keys — the worst surviving row on this
+    /// class after the keyed `has_edge` path landed.
+    ///
+    /// Falls back to the name path while the lookaside is still warming up, so
+    /// it inherits the same amortisation guard rather than forcing a build.
+    #[must_use]
+    pub fn edge_key_count_by_indices(&self, source_idx: usize, target_idx: usize) -> usize {
+        if let Some(position) = self.edge_pair_position(source_idx, target_idx) {
+            return position
+                .and_then(|found| self.edges.get_index(found))
+                .map_or(0, |(_, keyed)| keyed.len());
+        }
+        match (
+            self.get_node_name(source_idx),
+            self.get_node_name(target_idx),
+        ) {
+            (Some(source), Some(target)) => self
+                .edges
+                .get(&DirectedEdgeKeyRef::new(source, target))
+                .map_or(0, IndexMap::len),
+            _ => 0,
+        }
+    }
+
+    /// br-r37-c1-s8dj1: attributes of a KEYED directed edge, addressed by node
+    /// POSITION — the directed twin of `MultiGraph::edge_attrs_by_indices`, and
+    /// the primitive whose absence is why `PyMultiDiGraph::has_edge` left its
+    /// keyed form on the string path.
+    #[must_use]
+    pub fn edge_attrs_by_indices(
+        &self,
+        source_idx: usize,
+        target_idx: usize,
+        key: usize,
+    ) -> Option<&AttrMap> {
+        if let Some(position) = self.edge_pair_position(source_idx, target_idx) {
+            let (_, keyed) = self.edges.get_index(position?)?;
+            return keyed.get(&key);
+        }
+        let source = self.get_node_name(source_idx)?;
+        let target = self.get_node_name(target_idx)?;
+        self.edges
+            .get(&DirectedEdgeKeyRef::new(source, target))
+            .and_then(|bucket| bucket.get(&key))
     }
 
     #[must_use]
@@ -2846,6 +3166,13 @@ impl MultiDiGraph {
     ) -> Result<usize, GraphError> {
         let source = source.into();
         let target = target.into();
+        // br-r37-c1-s8dj1: the revision AT ENTRY, before the node inserts below.
+        // Those call `add_node_with_attrs_unrecorded`, which bumps the revision
+        // too -- capturing after them left the pair index stale-looking and the
+        // patch never fired, so every add still forced an O(E) rebuild.
+        // Everything this function does to either index space is an APPEND, so a
+        // map valid at entry is still valid to patch here.
+        let previous_revision = self.revision;
 
         let unknown_feature = attrs
             .keys()
@@ -2913,6 +3240,10 @@ impl MultiDiGraph {
             }
             k
         });
+        // br-r37-c1-s8dj1: captured BEFORE the insert, so the pair-index patch
+        // below can tell a new bucket from an added parallel key without paying
+        // a second hash of the pair.
+        let edges_len_before = self.edges.len();
         let mut changed;
         let edge_attr_count = {
             let edge_bucket = self.edges.entry(edge_key.clone()).or_default();
@@ -2959,6 +3290,14 @@ impl MultiDiGraph {
         if changed {
             self.revision = self.revision.saturating_add(1);
         }
+        // br-r37-c1-s8dj1: `insert` APPENDS, so a bucket created by this call
+        // sits at the LAST position and no existing position moved.
+        let new_pair_position = if self.edges.len() > edges_len_before {
+            Some(self.edges.len() - 1)
+        } else {
+            None
+        };
+        self.pair_index_note_edge_added(previous_revision, &source, &target, new_pair_position);
 
         self.record_decision(
             "add_edge",
@@ -3090,6 +3429,8 @@ impl MultiDiGraph {
     }
 
     pub fn remove_edge(&mut self, source: &str, target: &str, key: Option<usize>) -> bool {
+        // br-r37-c1-s8dj1: revision at entry, for the pair-index patch below.
+        let previous_revision = self.revision;
         let edge_key = DirectedEdgeKeyRef::new(source, target);
         let removal_key = key.or_else(|| {
             self.edges
@@ -3112,6 +3453,14 @@ impl MultiDiGraph {
         self.edge_count -= 1;
 
         let should_drop_bucket = self.edges.get(&edge_key).is_some_and(IndexMap::is_empty);
+        // br-r37-c1-s8dj1: the position the bucket occupies BEFORE swap_remove
+        // frees it. Resolved only when a live pair index will actually use it.
+        let dropped_position =
+            if should_drop_bucket && self.edge_pair_index_is_live(previous_revision) {
+                self.edges.get_index_of(&edge_key)
+            } else {
+                None
+            };
         if should_drop_bucket {
             // br-r37-c1-vbwpl (cc): swap_remove (O(1)) on the OUTER node-pair map
             // — its storage order is never observed (edges_ordered walks
@@ -3125,6 +3474,7 @@ impl MultiDiGraph {
         self.remove_successor_key(source, target, removal_key);
         self.remove_predecessor_key(target, source, removal_key);
         self.revision = self.revision.saturating_add(1);
+        self.pair_index_note_edge_removed(previous_revision, source, target, dropped_position);
         true
     }
 
@@ -3512,6 +3862,7 @@ impl MultiDiGraph {
             runtime_policy: self.runtime_policy.clone(),
             edge_count,
             csr_cache: std::sync::Arc::default(),
+            edge_pair_index: EdgePairIndex::default(),
         }
     }
 
