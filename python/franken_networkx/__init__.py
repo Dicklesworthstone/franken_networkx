@@ -47472,7 +47472,9 @@ def _assigned_private_number_of_nodes(self):
     return len(self)
 
 
-def _assigned_private_add_node(self, node_for_adding, **attr):
+def _assigned_private_add_node(
+    self, node_for_adding, *, _sync_native=True, _preserve_assigned_row=False, **attr
+):
     """add_node for a graph carrying assigned private storage (br-r37-c1-wv3cu).
 
     networkx's storage IS the assigned mapping, so `add_node` edits it in place
@@ -47496,8 +47498,13 @@ def _assigned_private_add_node(self, node_for_adding, **attr):
         raise ValueError("None cannot be a node")
 
     storage = vars(self)
+    # Record membership before the native call.  Graph.add_node decides whether
+    # to replace an adjacency row from `_node`, not from `_adj`; an assigned
+    # `_adj` can therefore contain a stale row for a node which is new to the
+    # graph.  NetworkX replaces that row rather than merging it.
+    known_to_node_store = node_for_adding in self._node
     raw = _RAW_ADD_NODE_BY_CLASS.get(type(self))
-    if raw is not None:
+    if _sync_native and raw is not None:
         raw(self, node_for_adding, **attr)
 
     node_map = storage.get(_PRIVATE_NODE_OVERRIDE)
@@ -47510,7 +47517,10 @@ def _assigned_private_add_node(self, node_for_adding, **attr):
 
     for key in (_PRIVATE_ADJ_OVERRIDE, _PRIVATE_SUCC_OVERRIDE, _PRIVATE_PRED_OVERRIDE):
         mapping = storage.get(key)
-        if mapping is not None and node_for_adding not in mapping:
+        if mapping is not None and (
+            node_for_adding not in mapping
+            or (not known_to_node_store and not _preserve_assigned_row)
+        ):
             mapping[node_for_adding] = {}
 
 
@@ -47543,6 +47553,62 @@ def _assigned_private_edge_targets(self, storage):
             succ = adj
         return succ, storage.get(_PRIVATE_PRED_OVERRIDE)
     return adj, adj
+
+
+def _assigned_private_edge_node_exists(self, node, storage):
+    """Apply the membership authority used by NetworkX's ``add_edge`` body."""
+    if not self.is_directed() and not self.is_multigraph():
+        return node in self._node
+    forward, _ = _assigned_private_edge_targets(self, storage)
+    if forward is not None:
+        return node in forward
+    if self.is_directed():
+        return node in self._succ
+    return node in self._adj
+
+
+def _assigned_private_prepare_edge_nodes(self, u, v, storage):
+    """Prepare node rows without letting the native edge writer invent nodes.
+
+    MultiGraph and directed ``add_edge`` test their adjacency mapping, whereas
+    the native graph can be missing a node which exists only in an assigned
+    mapping.  Calling the native edge method first then silently inserts that
+    node into the native node store.  Graph instead tests ``_node`` and must
+    replace a stale assigned adjacency row for a genuinely new node.
+    """
+    if (
+        not self.is_directed()
+        and not self.is_multigraph()
+        and _PRIVATE_NODE_OVERRIDE in storage
+    ):
+        for node in (u, v):
+            if node in self._node and node not in self._adj:
+                # This is Graph.add_edge's direct ``self._adj[node]`` lookup
+                # after its `_node` membership check; preserve its KeyError.
+                raise KeyError(node)
+
+    forward, _ = _assigned_private_edge_targets(self, storage)
+    exists = {
+        u: _assigned_private_edge_node_exists(self, u, storage),
+        v: _assigned_private_edge_node_exists(self, v, storage),
+    }
+    # With an assigned adjacency, a node can exist there while being absent
+    # from fnx's native `_node`.  The raw edge writer would create it natively,
+    # which NetworkX does not do for these classes.  Keep this exceptional write
+    # entirely on the assigned mapping; ordinary graphs continue through Rust.
+    python_only = (
+        forward is not None
+        and (self.is_directed() or self.is_multigraph())
+        and any(exists[node] and node not in self._node for node in (u, v))
+    )
+    for node in (u, v):
+        _assigned_private_add_node(
+            self,
+            node,
+            _sync_native=not (python_only and exists[node]),
+            _preserve_assigned_row=python_only and exists[node],
+        )
+    return python_only
 
 
 def _assigned_private_write_edge(self, u, v, key, attr, storage):
@@ -47589,25 +47655,29 @@ def _assigned_private_write_edge(self, u, v, key, attr, storage):
 def _assigned_private_add_edge_simple(self, u_of_edge, v_of_edge, **attr):
     """add_edge for a graph carrying assigned private storage (br-r37-c1-wv3cu)."""
     storage = vars(self)
+    python_only = _assigned_private_prepare_edge_nodes(self, u_of_edge, v_of_edge, storage)
     raw = _RAW_ADD_EDGE_BY_CLASS.get(type(self))
-    if raw is not None:
+    if not python_only and raw is not None:
         raw(self, u_of_edge, v_of_edge, **attr)
-    _assigned_private_add_node(self, u_of_edge)
-    _assigned_private_add_node(self, v_of_edge)
     _assigned_private_write_edge(self, u_of_edge, v_of_edge, None, attr, storage)
 
 
 def _assigned_private_add_edge_multi(self, u_of_edge, v_of_edge, key=None, **attr):
     """Multigraph add_edge: the key is part of the address, not an attribute."""
     storage = vars(self)
+    python_only = _assigned_private_prepare_edge_nodes(self, u_of_edge, v_of_edge, storage)
     raw = _RAW_ADD_EDGE_BY_CLASS.get(type(self))
-    if raw is not None:
+    if not python_only and raw is not None:
         if key is None:
             key = raw(self, u_of_edge, v_of_edge, **attr)
         else:
             raw(self, u_of_edge, v_of_edge, key, **attr)
-    _assigned_private_add_node(self, u_of_edge)
-    _assigned_private_add_node(self, v_of_edge)
+    elif key is None:
+        forward, _ = _assigned_private_edge_targets(self, storage)
+        keydict = forward.get(u_of_edge, {}).get(v_of_edge, {}) if forward else {}
+        key = len(keydict)
+        while key in keydict:
+            key += 1
     _assigned_private_write_edge(self, u_of_edge, v_of_edge, key, attr, storage)
     return key
 
@@ -47750,7 +47820,23 @@ def _assigned_private_remove_node(self, n):
     # right while breaking remove_node('ZZ') — the sweep went 32 to 30 instead of
     # 32 to 7, which is what said the authority was wrong rather than missing.
     if n not in self._adj or n not in self._node:
-        raise NetworkXError(f"The node {n} is not in the graph.")
+        graph_kind = "digraph" if self.is_directed() else "graph"
+        raise NetworkXError(f"The node {n} is not in the {graph_kind}.")
+
+    directed_mapping_data = None
+    if self.is_directed():
+        forward, backward = _assigned_private_edge_targets(self, storage)
+        # Capture both sides before the native removal mutates its own rows.
+        # A private `_succ` can coexist with a native `_pred`, and looking up
+        # the latter afterwards turns NetworkX's successful removal into a
+        # KeyError merely because fnx has already removed the native node.
+        successors = (
+            list(forward.get(n, ())) if forward is not None else list(self._succ[n])
+        )
+        predecessors = (
+            list(backward.get(n, ())) if backward is not None else list(self._pred[n])
+        )
+        directed_mapping_data = (forward, backward, successors, predecessors)
 
     raw = _RAW_REMOVE_NODE_BY_CLASS.get(type(self))
     if raw is not None:
@@ -47761,28 +47847,59 @@ def _assigned_private_remove_node(self, n):
 
     if node_map is not None:
         node_map.pop(n, None)
-    for mapping in mappings:
-        for nbr in list(mapping.get(n, ())):
-            row = mapping.get(nbr)
-            if row is not None:
+    if self.is_directed():
+        assert directed_mapping_data is not None
+        forward, backward, successors, predecessors = directed_mapping_data
+        # DiGraph.remove_node uses successors to edit `_pred`, and predecessors
+        # to edit `_succ`.  With only one side assigned, it must not scan every
+        # row in that mapping: an edge visible only on the assigned successor
+        # side has no matching native predecessor and therefore survives, just
+        # as it does in NetworkX's split private storage.
+        if forward is not None:
+            for predecessor in predecessors:
+                row = forward.get(predecessor)
+                if row is not None:
+                    row.pop(n, None)
+            forward.pop(n, None)
+        if backward is not None:
+            for successor in successors:
+                row = backward.get(successor)
+                if row is not None:
+                    row.pop(n, None)
+            backward.pop(n, None)
+    else:
+        for mapping in mappings:
+            for nbr in list(mapping.get(n, ())):
+                row = mapping.get(nbr)
+                if row is not None:
+                    row.pop(n, None)
+            for row in mapping.values():
                 row.pop(n, None)
-        for row in mapping.values():
-            row.pop(n, None)
-        mapping.pop(n, None)
+            mapping.pop(n, None)
 
 
 def _assigned_private_remove_edge(self, u, v, key=None):
     """remove_edge: drop the pair from every assigned mapping, both directions."""
     storage = vars(self)
-    mappings = _assigned_private_mappings(self, storage)
     multi = self.is_multigraph()
+    if self.is_directed():
+        forward, backward = _assigned_private_edge_targets(self, storage)
+        targets = [(forward, u, v)] if forward is not None else []
+        if backward is not None:
+            targets.append((backward, v, u))
+    else:
+        adjacency = storage.get(_PRIVATE_ADJ_OVERRIDE)
+        targets = [(adjacency, u, v), (adjacency, v, u)] if adjacency is not None else []
 
-    found = False
-    for mapping in mappings:
-        row = mapping.get(u)
-        if row is not None and v in row:
-            found = True
-    if not found:
+    # Assigning `_node` does not replace the edge mapping.  In that split state
+    # the native adjacency remains NetworkX's authority for remove_edge.
+    if not targets:
+        raw = _RAW_REMOVE_EDGE_BY_CLASS.get(type(self))
+        if raw is not None:
+            return raw(self, u, v, key) if (multi and key is not None) else raw(self, u, v)
+
+    forward_mapping, forward_u, forward_v = targets[0]
+    if forward_mapping is None or forward_v not in forward_mapping.get(forward_u, {}):
         raise NetworkXError(f"The edge {u}-{v} is not in the graph.")
 
     raw = _RAW_REMOVE_EDGE_BY_CLASS.get(type(self))
@@ -47792,23 +47909,36 @@ def _assigned_private_remove_edge(self, u, v, key=None):
         except Exception:  # noqa: BLE001 - the assigned mapping is the authority
             pass
 
-    for mapping in mappings:
-        for a, b in ((u, v), (v, u)):
-            row = mapping.get(a)
-            if row is None or b not in row:
-                continue
-            if multi:
-                keydict = row[b]
-                if key is None:
-                    keydict.pop(next(iter(keydict)), None)
-                else:
-                    keydict.pop(key, None)
-                if not keydict:
-                    row.pop(b, None)
+    seen = set()
+    for mapping, a, b in targets:
+        if mapping is None or (id(mapping), a, b) in seen:
+            continue
+        seen.add((id(mapping), a, b))
+        row = mapping.get(a)
+        if row is None or b not in row:
+            continue
+        if multi:
+            keydict = row[b]
+            if key is None:
+                keydict.popitem()
             else:
+                keydict.pop(key, None)
+            if not keydict:
                 row.pop(b, None)
-            if a == b:
-                break
+        else:
+            row.pop(b, None)
+
+
+def _assigned_private_remove_edges_from(self, ebunch):
+    """NetworkX's tolerant batch removal, routed through assigned storage."""
+    for edge in ebunch:
+        u, v = edge[:2]
+        try:
+            _assigned_private_remove_edge(self, u, v)
+        except NetworkXError:
+            # ``remove_edges_from`` ignores edges that are absent at the time
+            # each entry is visited; singular ``remove_edge`` must still raise.
+            continue
 
 
 def _assigned_private_clear(self):
@@ -47850,6 +47980,14 @@ _RAW_REMOVE_EDGE_BY_CLASS = {
     MultiDiGraph: MultiDiGraph.remove_edge,
 }
 _RAW_REMOVE_EDGE_METHODS = tuple(_RAW_REMOVE_EDGE_BY_CLASS.values())
+
+_RAW_REMOVE_EDGES_FROM_BY_CLASS = {
+    Graph: Graph.remove_edges_from,
+    DiGraph: DiGraph.remove_edges_from,
+    MultiGraph: MultiGraph.remove_edges_from,
+    MultiDiGraph: MultiDiGraph.remove_edges_from,
+}
+_RAW_REMOVE_EDGES_FROM_METHODS = tuple(_RAW_REMOVE_EDGES_FROM_BY_CLASS.values())
 
 _RAW_CLEAR_BY_CLASS = {
     Graph: Graph.clear,
@@ -48137,6 +48275,11 @@ def _install_private_method_shadows(self, storage):
         )
         install("remove_node", _assigned_private_remove_node, _RAW_REMOVE_NODE_METHODS)
         install("remove_edge", _assigned_private_remove_edge, _RAW_REMOVE_EDGE_METHODS)
+        install(
+            "remove_edges_from",
+            _assigned_private_remove_edges_from,
+            _RAW_REMOVE_EDGES_FROM_METHODS,
+        )
         install("clear", _assigned_private_clear, _RAW_CLEAR_METHODS)
         install("clear_edges", _assigned_private_clear_edges, _RAW_CLEAR_EDGES_METHODS)
         install(

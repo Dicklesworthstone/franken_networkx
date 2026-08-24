@@ -11,6 +11,8 @@ showed — add_node fixed, add_nodes_from still diverging — and it is the reas
 "fixing the singular fixes the plural" cannot be assumed here.
 """
 
+import copy
+
 import networkx as nx
 import pytest
 
@@ -50,6 +52,29 @@ def state(g):
         sorted(str(tuple(map(str, e[:2]))) for e in g.edges),
         sorted(map(str, g.adj)),
     )
+
+
+def build_with_assigned_storage(mod, cls, attr, mapping):
+    """Give each implementation an independent, internally valid mapping."""
+    graph = getattr(mod, cls)()
+    graph.add_edge("a", "b")
+    setattr(graph, attr, copy.deepcopy(mapping))
+    return graph
+
+
+def assigned_adjacency(cls):
+    """A valid assigned row carrying ``ZZ`` only on the adjacency side."""
+    if cls == "Graph":
+        ab = {}
+        return {"a": {"b": ab}, "b": {"a": ab}, "ZZ": {"b": {}}}
+    if cls == "MultiGraph":
+        ab = {0: {}}
+        return {"a": {"b": ab}, "b": {"a": ab}, "ZZ": {"b": {0: {}}}}
+    if cls == "DiGraph":
+        return {"a": {"b": {}}, "b": {}, "ZZ": {"b": {}}}
+    if cls == "MultiDiGraph":
+        return {"a": {"b": {0: {}}}, "b": {}, "ZZ": {"b": {0: {}}}}
+    raise AssertionError(f"unexpected graph class {cls}")
 
 
 @pytest.mark.parametrize("cls", ALL)
@@ -109,3 +134,104 @@ def test_ordinary_graphs_are_unchanged(cls):
     assert state(gfx) == state(gnx)
     assert dict(gfx.nodes["y"]) == dict(gnx.nodes["y"])
     assert not {"add_edge", "add_node", "add_nodes_from"} & set(vars(gfx))
+
+
+@pytest.mark.parametrize(
+    ("cls", "attr"),
+    [
+        ("Graph", "_adj"),
+        ("MultiGraph", "_adj"),
+        ("DiGraph", "_adj"),
+        ("DiGraph", "_succ"),
+        ("MultiDiGraph", "_adj"),
+        ("MultiDiGraph", "_succ"),
+    ],
+)
+def test_add_edge_uses_the_assigned_adjacency_as_networkx_does(cls, attr):
+    """An assigned row can make a node exist only on the Python side.
+
+    The classes do not all use the same membership authority: Graph checks
+    ``_node`` while the multi/directed classes check their adjacency mapping.
+    Calling the native method first conflated those two states, either retaining
+    a row Graph must replace or inserting ``ZZ`` into fnx's native node store.
+    """
+    mapping = assigned_adjacency(cls)
+    gnx = build_with_assigned_storage(nx, cls, attr, mapping)
+    gfx = build_with_assigned_storage(fnx, cls, attr, mapping)
+    gnx.add_edge("ZZ", "a")
+    gfx.add_edge("ZZ", "a")
+    assert state(gfx) == state(gnx)
+
+
+@pytest.mark.parametrize("cls", ["Graph"])
+def test_add_edge_keeps_networkxs_private_node_keyerror(cls):
+    """A node-map-only assignment can know a node its adjacency lacks."""
+    node_map = {"a": {}, "b": {}, "ZZ": {}}
+    gnx = build_with_assigned_storage(nx, cls, "_node", node_map)
+    gfx = build_with_assigned_storage(fnx, cls, "_node", node_map)
+    with pytest.raises(Exception) as nx_error:
+        gnx.add_edge("ZZ", "a")
+    with pytest.raises(type(nx_error.value)) as fnx_error:
+        gfx.add_edge("ZZ", "a")
+    assert fnx_error.value.args == nx_error.value.args
+
+
+@pytest.mark.parametrize("cls", ["Graph", "DiGraph", "MultiDiGraph"])
+def test_remove_edge_uses_native_adjacency_when_only_node_is_assigned(cls):
+    """``_node`` does not replace the edge mapping's authority."""
+    node_map = {"a": {}, "b": {}, "ZZ": {}}
+    gnx = build_with_assigned_storage(nx, cls, "_node", node_map)
+    gfx = build_with_assigned_storage(fnx, cls, "_node", node_map)
+    gnx.remove_edge("a", "b")
+    gfx.remove_edge("a", "b")
+    assert state(gfx) == state(gnx)
+
+
+@pytest.mark.parametrize("cls", ["DiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("attr", ["_adj", "_succ", "_node"])
+def test_remove_node_preserves_networkxs_directed_error_message(cls, attr):
+    """The graph class is observable in NetworkX's absent-node error."""
+    mapping = assigned_adjacency(cls) if attr != "_node" else {"a": {}, "b": {}, "ZZ": {}}
+    gnx = build_with_assigned_storage(nx, cls, attr, mapping)
+    gfx = build_with_assigned_storage(fnx, cls, attr, mapping)
+    with pytest.raises(Exception) as nx_error:
+        gnx.remove_node("ZZ")
+    with pytest.raises(type(nx_error.value)) as fnx_error:
+        gfx.remove_node("ZZ")
+    assert fnx_error.value.args == nx_error.value.args
+
+
+@pytest.mark.parametrize("attr", ["_adj", "_succ"])
+def test_directed_remove_edge_only_changes_the_assigned_forward_mapping(attr):
+    """The reverse row is a separate directed edge, not an undirected twin."""
+    mapping = {"a": {"b": {}}, "b": {"a": {}}, "ZZ": {"b": {}}}
+    gnx = build_with_assigned_storage(nx, "DiGraph", attr, mapping)
+    gfx = build_with_assigned_storage(fnx, "DiGraph", attr, mapping)
+    gnx.remove_edge("a", "b")
+    gfx.remove_edge("a", "b")
+    assert state(gfx) == state(gnx)
+
+
+@pytest.mark.parametrize("attr", ["_adj", "_succ"])
+def test_directed_remove_edges_from_uses_the_assigned_mapping(attr):
+    """The native batch kernel otherwise leaves a removed edge visible."""
+    mapping = {"a": {"b": {}}, "b": {}, "ZZ": {"b": {}}}
+    gnx = build_with_assigned_storage(nx, "DiGraph", attr, mapping)
+    gfx = build_with_assigned_storage(fnx, "DiGraph", attr, mapping)
+    gnx.remove_edges_from([("a", "b")])
+    gfx.remove_edges_from([("a", "b")])
+    assert state(gfx) == state(gnx)
+
+
+def test_multigraph_private_only_edge_uses_networkxs_key_generator():
+    """A non-integer key must not make the private-only branch sort keys."""
+    ab = {0: {}}
+    mapping = {
+        "a": {"b": ab},
+        "b": {"a": ab},
+        "ZZ": {"a": {"external": {}}},
+    }
+    gnx = build_with_assigned_storage(nx, "MultiGraph", "_adj", mapping)
+    gfx = build_with_assigned_storage(fnx, "MultiGraph", "_adj", mapping)
+    assert gfx.add_edge("ZZ", "a", color="blue") == gnx.add_edge("ZZ", "a", color="blue")
+    assert gfx._adj["ZZ"]["a"] == gnx._adj["ZZ"]["a"]

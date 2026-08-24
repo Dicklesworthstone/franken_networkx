@@ -21,6 +21,8 @@ DIAGNOSTIC, not a test: it reports rather than asserts, so it stays usable while
 the family is worked through.
 """
 
+import copy
+
 import networkx as nx
 
 import franken_networkx as fnx
@@ -51,7 +53,12 @@ def run(mod, cls, attr, mapping, mutate):
     g = getattr(mod, cls)()
     g.add_edge("a", "b")
     try:
-        setattr(g, attr, dict(mapping))
+        # The NetworkX arm mutates this mapping in place.  A shallow outer copy
+        # shared nested rows with the fnx arm, so arm B started from arm A's
+        # post-mutation state and the probe reported cross-arm contamination as
+        # a product divergence.  Preserve aliases *within* each graph while
+        # giving the two implementations independent storage.
+        setattr(g, attr, copy.deepcopy(mapping))
     except Exception as exc:  # noqa: BLE001
         return (f"SETATTR:{type(exc).__name__}", "")
     try:
