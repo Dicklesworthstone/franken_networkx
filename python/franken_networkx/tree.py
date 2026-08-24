@@ -141,6 +141,70 @@ def minimum_spanning_edges(
     )
 
 
+def maximum_branching(
+    G,
+    attr="weight",
+    default=1,
+    preserve_attrs=False,
+    partition=None,
+    *,
+    backend=None,
+    **backend_kwargs,
+):
+    return _fnx.maximum_branching(
+        G, attr=attr, default=default, preserve_attrs=preserve_attrs,
+        partition=partition, backend=backend, **backend_kwargs,
+    )
+
+
+def minimum_branching(
+    G,
+    attr="weight",
+    default=1,
+    preserve_attrs=False,
+    partition=None,
+    *,
+    backend=None,
+    **backend_kwargs,
+):
+    return _fnx.minimum_branching(
+        G, attr=attr, default=default, preserve_attrs=preserve_attrs,
+        partition=partition, backend=backend, **backend_kwargs,
+    )
+
+
+def maximum_spanning_arborescence(
+    G,
+    attr="weight",
+    default=1,
+    preserve_attrs=False,
+    partition=None,
+    *,
+    backend=None,
+    **backend_kwargs,
+):
+    return _fnx.maximum_spanning_arborescence(
+        G, attr=attr, default=default, preserve_attrs=preserve_attrs,
+        partition=partition, backend=backend, **backend_kwargs,
+    )
+
+
+def minimum_spanning_arborescence(
+    G,
+    attr="weight",
+    default=1,
+    preserve_attrs=False,
+    partition=None,
+    *,
+    backend=None,
+    **backend_kwargs,
+):
+    return _fnx.minimum_spanning_arborescence(
+        G, attr=attr, default=default, preserve_attrs=preserve_attrs,
+        partition=partition, backend=backend, **backend_kwargs,
+    )
+
+
 def center(G):
     """Return the center of an undirected tree using fnx's center wrapper."""
     if G.is_directed():
