@@ -380,7 +380,7 @@ def biadjacency_matrix(
         raise _nx.NetworkXError(f"Unknown sparse array format: {format}") from err
 
 
-def robins_alexander_clustering(G):
+def robins_alexander_clustering(G, *, backend=None, **backend_kwargs):
     """Robins & Alexander bipartite clustering ``4*C_4 / L_3`` of ``G``.
 
     br-r37-c1-niit0: re-exported from networkx as an ``@nx._dispatchable``, so
@@ -392,6 +392,9 @@ def robins_alexander_clustering(G):
     (`(4.0 * (C_4_numer / 4)) / (L_3_numer / 2)`) is done here EXACTLY as nx, so
     the result is byte-identical. Directed / multigraph / nx-typed inputs delegate.
     """
+    _fnx._validate_backend_dispatch_keywords(
+        "robins_alexander_clustering", backend, backend_kwargs
+    )
     native = getattr(_fnx._fnx, "robins_alexander_counts", None)
     if (
         native is not None
@@ -417,7 +420,7 @@ def robins_alexander_clustering(G):
     )
 
 
-def latapy_clustering(G, nodes=None, mode="dot"):
+def latapy_clustering(G, nodes=None, mode="dot", *, backend=None, **backend_kwargs):
     """Bipartite clustering coefficient (br-r37-c1-bipclust, cc).
 
     nx re-materialises ``set(G[u])`` for every (v, second-order-neighbour u) pair, i.e.
@@ -427,6 +430,10 @@ def latapy_clustering(G, nodes=None, mode="dot"):
     ``nbrs2`` (a set comprehension) and the float-accumulation order are byte-identical to
     nx.
     """
+
+    _fnx._validate_backend_dispatch_keywords(
+        "latapy_clustering", backend, backend_kwargs
+    )
 
     def cc_dot(nu, nv):
         return len(nu & nv) / len(nu | nv)
@@ -461,16 +468,22 @@ def latapy_clustering(G, nodes=None, mode="dot"):
     return ccs
 
 
-clustering = latapy_clustering
+def clustering(G, nodes=None, mode="dot", *, backend=None, **backend_kwargs):
+    """Return bipartite clustering coefficients."""
+    _fnx._validate_backend_dispatch_keywords("clustering", backend, backend_kwargs)
+    return latapy_clustering(G, nodes=nodes, mode=mode)
 
 
-def average_clustering(G, nodes=None, mode="dot"):
+def average_clustering(G, nodes=None, mode="dot", *, backend=None, **backend_kwargs):
     """Average bipartite clustering coefficient (br-r37-c1-bipclust, cc).
 
     Re-exported from nx it ran nx's slow latapy_clustering (0.86x); routing through the
     concrete fast ``latapy_clustering`` above makes it a win. Byte-identical: same per-node
     ccs, same ``sum(...)/len(nodes)`` reduction.
     """
+    _fnx._validate_backend_dispatch_keywords(
+        "average_clustering", backend, backend_kwargs
+    )
     if nodes is None:
         nodes = G
     ccs = latapy_clustering(G, nodes=nodes, mode=mode)
