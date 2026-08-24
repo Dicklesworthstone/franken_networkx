@@ -1,6 +1,6 @@
 """A node key canonicalizes by TYPE, and reordering the type probes changed nothing.
 
-br-r37-c1-keyextract. `node_key_to_string` reached its float and tuple branches
+br-r37-c1-keyextract-rwsvk. `node_key_to_string` reached its float and tuple branches
 by falling THROUGH `extract::<i64>()` (and, for a tuple, `extract::<f64>()` as
 well). Each of those failures constructs and discards a `PyErr`, which is the
 cost `br-ctaxkey` removed for string keys and left in place for every other type.
@@ -263,10 +263,10 @@ NUMERIC_TOWER_RESIDUE = [
 
 
 @pytest.mark.xfail(
-    reason="br-r37-c1-numtower: keys Python hashes and compares EQUAL still "
+    reason="br-r37-c1-numtower-29ggu: keys Python hashes and compares EQUAL still "
     "canonicalize apart (numeric tower by repr; a bool inside a tuple is excluded "
     "from the all-int tuple fast path). PRE-EXISTING - all four reproduce on build "
-    "ee7363ceb00ddbc8, which predates br-r37-c1-keyextract",
+    "ee7363ceb00ddbc8, which predates br-r37-c1-keyextract-rwsvk",
     strict=True,
 )
 @pytest.mark.parametrize(

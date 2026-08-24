@@ -430,7 +430,7 @@ fn node_key_to_string(py: Python<'_>, key: &Bound<'_, PyAny>) -> PyResult<String
         let s = s.to_str()?;
         return Ok(format!("str:{}:{s}", s.len()));
     }
-    // br-r37-c1-keyextract: CONCRETE TYPE PROBES BEFORE ANY `extract`.
+    // br-r37-c1-keyextract-rwsvk: CONCRETE TYPE PROBES BEFORE ANY `extract`.
     //
     // br-ctaxkey removed the discarded `PyErr` for STRING keys and left it in
     // place for every other type, so a float or tuple key still paid one failed
