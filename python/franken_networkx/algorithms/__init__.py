@@ -776,6 +776,17 @@ _fnx_isolate = _importlib.import_module("franken_networkx.isolate")
 _sys.modules[f"{__name__}.isolate"] = _fnx_isolate
 isolate = _fnx_isolate  # Override in module globals
 
+
+# ``isolates`` is already an explicit flattened delegate; spell out its two
+# sibling entry points as well so introspection and keyword validation happen
+# at the public algorithms namespace.
+def is_isolate(G, n, *, backend=None, **backend_kwargs):
+    return _fnx_isolate.is_isolate(G, n, backend=backend, **backend_kwargs)
+
+
+def number_of_isolates(G, *, backend=None, **backend_kwargs):
+    return _fnx_isolate.number_of_isolates(G, backend=backend, **backend_kwargs)
+
 _fnx_link_prediction = _importlib.import_module("franken_networkx.link_prediction")
 _sys.modules[f"{__name__}.link_prediction"] = _fnx_link_prediction
 link_prediction = _fnx_link_prediction  # Override in module globals

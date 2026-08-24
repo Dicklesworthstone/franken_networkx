@@ -1147,6 +1147,44 @@ def test_flattened_graphical_namespace_routes_to_leaf_module(monkeypatch, name, 
     assert getattr(fnx_algorithms, name)(*args) is marker
 
 
+@pytest.mark.parametrize("name", ["is_isolate", "number_of_isolates"])
+def test_flattened_isolate_namespace_matches_legacy_oracle(name):
+    legacy = _legacy_networkx()
+    actual = getattr(fnx_algorithms, name)
+    expected = getattr(legacy.algorithms, name)
+    assert str(inspect.signature(actual)) == str(inspect.signature(expected))
+
+    graph = fnx.Graph()
+    graph.add_edge("left", "right")
+    graph.add_node("alone")
+    legacy_graph = legacy.Graph()
+    legacy_graph.add_edge("left", "right")
+    legacy_graph.add_node("alone")
+    args = (graph, "alone") if name == "is_isolate" else (graph,)
+    legacy_args = (legacy_graph, "alone") if name == "is_isolate" else (legacy_graph,)
+    assert actual(*args) == expected(*legacy_args)
+
+    with pytest.raises(ImportError):
+        actual(*args, backend="missing")
+    with pytest.raises(TypeError):
+        actual(*args, unexpected=True)
+
+
+@pytest.mark.parametrize(
+    ("name", "args"),
+    [("is_isolate", ("graph", "node")), ("number_of_isolates", ("graph",))],
+)
+def test_flattened_isolate_namespace_routes_to_leaf_module(monkeypatch, name, args):
+    marker = object()
+
+    def sentinel(*call_args, **kwargs):
+        assert call_args == args
+        return marker
+
+    monkeypatch.setattr(fnx_algorithms.isolate, name, sentinel)
+    assert getattr(fnx_algorithms, name)(*args) is marker
+
+
 def test_flattened_bfs_reachability_namespace_signatures_and_results_match_oracle():
     graph = fnx.path_graph(4)
     nx_graph = nx.path_graph(4)
