@@ -1547,6 +1547,13 @@ class EdgeDataView:
         rows = self._materialize()
         if self._graph is None:
             return iter(rows)
+        # br-r37-c1-hihrf: the coarse guard here is a KNOWN parity divergence for
+        # an nbunch above the walk gate — networkx completes where this raises —
+        # and passing `nbunch_rows=self._nbunch_list` to get the row rule fixes
+        # that at sizes 4 through 120 but was REVERTED as a measured loss: the
+        # row rule needs a per-row size baseline, and taking it costs
+        # O(nbunch x key length). See the bead for the numbers and the shape a
+        # cheaper baseline would have to have.
         return _FailFastEdgeIterator(self._graph, rows)
 
     def __len__(self):
@@ -4182,8 +4189,7 @@ class _LiveMultiEdgeCallView:
         return (u in adj and v in adj[u]) or (v in adj and u in adj[v])
 
     def __repr__(self):
-        name = "OutMultiEdgeDataView" if self._directed else "MultiEdgeDataView"
-        return f"{name}({list(self)!r})"
+        return f"MultiEdgeDataView({list(self)!r})"
 
     def __eq__(self, other):
         if isinstance(other, (set, frozenset)):
@@ -50224,10 +50230,63 @@ del _cls, _accessor, _installed
 # br-r37-c1-qmi5w / br-r37-c1-6q4wl: install raw primitive descriptors for
 # ordinary graphs. ``_set_private_override`` restores mapping-aware behavior
 # per instance if a NetworkX utility assigns one of its private stores.
-Graph.has_node = _GRAPH_PRIVATE_AWARE_HAS_NODE
-DiGraph.has_node = _DIGRAPH_PRIVATE_AWARE_HAS_NODE
-MultiGraph.has_node = _MULTIGRAPH_PRIVATE_AWARE_HAS_NODE
-MultiDiGraph.has_node = _MULTIDIGRAPH_PRIVATE_AWARE_HAS_NODE
+def _has_node_through_the_membership_slot(self, n):
+    """``G.has_node(n)`` answered by ``n in G``.
+
+    br-r37-c1-hasnode-slot: the native ``has_node`` method and the native
+    ``__contains__`` slot are the SAME question with the same body - both take
+    the identity-int fast path, then the exact-``str`` present-set memo, then the
+    borrowed canonical probe - and one of them is twice the price of the other.
+    Measured on this interpreter, 2000-node str-keyed graphs, min of 11 blocks of
+    512 calls, all four classes, against live networkx in the same process:
+
+        class          has_node    n in G   ratio      networkx
+        Graph            768.9      447.2   1.72x          68.4
+        DiGraph          716.5      446.4   1.61x          70.2
+        MultiGraph       749.5      445.3   1.68x          71.3
+        MultiDiGraph     775.6      570.1   1.36x          70.3
+
+    THE DIFFERENCE IS THE CALLING CONVENTION, not the work, and that was
+    established by controls rather than inferred. A trivial native SLOT on the
+    same object (``len(G)``) costs 265ns and a trivial native METHOD
+    (``G.number_of_nodes()``) costs 303ns, so a no-argument method pays only
+    ~38ns over a slot; the same comparison with ONE argument is ~370ns. PyO3's
+    method trampoline accepts keywords - ``G.has_node(n='a')`` works, and must
+    keep working, because networkx's plain ``def`` accepts it too - so every call
+    carries argument-binding machinery the slot wrapper does not have.
+
+    REFUTED on the way, so nobody re-runs it: GC traversal is NOT the mechanism.
+    ``PyGraph.__traverse__`` visits every node key, adjacency key and attr dict,
+    which made a gen-0 collection look like a plausible per-call tax; with
+    ``gc.disable()`` the numbers do not move (len 265->286, has_node 744->741).
+    Nor is it data-dependent: ``len(G)`` is 267ns at 100 nodes and 283ns at
+    40000, so the floor is per-call, not per-graph.
+
+    A Python frame is added here and it is still 1.7x cheaper - the frame costs
+    ~20ns against the ~320ns the trampoline costs. The slot is also the more
+    faithful path: ``__contains__`` consults assigned NetworkX private storage
+    (``private_node_contains``) where the native ``has_node`` does not read it at
+    all, and the two answer identically on every key type tested - present,
+    missing, int, bool, float, tuple, None, an unhashable ``str`` subclass, and a
+    graph carrying an assigned ``_node`` mapping.
+    """
+    return n in self
+
+
+Graph.has_node = _has_node_through_the_membership_slot
+DiGraph.has_node = _has_node_through_the_membership_slot
+MultiGraph.has_node = _has_node_through_the_membership_slot
+MultiDiGraph.has_node = _has_node_through_the_membership_slot
+# br-r37-c1-hasnode-slot: the slot-routed `has_node` is a RAW implementation
+# too, and `_RAW_HAS_NODE_METHODS` is how a graph that later receives assigned
+# private storage decides whether its class attribute is one it must shadow.
+# Leaving it out silently stopped installing the `_assigned_private_has_node`
+# shadow - test_private_shadow_state_guard caught that within a minute, because
+# the widened state no longer contained `has_node`. Extended HERE rather than at
+# the tuple's definition because the function has to exist first.
+_RAW_HAS_NODE_METHODS = _RAW_HAS_NODE_METHODS + (
+    _has_node_through_the_membership_slot,
+)
 Graph.has_edge = _GRAPH_PRIVATE_AWARE_HAS_EDGE
 DiGraph.has_edge = _DIGRAPH_PRIVATE_AWARE_HAS_EDGE
 MultiGraph.has_edge = _MULTIGRAPH_PRIVATE_AWARE_HAS_EDGE

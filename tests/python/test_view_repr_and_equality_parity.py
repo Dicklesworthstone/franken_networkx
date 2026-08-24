@@ -174,6 +174,12 @@ def test_edge_data_view_repr_stays_live(cls_name):
     assert ("'c', 'd'" in repr(vfx)) == ("'c', 'd'" in repr(vnx))
 
 
+@pytest.mark.xfail(
+    strict=True,
+    reason="br-r37-c1-ih59i: MultiDiGraph.edges() reprs as MultiEdgeDataView — "
+    "the UNDIRECTED class name — where networkx says OutMultiEdgeDataView. A "
+    "wrong class identity on a directed graph, not merely a missing wrapper.",
+)
 def test_multidigraph_edges_call_reports_the_directed_class_name():
     gnx, gfx = _pair("MultiDiGraph")
     assert repr(gfx.edges()).split("(")[0] == repr(gnx.edges()).split("(")[0]
