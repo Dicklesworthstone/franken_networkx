@@ -11592,7 +11592,6 @@ pub fn stochastic_graph_copy_multidigraph(
         succ_key_rows: None,
         pred_key_rows: None,
         edge_keydict_cache: None,
-        live_keydict_rows: crate::live_keydict::LiveKeydictRows::default(),
         edge_keydict_by_index: HashMap::new(),
         in_edges_data_attr_cache: std::sync::Mutex::new(None),
         edges_data_attr_cache: std::sync::Mutex::new(None),
@@ -11613,7 +11612,6 @@ pub fn stochastic_graph_copy_multidigraph(
         edges_seq: 0,
         edges_dirty: AtomicBool::new(false),
         edge_dirty_keys: PyMultiDiGraph::clean_edge_dirty_keys(),
-        pending_edge_dirty_positions: std::sync::Mutex::new(rustc_hash::FxHashSet::default()),
         node_keys_cache: std::sync::Mutex::new(None),
         node_data_mirror: std::sync::Mutex::new(None),
         dict_of_dicts_cache: None,
@@ -15985,7 +15983,6 @@ pub fn multidigraph_transitive_closure(
         succ_key_rows: None,
         pred_key_rows: None,
         edge_keydict_cache: None,
-        live_keydict_rows: crate::live_keydict::LiveKeydictRows::default(),
         edge_keydict_by_index: HashMap::new(),
         in_edges_data_attr_cache: std::sync::Mutex::new(None),
         edges_data_attr_cache: std::sync::Mutex::new(None),
@@ -16002,7 +15999,6 @@ pub fn multidigraph_transitive_closure(
         edges_seq: 0,
         edges_dirty: AtomicBool::new(false),
         edge_dirty_keys: PyMultiDiGraph::clean_edge_dirty_keys(),
-        pending_edge_dirty_positions: std::sync::Mutex::new(rustc_hash::FxHashSet::default()),
         node_keys_cache: std::sync::Mutex::new(None),
         node_data_mirror: std::sync::Mutex::new(None),
         dict_of_dicts_cache: None,
@@ -26100,9 +26096,6 @@ pub fn power_rust(py: Python<'_>, g: &Bound<'_, PyAny>, k: usize) -> PyResult<Py
         nodes_seq: 0,
         edges_seq: 0,
         edges_dirty: AtomicBool::new(false),
-        // br-r37-c1-igdzi: a freshly built result graph has handed out nothing,
-        // so its escape scope is the empty set rather than the unknown one.
-        exposed_edges: std::sync::Mutex::new(Some(rustc_hash::FxHashSet::default())),
         node_keys_cache: std::sync::Mutex::new(None),
         node_iter_mirror: std::sync::Mutex::new(None),
         instance_dict_gc: crate::InstanceDictGc::new(),
@@ -26226,9 +26219,6 @@ pub fn ego_graph_rust(
         nodes_seq: 0,
         edges_seq: 0,
         edges_dirty: AtomicBool::new(false),
-        // br-r37-c1-igdzi: a freshly built result graph has handed out nothing,
-        // so its escape scope is the empty set rather than the unknown one.
-        exposed_edges: std::sync::Mutex::new(Some(rustc_hash::FxHashSet::default())),
         node_keys_cache: std::sync::Mutex::new(None),
         node_iter_mirror: std::sync::Mutex::new(None),
         instance_dict_gc: crate::InstanceDictGc::new(),
@@ -26373,9 +26363,6 @@ pub fn full_join_rust(
         nodes_seq: 0,
         edges_seq: 0,
         edges_dirty: AtomicBool::new(false),
-        // br-r37-c1-igdzi: a freshly built result graph has handed out nothing,
-        // so its escape scope is the empty set rather than the unknown one.
-        exposed_edges: std::sync::Mutex::new(Some(rustc_hash::FxHashSet::default())),
         node_keys_cache: std::sync::Mutex::new(None),
         node_iter_mirror: std::sync::Mutex::new(None),
         instance_dict_gc: crate::InstanceDictGc::new(),
@@ -26419,9 +26406,6 @@ pub fn identified_nodes_rust(
         nodes_seq: 0,
         edges_seq: 0,
         edges_dirty: AtomicBool::new(false),
-        // br-r37-c1-igdzi: a freshly built result graph has handed out nothing,
-        // so its escape scope is the empty set rather than the unknown one.
-        exposed_edges: std::sync::Mutex::new(Some(rustc_hash::FxHashSet::default())),
         node_keys_cache: std::sync::Mutex::new(None),
         node_iter_mirror: std::sync::Mutex::new(None),
         instance_dict_gc: crate::InstanceDictGc::new(),
@@ -26524,9 +26508,6 @@ pub fn dedensify_rust(
         nodes_seq: 0,
         edges_seq: 0,
         edges_dirty: AtomicBool::new(false),
-        // br-r37-c1-igdzi: a freshly built result graph has handed out nothing,
-        // so its escape scope is the empty set rather than the unknown one.
-        exposed_edges: std::sync::Mutex::new(Some(rustc_hash::FxHashSet::default())),
         node_keys_cache: std::sync::Mutex::new(None),
         node_iter_mirror: std::sync::Mutex::new(None),
         instance_dict_gc: crate::InstanceDictGc::new(),
@@ -26703,9 +26684,6 @@ pub fn quotient_graph_rust(
         nodes_seq: 0,
         edges_seq: 0,
         edges_dirty: AtomicBool::new(false),
-        // br-r37-c1-igdzi: a freshly built result graph has handed out nothing,
-        // so its escape scope is the empty set rather than the unknown one.
-        exposed_edges: std::sync::Mutex::new(Some(rustc_hash::FxHashSet::default())),
         node_keys_cache: std::sync::Mutex::new(None),
         node_iter_mirror: std::sync::Mutex::new(None),
         instance_dict_gc: crate::InstanceDictGc::new(),
@@ -27276,9 +27254,6 @@ pub fn gomory_hu_tree_rust(
         nodes_seq: 0,
         edges_seq: 0,
         edges_dirty: AtomicBool::new(false),
-        // br-r37-c1-igdzi: a freshly built result graph has handed out nothing,
-        // so its escape scope is the empty set rather than the unknown one.
-        exposed_edges: std::sync::Mutex::new(Some(rustc_hash::FxHashSet::default())),
         node_keys_cache: std::sync::Mutex::new(None),
         node_iter_mirror: std::sync::Mutex::new(None),
         instance_dict_gc: crate::InstanceDictGc::new(),
@@ -27341,9 +27316,6 @@ pub fn snap_aggregation_rust(
         nodes_seq: 0,
         edges_seq: 0,
         edges_dirty: AtomicBool::new(false),
-        // br-r37-c1-igdzi: a freshly built result graph has handed out nothing,
-        // so its escape scope is the empty set rather than the unknown one.
-        exposed_edges: std::sync::Mutex::new(Some(rustc_hash::FxHashSet::default())),
         node_keys_cache: std::sync::Mutex::new(None),
         node_iter_mirror: std::sync::Mutex::new(None),
         instance_dict_gc: crate::InstanceDictGc::new(),
@@ -33208,8 +33180,7 @@ mod tests {
                 has_remapped_int_key: false,
                 has_edge_node_index_cache: crate::NodeIndexLookupCache::new(py),
                 neighbor_key_rows: None,
-                edge_keydict_cache: None,
-                live_keydict_rows: crate::live_keydict::LiveKeydictRows::default(),
+            edge_keydict_cache: None,
             };
             let mut weighted_attrs = AttrMap::new();
             weighted_attrs.insert("weight".to_owned(), 1.0.into());
