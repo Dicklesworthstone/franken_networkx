@@ -16605,7 +16605,6 @@ Decision: REVERTED. Same-machine evidence shows the list-iterator handoff is
 slower in both absolute FNX time and ratio vs NetworkX (`0.483x` patched vs
 `0.509x` baseline). No production source change kept.
 
-<<<<<<< Updated upstream
 ## 2026-06-26 BlackThrush MultiDiGraph weighted in/out degree count zip - NO-SHIP
 
 Scope: BOLD-VERIFY land-or-dig on the live core laggards after scanning
@@ -16699,8 +16698,6 @@ Validation:
 - `git diff --check`: passed.
 - `ubs crates/fnx-python/src/digraph.rs docs/NEGATIVE_EVIDENCE.md`: passed with no critical findings.
 
-=======
->>>>>>> Stashed changes
 ## 2026-06-25 BlackThrush MultiDiGraph.in_edges data-key borrowed stream - REJECT
 
 Scope: BOLD-VERIFY `MultiDiGraph.in_edges(keys=True, data="weight",
@@ -16731,7 +16728,6 @@ local execution.
 
 Validation while probing: `cargo check -p fnx-python --features
 pyo3/abi3-py310` passed via `rch exec` on `hz2`; the focused head-to-head bench
-<<<<<<< Updated upstream
 passed its list/value equality assertions before timing both rows. A final
 reverted-tree rerun of the same focused bench, with the benchmark row kept and
 production code removed, measured FNX `15.793 ms` vs NetworkX `5.2914 ms`
@@ -16744,7 +16740,6 @@ not move the dominant Python tuple/value materialization cost, and it regressed
 the measured FNX median from `15.665 ms` to `16.799 ms`. No production source
 change kept. The focused benchmark row stays as a guard and future routing
 evidence for this still-sub-NetworkX path.
-<<<<<<< Updated upstream
 
 ## 2026-06-26 BlackThrush MultiGraph.add_edge sparse attr mirror for clear_edges - REJECT
 
@@ -34722,5 +34717,3 @@ family switch now.
 QUALITY / CLOSEOUT: `git diff --check` covers this ledger-only result. No
 Cargo command ran. UBS has no Markdown/JSONL scanner, so no scanner pass is
 claimed.
-=======
->>>>>>> Stashed changes
