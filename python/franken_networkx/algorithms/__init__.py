@@ -1112,6 +1112,31 @@ def dfs_labeled_edges(
     )
 
 
+def bfs_layers(G, sources, *, backend=None, **backend_kwargs):
+    import franken_networkx as _fnx_call
+
+    return _fnx_call.bfs_layers(
+        G,
+        sources,
+        backend=backend,
+        **backend_kwargs,
+    )
+
+
+def descendants_at_distance(
+    G, source, distance, *, backend=None, **backend_kwargs
+):
+    import franken_networkx as _fnx_call
+
+    return _fnx_call.descendants_at_distance(
+        G,
+        source,
+        distance,
+        backend=backend,
+        **backend_kwargs,
+    )
+
+
 def __getattr__(name):
     import networkx.algorithms as _src
 

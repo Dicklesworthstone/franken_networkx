@@ -707,6 +707,31 @@ def test_flattened_dfs_ordering_namespace_signature_and_results_match_oracle(nam
         actual(graph, 0, backend="missing")
 
 
+def test_flattened_bfs_reachability_namespace_signatures_and_results_match_oracle():
+    graph = fnx.path_graph(4)
+    nx_graph = nx.path_graph(4)
+
+    actual_layers = fnx_algorithms.bfs_layers
+    expected_layers = nx.algorithms.bfs_layers
+    assert str(inspect.signature(actual_layers)) in {str(inspect.signature(expected_layers))}
+    assert list(actual_layers(graph, [0], backend="networkx")) == list(
+        expected_layers(nx_graph, [0], backend="networkx")
+    )
+    with pytest.raises(ImportError):
+        actual_layers(graph, [0], backend="missing")
+
+    actual_descendants = fnx_algorithms.descendants_at_distance
+    expected_descendants = nx.algorithms.descendants_at_distance
+    assert str(inspect.signature(actual_descendants)) in {
+        str(inspect.signature(expected_descendants))
+    }
+    assert actual_descendants(graph, 0, 2, backend="networkx") == expected_descendants(
+        nx_graph, 0, 2, backend="networkx"
+    )
+    with pytest.raises(ImportError):
+        actual_descendants(graph, 0, 2, backend="missing")
+
+
 @pytest.mark.parametrize(
     "name",
     ["edge_connectivity", "node_connectivity", "minimum_edge_cut", "minimum_node_cut"],
