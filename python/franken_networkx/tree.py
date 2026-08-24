@@ -79,6 +79,22 @@ for _name in _FNX_NATIVE_TREE_CLASSES:
         globals()[_name] = getattr(_fnx, _name)
 
 
+def is_arborescence(G, *, backend=None, **backend_kwargs):
+    return _fnx.is_arborescence(G, backend=backend, **backend_kwargs)
+
+
+def is_branching(G, *, backend=None, **backend_kwargs):
+    return _fnx.is_branching(G, backend=backend, **backend_kwargs)
+
+
+def is_forest(G, *, backend=None, **backend_kwargs):
+    return _fnx.is_forest(G, backend=backend, **backend_kwargs)
+
+
+def is_tree(G, *, backend=None, **backend_kwargs):
+    return _fnx.is_tree(G, backend=backend, **backend_kwargs)
+
+
 def center(G):
     """Return the center of an undirected tree using fnx's center wrapper."""
     if G.is_directed():

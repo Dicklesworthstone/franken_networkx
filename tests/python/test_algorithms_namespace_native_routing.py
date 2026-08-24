@@ -416,3 +416,22 @@ def test_directed_components_namespace_signature_and_results_match_oracle(name):
 
     with pytest.raises(ImportError):
         actual(graph, backend="missing")
+
+
+@pytest.mark.parametrize("name", ["is_arborescence", "is_branching", "is_forest", "is_tree"])
+def test_tree_predicate_namespace_signature_and_results_match_oracle(name):
+    actual = getattr(fnx_algorithms.tree, name)
+    expected = getattr(nx.algorithms.tree, name)
+    assert str(inspect.signature(actual)) in {str(inspect.signature(expected))}
+
+    if name in {"is_arborescence", "is_branching"}:
+        graph = fnx.DiGraph([(0, 1), (1, 2), (2, 3)])
+        nx_graph = nx.DiGraph([(0, 1), (1, 2), (2, 3)])
+    else:
+        graph = fnx.path_graph(4)
+        nx_graph = nx.path_graph(4)
+    assert actual(graph, backend="networkx") == expected(
+        nx_graph, backend="networkx"
+    )
+    with pytest.raises(ImportError):
+        actual(graph, backend="missing")
