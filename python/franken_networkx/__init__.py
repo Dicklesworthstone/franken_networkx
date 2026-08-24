@@ -50335,8 +50335,32 @@ def _private_aware_number_of_nodes(raw_number_of_nodes):
     return number_of_nodes
 
 
+# br-r37-c1-s8dj1: the classes whose native `number_of_edges_between` is the
+# whole of `number_of_edges(u, v)` -- no edge filtering, no subclass override.
+_NATIVE_EDGE_COUNT_CLASSES = (Graph, DiGraph, MultiGraph, MultiDiGraph)
+
+
 def _private_aware_number_of_edges(raw_number_of_edges):
     def number_of_edges(self, u=None, v=None):
+        # br-r37-c1-s8dj1: the both-endpoints case goes STRAIGHT to the native
+        # counter. `raw_number_of_edges` is a Python body, and on MultiDiGraph
+        # the native it eventually reaches now answers from node positions
+        # (254.7 ns at 2000-character keys) while the Python route around it
+        # cost 685.6 ns for the same answer -- the shim, not the lookup, was
+        # most of the row.
+        #
+        # EXACT BASE CLASSES ONLY. A view has its own `number_of_edges` that
+        # applies `_edge_visible` filtering, and a subclass may override the
+        # count; both must keep the Python body. A graph carrying assigned
+        # private storage is excluded by the check below, which still runs
+        # first for every other shape.
+        if (
+            u is not None
+            and v is not None
+            and type(self) in _NATIVE_EDGE_COUNT_CLASSES
+            and not _has_networkx_private_storage(self)
+        ):
+            return self.number_of_edges_between(u, v)
         if not _has_networkx_private_storage(self):
             return raw_number_of_edges(self, u, v)
         if u is None and v is None:
