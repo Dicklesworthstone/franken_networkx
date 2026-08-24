@@ -2,13 +2,35 @@
 to/from_dict_of_dicts, to/from_dict_of_lists, to/from_edgelist,
 to/from_numpy_array, to/from_scipy_sparse_array, to/from_pandas_edgelist."""
 
+import importlib
+import importlib.util
 import inspect
+import sys
 from collections.abc import Mapping
+from functools import lru_cache
+from pathlib import Path
 
 import networkx as nx
 import pytest
 
 import franken_networkx as fnx
+
+
+@lru_cache(maxsize=1)
+def _legacy_networkx():
+    module_name = "franken_networkx_legacy_networkx_convert_surface"
+    legacy_init = (
+        Path(__file__).resolve().parents[2]
+        / "legacy_networkx_code"
+        / "networkx"
+        / "networkx"
+        / "__init__.py"
+    )
+    spec = importlib.util.spec_from_file_location(module_name, legacy_init)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[module_name] = module
+    spec.loader.exec_module(module)
+    return module
 
 
 # ---------------------------------------------------------------------------
@@ -565,6 +587,25 @@ class TestDictOfDicts:
 
 
 class TestDictOfLists:
+    def test_convert_module_signature_and_value_match_legacy_oracle(self):
+        module = importlib.import_module("franken_networkx.convert")
+        legacy = _legacy_networkx()
+        graph = fnx.DiGraph([("a", "b"), ("b", "c")])
+        legacy_graph = legacy.DiGraph([("a", "b"), ("b", "c")])
+
+        assert inspect.signature(module.to_dict_of_lists).parameters == inspect.signature(
+            legacy.to_dict_of_lists
+        ).parameters
+        assert module.to_dict_of_lists(
+            graph, nodelist=["a", "b"], backend="networkx"
+        ) == legacy.to_dict_of_lists(
+            legacy_graph, nodelist=["a", "b"], backend="networkx"
+        )
+        with pytest.raises(ImportError):
+            module.to_dict_of_lists(graph, backend="missing")
+        with pytest.raises(TypeError):
+            module.to_dict_of_lists(graph, unexpected=True)
+
     def test_round_trip(self):
         G = fnx.Graph()
         G.add_edge(0, 1)

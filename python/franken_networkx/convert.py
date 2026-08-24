@@ -29,7 +29,7 @@ def to_dict_of_dicts(G, nodelist=None, edge_data=None):
     return _fnx.to_dict_of_dicts(G, nodelist=nodelist, edge_data=edge_data)
 
 
-def to_dict_of_lists(G, nodelist=None):
+def to_dict_of_lists(G, nodelist=None, *, backend=None, **backend_kwargs):
     """Return adjacency representation of graph as a dictionary of lists.
 
     Keep the standalone ``franken_networkx.convert`` route on the same native
@@ -38,7 +38,9 @@ def to_dict_of_lists(G, nodelist=None):
     """
     import franken_networkx as _fnx
 
-    return _fnx.to_dict_of_lists(G, nodelist=nodelist)
+    return _fnx.to_dict_of_lists(
+        G, nodelist=nodelist, backend=backend, **backend_kwargs
+    )
 
 
 # br-r37-c1-2qsqf: the `from networkx.convert import *` above also left these

@@ -126,7 +126,7 @@ def _derive_top_nodes(G, top_nodes):
         return None
 
 
-def hopcroft_karp_matching(G, top_nodes=None):
+def hopcroft_karp_matching(G, top_nodes=None, *, backend=None, **backend_kwargs):
     """Maximum-cardinality matching of bipartite ``G`` (Hopcroft-Karp).
 
     br-r37-c1-bngez: native byte-exact kernel for the ``top_nodes``-given simple
@@ -134,6 +134,9 @@ def hopcroft_karp_matching(G, top_nodes=None):
     one-shot nx view. Result is byte-identical to
     ``networkx.bipartite.hopcroft_karp_matching``.
     """
+    _fnx._validate_backend_dispatch_keywords(
+        "hopcroft_karp_matching", backend, backend_kwargs
+    )
     top_nodes = _derive_top_nodes(G, top_nodes)
     result = _native_hopcroft_karp(G, top_nodes)
     if result is not None:
@@ -141,8 +144,9 @@ def hopcroft_karp_matching(G, top_nodes=None):
     return _nx_bipartite.hopcroft_karp_matching(_matching_nx_view(G), top_nodes)
 
 
-def maximum_matching(G, top_nodes=None):
+def maximum_matching(G, top_nodes=None, *, backend=None, **backend_kwargs):
     """Alias of :func:`hopcroft_karp_matching` (matches networkx)."""
+    _fnx._validate_backend_dispatch_keywords("maximum_matching", backend, backend_kwargs)
     top_nodes = _derive_top_nodes(G, top_nodes)
     result = _native_hopcroft_karp(G, top_nodes)
     if result is not None:
@@ -150,11 +154,12 @@ def maximum_matching(G, top_nodes=None):
     return _nx_bipartite.maximum_matching(_matching_nx_view(G), top_nodes)
 
 
-def eppstein_matching(G, top_nodes=None):
+def eppstein_matching(G, top_nodes=None, *, backend=None, **backend_kwargs):
     """Maximum-cardinality matching of bipartite ``G`` (Eppstein).
 
     br-r37-c1-bipmatch: see :func:`hopcroft_karp_matching`.
     """
+    _fnx._validate_backend_dispatch_keywords("eppstein_matching", backend, backend_kwargs)
     return _nx_bipartite.eppstein_matching(_matching_nx_view(G), top_nodes)
 
 
@@ -229,7 +234,7 @@ def write_edgelist(
         path.write(line.encode(encoding))
 
 
-def density(B, nodes):
+def density(B, nodes, *, backend=None, **backend_kwargs):
     """Return the density of bipartite graph ``B``.
 
     br-r37-c1-bipdense: networkx's bipartite.density is re-exported as an
@@ -238,6 +243,7 @@ def density(B, nodes):
     graph). Computed directly here (networkx's exact formula) so it is
     byte-identical and ~20x FASTER than networkx. Works on fnx and nx inputs.
     """
+    _fnx._validate_backend_dispatch_keywords("density", backend, backend_kwargs)
     n = len(B)
     m = B.number_of_edges()
     nb = len(nodes)
@@ -247,7 +253,7 @@ def density(B, nodes):
     return m / (2 * nb * nt) if B.is_directed() else m / (nb * nt)
 
 
-def degree_centrality(G, nodes):
+def degree_centrality(G, nodes, *, backend=None, **backend_kwargs):
     """Bipartite degree centrality, keyed by node.
 
     br-r37-c1-bipdense: same ``@nx._dispatchable`` overhead as :func:`density`
@@ -255,6 +261,9 @@ def degree_centrality(G, nodes):
     networkx's exact algorithm directly on ``G`` -- byte-identical (values and
     dict key order) and ~17x faster than the dispatched path.
     """
+    _fnx._validate_backend_dispatch_keywords(
+        "degree_centrality", backend, backend_kwargs
+    )
     top = set(nodes)
     bottom = set(G) - top
     s = 1.0 / len(bottom)
@@ -264,7 +273,7 @@ def degree_centrality(G, nodes):
     return centrality
 
 
-def degrees(B, nodes, weight=None):
+def degrees(B, nodes, weight=None, *, backend=None, **backend_kwargs):
     """Return ``(degX, degY)`` for the two bipartite node sets of ``B``.
 
     br-r37-c1-bipdeg: re-exported from networkx as an ``@nx._dispatchable``, so
@@ -275,13 +284,22 @@ def degrees(B, nodes, weight=None):
     sets/order) with no conversion. ``nodes`` is one set (the Y set); the first
     returned view is the OTHER set (X = B - nodes).
     """
+    _fnx._validate_backend_dispatch_keywords("degrees", backend, backend_kwargs)
     bottom = set(nodes)
     top = set(B) - bottom
     return (B.degree(top, weight=weight), B.degree(bottom, weight=weight))
 
 
 def biadjacency_matrix(
-    B, row_order, column_order=None, dtype=None, weight="weight", format="csr"
+    G,
+    row_order,
+    column_order=None,
+    dtype=None,
+    weight="weight",
+    format="csr",
+    *,
+    backend=None,
+    **backend_kwargs,
 ):
     """Return the biadjacency matrix (``row_order`` x ``column_order``) of ``B``.
 
@@ -300,6 +318,10 @@ def biadjacency_matrix(
 
     import scipy as sp
 
+    _fnx._validate_backend_dispatch_keywords(
+        "biadjacency_matrix", backend, backend_kwargs
+    )
+    B = G
     nlen = len(row_order)
     if nlen == 0:
         raise _nx.NetworkXError("row_order is empty list")
@@ -322,10 +344,13 @@ def biadjacency_matrix(
     # ``all_int`` so we reproduce nx's dtype inference exactly (int64 for an
     # all-integer non-empty matrix, float64 otherwise); coo canonicalisation
     # makes the result order-independent. Directed / multigraph / nx-typed /
-    # non-numeric-weight inputs return None -> exact Python loop below.
+    # non-numeric-weight inputs return None -> exact Python loop below. Weighted
+    # inputs stay on that loop too: an edge attribute dict is live, whereas the
+    # native store is only authoritative until a caller can mutate that dict.
     native = getattr(_fnx._fnx, "biadjacency_coo", None)
     if (
         native is not None
+        and weight is None
         and not isinstance(B, _nx.Graph)
         and not B.is_directed()
         and not B.is_multigraph()
@@ -370,7 +395,7 @@ def biadjacency_matrix(
         raise _nx.NetworkXError(f"Unknown sparse array format: {format}") from err
 
 
-def robins_alexander_clustering(G):
+def robins_alexander_clustering(G, *, backend=None, **backend_kwargs):
     """Robins & Alexander bipartite clustering ``4*C_4 / L_3`` of ``G``.
 
     br-r37-c1-niit0: re-exported from networkx as an ``@nx._dispatchable``, so
@@ -382,6 +407,9 @@ def robins_alexander_clustering(G):
     (`(4.0 * (C_4_numer / 4)) / (L_3_numer / 2)`) is done here EXACTLY as nx, so
     the result is byte-identical. Directed / multigraph / nx-typed inputs delegate.
     """
+    _fnx._validate_backend_dispatch_keywords(
+        "robins_alexander_clustering", backend, backend_kwargs
+    )
     native = getattr(_fnx._fnx, "robins_alexander_counts", None)
     if (
         native is not None
@@ -407,7 +435,7 @@ def robins_alexander_clustering(G):
     )
 
 
-def latapy_clustering(G, nodes=None, mode="dot"):
+def latapy_clustering(G, nodes=None, mode="dot", *, backend=None, **backend_kwargs):
     """Bipartite clustering coefficient (br-r37-c1-bipclust, cc).
 
     nx re-materialises ``set(G[u])`` for every (v, second-order-neighbour u) pair, i.e.
@@ -417,6 +445,10 @@ def latapy_clustering(G, nodes=None, mode="dot"):
     ``nbrs2`` (a set comprehension) and the float-accumulation order are byte-identical to
     nx.
     """
+
+    _fnx._validate_backend_dispatch_keywords(
+        "latapy_clustering", backend, backend_kwargs
+    )
 
     def cc_dot(nu, nv):
         return len(nu & nv) / len(nu | nv)
@@ -451,23 +483,29 @@ def latapy_clustering(G, nodes=None, mode="dot"):
     return ccs
 
 
-clustering = latapy_clustering
+def clustering(G, nodes=None, mode="dot", *, backend=None, **backend_kwargs):
+    """Return bipartite clustering coefficients."""
+    _fnx._validate_backend_dispatch_keywords("clustering", backend, backend_kwargs)
+    return latapy_clustering(G, nodes=nodes, mode=mode)
 
 
-def average_clustering(G, nodes=None, mode="dot"):
+def average_clustering(G, nodes=None, mode="dot", *, backend=None, **backend_kwargs):
     """Average bipartite clustering coefficient (br-r37-c1-bipclust, cc).
 
     Re-exported from nx it ran nx's slow latapy_clustering (0.86x); routing through the
     concrete fast ``latapy_clustering`` above makes it a win. Byte-identical: same per-node
     ccs, same ``sum(...)/len(nodes)`` reduction.
     """
+    _fnx._validate_backend_dispatch_keywords(
+        "average_clustering", backend, backend_kwargs
+    )
     if nodes is None:
         nodes = G
     ccs = latapy_clustering(G, nodes=nodes, mode=mode)
     return sum(ccs[v] for v in nodes) / len(nodes)
 
 
-def degree_centrality(G, nodes):
+def degree_centrality(G, nodes, *, backend=None, **backend_kwargs):
     """Bipartite degree centrality (br-r37-c1-bipdc, cc).
 
     nx calls ``G.degree(top)`` then ``G.degree(bottom)`` — two per-nbunch DegreeView
@@ -475,6 +513,9 @@ def degree_centrality(G, nodes):
     is native (~12us); filter it in G-node order, which is exactly the order nx's
     ``G.degree(nbunch)`` (nbunch_iter) yields, so the result dict is byte-identical.
     """
+    _fnx._validate_backend_dispatch_keywords(
+        "degree_centrality", backend, backend_kwargs
+    )
     top = set(nodes)
     bottom = set(G) - top
     all_deg = dict(G.degree())
@@ -487,7 +528,7 @@ def degree_centrality(G, nodes):
     return centrality
 
 
-def node_redundancy(G, nodes=None):
+def node_redundancy(G, nodes=None, *, backend=None, **backend_kwargs):
     """Node redundancy coefficients ``{node: rc(v)}`` for bipartite ``G``.
 
     br-r37-c1-g6wla: re-exported from networkx as an ``@nx._dispatchable``, so
@@ -501,6 +542,9 @@ def node_redundancy(G, nodes=None):
     ``nodes=None`` (all nodes) case takes the native path; an explicit ``nodes``
     subset, nx-typed / directed / multigraph inputs delegate to nx.
     """
+    _fnx._validate_backend_dispatch_keywords(
+        "node_redundancy", backend, backend_kwargs
+    )
     native = getattr(_fnx._fnx, "node_redundancy_overlaps", None)
     if (
         native is not None
@@ -529,7 +573,9 @@ def node_redundancy(G, nodes=None):
     )
 
 
-def minimum_weight_full_matching(G, top_nodes=None, weight="weight"):
+def minimum_weight_full_matching(
+    G, top_nodes=None, weight="weight", *, backend=None, **backend_kwargs
+):
     """Minimum-weight full matching of bipartite ``G`` (rectangular LAP).
 
     br-r37-c1-n4dwd: re-exported from networkx as an ``@nx._dispatchable``, so
@@ -543,6 +589,9 @@ def minimum_weight_full_matching(G, top_nodes=None, weight="weight"):
     inf-padded weight matrix, and the SciPy assignment all match nx exactly
     (verified across heavy integer-weight tie cases). nx-typed inputs delegate.
     """
+    _fnx._validate_backend_dispatch_keywords(
+        "minimum_weight_full_matching", backend, backend_kwargs
+    )
     if isinstance(G, _nx.Graph):
         return _nx_bipartite.minimum_weight_full_matching(G, top_nodes, weight)
     import numpy as _np
@@ -578,7 +627,9 @@ def _spectral_bipartivity_nx_copy(B):
     return H
 
 
-def spectral_bipartivity(G, nodes=None, weight="weight"):
+def spectral_bipartivity(
+    G, nodes=None, weight="weight", *, backend=None, **backend_kwargs
+):
     """Spectral bipartivity measure of bipartite ``G``.
 
     br-r37-c1-1h238: re-exported from networkx as an ``@nx._dispatchable``, so on
@@ -593,6 +644,9 @@ def spectral_bipartivity(G, nodes=None, weight="weight"):
     expm result to far beyond the module's round-6 conformance bar. Directed /
     multigraph / nx-typed inputs delegate to nx (non-symmetric / general expm).
     """
+    _fnx._validate_backend_dispatch_keywords(
+        "spectral_bipartivity", backend, backend_kwargs
+    )
     if isinstance(G, _nx.Graph):
         return _nx_bipartite.spectral_bipartivity(G, nodes, weight)
     if G.is_directed() or G.is_multigraph():
@@ -629,7 +683,7 @@ def spectral_bipartivity(G, nodes=None, weight="weight"):
     return {n: cosh_diag[index[n]] / exp_diag[index[n]] for n in nodes}
 
 
-def color(G):
+def color(G, *, backend=None, **backend_kwargs):
     """Return a two-coloring ``{node: 0|1}`` of bipartite graph ``G``.
 
     br-r37-c1-r175x: re-exported nx ``@nx._dispatchable`` -> ~8.6x slower on an
@@ -638,6 +692,7 @@ def color(G):
     BFS-order dict keys). Raises NetworkXError on a non-bipartite graph exactly
     as nx does.
     """
+    _fnx._validate_backend_dispatch_keywords("color", backend, backend_kwargs)
     # br-r37-c1-bipcolor-native (cc): for an exact simple FNX Graph, do the whole
     # stack-BFS 2-coloring natively (integer-CSR, no Python adjacency snapshot —
     # the snapshot alone was ~39% of the call). Colors are BFS-distance parity
@@ -709,7 +764,7 @@ def color(G):
     return color
 
 
-def sets(G, top_nodes=None):
+def sets(G, top_nodes=None, *, backend=None, **backend_kwargs):
     """Return the two bipartite node sets ``(X, Y)`` of ``G``.
 
     br-r37-c1-r175x: re-exported nx ``@nx._dispatchable`` -> ~142x slower on an
@@ -717,6 +772,7 @@ def sets(G, top_nodes=None):
     exact algorithm in-process (fnx-native connectivity check + :func:`color`).
     Same AmbiguousSolution (disconnected, no top_nodes) / NetworkXError contracts.
     """
+    _fnx._validate_backend_dispatch_keywords("sets", backend, backend_kwargs)
     is_connected = _fnx.is_weakly_connected if G.is_directed() else _fnx.is_connected
     if top_nodes is not None:
         X = set(top_nodes)
@@ -732,7 +788,7 @@ def sets(G, top_nodes=None):
     return (X, Y)
 
 
-def is_bipartite_node_set(G, nodes):
+def is_bipartite_node_set(G, nodes, *, backend=None, **backend_kwargs):
     """Return True iff ``nodes`` and ``G - nodes`` are a bipartition of ``G``.
 
     br-r37-c1-r175x: re-exported nx ``@nx._dispatchable`` -> whole-graph
@@ -740,6 +796,9 @@ def is_bipartite_node_set(G, nodes):
     ``connected_components`` + the local :func:`sets`). Same AmbiguousSolution
     on duplicate input nodes.
     """
+    _fnx._validate_backend_dispatch_keywords(
+        "is_bipartite_node_set", backend, backend_kwargs
+    )
     S = set(nodes)
     if len(S) < len(nodes):
         raise _nx.AmbiguousSolution(
@@ -758,7 +817,7 @@ def is_bipartite_node_set(G, nodes):
     return True
 
 
-def betweenness_centrality(G, nodes):
+def betweenness_centrality(G, nodes, *, backend=None, **backend_kwargs):
     """Bipartite betweenness centrality, computed via the fnx-native kernel.
 
     br-r37-c1-kp3o0: networkx's ``bipartite.betweenness_centrality`` is
@@ -778,6 +837,9 @@ def betweenness_centrality(G, nodes):
     divergence. Dict key order is byte-identical to nx and the result is
     deterministic across runs. ~28-31x FASTER than the re-exported path.
     """
+    _fnx._validate_backend_dispatch_keywords(
+        "betweenness_centrality", backend, backend_kwargs
+    )
     top = set(nodes)
     bottom = set(G) - top
     n = len(top)
@@ -802,7 +864,9 @@ def betweenness_centrality(G, nodes):
     return betweenness
 
 
-def closeness_centrality(G, nodes, normalized=True):
+def closeness_centrality(
+    G, nodes, normalized=True, *, backend=None, **backend_kwargs
+):
     """Bipartite closeness centrality, computed via fnx-native BFS.
 
     br-r37-c1-kp3o0: networkx's ``bipartite.closeness_centrality`` is
@@ -817,6 +881,9 @@ def closeness_centrality(G, nodes, normalized=True):
     """
     closeness = {}
     path_length = _fnx.single_source_shortest_path_length
+    _fnx._validate_backend_dispatch_keywords(
+        "closeness_centrality", backend, backend_kwargs
+    )
     top = set(nodes)
     bottom = set(G) - top
     n = len(top)

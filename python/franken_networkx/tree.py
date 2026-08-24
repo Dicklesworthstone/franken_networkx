@@ -15,11 +15,12 @@ Current native overrides:
 
 from __future__ import annotations
 
-from networkx.algorithms.tree import *  # noqa: F401,F403
-import networkx.algorithms.tree as _nx_tree
+import inspect as _inspect
 
 import franken_networkx as _fnx
+import networkx.algorithms.tree as _nx_tree
 from franken_networkx.readwrite import _from_nx_graph
+from networkx.algorithms.tree import *
 
 __all__ = list(
     getattr(_nx_tree, "__all__", ())
@@ -68,6 +69,7 @@ def _make_fnx_tree_router(_fn_name):
         f"Route to ``franken_networkx.{_fn_name}`` (fnx-native). See "
         f"``networkx.algorithms.tree.{_fn_name}`` for semantics."
     )
+    _routed.__signature__ = _inspect.signature(getattr(_nx_tree, _fn_name))
     return _routed
 
 
@@ -77,6 +79,152 @@ for _name in _FNX_NATIVE_TREE_FUNCS:
 for _name in _FNX_NATIVE_TREE_CLASSES:
     if hasattr(_fnx, _name):
         globals()[_name] = getattr(_fnx, _name)
+
+
+def is_arborescence(G, *, backend=None, **backend_kwargs):
+    return _fnx.is_arborescence(G, backend=backend, **backend_kwargs)
+
+
+def is_branching(G, *, backend=None, **backend_kwargs):
+    return _fnx.is_branching(G, backend=backend, **backend_kwargs)
+
+
+def is_forest(G, *, backend=None, **backend_kwargs):
+    return _fnx.is_forest(G, backend=backend, **backend_kwargs)
+
+
+def is_tree(G, *, backend=None, **backend_kwargs):
+    return _fnx.is_tree(G, backend=backend, **backend_kwargs)
+
+
+def maximum_spanning_edges(
+    G,
+    algorithm="kruskal",
+    weight="weight",
+    keys=True,
+    data=True,
+    ignore_nan=False,
+    *,
+    backend=None,
+    **backend_kwargs,
+):
+    return _fnx.maximum_spanning_edges(
+        G,
+        algorithm=algorithm,
+        weight=weight,
+        keys=keys,
+        data=data,
+        ignore_nan=ignore_nan,
+        backend=backend,
+        **backend_kwargs,
+    )
+
+
+def minimum_spanning_edges(
+    G,
+    algorithm="kruskal",
+    weight="weight",
+    keys=True,
+    data=True,
+    ignore_nan=False,
+    *,
+    backend=None,
+    **backend_kwargs,
+):
+    return _fnx.minimum_spanning_edges(
+        G,
+        algorithm=algorithm,
+        weight=weight,
+        keys=keys,
+        data=data,
+        ignore_nan=ignore_nan,
+        backend=backend,
+        **backend_kwargs,
+    )
+
+
+def maximum_branching(
+    G,
+    attr="weight",
+    default=1,
+    preserve_attrs=False,
+    partition=None,
+    *,
+    backend=None,
+    **backend_kwargs,
+):
+    return _fnx.maximum_branching(
+        G, attr=attr, default=default, preserve_attrs=preserve_attrs,
+        partition=partition, backend=backend, **backend_kwargs,
+    )
+
+
+def minimum_branching(
+    G,
+    attr="weight",
+    default=1,
+    preserve_attrs=False,
+    partition=None,
+    *,
+    backend=None,
+    **backend_kwargs,
+):
+    return _fnx.minimum_branching(
+        G, attr=attr, default=default, preserve_attrs=preserve_attrs,
+        partition=partition, backend=backend, **backend_kwargs,
+    )
+
+
+def maximum_spanning_arborescence(
+    G,
+    attr="weight",
+    default=1,
+    preserve_attrs=False,
+    partition=None,
+    *,
+    backend=None,
+    **backend_kwargs,
+):
+    return _fnx.maximum_spanning_arborescence(
+        G, attr=attr, default=default, preserve_attrs=preserve_attrs,
+        partition=partition, backend=backend, **backend_kwargs,
+    )
+
+
+def minimum_spanning_arborescence(
+    G,
+    attr="weight",
+    default=1,
+    preserve_attrs=False,
+    partition=None,
+    *,
+    backend=None,
+    **backend_kwargs,
+):
+    return _fnx.minimum_spanning_arborescence(
+        G, attr=attr, default=default, preserve_attrs=preserve_attrs,
+        partition=partition, backend=backend, **backend_kwargs,
+    )
+
+
+def to_nested_tuple(T, root, canonical_form=False, *, backend=None, **backend_kwargs):
+    return _fnx.to_nested_tuple(
+        T,
+        root,
+        canonical_form=canonical_form,
+        backend=backend,
+        **backend_kwargs,
+    )
+
+
+def to_prufer_sequence(T, *, backend=None, **backend_kwargs):
+    return _fnx.to_prufer_sequence(T, backend=backend, **backend_kwargs)
+
+
+def number_of_spanning_trees(G, *, root=None, weight=None, backend=None, **backend_kwargs):
+    return _fnx.number_of_spanning_trees(
+        G, root=root, weight=weight, backend=backend, **backend_kwargs
+    )
 
 
 def center(G):

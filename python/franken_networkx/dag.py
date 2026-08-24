@@ -133,42 +133,80 @@ def v_structures(G, *, backend=None, **backend_kwargs):
 # dag.__all__, so the star import skips it.  Re-export for parity.
 root_to_leaf_paths = _nx_dag.root_to_leaf_paths
 
-# br-r37-c1-2qsqf: ``from networkx.algorithms.dag import *`` above left these DAG
-# functions bound to networkx's implementations, so ``fnx.dag.topological_sort``
-# (ancestors/descendants/is_directed_acyclic_graph/antichains/dag_longest_path/
-# ...) silently resolved to nx's instead of fnx's native versions. Route each to
-# the fnx top-level function via closure wrappers that reference ``_fnx.<fn>`` at
-# CALL time (robust against the package-init order in which fnx defines them).
-_FNX_NATIVE_DAG_NAMES = (
-    "descendants",
-    "ancestors",
-    "topological_sort",
-    "lexicographical_topological_sort",
-    "all_topological_sorts",
-    "topological_generations",
-    "is_directed_acyclic_graph",
-    "is_aperiodic",
-    "antichains",
-    "dag_longest_path",
-    "dag_longest_path_length",
-)
+def descendants(G, source, *, backend=None, **backend_kwargs):
+    """Return descendants through FrankenNetworkX's native implementation."""
+    return _fnx.descendants(G, source, backend=backend, **backend_kwargs)
 
 
-def _make_fnx_dag_router(_fn_name):
-    def _routed(*args, **kwargs):
-        return getattr(_fnx, _fn_name)(*args, **kwargs)
+def ancestors(G, source, *, backend=None, **backend_kwargs):
+    """Return ancestors through FrankenNetworkX's native implementation."""
+    return _fnx.ancestors(G, source, backend=backend, **backend_kwargs)
 
-    _routed.__name__ = _fn_name
-    _routed.__qualname__ = _fn_name
-    _routed.__doc__ = (
-        f"Route to ``franken_networkx.{_fn_name}`` (fnx-native). See "
-        f"``networkx.algorithms.dag.{_fn_name}`` for semantics."
+
+def topological_sort(G, *, backend=None, **backend_kwargs):
+    """Yield a native topological ordering."""
+    return _fnx.topological_sort(G, backend=backend, **backend_kwargs)
+
+
+def lexicographical_topological_sort(G, key=None, *, backend=None, **backend_kwargs):
+    """Yield a native lexicographical topological ordering."""
+    return _fnx.lexicographical_topological_sort(
+        G, key=key, backend=backend, **backend_kwargs
     )
-    return _routed
 
 
-for _name in _FNX_NATIVE_DAG_NAMES:
-    globals()[_name] = _make_fnx_dag_router(_name)
+def all_topological_sorts(G, *, backend=None, **backend_kwargs):
+    """Yield all native topological orderings."""
+    return _fnx.all_topological_sorts(G, backend=backend, **backend_kwargs)
+
+
+def topological_generations(G, *, backend=None, **backend_kwargs):
+    """Yield native topological generations."""
+    return _fnx.topological_generations(G, backend=backend, **backend_kwargs)
+
+
+def is_directed_acyclic_graph(G, *, backend=None, **backend_kwargs):
+    """Return whether ``G`` is acyclic using the native predicate."""
+    return _fnx.is_directed_acyclic_graph(G, backend=backend, **backend_kwargs)
+
+
+def is_aperiodic(G, *, backend=None, **backend_kwargs):
+    """Return whether ``G`` is aperiodic using the native predicate."""
+    return _fnx.is_aperiodic(G, backend=backend, **backend_kwargs)
+
+
+def antichains(G, topo_order=None, *, backend=None, **backend_kwargs):
+    """Yield antichains through FrankenNetworkX's native implementation."""
+    return _fnx.antichains(
+        G, topo_order=topo_order, backend=backend, **backend_kwargs
+    )
+
+
+def dag_longest_path(
+    G, weight="weight", default_weight=1, topo_order=None, *, backend=None, **backend_kwargs
+):
+    """Return a native longest path in a DAG."""
+    return _fnx.dag_longest_path(
+        G,
+        weight=weight,
+        default_weight=default_weight,
+        topo_order=topo_order,
+        backend=backend,
+        **backend_kwargs,
+    )
+
+
+def dag_longest_path_length(
+    G, weight="weight", default_weight=1, *, backend=None, **backend_kwargs
+):
+    """Return a native longest-path length in a DAG."""
+    return _fnx.dag_longest_path_length(
+        G,
+        weight=weight,
+        default_weight=default_weight,
+        backend=backend,
+        **backend_kwargs,
+    )
 
 __all__ = list(
     getattr(

@@ -106,22 +106,36 @@ def test_two_element_spec_means_key_zero_not_any_key(class_name):
 
 
 @pytest.mark.parametrize("class_name", CLASSES)
-@pytest.mark.parametrize("override", [None, "_adj"])
+@pytest.mark.parametrize("override", [None, "_adj", "_node", "_pred"])
 def test_contains_matches_networkx_under_assigned_private_storage(
     class_name, override
 ):
     """The private-storage walk must keep agreeing with networkx.
 
-    The `_adj` case is included because assigning it installs a `has_edge`
-    shadow, so this pins that the override is honoured whichever path the
-    implementation takes.
+    The `_adj` case installs a `has_edge` shadow.  `_node` leaves adjacency
+    live, while directed `_pred` leaves the successor adjacency live.  Together
+    they pin that keyed containment reads the same adjacency authority as
+    NetworkX, rather than a native `has_edge` implementation with different
+    private-storage rules.
     """
     fnx_graph, nx_graph = _pair(class_name)
+    if override == "_pred" and class_name == "MultiGraph":
+        pytest.skip("undirected multigraphs have no pred storage")
     if override == "_adj":
         assigned = {"a": {"b": {0: {}}}, "b": {"a": {0: {}}}, "c": {}, "d": {}, "solo": {}}
         for graph in (fnx_graph, nx_graph):
             graph._adj = {k: dict(v) for k, v in assigned.items()}
-    for edge in (("a", "b", 0), ("a", "b", 1), ("c", "d", "x"), ("a", "b"), ("zz", "yy", 0)):
+    elif override is not None:
+        for graph in (fnx_graph, nx_graph):
+            setattr(graph, override, {"a": {}, "b": {}})
+    for edge in (
+        ("a", "b", 0),
+        ("a", "b", 1),
+        ("c", "d", "x"),
+        ("a", "b"),
+        ("c", "d"),
+        ("zz", "yy", 0),
+    ):
         assert _outcome(fnx_graph, edge) == _outcome(nx_graph, edge), (
             f"{class_name} with override={override}: {edge!r} diverged"
         )

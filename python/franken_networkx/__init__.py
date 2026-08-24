@@ -794,6 +794,7 @@ def _remove_node_with_networkx_missing_node_error(remove_node_impl, *, graph_kin
         hash(n)
         if n not in self:
             raise NetworkXError(f"The node {n} is not in the {graph_kind}.")
+        _detach_rows_before_node_removal(self, n)
         result = remove_node_impl(self, n)
         _invalidate_adjacency_row_caches(self)
         return result
@@ -801,7 +802,14 @@ def _remove_node_with_networkx_missing_node_error(remove_node_impl, *, graph_kin
     return remove_node
 
 
-def _FailFastEdgeIterator(graph, iterable, *, guard_edge_count=False, nbunch_rows=None):
+def _FailFastEdgeIterator(
+    graph,
+    iterable,
+    *,
+    guard_edge_count=False,
+    nbunch_rows=None,
+    ignore_removed_nbunch_row=False,
+):
     # br-r37-c1-edgesdataperf: O(1) per-element staleness check against
     # snapshotted counts/revisions (was an O(N) tuple-build + compare per
     # __next__, i.e. O(E*N)). nx's contract: mutating the graph SIZE during
@@ -884,8 +892,16 @@ def _FailFastEdgeIterator(graph, iterable, *, guard_edge_count=False, nbunch_row
                             owner = previous[0]
                         except (TypeError, IndexError, KeyError):
                             owner = None
-                        if owner in row_sizes and degree_of(owner) != row_sizes[owner]:
-                            raise RuntimeError(_err)
+                        if owner in row_sizes:
+                            # MultiEdgeDataView holds the source row it already
+                            # entered.  Removing that source (including clear())
+                            # detaches the native row but does not resize the
+                            # captured dict in NetworkX, so the remaining
+                            # materialised rows must still drain.  A present
+                            # owner keeps the normal live-row size check.
+                            if not (ignore_removed_nbunch_row and owner not in graph):
+                                if degree_of(owner) != row_sizes[owner]:
+                                    raise RuntimeError(_err)
                         exp_nodes = graph.nodes_seq
                         if exp_edges is not None:
                             exp_edges = graph.edges_seq
@@ -3722,9 +3738,18 @@ def _direct_multi_edge_iter(view, exact_graph_type):
         graph_vars = vars(graph)
         cached = graph_vars.get("_fnx_direct_multi_edge_iter_cache")
         if cached is None or cached[0] != state:
-            cached = (state, view(keys=True))
+            # This is deliberately the native keyed materialization rather
+            # than ``view(keys=True)``.  The public no-nbunch keyed call is
+            # the view itself, as it is in NetworkX; refilling this private
+            # iterator cache through that public call would therefore recurse
+            # through ``MultiEdgeView.__iter__``.
+            cached = (state, graph._native_edge_view_list(False, True, None))
             graph_vars["_fnx_direct_multi_edge_iter_cache"] = cached
-        return iter(cached[1])
+        return _FailFastEdgeIterator(
+            graph,
+            iter(cached[1]),
+            guard_edge_count=True,
+        )
     return _FailFastEdgeIterator(
         graph,
         view(keys=True),
@@ -4430,6 +4455,14 @@ class _MultiGraphEdgeView:
         # MultiEdgeDataView.
         if nbunch is None and data is False and keys is False:
             return _LiveMultiEdgeCallView(self._graph, directed=False)
+        if (
+            nbunch is None
+            and data is False
+            and keys is True
+            and type(self._graph) is MultiGraph
+            and not _has_networkx_private_storage(self._graph)
+        ):
+            return self
         # br-r37-c1-mgedges: all-edges path builds the result natively
         # (node-major over adjacency with canonical dedup, matching nx exactly)
         # instead of triple-looping self.adj[source] via the MultiAdjacencyView
@@ -4495,6 +4528,7 @@ class _MultiGraphEdgeView:
                             _wrap_edge_data_view(result, _MultiEdgeDataKeysView),
                             self._graph,
                             guard_edge_count=True,
+                            nbunch_rows=self._graph.nbunch_iter(nbunch),
                         )
                     # br-r37-c1-hihrf: nx names this MultiEdgeDataView. THIS is
                     # the live return for `MG.edges(nbunch)` - the native
@@ -4525,6 +4559,7 @@ class _MultiGraphEdgeView:
                         _wrap_edge_data_view(result, _MultiEdgeDataView),
                         self._graph,
                         guard_edge_count=True,
+                        nbunch_rows=self._graph.nbunch_iter(nbunch),
                     )
         # br-r37-c1-mgedgenbdk (cc): data=<key> one-pass (was the Python adj-chain,
         # ~0.11x). Projects attrs.get(data, default) per edge; None -> Python loop.
@@ -4544,6 +4579,7 @@ class _MultiGraphEdgeView:
                         _wrap_edge_data_view(result, _MultiEdgeDataView),
                         self._graph,
                         guard_edge_count=True,
+                        nbunch_rows=self._graph.nbunch_iter(nbunch),
                     )
         result = _EdgeListWithSetAlgebra()
         seen = set()
@@ -4571,6 +4607,9 @@ class _MultiGraphEdgeView:
                 _wrap_edge_data_view(result, _MultiEdgeDataView),
                 self._graph,
                 guard_edge_count=True,
+                nbunch_rows=(
+                    self._graph.nbunch_iter(nbunch) if nbunch is not None else None
+                ),
             )
         # br-r37-c1-mekvc (cycle 214): keys=True (data=False) wraps
         # in canonical ``MultiEdgeView`` so both
@@ -4588,6 +4627,9 @@ class _MultiGraphEdgeView:
                 _wrap_edge_data_view(result, _MultiEdgeView),
                 self._graph,
                 guard_edge_count=True,
+                nbunch_rows=(
+                    self._graph.nbunch_iter(nbunch) if nbunch is not None else None
+                ),
             )
         # br-r37-c1-hihrf: nx returns MultiEdgeDataView here, not a bare list.
         # The two data spellings above already wrap; this one was left unnamed,
@@ -4599,6 +4641,9 @@ class _MultiGraphEdgeView:
             _wrap_edge_data_view(result, _MultiEdgeDataView),
             self._graph,
             guard_edge_count=True,
+            nbunch_rows=(
+                self._graph.nbunch_iter(nbunch) if nbunch is not None else None
+            ),
         )
 
     def __eq__(self, other):
@@ -4811,6 +4856,7 @@ class _EdgeListWithSetAlgebra(list):
             list.__iter__(self),
             guard_edge_count=guard_edge_count,
             nbunch_rows=nbunch_rows,
+            ignore_removed_nbunch_row=graph.is_multigraph(),
         )
 
     def __and__(self, other):
@@ -5074,6 +5120,14 @@ class _MultiDiGraphEdgeView:
         # _MultiGraphEdgeView.__call__).
         if nbunch is None and data is False and keys is False:
             return _LiveMultiEdgeCallView(self._graph, directed=True)
+        if (
+            nbunch is None
+            and data is False
+            and keys is True
+            and type(self._graph) is MultiDiGraph
+            and not _has_networkx_private_storage(self._graph)
+        ):
+            return self
         # br-r37-c1-tmuly: build the edge list from the native MultiDiGraphEdgeView
         # (iterates inner.edges_ordered() in nx order, reusing the live edge attr
         # dicts) instead of the pure-Python triple-loop over succ[source].items()
@@ -5115,6 +5169,7 @@ class _MultiDiGraphEdgeView:
                             _wrap_edge_data_view(nres, _OutMultiEdgeDataView),
                             self._graph,
                             guard_edge_count=True,
+                            nbunch_rows=self._graph.nbunch_iter(nbunch),
                         )
                     if keys:
                         # br-r37-c1-mdgoutedge (cc): keys=True (data=False) wraps in
@@ -5127,6 +5182,7 @@ class _MultiDiGraphEdgeView:
                             _wrap_edge_data_view(nres, _OutMultiEdgeDataKeysView),
                             self._graph,
                             guard_edge_count=True,
+                            nbunch_rows=self._graph.nbunch_iter(nbunch),
                         )
                     # br-r37-c1-hihrf: nx names this OutMultiEdgeDataView. THIS
                     # is the live return for `MDG.edges(nbunch)` - the native
@@ -5154,6 +5210,7 @@ class _MultiDiGraphEdgeView:
                         _wrap_edge_data_view(result, _OutMultiEdgeDataView),
                         self._graph,
                         guard_edge_count=True,
+                        nbunch_rows=self._graph.nbunch_iter(nbunch),
                     )
         result = _EdgeListWithSetAlgebra()
         if data is False or data is True or isinstance(data, str):
@@ -5186,6 +5243,9 @@ class _MultiDiGraphEdgeView:
                 _wrap_edge_data_view(result, _OutMultiEdgeDataView),
                 self._graph,
                 guard_edge_count=True,
+                nbunch_rows=(
+                    self._graph.nbunch_iter(nbunch) if nbunch is not None else None
+                ),
             )
         # br-r37-c1-mekvc (cycle 214): keys=True (data=False) wraps
         # in canonical ``OutMultiEdgeView`` so both
@@ -5199,6 +5259,9 @@ class _MultiDiGraphEdgeView:
                 _wrap_edge_data_view(result, _OutMultiEdgesKeysView),
                 self._graph,
                 guard_edge_count=True,
+                nbunch_rows=(
+                    self._graph.nbunch_iter(nbunch) if nbunch is not None else None
+                ),
             )
         # br-r37-c1-hihrf: nx names this OutMultiEdgeDataView; fnx returned a
         # bare list. Pure naming, as in the undirected twin.
@@ -5206,6 +5269,9 @@ class _MultiDiGraphEdgeView:
             _wrap_edge_data_view(result, _OutMultiEdgeDataView),
             self._graph,
             guard_edge_count=True,
+            nbunch_rows=(
+                self._graph.nbunch_iter(nbunch) if nbunch is not None else None
+            ),
         )
 
     keys = _multi_edge_keys
@@ -6300,12 +6366,16 @@ def _remove_nodes_from_materialized(raw):
                 valid_count = i
                 break
         if first_error is None:
+            for n in materialized:
+                _detach_rows_before_node_removal(self, n)
             result = raw(self, materialized)
             _invalidate_adjacency_row_caches(self)
             if iteration_exc is not None:
                 raise iteration_exc
             return result
         if valid_count:
+            for n in materialized[:valid_count]:
+                _detach_rows_before_node_removal(self, n)
             raw(self, materialized[:valid_count])
             _invalidate_adjacency_row_caches(self)
         raise first_error
@@ -10222,6 +10292,29 @@ def _detach_rows_before_clear(graph):
                 _detach_row(row)
 
 
+def _detach_rows_before_node_removal(graph, node):
+    """Detach only cached rows whose own node is about to disappear.
+
+    A held NetworkX ``G.adj[node]`` is backed by that node's inner dict. Node
+    removal detaches the dict, so re-adding the same node must not make the old
+    view identify the new row. Rows for every other node remain live, including
+    across the index renumbering caused by this removal.
+    """
+    storage = vars(graph)
+    caches = [storage.get("_fnx_getitem_atlas_cache")]
+    caches.extend(
+        getattr(view, cache_name, None)
+        for view in tuple(storage.values())
+        for cache_name in ("_fnx_row_cache", "_fnx_atlas_cache")
+    )
+    for cache in caches:
+        if not cache:
+            continue
+        row = cache[1].get(node)
+        if row is not None:
+            _detach_row(row)
+
+
 def _detach_row(row):
     """Make one held adjacency row serve its current contents forever."""
     if hasattr(row, "_atlas_getter"):
@@ -11521,7 +11614,24 @@ def _should_delegate_dijkstra_to_networkx(
                     ):
                         return True
                 _value = _attrs.get(weight, 1)
-                if isinstance(_value, _numbers.Real) and not _math.isnan(_value):
+                # br-r37-c1-kn5cu: NaN DELEGATES, and this is the root of the
+                # bead. `and not _math.isnan(_value)` excluded NaN from the
+                # question entirely, so this predicate answered False for a
+                # multigraph carrying one - while the simple classes answered
+                # True, because their gate runs through the native scan's
+                # non-finite flag. Every dijkstra entry point that asks this
+                # question then handed the graph to a native kernel that
+                # substitutes the DEFAULT WEIGHT 1 for a NaN, which is how
+                # `single_source_dijkstra_path_length` returned 1.0 and 2.0
+                # where networkx returns nan and nan.
+                #
+                # The exact-string multigraph branch immediately below has
+                # always been right (`not _math.isfinite(_raw)` covers NaN), so
+                # the two halves of the same predicate disagreed about the same
+                # weight depending on a flag that has nothing to do with weights.
+                if isinstance(_value, _numbers.Real):
+                    if _math.isnan(_value):
+                        return True
                     if _value < 0 or (_math.isinf(_value) and _value > 0):
                         return True
             return False
@@ -24937,6 +25047,59 @@ def _sp_edge_weights_all_float(G, weight):
     return saw_edge
 
 
+def _sp_weight_type_survives_the_f64_kernel(weight_value):
+    """True when a weight VALUE's TYPE comes back out of the native kernel.
+
+    br-r37-c1-3dtn4: networkx never coerces a distance - its type follows the
+    Python sum along the path, so ``Fraction`` weights give a ``Fraction``
+    distance and numpy scalars give numpy scalars. The native kernel works in
+    f64, and the only type it can restore afterwards is ``int``. Anything else
+    numeric - Fraction, Decimal, numpy float64/int64 - arrives back as a plain
+    float, silently, with the rounding that implies for exact rational work.
+
+    ``bool`` survives because it is restored as ``int``, which is what nx's own
+    arithmetic produces (``True + 2`` is ``3``), so it is deliberately NOT
+    treated as exotic here.
+    """
+    return type(weight_value) in (int, float, bool)
+
+
+def _sp_weights_need_networkx_for_type_parity(G, weight):
+    """True when some edge weight's TYPE cannot survive the native kernel.
+
+    br-r37-c1-3dtn4: the callers of this are the routes that reach an f64 kernel
+    WITHOUT passing a type-aware gate. Delegating is the only sound repair: once
+    the kernel has returned a float, the original ``Fraction`` is gone and no
+    amount of post-processing recovers it.
+
+    The native scan answers this for free where it is available - its
+    ``has_nonfinite``/``has_nonnumeric`` slots already fold in the exactness
+    channel that flags exotic numerics - and it is the same scan
+    ``_should_delegate_dijkstra_to_networkx`` consults, so the two cannot drift
+    apart. ``has_negative`` is deliberately NOT consulted: Bellman-Ford handles
+    negative weights natively and must keep doing so.
+    """
+    if not isinstance(weight, str):
+        return False
+    if _native_check_dijkstra_weights_fast is not None:
+        try:
+            scan = _native_check_dijkstra_weights_fast(G, weight, False)
+        except Exception:  # noqa: BLE001 - an odd graph falls to the Python walk
+            scan = None
+        if scan is not None:
+            _has_negative, has_nonfinite, has_nonnumeric = scan
+            return bool(has_nonfinite or has_nonnumeric)
+    if G.is_multigraph():
+        rows = (attrs for _u, _v, _k, attrs in G.edges(keys=True, data=True))
+    else:
+        rows = (attrs for _u, _v, attrs in G.edges(data=True))
+    for attrs in rows:
+        if isinstance(attrs, dict) and weight in attrs:
+            if not _sp_weight_type_survives_the_f64_kernel(attrs[weight]):
+                return True
+    return False
+
+
 def _sp_propagate_int_types(G, weight, dists, paths):
     """br-r37-c1-srczero generalized: nx never coerces — each distance's
     TYPE follows the Python sum along the chosen shortest path
@@ -24961,7 +25124,12 @@ def _sp_propagate_int_types(G, weight, dists, paths):
                 w = min(cands)
             else:
                 w = G[u][v].get(weight, 1)
-            if not isinstance(w, _numbers.Integral) or isinstance(w, bool):
+            # br-r37-c1-3dtn4: bool is NOT excluded. networkx does no such test -
+            # it just adds, and `True + 2` is the int `3` - so a graph mixing
+            # True with ints keeps int distances there and lost them here. bool
+            # IS Integral for arithmetic, and this helper's whole job is to
+            # follow the arithmetic nx performed.
+            if not isinstance(w, _numbers.Integral):
                 all_int = False
                 break
         out[node] = int(d) if all_int else d
@@ -25230,12 +25398,39 @@ def _multigraph_collapse_min_weight(G, weight):
             if _val < 0:
                 return None, True
         elif _vt is float:
-            if not _math.isnan(_val):
-                if _val < 0 or (_math.isinf(_val) and _val > 0):
-                    return None, True
-        elif isinstance(_val, _numbers.Real) and not _math.isnan(_val):
+            # br-r37-c1-kn5cu: NaN DELEGATES. It used to be waved through here,
+            # and the graph this builds then went to
+            # `_raw_single_source_dijkstra_path_length`, which substitutes the
+            # DEFAULT WEIGHT 1 for a NaN - so an undirected MultiGraph carrying
+            # one NaN edge returned a plausible finite distance where networkx
+            # returns nan (a->b 1.0 and a->c 2.0 against nan and nan). The
+            # collapse itself was never wrong: it stores the NaN and dijkstra on
+            # the collapsed graph is correct. What was wrong is that this is the
+            # one route that reaches the raw kernel WITHOUT
+            # `_should_delegate_dijkstra_to_networkx`, which answers True on a
+            # NaN and is why the simple-graph spelling has always been right.
+            # `_multigraph_collapse_min_weight_bellman` already delegates on
+            # NaN; this is the sibling that did not.
+            if _math.isnan(_val):
+                return None, True
             if _val < 0 or (_math.isinf(_val) and _val > 0):
                 return None, True
+        elif isinstance(_val, _numbers.Real):
+            # Same rule for the exotic numerics (numpy float64/float32,
+            # Fraction, Decimal): a NaN reaches the same raw kernel.
+            if _math.isnan(_val):
+                return None, True
+            if _val < 0 or (_math.isinf(_val) and _val > 0):
+                return None, True
+        # br-r37-c1-3dtn4: a weight whose TYPE cannot survive an f64 kernel
+        # delegates, for the same reason NaN does - this collapse hands its
+        # result to a raw kernel, and by the time that returns, a Fraction has
+        # already become a plain float and cannot be recovered. This is the
+        # multigraph half of that bead: the simple classes were right because
+        # their gate consults the native exactness scan, and this route consults
+        # nothing.
+        if not _sp_weight_type_survives_the_f64_kernel(_val):
+            return None, True
         _pair = (_u, _v)
         _cur = best.get(_pair)
         if _cur is None or _val < _cur:
@@ -25273,6 +25468,15 @@ def _multigraph_collapse_min_weight_bellman(G, weight):
                 ):
                     return None, True
         _val = _attrs.get(weight, 1)
+        # br-r37-c1-3dtn4: a weight whose TYPE cannot survive an f64 kernel
+        # delegates, for the same reason NaN does - this collapse hands its
+        # result to a raw kernel, and by the time that returns, a Fraction has
+        # already become a plain float and cannot be recovered. This is the
+        # multigraph half of that bead: the simple classes were right because
+        # their gate consults the native exactness scan, and this route consults
+        # nothing.
+        if not _sp_weight_type_survives_the_f64_kernel(_val):
+            return None, True
         _pair = (_u, _v)
         _cur = best.get(_pair)
         if _cur is None or _val < _cur:
@@ -25296,6 +25500,19 @@ def single_source_dijkstra_path_length(G, source, cutoff=None, weight="weight"):
         if G.is_directed():
             if source not in G:
                 raise NodeNotFound(f"Node {source} not found in graph")
+            # br-r37-c1-3dtn4: the DIRECTED multigraph takes its own kernel and
+            # never touches the collapse, so the type gate has to be repeated
+            # here - this was the last of the six cells, and it is the reason
+            # MultiDiGraph kept flattening Fraction/Decimal/numpy after the
+            # undirected half was fixed.
+            if _sp_weights_need_networkx_for_type_parity(G, weight):
+                return _call_networkx_for_parity(
+                    "single_source_dijkstra_path_length",
+                    G,
+                    source,
+                    cutoff=cutoff,
+                    weight=weight,
+                )
             _direct = _raw_mdg_ss_dijkstra_path_length(
                 G, source, weight=weight, cutoff=cutoff
             )
@@ -25505,6 +25722,22 @@ def single_source_bellman_ford_path_length(G, source, weight="weight"):
     # return the same answer before and after a kernel call, including after a
     # Python-side edge-attribute edit, so it does not depend on a sync that
     # only a prior kernel run would have performed.
+    # br-r37-c1-3dtn4: a weight type the f64 kernel cannot round-trip goes to
+    # networkx. Bellman-Ford's own gate only inspects the weight ARGUMENT, not
+    # the VALUES, so this was the route by which Fraction, Decimal and numpy
+    # scalars came back as plain floats on all four classes - the widest half of
+    # that bead. Ordinary int/float graphs answer False here from the same
+    # native scan the dijkstra gate uses, so they keep the kernel.
+    #
+    # BEFORE the all-int check, not after, and that ordering is the whole fix
+    # for numpy: `_sp_edge_weights_all_int` answers True for `np.int64`, which
+    # is `Integral`, and the coercion behind it then returns a plain `int` where
+    # networkx returns `np.int64`. Asking the narrower question first left that
+    # case looking fixed while it was merely fixed differently.
+    if _sp_weights_need_networkx_for_type_parity(G, weight):
+        return _call_networkx_for_parity(
+            "single_source_bellman_ford_path_length", G, source, weight=weight
+        )
     if _sp_edge_weights_all_int(G, weight):
         result = _raw_single_source_bellman_ford_path_length(G, source, weight=weight)
         return _sp_coerce_dist_to_int(dict(result))
@@ -49223,6 +49456,22 @@ class _AssignedPrivateEdgeView:
         return len(self())
 
     def __contains__(self, edge):
+        if self._graph.is_multigraph():
+            # This view exists because a NetworkX private mapping was assigned,
+            # so adjacency (not the native store) is the authority.  A two-item
+            # probe means key zero rather than "any parallel edge".
+            N = len(edge)
+            if N == 3:
+                u, v, key = edge
+            elif N == 2:
+                u, v = edge
+                key = 0
+            else:
+                raise ValueError("MultiEdge must have length 2 or 3")
+            try:
+                return key in self._graph.adj[u][v]
+            except KeyError:
+                return False
         try:
             u, v = edge[:2]
         except (TypeError, ValueError):
@@ -50237,10 +50486,63 @@ del _cls, _accessor, _installed
 # br-r37-c1-qmi5w / br-r37-c1-6q4wl: install raw primitive descriptors for
 # ordinary graphs. ``_set_private_override`` restores mapping-aware behavior
 # per instance if a NetworkX utility assigns one of its private stores.
-Graph.has_node = _GRAPH_PRIVATE_AWARE_HAS_NODE
-DiGraph.has_node = _DIGRAPH_PRIVATE_AWARE_HAS_NODE
-MultiGraph.has_node = _MULTIGRAPH_PRIVATE_AWARE_HAS_NODE
-MultiDiGraph.has_node = _MULTIDIGRAPH_PRIVATE_AWARE_HAS_NODE
+def _has_node_through_the_membership_slot(self, n):
+    """``G.has_node(n)`` answered by ``n in G``.
+
+    br-r37-c1-hasnode-slot: the native ``has_node`` method and the native
+    ``__contains__`` slot are the SAME question with the same body - both take
+    the identity-int fast path, then the exact-``str`` present-set memo, then the
+    borrowed canonical probe - and one of them is twice the price of the other.
+    Measured on this interpreter, 2000-node str-keyed graphs, min of 11 blocks of
+    512 calls, all four classes, against live networkx in the same process:
+
+        class          has_node    n in G   ratio      networkx
+        Graph            768.9      447.2   1.72x          68.4
+        DiGraph          716.5      446.4   1.61x          70.2
+        MultiGraph       749.5      445.3   1.68x          71.3
+        MultiDiGraph     775.6      570.1   1.36x          70.3
+
+    THE DIFFERENCE IS THE CALLING CONVENTION, not the work, and that was
+    established by controls rather than inferred. A trivial native SLOT on the
+    same object (``len(G)``) costs 265ns and a trivial native METHOD
+    (``G.number_of_nodes()``) costs 303ns, so a no-argument method pays only
+    ~38ns over a slot; the same comparison with ONE argument is ~370ns. PyO3's
+    method trampoline accepts keywords - ``G.has_node(n='a')`` works, and must
+    keep working, because networkx's plain ``def`` accepts it too - so every call
+    carries argument-binding machinery the slot wrapper does not have.
+
+    REFUTED on the way, so nobody re-runs it: GC traversal is NOT the mechanism.
+    ``PyGraph.__traverse__`` visits every node key, adjacency key and attr dict,
+    which made a gen-0 collection look like a plausible per-call tax; with
+    ``gc.disable()`` the numbers do not move (len 265->286, has_node 744->741).
+    Nor is it data-dependent: ``len(G)`` is 267ns at 100 nodes and 283ns at
+    40000, so the floor is per-call, not per-graph.
+
+    A Python frame is added here and it is still 1.7x cheaper - the frame costs
+    ~20ns against the ~320ns the trampoline costs. The slot is also the more
+    faithful path: ``__contains__`` consults assigned NetworkX private storage
+    (``private_node_contains``) where the native ``has_node`` does not read it at
+    all, and the two answer identically on every key type tested - present,
+    missing, int, bool, float, tuple, None, an unhashable ``str`` subclass, and a
+    graph carrying an assigned ``_node`` mapping.
+    """
+    return n in self
+
+
+Graph.has_node = _has_node_through_the_membership_slot
+DiGraph.has_node = _has_node_through_the_membership_slot
+MultiGraph.has_node = _has_node_through_the_membership_slot
+MultiDiGraph.has_node = _has_node_through_the_membership_slot
+# br-r37-c1-hasnode-slot: the slot-routed `has_node` is a RAW implementation
+# too, and `_RAW_HAS_NODE_METHODS` is how a graph that later receives assigned
+# private storage decides whether its class attribute is one it must shadow.
+# Leaving it out silently stopped installing the `_assigned_private_has_node`
+# shadow - test_private_shadow_state_guard caught that within a minute, because
+# the widened state no longer contained `has_node`. Extended HERE rather than at
+# the tuple's definition because the function has to exist first.
+_RAW_HAS_NODE_METHODS = _RAW_HAS_NODE_METHODS + (
+    _has_node_through_the_membership_slot,
+)
 Graph.has_edge = _GRAPH_PRIVATE_AWARE_HAS_EDGE
 DiGraph.has_edge = _DIGRAPH_PRIVATE_AWARE_HAS_EDGE
 MultiGraph.has_edge = _MULTIGRAPH_PRIVATE_AWARE_HAS_EDGE
@@ -58236,7 +58538,11 @@ def edge_subgraph(G, edges):
 
     return subgraph_view(
         G,
-        filter_node=_NodeSetFilter(nodes, copy_nodes=False),
+        # NetworkX passes this set through ``show_nodes``, which constructs a
+        # second set.  Its CPython table layout is observable when the filtered
+        # view uses the sparse-node iteration shortcut, and in turn determines
+        # directed edge emission order.
+        filter_node=_NodeSetFilter(nodes),
         filter_edge=filter_edge,
     )
 
@@ -62149,10 +62455,18 @@ def relabel_nodes(G, mapping, copy=True):
                     relabeled.graph.update(G.graph)
                     return relabeled
 
-        # br-r37-c1-k7dct: SubgraphView's class is _FilteredGraphView,
-        # whose __init__ requires a ``graph`` arg — bare ``cls()`` fails.
-        # Route through the canonical-class resolver.
-        H = _concrete_class_for(G)()
+        # A genuine fnx subclass follows NetworkX's ``G.__class__()``
+        # construction rule.  Filtered views synthesize a subclass whose
+        # constructor requires the backing graph, so they remain materialized
+        # as the canonical concrete flavor.
+        if (
+            isinstance(G, (Graph, DiGraph, MultiGraph, MultiDiGraph))
+            and not isinstance(G, _FilteredGraphView)
+            and type(G) not in _CONCRETE_FNX_GRAPH_TYPES
+        ):
+            H = type(G)()
+        else:
+            H = _concrete_class_for(G)()
         H.graph.update(G.graph)
         # br-r37-c1-nodebatch: H is FRESH, so batch the relabeled nodes through
         # add_nodes_from (native attributed-node batch for simple Graph; one

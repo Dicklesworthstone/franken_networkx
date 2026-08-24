@@ -16,7 +16,11 @@ return exactly the same answer, which is why no correctness test caught either.
 
 from __future__ import annotations
 
+import json
+import os
 import random
+import subprocess
+import sys
 
 import networkx as nx
 import pytest
@@ -25,6 +29,28 @@ import franken_networkx as fnx
 
 CLASSES = ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"]
 SIZES = [60, 400, 2000]
+
+
+_EDGE_SUBGRAPH_ORDER_PROGRAM = """
+import json
+import networkx as nx
+import franken_networkx as fnx
+
+edges = [
+    ('n165', 'n274'),
+    ('n24', 'n202'),
+    ('n77', 'n165'),
+    ('n77', 'n274'),
+    ('n37', 'n24'),
+]
+out = []
+for graph_type in (nx.DiGraph, fnx.DiGraph):
+    graph = graph_type()
+    graph.add_edges_from(edges)
+    graph.add_nodes_from(f'n{i}' for i in range(500))
+    out.append(list(graph.edge_subgraph(edges).edges()))
+print(json.dumps(out))
+"""
 
 
 def _canon(edges, graph):
@@ -102,6 +128,28 @@ def test_edge_subgraph_edges_data_match_networkx(cls_name, n):
         return sorted(out)
 
     assert shape(gfx) == shape(gnx)
+
+
+@pytest.mark.parametrize("hashseed", ["0", "1", "7", "42"])
+def test_directed_edge_subgraph_edge_sequence_matches_networkx_across_hash_seeds(
+    hashseed,
+):
+    """The selected-node set must be built in NetworkX's two-set sequence.
+
+    The sparse FilterAtlas path iterates that set directly.  A single seed is
+    insufficient because the old one-set construction agreed at 0/1 yet
+    diverged at 7/42.
+    """
+    run = subprocess.run(
+        [sys.executable, "-c", _EDGE_SUBGRAPH_ORDER_PROGRAM],
+        env={**os.environ, "PYTHONHASHSEED": hashseed},
+        capture_output=True,
+        check=False,
+        text=True,
+    )
+    assert run.returncode == 0, run.stderr
+    expected, actual = json.loads(run.stdout)
+    assert actual == expected, f"edge sequence diverged at PYTHONHASHSEED={hashseed}"
 
 
 @pytest.mark.parametrize("cls_name", CLASSES)

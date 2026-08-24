@@ -3,13 +3,36 @@ vertex cover, centralities, clustering, redundancy, spectral
 bipartivity. Identical fixed bipartite graphs. Zero divergences.
 """
 import importlib
+import importlib.util
+import inspect
 import io
 import random
+import sys
+from functools import lru_cache
+from pathlib import Path
 
 import networkx as nx
 import networkx.algorithms.bipartite as nxb
+import pytest
 
 import franken_networkx as fnx
+
+
+@lru_cache(maxsize=1)
+def _legacy_networkx():
+    module_name = "franken_networkx_legacy_networkx_bipartite_surface"
+    legacy_init = (
+        Path(__file__).resolve().parents[2]
+        / "legacy_networkx_code"
+        / "networkx"
+        / "networkx"
+        / "__init__.py"
+    )
+    spec = importlib.util.spec_from_file_location(module_name, legacy_init)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[module_name] = module
+    spec.loader.exec_module(module)
+    return module
 
 
 def _mk(mod):
@@ -126,6 +149,174 @@ def test_bipartite_matching_module_paths_match_networkx():
         repr(node)
         for node in via_algorithms.to_vertex_cover(fnx_graph, algorithms_max, _TOP)
     ) == expected_cover
+
+
+def test_bipartite_partition_matching_backend_signatures_match_networkx():
+    module = importlib.import_module("franken_networkx.bipartite")
+    fnx_graph, nx_graph = _mk(fnx), _mk(nx)
+
+    for name, args in (
+        ("color", ()),
+        ("sets", (_TOP,)),
+        ("is_bipartite_node_set", (_TOP,)),
+        ("hopcroft_karp_matching", (_TOP,)),
+        ("maximum_matching", (_TOP,)),
+        ("eppstein_matching", (_TOP,)),
+    ):
+        actual = getattr(module, name)(fnx_graph, *args, backend="networkx")
+        expected = getattr(nxb, name)(nx_graph, *args, backend="networkx")
+        if name.endswith("matching"):
+            assert sorted((repr(k), repr(v)) for k, v in actual.items()) == sorted(
+                (repr(k), repr(v)) for k, v in expected.items()
+            )
+        elif isinstance(actual, dict):
+            assert _D(actual) == _D(expected)
+        elif isinstance(actual, tuple):
+            assert tuple(map(set, actual)) == tuple(map(set, expected))
+        else:
+            assert actual == expected
+
+    with pytest.raises(ImportError):
+        module.color(fnx_graph, backend="missing")
+    with pytest.raises(TypeError):
+        module.sets(fnx_graph, unexpected=True)
+
+
+def test_bipartite_basic_metrics_backend_signatures_match_networkx():
+    module = importlib.import_module("franken_networkx.bipartite")
+    fnx_graph, nx_graph = _mk(fnx), _mk(nx)
+
+    assert module.density(fnx_graph, _TOP, backend="networkx") == nxb.density(
+        nx_graph, _TOP, backend="networkx"
+    )
+    assert _D(module.degree_centrality(fnx_graph, _TOP, backend="networkx")) == _D(
+        nxb.degree_centrality(nx_graph, _TOP, backend="networkx")
+    )
+    actual_top, actual_bottom = module.degrees(
+        fnx_graph, _TOP, weight=None, backend="networkx"
+    )
+    expected_top, expected_bottom = nxb.degrees(
+        nx_graph, _TOP, weight=None, backend="networkx"
+    )
+    assert list(actual_top) == list(expected_top)
+    assert list(actual_bottom) == list(expected_bottom)
+
+
+def test_bipartite_clustering_backend_signatures_match_networkx():
+    module = importlib.import_module("franken_networkx.bipartite")
+    fnx_graph, nx_graph = _mk(fnx), _mk(nx)
+
+    for name in (
+        "latapy_clustering",
+        "clustering",
+        "average_clustering",
+        "robins_alexander_clustering",
+    ):
+        actual = getattr(module, name)(fnx_graph, backend="networkx")
+        expected = getattr(nxb, name)(nx_graph, backend="networkx")
+        if isinstance(actual, dict):
+            assert _D(actual) == _D(expected)
+        else:
+            assert actual == pytest.approx(expected)
+
+    with pytest.raises(ImportError):
+        module.clustering(fnx_graph, backend="missing")
+
+
+def test_bipartite_centrality_backend_signatures_match_networkx():
+    module = importlib.import_module("franken_networkx.bipartite")
+    fnx_graph, nx_graph = _mk(fnx), _mk(nx)
+
+    for name in ("betweenness_centrality", "closeness_centrality", "node_redundancy"):
+        actual = getattr(module, name)(fnx_graph, _TOP, backend="networkx")
+        expected = getattr(nxb, name)(nx_graph, _TOP, backend="networkx")
+        assert _D(actual) == _D(expected)
+
+    with pytest.raises(TypeError):
+        module.node_redundancy(fnx_graph, unexpected=True)
+
+
+def test_biadjacency_matrix_backend_signature_matches_legacy_oracle():
+    module = importlib.import_module("franken_networkx.bipartite")
+    legacy = _legacy_networkx()
+    actual_parameters = inspect.signature(module.biadjacency_matrix).parameters
+    expected_parameters = inspect.signature(
+        legacy.algorithms.bipartite.biadjacency_matrix
+    ).parameters
+    assert actual_parameters == expected_parameters
+    graph, legacy_graph = _mk(fnx), _mk(legacy)
+    graph[0][6]["weight"] = 3
+    legacy_graph[0][6]["weight"] = 3
+
+    actual = module.biadjacency_matrix(
+        graph, sorted(_TOP), weight="weight", format="csc", backend="networkx"
+    )
+    expected = legacy.algorithms.bipartite.biadjacency_matrix(
+        legacy_graph,
+        sorted(_TOP),
+        weight="weight",
+        format="csc",
+        backend="networkx",
+    )
+    assert actual.format == expected.format
+    assert actual.dtype == expected.dtype
+    assert actual.toarray().tolist() == expected.toarray().tolist()
+
+    with pytest.raises(ImportError):
+        module.biadjacency_matrix(graph, sorted(_TOP), backend="missing")
+    with pytest.raises(TypeError):
+        module.biadjacency_matrix(graph, sorted(_TOP), unexpected=True)
+
+
+def test_minimum_weight_full_matching_signature_matches_legacy_oracle():
+    module = importlib.import_module("franken_networkx.bipartite")
+    legacy = _legacy_networkx()
+    graph = fnx.Graph()
+    legacy_graph = legacy.Graph()
+    for candidate in (graph, legacy_graph):
+        candidate.add_weighted_edges_from(
+            [("u", "x", 4), ("u", "y", 1), ("v", "x", 2), ("v", "y", 3)]
+        )
+
+    actual_parameters = inspect.signature(module.minimum_weight_full_matching).parameters
+    expected_parameters = inspect.signature(
+        legacy.algorithms.bipartite.minimum_weight_full_matching
+    ).parameters
+    assert actual_parameters == expected_parameters
+    actual = module.minimum_weight_full_matching(
+        graph, {"u", "v"}, backend="networkx"
+    )
+    expected = legacy.algorithms.bipartite.minimum_weight_full_matching(
+        legacy_graph, {"u", "v"}, backend="networkx"
+    )
+    assert sorted(actual.items()) == sorted(expected.items())
+
+    with pytest.raises(ImportError):
+        module.minimum_weight_full_matching(graph, {"u", "v"}, backend="missing")
+    with pytest.raises(TypeError):
+        module.minimum_weight_full_matching(graph, {"u", "v"}, unexpected=True)
+
+
+def test_spectral_bipartivity_signature_matches_legacy_oracle():
+    module = importlib.import_module("franken_networkx.bipartite")
+    legacy = _legacy_networkx()
+    graph, legacy_graph = _mk(fnx), _mk(legacy)
+
+    actual_parameters = inspect.signature(module.spectral_bipartivity).parameters
+    expected_parameters = inspect.signature(
+        legacy.algorithms.bipartite.spectral_bipartivity
+    ).parameters
+    assert actual_parameters == expected_parameters
+    assert module.spectral_bipartivity(graph, backend="networkx") == pytest.approx(
+        legacy.algorithms.bipartite.spectral_bipartivity(
+            legacy_graph, backend="networkx"
+        )
+    )
+
+    with pytest.raises(ImportError):
+        module.spectral_bipartivity(graph, backend="missing")
+    with pytest.raises(TypeError):
+        module.spectral_bipartivity(graph, unexpected=True)
 
 
 def test_bipartite_min_edge_cover_routes_through_fnx(monkeypatch):

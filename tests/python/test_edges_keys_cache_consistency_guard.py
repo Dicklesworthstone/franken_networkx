@@ -89,13 +89,13 @@ def test_direct_edge_view_reuses_private_keyed_materialization(cls):
     assert cache[0] == (g.nodes_seq, g.edges_seq)
     assert list(cache[1]) == expected
 
-    # The direct view reuses its private list, but the callable public API
-    # remains a fresh result that users may mutate without poisoning the cache.
+    # The direct view reuses its private list, which stays an implementation
+    # detail: the keyed no-argument call is the Mapping view itself.
     assert list(view) == expected
     assert vars(g)["_fnx_direct_multi_edge_iter_cache"] is cache
     public_result = g.edges(keys=True)
+    assert public_result is view
     assert public_result is not cache[1]
-    public_result.clear()
     assert list(view) == expected
 
 

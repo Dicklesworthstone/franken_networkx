@@ -322,6 +322,68 @@ def set_edge_attributes(G, values, name=None, *, backend=None, **backend_kwargs)
     return _fnx.set_edge_attributes(G, values, name)
 
 
+def number_of_selfloops(G, *, backend=None, **backend_kwargs):
+    """Return the number of native self-loop edges."""
+    import franken_networkx as _fnx
+
+    _fnx._validate_backend_dispatch_keywords(
+        "number_of_selfloops", backend, backend_kwargs
+    )
+    return _fnx.number_of_selfloops(G)
+
+
+def is_weighted(G, edge=None, weight="weight", *, backend=None, **backend_kwargs):
+    """Return whether native graph edges carry the requested weight."""
+    import franken_networkx as _fnx
+
+    _fnx._validate_backend_dispatch_keywords("is_weighted", backend, backend_kwargs)
+    return _fnx.is_weighted(G, edge, weight)
+
+
+def is_negatively_weighted(
+    G, edge=None, weight="weight", *, backend=None, **backend_kwargs
+):
+    """Return whether native graph edges carry a negative requested weight."""
+    import franken_networkx as _fnx
+
+    _fnx._validate_backend_dispatch_keywords(
+        "is_negatively_weighted", backend, backend_kwargs
+    )
+    return _fnx.is_negatively_weighted(G, edge, weight)
+
+
+def describe(G, describe_hook=None):
+    """Print a native graph description."""
+    import franken_networkx as _fnx
+
+    return _fnx.describe(G, describe_hook)
+
+
+def is_empty(G, *, backend=None, **backend_kwargs):
+    """Return whether the native graph has no edges."""
+    import franken_networkx as _fnx
+
+    return _fnx.is_empty(G, backend=backend, **backend_kwargs)
+
+
+def remove_node_attributes(G, *attr_names, nbunch=None, backend=None, **backend_kwargs):
+    """Remove selected native node attributes."""
+    import franken_networkx as _fnx
+
+    return _fnx.remove_node_attributes(
+        G, *attr_names, nbunch=nbunch, backend=backend, **backend_kwargs
+    )
+
+
+def remove_edge_attributes(G, *attr_names, ebunch=None, backend=None, **backend_kwargs):
+    """Remove selected native edge attributes."""
+    import franken_networkx as _fnx
+
+    return _fnx.remove_edge_attributes(
+        G, *attr_names, ebunch=ebunch, backend=backend, **backend_kwargs
+    )
+
+
 def _install_fnx_native_class_types():
     import franken_networkx as _fnx
 

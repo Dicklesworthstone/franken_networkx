@@ -12,6 +12,8 @@ Current native overrides:
 
 from __future__ import annotations
 
+import inspect as _inspect
+
 from networkx.algorithms.connectivity import *  # noqa: F401,F403
 import networkx.algorithms.connectivity as _nx_connectivity
 
@@ -59,6 +61,7 @@ def _make_fnx_connectivity_router(_fn_name):
         f"Route to ``franken_networkx.{_fn_name}`` (fnx-native). See "
         f"``networkx.algorithms.connectivity.{_fn_name}`` for semantics."
     )
+    _routed.__signature__ = _inspect.signature(getattr(_nx_connectivity, _fn_name))
     return _routed
 
 
@@ -66,10 +69,42 @@ for _name in _FNX_NATIVE_CONNECTIVITY_NAMES:
     globals()[_name] = _make_fnx_connectivity_router(_name)
 
 
+def edge_connectivity(
+    G, s=None, t=None, flow_func=None, cutoff=None, *, backend=None, **backend_kwargs
+):
+    return _fnx.edge_connectivity(
+        G,
+        s=s,
+        t=t,
+        flow_func=flow_func,
+        cutoff=cutoff,
+        backend=backend,
+        **backend_kwargs,
+    )
+
+
+def node_connectivity(G, s=None, t=None, flow_func=None, *, backend=None, **backend_kwargs):
+    return _fnx.node_connectivity(
+        G, s=s, t=t, flow_func=flow_func, backend=backend, **backend_kwargs
+    )
+
+
+def minimum_edge_cut(G, s=None, t=None, flow_func=None, *, backend=None, **backend_kwargs):
+    return _fnx.minimum_edge_cut(
+        G, s=s, t=t, flow_func=flow_func, backend=backend, **backend_kwargs
+    )
+
+
+def minimum_node_cut(G, s=None, t=None, flow_func=None, *, backend=None, **backend_kwargs):
+    return _fnx.minimum_node_cut(
+        G, s=s, t=t, flow_func=flow_func, backend=backend, **backend_kwargs
+    )
+
+
 def local_node_connectivity(
     G,
-    source,
-    target,
+    s,
+    t,
     flow_func=None,
     auxiliary=None,
     residual=None,
@@ -102,15 +137,15 @@ def local_node_connectivity(
         and cutoff is None
         and backend is None
         and not backend_kwargs
-        and source != target
-        and source in G
-        and target in G
+        and s != t
+        and s in G
+        and t in G
     ):
-        return _fnx.node_connectivity(G, source, target)
+        return _fnx.node_connectivity(G, s, t)
     return _nx_connectivity.local_node_connectivity(
         G,
-        source,
-        target,
+        s,
+        t,
         flow_func=flow_func,
         auxiliary=auxiliary,
         residual=residual,
@@ -201,21 +236,27 @@ def is_locally_k_edge_connected(G, s, t, k, *, backend=None, **backend_kwargs):
     )
 
 
-def build_auxiliary_node_connectivity(G):
+def build_auxiliary_node_connectivity(G, *, backend=None, **backend_kwargs):
     """Return auxiliary digraph for computing node connectivity.
 
     Wraps ``networkx.algorithms.connectivity.build_auxiliary_node_connectivity``
     and converts the result to an fnx.DiGraph for drop-in compatibility.
     """
+    _fnx._validate_backend_dispatch_keywords(
+        "build_auxiliary_node_connectivity", backend, backend_kwargs
+    )
     nx_result = _nx_connectivity.build_auxiliary_node_connectivity(G)
     return _from_nx_graph(nx_result)
 
 
-def build_auxiliary_edge_connectivity(G):
+def build_auxiliary_edge_connectivity(G, *, backend=None, **backend_kwargs):
     """Return auxiliary digraph for computing edge connectivity.
 
     Wraps ``networkx.algorithms.connectivity.build_auxiliary_edge_connectivity``
     and converts the result to an fnx.DiGraph for drop-in compatibility.
     """
+    _fnx._validate_backend_dispatch_keywords(
+        "build_auxiliary_edge_connectivity", backend, backend_kwargs
+    )
     nx_result = _nx_connectivity.build_auxiliary_edge_connectivity(G)
     return _from_nx_graph(nx_result)

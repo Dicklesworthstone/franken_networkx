@@ -12,6 +12,8 @@ Current native overrides:
 
 from __future__ import annotations
 
+import inspect as _inspect
+
 from networkx.algorithms.flow import *  # noqa: F401,F403
 import networkx.algorithms.flow as _nx_flow
 
@@ -28,31 +30,22 @@ __all__ = list(
 # namespace through fnx; deeper child modules such as
 # ``franken_networkx.algorithms.flow.maxflow`` remain NetworkX aliases.
 _FNX_NATIVE_FLOW_NAMES = (
-    "capacity_scaling",
-    "cost_of_flow",
-    "gomory_hu_tree",
-    "max_flow_min_cost",
-    "maximum_flow",
-    "maximum_flow_value",
-    "min_cost_flow",
-    "min_cost_flow_cost",
-    "minimum_cut",
-    "minimum_cut_value",
-    "network_simplex",
+    "capacity_scaling", "cost_of_flow", "gomory_hu_tree", "max_flow_min_cost",
+    "maximum_flow", "maximum_flow_value", "min_cost_flow", "min_cost_flow_cost",
+    "minimum_cut", "minimum_cut_value", "network_simplex",
 )
 
 
-def _make_fnx_flow_router(_fn_name):
-    def _routed(*args, **kwargs):
-        return getattr(_fnx, _fn_name)(*args, **kwargs)
+def _make_fnx_flow_router(name):
+    def routed(*args, **kwargs):
+        return getattr(_fnx, name)(*args, **kwargs)
 
-    _routed.__name__ = _fn_name
-    _routed.__qualname__ = _fn_name
-    _routed.__doc__ = (
-        f"Route to ``franken_networkx.{_fn_name}`` (fnx-native). See "
-        f"``networkx.algorithms.flow.{_fn_name}`` for semantics."
-    )
-    return _routed
+    upstream = getattr(_nx_flow, name)
+    routed.__name__ = name
+    routed.__qualname__ = name
+    routed.__doc__ = upstream.__doc__
+    routed.__signature__ = _inspect.signature(upstream)
+    return routed
 
 
 for _name in _FNX_NATIVE_FLOW_NAMES:

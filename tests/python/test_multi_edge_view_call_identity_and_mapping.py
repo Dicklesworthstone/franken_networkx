@@ -55,19 +55,7 @@ def _pair(cls_name):
     return gnx, gfx
 
 
-@pytest.mark.parametrize(
-    "cls_name",
-    [
-        pytest.param(
-            name,
-            marks=pytest.mark.xfail(
-                strict=True,
-                reason="br-r37-c1-p1dbu: G.edges(keys=True) returns a list subclass carrying the MultiEdgeView NAME instead of the view itself, so the Mapping surface and the identity are both lost. Returning `self` -- what nx does -- was attempted and REVERTED: __iter__ reaches _direct_multi_edge_iter, which caches this call's result and iterates it, so `return self` recurses infinitely. Needs a real fix, not a one-liner.",
-            ),
-        )
-        for name in MULTI
-    ],
-)
+@pytest.mark.parametrize("cls_name", MULTI)
 def test_call_with_keys_returns_the_view_itself(cls_name):
     """The identity nx guarantees by `return self`."""
     gnx, gfx = _pair(cls_name)
@@ -75,19 +63,7 @@ def test_call_with_keys_returns_the_view_itself(cls_name):
     assert (gfx.edges(keys=True) is gfx.edges) is True
 
 
-@pytest.mark.parametrize(
-    "cls_name",
-    [
-        pytest.param(
-            name,
-            marks=pytest.mark.xfail(
-                strict=True,
-                reason="br-r37-c1-p1dbu: G.edges(keys=True) returns a list subclass carrying the MultiEdgeView NAME instead of the view itself, so the Mapping surface and the identity are both lost. Returning `self` -- what nx does -- was attempted and REVERTED: __iter__ reaches _direct_multi_edge_iter, which caches this call's result and iterates it, so `return self` recurses infinitely. Needs a real fix, not a one-liner.",
-            ),
-        )
-        for name in MULTI
-    ],
-)
+@pytest.mark.parametrize("cls_name", MULTI)
 @pytest.mark.parametrize("attr", ["items", "keys", "values"])
 def test_call_with_keys_keeps_the_mapping_surface(cls_name, attr):
     gnx, gfx = _pair(cls_name)
@@ -95,19 +71,7 @@ def test_call_with_keys_keeps_the_mapping_surface(cls_name, attr):
     assert hasattr(gfx.edges(keys=True), attr), f"{cls_name}: lost .{attr}()"
 
 
-@pytest.mark.parametrize(
-    "cls_name",
-    [
-        pytest.param(
-            name,
-            marks=pytest.mark.xfail(
-                strict=True,
-                reason="br-r37-c1-p1dbu: G.edges(keys=True) returns a list subclass carrying the MultiEdgeView NAME instead of the view itself, so the Mapping surface and the identity are both lost. Returning `self` -- what nx does -- was attempted and REVERTED: __iter__ reaches _direct_multi_edge_iter, which caches this call's result and iterates it, so `return self` recurses infinitely. Needs a real fix, not a one-liner.",
-            ),
-        )
-        for name in MULTI
-    ],
-)
+@pytest.mark.parametrize("cls_name", MULTI)
 def test_items_matches_networkx(cls_name):
     """Not merely present — the pairs must agree."""
     gnx, gfx = _pair(cls_name)
@@ -116,19 +80,7 @@ def test_items_matches_networkx(cls_name):
     assert got == want
 
 
-@pytest.mark.parametrize(
-    "cls_name",
-    [
-        pytest.param(
-            name,
-            marks=pytest.mark.xfail(
-                strict=True,
-                reason="br-r37-c1-p1dbu: G.edges(keys=True) returns a list subclass carrying the MultiEdgeView NAME instead of the view itself, so the Mapping surface and the identity are both lost. Returning `self` -- what nx does -- was attempted and REVERTED: __iter__ reaches _direct_multi_edge_iter, which caches this call's result and iterates it, so `return self` recurses infinitely. Needs a real fix, not a one-liner.",
-            ),
-        )
-        for name in MULTI
-    ],
-)
+@pytest.mark.parametrize("cls_name", MULTI)
 def test_keys_and_values_match_networkx(cls_name):
     gnx, gfx = _pair(cls_name)
     assert sorted(gfx.edges(keys=True).keys()) == sorted(gnx.edges(keys=True).keys())

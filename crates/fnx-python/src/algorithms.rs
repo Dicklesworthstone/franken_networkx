@@ -4711,7 +4711,19 @@ pub fn check_dijkstra_edge_weights_fast(
                             if f < 0.0 {
                                 has_negative = true;
                             }
-                            if f.is_infinite() && f.is_sign_positive() {
+                            // br-r37-c1-kn5cu: NaN delegates too. This arm used
+                            // to flag +inf only, on the stated assumption that
+                            // "NaN keeps its existing routing" - but the Python
+                            // predicate returns as soon as this function answers,
+                            // so there was no other routing left to keep, and its
+                            // own multigraph branch excluded NaN as well. Each
+                            // half assumed the other one asked. A NaN weight then
+                            // reached a native kernel that substitutes the DEFAULT
+                            // WEIGHT 1, so an undirected MultiGraph returned a
+                            // plausible finite distance where networkx returns nan.
+                            // The simple-graph arms above have always used
+                            // `!f.is_finite()`, which is exactly this.
+                            if f.is_nan() || (f.is_infinite() && f.is_sign_positive()) {
                                 has_positive_infinity = true;
                             }
                         } else if let Ok(i) = val.extract::<i64>() {
@@ -4817,7 +4829,11 @@ pub fn check_dijkstra_edge_weights_fast(
                         if f < 0.0 {
                             has_negative = true;
                         }
-                        if f.is_infinite() && f.is_sign_positive() {
+                        // br-r37-c1-kn5cu: the directed twin of the NaN case
+                        // fixed in the undirected arm above - same flag, same
+                        // reason, and it diverged from networkx identically
+                        // (MultiDiGraph all_pairs returned 1.0/2.0 for nan/nan).
+                        if f.is_nan() || (f.is_infinite() && f.is_sign_positive()) {
                             has_positive_infinity = true;
                         }
                     } else if let Ok(i) = val.extract::<i64>() {

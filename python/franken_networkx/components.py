@@ -69,6 +69,88 @@ for _name in _FNX_NATIVE_COMPONENT_NAMES:
     globals()[_name] = _make_fnx_component_router(_name)
 
 
+def articulation_points(G, *, backend=None, **backend_kwargs):
+    return _fnx.articulation_points(G, backend=backend, **backend_kwargs)
+
+
+def biconnected_component_edges(G, *, backend=None, **backend_kwargs):
+    return _fnx.biconnected_component_edges(G, backend=backend, **backend_kwargs)
+
+
+def biconnected_components(G, *, backend=None, **backend_kwargs):
+    return _fnx.biconnected_components(G, backend=backend, **backend_kwargs)
+
+
+def connected_components(G, *, backend=None, **backend_kwargs):
+    return _fnx.connected_components(G, backend=backend, **backend_kwargs)
+
+
+def is_biconnected(G, *, backend=None, **backend_kwargs):
+    return _fnx.is_biconnected(G, backend=backend, **backend_kwargs)
+
+
+def is_connected(G, *, backend=None, **backend_kwargs):
+    return _fnx.is_connected(G, backend=backend, **backend_kwargs)
+
+
+def node_connected_component(G, n, *, backend=None, **backend_kwargs):
+    return _fnx.node_connected_component(G, n, backend=backend, **backend_kwargs)
+
+
+def number_connected_components(G, *, backend=None, **backend_kwargs):
+    return _fnx.number_connected_components(G, backend=backend, **backend_kwargs)
+
+
+def attracting_components(G, *, backend=None, **backend_kwargs):
+    return _fnx.attracting_components(G, backend=backend, **backend_kwargs)
+
+
+def is_attracting_component(G, *, backend=None, **backend_kwargs):
+    return _fnx.is_attracting_component(G, backend=backend, **backend_kwargs)
+
+
+def is_semiconnected(G, *, backend=None, **backend_kwargs):
+    return _fnx.is_semiconnected(G, backend=backend, **backend_kwargs)
+
+
+def is_strongly_connected(G, *, backend=None, **backend_kwargs):
+    return _fnx.is_strongly_connected(G, backend=backend, **backend_kwargs)
+
+
+def is_weakly_connected(G, *, backend=None, **backend_kwargs):
+    return _fnx.is_weakly_connected(G, backend=backend, **backend_kwargs)
+
+
+def kosaraju_strongly_connected_components(
+    G, source=None, *, backend=None, **backend_kwargs
+):
+    return _fnx.kosaraju_strongly_connected_components(
+        G, source=source, backend=backend, **backend_kwargs
+    )
+
+
+def number_attracting_components(G, *, backend=None, **backend_kwargs):
+    return _fnx.number_attracting_components(G, backend=backend, **backend_kwargs)
+
+
+def number_strongly_connected_components(G, *, backend=None, **backend_kwargs):
+    return _fnx.number_strongly_connected_components(
+        G, backend=backend, **backend_kwargs
+    )
+
+
+def number_weakly_connected_components(G, *, backend=None, **backend_kwargs):
+    return _fnx.number_weakly_connected_components(G, backend=backend, **backend_kwargs)
+
+
+def strongly_connected_components(G, *, backend=None, **backend_kwargs):
+    return _fnx.strongly_connected_components(G, backend=backend, **backend_kwargs)
+
+
+def weakly_connected_components(G, *, backend=None, **backend_kwargs):
+    return _fnx.weakly_connected_components(G, backend=backend, **backend_kwargs)
+
+
 def condensation(G, scc=None, *, backend=None, **backend_kwargs):
     """Return the condensation of G.
 

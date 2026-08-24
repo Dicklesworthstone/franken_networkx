@@ -19,6 +19,7 @@ raised ``ModuleNotFoundError``.
 
 import sys as _sys
 import importlib as _importlib
+import inspect as _inspect
 import pkgutil as _pkgutil
 
 import networkx.algorithms as _nx_algorithms
@@ -435,6 +436,109 @@ _fnx_cuts = _importlib.import_module("franken_networkx.cuts")
 _sys.modules[f"{__name__}.cuts"] = _fnx_cuts
 cuts = _fnx_cuts  # Override in module globals
 
+_FNX_FLATTENED_CUT_NAMES = (
+    "boundary_expansion",
+    "conductance",
+    "cut_size",
+    "edge_expansion",
+    "mixing_expansion",
+    "node_expansion",
+    "normalized_cut_size",
+    "volume",
+)
+
+
+def _make_flattened_cuts_router(_name):
+    def _routed(*args, **kwargs):
+        return getattr(_fnx_cuts, _name)(*args, **kwargs)
+
+    _routed.__name__ = _name
+    _routed.__qualname__ = _name
+    _routed.__signature__ = _inspect.signature(getattr(_nx_algorithms, _name))
+    return _routed
+
+
+for _name in _FNX_FLATTENED_CUT_NAMES:
+    globals()[_name] = _make_flattened_cuts_router(_name)
+
+_FNX_FLATTENED_WEIGHTED_SHORTEST_PATH_NAMES = (
+    "all_pairs_bellman_ford_path",
+    "all_pairs_bellman_ford_path_length",
+    "all_pairs_dijkstra",
+    "all_pairs_dijkstra_path",
+    "all_pairs_dijkstra_path_length",
+    "bellman_ford_path",
+    "bellman_ford_path_length",
+    "bellman_ford_predecessor_and_distance",
+    "bidirectional_dijkstra",
+    "dijkstra_path",
+    "dijkstra_path_length",
+    "dijkstra_predecessor_and_distance",
+    "find_negative_cycle",
+    "goldberg_radzik",
+    "johnson",
+    "multi_source_dijkstra",
+    "multi_source_dijkstra_path",
+    "multi_source_dijkstra_path_length",
+    "negative_edge_cycle",
+    "single_source_bellman_ford",
+    "single_source_bellman_ford_path",
+    "single_source_bellman_ford_path_length",
+    "single_source_dijkstra",
+    "single_source_dijkstra_path",
+    "single_source_dijkstra_path_length",
+)
+
+
+def _make_flattened_weighted_shortest_path_router(_name):
+    def _routed(*args, **kwargs):
+        import franken_networkx as _fnx_call
+
+        return getattr(_fnx_call, _name)(*args, **kwargs)
+
+    _routed.__name__ = _name
+    _routed.__qualname__ = _name
+    _routed.__signature__ = _inspect.signature(getattr(_nx_algorithms, _name))
+    return _routed
+
+
+for _name in _FNX_FLATTENED_WEIGHTED_SHORTEST_PATH_NAMES:
+    globals()[_name] = _make_flattened_weighted_shortest_path_router(_name)
+
+_FNX_FLATTENED_DAG_NAMES = (
+    "all_topological_sorts",
+    "ancestors",
+    "antichains",
+    "dag_longest_path",
+    "dag_longest_path_length",
+    "dag_to_branching",
+    "descendants",
+    "is_aperiodic",
+    "is_directed_acyclic_graph",
+    "lexicographical_topological_sort",
+    "topological_generations",
+    "topological_sort",
+    "transitive_closure",
+    "transitive_closure_dag",
+    "transitive_reduction",
+)
+
+
+def _make_flattened_dag_router(_name):
+    def _routed(*args, **kwargs):
+        import franken_networkx as _fnx_call
+
+        return getattr(_fnx_call, _name)(*args, **kwargs)
+
+    _routed.__name__ = _name
+    _routed.__qualname__ = _name
+    _routed.__signature__ = _inspect.signature(getattr(_nx_algorithms, _name))
+    return _routed
+
+
+for _name in _FNX_FLATTENED_DAG_NAMES:
+    globals()[_name] = _make_flattened_dag_router(_name)
+
 _fnx_cycles = _importlib.import_module("franken_networkx.cycles")
 _sys.modules[f"{__name__}.cycles"] = _fnx_cycles
 cycles = _fnx_cycles  # Override in module globals
@@ -480,6 +584,31 @@ isolate = _fnx_isolate  # Override in module globals
 _fnx_link_prediction = _importlib.import_module("franken_networkx.link_prediction")
 _sys.modules[f"{__name__}.link_prediction"] = _fnx_link_prediction
 link_prediction = _fnx_link_prediction  # Override in module globals
+
+_FNX_FLATTENED_LINK_PREDICTION_NAMES = (
+    "resource_allocation_index",
+    "jaccard_coefficient",
+    "adamic_adar_index",
+    "preferential_attachment",
+    "cn_soundarajan_hopcroft",
+    "ra_index_soundarajan_hopcroft",
+    "within_inter_cluster",
+    "common_neighbor_centrality",
+)
+
+
+def _make_flattened_link_prediction_router(_name):
+    def _routed(*args, **kwargs):
+        return getattr(_fnx_link_prediction, _name)(*args, **kwargs)
+
+    _routed.__name__ = _name
+    _routed.__qualname__ = _name
+    _routed.__signature__ = _inspect.signature(getattr(_nx_algorithms, _name))
+    return _routed
+
+
+for _name in _FNX_FLATTENED_LINK_PREDICTION_NAMES:
+    globals()[_name] = _make_flattened_link_prediction_router(_name)
 
 _fnx_lowest_common_ancestors = _importlib.import_module(
     "franken_networkx.lowest_common_ancestors"
@@ -644,6 +773,443 @@ def greedy_color(
         G,
         strategy=strategy,
         interchange=interchange,
+        backend=backend,
+        **backend_kwargs,
+    )
+
+
+def contracted_edge(
+    G,
+    edge,
+    self_loops=True,
+    copy=True,
+    *,
+    store_contraction_as="contraction",
+    backend=None,
+    **backend_kwargs,
+):
+    import franken_networkx as _fnx_call
+
+    return _fnx_call.contracted_edge(
+        G,
+        edge,
+        self_loops=self_loops,
+        copy=copy,
+        store_contraction_as=store_contraction_as,
+        backend=backend,
+        **backend_kwargs,
+    )
+
+
+def contracted_nodes(
+    G,
+    u,
+    v,
+    self_loops=True,
+    copy=True,
+    *,
+    store_contraction_as="contraction",
+    backend=None,
+    **backend_kwargs,
+):
+    import franken_networkx as _fnx_call
+
+    return _fnx_call.contracted_nodes(
+        G,
+        u,
+        v,
+        self_loops=self_loops,
+        copy=copy,
+        store_contraction_as=store_contraction_as,
+        backend=backend,
+        **backend_kwargs,
+    )
+
+
+def equivalence_classes(iterable, relation):
+    import franken_networkx as _fnx_call
+
+    return _fnx_call.equivalence_classes(iterable, relation)
+
+
+def identified_nodes(
+    G,
+    u,
+    v,
+    self_loops=True,
+    copy=True,
+    *,
+    store_contraction_as="contraction",
+    backend=None,
+    **backend_kwargs,
+):
+    import franken_networkx as _fnx_call
+
+    return _fnx_call.identified_nodes(
+        G,
+        u,
+        v,
+        self_loops=self_loops,
+        copy=copy,
+        store_contraction_as=store_contraction_as,
+        backend=backend,
+        **backend_kwargs,
+    )
+
+
+def quotient_graph(
+    G,
+    partition,
+    edge_relation=None,
+    node_data=None,
+    edge_data=None,
+    weight="weight",
+    relabel=False,
+    create_using=None,
+    *,
+    backend=None,
+    **backend_kwargs,
+):
+    import franken_networkx as _fnx_call
+
+    return _fnx_call.quotient_graph(
+        G,
+        partition,
+        edge_relation=edge_relation,
+        node_data=node_data,
+        edge_data=edge_data,
+        weight=weight,
+        relabel=relabel,
+        create_using=create_using,
+        backend=backend,
+        **backend_kwargs,
+    )
+
+
+def isolates(G, *, backend=None, **backend_kwargs):
+    import franken_networkx as _fnx_call
+
+    _fnx_call._validate_backend_dispatch_keywords("isolates", backend, backend_kwargs)
+    return _fnx_call.isolates(G)
+
+
+def triad_type(G, *, backend=None, **backend_kwargs):
+    import franken_networkx as _fnx_call
+
+    return _fnx_call.triad_type(G, backend=backend, **backend_kwargs)
+
+
+def triadic_census(G, nodelist=None, *, backend=None, **backend_kwargs):
+    import franken_networkx as _fnx_call
+
+    return _fnx_call.triadic_census(
+        G, nodelist=nodelist, backend=backend, **backend_kwargs
+    )
+
+
+def triads_by_type(G, *, backend=None, **backend_kwargs):
+    import franken_networkx as _fnx_call
+
+    return _fnx_call.triads_by_type(G, backend=backend, **backend_kwargs)
+
+
+def core_number(G, *, backend=None, **backend_kwargs):
+    import franken_networkx as _fnx_call
+
+    return _fnx_call.core_number(G, backend=backend, **backend_kwargs)
+
+
+def chordal_graph_cliques(G, *, backend=None, **backend_kwargs):
+    import franken_networkx as _fnx_call
+
+    return _fnx_call.chordal_graph_cliques(G, backend=backend, **backend_kwargs)
+
+
+def chordal_graph_treewidth(G, *, backend=None, **backend_kwargs):
+    import franken_networkx as _fnx_call
+
+    return _fnx_call.chordal_graph_treewidth(G, backend=backend, **backend_kwargs)
+
+
+def bfs_edges(
+    G,
+    source,
+    reverse=False,
+    depth_limit=None,
+    sort_neighbors=None,
+    *,
+    backend=None,
+    **backend_kwargs,
+):
+    import franken_networkx as _fnx_call
+
+    return _fnx_call.bfs_edges(
+        G,
+        source,
+        reverse=reverse,
+        depth_limit=depth_limit,
+        sort_neighbors=sort_neighbors,
+        backend=backend,
+        **backend_kwargs,
+    )
+
+
+def bfs_predecessors(
+    G,
+    source,
+    depth_limit=None,
+    sort_neighbors=None,
+    *,
+    backend=None,
+    **backend_kwargs,
+):
+    import franken_networkx as _fnx_call
+
+    return _fnx_call.bfs_predecessors(
+        G,
+        source,
+        depth_limit=depth_limit,
+        sort_neighbors=sort_neighbors,
+        backend=backend,
+        **backend_kwargs,
+    )
+
+
+def bfs_successors(
+    G,
+    source,
+    depth_limit=None,
+    sort_neighbors=None,
+    *,
+    backend=None,
+    **backend_kwargs,
+):
+    import franken_networkx as _fnx_call
+
+    return _fnx_call.bfs_successors(
+        G,
+        source,
+        depth_limit=depth_limit,
+        sort_neighbors=sort_neighbors,
+        backend=backend,
+        **backend_kwargs,
+    )
+
+
+def bfs_tree(
+    G,
+    source,
+    reverse=False,
+    depth_limit=None,
+    sort_neighbors=None,
+    *,
+    backend=None,
+    **backend_kwargs,
+):
+    import franken_networkx as _fnx_call
+
+    return _fnx_call.bfs_tree(
+        G,
+        source,
+        reverse=reverse,
+        depth_limit=depth_limit,
+        sort_neighbors=sort_neighbors,
+        backend=backend,
+        **backend_kwargs,
+    )
+
+
+def dfs_edges(
+    G,
+    source=None,
+    depth_limit=None,
+    *,
+    sort_neighbors=None,
+    backend=None,
+    **backend_kwargs,
+):
+    import franken_networkx as _fnx_call
+
+    return _fnx_call.dfs_edges(
+        G,
+        source=source,
+        depth_limit=depth_limit,
+        sort_neighbors=sort_neighbors,
+        backend=backend,
+        **backend_kwargs,
+    )
+
+
+def dfs_predecessors(
+    G,
+    source=None,
+    depth_limit=None,
+    *,
+    sort_neighbors=None,
+    backend=None,
+    **backend_kwargs,
+):
+    import franken_networkx as _fnx_call
+
+    return _fnx_call.dfs_predecessors(
+        G,
+        source=source,
+        depth_limit=depth_limit,
+        sort_neighbors=sort_neighbors,
+        backend=backend,
+        **backend_kwargs,
+    )
+
+
+def dfs_successors(
+    G,
+    source=None,
+    depth_limit=None,
+    *,
+    sort_neighbors=None,
+    backend=None,
+    **backend_kwargs,
+):
+    import franken_networkx as _fnx_call
+
+    return _fnx_call.dfs_successors(
+        G,
+        source=source,
+        depth_limit=depth_limit,
+        sort_neighbors=sort_neighbors,
+        backend=backend,
+        **backend_kwargs,
+    )
+
+
+def dfs_tree(
+    G,
+    source=None,
+    depth_limit=None,
+    *,
+    sort_neighbors=None,
+    backend=None,
+    **backend_kwargs,
+):
+    import franken_networkx as _fnx_call
+
+    return _fnx_call.dfs_tree(
+        G,
+        source=source,
+        depth_limit=depth_limit,
+        sort_neighbors=sort_neighbors,
+        backend=backend,
+        **backend_kwargs,
+    )
+
+
+def edge_bfs(G, source=None, orientation=None, *, backend=None, **backend_kwargs):
+    import franken_networkx as _fnx_call
+
+    return _fnx_call.edge_bfs(
+        G,
+        source=source,
+        orientation=orientation,
+        backend=backend,
+        **backend_kwargs,
+    )
+
+
+def edge_dfs(G, source=None, orientation=None, *, backend=None, **backend_kwargs):
+    import franken_networkx as _fnx_call
+
+    return _fnx_call.edge_dfs(
+        G,
+        source=source,
+        orientation=orientation,
+        backend=backend,
+        **backend_kwargs,
+    )
+
+
+def dfs_preorder_nodes(
+    G,
+    source=None,
+    depth_limit=None,
+    *,
+    sort_neighbors=None,
+    backend=None,
+    **backend_kwargs,
+):
+    import franken_networkx as _fnx_call
+
+    return _fnx_call.dfs_preorder_nodes(
+        G,
+        source=source,
+        depth_limit=depth_limit,
+        sort_neighbors=sort_neighbors,
+        backend=backend,
+        **backend_kwargs,
+    )
+
+
+def dfs_postorder_nodes(
+    G,
+    source=None,
+    depth_limit=None,
+    *,
+    sort_neighbors=None,
+    backend=None,
+    **backend_kwargs,
+):
+    import franken_networkx as _fnx_call
+
+    return _fnx_call.dfs_postorder_nodes(
+        G,
+        source=source,
+        depth_limit=depth_limit,
+        sort_neighbors=sort_neighbors,
+        backend=backend,
+        **backend_kwargs,
+    )
+
+
+def dfs_labeled_edges(
+    G,
+    source=None,
+    depth_limit=None,
+    *,
+    sort_neighbors=None,
+    backend=None,
+    **backend_kwargs,
+):
+    import franken_networkx as _fnx_call
+
+    return _fnx_call.dfs_labeled_edges(
+        G,
+        source=source,
+        depth_limit=depth_limit,
+        sort_neighbors=sort_neighbors,
+        backend=backend,
+        **backend_kwargs,
+    )
+
+
+def bfs_layers(G, sources, *, backend=None, **backend_kwargs):
+    import franken_networkx as _fnx_call
+
+    return _fnx_call.bfs_layers(
+        G,
+        sources,
+        backend=backend,
+        **backend_kwargs,
+    )
+
+
+def descendants_at_distance(
+    G, source, distance, *, backend=None, **backend_kwargs
+):
+    import franken_networkx as _fnx_call
+
+    return _fnx_call.descendants_at_distance(
+        G,
+        source,
+        distance,
         backend=backend,
         **backend_kwargs,
     )

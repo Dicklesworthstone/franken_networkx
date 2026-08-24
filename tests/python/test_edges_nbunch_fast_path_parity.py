@@ -211,15 +211,6 @@ MUTATIONS_DURING_ITERATION = {
 }
 
 
-# br-r37-c1-hihrf: the multigraph classes reach this test too now. Two mutation
-# kinds still diverge there, and they are NOT the guard this bead fixed - they
-# are `_raise_if_frozen_nbunch_node_removed`, which fires when an nbunch node
-# disappears. networkx completes those because it is holding the row dict it
-# already fetched: removing the node from the graph does not resize that dict,
-# so its iteration is undisturbed.
-FROZEN_NODE_DIVERGENT = {"remove_frozen_node", "clear"}
-
-
 @pytest.mark.parametrize("cls_name", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
 @pytest.mark.parametrize("mutation", list(MUTATIONS_DURING_ITERATION), ids=list(MUTATIONS_DURING_ITERATION))
 def test_simple_class_nbunch_iteration_matches_networkx_mutation_for_mutation(cls_name, mutation):
@@ -231,12 +222,6 @@ def test_simple_class_nbunch_iteration_matches_networkx_mutation_for_mutation(cl
     the live rows gets every case right, so this asserts each one rather than
     just "does not over-raise".
     """
-    if cls_name.startswith("Multi") and mutation in FROZEN_NODE_DIVERGENT:
-        pytest.xfail(
-            "the frozen-nbunch guard raises when an nbunch node disappears; "
-            "networkx completes because it already holds the row dict "
-            "(br-r37-c1-hihrf, separate from the row-rule guard)"
-        )
     mutate = MUTATIONS_DURING_ITERATION[mutation]
     outcomes = []
     for lib in (nx, fnx):
@@ -268,6 +253,37 @@ def test_multigraphs_no_longer_over_raise_on_nbunch_iteration(cls_name):
             source.add_edge("brand", "new")
             target.append(_edge)
     assert len(got) == len(want)
+
+
+@pytest.mark.parametrize("cls_name", ["MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {"keys": True},
+        {"data": True},
+        {"data": "weight"},
+        {"keys": True, "data": True},
+        {"keys": True, "data": "weight"},
+    ],
+)
+def test_multigraph_nbunch_data_and_keys_follow_the_live_row_rule(cls_name, kwargs):
+    """All native nbunch result shapes ignore a mutation outside their rows.
+
+    The no-data/no-keys spelling already passed ``nbunch_rows`` to the shared
+    guard.  The data/key kernels returned through sibling branches without it,
+    so they raised on a new edge that NetworkX's live row walk never touches.
+    """
+    outcomes = []
+    for lib in (nx, fnx):
+        graph = _build(lib, cls_name)
+        iterator = iter(graph.edges(["a", "b"], **kwargs))
+        first = next(iterator)
+        graph.add_edge("brand", "new")
+        try:
+            outcomes.append(("completed", first, len(list(iterator))))
+        except Exception as exc:  # noqa: BLE001 - differential exception shape
+            outcomes.append((type(exc).__name__, exc.args))
+    assert outcomes[1] == outcomes[0]
 
 
 @pytest.mark.parametrize("cls_name", CLASSES)
