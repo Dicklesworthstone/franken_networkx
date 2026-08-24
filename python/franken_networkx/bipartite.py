@@ -126,7 +126,7 @@ def _derive_top_nodes(G, top_nodes):
         return None
 
 
-def hopcroft_karp_matching(G, top_nodes=None):
+def hopcroft_karp_matching(G, top_nodes=None, *, backend=None, **backend_kwargs):
     """Maximum-cardinality matching of bipartite ``G`` (Hopcroft-Karp).
 
     br-r37-c1-bngez: native byte-exact kernel for the ``top_nodes``-given simple
@@ -134,6 +134,9 @@ def hopcroft_karp_matching(G, top_nodes=None):
     one-shot nx view. Result is byte-identical to
     ``networkx.bipartite.hopcroft_karp_matching``.
     """
+    _fnx._validate_backend_dispatch_keywords(
+        "hopcroft_karp_matching", backend, backend_kwargs
+    )
     top_nodes = _derive_top_nodes(G, top_nodes)
     result = _native_hopcroft_karp(G, top_nodes)
     if result is not None:
@@ -141,8 +144,9 @@ def hopcroft_karp_matching(G, top_nodes=None):
     return _nx_bipartite.hopcroft_karp_matching(_matching_nx_view(G), top_nodes)
 
 
-def maximum_matching(G, top_nodes=None):
+def maximum_matching(G, top_nodes=None, *, backend=None, **backend_kwargs):
     """Alias of :func:`hopcroft_karp_matching` (matches networkx)."""
+    _fnx._validate_backend_dispatch_keywords("maximum_matching", backend, backend_kwargs)
     top_nodes = _derive_top_nodes(G, top_nodes)
     result = _native_hopcroft_karp(G, top_nodes)
     if result is not None:
@@ -150,11 +154,12 @@ def maximum_matching(G, top_nodes=None):
     return _nx_bipartite.maximum_matching(_matching_nx_view(G), top_nodes)
 
 
-def eppstein_matching(G, top_nodes=None):
+def eppstein_matching(G, top_nodes=None, *, backend=None, **backend_kwargs):
     """Maximum-cardinality matching of bipartite ``G`` (Eppstein).
 
     br-r37-c1-bipmatch: see :func:`hopcroft_karp_matching`.
     """
+    _fnx._validate_backend_dispatch_keywords("eppstein_matching", backend, backend_kwargs)
     return _nx_bipartite.eppstein_matching(_matching_nx_view(G), top_nodes)
 
 
@@ -629,7 +634,7 @@ def spectral_bipartivity(G, nodes=None, weight="weight"):
     return {n: cosh_diag[index[n]] / exp_diag[index[n]] for n in nodes}
 
 
-def color(G):
+def color(G, *, backend=None, **backend_kwargs):
     """Return a two-coloring ``{node: 0|1}`` of bipartite graph ``G``.
 
     br-r37-c1-r175x: re-exported nx ``@nx._dispatchable`` -> ~8.6x slower on an
@@ -638,6 +643,7 @@ def color(G):
     BFS-order dict keys). Raises NetworkXError on a non-bipartite graph exactly
     as nx does.
     """
+    _fnx._validate_backend_dispatch_keywords("color", backend, backend_kwargs)
     # br-r37-c1-bipcolor-native (cc): for an exact simple FNX Graph, do the whole
     # stack-BFS 2-coloring natively (integer-CSR, no Python adjacency snapshot —
     # the snapshot alone was ~39% of the call). Colors are BFS-distance parity
@@ -709,7 +715,7 @@ def color(G):
     return color
 
 
-def sets(G, top_nodes=None):
+def sets(G, top_nodes=None, *, backend=None, **backend_kwargs):
     """Return the two bipartite node sets ``(X, Y)`` of ``G``.
 
     br-r37-c1-r175x: re-exported nx ``@nx._dispatchable`` -> ~142x slower on an
@@ -717,6 +723,7 @@ def sets(G, top_nodes=None):
     exact algorithm in-process (fnx-native connectivity check + :func:`color`).
     Same AmbiguousSolution (disconnected, no top_nodes) / NetworkXError contracts.
     """
+    _fnx._validate_backend_dispatch_keywords("sets", backend, backend_kwargs)
     is_connected = _fnx.is_weakly_connected if G.is_directed() else _fnx.is_connected
     if top_nodes is not None:
         X = set(top_nodes)
@@ -732,7 +739,7 @@ def sets(G, top_nodes=None):
     return (X, Y)
 
 
-def is_bipartite_node_set(G, nodes):
+def is_bipartite_node_set(G, nodes, *, backend=None, **backend_kwargs):
     """Return True iff ``nodes`` and ``G - nodes`` are a bipartition of ``G``.
 
     br-r37-c1-r175x: re-exported nx ``@nx._dispatchable`` -> whole-graph
@@ -740,6 +747,9 @@ def is_bipartite_node_set(G, nodes):
     ``connected_components`` + the local :func:`sets`). Same AmbiguousSolution
     on duplicate input nodes.
     """
+    _fnx._validate_backend_dispatch_keywords(
+        "is_bipartite_node_set", backend, backend_kwargs
+    )
     S = set(nodes)
     if len(S) < len(nodes):
         raise _nx.AmbiguousSolution(

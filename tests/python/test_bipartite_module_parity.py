@@ -8,6 +8,7 @@ import random
 
 import networkx as nx
 import networkx.algorithms.bipartite as nxb
+import pytest
 
 import franken_networkx as fnx
 
@@ -126,6 +127,37 @@ def test_bipartite_matching_module_paths_match_networkx():
         repr(node)
         for node in via_algorithms.to_vertex_cover(fnx_graph, algorithms_max, _TOP)
     ) == expected_cover
+
+
+def test_bipartite_partition_matching_backend_signatures_match_networkx():
+    module = importlib.import_module("franken_networkx.bipartite")
+    fnx_graph, nx_graph = _mk(fnx), _mk(nx)
+
+    for name, args in (
+        ("color", ()),
+        ("sets", (_TOP,)),
+        ("is_bipartite_node_set", (_TOP,)),
+        ("hopcroft_karp_matching", (_TOP,)),
+        ("maximum_matching", (_TOP,)),
+        ("eppstein_matching", (_TOP,)),
+    ):
+        actual = getattr(module, name)(fnx_graph, *args, backend="networkx")
+        expected = getattr(nxb, name)(nx_graph, *args, backend="networkx")
+        if name.endswith("matching"):
+            assert sorted((repr(k), repr(v)) for k, v in actual.items()) == sorted(
+                (repr(k), repr(v)) for k, v in expected.items()
+            )
+        elif isinstance(actual, dict):
+            assert _D(actual) == _D(expected)
+        elif isinstance(actual, tuple):
+            assert tuple(map(set, actual)) == tuple(map(set, expected))
+        else:
+            assert actual == expected
+
+    with pytest.raises(ImportError):
+        module.color(fnx_graph, backend="missing")
+    with pytest.raises(TypeError):
+        module.sets(fnx_graph, unexpected=True)
 
 
 def test_bipartite_min_edge_cover_routes_through_fnx(monkeypatch):
