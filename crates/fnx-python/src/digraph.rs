@@ -6533,16 +6533,19 @@ impl PyMultiDiGraph {
         // 58.0ns and flat — roughly 9x for what is the same node resolution
         // twice over, because `has_node` already takes the index path.
         //
-        // KEYLESS ONLY, and that gate is a MEASURED correction rather than
-        // caution. I first ran this path for the keyed form too, short-circuiting
-        // only an ABSENT pair — and it REGRESSED the keyed row from 0.1726x to
-        // 0.1404x at 2000-character keys (both measured at loadavg ~12). The
-        // reason is plain once measured: `resolve_internal_edge_key` and
-        // `edge_attrs` are keyed by canonical STRINGS and fnx-classes has no
-        // by-index equivalent taking an edge key, so a PRESENT keyed pair paid
+        // WAS KEYLESS ONLY, and the reason is worth keeping: running this path
+        // for the keyed form too once REGRESSED the keyed row from 0.1726x to
+        // 0.1404x at 2000-character keys, because `resolve_internal_edge_key`
+        // and `edge_attrs` are keyed by canonical STRINGS and fnx-classes had no
+        // by-index equivalent taking an edge key — so a PRESENT keyed pair paid
         // two index lookups and then fell through to the whole string path
-        // anyway. Extra work, nothing removed. The keyed form is left alone
-        // until that primitive exists.
+        // anyway. Extra work, nothing removed.
+        //
+        // br-r37-c1-s8dj1: that primitive now exists
+        // (`MultiDiGraph::edge_attrs_by_indices`), and the keyed branch below
+        // uses it. `has_edge_by_indices` is a real index path now rather than a
+        // name round-trip, so THIS branch finally buys what it was written to
+        // buy as well.
         //
         // ORDER IS PRESERVED: nx raises KeyError from `self._succ[u]` for an
         // absent source and answers False WITHOUT hashing `v`, which is what the
@@ -6559,6 +6562,36 @@ impl PyMultiDiGraph {
                 Some(v_index) => self.inner.has_edge_by_indices(u_index, v_index),
                 None => false,
             });
+        }
+        // br-r37-c1-s8dj1: the KEYED exact-string path, mirroring the one
+        // PyMultiGraph carries. `resolve_internal_edge_key` short-circuits when
+        // the display-key space is pristine and the key is an exact int -- the
+        // public integer key IS the internal usize key -- so the canonicals were
+        // needed only to reach `edge_attrs`, and `edge_attrs_by_indices` reaches
+        // the same entry by position. Remapped, float and string keys are
+        // excluded and keep the existing scan.
+        //
+        // ORDERING: br-r37-c1-lvlu7 requires an absent source to answer False
+        // without hashing `v`. That cannot be observed here -- both endpoints are
+        // exact `str` and the key an exact `int`, all always hashable, so no user
+        // `__hash__` can run and the resolution order is invisible.
+        if !self.has_remapped_int_key
+            && u.is_exact_instance_of::<PyString>()
+            && v.is_exact_instance_of::<PyString>()
+            && let Some(edge_key) = key
+            && edge_key.is_exact_instance_of::<PyInt>()
+            && let Ok(internal_key) = edge_key.extract::<usize>()
+        {
+            let Some(u_index) = self.cached_exact_string_node_index(py, u)? else {
+                return Ok(false);
+            };
+            let Some(v_index) = self.cached_exact_string_node_index(py, v)? else {
+                return Ok(false);
+            };
+            return Ok(self
+                .inner
+                .edge_attrs_by_indices(u_index, v_index, internal_key)
+                .is_some());
         }
         let u_c = node_key_to_string(py, u)?;
         // br-r37-c1-lvlu7: absent source short-circuits before `v` is hashed.
