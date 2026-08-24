@@ -23553,11 +23553,7 @@
         "fixture": "digraph-chain-5",
         "raw": {
           "ok": true,
-          "value": [
-            0,
-            2,
-            3
-          ],
+          "value": null,
           "error_type": null
         },
         "public": {
@@ -23583,11 +23579,7 @@
         "fixture": "multigraph-path-5",
         "raw": {
           "ok": true,
-          "value": [
-            0,
-            2,
-            3
-          ],
+          "value": null,
           "error_type": null
         },
         "public": {
@@ -23615,11 +23607,7 @@
         "fixture": "multidigraph-chain-5",
         "raw": {
           "ok": true,
-          "value": [
-            0,
-            2,
-            3
-          ],
+          "value": null,
           "error_type": null
         },
         "public": {
@@ -23690,7 +23678,8 @@
           "value": [
             0,
             1,
-            2
+            1,
+            1
           ],
           "error_type": null
         },
@@ -23746,11 +23735,7 @@
         "fixture": "negative-weights-digraph",
         "raw": {
           "ok": true,
-          "value": [
-            0,
-            2,
-            1
-          ],
+          "value": null,
           "error_type": null
         },
         "public": {

@@ -60,8 +60,18 @@ def _ensure_checkout_native_extension_fresh() -> None:
     if extension_mtime + 1.0 < newest_source_mtime:
         raise pytest.UsageError(
             "stale python/franken_networkx/_fnx.abi3.so is older than Rust "
-            "sources; rebuild the Python extension before running pytest "
-            "(for example: rch exec -- maturin develop --features pyo3/abi3-py310)"
+            "sources; rebuild the Python extension before running pytest:\n"
+            "  env -u CARGO_TARGET_DIR maturin develop --release "
+            "--features pyo3/abi3-py310\n"
+            # br-r37-c1-debugso: `--release` is part of the instruction, not an
+            # optimisation. Without it maturin installs a DEBUG build into the
+            # shared venv, where every Python-Rust crossing costs ~6-9x more -
+            # G.edges[u,v] measured 1733.6ns debug against 185.0ns release. This
+            # message is one of the places the bare form was being copied from,
+            # and a debug build installed here is invisible until someone's
+            # benchmark invents a boundary cost that does not exist.
+            "(--release matters: the debug profile is ~9x slower at the "
+            "Python-Rust boundary and silently invalidates any measurement)"
         )
 
 

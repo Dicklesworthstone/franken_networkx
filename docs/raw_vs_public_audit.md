@@ -690,14 +690,14 @@ Functions audited: **51**
 | weighted-postmut-5 | `[0, 2, 3]` | `[0, 2, 3]` | `[0, 2, 3]` |
 | bipartite-3-3 | `[0, 0, 0, 6]` | `[0, 0, 0, 6]` | `[0, 0, 0, 6]` |
 | petersen | `[0, 0, 0, 10]` | `[0, 0, 0, 10]` | `[0, 0, 0, 10]` |
-| digraph-chain-5 | `[0, 2, 3]` | `[0, 2, 3]` | `[0, 2, 3]` |
-| multigraph-path-5 | `[0, 2, 3]` | `[0, 1, 3, 1]` | `[0, 1, 3, 1]` |
-| multidigraph-chain-5 | `[0, 2, 3]` | `[0, 2, 3]` | `[0, 2, 3]` |
+| digraph-chain-5 | `None` | `[0, 2, 3]` | `[0, 2, 3]` |
+| multigraph-path-5 | `None` | `[0, 1, 3, 1]` | `[0, 1, 3, 1]` |
+| multidigraph-chain-5 | `None` | `[0, 2, 3]` | `[0, 2, 3]` |
 | empty | `[]` | `[]` | `[]` |
 | single-node | `[1]` | `[1]` | `[1]` |
-| selfloop-path | `[0, 1, 2]` | `[0, 1, 1, 1]` | `[0, 1, 1, 1]` |
+| selfloop-path | `[0, 1, 1, 1]` | `[0, 1, 1, 1]` | `[0, 1, 1, 1]` |
 | two-components | `[0, 4]` | `[0, 4]` | `[0, 4]` |
-| negative-weights-digraph | `[0, 2, 1]` | `[0, 2, 1]` | `[0, 2, 1]` |
+| negative-weights-digraph | `None` | `[0, 2, 1]` | `[0, 2, 1]` |
 
 ### `diameter`
 
