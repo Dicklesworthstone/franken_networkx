@@ -95,6 +95,52 @@ def is_tree(G, *, backend=None, **backend_kwargs):
     return _fnx.is_tree(G, backend=backend, **backend_kwargs)
 
 
+def maximum_spanning_edges(
+    G,
+    algorithm="kruskal",
+    weight="weight",
+    keys=True,
+    data=True,
+    ignore_nan=False,
+    *,
+    backend=None,
+    **backend_kwargs,
+):
+    return _fnx.maximum_spanning_edges(
+        G,
+        algorithm=algorithm,
+        weight=weight,
+        keys=keys,
+        data=data,
+        ignore_nan=ignore_nan,
+        backend=backend,
+        **backend_kwargs,
+    )
+
+
+def minimum_spanning_edges(
+    G,
+    algorithm="kruskal",
+    weight="weight",
+    keys=True,
+    data=True,
+    ignore_nan=False,
+    *,
+    backend=None,
+    **backend_kwargs,
+):
+    return _fnx.minimum_spanning_edges(
+        G,
+        algorithm=algorithm,
+        weight=weight,
+        keys=keys,
+        data=data,
+        ignore_nan=ignore_nan,
+        backend=backend,
+        **backend_kwargs,
+    )
+
+
 def center(G):
     """Return the center of an undirected tree using fnx's center wrapper."""
     if G.is_directed():

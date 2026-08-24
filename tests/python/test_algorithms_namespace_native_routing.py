@@ -463,6 +463,23 @@ def test_local_connectivity_namespace_signature_and_results_match_oracle(name):
             actual(graph, 0, 2, backend="missing")
 
 
+@pytest.mark.parametrize("name", ["maximum_spanning_edges", "minimum_spanning_edges"])
+def test_spanning_edges_namespace_signature_and_results_match_oracle(name):
+    actual = getattr(fnx_algorithms.tree, name)
+    expected = getattr(nx.algorithms.tree, name)
+    assert str(inspect.signature(actual)) in {str(inspect.signature(expected))}
+
+    graph = fnx.Graph()
+    graph.add_weighted_edges_from([(0, 1, 1), (1, 2, 3), (0, 2, 2)])
+    nx_graph = nx.Graph()
+    nx_graph.add_weighted_edges_from([(0, 1, 1), (1, 2, 3), (0, 2, 2)])
+    assert list(actual(graph, backend="networkx")) == list(
+        expected(nx_graph, backend="networkx")
+    )
+    with pytest.raises(ImportError):
+        list(actual(graph, backend="missing"))
+
+
 @pytest.mark.parametrize(
     "name",
     ["edge_connectivity", "node_connectivity", "minimum_edge_cut", "minimum_node_cut"],
