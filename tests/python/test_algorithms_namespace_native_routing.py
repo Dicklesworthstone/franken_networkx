@@ -269,3 +269,108 @@ def test_flattened_core_number_signature_matches_oracle():
     assert actual(fnx.cycle_graph(4), backend="networkx") == expected(
         nx.cycle_graph(4), backend="networkx"
     )
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "is_chordal",
+        "find_induced_nodes",
+        "chordal_graph_cliques",
+        "chordal_graph_treewidth",
+    ],
+)
+def test_chordal_namespace_signature_and_results_match_oracle(name):
+    actual = getattr(fnx_algorithms.chordal, name)
+    expected = getattr(nx.algorithms.chordal, name)
+    assert str(inspect.signature(actual)) in {str(inspect.signature(expected))}
+
+    graph = fnx.complete_graph(3)
+    nx_graph = nx.complete_graph(3)
+    if name == "find_induced_nodes":
+        actual_value = actual(graph, 0, 1, backend="networkx")
+        expected_value = expected(nx_graph, 0, 1, backend="networkx")
+    else:
+        actual_value = actual(graph, backend="networkx")
+        expected_value = expected(nx_graph, backend="networkx")
+    if name == "chordal_graph_cliques":
+        assert {frozenset(clique) for clique in actual_value} == {
+            frozenset(clique) for clique in expected_value
+        }
+    else:
+        assert actual_value == expected_value
+
+    with pytest.raises(ImportError):
+        actual(graph, backend="missing") if name != "find_induced_nodes" else actual(
+            graph, 0, 1, backend="missing"
+        )
+
+
+@pytest.mark.parametrize("name", ["chordal_graph_cliques", "chordal_graph_treewidth"])
+def test_flattened_chordal_signatures_match_oracle(name):
+    actual = getattr(fnx_algorithms, name)
+    expected = getattr(nx.algorithms, name)
+    assert str(inspect.signature(actual)) in {str(inspect.signature(expected))}
+    graph = fnx.complete_graph(3)
+    nx_graph = nx.complete_graph(3)
+    if name == "chordal_graph_cliques":
+        assert {frozenset(clique) for clique in actual(graph, backend="networkx")} == {
+            frozenset(clique) for clique in expected(nx_graph, backend="networkx")
+        }
+    else:
+        assert actual(graph, backend="networkx") == expected(
+            nx_graph, backend="networkx"
+        )
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "articulation_points",
+        "biconnected_component_edges",
+        "biconnected_components",
+        "connected_components",
+        "is_biconnected",
+        "is_connected",
+        "node_connected_component",
+        "number_connected_components",
+    ],
+)
+def test_undirected_components_namespace_signature_and_results_match_oracle(name):
+    actual = getattr(fnx_algorithms.components, name)
+    expected = getattr(nx.algorithms.components, name)
+    assert str(inspect.signature(actual)) in {str(inspect.signature(expected))}
+
+    graph = fnx.Graph([(0, 1), (1, 2), (3, 4)])
+    nx_graph = nx.Graph([(0, 1), (1, 2), (3, 4)])
+    actual_value = (
+        actual(graph, 0, backend="networkx")
+        if name == "node_connected_component"
+        else actual(graph, backend="networkx")
+    )
+    expected_value = (
+        expected(nx_graph, 0, backend="networkx")
+        if name == "node_connected_component"
+        else expected(nx_graph, backend="networkx")
+    )
+    if name in {"connected_components", "biconnected_components"}:
+        assert {frozenset(component) for component in actual_value} == {
+            frozenset(component) for component in expected_value
+        }
+    elif name == "biconnected_component_edges":
+        assert {
+            frozenset(frozenset(edge) for edge in component)
+            for component in actual_value
+        } == {
+            frozenset(frozenset(edge) for edge in component)
+            for component in expected_value
+        }
+    elif name == "articulation_points":
+        assert list(actual_value) == list(expected_value)
+    else:
+        assert actual_value == expected_value
+
+    with pytest.raises(ImportError):
+        actual(graph, 0, backend="missing") if name == "node_connected_component" else actual(
+            graph, backend="missing"
+        )
