@@ -1547,6 +1547,13 @@ class EdgeDataView:
         rows = self._materialize()
         if self._graph is None:
             return iter(rows)
+        # br-r37-c1-hihrf: the coarse guard here is a KNOWN parity divergence for
+        # an nbunch above the walk gate — networkx completes where this raises —
+        # and passing `nbunch_rows=self._nbunch_list` to get the row rule fixes
+        # that at sizes 4 through 120 but was REVERTED as a measured loss: the
+        # row rule needs a per-row size baseline, and taking it costs
+        # O(nbunch x key length). See the bead for the numbers and the shape a
+        # cheaper baseline would have to have.
         return _FailFastEdgeIterator(self._graph, rows)
 
     def __len__(self):
@@ -16709,13 +16716,20 @@ def dfs_predecessors(G, source=None, depth_limit=None, *, sort_neighbors=None):
 def dfs_successors(G, source=None, depth_limit=None, *, sort_neighbors=None):
     """Return (node, [successors]) dict from DFS.
 
-    br-r37-c1-20swv: same dict-key-order drift as
-    ``dfs_predecessors``. Build via dfs_edges walk so the dict's
-    iteration order matches nx's DFS-discovery contract.
+    The unsorted path is assembled from the native canonical DFS edge stream,
+    which preserves NetworkX's DFS-discovery dict order without rebuilding a
+    Python ``defaultdict`` from the public ``dfs_edges`` generator.
     """
     # br-r37-c1-eghxq: accept nx-typed inputs.
     G = _coerce_arg_to_fnx_graph(G)
+    if source is not None:
+        hash(source)
+    depth_limit = _normalize_bfs_depth_limit(depth_limit)
+    if depth_limit is _DEPTH_EMPTY:
+        depth_limit = 0
     try:
+        if sort_neighbors is None:
+            return _dfs_successors_raw(G, source=source, depth_limit=depth_limit)
         from collections import defaultdict as _defaultdict
         succs = _defaultdict(list)
         for u, v in dfs_edges(G, source=source, depth_limit=depth_limit, sort_neighbors=sort_neighbors):
