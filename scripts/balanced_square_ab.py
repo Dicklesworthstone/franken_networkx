@@ -159,6 +159,55 @@ ROUND_WARM_CALLS = 2
 # row, because worker identity alone has moved a ratio 13.6x elsewhere in the
 # fleet with passing nulls.
 # ---------------------------------------------------------------------------
+def _installed_build_profile(elf: str, elf_sha: str) -> str:
+    """Which cargo profile the LOADED extension was built with.
+
+    br-r37-c1-debugso. `maturin develop` without `--release` installs a DEBUG
+    build into the shared venv, and on 2026-08-24 one sat there for at least
+    twenty minutes while several panes measured against it. It is not a small
+    effect and it does not look like a bug from the outside:
+
+        G.edges[u,v] against live networkx, same tree, same op
+            debug   .so   1733.6 ns   0.07x
+            release .so    185.0 ns   0.69x        9.4x apart
+
+    A trivial `len(G)` reads 252ns on debug and 43.5ns on release, so EVERY
+    ratio taken against a debug build is wrong by roughly the boundary cost, and
+    wrong in the direction that invents Python-Rust "crossing" losses which do
+    not exist. One such number cost a whole lever: it was attributed, fixed,
+    measured as a 9x win, and reverted once the same probes ran on a release
+    build (5457e5af1).
+
+    `--expect-elf` cannot catch this. It compares the loaded sha to the one you
+    INTENDED, so it catches a mid-run swap and says nothing about a debug binary
+    that was already installed when you started.
+
+    Identified by comparing the loaded file to cargo's own artifacts rather than
+    by guessing from size: an exact sha match against `target/debug/lib_fnx.so`
+    is proof, and the size check in front of it keeps the common case to one
+    `stat`.
+    """
+    root = pathlib.Path(__file__).resolve().parent.parent
+    try:
+        loaded_size = os.path.getsize(elf)
+    except OSError:
+        return "unknown"
+    for profile in ("debug", "release"):
+        candidate = root / "target" / profile / "lib_fnx.so"
+        try:
+            if os.path.getsize(candidate) != loaded_size:
+                continue
+            with open(candidate, "rb") as handle:
+                if hashlib.sha256(handle.read()).hexdigest() == elf_sha:
+                    return profile
+        except OSError:
+            continue
+    # No artifact matched - a wheel install, or a tree built elsewhere. Size is
+    # the only signal left, and the two profiles differ by more than 10x
+    # (13.9MB against 190MB), so the threshold does not need to be precise.
+    return "probably-debug" if loaded_size > 60_000_000 else "unknown"
+
+
 def provenance() -> dict:
     elf = _fnx_ext.__file__
     # br-r37-c1-shimprov: the shim is resolved from the IMPORTED module, not from
@@ -193,6 +242,7 @@ def provenance() -> dict:
         _shim_sha, _shim_lines = "unavailable", -1
     with open(elf, "rb") as handle:
         elf_sha = hashlib.sha256(handle.read()).hexdigest()
+    build_profile = _installed_build_profile(elf, elf_sha)
     harness = Path(__file__).resolve()
     with open(harness, "rb") as handle:
         harness_sha = hashlib.sha256(handle.read()).hexdigest()
@@ -232,6 +282,7 @@ def provenance() -> dict:
         "host": socket.gethostname(),
         "elf": elf,
         "elf_sha256": elf_sha,
+        "build_profile": build_profile,
         "governor": governor,
         "runtime_isa": ",".join(isa) or "baseline",
         # br-r37-c1-shimprov: record the PYTHON SHIM, not just the extension.
@@ -2196,6 +2247,14 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--reps", type=int, default=400)
     parser.add_argument("--warmup", type=int, default=8)
     parser.add_argument("--expect-elf", default=os.environ.get("EXPECT_ELF_SHA"))
+    # br-r37-c1-debugso: the escape hatch exists so the refusal above is a guard
+    # rather than a wall - characterising the debug profile is a legitimate thing
+    # to want, and it should have to be asked for by name.
+    parser.add_argument(
+        "--measure-debug-build-anyway",
+        action="store_true",
+        help="measure even if the loaded extension is a debug build (it is ~9x slower)",
+    )
     parser.add_argument("--list", action="store_true")
     # br-r37-c1-y4r63: run ONE row, so a row's number can be checked without the
     # rows before it having run in the same process. Every row still builds and
@@ -2244,6 +2303,24 @@ def main(argv: list[str]) -> int:
 
     # A bare `python3` loads the site-packages extension, which is a DIFFERENT
     # build. Refuse rather than measure the wrong binary.
+    # br-r37-c1-debugso: a DEBUG extension makes every ratio here wrong by the
+    # boundary cost - 9.4x on G.edges[u,v] - and it is invisible unless the run
+    # says so. Refuse rather than measure it. `--measure-debug-build-anyway`
+    # exists for someone deliberately characterising the debug profile.
+    if prov["build_profile"] in ("debug", "probably-debug") and not (
+        args.measure_debug_build_anyway
+    ):
+        raise SystemExit(
+            f"DEBUG EXTENSION: {prov['elf']} was built with the "
+            f"'{prov['build_profile']}' profile, so every ratio from it would be "
+            "wrong by the Python-Rust boundary cost (9.4x on G.edges[u,v] when "
+            "this was last measured). Rebuild with\n"
+            "  env -u CARGO_TARGET_DIR maturin develop --release "
+            "--features pyo3/abi3-py310\n"
+            "or pass --measure-debug-build-anyway if the debug profile IS the "
+            "subject."
+        )
+
     if args.expect_elf and not prov["elf_sha256"].startswith(args.expect_elf):
         raise SystemExit(
             f"ELF MISMATCH: loaded {prov['elf_sha256'][:16]} from {prov['elf']}, "
