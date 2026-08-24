@@ -2376,10 +2376,7 @@ fn borrowed_multidigraph_dirty_keys(
 fn cloned_multidigraph_dirty_keys(
     mdg: &crate::digraph::PyMultiDiGraph,
 ) -> PyResult<Option<HashSet<(String, String, usize)>>> {
-    mdg.edge_dirty_keys
-        .lock()
-        .map_err(|_| PyRuntimeError::new_err("MultiDiGraph edge dirty key lock poisoned"))
-        .map(|keys| keys.clone())
+    Ok(mdg.cloned_current_edge_dirty_keys())
 }
 
 fn multidigraph_weight_with_precise_dirty(
