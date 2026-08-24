@@ -334,3 +334,45 @@ def test_classes_edge_property_helpers_match_legacy_oracle_and_errors():
     with pytest.raises(fnx.NetworkXError) as fnx_error:
         fnx_classes.is_weighted(graph, edge=("missing", "edge"))
     assert str(fnx_error.value) == str(legacy_error.value)
+
+
+def test_remaining_classes_helpers_match_legacy_oracle(capsys):
+    legacy = _legacy_networkx()
+    legacy_graph = legacy.Graph(name="described")
+    graph = fnx.Graph(name="described")
+    for candidate in (legacy_graph, graph):
+        candidate.add_edge("a", "b", cost=7, label="remove")
+        candidate.add_node("a", tier=1, label="remove")
+        candidate.add_node("b", tier=2, label="remove")
+
+    legacy.classes.describe(legacy_graph, describe_hook=lambda G: {"Hook": len(G)})
+    legacy_output = capsys.readouterr().out
+    fnx_classes.describe(graph, describe_hook=lambda G: {"Hook": len(G)})
+    assert capsys.readouterr().out == legacy_output
+
+    assert fnx_classes.is_empty(fnx.Graph(), backend="networkx") is legacy.classes.is_empty(
+        legacy.Graph(), backend="networkx"
+    )
+    assert fnx_classes.is_empty(graph) is legacy.classes.is_empty(legacy_graph)
+
+    legacy.classes.remove_node_attributes(
+        legacy_graph, "label", nbunch=["a", "missing"], backend="networkx"
+    )
+    fnx_classes.remove_node_attributes(
+        graph, "label", nbunch=["a", "missing"], backend="networkx"
+    )
+    legacy.classes.remove_edge_attributes(
+        legacy_graph, "label", ebunch=[("a", "b")], backend="networkx"
+    )
+    fnx_classes.remove_edge_attributes(
+        graph, "label", ebunch=[("a", "b")], backend="networkx"
+    )
+    assert list(graph.nodes(data=True)) == list(legacy_graph.nodes(data=True))
+    assert list(graph.edges(data=True)) == list(legacy_graph.edges(data=True))
+
+    assert fnx_classes.remove_node_attributes(graph) is legacy.classes.remove_node_attributes(
+        legacy_graph
+    )
+    assert fnx_classes.remove_edge_attributes(graph) is legacy.classes.remove_edge_attributes(
+        legacy_graph
+    )
