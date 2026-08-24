@@ -25000,6 +25000,59 @@ def _sp_edge_weights_all_float(G, weight):
     return saw_edge
 
 
+def _sp_weight_type_survives_the_f64_kernel(weight_value):
+    """True when a weight VALUE's TYPE comes back out of the native kernel.
+
+    br-r37-c1-3dtn4: networkx never coerces a distance - its type follows the
+    Python sum along the path, so ``Fraction`` weights give a ``Fraction``
+    distance and numpy scalars give numpy scalars. The native kernel works in
+    f64, and the only type it can restore afterwards is ``int``. Anything else
+    numeric - Fraction, Decimal, numpy float64/int64 - arrives back as a plain
+    float, silently, with the rounding that implies for exact rational work.
+
+    ``bool`` survives because it is restored as ``int``, which is what nx's own
+    arithmetic produces (``True + 2`` is ``3``), so it is deliberately NOT
+    treated as exotic here.
+    """
+    return type(weight_value) in (int, float, bool)
+
+
+def _sp_weights_need_networkx_for_type_parity(G, weight):
+    """True when some edge weight's TYPE cannot survive the native kernel.
+
+    br-r37-c1-3dtn4: the callers of this are the routes that reach an f64 kernel
+    WITHOUT passing a type-aware gate. Delegating is the only sound repair: once
+    the kernel has returned a float, the original ``Fraction`` is gone and no
+    amount of post-processing recovers it.
+
+    The native scan answers this for free where it is available - its
+    ``has_nonfinite``/``has_nonnumeric`` slots already fold in the exactness
+    channel that flags exotic numerics - and it is the same scan
+    ``_should_delegate_dijkstra_to_networkx`` consults, so the two cannot drift
+    apart. ``has_negative`` is deliberately NOT consulted: Bellman-Ford handles
+    negative weights natively and must keep doing so.
+    """
+    if not isinstance(weight, str):
+        return False
+    if _native_check_dijkstra_weights_fast is not None:
+        try:
+            scan = _native_check_dijkstra_weights_fast(G, weight, False)
+        except Exception:  # noqa: BLE001 - an odd graph falls to the Python walk
+            scan = None
+        if scan is not None:
+            _has_negative, has_nonfinite, has_nonnumeric = scan
+            return bool(has_nonfinite or has_nonnumeric)
+    if G.is_multigraph():
+        rows = (attrs for _u, _v, _k, attrs in G.edges(keys=True, data=True))
+    else:
+        rows = (attrs for _u, _v, attrs in G.edges(data=True))
+    for attrs in rows:
+        if isinstance(attrs, dict) and weight in attrs:
+            if not _sp_weight_type_survives_the_f64_kernel(attrs[weight]):
+                return True
+    return False
+
+
 def _sp_propagate_int_types(G, weight, dists, paths):
     """br-r37-c1-srczero generalized: nx never coerces — each distance's
     TYPE follows the Python sum along the chosen shortest path
@@ -25024,7 +25077,12 @@ def _sp_propagate_int_types(G, weight, dists, paths):
                 w = min(cands)
             else:
                 w = G[u][v].get(weight, 1)
-            if not isinstance(w, _numbers.Integral) or isinstance(w, bool):
+            # br-r37-c1-3dtn4: bool is NOT excluded. networkx does no such test -
+            # it just adds, and `True + 2` is the int `3` - so a graph mixing
+            # True with ints keeps int distances there and lost them here. bool
+            # IS Integral for arithmetic, and this helper's whole job is to
+            # follow the arithmetic nx performed.
+            if not isinstance(w, _numbers.Integral):
                 all_int = False
                 break
         out[node] = int(d) if all_int else d
@@ -25317,6 +25375,15 @@ def _multigraph_collapse_min_weight(G, weight):
                 return None, True
             if _val < 0 or (_math.isinf(_val) and _val > 0):
                 return None, True
+        # br-r37-c1-3dtn4: a weight whose TYPE cannot survive an f64 kernel
+        # delegates, for the same reason NaN does - this collapse hands its
+        # result to a raw kernel, and by the time that returns, a Fraction has
+        # already become a plain float and cannot be recovered. This is the
+        # multigraph half of that bead: the simple classes were right because
+        # their gate consults the native exactness scan, and this route consults
+        # nothing.
+        if not _sp_weight_type_survives_the_f64_kernel(_val):
+            return None, True
         _pair = (_u, _v)
         _cur = best.get(_pair)
         if _cur is None or _val < _cur:
@@ -25354,6 +25421,15 @@ def _multigraph_collapse_min_weight_bellman(G, weight):
                 ):
                     return None, True
         _val = _attrs.get(weight, 1)
+        # br-r37-c1-3dtn4: a weight whose TYPE cannot survive an f64 kernel
+        # delegates, for the same reason NaN does - this collapse hands its
+        # result to a raw kernel, and by the time that returns, a Fraction has
+        # already become a plain float and cannot be recovered. This is the
+        # multigraph half of that bead: the simple classes were right because
+        # their gate consults the native exactness scan, and this route consults
+        # nothing.
+        if not _sp_weight_type_survives_the_f64_kernel(_val):
+            return None, True
         _pair = (_u, _v)
         _cur = best.get(_pair)
         if _cur is None or _val < _cur:
@@ -25377,6 +25453,19 @@ def single_source_dijkstra_path_length(G, source, cutoff=None, weight="weight"):
         if G.is_directed():
             if source not in G:
                 raise NodeNotFound(f"Node {source} not found in graph")
+            # br-r37-c1-3dtn4: the DIRECTED multigraph takes its own kernel and
+            # never touches the collapse, so the type gate has to be repeated
+            # here - this was the last of the six cells, and it is the reason
+            # MultiDiGraph kept flattening Fraction/Decimal/numpy after the
+            # undirected half was fixed.
+            if _sp_weights_need_networkx_for_type_parity(G, weight):
+                return _call_networkx_for_parity(
+                    "single_source_dijkstra_path_length",
+                    G,
+                    source,
+                    cutoff=cutoff,
+                    weight=weight,
+                )
             _direct = _raw_mdg_ss_dijkstra_path_length(
                 G, source, weight=weight, cutoff=cutoff
             )
@@ -25586,6 +25675,22 @@ def single_source_bellman_ford_path_length(G, source, weight="weight"):
     # return the same answer before and after a kernel call, including after a
     # Python-side edge-attribute edit, so it does not depend on a sync that
     # only a prior kernel run would have performed.
+    # br-r37-c1-3dtn4: a weight type the f64 kernel cannot round-trip goes to
+    # networkx. Bellman-Ford's own gate only inspects the weight ARGUMENT, not
+    # the VALUES, so this was the route by which Fraction, Decimal and numpy
+    # scalars came back as plain floats on all four classes - the widest half of
+    # that bead. Ordinary int/float graphs answer False here from the same
+    # native scan the dijkstra gate uses, so they keep the kernel.
+    #
+    # BEFORE the all-int check, not after, and that ordering is the whole fix
+    # for numpy: `_sp_edge_weights_all_int` answers True for `np.int64`, which
+    # is `Integral`, and the coercion behind it then returns a plain `int` where
+    # networkx returns `np.int64`. Asking the narrower question first left that
+    # case looking fixed while it was merely fixed differently.
+    if _sp_weights_need_networkx_for_type_parity(G, weight):
+        return _call_networkx_for_parity(
+            "single_source_bellman_ford_path_length", G, source, weight=weight
+        )
     if _sp_edge_weights_all_int(G, weight):
         result = _raw_single_source_bellman_ford_path_length(G, source, weight=weight)
         return _sp_coerce_dist_to_int(dict(result))
