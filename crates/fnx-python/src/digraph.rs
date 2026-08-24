@@ -20836,7 +20836,7 @@ def fnx_keyed_attr_edges(mixed):
             let mut graph = PyMultiDiGraph::new_empty_with_policy(py, expected_policy.clone())
                 .expect("multidigraph should initialize");
 
-            graph.clear_edges();
+            graph.clear_edges(py);
 
             assert_eq!(graph.inner.runtime_policy(), &expected_policy);
         });
@@ -20863,7 +20863,7 @@ def fnx_keyed_attr_edges(mixed):
                 .set_item("color", "red")
                 .expect("mutate node mirror");
 
-            graph.clear_edges();
+            graph.clear_edges(py);
 
             assert_eq!(graph.inner.edge_count(), 0);
             assert_eq!(graph.inner.nodes_ordered(), vec!["str:1:a", "str:1:b"]);

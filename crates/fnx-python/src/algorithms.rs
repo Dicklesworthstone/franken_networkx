@@ -33315,6 +33315,8 @@ mod tests {
         ensure_python();
         Python::attach(|py| {
             let mut multigraph = PyMultiGraph {
+                edge_keydict_by_index: HashMap::new(),
+                edge_py_attrs_by_index: HashMap::new(),
                 inner: MultiGraph::new(CompatibilityMode::Hardened),
                 node_key_map: HashMap::new(),
                 node_py_attrs: HashMap::new(),

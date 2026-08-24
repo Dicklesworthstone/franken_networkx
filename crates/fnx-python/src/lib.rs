@@ -20252,7 +20252,7 @@ class FnxMultiGraphCtorEdgeIterable:
             let mut graph = PyMultiGraph::new_empty_with_policy(py, expected_policy.clone())
                 .expect("multigraph should initialize");
 
-            graph.clear_edges();
+            graph.clear_edges(py);
 
             assert_eq!(graph.inner.runtime_policy(), &expected_policy);
         });
