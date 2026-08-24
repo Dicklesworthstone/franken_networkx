@@ -50545,106 +50545,10 @@ def _has_node_through_the_membership_slot(self, n):
     return n in self
 
 
-_CONCRETE_GRAPH_TYPES = ()  # filled just below, once the four classes exist
-
-
-def _install_has_node_key_mirror(graph):
-    """Attach the live node-key mirror to ``graph``, or ``None`` if ineligible.
-
-    br-r37-c1-hasnode-slot: called ONCE per graph, off the hot path - the caller
-    reaches it only when the attribute is absent. Both outcomes are stored, so an
-    ineligible graph costs one attribute load per call rather than a repeated
-    probe for an accessor it does not have.
-
-    A VIEW is ineligible and that is the load-bearing case: it subclasses the
-    native class, so `_fnx_node_key_dict` exists on it while its Rust base is
-    EMPTY - the mirror would come back empty and report every node absent
-    (br-r37-c1-kum9v). Type identity, not `isinstance`, is what excludes it.
-    """
-    mirror = None
-    if type(graph) in _CONCRETE_GRAPH_TYPES:
-        accessor = getattr(graph, "_fnx_node_key_dict", None)
-        if accessor is not None:
-            mirror = accessor()
-    graph._fnx_has_node_key_mirror = mirror
-    return mirror
-
-
-def _has_node_from_the_live_key_mirror(self, n):
-    """``G.has_node(n)`` answered in Python, from the live node-key mirror.
-
-    br-r37-c1-hasnode-slot, architectural half. Routing through the membership
-    slot removed PyO3's one-argument method trampoline and still left has_node at
-    0.15x of networkx, because what remained is not has_node's fault: crossing
-    into Rust AT ALL costs ~210-250ns on this extension, measured with ``len(G)``
-    - a native slot with a trivial body - against a Python method attached to the
-    same object at 44ns. networkx answers the whole call in ~99ns, so any spelling
-    that enters Rust starts ~2.5x behind before doing anything.
-
-    So this one does not enter Rust. The graph already maintains
-    ``_fnx_node_key_dict()``: the real Python dict of node keys that the native
-    node iterator walks, and it is LIVE - not a stamped snapshot - so membership
-    against it needs no invalidation logic of any kind. Verified against every
-    mutation spelling: add_node, add_nodes_from, remove_node, remove_nodes_from,
-    add_edge and add_edges_from creating nodes implicitly, and clear() followed by
-    re-adds. The handle is cached on the instance and stays correct because the
-    OBJECT is maintained in place.
-
-    Measured, 2000-node str-keyed Graph, min of 13 blocks of 512 calls, live
-    networkx 3.6.1 in the same process:
-
-                        present    missing
-        networkx           99.0       98.3
-        through the slot  651.0      983.8      0.152x / 0.100x
-        this              70.0       73.3      1.414x / 1.341x
-
-    A PULL-BASED STAMP CACHE WAS REFUTED FIRST, so nobody rebuilds it: keying the
-    cache on ``G.nodes_seq`` costs 378ns per read - MORE than the 246ns native call
-    it would replace - because reading that attribute is itself a boundary
-    crossing. Only a handle that needs no revalidation can win here, which is why
-    the liveness of the mirror is the whole design and not an optimisation detail.
-
-    THREE THINGS IT MUST NOT DO, each of which is a real failure mode:
-      * a VIEW subclasses the native class, so the accessor exists on it while its
-        Rust base is EMPTY - the mirror would come back empty and report every node
-        absent. br-r37-c1-kum9v records that exact failure for the other native
-        fast paths, so this is restricted to the four concrete types.
-      * an UNHASHABLE key raises from a dict probe, where networkx's
-        ``try: n in self._node except TypeError: return False`` answers False.
-      * a graph carrying ASSIGNED private storage must read that mapping instead;
-        it does, because this function stays in ``_RAW_HAS_NODE_METHODS`` and the
-        per-instance shadow replaces it exactly as before.
-    """
-    # EXACT str/int only, and this gate is a SEMANTIC one rather than a
-    # convenience. The mirror is a Python dict, so it decides membership by
-    # ``__hash__``/``__eq__``; the native path decides by the node key's
-    # CHARACTERS. Those differ for a lying ``str`` subclass - one that hashes and
-    # compares equal to a node it does not spell - and
-    # test_node_present_key_memo pins fnx's character-based answer for it. A
-    # perf change must not move that contract sideways, so anything that is not
-    # exactly ``str`` or ``int`` keeps the native path and its existing
-    # semantics, whatever they are.
-    #
-    # (For the record, since it is worth someone deciding deliberately: networkx
-    # answers True for that lying subclass, because its own lookup is a dict
-    # probe, and fnx answers False. That is a real pre-existing divergence, it is
-    # not this change's to make, and routing exact keys through a dict does not
-    # touch it.)
-    if type(n) is str or type(n) is int:
-        try:
-            mirror = self._fnx_has_node_key_mirror
-        except AttributeError:
-            mirror = _install_has_node_key_mirror(self)
-        if mirror is not None:
-            return n in mirror
-    return n in self
-
-
-Graph.has_node = _has_node_from_the_live_key_mirror
-DiGraph.has_node = _has_node_from_the_live_key_mirror
-MultiGraph.has_node = _has_node_from_the_live_key_mirror
-MultiDiGraph.has_node = _has_node_from_the_live_key_mirror
-_CONCRETE_GRAPH_TYPES = (Graph, DiGraph, MultiGraph, MultiDiGraph)
+Graph.has_node = _has_node_through_the_membership_slot
+DiGraph.has_node = _has_node_through_the_membership_slot
+MultiGraph.has_node = _has_node_through_the_membership_slot
+MultiDiGraph.has_node = _has_node_through_the_membership_slot
 # br-r37-c1-hasnode-slot: the slot-routed `has_node` is a RAW implementation
 # too, and `_RAW_HAS_NODE_METHODS` is how a graph that later receives assigned
 # private storage decides whether its class attribute is one it must shadow.
@@ -50654,7 +50558,6 @@ _CONCRETE_GRAPH_TYPES = (Graph, DiGraph, MultiGraph, MultiDiGraph)
 # the tuple's definition because the function has to exist first.
 _RAW_HAS_NODE_METHODS = _RAW_HAS_NODE_METHODS + (
     _has_node_through_the_membership_slot,
-    _has_node_from_the_live_key_mirror,
 )
 Graph.has_edge = _GRAPH_PRIVATE_AWARE_HAS_EDGE
 DiGraph.has_edge = _DIGRAPH_PRIVATE_AWARE_HAS_EDGE
