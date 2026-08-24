@@ -54,24 +54,7 @@ def _both(cls_name, script):
 # --------------------------------------------------------------- the divergence
 
 
-@pytest.mark.parametrize(
-    "cls_name",
-    [
-        pytest.param(
-            name,
-            marks=pytest.mark.xfail(
-                strict=True,
-                reason="br-r37-c1-2ndmw: a held row view re-identifies its node. "
-                "networkx binds the view to the _adj[u] dict object, which a "
-                "removal detaches, so it reports pre-removal neighbours forever; "
-                "fnx reads live by name and reports the re-added node's "
-                "neighbours. PRE-EXISTING — reproduces identically on builds "
-                "either side of the row-membership index path.",
-            ),
-        )
-        for name in CLASSES
-    ],
-)
+@pytest.mark.parametrize("cls_name", CLASSES)
 def test_held_row_after_node_removal_and_readd_matches_networkx(cls_name):
     def script(g):
         g.add_edge("u", "a")
@@ -82,6 +65,46 @@ def test_held_row_after_node_removal_and_readd_matches_networkx(cls_name):
 
     want, got = _both(cls_name, script)
     assert got == want, f"{cls_name}: nx={want} fnx={got}"
+
+
+@pytest.mark.parametrize("cls_name", CLASSES)
+@pytest.mark.parametrize("source", ["adj", "getitem"])
+def test_held_row_after_batch_removal_and_readd_matches_networkx(cls_name, source):
+    """Both public row spellings must detach before ``remove_nodes_from``."""
+
+    def script(g):
+        g.add_edge("u", "a")
+        row = g.adj["u"] if source == "adj" else g["u"]
+        g.remove_nodes_from(["missing", "u"])
+        g.add_edge("u", "b")
+        return {"a": "a" in row, "b": "b" in row, "len": len(row)}
+
+    want, got = _both(cls_name, script)
+    assert got == want, f"{cls_name}/{source}: nx={want} fnx={got}"
+
+
+@pytest.mark.parametrize("cls_name", ["DiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("source", ["succ", "pred"])
+def test_held_directed_row_after_removal_and_readd_matches_networkx(cls_name, source):
+    """The directed aliases carry independent row caches and both detach."""
+
+    def script(g):
+        if source == "succ":
+            g.add_edge("u", "a")
+            row = g.succ["u"]
+            g.remove_node("u")
+            g.add_edge("u", "b")
+            old, new = "a", "b"
+        else:
+            g.add_edge("a", "u")
+            row = g.pred["u"]
+            g.remove_node("u")
+            g.add_edge("b", "u")
+            old, new = "a", "b"
+        return {"old": old in row, "new": new in row, "len": len(row)}
+
+    want, got = _both(cls_name, script)
+    assert got == want, f"{cls_name}/{source}: nx={want} fnx={got}"
 
 
 # ------------------------------------------------- the liveness that AGREES today

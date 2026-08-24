@@ -794,6 +794,7 @@ def _remove_node_with_networkx_missing_node_error(remove_node_impl, *, graph_kin
         hash(n)
         if n not in self:
             raise NetworkXError(f"The node {n} is not in the {graph_kind}.")
+        _detach_rows_before_node_removal(self, n)
         result = remove_node_impl(self, n)
         _invalidate_adjacency_row_caches(self)
         return result
@@ -6325,12 +6326,16 @@ def _remove_nodes_from_materialized(raw):
                 valid_count = i
                 break
         if first_error is None:
+            for n in materialized:
+                _detach_rows_before_node_removal(self, n)
             result = raw(self, materialized)
             _invalidate_adjacency_row_caches(self)
             if iteration_exc is not None:
                 raise iteration_exc
             return result
         if valid_count:
+            for n in materialized[:valid_count]:
+                _detach_rows_before_node_removal(self, n)
             raw(self, materialized[:valid_count])
             _invalidate_adjacency_row_caches(self)
         raise first_error
@@ -10245,6 +10250,29 @@ def _detach_rows_before_clear(graph):
                 continue
             for row in tuple(cache[1].values()):
                 _detach_row(row)
+
+
+def _detach_rows_before_node_removal(graph, node):
+    """Detach only cached rows whose own node is about to disappear.
+
+    A held NetworkX ``G.adj[node]`` is backed by that node's inner dict. Node
+    removal detaches the dict, so re-adding the same node must not make the old
+    view identify the new row. Rows for every other node remain live, including
+    across the index renumbering caused by this removal.
+    """
+    storage = vars(graph)
+    caches = [storage.get("_fnx_getitem_atlas_cache")]
+    caches.extend(
+        getattr(view, cache_name, None)
+        for view in tuple(storage.values())
+        for cache_name in ("_fnx_row_cache", "_fnx_atlas_cache")
+    )
+    for cache in caches:
+        if not cache:
+            continue
+        row = cache[1].get(node)
+        if row is not None:
+            _detach_row(row)
 
 
 def _detach_row(row):
