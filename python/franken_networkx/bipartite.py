@@ -627,7 +627,9 @@ def _spectral_bipartivity_nx_copy(B):
     return H
 
 
-def spectral_bipartivity(G, nodes=None, weight="weight"):
+def spectral_bipartivity(
+    G, nodes=None, weight="weight", *, backend=None, **backend_kwargs
+):
     """Spectral bipartivity measure of bipartite ``G``.
 
     br-r37-c1-1h238: re-exported from networkx as an ``@nx._dispatchable``, so on
@@ -642,6 +644,9 @@ def spectral_bipartivity(G, nodes=None, weight="weight"):
     expm result to far beyond the module's round-6 conformance bar. Directed /
     multigraph / nx-typed inputs delegate to nx (non-symmetric / general expm).
     """
+    _fnx._validate_backend_dispatch_keywords(
+        "spectral_bipartivity", backend, backend_kwargs
+    )
     if isinstance(G, _nx.Graph):
         return _nx_bipartite.spectral_bipartivity(G, nodes, weight)
     if G.is_directed() or G.is_multigraph():

@@ -297,6 +297,28 @@ def test_minimum_weight_full_matching_signature_matches_legacy_oracle():
         module.minimum_weight_full_matching(graph, {"u", "v"}, unexpected=True)
 
 
+def test_spectral_bipartivity_signature_matches_legacy_oracle():
+    module = importlib.import_module("franken_networkx.bipartite")
+    legacy = _legacy_networkx()
+    graph, legacy_graph = _mk(fnx), _mk(legacy)
+
+    actual_parameters = inspect.signature(module.spectral_bipartivity).parameters
+    expected_parameters = inspect.signature(
+        legacy.algorithms.bipartite.spectral_bipartivity
+    ).parameters
+    assert actual_parameters == expected_parameters
+    assert module.spectral_bipartivity(graph, backend="networkx") == pytest.approx(
+        legacy.algorithms.bipartite.spectral_bipartivity(
+            legacy_graph, backend="networkx"
+        )
+    )
+
+    with pytest.raises(ImportError):
+        module.spectral_bipartivity(graph, backend="missing")
+    with pytest.raises(TypeError):
+        module.spectral_bipartivity(graph, unexpected=True)
+
+
 def test_bipartite_min_edge_cover_routes_through_fnx(monkeypatch):
     module = importlib.import_module("franken_networkx.bipartite")
     via_algorithms = importlib.import_module("franken_networkx.algorithms.bipartite")
