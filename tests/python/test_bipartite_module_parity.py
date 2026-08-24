@@ -3,14 +3,35 @@ vertex cover, centralities, clustering, redundancy, spectral
 bipartivity. Identical fixed bipartite graphs. Zero divergences.
 """
 import importlib
+import importlib.util
 import io
 import random
+import sys
+from functools import lru_cache
+from pathlib import Path
 
 import networkx as nx
 import networkx.algorithms.bipartite as nxb
 import pytest
 
 import franken_networkx as fnx
+
+
+@lru_cache(maxsize=1)
+def _legacy_networkx():
+    module_name = "franken_networkx_legacy_networkx_bipartite_surface"
+    legacy_init = (
+        Path(__file__).resolve().parents[2]
+        / "legacy_networkx_code"
+        / "networkx"
+        / "networkx"
+        / "__init__.py"
+    )
+    spec = importlib.util.spec_from_file_location(module_name, legacy_init)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[module_name] = module
+    spec.loader.exec_module(module)
+    return module
 
 
 def _mk(mod):
@@ -212,6 +233,33 @@ def test_bipartite_centrality_backend_signatures_match_networkx():
 
     with pytest.raises(TypeError):
         module.node_redundancy(fnx_graph, unexpected=True)
+
+
+def test_biadjacency_matrix_backend_signature_matches_legacy_oracle():
+    module = importlib.import_module("franken_networkx.bipartite")
+    legacy = _legacy_networkx()
+    graph, legacy_graph = _mk(fnx), _mk(legacy)
+    graph[0][6]["weight"] = 3
+    legacy_graph[0][6]["weight"] = 3
+
+    actual = module.biadjacency_matrix(
+        graph, sorted(_TOP), weight="weight", format="csc", backend="networkx"
+    )
+    expected = legacy.algorithms.bipartite.biadjacency_matrix(
+        legacy_graph,
+        sorted(_TOP),
+        weight="weight",
+        format="csc",
+        backend="networkx",
+    )
+    assert actual.format == expected.format
+    assert actual.dtype == expected.dtype
+    assert actual.toarray().tolist() == expected.toarray().tolist()
+
+    with pytest.raises(ImportError):
+        module.biadjacency_matrix(graph, sorted(_TOP), backend="missing")
+    with pytest.raises(TypeError):
+        module.biadjacency_matrix(graph, sorted(_TOP), unexpected=True)
 
 
 def test_bipartite_min_edge_cover_routes_through_fnx(monkeypatch):

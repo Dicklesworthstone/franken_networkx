@@ -291,7 +291,15 @@ def degrees(B, nodes, weight=None, *, backend=None, **backend_kwargs):
 
 
 def biadjacency_matrix(
-    B, row_order, column_order=None, dtype=None, weight="weight", format="csr"
+    B,
+    row_order,
+    column_order=None,
+    dtype=None,
+    weight="weight",
+    format="csr",
+    *,
+    backend=None,
+    **backend_kwargs,
 ):
     """Return the biadjacency matrix (``row_order`` x ``column_order``) of ``B``.
 
@@ -310,6 +318,9 @@ def biadjacency_matrix(
 
     import scipy as sp
 
+    _fnx._validate_backend_dispatch_keywords(
+        "biadjacency_matrix", backend, backend_kwargs
+    )
     nlen = len(row_order)
     if nlen == 0:
         raise _nx.NetworkXError("row_order is empty list")
@@ -332,10 +343,13 @@ def biadjacency_matrix(
     # ``all_int`` so we reproduce nx's dtype inference exactly (int64 for an
     # all-integer non-empty matrix, float64 otherwise); coo canonicalisation
     # makes the result order-independent. Directed / multigraph / nx-typed /
-    # non-numeric-weight inputs return None -> exact Python loop below.
+    # non-numeric-weight inputs return None -> exact Python loop below. Weighted
+    # inputs stay on that loop too: an edge attribute dict is live, whereas the
+    # native store is only authoritative until a caller can mutate that dict.
     native = getattr(_fnx._fnx, "biadjacency_coo", None)
     if (
         native is not None
+        and weight is None
         and not isinstance(B, _nx.Graph)
         and not B.is_directed()
         and not B.is_multigraph()
