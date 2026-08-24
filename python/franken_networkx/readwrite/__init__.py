@@ -1150,6 +1150,17 @@ class GraphMLReader:
     >>> G = reader(path="example.graphml")  # doctest: +SKIP
     """
 
+    NS_GRAPHML = "http://graphml.graphdrawing.org/xmlns"
+    NS_XSI = "http://www.w3.org/2001/XMLSchema-instance"
+    NS_Y = "http://www.yworks.com/xml/graphml"
+    SCHEMALOCATION = " ".join(
+        (
+            "http://graphml.graphdrawing.org/xmlns",
+            "http://graphml.graphdrawing.org/xmlns/1.0/graphml.xsd",
+        )
+    )
+    convert_bool = {"true": True, "false": False, "0": False, 0: False, "1": True, 1: True}
+
     def __init__(
         self,
         node_type=str,
@@ -1163,6 +1174,35 @@ class GraphMLReader:
             edge_key_type=edge_key_type,
             force_multigraph=force_multigraph,
         )
+
+    def construct_types(self):
+        """Rebuild GraphML's Python/XML type mappings."""
+        return self._nx_reader.construct_types()
+
+    def get_xml_type(self, key):
+        """Return GraphML's XML spelling for a Python attribute type."""
+        return self._nx_reader.get_xml_type(key)
+
+    def find_graphml_keys(self, graph_element):
+        """Extract GraphML key declarations and defaults from XML."""
+        return self._nx_reader.find_graphml_keys(graph_element)
+
+    def decode_data_elements(self, graphml_keys, obj_xml):
+        """Decode GraphML ``data`` XML elements into Python attributes."""
+        return self._nx_reader.decode_data_elements(graphml_keys, obj_xml)
+
+    def add_node(self, G, node_xml, graphml_keys, defaults):
+        """Add one GraphML node to ``G`` using the reader's configured types."""
+        return self._nx_reader.add_node(G, node_xml, graphml_keys, defaults)
+
+    def add_edge(self, G, edge_element, graphml_keys):
+        """Add one GraphML edge to ``G`` using the reader's configured types."""
+        return self._nx_reader.add_edge(G, edge_element, graphml_keys)
+
+    def make_graph(self, graph_xml, graphml_keys, defaults, G=None):
+        """Build a FrankenNetworkX graph from one GraphML ``graph`` element."""
+        graph = self._nx_reader.make_graph(graph_xml, graphml_keys, defaults, G)
+        return graph if G is not None else _from_nx_graph(graph)
 
     def __call__(self, path=None, string=None):
         """Read a GraphML document from path or string.
