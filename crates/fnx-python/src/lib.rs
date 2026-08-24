@@ -10,6 +10,7 @@ mod algorithms;
 mod cgse;
 pub(crate) mod digraph;
 mod generators;
+mod live_keydict;
 mod network_simplex;
 mod readwrite;
 mod views;
@@ -5379,6 +5380,7 @@ pub(crate) struct PyMultiGraph {
     /// native store. The copy costs ~451ns against ~16623ns for the rebuild.
     pub(crate) edge_keydict_cache:
         Option<(u64, u64, HashMap<String, HashMap<String, (usize, Py<PyDict>)>>)>,
+    pub(crate) live_keydict_rows: crate::live_keydict::LiveKeydictRows,
     /// br-r37-c1-2ndmw: the endpoint-INDEX twin of `edge_keydict_cache` above,
     /// mirroring what br-r37-c1-f3i50 did for `PyMultiDiGraph`.
     ///
@@ -5556,6 +5558,7 @@ impl PyMultiGraph {
                 }
             }
         }
+        self.live_keydict_rows.traverse(visit)?;
         self.has_edge_node_index_cache.traverse(visit)
     }
 
@@ -5575,6 +5578,7 @@ impl PyMultiGraph {
         self.edges_with_keys_cache = None;
         *self.node_iter_mirror.get_mut().unwrap() = None;
         self.edge_keydict_cache = None;
+        self.live_keydict_rows.clear_in_place(py);
         self.edge_keydict_by_index.clear(); // br-r37-c1-2ndmw
         self.edge_py_attrs_by_index.clear(); // br-r37-c1-f3i50
         self.has_edge_node_index_cache.clear(py);
@@ -6203,6 +6207,7 @@ impl PyMultiGraph {
         Ok(Self {
             neighbor_key_rows: None,
             edge_keydict_cache: None,
+            live_keydict_rows: crate::live_keydict::LiveKeydictRows::default(),
             edge_keydict_by_index: HashMap::new(), // br-r37-c1-2ndmw
             edge_py_attrs_by_index: HashMap::new(), // br-r37-c1-f3i50
             edges_data_attr_cache: std::sync::Mutex::new(None),
@@ -8287,6 +8292,10 @@ impl PyMultiGraph {
                     return Ok(live.into_any());
                 }
             }
+            if let Some(live) = self.live_keydict_rows.get(py, lo, hi) {
+                self.mark_edges_dirty();
+                return Ok(live.into_any());
+            }
             let keys = self.inner.edge_keys(u_c, v_c).unwrap_or_default();
             if keys.is_empty() {
                 Ok(default.unwrap_or_else(|| py.None()))
@@ -8320,7 +8329,7 @@ impl PyMultiGraph {
                 // caller must never receive the cached object, or a mutation
                 // through it would corrupt the cache (see the field's note).
                 let stored_len = result.len();
-                let live = result.clone().unbind();
+                let live = result.unbind();
                 // br-r37-c1-2ndmw: fill the index twin with the SAME object and
                 // the SAME count guard the string-keyed cache stores, so a warm
                 // read by either key hands back one live mapping, and stamp BOTH
@@ -8340,8 +8349,10 @@ impl PyMultiGraph {
                 if let Some((_, _, rows)) = self.edge_keydict_cache.as_mut() {
                     rows.entry(lo.to_owned())
                         .or_default()
-                        .insert(hi.to_owned(), (stored_len, result.unbind()));
+                        .insert(hi.to_owned(), (stored_len, live.clone_ref(py)));
                 }
+                self.live_keydict_rows
+                    .insert(lo.to_owned(), hi.to_owned(), live.clone_ref(py));
                 Ok(live.into_any())
             }
         }
@@ -8467,6 +8478,8 @@ impl PyMultiGraph {
                 n.repr()?
             )));
         }
+        self.live_keydict_rows
+            .remove_touching_in_place(py, &canonical);
 
         // surgically remove attributes for incident edges before removing node from inner graph
         let neighbors = self
@@ -8536,6 +8549,10 @@ impl PyMultiGraph {
         if present.is_empty() {
             self.bump_nodes_seq();
             return Ok(());
+        }
+        for canonical in &present {
+            self.live_keydict_rows
+                .remove_touching_in_place(py, canonical);
         }
         // br-r37-c1-mgrnf2: node-side mirror purge is O(k), independent of degree.
         for canonical in &present {
@@ -8821,10 +8838,14 @@ impl PyMultiGraph {
         };
 
         let ek = Self::edge_key(&u_canonical, &v_canonical, actual_key);
+        // Own a Python reference before mutating any other graph state below;
+        // `Entry` otherwise keeps `edge_py_attrs` mutably borrowed across the
+        // row-cache and stable-keydict updates.
         let py_dict = self
             .edge_py_attrs
             .entry(ek)
-            .or_insert_with(|| PyDict::new(py).unbind());
+            .or_insert_with(|| PyDict::new(py).unbind())
+            .clone_ref(py);
         if let Some(a) = attr {
             // br-r37-c1-aefbatch: single C-level dict.update instead of N
             // per-item set_item calls (see PyGraph::add_edge).
@@ -8848,7 +8869,18 @@ impl PyMultiGraph {
         // Prefer the user's explicit key; otherwise echo the nx-computed public
         // auto key (NOT the internal usize key).
         let external = key.or_else(|| auto_public_key.as_ref().map(|o| o.bind(py)));
-        Ok(self.remember_edge_key(py, &u_canonical, &v_canonical, actual_key, external))
+        let public_key =
+            self.remember_edge_key(py, &u_canonical, &v_canonical, actual_key, external);
+        let (lo, hi) = if u_canonical <= v_canonical {
+            (&u_canonical, &v_canonical)
+        } else {
+            (&v_canonical, &u_canonical)
+        };
+        if let Some(row) = self.live_keydict_rows.get(py, lo, hi) {
+            row.bind(py)
+                .set_item(public_key.bind(py), py_dict.bind(py))?;
+        }
+        Ok(public_key)
     }
 
     /// br-r37-c1-urle5: native plain-edge batch for `add_edges_from([(u, v), ...])`
@@ -10793,6 +10825,10 @@ impl PyMultiGraph {
                 .edge_keys(&u_canonical, &v_canonical)
                 .and_then(|keys| keys.last().copied()),
         };
+        let live_row_key = auto_removal_key.map(|internal_key| {
+            let edge_key = Self::edge_key(&u_canonical, &v_canonical, internal_key);
+            self.py_edge_key_with_key(py, internal_key, &edge_key)
+        });
         // br-r37-c1-rmedge-oE (cc): capture the pair's INTERNAL bucket keys
         // BEFORE removal so the pair-empty purge below can drop the exact
         // mirror slots in O(bucket) instead of the O(|E|) scan over the whole
@@ -10829,7 +10865,24 @@ impl PyMultiGraph {
             // metamorphic fuzz seeds 48/184/203).
             self.remove_edge_metadata(&u_canonical, &v_canonical, removed_key);
         }
-        if !self.inner.has_edge(&u_canonical, &v_canonical) {
+        let pair_remaining = self.inner.has_edge(&u_canonical, &v_canonical);
+        if pair_remaining {
+            if let (Some(row_key), Some(row)) = (
+                live_row_key,
+                self.live_keydict_rows.get(py, &u_canonical, &v_canonical),
+            ) && row.bind(py).contains(row_key.bind(py))?
+            {
+                row.bind(py).del_item(row_key.bind(py))?;
+            }
+        } else {
+            let (lo, hi) = if u_canonical <= v_canonical {
+                (&u_canonical, &v_canonical)
+            } else {
+                (&v_canonical, &u_canonical)
+            };
+            self.live_keydict_rows.remove_in_place(py, lo, hi);
+        }
+        if !pair_remaining {
             if !self.adj_py_keys.is_empty() {
                 // br-r37-c1-z6uka: the LAST parallel key removed empties the
                 // adjacency cell — drop its row overrides (a re-add creates
@@ -10898,6 +10951,7 @@ impl PyMultiGraph {
         self.edge_py_attrs.clear();
         self.adj_py_keys.clear(); // br-r37-c1-z6uka
         self.edge_py_keys.clear();
+        self.live_keydict_rows.clear_in_place(py);
         // br-r37-c1-clrow: DROP THE NEIGHBOUR ROW CACHE, like every other mirror
         // above. It is stamped with (nodes_seq, edges_seq) and both are bumped
         // below, so a survivor would normally be rejected on read -- but leaving
@@ -10917,13 +10971,14 @@ impl PyMultiGraph {
         Ok(())
     }
 
-    fn clear_edges(&mut self) {
+    fn clear_edges(&mut self, py: Python<'_>) {
         // br-r37-c1-txkrn: drop the neighbour row cache. A stale row here is
         // not caught by its own generation stamp -- `restamp_neighbor_rows` on
         // the next `add_edge` overwrites the stamp with the current sequences
         // and launders the row into looking fresh.
         self.neighbor_key_rows = None;
         self.inner.clear_edges();
+        self.live_keydict_rows.clear_in_place(py);
         if !self.edge_py_attrs.is_empty() || !self.edge_py_keys.is_empty() {
             self.edge_mirrors_stale = true;
         }
@@ -12199,6 +12254,7 @@ impl PyMultiGraph {
         let mut new_graph = Self {
             neighbor_key_rows: None,
             edge_keydict_cache: None,
+            live_keydict_rows: crate::live_keydict::LiveKeydictRows::default(),
             edge_keydict_by_index: HashMap::new(), // br-r37-c1-2ndmw
             edge_py_attrs_by_index: HashMap::new(), // br-r37-c1-f3i50
             edges_data_attr_cache: std::sync::Mutex::new(None),
@@ -12309,6 +12365,7 @@ impl PyMultiGraph {
         let mut new_graph = Self {
             neighbor_key_rows: None,
             edge_keydict_cache: None,
+            live_keydict_rows: crate::live_keydict::LiveKeydictRows::default(),
             edge_keydict_by_index: HashMap::new(), // br-r37-c1-2ndmw
             edge_py_attrs_by_index: HashMap::new(), // br-r37-c1-f3i50
             edges_data_attr_cache: std::sync::Mutex::new(None),
@@ -12383,6 +12440,7 @@ impl PyMultiGraph {
             succ_key_rows: None,
             pred_key_rows: None,
             edge_keydict_cache: None,
+            live_keydict_rows: crate::live_keydict::LiveKeydictRows::default(),
             edge_keydict_by_index: HashMap::new(),
             in_edges_data_attr_cache: std::sync::Mutex::new(None),
             edges_data_attr_cache: std::sync::Mutex::new(None),
@@ -12483,6 +12541,7 @@ impl PyMultiGraph {
         let mut new_graph = Self {
             neighbor_key_rows: None,
             edge_keydict_cache: None,
+            live_keydict_rows: crate::live_keydict::LiveKeydictRows::default(),
             edge_keydict_by_index: HashMap::new(), // br-r37-c1-2ndmw
             edge_py_attrs_by_index: HashMap::new(), // br-r37-c1-f3i50
             edges_data_attr_cache: std::sync::Mutex::new(None),
@@ -12578,6 +12637,7 @@ impl PyMultiGraph {
         Ok(Self {
             neighbor_key_rows: None,
             edge_keydict_cache: None,
+            live_keydict_rows: crate::live_keydict::LiveKeydictRows::default(),
             edge_keydict_by_index: HashMap::new(), // br-r37-c1-2ndmw
             edge_py_attrs_by_index: HashMap::new(), // br-r37-c1-f3i50
             edges_data_attr_cache: std::sync::Mutex::new(None),
@@ -12673,6 +12733,7 @@ impl PyMultiGraph {
         let mut new_graph = Self {
             neighbor_key_rows: None,
             edge_keydict_cache: None,
+            live_keydict_rows: crate::live_keydict::LiveKeydictRows::default(),
             edge_keydict_by_index: HashMap::new(), // br-r37-c1-2ndmw
             edge_py_attrs_by_index: HashMap::new(), // br-r37-c1-f3i50
             edges_data_attr_cache: std::sync::Mutex::new(None),
@@ -12795,6 +12856,7 @@ impl PyMultiGraph {
         let mut new_graph = Self {
             neighbor_key_rows: None,
             edge_keydict_cache: None,
+            live_keydict_rows: crate::live_keydict::LiveKeydictRows::default(),
             edge_keydict_by_index: HashMap::new(), // br-r37-c1-2ndmw
             edge_py_attrs_by_index: HashMap::new(), // br-r37-c1-f3i50
             edges_data_attr_cache: std::sync::Mutex::new(None),
@@ -12906,6 +12968,7 @@ impl PyMultiGraph {
             succ_key_rows: None,
             pred_key_rows: None,
             edge_keydict_cache: None,
+            live_keydict_rows: crate::live_keydict::LiveKeydictRows::default(),
             edge_keydict_by_index: HashMap::new(),
             in_edges_data_attr_cache: std::sync::Mutex::new(None),
             edges_data_attr_cache: std::sync::Mutex::new(None),

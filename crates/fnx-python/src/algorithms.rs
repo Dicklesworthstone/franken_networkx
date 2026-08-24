@@ -11592,6 +11592,7 @@ pub fn stochastic_graph_copy_multidigraph(
         succ_key_rows: None,
         pred_key_rows: None,
         edge_keydict_cache: None,
+        live_keydict_rows: crate::live_keydict::LiveKeydictRows::default(),
         edge_keydict_by_index: HashMap::new(),
         in_edges_data_attr_cache: std::sync::Mutex::new(None),
         edges_data_attr_cache: std::sync::Mutex::new(None),
@@ -15984,6 +15985,7 @@ pub fn multidigraph_transitive_closure(
         succ_key_rows: None,
         pred_key_rows: None,
         edge_keydict_cache: None,
+        live_keydict_rows: crate::live_keydict::LiveKeydictRows::default(),
         edge_keydict_by_index: HashMap::new(),
         in_edges_data_attr_cache: std::sync::Mutex::new(None),
         edges_data_attr_cache: std::sync::Mutex::new(None),
@@ -33207,6 +33209,7 @@ mod tests {
                 has_edge_node_index_cache: crate::NodeIndexLookupCache::new(py),
                 neighbor_key_rows: None,
             edge_keydict_cache: None,
+            live_keydict_rows: crate::live_keydict::LiveKeydictRows::default(),
             };
             let mut weighted_attrs = AttrMap::new();
             weighted_attrs.insert("weight".to_owned(), 1.0.into());

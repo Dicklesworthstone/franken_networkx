@@ -112,10 +112,6 @@ def test_networkx_returns_its_own_live_keydict(cls_name):
 
 
 @pytest.mark.parametrize("cls_name", MULTI)
-@pytest.mark.xfail(
-    strict=True,
-    reason="br-r37-c1-d1ajx: unkeyed get_edge_data rebuilds its keydict per call",
-)
 def test_returned_mapping_is_the_same_object_across_calls(cls_name):
     gfx = _pair(cls_name)[1]
     assert gfx.get_edge_data("a", "b") is gfx.get_edge_data("a", "b")
@@ -203,10 +199,6 @@ def test_clear_reaches_the_graph(cls_name):
 
 
 @pytest.mark.parametrize("cls_name", MULTI)
-@pytest.mark.xfail(
-    strict=True,
-    reason="br-r37-c1-d1ajx: a held unkeyed keydict does not observe native adds",
-)
 def test_held_mapping_reflects_a_later_add_edge(cls_name):
     """A write-proxy would satisfy every other xfail here and still fail this.
 
