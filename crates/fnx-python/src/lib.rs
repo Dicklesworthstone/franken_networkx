@@ -419,6 +419,21 @@ fn exact_int_decimal(py: Python<'_>, value: &Bound<'_, PyAny>) -> PyResult<Strin
         .extract::<String>()
 }
 
+/// br-r37-c1-numtower-29ggu: `float.__repr__` called UNBOUND, so a float
+/// SUBCLASS canonicalizes by VALUE rather than by its own spelling — exactly
+/// what `exact_int_decimal` above already does for int subclasses.
+///
+/// `numpy.float64` is a `float` subclass holding the identical double, so Python
+/// hashes it equal to that float and compares it `==`: it is ONE dict key and
+/// networkx has ONE node. `key.repr()` spelled it "np.float64(1.5)" against the
+/// float's "1.5" and split the node in two.
+fn float_value_repr(py: Python<'_>, value: &Bound<'_, PyAny>) -> PyResult<String> {
+    py.get_type::<PyFloat>()
+        .getattr(pyo3::intern!(py, "__repr__"))?
+        .call1((value,))?
+        .extract::<String>()
+}
+
 fn node_key_to_string(py: Python<'_>, key: &Bound<'_, PyAny>) -> PyResult<String> {
     // br-ctaxkey: `downcast::<PyString>()` is a cheap isinstance check that
     // builds NO Python exception on a non-string, unlike `extract::<String>()`
@@ -469,10 +484,18 @@ fn node_key_to_string(py: Python<'_>, key: &Bound<'_, PyAny>) -> PyResult<String
     // here or by repr and never touches the extract chain. Subclasses keep the
     // old route below, where an inherited conversion still wins as it used to.
     if key.is_exact_instance_of::<PyTuple>() {
-        if let Ok(t) = key.downcast::<PyTuple>()
-            && let Some(canonical) = exact_int_tuple_canonical(t)
-        {
-            return Ok(canonical);
+        if let Ok(t) = key.downcast::<PyTuple>() {
+            if let Some(canonical) = exact_int_tuple_canonical(t) {
+                return Ok(canonical);
+            }
+            // br-r37-c1-numtower-29ggu: a tuple the fast path cannot serve still
+            // has to agree with its bool-free twin -- `('a', True)` and
+            // `('a', 1)` are one dict key in Python. Normalising the bools away
+            // and reprting THAT keeps the canonical format exactly CPython's
+            // tuple repr while making the two spellings land on one node.
+            if let Some(normalized) = tuple_with_bools_as_ints(py, t)? {
+                return Ok(normalized.repr()?.to_string());
+            }
         }
         let repr = key.repr()?;
         return Ok(repr.to_string());
@@ -537,8 +560,60 @@ fn float_key_canonical(py: Python<'_>, key: &Bound<'_, PyAny>, f: f64) -> PyResu
             return exact_int_decimal(py, &as_int);
         }
     }
+    // br-r37-c1-numtower-29ggu: by VALUE, not by the object's own spelling.
+    //
+    // Only a float SUBCLASS is affected -- for an exact float this returns
+    // precisely what `key.repr()` returned -- and for one it is the fix: a
+    // subclass is the same double, so Python calls it the same dict key.
+    //
+    // Reached ONLY for a genuine `PyFloat`; a Decimal or Fraction arrives here
+    // through the `extract::<f64>()` fallback instead, and must NOT be given
+    // this treatment. See the caller.
+    //
+    // An EXACT float skips it: `repr(x)` IS `float.__repr__(x)` there, so the
+    // unbound lookup would be three Python operations to reproduce one. Only a
+    // subclass can spell itself differently, and only a subclass pays for it.
+    if key.downcast::<PyFloat>().is_ok() && !key.is_exact_instance_of::<PyFloat>() {
+        return float_value_repr(py, key);
+    }
     let repr = key.repr()?;
     Ok(repr.to_string())
+}
+
+/// br-r37-c1-numtower-29ggu: a copy of `t` with every bool inside it replaced by
+/// the int it equals, recursively through nested tuples. `None` when there was
+/// no bool to replace, so the ordinary path pays only the scan.
+///
+/// Safe by construction: `True == 1` and `False == 0` hold unconditionally in
+/// Python, so this can only merge keys Python already calls equal -- it can
+/// never merge two keys Python keeps apart.
+fn tuple_with_bools_as_ints<'py>(
+    py: Python<'py>,
+    t: &Bound<'py, PyTuple>,
+) -> PyResult<Option<Bound<'py, PyTuple>>> {
+    let mut changed = false;
+    let mut items: Vec<Bound<'py, PyAny>> = Vec::with_capacity(t.len());
+    for item in t.iter() {
+        if item.is_instance_of::<PyBool>() {
+            changed = true;
+            let value: i64 = if item.is_truthy()? { 1 } else { 0 };
+            items.push(value.into_pyobject(py)?.into_any());
+        } else if let Ok(inner) = item.downcast::<PyTuple>() {
+            match tuple_with_bools_as_ints(py, inner)? {
+                Some(normalized) => {
+                    changed = true;
+                    items.push(normalized.into_any());
+                }
+                None => items.push(item),
+            }
+        } else {
+            items.push(item);
+        }
+    }
+    if !changed {
+        return Ok(None);
+    }
+    Ok(Some(PyTuple::new(py, items)?))
 }
 
 /// br-r37-c1-y7m24: the all-int tuple canonical, byte-identical to CPython's
@@ -553,7 +628,14 @@ fn exact_int_tuple_canonical(t: &Bound<'_, PyTuple>) -> Option<String> {
     }
     let mut parts: Vec<i64> = Vec::with_capacity(n);
     for item in t.iter() {
-        if item.is_exact_instance_of::<PyInt>()
+        // br-r37-c1-numtower-29ggu: a bool is admitted as the INT IT EQUALS.
+        // It used to be excluded because `repr(True)` is "True", which would
+        // have produced a canonical that is not CPython's tuple repr — but the
+        // consequence was that `(True, 1)` canonicalized to "(True, 1)" while
+        // `(1, 1)` took this path to "(1, 1)", and Python calls those tuples
+        // equal and hashes them alike. Writing the value keeps the format AND
+        // merges the node, because `True == 1` is unconditional.
+        if (item.is_exact_instance_of::<PyInt>() || item.is_instance_of::<PyBool>())
             && let Ok(v) = item.extract::<i64>()
         {
             parts.push(v);

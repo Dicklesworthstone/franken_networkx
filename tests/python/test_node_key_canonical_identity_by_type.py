@@ -210,6 +210,28 @@ def test_an_int_subclass_with_a_custom_repr_canonicalizes_by_value():
     assert fx.number_of_nodes() == ref.number_of_nodes() == 1
 
 
+def test_a_float_subclass_with_a_custom_repr_canonicalizes_by_value():
+    """The numpy-free twin of the int-subclass test above.
+
+    `float.__repr__` is called UNBOUND for exactly this reason: a subclass holds
+    the same double, so Python calls it the same dict key however it spells
+    itself. This is the mechanism behind the `numpy.float64` case without
+    needing numpy to demonstrate it (br-r37-c1-numtower-29ggu).
+    """
+
+    class Loud(float):
+        def __repr__(self):
+            return "Loud(!!)"
+
+    fx, ref = fnx.Graph(), nx.Graph()
+    for graph in (fx, ref):
+        graph.add_node(Loud(1.5))
+        graph.add_node(1.5)
+
+    assert fx.number_of_nodes() == ref.number_of_nodes() == 1
+    assert [repr(n) for n in fx.nodes()] == [repr(n) for n in ref.nodes()]
+
+
 def test_keys_survive_edges_and_lookups_not_only_the_node_set():
     """A canonical is also how an EDGE finds its endpoints."""
     keys = [(0, 1), (1, 2), 1.5, 2**63 + 7, "a"]
@@ -254,19 +276,82 @@ def test_None_is_refused_as_a_node_exactly_as_networkx_refuses_it():
     assert str(fx_err.value) == str(ref_err.value)
 
 
+# Keys Python calls EQUAL, which must therefore be ONE node
+# (br-r37-c1-numtower-29ggu).
+EQUAL_BY_VALUE = [
+    ("float and numpy float64", 1.5, np.float64(1.5)),
+    ("another float and numpy float64", 2.5, np.float64(2.5)),
+    ("bool inside a tuple", (True, 1), (1, 1)),
+    ("bool in a mixed tuple", ("a", True), ("a", 1)),
+    ("bool in a NESTED tuple", (0, (1, True)), (0, (1, 1))),
+    ("False inside a singleton", (False,), (0,)),
+    ("bare bool and int", True, 1),
+]
+
+
+@pytest.mark.parametrize(
+    "label,left,right", EQUAL_BY_VALUE, ids=[c[0] for c in EQUAL_BY_VALUE]
+)
+def test_a_subclass_or_a_bool_canonicalizes_by_value(label, left, right):
+    """These are ONE dict key in Python, so networkx has ONE node.
+
+    `numpy.float64` is a `float` subclass holding the identical double; its own
+    `repr` spells it "np.float64(1.5)", which split it from the float. It now
+    canonicalizes through `float.__repr__` called UNBOUND, exactly as an int
+    subclass already did through `int.__repr__`.
+
+    A bool inside a tuple was excluded from the all-int fast path because
+    `repr(True)` is "True" -- correct about the FORMAT, wrong about IDENTITY,
+    since `True == 1` unconditionally. Bools are now written as the int they
+    equal, which keeps the canonical byte-identical to CPython's tuple repr.
+    """
+    counts = []
+    for mod in (fnx, nx):
+        graph = mod.Graph()
+        graph.add_node(left)
+        graph.add_node(right)
+        counts.append((graph.number_of_nodes(), [repr(n) for n in graph.nodes()]))
+
+    assert counts[0] == counts[1], label
+
+
+# Keys Python keeps APART that an over-eager value canonical would merge. Merging
+# these would be a worse bug than the split below, and is why the numeric tower
+# is not fixed by converting to f64: `float(Decimal("0.1")) == 0.1` is True while
+# `Decimal("0.1") == 0.1` is False.
+DISTINCT_BY_VALUE = [
+    ("float and Decimal that differ", 0.1, decimal.Decimal("0.1")),
+    ("float and Fraction that differ", 0.1, fractions.Fraction(1, 10)),
+    ("float and a near neighbour", 1.5, 1.5000000000000002),
+]
+
+
+@pytest.mark.parametrize(
+    "label,left,right", DISTINCT_BY_VALUE, ids=[c[0] for c in DISTINCT_BY_VALUE]
+)
+def test_keys_python_keeps_apart_stay_two_nodes(label, left, right):
+    counts = []
+    for mod in (fnx, nx):
+        graph = mod.Graph()
+        graph.add_node(left)
+        graph.add_node(right)
+        counts.append(graph.number_of_nodes())
+
+    assert counts[0] == counts[1] == 2, label
+
+
 NUMERIC_TOWER_RESIDUE = [
     ("float and Decimal", 1.5, decimal.Decimal("1.5")),
     ("float and Fraction", 1.5, fractions.Fraction(3, 2)),
-    ("float and numpy float64", 1.5, np.float64(1.5)),
-    ("bool inside a tuple", (True, 1), (1, 1)),
 ]
 
 
 @pytest.mark.xfail(
-    reason="br-r37-c1-numtower-29ggu: keys Python hashes and compares EQUAL still "
-    "canonicalize apart (numeric tower by repr; a bool inside a tuple is excluded "
-    "from the all-int tuple fast path). PRE-EXISTING - all four reproduce on build "
-    "ee7363ceb00ddbc8, which predates br-r37-c1-keyextract-rwsvk",
+    reason="br-r37-c1-numtower-29ggu: Decimal and Fraction are not float subclasses, "
+    "so they canonicalize by repr and split from the float they equal. NOT fixed by "
+    "converting to f64 - that would merge 0.1 with Decimal('0.1'), which Python keeps "
+    "APART (see test_keys_python_keeps_apart_stay_two_nodes), and an over-merge is a "
+    "worse bug than this split. A real fix needs exact rational comparison",
     strict=True,
 )
 @pytest.mark.parametrize(
@@ -276,10 +361,10 @@ def test_keys_python_calls_equal_are_one_node(label, left, right):
     """Python says these are the same dict key; networkx therefore has one node.
 
     Recorded as strict xfails rather than left silent, so each flips the moment
-    the canonical covers it. `(True, 1) == (1, 1)` in Python and hashes alike, but
-    br-r37-c1-y7m24's tuple fast path excludes bool (its repr is "True", not "1"),
-    so the two canonicalize apart. That exclusion is preserved verbatim here - it
-    is the reason the fast path is correct for the tuples it does accept.
+    the canonical covers it. The float-subclass and bool-in-tuple halves of this
+    residue ARE fixed (see EQUAL_BY_VALUE above); what is left needs the canonical
+    to compare exact rationals, because the cheap route - convert to f64 and
+    canonicalize the double - merges keys Python keeps apart.
     """
     counts = []
     for mod in (fnx, nx):
