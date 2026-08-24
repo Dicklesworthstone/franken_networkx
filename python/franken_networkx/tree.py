@@ -15,11 +15,12 @@ Current native overrides:
 
 from __future__ import annotations
 
-from networkx.algorithms.tree import *  # noqa: F401,F403
-import networkx.algorithms.tree as _nx_tree
+import inspect as _inspect
 
 import franken_networkx as _fnx
+import networkx.algorithms.tree as _nx_tree
 from franken_networkx.readwrite import _from_nx_graph
+from networkx.algorithms.tree import *
 
 __all__ = list(
     getattr(_nx_tree, "__all__", ())
@@ -68,6 +69,7 @@ def _make_fnx_tree_router(_fn_name):
         f"Route to ``franken_networkx.{_fn_name}`` (fnx-native). See "
         f"``networkx.algorithms.tree.{_fn_name}`` for semantics."
     )
+    _routed.__signature__ = _inspect.signature(getattr(_nx_tree, _fn_name))
     return _routed
 
 
