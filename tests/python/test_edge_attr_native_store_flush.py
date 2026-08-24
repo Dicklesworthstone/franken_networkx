@@ -82,6 +82,19 @@ def test_edge_attrs_at_construction_reach_the_typed_store():
     assert float(fnx._fnx.min_cost_flow_cost(graph)) == CORRECT_COST
 
 
+@pytest.mark.xfail(
+    strict=True,
+    reason=(
+        "br-r37-c1-edge-attr-typed-store-pk1nb: post-construction edge "
+        "attribute writes must update the native typed store"
+    ),
+)
+def test_post_construction_edge_attrs_reach_the_typed_store_without_a_flush():
+    """Regression contract for the root store repair, not its manual workaround."""
+    graph = _flow_graph("written_after")
+    assert float(fnx._fnx.min_cost_flow_cost(graph)) == CORRECT_COST
+
+
 def test_the_python_view_is_correct_either_way():
     """Why this is silent: nothing looks wrong from Python."""
     for route in ("at_construction", "written_after"):
