@@ -565,6 +565,29 @@ _fnx_efficiency_measures = _importlib.import_module(
 _sys.modules[f"{__name__}.efficiency_measures"] = _fnx_efficiency_measures
 efficiency_measures = _fnx_efficiency_measures  # Override in module globals
 
+
+# Keep the flattened ``algorithms`` spellings as explicit delegates rather than
+# letting the generic native-router pass replace them with ``*args, **kwargs``.
+# These three paths are commonly imported directly from ``networkx.algorithms``;
+# their leaf module owns backend validation and the native implementation.
+def efficiency(G, u, v, *, backend=None, **backend_kwargs):
+    return _fnx_efficiency_measures.efficiency(
+        G, u, v, backend=backend, **backend_kwargs
+    )
+
+
+def local_efficiency(G, *, backend=None, **backend_kwargs):
+    return _fnx_efficiency_measures.local_efficiency(
+        G, backend=backend, **backend_kwargs
+    )
+
+
+def global_efficiency(G, *, backend=None, **backend_kwargs):
+    return _fnx_efficiency_measures.global_efficiency(
+        G, backend=backend, **backend_kwargs
+    )
+
+
 _fnx_graph_hashing = _importlib.import_module("franken_networkx.graph_hashing")
 _sys.modules[f"{__name__}.graph_hashing"] = _fnx_graph_hashing
 graph_hashing = _fnx_graph_hashing  # Override in module globals
