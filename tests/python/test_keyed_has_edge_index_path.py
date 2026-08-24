@@ -385,3 +385,107 @@ def test_mutation_interleavings_agree_with_networkx_at_every_step(cls_name, labe
             elif op == "clear":
                 graph.clear_edges()
         _all_pairs_agree(gnx, gfx, nodes), label
+
+
+# ------------------------------------- number_of_edges(u, v) on the same index
+#
+# br-r37-c1-s8dj1: the parallel-edge COUNT is a bucket length, so it rides the
+# same lookaside -- `MultiDiGraph::edge_key_count_by_indices`. The Python shim
+# then had to stop routing around the native it was already reaching: the native
+# answered in 254.7 ns at 2000-character keys while `number_of_edges(u, v)` cost
+# 685.6 ns for the same number.
+#
+# THE GATE IS THE RISK, not the count. A VIEW has its own `number_of_edges` that
+# applies `_edge_visible` filtering, so sending a view to the native counter
+# would report edges the view hides.
+
+
+@pytest.mark.parametrize("cls_name", MULTI)
+def test_number_of_edges_counts_parallel_edges(cls_name):
+    gnx, gfx = _pair(cls_name)
+    for graph in (gnx, gfx):
+        graph.add_edge("u", "v")
+        graph.add_edge("u", "v")
+        graph.add_edge("u", "v", key="named")
+        graph.add_edge("x", "y")
+
+    assert gfx.number_of_edges("u", "v") == gnx.number_of_edges("u", "v") == 3
+    assert gfx.number_of_edges("x", "y") == gnx.number_of_edges("x", "y") == 1
+    assert gfx.number_of_edges("u", "absent") == gnx.number_of_edges("u", "absent") == 0
+    assert gfx.number_of_edges("absent", "u") == gnx.number_of_edges("absent", "u") == 0
+    assert gfx.number_of_edges() == gnx.number_of_edges() == 4
+
+
+@pytest.mark.parametrize("cls_name", MULTI)
+def test_number_of_edges_on_long_keys_matches(cls_name):
+    """The row the index exists for: exact `str` endpoints, 2000 characters."""
+    gnx, gfx = _pair(cls_name)
+    u, v = LONG + "u", LONG + "v"
+    for graph in (gnx, gfx):
+        graph.add_edge(u, v)
+        graph.add_edge(u, v)
+
+    assert gfx.number_of_edges(u, v) == gnx.number_of_edges(u, v) == 2
+
+
+@pytest.mark.parametrize("cls_name", MULTI)
+def test_a_view_still_counts_only_the_edges_it_shows(cls_name):
+    """THE gate. A view that hides edges must not answer from the base count."""
+    gnx, gfx = _pair(cls_name)
+    for graph in (gnx, gfx):
+        graph.add_edge("a", "b")
+        graph.add_edge("a", "b")
+        graph.add_edge("a", "c")
+
+    sub_nx, sub_fx = gnx.subgraph(["a", "b"]), gfx.subgraph(["a", "b"])
+    assert sub_fx.number_of_edges("a", "b") == sub_nx.number_of_edges("a", "b")
+    assert sub_fx.number_of_edges("a", "c") == sub_nx.number_of_edges("a", "c") == 0
+    assert sub_fx.number_of_edges() == sub_nx.number_of_edges()
+
+
+@pytest.mark.parametrize("cls_name", MULTI)
+def test_assigned_private_storage_still_owns_the_count(cls_name):
+    """A graph carrying networkx private storage keeps the Python derivation."""
+    gnx, gfx = _pair(cls_name)
+    for graph in (gnx, gfx):
+        graph.add_edge("a", "b")
+        graph.add_edge("a", "b")
+
+    for graph in (gnx, gfx):
+        graph._adj = {"q": {"r": {0: {}}}, "r": {}}
+        if graph.is_directed():
+            graph._succ = graph._adj
+            graph._pred = {"r": {"q": {0: {}}}, "q": {}}
+        graph._node = {"q": {}, "r": {}}
+
+    assert gfx.number_of_edges("q", "r") == gnx.number_of_edges("q", "r")
+
+
+@pytest.mark.parametrize("cls_name", MULTI)
+def test_number_of_edges_tracks_mutations_through_the_lookaside(cls_name):
+    """Built first, then mutated through -- the count must follow every step."""
+    gnx, gfx = _pair(cls_name)
+    pairs = [(f"a{i}", f"b{i}") for i in range(5)]
+    for u, v in pairs:
+        gnx.add_edge(u, v)
+        gfx.add_edge(u, v)
+    _force_index(gfx, *pairs[0])
+
+    def agree():
+        for u, v in pairs + [("a0", "b3"), ("fresh", "pair")]:
+            assert gfx.number_of_edges(u, v) == gnx.number_of_edges(u, v), (u, v)
+        assert gfx.number_of_edges() == gnx.number_of_edges()
+
+    agree()
+    for graph in (gnx, gfx):
+        graph.add_edge("a0", "b0")          # a parallel key on an existing pair
+    agree()
+    for graph in (gnx, gfx):
+        graph.add_edge("fresh", "pair")     # a brand new pair
+    agree()
+    for graph in (gnx, gfx):
+        graph.remove_edge(*pairs[1])        # empties a bucket -> swap_remove
+    agree()
+    for graph in (gnx, gfx):
+        graph.remove_node("a2")             # renumbers every later node
+    agree()

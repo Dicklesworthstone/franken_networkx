@@ -16738,7 +16738,6 @@ production code removed, measured FNX `15.793 ms` vs NetworkX `5.2914 ms`
 (`0.335x` vs NetworkX).
 =======
 passed its list/value equality assertions before timing both rows.
->>>>>>> Stashed changes
 
 Decision: REVERTED. The borrowed stream avoids the triples allocation but does
 not move the dominant Python tuple/value materialization cost, and it regressed
