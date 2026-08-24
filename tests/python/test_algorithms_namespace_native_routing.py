@@ -374,3 +374,45 @@ def test_undirected_components_namespace_signature_and_results_match_oracle(name
         actual(graph, 0, backend="missing") if name == "node_connected_component" else actual(
             graph, backend="missing"
         )
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "attracting_components",
+        "is_attracting_component",
+        "is_semiconnected",
+        "is_strongly_connected",
+        "is_weakly_connected",
+        "kosaraju_strongly_connected_components",
+        "number_attracting_components",
+        "number_strongly_connected_components",
+        "number_weakly_connected_components",
+        "strongly_connected_components",
+        "weakly_connected_components",
+    ],
+)
+def test_directed_components_namespace_signature_and_results_match_oracle(name):
+    actual = getattr(fnx_algorithms.components, name)
+    expected = getattr(nx.algorithms.components, name)
+    assert str(inspect.signature(actual)) in {str(inspect.signature(expected))}
+
+    graph = fnx.DiGraph([(0, 1), (1, 0), (1, 2), (2, 3), (3, 2)])
+    nx_graph = nx.DiGraph(graph.edges())
+    actual_value = actual(graph, backend="networkx")
+    expected_value = expected(nx_graph, backend="networkx")
+    component_listers = {
+        "attracting_components",
+        "kosaraju_strongly_connected_components",
+        "strongly_connected_components",
+        "weakly_connected_components",
+    }
+    if name in component_listers:
+        assert {frozenset(component) for component in actual_value} == {
+            frozenset(component) for component in expected_value
+        }
+    else:
+        assert actual_value == expected_value
+
+    with pytest.raises(ImportError):
+        actual(graph, backend="missing")
