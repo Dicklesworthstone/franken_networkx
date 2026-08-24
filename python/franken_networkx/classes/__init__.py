@@ -64,6 +64,27 @@ for _name in _FNX_NATIVE_CLASS_FUNCS:
     globals()[_name] = _make_fnx_classes_router(_name)
 
 
+def nodes(G):
+    """Return the native graph's node view."""
+    import franken_networkx as _fnx
+
+    return _fnx.nodes(G)
+
+
+def edges(G, nbunch=None):
+    """Return the native graph's edge view, optionally restricted to nbunch."""
+    import franken_networkx as _fnx
+
+    return _fnx.edges(G, nbunch)
+
+
+def degree(G, nbunch=None, weight=None):
+    """Return the native graph's degree view."""
+    import franken_networkx as _fnx
+
+    return _fnx.degree(G, nbunch, weight)
+
+
 def _install_fnx_native_class_types():
     import franken_networkx as _fnx
 

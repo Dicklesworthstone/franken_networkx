@@ -7110,6 +7110,34 @@ _MULTIGRAPH_NODE_VIEW_CALL = _MULTIGRAPH_NODE_VIEW_TYPE.__call__
 _MULTIDIGRAPH_NODE_VIEW_CALL = _MULTIDIGRAPH_NODE_VIEW_TYPE.__call__
 
 
+def _weighted_multidegree_value(graph, node, weight):
+    """Return one weighted total degree without re-entering a degree view."""
+
+    def edge_weight(attrs):
+        return attrs.get(weight, 1)
+
+    if graph.is_directed():
+        return sum(
+            edge_weight(attrs)
+            for keydict in graph.succ[node].values()
+            for attrs in keydict.values()
+        ) + sum(
+            edge_weight(attrs)
+            for keydict in graph.pred[node].values()
+            for attrs in keydict.values()
+        )
+
+    neighbors = graph.adj[node]
+    total = sum(
+        edge_weight(attrs)
+        for keydict in neighbors.values()
+        for attrs in keydict.values()
+    )
+    if node in neighbors:
+        total += sum(edge_weight(attrs) for attrs in neighbors[node].values())
+    return total
+
+
 class MultiGraphDegreeView:
     # br-r37-c1-mdvname: nx exposes MultiGraph.degree as
     # ``MultiDegreeView``. Rename the fnx wrapper class to match.
@@ -7204,7 +7232,7 @@ class MultiGraphDegreeView:
         hash(node)
         if self._weight is None:
             return self._raw_base_view[node]
-        return degree(self._graph, node, weight=self._weight)
+        return _weighted_multidegree_value(self._graph, node, self._weight)
 
     def __bool__(self):
         return bool(len(self))
@@ -7220,7 +7248,7 @@ class MultiGraphDegreeView:
             if nbunch in self._graph:
                 if weight is None:
                     return self._raw_base_view[nbunch]
-                return degree(self._graph, nbunch, weight=weight)
+                return _weighted_multidegree_value(self._graph, nbunch, weight)
         except TypeError:
             pass
         # br-r37-c1-degnbnative (cc): unweighted multi total-degree(nbunch) — one
@@ -7350,7 +7378,7 @@ class MultiDiGraphDegreeView:
         hash(node)
         if self._weight is None:
             return self._raw_base_view[node]
-        return degree(self._graph, node, weight=self._weight)
+        return _weighted_multidegree_value(self._graph, node, self._weight)
 
     def __bool__(self):
         return bool(len(self))
@@ -7366,7 +7394,7 @@ class MultiDiGraphDegreeView:
             if nbunch in self._graph:
                 if weight is None:
                     return self._raw_base_view[nbunch]
-                return degree(self._graph, nbunch, weight=weight)
+                return _weighted_multidegree_value(self._graph, nbunch, weight)
         except TypeError:
             pass
         # br-r37-c1-degnbnative (cc): unweighted multi total-degree(nbunch) — one
@@ -52436,7 +52464,7 @@ def reverse(G, copy=True):
 
 def nodes(G):
     """Return nodes of G (global function form)."""
-    return G.nodes
+    return G.nodes()
 
 
 def _global_nbunch_nodes(G, nbunch):
@@ -53028,129 +53056,11 @@ def triangles(G, nodes=None):
 
 def edges(G, nbunch=None):
     """Return edges of G (global function form)."""
-    if nbunch is None:
-        return G.edges
-
-    nbunch_nodes = _global_nbunch_nodes(G, nbunch)
-    if G.is_directed():
-        result = []
-        if G.is_multigraph():
-            for u in nbunch_nodes:
-                if u not in G:
-                    continue
-                for v, keydict in G[u].items():
-                    for _key in keydict:
-                        result.append((u, v))
-            return result
-
-        for u in nbunch_nodes:
-            if u not in G:
-                continue
-            for v in G[u]:
-                result.append((u, v))
-        return result
-
-    if G.is_multigraph():
-        seen = set()
-        result = []
-        for u in nbunch_nodes:
-            if u not in G:
-                continue
-            for v, keydict in G[u].items():
-                for key in keydict:
-                    marker = (frozenset((u, v)), key)
-                    if marker in seen:
-                        continue
-                    seen.add(marker)
-                    result.append((u, v))
-        return result
-
-    seen = set()
-    result = []
-    for u in nbunch_nodes:
-        if u not in G:
-            continue
-        for v in G[u]:
-            marker = frozenset((u, v))
-            if marker in seen:
-                continue
-            seen.add(marker)
-            result.append((u, v))
-    return result
+    return G.edges(nbunch)
 
 
 def degree(G, nbunch=None, weight=None):
     """Return degree view of G (global function form)."""
-    if weight is None:
-        if nbunch is None:
-            return G.degree
-        try:
-            if nbunch in G:
-                return G.degree[nbunch]
-        except TypeError:
-            pass
-
-        nbunch_nodes = _global_nbunch_nodes(G, nbunch)
-        return ((node, G.degree[node]) for node in nbunch_nodes)
-
-    def edge_weight(attrs):
-        return attrs.get(weight, 1)
-
-    def weighted_degree(node):
-        # br-r37-c1-wdeg: match nx's *exact* DegreeView summation, which is a
-        # FLAT ``sum()`` over the (neighbor, key) attribute values plus a
-        # separate self-loop term — NOT a per-neighbor ``edge_total`` grouped
-        # fold. CPython's ``sum`` is Neumaier-compensated for floats and the
-        # association of the running total matters, so grouping per neighbor
-        # (or doubling a self-loop inline) drifts ~1 ULP from nx.
-        if G.is_multigraph():
-            if G.is_directed():
-                succs = G.succ[node]
-                preds = G.pred[node]
-                return sum(
-                    edge_weight(d) for kd in succs.values() for d in kd.values()
-                ) + sum(
-                    edge_weight(d) for kd in preds.values() for d in kd.values()
-                )
-
-            nbrs = G.adj[node]
-            total = sum(
-                edge_weight(d) for kd in nbrs.values() for d in kd.values()
-            )
-            if node in nbrs:
-                total += sum(edge_weight(d) for d in nbrs[node].values())
-            return total
-
-        if G.is_directed():
-            succs = G.succ[node]
-            preds = G.pred[node]
-            return sum(edge_weight(dd) for dd in succs.values()) + sum(
-                edge_weight(dd) for dd in preds.values()
-            )
-
-        nbrs = G.adj[node]
-        total = sum(edge_weight(dd) for dd in nbrs.values())
-        if node in nbrs:
-            total += edge_weight(nbrs[node])
-        return total
-
-    if nbunch is None:
-        return ((node, weighted_degree(node)) for node in G.nodes)
-
-    try:
-        if nbunch in G:
-            return weighted_degree(nbunch)
-    except TypeError:
-        pass
-
-    # br-r37-c1-degnative (cc): the iterable-nbunch weighted path built a Python
-    # generator calling weighted_degree(node) which iterates G.adj[node] through
-    # PyO3 per multi-edge -> 0.043x for MultiGraph degree(nbunch, weight) (the
-    # official core_laggards bench). The native DegreeView's iterable-nbunch path
-    # is byte-identical to nx (same dup/missing-node handling + self-loop doubling)
-    # and does NOT recurse (unlike the single-node/None paths, which the MultiGraph
-    # view delegates back to this function) -> 0.043x -> 0.64x, 15x self. The
-    # None + single-node branches above stay Python to avoid that recursion.
     return G.degree(nbunch, weight=weight)
 
 
