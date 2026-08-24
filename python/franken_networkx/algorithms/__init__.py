@@ -306,6 +306,33 @@ _fnx_cluster = _importlib.import_module("franken_networkx.cluster")
 _sys.modules[f"{__name__}.cluster"] = _fnx_cluster
 cluster = _fnx_cluster  # Override in module globals
 
+# Preserve the public signatures of the flattened clustering helpers while
+# delegating at call time to the native leaf module, including its backend
+# dispatch validation.
+_FNX_FLATTENED_CLUSTER_NAMES = (
+    "triangles",
+    "all_triangles",
+    "average_clustering",
+    "clustering",
+    "transitivity",
+    "square_clustering",
+    "generalized_degree",
+)
+
+
+def _make_flattened_cluster_router(_name):
+    def _routed(*args, **kwargs):
+        return getattr(_fnx_cluster, _name)(*args, **kwargs)
+
+    _routed.__name__ = _name
+    _routed.__qualname__ = _name
+    _routed.__signature__ = _inspect.signature(getattr(_nx_algorithms, _name))
+    return _routed
+
+
+for _name in _FNX_FLATTENED_CLUSTER_NAMES:
+    globals()[_name] = _make_flattened_cluster_router(_name)
+
 # br-r37-c1-1s6cb: route nx.algorithms.centrality through the fnx-native
 # top-level implementations (nx aliased it verbatim, so fnx.algorithms.
 # centrality.betweenness_centrality ran nx's pure-Python Brandes on fnx

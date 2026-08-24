@@ -114,6 +114,15 @@ _FLATTENED_ISOMORPHISM_NAMES = [
     "vf2pp_isomorphism",
     "vf2pp_all_isomorphisms",
 ]
+_FLATTENED_CLUSTER_NAMES = [
+    "triangles",
+    "all_triangles",
+    "average_clustering",
+    "clustering",
+    "transitivity",
+    "square_clustering",
+    "generalized_degree",
+]
 
 
 @lru_cache(maxsize=1)
@@ -208,6 +217,39 @@ def test_flattened_isomorphism_routes_to_leaf_module(monkeypatch, name):
 
     monkeypatch.setattr(fnx_algorithms.isomorphism, name, sentinel)
     assert getattr(fnx_algorithms, name)("left", "right", flag=True) is marker
+
+
+@pytest.mark.parametrize("name", _FLATTENED_CLUSTER_NAMES)
+def test_flattened_cluster_signature_and_results_match_legacy_oracle(name):
+    legacy = _legacy_networkx()
+    actual = getattr(fnx_algorithms, name)
+    expected = getattr(legacy.algorithms, name)
+    assert str(inspect.signature(actual)) == str(inspect.signature(expected))
+
+    graph = fnx.complete_graph(4)
+    legacy_graph = legacy.complete_graph(4)
+    actual_value = actual(graph)
+    expected_value = expected(legacy_graph)
+    if name == "all_triangles":
+        assert list(actual_value) == list(expected_value)
+    else:
+        assert actual_value == expected_value
+
+    with pytest.raises(ImportError):
+        actual(graph, backend="missing")
+
+
+@pytest.mark.parametrize("name", _FLATTENED_CLUSTER_NAMES)
+def test_flattened_cluster_routes_to_leaf_module(monkeypatch, name):
+    marker = object()
+
+    def sentinel(*args, **kwargs):
+        assert args == ("graph",)
+        assert kwargs == {"flag": True}
+        return marker
+
+    monkeypatch.setattr(fnx_algorithms.cluster, name, sentinel)
+    assert getattr(fnx_algorithms, name)("graph", flag=True) is marker
 
 
 @pytest.mark.parametrize("name", _FLATTENED_LINK_PREDICTION_NAMES)
