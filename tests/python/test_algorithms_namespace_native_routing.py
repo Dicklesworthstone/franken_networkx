@@ -507,6 +507,27 @@ def test_branching_namespace_signature_and_results_match_oracle(name):
         actual(graph, backend="missing")
 
 
+@pytest.mark.parametrize("name", ["to_nested_tuple", "to_prufer_sequence"])
+def test_tree_coding_namespace_signature_and_results_match_oracle(name):
+    actual = getattr(fnx_algorithms.tree, name)
+    expected = getattr(nx.algorithms.tree, name)
+    assert str(inspect.signature(actual)) in {str(inspect.signature(expected))}
+
+    graph = fnx.path_graph(4)
+    nx_graph = nx.path_graph(4)
+    if name == "to_nested_tuple":
+        actual_value = actual(graph, 0, canonical_form=True, backend="networkx")
+        expected_value = expected(nx_graph, 0, canonical_form=True, backend="networkx")
+        missing_call = lambda: actual(graph, 0, backend="missing")
+    else:
+        actual_value = actual(graph, backend="networkx")
+        expected_value = expected(nx_graph, backend="networkx")
+        missing_call = lambda: actual(graph, backend="missing")
+    assert actual_value == expected_value
+    with pytest.raises(ImportError):
+        missing_call()
+
+
 @pytest.mark.parametrize(
     "name",
     ["edge_connectivity", "node_connectivity", "minimum_edge_cut", "minimum_node_cut"],

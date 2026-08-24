@@ -205,6 +205,20 @@ def minimum_spanning_arborescence(
     )
 
 
+def to_nested_tuple(T, root, canonical_form=False, *, backend=None, **backend_kwargs):
+    return _fnx.to_nested_tuple(
+        T,
+        root,
+        canonical_form=canonical_form,
+        backend=backend,
+        **backend_kwargs,
+    )
+
+
+def to_prufer_sequence(T, *, backend=None, **backend_kwargs):
+    return _fnx.to_prufer_sequence(T, backend=backend, **backend_kwargs)
+
+
 def center(G):
     """Return the center of an undirected tree using fnx's center wrapper."""
     if G.is_directed():
