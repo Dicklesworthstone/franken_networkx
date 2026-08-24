@@ -251,3 +251,71 @@ def test_the_row_guard_survives_repeated_iteration(class_name, iteration):
             return ("RuntimeError",)
 
     assert outcome(graph) == outcome(reference)
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason=(
+        "br-r37-c1-hihrf: an nbunch ABOVE the walk gate takes the coarse "
+        "'did anything change' guard and raises where networkx completes. "
+        "Passing nbunch_rows to _FailFastEdgeIterator fixes it and was reverted "
+        "as a measured loss - see the test below for the cost."
+    ),
+)
+def test_an_nbunch_above_the_gate_matches_networkx():
+    """The gap the ORDER-scaled gate leaves open, pinned as an acceptance test.
+
+    ``test_the_undirected_gate_is_what_rescues_graph`` shows Graph at nbunch=16
+    is rescued once the order-scaled limit passes 16. It cannot be rescued for
+    every nbunch, because the limit is ``max(8, order // 250)`` and a caller may
+    pass more nodes than that: at order 20000 the limit is 80, so nbunch=120
+    lands back on the kernel and back on the divergence.
+
+    So this is the same defect as the map above, reached by growing the NBUNCH
+    instead of shrinking the graph - and it is the shape that says the gate is a
+    mitigation rather than a fix. Measured: networkx ('completes', 223), fnx
+    RuntimeError('dictionary changed size during iteration').
+    """
+    assert _iterate_and_mutate(fnx, "Graph", 20000, 120) == _iterate_and_mutate(
+        nx, "Graph", 20000, 120
+    )
+
+
+def test_the_row_rule_baseline_is_what_makes_the_obvious_fix_expensive():
+    """WHY the fix above is reverted rather than pending: it is not free.
+
+    The row rule needs, per nbunch node, the size that row had when iteration
+    started. Taking that snapshot means asking the graph for a degree per node,
+    and every one of those hashes a full-length node key - so the guard becomes
+    O(nbunch x key length) on a call networkx answers without touching the keys
+    at all. This test states the cost as a fact rather than an opinion, so a
+    future cheaper baseline (an index-keyed snapshot that never hashes a key, or
+    holding the row objects the way the Python walk does) has a number to beat.
+
+    Asserted as a RATIO against the graph's own short-key cost, so it measures
+    the key-length slope rather than the host.
+    """
+    import time
+
+    def snapshot_cost(key_length):
+        graph = fnx.Graph()
+        nodes = [f"n{i}".ljust(key_length, "x") for i in range(400)]
+        graph.add_edges_from(
+            [(nodes[i], nodes[(i + 1) % 400]) for i in range(400)]
+        )
+        nbunch = nodes[:200]
+        pairs = graph._native_degree_pairs_subset
+        best = None
+        for _ in range(5):
+            start = time.perf_counter_ns()
+            dict(pairs(list(nbunch)))
+            elapsed = time.perf_counter_ns() - start
+            best = elapsed if best is None else min(best, elapsed)
+        return best
+
+    short, long = snapshot_cost(3), snapshot_cost(2000)
+    assert long > short * 5, (
+        "the row-rule baseline no longer grows with key length - if a cheaper "
+        f"snapshot landed, the revert in EdgeDataView.__iter__ can be revisited "
+        f"(short={short}ns long={long}ns)"
+    )
