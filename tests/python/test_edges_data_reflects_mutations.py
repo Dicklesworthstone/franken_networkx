@@ -134,6 +134,24 @@ def test_attribute_write_is_visible_without_any_invalidation(cls_name):
         )
 
 
+def test_warmed_graph_edge_data_iterator_fails_fast_on_a_new_node():
+    """The cached fast iterator must retain NetworkX's live-node guard.
+
+    A tuple/list iterator would be faster but silently drain a pre-mutation
+    snapshot.  NetworkX's dict-backed edge-data iterator instead raises once a
+    new node changes the outer adjacency mapping; warming the cache first makes
+    this specifically exercise the cached path.
+    """
+    for lib in (nx, fnx):
+        graph, nodes = _build(lib, "Graph", 200)
+        list(graph.edges(data=True))
+        iterator = iter(graph.edges(data=True))
+        next(iterator)
+        graph.add_edge(nodes[0], "new-node".ljust(200, "q"), weight=99)
+        with pytest.raises(RuntimeError, match="dictionary changed size during iteration"):
+            next(iterator)
+
+
 @pytest.mark.parametrize("cls_name", CLASSES)
 @pytest.mark.parametrize("key_len", KEY_LENGTHS)
 def test_matches_networkx_after_a_mutation_sequence(cls_name, key_len):

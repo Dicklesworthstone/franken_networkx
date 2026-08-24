@@ -352,38 +352,6 @@ def is_negatively_weighted(
     return _fnx.is_negatively_weighted(G, edge, weight)
 
 
-def describe(G, describe_hook=None):
-    """Print a native graph description."""
-    import franken_networkx as _fnx
-
-    return _fnx.describe(G, describe_hook)
-
-
-def is_empty(G, *, backend=None, **backend_kwargs):
-    """Return whether the native graph has no edges."""
-    import franken_networkx as _fnx
-
-    return _fnx.is_empty(G, backend=backend, **backend_kwargs)
-
-
-def remove_node_attributes(G, *attr_names, nbunch=None, backend=None, **backend_kwargs):
-    """Remove selected native node attributes."""
-    import franken_networkx as _fnx
-
-    return _fnx.remove_node_attributes(
-        G, *attr_names, nbunch=nbunch, backend=backend, **backend_kwargs
-    )
-
-
-def remove_edge_attributes(G, *attr_names, ebunch=None, backend=None, **backend_kwargs):
-    """Remove selected native edge attributes."""
-    import franken_networkx as _fnx
-
-    return _fnx.remove_edge_attributes(
-        G, *attr_names, ebunch=ebunch, backend=backend, **backend_kwargs
-    )
-
-
 def _install_fnx_native_class_types():
     import franken_networkx as _fnx
 

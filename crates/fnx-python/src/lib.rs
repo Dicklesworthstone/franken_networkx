@@ -2419,7 +2419,7 @@ pub(crate) struct PyGraph {
     /// also the case that passes whether or not the stamps work. The stamps
     /// exist for structural change: `add_edge`/`remove_edge` move `edges_seq`
     /// and node mutations move `nodes_seq`.
-    pub(crate) edges_alldata_cache: Option<(u64, u64, Vec<PyObject>)>,
+    pub(crate) edges_alldata_cache: Option<(u64, u64, Py<PyDict>)>,
     /// br-r37-c1-z6uka: per-adjacency-ROW display objects. nx's `_adj[u]`
     /// dict keeps the py object passed in the call that CREATED that cell,
     /// which can differ from the `_node` (first-wins) object when
@@ -2746,9 +2746,7 @@ impl PyGraph {
         // dicts, and an attribute value may reference the graph itself, so an
         // untraversed cycle here would leak.
         if let Some((_, _, tuples)) = &self.edges_alldata_cache {
-            for tuple in tuples {
-                visit.call(tuple)?;
-            }
+            visit.call(tuples)?;
         }
         if let Some(cache) = &self.dict_of_dicts_cache {
             cache.traverse(visit)?;
@@ -3264,6 +3262,14 @@ impl PyGraph {
     #[inline]
     pub(crate) fn bump_nodes_seq(&mut self) {
         self.nodes_seq = self.nodes_seq.wrapping_add(1);
+        // The cached edge tuples are stored as dict values so whole-graph
+        // `edges(data=True)` can use CPython's C-level dict-value iterator.
+        // Clearing that dict in place, rather than merely dropping our handle,
+        // preserves NetworkX's fail-fast contract for an iterator that was
+        // obtained before the node-set mutation.
+        if let Some((_, _, cached)) = &self.edges_alldata_cache {
+            Python::attach(|py| cached.bind(py).clear());
+        }
         // br-r37-c1-igdzi: a node add or remove RENUMBERS positions, so the
         // recorded pairs may now name different edges. Dropping individual
         // entries would lose the fact that those dicts escaped and let a later
