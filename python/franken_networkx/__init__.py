@@ -11574,7 +11574,24 @@ def _should_delegate_dijkstra_to_networkx(
                     ):
                         return True
                 _value = _attrs.get(weight, 1)
-                if isinstance(_value, _numbers.Real) and not _math.isnan(_value):
+                # br-r37-c1-kn5cu: NaN DELEGATES, and this is the root of the
+                # bead. `and not _math.isnan(_value)` excluded NaN from the
+                # question entirely, so this predicate answered False for a
+                # multigraph carrying one - while the simple classes answered
+                # True, because their gate runs through the native scan's
+                # non-finite flag. Every dijkstra entry point that asks this
+                # question then handed the graph to a native kernel that
+                # substitutes the DEFAULT WEIGHT 1 for a NaN, which is how
+                # `single_source_dijkstra_path_length` returned 1.0 and 2.0
+                # where networkx returns nan and nan.
+                #
+                # The exact-string multigraph branch immediately below has
+                # always been right (`not _math.isfinite(_raw)` covers NaN), so
+                # the two halves of the same predicate disagreed about the same
+                # weight depending on a flag that has nothing to do with weights.
+                if isinstance(_value, _numbers.Real):
+                    if _math.isnan(_value):
+                        return True
                     if _value < 0 or (_math.isinf(_value) and _value > 0):
                         return True
             return False
@@ -25276,10 +25293,28 @@ def _multigraph_collapse_min_weight(G, weight):
             if _val < 0:
                 return None, True
         elif _vt is float:
-            if not _math.isnan(_val):
-                if _val < 0 or (_math.isinf(_val) and _val > 0):
-                    return None, True
-        elif isinstance(_val, _numbers.Real) and not _math.isnan(_val):
+            # br-r37-c1-kn5cu: NaN DELEGATES. It used to be waved through here,
+            # and the graph this builds then went to
+            # `_raw_single_source_dijkstra_path_length`, which substitutes the
+            # DEFAULT WEIGHT 1 for a NaN - so an undirected MultiGraph carrying
+            # one NaN edge returned a plausible finite distance where networkx
+            # returns nan (a->b 1.0 and a->c 2.0 against nan and nan). The
+            # collapse itself was never wrong: it stores the NaN and dijkstra on
+            # the collapsed graph is correct. What was wrong is that this is the
+            # one route that reaches the raw kernel WITHOUT
+            # `_should_delegate_dijkstra_to_networkx`, which answers True on a
+            # NaN and is why the simple-graph spelling has always been right.
+            # `_multigraph_collapse_min_weight_bellman` already delegates on
+            # NaN; this is the sibling that did not.
+            if _math.isnan(_val):
+                return None, True
+            if _val < 0 or (_math.isinf(_val) and _val > 0):
+                return None, True
+        elif isinstance(_val, _numbers.Real):
+            # Same rule for the exotic numerics (numpy float64/float32,
+            # Fraction, Decimal): a NaN reaches the same raw kernel.
+            if _math.isnan(_val):
+                return None, True
             if _val < 0 or (_math.isinf(_val) and _val > 0):
                 return None, True
         _pair = (_u, _v)
