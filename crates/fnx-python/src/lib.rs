@@ -17568,25 +17568,58 @@ impl PyGraph {
     /// total. The final `/2` is gated on the integer total staying within 2**53,
     /// because Python's `int / 2` is correctly rounded while `t as f64 / 2.0` is
     /// not once `t` is no longer exactly representable.
-    fn _weighted_size_fast_float(&self, weight: &str) -> Option<f64> {
-        if self.edges_dirty.load(Ordering::Relaxed) {
-            return None;
-        }
+    ///
+    /// br-r37-c1-igdzi: SCOPE-AWARE, like its integer sibling but by re-reading
+    /// rather than by correcting. Float addition is not associative, so a delta
+    /// applied at the end would change the summation ORDER and stop reproducing
+    /// nx's two-level sum — the exact property this kernel exists to preserve.
+    /// The escaped edges are therefore read in place, at the point in the walk
+    /// where the store value would have been consumed.
+    ///
+    /// That is the per-edge probe shape that lost in
+    /// `_native_weighted_degree_int_values`, and it is worth it HERE for a
+    /// reason that is measurable rather than aesthetic: that kernel's clean path
+    /// is a per-node walk building N Python objects (2468us at 4000 edges) so
+    /// the probe could not pay for itself, while this one's is a bare
+    /// two-level store walk with no per-edge PyObject at all (166us), against a
+    /// 1875us Python fallback. The margin is what makes the same probe a win.
+    fn _weighted_size_fast_float(&self, py: Python<'_>, weight: &str) -> Option<f64> {
+        let scope = self.weighted_read_scope().ok()?;
+        let escaped = scope.as_deref().and_then(Option::as_ref);
         let mut outer = crate::digraph::MixedSum::new();
         for i in 0..self.inner.node_count() {
             let mut node = crate::digraph::MixedSum::new();
             let mut selfloop: Option<Result<i128, f64>> = None;
             if let Some(nbrs) = self.inner.neighbors_indices(i) {
                 for &j in nbrs {
-                    let value = match self
-                        .inner
-                        .edge_attrs_by_indices(i, j)
-                        .map(|a| a.get(weight))
+                    let value = if let Some(escaped) = escaped
+                        && escaped.contains(&if i <= j { (i, j) } else { (j, i) })
                     {
-                        Some(Some(CgseValue::Int(v))) => Ok(i128::from(*v)),
-                        Some(Some(CgseValue::Float(v))) => Err(*v),
-                        Some(Some(_)) => return None,
-                        _ => Ok(1i128),
+                        // The live dict is authoritative for this edge. Same
+                        // three shapes the store arm accepts — an exact int, an
+                        // exact float, or an absent key taking nx's default of
+                        // 1 — and a refusal for anything else, including a bool.
+                        match self.escaped_edge_weight(py, i, j, weight)? {
+                            None => Ok(1i128),
+                            Some(v) if v.is_exact_instance_of::<PyInt>() => {
+                                Ok(v.extract::<i128>().ok()?)
+                            }
+                            Some(v) if v.is_exact_instance_of::<PyFloat>() => {
+                                Err(v.extract::<f64>().ok()?)
+                            }
+                            Some(_) => return None,
+                        }
+                    } else {
+                        match self
+                            .inner
+                            .edge_attrs_by_indices(i, j)
+                            .map(|a| a.get(weight))
+                        {
+                            Some(Some(CgseValue::Int(v))) => Ok(i128::from(*v)),
+                            Some(Some(CgseValue::Float(v))) => Err(*v),
+                            Some(Some(_)) => return None,
+                            _ => Ok(1i128),
+                        }
                     };
                     let ok = match value {
                         Ok(w) => node.add_int(w),
