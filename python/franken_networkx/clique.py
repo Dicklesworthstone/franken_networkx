@@ -34,46 +34,45 @@ __all__ = list(
     )
 )
 
-# br-r37-c1-2qsqf: ``from networkx.algorithms.clique import *`` above left these
-# clique functions bound to networkx's implementations, so ``fnx.clique.find_cliques``
-# etc. silently resolved to nx's instead of fnx's native versions. ``make_clique_bipartite``
-# already overrides below; route the rest to the fnx top-level functions via
-# call-time closure wrappers (import-order robust).
-# br-r37-c1-9hnq3: ``make_max_clique_graph`` is deliberately NOT in this tuple.
-# The generic router below forwards ``*args, **kwargs``, which the coverage
-# matrix classifies as PARTIAL coverage of the nx surface rather than present —
-# `inspect.signature`, `help()` and keyword-only enforcement all degrade through
-# it. It is spelled out below instead, like ``make_clique_bipartite``.
-#
-# The other six here have the same weakness and are left alone on purpose: they
-# are already accounted for in the pinned coverage numbers, whereas
-# ``make_max_clique_graph`` had regressed away from them. Converting the rest is
-# a real improvement but a separate, wider change — filed, not smuggled in here.
-_FNX_NATIVE_CLIQUE_NAMES = (
-    "find_cliques",
-    "find_cliques_recursive",
-    "node_clique_number",
-    "number_of_cliques",
-    "enumerate_all_cliques",
-    "max_weight_clique",
-)
+def find_cliques(G, nodes=None, *, backend=None, **backend_kwargs):
+    """Yield maximal cliques using FrankenNetworkX's native implementation."""
+    return _fnx.find_cliques(G, nodes=nodes, backend=backend, **backend_kwargs)
 
 
-def _make_fnx_clique_router(_fn_name):
-    def _routed(*args, **kwargs):
-        return getattr(_fnx, _fn_name)(*args, **kwargs)
+def find_cliques_recursive(G, nodes=None, *, backend=None, **backend_kwargs):
+    """Yield maximal cliques through the recursive native implementation."""
+    return _fnx.find_cliques_recursive(G, nodes=nodes, backend=backend, **backend_kwargs)
 
-    _routed.__name__ = _fn_name
-    _routed.__qualname__ = _fn_name
-    _routed.__doc__ = (
-        f"Route to ``franken_networkx.{_fn_name}`` (fnx-native). See "
-        f"``networkx.algorithms.clique.{_fn_name}`` for semantics."
+
+def node_clique_number(
+    G, nodes=None, cliques=None, separate_nodes=False, *, backend=None, **backend_kwargs
+):
+    """Return each requested node's largest maximal-clique size."""
+    return _fnx.node_clique_number(
+        G,
+        nodes=nodes,
+        cliques=cliques,
+        separate_nodes=separate_nodes,
+        backend=backend,
+        **backend_kwargs,
     )
-    return _routed
 
 
-for _name in _FNX_NATIVE_CLIQUE_NAMES:
-    globals()[_name] = _make_fnx_clique_router(_name)
+def number_of_cliques(G, nodes=None, cliques=None):
+    """Return the number of maximal cliques containing each requested node."""
+    return _fnx.number_of_cliques(G, nodes=nodes, cliques=cliques)
+
+
+def enumerate_all_cliques(G, *, backend=None, **backend_kwargs):
+    """Yield every clique using FrankenNetworkX's native implementation."""
+    return _fnx.enumerate_all_cliques(G, backend=backend, **backend_kwargs)
+
+
+def max_weight_clique(G, weight="weight", *, backend=None, **backend_kwargs):
+    """Return a maximum-weight clique using FrankenNetworkX's implementation."""
+    return _fnx.max_weight_clique(
+        G, weight=weight, backend=backend, **backend_kwargs
+    )
 
 
 def make_max_clique_graph(G, create_using=None, *, backend=None, **backend_kwargs):
