@@ -1,0 +1,60 @@
+MEASUREMENT EVIDENCE for br-r37-c1-degframe (the commit message carries none).
+
+This change was authored and validated in a session that had not yet committed
+it; it was picked up from the shared working tree and committed verbatim. The
+numbers below are the ones it was validated against.
+
+Profiled by removing exactly one thing at a time, 256 calls, 400 nodes /
+1600 edges, assigned-private storage:
+
+  nx   dv[i]                      102.9 ns/call
+  fnx  dv[i]   (2 Python frames)  155.9 ns/call
+  fnx  same arithmetic, INLINE     57.3 ns/call   <- faster than networkx
+  nx   dv(i)                      184.1 ns/call
+  fnx  dv(i)                      232.5 ns/call
+
+The arithmetic was never the deficit - inlined it BEATS networkx. The whole gap
+was frame overhead at roughly 49ns a frame: __getitem__ delegated to a helper,
+so a subscript cost two frames where networkx's costs one.
+
+The body is not duplicated. It moved into __getitem__; __call__'s scalar path
+runs the membership test it already needed and delegates there, so the degree is
+computed in one place and the helper is gone.
+
+ISOLATED (view hoisted, so the blocked accessor is out of the way):
+  HOISTED dv[i]  nx 26.63us  fnx 40.03us -> 28.53us   0.6652x -> 0.9343x
+                 156.4 ns/call -> 111.4 ns/call  (nx 104.0)  -- STILL A LOSS
+
+Six-pass A/B, balanced order head32,after32,after32,head32,head32,after32,
+perf_harness.paired() with LIVE networkx in the SAME invocation, 21 interleaved
+rounds, min_of=3, bootstrap median CI, dual arm-specific A/A nulls. Both arms
+load the SAME extension, so the binary noise floor is zero by construction:
+bench_elf_sha256=c1adcc19b2ea0ac4b8f3ec3420078cfa0458154e49c5bc22857b3d856b9a9aba
+(14097424 bytes), byte-identical in both arms' logs.
+
+  private dv[i] subscript     0.4065x -> 0.4506x  fnx 73.04us -> 62.72us  no-overlap
+  private DiG dv[i]           0.4058x -> 0.4670x  fnx 74.78us -> 60.93us  no-overlap
+  private MultiG dv[i]        0.7216x -> 0.7629x  fnx 178.06us -> 166.62us no-overlap
+  private G.degree(0) x256    0.5550x -> 0.5766x  fnx 95.04us -> 87.76us  no-overlap
+  CTRL ordinary dv[i]         0.8290x -> 0.8125x  fnx 35.23us -> 35.24us  (times IDENTICAL)
+
+These SUBSCRIPT rows are spelled `g.degree[i]`, so every element also re-reads
+the accessor blocked under
+br-r37-c1-cached-descriptor-excludes-private-storage-2nrff - which is why they
+read 0.45x rather than the isolated 0.9343x.
+
+A FIRST RUN WAS DISCARDED AS CONTAMINATED. At peer load 22-26 it dropped 15 of
+204 observations, nulls reached nx 1.0819 / fnx 1.0616, and the ORDINARY
+G.edges accessor - unreachable from this change - moved 0.8707x -> 0.7917x with
+fnx 5.80us -> 8.37us. Re-run at load 9-12: 191 of 204 admitted, nulls nx
+[0.9940, 1.0129] fnx [0.9894, 1.0089], and that control returned to 0.98x
+(5.71us -> 5.76us). The four target rows replicate across both runs
+(1.18x/1.11x, 1.18x/1.15x, 1.06x/1.06x, 1.08x/1.04x).
+
+Parity: five sweeps identical between arms - 1853 unweighted degree probes,
+2080 weighted (ALL bit-exact), 1760 ORDER-sensitive nbunch probes, 384 liveness
+probes over 8 mutation kinds including the counts-unchanged edge swap and
+frozen-node removal, and the 8-route staleness stress.
+
+Suite: FULL Python suite, 1062 files, both arms - 63928 passed, 1479 skipped,
+23 failed identically on both arms, NEW: none.
