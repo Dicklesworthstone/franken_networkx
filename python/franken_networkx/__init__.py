@@ -966,7 +966,13 @@ def _FailFastEdgeIterator(
     return _gen()
 
 
-def _edge_list_freshness_token(graph):
+# br-r37-c1-degtok: local sentinel. `_PRIVATE_MISSING` is defined far below
+# this function, and a default argument is evaluated at DEF time, not call
+# time -- using it here is an import-time NameError.
+_FRESHNESS_SEQ_UNSET = object()
+
+
+def _edge_list_freshness_token(graph, nodes_seq=_FRESHNESS_SEQ_UNSET):
     """br-r37-c1-af0ig: O(1) token that changes on any STRUCTURAL mutation.
 
     ``nodes_seq`` / ``edges_seq`` are monotonic revision counters, so they
@@ -980,8 +986,20 @@ def _edge_list_freshness_token(graph):
     "cannot tell" and therefore never refresh — the pre-existing snapshot
     behaviour, rather than a wrong guess.
     """
-    if not _has_networkx_private_storage(graph):
-        nodes_seq = getattr(graph, "nodes_seq", None)
+    # br-r37-c1-degtok: `nodes_seq` may be passed in by a caller that has just
+    # read it -- each read is a PyO3 crossing, and `_FilteredDegreeView.__init__`
+    # reads it for `_fnx_nodes_seq` immediately before asking for a token.
+    # A dedicated sentinel distinguishes "not
+    # supplied" from a genuine None, which means "this graph has no counter".
+    storage = graph.__dict__
+    if not (
+        _PRIVATE_NODE_OVERRIDE in storage
+        or _PRIVATE_ADJ_OVERRIDE in storage
+        or _PRIVATE_SUCC_OVERRIDE in storage
+        or _PRIVATE_PRED_OVERRIDE in storage
+    ):
+        if nodes_seq is _FRESHNESS_SEQ_UNSET:
+            nodes_seq = getattr(graph, "nodes_seq", None)
         if nodes_seq is not None:
             edges_seq = getattr(graph, "edges_seq", None)
             if edges_seq is not None:
@@ -8626,14 +8644,20 @@ class _FilteredDegreeView:
         # br-r37-c1-pejo5: _graph/_fnx_nodes_seq give the shared frozen-node
         # check the same two attributes the other degree proxies expose.
         self._graph = graph
-        self._fnx_nodes_seq = getattr(graph, "nodes_seq", None)
+        # br-r37-c1-degtok: read once, reuse for the token below.
+        _seq = getattr(graph, "nodes_seq", None)
+        self._fnx_nodes_seq = _seq
         if values is not None:
             self._raw = raw
             self._pairs = None
             self._nodes = None
             self._weight = weight
             self._parent = raw if isinstance(raw, _WeightAwareDegreeView) else None
-            self._token = self._freshness()
+            self._token = (
+            _edge_list_freshness_token(graph, _seq)
+            if graph is not None
+            else self._freshness()
+        )
             return
         self._raw = raw
         # br-r37-c1-degnbnative (cc): when `pairs` (precomputed (node, degree) from
@@ -8647,7 +8671,11 @@ class _FilteredDegreeView:
         # need the parent to compute weighted values; otherwise raw is
         # the Rust DegreeView for unweighted access.
         self._parent = raw if isinstance(raw, _WeightAwareDegreeView) else None
-        self._token = self._freshness()
+        self._token = (
+            _edge_list_freshness_token(graph, _seq)
+            if graph is not None
+            else self._freshness()
+        )
 
     # br-r37-c1-vfc2t: networkx's degree views are LIVE. Both snapshot modes
     # here (`pairs` from the native subset kernel, `values` from the native
@@ -8719,6 +8747,17 @@ class _FilteredDegreeView:
         # the same freshness check. A stale snapshot falls back to the live
         # node set, which for an unrestricted view is the graph's CURRENT
         # nodes and for a restricted one is its frozen nbunch.
+        #
+        # br-r37-c1-degtok: which is exactly why a RESTRICTED view can skip the
+        # check. `_live_nodes()` returns `self._nodes` VERBATIM when the view is
+        # restricted, so both branches below already answer `len(self._nodes)`
+        # -- the check cannot change the result, and it costs a
+        # private-storage probe plus two PyO3 getter crossings. `list(view)`
+        # calls `__len__` before `__iter__`, so this was paid on every single
+        # materialisation.
+        nodes = self._nodes
+        if nodes is not None and not self._whole_graph:
+            return len(nodes)
         if not self._snapshot_is_current():
             return len(self._live_nodes())
         if self._values is not None:
