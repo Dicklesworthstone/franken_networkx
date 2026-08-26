@@ -36782,3 +36782,122 @@ is UNCHANGED between arms: 1802 match, and the same 51 are the pre-existing
 SUITE. 201 test files, widened to include the cache, copy and pickle suites
 because this change adds a cached object to the instance dict: `10381 passed`,
 `64 skipped`, `22 xfailed`, `10 failed` IDENTICALLY on both arms. `NEW: none`.
+
+## 2026-08-26 br-r37-c1-descwarm KEEP / SELF-SPEEDUP (warm assigned accessor lookup collapses into `_CachedViewDescriptor.__get__`): `nodes` `0.0745x` -> `0.1416x`, `degree` `0.0844x` -> `0.1471x`, `edges` `0.0900x` -> `0.1465x` — ALL STILL ~7x LOSSES, no competitive claim
+
+comparison_class=SELF-SPEEDUP
+campaign_output=false
+decision_gate=median_ci
+cv_role=report_only
+
+bench_elf_sha256=c1adcc19b2ea0ac4b8f3ec3420078cfa0458154e49c5bc22857b3d856b9a9aba (14097424 bytes)
+
+CLASSIFICATION FIRST. Every treated row remains a ~7x LOSS against live
+networkx. Maintenance, not campaign output, no competitive claim.
+
+A GATE STOPPED THE OBVIOUS FIX, AND THE GATE WAS RIGHT. The lever named by
+`br-r37-c1-degprop` was to delete the private-storage exclusion in
+`_CachedViewDescriptor.__get__`, so an assigned-storage graph would be memoised
+under its public name like any other. That was implemented and it WORKED — but
+it turned `test_private_override_state_is_never_memoised` RED, a test whose
+whole purpose is to assert `"nodes" not in vars(graph)` for a graph carrying
+private storage. That gate is not defective; it encodes a deliberate design
+decision. Per the campaign's standing rule a gate is never weakened to land a
+change, so the exclusion STAYS and that work is parked on
+`git stash` under `br-r37-c1-descpriv`, with the evidence gathered for it
+recorded on the bead rather than thrown away:
+
+* the four override keys are written ONLY through `_set_private_override` —
+  `_node`/`_adj`/`_succ`/`_pred` are DATA-descriptor properties on all four
+  classes (21 setter bindings), a data descriptor cannot be bypassed by an
+  instance-dict write, there is no deleter, and grep finds no direct write to
+  any of the four keys anywhere in the module;
+* `_set_private_override` already drops EVERY name in
+  `_DESCRIPTOR_CACHED_VIEWS`, and `copy` / `deepcopy` / `__reduce__` already
+  skip those entries;
+* an 8-route x 4-class staleness stress probe (warm-then-assign,
+  warm-then-reassign, a third disjoint store, node-only then adj, copy /
+  deepcopy / pickle, original-after-copies, copy-then-reassign, IN-PLACE
+  mutation of the assigned mapping, and the identity contract) found ZERO
+  divergences from live networkx.
+
+That evidence says the exclusion is unnecessary for correctness. It does not say
+the gate should be edited by the same agent that wants it gone, so it is not.
+
+WHAT WAS DONE INSTEAD, INSIDE THE GATE. Nothing is memoised under the public
+name and `"nodes" not in vars(graph)` still holds — the full
+`test_view_descriptor_parity.py` (324 tests) is green. The cost the exclusion
+imposed was THREE Python frames per access (`__get__` -> the builder closure ->
+`_has_networkx_private_storage`) where an ordinary graph pays NONE, because it
+is memoised after the first access and the non-data descriptor stops being
+consulted. Decomposed on 256 accesses of assigned `G.degree`:
+
+| component | us / 256 |
+|---|---:|
+| whole access, before | `60.29` |
+| `_has_networkx_private_storage` alone | `13.87` |
+| the cache `dict.get` alone | `5.80` |
+| networkx | `5.09` |
+
+So the WARM assigned lookup now happens in `__get__` itself: the predicate's
+four membership tests are inlined and the builder's own cache key is read
+directly. On a miss it falls straight through to the builder, so the answer is
+whatever the builder would have returned — no decision is reordered and nothing
+new is cached. The `nodes` builder gates on the NODE override alone while
+`edges`/`degree` gate on all four, and that asymmetry is preserved for free: a
+graph whose only override is `_adj` has never populated
+`_fnx_view_nodes_assigned`, so the `get` misses and the builder decides.
+
+| row (400 nodes / 1600 edges) | HEAD | after | self | fnx us HEAD -> after | nx us |
+|---|---:|---:|---:|---:|---:|
+| private `G.nodes` accessor x256 | `0.0745x` | `0.1416x` | `1.90x` | `66.08` -> `34.72` | `4.92` |
+| private `G.degree` accessor x256 | `0.0844x` | `0.1471x` | `1.74x` | `58.69` -> `33.26` | `4.93` |
+| private `DiGraph.degree` accessor x256 | `0.0847x` | `0.1472x` | `1.74x` | `58.38` -> `33.99` | `5.01` |
+| private `G.edges` accessor x256 | `0.0900x` | `0.1465x` | `1.63x` | `58.52` -> `34.91` | `5.15` |
+| private `G.degree(0)` x256 | `0.2099x` | `0.2400x` | `1.14x` | `236.54` -> `208.03` | `50.31` |
+| private `number_of_edges()` | `0.9607x` | `0.9597x` | `1.00x` | `38.08` -> `37.96` | `36.53` |
+| private `list(G.degree())` | `0.9173x` | `0.9130x` | `1.00x` | `34.09` -> `34.44` | `31.48` |
+| private `DiGraph degree()` | `0.9462x` | `0.9513x` | `1.01x` | `32.92` -> `33.78` | `31.60` |
+| private `MultiGraph degree()` | `1.0119x` | `1.0369x` | `1.02x` | `191.44` -> `191.70` | `192.33` |
+| control: ordinary `G.nodes` accessor | `0.8754x` | `0.8666x` | `0.99x` | `5.53` -> `5.73` | `4.85` |
+| control: ordinary `G.degree` accessor | `0.8756x` | `0.8852x` | `1.01x` | `5.68` -> `5.82` | `5.08` |
+| control: ordinary `G.edges` accessor | `0.8646x` | `0.8682x` | `1.00x` | `5.83` -> `5.99` | `5.16` |
+| control: ordinary `list(G.degree())` | `1.3517x` | `1.3547x` | `1.00x` | `23.14` -> `24.13` | `31.71` |
+| control: ordinary `MultiGraph degree()` | `4.7487x` | `4.7478x` | `1.00x` | `39.25` -> `39.67` | `186.53` |
+| control: ordinary `G.degree(weight)` | `2.9329x` | `2.8932x` | `0.99x` | `81.19` -> `82.69` | `239.65` |
+| control: ordinary `len(G.edges)` | `255.1242x` | `248.4629x` | `0.97x` | `0.09` -> `0.09` | `22.84` |
+
+THE THREE ORDINARY ACCESSOR CONTROLS ARE THE POINT OF THIS TABLE. The change
+adds four membership tests to a path ordinary graphs take on their FIRST access,
+so those three rows are what would expose a regression — and they are flat at
+`0.99x`-`1.01x`. All seven controls sit between `0.97x` and `1.01x`.
+
+SUBSTRATE. Pure-Python A/B, both arms loading the SAME extension so the binary
+noise floor is zero by construction — the `bench_elf_sha256` above is
+byte-identical in the `after22` (HEAD) and `after24` logs. Six passes in
+balanced order, `perf_harness.paired()` with LIVE networkx in the SAME
+invocation, 21 interleaved rounds, `min_of=3`, bootstrap median CI, dual
+arm-specific A/A nulls. 93 of 96 observations admitted with both nulls inside
+`[0.98, 1.02]`; the 3 that fell outside were dropped. Host-wide quiescence was
+not reachable, so the row is gate-bypassed.
+
+THE LOSS THAT REMAINS. `~34us` per 256 accesses is `0.133us` each against
+networkx's `0.019us` and the ordinary sibling's `0.022us`. Roughly half of the
+original per-access cost is gone; the rest is the one surviving `__get__` frame,
+which cannot be removed without the memoisation the gate forbids. So this
+surface is now BLOCKED on a decision rather than on a measurement, and that is
+recorded as such rather than presented as a floor.
+
+PARITY. Unchanged between arms on both sweeps: the 1853-probe degree sweep
+(1802 match; the same 51 are the pre-existing `G.degree(missing)` defect,
+`br-r37-c1-degree-scalar-missing-node-ij0bt`) and the staleness stress probe
+(the same 4 are the pre-existing user-assignment divergence,
+`br-r37-c1-user-assigned-view-survives-adj-reset-aegas`).
+
+SUITE. The FULL Python suite, 1062 files, both arms: `63928 passed`, `1479
+skipped`, `48 xfailed`, `1 xpassed`, `23 failed` IDENTICALLY on both arms.
+`NEW: none`. (A collection error in `test_read_call_scaling_probe.py` had been
+silently truncating an earlier run to zero tests and reporting no failures —
+it resolves `scripts/` relative to the package's grandparent, which a shadow
+tree lacks. Fixed by symlinking, not by dropping the file: the first "0 FAILED"
+reading was a FALSE GREEN and is recorded here so it is not repeated.)

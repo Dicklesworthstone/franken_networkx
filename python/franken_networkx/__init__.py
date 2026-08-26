@@ -48847,14 +48847,50 @@ class _CachedViewDescriptor:
     # the dict costs nothing measurable, and it lets ``__doc__`` carry the
     # builder's docstring the way ``property``/``cached_property`` do.
 
-    def __init__(self, build, name):
+    def __init__(self, build, name, assigned_key=None):
         self._build = build
         self._name = name
+        # br-r37-c1-descwarm: the instance-dict key the BUILDER memoises its
+        # assigned-storage view under, for the accessors that have one
+        # (`nodes`/`edges`/`degree`). None for every other accessor, which keeps
+        # their behaviour bit-identical.
+        self._assigned_key = assigned_key
         self.__doc__ = getattr(build, "__doc__", None)
 
     def __get__(self, obj, objtype=None):
         if obj is None:
             return self
+        # br-r37-c1-descwarm: a graph carrying private storage is never memoised
+        # under the public name -- that is the contract
+        # `test_private_override_state_is_never_memoised` guards, and it is NOT
+        # relaxed here. What it cost was THREE Python frames on every access
+        # (`__get__` -> the builder closure -> `_has_networkx_private_storage`)
+        # where an ordinary graph pays none: measured 256 accesses of assigned
+        # `G.degree` at `60.29us` against networkx's `5.09us`, of which the
+        # predicate call alone was `13.87us`.
+        #
+        # So collapse the WARM assigned lookup into this one frame: inline the
+        # predicate's four membership tests and read the builder's own cache key
+        # directly. On a miss it falls straight through to the builder, so the
+        # answer is whatever the builder would have returned -- this reorders no
+        # decision and caches nothing new. `nodes` gates on the NODE override
+        # alone while `edges`/`degree` gate on all four, and that difference is
+        # preserved for free: a graph whose only override is `_adj` has never
+        # populated `_fnx_view_nodes_assigned`, so the `get` misses and the
+        # builder decides, exactly as before.
+        assigned_key = self._assigned_key
+        if assigned_key is not None:
+            storage = vars(obj)
+            if (
+                _PRIVATE_NODE_OVERRIDE in storage
+                or _PRIVATE_ADJ_OVERRIDE in storage
+                or _PRIVATE_SUCC_OVERRIDE in storage
+                or _PRIVATE_PRED_OVERRIDE in storage
+            ):
+                view = storage.get(assigned_key)
+                if view is not None:
+                    return view
+                return self._build(obj)
         view = self._build(obj)
         if not _has_networkx_private_storage(obj):
             storage = vars(obj)
@@ -50408,7 +50444,7 @@ def _private_aware_nodes(raw_nodes):
         return view
 
     # br-r37-c1-wbwkb: nx's cached_property mechanism — see _CachedViewDescriptor.
-    return _CachedViewDescriptor(nodes, "nodes")
+    return _CachedViewDescriptor(nodes, "nodes", "_fnx_view_nodes_assigned")
 
 
 def _private_aware_edges(raw_edges):
@@ -50447,7 +50483,7 @@ def _private_aware_edges(raw_edges):
     # instead of once per access; the entry is keyed by ``id(view)`` and holds a
     # weak ref to the graph, and a memoised view lives exactly as long as the
     # graph it is stored on, so the mapping is unchanged.
-    return _CachedViewDescriptor(edges, "edges")
+    return _CachedViewDescriptor(edges, "edges", "_fnx_view_edges_assigned")
 
 
 # id(EdgeView) -> owning Graph. br-r37-c1-cxglk: WeakValueDictionary
@@ -50511,7 +50547,7 @@ def _private_aware_degree(raw_degree):
         return view
 
     # br-r37-c1-wbwkb: nx's cached_property mechanism — see _CachedViewDescriptor.
-    return _CachedViewDescriptor(degree, "degree")
+    return _CachedViewDescriptor(degree, "degree", "_fnx_view_degree_assigned")
 
 
 def _private_aware_has_node(raw_has_node):
