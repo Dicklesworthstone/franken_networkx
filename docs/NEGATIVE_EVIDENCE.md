@@ -37,6 +37,112 @@ admission history, host, scope source, process affinity, monitored CPU set,
 checked-window count, maximum observed busy fraction, and maximum consecutive
 busy-window count.
 
+## 2026-08-25 BlackThrush SHIPPED, STILL A LOSS: the int-key lookaside reaches `PyGraph`/`PyMultiGraph` — `Graph.get_edge_data()` **`0.3283x` -> `0.5909x`** (`1.75x` self); `adj[u][v]` did NOT move and the AtlasView frame is now the dominant cost (`br-r37-c1-ktsxn`)
+
+comparison_class=SELF-SPEEDUP
+campaign_output=false
+self_speedup_ratio=1.75x
+vs_networkx_same_invocation=0.5909x (STILL A LOSS, not a campaign result)
+decision_gate=median_ci
+cv_role=report_only
+
+Third and last file of the same partially-applied fix. `acb088e3a` widened the
+node-key gate from exact-`str` to exact-`str`-or-exact-`int` in `views.rs`;
+`ab94f800f` did `digraph.rs`; `lib.rs` still held 46 `PyString`-only gates and 4
+uses of the widened predicate. EIGHT gates widened here across
+`PyGraph::get_edge_data`, `PyGraph::_fnx_edge_attr_dict_fast`, the `PyGraph`
+endpoint-index resolver, and `PyMultiGraph::get_edge_data` — probe and fill
+together in every case.
+
+PROVENANCE. Both arms built by me from the same `git archive` tree outside the
+shared checkout, same flags, same host, same target dir.
+
+    bench_elf_sha256=972203d34df51cc0fcb2c2938046c1ef6479988d07107e59ae8aba3b63276281  before arm ab94f800f
+    bench_elf_sha256=6415ad6cafc4fdada536ec5267f5bd15c52691d3eef0f8e4e702f4cc9e93d3f5  after arm  + eight widened gates
+
+Read from INSIDE each timing process by `perf_harness.binary_sha256`. nx 3.6.1
+(genuine upstream, module asserted), CPython 3.13.7, LOCAL:thinkstation1.
+Substrate `perf_harness.paired()`; FOUR passes in arm order
+`before, after, after, before`. Passes 2-4 returned 12/12 DECIDABLE, pass 1
+returned 11/12. Nulls across all four passes lie inside `0.9805x-1.0269x` —
+looser than the previous row's `0.9947x-1.0023x` because a peer held the host
+between loadavg 115 and 484 for the whole run, which is also why the noise floor
+below is wider.
+
+DUAL A/A NULLS, RECORDED AND POSITIVE. Every row on both arms carries its own
+arm-specific same-invocation self-control. Over 48 such controls the networkx
+A/A null spans `0.9851x` to `1.0093x` and the FrankenNetworkX A/A null spans
+`0.9805x` to `1.0269x`, so each null control brackets `1.0x` and the treated
+separation of `1.753x` sits far outside both.
+
+### Medians over four passes
+
+| row | before | after | fnx ns/call | self | |
+|---|---|---|---|---|---|
+| `Graph.get_edge_data()` int | `0.3283x` | **`0.5909x`** | `239.5 -> 136.6` | **`1.753x`** | TREATED |
+| `Graph.adj[u][v]` int | `0.4511x` | `0.4737x` | `352.3 -> 339.4` | `1.038x` | TREATED |
+| `Graph.edges[u,v]` int | `0.6976x` | `0.6950x` | `136.1 -> 138.4` | `0.984x` | TREATED |
+| `Graph.get_edge_data()` str | `0.5610x` | `0.5699x` | `139.2 -> 135.4` | `1.028x` | control |
+| `Graph.edges[u,v]` str | `0.6537x` | `0.6774x` | `138.7 -> 135.5` | `1.023x` | control |
+| `DiGraph.get_edge_data()` int | `0.5741x` | `0.5919x` | `141.5 -> 139.9` | `1.011x` | control |
+| `DiGraph.edges[u,v]` int | `0.4323x` | `0.4317x` | `225.9 -> 224.2` | `1.008x` | control |
+| `DiGraph.get_edge_data()` str | `0.5430x` | `0.5564x` | `141.4 -> 141.7` | `0.998x` | control |
+| `DiGraph.edges[u,v]` str | `0.4177x` | `0.4224x` | `218.9 -> 220.3` | `0.994x` | control |
+| `DiGraph.adj[u][v]` int | `0.3487x` | `0.3444x` | `460.6 -> 471.0` | `0.978x` | control |
+| `DiGraph.adj[u][v]` str | `0.3253x` | `0.3222x` | `479.9 -> 494.9` | `0.970x` | control |
+| `Graph.adj[u][v]` str | `0.5330x` | `0.5093x` | `295.4 -> 316.3` | `0.934x` | control |
+
+ONE ROW MOVED. `Graph.get_edge_data()` on int keys, `1.753x`, far outside the
+`0.934x-1.028x` the nine controls span. The DiGraph rows are controls here — they
+were widened in `ab94f800f` and `lib.rs` must not touch them again; they read
+`0.970x-1.011x`, confirming it did not.
+
+TWO TREATED ROWS DID NOT MOVE, and both are reported as such rather than folded
+into the headline:
+
+- `Graph.edges[u,v]` int `0.984x`. EXPECTED: it is served by the native
+  `EdgeView::__getitem__` C slot in `views.rs`, widened back in `acb088e3a`, and
+  never enters `lib.rs::get_edge_data`. Its `136-138 ns/call` is unchanged
+  because there was nothing left here to fix.
+- `Graph.adj[u][v]` int `1.038x`, INSIDE the noise floor whose ceiling is
+  `1.028x`. NOT CLAIMED. `_fnx_edge_attr_dict_fast` was widened, so the gate is
+  no longer the binding constraint on this row — something else is.
+
+WHERE THE COST NOW SITS, and it names the next lever. Same class, same keys,
+same graph:
+
+    Graph.get_edge_data()   136.6 ns/call
+    Graph.adj[u][v]         339.4 ns/call     -> +202.8 ns of AtlasView
+    DiGraph.get_edge_data() 139.9 ns/call
+    DiGraph.adj[u][v]       471.0 ns/call     -> +331.1 ns of AtlasView
+
+The native lookup behind both is now ~`137-140 ns/call` on every class and both
+key types — the key-type axis on `get_edge_data` is CLOSED (`Graph` int `136.6`
+vs str `135.4`; `DiGraph` int `139.9` vs str `141.7`). What remains on
+`adj[u][v]` is `203-331 ns/call` of PYTHON `AtlasView` indirection, which is
+1.5-2.4x the entire native call it wraps. That is the same
+python-shim-on-a-native-slot shape as `br-r37-c1-ktsxn` and it is now the
+dominant cost on the adjacency read surface.
+
+WORST ROWS NOW: `DiGraph.adj[u][v]` str `0.3222x` and int `0.3444x`.
+
+CORRECTNESS. Int-key parity against LIVE networkx passes. The touched surface —
+48 test files over edge views, edge data, adjacency mappings, atlas rows,
+private storage, has_edge and node-key canonicalization — is 2131 passed, 24
+skipped, 20 xfailed, 2 failed. Those 2 are
+`test_tampering_with_the_returned_keydict_self_heals[MultiGraph]` and
+`[MultiDiGraph]`, already recorded as RED ON HEAD under `br-r37-c1-s2b3h`;
+they reproduce on `acb088e3a`, which predates all three of these commits.
+
+NOT PARITY, hence SELF-SPEEDUP. `br-r37-c1-bnv3h` put the native lookup floor at
+`214.7ns` against networkx's `115.2ns` for a whole call; the measured
+`136.6 ns/call` is now BELOW that recorded floor, so that figure is itself stale
+and should be re-derived before it is quoted again.
+
+REPRODUCE:
+
+    bash tests/artifacts/perf/20260825T-graph-intkey-lookaside-blackthrush/replicate3.sh
+
 ## 2026-08-25 BlackThrush SHIPPED, STILL A LOSS: the int-key lookaside reaches `DiGraph` too — `DiGraph.edges[u,v]` **`0.3112x` -> `0.4430x`**, `get_edge_data` **`0.3512x` -> `0.5659x`** (`1.61x` self), controls flat (`br-r37-c1-ktsxn`, `br-r37-c1-uh8cm`)
 
 comparison_class=SELF-SPEEDUP

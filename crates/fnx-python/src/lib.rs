@@ -8615,8 +8615,8 @@ impl PyMultiGraph {
         // same object as networkx's are. A mismatch falls through to the
         // rebuild rather than trusting a dict that was tampered with.
         if key.is_none()
-            && u.is_exact_instance_of::<PyString>()
-            && v.is_exact_instance_of::<PyString>()
+            && node_key_can_use_index_lookaside(u)
+            && node_key_can_use_index_lookaside(v)
             && let Some(ui) = self.cached_exact_string_node_index(py, u)?
             && let Some(vi) = self.cached_exact_string_node_index(py, v)?
             && let Some((ns, es, expected_len, cached)) =
@@ -8655,10 +8655,10 @@ impl PyMultiGraph {
                 .clone_ref(py);
             // br-r37-c1-f3i50: fill the keyed index lookaside with the SAME dict
             // the string-keyed mirror just returned, so the two can never
-            // disagree about identity. Exact `str` endpoints only, matching the
-            // probe at the top of this function.
-            if u.is_exact_instance_of::<PyString>()
-                && v.is_exact_instance_of::<PyString>()
+            // disagree about identity. Same exact-scalar gate as the probe at
+            // the top of this function (br-r37-c1-ktsxn: `str` or `int`).
+            if node_key_can_use_index_lookaside(u)
+                && node_key_can_use_index_lookaside(v)
                 && let Some(ui) = self.cached_exact_string_node_index(py, u)?
                 && let Some(vi) = self.cached_exact_string_node_index(py, v)?
             {
@@ -8759,7 +8759,9 @@ impl PyMultiGraph {
                 // the SAME count guard the string-keyed cache stores, so a warm
                 // read by either key hands back one live mapping, and stamp BOTH
                 // sequences. The pair is order-normalised to match the probe.
-                if u.is_exact_instance_of::<PyString>() && v.is_exact_instance_of::<PyString>() {
+                if node_key_can_use_index_lookaside(u)
+                    && node_key_can_use_index_lookaside(v)
+                {
                     let indices = (
                         self.cached_exact_string_node_index(py, u)?,
                         self.cached_exact_string_node_index(py, v)?,
@@ -15856,7 +15858,7 @@ impl PyGraph {
         // same value-keyed Python cache as PyMultiGraph so equal, distinct
         // strings resolve straight to compact indices without rebuilding two
         // canonical Strings or probing the String-keyed node map.
-        if u.is_exact_instance_of::<PyString>() && v.is_exact_instance_of::<PyString>() {
+        if node_key_can_use_index_lookaside(u) && node_key_can_use_index_lookaside(v) {
             let u_index = self.cached_exact_string_node_index(py, u)?;
             let v_index = self.cached_exact_string_node_index(py, v)?;
             return Ok(u_index
@@ -17849,8 +17851,8 @@ impl PyGraph {
         // A hit is existence proof: entries exist only for edges that were
         // present, and the entry's `nodes_seq` stamp makes a post-removal index
         // a MISS rather than a wrong hit.
-        if u.is_exact_instance_of::<PyString>()
-            && v.is_exact_instance_of::<PyString>()
+        if node_key_can_use_index_lookaside(u)
+            && node_key_can_use_index_lookaside(v)
             && let Some(u_index) = self.cached_exact_string_node_index(py, u)?
             && let Some(v_index) = self.cached_exact_string_node_index(py, v)?
             && let Some(attrs) = self.cached_edge_py_attrs_by_index(py, u_index, v_index)
@@ -17886,11 +17888,13 @@ impl PyGraph {
         // (br-r37-c1-vz4v9) removed the ALLOCATION; the O(key length) HASHING in
         // `has_edge` and `materialize_edge_py_attrs` is what remains.
         //
-        // Exact `str` only, matching the `EdgeView` call site, and the entry
-        // carries its own `nodes_seq` stamp there so a node removal that
-        // renumbers indices is a MISS rather than a wrong hit.
-        if u.is_exact_instance_of::<PyString>()
-            && v.is_exact_instance_of::<PyString>()
+        // br-r37-c1-ktsxn: exact `str` OR exact `int`, matching the `EdgeView`
+        // call site after `acb088e3a`. The entry carries its own `nodes_seq`
+        // stamp so a node removal that renumbers indices is a MISS rather than
+        // a wrong hit, and that guard is key-type independent — widening WHICH
+        // keys may take the index route adds no new staleness class.
+        if node_key_can_use_index_lookaside(u)
+            && node_key_can_use_index_lookaside(v)
             && let Some(u_index) = self.cached_exact_string_node_index(py, u)?
             && let Some(v_index) = self.cached_exact_string_node_index(py, v)?
         {
@@ -17930,8 +17934,8 @@ impl PyGraph {
         // Index probe first, exactly as the other two routes now do. A hit is
         // existence proof, and the entry's `nodes_seq` stamp makes a
         // post-removal index a MISS rather than a wrong hit.
-        if u.is_exact_instance_of::<PyString>()
-            && v.is_exact_instance_of::<PyString>()
+        if node_key_can_use_index_lookaside(u)
+            && node_key_can_use_index_lookaside(v)
             && let Some(u_index) = self.cached_exact_string_node_index(py, u)?
             && let Some(v_index) = self.cached_exact_string_node_index(py, v)?
             && let Some(attrs) = self.cached_edge_py_attrs_by_index(py, u_index, v_index)
@@ -17958,8 +17962,8 @@ impl PyGraph {
         // br-r37-c1-igdzi: one edge, so the mark carries its name.
         self.mark_edge_exposed_by_name(u_c, v_c);
         let attrs = self.materialize_edge_py_attrs(py, u_c, v_c);
-        if u.is_exact_instance_of::<PyString>()
-            && v.is_exact_instance_of::<PyString>()
+        if node_key_can_use_index_lookaside(u)
+            && node_key_can_use_index_lookaside(v)
             && let Some(u_index) = self.cached_exact_string_node_index(py, u)?
             && let Some(v_index) = self.cached_exact_string_node_index(py, v)?
         {
