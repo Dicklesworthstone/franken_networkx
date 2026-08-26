@@ -37,6 +37,98 @@ admission history, host, scope source, process affinity, monitored CPU set,
 checked-window count, maximum observed busy fraction, and maximum consecutive
 busy-window count.
 
+## 2026-08-26 BlackThrush CAMPAIGN RESULT: node-level dedup in the undirected conversion walk — `to_undirected(D).edges(data=True)` **`0.5523x` -> `1.0792x`** and `len(list(...edges))` `0.3085x` -> `0.5403x` (`1.97x` / `1.78x` self) (`br-r37-c1-ktsxn`)
+
+comparison_class=INCUMBENT
+incumbent=networkx
+incumbent_same_invocation=true
+incumbent_ratio=1.0792x
+campaign_output=true
+decision_gate=median_ci
+cv_role=report_only
+
+The mirror direction of the two rows above. Those fixed the DIRECTED view of an
+undirected source; this is the UNDIRECTED view of a DiGraph, which genuinely has
+to dedup because each undirected pair is reachable from both endpoints.
+
+MECHANISM, and the cost was NOT where the shape suggested. The generic path
+builds a `frozenset((source, target))` PER EDGE purely to notice the second
+sighting of a pair. Measured on the fixture before touching anything: the
+conversion ROWS cost `1169us` of a `4431us` walk — only 26% — so the remaining
+74% was this dedup loop, ~3,200 frozenset allocations for 1,600 undirected
+edges. I checked that split rather than assuming the row build dominated, which
+is what it looked like from the directed rows.
+
+networkx marks the SOURCE node after its row is walked and skips any neighbour
+already marked: one set-membership test per edge, no allocation. That is what
+this now does for simple graphs.
+
+VERIFIED OUTPUT-IDENTICAL BEFORE THE EDIT, same tuples in the same ORDER, across
+eight nbunch shapes — none, empty, single, pair, a reciprocal pair, a self-loop
+node, a contiguous slice and a strided slice — on a fixture carrying reciprocal
+edges and a self-loop. Re-verified after across three classes (`DiGraph`,
+`MultiGraph`, `MultiDiGraph`), six nbunch shapes and four data spellings. The
+multigraph branch keys its marker on `(pair, key)` and genuinely needs the pair
+identity, so it is untouched.
+
+PROVENANCE. Pure-Python change; both arms load the SAME extension module:
+
+    bench_elf_sha256=c1adcc19b2ea0ac4b8f3ec3420078cfa0458154e49c5bc22857b3d856b9a9aba   BOTH arms
+
+asserted equal in the aggregator, each pass separately asserting the `.so` it
+loaded matched its arm, so the binary noise floor is zero by construction. nx
+3.6.1 (genuine upstream), CPython 3.13.7, LOCAL:thinkstation1.
+
+DUAL A/A NULLS, RECORDED AND POSITIVE, AND NOTHING DISCARDED. Six passes in arm
+order `before, after, after, before, before, after`: 24 row-observations
+admitted, ZERO dropped. The networkx A/A null spans `0.9981x` to `1.0059x` and
+the FrankenNetworkX A/A null spans `0.9956x` to `1.0082x`. n=3 per arm on every
+row.
+
+| row | before | after | fnx us | self | |
+|---|---|---|---|---|---|
+| `to_undirected(D).edges(data=True)` | `0.5523x` | **`1.0792x`** | `6278.53 -> 3183.27` | **`1.97x`** | TREATED |
+| `len(list(to_undirected(D).edges))` | `0.3085x` | `0.5403x` | `5948.19 -> 3344.45` | `1.78x` | TREATED |
+| `len(list(to_directed(G).edges))` | `0.1455x` | `0.1469x` | `1723.53 -> 1728.32` | `1.00x` | control |
+| `to_directed(G).number_of_edges()` | `11.1907x` | `11.0869x` | `5.20 -> 5.21` | `1.00x` | control |
+
+THE `1.0792x` IS ABOVE PARITY AND ITS INTERVAL SAYS SO. All three after-passes
+exclude `1.0` — CIs `[1.0736, 1.0810]`, `[1.0772, 1.0852]`, `[1.0852, 1.1047]`,
+lowest bound `1.0736`. It is a THIN win, `7.9%`, and it is reported as thin
+rather than rounded up.
+
+THE OTHER TREATED ROW IS STILL A LOSS. `len(list(to_undirected(D).edges))` moved
+`1.78x` and sits at `0.5403x`, an `1.85x` deficit. The `data=True` spelling
+crosses parity and the no-data one does not, because the no-data walk has less
+per-edge work for the saved allocation to amortise against.
+
+CORRECTNESS. 115 conversion / view / size / self-loop / edge-data / ego test
+files: 5969 passed, 17 skipped, 14 xfailed, 5 failed on BOTH arms with
+`NEW: none`, set-compared.
+
+### A PARITY DIVERGENCE FOUND ON THE WAY, NOT CAUSED BY THIS CHANGE
+
+While verifying dedup equivalence I found that `to_undirected` on a simple
+DiGraph diverges from networkx in ROW ORDER — content identical, order not.
+Minimal reproducer, edges `[(0,1),(2,0),(0,3),(4,0)]`:
+
+    fnx  to_undirected(D).adj[0] == [1, 3, 2, 4]      all successors, then all predecessors
+    nx   to_undirected(D).adj[0] == [1, 2, 3, 4]      merged insertion order
+
+It needs a node with BOTH multiple successors and multiple predecessors, which
+is why the small fixtures used elsewhere miss it; on a 60-node/300-edge random
+digraph the edge lists compare equal as sets and sorted lists but not as
+sequences. PRE-EXISTING — both the current frozenset path and the node-level
+path reproduce fnx's order exactly, so this change neither causes nor worsens
+it. The only near-neighbour note in the tree is `br-r37-c1-dgctor`, which
+concerns `DiGraph(Graph)` construction, not this view. Filed separately; NOT
+fixed here, because correcting the merge order is a behaviour change and a
+separate decision from this row.
+
+REPRODUCE:
+
+    bash tests/artifacts/perf/20260826T-undirected-conversion-dedup-blackthrush/replicate_un.sh
+
 ## 2026-08-26 BlackThrush SHIPPED, STILL A LOSS + SELF-CORRECTION: `to_directed(G).edges(data=True)` **`0.0705x` -> `0.3764x`** (`5.19x` self) — the `not data` gate I shipped one commit ago rested on a premise that is FALSE (`br-r37-c1-ktsxn`)
 
 comparison_class=SELF-SPEEDUP
