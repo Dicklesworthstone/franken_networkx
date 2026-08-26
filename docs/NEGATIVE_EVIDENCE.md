@@ -37,6 +37,83 @@ admission history, host, scope source, process affinity, monitored CPU set,
 checked-window count, maximum observed busy fraction, and maximum consecutive
 busy-window count.
 
+## 2026-08-26 BlackThrush LEVER FAMILY REFUTED + SELF-CORRECTION, NO SOURCE EDIT: the dead native view classes are not STALE, they are NETWORKX-SHAPED — routing to any of them trades a cached return for a fresh allocation, and my two previous rows mis-stated the project (`br-r37-c1-ktsxn`)
+
+comparison_class=INCUMBENT
+incumbent=networkx
+incumbent_same_invocation=true
+incumbent_ratio=0.2904x
+campaign_output=false
+decision_gate=median_ci
+cv_role=report_only
+
+### THE CORRECTION, WHICH IS TO MY OWN TWO PRIOR ROWS
+
+`00a57f664` and `ac8ff37e2` both called `_fnx.DiAtlasView` / `_fnx.AdjacencyView`
+STALE — "frozen at a pre-lookaside design" — and framed the lever as "modernise
+the dead native view classes, then route". That framing is WRONG, and the reason
+matters more than the label.
+
+Those classes allocate a FRESH view per access. So does networkx:
+
+    nx   G.adj[u] is G.adj[u]  ->  False   (all four classes)
+    fnx  G.adj[u] is G.adj[u]  ->  True    (all four classes)
+
+networkx's `AdjacencyView.__getitem__` builds `AtlasView(self._atlas[name])`
+every time. The native fnx classes do the same thing. They are not behind the
+Python layer — they are SHAPED LIKE THE INCUMBENT. What the Python layer added
+on top is a per-row view CACHE (`_fnx_atlas_cache`, `_fnx_row_cache`,
+`br-r37-c1-spg9n` / `br-r37-c1-znpkv`), recorded there as worth `0.70us` of the
+`0.88us` that made `MultiGraph len(G.adj[u])` the worst row on the surface at
+`0.219x`.
+
+So the Python frames are not overhead sitting in front of a better native path.
+THEY ARE THE PRICE OF THE CACHE, and the cache is why fnx's warm path is as fast
+as it is. Routing onto a native class trades a cached return for an allocation.
+
+### THE WHOLE ROUTING FAMILY IS THEREFORE REFUTED, on three independent grounds
+
+1. `MultiAtlasView` (the `Multi*` row) — NOT ON THE PATH AT ALL. Callgrind
+   `--toggle-collect` on its pymethod counted `Ir = 0` over 20,000 subscripts on
+   both arms. Recorded in the 2026-08-26 null-result row; the change was
+   reverted.
+2. `DiAtlasView` (the `DiGraph` row) — allocates fresh, no row cache, and its
+   name differs from the incumbent's (`AtlasView`), which the repo pins in three
+   assertions.
+3. `AdjacencyView` (the shared OUTER view, all four classes) — name-safe and
+   type-safe (nothing pins `type(G.adj)`, and nx and fnx both name it
+   `AdjacencyView`), so this one was NOT blocked on identity at all. It is
+   refuted on cost instead: it would replace a `170ns` cached return with
+   canonicalisation + `has_node` + a fresh `AtlasView` allocation, and would flip
+   `G.adj[u] is G.adj[u]` from `True` to `False`.
+
+Point 3 is the one worth keeping: I had assumed the outer view was blocked by the
+same type-identity question as the row. It is not. It is blocked by the cache.
+
+### WHAT THE REAL LEVER IS, restated correctly
+
+Not "modernise and route". The Python frames can only leave if the ROW-VIEW
+CACHE MOVES INTO RUST — a native `AdjacencyView` that memoises its row views on
+`nodes_seq` exactly as the Python one does, so the native path returns a cached
+view rather than allocating. That is a new capability in the native classes, not
+a refresh of an old one, and it is the only shape that keeps both the `170ns`
+saving and the caching.
+
+Sizing, from the two decompositions already banked: outer frame `170-176ns` on
+every class, `DiGraph` row frame a further `194ns`, against a native accessor of
+`128ns` and an incumbent at `~150ns`.
+
+### A PARITY DIVERGENCE, recorded because a future agent could "fix" it wrongly
+
+`G.adj[u] is G.adj[u]` is `True` in FrankenNetworkX and `False` in networkx, on
+all four classes. It is DELIBERATE and load-bearing for performance. Anyone
+making it match the incumbent would delete the row-view cache and regress the
+adjacency surface. If it is ever changed, it must be changed together with a
+native cache, not on its own.
+
+NO SOURCE EDIT. Three sub-levers examined, three refuted, on evidence rather
+than on estimate.
+
 ## 2026-08-26 BlackThrush DECOMPOSITION + NO SOURCE EDIT: `adj[u][v]` is **73% Python frames** on `DiGraph` (`364ns` of `497ns`), and the ceiling behind them sits BELOW the incumbent — a fully native chain would be ~`128ns` against networkx's ~`150ns` (`br-r37-c1-ktsxn`)
 
 comparison_class=INCUMBENT
