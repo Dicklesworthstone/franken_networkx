@@ -50411,75 +50411,43 @@ class _AssignedPrivateDegreeView:
             return len(self._nodes_authority())
         return len(self._nodes)
 
-    def _fast_private_degree(self, node, probe=False):
-        """br-r37-c1-degscalar: the SCALAR twin of `_fast_private_degree_pairs`.
+    def __getitem__(self, node):
+        """br-r37-c1-degframe: the fast path is INLINE here, not delegated.
 
-        The bulk path serves iteration only, so `G.degree(n)` used to pay the
-        whole wrapping chain: profiling 51,200 scalar calls showed FOUR
-        `AdjacencyView` constructions and TWO degree-view constructions PER CALL
-        to return one integer.
+        This used to call a helper, so a subscript cost TWO Python frames where
+        networkx's costs one. Measured over 256 calls on 400 nodes / 1600
+        edges: nx `dv[i]` `102.9ns`, fnx `155.9ns`, and the SAME computation
+        hand-inlined with no call at all `57.3ns` -- so the whole deficit and
+        more besides was frame overhead, at roughly `49ns` a frame. The
+        arithmetic was never the problem.
 
-        br-r37-c1-degfuse: ONE override resolution now serves both the
-        membership test and the count. `__call__` used to fetch the raw mapping
-        through a helper and then call this method, which resolved the SAME
-        override a second time -- `probe=True` folds that membership test in
-        here, where the mapping is already in hand, and the helper is gone. The
-        `_private_override` call is likewise inlined to `graph.__dict__.get(...)`
-        for the reason `_private_aware_contains` gives: on a per-call path that
-        helper is a whole extra interpreter frame to do one dict lookup.
-
-        `probe=True` also means a scalar MISS is not an error -- it returns the
-        sentinel so `__call__` falls through to the nbunch rules -- whereas the
-        subscript form must let the miss raise, which is what networkx does.
-
-        Returns `_PRIVATE_MISSING` rather than None when the shape is
-        ineligible, because 0 and None are both legitimate-looking degrees and a
-        sentinel that can never be one keeps the caller's test unambiguous.
+        The body is not duplicated to achieve that: `__call__`'s scalar path
+        runs its own membership test -- which it needs anyway to decide whether
+        the argument IS a node -- and then delegates HERE, so this remains the
+        one place a degree is computed.
 
         The row subscripts stay unguarded: that is where networkx raises
-        KeyError for a missing node and TypeError for an unhashable one. In
-        particular the DIRECTED branch probes only the SUCCESSOR mapping, so a
-        node an assigned `_succ` carries but `_pred` does not still raises from
-        `pred[node]`, exactly as networkx does (br-r37-c1-vbe1o).
+        KeyError for a missing node and TypeError for an unhashable one, and on
+        a directed graph `pred[node]` is where it raises for a node an assigned
+        `_succ` carries but `_pred` does not (br-r37-c1-vbe1o).
         """
         succ = self._fast_map
-        missing = _PRIVATE_MISSING
-        if succ is None or self._weight is not None:
-            return missing
-        if self._fast_directed:
-            pred = self._fast_pred
-            if probe:
-                try:
-                    if node not in succ:
-                        return missing
-                except TypeError:
-                    return missing
+        if succ is not None and self._weight is None:
+            if self._fast_directed:
+                row = succ[node]
+                prow = self._fast_pred[node]
+                if self._fast_multi:
+                    return sum(len(kd) for kd in row.values()) + sum(
+                        len(kd) for kd in prow.values()
+                    )
+                return len(row) + len(prow)
             row = succ[node]
-            prow = pred[node]
             if self._fast_multi:
-                return sum(len(kd) for kd in row.values()) + sum(
-                    len(kd) for kd in prow.values()
+                # An undirected self-loop contributes its parallel-edge count TWICE.
+                return sum(len(kd) for kd in row.values()) + (
+                    len(row[node]) if node in row else 0
                 )
-            return len(row) + len(prow)
-        adj = succ
-        if probe:
-            try:
-                if node not in adj:
-                    return missing
-            except TypeError:
-                return missing
-        row = adj[node]
-        if self._fast_multi:
-            # An undirected self-loop contributes its parallel-edge count TWICE.
-            return sum(len(kd) for kd in row.values()) + (
-                len(row[node]) if node in row else 0
-            )
-        return len(row) + (node in row)
-
-    def __getitem__(self, node):
-        fast = self._fast_private_degree(node)
-        if fast is not _PRIVATE_MISSING:
-            return fast
+            return len(row) + (node in row)
         return self._degree(node)
 
     def __call__(self, nbunch=None, weight=None):
@@ -50495,9 +50463,21 @@ class _AssignedPrivateDegreeView:
         # subscript it once. Both are skipped when the raw mapping can answer;
         # if it cannot, the original route runs unchanged.
         if weight is None and self._weight is None:
-            fast = self._fast_private_degree(nbunch, probe=True)
-            if fast is not _PRIVATE_MISSING:
-                return fast
+            adj = self._fast_map
+            if adj is not None:
+                # br-r37-c1-degframe: the membership test this path needs anyway
+                # doubles as the eligibility check, and __getitem__ does the
+                # arithmetic. A miss is NOT an error here -- it falls through to
+                # the nbunch rules below -- which is why the test comes first
+                # rather than letting the subscript raise. On a directed graph
+                # only the SUCCESSOR mapping is probed, so a ragged `_pred`
+                # still raises from __getitem__, as networkx does.
+                try:
+                    present = nbunch in adj
+                except TypeError:
+                    present = False
+                if present:
+                    return self[nbunch]
         # br-r37-c1-vbe1o: the MAPPING decides whether a single argument is a
         # node, exactly as in nx's `nbunch in self._nodes`. Asking the node view
         # returned a whole DegreeView where nx returns an int — a RETURN-TYPE
