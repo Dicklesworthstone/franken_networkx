@@ -37,6 +37,93 @@ admission history, host, scope source, process affinity, monitored CPU set,
 checked-window count, maximum observed busy fraction, and maximum consecutive
 busy-window count.
 
+## 2026-08-26 BlackThrush SHIPPED, STILL A LOSS: the native `AtlasView` row subscript takes int keys — `Graph.adj[u][v]` int **`0.4574x` -> `0.5488x`** (`1.200x` self), last key-type gap in the family closed (`br-r37-c1-ktsxn`)
+
+comparison_class=SELF-SPEEDUP
+campaign_output=false
+self_speedup_ratio=1.200x
+vs_networkx_same_invocation=0.5488x (STILL A LOSS, not a campaign result)
+decision_gate=median_ci
+cv_role=report_only
+
+`AtlasView::__getitem__` in `views.rs` is the ONE row subscript on the public
+surface that is a native C slot — `Graph.adj[u][v]` and `G[u][v]` reach it; the
+other three classes carry Python row views and do not. Its index-lookaside probe
+and fill were both still gated `v.is_exact_instance_of::<PyString>()`, in the
+ONE-ENDPOINT shape (`self.node` is the row, only `v` is tested) that the
+two-endpoint census used for the earlier passes structurally cannot see.
+
+WHY THIS ROW AND NOT THE WORSE ONES. `adj[u][v]` occupies all six worst slots on
+the read surface, but on the multigraph and directed classes it carries NO
+key-type gap (`0.96x`-`1.02x` int/str) because the cost there is the Python view
+chain, which no gate can reach. `Graph` was the only class still showing one —
+`338.0 ns/call` int against `291.4` str, `1.16x` — precisely because its row IS
+the native slot, so the gate is the binding constraint there and nowhere else.
+The three gapless classes are the control that says so.
+
+PROVENANCE. Both arms built by me from the same `git archive` tree outside the
+shared checkout, same flags, same host, same target dir.
+
+    bench_elf_sha256=c6c213f098c23ac085cf4ab835961c4b1e6105a7276604ec9d465a32abee514c  before arm ede473b68 (HEAD)
+    bench_elf_sha256=c1adcc19b2ea0ac4b8f3ec3420078cfa0458154e49c5bc22857b3d856b9a9aba  after arm  + the two AtlasView gates
+
+Read from INSIDE each timing process by `perf_harness.binary_sha256`, and the
+arm-to-binary mapping was ASSERTED per pass in the aggregator rather than
+assumed. nx 3.6.1 (genuine upstream, module asserted), CPython 3.13.7,
+LOCAL:thinkstation1, loadavg 12-15.
+
+DUAL A/A NULLS, RECORDED AND POSITIVE. Four passes in arm order
+`before, after, after, before`, EVERY pass 8/8 DECIDABLE. Over the 32 controls
+the networkx A/A null spans `0.9974x` to `1.0013x` and the FrankenNetworkX A/A
+null spans `0.9964x` to `1.0031x`.
+
+### Medians over four passes
+
+| row | before | after | fnx ns/call | self | |
+|---|---|---|---|---|---|
+| `Graph` int `adj[u][v]` | `0.4574x` | **`0.5488x`** | `338.0 -> 281.7` | **`1.200x`** | TREATED |
+| `MultiGraph` int `adj[u][v]` | `0.2982x` | `0.2977x` | `835.9 -> 807.8` | `1.035x` | control |
+| `Graph` str `adj[u][v]` | `0.5171x` | `0.5263x` | `291.4 -> 284.1` | `1.026x` | control |
+| `DiGraph` int `adj[u][v]` | `0.3225x` | `0.3251x` | `487.2 -> 474.5` | `1.027x` | control |
+| `MultiDiGraph` int `adj[u][v]` | `0.3230x` | `0.3158x` | `768.8 -> 763.1` | `1.007x` | control |
+| `DiGraph` str `adj[u][v]` | `0.3061x` | `0.3017x` | `488.9 -> 487.2` | `1.003x` | control |
+| `MultiDiGraph` str `adj[u][v]` | `0.3059x` | `0.3004x` | `799.2 -> 796.2` | `1.004x` | control |
+| `MultiGraph` str `adj[u][v]` | `0.2956x` | `0.2904x` | `818.2 -> 816.8` | `1.002x` | control |
+
+Treated `1.200x` against a control band of `1.002x`-`1.035x`. The margin is
+REAL BUT NARROWER than the earlier levers in this family (`1.944x` against
+`1.026x`), and it is stated that way rather than rounded up: separation is about
+`1.16x` over the worst control, on four passes that were each internally
+decidable.
+
+THE LAST KEY-TYPE GAP IN THE FAMILY IS CLOSED:
+
+    Graph        before int=338.0 str=291.4 gap=1.16x  ->  after int=281.7 str=284.1 gap=0.99x
+    DiGraph      before gap=1.00x                      ->  after gap=0.97x
+    MultiGraph   before gap=1.02x                      ->  after gap=0.99x
+    MultiDiGraph before gap=0.96x                      ->  after gap=0.96x
+
+CORRECTNESS. 90 test files over atlas rows, adjacency mappings, edge views, edge
+data, node-key canonicalization and the multigraph surface: 10 failures, and the
+10 are SET-IDENTICAL to the 10 on the unmodified before arm, compared as sets
+rather than counted. Zero attributable to this change.
+
+WHAT IS LEFT OF THIS LEVER FAMILY. Nine str-only node-key gates remain on HEAD
+(`views.rs` 2 one-endpoint — closed by this commit; `digraph.rs` 4 and `lib.rs`
+3 two-endpoint pairs). The remaining seven sit on paths that are either keyed
+(`get_edge_data(u, v, key)`) or not on a measured hot row; none of them shows a
+key-type gap on the surveyed surface, so widening them is NOT justified by a
+measurement today and should not be done on pattern-matching alone.
+
+NOT PARITY, hence SELF-SPEEDUP. `0.5488x` is still a loss. `adj[u][v]` remains
+the worst op on every class, and on the other three the cause is structural —
+three stacked Python view layers with no native entry point — which no gate
+widening can touch.
+
+REPRODUCE:
+
+    bash tests/artifacts/perf/20260826T-atlasview-rowsubscript-intkey-blackthrush/replicate7.sh
+
 ## 2026-08-26 BlackThrush SHIPPED, STILL A LOSS: `MultiDiGraph.get_edge_data` int keys **`0.3064x` -> `0.5276x`** (`1.944x` self); the unkeyed index lookaside was probed on every call and never filled (`br-r37-c1-ktsxn`)
 
 comparison_class=SELF-SPEEDUP

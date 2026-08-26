@@ -2018,7 +2018,7 @@ impl AtlasView {
             }
         };
         if let Some(u_index) = u_index
-            && v.is_exact_instance_of::<PyString>()
+            && node_key_can_use_index_lookaside(v)
             && let Some(v_index) = g.cached_exact_string_node_index(py, v)?
             && let Some(attrs) = g.cached_edge_py_attrs_by_index(py, u_index, v_index)
         {
@@ -2051,8 +2051,14 @@ impl AtlasView {
         // string-keyed mirror just returned, so the two can never disagree
         // about identity. Only when both indices are known; anything else keeps
         // paying the string path.
+        //
+        // br-r37-c1-ktsxn: exact `str` OR exact `int`, matching the probe above
+        // and the rest of the family. `Graph.adj[u][v]` measured 341.0 ns/call on
+        // int node keys against 285.7 on str -- a 1.19x key-type gap on the ONE
+        // class whose row subscript is a native C slot, i.e. the one place where
+        // this gate is the binding constraint rather than the Python view chain.
         if let Some(u_index) = u_index
-            && v.is_exact_instance_of::<PyString>()
+            && node_key_can_use_index_lookaside(v)
             && let Some(v_index) = g.cached_exact_string_node_index(py, v)?
         {
             g.remember_edge_py_attrs_by_index(py, u_index, v_index, &attrs);
