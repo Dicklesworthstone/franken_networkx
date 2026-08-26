@@ -50083,8 +50083,9 @@ class _AssignedPrivateDegreeView:
         `False` rather than `0` when the node has no self-loop, and the
         multigraph form's separate `deg +=` for the self-loop group.
         """
-        if self._nodes is not None or self._weight is None or self._fast_key is None:
+        if self._weight is None or self._fast_key is None:
             return None
+        nodes = self._nodes
         graph = self._graph
         weight = self._weight
         multi = self._fast_multi
@@ -50093,6 +50094,7 @@ class _AssignedPrivateDegreeView:
             pred = _private_override(graph, _PRIVATE_PRED_OVERRIDE)
             if succ is _PRIVATE_MISSING or pred is _PRIVATE_MISSING:
                 return None
+            items = succ.items() if nodes is None else [(n, succ[n]) for n in nodes]
             if multi:
                 return [
                     (
@@ -50108,7 +50110,7 @@ class _AssignedPrivateDegreeView:
                             for d in key_dict.values()
                         ),
                     )
-                    for node, succs in succ.items()
+                    for node, succs in items
                 ]
             return [
                 (
@@ -50116,14 +50118,15 @@ class _AssignedPrivateDegreeView:
                     sum(dd.get(weight, 1) for dd in succs.values())
                     + sum(dd.get(weight, 1) for dd in pred[node].values()),
                 )
-                for node, succs in succ.items()
+                for node, succs in items
             ]
         adj = _private_override(graph, _PRIVATE_ADJ_OVERRIDE)
         if adj is _PRIVATE_MISSING:
             return None
+        items = adj.items() if nodes is None else [(n, adj[n]) for n in nodes]
         if multi:
             pairs = []
-            for node, nbrs in adj.items():
+            for node, nbrs in items:
                 deg = sum(
                     d.get(weight, 1)
                     for key_dict in nbrs.values()
@@ -50139,7 +50142,7 @@ class _AssignedPrivateDegreeView:
                 sum(dd.get(weight, 1) for dd in nbrs.values())
                 + (node in nbrs and nbrs[node].get(weight, 1)),
             )
-            for node, nbrs in adj.items()
+            for node, nbrs in items
         ]
 
     def _fast_private_degree_pairs(self):
@@ -50169,8 +50172,16 @@ class _AssignedPrivateDegreeView:
         # br-r37-c1-degsnap: the same snapshot the scalar twin reads, so the
         # eligibility rule lives in ONE place. `_fast_key is None` already
         # covers a weighted view and a non-concrete parent.
-        if self._nodes is not None or self._weight is not None or self._fast_key is None:
+        # br-r37-c1-degnb: an nbunch view is served HERE now. This used to bail
+        # on `self._nodes is not None`, which sent `G.degree(nbunch)` down the
+        # fully-wrapped per-node route -- a FOUR-node nbunch built SIXTEEN
+        # `AdjacencyView`s per call. networkx's own nbunch view does exactly
+        # what the restricted branch below does: its `_nodes` is
+        # `list(G.nbunch_iter(nbunch))` and `__iter__` subscripts `_succ[n]` for
+        # each one, in that order.
+        if self._weight is not None or self._fast_key is None:
             return None
+        nodes = self._nodes
         graph = self._graph
         multi = self._fast_multi
         if self._fast_directed:
@@ -50178,6 +50189,7 @@ class _AssignedPrivateDegreeView:
             pred = _private_override(graph, _PRIVATE_PRED_OVERRIDE)
             if succ is _PRIVATE_MISSING or pred is _PRIVATE_MISSING:
                 return None
+            items = succ.items() if nodes is None else [(n, succ[n]) for n in nodes]
             if multi:
                 return [
                     (
@@ -50185,12 +50197,13 @@ class _AssignedPrivateDegreeView:
                         sum(len(kd) for kd in row.values())
                         + sum(len(kd) for kd in pred[node].values()),
                     )
-                    for node, row in succ.items()
+                    for node, row in items
                 ]
-            return [(node, len(row) + len(pred[node])) for node, row in succ.items()]
+            return [(node, len(row) + len(pred[node])) for node, row in items]
         adj = _private_override(graph, _PRIVATE_ADJ_OVERRIDE)
         if adj is _PRIVATE_MISSING:
             return None
+        items = adj.items() if nodes is None else [(n, adj[n]) for n in nodes]
         if multi:
             # An undirected self-loop contributes its parallel-edge count TWICE.
             return [
@@ -50199,9 +50212,9 @@ class _AssignedPrivateDegreeView:
                     sum(len(kd) for kd in row.values())
                     + (len(row[node]) if node in row else 0),
                 )
-                for node, row in adj.items()
+                for node, row in items
             ]
-        return [(node, len(row) + (node in row)) for node, row in adj.items()]
+        return [(node, len(row) + (node in row)) for node, row in items]
 
     def _fast_filtered_degree_pairs(self):
         # cc-rvdegfast: bulk fast path for UNWEIGHTED total degree over an
@@ -50437,7 +50450,17 @@ class _AssignedPrivateDegreeView:
         # returned a whole DegreeView where nx returns an int — a RETURN-TYPE
         # divergence, so a caller doing arithmetic on it got a TypeError rather
         # than a wrong number.
-        authority = self._nodes_authority()
+        # br-r37-c1-degnb: filter against the RAW mapping when one is available.
+        # `_nodes_authority()` returns `graph.succ` / `graph.adj`, so the
+        # membership test below was building an `AdjacencyView` and probing it
+        # per node. The raw dict answers the identical question.
+        authority = None
+        if self._fast_key is not None:
+            authority = _private_override(self._graph, self._fast_key)
+            if authority is _PRIVATE_MISSING:
+                authority = None
+        if authority is None:
+            authority = self._nodes_authority()
         try:
             if nbunch in authority:
                 return type(self)(self._graph, weight=weight)[nbunch]
