@@ -5,7 +5,7 @@
 
 use crate::{
     NetworkXError, NodeIterator, NodeLookupCache, PyGraph, PyObject, attr_map_to_pydict,
-    node_key_to_string,
+    node_key_can_use_index_lookaside, node_key_to_string,
 };
 use arrayvec::ArrayString;
 use pyo3::exceptions::{PyKeyError, PyRuntimeError, PyTypeError, PyValueError};
@@ -873,7 +873,9 @@ impl EdgeView {
         // `u` to False BEFORE `v` is hashed, and that is only observable when
         // hashing `v` can raise. `node_key_hash_cannot_raise` is true for an
         // exact `str` — exactly this gate — so nothing observable is reordered.
-        if u_item.is_exact_instance_of::<PyString>() && v_item.is_exact_instance_of::<PyString>() {
+        if node_key_can_use_index_lookaside(&u_item)
+            && node_key_can_use_index_lookaside(&v_item)
+        {
             let g = self.graph.borrow(py);
             if let Some(u_index) = g.cached_exact_string_node_index(py, &u_item)? {
                 return Ok(match g.cached_exact_string_node_index(py, &v_item)? {
@@ -1208,7 +1210,9 @@ impl EdgeView {
         // were present), so `v`'s hashability is checked here exactly as it is
         // on the string-keyed hit path below — networkx hashes `v` only once
         // `u` resolves.
-        if u_item.is_exact_instance_of::<PyString>() && v_item.is_exact_instance_of::<PyString>() {
+        if node_key_can_use_index_lookaside(&u_item)
+            && node_key_can_use_index_lookaside(&v_item)
+        {
             let g = self.graph.borrow(py);
             let indices = (
                 g.cached_exact_string_node_index(py, &u_item)?,

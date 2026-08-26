@@ -273,6 +273,14 @@ pub(crate) fn node_key_hash_cannot_raise(key: &Bound<'_, PyAny>) -> bool {
         || key.is_exact_instance_of::<PyBool>()
 }
 
+/// Keys whose exact built-in representation can safely enter the node-index
+/// lookaside.  Subclasses stay on the canonical path because their Python
+/// equality or hash methods may be observable; `bool` deliberately stays out
+/// because its canonical form has distinct semantics from an integer's.
+pub(crate) fn node_key_can_use_index_lookaside(key: &Bound<'_, PyAny>) -> bool {
+    key.is_exact_instance_of::<PyString>() || key.is_exact_instance_of::<PyInt>()
+}
+
 /// The same question where networkx swallows the error instead of raising it:
 /// `n in G` and `G.has_node(n)` are `try: n in self._node except TypeError:
 /// return False`, so an unhashable key is simply absent (br-r37-c1-lvlu7).
@@ -2855,7 +2863,7 @@ impl PyGraph {
         py: Python<'_>,
         node: &Bound<'_, PyAny>,
     ) -> PyResult<Py<PyDict>> {
-        if node.is_exact_instance_of::<PyString>()
+        if node_key_can_use_index_lookaside(node)
             && let Some(index) = self.cached_exact_string_node_index(py, node)?
             && let Some((seq, row)) = self.neighbor_key_rows_by_index.get(&index)
             && *seq == self.nodes_seq
@@ -2867,7 +2875,7 @@ impl PyGraph {
                 .get(canonical)
                 .map(|row| row.clone_ref(py))
         })? {
-            if node.is_exact_instance_of::<PyString>()
+            if node_key_can_use_index_lookaside(node)
                 && let Some(index) = self.cached_exact_string_node_index(py, node)?
             {
                 let seq = self.nodes_seq;
@@ -2893,7 +2901,7 @@ impl PyGraph {
             row.set_item(py_neighbor, py.None())?;
         }
         let row = row.unbind();
-        if node.is_exact_instance_of::<PyString>()
+        if node_key_can_use_index_lookaside(node)
             && let Some(index) = self.cached_exact_string_node_index(py, node)?
         {
             let seq = self.nodes_seq;

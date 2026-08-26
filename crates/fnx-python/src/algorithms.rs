@@ -9550,6 +9550,69 @@ pub fn _distance_measures_arm(py: Python<'_>, g: &Bound<'_, PyAny>, arm: &str) -
     Ok(py.allow_threads(|| fnx_algorithms::distance_measures_arm(inner, pinned).diameter))
 }
 
+fn bitpar_arm_from_str(arm: &str) -> PyResult<fnx_algorithms::BitparArm> {
+    match arm {
+        "auto" => Ok(fnx_algorithms::BitparArm::Auto),
+        "persource" => Ok(fnx_algorithms::BitparArm::PerSource),
+        "chunked" => Ok(fnx_algorithms::BitparArm::ChunkedBitpar),
+        other => Err(pyo3::exceptions::PyValueError::new_err(format!(
+            "unknown arm {other:?}; expected auto|persource|chunked"
+        ))),
+    }
+}
+
+/// Bench-only arm selector for the three other consumers of the shared bitpar gate.
+#[pyfunction]
+pub fn _average_shortest_path_length_arm(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    arm: &str,
+) -> PyResult<f64> {
+    let gr = extract_graph(g)?;
+    require_undirected(&gr, "_average_shortest_path_length_arm")?;
+    let inner = gr.undirected();
+    let pinned = bitpar_arm_from_str(arm)?;
+    Ok(py.allow_threads(|| {
+        fnx_algorithms::average_shortest_path_length_arm(inner, pinned).average_shortest_path_length
+    }))
+}
+
+/// Bench-only arm selector returning the score count to exclude Python dict marshalling.
+#[pyfunction]
+pub fn _closeness_centrality_arm(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    arm: &str,
+) -> PyResult<usize> {
+    let gr = extract_graph(g)?;
+    require_undirected(&gr, "_closeness_centrality_arm")?;
+    let inner = gr.undirected();
+    let pinned = bitpar_arm_from_str(arm)?;
+    Ok(py.allow_threads(|| {
+        fnx_algorithms::closeness_centrality_arm(inner, pinned)
+            .scores
+            .len()
+    }))
+}
+
+/// Bench-only arm selector returning the score count to exclude Python dict marshalling.
+#[pyfunction]
+pub fn _harmonic_centrality_arm(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    arm: &str,
+) -> PyResult<usize> {
+    let gr = extract_graph(g)?;
+    require_undirected(&gr, "_harmonic_centrality_arm")?;
+    let inner = gr.undirected();
+    let pinned = bitpar_arm_from_str(arm)?;
+    Ok(py.allow_threads(|| {
+        fnx_algorithms::harmonic_centrality_arm(inner, pinned)
+            .scores
+            .len()
+    }))
+}
+
 /// Return the diameter of the graph.
 #[pyfunction]
 pub fn diameter(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<usize> {
@@ -28419,6 +28482,9 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(density, m)?)?;
     m.add_function(wrap_pyfunction!(eccentricity, m)?)?;
     m.add_function(wrap_pyfunction!(_distance_measures_arm, m)?)?;
+    m.add_function(wrap_pyfunction!(_average_shortest_path_length_arm, m)?)?;
+    m.add_function(wrap_pyfunction!(_closeness_centrality_arm, m)?)?;
+    m.add_function(wrap_pyfunction!(_harmonic_centrality_arm, m)?)?;
     m.add_function(wrap_pyfunction!(diameter, m)?)?;
     m.add_function(wrap_pyfunction!(radius, m)?)?;
     m.add_function(wrap_pyfunction!(center, m)?)?;

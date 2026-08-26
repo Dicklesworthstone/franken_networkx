@@ -3957,14 +3957,12 @@ fn closeness_centrality_generic_arm<G: GraphView>(
         // Below the parallel threshold the per-source loop is sequential anyway,
         // so one traversal advancing W*64 sources strictly beats n sweeps and no
         // gate is needed. At or above it the per-source path fans out over rayon,
-        // and bit-parallel only wins when the graph has far fewer BFS levels than
-        // lanes — see `bitpar_chunked_lane_width_if_profitable_rows`.
+        // and bit-parallel wins when the chunk supply can keep the rayon pool busy
+        // — see `bitpar_chunked_lane_width_if_profitable_rows`.
         //
         // br-r37-c1-k4we4: gate on the borrowed adjacency ROWS, and build the CSR
-        // only once the gate has ACCEPTED. The parallelism test needs no traversal at
-        // all, and the eccentricity probe stops at the largest value the gate could
-        // accept, so a declined graph pays neither a CSR build nor a full sweep.
-        // Backported from aspl, where it cut the probe 9.87us -> 3.41us.
+        // only once the gate has ACCEPTED. The capacity test needs no traversal, so
+        // a declined graph pays neither a CSR build nor a graph probe.
         let threads = rayon::current_num_threads();
         let lane_width = if n < CENTRALITY_PARALLEL_THRESHOLD {
             None
@@ -11320,10 +11318,9 @@ pub fn distance_measures_arm(graph: &Graph, arm: BitparArm) -> DistanceMeasuresR
     // Gating mirrors closeness exactly: below the parallel threshold the serial
     // loop is sequential anyway so one traversal serving W*64 sources strictly
     // wins; at or above it the per-source path would fan out over rayon, so the
-    // bit-parallel path is only taken when the graph has far fewer BFS levels than
-    // lanes. The gate probes the borrowed adjacency ROWS and builds the CSR only
-    // after ACCEPTING, so a declined graph pays neither a CSR build nor a probe
-    // that ran past the largest useful eccentricity.
+    // bit-parallel path is only taken when it has enough source chunks to occupy
+    // the pool. The gate is arithmetic-only and the CSR is built only after it
+    // accepts, so a declined graph pays neither a CSR build nor a graph probe.
     if arm != BitparArm::PerSource && n <= u32::MAX as usize {
         let rows: Vec<&[usize]> = (0..n)
             .map(|u| graph.neighbors_indices(u).unwrap_or(&[]))
@@ -12194,197 +12191,32 @@ fn bitpar_chunk_lane_width(n: usize, threads: usize) -> usize {
         .unwrap_or(1)
 }
 
-/// Single BFS from node 0 over the CSR. Returns `Some(eccentricity)` only when the
-/// sweep reaches every node, so a disconnected graph (where one root's eccentricity
-/// says nothing about the rest) declines the estimate instead of guessing.
-#[cfg(test)]
-fn bitpar_probe_eccentricity(offsets: &[u32], targets: &[u32], n: usize) -> Option<usize> {
-    let mut distance = vec![u32::MAX; n];
-    let mut frontier = vec![0u32];
-    distance[0] = 0;
-    let mut ecc = 0usize;
-    let mut seen = 1usize;
-    let mut next = Vec::new();
-    while !frontier.is_empty() {
-        next.clear();
-        for &v in &frontier {
-            let (start, end) = (
-                offsets[v as usize] as usize,
-                offsets[v as usize + 1] as usize,
-            );
-            for &w in &targets[start..end] {
-                if distance[w as usize] == u32::MAX {
-                    distance[w as usize] = ecc as u32 + 1;
-                    seen += 1;
-                    next.push(w);
-                }
-            }
-        }
-        if next.is_empty() {
-            break;
-        }
-        ecc += 1;
-        std::mem::swap(&mut frontier, &mut next);
-    }
-    (seen == n).then_some(ecc)
-}
-
-/// Expected-loss gate for the chunked-parallel path — returns the lane width to
-/// use, or `None` to leave the per-source rayon path untouched.
-///
-/// A bit-parallel traversal re-scans a node's edges once per LEVEL at which some
-/// lane newly reaches it, so one chunk costs about `min(lanes, levels) * |E|`
-/// while the `lanes` per-source BFS sweeps it replaces cost `lanes * |E|`. The
-/// work it saves is therefore `lanes / min(lanes, levels)` — which is exactly 1
-/// (nothing) once `levels >= lanes`. That is the whole reason the earlier
-/// batch-parallel attempt regressed 0.27x on grid/1600: a 40x40 grid has ~78
-/// levels against 64 lanes, so it bought no edge-scan reduction and paid a 400x
-/// cut in parallelism. Meanwhile parallelism drops from `n` tasks to `chunks`.
-///
-/// So predict `speedup = (lanes / min(lanes, levels)) * (min(chunks, threads) / threads)`
-/// and only take the path when it clears a margin. `levels` is bounded above by
-/// `2 * ecc(0) + 1` (diameter <= twice any eccentricity); using the UPPER bound
-/// makes the estimate conservative — it can decline a win, never invite a loss.
-/// `bitpar_probe_eccentricity` over borrowed adjacency ROWS instead of a u32 CSR.
-///
-/// br-r37-c1-bger9: aspl's per-source fallback builds exactly this row vector, so
-/// probing it lets the gate decide BEFORE committing to a CSR. Building a CSR that a
-/// declined graph then throws away measured 17.27 us of direct cost on grid_1600 — but
-/// cost the guard 2.6-3.9%, an order of magnitude more, by perturbing the per-source
-/// sweep that runs immediately afterwards. Not building it is the fix.
-fn bitpar_probe_eccentricity_rows(rows: &[&[usize]], n: usize) -> Option<usize> {
-    let mut distance = vec![u32::MAX; n];
-    let mut frontier = vec![0u32];
-    distance[0] = 0;
-    let mut ecc = 0usize;
-    let mut seen = 1usize;
-    let mut next = Vec::new();
-    while !frontier.is_empty() {
-        next.clear();
-        for &v in &frontier {
-            for &w in rows[v as usize] {
-                if distance[w] == u32::MAX {
-                    distance[w] = ecc as u32 + 1;
-                    seen += 1;
-                    next.push(w as u32);
-                }
-            }
-        }
-        if next.is_empty() {
-            break;
-        }
-        ecc += 1;
-        std::mem::swap(&mut frontier, &mut next);
-    }
-    (seen == n).then_some(ecc)
-}
-
-/// The expected-loss arithmetic, shared by the CSR and rows gates.
-fn bitpar_gate_from_eccentricity(ecc: usize, n: usize, threads: usize) -> Option<usize> {
-    let levels_ub = 2 * ecc + 1;
-    let w = bitpar_chunk_lane_width(n, threads);
-    let lanes = 64 * w;
-    let chunks = n.div_ceil(lanes);
-    if levels_ub * 4 > lanes || chunks * 4 < threads {
-        return None;
-    }
-    let work_gain = lanes as f64 / levels_ub.min(lanes) as f64;
-    let utilisation = chunks.min(threads) as f64 / threads as f64;
-    (work_gain * utilisation >= 1.25).then_some(w)
-}
-
-/// Rows-based gate: decides without constructing a CSR.
-/// The gate can only accept when `(2*ecc + 1) * 4 <= lanes`, so ANY eccentricity above
-/// `(lanes - 4) / 8` is a guaranteed decline. There is no reason to keep walking the
-/// BFS past it.
-fn bitpar_probe_max_useful_eccentricity(lanes: usize) -> usize {
-    lanes.saturating_sub(4) / 8
-}
-
-/// `bitpar_probe_eccentricity_rows` that abandons the sweep once the eccentricity
-/// exceeds anything the gate could accept.
-///
-/// br-r37-c1-bger9: the unbounded probe is O(V+E) and SEQUENTIAL, while the per-source
-/// baseline it guards is rayon-parallel — so its wall-clock share is ~`threads/n`, not
-/// `1/n`, and it taxed the declined guard by ~3%. Bounding it makes the decline path
-/// touch only the ball of radius `max_ecc` around node 0: on a 40x40 grid that is ~45
-/// nodes instead of 1600.
-///
-/// Decisions are IDENTICAL to the unbounded probe by construction. `ecc > max_ecc`
-/// implies `(2*ecc+1)*4 > lanes`, which `bitpar_gate_from_eccentricity` rejects; and a
-/// graph whose BFS from node 0 cannot cover every node within `max_ecc` levels is
-/// either high-diameter or disconnected — both already declined.
-fn bitpar_probe_eccentricity_rows_bounded(
-    rows: &[&[usize]],
-    n: usize,
-    max_ecc: usize,
-) -> Option<usize> {
-    let mut distance = vec![u32::MAX; n];
-    let mut frontier = vec![0u32];
-    distance[0] = 0;
-    let mut ecc = 0usize;
-    let mut seen = 1usize;
-    let mut next = Vec::new();
-    loop {
-        next.clear();
-        for &v in &frontier {
-            for &w in rows[v as usize] {
-                if distance[w] == u32::MAX {
-                    distance[w] = ecc as u32 + 1;
-                    seen += 1;
-                    next.push(w as u32);
-                }
-            }
-        }
-        if next.is_empty() {
-            break;
-        }
-        ecc += 1;
-        if ecc > max_ecc {
-            return None; // guaranteed decline — stop walking
-        }
-        std::mem::swap(&mut frontier, &mut next);
-    }
-    (seen == n).then_some(ecc)
-}
-
+/// Gate the chunked-parallel path only on whether it has enough chunks to use the
+/// pool. The preceding eccentricity model was inherited from the single-wide-sweep
+/// design: it rejected high-diameter graphs even though chunking parallelizes over
+/// source groups, not BFS levels. A 40x40 grid is the regression case: it has many
+/// levels but chunked bit-parallel work still wins decisively.
 fn bitpar_chunked_lane_width_if_profitable_rows(
-    rows: &[&[usize]],
+    _rows: &[&[usize]],
     n: usize,
     threads: usize,
 ) -> Option<usize> {
-    // Both cheap checks happen BEFORE any traversal: the parallelism test needs no
-    // graph walk at all, and the eccentricity bound caps the walk that follows.
     let w = bitpar_chunk_lane_width(n, threads);
     let lanes = 64 * w;
     if n.div_ceil(lanes) * 4 < threads {
         return None;
     }
-    let max_ecc = bitpar_probe_max_useful_eccentricity(lanes);
-    let ecc = bitpar_probe_eccentricity_rows_bounded(rows, n, max_ecc)?;
-    bitpar_gate_from_eccentricity(ecc, n, threads)
+    Some(w)
 }
 
 #[cfg(test)]
 fn bitpar_chunked_lane_width_if_profitable(
-    offsets: &[u32],
-    targets: &[u32],
+    _offsets: &[u32],
+    _targets: &[u32],
     n: usize,
     threads: usize,
 ) -> Option<usize> {
-    let ecc = bitpar_probe_eccentricity(offsets, targets, n)?;
-    let levels_ub = 2 * ecc + 1;
-    let w = bitpar_chunk_lane_width(n, threads);
-    let lanes = 64 * w;
-    let chunks = n.div_ceil(lanes);
-    // Demand real edge-scan headroom (>=4x) and real parallelism, before the
-    // finer-grained expected-speedup test. Both guard the grid family out.
-    if levels_ub * 4 > lanes || chunks * 4 < threads {
-        return None;
-    }
-    let work_gain = lanes as f64 / levels_ub.min(lanes) as f64;
-    let utilisation = chunks.min(threads) as f64 / threads as f64;
-    (work_gain * utilisation >= 1.25).then_some(w)
+    bitpar_chunked_lane_width_if_profitable_rows(&[], n, threads)
 }
 
 /// Bit-parallel all-pairs reverse BFS over a `u32` CSR (single-threaded), filling
@@ -12524,38 +12356,17 @@ pub fn average_shortest_path_length(graph: &Graph) -> AverageShortestPathLengthR
     average_shortest_path_length_arm(graph, BitparArm::Auto)
 }
 
-/// Bench-only: EXACTLY the work `Auto` does before it decides — the u32 CSR build and
-/// the eccentricity probe — and nothing else. On a graph the gate declines this is the
-/// entire cost the lever adds, so a guard regression is never explained by a mechanism
-/// inferred from subtracting two noisy arms. Returns a checksum so it cannot be
-/// optimised away.
+/// Bench-only checksum of the arithmetic gate decision. The current gate performs no
+/// graph traversal before it decides, so this deliberately excludes CSR construction.
 #[doc(hidden)]
 #[must_use]
-pub fn aspl_gate_overhead_cost(graph: &Graph, bounded: bool) -> usize {
+pub fn aspl_gate_overhead_cost(graph: &Graph, _bounded: bool) -> usize {
     let n = graph.node_count();
     if n == 0 || n > u32::MAX as usize {
         return 0;
     }
-    // EXACTLY the declined path's added work: the adjacency rows are built by the
-    // per-source fallback anyway, so the probe over them is the entire tax. Measuring
-    // the CSR build here (as this fn did before the run-3 restructure) would time work
-    // the code no longer performs — the same misalignment the ledger-integrity rule
-    // exists to catch.
-    let rows: Vec<&[usize]> = (0..n)
-        .map(|u| graph.neighbors_indices(u).unwrap_or(&[]))
-        .collect();
     let threads = rayon::current_num_threads();
-    let lanes = 64 * bitpar_chunk_lane_width(n, threads);
-    let ecc = if bounded {
-        bitpar_probe_eccentricity_rows_bounded(
-            &rows,
-            n,
-            bitpar_probe_max_useful_eccentricity(lanes),
-        )
-    } else {
-        bitpar_probe_eccentricity_rows(&rows, n)
-    };
-    rows.len() + ecc.unwrap_or(0)
+    bitpar_chunked_lane_width_if_profitable_rows(&[], n, threads).unwrap_or_default()
 }
 
 /// Bench/test-only entry point pinning one arm. Results are identical across arms.
@@ -12585,19 +12396,15 @@ pub fn average_shortest_path_length_arm(
     // not reaching all n nodes) yield INFINITY exactly as before. Used only for
     // n < ASPL_BITPAR_MAX_N; larger graphs take the per-source rayon path, which
     // parallelises across every core and wins on many-core hosts.
-    // br-r37-c1-bger9: build the adjacency rows ONCE. The per-source fallback needs
-    // them, and the gate can probe them, so a declined graph never constructs a u32
-    // CSR it would throw away. Building that CSR cost only 17.27 us directly
-    // (measured, `aspl_gate_overhead_cost`) but cost the guard 2.6-3.9% — an order of
-    // magnitude more — by disturbing the per-source sweep that follows it.
+    // Build the adjacency rows ONCE: both arms use them, while the arithmetic gate
+    // itself reads only `n` and the rayon worker count.
     let adjacency: Vec<&[usize]> = (0..n)
         .map(|u| graph.neighbors_indices(u).unwrap_or(&[]))
         .collect();
 
     if arm != BitparArm::PerSource && n <= u32::MAX as usize {
         // Above the sequential ceiling the per-source path fans out over rayon, so
-        // bit-parallel only wins when the graph has far fewer BFS levels than lanes.
-        // Same expected-loss gate as the centralities.
+        // accept chunking only when enough source chunks can occupy the pool.
         let threads = rayon::current_num_threads();
         let lane_width = if n < ASPL_BITPAR_MAX_N {
             None
@@ -53732,69 +53539,46 @@ mod bitpar_aspl_tests {
         let (go, gt) = csr_of(&grid_1600);
         let hub_2000 = hub(2000);
         let (ho, ht) = csr_of(&hub_2000);
-        for threads in 1..=128 {
-            assert_eq!(
-                super::bitpar_chunked_lane_width_if_profitable(&go, &gt, 1600, threads),
-                None,
-                "grid_1600 must DECLINE at {threads} threads"
+        for threads in 1..=100 {
+            assert!(
+                super::bitpar_chunked_lane_width_if_profitable(&go, &gt, 1600, threads).is_some(),
+                "grid_1600 must ACCEPT at {threads} threads"
             );
             assert!(
                 super::bitpar_chunked_lane_width_if_profitable(&ho, &ht, 2000, threads).is_some(),
                 "hub_2000 must ACCEPT at {threads} threads"
             );
         }
+        assert_eq!(
+            super::bitpar_chunked_lane_width_if_profitable(&go, &gt, 1600, 101),
+            None,
+            "the saturation guard must reject a 1600-node workload once 101 workers need more chunks"
+        );
     }
 
-    /// The BOUNDED probe must never change a gate decision — it may only stop walking
-    /// once the answer is already determined. Any divergence here means the bound is
-    /// cutting off eccentricities the gate would have accepted.
     #[test]
-    fn bounded_probe_gate_agrees_with_unbounded_on_every_shape_and_thread_count() {
-        let mut disconnected = hub(300);
-        for i in 300..600 {
-            let _ = disconnected.add_node(i.to_string());
-        }
-        for i in 301..600 {
-            let _ = disconnected.add_edge(300.to_string(), i.to_string());
-        }
-        let cases: [(Graph, &str); 6] = [
-            (grid(40, 40), "grid n=1600 high diameter"),
-            (grid(24, 25), "grid n=600"),
-            (hub(2000), "hub n=2000 ecc=1"),
-            (hub(600), "hub n=600"),
-            (path(600), "path n=600 ecc=599"),
-            (disconnected, "two disjoint hubs"),
-        ];
-        for (g, label) in &cases {
-            let n = g.node_count();
-            let rows: Vec<&[usize]> = (0..n)
-                .map(|u| super::GraphView::neighbors_indices(g, u).unwrap_or(&[]))
-                .collect();
-            for threads in 1..=128 {
-                // Unbounded reference: probe everything, then apply the arithmetic.
-                let want = super::bitpar_probe_eccentricity_rows(&rows, n)
-                    .and_then(|ecc| super::bitpar_gate_from_eccentricity(ecc, n, threads));
-                let got = super::bitpar_chunked_lane_width_if_profitable_rows(&rows, n, threads);
-                assert_eq!(got, want, "{label} at {threads} threads");
-            }
-        }
-    }
-
-    /// The bound is derived from the gate's own inequality; state it once, here.
-    #[test]
-    fn probe_bound_is_the_largest_eccentricity_the_gate_could_accept() {
-        for w in 1..=8 {
-            let lanes = 64 * w;
-            let max_ecc = super::bitpar_probe_max_useful_eccentricity(lanes);
-            assert!(
-                (2 * max_ecc + 1) * 4 <= lanes,
-                "lanes={lanes}: max_ecc={max_ecc} must satisfy the gate inequality"
-            );
-            assert!(
-                (2 * (max_ecc + 1) + 1) * 4 > lanes,
-                "lanes={lanes}: max_ecc={max_ecc} must be the LARGEST such eccentricity"
-            );
-        }
+    fn gate_is_topology_independent_but_capacity_limited() {
+        let grid_1600 = grid(40, 40);
+        let path_1600 = path(1600);
+        let (grid_offsets, grid_targets) = csr_of(&grid_1600);
+        let (path_offsets, path_targets) = csr_of(&path_1600);
+        assert!(
+            super::bitpar_chunked_lane_width_if_profitable(&grid_offsets, &grid_targets, 1600, 8)
+                .is_some()
+        );
+        assert!(
+            super::bitpar_chunked_lane_width_if_profitable(&path_offsets, &path_targets, 1600, 8)
+                .is_some()
+        );
+        assert_eq!(
+            super::bitpar_chunked_lane_width_if_profitable(
+                &grid_offsets,
+                &grid_targets,
+                1600,
+                101,
+            ),
+            None,
+        );
     }
 }
 
@@ -54154,17 +53938,16 @@ mod bitpar_closeness_tests {
     }
 
     #[test]
-    fn gate_rejects_high_diameter_and_accepts_low_diameter() {
+    fn gate_accepts_high_diameter_when_chunk_supply_is_adequate() {
         // Threads is passed explicitly so the decision does not depend on the
         // machine the test runs on.
         let threads = 4;
         let g = grid(24, 25);
         let (offsets, targets) = csr_of(&g);
-        assert_eq!(
-            super::bitpar_chunked_lane_width_if_profitable(&offsets, &targets, 600, threads),
-            None,
-            "a 24x25 grid has ~47 levels against <=192 lanes: no edge-scan headroom, \
-             and it is exactly the shape the 0.27x batch-parallel attempt regressed on"
+        assert!(
+            super::bitpar_chunked_lane_width_if_profitable(&offsets, &targets, 600, threads)
+                .is_some(),
+            "high eccentricity must not veto a saturated chunked path"
         );
 
         let g = hub(600);
@@ -54172,14 +53955,12 @@ mod bitpar_closeness_tests {
         assert!(
             super::bitpar_chunked_lane_width_if_profitable(&offsets, &targets, 600, threads)
                 .is_some(),
-            "eccentricity 1 from the hub: levels <= 3 against 192 lanes"
+            "a low-diameter graph with the same capacity remains accepted"
         );
     }
 
     #[test]
-    fn gate_declines_when_the_probe_cannot_see_every_node() {
-        // Two disjoint hubs: BFS from node 0 covers half the graph, so one root's
-        // eccentricity says nothing about the rest and the estimate is refused.
+    fn gate_does_not_require_a_connected_probe() {
         let mut g = hub(300);
         for i in 300..600 {
             let _ = g.add_node(i.to_string());
@@ -54188,9 +53969,8 @@ mod bitpar_closeness_tests {
             let _ = g.add_edge(300.to_string(), i.to_string());
         }
         let (offsets, targets) = csr_of(&g);
-        assert_eq!(
-            super::bitpar_chunked_lane_width_if_profitable(&offsets, &targets, 600, 4),
-            None
+        assert!(
+            super::bitpar_chunked_lane_width_if_profitable(&offsets, &targets, 600, 4).is_some()
         );
     }
 
@@ -54234,11 +54014,10 @@ mod bitpar_closeness_tests {
         assert_eq!(grid_1600.node_count(), 1600);
         assert_eq!(lowdiam.node_count(), 2000);
 
-        for threads in 1..=128 {
-            assert_eq!(
-                super::bitpar_chunked_lane_width_if_profitable(&go, &gt, 1600, threads),
-                None,
-                "grid_1600 must DECLINE at {threads} threads: auto == per-source there"
+        for threads in 1..=100 {
+            assert!(
+                super::bitpar_chunked_lane_width_if_profitable(&go, &gt, 1600, threads).is_some(),
+                "grid_1600 must ACCEPT at {threads} threads"
             );
             assert!(
                 super::bitpar_chunked_lane_width_if_profitable(&lo, &lt, 2000, threads).is_some(),
@@ -54731,11 +54510,10 @@ mod bitpar_harmonic_tests {
         let (go, gt) = csr_of(&grid_1600);
         let hub_2000 = hub(2000);
         let (ho, ht) = csr_of(&hub_2000);
-        for threads in 1..=128 {
-            assert_eq!(
-                super::bitpar_chunked_lane_width_if_profitable(&go, &gt, 1600, threads),
-                None,
-                "grid_1600 must DECLINE at {threads} threads"
+        for threads in 1..=100 {
+            assert!(
+                super::bitpar_chunked_lane_width_if_profitable(&go, &gt, 1600, threads).is_some(),
+                "grid_1600 must ACCEPT at {threads} threads"
             );
             assert!(
                 super::bitpar_chunked_lane_width_if_profitable(&ho, &ht, 2000, threads).is_some(),
