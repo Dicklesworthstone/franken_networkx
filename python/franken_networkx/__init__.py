@@ -49823,7 +49823,11 @@ class _AssignedPrivateDegreeView:
         # A `_FilteredGraphView` (or any non-concrete parent) fails the type test
         # and gets `_fast_key = None`, so it pays two stores here and skips the
         # two predicate reads it used to make per call.
-        if weight is None and type(graph) in (
+        # br-r37-c1-degwt: the snapshot is deliberately WEIGHT-INDEPENDENT. It
+        # used to bail when `weight` was set, which left the weighted walk with
+        # no fast path at all -- and that walk was the worst measured row on the
+        # surface at `0.0904x`. Each consumer states its own weight rule.
+        if type(graph) in (
             Graph,
             DiGraph,
             MultiGraph,
@@ -50049,12 +50053,94 @@ class _AssignedPrivateDegreeView:
     def __iter__(self):
         fast = self._fast_private_degree_pairs()
         if fast is None:
+            fast = self._fast_private_weighted_pairs()
+        if fast is None:
             fast = self._fast_filtered_degree_pairs()
         if fast is not None:
             yield from fast
             return
         for node in self._iter_nodes():
             yield (node, self._degree(node))
+
+    def _fast_private_weighted_pairs(self):
+        """br-r37-c1-degwt: WEIGHTED degree straight off the RAW mappings.
+
+        Every fast path this campaign added gates on `weight is None`, so the
+        weighted walk was the one route still going through `graph.adj` -- the
+        wrapping cost `br-r37-c1-ktsxn` removed everywhere else. Profiling 20
+        iterations over 400 nodes / 1600 edges counted, for 8,000 node-visits
+        and 64,000 edges: **80,040** `AdjacencyView` constructions (ten per
+        node), 72,000 `_keydict` + 72,000 `_atlas` + 72,000 generator frames of
+        wrapper machinery, and PER EDGE one `_edge_weight` call plus an
+        `is_multigraph()` and an `is_directed()` read -- 64,000 and 72,042 of
+        them. networkx does `nbrs = self._succ[n]` and one `sum()`.
+
+        THE SUMMATION SHAPE IS COPIED FROM networkx DELIBERATELY, not
+        rearranged. `_weighted_value` already records why: CPython's `sum` is
+        Neumaier-compensated for floats, so the ASSOCIATION decides the last
+        bits. Each class below reproduces its own view's exact expression --
+        including nx's `(n in nbrs and nbrs[n].get(weight, 1))`, whose value is
+        `False` rather than `0` when the node has no self-loop, and the
+        multigraph form's separate `deg +=` for the self-loop group.
+        """
+        if self._nodes is not None or self._weight is None or self._fast_key is None:
+            return None
+        graph = self._graph
+        weight = self._weight
+        multi = self._fast_multi
+        if self._fast_directed:
+            succ = _private_override(graph, _PRIVATE_SUCC_OVERRIDE)
+            pred = _private_override(graph, _PRIVATE_PRED_OVERRIDE)
+            if succ is _PRIVATE_MISSING or pred is _PRIVATE_MISSING:
+                return None
+            if multi:
+                return [
+                    (
+                        node,
+                        sum(
+                            d.get(weight, 1)
+                            for key_dict in succs.values()
+                            for d in key_dict.values()
+                        )
+                        + sum(
+                            d.get(weight, 1)
+                            for key_dict in pred[node].values()
+                            for d in key_dict.values()
+                        ),
+                    )
+                    for node, succs in succ.items()
+                ]
+            return [
+                (
+                    node,
+                    sum(dd.get(weight, 1) for dd in succs.values())
+                    + sum(dd.get(weight, 1) for dd in pred[node].values()),
+                )
+                for node, succs in succ.items()
+            ]
+        adj = _private_override(graph, _PRIVATE_ADJ_OVERRIDE)
+        if adj is _PRIVATE_MISSING:
+            return None
+        if multi:
+            pairs = []
+            for node, nbrs in adj.items():
+                deg = sum(
+                    d.get(weight, 1)
+                    for key_dict in nbrs.values()
+                    for d in key_dict.values()
+                )
+                if node in nbrs:
+                    deg += sum(d.get(weight, 1) for d in nbrs[node].values())
+                pairs.append((node, deg))
+            return pairs
+        return [
+            (
+                node,
+                sum(dd.get(weight, 1) for dd in nbrs.values())
+                + (node in nbrs and nbrs[node].get(weight, 1)),
+            )
+            for node, nbrs in adj.items()
+        ]
 
     def _fast_private_degree_pairs(self):
         """br-r37-c1-degnbr: bulk UNWEIGHTED degree straight off the RAW
@@ -50083,7 +50169,7 @@ class _AssignedPrivateDegreeView:
         # br-r37-c1-degsnap: the same snapshot the scalar twin reads, so the
         # eligibility rule lives in ONE place. `_fast_key is None` already
         # covers a weighted view and a non-concrete parent.
-        if self._nodes is not None or self._fast_key is None:
+        if self._nodes is not None or self._weight is not None or self._fast_key is None:
             return None
         graph = self._graph
         multi = self._fast_multi
@@ -50286,7 +50372,7 @@ class _AssignedPrivateDegreeView:
         """
         key = self._fast_key
         missing = _PRIVATE_MISSING
-        if key is None:
+        if key is None or self._weight is not None:
             return missing
         storage = self._graph.__dict__
         if self._fast_directed:
