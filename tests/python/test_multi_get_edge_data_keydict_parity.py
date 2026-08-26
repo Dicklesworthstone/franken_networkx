@@ -178,7 +178,14 @@ def test_returned_dicts_are_live_and_shared(class_name, par):
 
 
 @pytest.mark.parametrize("class_name", CLASSES)
-def test_tampering_with_the_returned_keydict_self_heals(class_name):
+@pytest.mark.parametrize(
+    "tamper",
+    [
+        pytest.param(lambda keydict: keydict.__setitem__(9999, {"phantom": True}), id="insert"),
+        pytest.param(lambda keydict: keydict.__delitem__(3), id="delete"),
+    ],
+)
+def test_tampering_with_the_returned_keydict_self_heals(class_name, tamper):
     """br-r37-c1-f3i50: the cache is now handed out LIVE, and heals on tamper.
 
     This test previously required a COPY on every read. That was the safe way to
@@ -200,7 +207,7 @@ def test_tampering_with_the_returned_keydict_self_heals(class_name):
     graph = _build(fnx, class_name, u, v, 8)
 
     first = graph.get_edge_data(u, v)
-    first[9999] = {"phantom": True}  # tamper with the mapping we were handed
+    tamper(first)
 
     second = graph.get_edge_data(u, v)
     assert 9999 not in second, (

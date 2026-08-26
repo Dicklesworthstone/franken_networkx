@@ -7656,7 +7656,7 @@ impl MultiAtlasView {
         let mut endpoints = None;
         if let Some((seq, u_index)) = self.node_pos
             && seq == g.nodes_seq
-            && v.is_exact_instance_of::<PyString>()
+            && node_key_can_use_index_lookaside(v)
             && let Some(v_index) = g.cached_exact_string_node_index(py, v)?
         {
             endpoints = Some((seq, u_index, v_index));
@@ -7706,7 +7706,7 @@ impl MultiAtlasView {
         // path; before that it resolved both positions back to names.
         if let Some((seq, u_index)) = self.node_pos
             && seq == g.nodes_seq
-            && v.is_exact_instance_of::<PyString>()
+            && node_key_can_use_index_lookaside(v)
             && let Some(v_index) = g.cached_exact_string_node_index(py, v)?
         {
             return Ok(g.inner.has_edge_by_indices(u_index, v_index));
@@ -8684,6 +8684,7 @@ impl PyMultiGraph {
             if !fresh {
                 self.edge_keydict_cache = Some((self.nodes_seq, self.edges_seq, HashMap::new()));
             }
+            let mut cached_row_was_tampered = false;
             if let Some((_, _, rows)) = &self.edge_keydict_cache
                 && let Some((expected_len, cached)) = rows.get(lo).and_then(|row| row.get(hi))
             {
@@ -8716,10 +8717,17 @@ impl PyMultiGraph {
                     self.mark_edges_dirty();
                     return Ok(live.into_any());
                 }
+                // `live_keydict_rows` stores this same object to keep genuine
+                // graph mutations visible to callers that retained it. It is
+                // not an independent source of truth, so do not immediately
+                // return the known-tampered mapping through that second cache.
+                cached_row_was_tampered = true;
             }
-            if let Some(live) = self.live_keydict_rows.get(py, lo, hi) {
-                self.mark_edges_dirty();
-                return Ok(live.into_any());
+            if !cached_row_was_tampered {
+                if let Some(live) = self.live_keydict_rows.get(py, lo, hi) {
+                    self.mark_edges_dirty();
+                    return Ok(live.into_any());
+                }
             }
             let keys = self.inner.edge_keys(u_c, v_c).unwrap_or_default();
             if keys.is_empty() {
