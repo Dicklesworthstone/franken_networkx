@@ -37,6 +37,104 @@ admission history, host, scope source, process affinity, monitored CPU set,
 checked-window count, maximum observed busy fraction, and maximum consecutive
 busy-window count.
 
+## 2026-08-26 BlackThrush DECOMPOSITION + NO SOURCE EDIT: `DiGraph.adj[u][v]` is **75.2% Python frame** (`351.6ns` of `467.6ns`) against a native accessor that costs the SAME as `Graph`'s; the `1.64x` lever is blocked on a NAME, not on effort (`br-r37-c1-ktsxn`)
+
+comparison_class=INCUMBENT
+incumbent=networkx
+incumbent_same_invocation=true
+incumbent_ratio=0.3017x
+campaign_output=false
+decision_gate=median_ci
+cv_role=report_only
+
+`adj[u][v]` is the worst op on all four classes and, after the key-type gates
+closed, carries no key-type gap anywhere (`0.96x`-`1.02x` int/str). So the
+remaining cost is not a gate. This row measures WHAT it actually is, by removing
+exactly one thing.
+
+    arm A   G._fnx_edge_attr_dict_fast(u, v)   the native accessor ALONE
+    arm B   G.adj[u][v]                        the Python view frame + that call
+
+Both arms are FrankenNetworkX, so this is a DECOMPOSITION and not a vs-incumbent
+claim — but it is measured in ONE invocation on the same substrate, which is
+what makes it load-robust. The vs-networkx figure in the header is the surveyed
+`DiGraph/str adj[u][v]` row it decomposes.
+
+ELF `bench_elf_sha256=c1adcc19b2ea0ac4b8f3ec3420078cfa0458154e49c5bc22857b3d856b9a9aba`
+(HEAD `728b65c10`), read from INSIDE the benchmark process. nx 3.6.1, CPython
+3.13.7, LOCAL:thinkstation1.
+
+DUAL A/A NULLS, RECORDED AND POSITIVE. All four rows DECIDABLE; the
+native-accessor A/A null spans `0.9988x` to `1.0009x` and the `adj[u][v]` A/A
+null spans `0.9993x` to `1.0009x`.
+
+| row | native accessor | `adj[u][v]` | FRAME | frame share |
+|---|---|---|---|---|
+| `DiGraph` int | `116.0ns` | `467.6ns` | **`351.6ns`** | **`75.2%`** |
+| `DiGraph` str | `121.3ns` | `488.9ns` | **`367.6ns`** | **`75.2%`** |
+| `Graph` int | `121.7ns` | `290.8ns` | `169.2ns` | `58.2%` |
+| `Graph` str | `130.7ns` | `300.6ns` | `169.9ns` | `56.5%` |
+
+THE NATIVE CALL IS ALREADY THE SAME ON BOTH CLASSES — `116.0` vs `121.7 ns`.
+Every bit of the `DiGraph`/`Graph` difference on this op is frame. `Graph` pays
+`169ns` for the OUTER Python `AdjacencyView.__getitem__` that all four classes
+share; `DiGraph` pays that PLUS ~`182ns` for a Python row subscript where
+`Graph` has a native C slot.
+
+SIZE OF THE LEVER, from these numbers and nothing else: giving `DiGraph`'s row
+`Graph`'s frame while keeping `DiGraph`'s own native cost is
+`467.6ns -> ~285ns`, i.e. **`1.64x`** (str `1.68x`), taking the surveyed row
+from `0.3017x` to roughly `0.49x`. A second, larger prize sits behind it — the
+shared outer `AdjacencyView.__getitem__` is `169ns` on EVERY class and
+`_fnx.AdjacencyView` is a registered native class nothing reaches.
+
+### TWO SUB-LEVERS REFUTED, so nobody spends the day
+
+1. THERE IS NO FAT IN THE PYTHON ROW BRANCH. Instrumented on a warmed DiGraph
+   row: `_fnx_multi_edge_owner` is `None`, `_fnx_live_keydict` is `None`,
+   `_fnx_kd_cache` is `None`. The subscript performs three failed attribute
+   checks and then calls the resolved builtin. The ~`182ns` IS the Python
+   function-call frame, not work inside it. Trimming the branch cannot recover
+   it.
+
+2. POPULATING `_fnx_live_keydict` ON SUBSCRIPT IS A TRAP. When that attribute is
+   set, `__getitem__` returns through one dict lookup. It is deliberately NOT
+   set by a subscript: it is populated only by the row-WIDE operations through
+   `_keydict()`, because building a row is O(degree) and doing that per cold
+   access is the exact regression the code comments record at `0.04x` vs
+   networkx. A "populate after N touches on this row" heuristic would be
+   decided by the benchmark's row-reuse pattern rather than by the code — my own
+   fixture touches 512 distinct pairs, which would flatter it. Not taken.
+
+### WHY NO SOURCE EDIT: THE BLOCKER IS A NAME, AND IT IS ASSERTED
+
+Routing `DiGraph`'s row onto the native class is the lever, and the native class
+exists — but it is registered as `DiAtlasView`, while networkx names this object
+`AtlasView` and FrankenNetworkX currently returns a Python class of that name:
+
+    nx   type(G.adj[1]).__name__ == "AtlasView"
+    fnx  type(G.adj[1]).__name__ == "AtlasView"   (the Python class)
+    native class is named          "DiAtlasView"
+
+So routing changes an observable type name away from the incumbent's, and the
+repository already pins exact types — `test_adj_mapping_parity.py:116` asserts
+`type(frow) is fnx._fnx.AtlasView` and
+`test_edges_keys_cache_consistency_guard.py:184,231` assert
+`type(view) is fnx.AtlasView`. Registering the directed class AS `AtlasView`
+collides with `views::AtlasView` in the module namespace. That is a design
+decision about the public type identity, not a performance edit, and it is not
+mine to make unilaterally.
+
+ALSO STILL TRUE, and unchanged by any of this: on `MultiGraph` and
+`MultiDiGraph` the chain is THREE stacked Python view layers
+(`MultiAdjacencyView` -> `AdjacencyView` -> `AtlasView`, every `__getitem__` a
+Python function) with no native entry point at any level, which is why they are
+the two worst rows on the board at `0.2904x` and `0.3004x`.
+
+REPRODUCE:
+
+    .venv/bin/python tests/artifacts/perf/20260826T-adj-frame-decomposition-blackthrush/probe_frame.py
+
 ## 2026-08-26 BlackThrush SHIPPED, STILL A LOSS: the native `AtlasView` row subscript takes int keys — `Graph.adj[u][v]` int **`0.4574x` -> `0.5488x`** (`1.200x` self), last key-type gap in the family closed (`br-r37-c1-ktsxn`)
 
 comparison_class=SELF-SPEEDUP
