@@ -631,6 +631,40 @@ def test_simple_edge_view_getitem_returns_live_native_attr_dict(cls_name):
     assert held_edges["left", "right"] == {"replacement": True}
 
 
+@pytest.mark.parametrize("cls_name", ["Graph", "DiGraph"])
+def test_exact_int_edge_and_neighbor_lookasides_invalidate_on_renumber(cls_name):
+    """br-r37-c1-uh8cm: exact ints share the index route, never stale entries.
+
+    Removing node 0 renumbers the warmed (2, 3) edge onto the live (3, 4)
+    index pair.  A naive exact-int widening without the existing ``nodes_seq``
+    guard would therefore return the *other* edge's dict instead of ``target``.
+    """
+    ref, got = _pair(cls_name)
+    for graph in (ref, got):
+        graph.add_nodes_from(range(5))
+        graph.add_edge(2, 3, marker="target")
+        graph.add_edge(3, 4, marker="alias")
+
+    held_edges = got.edges
+    warmed = held_edges[2, 3]
+    assert dict(warmed) == dict(ref.edges[2, 3]) == {"marker": "target"}
+    assert list(got.neighbors(2)) == list(ref.neighbors(2)) == [3]
+
+    for graph in (ref, got):
+        graph.remove_node(0)
+
+    # Negative case: the old index pair now names (3, 4), so a stale hit is a
+    # silent wrong answer rather than a harmless cache miss.
+    assert dict(held_edges[2, 3]) == dict(ref.edges[2, 3]) == {"marker": "target"}
+    assert list(got.neighbors(2)) == list(ref.neighbors(2)) == [3]
+
+    # Python numeric-key equality must remain intact, while bool stays on the
+    # canonical path rather than being accepted by the exact-int fast route.
+    assert dict(held_edges[2.0, 3.0]) == dict(ref.edges[2.0, 3.0])
+    with pytest.raises(KeyError):
+        held_edges[True, 3]
+
+
 def _held_simple_edge_view_outcomes(module, cls_name):
     """Build a view, THEN assign private storage, and report both lookups.
 

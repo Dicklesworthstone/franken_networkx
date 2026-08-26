@@ -853,9 +853,9 @@ impl EdgeView {
         // hashed: `__hash__` runs arbitrary Python and could re-enter this
         // graph, which is how br-r37-c1-oqvk5 shipped a P0 RefCell panic.
         crate::require_hashable_node_key(&u_item)?;
-        // br-r37-c1-ptiz2: exact-`str` endpoints resolve by CACHED INDEX, which
-        // is O(1) in key length, instead of building two canonicals and hashing
-        // both in full.
+        // Exact `str` and exact `int` endpoints resolve by cached index.  Both
+        // are built-ins with non-raising hashes; subclasses and bool retain the
+        // canonical path so their established semantics stay unchanged.
         //
         // THIS IS br-r37-c1-p1tvg RE-RUN, AND THE LEDGER RECORDS THAT AS
         // REJECTED. That rejection stands where it was measured and does not
@@ -871,11 +871,9 @@ impl EdgeView {
         //
         // Ordering is preserved rather than assumed: nx short-circuits an absent
         // `u` to False BEFORE `v` is hashed, and that is only observable when
-        // hashing `v` can raise. `node_key_hash_cannot_raise` is true for an
-        // exact `str` — exactly this gate — so nothing observable is reordered.
-        if node_key_can_use_index_lookaside(&u_item)
-            && node_key_can_use_index_lookaside(&v_item)
-        {
+        // hashing `v` can raise. The exact built-ins admitted by this gate
+        // cannot raise, so nothing observable is reordered.
+        if node_key_can_use_index_lookaside(&u_item) && node_key_can_use_index_lookaside(&v_item) {
             let g = self.graph.borrow(py);
             if let Some(u_index) = g.cached_exact_string_node_index(py, &u_item)? {
                 return Ok(match g.cached_exact_string_node_index(py, &v_item)? {
@@ -1210,9 +1208,7 @@ impl EdgeView {
         // were present), so `v`'s hashability is checked here exactly as it is
         // on the string-keyed hit path below — networkx hashes `v` only once
         // `u` resolves.
-        if node_key_can_use_index_lookaside(&u_item)
-            && node_key_can_use_index_lookaside(&v_item)
-        {
+        if node_key_can_use_index_lookaside(&u_item) && node_key_can_use_index_lookaside(&v_item) {
             let g = self.graph.borrow(py);
             let indices = (
                 g.cached_exact_string_node_index(py, &u_item)?,
@@ -1267,9 +1263,9 @@ impl EdgeView {
         let attrs = g.materialize_edge_py_attrs(py, u, v);
         // br-r37-c1-ptiz2: fill the index lookaside on the miss path, with the
         // SAME dict the string-keyed mirror just recorded, so the two can never
-        // disagree about identity. Only for exact `str` endpoints, matching the
-        // probe above; anything else simply never populates it.
-        if u_item.is_exact_instance_of::<PyString>() && v_item.is_exact_instance_of::<PyString>() {
+        // disagree about identity. The same exact scalar gate as the probe
+        // above keeps unsupported key types on the canonical route.
+        if node_key_can_use_index_lookaside(&u_item) && node_key_can_use_index_lookaside(&v_item) {
             let indices = (
                 g.cached_exact_string_node_index(py, &u_item)?,
                 g.cached_exact_string_node_index(py, &v_item)?,

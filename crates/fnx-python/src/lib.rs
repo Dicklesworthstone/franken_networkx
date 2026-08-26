@@ -275,8 +275,8 @@ pub(crate) fn node_key_hash_cannot_raise(key: &Bound<'_, PyAny>) -> bool {
 
 /// Keys whose exact built-in representation can safely enter the node-index
 /// lookaside.  Subclasses stay on the canonical path because their Python
-/// equality or hash methods may be observable; `bool` deliberately stays out
-/// because its canonical form has distinct semantics from an integer's.
+/// equality or hash methods may be observable; `bool` deliberately stays on
+/// the canonical path so its existing numeric-equivalence behavior is unchanged.
 pub(crate) fn node_key_can_use_index_lookaside(key: &Bound<'_, PyAny>) -> bool {
     key.is_exact_instance_of::<PyString>() || key.is_exact_instance_of::<PyInt>()
 }
@@ -327,7 +327,67 @@ fn canonical_node_key_in<'b>(
         // identical output, not because it was measured to be faster.
         return Ok(CanonicalNodeKey::Owned(format!("str:{}:{s}", s.len())));
     }
+    // br-r37-c1-uh8cm: an INT key canonicalizes to its bare decimal, and that
+    // decimal always fits the stack buffer, so it has no business on the heap.
+    // `node_key_to_string`'s int branch is `i.to_string()` — one `String`
+    // allocation per endpoint per call, paid by every adjacency read whose
+    // nodes are ints, which is what every networkx generator produces. The
+    // `str` spelling has had a no-allocation path since br-r37-c1-oe93x and the
+    // int spelling never got one; measured, the gap is `+53%` on
+    // `Graph.edges[u,v]` and `+38%` on `DiGraph.edges[u,v]` while networkx,
+    // which stores a dict-of-dicts and does not canonicalize at all, is flat.
+    //
+    // `downcast` rather than `is_exact_instance_of` so this admits the same
+    // keys `node_key_to_string` admits — `bool` included, canonicalizing to
+    // "1"/"0" exactly as it does there. The type test is decided BEFORE `buf`
+    // is borrowed, for the NLL reason the string branch documents above.
+    if key.downcast::<PyInt>().is_ok() {
+        return match key.extract::<i64>() {
+            Ok(value) => Ok(CanonicalNodeKey::Borrowed(write_int_decimal(buf, value))),
+            // Arbitrary-precision ints are the only int keys that still
+            // allocate, and they are the case `exact_int_decimal` exists for.
+            Err(_) => Ok(CanonicalNodeKey::Owned(exact_int_decimal(py, key)?)),
+        };
+    }
     Ok(CanonicalNodeKey::Owned(node_key_to_string(py, key)?))
+}
+
+/// br-r37-c1-uh8cm: the exact decimal of an `i64` written into `buf`, with no
+/// heap allocation and no `core::fmt`.
+///
+/// `core::fmt` is deliberately absent: br-r37-c1-7faiu measured its
+/// per-argument dynamic dispatch at 54.5% of a whole string `has_node` probe
+/// and replaced it with a hand-rolled decimal, and reintroducing it here for
+/// the int spelling would rebuild the cost that removal took out.
+///
+/// The output is byte-identical to `i.to_string()`, which is the property the
+/// borrowed lookup depends on: `canonical_node_key_in` and `node_key_to_string`
+/// must agree on the bytes or the same node resolves two ways.
+fn write_int_decimal(buf: &mut ArrayString<CANONICAL_KEY_STACK_BUF>, value: i64) -> &str {
+    // "-9223372036854775808" is 20 bytes, the widest an `i64` can spell, so
+    // this never approaches the 128-byte buffer and needs no bail-out arm.
+    let mut digits = [0u8; 20];
+    let mut idx = digits.len();
+    // `unsigned_abs` rather than `-value`: `i64::MIN` has no positive
+    // counterpart and negating it overflows.
+    let mut magnitude = value.unsigned_abs();
+    loop {
+        idx -= 1;
+        digits[idx] = b'0' + (magnitude % 10) as u8;
+        magnitude /= 10;
+        if magnitude == 0 {
+            break;
+        }
+    }
+    if value < 0 {
+        idx -= 1;
+        digits[idx] = b'-';
+    }
+    buf.clear();
+    buf.push_str(
+        core::str::from_utf8(&digits[idx..]).expect("ASCII digits and an optional leading sign"),
+    );
+    buf.as_str()
 }
 
 /// Digits in the decimal representation of `n` (`0` is one digit).
@@ -402,6 +462,19 @@ fn with_node_key_str<R>(
             CANONICAL_POOL.with(|pool| pool.borrow_mut().push(buf));
             return Ok(out);
         }
+    }
+    // br-r37-c1-uh8cm: the int spelling of the same no-allocation promise. This
+    // helper exists because `node_key_to_string` malloc'd for every borrowed
+    // read probe, and the int keys that every networkx generator produces were
+    // still paying exactly that. No pool is needed the way the string branch
+    // needs one: a stack `ArrayString` is reentrant by construction, so nesting
+    // this helper inside itself — which `has_edge` does, and which is how
+    // br-r37-c1-oqvk5 panicked a shared `RefCell` scratch — cannot alias.
+    if key.downcast::<PyInt>().is_ok()
+        && let Ok(value) = key.extract::<i64>()
+    {
+        let mut buf = ArrayString::<CANONICAL_KEY_STACK_BUF>::new();
+        return Ok(f(write_int_decimal(&mut buf, value)));
     }
     let canonical = node_key_to_string(py, key)?;
     Ok(f(&canonical))
@@ -20587,8 +20660,14 @@ class FnxMultiGraphCtorEdgeIterable:
                 );
             }
 
-            // Non-string keys must take the owned branch and still agree.
-            for value in [0_i64, 1, -1, i64::MAX, i64::MIN] {
+            // br-r37-c1-uh8cm: int keys now take the BORROWED branch too, and
+            // the whole soundness of that is byte-identity with the owned
+            // canonical — the two routes are reached by different callers for
+            // the same node, so a disagreement resolves one node two ways.
+            // i64::MIN is the case that decides it: `unsigned_abs` is used
+            // instead of negation precisely because `-i64::MIN` overflows, and
+            // its 20-byte rendering is also the widest the writer ever emits.
+            for value in [0_i64, 1, -1, 9, 10, -10, 99, -100, i64::MAX, i64::MIN] {
                 let obj = value.into_pyobject(py).expect("int should convert");
                 let owned =
                     node_key_to_string(py, obj.as_any()).expect("owned int canonical should work");
@@ -20600,6 +20679,45 @@ class FnxMultiGraphCtorEdgeIterable:
                     owned,
                     "int canonical diverged for {value}"
                 );
+                assert_eq!(
+                    borrowed.as_str(),
+                    value.to_string(),
+                    "int canonical is not the bare decimal for {value}"
+                );
+                // The read-probe helper must agree with both, or a `has_node`
+                // and a `has_edge` on the same key disagree about the node.
+                let probed = with_node_key_str(py, obj.as_any(), str::to_owned)
+                    .expect("with_node_key_str should canonicalize an int");
+                assert_eq!(probed, owned, "with_node_key_str diverged for {value}");
+            }
+
+            // `bool` is an int SUBCLASS, so it reaches the same branch and must
+            // keep canonicalizing to "1"/"0" as `node_key_to_string` always
+            // has — hash(True) == hash(1) makes them ONE networkx node.
+            for (obj, expected) in [
+                (PyBool::new(py, true).to_owned().into_any(), "1"),
+                (PyBool::new(py, false).to_owned().into_any(), "0"),
+            ] {
+                let owned = node_key_to_string(py, &obj).expect("owned bool canonical should work");
+                let mut buf = ArrayString::new();
+                let borrowed = canonical_node_key_in(py, &obj, &mut buf)
+                    .expect("borrowed bool canonical should work");
+                assert_eq!(borrowed.as_str(), owned, "bool canonical diverged");
+                assert_eq!(borrowed.as_str(), expected, "bool canonical is not {expected}");
+            }
+
+            // Beyond i64 there is no stack rendering to borrow, so the owned
+            // arbitrary-precision path must still be reached and still agree.
+            for literal in ["9223372036854775808", "-9223372036854775809"] {
+                let obj = py
+                    .eval(&std::ffi::CString::new(format!("int({literal})")).unwrap(), None, None)
+                    .expect("big int should build");
+                let owned = node_key_to_string(py, &obj).expect("owned big-int canonical works");
+                let mut buf = ArrayString::new();
+                let borrowed =
+                    canonical_node_key_in(py, &obj, &mut buf).expect("borrowed big-int works");
+                assert_eq!(borrowed.as_str(), owned, "big-int canonical diverged");
+                assert_eq!(borrowed.as_str(), literal, "big-int canonical is not {literal}");
             }
         });
     }
