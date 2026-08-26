@@ -37,6 +37,86 @@ admission history, host, scope source, process affinity, monitored CPU set,
 checked-window count, maximum observed busy fraction, and maximum consecutive
 busy-window count.
 
+## 2026-08-26 BlackThrush CAMPAIGN RESULT: the conversion `EdgeView.__len__` MATERIALISED the edge list, and `list()` calls it — `len(to_directed(G).edges)` **`0.0257x` -> `3.8059x`** (`149x` self); `len(list(...))` `0.1458x` -> `0.6346x` (`br-r37-c1-ktsxn`)
+
+comparison_class=INCUMBENT
+incumbent=networkx
+incumbent_same_invocation=true
+incumbent_ratio=3.8059x
+campaign_output=true
+decision_gate=median_ci
+cv_role=report_only
+
+I ALMOST ATTACKED THE WRONG THING, AND THE DECOMPOSITION IS WHY. The plan was to
+speed up the Python tuple-append loop, which the previous two rows named as the
+remaining cost. Prototyping it first showed that loop reproducing the exact same
+list in `204.7us` where `list(view.edges)` cost `1402.2us` — a `6.8x` gap with
+`_nbunch` at `2.1us` and the rows at `84.1us`. The loop was never the problem.
+
+WHERE IT ACTUALLY WENT. Timing the layers separately:
+
+    V._edges()                 530.6us
+    EV()        (__call__)     469.6us
+    list(EV)    (__iter__)    1463.8us     <- ~1000us MORE than __call__
+
+`list(obj)` asks for `__len__` to preallocate BEFORE it iterates, and
+`_ConversionEdgeView.__len__` was `return len(self())` — it built the entire edge
+list just to report its length. So every `list(view.edges)` built the list TWICE,
+and a bare `len(view.edges)` built it once to return an integer the view could
+already compute.
+
+`number_of_edges()` is that integer, and the row two above made it O(1) for this
+conversion. Verified equal to BOTH `len(self())` and the true iteration length,
+against networkx, on all six conversion shapes — `Graph`/`DiGraph`/`MultiGraph`/
+`MultiDiGraph` into both directions — including the multigraph cases where the
+count is the KEYED count and `__iter__` likewise iterates `keys=True`.
+
+SECOND, SMALLER FIX IN THE SAME COMMIT: `self.is_multigraph()` was evaluated PER
+EDGE inside the directed walk. At `83.3 ns` a call that is ~`266us` of pure
+loop-invariant work across 3,200 edges. Hoisted.
+
+PROVENANCE. Pure-Python change; both arms load the SAME extension module:
+
+    bench_elf_sha256=c1adcc19b2ea0ac4b8f3ec3420078cfa0458154e49c5bc22857b3d856b9a9aba   BOTH arms
+
+asserted equal in the aggregator, each pass separately asserting the `.so` it
+loaded matched its arm, so the binary noise floor is zero by construction. nx
+3.6.1 (genuine upstream), CPython 3.13.7, LOCAL:thinkstation1.
+
+DUAL A/A NULLS, RECORDED AND POSITIVE. Six passes in arm order
+`before, after, after, before, before, after`: 23 row-observations admitted, 1
+dropped. The networkx A/A null spans `0.9989x` to `1.0024x` and the
+FrankenNetworkX A/A null spans `0.9974x` to `1.0033x`.
+
+| row | before | after | fnx us | self | |
+|---|---|---|---|---|---|
+| `len(to_directed(G).edges)` | `0.0257x` | **`3.8059x`** | `479.91 -> 3.22` | **`149.0x`** | TREATED |
+| `len(list(to_directed(G).edges))` | `0.1458x` | `0.6346x` | `1097.32 -> 257.87` | `4.26x` | TREATED |
+| `len(list(to_undirected(D).edges))` | `0.5634x` | **`1.0849x`** | `2206.82 -> 1157.15` | `1.91x` | TREATED |
+| `to_directed(G).number_of_edges()` | `11.6194x` | `11.6086x` | `3.11 -> 3.05` | `1.02x` | control |
+
+EVERY CLAIM ABOVE PARITY HAS AN INTERVAL THAT EXCLUDES `1.0`. `len(EV)` after:
+`[3.736, 3.768]`, `[3.796, 3.812]`, `[3.827, 3.842]`. The undirected list row
+after: `[1.072, 1.088]`, `[1.079, 1.094]`. The control is unmoved at `1.02x`,
+which is what says the `149x` is the edit and not the host.
+
+`len(list(to_directed(G).edges))` IS STILL A LOSS at `0.6346x`, and that is the
+honest state of that row: the double build is gone, the single build remains,
+and `257.87us` against networkx's `162.51us` is what the tuple-append loop
+actually costs.
+
+CORRECTNESS. 158 conversion / view / size / self-loop / edge-data / ego test
+files: 9158 passed, 20 skipped, 16 xfailed, 5 failed on BOTH arms with
+`NEW: none`, set-compared. Separately, `len`, `bool`, `in`, `number_of_edges`,
+iteration length and four data spellings were checked against networkx across
+six conversion shapes and six nbunch shapes, plus the empty graph, where a
+materialising `__len__` would previously have been the only thing keeping the
+answer right.
+
+REPRODUCE:
+
+    bash tests/artifacts/perf/20260826T-conversion-edgeview-len-blackthrush/replicate_ln.sh
+
 ## 2026-08-26 BlackThrush CAMPAIGN RESULT: node-level dedup in the undirected conversion walk — `to_undirected(D).edges(data=True)` **`0.5523x` -> `1.0792x`** and `len(list(...edges))` `0.3085x` -> `0.5403x` (`1.97x` / `1.78x` self) (`br-r37-c1-ktsxn`)
 
 comparison_class=INCUMBENT
