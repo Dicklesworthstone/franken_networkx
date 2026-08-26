@@ -1,0 +1,11 @@
+multi_adj before5 rep1 N=20000 Ir=0 per_call=0
+multi_adj before5 rep2 N=20000 Ir=0 per_call=0
+multi_adj after5 rep1 N=20000 Ir=0 per_call=0
+multi_adj after5 rep2 N=20000 Ir=0 per_call=0
+multidi_adj before5 rep1 N=20000 Ir=0 per_call=0
+multidi_adj before5 rep2 N=20000 Ir=0 per_call=0
+multidi_adj after5 rep1 N=20000 Ir=0 per_call=0
+multidi_adj after5 rep2 N=20000 Ir=0 per_call=0
+graph_adj before5 rep1 N=20000 Ir=27663233 per_call=1383
+graph_adj before5 rep2 N=20000 Ir=27648584 per_call=1382
+graph_adj after5 rep1 N=20000 Ir=27681907 per_call=1384

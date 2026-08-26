@@ -37,6 +37,98 @@ admission history, host, scope source, process affinity, monitored CPU set,
 checked-window count, maximum observed busy fraction, and maximum consecutive
 busy-window count.
 
+## 2026-08-26 BlackThrush CORRECTION + NULL RESULT, CHANGE REVERTED: the `MultiAtlasView` existence hoist is a NO-OP because that class is not on the `adj[u][v]` path, and my own `00a57f664` row is already stale — 4 of its 6 sites were landed by a peer within hours (`br-r37-c1-ktsxn`)
+
+### 1. CORRECTION TO `00a57f664`, WHICH IS MINE AND IS ALREADY WRONG
+
+That row claimed SIX one-endpoint str-only gates guarding an index probe:
+`views.rs:2021,2055`, `lib.rs:7659,7709`, `digraph.rs:4162,4206`. Re-censused on
+HEAD with the same pattern: **only the two `views.rs` sites remain.** A peer
+widened `lib.rs:7659,7709` and `digraph.rs:4166,4210` between my census and my
+commit. The row overstated the remaining surface by 3x from the moment it
+landed. Current census, `AtlasView::__getitem__` only:
+
+    views.rs   2 one-endpoint str-only gates  (AtlasView::__getitem__, probe + fill)
+    digraph.rs 0
+    lib.rs     0
+
+This is `landed_lever_ages_downstream_claims` closing on its own author inside
+one working day, and it is exactly why a published site list needs re-deriving
+before anyone works from it rather than being read as current.
+
+### 2. NULL RESULT: the hoist was applied to a class the measured op never reaches
+
+`MultiAtlasView::__getitem__` and `MultiDiAtlasView::__getitem__` both build a
+heap canonical for `v` and then ask a string-keyed `has_edge` — hashing BOTH
+full-length endpoints — for an answer `has_edge_by_indices` gives in O(1) from
+positions the same function already resolves a few lines later. Hoisting the
+existence answer onto the index path is obviously correct work removal, it
+compiles, and it changes NOTHING, because:
+
+    MultiGraph    G.adj      -> MultiAdjacencyView  __getitem__ = Python function
+                  G.adj[u]   -> AdjacencyView       __getitem__ = Python function
+                  G.adj[u][v]-> AtlasView           __getitem__ = Python function
+
+`G.adj[u]` on a multigraph returns the PYTHON `AdjacencyView`, not the native
+`MultiAtlasView`. Callgrind with `--collect-atstart=no --toggle-collect` on
+`<_fnx::MultiAtlasView>::__pymethod___getitem____` counts **Ir = 0 over 20,000
+subscripts** on both arms: the method is never entered. Confirmed independently
+by an MRO probe — `type(G.adj[1]) is _fnx.MultiAtlasView` is `False` on
+`MultiGraph` AND `MultiDiGraph`.
+
+COUNTED MECHANISM. Callgrind measured the instructions executed inside
+`<_fnx::MultiAtlasView>::__pymethod___getitem____` over 20,000 subscripts on
+each arm, and the instructions were unchanged between before and after at
+exactly zero on both, because the method is never entered on this path. Two
+independent runs per arm agree. Zero instructions before and zero after is
+the whole finding: no work was removed because no work was being done here.
+
+THE CHANGE IS REVERTED. It was correct, compiled, and passed 2654 tests with
+ZERO new failures (10 failures present, all 10 reproducing identically on the
+unmodified HEAD arm — set-compared, not counted), and it is still worthless
+until something routes that class onto the path.
+
+RECORDED AGAINST MYSELF: the row directly above this one warned that
+`DiAtlasView` is a registered native class nothing reaches, and told the next
+agent to probe reachability before costing a native-side lever. I then edited
+two sibling classes without running that probe first, and the probe I already
+had in hand — the MRO table in `00a57f664` — contains the answer. The trap is
+not subtle and I still walked into it; `pyo3_wrapper_can_itself_be_dead` earns
+its place.
+
+### 3. WHAT THE WORST OP ACTUALLY IS
+
+`adj[u][v]` on the multigraph classes is `0.3126x`-`0.3150x`, ~780 ns/call
+against networkx's ~245, and the reason is now structural rather than
+speculative: **three stacked PYTHON view layers with no native slot at any
+level.** Simple `Graph` is the best row on the board (`0.4568x`) because exactly
+one of its three levels — the row subscript — is a native C slot. The lever is
+not a gate anywhere; it is that the multigraph adjacency chain has no native
+entry point to gate.
+
+### 4. NO TIMING NUMBER IS CLAIMED, AND WHY
+
+A four-pass balanced A/B (`before, after, after, before`) ran while peers held
+55-80 cores in `criterion` benchmarks. Passes 3 and 4 were clean (16/16
+DECIDABLE, nulls `0.9842x-1.0161x` and `0.9956x-1.0051x`); passes 1 and 2 were
+not (`nx [0.0917, 7.6409]`). Restricting to observations whose BOTH nulls sat
+inside `0.985x-1.015x` still left the CONTROLS spanning `0.598x` to `2.685x` —
+a control that moves `2.7x` under a change that cannot touch it is measuring the
+host. Ratios do not rescue it either: control ratios moved up to `+34.6%`,
+because under contention the networkx and FrankenNetworkX arms do not scale
+alike, the extra Python frames giving the fnx arm more scheduler exposure.
+
+Two instrument attempts are recorded so nobody repeats them: total-program Ir by
+two-point slope is defeated by ~±50M run-to-run startup variance against a ~200M
+signal, and produced a NEGATIVE slope on one control — proof the instrument was
+wrong, not the code. `--toggle-collect` on the pymethod is the sound instrument
+and is what produced the `Ir = 0` that settled this row.
+
+REPRODUCE THE REACHABILITY PROBE:
+
+    python -c "import franken_networkx as f, franken_networkx._fnx as x; \
+      G=f.MultiGraph(); G.add_edge(1,2); print(type(G.adj[1]) is x.MultiAtlasView)"
+
 ## 2026-08-26 BlackThrush SURVEY + NO SOURCE EDIT, A/B REFUSED: `G.adj[u][v]` is the worst read on ALL FOUR classes (`0.3126x`-`0.4825x`); a FOURTH set of str-only gates found on the live row subscript, and its A/B is NOT MEASURABLE on this host today (`br-r37-c1-ktsxn`)
 
 comparison_class=INCUMBENT
