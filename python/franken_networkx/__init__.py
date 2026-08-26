@@ -49812,6 +49812,33 @@ class _AssignedPrivateDegreeView:
         self._graph = graph
         self._nodes = nodes
         self._weight = weight
+        # br-r37-c1-degsnap: snapshot the IMMUTABLE half of fast-path
+        # eligibility. A graph instance never changes class, directedness or
+        # multi-ness, and this view's `weight` is fixed at construction -- so
+        # re-deriving `type(graph) not in (...)`, `is_directed()` and
+        # `is_multigraph()` on EVERY scalar call was pure repetition. Only the
+        # OVERRIDE PRESENCE can change during the view's life, and that is still
+        # read live from `graph.__dict__` on every call.
+        #
+        # A `_FilteredGraphView` (or any non-concrete parent) fails the type test
+        # and gets `_fast_key = None`, so it pays two stores here and skips the
+        # two predicate reads it used to make per call.
+        if weight is None and type(graph) in (
+            Graph,
+            DiGraph,
+            MultiGraph,
+            MultiDiGraph,
+        ):
+            directed = graph.is_directed()
+            self._fast_directed = directed
+            self._fast_multi = graph.is_multigraph()
+            self._fast_key = (
+                _PRIVATE_SUCC_OVERRIDE if directed else _PRIVATE_ADJ_OVERRIDE
+            )
+        else:
+            self._fast_directed = False
+            self._fast_multi = False
+            self._fast_key = None
 
     def _nodes_authority(self):
         """nx's ``_nodes`` for a DegreeView: ``self._succ``.
@@ -50053,13 +50080,14 @@ class _AssignedPrivateDegreeView:
         not, and `br-r37-c1-vbe1o` is the bead recording that fnx used to return
         a plausible number there instead.
         """
-        if self._nodes is not None or self._weight is not None:
+        # br-r37-c1-degsnap: the same snapshot the scalar twin reads, so the
+        # eligibility rule lives in ONE place. `_fast_key is None` already
+        # covers a weighted view and a non-concrete parent.
+        if self._nodes is not None or self._fast_key is None:
             return None
         graph = self._graph
-        if type(graph) not in (Graph, DiGraph, MultiGraph, MultiDiGraph):
-            return None
-        multi = graph.is_multigraph()
-        if graph.is_directed():
+        multi = self._fast_multi
+        if self._fast_directed:
             succ = _private_override(graph, _PRIVATE_SUCC_OVERRIDE)
             pred = _private_override(graph, _PRIVATE_PRED_OVERRIDE)
             if succ is _PRIVATE_MISSING or pred is _PRIVATE_MISSING:
@@ -50256,15 +50284,13 @@ class _AssignedPrivateDegreeView:
         node an assigned `_succ` carries but `_pred` does not still raises from
         `pred[node]`, exactly as networkx does (br-r37-c1-vbe1o).
         """
+        key = self._fast_key
         missing = _PRIVATE_MISSING
-        if self._weight is not None:
+        if key is None:
             return missing
-        graph = self._graph
-        if type(graph) not in (Graph, DiGraph, MultiGraph, MultiDiGraph):
-            return missing
-        storage = graph.__dict__
-        if graph.is_directed():
-            succ = storage.get(_PRIVATE_SUCC_OVERRIDE, missing)
+        storage = self._graph.__dict__
+        if self._fast_directed:
+            succ = storage.get(key, missing)
             pred = storage.get(_PRIVATE_PRED_OVERRIDE, missing)
             if succ is missing or pred is missing:
                 return missing
@@ -50276,12 +50302,12 @@ class _AssignedPrivateDegreeView:
                     return missing
             row = succ[node]
             prow = pred[node]
-            if graph.is_multigraph():
+            if self._fast_multi:
                 return sum(len(kd) for kd in row.values()) + sum(
                     len(kd) for kd in prow.values()
                 )
             return len(row) + len(prow)
-        adj = storage.get(_PRIVATE_ADJ_OVERRIDE, missing)
+        adj = storage.get(key, missing)
         if adj is missing:
             return missing
         if probe:
@@ -50291,7 +50317,7 @@ class _AssignedPrivateDegreeView:
             except TypeError:
                 return missing
         row = adj[node]
-        if graph.is_multigraph():
+        if self._fast_multi:
             # An undirected self-loop contributes its parallel-edge count TWICE.
             return sum(len(kd) for kd in row.values()) + (
                 len(row[node]) if node in row else 0

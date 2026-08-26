@@ -37011,3 +37011,106 @@ CHECKED rather than assumed: the test is
 `scipy.sparse.linalg.svds` returns different basis vectors across calls on a
 star graph. Re-running both arms flipped which arm xpassed, confirming it is
 that documented non-determinism and not this change.
+
+## 2026-08-26 br-r37-c1-degsnap KEEP / SELF-SPEEDUP (fast-path eligibility snapshotted in `__init__`): scalar `G.degree(n)` `0.3659x` -> `0.4786x` — STILL A 2.1x LOSS, and the controls SURFACED TWO WORSE ROWS
+
+comparison_class=SELF-SPEEDUP
+campaign_output=false
+decision_gate=median_ci
+cv_role=report_only
+
+bench_elf_sha256=c1adcc19b2ea0ac4b8f3ec3420078cfa0458154e49c5bc22857b3d856b9a9aba (14097424 bytes)
+
+CLASSIFICATION FIRST. `0.4786x` is a 2.1x LOSS against live networkx.
+Maintenance, not campaign output, no competitive claim.
+
+THIS STEP WAS EXPLICITLY DEFERRED ONE COMMIT AGO, AND THE REASON WAS BUILT
+BEFORE IT WAS TAKEN. `br-r37-c1-degfuse` named this lever and refused it: the
+per-call eligibility re-derivation (`type(graph) not in (...)`,
+`is_directed()`, `is_multigraph()`) could be hoisted into `__init__`, but the
+view is ALSO constructed per call by the nbunch path, so hoisting would move
+cost from the measured row onto an unmeasured one. Three CONSTRUCTION-COST
+controls were added to the probe first, and they are what licenses this change:
+
+| construction-cost control | HEAD | after | self |
+|---|---:|---:|---:|
+| private `degree(nbunch)` — builds a view PER CALL | `0.1451x` | `0.1446x` | `1.00x` |
+| private `degree(weight=...)` — builds a view, ineligible path | `0.0877x` | `0.0904x` | `1.03x` |
+| private `subgraph().degree()` — FILTERED parent, ineligible path | `0.8621x` | `0.8663x` | `1.00x` |
+
+All three flat. The two stores added to `__init__` do not show up even on a row
+that constructs a view on every single call, and the ineligible paths (weighted
+view, non-concrete parent) are unaffected — they now pay two stores in
+`__init__` and skip two predicate reads per call.
+
+WHAT CHANGED. A graph instance never changes class, directedness or multi-ness,
+and a view's `weight` is fixed at construction, so all of that is snapshotted
+once into `_fast_key` / `_fast_directed` / `_fast_multi`. Only the OVERRIDE
+PRESENCE can change during the view's life, and that is still read live from
+`graph.__dict__` on every call. The bulk pairs path now reads the SAME snapshot,
+so the eligibility rule lives in exactly one place instead of being spelled
+twice — the divergence shape that `partially_applied_fix_census` keeps finding.
+
+| row (400 nodes / 1600 edges) | HEAD | after | self | fnx us HEAD -> after | nx us |
+|---|---:|---:|---:|---:|---:|
+| private `G.degree(0)` x256 | `0.3659x` | `0.4786x` | `1.31x` | `139.11` -> `104.81` | `50.44` |
+| private `G.nodes` accessor | `0.1361x` | `0.1362x` | `1.00x` | `34.62` -> `34.89` | `4.73` |
+| private `G.degree` accessor | `0.1435x` | `0.1461x` | `1.02x` | `33.68` -> `33.81` | `4.95` |
+| private `DiGraph.degree` accessor | `0.1432x` | `0.1403x` | `0.98x` | `33.87` -> `34.90` | `4.91` |
+| private `G.edges` accessor | `0.1456x` | `0.1412x` | `0.97x` | `34.15` -> `34.56` | `4.94` |
+| private `number_of_edges()` | `0.9522x` | `0.9711x` | `1.02x` | `38.27` -> `37.54` | `36.32` |
+| private `list(G.degree())` | `0.9251x` | `0.9205x` | `0.99x` | `33.86` -> `33.75` | `31.02` |
+| private `DiGraph degree()` | `0.9439x` | `0.9491x` | `1.01x` | `32.55` -> `32.86` | `30.68` |
+| private `MultiGraph degree()` | `0.9772x` | `0.9795x` | `1.00x` | `193.16` -> `192.89` | `189.10` |
+| control: ordinary `G.degree` accessor | `0.8684x` | `0.8623x` | `0.99x` | `5.83` -> `5.73` | `4.92` |
+| control: ordinary `G.nodes` accessor | `0.8568x` | `0.8696x` | `1.02x` | `5.71` -> `5.55` | `4.82` |
+| control: ordinary `G.edges` accessor | `0.8640x` | `0.8565x` | `0.99x` | `5.73` -> `5.81` | `4.98` |
+| control: ordinary `list(G.degree())` | `1.3755x` | `1.3667x` | `0.99x` | `23.04` -> `23.41` | `31.64` |
+| control: ordinary `MultiGraph degree()` | `4.8225x` | `4.7681x` | `0.99x` | `38.73` -> `39.02` | `186.79` |
+| control: ordinary `G.degree(weight)` | `3.3484x` | `3.0413x` | `0.91x` | `78.78` -> `80.13` | `243.11` |
+| control: ordinary `len(G.edges)` | `254.1011x` | `249.5788x` | `0.98x` | `0.09` -> `0.09` | `22.88` |
+
+ONE CONTROL READS `0.91x` AND IT WAS SPLIT RATHER THAN WAVED PAST. Ordinary
+`G.degree(weight)` cannot be touched by this change at all —
+`_AssignedPrivateDegreeView` serves only assigned storage. Splitting the row
+into its two arms shows why the ratio moved and the times did not: the nx arm
+went `241.38` -> `243.70us` (`+1.0%`) and the fnx arm `78.78` -> `80.13us`
+(`+1.7%`). Both are noise; `median-of-ratios` across passes is simply not
+`ratio-of-medians`, and on a row whose per-pass ratio is large that gap is
+visible. For contrast the TREATED row's split is unambiguous: nx arm `50.91` ->
+`49.94us` (`-1.9%`, flat) while the fnx arm went `139.11` -> `104.81us`
+(`-24.7%`). A one-sided move on the arm the change touches is the signature of
+a real effect; a two-sided non-move is the signature of an artifact.
+
+SUBSTRATE. Pure-Python A/B, both arms loading the SAME extension so the binary
+noise floor is zero by construction — the `bench_elf_sha256` above is
+byte-identical in the `after25` (HEAD) and `after27` logs. Six passes in
+balanced order, `perf_harness.paired()` with LIVE networkx in the SAME
+invocation, 21 interleaved rounds, `min_of=3`, bootstrap median CI, dual
+arm-specific A/A nulls. 112 of 114 observations admitted with both nulls inside
+`[0.98, 1.02]`; nulls nx `[0.9901, 1.0040]`, fnx `[0.9937, 1.0093]`. Peer load
+was `7.66` — this run needed no repeat, unlike the one in `br-r37-c1-degfuse`.
+
+THE CONTROLS SURFACED TWO ROWS WORSE THAN THE ONE BEING ATTACKED. Both are
+newly measured here and neither is claimed as anything but a loss:
+
+* private `G.degree(weight=...)` at `0.0904x` — `2537.41us` against networkx's
+  `233.09us`, an **11x loss** and now the worst measured row on this surface.
+  It is ineligible for every fast path added in this campaign BY CONSTRUCTION,
+  because all of them gate on `weight is None`; the weighted walk still reads
+  attribute dicts through `graph.adj`, which is the `graph.adj` wrapping cost
+  that `br-r37-c1-ktsxn` removed everywhere except here.
+* private `G.degree(nbunch)` at `0.1446x` — `822.49us` against `118.54us`, a
+  **6.9x loss**, dominated by constructing a fresh degree view per call and then
+  walking it.
+
+Those are the next two targets and they are recorded as measured losses now,
+rather than being discovered later and presented as new wins.
+
+PARITY. Unchanged between arms on both sweeps: the 1853-probe degree sweep
+(1802 match; the same 51 are `br-r37-c1-degree-scalar-missing-node-ij0bt`) and
+the 8-route staleness stress probe (the same 4 are
+`br-r37-c1-user-assigned-view-survives-adj-reset-aegas`).
+
+SUITE. The FULL Python suite, 1062 files, both arms: `63928 passed`, `1479
+skipped`, `49 xfailed`, `23 failed` IDENTICALLY on both arms. `NEW: none`.
