@@ -9903,7 +9903,24 @@ impl PyMultiDiGraph {
                 // br-r37-c1-f3i50: fill the index twin with the SAME object the
                 // string-keyed cache stores, so a warm read by either key hands
                 // back copies of one mapping, and stamp BOTH sequences.
-                if u.is_exact_instance_of::<PyString>() && v.is_exact_instance_of::<PyString>() {
+                //
+                // br-r37-c1-ktsxn: THE GATE HERE MUST MATCH THE PROBE AT THE TOP
+                // OF THIS FUNCTION, and it did not. That probe was widened to
+                // exact-`str`-OR-exact-`int`; this fill stayed exact-`str`, so on
+                // an int-keyed MultiDiGraph the index lookaside was interrogated
+                // on EVERY unkeyed read and could never be filled -- a guard
+                // asking a store that is empty by design. Int keys therefore fell
+                // all the way to the string path and paid `write_int_decimal`,
+                // `from_utf8` and two sip hashes of the canonicals per call.
+                //
+                // Measured before this line changed: `MultiDiGraph.get_edge_data`
+                // was `0.2723x` on int keys against `0.5098x` on str, a `1.97x`
+                // key-type penalty, while `MultiGraph`, `DiGraph` and `Graph` all
+                // sat at `1.00x`. Callgrind agreed independently at `2687` vs
+                // `1379` Ir/call, a `1.95x` instruction ratio.
+                if crate::node_key_can_use_index_lookaside(u)
+                    && crate::node_key_can_use_index_lookaside(v)
+                {
                     let indices = (
                         self.cached_exact_string_node_index(py, u)?,
                         self.cached_exact_string_node_index(py, v)?,

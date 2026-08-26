@@ -37,6 +37,92 @@ admission history, host, scope source, process affinity, monitored CPU set,
 checked-window count, maximum observed busy fraction, and maximum consecutive
 busy-window count.
 
+## 2026-08-26 BlackThrush SHIPPED, STILL A LOSS: `MultiDiGraph.get_edge_data` int keys **`0.3064x` -> `0.5276x`** (`1.944x` self); the unkeyed index lookaside was probed on every call and never filled (`br-r37-c1-ktsxn`)
+
+comparison_class=SELF-SPEEDUP
+campaign_output=false
+self_speedup_ratio=1.944x
+vs_networkx_same_invocation=0.5276x (STILL A LOSS, not a campaign result)
+decision_gate=median_ci
+cv_role=report_only
+
+ONE LINE. In `PyMultiDiGraph::get_edge_data` the unkeyed index-lookaside PROBE
+had been widened to exact-`str`-or-exact-`int`, and the FILL directly below it
+was still `u.is_exact_instance_of::<PyString>() && v.is_exact_instance_of::<PyString>()`.
+On an int-keyed `MultiDiGraph` that made `edge_keydict_by_index` a store that is
+interrogated on EVERY unkeyed read and can never be filled — the
+guard-probing-an-empty-by-design-store shape, this time created by widening a
+probe without its fill. Int keys fell through to the string path and paid
+`write_int_decimal`, `from_utf8` and two sip hashes of the canonicals per call.
+
+HOW IT WAS FOUND, and why the family mattered: `MultiDiGraph` was the ONLY class
+of the four with a key-type gap on this call. Its three siblings sat at
+`0.97x`-`1.05x` int/str and it sat at `1.98x`. The siblings without the gap were
+the control that said this was a missing fast path rather than a property of
+multigraphs.
+
+PROVENANCE. Both arms built by me from the same `git archive` tree outside the
+shared checkout, same flags, same host, same target dir.
+
+    bench_elf_sha256=7714ac5154bed2a61d79c07068c46687b153a172ef92929fe9483858ac57bf7b  before arm b779aa693 (HEAD)
+    bench_elf_sha256=c6c213f098c23ac085cf4ab835961c4b1e6105a7276604ec9d465a32abee514c  after arm  + the one-line fill gate
+
+Read from INSIDE each timing process by `perf_harness.binary_sha256`, and the
+arm-to-binary mapping was verified per pass rather than assumed. nx 3.6.1
+(genuine upstream, module asserted), CPython 3.13.7, LOCAL:thinkstation1,
+loadavg 8-15 — the quietest window of the campaign.
+
+DUAL A/A NULLS, RECORDED AND POSITIVE. Four passes in arm order
+`before, after, after, before`, EVERY pass 8/8 DECIDABLE. Over the 32 controls
+the networkx A/A null spans `0.9947x` to `1.0026x` and the FrankenNetworkX A/A
+null spans `0.9954x` to `1.0061x`.
+
+### Medians over four passes
+
+| row | before | after | fnx ns/call | self | |
+|---|---|---|---|---|---|
+| `MultiDiGraph` int `get_edge_data` | `0.3064x` | **`0.5276x`** | `303.9 -> 156.3` | **`1.944x`** | TREATED |
+| `MultiDiGraph` str `get_edge_data` | `0.5690x` | `0.5171x` | `153.7 -> 150.0` | `1.025x` | control |
+| `DiGraph` str `get_edge_data` | `0.6014x` | `0.5529x` | `138.7 -> 135.2` | `1.026x` | control |
+| `Graph` int `get_edge_data` | `0.6091x` | `0.5588x` | `141.2 -> 138.1` | `1.022x` | control |
+| `MultiGraph` int `get_edge_data` | `0.6231x` | `0.5777x` | `142.3 -> 141.6` | `1.005x` | control |
+| `Graph` str `get_edge_data` | `0.6169x` | `0.5424x` | `134.4 -> 135.8` | `0.990x` | control |
+| `MultiGraph` str `get_edge_data` | `0.6378x` | `0.5515x` | `137.0 -> 137.7` | `0.994x` | control |
+| `DiGraph` int `get_edge_data` | `0.6446x` | `0.5875x` | `134.1 -> 131.6` | `1.019x` | control |
+
+Treated `1.944x` against a control band of `0.990x`-`1.026x`. No overlap.
+
+THE KEY-TYPE GAP IS CLOSED and the family is now uniform:
+
+    MultiDiGraph  before int=303.9 str=153.7 gap=1.98x   ->  after int=156.3 str=150.0 gap=1.04x
+    MultiGraph    before gap=1.04x                       ->  after gap=1.03x
+    DiGraph       before gap=0.97x                       ->  after gap=0.97x
+    Graph         before gap=1.05x                       ->  after gap=1.02x
+
+COUNTED MECHANISM, INDEPENDENT OF THE CLOCK. Callgrind with
+`--collect-atstart=no --toggle-collect` on
+`<_fnx::digraph::PyMultiDiGraph>::__pymethod_get_edge_data__` measured
+instructions at `2687` per call on int keys against `1379` on str, a `1.95x`
+instruction ratio that matches the `1.98x` wall-clock gap. The int profile is
+led by `hash_one::<&str>` (14.8%), sip `Hasher::write` (11.1%),
+`write_int_decimal` (5.8%) and `from_utf8` (4.3%) and contains NO
+`NodeIndexLookupCache::get`; the str profile contains
+`NodeIndexLookupCache::get`, `cached_exact_string_node_index` and
+`hash_one::<&(usize, usize)>`. That is the fill gate proving itself: one arm
+reaches the index store, the other cannot.
+
+CORRECTNESS. 2837 passed, 11 skipped, 20 xfailed, 10 failed — and the 10 are
+SET-IDENTICAL to the 10 on the unmodified before arm, compared as sets rather
+than counted, so zero are attributable to this change. They are the known
+multigraph autokey / ego-order / keyed-set-algebra residues already red on HEAD.
+
+NOT PARITY, hence SELF-SPEEDUP: `0.5276x` is still a loss, now in line with the
+rest of the family rather than twice as bad as it.
+
+REPRODUCE:
+
+    bash tests/artifacts/perf/20260826T-multidigraph-getedgedata-fillgate-blackthrush/replicate6.sh
+
 ## 2026-08-26 BlackThrush CORRECTION + NULL RESULT, CHANGE REVERTED: the `MultiAtlasView` existence hoist is a NO-OP because that class is not on the `adj[u][v]` path, and my own `00a57f664` row is already stale — 4 of its 6 sites were landed by a peer within hours (`br-r37-c1-ktsxn`)
 
 ### 1. CORRECTION TO `00a57f664`, WHICH IS MINE AND IS ALREADY WRONG
