@@ -52443,8 +52443,44 @@ class _ConversionGraphViewBase:
         nodes = self._nbunch(nbunch)
         result = []
         if self.is_directed():
+            # br-r37-c1-ktsxn: walk the SOURCE's adjacency, not the conversion
+            # view's, when the view is a DIRECTED view of an UNDIRECTED simple
+            # source. `self.adj[source]` is a `_ConversionAdjacencyView` row that
+            # is SYNTHESIZED IN PYTHON per node; the source's row is the native
+            # one. For this conversion the two are equal element-for-element AND
+            # in order -- a directed view's successors of `u` ARE `u`'s
+            # undirected neighbours -- which was verified per node across plain,
+            # self-loop, only-self-loop, star and random fixtures, together with
+            # the resulting edge ORDER against networkx's own view.
+            #
+            # This is the ITERATION half of the row above, which fixed the COUNT:
+            # `to_directed(g).number_of_edges()` went `0.0416x -> 11.1483x` while
+            # `len(list(view.edges))` stayed at `0.0464x` because walking still
+            # rebuilt every row in Python. Same view, same conversion, the other
+            # spelling.
+            #
+            # Gated to the exact case that was proven equal. Multigraph views,
+            # undirected views and directed SOURCES keep the generic row below,
+            # where the conversion genuinely has to merge or dedup.
+            #
+            # `not data` is part of the gate and not an oversight: the data
+            # branch below still reads `self.adj[source][target]` for the
+            # conversion view's MERGED attr dict, so taking the native row there
+            # would build BOTH rows per source and could regress the very path it
+            # was meant to help. Only the no-data walk, which needs nothing but
+            # the neighbour sequence, switches.
+            rows = self.adj
+            if not data and not self.is_multigraph():
+                src = self._graph
+                src_directed = getattr(src, "is_directed", None)
+                if (
+                    src_directed is not None
+                    and not src_directed()
+                    and not src.is_multigraph()
+                ):
+                    rows = src.adj
             for source in nodes:
-                for target in self.adj[source]:
+                for target in rows[source]:
                     if self.is_multigraph():
                         for key, attrs in self.adj[source][target].items():
                             if data and keys:
