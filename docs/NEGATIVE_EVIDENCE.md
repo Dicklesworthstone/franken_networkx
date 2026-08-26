@@ -36392,3 +36392,103 @@ family switch now.
 QUALITY / CLOSEOUT: `git diff --check` covers this ledger-only result. No
 Cargo command ran. UBS has no Markdown/JSONL scanner, so no scanner pass is
 claimed.
+
+## 2026-08-26 br-r37-c1-ktsxn KEEP (assigned-private `EdgeView` reads the RAW mapping instead of `graph.adj`): `len(G.edges)` **`0.0133x` -> `1.0386x`** vs live networkx, `len(list(G.edges))` `0.0634x` -> `0.8915x`
+
+comparison_class=INCUMBENT
+incumbent=networkx
+incumbent_same_invocation=true
+incumbent_ratio=1.0386x
+campaign_output=true
+decision_gate=median_ci
+cv_role=report_only
+
+bench_elf_sha256=c1adcc19b2ea0ac4b8f3ec3420078cfa0458154e49c5bc22857b3d856b9a9aba (14097424 bytes)
+
+THE SURFACE. A graph that has had a NetworkX private mapping assigned to it
+(`G._adj = {...}`, `G._node = {...}` — the shape a lot of third-party code and
+several networkx algorithms build by hand) serves its edge view from
+`_AssignedPrivateEdgeView`. On a 400-node / 1600-edge graph that view answered
+`len(G.edges)` in `1703.66us` against networkx's `22.94us`: **`0.0133x`**, the
+worst decidable row measured in this campaign.
+
+TWO MECHANISMS, BOTH COUNTED BEFORE THE EDIT.
+
+1. `__len__` MATERIALISED. It was `len(self())`, which builds the entire edge
+   list to return its length. networkx never builds anything: `EdgeView.__len__`
+   sums adjacency row lengths.
+
+2. EVERY READER WENT THROUGH `graph.adj`. That public accessor returns an
+   `AdjacencyView` which wraps a fresh row object per subscript. Iterating it
+   cost `315.73us` for 400 rows where the underlying dict cost `9.91us` — the
+   wrapping, not the walk, was the row. This is the same shape as
+   `guard_probes_empty_by_design_base`: the cheap path existed and nothing was
+   reaching it.
+
+THE ARITHMETIC IS THE PART WORTH CHECKING, and it was checked rather than
+reasoned. A self-loop occupies ONE slot in its own adjacency row but counts
+TWICE in the degree sum networkx halves, so a naive `row_sum // 2` undercounts
+whenever the self-loop count is ODD. The corrected `(row_sum + loops) // 2` was
+verified against `networkx.number_of_edges()` across all four classes and eight
+edge shapes — none / one / two / THREE self-loops, an isolated self-loop, a
+self-loop beside a reciprocal pair, the empty graph, and parallel edges. The
+directed count is the row sum with no halving.
+
+A third mechanism was removed in the same pass: `_rows` called
+`self._graph.is_multigraph()` once per EDGE from inside both of its loops. It
+is a property of the graph, not of the edge, and is now hoisted.
+
+SUBSTRATE. Pure-Python A/B: both arms load the SAME extension, so the binary
+noise floor documented in `binary_noise_floor_and_fnx_arm_warmup` is zero by
+construction rather than by assumption — the recorded
+`bench_elf_sha256=c1adcc19b2ea0ac4b8f3ec3420078cfa0458154e49c5bc22857b3d856b9a9aba`
+above is byte-identical in the `before18` and `after18` logs. Six passes in the
+balanced order `before,after,after,before,before,after`, each pass running
+`perf_harness.paired()` (21 interleaved rounds, `min_of=3`, bootstrap median CI)
+with LIVE networkx as the opposing arm in the SAME invocation and dual
+arm-specific A/A nulls. Admission was per-observation: 29 of 30 observations had
+both nulls inside `[0.98, 1.02]` and `decidable`; the one that did not was
+dropped. Observed null spread was nx `[0.9902, 1.0086]`, fnx `[0.9929, 1.0044]`.
+The host-wide quiescence gate was NOT reachable (peer load 5-17 throughout), so
+this row is gate-bypassed and rests on the dual nulls and the balanced order.
+
+| row (400 nodes / 1600 edges, assigned private storage) | before | after | self | fnx us before -> after | nx us |
+|---|---:|---:|---:|---:|---:|
+| `len(G.edges)` | `0.0133x` | **`1.0386x`** | `78.23x` | `1703.66` -> `21.91` | `22.94` |
+| `len(list(G.edges))` | `0.0634x` | `0.8915x` | `14.05x` | `3411.06` -> `240.53` | `215.77` |
+| `number_of_edges()` | `0.0302x` | `0.0303x` | `1.00x` | `1255.88` -> `1247.04` | `37.76` |
+| control: ordinary `len(G.edges)` | `305.8096x` | `308.7918x` | `1.01x` | `0.07` -> `0.07` | `22.60` |
+| control: ordinary `len(list(G.edges))` | `2.4860x` | `2.5725x` | `1.03x` | `86.21` -> `84.37` | `216.02` |
+
+Both controls are ordinary graphs that never reach this view, and both are flat;
+the `1.01x` sits on a `0.07us` row that is entirely noise floor.
+
+TWO MEASURED LOSSES REMAIN ON THIS SURFACE, REPORTED RATHER THAN HIDDEN.
+
+- `len(list(G.edges))` is `0.8915x`. It still materialises a list of tuples in
+  Python where networkx yields from a generator, and that residual is the whole
+  gap. It is a real loss and it is not claimed as anything else.
+- `number_of_edges()` is UNCHANGED at `0.0303x` — the worst row on the surface
+  now, and by a wide margin. It never touches `__len__`: under assigned storage
+  it deliberately DERIVES from the degree view
+  (`int(sum(d for _, d in self.degree()) // 2)`) because counting the edge view
+  instead disagreed with networkx on the directed classes, where a node carried
+  by an assigned `_succ` with no `_pred` row makes networkx propagate a KeyError
+  (`br-r37-c1-vbe1o`, 15 sweep cases). The lever is therefore the assigned-storage
+  DEGREE view, not this one, and it is left standing as the next target rather
+  than closed over.
+
+PARITY. 632 probes across 4 classes x 8 edge shapes x assigned/ordinary storage
+covering `len`, `list`, `number_of_edges`, `bool`, `data=True`, `keys=True`,
+`__contains__`, and all four documented `nbunch` behaviours (scalar-present,
+scalar-ghost, list-with-missing, unhashable) compared VALUES AND EXCEPTION ARGS,
+per `exception_sweep_must_compare_args`. 602 match networkx exactly. The 30 that
+do not are one pre-existing defect — an unhashable element inside an `nbunch`
+sequence is swallowed where networkx raises `NetworkXError` — which reproduces
+IDENTICALLY on the before arm, is therefore not a regression from this change,
+and is filed as `br-r37-c1-nbunch-unhashable-swallow-r0l4i` rather than fixed
+here, because it changes a raising path and is not this lever.
+
+SUITE. 118 test files touching private storage, edge views, edges, counts,
+self-loops, nbunch and adjacency: `4165 passed`, `6 skipped`, `14 xfailed`, and
+`5 failed` IDENTICALLY on both arms. `NEW: none`.
