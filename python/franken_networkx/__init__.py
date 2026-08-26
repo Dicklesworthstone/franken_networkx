@@ -49860,12 +49860,29 @@ class _AssignedPrivateDegreeView:
         # read live from `graph.__dict__` on every call.
         #
         # A `_FilteredGraphView` (or any non-concrete parent) fails the type test
-        # and gets `_fast_key = None`, so it pays two stores here and skips the
+        # and gets `_fast_map = None`, so it pays these stores once and skips the
         # two predicate reads it used to make per call.
         # br-r37-c1-degwt: the snapshot is deliberately WEIGHT-INDEPENDENT. It
         # used to bail when `weight` was set, which left the weighted walk with
         # no fast path at all -- and that walk was the worst measured row on the
         # surface at `0.0904x`. Each consumer states its own weight rule.
+        # br-r37-c1-degbind: BIND THE MAPPING, don't re-read it per call. This
+        # is a PARITY fix first and a perf lever second. networkx's
+        # `DegreeView.__init__` does `self._succ = G._succ`, so a view the
+        # caller HOLDS stays bound to the mapping it was built from; fnx re-read
+        # the override on every call, so a held view tracked a REASSIGNED
+        # `G._adj` where networkx keeps reporting the old one. Measured
+        # divergence, before this change:
+        #
+        #   held view, then `G._adj = {...}`
+        #     nx  -> [(0,1),(1,2),(2,1),(3,0)]   the mapping it was built with
+        #     fnx -> [(0,3),(1,1),(2,1),(3,1)]   the new one
+        #
+        # Binding matches networkx on BOTH sides: in-place mutation of the same
+        # mapping is still seen (it is the same object, exactly as nx's
+        # `self._succ` is), and a REASSIGNMENT is not -- while a freshly read
+        # `G.degree` still gets the new mapping, because the assignment funnel
+        # drops the memoised view (br-r37-c1-degprop).
         if type(graph) in (
             Graph,
             DiGraph,
@@ -49875,13 +49892,26 @@ class _AssignedPrivateDegreeView:
             directed = graph.is_directed()
             self._fast_directed = directed
             self._fast_multi = graph.is_multigraph()
-            self._fast_key = (
-                _PRIVATE_SUCC_OVERRIDE if directed else _PRIVATE_ADJ_OVERRIDE
+            storage = graph.__dict__
+            missing = _PRIVATE_MISSING
+            fast_map = storage.get(
+                _PRIVATE_SUCC_OVERRIDE if directed else _PRIVATE_ADJ_OVERRIDE,
+                missing,
             )
+            fast_pred = (
+                storage.get(_PRIVATE_PRED_OVERRIDE, missing) if directed else None
+            )
+            if fast_map is missing or fast_pred is missing:
+                self._fast_map = None
+                self._fast_pred = None
+            else:
+                self._fast_map = fast_map
+                self._fast_pred = fast_pred
         else:
             self._fast_directed = False
             self._fast_multi = False
-            self._fast_key = None
+            self._fast_map = None
+            self._fast_pred = None
 
     def _nodes_authority(self):
         """nx's ``_nodes`` for a DegreeView: ``self._succ``.
@@ -50122,17 +50152,14 @@ class _AssignedPrivateDegreeView:
         `False` rather than `0` when the node has no self-loop, and the
         multigraph form's separate `deg +=` for the self-loop group.
         """
-        if self._weight is None or self._fast_key is None:
+        if self._weight is None or self._fast_map is None:
             return None
         nodes = self._nodes
-        graph = self._graph
         weight = self._weight
         multi = self._fast_multi
         if self._fast_directed:
-            succ = _private_override(graph, _PRIVATE_SUCC_OVERRIDE)
-            pred = _private_override(graph, _PRIVATE_PRED_OVERRIDE)
-            if succ is _PRIVATE_MISSING or pred is _PRIVATE_MISSING:
-                return None
+            succ = self._fast_map
+            pred = self._fast_pred
             items = succ.items() if nodes is None else [(n, succ[n]) for n in nodes]
             if multi:
                 return [
@@ -50159,9 +50186,7 @@ class _AssignedPrivateDegreeView:
                 )
                 for node, succs in items
             ]
-        adj = _private_override(graph, _PRIVATE_ADJ_OVERRIDE)
-        if adj is _PRIVATE_MISSING:
-            return None
+        adj = self._fast_map
         items = adj.items() if nodes is None else [(n, adj[n]) for n in nodes]
         if multi:
             pairs = []
@@ -50209,7 +50234,7 @@ class _AssignedPrivateDegreeView:
         a plausible number there instead.
         """
         # br-r37-c1-degsnap: the same snapshot the scalar twin reads, so the
-        # eligibility rule lives in ONE place. `_fast_key is None` already
+        # eligibility rule lives in ONE place. `_fast_map is None` already
         # covers a weighted view and a non-concrete parent.
         # br-r37-c1-degnb: an nbunch view is served HERE now. This used to bail
         # on `self._nodes is not None`, which sent `G.degree(nbunch)` down the
@@ -50218,16 +50243,13 @@ class _AssignedPrivateDegreeView:
         # what the restricted branch below does: its `_nodes` is
         # `list(G.nbunch_iter(nbunch))` and `__iter__` subscripts `_succ[n]` for
         # each one, in that order.
-        if self._weight is not None or self._fast_key is None:
+        if self._weight is not None or self._fast_map is None:
             return None
         nodes = self._nodes
-        graph = self._graph
         multi = self._fast_multi
         if self._fast_directed:
-            succ = _private_override(graph, _PRIVATE_SUCC_OVERRIDE)
-            pred = _private_override(graph, _PRIVATE_PRED_OVERRIDE)
-            if succ is _PRIVATE_MISSING or pred is _PRIVATE_MISSING:
-                return None
+            succ = self._fast_map
+            pred = self._fast_pred
             items = succ.items() if nodes is None else [(n, succ[n]) for n in nodes]
             if multi:
                 return [
@@ -50239,9 +50261,7 @@ class _AssignedPrivateDegreeView:
                     for node, row in items
                 ]
             return [(node, len(row) + len(pred[node])) for node, row in items]
-        adj = _private_override(graph, _PRIVATE_ADJ_OVERRIDE)
-        if adj is _PRIVATE_MISSING:
-            return None
+        adj = self._fast_map
         items = adj.items() if nodes is None else [(n, adj[n]) for n in nodes]
         if multi:
             # An undirected self-loop contributes its parallel-edge count TWICE.
@@ -50422,16 +50442,12 @@ class _AssignedPrivateDegreeView:
         node an assigned `_succ` carries but `_pred` does not still raises from
         `pred[node]`, exactly as networkx does (br-r37-c1-vbe1o).
         """
-        key = self._fast_key
+        succ = self._fast_map
         missing = _PRIVATE_MISSING
-        if key is None or self._weight is not None:
+        if succ is None or self._weight is not None:
             return missing
-        storage = self._graph.__dict__
         if self._fast_directed:
-            succ = storage.get(key, missing)
-            pred = storage.get(_PRIVATE_PRED_OVERRIDE, missing)
-            if succ is missing or pred is missing:
-                return missing
+            pred = self._fast_pred
             if probe:
                 try:
                     if node not in succ:
@@ -50445,9 +50461,7 @@ class _AssignedPrivateDegreeView:
                     len(kd) for kd in prow.values()
                 )
             return len(row) + len(prow)
-        adj = storage.get(key, missing)
-        if adj is missing:
-            return missing
+        adj = succ
         if probe:
             try:
                 if node not in adj:
@@ -50493,11 +50507,7 @@ class _AssignedPrivateDegreeView:
         # `_nodes_authority()` returns `graph.succ` / `graph.adj`, so the
         # membership test below was building an `AdjacencyView` and probing it
         # per node. The raw dict answers the identical question.
-        authority = None
-        if self._fast_key is not None:
-            authority = _private_override(self._graph, self._fast_key)
-            if authority is _PRIVATE_MISSING:
-                authority = None
+        authority = self._fast_map
         if authority is None:
             authority = self._nodes_authority()
         try:
