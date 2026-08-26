@@ -115,6 +115,16 @@ padded: the effect is three orders of magnitude larger than the noise the nulls
 bound, and the control sits flat at `1.0x`, but a quieter host would give a
 better-replicated row and this should be re-run when one is available.
 
+WHAT THE DISCARDED OBSERVATIONS SAY, recorded because it cuts the other way from
+the caveat above. The two rejected observations were dropped on NULL QUALITY, not
+on disagreement, and both land where the admitted ones do: the rejected `before`
+read `0.0385x` (admitted: `0.0383x`, `0.0449x`) and the rejected `after` read
+`11.0848x` (admitted: `11.1370x`, `11.1596x`). All six observations concur to
+within the admitted spread. They are NOT counted toward the claim — their nulls
+were `0.1239` and `6.6607` and a null that bad disqualifies its row regardless of
+where the number lands — but a reader weighing `n=2` should know the excluded
+data agrees rather than conflicts.
+
 AN EARLIER FIVE-ROW REPLICATION OF THIS SAME CHANGE IS DISCARDED, not quietly
 dropped: it ran at loadavg 100+ and returned 11/20 decidable with nulls spanning
 `0.3929x` to `8.1532x`. None of its numbers are quoted.
