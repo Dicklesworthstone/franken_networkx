@@ -36678,3 +36678,107 @@ fast paths added here run only when the node IS present.
 
 SUITE. 179 test files: `9723 passed`, `64 skipped`, `6 xfailed`, `10 failed`
 IDENTICALLY on both arms. `NEW: none`.
+
+## 2026-08-26 br-r37-c1-degprop KEEP / SELF-SPEEDUP (assigned `G.degree` accessor gets the cache its `nodes`/`edges` siblings already had): `0.0505x` -> `0.0839x` — STILL A 12x LOSS, no competitive claim
+
+comparison_class=SELF-SPEEDUP
+campaign_output=false
+decision_gate=median_ci
+cv_role=report_only
+
+bench_elf_sha256=c1adcc19b2ea0ac4b8f3ec3420078cfa0458154e49c5bc22857b3d856b9a9aba (14097424 bytes)
+
+CLASSIFICATION FIRST. `0.0839x` is a 12x LOSS against live networkx. This is
+maintenance on the residual named in `br-r37-c1-degscalar`; it is NOT campaign
+output and makes no competitive claim.
+
+HOW IT WAS FOUND — AND THE HYPOTHESIS THAT WAS ONLY HALF RIGHT. The previous
+row recorded, explicitly as an UNMEASURED hypothesis, that per-call view
+construction was the suspect behind the scalar residual. Decomposing by removing
+exactly ONE thing at a time (`attribute_cost_by_removing_one_thing`) on 256
+calls:
+
+| variant | nx us | fnx us | ratio |
+|---|---:|---:|---:|
+| FULL `[g.degree(i) for i in N]` | `51.52` | `291.76` | `0.1766x` |
+| HOISTED `dv = g.degree; [dv(i) for i in N]` | `46.30` | `171.01` | `0.2707x` |
+| SUBSCRIPT `[dv[i] for i in N]` | `25.75` | `92.18` | `0.2794x` |
+| ACCESSOR ONLY `[g.degree for _ in N]` | `4.42` | `97.04` | `0.0456x` |
+
+So the accessor WAS 41% of the row, and the hypothesis was right about where the
+cost was and wrong about what it was — see the residual below.
+
+THE DEFECT IS A PARTIALLY-APPLIED FIX (`partially_applied_fix_census`). Grepping
+the mechanism the earlier `br-r37-c1-b3cnf` fix installed gives the census
+directly: `_fnx_view_nodes_assigned` and `_fnx_view_edges_assigned` both exist,
+and there is NO `_fnx_view_degree_assigned`. `degree` received the
+cached-wrapper treatment on its ORDINARY branch only, so a graph carrying
+private storage rebuilt an entire degree view on EVERY `G.degree` access.
+
+THE CONTROL IS THE SIBLING. The ordinary-graph accessor — same expression, same
+loop, cached branch — measured `0.8705x` on the SAME arm where the assigned one
+measured `0.0505x`. A 17x gap between two spellings of one accessor is the
+`sibling_spelling_spread_smell` signature, and it is what makes this a defect
+rather than a floor.
+
+SAFE TO CACHE, CHECKED RATHER THAN ASSUMED. The assigned views resolve NOTHING
+in `__init__` — they hold only the graph and read the override live per call —
+unlike the native-counter views `br-r37-c1-2r06n` had to drop. Verified
+directly: a cached view served across a full `_adj`/`_node` REASSIGNMENT still
+reports the new store's degrees, matching networkx. The drop was added to the
+private-storage funnel anyway, beside the existing `_fnx_view_degree` pop, so a
+reassignment always rebuilds.
+
+A PARITY IMPROVEMENT FELL OUT. `G.degree is G.degree` was FALSE on an
+assigned-storage graph and is now TRUE, matching networkx's `cached_property`.
+
+| row (400 nodes / 1600 edges) | HEAD | after | self | fnx us HEAD -> after | nx us |
+|---|---:|---:|---:|---:|---:|
+| private `G.degree` accessor x256 | `0.0505x` | `0.0839x` | `1.66x` | `100.85` -> `58.53` | `4.92` |
+| private `DiGraph.degree` accessor x256 | `0.0498x` | `0.0862x` | `1.73x` | `101.32` -> `57.35` | `4.97` |
+| private `G.degree(0)` x256 | `0.1832x` | `0.2160x` | `1.18x` | `281.07` -> `235.77` | `51.47` |
+| private `number_of_edges()` | `0.9762x` | `0.9599x` | `0.98x` | `37.97` -> `37.69` | `36.86` |
+| private `list(G.degree())` | `0.9071x` | `0.9034x` | `1.00x` | `34.37` -> `34.03` | `30.81` |
+| private `DiGraph degree()` | `0.9332x` | `0.9408x` | `1.01x` | `33.40` -> `33.11` | `31.00` |
+| private `MultiGraph degree()` | `1.0123x` | `1.0062x` | `0.99x` | `185.92` -> `189.94` | `189.08` |
+| control: ordinary `G.degree` accessor | `0.8705x` | `0.8707x` | `1.00x` | `5.78` -> `5.81` | `5.03` |
+| control: ordinary `list(G.degree())` | `1.3655x` | `1.3532x` | `0.99x` | `23.07` -> `23.17` | `31.41` |
+| control: ordinary `MultiGraph degree()` | `4.7944x` | `4.7931x` | `1.00x` | `39.21` -> `39.51` | `187.56` |
+| control: ordinary `G.degree(weight)` | `2.9682x` | `2.9468x` | `0.99x` | `81.36` -> `82.21` | `241.62` |
+| control: ordinary `len(G.edges)` | `256.3003x` | `250.0326x` | `0.98x` | `0.09` -> `0.09` | `22.95` |
+
+SUBSTRATE. Pure-Python A/B: both arms load the SAME extension, so the binary
+noise floor is zero by construction — the `bench_elf_sha256` above is
+byte-identical in the `after21` (HEAD) and `after22` logs. Six passes in
+balanced order, `perf_harness.paired()` with LIVE networkx in the SAME
+invocation, 21 interleaved rounds, `min_of=3`, bootstrap median CI, dual
+arm-specific A/A nulls. 70 of 72 observations admitted with both nulls inside
+`[0.98, 1.02]`; nulls nx `[0.9955, 1.0039]`, fnx `[0.9963, 1.0036]`. Host-wide
+quiescence was not reachable, so the row is gate-bypassed.
+
+THE LOSS THAT REMAINS, AND ITS NAMED CAUSE. `58.53us` for 256 accesses is
+`0.23us` each against networkx's `0.019us`, and against the ordinary sibling's
+`0.023us` — so the cache removed the CONSTRUCTION but the assigned branch is
+still paying a full Python frame per access where the ordinary branch pays none.
+The cause is not a defect but a DELIBERATE exclusion, now located:
+`_CachedViewDescriptor.__get__` installs the view into the instance `__dict__`
+— which is what makes later accesses a C-level dict hit with no Python frame —
+only `if not _has_networkx_private_storage(obj)`. A graph with private storage
+is excluded by design, so its accessor body re-runs every time.
+
+That exclusion is the next lever on this surface and its ceiling is already
+measured: the ordinary control, `0.87x`, roughly 10x above where the assigned
+accessor now sits. It is NOT taken here because it changes a documented design
+decision and depends on the private-storage assignment funnel firing reliably
+for every mutation of `_node`/`_adj`/`_succ`/`_pred` — a claim that needs its
+own evidence, not a drive-by edit.
+
+PARITY. The 1853-probe degree sweep (4 classes x 9 edge shapes x {assigned,
+assigned with a RAGGED `_pred`, ordinary}, comparing values AND exception args)
+is UNCHANGED between arms: 1802 match, and the same 51 are the pre-existing
+`G.degree(missing)` defect filed as
+`br-r37-c1-degree-scalar-missing-node-ij0bt`.
+
+SUITE. 201 test files, widened to include the cache, copy and pickle suites
+because this change adds a cached object to the instance dict: `10381 passed`,
+`64 skipped`, `22 xfailed`, `10 failed` IDENTICALLY on both arms. `NEW: none`.

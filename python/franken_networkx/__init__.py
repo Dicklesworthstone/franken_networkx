@@ -48803,6 +48803,8 @@ def _set_private_override(self, attr_name, value):
     _drop.pop("_fnx_view_out_degree", None)
     _drop.pop("_fnx_view_in_degree", None)
     _drop.pop("_fnx_view_degree", None)
+    # br-r37-c1-degprop: the assigned twin of the line above.
+    _drop.pop("_fnx_view_degree_assigned", None)
     # br-r37-c1-2r06n: and the G[node] row cache, so a row cached BEFORE this
     # assignment cannot be served after it. The multigraph `__getitem__` paths
     # consult private storage only on a cache MISS, which is what keeps the warm
@@ -50464,6 +50466,24 @@ _EDGE_VIEW_GRAPH_OWNER: "_weakref.WeakValueDictionary[int, object]" = (
 def _private_aware_degree(raw_degree):
     def degree(self):
         if _has_networkx_private_storage(self):
+            # br-r37-c1-degprop: cache the ASSIGNED view too. `nodes` and
+            # `edges` already cache theirs (`_fnx_view_nodes_assigned`,
+            # `_fnx_view_edges_assigned`) under the br-r37-c1-b3cnf
+            # cached_property contract; `degree` got the cache on its ORDINARY
+            # branch only, so a graph with private storage rebuilt a whole
+            # degree view on EVERY `G.degree` access. Measured 256 accesses at
+            # `97.04us` against networkx's `4.42us` -- `0.0456x` for the bare
+            # accessor, and 41% of the scalar `G.degree(n)` row.
+            #
+            # Safe to cache: the assigned views resolve NOTHING in `__init__`
+            # (they hold only the graph and read the override live on each
+            # call), which is what makes them unlike the native-counter views
+            # br-r37-c1-2r06n had to drop. The drop is added there anyway, so a
+            # reassignment always rebuilds.
+            cache = vars(self)
+            view = cache.get("_fnx_view_degree_assigned")
+            if view is not None:
+                return view
             # br-r37-c1-snvrepr: dispatch to canonical-named subclass
             # so ``type(view).__name__`` matches nx's per-graph-class
             # form (DegreeView/DiDegreeView/MultiDegreeView/
@@ -50478,7 +50498,9 @@ def _private_aware_degree(raw_degree):
                 cls = _AssignedDiDegreeView
             else:
                 cls = _AssignedDegreeView
-            return cls(self)
+            view = cls(self)
+            cache["_fnx_view_degree_assigned"] = view
+            return view
         # br-r37-c1-b3cnf follow-up: cache the DegreeView wrapper so
         # ``g.degree is g.degree`` matches nx's @cached_property.
         cache = vars(self)
