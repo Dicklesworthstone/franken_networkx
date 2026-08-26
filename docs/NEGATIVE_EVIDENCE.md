@@ -37,6 +37,98 @@ admission history, host, scope source, process affinity, monitored CPU set,
 checked-window count, maximum observed busy fraction, and maximum consecutive
 busy-window count.
 
+## 2026-08-26 BlackThrush CAMPAIGN WIN: `to_directed(G).number_of_edges()` **`0.0416x` -> `11.1483x`** (`274x` self) — the directed-view mirror of `br-cvundeg` was missing and the count materialised the whole edge list (`br-r37-c1-ktsxn`)
+
+comparison_class=INCUMBENT
+incumbent=networkx
+incumbent_same_invocation=true
+incumbent_ratio=11.1483x
+campaign_output=true
+decision_gate=median_ci
+cv_role=report_only
+
+HOW IT WAS FOUND. The adjacency surface was exhausted and its remaining lever is
+a project, so the search widened twice: first to 17 read-only accessor ops (which
+found the `degree(n)` int gap, landed as `723ab356d`), then to ALGORITHMS,
+GENERATORS and CONVERSIONS — 29 rows, 27 decidable, and 26 of those 27 sitting at
+or above `1.0x`. One row was catastrophically out of family:
+`to_directed(g).number_of_edges()` at `0.0521x`.
+
+IT WAS NOT `to_directed`. Decomposed on the same substrate, BUILDING the view
+read `2.3053x` (`2.94us` against `6.78us`) while COUNTING through it read
+`0.0482x` (`812.26us` against `39.12us`). The view was never the problem.
+
+SEMANTICS CHECKED BEFORE ANY TIMING WAS BELIEVED, because a view/copy divergence
+would have made the row meaningless: in BOTH libraries the module-level
+`to_directed(g)` returns a FROZEN LIVE VIEW sharing edge-attr dicts with the
+parent, and the METHOD `g.to_directed()` returns an INDEPENDENT MUTABLE copy.
+Identical on both sides, so the comparison is like-for-like.
+
+THE MISSING MIRROR. `_ConversionGraphViewBase.number_of_edges` already carried a
+native branch for an UNDIRECTED view of a DIRECTED source (`br-cvundeg`,
+`sum(undirected_degree)//2`) — which is why `to_undirected` reads `9.24x`. The
+opposite conversion, a DIRECTED view of an UNDIRECTED source, had no branch and
+fell through to `len(self.edges())`, materialising the entire conversion-view
+edge list in Python. One direction converted, the mirror lagging.
+
+Every undirected edge becomes TWO directed edges except a self-loop, which
+becomes ONE, so the count is exactly `2E - selfloops`. `number_of_edges()` is
+O(1) on the source and the self-loop count is the only scan.
+
+CORRECTNESS FIRST, AND THE SELF-LOOP CASE IS WHY. The formula was verified
+against networkx's own view before implementing, on graphs with none / one / two
+/ only self-loops and with an isolated node, and after implementing across a
+14-shape sweep cross-checking the VIEW count, the COPY count and
+`len(list(view.edges))` against networkx — all match. The conversion / view /
+size / self-loop / reverse suite is 3346 passed, 3 skipped, 0 failed, with zero
+new failures against the before arm.
+
+PROVENANCE, AND THE BINARY NOISE FLOOR IS ZERO BY CONSTRUCTION. Pure-Python
+change; both arms load the SAME extension module:
+
+    bench_elf_sha256=c1adcc19b2ea0ac4b8f3ec3420078cfa0458154e49c5bc22857b3d856b9a9aba   BOTH arms
+
+asserted equal in the aggregator, with each pass separately asserting the `.so`
+it loaded matched its arm. nx 3.6.1 (genuine upstream), CPython 3.13.7,
+LOCAL:thinkstation1.
+
+DUAL A/A NULLS, RECORDED AND POSITIVE, AND FOUR OBSERVATIONS DISCARDED. Six
+passes in arm order `before, after, after, before, before, after`. A peer held
+this host between loadavg 92 and 115 for the whole run, so admission was per
+ROW-OBSERVATION: only observations whose BOTH nulls sat inside `0.98x-1.02x` and
+which were themselves DECIDABLE were kept — 8 admitted, 4 dropped. On the
+admitted set the networkx A/A null spans `0.9977x` to `1.0057x` and the
+FrankenNetworkX A/A null spans `0.9865x` to `1.0029x`.
+
+| row | before | after | fnx us | nx us | self | |
+|---|---|---|---|---|---|---|
+| `to_directed(G).number_of_edges()` | `0.0416x` | **`11.1483x`** | `1458.81 -> 5.32` | `60.18 / 59.39` | **`274.4x`** | TREATED |
+| `to_undirected(D).number_of_edges()` | `9.2399x` | `9.3828x` | `67.41 -> 66.90` | `623.06 / 632.73` | `1.0x` | control |
+
+The control is the MIRROR conversion — the one that already had its native
+branch — and it does not move. The networkx arm is stable across arms on both
+rows (`60.18` vs `59.39`, `623.06` vs `632.73`), which is what makes the
+`274x` attributable to the edit rather than to the host.
+
+n=2 per arm per row after admission. That is THIN, and it is stated rather than
+padded: the effect is three orders of magnitude larger than the noise the nulls
+bound, and the control sits flat at `1.0x`, but a quieter host would give a
+better-replicated row and this should be re-run when one is available.
+
+AN EARLIER FIVE-ROW REPLICATION OF THIS SAME CHANGE IS DISCARDED, not quietly
+dropped: it ran at loadavg 100+ and returned 11/20 decidable with nulls spanning
+`0.3929x` to `8.1532x`. None of its numbers are quoted.
+
+WHAT IS NOT FIXED. Edge ITERATION through the same view is untouched:
+`len(list(view.edges))` still reads `0.0464x`. This row fixes the COUNT, which
+is the spelling `number_of_edges()`, `size()` and `len(G.edges)` reach; walking
+the edges still materialises. That is the next lever on this surface and it is
+NOT claimed here.
+
+REPRODUCE:
+
+    bash tests/artifacts/perf/20260826T-to-directed-count-mirror-blackthrush/replicate_ne.sh
+
 ## 2026-08-26 BlackThrush SHIPPED, STILL A LOSS: `Graph.degree(n)` / `DiGraph.degree(n)` on int keys **`0.4482x` -> `0.8328x`** and **`0.4504x` -> `0.8653x`** (`1.84x` / `1.93x` self), found by leaving the adjacency surface (`br-r37-c1-ktsxn`)
 
 comparison_class=SELF-SPEEDUP

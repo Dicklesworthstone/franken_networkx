@@ -52535,6 +52535,31 @@ class _ConversionGraphViewBase:
             native = getattr(src, "_native_undirected_degree_counts", None)
             if native is not None:
                 return sum(native()) // 2
+        # br-r37-c1-ktsxn: THE MIRROR OF THE BRANCH ABOVE, which was missing. That
+        # one converts an UNDIRECTED view of a directed source; this one converts
+        # a DIRECTED view of an UNDIRECTED source, and without it the count fell
+        # through to `len(self.edges())` and materialised the whole conversion-view
+        # edge list in Python. Measured on 400 nodes / 1600 edges:
+        # `to_directed(g).number_of_edges()` read 0.0521x against networkx
+        # (812.26us against 39.12us) while BUILDING the same view read 2.3053x --
+        # the view was never the problem, counting through it was.
+        #
+        # Every undirected edge becomes TWO directed edges except a self-loop,
+        # which becomes ONE, so the count is exactly `2E - selfloops`. That is not
+        # an approximation: it was checked against networkx's own view on graphs
+        # with none / one / two / only self-loops and on an isolated node, and
+        # matches in every case. `number_of_edges()` is O(1) on the source and the
+        # self-loop count is the only scan, which is why this is ~10.5us where the
+        # materialisation was 812us.
+        src_directed = getattr(src, "is_directed", None)
+        if (
+            self.is_directed()
+            and not self.is_multigraph()
+            and src_directed is not None
+            and not src_directed()
+            and not src.is_multigraph()
+        ):
+            return 2 * src.number_of_edges() - number_of_selfloops(src)
         if self.is_multigraph():
             return len(self.edges(keys=True))
         return len(self.edges())
