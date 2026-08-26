@@ -37,6 +37,82 @@ admission history, host, scope source, process affinity, monitored CPU set,
 checked-window count, maximum observed busy fraction, and maximum consecutive
 busy-window count.
 
+## 2026-08-26 BlackThrush SHIPPED, STILL A LOSS + SELF-CORRECTION: `to_directed(G).edges(data=True)` **`0.0705x` -> `0.3764x`** (`5.19x` self) — the `not data` gate I shipped one commit ago rested on a premise that is FALSE (`br-r37-c1-ktsxn`)
+
+comparison_class=SELF-SPEEDUP
+campaign_output=false
+self_speedup_ratio=5.19x
+vs_networkx_same_invocation=0.3764x (STILL A LOSS, not a campaign result)
+decision_gate=median_ci
+cv_role=report_only
+
+### THE CORRECTION, WHICH IS TO THE COMMIT DIRECTLY BEFORE THIS ONE
+
+`feb182397` routed the conversion view's no-data edge walk onto the source's
+native row and explicitly EXCLUDED `data=True`, saying: "the data branch still
+reads `self.adj[source][target]` for the conversion view's MERGED attr dict, so
+routing it to the native row would build BOTH rows per source and could regress
+the very path it was meant to help. `not data` is part of the condition."
+
+That premise is FALSE. For this conversion there IS no merge:
+
+    view.adj[u][v] IS src.adj[u][v]        -- the identical object, not a copy
+
+checked over 607 edges across plain, self-loop and random fixtures, and networkx
+shares exactly the same way. I had reasoned about what a conversion view MIGHT
+do instead of checking what this one DOES, and shipped a gate that cost `5.19x`
+on the worst row on the surface. The caution was not free.
+
+### THE CHANGE
+
+With identity established, the data walk reads `rows[source].items()` once per
+source instead of rebuilding the conversion row AND re-subscripting it per edge.
+The attr dict handed to the caller is the same object it was before, so
+mutation-through-the-view still reaches the source — asserted directly, not
+assumed: writing a key through `view.edges(data=True)` is visible in
+`src.adj[u][v]`.
+
+PARITY. Eight spellings checked against networkx across six fixtures with ORDER
+included — `edges`, `edges(data=True)`, `edges(data='w')`,
+`edges(data='w', default=...)`, `edges(nbunch)`, `edges(nbunch, data=True)`,
+`number_of_edges()` and `adjacency()` — all match. 98 conversion / view / size /
+self-loop / edge-data test files: 4423 passed, 4 failed on BOTH arms with
+`NEW: none` and `GONE: none`, set-compared.
+
+PROVENANCE. Pure-Python change; both arms load the SAME extension module:
+
+    bench_elf_sha256=c1adcc19b2ea0ac4b8f3ec3420078cfa0458154e49c5bc22857b3d856b9a9aba   BOTH arms
+
+asserted equal in the aggregator, with each pass separately asserting the `.so`
+it loaded matched its arm, so the binary noise floor is zero by construction.
+nx 3.6.1 (genuine upstream), CPython 3.13.7, LOCAL:thinkstation1, loadavg 9.15.
+
+DUAL A/A NULLS, RECORDED AND POSITIVE, AND NOTHING DISCARDED. Six passes in arm
+order `before, after, after, before, before, after`: 24 row-observations
+admitted, ZERO dropped — the first run of this campaign where every observation
+cleared the gate. The networkx A/A null spans `0.9985x` to `1.0021x` and the
+FrankenNetworkX A/A null spans `0.9981x` to `1.0038x`.
+
+| row | before | after | fnx us | self | |
+|---|---|---|---|---|---|
+| `to_directed(G).edges(data=True)` | `0.0705x` | **`0.3764x`** | `3832.59 -> 738.24` | **`5.19x`** | TREATED |
+| `len(list(to_directed(G).edges))` | `0.1457x` | `0.1460x` | `1101.72 -> 1095.93` | `1.01x` | already fixed in `feb182397` |
+| `len(list(to_undirected(D).edges))` | `0.3058x` | `0.3050x` | `4125.70 -> 4077.83` | `1.01x` | control |
+| `to_directed(G).number_of_edges()` | `11.5979x` | `11.7280x` | `3.04 -> 3.09` | `0.98x` | control |
+
+n=3 per arm on every row. The two controls are the MIRROR conversion and the
+COUNT spelling, neither of which this edit touches, and both sit inside
+`0.98x-1.01x`.
+
+STILL A LOSS, and the headline says so. `0.3764x` is a `2.7x` deficit —
+`738.24us` for 3,200 emitted edges is `231 ns` per edge against networkx's
+`87 ns`. What remains is the Python tuple-append loop and `_nbunch`; a native
+edge producer for this conversion would take the rest and is not attempted here.
+
+REPRODUCE:
+
+    bash tests/artifacts/perf/20260826T-conversion-view-edge-data-blackthrush/replicate_dt.sh
+
 ## 2026-08-26 BlackThrush SHIPPED, STILL A BIG LOSS: conversion-view edge iteration walks the SOURCE row — `len(list(to_directed(G).edges))` **`0.0862x` -> `0.1464x`** (`1.66x` self), and the `data=True` spelling is deliberately UNMOVED (`br-r37-c1-ktsxn`)
 
 comparison_class=SELF-SPEEDUP

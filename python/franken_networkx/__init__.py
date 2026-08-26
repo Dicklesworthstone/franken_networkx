@@ -52463,14 +52463,19 @@ class _ConversionGraphViewBase:
             # undirected views and directed SOURCES keep the generic row below,
             # where the conversion genuinely has to merge or dedup.
             #
-            # `not data` is part of the gate and not an oversight: the data
-            # branch below still reads `self.adj[source][target]` for the
-            # conversion view's MERGED attr dict, so taking the native row there
-            # would build BOTH rows per source and could regress the very path it
-            # was meant to help. Only the no-data walk, which needs nothing but
-            # the neighbour sequence, switches.
+            # br-r37-c1-ktsxn: the `data=True` spelling takes it too, and the
+            # earlier `not data` restriction is LIFTED because the premise behind
+            # it was wrong. That gate assumed `self.adj[source][target]` was a
+            # conversion-view MERGE that had to be rebuilt; for THIS conversion
+            # it is not. `view.adj[u][v] IS src.adj[u][v]` -- the identical
+            # object, not a copy -- checked over 607 edges across plain,
+            # self-loop and random fixtures, and networkx shares the same way, so
+            # emitting the source's attr dict is the same object a caller got
+            # before. That lets the data walk read `row.items()` once per source
+            # instead of rebuilding the row AND re-subscripting it per edge.
             rows = self.adj
-            if not data and not self.is_multigraph():
+            native_rows = False
+            if not self.is_multigraph():
                 src = self._graph
                 src_directed = getattr(src, "is_directed", None)
                 if (
@@ -52479,6 +52484,12 @@ class _ConversionGraphViewBase:
                     and not src.is_multigraph()
                 ):
                     rows = src.adj
+                    native_rows = True
+            if native_rows and data:
+                for source in nodes:
+                    for target, attrs in rows[source].items():
+                        result.append((source, target, attrs))
+                return result
             for source in nodes:
                 for target in rows[source]:
                     if self.is_multigraph():
