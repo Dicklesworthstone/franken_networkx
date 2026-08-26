@@ -53571,12 +53571,7 @@ mod bitpar_aspl_tests {
                 .is_some()
         );
         assert_eq!(
-            super::bitpar_chunked_lane_width_if_profitable(
-                &grid_offsets,
-                &grid_targets,
-                1600,
-                101,
-            ),
+            super::bitpar_chunked_lane_width_if_profitable(&grid_offsets, &grid_targets, 1600, 101,),
             None,
         );
     }

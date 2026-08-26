@@ -1859,8 +1859,7 @@ impl Graph {
         // Order is untouched: the left endpoint is still resolved and
         // autocreated before the right one, and `IndexMap` appends, so
         // autocreating the right endpoint cannot move the left one's index.
-        let (left_key_idx, left_autocreated) =
-            self.resolve_empty_node_for_edge_unrecorded(left);
+        let (left_key_idx, left_autocreated) = self.resolve_empty_node_for_edge_unrecorded(left);
         let (right_key_idx, right_autocreated) = if left == right {
             (left_key_idx, left_autocreated)
         } else {
@@ -4248,12 +4247,7 @@ impl MultiGraph {
     /// reports a real edge as absent after any node removal -- see
     /// `multigraph_node_slot_and_position_are_distinct_index_spaces`.
     #[must_use]
-    pub fn edge_attrs_by_indices(
-        &self,
-        li: usize,
-        ri: usize,
-        key: usize,
-    ) -> Option<&AttrMap> {
+    pub fn edge_attrs_by_indices(&self, li: usize, ri: usize, key: usize) -> Option<&AttrMap> {
         let store = self.slab_store();
         match (store.slot_at_position(li), store.slot_at_position(ri)) {
             (Some(left), Some(right)) => store.edge_attrs_by_pair(left, right, key),

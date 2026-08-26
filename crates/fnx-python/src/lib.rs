@@ -8767,9 +8767,7 @@ impl PyMultiGraph {
                 // the SAME count guard the string-keyed cache stores, so a warm
                 // read by either key hands back one live mapping, and stamp BOTH
                 // sequences. The pair is order-normalised to match the probe.
-                if node_key_can_use_index_lookaside(u)
-                    && node_key_can_use_index_lookaside(v)
-                {
+                if node_key_can_use_index_lookaside(u) && node_key_can_use_index_lookaside(v) {
                     let indices = (
                         self.cached_exact_string_node_index(py, u)?,
                         self.cached_exact_string_node_index(py, v)?,
@@ -20715,21 +20713,33 @@ class FnxMultiGraphCtorEdgeIterable:
                 let borrowed = canonical_node_key_in(py, &obj, &mut buf)
                     .expect("borrowed bool canonical should work");
                 assert_eq!(borrowed.as_str(), owned, "bool canonical diverged");
-                assert_eq!(borrowed.as_str(), expected, "bool canonical is not {expected}");
+                assert_eq!(
+                    borrowed.as_str(),
+                    expected,
+                    "bool canonical is not {expected}"
+                );
             }
 
             // Beyond i64 there is no stack rendering to borrow, so the owned
             // arbitrary-precision path must still be reached and still agree.
             for literal in ["9223372036854775808", "-9223372036854775809"] {
                 let obj = py
-                    .eval(&std::ffi::CString::new(format!("int({literal})")).unwrap(), None, None)
+                    .eval(
+                        &std::ffi::CString::new(format!("int({literal})")).unwrap(),
+                        None,
+                        None,
+                    )
                     .expect("big int should build");
                 let owned = node_key_to_string(py, &obj).expect("owned big-int canonical works");
                 let mut buf = ArrayString::new();
                 let borrowed =
                     canonical_node_key_in(py, &obj, &mut buf).expect("borrowed big-int works");
                 assert_eq!(borrowed.as_str(), owned, "big-int canonical diverged");
-                assert_eq!(borrowed.as_str(), literal, "big-int canonical is not {literal}");
+                assert_eq!(
+                    borrowed.as_str(),
+                    literal,
+                    "big-int canonical is not {literal}"
+                );
             }
         });
     }
