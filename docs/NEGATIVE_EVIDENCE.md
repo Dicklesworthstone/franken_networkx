@@ -37,6 +37,101 @@ admission history, host, scope source, process affinity, monitored CPU set,
 checked-window count, maximum observed busy fraction, and maximum consecutive
 busy-window count.
 
+## 2026-08-25 BlackThrush SHIPPED, STILL A LOSS: the int-key lookaside reaches `DiGraph` too — `DiGraph.edges[u,v]` **`0.3112x` -> `0.4430x`**, `get_edge_data` **`0.3512x` -> `0.5659x`** (`1.61x` self), controls flat (`br-r37-c1-ktsxn`, `br-r37-c1-uh8cm`)
+
+comparison_class=SELF-SPEEDUP
+campaign_output=false
+self_speedup_ratio=1.61x
+vs_networkx_same_invocation=0.5659x (STILL A LOSS, not a campaign result)
+decision_gate=median_ci
+cv_role=report_only
+
+The row above landed the int-key canonicalization lever and recorded that it
+moved `Graph` `2.10x` while leaving `DiGraph` FLAT, because the widened gate sat
+in `EdgeView::__getitem__` and only `Graph` reaches that native slot. That
+diagnosis was right about the mechanism and INCOMPLETE about the fix: `DiGraph`
+does reach native code, just a different entry point. `acb088e3a` widened
+`views.rs` from exact-`str` to exact-`str`-or-exact-`int` and left `digraph.rs`
+with 42 `is_exact_instance_of::<PyString>()` gates and ZERO uses of the widened
+predicate — the same partially-applied fix, one file later.
+
+SIX GATES, three probe/fill pairs, all now `node_key_can_use_index_lookaside`:
+`PyDiGraph::get_edge_data`, `PyDiGraph::_fnx_edge_attr_dict_fast` (the
+`AtlasView` route behind `G.adj[u][v]`), and `PyMultiDiGraph::get_edge_data`'s
+unkeyed keydict probe. Probe AND fill were widened together: widening a probe
+alone leaves a lookaside that is consulted on every read and can never be
+filled, which is the shape `acb088e3a` had to come back for on the simple graph.
+
+PROVENANCE. Both arms built by me from the same `git archive` tree outside the
+shared checkout, same flags, same host, same target dir.
+
+    bench_elf_sha256=5da6b171d43c9f03d3244915a36e7ae6aebc481ab437ad5bbc23a7d112b73145  before arm acb088e3a (14098544 bytes)
+    bench_elf_sha256=972203d34df51cc0fcb2c2938046c1ef6479988d07107e59ae8aba3b63276281  after arm  + six widened gates (14098800 bytes)
+
+Read from INSIDE each timing process by `perf_harness.binary_sha256`. nx 3.6.1
+(genuine upstream, module asserted), CPython 3.13.7, LOCAL:thinkstation1.
+
+SUBSTRATE AND WHY IT IS TRUSTWORTHY THIS TIME. `perf_harness.paired()` — arms
+interleaved inside ONE loop, order alternated per round, 21 rounds, min-of-3,
+bootstrap median CI, byte-parity proof, dual arm-specific A/A nulls. The
+host-wide quiescence gate is not taken. FOUR passes in arm order
+`before, after, after, before`, so monotone load drift cancels between arms
+instead of being confounded with arm identity. Every pass returned 9/9
+DECIDABLE and every null across all four passes lies inside `0.9947x-1.0023x`.
+
+A FIRST ATTEMPT AT THIS SAME A/B IS DISCARDED, not quietly dropped: it ran while
+a peer held ~55 cores in a `criterion` benchmark, produced an A/A null of
+`6.7225x` on one row and 4/12 UNDECIDABLE, and its numbers are not quoted
+anywhere here. The nulls caught it, which is what they are for.
+
+### Medians over four passes
+
+| row | before | after | fnx ns/call | self | |
+|---|---|---|---|---|---|
+| `DiGraph.get_edge_data()` int | `0.3512x` | **`0.5659x`** | `224.7 -> 139.5` | **`1.610x`** | TREATED |
+| `DiGraph.edges[u,v]` int | `0.3112x` | **`0.4430x`** | `306.8 -> 218.0` | **`1.408x`** | TREATED |
+| `DiGraph.adj[u][v]` int | `0.2961x` | **`0.3504x`** | `540.9 -> 460.6` | **`1.174x`** | TREATED |
+| `Graph.get_edge_data()` int | `0.3167x` | `0.3297x` | `253.4 -> 240.8` | `1.052x` | control |
+| `Graph.adj[u][v]` int | `0.4508x` | `0.4667x` | `348.2 -> 343.9` | `1.012x` | control |
+| `DiGraph.edges[u,v]` str | `0.4338x` | `0.4143x` | `219.5 -> 222.6` | `0.986x` | control |
+| `DiGraph.get_edge_data()` str | `0.5569x` | `0.5367x` | `138.8 -> 142.1` | `0.977x` | control |
+| `DiGraph.adj[u][v]` str | `0.3336x` | `0.3304x` | `467.0 -> 480.2` | `0.973x` | control |
+| `Graph.edges[u,v]` int | `0.6841x` | `0.6572x` | `139.4 -> 146.9` | `0.949x` | control |
+
+THE SEPARATION DOES NOT OVERLAP. Treated self-speedups run `1.174x` to `1.610x`;
+the six controls run `0.949x` to `1.052x`. The controls are the argument: the
+`str` spelling of the SAME three calls was already admitted by the old gate and
+does not move, and `Graph`, which reaches `views.rs` and never enters
+`digraph.rs`, does not move either. Only int keys on the directed classes moved,
+which is exactly and only what the six gates changed.
+
+CORRECTNESS. Int-key parity against LIVE networkx passes on both arms. The
+touched surface — 47 test files covering edge views, edge data, adjacency
+mappings, atlas rows, private storage, node-key canonicalization — is 2051
+passed, 24 skipped, 20 xfailed, 2 failed.
+
+RECORDED AGAINST HEAD, NOT AGAINST THIS CHANGE: those 2 failures,
+`test_tampering_with_the_returned_keydict_self_heals[MultiGraph]` and
+`[MultiDiGraph]`, reproduce IDENTICALLY on the unmodified `acb088e3a` arm. They
+are pre-existing and `acb088e3a` is red on them today. Not investigated here;
+filed as its own row rather than absorbed into this one.
+
+WHAT THIS IS NOT. `0.4430x` and `0.5659x` are not parity, which is why this is
+classified SELF-SPEEDUP. `br-r37-c1-bnv3h` isolated the native `get_edge_data`
+at `214.7ns` against networkx's `115.2ns` for the whole operation, so the
+remaining gap has a floor this does not touch. And the Python `OutEdgeView`
+frame is still there: `DiGraph.edges[u,v]` costs `218.0 ns/call` against
+`DiGraph.get_edge_data`'s `139.5`, so ~`78 ns/call` is the wrapper. Routing the
+three Python edge views onto a native slot remains open under
+`br-r37-c1-ktsxn`.
+
+REPRODUCE:
+
+    bash tests/artifacts/perf/20260825T-digraph-intkey-lookaside-blackthrush/replicate2.sh
+
+Probe source, all four pass logs, and the discarded contaminated run are banked
+beside it.
+
 ## 2026-08-25 BlackThrush SHIPPED, STILL A LOSS: int node keys stop allocating a canonical `String` per endpoint — `Graph.edges[u,v]` **`0.3277x` -> `0.6876x`** (`2.10x` self), and the SAME lever leaves `DiGraph` FLAT because its edges view is a Python class (`br-r37-c1-uh8cm`, `br-r37-c1-bnv3h`)
 
 comparison_class=SELF-SPEEDUP

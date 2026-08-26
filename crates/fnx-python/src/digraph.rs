@@ -9766,8 +9766,8 @@ impl PyMultiDiGraph {
         // structural mutators, so a held `get_edge_data` result keeps the
         // incumbent's live-read behavior without rebuilding a dict here.
         if key.is_none()
-            && u.is_exact_instance_of::<PyString>()
-            && v.is_exact_instance_of::<PyString>()
+            && crate::node_key_can_use_index_lookaside(u)
+            && crate::node_key_can_use_index_lookaside(v)
             && let Some(ui) = self.cached_exact_string_node_index(py, u)?
             && let Some(vi) = self.cached_exact_string_node_index(py, v)?
             && let Some((ns, es, cached)) = self.edge_keydict_by_index.get(&(ui, vi))
@@ -9824,8 +9824,8 @@ impl PyMultiDiGraph {
                     // Gated to match the probe above; anything else simply
                     // never populates it.
                     if !self.has_remapped_int_key
-                        && u.is_exact_instance_of::<PyString>()
-                        && v.is_exact_instance_of::<PyString>()
+                        && crate::node_key_can_use_index_lookaside(u)
+                        && crate::node_key_can_use_index_lookaside(v)
                         && let Some(ui) = self.cached_exact_string_node_index(py, u)?
                         && let Some(vi) = self.cached_exact_string_node_index(py, v)?
                     {
@@ -15332,8 +15332,18 @@ impl PyDiGraph {
         // live dict, and wiring only the view path would leave it at 0.0920x
         // while the subscript read 0.4691x — exactly the split br-r37-c1-ptiz2
         // left behind on the simple graph and had to come back for.
-        if u.is_exact_instance_of::<PyString>()
-            && v.is_exact_instance_of::<PyString>()
+        //
+        // br-r37-c1-ktsxn: and the SAME split reopened along the KEY-TYPE axis.
+        // `acb088e3a` widened this gate from exact-`str` to exact-`str`-or-
+        // exact-`int` in `views.rs`, which only `Graph` reaches — `DiGraph`
+        // subscripts its edges through a PYTHON `OutEdgeView.__getitem__` that
+        // lands here instead. Measured, `Graph.edges[u,v]` on int keys moved
+        // `0.3277x -> 0.6876x` while `DiGraph` sat unmoved at `0.3192x`, because
+        // this gate still said `str`. An int endpoint fell past it to two
+        // `node_key_to_string` heap allocations plus a string-keyed probe, on
+        // every read, for a lookaside that could never be filled for it.
+        if crate::node_key_can_use_index_lookaside(u)
+            && crate::node_key_can_use_index_lookaside(v)
             && let Some(u_index) = self.cached_exact_string_node_index(py, u)?
             && let Some(v_index) = self.cached_exact_string_node_index(py, v)?
             && let Some(attrs) = self.cached_edge_py_attrs_by_index(py, u_index, v_index)
@@ -15352,8 +15362,8 @@ impl PyDiGraph {
         }
         self.mark_edges_dirty();
         let attrs = self.materialize_edge_py_attrs(py, &u_c, &v_c);
-        if u.is_exact_instance_of::<PyString>()
-            && v.is_exact_instance_of::<PyString>()
+        if crate::node_key_can_use_index_lookaside(u)
+            && crate::node_key_can_use_index_lookaside(v)
             && let Some(u_index) = self.cached_exact_string_node_index(py, u)?
             && let Some(v_index) = self.cached_exact_string_node_index(py, v)?
         {
@@ -15388,8 +15398,8 @@ impl PyDiGraph {
         // hash of two `usize`s, off CPython's own cached `str` hash.
         //
         // A hit is existence proof — see `cached_edge_py_attrs_by_index`.
-        if u.is_exact_instance_of::<PyString>()
-            && v.is_exact_instance_of::<PyString>()
+        if crate::node_key_can_use_index_lookaside(u)
+            && crate::node_key_can_use_index_lookaside(v)
             && let Some(u_index) = self.cached_exact_string_node_index(py, u)?
             && let Some(v_index) = self.cached_exact_string_node_index(py, v)?
             && let Some(attrs) = self.cached_edge_py_attrs_by_index(py, u_index, v_index)
@@ -15407,8 +15417,8 @@ impl PyDiGraph {
         // Fill on the miss path with the SAME dict the string-keyed mirror just
         // returned, so the two can never disagree about identity. Exact `str`
         // only, matching the probe; anything else simply never populates it.
-        if u.is_exact_instance_of::<PyString>()
-            && v.is_exact_instance_of::<PyString>()
+        if crate::node_key_can_use_index_lookaside(u)
+            && crate::node_key_can_use_index_lookaside(v)
             && let Some(u_index) = self.cached_exact_string_node_index(py, u)?
             && let Some(v_index) = self.cached_exact_string_node_index(py, v)?
         {
