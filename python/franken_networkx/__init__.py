@@ -8280,6 +8280,33 @@ class _WeightAwareDegreeView:
                     return _filtered_degree_view(
                         self._raw, filtered, owner=self, graph=self._graph
                     )
+            # br-r37-c1-ktsxn: the EXACT-`int` twin of the hoist above, for the
+            # reason `br-r37-c1-dlqkq` gives for `str`: without it an int
+            # argument pays TWO node resolutions on the common path --
+            # `nbunch in self._graph` in the `else` arm at the end of this
+            # method, then `self._raw[nbunch]` again -- plus, on the way there, a
+            # two-tuple `isinstance`, a four-tuple `isinstance`, and a
+            # `hasattr(nbunch, "__iter__")` that BUILDS AND SWALLOWS an
+            # AttributeError because an int is not iterable.
+            #
+            # The in-tree control is the multigraph pair: `MultiGraph.degree(n)`
+            # and `MultiDiGraph.degree(n)` measured 2.6950x and 2.9415x AGAINST
+            # networkx on int keys while `Graph` and `DiGraph` measured 0.4492x
+            # and 0.4655x -- the simple classes were the slow ones, and nearly 2x
+            # slower in absolute terms (456 / 431 ns per call against 239 / 275)
+            # than their more complicated siblings.
+            #
+            # PROVABLY EQUIVALENT: on a HIT this returns exactly what the `else`
+            # arm at the end of the method returns for the same argument; on a
+            # MISS it falls through to that unchanged contract. `type(...) is int`
+            # excludes `bool` (an int SUBCLASS) and every other subclass, so the
+            # unhashable-subclass hazard that forces the exact-type gate on the
+            # `str` twin cannot arise here either.
+            if type(nbunch) is int:
+                try:
+                    return self._raw[nbunch]
+                except (NodeNotFound, KeyError):
+                    pass
             # br-r37-c1-5n6mn: the exact-`str` test now runs BEFORE this one.
             # A `str` is never None, so the order cannot change either answer,
             # and it takes one comparison off every `G.degree("n")` — the hot

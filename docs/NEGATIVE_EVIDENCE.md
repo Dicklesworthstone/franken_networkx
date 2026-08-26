@@ -37,6 +37,94 @@ admission history, host, scope source, process affinity, monitored CPU set,
 checked-window count, maximum observed busy fraction, and maximum consecutive
 busy-window count.
 
+## 2026-08-26 BlackThrush SHIPPED, STILL A LOSS: `Graph.degree(n)` / `DiGraph.degree(n)` on int keys **`0.4482x` -> `0.8328x`** and **`0.4504x` -> `0.8653x`** (`1.84x` / `1.93x` self), found by leaving the adjacency surface (`br-r37-c1-ktsxn`)
+
+comparison_class=SELF-SPEEDUP
+campaign_output=false
+self_speedup_ratio=1.925x
+vs_networkx_same_invocation=0.8653x (STILL A LOSS, not a campaign result)
+decision_gate=median_ci
+cv_role=report_only
+
+HOW IT WAS FOUND. Every survey this session covered five adjacency READ
+spellings, and that surface is now exhausted. A wider survey — 17 read-only ops
+x 4 classes, 68 rows, 60 decidable — put the worst remaining loss somewhere I
+had never measured: scalar `G.degree(n)`. It also found 31 of the 60 decidable rows sitting
+ABOVE `1.0x` — context the adjacency rows lacked, and surveyed separately from
+this row's claim.
+
+THE FAMILY ASYMMETRY IS THE WHOLE DIAGNOSIS. On int node keys, before:
+
+    Graph        degree(n)   0.4482x    452.3 ns/call
+    DiGraph      degree(n)   0.4504x    427.5 ns/call
+    MultiGraph   degree(n)   2.6435x    245.8 ns/call   <- not a loss
+    MultiDiGraph degree(n)   2.8759x    282.6 ns/call   <- not a loss
+
+The SIMPLE classes were the slow ones, and nearly 2x slower in absolute terms
+than their structurally more complicated siblings. That is not a property of
+simple graphs; it is a missing fast path, and the siblings that do not have the
+problem are the control.
+
+MECHANISM. `_WeightAwareDegreeView.__call__` carries two hoists for exact `str`
+(`br-r37-c1-ey6ob`, `br-r37-c1-dlqkq`) and none for exact `int`. An int argument
+therefore fell through the whole chain and paid TWO node resolutions on the
+common path — `nbunch in self._graph` in the `else` arm at the end of the
+method, then `self._raw[nbunch]` again — plus, on the way there, a two-tuple
+`isinstance`, a four-tuple `isinstance`, and a `hasattr(nbunch, "__iter__")`
+that builds and swallows an AttributeError because an int is not iterable. The
+`str` twin already documents that the wrapper, not the lookup, is the cost.
+
+The fix is the int twin of the existing `str` hoist. PROVABLY EQUIVALENT: on a
+HIT it returns exactly what the `else` arm returns for the same argument; on a
+MISS it falls through to that unchanged contract. `type(...) is int` excludes
+`bool` and every other subclass.
+
+PROVENANCE, AND THE BINARY NOISE FLOOR IS ZERO BY CONSTRUCTION. This is a
+PURE-PYTHON change, so both arms load the SAME extension module:
+
+    bench_elf_sha256=c1adcc19b2ea0ac4b8f3ec3420078cfa0458154e49c5bc22857b3d856b9a9aba   BOTH arms
+
+asserted equal in the aggregator, and each pass additionally asserted that the
+`.so` it loaded matched its arm. Only `python/franken_networkx/__init__.py`
+differs (27 lines). Nothing in a moved row can come from the binary. nx 3.6.1
+(genuine upstream, module asserted), CPython 3.13.7, LOCAL:thinkstation1,
+loadavg 11-15.
+
+DUAL A/A NULLS, RECORDED AND POSITIVE. Four passes in arm order
+`before, after, after, before`, EVERY pass 8/8 DECIDABLE. Over the 32 controls
+the networkx A/A null spans `0.9974x` to `1.0043x` and the FrankenNetworkX A/A
+null spans `0.9971x` to `1.0044x`.
+
+### Medians over four passes
+
+| row | before | after | fnx ns/call | self | |
+|---|---|---|---|---|---|
+| `DiGraph` int `degree(n)` | `0.4504x` | **`0.8653x`** | `427.5 -> 222.1` | **`1.925x`** | TREATED |
+| `Graph` int `degree(n)` | `0.4482x` | **`0.8328x`** | `452.3 -> 245.3` | **`1.844x`** | TREATED |
+| `MultiDiGraph` int `degree(n)` | `2.8759x` | `2.9800x` | `282.6 -> 275.6` | `1.025x` | control |
+| `DiGraph` str `degree(n)` | `0.7971x` | `0.8045x` | `239.1 -> 238.1` | `1.004x` | control |
+| `MultiGraph` str `degree(n)` | `2.3703x` | `2.3692x` | `269.6 -> 271.1` | `0.994x` | control |
+| `MultiGraph` int `degree(n)` | `2.6435x` | `2.5936x` | `245.8 -> 248.5` | `0.989x` | control |
+| `Graph` str `degree(n)` | `0.9663x` | `0.9493x` | `206.3 -> 210.7` | `0.979x` | control |
+| `MultiDiGraph` str `degree(n)` | `2.5354x` | `2.5221x` | `316.7 -> 350.8` | `0.903x` | control |
+
+Treated `1.844x`-`1.925x` against a control band of `0.903x`-`1.025x`. No
+overlap. The six controls include both `str` spellings of the SAME call on the
+SAME two classes — the path the hoist does not touch — and both multigraph
+classes, which use a different wrapper entirely.
+
+CORRECTNESS. 87 degree / nbunch / weight test files: 5195 passed, 322 skipped,
+8 xfailed, 1 failed — and that 1 failure is present IDENTICALLY on the before
+arm, set-compared rather than counted. Zero attributable to this change.
+
+NOT PARITY, hence SELF-SPEEDUP. `0.8328x` and `0.8653x` are still losses, now
+close to the `str` spellings of the same call (`0.9493x` / `0.8045x`) rather
+than half of them.
+
+REPRODUCE:
+
+    bash tests/artifacts/perf/20260826T-degree-scalar-intkey-blackthrush/replicate8.sh
+
 ## 2026-08-26 BlackThrush LEVER FAMILY REFUTED + SELF-CORRECTION, NO SOURCE EDIT: the dead native view classes are not STALE, they are NETWORKX-SHAPED — routing to any of them trades a cached return for a fresh allocation, and my two previous rows mis-stated the project (`br-r37-c1-ktsxn`)
 
 comparison_class=INCUMBENT
