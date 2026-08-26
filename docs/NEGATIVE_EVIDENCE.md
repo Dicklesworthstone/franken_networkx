@@ -37,6 +37,91 @@ admission history, host, scope source, process affinity, monitored CPU set,
 checked-window count, maximum observed busy fraction, and maximum consecutive
 busy-window count.
 
+## 2026-08-26 BlackThrush CAMPAIGN RESULT: `subgraph_view` with a CALLABLE `filter_node` had no fast path — `.edges` **`0.1367x` -> `3.1322x`** (`23.4x` self), `DiGraph` `0.1828x` -> `2.8116x` (`15.4x`) (`br-r37-c1-ktsxn`)
+
+comparison_class=INCUMBENT
+incumbent=networkx
+incumbent_same_invocation=true
+incumbent_ratio=3.1322x
+campaign_output=true
+decision_gate=median_ci
+cv_role=report_only
+
+FOUND BY CENSUSING A PATTERN, NOT BY GUESSING. The previous row fixed a
+`__len__` that materialised its edge list; the obvious question was whether the
+shape recurs. A sweep of all 43 `__len__` definitions in the Python layer found
+two more that materialise — `_FilteredEdgeView` and `_AssignedPrivateEdgeView`.
+Probing the first led here, though NOT to the `__len__` itself: the naive fix is
+unavailable because `_FilteredGraphView.number_of_edges()` is itself
+`len(self.edges())`, so routing `__len__` to it would recurse infinitely. The
+`_ConversionGraphViewBase` carries a comment recording exactly that trap.
+
+THE REAL DEFECT IS A MISSING SIBLING. `_FilteredGraphView._edges` has two fast
+paths, and an arbitrary callable `filter_node` combined with the DEFAULT edge
+filter fell between them:
+
+    subgraph()                    3.75x     node-set chain path
+    subgraph_view(show_nodes)     3.60x     node-set chain path
+    restricted_view               2.50x     non-default-edge-filter path
+    subgraph_view(<lambda>)       0.14x     NO PATH
+
+Three of four siblings covered. The in-tree comment on the very branch involved
+says "Fixing one branch of a routine and not its sibling is exactly the
+partially-applied-fix trap thssf was written about" — and this was the fourth.
+
+THE FIX is to admit the default-edge-filter case into the existing concrete-parent
+fast path, with `unfiltered` short-circuiting BEFORE the `filter_edge` call so the
+non-default path that already used the branch pays one boolean test and never
+loses its filter.
+
+### A REGRESSION I INTRODUCED AND THE CONTROLS CAUGHT
+
+The first version relaxed the gate too far. `subgraph_view(show_nodes)` and
+`G.subgraph()` were then captured into this branch BEFORE reaching their own
+node-set chain path, and measured `0.92x` — an 8% regression on the two most
+common spellings on the surface. They were in the run only as controls, and that
+is the entire reason it was caught rather than shipped. The fix is the guard the
+multigraph sibling twenty lines below already applies for the same reason: a
+`filter_node` carrying a `.nodes` set keeps the node-set path. Re-measured after
+the guard, both are back at `1.02x`/`1.04x`.
+
+PROVENANCE. Pure-Python change; both arms load the SAME extension module:
+
+    bench_elf_sha256=c1adcc19b2ea0ac4b8f3ec3420078cfa0458154e49c5bc22857b3d856b9a9aba   BOTH arms
+
+asserted equal in the aggregator, each pass separately asserting the `.so` it
+loaded matched its arm, so the binary noise floor is zero by construction. nx
+3.6.1 (genuine upstream), CPython 3.13.7, LOCAL:thinkstation1, loadavg 10.6.
+
+DUAL A/A NULLS, RECORDED AND POSITIVE, AND NOTHING DISCARDED. Six passes in arm
+order `before, after, after, before, before, after`: 30 row-observations
+admitted, ZERO dropped. The networkx A/A null spans `0.9950x` to `1.0028x` and
+the FrankenNetworkX A/A null spans `0.9980x` to `1.0047x`. n=3 per arm on every
+row.
+
+| row | before | after | fnx us | self | |
+|---|---|---|---|---|---|
+| `subgraph_view(lambda).edges` | `0.1367x` | **`3.1322x`** | `8042.19 -> 343.77` | **`23.39x`** | TREATED |
+| `subgraph_view(lambda)` DiGraph | `0.1828x` | **`2.8116x`** | `2935.54 -> 190.60` | **`15.40x`** | TREATED |
+| `subgraph_view(show_nodes)` | `3.6043x` | `3.7291x` | `347.62 -> 335.59` | `1.04x` | control |
+| `G.subgraph()` | `3.7465x` | `3.7418x` | `337.53 -> 332.25` | `1.02x` | control |
+| `restricted_view` | `2.5012x` | `2.4884x` | `460.13 -> 455.99` | `1.01x` | control |
+
+Treated `15.40x`-`23.39x` against a control band of `1.009x`-`1.036x`. Every
+after-ratio above parity has all three intervals excluding `1.0` — the treated
+rows at `[3.122, 3.136]`, `[3.189, 3.201]`, `[3.126, 3.136]` and `[2.803, 2.813]`,
+`[2.798, 2.811]`, `[2.818, 2.832]`.
+
+CORRECTNESS. Output verified BYTE-IDENTICAL before vs after across 20 view
+variants — four classes x five filter spellings (`lambda`, `show_nodes`,
+`restricted_view`, `subgraph()`, edge-filter) x three data spellings plus `len`
+and `number_of_edges`. 68 filter / subgraph / restricted / view / conversion test
+files: 4104 passed, 3 skipped, 2 xfailed, ZERO failures on both arms.
+
+THE OTHER MATERIALISING `__len__` IS NOT FIXED. `_AssignedPrivateEdgeView.__len__`
+is still `len(self(keys=True))` / `len(self())`. It was not measured here and is
+not claimed; it is the remaining member of the census.
+
 ## 2026-08-26 BlackThrush CAMPAIGN RESULT: the conversion `EdgeView.__len__` MATERIALISED the edge list, and `list()` calls it — `len(to_directed(G).edges)` **`0.0257x` -> `3.8059x`** (`149x` self); `len(list(...))` `0.1458x` -> `0.6346x` (`br-r37-c1-ktsxn`)
 
 comparison_class=INCUMBENT

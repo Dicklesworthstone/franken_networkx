@@ -46906,14 +46906,35 @@ class _FilteredGraphView:
         # undirected ``seen`` dedup as the slow ``self.adj`` path. Byte-identical.
         if (
             nbunch is None
-            and not self._filter_edge_is_default
             and not isinstance(data, str)
             and data is not None
             and not keys
             and type(self._graph) in (Graph, DiGraph)
+            # br-r37-c1-ktsxn: a NODE-SET filter_node keeps the node-set chain
+            # path further down, which is faster still. Without this guard the
+            # relaxed gate above captured `G.subgraph()` and
+            # `subgraph_view(show_nodes)` into THIS branch and measured them
+            # 0.92x -- an 8% regression on the two most common spellings, caught
+            # by carrying them as controls. Same guard the multigraph sibling
+            # below already applies, and for the same reason.
+            and getattr(getattr(self, "_filter_node", None), "nodes", None) is None
         ):
             parent = self._graph
             filter_edge = self._filter_edge
+            # br-r37-c1-ktsxn: this fast path was gated to a NON-default edge
+            # filter, so an arbitrary callable `filter_node` with the DEFAULT
+            # edge filter fell between two fast paths and took the generic
+            # `self.adj[source][target]` walk. Measured on 400 nodes / 1600
+            # edges, `len(list(view.edges))`: `subgraph()` 3.050x and
+            # `subgraph_view(show_nodes)` 3.814x (node-set chain path),
+            # `restricted_view` 2.582x (this path) -- and
+            # `subgraph_view(lambda)` 0.134x with no path at all. Three of the
+            # four siblings were covered; this is the fourth.
+            #
+            # `unfiltered` short-circuits BEFORE the call, so the non-default
+            # path that already used this branch pays one boolean test and
+            # never loses its filter.
+            unfiltered = self._filter_edge_is_default
             visible_set = set(nodes)
             fast = []
             if parent.is_directed():
@@ -46951,13 +46972,13 @@ class _FilteredGraphView:
                 if not data and na_row is not None:
                     for source in nodes:
                         for target in na_row(source):
-                            if target in visible_set and filter_edge(source, target):
+                            if target in visible_set and (unfiltered or filter_edge(source, target)):
                                 fast.append((source, target))
                 elif data and na_row is not None:
                     for source in nodes:
                         live = na_row(source)
                         for target in live:
-                            if target in visible_set and filter_edge(source, target):
+                            if target in visible_set and (unfiltered or filter_edge(source, target)):
                                 fast.append((source, target, live[target]))
                 elif not data and na_keys is not None:
                     # Retained for a parent that exposes the whole-graph snapshot
@@ -46965,20 +46986,20 @@ class _FilteredGraphView:
                     succ_keys = dict(na_keys())
                     for source in nodes:
                         for target in succ_keys[source]:
-                            if target in visible_set and filter_edge(source, target):
+                            if target in visible_set and (unfiltered or filter_edge(source, target)):
                                 fast.append((source, target))
                 elif data and na_adj is not None:
                     full = na_adj()
                     for source in nodes:
                         keyrow = full[source]
                         for target in keyrow:
-                            if target in visible_set and filter_edge(source, target):
+                            if target in visible_set and (unfiltered or filter_edge(source, target)):
                                 fast.append((source, target, keyrow[target]))
                 else:
                     for source in nodes:
                         row = _fast_succ_row(parent, source)
                         for target in row:
-                            if target in visible_set and filter_edge(source, target):
+                            if target in visible_set and (unfiltered or filter_edge(source, target)):
                                 fast.append(
                                     (source, target, row[target]) if data else (source, target)
                                 )
@@ -46989,7 +47010,7 @@ class _FilteredGraphView:
                     for target in row:
                         if target in seen or target not in visible_set:
                             continue
-                        if not filter_edge(source, target):
+                        if not (unfiltered or filter_edge(source, target)):
                             continue
                         fast.append(
                             (source, target, row[target]) if data else (source, target)
