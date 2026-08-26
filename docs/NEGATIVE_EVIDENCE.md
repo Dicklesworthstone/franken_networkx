@@ -37,6 +37,126 @@ admission history, host, scope source, process affinity, monitored CPU set,
 checked-window count, maximum observed busy fraction, and maximum consecutive
 busy-window count.
 
+## 2026-08-25 BlackThrush SHIPPED, STILL A LOSS: int node keys stop allocating a canonical `String` per endpoint — `Graph.edges[u,v]` **`0.3277x` -> `0.6876x`** (`2.10x` self), and the SAME lever leaves `DiGraph` FLAT because its edges view is a Python class (`br-r37-c1-uh8cm`, `br-r37-c1-bnv3h`)
+
+comparison_class=SELF-SPEEDUP
+campaign_output=false
+self_speedup_ratio=2.10x
+vs_networkx_same_invocation=0.6876x (STILL A LOSS, not a campaign result)
+decision_gate=median_ci
+cv_role=report_only
+
+The 2026-08-25 re-measure row above found node-key TYPE to be a real axis on the
+adjacency read surface — networkx flat across it, FrankenNetworkX paying `+38-53%`
+for int keys — and named four str-only levers the int spelling reached none of.
+This is that lever taken, measured, and HALF-LANDED: it moves `Graph` by `2.10x`
+and does not move `DiGraph` at all, for a reason the timings and an MRO probe
+agree on.
+
+THE CHANGE. `write_int_decimal` renders an `i64` straight into the existing
+128-byte stack `ArrayString` that the `str` spelling has used since
+`br-r37-c1-oe93x`, and both `canonical_node_key_in` and `with_node_key_str` now
+take it. Before, every int endpoint went to `node_key_to_string`, whose int
+branch is `i.to_string()` — ONE heap `String` per endpoint per call. No
+`core::fmt`: `br-r37-c1-7faiu` measured its per-argument dynamic dispatch at
+`54.5%` of a whole string `has_node` probe and hand-rolled the decimal to get rid
+of it, and reaching for `write!` here would have rebuilt exactly that cost.
+Arbitrary-precision ints past `i64` still take the owned `exact_int_decimal`
+path. Landed in `acb088e3a` together with a widening of the `br-r37-c1-ptiz2`
+index lookaside from exact-`str` to exact-`str`-or-exact-`int`, whose FILL site
+had been str-only while its PROBE site already admitted ints — so for int keys
+that lookaside was probed on every read and could never be filled.
+
+BOTH ARMS BUILT BY ME, from a `git archive` extract of each commit into a tree
+outside the shared checkout, same flags, same host, same target dir — a peer's
+in-tree `.so` is not a valid before-arm, and a peer had unrelated uncommitted
+work in these same two files that is in NEITHER arm.
+
+    bench_elf_sha256=822983450756fb39adf6a85ae129e0a089a162b1039f9020f7ee8cf7525e302d  before arm 870198200
+    bench_elf_sha256=5da6b171d43c9f03d3244915a36e7ae6aebc481ab437ad5bbc23a7d112b73145  after arm acb088e3a (14098544 bytes)
+
+Both read from INSIDE the benchmark process by `perf_harness.binary_sha256`.
+nx 3.6.1 (genuine upstream, module asserted), CPython 3.13.7,
+LOCAL:thinkstation1, loadavg 8-14. Substrate is `perf_harness.paired()`: both
+arms interleaved inside ONE loop with the order alternated per round
+(ABBAABBA...), 21 rounds, min-of-3 per slot, bootstrap median CI, byte-parity
+proof, and the two arm-specific A/A nulls. The host-wide quiescence gate is not
+taken — it refused under peer load — so the DUAL A/A NULLS are the
+discriminator.
+
+DUAL A/A NULLS, RECORDED AND POSITIVE. Across all 24 rows (12 per arm) the
+networkx A/A null spans `0.9943x` to `1.0056x` and the FrankenNetworkX A/A null
+spans `0.9972x` to `1.0104x`, so every null control brackets `1.0x` inside a
+narrow interval. All 24 candidate rows are DECIDABLE.
+
+### The row that moved, and the identical row that did not
+
+| row | before | after | fnx us before -> after | self |
+|---|---|---|---|---|
+| `Graph.edges[u,v]` int keys | `0.3277x` | **`0.6876x`** | `159.50 -> 75.80` | **`2.10x`** |
+| `DiGraph.edges[u,v]` int keys | `0.3138x` | `0.3192x` | `160.90 -> 151.77` | `1.02x` |
+| `Graph.edges[u,v]` str keys | `0.6576x` | `0.6603x` | `72.96 -> 74.11` | `1.00x` control |
+| `DiGraph.edges[u,v]` str keys | `0.4327x` | `0.4225x` | `118.62 -> 110.79` | `0.98x` control |
+| `Graph.has_node` int keys | `0.7527x` | `0.7414x` | `32.05 -> 32.41` | `0.99x` |
+| `DiGraph.has_node` int keys | `0.7554x` | `0.7586x` | `31.88 -> 31.06` | `1.00x` |
+| `Graph.has_node` str keys | `0.7843x` | `0.7701x` | `29.47 -> 29.34` | `0.98x` control |
+| `DiGraph.has_node` str keys | `0.7836x` | `0.7916x` | `31.03 -> 29.97` | `1.01x` control |
+| `Graph.neighbors` int keys | `0.8491x` | `0.8677x` | `143.46 -> 134.72` | `1.02x` |
+| `DiGraph.neighbors` int keys | `0.8090x` | `0.8248x` | `125.79 -> 119.97` | `1.02x` |
+| `Graph.neighbors` str keys | `0.8734x` | `0.8645x` | `131.11 -> 132.95` | `0.99x` control |
+| `DiGraph.neighbors` str keys | `0.8347x` | `0.8483x` | `118.12 -> 115.59` | `1.02x` control |
+
+THE KEY-TYPE GAP ON `Graph` IS CLOSED. Its int/str penalty was `159.50/72.96 =
+2.19x` and is now `75.80/74.11 = 1.02x`; the int row (`0.6876x`) has caught its
+own str sibling (`0.6603x`). On `DiGraph` the penalty was `1.36x` and is
+`1.37x` — unmoved.
+
+THE FOUR STR-KEY CONTROLS MOVE `0.98-1.01x`, which bounds the binary noise floor
+for this build pair and is what makes the `2.10x` a signal rather than two
+compilers disagreeing. The `+2%` drift on the four `neighbors` rows and the
+`5.7%` on `DiGraph.edges[u,v]` int sit inside that floor and are NOT claimed.
+
+### Why `DiGraph` did not move, proven rather than inferred
+
+The lever lives in `EdgeView::__getitem__`, and `DiGraph` never reaches it. MRO
+probe on the after arm:
+
+    Graph          edges view=EdgeView          __getitem__=wrapper_descriptor   <- native C slot
+    DiGraph        edges view=OutEdgeView       __getitem__=function             <- Python
+    MultiGraph     edges view=MultiEdgeView     __getitem__=function             <- Python
+    MultiDiGraph   edges view=OutMultiEdgeView  __getitem__=function             <- Python
+
+`br-r37-c1-bnv3h` already recorded the binding type as a perfect discriminator on
+this operation. It still is, and it now also discriminates which classes a
+native-side lever can reach AT ALL: three of the four public graph classes
+subscript their edges through a Python function, so every future edit to the
+native slot is a `Graph`-only edit until they are routed onto it. That is the
+next lever and it is filed, not hand-waved.
+
+PARITY. Int-key parity against LIVE networkx passes on BOTH arms — `0`,
+negatives, both `i64` boundaries, ints past `i64`, `int` subclasses, `bool`
+(numerically equivalent, `True` is node `1`), the `1`/`1.0`/`True` collapse
+networkx gets from dict hashing, and `5` vs `"5"` staying two distinct nodes.
+`tests/python/test_view_descriptor_parity.py` is 324 passed on both arms.
+
+RECORDED AGAINST MYSELF: that suite is 324/324 on the BEFORE arm too, so the
+regression test shipped with `acb088e3a` does not fail on the unfixed arm and
+therefore proves nothing by contrast. It pins the widened behavior going
+forward, which is worth having, but it is not evidence that the widening was
+safe — the parity sweep above is.
+
+WHAT THIS IS NOT. `0.6876x` is not parity. networkx still does two cached-hash
+dict lookups where this does an index resolve plus a lookaside probe, and
+`br-r37-c1-bnv3h` attributed that remaining gap to the native lookup itself
+rather than to any wrapper. This row removes a self-inflicted allocation; it does
+not touch that ceiling.
+
+REPRODUCE:
+
+    bash tests/artifacts/perf/20260825T-intkey-canonical-blackthrush/run_arms.sh
+
+Probe sources, both arm logs, parity logs, and the MRO probe are banked beside it.
+
 ## 2026-08-25 BlackThrush RE-MEASURE + HYPOTHESIS REJECTED, NO SOURCE EDIT: `G.edges[u,v]` is **`0.4401x`** on the bead's own fixture, not the published `0.1544x`; the distinct-key axis is REFUTED and the real axis is NODE-KEY TYPE (`br-r37-c1-bnv3h`)
 
 comparison_class=INCUMBENT
