@@ -8350,12 +8350,13 @@ class _WeightAwareDegreeView:
                 isinstance(nbunch, (list, tuple, set, frozenset))
                 or hasattr(nbunch, "__iter__")
             ):
-                try:
-                    hash(nbunch)
-                    if nbunch in self._graph:
-                        return self._raw[nbunch]
-                except TypeError:
-                    pass
+                if type(nbunch) not in _NEVER_HASHABLE_TYPES:
+                    try:
+                        hash(nbunch)
+                        if nbunch in self._graph:
+                            return self._raw[nbunch]
+                    except TypeError:
+                        pass
                 # br-r37-c1-tk51o: nx.Graph.nbunch_iter raises
                 # NetworkXError("Node X in sequence nbunch is not a
                 # valid node.") on any unhashable element. Pre-fix fnx
@@ -8727,12 +8728,29 @@ class _FilteredDegreeView:
 
     def __iter__(self):
         _degree_view_frozen_nodes_check(self)
+        # br-r37-c1-degnbhash: the staleness check is INLINE. It used to be
+        # `_snapshot_is_current()` -> `_freshness()` -> `_graph_ref()`, three
+        # Python frames on every iteration to compare two integers, and a frame
+        # was measured at roughly 49ns on this surface (br-r37-c1-degframe). The
+        # method stays for `__len__` and any other caller; only this hot site
+        # is unrolled, and the logic is copied, not changed.
         # br-r37-c1-z4iod: a plain function returning an iterator, NOT a
         # generator function — the values mode below has to hand back a fresh
         # zip, and a `return` inside a generator would silently end iteration
         # instead of returning it.
-        if not self._snapshot_is_current():
-            return ((n, self._value(n)) for n in self._live_nodes())
+        token = self._token
+        if token is not None:
+            graph = self._vgraph
+            if graph is None:
+                parent = self._parent
+                graph = getattr(parent, "_graph", None) if parent is not None else None
+            # A None graph makes `_freshness()` return None, which never equals
+            # a non-None token, so it counts as STALE -- unreachable in practice
+            # (the token was computed from the same graph at construction) but
+            # copied faithfully rather than reasoned away.
+            current = None if graph is None else _edge_list_freshness_token(graph)
+            if current != token:
+                return ((n, self._value(n)) for n in self._live_nodes())
         if self._values is not None:
             # Fresh zip per call: re-iterable like nx's view, and still lazy,
             # so the weighted whole-graph paths keep their native accumulator
@@ -8817,6 +8835,16 @@ _FilteredDegreeView.__qualname__ = "DegreeView"
 # name must live on the CLASS (``type(v).__name__`` cannot be shadowed per
 # instance), hence one cached subclass per name.
 _FILTERED_DEGREE_VIEW_CLASSES = {}
+
+
+# br-r37-c1-degnbhash: EXACT types whose instances can never be hashable, so
+# `hash(x)` on one is a guaranteed raise. Exact-type membership is required
+# rather than isinstance: a `list` SUBCLASS may legitimately define `__hash__`,
+# and must keep taking the real hash path. Measured on a 4-node list nbunch:
+# `try hash(list) / except TypeError` costs 228.2ns, against 31.0ns for the type
+# test that replaces it -- 8.7% of the whole `G.degree(nbunch)` call, spent
+# building and catching an exception whose outcome was known from the type.
+_NEVER_HASHABLE_TYPES = frozenset({list, set, dict, bytearray})
 
 
 def _filtered_degree_view(
