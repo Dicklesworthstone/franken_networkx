@@ -37,6 +37,76 @@ admission history, host, scope source, process affinity, monitored CPU set,
 checked-window count, maximum observed busy fraction, and maximum consecutive
 busy-window count.
 
+## 2026-08-26 BlackThrush SHIPPED, STILL A BIG LOSS: conversion-view edge iteration walks the SOURCE row — `len(list(to_directed(G).edges))` **`0.0862x` -> `0.1464x`** (`1.66x` self), and the `data=True` spelling is deliberately UNMOVED (`br-r37-c1-ktsxn`)
+
+comparison_class=SELF-SPEEDUP
+campaign_output=false
+self_speedup_ratio=1.66x
+vs_networkx_same_invocation=0.1464x (STILL A BIG LOSS, not a campaign result)
+decision_gate=median_ci
+cv_role=report_only
+
+The iteration half of the row above. That one fixed the COUNT through a
+`to_directed` view (`0.0416x` -> `11.1483x`) and explicitly did NOT claim the
+walk, which stayed at `0.0464x`. This is the walk.
+
+MECHANISM. `_ConversionGraphViewBase._edges` iterated `self.adj[source]` — a
+`_ConversionAdjacencyView` row SYNTHESIZED IN PYTHON per node. For a DIRECTED
+view of an UNDIRECTED simple source the view's row and the source's row are equal
+element-for-element AND in order, because a directed view's successors of `u` ARE
+`u`'s undirected neighbours. Walking the source's native row instead skips the
+per-node Python rebuild.
+
+EQUALITY VERIFIED BEFORE THE EDIT, per node and in order, across plain,
+self-loop, only-self-loop, star, empty and 300-edge random fixtures, together
+with the resulting edge ORDER against networkx's own view. Verified again after
+the edit across five spellings — `edges`, `edges(data=True)`, `edges(nbunch)`,
+`number_of_edges()` and `adjacency()` — all matching networkx with order
+included.
+
+PROVENANCE. Pure-Python change; both arms load the SAME extension module:
+
+    bench_elf_sha256=c1adcc19b2ea0ac4b8f3ec3420078cfa0458154e49c5bc22857b3d856b9a9aba   BOTH arms
+
+asserted equal in the aggregator, with each pass separately asserting the `.so`
+it loaded matched its arm, so the binary noise floor is zero by construction.
+nx 3.6.1 (genuine upstream), CPython 3.13.7, LOCAL:thinkstation1.
+
+DUAL A/A NULLS, RECORDED AND POSITIVE. Six passes in arm order
+`before, after, after, before, before, after`, per-row-observation admission
+(both nulls inside `0.98x-1.02x` AND decidable): 22 admitted, 2 dropped. On the
+admitted set the networkx A/A null spans `0.9918x` to `1.0142x` and the
+FrankenNetworkX A/A null spans `0.9942x` to `1.0069x`.
+
+| row | before | after | fnx us | self | |
+|---|---|---|---|---|---|
+| `len(list(to_directed(G).edges))` | `0.0862x` | **`0.1464x`** | `1843.87 -> 1108.69` | **`1.66x`** | TREATED |
+| `to_directed(G).edges(data=True)` | `0.0680x` | `0.0700x` | `3987.07 -> 3850.74` | `1.04x` | TREATED |
+| `len(list(to_undirected(D).edges))` | `0.2946x` | `0.3027x` | `4249.87 -> 4156.13` | `1.02x` | control |
+| `to_directed(G).number_of_edges()` | `11.7122x` | `11.7053x` | `3.10 -> 3.07` | `1.01x` | control |
+
+THE `data=True` ROW IS UNMOVED ON PURPOSE, and that is a gate, not a miss. The
+data branch still reads `self.adj[source][target]` for the conversion view's
+MERGED attr dict, so routing it to the native row would build BOTH rows per
+source and could regress the very path it was meant to help. `not data` is part
+of the condition. That spelling stays at `0.0700x` and is NOT claimed.
+
+STILL A BIG LOSS, and the headline says so. `0.1464x` is a `6.8x` deficit:
+`1108.69us` for 3,200 emitted edges is `346 ns` per edge against networkx's
+`51 ns`. What remains is the Python tuple-append loop itself plus `_nbunch`, not
+the row rebuild — a native edge producer for this conversion is the next lever
+and is not attempted here.
+
+RECORDED AGAINST THE GATE ITSELF: the first conversion-suite run reported 5
+failures on the before arm and 4 on the after, which would read as this change
+FIXING a test. It does not. Re-running the before arm gave 4, so the fifth was
+FLAKY; the set-based comparison across arms was `NEW: none` in every run. 94
+files, 4 failures on both arms, zero attributable.
+
+REPRODUCE:
+
+    bash tests/artifacts/perf/20260826T-conversion-view-edge-iteration-blackthrush/replicate_it.sh
+
 ## 2026-08-26 BlackThrush CAMPAIGN WIN: `to_directed(G).number_of_edges()` **`0.0416x` -> `11.1483x`** (`274x` self) — the directed-view mirror of `br-cvundeg` was missing and the count materialised the whole edge list (`br-r37-c1-ktsxn`)
 
 comparison_class=INCUMBENT
