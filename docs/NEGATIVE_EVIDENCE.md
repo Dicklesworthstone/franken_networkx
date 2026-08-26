@@ -37,6 +37,85 @@ admission history, host, scope source, process affinity, monitored CPU set,
 checked-window count, maximum observed busy fraction, and maximum consecutive
 busy-window count.
 
+## 2026-08-26 BlackThrush DECOMPOSITION + NO SOURCE EDIT: `adj[u][v]` is **73% Python frames** on `DiGraph` (`364ns` of `497ns`), and the ceiling behind them sits BELOW the incumbent — a fully native chain would be ~`128ns` against networkx's ~`150ns` (`br-r37-c1-ktsxn`)
+
+comparison_class=INCUMBENT
+incumbent=networkx
+incumbent_same_invocation=true
+incumbent_ratio=0.3017x
+campaign_output=false
+decision_gate=median_ci
+cv_role=report_only
+
+Second decomposition of the worst op, one level further in. The previous row
+split `adj[u][v]` into native accessor + frame; this one splits the FRAME.
+
+ELF `bench_elf_sha256=c1adcc19b2ea0ac4b8f3ec3420078cfa0458154e49c5bc22857b3d856b9a9aba`
+(HEAD `728b65c10`), read from INSIDE the benchmark process. nx 3.6.1, CPython
+3.13.7, LOCAL:thinkstation1.
+
+A/A NULLS, RECORDED AND POSITIVE: every measured callable was timed against
+itself, and those self-controls span `0.9973x` to `1.0024x` with cv below `1%`
+on seven of the eight (the `DiGraph` `nodes_seq` row read cv `13.59%`, which is
+noted rather than hidden; its `30 ns` magnitude is corroborated by the `Graph`
+row at `0.67%` cv).
+
+|  | `Graph` | `DiGraph` |
+|---|---|---|
+| `nodes_seq` PyO3 getter | `30.0ns` | `31.2ns` |
+| outer `adj[u]` frame, total | `170.1ns` | `175.5ns` |
+| row subscript | **`114.9ns`** (native C slot) | **`321.5ns`** (Python) |
+| native accessor alone | `120.2ns` | `127.7ns` |
+| full `adj[u][v]` | `285.1ns` | `497.0ns` |
+
+THREE THINGS THIS SETTLES.
+
+1. THE OUTER FRAME IS SHARED AND IRREDUCIBLE FROM PYTHON. It costs `170-176ns`
+   on BOTH classes — the same `AdjacencyView.__getitem__` — and only `30ns` of
+   that is the one PyO3 crossing on the warm path. The other ~`140ns` is plain
+   CPython overhead for four attribute loads, a tuple compare and a dict get,
+   which is simply what a Python method call costs in 3.13. There is nothing to
+   trim inside it; it can only be removed by not being a Python call.
+
+2. THE `nodes_seq` GETTER IS LOAD-BEARING, NOT OVERHEAD. It is the cache token
+   that makes `G.adj[u]` raise for a node removed since the row view was cached.
+   Dropping it to save `30ns` would hand back a live view for an absent node.
+   Tested by reading the invalidation path, not assumed — same shape as the
+   private-storage probe `br-r37-c1-bnv3h` proved load-bearing.
+
+3. THE CEILING SITS BELOW THE INCUMBENT, NOT ABOVE IT. `DiGraph` pays `364ns` of Python frame
+   (`175.5` outer + `321.5 - 127.7 = 193.8` row) on a `497ns` operation — `73%`.
+   The native accessor underneath is `127.7ns`. networkx does this op in
+   `~150ns` because its adjacency is a dict-of-dicts and the subscript is two
+   C-level dict lookups with NO Python frames at all. So a fully native chain
+   would land near `128ns`, below the incumbent's `~150ns`, where today the row reads
+   `0.3017x`. This op is not a structural loss to be accepted; it is two Python
+   frames.
+
+WHY STILL NO SOURCE EDIT, AND THIS IS NOW A DECISION RATHER THAN A TASK. Both
+candidate native replacements are registered, reachable-by-name, and STALE in
+the same way — `DiAtlasView::__getitem__` (`digraph.rs:18755`) and
+`AdjacencyView::__getitem__` (`views.rs:1787`) each call `node_key_to_string`
+and a string-keyed `has_node`, allocate a fresh view per subscript, and carry
+neither the index lookaside nor the row-view cache their Python counterparts
+have. Routing onto either AS WRITTEN would REGRESS: the Python outer view
+returns a CACHED row view with no canonicalisation at all on a warm row, and the
+native one rebuilds and re-canonicalises every time.
+
+So the lever is "modernise the dead native view classes, then route", which is a
+multi-commit project, and its final step changes `type(G.adj[u])` — a public
+type identity the repository pins in at least three assertions
+(`test_adj_mapping_parity.py:116`, `test_edges_keys_cache_consistency_guard.py:184,231`)
+and which networkx names `AtlasView` while the directed native class is named
+`DiAtlasView`.
+
+NOT TAKEN. Two decompositions now agree on where the cost is and how big the
+prize is; what is missing is not measurement.
+
+REPRODUCE:
+
+    .venv/bin/python tests/artifacts/perf/20260826T-adj-frame-decomposition-blackthrush/probe_outer.py
+
 ## 2026-08-26 BlackThrush DECOMPOSITION + NO SOURCE EDIT: `DiGraph.adj[u][v]` is **75.2% Python frame** (`351.6ns` of `467.6ns`) against a native accessor that costs the SAME as `Graph`'s; the `1.64x` lever is blocked on a NAME, not on effort (`br-r37-c1-ktsxn`)
 
 comparison_class=INCUMBENT
