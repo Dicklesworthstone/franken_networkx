@@ -37,6 +37,134 @@ admission history, host, scope source, process affinity, monitored CPU set,
 checked-window count, maximum observed busy fraction, and maximum consecutive
 busy-window count.
 
+## 2026-08-25 BlackThrush RE-MEASURE + HYPOTHESIS REJECTED, NO SOURCE EDIT: `G.edges[u,v]` is **`0.4401x`** on the bead's own fixture, not the published `0.1544x`; the distinct-key axis is REFUTED and the real axis is NODE-KEY TYPE (`br-r37-c1-bnv3h`)
+
+comparison_class=INCUMBENT
+incumbent=networkx
+incumbent_same_invocation=true
+incumbent_ratio=0.4401x
+campaign_output=false
+decision_gate=median_ci
+cv_role=report_only
+
+`br-r37-c1-bnv3h` banked `DiGraph.edges[u,v]` at `0.1544x` on HEAD `bd12815b6`
+(2026-08-16) and called it the worst remaining vs-networkx ratio on the public
+surface. It rested on a stated axis: one repeated key screened at `0.34-0.41x`,
+300 DISTINCT keys measured `0.15-0.21x`, and the bead explicitly instructed that
+the screening number "should not be quoted". RE-MEASURED on HEAD `4cbb18f78`.
+NEITHER the headline NOR the axis survives.
+
+ELF `7cdf73aedfee19bf03cdf0a6f612224c3864f25d18d6e293adbd078a7adf67d6`
+(13947592 bytes, `python/franken_networkx/_fnx.abi3.so`), read from INSIDE the
+benchmark process by `perf_harness.binary_sha256`; no `.rs` newer than the
+loaded `.so`. nx 3.6.1 (genuine upstream, module asserted), CPython 3.13.7,
+LOCAL:thinkstation1, loadavg 8.7-13.9, NO BUILD.
+
+SUBSTRATE. `scripts/perf_harness.py`'s own `paired()` — both arms interleaved
+inside ONE loop with the order alternated per round (ABBAABBA...), 21 rounds,
+min-of-3 per slot, bootstrap median CI — plus the two arm-specific A/A nulls,
+`gate_decision`, and the byte-parity proof. The host-wide quiescence admission
+gate is NOT taken: it refused, twice, with peer agent processes holding
+`cpu22=27.0% cpu48=22.0% cpu54=33.7%` (refusal log banked). Under a bypassed
+gate the DUAL A/A NULLS are the discriminator, and every null below lands on
+`1.0` with a narrow interval, so the separation is not common-mode drift.
+
+DUAL A/A NULLS, RECORDED AND POSITIVE. Every row below carries both arm-specific same-invocation self-controls: the networkx A/A null spans `0.9985x` to `1.0041x` and the FrankenNetworkX A/A null spans `0.9929x` to `1.0029x` across all eleven rows, so each null control brackets `1.0x` with a narrow interval and the candidate separations sit far outside both.
+
+### 1. THE PUBLISHED AXIS IS FLAT. Distinct-key count, total subscripts held at 512
+
+| distinct keys | ratio_p50 | CI | nx | fnx | A/A nx | A/A fnx |
+| --- | --- | --- | --- | --- | --- | --- |
+| 1 | `0.4593x` | `0.4585-0.4600` | `43.23us` | `94.09us` | `1.0027x` | `1.0029x` |
+| 32 | `0.4388x` | `0.4279-0.4412` | `46.36us` | `105.70us` | `1.0041x` | `1.0011x` |
+| **300** | **`0.4401x`** | `0.4357-0.4431` | `47.48us` | `107.63us` | `1.0035x` | `0.9929x` |
+| 512 | `0.4164x` | `0.4159-0.4169` | `46.51us` | `111.75us` | `1.0036x` | `0.9988x` |
+| 4,000 | `0.4133x` | `0.4108-0.4145` | `47.50us` | `114.96us` | `0.9991x` | `1.0014x` |
+| 8,000 | `0.4179x` | `0.4168-0.4252` | `46.86us` | `111.29us` | `0.9985x` | `1.0016x` |
+
+All six DECIDABLE. A `4000x` change in distinct keys moves the ratio `1.11x`.
+The bead's own banked configuration — 300 distinct keys — reads `0.4401x`,
+`2.85x` better than its `0.1544x` headline, and the one-key screening it told
+us not to quote reads `0.4593x`, within `1.11x` of it. The `2.2x` swing the
+bead attributed to key distinctness IS NOT THERE. The bead already recorded
+`0.1544x -> 0.1932x` from its own lever `br-r37-c1-q4wzt`; the remaining
+`2.28x` came from levers landed between 2026-08-16 and HEAD, uncredited,
+because a landed lever silently ages every published claim downstream of it.
+
+### 2. THE REAL AXIS IS NODE-KEY TYPE, AND NETWORKX IS THE CONTROL THAT PROVES IT
+
+Same graph shape (2,000 nodes / 8,000 weighted edges), same call, same
+substrate, 512 distinct edges. The ONLY thing varied is the Python type of the
+node keys. networkx stores a dict-of-dicts and is key-type agnostic, so it is
+the control:
+
+| row | ratio_p50 | CI | nx | fnx | A/A nx | A/A fnx |
+| --- | --- | --- | --- | --- | --- | --- |
+| `DiGraph.edges[u,v]` int keys | **`0.3153x`** | `0.3147-0.3159` | `49.33us` | `156.74us` | `1.0006x` | `0.9998x` |
+| `DiGraph.edges[u,v]` str keys | `0.4300x` | `0.4245-0.4327` | `48.83us` | `113.89us` | `0.9996x` | `0.9999x` |
+| `Graph.edges[u,v]` int keys | `0.4653x` | `0.4643-0.4655` | `49.36us` | `106.13us` | `0.9987x` | `1.0015x` |
+| `Graph.edges[u,v]` str keys | `0.6796x` | `0.6767-0.6817` | `47.11us` | `69.29us` | `0.9984x` | `0.9999x` |
+
+All four DECIDABLE, all eight nulls inside `0.9984-1.0015`.
+
+**networkx is FLAT across key type: `47.11 / 49.36 / 48.83 / 49.33 us`.**
+FrankenNetworkX is not. Holding class fixed, int keys cost `+53%` on `Graph`
+(`69.29 -> 106.13us`) and `+38%` on `DiGraph` (`113.89 -> 156.74us`). The
+deficit therefore is NOT a PyO3 crossing bound, which would be key-type blind
+exactly as networkx is. A separable third of it is FrankenNetworkX's own
+canonicalisation, and it is the largest single unclaimed lever on this surface.
+
+WORST MEASURED ROW ON THE ADJACENCY READ SURFACE, NOW: `DiGraph.edges[u,v]`
+with int node keys, `0.3153x`. The published `0.15x` / `0.161x` figures do not
+reproduce on any fixture measured here.
+
+### 3. MECHANISM, READ FROM SOURCE — THREE STR-ONLY LEVERS AND AN INT SURFACE THAT REACHES NONE
+
+Not inferred from the timings; the admission predicates say it outright.
+
+- `canonical_node_key_in` (`crates/fnx-python/src/lib.rs:287`) serves a stack
+  `ArrayString` with NO allocation, but only inside `if let Ok(s) =
+  key.downcast::<PyString>()`. An int falls to `node_key_to_string`, whose int
+  branch is `i.to_string()` — ONE heap `String` per endpoint per call.
+- `with_node_key_str` (`lib.rs:345`) has the pooled-buffer no-alloc path added
+  by `br-r37-c1-afiq8`, gated the same way, and falls through identically.
+- The index lookaside `br-r37-c1-ptiz2` in `EdgeView::__getitem__`
+  (`crates/fnx-python/src/views.rs:1213`) is gated
+  `u_item.is_exact_instance_of::<PyString>() && v_item.is_exact_instance_of::<PyString>()`.
+  For int endpoints it never probes AND never fills, so the whole lever is
+  dead on that surface — a guard probing a store that is empty by design.
+- The same str-only gate holds `neighbor_key_rows_by_index` shut in
+  `PyGraph::neighbor_key_row` (`lib.rs:2858`).
+
+`PyGraph::__contains__` (`lib.rs:5663`) ALREADY resolves an exact int to a node
+index without building a string, via `node_index_matches_int`
+(`br-r37-c1-04z53`). The int-to-index resolution exists and is proven cheap; it
+is the adjacency readers that never call it. This is the partially-applied-fix
+shape: three levers landed on the str spelling, and the sibling spelling that
+networkx users reach by default — `nx.karate_club_graph()`,
+`nx.gnp_random_graph()`, and every generator in the library yield INT nodes —
+was left on the unoptimised tier.
+
+SIZE OF THE LEVER, from the table above and nothing else: closing the int/str
+gap alone, with no change to the str path, is `0.3153x -> ~0.43x` on `DiGraph`
+and `0.4653x -> ~0.68x` on `Graph`. That is a bound on what key-type parity
+buys, not a promise; it is NOT parity with networkx, which stays a further
+`2.3x` away and is a separate ceiling the bead already attributed to the native
+lookup itself.
+
+NOT TAKEN THIS ROW: no source edit. The lever needs its own before/after with
+BOTH arms built by the same hand, and the build host is degraded (rch 11/13
+workers, one in critical disk pressure).
+
+REPRODUCE:
+
+    .venv/bin/python tests/artifacts/perf/20260825T-edges-getitem-keytype-blackthrush/probe_keytype.py
+    .venv/bin/python tests/artifacts/perf/20260825T-edges-getitem-keytype-blackthrush/probe_keycount.py
+    .venv/bin/python tests/artifacts/perf/20260825T-edges-getitem-keytype-blackthrush/probe_worst.py
+
+Probe sources and full run logs, including the two host-gate refusals, are
+banked beside them.
+
 ## 2026-08-08 OliveDesert FLAG WITHDRAWN: the keyed shape's edge growth is NOT key-assignment — it is shared, and my own `lka35` note over-read one run (`br-r37-c1-80bh7`)
 
 The row below flagged the keyed `(u, v, key, dict)` shape as having the steepest
