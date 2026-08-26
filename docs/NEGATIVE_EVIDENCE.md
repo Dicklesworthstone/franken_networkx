@@ -36591,3 +36591,90 @@ reproduce.
 SUITE. 179 test files over degree, private storage, filtered/restricted views,
 subgraphs, multigraphs, reverse, size, density and self-loops: `9723 passed`,
 `64 skipped`, `6 xfailed`, `10 failed` IDENTICALLY on both arms. `NEW: none`.
+
+## 2026-08-26 br-r37-c1-degscalar KEEP / SELF-SPEEDUP (scalar `G.degree(n)` on assigned storage): `0.0509x` -> `0.1834x` — STILL A 5.5x LOSS, no competitive claim
+
+comparison_class=SELF-SPEEDUP
+campaign_output=false
+decision_gate=median_ci
+cv_role=report_only
+
+bench_elf_sha256=c1adcc19b2ea0ac4b8f3ec3420078cfa0458154e49c5bc22857b3d856b9a9aba (14097424 bytes)
+
+CLASSIFICATION FIRST. `0.1834x` is a 5.5x LOSS against live networkx. This is
+maintenance on the residual the row above left standing; it is NOT campaign
+output and makes no competitive claim.
+
+THE BASELINE IS THE POINT OF THIS ROW. The first six-pass run used the
+PREVIOUS commit as its before arm, which conflated this change with the bulk
+degree path already landed in `br-r37-c1-degnbr` and would have credited this
+commit with `31x` improvements it did not make. It was re-run against the true
+HEAD, verified by SHA rather than assumed: the before arm's `__init__.py`
+hashes `980240ccf228fffb758126f0127efaa698eb6cf6a12677ac3f7836c3c69f63a5`,
+byte-identical to `HEAD:python/franken_networkx/__init__.py`. Against that
+baseline exactly ONE row moves, which is the shape a correctly attributed
+change should have.
+
+MECHANISM, COUNTED BEFORE THE EDIT. `br-r37-c1-degnbr` closed ITERATION to
+near-parity and explicitly recorded that the scalar spelling did not benefit,
+because `_fast_private_degree_pairs` serves `__iter__` and a scalar lookup never
+enters it. Profiling 51,200 scalar calls for call counts only (not as a budget,
+per `cprofile_share_is_not_a_budget`) showed what one integer cost: FOUR
+`AdjacencyView` constructions and TWO degree-view constructions PER CALL.
+`__call__` asked `_nodes_authority()` — which materialises an `AdjacencyView` —
+for a membership test, then built a whole second degree view via
+`type(self)(...)` purely to subscript it once.
+
+`_fast_private_degree` is the scalar twin of the bulk path and carries the same
+eligibility gates, with the row subscripts unguarded for the same reason: that
+is where networkx raises KeyError for a missing node and TypeError for an
+unhashable one. It returns `_PRIVATE_MISSING` rather than None when ineligible,
+because 0 and None are both legitimate-looking degrees and only a sentinel that
+can never be a degree keeps the caller's test unambiguous.
+
+| row (400 nodes / 1600 edges) | HEAD | after | self | fnx us HEAD -> after | nx us |
+|---|---:|---:|---:|---:|---:|
+| private `G.degree(0)` x256 | `0.0509x` | `0.1834x` | `3.60x` | `1008.30` -> `276.52` | `50.87` |
+| private `number_of_edges()` | `0.9712x` | `0.9724x` | `1.00x` | `37.77` -> `38.29` | `37.15` |
+| private `list(G.degree())` | `0.8947x` | `0.8972x` | `1.00x` | `34.74` -> `34.80` | `31.13` |
+| private `DiGraph degree()` | `0.9376x` | `0.9269x` | `0.99x` | `33.00` -> `33.25` | `30.99` |
+| private `MultiGraph degree()` | `0.9818x` | `0.9908x` | `1.01x` | `186.70` -> `185.99` | `184.68` |
+| control: ordinary `list(G.degree())` | `1.3686x` | `1.3768x` | `1.01x` | `22.94` -> `22.98` | `31.41` |
+| control: ordinary `MultiGraph degree()` | `5.0891x` | `4.8892x` | `0.96x` | `39.07` -> `39.16` | `193.02` |
+| control: ordinary `G.degree(weight)` | `2.9252x` | `2.9329x` | `1.00x` | `81.97` -> `81.28` | `239.53` |
+| control: ordinary `len(G.edges)` | `245.2360x` | `242.5493x` | `0.99x` | `0.09` -> `0.09` | `22.50` |
+
+Eight of nine rows flat between `0.96x` and `1.01x`; the four iteration rows are
+carried precisely so a scalar change that quietly disturbed them would show.
+
+SUBSTRATE. Pure-Python A/B: both arms load the SAME extension, so the binary
+noise floor is zero by construction — the `bench_elf_sha256` above is
+byte-identical in the `after20` (HEAD) and `after21` logs. Six passes in
+balanced order, `perf_harness.paired()` with LIVE networkx in the SAME
+invocation, 21 interleaved rounds, `min_of=3`, bootstrap median CI, dual
+arm-specific A/A nulls. ALL 54 observations admitted, nulls nx
+`[0.9965, 1.0032]`, fnx `[0.9962, 1.0037]`. Host-wide quiescence was not
+reachable (peer load 8-11), so the row is gate-bypassed and rests on the dual
+nulls and the balanced order.
+
+THE LOSS THAT REMAINS. `1.08us` per call against networkx's `0.199us`. The
+per-call view CONSTRUCTION is the obvious remaining suspect — `G.degree` is a
+property, so the 256-call loop builds 256 degree views before any of them is
+subscripted — but that has NOT been measured and is therefore recorded as a
+hypothesis, not a finding.
+
+PARITY. 1853 probes across 4 classes x 9 edge shapes x {assigned, assigned with
+a RAGGED `_pred`, ordinary}, comparing values AND exception args per
+`exception_sweep_must_compare_args`, covering scalar `degree(n)` for present /
+absent / string / unhashable nodes, `degree[n]` in the same four shapes,
+`degree(nbunch)`, `degree(weight=)`, scalar-with-weight, `in_degree`/
+`out_degree`, `size()`, `number_of_edges()`, `len(G.degree)` and the subgraph
+spellings. 1802 match. The 51 that do not are ONE pre-existing defect —
+`G.degree(99)` for an absent node returns an empty `DegreeView` where networkx
+raises `NetworkXError` — which reproduces IDENTICALLY on the before arm on both
+assigned AND ordinary storage, and is filed as
+`br-r37-c1-degree-scalar-missing-node-ij0bt` rather than fixed here, since the
+fast paths added here run only when the node IS present.
+
+SUITE. 179 test files: `9723 passed`, `64 skipped`, `6 xfailed`, `10 failed`
+IDENTICALLY on both arms. `NEW: none`.

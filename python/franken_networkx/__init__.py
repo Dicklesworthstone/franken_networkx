@@ -50187,7 +50187,71 @@ class _AssignedPrivateDegreeView:
             return len(self._nodes_authority())
         return len(self._nodes)
 
+    def _raw_nodes_authority(self):
+        """The RAW mapping behind `_nodes_authority()`, or None if ineligible.
+
+        `_nodes_authority()` returns `graph.succ` / `graph.adj`, and building
+        that view is pure overhead when all the caller wants is a membership
+        test.
+        """
+        graph = self._graph
+        if type(graph) not in (Graph, DiGraph, MultiGraph, MultiDiGraph):
+            return None
+        raw = _private_override(
+            graph,
+            _PRIVATE_SUCC_OVERRIDE if graph.is_directed() else _PRIVATE_ADJ_OVERRIDE,
+        )
+        return None if raw is _PRIVATE_MISSING else raw
+
+    def _fast_private_degree(self, node):
+        """br-r37-c1-degscalar: the SCALAR twin of `_fast_private_degree_pairs`.
+
+        The bulk path serves iteration only, so `G.degree(n)` still paid the
+        whole wrapping chain: profiling 51,200 scalar calls showed FOUR
+        `AdjacencyView` constructions and TWO degree-view constructions PER CALL
+        to return one integer.
+
+        Returns `_PRIVATE_MISSING` rather than None when the shape is
+        ineligible, because 0 and None are both legitimate-looking degrees and a
+        sentinel that can never be one keeps the caller's test unambiguous.
+
+        The eligibility gates are exactly those of the bulk path, and the row
+        subscripts are unguarded for the same reason: that is where networkx
+        raises KeyError for a missing node, and TypeError for an unhashable one.
+        """
+        if self._weight is not None:
+            return _PRIVATE_MISSING
+        graph = self._graph
+        if type(graph) not in (Graph, DiGraph, MultiGraph, MultiDiGraph):
+            return _PRIVATE_MISSING
+        multi = graph.is_multigraph()
+        if graph.is_directed():
+            succ = _private_override(graph, _PRIVATE_SUCC_OVERRIDE)
+            pred = _private_override(graph, _PRIVATE_PRED_OVERRIDE)
+            if succ is _PRIVATE_MISSING or pred is _PRIVATE_MISSING:
+                return _PRIVATE_MISSING
+            row = succ[node]
+            prow = pred[node]
+            if multi:
+                return sum(len(kd) for kd in row.values()) + sum(
+                    len(kd) for kd in prow.values()
+                )
+            return len(row) + len(prow)
+        adj = _private_override(graph, _PRIVATE_ADJ_OVERRIDE)
+        if adj is _PRIVATE_MISSING:
+            return _PRIVATE_MISSING
+        row = adj[node]
+        if multi:
+            # An undirected self-loop contributes its parallel-edge count TWICE.
+            return sum(len(kd) for kd in row.values()) + (
+                len(row[node]) if node in row else 0
+            )
+        return len(row) + (node in row)
+
     def __getitem__(self, node):
+        fast = self._fast_private_degree(node)
+        if fast is not _PRIVATE_MISSING:
+            return fast
         return self._degree(node)
 
     def __call__(self, nbunch=None, weight=None):
@@ -50197,6 +50261,22 @@ class _AssignedPrivateDegreeView:
             return self
         if nbunch is None:
             return type(self)(self._graph, weight=weight)
+        # br-r37-c1-degscalar: answer a scalar node WITHOUT building anything.
+        # The route below asks `_nodes_authority()` (an AdjacencyView) for
+        # membership and then constructs a whole second degree view just to
+        # subscript it once. Both are skipped when the raw mapping can answer;
+        # if it cannot, the original route runs unchanged.
+        if weight is None and self._weight is None:
+            raw = self._raw_nodes_authority()
+            if raw is not None:
+                try:
+                    present = nbunch in raw
+                except TypeError:
+                    present = False
+                if present:
+                    fast = self._fast_private_degree(nbunch)
+                    if fast is not _PRIVATE_MISSING:
+                        return fast
         # br-r37-c1-vbe1o: the MAPPING decides whether a single argument is a
         # node, exactly as in nx's `nbunch in self._nodes`. Asking the node view
         # returned a whole DegreeView where nx returns an int — a RETURN-TYPE
