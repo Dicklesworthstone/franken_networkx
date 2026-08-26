@@ -1,0 +1,60 @@
+--- a/crates/fnx-python/src/views.rs
++++ b/crates/fnx-python/src/views.rs
+@@ -2018,7 +2018,7 @@
+             }
+         };
+         if let Some(u_index) = u_index
+-            && v.is_exact_instance_of::<PyString>()
++            && node_key_can_use_index_lookaside(v)
+             && let Some(v_index) = g.cached_exact_string_node_index(py, v)?
+             && let Some(attrs) = g.cached_edge_py_attrs_by_index(py, u_index, v_index)
+         {
+@@ -2052,7 +2052,7 @@
+         // about identity. Only when both indices are known; anything else keeps
+         // paying the string path.
+         if let Some(u_index) = u_index
+-            && v.is_exact_instance_of::<PyString>()
++            && node_key_can_use_index_lookaside(v)
+             && let Some(v_index) = g.cached_exact_string_node_index(py, v)?
+         {
+             g.remember_edge_py_attrs_by_index(py, u_index, v_index, &attrs);
+--- a/crates/fnx-python/src/digraph.rs
++++ b/crates/fnx-python/src/digraph.rs
+@@ -4159,7 +4159,7 @@
+         let mut endpoints = None;
+         if let Some((seq, row_index)) = self.node_pos
+             && seq == g.nodes_seq
+-            && v.is_exact_instance_of::<PyString>()
++            && crate::node_key_can_use_index_lookaside(v)
+             && let Some(other_index) = g.cached_exact_string_node_index(py, v)?
+         {
+             endpoints = Some(match self.kind {
+@@ -4203,7 +4203,7 @@
+         // the renumbering that a node removal causes.
+         if let Some((seq, row_index)) = self.node_pos
+             && seq == g.nodes_seq
+-            && v.is_exact_instance_of::<PyString>()
++            && crate::node_key_can_use_index_lookaside(v)
+             && let Some(other_index) = g.cached_exact_string_node_index(py, v)?
+         {
+             let (source_idx, target_idx) = match self.kind {
+--- a/crates/fnx-python/src/lib.rs
++++ b/crates/fnx-python/src/lib.rs
+@@ -7656,7 +7656,7 @@
+         let mut endpoints = None;
+         if let Some((seq, u_index)) = self.node_pos
+             && seq == g.nodes_seq
+-            && v.is_exact_instance_of::<PyString>()
++            && node_key_can_use_index_lookaside(v)
+             && let Some(v_index) = g.cached_exact_string_node_index(py, v)?
+         {
+             endpoints = Some((seq, u_index, v_index));
+@@ -7706,7 +7706,7 @@
+         // path; before that it resolved both positions back to names.
+         if let Some((seq, u_index)) = self.node_pos
+             && seq == g.nodes_seq
+-            && v.is_exact_instance_of::<PyString>()
++            && node_key_can_use_index_lookaside(v)
+             && let Some(v_index) = g.cached_exact_string_node_index(py, v)?
+         {
+             return Ok(g.inner.has_edge_by_indices(u_index, v_index));

@@ -37,6 +37,120 @@ admission history, host, scope source, process affinity, monitored CPU set,
 checked-window count, maximum observed busy fraction, and maximum consecutive
 busy-window count.
 
+## 2026-08-26 BlackThrush SURVEY + NO SOURCE EDIT, A/B REFUSED: `G.adj[u][v]` is the worst read on ALL FOUR classes (`0.3126x`-`0.4825x`); a FOURTH set of str-only gates found on the live row subscript, and its A/B is NOT MEASURABLE on this host today (`br-r37-c1-ktsxn`)
+
+comparison_class=INCUMBENT
+incumbent=networkx
+incumbent_same_invocation=true
+incumbent_ratio=0.3126x
+campaign_output=false
+decision_gate=median_ci
+cv_role=report_only
+
+Ranking survey of the whole adjacency READ surface after the int-key
+canonicalization + index lookaside lever landed in `views.rs` (`acb088e3a`),
+`digraph.rs` (`ab94f800f`) and `lib.rs` (`da0471d24`). Four public classes x two
+node-key types x five read spellings.
+
+ELF `bench_elf_sha256=6415ad6cafc4fdada536ec5267f5bd15c52691d3eef0f8e4e702f4cc9e93d3f5`,
+read from INSIDE the benchmark process, corresponding to HEAD `da0471d24`.
+nx 3.6.1 (genuine upstream, module asserted), CPython 3.13.7,
+LOCAL:thinkstation1, loadavg 17-21 — the quietest conditions of the campaign.
+Substrate `perf_harness.paired()`: arms interleaved inside ONE loop, order
+alternated per round, 21 rounds, min-of-3, bootstrap median CI, byte-parity
+proof, dual arm-specific A/A nulls.
+
+DUAL A/A NULLS, RECORDED AND POSITIVE. Across the 36 decidable rows the
+networkx A/A null spans `0.9971x` to `1.0080x` and the FrankenNetworkX A/A null
+spans `0.9946x` to `1.0043x`, so every null control brackets `1.0x` inside a
+narrow interval.
+
+### Worst losses, decidable rows only
+
+| row | ratio | nx ns | fnx ns |
+|---|---|---|---|
+| `MultiDiGraph` int `adj[u][v]` | **`0.3126x`** | `249.4` | `798.4` |
+| `MultiGraph` str `adj[u][v]` | `0.3132x` | `246.2` | `786.2` |
+| `MultiGraph` int `adj[u][v]` | `0.3150x` | `243.8` | `775.7` |
+| `MultiDiGraph` str `adj[u][v]` | `0.3246x` | `245.1` | `761.2` |
+| `DiGraph` str `adj[u][v]` | `0.3296x` | `153.5` | `465.9` |
+| `DiGraph` int `adj[u][v]` | `0.3461x` | `160.8` | `462.1` |
+| `MultiDiGraph` int `get_edge_data` | `0.3664x` | `82.6` | `234.3` |
+| `Graph` int `adj[u][v]` | `0.4568x` | `155.7` | `341.0` |
+| `Graph` str `adj[u][v]` | `0.4825x` | `150.6` | `312.4` |
+
+`adj[u][v]` IS THE WORST OP ON EVERY CLASS, and it is the only spelling that is
+worst everywhere. For contrast, on the same fixtures `neighbors` reads
+`0.7961x`-`0.8933x` and `has_node` reads `0.7353x`-`0.7890x`; `get_edge_data` is
+`0.5027x`-`0.6124x` except on `MultiDiGraph`. The four `edges[u,v]` rows on the
+multigraph classes are NOT reported: the probe passed 2-tuples to a view that
+requires a key, which is a bug in my probe, not a product defect.
+
+### What the binding types say, from an MRO probe on the built artifact
+
+    Graph          adj=AdjacencyView(Python fn)   row=AtlasView          row.__getitem__=NATIVE C slot
+    DiGraph        adj=AdjacencyView(Python fn)   row=AtlasView          row.__getitem__=Python fn
+    MultiGraph     adj=MultiAdjacencyView(Py fn)  row=AdjacencyView      row.__getitem__=Python fn
+    MultiDiGraph   adj=MultiAdjacencyView(Py fn)  row=AdjacencyView      row.__getitem__=Python fn
+
+`_fnx.AdjacencyView`, `_fnx.DiAdjacencyView` and `_fnx.DiAtlasView` are all
+REGISTERED NATIVE CLASSES THAT NOTHING REACHES: no public expression
+(`G.adj`, `G.succ`, `G.pred`, `G[u]`) returns any of them. Only `_fnx.AtlasView`
+is live, and only as `Graph`'s row. That is why `Graph` is the best `adj[u][v]`
+row on the board and the other three are the worst.
+
+### REFUTED BEFORE IT COST ANYONE A DAY: do NOT route to the dead classes as they stand
+
+`DiAtlasView::__getitem__` (`digraph.rs:18755`) is STALE. It calls
+`node_key_to_string` (a heap `String` per subscript), then `inner.has_edge`,
+then `materialize_edge_py_attrs` — hashing the endpoints three times — and it
+condemns the whole graph with `mark_edges_dirty()` rather than the narrow
+`mark_edge_exposed`. That is precisely the path the three landed commits above
+removed. Routing `DiGraph.adj` onto it as written would very likely REGRESS
+against the current Python `AtlasView`, which calls the already-widened
+`_fnx_edge_attr_dict_fast`. The native-routing lever therefore needs the dead
+class MODERNISED FIRST, and is two changes, not one.
+
+### A FOURTH set of str-only gates, found and NOT shipped
+
+The three landed commits censused the TWO-ENDPOINT gate shape. The row subscript
+has a ONE-ENDPOINT shape (`self.node` is the row; only `v` is tested) that the
+census structurally could not see, and it is still exact-`str` only at six live
+sites: `AtlasView::__getitem__` probe+fill (`views.rs:2021,2055` — this is
+`Graph`'s `G.adj[u][v]` and `G[u][v]`), `MultiAtlasView::__getitem__` and
+`__contains__` (`lib.rs:7659,7709`), and `MultiDiAtlasView::__getitem__` and
+`__contains__` (`digraph.rs:4162,4206`).
+
+The survey is consistent with the gate being live and binding: `Graph` int
+`adj[u][v]` is SLOWER than `Graph` str (`341.0` vs `312.4 ns/call`, `0.4568x` vs
+`0.4825x`) — the only place in the survey where int loses to str, which is the
+signature of an int key missing a lookaside its str sibling reaches.
+
+THE PATCH IS WRITTEN, COMPILES, AND IS NOT LANDED. It is banked beside this row
+as `PROPOSED_rowsubscript_gates.patch` against `da0471d24`. Built, it passes the
+int-key parity sweep against live networkx and 1332 tests over the touched
+surface with no new failures.
+
+### Why there is no ratio for it: THE A/B IS REFUSED, NOT OMITTED
+
+Four passes in arm order `before, after, after, before`. THREE of the four
+returned broken A/A nulls — pass 1 `nx [0.1556, 7.1635]`, pass 3
+`nx [0.1563, 8.1346] fnx [0.1377, 8.1468]`, pass 4 `fnx [0.9968, 7.9480]` —
+against a host that ran between loadavg 120 and 165 with peer `criterion`
+benchmarks holding ~55 cores. Filtering to the per-row observations whose BOTH
+nulls sat inside `0.98x-1.02x` did not rescue it: the surviving CONTROLS then
+spanned `0.921x` to `1.720x`, and a control that moves `1.72x` under a change
+that cannot touch it is measuring the host, not the code. Absolute times were
+~1.6x inflated against the quiet survey above (`DiGraph` int `adj[u][v]`
+`462.1 ns` quiet vs `749-755 ns` contaminated).
+
+No ratio is claimed for the patch. The contaminated run is banked as
+`REFUSED_ab_contaminated.log` rather than deleted, so the refusal is auditable.
+
+REPRODUCE THE SURVEY:
+
+    .venv/bin/python tests/artifacts/perf/20260826T-adjacency-read-worst-loss-survey-blackthrush/survey_reads.py
+
 ## 2026-08-25 BlackThrush SHIPPED, STILL A LOSS: the int-key lookaside reaches `PyGraph`/`PyMultiGraph` — `Graph.get_edge_data()` **`0.3283x` -> `0.5909x`** (`1.75x` self); `adj[u][v]` did NOT move and the AtlasView frame is now the dominant cost (`br-r37-c1-ktsxn`)
 
 comparison_class=SELF-SPEEDUP

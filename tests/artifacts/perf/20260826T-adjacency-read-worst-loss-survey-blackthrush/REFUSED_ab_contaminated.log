@@ -1,0 +1,12 @@
+===== pass 1 arm=before4 =====
+arm=before4 (worst first):
+decidable 9/12; nulls nx [0.1556,7.1635] fnx [0.9956,8.1777]
+===== pass 2 arm=after4 =====
+arm=after4 (worst first):
+decidable 12/12; nulls nx [0.9921,1.0146] fnx [0.9941,1.0107]
+===== pass 3 arm=after4 =====
+arm=after4 (worst first):
+decidable 4/12; nulls nx [0.1563,8.1346] fnx [0.1377,8.1468]
+===== pass 4 arm=before4 =====
+arm=before4 (worst first):
+decidable 11/12; nulls nx [0.9950,1.0062] fnx [0.9968,7.9480]
