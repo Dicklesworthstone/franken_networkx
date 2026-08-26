@@ -8846,6 +8846,10 @@ _FILTERED_DEGREE_VIEW_CLASSES = {}
 # building and catching an exception whose outcome was known from the type.
 _NEVER_HASHABLE_TYPES = frozenset({list, set, dict, bytearray})
 
+# br-r37-c1-degderive: exact container types an nbunch is almost always one
+# of. Exact-type membership, so a subclass keeps the general path.
+_PLAIN_NBUNCH_CONTAINERS = frozenset({list, tuple, set, frozenset})
+
 # br-r37-c1-degchain: bound once; the per-element walk then happens in C.
 _chain_from_iterable = _itertools.chain.from_iterable
 
@@ -49944,6 +49948,38 @@ class _AssignedPrivateDegreeView:
             self._fast_map = None
             self._fast_pred = None
 
+    def _derive(self, nodes=None, weight=None):
+        """A sibling view over the SAME graph, reusing this one's snapshot.
+
+        br-r37-c1-degderive: `__call__` builds a fresh view on every
+        `G.degree(nbunch)` / `G.degree(weight=...)`, and `__init__` re-derives a
+        snapshot -- the class test, `is_directed()`, `is_multigraph()`, and two
+        instance-dict lookups for the override mappings -- that THIS view
+        already holds for that very graph. Measured: 392.9ns for the full
+        `__init__` against 148.1ns for copying, so 244.8ns a call, about 10% of
+        the whole `list(G.degree(nbunch))` row.
+
+        Copying is exact, not approximate. Every snapshot field is a property of
+        the GRAPH, not of the view: its class, its directedness, its
+        multi-ness, and -- since br-r37-c1-degwt made the snapshot
+        weight-independent -- the mappings, which is why a different `weight`
+        may reuse them. And since br-r37-c1-degbind a view is deliberately BOUND
+        to the mappings it was built with, so handing the child the parent's
+        mappings is the same contract networkx has: a child made from a stale
+        parent is stale in exactly the way its parent is, while a freshly read
+        `G.degree` rebuilds because the assignment funnel drops the memoised
+        view.
+        """
+        sibling = object.__new__(type(self))
+        sibling._graph = self._graph
+        sibling._nodes = nodes
+        sibling._weight = weight
+        sibling._fast_directed = self._fast_directed
+        sibling._fast_multi = self._fast_multi
+        sibling._fast_map = self._fast_map
+        sibling._fast_pred = self._fast_pred
+        return sibling
+
     def _nodes_authority(self):
         """nx's ``_nodes`` for a DegreeView: ``self._succ``.
 
@@ -50525,7 +50561,7 @@ class _AssignedPrivateDegreeView:
         if nbunch is None and weight == self._weight:
             return self
         if nbunch is None:
-            return type(self)(self._graph, weight=weight)
+            return self._derive(weight=weight)
         # br-r37-c1-degscalar: answer a scalar node WITHOUT building anything.
         # The route below asks `_nodes_authority()` (an AdjacencyView) for
         # membership and then constructs a whole second degree view just to
@@ -50561,7 +50597,7 @@ class _AssignedPrivateDegreeView:
             authority = self._nodes_authority()
         try:
             if nbunch in authority:
-                return type(self)(self._graph, weight=weight)[nbunch]
+                return self._derive(weight=weight)[nbunch]
         except TypeError:
             pass
         # br-r37-c1-vbe1o: nx builds this list as `list(G.nbunch_iter(nbunch))`,
@@ -50580,11 +50616,18 @@ class _AssignedPrivateDegreeView:
         # The single-node rule is what the plain `for node in nbunch` was missing:
         # it split a STRING argument into characters, so `G.degree('ZZ')` gave an
         # empty view where nx gives a view over ['ZZ'] that raises on lookup.
-        if isinstance(nbunch, (str, bytes)) or not hasattr(nbunch, "__iter__"):
+        # br-r37-c1-degderive: settle the common containers by exact type first.
+        # The pair below costs 61.1ns + 52.1ns; the frozenset test costs 48.9ns
+        # and answers for list/tuple/set/frozenset, which is what an nbunch
+        # almost always is. Anything else -- a str, an int, a generator, a
+        # range, a subclass -- falls through to the original test unchanged.
+        if type(nbunch) in _PLAIN_NBUNCH_CONTAINERS:
+            nodes = [node for node in nbunch if node in authority]
+        elif isinstance(nbunch, (str, bytes)) or not hasattr(nbunch, "__iter__"):
             nodes = [nbunch] if nbunch in self._graph else []
         else:
             nodes = [node for node in nbunch if node in authority]
-        return type(self)(self._graph, nodes=nodes, weight=weight)
+        return self._derive(nodes=nodes, weight=weight)
 
     def __repr__(self):
         # br-r37-c1-snvrepr: nx's subgraph DegreeView /
