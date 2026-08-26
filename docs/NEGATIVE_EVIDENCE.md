@@ -36901,3 +36901,113 @@ silently truncating an earlier run to zero tests and reporting no failures —
 it resolves `scripts/` relative to the package's grandparent, which a shadow
 tree lacks. Fixed by symlinking, not by dropping the file: the first "0 FAILED"
 reading was a FALSE GREEN and is recorded here so it is not repeated.)
+
+## 2026-08-26 br-r37-c1-degfuse KEEP / SELF-SPEEDUP (scalar `G.degree(n)` resolves the override ONCE, not twice): `0.2420x` -> `0.3693x` — STILL A 2.7x LOSS, no competitive claim
+
+comparison_class=SELF-SPEEDUP
+campaign_output=false
+decision_gate=median_ci
+cv_role=report_only
+
+bench_elf_sha256=c1adcc19b2ea0ac4b8f3ec3420078cfa0458154e49c5bc22857b3d856b9a9aba (14097424 bytes)
+
+CLASSIFICATION FIRST. `0.3693x` is a 2.7x LOSS against live networkx.
+Maintenance, not campaign output, no competitive claim.
+
+WHY THIS ROW. The accessor family (`nodes`/`edges`/`degree`, all ~`0.14x`) is
+BLOCKED on a design ruling under
+`br-r37-c1-cached-descriptor-excludes-private-storage-2nrff`, so the worst
+UNBLOCKED measured loss on this surface was the scalar `G.degree(n)`.
+
+MECHANISM, DECOMPOSED BEFORE THE EDIT by removing one thing at a time over 256
+calls:
+
+| variant | nx us | fnx us | ratio |
+|---|---:|---:|---:|
+| FULL `[g.degree(i) for i in N]` | `62.55` | `255.10` | `0.2452x` |
+| HOISTED `dv(i)` — no accessor | `53.46` | `189.05` | `0.2828x` |
+| SUBSCRIPT `dv[i]` — `__getitem__` only | `28.11` | `96.01` | `0.2928x` |
+| accessor only | `5.30` | `37.44` | `0.1416x` |
+| CEILING — `len(raw[i]) + (i in raw[i])` | | `17.76` | |
+
+`__call__` cost `93us` MORE than `__getitem__` for the same answer. The reason
+was duplicated work, not work: `__call__` fetched the raw mapping through a
+helper to run the membership test, then called `_fast_private_degree`, which
+resolved the SAME override a second time. `probe=True` folds the membership test
+into the one place the mapping is already in hand, and the helper is deleted.
+The `_private_override` call is likewise inlined to `graph.__dict__.get(...)`,
+for the reason `_private_aware_contains` already documents: on a per-call path
+that helper is a whole interpreter frame to do one dict lookup.
+
+The probe deliberately touches ONLY the successor mapping on a directed graph,
+so a node an assigned `_succ` carries but `_pred` does not still raises from the
+unguarded `pred[node]`, exactly as networkx does (`br-r37-c1-vbe1o`).
+
+THE FIRST RUN WAS DISCARDED AS CONTAMINATED, AND IS PUBLISHED HERE ANYWAY.
+Peer load reached `206.15 / 539.70 / 638.08` during it. It gave the right answer
+for the target row (`0.2430x` -> `0.3680x`, `1.51x`) but it is not the certified
+number, because its CONTROLS moved: ordinary `G.degree` accessor `0.8706x` ->
+`0.7963x` (`0.91x`) and ordinary `len(G.edges)` `0.94x`, on paths this change
+cannot touch, with 10 of 96 observations dropped and fnx nulls down to `0.9318`.
+A 9% control swing is common-mode load artifact
+(`flattering_number_under_load_is_a_recheck`), so the run was repeated after
+waiting for load to fall to `22.02`.
+
+| row (400 nodes / 1600 edges) | HEAD | after | self | fnx us HEAD -> after | nx us |
+|---|---:|---:|---:|---:|---:|
+| private `G.degree(0)` x256 | `0.2420x` | `0.3693x` | `1.53x` | `209.28` -> `135.68` | `50.59` |
+| private `G.nodes` accessor | `0.1427x` | `0.1354x` | `0.95x` | `33.85` -> `34.23` | `4.67` |
+| private `G.degree` accessor | `0.1446x` | `0.1425x` | `0.99x` | `34.27` -> `34.32` | `4.88` |
+| private `DiGraph.degree` accessor | `0.1438x` | `0.1527x` | `1.06x` | `34.19` -> `34.24` | `5.05` |
+| private `G.edges` accessor | `0.1465x` | `0.1468x` | `1.00x` | `33.91` -> `33.61` | `4.97` |
+| private `number_of_edges()` | `0.9657x` | `0.9584x` | `0.99x` | `39.13` -> `37.48` | `36.26` |
+| private `list(G.degree())` | `0.9173x` | `0.9191x` | `1.00x` | `34.03` -> `33.96` | `31.25` |
+| private `DiGraph degree()` | `0.9487x` | `0.9431x` | `0.99x` | `32.81` -> `32.70` | `30.84` |
+| private `MultiGraph degree()` | `1.0149x` | `1.0237x` | `1.01x` | `187.19` -> `186.55` | `190.71` |
+| control: ordinary `G.nodes` accessor | `0.8639x` | `0.8353x` | `0.97x` | `5.49` -> `5.73` | `4.79` |
+| control: ordinary `G.degree` accessor | `0.8535x` | `0.8416x` | `0.99x` | `5.75` -> `5.94` | `4.87` |
+| control: ordinary `G.edges` accessor | `0.8779x` | `0.8697x` | `0.99x` | `5.72` -> `5.74` | `5.06` |
+| control: ordinary `list(G.degree())` | `1.3780x` | `1.3619x` | `0.99x` | `23.02` -> `23.06` | `31.68` |
+| control: ordinary `MultiGraph degree()` | `4.7689x` | `5.0274x` | `1.05x` | `39.54` -> `39.04` | `187.80` |
+| control: ordinary `G.degree(weight)` | `3.0192x` | `3.0103x` | `1.00x` | `80.43` -> `79.95` | `242.14` |
+| control: ordinary `len(G.edges)` | `249.1051x` | `246.2042x` | `0.99x` | `0.09` -> `0.09` | `22.67` |
+
+REPLICATION IS THE DISCRIMINATOR, not the null: the target row read `1.51x` in
+the contaminated run and `1.53x` in the clean one, from independently built
+arms and independent fixtures, while the control that misbehaved under load
+returned to `0.99x`. Every other row is flat between `0.95x` and `1.06x`.
+
+SUBSTRATE. Pure-Python A/B, both arms loading the SAME extension so the binary
+noise floor is zero by construction — the `bench_elf_sha256` above is
+byte-identical in the `head25` and `after25` logs. Six passes in balanced order
+`before,after,after,before,before,after`, `perf_harness.paired()` with LIVE
+networkx in the SAME invocation, 21 interleaved rounds, `min_of=3`, bootstrap
+median CI, dual arm-specific A/A nulls. 94 of 96 observations admitted with both
+nulls inside `[0.98, 1.02]`; nulls nx `[0.9860, 1.0072]`, fnx
+`[0.9685, 1.0060]`. Host-wide quiescence was not reachable, so the row is
+gate-bypassed.
+
+THE LOSS THAT REMAINS. `135.68us` for 256 calls is `0.53us` each against
+networkx's `0.198us`. The accessor is `0.134us` of that and is BLOCKED; the
+`__call__` + `__getitem__` remainder is `~0.40us` against a measured raw ceiling
+of `0.069us`. What is left is interpreter frames — two Python calls and the
+eligibility re-derivation (`type(graph) not in (...)`, `is_directed()`,
+`is_multigraph()`) on every call, where networkx does one dict lookup. Hoisting
+that eligibility into `__init__` is the obvious next step and is NOT taken here,
+because the view is also constructed per call by the nbunch path, so it would
+move cost from one row onto another that this probe does not carry — that needs
+its own control before it is worth measuring.
+
+PARITY. Unchanged between arms on both sweeps: the 1853-probe degree sweep
+(1802 match; the same 51 are `br-r37-c1-degree-scalar-missing-node-ij0bt`) and
+the 8-route staleness stress probe (the same 4 are
+`br-r37-c1-user-assigned-view-survives-adj-reset-aegas`).
+
+SUITE. The FULL Python suite, 1062 files, both arms: `63928 passed`, `1479
+skipped`, `23 failed` IDENTICALLY on both arms, `NEW: none`. The xfail/xpass
+counts differ by one (`48 xfailed, 1 xpassed` vs `49 xfailed`) and that was
+CHECKED rather than assumed: the test is
+`test_hits_structural_invariants[star-5]`, whose own xfail reason records that
+`scipy.sparse.linalg.svds` returns different basis vectors across calls on a
+star graph. Re-running both arms flipped which arm xpassed, confirming it is
+that documented non-determinism and not this change.

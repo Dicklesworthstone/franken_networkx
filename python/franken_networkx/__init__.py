@@ -50225,61 +50225,73 @@ class _AssignedPrivateDegreeView:
             return len(self._nodes_authority())
         return len(self._nodes)
 
-    def _raw_nodes_authority(self):
-        """The RAW mapping behind `_nodes_authority()`, or None if ineligible.
-
-        `_nodes_authority()` returns `graph.succ` / `graph.adj`, and building
-        that view is pure overhead when all the caller wants is a membership
-        test.
-        """
-        graph = self._graph
-        if type(graph) not in (Graph, DiGraph, MultiGraph, MultiDiGraph):
-            return None
-        raw = _private_override(
-            graph,
-            _PRIVATE_SUCC_OVERRIDE if graph.is_directed() else _PRIVATE_ADJ_OVERRIDE,
-        )
-        return None if raw is _PRIVATE_MISSING else raw
-
-    def _fast_private_degree(self, node):
+    def _fast_private_degree(self, node, probe=False):
         """br-r37-c1-degscalar: the SCALAR twin of `_fast_private_degree_pairs`.
 
-        The bulk path serves iteration only, so `G.degree(n)` still paid the
+        The bulk path serves iteration only, so `G.degree(n)` used to pay the
         whole wrapping chain: profiling 51,200 scalar calls showed FOUR
         `AdjacencyView` constructions and TWO degree-view constructions PER CALL
         to return one integer.
+
+        br-r37-c1-degfuse: ONE override resolution now serves both the
+        membership test and the count. `__call__` used to fetch the raw mapping
+        through a helper and then call this method, which resolved the SAME
+        override a second time -- `probe=True` folds that membership test in
+        here, where the mapping is already in hand, and the helper is gone. The
+        `_private_override` call is likewise inlined to `graph.__dict__.get(...)`
+        for the reason `_private_aware_contains` gives: on a per-call path that
+        helper is a whole extra interpreter frame to do one dict lookup.
+
+        `probe=True` also means a scalar MISS is not an error -- it returns the
+        sentinel so `__call__` falls through to the nbunch rules -- whereas the
+        subscript form must let the miss raise, which is what networkx does.
 
         Returns `_PRIVATE_MISSING` rather than None when the shape is
         ineligible, because 0 and None are both legitimate-looking degrees and a
         sentinel that can never be one keeps the caller's test unambiguous.
 
-        The eligibility gates are exactly those of the bulk path, and the row
-        subscripts are unguarded for the same reason: that is where networkx
-        raises KeyError for a missing node, and TypeError for an unhashable one.
+        The row subscripts stay unguarded: that is where networkx raises
+        KeyError for a missing node and TypeError for an unhashable one. In
+        particular the DIRECTED branch probes only the SUCCESSOR mapping, so a
+        node an assigned `_succ` carries but `_pred` does not still raises from
+        `pred[node]`, exactly as networkx does (br-r37-c1-vbe1o).
         """
+        missing = _PRIVATE_MISSING
         if self._weight is not None:
-            return _PRIVATE_MISSING
+            return missing
         graph = self._graph
         if type(graph) not in (Graph, DiGraph, MultiGraph, MultiDiGraph):
-            return _PRIVATE_MISSING
-        multi = graph.is_multigraph()
+            return missing
+        storage = graph.__dict__
         if graph.is_directed():
-            succ = _private_override(graph, _PRIVATE_SUCC_OVERRIDE)
-            pred = _private_override(graph, _PRIVATE_PRED_OVERRIDE)
-            if succ is _PRIVATE_MISSING or pred is _PRIVATE_MISSING:
-                return _PRIVATE_MISSING
+            succ = storage.get(_PRIVATE_SUCC_OVERRIDE, missing)
+            pred = storage.get(_PRIVATE_PRED_OVERRIDE, missing)
+            if succ is missing or pred is missing:
+                return missing
+            if probe:
+                try:
+                    if node not in succ:
+                        return missing
+                except TypeError:
+                    return missing
             row = succ[node]
             prow = pred[node]
-            if multi:
+            if graph.is_multigraph():
                 return sum(len(kd) for kd in row.values()) + sum(
                     len(kd) for kd in prow.values()
                 )
             return len(row) + len(prow)
-        adj = _private_override(graph, _PRIVATE_ADJ_OVERRIDE)
-        if adj is _PRIVATE_MISSING:
-            return _PRIVATE_MISSING
+        adj = storage.get(_PRIVATE_ADJ_OVERRIDE, missing)
+        if adj is missing:
+            return missing
+        if probe:
+            try:
+                if node not in adj:
+                    return missing
+            except TypeError:
+                return missing
         row = adj[node]
-        if multi:
+        if graph.is_multigraph():
             # An undirected self-loop contributes its parallel-edge count TWICE.
             return sum(len(kd) for kd in row.values()) + (
                 len(row[node]) if node in row else 0
@@ -50305,16 +50317,9 @@ class _AssignedPrivateDegreeView:
         # subscript it once. Both are skipped when the raw mapping can answer;
         # if it cannot, the original route runs unchanged.
         if weight is None and self._weight is None:
-            raw = self._raw_nodes_authority()
-            if raw is not None:
-                try:
-                    present = nbunch in raw
-                except TypeError:
-                    present = False
-                if present:
-                    fast = self._fast_private_degree(nbunch)
-                    if fast is not _PRIVATE_MISSING:
-                        return fast
+            fast = self._fast_private_degree(nbunch, probe=True)
+            if fast is not _PRIVATE_MISSING:
+                return fast
         # br-r37-c1-vbe1o: the MAPPING decides whether a single argument is a
         # node, exactly as in nx's `nbunch in self._nodes`. Asking the node view
         # returned a whole DegreeView where nx returns an int — a RETURN-TYPE
