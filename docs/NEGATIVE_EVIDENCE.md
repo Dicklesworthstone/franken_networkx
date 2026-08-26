@@ -36492,3 +36492,102 @@ here, because it changes a raising path and is not this lever.
 SUITE. 118 test files touching private storage, edge views, edges, counts,
 self-loops, nbunch and adjacency: `4165 passed`, `6 skipped`, `14 xfailed`, and
 `5 failed` IDENTICALLY on both arms. `NEW: none`.
+
+## 2026-08-26 br-r37-c1-degnbr KEEP / SELF-SPEEDUP (assigned-private `DegreeView` counts off the RAW mappings): `number_of_edges()` `0.0305x` -> `0.9764x`, `DiGraph degree()` `0.0174x` -> `0.9324x` — STILL A LOSS, no competitive claim
+
+comparison_class=SELF-SPEEDUP
+campaign_output=false
+decision_gate=median_ci
+cv_role=report_only
+
+bench_elf_sha256=c1adcc19b2ea0ac4b8f3ec3420078cfa0458154e49c5bc22857b3d856b9a9aba (14097424 bytes)
+
+CLASSIFICATION FIRST. Every row below remains BELOW `1.0x` against live
+networkx. This is maintenance that closes a large loss to near-parity; it is
+NOT campaign output and makes no competitive claim. The best row, `0.9764x`,
+is a loss.
+
+HOW THIS ROW WAS FOUND. It was the residual named in the `br-r37-c1-ktsxn` row
+immediately above: after that change `number_of_edges()` was UNCHANGED at
+`0.0303x` and became the worst measurement on the surface. Under assigned
+private storage it deliberately DERIVES from the degree view
+(`int(sum(d for _, d in self.degree()) // 2)`) rather than counting the edge
+view, because counting disagreed with networkx on the directed classes
+(`br-r37-c1-vbe1o`). So the lever was never the edge view — it was
+`_AssignedPrivateDegreeView`.
+
+MECHANISM, COUNTED BEFORE THE EDIT. cProfile was used for CALL COUNTS only, not
+as a budget (`cprofile_share_is_not_a_budget`). Iterating 400 nodes 50 times
+made `160,000` calls to `_visible_edge_count` — EIGHT per node on a 4-degree
+graph — and `180,150` class-predicate reads. Two separate defects:
+
+1. A Python method call PER NEIGHBOUR to compute a CONSTANT. On a simple graph
+   `_visible_edge_count` returns 1 unconditionally, so the whole per-neighbour
+   walk is the row length plus the self-loop bump, which is exactly what
+   networkx's `DegreeView` yields.
+
+2. GETTING THE ROW COST MORE THAN COUNTING IT. `_nodes_authority()` and
+   `_out_degree` both went through `graph.adj` / `graph.succ`, whose view wraps
+   a fresh row object per subscript. Measured on the same 400 nodes: the `.adj`
+   property alone `225.69us`, the subscripts another `194.07us`, against
+   `957.13us` for the entire row. Counting the same 400 pairs off the raw dicts
+   costs `34.02us` where networkx takes `32.00us` — so the executable ceiling
+   was established BEFORE the edit, and it is parity, not a win.
+
+The fix is a narrow bulk path, `_fast_private_degree_pairs`, taken only for a
+CONCRETE graph with assigned storage, unweighted, no nbunch. A
+`_FilteredGraphView` is excluded (its answer needs the visibility machinery and
+it already has its own bulk path); the directed branch iterates SUCCESSOR keys
+and subscripts the predecessor mapping WITHOUT a guard, on purpose, because
+that unguarded subscript is where networkx raises KeyError for a node an
+assigned `_succ` carries but `_pred` does not.
+
+SUBSTRATE. Pure-Python A/B: both arms load the SAME extension, so the binary
+noise floor is zero by construction rather than by assumption — the recorded
+`bench_elf_sha256` above is byte-identical in the `before19` and `after20`
+logs. Six passes in balanced order `before,after,after,before,before,after`,
+`perf_harness.paired()` with LIVE networkx in the SAME invocation, 21
+interleaved rounds, `min_of=3`, bootstrap median CI, dual arm-specific A/A
+nulls. 53 of 54 observations admitted with both nulls inside `[0.98, 1.02]`;
+nulls nx `[0.9978, 1.0027]`, fnx `[0.9951, 1.0044]`. Host-wide quiescence was
+NOT reachable (peer load 12-20), so the row is gate-bypassed and rests on the
+dual nulls and the balanced order.
+
+| row (400 nodes / 1600 edges) | HEAD | after | self | fnx us HEAD -> after | nx us |
+|---|---:|---:|---:|---:|---:|
+| private `number_of_edges()` | `0.0305x` | `0.9764x` | `31.99x` | `1229.28` -> `37.83` | `37.06` |
+| private `list(G.degree())` | `0.0260x` | `0.8985x` | `34.59x` | `1202.14` -> `34.38` | `31.02` |
+| private `DiGraph degree()` | `0.0174x` | `0.9324x` | `53.47x` | `1755.31` -> `32.86` | `30.73` |
+| private `MultiGraph degree()` | `0.0423x` | `0.9763x` | `23.07x` | `4403.08` -> `188.12` | `183.94` |
+| private `G.degree(0)` x256 | `0.0431x` | `0.0510x` | `1.18x` | `1185.25` -> `1001.78` | `51.15` |
+| control: ordinary `list(G.degree())` | `1.3573x` | `1.3704x` | `1.01x` | `22.96` -> `22.99` | `31.37` |
+| control: ordinary `MultiGraph degree()` | `5.0015x` | `4.9764x` | `0.99x` | `39.16` -> `38.76` | `195.16` |
+| control: ordinary `G.degree(weight)` | `2.9330x` | `2.9584x` | `1.01x` | `80.64` -> `80.43` | `237.86` |
+| control: ordinary `len(G.edges)` | `248.0127x` | `242.8068x` | `0.98x` | `0.09` -> `0.09` | `22.58` |
+
+CONTROLS CARRIED ON PURPOSE. `_AssignedPrivateDegreeView` serves only graphs
+with assigned storage, so ordinary graphs should not move at all — and the four
+ordinary rows are flat at `0.98x`-`1.01x`, the `0.98x` sitting on a `0.09us`
+row that is entirely noise floor. Carrying them is what would have caught the
+over-relaxed-gate failure mode recorded in
+`guard_probe_setup_decides_the_verdict`.
+
+THE MEASURED LOSS THAT REMAINS, REPORTED RATHER THAN HIDDEN. The SCALAR
+`G.degree(0)` is `0.0510x` — a 20x loss and now the worst row here. It moved
+only `1.18x`, from the per-neighbour short circuit alone, because the bulk path
+serves ITERATION and a scalar lookup never enters it: `G.degree(n)` still pays
+the full `graph.adj[node]` wrapping chain per call. That is the next lever on
+this surface and it is left standing, not closed over.
+
+PARITY. 867 probes across 4 classes x 9 edge shapes x {assigned, assigned with
+a RAGGED `_pred`, ordinary} covering `degree()`, `dict(degree())`, scalar
+`degree(n)`, `degree(nbunch)`, `degree(weight=...)`, `size()`,
+`number_of_edges()`, `in_degree()`, `out_degree()`, `subgraph().degree()` and
+`len(G.degree)`, comparing VALUES AND EXCEPTION ARGS per
+`exception_sweep_must_compare_args`. ALL 867 match networkx, including the
+ragged-`_pred` KeyError that the unguarded directed subscript exists to
+reproduce.
+
+SUITE. 179 test files over degree, private storage, filtered/restricted views,
+subgraphs, multigraphs, reverse, size, density and self-loops: `9723 passed`,
+`64 skipped`, `6 xfailed`, `10 failed` IDENTICALLY on both arms. `NEW: none`.
