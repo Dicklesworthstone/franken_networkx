@@ -5626,7 +5626,15 @@ def _make_none_rejecting_add_node(raw_add_node):
         if node_for_adding is None:
             raise ValueError("None cannot be a node")
         hash(node_for_adding)
-        return raw_add_node(self, node_for_adding, **attr)
+        # br-r37-c1-kwsplit: call WITHOUT the dict unpack when there are no
+        # attributes. `f(a, **{})` is exactly `f(a)`, but CPython still
+        # builds and splats the empty mapping: measured on the raw PyO3
+        # add_node, `raw(F, 1)` is 414.1ns against `raw(F, 1, **{})` at
+        # 481.2ns - 67ns of pure ceremony on a call that is otherwise ~550ns.
+        # The no-attribute form is the overwhelmingly common one.
+        if attr:
+            return raw_add_node(self, node_for_adding, **attr)
+        return raw_add_node(self, node_for_adding)
 
     return add_node
 
