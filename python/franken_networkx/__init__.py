@@ -45381,18 +45381,20 @@ class _ReverseDirectedViewBase:
             _ReverseMultiAdjacencyView if graph.is_multigraph()
             else _ReverseGraphAdjacencyView
         )
-        # Both views are built BEFORE any assignment, because the batch funnel
-        # runs nothing between the writes. `adj` deliberately receives the SAME
-        # object as `succ`, exactly as the per-attribute version did, and the
-        # order succ -> pred -> adj is preserved.
+        # All three views are built BEFORE any assignment, because the batch
+        # funnel runs nothing between the writes.  ``adj`` and ``succ`` expose
+        # the same live mapping but networkx constructs DISTINCT wrappers for
+        # them on a reverse view; keeping one object under both names makes the
+        # otherwise-visible ``R.adj is R.succ`` identity test diverge.
         succ_view = adj_cls(self)
         pred_view = adj_cls(self, reverse=True)
+        adj_view = adj_cls(self)
         _set_private_overrides(
             self,
             (
                 (_PRIVATE_SUCC_OVERRIDE, succ_view),
                 (_PRIVATE_PRED_OVERRIDE, pred_view),
-                (_PRIVATE_ADJ_OVERRIDE, succ_view),
+                (_PRIVATE_ADJ_OVERRIDE, adj_view),
             ),
         )
 

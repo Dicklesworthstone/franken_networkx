@@ -105,3 +105,31 @@ def test_reverse_view_reverse_copy_false_returns_underlying_graph(
     # reverse(copy=False) on a reverse-view returns the original
     # directed orientation as a live view — matches upstream.
     assert fr is fg
+
+
+@pytest.mark.parametrize(
+    ("fnx_ctor", "nx_ctor"),
+    [
+        (fnx.DiGraph, nx.DiGraph),
+        (fnx.MultiDiGraph, nx.MultiDiGraph),
+    ],
+)
+def test_reverse_view_adj_and_succ_are_distinct_live_wrappers(fnx_ctor, nx_ctor):
+    """A reverse view has equivalent, but not aliased, adj and succ wrappers.
+
+    The two-class parametrisation is the negative case for a naive simple-graph
+    fix, while the source mutation rejects a superficially distinct snapshot.
+    """
+    fg, ng = fnx_ctor(), nx_ctor()
+    for graph in (fg, ng):
+        graph.add_edge("left", "middle")
+    frv, nrv = fg.reverse(copy=False), ng.reverse(copy=False)
+
+    assert (frv.adj is frv.succ) is (nrv.adj is nrv.succ) is False
+    assert type(frv.adj).__name__ == type(nrv.adj).__name__
+    assert type(frv.succ).__name__ == type(nrv.succ).__name__
+
+    for graph in (fg, ng):
+        graph.add_edge("right", "middle")
+    assert list(frv.adj) == list(nrv.adj)
+    assert list(frv.succ) == list(nrv.succ)
