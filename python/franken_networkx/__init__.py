@@ -50318,6 +50318,76 @@ class _AssignedPrivateDegreeView:
             total += len(row[node]) if multi else 1
         return total
 
+    def _filtered_set_weight(self, node, *, reverse=False):
+        """br-r37-c1-subwdeg: the WEIGHTED twin of `_filtered_set_count`.
+
+        Weighted degree on a node-set subgraph was the worst row on the whole
+        read surface: `subgraph.degree(n, weight=)` measured 0.0853x on
+        MultiGraph and 0.0911x on MultiDiGraph, ~11.7x slower than networkx, on
+        a node whose degree is THREE. The unweighted twin sits at 0.9970x on the
+        same fixture, which is what localises the cost: `_filtered_set_count`
+        bails whenever a weight is set, so the weighted call fell to the generic
+        walk over `self._graph.adj[node]`, and on a filtered MULTIgraph view
+        `.values()` builds a filtered keydict per neighbour. Measured on that
+        node: `dict(adj[0])` alone is 32.5us against networkx's 5.3us.
+
+        ORDER IS LOAD-BEARING HERE IN A WAY IT IS NOT IN THE COUNTING TWIN.
+        `_filtered_set_count` may use `keep.intersection(row)` and let the SET
+        decide iteration order, because a count is order-invariant. A weighted
+        sum is not: CPython's builtins.sum is Neumaier-compensated and the
+        association decides the answer (br-r37-c1-outdegsum landed 133 cells
+        that got this wrong). So this walks `row` in PARENT ADJACENCY ORDER and
+        filters, which is the order the filtered adjacency view yields and
+        therefore the order networkx sums in.
+
+        Same gates as the counting twin: default edge filter only (so every
+        edge of a visible pair is visible), a CONCRETE parent only, and a
+        node-set filter. Anything else returns None and keeps the generic walk.
+        """
+        view = self._graph
+        weight = self._weight
+        if (
+            weight is None
+            or not getattr(view, "_filter_edge_is_default", False)
+            or not isinstance(view, _FilteredGraphView)
+        ):
+            return None
+        parent = view._graph
+        if type(parent) not in (Graph, DiGraph, MultiGraph, MultiDiGraph):
+            return None
+        keep = getattr(getattr(view, "_filter_node", None), "nodes", None)
+        if keep is None:
+            return None
+        try:
+            if node not in keep:
+                return None
+        except TypeError:
+            return None
+        row = _fast_pred_row(parent, node) if reverse else parent[node]
+        multi = view.is_multigraph()
+        try:
+            if multi:
+                total = sum(
+                    attrs.get(weight, 1)
+                    for nbr in row
+                    if nbr in keep
+                    for attrs in row[nbr].values()
+                )
+            else:
+                total = sum(
+                    row[nbr].get(weight, 1) for nbr in row if nbr in keep
+                )
+        except TypeError:
+            return None
+        # undirected total degree double-counts a (visible) self-loop, exactly
+        # as networkx adds `nbrs[n]` again after its flat sum.
+        if not reverse and not view.is_directed() and node in row:
+            if multi:
+                total += sum(attrs.get(weight, 1) for attrs in row[node].values())
+            else:
+                total += row[node].get(weight, 1)
+        return total
+
     def _visible_edge_count(self, node, nbr, row):
         """br-r37-c1-p6dhq: how many edges (node, nbr) are visible, WITHOUT
         materialising their attribute dicts.
@@ -50362,6 +50432,10 @@ class _AssignedPrivateDegreeView:
 
     def _out_degree(self, node):
         fast = self._filtered_set_count(node)
+        if fast is not None:
+            return fast
+        # br-r37-c1-subwdeg: the weighted twin of the probe above.
+        fast = self._filtered_set_weight(node)
         if fast is not None:
             return fast
         # br-r37-c1-p6dhq: unweighted degree is a COUNT; do not build the values.
@@ -50435,6 +50509,10 @@ class _AssignedPrivateDegreeView:
         if not self._graph.is_directed():
             return 0
         fast = self._filtered_set_count(node, reverse=True)
+        if fast is not None:
+            return fast
+        # br-r37-c1-subwdeg: the weighted twin of the probe above.
+        fast = self._filtered_set_weight(node, reverse=True)
         if fast is not None:
             return fast
         # br-r37-c1-p6dhq: the predecessor twin. The stored arc runs
