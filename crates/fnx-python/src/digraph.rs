@@ -8190,7 +8190,8 @@ impl PyMultiDiGraph {
                     .edge_keys_iter(node, successor)
                     .map_or(0, |keys| keys.count());
                 let py_successor = self.py_succ_key(py, node, successor);
-                let rendered = py_successor.bind(py).str()?.to_str()?;
+                let rendered_object = py_successor.bind(py).str()?;
+                let rendered = rendered_object.to_str()?;
                 for _ in 0..multiplicity {
                     line.push_str(delimiter);
                     line.push_str(rendered);

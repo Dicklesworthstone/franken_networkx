@@ -12127,7 +12127,8 @@ impl PyMultiGraph {
                     .edge_keys_iter(node, neighbor)
                     .map_or(0, |keys| keys.count());
                 let py_neighbor = self.py_adj_key(py, node, neighbor);
-                let rendered = py_neighbor.bind(py).str()?.to_str()?;
+                let rendered_object = py_neighbor.bind(py).str()?;
+                let rendered = rendered_object.to_str()?;
                 for _ in 0..multiplicity {
                     line.push_str(delimiter);
                     line.push_str(rendered);
