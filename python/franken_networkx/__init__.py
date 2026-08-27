@@ -46761,10 +46761,25 @@ class _FilteredGraphView:
         self._fnx_parent_is_multigraph = graph.is_multigraph()
         self.frozen = True
         self.nodes = NodeView(self)
-        self.adj = _filtered_public_adjacency_view(self)
+        # br-r37-c1-batchov: build all three views BEFORE assigning any, so the
+        # three private overrides can go through the funnel in one pass. The
+        # factory only reads `is_multigraph()` and closes over `self`, so no
+        # view ever depended on a previous assignment.
+        adj_view = _filtered_public_adjacency_view(self)
         if graph.is_directed():
-            self.succ = _filtered_public_adjacency_view(self)
-            self.pred = _filtered_public_adjacency_view(self, reverse=True)
+            succ_view = _filtered_public_adjacency_view(self)
+            pred_view = _filtered_public_adjacency_view(self, reverse=True)
+            _set_private_overrides(
+                self,
+                (
+                    (_PRIVATE_ADJ_OVERRIDE, adj_view),
+                    (_PRIVATE_SUCC_OVERRIDE, succ_view),
+                    (_PRIVATE_PRED_OVERRIDE, pred_view),
+                ),
+            )
+        else:
+            # One override, so there is nothing to batch.
+            self.adj = adj_view
 
     def __iter__(self):
         filter_nodes = getattr(self._filter_node, "nodes", None)
@@ -48990,6 +49005,60 @@ class _CachedViewDescriptor:
             else:
                 cached.add(self._name)
         return view
+
+
+
+def _set_private_overrides(self, pairs):
+    """Install SEVERAL private overrides through the funnel in ONE pass.
+
+    br-r37-c1-batchov: a directed filtered view assigns three of them at
+    construction, and each assignment re-ran the whole funnel: the
+    descriptor-memo drop, five cached-view pops, and the shadow installer. Only
+    the `setattr` and the native marker are genuinely per-attribute; the rest
+    answers the same question three times. Measured on
+    `DiGraph.subgraph(64)`, the three `_set_private_override` calls were 7.6% of
+    construction tottime and the three installer calls another 8%.
+
+    The end state is identical, and that is checkable rather than hopeful: the
+    second and third installer calls already returned immediately via the
+    br-r37-c1-shwst state guard - same state, shadows still ours - so dropping
+    them removes work that had no effect. The drop and the pops are idempotent,
+    so doing them once before the writes leaves the same instance dict.
+
+    Callers must build every value BEFORE calling, because nothing runs between
+    the writes any more. That is why the filtered-view constructor now
+    materialises its three adjacency views first; `_filtered_public_adjacency_view`
+    only reads `is_multigraph()` and closes over `view`, so it never depended on
+    a previous assignment.
+    """
+    storage = vars(self)
+    cached = storage.get(_DESCRIPTOR_CACHED_VIEWS)
+    if cached:
+        for name in cached:
+            storage.pop(name, None)
+        storage.pop(_DESCRIPTOR_CACHED_VIEWS, None)
+    for attr_name, value in pairs:
+        setattr(self, attr_name, value)
+        # The marker is fired per attribute, exactly as the single-override
+        # funnel does. Two directed overrides share one marker and it is NOT
+        # deduplicated here: whether that native call is idempotent is not
+        # something this change is entitled to assume.
+        if attr_name == _PRIVATE_NODE_OVERRIDE:
+            mark = getattr(self, "_fnx_set_private_node_override", None)
+        elif attr_name == _PRIVATE_ADJ_OVERRIDE:
+            mark = getattr(self, "_fnx_set_private_adj_override", None)
+        elif attr_name in (_PRIVATE_SUCC_OVERRIDE, _PRIVATE_PRED_OVERRIDE):
+            mark = getattr(self, "_fnx_set_private_dir_override", None)
+        else:
+            mark = None
+        if mark is not None:
+            mark()
+    storage.pop("_fnx_view_out_degree", None)
+    storage.pop("_fnx_view_in_degree", None)
+    storage.pop("_fnx_view_degree", None)
+    storage.pop("_fnx_view_degree_assigned", None)
+    storage.pop("_fnx_getitem_atlas_cache", None)
+    _install_private_method_shadows(self, storage)
 
 
 def _has_networkx_private_storage(self):
