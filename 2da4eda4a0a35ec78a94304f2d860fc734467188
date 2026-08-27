@@ -1,0 +1,59 @@
+MEASUREMENT EVIDENCE for the SECOND hunk in this commit, which the commit
+message does not describe.
+
+WHAT WENT WRONG IN THE COMMIT. 2da4eda4a landed TWO hunks: the multigraph scalar
+routing in `_weighted_multidegree_value`, which the message documents and
+measures, and the MultiDiGraph in/out routing in
+`_DirectedDegreeView._node_degree`, which it does not mention. Both came from the
+same verified arm and both were parity-checked, but only the first was measured
+before landing. I checked that the staged diff excluded a peer's uncommitted
+work and did not also check that it matched what I was claiming. The complete
+check is both directions.
+
+The in/out hunk is now measured. Four passes, balanced order
+plain,routed,routed,plain, same substrate as the rest of this commit - both arms
+carry a REAL COPY of the SAME extension, so the in-process ELF sha256 is
+identical in both and only __init__.py differs.
+
+  bench_elf_sha256=8c6df2c8806ead4fe14644666de2336be417d65e43311cb3242c1cca9c794987
+
+  PYTHONPATH=$S/$arm FNX_ARM=$arm .venv/bin/python bench_neumaier.py
+
+  ROW                                p1(plain) p4(plain) | p2(routed) p3(routed)
+  TARGET  MultiDiGraph out_degree(n,w)  0.1580   0.1569  |   0.6215    0.6064
+  TARGET  MultiDiGraph in_degree(n,w)   0.0872   0.0861  |   0.6625    0.6405
+  CONTROL MultiDiGraph out_degree(n)    1.1828   1.2234  |   1.1734    1.1633
+  CONTROL DiGraph      out_degree(n,w)  0.9992   0.9936  |   0.9945    0.9861
+  CONTROL DiGraph      in_degree(n,w)   0.9673   0.9629  |   0.9529    0.9522
+  CONTROL DiGraph      out_degree(n)    0.5872   0.5701  |   0.5889    0.5735
+
+All A/A nulls fell in [0.9942, 1.0052]. Per call, fnx: out_degree 6.100us ->
+1.514us, in_degree 15.701us -> 2.063us, against a networkx arm holding
+0.94-1.37us.
+
+STILL A LOSS. 0.61x and 0.64x are a 3.9x and 7.4x self-speedup on the two worst
+rows of the weighted surface, and they do not reach parity. Not claimed as a win.
+
+AND THE EARLIER NUMBERS FOR THIS HUNK WERE INFLATED, WHICH IS THE POINT OF
+RE-MEASURING. Before br-r37-c1-mgrevstore fixed the kernel, this same routing
+measured 0.9685x and 0.9037x. On a CORRECT kernel it measures 0.6064x and
+0.6405x. The difference is exactly the work the broken kernel was skipping: it
+defaulted every weight to 1 on a store-backed graph instead of reading the
+store, so it looked fast because it was not doing the job. Those pre-fix figures
+are void and must not be cited.
+
+Note the contrast with the scalar hunk in the same commit, whose pre-fix numbers
+re-measured ACCURATE (0.1034 -> 0.9861 then, 0.1037 -> 0.9889 now) because its
+fixture used int weights on a PLAIN graph, a shape the broken kernel handled
+correctly. Same suspicion, two different answers - which is why each had to be
+re-run rather than reasoned about.
+
+CONTROLS. `out_degree(n)` unweighted is flat on both classes (1.1828/1.2234 ->
+1.1734/1.1633 and 0.5872/0.5701 -> 0.5889/0.5735). DiGraph weighted in/out is
+flat (0.9992/0.9936 -> 0.9945/0.9861 and 0.9673/0.9629 -> 0.9529/0.9522), which
+is what the `type(self._graph) is MultiDiGraph` gate is for: routing DiGraph
+here measured SLOWER in the original probe, so it is deliberately excluded.
+
+`degree(n,w) total` is listed as a CONTROL by this bench and moves
+(0.0815 -> 0.7790). That is the OTHER hunk in this commit, so it is a target,
+not contamination - the same mislabel already recorded in the commit message.
