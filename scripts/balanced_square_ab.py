@@ -1692,6 +1692,45 @@ def workload_conversions(reps: int):
     return build, ops
 
 
+def workload_deepcopy_conversions(reps: int):
+    """Native deep-copy conversions with scalar attributes (br-r37-c1-n7gxs).
+
+    ``to_directed`` must deep-copy every attribute dictionary.  These fixtures
+    use only immutable scalar values so the conservative single-pass mirror
+    route is eligible, while the pre-timing parity gate still compares the
+    resulting graph summaries across live NetworkX and fnx.
+    """
+    nodes, edges = 400, 1200
+
+    def build(module):
+        fixture = {}
+        for cls in ("Graph", "MultiGraph"):
+            graph = getattr(module, cls)()
+            for node in range(nodes):
+                graph.add_node(node, rank=node, score=node + 0.5)
+            for edge in range(edges):
+                u = edge % nodes
+                v = (edge * 17 + 11) % nodes
+                graph.add_edge(u, v, weight=edge + 0.25, label=f"e{edge % 13}")
+            graph.graph["version"] = 1
+            fixture[cls] = graph
+        return fixture["Graph"], fixture
+
+    def ops(graph, fixture):
+        def summary(g):
+            copied = g.to_directed()
+            return copied.number_of_nodes(), copied.number_of_edges()
+
+        return {
+            f"{'SimpleGraph' if cls == 'Graph' else cls}.to_directed() scalar attrs": (
+                lambda g=g: summary(g)
+            )
+            for cls, g in fixture.items()
+        }
+
+    return build, ops
+
+
 def workload_undirected_nbunch(reps: int):
     """`MultiGraph.edges(nbunch)` and `Graph.edges(nbunch)` (br-r37-c1-mgednb,
     br-r37-c1-gnbmemo).
@@ -1942,6 +1981,7 @@ WORKLOADS = {
     "view-reads": workload_view_reads,
     "undirected-nbunch": workload_undirected_nbunch,
     "conversions": workload_conversions,
+    "deepcopy-conversions": workload_deepcopy_conversions,
     "nbunch-family": workload_nbunch_family,
     "nbunch-key-length": workload_nbunch_key_length,
     "mdg-in-edges-nbunch": workload_mdg_in_edges_nbunch,

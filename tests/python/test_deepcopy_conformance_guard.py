@@ -80,3 +80,26 @@ def test_deepcopy_is_deeply_independent(fcls, ncls, seed):
     fg.graph["info"]["name"] = "MUT"
     assert _node_attrs(fc) == before          # nested list + tag unchanged
     assert fc.graph["info"]["name"] == "g"     # nested graph attr unchanged
+
+
+@pytest.mark.parametrize("fcls,ncls", [(fnx.Graph, nx.Graph), (fnx.MultiGraph, nx.MultiGraph)])
+def test_to_directed_deepcopy_preserves_in_dict_aliasing(fcls, ncls):
+    """A per-value deepcopy would incorrectly duplicate this shared list."""
+    fg, ng = fcls(), ncls()
+    shared_values = []
+    for graph in (fg, ng):
+        shared = ["source"]
+        shared_values.append(shared)
+        graph.add_node("u", first=shared, second=shared)
+        graph.add_edge("u", "v", first=shared, second=shared)
+
+    fc, nc = fg.to_directed(), ng.to_directed()
+    for converted, source_shared in zip((fc, nc), shared_values, strict=True):
+        node_attrs = converted.nodes["u"]
+        edge_attrs = (
+            converted["u"]["v"][0] if converted.is_multigraph() else converted["u"]["v"]
+        )
+        assert node_attrs["first"] is node_attrs["second"]
+        assert edge_attrs["first"] is edge_attrs["second"]
+        assert node_attrs["first"] is not source_shared
+        assert edge_attrs["first"] is not source_shared

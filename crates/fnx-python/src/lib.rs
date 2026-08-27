@@ -2250,6 +2250,42 @@ pub(crate) fn deepcopy_py_dict(
         .unbind())
 }
 
+/// Deep-copy an attribute dictionary and materialize its Rust mirror in one
+/// pass when every value is an immutable scalar.  The scalar predicate matches
+/// `deepcopy_py_dict` exactly: for those values Python's `copy.deepcopy` makes
+/// a new dictionary whose values are the same objects, which is precisely the
+/// dictionary constructed by `py_dict_to_attr_map_with_mirror`.  Every other
+/// dictionary continues through a single whole-dictionary `deepcopy` call so
+/// Python's memo and aliasing semantics remain intact.
+fn deepcopy_py_dict_with_attr_map(
+    py: Python<'_>,
+    deepcopy: &Bound<'_, PyAny>,
+    attrs: &Py<PyDict>,
+) -> PyResult<(AttrMap, Py<PyDict>)> {
+    let bound = attrs.bind(py);
+    if bound.is_empty() {
+        return Ok((AttrMap::new(), PyDict::new(py).unbind()));
+    }
+
+    let all_immutable_scalars = bound.values().iter().all(|value| {
+        value.is_none()
+            || value.is_instance_of::<PyBool>()
+            || value.is_instance_of::<PyInt>()
+            || value.is_instance_of::<PyFloat>()
+            || value.is_instance_of::<PyString>()
+    });
+    if all_immutable_scalars {
+        return py_dict_to_attr_map_with_mirror(py, bound);
+    }
+
+    let copied = deepcopy
+        .call1((bound,))?
+        .downcast_into::<PyDict>()?
+        .unbind();
+    let rust_attrs = py_dict_to_attr_map(copied.bind(py))?;
+    Ok((rust_attrs, copied))
+}
+
 /// br-r37-c1-489mp: memo-preserving deep-copy of one attr dict, EXACTLY mirroring
 /// the Python `_graph_deepcopy._dc_attrs` fast-path so a native `__deepcopy__` is
 /// byte-identical to the Python override it replaces. Differences from
@@ -13015,8 +13051,8 @@ impl PyMultiGraph {
             Vec::with_capacity(self.inner.node_count());
         for node in self.inner.nodes_ordered() {
             let rust_attrs = if let Some(attrs) = self.node_py_attrs.get(node) {
-                let py_attrs = deepcopy_py_dict(py, &deepcopy, attrs)?;
-                let rust_attrs = py_dict_to_attr_map(py_attrs.bind(py))?;
+                let (rust_attrs, py_attrs) =
+                    deepcopy_py_dict_with_attr_map(py, &deepcopy, attrs)?;
                 mdg.node_py_attrs.insert(node.to_owned(), py_attrs);
                 rust_attrs
             } else {
@@ -13038,8 +13074,8 @@ impl PyMultiGraph {
                     let attrs_entry = self.edge_py_attrs.get(&Self::edge_key(source, target, key));
                     let rust_attrs = match attrs_entry {
                         Some(attrs) => {
-                            let py_attrs = deepcopy_py_dict(py, &deepcopy, attrs)?;
-                            let rust_attrs = py_dict_to_attr_map(py_attrs.bind(py))?;
+                            let (rust_attrs, py_attrs) =
+                                deepcopy_py_dict_with_attr_map(py, &deepcopy, attrs)?;
                             mdg.edge_py_attrs
                                 .insert((source.to_owned(), target.to_owned(), key), py_attrs);
                             rust_attrs
@@ -17800,8 +17836,8 @@ impl PyGraph {
             // Attr-less nodes stay lazy (no PyDict / py_dict_to_attr_map) — same
             // contract as the native copy kernel; the dict materializes on demand.
             let rust_attrs = if let Some(attrs) = self.node_py_attrs.get(node) {
-                let py_attrs = deepcopy_py_dict(py, &deepcopy, attrs)?;
-                let rust_attrs = py_dict_to_attr_map(py_attrs.bind(py))?;
+                let (rust_attrs, py_attrs) =
+                    deepcopy_py_dict_with_attr_map(py, &deepcopy, attrs)?;
                 dg.node_py_attrs.insert(node.to_owned(), py_attrs);
                 rust_attrs
             } else {
@@ -17830,8 +17866,8 @@ impl PyGraph {
                     .or_else(|| self.edge_py_attrs.get(&PyGraph::edge_key(target, source)));
                 let rust_attrs = match entry {
                     Some(attrs) => {
-                        let py_attrs = deepcopy_py_dict(py, &deepcopy, attrs)?;
-                        let rust_attrs = py_dict_to_attr_map(py_attrs.bind(py))?;
+                        let (rust_attrs, py_attrs) =
+                            deepcopy_py_dict_with_attr_map(py, &deepcopy, attrs)?;
                         dg.edge_py_attrs
                             .insert((source.to_owned(), target.to_owned()), py_attrs);
                         rust_attrs
