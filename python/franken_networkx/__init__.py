@@ -7740,11 +7740,29 @@ class _DirectedDegreeView:
         if self._graph.is_multigraph():
             if weight is None:
                 return sum(len(keydict) for keydict in adjacency.values())
-            total = 0
-            for keydict in adjacency.values():
-                for attrs in keydict.values():
-                    total += attrs.get(weight, 1)
-            return total
+            # br-r37-c1-outdegsum: ONE flat sum() over the flattened edges, which
+            # is what networkx writes:
+            #
+            #     sum(dd.get(weight, 1)
+            #         for key_dict in nbrs.values() for dd in key_dict.values())
+            #
+            # This was a nested `total += ...` running fold, and that is a PARITY
+            # BUG, not a style difference. CPython's builtins.sum is
+            # Neumaier-compensated; a naive left-to-right fold is not. On
+            # out-edge weights [1e16, 1.0, -1e16] networkx returns 1.0 and the
+            # fold returned 0.0 -- the compensation term is exactly the value.
+            #
+            # Measured on MultiDiGraph, four cells wrong: in_degree(n, weight)
+            # and out_degree(n, weight), both for distinct neighbours and for
+            # parallel edges on one neighbour. The TOTAL degree view was already
+            # correct because it goes through a different function, which is why
+            # this survived: `degree(n, weight)` agreed with networkx while its
+            # own in/out siblings did not.
+            return sum(
+                attrs.get(weight, 1)
+                for keydict in adjacency.values()
+                for attrs in keydict.values()
+            )
 
         if weight is None:
             return len(adjacency)
@@ -50382,17 +50400,35 @@ class _AssignedPrivateDegreeView:
                 if undirected and nbr == node:
                     total += count
             return total
-        total = 0
-        for nbr, edge_data in self._graph.adj[node].items():
-            if self._graph.is_multigraph():
+        # br-r37-c1-outdegsum: ONE flat sum() over all neighbours, THEN the
+        # self-loop term added once - which is both what networkx computes and,
+        # separately, the association it computes it in:
+        #
+        #     deg = sum(dd.get(weight, 1) for dd in nbrs.values())
+        #     if n in nbrs: deg += nbrs[n].get(weight, 1)
+        #
+        # This was a nested `total += ...` running fold with the self-loop
+        # addition INTERLEAVED inside the loop. Two separate parity bugs in one
+        # expression: CPython's builtins.sum is Neumaier-compensated and a naive
+        # fold is not, and folding the self-loop mid-sequence changes the
+        # association even when compensation is not in play. On weights
+        # [1e16, 1.0, -1e16] networkx returns 1.0 and the fold returned 0.0.
+        adj = self._graph.adj[node]
+        multi = self._graph.is_multigraph()
+        if multi:
+            total = sum(
+                self._edge_weight(attrs)
+                for edge_data in adj.values()
+                for attrs in edge_data.values()
+            )
+        else:
+            total = sum(self._edge_weight(edge_data) for edge_data in adj.values())
+        if not self._graph.is_directed() and node in adj:
+            edge_data = adj[node]
+            if multi:
                 total += sum(self._edge_weight(attrs) for attrs in edge_data.values())
             else:
                 total += self._edge_weight(edge_data)
-            if not self._graph.is_directed() and nbr == node:
-                if self._graph.is_multigraph():
-                    total += sum(self._edge_weight(attrs) for attrs in edge_data.values())
-                else:
-                    total += self._edge_weight(edge_data)
         return total
 
     def _in_degree(self, node):
@@ -50421,13 +50457,17 @@ class _AssignedPrivateDegreeView:
                         if view._edge_visible(nbr, node, key)
                     )
             return total
-        total = 0
-        for edge_data in self._graph.pred[node].values():
-            if self._graph.is_multigraph():
-                total += sum(self._edge_weight(attrs) for attrs in edge_data.values())
-            else:
-                total += self._edge_weight(edge_data)
-        return total
+        # br-r37-c1-outdegsum: the predecessor twin of the flat sum() above.
+        # networkx's in-degree has no self-loop doubling, so this is one sum and
+        # nothing else.
+        pred = self._graph.pred[node]
+        if self._graph.is_multigraph():
+            return sum(
+                self._edge_weight(attrs)
+                for edge_data in pred.values()
+                for attrs in edge_data.values()
+            )
+        return sum(self._edge_weight(edge_data) for edge_data in pred.values())
 
     def _degree(self, node):
         return self._out_degree(node) + self._in_degree(node)

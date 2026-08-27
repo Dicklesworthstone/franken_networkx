@@ -805,3 +805,62 @@ def test_raw_read_gml_ignores_directed_text_in_graph_attrs(tmp_path: Path):
 
     assert not graph.is_directed()
     assert graph.has_edge("a", "b")
+
+
+def test_weighted_degree_matches_networkx_float_compensation():
+    """Weighted degree must use a COMPENSATED sum, exactly as networkx does.
+
+    br-r37-c1-outdegsum: several weighted-degree paths folded with a running
+    ``total += ...`` where networkx writes ``sum(...)``. CPython's builtins.sum
+    is Neumaier-compensated and a naive left-to-right fold is not, so the two
+    disagree by the whole compensation term.
+
+    The fixture is chosen to DISCRIMINATE rather than to be representative:
+
+        sum([1e16, 1.0, -1e16]) == 1.0      naive fold == 0.0
+
+    so a regression here changes the answer from 1.0 to 0.0, not by an ulp. The
+    assertion below pins that the weights actually behave that way, which is
+    what stops this test passing vacuously if the fixture is ever edited.
+    """
+    triple = [1e16, 1.0, -1e16]
+    naive = 0.0
+    for value in triple:
+        naive += value
+    assert sum(triple) == 1.0 and naive == 0.0, (
+        "fixture no longer discriminates compensated from naive summation"
+    )
+
+    def build(mod, cls, shape):
+        graph = getattr(mod, cls)()
+        if shape == "fanout":
+            for index, value in enumerate(triple):
+                graph.add_edge(0, index + 1, weight=value)
+        elif shape == "fanin":
+            for index, value in enumerate(triple):
+                graph.add_edge(index + 1, 0, weight=value)
+        elif shape == "parallel":
+            for value in triple:
+                graph.add_edge(0, 1, weight=value)
+        return graph
+
+    for cls in ("Graph", "DiGraph", "MultiGraph", "MultiDiGraph"):
+        shapes = ["fanout", "fanin"]
+        if cls.startswith("Multi"):
+            shapes.append("parallel")
+        for shape in shapes:
+            expected, actual = build(nx, cls, shape), build(fnx, cls, shape)
+            for container in ("plain", "subgraph"):
+                if container == "subgraph":
+                    expected = expected.subgraph(list(expected.nodes))
+                    actual = actual.subgraph(list(actual.nodes))
+                assert actual.degree(0, weight="weight") == expected.degree(
+                    0, weight="weight"
+                ), f"{cls}/{shape}/{container} degree"
+                if cls.endswith("DiGraph"):
+                    assert actual.in_degree(0, weight="weight") == expected.in_degree(
+                        0, weight="weight"
+                    ), f"{cls}/{shape}/{container} in_degree"
+                    assert actual.out_degree(0, weight="weight") == expected.out_degree(
+                        0, weight="weight"
+                    ), f"{cls}/{shape}/{container} out_degree"
