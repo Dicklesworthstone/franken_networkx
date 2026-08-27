@@ -131,6 +131,35 @@ def test_user_assignment_after_cached_view_read_survives_round_trips(cls_name):
         assert getattr(restored, accessor) == value
 
 
+@pytest.mark.parametrize("cls_name", CLASS_NAMES)
+def test_private_adj_reset_discards_exact_networkx_public_cache_surface(cls_name):
+    """A private adjacency replacement destroys selected user values in nx.
+
+    This is intentionally broader than a ``degree``-only test: that naive fix
+    would still preserve the wrong ``edges`` / ``adj`` values, and on directed
+    graphs would miss the successor-side degree and edge views.  Conversely,
+    asserting the names that *survive* guards against turning every user
+    assignment into a cache entry.
+    """
+    expected, actual = _pair(cls_name)
+    accessors = ["nodes", "edges", "degree", "adj"]
+    if "DiGraph" in cls_name:
+        accessors.extend(
+            ("succ", "pred", "in_degree", "out_degree", "in_edges", "out_edges")
+        )
+
+    for graph in (expected, actual):
+        for accessor in accessors:
+            getattr(graph, accessor)
+            setattr(graph, accessor, "USER")
+        graph._adj = {"private": {}}
+
+    for accessor in accessors:
+        expected_is_user = getattr(expected, accessor) == "USER"
+        actual_value = getattr(actual, accessor)
+        assert (actual_value == "USER") is expected_is_user, f"{cls_name} {accessor}"
+
+
 @pytest.mark.parametrize(
     ("cls_name", "accessor"),
     [

@@ -49072,6 +49072,8 @@ def _set_private_override(self, attr_name, value):
         for name in cached:
             storage.pop(name, None)
         storage.pop(_DESCRIPTOR_CACHED_VIEWS, None)
+    if attr_name == _PRIVATE_ADJ_OVERRIDE:
+        _discard_public_views_for_private_adj_reset(self)
     # br-r37-c1-vaayu: the explicit registration that used to sit here was
     # redundant. Every class's __setattr__ wrapper ends in
     # `self._fnx_register_gc_dict(vars(self))` — verified on all four — and the
@@ -49123,6 +49125,33 @@ def _set_private_override(self, attr_name, value):
     # path free — that is sound only if the assignment forces a miss.
     _drop.pop("_fnx_getitem_atlas_cache", None)
     _install_private_method_shadows(self, storage)
+
+
+def _discard_public_views_for_private_adj_reset(self):
+    """Mirror networkx's public-cache reset when ``_adj`` is reassigned.
+
+    A private adjacency assignment is a structural replacement in networkx, so
+    its cache resetter discards user values under the affected public names as
+    well as genuinely memoised views.  FNX previously discarded only names still
+    recorded in ``_fnx_descriptor_cached_views``; assigning ``G.degree = value``
+    intentionally removes that marker, making the value survive a later
+    ``G._adj = mapping`` unlike networkx.
+
+    ``nodes`` stays user-owned.  Directed graphs also reset the successor-side
+    cached surface; ``pred`` and ``in_edges`` are deliberately untouched, which
+    is the split the live networkx resetter exposes.
+    """
+    storage = vars(self)
+    names = {"adj", "edges", "degree"}
+    if isinstance(self, (DiGraph, MultiDiGraph)):
+        names.update(("succ", "in_degree", "out_degree", "out_edges"))
+    for name in names:
+        storage.pop(name, None)
+    cached = storage.get(_DESCRIPTOR_CACHED_VIEWS)
+    if cached is not None:
+        cached.difference_update(names)
+        if not cached:
+            storage.pop(_DESCRIPTOR_CACHED_VIEWS, None)
 
 
 class _CachedViewDescriptor:
@@ -49248,6 +49277,8 @@ def _set_private_overrides(self, pairs):
         for name in cached:
             storage.pop(name, None)
         storage.pop(_DESCRIPTOR_CACHED_VIEWS, None)
+    if any(attr_name == _PRIVATE_ADJ_OVERRIDE for attr_name, _ in pairs):
+        _discard_public_views_for_private_adj_reset(self)
     for attr_name, value in pairs:
         setattr(self, attr_name, value)
         # The marker is fired per attribute, exactly as the single-override
