@@ -8572,11 +8572,30 @@ impl PyMultiGraph {
         // `PyInt` public key IS the internal key while `has_remapped_int_key` is
         // false, so nothing is skipped, only repeated. Anything else falls
         // through unchanged.
+        // br-r37-c1-ktsxn: THE GATE HERE MUST MATCH THE FILL AT THE BOTTOM OF
+        // THIS FUNCTION, and it did not. The fill was widened to
+        // exact-`str`-OR-exact-`int` and this probe stayed exact-`str`, so on an
+        // int-keyed multigraph the keyed lookaside was FILLED on every call and
+        // could never be READ - the graph paid to populate a cache it was
+        // structurally forbidden from consulting, then fell through to two
+        // canonicalisations, `resolve_internal_edge_key` and
+        // `ensure_edge_py_attrs` anyway.
+        //
+        // This is ede473b68 inverted. There the unkeyed PROBE was wide and the
+        // FILL narrow; here the keyed FILL is wide and the PROBE narrow. Same
+        // bug class, opposite halves, and the comment on the fill already
+        // asserted the two matched.
+        //
+        // Measured before this changed, raw PyO3 `get_edge_data(u, v, key,
+        // default)` per call: MultiGraph 338.6ns on int keys against 144.8ns on
+        // str, a 2.34x key-type penalty, and MultiDiGraph 347.7ns against
+        // 168.1ns, 2.07x. Graph and DiGraph both sit at 0.97-0.98x, i.e. int is
+        // marginally FASTER there - only the multigraphs invert.
         if let Some(key_obj) = key
             && !self.has_remapped_int_key
             && key_obj.is_exact_instance_of::<PyInt>()
-            && u.is_exact_instance_of::<PyString>()
-            && v.is_exact_instance_of::<PyString>()
+            && node_key_can_use_index_lookaside(u)
+            && node_key_can_use_index_lookaside(v)
             && let Ok(internal_key) = key_obj.extract::<usize>()
             && let Some(ui) = self.cached_exact_string_node_index(py, u)?
             && let Some(vi) = self.cached_exact_string_node_index(py, v)?

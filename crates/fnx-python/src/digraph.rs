@@ -9741,11 +9741,21 @@ impl PyMultiDiGraph {
         // each entry carries the `nodes_seq` that would have renumbered its
         // indices. So skipping the resolver's `.is_some()` check here cannot
         // report an absent edge as present.
+        // br-r37-c1-ktsxn: THE GATE HERE MUST MATCH THE FILL BELOW, and it did
+        // not. The fill was widened to exact-`str`-OR-exact-`int` and this probe
+        // stayed exact-`str`, so on an int-keyed multigraph the keyed lookaside
+        // was FILLED on every call and could never be READ. See the undirected
+        // twin in lib.rs for the full account; this is ede473b68 inverted, the
+        // wide half and the narrow half swapped.
+        //
+        // Measured before this changed, raw PyO3 `get_edge_data(u, v, key,
+        // default)` per call: MultiDiGraph 347.7ns on int keys against 168.1ns
+        // on str, a 2.07x key-type penalty, while DiGraph sits at 0.98x.
         if let Some(key_obj) = key
             && !self.has_remapped_int_key
             && key_obj.is_exact_instance_of::<PyInt>()
-            && u.is_exact_instance_of::<PyString>()
-            && v.is_exact_instance_of::<PyString>()
+            && crate::node_key_can_use_index_lookaside(u)
+            && crate::node_key_can_use_index_lookaside(v)
             && let Ok(internal_key) = key_obj.extract::<usize>()
             && let Some(ui) = self.cached_exact_string_node_index(py, u)?
             && let Some(vi) = self.cached_exact_string_node_index(py, v)?
