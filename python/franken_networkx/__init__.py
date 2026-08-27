@@ -45159,7 +45159,23 @@ class _ReverseDirectedViewBase:
         return super().__new__(cls)
 
     def __init__(self, graph):
-        self._graph = graph
+        # br-r37-c1-revctor: the SIBLING of the filtered-view constructor, and
+        # it had none of what that one just received. It assigns THREE private
+        # overrides - succ, pred, adj - one at a time, so each ran the whole
+        # funnel: the descriptor-memo drop, five cached-view pops and the shadow
+        # installer, three times over. br-r37-c1-batchov fixed exactly that
+        # shape for `_FilteredGraphView`, and `reverse(copy=False)` sat at
+        # 0.5738x as the unmoved CONTROL in that measurement and the next one -
+        # which is precisely the signal that the fix had not been applied here.
+        #
+        # `_graph` is written straight to the instance dict for the reason
+        # br-r37-c1-ctorstore gives: the class `__setattr__` wrapper costs
+        # 302.6ns against 74.4ns for the dict write it performs, and it has
+        # nothing to do for a private name. `graph` and `frozen` keep the
+        # normal path, and they are also what keeps the instance dict handed to
+        # `_fnx_register_gc_dict`.
+        _store = vars(self)
+        _store["_graph"] = graph
         self.graph = graph.graph
         self.frozen = True
         # br-r37-c1-revadjname: pick canonical AdjacencyView /
@@ -45169,9 +45185,20 @@ class _ReverseDirectedViewBase:
             _ReverseMultiAdjacencyView if graph.is_multigraph()
             else _ReverseGraphAdjacencyView
         )
-        self.succ = adj_cls(self)
-        self.pred = adj_cls(self, reverse=True)
-        self.adj = self.succ
+        # Both views are built BEFORE any assignment, because the batch funnel
+        # runs nothing between the writes. `adj` deliberately receives the SAME
+        # object as `succ`, exactly as the per-attribute version did, and the
+        # order succ -> pred -> adj is preserved.
+        succ_view = adj_cls(self)
+        pred_view = adj_cls(self, reverse=True)
+        _set_private_overrides(
+            self,
+            (
+                (_PRIVATE_SUCC_OVERRIDE, succ_view),
+                (_PRIVATE_PRED_OVERRIDE, pred_view),
+                (_PRIVATE_ADJ_OVERRIDE, succ_view),
+            ),
+        )
 
     def __iter__(self):
         return iter(self._graph)
