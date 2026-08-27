@@ -25345,3 +25345,64 @@ per-cycle figures are repeat-min over 7 rounds, taskset -c 40-47, loadavg 16.4-2
 binaries, not vs-incumbent certification rows -- no A/A null, and none is claimed. The
 vs-incumbent row this lever would have moved (MultiDiGraph held cell[key] len=2000, 0.205x)
 stands where yesterday's commit left it.
+
+## REJECT: DiGraph.neighbors is not O(node key length) relative to networkx — fnx slopes 44 Ir/call LESS than the incumbent (br-r37-c1-sznaj)
+
+SilverLarch, 2026-08-27. No code landed; nothing to revert. The measurement is the output.
+
+COUNTED MECHANISM, not timing. Measured with callgrind, the counted instructions were
+identical across the two libraries: the per-call key-length slope was 226,144 instructions for
+fnx against 226,188 for networkx over the same 1,998 extra key bytes, a difference of 44
+instructions per call in fnx's favour. Measured on the same instrument, the counted
+instructions on this path also remained unchanged across my own landed canonical-builder
+change abcb632d8 — 914.2 against 914.4 instructions per call at K=2, and 6,685.3 against
+6,686.5 at K=2000 — which is what proves that commit removed no work here.
+
+`scripts/host_quiet_check.py` refused this host every time it
+was asked across the session (loadavg 15 to 192, 12 CPUs over bound even at the quietest), so
+no wall-clock row is admissible and none is quoted. This row rests on instruction counts from
+callgrind, differenced across two rep counts so the fixture build cannot be charged per call.
+Artifact and reproduction: tests/artifacts/perf/20260827-neighbors-key-length-reject-silverlarch/.
+
+THE CLAIM. The bead recorded DiGraph as the last class sloped in node-key length — 134.9 ns at
+K=2 against 640.3 ns at K=2000 — while Graph, MultiGraph and MultiDiGraph stayed flat, and
+named PyDiGraph::successors as the target. Three flat siblings make that a clean
+articulation-point gap if it holds.
+
+IT DOES NOT HOLD ON HEAD, under either probe shape. Whole program, OpenBLAS/OMP/MKL pools
+pinned to 1, fresh keys, per call:
+
+    K=2       fnx    7,736    nx    7,754    fnx-nx    -18
+    K=2000    fnx  233,880    nx  233,942    fnx-nx    -62
+    slope K=2 -> K=2000        fnx +226,144   nx +226,188   fnx EXCESS  -44 Ir/call
+
+Both libraries slope, together, and fnx slopes marginally LESS. Toggled on the native
+pymethod, the K=2000 per-call cost is 84.1% PyObject_Hash (5,626 Ir), 4.4% memcmp, and 0.8%
+(55 Ir) fnx's own SipHash of the canonical: the slope is CPython hashing a fresh long str,
+which networkx pays identically to index _adj. 55 Ir/call bounds what any fix here could win
+at 0.02% of the operation.
+
+AND THE BEAD'S OWN PROBE SHAPE IS NOW FLAT. With keys REUSED as the same str objects — which
+is what a probe that builds the graph from a name list and then indexes with that list does —
+the native side reads 736 Ir/call at K=2 against 734 at K=2000. Consistent with the index
+lookaside landed AFTER this bead was filed (br-r37-c1-0k6zl / ktsxn / acb088e3a) resolving the
+node index from CPython's cached hash rather than canonicalising.
+
+WHAT WOULD REOPEN IT: a wall-clock slope on a quiet host despite equal instruction counts.
+That would be a cache or memory-bandwidth effect rather than removable work, and Ir has moved
+opposite to wall-clock in this repo before (br-r37-c1-p1tvg cut 101 Ir/call and ran 1.27x
+SLOWER), so this row rejects the INSTRUCTION-COUNT version of the claim and does not pretend
+to have measured the other one.
+
+ALSO REFUTED, so nobody re-treads it: my own abcb632d8 (removing core::fmt from the owned
+canonical builder, landed hours earlier) does NOT move this path — 914.2 -> 914.4 Ir/call at
+K=2 and 6,685.3 -> 6,686.5 at K=2000, measured on two arms I built myself. The canonical
+format! was not this cost.
+
+INSTRUMENT FAILURES THIS COST, both recorded in the artifact. (1) blas_thread_server, an
+OpenBLAS spin thread reached through networkx -> scipy, contributes 8,177 to 23,056 Ir/call to
+whole-program callgrind output and differenced to MINUS 2,903 Ir/call on one arm; a negative
+per-call delta proves the symbol is not driven by the loop, and until the pools are pinned
+whole-program Ir is not load-independent at all. (2) Toggling the symbol this bead names,
+PyDiGraph::successors, yields Ir=0 — neighbors enters __pymethod_neighbors__ — and Ir=0 means
+the symbol never matched, not that the work is free.
