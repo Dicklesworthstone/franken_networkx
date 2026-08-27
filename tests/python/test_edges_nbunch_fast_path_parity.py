@@ -58,6 +58,28 @@ def _outcome(fn, graph):
         return (type(exc).__name__, str(exc))
 
 
+def _assign_private_adjacency(graph):
+    """Put both libraries through their assigned-private edge-view paths."""
+    if graph.is_multigraph():
+        graph._adj = {
+            source: {
+                target: {
+                    key: dict(attributes) for key, attributes in keyed.items()
+                }
+                for target, keyed in row.items()
+            }
+            for source, row in graph._adj.items()
+        }
+    else:
+        graph._adj = {
+            source: {target: dict(attributes) for target, attributes in row.items()}
+            for source, row in graph._adj.items()
+        }
+    graph._node = {
+        node: dict(attributes) for node, attributes in graph._node.items()
+    }
+
+
 # Every nbunch spelling networkx accepts. Only the plain-list ones reach the
 # call-shape short-circuit; the rest must keep working through the long path.
 NBUNCH_FORMS = {
@@ -292,6 +314,22 @@ def test_unhashable_nbunch_element_raises_networkxs_error(cls_name):
     gnx, gfx = _pair(cls_name)
     assert _outcome(lambda g: list(g.edges([["un", "hashable"]])), gfx) == _outcome(
         lambda g: list(g.edges([["un", "hashable"]])), gnx
+    )
+
+
+@pytest.mark.parametrize("cls_name", CLASSES)
+def test_private_storage_unhashable_nbunch_element_raises_networkxs_error(cls_name):
+    """Assigned private storage must not swallow a malformed nbunch element.
+
+    The old broad ``TypeError`` handler returned an empty edge sequence. That
+    is observably wrong: NetworkX translates the unhashable element to a
+    ``NetworkXError`` while continuing to use the assigned adjacency mapping.
+    """
+    gnx, gfx = _pair(cls_name)
+    for graph in (gnx, gfx):
+        _assign_private_adjacency(graph)
+    assert _outcome(lambda g: list(g.edges([["un", "hashable"], "a"])), gfx) == _outcome(
+        lambda g: list(g.edges([["un", "hashable"], "a"])), gnx
     )
 
 

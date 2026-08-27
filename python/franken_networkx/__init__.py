@@ -49870,9 +49870,19 @@ class _AssignedPrivateEdgeView:
             pass
         adjacency = _assigned_raw_adj(self._graph)
         try:
-            return [node for node in nbunch if node in adjacency]
+            iterator = iter(nbunch)
         except TypeError:
             return []
+        nodes = []
+        for node in iterator:
+            try:
+                if node in adjacency:
+                    nodes.append(node)
+            except TypeError:
+                raise NetworkXError(
+                    f"Node {node} in sequence nbunch is not a valid node."
+                ) from None
+        return nodes
 
     def _rows(self, nbunch=None, data=False, keys=False):
         nodes = self._nbunch(nbunch)
