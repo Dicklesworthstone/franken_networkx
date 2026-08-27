@@ -7251,26 +7251,21 @@ _MULTIDIGRAPH_NODE_VIEW_CALL = _MULTIDIGRAPH_NODE_VIEW_TYPE.__call__
 
 def _weighted_multidegree_value(graph, node, weight):
     """Return one weighted total degree without re-entering a degree view."""
-    # br-r37-c1-mgrevstore: THE NATIVE ROUTING THAT USED TO BE HERE IS REVERTED.
-    # It returned a WRONG ANSWER on a MultiDiGraph reverse copy, and the wrongness
-    # was order-dependent, which is what makes it unfixable from Python:
-    #
-    #   F.reverse(copy=True).degree(0, weight=)   cold -> 3, networkx says 21
-    #   the same call after list(g.edges(...))         -> 21
-    #   the same call after dict(g.adj)               -> 3
-    #
-    # The store of a multigraph reverse copy carries the edges but not their
-    # attributes, so the kernel defaults every weight to 1 and returns an edge
-    # COUNT; walking `edges()` first republishes the attrs and the answer
-    # silently changes. Blast radius was exactly one cell - MultiDiGraph
-    # reverse(copy=True) - with Graph, DiGraph and MultiGraph correct on plain,
-    # copy, subgraph, to_directed and to_undirected.
-    #
-    # No Python-side gate can be sound here: a reverse copy IS an ordinary
-    # MultiDiGraph, there is no store-authority predicate exposed, and the
-    # answer depends on what the caller read earlier. The kernel must respect
-    # the dirty flag the `_values` kernels already check; until it does, this
-    # path stays on the Python walk below.
+    # br-r37-c1-degscalar, RE-LANDED on the fixed kernel (br-r37-c1-mgrevstore
+    # 30323cfb6). The first attempt at this routing was reverted in 397a4b1b1
+    # because the kernel returned an edge COUNT on a MultiDiGraph reverse copy.
+    # Three sites now consult the store before defaulting, and a re-applied
+    # routing measures 8 divergences on the 580-check directed sweep - exactly
+    # the baseline's probe artifacts.
+    if isinstance(weight, str):
+        native = getattr(graph, "_native_weighted_degree_subset", None)
+        if native is not None:
+            try:
+                pairs = native([node], weight)
+            except TypeError:
+                pairs = None
+            if pairs:
+                return pairs[0][1]
 
     def edge_weight(attrs):
         return attrs.get(weight, 1)
@@ -7730,6 +7725,28 @@ class _DirectedDegreeView:
             if self._adjacency_attr == "pred":
                 _row = self._graph._native_predecessor_row_dict(node)
                 return sum(attrs.get(weight, 1) for attrs in _row.values())
+        if (
+            weight is not None
+            and isinstance(weight, str)
+            and type(self._graph) is MultiDiGraph
+            and not self._fnx_private_storage
+            and not isinstance(
+                self._graph, (_FilteredGraphView, _ReverseDirectedViewBase)
+            )
+        ):
+            if self._adjacency_attr == "succ":
+                _nat = self._graph._native_weighted_out_degree_subset
+            elif self._adjacency_attr == "pred":
+                _nat = self._graph._native_weighted_in_degree_subset
+            else:
+                _nat = None
+            if _nat is not None:
+                try:
+                    _pairs = _nat([node], weight)
+                except TypeError:
+                    _pairs = None
+                if _pairs:
+                    return _pairs[0][1]
 
         adjacency = self._adjacency[node]
         if self._graph.is_multigraph():
