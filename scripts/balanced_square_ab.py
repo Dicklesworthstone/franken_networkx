@@ -1168,6 +1168,13 @@ def workload_multi_key_length(reps: int):
             table[f"Graph degree(u) len={length}"] = (
                 lambda simple=simple, su=su: simple.degree(su)
             )
+            # br-r37-c1-ptiz2: the public neighbors spelling is routed through
+            # the index-keyed live row. Keep it in the long-key fixture rather
+            # than infer its length behavior from the private helper: an exact
+            # string must select the same native path the Python shim exposes.
+            table[f"Graph list(neighbors) len={length}"] = (
+                lambda simple=simple, su=su: list(simple.neighbors(su))
+            )
         return table
 
     return build, ops
