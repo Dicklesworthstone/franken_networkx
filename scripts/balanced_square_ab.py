@@ -626,10 +626,16 @@ def workload_multigraph_weighted_paths(reps: int):
             for i in range(1200):
                 g.add_edge(f"n{i}", f"n{(i * 7 + 3) % 1200}", weight=float(i % 17))
             graphs[cls] = g
-        return graphs["MultiGraph"], (graphs, module)
+        bidirectional = module.MultiGraph()
+        for i in range(1200):
+            bidirectional.add_edge(f"n{i}", f"n{(i + 1) % 1200}", weight=float(i % 17 + 1))
+            bidirectional.add_edge(
+                f"n{i}", f"n{(i * 7 + 3) % 1200}", weight=float(i % 17 + 1)
+            )
+        return graphs["MultiGraph"], (graphs, bidirectional, module)
 
     def ops(graph, fixture):
-        graphs, module = fixture
+        graphs, bidirectional, module = fixture
         labels = {
             "Graph": "CONTROL Graph",
             "DiGraph": "CONTROL DiGraph",
@@ -642,6 +648,9 @@ def workload_multigraph_weighted_paths(reps: int):
                 m.single_source_dijkstra_path_length(g, "n0", weight="weight")
             )
         mg = graphs["MultiGraph"]
+        table["MultiGraph bidirectional_dijkstra(weight)"] = lambda g=bidirectional, m=module: (
+            m.bidirectional_dijkstra(g, "n0", "n600", weight="weight")
+        )
         table["CONTROL MultiGraph sssp UNWEIGHTED"] = lambda mg=mg, m=module: dict(
             m.single_source_shortest_path_length(mg, "n0")
         )

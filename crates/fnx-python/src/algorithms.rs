@@ -1431,132 +1431,125 @@ fn multigraph_bidirectional_dijkstra(
     }
 
     let n = mg.node_count();
-    MG_BIDI_SCRATCH.with(|scratch_cell| {
-        let mut s = scratch_cell.borrow_mut();
-        s.reset(n);
-        let MgBidiScratch {
-            dists,
-            predecessors,
-            seen,
-            fringe,
-        } = &mut *s;
-        seen[0][source_idx] = Some(0.0);
-        seen[1][target_idx] = Some(0.0);
+    // The integer memo has the same row order as `neighbors_iter`, but avoids
+    // resolving a name and hashing it back to an index for every relaxed edge.
+    // Keep `names` only for the authoritative per-pair weight lookup and final
+    // Python-visible path materialization.
+    let names = mg.nodes_ordered();
+    mg.with_int_adjacency(|adjacency| {
+        MG_BIDI_SCRATCH.with(|scratch_cell| {
+            let mut s = scratch_cell.borrow_mut();
+            s.reset(n);
+            let MgBidiScratch {
+                dists,
+                predecessors,
+                seen,
+                fringe,
+            } = &mut *s;
+            seen[0][source_idx] = Some(0.0);
+            seen[1][target_idx] = Some(0.0);
 
-        let mut counter = 0_u64;
-        fringe[0].push(PyDijkstraState {
-            dist: 0.0,
-            seq: counter,
-            node: source_idx,
-        });
-        counter += 1;
-        fringe[1].push(PyDijkstraState {
-            dist: 0.0,
-            seq: counter,
-            node: target_idx,
-        });
-        counter += 1;
+            let mut counter = 0_u64;
+            fringe[0].push(PyDijkstraState {
+                dist: 0.0,
+                seq: counter,
+                node: source_idx,
+            });
+            counter += 1;
+            fringe[1].push(PyDijkstraState {
+                dist: 0.0,
+                seq: counter,
+                node: target_idx,
+            });
+            counter += 1;
 
-        let mut final_distance: Option<f64> = None;
-        let mut meet_node: Option<usize> = None;
-        let mut direction = 1_usize;
+            let mut final_distance: Option<f64> = None;
+            let mut meet_node: Option<usize> = None;
+            let mut direction = 1_usize;
 
-        while !fringe[0].is_empty() && !fringe[1].is_empty() {
-            direction = 1 - direction;
-            let PyDijkstraState {
-                dist: distance,
-                node,
-                ..
-            } = fringe[direction].pop().expect("fringe checked non-empty");
-            if dists[direction][node].is_some() {
-                continue;
-            }
-            dists[direction][node] = Some(distance);
-
-            if dists[1 - direction][node].is_some() {
-                let meet = meet_node.expect("meet node set before fringes overlap");
-                let mut path_indices = Vec::new();
-                let mut current = Some(meet);
-                while let Some(idx) = current {
-                    path_indices.push(idx);
-                    current = predecessors[0][idx];
-                }
-                path_indices.reverse();
-                let mut current = predecessors[1][meet];
-                while let Some(idx) = current {
-                    path_indices.push(idx);
-                    current = predecessors[1][idx];
-                }
-
-                let all_int = path_indices.windows(2).all(|pair| {
-                    let left = mg
-                        .get_node_name(pair[0])
-                        .expect("path node index should resolve");
-                    let right = mg
-                        .get_node_name(pair[1])
-                        .expect("path node index should resolve");
-                    multigraph_min_parallel_dijkstra_weight(mg, left, right, weight_attr)
-                        .is_some_and(|(_, edge_all_int)| edge_all_int)
-                });
-                let path = path_indices
-                    .into_iter()
-                    .map(|idx| {
-                        mg.get_node_name(idx)
-                            .expect("path node index should resolve")
-                            .to_owned()
-                    })
-                    .collect();
-                return BidirectionalDijkstraOutcome::Found(
-                    final_distance.expect("final distance set with meet node"),
-                    all_int,
-                    path,
-                );
-            }
-
-            let node_name = mg
-                .get_node_name(node)
-                .expect("fringe node index should resolve");
-            let Some(neighbors) = mg.neighbors_iter(node_name) else {
-                continue;
-            };
-            for neighbor_name in neighbors {
-                let Some(neighbor) = mg.get_node_index(neighbor_name) else {
+            while !fringe[0].is_empty() && !fringe[1].is_empty() {
+                direction = 1 - direction;
+                let PyDijkstraState {
+                    dist: distance,
+                    node,
+                    ..
+                } = fringe[direction].pop().expect("fringe checked non-empty");
+                if dists[direction][node].is_some() {
                     continue;
-                };
-                let Some((edge_weight, _)) = multigraph_min_parallel_dijkstra_weight(
-                    mg,
-                    node_name,
-                    neighbor_name,
-                    weight_attr,
-                ) else {
-                    continue;
-                };
-                let candidate = distance + edge_weight;
-                if let Some(finalized) = dists[direction][neighbor] {
-                    if candidate < finalized {
-                        return BidirectionalDijkstraOutcome::Contradiction;
+                }
+                dists[direction][node] = Some(distance);
+
+                if dists[1 - direction][node].is_some() {
+                    let meet = meet_node.expect("meet node set before fringes overlap");
+                    let mut path_indices = Vec::new();
+                    let mut current = Some(meet);
+                    while let Some(idx) = current {
+                        path_indices.push(idx);
+                        current = predecessors[0][idx];
                     }
-                } else if seen[direction][neighbor].is_none_or(|known| candidate < known) {
-                    seen[direction][neighbor] = Some(candidate);
-                    predecessors[direction][neighbor] = Some(node);
-                    fringe[direction].push(PyDijkstraState {
-                        dist: candidate,
-                        seq: counter,
-                        node: neighbor,
+                    path_indices.reverse();
+                    let mut current = predecessors[1][meet];
+                    while let Some(idx) = current {
+                        path_indices.push(idx);
+                        current = predecessors[1][idx];
+                    }
+
+                    let all_int = path_indices.windows(2).all(|pair| {
+                        multigraph_min_parallel_dijkstra_weight(
+                            mg,
+                            names[pair[0]],
+                            names[pair[1]],
+                            weight_attr,
+                        )
+                        .is_some_and(|(_, edge_all_int)| edge_all_int)
                     });
-                    counter += 1;
-                    if let Some(other) = seen[1 - direction][neighbor] {
-                        let total = candidate + other;
-                        if final_distance.is_none_or(|best| total < best) {
-                            final_distance = Some(total);
-                            meet_node = Some(neighbor);
+                    let path = path_indices
+                        .into_iter()
+                        .map(|idx| names[idx].to_owned())
+                        .collect();
+                    return BidirectionalDijkstraOutcome::Found(
+                        final_distance.expect("final distance set with meet node"),
+                        all_int,
+                        path,
+                    );
+                }
+
+                for &neighbor in &adjacency[node] {
+                    let Some((edge_weight, _)) = multigraph_min_parallel_dijkstra_weight(
+                        mg,
+                        names[node],
+                        names[neighbor],
+                        weight_attr,
+                    ) else {
+                        continue;
+                    };
+                    let candidate = distance + edge_weight;
+                    if let Some(finalized) = dists[direction][neighbor] {
+                        if candidate < finalized {
+                            return BidirectionalDijkstraOutcome::Contradiction;
+                        }
+                    } else if seen[direction][neighbor].is_none_or(|known| candidate < known) {
+                        seen[direction][neighbor] = Some(candidate);
+                        predecessors[direction][neighbor] = Some(node);
+                        fringe[direction].push(PyDijkstraState {
+                            dist: candidate,
+                            seq: counter,
+                            node: neighbor,
+                        });
+                        counter += 1;
+                        if let Some(other) = seen[1 - direction][neighbor] {
+                            let total = candidate + other;
+                            if final_distance.is_none_or(|best| total < best) {
+                                final_distance = Some(total);
+                                meet_node = Some(neighbor);
+                            }
                         }
                     }
                 }
             }
-        }
 
-        BidirectionalDijkstraOutcome::NoPath
+            BidirectionalDijkstraOutcome::NoPath
+        })
     })
 }
 
