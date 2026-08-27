@@ -2192,6 +2192,34 @@ def _adjacency_view_keys(self):
         keydict = keydict_getter()
         if keydict is not None:
             return _AdjKeysView(keydict)
+    # br-r37-c1-mgkeyslive: a LIVE atlas, not a frozen list. THIS IS A PARITY FIX
+    # BEFORE IT IS A PERFORMANCE ONE.
+    #
+    # A multigraph row (`AdjacencyView`) has no `_keydict`, so it fell to
+    # `list(self)` — an O(degree) snapshot taken at `keys()` time. networkx's
+    # `KeysView` wraps the live mapping, so a HELD view tracks mutation, and fnx's
+    # went stale:
+    #
+    #     k = G[0].keys()            nx ['1','2']        fnx ['1','2']
+    #     G.add_edge(0, 3)           nx ['1','2','3']    fnx ['1','2']   <- stale
+    #     G.remove_edge(0, 1)        nx ['2','3']        fnx ['1','2']   <- stale
+    #
+    # Graph and DiGraph never had this: their rows own a `_keydict` and take the
+    # live branch above, which is why the divergence was multigraph-only.
+    #
+    # `_atlas()` is the memoised row view and it IS live — verified across
+    # add_edge, a parallel add, remove_edge and remove_node on both multigraph
+    # classes, agreeing with a freshly fetched atlas at every step
+    # (br-r37-c1-mgrowatlas). It also supplies the only three operations
+    # `_AdjKeysView` asks of its backing object: __iter__, __contains__, __len__.
+    #
+    # The frozen `list(self)` remains as the last resort for any wrapper that
+    # exposes neither `_keydict` nor `_atlas`.
+    atlas_getter = getattr(self, "_atlas", None)
+    if atlas_getter is not None:
+        atlas = atlas_getter()
+        if atlas is not None:
+            return _AdjKeysView(atlas)
     return _AdjKeysView(list(self))
 
 
