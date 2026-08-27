@@ -7983,6 +7983,36 @@ class _DirectedDegreeView:
             # carried only by `_succ` (nx returns an int) and an INT for a node
             # carried only by `_node` (nx returns a view).
             if nbunch in self._fnx_member_of:
+                # br-r37-c1-degcallfast: answer from the counter the constructor
+                # already bound, instead of re-entering `_node_degree` and
+                # re-deciding what `__init__` decided once. That frame re-runs a
+                # weight test, a private-storage test and two isinstance checks
+                # before reaching the same native call.
+                #
+                # Measured on DiGraph, V=1200: out_degree(n) 0.3381us -> 0.1117us,
+                # i.e. 0.5499x -> 1.6642x against networkx; MultiDiGraph 1.3154x
+                # -> 4.0518x. The subscript form `view[n]` already cost only
+                # 0.1134us, so the CALL form was paying ~0.21us of pure dispatch
+                # that the subscript did not.
+                #
+                # THE MEMBERSHIP TEST ABOVE IS LOAD-BEARING AND IS KEPT. A first
+                # attempt dropped it and called the counter directly inside a
+                # try/except, which measured 2.6084x - and was WRONG.
+                # `_native_out_degree` does not raise for a non-node: it returns
+                # 0 for an absent int, a str, a list, a dict and None. networkx
+                # raises NetworkXError for the absent int and returns an empty
+                # VIEW for the rest, so the try/except form silently answered 0
+                # in five distinct shapes. It only looked right because the
+                # benchmark asked for a node that was present.
+                #
+                # `weight is None` is the EFFECTIVE weight after the resolution
+                # at the top of this function, and `_fast_degree` is bound only
+                # for an unweighted view over a concrete graph with no assigned
+                # private storage, so anything else still takes `_node_degree`.
+                if weight is None:
+                    fast = self._fast_degree
+                    if fast is not None:
+                        return fast(nbunch)
                 return self._node_degree(nbunch, weight)
         except TypeError:
             pass
