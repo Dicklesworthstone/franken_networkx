@@ -48643,6 +48643,104 @@ def _class_shadows_nothing(owner_type):
     return known
 
 
+_SHADOW_PLAN_CACHE = {}
+
+
+def _shadow_plan(owner_type, node_override, any_override):
+    """The (name, fallback, raw_methods) triples this CLASS can actually shadow.
+
+    br-r37-c1-shplan: everything decided here is a property of the class and the
+    two override booleans, none of which can change under a live instance, so it
+    is computed once and reused. The MRO walk that decides class eligibility is
+    still the same one, still memoised per (class, name) in
+    `_SHADOWABLE_RAW_METHOD_CACHE`; this just stops re-asking for candidates
+    that were never eligible.
+    """
+    key = (owner_type, node_override, any_override)
+    plan = _SHADOW_PLAN_CACHE.get(key)
+    if plan is not None:
+        return plan
+
+    multi = issubclass(owner_type, (MultiGraph, MultiDiGraph))
+    directed = issubclass(owner_type, DiGraph)
+    candidates = []
+    if node_override:
+        candidates.append(("has_node", _assigned_private_has_node, _RAW_HAS_NODE_METHODS))
+        candidates.append(
+            ("number_of_nodes", _assigned_private_number_of_nodes, _RAW_NUMBER_OF_NODES_METHODS)
+        )
+        candidates.append(
+            ("order", _assigned_private_number_of_nodes, _RAW_NUMBER_OF_NODES_METHODS)
+        )
+    if any_override:
+        candidates.append((
+            "has_edge",
+            _assigned_private_has_edge_multi if multi else _assigned_private_has_edge_simple,
+            _RAW_HAS_EDGE_METHODS,
+        ))
+        # br-r37-c1-wv3cu: the WRITE side. networkx mutates the assigned mapping
+        # in place, so a graph carrying one needs add_node routed there as well
+        # as to the native store.
+        candidates.append(("add_node", _assigned_private_add_node, _RAW_ADD_NODE_METHODS))
+        candidates.append(
+            ("add_nodes_from", _assigned_private_add_nodes_from, _RAW_ADD_NODES_FROM_METHODS)
+        )
+        candidates.append(("remove_node", _assigned_private_remove_node, _RAW_REMOVE_NODE_METHODS))
+        candidates.append(("remove_edge", _assigned_private_remove_edge, _RAW_REMOVE_EDGE_METHODS))
+        candidates.append(
+            ("remove_edges_from", _assigned_private_remove_edges_from, _RAW_REMOVE_EDGES_FROM_METHODS)
+        )
+        candidates.append(("clear", _assigned_private_clear, _RAW_CLEAR_METHODS))
+        candidates.append(("clear_edges", _assigned_private_clear_edges, _RAW_CLEAR_EDGES_METHODS))
+        candidates.append(
+            ("add_edges_from", _assigned_private_add_edges_from, _RAW_ADD_EDGES_FROM_METHODS)
+        )
+        candidates.append((
+            "add_weighted_edges_from",
+            _assigned_private_add_weighted_edges_from,
+            _RAW_ADD_WEIGHTED_METHODS,
+        ))
+        candidates.append((
+            "add_edge",
+            _assigned_private_add_edge_multi if multi else _assigned_private_add_edge_simple,
+            _RAW_ADD_EDGE_METHODS,
+        ))
+        candidates.append((
+            "get_edge_data",
+            _assigned_private_get_edge_data_multi if multi else _assigned_private_get_edge_data_simple,
+            _RAW_GET_EDGE_DATA_METHODS,
+        ))
+        if directed:
+            candidates.append((
+                "neighbors", _assigned_private_digraph_successors, _RAW_DIGRAPH_NEIGHBOR_METHODS
+            ))
+            candidates.append((
+                "successors", _assigned_private_digraph_successors, _RAW_DIGRAPH_NEIGHBOR_METHODS
+            ))
+
+    eligible = []
+    for name, fallback, raw_methods in candidates:
+        cache_key = (owner_type, name)
+        ok = _SHADOWABLE_RAW_METHOD_CACHE.get(cache_key)
+        if ok is None:
+            class_method = next(
+                (
+                    base.__dict__[name]
+                    for base in owner_type.__mro__
+                    if name in base.__dict__
+                ),
+                None,
+            )
+            ok = any(class_method is raw_method for raw_method in raw_methods)
+            _SHADOWABLE_RAW_METHOD_CACHE[cache_key] = ok
+        if ok:
+            eligible.append((name, fallback, raw_methods))
+
+    plan = tuple(eligible)
+    _SHADOW_PLAN_CACHE[key] = plan
+    return plan
+
+
 def _install_private_method_shadows(self, storage):
     """Restore mapping-aware dispatch only on instances that need it.
 
@@ -48683,8 +48781,7 @@ def _install_private_method_shadows(self, storage):
     # the two booleans below plus the class, and the class cannot change under a
     # live instance. A filtered view assigns THREE private overrides at
     # construction and every assignment re-ran this whole body, re-binding and
-    # re-storing an identical set of methods: 21 `install` calls per view for a
-    # MultiDiGraph, of which 14 rebuilt what the first seven had just made.
+    # re-storing an identical set of methods.
     #
     # The guard is deliberately NOT "previous is non-empty". It compares the
     # recorded state, because a later assignment CAN legitimately widen the set -
@@ -48700,8 +48797,9 @@ def _install_private_method_shadows(self, storage):
     state = (node_override, any_override)
     if previous and storage.get(_PRIVATE_SHADOW_STATE) == state:
         # Only skip while every shadow we installed is still OURS. A caller that
-        # replaced one with its own method must fall through, because `install`
-        # has a per-name rule for exactly that case and it is not ours to guess.
+        # replaced one with its own method must fall through, because the
+        # per-name rule below is for exactly that case and it is not ours to
+        # guess.
         for shadow_name, shadow_bound in previous.items():
             if storage.get(shadow_name) is not shadow_bound:
                 break
@@ -48709,113 +48807,27 @@ def _install_private_method_shadows(self, storage):
             return
 
     installed = {}
-
-    def install(name, fallback, raw_methods):
-        # br-r37-c1-8itxk: whether this CLASS exposes a shadowable raw
-        # method for `name` cannot differ between instances of it, but the old
-        # code re-derived it on every assignment — an MRO walk in a Python
-        # generator plus an `any()` over the raw-method tuple. A reverse view
-        # assigns three private overrides at construction and each one runs
-        # four of these, so DiGraph.reverse(copy=False) paid 12 MRO walks and
-        # 48 generator steps per call. Memoised per (class, name); the
-        # per-INSTANCE decisions below are untouched.
-        cache_key = (owner_type, name)
-        eligible = _SHADOWABLE_RAW_METHOD_CACHE.get(cache_key)
-        if eligible is None:
-            class_method = next(
-                (
-                    base.__dict__[name]
-                    for base in owner_type.__mro__
-                    if name in base.__dict__
-                ),
-                None,
-            )
-            eligible = any(class_method is raw_method for raw_method in raw_methods)
-            _SHADOWABLE_RAW_METHOD_CACHE[cache_key] = eligible
-        if not eligible:
-            return
+    # br-r37-c1-shplan: the CLASS-eligible subset is computed once per
+    # (class, state) instead of re-testing every candidate on every
+    # construction. It used to call an `install` closure for all THIRTEEN
+    # candidate names on a fresh instance; measured on a filtered view, exactly
+    # ONE of them (`get_edge_data`) is class-eligible on Graph, DiGraph,
+    # MultiGraph and MultiDiGraph alike, so twelve calls per view built a cache
+    # key, missed nothing, and returned. That was 2.245us of a 15.812us
+    # `G.subgraph(64)` - 14.2% of the whole construction - and a fresh view can
+    # never hit the state guard above, because `previous` starts empty.
+    #
+    # Only the CLASS half of the decision is planned. The per-INSTANCE rule -
+    # never replace a method the caller supplied, tracked through `previous` -
+    # still runs for each planned name, unchanged.
+    for name, fallback, raw_methods in _shadow_plan(owner_type, node_override, any_override):
         current = storage.get(name, _PRIVATE_MISSING)
         if current is not _PRIVATE_MISSING and current is not previous.get(name):
-            return
-        bound = fallback.__get__(self, type(self))
+            continue
+        bound = fallback.__get__(self, owner_type)
         storage[name] = bound
         installed[name] = bound
 
-    if node_override:
-        install("has_node", _assigned_private_has_node, _RAW_HAS_NODE_METHODS)
-        install(
-            "number_of_nodes",
-            _assigned_private_number_of_nodes,
-            _RAW_NUMBER_OF_NODES_METHODS,
-        )
-        install(
-            "order",
-            _assigned_private_number_of_nodes,
-            _RAW_NUMBER_OF_NODES_METHODS,
-        )
-    if any_override:
-        fallback = (
-            _assigned_private_has_edge_multi
-            if isinstance(self, (MultiGraph, MultiDiGraph))
-            else _assigned_private_has_edge_simple
-        )
-        install("has_edge", fallback, _RAW_HAS_EDGE_METHODS)
-        # br-r37-c1-wv3cu: the WRITE side. networkx mutates the assigned
-        # mapping in place, so a graph carrying one needs add_node routed
-        # there as well as to the native store.
-        install("add_node", _assigned_private_add_node, _RAW_ADD_NODE_METHODS)
-        install(
-            "add_nodes_from",
-            _assigned_private_add_nodes_from,
-            _RAW_ADD_NODES_FROM_METHODS,
-        )
-        install("remove_node", _assigned_private_remove_node, _RAW_REMOVE_NODE_METHODS)
-        install("remove_edge", _assigned_private_remove_edge, _RAW_REMOVE_EDGE_METHODS)
-        install(
-            "remove_edges_from",
-            _assigned_private_remove_edges_from,
-            _RAW_REMOVE_EDGES_FROM_METHODS,
-        )
-        install("clear", _assigned_private_clear, _RAW_CLEAR_METHODS)
-        install("clear_edges", _assigned_private_clear_edges, _RAW_CLEAR_EDGES_METHODS)
-        install(
-            "add_edges_from",
-            _assigned_private_add_edges_from,
-            _RAW_ADD_EDGES_FROM_METHODS,
-        )
-        install(
-            "add_weighted_edges_from",
-            _assigned_private_add_weighted_edges_from,
-            _RAW_ADD_WEIGHTED_METHODS,
-        )
-        install(
-            "add_edge",
-            _assigned_private_add_edge_multi
-            if isinstance(self, (MultiGraph, MultiDiGraph))
-            else _assigned_private_add_edge_simple,
-            _RAW_ADD_EDGE_METHODS,
-        )
-        edge_data_fallback = (
-            _assigned_private_get_edge_data_multi
-            if isinstance(self, (MultiGraph, MultiDiGraph))
-            else _assigned_private_get_edge_data_simple
-        )
-        install(
-            "get_edge_data",
-            edge_data_fallback,
-            _RAW_GET_EDGE_DATA_METHODS,
-        )
-        if isinstance(self, DiGraph):
-            install(
-                "neighbors",
-                _assigned_private_digraph_successors,
-                _RAW_DIGRAPH_NEIGHBOR_METHODS,
-            )
-            install(
-                "successors",
-                _assigned_private_digraph_successors,
-                _RAW_DIGRAPH_NEIGHBOR_METHODS,
-            )
     if installed:
         storage[_PRIVATE_NODE_METHOD_SHADOWS] = installed
         storage[_PRIVATE_SHADOW_STATE] = state
