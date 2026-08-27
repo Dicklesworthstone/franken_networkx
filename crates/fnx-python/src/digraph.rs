@@ -6750,7 +6750,13 @@ impl PyMultiDiGraph {
         // classes (br-r37-c1-6n9vm). CPython caches a string's hash inside the
         // object; the canonical path rebuilt `"str:{len}:{s}"` and rehashed it
         // on every probe.
-        if n.is_exact_instance_of::<PyString>() {
+        // br-r37-c1-fov4a: exact `int` reaches the presence cache too. See the
+        // undirected twin in lib.rs for the full account. The identity-int path
+        // above fires only while index == value; after removals renumber the
+        // store an int key otherwise canonicalises on EVERY call. Measured
+        // int/str penalty on a REMAPPED store: `n in G` 2.06-2.22x, `has_node`
+        // 1.59-1.63x, all four classes.
+        if crate::node_key_can_use_index_lookaside(n) {
             return self.exact_str_node_is_present(py, n);
         }
         // br-r37-c1-lvlu7: an UNHASHABLE key is ABSENT, not an error and not a
@@ -6791,7 +6797,13 @@ impl PyMultiDiGraph {
         }
         // br-r37-c1-ic4cv: same present-key set as `has_node` — the two are the
         // same question and must not disagree, so they share the memo.
-        if n.is_exact_instance_of::<PyString>() {
+        // br-r37-c1-fov4a: exact `int` reaches the presence cache too. See the
+        // undirected twin in lib.rs for the full account. The identity-int path
+        // above fires only while index == value; after removals renumber the
+        // store an int key otherwise canonicalises on EVERY call. Measured
+        // int/str penalty on a REMAPPED store: `n in G` 2.06-2.22x, `has_node`
+        // 1.59-1.63x, all four classes.
+        if crate::node_key_can_use_index_lookaside(n) {
             return self.exact_str_node_is_present(py, n);
         }
         // br-r37-c1-lvlu7: an UNHASHABLE key is ABSENT, not an error and not a
@@ -14456,7 +14468,13 @@ impl PyDiGraph {
             return Ok(true);
         }
         // br-r37-c1-6n9vm: exact-`str` present-key set, as on PyGraph.
-        if n.is_exact_instance_of::<PyString>() {
+        // br-r37-c1-fov4a: exact `int` reaches the presence cache too. See the
+        // undirected twin in lib.rs for the full account. The identity-int path
+        // above fires only while index == value; after removals renumber the
+        // store an int key otherwise canonicalises on EVERY call. Measured
+        // int/str penalty on a REMAPPED store: `n in G` 2.06-2.22x, `has_node`
+        // 1.59-1.63x, all four classes.
+        if crate::node_key_can_use_index_lookaside(n) {
             return self.exact_str_node_is_present(py, n);
         }
         // br-r37-c1-lvlu7: an UNHASHABLE key is ABSENT, not an error and not a
@@ -17520,7 +17538,13 @@ impl PyDiGraph {
         {
             return Ok(true);
         }
-        if n.is_exact_instance_of::<PyString>() {
+        // br-r37-c1-fov4a: exact `int` reaches the presence cache too. See the
+        // undirected twin in lib.rs for the full account. The identity-int path
+        // above fires only while index == value; after removals renumber the
+        // store an int key otherwise canonicalises on EVERY call. Measured
+        // int/str penalty on a REMAPPED store: `n in G` 2.06-2.22x, `has_node`
+        // 1.59-1.63x, all four classes.
+        if crate::node_key_can_use_index_lookaside(n) {
             return self.exact_str_node_is_present(py, n);
         }
         // br-r37-c1-lvlu7: an UNHASHABLE key is ABSENT, not an error and not a

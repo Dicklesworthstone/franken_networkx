@@ -11474,7 +11474,16 @@ impl PyMultiGraph {
             return Ok(true);
         }
         // br-r37-c1-6n9vm: exact-`str` present-key set, as on PyGraph.
-        if n.is_exact_instance_of::<PyString>() {
+        // br-r37-c1-fov4a: exact `int` reaches the presence cache too. The
+        // identity-int path above fires only while index == value; once
+        // removals renumber the store it stops firing, and an int key then
+        // canonicalised on EVERY call instead of hitting this cache. Measured
+        // int/str penalty on a REMAPPED store: `n in G` 2.06-2.22x and
+        // `has_node` 1.59-1.63x, on all four classes - against 0.87-1.08x on a
+        // freshly built one, which is why a clean-fixture probe sees nothing.
+        // `exact_str_node_is_present` is misnamed: its body is type-agnostic
+        // (value-keyed presence cache, then the generic canonical fallback).
+        if node_key_can_use_index_lookaside(n) {
             return self.exact_str_node_is_present(py, n);
         }
         // br-r37-c1-lvlu7: an UNHASHABLE key is ABSENT, not an error and not a
@@ -11722,7 +11731,16 @@ impl PyMultiGraph {
         }
         // br-r37-c1-6n9vm: same present-key set as `has_node` — the two are the
         // same question and must not disagree, so they share the memo.
-        if n.is_exact_instance_of::<PyString>() {
+        // br-r37-c1-fov4a: exact `int` reaches the presence cache too. The
+        // identity-int path above fires only while index == value; once
+        // removals renumber the store it stops firing, and an int key then
+        // canonicalised on EVERY call instead of hitting this cache. Measured
+        // int/str penalty on a REMAPPED store: `n in G` 2.06-2.22x and
+        // `has_node` 1.59-1.63x, on all four classes - against 0.87-1.08x on a
+        // freshly built one, which is why a clean-fixture probe sees nothing.
+        // `exact_str_node_is_present` is misnamed: its body is type-agnostic
+        // (value-keyed presence cache, then the generic canonical fallback).
+        if node_key_can_use_index_lookaside(n) {
             return self.exact_str_node_is_present(py, n);
         }
         // br-r37-c1-lvlu7: an UNHASHABLE key is ABSENT, not an error and not a
@@ -15829,7 +15847,16 @@ impl PyGraph {
         // br-r37-c1-6n9vm: an exact `str` already proven present answers from
         // the set, reusing the hash CPython cached in the object. The canonical
         // rebuild below is 77.4% of this method's instructions.
-        if n.is_exact_instance_of::<PyString>() {
+        // br-r37-c1-fov4a: exact `int` reaches the presence cache too. The
+        // identity-int path above fires only while index == value; once
+        // removals renumber the store it stops firing, and an int key then
+        // canonicalised on EVERY call instead of hitting this cache. Measured
+        // int/str penalty on a REMAPPED store: `n in G` 2.06-2.22x and
+        // `has_node` 1.59-1.63x, on all four classes - against 0.87-1.08x on a
+        // freshly built one, which is why a clean-fixture probe sees nothing.
+        // `exact_str_node_is_present` is misnamed: its body is type-agnostic
+        // (value-keyed presence cache, then the generic canonical fallback).
+        if node_key_can_use_index_lookaside(n) {
             return self.exact_str_node_is_present(py, n);
         }
         // br-r37-c1-lvlu7: an UNHASHABLE key is ABSENT, not an error and not a
@@ -16583,7 +16610,16 @@ impl PyGraph {
         }
         // br-r37-c1-6n9vm: same present-key set as `has_node` — the two are the
         // same question and must not disagree, so they share the memo.
-        if n.is_exact_instance_of::<PyString>() {
+        // br-r37-c1-fov4a: exact `int` reaches the presence cache too. The
+        // identity-int path above fires only while index == value; once
+        // removals renumber the store it stops firing, and an int key then
+        // canonicalised on EVERY call instead of hitting this cache. Measured
+        // int/str penalty on a REMAPPED store: `n in G` 2.06-2.22x and
+        // `has_node` 1.59-1.63x, on all four classes - against 0.87-1.08x on a
+        // freshly built one, which is why a clean-fixture probe sees nothing.
+        // `exact_str_node_is_present` is misnamed: its body is type-agnostic
+        // (value-keyed presence cache, then the generic canonical fallback).
+        if node_key_can_use_index_lookaside(n) {
             return self.exact_str_node_is_present(py, n);
         }
         // br-r37-c1-lvlu7: an UNHASHABLE key is ABSENT, not an error and not a
