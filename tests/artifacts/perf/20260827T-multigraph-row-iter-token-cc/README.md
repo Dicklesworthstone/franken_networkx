@@ -67,3 +67,55 @@ next attempt is judged against them instead of re-deriving them.
 
     bench_elf_sha256=8c6df2c8806ead4fe14644666de2336be417d65e43311cb3242c1cca9c794987
     PYTHONPATH=$S/ma_after .venv/bin/python bench_rowlen.py
+
+---
+
+# CORRECTION (same day): the lever proposed above is REFUTED
+
+**The "one combined revision accessor" recommendation in the section above is
+WRONG. It was implemented, built and measured, and it does not work. Do not
+attempt it.**
+
+## What was built
+
+`fnx_rev`, a `#[getter]` returning `(u64, u64)` — both counters in a single
+crossing — added to all four classes (PyGraph, PyDiGraph, PyMultiGraph,
+PyMultiDiGraph) and built at
+`bench_elf_sha256=b9d4859d0ecbe06dd875129eec7e6067b4aff5a093d4e162059076a58b72ca1a`.
+
+## What it measured
+
+    class          agrees   (nodes_seq, edges_seq)   fnx_rev    saving
+      Graph          yes            69.9 ns          63.7 ns    6.2 ns  (1.10x)
+      DiGraph        yes            70.0 ns          63.5 ns    6.4 ns  (1.10x)
+      MultiGraph     yes            66.3 ns          62.9 ns    3.5 ns  (1.06x)
+      MultiDiGraph   yes            66.6 ns          62.5 ns    4.1 ns  (1.07x)
+
+Correct on every class, and worth 3.5-6.4ns. On a ~205ns `iter(row)` that is
+about 3 percent — below the noise this surface is measured at. The predicted
+0.30x -> 0.6x does not happen.
+
+## Why the reasoning above was wrong
+
+The section above framed the token as "TWO PyO3 crossings" and reasoned that
+halving them would halve the cost. The individual getters measure 39.1ns and
+38.9ns, which invites that arithmetic — but the PAIR measures 64.2ns, not 78ns,
+and a single tuple-returning getter measures 63.7ns.
+
+So per-call crossing overhead is largely FIXED, not per-value, and what actually
+dominates is the TUPLE ALLOCATION — which `fnx_rev` still has to do, just in Rust
+instead of Python. Moving the allocation across the boundary buys almost nothing.
+
+Adding two getter measurements together is not a measurement of the pair. That is
+the mistake, and it is the transferable lesson.
+
+## Status
+
+Rust change reverted; no API surface added. `iter(G[u])` stays at ~0.42x, and the
+ceiling statement in the section above still holds — fnx's cache-validation token
+(64.2ns) costs more than networkx's entire operation (62.0ns). What is now also
+known is that the obvious way to shrink that token does not shrink it.
+
+Closing this row would need the validation removed from the hot path altogether
+(e.g. invalidation pushed from the graph into its views on mutation, rather than
+polled per read), which is a much larger design change and is NOT proposed here.
