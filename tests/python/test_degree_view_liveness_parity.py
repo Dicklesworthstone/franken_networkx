@@ -149,6 +149,33 @@ def test_the_reported_case(cls_name):
 
 
 @pytest.mark.parametrize("cls_name", CLASSES)
+@pytest.mark.parametrize("restricted", [False, True], ids=["whole", "nbunch"])
+@pytest.mark.parametrize("weighted", [False, True], ids=["plain", "weighted"])
+def test_degree_iterator_defers_snapshot_until_first_next(cls_name, restricted, weighted):
+    """`iter(view)` itself must not freeze degree values.
+
+    This is deliberately broader than the original restricted/unweighted repro:
+    a fix that only defers Graph's raw iterator misses multigraph native paths;
+    a fix that only changes whole views misses `_FilteredDegreeView`; and a fix
+    that only changes counts misses the weighted native accumulator.  In every
+    case NetworkX sees the edge added *after* `iter()` but before `next()`.
+    """
+    outcomes = []
+    for lib in (nx, fnx):
+        graph = _build(lib, cls_name)
+        if restricted:
+            view = graph.degree([0, 1, 2, 3], weight="w" if weighted else None)
+        else:
+            view = graph.degree(weight="w") if weighted else graph.degree
+        iterator = iter(view)
+        graph.add_edge(0, 3, w=7)
+        outcomes.append(list(iterator))
+
+    assert outcomes[1] == outcomes[0]
+    assert dict(outcomes[1])[0] == (16 if weighted else 2)
+
+
+@pytest.mark.parametrize("cls_name", CLASSES)
 def test_unrestricted_views_pick_up_new_nodes(cls_name):
     """An unrestricted view spans the graph's CURRENT nodes."""
     for name, form in _forms(cls_name, restricted=False).items():

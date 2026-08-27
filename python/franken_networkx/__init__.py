@@ -7341,6 +7341,12 @@ class MultiGraphDegreeView:
         return len(self._nodes)
 
     def __iter__(self):
+        return _chain_from_iterable(self._iterator_once())
+
+    def _iterator_once(self):
+        yield self._iter_now()
+
+    def _iter_now(self):
         # br-r37-c1-pejo5
         _degree_view_frozen_nodes_check(self)
         # br-r37-c1-mgdegiter: the UNWEIGHTED all-node walk. Both weighted
@@ -7490,6 +7496,12 @@ class MultiDiGraphDegreeView:
         return len(self._nodes)
 
     def __iter__(self):
+        return _chain_from_iterable(self._iterator_once())
+
+    def _iterator_once(self):
+        yield self._iter_now()
+
+    def _iter_now(self):
         # br-r37-c1-pejo5
         _degree_view_frozen_nodes_check(self)
         # br-r37-c1-mgdegiter: the UNWEIGHTED all-node walk, directed sibling of
@@ -8244,7 +8256,14 @@ class _WeightAwareDegreeView:
         )
 
     def __iter__(self):
-        return iter(self._raw)
+        # NetworkX binds its adjacency iterator at the consumer's first
+        # ``next()``, not when ``iter(G.degree)`` is called.  The raw PyO3 view
+        # snapshots at ``iter(raw)``; defer that call behind a one-item generator
+        # while keeping the actual pair walk in C.
+        return _chain_from_iterable(self._raw_iterator_once())
+
+    def _raw_iterator_once(self):
+        yield iter(self._raw)
 
     def __len__(self):
         return len(self._raw)
@@ -8848,6 +8867,15 @@ class _FilteredDegreeView:
         return self._raw[node]
 
     def __iter__(self):
+        # Fresh/stale selection must happen at the first ``next()``.  Returning
+        # the selected native iterator directly makes `iter(view)` itself choose
+        # a stale snapshot if a caller mutates the graph before consuming it.
+        return _chain_from_iterable(self._iterator_once())
+
+    def _iterator_once(self):
+        yield self._iter_now()
+
+    def _iter_now(self):
         _degree_view_frozen_nodes_check(self)
         # br-r37-c1-degnbhash: the staleness check is INLINE. It used to be
         # `_snapshot_is_current()` -> `_freshness()` -> `_graph_ref()`, three
