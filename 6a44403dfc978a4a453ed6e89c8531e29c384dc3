@@ -1,0 +1,126 @@
+MEASUREMENT EVIDENCE for br-r37-c1-ktsxn (this commit landed without any).
+
+The worst row on the read surface: MultiDiGraph.edges[u,v,key] with INT node
+keys, 0.2766x -> 0.5406x. MultiGraph 0.2827x -> 0.5963x. STILL A LOSS.
+
+HOW THIS ROW WAS FOUND. br-r37-c1-ktsxn nominated DiGraph.edges[u,v] int keys at
+0.3192x and prescribed routing three Python view classes onto the native slot.
+Re-measured on HEAD first, because negative-ledger perf beads go stale, and the
+bead was stale in BOTH directions:
+
+  - its row had already improved to 0.5318x, not 0.3192x;
+  - its CEILING claim is refuted. The bead states the native get_edge_data costs
+    214.7ns against networkx's 115.2ns for the whole operation, so "even a
+    zero-cost wrapper cannot reach 1.0x". Measured now: the native call is
+    127.8ns/call against networkx's whole op at 122.4ns, a ceiling of 0.9581x.
+    The native lookup got cheaper after the bead was written, so the premise for
+    "the ceiling is below parity" no longer holds;
+  - and the worst row was not DiGraph at all. It was the two multigraph classes
+    on INT keys, at 0.2960x / 0.2913x.
+
+The prescribed lever would not have touched it. Isolating the raw PyO3 call from
+the Python slot showed the whole penalty below the binding:
+
+  class          raw native int   raw native str   penalty
+  Graph              113.2ns          116.7ns      int FASTER (0.97x)
+  DiGraph            126.5ns          128.7ns      int FASTER (0.98x)
+  MultiGraph         338.6ns          144.8ns      +193.8ns  (2.34x)
+  MultiDiGraph       347.7ns          168.1ns      +179.7ns  (2.07x)
+
+Python-side overhead is flat across key type (111-132ns), so this is entirely in
+Rust.
+
+THE DEFECT. In PyMultiGraph::get_edge_data and PyMultiDiGraph::get_edge_data the
+KEYED index-lookaside PROBE gated on exact-`str` while the FILL eighty lines
+below it gated on exact-`str`-OR-exact-`int`. On an int-keyed multigraph the
+lookaside was therefore FILLED on every call and could never be READ: the graph
+paid to populate a cache it was structurally forbidden from consulting, then
+fell through to two canonicalisations, resolve_internal_edge_key and
+ensure_edge_py_attrs anyway.
+
+This is ede473b68 INVERTED. There the unkeyed PROBE was wide and the FILL
+narrow; here the keyed FILL is wide and the PROBE narrow. Same bug class,
+opposite halves. The comment sitting on the fill already ASSERTED the two gates
+matched - a comment claiming two gates agree is not evidence that they agree.
+
+The change is four gate lines; everything else in the diff is comment.
+
+SUBSTRATE. Both arms built by me from the same clean Rust tree, differing only
+by this hunk.
+
+  before arm in-process ELF sha256
+    e074f65b55b89cf7db3fa75a8f00e3b7644a4f100ef399e245bc19f71d86731c
+  after arm in-process ELF sha256
+    3569e65462b1e2ed5a0833b00847703484ca8f6804c833b5fe680155f157d53a
+
+COMMAND (four passes, balanced order before,after,after,before):
+  PYTHONPATH=$S/kb_$arm FNX_ARM=$arm \
+    FNX_EXPECT_SO=$S/kb_$arm/franken_networkx/_fnx.abi3.so \
+    .venv/bin/python bench_keyedla.py
+
+Each row is perf_harness.paired(): fnx and LIVE networkx 3.6.1 interleaved
+inside ONE loop with the order alternated per round, 21 rounds, min-of-3,
+bootstrap median CI, arm-specific A/A null on each side, results compared before
+timing. Load stayed between 8.59 and 10.70 across all four passes.
+
+ROW                                 p1(before) p4(before) | p2(after)  p3(after)
+TARGET  MultiGraph   int keys         0.2990     0.2827   |  0.5761     0.5963
+TARGET  MultiDiGraph int keys         0.2843     0.2766   |  0.5406     0.5293
+CONTROL MultiGraph   str keys         0.4983     0.4925   |  0.5065     0.4936
+CONTROL MultiDiGraph str keys         0.4837     0.4742   |  0.4929     0.4857
+CONTROL Graph        int keys         0.7831     0.7815   |  0.7764     0.7696
+CONTROL Graph        str keys         0.7470     0.7577   |  0.7505     0.7174
+CONTROL DiGraph      int keys         0.5244     0.5031   |  0.5805     0.5405
+CONTROL DiGraph      str keys         0.5122     0.4773   |  0.5083     0.5130
+
+EVERY ROW DECIDABLE. All 32 A/A nulls fell in [0.9969, 1.0044].
+
+Per call, fnx: MultiGraph 467.5/492.2ns -> 242.1/234.6ns, MultiDiGraph
+485.8/500.3ns -> 259.1/261.9ns, against a networkx arm that held 137-140ns
+throughout. The nx arm not moving is what makes this a win rather than a
+self-speedup.
+
+THE STR ROWS ARE THE LOAD-BEARING CONTROL. They run through the SAME function
+this edit changed, just the other branch of the same gate, and they are flat:
+MultiGraph 0.4983/0.4925 -> 0.5065/0.4936, MultiDiGraph 0.4837/0.4742 ->
+0.4929/0.4857. That is what shows the widening did not disturb the path that was
+already fast.
+
+ONE CONTROL DID MOVE AND IT IS NOT EXPLAINED BY THIS CHANGE. DiGraph int keys
+went 0.5244/0.5031 -> 0.5805/0.5405, a one-sided ~9% rise on a class this hunk
+cannot reach (PyDiGraph::get_edge_data is a different impl block). The Graph
+rows and both str rows are flat, so this is not a systematic arm difference.
+Read it as the LTO binary noise floor - adding code to lib.rs and digraph.rs
+changes inlining decisions across the crate, and identical-command builds
+differing in one function are already documented to disagree by ~5% on untouched
+rows. 9% is above that but the same family. It is recorded rather than smoothed
+over; it does not touch the target conclusion, where the effect is ~100% against
+a ~9% control wobble.
+
+Also note the key-type penalty INVERTS to match the simple classes: MultiGraph
+raw native int/str went 2.26x -> 0.93x, i.e. int is now marginally faster than
+str, exactly as Graph (0.97x) and DiGraph (0.98x) already were.
+
+STILL A LOSS. 0.53-0.60x is not parity and is not claimed as such. What this
+closes is the key-type asymmetry; the remaining gap is the multigraph keyed
+lookup's own cost against networkx's two chained dict subscripts.
+
+PARITY. The int-key sweep the bead names as a landing gate
+(tests/artifacts/perf/20260825T-intkey-canonical-blackthrush/parity_intkeys.py)
+covers Graph and DiGraph ONLY - not the classes this touches. I wrote the
+missing coverage: 792 checks over keyed and unkeyed lookups, parallel edges,
+explicit int and str edge keys, reversed endpoints, i64 boundaries, ints past
+i64, int subclasses, bool, the 1/1.0/True collapse, 5 vs "5" staying distinct,
+and five read/mutate/read staleness sequences (add_parallel, remove_edge,
+remove_node, add_node, clear_edge) plus repeated-read identity and write-through
+visibility. 0 failures on BOTH arms, and the shipped sweep also passes on both.
+
+The staleness sequences are the ones that matter here: widening the probe means
+an int-keyed read now HITS a lookaside it previously could never consult, so
+every staleness bug in that cache became reachable for the first time. The
+comparator carries a self-test proving it can actually fail.
+
+FOLLOW-UP FILED: br-r37-c1-fov4a, a census of 14 further narrow gates that sit
+within 14 lines of lookaside machinery. They are CANDIDATES, not defects - each
+needs its probe/fill partner checked and its own key-type penalty measured
+first, and they must not be batch-widened for the staleness reason above.
