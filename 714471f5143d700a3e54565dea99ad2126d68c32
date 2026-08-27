@@ -1,0 +1,91 @@
+MEASUREMENT EVIDENCE for br-r37-c1-genadjdi (this commit landed without any).
+
+DiGraph/generate_adjlist crosses parity: 0.8593x/0.8560x -> 1.1538x/1.1732x.
+
+WHY IT LOST. generate_adjlist routed Graph to a native Rust line builder and
+left DiGraph on a Python loop over _native_adjacency_keys(). Decomposed at
+V=300/E=1200 (probe_genadj.py, same invocation):
+
+    160.85us  nx    WHOLE list(generate_adjlist)
+    189.00us  fnx   WHOLE list(generate_adjlist)
+     67.98us    fnx stage1: _native_adjacency_keys() alone  = 42.3% of nx's
+                             ENTIRE call
+      8.53us    nx  stage1: G.adjacency() drained
+    115.14us    fnx stage2: the Python format loop
+
+fnx paid 8x networkx's whole-adjacency cost just to box
+Vec<(PyObject, Vec<PyObject>)> before formatting one character. It WINS the
+line-building half and lost the row purely on that snapshot, which is not
+reachable from Python. The fix is the sibling's fix: give DiGraph the same
+native line builder, gated on _native_has_succ_py_keys.
+
+TWO HYPOTHESES MEASURED AND REFUTED, not assumed:
+  - map(str, (node, *nbrs)) instead of two lists: SLOWER, 130.71us vs 108.74us.
+  - the dead seen.add: networkx guards it with "if not directed", fnx's bulk
+    path did not. Real but only 6.40us (3.4%) - cannot flip the row. Left in
+    place; after this change DiGraph no longer reaches that path.
+
+SUBSTRATE. Both arms built by me from the same clean Rust tree, differing only
+by this hunk. The in-tree .so at the time was a peer's build with a DIFFERENT
+sha, so it was not a valid before-arm. Arms are frozen .so copies, so later peer
+churn cannot reach them.
+
+  before arm in-process ELF sha256
+    442cb56ba2f3ca019097d6652b36e30c876e9dd2318414f3483402e70d2b54ee
+  after arm in-process ELF sha256
+    1730772b4f7a4f496146ce33b757117d9e85d103276e60a3fbf908a5149f64c2
+
+COMMAND (four passes, balanced order before,after,after,before):
+  PYTHONPATH=$S/arm_$arm FNX_ARM=$arm \
+    FNX_EXPECT_SO=$S/arm_$arm/franken_networkx/_fnx.abi3.so \
+    .venv/bin/python bench_genadjdi.py
+
+Each row is perf_harness.paired(): fnx and LIVE networkx 3.6.1 interleaved
+inside ONE loop with the order alternated per round, 21 rounds, min-of-3,
+bootstrap median CI, plus an arm-specific A/A null on each side. Output is
+byte-compared before timing. Replication is the discriminator, not the null:
+each arm was visited twice.
+
+ROW                                    p1(before) p4(before) | p2(after)  p3(after)
+TARGET  DiGraph V=300  E=1200            0.8593     0.8560   |  1.1538     1.1732
+TARGET  DiGraph V=50   E=150             0.9010     0.8728   |  1.2320     1.2342
+TARGET  DiGraph V=2000 E=8000            0.9090     0.9475*  |  1.2466     1.7506
+CONTROL Graph   V=300  E=1200            1.1371     1.1887   |  1.1832     1.1556
+CONTROL MultiDi V=300  E=1200            0.7986     0.7995   |  0.7993     0.7997
+
+* UNDECIDABLE on its null spread. Every other row decidable; all nulls fell in
+[0.9941, 1.0089].
+
+Headline row, V=300/E=1200: fnx 193.80/195.42us -> 140.92/139.41us against a
+live networkx arm that stayed at 166.41/166.58 -> 162.06/163.55us. The nx arm
+not moving is what makes this a win rather than a self-speedup.
+
+CONTROLS ARE THE PROOF THE ARMS DIFFER ONLY BY THIS HUNK. MultiDiGraph is flat
+to 0.0011 across all four passes. The Graph control's two BEFORE values (1.1371,
+1.1887) BRACKET its two AFTER values (1.1832, 1.1556), so its spread is drift,
+not arm skew. A one-sided move on the touched arm would have meant a real
+effect; a two-sided non-move means artifact-free.
+
+The V=2000 row is directionally right but noisy on the NX side (nx 1779us vs
+2139us between passes) while fnx held 1189/1206us. No precise ratio is claimed
+there.
+
+CORRECTNESS.
+  - Reachability: the native builder is DISPATCHED, not merely present -
+    present=False on before, dispatched=True on after. A native method no
+    caller reaches is invisible to timing.
+  - Parity: 453 generate_adjlist shapes vs live networkx across 4 classes and 6
+    delimiters (canonical-string collisions 1/1.0/True/"1", tuple and bool
+    keys, self-loops, isolates, empty graphs, delimiter-in-node-name, empty
+    string nodes, removal reordering): 0 divergences on the after arm.
+  - 42/42 derived-container checks (subgraph, edge_subgraph, reverse view,
+    reverse copy, nested subgraph) - these matter because rv.subgraph() returns
+    an EXACT DiGraph, so the new gate routes it to the native builder.
+  - New regression test FAILS on the unfixed arm and passes on the fixed one.
+
+SIDE FINDINGS.
+  - br-r37-c1-rt5q3: DiGraph.reverse(copy=False).subgraph() raises TypeError
+    where networkx returns a view. Pre-existing, reproduced on an unmodified
+    build; the native path incidentally routes around it.
+  - MultiDiGraph/generate_adjlist measures 0.7995x and is now the worst loss on
+    this surface - found by carrying it as a control.
