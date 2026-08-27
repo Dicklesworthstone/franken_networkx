@@ -1731,6 +1731,44 @@ def workload_deepcopy_conversions(reps: int):
     return build, ops
 
 
+def workload_weighted_subset_float(reps: int):
+    """Float ``degree(nbunch, weight=...)`` on both multigraph families.
+
+    br-r37-c1-weighted-attr-rust-store-237hw.  The fixture is bulk-built so
+    the native CgseValue store is authoritative; each timed operation returns
+    the actual ordered degree pairs, which the harness parity-checks before
+    timing against live NetworkX.
+    """
+    nodes, edges = 300, 1200
+    nbunch = list(range(0, nodes, 4))
+
+    def build(module):
+        fixture = {}
+        for cls in ("MultiGraph", "MultiDiGraph"):
+            graph = getattr(module, cls)()
+            graph.add_weighted_edges_from(
+                [
+                    (edge % nodes, (edge * 17 + 5) % nodes, edge % 19 + 0.25)
+                    for edge in range(edges)
+                ],
+                weight="w",
+            )
+            fixture[cls] = graph
+        return fixture["MultiGraph"], fixture
+
+    def ops(graph, fixture):
+        mg = fixture["MultiGraph"]
+        mdg = fixture["MultiDiGraph"]
+        return {
+            "MG-float-degree-nbunch": lambda: list(mg.degree(nbunch, weight="w")),
+            "MDG-float-degree-nbunch": lambda: list(mdg.degree(nbunch, weight="w")),
+            "MDG-float-in-degree-nbunch": lambda: list(mdg.in_degree(nbunch, weight="w")),
+            "MDG-float-out-degree-nbunch": lambda: list(mdg.out_degree(nbunch, weight="w")),
+        }
+
+    return build, ops
+
+
 def workload_undirected_nbunch(reps: int):
     """`MultiGraph.edges(nbunch)` and `Graph.edges(nbunch)` (br-r37-c1-mgednb,
     br-r37-c1-gnbmemo).
@@ -1982,6 +2020,7 @@ WORKLOADS = {
     "undirected-nbunch": workload_undirected_nbunch,
     "conversions": workload_conversions,
     "deepcopy-conversions": workload_deepcopy_conversions,
+    "weighted-subset-float": workload_weighted_subset_float,
     "nbunch-family": workload_nbunch_family,
     "nbunch-key-length": workload_nbunch_key_length,
     "mdg-in-edges-nbunch": workload_mdg_in_edges_nbunch,
