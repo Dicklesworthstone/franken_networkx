@@ -5934,6 +5934,41 @@ def _multi_add_edges_from(self, ebunch_to_add, **attr):
     # FRESH multigraph — sequential per-pair auto-keys, one bulk insert. Returns
     # False (no mutation) for any other shape, so the per-edge loop below still
     # handles 3/4-tuples, data dicts, and non-fresh graphs.
+    # br-r37-c1-mgaefgen: MATERIALISE a non-re-iterable ebunch so the three
+    # native batch kernels below become reachable. All of them are gated on
+    # `isinstance(ebunch_to_add, (list, tuple))`, so handing this function a
+    # GENERATOR disqualified every one of them and fell through to the per-edge
+    # Python loop. Measured on 800 edges into a fresh graph:
+    #
+    #   MultiDiGraph  generator 1921.92us (0.8634x)  LIST 1018.61us (1.7198x)
+    #   MultiGraph    generator 1418.31us (1.0097x)  LIST  736.77us (1.8910x)
+    #
+    # i.e. the SAME edges cost 1.9x more purely for arriving as a generator.
+    # (DiGraph is unaffected - 1.4796x vs 1.5077x - so this is multigraph-only.)
+    #
+    # THE PREFIX REPLAY IS NOT OPTIONAL. networkx consumes the ebunch lazily and
+    # inserts each edge as it arrives, so when the GENERATOR ITSELF raises part
+    # way through, the edges yielded before that point are already in the graph:
+    # a generator yielding (0,1),(1,2) and then raising leaves exactly those two
+    # edges, on all four classes. A plain `list(ebunch_to_add)` would insert
+    # NOTHING and re-raise, which is a silent behaviour change. Buffering
+    # incrementally and flushing what was collected before re-raising reproduces
+    # networkx exactly.
+    #
+    # A malformed ELEMENT needs no special handling: the list path already
+    # matches networkx's partial progress (verified across str / 1-tuple /
+    # unhashable-endpoint elements on all four classes), because the batch
+    # kernels decline the shape and the per-edge loop below handles it.
+    if not isinstance(ebunch_to_add, (list, tuple)):
+        _buffered = []
+        try:
+            for _e in ebunch_to_add:
+                _buffered.append(_e)
+        except BaseException:
+            if _buffered:
+                _multi_add_edges_from(self, _buffered, **attr)
+            raise
+        ebunch_to_add = _buffered
     if not attr and isinstance(ebunch_to_add, (list, tuple)):
         _native_batch = getattr(self, "_try_add_edges_from_batch", None)
         if _native_batch is not None and _native_batch(ebunch_to_add):
