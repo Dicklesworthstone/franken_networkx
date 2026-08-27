@@ -313,10 +313,10 @@ fn canonical_node_key_in<'b>(
         // Too long for the buffer: build the SAME canonical form directly from
         // the `&str` already in hand, rather than falling through to
         // `node_key_to_string` and repeating the downcast and the `to_str` this
-        // branch has already done. `node_key_to_string`'s own string branch is
-        // this same `format!`, so the bytes are unchanged and the boundary
-        // sweep in `canonical_node_key_in_matches_the_owned_canonical` covers
-        // exactly this branch.
+        // branch has already done. Both owned spellings are now the one
+        // `owned_canonical_str_key` below, so the bytes are unchanged and the
+        // boundary sweep in `canonical_node_key_in_matches_the_owned_canonical`
+        // covers exactly this branch.
         //
         // No performance claim is attached. It was written against a long-key
         // control that read 0.94x in two runs of
@@ -325,7 +325,7 @@ fn canonical_node_key_in<'b>(
         // median is 1.0051x, so the 0.94x readings were worker noise and there
         // was nothing to fix. Kept because it is strictly less work for
         // identical output, not because it was measured to be faster.
-        return Ok(CanonicalNodeKey::Owned(format!("str:{}:{s}", s.len())));
+        return Ok(CanonicalNodeKey::Owned(owned_canonical_str_key(s)));
     }
     // br-r37-c1-uh8cm: an INT key canonicalizes to its bare decimal, and that
     // decimal always fits the stack buffer, so it has no business on the heap.
@@ -388,6 +388,62 @@ fn write_int_decimal(buf: &mut ArrayString<CANONICAL_KEY_STACK_BUF>, value: i64)
         core::str::from_utf8(&digits[idx..]).expect("ASCII digits and an optional leading sign"),
     );
     buf.as_str()
+}
+
+/// br-r37-c1-tjp0g: push the decimal of `n` onto `out` without `core::fmt`.
+///
+/// The same hand-rolled digits `write_canonical_str_key` writes into its
+/// `ArrayString`, hoisted so the OWNED canonical builder can share them. Digits
+/// go on as `char`, which for ASCII is a one-byte UTF-8 encode and needs no
+/// validation — `push_str` of a `&str` rebuilt from a byte buffer would
+/// reintroduce the `core::str::from_utf8` scan br-r37-c1-afiq8 is about.
+///
+/// `usize::MAX` is 20 digits, so the buffer never overflows.
+fn push_usize_decimal(out: &mut String, n: usize) {
+    let mut digits = [0_u8; 20];
+    let mut rest = n;
+    let mut digit_count = 0;
+    loop {
+        digits[digit_count] = b'0' + (rest % 10) as u8;
+        digit_count += 1;
+        rest /= 10;
+        if rest == 0 {
+            break;
+        }
+    }
+    for digit in digits[..digit_count].iter().rev() {
+        out.push(*digit as char);
+    }
+    debug_assert_eq!(digit_count, decimal_width(n));
+}
+
+/// br-r37-c1-tjp0g: the OWNED spelling of `"str:{len}:{s}"`, with no `core::fmt`.
+///
+/// There are two owned callers — `node_key_to_string`'s string branch and
+/// `canonical_node_key_in`'s over-long fallback — and they were separately
+/// written `format!("str:{}:{s}", s.len())`. That is how the `core::fmt` removal
+/// br-r37-c1-7faiu landed on `write_canonical_str_key` came to miss both: a
+/// second spelling of the same bytes is invisible to a fix applied to the first.
+/// They share one function now so the next such fix cannot land on half of them.
+///
+/// Byte-identical to the `format!` it replaces and to `write_canonical_str_key`,
+/// which is the property the borrowed lookup depends on.
+///
+/// Sharing the two spellings reads 35 Ir/call above a version that duplicates the
+/// body into both callers, on the absent `get_edge_data` probe. That is 2.3% of
+/// the call and sits inside the ~5% spread this repo has recorded between
+/// identical-command builds differing in one function, and `#[inline]` here was
+/// measured to change the count by 57 Ir in 8.0e6 (0.0007%, i.e. nothing) - so it
+/// is NOT call overhead, and the annotation was dropped rather than left in
+/// asserting a saving it does not make.
+fn owned_canonical_str_key(s: &str) -> String {
+    let len = s.len();
+    let mut out = String::with_capacity(4 + decimal_width(len) + 1 + len);
+    out.push_str("str:");
+    push_usize_decimal(&mut out, len);
+    out.push(':');
+    out.push_str(s);
+    out
 }
 
 /// Digits in the decimal representation of `n` (`0` is one digit).
@@ -524,7 +580,29 @@ fn node_key_to_string(py: Python<'_>, key: &Bound<'_, PyAny>) -> PyResult<String
     // The produced canonical string ("str:{len}:{s}") is byte-identical.
     if let Ok(s) = key.downcast::<PyString>() {
         let s = s.to_str()?;
-        return Ok(format!("str:{}:{s}", s.len()));
+        // br-r37-c1-tjp0g: this was `format!("str:{}:{s}", s.len())`, and it is
+        // the SAME defect br-r37-c1-7faiu removed from the borrowed twin
+        // `write_canonical_str_key` — which then grew the comment "core::fmt is
+        // deliberately absent". The fix landed on the borrowed builder only;
+        // this OWNED builder kept the `format!`, and it has the call sites (449
+        // against the borrowed form's 22).
+        //
+        // MEASURED, callgrind --collect-atstart=no --toggle-collect on
+        // `PyDiGraph::__pymethod_get_edge_data__`, elf 5ebd66b00b74898d, an
+        // absent-edge probe (the class that cannot be served by the index
+        // lookaside, so it reaches this builder on every call): `core::fmt`
+        // accounted for ~38% of the collected region — format_inner 10.31%,
+        // core::fmt::write 9.38%, `<String as Write>::write_str` 8.91%,
+        // pad_integral 3.95%, `<u64 as Display>::fmt` 2.56%, pad 1.70%,
+        // write_prefix 1.63% — all of it raised by formatting ONE `usize`
+        // length, since the probe's keys are plain `str`.
+        //
+        // Byte-identity is the hard requirement (the map is
+        // `FxIndexMap<String, _>` and the borrowed lookup is only sound while
+        // both builders spell a key the same way). It is asserted by
+        // `canonical_node_key_in_matches_the_owned_canonical`, which sweeps
+        // every key kind across both sides of the stack-buffer boundary.
+        return Ok(owned_canonical_str_key(s));
     }
     // br-r37-c1-keyextract-rwsvk: CONCRETE TYPE PROBES BEFORE ANY `extract`.
     //
