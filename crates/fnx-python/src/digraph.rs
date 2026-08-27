@@ -8167,6 +8167,44 @@ impl PyMultiDiGraph {
         self.adjacency_dict_cached(py)
     }
 
+    /// Build multidigraph `generate_adjlist` body lines directly from successor
+    /// rows, repeating each successor for its parallel-edge multiplicity.
+    fn _native_generate_adjlist_lines(
+        &self,
+        py: Python<'_>,
+        delimiter: &str,
+    ) -> PyResult<Vec<String>> {
+        let nodes: Vec<String> = self
+            .inner
+            .nodes_ordered()
+            .into_iter()
+            .map(str::to_owned)
+            .collect();
+        let mut lines = Vec::with_capacity(nodes.len());
+        for node in &nodes {
+            let py_node = self.py_node_key(py, node);
+            let mut line = py_node.bind(py).str()?.to_str()?.to_owned();
+            for successor in self.inner.successors(node).unwrap_or_default() {
+                let multiplicity = self
+                    .inner
+                    .edge_keys_iter(node, successor)
+                    .map_or(0, |keys| keys.count());
+                let py_successor = self.py_succ_key(py, node, successor);
+                let rendered = py_successor.bind(py).str()?.to_str()?;
+                for _ in 0..multiplicity {
+                    line.push_str(delimiter);
+                    line.push_str(rendered);
+                }
+            }
+            lines.push(line);
+        }
+        Ok(lines)
+    }
+
+    fn _native_has_succ_py_keys(&self) -> bool {
+        !self.succ_py_keys.is_empty()
+    }
+
     /// br-r37-c1-adjshare: cached form of `adjacency` — serve the nested
     /// {node: {succ: {key: edge_dict}}} snapshot from the (nodes_seq, edges_seq)-
     /// keyed `dict_of_dicts_cache` with SHARED rows (no per-row copy). nx's

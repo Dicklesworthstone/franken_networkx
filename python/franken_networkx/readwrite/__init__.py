@@ -2270,7 +2270,10 @@ def generate_adjlist(G, delimiter=" "):
         return
     # Multigraph: nx expands parallel edges — neighbour ``t`` is emitted once
     # per parallel edge (``len(data) > 1`` => ``(str(t),) * len(data)``), matching
-    # networkx.generate_adjlist exactly. The undirected dedup skips a neighbour
+    # networkx.generate_adjlist exactly. The native builders below read the
+    # retained edge-key rows directly, so they can preserve that multiplicity
+    # without materializing the attribute-bearing adjacency snapshot. The
+    # undirected dedup skips a neighbour
     # only when it has already appeared as a source (``seen``), and ``seen`` is
     # populated only for undirected graphs. Using ``adj.keys()`` here dropped the
     # parallel-edge multiplicity (br-r37-c1-genadjmg) — breaking adjlist
@@ -2300,6 +2303,21 @@ def generate_adjlist(G, delimiter=" "):
     #     while the store costs every iteration.
     #   - putting the try around ``adj.items()`` (the CALL) instead of the
     #     attribute, to keep CPython's LOAD_METHOD specialisation: +27.26us.
+    import franken_networkx as _fnx_mod
+
+    native_lines = getattr(G, "_native_generate_adjlist_lines", None)
+    if type(G) is _fnx_mod.MultiGraph:
+        py_key_probe = "_native_has_adj_py_keys"
+    elif type(G) is _fnx_mod.MultiDiGraph:
+        py_key_probe = "_native_has_succ_py_keys"
+    else:
+        py_key_probe = None
+    if native_lines is not None and py_key_probe is not None and isinstance(delimiter, str):
+        has_py_keys = getattr(G, py_key_probe, None)
+        if has_py_keys is None or not has_py_keys():
+            yield from native_lines(delimiter)
+            return
+
     for node, adj in G.adjacency():
         nodes = [str(node)]
         try:

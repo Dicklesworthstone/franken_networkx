@@ -12095,6 +12095,54 @@ impl PyMultiGraph {
         self.adjacency_dict_cached(py)
     }
 
+    /// Build multigraph `generate_adjlist` body lines without materializing
+    /// `{neighbor: {edge_key: attrs}}` rows merely to count parallel edges.
+    ///
+    /// NetworkX emits a neighbour once for every parallel edge.  The inner
+    /// store already retains those keys in adjacency order, so counting its
+    /// borrowed key iterator preserves that multiplicity without allocating a
+    /// Python key dictionary or edge attribute dictionary.
+    fn _native_generate_adjlist_lines(
+        &self,
+        py: Python<'_>,
+        delimiter: &str,
+    ) -> PyResult<Vec<String>> {
+        let nodes: Vec<String> = self
+            .inner
+            .nodes_ordered()
+            .into_iter()
+            .map(str::to_owned)
+            .collect();
+        let mut lines = Vec::with_capacity(nodes.len());
+        let mut seen: HashSet<String> = HashSet::with_capacity(nodes.len());
+        for node in &nodes {
+            let py_node = self.py_node_key(py, node);
+            let mut line = py_node.bind(py).str()?.to_str()?.to_owned();
+            for neighbor in self.inner.neighbors(node).unwrap_or_default() {
+                if seen.contains(neighbor) {
+                    continue;
+                }
+                let multiplicity = self
+                    .inner
+                    .edge_keys_iter(node, neighbor)
+                    .map_or(0, |keys| keys.count());
+                let py_neighbor = self.py_adj_key(py, node, neighbor);
+                let rendered = py_neighbor.bind(py).str()?.to_str()?;
+                for _ in 0..multiplicity {
+                    line.push_str(delimiter);
+                    line.push_str(rendered);
+                }
+            }
+            seen.insert(node.clone());
+            lines.push(line);
+        }
+        Ok(lines)
+    }
+
+    fn _native_has_adj_py_keys(&self) -> bool {
+        !self.adj_py_keys.is_empty()
+    }
+
     /// br-r37-c1-adjshare: cached form of `adjacency` — serve the nested
     /// {node: {nbr: {key: edge_dict}}} snapshot from the (nodes_seq, edges_seq)-
     /// keyed `dict_of_dicts_cache` with SHARED rows (no per-row copy). nx's

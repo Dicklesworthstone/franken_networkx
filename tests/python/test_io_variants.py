@@ -114,19 +114,19 @@ def test_generate_adjlist_on_views_matches_networkx(delimiter):
         ), f"view {name} diverged for delimiter {delimiter!r}"
 
 
-def test_generate_adjlist_uses_the_native_builder_for_both_simple_classes():
+def test_generate_adjlist_uses_the_native_builder_for_all_native_classes():
     """The native fast path must actually be REACHED, not merely present.
 
     A native method that no caller dispatches to is invisible to timing: the
-    row would keep the Python cost and the helper would look landed. Graph and
-    DiGraph must both consume it; multigraphs must not (networkx expands
-    parallel edges, which a key-only line builder cannot express).
+    row would keep the Python cost and the helper would look landed. Every
+    native graph class must consume it; multigraph builders additionally retain
+    parallel-edge multiplicity rather than using a key-only row.
     """
     for cls_name, should_use in (
         ("Graph", True),
         ("DiGraph", True),
-        ("MultiGraph", False),
-        ("MultiDiGraph", False),
+        ("MultiGraph", True),
+        ("MultiDiGraph", True),
     ):
         graph = getattr(fnx, cls_name)()
         graph.add_edges_from([(0, 1), (1, 2), (2, 0)])
@@ -134,8 +134,6 @@ def test_generate_adjlist_uses_the_native_builder_for_both_simple_classes():
         assert (native is not None) is should_use, (
             f"{cls_name} native builder presence should be {should_use}"
         )
-        if not should_use:
-            continue
         calls = []
         real = native
 
@@ -149,6 +147,19 @@ def test_generate_adjlist_uses_the_native_builder_for_both_simple_classes():
         assert lines == list(
             nx.generate_adjlist(_as_networkx(cls_name, [(0, 1), (1, 2), (2, 0)]), "|")
         )
+
+
+@pytest.mark.parametrize("cls_name", ["MultiGraph", "MultiDiGraph"])
+def test_generate_adjlist_native_multigraph_builder_expands_parallel_edges(cls_name):
+    """A key-only native builder is wrong: every parallel edge emits a token."""
+    graph = getattr(fnx, cls_name)()
+    graph.add_edges_from([("u", "v"), ("u", "v"), ("u", "v")])
+
+    lines = list(fnx.generate_adjlist(graph, "|"))
+
+    assert lines == ["u|v|v|v", "v"]
+    expected = _as_networkx(cls_name, [("u", "v"), ("u", "v"), ("u", "v")])
+    assert lines == list(nx.generate_adjlist(expected, "|"))
 
 
 def _as_networkx(cls_name, edges):
