@@ -63,6 +63,13 @@ python-source = "python"
 module-name = "franken_networkx._fnx"
 manifest-path = "crates/fnx-python/Cargo.toml"
 features = ["pyo3/extension-module", "pyo3/abi3-py310"]
+# br-r37-c1-rajc2: python-source packages ONLY the franken_networkx package, so the
+# top-level fnx_backend_info shim named by the networkx.backend_info entry point was
+# absent from every wheel. Without it networkx logs ModuleNotFoundError and records
+# backend_info[franken_networkx] = {}, which empties the per-function backends set it
+# builds from backend_info[functions] - so nx dispatch to this backend was disabled
+# for all 313 advertised functions on any pip-installed copy.
+include = [{ path = "python/fnx_backend_info.py", format = "wheel" }]
 
 [tool.pytest.ini_options]
 testpaths = ["tests/python"]
