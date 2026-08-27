@@ -958,6 +958,58 @@ def workload_view_reads_multi(reps: int):
     return build, ops
 
 
+def workload_generate_adjlist_multidigraph(reps: int):
+    """Adjlist emission across parallel and non-parallel multidi graphs.
+
+    The target has two distinct successors per source and two edges per cell;
+    its 300 nodes and 1,200 edges match the loss report without baking a single
+    edge order into the measurement.  The non-parallel sibling has the same
+    size but four successors per source, while the simple DiGraph control cannot
+    reach the multigraph builder at all.
+    """
+
+    def make_multidigraph(module, parallel: bool):
+        graph = module.MultiDiGraph()
+        names = [f"n{i}" for i in range(300)]
+        graph.add_nodes_from(names)
+        offsets = (1, 97) if parallel else (1, 97, 193, 251)
+        for i, source in enumerate(names):
+            for offset in offsets:
+                graph.add_edge(source, names[(i + offset) % len(names)])
+                if parallel:
+                    graph.add_edge(source, names[(i + offset) % len(names)])
+        return graph
+
+    def make_digraph(module):
+        graph = module.DiGraph()
+        names = [f"n{i}" for i in range(300)]
+        graph.add_nodes_from(names)
+        for i, source in enumerate(names):
+            for offset in (1, 97, 193, 251):
+                graph.add_edge(source, names[(i + offset) % len(names)])
+        return graph
+
+    def build(module):
+        parallel = make_multidigraph(module, parallel=True)
+        return parallel, (module, make_multidigraph(module, parallel=False), make_digraph(module))
+
+    def ops(graph, fixture):
+        module, non_parallel, directed_control = fixture
+
+        def render(current):
+            return tuple(
+                tuple(module.generate_adjlist(current, delimiter="|")) for _ in range(reps)
+            )
+
+        return {
+            "MDG generate_adjlist parallel=2": lambda: render(graph),
+            "MDG generate_adjlist parallel=1": lambda: render(non_parallel),
+            "CONTROL DiGraph generate_adjlist": lambda: render(directed_control),
+        }
+
+    return build, ops
+
+
 def workload_key_length_scaling(reps: int):
     """`G.edges[u,v]` against NODE-KEY LENGTH (br-r37-c1-ptiz2).
 
@@ -1892,6 +1944,7 @@ WORKLOADS = {
     "key-length-scaling": workload_key_length_scaling,
     "view-reads-directed": workload_view_reads_directed,
     "view-reads-multi": workload_view_reads_multi,
+    "generate-adjlist-multidigraph": workload_generate_adjlist_multidigraph,
     "edge-subscript-binding": workload_edge_subscript_binding,
     "row-subscript-family": workload_row_subscript_family,
     "multigraph-cell-subscript": workload_multigraph_cell_subscript,
