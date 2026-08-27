@@ -384,10 +384,27 @@ fn write_int_decimal(buf: &mut ArrayString<CANONICAL_KEY_STACK_BUF>, value: i64)
         digits[idx] = b'-';
     }
     buf.clear();
-    buf.push_str(
-        core::str::from_utf8(&digits[idx..]).expect("ASCII digits and an optional leading sign"),
-    );
+    // The buffer above contains only ASCII bytes we wrote ourselves. Pushing
+    // each byte as a char avoids re-validating that invariant through
+    // `from_utf8` on every borrowed integer-key lookup.
+    for digit in &digits[idx..] {
+        buf.push(*digit as char);
+    }
     buf.as_str()
+}
+
+/// Build an owned public multigraph edge-key canonical without formatting.
+///
+/// Edge keys use a different scheme from node keys (for example, a string key
+/// is `"str:{key}"`, with no embedded length), so this intentionally does not
+/// share `owned_canonical_str_key`. Its callers have already selected the
+/// exact spelling and only need to concatenate a fixed ASCII namespace with
+/// text whose UTF-8 validity Rust already knows.
+fn prefixed_edge_key(prefix: &str, text: &str) -> String {
+    let mut canonical = String::with_capacity(prefix.len() + text.len());
+    canonical.push_str(prefix);
+    canonical.push_str(text);
+    canonical
 }
 
 /// br-r37-c1-tjp0g: push the decimal of `n` onto `out` without `core::fmt`.
@@ -1988,13 +2005,14 @@ pub(crate) fn edge_key_lookup_string(py: Python<'_>, key: &Bound<'_, PyAny>) -> 
     // same form. Non-integral / out-of-range / non-finite floats
     // keep the float canonical so NaN, Inf, 1.5, 1e20 stay distinct.
     if let Ok(s) = key.extract::<String>() {
-        return Ok(format!("str:{s}"));
+        return Ok(prefixed_edge_key("str:", &s));
     }
     // bool is a subclass of int — extract::<i64>() handles both,
     // mapping True → "int:1" and False → "int:0" so bool/int keys
     // collide with their numerically-equal counterparts.
     if let Ok(i) = key.extract::<i64>() {
-        return Ok(format!("int:{i}"));
+        let mut digits = ArrayString::<CANONICAL_KEY_STACK_BUF>::new();
+        return Ok(prefixed_edge_key("int:", write_int_decimal(&mut digits, i)));
     }
     // br-r37-c1-dr1h9: the node-key defect verbatim, on the edge-key axis — an
     // int wider than i64 rounds through `extract::<f64>()` and saturates, so
@@ -2003,21 +2021,27 @@ pub(crate) fn edge_key_lookup_string(py: Python<'_>, key: &Bound<'_, PyAny>) -> 
     // change the canonical) keeps them distinct while staying in the same
     // "int:" namespace as the in-range keys they must not collide with.
     if key.downcast::<PyInt>().is_ok() {
-        return Ok(format!("int:{}", exact_int_decimal(py, key)?));
+        let decimal = exact_int_decimal(py, key)?;
+        return Ok(prefixed_edge_key("int:", &decimal));
     }
     if let Ok(f) = key.extract::<f64>() {
         // Exclusive at 2**63: `i64::MAX as f64` rounds UP, so an inclusive
         // bound admitted 2**63 and saturated it onto the distinct key 2**63-1.
         if f.is_finite() && f.fract() == 0.0 {
             if f >= i64::MIN as f64 && f < I64_RANGE_END_F64 {
-                return Ok(format!("int:{}", f as i64));
+                let mut digits = ArrayString::<CANONICAL_KEY_STACK_BUF>::new();
+                return Ok(prefixed_edge_key(
+                    "int:",
+                    write_int_decimal(&mut digits, f as i64),
+                ));
             }
             // br-r37-c1-9q5kq: integral but wider than i64 — the "float:"
             // namespace would split it from the numerically-equal int that
             // Python treats as the SAME dict key, so `add_edge(key=2**64)` and
             // `add_edge(key=2.0**64)` became two edges instead of one.
             if let Ok(as_int) = key.call_method0(pyo3::intern!(py, "__int__")) {
-                return Ok(format!("int:{}", exact_int_decimal(py, &as_int)?));
+                let decimal = exact_int_decimal(py, &as_int)?;
+                return Ok(prefixed_edge_key("int:", &decimal));
             }
         }
         return Ok(format!("float:{f:?}"));
@@ -21168,6 +21192,10 @@ class FnxMultiGraphCtorEdgeIterable:
 
             assert_eq!(canonical("2**63 + 7"), "int:9223372036854775815");
             assert_eq!(canonical("2**63 + 8"), "int:9223372036854775816");
+            // A hand-rolled signed decimal must not negate before converting:
+            // `-i64::MIN` overflows. This is the negative case for the
+            // formatting-free in-range integer path.
+            assert_eq!(canonical("-(2**63)"), "int:-9223372036854775808");
             assert_ne!(canonical("2**63"), canonical("2**63 - 1"));
             assert_ne!(canonical("float(2**63)"), canonical("2**63 - 1"));
 

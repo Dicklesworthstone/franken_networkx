@@ -186,6 +186,29 @@ def test_string_edge_keys_match():
         assert gfx.edges["a", "b", "kk"] == gnx.edges["a", "b", "kk"]
 
 
+@pytest.mark.parametrize("graph_type", (nx.MultiGraph, nx.MultiDiGraph))
+def test_i64_minimum_edge_key_does_not_alias_its_neighbor(graph_type):
+    """A manual signed-decimal path must not negate ``-2**63`` first.
+
+    Negation overflows at this value. A naive formatter can therefore panic,
+    emit an unsigned spelling, or collapse it into the adjacent key; all three
+    violate the public keyed-edge mapping contract.
+    """
+    minimum = -(2**63)
+    gnx = graph_type()
+    gfx = getattr(fnx, graph_type.__name__)()
+    for graph in (gnx, gfx):
+        graph.add_edge("a", "b", key=minimum, marker="minimum")
+        graph.add_edge("a", "b", key=minimum + 1, marker="neighbor")
+    assert gfx.get_edge_data("a", "b", minimum) == gnx.get_edge_data(
+        "a", "b", minimum
+    )
+    assert gfx.get_edge_data("a", "b", minimum + 1) == gnx.get_edge_data(
+        "a", "b", minimum + 1
+    )
+    assert gfx.number_of_edges("a", "b") == gnx.number_of_edges("a", "b") == 2
+
+
 @pytest.mark.parametrize(
     "nodes",
     [(1, 2), (1.5, 2.5), (True, False), ((1, 2), (3, 4)), (b"a", b"b")],

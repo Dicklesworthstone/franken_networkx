@@ -1092,22 +1092,25 @@ def workload_multi_key_length(reps: int):
 
     def build(module):
         fixture = {}
+        string_key = "edge-key:canonical"
         for length in (3, 130, 2000, 8000):
             u, v = "u" * length, "v" * length
             mdg = module.MultiDiGraph()
             mdg.add_edge(u, v, weight=1)
+            mdg.add_edge(u, v, key=string_key, weight=2)
             # br-r37-c1-f3i50: the undirected multigraph, which this fixture
             # never built despite the workload being about keyed subscripts.
             mg = module.MultiGraph()
             mg.add_edge(u, v, weight=1)
+            mg.add_edge(u, v, key=string_key, weight=2)
             simple = module.Graph()
             simple.add_edge(u, v, weight=1)
-            fixture[length] = (mdg, mg, simple, u, v)
+            fixture[length] = (mdg, mg, simple, u, v, string_key)
         return fixture[3][0], fixture
 
     def ops(graph, fixture):
         table = {}
-        for length, (mdg, mg, simple, u, v) in fixture.items():
+        for length, (mdg, mg, simple, u, v, string_key) in fixture.items():
             mview, mgview, sview = mdg.edges, mg.edges, simple.edges
             # br-r37-c1-f3i50: the UNDIRECTED keyed subscript, which had no row
             # here at all — the workload carried only the directed twin, which is
@@ -1120,11 +1123,21 @@ def workload_multi_key_length(reps: int):
             table[f"MDG edges[u,v,k] len={length}"] = (
                 lambda mview=mview, u=u, v=v: mview[u, v, 0]
             )
+            table[f"MG edges[u,v,key=str] len={length}"] = (
+                lambda mgview=mgview, u=u, v=v, string_key=string_key: mgview[
+                    u, v, string_key
+                ]
+            )
+            table[f"MDG edges[u,v,key=str] len={length}"] = (
+                lambda mview=mview, u=u, v=v, string_key=string_key: mview[
+                    u, v, string_key
+                ]
+            )
             table[f"CONTROL Graph edges[u,v] len={length}"] = (
                 lambda sview=sview, u=u, v=v: sview[u, v]
             )
-        mdg3, _mg3, _s, u3, v3 = fixture[3]
-        mdg_long, _mgl, _s2, ul, vl = fixture[2000]
+        mdg3, _mg3, _s, u3, v3, _string_key = fixture[3]
+        mdg_long, _mgl, _s2, ul, vl, _long_string_key = fixture[2000]
         table["CONTROL MDG has_edge len=3"] = lambda: mdg3.has_edge(u3, v3, 0)
         table["CONTROL MDG has_edge len=2000"] = lambda: mdg_long.has_edge(ul, vl, 0)
         # br-r37-c1-ptiz2: the KEYLESS form is a different code path from the
@@ -1147,7 +1160,7 @@ def workload_multi_key_length(reps: int):
         # dict by a different route, so if it is NOT flat the fix was narrower
         # than "the simple-graph subscript" and the ledger must say so.
         for length in (3, 8000):
-            _m, _mg, simple, su, sv = fixture[length]
+            _m, _mg, simple, su, sv, _string_key = fixture[length]
             table[f"Graph get_edge_data len={length}"] = (
                 lambda simple=simple, su=su, sv=sv: simple.get_edge_data(su, sv)
             )
