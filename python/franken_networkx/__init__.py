@@ -46719,7 +46719,25 @@ class _FilteredGraphView:
         return super().__new__(cls)
 
     def __init__(self, graph, *, filter_node=None, filter_edge=None):
-        self._graph = graph
+        # br-r37-c1-ctorstore: the six PRIVATE attributes below are written
+        # straight into the instance dict. Every plain `self.x = y` on these
+        # classes goes through the class `__setattr__` wrapper, measured at
+        # 302.6ns against 74.4ns for the dict write it ultimately performs -
+        # 228ns of wrapper per store, and this constructor makes eleven.
+        #
+        # Only names the wrapper has nothing to do for are bypassed. It exists
+        # to special-case `adj` on a filtered view and to discard descriptor
+        # memo markers for the cached PUBLIC accessor names; none of these six
+        # is either. `nodes`, `frozen` and the adjacency overrides keep the
+        # normal path.
+        #
+        # The wrapper's other job - handing the instance dict to
+        # `_fnx_register_gc_dict` - still happens, because `nodes`, `frozen`
+        # and the overrides are all still assigned normally and `vars(self)` is
+        # identity-stable, so one registration covers the same dict. That is
+        # the same argument br-r37-c1-vaayu already relies on.
+        _store = vars(self)
+        _store["_graph"] = graph
         # br-r37-c1-fgv-graph-id: nx's subgraph_view / copy(as_view=
         # True) shares the parent's ``graph`` dict by reference —
         # ``view.graph is parent.graph`` must hold so subsequent
@@ -46731,7 +46749,7 @@ class _FilteredGraphView:
         # storing the ref — losing identity.  Bypass the descriptor
         # by writing directly to the override slot in vars(self).
         vars(self)[_GRAPH_ATTR_OVERRIDE] = graph.graph
-        self._filter_node = filter_node or (lambda node: True)
+        _store["_filter_node"] = filter_node or (lambda node: True)
         # br-r37-c1-h8vqr: the NODE-filter twin of the edge flag just below,
         # which already existed. Without it `_node_visible` calls a no-op lambda
         # for every node it checks, and it is the hottest helper on every
@@ -46740,13 +46758,13 @@ class _FilteredGraphView:
         # `edge_subgraph`, `restricted_view` and `subgraph_view(filter_edge=...)`
         # all leave the node filter at its default, so this is the common shape
         # rather than a corner.
-        self._filter_node_is_default = (
+        _store["_filter_node_is_default"] = (
             filter_node is None or filter_node is _subgraph_view_no_filter_default
         )
-        self._filter_edge_is_default = (
+        _store["_filter_edge_is_default"] = (
             filter_edge is None or filter_edge is _subgraph_view_no_filter_default
         )
-        self._filter_edge = filter_edge or (lambda *args: True)
+        _store["_filter_edge"] = filter_edge or (lambda *args: True)
         # br-r37-c1-h8vqr: whether the PARENT is a multigraph is fixed for the
         # life of this view -- it is a property of the parent's class, and the
         # parent cannot change class underneath us. `_edge_visible` consulted it
@@ -46758,7 +46776,7 @@ class _FilteredGraphView:
         # this flag: it is public API, a caller may reach it on a view whose
         # parent was swapped by some path this constructor never saw, and the
         # per-edge saving is already taken below.
-        self._fnx_parent_is_multigraph = graph.is_multigraph()
+        _store["_fnx_parent_is_multigraph"] = graph.is_multigraph()
         self.frozen = True
         self.nodes = NodeView(self)
         # br-r37-c1-batchov: build all three views BEFORE assigning any, so the
@@ -59433,17 +59451,30 @@ def _subgraph_filter_from_nbunch(G, nbunch):
             # The third case is why the hash cannot simply be deleted, and it is
             # covered by a probe on both container kinds -- the node view and,
             # under assigned private storage, `G.adj`.
-            allowed_nodes = set()
-            for node in nb_list:
-                if node in container:
-                    allowed_nodes.add(node)
-                    continue
-                try:
-                    hash(node)
-                except TypeError as exc:
-                    raise NetworkXError(
-                        f"Node {node} in sequence nbunch is not a valid node."
-                    ) from exc
+            # br-r37-c1-subcomp: the membership walk is a set COMPREHENSION,
+            # so the accumulate happens in C instead of through a bound
+            # `set.add` per node. Measured on a 64-node nbunch: 3.733us for the
+            # loop against 3.020us for the comprehension.
+            #
+            # The unhashable contract still holds, and the verification pass is
+            # only reached when something was actually dropped. `node in
+            # container` answers False for an unhashable node WITHOUT raising,
+            # so a drop is the only signal that one may have been present -
+            # and a drop is equally what an absent-but-hashable node produces,
+            # which is why the pass re-hashes rather than assuming.
+            #
+            # DUPLICATES also shorten the set, so `[1, 1, 2]` takes the pass
+            # too. That costs one extra O(k) walk on a duplicated nbunch and
+            # keeps the answer right; it never changes one.
+            allowed_nodes = {node for node in nb_list if node in container}
+            if len(allowed_nodes) != len(nb_list):
+                for node in nb_list:
+                    try:
+                        hash(node)
+                    except TypeError as exc:
+                        raise NetworkXError(
+                            f"Node {node} in sequence nbunch is not a valid node."
+                        ) from exc
 
     return _NodeSetFilter(allowed_nodes, copy_nodes=False)
 
