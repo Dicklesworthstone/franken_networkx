@@ -11,6 +11,7 @@ use arrayvec::ArrayString;
 use pyo3::exceptions::{PyKeyError, PyRuntimeError, PyTypeError, PyValueError};
 use pyo3::gc::{PyTraverseError, PyVisit};
 use pyo3::intern;
+use pyo3::sync::PyOnceLock;
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyIterator, PyModule, PySlice, PyString, PyTuple};
 
@@ -98,6 +99,42 @@ fn unpack_two_endpoints<'py>(
 ///
 /// When ``data=True``, iteration yields ``(node, attr_dict)`` pairs.
 /// When ``data="attr_name"``, yields ``(node, attr_value)`` pairs.
+/// br-r37-c1-abccache: `collections.abc` view types, imported ONCE.
+///
+/// `keys()`, `items()` and `values()` on this view each did
+/// `PyModule::import(py, "collections.abc")` followed by a `getattr` on EVERY
+/// call, to construct the `KeysView` / `ItemsView` / `ValuesView` that networkx
+/// returns. networkx reaches those types through a module global - one
+/// `LOAD_GLOBAL` - so fnx was paying a sys.modules probe plus an attribute
+/// lookup that the incumbent does not pay at all.
+///
+/// Measured: fnx `row.keys()` 444.6ns against networkx's 174.2ns, a 270ns gap,
+/// while the same row's `iter()` (56.6ns) and `len()` (36.9ns) are already fast
+/// - so the row is fine and it is the view CONSTRUCTION that costs. The Python
+/// proxy for the removed work, `import_module("collections.abc").KeysView`,
+/// measures 296.0ns against 22.8ns for a cached global, which accounts for the
+/// gap.
+///
+/// Cached per-interpreter with `PyOnceLock` (pyo3 0.28 renamed `GILOnceCell`),
+/// which is the supported way to hold
+/// a `Py<PyAny>` that must not be initialised before the GIL exists.
+static ABC_KEYS_VIEW: PyOnceLock<Py<PyAny>> = PyOnceLock::new();
+static ABC_ITEMS_VIEW: PyOnceLock<Py<PyAny>> = PyOnceLock::new();
+static ABC_VALUES_VIEW: PyOnceLock<Py<PyAny>> = PyOnceLock::new();
+
+fn abc_view_type<'py>(
+    py: Python<'py>,
+    cell: &'static PyOnceLock<Py<PyAny>>,
+    name: &str,
+) -> PyResult<&'py Bound<'py, PyAny>> {
+    let cached = cell.get_or_try_init(py, || -> PyResult<Py<PyAny>> {
+        Ok(PyModule::import(py, "collections.abc")?
+            .getattr(name)?
+            .unbind())
+    })?;
+    Ok(cached.bind(py))
+}
+
 #[pyclass(module = "franken_networkx")]
 pub struct NodeView {
     graph: Py<PyGraph>,
@@ -2118,20 +2155,20 @@ impl AtlasView {
 
     fn keys(mut slf: PyRefMut<'_, Self>, py: Python<'_>) -> PyResult<PyObject> {
         slf.materialize(py)?;
-        let abc = PyModule::import(py, "collections.abc")?;
-        Ok(abc.getattr("KeysView")?.call1((slf,))?.unbind())
+        // br-r37-c1-abccache: cached type, not a per-call import.
+        Ok(abc_view_type(py, &ABC_KEYS_VIEW, "KeysView")?.call1((slf,))?.unbind())
     }
 
     fn items(mut slf: PyRefMut<'_, Self>, py: Python<'_>) -> PyResult<PyObject> {
         slf.materialize(py)?;
-        let abc = PyModule::import(py, "collections.abc")?;
-        Ok(abc.getattr("ItemsView")?.call1((slf,))?.unbind())
+        // br-r37-c1-abccache: cached type, not a per-call import.
+        Ok(abc_view_type(py, &ABC_ITEMS_VIEW, "ItemsView")?.call1((slf,))?.unbind())
     }
 
     fn values(mut slf: PyRefMut<'_, Self>, py: Python<'_>) -> PyResult<PyObject> {
         slf.materialize(py)?;
-        let abc = PyModule::import(py, "collections.abc")?;
-        Ok(abc.getattr("ValuesView")?.call1((slf,))?.unbind())
+        // br-r37-c1-abccache: cached type, not a per-call import.
+        Ok(abc_view_type(py, &ABC_VALUES_VIEW, "ValuesView")?.call1((slf,))?.unbind())
     }
 
     #[pyo3(signature = (v, default=None))]
