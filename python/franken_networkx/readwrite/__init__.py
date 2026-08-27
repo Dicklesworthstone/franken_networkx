@@ -2228,15 +2228,30 @@ def generate_adjlist(G, delimiter=" "):
         import franken_networkx as _fnx_mod
 
         native_lines = getattr(G, "_native_generate_adjlist_lines", None)
-        has_adj_keys = getattr(G, "_native_has_adj_py_keys", None)
+        # br-r37-c1-genadjdi: DiGraph reaches the native line builder too. Each
+        # class names the override map that can make a node's Python display key
+        # differ from the canonical string the builder formats -- ``adj`` cells
+        # for Graph, ``succ`` cells for DiGraph. Non-empty means fall back, which
+        # is both the conservative choice and the faster one (the per-cell
+        # override lookup allocates a key tuple per neighbour).
+        if type(G) is _fnx_mod.Graph:
+            py_key_probe = "_native_has_adj_py_keys"
+        elif type(G) is _fnx_mod.DiGraph:
+            py_key_probe = "_native_has_succ_py_keys"
+        else:
+            # EXACT class identity only. Filtered SubgraphViews subclass Graph
+            # and report ``__name__ == "Graph"`` yet keep an empty native inner
+            # (their filtering lives in Python), so they must never come here.
+            py_key_probe = None
         if (
             native_lines is not None
-            and type(G) is _fnx_mod.Graph
+            and py_key_probe is not None
             and isinstance(delimiter, str)
-            and (has_adj_keys is None or not has_adj_keys())
         ):
-            yield from native_lines(delimiter)
-            return
+            has_py_keys = getattr(G, py_key_probe, None)
+            if has_py_keys is None or not has_py_keys():
+                yield from native_lines(delimiter)
+                return
 
         bulk = getattr(G, "_native_adjacency_keys", None)
         if bulk is not None and type(G) in (_fnx_mod.Graph, _fnx_mod.DiGraph):

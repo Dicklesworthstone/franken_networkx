@@ -14277,6 +14277,50 @@ impl PyDiGraph {
         self.adjacency(py)
     }
 
+    /// br-r37-c1-genadjdi: `generate_adjlist` body lines built without a Python
+    /// adjacency snapshot — the directed twin of the `Graph` method of the same
+    /// name (br-r37-c1-genadjbulk).
+    ///
+    /// The Python fallback this replaces drains `_native_adjacency_keys()` and
+    /// then formats each row in a Python loop. Measured on 300 nodes / 1200
+    /// edges, that snapshot ALONE costs 67.98us — 42.3% of networkx's entire
+    /// 160.85us call, against networkx's own `G.adjacency()` drain at 8.53us —
+    /// because every node key and every successor key is boxed into a PyObject
+    /// and a per-node Python list before a single character is formatted. fnx
+    /// wins the line-building half outright and loses the row purely on that
+    /// snapshot: `DiGraph/generate_adjlist` measured 0.8765x while the
+    /// undirected sibling, which HAS this method, measured 1.1536x. It was the
+    /// only loss in a 45-row operator/conversion/readwrite survey.
+    ///
+    /// No `seen` set here, deliberately. networkx dedups a neighbour against
+    /// already-emitted source nodes only when the graph is undirected (`if not
+    /// directed: seen.add(s)`), so on a DiGraph the set is written once per node
+    /// and never read. The Python bulk path did that write unconditionally.
+    fn _native_generate_adjlist_lines(
+        &self,
+        py: Python<'_>,
+        delimiter: &str,
+    ) -> PyResult<Vec<String>> {
+        let nodes: Vec<String> = self
+            .inner
+            .nodes_ordered()
+            .into_iter()
+            .map(str::to_owned)
+            .collect();
+        let mut lines = Vec::with_capacity(nodes.len());
+        for node in &nodes {
+            let py_node = self.py_node_key(py, node);
+            let mut line = py_node.bind(py).str()?.to_str()?.to_owned();
+            for succ in self.inner.successors(node).unwrap_or_default() {
+                line.push_str(delimiter);
+                let py_succ = self.py_succ_key(py, node, succ);
+                line.push_str(py_succ.bind(py).str()?.to_str()?);
+            }
+            lines.push(line);
+        }
+        Ok(lines)
+    }
+
     /// br-r37-c1-zt6lj: true when canonical node strings are also the Python
     /// display strings used by `generate_adjlist`; sparse row-key override maps
     /// force the generic fallback.

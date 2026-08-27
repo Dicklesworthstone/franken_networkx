@@ -18,6 +18,145 @@ def test_parse_and_generate_adjlist_round_trip():
     assert parsed.number_of_edges() == graph.number_of_edges()
 
 
+def _adjlist_shapes(mod, cls_name):
+    """Graph builders whose adjlist output stresses the native line builder."""
+    cls = getattr(mod, cls_name)
+
+    def build(nodes=(), edges=(), post=None):
+        graph = cls()
+        graph.add_nodes_from(nodes)
+        graph.add_edges_from(edges)
+        if post is not None:
+            post(graph)
+        return graph
+
+    ring = [(0, 1), (1, 2), (2, 0), (0, 3)]
+    return {
+        "plain": build(range(5), ring),
+        "empty": build(),
+        "isolates": build(range(4)),
+        "self_loops": build(range(3), [(0, 0), (0, 1), (2, 2)]),
+        "str_nodes": build(("a", "b", "c"), [("a", "b"), ("b", "c")]),
+        "tuple_nodes": build([(1, 2), (3, 4)], [((1, 2), (3, 4))]),
+        "bool_nodes": build([True, False, 2], [(True, False), (False, 2)]),
+        # canonical-string collision hazards: the native builder formats from
+        # canonical strings, so 1 / 1.0 / True / "1" must still display as the
+        # object networkx would str().
+        "int_vs_float": build([1, 1.0, 2], [(1, 2)]),
+        "bool_vs_int": build([1, True, 2], [(1, 2)]),
+        "float_keys": build([1.5, 2.5], [(1.5, 2.5)]),
+        "str_vs_int": build([1, "1", 2], [(1, 2), ("1", 2)]),
+        "big_ints": build([-1, 2**70], [(-1, 2**70)]),
+        # display strings that collide with, or are emptied by, the delimiter
+        "space_in_name": build(["a b", "c"], [("a b", "c")]),
+        "empty_str_node": build(["", "x"], [("", "x")]),
+        "parallel": build(range(3), [(0, 1), (0, 1), (1, 2), (0, 1)]),
+        # node order after a removal is observable in the emitted line order
+        "remove_readd": build(
+            range(5),
+            ring,
+            post=lambda g: (g.remove_node(1), g.add_node(1), g.add_edge(1, 4)),
+        ),
+    }
+
+
+@pytest.mark.parametrize("cls_name", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("delimiter", [" ", ",", "\t", "::", "|", ""])
+def test_generate_adjlist_matches_networkx_exactly(cls_name, delimiter):
+    """generate_adjlist is byte-identical to networkx for every graph class.
+
+    br-r37-c1-genadjdi: Graph and DiGraph both route to a native Rust line
+    builder that formats node keys from canonical strings rather than calling
+    Python's ``str()`` per key, so the two implementations can only be trusted
+    to agree if they are compared as EXACT line lists. Before this test the only
+    adjlist coverage was an undirected round-trip that never involved networkx,
+    which left the entire directed path unguarded.
+    """
+    expected = _adjlist_shapes(nx, cls_name)
+    actual = _adjlist_shapes(fnx, cls_name)
+
+    for name in expected:
+        assert list(fnx.generate_adjlist(actual[name], delimiter)) == list(
+            nx.generate_adjlist(expected[name], delimiter)
+        ), f"{cls_name}/{name} diverged for delimiter {delimiter!r}"
+
+
+@pytest.mark.parametrize("delimiter", [" ", ","])
+def test_generate_adjlist_on_views_matches_networkx(delimiter):
+    """Views must fall back to the filtered walk, never the native builder.
+
+    A filtered SubgraphView subclasses Graph and reports ``__name__ ==
+    "Graph"`` while keeping an empty native inner, so an identity gate that
+    accepted subclasses would emit the PARENT's adjacency for a subgraph.
+    """
+
+    def views(mod):
+        directed = mod.DiGraph()
+        directed.add_edges_from([(0, 1), (1, 2), (2, 3), (3, 0), (0, 2)])
+        undirected = mod.Graph()
+        undirected.add_edges_from([(0, 1), (1, 2), (2, 3), (3, 0), (0, 2)])
+        return {
+            "digraph_subgraph": directed.subgraph([0, 1, 2]),
+            "digraph_edge_subgraph": directed.edge_subgraph([(0, 1), (1, 2)]),
+            "digraph_reverse_view": directed.reverse(copy=False),
+            "digraph_reverse_copy": directed.reverse(copy=True),
+            "digraph_to_undirected": directed.to_undirected(),
+            "digraph_copy": directed.copy(),
+            "graph_subgraph": undirected.subgraph([0, 1, 2]),
+            "graph_to_directed": undirected.to_directed(),
+        }
+
+    expected = views(nx)
+    actual = views(fnx)
+    for name in expected:
+        assert list(fnx.generate_adjlist(actual[name], delimiter)) == list(
+            nx.generate_adjlist(expected[name], delimiter)
+        ), f"view {name} diverged for delimiter {delimiter!r}"
+
+
+def test_generate_adjlist_uses_the_native_builder_for_both_simple_classes():
+    """The native fast path must actually be REACHED, not merely present.
+
+    A native method that no caller dispatches to is invisible to timing: the
+    row would keep the Python cost and the helper would look landed. Graph and
+    DiGraph must both consume it; multigraphs must not (networkx expands
+    parallel edges, which a key-only line builder cannot express).
+    """
+    for cls_name, should_use in (
+        ("Graph", True),
+        ("DiGraph", True),
+        ("MultiGraph", False),
+        ("MultiDiGraph", False),
+    ):
+        graph = getattr(fnx, cls_name)()
+        graph.add_edges_from([(0, 1), (1, 2), (2, 0)])
+        native = getattr(graph, "_native_generate_adjlist_lines", None)
+        assert (native is not None) is should_use, (
+            f"{cls_name} native builder presence should be {should_use}"
+        )
+        if not should_use:
+            continue
+        calls = []
+        real = native
+
+        def spy(delimiter, _real=real, _calls=calls):
+            _calls.append(delimiter)
+            return _real(delimiter)
+
+        with mock.patch.object(graph, "_native_generate_adjlist_lines", spy):
+            lines = list(fnx.generate_adjlist(graph, "|"))
+        assert calls == ["|"], f"{cls_name} did not dispatch to the native builder"
+        assert lines == list(
+            nx.generate_adjlist(_as_networkx(cls_name, [(0, 1), (1, 2), (2, 0)]), "|")
+        )
+
+
+def _as_networkx(cls_name, edges):
+    graph = getattr(nx, cls_name)()
+    graph.add_edges_from(edges)
+    return graph
+
+
 @pytest.mark.parametrize(
     ("lines", "kwargs"),
     [
