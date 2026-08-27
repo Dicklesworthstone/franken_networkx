@@ -59346,16 +59346,35 @@ def _subgraph_filter_from_nbunch(G, nbunch):
         else:
             # Small nbunch on a large graph: no whole-graph set was built, so
             # membership stays per-node and the explicit hash stays with it.
+            # br-r37-c1-subhash: the explicit hash runs only on a MISS. A node
+            # the membership test FOUND was located by its hash, so hashing it
+            # again to prove it is hashable is work whose answer the lookup
+            # already gave -- and this branch is the common one for a subgraph,
+            # since it is taken whenever the nbunch is small relative to the
+            # graph. Measured: the per-node walk is 66ns a node at k=64, of
+            # which the hash CALL is about 19ns, so roughly 29% of this loop.
+            #
+            # Equivalent on all three inputs, which is the whole argument:
+            #   hashable + present -> found, added; the old hash could not have
+            #     raised for a node the lookup just located by hash.
+            #   hashable + absent  -> not found, hash succeeds, not added.
+            #   UNHASHABLE         -> `node in container` answers False WITHOUT
+            #     raising (fnx's __contains__ matches networkx's here), so the
+            #     miss path is reached and the hash raises exactly as before.
+            # The third case is why the hash cannot simply be deleted, and it is
+            # covered by a probe on both container kinds -- the node view and,
+            # under assigned private storage, `G.adj`.
             allowed_nodes = set()
             for node in nb_list:
+                if node in container:
+                    allowed_nodes.add(node)
+                    continue
                 try:
                     hash(node)
                 except TypeError as exc:
                     raise NetworkXError(
                         f"Node {node} in sequence nbunch is not a valid node."
                     ) from exc
-                if node in container:
-                    allowed_nodes.add(node)
 
     return _NodeSetFilter(allowed_nodes, copy_nodes=False)
 
