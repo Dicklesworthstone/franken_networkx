@@ -7251,43 +7251,26 @@ _MULTIDIGRAPH_NODE_VIEW_CALL = _MULTIDIGRAPH_NODE_VIEW_TYPE.__call__
 
 def _weighted_multidegree_value(graph, node, weight):
     """Return one weighted total degree without re-entering a degree view."""
-    # br-r37-c1-degscalar: ONE native call instead of the AtlasView walk below.
-    # The nbunch form of this operation was routed to the native subset kernel
-    # long ago (br-r37-c1-degnbw); the SCALAR form was left on the Python
-    # generator, and it is the worst vs-networkx ratio on the weighted surface:
-    # G.degree(n, weight=) measured 0.1012x on MultiGraph and 0.1074x on
-    # MultiDiGraph, i.e. ~10x slower than the incumbent for a ONE-NODE request.
+    # br-r37-c1-mgrevstore: THE NATIVE ROUTING THAT USED TO BE HERE IS REVERTED.
+    # It returned a WRONG ANSWER on a MultiDiGraph reverse copy, and the wrongness
+    # was order-dependent, which is what makes it unfixable from Python:
     #
-    # NOT a complexity defect - checked rather than assumed. Holding the request
-    # fixed (node 0, always 4 incident edges) and growing the parent 500 -> 8000
-    # nodes, fnx's cost is FLAT at 0.97-1.02x, exactly as networkx's is. This is
-    # a constant factor: `graph.adj[node]` materialises the row through the
-    # AtlasView chain and the nested generator then touches every parallel edge.
+    #   F.reverse(copy=True).degree(0, weight=)   cold -> 3, networkx says 21
+    #   the same call after list(g.edges(...))         -> 21
+    #   the same call after dict(g.adj)               -> 3
     #
-    # Per call at V=2000, node 0 with 4 edges: MultiGraph 10.55us -> 0.688us,
-    # MultiDiGraph 11.57us -> 0.633us, against networkx at 1.07us / 1.24us.
+    # The store of a multigraph reverse copy carries the edges but not their
+    # attributes, so the kernel defaults every weight to 1 and returns an edge
+    # COUNT; walking `edges()` first republishes the attrs and the answer
+    # silently changes. Blast radius was exactly one cell - MultiDiGraph
+    # reverse(copy=True) - with Graph, DiGraph and MultiGraph correct on plain,
+    # copy, subgraph, to_directed and to_undirected.
     #
-    # EXACTNESS IS THE GATE, not speed. CPython's builtins.sum is
-    # Neumaier-compensated, so a merely-close Rust fold would be a parity bug -
-    # this bead's own history records that trap being caught during feasibility.
-    # The kernel is compensation-correct: on weights [1e16, 1.0, -1e16] it
-    # returns 1.0, matching sum(), where a naive left-to-right fold gives 0.0.
-    # 98 scalar cases (ints past i64, bool, missing weight, self-loops, parallel
-    # self-loops, inf/-inf/nan, mixed int-float result TYPE, str and None weight
-    # values, isolates) agree with networkx exactly.
-    #
-    # An absent node yields an empty list, and an unhashable one raises
-    # TypeError; both fall through to the Python path below so the exception
-    # type and ordering stay networkx's.
-    if isinstance(weight, str):
-        native = getattr(graph, "_native_weighted_degree_subset", None)
-        if native is not None:
-            try:
-                pairs = native([node], weight)
-            except TypeError:
-                pairs = None
-            if pairs:
-                return pairs[0][1]
+    # No Python-side gate can be sound here: a reverse copy IS an ordinary
+    # MultiDiGraph, there is no store-authority predicate exposed, and the
+    # answer depends on what the caller read earlier. The kernel must respect
+    # the dirty flag the `_values` kernels already check; until it does, this
+    # path stays on the Python walk below.
 
     def edge_weight(attrs):
         return attrs.get(weight, 1)

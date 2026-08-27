@@ -75,3 +75,47 @@ def test_subgraph_weighted_degree_matches_networkx_including_bail_shapes():
             assert nested_actual.degree(
                 node, weight="weight"
             ) == nested_expected.degree(node, weight="weight"), f"{cls} nested({node})"
+
+
+def test_multidigraph_reverse_copy_weighted_degree_is_not_order_dependent():
+    """A reverse copy's weighted degree must not depend on what was read first.
+
+    br-r37-c1-mgrevstore: routing this to the native subset kernel returned an
+    edge COUNT instead of a weighted sum, because a MultiDiGraph reverse copy
+    carries its edges in the Rust store but its attributes only on the Python
+    side. Worse, the wrongness was ORDER DEPENDENT -- walking ``edges()`` first
+    republished the attrs and silently changed the answer:
+
+        cold                      -> 3    (networkx: 21)
+        after list(g.edges(...))  -> 21
+        after dict(g.adj)         -> 3
+
+    So this pins all three orderings, not just the cold one. A test that only
+    built the graph and asked once would have passed on the broken build in two
+    of the three orderings.
+    """
+    def build(mod):
+        graph = getattr(mod, "MultiDiGraph")()
+        graph.add_edge(0, 1, weight=5)
+        graph.add_edge(0, 1, weight=7)
+        graph.add_edge(2, 0, weight=9)
+        return graph.reverse(copy=True)
+
+    expected = build(nx).degree(0, weight="weight")
+    assert expected == 21, "fixture changed; the constant below is the oracle"
+
+    for name, warm in (
+        ("cold", lambda g: None),
+        ("after edges()", lambda g: list(g.edges(keys=True, data=True))),
+        ("after adj", lambda g: dict(g.adj)),
+        ("after degree()", lambda g: dict(g.degree())),
+    ):
+        actual = build(fnx)
+        warm(actual)
+        assert actual.degree(0, weight="weight") == expected, name
+        assert actual.in_degree(0, weight="weight") == build(nx).in_degree(
+            0, weight="weight"
+        ), f"{name} in_degree"
+        assert actual.out_degree(0, weight="weight") == build(nx).out_degree(
+            0, weight="weight"
+        ), f"{name} out_degree"
