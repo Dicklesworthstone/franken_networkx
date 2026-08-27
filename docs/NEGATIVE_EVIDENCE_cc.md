@@ -25406,3 +25406,65 @@ per-call delta proves the symbol is not driven by the loop, and until the pools 
 whole-program Ir is not load-independent at all. (2) Toggling the symbol this bead names,
 PyDiGraph::successors, yields Ir=0 — neighbors enters __pymethod_neighbors__ — and Ir=0 means
 the symbol never matched, not that the work is free.
+
+## 2026-08-27 - the 1.24x MultiDiGraph bellman_ford reroute candidate diverges from networkx on 12 of 18 contract rows; refused on correctness, NO PERF VERDICT BANKED (br-r37-c1-mg7hw)
+
+SilverLarch, 2026-08-27. No code shipped beyond a parity lock. Artifact:
+tests/artifacts/perf/20260827-mdg-bellman-reroute-reject-silverlarch/.
+
+THIS SECTION DELIBERATELY DOES NOT BANK A PERF VERDICT, and that is the ledger gate working
+rather than a formatting workaround. I first wrote it as a REJECT row and
+scripts/perf_ledger_preflight.py blocked it VOID-NONULL. A rejection must carry either a
+same-invocation A/A null, or a counter showing the candidate took away no work. I have
+neither and cannot honestly claim either, because this candidate genuinely IS cheaper -
+44,296,504 against 55,129,849 Ir/call. It is refused on CORRECTNESS, not on cost, and the
+perf gate is right not to certify a correctness argument as a perf verdict. The instruction
+figures below are attribution, carried over from 46ec53c90; the no-ship rests entirely on
+the 18-row contract matrix.
+
+THE CANDIDATE. 46ec53c90 attributed the MultiDiGraph bellman_ford_path_length loss to a
+per-call collapse - _multigraph_collapse_min_weight_bellman builds a whole new simple graph
+every call and accounts for 41,524,156 of 55,129,849 Ir/call, 75.3%, against networkx's
+entire call at 20,060,386. The native _raw_bellman_ford_path_length accepts a MultiDiGraph
+directly and agrees on an ordinary fixture at 44,296,504 Ir/call, so rerouting to it is
+1.24x cheaper and needs no Rust build.
+
+REJECTED ON PARITY, NOT ON TIMING, which is why no A/A null is quoted for the verdict.
+Measured with callgrind, the counted instructions on the shipped path remain unchanged at
+55,129,849 per call because nothing was routed away from the collapse; the rejected
+candidate measured 44,296,504. The deciding evidence is an 18-row contract matrix run
+against three arms - networkx as reference, fnx's public wrapper, and the raw kernel as
+candidate - comparing exception ARGS and not merely types:
+
+    public wrapper divergences from networkx:   0 of 18
+    raw kernel   divergences from networkx:    12 of 18
+
+Four are SILENT WRONG ANSWERS, which is disqualifying on its own: a NaN, inf, or
+non-numeric weight returns 2.0 where networkx raises NetworkXNoPath or TypeError, and a
+-inf weight returns 2.0 where networkx returns -inf. The raw kernel does not see the bad
+weight at all. The other eight are type and message regressions: the int-vs-float length
+type nx preserves is lost (3 -> 3.0, and likewise for a missing weight attribute, for
+source == target, and for a bool weight); "Negative cycle detected." becomes "Negative cost
+cycle detected."; missing target raises NodeNotFound where nx raises NetworkXNoPath; and
+the unreachable-target message leaks the CANONICAL KEY as "No path between str:1:a and
+str:1:z.", the br-r37-c1-rmzr6 defect class that was fixed for the dijkstra length variant
+and is still present here. That last one is latent rather than live - nothing routes to
+that kernel today and the public wrapper is correct on all 18 rows.
+
+SO THE COLLAPSE IS LOAD-BEARING. Its own comment says it replaced two O(|E|) Python gate
+scans and "keeps negatives (valid for Bellman-Ford) and delegates only NaN/inf/nonnumeric";
+that delegation is exactly what the four silent-wrong-answer rows lose. The 75.3% is the
+price of weight validation, not waste.
+
+WHAT SHIPPED: tests/python/test_multidigraph_bellman_ford_weight_contract_parity.py, 18
+rows, green on HEAD. It locks the CONTRACT rather than the collapse, so a cheaper
+multigraph branch may still land provided those rows stay green. The divergence table above
+is the proof that guard fails on the implementation it forbids - a guard never seen to fail
+is not a guard.
+
+WHAT REMAINS UNFIXED. The loss is real at 0.364x. The cheap reroute is now closed, and with
+it the only route needing no build. Left are a collapse cached against the graph's revision
+token, which can recover at most 55.1M -> 44.3M since the raw multigraph path itself costs
+44.3M, or the root defect: the native kernel costs about 13.6M Ir/call on the collapsed
+simple graph against 44.3M on the multigraph, 3.3x, which needs a Rust change and would
+have to learn the validation the collapse performs.
