@@ -119,3 +119,53 @@ def test_multidigraph_reverse_copy_weighted_degree_is_not_order_dependent():
         assert actual.out_degree(0, weight="weight") == build(nx).out_degree(
             0, weight="weight"
         ), f"{name} out_degree"
+
+
+def test_native_weighted_degree_kernels_read_store_attrs_on_a_reverse_copy():
+    """The native weighted-degree kernels must not read a missing Python mirror
+    entry as an absent weight.
+
+    br-r37-c1-mgrevstore: ``add_py_int_weight`` returned networkx's default of 1
+    whenever ``edge_py_attrs`` had no entry for an edge. A
+    ``MultiDiGraph.reverse(copy=True)`` keeps its attributes in the Rust store
+    with an EMPTY mirror, so every edge became weight 1 and the kernel returned
+    an edge COUNT rather than a weighted sum.
+
+    This asserts the KERNELS directly, not just the Python accessors that call
+    them, because the same helper serves the all-node paths too -- a test that
+    only went through ``degree()`` would leave those unguarded.
+
+    The graph is built fresh for each kernel and nothing reads its edges first:
+    walking ``edges()`` republishes the mirror and MASKS the bug, which is how it
+    survived a 720-check census that did include reverse-copy containers.
+    """
+    def build(mod):
+        graph = getattr(mod, "MultiDiGraph")()
+        graph.add_edge(0, 1, weight=5)
+        graph.add_edge(0, 1, weight=7)
+        graph.add_edge(2, 0, weight=9)
+        return graph.reverse(copy=True)
+
+    reference = build(nx)
+    expected_total = reference.degree(0, weight="weight")
+    expected_out = reference.out_degree(0, weight="weight")
+    expected_in = reference.in_degree(0, weight="weight")
+    assert (expected_total, expected_out, expected_in) == (21, 9, 12), (
+        "fixture changed; the constants above are the networkx oracle"
+    )
+
+    for kernel_name, expected in (
+        ("_native_weighted_degree_subset", expected_total),
+        ("_native_weighted_out_degree_subset", expected_out),
+        ("_native_weighted_in_degree_subset", expected_in),
+    ):
+        graph = build(fnx)  # fresh: no read has populated the mirror
+        kernel = getattr(graph, kernel_name, None)
+        if kernel is None:
+            continue
+        pairs = kernel([0], "weight")
+        assert pairs, f"{kernel_name} returned nothing for a present node"
+        assert pairs[0][1] == expected, (
+            f"{kernel_name} answered {pairs[0][1]!r}, networkx says {expected!r} "
+            "(an edge count here means the store attrs were not consulted)"
+        )

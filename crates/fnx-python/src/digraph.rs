@@ -1249,6 +1249,12 @@ impl PyMultiDiGraph {
                         .unwrap_or_default()
                     {
                         let ek = Self::edge_key(&canonical, successor, key);
+                        // br-r37-c1-mgrevstore: consult the STORE before falling
+                        // back to networkx's default of 1. See add_py_int_weight
+                        // for the full account: an absent mirror entry means the
+                        // attributes live in the Rust store, not that the edge is
+                        // unweighted, and defaulting here turned a reverse copy's
+                        // weighted degree into an edge COUNT.
                         let value = match self.edge_py_attrs.get(&ek) {
                             Some(d) => d
                                 .bind(py)
@@ -1256,7 +1262,16 @@ impl PyMultiDiGraph {
                                 .ok()
                                 .flatten()
                                 .unwrap_or_else(|| one.clone()),
-                            None => one.clone(),
+                            None => match self
+                                .inner
+                                .edge_attrs(&canonical, successor, key)
+                                .and_then(|attrs| attrs.get(weight))
+                            {
+                                Some(stored) => {
+                                    crate::cgse_value_to_py(py, stored)?.into_bound(py)
+                                }
+                                None => one.clone(),
+                            },
                         };
                         out_vals.append(value)?;
                     }
@@ -1271,6 +1286,8 @@ impl PyMultiDiGraph {
                         .unwrap_or_default()
                     {
                         let ek = Self::edge_key(predecessor, &canonical, key);
+                        // br-r37-c1-mgrevstore: predecessor twin of the store
+                        // consultation above.
                         let value = match self.edge_py_attrs.get(&ek) {
                             Some(d) => d
                                 .bind(py)
@@ -1278,7 +1295,16 @@ impl PyMultiDiGraph {
                                 .ok()
                                 .flatten()
                                 .unwrap_or_else(|| one.clone()),
-                            None => one.clone(),
+                            None => match self
+                                .inner
+                                .edge_attrs(predecessor, &canonical, key)
+                                .and_then(|attrs| attrs.get(weight))
+                            {
+                                Some(stored) => {
+                                    crate::cgse_value_to_py(py, stored)?.into_bound(py)
+                                }
+                                None => one.clone(),
+                            },
                         };
                         in_vals.append(value)?;
                     }
@@ -1418,7 +1444,34 @@ impl PyMultiDiGraph {
                 }
                 None => 1,
             },
-            None => 1,
+            // br-r37-c1-mgrevstore: A MISSING PY MIRROR ENTRY IS NOT AN ABSENT
+            // WEIGHT. This arm used to return 1 - networkx's default for an edge
+            // with no `weight` key - which silently turned every edge of a graph
+            // whose attributes live in the RUST STORE into weight 1, i.e. it
+            // returned an edge COUNT.
+            //
+            // `MultiDiGraph.reverse(copy=True)` is exactly that graph: the store
+            // carries the attributes and `edge_py_attrs` is empty until something
+            // republishes them. So `rev.degree(0, weight=)` answered 3 where
+            // networkx answers 21, and it answered 21 after a `list(g.edges(...))`
+            // walk had populated the mirror - the same call returning different
+            // numbers depending on what the caller read earlier. That
+            // order-dependence is why the Python callers could not gate around
+            // it and why br-r37-c1-degscalar had to be reverted.
+            //
+            // Consult the store before concluding the weight is absent. Only a
+            // key that is missing from BOTH is networkx's default 1; a non-int
+            // value returns None so the caller falls back to the exact path, as
+            // the mirror arm above already does.
+            None => match self
+                .inner
+                .edge_attrs(source, target, key)
+                .and_then(|attrs| attrs.get(weight))
+            {
+                Some(CgseValue::Int(stored)) => i128::from(*stored),
+                Some(_) => return None,
+                None => 1,
+            },
         };
         *total = total.checked_add(value)?;
         Some(())
