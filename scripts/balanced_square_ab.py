@@ -2051,6 +2051,98 @@ def workload_multidigraph_dirty_sync(reps: int):
     return build, ops
 
 
+def workload_claim_read_gml(reps: int):
+    """Live NetworkX/FNX read_gml claim row (br-r37-c1-p80x1.44).
+
+    The claim-incumbent harness owns the fixture definition.  Reuse its builder,
+    materializer, and complete-graph canonicalizer here so this balanced-square
+    retry cannot silently substitute a smaller graph, a bytes input, or a
+    projection-only parity check for the published path-based contract.
+    """
+    try:
+        from scripts.perf_harness import (
+            _build_pair,
+            _materialize_claim_payload,
+            canonical_bytes,
+        )
+    except ModuleNotFoundError:
+        from perf_harness import _build_pair, _materialize_claim_payload, canonical_bytes
+
+    source_node_count = 1_200
+    source_edge_count = 6_000
+    source_seed = 11
+    expected_payload_bytes = 307_162
+    expected_payload_sha256 = (
+        "e750bdb0901f2da65fe9b8809c84d5e254bf26525a24026ea28a62f9664d85ce"
+    )
+    expected_output_bytes = 194_277
+    expected_output_sha256 = (
+        "199d564350ec6f70885e8f8236fad28d6620b44e3e7917a470f6fba73024e653"
+    )
+    expected_projection_bytes = 108_972
+    expected_projection_sha256 = (
+        "2f54f4c0b59355453688e92a940bfa0c702ceb99046bdcc3c246cb7ac20f3295"
+    )
+    source, _ = _build_pair(
+        source_node_count,
+        source_edge_count,
+        seed=source_seed,
+        weighted=False,
+    )
+    source = nx.convert_node_labels_to_integers(source)
+    import io
+
+    encoded = io.BytesIO()
+    nx.write_gml(source, encoded)
+    payload = encoded.getvalue()
+    if (
+        len(payload) != expected_payload_bytes
+        or hashlib.sha256(payload).hexdigest() != expected_payload_sha256
+    ):
+        raise RuntimeError("read_gml claim payload no longer matches its contract")
+    path = _materialize_claim_payload(
+        "franken_networkx-claim-read_gml-e750bdb0901f2da6.gml",
+        payload,
+    )
+
+    def validate_contract(module):
+        graph = module.read_gml(path)
+        complete = canonical_bytes(graph)
+        rendered = sorted(map(str, graph.edges()))
+        rendered_bytes = canonical_bytes(rendered)
+        if (
+            type(graph).__name__ != "Graph"
+            or graph.is_directed()
+            or graph.is_multigraph()
+            or graph.number_of_nodes() != source_node_count
+            or graph.number_of_edges() != source_edge_count
+            or len(complete) != expected_output_bytes
+            or hashlib.sha256(complete).hexdigest() != expected_output_sha256
+            or len(rendered) != source_edge_count
+            or len(rendered_bytes) != expected_projection_bytes
+            or hashlib.sha256(rendered_bytes).hexdigest()
+            != expected_projection_sha256
+        ):
+            raise RuntimeError("read_gml decoded graph no longer matches its contract")
+        return graph
+
+    def build(module):
+        return validate_contract(module), module
+
+    def ops(_graph, module):
+        def read_many():
+            result = None
+            for _ in range(reps):
+                result = sorted(map(str, module.read_gml(path).edges()))
+            return result
+
+        return {
+            "claim/read_gml path n=1200 m=6000 then=sorted(map(str,edges))": read_many,
+        }
+
+    return build, ops
+
+
 WORKLOADS = {
     "view-reads": workload_view_reads,
     "undirected-nbunch": workload_undirected_nbunch,
@@ -2078,6 +2170,7 @@ WORKLOADS = {
     "algorithms": workload_algorithms,
     "incumbent-fixtures": workload_incumbent_fixtures,
     "incumbent-fixtures-2": workload_incumbent_fixtures_2,
+    "claim-read-gml": workload_claim_read_gml,
 }
 
 
