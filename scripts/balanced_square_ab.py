@@ -101,6 +101,22 @@ import networkx as nx
 import franken_networkx as fnx
 import franken_networkx._fnx as _fnx_ext
 
+# Pytest imports this module from the checkout root, while direct execution puts
+# the scripts directory first on sys.path.  Use the one audited /proc reader in
+# both entry points rather than growing a second parser.
+try:
+    from scripts.bench_window_guard import (
+        _SIBLING_CONTENDED_PCT,
+        read_cpu_busy_jiffies,
+        read_sibling_cpu,
+    )
+except ModuleNotFoundError:
+    from bench_window_guard import (  # type: ignore[no-redef]
+        _SIBLING_CONTENDED_PCT,
+        read_cpu_busy_jiffies,
+        read_sibling_cpu,
+    )
+
 SQUARE = "ABBAABBA"
 # br-r37-c1-gateaudit: WHAT THIS BOUND ACTUALLY DEMANDS, computed rather than
 # felt. The null is mean(first two slots)/mean(last two) for one arm, whose slots
@@ -2184,6 +2200,44 @@ def sample_core_khz():
         return cpu, None
 
 
+def begin_sibling_watch():
+    """Start a whole-run watch of the sole pinned CPU's SMT sibling.
+
+    A square's arms alternate in one process, which handles common-mode load
+    but not SMT pressure: a saturated sibling moved the live NetworkX/FNX ratio
+    by 17 percent with clean A/A controls (br-r37-c1-jycsb). Per-slot jiffies
+    are too coarse for the fast NetworkX arm, so sample once around the whole
+    row instead. A multi-CPU affinity mask cannot identify the sibling that
+    ran a particular slot; report that as unavailable rather than aggregating
+    unrelated logical CPUs into a fictional measurement.
+    """
+    try:
+        cpus = os.sched_getaffinity(0)
+    except OSError:
+        return None
+    if len(cpus) != 1:
+        return None
+    sibling = read_sibling_cpu(next(iter(cpus)))
+    before = read_cpu_busy_jiffies(sibling)
+    if sibling < 0 or before < 0:
+        return None
+    return sibling, before, time.perf_counter()
+
+
+def end_sibling_watch(watch) -> float | None:
+    """Return whole-run sibling non-idle percent, or None when unreadable."""
+    if watch is None:
+        return None
+    sibling, before, started = watch
+    after = read_cpu_busy_jiffies(sibling)
+    elapsed = time.perf_counter() - started
+    if after < before or elapsed <= 0:
+        return None
+    # Linux /proc/stat exports jiffies at USER_HZ=100 on supported hosts; this
+    # whole-row measurement resolves several ticks unlike a single fast arm.
+    return 100.0 * (after - before) / (elapsed * 100.0)
+
+
 def _time_square(incumbent_fn, fnx_fn, gc_per_slot: bool, calls_per_slot: int = 1):
     """Run one `ABBAABBA` square and return the two arms' slot timings and clocks.
 
@@ -2274,6 +2328,7 @@ def run_row(
         incumbent_fn()
         fnx_fn()
 
+    sibling_watch = begin_sibling_watch()
     ratios, null_a, null_b = [], [], []
     khz_a, khz_b = [], []
     # br-r37-c1-armplace: which logical CPUs each arm actually ran on. Both arms
@@ -2323,6 +2378,7 @@ def run_row(
         null_a.append(statistics.median(a_slots[:2]) / statistics.median(a_slots[2:]))
         null_b.append(statistics.median(b_slots[:2]) / statistics.median(b_slots[2:]))
 
+    sibling_busy_pct = end_sibling_watch(sibling_watch)
     ratio = statistics.median(ratios)
     low, high = bootstrap_ci(ratios)
     n_a, n_b = statistics.median(null_a), statistics.median(null_b)
@@ -2336,7 +2392,11 @@ def run_row(
     a_ok = abs(n_a - 1.0) <= NULL_BOUND
     b_ok = abs(n_b - 1.0) <= NULL_BOUND
     nulls_ok = a_ok and b_ok
-    if not nulls_ok:
+    if sibling_busy_pct is not None and sibling_busy_pct >= _SIBLING_CONTENDED_PCT:
+        # A/A only proves each arm stayed stationary. It cannot prove the two
+        # implementations react equally to a busy SMT sibling.
+        verdict = "SIBLING-CONTENDED"
+    elif not nulls_ok:
         culprit = "A" if not a_ok and b_ok else "B" if a_ok and not b_ok else "AB"
         verdict = f"NULL-FAILED({culprit})"
     elif low <= 1.0 <= high:
@@ -2379,6 +2439,8 @@ def run_row(
         "mhz_spread_pct": spread_pct,
         "clock_skew_pct": clock_skew,
         "clock_skewed": clock_skewed,
+        "sibling_busy_pct": sibling_busy_pct,
+        "sibling_watch_cpu": sibling_watch[0] if sibling_watch is not None else None,
         "cpus_incumbent": sorted(cpus_a),
         "cpus_fnx": sorted(cpus_b),
         "cpus_shared": sorted(cpus_a & cpus_b),
@@ -2512,6 +2574,7 @@ def main(argv: list[str]) -> int:
     )
     admitted = 0
     skewed = 0
+    sibling_contended = 0
     arm_exclusive_cpus = 0
     for name in selected:
         row = run_row(
@@ -2538,13 +2601,19 @@ def main(argv: list[str]) -> int:
             if not exclusive
             else f"cpus A={row['cpus_incumbent']} B={row['cpus_fnx']} ARM-EXCLUSIVE={exclusive}"
         )
+        sibling = (
+            "sib n/a"
+            if row["sibling_busy_pct"] is None
+            else f"sib cpu{row['sibling_watch_cpu']} {row['sibling_busy_pct']:.0f}%"
+        )
         print(
             f"  {name:22s} {row['ratio']:7.4f}x  CI [{low:.4f}, {high:.4f}]  "
             f"nulls {row['null_incumbent']:.4f}/{row['null_fnx']:.4f}  {clock}  "
-            f"{placement}  {row['verdict']}"
+            f"{placement}  {sibling}  {row['verdict']}"
         )
         admitted += row["verdict"] == "ADMISSIBLE"
         skewed += bool(row["clock_skewed"])
+        sibling_contended += row["verdict"] == "SIBLING-CONTENDED"
         if exclusive:
             arm_exclusive_cpus += 1
 
@@ -2555,6 +2624,13 @@ def main(argv: list[str]) -> int:
             f"those squares ran at core frequencies differing by more than "
             f"{CLOCK_SKEW_BOUND_PCT}%. Both A/A nulls read 1.0 through this, so do "
             f"not treat a passing null as evidence against it."
+        )
+    if sibling_contended:
+        print(
+            f"  SIBLING-CONTENDED rows    {sibling_contended}/{len(selected)} — whole-run "
+            f"SMT-sibling utilisation reached {_SIBLING_CONTENDED_PCT:.0f}% or more. "
+            "A/A nulls cannot certify this asymmetric interference; re-pin to a "
+            "single CPU with a quiet sibling and re-measure."
         )
     if arm_exclusive_cpus:
         print(

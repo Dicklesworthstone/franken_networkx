@@ -177,3 +177,26 @@ def test_each_round_warms_both_arms_before_timing(monkeypatch, harness):
     expected = rounds * (harness.ROUND_WARM_CALLS + slots_per_arm)
     assert len(incumbent) == len(candidate) == expected
     assert harness.ROUND_WARM_CALLS >= 1
+
+
+def test_busy_smt_sibling_rejects_an_otherwise_admissible_square(monkeypatch, harness):
+    """A clean A/A result is not bankable if its SMT sibling is saturated.
+
+    The negative case has perfect nulls and a CI excluding 1. Removing the
+    whole-run sibling verdict turns it into an incorrect ADMISSIBLE result.
+    """
+    monkeypatch.setattr(harness, "begin_sibling_watch", lambda: (46, 0, 0.0))
+    monkeypatch.setattr(harness, "end_sibling_watch", lambda _watch: 100.0)
+    monkeypatch.setattr(
+        harness,
+        "_time_square",
+        lambda *_args, **_kwargs: ([10] * 4, [5] * 4, [], [], [14] * 4, [14] * 4),
+    )
+
+    row = harness.run_row("probe", lambda: None, lambda: None, rounds=3, warmup=0)
+
+    assert row["ratio"] == pytest.approx(2.0)
+    assert row["null_incumbent"] == pytest.approx(1.0)
+    assert row["null_fnx"] == pytest.approx(1.0)
+    assert row["sibling_busy_pct"] == pytest.approx(100.0)
+    assert row["verdict"] == "SIBLING-CONTENDED"
