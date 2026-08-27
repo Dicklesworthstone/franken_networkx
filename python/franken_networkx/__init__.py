@@ -2236,6 +2236,10 @@ class AtlasView(_Mapping):
     _fnx_live_keydict = None
     _fnx_kd_cache = None
     _fnx_edge_fast = None
+    # br-r37-c1-hotrow: the per-ROW constants of the native fast path, bundled
+    # so the hot subscript loads ONE attribute instead of three. Written the
+    # first time the fast path resolves, alongside `_fnx_edge_fast`.
+    _fnx_hot = None
     # br-r37-c1-2ndmw: the multigraph CELL's resolved atlas — the native
     # `MultiKeyDictView` for one (u, v) pair — memoised on first use.
     #
@@ -2309,6 +2313,7 @@ class AtlasView(_Mapping):
             self._fnx_live_keydict = None
             self._fnx_kd_cache = None
             self._fnx_edge_fast = None
+            self._fnx_hot = None
             # NOT `_fnx_captured_atlas`: only a cell ever reads it, and `_atlas`
             # checks `_fnx_multi_edge_owner` before it, so a non-cell view never
             # touches the attribute at all and does not need the store.
@@ -2527,16 +2532,30 @@ class AtlasView(_Mapping):
             # there" sentinel, so an owner without the accessor is not re-probed
             # either. This is the binding AdjacencyView already does for
             # `native_len` / `native_iter`, applied one level down.
+            # br-r37-c1-hotrow: read the bundled per-row constants. This block
+            # used to load `_fnx_edge_fast`, `_fnx_row_kind` and
+            # `_fnx_row_node` separately on EVERY subscript, and all three are
+            # fixed for the life of the row. Bundling them costs one tuple at
+            # first use and turns three attribute loads into one plus an unpack.
+            hot = self._fnx_hot
+            if hot is not None:
+                fast, row_node, is_pred = hot
+                hash(node)  # nx-shaped TypeError on unhashable, like dict lookup
+                d = fast(node, row_node) if is_pred else fast(row_node, node)
+                if d is not None:
+                    return d
+                raise KeyError(node)
             fast = self._fnx_edge_fast
             if fast is None:
                 fast = getattr(owner, "_fnx_edge_attr_dict_fast", None)
                 self._fnx_edge_fast = False if fast is None else fast
             if fast:
                 hash(node)  # nx-shaped TypeError on unhashable, like dict lookup
-                if self._fnx_row_kind == "pred":
-                    d = fast(node, self._fnx_row_node)
-                else:
-                    d = fast(self._fnx_row_node, node)
+                row_node = self._fnx_row_node
+                is_pred = self._fnx_row_kind == "pred"
+                # Bundle for every later subscript on this row.
+                self._fnx_hot = (fast, row_node, is_pred)
+                d = fast(node, row_node) if is_pred else fast(row_node, node)
                 if d is not None:
                     return d
                 raise KeyError(node)
