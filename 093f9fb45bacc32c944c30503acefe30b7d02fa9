@@ -1,0 +1,96 @@
+MEASUREMENT EVIDENCE for br-r37-c1-degscalar (this commit landed without any).
+
+Scalar G.degree(n, weight=) was the worst vs-networkx ratio on the weighted
+surface. Six of eight target rows now CROSS PARITY; two do not.
+
+  row                              p1(before) p4(before) | p2(after) p3(after)
+  MultiGraph   int                   0.1034     0.1027   |  0.9861    0.9718
+  MultiGraph   float                 0.1061     0.1050   |  0.8409    0.8572
+  MultiDiGraph int                   0.1096     0.1106   |  1.1889    1.1974
+  MultiDiGraph float                 0.1167     0.1150   |  1.0538    1.0616
+  Graph        int                   0.3662     0.3764   |  1.2422    1.3131
+  Graph        float                 0.3926     0.3960   |  1.2724    1.2974
+  DiGraph      int                   0.3417     0.3423   |  1.4616    1.4554
+  DiGraph      float                 0.3493     0.3577   |  1.4563    1.4664
+
+Every row decidable. All A/A nulls fell in [0.9917, 1.0050].
+
+Per call, fnx: MultiGraph 10.62us -> 1.15us, MultiDiGraph 11.89us -> 1.10us,
+Graph 2.44us -> 0.71us, DiGraph 3.02us -> 0.71us, against a networkx arm that
+held 0.89-1.38us throughout. The nx arm not moving is what makes this a win
+rather than a self-speedup.
+
+MultiGraph float lands at 0.84-0.86x and is STILL A LOSS. Not claimed otherwise.
+
+HOW THIS ROW WAS FOUND, and what was refuted on the way.
+
+The bead I opened (br-r37-c1-weighted-attr-rust-store-237hw) claims a
+"~0.6-0.72x floor on all weight= ops". THAT CLAIM IS REFUTED on HEAD. Measured
+live, 35/40 rows decidable: size(weight) 26.3x-43.7x, degree(weight) whole
+1.70x-4.25x, degree(nbunch,weight) 0.74x-2.86x, size() unweighted 204x-2833x.
+There is no 0.6-0.72x floor left to close. The survey did surface something the
+bead never described - the SCALAR form of the same operation, at 0.10x.
+
+FIRST HYPOTHESIS WRONG, KILLED BY THE PROBE. A 10x loss on a ONE-NODE request
+looked like whole-graph materialization. It is not. Holding the request FIXED
+(node 0, always exactly 4 incident edges) and growing the PARENT 500 -> 8000
+nodes, fnx's cost is FLAT at 0.97-1.02x, exactly as networkx's is. A constant
+factor, not a complexity class: graph.adj[node] materialises the row through
+the AtlasView chain and a nested generator then touches every parallel edge.
+
+SECOND MEASUREMENT WRONG, CAUGHT BY REDOING IT. A first timing suggested routing
+would HURT the simple classes (Graph 0.351x -> 0.259x). That was my own probe's
+dict() construction and indexing, not the kernel. The raw kernel call is 1.007us
+against a 2.393us scalar path, so routing helps all four classes.
+
+EXACTNESS WAS THE GATE, NOT SPEED. CPython's builtins.sum is Neumaier-
+compensated, and this bead's own comment history records that trap being caught
+during feasibility - a Rust fold that is merely close is a parity bug. The
+kernel is compensation-correct, verified on a case that DISCRIMINATES: weights
+[1e16, 1.0, -1e16] give 1.0 under builtins.sum and 0.0 under a naive
+left-to-right fold, and the kernel returns 1.0 on all four classes. 98 scalar
+cases agree with networkx exactly - ints past i64, bool, missing weight,
+self-loops, parallel self-loops, inf, -inf, nan, mixed int-then-float result
+TYPE, str and None weight values, isolates, a non-default weight key.
+
+DIRECTION IS THE DANGEROUS PART. The native kernel answers TOTAL degree, so an
+in_degree or out_degree view routed to it would return a WRONG NUMBER rather
+than a slow one. The simple-class site is gated on `_direction is None`; the
+multigraph funnel is reached only from total-degree view classes, which carry no
+_direction at all. 84 directed checks pass, on fixtures where in != out != total
+so the assertion is not vacuous.
+
+SUBSTRATE. Pure Python: both arms carry a REAL COPY of the SAME extension, so
+the in-process ELF sha256 is identical in both and the binary noise floor is
+zero by construction - only __init__.py differs.
+
+  bench_elf_sha256=deb74ba5f4e0e71633ece492936f15e412046a9254315861f862bf5ff1b4ebec
+
+COMMAND (four passes, balanced order before,after,after,before, load 7.69-12.22):
+  PYTHONPATH=$S/ds_$arm FNX_ARM=$arm \
+    FNX_EXPECT_SO=$S/ds_$arm/franken_networkx/_fnx.abi3.so \
+    .venv/bin/python bench_degscalar.py
+
+Each row is perf_harness.paired(): fnx and LIVE networkx 3.6.1 interleaved
+inside ONE loop, order alternated per round, 21 rounds, min-of-3, bootstrap
+median CI, arm-specific A/A null on each side, value AND result type compared
+before timing.
+
+CONTROLS, and one of them I MISLABELLED.
+
+  CONTROL degree(n) unweighted    0.8932-2.7760 -> 0.8899-2.8228   flat
+  CONTROL in_degree(n,w)          0.6502-0.9391 -> 0.6518-0.9629   flat
+  CONTROL out_degree(n,w) MultiDi 0.1064        -> 0.1074          flat
+
+  NOT A CONTROL: degree(weight=) WHOLE GRAPH. I labelled it one and it moved
+  hard - Graph int 0.8043 -> 2.7468, DiGraph int 0.6482 -> 3.9445, MultiGraph
+  int 0.5436 -> 1.3050. That is not contamination. Whole-graph iteration falls
+  through to `pairs=((n, self._weighted_value(n, weight)) for n in self._graph)`,
+  so it shares the funnel this commit edits and is a TARGET. The label was my
+  error; the numbers are real and are additional wins, not evidence of arm skew.
+
+NEW WORST ROW, LEFT OPEN AND NOT FIXED HERE. MultiDiGraph.out_degree(n, weight)
+measures 0.1064x before and 0.1074x after - unchanged, because the _direction
+gate deliberately excludes it. The directional multigraph views still walk the
+AtlasView chain the total view no longer does. That is now the worst row in this
+family and it is a separate lever, not something to smuggle into this one.
