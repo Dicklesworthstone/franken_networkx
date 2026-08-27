@@ -8024,6 +8024,40 @@ def _add_weighted_edges_from_with_attr(cls):
         # check (wiener/size/degree/dijkstra/pagerank/betweenness/closeness/adj_matrix/
         # degree_pearson) all match. Non-str weight keys keep the per-edge path below.
         if isinstance(weight, str):
+            # br-r37-c1-awefgen: hand `add_edges_from` a LIST when the input is
+            # already re-iterable. The native batch kernel is gated on
+            # `isinstance(ebunch_to_add, (list, tuple))`, so streaming a
+            # generator into it silently disqualifies every edge from the fast
+            # path. Measured on 1600 edges, the SAME edges either way:
+            #
+            #   MultiDiGraph  add_edges_from(LIST) 1530.0us   (GEN) 4299.0us  2.81x
+            #   MultiGraph                          985.1us         4041.2us  4.10x
+            #   Graph                               506.5us          735.3us  1.45x
+            #
+            # and fnx's own add_weighted_edges_from measured 4257.6us on
+            # MultiDiGraph - the generator number, not the list one.
+            #
+            # THE STREAMING PATH IS KEPT where it is load-bearing. networkx
+            # streams through add_edges_from one edge at a time, so edges before
+            # a bad element ARE inserted and then the error raises
+            # (br-r37-c1-wcdm3). Materialising up front would insert nothing.
+            # So: only re-iterable inputs are materialised, and if building the
+            # list raises, the same source is streamed again - which reproduces
+            # networkx exactly, inserting the good prefix before raising at the
+            # same element. A generator is never re-iterable and is never
+            # materialised.
+            if type(ebunch_to_add) in (list, tuple):
+                try:
+                    materialized = [
+                        (u, v, {weight: w}) for u, v, w in ebunch_to_add
+                    ]
+                except Exception:  # noqa: BLE001 - fall back to nx's streaming
+                    self.add_edges_from(
+                        ((u, v, {weight: w}) for u, v, w in ebunch_to_add), **attr
+                    )
+                    return
+                self.add_edges_from(materialized, **attr)
+                return
             self.add_edges_from(
                 ((u, v, {weight: w}) for u, v, w in ebunch_to_add), **attr
             )
