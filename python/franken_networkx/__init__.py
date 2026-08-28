@@ -15683,6 +15683,27 @@ def _branching_partition_graph_for_networkx(G, partition):
     return graph
 
 
+def _minimum_branching_structural_nx(G, attr, default):
+    """Structural-only nx delegation for undirected ``minimum_branching``.
+
+    br-r37-c1-p80x1.14. Lives in a private helper so the public wrapper keeps no direct
+    ``_nx.*`` reference, matching ``_greedy_color_structural_nx`` and
+    ``_min_weight_matching_structural_nx``. Nodes in order, edges in order, carrying only
+    the caller's ``attr`` - which is all networkx's own output retains.
+    """
+    _H = _nx.Graph()
+    _H.add_nodes_from(G)
+    # Copy `attr` ONLY where the edge actually carries it, and let networkx apply its own
+    # `default` to the rest. Materialising `d.get(attr, default)` here is WRONG and was
+    # caught by the parameter sweep: on a graph with no weight attribute and default=-1,
+    # writing -1 onto every edge made networkx select a full branching where the
+    # unmaterialised call returns an empty one.
+    _H.add_edges_from(
+        (u, v, {attr: d[attr]} if attr in d else {}) for u, v, d in G.edges(data=True)
+    )
+    return _nx.minimum_branching(_H, attr=attr, default=default)
+
+
 def minimum_branching(G, attr="weight", default=1, preserve_attrs=False, partition=None):
     """br-isokw: ``G`` matches nx; default aligned to int 1 (was 1.0).
 
@@ -15699,6 +15720,35 @@ def minimum_branching(G, attr="weight", default=1, preserve_attrs=False, partiti
     G = _coerce_arg_to_fnx_graph(G)
     if partition is not None or not G.is_directed() or G.is_multigraph():
         from franken_networkx.readwrite import _from_nx_graph
+
+        # br-r37-c1-p80x1.14: the UNDIRECTED class was paying a FAITHFUL fnx->nx
+        # conversion, networkx's call, and a conversion back, where the directed class
+        # uses the native kernel. Measured on an n=400 empty-result workload, that is
+        # 220.0M Ir/call against the directed path's 44.7M - 4.9x more expensive on
+        # ITSELF for the same answer - and 0.777x against networkx.
+        #
+        # networkx's output here carries ONLY the `attr` weight: extra edge attributes,
+        # node attributes and graph attributes are all dropped (verified). So a
+        # structural copy carrying nodes in order and edges in order with just `attr` is
+        # byte-identical, and the attribute copy was pure overhead.
+        #
+        # SCOPE, and every clause is load-bearing:
+        #   * preserve_attrs=True DOES keep the extra edge attributes in the output, so a
+        #     structural copy would lose them - excluded;
+        #   * a multigraph would lose its parallel edges to an nx.Graph copy - excluded;
+        #   * partition routes through _branching_partition_graph_for_networkx, a
+        #     different input entirely - excluded;
+        #   * `attr` is carried through rather than hardcoded, since callers may use
+        #     another key (attr="cost" works in networkx).
+        if (
+            partition is None
+            and not G.is_directed()
+            and not G.is_multigraph()
+            and not preserve_attrs
+        ):
+            return _from_nx_graph(
+                _minimum_branching_structural_nx(G, attr, default)
+            )
         nx_result = _call_networkx_for_parity(
             "minimum_branching", _branching_partition_graph_for_networkx(G, partition),
             attr=attr, default=default,
