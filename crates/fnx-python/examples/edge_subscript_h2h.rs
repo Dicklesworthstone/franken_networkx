@@ -148,11 +148,21 @@ def build_all(cls, keytype):
 def run_cell(cls, spelling, keytype, rounds=15):
     (fg, ng, fg2, ng2), pairs = build_all(cls, keytype)
 
+    multi = cls.startswith("Multi")
+
     def probe_edges(g):
+        # The multigraph EdgeView subscript takes (u, v, key); both libraries raise
+        # ValueError on a bare (u, v) there, so the probe must differ by class or it would
+        # be timing an exception path on half the family.
         ev = g.edges
-        def run():
-            for u, v in pairs:
-                ev[u, v]
+        if multi:
+            def run():
+                for u, v in pairs:
+                    ev[u, v, 0]
+        else:
+            def run():
+                for u, v in pairs:
+                    ev[u, v]
         return run
 
     def probe_adj(g):
@@ -193,7 +203,7 @@ def run_cell(cls, spelling, keytype, rounds=15):
 def main():
     rows = []
     for keytype in ("str3", "str2000"):
-        for cls in ("Graph", "DiGraph"):
+        for cls in ("Graph", "DiGraph", "MultiGraph", "MultiDiGraph"):
             for spelling in ("edges[u,v]", "G[u][v]", "get_edge_data"):
                 ratio, null_f, null_n, fns, nns = run_cell(cls, spelling, keytype)
                 rows.append((keytype, cls, spelling, ratio, null_f, null_n, fns, nns))
@@ -221,7 +231,7 @@ fn main() {
         eprintln!("fnx_extension {}", fetch("FNX_EXT"));
         eprintln!("incumbent {}", fetch("NX_BUILD"));
         eprintln!(
-            "{:<5} {:<8} {:<14} {:>10} {:>9} {:>9} {:>10} {:>10}",
+            "{:<8} {:<13} {:<14} {:>10} {:>9} {:>9} {:>10} {:>10}",
             "key", "class", "spelling", "nx/fnx", "null fnx", "null nx", "fnx ns", "nx ns"
         );
 
@@ -248,7 +258,7 @@ fn main() {
                 (false, false) => "  <- BOTH NULLS OUT OF BAND, withheld",
             };
             eprintln!(
-                "{key:<5} {cls:<8} {spelling:<14} {ratio:9.3}x {null_f:9.3} {null_n:9.3} {fns:10.1} {nns:10.1}{flag}"
+                "{key:<8} {cls:<13} {spelling:<14} {ratio:9.3}x {null_f:9.3} {null_n:9.3} {fns:10.1} {nns:10.1}{flag}"
             );
         }
     });

@@ -286,6 +286,86 @@ edge views run a PYTHON `__getitem__` costing ~127 ns where the undirected nativ
 ~46 ns. Everything else the bead proposed is either already landed or not a differential cost.
 The ceiling stands at ~0.70x for that fix and ~0.93x for a hypothetical free view.
 
+## FOURTH RUN: the whole four-class family, and the WORST cell is the MULTIGRAPH row view
+
+The multi classes had never been measured on this surface, although both carry the same
+Python-bodied `__getitem__` the directed class does. Extending to all four relocates the worst
+cell. (The multigraph EdgeView subscript takes `(u, v, key)`; both libraries raise ValueError
+on a bare `(u, v)` there, so the probe differs by class or half the family would be timing an
+exception path.)
+
+    bench_elf_sha256  f0d38d955313916ce2a21b49af9a0f782932037038b445677cecf7a09e235765
+    fnx_extension     .rch-target-hz2-pool-.../release/lib_fnx.so
+                      sha256=030e9292d2d8cea59a1fefd2953fd19ef51f52c601cd6e7ee7020564e5ec92bf
+    incumbent         networkx 3.6.1, worker hz2, bench cpu 15
+
+    key      class         spelling        nx/fnx   null fnx   null nx   fnx ns   nx ns
+    str3     Graph         edges[u,v]        --        1.120     0.908    195.5   154.8  WITHHELD
+    str3     Graph         G[u][v]         1.052x      1.031     1.009    259.8   273.5
+    str3     Graph         get_edge_data   0.655x      0.999     0.996    146.1    95.7
+    str3     DiGraph       edges[u,v]      0.488x      1.003     0.991    267.1   130.4
+    str3     DiGraph       G[u][v]         0.570x      1.000     1.000    444.0   253.1
+    str3     DiGraph       get_edge_data   0.695x      0.991     0.998    138.9    96.6
+    str3     MultiGraph    edges[u,v]      0.565x      1.005     0.984    296.6   167.4
+    str3     MultiGraph    G[u][v]         0.463x      0.976     0.989    921.7   427.0
+    str3     MultiGraph    get_edge_data   0.715x      0.983     0.973    151.4   108.3
+    str3     MultiDiGraph  edges[u,v]      0.609x      0.991     1.055    310.4   188.9
+    str3     MultiDiGraph  G[u][v]         0.463x      1.033     1.009    967.5   447.9
+    str3     MultiDiGraph  get_edge_data   0.657x      0.986     0.973    156.1   102.5
+    str2000  Graph         edges[u,v]        --        1.058     0.853    196.8   155.4  WITHHELD
+    str2000  Graph         G[u][v]         1.077x      1.035     0.914    265.1   285.6
+    str2000  Graph         get_edge_data   0.623x      1.008     0.963    161.6   100.6
+    str2000  DiGraph       edges[u,v]      0.489x      1.009     1.018    267.2   130.7
+    str2000  DiGraph       G[u][v]         0.576x      0.990     0.997    441.7   254.4
+    str2000  DiGraph       get_edge_data   0.689x      1.006     0.997    140.6    96.8
+    str2000  MultiGraph    edges[u,v]      0.530x      1.004     0.999    300.9   159.4
+    str2000  MultiGraph    G[u][v]         0.475x      1.008     0.995    897.3   425.8
+    str2000  MultiGraph    get_edge_data   0.690x      1.006     0.989    147.9   102.0
+    str2000  MultiDiGraph  edges[u,v]      0.506x      1.011     0.995    316.0   159.8
+    str2000  MultiDiGraph  G[u][v]           --        0.899     0.962   1266.4   448.2  WITHHELD
+    str2000  MultiDiGraph  get_edge_data   0.679x      1.004     0.987    154.6   105.0
+
+21 of 24 rows quotable; three withheld on nulls and not reported as numbers.
+
+### The native lookup is class-independent across the WHOLE family
+
+`get_edge_data` costs 138.9-156.1 ns on all four classes - a 12% spread - at 0.62-0.72x. The
+previous run showed this for Graph vs DiGraph; it now holds for the multi classes too. Whatever
+the remaining ~0.65x deficit in the lookup is, it is NOT class-specific and NOT key-length
+driven (see the previous section).
+
+### The VIEW is the whole story, and the multigraph row view is the worst thing here
+
+Subtracting `get_edge_data` from each spelling, str3:
+
+    class           lookup   edges[u,v] view   G[u][v] view   nx's own G[u][v] view
+    Graph            146.1              49.4          113.7                   177.8
+    DiGraph          138.9             128.2          305.1                   156.5
+    MultiGraph       151.4             145.2          770.3                   318.7
+    MultiDiGraph     156.1             154.3          811.4                   345.4
+
+**`G[u][v]` on a multigraph carries 770-811 ns of view overhead on top of a ~150 ns lookup** -
+five times the cost of the lookup it wraps, and the largest single number anywhere in this
+family. At 921.7 / 967.5 ns absolute it is the most expensive read measured here.
+
+That is NOT purely an fnx problem and the comparison must say so: a multigraph `G[u][v]`
+returns a keydict view, one level deeper than the simple classes, and networkx pays for that
+too. Scaled against each library's own directed case, fnx goes 2.08x while networkx goes 1.69x
+- so fnx scales worse by **1.23x**, and that excess is the fnx-specific part. The raw 2x
+absolute gap over DiGraph is mostly intrinsic to the operation.
+
+Note also that Graph `G[u][v]` WINS at 1.052-1.077x despite 113.7 ns of view overhead, purely
+because networkx's own undirected `G[u][v]` view costs 177.8 ns - more than fnx's. A ratio can
+be a win while the absolute cost is unimpressive.
+
+### Build identity moved again on unchanged Rust
+
+This run's `lib_fnx.so` is sha 030e9292, where the previous two runs both used d8062460 - same
+Rust source, same worker, but the lib genuinely rebuilt (2m50s rather than the 2.83s cached
+no-op). Identical-source builds are not byte-identical here, which is the binary noise floor
+this repo has recorded before. One more reason cross-run absolute times are held loosely and
+each ratio is read against nulls from its own invocation.
+
 ## Reproduce
 
     rch exec -- cargo run --release -j 2 -p fnx-python --example edge_subscript_h2h
