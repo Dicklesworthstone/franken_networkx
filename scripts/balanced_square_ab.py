@@ -2381,6 +2381,97 @@ def workload_claim_label_propagation(reps: int):
     return build, ops
 
 
+def workload_claim_kosaraju(reps: int):
+    """Exact live H2H fixture for br-r37-c1-p80x1.10.
+
+    This builder preserves directed ordered-arc deduplication.  The public
+    generator order and the normalized component membership are both pinned,
+    so a naïve implementation that merely finds the same SCC sizes cannot
+    reach timing.
+    """
+    try:
+        from scripts.perf_harness import (
+            _build_ordered_arc_pair,
+            canonical_bytes,
+        )
+    except ModuleNotFoundError:
+        from perf_harness import _build_ordered_arc_pair, canonical_bytes
+
+    node_count = 800
+    edge_count = 4_000
+    seed = 11
+    expected_input_bytes = 189_843
+    expected_input_sha256 = (
+        "5d7c003cd5c7507408804b01e266bb81d7cfb2fe6546c58dfebff60f621ea89b"
+    )
+    expected_component_sizes = (1, 1, 1, 1, 1, 790, 1, 1, 1, 1, 1)
+    expected_output_bytes = 5_512
+    expected_ordered_output_sha256 = (
+        "d75eb49951307e7288928ee8174a752851f4e53c84c0739ed1e3292ddf7f6b60"
+    )
+    expected_normalized_output_sha256 = (
+        "8a2d25bce721d744f9d57470cf21a9c82890d0c5181f24b426cd35090eb73995"
+    )
+    kosaraju_nx, kosaraju_fnx = _build_ordered_arc_pair(
+        node_count,
+        edge_count,
+        seed=seed,
+        weighted=True,
+    )
+    input_nx_bytes = canonical_bytes(kosaraju_nx)
+    input_fnx_bytes = canonical_bytes(kosaraju_fnx)
+    if (
+        input_nx_bytes != input_fnx_bytes
+        or len(input_nx_bytes) != expected_input_bytes
+        or hashlib.sha256(input_nx_bytes).hexdigest() != expected_input_sha256
+    ):
+        raise RuntimeError("kosaraju claim input no longer matches its contract")
+
+    def build(module):
+        graph = kosaraju_nx if module is nx else kosaraju_fnx
+        ordered = [
+            sorted(component)
+            for component in module.kosaraju_strongly_connected_components(graph)
+        ]
+        ordered_bytes = canonical_bytes(ordered)
+        normalized_bytes = canonical_bytes(sorted(ordered))
+        if (
+            len(ordered) != len(expected_component_sizes)
+            or tuple(map(len, ordered)) != expected_component_sizes
+            or sum(map(len, ordered)) != node_count
+            or set().union(*map(set, ordered)) != set(graph)
+            or len(ordered_bytes) != expected_output_bytes
+            or hashlib.sha256(ordered_bytes).hexdigest()
+            != expected_ordered_output_sha256
+            or len(normalized_bytes) != expected_output_bytes
+            or hashlib.sha256(normalized_bytes).hexdigest()
+            != expected_normalized_output_sha256
+        ):
+            raise RuntimeError(
+                "kosaraju complete components no longer match its contract"
+            )
+        return graph, module
+
+    def ops(graph, module):
+        def kosaraju_many():
+            result = None
+            for _ in range(reps):
+                result = sorted(
+                    map(
+                        sorted,
+                        module.kosaraju_strongly_connected_components(graph),
+                    )
+                )
+            return result
+
+        return {
+            "claim/kosaraju_strongly_connected_components "
+            "n=800 m=4000 seed=11": kosaraju_many,
+        }
+
+    return build, ops
+
+
 def workload_claim_simple_digraph_bellman(reps: int):
     """Live simple-DiGraph Bellman-Ford row (br-r37-c1-mg7hw).
 
@@ -2543,6 +2634,7 @@ WORKLOADS = {
     "claim-k-corona": workload_claim_k_corona,
     "claim-bidirectional-dijkstra": workload_claim_bidirectional_dijkstra,
     "claim-label-propagation": workload_claim_label_propagation,
+    "claim-kosaraju": workload_claim_kosaraju,
     "claim-simple-digraph-bellman": workload_claim_simple_digraph_bellman,
     "claim-multidigraph-bellman": workload_claim_multidigraph_bellman,
     "claim-digraph-predecessors": workload_claim_digraph_predecessors,
