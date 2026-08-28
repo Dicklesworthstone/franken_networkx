@@ -41,6 +41,13 @@ src, dst = "n0", f"n{N // 2}"
 if OP == "collapse":
     _c = mod._multigraph_collapse_min_weight_bellman
     fn = lambda g, s, t, weight="weight": _c(g, weight)[0].number_of_edges()
+elif OP == "precollapsed":
+    # What a CACHE HIT would cost: do the collapse ONCE outside the timed loop, then
+    # call the public wrapper on the resulting simple graph. This is the honest
+    # measurement of a collapse cached against a revision token - the wrapper, the
+    # simple kernel and everything else still run per call; only the collapse does not.
+    g = mod._multigraph_collapse_min_weight_bellman(g, "weight")[0]
+    fn = mod.bellman_ford_path_length
 elif OP == "rawmg":
     # The native kernel applied DIRECTLY to the multigraph, skipping the collapse.
     # The source comment claims this native multigraph path is slow, which is why

@@ -58,10 +58,15 @@ is spending 41.5M to avoid a 44.3M path and paying 13.6M more on top.
     native kernel on the COLLAPSED simple graph   ~13.6M Ir/call
     native kernel on the MULTIGRAPH                44.3M Ir/call     3.3x
 
-That 3.3x is the thing worth fixing. Neither available route reaches parity: the best
-measured fnx route is 44.3M against networkx's 20.1M, i.e. 0.45x. Making the collapse
-cheaper, or caching it against a revision token, only ever recovers the gap between 55.1M
-and 44.3M; closing the rest needs the multigraph path inside the kernel.
+That 3.3x is the thing worth fixing IN THE KERNEL. Neither route that recomputes per call
+reaches parity: the best such fnx route is 44.3M against networkx's 20.1M, i.e. 0.45x.
+
+CORRECTION (measured after this file was first written): the sentence here originally said
+caching the collapse "only ever recovers the gap between 55.1M and 44.3M". That is WRONG -
+44.3M is a different route, not a floor. A cache hit skips the collapse entirely and costs
+15,256,361 Ir/call, which is 3.61x self and 1.315x AGAINST NETWORKX, i.e. a win. Caching is
+the strongest route, not the weakest. See NEGATIVE_EVIDENCE_cc.md for the staleness blocker
+that the obvious implementation of it would miss.
 
 ## Not shipped, and why
 

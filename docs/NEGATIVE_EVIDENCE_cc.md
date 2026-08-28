@@ -25462,9 +25462,33 @@ multigraph branch may still land provided those rows stay green. The divergence 
 is the proof that guard fails on the implementation it forbids - a guard never seen to fail
 is not a guard.
 
-WHAT REMAINS UNFIXED. The loss is real at 0.364x. The cheap reroute is now closed, and with
-it the only route needing no build. Left are a collapse cached against the graph's revision
-token, which can recover at most 55.1M -> 44.3M since the raw multigraph path itself costs
-44.3M, or the root defect: the native kernel costs about 13.6M Ir/call on the collapsed
-simple graph against 44.3M on the multigraph, 3.3x, which needs a Rust change and would
-have to learn the validation the collapse performs.
+WHAT REMAINS UNFIXED. The loss is real at 0.364x.
+
+CORRECTION, measured 2026-08-27 after this row was first written: I stated here that caching
+the collapse "can recover at most 55.1M -> 44.3M since the raw multigraph path itself costs
+44.3M". THAT WAS WRONG, and wrong in the direction that buries the best route. The 44.3M is
+a DIFFERENT route, not a floor. A cache hit skips the collapse entirely, so it costs the
+wrapper plus the simple kernel. Measured by performing the collapse once outside the timed
+loop and calling the public wrapper on the result:
+
+    cache-hit equivalent (pre-collapsed)   15,256,361 Ir/call
+    current (collapse every call)          55,129,849      3.61x self
+    networkx                               20,060,386      1.315x - a WIN, not a loss
+
+So caching is the BEST route and the only one needing no Rust build, not the lesser option.
+
+AND IT HAS A BLOCKER THE OBVIOUS IMPLEMENTATION WOULD MISS. The graph's existing revision
+tokens do NOT observe an in-place weight write. Demonstrated: on a MultiDiGraph, both
+nodes_seq and edges_seq are unchanged across g[u][v][k]["weight"] = 99.0, while the correct
+answer moves from 2.0 to 101.0. A collapse cached on (nodes_seq, edges_seq) therefore serves
+a STALE WRONG LENGTH after an ordinary attribute assignment - the br-r37-c1-txkrn class,
+where a row cache outlived the map it mirrored and produced five wrong-answer
+manifestations. Any cache here needs a token that bumps on attribute writes, or the store's
+edge-dirty tracking, and the caching commit must fail on this exact case before the fix.
+
+The other route is the root defect: the native kernel costs about 13.6M Ir/call on the
+collapsed simple graph against 44.3M on the multigraph, 3.3x. Its 44.3M is roughly 43%
+allocator (_int_malloc 17.8%, plus free / malloc_consolidate / _int_free_chunk / malloc),
+with a DiGraph::apply_row_orders at 6.3% - it materialises an intermediate structure per
+call. That needs a Rust change and would also have to learn the NaN/inf/non-numeric
+validation the collapse performs.
