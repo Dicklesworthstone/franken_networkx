@@ -32,6 +32,7 @@ import sys
 from pathlib import Path
 
 import pytest
+import networkx as nx
 
 HARNESS = Path(__file__).resolve().parents[2] / "scripts" / "balanced_square_ab.py"
 
@@ -200,3 +201,16 @@ def test_busy_smt_sibling_rejects_an_otherwise_admissible_square(monkeypatch, ha
     assert row["null_fnx"] == pytest.approx(1.0)
     assert row["sibling_busy_pct"] == pytest.approx(100.0)
     assert row["verdict"] == "SIBLING-CONTENDED"
+
+
+def test_graph_canonicalization_rejects_equal_node_sets_with_different_edges(harness):
+    """A node-only projection would accept a wrong complete graph result."""
+    left = nx.Graph()
+    right = nx.Graph()
+    left.add_nodes_from(("a", "b", "c"))
+    right.add_nodes_from(("a", "b", "c"))
+    left.add_edge("a", "b", weight=1)
+    right.add_edge("a", "c", weight=1)
+
+    assert tuple(left) == tuple(right) == ("a", "b", "c")
+    assert harness.canonical(left) != harness.canonical(right)

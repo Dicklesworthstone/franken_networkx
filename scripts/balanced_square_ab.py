@@ -2143,6 +2143,69 @@ def workload_claim_read_gml(reps: int):
     return build, ops
 
 
+def workload_claim_k_corona(reps: int):
+    """Live NetworkX/FNX complete-result k_corona row (br-r37-c1-p80x1.4)."""
+    try:
+        from scripts.perf_harness import _build_pair, canonical_bytes
+    except ModuleNotFoundError:
+        from perf_harness import _build_pair, canonical_bytes
+
+    node_count = 1_200
+    edge_count = 6_000
+    seed = 11
+    k = 3
+    expected_input_bytes = 194_277
+    expected_input_sha256 = (
+        "199d564350ec6f70885e8f8236fad28d6620b44e3e7917a470f6fba73024e653"
+    )
+    expected_output_nodes = (
+        "530", "24", "943", "357", "667", "454", "313", "944", "1059",
+        "1182", "104", "330", "1082",
+    )
+    expected_output_bytes = 292
+    expected_output_sha256 = (
+        "1be0290d66f0db36835be1959777317a207acedba5567ace56f385e129d36819"
+    )
+    corona_nx, corona_fnx = _build_pair(
+        node_count,
+        edge_count,
+        seed=seed,
+        weighted=False,
+    )
+    input_nx_bytes = canonical_bytes(corona_nx)
+    input_fnx_bytes = canonical_bytes(corona_fnx)
+    if (
+        input_nx_bytes != input_fnx_bytes
+        or len(input_nx_bytes) != expected_input_bytes
+        or hashlib.sha256(input_nx_bytes).hexdigest() != expected_input_sha256
+    ):
+        raise RuntimeError("k_corona claim input no longer matches its contract")
+
+    def build(module):
+        graph = corona_nx if module is nx else corona_fnx
+        output = module.k_corona(graph, k)
+        output_bytes = canonical_bytes(output)
+        if (
+            tuple(output) != expected_output_nodes
+            or output.number_of_edges() != 0
+            or len(output_bytes) != expected_output_bytes
+            or hashlib.sha256(output_bytes).hexdigest() != expected_output_sha256
+        ):
+            raise RuntimeError("k_corona complete output no longer matches its contract")
+        return graph, module
+
+    def ops(graph, module):
+        def corona_many():
+            result = None
+            for _ in range(reps):
+                result = module.k_corona(graph, k)
+            return result
+
+        return {"claim/k_corona n=1200 m=6000 seed=11 k=3": corona_many}
+
+    return build, ops
+
+
 WORKLOADS = {
     "view-reads": workload_view_reads,
     "undirected-nbunch": workload_undirected_nbunch,
@@ -2171,6 +2234,7 @@ WORKLOADS = {
     "incumbent-fixtures": workload_incumbent_fixtures,
     "incumbent-fixtures-2": workload_incumbent_fixtures_2,
     "claim-read-gml": workload_claim_read_gml,
+    "claim-k-corona": workload_claim_k_corona,
 }
 
 
@@ -2196,6 +2260,29 @@ def canonical(value):
     # row BEFORE timing, so its cost is not in any measurement.
     if hasattr(value, "tolist") and not isinstance(value, (bytes, bytearray)):
         return canonical(value.tolist())
+    if hasattr(value, "nodes") and hasattr(value, "edges"):
+        nodes = [
+            (canonical(node), canonical(dict(attrs)))
+            for node, attrs in value.nodes(data=True)
+        ]
+        if value.is_multigraph():
+            edges = [
+                (canonical(source), canonical(target), key, canonical(dict(attrs)))
+                for source, target, key, attrs in value.edges(keys=True, data=True)
+            ]
+        else:
+            edges = [
+                (canonical(source), canonical(target), canonical(dict(attrs)))
+                for source, target, attrs in value.edges(data=True)
+            ]
+        return (
+            "<graph>",
+            bool(value.is_directed()),
+            bool(value.is_multigraph()),
+            canonical(dict(value.graph)),
+            nodes,
+            edges,
+        )
     if isinstance(value, dict):
         return sorted((str(k), canonical(v)) for k, v in value.items())
     if isinstance(value, (list, tuple)):
