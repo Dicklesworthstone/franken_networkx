@@ -111,28 +111,42 @@ NX_BUILD = f"{nx.__version__} @ {nx.__file__}"
 FNX_EXT = getattr(_sys, "_fnx_ext", "unavailable")
 
 N = 1000
+N_LONG = 300      # 2000-char keys: fewer nodes so the fixture build stays bounded
 
-def build(mod, cls, keytype):
-    """Circulant: every node has out-degree 3, so every probe hits an EXISTING edge and no arm
-    is measuring an exception path (an absent key would time nx raising KeyError, not fnx
-    being slow - see the absent-key trap on has_node)."""
-    g = getattr(mod, cls)()
-    names = list(range(N)) if keytype == "int" else [f"n{i}" for i in range(N)]
-    g.add_nodes_from(names)
+def build_all(cls, keytype):
+    """Build ALL FOUR fixtures INTERLEAVED, edge by edge.
+
+    Circulant: every node has out-degree 3, so every probe hits an EXISTING edge and no arm
+    measures an exception path (an absent key would time nx raising KeyError, not fnx being
+    slow - the absent-key trap from has_node).
+
+    THE INTERLEAVING IS THE POINT AT LONG KEYS. Building the four graphs one after another
+    made the previous run in this series read an fnx-arm A/A null of 1.174-1.190 at
+    2000-character keys - two content-identical fixtures differing ~18% purely by
+    construction order, which withheld every long-key row. Adding each edge to all four
+    graphs in turn spreads any allocator or cache drift across the arms instead of
+    concentrating it in whichever was built last.
+    """
+    n = N if keytype == "str3" else N_LONG
+    if keytype == "str3":
+        names = [f"{i:03d}" for i in range(n)]
+    else:
+        names = [f"{i:04d}".ljust(2000, "x") for i in range(n)]
+    graphs = [getattr(m, cls)() for m in (fnx, nx, fnx, nx)]
+    for g in graphs:
+        g.add_nodes_from(names)
     pairs = []
-    for i in range(N):
+    for i in range(n):
         for d in (1, 2, 3):
-            u, v = names[i], names[(i + d) % N]
-            g.add_edge(u, v, weight=1.0)
+            u, v = names[i], names[(i + d) % n]
+            for g in graphs:
+                g.add_edge(u, v, weight=1.0)
             if i % 5 == 0 and d == 1:
                 pairs.append((u, v))
-    return g, pairs
+    return graphs, pairs
 
 def run_cell(cls, spelling, keytype, rounds=15):
-    fg, pairs = build(fnx, cls, keytype)
-    ng, _ = build(nx, cls, keytype)
-    fg2, _ = build(fnx, cls, keytype)    # fnx-arm A/A null fixture
-    ng2, _ = build(nx, cls, keytype)     # nx-arm A/A null fixture
+    (fg, ng, fg2, ng2), pairs = build_all(cls, keytype)
 
     def probe_edges(g):
         ev = g.edges
@@ -178,7 +192,7 @@ def run_cell(cls, spelling, keytype, rounds=15):
 
 def main():
     rows = []
-    for keytype in ("str", "int"):
+    for keytype in ("str3", "str2000"):
         for cls in ("Graph", "DiGraph"):
             for spelling in ("edges[u,v]", "G[u][v]", "get_edge_data"):
                 ratio, null_f, null_n, fns, nns = run_cell(cls, spelling, keytype)

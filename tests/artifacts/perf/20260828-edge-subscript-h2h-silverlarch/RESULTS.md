@@ -211,6 +211,81 @@ An 11% ratio move from BUILD PROVENANCE ALONE - abi3 stable-ABI against a plain 
 the known binary noise floor. Neither is "the" number, and cross-run comparisons in this family
 must hold the build constant.
 
+## THIRD RUN: the LONG-KEY catastrophe does not reproduce, and the bead's mechanism is DEAD
+
+The `br-r37-c1-0k6zl` note in digraph.rs records `G.adj[u][v]` on a DiGraph at **0.0804x** at
+2000-character node keys - "the worst cell this pane measures" - blaming a Python `AtlasView`
+that "re-canonicalises BOTH endpoints on every access - O(key length) twice per lookup". That
+is also the bead's own mechanism. This run adds a 2000-character key axis to test it.
+
+Fixtures are now built INTERLEAVED, edge by edge across all four graphs, because building them
+one after another is what produced the 1.174-1.190 fnx-arm nulls that withheld every long-key
+row in the predecessors run.
+
+    bench_elf_sha256  eb949d31988a578b60b4df09025b24f28281ff34c28c89dbd62d5f8d3b5b3fd6
+    fnx_extension     .rch-target-hz2-pool-.../release/lib_fnx.so
+                      sha256=d8062460576fc98b210ba6111e06c84ce4d404e985f80d4b015bce084cf153b1
+    incumbent         networkx 3.6.1, worker hz2, bench cpu 15
+
+    key      class    spelling        nx/fnx   null fnx   null nx   fnx ns   nx ns
+    str3     Graph    edges[u,v]        --        1.006     0.894    212.9   169.4  WITHHELD
+    str3     Graph    G[u][v]           --        0.896     0.950    304.5   295.5  WITHHELD
+    str3     Graph    get_edge_data     --        1.048     0.877    149.5   116.6  WITHHELD
+    str3     DiGraph  edges[u,v]      0.508x      1.004     0.989    261.4   132.8
+    str3     DiGraph  G[u][v]         0.560x      0.952     0.968    496.0   277.9
+    str3     DiGraph  get_edge_data   0.722x      1.015     0.970    141.6   102.2
+    str2000  Graph    edges[u,v]      0.751x      0.994     0.932    205.5   154.2
+    str2000  Graph    G[u][v]         1.065x      1.002     0.916    266.7   284.1
+    str2000  Graph    get_edge_data   0.719x      1.034     0.940    147.2   105.8
+    str2000  DiGraph  edges[u,v]      0.450x      0.984     0.916    328.0   147.7
+    str2000  DiGraph  G[u][v]         0.574x      0.980     0.995    452.0   259.4
+    str2000  DiGraph  get_edge_data   0.717x      0.995     1.000    170.0   121.8
+
+Nine rows quotable. THREE WITHHELD, all str3/Graph, on nulls of 0.877-0.896. The interleaved
+build DID fix the long-key nulls it was written for - every str2000 fnx-arm null is
+0.980-1.034, against 1.174-1.190 for sequentially built long-key fixtures - but it did not make
+the short-key Graph rows quotable this time, and those three numbers are not reported.
+
+### 0.0804x DOES NOT REPRODUCE. It is 0.574x.
+
+    G.adj[u][v], DiGraph, 2000-char keys:   0k6zl recorded 0.0804x    measured here 0.574x
+
+Seven times better. Reading the note again, that is the expected answer and my earlier reading
+of it was wrong: the comment sits on `edge_py_attrs_by_index`, the lookaside 0k6zl ADDED, and
+0.0804x is the BEFORE state it was written to fix. The fix works. It is not a live defect and
+the next agent should not go hunting for it.
+
+### THE REHASH IS NOT A DIFFERENTIAL COST ON HEAD
+
+    spelling         ratio@3   ratio@2000   fnx growth   nx growth
+    edges[u,v]         0.508        0.450         +25%         +11%
+    G[u][v]            0.560        0.574          -9%          -7%
+    get_edge_data      0.722        0.716         +20%         +19%
+
+Across a **667x span in key length**, the native lookup's ratio moves 0.722 -> 0.716, i.e. not
+at all, and fnx grows +20% against networkx's +19% - the SAME. `G[u][v]` is likewise flat. A
+per-call SipHash of the key bytes would grow fnx and not networkx; that is not what the
+incumbent-controlled comparison shows.
+
+So the bead's stated mechanism - "fnx canonicalises the key and SipHashes those bytes every
+call, where CPython pays neither" - is no longer a differential cost on HEAD, and the
+object-keyed lookaside it proposes targets a cost that ptiz2 and 0k6zl have already removed.
+THE BEAD'S PROPOSED LEVER SHOULD NOT BE BUILT. Only `edges[u,v]` degrades with key length at
+all (+25% against +11%), and that is the PYTHON view body, not the lookup underneath it.
+
+CONFOUND, stated because it limits the above: the two key regimes do not use the same graph
+size - N=1000 for str3 against N=300 for str2000, so the long-key fixture stays buildable.
+Within a regime both arms share the fixture, so each RATIO is sound; the cross-regime GROWTH
+columns carry whatever differential response the two libraries have to node count. The growth
+claim would be firmer at matched N.
+
+### Where that leaves br-r37-c1-tjp0g
+
+One lever survives, and it is the one measured in the previous section: the directed and multi
+edge views run a PYTHON `__getitem__` costing ~127 ns where the undirected native slot costs
+~46 ns. Everything else the bead proposed is either already landed or not a differential cost.
+The ceiling stands at ~0.70x for that fix and ~0.93x for a hypothetical free view.
+
 ## Reproduce
 
     rch exec -- cargo run --release -j 2 -p fnx-python --example edge_subscript_h2h
