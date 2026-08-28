@@ -1267,9 +1267,7 @@ impl PyMultiDiGraph {
                                 .edge_attrs(&canonical, successor, key)
                                 .and_then(|attrs| attrs.get(weight))
                             {
-                                Some(stored) => {
-                                    crate::cgse_value_to_py(py, stored)?.into_bound(py)
-                                }
+                                Some(stored) => crate::cgse_value_to_py(py, stored)?.into_bound(py),
                                 None => one.clone(),
                             },
                         };
@@ -1300,9 +1298,7 @@ impl PyMultiDiGraph {
                                 .edge_attrs(predecessor, &canonical, key)
                                 .and_then(|attrs| attrs.get(weight))
                             {
-                                Some(stored) => {
-                                    crate::cgse_value_to_py(py, stored)?.into_bound(py)
-                                }
+                                Some(stored) => crate::cgse_value_to_py(py, stored)?.into_bound(py),
                                 None => one.clone(),
                             },
                         };
