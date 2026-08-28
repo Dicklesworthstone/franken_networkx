@@ -2252,6 +2252,51 @@ def workload_claim_simple_digraph_bellman(reps: int):
     return build, ops
 
 
+def workload_claim_multidigraph_bellman(reps: int):
+    """Public MultiDiGraph Bellman-Ford path length (br-r37-c1-mg7hw).
+
+    This is deliberately the public route, including its min-weight collapse
+    and validation contract.  The companion simple-DiGraph row only isolates
+    the kernel; substituting it here would hide the multigraph regression this
+    bead tracks.
+    """
+    node_count = 800
+    source = "n0"
+    target = f"n{node_count // 2}"
+    seed = 7
+
+    def build(module):
+        rng = random.Random(seed)
+        graph = module.MultiDiGraph()
+        for i in range(node_count):
+            for delta in (1, 2, 3):
+                graph.add_edge(
+                    f"n{i}",
+                    f"n{(i + delta) % node_count}",
+                    weight=float(rng.randint(1, 9)),
+                )
+        if graph.number_of_nodes() != node_count or graph.number_of_edges() != 2_400:
+            raise RuntimeError("MultiDiGraph Bellman-Ford fixture changed")
+        return graph, module
+
+    def ops(graph, module):
+        def path_length_many():
+            result = None
+            for _ in range(reps):
+                result = module.bellman_ford_path_length(
+                    graph, source, target, weight="weight"
+                )
+            return result
+
+        return {
+            "claim/MultiDiGraph bellman_ford_path_length n=800 m=2400 seed=7": (
+                path_length_many
+            ),
+        }
+
+    return build, ops
+
+
 def workload_claim_digraph_predecessors(reps: int):
     """Consumed DiGraph predecessor iterators (br-r37-c1-predrow-8vytj).
 
@@ -2322,6 +2367,7 @@ WORKLOADS = {
     "claim-read-gml": workload_claim_read_gml,
     "claim-k-corona": workload_claim_k_corona,
     "claim-simple-digraph-bellman": workload_claim_simple_digraph_bellman,
+    "claim-multidigraph-bellman": workload_claim_multidigraph_bellman,
     "claim-digraph-predecessors": workload_claim_digraph_predecessors,
 }
 
