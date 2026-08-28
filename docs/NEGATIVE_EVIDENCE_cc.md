@@ -25626,3 +25626,80 @@ builds.
 STILL OPEN under br-r37-c1-oj681: items 1 and 2 (the `add_weighted_edges_from` collapse
 rebuild and the MultiDiGraph dijkstra delegation) are NOT covered by this row. Both need the
 rejected variant restored as a code arm before they can be measured admissibly.
+
+## MultiDiGraph dijkstra: delegating to networkx instead of collapsing — REJECTED, 0.1320x (br-r37-c1-oj681, br-r37-c1-0kvxh)
+
+comparison_class=SELF
+decision_gate=median_ci
+cv_role=report_only
+
+A SELF-comparison of two implementations of our own routing; MAINTENANCE evidence, no
+vs-incumbent win claimed. Filed under br-r37-c1-oj681 as unadmissible because the original
+timing carried no control.
+
+THE LEVER: answer `single_source_dijkstra` on a MultiDiGraph by delegating to networkx's own
+implementation, instead of the shipped native/collapse path. The rejected variant needed no
+code restoration — `_call_networkx_for_parity`, the helper the shipped code already uses for
+cases it cannot handle, IS that variant. Both arms were verified to return EQUAL results on
+both fixtures before timing (`arms agree true`).
+
+| lever | ship/alt | ship ms | alt ms |
+|---|---|---|---|
+| shipped path vs forced networkx delegation | **0.1320x** | 0.6950 | 5.2657 |
+
+A/A null control, shipped arm paired against itself in the same invocation: 1.033x.
+
+A/A null control, delegation arm paired against itself in the same invocation: 0.993x.
+
+VERDICT: REJECTED, and far more emphatically than when filed. The bead recorded 6.926 ms
+against 5.461 ms (delegation 1.27x worse); this measures 5.2657 ms against 0.6950 ms —
+delegation is **7.6x slower**. The gap widened because the shipped path gained native
+MultiDiGraph kernels after the original rejection, so the collapse it was being compared
+against is no longer what runs.
+
+NULL HONESTY: the shipped arm's null is 1.033x, i.e. 3.3% off unity — looser than the 0.02
+convention some rows in this ledger use. It is reported rather than smoothed. The effect here
+is 7.6x, more than two orders of magnitude larger than the null's deviation, so the verdict
+does not rest on the tight part of the measurement.
+
+PROVENANCE: worker hz2, bench cpu 15, `lib_fnx.so`
+sha256=030e9292d2d8cea59a1fefd2953fd19ef51f52c601cd6e7ee7020564e5ec92bf, bench ELF
+sha256=3f00c5e55da0bf272456b34facb3299e071df9b1c5ded6bd1f2bdb815904cdc0, both arms in one
+process on one pinned CPU, 15 rounds ABBA, median. Reproduce:
+`rch exec -- cargo run --release -j 2 -p fnx-python --example oj681_rejects_h2h`.
+
+## Min-weight collapse rebuild: `add_weighted_edges_from` instead of `add_edges_from` — REJECTED, 0.9503x (br-r37-c1-oj681, br-r37-c1-0kvxh)
+
+comparison_class=SELF
+decision_gate=median_ci
+cv_role=report_only
+
+A SELF-comparison; MAINTENANCE evidence, no vs-incumbent win claimed.
+
+THE LEVER: in `_multigraph_collapse_min_weight`, replace the shipped
+`simple.add_edges_from((u, v, {weight: w}) for (u, v), w in best.items())` with
+`simple.add_weighted_edges_from(((u, v, w) ...), weight=weight)`. Both spellings are timed
+against the SAME `best` dict, derived from a real collapse pass over a real MultiDiGraph rather
+than invented, building a fresh target graph on every call. Both were verified to produce
+identical edge sets with identical attributes before timing (`arms agree true`).
+
+| lever | ship/alt | ship ms | alt ms |
+|---|---|---|---|
+| `add_edges_from` vs `add_weighted_edges_from` | **0.9503x** | 0.6901 | 0.7262 |
+
+A/A null control, shipped arm paired against itself in the same invocation: 0.978x.
+
+A/A null control, rejected-variant arm paired against itself in the same invocation: 0.984x.
+
+VERDICT: REJECTED. `add_weighted_edges_from` costs 5.0% more, consistent in direction and rough
+magnitude with the 2.9% (4.264 ms against 4.144 ms) recorded when the lever was first tried.
+
+A PREDICTION THAT DID NOT COME TRUE, recorded because it was made before the run: this is a
+BUILD/MUTATION arm, whose allocator state differs on every repeat, so its A/A null was expected
+to be the fragile one and the row was expected to be withheld. Both nulls landed (0.978x and
+0.984x) and the row stands. The caution was wrong here; it remains the right caution for
+mutation arms generally.
+
+CAVEAT ON MARGIN: the effect is 5.0% against nulls deviating 1.6-2.2%, so this row rests on a
+ratio only about two to three times its own control spread — far weaker footing than the
+dijkstra row above, and it should not be cited as a precise figure.
