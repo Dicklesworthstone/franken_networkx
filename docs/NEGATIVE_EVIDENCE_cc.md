@@ -25553,3 +25553,76 @@ allocator (_int_malloc 17.8%, plus free / malloc_consolidate / _int_free_chunk /
 with a DiGraph::apply_row_orders at 6.3% - it materialises an intermediate structure per
 call. That needs a Rust change and would also have to learn the NaN/inf/non-numeric
 validation the collapse performs.
+
+## `_has_networkx_private_storage` empty-instance-dict short-circuit — REJECTED, 0.9210x on a realistically-used graph (br-r37-c1-oj681, br-r37-c1-bnv3h)
+
+comparison_class=SELF
+decision_gate=median_ci
+cv_role=report_only
+
+A SELF-comparison of two implementations of our own helper, which is what a REJECT verdict
+about our own lever requires; it is MAINTENANCE evidence and no vs-incumbent win is claimed
+here. This row exists because br-r37-c1-oj681 recorded that the original rejection was timed
+with plain repeat-min and no control, so `scripts/perf_ledger_preflight.py` refused the append
+as VOID-NONULL. The gate was right; the fix is a re-measurement, not a rewording.
+
+THE LEVER: add `if not storage: return False` ahead of the four `in storage` membership tests
+in `_has_networkx_private_storage`.
+
+COUNTED MECHANISM, deterministic and load-independent — the short-circuit predicate's hit rate:
+
+| graph regime | `len(self.__dict__)` | `not storage` fires | first keys present |
+|---|---|---|---|
+| fresh, accessors never touched | 0 | yes | (none) |
+| realistically used | 7 | **no** | `_fnx_descriptor_cached_views`, `_fnx_view_adj`, `_fnx_view_edges`, `_fnx_view_nodes`, `adj`, `edges` |
+
+A graph that has touched `.adj`, `.edges`, `.nodes` or `.neighbors()` carries accessor-cache
+entries in its instance dict, so the guard's predicate is FALSE on every call a real caller
+makes. The branch never fires and only adds a test — no work is removed, which is the counted
+basis for the rejection independent of any timing.
+
+A/B WITH A SAME-INVOCATION A/A NULL ON EACH CANDIDATE ARM, both arms in one process on one
+pinned worker CPU, 21 rounds x 20,000 calls, median; ratio > 1 means the short-circuit is
+faster:
+
+| regime | cur/sc | A/A null, current arm | A/A null, short-circuit arm | cur ns | sc ns |
+|---|---|---|---|---|---|
+| fresh | 1.9498x | 1.003 | 1.005 | 122.4 | 62.8 |
+| realistically used | **0.9210x** | 1.012 | 0.999 | 120.9 | 131.3 |
+
+Each null is a separately built fixture of the same graph timed through the identical call
+protocol, recorded in this ledger's usual ratio notation:
+
+A/A null control, fresh regime, current arm paired against itself in the same invocation: 1.003x, inside the 0.02 bound.
+
+A/A null control, fresh regime, short-circuit arm paired against itself in the same invocation: 1.005x, inside the 0.02 bound.
+
+A/A null control, used regime, current arm paired against itself in the same invocation: 1.012x, inside the 0.02 bound.
+
+A/A null control, used regime, short-circuit arm paired against itself in the same invocation: 0.999x, inside the 0.02 bound.
+
+All four landed in band, so both rows are quotable.
+
+VERDICT: REJECTED. On the only regime that exists in practice the short-circuit costs 10.4 ns
+per call, a 0.9210x regression. The 1.9498x "win" on a fresh graph is the trap the shipped
+source comment already names, and it is reproduced here so the two regimes can be compared
+side by side rather than argued about.
+
+PROVENANCE: worker hz2, bench cpu 15, `lib_fnx.so`
+sha256=030e9292d2d8cea59a1fefd2953fd19ef51f52c601cd6e7ee7020564e5ec92bf built by the same
+invocation, bench ELF sha256=dcb86fd1659b725e52124836a02920e40cb04f5444cbb70e1c8f324f081fc52c.
+The harness asserts its two arms return the same answer as the SHIPPED
+`_has_networkx_private_storage` on every probe graph, including one carrying a real `_adj`
+override, so this measures the shipped body and not a divergent copy
+(`harness_matches_shipped_function true`). Reproduce:
+`rch exec -- cargo run --release -j 2 -p fnx-python --example private_storage_shortcircuit_h2h`.
+
+CORROBORATION, not agreement to three digits: the shipped source comment records 97.7 ns
+against 91.9 ns (a 6.3% regression) and "a 2.16x win" on an untouched graph, measured on a
+different host and build. This run reads 131.3 against 120.9 (8.6%) and 1.9498x. Same
+direction, same mechanism, magnitudes within the spread this repo sees across hosts and
+builds.
+
+STILL OPEN under br-r37-c1-oj681: items 1 and 2 (the `add_weighted_edges_from` collapse
+rebuild and the MultiDiGraph dijkstra delegation) are NOT covered by this row. Both need the
+rejected variant restored as a code arm before they can be measured admissibly.
