@@ -1,0 +1,49 @@
+{
+  "bead": "br-r37-c1-p80x1.4",
+  "workload": "claim/k_corona n=1200 m=6000 seed=11 k=3",
+  "command": "taskset -c 25 env PYTHONHASHSEED=0 PYTHONPATH=python OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 EXPECT_ELF_SHA=cd17e9fcc7e470b0120a59f2eb5106fecfedbb8f3a34c979255ed8c06428a935 .venv/bin/python scripts/balanced_square_ab.py --workload claim-k-corona --rounds 41 --warmup 8 --reps 5 --calls-per-slot 1",
+  "timestamp": "2026-08-27T22:42:29-04:00",
+  "incumbent": {
+    "name": "networkx",
+    "version": "3.6.1",
+    "same_process": true
+  },
+  "candidate": {
+    "elf": "python/franken_networkx/_fnx.abi3.so",
+    "elf_sha256": "cd17e9fcc7e470b0120a59f2eb5106fecfedbb8f3a34c979255ed8c06428a935",
+    "build_profile": "release"
+  },
+  "harness": {
+    "path": "scripts/balanced_square_ab.py",
+    "sha256": "8cea0fde5f449a56bce80eb598cd4a36842c486290b9b989bb6d45d00eb38a5e",
+    "rounds": 41,
+    "warmup": 8,
+    "reps": 5,
+    "calls_per_slot": 1,
+    "square": "ABBAABBA"
+  },
+  "parity": {
+    "fixture_input_sha256": "199d564350ec6f70885e8f8236fad28d6620b44e3e7917a470f6fba73024e653",
+    "fixture_output_sha256": "1be0290d66f0db36835be1959777317a207acedba5567ace56f385e129d36819",
+    "passed_before_timing": true
+  },
+  "screening_ratio_t_networkx_over_t_fnx": 9.3854,
+  "screening_ci_95": [9.1890, 9.5095],
+  "aa_nulls": {
+    "networkx": 0.9953,
+    "fnx": 0.9929,
+    "bound": 0.02,
+    "passed": true
+  },
+  "host": {
+    "name": "thinkstation1",
+    "affinity_cpu": 25,
+    "smt_sibling_cpu": 57,
+    "smt_sibling_utilization_percent": 60,
+    "loadavg_start": [30.99755859375, 27.861328125, 29.69775390625],
+    "loadavg_end": [32.119140625, 28.14599609375, 29.7802734375]
+  },
+  "git_head": "b4ea2145e936c330280b5db63a8c48a00b41ab59",
+  "verdict": "NO_ADMISSIBLE_RESULT",
+  "rejection": "SIBLING-CONTENDED: CPU 25's SMT sibling reached 60% utilization. The balanced-square harness admitted 0/1 rows and explicitly forbids quoting the screening ratio. This local screen does not satisfy the bead's dedicated non-co-tenanted full-harness prerequisite."
+}
