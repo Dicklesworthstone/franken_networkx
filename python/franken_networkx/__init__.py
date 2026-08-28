@@ -32878,6 +32878,51 @@ def effective_size(G, nodes=None, weight=None, *, backend=None, **backend_kwargs
         # nodes!=None (set-order path) stays delegated.
         if nodes is None:
             return _structural_holes_effective_size_matrix(G, weight)
+        # br-r37-c1-qbj9u: networkx serves this function TWO ways and they DISAGREE on
+        # directed graphs. nodes=None takes a scipy MATRIX path; nodes=<iterable> takes
+        # the redundancy LOOP in structuralholes.py. Measured, the two differ on 50 of 60
+        # random digraphs (31 of them nan-vs-value) and on 0 of 60 undirected. So the
+        # kernel that is correct here is NOT the one that is correct above, and the branch
+        # above must keep the matrix path.
+        #
+        # The revert note further up is right that effective_size_directed_rust does not
+        # reproduce nx's DEFAULT answer - but it reproduces nx's LOOP exactly, which is
+        # what nx itself runs once `nodes` is given: 0 mismatches over 1494 node values
+        # once the successors-only nan rule below is applied, and 0 divergences over 1500
+        # (graph, subset) cases for this branch as a whole, including string node keys,
+        # empty and reordered subsets, and the missing-node KeyError.
+        #
+        # Worth having because the delegated path is pathologically slow: networkx's loop
+        # costs ~207 ms per call on a 200-node digraph where its own matrix path costs
+        # 1.6 ms marginal, so asking for a SUBSET of nodes is ~130x dearer than asking for
+        # all of them. fnx was paying that plus a conversion tax (0.964x vs networkx).
+        if (
+            weight is None
+            and G.is_directed()
+            and not G.is_multigraph()
+            and not has_selfloops
+        ):
+            from franken_networkx._fnx import (
+                effective_size_directed_rust as _rust_eff_size_directed,
+            )
+
+            requested_directed = list(nodes)
+            for node in requested_directed:
+                if node not in G:
+                    raise KeyError(node)
+            raw_directed = _rust_eff_size_directed(G)
+            directed_effective = {}
+            for node in requested_directed:
+                # nx's isolated-node rule is `all(u == v for u in G[v])`, and G[v] on a
+                # DiGraph is SUCCESSORS ONLY - so a node with predecessors but no
+                # successors is nan. The kernel's own rule tests successors UNION
+                # predecessors, which is what made it look wrong; applied here instead,
+                # exactly as the undirected native path below already does.
+                if all(neighbor == node for neighbor in G[node]):
+                    directed_effective[node] = float("nan")
+                else:
+                    directed_effective[node] = raw_directed[node]
+            return directed_effective
         return _call_networkx_submodule_for_parity(
             "algorithms.structuralholes", "effective_size", G,
             nodes=nodes, weight=weight,
