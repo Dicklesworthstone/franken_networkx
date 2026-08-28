@@ -28,7 +28,9 @@ else:
     import franken_networkx as mod
 
 rng = random.Random(7)
-g = mod.MultiDiGraph()
+# FNX_CLS lets the SAME fixture be built as a simple DiGraph, so the multigraph
+# projection tax can be separated from the algorithm itself.
+g = getattr(mod, os.environ.get("FNX_CLS", "MultiDiGraph"))()
 for i in range(N):
     for d in (1, 2, 3):
         g.add_edge(f"n{i}", f"n{(i + d) % N}", weight=float(rng.randint(1, 9)))

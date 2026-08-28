@@ -35,9 +35,24 @@ Isolating exactly that one step:
     full call                                   55,129,849
     networkx's ENTIRE call                      20,060,386
 
-fnx's own algorithm costs 13.6M, which is 1.47x FASTER than networkx's whole call. The
-per-call collapse is what turns that win into a 0.364x loss. The collapse alone costs
-2.07x networkx's entire operation.
+fnx's own algorithm costs 13.6M against networkx's whole multigraph call at 20.1M, and the
+per-call collapse is what turns that into a 0.364x loss. The collapse alone costs 2.07x
+networkx's entire operation.
+
+CORRECTION (measured after this file was first written): that comparison was originally
+written as "fnx's own algorithm is 1.47x FASTER than networkx", which is APPLES TO ORANGES.
+It compares fnx on a SIMPLE graph against networkx on a MULTIGRAPH, and networkx pays its
+own multigraph tax. On the same simple DiGraph, both libraries measured directly:
+
+    fnx  15,025,571 Ir/call     nx  13,277,939 Ir/call     0.884x - fnx LOSES
+
+So fnx's Bellman-Ford kernel is not faster than networkx's; it is about 12% behind on equal
+footing. What is true, and is the number that matters for the public API since both are
+handed a MultiDiGraph, is that fnx avoids nx's multigraph tax by collapsing first: nx pays
+1.51x for a multigraph (13.3M -> 20.1M) where fnx pays 3.67x (15.0M -> 55.1M). Removing the
+collapse entirely would land fnx at about 1.34x against networkx, which agrees with the
+15,256,361 Ir/call cache-hit measurement (1.315x). The kernel needs work too - it is not
+merely a good kernel behind a bad collapse.
 
 ## The optimization is backwards
 
