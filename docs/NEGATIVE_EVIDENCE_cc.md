@@ -25486,6 +25486,29 @@ where a row cache outlived the map it mirrored and produced five wrong-answer
 manifestations. Any cache here needs a token that bumps on attribute writes, or the store's
 edge-dirty tracking, and the caching commit must fail on this exact case before the fix.
 
+AND THE CACHE ALSO NEEDS RUST, which refines the recommendation above rather than changing
+the numbers. A MultiDiGraph exposes exactly two revision signals to Python, nodes_seq and
+edges_seq, and neither moves on an in-place attribute write - so there is NO Python-visible
+signal a collapse cache could key on safely. The remaining Python-only options are a
+per-call O(|E|) weight checksum, which costs what the collapse costs, or wrapping the
+attribute dicts to observe writes, which changes object identity on a live view. Both
+remaining routes therefore require a Rust change: either expose an attribute-write
+generation counter, or fix the kernel.
+
+A CHEAPER COLLAPSE LOOP WAS MEASURED AND DECLINED. The shipped loop does two dict lookups
+of the same key per edge, a Python function call
+(_sp_weight_type_survives_the_f64_kernel, which is just `type(v) in (int, float, bool)`),
+and up to three isinstance() calls. A rewrite doing one lookup and one type check measured
+38,049,797 against 41,618,296 Ir/call - 8.6% off the collapse, 6.5% off the whole
+operation, moving 0.364x to only 0.389x. Not shipped: it does not change the verdict, and
+it works by collapsing the exotic-Real branch, which is outcome-redundant ONLY because the
+final gate rejects every type that is not exactly int/float/bool. Widen that gate later -
+to admit Fraction, say - and the branch becomes live again, so deleting it now trades
+documented parity history (br-r37-c1-3dtn4, br-r37-c1-r9k2m) for 6.5%. The prototype and
+its equivalence sweep are committed as collapse_opt.py; equivalence was verified across
+int, float, bool, Fraction, Decimal, numpy float64/int64, nan, +/-inf, str and None, with
+zero mismatches. Anyone fixing this properly should fold it in rather than land it alone.
+
 The other route is the root defect: the native kernel costs about 13.6M Ir/call on the
 collapsed simple graph against 44.3M on the multigraph, 3.3x. Its 44.3M is roughly 43%
 allocator (_int_malloc 17.8%, plus free / malloc_consolidate / _int_free_chunk / malloc),
