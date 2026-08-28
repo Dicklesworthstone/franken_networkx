@@ -64,6 +64,38 @@ not affect the qualitative finding (absent-int is a large loss on every metric a
 incumbent versions), but any ratio produced this way carries "vs 3.7rc0.dev0" and should not
 be filed against a 3.6.1 claim without saying so.
 
+## RESOLVED 2026-08-28: the workers gained networkx, and the metric is the explanation
+
+The limitation recorded above is gone - the rch workers now have networkx **3.6.1**
+installed (`/home/ubuntu/.local/lib/python3.14/site-packages/networkx/`), so
+`FNX_INCUMBENT=installed` now runs against the release users actually have rather than the
+vendored dev prerelease. Same harness, same extension (sha cd17e9fc...), only sys.path
+differs.
+
+    incumbent                      str hit   str MISS   int hit   int MISS
+    installed 3.6.1, run 1          1.292x     0.946x    1.192x     0.189x
+    installed 3.6.1, run 2          1.209x     0.880x    1.220x     0.176x
+    vendored 3.7rc0.dev0, run 1     1.202x     0.888x    1.206x     0.178x
+    vendored 3.7rc0.dev0, run 2     1.206x     0.878x    1.215x     0.178x
+
+All A/A nulls in band (0.983-1.030).
+
+THE INCUMBENT VERSION IS NOT THE EXPLANATION. The absent-int cell reads 0.176-0.189x
+against installed 3.6.1 and 0.178x against vendored 3.7rc0.dev0 - indistinguishable. The
+open question from the earlier artifact was whether the gap between the instruction-count
+figure (0.430x) and the wall-clock figure (~0.18x) came from the METRIC or from the
+INCUMBENT VERSION, since both differed at the time. It is the METRIC: the two networkx
+builds agree, and Ir and wall clock do not.
+
+That is consistent with the named mechanism below - a discarded PyErr and an allocation are
+branch-and-memory heavy rather than instruction heavy, so they cost more wall time per
+instruction than the retired-instruction count suggests. Still a hypothesis for the
+direction of the gap, but the version confound is now eliminated rather than assumed away.
+
+Absolute times move between runs (694.3 ns against 528.5 ns for the same cell on different
+workers), which is why the RATIO with its in-process A/A null is the quotable figure and the
+nanoseconds are not.
+
 ## Mechanism, from the instruction-count artifact
 
 Not re-derived here, but the named causes of the absent-int path are a DISCARDED PyErr
