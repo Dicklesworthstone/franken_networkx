@@ -53,12 +53,16 @@ fn preload_source() -> String {
     format!(
         "import importlib.util, os, sys
 cwd = {repo_root:?}
-for rel_path in (
-    'crates/fnx-python/benches',
-    'python',
-    'legacy_networkx_code/networkx',
-    'legacy_networkx_code',
-):
+# FNX_INCUMBENT=installed drops the vendored oracle from sys.path so `import networkx`
+# resolves to whatever is installed on the worker. The vendored copy is 3.7rc0.dev0, a
+# DEV PRERELEASE; the README's published claims and the released library users actually
+# have are 3.6.1, so the incumbent version is a variable worth isolating rather than
+# assuming away.
+_vendored = os.environ.get('FNX_INCUMBENT', 'vendored') != 'installed'
+_rel = ('crates/fnx-python/benches', 'python')
+if _vendored:
+    _rel = _rel + ('legacy_networkx_code/networkx', 'legacy_networkx_code')
+for rel_path in _rel:
     path = os.path.join(cwd, rel_path)
     if path not in sys.path:
         sys.path.insert(0, path)
@@ -78,7 +82,11 @@ for path in candidates:
         module = importlib.util.module_from_spec(spec)
         sys.modules['franken_networkx._fnx'] = module
         spec.loader.exec_module(module)
-        print(f'fnx extension: {{path}}', file=sys.stderr)
+        import hashlib
+        with open(path, 'rb') as fh:
+            _sha = hashlib.sha256(fh.read()).hexdigest()
+        sys._fnx_ext = f'{{path}} sha256={{_sha}}'
+        print(f'fnx extension: {{sys._fnx_ext}}', file=sys.stderr)
         break
 "
     )
@@ -91,7 +99,9 @@ import statistics, time
 import networkx as nx
 import franken_networkx as fnx
 
+import sys as _sys
 NX_BUILD = f"{nx.__version__} @ {nx.__file__}"
+FNX_EXT = getattr(_sys, "_fnx_ext", "unavailable")
 
 def _graph(mod, n, key):
     g = mod.Graph()
@@ -133,10 +143,14 @@ def main():
 "#;
 
 fn main() {
-    pyo3::prepare_freethreaded_python();
+    Python::initialize();
     Python::attach(|py| {
         py.run(cstring(&preload_source()).as_c_str(), None, None)
-            .expect("bootstrap failed: is legacy_networkx_code present?");
+            .expect(
+                "bootstrap failed. With FNX_INCUMBENT=installed this is EXPECTED on an \
+                 rch worker: the workers have no networkx installed, so the vendored \
+                 legacy_networkx_code oracle is the only incumbent available there.",
+            );
         let globals = PyDict::new(py);
         py.run(cstring(HARNESS).as_c_str(), Some(&globals), None)
             .expect("harness failed to define");
@@ -148,6 +162,13 @@ fn main() {
             .expect("NX_BUILD is a str");
 
         println!("bench_elf_sha256 {}", self_identity());
+        let fnx_ext: String = globals
+            .get_item("FNX_EXT")
+            .expect("FNX_EXT lookup")
+            .expect("FNX_EXT missing")
+            .extract()
+            .expect("FNX_EXT is a str");
+        println!("fnx_extension {fnx_ext}");
         println!("incumbent {nx_build}");
         println!(
             "{:<6} {:<6} {:>11} {:>9} {:>11} {:>11}",
