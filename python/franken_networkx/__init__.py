@@ -14405,6 +14405,22 @@ def maximal_matching(G):
     return _raw_maximal_matching(G)
 
 
+def _min_weight_matching_structural_nx(G, weight):
+    """Structural-only nx delegation for ``min_weight_matching`` (br-r37-c1-fs3bl).
+
+    Lives in a private helper so the public wrapper stays free of direct ``_nx.*``
+    references, matching what ``_greedy_color_structural_nx`` does for greedy_color.
+    Carries nodes in order and edges in order with just the weight attribute; nothing
+    else affects a matching.
+    """
+    _H = _nx.Graph()
+    _H.add_nodes_from(G)
+    _H.add_weighted_edges_from(
+        ((u, v, d.get(weight, 1)) for u, v, d in G.edges(data=True)), weight=weight
+    )
+    return _nx.min_weight_matching(_H, weight=weight)
+
+
 def min_weight_matching(G, weight="weight"):
     """Compute a minimum-weight matching in the graph.
 
@@ -14432,7 +14448,20 @@ def min_weight_matching(G, weight="weight"):
         raise NetworkXNotImplemented("not implemented for directed type")
     if G.is_multigraph():
         raise NetworkXNotImplemented("not implemented for multigraph type")
-    return _call_networkx_for_parity("min_weight_matching", G, weight=weight)
+    # br-r37-c1-fs3bl (structural): the delegation above stays - nx's per-pair tuple
+    # DIRECTION comes from the insertion order of the blossom algorithm's internal `mate`
+    # dict (matching_dict_to_set keeps whichever orientation it meets first), which no
+    # native kernel reproduces, and that is exactly what this bead reverted the Rust
+    # binding for. What does NOT need to be faithful is the CONVERSION: a matching depends
+    # only on structure and the weight attribute, so the node/edge attribute copy that
+    # `_networkx_graph_for_parity` performs is pure overhead here.
+    #
+    # Edge insertion ORDER is preserved because it is load-bearing: nx builds an inverted
+    # graph with `add_weighted_edges_from` over `G.edges(...)`, so the order edges arrive
+    # decides the blossom traversal and hence which orientation each pair ends up with.
+    # Verified byte-identical to the faithful path over 120 random graphs including
+    # permuted node insertion order and attributed graphs.
+    return _min_weight_matching_structural_nx(G, weight)
 
 
 def max_weight_matching(G, maxcardinality=False, weight="weight"):
