@@ -25495,6 +25495,25 @@ attribute dicts to observe writes, which changes object identity on a live view.
 remaining routes therefore require a Rust change: either expose an attribute-write
 generation counter, or fix the kernel.
 
+FURTHER CORRECTION, same day: THE CACHING ROUTE IS CLOSED ENTIRELY, and "expose an
+attribute-write generation counter" is not a route at all - I recommended it twice before
+checking whether such a counter could ever be bumped. It cannot. The edge attribute
+container handed to callers is EXACTLY a builtin dict (type(d) is dict), it is the SAME
+object on every lookup, and a write to it is visible everywhere immediately. A plain dict
+has no hooks, so no counter on either side of the boundary can observe
+g[u][v][k]["weight"] = 99.0. Observing it would mean handing out a dict SUBCLASS instead,
+which is a parity change on a live view - the class of defect this repo already tracks - not
+a counter.
+
+The conservative fallback fails too, and for a reason specific to this operation. Dirtying
+on EXPOSURE rather than on mutation is sound over-invalidation and is what the weighted
+store already does. But the collapse reaches its weights through
+G.edges(keys=True, data=True), which yields the LIVE attr dicts - verified - so the collapse
+would expose, and therefore invalidate, on every call. A cache invalidated by the very loop
+that fills it never hits.
+
+So the ONLY remaining route on this operation is the kernel's multigraph path.
+
 A CHEAPER COLLAPSE LOOP WAS MEASURED AND DECLINED. The shipped loop does two dict lookups
 of the same key per edge, a Python function call
 (_sp_weight_type_survives_the_f64_kernel, which is just `type(v) in (int, float, bool)`),
