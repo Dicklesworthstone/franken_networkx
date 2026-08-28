@@ -15913,15 +15913,6 @@ pub fn greedy_color(graph: &Graph) -> GreedyColorResult {
     greedy_color_with_strategy(graph, "largest_first")
 }
 
-/// Greedy graph coloring with a specified node ordering strategy.
-///
-/// Strategies:
-/// - `"largest_first"`: descending degree order
-/// - `"smallest_last"`: reverse of iterative smallest-degree removal
-/// - `"random_sequential"`: insertion order (no sorting)
-/// - `"DSATUR"` / `"saturation_largest_first"`: dynamic saturation ordering
-/// - any other: lexicographic (canonical) order
-#[must_use]
 /// br-r37-c1-vevfq: `largest_first` greedy colouring for a DIRECTED graph.
 ///
 /// The undirected kernel below cannot serve digraphs, and both of `greedy_color`'s fast
@@ -16000,6 +15991,15 @@ pub fn greedy_color_directed_largest_first(graph: &DiGraph) -> GreedyColorResult
     }
 }
 
+/// Greedy graph coloring with a specified node ordering strategy.
+///
+/// Strategies:
+/// - `"largest_first"`: descending degree order
+/// - `"smallest_last"`: reverse of iterative smallest-degree removal
+/// - `"random_sequential"`: insertion order (no sorting)
+/// - `"DSATUR"` / `"saturation_largest_first"`: dynamic saturation ordering
+/// - any other: lexicographic (canonical) order
+#[must_use]
 pub fn greedy_color_with_strategy(graph: &Graph, strategy: &str) -> GreedyColorResult {
     let nodes = graph.nodes_ordered();
     let n = nodes.len();
