@@ -2206,6 +2206,97 @@ def workload_claim_k_corona(reps: int):
     return build, ops
 
 
+def workload_claim_bidirectional_dijkstra(reps: int):
+    """Exact live H2H fixture for br-r37-c1-p80x1.32.
+
+    This is deliberately the claim-incumbent graph, including the selected
+    equal-cost path.  Matching just its distance would admit a naïve wrong
+    implementation, so the pre-timing contract pins the full path, every path
+    edge weight, and the canonical result hash for each arm.
+    """
+    try:
+        from scripts.perf_harness import _build_pair, canonical_bytes
+    except ModuleNotFoundError:
+        from perf_harness import _build_pair, canonical_bytes
+
+    node_count = 2_000
+    edge_count = 8_000
+    seed = 7
+    source = "0"
+    target = "1999"
+    weight = "weight"
+    expected_input_bytes = 398_318
+    expected_input_sha256 = (
+        "03c62edb3bc632ec6fedf20e7a7061e42688aa1d655e9128dbc4980c2af54de0"
+    )
+    expected_distance = 19
+    expected_path = ("0", "1610", "1531", "1102", "184", "452", "1999")
+    expected_edge_weights = (4, 1, 4, 5, 3, 2)
+    expected_output_bytes = 57
+    expected_output_sha256 = (
+        "84ecf9bc779cbb276688ce9745bb7637609808b51b7d7a4d8de03cead8532516"
+    )
+    dijkstra_nx, dijkstra_fnx = _build_pair(
+        node_count,
+        edge_count,
+        seed=seed,
+        weighted=True,
+    )
+    input_nx_bytes = canonical_bytes(dijkstra_nx)
+    input_fnx_bytes = canonical_bytes(dijkstra_fnx)
+    if (
+        input_nx_bytes != input_fnx_bytes
+        or len(input_nx_bytes) != expected_input_bytes
+        or hashlib.sha256(input_nx_bytes).hexdigest() != expected_input_sha256
+    ):
+        raise RuntimeError(
+            "bidirectional_dijkstra claim input no longer matches its contract"
+        )
+
+    def build(module):
+        graph = dijkstra_nx if module is nx else dijkstra_fnx
+        result = module.bidirectional_dijkstra(graph, source, target, weight=weight)
+        result_bytes = canonical_bytes(result)
+        distance, path = result
+        edge_weights = tuple(
+            graph[u][v][weight]
+            for u, v in zip(path, path[1:])
+        )
+        if (
+            type(distance) is not int
+            or distance != expected_distance
+            or tuple(path) != expected_path
+            or edge_weights != expected_edge_weights
+            or sum(edge_weights) != distance
+            or len(result_bytes) != expected_output_bytes
+            or hashlib.sha256(result_bytes).hexdigest() != expected_output_sha256
+        ):
+            raise RuntimeError(
+                "bidirectional_dijkstra complete result no longer matches its contract"
+            )
+        return graph, module
+
+    def ops(graph, module):
+        def dijkstra_many():
+            result = None
+            for _ in range(reps):
+                result = module.bidirectional_dijkstra(
+                    graph,
+                    source,
+                    target,
+                    weight=weight,
+                )
+            return result
+
+        return {
+            "claim/bidirectional_dijkstra n=2000 m=8000 seed=7 ": (
+                dijkstra_many
+            )
+        }
+
+    return build, ops
+
+
 def workload_claim_simple_digraph_bellman(reps: int):
     """Live simple-DiGraph Bellman-Ford row (br-r37-c1-mg7hw).
 
@@ -2366,6 +2457,7 @@ WORKLOADS = {
     "incumbent-fixtures-2": workload_incumbent_fixtures_2,
     "claim-read-gml": workload_claim_read_gml,
     "claim-k-corona": workload_claim_k_corona,
+    "claim-bidirectional-dijkstra": workload_claim_bidirectional_dijkstra,
     "claim-simple-digraph-bellman": workload_claim_simple_digraph_bellman,
     "claim-multidigraph-bellman": workload_claim_multidigraph_bellman,
     "claim-digraph-predecessors": workload_claim_digraph_predecessors,

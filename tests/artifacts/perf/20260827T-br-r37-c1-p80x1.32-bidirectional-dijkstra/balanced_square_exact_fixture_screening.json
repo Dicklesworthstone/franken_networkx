@@ -1,0 +1,54 @@
+{
+  "bead": "br-r37-c1-p80x1.32",
+  "workload": "claim/bidirectional_dijkstra n=2000 m=8000 seed=7 source=0 target=1999 weight=weight",
+  "command": "taskset -c 24 env PYTHONHASHSEED=0 PYTHONPATH=python OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 EXPECT_ELF_SHA=cd17e9fcc7e470b0120a59f2eb5106fecfedbb8f3a34c979255ed8c06428a935 .venv/bin/python scripts/balanced_square_ab.py --workload claim-bidirectional-dijkstra --rounds 41 --warmup 8 --reps 5 --calls-per-slot 1",
+  "incumbent": {
+    "name": "networkx",
+    "version": "3.6.1",
+    "same_process": true
+  },
+  "candidate": {
+    "elf": "python/franken_networkx/_fnx.abi3.so",
+    "elf_sha256": "cd17e9fcc7e470b0120a59f2eb5106fecfedbb8f3a34c979255ed8c06428a935",
+    "build_profile": "release"
+  },
+  "harness": {
+    "path": "scripts/balanced_square_ab.py",
+    "sha256": "9f24461013ec3feb6db2cd22c929be8da265fce36dec952505d2643cc533f1ca",
+    "rounds": 41,
+    "warmup": 8,
+    "reps": 5,
+    "calls_per_slot": 1,
+    "square": "ABBAABBA"
+  },
+  "exact_fixture_contract": {
+    "input_sha256": "03c62edb3bc632ec6fedf20e7a7061e42688aa1d655e9128dbc4980c2af54de0",
+    "input_canonical_bytes": 398318,
+    "distance": 19,
+    "path": ["0", "1610", "1531", "1102", "184", "452", "1999"],
+    "path_edge_weights": [4, 1, 4, 5, 3, 2],
+    "output_sha256": "84ecf9bc779cbb276688ce9745bb7637609808b51b7d7a4d8de03cead8532516",
+    "output_canonical_bytes": 57,
+    "parity_passed_before_timing": true,
+    "negative_case": "An equal-distance but differently ordered path fails the full path, edge-weight, and canonical-result checks before timing."
+  },
+  "screening_ratio_t_networkx_over_t_fnx": 1.8575,
+  "screening_ci_95": [1.7813, 1.9360],
+  "aa_nulls": {
+    "networkx": 0.9824,
+    "fnx": 0.9808,
+    "bound": 0.02,
+    "passed": true
+  },
+  "host": {
+    "name": "thinkstation1",
+    "affinity_cpu": 24,
+    "smt_sibling_cpu": 56,
+    "smt_sibling_utilization_percent": 61,
+    "loadavg_start": [31.24072265625, 20.75390625, 24.103515625],
+    "loadavg_end": [33.1435546875, 21.32275390625, 24.26953125]
+  },
+  "git_head_at_measurement": "fd29da950dc65a830a8136bd02dd08ea1dc082ee",
+  "verdict": "NO_ADMISSIBLE_RESULT",
+  "rejection": "SIBLING-CONTENDED: CPU 24's SMT sibling reached 61% utilization. The balanced-square harness admitted 0/1 rows and forbids quoting the screening ratio as a result."
+}
