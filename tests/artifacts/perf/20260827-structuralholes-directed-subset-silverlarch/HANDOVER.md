@@ -33,7 +33,12 @@ fnx runs networkx's own loop by delegating, and pays a graph conversion on top.
 THE SPLIT IS REAL HERE TOO. networkx serves constraint two ways and they disagree on
 directed graphs: `if nodes is None and has_scipy` takes a sparse-matrix path
 (P + P.T, row-normalized), anything else takes the set-order summation over
-local_constraint. Measured, they differ on 19 of 40 random digraphs. So, exactly as for
+local_constraint. Measured, they differ on 19 of 40 random digraphs - and CORRECTION, added
+after the fix landed: that difference is NaN PLACEMENT, not values. A node with predecessors
+but NO successors gets a number from the matrix path and NaN from the loop; a search over 200
+random digraphs found no case where the two paths return different NUMBERS. That is narrower
+than the sibling effective_size, whose two paths do return different numbers (2.0 against 1.8
+on one 6-node graph), and this file originally implied the two cases were alike. So, exactly as for
 effective_size, whichever kernel serves nodes!=None must reproduce the LOOP, and the
 nodes=None branch must keep the matrix path (`_structural_holes_constraint_matrix`, which
 br-r37-c1-qurfc already proved 0/320 exact).

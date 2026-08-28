@@ -25938,7 +25938,26 @@ pub fn effective_size_rust(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Py<
     Ok(dict.unbind())
 }
 
-/// Return Burt's effective size for unweighted simple directed graphs.
+/// br-r37-c1-qbj9u (constraint): Burt's constraint for a DIRECTED graph, unweighted.
+///
+/// `constraint_rust` is undirected-only, so `constraint(DiGraph, nodes=<iterable>)`
+/// delegated to networkx wholesale. networkx serves that call from its redundancy LOOP,
+/// not the scipy matrix path it uses for `nodes is None`. Those two disagree on directed
+/// graphs in NaN PLACEMENT (a node with predecessors but no successors is NaN in the loop,
+/// a number in the matrix path), so they are not interchangeable; this kernel reproduces
+/// the loop.
+#[pyfunction]
+pub fn constraint_directed_rust(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Py<PyDict>> {
+    let gr = extract_graph(g)?;
+    let inner = gr.digraph().expect("directed graph expected");
+    let result = py.allow_threads(|| fnx_algorithms::constraint_directed(inner));
+    let dict = PyDict::new(py);
+    for (node, val) in &result {
+        dict.set_item(gr.py_node_key(py, node), val)?;
+    }
+    Ok(dict.unbind())
+}
+
 /// br-r37-c1-vevfq: `largest_first` greedy colouring for a DIRECTED graph.
 ///
 /// The undirected kernel cannot serve digraphs, so `greedy_color` was falling back to an
@@ -25957,6 +25976,7 @@ pub fn greedy_color_directed_rust(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyRes
     Ok(dict.unbind())
 }
 
+/// Return Burt's effective size for unweighted simple directed graphs.
 #[pyfunction]
 pub fn effective_size_directed_rust(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Py<PyDict>> {
     let gr = extract_graph(g)?;
@@ -28873,6 +28893,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(effective_size_rust, m)?)?;
     m.add_function(wrap_pyfunction!(effective_size_directed_rust, m)?)?;
     m.add_function(wrap_pyfunction!(greedy_color_directed_rust, m)?)?;
+    m.add_function(wrap_pyfunction!(constraint_directed_rust, m)?)?;
     m.add_function(wrap_pyfunction!(dispersion_full_rust, m)?)?;
     m.add_function(wrap_pyfunction!(dispersion_node_rust, m)?)?;
     // Voronoi cells

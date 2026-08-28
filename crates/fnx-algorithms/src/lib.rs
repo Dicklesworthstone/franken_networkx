@@ -42221,6 +42221,113 @@ pub fn effective_size_directed(graph: &DiGraph) -> std::collections::HashMap<Str
     result
 }
 
+/// br-r37-c1-qbj9u (constraint): Burt's constraint for a DIRECTED graph, unweighted.
+///
+/// `constraint_rust` is undirected-only and does not reproduce networkx's directed answer
+/// (548 mismatches in 807 node values), so `constraint(DiGraph, nodes=<iterable>)`
+/// delegated wholesale and measured 0.964x against networkx at 2.59e9 Ir/call.
+///
+/// networkx, for the `nodes` form, runs its LOOP - not the scipy matrix path it uses when
+/// `nodes is None`. Those two disagree on directed graphs - on 19 of 40 random digraphs -
+/// and the difference is NaN PLACEMENT, not values: a node with predecessors but NO
+/// successors gets a number from the matrix path and NaN from the loop. (Narrower than the
+/// sibling `effective_size`, whose two paths return genuinely different numbers; do not
+/// carry that assumption across.) This kernel reproduces the loop:
+///
+///   mutual weight      m(u,v) = I(u->v) + I(v->u)
+///   normalised         p(u,v) = m(u,v) / sum over w in N(u) of m(u,w)      [N = succ U pred]
+///   local constraint   l(u,v) = (p(u,v) + sum over w in N(u) of p(u,w)*p(w,v))^2
+///   constraint[v]      = NaN if v has no successors, else sum over j in N(v) of l(v,j)
+///
+/// The "no successors" rule is networkx's `len(G[v]) == 0`, and `G[v]` on a DiGraph is
+/// SUCCESSORS ONLY - a node with predecessors but no successors is NaN. Mistaking that for
+/// "no neighbours" is what kept the sibling `effective_size_directed_rust` reverted for
+/// months.
+///
+/// Validated in Python against `nx.constraint(G, nodes=list(G))` over 150 random digraphs,
+/// including permuted node insertion order: 0 divergences, before this was written.
+#[must_use]
+pub fn constraint_directed(graph: &DiGraph) -> std::collections::HashMap<String, f64> {
+    let nodes = graph.nodes_ordered();
+    let n = nodes.len();
+
+    let mut successor_sets: Vec<HashSet<usize>> = Vec::with_capacity(n);
+    for ui in 0..n {
+        successor_sets.push(
+            graph
+                .successors_indices(ui)
+                .unwrap_or(&[])
+                .iter()
+                .copied()
+                .filter(|&vi| vi != ui)
+                .collect(),
+        );
+    }
+
+    // N(u) = successors UNION predecessors, self excluded, sorted for a stable walk.
+    let mut mark = vec![false; n];
+    let mut mutual_neighbors: Vec<Vec<usize>> = Vec::with_capacity(n);
+    for ui in 0..n {
+        let mut row = Vec::new();
+        for &vi in graph.successors_indices(ui).unwrap_or(&[]) {
+            if vi != ui && !mark[vi] {
+                mark[vi] = true;
+                row.push(vi);
+            }
+        }
+        for &vi in graph.predecessors_indices(ui).unwrap_or(&[]) {
+            if vi != ui && !mark[vi] {
+                mark[vi] = true;
+                row.push(vi);
+            }
+        }
+        row.sort_unstable();
+        for &vi in &row {
+            mark[vi] = false;
+        }
+        mutual_neighbors.push(row);
+    }
+
+    let mutual_weight = |ui: usize, vi: usize| -> f64 {
+        f64::from(u8::from(successor_sets[ui].contains(&vi)))
+            + f64::from(u8::from(successor_sets[vi].contains(&ui)))
+    };
+
+    let mut row_sum = vec![0.0_f64; n];
+    for ui in 0..n {
+        for &vi in &mutual_neighbors[ui] {
+            row_sum[ui] += mutual_weight(ui, vi);
+        }
+    }
+    let normalized = |a: usize, b: usize| -> f64 {
+        if row_sum[a] == 0.0 {
+            0.0
+        } else {
+            mutual_weight(a, b) / row_sum[a]
+        }
+    };
+
+    let mut result = std::collections::HashMap::with_capacity(n);
+    for vi in 0..n {
+        if successor_sets[vi].is_empty() {
+            result.insert(nodes[vi].to_owned(), f64::NAN);
+            continue;
+        }
+        let neighbours = &mutual_neighbors[vi];
+        let mut total = 0.0_f64;
+        for &j in neighbours {
+            let mut indirect = 0.0_f64;
+            for &w in neighbours {
+                indirect += normalized(vi, w) * normalized(w, j);
+            }
+            let local = normalized(vi, j) + indirect;
+            total += local * local;
+        }
+        result.insert(nodes[vi].to_owned(), total);
+    }
+    result
+}
+
 // ---------------------------------------------------------------------------
 // Dispersion (Backstrom & Kleinberg)
 // ---------------------------------------------------------------------------
