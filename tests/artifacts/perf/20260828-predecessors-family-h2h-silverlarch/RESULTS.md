@@ -60,45 +60,97 @@ No new test file was added. The landing commit already contributed 21 guards cov
 surface and they pass; a parallel file asserting the same contract would be conformance
 metastasis, not coverage.
 
-## THE MEASUREMENT DID NOT HAPPEN, AND THE REASON IS THE ENVIRONMENT
+## THE MEASUREMENT, second turn: the 0.383x is GONE and the family has converged
 
-No vs-incumbent ratio is reported here. The prescribed route is a worker-side head-to-head,
-and NINE sync attempts across two workers all failed in the transfer stage, before any Cargo
-ran:
+    bench_elf_sha256  680e59f73764a13fbf4450ef332c5ce8ad495f183117f3f305e48038eb2aa652
+    fnx_extension     python/franken_networkx/_fnx.abi3.so
+                      sha256=cd17e9fcc7e470b0120a59f2eb5106fecfedbb8f3a34c979255ed8c06428a935
+    incumbent         networkx 3.6.1 @ /home/ubuntu/.local/lib/python3.14/site-packages/
+    worker            hz4, bench cpu 63, one process, one invocation
 
-    sync_to_remote: timed out after 145000ms   (hz3, attempts 1/3, 2/3, 3/3)
-    sync_to_remote: timed out after 145000ms   (hz4, attempts 1/3, 2/3, 3/3, then 1/3 again)
-    [RCH] source sync failed before remote Cargo execution after 3/3 attempts;
-          remote Cargo was not started
+QUOTABLE ROWS - 3-character str node keys, in-degree 3, both nulls in band:
 
-That is a stable blocker rather than bad luck, and the cause is measurable. rch already
-excludes `.git/`, `.beads/`, `target/` and `tests/artifacts/`, so the 4 GB working tree is
-not what ships - but `fuzz/` (241M), `venv/` (201M) and `artifacts/` (40M) are NOT in
-`exclude_patterns`, leaving ~500M to cross the wire inside a 145 s budget while 7+ builds
-from sibling projects contended for the same 14 workers.
+    class         method         nx/fnx   null fnx   null nx   fnx ns   nx ns
+    DiGraph       predecessors   0.960x      1.030     0.990    499.0   479.3
+    DiGraph       successors     0.954x      1.026     0.990    498.4   475.7
+    MultiDiGraph  predecessors   0.939x      1.024     1.000    509.6   478.7
+    MultiDiGraph  successors     0.924x      1.026     0.996    515.6   476.3
 
-THE OBVIOUS FIX WAS NOT APPLIED, deliberately. Adding `venv/` and `fuzz/` to
-`exclude_patterns` in `~/.config/rch/config.toml` would likely unblock this, but that file is
-shared by every project and agent on this host, and `fuzz/` holds real cargo-fuzz build
-targets that somebody else's remote build may legitimately need. Silently narrowing a shared
-config to unblock one measurement is not a trade this bead authorises. It is recorded here so
-the owner can decide.
+**DiGraph.predecessors reads 0.960x, not 0.383x.** The bead's headline outlier is gone. It is
+STILL A LOSS - 4% short of parity, and no win is claimed - but it is no longer separable from
+its own controls.
 
-Local builds are forbidden and no local ELF may be retrieved, so there was no admissible way
-to produce a number. **A ratio measured some other
-way would not be the same claim**, so none is offered - the landing commit's 0.8237x /
-0.8646x stands unconfirmed by this session rather than being restated as if reproduced.
+THE FAMILY HAS CONVERGED, WITH NO MEMBER DISTINGUISHABLE. All four sit in 0.924-0.960x, a
+spread of 3.6 points, against A/A nulls that are themselves 2.4-3.0% off unity. The spread
+across the family is the same size as the spread between two separately built fixtures of the
+SAME graph, so the apparent ordering inside the family is not a real ranking and is not read
+as one here. What can be said is the thing the bead asked: the SAME class's successors and the
+OTHER class's predecessors no longer stand apart from the subject.
 
-TWO OPERATIONAL FINDINGS worth more than the missing number, because they are reusable:
+The residual is ~20-40 ns on a ~480 ns operation, which is the size of the two floors already
+named in br-r37-c1-native-method-attribute-lookup-tax-w7wjs (attribute lookup ~8-12 ns, the
+one-arg crossing ~12 ns). Nothing here contradicts that taxonomy.
 
-  * **`rch exec` needs an explicit `-j`.** Without one, the job was refused with
-    `no admissible workers: insufficient_total_slots=10` - 10 of 14 workers rejected the job
-    outright for requesting more parallelism than they have. Adding `-j 2` made it
-    admissible immediately. Sibling projects all pass `-j 1` / `-j 2`; this repo's
-    documented invocations do not.
-  * **`active_project_exclusion` is not always a peer.** It appeared while `rch queue`
-    showed no other franken_networkx build, i.e. it can be a stale entry from one's own
-    killed job.
+## THE DUAL NULL EARNED ITS KEEP, IN THE OPPOSITE DIRECTION FROM THE ONE EXPECTED
+
+NOT QUOTABLE - 2000-character str node keys, same fixtures, same run:
+
+    class         method         nx/fnx   null fnx   null nx   fnx ns   nx ns
+    DiGraph       predecessors   1.170x      1.186     0.995    507.1   593.4
+    DiGraph       successors     1.154x      1.180     1.000    504.1   581.7
+    MultiDiGraph  predecessors   1.142x      1.174     1.002    521.2   595.1
+    MultiDiGraph  successors     1.121x      1.190     1.013    516.4   579.1
+
+Every one of those four rows would have read as a 1.12-1.17x WIN. All four are DISQUALIFIED:
+the fnx-arm null is 1.174-1.190, i.e. two separately built fnx fixtures of the identical graph
+differ by ~18% at long keys, so the arm cannot be timed against the incumbent at all here.
+
+The instructive part is which null caught it. The landing commit (4cbb18f78) failed on its
+NETWORKX arm with a clean fnx arm; this run is the exact mirror - the networkx null is clean
+(0.995-1.013) and the fnx arm is the broken one. Gating on either arm alone would have passed
+these rows and published four wins. This is [[separately_built_fixtures_differ]] magnified by
+key length, and it is why the harness carries both nulls rather than one.
+
+Because those rows are void, NO claim is made here about fnx being flat in key length - which
+is precisely the property the conversion was built for. The networkx arm alone is internally
+consistent (its own null passes) and grows 479 -> 593 ns, +24%, between the two key lengths;
+the fnx side of that comparison is not measurable from this run.
+
+## THIS RUN DISAGREES WITH THE LANDING COMMIT, AND THAT IS NOT A CORRECTION
+
+4cbb18f78 measured DiGraph.predecessors at 0.8237x; this run reads 0.960x. Both agree the
+0.383x outlier is closed and the family converged, and they disagree on the residual by ~17
+points. The two differ in host (rch worker hz4 against thinkstation1), fixture (circulant
+N=1000 at in-degree 3 against E=400), and load, and the absolute times differ by 2.5x
+(499 ns against 195.3 ns for the same cell), so neither is offered as a correction of the
+other. Harness disagreement of this size is itself the finding, and the honest reading is that
+the residual is somewhere in 0.82-0.96x rather than pinned.
+
+## THE SYNC BLOCK FROM THE PREVIOUS TURN IS FIXED, AND THE FIX IS IN THE REPO
+
+The previous turn recorded nine sync timeouts and no measurement. The cause was found:
+`rch config show` excludes `.git/`, `.beads/`, `target/` and `tests/artifacts/`, but NOT this
+repo's two Python virtualenvs - `.venv` is 444M and `venv` is 201M, about 60% of a ~1.1G
+payload that has to cross the wire inside a 145 s budget.
+
+A project-local `.rchignore` now excludes them plus three tool caches. Every pattern in it is
+gitignored, so nothing tracked can be lost. rch confirms it loads
+(`Exclude patterns: 44 (39 from config, 5 from .rchignore)`), and the transfer that had failed
+ten consecutive times then completed:
+
+    Loaded 3 pattern(s) from .rchignore (total: 50)
+    Sync completed in 126348ms
+    Sync complete: 63727 files, 4485087 bytes
+
+126 s against a 145 s budget - inside it, but not by much. CAUSATION IS NOT PROVEN by one
+success: worker contention varies, and this attempt also landed on a worker holding partial
+data from earlier passes. What is certain is the payload arithmetic and that the block cleared
+on the first attempt after the file was added. The global
+`~/.config/rch/config.toml` was deliberately left alone - it is shared by every project and
+agent on this host.
+
+Separately, the dependency-preflight stage took 15 minutes before the transfer even began
+(21:50:49 -> 22:05:51). That is a second, independent bottleneck and it is NOT addressed here.
 
 ## TWO MEASUREMENT-DESIGN CORRECTIONS, MADE BEFORE SPENDING A SLOT
 
@@ -122,24 +174,22 @@ the flattering direction. The committed harness therefore carries DUAL nulls - a
 built fnx fixture against the fnx arm and a separately built networkx fixture against the
 networkx arm - and disqualifies a row if EITHER strays from 1.0.
 
-## The harness ships here, NOT in examples/, and it has never been compiled
+## The harness
 
-`predecessors_family_h2h.rs.uncompiled` in this directory is the head-to-head described
-above. It is deliberately NOT in `crates/fnx-python/examples/`, where it began:
-`cargo check --workspace --all-targets` compiles that directory, this is a SHARED checkout,
-and the only route permitted for compiling anything - rch - is the very thing that is
-blocked. Committing an unverified Rust file into the build path would hand every peer in this
-tree a compile error I could not have detected. The extension is `.uncompiled` for the same
-reason.
+`crates/fnx-python/examples/predecessors_family_h2h.rs` - COMPILES, verified on hz4 in the
+run above (the one warning in that build is pre-existing dead code in `fnx-python`'s lib,
+`private_adj_row` never used, not from this file).
 
-Its Python half IS verified: the timing block was extracted and executed against the
-installed extension and live networkx, exercising all eight cells end to end, and the
-`compile()` check passes. Only the Rust wrapper around it is unproven.
-
-TO USE IT: move it to `crates/fnx-python/examples/predecessors_family_h2h.rs`, then
+The previous turn could not compile it - the only permitted route, rch, was the very thing
+blocked - so it was parked in this directory as `predecessors_family_h2h.rs.uncompiled`
+rather than left in the build path of a SHARED checkout where a peer's
+`cargo check --workspace --all-targets` would have hit it. That copy is byte-identical to the
+file now in `examples/` and is retained only because this repo forbids deleting files without
+explicit permission; it is superseded and can be removed on request.
 
     rch exec -- cargo run --release -j 2 -p fnx-python --example predecessors_family_h2h
 
 Results print to STDERR. Both arms run in one process on one pinned worker CPU in one
 invocation; the binary self-reports its own SHA-256 and the extension and networkx build it
-imported. The `-j 2` is load-bearing - see above. Expect to fix compile errors first.
+imported. The `-j 2` is load-bearing - without an explicit `-j`, 10 of 14 workers refuse the
+job outright with `insufficient_total_slots`.

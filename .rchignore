@@ -1,0 +1,28 @@
+# Remote-build sync excludes for rch (honored by TransferPipeline::sync_to_remote,
+# in addition to the 39 patterns in ~/.config/rch/config.toml).
+#
+# WHY THIS FILE EXISTS: every remote build was failing in the transfer stage with
+#   sync_to_remote: timed out after 145000ms
+# three internal retries per worker, before any Cargo started - ten consecutive failures
+# across hz3 and hz4. The global config already drops .git/, .beads/, target/ and
+# tests/artifacts/, but it does NOT drop this repo's two Python virtualenvs, and they
+# dominate what is left: .venv is 444M and venv is 201M, ~60% of a ~1.1G payload that has
+# to cross the wire inside a 145s budget while sibling projects contend for the same
+# workers.
+#
+# EVERY PATTERN BELOW IS GITIGNORED, i.e. none of it is tracked source, so excluding it
+# cannot remove a build input. Deliberately NOT listed: fuzz/ (holds real cargo-fuzz build
+# targets a remote `cargo fuzz` would need), artifacts/ and tests/ (both tracked).
+#
+# Scoped to this repo on purpose. The alternative - adding these to exclude_patterns in
+# ~/.config/rch/config.toml - would change sync behaviour for every project and agent on
+# this host, which is not a call one repo's build should make.
+
+# Python virtualenvs: ~645M, never usable by a remote cargo build
+.venv/
+venv/
+
+# Tool caches: regenerated on demand, never a build input
+.ruff_cache/
+.pytest_cache/
+.hypothesis/
