@@ -2297,6 +2297,90 @@ def workload_claim_bidirectional_dijkstra(reps: int):
     return build, ops
 
 
+def workload_claim_label_propagation(reps: int):
+    """Exact live H2H fixture for br-r37-c1-p80x1.28.
+
+    The public result is a generator whose order is observable.  The contract
+    therefore rejects both a naïve reordered partition and a partition with
+    wrong membership before either arm is timed.
+    """
+    try:
+        from scripts.perf_harness import _build_pair, canonical_bytes
+    except ModuleNotFoundError:
+        from perf_harness import _build_pair, canonical_bytes
+
+    node_count = 1_200
+    edge_count = 6_000
+    seed = 11
+    expected_input_bytes = 194_277
+    expected_input_sha256 = (
+        "199d564350ec6f70885e8f8236fad28d6620b44e3e7917a470f6fba73024e653"
+    )
+    expected_community_sizes = (1_199, 1)
+    expected_output_bytes = 8_512
+    expected_output_sha256 = (
+        "bb8d5710d2f0eb09435f865e9561438c2c54bac87c02c2b41fd92f2406687ea9"
+    )
+    expected_normalized_output_bytes = 8_494
+    expected_normalized_output_sha256 = (
+        "d53bb137b4413e187056ed1d85c987bb20da30e4910d2c0fbfe1e203487e37a5"
+    )
+    label_nx, label_fnx = _build_pair(
+        node_count,
+        edge_count,
+        seed=seed,
+        weighted=False,
+    )
+    input_nx_bytes = canonical_bytes(label_nx)
+    input_fnx_bytes = canonical_bytes(label_fnx)
+    if (
+        input_nx_bytes != input_fnx_bytes
+        or len(input_nx_bytes) != expected_input_bytes
+        or hashlib.sha256(input_nx_bytes).hexdigest() != expected_input_sha256
+    ):
+        raise RuntimeError(
+            "label_propagation claim input no longer matches its contract"
+        )
+
+    def build(module):
+        graph = label_nx if module is nx else label_fnx
+        communities = list(module.community.label_propagation_communities(graph))
+        output_bytes = canonical_bytes(communities)
+        normalized_bytes = canonical_bytes(
+            sorted(sorted(community) for community in communities)
+        )
+        if (
+            len(communities) != 2
+            or tuple(map(len, communities)) != expected_community_sizes
+            or sum(map(len, communities)) != node_count
+            or set().union(*communities) != set(graph)
+            or len(output_bytes) != expected_output_bytes
+            or hashlib.sha256(output_bytes).hexdigest() != expected_output_sha256
+            or len(normalized_bytes) != expected_normalized_output_bytes
+            or hashlib.sha256(normalized_bytes).hexdigest()
+            != expected_normalized_output_sha256
+        ):
+            raise RuntimeError(
+                "label_propagation complete partition no longer matches its contract"
+            )
+        return graph, module
+
+    def ops(graph, module):
+        def propagation_many():
+            result = None
+            for _ in range(reps):
+                result = list(module.community.label_propagation_communities(graph))
+            return result
+
+        return {
+            "claim/label_propagation_communities n=1200 m=6000 seed=11": (
+                propagation_many
+            )
+        }
+
+    return build, ops
+
+
 def workload_claim_simple_digraph_bellman(reps: int):
     """Live simple-DiGraph Bellman-Ford row (br-r37-c1-mg7hw).
 
@@ -2458,6 +2542,7 @@ WORKLOADS = {
     "claim-read-gml": workload_claim_read_gml,
     "claim-k-corona": workload_claim_k_corona,
     "claim-bidirectional-dijkstra": workload_claim_bidirectional_dijkstra,
+    "claim-label-propagation": workload_claim_label_propagation,
     "claim-simple-digraph-bellman": workload_claim_simple_digraph_bellman,
     "claim-multidigraph-bellman": workload_claim_multidigraph_bellman,
     "claim-digraph-predecessors": workload_claim_digraph_predecessors,
