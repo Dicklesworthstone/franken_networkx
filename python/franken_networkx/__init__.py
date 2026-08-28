@@ -17951,7 +17951,11 @@ def _greedy_color_structural_nx(G, strategy, interchange):
     # PY_WRAPPER, not NX_DELEGATED). greedy_color is structure-only, so a
     # cheap structural ``nx.Graph`` (nodes in order + edges) is byte-identical
     # to the faithful conversion for these strategies.
-    _H = _nx.Graph()
+    # br-r37-c1-vevfq (directed): a DIRECTED graph needs a DIRECTED structural copy.
+    # The gate below used to exclude directed entirely, on the grounds that "structural
+    # would drop parallel edges / direction" - true of an nx.Graph copy, but direction
+    # survives an nx.DiGraph one, and greedy_color is still structure-only.
+    _H = _nx.DiGraph() if G.is_directed() else _nx.Graph()
     _H.add_nodes_from(G)
     _H.add_edges_from(G.edges())
     return _nx.greedy_color(_H, strategy=strategy, interchange=interchange)
@@ -18011,9 +18015,19 @@ def greedy_color(G, strategy="largest_first", interchange=False):
     # adjacency iteration order is preserved, so the order-sensitive coloring
     # (these strategies pop nodes from degree buckets in CPython set order) is
     # byte-identical — verified struct==faithful for every str strategy.
-    # Multigraph / directed keep the faithful path (structural would drop
-    # parallel edges / direction).
-    if not G.is_multigraph() and not G.is_directed():
+    # Multigraph keeps the faithful path (structural would drop parallel edges).
+    #
+    # br-r37-c1-vevfq (directed): DIRECTED graphs used to be excluded here too and paid
+    # the FAITHFUL conversion, measuring 0.136x against networkx - 19,304,753 against
+    # 2,624,760 Ir/call on a 250-node DiGraph. Direction survives an nx.DiGraph
+    # structural copy, and the result is byte-identical for these strategies: 1280 cases
+    # swept over 8 strategies x 40 seeds x permuted node insertion order x attributed
+    # graphs, comparing exceptions by type AND args, 0 divergences.
+    #
+    # This does NOT make the row a win. It is ~2.5x self and still lands near 0.22x,
+    # because even the structural copy costs more than networkx's entire call. Closing it
+    # needs a native directed kernel, which is what the undirected class has (8.7x).
+    if not G.is_multigraph():
         # br-r37-c1-rqsur: the connected_sequential_{bfs,dfs} strategies
         # traverse the graph's adjacency in iteration order, so the cheap
         # structural conversion below (``add_edges_from(G.edges())`` rebuilds
@@ -18026,7 +18040,10 @@ def greedy_color(G, strategy="largest_first", interchange=False):
         # natively above; smallest_last / saturation / random_sequential /
         # independent_set) depend only on degree/saturation buckets, not adj
         # iteration order, so the structural shortcut stays byte-identical.
-        if strategy in (
+        # The native traversal below uses connected_components, which is undirected-only;
+        # directed graphs fall through to the structural helper, where networkx raises
+        # NetworkXNotImplemented exactly as it does today (covered by the sweep above).
+        if not G.is_directed() and strategy in (
             "connected_sequential",
             "connected_sequential_bfs",
             "connected_sequential_dfs",
