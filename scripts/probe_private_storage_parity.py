@@ -112,31 +112,61 @@ CASES = [
     ("MultiDiGraph", "_pred", PRED), ("MultiDiGraph", "_node", NODE),
 ]
 
-total = 0
-diverged = []
-for cls, attr, mapping in CASES:
-    ops = OPS + (DIRECTED_OPS if "Di" in cls else [])
-    for label, fn in ops:
-        res = []
-        for mod in (nx, fnx):
-            g = getattr(mod, cls)()
-            g.add_edge("a", "b")
-            try:
-                setattr(g, attr, dict(mapping))
-            except Exception as exc:  # noqa: BLE001
-                res.append((f"SETATTR:{type(exc).__name__}", ""))
-                continue
-            res.append(call(lambda: fn(g)))
-        total += 1
-        if res[0] != res[1]:
-            diverged.append((cls, attr, label, res[0], res[1]))
+def compare_one(cls, attr, mapping, fn):
+    """Run one (class, assignment, read) cell and return the (nx, fnx) outcomes.
 
-print(f"{len(diverged)} divergences out of {total} comparisons\n")
-by_op = {}
-for cls, attr, label, e, g in diverged:
-    by_op.setdefault(label, []).append((cls, attr, e, g))
-for label in sorted(by_op, key=lambda k: -len(by_op[k])):
-    rows = by_op[label]
-    print(f"=== {label}  ({len(rows)} case(s)) ===")
-    for cls, attr, e, g in rows:
-        print(f"    {cls:13s} {attr:6s} nx={str(e)[:44]:46s} fnx={str(g)[:44]}")
+    br-r37-c1-vbe1o: split out so the sweep has ONE definition shared by this
+    diagnostic and the regression lock in
+    tests/python/test_private_storage_read_api_parity.py. The family this probe was
+    written to survey is closed - 97 divergences when it landed, 0 on HEAD - so the
+    surface is now asserted rather than only reported, and duplicating the case table
+    into the test would let the two drift.
+    """
+    res = []
+    for mod in (nx, fnx):
+        g = getattr(mod, cls)()
+        g.add_edge("a", "b")
+        try:
+            setattr(g, attr, dict(mapping))
+        except Exception as exc:  # noqa: BLE001
+            res.append((f"SETATTR:{type(exc).__name__}", ""))
+            continue
+        res.append(call(lambda: fn(g)))
+    return res[0], res[1]
+
+
+def iter_cells():
+    """Yield every (cls, attr, mapping, label, fn) cell the sweep compares."""
+    for cls, attr, mapping in CASES:
+        for label, fn in OPS + (DIRECTED_OPS if "Di" in cls else []):
+            yield cls, attr, mapping, label, fn
+
+
+def run_sweep():
+    """Return (total, diverged) over the whole surface."""
+    total = 0
+    diverged = []
+    for cls, attr, mapping, label, fn in iter_cells():
+        expected, got = compare_one(cls, attr, mapping, fn)
+        total += 1
+        if expected != got:
+            diverged.append((cls, attr, label, expected, got))
+    return total, diverged
+
+
+def main():
+    total, diverged = run_sweep()
+
+    print(f"{len(diverged)} divergences out of {total} comparisons\n")
+    by_op = {}
+    for cls, attr, label, e, g in diverged:
+        by_op.setdefault(label, []).append((cls, attr, e, g))
+    for label in sorted(by_op, key=lambda k: -len(by_op[k])):
+        rows = by_op[label]
+        print(f"=== {label}  ({len(rows)} case(s)) ===")
+        for cls, attr, e, g in rows:
+            print(f"    {cls:13s} {attr:6s} nx={str(e)[:44]:46s} fnx={str(g)[:44]}")
+
+
+if __name__ == "__main__":
+    main()
