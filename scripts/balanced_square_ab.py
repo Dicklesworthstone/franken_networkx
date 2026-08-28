@@ -2472,6 +2472,93 @@ def workload_claim_kosaraju(reps: int):
     return build, ops
 
 
+def workload_claim_weighted_shortest_path(reps: int):
+    """Exact live H2H fixture for br-r37-c1-p80x1.34.
+
+    The full ordered path, each selected edge weight, and its canonical hash
+    are preflighted before either arm is timed.  In particular, a naïve
+    implementation that returns a different equal-cost path is rejected.
+    """
+    try:
+        from scripts.perf_harness import _build_pair, canonical_bytes
+    except ModuleNotFoundError:
+        from perf_harness import _build_pair, canonical_bytes
+
+    if os.environ.get("PYTHONHASHSEED") != "0":
+        raise RuntimeError(
+            "the weighted shortest_path claim fixture requires PYTHONHASHSEED=0"
+        )
+
+    node_count = 2_000
+    edge_count = 8_000
+    seed = 7
+    source = "0"
+    target = "1999"
+    weight = "weight"
+    expected_input_bytes = 398_318
+    expected_input_sha256 = (
+        "03c62edb3bc632ec6fedf20e7a7061e42688aa1d655e9128dbc4980c2af54de0"
+    )
+    expected_path = ("0", "1610", "1531", "1102", "184", "452", "1999")
+    expected_edge_weights = (4, 1, 4, 5, 3, 2)
+    expected_total_weight = 19
+    expected_output_bytes = 51
+    expected_output_sha256 = (
+        "52a956a6868cbe0c02c56c5b963e2739aeb19a60b4d876fe747111db192676bb"
+    )
+    shortest_nx, shortest_fnx = _build_pair(
+        node_count,
+        edge_count,
+        seed=seed,
+        weighted=True,
+    )
+    input_nx_bytes = canonical_bytes(shortest_nx)
+    input_fnx_bytes = canonical_bytes(shortest_fnx)
+    if (
+        input_nx_bytes != input_fnx_bytes
+        or len(input_nx_bytes) != expected_input_bytes
+        or hashlib.sha256(input_nx_bytes).hexdigest() != expected_input_sha256
+    ):
+        raise RuntimeError("weighted shortest_path input no longer matches its contract")
+
+    def build(module):
+        graph = shortest_nx if module is nx else shortest_fnx
+        path = module.shortest_path(graph, source, target, weight=weight)
+        path_bytes = canonical_bytes(path)
+        edge_weights = tuple(
+            graph[u][v][weight] for u, v in zip(path, path[1:])
+        )
+        if (
+            type(path) is not list
+            or tuple(path) != expected_path
+            or edge_weights != expected_edge_weights
+            or sum(edge_weights) != expected_total_weight
+            or len(path_bytes) != expected_output_bytes
+            or hashlib.sha256(path_bytes).hexdigest() != expected_output_sha256
+        ):
+            raise RuntimeError(
+                "weighted shortest_path complete ordered path no longer matches "
+                "its contract"
+            )
+        return graph, module
+
+    def ops(graph, module):
+        def shortest_path_many():
+            result = None
+            for _ in range(reps):
+                result = module.shortest_path(graph, source, target, weight=weight)
+            return result
+
+        return {
+            "claim/shortest_path(weighted) n=2000 m=8000 seed=7 "
+            'source="0" target="1999" weight="weight" method=default': (
+                shortest_path_many
+            )
+        }
+
+    return build, ops
+
+
 def workload_claim_simple_digraph_bellman(reps: int):
     """Live simple-DiGraph Bellman-Ford row (br-r37-c1-mg7hw).
 
@@ -2635,6 +2722,7 @@ WORKLOADS = {
     "claim-bidirectional-dijkstra": workload_claim_bidirectional_dijkstra,
     "claim-label-propagation": workload_claim_label_propagation,
     "claim-kosaraju": workload_claim_kosaraju,
+    "claim-weighted-shortest-path": workload_claim_weighted_shortest_path,
     "claim-simple-digraph-bellman": workload_claim_simple_digraph_bellman,
     "claim-multidigraph-bellman": workload_claim_multidigraph_bellman,
     "claim-digraph-predecessors": workload_claim_digraph_predecessors,
