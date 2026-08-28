@@ -147,7 +147,19 @@ def run_cell(cls, spelling, keytype, rounds=15):
                 g[u][v]
         return run
 
-    make = probe_edges if spelling == "edges[u,v]" else probe_adj
+    def probe_ged(g):
+        # DECOMPOSITION ARM. `get_edge_data` is the native lookup reached directly, with no
+        # EdgeView subscript in front of it. Subtracting it from `edges[u,v]` on the SAME
+        # class in the SAME invocation separates the Python wrapper's cost from the native
+        # lookup's, which is what decides whether the lever is the class asymmetry (Python
+        # body on the directed view) or the lookup itself.
+        ged = g.get_edge_data
+        def run():
+            for u, v in pairs:
+                ged(u, v)
+        return run
+
+    make = {"edges[u,v]": probe_edges, "G[u][v]": probe_adj}.get(spelling, probe_ged)
     arms = {"fnx": make(fg), "nx": make(ng), "null_f": make(fg2), "null_n": make(ng2)}
     for fn in arms.values():      # warm every arm over the full probe list
         fn()
@@ -168,7 +180,7 @@ def main():
     rows = []
     for keytype in ("str", "int"):
         for cls in ("Graph", "DiGraph"):
-            for spelling in ("edges[u,v]", "G[u][v]"):
+            for spelling in ("edges[u,v]", "G[u][v]", "get_edge_data"):
                 ratio, null_f, null_n, fns, nns = run_cell(cls, spelling, keytype)
                 rows.append((keytype, cls, spelling, ratio, null_f, null_n, fns, nns))
     return rows
@@ -195,7 +207,7 @@ fn main() {
         eprintln!("fnx_extension {}", fetch("FNX_EXT"));
         eprintln!("incumbent {}", fetch("NX_BUILD"));
         eprintln!(
-            "{:<5} {:<8} {:<12} {:>10} {:>9} {:>9} {:>10} {:>10}",
+            "{:<5} {:<8} {:<14} {:>10} {:>9} {:>9} {:>10} {:>10}",
             "key", "class", "spelling", "nx/fnx", "null fnx", "null nx", "fnx ns", "nx ns"
         );
 
@@ -222,7 +234,7 @@ fn main() {
                 (false, false) => "  <- BOTH NULLS OUT OF BAND, withheld",
             };
             eprintln!(
-                "{key:<5} {cls:<8} {spelling:<12} {ratio:9.3}x {null_f:9.3} {null_n:9.3} {fns:10.1} {nns:10.1}{flag}"
+                "{key:<5} {cls:<8} {spelling:<14} {ratio:9.3}x {null_f:9.3} {null_n:9.3} {fns:10.1} {nns:10.1}{flag}"
             );
         }
     });
