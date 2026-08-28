@@ -42,6 +42,10 @@ name = "networkx_head_to_head"
 harness = false
 
 [[bench]]
+name = "has_node_h2h"
+harness = false
+
+[[bench]]
 name = "public_api_gauntlet"
 harness = false
 
