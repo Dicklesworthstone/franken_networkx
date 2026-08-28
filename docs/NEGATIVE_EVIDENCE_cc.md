@@ -4080,6 +4080,25 @@ evidence against this lever. CONSEQUENCE: my gate was built on that row's `level
 it declines `grid_1600` — yet the forced `chunked_bitpar` arm was never actually slower there. The gate
 is probably TOO CONSERVATIVE and may be leaving a win on the table. Tuning, not correctness.
 
+### br-r37-c1-6uvhg — current live remeasurement (2026-08-28)
+
+The old 0.27x row is now superseded for the current source, but only for the measured configuration.
+This used one in-process `networkx 3.6.1` / FNX square on `grid_2d_graph(40, 40)` (1,600 nodes,
+3,120 edges), `taskset -c 57`, `RAYON_NUM_THREADS=1`, 7 rounds, 3 warmups, and 2 calls per timed
+slot. Both public results were exactly `26.666666666666668` before timing. The loaded ABI3 ELF was
+`python/franken_networkx/_fnx.abi3.so`, SHA-256
+`cd17e9fcc7e470b0120a59f2eb5106fecfedbb8f3a34c979255ed8c06428a935`.
+
+| comparison | ratio (left/right) | 95% bootstrap interval | A/A incumbent / FNX | SMT sibling | verdict |
+|---|---:|---:|---:|---:|---|
+| NetworkX public ASPL / FNX public auto | **169.781x** | [169.134, 170.084] | 1.001 / 1.000 | 0.92% | ADMISSIBLE |
+| FNX forced `persource` / forced `chunked` | **3.374x** | [3.362, 3.379] | 1.002 / 0.993 | 1.09% | ADMISSIBLE |
+
+The second row is the required self-time: the current chunked source-group kernel is faster than the
+pre-chunk per-source arm, rather than the old reject's alleged 0.27x loss. The first is the required
+live incumbent comparison in the same invocation. Neither result authorizes a broader claim about
+other thread counts, graph shapes, or the historical wide-sweep implementation.
+
 ### Correctness (13/13 green on `ovh-a`; byte-exact)
 
 chunked == sequential kernel at every lane width 1..8; all three arms agree BIT-FOR-BIT (`to_bits`) on
