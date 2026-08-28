@@ -2252,6 +2252,46 @@ def workload_claim_simple_digraph_bellman(reps: int):
     return build, ops
 
 
+def workload_claim_digraph_predecessors(reps: int):
+    """Consumed DiGraph predecessor iterators (br-r37-c1-predrow-8vytj).
+
+    The original loss was the Python-body cost of constructing and consuming a
+    predecessor iterator.  Keep both reported indegree scales in one paired
+    invocation: a native row cache that only helps the large row, or a shortcut
+    that mishandles insertion order, cannot pass this workload's complete
+    iterator-output parity gate.
+    """
+    degrees = (3, 2_000)
+    target = "target"
+
+    def build(module):
+        graphs = {}
+        for degree in degrees:
+            graph = module.DiGraph()
+            for index in range(degree):
+                graph.add_edge(f"source-{index}", target)
+            if graph.number_of_nodes() != degree + 1 or graph.number_of_edges() != degree:
+                raise RuntimeError("DiGraph predecessor fixture changed")
+            graphs[degree] = graph
+        return graphs[degrees[0]], graphs
+
+    def ops(_graph, graphs):
+        table = {}
+        for degree, graph in graphs.items():
+            def predecessors_many(graph=graph):
+                result = None
+                for _ in range(reps):
+                    result = tuple(graph.predecessors(target))
+                return result
+
+            table[f"claim/DiGraph tuple(predecessors) indegree={degree}"] = (
+                predecessors_many
+            )
+        return table
+
+    return build, ops
+
+
 WORKLOADS = {
     "view-reads": workload_view_reads,
     "undirected-nbunch": workload_undirected_nbunch,
@@ -2282,6 +2322,7 @@ WORKLOADS = {
     "claim-read-gml": workload_claim_read_gml,
     "claim-k-corona": workload_claim_k_corona,
     "claim-simple-digraph-bellman": workload_claim_simple_digraph_bellman,
+    "claim-digraph-predecessors": workload_claim_digraph_predecessors,
 }
 
 
