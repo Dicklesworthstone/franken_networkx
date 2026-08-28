@@ -15683,15 +15683,17 @@ def _branching_partition_graph_for_networkx(G, partition):
     return graph
 
 
-def _minimum_branching_structural_nx(G, attr, default):
-    """Structural-only nx delegation for undirected ``minimum_branching``.
+def _branching_structural_nx(G, nx_name, attr, default):
+    """Structural-only nx delegation for the branching family.
 
-    br-r37-c1-p80x1.14. Lives in a private helper so the public wrapper keeps no direct
+    br-r37-c1-p80x1.14. Lives in a private helper so the public wrappers keep no direct
     ``_nx.*`` reference, matching ``_greedy_color_structural_nx`` and
     ``_min_weight_matching_structural_nx``. Nodes in order, edges in order, carrying only
-    the caller's ``attr`` - which is all networkx's own output retains.
+    the caller's ``attr`` - which is all networkx's own output retains when
+    ``preserve_attrs`` is false. Mirrors the input's directedness, since a branching on a
+    DiGraph is a different problem from one on a Graph.
     """
-    _H = _nx.Graph()
+    _H = _nx.DiGraph() if G.is_directed() else _nx.Graph()
     _H.add_nodes_from(G)
     # Copy `attr` ONLY where the edge actually carries it, and let networkx apply its own
     # `default` to the rest. Materialising `d.get(attr, default)` here is WRONG and was
@@ -15701,7 +15703,7 @@ def _minimum_branching_structural_nx(G, attr, default):
     _H.add_edges_from(
         (u, v, {attr: d[attr]} if attr in d else {}) for u, v, d in G.edges(data=True)
     )
-    return _nx.minimum_branching(_H, attr=attr, default=default)
+    return getattr(_nx, nx_name)(_H, attr=attr, default=default)
 
 
 def minimum_branching(G, attr="weight", default=1, preserve_attrs=False, partition=None):
@@ -15747,7 +15749,7 @@ def minimum_branching(G, attr="weight", default=1, preserve_attrs=False, partiti
             and not preserve_attrs
         ):
             return _from_nx_graph(
-                _minimum_branching_structural_nx(G, attr, default)
+                _branching_structural_nx(G, "minimum_branching", attr, default)
             )
         nx_result = _call_networkx_for_parity(
             "minimum_branching", _branching_partition_graph_for_networkx(G, partition),
@@ -15781,6 +15783,27 @@ def maximum_branching(G, attr="weight", default=1, preserve_attrs=False, partiti
     """
     G = _coerce_arg_to_fnx_graph(G)
     from franken_networkx.readwrite import _from_nx_graph
+
+    # br-r37-c1-p80x1.14: the delegation above stays - br-r37-c1-kb9hm rejected the native
+    # Edmonds kernel because it does not reproduce nx's incoming-edge iteration order
+    # through tie-rich cycle contractions - but the CONVERSION does not have to be
+    # faithful. networkx's output carries only the `attr` weight here (verified on both
+    # classes); node and graph attributes are dropped. Measured at n=400:
+    # DiGraph 432.1M Ir/call against nx's 378.7M (0.876x), Graph 215.3M against 164.8M
+    # (0.766x) - every call was paying an attribute copy the result discards.
+    #
+    # Same scope clauses as minimum_branching, each checked rather than assumed:
+    # preserve_attrs=True DOES retain extra edge attributes; a multigraph would lose its
+    # parallel edges to a simple copy; partition routes through a different input; and
+    # `attr` is carried rather than hardcoded.
+    if (
+        partition is None
+        and not G.is_multigraph()
+        and not preserve_attrs
+    ):
+        return _from_nx_graph(
+            _branching_structural_nx(G, "maximum_branching", attr, default)
+        )
     nx_result = _call_networkx_for_parity(
         "maximum_branching", _branching_partition_graph_for_networkx(G, partition),
         attr=attr, default=default,
