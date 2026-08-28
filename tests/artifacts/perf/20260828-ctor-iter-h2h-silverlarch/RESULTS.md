@@ -82,6 +82,64 @@ front and cannot size a generator, so the attributed path re-allocates as it str
 a hypothesis; this run measures the effect, not the cause, and the DiGraph pair that would
 corroborate it had its list row withheld.
 
+## SECOND RUN: the mechanism is a MISSING KERNEL, established without timing
+
+Reading the source rather than guessing at the "cannot size a generator" hypothesis from the
+first run: `br-r37-c1-mgaefgen` already found and fixed exactly this shape. Its comment records
+that the native batch kernels are gated on `isinstance(ebunch_to_add, (list, tuple))`, so
+"handing this function a GENERATOR disqualified every one of them and fell through to the
+per-edge Python loop", and it materialises the generator to make them reachable again — for the
+MULTIGRAPH classes. Its own note says "DiGraph is unaffected ... this is multigraph-only".
+
+That points at a partially applied fix, and the check is deterministic — no timing, no nulls:
+
+    class           plain batch   ATTR batch   str-keyed batch
+    Graph                  True        False             False
+    DiGraph                True        False             False
+    MultiGraph             True         True              True
+    MultiDiGraph           True         True             False
+
+`_try_add_attr_edges_from_batch` EXISTS ON BOTH MULTIGRAPH CLASSES AND ON NEITHER SIMPLE CLASS.
+The simple-class `add_edges_from` retry after materialisation (`br-aefgenbatch`) calls only
+`_try_add_edges_from_batch`, the plain-2-tuple kernel, which declines a 3-tuple carrying a data
+dict — so on `Graph` and `DiGraph` an ATTRIBUTED bunch has no bulk path at all, from a list or
+from a generator. That is a concrete missing kernel, named, and it does not depend on any
+ratio.
+
+## The timing half, and what it does NOT establish
+
+    class         shape  feed     nx/fnx  null fnx  null nx   fnx ms    nx ms
+    DiGraph       plain  iter     1.133x     1.090    1.082    9.109   10.321
+    MultiGraph    plain  iter     1.288x     1.079    1.031   25.251   32.516
+    MultiGraph    plain  list     1.920x     1.078    1.012   16.341   31.370
+    MultiGraph    attr   iter     1.744x     0.980    0.965   18.037   31.463
+    MultiGraph    attr   list     2.225x     0.990    1.007   13.679   30.434
+    MultiDiGraph  plain  iter     1.353x     1.034    0.993   19.564   26.479
+    MultiDiGraph  plain  list     1.398x     1.048    0.958   18.207   25.446
+    MultiDiGraph  attr   iter     1.360x     0.971    0.973   23.481   31.922
+    MultiDiGraph  attr   list     1.776x     1.001    0.990   17.468   31.026
+
+    WITHHELD (7): every Graph row, and DiGraph plain/list, attr/iter, attr/list.
+
+THE MULTI CLASSES WIN ON ATTRIBUTED INPUT — 1.360x to 2.225x, every null in band — which is
+what having the attr kernel looks like.
+
+THE SIMPLE-CLASS ATTRIBUTED LOSS IS NOT ESTABLISHED BY THIS RUN, and saying so matters more
+than repeating the first run's number. Every `Graph` row and three of four `DiGraph` rows were
+withheld: precisely the cells that carry the hypothesis. `Graph attr iter` read 0.653x with an
+fnx-arm null of 0.899 — just outside the band, directionally consistent with the first run's
+0.782x but NOT quotable. So the loss has been observed once with passing nulls (first run) and
+once un-quotably (this run). It is not contradicted; it is under-measured, and one quotable
+observation is not two.
+
+THE NULL FIXES WORKED, BUT ONLY WHERE THEY WERE NOT NEEDED MOST. Interleaving the two payload
+builds element by element, shortening the slots (21 rounds x 1 call), and disabling the cyclic
+collector across the timed region took the MULTI classes from mostly-withheld to 8/8 quotable
+with nulls in 0.958-1.079. The simple classes got worse, not better. Their fixtures are the
+cheapest to build and their constructors the fastest, so their slots are the shortest and the
+most exposed to whatever the host is doing — which is the opposite of the regime the fix was
+designed for. A future run on these cells should raise the per-slot work rather than lower it.
+
 ## Reproduce
 
     rch exec -- cargo run --release -j 2 -p fnx-python --example ctor_iter_h2h

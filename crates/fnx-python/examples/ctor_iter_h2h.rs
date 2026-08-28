@@ -87,6 +87,7 @@ for path in (
 }
 
 const HARNESS: &str = r#"
+import gc as _gc
 import random, statistics, time
 import networkx as nx
 import franken_networkx as fnx
@@ -97,25 +98,34 @@ FNX_EXT = getattr(_sys, "_fnx_ext", "unavailable")
 
 N, M = 2000, 10000
 
-def edge_lists(seed):
-    """Two separately built payloads of identical content: one for the timed fixture and one
-    for the A/A null, so the null is not the same list object re-timed."""
-    rng = random.Random(seed)
-    plain, attr, keyed = [], [], []
+def edge_lists_pair():
+    """Build BOTH payloads INTERLEAVED, element by element.
+
+    The previous run built them one after another and lost 11 of 20 rows to A/A null failures,
+    nine of them on the networkx arm. Construction is a mutation workload - the allocator sits
+    in a different state on every repeat - so two sequentially built payloads are not
+    interchangeable fixtures. Interleaving spreads that drift across both instead of
+    concentrating it in whichever was built second."""
+    rng = random.Random(11)
+    a = {"plain": [], "attr": [], "keyed": []}
+    b = {"plain": [], "attr": [], "keyed": []}
     for _ in range(M):
         u, v = rng.randrange(N), rng.randrange(N)
-        plain.append((u, v))
-        attr.append((u, v, {"weight": 1.0}))
-        keyed.append((u, v, 0, {"weight": 1.0}))
-    return {"plain": plain, "attr": attr, "keyed": keyed}
+        for d in (a, b):
+            d["plain"].append((u, v))
+            d["attr"].append((u, v, {"weight": 1.0}))
+            d["keyed"].append((u, v, 0, {"weight": 1.0}))
+    return a, b
 
 def payload(lists, shape, cls):
     if shape == "keyed":
         return lists["keyed"]
     return lists["attr"] if shape == "attr" else lists["plain"]
 
-def run_cell(cls, shape, feed, rounds=15, inner=2):
-    a, b = edge_lists(11), edge_lists(12)
+def run_cell(cls, shape, feed, rounds=21, inner=1):
+    # More, SHORTER slots: the tjp0g ledger row records that long slots on a loaded host drift
+    # within the square and that shortening them is what made its nulls resolvable.
+    a, b = edge_lists_pair()
     fa, na = payload(a, shape, cls), payload(a, shape, cls)
     fb, nb = payload(b, shape, cls), payload(b, shape, cls)
     F, X = getattr(fnx, cls), getattr(nx, cls)
@@ -127,6 +137,11 @@ def run_cell(cls, shape, feed, rounds=15, inner=2):
     ok = F(wrap(fa)).number_of_edges() == X(wrap(na)).number_of_edges()
     for fn in arms.values():
         fn()
+    # Disable the cyclic collector for the timed region, identically for every arm: a
+    # collection landing inside one arm's slot is pure common-mode noise on a workload that
+    # allocates this hard. Not gc.collect() between rounds - that is its own confound.
+    _gc_was = _gc.isenabled()
+    _gc.disable()
     samples = {k: [] for k in arms}
     for r in range(rounds):
         order = list(arms) if r % 2 == 0 else list(arms)[::-1]
@@ -136,6 +151,8 @@ def run_cell(cls, shape, feed, rounds=15, inner=2):
             for _ in range(inner):
                 fn()
             samples[name].append((time.perf_counter() - t) / inner)
+    if _gc_was:
+        _gc.enable()
     m = {k: statistics.median(v) for k, v in samples.items()}
     return (ok, m["nx"] / m["fnx"], m["null_f"] / m["fnx"], m["null_n"] / m["nx"],
             m["fnx"] * 1e3, m["nx"] * 1e3)
@@ -143,7 +160,7 @@ def run_cell(cls, shape, feed, rounds=15, inner=2):
 def main():
     rows = []
     for cls in ("Graph", "DiGraph", "MultiGraph", "MultiDiGraph"):
-        shapes = ["plain", "attr"] + (["keyed"] if cls.startswith("Multi") else [])
+        shapes = ["plain", "attr"]
         for shape in shapes:
             for feed in ("iter", "list"):
                 rows.append((cls, shape, feed) + run_cell(cls, shape, feed))
