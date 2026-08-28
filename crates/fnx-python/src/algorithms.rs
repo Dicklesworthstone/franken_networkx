@@ -25939,6 +25939,24 @@ pub fn effective_size_rust(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Py<
 }
 
 /// Return Burt's effective size for unweighted simple directed graphs.
+/// br-r37-c1-vevfq: `largest_first` greedy colouring for a DIRECTED graph.
+///
+/// The undirected kernel cannot serve digraphs, so `greedy_color` was falling back to an
+/// fnx->nx conversion for every directed call. networkx orders by `G.degree` (IN + OUT on
+/// a DiGraph) and reads neighbour colours from `G[u]` (SUCCESSORS only); the kernel does
+/// both, so the colouring is byte-identical.
+#[pyfunction]
+pub fn greedy_color_directed_rust(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Py<PyDict>> {
+    let gr = extract_graph(g)?;
+    let inner = gr.digraph().expect("directed graph expected");
+    let result = py.allow_threads(|| fnx_algorithms::greedy_color_directed_largest_first(inner));
+    let dict = PyDict::new(py);
+    for nc in &result.coloring {
+        dict.set_item(gr.py_node_key(py, &nc.node), nc.color)?;
+    }
+    Ok(dict.unbind())
+}
+
 #[pyfunction]
 pub fn effective_size_directed_rust(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Py<PyDict>> {
     let gr = extract_graph(g)?;
@@ -28854,6 +28872,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(local_constraint_rust, m)?)?;
     m.add_function(wrap_pyfunction!(effective_size_rust, m)?)?;
     m.add_function(wrap_pyfunction!(effective_size_directed_rust, m)?)?;
+    m.add_function(wrap_pyfunction!(greedy_color_directed_rust, m)?)?;
     m.add_function(wrap_pyfunction!(dispersion_full_rust, m)?)?;
     m.add_function(wrap_pyfunction!(dispersion_node_rust, m)?)?;
     // Voronoi cells

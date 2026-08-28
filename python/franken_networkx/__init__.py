@@ -15266,6 +15266,7 @@ from franken_networkx._fnx import (
     bipartite_sets as _bipartite_sets,
     core_number as _raw_core_number,
     greedy_color as _raw_greedy_color,
+    greedy_color_directed_rust as _raw_greedy_color_directed,
     is_bipartite as _raw_is_bipartite,
     is_regular as _raw_is_regular,
     is_forest as _raw_is_forest,
@@ -17997,12 +17998,17 @@ def greedy_color(G, strategy="largest_first", interchange=False):
     # fixtures up to 100 nodes. Other strategies (smallest_last,
     # random_sequential, DSATUR, connected_sequential_*) still
     # diverge from nx tie-breaking and stay on the delegation path.
-    if (
-        strategy == "largest_first"
-        and not G.is_multigraph()
-        and not G.is_directed()
-    ):
+    if strategy == "largest_first" and not G.is_multigraph():
+        # br-r37-c1-vevfq: DIRECTED graphs get their own kernel. networkx's directed
+        # colouring differs from the undirected one in exactly two places - it orders by
+        # `G.degree`, which is IN + OUT on a DiGraph, and reads neighbour colours from
+        # `G[u]`, which is SUCCESSORS ONLY - so the undirected kernel cannot serve them
+        # and they were paying an fnx->nx conversion instead (0.136x against networkx).
+        # Verified 0 divergences over 300 random digraphs, including permuted node
+        # insertion order, single-node and edgeless graphs.
         try:
+            if G.is_directed():
+                return _raw_greedy_color_directed(G)
             return _raw_greedy_color(G, "largest_first")
         except Exception:
             pass

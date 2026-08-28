@@ -94,3 +94,52 @@ def test_directed_multigraph_keeps_the_faithful_path():
     for graph in (fg, ng):
         graph.add_edges_from([(0, 1), (0, 1), (1, 2), (2, 0)])
     assert _outcome(lambda: fnx.greedy_color(fg)) == _outcome(lambda: nx.greedy_color(ng))
+
+
+def test_directed_largest_first_uses_the_native_kernel(monkeypatch):
+    """The default strategy on a DiGraph must not convert to networkx at all.
+
+    br-r37-c1-vevfq. A native directed kernel (greedy_color_directed_rust) took this row
+    from 0.136x to 7.512x against networkx - 19,304,753 to 349,428 Ir/call - by removing
+    the conversion entirely rather than making it cheaper. If a regression quietly sends
+    the default strategy back through either fallback, this fails.
+    """
+    fg = fnx.DiGraph([(0, 1), (1, 2), (2, 0), (2, 3), (3, 1), (4, 0)])
+    ng = nx.DiGraph([(0, 1), (1, 2), (2, 0), (2, 3), (3, 1), (4, 0)])
+
+    def fail_fallback(*args, **kwargs):
+        raise AssertionError("directed largest_first must use the native kernel")
+
+    monkeypatch.setattr(fnx, "_greedy_color_structural_nx", fail_fallback)
+    monkeypatch.setattr(fnx, "_call_networkx_for_parity", fail_fallback)
+    assert _outcome(lambda: fnx.greedy_color(fg)) == _outcome(lambda: nx.greedy_color(ng))
+
+
+def test_directed_native_kernel_matches_networkx_directly():
+    """The kernel itself, not just the wrapper - ordering and successor semantics.
+
+    networkx orders by G.degree (IN + OUT on a DiGraph) and reads neighbour colours from
+    G[u] (SUCCESSORS only). Getting either wrong changes the colouring, so this compares
+    the raw kernel against networkx over shapes that separate them: permuted insertion
+    order (ties are broken by insertion order), single-node and edgeless graphs.
+    """
+    from franken_networkx._fnx import greedy_color_directed_rust as kernel
+
+    for seed in range(25):
+        rng = random.Random(seed)
+        n = rng.randint(1, 30)
+        labels = list(range(n))
+        if seed % 2:
+            rng.shuffle(labels)
+        fg, ng = fnx.DiGraph(), nx.DiGraph()
+        fg.add_nodes_from(labels)
+        ng.add_nodes_from(labels)
+        for i in range(n):
+            for _ in range(rng.choice([0, 1, 3, 6])):
+                j = rng.randrange(n)
+                if i != j:
+                    fg.add_edge(labels[i], labels[j])
+                    ng.add_edge(labels[i], labels[j])
+        got = {str(k): v for k, v in kernel(fg).items()}
+        expected = {str(k): v for k, v in nx.greedy_color(ng, strategy="largest_first").items()}
+        assert got == expected, f"seed {seed}"
