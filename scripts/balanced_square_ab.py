@@ -2206,6 +2206,52 @@ def workload_claim_k_corona(reps: int):
     return build, ops
 
 
+def workload_claim_simple_digraph_bellman(reps: int):
+    """Live simple-DiGraph Bellman-Ford row (br-r37-c1-mg7hw).
+
+    This is the direct kernel target from the MultiDiGraph investigation: the
+    same N=800, three-forward-edge, seed=7 weighted fixture, but without the
+    MultiDiGraph projection wrapper.  It measures the public path-length
+    contract against NetworkX in the same process and lets the normal harness
+    reject any result mismatch before timing.
+    """
+    node_count = 800
+    source = "n0"
+    target = f"n{node_count // 2}"
+    seed = 7
+
+    def build(module):
+        rng = random.Random(seed)
+        graph = module.DiGraph()
+        for i in range(node_count):
+            for delta in (1, 2, 3):
+                graph.add_edge(
+                    f"n{i}",
+                    f"n{(i + delta) % node_count}",
+                    weight=float(rng.randint(1, 9)),
+                )
+        if graph.number_of_nodes() != node_count or graph.number_of_edges() != 2_400:
+            raise RuntimeError("simple-DiGraph Bellman-Ford fixture changed")
+        return graph, module
+
+    def ops(graph, module):
+        def path_length_many():
+            result = None
+            for _ in range(reps):
+                result = module.bellman_ford_path_length(
+                    graph, source, target, weight="weight"
+                )
+            return result
+
+        return {
+            "claim/simple DiGraph bellman_ford_path_length n=800 m=2400 seed=7": (
+                path_length_many
+            ),
+        }
+
+    return build, ops
+
+
 WORKLOADS = {
     "view-reads": workload_view_reads,
     "undirected-nbunch": workload_undirected_nbunch,
@@ -2235,6 +2281,7 @@ WORKLOADS = {
     "incumbent-fixtures-2": workload_incumbent_fixtures_2,
     "claim-read-gml": workload_claim_read_gml,
     "claim-k-corona": workload_claim_k_corona,
+    "claim-simple-digraph-bellman": workload_claim_simple_digraph_bellman,
 }
 
 

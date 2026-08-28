@@ -2345,13 +2345,6 @@ pub fn bellman_ford_shortest_paths(
     }
 
     let node_count = graph.node_count();
-    let mut distances = HashMap::<String, f64>::new();
-    let mut predecessors = HashMap::<String, Option<String>>::new();
-    let mut discovery_order = Vec::<String>::new();
-
-    distances.insert(source.to_owned(), 0.0);
-    predecessors.insert(source.to_owned(), None);
-
     let mut nodes_touched = 1usize;
     let mut edges_scanned = 0usize;
 
@@ -2392,16 +2385,13 @@ pub fn bellman_ford_shortest_paths(
     let source_idx = graph
         .get_node_index(source)
         .expect("has_node checked above");
-    let (negative_cycle_detected, queue_peak) = bellman_ford_spfa_csr(
+    let spfa = bellman_ford_spfa_csr(
         source_idx,
         &names,
         &offsets,
         &targets,
         &weights,
         node_count,
-        &mut distances,
-        &mut predecessors,
-        &mut discovery_order,
         &mut cgse_sink,
         &mut nodes_touched,
         &mut edges_scanned,
@@ -2414,14 +2404,10 @@ pub fn bellman_ford_shortest_paths(
         cgse_sink,
     );
 
-    // Emit entries in nx's SPFA first-discovery order. (br-r37-c1-e9rea)
-    let discovery_refs: Vec<&str> = discovery_order.iter().map(String::as_str).collect();
-
-    weighted_paths_result(
-        &discovery_refs,
-        distances,
-        predecessors,
-        negative_cycle_detected,
+    let queue_peak = spfa.queue_peak;
+    weighted_paths_result_from_spfa(
+        &names,
+        spfa,
         ComplexityWitness {
             algorithm: "bellman_ford_shortest_paths".to_owned(),
             complexity_claim: "O(|V| * |E|)".to_owned(),
@@ -2454,13 +2440,6 @@ pub fn bellman_ford_shortest_paths_directed(
     }
 
     let node_count = digraph.node_count();
-    let mut distances = HashMap::<String, f64>::new();
-    let mut predecessors = HashMap::<String, Option<String>>::new();
-    let mut discovery_order = Vec::<String>::new();
-
-    distances.insert(source.to_owned(), 0.0);
-    predecessors.insert(source.to_owned(), None);
-
     let mut nodes_touched = 1usize;
     let mut edges_scanned = 0usize;
     let mut cgse_sink: Option<CgseWitnessSink> = None;
@@ -2485,29 +2464,22 @@ pub fn bellman_ford_shortest_paths_directed(
     let source_idx = digraph
         .get_node_index(source)
         .expect("has_node checked above");
-    let (negative_cycle_detected, queue_peak) = bellman_ford_spfa_csr(
+    let spfa = bellman_ford_spfa_csr(
         source_idx,
         &names,
         &csr.succ_offsets,
         &csr.succ_targets,
         &weights,
         node_count,
-        &mut distances,
-        &mut predecessors,
-        &mut discovery_order,
         &mut cgse_sink,
         &mut nodes_touched,
         &mut edges_scanned,
     );
 
-    // Emit entries in nx's SPFA first-discovery order. (br-r37-c1-e9rea)
-    let discovery_refs: Vec<&str> = discovery_order.iter().map(String::as_str).collect();
-
-    weighted_paths_result(
-        &discovery_refs,
-        distances,
-        predecessors,
-        negative_cycle_detected,
+    let queue_peak = spfa.queue_peak;
+    weighted_paths_result_from_spfa(
+        &names,
+        spfa,
         ComplexityWitness {
             algorithm: "bellman_ford_shortest_paths_directed".to_owned(),
             complexity_claim: "O(|V| * |E|)".to_owned(),
@@ -10143,6 +10115,52 @@ fn weighted_paths_result(
     }
 }
 
+/// Index-backed state emitted by the FIFO SPFA walk before it is materialized
+/// into the public, string-owning result type.
+struct BellmanFordSpfaState {
+    negative_cycle_detected: bool,
+    queue_peak: usize,
+    distances: Vec<f64>,
+    predecessors: Vec<u32>,
+    discovery_order: Vec<u32>,
+}
+
+/// Materialize a public Bellman-Ford result directly from the index arrays.
+///
+/// Keeping the walk index-backed avoids constructing three transient
+/// String-keyed containers only to copy the same entries into the two public
+/// vectors. The order remains SPFA first-discovery order, which is observable
+/// through NetworkX's returned dictionaries.
+fn weighted_paths_result_from_spfa(
+    names: &[&str],
+    spfa: BellmanFordSpfaState,
+    witness: ComplexityWitness,
+) -> WeightedShortestPathsResult {
+    let capacity = spfa.discovery_order.len();
+    let mut distances = Vec::with_capacity(capacity);
+    let mut predecessors = Vec::with_capacity(capacity);
+    for index in spfa.discovery_order {
+        let index = index as usize;
+        let node = names[index].to_owned();
+        distances.push(WeightedDistanceEntry {
+            node: node.clone(),
+            distance: spfa.distances[index],
+        });
+        predecessors.push(WeightedPredecessorEntry {
+            node,
+            predecessor: (spfa.predecessors[index] != u32::MAX)
+                .then(|| names[spfa.predecessors[index] as usize].to_owned()),
+        });
+    }
+
+    WeightedShortestPathsResult {
+        distances,
+        predecessors,
+        negative_cycle_detected: spfa.negative_cycle_detected,
+        witness,
+    }
+}
+
 /// Shortest-Path Faster Algorithm (SPFA) relaxation loop, matching the
 /// processing order of networkx's `_inner_bellman_ford`.
 ///
@@ -10170,13 +10188,10 @@ fn bellman_ford_spfa_csr(
     targets: &[u32],
     weights: &[f64],
     node_count: usize,
-    distances: &mut HashMap<String, f64>,
-    predecessors: &mut HashMap<String, Option<String>>,
-    discovery_order: &mut Vec<String>,
     cgse_sink: &mut Option<CgseWitnessSink>,
     nodes_touched: &mut usize,
     edges_scanned: &mut usize,
-) -> (bool, usize) {
+) -> BellmanFordSpfaState {
     let n = names.len();
     let mut dist: Vec<f64> = vec![f64::INFINITY; n];
     let mut pred: Vec<u32> = vec![u32::MAX; n];
@@ -10241,23 +10256,13 @@ fn bellman_ford_spfa_csr(
         }
     }
 
-    // Flush index results into the String-keyed outputs in
-    // first-discovery order (the e9rea emission contract).
-    for &i in &discovered {
-        let name = names[i as usize];
-        distances.insert(name.to_owned(), dist[i as usize]);
-        predecessors.insert(
-            name.to_owned(),
-            if pred[i as usize] == u32::MAX {
-                None
-            } else {
-                Some(names[pred[i as usize] as usize].to_owned())
-            },
-        );
-        discovery_order.push(name.to_owned());
+    BellmanFordSpfaState {
+        negative_cycle_detected: negative_cycle,
+        queue_peak,
+        distances: dist,
+        predecessors: pred,
+        discovery_order: discovered,
     }
-
-    (negative_cycle, queue_peak)
 }
 
 fn relax_weighted_edge(
@@ -65479,6 +65484,38 @@ mod tests {
 
         assert_eq!(dijkstra_order, expected);
         assert_eq!(bellman_ford_order, expected);
+    }
+
+    #[test]
+    fn directed_bellman_ford_keeps_first_equal_predecessor() {
+        let mut graph = DiGraph::strict();
+        for (left, right) in [
+            ("source", "left"),
+            ("source", "right"),
+            ("left", "target"),
+            ("right", "target"),
+        ] {
+            graph
+                .add_edge_with_attrs(left, right, attrs([("weight", "1")]))
+                .expect("directed edge add should succeed");
+        }
+
+        let result = bellman_ford_shortest_paths_directed(&graph, "source", "weight");
+        let order = result
+            .distances
+            .iter()
+            .map(|entry| entry.node.as_str())
+            .collect::<Vec<&str>>();
+        let target_predecessor = result
+            .predecessors
+            .iter()
+            .find(|entry| entry.node == "target")
+            .and_then(|entry| entry.predecessor.as_deref());
+
+        // A naive equal-distance overwrite would select "right"; NetworkX's
+        // FIFO SPFA contract keeps the first predecessor, "left".
+        assert_eq!(order, vec!["source", "left", "right", "target"]);
+        assert_eq!(target_predecessor, Some("left"));
     }
 
     #[test]
