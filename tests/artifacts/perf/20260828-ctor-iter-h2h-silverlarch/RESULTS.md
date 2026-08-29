@@ -201,6 +201,54 @@ The withhold pattern also inverted between runs — the previous run lost nine r
 networkx arm, this one lost all seven on the fnx arm, mostly on the `list` feed. Both arms of
 this workload are non-stationary, in different ways on different days.
 
+## CORRECTION: the "missing kernel" mechanism in this artifact is WRONG
+
+The second-run section above concludes that `_try_add_attr_edges_from_batch` is absent from
+`Graph` and `DiGraph` and therefore "on Graph and DiGraph an ATTRIBUTED bunch has no bulk path
+at all, from a list OR a generator". **That is false**, and it is retracted here rather than
+left standing. Committed as 37d36b527; corrected by deterministic probe.
+
+The introspection that produced it looked for a method NAMED
+`_try_add_attr_edges_from_batch`. The simple classes reach the same capability through
+`_try_add_edges_from_batch`, whose Rust body (`try_add_edges_from_batch_impl`, `impl PyGraph`)
+tries `try_add_plain_edge_batch` and THEN `try_add_attr_edge_batch`. Name-based introspection
+cannot see that, and I treated its absence as absence of the capability.
+
+Two probes settle it, neither involving a ratio:
+
+    Graph._try_add_edges_from_batch([(i, i+1, {'w': 1.0}) for i in range(200)])  -> True, 200 edges
+    (2 edges returns False: there is a SIZE THRESHOLD, which is what made a small
+     first probe look like a decline)
+
+and, instrumenting the real call path by wrapping the native method:
+
+    Graph    attr LIST   batch calls=[('Graph', 2000, True)]    edges=2000
+    Graph    attr GEN    batch calls=[('Graph', 2000, True)]    edges=2000
+    DiGraph  attr GEN    batch calls=[('DiGraph', 2000, True)]  edges=2000
+
+THE ATTRIBUTED GENERATOR REACHES THE NATIVE BATCH ON BOTH SIMPLE CLASSES. The loss is not a
+missing bulk path.
+
+### The mechanism that IS supported: the per-edge attribute surcharge
+
+The measured ratios are unaffected by this correction - `DiGraph(iter(attr_edges))` remains a
+replicated loss at 0.874-0.882x and `DiGraph(iter(edges))` a replicated win at 1.327-1.351x.
+Subtracting them isolates what attaching attributes costs each library, on rows that passed
+their nulls in BOTH passes:
+
+    pass    fnx ms    nx ms   fnx/nx   fnx ns/edge   nx ns/edge
+    pass1    6.146    2.221    2.77x           615          222
+    pass2    6.191    2.291    2.70x           619          229
+
+**Attaching per-edge attribute dicts costs fnx 2.70-2.77x what it costs networkx** - about
+615-619 ns per edge against 222-229 ns - replicated across passes to 2.4%. That surcharge is
+what turns a 1.33x win on the plain feed into a 0.88x loss on the attributed feed, inside the
+same class, the same feed shape, and the same native batch.
+
+So the target is not "add a kernel"; it is the attribute-attachment path INSIDE the batch that
+already runs. What that path actually does was not investigated here and should not be guessed
+at a third time.
+
 ## Reproduce
 
     rch exec -- cargo run --release -j 2 -p fnx-python --example ctor_iter_h2h
