@@ -158,12 +158,24 @@ def run_cell(cls, shape, feed, rounds=21, inner=1):
             m["fnx"] * 1e3, m["nx"] * 1e3)
 
 def main():
+    """TWO INDEPENDENT PASSES over a NARROWED cell set.
+
+    The previous run withheld every Graph row and three of four DiGraph rows - exactly the
+    cells carrying the claim - while the multi classes went 8/8. Narrowing to the simple
+    classes cuts total wall time roughly fourfold, so there is less room for the host to drift
+    across the square, and raising rounds tightens each median.
+
+    Two passes because REPLICATION is the discriminator a passing A/A null cannot substitute
+    for: a null certifies stationarity WITHIN a pass and says nothing about common-mode drift
+    BETWEEN them. Agreement across passes is what makes a number citable; disagreement is
+    reported as disagreement rather than averaged away."""
     rows = []
-    for cls in ("Graph", "DiGraph", "MultiGraph", "MultiDiGraph"):
-        shapes = ["plain", "attr"]
-        for shape in shapes:
-            for feed in ("iter", "list"):
-                rows.append((cls, shape, feed) + run_cell(cls, shape, feed))
+    for attempt in (1, 2):
+        for cls in ("Graph", "DiGraph"):
+            for shape in ("plain", "attr"):
+                for feed in ("iter", "list"):
+                    rows.append((f"pass{attempt}", cls, shape, feed)
+                                + run_cell(cls, shape, feed, rounds=41))
     return rows
 "#;
 
@@ -183,8 +195,8 @@ fn main() {
         eprintln!("fnx_extension {}", fetch("FNX_EXT"));
         eprintln!("incumbent {}", fetch("NX_BUILD"));
         eprintln!(
-            "\n{:<13} {:<6} {:<5} {:>9} {:>9} {:>9} {:>10} {:>10}  {}",
-            "class", "shape", "feed", "nx/fnx", "null fnx", "null nx", "fnx ms", "nx ms", "same edges"
+            "\n{:<6} {:<9} {:<6} {:<5} {:>9} {:>9} {:>9} {:>10} {:>10}  {}",
+            "pass", "class", "shape", "feed", "nx/fnx", "null fnx", "null nx", "fnx ms", "nx ms", "ok"
         );
 
         let rows = globals
@@ -193,9 +205,9 @@ fn main() {
             let row = row.unwrap();
             let s = |i: usize| -> String { row.get_item(i).unwrap().extract().unwrap() };
             let f = |i: usize| -> f64 { row.get_item(i).unwrap().extract().unwrap() };
-            let ok: bool = row.get_item(3).unwrap().extract().unwrap();
-            let (cls, shape, feed) = (s(0), s(1), s(2));
-            let (ratio, null_f, null_n, fms, nms) = (f(4), f(5), f(6), f(7), f(8));
+            let ok: bool = row.get_item(4).unwrap().extract().unwrap();
+            let (pass, cls, shape, feed) = (s(0), s(1), s(2), s(3));
+            let (ratio, null_f, null_n, fms, nms) = (f(5), f(6), f(7), f(8), f(9));
             let band = 0.90..=1.10;
             let flag = match (band.contains(&null_f), band.contains(&null_n)) {
                 (true, true) => "",
@@ -204,7 +216,7 @@ fn main() {
                 (false, false) => "  <- BOTH NULLS OUT OF BAND, withheld",
             };
             eprintln!(
-                "{cls:<13} {shape:<6} {feed:<5} {ratio:8.3}x {null_f:9.3} {null_n:9.3} \
+                "{pass:<6} {cls:<9} {shape:<6} {feed:<5} {ratio:8.3}x {null_f:9.3} {null_n:9.3} \
                  {fms:10.3} {nms:10.3}  {ok}{flag}"
             );
         }

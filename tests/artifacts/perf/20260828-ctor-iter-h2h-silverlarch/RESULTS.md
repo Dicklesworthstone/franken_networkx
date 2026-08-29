@@ -140,6 +140,67 @@ cheapest to build and their constructors the fastest, so their slots are the sho
 most exposed to whatever the host is doing — which is the opposite of the regime the fix was
 designed for. A future run on these cells should raise the per-slot work rather than lower it.
 
+## THIRD RUN: the simple-class attributed-generator loss REPLICATES
+
+Narrowed to the two simple classes (the previous run went 8/8 on the multi classes and withheld
+almost every simple-class row), raised to 41 rounds, and run as TWO INDEPENDENT PASSES in one
+invocation. Replication is the point: an A/A null certifies stationarity WITHIN a pass and says
+nothing about common-mode drift BETWEEN passes, so agreement across passes is what makes a
+number citable.
+
+    bench_elf_sha256  6d55ef7c8c7858513ddad1ef1358353fed5bb562e4f0b2943898cc143e108dbc
+    fnx_extension     .rch-target-hz2-pool-.../release/lib_fnx.so
+                      sha256=030e9292d2d8cea59a1fefd2953fd19ef51f52c601cd6e7ee7020564e5ec92bf
+    incumbent         networkx 3.6.1, worker hz2, bench cpu 15
+
+    pass   class     shape  feed     nx/fnx  null fnx  null nx   fnx ms    nx ms
+    pass1  Graph     plain  iter     1.769x     1.003    0.937    4.823    8.531
+    pass1  Graph     plain  list     2.170x     1.084    0.960    3.770    8.180
+    pass1  Graph     attr   iter     0.632x     0.995    0.996   16.998   10.748
+    pass1  DiGraph   plain  iter     1.351x     1.057    0.941    6.809    9.202
+    pass1  DiGraph   attr   iter     0.882x     1.014    0.973   12.955   11.423
+    pass2  Graph     attr   iter     0.806x     0.956    0.923   14.591   11.765
+    pass2  DiGraph   plain  iter     1.327x     1.040    0.952    6.884    9.136
+    pass2  DiGraph   plain  list     1.536x     1.095    0.917    5.489    8.429
+    pass2  DiGraph   attr   iter     0.874x     0.971    0.935   13.075   11.427
+
+    WITHHELD (7): Graph attr/list both passes, Graph plain/iter + plain/list pass2,
+    DiGraph plain/list pass1, DiGraph attr/list both passes. EVERY withheld row failed on
+    the FNX arm (nulls 1.084-1.266); no row failed on the networkx arm.
+
+### Replication
+
+    cell                   pass1   pass2   spread   verdict
+    Graph attr iter        0.632   0.806    27.5%   direction only
+    DiGraph attr iter      0.882   0.874     0.9%   REPLICATED
+    DiGraph plain iter     1.351   1.327     1.8%   REPLICATED
+
+**`DiGraph(iter(attr_edges))` is a REPLICATED LOSS at 0.874-0.882x** — two independent passes
+0.9% apart, all four nulls in band. That is the citable number this whole line of work was
+after, and it is the first time this cell has been measured twice with both passes quotable.
+
+`Graph(iter(attr_edges))` replicates in DIRECTION only: both passes are losses, 0.632x and
+0.806x, but 27.5% apart. The LOSS is established; the MAGNITUDE is not, and no single figure
+should be quoted for it.
+
+`DiGraph(iter(edges))` is a replicated WIN at 1.327-1.351x, which is the control: the same
+class, the same generator feed, differing only in whether the edges carry attributes. The
+plain feed reaches the native batch and wins; the attributed feed has no kernel to reach and
+loses. That contrast, within one class and one feed shape, is the cleanest evidence here that
+the missing `_try_add_attr_edges_from_batch` is the cause rather than "generators are slow".
+
+### What is still NOT established
+
+The generator-versus-list penalty INSIDE the simple classes. Every `attr list` row was
+withheld in both passes, so there is no quotable list arm to divide the generator arm by. The
+first run's "fnx pays 1.78x for the generator where networkx is flat" figure rests on a single
+pass and is NOT confirmed here; it should not be cited. The vs-networkx ratio for the
+attributed generator is what replicated, and that is all.
+
+The withhold pattern also inverted between runs — the previous run lost nine rows on the
+networkx arm, this one lost all seven on the fnx arm, mostly on the `list` feed. Both arms of
+this workload are non-stationary, in different ways on different days.
+
 ## Reproduce
 
     rch exec -- cargo run --release -j 2 -p fnx-python --example ctor_iter_h2h
