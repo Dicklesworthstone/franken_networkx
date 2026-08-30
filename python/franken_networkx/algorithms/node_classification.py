@@ -14,8 +14,6 @@ larger share at scale. Any other attribute delegates to
 
 import franken_networkx as _fnx
 import networkx as _nx
-import numpy as _np
-import scipy as _sp
 from networkx.utils import not_implemented_for as _not_implemented_for
 
 __all__ = ["harmonic_function", "local_and_global_consistency"]
@@ -24,6 +22,8 @@ __all__ = ["harmonic_function", "local_and_global_consistency"]
 def _get_label_info(G, label_name):
     # Verbatim from networkx.algorithms.node_classification._get_label_info so the
     # label IDs / node indices (hence the argmax tie-breaks) match nx exactly.
+    import numpy as _np
+
     labels = []
     label_to_id = {}
     lid = 0
@@ -46,6 +46,9 @@ def harmonic_function(
     G, max_iter=30, label_name="label", *, backend=None, **backend_kwargs
 ):
     """Node classification by Harmonic function (fnx-native to_scipy)."""
+    import numpy as _np
+    import scipy as _sp
+
     _fnx._validate_backend_dispatch_keywords(
         "harmonic_function", backend, backend_kwargs
     )
@@ -77,6 +80,9 @@ def local_and_global_consistency(
     G, alpha=0.99, max_iter=30, label_name="label", *, backend=None, **backend_kwargs
 ):
     """Node classification by Local and Global Consistency (fnx-native to_scipy)."""
+    import numpy as _np
+    import scipy as _sp
+
     _fnx._validate_backend_dispatch_keywords(
         "local_and_global_consistency", backend, backend_kwargs
     )
