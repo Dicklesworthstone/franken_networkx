@@ -66,6 +66,23 @@ def test_scores_are_ints_not_floats():
         assert not isinstance(score, float)
 
 
+def test_explicit_scorer_uses_the_native_degree_snapshot(monkeypatch):
+    """The public generator must not reconstruct endpoint-degree dictionaries."""
+    _, gfx = _pair()
+    pairs = [(str(i), str(i + 3)) for i in range(0, 40, 2)]
+    native = fnx._raw_preferential_attachment
+    calls = 0
+
+    def score_from_snapshot(graph, ebunch):
+        nonlocal calls
+        calls += 1
+        return native(graph, ebunch)
+
+    monkeypatch.setattr(fnx, "_raw_preferential_attachment", score_from_snapshot)
+    assert len(list(fnx.preferential_attachment(gfx, pairs))) == len(pairs)
+    assert calls == 1
+
+
 def test_native_result_buffer_empty_graph_and_typed_float_scores():
     """The direct binding keeps an empty graph empty and materializes f64 scores."""
     assert raw.preferential_attachment(fnx.Graph()) == []
