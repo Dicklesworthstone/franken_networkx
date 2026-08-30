@@ -569,7 +569,12 @@ fn edgeview_py_node_key(
 /// order) once, reuse/materialize the LIVE per-edge attr-dict handle (so the
 /// yielded dict `is G[u][v]`, matching nx + the prior behaviour), and build the
 /// tuple. `node_filter`, when set, keeps only edges with an endpoint in the set
-/// (the `G.edges(nbunch, data=True)` contract). Caller handles mark_edges_dirty.
+/// (the `G.edges(nbunch, data=True)` contract).
+///
+/// Every yielded dictionary is live, so the caller also records precisely the
+/// yielded edge positions through `mark_alldata_edges_exposed` before calling
+/// this helper. That lets the weighted-size kernels read those dictionaries as
+/// authoritative rather than disabling the store for unrelated edges.
 fn edge_alldata_items(
     py: Python<'_>,
     g: &mut PyGraph,
@@ -681,6 +686,32 @@ fn edge_alldata_items(
         items.push(tuple_object(py, &[py_u, py_v, dict])?);
     }
     Ok(items)
+}
+
+/// Record every live edge-attribute dictionary an all-data edge view can hand
+/// out. Bulk `edges(data=True)` used to call `mark_edges_dirty`, which widened
+/// the escape scope to unknown and permanently disabled the weighted-store
+/// scalar even when the graph was only read. The store already supports a named
+/// escape scope: it keeps its native value for clean edges and consults the live
+/// Python dictionary for each named edge. Recording this exact set is therefore
+/// sound even if the caller mutates any returned raw `dict` later.
+///
+/// The filtered spelling must record only dictionaries it actually returns. An
+/// empty `nbunch` consequently leaves the store clean, matching its having
+/// exposed no mutable state at all.
+fn mark_alldata_edges_exposed(
+    g: &PyGraph,
+    node_filter: Option<&std::collections::HashSet<String>>,
+) {
+    let nodes = node_filter.map(|_| g.inner.nodes_ordered());
+    for (u, v) in g.inner.edges_ordered_indices() {
+        if let (Some(filter), Some(nodes)) = (node_filter, nodes.as_ref())
+            && !(filter.contains(nodes[u]) || filter.contains(nodes[v]))
+        {
+            continue;
+        }
+        g.mark_edge_exposed(u, v);
+    }
 }
 
 /// A view of the graph's edges. Supports ``len``, ``in``, iteration, and ``[]``.
@@ -1010,9 +1041,7 @@ impl EdgeView {
         }
         if matches!(self.data, NodeViewData::AllData) {
             let mut g = self.graph.borrow_mut(py);
-            if g.inner.edge_count() > 0 {
-                g.mark_edges_dirty();
-            }
+            mark_alldata_edges_exposed(&g, None);
             let nodes_seq = g.nodes_seq;
             let edges_seq = g.edges_seq;
             let cached = match &g.edges_alldata_cache {
@@ -1350,9 +1379,7 @@ impl EdgeView {
                 // br-r37-c1-2zudj: one-pass field-split materialization with the
                 // nbunch node filter (see edge_alldata_items).
                 let mut g = self.graph.borrow_mut(py);
-                if g.inner.edge_count() > 0 {
-                    g.mark_edges_dirty();
-                }
+                mark_alldata_edges_exposed(&g, Some(&node_set));
                 edge_alldata_items(py, &mut g, Some(&node_set))?
             } else {
                 let g = self.graph.borrow(py);

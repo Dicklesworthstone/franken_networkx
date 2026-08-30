@@ -288,6 +288,34 @@ pub(crate) fn node_key_is_hashable(key: &Bound<'_, PyAny>) -> bool {
     require_hashable_node_key(key).is_ok()
 }
 
+/// The identity-int fast paths' `usize` view of an exact Python int, obtained
+/// WITHOUT asking CPython to raise.
+///
+/// br-r37-c1-p80x1: every one of those paths used to open with
+/// `n.extract::<usize>()`. On a NEGATIVE int that conversion cannot succeed, and
+/// the way CPython reports the failure is to RAISE `OverflowError` — PyO3 then
+/// takes the exception and throws it away to build the `Err`. So a membership
+/// probe with a negative int key allocated, raised and discarded a Python
+/// exception before it ever reached the ordinary lookup, which is the
+/// `<pyo3::err::PyErr>::take` the instruction-count artifact named without
+/// locating.
+///
+/// The cost is not marginal. Worker H2H, both arms in one invocation, A/A nulls
+/// `1.001` / `0.999`, with networkx FLAT across the two cells (`48.8` against
+/// `48.3` ns) as the control: an absent NEGATIVE int cost `229.8` ns against
+/// `75.5` ns for an absent POSITIVE one. That is `154` ns, three times the whole
+/// remaining call, and the sign of the probe is most of what the published
+/// `has_node` `0.41x` loss was made of.
+///
+/// `i64` is the widest extraction CPython answers without raising, and narrowing
+/// to it costs the fast path nothing real: this path can only fire when the int
+/// equals its own node index, so an int above `i64::MAX` could never have taken
+/// it. Anything outside the range falls through to the general canonical path,
+/// which is correct for every int.
+pub(crate) fn exact_int_node_index(n: &Bound<'_, PyAny>) -> Option<usize> {
+    usize::try_from(n.extract::<i64>().ok()?).ok()
+}
+
 /// Canonicalize into `buf` when the key is a short `str`, else onto the heap.
 ///
 /// The produced bytes are identical either way — see `write_canonical_str_key`
@@ -11606,7 +11634,7 @@ impl PyMultiGraph {
         // A non-identity int (present at another index / absent) falls through
         // to the String path, which stays correct.
         if n.is_exact_instance_of::<PyInt>()
-            && let Ok(i) = n.extract::<usize>()
+            && let Some(i) = exact_int_node_index(n)
             && self.inner.node_index_matches_int(i)
         {
             return Ok(true);
@@ -11862,7 +11890,7 @@ impl PyMultiGraph {
         // A non-identity int (present at another index / absent) falls through
         // to the String path, which stays correct.
         if n.is_exact_instance_of::<PyInt>()
-            && let Ok(i) = n.extract::<usize>()
+            && let Some(i) = exact_int_node_index(n)
             && self.inner.node_index_matches_int(i)
         {
             return Ok(true);
@@ -11906,7 +11934,7 @@ impl PyMultiGraph {
                 return Ok(None);
             }
             if item.is_exact_instance_of::<PyInt>()
-                && let Ok(i) = item.extract::<usize>()
+                && let Some(i) = exact_int_node_index(&item)
                 && self.inner.node_index_matches_int(i)
             {
                 out.push(item.clone().unbind());
@@ -16026,7 +16054,7 @@ impl PyGraph {
         // A non-identity int (present at another index / absent) falls through
         // to the String path, which stays correct.
         if n.is_exact_instance_of::<PyInt>()
-            && let Ok(i) = n.extract::<usize>()
+            && let Some(i) = exact_int_node_index(n)
             && self.inner.node_index_matches_int(i)
         {
             return Ok(true);
@@ -16790,7 +16818,7 @@ impl PyGraph {
         // A non-identity int (present at another index / absent) falls through
         // to the String path, which stays correct.
         if n.is_exact_instance_of::<PyInt>()
-            && let Ok(i) = n.extract::<usize>()
+            && let Some(i) = exact_int_node_index(n)
             && self.inner.node_index_matches_int(i)
         {
             return Ok(true);
@@ -16843,7 +16871,7 @@ impl PyGraph {
                 return Ok(None);
             }
             if item.is_exact_instance_of::<PyInt>()
-                && let Ok(i) = item.extract::<usize>()
+                && let Some(i) = exact_int_node_index(&item)
                 && self.inner.node_index_matches_int(i)
             {
                 out.push(item.clone().unbind());
@@ -21997,4 +22025,94 @@ fn borrowed_canonical_key_self_time_ab() {
         Ok(())
     })
     .expect("borrowed canonical key A/B must run");
+}
+
+/// br-r37-c1-p80x1: the identity-int membership fast paths resolve their `usize`
+/// through `exact_int_node_index`, which stops at `i64::MAX` where the
+/// `extract::<usize>()` it replaced ran to `u64::MAX`. The narrowing is what
+/// makes a negative key cheap — CPython reports a failed `usize` conversion by
+/// RAISING, and PyO3 discards that exception, which cost 154 ns on every probe —
+/// but it means ints above `i64::MAX` now reach the general canonical path
+/// instead of the fast one.
+///
+/// This pins the ANSWERS across that seam, on a graph that actually holds the
+/// boundary values as nodes, so neither the narrowing nor a future re-widening
+/// can change what membership reports. `has_node` and `__contains__` are asserted
+/// together because they are the same question and the fast path is duplicated
+/// into both.
+#[test]
+fn identity_int_membership_is_answered_across_the_i64_seam() {
+    Python::initialize();
+    Python::attach(|py| -> PyResult<()> {
+        // 2**63 and 2**63 + 1 are above i64::MAX, so they cannot take the fast
+        // path; 2**63 - 1 is exactly i64::MAX and still can. Built in Python so
+        // they are ordinary `int` objects, not a Rust-side reinterpretation.
+        let above: Bound<'_, PyAny> = py.eval(c"2**63", None, None)?;
+        let above_absent: Bound<'_, PyAny> = py.eval(c"2**63 + 1", None, None)?;
+        let at_max: Bound<'_, PyAny> = py.eval(c"2**63 - 1", None, None)?;
+
+        let mut graph = PyGraph::new_empty_with_mode(py, CompatibilityMode::Strict)?;
+        // 0..3 are identity ints (node i at index i) — the shape the fast path
+        // exists for. The two large keys are added AFTER them so they sit at an
+        // index that is nowhere near their value.
+        for i in 0..3i64 {
+            let node = i.into_pyobject(py)?.into_any();
+            graph.add_node(py, &node, None)?;
+        }
+        graph.add_node(py, &at_max, None)?;
+        graph.add_node(py, &above, None)?;
+
+        let present = |n: &Bound<'_, PyAny>| -> PyResult<(bool, bool)> {
+            Ok((graph.has_node(py, n)?, graph.__contains__(py, n)?))
+        };
+
+        for i in 0..3i64 {
+            let node = i.into_pyobject(py)?.into_any();
+            assert_eq!(
+                present(&node)?,
+                (true, true),
+                "identity int {i} must be present"
+            );
+        }
+        assert_eq!(
+            present(&at_max)?,
+            (true, true),
+            "a node key of exactly i64::MAX must still be found"
+        );
+        // The seam itself: this key is a real node, and it can only be found by
+        // the general canonical path now.
+        assert_eq!(
+            present(&above)?,
+            (true, true),
+            "a node key above i64::MAX must be found through the canonical path"
+        );
+        assert_eq!(
+            present(&above_absent)?,
+            (false, false),
+            "an absent key above i64::MAX must not be reported present"
+        );
+
+        // The cell the whole lever is about: negative keys are absent, and they
+        // must stay absent now that they no longer raise on the way out.
+        for i in [-1i64, -2, -4096, i64::MIN] {
+            let node = i.into_pyobject(py)?.into_any();
+            assert_eq!(
+                present(&node)?,
+                (false, false),
+                "negative int {i} must be absent"
+            );
+        }
+
+        // A negative key that IS a node stays findable — the fast path declines
+        // it, the canonical path answers it, and that split must not leak.
+        let negative_node = (-7i64).into_pyobject(py)?.into_any();
+        graph.add_node(py, &negative_node, None)?;
+        assert_eq!(
+            present(&negative_node)?,
+            (true, true),
+            "a negative int that was actually added must be found"
+        );
+        Ok(())
+    })
+    .expect("identity-int membership seam test must run");
 }

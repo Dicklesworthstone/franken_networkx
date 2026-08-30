@@ -6790,7 +6790,7 @@ impl PyMultiDiGraph {
         // A non-identity int (present at another index / absent) falls through
         // to the String path, which stays correct.
         if n.is_exact_instance_of::<PyInt>()
-            && let Ok(i) = n.extract::<usize>()
+            && let Some(i) = crate::exact_int_node_index(n)
             && self.inner.node_index_matches_int(i)
         {
             return Ok(true);
@@ -6839,7 +6839,7 @@ impl PyMultiDiGraph {
         // A non-identity int (present at another index / absent) falls through
         // to the String path, which stays correct.
         if n.is_exact_instance_of::<PyInt>()
-            && let Ok(i) = n.extract::<usize>()
+            && let Some(i) = crate::exact_int_node_index(n)
             && self.inner.node_index_matches_int(i)
         {
             return Ok(true);
@@ -6877,7 +6877,7 @@ impl PyMultiDiGraph {
                 return Ok(None);
             }
             if item.is_exact_instance_of::<PyInt>()
-                && let Ok(i) = item.extract::<usize>()
+                && let Some(i) = crate::exact_int_node_index(&item)
                 && self.inner.node_index_matches_int(i)
             {
                 out.push(item.clone().unbind());
@@ -14550,7 +14550,7 @@ impl PyDiGraph {
         // A non-identity int (present at another index / absent) falls through
         // to the String path, which stays correct.
         if n.is_exact_instance_of::<PyInt>()
-            && let Ok(i) = n.extract::<usize>()
+            && let Some(i) = crate::exact_int_node_index(n)
             && self.inner.node_index_matches_int(i)
         {
             return Ok(true);
@@ -17621,7 +17621,7 @@ impl PyDiGraph {
         // A non-identity int (present at another index / absent) falls through
         // to the String path, which stays correct.
         if n.is_exact_instance_of::<PyInt>()
-            && let Ok(i) = n.extract::<usize>()
+            && let Some(i) = crate::exact_int_node_index(n)
             && self.inner.node_index_matches_int(i)
         {
             return Ok(true);
@@ -17657,7 +17657,7 @@ impl PyDiGraph {
                 return Ok(None);
             }
             if item.is_exact_instance_of::<PyInt>()
-                && let Ok(i) = item.extract::<usize>()
+                && let Some(i) = crate::exact_int_node_index(&item)
                 && self.inner.node_index_matches_int(i)
             {
                 out.push(item.clone().unbind());

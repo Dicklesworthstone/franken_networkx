@@ -216,7 +216,13 @@ def test_the_single_edge_read_no_longer_disables_the_size_scalar():
         "its plain gate"
     )
 
-    list(bulk.edges(data=True))
-    assert bulk._weighted_size_fast("w") is None, (
-        "the bulk handout is deliberately still conservative"
+    bulk_items = list(bulk.edges(data=True))
+    assert bulk._weighted_size_fast("w") is not None, (
+        "a bulk edge-data read must retain the exact live-dict weighted scalar"
     )
+
+    # Planted negative: this is the state change the old global dirty bit could
+    # not safely recover from. The fast scalar must remain enabled *and* read
+    # the dict returned by the bulk view after its weight changes.
+    bulk_items[0][2]["w"] = 4_321
+    assert bulk._weighted_size_fast("w") == bulk.size(weight="w")
