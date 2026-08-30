@@ -52,6 +52,10 @@ harness = false
 [[example]]
 name = "has_node_h2h"
 
+# br-r37-c1-jc9e4: an EXAMPLE for the same reason has_node_h2h is one — see that note.
+[[example]]
+name = "add_node_h2h"
+
 [[bench]]
 name = "public_api_gauntlet"
 harness = false

@@ -15336,13 +15336,35 @@ impl PyGraph {
         }
 
         // Build Rust AttrMap from Python kwargs for the inner graph.
+        // br-r37-c1-jc9e4: do NOT materialise a node attribute dict for a call that
+        // was given no attributes. This is the last unconverted site of
+        // br-r37-c1-89kxg / br-r37-c1-lazynodeattr: `add_edge` two screens down
+        // already says "mirrors are LAZY — node dicts and attr-less edge dicts are
+        // created on first observation by the render paths", the batch constructors
+        // already skip the eager per-node PyDict, and `materialize_node_py_attrs`
+        // exists so readers can build one on first touch. Single-call `add_node` was
+        // still allocating one on EVERY call, attributed or not.
+        //
+        // The closed self-time ladder (`add_node_entry_self_time_ladder`, closure
+        // check 1.0000x) prices this at +37.4 ns of a 242.7 ns no-op call — the
+        // second largest term in the whole body — and it buys nothing on an
+        // attribute-less add: an absent mirror is observationally identical to an
+        // empty one, because every reader goes through `materialize_node_py_attrs`,
+        // which builds it from the inner `AttrMap` on first read and stores it, so
+        // dict IDENTITY stays stable across reads exactly as before.
+        //
+        // The `!a.is_empty()` guard matches `add_edge`'s existing shape, so
+        // `add_node(n, **{})` also stops allocating; it too is indistinguishable
+        // from an absent mirror once a reader materialises.
         let mut rust_attrs = AttrMap::new();
-        let py_dict = self
-            .node_py_attrs
-            .entry(canonical.clone())
-            .or_insert_with(|| PyDict::new(py).unbind());
-        if let Some(a) = attr {
+        if let Some(a) = attr
+            && !a.is_empty()
+        {
             rust_attrs = py_dict_to_attr_map(a)?;
+            let py_dict = self
+                .node_py_attrs
+                .entry(canonical.clone())
+                .or_insert_with(|| PyDict::new(py).unbind());
             for (k, v) in a.iter() {
                 py_dict.bind(py).set_item(k, v)?;
             }
@@ -22274,11 +22296,13 @@ fn rung_l4(g: &mut PyGraph, py: Python<'_>, n: &Bound<'_, PyAny>) -> PyResult<()
             .entry(canonical.clone())
             .or_insert_with(|| n.clone().unbind());
     }
-    let py_dict = g
-        .node_py_attrs
-        .entry(canonical.clone())
-        .or_insert_with(|| PyDict::new(py).unbind());
-    std::hint::black_box((&canonical, &*py_dict));
+    // br-r37-c1-jc9e4: the shipped body no longer materialises a mirror for an
+    // attribute-less add, so this rung no longer does either. It is kept as a rung
+    // (rather than deleted) because the increment it now reports is the cost of the
+    // `attr` test that replaced the allocation, and a rung that vanishes would hide
+    // that the statement is still there.
+    let _ = py;
+    std::hint::black_box(&canonical);
     Ok(())
 }
 
@@ -22292,10 +22316,6 @@ fn rung_l5(g: &mut PyGraph, py: Python<'_>, n: &Bound<'_, PyAny>) -> PyResult<()
             .or_insert_with(|| n.clone().unbind());
     }
     let rust_attrs = AttrMap::new();
-    let _py_dict = g
-        .node_py_attrs
-        .entry(canonical.clone())
-        .or_insert_with(|| PyDict::new(py).unbind());
     g.inner.add_node_with_attrs(canonical.clone(), rust_attrs);
     std::hint::black_box(&canonical);
     Ok(())
@@ -22311,10 +22331,6 @@ fn rung_l6(g: &mut PyGraph, py: Python<'_>, n: &Bound<'_, PyAny>) -> PyResult<()
             .or_insert_with(|| n.clone().unbind());
     }
     let rust_attrs = AttrMap::new();
-    let _py_dict = g
-        .node_py_attrs
-        .entry(canonical.clone())
-        .or_insert_with(|| PyDict::new(py).unbind());
     g.inner.add_node_with_attrs(canonical.clone(), rust_attrs);
     log::debug!(target: "franken_networkx", "add_node: {canonical}");
     if was_new {
@@ -22334,10 +22350,6 @@ fn rung_l7(g: &mut PyGraph, py: Python<'_>, n: &Bound<'_, PyAny>) -> PyResult<()
             .or_insert_with(|| n.clone().unbind());
     }
     let rust_attrs = AttrMap::new();
-    let _py_dict = g
-        .node_py_attrs
-        .entry(canonical.clone())
-        .or_insert_with(|| PyDict::new(py).unbind());
     g.inner.add_node_with_attrs(canonical.clone(), rust_attrs);
     log::debug!(target: "franken_networkx", "add_node: {canonical}");
     if was_new {
@@ -22596,4 +22608,73 @@ fn add_node_entry_self_time_ladder() {
         Ok(())
     })
     .expect("add_node entry self-time ladder must run");
+}
+
+/// br-r37-c1-jc9e4: `add_node(n)` no longer materialises a node attribute dict, so
+/// the mirror is ABSENT until a reader touches it. This pins the properties that
+/// makes safe, because "observationally identical to an empty dict" is a claim about
+/// behaviour and not a thing to take on faith.
+///
+/// The one that would actually break callers is IDENTITY: networkx hands back a live
+/// dict, so `d = G.nodes[n]; d['x'] = 1` must show up in the next read, and the read
+/// after that must be the SAME object. A lazy mirror that rebuilt itself per read
+/// would pass an equality check and fail this.
+#[test]
+fn lazy_node_attr_mirror_is_indistinguishable_from_an_eager_empty_one() {
+    Python::initialize();
+    Python::attach(|py| -> PyResult<()> {
+        let mut graph = PyGraph::new_empty_with_mode(py, CompatibilityMode::Strict)?;
+        let plain = PyString::new(py, "plain").into_any();
+        let empty_attrs = PyDict::new(py);
+        let with_empty = PyString::new(py, "with_empty").into_any();
+        let attributed = PyString::new(py, "attributed").into_any();
+        let attrs = PyDict::new(py);
+        attrs.set_item("w", 7)?;
+
+        graph.add_node(py, &plain, None)?;
+        graph.add_node(py, &with_empty, Some(&empty_attrs))?;
+        graph.add_node(py, &attributed, Some(&attrs))?;
+
+        // Every node is present regardless of whether a mirror was built.
+        for node in [&plain, &with_empty, &attributed] {
+            assert!(graph.has_node(py, node)?, "every added node must be present");
+        }
+
+        // The attributed node kept its attributes.
+        let stored = graph.materialize_node_py_attrs(py, "str:10:attributed");
+        assert_eq!(
+            stored.bind(py).get_item("w")?.expect("w must be stored").extract::<i64>()?,
+            7,
+            "an attributed add_node must still store its attributes"
+        );
+
+        // IDENTITY, the property a rebuilding mirror would fail: materialise, mutate
+        // through the returned dict, and require the next materialisation to be the
+        // SAME object carrying the mutation.
+        let first = graph.materialize_node_py_attrs(py, "str:5:plain");
+        first.bind(py).set_item("added_later", 1)?;
+        let second = graph.materialize_node_py_attrs(py, "str:5:plain");
+        assert!(
+            first.bind(py).is(second.bind(py)),
+            "a lazily built node attr dict must be stored, not rebuilt per read"
+        );
+        assert_eq!(
+            second
+                .bind(py)
+                .get_item("added_later")?
+                .expect("mutation through the live dict must persist")
+                .extract::<i64>()?,
+            1,
+            "the lazily built dict must be LIVE, not a snapshot"
+        );
+
+        // `add_node(n, **{})` takes the same lazy path and is likewise readable.
+        let from_empty = graph.materialize_node_py_attrs(py, "str:10:with_empty");
+        assert!(
+            from_empty.bind(py).is_empty(),
+            "a node added with an empty attr dict must read back as empty"
+        );
+        Ok(())
+    })
+    .expect("lazy node attr mirror test must run");
 }
