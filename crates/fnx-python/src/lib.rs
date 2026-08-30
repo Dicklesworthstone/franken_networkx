@@ -22267,6 +22267,39 @@ fn cached_native_adjacency_view_stays_live_and_int_misses_invalidate() {
 /// check came out at 0.7068x — it was measuring its own inlining. Each rung adds
 /// exactly one statement of the shipped body to the rung above it, in shipped
 /// order, and `rung_l5` is the shipped body statement for statement.
+/// br-r37-c1-jc9e4: the shipped body as an INHERENT METHOD on `PyGraph`, outside
+/// `#[pymethods]`. This is the two-way bisect for the ladder gap. `rung_l5` is the
+/// same five statements as a FREE FUNCTION and costs 0.65-0.74x of the shipped
+/// `#[pymethods]` method, with L0 and L6 having already ruled out the call shape
+/// and the pairing. Exactly two differences remain between `rung_l5` and
+/// `add_node`: it is a method rather than a free function, and it carries the
+/// `#[pymethods]` attribute. L7 has the first and not the second, so
+/// L7 landing on L5 convicts `#[pymethods]`, and L7 landing on `full` convicts the
+/// receiver. `#[cfg(test)]` so nothing measurement-only ships.
+#[cfg(test)]
+impl PyGraph {
+    fn add_node_inherent_probe(
+        &mut self,
+        py: Python<'_>,
+        node_for_adding: &Bound<'_, PyAny>,
+    ) -> PyResult<()> {
+        let canonical = node_key_to_string(py, node_for_adding)?;
+        self.node_key_map
+            .entry(canonical.clone())
+            .or_insert_with(|| node_for_adding.clone().unbind());
+        self.node_iter_mirror_insert(py, &canonical)?;
+        self.inner.add_node_with_attrs(canonical, AttrMap::new());
+        self.bump_nodes_seq();
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+#[inline(never)]
+fn rung_l7(g: &mut PyGraph, py: Python<'_>, n: &Bound<'_, PyAny>) -> PyResult<()> {
+    g.add_node_inherent_probe(py, n)
+}
+
 /// L0: an EMPTY body with the ladder's exact call shape. Whatever this costs is
 /// call overhead the ladder charges to every rung and the denominator does not
 /// necessarily share, so it is the floor every increment sits on.
@@ -22423,6 +22456,7 @@ fn add_node_entry_self_time_ladder() {
         }
         let l0 = rung_arm!(rung_l0);
         let l6 = rung_arm!(rung_l6);
+        let l7 = rung_arm!(rung_l7);
         let l1 = rung_arm!(rung_l1);
         let l2 = rung_arm!(rung_l2);
         let l3 = rung_arm!(rung_l3);
@@ -22462,7 +22496,7 @@ fn add_node_entry_self_time_ladder() {
             full(&mut graph)?;
         }
 
-        let mut rungs: [Vec<f64>; 7] = Default::default();
+        let mut rungs: [Vec<f64>; 8] = Default::default();
         let mut full_ns = Vec::with_capacity(ROUNDS);
         let mut null_a = Vec::with_capacity(ROUNDS);
         let mut null_b = Vec::with_capacity(ROUNDS);
@@ -22473,7 +22507,7 @@ fn add_node_entry_self_time_ladder() {
             // Each rung is paired against `full` in its own balanced block, so
             // every rung is measured against the same denominator under the same
             // scheme rather than across blocks.
-            for (index, rung) in [&l0 as &dyn Fn(&mut PyGraph) -> PyResult<Duration>, &l1, &l2, &l3, &l4, &l5, &l6]
+            for (index, rung) in [&l0 as &dyn Fn(&mut PyGraph) -> PyResult<Duration>, &l1, &l2, &l3, &l4, &l5, &l6, &l7]
                 .into_iter()
                 .enumerate()
             {
@@ -22503,6 +22537,7 @@ fn add_node_entry_self_time_ladder() {
         let l4m = median(&mut rungs[4]);
         let l5m = median(&mut rungs[5]);
         let l6m = median(&mut rungs[6]);
+        let l7m = median(&mut rungs[7]);
         let fullm = median(&mut full_ns);
         let na = median(&mut null_a);
         let nb = median(&mut null_b);
@@ -22515,11 +22550,14 @@ fn add_node_entry_self_time_ladder() {
         println!("  L3 + node_iter_mirror_insert  : {l3m:8.1} ns/call   (+{:6.1})", l3m - l2m);
         println!("  L4 + store add_node_with_attrs: {l4m:8.1} ns/call   (+{:6.1})", l4m - l3m);
         println!("  L5 + bump_nodes_seq           : {l5m:8.1} ns/call   (+{:6.1})", l5m - l4m);
+        println!("  L7 same body, inherent method : {l7m:8.1} ns/call");
         println!("  L6 add_node in ladder shape   : {l6m:8.1} ns/call");
         println!("  FULL shipped add_node         : {fullm:8.1} ns/call");
         println!("  CLOSURE CHECK  L5/full        : {:8.4}x  (must be ~1.0)", l5m / fullm);
         println!("  SHAPE CHECK    L6/full        : {:8.4}x  (~1.0 => shapes agree)", l6m / fullm);
         println!("  GAP VERDICT    L5/L6          : {:8.4}x  (~1.0 => ladder closes vs L6)", l5m / l6m);
+        println!("  BISECT  L7/L5 (free fn)       : {:8.4}x  (~1.0 => receiver is free)", l7m / l5m);
+        println!("  BISECT  L7/full (#[pymethods]): {:8.4}x  (~1.0 => pymethods is free)", l7m / fullm);
         Ok(())
     })
     .expect("add_node entry self-time ladder must run");
