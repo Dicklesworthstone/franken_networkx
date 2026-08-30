@@ -22246,7 +22246,7 @@ fn cached_native_adjacency_view_stays_live_and_int_misses_invalidate() {
 /// insert is a lookup that changes nothing. Repeating a rung is therefore
 /// idempotent, which is the property that makes a no-op control timeable at all.
 ///
-/// MEASURED, AND IT DID NOT CLOSE: 0.7068x then 0.7319x across two runs. Read the
+/// MEASURED, AND IT DID NOT CLOSE: 0.7068x, 0.7319x, 0.7364x, 0.6520x. Read the
 /// note at the closure-check repair inside the body before quoting any number
 /// from this harness — the increments are lower bounds, not a partition.
 ///
@@ -22267,6 +22267,25 @@ fn cached_native_adjacency_view_stays_live_and_int_misses_invalidate() {
 /// check came out at 0.7068x — it was measuring its own inlining. Each rung adds
 /// exactly one statement of the shipped body to the rung above it, in shipped
 /// order, and `rung_l5` is the shipped body statement for statement.
+/// L0: an EMPTY body with the ladder's exact call shape. Whatever this costs is
+/// call overhead the ladder charges to every rung and the denominator does not
+/// necessarily share, so it is the floor every increment sits on.
+#[inline(never)]
+fn rung_l0(_g: &mut PyGraph, _py: Python<'_>, _n: &Bound<'_, PyAny>) -> PyResult<()> {
+    Ok(())
+}
+
+/// L6: the shipped `add_node` behind the ladder's own call shape. This is the
+/// discriminator for the closure-check gap. If L6 lands on `full`, the two call
+/// shapes are equivalent and the ~84 ns L5 does not account for is REAL work
+/// inside the shipped body that the five rungs do not reproduce. If L6 lands on
+/// L5 instead, the gap is an artefact of how the denominator is paired and the
+/// ladder is closed after all.
+#[inline(never)]
+fn rung_l6(g: &mut PyGraph, py: Python<'_>, n: &Bound<'_, PyAny>) -> PyResult<()> {
+    g.add_node(py, n, None)
+}
+
 #[inline(never)]
 fn rung_l1(_g: &mut PyGraph, py: Python<'_>, n: &Bound<'_, PyAny>) -> PyResult<()> {
     let canonical = node_key_to_string(py, n)?;
@@ -22362,14 +22381,30 @@ fn add_node_entry_self_time_ladder() {
         // shipped body statement by statement and mirrors all five of them, so
         // the ~84 ns is not a missing statement either.
         //
+        // L0 AND L6 HAVE SETTLED WHAT THE GAP IS NOT. L0, an empty body in the
+        // ladder's own call shape, costs 1.1-1.7 ns, so the shape charges nothing.
+        // L6, which only calls `add_node`, lands on the denominator at 1.0005x and
+        // 1.0059x on two hosts, so the pairing is not the artefact either. The gap
+        // is REAL: `rung_l5` reproduces the shipped body statement for statement
+        // and costs 0.65-0.74x of it, reproducibly, across two builds and two hosts.
+        //
+        // A FOURTH HYPOTHESIS WAS TESTED AND REFUTED, and is recorded rather than
+        // quietly dropped. The guess was that the no-attr path paid for sharing a
+        // function with the attributed branch (`py_dict_to_attr_map`,
+        // `ensure_node_py_attrs`, a `set_item` loop), so `add_node` was split to
+        // give the attribute-less call its own small function. The gap did NOT
+        // close - it widened, 0.7364x to 0.6520x - and the split was reverted
+        // rather than kept on a story. The absolute drop in that run, 309.9 to
+        // 194.1 ns, was a DIFFERENT WORKER, not the split: the rungs, which were
+        // not touched, moved by the same factor.
+        //
         // CONSEQUENCE FOR ANY READER: the per-rung increments below are LOWER
-        // BOUNDS, not a partition of the call, and this harness must not be cited
-        // as an attribution until the gap is explained. What it does support is
-        // the ORDERING, which is robust to the gap because the largest increment
-        // is bigger than the whole unexplained remainder. The named next step is
-        // an L0 empty-body rung plus an L6 rung that wraps `add_node` itself: if
-        // L6 lands on `full` the call shapes are equivalent and the gap is real
-        // work, and if L6 lands on L5 the gap is an artefact of the pairing.
+        // BOUNDS, not a partition, and this harness must not be cited as an
+        // attribution. What it does support is the ORDERING, robust to the gap
+        // because the largest increment exceeds the whole unexplained remainder.
+        // Whatever the missing ~30% is, it is inside `add_node`, and it is not the
+        // call shape, not the pairing, and not the attributed branch's presence in
+        // the same function.
         let before_nodes = black_box(before_nodes);
 
         // Each rung times the SAME opaque-call shape the denominator has.
@@ -22386,6 +22421,8 @@ fn add_node_entry_self_time_ladder() {
                 }
             };
         }
+        let l0 = rung_arm!(rung_l0);
+        let l6 = rung_arm!(rung_l6);
         let l1 = rung_arm!(rung_l1);
         let l2 = rung_arm!(rung_l2);
         let l3 = rung_arm!(rung_l3);
@@ -22425,7 +22462,7 @@ fn add_node_entry_self_time_ladder() {
             full(&mut graph)?;
         }
 
-        let mut rungs: [Vec<f64>; 5] = Default::default();
+        let mut rungs: [Vec<f64>; 7] = Default::default();
         let mut full_ns = Vec::with_capacity(ROUNDS);
         let mut null_a = Vec::with_capacity(ROUNDS);
         let mut null_b = Vec::with_capacity(ROUNDS);
@@ -22436,13 +22473,13 @@ fn add_node_entry_self_time_ladder() {
             // Each rung is paired against `full` in its own balanced block, so
             // every rung is measured against the same denominator under the same
             // scheme rather than across blocks.
-            for (index, rung) in [&l1 as &dyn Fn(&mut PyGraph) -> PyResult<Duration>, &l2, &l3, &l4, &l5]
+            for (index, rung) in [&l0 as &dyn Fn(&mut PyGraph) -> PyResult<Duration>, &l1, &l2, &l3, &l4, &l5, &l6]
                 .into_iter()
                 .enumerate()
             {
                 let (r, f) = balanced(rung, &full, &mut graph)?;
                 rungs[index].push(r);
-                if index == 4 {
+                if index == 5 {
                     full_ns.push(f);
                 }
             }
@@ -22459,24 +22496,30 @@ fn add_node_entry_self_time_ladder() {
             samples.sort_by(f64::total_cmp);
             samples[(samples.len() - 1) / 2]
         };
-        let l1m = median(&mut rungs[0]);
-        let l2m = median(&mut rungs[1]);
-        let l3m = median(&mut rungs[2]);
-        let l4m = median(&mut rungs[3]);
-        let l5m = median(&mut rungs[4]);
+        let l0m = median(&mut rungs[0]);
+        let l1m = median(&mut rungs[1]);
+        let l2m = median(&mut rungs[2]);
+        let l3m = median(&mut rungs[3]);
+        let l4m = median(&mut rungs[4]);
+        let l5m = median(&mut rungs[5]);
+        let l6m = median(&mut rungs[6]);
         let fullm = median(&mut full_ns);
         let na = median(&mut null_a);
         let nb = median(&mut null_b);
 
         println!("add_node_entry_self_time_ladder probes={PROBES} reps={REPS} rounds={ROUNDS}");
         println!("  A/A null (full/full)          : {:8.4}x", nb / na);
-        println!("  L1 canonicalize only          : {l1m:8.1} ns/call");
+        println!("  L0 empty body, ladder shape   : {l0m:8.1} ns/call   (call-shape floor)");
+        println!("  L1 canonicalize only          : {l1m:8.1} ns/call   (+{:6.1})", l1m - l0m);
         println!("  L2 + node_key_map entry       : {l2m:8.1} ns/call   (+{:6.1})", l2m - l1m);
         println!("  L3 + node_iter_mirror_insert  : {l3m:8.1} ns/call   (+{:6.1})", l3m - l2m);
         println!("  L4 + store add_node_with_attrs: {l4m:8.1} ns/call   (+{:6.1})", l4m - l3m);
         println!("  L5 + bump_nodes_seq           : {l5m:8.1} ns/call   (+{:6.1})", l5m - l4m);
+        println!("  L6 add_node in ladder shape   : {l6m:8.1} ns/call");
         println!("  FULL shipped add_node         : {fullm:8.1} ns/call");
         println!("  CLOSURE CHECK  L5/full        : {:8.4}x  (must be ~1.0)", l5m / fullm);
+        println!("  SHAPE CHECK    L6/full        : {:8.4}x  (~1.0 => shapes agree)", l6m / fullm);
+        println!("  GAP VERDICT    L5/L6          : {:8.4}x  (~1.0 => ladder closes vs L6)", l5m / l6m);
         Ok(())
     })
     .expect("add_node entry self-time ladder must run");

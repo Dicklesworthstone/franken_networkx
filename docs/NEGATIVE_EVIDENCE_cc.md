@@ -25703,3 +25703,57 @@ mutation arms generally.
 CAVEAT ON MARGIN: the effect is 5.0% against nulls deviating 1.6-2.2%, so this row rests on a
 ratio only about two to three times its own control spread — far weaker footing than the
 dijkstra row above, and it should not be cited as a precise figure.
+
+## Splitting the attribute-less `add_node` into its own function — REJECTED, the gap it targeted WIDENED 0.7364x to 0.6520x (br-r37-c1-jc9e4)
+
+comparison_class=SELF
+decision_gate=median_ci
+cv_role=report_only
+
+A SELF-comparison of two shapes of our own `PyGraph::add_node`; MAINTENANCE
+evidence, no vs-incumbent claim.
+
+THE LEVER: give `add_node(n)` with no attribute dict its own small function, on the
+hypothesis that the no-attr path was paying for sharing a body with the attributed
+branch (`py_dict_to_attr_map`, `ensure_node_py_attrs`, a `set_item` loop).
+
+THE MOTIVATION was a real and still-unexplained gap. `add_node_entry_self_time_ladder`
+reproduces the shipped body STATEMENT FOR STATEMENT and costs 0.65-0.74x of it. Two
+rungs rule out the instrument: `L0`, an empty body in the ladder's call shape, costs
+1.1-1.7 ns, and `L6`, which only calls `add_node`, lands on the denominator at 1.0005x
+and 1.0059x on two hosts.
+
+A/A null control, shipped `add_node` paired against itself in the same invocation, BEFORE arm: 0.9973x, inside the 0.03 bound.
+
+A/A null control, shipped `add_node` paired against itself in the same invocation, AFTER arm: 0.9915x, inside the 0.03 bound.
+
+Both nulls are the `full/full` block of the same ABBA scheme that produced the
+candidate rows, recorded in the same invocation as the arm they qualify, so each
+arm carries its own control rather than borrowing one.
+
+COUNTED MECHANISM, independent of any timing: the split REMOVED no work. Both shapes
+execute the identical five statements on the attribute-less path -
+`node_key_to_string`, the `node_key_map` entry, `node_iter_mirror_insert`,
+`add_node_with_attrs`, `bump_nodes_seq` - and the split ADDS one call layer between
+the caller and them. There is no instruction, allocation or syscall the split
+deletes, which is the counted basis for the rejection independent of the ratios.
+
+VERDICT: REJECTED, and reverted. After the split the closure check moved the WRONG
+WAY, 0.7364x to 0.6520x — `full` stayed 1.53x a statement-identical copy (194.1
+against 126.5 ns) with one more call layer to show for it.
+
+A TRAP THIS ROW EXISTS TO NAME: that run's absolute numbers fell across the board,
+309.9 to 194.1 ns on the shipped call, which read exactly like a 1.60x win. It was a
+DIFFERENT WORKER. The rungs, which the split did not touch, fell by the same factor
+(`L5` 228.2 to 126.5). Only the WITHIN-RUN ratio is evidence here, and it refutes the
+lever that the cross-run absolutes appear to confirm.
+
+FOURTH REFUTED HYPOTHESIS on this gap, all recorded in the harness: not the call
+shape (L0), not the pairing (L6), not rung inlining (`#[inline(never)]` moved it
+0.7068x to 0.7319x), and not the attributed branch's presence in the same function
+(this row). The ~30% is inside `add_node` and remains unattributed, so the ladder's
+increments stay LOWER BOUNDS and must not be cited as a partition.
+
+PROVENANCE: rch workers, release, 512 probes x 20 reps x 41 rounds ABBA, A/A null
+0.9915-1.0081. Reproduce: `rch exec -- cargo test --release -j 2 -p fnx-python --lib
+add_node_entry_self_time_ladder -- --ignored --nocapture`.

@@ -2069,11 +2069,19 @@ def suite_multidigraph_descriptors():
 
 def suite_node_primitives():
     """br-r37-c1-qmi5w: raw-descriptor and competitive primitive proof."""
+    import networkx as nx
     import franken_networkx as fnx
 
     gnx, gfx = _build_pair(2000, 8000, seed=7, weighted=False)
     present = [str(i) for i in range(512)]
     missing = [f"missing-{i}" for i in range(512)]
+    # br-r37-c1-p80x1: the string miss above cannot exercise the exact-int
+    # conversion seam.  Keep the probe negative and repeat the same built-in
+    # int so this is the public miss path, not a set-warming benchmark.
+    int_nx, int_fnx = nx.Graph(), fnx.Graph()
+    int_nx.add_nodes_from(range(2_000))
+    int_fnx.add_nodes_from(range(2_000))
+    absent_exact_int = -1
 
     wrapped_has_node = fnx._private_aware_has_node(
         fnx._GRAPH_PRIVATE_AWARE_HAS_NODE
@@ -2119,6 +2127,11 @@ def suite_node_primitives():
             "G.has_node(missing) x512 [nx/fnx]",
             lambda: sum(gnx.has_node(node) for node in missing),
             lambda: sum(gfx.has_node(node) for node in missing),
+        ),
+        (
+            "G.has_node(absent exact-int) x512 [nx/fnx]",
+            lambda: sum(int_nx.has_node(absent_exact_int) for _ in present),
+            lambda: sum(int_fnx.has_node(absent_exact_int) for _ in present),
         ),
         (
             "G.has_node(present) x512 [wrapper/raw]",

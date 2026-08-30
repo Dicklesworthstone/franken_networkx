@@ -145,6 +145,18 @@ def test_claim_incumbent_single_source_shortest_path_has_complete_oracle(monkeyp
     )
 
 
+def test_node_primitives_covers_the_exact_int_absent_has_node_path():
+    """The public contract suite must time the negative exact-int miss directly."""
+    rows = {
+        label: (nx_arm, fnx_arm)
+        for label, nx_arm, fnx_arm in perf_harness.suite_node_primitives()
+    }
+    nx_arm, fnx_arm = rows["G.has_node(absent exact-int) x512 [nx/fnx]"]
+
+    assert nx_arm() == 0
+    assert fnx_arm() == 0
+
+
 # br-r37-c1-d4xot: the `ci` variant is the offline analogue of the bead's
 # "re-draw the null and take the median of medians" candidate. It is strictly
 # more permissive than `current`, so the properties worth pinning are the ones
