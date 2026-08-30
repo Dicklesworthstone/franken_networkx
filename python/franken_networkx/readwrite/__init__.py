@@ -1889,6 +1889,23 @@ def read_multiline_adjlist(
     fnx._validate_backend_dispatch_keywords(
         "read_multiline_adjlist", backend, backend_kwargs
     )
+    # The ordinary path pays for one decoded Python string per physical line
+    # before parse_multiline_adjlist starts doing useful work.  The registered
+    # default file workload has no conversion hooks, so scan its UTF-8 bytes
+    # directly and decode only the two node tokens that enter the graph.  Keep
+    # every configurable mode on the general parser: its error messages and
+    # user supplied converters are observable API.
+    if (
+        comments == "#"
+        and delimiter is None
+        and create_using is None
+        and nodetype is None
+        and edgetype is None
+        and encoding == "utf-8"
+        and not hasattr(path, "read")
+    ):
+        with open(path, "rb") as fh:
+            return _parse_default_multiline_adjlist_bytes(fh.read())
     if hasattr(path, "read"):
         data = path.read()
         if isinstance(data, bytes):
@@ -1905,6 +1922,74 @@ def read_multiline_adjlist(
         nodetype=nodetype,
         edgetype=edgetype,
     )
+
+
+def _parse_default_multiline_adjlist_bytes(data):
+    """Parse the default on-disk multiline-adjlist format in one byte pass.
+
+    This deliberately covers only read_multiline_adjlist's default public
+    contract.  In particular, converter and delimiter modes remain routed to
+    parse_multiline_adjlist, where their NetworkX-compatible error behavior is
+    already exercised.  ``bytes.find`` advances one physical line at a time;
+    no decoded line strings or splitlines list is constructed.
+    """
+    import ast as _ast
+
+    graph = _new_graph()
+    size = len(data)
+    offset = 0
+
+    def next_content_line():
+        nonlocal offset
+        while offset < size:
+            newline = data.find(b"\n", offset)
+            if newline < 0:
+                line = data[offset:]
+                offset = size
+            else:
+                line = data[offset:newline]
+                offset = newline + 1
+            comment = line.find(b"#")
+            if comment >= 0:
+                line = line[:comment]
+            if line:
+                return line
+        return None
+
+    while True:
+        line = next_content_line()
+        if line is None:
+            return graph
+        fields = line.split()
+        if len(fields) != 2:
+            rendered = line.decode("utf-8")
+            raise TypeError(f"Failed to read node and degree on line ({rendered})")
+        try:
+            node = fields[0].decode("utf-8")
+            degree = int(fields[1])
+        except BaseException as err:
+            rendered = line.decode("utf-8")
+            raise TypeError(f"Failed to read node and degree on line ({rendered})") from err
+        graph.add_node(node)
+        for _ in range(degree):
+            neighbor_line = next_content_line()
+            if neighbor_line is None:
+                raise TypeError(f"Failed to find neighbor for node ({node})")
+            parts = neighbor_line.split()
+            if not parts:
+                continue
+            neighbor = parts[0].decode("utf-8")
+            edge_data = b"".join(parts[1:])
+            if edge_data == b"{}":
+                attrs = {}
+            else:
+                try:
+                    # Attribute literals are the exceptional path; avoid a
+                    # decoded string for the ordinary ``{}`` edge record.
+                    attrs = _ast.literal_eval(edge_data.decode("utf-8"))
+                except BaseException:
+                    attrs = {}
+            graph.add_edge(node, neighbor, **attrs)
 
 
 def write_multiline_adjlist(G, path, delimiter=" ", comments="#", encoding="utf-8"):
