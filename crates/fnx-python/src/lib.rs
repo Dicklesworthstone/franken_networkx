@@ -22220,103 +22220,21 @@ fn cached_native_adjacency_view_stays_live_and_int_misses_invalidate() {
     .expect("native adjacency cache and int-miss invalidation must hold");
 }
 
-/// br-r37-c1-jc9e4: SELF-TIME PROFILE of the per-mutation CALL ENTRY, which is
-/// what that bead's own retry predicate asks for and nothing more.
+/// br-r37-c1-jc9e4: the rungs of the entry-cost ladder. Each is an OPAQUE call
+/// taking exactly the arguments `PyGraph::add_node` takes, and each adds exactly ONE
+/// statement of the shipped body to the rung above it, in shipped order.
 ///
-/// The anchor is `OliveDesert`'s control: a no-op `add_node` on a node that is
-/// ALREADY PRESENT cost `914.4` ns/call while mutating nothing. That number is
-/// generic per-mutation-call entry cost shared with `add_edge`, and the bead
-/// records that `75.4%` of native `raw_add_edge` is boundary rather than
-/// mutation. This decomposes the no-op call into an INCREMENTAL LADDER so the
-/// cost lands on a named component instead of a guess. The predicate also fences
-/// two things off — the Python shim (`22.4%`, under its REJECT's `40%` bar) and
-/// node-key interning (`11.7%`) — and neither is touched here.
-///
-/// WHY A LADDER AND NOT AN ABLATION. Timing a component standalone proves it is
-/// expensive, not that it runs (the `standalone_microtiming_misattributes` trap),
-/// and attributing by removing one thing at a time invites the optimiser to
-/// delete the loop. Each rung ADDS exactly one statement of the shipped body to
-/// the rung below it, in the shipped order, and the last rung is the shipped body
-/// re-implemented. `L5` must land on `full` — that CLOSURE CHECK is what proves
-/// the ladder accounts for the whole call rather than an arbitrary subset, and a
-/// gap between them is a term this profile has not explained.
-///
-/// EVERY RUNG IS A NO-OP. The probe node is already in the graph, so `entry()`
-/// finds an occupant, the mirror insert overwrites an existing key, and the store
-/// insert is a lookup that changes nothing. Repeating a rung is therefore
-/// idempotent, which is the property that makes a no-op control timeable at all.
-///
-/// MEASURED, AND IT DID NOT CLOSE: 0.7068x, 0.7319x, 0.7364x, 0.6520x. Read the
-/// note at the closure-check repair inside the body before quoting any number
-/// from this harness — the increments are lower bounds, not a partition.
-///
-/// NEGATIVE CONTROL: `full/full` is an A/A null through the identical ABBA
-/// scheme. If it is not ~1.0 the instrument is measuring slot position and every
-/// other number here is void.
-///
-/// It is a SELF-TIME instrument on our own code. It cannot produce a vs-networkx
-/// number and must never be cited as one.
-///
-/// `#[ignore]`; run with
-/// `rch exec -- cargo test --release -j 2 -p fnx-python --lib
-///  add_node_entry_self_time_ladder -- --ignored --nocapture`.
-/// br-r37-c1-jc9e4: the ladder's rungs, each an OPAQUE call taking exactly the
-/// arguments `PyGraph::add_node` takes. `#[inline(never)]` is load-bearing, not
-/// decoration: with the bodies inline in the timing loop the optimiser hoisted
-/// work the opaque `add_node` denominator had to repeat, and the ladder's closure
-/// check came out at 0.7068x — it was measuring its own inlining. Each rung adds
-/// exactly one statement of the shipped body to the rung above it, in shipped
-/// order, and `rung_l5` is the shipped body statement for statement.
-/// br-r37-c1-jc9e4: the shipped body as an INHERENT METHOD on `PyGraph`, outside
-/// `#[pymethods]`. This is the two-way bisect for the ladder gap. `rung_l5` is the
-/// same five statements as a FREE FUNCTION and costs 0.65-0.74x of the shipped
-/// `#[pymethods]` method, with L0 and L6 having already ruled out the call shape
-/// and the pairing. Exactly two differences remain between `rung_l5` and
-/// `add_node`: it is a method rather than a free function, and it carries the
-/// `#[pymethods]` attribute. L7 has the first and not the second, so
-/// L7 landing on L5 convicts `#[pymethods]`, and L7 landing on `full` convicts the
-/// receiver. `#[cfg(test)]` so nothing measurement-only ships.
-#[cfg(test)]
-impl PyGraph {
-    fn add_node_inherent_probe(
-        &mut self,
-        py: Python<'_>,
-        node_for_adding: &Bound<'_, PyAny>,
-    ) -> PyResult<()> {
-        let canonical = node_key_to_string(py, node_for_adding)?;
-        self.node_key_map
-            .entry(canonical.clone())
-            .or_insert_with(|| node_for_adding.clone().unbind());
-        self.node_iter_mirror_insert(py, &canonical)?;
-        self.inner.add_node_with_attrs(canonical, AttrMap::new());
-        self.bump_nodes_seq();
-        Ok(())
-    }
-}
-
-#[cfg(test)]
-#[inline(never)]
-fn rung_l7(g: &mut PyGraph, py: Python<'_>, n: &Bound<'_, PyAny>) -> PyResult<()> {
-    g.add_node_inherent_probe(py, n)
-}
-
-/// L0: an EMPTY body with the ladder's exact call shape. Whatever this costs is
-/// call overhead the ladder charges to every rung and the denominator does not
-/// necessarily share, so it is the floor every increment sits on.
+/// These mirror `PyGraph::add_node` — the class the harness actually builds and
+/// times. An earlier version mirrored `PyMultiGraph::add_node` by mistake; see the
+/// retraction on the test below. `PyGraph::add_node` does materially more than the
+/// multigraph spelling: it asks `has_node` before deciding, gates the display-key
+/// map on `should_store_node_key`, EAGERLY materialises a node attribute dict
+/// through `node_py_attrs.entry(..).or_insert_with(PyDict::new)` even with no
+/// attributes, clones the canonical FOUR times rather than twice, and emits a
+/// `log::debug!`.
 #[inline(never)]
 fn rung_l0(_g: &mut PyGraph, _py: Python<'_>, _n: &Bound<'_, PyAny>) -> PyResult<()> {
     Ok(())
-}
-
-/// L6: the shipped `add_node` behind the ladder's own call shape. This is the
-/// discriminator for the closure-check gap. If L6 lands on `full`, the two call
-/// shapes are equivalent and the ~84 ns L5 does not account for is REAL work
-/// inside the shipped body that the five rungs do not reproduce. If L6 lands on
-/// L5 instead, the gap is an artefact of how the denominator is paired and the
-/// ladder is closed after all.
-#[inline(never)]
-fn rung_l6(g: &mut PyGraph, py: Python<'_>, n: &Bound<'_, PyAny>) -> PyResult<()> {
-    g.add_node(py, n, None)
 }
 
 #[inline(never)]
@@ -22329,20 +22247,20 @@ fn rung_l1(_g: &mut PyGraph, py: Python<'_>, n: &Bound<'_, PyAny>) -> PyResult<(
 #[inline(never)]
 fn rung_l2(g: &mut PyGraph, py: Python<'_>, n: &Bound<'_, PyAny>) -> PyResult<()> {
     let canonical = node_key_to_string(py, n)?;
-    g.node_key_map
-        .entry(canonical.clone())
-        .or_insert_with(|| n.clone().unbind());
-    std::hint::black_box(&canonical);
+    let was_new = !g.inner.has_node(&canonical);
+    std::hint::black_box((&canonical, was_new));
     Ok(())
 }
 
 #[inline(never)]
 fn rung_l3(g: &mut PyGraph, py: Python<'_>, n: &Bound<'_, PyAny>) -> PyResult<()> {
     let canonical = node_key_to_string(py, n)?;
-    g.node_key_map
-        .entry(canonical.clone())
-        .or_insert_with(|| n.clone().unbind());
-    g.node_iter_mirror_insert(py, &canonical)?;
+    let was_new = !g.inner.has_node(&canonical);
+    if g.should_store_node_key(&canonical, was_new) {
+        g.node_key_map
+            .entry(canonical.clone())
+            .or_insert_with(|| n.clone().unbind());
+    }
     std::hint::black_box(&canonical);
     Ok(())
 }
@@ -22350,26 +22268,141 @@ fn rung_l3(g: &mut PyGraph, py: Python<'_>, n: &Bound<'_, PyAny>) -> PyResult<()
 #[inline(never)]
 fn rung_l4(g: &mut PyGraph, py: Python<'_>, n: &Bound<'_, PyAny>) -> PyResult<()> {
     let canonical = node_key_to_string(py, n)?;
-    g.node_key_map
+    let was_new = !g.inner.has_node(&canonical);
+    if g.should_store_node_key(&canonical, was_new) {
+        g.node_key_map
+            .entry(canonical.clone())
+            .or_insert_with(|| n.clone().unbind());
+    }
+    let py_dict = g
+        .node_py_attrs
         .entry(canonical.clone())
-        .or_insert_with(|| n.clone().unbind());
-    g.node_iter_mirror_insert(py, &canonical)?;
-    g.inner.add_node_with_attrs(canonical, AttrMap::new());
+        .or_insert_with(|| PyDict::new(py).unbind());
+    std::hint::black_box((&canonical, &*py_dict));
     Ok(())
 }
 
 #[inline(never)]
 fn rung_l5(g: &mut PyGraph, py: Python<'_>, n: &Bound<'_, PyAny>) -> PyResult<()> {
     let canonical = node_key_to_string(py, n)?;
-    g.node_key_map
+    let was_new = !g.inner.has_node(&canonical);
+    if g.should_store_node_key(&canonical, was_new) {
+        g.node_key_map
+            .entry(canonical.clone())
+            .or_insert_with(|| n.clone().unbind());
+    }
+    let rust_attrs = AttrMap::new();
+    let _py_dict = g
+        .node_py_attrs
         .entry(canonical.clone())
-        .or_insert_with(|| n.clone().unbind());
-    g.node_iter_mirror_insert(py, &canonical)?;
-    g.inner.add_node_with_attrs(canonical, AttrMap::new());
+        .or_insert_with(|| PyDict::new(py).unbind());
+    g.inner.add_node_with_attrs(canonical.clone(), rust_attrs);
+    std::hint::black_box(&canonical);
+    Ok(())
+}
+
+#[inline(never)]
+fn rung_l6(g: &mut PyGraph, py: Python<'_>, n: &Bound<'_, PyAny>) -> PyResult<()> {
+    let canonical = node_key_to_string(py, n)?;
+    let was_new = !g.inner.has_node(&canonical);
+    if g.should_store_node_key(&canonical, was_new) {
+        g.node_key_map
+            .entry(canonical.clone())
+            .or_insert_with(|| n.clone().unbind());
+    }
+    let rust_attrs = AttrMap::new();
+    let _py_dict = g
+        .node_py_attrs
+        .entry(canonical.clone())
+        .or_insert_with(|| PyDict::new(py).unbind());
+    g.inner.add_node_with_attrs(canonical.clone(), rust_attrs);
+    log::debug!(target: "franken_networkx", "add_node: {canonical}");
+    if was_new {
+        g.node_iter_mirror_insert(py, &canonical)?;
+    }
+    Ok(())
+}
+
+/// L7 is the shipped body statement for statement, so it must land on `full`.
+#[inline(never)]
+fn rung_l7(g: &mut PyGraph, py: Python<'_>, n: &Bound<'_, PyAny>) -> PyResult<()> {
+    let canonical = node_key_to_string(py, n)?;
+    let was_new = !g.inner.has_node(&canonical);
+    if g.should_store_node_key(&canonical, was_new) {
+        g.node_key_map
+            .entry(canonical.clone())
+            .or_insert_with(|| n.clone().unbind());
+    }
+    let rust_attrs = AttrMap::new();
+    let _py_dict = g
+        .node_py_attrs
+        .entry(canonical.clone())
+        .or_insert_with(|| PyDict::new(py).unbind());
+    g.inner.add_node_with_attrs(canonical.clone(), rust_attrs);
+    log::debug!(target: "franken_networkx", "add_node: {canonical}");
+    if was_new {
+        g.node_iter_mirror_insert(py, &canonical)?;
+    }
     g.bump_nodes_seq();
     Ok(())
 }
 
+/// L8 calls the shipped `add_node` through the ladder's own call shape: the SHAPE
+/// CHECK that the denominator and the rungs are compared fairly.
+#[inline(never)]
+fn rung_l8(g: &mut PyGraph, py: Python<'_>, n: &Bound<'_, PyAny>) -> PyResult<()> {
+    g.add_node(py, n, None)
+}
+
+/// br-r37-c1-jc9e4: SELF-TIME PROFILE of the per-mutation CALL ENTRY, which is what
+/// that bead's retry predicate asks for and nothing more. It does not touch the
+/// Python shim or node-key interning, which the same predicate fences off.
+///
+/// The anchor is OliveDesert's control: a no-op `add_node` on a node that is ALREADY
+/// PRESENT cost `914.4` ns/call while mutating nothing, and the bead records that
+/// `75.4%` of native `raw_add_edge` is boundary rather than mutation. Note the two
+/// figures are NOT the same quantity: `914.4` ns was measured from Python, this
+/// harness times the Rust body called directly, and the difference is the crossing.
+///
+/// RETRACTION, kept here because the mistake is more instructive than the result.
+/// The first version of these rungs mirrored `PyMultiGraph::add_node` while the
+/// denominator timed `PyGraph::add_node`. I had grepped `fn add_node`, read the
+/// first hit, and never checked which `impl` owned it. The ladder therefore compared
+/// a copy of one function against a DIFFERENT function on a different class, its
+/// closure check sat at 0.65-0.74x, and I published that as an unexplained "gap in
+/// the shipped call". It was not a gap. Four hypotheses were then tested against
+/// that phantom — call shape, pairing, rung inlining, and `#[pymethods]` — and all
+/// four were answering the wrong question; the `#[pymethods]` one even produced a
+/// clean-looking 0.7319x bisect that I nearly shipped a lever on. Anything
+/// previously quoted from this harness is void.
+///
+/// WHY A LADDER AND NOT AN ABLATION. Timing a component standalone proves it is
+/// expensive, not that it runs, and attributing by removing one thing at a time
+/// invites the optimiser to delete the loop. Each rung ADDS exactly one statement of
+/// the shipped body to the rung below it, in shipped order, and `rung_l7` is the
+/// shipped body statement for statement. `L7` must land on `full` — that CLOSURE
+/// CHECK is the only thing that certifies the rungs mirror the function actually
+/// being timed, and it is the check that would have caught the wrong-class error on
+/// the first run had I believed it instead of explaining it away.
+///
+/// EVERY RUNG IS A NO-OP: the probe node is already present, so `has_node` answers
+/// true, `should_store_node_key` sees `was_new = false`, both `entry()` calls find
+/// occupants, the store insert changes nothing, and the mirror insert is skipped.
+/// Repeating a rung is idempotent, which is what makes a no-op control timeable.
+/// Asserted: the node count is identical before and after.
+///
+/// CONTROLS: `full/full` is an A/A null through the identical ABBA scheme — if it is
+/// not ~1.0 the instrument is measuring slot position and every number here is void.
+/// `L0` is an empty body in the ladder's call shape, so it prices the shape itself.
+/// `L8` calls the shipped `add_node` through that same shape, so a `L8/full` far from
+/// 1.0 means the denominator and the rungs are not being compared fairly.
+///
+/// It is a SELF-TIME instrument on our own code. It cannot produce a vs-networkx
+/// number and must never be cited as one.
+///
+/// `#[ignore]`; run with
+/// `rch exec -- cargo test --release -j 2 -p fnx-python --lib
+///  add_node_entry_self_time_ladder -- --ignored --nocapture`.
 #[test]
 #[ignore = "measurement; run with --release --ignored --nocapture"]
 fn add_node_entry_self_time_ladder() {
@@ -22456,12 +22489,15 @@ fn add_node_entry_self_time_ladder() {
         }
         let l0 = rung_arm!(rung_l0);
         let l6 = rung_arm!(rung_l6);
-        let l7 = rung_arm!(rung_l7);
+        let l0 = rung_arm!(rung_l0);
         let l1 = rung_arm!(rung_l1);
         let l2 = rung_arm!(rung_l2);
         let l3 = rung_arm!(rung_l3);
         let l4 = rung_arm!(rung_l4);
         let l5 = rung_arm!(rung_l5);
+        let l6 = rung_arm!(rung_l6);
+        let l7 = rung_arm!(rung_l7);
+        let l8 = rung_arm!(rung_l8);
         // The shipped call itself, through the public entry point.
         let full = |g: &mut PyGraph| -> PyResult<Duration> {
             let start = Instant::now();
@@ -22492,11 +22528,11 @@ fn add_node_entry_self_time_ladder() {
 
         for _ in 0..3 {
             l1(&mut graph)?;
-            l5(&mut graph)?;
+            l7(&mut graph)?;
             full(&mut graph)?;
         }
 
-        let mut rungs: [Vec<f64>; 8] = Default::default();
+        let mut rungs: [Vec<f64>; 9] = Default::default();
         let mut full_ns = Vec::with_capacity(ROUNDS);
         let mut null_a = Vec::with_capacity(ROUNDS);
         let mut null_b = Vec::with_capacity(ROUNDS);
@@ -22507,13 +22543,13 @@ fn add_node_entry_self_time_ladder() {
             // Each rung is paired against `full` in its own balanced block, so
             // every rung is measured against the same denominator under the same
             // scheme rather than across blocks.
-            for (index, rung) in [&l0 as &dyn Fn(&mut PyGraph) -> PyResult<Duration>, &l1, &l2, &l3, &l4, &l5, &l6, &l7]
+            for (index, rung) in [&l0 as &dyn Fn(&mut PyGraph) -> PyResult<Duration>, &l1, &l2, &l3, &l4, &l5, &l6, &l7, &l8]
                 .into_iter()
                 .enumerate()
             {
                 let (r, f) = balanced(rung, &full, &mut graph)?;
                 rungs[index].push(r);
-                if index == 5 {
+                if index == 7 {
                     full_ns.push(f);
                 }
             }
@@ -22538,6 +22574,7 @@ fn add_node_entry_self_time_ladder() {
         let l5m = median(&mut rungs[5]);
         let l6m = median(&mut rungs[6]);
         let l7m = median(&mut rungs[7]);
+        let l8m = median(&mut rungs[8]);
         let fullm = median(&mut full_ns);
         let na = median(&mut null_a);
         let nb = median(&mut null_b);
@@ -22545,19 +22582,17 @@ fn add_node_entry_self_time_ladder() {
         println!("add_node_entry_self_time_ladder probes={PROBES} reps={REPS} rounds={ROUNDS}");
         println!("  A/A null (full/full)          : {:8.4}x", nb / na);
         println!("  L0 empty body, ladder shape   : {l0m:8.1} ns/call   (call-shape floor)");
-        println!("  L1 canonicalize only          : {l1m:8.1} ns/call   (+{:6.1})", l1m - l0m);
-        println!("  L2 + node_key_map entry       : {l2m:8.1} ns/call   (+{:6.1})", l2m - l1m);
-        println!("  L3 + node_iter_mirror_insert  : {l3m:8.1} ns/call   (+{:6.1})", l3m - l2m);
-        println!("  L4 + store add_node_with_attrs: {l4m:8.1} ns/call   (+{:6.1})", l4m - l3m);
-        println!("  L5 + bump_nodes_seq           : {l5m:8.1} ns/call   (+{:6.1})", l5m - l4m);
-        println!("  L7 same body, inherent method : {l7m:8.1} ns/call");
-        println!("  L6 add_node in ladder shape   : {l6m:8.1} ns/call");
+        println!("  L1 canonicalize               : {l1m:8.1} ns/call   (+{:6.1})", l1m - l0m);
+        println!("  L2 + has_node (was_new)       : {l2m:8.1} ns/call   (+{:6.1})", l2m - l1m);
+        println!("  L3 + should_store/key-map     : {l3m:8.1} ns/call   (+{:6.1})", l3m - l2m);
+        println!("  L4 + node_py_attrs entry      : {l4m:8.1} ns/call   (+{:6.1})", l4m - l3m);
+        println!("  L5 + store add_node_with_attrs: {l5m:8.1} ns/call   (+{:6.1})", l5m - l4m);
+        println!("  L6 + log::debug + mirror      : {l6m:8.1} ns/call   (+{:6.1})", l6m - l5m);
+        println!("  L7 + bump_nodes_seq (= body)  : {l7m:8.1} ns/call   (+{:6.1})", l7m - l6m);
+        println!("  L8 add_node in ladder shape   : {l8m:8.1} ns/call");
         println!("  FULL shipped add_node         : {fullm:8.1} ns/call");
-        println!("  CLOSURE CHECK  L5/full        : {:8.4}x  (must be ~1.0)", l5m / fullm);
-        println!("  SHAPE CHECK    L6/full        : {:8.4}x  (~1.0 => shapes agree)", l6m / fullm);
-        println!("  GAP VERDICT    L5/L6          : {:8.4}x  (~1.0 => ladder closes vs L6)", l5m / l6m);
-        println!("  BISECT  L7/L5 (free fn)       : {:8.4}x  (~1.0 => receiver is free)", l7m / l5m);
-        println!("  BISECT  L7/full (#[pymethods]): {:8.4}x  (~1.0 => pymethods is free)", l7m / fullm);
+        println!("  CLOSURE CHECK  L7/full        : {:8.4}x  (must be ~1.0)", l7m / fullm);
+        println!("  SHAPE CHECK    L8/full        : {:8.4}x  (~1.0 => shapes agree)", l8m / fullm);
         Ok(())
     })
     .expect("add_node entry self-time ladder must run");

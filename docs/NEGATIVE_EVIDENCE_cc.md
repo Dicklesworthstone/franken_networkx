@@ -25757,3 +25757,63 @@ increments stay LOWER BOUNDS and must not be cited as a partition.
 PROVENANCE: rch workers, release, 512 probes x 20 reps x 41 rounds ABBA, A/A null
 0.9915-1.0081. Reproduce: `rch exec -- cargo test --release -j 2 -p fnx-python --lib
 add_node_entry_self_time_ladder -- --ignored --nocapture`.
+
+## RETRACTION: the `add_node` "unexplained ~30% gap" never existed — the ladder was mirroring the WRONG CLASS (br-r37-c1-jc9e4)
+
+comparison_class=SELF
+decision_gate=median_ci
+cv_role=report_only
+
+This retracts the framing of the row above (`Splitting the attribute-less add_node
+into its own function`) and every "gap" claim I published from
+`add_node_entry_self_time_ladder`. The REJECT verdict in that row stands — the split
+removed no work and is correctly rejected — but its stated reason, that it "failed to
+close a real gap", was measuring an artefact of my own instrument.
+
+WHAT HAPPENED. I grepped `fn add_node`, read the first hit, and never checked which
+`impl` owned it. The first hit is `PyMultiGraph::add_node`; the harness builds and
+times a `PyGraph`. So every rung reproduced one class's body while the denominator
+ran a different class's function. The closure check sat at 0.6520-0.7364x and I
+reported that as an unexplained gap in the shipped call.
+
+FOUR HYPOTHESES WERE TESTED AGAINST A PHANTOM, and all four are void: rung inlining
+(`#[inline(never)]`, moved it 0.7068x to 0.7319x), the call shape (`L0` at 1.1-1.7
+ns), the pairing (`L6/full` at 1.0005x), and `#[pymethods]` — which produced a clean
+0.7319x bisect I came within one build of shipping a lever on. A tidy number and a
+plausible story are not a mechanism.
+
+WHAT CLOSED IT: mirroring `PyGraph::add_node`, which does materially more than the
+multigraph spelling — it asks `has_node` first, gates the key map on
+`should_store_node_key`, EAGERLY materialises a node attribute dict via
+`node_py_attrs.entry(..).or_insert_with(PyDict::new)` even with no attributes,
+clones the canonical FOUR times rather than twice, and emits a `log::debug!`.
+
+    L0 empty body, ladder shape        1.4 ns/call
+    L1 canonicalize                   22.9 ns/call   (+ 21.4)
+    L2 + has_node (was_new)           41.2 ns/call   (+ 18.3)
+    L3 + should_store/key-map         70.4 ns/call   (+ 29.2)
+    L4 + node_py_attrs entry         107.8 ns/call   (+ 37.4)
+    L5 + store add_node_with_attrs   236.0 ns/call   (+128.3)
+    L6 + log::debug + mirror         241.4 ns/call   (+  5.4)
+    L7 + bump_nodes_seq (= body)     242.7 ns/call   (+  1.3)
+    FULL shipped add_node            242.7 ns/call
+
+A/A null control, shipped `add_node` paired against itself in the same invocation: 0.9903x, inside the 0.03 bound.
+
+CLOSURE CHECK L7/full = 1.0000x and SHAPE CHECK L8/full = 1.0081x. The ladder is now
+a PARTITION rather than a set of lower bounds, and the increments above are quotable.
+
+THE LESSON THIS ROW EXISTS FOR: the closure check caught the error on the very first
+run and I explained it away three times instead of believing it. A control that fails
+is the instrument working. The `#[pymethods]` bisect is the sharpest warning — it was
+internally consistent, reproducible across hosts, and completely wrong.
+
+DOMINANT TERM, now on a closed ladder: the store insert at +128.3 ns, 53% of the
+no-op Rust body, which is `add_node_with_attrs` wrapping `add_node_with_attrs_unrecorded`
+in a `record_decision`. That corroborates the bead's own "the ledger is ~35% of it".
+Second is the eager `node_py_attrs` dict materialisation at +37.4 ns on a call that
+was given no attributes. Neither is taken here.
+
+PROVENANCE: rch worker, release, 512 probes x 20 reps x 41 rounds ABBA. Reproduce:
+`rch exec -- cargo test --release -j 2 -p fnx-python --lib
+add_node_entry_self_time_ladder -- --ignored --nocapture`.
