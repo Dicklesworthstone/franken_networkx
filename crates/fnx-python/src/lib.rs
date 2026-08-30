@@ -1938,6 +1938,12 @@ pub(crate) struct NodeIndexLookupCache {
     /// which paid a dict probe PLUS a `PyLong` round-trip per endpoint and
     /// measured 1.27x slower in wall clock despite removing instructions.
     present_keys: Py<PySet>,
+    /// Exact built-in integer keys already proven absent for this node-set
+    /// generation.  Repeated absent-int probes can then use CPython's cached
+    /// integer hash instead of rebuilding and probing a canonical Rust key.
+    /// Integer subclasses stay on the canonical path because their Python
+    /// equality or hash can be observable.
+    missing_exact_int_keys: Py<PySet>,
 }
 
 impl NodeIndexLookupCache {
@@ -1948,6 +1954,9 @@ impl NodeIndexLookupCache {
             present_keys: PySet::empty(py)
                 .expect("an empty set is always constructible")
                 .unbind(),
+            missing_exact_int_keys: PySet::empty(py)
+                .expect("an empty set is always constructible")
+                .unbind(),
         }
     }
 
@@ -1955,6 +1964,7 @@ impl NodeIndexLookupCache {
         if self.nodes_seq.load(Ordering::Relaxed) != nodes_seq {
             self.entries.bind(py).clear();
             self.present_keys.bind(py).clear();
+            self.missing_exact_int_keys.bind(py).clear();
             self.nodes_seq.store(nodes_seq, Ordering::Relaxed);
         }
     }
@@ -2003,14 +2013,36 @@ impl NodeIndexLookupCache {
         self.present_keys.bind(py).add(key)
     }
 
+    /// Query a known miss for an exact built-in int.  The caller enforces that
+    /// type rule, so this is a direct non-raising integer hash probe.
+    fn is_known_absent_exact_int(
+        &self,
+        py: Python<'_>,
+        nodes_seq: u64,
+        key: &Bound<'_, PyAny>,
+    ) -> PyResult<bool> {
+        self.invalidate_if_stale(py, nodes_seq);
+        self.missing_exact_int_keys.bind(py).contains(key)
+    }
+
+    fn remember_absent_exact_int(
+        &self,
+        py: Python<'_>,
+        key: &Bound<'_, PyAny>,
+    ) -> PyResult<()> {
+        self.missing_exact_int_keys.bind(py).add(key)
+    }
+
     fn traverse(&self, visit: &PyVisit<'_>) -> Result<(), PyTraverseError> {
         visit.call(&self.entries)?;
-        visit.call(&self.present_keys)
+        visit.call(&self.present_keys)?;
+        visit.call(&self.missing_exact_int_keys)
     }
 
     fn clear(&self, py: Python<'_>) {
         self.entries.bind(py).clear();
         self.present_keys.bind(py).clear();
+        self.missing_exact_int_keys.bind(py).clear();
         self.nodes_seq.store(u64::MAX, Ordering::Relaxed);
     }
 }
@@ -2588,6 +2620,10 @@ impl DictOfDictsCache {
 /// both strong references.
 pub(crate) struct InstanceDictGc {
     dict: Option<Py<PyDict>>,
+    /// Cached raw native adjacency view. The Python facade still performs
+    /// private-store routing and owns the public cached-property behavior; this
+    /// holder only prevents the PyO3 descriptor from rebuilding its native view.
+    adj_view_cache: std::sync::Mutex<Option<Py<views::AdjacencyView>>>,
     private_node_override: bool,
     /// br-r37-c1-ef8rt: the `_adj` twin of `private_node_override`.
     ///
@@ -2618,6 +2654,7 @@ impl InstanceDictGc {
     pub(crate) const fn new() -> Self {
         Self {
             dict: None,
+            adj_view_cache: std::sync::Mutex::new(None),
             private_node_override: false,
             private_adj_override: false,
             private_dir_override: false,
@@ -2632,13 +2669,35 @@ impl InstanceDictGc {
 
     pub(crate) fn traverse(&self, visit: PyVisit<'_>) -> Result<(), PyTraverseError> {
         visit.call(&self.dict)?;
-        visit.call(&self.dict)
+        visit.call(&self.dict)?;
+        let cache = self.adj_view_cache.lock().unwrap();
+        visit.call(cache.as_ref())
     }
 
     pub(crate) fn clear(&mut self, py: Python<'_>) {
         if let Some(dict) = self.dict.take() {
             dict.bind(py).clear();
         }
+        *self.adj_view_cache.get_mut().unwrap() = None;
+    }
+
+    fn cached_adj_view(&self, py: Python<'_>) -> Option<Py<views::AdjacencyView>> {
+        self.adj_view_cache
+            .lock()
+            .unwrap()
+            .as_ref()
+            .map(|view| view.clone_ref(py))
+    }
+
+    fn cache_adj_view(
+        &self,
+        py: Python<'_>,
+        view: Py<views::AdjacencyView>,
+    ) -> Py<views::AdjacencyView> {
+        let mut cache = self.adj_view_cache.lock().unwrap();
+        cache
+            .get_or_insert_with(|| view.clone_ref(py))
+            .clone_ref(py)
     }
 
     pub(crate) fn set_private_node_override(&mut self) {
@@ -3189,10 +3248,20 @@ impl PyGraph {
         {
             return Ok(true);
         }
+        if n.is_exact_instance_of::<PyInt>()
+            && self
+                .has_edge_node_index_cache
+                .is_known_absent_exact_int(py, nodes_seq, n)?
+        {
+            return Ok(false);
+        }
         // br-r37-c1-oe93x: borrowed canonical key — no String alloc.
         let present = with_node_key_str(py, n, |canonical| self.inner.has_node(canonical))?;
         if present {
             self.has_edge_node_index_cache.remember_present(py, n)?;
+        } else if n.is_exact_instance_of::<PyInt>() {
+            self.has_edge_node_index_cache
+                .remember_absent_exact_int(py, n)?;
         }
         Ok(present)
     }
@@ -18319,10 +18388,18 @@ impl PyGraph {
     /// ``G.adj`` — an `AdjacencyView` of the graph. ``G.adj[n]`` returns a dict
     /// of neighbors and edge attributes.
     #[getter]
-    fn adj(slf: PyRef<'_, Self>) -> PyResult<Py<views::AdjacencyView>> {
-        let py = slf.py();
-        let graph_py: Py<PyGraph> = Py::from(slf);
-        views::new_adjacency_view(py, graph_py)
+    fn adj(slf: Py<PyGraph>, py: Python<'_>) -> PyResult<Py<views::AdjacencyView>> {
+        if let Some(view) = slf
+            .try_borrow(py)?
+            .instance_dict_gc
+            .cached_adj_view(py)
+        {
+            return Ok(view);
+        }
+
+        let view = views::new_adjacency_view(py, slf.clone_ref(py))?;
+        let graph = slf.try_borrow_mut(py)?;
+        Ok(graph.instance_dict_gc.cache_adj_view(py, view))
     }
 
     /// ``G.degree`` — a `DegreeView` of node degrees. ``G.degree[n]`` returns the
@@ -22062,32 +22139,32 @@ fn identity_int_membership_is_answered_across_the_i64_seam() {
         graph.add_node(py, &at_max, None)?;
         graph.add_node(py, &above, None)?;
 
-        let present = |n: &Bound<'_, PyAny>| -> PyResult<(bool, bool)> {
+        let present = |graph: &PyGraph, n: &Bound<'_, PyAny>| -> PyResult<(bool, bool)> {
             Ok((graph.has_node(py, n)?, graph.__contains__(py, n)?))
         };
 
         for i in 0..3i64 {
             let node = i.into_pyobject(py)?.into_any();
             assert_eq!(
-                present(&node)?,
+                present(&graph, &node)?,
                 (true, true),
                 "identity int {i} must be present"
             );
         }
         assert_eq!(
-            present(&at_max)?,
+            present(&graph, &at_max)?,
             (true, true),
             "a node key of exactly i64::MAX must still be found"
         );
         // The seam itself: this key is a real node, and it can only be found by
         // the general canonical path now.
         assert_eq!(
-            present(&above)?,
+            present(&graph, &above)?,
             (true, true),
             "a node key above i64::MAX must be found through the canonical path"
         );
         assert_eq!(
-            present(&above_absent)?,
+            present(&graph, &above_absent)?,
             (false, false),
             "an absent key above i64::MAX must not be reported present"
         );
@@ -22097,7 +22174,7 @@ fn identity_int_membership_is_answered_across_the_i64_seam() {
         for i in [-1i64, -2, -4096, i64::MIN] {
             let node = i.into_pyobject(py)?.into_any();
             assert_eq!(
-                present(&node)?,
+                present(&graph, &node)?,
                 (false, false),
                 "negative int {i} must be absent"
             );
@@ -22108,11 +22185,49 @@ fn identity_int_membership_is_answered_across_the_i64_seam() {
         let negative_node = (-7i64).into_pyobject(py)?.into_any();
         graph.add_node(py, &negative_node, None)?;
         assert_eq!(
-            present(&negative_node)?,
+            present(&graph, &negative_node)?,
             (true, true),
             "a negative int that was actually added must be found"
         );
         Ok(())
     })
     .expect("identity-int membership seam test must run");
+}
+
+#[test]
+fn cached_native_adjacency_view_stays_live_and_int_misses_invalidate() {
+    Python::initialize();
+    Python::attach(|py| -> PyResult<()> {
+        let graph = Py::new(
+            py,
+            PyGraph::new_empty_with_mode(py, CompatibilityMode::Strict)?,
+        )?;
+
+        let first = PyGraph::adj(graph.clone_ref(py), py)?;
+        let second = PyGraph::adj(graph.clone_ref(py), py)?;
+        assert!(
+            first.bind(py).is(second.bind(py)),
+            "the native descriptor must reuse its cached view"
+        );
+
+        let root = "root".into_pyobject(py)?.into_any();
+        let leaf = "leaf".into_pyobject(py)?.into_any();
+        graph.borrow_mut(py).add_edge(py, &root, &leaf, None)?;
+        assert_eq!(
+            first.bind(py).len()?,
+            2,
+            "the cached view must observe later node and edge mutations"
+        );
+
+        let missing = 1_000_003i64.into_pyobject(py)?.into_any();
+        assert!(!graph.borrow(py).has_node(py, &missing)?);
+        assert!(!graph.borrow(py).has_node(py, &missing)?);
+        graph.borrow_mut(py).add_node(py, &missing, None)?;
+        assert!(
+            graph.borrow(py).has_node(py, &missing)?,
+            "a node-set mutation must invalidate the remembered int miss"
+        );
+        Ok(())
+    })
+    .expect("native adjacency cache and int-miss invalidation must hold");
 }
