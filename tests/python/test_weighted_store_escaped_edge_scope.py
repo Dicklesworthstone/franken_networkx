@@ -205,7 +205,8 @@ def test_the_single_edge_read_no_longer_disables_the_size_scalar():
     oversight, and a later change that makes it pay should flip this line
     deliberately.
     """
-    narrow, bulk = _pair()[0], _pair()[0]
+    narrow = _pair()[0]
+    bulk, bulk_ref = _pair()
 
     narrow["n0"]["n1"]
     assert narrow._weighted_size_fast("w") is not None, (
@@ -217,6 +218,7 @@ def test_the_single_edge_read_no_longer_disables_the_size_scalar():
     )
 
     bulk_items = list(bulk.edges(data=True))
+    bulk_ref_items = list(bulk_ref.edges(data=True))
     assert bulk._weighted_size_fast("w") is not None, (
         "a bulk edge-data read must retain the exact live-dict weighted scalar"
     )
@@ -225,4 +227,7 @@ def test_the_single_edge_read_no_longer_disables_the_size_scalar():
     # not safely recover from. The fast scalar must remain enabled *and* read
     # the dict returned by the bulk view after its weight changes.
     bulk_items[0][2]["w"] = 4_321
-    assert bulk._weighted_size_fast("w") == bulk.size(weight="w")
+    bulk_ref_items[0][2]["w"] = 4_321
+    expected = bulk_ref.size(weight="w")
+    assert bulk._weighted_size_fast("w") == expected
+    assert bulk.size(weight="w") == expected

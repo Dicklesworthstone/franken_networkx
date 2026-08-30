@@ -586,6 +586,7 @@ fn edge_alldata_items(
     let inner = &g.inner;
     let edge_py_attrs = &mut g.edge_py_attrs;
     let edge_py_attrs_by_index = &mut g.edge_py_attrs_by_index;
+    let edge_py_attrs_by_endpoint = &mut g.edge_py_attrs_by_endpoint;
     let node_key_map = &g.node_key_map;
     let adj_py_keys = &g.adj_py_keys; // br-r37-c1-z6uka
     let lazy_stop = g.lazy_int_node_stop;
@@ -638,7 +639,7 @@ fn edge_alldata_items(
             // live dicts, which `test_edges_data_attr_dict_liveness.py` pins.
             let index_key = if u <= v { (u, v) } else { (v, u) };
             let dict = match edge_py_attrs_by_index.get(&index_key) {
-                Some((seq, cached)) if *seq == nodes_seq => cached.clone_ref(py).into_any(),
+                Some((seq, cached)) if *seq == nodes_seq => cached.clone_ref(py),
                 _ => {
                     let live = edge_py_attrs
                         .entry(PyGraph::edge_key(left, right))
@@ -649,12 +650,21 @@ fn edge_alldata_items(
                         })
                         .clone_ref(py);
                     edge_py_attrs_by_index.insert(index_key, (nodes_seq, live.clone_ref(py)));
-                    live.into_any()
+                    live
                 }
             };
+            let (endpoint_left, endpoint_right) = PyGraph::edge_key(left, right);
+            edge_py_attrs_by_endpoint
+                .entry(endpoint_left)
+                .or_default()
+                .insert(endpoint_right, dict.clone_ref(py));
             items.push(tuple_object(
                 py,
-                &[key_vec[u].clone_ref(py), key_vec[v].clone_ref(py), dict],
+                &[
+                    key_vec[u].clone_ref(py),
+                    key_vec[v].clone_ref(py),
+                    dict.into_any(),
+                ],
             )?);
         }
         return Ok(items);
@@ -681,9 +691,13 @@ fn edge_alldata_items(
                 attr_map_to_pydict(py, attrs)
                     .expect("stored string-keyed edge attrs must convert to Python")
             })
-            .clone_ref(py)
-            .into_any();
-        items.push(tuple_object(py, &[py_u, py_v, dict])?);
+            .clone_ref(py);
+        let (endpoint_left, endpoint_right) = PyGraph::edge_key(left, right);
+        edge_py_attrs_by_endpoint
+            .entry(endpoint_left)
+            .or_default()
+            .insert(endpoint_right, dict.clone_ref(py));
+        items.push(tuple_object(py, &[py_u, py_v, dict.into_any()])?);
     }
     Ok(items)
 }
