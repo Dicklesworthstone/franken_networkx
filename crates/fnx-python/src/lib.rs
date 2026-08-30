@@ -19714,6 +19714,15 @@ class FnxMultiGraphCtorEdgeIterable:
             );
 
             graph.remove_edge(py, &left, &right)?;
+            let edge_key = PyGraph::edge_key("left", "right");
+            assert!(
+                !graph.edge_py_attrs.contains_key(&edge_key),
+                "removing an edge must discard its primary attribute mirror"
+            );
+            assert!(
+                graph.edge_py_attrs_by_endpoint.is_empty(),
+                "removing an edge must discard its endpoint attribute lookaside"
+            );
             let fresh_attrs = PyDict::new(py);
             fresh_attrs.set_item("fresh", true)?;
             graph.add_edge(py, &left, &right, Some(&fresh_attrs))?;
