@@ -466,6 +466,32 @@ def workload_view_reads_directed(reps: int):
     return build, ops
 
 
+def workload_directed_degree_arrays(reps: int):
+    """Whole-view directional degree reads on a concrete DiGraph."""
+
+    def build(module):
+        return _directed_graph(module, 400, 1_600)
+
+    def ops(graph, _fixture):
+        in_view = graph.in_degree
+        out_view = graph.out_degree
+        total_view = graph.degree
+
+        def repeated(view):
+            result = None
+            for _ in range(reps):
+                result = dict(view)
+            return result
+
+        return {
+            "DiGraph dict(in_degree)": lambda: repeated(in_view),
+            "DiGraph dict(out_degree)": lambda: repeated(out_view),
+            "CONTROL DiGraph dict(degree)": lambda: repeated(total_view),
+        }
+
+    return build, ops
+
+
 def workload_edge_subscript_binding(reps: int):
     """All four classes' edge subscript in ONE process (br-r37-c1-bnv3h).
 
@@ -2779,6 +2805,7 @@ WORKLOADS = {
     "multi-key-length": workload_multi_key_length,
     "key-length-scaling": workload_key_length_scaling,
     "view-reads-directed": workload_view_reads_directed,
+    "directed-degree-arrays": workload_directed_degree_arrays,
     "view-reads-multi": workload_view_reads_multi,
     "generate-adjlist-multidigraph": workload_generate_adjlist_multidigraph,
     "edge-subscript-binding": workload_edge_subscript_binding,
