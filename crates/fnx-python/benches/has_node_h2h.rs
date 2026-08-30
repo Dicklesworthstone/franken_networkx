@@ -115,8 +115,22 @@ def run_cell(key, miss, n=2000, rounds=21, inner=2000):
     fg, names = _graph(fnx, n, key)
     ng, _ = _graph(nx, n, key)
     fg2, _ = _graph(fnx, n, key)      # separately built: the A/A null fixture
-    if miss:
-        probe = [f"zz{i}" for i in range(inner)] if key == "str" else [-(i + 1) for i in range(inner)]
+    # br-r37-c1-p80x1: the absent-INT cell is split by SIGN, and the split is the
+    # mechanism probe. fnx's identity-int fast path opens with
+    # `n.extract::<usize>()`; a NEGATIVE int cannot convert, so PyO3 raises an
+    # OverflowError and discards it on every probe, which is the
+    # `<pyo3::err::PyErr>::take` the instruction-count artifact named. A POSITIVE
+    # absent int converts cleanly and takes the identical remaining path (identity
+    # check misses, presence cache misses, canonical lookup misses). The two cells
+    # therefore differ in EXACTLY ONE thing - whether a Python exception is raised
+    # and thrown away - so their ratio isolates that cost with no code change and
+    # no second build. networkx misses a dict either way, which is the control.
+    if miss == "neg":
+        probe = [-(i + 1) for i in range(inner)]
+    elif miss == "pos":
+        probe = [n + i for i in range(inner)]
+    elif miss:
+        probe = [f"zz{i}" for i in range(inner)]
     else:
         probe = [names[i % n] for i in range(inner)]
 
@@ -134,11 +148,17 @@ def run_cell(key, miss, n=2000, rounds=21, inner=2000):
     return med["nx"] / med["fnx"], med["null"] / med["fnx"], med["fnx"] * 1e9, med["nx"] * 1e9
 
 def main():
+    cells = (
+        ("str", False, "hit"),
+        ("str", True, "MISS"),
+        ("int", False, "hit"),
+        ("int", "neg", "MISS-neg"),
+        ("int", "pos", "MISS-pos"),
+    )
     rows = []
-    for key in ("str", "int"):
-        for miss in (False, True):
-            ratio, null, fns, nns = run_cell(key, miss)
-            rows.append((key, "MISS" if miss else "hit", ratio, null, fns, nns))
+    for key, miss, label in cells:
+        ratio, null, fns, nns = run_cell(key, miss)
+        rows.append((key, label, ratio, null, fns, nns))
     return rows
 "#;
 
@@ -171,7 +191,7 @@ fn main() {
         println!("fnx_extension {fnx_ext}");
         println!("incumbent {nx_build}");
         println!(
-            "{:<6} {:<6} {:>11} {:>9} {:>11} {:>11}",
+            "{:<6} {:<9} {:>11} {:>9} {:>11} {:>11}",
             "key", "probe", "nx/fnx", "A/A null", "fnx ns", "nx ns"
         );
 
@@ -195,7 +215,7 @@ fn main() {
                 "  <- NULL OUT OF BAND, not quotable"
             };
             println!(
-                "{key:<6} {probe:<6} {ratio:10.3}x {null:9.3} {fns:10.1} {nns:10.1}{flag}"
+                "{key:<6} {probe:<9} {ratio:10.3}x {null:9.3} {fns:10.1} {nns:10.1}{flag}"
             );
         }
     });
