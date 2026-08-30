@@ -13815,6 +13815,12 @@ impl PyMultiGraph {
     }
 
     fn __getstate__(&self, py: Python<'_>) -> PyResult<PyObject> {
+        // The state exposes the same live edge-attribute dicts that the graph
+        // uses.  A caller may retain and mutate one after serialization, so the
+        // native store must no longer be treated as authoritative.
+        if self.inner.edge_count() > 0 {
+            self.mark_edges_dirty();
+        }
         let state = PyDict::new(py);
         state.set_item("mode", compatibility_mode_name(self.inner.mode()))?;
         state.set_item(
@@ -17022,10 +17028,14 @@ impl PyGraph {
             // protocol, networkx SHARES attr dicts there (fnx currently does not,
             // which is a separate parity bug), and it must propagate the moment
             // that is fixed.
-            edges_dirty: AtomicBool::new(false),
-            // br-r37-c1-igdzi: clean start, so the escape scope is empty for the
-            // same reason the flag is false — these dicts were created here.
-            exposed_edges: std::sync::Mutex::new(Some(rustc_hash::FxHashSet::default())),
+            edges_dirty: AtomicBool::new(self.edges_dirty.load(Ordering::Relaxed)),
+            // The cloned store may lag behind copied dirty mirrors, so this scope
+            // must widen until the clone synchronizes them.
+            exposed_edges: std::sync::Mutex::new(if self.edges_dirty.load(Ordering::Relaxed) {
+                None
+            } else {
+                Some(rustc_hash::FxHashSet::default())
+            }),
             node_keys_cache: std::sync::Mutex::new(None),
             node_iter_mirror: std::sync::Mutex::new(None),
             instance_dict_gc: InstanceDictGc::new(),
@@ -19230,6 +19240,12 @@ impl PyGraph {
     // ---- Serialization (pickle) ----
 
     fn __getstate__(&self, py: Python<'_>) -> PyResult<PyObject> {
+        // The state exposes the same live edge-attribute dicts that the graph
+        // uses.  A caller may retain and mutate one after serialization, so the
+        // native store must no longer be treated as authoritative.
+        if self.inner.edge_count() > 0 {
+            self.mark_edges_dirty();
+        }
         let state = PyDict::new(py);
         state.set_item("mode", compatibility_mode_name(self.inner.mode()))?;
         state.set_item(
