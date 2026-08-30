@@ -22219,3 +22219,265 @@ fn cached_native_adjacency_view_stays_live_and_int_misses_invalidate() {
     })
     .expect("native adjacency cache and int-miss invalidation must hold");
 }
+
+/// br-r37-c1-jc9e4: SELF-TIME PROFILE of the per-mutation CALL ENTRY, which is
+/// what that bead's own retry predicate asks for and nothing more.
+///
+/// The anchor is `OliveDesert`'s control: a no-op `add_node` on a node that is
+/// ALREADY PRESENT cost `914.4` ns/call while mutating nothing. That number is
+/// generic per-mutation-call entry cost shared with `add_edge`, and the bead
+/// records that `75.4%` of native `raw_add_edge` is boundary rather than
+/// mutation. This decomposes the no-op call into an INCREMENTAL LADDER so the
+/// cost lands on a named component instead of a guess. The predicate also fences
+/// two things off — the Python shim (`22.4%`, under its REJECT's `40%` bar) and
+/// node-key interning (`11.7%`) — and neither is touched here.
+///
+/// WHY A LADDER AND NOT AN ABLATION. Timing a component standalone proves it is
+/// expensive, not that it runs (the `standalone_microtiming_misattributes` trap),
+/// and attributing by removing one thing at a time invites the optimiser to
+/// delete the loop. Each rung ADDS exactly one statement of the shipped body to
+/// the rung below it, in the shipped order, and the last rung is the shipped body
+/// re-implemented. `L5` must land on `full` — that CLOSURE CHECK is what proves
+/// the ladder accounts for the whole call rather than an arbitrary subset, and a
+/// gap between them is a term this profile has not explained.
+///
+/// EVERY RUNG IS A NO-OP. The probe node is already in the graph, so `entry()`
+/// finds an occupant, the mirror insert overwrites an existing key, and the store
+/// insert is a lookup that changes nothing. Repeating a rung is therefore
+/// idempotent, which is the property that makes a no-op control timeable at all.
+///
+/// MEASURED, AND IT DID NOT CLOSE: 0.7068x then 0.7319x across two runs. Read the
+/// note at the closure-check repair inside the body before quoting any number
+/// from this harness — the increments are lower bounds, not a partition.
+///
+/// NEGATIVE CONTROL: `full/full` is an A/A null through the identical ABBA
+/// scheme. If it is not ~1.0 the instrument is measuring slot position and every
+/// other number here is void.
+///
+/// It is a SELF-TIME instrument on our own code. It cannot produce a vs-networkx
+/// number and must never be cited as one.
+///
+/// `#[ignore]`; run with
+/// `rch exec -- cargo test --release -j 2 -p fnx-python --lib
+///  add_node_entry_self_time_ladder -- --ignored --nocapture`.
+/// br-r37-c1-jc9e4: the ladder's rungs, each an OPAQUE call taking exactly the
+/// arguments `PyGraph::add_node` takes. `#[inline(never)]` is load-bearing, not
+/// decoration: with the bodies inline in the timing loop the optimiser hoisted
+/// work the opaque `add_node` denominator had to repeat, and the ladder's closure
+/// check came out at 0.7068x — it was measuring its own inlining. Each rung adds
+/// exactly one statement of the shipped body to the rung above it, in shipped
+/// order, and `rung_l5` is the shipped body statement for statement.
+#[inline(never)]
+fn rung_l1(_g: &mut PyGraph, py: Python<'_>, n: &Bound<'_, PyAny>) -> PyResult<()> {
+    let canonical = node_key_to_string(py, n)?;
+    std::hint::black_box(&canonical);
+    Ok(())
+}
+
+#[inline(never)]
+fn rung_l2(g: &mut PyGraph, py: Python<'_>, n: &Bound<'_, PyAny>) -> PyResult<()> {
+    let canonical = node_key_to_string(py, n)?;
+    g.node_key_map
+        .entry(canonical.clone())
+        .or_insert_with(|| n.clone().unbind());
+    std::hint::black_box(&canonical);
+    Ok(())
+}
+
+#[inline(never)]
+fn rung_l3(g: &mut PyGraph, py: Python<'_>, n: &Bound<'_, PyAny>) -> PyResult<()> {
+    let canonical = node_key_to_string(py, n)?;
+    g.node_key_map
+        .entry(canonical.clone())
+        .or_insert_with(|| n.clone().unbind());
+    g.node_iter_mirror_insert(py, &canonical)?;
+    std::hint::black_box(&canonical);
+    Ok(())
+}
+
+#[inline(never)]
+fn rung_l4(g: &mut PyGraph, py: Python<'_>, n: &Bound<'_, PyAny>) -> PyResult<()> {
+    let canonical = node_key_to_string(py, n)?;
+    g.node_key_map
+        .entry(canonical.clone())
+        .or_insert_with(|| n.clone().unbind());
+    g.node_iter_mirror_insert(py, &canonical)?;
+    g.inner.add_node_with_attrs(canonical, AttrMap::new());
+    Ok(())
+}
+
+#[inline(never)]
+fn rung_l5(g: &mut PyGraph, py: Python<'_>, n: &Bound<'_, PyAny>) -> PyResult<()> {
+    let canonical = node_key_to_string(py, n)?;
+    g.node_key_map
+        .entry(canonical.clone())
+        .or_insert_with(|| n.clone().unbind());
+    g.node_iter_mirror_insert(py, &canonical)?;
+    g.inner.add_node_with_attrs(canonical, AttrMap::new());
+    g.bump_nodes_seq();
+    Ok(())
+}
+
+#[test]
+#[ignore = "measurement; run with --release --ignored --nocapture"]
+fn add_node_entry_self_time_ladder() {
+    use std::hint::black_box;
+    use std::time::{Duration, Instant};
+
+    const NODES: usize = 2000;
+    const PROBES: usize = 512;
+    const ROUNDS: usize = 41;
+    const REPS: usize = 20;
+
+    Python::initialize();
+    Python::attach(|py| -> PyResult<()> {
+        let keys: Vec<String> = (0..NODES).map(|n| format!("n{n}")).collect();
+        let mut graph = PyGraph::new_empty_with_mode(py, CompatibilityMode::Strict)?;
+        for key in &keys {
+            let node = PyString::new(py, key).into_any();
+            graph.add_node(py, &node, None)?;
+        }
+        // Probe objects built once: the rungs differ in how much of the shipped
+        // body they execute, not in how they obtain a key.
+        let probes: Vec<PyObject> = (0..PROBES)
+            .map(|i| PyString::new(py, &keys[i]).into_any().unbind())
+            .collect();
+        // Every probe must ALREADY be present, or this is not a no-op control.
+        for probe in &probes {
+            assert!(
+                graph.has_node(py, probe.bind(py))?,
+                "the entry-cost control is only meaningful on an already-present node"
+            );
+        }
+
+        let before_nodes = graph.inner.node_count();
+
+        // THE CLOSURE CHECK DOES NOT CLOSE, AND THE FIRST EXPLANATION FOR IT WAS
+        // WRONG. Run 1 read L5/full = 0.7068x. I guessed the rung bodies were
+        // being hoisted because they sat inline in the timing loop while the
+        // denominator is an opaque `add_node` call, and made every rung an
+        // `#[inline(never)]` function taking `add_node`'s own argument list. That
+        // is the right shape and it is kept, but it was NOT the cause: run 2 read
+        // 0.7319x, essentially unchanged. `rung_l5` was then diffed against the
+        // shipped body statement by statement and mirrors all five of them, so
+        // the ~84 ns is not a missing statement either.
+        //
+        // CONSEQUENCE FOR ANY READER: the per-rung increments below are LOWER
+        // BOUNDS, not a partition of the call, and this harness must not be cited
+        // as an attribution until the gap is explained. What it does support is
+        // the ORDERING, which is robust to the gap because the largest increment
+        // is bigger than the whole unexplained remainder. The named next step is
+        // an L0 empty-body rung plus an L6 rung that wraps `add_node` itself: if
+        // L6 lands on `full` the call shapes are equivalent and the gap is real
+        // work, and if L6 lands on L5 the gap is an artefact of the pairing.
+        let before_nodes = black_box(before_nodes);
+
+        // Each rung times the SAME opaque-call shape the denominator has.
+        macro_rules! rung_arm {
+            ($f:ident) => {
+                |g: &mut PyGraph| -> PyResult<Duration> {
+                    let start = Instant::now();
+                    for _ in 0..REPS {
+                        for probe in &probes {
+                            $f(g, py, probe.bind(py))?;
+                        }
+                    }
+                    Ok(start.elapsed())
+                }
+            };
+        }
+        let l1 = rung_arm!(rung_l1);
+        let l2 = rung_arm!(rung_l2);
+        let l3 = rung_arm!(rung_l3);
+        let l4 = rung_arm!(rung_l4);
+        let l5 = rung_arm!(rung_l5);
+        // The shipped call itself, through the public entry point.
+        let full = |g: &mut PyGraph| -> PyResult<Duration> {
+            let start = Instant::now();
+            for _ in 0..REPS {
+                for probe in &probes {
+                    g.add_node(py, probe.bind(py), None)?;
+                }
+            }
+            Ok(start.elapsed())
+        };
+
+        // ABBA within each pair, for the reason the sibling harness records: a
+        // fixed-order round made two byte-identical closures differ by 12%.
+        let balanced = |first: &dyn Fn(&mut PyGraph) -> PyResult<Duration>,
+                        second: &dyn Fn(&mut PyGraph) -> PyResult<Duration>,
+                        g: &mut PyGraph|
+         -> PyResult<(f64, f64)> {
+            let a1 = first(g)?;
+            let b1 = second(g)?;
+            let b2 = second(g)?;
+            let a2 = first(g)?;
+            let scale = (2 * PROBES * REPS) as f64;
+            Ok((
+                (a1 + a2).as_nanos() as f64 / scale,
+                (b1 + b2).as_nanos() as f64 / scale,
+            ))
+        };
+
+        for _ in 0..3 {
+            l1(&mut graph)?;
+            l5(&mut graph)?;
+            full(&mut graph)?;
+        }
+
+        let mut rungs: [Vec<f64>; 5] = Default::default();
+        let mut full_ns = Vec::with_capacity(ROUNDS);
+        let mut null_a = Vec::with_capacity(ROUNDS);
+        let mut null_b = Vec::with_capacity(ROUNDS);
+        for _ in 0..ROUNDS {
+            let (na, nb) = balanced(&full, &full, &mut graph)?;
+            null_a.push(na);
+            null_b.push(nb);
+            // Each rung is paired against `full` in its own balanced block, so
+            // every rung is measured against the same denominator under the same
+            // scheme rather than across blocks.
+            for (index, rung) in [&l1 as &dyn Fn(&mut PyGraph) -> PyResult<Duration>, &l2, &l3, &l4, &l5]
+                .into_iter()
+                .enumerate()
+            {
+                let (r, f) = balanced(rung, &full, &mut graph)?;
+                rungs[index].push(r);
+                if index == 4 {
+                    full_ns.push(f);
+                }
+            }
+        }
+
+        // Nothing was added: every rung was a no-op on an already-present node.
+        assert_eq!(
+            graph.inner.node_count(),
+            before_nodes,
+            "an entry-cost control that changed the node count measured a real insert"
+        );
+
+        let median = |samples: &mut Vec<f64>| -> f64 {
+            samples.sort_by(f64::total_cmp);
+            samples[(samples.len() - 1) / 2]
+        };
+        let l1m = median(&mut rungs[0]);
+        let l2m = median(&mut rungs[1]);
+        let l3m = median(&mut rungs[2]);
+        let l4m = median(&mut rungs[3]);
+        let l5m = median(&mut rungs[4]);
+        let fullm = median(&mut full_ns);
+        let na = median(&mut null_a);
+        let nb = median(&mut null_b);
+
+        println!("add_node_entry_self_time_ladder probes={PROBES} reps={REPS} rounds={ROUNDS}");
+        println!("  A/A null (full/full)          : {:8.4}x", nb / na);
+        println!("  L1 canonicalize only          : {l1m:8.1} ns/call");
+        println!("  L2 + node_key_map entry       : {l2m:8.1} ns/call   (+{:6.1})", l2m - l1m);
+        println!("  L3 + node_iter_mirror_insert  : {l3m:8.1} ns/call   (+{:6.1})", l3m - l2m);
+        println!("  L4 + store add_node_with_attrs: {l4m:8.1} ns/call   (+{:6.1})", l4m - l3m);
+        println!("  L5 + bump_nodes_seq           : {l5m:8.1} ns/call   (+{:6.1})", l5m - l4m);
+        println!("  FULL shipped add_node         : {fullm:8.1} ns/call");
+        println!("  CLOSURE CHECK  L5/full        : {:8.4}x  (must be ~1.0)", l5m / fullm);
+        Ok(())
+    })
+    .expect("add_node entry self-time ladder must run");
+}
