@@ -102,6 +102,43 @@ def test_cached_simple_adjacency_row_stays_live_like_networkx(fnx_ctor, nx_ctor)
     assert list(fkeys) == list(nkeys) == []
 
 
+def test_native_adj_descriptor_is_cached_without_freezing_live_rows():
+    """The raw PyO3 descriptor keeps one view while its rows stay live."""
+    graph = fnx.Graph()
+    native_descriptor = fnx._GRAPH_ADJ_DESCRIPTOR
+
+    first = native_descriptor.__get__(graph, fnx.Graph)
+    second = native_descriptor.__get__(graph, fnx.Graph)
+    assert first is second
+
+    graph.add_edge("root", "first", weight=1)
+    row = first["root"]
+    assert dict(row) == {"first": {"weight": 1}}
+
+    graph.add_edge("root", "second", weight=2)
+    assert dict(row) == {
+        "first": {"weight": 1},
+        "second": {"weight": 2},
+    }
+
+    graph.remove_edge("root", "first")
+    assert dict(row) == {"second": {"weight": 2}}
+
+
+def test_has_node_absent_exact_int_cache_invalidates_on_add():
+    """A remembered miss cannot outlive the node-set generation that made it."""
+    graph = fnx.Graph()
+    missing = 1_000_003
+
+    assert not graph.has_node(missing)
+    assert not graph.has_node(missing)
+    assert missing not in graph
+
+    graph.add_node(missing)
+    assert graph.has_node(missing)
+    assert missing in graph
+
+
 def test_graph_row_uses_native_mapping_slot_without_losing_atlas_contract():
     """The C-slot Graph row preserves the Mapping and detached-row contracts."""
     from collections.abc import Mapping
