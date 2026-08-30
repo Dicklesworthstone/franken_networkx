@@ -195,21 +195,34 @@ fn main() {
             .expect("harness failed to define");
 
         let ext: String = globals
-            .get_item("FNX_EXT").unwrap().unwrap().extract().unwrap();
+            .get_item("FNX_EXT")
+            .unwrap()
+            .unwrap()
+            .extract()
+            .unwrap();
         eprintln!("bench_elf_sha256 {}", self_identity());
         eprintln!("fnx_extension {ext}");
 
         let out = globals
-            .get_item("main").unwrap().unwrap().call0().expect("harness main() raised");
+            .get_item("main")
+            .unwrap()
+            .unwrap()
+            .call0()
+            .expect("harness main() raised");
         let fidelity: bool = out.get_item(0).unwrap().extract().unwrap();
         eprintln!("harness_matches_shipped_function {fidelity}");
         if !fidelity {
-            eprintln!("FIDELITY FAILED - the arms do not agree with the shipped function; \
-                       every number below is void");
+            eprintln!(
+                "FIDELITY FAILED - the arms do not agree with the shipped function; \
+                       every number below is void"
+            );
         }
 
         eprintln!("\nCOUNTED MECHANISM (deterministic, no timing):");
-        eprintln!("{:<8} {:>12} {:>18}   {}", "regime", "len(__dict__)", "short-circuit fires", "first keys");
+        eprintln!(
+            "{:<8} {:>12} {:>18}   {}",
+            "regime", "len(__dict__)", "short-circuit fires", "first keys"
+        );
         for row in out.get_item(1).unwrap().try_iter().unwrap() {
             let row = row.unwrap();
             let regime: String = row.get_item(0).unwrap().extract().unwrap();
@@ -236,7 +249,9 @@ fn main() {
                 (false, true) => "  <- CUR-ARM NULL OUT OF BAND, withheld",
                 (false, false) => "  <- BOTH NULLS OUT OF BAND, withheld",
             };
-            eprintln!("{regime:<8} {ratio:9.4}x {null_c:10.3} {null_s:10.3} {cur:10.1} {sc:10.1}{flag}");
+            eprintln!(
+                "{regime:<8} {ratio:9.4}x {null_c:10.3} {null_s:10.3} {cur:10.1} {sc:10.1}{flag}"
+            );
         }
     });
 }

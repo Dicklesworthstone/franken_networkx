@@ -6176,6 +6176,8 @@ impl PyMultiDiGraph {
         if let Some(row) = self.live_keydict_rows.get(py, &u_canonical, &v_canonical) {
             row.bind(py)
                 .set_item(public_key.bind(py), py_dict.bind(py))?;
+            self.live_keydict_rows
+                .refresh_len(py, &u_canonical, &v_canonical);
         }
         Ok(public_key)
     }
@@ -6331,6 +6333,8 @@ impl PyMultiDiGraph {
             ) && row.bind(py).contains(row_key.bind(py))?
             {
                 row.bind(py).del_item(row_key.bind(py))?;
+                self.live_keydict_rows
+                    .refresh_len(py, &u_canonical, &v_canonical);
             }
         } else {
             self.live_keydict_rows
@@ -9969,7 +9973,7 @@ impl PyMultiDiGraph {
                 let mut cached_row_was_tampered =
                     cached.is_some_and(|(expected_len, row)| row.bind(py).len() != *expected_len);
                 if !cached_row_was_tampered {
-                    if let Some(live) = self.live_keydict_rows.get(py, u_c, v_c) {
+                    if let Some(live) = self.live_keydict_rows.get_if_pristine(py, u_c, v_c) {
                         let live_matches_cache = cached
                             .map(|(expected_len, _)| live.bind(py).len() == *expected_len)
                             .unwrap_or(true);
@@ -10047,7 +10051,7 @@ impl PyMultiDiGraph {
                         .insert(v_c.to_owned(), (stored_len, stored.clone_ref(py)));
                 }
                 self.live_keydict_rows
-                    .insert(u_c.to_owned(), v_c.to_owned(), stored.clone_ref(py));
+                    .insert(py, u_c.to_owned(), v_c.to_owned(), stored.clone_ref(py));
                 Ok(Some(stored.into_any()))
             })?
         })??;

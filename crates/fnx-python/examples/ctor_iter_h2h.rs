@@ -188,19 +188,31 @@ fn main() {
         py.run(cstring(HARNESS).as_c_str(), Some(&globals), None)
             .expect("harness failed to define");
 
-        let fetch = |n: &str| -> String {
-            globals.get_item(n).unwrap().unwrap().extract().unwrap()
-        };
+        let fetch =
+            |n: &str| -> String { globals.get_item(n).unwrap().unwrap().extract().unwrap() };
         eprintln!("bench_elf_sha256 {}", self_identity());
         eprintln!("fnx_extension {}", fetch("FNX_EXT"));
         eprintln!("incumbent {}", fetch("NX_BUILD"));
         eprintln!(
             "\n{:<6} {:<9} {:<6} {:<5} {:>9} {:>9} {:>9} {:>10} {:>10}  {}",
-            "pass", "class", "shape", "feed", "nx/fnx", "null fnx", "null nx", "fnx ms", "nx ms", "ok"
+            "pass",
+            "class",
+            "shape",
+            "feed",
+            "nx/fnx",
+            "null fnx",
+            "null nx",
+            "fnx ms",
+            "nx ms",
+            "ok"
         );
 
         let rows = globals
-            .get_item("main").unwrap().unwrap().call0().expect("harness main() raised");
+            .get_item("main")
+            .unwrap()
+            .unwrap()
+            .call0()
+            .expect("harness main() raised");
         for row in rows.try_iter().unwrap() {
             let row = row.unwrap();
             let s = |i: usize| -> String { row.get_item(i).unwrap().extract().unwrap() };

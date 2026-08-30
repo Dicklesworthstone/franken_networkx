@@ -212,6 +212,33 @@ def test_held_mapping_reflects_a_later_add_edge(cls_name):
     assert 5 in held
 
 
+@pytest.mark.parametrize("cls_name", MULTI)
+def test_caller_added_phantom_does_not_survive_an_unrelated_native_mutation(cls_name):
+    """A live row is retained, but its structure remains native-authoritative."""
+    gfx = _pair(cls_name)[1]
+    held = gfx.get_edge_data("a", "b")
+    held[99] = {"w": 99.0}
+
+    # This invalidates the endpoint cache without touching the held pair.  A
+    # naive live-row cache would hand back the caller-tampered dict forever.
+    gfx.add_edge("c", "d", key=0, w=4.0)
+
+    fresh = gfx.get_edge_data("a", "b")
+    assert 99 not in fresh
+    assert set(fresh) == {0, 1}
+
+
+def test_reverse_multigraph_removal_updates_a_held_row():
+    """The retained undirected row is normalized by pair, not call direction."""
+    gfx = _pair("MultiGraph")[1]
+    held = gfx.get_edge_data("a", "b")
+
+    gfx.remove_edge("b", "a", key=1)
+
+    assert list(held) == [0]
+    assert held is gfx.get_edge_data("a", "b")
+
+
 def test_the_enumeration_is_not_vacuous():
     """Guards against every xfail above silently becoming unreachable."""
     gnx = nx.MultiGraph()

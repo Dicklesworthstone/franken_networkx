@@ -214,9 +214,7 @@ fn main() {
             } else {
                 "  <- NULL OUT OF BAND, not quotable"
             };
-            println!(
-                "{key:<6} {probe:<9} {ratio:10.3}x {null:9.3} {fns:10.1} {nns:10.1}{flag}"
-            );
+            println!("{key:<6} {probe:<9} {ratio:10.3}x {null:9.3} {fns:10.1} {nns:10.1}{flag}");
         }
     });
 }

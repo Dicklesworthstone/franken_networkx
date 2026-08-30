@@ -41,9 +41,16 @@ sha2 = "0.10.9"
 name = "networkx_head_to_head"
 harness = false
 
-[[bench]]
+# br-r37-c1-qan46: an EXAMPLE, not a bench, and the difference decides whether the
+# number is admissible. `cargo bench` and `cargo build` land in different rch target
+# POOLS (…-pool-4a7eb17c… against …-pool-94a6bb82…) even on one worker, so a cdylib
+# built by a preceding call is invisible to the bench, and the harness silently falls
+# back to whatever stale `python/franken_networkx/_fnx.abi3.so` the tree happens to
+# carry — a file peers rebuild under you mid-run. `cargo run --example` builds and
+# loads the cdylib in ONE invocation, which is what every other admissible H2H in
+# this repo uses.
+[[example]]
 name = "has_node_h2h"
-harness = false
 
 [[bench]]
 name = "public_api_gauntlet"

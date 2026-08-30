@@ -8377,7 +8377,11 @@ mod tests {
         graph.with_edge_slots_by_neighbor(|rows| {
             let weights = rows[a]
                 .iter()
-                .map(|&slot| graph.edge_attrs_by_slot(slot).and_then(|attrs| attrs.get("weight")))
+                .map(|&slot| {
+                    graph
+                        .edge_attrs_by_slot(slot)
+                        .and_then(|attrs| attrs.get("weight"))
+                })
                 .collect::<Vec<_>>();
             assert_eq!(
                 weights,
@@ -8389,7 +8393,11 @@ mod tests {
         graph.with_edge_slots_by_neighbor(|rows| {
             let weights = rows[a]
                 .iter()
-                .map(|&slot| graph.edge_attrs_by_slot(slot).and_then(|attrs| attrs.get("weight")))
+                .map(|&slot| {
+                    graph
+                        .edge_attrs_by_slot(slot)
+                        .and_then(|attrs| attrs.get("weight"))
+                })
                 .collect::<Vec<_>>();
             assert_eq!(
                 weights,

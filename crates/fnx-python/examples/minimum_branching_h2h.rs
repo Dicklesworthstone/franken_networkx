@@ -147,16 +147,8 @@ fn main() {
         let aa_null: f64 = outcome.get_item("aa_null").unwrap().extract().unwrap();
         let fnx_us: f64 = outcome.get_item("fnx_us").unwrap().extract().unwrap();
         let nx_us: f64 = outcome.get_item("nx_us").unwrap().extract().unwrap();
-        let networkx: String = outcome
-            .get_item("networkx")
-            .unwrap()
-            .extract()
-            .unwrap();
-        let extension: String = outcome
-            .get_item("extension")
-            .unwrap()
-            .extract()
-            .unwrap();
+        let networkx: String = outcome.get_item("networkx").unwrap().extract().unwrap();
+        let extension: String = outcome.get_item("extension").unwrap().extract().unwrap();
         let admission = if (0.98..=1.02).contains(&aa_null) {
             "ADMISSIBLE"
         } else {
@@ -166,6 +158,8 @@ fn main() {
         eprintln!("worker_executable_sha256 {}", self_sha256());
         eprintln!("fnx_extension {extension}");
         eprintln!("incumbent {networkx}");
-        eprintln!("minimum_branching nx/fnx {ratio:.4}x; A/A {aa_null:.4}; fnx {fnx_us:.3}us; nx {nx_us:.3}us; {admission}");
+        eprintln!(
+            "minimum_branching nx/fnx {ratio:.4}x; A/A {aa_null:.4}; fnx {fnx_us:.3}us; nx {nx_us:.3}us; {admission}"
+        );
     });
 }

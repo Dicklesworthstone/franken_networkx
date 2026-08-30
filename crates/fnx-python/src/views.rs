@@ -11,8 +11,8 @@ use arrayvec::ArrayString;
 use pyo3::exceptions::{PyKeyError, PyRuntimeError, PyTypeError, PyValueError};
 use pyo3::gc::{PyTraverseError, PyVisit};
 use pyo3::intern;
-use pyo3::sync::PyOnceLock;
 use pyo3::prelude::*;
+use pyo3::sync::PyOnceLock;
 use pyo3::types::{PyDict, PyIterator, PyModule, PySlice, PyString, PyTuple};
 
 /// Decide what a spec endpoint that will not canonicalise should do
@@ -2197,19 +2197,25 @@ impl AtlasView {
     fn keys(mut slf: PyRefMut<'_, Self>, py: Python<'_>) -> PyResult<PyObject> {
         slf.materialize(py)?;
         // br-r37-c1-abccache: cached type, not a per-call import.
-        Ok(abc_view_type(py, &ABC_KEYS_VIEW, "KeysView")?.call1((slf,))?.unbind())
+        Ok(abc_view_type(py, &ABC_KEYS_VIEW, "KeysView")?
+            .call1((slf,))?
+            .unbind())
     }
 
     fn items(mut slf: PyRefMut<'_, Self>, py: Python<'_>) -> PyResult<PyObject> {
         slf.materialize(py)?;
         // br-r37-c1-abccache: cached type, not a per-call import.
-        Ok(abc_view_type(py, &ABC_ITEMS_VIEW, "ItemsView")?.call1((slf,))?.unbind())
+        Ok(abc_view_type(py, &ABC_ITEMS_VIEW, "ItemsView")?
+            .call1((slf,))?
+            .unbind())
     }
 
     fn values(mut slf: PyRefMut<'_, Self>, py: Python<'_>) -> PyResult<PyObject> {
         slf.materialize(py)?;
         // br-r37-c1-abccache: cached type, not a per-call import.
-        Ok(abc_view_type(py, &ABC_VALUES_VIEW, "ValuesView")?.call1((slf,))?.unbind())
+        Ok(abc_view_type(py, &ABC_VALUES_VIEW, "ValuesView")?
+            .call1((slf,))?
+            .unbind())
     }
 
     #[pyo3(signature = (v, default=None))]

@@ -201,7 +201,12 @@ fn main() {
         py.run(cstring(HARNESS).as_c_str(), Some(&globals), None)
             .expect("harness failed to define");
 
-        let ext: String = globals.get_item("FNX_EXT").unwrap().unwrap().extract().unwrap();
+        let ext: String = globals
+            .get_item("FNX_EXT")
+            .unwrap()
+            .unwrap()
+            .extract()
+            .unwrap();
         eprintln!("bench_elf_sha256 {}", self_identity());
         eprintln!("fnx_extension {ext}");
         eprintln!(
@@ -210,7 +215,11 @@ fn main() {
         );
 
         let rows = globals
-            .get_item("main").unwrap().unwrap().call0().expect("harness main() raised");
+            .get_item("main")
+            .unwrap()
+            .unwrap()
+            .call0()
+            .expect("harness main() raised");
         for row in rows.try_iter().unwrap() {
             let row = row.unwrap();
             let label: String = row.get_item(0).unwrap().extract().unwrap();

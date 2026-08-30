@@ -11,7 +11,12 @@ use std::collections::HashMap;
 
 #[derive(Default)]
 pub(crate) struct LiveKeydictRows {
-    rows: HashMap<String, HashMap<String, Py<PyDict>>>,
+    rows: HashMap<String, HashMap<String, LiveKeydictRow>>,
+}
+
+struct LiveKeydictRow {
+    expected_len: usize,
+    dict: Py<PyDict>,
 }
 
 impl LiveKeydictRows {
@@ -19,11 +24,44 @@ impl LiveKeydictRows {
         self.rows
             .get(source)
             .and_then(|targets| targets.get(target))
-            .map(|row| row.clone_ref(py))
+            .map(|row| row.dict.clone_ref(py))
     }
 
-    pub(crate) fn insert(&mut self, source: String, target: String, row: Py<PyDict>) {
-        self.rows.entry(source).or_default().insert(target, row);
+    pub(crate) fn get_if_pristine(
+        &self,
+        py: Python<'_>,
+        source: &str,
+        target: &str,
+    ) -> Option<Py<PyDict>> {
+        self.rows
+            .get(source)
+            .and_then(|targets| targets.get(target))
+            .filter(|row| row.dict.bind(py).len() == row.expected_len)
+            .map(|row| row.dict.clone_ref(py))
+    }
+
+    pub(crate) fn insert(
+        &mut self,
+        py: Python<'_>,
+        source: String,
+        target: String,
+        dict: Py<PyDict>,
+    ) {
+        let expected_len = dict.bind(py).len();
+        self.rows.entry(source).or_default().insert(
+            target,
+            LiveKeydictRow { expected_len, dict },
+        );
+    }
+
+    pub(crate) fn refresh_len(&mut self, py: Python<'_>, source: &str, target: &str) {
+        if let Some(row) = self
+            .rows
+            .get_mut(source)
+            .and_then(|targets| targets.get_mut(target))
+        {
+            row.expected_len = row.dict.bind(py).len();
+        }
     }
 
     pub(crate) fn remove_in_place(&mut self, py: Python<'_>, source: &str, target: &str) {
@@ -35,7 +73,7 @@ impl LiveKeydictRows {
             self.rows.remove(source);
         }
         if let Some(row) = row {
-            row.bind(py).clear();
+            row.dict.bind(py).clear();
         }
     }
 
@@ -43,9 +81,9 @@ impl LiveKeydictRows {
         let mut removed = Vec::new();
         for (source, targets) in &mut self.rows {
             if source == node {
-                removed.extend(targets.drain().map(|(_, row)| row));
+                removed.extend(targets.drain().map(|(_, row)| row.dict));
             } else if let Some(row) = targets.remove(node) {
-                removed.push(row);
+                removed.push(row.dict);
             }
         }
         self.rows.retain(|_, targets| !targets.is_empty());
@@ -57,7 +95,7 @@ impl LiveKeydictRows {
     pub(crate) fn clear_in_place(&mut self, py: Python<'_>) {
         for targets in self.rows.values() {
             for row in targets.values() {
-                row.bind(py).clear();
+                row.dict.bind(py).clear();
             }
         }
         self.rows.clear();
@@ -66,7 +104,7 @@ impl LiveKeydictRows {
     pub(crate) fn traverse(&self, visit: &PyVisit<'_>) -> Result<(), PyTraverseError> {
         for targets in self.rows.values() {
             for row in targets.values() {
-                visit.call(row)?;
+                visit.call(&row.dict)?;
             }
         }
         Ok(())

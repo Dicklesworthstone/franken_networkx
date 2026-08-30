@@ -2025,11 +2025,7 @@ impl NodeIndexLookupCache {
         self.missing_exact_int_keys.bind(py).contains(key)
     }
 
-    fn remember_absent_exact_int(
-        &self,
-        py: Python<'_>,
-        key: &Bound<'_, PyAny>,
-    ) -> PyResult<()> {
+    fn remember_absent_exact_int(&self, py: Python<'_>, key: &Bound<'_, PyAny>) -> PyResult<()> {
         self.missing_exact_int_keys.bind(py).add(key)
     }
 
@@ -8978,7 +8974,7 @@ impl PyMultiGraph {
                 cached_row_was_tampered = true;
             }
             if !cached_row_was_tampered {
-                if let Some(live) = self.live_keydict_rows.get(py, lo, hi) {
+                if let Some(live) = self.live_keydict_rows.get_if_pristine(py, lo, hi) {
                     self.mark_edges_dirty();
                     return Ok(live.into_any());
                 }
@@ -9039,7 +9035,7 @@ impl PyMultiGraph {
                         .insert(hi.to_owned(), (stored_len, live.clone_ref(py)));
                 }
                 self.live_keydict_rows
-                    .insert(lo.to_owned(), hi.to_owned(), live.clone_ref(py));
+                    .insert(py, lo.to_owned(), hi.to_owned(), live.clone_ref(py));
                 Ok(live.into_any())
             }
         }
@@ -9580,6 +9576,7 @@ impl PyMultiGraph {
         if let Some(row) = self.live_keydict_rows.get(py, lo, hi) {
             row.bind(py)
                 .set_item(public_key.bind(py), py_dict.bind(py))?;
+            self.live_keydict_rows.refresh_len(py, lo, hi);
         }
         Ok(public_key)
     }
@@ -11567,20 +11564,21 @@ impl PyMultiGraph {
             self.remove_edge_metadata(&u_canonical, &v_canonical, removed_key);
         }
         let pair_remaining = self.inner.has_edge(&u_canonical, &v_canonical);
+        let (lo, hi) = if u_canonical <= v_canonical {
+            (&u_canonical, &v_canonical)
+        } else {
+            (&v_canonical, &u_canonical)
+        };
         if pair_remaining {
             if let (Some(row_key), Some(row)) = (
                 live_row_key,
-                self.live_keydict_rows.get(py, &u_canonical, &v_canonical),
+                self.live_keydict_rows.get(py, lo, hi),
             ) && row.bind(py).contains(row_key.bind(py))?
             {
                 row.bind(py).del_item(row_key.bind(py))?;
+                self.live_keydict_rows.refresh_len(py, lo, hi);
             }
         } else {
-            let (lo, hi) = if u_canonical <= v_canonical {
-                (&u_canonical, &v_canonical)
-            } else {
-                (&v_canonical, &u_canonical)
-            };
             self.live_keydict_rows.remove_in_place(py, lo, hi);
         }
         if !pair_remaining {
@@ -13250,8 +13248,7 @@ impl PyMultiGraph {
             Vec::with_capacity(self.inner.node_count());
         for node in self.inner.nodes_ordered() {
             let rust_attrs = if let Some(attrs) = self.node_py_attrs.get(node) {
-                let (rust_attrs, py_attrs) =
-                    deepcopy_py_dict_with_attr_map(py, &deepcopy, attrs)?;
+                let (rust_attrs, py_attrs) = deepcopy_py_dict_with_attr_map(py, &deepcopy, attrs)?;
                 mdg.node_py_attrs.insert(node.to_owned(), py_attrs);
                 rust_attrs
             } else {
@@ -18035,8 +18032,7 @@ impl PyGraph {
             // Attr-less nodes stay lazy (no PyDict / py_dict_to_attr_map) — same
             // contract as the native copy kernel; the dict materializes on demand.
             let rust_attrs = if let Some(attrs) = self.node_py_attrs.get(node) {
-                let (rust_attrs, py_attrs) =
-                    deepcopy_py_dict_with_attr_map(py, &deepcopy, attrs)?;
+                let (rust_attrs, py_attrs) = deepcopy_py_dict_with_attr_map(py, &deepcopy, attrs)?;
                 dg.node_py_attrs.insert(node.to_owned(), py_attrs);
                 rust_attrs
             } else {
@@ -18389,11 +18385,7 @@ impl PyGraph {
     /// of neighbors and edge attributes.
     #[getter]
     fn adj(slf: Py<PyGraph>, py: Python<'_>) -> PyResult<Py<views::AdjacencyView>> {
-        if let Some(view) = slf
-            .try_borrow(py)?
-            .instance_dict_gc
-            .cached_adj_view(py)
-        {
+        if let Some(view) = slf.try_borrow(py)?.instance_dict_gc.cached_adj_view(py) {
             return Ok(view);
         }
 
