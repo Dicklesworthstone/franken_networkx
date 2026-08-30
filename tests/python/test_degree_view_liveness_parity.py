@@ -223,6 +223,21 @@ def test_repeated_reads_are_stable(cls_name):
                 assert _read(view) == moved, name
 
 
+def test_digraph_directional_degree_arrays_refresh_at_every_native_generation():
+    """The cached PyO3 arrays must never survive an edge or node generation."""
+    graph_nx, graph_fx = _build(nx, "DiGraph"), _build(fnx, "DiGraph")
+    for mutation in (
+        lambda graph: graph.add_edge(0, 3),
+        lambda graph: graph.remove_edge(0, 3),
+        lambda graph: graph.add_edge(8, 9),
+        lambda graph: graph.remove_node(9),
+    ):
+        for graph in (graph_nx, graph_fx):
+            mutation(graph)
+        assert list(graph_fx.in_degree) == list(graph_nx.in_degree)
+        assert list(graph_fx.out_degree) == list(graph_nx.out_degree)
+
+
 @pytest.mark.parametrize("cls_name", CLASSES)
 def test_indexing_and_class_name_survive_a_mutation(cls_name):
     """The other contracts on these views must not regress while going live."""

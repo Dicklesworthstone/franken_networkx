@@ -7937,12 +7937,36 @@ class _DirectedDegreeView:
             if type(self._graph) is DiGraph:
                 if self._adjacency_attr == "succ":
                     counts = getattr(self._graph, "_native_out_degree_counts", None)
+                    cache_key = "out"
                 elif self._adjacency_attr == "pred":
                     counts = getattr(self._graph, "_native_in_degree_counts", None)
+                    cache_key = "in"
                 else:
                     counts = None
+                    cache_key = None
                 if counts is not None:
-                    yield from zip(self._graph, counts())
+                    # The PyO3 count arrays are index-ordered and the native
+                    # node/edge generations are bumped for every structural
+                    # change.  Keep the converted Python arrays on the graph
+                    # so repeat directional-degree reads do not rebuild one
+                    # Vec per call; a generation mismatch replaces the whole
+                    # direction-specific entry before it can be observed.
+                    #
+                    # This is deliberately unavailable to private-storage
+                    # graphs above: their caller-owned dicts can mutate
+                    # in-place without touching native generations.
+                    state = (self._graph.nodes_seq, self._graph.edges_seq)
+                    cache = vars(self._graph).get("_fnx_directional_degree_counts")
+                    entry = None if cache is None else cache.get(cache_key)
+                    if entry is None or entry[0] != state:
+                        values = counts()
+                        if cache is None:
+                            cache = {}
+                            vars(self._graph)["_fnx_directional_degree_counts"] = cache
+                        cache[cache_key] = (state, values)
+                    else:
+                        values = entry[1]
+                    yield from zip(self._graph, values)
                     return
             # br-r37-c1-vfytj/revrow: native bulk pairs read the (empty) Rust
             # base of a filtered/reverse view — skip for those view classes.
