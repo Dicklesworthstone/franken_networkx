@@ -9045,7 +9045,7 @@ impl PyMultiDiGraph {
             // protocol, networkx SHARES attr dicts there (fnx currently does not,
             // which is a separate parity bug), and it must propagate the moment
             // that is fixed.
-            edges_dirty: AtomicBool::new(self.edges_dirty.load(Ordering::Relaxed)),
+            edges_dirty: AtomicBool::new(false),
             // br-r37-c1-6r00i: `cloned_edge_dirty_keys` drains first, so the
             // clone above already carries what was queued and the new graph
             // starts with nothing pending.
@@ -10055,12 +10055,6 @@ impl PyMultiDiGraph {
     }
 
     fn __getstate__(&self, py: Python<'_>) -> PyResult<PyObject> {
-        // The state exposes the same live edge-attribute dicts that the graph
-        // uses.  A caller may retain and mutate one after serialization, so the
-        // native store must no longer be treated as authoritative.
-        if self.inner.edge_count() > 0 {
-            self.mark_edges_dirty();
-        }
         let state = PyDict::new(py);
         state.set_item("mode", compatibility_mode_name(self.inner.mode()))?;
         state.set_item(
@@ -17923,12 +17917,6 @@ impl PyDiGraph {
     // ---- Pickle ----
 
     fn __getstate__(&self, py: Python<'_>) -> PyResult<PyObject> {
-        // The state exposes the same live edge-attribute dicts that the graph
-        // uses.  A caller may retain and mutate one after serialization, so the
-        // native store must no longer be treated as authoritative.
-        if self.inner.edge_count() > 0 {
-            self.mark_edges_dirty();
-        }
         let state = PyDict::new(py);
         state.set_item("mode", compatibility_mode_name(self.inner.mode()))?;
         state.set_item(

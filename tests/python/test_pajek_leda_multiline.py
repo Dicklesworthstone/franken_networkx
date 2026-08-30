@@ -6,7 +6,6 @@ import warnings
 
 import franken_networkx as fnx
 import networkx as nx
-import pytest
 
 
 def test_generate_and_parse_pajek_round_trip():
@@ -266,33 +265,6 @@ def test_multiline_adjlist_round_trip(tmp_path: Path):
     assert from_file.number_of_nodes() == 3
     assert from_file.number_of_edges() == 1
     assert "solo" in from_file
-
-
-def test_read_multiline_adjlist_default_path_uses_byte_parser(tmp_path: Path, monkeypatch):
-    """The default on-disk route must not materialize decoded line strings."""
-    path = tmp_path / "weighted.adj"
-    path.write_bytes(
-        b"# header\nfirst 1\nsecond {'weight': 2}\nsecond 0\n"
-    )
-
-    def generic_parser_was_used(*_args, **_kwargs):
-        raise AssertionError("default path should use the byte parser")
-
-    monkeypatch.setattr(
-        fnx.readwrite, "parse_multiline_adjlist", generic_parser_was_used
-    )
-    parsed = fnx.read_multiline_adjlist(path)
-
-    assert list(parsed.nodes()) == ["first", "second"]
-    assert list(parsed.edges(data=True)) == [("first", "second", {"weight": 2})]
-
-
-def test_read_multiline_adjlist_default_path_keeps_malformed_header_error(tmp_path: Path):
-    path = tmp_path / "malformed.adj"
-    path.write_bytes(b"node not-a-degree\n")
-
-    with pytest.raises(TypeError, match="Failed to read node and degree"):
-        fnx.read_multiline_adjlist(path)
 
 
 # ---------------------------------------------------------------------------

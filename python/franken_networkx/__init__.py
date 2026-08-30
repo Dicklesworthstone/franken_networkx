@@ -21234,14 +21234,14 @@ def _pa_native_scores(G, materialized):
     """
     if not materialized:
         return
-    # The native scorer snapshots the integer adjacency degrees once, then
-    # resolves every endpoint pair through that vector.  Keeping the original
-    # Python pair objects here preserves NetworkX's generator payload while
-    # avoiding this wrapper's per-pair dictionary lookups.
-    for (u, v), (_raw_u, _raw_v, score) in zip(
-        materialized, _raw_preferential_attachment(G, materialized)
-    ):
-        yield (u, v, int(score))
+    if len(materialized) >= G.number_of_nodes():
+        degrees = dict(G.degree())
+    else:
+        degrees = dict(
+            G.degree({endpoint for pair in materialized for endpoint in pair})
+        )
+    for u, v in materialized:
+        yield (u, v, degrees[u] * degrees[v])
 
 
 def _link_prediction_validate_ebunch(G, ebunch):

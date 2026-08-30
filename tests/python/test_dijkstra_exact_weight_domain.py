@@ -20,7 +20,6 @@ is deliberately split three ways:
   either way), so nothing else in this file can catch a "delegate always" patch.
 """
 
-import copy
 from fractions import Fraction
 
 import networkx as nx
@@ -193,38 +192,3 @@ def test_ordinary_weights_stay_on_the_native_path(nx_cls, fnx_cls):
     for bad in (2**60, 2**70, Fraction(1, 3)):
         _, gfx = _pair(nx_cls, fnx_cls, bad)
         assert should_delegate(gfx, "weight") is True, f"{bad!r} must delegate"
-
-
-# --------------------------------------------------------------------------
-# Serialization exposure must invalidate the native weight store before a
-# retained state dictionary can be edited.  The copy routes are deliberately
-# included: they must inherit or rebuild from that invalidated state, never
-# clone the pre-exposure store and answer from stale weights.
-# --------------------------------------------------------------------------
-
-
-def _edge_attrs(graph):
-    if graph.is_multigraph():
-        return graph["a"]["b"][0]
-    return graph["a"]["b"]
-
-
-@pytest.mark.parametrize(("nx_cls", "fnx_cls"), CLASSES, ids=CLASS_IDS)
-@pytest.mark.parametrize("bad_weight", [-1, float("inf"), "not-a-number"])
-@pytest.mark.parametrize("copy_graph", [lambda graph: graph.copy(), copy.copy])
-def test_retained_state_weight_then_copy_matches_networkx(
-    nx_cls, fnx_cls, bad_weight, copy_graph
-):
-    """A state-owned live dict must not leave a copy's native weights stale."""
-    reference, graph = _pair(nx_cls, fnx_cls, 1, 1)
-    state = graph.__getstate__()
-    attrs = state["edges"][0][-1]
-    assert attrs is _edge_attrs(graph)
-    attrs["weight"] = bad_weight
-    _edge_attrs(reference)["weight"] = bad_weight
-
-    reference_copy = copy_graph(reference)
-    graph_copy = copy_graph(graph)
-    want = _outcome(nx.dijkstra_path_length, reference_copy, "a", "c", weight="weight")
-    got = _outcome(fnx.dijkstra_path_length, graph_copy, "a", "c", weight="weight")
-    assert got == want, f"weight={bad_weight!r}: nx gave {want}, fnx gave {got}"

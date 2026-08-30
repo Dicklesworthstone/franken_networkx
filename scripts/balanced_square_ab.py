@@ -2143,79 +2143,6 @@ def workload_claim_read_gml(reps: int):
     return build, ops
 
 
-def workload_claim_read_multiline_adjlist(reps: int):
-    """Live NetworkX/FNX default-path multiline-adjlist reader comparison."""
-    import tempfile
-
-    source, _ = _simple_graph(nx, 1_200, 6_000, seed=11)
-    payload = "\n".join(nx.generate_multiline_adjlist(source)) + "\n"
-    path = Path(tempfile.gettempdir()) / "franken-networkx-square-multiline.adj"
-    path.write_text(payload, encoding="utf-8")
-
-    def build(module):
-        graph = module.read_multiline_adjlist(path)
-        if graph.number_of_nodes() != 1_200 or graph.number_of_edges() != 6_000:
-            raise RuntimeError("multiline-adjlist fixture did not round-trip")
-        return graph, module
-
-    def ops(_graph, module):
-        def read_many():
-            result = None
-            for _ in range(reps):
-                result = sorted(module.read_multiline_adjlist(path).edges())
-            return result
-
-        return {
-            "claim/read_multiline_adjlist path n=1200 m=6000 then=sorted(edges)": read_many,
-        }
-
-    return build, ops
-
-
-def workload_claim_preferential_attachment(reps: int):
-    """Live public-generator score comparison on a fixed explicit ebunch."""
-
-    def build(module):
-        graph, (names, _edges) = _simple_graph(module, 1_200, 6_000, seed=11)
-        pairs = [(names[index], names[index + 17]) for index in range(300)]
-        return graph, pairs
-
-    def ops(graph, pairs):
-        module = (
-            fnx
-            if graph.__class__.__module__.startswith("franken_networkx")
-            else nx
-        )
-
-        def score_many():
-            result = None
-            for _ in range(reps):
-                result = tuple(module.preferential_attachment(graph, pairs))
-            return result
-
-        return {"claim/preferential_attachment n=1200 pairs=300": score_many}
-
-    return build, ops
-
-
-def workload_claim_adj_descriptor(reps: int):
-    """Bare public ``G.adj`` descriptor access, with no nested view operation."""
-
-    def build(module):
-        return _simple_graph(module, 2_000, 8_000)
-
-    def ops(graph, _fixture):
-        def access_many():
-            view = None
-            for _ in range(reps):
-                view = graph.adj
-            return view
-
-        return {"claim/G.adj bare accessor": access_many}
-
-    return build, ops
-
-
 def workload_claim_k_corona(reps: int):
     """Live NetworkX/FNX complete-result k_corona row (br-r37-c1-p80x1.4)."""
     try:
@@ -2791,9 +2718,6 @@ WORKLOADS = {
     "incumbent-fixtures": workload_incumbent_fixtures,
     "incumbent-fixtures-2": workload_incumbent_fixtures_2,
     "claim-read-gml": workload_claim_read_gml,
-    "claim-read-multiline-adjlist": workload_claim_read_multiline_adjlist,
-    "claim-preferential-attachment": workload_claim_preferential_attachment,
-    "claim-adj-descriptor": workload_claim_adj_descriptor,
     "claim-k-corona": workload_claim_k_corona,
     "claim-bidirectional-dijkstra": workload_claim_bidirectional_dijkstra,
     "claim-label-propagation": workload_claim_label_propagation,
