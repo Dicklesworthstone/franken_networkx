@@ -18508,76 +18508,72 @@ impl PyGraph {
     fn _weighted_size_fast_float(&self, py: Python<'_>, weight: &str) -> Option<f64> {
         let scope = self.weighted_read_scope().ok()?;
         let escaped = scope.as_deref().and_then(Option::as_ref);
-        let mut outer = crate::digraph::MixedSum::new();
-        for i in 0..self.inner.node_count() {
-            let mut node = crate::digraph::MixedSum::new();
-            let mut selfloop: Option<Result<i128, f64>> = None;
-            if let Some(nbrs) = self.inner.neighbors_indices(i) {
-                for &j in nbrs {
-                    let value = if let Some(escaped) = escaped
-                        && escaped.contains(&if i <= j { (i, j) } else { (j, i) })
-                    {
-                        // The live dict is authoritative for this edge. Same
-                        // three shapes the store arm accepts — an exact int, an
-                        // exact float, or an absent key taking nx's default of
-                        // 1 — and a refusal for anything else, including a bool.
-                        match self.escaped_edge_weight(py, i, j, weight)? {
-                            None => Ok(1i128),
-                            Some(v) if v.is_exact_instance_of::<PyInt>() => {
-                                Ok(v.extract::<i128>().ok()?)
-                            }
-                            Some(v) if v.is_exact_instance_of::<PyFloat>() => {
-                                Err(v.extract::<f64>().ok()?)
-                            }
-                            Some(_) => return None,
-                        }
-                    } else {
-                        match self
-                            .inner
-                            .edge_attrs_by_indices(i, j)
-                            .map(|a| a.get(weight))
+        self.inner.with_edge_slots_by_neighbor(|edge_slots| {
+            let mut outer = crate::digraph::MixedSum::new();
+            for i in 0..self.inner.node_count() {
+                let mut node = crate::digraph::MixedSum::new();
+                let mut selfloop: Option<Result<i128, f64>> = None;
+                if let Some(nbrs) = self.inner.neighbors_indices(i) {
+                    for (row_pos, &j) in nbrs.iter().enumerate() {
+                        let value = if let Some(escaped) = escaped
+                            && escaped.contains(&if i <= j { (i, j) } else { (j, i) })
                         {
-                            Some(Some(CgseValue::Int(v))) => Ok(i128::from(*v)),
-                            Some(Some(CgseValue::Float(v))) => Err(*v),
-                            Some(Some(_)) => return None,
-                            _ => Ok(1i128),
+                            match self.escaped_edge_weight(py, i, j, weight)? {
+                                None => Ok(1i128),
+                                Some(v) if v.is_exact_instance_of::<PyInt>() => {
+                                    Ok(v.extract::<i128>().ok()?)
+                                }
+                                Some(v) if v.is_exact_instance_of::<PyFloat>() => {
+                                    Err(v.extract::<f64>().ok()?)
+                                }
+                                Some(_) => return None,
+                            }
+                        } else {
+                            match self
+                                .inner
+                                .edge_attrs_by_slot(edge_slots[i][row_pos])
+                                .map(|a| a.get(weight))
+                            {
+                                Some(Some(CgseValue::Int(v))) => Ok(i128::from(*v)),
+                                Some(Some(CgseValue::Float(v))) => Err(*v),
+                                Some(Some(_)) => return None,
+                                _ => Ok(1i128),
+                            }
+                        };
+                        let ok = match value {
+                            Ok(w) => node.add_int(w),
+                            Err(x) => node.add_float(x),
+                        };
+                        if !ok {
+                            return None;
                         }
-                    };
-                    let ok = match value {
-                        Ok(w) => node.add_int(w),
-                        Err(x) => node.add_float(x),
-                    };
-                    if !ok {
-                        return None;
-                    }
-                    if i == j {
-                        selfloop = Some(value);
+                        if i == j {
+                            selfloop = Some(value);
+                        }
                     }
                 }
-            }
-            // nx: `total = sum(...)`, then `+ nbrs[n][weight]` for a self-loop —
-            // the second add sits OUTSIDE the compensated sum.
-            let mut total = node.value();
-            if let Some(w) = selfloop {
-                total = crate::digraph::mixed_combine(total, w)?;
-            }
-            let ok = match total {
-                Ok(t) => outer.add_int(t),
-                Err(x) => outer.add_float(x),
-            };
-            if !ok {
-                return None;
-            }
-        }
-        match outer.value() {
-            Ok(t) => {
-                if t.abs() > crate::digraph::MixedSum::EXACT_F64_INT {
+                let mut total = node.value();
+                if let Some(w) = selfloop {
+                    total = crate::digraph::mixed_combine(total, w)?;
+                }
+                let ok = match total {
+                    Ok(t) => outer.add_int(t),
+                    Err(x) => outer.add_float(x),
+                };
+                if !ok {
                     return None;
                 }
-                Some(t as f64 / 2.0)
             }
-            Err(x) => Some(x / 2.0),
-        }
+            match outer.value() {
+                Ok(t) => {
+                    if t.abs() > crate::digraph::MixedSum::EXACT_F64_INT {
+                        return None;
+                    }
+                    Some(t as f64 / 2.0)
+                }
+                Err(x) => Some(x / 2.0),
+            }
+        })
     }
 
     /// INSTRUMENT for br-r37-c1-mtncv — NOT a shipping path and NOT wired into

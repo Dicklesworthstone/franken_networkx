@@ -91,7 +91,7 @@ pub struct MultiGraphSnapshot {
     pub edges: Vec<MultiEdgeSnapshot>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct Graph {
     mode: CompatibilityMode,
     revision: u64,
@@ -106,6 +106,12 @@ pub struct Graph {
     /// br-r37-c1-d58s8: revision-keyed all-int weights memo (see
     /// DiGraph::all_int_cache).
     all_int_cache: std::sync::Arc<std::sync::RwLock<Option<(u64, String, bool)>>>,
+    /// Revision-keyed, row-order-faithful mapping from an adjacency position to
+    /// its `edges` storage slot. Weighted readers visit integer adjacency rows
+    /// already; carrying the slot reads attrs without re-hashing the `(u, v)`
+    /// pair. It is built lazily and each structural mutation advances
+    /// `revision`, making stale rows unusable without mutation-side repair.
+    edge_slots_by_neighbor: std::sync::RwLock<Option<(u64, Vec<Vec<usize>>)>>,
     edge_index_endpoints: Vec<(usize, usize)>,
     // br-r37-c1-d58s8 edges-map flip: keyed by the INDEX-CANONICAL
     // (min_idx, max_idx) node pair — zero String allocs/hashes per
@@ -114,6 +120,25 @@ pub struct Graph {
     // the string-canonical orientation for snapshot derivation.
     edges: FxIndexMap<(usize, usize), AttrMap>,
     runtime_policy: RuntimePolicy,
+}
+
+impl Clone for Graph {
+    fn clone(&self) -> Self {
+        Self {
+            mode: self.mode,
+            revision: self.revision,
+            nodes: self.nodes.clone(),
+            adj_indices: self.adj_indices.clone(),
+            // Both caches are derived state. A clone must not share a cache:
+            // independently mutated copies can reach the same revision with
+            // different edge storage orders.
+            all_int_cache: std::sync::Arc::default(),
+            edge_slots_by_neighbor: std::sync::RwLock::default(),
+            edge_index_endpoints: self.edge_index_endpoints.clone(),
+            edges: self.edges.clone(),
+            runtime_policy: self.runtime_policy.clone(),
+        }
+    }
 }
 
 impl Graph {
@@ -125,6 +150,7 @@ impl Graph {
             nodes: FxIndexMap::default(),
             adj_indices: Vec::new(),
             all_int_cache: std::sync::Arc::default(),
+            edge_slots_by_neighbor: std::sync::RwLock::default(),
             edge_index_endpoints: Vec::new(),
             edges: FxIndexMap::default(),
             runtime_policy: RuntimePolicy::new(mode),
@@ -140,6 +166,7 @@ impl Graph {
             nodes: FxIndexMap::default(),
             adj_indices: Vec::new(),
             all_int_cache: std::sync::Arc::default(),
+            edge_slots_by_neighbor: std::sync::RwLock::default(),
             edge_index_endpoints: Vec::new(),
             edges: FxIndexMap::default(),
             runtime_policy,
@@ -182,6 +209,7 @@ impl Graph {
             nodes: FxIndexMap::with_capacity_and_hasher(n, rustc_hash::FxBuildHasher),
             adj_indices: vec![Vec::with_capacity(n.saturating_sub(1)); n],
             all_int_cache: std::sync::Arc::default(),
+            edge_slots_by_neighbor: std::sync::RwLock::default(),
             edge_index_endpoints: Vec::with_capacity(edge_capacity),
             edges: FxIndexMap::with_capacity_and_hasher(edge_capacity, rustc_hash::FxBuildHasher),
             runtime_policy: RuntimePolicy::new(mode),
@@ -238,6 +266,7 @@ impl Graph {
             nodes: FxIndexMap::with_capacity_and_hasher(node_count, rustc_hash::FxBuildHasher),
             adj_indices: vec![Vec::with_capacity(4); node_count],
             all_int_cache: std::sync::Arc::default(),
+            edge_slots_by_neighbor: std::sync::RwLock::default(),
             edge_index_endpoints: Vec::with_capacity(edge_capacity),
             edges: FxIndexMap::with_capacity_and_hasher(edge_capacity, rustc_hash::FxBuildHasher),
             runtime_policy: RuntimePolicy::new(mode),
@@ -486,6 +515,7 @@ impl Graph {
             ),
             adj_indices: Vec::with_capacity(state.node_count),
             all_int_cache: std::sync::Arc::default(),
+            edge_slots_by_neighbor: std::sync::RwLock::default(),
             edge_index_endpoints: Vec::with_capacity(edge_view.len()),
             edges: FxIndexMap::with_capacity_and_hasher(edge_view.len(), rustc_hash::FxBuildHasher),
             runtime_policy: RuntimePolicy::new(mode),
@@ -581,6 +611,7 @@ impl Graph {
             nodes: FxIndexMap::with_capacity_and_hasher(total, rustc_hash::FxBuildHasher),
             adj_indices: Vec::new(),
             all_int_cache: std::sync::Arc::default(),
+            edge_slots_by_neighbor: std::sync::RwLock::default(),
             edge_index_endpoints: Vec::new(),
             edges: FxIndexMap::default(),
             runtime_policy: RuntimePolicy::new(mode),
@@ -790,6 +821,7 @@ impl Graph {
             nodes,
             adj_indices,
             all_int_cache: std::sync::Arc::default(),
+            edge_slots_by_neighbor: std::sync::RwLock::default(),
             edge_index_endpoints,
             edges,
             runtime_policy,
@@ -894,6 +926,7 @@ impl Graph {
             nodes: self.nodes.clone(),
             adj_indices: self.adj_indices.clone(),
             all_int_cache: std::sync::Arc::default(),
+            edge_slots_by_neighbor: std::sync::RwLock::default(),
             edge_index_endpoints: self.edge_index_endpoints.clone(),
             edges: self.edges.clone(),
             runtime_policy: RuntimePolicy::new(self.mode),
@@ -907,6 +940,7 @@ impl Graph {
     /// `adj_indices` mirror is rebuilt to match.
     pub fn apply_row_orders(&mut self, orders: &[(String, Vec<String>)]) {
         // br-r37-c1-d58s8 P2(c) slice 2: reorder the integer rows directly.
+        let mut changed = false;
         for (node, order) in orders {
             let Some(idx) = self.nodes.get_index_of(node.as_str()) else {
                 continue;
@@ -928,7 +962,13 @@ impl Graph {
                     new_row.push(v_idx);
                 }
             }
-            self.adj_indices[idx] = new_row;
+            if self.adj_indices[idx] != new_row {
+                self.adj_indices[idx] = new_row;
+                changed = true;
+            }
+        }
+        if changed {
+            self.revision = self.revision.saturating_add(1);
         }
     }
 
@@ -972,7 +1012,10 @@ impl Graph {
             }
             new_rows.push(new_row);
         }
-        self.adj_indices = new_rows;
+        if self.adj_indices != new_rows {
+            self.adj_indices = new_rows;
+            self.revision = self.revision.saturating_add(1);
+        }
     }
 
     pub fn edges_storage_order_index_iter(
@@ -1042,6 +1085,50 @@ impl Graph {
     #[inline]
     pub fn edge_attrs_by_indices(&self, left_idx: usize, right_idx: usize) -> Option<&AttrMap> {
         self.edges.get(&Self::canon_pair(left_idx, right_idx))
+    }
+
+    /// Read an edge's attributes by a storage slot supplied by the
+    /// row-order-preserving edge-slot cache.
+    #[must_use]
+    #[inline]
+    pub fn edge_attrs_by_slot(&self, edge_slot: usize) -> Option<&AttrMap> {
+        self.edges.get_index(edge_slot).map(|(_, attrs)| attrs)
+    }
+
+    /// Give a reader the edge-storage slot for every entry in every adjacency
+    /// row. The first reader after a structural revision resolves pairs once;
+    /// steady-state readers avoid pair hashing entirely.
+    pub fn with_edge_slots_by_neighbor<T>(&self, f: impl FnOnce(&[Vec<usize>]) -> T) -> T {
+        if let Ok(guard) = self.edge_slots_by_neighbor.read()
+            && let Some((revision, rows)) = guard.as_ref()
+            && *revision == self.revision
+        {
+            return f(rows);
+        }
+
+        let mut guard = self
+            .edge_slots_by_neighbor
+            .write()
+            .expect("edge slot cache lock poisoned");
+        if !matches!(guard.as_ref(), Some((revision, _)) if *revision == self.revision) {
+            let mut rows = Vec::with_capacity(self.adj_indices.len());
+            for (node, neighbors) in self.adj_indices.iter().enumerate() {
+                let mut slots = Vec::with_capacity(neighbors.len());
+                for &neighbor in neighbors {
+                    let slot = self
+                        .edges
+                        .get_index_of(&Self::canon_pair(node, neighbor))
+                        .expect("adjacency entries have matching edge storage");
+                    slots.push(slot);
+                }
+                rows.push(slots);
+            }
+            *guard = Some((self.revision, rows));
+        }
+        let (_, rows) = guard
+            .as_ref()
+            .expect("edge slot cache is initialized before use");
+        f(rows)
     }
 
     /// br-r37-c1-hasattrlazyfix: does ANY edge carry the attribute `key` in the
@@ -8266,6 +8353,60 @@ mod tests {
         let mut attrs = AttrMap::new();
         attrs.insert(key.to_owned(), CgseValue::from(value));
         attrs
+    }
+
+    #[test]
+    fn edge_slot_rows_follow_adj_order_and_refresh_after_mutation() {
+        let mut graph = Graph::strict();
+        let weighted = |value| {
+            let mut attrs = AttrMap::new();
+            attrs.insert("weight".to_owned(), CgseValue::Int(value));
+            attrs
+        };
+        graph
+            .add_edge_with_attrs("a", "b", weighted(1))
+            .expect("edge add should succeed");
+        graph
+            .add_edge_with_attrs("a", "c", weighted(2))
+            .expect("edge add should succeed");
+        graph
+            .add_edge_with_attrs("b", "c", weighted(3))
+            .expect("edge add should succeed");
+
+        let a = graph.get_node_index("a").expect("a exists");
+        graph.with_edge_slots_by_neighbor(|rows| {
+            let weights = rows[a]
+                .iter()
+                .map(|&slot| graph.edge_attrs_by_slot(slot).and_then(|attrs| attrs.get("weight")))
+                .collect::<Vec<_>>();
+            assert_eq!(
+                weights,
+                vec![Some(&CgseValue::Int(1)), Some(&CgseValue::Int(2))]
+            );
+        });
+
+        graph.apply_row_orders(&[("a".to_owned(), vec!["c".to_owned(), "b".to_owned()])]);
+        graph.with_edge_slots_by_neighbor(|rows| {
+            let weights = rows[a]
+                .iter()
+                .map(|&slot| graph.edge_attrs_by_slot(slot).and_then(|attrs| attrs.get("weight")))
+                .collect::<Vec<_>>();
+            assert_eq!(
+                weights,
+                vec![Some(&CgseValue::Int(2)), Some(&CgseValue::Int(1))]
+            );
+        });
+
+        assert!(graph.remove_edge("a", "c"));
+        graph.with_edge_slots_by_neighbor(|rows| {
+            assert_eq!(rows[a].len(), 1);
+            assert_eq!(
+                graph
+                    .edge_attrs_by_slot(rows[a][0])
+                    .and_then(|attrs| attrs.get("weight")),
+                Some(&CgseValue::Int(1))
+            );
+        });
     }
 
     #[test]
