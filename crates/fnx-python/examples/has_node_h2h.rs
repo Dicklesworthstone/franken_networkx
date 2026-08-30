@@ -59,7 +59,7 @@ cwd = {repo_root:?}
 # have are 3.6.1, so the incumbent version is a variable worth isolating rather than
 # assuming away.
 _vendored = os.environ.get('FNX_INCUMBENT', 'vendored') != 'installed'
-_rel = ('crates/fnx-python/benches', 'python')
+_rel = ('crates/fnx-python/examples', 'python')
 if _vendored:
     _rel = _rel + ('legacy_networkx_code/networkx', 'legacy_networkx_code')
 for rel_path in _rel:
@@ -76,6 +76,21 @@ candidates = [
     os.path.join(target_dir, 'release', 'libfnx_python.so'),
     os.path.join(cwd, 'python', 'franken_networkx', '_fnx.abi3.so'),
 ]
+# br-r37-c1-qan46: the third candidate is a TRAP and it used to be silent. The first
+# two are cdylibs this cargo invocation built; the third is a checked-in artifact that
+# whatever peer last ran `maturin develop` left in the tree, and on a shared checkout
+# it is rebuilt under a running measurement (observed: sha 8ff908fc -> 486a2fb4 inside
+# nine minutes). Falling through to it means the run measured SOMEBODY ELSE'S BUILD
+# while printing a perfectly respectable sha, which is exactly the failure named as
+# 'a printed sha is not a checked sha'. The provenance is now reported as a field,
+# so a row pasted from this output carries it and cannot be quoted as a
+# same-invocation build by accident.
+for path in candidates[:2]:
+    if os.path.exists(path):
+        sys._fnx_ext_provenance = 'built-by-this-invocation'
+        break
+else:
+    sys._fnx_ext_provenance = 'STALE-TREE-FALLBACK (not built by this invocation)'
 for path in candidates:
     if os.path.exists(path):
         spec = importlib.util.spec_from_file_location('franken_networkx._fnx', path)
@@ -87,6 +102,7 @@ for path in candidates:
             _sha = hashlib.sha256(fh.read()).hexdigest()
         sys._fnx_ext = f'{{path}} sha256={{_sha}}'
         print(f'fnx extension: {{sys._fnx_ext}}', file=sys.stderr)
+        print(f'fnx extension provenance: {{sys._fnx_ext_provenance}}', file=sys.stderr)
         break
 "
     )
@@ -102,6 +118,7 @@ import franken_networkx as fnx
 import sys as _sys
 NX_BUILD = f"{nx.__version__} @ {nx.__file__}"
 FNX_EXT = getattr(_sys, "_fnx_ext", "unavailable")
+FNX_PROV = getattr(_sys, "_fnx_ext_provenance", "unknown")
 
 def _graph(mod, n, key):
     g = mod.Graph()
@@ -189,6 +206,13 @@ fn main() {
             .extract()
             .expect("FNX_EXT is a str");
         println!("fnx_extension {fnx_ext}");
+        let fnx_prov: String = globals
+            .get_item("FNX_PROV")
+            .expect("FNX_PROV lookup")
+            .expect("FNX_PROV missing")
+            .extract()
+            .expect("FNX_PROV is a str");
+        println!("fnx_extension_provenance {fnx_prov}");
         println!("incumbent {nx_build}");
         println!(
             "{:<6} {:<9} {:>11} {:>9} {:>11} {:>11}",
