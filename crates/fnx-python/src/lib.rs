@@ -15365,9 +15365,23 @@ impl PyGraph {
                 .node_py_attrs
                 .entry(canonical.clone())
                 .or_insert_with(|| PyDict::new(py).unbind());
-            for (k, v) in a.iter() {
-                py_dict.bind(py).set_item(k, v)?;
-            }
+            // br-r37-c1-jc9e4: ONE C-level dict.update instead of N Rust->Python
+            // set_item round-trips. This is br-r37-c1-aefbatch applied to the node
+            // path: `add_edge` two screens below already copies its mirror with a
+            // single `update`, and its note records that the per-key loop
+            // "dominated attributed edge construction". `add_node` was the laggard.
+            //
+            // The key-count scaling probe in `examples/add_node_h2h.rs` is what
+            // convicted the loop rather than the fixed conversion: going from one
+            // attribute to four costs fnx 331 ns per added key against networkx's
+            // 93 ns, a 3.5x per-key deficit, on top of a roughly 2x fixed term that
+            // this change does NOT touch. A flat-in-k result would have meant the
+            // loop was not worth converting.
+            //
+            // `update` is semantically identical to the loop it replaces: it copies
+            // every item, and it MERGES into an existing dict, which is what the
+            // loop did for a node that already carried attributes.
+            py_dict.bind(py).update(a.as_mapping())?;
         }
 
         self.inner

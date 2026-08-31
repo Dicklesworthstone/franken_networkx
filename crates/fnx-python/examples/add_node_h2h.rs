@@ -150,7 +150,15 @@ def run_cell(mod_pair, cell, rounds=21):
                 "nx":  lambda: _fill(nx_mod, probe),
                 "null":lambda: _fill(fnx_mod, probe)}
     else:
-        attrs = {"w": 1.0}
+        # br-r37-c1-jc9e4: the attr cell is SCALED IN KEY COUNT, and the scaling is the
+        # discriminator. fnx stores attributes TWICE on this path - converted into the
+        # inner Rust AttrMap by py_dict_to_attr_map, and copied key-by-key into a Python
+        # mirror by a `set_item` loop - where `add_edge` already copies its mirror with a
+        # single C-level dict.update (br-r37-c1-aefbatch). If the deficit GROWS with k the
+        # per-key loop is the term and that partially-applied fix is the lever; if it is
+        # FLAT in k the cost is the fixed conversion plus dual storage and the loop is not
+        # worth touching. networkx does one dict update either way, which is the control.
+        attrs = {"w": 1.0} if cell == "attr1" else {"w": 1.0, "x": 2.0, "y": 3.0, "z": 4.0}
         fg, ng, fg2 = _prebuilt(fnx_mod), _prebuilt(nx_mod), _prebuilt(fnx_mod)
         arms = {"fnx": lambda: [fg.add_node(k, **attrs) for k in probe],
                 "nx":  lambda: [ng.add_node(k, **attrs) for k in probe],
@@ -221,7 +229,7 @@ def run_first_touch(built_by, rounds=21):
 
 def main():
     rows = []
-    for cell in ("noop", "fresh", "attr"):
+    for cell in ("noop", "fresh", "attr1", "attr4"):
         ratio, null, fns, nns = run_cell((fnx, nx), cell)
         rows.append(("add_node", cell, ratio, null, fns, nns))
     for built_by in ("add_node", "add_edge"):
