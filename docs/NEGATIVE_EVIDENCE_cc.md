@@ -25978,3 +25978,65 @@ KEPT FROM THE ATTEMPT: the test, reframed as
 `node_attributes_round_trip_with_order_and_non_scalars_preserved`. It pins multi-key
 INSERTION ORDER, non-scalar values keeping their real Python object, and merge-on-second-add,
 none of which had coverage and all of which are true regardless of mirror strategy.
+
+## `G.has_node(n)` is slower than `n in G` — FLOOR, decomposed: ~44.6 ns attribute lookup + ~31.4 ns slot-vs-method, no lever (br-r37-c1-qan46, br-r37-c1-reject-subgraph-ctor-four-hypotheses-b2t71)
+
+comparison_class=SELF
+decision_gate=median_ci
+cv_role=report_only
+
+A SELF-comparison of two spellings of one membership question; MAINTENANCE evidence,
+no vs-incumbent claim.
+
+b2t71 recorded `n in G` at 46.1 ns against `G.has_node(n)` at 66.7 ns and called
+has_node "now the SLOWER spelling", flagging that an older note claiming the opposite
+(236.8 ns vs 98.5 ns, 2026-08-04) is stale. A 45% spread between two spellings of the
+same question is the sibling-spelling smell, so it was decomposed rather than left as a
+headline.
+
+THREE SPELLINGS, one fnx graph, one invocation, ABBA, 21 rounds, each with its own A/A
+null on a separately built fixture. Worker bench cpu 63, cdylib reported
+`built-by-this-invocation`,
+bench_elf_sha256=7e881f26cffa513d7c47864a7fe4b596f4dd98560e88b07243f89328a5dac1b5:
+
+    spelling                                     ns/call   vs contains
+    `n in G`                                        75.3      1.000x
+    pre-bound `f = G.has_node; f(n)`               106.7      0.706x
+    per-call `G.has_node(n)`                       151.3      0.498x
+
+A/A null control, `contains` arm paired against a separately built fixture in the same invocation: 0.997x, inside the 0.03 bound.
+
+A/A null control, pre-bound `has_node` arm paired against a separately built fixture in the same invocation: 0.991x, inside the 0.03 bound.
+
+A/A null control, per-call `has_node` arm paired against a separately built fixture in the same invocation: 0.999x, inside the 0.03 bound.
+
+THE SPREAD IS TWO TERMS, NOT ONE:
+  * ATTRIBUTE LOOKUP, 151.3 - 106.7 = 44.6 ns. Resolving `G.has_node` and building a
+    bound method on every call. br-r37-c1-native-method-attribute-lookup-tax-w7wjs
+    prices attribute lookup at ~8-12 ns; on this surface it is four times that, which
+    is worth knowing on its own.
+  * CALLING CONVENTION, 106.7 - 75.3 = 31.4 ns, still there with the method pre-bound.
+    `n in G` enters through CPython's `sq_contains` slot; `has_node` is an ordinary
+    method call. Same class, same question, different C-level entry.
+
+COUNTED MECHANISM for the FLOOR verdict: `__contains__` does strictly MORE work than the
+raw `has_node` and is still faster. Its Rust body opens with
+`instance_dict_gc.private_node_contains`, an assigned-private-storage guard that raw
+`has_node` does not carry (ordinary graphs bind the raw descriptor; private-storage
+instances get a Python-level shadow instead). A spelling that does more work per call and
+still wins by 31.4 ns cannot be losing on its body, so there is no fast path for
+`has_node` to reach and no lever here.
+
+VERDICT: FLOOR. `has_node` cannot be made to match `n in G` without changing what a
+method call costs in CPython.
+
+SWAPPING SPELLINGS INTERNALLY IS SAFE BUT NOT TAKEN. Both honour assigned private
+storage - `__contains__` natively, `has_node` through its installed shadow - so they do
+not diverge, and the census found the internal `G.has_node(node)` loops
+(`set_node_attributes`, `__init__.py` ~27946/27959) are FALLBACKS reached only when the
+native `_native_set_node_attribute_scalar` / `_native_set_node_attributes_dict` path is
+unavailable. Converting a cold fallback to buy ~76 ns/node is not worth the parity
+surface, and any measurement of it would be swamped by run-to-run drift.
+
+REPRODUCE: `rch exec -- cargo build --release -j 2 -p fnx-python` then
+`rch exec -- cargo run --release -j 2 -p fnx-python --example has_node_h2h` (spelling rows).

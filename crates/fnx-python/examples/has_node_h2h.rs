@@ -164,6 +164,53 @@ def run_cell(key, miss, n=2000, rounds=21, inner=2000):
     med = {k: statistics.median(v) for k, v in samples.items()}
     return med["nx"] / med["fnx"], med["null"] / med["fnx"], med["fnx"] * 1e9, med["nx"] * 1e9
 
+def spelling_cell(spelling, n=2000, rounds=21, inner=2000):
+    """fnx-vs-fnx: three SPELLINGS of one membership question, one invocation.
+
+    br-r37-c1-reject-subgraph-ctor-four-hypotheses-b2t71 recorded `n in G` at 46.1 ns
+    against `G.has_node(n)` at 66.7 ns and called has_node "now the SLOWER spelling".
+    A 45% spread between two spellings of the SAME question is either an attribute-lookup
+    tax or two different bodies, and the two have opposite consequences: the first is a
+    known floor (br-r37-c1-native-method-attribute-lookup-tax-w7wjs prices attribute
+    lookup at ~8-12 ns), the second is a missed fast path worth fixing.
+
+    The discriminator is PRE-BINDING. `bound` resolves the method once outside the loop
+    and pays no per-call lookup; `attr` resolves it on every call. If bound ~ contains,
+    the whole spread is the lookup and there is nothing to fix. If bound is still slower,
+    the bodies differ.
+
+    networkx is not an arm here - this is a self-comparison of our own spellings, and no
+    vs-incumbent claim is made from it.
+    """
+    g = _graph(fnx, n, "int")[0]
+    g2 = _graph(fnx, n, "int")[0]      # separately built: the A/A null fixture
+    probe = [i % n for i in range(inner)]
+
+    def contains(gr):
+        for k in probe:
+            k in gr
+
+    def bound(gr):
+        f = gr.has_node
+        for k in probe:
+            f(k)
+
+    def attr(gr):
+        for k in probe:
+            gr.has_node(k)
+
+    body = {"contains": contains, "bound": bound, "attr": attr}[spelling]
+    arms = {"fnx": lambda: body(g), "null": lambda: body(g2)}
+    samples = {k: [] for k in arms}
+    for r in range(rounds):
+        order = list(arms) if r % 2 == 0 else list(arms)[::-1]
+        for name in order:
+            t = time.perf_counter()
+            arms[name]()
+            samples[name].append((time.perf_counter() - t) / len(probe))
+    med = {k: statistics.median(v) for k, v in samples.items()}
+    return med["null"] / med["fnx"], med["fnx"] * 1e9
+
 def main():
     cells = (
         ("str", False, "hit"),
@@ -176,6 +223,14 @@ def main():
     for key, miss, label in cells:
         ratio, null, fns, nns = run_cell(key, miss)
         rows.append((key, label, ratio, null, fns, nns))
+    # SPELLING cells: fnx against itself, so nx ns is reported as 0.0 and the
+    # nx/fnx column carries the spelling's ratio against `contains` instead.
+    base = None
+    for spelling in ("contains", "bound", "attr"):
+        null, fns = spelling_cell(spelling)
+        if base is None:
+            base = fns
+        rows.append(("spelling", spelling, base / fns, null, fns, 0.0))
     return rows
 "#;
 
