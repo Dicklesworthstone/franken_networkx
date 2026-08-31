@@ -1625,12 +1625,22 @@ def _frozen_mutation_outcome(graph, mutation_name):
     try:
         if mutation_name == "add_node":
             graph.add_node("late")
+        elif mutation_name == "add_nodes_from":
+            graph.add_nodes_from(["late", "later"])
         elif mutation_name == "add_edge":
             graph.add_edge("a", "late")
+        elif mutation_name == "add_edges_from":
+            graph.add_edges_from([("a", "late"), ("late", "later")])
+        elif mutation_name == "add_weighted_edges_from":
+            graph.add_weighted_edges_from([("a", "late", 2.5)])
         elif mutation_name == "remove_node":
             graph.remove_node("a")
+        elif mutation_name == "remove_nodes_from":
+            graph.remove_nodes_from(["a", "missing"])
         elif mutation_name == "remove_edge":
             graph.remove_edge("a", "b")
+        elif mutation_name == "remove_edges_from":
+            graph.remove_edges_from([("a", "b"), ("b", "missing")])
         elif mutation_name == "clear":
             graph.clear()
         elif mutation_name == "clear_edges":
@@ -1646,9 +1656,14 @@ def _frozen_mutation_outcome(graph, mutation_name):
     "mutation_name",
     [
         "add_node",
+        "add_nodes_from",
         "add_edge",
+        "add_edges_from",
+        "add_weighted_edges_from",
         "remove_node",
+        "remove_nodes_from",
         "remove_edge",
+        "remove_edges_from",
         "clear",
         "clear_edges",
     ],
