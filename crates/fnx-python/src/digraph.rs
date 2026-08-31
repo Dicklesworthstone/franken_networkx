@@ -2071,8 +2071,8 @@ impl PyMultiDiGraph {
         Ok(true)
     }
 
-    /// br-r37-c1-4b5ie: canonical (stored) attr dict — allocate+store empty on
-    /// first touch so the data mirror caches the SAME object later writes hit.
+    /// Canonical stored node-attr dict. Hydrate a missing Python mirror from
+    /// native storage, then retain that same live dict for later writes.
     pub(crate) fn materialize_node_py_attrs(
         &mut self,
         py: Python<'_>,
@@ -2080,7 +2080,11 @@ impl PyMultiDiGraph {
     ) -> Py<PyDict> {
         self.node_py_attrs
             .entry(canonical.to_owned())
-            .or_insert_with(|| PyDict::new(py).unbind())
+            .or_insert_with(|| match self.inner.node_attrs(canonical) {
+                Some(attrs) => attr_map_to_pydict(py, attrs)
+                    .expect("stored directed node attrs must convert to Python"),
+                None => PyDict::new(py).unbind(),
+            })
             .clone_ref(py)
     }
 
@@ -11105,10 +11109,9 @@ impl PyDiGraph {
         )
     }
 
-    /// br-r37-c1-4b5ie: mirror of PyGraph::materialize_node_py_attrs — return
-    /// the canonical (stored) Python attr dict for `canonical`, allocating and
-    /// storing an empty one on first touch so later writes (via
-    /// DiNodeView.__getitem__) land on the SAME object the data mirror caches.
+    /// Mirror of `PyGraph::materialize_node_py_attrs`: return the canonical
+    /// Python attr dict for `canonical`, hydrating native attrs when the mirror
+    /// is absent and retaining the live result for later writes.
     pub(crate) fn materialize_node_py_attrs(
         &mut self,
         py: Python<'_>,
@@ -11116,7 +11119,11 @@ impl PyDiGraph {
     ) -> Py<PyDict> {
         self.node_py_attrs
             .entry(canonical.to_owned())
-            .or_insert_with(|| PyDict::new(py).unbind())
+            .or_insert_with(|| match self.inner.node_attrs(canonical) {
+                Some(attrs) => attr_map_to_pydict(py, attrs)
+                    .expect("stored directed node attrs must convert to Python"),
+                None => PyDict::new(py).unbind(),
+            })
             .clone_ref(py)
     }
 
@@ -21211,6 +21218,56 @@ def fnx_keyed_attr_edges(mixed):
             assert_eq!(color, "red");
             assert!(graph.edge_py_attrs.is_empty());
         });
+    }
+
+    #[test]
+    fn directed_node_materialization_hydrates_native_attrs_and_keeps_identity() {
+        ensure_python();
+        Python::attach(|py| -> PyResult<()> {
+            let mut attrs = AttrMap::new();
+            attrs.insert("weight".to_owned(), CgseValue::Int(7));
+
+            let mut digraph = PyDiGraph::new_empty_with_mode(py, CompatibilityMode::Strict)?;
+            digraph
+                .inner
+                .add_node_with_attrs("native".to_owned(), attrs.clone());
+            let first = digraph.materialize_node_py_attrs(py, "native");
+            assert_eq!(
+                first
+                    .bind(py)
+                    .get_item("weight")?
+                    .expect("native directed node attr must be visible")
+                    .extract::<i64>()?,
+                7
+            );
+            let second = digraph.materialize_node_py_attrs(py, "native");
+            assert!(
+                first.bind(py).is(second.bind(py)),
+                "directed node attrs must retain one live Python dict"
+            );
+
+            let mut multidigraph =
+                PyMultiDiGraph::new_empty_with_mode(py, CompatibilityMode::Strict)?;
+            multidigraph
+                .inner
+                .add_node_with_attrs("native".to_owned(), attrs);
+            let first = multidigraph.materialize_node_py_attrs(py, "native");
+            assert_eq!(
+                first
+                    .bind(py)
+                    .get_item("weight")?
+                    .expect("native multidirected node attr must be visible")
+                    .extract::<i64>()?,
+                7
+            );
+            let second = multidigraph.materialize_node_py_attrs(py, "native");
+            assert!(
+                first.bind(py).is(second.bind(py)),
+                "multidirected node attrs must retain one live Python dict"
+            );
+            Ok(())
+        })
+        .expect("directed native node attrs must materialize correctly");
     }
 
     #[test]
