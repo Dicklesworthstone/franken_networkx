@@ -26040,3 +26040,70 @@ surface, and any measurement of it would be swamped by run-to-run drift.
 
 REPRODUCE: `rch exec -- cargo build --release -j 2 -p fnx-python` then
 `rch exec -- cargo run --release -j 2 -p fnx-python --example has_node_h2h` (spelling rows).
+
+## REJECT(class): every body-level lever on the attributed `add_node` cell — the Rust BODY is only ~20% of the call, so deleting ALL of it still loses (br-r37-c1-jc9e4)
+
+comparison_class=SELF
+decision_gate=median_ci
+cv_role=report_only
+
+This row REJECTS a class of levers rather than one lever, so it is filed as a rejection.
+No lever shipped and no vs-incumbent claim is made from the ladder.
+
+A/A null control, shipped attributed `add_node` paired against itself in the same invocation: 0.9994x, inside the 0.03 bound.
+
+COUNTED MECHANISM, independent of any timing: the ladder's rungs and the shipped body
+execute the SAME statements in the same order, and the closure check confirms it, so the
+partition below removes nothing and adds nothing. The rejection rests on arithmetic over
+two measured quantities, not on a ratio near 1.0.
+
+A SELF-comparison decomposing our own attributed `add_node` body; MAINTENANCE evidence,
+no vs-incumbent claim is made from the ladder itself.
+
+THE TARGET: `add_node(n, w=1.0)` is the worst row in this bead's loss map at 0.434x-0.484x
+against live networkx (fnx ~2394 ns, nx ~1150 ns). Two hypotheses about it were already
+refuted — the per-key `set_item` loop (real but ~9.5% of a per-key term) and skipping the
+mirror for a single lossless value (did nothing at all). This is the decomposition that
+should have come first.
+
+CLOSING LADDER, worker, release, 512 probes x 20 reps x 41 rounds, ABBA, every rung a
+NO-OP on an already-present node (node count asserted unchanged):
+
+    A/A null (full/full)             0.9994x
+    B0 empty body, ladder shape         1.7 ns/call
+    B3 canon + has_node + key-map      89.8 ns/call   (+ 88.1)
+    B4 + py_dict_to_attr_map          179.6 ns/call   (+ 89.8)
+    B5 + node_py_attrs entry          229.2 ns/call   (+ 49.5)
+    B6 + dict.update(mirror)          266.4 ns/call   (+ 37.2)
+    B7 + store add_node_with_attrs    457.6 ns/call   (+191.2)
+    B9 + log + bump (= body)          467.9 ns/call   (+ 10.3)
+    FULL shipped add_node(attr)       481.3 ns/call
+    CLOSURE CHECK  B9/full            0.9722x
+    SHAPE CHECK    BF/full            0.9978x
+
+The closure check is 2.8% off unity rather than the 0.5% the no-op ladder reached, so the
+increments are good to a couple of percent and should not be quoted to three digits.
+
+DOMINANT BODY TERM: the store call at +191.2 ns, 40% of the body. A separate probe inside
+fnx-classes (`node_decision_ledger_self_time_ab`) already split that call into 48.5 ns of
+store work and 138.3 ns of `record_decision`, so the DECISION LEDGER is roughly 29% of the
+entire attributed Rust body — the largest single item in it. Second is
+`py_dict_to_attr_map` at +89.8 ns.
+
+THE VERDICT, and it rules out a whole class of levers: the Rust body is 481.3 ns of a
+~2394 ns call, i.e. ~20%. DELETING THE ENTIRE BODY would leave ~1913 ns against
+networkx's ~1150 ns — still a loss. No body-level optimisation, including the decision
+ledger, can win this cell. It is a boundary-bound row.
+
+CAVEAT ON THE ARITHMETIC: the 481.3 ns body and the ~2394 ns call come from DIFFERENT
+runs on different hosts, so the subtraction is not exact. It survives anyway because the
+ratio is roughly 5x, far outside the ~5% drift these runs show, and because the same
+shape held on the no-op cell (243 ns body against a 963 ns call, ~73% boundary).
+
+NAMED NEXT HYPOTHESIS, not tested here: the shipped method is
+`#[pyo3(signature = (node_for_adding, **attr))]`, so PyO3 collects kwargs into a fresh
+PyDict on EVERY call, and the ladder does not measure that — its rungs are handed
+`Some(&attrs)` directly. The no-op cell's non-body remainder is ~720 ns while the
+attributed cell's is ~1900 ns, and kwargs marshalling is the obvious candidate for the
+difference. That is a boundary question, which this bead's retry predicate fences off
+from shim work but does not obviously fence off from the PyO3 signature itself.

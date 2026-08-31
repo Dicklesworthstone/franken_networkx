@@ -22801,3 +22801,326 @@ fn node_attributes_round_trip_with_order_and_non_scalars_preserved() {
     })
     .expect("node attribute contract test must run");
 }
+
+/// br-r37-c1-jc9e4: rungs for the ATTRIBUTED `add_node` ladder. Each mirrors one more
+/// statement of `PyGraph::add_node` with `attr = Some(<non-empty>)`, in shipped order,
+/// and `arung_b9` is that body statement for statement. All are `#[inline(never)]` so
+/// every rung is as opaque to the optimiser as the denominator.
+#[inline(never)]
+fn arung_b0(
+    _g: &mut PyGraph,
+    _py: Python<'_>,
+    _n: &Bound<'_, PyAny>,
+    _a: &Bound<'_, PyDict>,
+) -> PyResult<()> {
+    Ok(())
+}
+
+#[inline(never)]
+fn arung_b3(
+    g: &mut PyGraph,
+    py: Python<'_>,
+    n: &Bound<'_, PyAny>,
+    _a: &Bound<'_, PyDict>,
+) -> PyResult<()> {
+    let canonical = node_key_to_string(py, n)?;
+    let was_new = !g.inner.has_node(&canonical);
+    if g.should_store_node_key(&canonical, was_new) {
+        g.node_key_map
+            .entry(canonical.clone())
+            .or_insert_with(|| n.clone().unbind());
+    }
+    std::hint::black_box(&canonical);
+    Ok(())
+}
+
+#[inline(never)]
+fn arung_b4(
+    g: &mut PyGraph,
+    py: Python<'_>,
+    n: &Bound<'_, PyAny>,
+    a: &Bound<'_, PyDict>,
+) -> PyResult<()> {
+    let canonical = node_key_to_string(py, n)?;
+    let was_new = !g.inner.has_node(&canonical);
+    if g.should_store_node_key(&canonical, was_new) {
+        g.node_key_map
+            .entry(canonical.clone())
+            .or_insert_with(|| n.clone().unbind());
+    }
+    let rust_attrs = py_dict_to_attr_map(a)?;
+    std::hint::black_box((&canonical, &rust_attrs));
+    Ok(())
+}
+
+#[inline(never)]
+fn arung_b5(
+    g: &mut PyGraph,
+    py: Python<'_>,
+    n: &Bound<'_, PyAny>,
+    a: &Bound<'_, PyDict>,
+) -> PyResult<()> {
+    let canonical = node_key_to_string(py, n)?;
+    let was_new = !g.inner.has_node(&canonical);
+    if g.should_store_node_key(&canonical, was_new) {
+        g.node_key_map
+            .entry(canonical.clone())
+            .or_insert_with(|| n.clone().unbind());
+    }
+    let rust_attrs = py_dict_to_attr_map(a)?;
+    let py_dict = g
+        .node_py_attrs
+        .entry(canonical.clone())
+        .or_insert_with(|| PyDict::new(py).unbind());
+    std::hint::black_box((&canonical, &rust_attrs, &*py_dict));
+    Ok(())
+}
+
+#[inline(never)]
+fn arung_b6(
+    g: &mut PyGraph,
+    py: Python<'_>,
+    n: &Bound<'_, PyAny>,
+    a: &Bound<'_, PyDict>,
+) -> PyResult<()> {
+    let canonical = node_key_to_string(py, n)?;
+    let was_new = !g.inner.has_node(&canonical);
+    if g.should_store_node_key(&canonical, was_new) {
+        g.node_key_map
+            .entry(canonical.clone())
+            .or_insert_with(|| n.clone().unbind());
+    }
+    let rust_attrs = py_dict_to_attr_map(a)?;
+    let py_dict = g
+        .node_py_attrs
+        .entry(canonical.clone())
+        .or_insert_with(|| PyDict::new(py).unbind());
+    py_dict.bind(py).update(a.as_mapping())?;
+    std::hint::black_box((&canonical, &rust_attrs));
+    Ok(())
+}
+
+#[inline(never)]
+fn arung_b7(
+    g: &mut PyGraph,
+    py: Python<'_>,
+    n: &Bound<'_, PyAny>,
+    a: &Bound<'_, PyDict>,
+) -> PyResult<()> {
+    let canonical = node_key_to_string(py, n)?;
+    let was_new = !g.inner.has_node(&canonical);
+    if g.should_store_node_key(&canonical, was_new) {
+        g.node_key_map
+            .entry(canonical.clone())
+            .or_insert_with(|| n.clone().unbind());
+    }
+    let rust_attrs = py_dict_to_attr_map(a)?;
+    let py_dict = g
+        .node_py_attrs
+        .entry(canonical.clone())
+        .or_insert_with(|| PyDict::new(py).unbind());
+    py_dict.bind(py).update(a.as_mapping())?;
+    g.inner.add_node_with_attrs(canonical.clone(), rust_attrs);
+    std::hint::black_box(&canonical);
+    Ok(())
+}
+
+/// The shipped body, statement for statement. Must land on `full`.
+#[inline(never)]
+fn arung_b9(
+    g: &mut PyGraph,
+    py: Python<'_>,
+    n: &Bound<'_, PyAny>,
+    a: &Bound<'_, PyDict>,
+) -> PyResult<()> {
+    let canonical = node_key_to_string(py, n)?;
+    let was_new = !g.inner.has_node(&canonical);
+    if g.should_store_node_key(&canonical, was_new) {
+        g.node_key_map
+            .entry(canonical.clone())
+            .or_insert_with(|| n.clone().unbind());
+    }
+    let rust_attrs = py_dict_to_attr_map(a)?;
+    let py_dict = g
+        .node_py_attrs
+        .entry(canonical.clone())
+        .or_insert_with(|| PyDict::new(py).unbind());
+    py_dict.bind(py).update(a.as_mapping())?;
+    g.inner.add_node_with_attrs(canonical.clone(), rust_attrs);
+    log::debug!(target: "franken_networkx", "add_node: {canonical}");
+    if was_new {
+        g.node_iter_mirror_insert(py, &canonical)?;
+    }
+    g.bump_nodes_seq();
+    Ok(())
+}
+
+/// Shape check: the shipped call behind the ladder's own call shape.
+#[inline(never)]
+fn arung_full(
+    g: &mut PyGraph,
+    py: Python<'_>,
+    n: &Bound<'_, PyAny>,
+    a: &Bound<'_, PyDict>,
+) -> PyResult<()> {
+    g.add_node(py, n, Some(a))
+}
+
+/// br-r37-c1-jc9e4: SELF-TIME LADDER for the ATTRIBUTED `add_node` body — the worst
+/// standing cell on this surface.
+///
+/// `add_node(n, w=1.0)` measures 0.434x-0.484x against live networkx (fnx ~2394 ns vs
+/// nx ~1150 ns), the worst row in my loss map for this bead. The no-op ladder closed and
+/// showed ~73% of THAT call is the PyO3 boundary; whether the same holds once real
+/// attribute work is added has never been measured, and two hypotheses about this cell
+/// have already been refuted (the per-key `set_item` loop was real but small at ~9.5%,
+/// and skipping the mirror for a single lossless value did nothing at all).
+///
+/// Same construction as the no-op ladder, and the same rules: each rung is an
+/// `#[inline(never)]` call taking the shipped argument list, each ADDS exactly one
+/// statement of the shipped body to the rung above it in shipped order, every rung is a
+/// NO-OP because the node is already present, and `B9` is the shipped body statement for
+/// statement so `B9/full` must land on ~1.0. That CLOSURE CHECK is the only thing that
+/// certifies the rungs mirror the function being timed — on the no-op ladder it caught a
+/// wrong-class error I had otherwise explained away three times.
+///
+/// SELF-TIME ONLY. It cannot produce a vs-networkx number.
+///
+/// `#[ignore]`; run with
+/// `rch exec -- cargo test --release -j 2 -p fnx-python --lib
+///  add_node_attributed_self_time_ladder -- --ignored --nocapture`.
+#[test]
+#[ignore = "measurement; run with --release --ignored --nocapture"]
+fn add_node_attributed_self_time_ladder() {
+    use std::hint::black_box;
+    use std::time::{Duration, Instant};
+
+    const NODES: usize = 2000;
+    const PROBES: usize = 512;
+    const ROUNDS: usize = 41;
+    const REPS: usize = 20;
+
+    Python::initialize();
+    Python::attach(|py| -> PyResult<()> {
+        let keys: Vec<String> = (0..NODES).map(|n| format!("n{n}")).collect();
+        let mut graph = PyGraph::new_empty_with_mode(py, CompatibilityMode::Strict)?;
+        let attrs = PyDict::new(py);
+        attrs.set_item("w", 1.0)?;
+        for key in &keys {
+            let node = PyString::new(py, key).into_any();
+            graph.add_node(py, &node, Some(&attrs))?;
+        }
+        let probes: Vec<PyObject> = (0..PROBES)
+            .map(|i| PyString::new(py, &keys[i]).into_any().unbind())
+            .collect();
+        for probe in &probes {
+            assert!(
+                graph.has_node(py, probe.bind(py))?,
+                "the attributed entry-cost control is only meaningful on a present node"
+            );
+        }
+        let before = graph.inner.node_count();
+
+        macro_rules! arm {
+            ($f:ident) => {
+                |g: &mut PyGraph| -> PyResult<Duration> {
+                    let start = Instant::now();
+                    for _ in 0..REPS {
+                        for probe in &probes {
+                            $f(g, py, probe.bind(py), &attrs)?;
+                        }
+                    }
+                    Ok(start.elapsed())
+                }
+            };
+        }
+        let b0 = arm!(arung_b0);
+        let b3 = arm!(arung_b3);
+        let b4 = arm!(arung_b4);
+        let b5 = arm!(arung_b5);
+        let b6 = arm!(arung_b6);
+        let b7 = arm!(arung_b7);
+        let b9 = arm!(arung_b9);
+        let bf = arm!(arung_full);
+        let full = |g: &mut PyGraph| -> PyResult<Duration> {
+            let start = Instant::now();
+            for _ in 0..REPS {
+                for probe in &probes {
+                    g.add_node(py, probe.bind(py), Some(&attrs))?;
+                }
+            }
+            Ok(start.elapsed())
+        };
+
+        let balanced = |first: &dyn Fn(&mut PyGraph) -> PyResult<Duration>,
+                        second: &dyn Fn(&mut PyGraph) -> PyResult<Duration>,
+                        g: &mut PyGraph|
+         -> PyResult<(f64, f64)> {
+            let a1 = first(g)?;
+            let b1 = second(g)?;
+            let b2 = second(g)?;
+            let a2 = first(g)?;
+            let scale = (2 * PROBES * REPS) as f64;
+            Ok((
+                (a1 + a2).as_nanos() as f64 / scale,
+                (b1 + b2).as_nanos() as f64 / scale,
+            ))
+        };
+
+        for _ in 0..3 {
+            b9(&mut graph)?;
+            full(&mut graph)?;
+        }
+
+        let mut rungs: [Vec<f64>; 8] = Default::default();
+        let mut full_ns = Vec::with_capacity(ROUNDS);
+        let (mut na_v, mut nb_v) = (Vec::new(), Vec::new());
+        for _ in 0..ROUNDS {
+            let (na, nb) = balanced(&full, &full, &mut graph)?;
+            na_v.push(na);
+            nb_v.push(nb);
+            for (i, rung) in [
+                &b0 as &dyn Fn(&mut PyGraph) -> PyResult<Duration>,
+                &b3, &b4, &b5, &b6, &b7, &b9, &bf,
+            ]
+            .into_iter()
+            .enumerate()
+            {
+                let (r, f) = balanced(rung, &full, &mut graph)?;
+                rungs[i].push(r);
+                if i == 6 {
+                    full_ns.push(f);
+                }
+            }
+        }
+        assert_eq!(
+            graph.inner.node_count(),
+            before,
+            "an entry-cost control that changed the node count measured a real insert"
+        );
+
+        let median = |v: &mut Vec<f64>| -> f64 {
+            v.sort_by(f64::total_cmp);
+            v[(v.len() - 1) / 2]
+        };
+        let m: Vec<f64> = rungs.iter_mut().map(|v| median(v)).collect();
+        let fullm = median(&mut full_ns);
+        let (na, nb) = (median(&mut na_v), median(&mut nb_v));
+
+        println!("add_node_attributed_self_time_ladder probes={PROBES} reps={REPS} rounds={ROUNDS}");
+        println!("  A/A null (full/full)          : {:8.4}x", nb / na);
+        println!("  B0 empty body, ladder shape   : {:8.1} ns/call", m[0]);
+        println!("  B3 canon + has_node + key-map : {:8.1} ns/call   (+{:6.1})", m[1], m[1] - m[0]);
+        println!("  B4 + py_dict_to_attr_map      : {:8.1} ns/call   (+{:6.1})", m[2], m[2] - m[1]);
+        println!("  B5 + node_py_attrs entry      : {:8.1} ns/call   (+{:6.1})", m[3], m[3] - m[2]);
+        println!("  B6 + dict.update(mirror)      : {:8.1} ns/call   (+{:6.1})", m[4], m[4] - m[3]);
+        println!("  B7 + store add_node_with_attrs: {:8.1} ns/call   (+{:6.1})", m[5], m[5] - m[4]);
+        println!("  B9 + log + bump (= body)      : {:8.1} ns/call   (+{:6.1})", m[6], m[6] - m[5]);
+        println!("  BF add_node in ladder shape   : {:8.1} ns/call", m[7]);
+        println!("  FULL shipped add_node(attr)   : {fullm:8.1} ns/call");
+        println!("  CLOSURE CHECK  B9/full        : {:8.4}x  (must be ~1.0)", m[6] / fullm);
+        println!("  SHAPE CHECK    BF/full        : {:8.4}x", m[7] / fullm);
+        Ok(())
+    })
+    .expect("attributed add_node ladder must run");
+}
