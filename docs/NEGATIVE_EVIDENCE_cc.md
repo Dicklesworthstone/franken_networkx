@@ -25817,3 +25817,62 @@ was given no attributes. Neither is taken here.
 PROVENANCE: rch worker, release, 512 probes x 20 reps x 41 rounds ABBA. Reproduce:
 `rch exec -- cargo test --release -j 2 -p fnx-python --lib
 add_node_entry_self_time_ladder -- --ignored --nocapture`.
+
+## `add_node` lazy node-attr mirror — SHIPPED SELF-SPEEDUP, and the surface it sits on is STILL A LOSS (br-r37-c1-jc9e4)
+
+comparison_class=SELF-SPEEDUP
+campaign_output=false
+decision_gate=median_ci
+cv_role=report_only
+
+THE LEVER, shipped in 5cba04532: `PyGraph::add_node` no longer runs
+`node_py_attrs.entry(canonical.clone()).or_insert_with(|| PyDict::new(py).unbind())`
+for a call given no attributes. It is the last unconverted site of br-r37-c1-89kxg /
+br-r37-c1-lazynodeattr, both of which had already made the batch paths and `add_edge`
+lazy.
+
+COUNTED MECHANISM: the change REMOVES a heap `String` clone and a `PyDict` allocation
+per attribute-less call. That is work deleted, not work moved, independent of any
+ratio.
+
+SELF-TIME, on the closed ladder (`add_node_entry_self_time_ladder`):
+
+    rung increment              before      after
+    L4 + node_py_attrs entry   +37.4 ns    -0.2 ns
+    CLOSURE CHECK L7/full       1.0000x    1.0057x
+    SHAPE CHECK   L8/full       1.0081x    1.0095x
+
+A/A null control, shipped `add_node` paired against itself in the same invocation, BEFORE arm: 0.9903x, inside the 0.03 bound.
+
+A/A null control, shipped `add_node` paired against itself in the same invocation, AFTER arm: 0.9898x, inside the 0.03 bound.
+
+THE VS-INCUMBENT ROW, which is why this is filed as a SELF-SPEEDUP and not a win.
+Live networkx in the SAME invocation, worker hz4, bench cpu 63, cdylib
+sha256=0d38c6327b31e6c019603a3413caeda785c5474b4503735a05dc5e82b510d844 reported
+`built-by-this-invocation`, and the bench binary self-reported its own identity in
+process as bench_elf_sha256=a3e24c1c5361474f910d8513e9cbb29351b6abdcaef2c2a618c9edc254835c2b:
+
+    cell     nx/fnx   A/A null   fnx ns   nx ns
+    noop     0.580x     1.007     969.3    562.3
+    fresh    0.827x     1.002    1099.5    908.9
+    attr     0.434x     1.007    2593.3   1126.7
+
+Every null inside 1.002-1.007, so every row is quotable. `add_node` REMAINS A LOSS on
+all three cells. This lever removed one allocation; it did not move the surface into
+a win and is not claimed to.
+
+WHERE THE LOSS ACTUALLY LIVES, now measured two independent ways. The no-op cell reads
+969.3 ns from Python while the closed ladder prices the entire Rust body at 193-264 ns
+on the same class. So roughly 73% of the call is the PyO3 crossing and the Python-side
+call, not the body — which independently reproduces the bead's own "75.4% of native
+raw_add_edge is per-call boundary cost", and reproduces its 914.4 ns no-op anchor at
+969.3 ns. Optimising inside the body cannot recover more than the remaining quarter.
+
+The `attr` cell at 0.434x is the worst and this lever deliberately does NOT touch it:
+an attributed add still materialises a dict, and the cell is unchanged by design.
+
+PROVENANCE / REPRODUCE: two pinned rch calls in the RELEASE pool (a `cargo bench` call
+lands in a different target pool and silently loads a stale tree artifact):
+`rch exec -- cargo build --release -j 2 -p fnx-python` then
+`rch exec -- cargo run --release -j 2 -p fnx-python --example add_node_h2h`.
+An earlier attempt reported `STALE-TREE-FALLBACK` and its numbers were discarded.
