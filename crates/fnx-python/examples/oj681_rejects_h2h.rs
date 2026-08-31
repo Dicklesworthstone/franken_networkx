@@ -59,9 +59,15 @@ fn preload_source() -> String {
         .expect("fnx-python crate must live under crates/")
         .to_str()
         .expect("repo path must be UTF-8");
+    let release_dir = std::env::current_exe()
+        .ok()
+        .and_then(|path| path.parent()?.parent().map(std::path::Path::to_path_buf))
+        .and_then(|path| path.to_str().map(str::to_owned))
+        .expect("example executable must live in target/<profile>/examples");
     format!(
         "import importlib.util, os, sys
 cwd = {repo_root:?}
+release_dir = {release_dir:?}
 for rel_path in ('python',):
     path = os.path.join(cwd, rel_path)
     if path not in sys.path:
@@ -70,11 +76,9 @@ available_cpus = sorted(os.sched_getaffinity(0))
 if available_cpus:
     os.sched_setaffinity(0, set((available_cpus[-1],)))
     print(f'bench cpu: {{available_cpus[-1]}}', file=sys.stderr)
-target_dir = os.environ.get('CARGO_TARGET_DIR') or os.path.join(cwd, 'target')
 for path in (
-    os.path.join(target_dir, 'release', 'lib_fnx.so'),
-    os.path.join(target_dir, 'release', 'libfnx_python.so'),
-    os.path.join(cwd, 'python', 'franken_networkx', '_fnx.abi3.so'),
+    os.path.join(release_dir, 'lib_fnx.so'),
+    os.path.join(release_dir, 'libfnx_python.so'),
 ):
     if os.path.exists(path):
         spec = importlib.util.spec_from_file_location('franken_networkx._fnx', path)
@@ -87,6 +91,8 @@ for path in (
         sys._fnx_ext = f'{{path}} sha256={{_sha}}'
         print(f'fnx extension: {{sys._fnx_ext}}', file=sys.stderr)
         break
+else:
+    raise ImportError(f'fresh fnx extension missing beside benchmark executable: {{release_dir}}')
 "
     )
 }
