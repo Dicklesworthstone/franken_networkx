@@ -25930,3 +25930,51 @@ what a real fix on this cell would have to address.
 REPRODUCE: two pinned rch calls in the RELEASE pool —
 `rch exec -- cargo build --release -j 2 -p fnx-python` then
 `rch exec -- cargo run --release -j 2 -p fnx-python --example add_node_h2h`.
+
+## Skipping the node attr mirror for a SINGLE lossless value — REJECTED, no improvement on its own target cell, and it REFUTES my dual-storage hypothesis (br-r37-c1-jc9e4)
+
+comparison_class=SELF
+decision_gate=median_ci
+cv_role=report_only
+
+THE LEVER: in `PyGraph::add_node`, when the attribute dict holds exactly ONE
+losslessly-storable value and the node has no mirror yet, skip writing the Python
+mirror entirely and let `materialize_node_py_attrs` rebuild it from the inner
+`AttrMap` on first read. Guarded to one key because br-r37-c1-batchattrorder requires
+the ordered mirror at >=2 keys, and to lossless values because `CgseValue` cannot
+round-trip a tuple/list/object.
+
+THE HYPOTHESIS IT WAS TESTING, now refuted: I had written that the attributed cell's
+~2x FIXED term (roughly 2000 ns against networkx's ~1050 ns) was the cost of storing
+every attribute TWICE, once in the inner Rust map and once in the Python mirror. If
+that were true, deleting one of the two stores had to show up.
+
+Same worker (hz4), same bench cpu (63). Before, cdylib
+sha256=d680996f0a4109866a79d3c5c00ce2b926d56a438727a0bf0400e45b9628d42f; after, cdylib
+sha256=44f3e677b1acb72cbf707397d5d651e2de29b126a4f3b7c17d9da7f2fa120326 reported
+`built-by-this-invocation`, bench_elf_sha256=f6348c01ec1a139a5bd613acb9f94a46df47b5cca2ab632fc62a25c18fd191bd:
+
+    cell     BEFORE            AFTER
+    attr1    0.484x / 2288.7   0.481x / 2394.6   (nx 1107.1 -> 1151.7)
+    attr4    0.434x / 3188.6   0.420x / 3365.0   (nx 1385.4 -> 1412.2)
+
+A/A null control, shipped `add_node` attr1 arm paired against itself in the same invocation, BEFORE: 1.000x, inside the 0.03 bound.
+
+A/A null control, shipped `add_node` attr1 arm paired against itself in the same invocation, AFTER: 1.023x, inside the 0.03 bound.
+
+VERDICT: REJECTED and reverted. `attr1` moved 0.484x -> 0.481x while BOTH arms drifted
+~4% together, i.e. nothing happened on the one cell the lever targets.
+
+WHY THE NULL RESULT IS INFORMATIVE RATHER THAN INCONCLUSIVE: the `attr` cells NEVER
+READ the attributes back, so the deferred rebuild is never paid inside the measurement.
+A mirror write that cost anything measurable would therefore have shown up as pure
+saving. It did not. So the Python mirror write is NOT a meaningful share of the
+attributed call, and the "~2x fixed term is dual storage" claim I published earlier is
+WRONG. The fixed term is elsewhere — `py_dict_to_attr_map`, the inner store's
+`record_decision`, or the PyO3 boundary, which the closed ladder already put at ~73% of
+the call.
+
+KEPT FROM THE ATTEMPT: the test, reframed as
+`node_attributes_round_trip_with_order_and_non_scalars_preserved`. It pins multi-key
+INSERTION ORDER, non-scalar values keeping their real Python object, and merge-on-second-add,
+none of which had coverage and all of which are true regardless of mirror strategy.

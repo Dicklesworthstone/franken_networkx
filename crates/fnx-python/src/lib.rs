@@ -22705,18 +22705,20 @@ fn lazy_node_attr_mirror_is_indistinguishable_from_an_eager_empty_one() {
     .expect("lazy node attr mirror test must run");
 }
 
-/// br-r37-c1-jc9e4: `add_node(n, k=v)` skips the Python mirror when the dict holds a
-/// SINGLE losslessly-storable value, leaving `materialize_node_py_attrs` to rebuild it
-/// from the inner `AttrMap`. Both conditions carve out cases where a rebuild would be
-/// WRONG, so this pins all three branches rather than only the fast one.
+/// br-r37-c1-jc9e4: the node attribute contract this surface has to keep, whatever the
+/// mirror strategy underneath it.
 ///
-/// The two that would silently corrupt data if the guard were widened:
-///   * >=2 keys — a rebuilt dict must reproduce networkx's INSERTION ORDER, which the
-///     inner map does not carry (br-r37-c1-batchattrorder).
-///   * a non-scalar value — `CgseValue` cannot round-trip a tuple/list/object, so the
-///     mirror must keep the real Python object (`attr_dict_is_batch_lossless`).
+/// Written to guard a lever that SKIPPED the Python mirror for a single
+/// losslessly-storable value and let `materialize_node_py_attrs` rebuild it. That lever
+/// was REJECTED - it measured no improvement on its own target cell (attr1 0.484x ->
+/// 0.481x) - and is recorded in NEGATIVE_EVIDENCE_cc.md. The test is kept because what
+/// it pins is true of any implementation and none of it was covered before: values
+/// survive a round trip, MULTI-KEY INSERTION ORDER is preserved rather than sorted
+/// (br-r37-c1-batchattrorder), a non-scalar value keeps its real Python object rather
+/// than a stringified `CgseValue` (`attr_dict_is_batch_lossless`), and a second
+/// attributed add merges into the node instead of replacing it.
 #[test]
-fn single_lossless_node_attr_rebuilds_and_the_carve_outs_keep_their_mirror() {
+fn node_attributes_round_trip_with_order_and_non_scalars_preserved() {
     Python::initialize();
     Python::attach(|py| -> PyResult<()> {
         let mut graph = PyGraph::new_empty_with_mode(py, CompatibilityMode::Strict)?;
@@ -22785,5 +22787,5 @@ fn single_lossless_node_attr_rebuilds_and_the_carve_outs_keep_their_mirror() {
         );
         Ok(())
     })
-    .expect("single-lossless node attr test must run");
+    .expect("node attribute contract test must run");
 }
