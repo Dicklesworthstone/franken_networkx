@@ -22704,3 +22704,86 @@ fn lazy_node_attr_mirror_is_indistinguishable_from_an_eager_empty_one() {
     })
     .expect("lazy node attr mirror test must run");
 }
+
+/// br-r37-c1-jc9e4: `add_node(n, k=v)` skips the Python mirror when the dict holds a
+/// SINGLE losslessly-storable value, leaving `materialize_node_py_attrs` to rebuild it
+/// from the inner `AttrMap`. Both conditions carve out cases where a rebuild would be
+/// WRONG, so this pins all three branches rather than only the fast one.
+///
+/// The two that would silently corrupt data if the guard were widened:
+///   * >=2 keys — a rebuilt dict must reproduce networkx's INSERTION ORDER, which the
+///     inner map does not carry (br-r37-c1-batchattrorder).
+///   * a non-scalar value — `CgseValue` cannot round-trip a tuple/list/object, so the
+///     mirror must keep the real Python object (`attr_dict_is_batch_lossless`).
+#[test]
+fn single_lossless_node_attr_rebuilds_and_the_carve_outs_keep_their_mirror() {
+    Python::initialize();
+    Python::attach(|py| -> PyResult<()> {
+        let mut graph = PyGraph::new_empty_with_mode(py, CompatibilityMode::Strict)?;
+
+        // FAST PATH: one lossless value, no mirror written, rebuilt on read.
+        let single = PyString::new(py, "single").into_any();
+        let one = PyDict::new(py);
+        one.set_item("w", 1.5)?;
+        graph.add_node(py, &single, Some(&one))?;
+        let rebuilt = graph.materialize_node_py_attrs(py, "str:6:single");
+        assert_eq!(
+            rebuilt.bind(py).get_item("w")?.expect("w").extract::<f64>()?,
+            1.5,
+            "a single lossless attribute must survive the rebuild exactly"
+        );
+
+        // CARVE-OUT 1: two keys must keep networkx's insertion order, so the mirror
+        // is retained rather than rebuilt from the unordered inner map.
+        let pair = PyString::new(py, "pair").into_any();
+        let two = PyDict::new(py);
+        two.set_item("zeta", 1)?;
+        two.set_item("alpha", 2)?;
+        graph.add_node(py, &pair, Some(&two))?;
+        let kept = graph.materialize_node_py_attrs(py, "str:4:pair");
+        let order: Vec<String> = kept
+            .bind(py)
+            .keys()
+            .iter()
+            .map(|k| k.extract::<String>())
+            .collect::<PyResult<_>>()?;
+        assert_eq!(
+            order,
+            vec!["zeta".to_owned(), "alpha".to_owned()],
+            "insertion order must be preserved for a multi-key attr dict, not sorted"
+        );
+
+        // CARVE-OUT 2: a non-scalar value cannot round-trip through CgseValue, so the
+        // real Python object must still be in the mirror.
+        let tupled = PyString::new(py, "tupled").into_any();
+        let non_scalar = PyDict::new(py);
+        non_scalar.set_item("pos", (1.0, 2.0))?;
+        graph.add_node(py, &tupled, Some(&non_scalar))?;
+        let held = graph.materialize_node_py_attrs(py, "str:6:tupled");
+        let pos = held.bind(py).get_item("pos")?.expect("pos must be stored");
+        assert_eq!(
+            pos.extract::<(f64, f64)>()?,
+            (1.0, 2.0),
+            "a tuple attribute must be kept as the real Python object, not stringified"
+        );
+
+        // A SECOND attributed add on a node that already has a mirror must UPDATE it,
+        // never skip it - otherwise the new key is invisible to a held dict.
+        let more = PyDict::new(py);
+        more.set_item("extra", 9)?;
+        graph.add_node(py, &single, Some(&more))?;
+        let after = graph.materialize_node_py_attrs(py, "str:6:single");
+        assert_eq!(
+            after.bind(py).get_item("extra")?.expect("extra").extract::<i64>()?,
+            9,
+            "a later attributed add must reach the node's attributes"
+        );
+        assert_eq!(
+            after.bind(py).get_item("w")?.expect("w").extract::<f64>()?,
+            1.5,
+            "the earlier attribute must survive the later add"
+        );
+        Ok(())
+    })
+    .expect("single-lossless node attr test must run");
+}
