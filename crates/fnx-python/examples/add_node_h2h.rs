@@ -292,7 +292,7 @@ fn main() {
             let null: f64 = row.get_item(3).unwrap().extract().unwrap();
             let fns: f64 = row.get_item(4).unwrap().extract().unwrap();
             let nns: f64 = row.get_item(5).unwrap().extract().unwrap();
-            let flag = if (0.90..=1.10).contains(&null) {
+            let flag = if (0.97..=1.03).contains(&null) {
                 ""
             } else {
                 "  <- NULL OUT OF BAND, not quotable"
