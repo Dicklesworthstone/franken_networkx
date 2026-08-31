@@ -177,11 +177,56 @@ def _fill(mod, probe):
         g.add_node(k)
     return g
 
+def first_touch(mod, built_by):
+    """add N nodes, then write ONE attribute on each - the FIRST touch of every node.
+
+    br-r37-c1-jc9e4 made add_node stop materialising an attribute dict, which MOVES that
+    allocation from add time to first-read time. br-r37-c1-node-attr-first-touch-
+    materialisation-j1o70 measures exactly that first touch at 0.4081x on Graph, so the
+    honest question is whether the lever created a new cost class or merely made add_node
+    agree with paths that were already lazy.
+
+    built_by is the control axis and it is the whole point. "add_node" graphs are the ones
+    the lever changed; "add_edge" graphs reached the lazy mirror BEFORE it, via
+    br-r37-c1-89kxg. If the two agree, the lever moved add_node onto an existing path and
+    invented nothing; if add_node is worse, it did.
+    """
+    g = mod.Graph()
+    if built_by == "add_node":
+        for k in range(N):
+            g.add_node(k)
+    else:
+        for k in range(0, N - 1, 2):
+            g.add_edge(k, k + 1)
+    t = time.perf_counter()
+    for k in range(N):
+        g.nodes[k]["w"] = 1
+    return (time.perf_counter() - t) / N
+
+def run_first_touch(built_by, rounds=21):
+    arms = {"fnx": lambda: first_touch(fnx, built_by),
+            "nx":  lambda: first_touch(nx, built_by),
+            "null":lambda: first_touch(fnx, built_by)}
+    was = gc.isenabled()
+    gc.disable()
+    samples = {k: [] for k in arms}
+    for r in range(rounds):
+        order = list(arms) if r % 2 == 0 else list(arms)[::-1]
+        for name in order:
+            samples[name].append(arms[name]())
+    if was:
+        gc.enable()
+    med = {k: statistics.median(v) for k, v in samples.items()}
+    return med["nx"] / med["fnx"], med["null"] / med["fnx"], med["fnx"] * 1e9, med["nx"] * 1e9
+
 def main():
     rows = []
     for cell in ("noop", "fresh", "attr"):
         ratio, null, fns, nns = run_cell((fnx, nx), cell)
         rows.append(("add_node", cell, ratio, null, fns, nns))
+    for built_by in ("add_node", "add_edge"):
+        ratio, null, fns, nns = run_first_touch(built_by)
+        rows.append(("1st-touch", built_by, ratio, null, fns, nns))
     return rows
 "#;
 
@@ -221,7 +266,7 @@ fn main() {
         println!("fnx_extension_provenance {fnx_prov}");
         println!("incumbent {nx_build}");
         println!(
-            "{:<6} {:<9} {:>11} {:>9} {:>11} {:>11}",
+            "{:<9} {:<9} {:>11} {:>9} {:>11} {:>11}",
             "op", "cell", "nx/fnx", "A/A null", "fnx ns", "nx ns"
         );
 
@@ -244,7 +289,7 @@ fn main() {
             } else {
                 "  <- NULL OUT OF BAND, not quotable"
             };
-            println!("{key:<6} {probe:<9} {ratio:10.3}x {null:9.3} {fns:10.1} {nns:10.1}{flag}");
+            println!("{key:<9} {probe:<9} {ratio:10.3}x {null:9.3} {fns:10.1} {nns:10.1}{flag}");
         }
     });
 }
