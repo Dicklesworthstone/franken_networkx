@@ -226,7 +226,9 @@ fn main() {
             let equal: bool = row.get_item(1).unwrap().extract().unwrap();
             let g = |i: usize| -> f64 { row.get_item(i).unwrap().extract().unwrap() };
             let (ratio, null_s, null_a, ship, alt) = (g(2), g(3), g(4), g(5), g(6));
-            let band = 0.90..=1.10;
+            // The reject record is only admissible if its same-invocation A/A
+            // controls meet the suite's strict 3% stability contract.
+            let band = 0.97..=1.03;
             let flag = match (band.contains(&null_s), band.contains(&null_a)) {
                 (true, true) => "",
                 (true, false) => "  <- ALT-ARM NULL OUT OF BAND, withheld",
