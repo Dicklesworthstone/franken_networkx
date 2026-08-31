@@ -19696,12 +19696,14 @@ class FnxMultiGraphCtorEdgeIterable:
             let mut graph = PyGraph::new_empty(py)?;
             let left = PyString::new(py, "left").into_any();
             let right = PyString::new(py, "right").into_any();
+            let left_canonical = node_key_to_string(py, &left)?;
+            let right_canonical = node_key_to_string(py, &right)?;
             let attrs = PyDict::new(py);
             attrs.set_item("weight", 1)?;
             graph.add_edge(py, &left, &right, Some(&attrs))?;
 
-            let forward = graph.materialize_edge_py_attrs(py, "left", "right");
-            let reverse = graph.materialize_edge_py_attrs(py, "right", "left");
+            let forward = graph.materialize_edge_py_attrs(py, &left_canonical, &right_canonical);
+            let reverse = graph.materialize_edge_py_attrs(py, &right_canonical, &left_canonical);
             assert!(forward.bind(py).is(reverse.bind(py)));
             forward.bind(py).set_item("weight", 7)?;
             assert_eq!(
@@ -19714,7 +19716,7 @@ class FnxMultiGraphCtorEdgeIterable:
             );
 
             graph.remove_edge(py, &left, &right)?;
-            let edge_key = PyGraph::edge_key("left", "right");
+            let edge_key = PyGraph::edge_key(&left_canonical, &right_canonical);
             assert!(
                 !graph.edge_py_attrs.contains_key(&edge_key),
                 "removing an edge must discard its primary attribute mirror"
@@ -19726,7 +19728,8 @@ class FnxMultiGraphCtorEdgeIterable:
             let fresh_attrs = PyDict::new(py);
             fresh_attrs.set_item("fresh", true)?;
             graph.add_edge(py, &left, &right, Some(&fresh_attrs))?;
-            let replacement = graph.materialize_edge_py_attrs(py, "left", "right");
+            let replacement =
+                graph.materialize_edge_py_attrs(py, &left_canonical, &right_canonical);
             assert!(!replacement.bind(py).is(forward.bind(py)));
             assert!(replacement.bind(py).contains("fresh")?);
             assert!(!replacement.bind(py).contains("weight")?);
