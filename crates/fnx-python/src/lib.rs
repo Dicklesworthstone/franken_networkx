@@ -16605,8 +16605,20 @@ impl PyGraph {
                     "Node {label} in sequence nbunch is not a valid node."
                 )));
             }
-            let canonical = node_key_to_string(py, &node)?;
-            if let Some(idx) = self.inner.get_node_index(&canonical) {
+            // Keep the nbunch row guard independent of node-key length after
+            // its first observation.  Exact str/int probes can reuse the
+            // public-key-to-index cache (and therefore CPython's cached hash)
+            // instead of rebuilding and hashing a canonical Rust String for
+            // every later snapshot.  Other key shapes retain the established
+            // canonical path so subclass hash/equality behaviour remains
+            // observable in the same places.
+            let index = if node_key_can_use_index_lookaside(&node) {
+                self.cached_exact_string_node_index(py, &node)?
+            } else {
+                let canonical = node_key_to_string(py, &node)?;
+                self.inner.get_node_index(&canonical)
+            };
+            if let Some(idx) = index {
                 out.push((node.clone().unbind(), self.inner.degree_by_index(idx)));
             }
         }

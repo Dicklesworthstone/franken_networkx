@@ -10641,3 +10641,122 @@ mod tests {
         }
     }
 }
+
+/// br-r37-c1-jc9e4: how much of a no-op `add_node` is the DECISION LEDGER?
+///
+/// The closed self-time ladder in `fnx-python` puts `Graph::add_node_with_attrs` at
+/// `+128` ns of a `~243` ns no-op call — the single largest term inside the body. That
+/// call is exactly two things: `add_node_with_attrs_unrecorded`, which does the store
+/// work, and `record_decision`, which builds a `Vec<EvidenceTerm>`, reads the clock via
+/// `unix_time_ms`, updates the posterior and pushes into the decision log. Which of the
+/// two carries the 128 ns has never been measured, and the answer decides whether there
+/// is anything worth trading against the audit doctrine at all.
+///
+/// This lives in `fnx-classes` because `add_node_with_attrs_unrecorded` is private to
+/// this crate; measuring it from the binding would have meant widening its visibility
+/// for a benchmark, which is a worse trade than putting the probe where the code is.
+///
+/// It changes NO shipped behaviour — both arms are existing functions, and the node is
+/// already present so neither mutates anything.
+///
+/// CONTROLS: `recorded/recorded` is an A/A null through the identical ABBA scheme; if it
+/// is not ~1.0 the instrument is measuring slot position, not the arms.
+///
+/// `#[ignore]`; run with
+/// `rch exec -- cargo test --release -j 2 -p fnx-classes --lib
+///  node_decision_ledger_self_time_ab -- --ignored --nocapture`.
+#[test]
+#[ignore = "measurement; run with --release --ignored --nocapture"]
+fn node_decision_ledger_self_time_ab() {
+    use std::hint::black_box;
+    use std::time::{Duration, Instant};
+
+    const NODES: usize = 2000;
+    const REPS: usize = 200;
+    const ROUNDS: usize = 41;
+
+    let keys: Vec<String> = (0..NODES).map(|n| format!("n{n}")).collect();
+    let mut graph = Graph::strict();
+    for key in &keys {
+        let _ = graph.add_node_with_attrs(key.clone(), AttrMap::new());
+    }
+    let before = graph.node_count();
+
+    // Both arms re-add nodes that are ALREADY PRESENT, so neither changes the store and
+    // repeating them is idempotent — the property that makes a no-op control timeable.
+    let recorded = |g: &mut Graph| -> Duration {
+        let start = Instant::now();
+        for _ in 0..REPS {
+            for key in &keys {
+                black_box(g.add_node_with_attrs(key.as_str(), AttrMap::new()));
+            }
+        }
+        start.elapsed()
+    };
+    let unrecorded = |g: &mut Graph| -> Duration {
+        let start = Instant::now();
+        for _ in 0..REPS {
+            for key in &keys {
+                black_box(g.add_node_with_attrs_unrecorded(key.as_str(), AttrMap::new()));
+            }
+        }
+        start.elapsed()
+    };
+
+    // ABBA: each arm runs at both ends of a four-slot block, so any cost that depends on
+    // slot rather than work cancels.
+    let balanced = |first: &dyn Fn(&mut Graph) -> Duration,
+                    second: &dyn Fn(&mut Graph) -> Duration,
+                    g: &mut Graph|
+     -> (f64, f64) {
+        let a1 = first(g);
+        let b1 = second(g);
+        let b2 = second(g);
+        let a2 = first(g);
+        let scale = (2 * NODES * REPS) as f64;
+        (
+            (a1 + a2).as_nanos() as f64 / scale,
+            (b1 + b2).as_nanos() as f64 / scale,
+        )
+    };
+
+    for _ in 0..3 {
+        recorded(&mut graph);
+        unrecorded(&mut graph);
+    }
+
+    let mut rec_ns = Vec::with_capacity(ROUNDS);
+    let mut unrec_ns = Vec::with_capacity(ROUNDS);
+    let mut null_a = Vec::with_capacity(ROUNDS);
+    let mut null_b = Vec::with_capacity(ROUNDS);
+    for _ in 0..ROUNDS {
+        let (na, nb) = balanced(&recorded, &recorded, &mut graph);
+        null_a.push(na);
+        null_b.push(nb);
+        let (r, u) = balanced(&recorded, &unrecorded, &mut graph);
+        rec_ns.push(r);
+        unrec_ns.push(u);
+    }
+
+    assert_eq!(
+        graph.node_count(),
+        before,
+        "a no-op control that changed the node count measured a real insert"
+    );
+
+    let median = |v: &mut Vec<f64>| -> f64 {
+        v.sort_by(f64::total_cmp);
+        v[(v.len() - 1) / 2]
+    };
+    let rec = median(&mut rec_ns);
+    let unrec = median(&mut unrec_ns);
+    let na = median(&mut null_a);
+    let nb = median(&mut null_b);
+
+    println!("node_decision_ledger_self_time_ab nodes={NODES} reps={REPS} rounds={ROUNDS}");
+    println!("  A/A null (recorded/recorded) : {:8.4}x", nb / na);
+    println!("  A  add_node_with_attrs       : {rec:8.1} ns/call  (store + ledger)");
+    println!("  B  ..._unrecorded            : {unrec:8.1} ns/call  (store only)");
+    println!("  -> decision ledger costs     : {:8.1} ns/call", rec - unrec);
+    println!("  -> ledger share of the pair  : {:8.1}%", 100.0 * (rec - unrec) / rec);
+}

@@ -51,20 +51,6 @@ import pytest
 
 import franken_networkx as fnx
 
-# Cells measured to diverge today. Anything NOT listed here is asserted to match,
-# so this set is a claim in both directions: shrink it when the kernel is fixed.
-# br-r37-c1-hihrf: the MULTIGRAPH cells are gone - the nbunch guard now applies
-# networkx's row rule, so those classes no longer raise where networkx completes.
-# What is left is the SIMPLE classes above `_edges_nbunch_py_walk_limit`
-# (max(8, order // 250)), where the call leaves the faithful Python walk for the
-# native kernel and the coarse guard still applies. Those call sites do not yet
-# pass their nbunch to the guard; the two multigraph ones do.
-DIVERGENT = {
-    ("Graph", 500, 16),
-    ("DiGraph", 500, 16),
-    ("DiGraph", 20000, 16),
-}
-
 CLASSES = ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"]
 ORDERS = [500, 20000]
 SIZES = [4, 16]
@@ -90,12 +76,6 @@ def _iterate_and_mutate(lib, class_name, order, size):
 @pytest.mark.parametrize("order", ORDERS)
 @pytest.mark.parametrize("class_name", CLASSES)
 def test_nbunch_mutation_matches_networkx(class_name, order, size):
-    if (class_name, order, size) in DIVERGENT:
-        pytest.xfail(
-            "native nbunch kernel raises where networkx completes "
-            "(br-r37-c1-hihrf); the Python walk is the faithful path and it is "
-            "reached only for undirected Graph within the order-scaled limit"
-        )
     expected = _iterate_and_mutate(nx, class_name, order, size)
     actual = _iterate_and_mutate(fnx, class_name, order, size)
     assert actual == expected, (
@@ -253,15 +233,6 @@ def test_the_row_guard_survives_repeated_iteration(class_name, iteration):
     assert outcome(graph) == outcome(reference)
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "br-r37-c1-hihrf: an nbunch ABOVE the walk gate takes the coarse "
-        "'did anything change' guard and raises where networkx completes. "
-        "Passing nbunch_rows to _FailFastEdgeIterator fixes it and was reverted "
-        "as a measured loss - see the test below for the cost."
-    ),
-)
 def test_an_nbunch_above_the_gate_matches_networkx():
     """The gap the ORDER-scaled gate leaves open, pinned as an acceptance test.
 
@@ -281,16 +252,18 @@ def test_an_nbunch_above_the_gate_matches_networkx():
     )
 
 
-def test_the_row_rule_baseline_is_what_makes_the_obvious_fix_expensive():
-    """WHY the fix above is reverted rather than pending: it is not free.
+def test_the_row_rule_snapshot_reuses_exact_key_indices():
+    """The guarded native path stays bounded after its first exact-key snapshot.
 
     The row rule needs, per nbunch node, the size that row had when iteration
     started. Taking that snapshot means asking the graph for a degree per node,
     and every one of those hashes a full-length node key - so the guard becomes
     O(nbunch x key length) on a call networkx answers without touching the keys
     at all. This test states the cost as a fact rather than an opinion, so a
-    future cheaper baseline (an index-keyed snapshot that never hashes a key, or
-    holding the row objects the way the Python walk does) has a number to beat.
+    native snapshot now resolves exact scalar keys through the graph's
+    public-key index cache, which reuses CPython's cached hash after the first
+    observation.  This guards against restoring the rejected canonical-string
+    baseline while keeping the mutation contract above covered.
 
     Asserted as a RATIO against the graph's own short-key cost, so it measures
     the key-length slope rather than the host.
@@ -314,8 +287,7 @@ def test_the_row_rule_baseline_is_what_makes_the_obvious_fix_expensive():
         return best
 
     short, long = snapshot_cost(3), snapshot_cost(2000)
-    assert long > short * 5, (
-        "the row-rule baseline no longer grows with key length - if a cheaper "
-        f"snapshot landed, the revert in EdgeDataView.__iter__ can be revisited "
-        f"(short={short}ns long={long}ns)"
+    assert long < short * 2.5, (
+        "the row-rule snapshot rebuilt canonical long-string keys instead of "
+        f"reusing exact-key indices (short={short}ns long={long}ns)"
     )

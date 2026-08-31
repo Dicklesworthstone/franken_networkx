@@ -1597,14 +1597,16 @@ class EdgeDataView:
         rows = self._materialize()
         if self._graph is None:
             return iter(rows)
-        # br-r37-c1-hihrf: the coarse guard here is a KNOWN parity divergence for
-        # an nbunch above the walk gate — networkx completes where this raises —
-        # and passing `nbunch_rows=self._nbunch_list` to get the row rule fixes
-        # that at sizes 4 through 120 but was REVERTED as a measured loss: the
-        # row rule needs a per-row size baseline, and taking it costs
-        # O(nbunch x key length). See the bead for the numbers and the shape a
-        # cheaper baseline would have to have.
-        return _FailFastEdgeIterator(self._graph, rows)
+        # br-r37-c1-hihrf: a native nbunch result is materialised, but NetworkX
+        # only raises if the row it is currently walking changed.  The row guard
+        # preserves that contract for nbunches above the lazy-walk gate.  Its
+        # native snapshot reuses public node-index lookasides for exact scalar
+        # keys, so repeated long-key views do not recreate canonical strings.
+        return _FailFastEdgeIterator(
+            self._graph,
+            rows,
+            nbunch_rows=self._nbunch_list,
+        )
 
     def __len__(self):
         if self._nbunch_list is None and self._graph is not None:

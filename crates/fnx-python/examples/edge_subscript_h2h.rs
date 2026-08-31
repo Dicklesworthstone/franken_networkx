@@ -61,7 +61,7 @@ fn preload_source() -> String {
         .to_str()
         .expect("repo path must be UTF-8");
     format!(
-        "import importlib.util, os, sys
+        "import glob, importlib.util, os, sys
 cwd = {repo_root:?}
 # The workers have networkx 3.6.1 installed, which is the release users actually have; the
 # vendored legacy_networkx_code copy is 3.7rc0.dev0, a DEV PRERELEASE. Default to installed.
@@ -87,9 +87,13 @@ target_dir = os.environ.get('CARGO_TARGET_DIR') or os.path.join(cwd, 'target')
 _candidates = [
     os.path.join(target_dir, 'release', 'lib_fnx.so'),
     os.path.join(target_dir, 'release', 'libfnx_python.so'),
+    *sorted(glob.glob(os.path.join(target_dir, 'release', 'deps', 'lib_fnx*.so'))),
     os.path.join(cwd, 'python', 'franken_networkx', '_fnx.abi3.so'),
 ]
-for _p in _candidates[:2]:
+# A cargo example can place the cdylib under `release/deps` with Cargo's hash
+# suffix.  Search that fresh target directory before considering the shared
+# package artifact, which is explicitly non-admissible provenance.
+for _p in _candidates[:-1]:
     if os.path.exists(_p):
         sys._fnx_ext_provenance = 'built-by-this-invocation'
         break
