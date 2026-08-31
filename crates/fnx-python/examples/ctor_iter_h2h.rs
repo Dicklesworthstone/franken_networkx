@@ -66,11 +66,24 @@ if available_cpus:
     os.sched_setaffinity(0, set((available_cpus[-1],)))
     print(f'bench cpu: {{available_cpus[-1]}}', file=sys.stderr)
 target_dir = os.environ.get('CARGO_TARGET_DIR') or os.path.join(cwd, 'target')
-for path in (
+# br-r37-c1-jc9e4: the LAST candidate is a trap. The first two are cdylibs this cargo
+# invocation built; the third is a checked-in artifact left by whatever peer last ran
+# `maturin develop`, and on a shared checkout it is rebuilt underneath a running
+# measurement (observed: sha 8ff908fc -> 486a2fb4 in nine minutes). Falling through to
+# it means the run measured SOMEBODY ELSE'S BUILD while printing a respectable sha.
+# Provenance is now a printed field so a row pasted from this output carries it.
+_candidates = [
     os.path.join(target_dir, 'release', 'lib_fnx.so'),
     os.path.join(target_dir, 'release', 'libfnx_python.so'),
     os.path.join(cwd, 'python', 'franken_networkx', '_fnx.abi3.so'),
-):
+]
+for _p in _candidates[:2]:
+    if os.path.exists(_p):
+        sys._fnx_ext_provenance = 'built-by-this-invocation'
+        break
+else:
+    sys._fnx_ext_provenance = 'STALE-TREE-FALLBACK (not built by this invocation)'
+for path in _candidates:
     if os.path.exists(path):
         spec = importlib.util.spec_from_file_location('franken_networkx._fnx', path)
         module = importlib.util.module_from_spec(spec)
@@ -81,6 +94,7 @@ for path in (
             _sha = hashlib.sha256(fh.read()).hexdigest()
         sys._fnx_ext = f'{{path}} sha256={{_sha}}'
         print(f'fnx extension: {{sys._fnx_ext}}', file=sys.stderr)
+        print(f'fnx extension provenance: {{sys._fnx_ext_provenance}}', file=sys.stderr)
         break
 "
     )

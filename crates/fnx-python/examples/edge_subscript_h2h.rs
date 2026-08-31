@@ -78,12 +78,24 @@ if available_cpus:
     os.sched_setaffinity(0, set((available_cpus[-1],)))
     print(f'bench cpu: {{available_cpus[-1]}}', file=sys.stderr)
 target_dir = os.environ.get('CARGO_TARGET_DIR') or os.path.join(cwd, 'target')
-candidates = [
+# br-r37-c1-jc9e4: the LAST candidate is a trap. The first two are cdylibs this cargo
+# invocation built; the third is a checked-in artifact left by whatever peer last ran
+# `maturin develop`, and on a shared checkout it is rebuilt underneath a running
+# measurement (observed: sha 8ff908fc -> 486a2fb4 in nine minutes). Falling through to
+# it means the run measured SOMEBODY ELSE'S BUILD while printing a respectable sha.
+# Provenance is now a printed field so a row pasted from this output carries it.
+_candidates = [
     os.path.join(target_dir, 'release', 'lib_fnx.so'),
     os.path.join(target_dir, 'release', 'libfnx_python.so'),
     os.path.join(cwd, 'python', 'franken_networkx', '_fnx.abi3.so'),
 ]
-for path in candidates:
+for _p in _candidates[:2]:
+    if os.path.exists(_p):
+        sys._fnx_ext_provenance = 'built-by-this-invocation'
+        break
+else:
+    sys._fnx_ext_provenance = 'STALE-TREE-FALLBACK (not built by this invocation)'
+for path in _candidates:
     if os.path.exists(path):
         spec = importlib.util.spec_from_file_location('franken_networkx._fnx', path)
         module = importlib.util.module_from_spec(spec)
@@ -94,6 +106,7 @@ for path in candidates:
             _sha = hashlib.sha256(fh.read()).hexdigest()
         sys._fnx_ext = f'{{path}} sha256={{_sha}}'
         print(f'fnx extension: {{sys._fnx_ext}}', file=sys.stderr)
+        print(f'fnx extension provenance: {{sys._fnx_ext_provenance}}', file=sys.stderr)
         break
 "
     )
@@ -200,6 +213,47 @@ def run_cell(cls, spelling, keytype, rounds=15):
     return (med["nx"] / med["fnx"], med["null_f"] / med["fnx"], med["null_n"] / med["nx"],
             med["fnx"] * 1e9, med["nx"] * 1e9)
 
+def run_nbunch_row_guard(rounds=21):
+    """Live incumbent row for br-r37-c1-hihrf.
+
+    This exceeds the Python-walk gate (N=20k -> limit 80; nbunch=120), so FNX
+    materialises the native result and exercises its row-scoped fail-fast
+    snapshot.  Four fixtures are built interleaved, then the same prebuilt
+    view is consumed in ABBA order; the two independently built FNX views are
+    the A/A null, not a self-comparison against the same object.
+    """
+    n, width = 20_000, 120
+    names = [f"n{i}" for i in range(n)]
+    graphs = [fnx.Graph(), nx.Graph(), fnx.Graph(), nx.Graph()]
+    for graph in graphs:
+        graph.add_nodes_from(names)
+    for i, node in enumerate(names):
+        edge = (node, names[(i + 1) % n])
+        for graph in graphs:
+            graph.add_edge(*edge)
+    nbunch = names[:width]
+    views = [graph.edges(nbunch) for graph in graphs]
+    arms = {
+        "fnx": lambda: list(views[0]),
+        "nx": lambda: list(views[1]),
+        "null_f": lambda: list(views[2]),
+        "null_n": lambda: list(views[3]),
+    }
+    expected = len(arms["nx"]())
+    assert all(len(run()) == expected for run in arms.values())
+    for run in arms.values():
+        run()
+    samples = {name: [] for name in arms}
+    for round_index in range(rounds):
+        order = list(arms) if round_index % 2 == 0 else list(arms)[::-1]
+        for name in order:
+            start = time.perf_counter_ns()
+            arms[name]()
+            samples[name].append((time.perf_counter_ns() - start) / expected)
+    med = {name: statistics.median(values) for name, values in samples.items()}
+    return (med["nx"] / med["fnx"], med["null_f"] / med["fnx"],
+            med["null_n"] / med["nx"], med["fnx"], med["nx"], expected)
+
 def main():
     rows = []
     for keytype in ("str3", "str2000"):
@@ -261,5 +315,25 @@ fn main() {
                 "{key:<8} {cls:<13} {spelling:<14} {ratio:9.3}x {null_f:9.3} {null_n:9.3} {fns:10.1} {nns:10.1}{flag}"
             );
         }
+
+        let guard_row = globals
+            .get_item("run_nbunch_row_guard")
+            .expect("row-guard lookup")
+            .expect("row-guard missing")
+            .call0()
+            .expect("row-guard harness raised");
+        let get_f = |i: usize| -> f64 { guard_row.get_item(i).unwrap().extract().unwrap() };
+        let edge_count: usize = guard_row.get_item(5).unwrap().extract().unwrap();
+        let (ratio, null_f, null_n, fns, nns) =
+            (get_f(0), get_f(1), get_f(2), get_f(3), get_f(4));
+        let strict_band = 0.97..=1.03;
+        let flag = if strict_band.contains(&null_f) && strict_band.contains(&null_n) {
+            ""
+        } else {
+            "  <- A/A NULL OUT OF 0.97..1.03, WITHHELD"
+        };
+        eprintln!(
+            "nbunch120 Graph.edges(nbunch) nx/fnx {ratio:.4}x null_f {null_f:.4} null_n {null_n:.4} fnx_ns {fns:.1} nx_ns {nns:.1} edges {edge_count}{flag}"
+        );
     });
 }
