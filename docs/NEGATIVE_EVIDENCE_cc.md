@@ -25876,3 +25876,57 @@ lands in a different target pool and silently loads a stale tree artifact):
 `rch exec -- cargo build --release -j 2 -p fnx-python` then
 `rch exec -- cargo run --release -j 2 -p fnx-python --example add_node_h2h`.
 An earlier attempt reported `STALE-TREE-FALLBACK` and its numbers were discarded.
+
+## `add_node` attributed mirror: one `dict.update` instead of N `set_item` round-trips — SHIPPED SELF-SPEEDUP, small effect, surface still a LOSS (br-r37-c1-jc9e4)
+
+comparison_class=SELF-SPEEDUP
+campaign_output=false
+decision_gate=median_ci
+cv_role=report_only
+
+THE LEVER: `PyGraph::add_node` copied an attribute dict into its Python mirror with a
+per-key `set_item` loop. `PyGraph::add_edge` two screens below already does it with a
+single C-level `update`, and br-r37-c1-aefbatch records that the per-key loop
+"dominated attributed edge construction". The node path was the laggard.
+
+COUNTED MECHANISM, deterministic and load-independent: k Rust->Python `set_item`
+round-trips become ONE `update` call. That is work removed regardless of any timing.
+
+WHAT CONVICTED THE LOOP was a key-count scaling probe, not a guess. Holding everything
+else fixed and going from one attribute to four, BEFORE the change:
+
+    per added key   fnx 331.4 ns   nx 93.4 ns   (3.5x per-key deficit)
+
+A flat-in-k result would have meant the loop was irrelevant and the cost was the fixed
+conversion; it was not flat.
+
+AFTER, same worker (hz4) and same bench cpu (63), cdylib
+sha256=d680996f0a4109866a79d3c5c00ce2b926d56a438727a0bf0400e45b9628d42f reported
+`built-by-this-invocation`, bench_elf_sha256=7e881f26cffa513d7c47864a7fe4b596f4dd98560e88b07243f89328a5dac1b5:
+
+    per added key   fnx 300.0 ns   nx 92.8 ns
+
+    cell     nx/fnx   A/A null   fnx ns   nx ns
+    noop     0.583x     1.002     963.7   561.9
+    fresh    0.834x     0.999    1108.4   924.8
+    attr1    0.484x     1.000    2288.7  1107.1
+    attr4    0.434x     0.997    3188.6  1385.4
+
+Every null inside 0.991-1.016.
+
+HONEST SIZE OF THE EFFECT: the per-key term moves 331.4 -> 300.0 ns, about 9.5%, while
+the INCUMBENT arm's per-key term is flat (93.4 -> 92.8 ns) and so serves as the
+within-comparison control for host speed. But this is a CROSS-RUN before/after, the
+weakest form this repo admits, and the whole-cell ratios move only 0.479x -> 0.484x and
+0.421x -> 0.434x. The counted mechanism is the solid part; the 9.5% is directional and
+should not be quoted as a precise figure.
+
+THE SURFACE IS STILL A LOSS and this lever does not change that. Extrapolating to k=0,
+the FIXED term is roughly 2000 ns against networkx's ~1050 ns — a ~2x deficit that is
+the conversion (`py_dict_to_attr_map`) plus storing every attribute TWICE, once in the
+inner Rust `AttrMap` and once in the Python mirror. That dual storage, not the loop, is
+what a real fix on this cell would have to address.
+
+REPRODUCE: two pinned rch calls in the RELEASE pool —
+`rch exec -- cargo build --release -j 2 -p fnx-python` then
+`rch exec -- cargo run --release -j 2 -p fnx-python --example add_node_h2h`.
