@@ -33065,6 +33065,17 @@ def effective_size(G, nodes=None, weight=None, *, backend=None, **backend_kwargs
         # adjacency_matrix (proven 0/320 exact), dropping the fnx->nx conversion.
         # nodes!=None (set-order path) stays delegated.
         if nodes is None:
+            # NetworkX only takes its sparse matrix path when SciPy imports
+            # successfully.  The Python package does not require SciPy, so
+            # keep its no-SciPy loop fallback instead of unconditionally
+            # calling our SciPy-backed adjacency_matrix implementation.
+            try:
+                import scipy as _scipy
+            except ImportError:
+                return _call_networkx_submodule_for_parity(
+                    "algorithms.structuralholes", "effective_size", G,
+                    nodes=nodes, weight=weight,
+                )
             return _structural_holes_effective_size_matrix(G, weight)
         # br-r37-c1-qbj9u: networkx serves this function TWO ways and they DISAGREE on
         # directed graphs. nodes=None takes a scipy MATRIX path; nodes=<iterable> takes

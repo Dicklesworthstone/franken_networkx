@@ -10,6 +10,7 @@ No mocks: real fnx vs real networkx 3.x.
 
 from __future__ import annotations
 
+import builtins
 import random
 
 import pytest
@@ -61,31 +62,40 @@ def test_directed_subset_effective_size_uses_native_route(monkeypatch):
     _approx_dict(fnx.effective_size(fg, nodes=list(fg)), nx.effective_size(ng, nodes=list(ng)))
 
 
-def test_directed_nodes_none_must_keep_the_matrix_path():
-    """And nodes=None must NOT use that kernel, because networkx does not.
-
-    This is the half of the original route-enforcement test that was wrong. Routing
-    nodes=None to the native kernel would reproduce networkx's redundancy loop, which is
-    not what networkx returns for that call - on this very graph nx gives 2.0 and 2.4 for
-    nodes 2 and 3 via its matrix path, and 1.8 and 2.2 via its loop.
-    """
-    # A graph where networkx's two paths demonstrably disagree. The 5-edge graph used
-    # above is NOT one - they agree there - which is why this uses its own fixture.
+def test_directed_nodes_none_matches_networkx_optional_scipy_path():
+    """nodes=None must match NetworkX with and without optional SciPy installed."""
+    # This graph distinguishes NetworkX's optional SciPy matrix path from its loop
+    # fallback.  Which answer is correct depends on whether SciPy imports.
     edges = [(1, 0), (2, 0), (2, 3), (3, 0), (3, 1), (3, 2),
              (4, 0), (4, 2), (4, 5), (5, 0), (5, 2), (5, 3)]
     fg, ng = fnx.DiGraph(edges), nx.DiGraph(edges)
     fg.add_nodes_from(range(6))
     ng.add_nodes_from(range(6))
 
-    default = nx.effective_size(ng)
     loop = nx.effective_size(ng, nodes=list(ng))
-    assert abs(default[2] - loop[2]) > 1e-9, (
-        "networkx's two paths agree here now; re-derive which kernel this branch needs"
-    )
-    # fnx must follow the DEFAULT (matrix) answer for nodes=None ...
-    _approx_dict(fnx.effective_size(fg), default)
-    # ... and the LOOP answer once nodes is given, on the same graph.
+    # The live NetworkX call selects its matrix route only when optional SciPy is
+    # importable; FNX must make the same choice.
+    _approx_dict(fnx.effective_size(fg), nx.effective_size(ng))
     _approx_dict(fnx.effective_size(fg, nodes=list(fg)), loop)
+
+
+def test_directed_nodes_none_without_scipy_uses_networkx_loop(monkeypatch):
+    """NetworkX falls back to its loop when its optional SciPy import fails."""
+    edges = [(1, 0), (2, 0), (2, 3), (3, 0), (3, 1), (3, 2),
+             (4, 0), (4, 2), (4, 5), (5, 0), (5, 2), (5, 3)]
+    fg, ng = fnx.DiGraph(edges), nx.DiGraph(edges)
+    fg.add_nodes_from(range(6))
+    ng.add_nodes_from(range(6))
+
+    original_import = builtins.__import__
+
+    def without_scipy(name, globals=None, locals=None, fromlist=(), level=0):
+        if name == "scipy":
+            raise ImportError("simulated optional SciPy absence")
+        return original_import(name, globals, locals, fromlist, level)
+
+    monkeypatch.setattr(builtins, "__import__", without_scipy)
+    _approx_dict(fnx.effective_size(fg), nx.effective_size(ng, nodes=list(ng)))
 
 
 @pytest.mark.parametrize("seed", range(15))
