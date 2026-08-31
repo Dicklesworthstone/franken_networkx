@@ -26107,3 +26107,66 @@ PyDict on EVERY call, and the ladder does not measure that — its rungs are han
 attributed cell's is ~1900 ns, and kwargs marshalling is the obvious candidate for the
 difference. That is a boundary question, which this bead's retry predicate fences off
 from shim work but does not obviously fence off from the PyO3 signature itself.
+
+## Attributed `add_node`: the loss is the ARGUMENT BOUNDARY — one attribute costs fnx 968 ns against networkx's 121 ns, and only ~238 ns of that is the Rust body (br-r37-c1-jc9e4)
+
+comparison_class=INCUMBENT
+incumbent=networkx
+incumbent_same_invocation=true
+incumbent_ratio=0.355x
+campaign_output=false
+decision_gate=median_ci
+cv_role=report_only
+
+A LOSS row, recorded as one. No lever shipped; this is the phase-split the previous
+verdict named as its next step, and it localises the worst standing cell.
+
+THE SPLIT, three cells in ONE invocation with live networkx, worker bench cpu 63, cdylib
+reported `built-by-this-invocation`,
+bench_elf_sha256=7e881f26cffa513d7c47864a7fe4b596f4dd98560e88b07243f89328a5dac1b5:
+
+    cell       spelling                     nx/fnx   A/A null   fnx ns   nx ns
+    noop       add_node(k)                  0.584x     1.001     975.7   569.7
+    attrkw     add_node(k, w=1.0)           0.355x     0.992    1943.7   690.9
+    attr1      add_node(k, **{'w': 1.0})    0.478x     0.989    2318.6  1108.7
+
+Every null inside 0.989-1.001, so every row is quotable. The decomposition below is
+ARITHMETICALLY EXACT rather than modelled: each term is a difference of two measured
+cells from the same invocation.
+
+TERM 1 - the Python-side `**` dict build (attr1 minus attrkw), which both libraries pay:
+
+    fnx 374.9 ns      nx 417.8 ns
+
+Indistinguishable, which is the control working: `**attrs` builds a fresh dict in the
+CALLER, and neither library is charged for the other's interpreter.
+
+TERM 2 - everything one attribute adds to the call (attrkw minus noop):
+
+    fnx 968.0 ns      nx 121.2 ns      -> fnx pays 8.0x
+
+THAT IS THE LOSS, and it is not in the body. The closing body ladder
+(`add_node_attributed_self_time_ladder`, closure 0.9722x) puts the attributed Rust body
+at 481.3 ns against the no-op body's ~243 ns, so the body's own attribute increment is
+only about 238 ns. Roughly 730 ns of the 968 is therefore the ARGUMENT BOUNDARY, not
+the body - six times networkx's entire attribute cost, spent before any fnx code runs.
+
+MECHANISM, named and consistent with the shape: both libraries declare
+`add_node(node_for_adding, **attr)` - fnx as
+`#[pyo3(signature = (node_for_adding, **attr))]`, networkx as a plain Python def. For
+networkx, CPython's own vectorcall assembles the kwargs; for fnx, PyO3 must materialise
+a `PyDict` and hand it across the FFI boundary on every call. The signature is NOT
+optional: accepting arbitrary keywords is the drop-in contract with networkx.
+
+A SECOND-ORDER FINDING WORTH THE ROW: `attrkw` (0.355x) is a WORSE ratio than `attr1`
+(0.478x), which looks backwards until the terms are read. networkx gets much cheaper
+when the caller stops building a dict (1108.7 -> 690.9 ns); fnx barely moves
+(2318.6 -> 1943.7). A spelling that helps the incumbent more than us makes the published
+`**attrs` figure the FLATTERING one, and any claim about attributed `add_node` should
+quote the literal-keyword cell as the honest worst case.
+
+NO LEVER TAKEN, and the class is nearly exhausted: body-level work was already ruled out
+by the previous row (deleting the whole body still loses), and the remaining term is
+PyO3's kwargs marshalling under a signature the parity contract requires. Whether PyO3
+can hand over kwargs without materialising a dict is an upstream question, not a
+franken_networkx edit, and it is recorded here rather than attempted.

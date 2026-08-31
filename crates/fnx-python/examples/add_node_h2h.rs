@@ -158,11 +158,32 @@ def run_cell(mod_pair, cell, rounds=21):
         # per-key loop is the term and that partially-applied fix is the lever; if it is
         # FLAT in k the cost is the fixed conversion plus dual storage and the loop is not
         # worth touching. networkx does one dict update either way, which is the control.
-        attrs = {"w": 1.0} if cell == "attr1" else {"w": 1.0, "x": 2.0, "y": 3.0, "z": 4.0}
+        attrs = {"w": 1.0} if cell != "attr4" else {"w": 1.0, "x": 2.0, "y": 3.0, "z": 4.0}
         fg, ng, fg2 = _prebuilt(fnx_mod), _prebuilt(nx_mod), _prebuilt(fnx_mod)
-        arms = {"fnx": lambda: [fg.add_node(k, **attrs) for k in probe],
-                "nx":  lambda: [ng.add_node(k, **attrs) for k in probe],
-                "null":lambda: [fg2.add_node(k, **attrs) for k in probe]}
+        if cell == "attrkw":
+            # br-r37-c1-jc9e4 PHASE SPLIT of the attributed cell's NON-BODY remainder.
+            # The closing body ladder put the Rust body at 481 ns of a ~2394 ns call, so
+            # ~80% of this cell is boundary + Python side and no body lever can win it.
+            # This splits that remainder without touching any code.
+            #
+            #   `add_node(k, **attrs)`  Python BUILDS a fresh dict per call, then the
+            #                           callee collects kwargs.
+            #   `add_node(k, w=1.0)`    literal keyword: CPython passes it through the
+            #                           vectorcall kwnames path, so there is NO Python-side
+            #                           dict build, but the callee still collects kwargs.
+            #
+            # attr1 minus attrkw is therefore the Python-side `**` dict construction, and
+            # attrkw minus noop is kwargs collection plus the attribute work. networkx is
+            # the CONTROL for both: its add_node carries the same `**attr` signature, so a
+            # term that is large for fnx and small for nx is fnx's marshalling, not
+            # Python's.
+            arms = {"fnx": lambda: [fg.add_node(k, w=1.0) for k in probe],
+                    "nx":  lambda: [ng.add_node(k, w=1.0) for k in probe],
+                    "null":lambda: [fg2.add_node(k, w=1.0) for k in probe]}
+        else:
+            arms = {"fnx": lambda: [fg.add_node(k, **attrs) for k in probe],
+                    "nx":  lambda: [ng.add_node(k, **attrs) for k in probe],
+                    "null":lambda: [fg2.add_node(k, **attrs) for k in probe]}
 
     was = gc.isenabled()
     gc.disable()
@@ -229,7 +250,7 @@ def run_first_touch(built_by, rounds=21):
 
 def main():
     rows = []
-    for cell in ("noop", "fresh", "attr1", "attr4"):
+    for cell in ("noop", "fresh", "attr1", "attrkw", "attr4"):
         ratio, null, fns, nns = run_cell((fnx, nx), cell)
         rows.append(("add_node", cell, ratio, null, fns, nns))
     for built_by in ("add_node", "add_edge"):
