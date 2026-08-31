@@ -65,7 +65,7 @@ fn preload_source() -> String {
         .and_then(|path| path.to_str().map(str::to_owned))
         .expect("example executable must live in target/<profile>/examples");
     format!(
-        "import importlib.util, os, sys
+        "import glob, importlib.util, os, sys
 cwd = {repo_root:?}
 release_dir = {release_dir:?}
 for rel_path in ('python',):
@@ -76,10 +76,14 @@ available_cpus = sorted(os.sched_getaffinity(0))
 if available_cpus:
     os.sched_setaffinity(0, set((available_cpus[-1],)))
     print(f'bench cpu: {{available_cpus[-1]}}', file=sys.stderr)
-for path in (
-    os.path.join(release_dir, 'lib_fnx.so'),
-    os.path.join(release_dir, 'libfnx_python.so'),
-):
+paths = []
+for directory in (release_dir, os.path.join(release_dir, 'deps')):
+    paths.extend((
+        os.path.join(directory, 'lib_fnx.so'),
+        os.path.join(directory, 'libfnx_python.so'),
+    ))
+    paths.extend(sorted(glob.glob(os.path.join(directory, 'lib_fnx-*.so'))))
+for path in paths:
     if os.path.exists(path):
         spec = importlib.util.spec_from_file_location('franken_networkx._fnx', path)
         module = importlib.util.module_from_spec(spec)
