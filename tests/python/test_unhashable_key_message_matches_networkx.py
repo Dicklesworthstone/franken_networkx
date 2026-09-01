@@ -59,12 +59,13 @@ UNHASHABLE_SHAPES = {
 }
 
 
-# br-r37-c1-c99d9: the one cell this sweep found that is NOT a wording defect.
-# `G.subgraph([set()])` answers with an empty subgraph where networkx raises,
-# because the native subgraph loop canonicalises without a hashability guard.
-# Excluded here and asserted as still-broken in its own test below, so the sweep
-# stays honest and the gap stays visible.
-KNOWN_GAPS = {("G.subgraph([u])", "set")}
+# br-r37-c1-c99d9 is FIXED, so nothing is excluded from the sweep any more. The
+# entry that used to live here covered `G.subgraph([set()])`, which this sweep
+# found and which turned out not to be a wording defect at all — a set-backed
+# membership container cannot see an unhashable set, because CPython converts
+# one to a frozenset for `x in aset`. Its own coverage is now in
+# tests/python/test_subgraph_rejects_an_unhashable_nbunch_node.py.
+KNOWN_GAPS: set[tuple[str, str]] = set()
 
 
 def _pair(cls_name):
@@ -134,37 +135,6 @@ def test_every_spelling_matches_networkx_exactly(cls_name, shape):
             continue
         want, got = _outcome(snx[label]), _outcome(sfx[label])
         assert got == want, f"{cls_name} {label} with an unhashable {shape}"
-
-
-@pytest.mark.parametrize("cls_name", CLASSES)
-def test_the_known_gap_is_still_a_gap(cls_name):
-    """br-r37-c1-c99d9, carried here because THIS sweep is what found it.
-
-    `G.subgraph([set()])` returns an EMPTY subgraph where networkx raises. It is
-    a different defect from the wording this file is about — the native
-    `subgraph` loop canonicalises the item without ever asking whether it is
-    hashable, so it is the br-r37-c1-lvlu7 class at four call sites that guard
-    was never applied to. A SET is the only argument that exposes it, because
-    CPython converts a set to a frozenset for `x in aset` and a set-backed
-    container therefore answers False where a dict raises.
-
-    Asserted as STILL BROKEN rather than skipped, so the fix cannot land
-    silently: when br-r37-c1-c99d9 is done this fails and says to delete
-    KNOWN_GAPS.
-    """
-    gnx, gfx = _pair(cls_name)
-    with pytest.raises(nx.NetworkXError):
-        gnx.subgraph([set()])
-    assert sorted(gfx.subgraph([set()]).nodes(), key=repr) == [], (
-        "br-r37-c1-c99d9 appears to be FIXED — remove this test and the "
-        "KNOWN_GAPS entry above so the sweep covers the cell again"
-    )
-    # A FROZENSET is hashable, so both must answer with an empty subgraph. This
-    # is the control that says the missing guard, not the canonicalisation, is
-    # the defect.
-    assert sorted(gfx.subgraph([frozenset()]).nodes(), key=repr) == sorted(
-        gnx.subgraph([frozenset()]).nodes(), key=repr
-    )
 
 
 @pytest.mark.parametrize("cls_name", CLASSES)

@@ -60302,6 +60302,34 @@ def _subgraph_filter_from_nbunch(G, nbunch):
                             f"Node {node} in sequence nbunch is not a valid node."
                         ) from exc
                 raise
+            else:
+                # br-r37-c1-c99d9: `gnodes` is a SET, and a set is the ONE
+                # unhashable shape a set cannot see. CPython converts a `set`
+                # (and a set SUBCLASS) to a `frozenset` for `x in aset`, so
+                # `set() in gnodes` answers False instead of raising — the
+                # `except TypeError` above never fires, the node is silently
+                # DROPPED, and `G.subgraph([set()])` returned an empty subgraph
+                # where networkx raises. Every other unhashable shape — list,
+                # dict, bytearray — does raise there and is already handled.
+                #
+                # NOT FIXED BY MAKING `gnodes` A DICT, which is the obvious
+                # move and was measured: `dict.fromkeys(G)` costs 1.72x
+                # `set(G)` to build and 1.09x to filter through, 35 percent on
+                # the whole branch — and this branch exists precisely because
+                # it is the fast one (br-r37-c1-50w8n, ~2.4-2.7x).
+                #
+                # A set can NEVER be a node, so it is always among the dropped;
+                # the walk therefore runs only when something was dropped, and
+                # each step is a C type check rather than the `_HASH_PROBE.get`
+                # CALL the sibling branch below makes. Duplicates shorten the
+                # set too and pay one cheap pass that finds nothing, exactly as
+                # they do there.
+                if len(allowed_nodes) != len(nb_list):
+                    for node in nb_list:
+                        if isinstance(node, set):
+                            raise NetworkXError(
+                                f"Node {node} in sequence nbunch is not a valid node."
+                            )
         else:
             # Small nbunch on a large graph: no whole-graph set was built, so
             # membership stays per-node and the explicit hash stays with it.
