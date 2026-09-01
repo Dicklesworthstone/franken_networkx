@@ -18744,6 +18744,29 @@ impl DiDegreeView {
         self.graph.borrow(py).inner.node_count()
     }
 
+    /// br-r37-c1-ih59i: this class had NO `__repr__`, so `DG.degree()` printed
+    /// `<franken_networkx.DiDegreeView object at 0x...>` where networkx prints
+    /// `DiDegreeView({'a': 1, ...})`. networkx's is
+    /// `f"{self.__class__.__name__}({dict(self)})"`, so the NAME follows the
+    /// direction — one Rust struct serves all three, which is why it is read
+    /// off `kind` rather than hardcoded.
+    ///
+    /// Only the CALLED form reaches here; `DG.degree` (no parens) is the Python
+    /// `_DiGraphDegreeView` and was already correct.
+    fn __repr__(&self, py: Python<'_>) -> PyResult<String> {
+        let g = self.graph.borrow(py);
+        let items = PyDict::new(py);
+        for (i, n) in g.inner.nodes_ordered().iter().enumerate() {
+            items.set_item(g.py_node_key(py, n), self.node_degree_by_index(&g, i))?;
+        }
+        let name = match self.kind {
+            DegreeKind::Total => "DiDegreeView",
+            DegreeKind::In => "InDegreeView",
+            DegreeKind::Out => "OutDegreeView",
+        };
+        Ok(format!("{name}({})", items.repr()?))
+    }
+
     fn __iter__(&self, py: Python<'_>) -> PyResult<Py<DiViewIterator>> {
         let g = self.graph.borrow(py);
         let items: Vec<PyObject> = g

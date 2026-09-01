@@ -149,27 +149,19 @@ def test_other_call_forms_return_the_same_contents(cls_name):
         assert sorted(map(str, got)) == sorted(map(str, want)), name
 
 
-@pytest.mark.parametrize(
-    "cls_name",
-    [
-        pytest.param(
-            name,
-            marks=pytest.mark.xfail(
-                strict=True,
-                reason="br-r37-c1-p1dbu (second, separate divergence): three call "
-                "forms leak PRIVATE class names into the public API. Measured, "
-                "networkx reports MultiEdgeDataView / OutMultiEdgeDataView while "
-                "fnx reports _LiveMultiEdgeCallView for edges(), "
-                "_EdgeListWithSetAlgebra for edges(nbunch), and "
-                "MultiEdgeView / OutMultiEdgeView for edges(nbunch, keys=True). "
-                "CONTENTS agree on all of them — only the type name diverges, "
-                "which is why the sibling contents test above passes. Found "
-                "incidentally while guarding the Mapping-surface defect.",
-            ),
-        )
-        for name in MULTI
-    ],
-)
+# br-r37-c1-ih59i: the strict xfail that used to wrap this is GONE, and its
+# removal is the whole point of that bead. It read: "three call forms leak
+# PRIVATE class names into the public API — networkx reports MultiEdgeDataView /
+# OutMultiEdgeDataView while fnx reports _LiveMultiEdgeCallView for edges(),
+# _EdgeListWithSetAlgebra for edges(nbunch), and MultiEdgeView /
+# OutMultiEdgeView for edges(nbunch, keys=True)."
+#
+# All three now report networkx's names, and `strict=True` is what said so: this
+# test XPASSed in the full suite the moment the fix landed, which is exactly the
+# job a strict xfail is for. A sweep of 76 accessor forms across the four classes
+# reports zero class-name divergences; see
+# tests/python/test_view_class_names_and_reprs_match_networkx.py.
+@pytest.mark.parametrize("cls_name", MULTI)
 def test_other_call_forms_report_networkx_type_names(cls_name):
     gnx, gfx = _pair(cls_name)
     mismatched = []

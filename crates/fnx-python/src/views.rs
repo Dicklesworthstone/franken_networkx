@@ -1743,15 +1743,27 @@ impl DegreeView {
         })
     }
 
-    fn __repr__(&self, py: Python<'_>) -> String {
+    /// br-r37-c1-ih59i: networkx's is `f"{cls}({dict(self)})"`, so this must be
+    /// a DICT of DISPLAY keys — and it was neither.
+    ///
+    /// Two defects in one line. It walked `nodes_ordered()`, whose entries are
+    /// the CANONICAL keys, and printed them raw, so `G.degree()` on a
+    /// string-keyed graph reprd as `DegreeView([('str:1:a', 1), ...])` —
+    /// leaking the internal encoding into user-visible output. And it hardcoded
+    /// `'{}'` quotes, so an INT node came out as `('5', 5)`, quoted like a
+    /// string. Building a real `PyDict` of `py_node_key` -> degree and letting
+    /// Python repr it fixes both and matches every key type for free.
+    ///
+    /// Only the CALLED form reaches here — `G.degree` (no parens) is the Python
+    /// `_GraphDegreeView`, which was already right, which is why a sweep of the
+    /// no-parens spelling would have missed this.
+    fn __repr__(&self, py: Python<'_>) -> PyResult<String> {
         let g = self.graph.borrow(py);
-        let items: Vec<String> = g
-            .inner
-            .nodes_ordered()
-            .iter()
-            .map(|n| format!("('{}', {})", n, g.inner.degree(n)))
-            .collect();
-        format!("DegreeView([{}])", items.join(", "))
+        let items = PyDict::new(py);
+        for n in g.inner.nodes_ordered() {
+            items.set_item(g.py_node_key(py, n), g.inner.degree(n))?;
+        }
+        Ok(format!("DegreeView({})", items.repr()?))
     }
 
     fn __bool__(&self, py: Python<'_>) -> bool {

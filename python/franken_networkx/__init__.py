@@ -4458,6 +4458,12 @@ class _LiveMultiEdgeCallView:
         return (u in adj and v in adj[u]) or (v in adj and u in adj[v])
 
     def __repr__(self):
+        # br-r37-c1-ih59i: the two concrete subclasses below already carry these
+        # exact names, so this could read `type(self).__name__` — it does not,
+        # deliberately. The base class is still constructible directly, and a
+        # repr that derived the name from the type would then print the PRIVATE
+        # one, which is the defect this bead is about. Deriving it from the
+        # direction keeps the two spellings independent.
         name = "OutMultiEdgeDataView" if self._directed else "MultiEdgeDataView"
         return f"{name}({list(self)!r})"
 
@@ -4478,6 +4484,46 @@ class _LiveMultiEdgeCallView:
         return not eq
 
     __hash__ = None
+
+
+# br-r37-c1-ih59i: `MG.edges()` and `MDG.edges()` both returned the PRIVATE
+# `_LiveMultiEdgeCallView`, where networkx reports `MultiEdgeDataView` and
+# `OutMultiEdgeDataView` respectively. Only the type NAME leaked — the repr,
+# the contents, the length and the containment all already matched — but
+# `type(v).__name__` is exactly what a name-based parity check reads, so a
+# private name here reads as a different class to any caller that looks.
+#
+# TWO subclasses rather than one renamed class, because networkx uses two
+# different names for the two directions and a single class cannot carry both.
+# `__slots__ = ()` keeps them slot-only like the base; adding attributes here
+# would silently give every `edges()` result a `__dict__`.
+#
+# A sweep of 76 accessor forms across the four classes — edges / nodes / degree
+# / adj / succ / pred / out_edges / in_edges and their called, data-bearing,
+# nbunch and keys spellings — reports these two as the ONLY class-name
+# divergences left.
+# NOT named `_LiveMultiEdgeDataView`: that name is already taken, ~60000 lines
+# below, by an unrelated `dict` subclass for a single edge's keydict. Defining a
+# second one here does not collide at definition time — the later definition
+# simply wins at call time — so the shadowed class was constructed with the
+# wrong `__init__` and `MG.edges()` raised TypeError. The suite caught it
+# immediately, but only because these call sites are exercised everywhere; a
+# rarer path would have shipped.
+class _MultiEdgeDataCallView(_LiveMultiEdgeCallView):
+    __slots__ = ()
+
+
+_MultiEdgeDataCallView.__name__ = "MultiEdgeDataView"
+_MultiEdgeDataCallView.__qualname__ = "MultiEdgeDataView"
+
+
+class _OutMultiEdgeDataCallView(_LiveMultiEdgeCallView):
+    __slots__ = ()
+
+
+_OutMultiEdgeDataCallView.__name__ = "OutMultiEdgeDataView"
+_OutMultiEdgeDataCallView.__qualname__ = "OutMultiEdgeDataView"
+
 
 
 class _MultiGraphEdgeView:
@@ -4699,7 +4745,7 @@ class _MultiGraphEdgeView:
         # Matches nx's MultiEdgeView.__call__() returning a live
         # MultiEdgeDataView.
         if nbunch is None and data is False and keys is False:
-            return _LiveMultiEdgeCallView(self._graph, directed=False)
+            return _MultiEdgeDataCallView(self._graph, directed=False)
         if (
             nbunch is None
             and data is False
@@ -5386,7 +5432,7 @@ class _MultiDiGraphEdgeView:
         # br-r37-c1-msf5j: live wrapper for default args (see
         # _MultiGraphEdgeView.__call__).
         if nbunch is None and data is False and keys is False:
-            return _LiveMultiEdgeCallView(self._graph, directed=True)
+            return _OutMultiEdgeDataCallView(self._graph, directed=True)
         if (
             nbunch is None
             and data is False
