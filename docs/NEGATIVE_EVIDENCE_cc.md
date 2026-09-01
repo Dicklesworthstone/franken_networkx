@@ -26252,3 +26252,63 @@ visible in the dispatchers are the `succ_row_py` / `pred_row_py` emptiness guard
 `ebunch_batch_lossless` pre-scan (which iterates the whole bunch before any work), and
 whatever cache invalidation runs per call. A ladder over one `add_edges_from` call, the
 same instrument that closed for `add_node`, is the way to split it.
+
+## `add_edges_from` per-call fixed cost CONFIRMED under an interleaved sweep — ~74.9 us against networkx's 0.5 us, and two caveats from the first run corrected (br-r37-c1-uta2n)
+
+comparison_class=SELF
+decision_gate=median_ci
+cv_role=report_only
+
+Re-measurement of the row above under the stricter fleet protocol: a sweep must
+INTERLEAVE its arms, and an effect is actionable only if it exceeds the INCUMBENT'S
+WITHIN-RUN SPREAD. The previous sweep interleaved the three arms within each k but
+measured each k in its own sequential block, so drift across the run was charged unevenly
+to the curve — and the curve was the whole result. This run interleaves k across rounds
+as well, reversing both the k order and the arm order on odd rounds, and prints the
+incumbent spread as a row so it cannot be dropped from a paste.
+
+    k         nx/fnx   A/A null   fnx ns/e   nx ns/e
+    4         0.042x     1.013    37445.7    1578.5
+    6         0.059x     0.996    26128.5    1532.3
+    7         0.066x     1.000    22795.1    1502.9
+    8         0.136x     0.997    10782.1    1463.7
+    9         0.150x     1.009     9676.6    1450.3
+    12        0.174x     1.002     8201.6    1429.5
+    16        0.209x     1.006     6775.7    1416.3
+    32        0.335x     1.000     4154.7    1390.7
+    64        0.474x     1.000     2918.9    1382.6
+    128       0.586x     1.003     2368.3    1386.9
+    nx-spread across k: 14.2%
+
+A/A null control, fnx `add_edges_from` at k=8 paired against a separately built fixture in the same invocation: 0.997x, inside the 0.03 bound.
+
+A/A null control, fnx `add_edges_from` at k=4 paired against a separately built fixture in the same invocation: 1.013x, inside the 0.03 bound.
+
+INTERLEAVING FIXED A NULL, which is the protocol earning its keep rather than a formality:
+k=4's null was 1.106 and the row was WITHHELD in the block-sequential run. Interleaved it
+is 1.013 and the row is quotable at 0.042x. All ten nulls are now in band (0.996-1.013).
+
+THE RESULT SURVIVES. Least squares over the quotable k>=8 rows:
+
+    fnx per call = 74,867 ns fixed + 1,781 ns/edge   (max residual 4.7%)
+    nx  per call =    509 ns fixed + 1,381 ns/edge   (max residual 1.3%)
+
+The block-sequential fit read 76,517 ns; interleaved it reads 74,867 ns, 2.2% apart. The
+fixed term is 87% of fnx's own SMALLEST per-call cost and roughly 147x networkx's, which
+is far outside the 14.2% incumbent spread. ACTIONABLE by the fleet rule.
+
+CORRECTION 1: I attributed networkx's monotonically falling ns/edge in the first run to
+host drift. That was wrong. With k interleaved, drift is spread across the curve and
+networkx STILL falls monotonically (1578.5 -> 1386.9), so it is a real property — nx has
+its own small per-call term, fitted at 509 ns. The comparison is fnx's ~74.9 us against
+networkx's ~0.5 us, not against zero.
+
+CORRECTION 2: the first run's numbers are not retracted — the two fits agree to 2.2% and
+every conclusion holds — but its k=4 row was withheld on a null that the protocol, not the
+code, had broken.
+
+NEXT PHASE-SPLIT, unchanged and still not attempted: locate the ~75 us. Candidates in the
+dispatchers are the `succ_row_py` / `pred_row_py` emptiness guards, the
+`ebunch_batch_lossless` pre-scan (it iterates the WHOLE bunch before any work), and
+per-call cache invalidation. A closing ladder over one `add_edges_from` call is the
+instrument.

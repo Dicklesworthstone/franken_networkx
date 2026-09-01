@@ -138,32 +138,56 @@ def build(mod, k):
         g.add_edges_from(EDGES[i:i + k])
     return g
 
-def run_k(k, rounds=11):
-    arms = {"fnx": lambda: build(fnx, k),
-            "nx":  lambda: build(nx, k),
-            "null":lambda: build(fnx, k)}
-    # Edge count asserted equal before timing: a sweep that built different graphs at
-    # different k would be comparing different work.
-    assert build(fnx, k).number_of_edges() == build(nx, k).number_of_edges()
+def sweep(ks, rounds=11):
+    """INTERLEAVED sweep: every round visits every k, and every k times all three arms.
+
+    The first version of this sweep measured each k in its own sequential block. Arms were
+    interleaved within a block, but the k values were not interleaved with each other, so
+    any host drift over the run was charged unevenly across the CURVE - and the curve is
+    the whole result. The incumbent's own spread across that run was 14% (1637 -> 1436
+    ns/edge, monotonically falling), which is exactly the signature of drift rather than a
+    property of k, since networkx has no chunk-size behaviour to speak of.
+
+    The fleet rule this now follows: sweeps must interleave arms, and an effect is only
+    actionable if it exceeds the INCUMBENT'S WITHIN-RUN SPREAD. So the incumbent spread is
+    computed and printed as the yardstick rather than left for a reader to reconstruct.
+
+    Order is reversed on odd rounds at BOTH levels (k order and arm order) so no k and no
+    arm sits permanently at a favoured position in the round.
+    """
+    keys = [(k, a) for k in ks for a in ("fnx", "nx", "null")]
+    samples = {key: [] for key in keys}
+    for k in ks:
+        assert build(fnx, k).number_of_edges() == build(nx, k).number_of_edges()
     was = gc.isenabled()
     gc.disable()
-    samples = {a: [] for a in arms}
     for r in range(rounds):
-        order = list(arms) if r % 2 == 0 else list(arms)[::-1]
-        for name in order:
-            t = time.perf_counter()
-            arms[name]()
-            samples[name].append((time.perf_counter() - t) / M)
+        korder = list(ks) if r % 2 == 0 else list(ks)[::-1]
+        for k in korder:
+            arms = {"fnx": lambda k=k: build(fnx, k),
+                    "nx":  lambda k=k: build(nx, k),
+                    "null":lambda k=k: build(fnx, k)}
+            anames = list(arms) if r % 2 == 0 else list(arms)[::-1]
+            for name in anames:
+                t = time.perf_counter()
+                arms[name]()
+                samples[(k, name)].append((time.perf_counter() - t) / M)
     if was:
         gc.enable()
-    med = {a: statistics.median(v) for a, v in samples.items()}
-    return med["nx"] / med["fnx"], med["null"] / med["fnx"], med["fnx"] * 1e9, med["nx"] * 1e9
+    med = {key: statistics.median(v) for key, v in samples.items()}
+    return med
 
 def main():
+    ks = (4, 6, 7, 8, 9, 12, 16, 32, 64, 128)
+    med = sweep(ks)
+    nx_vals = [med[(k, "nx")] for k in ks]
+    nx_spread = (max(nx_vals) - min(nx_vals)) / min(nx_vals)
     rows = []
-    for k in (4, 6, 7, 8, 9, 12, 16, 32, 64, 128):
-        ratio, null, fns, nns = run_k(k)
-        rows.append(("chunk", str(k), ratio, null, fns, nns))
+    for k in ks:
+        f, n, nul = med[(k, "fnx")], med[(k, "nx")], med[(k, "null")]
+        rows.append(("chunk", str(k), n / f, nul / f, f * 1e9, n * 1e9))
+    # The actionability yardstick, reported as a row so it cannot be omitted from a paste.
+    rows.append(("control", "nx-spread", 1.0 + nx_spread, 1.0, nx_spread * 100.0, 0.0))
     return rows
 "#;
 
