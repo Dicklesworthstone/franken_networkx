@@ -26501,3 +26501,68 @@ class-level default makes `hasattr` permanently True for a slot that was never s
 which would have stopped firing and left the directional views with a null token — i.e.
 never refreshing. It is an `is None` test now. `vars()` is unaffected; a class attribute
 does not enter the instance dict.
+
+## FINDING (cc/BlackThrush, 2026-09-01): multigraph held `cell[key]` is 0.3565x / 0.3338x at 2000-char node keys and FLAT in key length — still a LOSS, but the unbounded class is closed, 27/27 admissible (br-r37-c1-6r00i)
+
+comparison_class=INCUMBENT
+decision_gate=median_ci
+cv_role=report_only
+
+in_process_elf_sha256 = 4a89038626ab8d8e89c48be6440bf1786c33ecdf7b3d0341f224b73f8ef872c0
+git_head = dcf299191b55090b2aeaec138ac2715e90d8efd2 (clean)
+harness = scripts/balanced_square_ab.py --workload multigraph-cell-subscript
+          --reps 200 --rounds 41 --warmup 60 --calls-per-slot 128
+          --expect-elf 4a89038626ab8d8e, taskset -c 44, PYTHONHASHSEED=0
+host = thinkstation1, both arms in-process, networkx 3.6.1 live, loadavg 4.1-5.2,
+       cpu 44 exclusive to the process, SMT sibling 0-4 percent, per-arm clock skew 0.00 percent
+
+27/27 ADMISSIBLE. Every A/A null control lands in [0.9909, 1.0132] against this harness's
++/-0.02 bound. Ratio is t_networkx / t_fnx, so below 1 is a loss.
+
+  row                                 K=3                    K=2000
+  MultiGraph   held cell[key]         0.3716 [.3688,.3740]   0.3565 [.3560,.3579]
+  MultiGraph   held cell iter         0.2878                 0.2873
+  MultiGraph   held cell len          0.2575                 0.2574
+  MultiGraph   held cell in           0.3312                 0.3309
+  ONESHOT MG   G[u][v][key]           0.3044                 0.2199
+  CONTROL MG   G[u][v]                0.4823                 0.4735
+  MultiDiGraph held cell[key]         0.3394 [.3378,.3405]   0.3338 [.3317,.3346]
+  MultiDiGraph held cell iter         0.2864                 0.2863
+  MultiDiGraph held cell len          0.2584                 0.2569
+  MultiDiGraph held cell in           0.3293                 0.3332
+  ONESHOT MDG  G[u][v][key]           0.2923                 0.2203
+  CONTROL MDG  G[u][v]                0.4805                 0.4760
+  CONTROL DiGraph G[u][v]             0.5528                 0.5548
+  CONTROL MG has_edge                                        0.7645
+
+A/A null control, MultiGraph `held cell[key]` at K=2000, fnx arm against its own
+second-half slots inside each round: 1.0112x, inside the 0.02 bound.
+
+A/A null control, MultiDiGraph `held cell[key]` at K=2000, networkx arm, same rounds:
+1.0022x, inside the 0.02 bound.
+
+WHAT IS KEPT IS THE SHAPE, NOT A WIN. Every row here is still a LOSS against networkx and
+none is claimed otherwise. What changed is the SLOPE: br-r37-c1-6r00i was filed on held
+`cell[key]` decaying 0.3504x -> 0.1561x (MultiGraph) and 0.3764x -> 0.1400x (MultiDiGraph)
+across this key-length span, the br-r37-c1-ptiz2 unbounded class. It now moves 4.1 percent
+and 1.6 percent across a 667x increase in node-key length. The K=2000 cells are 2.1x and
+2.5x better than filed, and the class no longer contains this row.
+
+THE MEASUREMENT ITSELF IS THE OTHER HALF OF THIS ROW. These cells had read 0/27 admitted
+across four attempts by three agents, every one NULL-FAILED on arm B and every one blamed
+on host load. Reproduced at loadavg 3.5 with the process alone on its cpu: still 0/27.
+Warming the arm before the square is NOT the fix — swept alone via the new
+`--round-warm-calls`, arm B's null is flat at 1.14-1.27 from 2 untimed calls to 256.
+Lengthening the TIMED SLOT is: `--calls-per-slot` 1 / 4 / 16 / 32 / 64 / 128 takes it
+1.2186 / 1.1504 / 1.0630 / 1.0325 / 1.0207 / 1.0100 and 0 of 2 admitted to 2 of 2.
+
+AND THE SHORT-SLOT NUMBERS WERE FLATTERING fnx. The same cell reads 0.4306x at
+`calls_per_slot=1` against 0.3565x at 128, so the 0.49-0.53x figures floated across the
+earlier VOID runs overstated fnx by about 35 percent. A void number is not merely
+unproven here, it is biased, and biased the wrong way. Row context applies on top: `--only`
+on this cell reads 0.3793x against the 0.3565x of the full 27-row set quoted above.
+
+RESIDUAL, and it is NOT this bead: the ONESHOT rows still slope where every held-cell row
+is flat — MG `G[u][v][key]` 0.3044 -> 0.2199 and MDG 0.2923 -> 0.2203. The lookaside
+serves a held cell and not a cold one-shot subscript. The flat remainder on the held rows
+is the inner-subscript floor recorded on br-r37-c1-ey6ob.
