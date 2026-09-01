@@ -26170,3 +26170,85 @@ by the previous row (deleting the whole body still loses), and the remaining ter
 PyO3's kwargs marshalling under a signature the parity contract requires. Whether PyO3
 can hand over kwargs without materialising a dict is an upstream question, not a
 franken_networkx edit, and it is recorded here rather than attempted.
+
+## REJECT(hypothesis): the batch-threshold constant 8 is NOT mis-tuned — uta2n's k=8 cliff does not reproduce, and the standing loss is a ~76 us fixed cost per `add_edges_from` call (br-r37-c1-uta2n, br-r37-c1-jc9e4)
+
+comparison_class=SELF
+decision_gate=median_ci
+cv_role=report_only
+
+REJECT of a HYPOTHESIS, not of a lever: the claim under test was that the batch-threshold
+constant 8 is mis-tuned and causes br-r37-c1-uta2n's 6.84x cliff. It is refuted below.
+No lever shipped and no vs-incumbent WIN is claimed - every fnx figure here is a LOSS, and
+the networkx arm is present as the smooth-curve CONTROL that makes a threshold effect
+decidable, not as a campaign comparison.
+
+A/A null control, fnx `add_edges_from` at k=8 paired against a separately built fixture in the same invocation: 0.999x, inside the 0.03 bound.
+
+A/A null control, fnx `add_edges_from` at k=7 paired against a separately built fixture in the same invocation: 0.992x, inside the 0.03 bound.
+
+COUNTED MECHANISM for the refutation, independent of any ratio: at k=7 the bunch is
+SHORTER than `PLAIN_EDGE_BATCH_MIN` so the batch is declined and the per-edge path runs;
+at k=8 the batch path runs. The measured direction is that the batch path is FASTER
+(10713 against 23265 ns/edge). A threshold whose guarded side is the fast one is not
+mis-tuned, whatever the timing noise.
+
+THE STALE CONSTANT THAT PROMPTED IT: br-r37-c1-uta2n recorded a 6.84x cliff at chunk
+size 8 (k=7 at 1679 ns/edge, k=8 at 15156) and closed with the cause OPEN — "I did NOT
+locate the threshold in source". The guards do exist and the number is 8:
+`PLAIN_EDGE_BATCH_MIN` / `ATTR_EDGE_BATCH_MIN` in `try_add_plain_edge_batch` and
+`try_add_attr_edge_batch`, in both lib.rs and digraph.rs. A bunch shorter than 8 declines
+the batch; a bunch of exactly 8 takes it.
+
+MEASURED AT HEAD, one invocation, live networkx as the control, 2000 nodes / 4000 edges
+fed through `add_edges_from` in chunks of k, edge count asserted equal on both arms before
+timing, worker bench cpu 63, cdylib `built-by-this-invocation`,
+bench_elf_sha256=7e881f26cffa513d7c47864a7fe4b596f4dd98560e88b07243f89328a5dac1b5:
+
+    k      nx/fnx   A/A null   fnx ns/e   nx ns/e
+    4      0.039x     1.106     41689.1    1637.2   <- WITHHELD, null out of band
+    6      0.061x     1.003     25911.8    1568.0
+    7      0.067x     0.992     23265.4    1567.8
+    8      0.144x     0.999     10713.2    1538.0
+    9      0.154x     0.998      9935.0    1530.4
+    12     0.189x     1.008      8180.1    1546.6
+    16     0.223x     1.014      6816.0    1519.1
+    32     0.364x     1.007      4017.8    1463.7
+    64     0.511x     1.007      2781.7    1420.8
+    128    0.640x     0.994      2245.1    1435.8
+
+VERDICT 1 — THE CLIFF DOES NOT REPRODUCE. k=8 is 2.17x cheaper than k=7 (a SELF comparison, fnx against fnx, not a vs-incumbent result)
+(10713 against 23265), which is what a batch threshold is supposed to do. The 6.84x
+cliff does NOT reproduce. It was diagnosed and fixed in the interim: the collectors'
+source now records it directly (br-r37-c1-ab5u7 / iozi3 / uta2n — "a HashSet cloned from
+EVERY existing node key on entry — O(N) String allocations per call ... 14998.6 ns/edge
+at k=8 against 2253.5 at k=7"). So uta2n's "cause is open" note is STALE, and the
+constant is exonerated: 8 is not a mis-tuned threshold, it is a threshold whose bad side
+was repaired.
+
+VERDICT 2 — A BIGGER LOSS IS EXPOSED, and it is what should be worked next. fnx loses at
+EVERY chunk size measured, 0.039x to 0.640x. The shape says why: fnx's ns/edge falls
+monotonically with k while networkx's is FLAT (1637 -> 1436), i.e. networkx has no
+per-call term and fnx has a large one. Fitting per-call cost (ns/edge x k) over the
+quotable k>=8 rows:
+
+    fnx per call = 76,517 ns FIXED + 1,638 ns/edge      (max residual 5.8%)
+    nx  per call =      ~0 ns fixed + ~1,500 ns/edge
+
+THE MARGINAL PER-EDGE COSTS ARE COMPARABLE (1638 against ~1500). The ENTIRE loss is a
+~76 microsecond FIXED COST charged to every `add_edges_from` call, which networkx does
+not pay at all. That is user-visible in the way the original bead described: calling
+`G.add_edges_from(batch)` in a loop is ordinary code, and the fixed term is paid once per
+call however small the batch.
+
+THE FIT IS A FIT, not a direct measurement: it is a two-parameter least squares over nine
+points with a 5.8% worst residual, and the k=4 row is withheld entirely on a 1.106 null.
+The 76 us should be read as "tens of microseconds, per call, independent of k", not as a
+precise constant.
+
+NEXT PHASE-SPLIT, named and not attempted here: locate the fixed term. Its magnitude has
+the shape of an O(V) or O(E) pass per call on a 2000-node / 4000-edge graph. Candidates
+visible in the dispatchers are the `succ_row_py` / `pred_row_py` emptiness guards, the
+`ebunch_batch_lossless` pre-scan (which iterates the whole bunch before any work), and
+whatever cache invalidation runs per call. A ladder over one `add_edges_from` call, the
+same instrument that closed for `add_node`, is the way to split it.

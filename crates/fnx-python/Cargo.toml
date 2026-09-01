@@ -56,6 +56,10 @@ name = "has_node_h2h"
 [[example]]
 name = "add_node_h2h"
 
+# br-r37-c1-uta2n: chunk-size sweep that locates the k=8 cliff against its guard constant.
+[[example]]
+name = "add_edges_chunk_sweep"
+
 [[bench]]
 name = "public_api_gauntlet"
 harness = false
