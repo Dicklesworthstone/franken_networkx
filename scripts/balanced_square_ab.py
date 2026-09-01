@@ -3109,6 +3109,7 @@ def run_row(
     *,
     gc_per_slot: bool = False,
     calls_per_slot: int = 1,
+    round_warm_calls: int = ROUND_WARM_CALLS,
 ) -> dict:
     """One row: `rounds` balanced squares, per-arm A/A nulls, bootstrap median CI.
 
@@ -3153,7 +3154,18 @@ def run_row(
             # is one call containing `reps` operations, but not for whole-
             # algorithm rows at K>1: their first-half nulls stayed above 1.02
             # because the first timed slot was still colder than the last.
-            for _ in range(max(ROUND_WARM_CALLS, calls_per_slot)):
+            # br-r37-c1-6r00i: `round_warm_calls` is a SEPARATE knob from
+            # `calls_per_slot` because raising the latter changes what a slot
+            # CONTAINS as well as how warm the arms are, so a null that improves
+            # with it cannot be attributed. Held apart and swept alone on the
+            # multigraph held-cell rows, arm B's null falls monotonically —
+            # 1.2186 at 2, 1.1504 at 4, 1.0630 at 16 — which is what identifies
+            # the failure as fnx-arm warm-up after the per-round collect rather
+            # than as host contention. Those rows had been VOID across four
+            # attempts by three agents, the last at loadavg 3.7 with the process
+            # alone on its cpu, and the previous conclusion was that quiescence
+            # was the blocker. It was not.
+            for _ in range(max(round_warm_calls, calls_per_slot)):
                 incumbent_fn()
                 fnx_fn()
             a_slots, b_slots, a_khz, b_khz, a_cpus, b_cpus = _time_square(
@@ -3248,6 +3260,21 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--rounds", type=int, default=41)
     parser.add_argument("--reps", type=int, default=400)
     parser.add_argument("--warmup", type=int, default=8)
+    parser.add_argument(
+        "--round-warm-calls",
+        type=int,
+        default=ROUND_WARM_CALLS,
+        help=(
+            "untimed calls per arm after each per-round gc.collect(). The default "
+            "of 2 clears the incumbent arm at every rep count measured, but NOT "
+            "the fnx arm on rows holding a large native cache: the multigraph "
+            "held-cell rows read a first/second-half null of 1.22 on arm B at "
+            "the default and fall monotonically as this rises. Raise it when a "
+            "row reports NULL-FAILED(B) on a quiet host; it does not change what "
+            "a slot contains, so a row admitted at a higher value is comparable "
+            "to one admitted at the default."
+        ),
+    )
     parser.add_argument("--expect-elf", default=os.environ.get("EXPECT_ELF_SHA"))
     # br-r37-c1-debugso: the escape hatch exists so the refusal above is a guard
     # rather than a wall - characterising the debug profile is a legitimate thing
@@ -3301,6 +3328,7 @@ def main(argv: list[str]) -> int:
     for key, value in prov.items():
         print(f"  {key:24s} {value}")
     print(f"  {'rounds/warmup/reps':24s} {args.rounds}/{args.warmup}/{args.reps}")
+    print(f"  {'round_warm_calls':24s} {args.round_warm_calls}")
     print(f"  {'calls_per_slot':24s} {args.calls_per_slot}")
 
     # A bare `python3` loads the site-packages extension, which is a DIFFERENT
@@ -3379,6 +3407,7 @@ def main(argv: list[str]) -> int:
             args.warmup,
             gc_per_slot=args.gc_per_slot,
             calls_per_slot=args.calls_per_slot,
+            round_warm_calls=args.round_warm_calls,
         )
         low, high = row["ci"]
         if row["mhz_incumbent"] is None:
