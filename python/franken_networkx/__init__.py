@@ -571,6 +571,43 @@ def _nbunch_filter_container(graph):
     return graph.nodes
 
 
+def _resolved_nbunch_rows(graph, nbunch):
+    """br-r37-c1-cnwof: what ``graph.nbunch_iter(nbunch)`` yields, cheaply.
+
+    Every ``edges(nbunch)`` return on the three list-backed views hands
+    ``_guarded_edge_list`` a ``graph.nbunch_iter(nbunch)`` generator purely so
+    the fail-fast row guard has the RESOLVED node list, and
+    ``_guarded_edge_list`` immediately materialises it with ``tuple(...)``.
+    Measured on a 200-node MultiGraph with a one-node nbunch, that round trip
+    costs ~780 ns of the ~3920 ns the view CONSTRUCTION takes: a generator
+    frame, an exception translator that never fires, and ``nbunch_iter``'s
+    ``if nbunch in self`` single-node probe that a list can never satisfy, on
+    top of ~75 ns of actual filtering.
+
+    A ``list`` nbunch is the only form this shortcut serves, and the exclusion
+    of ``tuple`` is load-bearing rather than conservatism: a TUPLE CAN BE A
+    NODE, and ``nbunch_iter``'s ``if nbunch in self`` branch resolves such a
+    tuple to that ONE node rather than to its elements. A list is unhashable,
+    so it can never reach that branch and the two spellings cannot diverge.
+
+    The membership container is ``nbunch_iter``'s own — private storage and the
+    node-key mirror included — so the filtered answer is identical, and an
+    unhashable ELEMENT still raises out of dict membership. That case falls
+    back to the generator rather than translating the error here, because the
+    NetworkXError text is ``nbunch_iter``'s contract and there is no reason for
+    two copies of it.
+    """
+    if nbunch is None:
+        return None
+    if type(nbunch) is list:
+        container = _nbunch_filter_container(graph)
+        try:
+            return [node for node in nbunch if node in container]
+        except TypeError:
+            pass
+    return graph.nbunch_iter(nbunch)
+
+
 def _graph_nbunch_iter(self, nbunch=None):
     # br-r37-c1-nbunchnone (cc): nbunch=None is iteration over ALL nodes; route it
     # to the cheap cached node iterator (iter(self)) BEFORE building self.adj — the
@@ -4656,7 +4693,7 @@ class _MultiGraphEdgeView:
                             _wrap_edge_data_view(result, _MultiEdgeDataKeysView),
                             self._graph,
                             guard_edge_count=True,
-                            nbunch_rows=self._graph.nbunch_iter(nbunch),
+                            nbunch_rows=_resolved_nbunch_rows(self._graph, nbunch),
                         )
                     # br-r37-c1-hihrf: nx names this MultiEdgeDataView. THIS is
                     # the live return for `MG.edges(nbunch)` - the native
@@ -4667,7 +4704,7 @@ class _MultiGraphEdgeView:
                         _wrap_edge_data_view(result, _MultiEdgeDataView),
                         self._graph,
                         guard_edge_count=True,
-                        nbunch_rows=self._graph.nbunch_iter(nbunch),
+                        nbunch_rows=_resolved_nbunch_rows(self._graph, nbunch),
                     )
         # br-r37-c1-mgedgenb (cc): data=True one-pass (same lambda-chain path was
         # ~0.09x). Emits live attr dicts; None -> Python loop for display-override.
@@ -4687,7 +4724,7 @@ class _MultiGraphEdgeView:
                         _wrap_edge_data_view(result, _MultiEdgeDataView),
                         self._graph,
                         guard_edge_count=True,
-                        nbunch_rows=self._graph.nbunch_iter(nbunch),
+                        nbunch_rows=_resolved_nbunch_rows(self._graph, nbunch),
                     )
         # br-r37-c1-mgedgenbdk (cc): data=<key> one-pass (was the Python adj-chain,
         # ~0.11x). Projects attrs.get(data, default) per edge; None -> Python loop.
@@ -4707,7 +4744,7 @@ class _MultiGraphEdgeView:
                         _wrap_edge_data_view(result, _MultiEdgeDataView),
                         self._graph,
                         guard_edge_count=True,
-                        nbunch_rows=self._graph.nbunch_iter(nbunch),
+                        nbunch_rows=_resolved_nbunch_rows(self._graph, nbunch),
                     )
         result = _EdgeListWithSetAlgebra()
         seen = set()
@@ -4736,7 +4773,7 @@ class _MultiGraphEdgeView:
                 self._graph,
                 guard_edge_count=True,
                 nbunch_rows=(
-                    self._graph.nbunch_iter(nbunch) if nbunch is not None else None
+                    _resolved_nbunch_rows(self._graph, nbunch)
                 ),
             )
         # br-r37-c1-mekvc (cycle 214): keys=True (data=False) wraps
@@ -4756,7 +4793,7 @@ class _MultiGraphEdgeView:
                 self._graph,
                 guard_edge_count=True,
                 nbunch_rows=(
-                    self._graph.nbunch_iter(nbunch) if nbunch is not None else None
+                    _resolved_nbunch_rows(self._graph, nbunch)
                 ),
             )
         # br-r37-c1-hihrf: nx returns MultiEdgeDataView here, not a bare list.
@@ -4770,7 +4807,7 @@ class _MultiGraphEdgeView:
             self._graph,
             guard_edge_count=True,
             nbunch_rows=(
-                self._graph.nbunch_iter(nbunch) if nbunch is not None else None
+                _resolved_nbunch_rows(self._graph, nbunch)
             ),
         )
 
@@ -5297,7 +5334,7 @@ class _MultiDiGraphEdgeView:
                             _wrap_edge_data_view(nres, _OutMultiEdgeDataView),
                             self._graph,
                             guard_edge_count=True,
-                            nbunch_rows=self._graph.nbunch_iter(nbunch),
+                            nbunch_rows=_resolved_nbunch_rows(self._graph, nbunch),
                         )
                     if keys:
                         # br-r37-c1-mdgoutedge (cc): keys=True (data=False) wraps in
@@ -5310,7 +5347,7 @@ class _MultiDiGraphEdgeView:
                             _wrap_edge_data_view(nres, _OutMultiEdgeDataKeysView),
                             self._graph,
                             guard_edge_count=True,
-                            nbunch_rows=self._graph.nbunch_iter(nbunch),
+                            nbunch_rows=_resolved_nbunch_rows(self._graph, nbunch),
                         )
                     # br-r37-c1-hihrf: nx names this OutMultiEdgeDataView. THIS
                     # is the live return for `MDG.edges(nbunch)` - the native
@@ -5319,7 +5356,7 @@ class _MultiDiGraphEdgeView:
                         _wrap_edge_data_view(nres, _OutMultiEdgeDataView),
                         self._graph,
                         guard_edge_count=True,
-                        nbunch_rows=self._graph.nbunch_iter(nbunch),
+                        nbunch_rows=_resolved_nbunch_rows(self._graph, nbunch),
                     )
         if _it_nb and data is not False and data is not True and not keys:
             native = getattr(self._graph, "_native_mdg_out_edges_nbunch_data_key", None)
@@ -5338,7 +5375,7 @@ class _MultiDiGraphEdgeView:
                         _wrap_edge_data_view(result, _OutMultiEdgeDataView),
                         self._graph,
                         guard_edge_count=True,
-                        nbunch_rows=self._graph.nbunch_iter(nbunch),
+                        nbunch_rows=_resolved_nbunch_rows(self._graph, nbunch),
                     )
         result = _EdgeListWithSetAlgebra()
         if data is False or data is True or isinstance(data, str):
@@ -5372,7 +5409,7 @@ class _MultiDiGraphEdgeView:
                 self._graph,
                 guard_edge_count=True,
                 nbunch_rows=(
-                    self._graph.nbunch_iter(nbunch) if nbunch is not None else None
+                    _resolved_nbunch_rows(self._graph, nbunch)
                 ),
             )
         # br-r37-c1-mekvc (cycle 214): keys=True (data=False) wraps
@@ -5388,7 +5425,7 @@ class _MultiDiGraphEdgeView:
                 self._graph,
                 guard_edge_count=True,
                 nbunch_rows=(
-                    self._graph.nbunch_iter(nbunch) if nbunch is not None else None
+                    _resolved_nbunch_rows(self._graph, nbunch)
                 ),
             )
         # br-r37-c1-hihrf: nx names this OutMultiEdgeDataView; fnx returned a
@@ -5398,7 +5435,7 @@ class _MultiDiGraphEdgeView:
             self._graph,
             guard_edge_count=True,
             nbunch_rows=(
-                self._graph.nbunch_iter(nbunch) if nbunch is not None else None
+                _resolved_nbunch_rows(self._graph, nbunch)
             ),
         )
 
