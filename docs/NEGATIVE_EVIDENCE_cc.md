@@ -26720,3 +26720,48 @@ CROSS-WORKLOAD AGREEMENT WHERE IT SHOULD HOLD, as the control on all of the abov
 `G.edges[u,v]` reads 0.7739 and 0.7786 here against 0.7702 and 0.7753 in
 `edge-subscript-binding` — four independent readings of the same operation in two different
 workloads, spanning 1.1 percent. So the substrate is not generally unstable; one row is.
+
+## FINDING (cc/BlackThrush, 2026-09-01): the `undirected-nbunch` surface, 6/6 ADMISSIBLE twice — Graph 1.35x-1.48x, MultiGraph 0.766x-0.813x, and both FLAT across the three data modes
+
+comparison_class=INCUMBENT
+decision_gate=median_ci
+cv_role=report_only
+
+in_process_elf_sha256 = 46c0bf357235124a98b450693e9d9fef20d2c49bcce4fdec90eb46e2f987062d
+git_head = 075b6fd07 (clean)
+harness = scripts/balanced_square_ab.py --workload undirected-nbunch
+          --reps 200 --rounds 41 --warmup 60 --calls-per-slot 128,
+          taskset -c 44, PYTHONHASHSEED=0, OPENBLAS_NUM_THREADS=1, OMP_NUM_THREADS=1
+host = thinkstation1, both arms in-process, networkx 3.6.1 live, cpu 44 exclusive,
+       loadavg 2.7-3.0 start and end
+
+The "after" record for the surface br-r37-c1-cnwof changed today (`edges(nbunch)` no
+longer resolves its nbunch through a generator it immediately materialises). TWO runs,
+6/6 ADMISSIBLE each, all 24 A/A null controls inside [0.9992, 1.0069] against the +/-0.02
+bound.
+
+  row                                 run 1     run 2     spread
+  Graph.edges(nb, data=True)          1.4792    1.4477     2.2%   WIN
+  Graph.edges(nb, data='weight')      1.4311    1.4073     1.7%   WIN
+  Graph.edges(nb, data=False)         1.3807    1.3484     2.4%   WIN
+  MultiGraph.edges(nb, data='weight') 0.8092    0.8128     0.4%
+  MultiGraph.edges(nb, data=True)     0.7757    0.7718     0.5%
+  MultiGraph.edges(nb, data=False)    0.7656    0.7702     0.6%
+
+A/A null control, `Graph.edges(nb, data=True)` fnx arm against its own second-half slots
+inside each round: 1.0025x, inside the 0.02 bound.
+
+A/A null control, `MultiGraph.edges(nb, data=False)` networkx arm, same rounds: 1.0002x,
+inside the 0.02 bound.
+
+THE NBUNCH SIZE IS THE AXIS, and quoting either number without it is the mistake this row
+exists to prevent. This workload holds a 200-NODE nbunch, so the per-call cost amortises
+over 200 rows; the balanced-square runs for br-r37-c1-cnwof used a 1-, 8- and 16-node
+nbunch and put the same MultiGraph spelling at 0.4951x, 1.0016x and 1.2977x. Both are
+right. `MultiGraph.edges(nbunch)` is a LOSS at one node, a WIN at sixteen, and 0.77x at
+two hundred — because the fixed per-call cost and the per-row cost cross over — so a
+single-size measurement of this row means nothing without its size.
+
+ALL THREE DATA MODES MOVE TOGETHER on each class (1.35-1.48 on Graph, 0.766-0.813 on
+MultiGraph), which places the remaining difference in the shared nbunch walk rather than in
+any data-mode handling — the same conclusion br-r37-c1-hihrf reached from the scaling side.
