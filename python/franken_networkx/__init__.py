@@ -4448,14 +4448,34 @@ class _LiveMultiEdgeCallView:
         return self._graph.number_of_edges()
 
     def __contains__(self, edge):
-        if not isinstance(edge, tuple) or len(edge) < 2:
-            return False
-        u, v = edge[0], edge[1]
+        # br-r37-c1-rbu5n: networkx opens with `u, v = e[:2]` and lets both
+        # failures out — TypeError for something that cannot be sliced, and
+        # ValueError for a sequence shorter than two. The guard that used to
+        # stand here (`isinstance(edge, tuple) and len(edge) >= 2, else False`)
+        # swallowed both and answered False, so `42 in MG.edges()` and
+        # `() in MG.edges()` were silent where networkx raises. Spelling it the
+        # way networkx does gets every one of those cells right without a table
+        # of them, and a `list` or a `str` still answers False — it reaches the
+        # equality test below and fails it, exactly as it does there.
+        u, v = edge[:2]
         graph = self._graph
         if self._directed:
-            return u in graph.succ and v in graph.succ[u]
-        adj = graph.adj
-        return (u in adj and v in adj[u]) or (v in adj and u in adj[v])
+            present = u in graph.succ and v in graph.succ[u]
+        else:
+            adj = graph.adj
+            present = (u in adj and v in adj[u]) or (v in adj and u in adj[v])
+        # br-r37-c1-rbu5n: networkx does not ask "is there an edge between these
+        # two nodes", it asks "is this exactly one of the items I yield" —
+        # `any(e == self._report(u, v, k, dd) for k, dd in kdict.items())`, and
+        # `_report` here is `(u, v)`. So every 3-tuple is False, including one
+        # whose key is real. This view yields 2-TUPLES; `keys=True` is a
+        # different view with a different rule.
+        #
+        # Ignoring everything past index 1 made `('a','b',9) in MG.edges()`
+        # answer True for a key that does not exist, which is the sharp end of
+        # it: a WRONG TRUE, not merely a looser contract. Comparing to the
+        # yielded shape reproduces networkx exactly and needs no length test.
+        return present and edge == (u, v)
 
     def __repr__(self):
         # br-r37-c1-ih59i: the two concrete subclasses below already carry these
