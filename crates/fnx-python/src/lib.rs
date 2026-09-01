@@ -760,7 +760,17 @@ fn node_key_to_string(py: Python<'_>, key: &Bound<'_, PyAny>) -> PyResult<String
     }
     // Floats that exactly represent an integer in i64 range collide
     // (by hash + ==) with their int counterpart in Python dicts.
-    if let Ok(f) = key.extract::<f64>() {
+    //
+    // br-r37-c1-numtower-29ggu: the equality guard wraps the WHOLE branch, not
+    // just its non-integral tail. `Decimal('3.0000000000000000000001')` has the
+    // double 3.0, so the INTEGRAL sub-branch canonicalised it to "3" and merged
+    // it with the int 3 — which Python does not call equal to it. A split key
+    // shows up as a duplicate node; a COLLIDED key silently loses one.
+    if let Ok(f) = key.extract::<f64>()
+        && (key.is_exact_instance_of::<PyFloat>()
+            || f.into_pyobject(py)
+                .is_ok_and(|as_float| key.eq(&as_float).unwrap_or(false)))
+    {
         return float_key_canonical(py, key, f);
     }
     // br-r37-c1-y7m24: all-int tuples — the node-key shape of grid_2d /
@@ -818,6 +828,33 @@ fn float_key_canonical(py: Python<'_>, key: &Bound<'_, PyAny>, f: f64) -> PyResu
     // subclass can spell itself differently, and only a subclass pays for it.
     if key.downcast::<PyFloat>().is_ok() && !key.is_exact_instance_of::<PyFloat>() {
         return float_value_repr(py, key);
+    }
+    // br-r37-c1-numtower-29ggu: a key that is not a float AT ALL, but that
+    // Python calls EQUAL to this float, is the SAME dict key and must get the
+    // same canonical. `Decimal('1.5')`, `Fraction(3, 2)` and `numpy.float32(1.5)`
+    // all reach here through `__float__` — none is a `float` subclass, so the
+    // branch above does not serve them — and each canonicalised by `repr` to
+    // "Decimal('1.5')" / "Fraction(3, 2)" / "np.float32(1.5)" against the
+    // float's "1.5". `add_node(1.5); add_node(Decimal('1.5'))` then left the
+    // graph in a torn state: `number_of_nodes()` said 2 while `nodes()` yielded
+    // ONE display key.
+    //
+    // THE TEST IS PYTHON EQUALITY, NOT THE TYPE, and that distinction is the
+    // whole correctness of it. `Decimal('0.1')` also arrives here via
+    // `__float__`, and it is NOT equal to the float `0.1` — Decimal('0.1') is
+    // exactly one tenth and the double is not — so Python holds TWO dict keys
+    // for them and fnx must too. Canonicalising every `__float__`-able key by
+    // its double would MERGE those, turning a split-node bug into a
+    // collided-node bug, which is worse. Asking `key == float(key)` delegates
+    // the decision to the same comparison the dict uses.
+    //
+    // The cost falls only on keys that got here through `__float__` and are not
+    // exact floats: `str`, `int` and `float` never reach this function's tail.
+    if !key.is_exact_instance_of::<PyFloat>() {
+        let as_float = f.into_pyobject(py)?;
+        if key.eq(&as_float)? {
+            return Ok(as_float.repr()?.to_string());
+        }
     }
     let repr = key.repr()?;
     Ok(repr.to_string())
@@ -2119,7 +2156,27 @@ pub(crate) fn edge_key_lookup_string(py: Python<'_>, key: &Bound<'_, PyAny>) -> 
         let decimal = exact_int_decimal(py, key)?;
         return Ok(prefixed_edge_key("int:", &decimal));
     }
-    if let Ok(f) = key.extract::<f64>() {
+    if let Ok(f) = key.extract::<f64>()
+        // br-r37-c1-numtower-29ggu: the CONVERSE of the node-key defect, and the
+        // worse direction. Everything with a `__float__` reached this branch and
+        // was canonicalised by its double, so `add_edge(key=0.1)` and
+        // `add_edge(key=Decimal('0.1'))` COLLAPSED INTO ONE EDGE — Python holds
+        // two dict keys for them, because `Decimal('0.1')` is exactly one tenth
+        // and the double is not. A split key shows up as a duplicate; a
+        // COLLIDED key silently loses data.
+        //
+        // The integral sub-branch collides the same way for
+        // `Decimal('3.0000000000000000000001')`, whose double is 3.0 and which
+        // Python does NOT call equal to 3, so the guard wraps the whole branch
+        // rather than just the float tail.
+        //
+        // Asking `key == float(key)` delegates the decision to the comparison
+        // the dict itself uses. An exact `float` skips the check — it is
+        // trivially equal to itself — and `str` / `int` / `bool` never reach
+        // here, so the hot key shapes pay nothing.
+        && (key.is_exact_instance_of::<PyFloat>()
+            || f.into_pyobject(py).is_ok_and(|as_float| key.eq(&as_float).unwrap_or(false)))
+    {
         // Exclusive at 2**63: `i64::MAX as f64` rounds UP, so an inclusive
         // bound admitted 2**63 and saturated it onto the distinct key 2**63-1.
         if f.is_finite() && f.fract() == 0.0 {
@@ -2140,6 +2197,19 @@ pub(crate) fn edge_key_lookup_string(py: Python<'_>, key: &Bound<'_, PyAny>) -> 
             }
         }
         return Ok(format!("float:{f:?}"));
+    }
+    // br-r37-c1-numtower-29ggu: the node path's bool-in-tuple normalisation, on
+    // the EDGE-key axis. `repr(True)` is "True" and `repr(1)` is "1", so
+    // `add_edge(key=(True, 1))` and `add_edge(key=(1, 1))` canonicalised apart
+    // and became TWO parallel edges where Python holds one key and networkx
+    // holds one edge. Replacing each bool with the int it equals is safe by
+    // construction — `True == 1` and `False == 0` hold unconditionally — so it
+    // can only merge keys Python already calls equal.
+    if let Ok(t) = key.downcast::<PyTuple>()
+        && let Some(normalized) = tuple_with_bools_as_ints(py, t)?
+    {
+        let ty = key.get_type().name()?.to_string_lossy().into_owned();
+        return Ok(format!("{ty}:{}", normalized.repr()?));
     }
     let ty = key.get_type().name()?.to_string_lossy().into_owned();
     let repr = key.repr()?.to_string();

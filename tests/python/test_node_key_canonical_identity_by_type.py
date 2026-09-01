@@ -346,26 +346,24 @@ NUMERIC_TOWER_RESIDUE = [
 ]
 
 
-@pytest.mark.xfail(
-    reason="br-r37-c1-numtower-29ggu: Decimal and Fraction are not float subclasses, "
-    "so they canonicalize by repr and split from the float they equal. NOT fixed by "
-    "converting to f64 - that would merge 0.1 with Decimal('0.1'), which Python keeps "
-    "APART (see test_keys_python_keeps_apart_stay_two_nodes), and an over-merge is a "
-    "worse bug than this split. A real fix needs exact rational comparison",
-    strict=True,
-)
+# br-r37-c1-numtower-29ggu: the strict xfail that used to wrap this is GONE, and
+# removing it is the point. It read: "Decimal and Fraction are not float
+# subclasses, so they canonicalize by repr and split from the float they equal.
+# NOT fixed by converting to f64 - that would merge 0.1 with Decimal('0.1'),
+# which Python keeps APART, and an over-merge is a worse bug than this split. A
+# real fix needs exact rational comparison."
+#
+# That prediction was exactly right, and the fix is the exact comparison it asked
+# for: `key == float(key)` is Python's own rational comparison, so
+# Decimal('1.5') passes it and Decimal('0.1') does not. The strict marker did its
+# job — these two XPASSed in the full suite the moment the change landed, while
+# `test_keys_python_keeps_apart_stay_two_nodes` below, the over-merge guard the
+# reason names, kept passing.
 @pytest.mark.parametrize(
     "label,left,right", NUMERIC_TOWER_RESIDUE, ids=[c[0] for c in NUMERIC_TOWER_RESIDUE]
 )
 def test_keys_python_calls_equal_are_one_node(label, left, right):
-    """Python says these are the same dict key; networkx therefore has one node.
-
-    Recorded as strict xfails rather than left silent, so each flips the moment
-    the canonical covers it. The float-subclass and bool-in-tuple halves of this
-    residue ARE fixed (see EQUAL_BY_VALUE above); what is left needs the canonical
-    to compare exact rationals, because the cheap route - convert to f64 and
-    canonicalize the double - merges keys Python keeps apart.
-    """
+    """Python says these are the same dict key; networkx therefore has one node."""
     counts = []
     for mod in (fnx, nx):
         graph = mod.Graph()
