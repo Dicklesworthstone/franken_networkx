@@ -26422,3 +26422,82 @@ O(nbunch) not O(V), and deferring it is 1.25x-1.47x SLOWER). Those numbers were 
 another agent's session with no A/A null recorded and no counted mechanism, so they stay
 on the bead where they can be read with that caveat rather than entering this file under
 a gate they do not meet. Re-measuring them requires re-implementing the deferral.
+
+## REJECT (cc/BlackThrush, 2026-09-01): removing 19 `getattr(self, "_fnx_X", None)` probes per `edges([n])` is worth about 1 percent, not the 4.5 the isolated per-site price predicted (br-r37-c1-5pjt3)
+
+comparison_class=SELF
+decision_gate=median_ci
+cv_role=report_only
+
+THE CHANGE LANDED AS MAINTENANCE; the perf CLAIM is what is rejected here, so nobody
+re-derives the 4.5 percent from the same microbenchmark and expects it.
+
+THE COUNTED MECHANISM IS SOLID. Wrapping `builtins.getattr` around exactly one warm
+`list(G.edges(["n1"]))` on a 200-node graph, before and after giving
+`_EdgeListWithSetAlgebra` class-level defaults for its nine optional slots:
+
+    class          getattr before   after   of which view-slot probes
+    DiGraph                    15       6                    9 -> 0
+    MultiGraph                 27      10                   19 -> 2
+    MultiDiGraph               27      10                   19 -> 2
+    Graph                       6       6                    0 -> 0   (control)
+
+The two survivors on the Multi classes are on the GRAPH object — a native kernel probe
+and a result memo — which no class default can serve.
+
+THE ISOLATED PRICE SAID 4.5 PERCENT. Repeat-min of 9 over 300000 iterations, attribute
+PRESENT (the usual case on a real view):
+
+    3x getattr(obj, name, None)              72.1 ns    24.0 ns/site
+    3x obj.name with a class-level default   25.6 ns     8.5 ns/site
+                                                        15.5 ns/site saved
+
+19 sites x 15.5 ns is ~295 ns of MultiGraph's 6517 ns call.
+
+THE WALL CLOCK SAID ABOUT 1 PERCENT. Two balanced-square A/Bs, two Python arms cut from
+one tree read with an asserted-identical ELF (4a89038626ab8d8e), ABBAABBA over 16
+processes, 8 slots per arm, taskset 48-55, live networkx interleaved ABBA per row inside
+every slot, 21 rounds x 400 reps, dual A/A nulls per row:
+
+    row                        run 1 B/A   run 2 B/A
+    DiGraph.edges([n])            1.0172      1.0115
+    DiGraph.edges([n]*8)          1.0199      1.0077
+    DiGraph.edges([n]*16)         1.0256      1.0169
+    MultiGraph.edges([n])         1.0154      1.0081
+    MultiGraph.edges([n]*8)       1.0068      1.0064
+    MultiGraph.edges([n]*16)      1.0081      1.0044
+    MultiDiGraph.edges([n])       1.0102      1.0086
+    MultiDiGraph.edges([n]*8)     1.0042      1.0012
+    MultiDiGraph.edges([n]*16)    1.0032      1.0065
+    CONTROLS (Graph rows, degree([n]) x4)   0.9940-1.0092
+
+A/A null control, `MultiGraph.edges([n])` fnx arm against its own second-half slots in
+the same invocation: 0.999x, inside the 0.03 bound.
+
+A/A null control, `DiGraph.edges([n])` networkx arm against its own second-half slots in
+the same invocation: 0.997x, inside the 0.03 bound.
+
+Every A/A null in both runs is inside [0.97, 1.03]. All eighteen target-row observations
+are favourable, which is a real direction, but the magnitude sits inside the +/-0.4
+percent the untouched control rows themselves move, so NO RATIO IS CLAIMED.
+
+WHY THE PREDICTION WAS 4x HIGH, which is the transferable part. The per-site price was
+taken with the call standing alone in a tight loop. In situ each `getattr` is one of
+several hundred operations in a call CPython has had every chance to specialise, and the
+builtin-call path specialises too — so an isolated per-site delta is an upper bound on a
+per-site saving, not an estimate of one. This is
+`standalone_microtiming_misattributes` in its other direction: timing a component
+standalone proves it is expensive in a loop, not that removing it moves the caller.
+
+WHAT THIS DOES NOT SAY: it does not say the change was wrong. It removes 9-19 builtin
+calls per read for zero behaviour delta (a 324-cell and a 68-cell differential sweep
+against networkx are byte-identical across the arms), and
+tests/python/test_edge_view_optional_slots_have_class_defaults.py locks the count so the
+idiom cannot creep back. It says the row is not a perf win and must not be quoted as one.
+
+THE TRAP IT CREATES, recorded because it is the kind of thing that bites later: a
+class-level default makes `hasattr` permanently True for a slot that was never set.
+`_live_called_edge_view` guarded its stamp with `if not hasattr(result, "_fnx_token")`,
+which would have stopped firing and left the directional views with a null token — i.e.
+never refreshing. It is an `is None` test now. `vars()` is unaffected; a class attribute
+does not enter the instance dict.

@@ -4942,9 +4942,33 @@ class _EdgeListWithSetAlgebra(list):
     fnx's own Graph.edges(...) already was, via the object-based EdgeDataView.
     """
 
+    # br-r37-c1-5pjt3: CLASS-LEVEL DEFAULTS for every optional `_fnx_` slot, so
+    # the reads below can be ordinary attribute lookups instead of
+    # `getattr(self, name, None)`. Counted by wrapping `builtins.getattr` around
+    # one warm `list(G.edges(["n1"]))`: 19 of the 27 getattr calls on MultiGraph
+    # and MultiDiGraph, and 9 of 15 on DiGraph, were this idiom. Priced at 24.0
+    # ns/site against 8.5 ns/site for a class-default lookup with the attribute
+    # PRESENT - the usual case here - so the idiom was costing about 15.5 ns
+    # each, ~295 ns of MultiGraph's 6517 ns call.
+    #
+    # A DEFAULT IS NOT A NO-OP FOR `hasattr`. `_live_called_edge_view` used to
+    # ask `if not hasattr(result, "_fnx_token")`, which a class default makes
+    # permanently True; that branch is now an `is None` test. Anything else that
+    # probes these names with `hasattr`, `vars()` or `__dict__` has to know that
+    # an unset slot still answers from the class - `vars()` does NOT show it.
+    _fnx_live_graph = None
+    _fnx_guard_graph = None
+    _fnx_guard_edge_count = False
+    _fnx_nbunch_rows = None
+    _fnx_token = None
+    _fnx_rebuild = None
+    _fnx_lazy_rows = None
+    _fnx_len_hint = None
+    _fnx_frozen_nbunch = None
+
     def _fnx_take_len_hint(self):
         """True when a len() call immediately preceded this iteration."""
-        hint = getattr(self, "_fnx_len_hint", None)
+        hint = self._fnx_len_hint
         if hint is None:
             return False
         self._fnx_len_hint = None
@@ -4961,9 +4985,9 @@ class _EdgeListWithSetAlgebra(list):
         # consistency fix that removes a latent trap, not a demonstrated bug —
         # the unit test below drives the helper directly because that is the
         # only way I could distinguish the two forms.
-        graph = getattr(self, "_fnx_live_graph", None)
+        graph = self._fnx_live_graph
         if graph is None:
-            graph = getattr(self, "_fnx_guard_graph", None)
+            graph = self._fnx_guard_graph
         return graph is not None and hint == _edge_list_freshness_token(graph)
 
     def _fnx_walk_live_rows(self, spec):
@@ -4978,7 +5002,7 @@ class _EdgeListWithSetAlgebra(list):
         dedup belongs to the undirected view only.
         """
         row_kind, nbunch, data = spec
-        graph = getattr(self, "_fnx_live_graph", None)
+        graph = self._fnx_live_graph
         if graph is None:
             return None
         rows = []
@@ -5006,25 +5030,25 @@ class _EdgeListWithSetAlgebra(list):
         ``_guarded_edge_list`` rather than produced through a decorated
         ``__call__`` — keeps its old snapshot behaviour rather than guessing.
         """
-        rebuild = getattr(self, "_fnx_rebuild", None)
+        rebuild = self._fnx_rebuild
         if rebuild is None:
             return
         # `is None`, never `or`: an EMPTY graph is falsy, so `or` silently
         # skipped the refresh for exactly the mutation that empties one —
         # G.clear() — which is the case that most needs it.
-        graph = getattr(self, "_fnx_live_graph", None)
+        graph = self._fnx_live_graph
         if graph is None:
-            graph = getattr(self, "_fnx_guard_graph", None)
+            graph = self._fnx_guard_graph
         if graph is None:
             return
         token = _edge_list_freshness_token(graph)
-        if token is None or token == getattr(self, "_fnx_token", None):
+        if token is None or token == self._fnx_token:
             return
         # br-r37-c1-2pia7: the graph moved — if it moved by removing one of the
         # nodes this view's nbunch was resolved to, nx raises rather than
         # answering with the survivors. Checked only on a token change, so an
         # unchanged graph pays nothing.
-        frozen = getattr(self, "_fnx_frozen_nbunch", None)
+        frozen = self._fnx_frozen_nbunch
         if frozen is not None:
             for node in frozen:
                 if node not in graph:
@@ -5042,17 +5066,17 @@ class _EdgeListWithSetAlgebra(list):
         # explicit `for e in view:` CAN interleave user code, and that is where
         # networkx's semantics live — walk the live rows and let CPython supply
         # them, exactly as the Graph path does.
-        spec = getattr(self, "_fnx_lazy_rows", None)
+        spec = self._fnx_lazy_rows
         if spec is not None and not self._fnx_take_len_hint():
             walk = self._fnx_walk_live_rows(spec)
             if walk is not None:
                 return walk
         self._fnx_refresh()
-        graph = getattr(self, "_fnx_guard_graph", None)
+        graph = self._fnx_guard_graph
         if graph is None:
             return list.__iter__(self)
-        guard_edge_count = getattr(self, "_fnx_guard_edge_count", False)
-        nbunch_rows = getattr(self, "_fnx_nbunch_rows", None)
+        guard_edge_count = self._fnx_guard_edge_count
+        nbunch_rows = self._fnx_nbunch_rows
         # br-r37-c1-hihrf: the native guarded iterator carries the coarse
         # "anything changed" rule in Rust. An nbunch view needs networkx's row
         # rule, so it takes the Python guard - the same one simple Graph's
@@ -5120,8 +5144,8 @@ class _EdgeListWithSetAlgebra(list):
     # ``len(view)`` in particular, which is how most callers size a view.
     def __len__(self):
         self._fnx_refresh()
-        if getattr(self, "_fnx_lazy_rows", None) is not None:
-            graph = getattr(self, "_fnx_live_graph", None)
+        if self._fnx_lazy_rows is not None:
+            graph = self._fnx_live_graph
             if graph is not None:
                 self._fnx_len_hint = _edge_list_freshness_token(graph)
         return list.__len__(self)
@@ -9575,7 +9599,7 @@ def _live_called_edge_view(original_call):
             # _fnx_guard_graph here would also switch on the fail-fast
             # mutation-during-iteration guard for views that never had it,
             # which is a different contract from liveness and not this bead's.
-            graph = getattr(result, "_fnx_guard_graph", None)
+            graph = result._fnx_guard_graph
             if graph is None:
                 graph = getattr(self, "_graph", None)
             if graph is not None:
@@ -9588,7 +9612,7 @@ def _live_called_edge_view(original_call):
                 # only repeats two PyO3 revision reads and a private-storage
                 # probe. Preserve that authoritative stamp; directional paths
                 # which did not use `_guarded_edge_list` still get one here.
-                if not hasattr(result, "_fnx_token"):
+                if result._fnx_token is None:
                     result._fnx_token = _edge_list_freshness_token(graph)
                 result._fnx_rebuild = lambda: original_call(self, *args, **kwargs)
                 # br-r37-c1-2pia7: keep the RESOLVED nbunch so a later read can
