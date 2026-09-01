@@ -8,6 +8,12 @@ from collections.abc import Iterator
 
 import pytest
 
+# br-r37-c1-q32e6: "compare this row against LIVE networkx instead of against a
+# string written down here". Used only for the rows whose exception TEXT is
+# CPython's rather than networkx's own, which is the text that moves between
+# interpreter versions.
+_WHATEVER_NETWORKX_SAYS = object()
+
 
 @lru_cache(maxsize=1)
 def _legacy_networkx():
@@ -161,15 +167,25 @@ class TestShortestPath:
                 "NodeNotFound",
                 "Source missing not in G",
             ),
+            # br-r37-c1-q32e6: ASK NETWORKX, do not remember. These two rows
+            # used to spell "unhashable type: 'list'" and CPython 3.14 changed
+            # that text under them - it is now "cannot use 'list' as a set
+            # element (...)" for dijkstra and "... as a dict key (...)" for
+            # bellman-ford, because the two methods reach the key through
+            # different containers. Both rows were RED at HEAD for that reason.
+            # A remembered constant cannot survive an interpreter upgrade; the
+            # live oracle can, and it also catches the case where fnx and
+            # networkx drift apart on the same interpreter, which is what this
+            # test is for.
             (
                 {"source": ["a", "b"], "weight": "weight", "method": "dijkstra"},
                 "TypeError",
-                "unhashable type: 'list'",
+                _WHATEVER_NETWORKX_SAYS,
             ),
             (
                 {"source": ["a", "b"], "weight": "weight", "method": "bellman-ford"},
                 "TypeError",
-                "unhashable type: 'list'",
+                _WHATEVER_NETWORKX_SAYS,
             ),
             (
                 {"source": ("a", "b"), "weight": "weight", "method": "dijkstra"},
@@ -179,13 +195,18 @@ class TestShortestPath:
         ],
     )
     def test_shortest_path_length_source_only_networkx_34_source_validation(
-        self, fnx, path_graph, kwargs, exc_type, message
+        self, fnx, nx, path_graph, kwargs, exc_type, message
     ):
-        G_fnx, _ = path_graph
+        G_fnx, G_nx = path_graph
         with pytest.raises(Exception) as exc_info:
             fnx.shortest_path_length(G_fnx, **kwargs)
 
         assert type(exc_info.value).__name__ == exc_type
+        if message is _WHATEVER_NETWORKX_SAYS:
+            with pytest.raises(Exception) as nx_info:
+                nx.shortest_path_length(G_nx, **kwargs)
+            assert type(nx_info.value).__name__ == exc_type, "networkx oracle changed"
+            message = str(nx_info.value)
         assert str(exc_info.value) == message
 
     def test_shortest_path_length_all_pairs_returns_iterator(self, fnx, nx, path_graph):

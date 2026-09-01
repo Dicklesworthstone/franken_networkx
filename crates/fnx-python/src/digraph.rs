@@ -6014,14 +6014,14 @@ impl PyMultiDiGraph {
         if u.is_none() {
             return Err(PyValueError::new_err("None cannot be a node"));
         }
-        u.hash()?;
+        crate::hash_key_as_dict_would(u)?;
         if v.is_none() {
             self.add_node(py, u, None)?;
             return Err(PyValueError::new_err("None cannot be a node"));
         }
         if v.hash().is_err() {
             self.add_node(py, u, None)?;
-            v.hash()?;
+            crate::hash_key_as_dict_would(v)?;
         }
         if let Some(explicit_key) = key
             && !explicit_key.is_none()
@@ -6031,7 +6031,7 @@ impl PyMultiDiGraph {
             // unhashable key raises.
             self.add_node(py, u, None)?;
             self.add_node(py, v, None)?;
-            explicit_key.hash()?;
+            crate::hash_key_as_dict_would(explicit_key)?;
         }
         let u_canonical = node_key_to_string(py, u)?;
         let v_canonical = node_key_to_string(py, v)?;
@@ -6085,7 +6085,7 @@ impl PyMultiDiGraph {
             // inserts above (which already ran).
             self.add_node(py, u, None)?;
             self.add_node(py, v, None)?;
-            explicit_key.hash()?;
+            crate::hash_key_as_dict_would(explicit_key)?;
         }
         // br-paralleladd (bt): mirror PyMultiGraph's auto-key. For an AUTO key
         // (key=None) the public key equals nx's `k = len(G[u][v]); while k in
@@ -6681,7 +6681,7 @@ impl PyMultiDiGraph {
         }
         require_hashable_node_key(v)?;
         if let Some(edge_key) = key {
-            edge_key.hash()?;
+            crate::hash_key_as_dict_would(edge_key)?;
         }
         let v_c = node_key_to_string(py, v)?;
         Ok(match key {
@@ -9826,10 +9826,10 @@ impl PyMultiDiGraph {
     ) -> PyResult<PyObject> {
         // br-r37-c1-57ba1: preserve the former wrapper's eager endpoint/key
         // hash contract inside the raw descriptor.
-        u.hash()?;
-        v.hash()?;
+        crate::hash_key_as_dict_would(u)?;
+        crate::hash_key_as_dict_would(v)?;
         if let Some(key_obj) = key {
-            key_obj.hash()?;
+            crate::hash_key_as_dict_would(key_obj)?;
         }
         // br-r37-c1-7qqr8: INDEX-keyed lookaside first, before any canonical is
         // borrowed and before the inner graph is probed at all. This is the
@@ -10284,7 +10284,7 @@ impl MultiDiGraphNodeView {
         if n.is_exact_instance_of::<PyString>() {
             return self.graph.borrow(py).exact_str_node_is_present(py, n);
         }
-        n.hash()?;
+        crate::hash_key_as_dict_would(n)?;
         crate::with_node_key_str(py, n, |canonical| {
             self.graph.borrow(py).inner.has_node(canonical)
         })
@@ -13876,14 +13876,14 @@ impl PyDiGraph {
         if u.is_none() {
             return Err(PyValueError::new_err("None cannot be a node"));
         }
-        u.hash()?;
+        crate::hash_key_as_dict_would(u)?;
         if v.is_none() {
             self.add_node(py, u, None)?;
             return Err(PyValueError::new_err("None cannot be a node"));
         }
         if v.hash().is_err() {
             self.add_node(py, u, None)?;
-            v.hash()?;
+            crate::hash_key_as_dict_would(v)?;
         }
         let u_canonical = node_key_to_string(py, u)?;
         let v_canonical = node_key_to_string(py, v)?;
@@ -14194,7 +14194,7 @@ impl PyDiGraph {
         // br-r37-c1-heyxu: ordinary DiGraph instances expose this raw
         // descriptor directly. Preserve the eager Python hash contract and
         // reuse the persistent live successor row without a Python wrapper.
-        n.hash()?;
+        crate::hash_key_as_dict_would(n)?;
         // br-r37-c1-bvwam: this is `iter(self._succ[n])` in networkx — one
         // CPython dict lookup on a str whose hash is cached in the object — so
         // the three costs on the hit path are all removable, and each is a lever
@@ -14285,7 +14285,7 @@ impl PyDiGraph {
         let py = slf.py();
         // br-r37-c1-lvlu7: nx's `self._pred[n]` hashes `n` first, so an
         // unhashable node raises TypeError rather than reporting absence.
-        n.hash()?;
+        crate::hash_key_as_dict_would(n)?;
         // br-r37-c1-ppiei: a graph carrying ASSIGNED private storage reads the
         // assigned mapping, which is the authority over the native store -- an
         // assigned `_pred` can carry a node the store has never seen, and can
@@ -15536,8 +15536,8 @@ impl PyDiGraph {
     ) -> PyResult<PyObject> {
         // br-r37-c1-57ba1: preserve NetworkX's endpoint hashability contract
         // inside the raw descriptor so ordinary graphs need no Python shim.
-        u.hash()?;
-        v.hash()?;
+        crate::hash_key_as_dict_would(u)?;
+        crate::hash_key_as_dict_would(v)?;
         // br-r37-c1-0k6zl: INDEX-keyed probe first, the same one
         // `_fnx_edge_attr_dict_fast` uses. This is a SECOND route to the same
         // live dict, and wiring only the view path would leave it at 0.0920x
@@ -18224,7 +18224,7 @@ impl DiNodeView {
         if n.is_exact_instance_of::<PyString>() {
             return self.graph.borrow(py).exact_str_node_is_present(py, n);
         }
-        n.hash()?;
+        crate::hash_key_as_dict_would(n)?;
         crate::with_node_key_str(py, n, |canonical| {
             self.graph.borrow(py).inner.has_node(canonical)
         })

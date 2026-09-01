@@ -256,7 +256,46 @@ pub(crate) fn require_hashable_node_key(key: &Bound<'_, PyAny>) -> PyResult<()> 
     if node_key_hash_cannot_raise(key) {
         return Ok(());
     }
-    key.hash().map(|_| ())
+    hash_key_as_dict_would(key)
+}
+
+/// `PyObject_Hash`, reporting a failure the way a DICT SUBSCRIPT reports it.
+///
+/// br-r37-c1-q32e6: CPython 3.14 gives a dict subscript a longer `TypeError`
+/// than a bare hash does —
+///
+///     d[k]      cannot use 'X' as a dict key (unhashable type: 'X')
+///     hash(k)   unhashable type: 'X'
+///
+/// networkx reaches every node and edge key through a real dict, so it always
+/// produces the first. fnx pre-checks hashability with `hash()` — deliberately,
+/// to reproduce networkx's ORDERING and its partial-graph state
+/// (br-r37-c1-baqyi, br-r37-c1-n4c8l) — and so produced the second. A 76-cell
+/// sweep of the public spellings that can meet an unhashable key found 43
+/// divergent against live networkx and ALL 43 differing on the message alone:
+/// same exception type, same ordering, same partial state.
+///
+/// THE MESSAGE IS NOT SPELLED OUT HERE, on purpose. Hard-coding CPython's
+/// wording pins fnx to one version of it and it has already changed once. On
+/// the branch where the hash has ALREADY failed — the rare one — this looks the
+/// key up in an empty dict and returns whatever error that raises, so fnx says
+/// what the running interpreter says, on every version, for free.
+///
+/// The fast path is untouched: exact `str` / `int` / `float` / `bool` never
+/// reach here, and a hashable key still costs exactly one `PyObject_Hash`.
+pub(crate) fn hash_key_as_dict_would(key: &Bound<'_, PyAny>) -> PyResult<()> {
+    match key.hash() {
+        Ok(_) => Ok(()),
+        Err(hash_err) => {
+            let probe = PyDict::new(key.py());
+            match probe.get_item(key) {
+                // The key is unhashable, so this ALWAYS raises; the `Ok` arm is
+                // unreachable and keeps the original error rather than invent one.
+                Err(dict_err) => Err(dict_err),
+                Ok(_) => Err(hash_err),
+            }
+        }
+    }
 }
 
 /// Can hashing this key be ruled out as a source of exceptions?
@@ -1592,12 +1631,12 @@ pub(crate) fn normalize_ctor_edge_item<'py>(
                 if err.is_instance_of::<PyTypeError>(py)
                     || err.is_instance_of::<PyValueError>(py) =>
             {
-                parts[2].hash()?;
+                hash_key_as_dict_would(&parts[2])?;
             }
             Err(err) => return Err(err),
         }
     } else if is_multi && arity == 4 {
-        parts[2].hash()?;
+        hash_key_as_dict_would(&parts[2])?;
         let attrs = PyDict::new(py);
         attrs.call_method1("update", (&parts[3],))?;
         parts[3] = attrs.into_any();
@@ -8788,8 +8827,8 @@ impl PyMultiGraph {
         // br-r37-c1-57ba1: preserve the former wrapper's eager hash contract
         // inside the raw descriptor, including custom __hash__ exceptions for
         // an explicit multiedge key.
-        u.hash()?;
-        v.hash()?;
+        hash_key_as_dict_would(u)?;
+        hash_key_as_dict_would(v)?;
         // br-r37-c1-f3i50: KEYED index probe, before any canonical is built.
         //
         // `G.edges[u, v, k]` measured 0.0754x at 2000-character node keys — the
@@ -8836,7 +8875,7 @@ impl PyMultiGraph {
             return Ok(attrs.into_any());
         }
         if let Some(key_obj) = key {
-            key_obj.hash()?;
+            hash_key_as_dict_would(key_obj)?;
         }
         // br-r37-c1-2ndmw: INDEX-keyed keydict probe, before ANY canonical is
         // built. Mirrors br-r37-c1-f3i50 on the directed sibling, which this
@@ -9350,14 +9389,14 @@ impl PyMultiGraph {
         if u.is_none() {
             return Err(PyValueError::new_err("None cannot be a node"));
         }
-        u.hash()?;
+        hash_key_as_dict_would(u)?;
         if v.is_none() {
             self.add_node(py, u, None)?;
             return Err(PyValueError::new_err("None cannot be a node"));
         }
         if v.hash().is_err() {
             self.add_node(py, u, None)?;
-            v.hash()?;
+            hash_key_as_dict_would(v)?;
         }
         if let Some(explicit_key) = key
             && !explicit_key.is_none()
@@ -9368,7 +9407,7 @@ impl PyMultiGraph {
             // insertion in nx add_edge), so the partial state keeps them.
             self.add_node(py, u, None)?;
             self.add_node(py, v, None)?;
-            explicit_key.hash()?;
+            hash_key_as_dict_would(explicit_key)?;
         }
 
         let attr_is_empty = attr.is_none_or(|attrs| attrs.is_empty());
@@ -11833,7 +11872,7 @@ impl PyMultiGraph {
         }
         require_hashable_node_key(v)?;
         if let Some(edge_key) = key {
-            edge_key.hash()?;
+            hash_key_as_dict_would(edge_key)?;
         }
         let v_c = node_key_to_string(py, v)?;
         Ok(match key {
@@ -11857,8 +11896,8 @@ impl PyMultiGraph {
         u: &Bound<'_, PyAny>,
         v: &Bound<'_, PyAny>,
     ) -> PyResult<bool> {
-        u.hash()?;
-        v.hash()?;
+        hash_key_as_dict_would(u)?;
+        hash_key_as_dict_would(v)?;
         let u_c = node_key_to_string(py, u)?;
         let v_c = node_key_to_string(py, v)?;
         Ok(self.inner.has_edge(&u_c, &v_c))
@@ -14385,7 +14424,7 @@ impl MultiGraphNodeView {
         }
         // Everything else keeps nx's unhashable-key TypeError, then probes with
         // the BORROWED canonical (stack buffer, no malloc per probe).
-        n.hash()?;
+        hash_key_as_dict_would(n)?;
         crate::with_node_key_str(py, n, |canonical| {
             self.graph.borrow(py).inner.has_node(canonical)
         })
@@ -15741,14 +15780,14 @@ impl PyGraph {
         if u.is_none() {
             return Err(PyValueError::new_err("None cannot be a node"));
         }
-        u.hash()?;
+        hash_key_as_dict_would(u)?;
         if v.is_none() {
             self.add_node(py, u, None)?;
             return Err(PyValueError::new_err("None cannot be a node"));
         }
         if v.hash().is_err() {
             self.add_node(py, u, None)?;
-            v.hash()?;
+            hash_key_as_dict_would(v)?;
         }
         let u_canonical = node_key_to_string(py, u)?;
         let v_canonical = node_key_to_string(py, v)?;
@@ -18227,8 +18266,8 @@ impl PyGraph {
     ) -> PyResult<PyObject> {
         // br-r37-c1-57ba1: keep NetworkX's endpoint hashability contract in
         // the raw descriptor so ordinary graphs need no Python shim.
-        u.hash()?;
-        v.hash()?;
+        hash_key_as_dict_would(u)?;
+        hash_key_as_dict_would(v)?;
         // br-r37-c1-ptiz2 SCOPE FIX: INDEX-keyed probe, before any canonical is
         // built. A hit skips the canonical build, the string-keyed
         // `inner.has_edge`, and the string-keyed lookaside — all three O(key

@@ -29,10 +29,13 @@ fn endpoint_not_a_node(item: &Bound<'_, PyAny>, canonical_err: PyErr) -> PyResul
         Ok(_) => Ok(false),
         // The canonicalisation error is dropped on purpose: the endpoint being
         // unhashable is the reason nx raises, and its message is the one nx
-        // surfaces.
+        // surfaces. br-r37-c1-q32e6: nx surfaces it from a DICT LOOKUP, whose
+        // wording CPython 3.14 made longer than a bare hash's, so the error is
+        // re-taken through `hash_key_as_dict_would` rather than forwarded.
         Err(hash_err) => {
             drop(canonical_err);
-            Err(hash_err)
+            drop(hash_err);
+            crate::hash_key_as_dict_would(item).map(|()| false)
         }
     }
 }
@@ -201,7 +204,7 @@ impl NodeView {
         if n.is_exact_instance_of::<pyo3::types::PyString>() {
             return self.graph.borrow(py).exact_str_node_is_present(py, n);
         }
-        n.hash()?;
+        crate::hash_key_as_dict_would(n)?;
         // br-r37-c1-ey6ob: probe with the BORROWED canonical key. This is a
         // read-only membership test, so the owned `String` that
         // `node_key_to_string` returns existed only to be hashed and dropped —

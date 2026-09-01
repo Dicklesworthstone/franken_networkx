@@ -24774,7 +24774,7 @@ fn path_scan_false_or_error(py: Python<'_>, err: PyErr) -> PyResult<bool> {
 }
 
 fn path_node_key_for_scan(py: Python<'_>, node: &Bound<'_, PyAny>) -> PyResult<String> {
-    node.hash()?;
+    crate::hash_key_as_dict_would(node)?;
     node_key_to_string(py, node)
 }
 

@@ -822,7 +822,7 @@ def _neighbors_with_networkx_missing_node_error(neighbors_impl, *, graph_kind="g
         # (the underlying ``adj[n]`` dict access calls hash(n) first).
         # fnx fell through to ``not in self`` membership which silently
         # returned False on unhashable, then raised NetworkXError.
-        hash(node)
+        _HASH_PROBE.get(node)
         try:
             result = neighbors_impl(self, node)
         except NodeNotFound as exc:
@@ -859,8 +859,8 @@ def _remove_edge_with_networkx_missing_edge_error(
 
         def remove_edge(self, u, v, key=None):
             # br-r37-c1-i9whv: hash check before membership for nx parity.
-            hash(u)
-            hash(v)
+            _HASH_PROBE.get(u)
+            _HASH_PROBE.get(v)
             if key is None:
                 if not self.has_edge(u, v):
                     raise NetworkXError(missing_edge_message.format(u=u, v=v))
@@ -879,8 +879,8 @@ def _remove_edge_with_networkx_missing_edge_error(
 
         def remove_edge(self, u, v):
             # br-r37-c1-i9whv: hash check before membership for nx parity.
-            hash(u)
-            hash(v)
+            _HASH_PROBE.get(u)
+            _HASH_PROBE.get(v)
             if not self.has_edge(u, v):
                 raise NetworkXError(missing_edge_message.format(u=u, v=v))
             result = remove_edge_impl(self, u, v)
@@ -897,7 +897,7 @@ def _remove_node_with_networkx_missing_node_error(remove_node_impl, *, graph_kin
         # __contains__ path which silently returned False on unhashable
         # nodes, causing remove_node to raise NetworkXError("not in
         # graph") instead. hash() up front for nx parity.
-        hash(n)
+        _HASH_PROBE.get(n)
         if n not in self:
             raise NetworkXError(f"The node {n} is not in the {graph_kind}.")
         _detach_rows_before_node_removal(self, n)
@@ -906,6 +906,34 @@ def _remove_node_with_networkx_missing_node_error(remove_node_impl, *, graph_kin
         return result
 
     return remove_node
+
+
+# br-r37-c1-q32e6: THE HASHABILITY PROBE, and it is a dict on purpose.
+#
+# Every one of these call sites is asserting networkx's hashability contract on a
+# node or edge key. networkx asserts it by REACHING A DICT, and CPython 3.14 gives
+# a dict subscript a longer TypeError than a bare hash does:
+#
+#     d[k]      cannot use 'X' as a dict key (unhashable type: 'X')
+#     hash(k)   unhashable type: 'X'
+#
+# So `hash(k)` was answering the right question with the wrong words. A 76-cell
+# sweep of the public spellings that can meet an unhashable key found 43 divergent
+# against live networkx, ALL of them on the message alone - same exception type,
+# same ordering, same partial graph state.
+#
+# THE WORDING IS NOT SPELLED OUT ANYWHERE. Hard-coding it pins fnx to one CPython
+# version and it has already changed once; probing a real dict means fnx says
+# whatever the running interpreter says, for free, on every version.
+#
+# It is also CHEAPER than the call it replaces: 13.5 ns for `.get` against 16.6 ns
+# for `hash()` on a str key (repeat-min of 7 over 2e6 iterations), because a dict
+# lookup that misses is less work than the builtin call around the same hash.
+#
+# It must stay EMPTY. Nothing writes to it; a `.get` that found something would
+# still be discarded, so an accident here is harmless rather than a correctness
+# hazard.
+_HASH_PROBE: dict = {}
 
 
 def _FailFastEdgeIterator(
@@ -1332,7 +1360,7 @@ class EdgeDataView:
             except TypeError:
                 for item in nbunch_list:
                     try:
-                        hash(item)
+                        _HASH_PROBE.get(item)
                     except TypeError:
                         raise NetworkXError(
                             f"Node {item} in sequence nbunch is not a valid node."
@@ -2685,7 +2713,7 @@ class AtlasView(_Mapping):
             hot = self._fnx_hot
             if hot is not None:
                 fast, row_node, is_pred = hot
-                hash(node)  # nx-shaped TypeError on unhashable, like dict lookup
+                _HASH_PROBE.get(node)  # nx's TypeError, and nx's WORDING for it
                 d = fast(node, row_node) if is_pred else fast(row_node, node)
                 if d is not None:
                     return d
@@ -2695,7 +2723,7 @@ class AtlasView(_Mapping):
                 fast = getattr(owner, "_fnx_edge_attr_dict_fast", None)
                 self._fnx_edge_fast = False if fast is None else fast
             if fast:
-                hash(node)  # nx-shaped TypeError on unhashable, like dict lookup
+                _HASH_PROBE.get(node)  # nx's TypeError, and nx's WORDING for it
                 row_node = self._fnx_row_node
                 is_pred = self._fnx_row_kind == "pred"
                 # Bundle for every later subscript on this row.
@@ -2968,7 +2996,7 @@ class AdjacencyView(_Mapping):
         row = self._fnx_captured_row
         if row is not None:
             return node in row
-        hash(node)
+        _HASH_PROBE.get(node)
         return node in self._atlas()
 
     def __getitem__(self, node):
@@ -3013,7 +3041,7 @@ class AdjacencyView(_Mapping):
         # br-r37-c1-fr4me removed from `__contains__` and left here.
         atlas = self._fnx_captured_row
         if atlas is None:
-            hash(node)
+            _HASH_PROBE.get(node)
             atlas = self._atlas()
         # br-r37-c1-2ndmw: ask for EXISTENCE, do not build a value to throw away.
         #
@@ -3194,7 +3222,7 @@ class MultiAdjacencyView(_Mapping):
         # False). hash() first to preserve that, then route node membership to
         # the owner so it is O(1) instead of rebuilding the entire multigraph
         # adjacency dict per check (was ~3ms/check => nbunch_iter 11000x slower).
-        hash(node)
+        _HASH_PROBE.get(node)
         native_contains = self._fnx_native_contains
         if native_contains is not None:
             return native_contains(node)
@@ -3242,7 +3270,7 @@ class MultiAdjacencyView(_Mapping):
                 if view is not None:
                     return view
         # br-r37-c1-i9whv: hash-check for nx-shaped TypeError parity.
-        hash(node)
+        _HASH_PROBE.get(node)
         # br-r37-c1-rgmef: chosen once per COLD lookup. The warm-cache return
         # above has already fired, so a cached row never reaches this.
         _row_cls = (
@@ -3852,7 +3880,7 @@ def _multigraph_getitem_from_native_row(self, node):
 def _digraph_getitem_from_native_row(self, node):
     if type(self) is not DiGraph:
         return _graph_getitem_from_adj(self, node)
-    hash(node)
+    _HASH_PROBE.get(node)
     try:
         self._native_adjacency_dict()[node]
     except KeyError as exc:
@@ -4090,19 +4118,19 @@ class _DiGraphEdgeView:
                 if data is not _PRIVATE_MISSING:
                     return data
                 # Absent: reproduce nx's ordering exactly before raising.
-                hash(u)
+                _HASH_PROBE.get(u)
                 if u not in self._graph:
                     raise KeyError(f"The edge {edge} is not in the graph.")
-                hash(v)
+                _HASH_PROBE.get(v)
                 raise KeyError(f"The edge {edge} is not in the graph.")
-        hash(u)
+        _HASH_PROBE.get(u)
         # br-r37-c1-60627: `v` is hashed only AFTER `u`'s presence is
         # established. nx evaluates `self._adjdict[u][v]`, so an absent `u`
         # raises KeyError without `v` ever being hashed — hashing both up front
         # turned that KeyError into a TypeError for an unhashable `v`.
         if u not in self._graph:
             raise KeyError(f"The edge {edge} is not in the graph.")
-        hash(v)
+        _HASH_PROBE.get(v)
         if not self._graph.has_edge(u, v):
             raise KeyError(f"The edge {edge} is not in the graph.")
         return self._graph.succ[u][v]
@@ -4175,7 +4203,7 @@ class _DiGraphEdgeView:
                 # TypeError and answers False, so without this the walk dropped
                 # the bad element and returned a short answer.
                 try:
-                    hash(source)
+                    _HASH_PROBE.get(source)
                 except TypeError:
                     raise NetworkXError(
                         f"Node {source} in sequence nbunch is not a valid node."
@@ -4546,18 +4574,18 @@ class _MultiGraphEdgeView:
                 # never re-reads it). Probing natively keeps nx's KeyError shape
                 # -- first missing element of u, v, key -- without materialising
                 # an AdjacencyView, which would also dirty the edge store.
-                hash(u)
-                hash(v)
-                hash(key)
+                _HASH_PROBE.get(u)
+                _HASH_PROBE.get(v)
+                _HASH_PROBE.get(key)
                 graph = self._graph
                 if not graph.has_node(u):
                     raise KeyError(u)
                 if not graph.has_edge(u, v):
                     raise KeyError(v)
                 raise KeyError(key)
-        hash(u)
-        hash(v)
-        hash(key)
+        _HASH_PROBE.get(u)
+        _HASH_PROBE.get(v)
+        _HASH_PROBE.get(key)
         adj = self._graph.adj
         try:
             return adj[u][v][key]
@@ -5333,18 +5361,18 @@ class _MultiDiGraphEdgeView:
                 # never re-reads it). Probing natively keeps nx's KeyError shape
                 # -- first missing element of u, v, key -- without materialising
                 # an AdjacencyView, which would also dirty the edge store.
-                hash(u)
-                hash(v)
-                hash(key)
+                _HASH_PROBE.get(u)
+                _HASH_PROBE.get(v)
+                _HASH_PROBE.get(key)
                 graph = self._graph
                 if not graph.has_node(u):
                     raise KeyError(u)
                 if not graph.has_edge(u, v):
                     raise KeyError(v)
                 raise KeyError(key)
-        hash(u)
-        hash(v)
-        hash(key)
+        _HASH_PROBE.get(u)
+        _HASH_PROBE.get(v)
+        _HASH_PROBE.get(key)
         succ = self._graph.succ
         if u not in succ:
             raise KeyError(u)
@@ -5691,12 +5719,12 @@ def _make_none_rejecting_add_edge(raw_add_edge, is_multigraph=False):
             # nx-shaped TypeError ('unhashable type: <type>') for
             # list/set/dict endpoints instead of silently absorbing
             # the unhashable as a Python-id-keyed node.
-            hash(u_for_edge)
+            _HASH_PROBE.get(u_for_edge)
             if v_for_edge is None:
                 self.add_node(u_for_edge)
                 raise ValueError("None cannot be a node")
             try:
-                hash(v_for_edge)
+                _HASH_PROBE.get(v_for_edge)
             except TypeError:
                 self.add_node(u_for_edge)
                 raise
@@ -5711,7 +5739,7 @@ def _make_none_rejecting_add_edge(raw_add_edge, is_multigraph=False):
             # call site unrelated to the original add_edge.
             if key is not None:
                 try:
-                    hash(key)
+                    _HASH_PROBE.get(key)
                 except TypeError:
                     # br-r37-c1-baqyi: nx creates BOTH endpoint nodes
                     # before the unhashable key raises (the key is
@@ -5740,12 +5768,12 @@ def _make_none_rejecting_add_edge(raw_add_edge, is_multigraph=False):
             if u_of_edge is None:
                 raise ValueError("None cannot be a node")
             # br-r37-c1-m0io3: validate hashability (see above).
-            hash(u_of_edge)
+            _HASH_PROBE.get(u_of_edge)
             if v_of_edge is None:
                 self.add_node(u_of_edge)
                 raise ValueError("None cannot be a node")
             try:
-                hash(v_of_edge)
+                _HASH_PROBE.get(v_of_edge)
             except TypeError:
                 self.add_node(u_of_edge)
                 raise
@@ -5828,7 +5856,7 @@ def _make_none_rejecting_add_node(raw_add_node):
     def add_node(self, node_for_adding, **attr):
         if node_for_adding is None:
             raise ValueError("None cannot be a node")
-        hash(node_for_adding)
+        _HASH_PROBE.get(node_for_adding)
         # br-r37-c1-kwsplit: call WITHOUT the dict unpack when there are no
         # attributes. `f(a, **{})` is exactly `f(a)`, but CPython still
         # builds and splats the empty mapping: measured on the raw PyO3
@@ -5936,7 +5964,7 @@ def _make_add_nodes_from(
         bound_add_node = add_node.__get__(self, type(self))
         for n in nodes_for_adding:
             try:
-                hash(n)
+                _HASH_PROBE.get(n)
                 bound_add_node(n, **attr)
             except TypeError:
                 node, ndict = n
@@ -6468,7 +6496,7 @@ def _add_edges_from_materialized(raw):
                 valid_count = i
                 break
             try:
-                hash(u)
+                _HASH_PROBE.get(u)
             except TypeError as exc:
                 first_error = exc
                 valid_count = i
@@ -6479,7 +6507,7 @@ def _add_edges_from_materialized(raw):
                 partial_node = u  # nx has already created node u
                 break
             try:
-                hash(v)
+                _HASH_PROBE.get(v)
             except TypeError as exc:
                 first_error = exc
                 valid_count = i
@@ -6577,10 +6605,10 @@ def _remove_edges_from_materialized(raw):
                 valid_count = i
                 break
             try:
-                hash(sliced[0])
-                hash(sliced[1])
+                _HASH_PROBE.get(sliced[0])
+                _HASH_PROBE.get(sliced[1])
                 if is_multi and len(sliced) > 2:
-                    hash(sliced[2])
+                    _HASH_PROBE.get(sliced[2])
             except TypeError as exc:
                 first_error = exc
                 valid_count = i
@@ -6641,7 +6669,7 @@ def _remove_nodes_from_materialized(raw):
         valid_count = len(materialized)
         for i, n in enumerate(materialized):
             try:
-                hash(n)
+                _HASH_PROBE.get(n)
             except TypeError as exc:
                 first_error = exc
                 valid_count = i
@@ -7330,7 +7358,7 @@ def _init_absorbing_dict_of_dicts(raw_init, is_multigraph):
         if not is_special_input and not locals().get("_skip_hash_walk"):
             try:
                 for node in list(self.nodes()):
-                    hash(node)
+                    _HASH_PROBE.get(node)
             except TypeError as exc:
                 self.clear()
                 raise NetworkXError(
@@ -7608,7 +7636,7 @@ class MultiGraphDegreeView:
         # Hash-check eagerly so the nx-shaped TypeError surfaces
         # rather than the Rust raw multi DegreeView's leaked
         # KeyError.
-        hash(node)
+        _HASH_PROBE.get(node)
         if self._weight is None:
             return self._raw_base_view[node]
         return _weighted_multidegree_value(self._graph, node, self._weight)
@@ -7760,7 +7788,7 @@ class MultiDiGraphDegreeView:
         # Hash-check eagerly so the nx-shaped TypeError surfaces
         # rather than the Rust raw multi DegreeView's leaked
         # KeyError.
-        hash(node)
+        _HASH_PROBE.get(node)
         if self._weight is None:
             return self._raw_base_view[node]
         return _weighted_multidegree_value(self._graph, node, self._weight)
@@ -8194,7 +8222,7 @@ class _DirectedDegreeView:
             # ``in`` swallows that TypeError and answers False, which would
             # turn nx's TypeError into a KeyError — so the hashability check
             # cannot be folded into the membership probe.
-            hash(node)
+            _HASH_PROBE.get(node)
             if node not in self._graph:
                 raise KeyError(node)
         # br-r37-c1-2r06n: the probe is SKIPPED under private storage rather
@@ -8431,12 +8459,12 @@ def _add_weighted_edges_from_with_attr(cls):
             # that partial node.
             if u is None:
                 raise ValueError("None cannot be a node")
-            hash(u)
+            _HASH_PROBE.get(u)
             if v is None:
                 self.add_node(u)
                 raise ValueError("None cannot be a node")
             try:
-                hash(v)
+                _HASH_PROBE.get(v)
             except TypeError:
                 self.add_node(u)
                 raise
@@ -8567,7 +8595,7 @@ class _WeightAwareDegreeView:
         # callers (NodeNotFound is a subclass of NetworkXException,
         # NOT a sibling/subclass of KeyError).  Hash-check + map
         # NodeNotFound→KeyError for nx-shaped contract.
-        hash(node)
+        _HASH_PROBE.get(node)
         try:
             return self._raw[node]
         except NodeNotFound as exc:
@@ -8782,7 +8810,7 @@ class _WeightAwareDegreeView:
             ):
                 if type(nbunch) not in _NEVER_HASHABLE_TYPES:
                     try:
-                        hash(nbunch)
+                        _HASH_PROBE.get(nbunch)
                         if nbunch in self._graph:
                             return self._raw[nbunch]
                     except TypeError:
@@ -8809,7 +8837,7 @@ class _WeightAwareDegreeView:
                 filtered = []
                 for n in nbunch:
                     try:
-                        hash(n)
+                        _HASH_PROBE.get(n)
                     except TypeError:
                         raise NetworkXError(
                             f"Node {n} in sequence nbunch is not a valid node."
@@ -12677,7 +12705,7 @@ def _validate_shortest_path_length_source_query(G, source, weight, method):
             raise NodeNotFound(f"Source {source} is not in G")
         return
 
-    hash(source)
+    _HASH_PROBE.get(source)
 
     if source in G:
         return
@@ -12741,8 +12769,8 @@ def dijkstra_path(G, source, target, weight="weight"):
     # br-r37-c1-phy2p: accept nx-typed inputs.
     G = _coerce_arg_to_fnx_graph(G)
     # br-r37-c1-c4agn: hash-check for nx-shaped TypeError parity.
-    hash(source)
-    hash(target)
+    _HASH_PROBE.get(source)
+    _HASH_PROBE.get(target)
     # br-cc-mgdijkstra-dir: a DIRECTED multigraph collapses to a simple min-weight
     # DiGraph byte-EXACTLY even for the PATH (unlike undirected MG, where edges()'
     # canonical direction reorders per-node adjacency and perturbs tie-breaking).
@@ -12842,8 +12870,8 @@ def bellman_ford_path(G, source, target, weight="weight"):
     # ``TypeError: unhashable type: ...``. fnx's graph ``__contains__`` swallows
     # that TypeError (returns False), so validate hashability explicitly to match
     # nx's contract before the ``source in G`` membership test below.
-    hash(source)
-    hash(target)
+    _HASH_PROBE.get(source)
+    _HASH_PROBE.get(target)
     # br-cc-mgbfpath: a DIRECTED multigraph collapses to the simple min-weight
     # DiGraph byte-EXACTLY for the PATH (like dijkstra_path — directed
     # edges(keys,data) is node-major over OUT-edges, so the collapsed DiGraph's
@@ -16464,7 +16492,7 @@ def all_shortest_paths(
         # br-r37-c1-omjmu / br-r37-c1-emxwl: nx raises TypeError on
         # unhashable target and NetworkXNoPath on missing target only
         # when the generator is advanced.
-        hash(target)
+        _HASH_PROBE.get(target)
         if target not in G:
             raise NetworkXNoPath(f"Target {target} cannot be reached from given sources")
         # br-r37-c1-qiplw / br-r37-c1-wjz3x: the native ``_raw_all_shortest_paths``
@@ -16789,7 +16817,7 @@ def bfs_layers(G, sources):
     except TypeError:
         single_node = False
     if single_node:
-        hash(sources)
+        _HASH_PROBE.get(sources)
         sources_list = [sources]
     else:
         # br-r37-c1-bfsl-typeerr: nx raises TypeError when sources
@@ -16801,7 +16829,7 @@ def bfs_layers(G, sources):
         # TypeError surface.
         sources_list = list(sources)
         for s in sources_list:
-            hash(s)
+            _HASH_PROBE.get(s)
         sources = sources_list
     # br-r37-c1-jxvsu: nx raises ``NetworkXError("The node X is not
     # in the graph.")`` when any source is missing; fnx's Rust
@@ -16848,7 +16876,7 @@ def descendants_at_distance(G, source, distance):
     # br-r37-c1-eghxq: accept nx-typed inputs.
     G = _coerce_arg_to_fnx_graph(G)
     try:
-        hash(source)
+        _HASH_PROBE.get(source)
     except TypeError as exc:
         raise NetworkXError(
             f"The node {source} is not in the graph."
@@ -17019,7 +17047,7 @@ def bfs_edges(G, source, reverse=False, depth_limit=None, sort_neighbors=None):
     """
     # br-r37-c1-eghxq: accept nx-typed inputs.
     G = _coerce_arg_to_fnx_graph(G)
-    hash(source)
+    _HASH_PROBE.get(source)
     # br-r37-c1-bfs-cutfloat: nx accepts any numeric ``depth_limit``
     # (NaN / +inf / negative / float).  fnx's Rust binding's PyO3
     # signature requires a non-negative int and raises TypeError /
@@ -17172,7 +17200,7 @@ def dfs_edges(G, source=None, depth_limit=None, *, sort_neighbors=None):
     # br-r37-c1-eghxq: accept nx-typed inputs.
     G = _coerce_arg_to_fnx_graph(G)
     if source is not None:
-        hash(source)
+        _HASH_PROBE.get(source)
     depth_limit = _normalize_bfs_depth_limit(depth_limit)
     if depth_limit is _DEPTH_EMPTY:
         # nx returns the source's first edge (empty if source has
@@ -17509,7 +17537,7 @@ def dfs_successors(G, source=None, depth_limit=None, *, sort_neighbors=None):
     # br-r37-c1-eghxq: accept nx-typed inputs.
     G = _coerce_arg_to_fnx_graph(G)
     if source is not None:
-        hash(source)
+        _HASH_PROBE.get(source)
     depth_limit = _normalize_bfs_depth_limit(depth_limit)
     if depth_limit is _DEPTH_EMPTY:
         depth_limit = 0
@@ -17535,7 +17563,7 @@ def dfs_preorder_nodes(G, source=None, depth_limit=None, *, sort_neighbors=None)
     # br-r37-c1-eghxq: accept nx-typed inputs.
     G = _coerce_arg_to_fnx_graph(G)
     if source is not None:
-        hash(source)
+        _HASH_PROBE.get(source)
 
     def _gen():
         try:
@@ -17564,7 +17592,7 @@ def dfs_postorder_nodes(G, source=None, depth_limit=None, *, sort_neighbors=None
     # br-r37-c1-eghxq: accept nx-typed inputs.
     G = _coerce_arg_to_fnx_graph(G)
     if source is not None:
-        hash(source)
+        _HASH_PROBE.get(source)
 
     def _gen():
         try:
@@ -17598,7 +17626,7 @@ def dfs_tree(G, source=None, depth_limit=None, *, sort_neighbors=None):
     # br-r37-c1-nwkg0: accept nx-typed inputs.
     G = _coerce_arg_to_fnx_graph(G)
     if source is not None:
-        hash(source)
+        _HASH_PROBE.get(source)
     if depth_limit is not None:
         try:
             if int(depth_limit) < 0:
@@ -21773,7 +21801,7 @@ def ancestors(G, source):
     """
     # br-r37-c1-eghxq: accept nx-typed inputs.
     G = _coerce_arg_to_fnx_graph(G)
-    hash(source)
+    _HASH_PROBE.get(source)
     if source not in G:
         raise NetworkXError(_ancestors_descendants_missing_node_msg(G, source))
     # br-r37-c1-descbfs: native kernel handles undirected (component BFS) and
@@ -21799,7 +21827,7 @@ def descendants(G, source):
     """
     # br-r37-c1-eghxq: accept nx-typed inputs.
     G = _coerce_arg_to_fnx_graph(G)
-    hash(source)
+    _HASH_PROBE.get(source)
     if source not in G:
         raise NetworkXError(_ancestors_descendants_missing_node_msg(G, source))
     # br-r37-c1-descbfs: the native kernel handles BOTH directed (successor
@@ -24409,7 +24437,7 @@ def find_negative_cycle(G, source, weight="weight"):
     ``NetworkXError("No negative cycle found.")`` instead.
     """
     G = _coerce_arg_to_fnx_graph(G)
-    hash(source)
+    _HASH_PROBE.get(source)
     if source not in G:
         raise NodeNotFound(f"Source {source} not in G")
     if G.is_directed():
@@ -25501,7 +25529,7 @@ def dijkstra_path_length(G, source, target, weight="weight"):
         if G.is_directed():
             if source not in G:
                 raise NodeNotFound(f"Node {source} not found in graph")
-            hash(target)
+            _HASH_PROBE.get(target)
             if target not in G:
                 raise NetworkXNoPath(f"Node {target} not reachable from {source}")
             # br-r37-c1-04z53.9172: this fast path ran BEFORE the delegation
@@ -25550,7 +25578,7 @@ def dijkstra_path_length(G, source, target, weight="weight"):
     # target during the inner loop. Without this hash-check fnx would
     # silently fall through to ``target not in G`` (silent-False) and
     # raise NetworkXNoPath instead.
-    hash(target)
+    _HASH_PROBE.get(target)
     if target not in G:
         raise NetworkXNoPath(f"Node {target} not reachable from {source}")
     # br-r37-c1-04z53.9102: call the target-only native length kernel directly.
@@ -25581,8 +25609,8 @@ def bellman_ford_path_length(G, source, target, weight="weight"):
     # no negative-cycle detection in that case). Callable/non-str/NaN/inf/
     # non-numeric weight delegate (negatives are valid for Bellman-Ford).
     G = _coerce_arg_to_fnx_graph(G)
-    hash(source)
-    hash(target)
+    _HASH_PROBE.get(source)
+    _HASH_PROBE.get(target)
     # br-cc-mgdijkstra: multigraph Bellman-Ford LENGTH -> collapse parallels to the
     # simple min-weight graph (nx uses min weight per pair; length is order-
     # independent) + fast simple kernel. The fused validate+collapse replaces the
@@ -25982,7 +26010,7 @@ def single_source_dijkstra(G, source, target=None, cutoff=None, weight="weight")
     Mirrors ``networkx.single_source_dijkstra``.
     """
     # br-r37-c1-ybw1s: nx-shaped TypeError on unhashable source.
-    hash(source)
+    _HASH_PROBE.get(source)
     # br-r37-c1-e861i: materialize SubgraphView first (view family).
     G = _coerce_arg_to_fnx_graph(G)
     # br-r37-c1-efv3d: the `_graph_has_nonunit_weight` delegation gate was
@@ -26103,7 +26131,7 @@ def single_source_dijkstra_path(G, source, cutoff=None, weight="weight"):
     Mirrors ``networkx.single_source_dijkstra_path``.
     """
     # br-r37-c1-ybw1s: nx-shaped TypeError on unhashable source.
-    hash(source)
+    _HASH_PROBE.get(source)
     # br-gauntlet-perf1: ``single_source_dijkstra`` runs the IDENTICAL
     # delegation gate + edge-weight scans; pre-gating here ran the O(E) Python
     # edge scans a second time per call. Delegate straight through — the
@@ -26246,7 +26274,7 @@ def single_source_dijkstra_path_length(G, source, cutoff=None, weight="weight"):
     ``networkx.single_source_dijkstra_path_length``.
     """
     # br-r37-c1-ybw1s: nx-shaped TypeError on unhashable source.
-    hash(source)
+    _HASH_PROBE.get(source)
     G = _coerce_arg_to_fnx_graph(G)
     # br-cc-mgdijkstra: collapse a multigraph to its simple min-weight graph and run
     # the fast simple kernel (see _multigraph_collapse_min_weight).
@@ -26326,7 +26354,7 @@ def single_source_bellman_ford(G, source, target=None, weight="weight"):
     """
     G = _coerce_arg_to_fnx_graph(G)
     # br-r37-c1-ybw1s: nx-shaped TypeError on unhashable source.
-    hash(source)
+    _HASH_PROBE.get(source)
     # br-cc-mgbfpath: a DIRECTED multigraph collapses to the simple min-weight
     # DiGraph byte-EXACTLY for the all-targets (dist, path) dicts — the collapsed
     # out-adjacency order == the multigraph's, so SPFA relaxes in the same order
@@ -26388,7 +26416,7 @@ def single_source_bellman_ford_path(G, source, weight="weight"):
     """
     G = _coerce_arg_to_fnx_graph(G)
     # br-r37-c1-ybw1s: nx-shaped TypeError on unhashable source.
-    hash(source)
+    _HASH_PROBE.get(source)
     # br-cc-mgbfpath: DIRECTED multigraph -> collapse to the simple min-weight
     # DiGraph + fast simple kernel (byte-exact all-targets path dict incl. nx's
     # SPFA first-discovery key order, verified 210/210 incl. negatives). Replaces
@@ -26425,7 +26453,7 @@ def single_source_bellman_ford_path_length(G, source, weight="weight"):
     """
     G = _coerce_arg_to_fnx_graph(G)
     # br-r37-c1-ybw1s: nx-shaped TypeError on unhashable source.
-    hash(source)
+    _HASH_PROBE.get(source)
     # br-bfignoreweight: delegate weighted inputs.
     if _should_delegate_bellman_ford_to_networkx(weight):
         return _call_networkx_for_parity(
@@ -27177,7 +27205,7 @@ def node_connected_component(G, n):
     if G.is_directed():
         raise NetworkXNotImplemented("not implemented for directed type")
     G = _coerce_arg_to_fnx_graph(G)
-    hash(n)
+    _HASH_PROBE.get(n)
     # br-r37-c1-eun8y: nx's _plain_bfs indexes G._adj[n], so a missing node
     # surfaces as a bare KeyError(n) — not the native binding's
     # NodeNotFound("Node 'n' is not in G"). Match nx's exception type/args.
@@ -43806,9 +43834,9 @@ def betweenness_centrality_subset(
     sources = list(sources)
     targets = list(targets)
     for s in sources:
-        hash(s)
+        _HASH_PROBE.get(s)
     for t in targets:
-        hash(t)
+        _HASH_PROBE.get(t)
     # br-r37-c1-bcs-bad-src: nx's SSSP raises KeyError when called
     # with a source not in G (it tries to index ``predecessors[s]``
     # before the source is initialized).  fnx's Rust binding
@@ -43888,9 +43916,9 @@ def edge_betweenness_centrality_subset(
     sources = list(sources)
     targets = list(targets)
     for s in sources:
-        hash(s)
+        _HASH_PROBE.get(s)
     for t in targets:
-        hash(t)
+        _HASH_PROBE.get(t)
     # br-r37-c1-bcs-bad-src: nx's SSSP raises KeyError on sources
     # not in G; mirror the betweenness_centrality_subset fix.
     for s in sources:
@@ -46572,7 +46600,7 @@ class _ReverseAdjacencyView(_Mapping):
         # without this the view reported "no such node" for something that is
         # not a valid node at all. Every sibling view already opens this way —
         # see br-r37-c1-i9whv, which established the contract.
-        hash(node)
+        _HASH_PROBE.get(node)
         if node not in self._view._graph:
             # br-r37-c1-k4nsd: an UNFILTERED reverse view reaches a plain dict
             # in nx, so it raises the bare key — the "Key n not found" wording
@@ -47114,7 +47142,7 @@ class NodeView(_Mapping):
         # br-r37-c1-sc825: sibling of the reverse-adjacency guard — nx's
         # FilterAtlas hashes the key, so an unhashable index is a TypeError
         # here too, not a KeyError about a node that was never valid.
-        hash(node)
+        _HASH_PROBE.get(node)
         if not self._view._node_visible(node):
             raise KeyError(f"Key {node} not found")
         return _node_attrs_for_view_graph(self._view._graph, node)
@@ -49239,8 +49267,8 @@ _RAW_CLEAR_EDGES_METHODS = tuple(_RAW_CLEAR_EDGES_BY_CLASS.values())
 
 
 def _assigned_private_has_edge_simple(self, u, v):
-    hash(u)
-    hash(v)
+    _HASH_PROBE.get(u)
+    _HASH_PROBE.get(v)
     # br-r37-c1-vbe1o: NO node-view probe. nx is `v in self._adj[u]` with the
     # KeyError caught, so the ADJACENCY is the sole authority on whether `u`
     # exists. `u not in self` asked the node view, and under an assigned `_adj`
@@ -49264,10 +49292,10 @@ def _assigned_private_has_edge_simple(self, u, v):
 
 
 def _assigned_private_has_edge_multi(self, u, v, key=None):
-    hash(u)
-    hash(v)
+    _HASH_PROBE.get(u)
+    _HASH_PROBE.get(v)
     if key is not None:
-        hash(key)
+        _HASH_PROBE.get(key)
     # br-r37-c1-vbe1o: same authority fix as the simple variant above.
     try:
         # br-r37-c1-vbe1o: the RAW `_adj`, not the public `adj`. networkx reads
@@ -49285,8 +49313,8 @@ def _assigned_private_has_edge_multi(self, u, v, key=None):
 
 
 def _assigned_private_get_edge_data_simple(self, u, v, default=None):
-    hash(u)
-    hash(v)
+    _HASH_PROBE.get(u)
+    _HASH_PROBE.get(v)
     if not self.has_edge(u, v):
         return default
     # br-r37-c1-vbe1o: raw `_adj` -- networkx returns the live attr dict here,
@@ -49297,10 +49325,10 @@ def _assigned_private_get_edge_data_simple(self, u, v, default=None):
 def _assigned_private_get_edge_data_multi(
     self, u, v, key=None, default=None
 ):
-    hash(u)
-    hash(v)
+    _HASH_PROBE.get(u)
+    _HASH_PROBE.get(v)
     if key is not None:
-        hash(key)
+        _HASH_PROBE.get(key)
     if not self.has_edge(u, v, key):
         return default
     # br-r37-c1-vbe1o: raw `_adj`, as networkx does.
@@ -49311,7 +49339,7 @@ def _assigned_private_get_edge_data_multi(
 
 
 def _assigned_private_digraph_successors(self, n):
-    hash(n)
+    _HASH_PROBE.get(n)
     try:
         return iter(self.succ[n])
     except KeyError as exc:
@@ -50283,7 +50311,7 @@ def _cached_adj_row_keydict(owner, row_kind, row_node, row_getter):
     if _has_networkx_private_storage(owner):
         return None
     try:
-        hash(row_node)
+        _HASH_PROBE.get(row_node)
         token = (owner.nodes_seq, owner.edges_seq)
     except (AttributeError, TypeError):
         return None
@@ -51802,8 +51830,8 @@ def _private_aware_has_edge_simple(raw_has_edge):
         # ``self._adj[u]`` dict lookup raises).  fnx's Rust binding
         # silently caught the error and returned False, masking
         # caller bugs.  Hash-check eagerly to restore nx's contract.
-        hash(u)
-        hash(v)
+        _HASH_PROBE.get(u)
+        _HASH_PROBE.get(v)
         if not _has_networkx_private_storage(self):
             return raw_has_edge(self, u, v)
         if u not in self:
@@ -51823,8 +51851,8 @@ def _private_aware_has_edge_multi(raw_has_edge):
         # br-r37-c1-hashed-he: same as the simple variant — nx
         # raises TypeError on unhashable u/v; fnx silently
         # returned False.  Hash-check first.
-        hash(u)
-        hash(v)
+        _HASH_PROBE.get(u)
+        _HASH_PROBE.get(v)
         # br-r37-c1-mhe-keyhash: extend the hash-check to the
         # multigraph ``key`` arg.  nx propagates ``TypeError:
         # unhashable type: '<X>'`` from the inner ``key in
@@ -51833,7 +51861,7 @@ def _private_aware_has_edge_multi(raw_has_edge):
         # bugs (sister of br-r37-c1-cl78j add_edge fix that
         # closed the corresponding mutation-side variant).
         if key is not None:
-            hash(key)
+            _HASH_PROBE.get(key)
         if not _has_networkx_private_storage(self):
             if key is None:
                 return raw_has_edge(self, u, v)
@@ -51869,8 +51897,8 @@ def _private_aware_get_edge_data_simple(raw_get_edge_data):
         # fnx's Rust binding silently returned ``default`` on
         # unhashable u/v, masking caller bugs (sister of the
         # has_edge fix br-r37-c1-cvtv6).  Hash-check eagerly.
-        hash(u)
-        hash(v)
+        _HASH_PROBE.get(u)
+        _HASH_PROBE.get(v)
         if not _has_networkx_private_storage(self):
             return raw_get_edge_data(self, u, v, default)
         if not self.has_edge(u, v):
@@ -51885,8 +51913,8 @@ def _private_aware_get_edge_data_multi(raw_get_edge_data):
     (u, v, key=None, default=None) (br-r37-c1-gyn8z)."""
     def get_edge_data(self, u, v, key=None, default=None):
         # br-r37-c1-ged-hash: see simple variant above.
-        hash(u)
-        hash(v)
+        _HASH_PROBE.get(u)
+        _HASH_PROBE.get(v)
         # br-r37-c1-mged-keyhash: extend the hash-check to the
         # multigraph ``key`` arg.  nx propagates ``TypeError:
         # unhashable type: '<X>'`` from the inner ``key in
@@ -51896,7 +51924,7 @@ def _private_aware_get_edge_data_multi(raw_get_edge_data):
         # (has_edge key fix in cycle 111) and br-r37-c1-cl78j
         # (add_edge mutation fix in cycle 110).
         if key is not None:
-            hash(key)
+            _HASH_PROBE.get(key)
         if not _has_networkx_private_storage(self):
             if key is None:
                 return raw_get_edge_data(self, u, v, default=default)
@@ -52043,7 +52071,7 @@ def _private_aware_digraph_successors():
             cache = ov["_fnx_succ_row_keydict_cache"]
             keydict = cache.get(n)
             if keydict is None:
-                hash(n)
+                _HASH_PROBE.get(n)
                 try:
                     keydict = self._native_successor_row_dict(n)
                 except KeyError as exc:
@@ -52074,7 +52102,7 @@ def _private_aware_digraph_predecessors():
             cache = ov["_fnx_pred_row_keydict_cache"]
             keydict = cache.get(n)
             if keydict is None:
-                hash(n)
+                _HASH_PROBE.get(n)
                 try:
                     keydict = self._native_predecessor_row_dict(n)
                 except KeyError as exc:
@@ -54601,7 +54629,7 @@ def _global_nbunch_nodes(G, nbunch):
         nodes = []
         for node in nbunch:
             try:
-                hash(node)
+                _HASH_PROBE.get(node)
             except TypeError as exc:
                 raise NetworkXError(
                     f"Node {node} in sequence nbunch is not a valid node."
@@ -60268,7 +60296,7 @@ def _subgraph_filter_from_nbunch(G, nbunch):
             except TypeError as exc:
                 for node in nb_list:
                     try:
-                        hash(node)
+                        _HASH_PROBE.get(node)
                     except TypeError:
                         raise NetworkXError(
                             f"Node {node} in sequence nbunch is not a valid node."
@@ -60314,7 +60342,7 @@ def _subgraph_filter_from_nbunch(G, nbunch):
             if len(allowed_nodes) != len(nb_list):
                 for node in nb_list:
                     try:
-                        hash(node)
+                        _HASH_PROBE.get(node)
                     except TypeError as exc:
                         raise NetworkXError(
                             f"Node {node} in sequence nbunch is not a valid node."
@@ -60469,7 +60497,7 @@ def reverse_view(G):
 
 def non_neighbors(graph, node):
     """Returns the non-neighbors of the node in the graph."""
-    hash(node)
+    _HASH_PROBE.get(node)
     if type(graph) is DiGraph and not _has_networkx_private_storage(graph):
         nodes = _cached_native_node_key_set(graph, graph._native_node_keys).copy()
         nodes.difference_update(graph._native_successor_row_dict(node).keys())
@@ -60659,7 +60687,7 @@ def common_neighbors(G, u, v):
 def neighbors(G, n):
     """Return neighbors of n (global function form)."""
     try:
-        hash(n)
+        _HASH_PROBE.get(n)
     except TypeError:
         raise
     if n not in G:
