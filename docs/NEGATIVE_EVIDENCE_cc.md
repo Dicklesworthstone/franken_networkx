@@ -26593,3 +26593,73 @@ RESIDUAL, and it is NOT this bead: the ONESHOT rows still slope where every held
 is flat — MG `G[u][v][key]` 0.3044 -> 0.2199 and MDG 0.2923 -> 0.2203. The lookaside
 serves a held cell and not a cold one-shot subscript. The flat remainder on the held rows
 is the inner-subscript floor recorded on br-r37-c1-ey6ob.
+
+## FINDING (cc/BlackThrush, 2026-09-01): `G.edges[u,v]` is 0.535x-0.775x, not 0.154x-0.679x — the withdrawn table replaced, and the binding-type separation is 1.3x-1.4x rather than the 3.3x-4.4x it was filed on (br-r37-c1-bnv3h)
+
+comparison_class=INCUMBENT
+decision_gate=median_ci
+cv_role=report_only
+
+in_process_elf_sha256 = da4d185ac2f73fdbd27484b8e1c80ebdd1abbb2296fb583c35def2930b43ab4a
+git_head = 7cd21a95b (clean)
+harness = scripts/balanced_square_ab.py --workload edge-subscript-binding
+          --reps 200 --rounds 41 --warmup 60 --calls-per-slot 128,
+          taskset -c 44, PYTHONHASHSEED=0, OPENBLAS_NUM_THREADS=1, OMP_NUM_THREADS=1
+host = thinkstation1, both arms in-process, networkx 3.6.1 live, cpu 44 exclusive,
+       SMT sibling 0-2 percent, per-arm clock skew 0.00-0.08 percent
+
+br-r37-c1-bnv3h's published table was WITHDRAWN by its own author on 2026-08-19 ("treat
+the published table as WITHDRAWN pending a quiet window") after a rough re-measure at
+loadavg 24-44 suggested it was ~3x stale. This is the quiet-window replacement. TWO runs,
+5/5 ADMISSIBLE each, every one of the twenty A/A null controls inside [0.9914, 1.0041]
+against the +/-0.02 bound, loadavg 4.0-8.0 start and end.
+
+  row                              run 1     run 2     `__getitem__` binding
+  Graph        G.edges[u,v]        0.7702    0.7753    native C slot (wrapper_descriptor)
+  DiGraph      G.edges[u,v]        0.5533    0.5352    Python function
+  MultiGraph   G.edges[u,v,k]      0.5918    0.5815    Python function
+  MultiDiGraph G.edges[u,v,k]      0.5501    0.5488    Python function
+  CONTROL len(G)                   2.1085    2.1109
+
+  CIs on run 1: [0.7662,0.7736] [0.5519,0.5550] [0.5888,0.5938] [0.5488,0.5516].
+  The two runs agree to within 3.4 percent on the widest row (DiGraph) and 0.7 percent
+  on the narrowest.
+
+A/A null control, `DiGraph G.edges[u,v]` fnx arm against its own second-half slots inside
+each round: 0.9914x, inside the 0.02 bound.
+
+A/A null control, `Graph G.edges[u,v]` networkx arm, same rounds: 0.9978x, inside the 0.02
+bound.
+
+AGAINST THE WITHDRAWN TABLE. Graph 0.6793 -> 0.775, DiGraph 0.1544 -> 0.544, MultiGraph
+0.2089 -> 0.587, MultiDiGraph 0.1902 -> 0.549. The three Python-view classes are 2.6x-3.5x
+better than banked, largely from br-r37-c1-q4wzt (try the native lookup FIRST, dropping the
+membership probe in front of it) which that bead's own attribution motivated.
+
+THE CENTRAL CLAIM IS MATERIALLY WEAKER AND THAT IS THE POINT OF THIS ROW. bnv3h argued that
+"the binding type is a PERFECT DISCRIMINATOR" — native C slot 0.6793x against Python
+functions at 0.1544x-0.2089x, a 3.3x-4.4x separation "decided entirely by which binding
+serves it". Measured now the separation is 0.775x against 0.535x-0.592x: **1.31x to 1.45x**.
+The ordering survives — the native-slot class is still the best row — but the magnitude does
+not, and it is the magnitude that made the follow-up look valuable.
+
+CONSEQUENCE FOR br-r37-c1-bc7r4 (route the three Python views onto a native slot), stated
+because that bead was scoped from the old number: its expected value is now roughly 1.3x-1.4x
+on those rows, not the 4.4x bnv3h computed. Worth re-scoping before anyone spends a Rust
+change on it.
+
+THE CEILING ARGUMENT SURVIVES IN SHAPE, WITH SMALLER NUMBERS. Decomposed same-process on
+DiGraph over 300 DISTINCT keys, repeat-min of 9 over 300 lookups, taskset 44, loadavg 6.6 —
+UNGATED, so these are components rather than a banked ratio, and note the ungated whole-call
+figure (0.405x) is MORE pessimistic than the gated square's 0.535x, which is the row-context
+and slot-length effect this file warns about:
+
+    nx  G.edges[u,v]  (WHOLE CALL)          88.9 ns      (was 115.2)
+    fnx G.edges[u,v]  (WHOLE CALL)         219.5 ns      (was 546.5)
+    fnx native get_edge_data alone         129.6 ns      (was 214.7)
+    fnx _has_networkx_private_storage       82.5 ns      (was 117.4)
+    fnx u in G                              38.1 ns      (was  41.7)
+
+The native lookup alone still costs more than networkx's ENTIRE operation — 129.6 against
+88.9 — so parity remains unreachable without br-r37-c1-tjp0g, exactly as bnv3h said. What
+changed is the size of the gap: 1.46x, against the 1.86x the bead computed.
