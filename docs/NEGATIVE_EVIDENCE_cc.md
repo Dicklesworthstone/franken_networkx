@@ -26312,3 +26312,113 @@ dispatchers are the `succ_row_py` / `pred_row_py` emptiness guards, the
 `ebunch_batch_lossless` pre-scan (it iterates the WHOLE bunch before any work), and
 per-call cache invalidation. A closing ladder over one `add_edges_from` call is the
 instrument.
+
+## REJECT (cc/BlackThrush, 2026-09-01): `G.has_node(n)` cannot reach `n in G` — a 44.6 ns attribute lookup plus a 31.4 ns calling convention, and a counted mechanism says there is no fast path to find (br-r37-c1-reject-subgraph-ctor-four-hypotheses-b2t71)
+
+comparison_class=SELF
+decision_gate=median_ci
+cv_role=report_only
+
+Banked from the bead, which held the measurement but never reached this file. Three
+spellings, one fnx graph, ONE invocation, ABBA, 21 rounds, each arm carrying its own A/A
+null control on a separately built fixture:
+
+    spelling                              ns/call   vs contains   A/A null
+    `n in G`                                 75.3       1.000x      0.997
+    pre-bound `f = G.has_node; f(n)`        106.7       0.706x      0.991
+    per-call `G.has_node(n)`                151.3       0.498x      0.999
+
+TWO TERMS, NOT ONE. ATTRIBUTE LOOKUP is 44.6 ns (151.3 - 106.7) — resolving
+`G.has_node` and building a bound method every call, four times the ~8-12 ns
+br-r37-c1-native-method-attribute-lookup-tax-w7wjs prices ordinary attribute lookup at.
+CALLING CONVENTION is 31.4 ns (106.7 - 75.3) and survives PRE-BINDING: `n in G` enters
+through CPython's `sq_contains` slot, `has_node` is an ordinary method call.
+
+COUNTED MECHANISM, independent of any timing: `__contains__` does strictly MORE work
+than raw `has_node` and still wins. Its Rust body opens with
+`instance_dict_gc.private_node_contains`, an assigned-private-storage guard that raw
+`has_node` does not carry — ordinary graphs bind the raw descriptor, private-storage
+instances get a Python-level shadow. A spelling that does more per call and is still
+31.4 ns faster cannot be losing on its body, so there is no fast path for `has_node`
+to reach.
+
+A CONVERSION CONSIDERED AND NOT TAKEN: swapping internal `G.has_node(node)` calls for
+`node in G` is semantically safe — both honour assigned private storage, `__contains__`
+natively and `has_node` through its shadow — but the census found those call sites
+(`set_node_attributes`) are FALLBACKS, reached only when the native
+`_native_set_node_attribute_scalar` / `_native_set_node_attributes_dict` path is
+unavailable. Converting a cold fallback to buy ~76 ns/node is not worth the parity
+surface, and the effect would be swamped by run-to-run drift anyway.
+
+## REJECT (cc/BlackThrush, 2026-09-01): the `edges([n])` freshness-token budget is 7.5-10.1 percent of the call, not "a sixth" — and the ONE-CROSSING successor idea is worth 1.5-2.0 percent (br-r37-c1-cnwof, br-r37-c1-reject-defer-degree-nbunch-kernel-0o3z8)
+
+comparison_class=SELF
+decision_gate=median_ci
+cv_role=report_only
+
+br-r37-c1-cnwof was filed on a cProfile reading that attributed roughly a sixth of
+`list(G.edges([n]))` to `_edge_list_freshness_token`, and its lever was to cut the token
+count. br-r37-c1-reject-defer-degree-nbunch-kernel-0o3z8 handed on the successor idea:
+read `nodes_seq` and `edges_seq` in ONE PyO3 crossing instead of two. Both are priced
+here and both are rejected.
+
+MEASURED in ONE invocation, ELF 4a89038626ab8d8e, 200-node graph, one-node nbunch,
+taskset 48-55, host loadavg 7.01, arms interleaved ABBA over 21 rounds x 20000 reps,
+every arm carrying its own A/A null control against a SEPARATELY BUILT second fixture
+(not the same object re-timed), loop base subtracted:
+
+    arm                           DiGraph ns   A/A null   MultiGraph ns   A/A null
+    _edge_list_freshness_token(G)      163.0     0.9868           161.7     1.0030
+    (G.nodes_seq, G.edges_seq)          51.4     1.0021            50.0     1.0047
+    G.nodes_seq                         18.4     0.9943            18.9     0.9961
+    list(G.edges([n]))                4800.7     1.0038          6516.5     1.0030
+    empty-call loop base                25.6     1.0009            24.7     1.0044
+
+A/A null control, `_edge_list_freshness_token` on DiGraph paired against a
+separately built fixture in the same invocation: 0.9868x, inside the 0.03 bound.
+
+A/A null control, the two `seq` getattrs on MultiGraph paired against a separately
+built fixture in the same invocation: 1.0047x, inside the 0.03 bound.
+
+A/A null control, `list(G.edges([n]))` on MultiGraph paired against a separately
+built fixture in the same invocation: 1.0030x, inside the 0.03 bound.
+
+All ten A/A null controls land inside [0.97, 1.03].
+
+THE PREMISE. The budget test already stood at the reduced 3/3/3/1 tokens per call rather
+than the 4-5 the bead was filed on, so three tokens are 486 ns of 4801 ns (DiGraph,
+10.1%) and of 6517 ns (MultiGraph, 7.5%) — not a sixth. Removing one more token —
+`__len__` computes it twice, once inside `_fnx_refresh` and again for `_fnx_len_hint` —
+is 162 ns, 2.5-3.4 percent, at or below the 1-4 percent within-run slot spread these rows
+show in the balanced-square substrate. It cannot be resolved, so it cannot be banked.
+This is `cprofile_share_is_not_a_budget` again: the helper is cheap and high-frequency,
+exactly what cProfile's per-call overhead inflates.
+
+THE SUCCESSOR IDEA. The two PyO3 crossings are 50-51 ns of the 162 ns token, 31 percent
+of it — so a combined native getter returning `(nodes_seq, edges_seq)` saves at most
+51.4 - 18.4 = 33 ns per token, about 96 ns over the three tokens a `list(G.edges([n]))`
+pays. That is 1.5-2.0 percent of the call, inside spread, and it costs a Rust build and
+breaks the identical-ELF substrate this campaign uses to get a zero binary noise floor.
+The crossings are NOT the token's cost: the remaining ~110 ns is the Python frame and
+the four private-storage dict probes that open the helper.
+
+WHERE THE COST ACTUALLY WAS, since the same decomposition found the shipped lever
+(`_resolved_nbunch_rows`, MultiGraph 1.0886x / MultiDiGraph 1.0938x, commit d7b8e566b):
+
+    tuple(graph.nbunch_iter(nbunch))    780-828 ns   <- shipped
+    _freeze_edge_view_nbunch            438-468 ns
+    _primitive_nbunch_cache_key         323-341 ns
+    one freshness token                 155-175 ns
+
+ALSO REJECTED, with its number: letting `_freeze_edge_view_nbunch` reuse the rows
+`_resolved_nbunch_rows` has just produced. Its removable half is `dict.fromkeys` plus the
+membership comprehension, about 250 ns of its 439 ns — the other ~190 ns is the frame and
+the args rebuild, which the reuse does not touch. 250 ns on a 6517 ns call is 3.8 percent,
+inside the 2-4 percent spread, and it would put a second copy of the frozen-nbunch rule
+(br-r37-c1-2pia7) next to the first.
+
+NOT BANKED HERE, deliberately: 0o3z8's own two refuted hypotheses (the degree kernel is
+O(nbunch) not O(V), and deferring it is 1.25x-1.47x SLOWER). Those numbers were taken in
+another agent's session with no A/A null recorded and no counted mechanism, so they stay
+on the bead where they can be read with that caveat rather than entering this file under
+a gate they do not meet. Re-measuring them requires re-implementing the deferral.
