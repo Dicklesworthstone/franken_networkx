@@ -239,8 +239,7 @@ def _digraph_out_edges(self, nbunch=None, data=False, default=None):
         data is False
         and type(self) is DiGraph
         and (
-            isinstance(nbunch, (list, tuple, set, frozenset))
-            or (hasattr(nbunch, "__iter__") and not isinstance(nbunch, (str, bytes)))
+            _nbunch_is_iterable_bunch(self, nbunch)
         )
     ):
         # iterable nbunch only — a single in-graph node must return its edges via
@@ -261,8 +260,7 @@ def _digraph_out_edges(self, nbunch=None, data=False, default=None):
         data is True
         and type(self) is DiGraph
         and (
-            isinstance(nbunch, (list, tuple, set, frozenset))
-            or (hasattr(nbunch, "__iter__") and not isinstance(nbunch, (str, bytes)))
+            _nbunch_is_iterable_bunch(self, nbunch)
         )
     ):
         native = getattr(self, "_native_out_edges_nbunch_data", None)
@@ -278,8 +276,7 @@ def _digraph_out_edges(self, nbunch=None, data=False, default=None):
         and data is not True
         and type(self) is DiGraph
         and (
-            isinstance(nbunch, (list, tuple, set, frozenset))
-            or (hasattr(nbunch, "__iter__") and not isinstance(nbunch, (str, bytes)))
+            _nbunch_is_iterable_bunch(self, nbunch)
         )
     ):
         native = getattr(self, "_native_out_edges_nbunch_data_key", None)
@@ -318,8 +315,7 @@ def _digraph_in_edges(self, nbunch=None, data=False, default=None):
             if native is not None:
                 return native(data, default)
     elif type(self) is DiGraph and (
-        isinstance(nbunch, (list, tuple, set, frozenset))
-        or (hasattr(nbunch, "__iter__") and not isinstance(nbunch, (str, bytes)))
+        _nbunch_is_iterable_bunch(self, nbunch)
     ):
         # iterable nbunch -> native pred-major pass. br-r37-c1-inedges (cc).
         # br-r37-c1-inedgesnbdatakey (cc): data=<attr> now routes to a native too
@@ -370,8 +366,7 @@ def _multidigraph_out_edges(self, nbunch=None, data=False, keys=False, default=N
         data is False
         and type(self) is MultiDiGraph
         and (
-            isinstance(nbunch, (list, tuple, set, frozenset))
-            or (hasattr(nbunch, "__iter__") and not isinstance(nbunch, (str, bytes)))
+            _nbunch_is_iterable_bunch(self, nbunch)
         )
     ):
         native = getattr(self, "_native_mdg_out_edges_nbunch_no_data", None)
@@ -390,8 +385,7 @@ def _multidigraph_out_edges(self, nbunch=None, data=False, keys=False, default=N
         data is True
         and type(self) is MultiDiGraph
         and (
-            isinstance(nbunch, (list, tuple, set, frozenset))
-            or (hasattr(nbunch, "__iter__") and not isinstance(nbunch, (str, bytes)))
+            _nbunch_is_iterable_bunch(self, nbunch)
         )
     ):
         native = getattr(self, "_native_mdg_out_edges_nbunch_data", None)
@@ -407,8 +401,7 @@ def _multidigraph_out_edges(self, nbunch=None, data=False, keys=False, default=N
         and data is not True
         and type(self) is MultiDiGraph
         and (
-            isinstance(nbunch, (list, tuple, set, frozenset))
-            or (hasattr(nbunch, "__iter__") and not isinstance(nbunch, (str, bytes)))
+            _nbunch_is_iterable_bunch(self, nbunch)
         )
     ):
         # br-r37-c1-outedgesnbattr (cc): keys=True now routes here too (the native
@@ -451,8 +444,7 @@ def _multidigraph_in_edges(self, nbunch=None, data=False, keys=False, default=No
                 if result is not None:
                     return result
     elif type(self) is MultiDiGraph and (
-        isinstance(nbunch, (list, tuple, set, frozenset))
-        or (hasattr(nbunch, "__iter__") and not isinstance(nbunch, (str, bytes)))
+        _nbunch_is_iterable_bunch(self, nbunch)
     ):
         # iterable nbunch -> native pred-major pass (a single in-graph node returns
         # its in-edges via the Python path below). br-r37-c1-mdginedges (cc).
@@ -569,6 +561,67 @@ def _nbunch_filter_container(graph):
         if node_dict is not None:
             return node_dict()
     return graph.nodes
+
+
+def _nbunch_names_one_node(graph, nbunch):
+    """br-r37-c1-jl8x1: ``nbunch_iter``'s FIRST rule, kept in one place.
+
+    ``nbunch_iter`` opens with ``elif nbunch in self: return iter([nbunch])``, so
+    a container that is ITSELF a node names that ONE node rather than a sequence
+    of its elements. A TUPLE and a FROZENSET are both hashable and both perfectly
+    ordinary networkx node keys — ``grid_graph`` and the cartesian products give
+    every node a ``(row, col)`` tuple — so this is not a corner case.
+
+    The three list-backed edge views classified their own nbunch with
+    ``isinstance(nbunch, (list, tuple, set, frozenset))`` and therefore re-derived
+    that rule WITHOUT its first clause: a tuple node was try_iter'd for the nodes
+    ``1`` and ``2``, neither of which existed, and the view answered with an empty
+    list instead of raising. 30 cells of a 68-cell differential sweep diverged
+    that way. Their own comments already said a single in-graph node had to reach
+    the view path; the predicate simply did not say it.
+
+    ``list`` and ``set`` short-circuit because they are UNHASHABLE and so can
+    never be a node — that keeps the hot ``edges([n])`` spelling free of the
+    membership probe. Everything else is asked, because everything else can be:
+    a namedtuple is a tuple subclass, and a user class with ``__iter__`` can be
+    hashable too. The probe is ``nbunch in graph``, character for character what
+    ``nbunch_iter`` asks, rather than a second opinion about it.
+    """
+    if nbunch is None or type(nbunch) is list or type(nbunch) is set:
+        return False
+    try:
+        return nbunch in graph
+    except TypeError:
+        return False
+
+
+def _nbunch_is_iterable_bunch(graph, nbunch):
+    """br-r37-c1-jl8x1: is this nbunch a SEQUENCE of nodes, or one node?
+
+    The three list-backed edge views each carried their own copy of this
+    predicate — eleven copies of ``isinstance(nbunch, (list, tuple, set,
+    frozenset)) or (hasattr(nbunch, "__iter__") and not isinstance(nbunch, (str,
+    bytes)))`` — and every copy was missing ``nbunch_iter``'s first clause. Their
+    comments already said a single in-graph node had to reach the view path; the
+    code did not. One copy is the fix and the point.
+
+    ORDER IS DELIBERATE AND MEASURED. ``list`` and ``set`` answer first, on two
+    ``type()`` compares and nothing else: both are UNHASHABLE, so neither can
+    ever BE a node, and ``list`` is the spelling every hot caller uses. Putting
+    the four-way ``isinstance`` and the ``hasattr`` ahead of them cost 1.5-2.6
+    percent on the ``edges(nbunch)`` rows in a balanced-square A/B, which is the
+    whole budget this predicate has. Only a tuple, a frozenset or another
+    hashable iterable reaches ``nbunch in graph`` — the one case where the answer
+    can change.
+    """
+    if type(nbunch) is list or type(nbunch) is set:
+        return True
+    if not (
+        isinstance(nbunch, (list, tuple, set, frozenset))
+        or (hasattr(nbunch, "__iter__") and not isinstance(nbunch, (str, bytes)))
+    ):
+        return False
+    return not _nbunch_names_one_node(graph, nbunch)
 
 
 def _resolved_nbunch_rows(graph, nbunch):
@@ -4098,9 +4151,8 @@ class _DiGraphEdgeView:
         # ``out_edges(nbunch, ...)`` already has native iterable-nbunch kernels.
         # Reuse those kernels for exact DiGraph only; single-node nbunch and
         # conversion/subgraph views keep the Python nbunch_iter path.
-        iterable_nbunch = nbunch is not None and (
-            isinstance(nbunch, (list, tuple, set, frozenset))
-            or (hasattr(nbunch, "__iter__") and not isinstance(nbunch, (str, bytes)))
+        iterable_nbunch = nbunch is not None and _nbunch_is_iterable_bunch(
+            self._graph, nbunch
         )
         # br-r37-c1-124sk: the native nbunch kernels below are O(V) — they cost
         # the same whether you ask for one row or all of them, so at n=8000 a
@@ -4671,9 +4723,7 @@ class _MultiGraphEdgeView:
         # br-r37-c1-mgedgenb (cc): native one-pass for data=False (the heavy
         # adj[source] lambda-chain + frozenset dedup path, ~0.09x vs nx). Returns
         # None for row-display / non-default key-display graphs -> Python loop below.
-        _iterable_nb = isinstance(nbunch, (list, tuple, set, frozenset)) or (
-            hasattr(nbunch, "__iter__") and not isinstance(nbunch, (str, bytes))
-        )
+        _iterable_nb = _nbunch_is_iterable_bunch(self._graph, nbunch)
         if data is False and _iterable_nb:
             native = getattr(self._graph, "_native_mg_edges_nbunch_no_data", None)
             if native is not None:
@@ -5303,9 +5353,8 @@ class _MultiDiGraphEdgeView:
         # br-r37-c1-mdgoutedge (cc): directed edges() == out_edges() — route the
         # iterable-nbunch data=False/True case to the dominating out_edges kernels
         # (the _native_edge_view nbunch path is only ~0.66-0.89x). No-build reuse.
-        _it_nb = nbunch is not None and (
-            isinstance(nbunch, (list, tuple, set, frozenset))
-            or (hasattr(nbunch, "__iter__") and not isinstance(nbunch, (str, bytes)))
+        _it_nb = nbunch is not None and _nbunch_is_iterable_bunch(
+            self._graph, nbunch
         )
         if _it_nb and (data is False or data is True):
             kname = (
@@ -9457,6 +9506,21 @@ def _freeze_edge_view_nbunch(graph, args, kwargs):
     """
     nbunch = kwargs["nbunch"] if "nbunch" in kwargs else (args[0] if args else None)
     if nbunch is None or isinstance(nbunch, (str, bytes)):
+        return args, kwargs
+    # br-r37-c1-jl8x1: the SECOND place this rule was re-derived, and the one
+    # that made the first fix look like it had not worked. A tuple or frozenset
+    # that IS a node was dict.fromkeys'd into its elements here, so the frozen
+    # nbunch came out empty and the first refresh replaced a correct materialised
+    # list with nothing. The docstring above already said a single-node nbunch
+    # keeps the caller's value; only the predicate disagreed.
+    #
+    # `type(nbunch) is not list` first is an ADMISSION TEST, not a second copy of
+    # the rule: a list is unhashable and so can never be a node, which is exactly
+    # what the helper would answer, so getting this compare wrong could only cost
+    # time. It matters because this runs on EVERY edges(nbunch) call and a list is
+    # what every hot caller passes - the counted budget for this fix is +2 Python
+    # calls per call and this is one of them, for 8.6 ns of `type()` compare.
+    if type(nbunch) is not list and _nbunch_names_one_node(graph, nbunch):
         return args, kwargs
     try:
         present = [n for n in dict.fromkeys(nbunch) if n in graph]
