@@ -26663,3 +26663,60 @@ and slot-length effect this file warns about:
 The native lookup alone still costs more than networkx's ENTIRE operation — 129.6 against
 88.9 — so parity remains unreachable without br-r37-c1-tjp0g, exactly as bnv3h said. What
 changed is the size of the gap: 1.46x, against the 1.86x the bead computed.
+
+## FINDING (cc/BlackThrush, 2026-09-01): the whole `view-reads` surface, 11/11 ADMISSIBLE twice — and one row that PASSES both nulls still moves 16.9 percent between the two runs
+
+comparison_class=INCUMBENT
+decision_gate=median_ci
+cv_role=report_only
+
+in_process_elf_sha256 = da4d185ac2f73fdbd27484b8e1c80ebdd1abbb2296fb583c35def2930b43ab4a
+git_head = 90cc8bafa (clean)
+harness = scripts/balanced_square_ab.py --workload view-reads
+          --reps 200 --rounds 41 --warmup 60 --calls-per-slot 128,
+          taskset -c 44, PYTHONHASHSEED=0, OPENBLAS_NUM_THREADS=1, OMP_NUM_THREADS=1
+host = thinkstation1, both arms in-process, networkx 3.6.1 live, cpu 44 exclusive,
+       SMT sibling 0-3 percent, per-arm clock skew 0.00-0.08 percent, loadavg 1.8-3.3
+
+This workload had not been producing full admissible tables. `--calls-per-slot 128` — the
+br-r37-c1-6r00i lever — admits every row, twice. All 44 A/A null controls across the two
+runs land inside [0.9937, 1.0039] against the +/-0.02 bound. Simple `Graph` throughout;
+ratio is t_networkx / t_fnx, so above 1 is a win.
+
+  row                     run 1     run 2     spread
+  n in G                  1.6811    1.6773     0.2%   WIN
+  G.nodes[n]              1.3891    1.3675     1.6%   WIN
+  n in G.nodes()          1.3204    1.3218     0.1%   WIN
+  (u,v) in G.edges()      1.0460    1.0460     0.0%   WIN
+  G.adj[u]                0.9398    0.9205     2.1%
+  G.degree(n)             0.9142    0.9043     1.1%
+  list(G.neighbors(n))    0.8125    0.7970     1.9%
+  G.nodes.get(n)          0.7922    0.8218     3.6%
+  G.edges[u,v]            0.7739    0.7786     0.6%
+  G.has_node(n)           0.8564    0.7328    16.9%   DO NOT QUOTE, see below
+  CONTROL len(G)          2.0971    2.0088     4.4%   WIN
+
+A/A null control, `n in G` fnx arm against its own second-half slots inside each round:
+1.0006x, inside the 0.02 bound.
+
+A/A null control, `G.edges[u,v]` networkx arm, same rounds: 0.9982x, inside the 0.02 bound.
+
+THE POINT OF THIS ROW IS `G.has_node(n)`. It is ADMISSIBLE in both runs — nulls
+1.0004/1.0028 and 1.0007/0.9999, CIs [0.8558, 0.8577] and [0.7322, 0.7342], neither
+interval anywhere near the other — and the two medians are **16.9 percent apart**. Two
+passing A/A nulls, two tight CIs, one number that does not replicate. That is
+`replication_outranks_the_aa_null` demonstrated rather than asserted: the null certifies
+STATIONARITY WITHIN a run and says nothing about agreement BETWEEN runs, and a CI computed
+inside one run cannot see what moved between them. Every other row on this surface
+replicates to within 4.4 percent, so this is a property of that row, not of the window.
+
+ROW CONTEXT COMPOUNDS IT, and the two numbers here are not even the extremes. The
+`has-node-membership` workload, same ELF and same day, puts `has_node PRESENT` at 0.9154x —
+outside the range these two runs span. Three admissible readings of one operation:
+0.7328, 0.8564, 0.9154. The module docstring's ROW CONTEXT warning is doing real work here;
+a `has_node` ratio is only meaningful with its workload named.
+
+CROSS-WORKLOAD AGREEMENT WHERE IT SHOULD HOLD, as the control on all of the above:
+`G.edges[u,v]` reads 0.7739 and 0.7786 here against 0.7702 and 0.7753 in
+`edge-subscript-binding` — four independent readings of the same operation in two different
+workloads, spanning 1.1 percent. So the substrate is not generally unstable; one row is.
