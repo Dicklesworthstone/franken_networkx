@@ -2175,9 +2175,18 @@ pub(crate) fn weighted_edge_triplet<'py>(
     };
     if let Some(extra) = iter.next() {
         let _ = extra?;
-        return Err(PyValueError::new_err(
-            "too many values to unpack (expected 3)",
-        ));
+        // Same rule as `views::too_many_values_to_unpack`, kept local because
+        // this crate module cannot see that one: CPython supplies the count for
+        // an exact tuple / list / dict and omits it for everything else.
+        let cpython_counts = item.is_exact_instance_of::<PyTuple>()
+            || item.is_exact_instance_of::<PyList>()
+            || item.is_exact_instance_of::<PyDict>();
+        return Err(match cpython_counts.then(|| item.len().ok()).flatten() {
+            Some(got) => PyValueError::new_err(format!(
+                "too many values to unpack (expected 3, got {got})"
+            )),
+            None => PyValueError::new_err("too many values to unpack (expected 3)"),
+        });
     }
     Ok((u?, v?, w?))
 }

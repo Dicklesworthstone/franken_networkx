@@ -13,7 +13,7 @@ use pyo3::gc::{PyTraverseError, PyVisit};
 use pyo3::intern;
 use pyo3::prelude::*;
 use pyo3::sync::PyOnceLock;
-use pyo3::types::{PyDict, PyIterator, PyModule, PySlice, PyString, PyTuple};
+use pyo3::types::{PyDict, PyIterator, PyList, PyModule, PySlice, PyString, PyTuple};
 
 /// Decide what a spec endpoint that will not canonicalise should do
 /// (br-r37-c1-dtrpe).
@@ -57,6 +57,29 @@ fn missing_edge_key_error(edge: &Bound<'_, PyAny>) -> PyErr {
     }
 }
 
+/// CPython's "too many values to unpack" text, WITH the count when — and only
+/// when — CPython itself supplies one.
+///
+/// br-r37-c1-eccks: CPython 3.14 reports the length it
+/// actually got, and this message was frozen at the older countless form, so
+/// `G.edges[('a','b','c')]` said "(expected 2)" where networkx said
+/// "(expected 2, got 3)". The count is NOT unconditional — measured against a
+/// live unpack, `a, b = x` reports it for an exact tuple, list or dict and
+/// omits it for `str`, `bytes`, `bytearray`, `range`, `set`, `frozenset`,
+/// `deque`, a `collections.abc.Sequence` and any plain iterator. Reporting it
+/// everywhere would trade one divergence for nine.
+fn too_many_values_to_unpack(source: &Bound<'_, PyAny>, expected: usize) -> PyErr {
+    let cpython_counts = source.is_exact_instance_of::<PyTuple>()
+        || source.is_exact_instance_of::<PyList>()
+        || source.is_exact_instance_of::<PyDict>();
+    match cpython_counts.then(|| source.len().ok()).flatten() {
+        Some(got) => PyValueError::new_err(format!(
+            "too many values to unpack (expected {expected}, got {got})"
+        )),
+        None => PyValueError::new_err(format!("too many values to unpack (expected {expected})")),
+    }
+}
+
 /// `u, v = e`, with CPython's own wording on both failure modes.
 ///
 /// br-r37-c1-ef8rt: callers match on these messages, and nx gets them for free
@@ -87,9 +110,7 @@ fn unpack_two_endpoints<'py>(
         )));
     };
     if items.next().transpose()?.is_some() {
-        return Err(PyValueError::new_err(
-            "too many values to unpack (expected 2)",
-        ));
+        return Err(too_many_values_to_unpack(edge, 2));
     }
     Ok((first, second))
 }
