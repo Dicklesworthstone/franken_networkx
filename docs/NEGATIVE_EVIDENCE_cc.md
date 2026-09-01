@@ -26350,6 +26350,33 @@ natively and `has_node` through its shadow — but the census found those call s
 unavailable. Converting a cold fallback to buy ~76 ns/node is not worth the parity
 surface, and the effect would be swamped by run-to-run drift anyway.
 
+ADDENDUM (same day, after br-r37-c1-6r00i showed how to admit these rows). The absolute
+nanoseconds above are host-specific and are now an order of magnitude smaller on a quiet
+box - an ungated repeat-min probe reads 44.0 ns for `n in G`, 57.3 pre-bound and 67.1
+per-call against the 75.3 / 106.7 / 151.3 quoted above - so the 44.6 ns attribute lookup
+and 31.4 ns calling convention should be read as a decomposition of THAT run, not as
+constants. br-r37-c1-jycsb shows the fnx arm's absolute nanoseconds are bimodal across
+processes anyway.
+
+THE RATIO, WHICH IS WHAT TRANSFERS, IS RE-CONFIRMED and the floor verdict stands. An
+ADMISSIBLE run of `--workload has-node-membership --calls-per-slot 128 --rounds 41`
+(ELF 4a89038626ab8d8e, taskset -c 44, loadavg 3.28, 8/9 rows admitted, every null in
+[0.9957, 1.0180] against the +/-0.02 bound) reads:
+
+    n in G PRESENT     1.6770x  [1.6694, 1.6831]
+    n in G MISSING     1.1082x  [1.1048, 1.1102]
+    has_node PRESENT   0.9154x  [0.9112, 0.9179]
+    has_node MISSING   0.6677x  [0.6664, 0.6739]
+
+so `has_node` costs 1.83x what `n in G` costs, against the 2.008x this row measured.
+br-r37-c1-cp8sp's trampoline work moved part of it; the remainder is this floor.
+
+A/A null control, `n in G PRESENT`, fnx arm against its own second-half slots inside each
+round: 1.0180x, inside the 0.02 bound.
+
+A/A null control, `has_node MISSING`, networkx arm, same rounds: 0.9994x, inside the 0.02
+bound.
+
 ## REJECT (cc/BlackThrush, 2026-09-01): the `edges([n])` freshness-token budget is 7.5-10.1 percent of the call, not "a sixth" — and the ONE-CROSSING successor idea is worth 1.5-2.0 percent (br-r37-c1-cnwof, br-r37-c1-reject-defer-degree-nbunch-kernel-0o3z8)
 
 comparison_class=SELF
