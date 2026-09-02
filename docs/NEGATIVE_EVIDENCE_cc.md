@@ -26765,3 +26765,93 @@ single-size measurement of this row means nothing without its size.
 ALL THREE DATA MODES MOVE TOGETHER on each class (1.35-1.48 on Graph, 0.766-0.813 on
 MultiGraph), which places the remaining difference in the shared nbunch walk rather than in
 any data-mode handling — the same conclusion br-r37-c1-hihrf reached from the scaling side.
+
+## FINDING (cc/BlackThrush, 2026-09-01): TWO REJECTED DESIGNS for br-r37-c1-u5tyh — the nx-faithful live-row walk costs 9.5x-18x, and the cheap guard correction is 0 fixed / 35 new
+
+comparison_class=SELF_BEFORE_AFTER
+decision_gate=median_ci
+cv_role=report_only
+
+in_process_elf_sha256 = 46c0bf357235124a98b450693e9d9fef20d2c49bcce4fdec90eb46e2f987062d
+git_head = cdaa99c13 (shim modified; both arms cut from ONE tree read by
+           scripts/make_python_arms.py, ELF asserted identical across arms)
+harness = scripts/balanced_square_ab.py --workload multi-nbunch-iter
+          --reps 120 --rounds 41 --warmup 60 --calls-per-slot 128,
+          taskset -c 44, PYTHONHASHSEED=0, OPENBLAS_NUM_THREADS=1, OMP_NUM_THREADS=1
+host = thinkstation1, both arms in-process, networkx 3.6.1 live, cpu 44 exclusive
+
+This is a ledger row about two things that did NOT ship, recorded because each is a
+plausible next idea for anyone who picks this surface up, and each costs a build and a
+measurement to rediscover.
+
+DESIGN 1, THE LIVE-ROW WALK — CORRECT AND UNAFFORDABLE. networkx's multigraph nbunch edge
+view walks the graph's own row dicts, so reproducing it exactly means walking those rows
+lazily rather than guarding a materialised copy. Built; it works, closing 496 of 3080
+probed cells with 0 regressions. It is 9.5x to 18x SLOWER, and the reason is structural
+rather than sloppy: a multigraph row has no live PyDict mirror, so every cell read is a
+fresh materialisation, measured at 1.3us for one `kd.items()`.
+
+  row                                armB (HEAD)   armA (walk)     A/B
+  MultiGraph.iter edges(nb[4])            0.7718        0.0568   0.074
+  MultiGraph.iter edges(nb[8])            0.9209        0.0547   0.059
+  MultiGraph.list edges(nb[8])            1.7402        0.0966   0.056
+  MultiDiGraph.iter edges(nb[4])          0.5936        0.0624   0.105
+  MultiGraph.iter edges(nb[16]) CONTROL   1.1120        1.1003   0.989
+  MultiDiGraph.iter edges(nb[16]) CONTROL 0.8457        0.8450   0.999
+
+Both arms 18/18 ADMISSIBLE. A/A null control, `MultiGraph.iter edges(nb[4])` fnx arm
+against its own second-half slots inside each round: 0.9954x, inside the 0.02 bound. The
+three CONTROL rows are an nbunch of 16, above the walk's gate of 8, so they take the
+unchanged path on both arms and read 0.989-0.999 — which is what makes the 0.056-0.105 on
+the treated rows an effect and not drift.
+
+DESIGN 2, THE CHEAP GUARD CORRECTION — A RIGHT DIAGNOSIS AND A WRONG FIX, and this is the
+more useful half of the row. The existing guard compares `degree(owner)` against a
+snapshot. That is genuinely the wrong quantity: the row dict networkx iterates counts
+DISTINCT NEIGHBOURS, while degree counts parallel edges, so adding an edge between two
+already-adjacent nodes moves the degree without resizing anything networkx is standing in,
+and fnx raised where nx completes. 133 of 763 probed multigraph divergences are that
+over-raise.
+
+Swapping the scalar to the row length is 0 FIXED and 35 NEW. On MultiDiGraph the SAME
+mutation resizes the key-dict the walk is standing in, and networkx DOES raise for it, so
+`degree` was accidentally catching a case the row length cannot see. ONE SCALAR PER ROW
+CANNOT EXPRESS A TWO-LEVEL RULE — networkx checks the row AND the cell — and no choice of
+scalar will, which is why the surviving over-raise is pinned as a strict xfail rather than
+left as a TODO.
+
+Counted mechanism, no timing needed for design 2: 3080 differential cells, networkx 3.6.1
+deciding each, PYTHONHASHSEED=0; the before/after sets are compared by cell identity, not
+by count.
+
+WHAT SHIPPED INSTEAD is the third design: re-materialise on the trigger the staleness guard
+was already paying for, which closes 518 cells — more than the walk — because it applies to
+every nbunch size rather than only under the walk's gate.
+
+WHAT THE SHIPPED DESIGN COSTS, replicated ABAB, two passes per arm over the same pinned
+core, arms cut from one tree read:
+
+  treated rows (17)   median A/B 0.9772, range [0.9540, 0.9897], and ALL SEVENTEEN are
+                      below 1.0 — the magnitude is drift-sized on some rows (within-arm
+                      spread on the HEAD arm runs 0.0-2.4%) but the direction is not, and
+                      the direction is the claim
+  CONTROL             `edges()` with NO nbunch, which never enters this code path at all
+                      (`nbunch_rows` is None, so the native guarded iterator runs):
+                      MultiGraph 1.0044
+
+A/A null control, `MultiGraph.iter edges(nb[4])` fnx arm against its own second-half slots
+inside each round: 0.9954x, inside the 0.02 bound. 20/20 rows admitted on both armA passes
+and 19/20 on both armB passes.
+
+THE SECOND CONTROL ROW IS DISCARDED AND SAID SO RATHER THAN AVERAGED IN. MultiDiGraph
+`edges()` no-nbunch read 0.3873 and 0.2226 on the two HEAD passes — 74% apart on an arm
+that did not change between them — which makes its 1.3694 a measurement of that row's own
+instability. A control that unstable certifies nothing in either direction; the MultiGraph
+control beside it, drifting 2.1%, is the one carrying the argument.
+
+THE FIRST VERSION OF THE SHIPPED DESIGN COST 5% (median 0.9510 over the same 17 rows) and
+the whole of it was an `emitted += 1` per edge, used to know where to resume after a
+rebuild. Reconstructing that count from the iterator's length hint at trigger time instead
+took it to 0.9772 with byte-identical parity (518 fixed / 0 new both before and after the
+rework, compared by cell identity). Recorded because the same loop's history already says
+this: br-r37-c1-hihrf measured 2x for adding one `item[0]` to it.
