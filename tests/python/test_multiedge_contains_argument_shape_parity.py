@@ -155,15 +155,33 @@ def test_assigning_private_storage_swaps_the_view_class(class_name, attribute):
     If that ever stops holding, the removed walk becomes reachable again and its
     absence becomes a correctness bug — so this asserts the swap directly rather
     than trusting the reasoning.
+
+    br-r37-c1-jqytt CHANGED HOW THE SWAP IS DETECTED, not whether it happens.
+    This used to read `type(G.edges).__name__ == "_AssignedPrivateEdgeView"`,
+    which worked only while that view was the one class in fnx reporting a
+    non-networkx name. It now reports `MultiEdgeView` / `OutMultiEdgeView` like
+    every other edge view, because nx does and the name is observable — so the
+    name is no longer a discriminator, and reading it BEFORE the assignment
+    returns the same string it does after.
+
+    `isinstance` against the base is what the docstring above always meant, and
+    is strictly stronger than the name was: it survives the four nx-named
+    subclasses, and it cannot be satisfied by an unrelated class that happens to
+    share a name. Verified to still separate the two states — False before the
+    assignment and True after, on all six (class, attribute) pairs.
     """
     graph = getattr(fnx, class_name)()
     graph.add_edge("a", "b")
     assert type(graph.edges).__name__ in ("MultiEdgeView", "OutMultiEdgeView")
+    assert not isinstance(graph.edges, fnx._AssignedPrivateEdgeView), (
+        "the ordinary view is already the private-storage one; this test can no "
+        "longer tell the two states apart"
+    )
 
     if attribute in ("_succ", "_pred") and class_name == "MultiGraph":
         pytest.skip("undirected multigraphs have no succ/pred storage")
     setattr(graph, attribute, {"a": {}, "b": {}})
-    assert type(graph.edges).__name__ == "_AssignedPrivateEdgeView", (
+    assert isinstance(graph.edges, fnx._AssignedPrivateEdgeView), (
         f"assigning {attribute} on {class_name} left G.edges as "
         f"{type(graph.edges).__name__}; the unreachable-walk assumption in "
         f"MultiEdgeView.__contains__ no longer holds"

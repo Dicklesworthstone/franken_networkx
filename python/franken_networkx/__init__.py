@@ -50733,20 +50733,81 @@ class _AssignedPrivateEdgeView:
         return result
 
     def __call__(self, nbunch=None, data=False, keys=False, default=None):
+        # br-r37-c1-jqytt: `M.edges(keys=True)` IS the view, not a copy of it.
+        # networkx's `MultiEdgeView.__call__` returns `self` for exactly this
+        # argument shape, and everything that makes a view a view goes with the
+        # bare list this used to hand back: the class name, liveness, and the
+        # 2-tuple containment rule (`('a','b') in M.edges(keys=True)` matches
+        # ANY key), which a list cannot express at all.
+        #
+        # THE RECURSION br-r37-c1-p1dbu RECORDS IS DESIGNED OUT rather than
+        # fenced off. That bead had to revert a `return self` because the view's
+        # `__iter__` reached the call form and came straight back. `__iter__`
+        # below now goes to `_rows` directly, so no path from `self` returns to
+        # `__call__`, and the short-circuit cannot close a loop.
+        # THE RULE IS "ASKED FOR MY OWN TUPLE SHAPE", which is why `keys` is
+        # compared against `_is_multi` rather than against True. networkx returns
+        # `self` from `EdgeView.__call__` and `OutEdgeView.__call__` on the
+        # DEFAULT call — 2-tuples — and from `MultiEdgeView.__call__` only when
+        # `keys=True`, because a multigraph view's own tuples are keyed. Asking a
+        # multigraph for `keys=False` is asking for a DIFFERENT shape, and nx
+        # hands back a MultiEdgeDataView for it. Reading that asymmetry off the
+        # four classes at once is what turned this from the bead's one cell into
+        # the rule; writing `keys is True` here would have fixed the multigraph
+        # half and left both simple classes wrong.
+        if nbunch is None and data is False and bool(keys) == self._is_multi:
+            return self
         if isinstance(data, str):
             rows = self._rows(nbunch=nbunch, data=True, keys=keys)
             if keys:
-                return [
+                projected = [
                     (u, v, key, attrs.get(data, default))
                     for u, v, key, attrs in rows
                 ]
-            return [(u, v, attrs.get(data, default)) for u, v, attrs in rows]
+            else:
+                projected = [(u, v, attrs.get(data, default)) for u, v, attrs in rows]
+            return self._as_data_view(projected)
         if data is None:
             rows = self._rows(nbunch=nbunch, data=False, keys=keys)
             if keys:
-                return [(u, v, key, default) for u, v, key in rows]
-            return [(u, v, default) for u, v in rows]
-        return self._rows(nbunch=nbunch, data=data, keys=keys)
+                projected = [(u, v, key, default) for u, v, key in rows]
+            else:
+                projected = [(u, v, default) for u, v in rows]
+            return self._as_data_view(projected)
+        return self._as_data_view(self._rows(nbunch=nbunch, data=data, keys=keys))
+
+    @property
+    def _is_multi(self):
+        return self._graph.is_multigraph()
+
+    def _as_data_view(self, rows):
+        """Wrap a built edge list in the class networkx names for this call.
+
+        br-r37-c1-jqytt: every `edges(...)` form on this view handed back a bare
+        `list`, so `type(G.edges(data=True)).__name__` read `list` against nx's
+        `EdgeDataView` on all four classes — 20 cells beyond the `keys=True` one
+        this bead was filed for, all the same omission. The ordinary
+        (non-private) path has wrapped its results in these same classes since
+        br-r37-c1-mgcall; this view was simply never given the treatment.
+        """
+        multi = self._is_multi
+        directed = self._graph.is_directed()
+        if multi:
+            view_cls = _OutMultiEdgeDataView if directed else _MultiEdgeDataView
+        elif directed:
+            view_cls = _OutEdgeDataView
+        else:
+            # THE UNDIRECTED SIMPLE CASE KEEPS ITS BARE LIST, deliberately.
+            # nx names it `EdgeDataView`, and fnx's `EdgeDataView` is a LIVE
+            # view built from a call thunk — `(edge_view_call, view_self, *,
+            # data, default, nbunch_list, graph)` — not a list wrapper, so
+            # feeding it a built list is a TypeError rather than a rename. The
+            # other three names all have list-based classes already; this one
+            # has no twin, and inventing one to close a type-name cell is a
+            # bigger change than this bead, wearing a smaller one's clothes.
+            # Left as it was, and recorded on the bead rather than fixed.
+            return rows
+        return _wrap_edge_data_view(rows, view_cls)
 
     def __iter__(self):
         # br-r37-c1-vbe1o: ITERATING a multigraph edge view is not the same as
@@ -50755,9 +50816,13 @@ class _AssignedPrivateEdgeView:
         # ordinary multigraph view already matches nx (3-tuples); only this
         # private-storage view returned 2-tuples, because it delegated to the
         # CALL form.
-        if self._graph.is_multigraph():
-            return iter(self(keys=True))
-        return iter(self())
+        #
+        # br-r37-c1-jqytt: straight to `_rows`, NOT through `self(...)`. The call
+        # form now short-circuits to `self` for the multigraph keyed shape, so
+        # routing iteration through it would be the exact infinite recursion
+        # br-r37-c1-p1dbu had to revert a `return self` for. Going to the builder
+        # keeps the two directions independent, and is one less dispatch besides.
+        return iter(self._rows(keys=self._is_multi))
 
     def __len__(self):
         # Same asymmetry: nx counts parallel edges individually, which the
@@ -50831,12 +50896,30 @@ class _AssignedPrivateEdgeView:
                 return key in self._graph.adj[u][v]
             except KeyError:
                 return False
-        try:
-            u, v = edge[:2]
-        except (TypeError, ValueError):
-            return False
-        if self._graph.is_multigraph() and len(edge) >= 3:
-            return self._graph.has_edge(u, v, edge[2])
+        # br-r37-c1-jqytt: networkx uses TWO DIFFERENT SPELLINGS here and the
+        # difference is observable, so both are reproduced rather than averaged
+        # into one lenient slice:
+        #
+        #   EdgeView.__contains__      u, v = e[:2]   except (KeyError, ValueError)
+        #   OutEdgeView.__contains__   u, v = e       except KeyError
+        #
+        # So on an UNDIRECTED graph a 3- or 4-tuple silently drops its tail and
+        # answers, while on a DIRECTED one it is a ValueError; and a non-iterable
+        # raises different TypeErrors from the two ("'int' object is not
+        # subscriptable" against "cannot unpack non-iterable int object")
+        # because one subscripts and the other unpacks. Measured against live nx
+        # across eight probe shapes on both classes — this used to answer False
+        # for five of them where nx raises or answers True.
+        if self._graph.is_directed():
+            # Strict: ValueError and TypeError both propagate, as nx's does.
+            u, v = edge
+        else:
+            # Lenient slice. TypeError propagates (nx does not catch it); a
+            # too-short tuple is nx's caught ValueError, i.e. False.
+            try:
+                u, v = edge[:2]
+            except ValueError:
+                return False
         return self._graph.has_edge(u, v)
 
     def _nx_view_name(self):
@@ -50928,6 +51011,58 @@ class _AssignedPrivateEdgeView:
         return NotImplemented
 
     __hash__ = None
+
+
+# br-r37-c1-jqytt: ONE behaviour, FOUR names — the same shape `_FilteredEdgeView`
+# already uses for the same reason. `_nx_view_name` above computes these strings
+# for the slicing error, which means the class knew nx's name for itself all
+# along and `type(G.edges).__name__` still read `_AssignedPrivateEdgeView`. A
+# name reachable only from an error message is not the observable one; users
+# read `type(...)`, and so does anything dispatching on it.
+#
+# Subclassing rather than assigning `__name__` per instance, because a name is a
+# property of the class and an instance-level override does not survive
+# `type(view).__name__` — which is the spelling that was wrong.
+class _AssignedPrivateGraphEdgeView(_AssignedPrivateEdgeView):
+    pass
+_AssignedPrivateGraphEdgeView.__name__ = "EdgeView"
+
+
+class _AssignedPrivateOutEdgeView(_AssignedPrivateEdgeView):
+    pass
+_AssignedPrivateOutEdgeView.__name__ = "OutEdgeView"
+
+
+class _AssignedPrivateMultiEdgeView(_AssignedPrivateEdgeView):
+    pass
+_AssignedPrivateMultiEdgeView.__name__ = "MultiEdgeView"
+
+
+class _AssignedPrivateOutMultiEdgeView(_AssignedPrivateEdgeView):
+    pass
+_AssignedPrivateOutMultiEdgeView.__name__ = "OutMultiEdgeView"
+
+
+def _assigned_private_edge_view(graph):
+    """The `_AssignedPrivateEdgeView` subclass networkx would name for `graph`.
+
+    br-r37-c1-jqytt. Chosen from the graph's own `is_multigraph()` /
+    `is_directed()` rather than from `type(graph)`, so a subclass of any of the
+    four still lands on the right name.
+    """
+    if graph.is_multigraph():
+        cls = (
+            _AssignedPrivateOutMultiEdgeView
+            if graph.is_directed()
+            else _AssignedPrivateMultiEdgeView
+        )
+    else:
+        cls = (
+            _AssignedPrivateOutEdgeView
+            if graph.is_directed()
+            else _AssignedPrivateGraphEdgeView
+        )
+    return cls(graph)
 
 
 class _AssignedPrivateDegreeView:
@@ -51886,7 +52021,9 @@ def _private_aware_edges(raw_edges):
         if _has_networkx_private_storage(self):
             view = cache.get("_fnx_view_edges_assigned")
             if view is None:
-                view = _AssignedPrivateEdgeView(self)
+                # br-r37-c1-jqytt: the subclass carrying nx's name for this
+                # graph kind, not the shared base.
+                view = _assigned_private_edge_view(self)
                 cache["_fnx_view_edges_assigned"] = view
             return view
         # br-r37-c1-b3cnf: cache the raw EdgeView wrapper so
