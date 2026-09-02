@@ -57,9 +57,23 @@ VIEW_SLOT_GETATTR_BUDGET = {
 # kernel probe and a per-class result memo. They are a different mechanism and
 # a class default cannot serve them, so they are budgeted separately rather
 # than swept into the number above.
+#
+# DIGRAPH MOVED 0 -> 1 FOR br-r37-c1-8c7m5, and the trade is stated rather than
+# absorbed. Its four `edges(nbunch, ...)` returns now pass `nbunch_rows`, as the
+# multigraph views beside them always have — that is the whole fix, and it is
+# why those two classes have sat at 2 all along. Resolving the rows costs one
+# `getattr(graph, "_fnx_node_key_dict")` for the membership container.
+#
+# WHAT THE ONE PROBE BUYS: 122 differential cells against live networkx.
+# Without `nbunch_rows` the iterator falls to its coarse guard and raises
+# RuntimeError for `G.add_node('zz')` and for removing an unrelated node, both
+# of which networkx completes through. One graph-attribute read per call
+# against an over-raise on every unrelated mutation is not a close call, and
+# the budget is raised to exactly 1 rather than loosened, so the next
+# regression still fails here.
 GRAPH_SLOT_GETATTR_BUDGET = {
     "Graph": 0,
-    "DiGraph": 0,
+    "DiGraph": 1,
     "MultiGraph": 2,
     "MultiDiGraph": 2,
 }

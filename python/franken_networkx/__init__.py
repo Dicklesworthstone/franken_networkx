@@ -1807,11 +1807,57 @@ class EdgeDataView:
         # preserves that contract for nbunches above the lazy-walk gate.  Its
         # native snapshot reuses public node-index lookasides for exact scalar
         # keys, so repeated long-key views do not recreate canonical strings.
+        # br-r37-c1-8c7m5: the `data=<key>` spelling has no lazy walk — the gate
+        # just above admits only `data is False or data is True`, because the
+        # walk yields the raw attribute dict and this form needs
+        # `attrs.get(key, default)`. So it arrives here, materialised, and was
+        # then STALE for every mutation networkx reads through: a later row
+        # grown or shrunk, a self-loop added, all invisible.
+        #
+        # Two arguments close it, and both are needed. `refresh_rows` lets the
+        # guard rebuild at the moment it has decided networkx would NOT raise —
+        # which is exactly when networkx is still reading the changed rows.
+        # `guard_edge_count` is what makes that moment arrive at all for an
+        # EDGE-only mutation: without it the guard watches `nodes_seq` alone, so
+        # `remove_edge` in a later row moved nothing it was looking at and the
+        # trigger never fired. Every multigraph nbunch path already passes it.
+        #
+        # ONLY WITH AN NBUNCH, and that qualifier is measured rather than
+        # cautious. With no nbunch there are no rows to check, so
+        # `_FailFastEdgeIterator` falls to its COARSE branch, where watching the
+        # edge sequence means raising on any edge change at all — including
+        # re-adding an edge that already exists, which networkx reads straight
+        # through because its adjacency dict did not resize. Passing it
+        # unconditionally fixed 192 cells and broke 6, all of them this shape.
+        # `ignore_removed_nbunch_row` because A DETACHED ROW IS NOT AN EMPTY ROW,
+        # and that is not a multigraph rule even though the only other call site
+        # passes `graph.is_multigraph()`. `G.clear()` empties the OUTER adjacency
+        # dict and leaves the row dicts alone; networkx is holding those, so it
+        # drains their pre-mutation contents on any class. Without this the live
+        # row-size check runs against a node that is gone and reports a resize:
+        # `G.edges(nb, data=<key>)` raised RuntimeError after a clear where nx
+        # completes, on both simple classes. The `data=False`/`data=True`
+        # spellings never showed it because they take the lazy walk instead.
         return _FailFastEdgeIterator(
             self._graph,
             rows,
+            guard_edge_count=self._nbunch_list is not None,
             nbunch_rows=self._nbunch_list,
+            ignore_removed_nbunch_row=True,
+            refresh_rows=self._rematerialise_rows,
         )
+
+    def _rematerialise_rows(self):
+        """Rebuild this view's rows mid-iteration; None if it cannot.
+
+        br-r37-c1-8c7m5, the `EdgeDataView` twin of
+        `_EdgeListWithSetAlgebra._fnx_rematerialise_rows`. Called by the nbunch
+        guard only after it has seen the graph move and ruled out a raise.
+        """
+        try:
+            return self._materialize()
+        except Exception:  # noqa: BLE001 - an unrebuildable view keeps its rows
+            return None
 
     def __len__(self):
         if self._nbunch_list is None and self._graph is not None:
@@ -4313,6 +4359,7 @@ class _DiGraphEdgeView:
                     _wrap_edge_data_view(walked, _OutEdgeDataView),
                     self._graph,
                     guard_edge_count=True,
+                    nbunch_rows=_resolved_nbunch_rows(self._graph, nbunch),
                 )
         if type(self._graph) is DiGraph and iterable_nbunch and (data is False or data is True):
             native_name = (
@@ -4339,6 +4386,7 @@ class _DiGraphEdgeView:
                         _wrap_edge_data_view(native_result, _OutEdgeDataView),
                         self._graph,
                         guard_edge_count=True,
+                        nbunch_rows=_resolved_nbunch_rows(self._graph, nbunch),
                     )
         if (
             type(self._graph) is DiGraph
@@ -4360,6 +4408,7 @@ class _DiGraphEdgeView:
                         _wrap_edge_data_view(native_result, _OutEdgeDataView),
                         self._graph,
                         guard_edge_count=True,
+                        nbunch_rows=_resolved_nbunch_rows(self._graph, nbunch),
                     )
         result = []
         for source in self._graph.nbunch_iter(nbunch):
@@ -4373,10 +4422,27 @@ class _DiGraphEdgeView:
         # br-r37-c1-pdkrl: this path is only reached for nbunch-filtered or
         # data-bearing calls (the bare ``edges()`` returned ``self`` above), all
         # of which nx types as OutEdgeDataView.
+        # br-r37-c1-8c7m5: ALL FOUR nbunch returns above and this one carry
+        # `nbunch_rows`. None of them did, and the multigraph views beside them
+        # have passed it on every return since br-r37-c1-hihrf — the classic
+        # N-1-of-N family split, with the directed simple class as the laggard.
+        #
+        # Without it `_FailFastEdgeIterator` falls to its COARSE guard, which
+        # asks "did ANYTHING change" rather than networkx's "was the row I am
+        # standing in resized". That is not a subtle difference: it raised
+        # RuntimeError for `G.add_node('zz')` and for removing an unrelated
+        # node, both of which networkx completes straight through. The
+        # `data=False`/`data=True` spellings hid it because the decorator gives
+        # them a live-row walk that skips the guard entirely; `data=<key>` has
+        # no such walk and took the coarse path alone.
+        #
+        # `_resolved_nbunch_rows` returns None for a None nbunch, so the
+        # no-nbunch callers that reach this same return are unaffected.
         return _guarded_edge_list(
             _wrap_edge_data_view(result, _OutEdgeDataView),
             self._graph,
             guard_edge_count=True,
+            nbunch_rows=_resolved_nbunch_rows(self._graph, nbunch),
         )
 
     def __or__(self, other):
@@ -5276,7 +5342,17 @@ class _EdgeListWithSetAlgebra(list):
             list.__iter__(self),
             guard_edge_count=guard_edge_count,
             nbunch_rows=nbunch_rows,
-            ignore_removed_nbunch_row=graph.is_multigraph(),
+            # br-r37-c1-8c7m5: unconditionally True, was `graph.is_multigraph()`.
+            # A DETACHED ROW IS NOT AN EMPTY ROW on any class: `G.clear()`
+            # empties the outer adjacency dict and `remove_node` deletes one
+            # entry, neither touches the row dicts, and networkx is holding
+            # those objects — so it drains their pre-mutation contents whether
+            # the graph is a multigraph or not. The multigraph test was the
+            # scope of the bead that introduced it, not a property of the rule;
+            # measured, widening it fixes DiGraph `edges(nb, data=<key>)`
+            # raising RuntimeError after a clear where nx completes, and moves
+            # nothing else.
+            ignore_removed_nbunch_row=True,
             refresh_rows=self._fnx_rematerialise_rows,
         )
 
