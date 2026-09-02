@@ -2789,8 +2789,78 @@ def workload_claim_digraph_predecessors(reps: int):
     return build, ops
 
 
+def workload_multi_nbunch_iter(reps: int):
+    """The path br-r37-c1-u5tyh reroutes: EXPLICIT iteration of
+    ``MG.edges(nbunch)`` on the two multigraph classes.
+
+    That bead replaced a materialised list plus a fail-fast guard with a walk
+    over the live adjacency rows, which is the only shape that reproduces
+    networkx's mutate-during-iteration semantics. Rerouting a call is a
+    performance change whatever the motive, so the cost belongs on the record
+    even though the motive was parity.
+
+    THE CONTROL IS THE NBUNCH SIZE, not the spelling, and getting that wrong is
+    a trap worth naming. The walk's ``__iter__`` skips itself when a ``len()``
+    call immediately preceded it, so ``list(view)`` looks like it should keep the
+    materialised path — and on these classes it does NOT. Traced: the internal
+    ``len`` that sets the hint lands on the list ``edges()`` builds, while the
+    object handed back is a different wrapper, so the hint never reaches the view
+    the caller iterates. Every bulk consumer measured — ``list``, ``set``,
+    ``sorted``, ``tuple``, a bare ``for`` — enters the walk. A ``list`` row is
+    therefore NOT a control here.
+
+    An nbunch of 16 is. The walk is gated at ``_EDGES_NBUNCH_PY_WALK_MAX`` = 8,
+    so those rows keep the materialised path on BOTH arms and must not move;
+    they are measured in the same invocation as the 4- and 8-node rows that do.
+    """
+    nodes, degree = 2000, 6
+
+    def build(module):
+        fixture = {}
+        for cls in ("MultiGraph", "MultiDiGraph"):
+            graph = getattr(module, cls)()
+            for i in range(nodes):
+                for step in range(1, degree + 1):
+                    graph.add_edge(f"n{i}", f"n{(i + step) % nodes}", weight=i)
+            fixture[cls] = graph
+        return fixture["MultiGraph"], fixture
+
+    def ops(graph, fixture):
+        table = {}
+        for cls, g in fixture.items():
+            for size in (4, 8, 16):
+                nb = [f"n{i}" for i in range(size)]
+                table[f"{cls}.iter edges(nb[{size}])"] = (
+                    lambda g=g, nb=nb: sum(1 for _ in g.edges(nb))
+                )
+                table[f"{cls}.iter edges(nb[{size}],data=True)"] = (
+                    lambda g=g, nb=nb: sum(1 for _ in g.edges(nb, data=True))
+                )
+                table[f"{cls}.list edges(nb[{size}])"] = (
+                    lambda g=g, nb=nb: len(list(g.edges(nb)))
+                )
+            # THE CONTROL. An edges() call with NO nbunch never reaches the
+            # nbunch row guard at all — `nbunch_rows` is None, so the whole
+            # `_gen_rows` branch is skipped and the native guarded iterator runs
+            # instead. Nothing br-r37-c1-u5tyh touches is on this path, so it
+            # measures the drift between two arms rather than the change, in the
+            # same invocation as the rows that are treated.
+            #
+            # An nbunch SIZE is not a control for that bead: its rebuild hangs
+            # off the guard's trigger and is not gated on how many rows were
+            # asked for. It IS a control for the rejected live-row walk, which
+            # was gated at 8 — do not reuse one label for both.
+            table[f"{cls}.iter edges() CONTROL, no nbunch"] = (
+                lambda g=g: sum(1 for _ in g.edges())
+            )
+        return table
+
+    return build, ops
+
+
 WORKLOADS = {
     "view-reads": workload_view_reads,
+    "multi-nbunch-iter": workload_multi_nbunch_iter,
     "undirected-nbunch": workload_undirected_nbunch,
     "conversions": workload_conversions,
     "deepcopy-conversions": workload_deepcopy_conversions,
