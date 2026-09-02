@@ -603,6 +603,30 @@ bv --robot-insights | jq '.Cycles'                         # Circular deps (must
 
 **Golden Rule:** `ubs <changed-files>` before every commit. Exit 0 = safe. Exit >0 = fix & re-run.
 
+### EXIT 0 IS NOT ENOUGH — CHECK `Files:` (br-r37-c1-nyhxy)
+
+**`ubs` exits 0 when its scanner module TIMES OUT, having scanned nothing.** The run then
+reports `Files: 0` and `Critical: 1`, where that one "critical" IS the timeout, not a
+finding. So the Golden Rule above is satisfied by a run that proved nothing, and the tail
+of the output (`Warning: 0`, `Info: 0`, `exit=0`) looks clean. This is not hypothetical —
+it has already been misread that way in this repo.
+
+**Always read the `Files:` count, not just the exit code and the zero lines.**
+
+`python/franken_networkx/__init__.py` hits this every time: ~71k lines / 3.0 MB always
+wedges, and raising the limit does not help (`UBS_MODULE_TIMEOUT=1500` was measured to
+time out identically). Most agents here edit that file, so for it use:
+
+```bash
+scripts/ubs_changed_regions.py            # working tree vs HEAD
+scripts/ubs_changed_regions.py --staged   # the git index
+```
+
+It scans only the top-level definitions your diff touched, blank-padding the rest so the
+file keeps its original length — which means **reported line numbers are the real ones**
+— and it exits non-zero if `Files: 0`, so a scan that scanned nothing cannot pass as a
+gate. Measured: 6s against a 1500s timeout on the same file.
+
 ### Commands
 
 ```bash
