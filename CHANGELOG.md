@@ -25,6 +25,29 @@ Repository: <https://github.com/Dicklesworthstone/franken_networkx>
 
 ---
 
+## 2026-09-03 — Documentation Truth Pass
+
+Reality-check audit (`artifacts/reality-check-2026-09-03.md`) found the code
+outrunning several README claims; each is corrected to the current measured
+state with provenance kept here:
+
+- Delegation counts: the "125 exports / 181 routes" framing is retired —
+  `docs/delegation_ledger.md`'s AST classification is now 61 mixed-route /
+  71 nx-fallback / 1,113 py-wrapper / 92 rust-native / 338 rust-reexport.
+- G0 freshness threshold: was documented as 50 commits; the live gate is
+  150 code commits (raised 2026-09; integrity split in
+  `artifacts/g0-threshold-split-2026-09.md`).
+- Roadmap R1/R2 reworded to the remaining scope: hardened-mode exposure
+  (open bead `br-r37-c1-9a8bo`; RuntimePolicy already wired into
+  `fnx-readwrite`), and the conformance freshness gate already exists —
+  artifacts await the first green CI run.
+- `preferential_attachment` loss row corrected 0.5949× → 0.8635× (closed
+  re-measure `z00k8`; the old figure predates the `padm6` fix).
+- `G.adj` loss row marked stale pending an admissible re-measure (levers
+  closed; `ey6ob` refuted the descriptor-rebuild reading).
+- Python test count 1,083 → 1,085 (five sites).
+- Unreachable fix hash `8b7dff824` replaced with verifiable wording.
+
 ## Unreleased
 
 Scope: after [`v0.2.0`](https://github.com/Dicklesworthstone/franken_networkx/releases/tag/v0.2.0)

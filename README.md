@@ -34,7 +34,7 @@ NetworkX is the canonical Python graph library: rich, correct, comprehensive, an
 
 FrankenNetworkX is a Rust port of NetworkX that treats **observable behavior** as a hard constraint. Graph mutation semantics, iteration order, tie-break choices, exception classes, error message wording, and serialization round-trip behavior are all part of the contract. Where pure-Python NetworkX would call `dict[unhashable]`, FrankenNetworkX raises the same `TypeError`. Where NetworkX iterates a `dict_keys` in insertion order, FrankenNetworkX does too. Where NetworkX returns a generator, FrankenNetworkX returns a generator, not a list with a different repr.
 
-That contract is enforced by a 1,083-file Python parity test suite, by a curated Rust differential conformance harness, and by five auto-generated audit ledgers (coverage matrix, raw-vs-public, delegation, upstream divergence, API ergonomics) that fail CI if a measured public symbol drifts. The current structural surface result is not 100%: the pinned NetworkX 3.6.1 FeatureUniverse has 3,823 strictly present paths out of 4,129 applicable paths (92.6%), with 306 partial and 0 missing.
+That contract is enforced by a 1,085-file Python parity test suite, by a curated Rust differential conformance harness, and by five auto-generated audit ledgers (coverage matrix, raw-vs-public, delegation, upstream divergence, API ergonomics) that fail CI if a measured public symbol drifts. The current structural surface result is not 100%: the pinned NetworkX 3.6.1 FeatureUniverse has 3,823 strictly present paths out of 4,129 applicable paths (92.6%), with 306 partial and 0 missing.
 
 ### Why FrankenNetworkX?
 
@@ -68,7 +68,7 @@ There are several existing approaches to "faster NetworkX." Each has tradeoffs t
 
 The discipline difference is enforced by tooling, not goodwill:
 
-- The Python parity gate (`pytest tests/python/`, 1,083 files) compares fnx-vs-nx call by call across thousands of fixtures, including iteration order, exception class, and error wording.
+- The Python parity gate (`pytest tests/python/`, 1,085 files) compares fnx-vs-nx call by call across thousands of fixtures, including iteration order, exception class, and error wording.
 - The auto-generated audit ledgers under `docs/` fail CI if `__all__` drifts or if a wrapper acquires a NetworkX delegation route that isn't documented.
 - The CGSE complexity-witness ledger gives every algorithm execution a reproducible length-prefixed Blake3 receipt, so behavioral parity can be regression-locked, not just spot-checked.
 
@@ -727,7 +727,7 @@ FrankenNetworkX's compatibility contract is not "best-effort similarity." It is 
 |---|---|
 | [`coverage.md`](docs/coverage.md) | NetworkX 3.6.1 FeatureUniverse: 4,926 qualified paths classified as `present`, `partial`, `missing`, `n/a`, or reasoned `excluded`; per-family strict coverage is reported. A separate appendix classifies the 793 `franken_networkx.__all__` implementation routes. Drift fails CI. |
 | [`raw_vs_public_audit.md`](docs/raw_vs_public_audit.md) | Every `_raw_X` Rust kernel cross-checked against its public wrapper. Documents the 24 wrapper-patched parity repairs where the public wrapper post-processes raw output to match NetworkX. |
-| [`delegation_ledger.md`](docs/delegation_ledger.md) | Every `_call_networkx_*_for_parity(...)` call site enumerated: 125 public exports, 181 routes. Tracks which algorithms intentionally delegate edge cases to upstream NetworkX. |
+| [`delegation_ledger.md`](docs/delegation_ledger.md) | Every `_call_networkx_*_for_parity(...)` call site enumerated and AST-classified: 61 mixed-route / 71 nx-fallback / 1,113 py-wrapper / 92 rust-native / 338 rust-reexport routes. Tracks which algorithms intentionally delegate edge cases to upstream NetworkX. |
 | [`upstream_divergence_ledger.md`](docs/upstream_divergence_ledger.md) | Unified ledger of `native-parity`, `wrapper-patched`, `intentionally-delegated`, `raw-known-gap`, and `owner-acknowledged-limitation` rows. |
 | [`api_ergonomics_audit.md`](docs/api_ergonomics_audit.md) | Signature-level drift detection: parameter names, defaults, and keyword-only contracts compared against NetworkX. |
 
@@ -769,9 +769,9 @@ Why the strict parity: existing NetworkX code routinely does `except nx.NetworkX
 
 ### Parity coverage today
 
-- **610** Python-wrapper exports with no visible NetworkX route at runtime.
-- **125** exports retain a parity-helper branch that delegates specific argument shapes or edge cases to NetworkX (typically: complex callable arguments, drawing/matplotlib, exotic format variants).
-- **24** exports are "wrapper-patched": the Rust kernel runs the algorithm but the Python wrapper post-processes output ordering to match NetworkX's iteration semantics.
+- Implementation routes across `franken_networkx.__all__` (one name may carry several routes), per the ledger's AST classification: **1,113** py-wrapper, **338** rust-reexport, **92** rust-native, **71** nx-fallback, **61** mixed-route.
+- The **71** nx-fallback + **61** mixed-route exports retain a NetworkX path for specific argument shapes or edge cases (typically: complex callable arguments, drawing/matplotlib, exotic format variants). The native fast path runs for the common case.
+- Wrapper-patched exports — the Rust kernel runs the algorithm but the Python wrapper post-processes output ordering to match NetworkX's iteration semantics — are enumerated with exact counts in `raw_vs_public_audit.md`.
 - **1** raw-known-gap row and **1** owner-acknowledged limitation in `upstream_divergence_ledger.md`; the public wrappers hide both behind fallbacks.
 - **0** "DIRECT_NETWORKX" public exports at the Python wrapper layer. Dispatch is always through the `_call_networkx_*_for_parity` helper layer tracked in the delegation ledger.
 
@@ -890,11 +890,11 @@ CI is structured as a strict, sequential gate topology in [`.github/workflows/ci
 
 | Gate | Job | Purpose |
 |---|---|---|
-| **G0** | docs freshness | `README.md`, `docs/planning/FEATURE_PARITY.md`, `CHANGELOG.md` may not lag HEAD by more than 50 commits. |
+| **G0** | docs freshness | `README.md`, `docs/planning/FEATURE_PARITY.md`, `CHANGELOG.md` may not lag HEAD by more than 150 code commits (raised from 50 in 2026-09; integrity split: `artifacts/g0-threshold-split-2026-09.md`). |
 | **G1** | fmt | `cargo fmt --all -- --check` on nightly. |
 | **G2** | clippy | `cargo clippy --workspace --all-targets -- -D warnings` on Ubuntu + macOS + Windows. |
 | **G3** | rust tests | `cargo test --workspace` on Ubuntu + macOS + Windows. |
-| **G4** | python parity | `pytest tests/python/`, the canonical conformance gate (1,083 test files). |
+| **G4** | python parity | `pytest tests/python/`, the canonical conformance gate (1,085 test files). |
 | **G4b** | e2e | `scripts/e2e_integration_test.py` with NumPy + SciPy. |
 | **G4c** | docs verifier | `scripts/verify_docs.py`; every code example in `docs/*.md` is import-checked and executed. |
 | **G4d** | examples | All four `examples/*.py` scripts must run cleanly. |
@@ -939,7 +939,7 @@ pytest tests/python/ -v -k "shortest_path or dijkstra"
 
 ### Conformance Testing Methodology
 
-The 1,083 Python test files implement five complementary testing strategies, each catching a different class of bug:
+The 1,085 Python test files implement five complementary testing strategies, each catching a different class of bug:
 
 **1. Direct parity (`test_*_parity.py`).** Fix an input graph, call both `fnx.<func>(G)` and `nx.<func>(G_nx)`, assert equality. Catches "I got the wrong answer." The most basic and most numerous family.
 
@@ -1037,7 +1037,7 @@ The cost of a `fnx.algorithm(G)` call decomposes into four chunks:
 | Python → Rust marshaling | ~5–50 μs base + O(n + m) for graph conversion when a *new* graph is constructed | Reusing an existing fnx graph: ~5 μs total per call (attribute lookup only). Constructing a fresh fnx graph from an nx graph at call time: O(n + m) plus a constant ~5 μs/node, ~3 μs/edge for dict→IndexMap conversion. |
 | Native algorithm execution | algorithm-dependent | Performance varies by family and workload. The dated incumbent comparison below ranges from 1.6085× to 36.1146× on the listed winning rows. |
 | Rust → Python return marshaling | O(output size) | A `PyDict::set_item` per entry plus an arc-bumped node label string. Measured 2026-07-25: **~452 ns per `edges(data=True)` entry** and **~27 ns per `nodes(data=True)` / `adjacency()` entry**. NetworkX pays more per entry on the same shapes (758 ns/edge; 1690 ns/node for `to_dict_of_lists`), because it builds the same containers in interpreted code. |
-| Wrapper-side post-processing (if any) | O(output size) | The 24 wrapper-patched functions add a single pass over the output for iteration-order normalization. Skipped for the 610 - 24 = 586 functions that don't need it. |
+| Wrapper-side post-processing (if any) | O(output size) | Wrapper-patched functions (enumerated in `raw_vs_public_audit.md`) add a single pass over the output for iteration-order normalization. Skipped for exports without a patch. |
 
 **Real-world end-to-end performance — current 2026-07-29 gate.** Five whole jobs
 start by loading and cleaning deterministic induced prefixes of the
@@ -1147,11 +1147,11 @@ median-CI gate; reproduce with
 
 | Surface | fnx vs nx | Cause |
 |--------|-----------|-------|
-| `G.adj` (bare accessor) | **0.9009×** | Public descriptor access; re-measured 2026-08-04 vs live nx 3.6.1 (was 0.82×). 6/6 runs decidable, 0.8962–0.9079× (1.3% spread), A/A nulls within 0.0035 of 1.0, result parity 7,446,000 bytes. Reproduce with `PYTHONHASHSEED=0 taskset -c 40-43 python3 scripts/perf_harness.py adj-descriptor`. |
+| `G.adj` (bare accessor) | **0.9009×** | Public descriptor access; re-measured 2026-08-04 vs live nx 3.6.1 (was 0.82×). 6/6 runs decidable, 0.8962–0.9079× (1.3% spread), A/A nulls within 0.0035 of 1.0, result parity 7,446,000 bytes. Reproduce with `PYTHONHASHSEED=0 taskset -c 40-43 python3 scripts/perf_harness.py adj-descriptor`. **Figure status: stale** — every lever bead (pc4hk, dyuzb, a5xrj, s3ctn, bmrbc/nic2n) closed and `ey6ob` refuted the descriptor-rebuild reading; the row awaits an admissible re-measure to convert or retire. Open. |
 | `len(G.adj)` | **1.65–1.71×** | **Was a loss at `0.7901×` (2026-08-04) and is now a win.** `G.adj` returns a subclass of the native adjacency view, so `__len__` resolves to a C slot instead of a Python frame — `G.nodes` and `G.edges` already did, on the same graph returning the same count (`br-r37-c1-5gam7`, landed 2026-08-08 `f9e3173c3`). Re-measured 2026-08-08 vs live nx 3.6.1 in the same invocation: `1.6548×` CI `1.6447–1.6641×`, dual A/A nulls `1.0004` and `1.0047`, direction unanimous 4/4 (`1.6021/1.6670/1.6625/1.6548`). The identical script on the pre-change build read `0.7624–0.7892×`, so this is measured against its own before. Re-confirmed 2026-08-08 at `1.7097×` CI `1.7055–1.7135×` (nulls within 0.0003 of 1.0); the range spans both admitted runs. Reproduce: balanced `[A B B A A B B A]` square, N=2000, 500 `len()` calls per timed unit, 25 rounds, `taskset`-pinned. |
 | `G.has_node(n)` | *not decidable* (present keys) | **The 1.23× win published here earlier on 2026-08-15 is RETRACTED** (`br-r37-c1-7x25w`). It was measured on a harness that ran `gc.collect()` before every timed slot; re-measured on the corrected harness at a rep count where the nulls pass, three draws read `1.0008×` (straddles 1.0), `1.0159×` and `0.9799×` — parity in both directions, so no verdict is claimed. The per-slot collect was worth only ~1% on THIS row (`1.0811×` corrected vs `1.0925×` in defect mode at reps=400), and the ELF also moved under other agents' Rust landings, so the cause of the difference is unattributed rather than assigned. The LEVER is unaffected: the memo still removes the canonical rebuild that is 77.4% of this call's instructions, and its parity tests stand. What was a loss before that lever (`0.7595×`, 2026-08-08) is now parity. **ABSENT keys remain a loss** at `0.6610×`. Earlier context, all superseded: `0.5199×`, `0.4596×`, `0.41×`. Keys already proven present are remembered in a set, so a repeat probe reuses the hash CPython cached in the string object instead of rebuilding and rehashing a canonical `"str:{len}:{s}"` — 77.4% of this call's instructions, by toggle-collect profile. Measured vs live nx 3.6.1 in the same invocation, balanced `[A B B A A B B A]` square, 61 rounds: `1.2297×` CI `1.2048–1.2574×`, A/A nulls `1.0107`/`1.0037`, ELF `1cfe8f2483a780e7`. Prior published figures were correct for their builds: `0.7595×` (2026-08-08), `0.5199×`, `0.4596×`, `0.41×`. **ABSENT keys are a loss and got slightly worse**: `0.6610×`, because a miss pays the set probe and then the canonical path anyway (bounded at ~1.19× of the un-memoised cost, measured). Reproduce: `scripts/balanced_square_ab.py --workload view-reads --only "G.has_node"`. Two independently written harnesses agree on this row — `1.2205×` CI `1.1861–1.2318×` from the view sweep and `1.2297×` from `balanced_square_ab.py`, overlapping CIs on the same ELF. `harness=balanced_square_ab.py` + `ab_view_sweep2.py`, `same_host=thinkstation1`, `rch_worker=none` (both arms in one process; no timing was dispatched to a worker). |
 | `n in G` | **1.49–1.68× faster** (present keys) | **Was published at 1.2234×, corrected to a 0.3328× LOSS on 2026-08-14, and is a WIN again since 2026-08-15** — same lever as `G.has_node` above (`br-r37-c1-6n9vm`), which the 2026-08-14 row predates. Four admitted draws vs live nx 3.6.1 in the same invocation, 61 rounds, present string keys: `1.4917×` CI `1.4475–1.5212×`, `1.5622×`, `1.6729×`, `1.6841×` CI `1.6443–1.7174×`, A/A nulls within 0.019 of 1.0, ELF `1cfe8f2483a780e7`. **The range is the honest figure** — the cross-run spread exceeds any single CI, and two of those draws were measured with the row's neighbours running in the same process, which is itself worth ~1.20× on this surface (`br-r37-c1-y4r63`). **CONFIRMED after the substrate fix** (`br-r37-c1-7x25w`): the draws above came from a harness that collected before every timed slot, and re-measuring on the corrected one gives `1.6113×` CI `1.6025–1.6199×`, nulls 1.0092/1.0018, ELF `b6ccaee611a8ef67` — inside the published range, so this row survives a correction that retracted its sibling. ABSENT keys remain a loss at `0.8797×`. `harness=balanced_square_ab.py` + `ab_view_sweep2.py` (kept at `tests/artifacts/perf/20260815-dunder-wrapper-ablations-snowyvalley/`), `same_host=thinkstation1`, `rch_worker=none` (both arms in one process; no timing was dispatched to a worker). |
-| `preferential_attachment` | **0.5949×** | nx's per-pair work is two degree lookups and a multiply — below our per-call boundary cost |
+| `preferential_attachment` | **0.8635×** | Superseded figure: the old 0.5949× row predated the `padm6` fix (91% of the gap); closed re-measure `z00k8` reads 0.8635×. Residual loss is per-call boundary cost — nx's per-pair work is two degree lookups and a multiply. |
 | `Graph` incremental `add_edge` | **0.46–0.50×** | Still a decisive loss, and improving. Two admitted 2026-08-08 measurements vs live nx 3.6.1 in the same invocation (was `0.4387×` on 2026-08-04, `0.26×` before that): `0.4974×` CI `0.4833–0.5129×` and `0.4616×` CI `0.4563–0.4658×`. **The range is the honest figure — the cross-run spread exceeds either CI**, and the mover is the incumbent arm, which timed `677.1` vs `574.8 ns/edge` between the two invocations while fnx moved only `1296 → 1245`. Both runs pass their dual A/A nulls, which is the point: a null certifies stationarity WITHIN a run and says nothing about comparability across runs. 21 interleaved rounds, 8,000 calls on a fresh graph per timed unit, 40 warm-up builds per arm — mutation arms are non-stationary and an under-warmed run here has produced a wrong SIGN before (`br-r37-c1-jc9e4`). Moved by `br-r37-c1-wa1b9` (2026-08-08), which stopped internal endpoint autocreation from filing its own ledger record: `Graph::add_edge_with_attrs` went `816 → 507–540 ns/edge`, and the native path `1113.2 → 928.2 ns/edge` (`0.5525× → 0.6274×`). The Python `None`/hashability shim costs `332.6 ns/edge`, `26.5%` of end-to-end — measured against the raw native path in the SAME invocation (`0.7351×` CI `0.7298–0.7382×`), still under the `40%` bar that rejected attacking it. Batch constructors remain ~3× better per edge. |
 | `karate_club_graph` | **1.38–1.42×** | **Was published as a `0.38×` loss and is now a win.** Re-measured 2026-08-08 vs live nx 3.6.1 in two admitted runs: `1.4232×` CI `1.4150–1.4273×` and `1.3812×` CI `1.3745–1.3879×`, dual A/A nulls within 0.0016 of 1.0. The range is the honest figure — the two runs' CIs do not overlap, which is this substrate's cross-run spread rather than either run being wrong. |
 | `tutte_graph` | *not decidable* | Measured 2026-08-08 at `1.2860×` but CI `0.9036–1.3563×` STRADDLES 1.0, so no verdict is claimed despite clean A/A nulls (0.9997/0.9997). The published `0.76×` is superseded but not replaced with a number. Split out of the old combined karate/tutte row precisely because the two no longer share a verdict. |
@@ -2329,8 +2329,8 @@ FrankenNetworkX is honest about what it does not do today:
 
 - **Drawing is delegated.** `draw`, `draw_*`, and the matplotlib-backed layout functions delegate to NetworkX/matplotlib. Layout *math* (`spring_layout`, `kamada_kawai_layout`, etc.) is also delegated. We do not own matplotlib rendering.
 - **`check_planarity` certificates are delegated.** The boolean `is_planar` is native (Euler and degree bounds, then the left-right planarity kernel `is_planar_lr`, which rejects K5, K3,3 and Petersen in Rust). The `PlanarEmbedding` and Kuratowski-subgraph certificate returned by `check_planarity` still come from NetworkX; a native embedding is on the roadmap.
-- **125 exports retain a parity-helper branch.** These are not bugs; they are the documented set in `delegation_ledger.md` where unusual argument shapes (callable arguments, exotic format variants, deprecated API forms) defer to NetworkX. The native fast path runs for the common case.
-- **Release status.** `v0.2.0` is tagged on GitHub, but its wheel jobs failed on an absolute-path dependency that was fixed afterwards in `8b7dff824`, so no wheel or sdist has been uploaded to PyPI. A wheel built from HEAD installs and runs in a fresh venv (verified 2026-09-02); the next tag is expected to publish.
+- **71 nx-fallback + 61 mixed-route exports** retain a NetworkX path. These are not bugs; they are the documented set in `delegation_ledger.md` where unusual argument shapes (callable arguments, exotic format variants, deprecated API forms) defer to NetworkX. The native fast path runs for the common case.
+- **Release status.** `v0.2.0` is tagged on GitHub, but its wheel jobs failed on an absolute-path dependency (fixed on main afterwards; the originally cited fix hash is unreachable from history, so it is not repeated here). No wheel or sdist has been uploaded to PyPI yet. A wheel built from HEAD installs and runs in a fresh venv (verified 2026-09-02); the next tag is expected to publish — tracked in `br-r37-c1-rc-pypi-first-publication-3yi49`.
 - **No Windows/macOS performance SLO yet.** The performance gate (G6) currently runs only on Linux. Correctness gates (G1–G3) cover all three platforms.
 - **No 3rd-party graph DB integration.** This is a graph *algorithms* library; it does not connect to Neo4j, JanusGraph, etc. Use it on in-memory graphs.
 
@@ -2381,7 +2381,7 @@ The Rust-level API in `fnx-algorithms` is parameterized by `TieBreakPolicy`, so 
 Yes. `networkx>=3.0` is a hard dependency. fnx's wrapper layer imports nx for exception classes, the dispatch protocol, and the fallback path on unsupported argument shapes.
 
 **Is there a no-NetworkX build?**
-Not currently. The dependency on `networkx>=3.0` is part of the parity-helper architecture (the `_call_networkx_*_for_parity` routes need nx available). A "pure fnx" mode would require porting another 181 routes to native Rust.
+Not currently. The dependency on `networkx>=3.0` is part of the parity-helper architecture (the `_call_networkx_*_for_parity` routes need nx available). A "pure fnx" mode would require porting the remaining NetworkX-bound routes — 71 nx-fallback plus 61 mixed-route in the current ledger classification — to native Rust.
 
 ---
 
@@ -2437,7 +2437,7 @@ Check `docs/upstream_divergence_ledger.md` for the canonical list.
 
 ### "My CI is failing G0 (docs freshness)"
 
-This gate fires if `README.md`, `docs/planning/FEATURE_PARITY.md`, or `CHANGELOG.md` hasn't been touched in 50+ commits. Touch the file in the same PR that introduces a substantive change, or batch a `chore(docs):` commit before merging.
+This gate fires if `README.md`, `docs/planning/FEATURE_PARITY.md`, or `CHANGELOG.md` hasn't been touched in 150+ code commits (raised from 50 in 2026-09; integrity split: `artifacts/g0-threshold-split-2026-09.md`). Touch the file in the same PR that introduces a substantive change, or batch a `chore(docs):` commit before merging.
 
 ---
 
@@ -2623,12 +2623,12 @@ The security doctrine in `AGENTS.md` covers four threat surfaces:
 
 In rough priority order (`bv --robot-triage` shows the current bead backlog):
 
-1. **Wire strict/hardened modes into all parser entry points** (D2–D4 beads). Connect `RuntimePolicy` to `fnx-readwrite` entry points and prove behavior with ≥24 strict + ≥24 hardened fixtures.
-2. **Refresh `artifacts/conformance/latest/` reports and add a CI freshness gate** (beads B2–B4).
+1. **Finish strict/hardened exposure** (open bead `br-r37-c1-9a8bo`). `RuntimePolicy` is already wired through `fnx-readwrite`'s engine layer; the remaining scope is the 46 hardcoded Strict call sites, a Python-level mode toggle, and ≥24 strict + ≥24 hardened fixtures.
+2. **First green CI run refreshes `artifacts/conformance/latest/`** — the freshness gate already exists in CI (`.github/workflows/ci.yml`, beads B2–B4 closed); the committed bundles are stale (conformance newest 2026-05-22, perf artifacts 2026-04) purely because no run has gotten past G0/G1 since April.
 3. **Native planar embedding** so `check_planarity` builds its `PlanarEmbedding` / Kuratowski certificate without NetworkX; the boolean `is_planar` already runs a native left-right planarity kernel.
 4. **Performance proof artifacts per SLO row (E3)** so every algorithm family in `docs/performance.md` has a profile-and-prove witness on file.
-5. **Tail closure on the remaining 125 delegated exports.** Move as many as possible to native fast paths while preserving the parity contract.
-6. **Release cadence.** `v0.2.0` is tagged but shipped no wheels (its build jobs failed on an absolute-path dependency fixed in `8b7dff824`); a wheel from HEAD installs cleanly, so the next tag should be the first PyPI upload. Subsequent 0.x releases should land only after the parity, conformance, and SLO gates are green.
+5. **Tail closure on the remaining NetworkX-bound exports** (71 nx-fallback + 61 mixed-route routes in the ledger). Move as many as possible to native fast paths while preserving the parity contract.
+6. **Release cadence.** `v0.2.0` is tagged but shipped no wheels (its build jobs failed on an absolute-path dependency, since fixed on main); a wheel from HEAD installs cleanly, so the next tag should be the first PyPI upload (bead `br-r37-c1-rc-pypi-first-publication-3yi49`). Subsequent 0.x releases should land only after the parity, conformance, and SLO gates are green.
 
 ---
 
@@ -2690,7 +2690,7 @@ franken_networkx/
 │   ├── backend.py             # 313 algorithms wired into nx dispatch
 │   ├── backend_info.py        # backend metadata for nx registration
 │   └── _fnx.pyi               # type stubs
-├── tests/python/              # 1,083 parity / conformance / metamorphic / fuzz / hypothesis / golden tests
+├── tests/python/              # 1,085 parity / conformance / metamorphic / fuzz / hypothesis / golden tests
 ├── fuzz/fuzz_targets/         # 33 cargo-fuzz binaries (parsers + algorithm harnesses)
 ├── examples/                  # 4 runnable examples
 ├── docs/                      # docs + 5 auto-generated audit ledgers
