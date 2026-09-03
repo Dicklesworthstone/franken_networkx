@@ -220,6 +220,13 @@ jobs:
             echo "Running ${script}"
             python3 "${script}"
           done
+      - name: CGSE cross-seed determinism gate
+        run: python3 scripts/check_determinism.py
+      - name: Upload determinism receipt
+        uses: actions/upload-artifact@v4
+        with:
+          name: determinism-receipt
+          path: artifacts/determinism/latest
 
   g5-conformance:
     name: G5 conformance evidence
@@ -359,11 +366,15 @@ jobs:
         with:
           name: perf-latest
           path: artifacts/perf/latest
+      - uses: actions/download-artifact@v4
+        with:
+          name: determinism-receipt
+          path: artifacts/determinism/latest
       - name: Generate, scrub, and decode durability sidecars
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p artifacts/conformance/latest artifacts/perf/latest artifacts/last_known_good
+          mkdir -p artifacts/conformance/latest artifacts/perf/latest artifacts/determinism/latest artifacts/last_known_good
           for spec in \
             "artifacts/conformance/latest/smoke_report.json|artifacts/conformance/latest/smoke_report.raptorq.json|artifacts/conformance/latest/smoke_report.recovered.json|smoke_report|conformance_report" \
             "artifacts/conformance/latest/structured_logs.jsonl|artifacts/conformance/latest/structured_logs.raptorq.json|artifacts/conformance/latest/structured_logs.recovered.json|structured_logs|conformance_logs" \
@@ -371,7 +382,8 @@ jobs:
             "artifacts/conformance/latest/telemetry_dependent_unblock_matrix_v1.json|artifacts/conformance/latest/telemetry_dependent_unblock_matrix_v1.raptorq.json|artifacts/conformance/latest/telemetry_dependent_unblock_matrix_v1.recovered.json|telemetry_dependent_unblock_matrix_v1|conformance_logs" \
             "artifacts/conformance/latest/conformance_dashboard_v1.json|artifacts/conformance/latest/conformance_dashboard_v1.raptorq.json|artifacts/conformance/latest/conformance_dashboard_v1.recovered.json|conformance_dashboard|conformance_report" \
             "artifacts/perf/latest/perf_baseline_matrix_v1.json|artifacts/perf/latest/perf_baseline_matrix_v1.raptorq.json|artifacts/perf/latest/perf_baseline_matrix_v1.recovered.json|perf_baseline_matrix|perf_report" \
-            "artifacts/perf/latest/slo_gate_report_v1.json|artifacts/perf/latest/slo_gate_report_v1.raptorq.json|artifacts/perf/latest/slo_gate_report_v1.recovered.json|slo_gate_report|perf_report"
+            "artifacts/perf/latest/slo_gate_report_v1.json|artifacts/perf/latest/slo_gate_report_v1.raptorq.json|artifacts/perf/latest/slo_gate_report_v1.recovered.json|slo_gate_report|perf_report" \
+            "artifacts/determinism/latest/determinism_receipt_v1.json|artifacts/determinism/latest/determinism_receipt_v1.raptorq.json|artifacts/determinism/latest/determinism_receipt_v1.recovered.json|determinism_receipt|conformance_logs"
           do
             IFS='|' read -r artifact_path sidecar_path recovered_path artifact_id artifact_type <<< "$spec"
             env CARGO_TARGET_DIR=target-ci cargo run -q -p fnx-durability --bin fnx-durability -- \

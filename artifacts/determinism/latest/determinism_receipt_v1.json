@@ -1,0 +1,326 @@
+{
+ "generated_at_utc": "2026-09-03T22:36:20.349166+00:00",
+ "problems": [],
+ "python_version": "3.14.4",
+ "schema_version": 1,
+ "seed_vectors": {
+  "0": {
+   "bellman_ford_path": {
+    "hashes": [
+     "22559d40fa50b36a141ede24045325d3ab11a39ea8dab4ce32540d329096e8af"
+    ],
+    "m": 12,
+    "n": 12,
+    "terms": [
+     "n_m"
+    ],
+    "witnesses": 1
+   },
+   "bfs_edges": {
+    "hashes": [
+     "22559d40fa50b36a141ede24045325d3ab11a39ea8dab4ce32540d329096e8af"
+    ],
+    "m": 12,
+    "n": 12,
+    "terms": [
+     "n_plus_m"
+    ],
+    "witnesses": 1
+   },
+   "connected_components": {
+    "hashes": [
+     "fc2baf31bb413822a12876e117341f2adf6d73fedd9c632c0f9e362c82e66f75"
+    ],
+    "m": 12,
+    "n": 12,
+    "terms": [
+     "n_plus_m"
+    ],
+    "witnesses": 1
+   },
+   "dfs_edges": {
+    "hashes": [
+     "ec1311355e8214f2180e46927d0f2bfe2d7c1589bd0574be0d7b873884c3484f"
+    ],
+    "m": 12,
+    "n": 12,
+    "terms": [
+     "n_plus_m"
+    ],
+    "witnesses": 1
+   },
+   "dijkstra": {
+    "hashes": [],
+    "m": null,
+    "n": null,
+    "terms": [],
+    "witnesses": 0
+   },
+   "eulerian_circuit": {
+    "hashes": [],
+    "m": null,
+    "n": null,
+    "terms": [],
+    "witnesses": 0
+   },
+   "max_weight_matching": {
+    "hashes": [],
+    "m": null,
+    "n": null,
+    "terms": [],
+    "witnesses": 0
+   },
+   "min_weight_matching": {
+    "hashes": [],
+    "m": null,
+    "n": null,
+    "terms": [],
+    "witnesses": 0
+   },
+   "minimum_spanning_tree": {
+    "hashes": [
+     "fa746c418af89eb00029d059314863cebffb8aec0dc11c87c9efc8da422abfea"
+    ],
+    "m": 12,
+    "n": 12,
+    "terms": [
+     "m_log_m"
+    ],
+    "witnesses": 1
+   },
+   "number_strongly_connected_components": {
+    "hashes": [
+     "ec1311355e8214f2180e46927d0f2bfe2d7c1589bd0574be0d7b873884c3484f"
+    ],
+    "m": 13,
+    "n": 12,
+    "terms": [
+     "n_plus_m"
+    ],
+    "witnesses": 1
+   },
+   "prim": {
+    "error": "AttributeError: module 'networkx' has no attribute 'minimum_spanning_tree_prim'"
+   },
+   "topological_sort": {
+    "hashes": [],
+    "m": null,
+    "n": null,
+    "terms": [],
+    "witnesses": 0
+   }
+  },
+  "1": {
+   "bellman_ford_path": {
+    "hashes": [
+     "22559d40fa50b36a141ede24045325d3ab11a39ea8dab4ce32540d329096e8af"
+    ],
+    "m": 12,
+    "n": 12,
+    "terms": [
+     "n_m"
+    ],
+    "witnesses": 1
+   },
+   "bfs_edges": {
+    "hashes": [
+     "22559d40fa50b36a141ede24045325d3ab11a39ea8dab4ce32540d329096e8af"
+    ],
+    "m": 12,
+    "n": 12,
+    "terms": [
+     "n_plus_m"
+    ],
+    "witnesses": 1
+   },
+   "connected_components": {
+    "hashes": [
+     "fc2baf31bb413822a12876e117341f2adf6d73fedd9c632c0f9e362c82e66f75"
+    ],
+    "m": 12,
+    "n": 12,
+    "terms": [
+     "n_plus_m"
+    ],
+    "witnesses": 1
+   },
+   "dfs_edges": {
+    "hashes": [
+     "ec1311355e8214f2180e46927d0f2bfe2d7c1589bd0574be0d7b873884c3484f"
+    ],
+    "m": 12,
+    "n": 12,
+    "terms": [
+     "n_plus_m"
+    ],
+    "witnesses": 1
+   },
+   "dijkstra": {
+    "hashes": [],
+    "m": null,
+    "n": null,
+    "terms": [],
+    "witnesses": 0
+   },
+   "eulerian_circuit": {
+    "hashes": [],
+    "m": null,
+    "n": null,
+    "terms": [],
+    "witnesses": 0
+   },
+   "max_weight_matching": {
+    "hashes": [],
+    "m": null,
+    "n": null,
+    "terms": [],
+    "witnesses": 0
+   },
+   "min_weight_matching": {
+    "hashes": [],
+    "m": null,
+    "n": null,
+    "terms": [],
+    "witnesses": 0
+   },
+   "minimum_spanning_tree": {
+    "hashes": [
+     "fa746c418af89eb00029d059314863cebffb8aec0dc11c87c9efc8da422abfea"
+    ],
+    "m": 12,
+    "n": 12,
+    "terms": [
+     "m_log_m"
+    ],
+    "witnesses": 1
+   },
+   "number_strongly_connected_components": {
+    "hashes": [
+     "ec1311355e8214f2180e46927d0f2bfe2d7c1589bd0574be0d7b873884c3484f"
+    ],
+    "m": 13,
+    "n": 12,
+    "terms": [
+     "n_plus_m"
+    ],
+    "witnesses": 1
+   },
+   "prim": {
+    "error": "AttributeError: module 'networkx' has no attribute 'minimum_spanning_tree_prim'"
+   },
+   "topological_sort": {
+    "hashes": [],
+    "m": null,
+    "n": null,
+    "terms": [],
+    "witnesses": 0
+   }
+  },
+  "random": {
+   "bellman_ford_path": {
+    "hashes": [
+     "22559d40fa50b36a141ede24045325d3ab11a39ea8dab4ce32540d329096e8af"
+    ],
+    "m": 12,
+    "n": 12,
+    "terms": [
+     "n_m"
+    ],
+    "witnesses": 1
+   },
+   "bfs_edges": {
+    "hashes": [
+     "22559d40fa50b36a141ede24045325d3ab11a39ea8dab4ce32540d329096e8af"
+    ],
+    "m": 12,
+    "n": 12,
+    "terms": [
+     "n_plus_m"
+    ],
+    "witnesses": 1
+   },
+   "connected_components": {
+    "hashes": [
+     "fc2baf31bb413822a12876e117341f2adf6d73fedd9c632c0f9e362c82e66f75"
+    ],
+    "m": 12,
+    "n": 12,
+    "terms": [
+     "n_plus_m"
+    ],
+    "witnesses": 1
+   },
+   "dfs_edges": {
+    "hashes": [
+     "ec1311355e8214f2180e46927d0f2bfe2d7c1589bd0574be0d7b873884c3484f"
+    ],
+    "m": 12,
+    "n": 12,
+    "terms": [
+     "n_plus_m"
+    ],
+    "witnesses": 1
+   },
+   "dijkstra": {
+    "hashes": [],
+    "m": null,
+    "n": null,
+    "terms": [],
+    "witnesses": 0
+   },
+   "eulerian_circuit": {
+    "hashes": [],
+    "m": null,
+    "n": null,
+    "terms": [],
+    "witnesses": 0
+   },
+   "max_weight_matching": {
+    "hashes": [],
+    "m": null,
+    "n": null,
+    "terms": [],
+    "witnesses": 0
+   },
+   "min_weight_matching": {
+    "hashes": [],
+    "m": null,
+    "n": null,
+    "terms": [],
+    "witnesses": 0
+   },
+   "minimum_spanning_tree": {
+    "hashes": [
+     "fa746c418af89eb00029d059314863cebffb8aec0dc11c87c9efc8da422abfea"
+    ],
+    "m": 12,
+    "n": 12,
+    "terms": [
+     "m_log_m"
+    ],
+    "witnesses": 1
+   },
+   "number_strongly_connected_components": {
+    "hashes": [
+     "ec1311355e8214f2180e46927d0f2bfe2d7c1589bd0574be0d7b873884c3484f"
+    ],
+    "m": 13,
+    "n": 12,
+    "terms": [
+     "n_plus_m"
+    ],
+    "witnesses": 1
+   },
+   "prim": {
+    "error": "AttributeError: module 'networkx' has no attribute 'minimum_spanning_tree_prim'"
+   },
+   "topological_sort": {
+    "hashes": [],
+    "m": null,
+    "n": null,
+    "terms": [],
+    "witnesses": 0
+   }
+  }
+ }
+}
