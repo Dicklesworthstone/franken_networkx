@@ -208,6 +208,32 @@ pub fn reference_algorithms() -> Vec<&'static str> {
         .collect()
 }
 
+/// Run ``func()`` with CGSE witness collection enabled on the calling thread
+/// and return ``(result, witnesses)``.
+///
+/// ``witnesses`` holds one [`ComplexityWitness`] per CGSE-instrumented kernel
+/// execution that happened inside ``func`` (the V1 reference algorithms:
+/// BFS/DFS edges, connected and strongly connected components, Dijkstra,
+/// Bellman-Ford, Kruskal/Prim, Eulerian circuit, matching, topological sort).
+/// Kernels outside that set emit nothing, so an empty list is a valid answer.
+/// Nested calls share one ledger and only the outermost drains it. A Python
+/// exception raised by ``func`` propagates unchanged.
+///
+/// Algorithm kernels release the GIL but stay on this OS thread, so the
+/// thread-local ledger sees them; witnesses produced by *other* Python threads
+/// are not collected here.
+#[pyfunction]
+pub fn collect_witnesses(
+    func: Bound<'_, PyAny>,
+) -> PyResult<(Py<PyAny>, Vec<PyComplexityWitness>)> {
+    let (result, witnesses) = fnx_cgse::collect_witnesses(|| func.call0());
+    let result = result?;
+    Ok((
+        result.unbind(),
+        witnesses.into_iter().map(PyComplexityWitness).collect(),
+    ))
+}
+
 pub fn register_module(parent: &Bound<'_, PyModule>) -> PyResult<()> {
     let m = PyModule::new(parent.py(), "cgse")?;
     m.add_class::<PyTieBreakPolicy>()?;
@@ -215,6 +241,7 @@ pub fn register_module(parent: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(algorithm_policy, &m)?)?;
     m.add_function(wrap_pyfunction!(policy_registry, &m)?)?;
     m.add_function(wrap_pyfunction!(reference_algorithms, &m)?)?;
+    m.add_function(wrap_pyfunction!(collect_witnesses, &m)?)?;
     parent.add_submodule(&m)?;
     Ok(())
 }
