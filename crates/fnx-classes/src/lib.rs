@@ -10757,6 +10757,12 @@ fn node_decision_ledger_self_time_ab() {
     println!("  A/A null (recorded/recorded) : {:8.4}x", nb / na);
     println!("  A  add_node_with_attrs       : {rec:8.1} ns/call  (store + ledger)");
     println!("  B  ..._unrecorded            : {unrec:8.1} ns/call  (store only)");
-    println!("  -> decision ledger costs     : {:8.1} ns/call", rec - unrec);
-    println!("  -> ledger share of the pair  : {:8.1}%", 100.0 * (rec - unrec) / rec);
+    println!(
+        "  -> decision ledger costs     : {:8.1} ns/call",
+        rec - unrec
+    );
+    println!(
+        "  -> ledger share of the pair  : {:8.1}%",
+        100.0 * (rec - unrec) / rec
+    );
 }

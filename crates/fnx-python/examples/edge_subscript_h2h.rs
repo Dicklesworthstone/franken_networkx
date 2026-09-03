@@ -328,8 +328,7 @@ fn main() {
             .expect("row-guard harness raised");
         let get_f = |i: usize| -> f64 { guard_row.get_item(i).unwrap().extract().unwrap() };
         let edge_count: usize = guard_row.get_item(5).unwrap().extract().unwrap();
-        let (ratio, null_f, null_n, fns, nns) =
-            (get_f(0), get_f(1), get_f(2), get_f(3), get_f(4));
+        let (ratio, null_f, null_n, fns, nns) = (get_f(0), get_f(1), get_f(2), get_f(3), get_f(4));
         let strict_band = 0.97..=1.03;
         let flag = if strict_band.contains(&null_f) && strict_band.contains(&null_n) {
             ""

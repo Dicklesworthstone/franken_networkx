@@ -2252,9 +2252,9 @@ pub(crate) fn weighted_edge_triplet<'py>(
             || item.is_exact_instance_of::<PyList>()
             || item.is_exact_instance_of::<PyDict>();
         return Err(match cpython_counts.then(|| item.len().ok()).flatten() {
-            Some(got) => PyValueError::new_err(format!(
-                "too many values to unpack (expected 3, got {got})"
-            )),
+            Some(got) => {
+                PyValueError::new_err(format!("too many values to unpack (expected 3, got {got})"))
+            }
             None => PyValueError::new_err("too many values to unpack (expected 3)"),
         });
     }
@@ -11688,10 +11688,9 @@ impl PyMultiGraph {
             (&v_canonical, &u_canonical)
         };
         if pair_remaining {
-            if let (Some(row_key), Some(row)) = (
-                live_row_key,
-                self.live_keydict_rows.get(py, lo, hi),
-            ) && row.bind(py).contains(row_key.bind(py))?
+            if let (Some(row_key), Some(row)) =
+                (live_row_key, self.live_keydict_rows.get(py, lo, hi))
+                && row.bind(py).contains(row_key.bind(py))?
             {
                 row.bind(py).del_item(row_key.bind(py))?;
                 self.live_keydict_rows.refresh_len(py, lo, hi);
@@ -22711,9 +22710,19 @@ fn add_node_entry_self_time_ladder() {
             // Each rung is paired against `full` in its own balanced block, so
             // every rung is measured against the same denominator under the same
             // scheme rather than across blocks.
-            for (index, rung) in [&l0 as &dyn Fn(&mut PyGraph) -> PyResult<Duration>, &l1, &l2, &l3, &l4, &l5, &l6, &l7, &l8]
-                .into_iter()
-                .enumerate()
+            for (index, rung) in [
+                &l0 as &dyn Fn(&mut PyGraph) -> PyResult<Duration>,
+                &l1,
+                &l2,
+                &l3,
+                &l4,
+                &l5,
+                &l6,
+                &l7,
+                &l8,
+            ]
+            .into_iter()
+            .enumerate()
             {
                 let (r, f) = balanced(rung, &full, &mut graph)?;
                 rungs[index].push(r);
@@ -22750,17 +22759,44 @@ fn add_node_entry_self_time_ladder() {
         println!("add_node_entry_self_time_ladder probes={PROBES} reps={REPS} rounds={ROUNDS}");
         println!("  A/A null (full/full)          : {:8.4}x", nb / na);
         println!("  L0 empty body, ladder shape   : {l0m:8.1} ns/call   (call-shape floor)");
-        println!("  L1 canonicalize               : {l1m:8.1} ns/call   (+{:6.1})", l1m - l0m);
-        println!("  L2 + has_node (was_new)       : {l2m:8.1} ns/call   (+{:6.1})", l2m - l1m);
-        println!("  L3 + should_store/key-map     : {l3m:8.1} ns/call   (+{:6.1})", l3m - l2m);
-        println!("  L4 + node_py_attrs entry      : {l4m:8.1} ns/call   (+{:6.1})", l4m - l3m);
-        println!("  L5 + store add_node_with_attrs: {l5m:8.1} ns/call   (+{:6.1})", l5m - l4m);
-        println!("  L6 + log::debug + mirror      : {l6m:8.1} ns/call   (+{:6.1})", l6m - l5m);
-        println!("  L7 + bump_nodes_seq (= body)  : {l7m:8.1} ns/call   (+{:6.1})", l7m - l6m);
+        println!(
+            "  L1 canonicalize               : {l1m:8.1} ns/call   (+{:6.1})",
+            l1m - l0m
+        );
+        println!(
+            "  L2 + has_node (was_new)       : {l2m:8.1} ns/call   (+{:6.1})",
+            l2m - l1m
+        );
+        println!(
+            "  L3 + should_store/key-map     : {l3m:8.1} ns/call   (+{:6.1})",
+            l3m - l2m
+        );
+        println!(
+            "  L4 + node_py_attrs entry      : {l4m:8.1} ns/call   (+{:6.1})",
+            l4m - l3m
+        );
+        println!(
+            "  L5 + store add_node_with_attrs: {l5m:8.1} ns/call   (+{:6.1})",
+            l5m - l4m
+        );
+        println!(
+            "  L6 + log::debug + mirror      : {l6m:8.1} ns/call   (+{:6.1})",
+            l6m - l5m
+        );
+        println!(
+            "  L7 + bump_nodes_seq (= body)  : {l7m:8.1} ns/call   (+{:6.1})",
+            l7m - l6m
+        );
         println!("  L8 add_node in ladder shape   : {l8m:8.1} ns/call");
         println!("  FULL shipped add_node         : {fullm:8.1} ns/call");
-        println!("  CLOSURE CHECK  L7/full        : {:8.4}x  (must be ~1.0)", l7m / fullm);
-        println!("  SHAPE CHECK    L8/full        : {:8.4}x  (~1.0 => shapes agree)", l8m / fullm);
+        println!(
+            "  CLOSURE CHECK  L7/full        : {:8.4}x  (must be ~1.0)",
+            l7m / fullm
+        );
+        println!(
+            "  SHAPE CHECK    L8/full        : {:8.4}x  (~1.0 => shapes agree)",
+            l8m / fullm
+        );
         Ok(())
     })
     .expect("add_node entry self-time ladder must run");
@@ -22793,13 +22829,20 @@ fn lazy_node_attr_mirror_is_indistinguishable_from_an_eager_empty_one() {
 
         // Every node is present regardless of whether a mirror was built.
         for node in [&plain, &with_empty, &attributed] {
-            assert!(graph.has_node(py, node)?, "every added node must be present");
+            assert!(
+                graph.has_node(py, node)?,
+                "every added node must be present"
+            );
         }
 
         // The attributed node kept its attributes.
         let stored = graph.materialize_node_py_attrs(py, "str:10:attributed");
         assert_eq!(
-            stored.bind(py).get_item("w")?.expect("w must be stored").extract::<i64>()?,
+            stored
+                .bind(py)
+                .get_item("w")?
+                .expect("w must be stored")
+                .extract::<i64>()?,
             7,
             "an attributed add_node must still store its attributes"
         );
@@ -22860,7 +22903,11 @@ fn node_attributes_round_trip_with_order_and_non_scalars_preserved() {
         graph.add_node(py, &single, Some(&one))?;
         let rebuilt = graph.materialize_node_py_attrs(py, "str:6:single");
         assert_eq!(
-            rebuilt.bind(py).get_item("w")?.expect("w").extract::<f64>()?,
+            rebuilt
+                .bind(py)
+                .get_item("w")?
+                .expect("w")
+                .extract::<f64>()?,
             1.5,
             "a single lossless attribute must survive the rebuild exactly"
         );
@@ -22906,7 +22953,11 @@ fn node_attributes_round_trip_with_order_and_non_scalars_preserved() {
         graph.add_node(py, &single, Some(&more))?;
         let after = graph.materialize_node_py_attrs(py, "str:6:single");
         assert_eq!(
-            after.bind(py).get_item("extra")?.expect("extra").extract::<i64>()?,
+            after
+                .bind(py)
+                .get_item("extra")?
+                .expect("extra")
+                .extract::<i64>()?,
             9,
             "a later attributed add must reach the node's attributes"
         );
@@ -23199,7 +23250,13 @@ fn add_node_attributed_self_time_ladder() {
             nb_v.push(nb);
             for (i, rung) in [
                 &b0 as &dyn Fn(&mut PyGraph) -> PyResult<Duration>,
-                &b3, &b4, &b5, &b6, &b7, &b9, &bf,
+                &b3,
+                &b4,
+                &b5,
+                &b6,
+                &b7,
+                &b9,
+                &bf,
             ]
             .into_iter()
             .enumerate()
@@ -23225,18 +23282,47 @@ fn add_node_attributed_self_time_ladder() {
         let fullm = median(&mut full_ns);
         let (na, nb) = (median(&mut na_v), median(&mut nb_v));
 
-        println!("add_node_attributed_self_time_ladder probes={PROBES} reps={REPS} rounds={ROUNDS}");
+        println!(
+            "add_node_attributed_self_time_ladder probes={PROBES} reps={REPS} rounds={ROUNDS}"
+        );
         println!("  A/A null (full/full)          : {:8.4}x", nb / na);
         println!("  B0 empty body, ladder shape   : {:8.1} ns/call", m[0]);
-        println!("  B3 canon + has_node + key-map : {:8.1} ns/call   (+{:6.1})", m[1], m[1] - m[0]);
-        println!("  B4 + py_dict_to_attr_map      : {:8.1} ns/call   (+{:6.1})", m[2], m[2] - m[1]);
-        println!("  B5 + node_py_attrs entry      : {:8.1} ns/call   (+{:6.1})", m[3], m[3] - m[2]);
-        println!("  B6 + dict.update(mirror)      : {:8.1} ns/call   (+{:6.1})", m[4], m[4] - m[3]);
-        println!("  B7 + store add_node_with_attrs: {:8.1} ns/call   (+{:6.1})", m[5], m[5] - m[4]);
-        println!("  B9 + log + bump (= body)      : {:8.1} ns/call   (+{:6.1})", m[6], m[6] - m[5]);
+        println!(
+            "  B3 canon + has_node + key-map : {:8.1} ns/call   (+{:6.1})",
+            m[1],
+            m[1] - m[0]
+        );
+        println!(
+            "  B4 + py_dict_to_attr_map      : {:8.1} ns/call   (+{:6.1})",
+            m[2],
+            m[2] - m[1]
+        );
+        println!(
+            "  B5 + node_py_attrs entry      : {:8.1} ns/call   (+{:6.1})",
+            m[3],
+            m[3] - m[2]
+        );
+        println!(
+            "  B6 + dict.update(mirror)      : {:8.1} ns/call   (+{:6.1})",
+            m[4],
+            m[4] - m[3]
+        );
+        println!(
+            "  B7 + store add_node_with_attrs: {:8.1} ns/call   (+{:6.1})",
+            m[5],
+            m[5] - m[4]
+        );
+        println!(
+            "  B9 + log + bump (= body)      : {:8.1} ns/call   (+{:6.1})",
+            m[6],
+            m[6] - m[5]
+        );
         println!("  BF add_node in ladder shape   : {:8.1} ns/call", m[7]);
         println!("  FULL shipped add_node(attr)   : {fullm:8.1} ns/call");
-        println!("  CLOSURE CHECK  B9/full        : {:8.4}x  (must be ~1.0)", m[6] / fullm);
+        println!(
+            "  CLOSURE CHECK  B9/full        : {:8.4}x  (must be ~1.0)",
+            m[6] / fullm
+        );
         println!("  SHAPE CHECK    BF/full        : {:8.4}x", m[7] / fullm);
         Ok(())
     })

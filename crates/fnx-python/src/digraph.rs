@@ -10054,8 +10054,12 @@ impl PyMultiDiGraph {
                         .or_default()
                         .insert(v_c.to_owned(), (stored_len, stored.clone_ref(py)));
                 }
-                self.live_keydict_rows
-                    .insert(py, u_c.to_owned(), v_c.to_owned(), stored.clone_ref(py));
+                self.live_keydict_rows.insert(
+                    py,
+                    u_c.to_owned(),
+                    v_c.to_owned(),
+                    stored.clone_ref(py),
+                );
                 Ok(Some(stored.into_any()))
             })?
         })??;

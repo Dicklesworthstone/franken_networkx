@@ -48,10 +48,10 @@ impl LiveKeydictRows {
         dict: Py<PyDict>,
     ) {
         let expected_len = dict.bind(py).len();
-        self.rows.entry(source).or_default().insert(
-            target,
-            LiveKeydictRow { expected_len, dict },
-        );
+        self.rows
+            .entry(source)
+            .or_default()
+            .insert(target, LiveKeydictRow { expected_len, dict });
     }
 
     pub(crate) fn refresh_len(&mut self, py: Python<'_>, source: &str, target: &str) {
