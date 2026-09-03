@@ -33,7 +33,7 @@ jobs:
           echo "VIRTUAL_ENV=$PWD/.venv" >> "$GITHUB_ENV"
           echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
       - name: Install maturin and test dependencies
-        run: pip install maturin pytest hypothesis networkx numpy scipy
+        run: pip install maturin pytest hypothesis networkx numpy scipy pandas
       - name: Build and install
         run: maturin develop --features pyo3/abi3-py310
       - name: Run Hypothesis property suite
