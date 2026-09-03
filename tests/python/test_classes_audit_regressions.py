@@ -126,12 +126,17 @@ class TestAddWeightedEdgesFromArity:
     @pytest.mark.parametrize("graph_cls", [fnx.Graph, fnx.DiGraph,
                                             fnx.MultiGraph, fnx.MultiDiGraph])
     def test_too_many_values_message_matches_networkx(self, graph_cls):
+        # networkx lets CPython raise this while unpacking ``u, v, d = e``, so the
+        # contract is the interpreter's wording, which changed in 3.14 (it now
+        # appends ", got 4"). Ask the interpreter rather than spell it out.
+        try:
+            _u, _v, _w = (0, 1, 2.5, "extra")
+        except ValueError as exc:
+            expected = str(exc)
         g = graph_cls()
-        with pytest.raises(
-            ValueError,
-            match=r"too many values to unpack \(expected 3\)",
-        ):
+        with pytest.raises(ValueError) as excinfo:
             g.add_weighted_edges_from([(0, 1, 2.5, "extra")])
+        assert str(excinfo.value) == expected
 
     @pytest.mark.parametrize("graph_cls", [fnx.Graph, fnx.DiGraph,
                                             fnx.MultiGraph, fnx.MultiDiGraph])

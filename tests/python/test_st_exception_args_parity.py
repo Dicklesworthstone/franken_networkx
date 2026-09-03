@@ -131,10 +131,11 @@ def test_no_path_message_never_leaks_the_canonical_key(cls_name, nodes, label):
 
 @pytest.mark.parametrize("cls_name", CLASSES)
 def test_flow_value_residue_is_still_exactly_as_recorded(cls_name):
-    """br-r37-c1-7aymx: flow values are float 0.0 where networkx gives int 0.
+    """br-r37-c1-7aymx: flow values were float 0.0 where networkx gives int 0.
 
-    Pinned, not hidden. The VALUE agrees; only the type differs, so this asserts
-    the agreement that holds and reports when the type divergence goes away.
+    This was pinned as a known residue (value agrees, type differs). On
+    2026-09-03 the detector reported the type divergence gone for Graph and
+    DiGraph, so the pin is now the strict assertion: value AND type must match.
     """
     want_graph, got_graph = _build(nx, cls_name), _build(fnx, cls_name)
     try:
@@ -142,14 +143,9 @@ def test_flow_value_residue_is_still_exactly_as_recorded(cls_name):
         got = fnx.maximum_flow_value(got_graph, "a", "z")
     except Exception:  # noqa: BLE001
         pytest.skip(f"maximum_flow_value unsupported for {cls_name}")
-    assert got == want, "the flow VALUE must agree regardless of type"
-    if type(got) is type(want):
-        pytest.fail(
-            f"br-r37-c1-7aymx appears FIXED for {cls_name}: maximum_flow_value now "
-            "returns networkx's type. Fold this into the strict assertions."
-        )
-    assert isinstance(got, float) and isinstance(want, int), (
-        f"br-r37-c1-7aymx residue CHANGED shape: got {got!r}, want {want!r}"
+    assert got == want, "the flow VALUE must agree"
+    assert type(got) is type(want), (
+        f"{cls_name}: networkx returned {type(want).__name__}, fnx {type(got).__name__}"
     )
 
 

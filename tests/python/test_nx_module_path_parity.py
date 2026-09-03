@@ -139,7 +139,9 @@ def test_convert_module_to_dict_helpers_match_networkx_values(monkeypatch):
         _expect(edge_data == "edge", "convert.to_dict_of_dicts must forward edge_data")
         return sentinel
 
-    def fake_to_dict_of_lists(graph, nodelist=None):
+    def fake_to_dict_of_lists(graph, nodelist=None, backend=None, **backend_kwargs):
+        # convert.to_dict_of_lists forwards nx's dispatch keywords too; the fake
+        # must accept them or it rejects the very call it is meant to observe.
         _expect(graph is fg, "convert.to_dict_of_lists must pass through the original graph")
         _expect(nodelist == ["b", "a"], "convert.to_dict_of_lists must forward nodelist")
         return sentinel

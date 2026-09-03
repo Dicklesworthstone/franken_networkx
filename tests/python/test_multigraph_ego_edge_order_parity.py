@@ -189,16 +189,14 @@ def test_undirected_flag_on_an_undirected_graph_is_a_known_residue():
             assert {frozenset(e) for e in got.edges()} == {
                 frozenset(e) for e in want.edges()
             }, "the ego edge SET must be right even when the order is not"
-            if list(got.nodes()) != list(want.nodes()):
-                seeds_with_divergence += 1
+            # 2026-09-03: swept PYTHONHASHSEED 0-9 at HEAD 67828d6a7 and no seed
+            # showed an ordering divergence any more (br-r37-c1-77okh is closed),
+            # so the detector folded into the strict assertion it asked for.
+            assert list(got.nodes()) == list(want.nodes()), (
+                f"seed={seed} radius={radius}: ego node ORDER diverges from networkx"
+            )
+            seeds_with_divergence += 0
     assert checked >= 15, "this pin must actually sweep something"
-    if seeds_with_divergence == 0:
-        pytest.fail(
-            "br-r37-c1-77okh shows no ordering divergence at this PYTHONHASHSEED. "
-            "It is seed-dependent, so this alone is not proof of a fix — re-run "
-            "across seeds 0-9; if all are clean, fold this into the strict "
-            "assertions above and close the bead."
-        )
 
 
 @pytest.mark.parametrize("cls_name", MULTI)
