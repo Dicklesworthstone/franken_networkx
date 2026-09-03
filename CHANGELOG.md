@@ -46,6 +46,12 @@ Assessment: [`docs/history/REALITY_CHECK_2026-09-02.md`](docs/history/REALITY_CH
   touch `crates/ python/ scripts/ tests/ fuzz/`, with a 150-commit budget. G4, G4c, G4d and the
   nightly Hypothesis job now install numpy and scipy: `pagerank` has routed through scipy since
   2026-05-24, so the README quick start and all four examples need it, as `nx.pagerank` does.
+  Two more causes that made a green run impossible even past G0: every job that runs
+  `maturin develop` did so without a virtualenv, which maturin refuses (the nightly Hypothesis
+  job failed 108 of 108 runs on exactly that), so those jobs now create one; and with ~30
+  pushes a day plus `cancel-in-progress`, push-triggered runs were cancelled before a runner
+  picked them up, so a 6-hourly schedule and `workflow_dispatch` now run in their own
+  concurrency group that pushes cannot cancel.
 - The five audit ledgers were regenerated at HEAD (committed in `1883046d3`); the strict
   FeatureUniverse moved from 3,468 (84.0%) to 3,823 of 4,129 (92.6%) present, 306 partial,
   0 missing. The hardcoded counters in `tests/python/test_coverage_gaps.py` were updated with an

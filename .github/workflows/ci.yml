@@ -121,6 +121,11 @@ jobs:
         with:
           python-version: "3.12"
       - uses: Swatinem/rust-cache@v2
+      - name: Create virtualenv (maturin develop refuses to run without one)
+        run: |
+          python -m venv .venv
+          echo "VIRTUAL_ENV=$PWD/.venv" >> "$GITHUB_ENV"
+          echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
       - name: Install maturin and test dependencies
         run: pip install maturin pytest hypothesis networkx numpy scipy
       - name: Build and install
@@ -140,6 +145,11 @@ jobs:
         with:
           python-version: "3.12"
       - uses: Swatinem/rust-cache@v2
+      - name: Create virtualenv (maturin develop refuses to run without one)
+        run: |
+          python -m venv .venv
+          echo "VIRTUAL_ENV=$PWD/.venv" >> "$GITHUB_ENV"
+          echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
       - name: Install maturin and E2E dependencies
         run: pip install maturin networkx numpy scipy
       - name: Build and install
@@ -159,6 +169,11 @@ jobs:
         with:
           python-version: "3.12"
       - uses: Swatinem/rust-cache@v2
+      - name: Create virtualenv (maturin develop refuses to run without one)
+        run: |
+          python -m venv .venv
+          echo "VIRTUAL_ENV=$PWD/.venv" >> "$GITHUB_ENV"
+          echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
       - name: Install docs gate dependencies
         run: pip install maturin networkx numpy scipy
       - name: Build and install
@@ -178,6 +193,11 @@ jobs:
         with:
           python-version: "3.12"
       - uses: Swatinem/rust-cache@v2
+      - name: Create virtualenv (maturin develop refuses to run without one)
+        run: |
+          python -m venv .venv
+          echo "VIRTUAL_ENV=$PWD/.venv" >> "$GITHUB_ENV"
+          echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
       - name: Install example dependencies
         run: pip install maturin networkx numpy scipy
       - name: Build and install
@@ -236,8 +256,13 @@ jobs:
         with:
           python-version: "3.12"
       - uses: Swatinem/rust-cache@v2
+      - name: Create virtualenv (maturin develop refuses to run without one)
+        run: |
+          python -m venv .venv
+          echo "VIRTUAL_ENV=$PWD/.venv" >> "$GITHUB_ENV"
+          echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
       - name: Install benchmark gate Python dependencies
-        run: pip install maturin networkx
+        run: pip install maturin networkx numpy scipy
       - name: Build release extension for perf SLO workloads
         run: maturin develop --release --features pyo3/abi3-py310
       - name: Run benchmark gate

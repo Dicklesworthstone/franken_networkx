@@ -86,16 +86,20 @@ def test_nbunch_mutation_matches_networkx(class_name, order, size):
 
 
 def test_the_undirected_gate_is_what_rescues_graph():
-    """Graph at nbunch=16 flips on graph ORDER alone - that is the gate.
+    """Graph at nbunch=16 must match networkx on BOTH sides of the walk gate.
 
-    Same class, same nbunch, same mutation: divergent at order 500 where the
-    limit is its floor of 8, faithful at order 20000 where the limit is 80. If
-    this ever stops holding, the gate has moved and the DIVERGENT map above is
-    stale.
+    When this file was written, the same class, nbunch and mutation diverged at
+    order 500 (limit at its floor of 8, call handed to the native kernel) and
+    were faithful at order 20000 (limit 80). 3f71ed675 (2026-09-02,
+    br-r37-c1-8c7m5's simple-class residue) taught the above-gate path
+    networkx's semantics, so the DIVERGENT map above is history: the small
+    order now completes exactly as networkx does, and this test pins parity on
+    both sides so the gate can never again decide the contract.
     """
     small = _iterate_and_mutate(fnx, "Graph", 500, 16)
     large = _iterate_and_mutate(fnx, "Graph", 20000, 16)
-    assert small == ("RuntimeError",), small
+    assert small == _iterate_and_mutate(nx, "Graph", 500, 16), small
+    assert small[0] == "completes"
     assert large == _iterate_and_mutate(nx, "Graph", 20000, 16)
 
 

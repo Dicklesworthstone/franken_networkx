@@ -27,6 +27,11 @@ jobs:
         with:
           python-version: "3.12"
       - uses: Swatinem/rust-cache@v2
+      - name: Create virtualenv (maturin develop refuses to run without one)
+        run: |
+          python -m venv .venv
+          echo "VIRTUAL_ENV=$PWD/.venv" >> "$GITHUB_ENV"
+          echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
       - name: Install maturin and test dependencies
         run: pip install maturin pytest hypothesis networkx numpy scipy
       - name: Build and install
