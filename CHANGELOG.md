@@ -37,6 +37,29 @@ still driven by the `br-r37-c1-*` bead cycle. It is not a new public API era.
 
 - `br-r37-c1-*` bead cycle (native-store / views). Tracker: [`.beads/issues.jsonl`](https://github.com/Dicklesworthstone/franken_networkx/blob/main/.beads/issues.jsonl).
 
+### 2026-09-02 — Reality check follow-through (`br-r37-c1-qrldi`, `br-r37-c1-5f3mv`)
+
+Assessment: [`docs/history/REALITY_CHECK_2026-09-02.md`](docs/history/REALITY_CHECK_2026-09-02.md).
+
+- CI had 0 successful runs out of 6,947 on `main`: every run since 2026-04-17 failed at G0 docs
+  freshness (50 commits of any kind) and G1-G8 never executed. G0 now counts only commits that
+  touch `crates/ python/ scripts/ tests/ fuzz/`, with a 150-commit budget. G4, G4c, G4d and the
+  nightly Hypothesis job now install numpy and scipy: `pagerank` has routed through scipy since
+  2026-05-24, so the README quick start and all four examples need it, as `nx.pagerank` does.
+- The five audit ledgers were regenerated at HEAD (committed in `1883046d3`); the strict
+  FeatureUniverse moved from 3,468 (84.0%) to 3,823 of 4,129 (92.6%) present, 306 partial,
+  0 missing. The hardcoded counters in `tests/python/test_coverage_gaps.py` were updated with an
+  itemised golden-change note (325 partial → present router signatures, 30 missing → present
+  GraphMLReader and Partition paths).
+- README, FEATURE_PARITY and AGENTS.md corrected to the tree: 1,083 test files, 793 exports,
+  313 backend algorithms, 125 parity-helper exports / 181 routes, 24 wrapper-patched rows,
+  pagerank's scipy route, native left-right planarity for `is_planar`, community routing, CGSE
+  witness scope, the real storage structs, `maturin develop --uv` for the uv venv, and three
+  measured losses (`remove_node`, unkeyed MultiDiGraph `get_edge_data`, `G[u][v]`).
+- Release path verified at HEAD: the `v0.2.0` wheel jobs failed on an absolute-path dependency
+  (fixed in `8b7dff824`); a wheel built from HEAD installs in a fresh Python 3.12 venv and runs
+  the quick start, pagerank and backend dispatch. No tag has been pushed and nothing is on PyPI.
+
 ### 2026-08-19 — Repo-janitor docs-reorg
 
 Root planning and parity documents moved into [`docs/planning/`](docs/planning/).

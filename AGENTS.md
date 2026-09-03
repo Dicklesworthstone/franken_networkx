@@ -109,6 +109,10 @@ The project includes Python bindings via PyO3, built with Maturin. The native ex
 # Build and install into current Python environment
 env -u CARGO_TARGET_DIR maturin develop --features pyo3/abi3-py310
 
+# The repo's .venv is uv-managed (no pip inside it): add --uv or maturin fails
+# with "Failed to find pip"
+env -u CARGO_TARGET_DIR maturin develop --uv --release --features pyo3/abi3-py310
+
 # With release optimizations (recommended for benchmarks)
 env -u CARGO_TARGET_DIR maturin develop --release --features pyo3/abi3-py310
 
@@ -152,7 +156,7 @@ offload, and plain local `maturin` for the extension itself.
 pytest tests/python/ -v --tb=long
 
 # Run specific test files
-pytest tests/python/test_conformance.py -v
+pytest tests/python/test_coverage_gaps.py -v
 pytest tests/python/test_error_messages.py -v
 pytest tests/python/test_hypothesis.py -v
 pytest tests/python/test_thread_safety.py -v
