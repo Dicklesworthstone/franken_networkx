@@ -28,7 +28,7 @@ jobs:
           python-version: "3.12"
       - uses: Swatinem/rust-cache@v2
       - name: Install maturin and test dependencies
-        run: pip install maturin pytest hypothesis networkx
+        run: pip install maturin pytest hypothesis networkx numpy scipy
       - name: Build and install
         run: maturin develop --features pyo3/abi3-py310
       - name: Run Hypothesis property suite

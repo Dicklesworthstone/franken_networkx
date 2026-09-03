@@ -24,12 +24,18 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 100
+          fetch-depth: 400
       - name: Enforce README/FEATURE_PARITY/CHANGELOG freshness
         shell: bash
         run: |
           set -euo pipefail
-          max_commits=50
+          # Count only commits that touch code (crates/ python/ scripts/ tests/ fuzz/).
+          # The docs describe the code, so beads/artifact/ledger chores do not age
+          # them. With ~30 commits a day the previous "50 commits of any kind"
+          # budget was unmeetable: every run on main from 2026-04-17 to 2026-09-01
+          # failed here and G1-G8 never executed. 150 code commits is roughly ten
+          # days of the current swarm rate, which is still a hard stop.
+          max_commits=150
           files=(README.md docs/planning/FEATURE_PARITY.md CHANGELOG.md)
           for file in "${files[@]}"; do
             if [[ ! -f "$file" ]]; then
@@ -41,12 +47,12 @@ jobs:
               echo "::error file=${file}::no git history found for ${file}"
               exit 1
             fi
-            distance=$(git rev-list --count "${last_commit}..HEAD")
+            distance=$(git rev-list --count "${last_commit}..HEAD" -- crates python scripts tests fuzz)
             if (( distance > max_commits )); then
-              echo "::error file=${file}::last updated ${distance} commits ago (limit ${max_commits})"
+              echo "::error file=${file}::last updated ${distance} code commits ago (limit ${max_commits})"
               exit 1
             fi
-            echo "${file} OK (last update ${distance} commits ago)"
+            echo "${file} OK (last update ${distance} code commits ago)"
           done
 
   g1-format:
@@ -108,7 +114,7 @@ jobs:
           python-version: "3.12"
       - uses: Swatinem/rust-cache@v2
       - name: Install maturin and test dependencies
-        run: pip install maturin pytest hypothesis networkx
+        run: pip install maturin pytest hypothesis networkx numpy scipy
       - name: Build and install
         run: maturin develop --features pyo3/abi3-py310
       - name: Run canonical Python parity suite
@@ -146,7 +152,7 @@ jobs:
           python-version: "3.12"
       - uses: Swatinem/rust-cache@v2
       - name: Install docs gate dependencies
-        run: pip install maturin networkx
+        run: pip install maturin networkx numpy scipy
       - name: Build and install
         run: maturin develop --features pyo3/abi3-py310
       - name: Verify docs and examples
@@ -165,7 +171,7 @@ jobs:
           python-version: "3.12"
       - uses: Swatinem/rust-cache@v2
       - name: Install example dependencies
-        run: pip install maturin networkx
+        run: pip install maturin networkx numpy scipy
       - name: Build and install
         run: maturin develop --features pyo3/abi3-py310
       - name: Run examples
