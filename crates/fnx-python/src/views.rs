@@ -488,6 +488,45 @@ impl NodeView {
         Ok(self_set.into_any().unbind())
     }
 
+    /// Reflected union: other | self. networkx's NodeView inherits
+    /// `collections.abc.Set`, so `set | G.nodes` works there; mirror it.
+    fn __ror__(&self, py: Python<'_>, other: &Bound<'_, PyAny>) -> PyResult<PyObject> {
+        self.__or__(py, other)
+    }
+
+    /// Reflected intersection: other & self (commutative).
+    fn __rand__(&self, py: Python<'_>, other: &Bound<'_, PyAny>) -> PyResult<PyObject> {
+        self.__and__(py, other)
+    }
+
+    /// Reflected symmetric difference: other ^ self (commutative).
+    fn __rxor__(&self, py: Python<'_>, other: &Bound<'_, PyAny>) -> PyResult<PyObject> {
+        self.__xor__(py, other)
+    }
+
+    /// Reflected difference: other - self, i.e. the members of `other` that
+    /// are not nodes of this graph.
+    fn __rsub__(&self, py: Python<'_>, other: &Bound<'_, PyAny>) -> PyResult<PyObject> {
+        let self_nodes: Vec<PyObject> = {
+            let g = self.graph.borrow(py);
+            g.inner
+                .nodes_ordered()
+                .iter()
+                .map(|n| g.py_node_key(py, n))
+                .collect()
+        };
+        let self_set = pyo3::types::PySet::new(py, self_nodes.iter())?;
+        let mut result = Vec::new();
+        for item in PyIterator::from_object(other)? {
+            let item = item?;
+            if !self_set.contains(&item)? {
+                result.push(item.unbind());
+            }
+        }
+        let set = pyo3::types::PySet::new(py, result.iter())?;
+        Ok(set.into_any().unbind())
+    }
+
     /// Intersection: self & other
     fn __and__(&self, py: Python<'_>, other: &Bound<'_, PyAny>) -> PyResult<PyObject> {
         let g = self.graph.borrow(py);
@@ -1582,6 +1621,40 @@ impl EdgeView {
             self_set.add(item?)?;
         }
         Ok(self_set.into_any().unbind())
+    }
+
+    /// Reflected union: other | self. networkx's edge views inherit
+    /// `collections.abc.Set`, whose reflected operators make `set & G.edges`
+    /// work; without these `{...} & MG.edges(keys=True)` raised TypeError
+    /// (tests/python/test_multi_keyed_edges_set_algebra_parity.py).
+    fn __ror__(&self, py: Python<'_>, other: &Bound<'_, PyAny>) -> PyResult<PyObject> {
+        self.__or__(py, other)
+    }
+
+    /// Reflected intersection: other & self (commutative).
+    fn __rand__(&self, py: Python<'_>, other: &Bound<'_, PyAny>) -> PyResult<PyObject> {
+        self.__and__(py, other)
+    }
+
+    /// Reflected symmetric difference: other ^ self (commutative).
+    fn __rxor__(&self, py: Python<'_>, other: &Bound<'_, PyAny>) -> PyResult<PyObject> {
+        self.__xor__(py, other)
+    }
+
+    /// Reflected difference: other - self, i.e. the members of `other` that
+    /// are not edges of this view.
+    fn __rsub__(&self, py: Python<'_>, other: &Bound<'_, PyAny>) -> PyResult<PyObject> {
+        let self_edges = self.collect_edge_tuples(py)?;
+        let self_set = pyo3::types::PySet::new(py, self_edges.iter())?;
+        let mut result = Vec::new();
+        for item in PyIterator::from_object(other)? {
+            let item = item?;
+            if !self_set.contains(&item)? {
+                result.push(item.unbind());
+            }
+        }
+        let set = pyo3::types::PySet::new(py, result.iter())?;
+        Ok(set.into_any().unbind())
     }
 
     /// Intersection: self & other
