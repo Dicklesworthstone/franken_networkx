@@ -43,6 +43,11 @@ jobs:
           # budget was unmeetable: every run on main from 2026-04-17 to 2026-09-01
           # failed here and G1-G8 never executed. 150 code commits is roughly ten
           # days of the current swarm rate, which is still a hard stop.
+          # Integrity split (required by suite gate rule): artifacts/g0-threshold-split-2026-09.md
+          # — the raise admits 31/300 sampled pushes, 0 WIN / 31 plausible-drift,
+          # 0 regressions. Kept as throughput restoration, NOT a defect fix; step
+          # back toward 50 once docs are touched within every 150-code-commit
+          # window for 30 consecutive days.
           max_commits=150
           files=(README.md docs/planning/FEATURE_PARITY.md CHANGELOG.md)
           for file in "${files[@]}"; do
