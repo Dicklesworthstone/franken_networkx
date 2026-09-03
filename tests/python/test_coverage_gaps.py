@@ -92,7 +92,11 @@ def test_the_marker_forgiveness_is_reachable_on_a_real_method():
     reference = coverage_matrix["load_feature_universe_reference"]()
     rows = {row["path"]: row for row in coverage_matrix["classify_feature_universe"](reference)}
 
-    for path in ("networkx.Graph.has_node", "networkx.Graph.has_edge"):
+    # `has_node` stopped being a native method descriptor when the present-key
+    # memo lever wrapped it in a Python function (br-r37-c1-770z8 / 6n9vm), so
+    # it no longer exercises the marker path; `has_edge` and `number_of_nodes`
+    # are still `method_descriptor` objects on `franken_networkx.Graph`.
+    for path in ("networkx.Graph.has_edge", "networkx.Graph.number_of_nodes"):
         row = rows[path]
         assert row["status"] == "present", (path, row["detail"])
         assert "positional-only" in row["detail"], (
@@ -143,7 +147,11 @@ def test_feature_universe_classifies_every_path_without_rounding_partial_up():
     by_path = {row["path"]: row for row in rows}
 
     assert len(by_path) == len(rows) == 4926
-    assert set(statuses) == {"present", "partial", "missing", "n/a", "excluded"}
+    # `missing` is no longer observed (see the 2026-09-02 note below), and a
+    # Counter omits zero-count keys, so the status set is bounded from both sides
+    # rather than pinned to one exact set.
+    assert {"present", "partial", "excluded"} <= set(statuses)
+    assert set(statuses) <= {"present", "partial", "missing", "n/a", "excluded"}
     # br-r37-c1-9hnq3: 3399 -> 3403 present, 700 -> 696 partial. Four paths moved
     # partial -> present and NOTHING moved the other way (verified by diffing the
     # regenerated matrix against the committed one, row by row):
@@ -174,13 +182,24 @@ def test_feature_universe_classifies_every_path_without_rounding_partial_up():
     # moved partial -> present and nothing moved the other way: every one is a
     # native method that was being charged for a method descriptor's
     # positional-only `self` marker. See the ratio assertion above.
+    # GOLDEN-CHANGE 2026-09-02 (ledger commit 1883046d3, regenerated from HEAD;
+    # this test was left red by it): 3468 -> 3823 present, 631 -> 306 partial,
+    # 30 -> 0 missing. Diffed row by row against 035ae3800; nothing moved the
+    # other way:
+    #   325 partial -> present: every one was `FrankenNetworkX (*args, **kwargs)`
+    #       (generic namespace routers, br-r37-c1-9r8xg) and now carries the real
+    #       signature, e.g. networkx.algorithms.attribute_assortativity_coefficient,
+    #       networkx.algorithms.attribute_mixing_dict, ...mixing_matrix.
+    #    30 missing -> present: the SpanningTreeIterator / ArborescenceIterator
+    #       `Partition` inner classes (6 paths) and the GraphMLReader methods and
+    #       namespace constants (24 paths, br-r37-c1-ozpfa).
     assert statuses == {
-        "present": 3468,
-        "partial": 631,
-        "missing": 30,
+        "present": 3823,
+        "partial": 306,
         "n/a": 1,
         "excluded": 796,
     }
+    assert statuses["missing"] == 0
     assert by_path["networkx.shortest_path"]["status"] == "present"
     assert by_path["networkx.algorithms.shortest_path"]["status"] == "partial"
     assert (
@@ -191,7 +210,7 @@ def test_feature_universe_classifies_every_path_without_rounding_partial_up():
     )
     assert by_path["networkx.Graph"]["status"] == "partial"
     assert by_path["networkx.readwrite.GraphMLReader.add_edge"]["status"] == (
-        "missing"
+        "present"
     )
 
     applicable = (
@@ -209,8 +228,10 @@ def test_feature_universe_classifies_every_path_without_rounding_partial_up():
     # br-r37-c1-9hnq3 previously moved 3399 -> 3403 (four paths, itemised below).
     # br-r37-c1-s5pxs: 3465/4129 -> 3468/4129, three generators paths; see the
     # itemised note above.
+    # 2026-09-02 (ledger commit 1883046d3): 3468/4129 -> 3823/4129, the 325
+    # router-signature and 30 GraphMLReader/Partition paths itemised above.
     assert statuses["present"] / applicable == pytest.approx(
-        3468 / 4129
+        3823 / 4129
     )
 
 
@@ -247,9 +268,11 @@ def test_feature_universe_reports_every_family_not_only_a_headline():
     assert all(f"| `{family}` |" in rendered for family in families)
     # br-r37-c1-y14e9: 3403 -> 3465 (82.4% -> 83.9%); see the itemised note on
     # test_feature_universe_classifies_every_path_without_rounding_partial_up.
+    # GOLDEN-CHANGE 2026-09-02: 3468 (84.0%) -> 3823 (92.6%); itemised on
+    # test_feature_universe_classifies_every_path_without_rounding_partial_up.
     assert (
-        "a real user can port **3468 of 4129 applicable NetworkX feature "
-        "paths today (84.0%)**"
+        "a real user can port **3823 of 4129 applicable NetworkX feature "
+        "paths today (92.6%)**"
     ) in rendered
 
 
