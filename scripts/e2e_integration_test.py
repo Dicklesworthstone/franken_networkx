@@ -108,7 +108,9 @@ def standalone_workflow() -> dict:
     expect(len(components) == 1, "standalone graph should remain connected")
 
     community_graph = fnx.karate_club_graph()
-    communities = tuple(next(fnx.girvan_newman(community_graph)))
+    # girvan_newman lives under the community namespace in NetworkX 3.x (there is
+    # no top-level nx.girvan_newman), and fnx mirrors that layout.
+    communities = tuple(next(fnx.community.girvan_newman(community_graph)))
     expect(len(communities) >= 2, "girvan_newman should split the graph into communities")
 
     roundtrip = fnx.node_link_graph(fnx.node_link_data(graph))
@@ -238,7 +240,8 @@ def multigraph_workflow() -> dict:
     multidigraph.add_edge("z", "x", key=6, capacity=13)
 
     expect(multidigraph.number_of_edges("x", "y") == 2, "multidigraph parallel edges drifted")
-    expect(multidigraph.successors("x") == ["y"], "multidigraph successors mismatch")
+    # successors() returns an iterator in NetworkX and in fnx; compare the materialised list.
+    expect(list(multidigraph.successors("x")) == ["y"], "multidigraph successors mismatch")
 
     return {
         "multigraph_edges": multigraph.number_of_edges(),
