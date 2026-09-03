@@ -424,7 +424,7 @@ for w in &witnesses {
 
 Or use the `verify_complexity_bound(&witness)` and `assert_complexity_within_bounds(&witness)` helpers shipped from `fnx_cgse`. Two runs on the same graph with the same policy produce identical `decision_path_blake3` hashes; any ordering drift manifests as a hash mismatch, making non-determinism a regression-locked property.
 
-This makes complexity regressions a regression-lockable property in Rust integration tests, not a folklore expectation; no CI job asserts the bound yet.
+This makes complexity regressions a regression-lockable property, not a folklore expectation: `crates/fnx-conformance/tests/cgse_complexity_bound_gate.rs` (landed 2026-09-03) asserts for all 12 V1 reference algorithms that a witness is emitted, matches the pinned registry policy and dominant term, stays within `analytic_upper_bound`, and is hash-identical across runs — with a negative case proving an inflated operation count is rejected. The gate runs inside G3's `cargo test` sweep.
 
 ### Tie-break policies in action
 
