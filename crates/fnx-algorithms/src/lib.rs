@@ -22458,6 +22458,7 @@ fn topological_sort_orig_string(digraph: &DiGraph) -> Option<TopologicalSortResu
 /// Matches `networkx.topological_generations`.
 #[must_use]
 pub fn topological_generations(digraph: &DiGraph) -> Option<TopologicalGenerationsResult> {
+    let mut cgse_sink = cgse_begin(CgseReferenceAlgorithm::TopologicalSort);
     let nodes = digraph.nodes_ordered();
     let n = nodes.len();
 
@@ -22490,6 +22491,10 @@ pub fn topological_generations(digraph: &DiGraph) -> Option<TopologicalGeneratio
         let mut next_gen: Vec<(usize, Option<usize>)> = Vec::new();
         for &(node, _) in &current_gen {
             total_processed += 1;
+            // Emission-only CGSE witness for the parity-exact Kahn kernel the
+            // public topological_sort/topological_generations routes take
+            // (reality-check bead rc-cgse-witness-routes-obp8v). No behavior change.
+            cgse_record_decision(&mut cgse_sink, nodes[node], "processed");
             if let Some(succs) = digraph.successors_indices(node) {
                 for &succ in succs {
                     edges_scanned += 1;
@@ -22512,9 +22517,21 @@ pub fn topological_generations(digraph: &DiGraph) -> Option<TopologicalGeneratio
     }
 
     if total_processed != n {
+        cgse_publish(
+            CgseReferenceAlgorithm::TopologicalSort,
+            digraph.node_count(),
+            digraph.edge_count(),
+            cgse_sink,
+        );
         return None; // cycle detected
     }
 
+    cgse_publish(
+        CgseReferenceAlgorithm::TopologicalSort,
+        digraph.node_count(),
+        digraph.edge_count(),
+        cgse_sink,
+    );
     Some(TopologicalGenerationsResult {
         generations,
         witness: ComplexityWitness {

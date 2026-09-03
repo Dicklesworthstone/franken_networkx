@@ -38,6 +38,7 @@ REPO = Path(__file__).resolve().parent.parent
 # Routes where a witness MUST be emitted (README-documented emitting set).
 EMIT_REQUIRED = {
     "connected_components": ("connected_components", "ring", ()),
+    "topological_sort": ("topological_sort", "dag", ()),
     "bfs_edges": ("bfs_edges", "ring", ("0",)),
     "dfs_edges": ("dfs_edges", "ring", ("0",)),
     "minimum_spanning_tree": ("minimum_spanning_tree", "weighted_ring", ()),
@@ -54,7 +55,6 @@ EMIT_REQUIRED = {
 MAY_EMIT = {
     "dijkstra": ("multi_source_dijkstra", "weighted_ring", (["0"],)),
     "prim": ("minimum_spanning_tree_prim", "weighted_ring", ()),
-    "topological_sort": ("topological_sort", "dag", ()),
     "eulerian_circuit": ("eulerian_circuit", "ring", ("0",)),
     "max_weight_matching": ("max_weight_matching", "weighted_ring", ()),
     "min_weight_matching": ("min_weight_matching", "weighted_ring", ()),

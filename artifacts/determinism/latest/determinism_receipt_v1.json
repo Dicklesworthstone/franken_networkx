@@ -1,5 +1,5 @@
 {
- "generated_at_utc": "2026-09-03T22:36:20.349166+00:00",
+ "generated_at_utc": "2026-09-03T23:04:21.985063+00:00",
  "problems": [],
  "python_version": "3.14.4",
  "schema_version": 1,
@@ -103,11 +103,15 @@
     "error": "AttributeError: module 'networkx' has no attribute 'minimum_spanning_tree_prim'"
    },
    "topological_sort": {
-    "hashes": [],
-    "m": null,
-    "n": null,
-    "terms": [],
-    "witnesses": 0
+    "hashes": [
+     "321524762ab04cd7b7fd33b608c1620ac7a4bbd15f048479d3ce3253c380208e"
+    ],
+    "m": 13,
+    "n": 12,
+    "terms": [
+     "n_plus_m"
+    ],
+    "witnesses": 1
    }
   },
   "1": {
@@ -209,11 +213,15 @@
     "error": "AttributeError: module 'networkx' has no attribute 'minimum_spanning_tree_prim'"
    },
    "topological_sort": {
-    "hashes": [],
-    "m": null,
-    "n": null,
-    "terms": [],
-    "witnesses": 0
+    "hashes": [
+     "321524762ab04cd7b7fd33b608c1620ac7a4bbd15f048479d3ce3253c380208e"
+    ],
+    "m": 13,
+    "n": 12,
+    "terms": [
+     "n_plus_m"
+    ],
+    "witnesses": 1
    }
   },
   "random": {
@@ -315,11 +323,15 @@
     "error": "AttributeError: module 'networkx' has no attribute 'minimum_spanning_tree_prim'"
    },
    "topological_sort": {
-    "hashes": [],
-    "m": null,
-    "n": null,
-    "terms": [],
-    "witnesses": 0
+    "hashes": [
+     "321524762ab04cd7b7fd33b608c1620ac7a4bbd15f048479d3ce3253c380208e"
+    ],
+    "m": 13,
+    "n": 12,
+    "terms": [
+     "n_plus_m"
+    ],
+    "witnesses": 1
    }
   }
  }
