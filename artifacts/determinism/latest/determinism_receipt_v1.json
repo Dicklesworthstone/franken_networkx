@@ -1,5 +1,5 @@
 {
- "generated_at_utc": "2026-09-03T23:10:12.030677+00:00",
+ "generated_at_utc": "2026-09-03T23:55:31.325438+00:00",
  "problems": [],
  "python_version": "3.14.4",
  "schema_version": 1,
@@ -49,12 +49,16 @@
     ],
     "witnesses": 1
    },
-   "dijkstra": {
-    "hashes": [],
-    "m": null,
-    "n": null,
-    "terms": [],
-    "witnesses": 0
+   "dijkstra_path": {
+    "hashes": [
+     "468135f895aa7861b0c50db5691a2baf35832094c3e91a0feed0aaa98a4ba57b"
+    ],
+    "m": 12,
+    "n": 12,
+    "terms": [
+     "n_plus_m_log_n"
+    ],
+    "witnesses": 1
    },
    "eulerian_circuit": {
     "hashes": [],
@@ -87,6 +91,13 @@
      "m_log_m"
     ],
     "witnesses": 1
+   },
+   "multi_source_dijkstra": {
+    "hashes": [],
+    "m": null,
+    "n": null,
+    "terms": [],
+    "witnesses": 0
    },
    "number_strongly_connected_components": {
     "hashes": [
@@ -159,12 +170,16 @@
     ],
     "witnesses": 1
    },
-   "dijkstra": {
-    "hashes": [],
-    "m": null,
-    "n": null,
-    "terms": [],
-    "witnesses": 0
+   "dijkstra_path": {
+    "hashes": [
+     "468135f895aa7861b0c50db5691a2baf35832094c3e91a0feed0aaa98a4ba57b"
+    ],
+    "m": 12,
+    "n": 12,
+    "terms": [
+     "n_plus_m_log_n"
+    ],
+    "witnesses": 1
    },
    "eulerian_circuit": {
     "hashes": [],
@@ -197,6 +212,13 @@
      "m_log_m"
     ],
     "witnesses": 1
+   },
+   "multi_source_dijkstra": {
+    "hashes": [],
+    "m": null,
+    "n": null,
+    "terms": [],
+    "witnesses": 0
    },
    "number_strongly_connected_components": {
     "hashes": [
@@ -269,12 +291,16 @@
     ],
     "witnesses": 1
    },
-   "dijkstra": {
-    "hashes": [],
-    "m": null,
-    "n": null,
-    "terms": [],
-    "witnesses": 0
+   "dijkstra_path": {
+    "hashes": [
+     "468135f895aa7861b0c50db5691a2baf35832094c3e91a0feed0aaa98a4ba57b"
+    ],
+    "m": 12,
+    "n": 12,
+    "terms": [
+     "n_plus_m_log_n"
+    ],
+    "witnesses": 1
    },
    "eulerian_circuit": {
     "hashes": [],
@@ -307,6 +333,13 @@
      "m_log_m"
     ],
     "witnesses": 1
+   },
+   "multi_source_dijkstra": {
+    "hashes": [],
+    "m": null,
+    "n": null,
+    "terms": [],
+    "witnesses": 0
    },
    "number_strongly_connected_components": {
     "hashes": [

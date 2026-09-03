@@ -33824,12 +33824,25 @@ pub fn dijkstra_path_to_target(
     target: &str,
     weight_attr: &str,
 ) -> Option<(f64, Vec<String>, bool)> {
+    let mut cgse_sink = cgse_begin(CgseReferenceAlgorithm::Dijkstra);
     let (Some(s), Some(t)) = (graph.get_node_index(source), graph.get_node_index(target)) else {
+        cgse_publish(
+            CgseReferenceAlgorithm::Dijkstra,
+            graph.node_count(),
+            graph.edge_count(),
+            cgse_sink,
+        );
         return None;
     };
     let names = graph.nodes_ordered();
     let n = names.len();
     if s == t {
+        cgse_publish(
+            CgseReferenceAlgorithm::Dijkstra,
+            graph.node_count(),
+            graph.edge_count(),
+            cgse_sink,
+        );
         return Some((0.0, vec![names[s].to_owned()], true));
     }
     let mut distances: Vec<f64> = vec![f64::INFINITY; n];
@@ -33854,15 +33867,17 @@ pub fn dijkstra_path_to_target(
         }
         if !finalized[u] {
             finalized[u] = true;
+            cgse_record_decision(&mut cgse_sink, names[u], "finalized");
             if u == t {
-                return Some(reconstruct_target_path(
-                    graph,
-                    &predecessors,
-                    &names,
-                    t,
-                    d,
-                    weight_attr,
-                ));
+                let result =
+                    reconstruct_target_path(graph, &predecessors, &names, t, d, weight_attr);
+                cgse_publish(
+                    CgseReferenceAlgorithm::Dijkstra,
+                    graph.node_count(),
+                    graph.edge_count(),
+                    cgse_sink,
+                );
+                return Some(result);
             }
         }
         if let Some(neighbors) = graph.neighbors_indices(u) {
@@ -33882,6 +33897,12 @@ pub fn dijkstra_path_to_target(
             }
         }
     }
+    cgse_publish(
+        CgseReferenceAlgorithm::Dijkstra,
+        graph.node_count(),
+        graph.edge_count(),
+        cgse_sink,
+    );
     None
 }
 
@@ -33929,16 +33950,29 @@ pub fn dijkstra_path_to_target_directed(
     target: &str,
     weight_attr: &str,
 ) -> Option<(f64, Vec<String>, bool)> {
+    let mut cgse_sink = cgse_begin(CgseReferenceAlgorithm::Dijkstra);
     let (Some(s), Some(t)) = (
         digraph.get_node_index(source),
         digraph.get_node_index(target),
     ) else {
+        cgse_publish(
+            CgseReferenceAlgorithm::Dijkstra,
+            digraph.node_count(),
+            digraph.edge_count(),
+            cgse_sink,
+        );
         return None;
     };
     let csr = digraph.csr();
     let names = digraph.nodes_ordered();
     let n = names.len();
     if s == t {
+        cgse_publish(
+            CgseReferenceAlgorithm::Dijkstra,
+            digraph.node_count(),
+            digraph.edge_count(),
+            cgse_sink,
+        );
         return Some((0.0, vec![names[s].to_owned()], true));
     }
     let mut distances: Vec<f64> = vec![f64::INFINITY; n];
@@ -33963,6 +33997,7 @@ pub fn dijkstra_path_to_target_directed(
         }
         if !finalized[u] {
             finalized[u] = true;
+            cgse_record_decision(&mut cgse_sink, names[u], "finalized");
             if u == t {
                 let mut chain: Vec<u32> = vec![u32::try_from(t).unwrap_or(u32::MAX)];
                 let mut cur = t;
@@ -33988,6 +34023,12 @@ pub fn dijkstra_path_to_target_directed(
                     .into_iter()
                     .map(|i| names[i as usize].to_owned())
                     .collect();
+                cgse_publish(
+                    CgseReferenceAlgorithm::Dijkstra,
+                    digraph.node_count(),
+                    digraph.edge_count(),
+                    cgse_sink,
+                );
                 return Some((d, path, all_int));
             }
         }
@@ -34007,6 +34048,12 @@ pub fn dijkstra_path_to_target_directed(
             }
         }
     }
+    cgse_publish(
+        CgseReferenceAlgorithm::Dijkstra,
+        digraph.node_count(),
+        digraph.edge_count(),
+        cgse_sink,
+    );
     None
 }
 

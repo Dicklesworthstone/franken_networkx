@@ -40,6 +40,7 @@ EMIT_REQUIRED = {
     "connected_components": ("connected_components", "ring", ()),
     "topological_sort": ("topological_sort", "dag", ()),
     "bfs_edges": ("bfs_edges", "ring", ("0",)),
+    "dijkstra_path": ("dijkstra_path", "weighted_ring", ("0", "6")),
     "dfs_edges": ("dfs_edges", "ring", ("0",)),
     "minimum_spanning_tree": ("minimum_spanning_tree", "weighted_ring", ()),
     "bellman_ford_path": ("bellman_ford_path", "weighted_ring", ("0", "6")),
@@ -53,7 +54,7 @@ EMIT_REQUIRED = {
 # Routes that MAY emit (non-emitting public routes at the 2026-09-03 audit;
 # if instrumentation lands they graduate into EMIT_REQUIRED).
 MAY_EMIT = {
-    "dijkstra": ("multi_source_dijkstra", "weighted_ring", (["0"],)),
+    "multi_source_dijkstra": ("multi_source_dijkstra", "weighted_ring", (["0"],)),
     "prim": ("minimum_spanning_tree_prim", "weighted_ring", ()),
     "eulerian_circuit": ("eulerian_circuit", "ring", ("0",)),
     "max_weight_matching": ("max_weight_matching", "weighted_ring", ()),
