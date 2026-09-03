@@ -13010,6 +13010,11 @@ def average_shortest_path_length(G, weight=None, method=None):
         if method is not None:
             kwargs["method"] = method
         return _call_networkx_for_parity("average_shortest_path_length", G, **kwargs)
+    if isinstance(weight, str):
+        # br-r37-c1-4tmgq: the native kernel reads the Rust attr store; push any
+        # post-construction Python-side edge attribute writes down first. The
+        # sync is a no-op when the store is clean.
+        _sync_rust_edge_attrs(G, edge_only=True)
     return _raw_average_shortest_path_length(G, weight=weight, method=method)
 
 
@@ -15772,6 +15777,10 @@ def number_of_spanning_trees(G, *, root=None, weight=None):
     """
     # br-r37-c1-0555d: accept nx-typed inputs.
     G = _coerce_arg_to_fnx_graph(G)
+    if isinstance(weight, str):
+        # br-r37-c1-4tmgq: weights written after construction live only in the
+        # Python edge dicts until synced into the Rust store the kernel reads.
+        _sync_rust_edge_attrs(G, edge_only=True)
     return _raw_number_of_spanning_trees(G, root=root, weight=weight)
 
 
@@ -16270,6 +16279,10 @@ def minimum_spanning_arborescence(G, attr="weight", default=1, preserve_attrs=Fa
             partition=partition,
         )
         return _from_nx_graph(nx_result)
+    if isinstance(attr, str):
+        # br-r37-c1-4tmgq: sync post-construction edge attribute writes into the
+        # Rust store before the native branching kernel reads ``attr``.
+        _sync_rust_edge_attrs(G, edge_only=True)
     try:
         result = _raw_minimum_spanning_arborescence(
             G, attr=attr, default=default, preserve_attrs=preserve_attrs, partition=partition,
@@ -16332,6 +16345,9 @@ def maximum_spanning_arborescence(G, attr="weight", default=1, preserve_attrs=Fa
             partition=partition,
         )
         return _from_nx_graph(nx_result)
+    if isinstance(attr, str):
+        # br-r37-c1-4tmgq: see minimum_spanning_arborescence.
+        _sync_rust_edge_attrs(G, edge_only=True)
     try:
         result = _raw_maximum_spanning_arborescence(
             G, attr=attr, default=default, preserve_attrs=preserve_attrs, partition=partition,
@@ -16385,6 +16401,9 @@ def partition_spanning_tree(G, minimum=True, weight="weight", partition="partiti
             partition=partition, ignore_nan=ignore_nan,
         )
         return _from_nx_graph(nx_result)
+    # br-r37-c1-4tmgq: both ``weight`` and ``partition`` are read from the Rust
+    # store by the native kernel; flush post-construction writes first.
+    _sync_rust_edge_attrs(G, edge_only=True)
     return _raw_partition_spanning_tree(G, minimum=minimum, weight=weight, partition=partition, ignore_nan=ignore_nan)
 
 # Algorithm functions — Euler
@@ -16804,6 +16823,10 @@ def all_shortest_paths(
             )
             return
         try:
+            if isinstance(weight, str):
+                # br-r37-c1-4tmgq: the weighted native path reads the Rust store;
+                # push post-construction edge attribute writes down first.
+                _sync_rust_edge_attrs(G, edge_only=True)
             paths = _raw_all_shortest_paths(G, source, target, weight=weight, method=method)
         except NetworkXNoPath:
             raise NetworkXNoPath(
