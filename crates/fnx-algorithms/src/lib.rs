@@ -15923,6 +15923,7 @@ pub fn greedy_color(graph: &Graph) -> GreedyColorResult {
 /// and both are load-bearing:
 ///   * the ordering key is `G.degree`, which on a DiGraph is IN + OUT degree, and
 ///   * the colour scan reads `G[u]`, which on a DiGraph is SUCCESSORS ONLY.
+///
 /// Ties keep insertion order, which `nodes_ordered()` supplies, matching nx's stable
 /// `sorted(G, key=G.degree, reverse=True)`.
 ///
@@ -30877,11 +30878,7 @@ pub fn could_be_isomorphic(g1: &Graph, g2: &Graph) -> bool {
     let mut tri2 = could_be_isomorphic_triangle_counts(g2);
     tri1.sort_unstable();
     tri2.sort_unstable();
-    if tri1 != tri2 {
-        return false;
-    }
-
-    true
+    tri1 == tri2
 }
 
 /// br-r37-c1-isotri: per-node triangle counts for `could_be_isomorphic`, returned

@@ -6030,8 +6030,7 @@ mod tests {
         assert_eq!(g.node_count(), 120, "C(10,3) nodes");
         assert_eq!(g.edge_count(), 2100, "120*35/2 Kneser edges");
         let mut total_deg = 0usize;
-        for i in 0..g.node_count() {
-            let row = &g.adj_indices[i];
+        for (i, row) in g.adj_indices.iter().enumerate() {
             let uniq: BTreeSet<usize> = row.iter().copied().collect();
             assert_eq!(
                 uniq.len(),
