@@ -14856,7 +14856,11 @@ def _min_weight_matching_structural_nx(G, weight):
     _H.add_weighted_edges_from(
         ((u, v, d.get(weight, 1)) for u, v, d in G.edges(data=True)), weight=weight
     )
-    return _nx.min_weight_matching(_H, weight=weight)
+    # backend="networkx" pins the call to nx's own implementation: under
+    # nx.config.backend_priority = ["franken_networkx"] an unpinned call would be
+    # dispatched straight back into this wrapper and recurse until the stack
+    # blows (test_backend_dispatch_cycles::test_no_dispatchable_algorithm_recurses).
+    return _nx.min_weight_matching(_H, weight=weight, backend="networkx")
 
 
 def min_weight_matching(G, weight="weight"):
