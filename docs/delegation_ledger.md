@@ -14,11 +14,11 @@ Counts derived from `python/franken_networkx/__init__.py` AST. Categories:
 
 | classification | count |
 |----------------|-------|
-| `mixed-route` | 62 |
-| `nx-fallback` | 87 |
-| `py-wrapper` | 863 |
-| `rust-native` | 78 |
-| `rust-reexport` | 302 |
+| `mixed-route` | 61 |
+| `nx-fallback` | 71 |
+| `py-wrapper` | 1113 |
+| `rust-native` | 92 |
+| `rust-reexport` | 338 |
 
 ## Runtime probe results
 
@@ -26,21 +26,21 @@ Per-(function, shape) instrumentation. Wraps `_call_networkx_for_parity` and eve
 
 | function | shape | classification | raw bindings used | nx fallbacks |
 |----------|-------|----------------|-------------------|--------------|
-| `single_source_dijkstra_path_length` | `path-5-unweighted` | `rust-native` | `_raw_single_source_dijkstra` | — |
-| `single_source_dijkstra_path_length` | `path-5-weighted-kwargs` | `rust-native` | `_raw_single_source_dijkstra` | — |
-| `single_source_dijkstra_path_length` | `path-5-weighted-postmut` | `rust-native` | `_raw_single_source_dijkstra` | — |
+| `single_source_dijkstra_path_length` | `path-5-unweighted` | `rust-native` | `_raw_single_source_dijkstra_path_length` | — |
+| `single_source_dijkstra_path_length` | `path-5-weighted-kwargs` | `rust-native` | `_raw_single_source_dijkstra_path_length` | — |
+| `single_source_dijkstra_path_length` | `path-5-weighted-postmut` | `rust-native` | `_raw_single_source_dijkstra_path_length` | — |
 | `single_source_bellman_ford_path_length` | `path-5-unweighted` | `rust-native` | `_raw_single_source_bellman_ford_path_length` | — |
-| `single_source_bellman_ford_path_length` | `path-5-weighted-kwargs` | `rust-native` | `_raw_single_source_bellman_ford_path_length` | — |
+| `single_source_bellman_ford_path_length` | `path-5-weighted-kwargs` | `rust-native` | `_raw_single_source_bellman_ford` | — |
 | `single_source_bellman_ford_path_length` | `path-5-weighted-postmut` | `rust-native` | `_raw_single_source_bellman_ford_path_length` | — |
-| `astar_path_length` | `path-5-unweighted` | `rust-native` | `_raw_astar_path_length`, `_raw_astar_path` | — |
-| `astar_path_length` | `path-5-weighted-kwargs` | `rust-native` | `_raw_astar_path_length`, `_raw_astar_path` | — |
-| `astar_path_length` | `path-5-weighted-postmut` | `rust-native` | `_raw_astar_path_length`, `_raw_astar_path` | — |
+| `astar_path_length` | `path-5-unweighted` | `rust-native` | `_raw_astar_path_length` | — |
+| `astar_path_length` | `path-5-weighted-kwargs` | `rust-native` | `_raw_astar_path_length` | — |
+| `astar_path_length` | `path-5-weighted-postmut` | `rust-native` | `_raw_astar_path_length` | — |
 | `shortest_path_length` | `path-5-unweighted` | `py-wrapper-only` | — | — |
-| `shortest_path_length` | `path-5-weighted-kwargs` | `rust-native` | `_raw_dijkstra_path_length`, `_raw_dijkstra_path` | — |
-| `shortest_path_length` | `path-5-weighted-postmut` | `rust-native` | `_raw_dijkstra_path_length`, `_raw_dijkstra_path` | — |
-| `floyd_warshall` | `path-5-unweighted` | `nx-fallback` | — | `floyd_warshall` |
-| `floyd_warshall` | `path-5-weighted-kwargs` | `nx-fallback` | — | `floyd_warshall` |
-| `floyd_warshall` | `path-5-weighted-postmut` | `nx-fallback` | — | `floyd_warshall` |
+| `shortest_path_length` | `path-5-weighted-kwargs` | `rust-native` | `_raw_dijkstra_path_length` | — |
+| `shortest_path_length` | `path-5-weighted-postmut` | `rust-native` | `_raw_dijkstra_path_length` | — |
+| `floyd_warshall` | `path-5-unweighted` | `py-wrapper-only` | — | — |
+| `floyd_warshall` | `path-5-weighted-kwargs` | `py-wrapper-only` | — | — |
+| `floyd_warshall` | `path-5-weighted-postmut` | `py-wrapper-only` | — | — |
 
 ## Per-function static classification
 
@@ -89,11 +89,11 @@ Per-(function, shape) instrumentation. Wraps `_call_networkx_for_parity` and eve
 | `all_neighbors` | `py-wrapper` | no | — |
 | `all_node_cuts` | `py-wrapper` | no | — |
 | `all_pairs_all_shortest_paths` | `nx-fallback` | yes | — |
-| `all_pairs_bellman_ford_path` | `mixed-route` | yes | `_raw_all_pairs_bellman_ford_path`, `_raw_all_pairs_bellman_ford_path_length` |
+| `all_pairs_bellman_ford_path` | `mixed-route` | yes | `_raw_all_pairs_bellman_ford_path` |
 | `all_pairs_bellman_ford_path_length` | `mixed-route` | yes | `_raw_all_pairs_bellman_ford_path_length` |
-| `all_pairs_dijkstra` | `mixed-route` | yes | `_raw_all_pairs_dijkstra` |
-| `all_pairs_dijkstra_path` | `mixed-route` | yes | `_raw_all_pairs_dijkstra_path`, `_raw_all_pairs_dijkstra_path_length` |
-| `all_pairs_dijkstra_path_length` | `mixed-route` | yes | `_raw_all_pairs_dijkstra_path_length` |
+| `all_pairs_dijkstra` | `rust-native` | no | `_raw_all_pairs_dijkstra` |
+| `all_pairs_dijkstra_path` | `mixed-route` | yes | `_raw_all_pairs_dijkstra_path` |
+| `all_pairs_dijkstra_path_length` | `mixed-route` | yes | `_raw_all_pairs_dijkstra`, `_raw_all_pairs_dijkstra_path_length`, `_raw_single_source_dijkstra_path_length` |
 | `all_pairs_lowest_common_ancestor` | `py-wrapper` | no | — |
 | `all_pairs_node_connectivity` | `nx-fallback` | yes | — |
 | `all_pairs_shortest_path` | `rust-native` | no | `_raw_all_pairs_shortest_path` |
@@ -108,10 +108,11 @@ Per-(function, shape) instrumentation. Wraps `_call_networkx_for_parity` and eve
 | `antichains` | `nx-fallback` | yes | — |
 | `apply_matplotlib_colors` | `py-wrapper` | no | — |
 | `approximate_current_flow_betweenness_centrality` | `nx-fallback` | yes | — |
+| `approximation` | `untracked` |  |  |
 | `arf_layout` | `untracked` |  |  |
-| `articulation_points` | `mixed-route` | yes | `_raw_articulation_points` |
+| `articulation_points` | `rust-native` | no | `_raw_articulation_points` |
 | `astar_path` | `mixed-route` | yes | `_raw_astar_path` |
-| `astar_path_length` | `mixed-route` | yes | `_raw_astar_path`, `_raw_astar_path_length` |
+| `astar_path_length` | `mixed-route` | yes | `_raw_astar_path_length` |
 | `attr_matrix` | `py-wrapper` | no | — |
 | `attr_sparse_matrix` | `py-wrapper` | no | — |
 | `attracting_components` | `rust-native` | no | `_raw_attracting_components` |
@@ -121,14 +122,14 @@ Per-(function, shape) instrumentation. Wraps `_call_networkx_for_parity` and eve
 | `average_clustering` | `py-wrapper` | no | — |
 | `average_degree_connectivity` | `rust-native` | no | `_raw_nbrs`, `_raw_neighbors_dispatch` |
 | `average_neighbor_degree` | `rust-native` | no | `_raw_average_neighbor_degree` |
-| `average_node_connectivity` | `nx-fallback` | yes | — |
+| `average_node_connectivity` | `py-wrapper` | no | — |
 | `average_shortest_path_length` | `mixed-route` | yes | `_raw_average_shortest_path_length` |
 | `balanced_tree` | `py-wrapper` | no | — |
 | `barabasi_albert_graph` | `py-wrapper` | no | — |
 | `barbell_graph` | `py-wrapper` | no | — |
 | `barycenter` | `mixed-route` | yes | `_raw_barycenter` |
-| `bellman_ford_path` | `nx-fallback` | yes | — |
-| `bellman_ford_path_length` | `nx-fallback` | yes | — |
+| `bellman_ford_path` | `mixed-route` | yes | `_raw_bellman_ford_path` |
+| `bellman_ford_path_length` | `mixed-route` | yes | `_raw_bellman_ford_path` |
 | `bellman_ford_predecessor_and_distance` | `nx-fallback` | yes | — |
 | `bethe_hessian_matrix` | `py-wrapper` | no | — |
 | `bethe_hessian_spectrum` | `py-wrapper` | no | — |
@@ -136,18 +137,19 @@ Per-(function, shape) instrumentation. Wraps `_call_networkx_for_parity` and eve
 | `betweenness_centrality_subset` | `py-wrapper` | no | — |
 | `bfs_beam_edges` | `py-wrapper` | no | — |
 | `bfs_edges` | `py-wrapper` | no | — |
-| `bfs_labeled_edges` | `nx-fallback` | yes | — |
+| `bfs_labeled_edges` | `py-wrapper` | no | — |
 | `bfs_layers` | `py-wrapper` | no | — |
 | `bfs_layout` | `untracked` |  |  |
 | `bfs_predecessors` | `py-wrapper` | no | — |
 | `bfs_successors` | `py-wrapper` | no | — |
 | `bfs_tree` | `nx-fallback` | yes | — |
-| `biconnected_component_edges` | `nx-fallback` | yes | — |
-| `biconnected_components` | `nx-fallback` | yes | — |
+| `biconnected_component_edges` | `rust-native` | no | `_raw_biconnected_component_edges` |
+| `biconnected_components` | `rust-native` | no | `_raw_biconnected_components` |
 | `bidirectional_dijkstra` | `nx-fallback` | yes | — |
-| `bidirectional_shortest_path` | `mixed-route` | yes | `_raw_bidirectional_shortest_path` |
+| `bidirectional_shortest_path` | `rust-native` | no | `_raw_bidirectional_shortest_path` |
 | `binomial_graph` | `py-wrapper` | no | — |
 | `binomial_tree` | `py-wrapper` | no | — |
+| `bipartite` | `untracked` |  |  |
 | `bipartite_layout` | `untracked` |  |  |
 | `boundary_expansion` | `py-wrapper` | no | — |
 | `bridges` | `mixed-route` | yes | `_raw_bridges` |
@@ -159,6 +161,7 @@ Per-(function, shape) instrumentation. Wraps `_call_networkx_for_parity` and eve
 | `center` | `nx-fallback` | yes | — |
 | `chain_decomposition` | `nx-fallback` | yes | — |
 | `check_planarity` | `py-wrapper` | no | — |
+| `chordal` | `untracked` |  |  |
 | `chordal_cycle_graph` | `py-wrapper` | no | — |
 | `chordal_graph_cliques` | `mixed-route` | yes | `_raw_chordal_graph_cliques` |
 | `chordal_graph_treewidth` | `py-wrapper` | no | — |
@@ -168,6 +171,7 @@ Per-(function, shape) instrumentation. Wraps `_call_networkx_for_parity` and eve
 | `circulant_graph` | `py-wrapper` | no | — |
 | `circular_ladder_graph` | `py-wrapper` | no | — |
 | `circular_layout` | `untracked` |  |  |
+| `clique` | `untracked` |  |  |
 | `closeness_centrality` | `mixed-route` | yes | `_raw_closeness_centrality` |
 | `closeness_vitality` | `py-wrapper` | no | — |
 | `clustering` | `rust-native` | no | `_raw_clustering` |
@@ -178,11 +182,13 @@ Per-(function, shape) instrumentation. Wraps `_call_networkx_for_parity` and eve
 | `communicability` | `py-wrapper` | no | — |
 | `communicability_betweenness_centrality` | `py-wrapper` | no | — |
 | `communicability_exp` | `py-wrapper` | no | — |
+| `community` | `untracked` |  |  |
 | `complement` | `rust-native` | no | `_raw_complement` |
 | `complete_bipartite_graph` | `py-wrapper` | no | — |
 | `complete_graph` | `py-wrapper` | no | — |
 | `complete_multipartite_graph` | `py-wrapper` | no | — |
 | `complete_to_chordal_graph` | `nx-fallback` | yes | — |
+| `components` | `untracked` |  |  |
 | `compose` | `py-wrapper` | no | — |
 | `compose_all` | `py-wrapper` | no | — |
 | `condensation` | `py-wrapper` | no | — |
@@ -197,30 +203,33 @@ Per-(function, shape) instrumentation. Wraps `_call_networkx_for_parity` and eve
 | `constraint` | `nx-fallback` | yes | — |
 | `contracted_edge` | `py-wrapper` | no | — |
 | `contracted_nodes` | `py-wrapper` | no | — |
+| `convert_matrix` | `untracked` |  |  |
 | `convert_node_labels_to_integers` | `py-wrapper` | no | — |
-| `core_number` | `mixed-route` | yes | `_raw_core_number` |
+| `core` | `untracked` |  |  |
+| `core_number` | `rust-native` | no | `_raw_core_number` |
 | `corona_product` | `py-wrapper` | no | — |
 | `cost_of_flow` | `py-wrapper` | no | — |
 | `could_be_isomorphic` | `py-wrapper` | no | — |
 | `create_empty_copy` | `py-wrapper` | no | — |
 | `cubical_graph` | `py-wrapper` | no | — |
 | `current_flow_betweenness_centrality` | `py-wrapper` | no | — |
-| `current_flow_betweenness_centrality_subset` | `nx-fallback` | yes | — |
+| `current_flow_betweenness_centrality_subset` | `py-wrapper` | no | — |
 | `current_flow_closeness_centrality` | `py-wrapper` | no | — |
 | `cut_size` | `mixed-route` | yes | `_raw_cut_size` |
 | `cycle_basis` | `rust-native` | no | `_raw_cycle_basis` |
 | `cycle_graph` | `py-wrapper` | no | — |
 | `cytoscape_data` | `py-wrapper` | no | — |
 | `cytoscape_graph` | `py-wrapper` | no | — |
+| `dag` | `untracked` |  |  |
 | `dag_longest_path` | `py-wrapper` | no | — |
 | `dag_longest_path_length` | `py-wrapper` | no | — |
 | `dag_to_branching` | `py-wrapper` | no | — |
 | `davis_southern_women_graph` | `py-wrapper` | no | — |
 | `dedensify` | `py-wrapper` | no | — |
 | `degree` | `py-wrapper` | no | — |
-| `degree_assortativity_coefficient` | `mixed-route` | yes | `_raw_degree_assortativity_coefficient` |
+| `degree_assortativity_coefficient` | `mixed-route` | yes | `_raw_degree_assortativity_coefficient`, `_raw_degree_assortativity_coefficient_directed` |
 | `degree_centrality` | `rust-native` | no | `_raw_degree_centrality` |
-| `degree_histogram` | `py-wrapper` | no | — |
+| `degree_histogram` | `rust-native` | no | `_raw_degree_histogram` |
 | `degree_mixing_dict` | `py-wrapper` | no | — |
 | `degree_mixing_matrix` | `py-wrapper` | no | — |
 | `degree_pearson_correlation_coefficient` | `py-wrapper` | no | — |
@@ -229,7 +238,7 @@ Per-(function, shape) instrumentation. Wraps `_call_networkx_for_parity` and eve
 | `density` | `py-wrapper` | no | — |
 | `desargues_graph` | `py-wrapper` | no | — |
 | `descendants` | `rust-native` | no | `_raw_descendants` |
-| `descendants_at_distance` | `rust-native` | no | `_raw_descendants_at_distance` |
+| `descendants_at_distance` | `py-wrapper` | no | — |
 | `describe` | `py-wrapper` | no | — |
 | `dfs_edges` | `py-wrapper` | no | — |
 | `dfs_labeled_edges` | `nx-fallback` | yes | — |
@@ -240,10 +249,10 @@ Per-(function, shape) instrumentation. Wraps `_call_networkx_for_parity` and eve
 | `dfs_tree` | `py-wrapper` | no | — |
 | `diameter` | `mixed-route` | yes | `_raw_diameter` |
 | `diamond_graph` | `py-wrapper` | no | — |
-| `difference` | `rust-native` | no | `_raw_difference` |
-| `dijkstra_path` | `mixed-route` | yes | `_raw_dijkstra_path` |
-| `dijkstra_path_length` | `mixed-route` | yes | `_raw_dijkstra_path_length` |
-| `dijkstra_predecessor_and_distance` | `nx-fallback` | yes | — |
+| `difference` | `py-wrapper` | no | — |
+| `dijkstra_path` | `mixed-route` | yes | `_raw_multidigraph_dijkstra_path_target` |
+| `dijkstra_path_length` | `mixed-route` | yes | `_raw_dijkstra_path_length`, `_raw_multidigraph_dijkstra_path_length_target` |
+| `dijkstra_predecessor_and_distance` | `rust-native` | no | `_raw_dijkstra_predecessor_and_distance` |
 | `directed_combinatorial_laplacian_matrix` | `nx-fallback` | yes | — |
 | `directed_configuration_model` | `py-wrapper` | no | — |
 | `directed_edge_swap` | `py-wrapper` | no | — |
@@ -256,7 +265,7 @@ Per-(function, shape) instrumentation. Wraps `_call_networkx_for_parity` and eve
 | `dispersion` | `py-wrapper` | no | — |
 | `display` | `untracked` |  |  |
 | `dodecahedral_graph` | `py-wrapper` | no | — |
-| `dominance_frontiers` | `rust-native` | no | `_raw_dominance_frontiers` |
+| `dominance_frontiers` | `py-wrapper` | no | — |
 | `dominating_set` | `mixed-route` | yes | `_raw_dominating_set`, `_raw_nbrs`, `_raw_neighbors_dispatch` |
 | `dorogovtsev_goltsev_mendes_graph` | `py-wrapper` | no | — |
 | `double_edge_swap` | `py-wrapper` | no | — |
@@ -275,19 +284,20 @@ Per-(function, shape) instrumentation. Wraps `_call_networkx_for_parity` and eve
 | `draw_shell` | `untracked` |  |  |
 | `draw_spectral` | `untracked` |  |  |
 | `draw_spring` | `untracked` |  |  |
+| `drawing` | `untracked` |  |  |
 | `dual_barabasi_albert_graph` | `py-wrapper` | no | — |
 | `duplication_divergence_graph` | `py-wrapper` | no | — |
 | `eccentricity` | `mixed-route` | yes | `_raw_eccentricity` |
-| `edge_betweenness_centrality` | `mixed-route` | yes | `_raw_edge_betweenness_centrality` |
+| `edge_betweenness_centrality` | `mixed-route` | yes | `_raw_edge_betweenness_centrality`, `_raw_edge_betweenness_centrality_weighted` |
 | `edge_betweenness_centrality_subset` | `py-wrapper` | no | — |
 | `edge_bfs` | `py-wrapper` | no | — |
 | `edge_boundary` | `mixed-route` | yes | `_raw_edge_boundary` |
 | `edge_connectivity` | `mixed-route` | yes | `_raw_edge_connectivity` |
 | `edge_current_flow_betweenness_centrality` | `py-wrapper` | no | — |
-| `edge_current_flow_betweenness_centrality_subset` | `nx-fallback` | yes | — |
+| `edge_current_flow_betweenness_centrality_subset` | `py-wrapper` | no | — |
 | `edge_dfs` | `py-wrapper` | no | — |
 | `edge_disjoint_paths` | `nx-fallback` | yes | — |
-| `edge_expansion` | `py-wrapper` | no | — |
+| `edge_expansion` | `rust-native` | no | `_raw_edge_expansion` |
 | `edge_load_centrality` | `py-wrapper` | no | — |
 | `edge_subgraph` | `py-wrapper` | no | — |
 | `edges` | `py-wrapper` | no | — |
@@ -303,6 +313,7 @@ Per-(function, shape) instrumentation. Wraps `_call_networkx_for_parity` and eve
 | `equivalence_classes` | `py-wrapper` | no | — |
 | `erdos_renyi_graph` | `py-wrapper` | no | — |
 | `estrada_index` | `py-wrapper` | no | — |
+| `euler` | `untracked` |  |  |
 | `eulerian_circuit` | `nx-fallback` | yes | — |
 | `eulerian_path` | `mixed-route` | yes | `_raw_eulerian_path` |
 | `eulerize` | `py-wrapper` | no | — |
@@ -313,13 +324,14 @@ Per-(function, shape) instrumentation. Wraps `_call_networkx_for_parity` and eve
 | `faster_could_be_isomorphic` | `rust-native` | no | `_raw_faster_could_be_isomorphic` |
 | `fiedler_vector` | `py-wrapper` | no | — |
 | `find_asteroidal_triple` | `py-wrapper` | no | — |
-| `find_cliques` | `rust-native` | no | `_raw_find_cliques_adjacency_sets`, `_raw_neighbors_dispatch` |
-| `find_cliques_recursive` | `nx-fallback` | yes | — |
-| `find_cycle` | `mixed-route` | yes | `_raw_find_cycle` |
+| `find_cliques` | `py-wrapper` | no | — |
+| `find_cliques_recursive` | `py-wrapper` | no | — |
+| `find_cycle` | `rust-native` | no | `_raw_find_cycle_multigraph_simple`, `_raw_find_cycle_simple` |
 | `find_induced_nodes` | `py-wrapper` | no | — |
 | `find_minimal_d_separator` | `nx-fallback` | yes | — |
 | `find_negative_cycle` | `mixed-route` | yes | `_raw_find_negative_cycle` |
 | `florentine_families_graph` | `py-wrapper` | no | — |
+| `flow` | `untracked` |  |  |
 | `flow_hierarchy` | `nx-fallback` | yes | — |
 | `floyd_warshall` | `nx-fallback` | yes | — |
 | `floyd_warshall_numpy` | `py-wrapper` | no | — |
@@ -375,12 +387,12 @@ Per-(function, shape) instrumentation. Wraps `_call_networkx_for_parity` and eve
 | `graph_atlas` | `py-wrapper` | no | — |
 | `graph_atlas_g` | `py-wrapper` | no | — |
 | `graph_edit_distance` | `py-wrapper` | no | — |
-| `greedy_color` | `mixed-route` | yes | `_raw_greedy_color` |
+| `greedy_color` | `mixed-route` | yes | `_raw_greedy_color`, `_raw_greedy_color_directed` |
 | `grid_2d_graph` | `py-wrapper` | no | — |
 | `grid_graph` | `py-wrapper` | no | — |
-| `group_betweenness_centrality` | `py-wrapper` | no | — |
+| `group_betweenness_centrality` | `nx-fallback` | yes | — |
 | `group_closeness_centrality` | `py-wrapper` | no | — |
-| `group_degree_centrality` | `mixed-route` | yes | `_raw_group_degree_centrality` |
+| `group_degree_centrality` | `rust-native` | no | `_raw_group_degree_centrality` |
 | `group_in_degree_centrality` | `rust-native` | no | `_raw_group_in_degree_centrality` |
 | `group_out_degree_centrality` | `rust-native` | no | `_raw_group_out_degree_centrality` |
 | `gutman_index` | `py-wrapper` | no | — |
@@ -398,12 +410,13 @@ Per-(function, shape) instrumentation. Wraps `_call_networkx_for_parity` and eve
 | `hoffman_singleton_graph` | `py-wrapper` | no | — |
 | `house_graph` | `py-wrapper` | no | — |
 | `house_x_graph` | `py-wrapper` | no | — |
+| `hybrid` | `untracked` |  |  |
 | `hyper_wiener_index` | `nx-fallback` | yes | — |
 | `hypercube_graph` | `py-wrapper` | no | — |
 | `icosahedral_graph` | `py-wrapper` | no | — |
 | `identified_nodes` | `py-wrapper` | no | — |
 | `immediate_dominators` | `rust-native` | no | `_raw_immediate_dominators` |
-| `in_degree_centrality` | `rust-native` | no | `_raw_in_degree_centrality` |
+| `in_degree_centrality` | `py-wrapper` | no | — |
 | `incidence_matrix` | `py-wrapper` | no | — |
 | `incremental_closeness_centrality` | `nx-fallback` | yes | — |
 | `induced_subgraph` | `py-wrapper` | no | — |
@@ -437,7 +450,7 @@ Per-(function, shape) instrumentation. Wraps `_call_networkx_for_parity` and eve
 | `is_graphical` | `py-wrapper` | no | — |
 | `is_isolate` | `py-wrapper` | no | — |
 | `is_isomorphic` | `py-wrapper` | no | — |
-| `is_k_edge_connected` | `rust-native` | no | `_raw_is_k_edge_connected` |
+| `is_k_edge_connected` | `py-wrapper` | no | — |
 | `is_k_regular` | `rust-native` | no | `_raw_is_k_regular` |
 | `is_kl_connected` | `py-wrapper` | no | — |
 | `is_matching` | `nx-fallback` | yes | — |
@@ -450,7 +463,7 @@ Per-(function, shape) instrumentation. Wraps `_call_networkx_for_parity` and eve
 | `is_perfect_matching` | `nx-fallback` | yes | — |
 | `is_planar` | `py-wrapper` | no | — |
 | `is_pseudographical` | `py-wrapper` | no | — |
-| `is_regular` | `py-wrapper` | no | — |
+| `is_regular` | `rust-native` | no | `_raw_is_regular` |
 | `is_regular_expander` | `py-wrapper` | no | — |
 | `is_semiconnected` | `rust-native` | no | `_raw_is_semiconnected` |
 | `is_semieulerian` | `py-wrapper` | no | — |
@@ -469,10 +482,10 @@ Per-(function, shape) instrumentation. Wraps `_call_networkx_for_parity` and eve
 | `isolates` | `rust-native` | no | `_raw_isolates` |
 | `isomorphism` | `untracked` |  |  |
 | `jaccard_coefficient` | `py-wrapper` | no | — |
-| `johnson` | `nx-fallback` | yes | — |
+| `johnson` | `mixed-route` | yes | `_raw_johnson_path_directed` |
 | `join_trees` | `py-wrapper` | no | — |
 | `joint_degree_graph` | `py-wrapper` | no | — |
-| `junction_tree` | `nx-fallback` | yes | — |
+| `junction_tree` | `py-wrapper` | no | — |
 | `k_components` | `nx-fallback` | yes | — |
 | `k_core` | `py-wrapper` | no | — |
 | `k_corona` | `py-wrapper` | no | — |
@@ -487,11 +500,12 @@ Per-(function, shape) instrumentation. Wraps `_call_networkx_for_parity` and eve
 | `kamada_kawai_layout` | `untracked` |  |  |
 | `karate_club_graph` | `py-wrapper` | no | — |
 | `katz_centrality` | `mixed-route` | yes | `_raw_katz_centrality` |
+| `katz_centrality_many` | `py-wrapper` | no | — |
 | `katz_centrality_numpy` | `py-wrapper` | no | — |
 | `kemeny_constant` | `py-wrapper` | no | — |
 | `kl_connected_subgraph` | `py-wrapper` | no | — |
 | `kneser_graph` | `py-wrapper` | no | — |
-| `kosaraju_strongly_connected_components` | `nx-fallback` | yes | — |
+| `kosaraju_strongly_connected_components` | `mixed-route` | yes | `_raw_kosaraju_strongly_connected_components` |
 | `krackhardt_kite_graph` | `py-wrapper` | no | — |
 | `ladder_graph` | `py-wrapper` | no | — |
 | `laplacian_centrality` | `nx-fallback` | yes | — |
@@ -502,7 +516,7 @@ Per-(function, shape) instrumentation. Wraps `_call_networkx_for_parity` and eve
 | `lexicographic_product` | `py-wrapper` | no | — |
 | `lexicographical_topological_sort` | `py-wrapper` | no | — |
 | `line_graph` | `py-wrapper` | no | — |
-| `load_centrality` | `rust-native` | no | `_raw_load_centrality` |
+| `load_centrality` | `mixed-route` | yes | `_raw_load_centrality`, `_raw_load_centrality_weighted` |
 | `local_bridges` | `nx-fallback` | yes | — |
 | `local_constraint` | `py-wrapper` | no | — |
 | `local_efficiency` | `rust-native` | no | `_raw_local_efficiency` |
@@ -515,9 +529,9 @@ Per-(function, shape) instrumentation. Wraps `_call_networkx_for_parity` and eve
 | `max_flow_min_cost` | `py-wrapper` | no | — |
 | `max_weight_clique` | `nx-fallback` | yes | — |
 | `max_weight_matching` | `nx-fallback` | yes | — |
-| `maximal_independent_set` | `rust-native` | no | `_raw_maximal_independent_set` |
+| `maximal_independent_set` | `py-wrapper` | no | — |
 | `maximal_matching` | `rust-native` | no | `_raw_maximal_matching` |
-| `maximum_branching` | `mixed-route` | yes | `_raw_maximum_branching` |
+| `maximum_branching` | `nx-fallback` | yes | — |
 | `maximum_flow` | `mixed-route` | yes | `_raw_maximum_flow` |
 | `maximum_flow_value` | `mixed-route` | yes | `_raw_maximum_flow_value` |
 | `maximum_spanning_arborescence` | `mixed-route` | yes | `_raw_maximum_spanning_arborescence` |
@@ -528,22 +542,24 @@ Per-(function, shape) instrumentation. Wraps `_call_networkx_for_parity` and eve
 | `min_cost_flow` | `py-wrapper` | no | — |
 | `min_cost_flow_cost` | `py-wrapper` | no | — |
 | `min_edge_cover` | `py-wrapper` | no | — |
-| `min_weight_matching` | `nx-fallback` | yes | — |
+| `min_weight_matching` | `py-wrapper` | no | — |
 | `minimum_branching` | `mixed-route` | yes | `_raw_minimum_branching` |
 | `minimum_cut` | `nx-fallback` | yes | — |
 | `minimum_cut_value` | `nx-fallback` | yes | — |
-| `minimum_cycle_basis` | `rust-native` | no | `_raw_minimum_cycle_basis` |
+| `minimum_cycle_basis` | `py-wrapper` | no | — |
 | `minimum_edge_cut` | `nx-fallback` | yes | — |
 | `minimum_node_cut` | `nx-fallback` | yes | — |
 | `minimum_spanning_arborescence` | `mixed-route` | yes | `_raw_minimum_spanning_arborescence` |
 | `minimum_spanning_edges` | `mixed-route` | yes | `_raw_minimum_spanning_edges` |
-| `minimum_spanning_tree` | `rust-native` | no | `_raw_minimum_spanning_tree` |
+| `minimum_spanning_tree` | `rust-native` | no | `_raw_minimum_spanning_tree`, `_raw_multigraph_minimum_spanning_tree` |
+| `minors` | `untracked` |  |  |
 | `mixing_dict` | `py-wrapper` | no | — |
 | `mixing_expansion` | `py-wrapper` | no | — |
 | `modular_product` | `py-wrapper` | no | — |
 | `modularity_matrix` | `py-wrapper` | no | — |
 | `modularity_spectrum` | `py-wrapper` | no | — |
 | `moebius_kantor_graph` | `py-wrapper` | no | — |
+| `moral` | `untracked` |  |  |
 | `moral_graph` | `py-wrapper` | no | — |
 | `multi_source_dijkstra` | `mixed-route` | yes | `_raw_multi_source_dijkstra` |
 | `multi_source_dijkstra_path` | `py-wrapper` | no | — |
@@ -563,12 +579,12 @@ Per-(function, shape) instrumentation. Wraps `_call_networkx_for_parity` and eve
 | `node_connectivity` | `mixed-route` | yes | `_raw_node_connectivity` |
 | `node_degree_xy` | `py-wrapper` | no | — |
 | `node_disjoint_paths` | `nx-fallback` | yes | — |
-| `node_expansion` | `py-wrapper` | no | — |
+| `node_expansion` | `rust-native` | no | `_raw_node_expansion` |
 | `node_link_data` | `py-wrapper` | no | — |
 | `node_link_graph` | `py-wrapper` | no | — |
 | `nodes` | `py-wrapper` | no | — |
 | `nodes_with_selfloops` | `py-wrapper` | no | — |
-| `non_edges` | `py-wrapper` | no | — |
+| `non_edges` | `rust-native` | no | `_raw_nbrs`, `_raw_neighbors_dispatch` |
 | `non_neighbors` | `rust-native` | no | `_raw_nbrs`, `_raw_neighbors_dispatch` |
 | `non_randomness` | `py-wrapper` | no | — |
 | `nonisomorphic_trees` | `py-wrapper` | no | — |
@@ -583,7 +599,7 @@ Per-(function, shape) instrumentation. Wraps `_call_networkx_for_parity` and eve
 | `number_of_isolates` | `rust-native` | no | `_raw_number_of_isolates` |
 | `number_of_nodes` | `py-wrapper` | no | — |
 | `number_of_nonisomorphic_trees` | `py-wrapper` | no | — |
-| `number_of_selfloops` | `rust-native` | no | `_raw_neighbors_dispatch` |
+| `number_of_selfloops` | `py-wrapper` | no | — |
 | `number_of_spanning_trees` | `rust-native` | no | `_raw_number_of_spanning_trees` |
 | `number_of_walks` | `py-wrapper` | no | — |
 | `number_strongly_connected_components` | `rust-native` | no | `_raw_number_strongly_connected_components` |
@@ -591,13 +607,15 @@ Per-(function, shape) instrumentation. Wraps `_call_networkx_for_parity` and eve
 | `numeric_assortativity_coefficient` | `py-wrapper` | no | — |
 | `octahedral_graph` | `py-wrapper` | no | — |
 | `omega` | `nx-fallback` | yes | — |
-| `onion_layers` | `py-wrapper` | no | — |
+| `onion_layers` | `rust-native` | no | `_raw_onion_layers` |
+| `operators` | `untracked` |  |  |
 | `optimal_edit_paths` | `py-wrapper` | no | — |
 | `optimize_edit_paths` | `py-wrapper` | no | — |
 | `optimize_graph_edit_distance` | `py-wrapper` | no | — |
-| `out_degree_centrality` | `rust-native` | no | `_raw_out_degree_centrality` |
+| `out_degree_centrality` | `py-wrapper` | no | — |
 | `overall_reciprocity` | `py-wrapper` | no | — |
-| `pagerank` | `mixed-route` | yes | `_raw_pagerank` |
+| `pagerank` | `nx-fallback` | yes | — |
+| `pagerank_many` | `py-wrapper` | no | — |
 | `paley_graph` | `py-wrapper` | no | — |
 | `panther_similarity` | `py-wrapper` | no | — |
 | `panther_vector_similarity` | `py-wrapper` | no | — |
@@ -613,10 +631,11 @@ Per-(function, shape) instrumentation. Wraps `_call_networkx_for_parity` and eve
 | `partition_spanning_tree` | `mixed-route` | yes | `_raw_partition_spanning_tree` |
 | `path_graph` | `py-wrapper` | no | — |
 | `path_weight` | `py-wrapper` | no | — |
-| `percolation_centrality` | `py-wrapper` | no | — |
+| `percolation_centrality` | `rust-native` | no | `_raw_percolation_centrality_weighted` |
 | `periphery` | `nx-fallback` | yes | — |
 | `petersen_graph` | `py-wrapper` | no | — |
 | `planar_layout` | `untracked` |  |  |
+| `planarity` | `untracked` |  |  |
 | `planted_partition_graph` | `py-wrapper` | no | — |
 | `power` | `py-wrapper` | no | — |
 | `powerlaw_cluster_graph` | `py-wrapper` | no | — |
@@ -664,9 +683,11 @@ Per-(function, shape) instrumentation. Wraps `_call_networkx_for_parity` and eve
 | `read_pajek` | `untracked` |  |  |
 | `read_sparse6` | `untracked` |  |  |
 | `read_weighted_edgelist` | `untracked` |  |  |
+| `readwrite` | `untracked` |  |  |
 | `reciprocity` | `py-wrapper` | no | — |
 | `reconstruct_path` | `py-wrapper` | no | — |
 | `recursive_simple_cycles` | `py-wrapper` | no | — |
+| `regular` | `untracked` |  |  |
 | `relabel_gexf_graph` | `untracked` |  |  |
 | `relabel_nodes` | `py-wrapper` | no | — |
 | `relaxed_caveman_graph` | `py-wrapper` | no | — |
@@ -692,25 +713,28 @@ Per-(function, shape) instrumentation. Wraps `_call_networkx_for_parity` and eve
 | `set_node_attributes` | `py-wrapper` | no | — |
 | `shell_layout` | `untracked` |  |  |
 | `shortest_path` | `mixed-route` | yes | `_raw_shortest_path` |
-| `shortest_path_length` | `nx-fallback` | yes | — |
+| `shortest_path_length` | `mixed-route` | yes | `_raw_single_target_dijkstra_path_length` |
+| `shortest_path_length_matrix` | `rust-native` | no | `_raw_shortest_path_length_matrix` |
 | `shortest_simple_paths` | `nx-fallback` | yes | — |
 | `sigma` | `nx-fallback` | yes | — |
 | `simple_cycles` | `nx-fallback` | yes | — |
 | `simrank_similarity` | `py-wrapper` | no | — |
 | `single_source_all_shortest_paths` | `nx-fallback` | yes | — |
 | `single_source_bellman_ford` | `mixed-route` | yes | `_raw_single_source_bellman_ford` |
-| `single_source_bellman_ford_path` | `mixed-route` | yes | `_raw_single_source_bellman_ford_path`, `_raw_single_source_bellman_ford_path_length` |
-| `single_source_bellman_ford_path_length` | `mixed-route` | yes | `_raw_single_source_bellman_ford_path_length` |
-| `single_source_dijkstra` | `mixed-route` | yes | `_raw_single_source_dijkstra` |
-| `single_source_dijkstra_path` | `nx-fallback` | yes | — |
-| `single_source_dijkstra_path_length` | `nx-fallback` | yes | — |
+| `single_source_bellman_ford_path` | `mixed-route` | yes | `_raw_single_source_bellman_ford_path` |
+| `single_source_bellman_ford_path_length` | `mixed-route` | yes | `_raw_single_source_bellman_ford`, `_raw_single_source_bellman_ford_path_length` |
+| `single_source_dijkstra` | `mixed-route` | yes | `_raw_mdg_ss_dijkstra`, `_raw_multidigraph_dijkstra_path_length_target`, `_raw_multidigraph_dijkstra_path_target`, `_raw_single_source_dijkstra` |
+| `single_source_dijkstra_path` | `py-wrapper` | no | — |
+| `single_source_dijkstra_path_length` | `mixed-route` | yes | `_raw_mdg_ss_dijkstra_path_length`, `_raw_single_source_dijkstra_path_length` |
 | `single_source_shortest_path` | `rust-native` | no | `_raw_single_source_shortest_path` |
 | `single_source_shortest_path_length` | `rust-native` | no | `_raw_single_source_shortest_path_length` |
-| `single_target_shortest_path` | `py-wrapper` | no | — |
-| `single_target_shortest_path_length` | `py-wrapper` | no | — |
+| `single_target_shortest_path` | `rust-native` | no | `_raw_single_target_shortest_path` |
+| `single_target_shortest_path_length` | `rust-native` | no | `_raw_single_target_shortest_path_length` |
+| `smallworld` | `untracked` |  |  |
 | `snap_aggregation` | `py-wrapper` | no | — |
 | `soft_random_geometric_graph` | `py-wrapper` | no | — |
 | `spanner` | `rust-native` | no | `_raw_spanner` |
+| `sparsifiers` | `untracked` |  |  |
 | `spectral_bisection` | `py-wrapper` | no | — |
 | `spectral_graph_forge` | `py-wrapper` | no | — |
 | `spectral_layout` | `untracked` |  |  |
@@ -729,7 +753,9 @@ Per-(function, shape) instrumentation. Wraps `_call_networkx_for_parity` and eve
 | `subgraph_centrality_exp` | `py-wrapper` | no | — |
 | `subgraph_view` | `py-wrapper` | no | — |
 | `sudoku_graph` | `py-wrapper` | no | — |
-| `symmetric_difference` | `rust-native` | no | `_raw_symmetric_difference` |
+| `summarization` | `untracked` |  |  |
+| `swap` | `untracked` |  |  |
+| `symmetric_difference` | `py-wrapper` | no | — |
 | `tadpole_graph` | `py-wrapper` | no | — |
 | `tensor_product` | `py-wrapper` | no | — |
 | `tetrahedral_graph` | `py-wrapper` | no | — |
@@ -751,11 +777,14 @@ Per-(function, shape) instrumentation. Wraps `_call_networkx_for_parity` and eve
 | `to_sparse6_bytes` | `untracked` |  |  |
 | `to_undirected` | `py-wrapper` | no | — |
 | `topological_generations` | `rust-native` | no | `_raw_topological_generations` |
-| `topological_sort` | `py-wrapper` | no | — |
-| `transitive_closure` | `mixed-route` | yes | `_raw_transitive_closure` |
+| `topological_sort` | `rust-native` | no | `_raw_topological_sort` |
+| `tournament` | `untracked` |  |  |
+| `transitive_closure` | `mixed-route` | yes | `_raw_multidigraph_transitive_closure`, `_raw_transitive_closure` |
 | `transitive_closure_dag` | `py-wrapper` | no | — |
 | `transitive_reduction` | `py-wrapper` | no | — |
 | `transitivity` | `rust-native` | no | `_raw_transitivity` |
+| `traversal` | `untracked` |  |  |
+| `tree` | `untracked` |  |  |
 | `tree_all_pairs_lowest_common_ancestor` | `py-wrapper` | no | — |
 | `tree_broadcast_center` | `rust-native` | no | `_raw_tree_broadcast_center` |
 | `tree_broadcast_time` | `rust-native` | no | `_raw_tree_broadcast_time` |
@@ -764,20 +793,21 @@ Per-(function, shape) instrumentation. Wraps `_call_networkx_for_parity` and eve
 | `triad_graph` | `py-wrapper` | no | — |
 | `triad_type` | `py-wrapper` | no | — |
 | `triadic_census` | `nx-fallback` | yes | — |
+| `triads` | `untracked` |  |  |
 | `triads_by_type` | `py-wrapper` | no | — |
 | `triangles` | `rust-native` | no | `_raw_triangles` |
 | `triangular_lattice_graph` | `py-wrapper` | no | — |
 | `trivial_graph` | `py-wrapper` | no | — |
 | `trophic_differences` | `nx-fallback` | yes | — |
 | `trophic_incoherence_parameter` | `nx-fallback` | yes | — |
-| `trophic_levels` | `nx-fallback` | yes | — |
+| `trophic_levels` | `py-wrapper` | no | — |
 | `truncated_cube_graph` | `py-wrapper` | no | — |
 | `truncated_tetrahedron_graph` | `py-wrapper` | no | — |
 | `turan_graph` | `py-wrapper` | no | — |
 | `tutte_graph` | `py-wrapper` | no | — |
 | `tutte_polynomial` | `nx-fallback` | yes | — |
 | `uniform_random_intersection_graph` | `py-wrapper` | no | — |
-| `union` | `rust-native` | no | `_raw_union` |
+| `union` | `py-wrapper` | no | — |
 | `union_all` | `py-wrapper` | no | — |
 | `vf2pp_all_isomorphisms` | `py-wrapper` | no | — |
 | `vf2pp_is_isomorphic` | `py-wrapper` | no | — |
