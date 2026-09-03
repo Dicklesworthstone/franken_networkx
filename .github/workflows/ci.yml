@@ -5,12 +5,20 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  # main receives ~30 pushes a day and each push cancels the previous run before a
+  # runner even picks it up, so push-triggered runs on main almost never start. A
+  # scheduled run and a manual dispatch live in their own concurrency group (keyed
+  # by event name below) so pushes cannot cancel them; they are the runs that
+  # actually exercise G0-G8 end to end.
+  schedule:
+    - cron: "17 */6 * * *"
+  workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.ref }}
+  group: ci-${{ github.workflow }}-${{ github.ref }}-${{ github.event_name }}
   cancel-in-progress: true
 
 env:
