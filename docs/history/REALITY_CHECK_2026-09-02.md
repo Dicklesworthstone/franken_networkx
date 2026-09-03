@@ -4,6 +4,26 @@
 **Method:** every claim below was checked against the tree, `gh`, PyPI, or a run on this host on 2026-09-02.
 Prior checks: `docs/history/REALITY_CHECK.md` (2026-04-23), `artifacts/reality-check-2026-05-03.md`.
 
+## Follow-through (2026-09-03, same session)
+
+- Shared venv now has scipy and hypothesis; 317 previously-red tests pass. The stale `.so` was rebuilt at HEAD.
+- Release path: root cause was the absolute `/dp/frankentui` path dependency, already fixed post-tag in
+  `8b7dff824`; a wheel built from HEAD installs in a fresh Python 3.12 venv and runs the quick start,
+  pagerank and backend dispatch (bead `br-r37-c1-5f3mv`, closed). Publishing still needs an operator tag.
+- CI: three independent causes fixed. G0 counts only code commits (`82ef99f62`); push runs were
+  cancelled while still queued, so a 6-hourly schedule and `workflow_dispatch` run in their own
+  concurrency group (`712bdd474`); every `maturin develop` job lacked the virtualenv maturin requires,
+  which is why the nightly Hypothesis job was 0/108 (`d859526a1`). scipy added to the Python gates.
+  The e2e script asserted non-NetworkX behaviour on two lines (`c2db50162`). Local pre-runs of G4b,
+  G4c and G4d pass; dispatched run 33714343260 is the first that can reach G4 (bead `br-r37-c1-qrldi`).
+- Ledgers regenerated (`1883046d3`), coverage golden counts updated with an itemised note
+  (`0e820f288`), README/FEATURE_PARITY/AGENTS/CHANGELOG corrected to the tree (`c1ad41eb7`).
+- Store bug: the pk1nb/303zo reproducers already passed at HEAD; a sweep found six wrappers still
+  reading stale weights, fixed by wiring the existing sync (`360b07f9d`, 17 new tests including a
+  planted negative; bead `br-r37-c1-4tmgq`, closed). The nbunch gate test was pinned to parity.
+- Filed: `br-r37-c1-9a8bo` (Hardened-mode Python toggle, design first) and `br-r37-c1-lh8oi`
+  (`cut_size` DiGraph `T=None` is an upstream NetworkX TypeError).
+
 ## Headline
 
 The library is real and fast. The product is not shipped, and the evidence pipeline that the README
