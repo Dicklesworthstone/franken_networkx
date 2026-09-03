@@ -1209,7 +1209,7 @@ The native algorithm implementations in `fnx-algorithms` favor textbook complexi
 
 ### Matching
 
-- **Maximum-weight matching.** Edmonds' blossom-shrinking algorithm, native Rust port. `max_weight_matching` and `min_weight_matching` share the same kernel parameterized by sign and the `maxcardinality` flag.
+- **Maximum-weight matching.** A native Rust port of Edmonds' blossom-shrinking algorithm exists (`_fnx.max_weight_matching`, sign-parameterised for min/max with the `maxcardinality` flag), but the public `max_weight_matching` delegates to NetworkX: on graphs with several equally optimal matchings the native kernel picked a different valid matching, and returned some pairs in the opposite `(u, v)` direction, than nx's DFS augmenting-path traversal (`br-r37-c1-kpnc8`). Drop-in code compares matchings against reference pair sets, so the wrapper mirrors nx exactly, including its `NetworkXNotImplemented` on directed and multigraph input. `min_weight_matching` is a Python wrapper over the same route. Both appear as `nx-fallback` / `py-wrapper` in `docs/delegation_ledger.md`.
 - **Maximal matching.** Greedy with canonical edge enumeration; suitable as a lower-bound approximation.
 - **Bipartite matching helpers (`hopcroft_karp_matching`, `eppstein_matching`, `minimum_weight_full_matching`).** Live under `fnx.bipartite.*` and currently delegate to the upstream `networkx.algorithms.bipartite` reference. Tracked in `docs/delegation_ledger.md`.
 
@@ -1574,7 +1574,7 @@ assert again[0].decision_path_hash == w.decision_path_hash
 assert cgse.collect_witnesses(lambda: fnx.degree_centrality(G))[1] == []
 ```
 
-From the public Python surface, witnesses currently surface for connected components, BFS/DFS edges and trees, Kruskal's `minimum_spanning_tree`, Bellman-Ford and the DFS-based strongly-connected count; the public routes of the other reference algorithms (topological sort, Prim, matching, Dijkstra, Euler) reach sibling kernels that are not instrumented yet. The Rust level additionally exposes `fnx_cgse::collect_witnesses` and the `WitnessLedger` JSONL serializer, which the conformance harness uses for the artifacts under `artifacts/conformance/latest/`.
+From the public Python surface, witnesses currently surface for connected components, BFS/DFS edges and trees, Kruskal's `minimum_spanning_tree`, Bellman-Ford and the DFS-based strongly-connected count; the public routes of the other reference algorithms reach code that does not emit: topological sort, Prim, Dijkstra and Euler run through faster sibling kernels or Python paths that are not instrumented yet, and matching delegates to NetworkX for tie-break parity (`br-r37-c1-kpnc8`). The Rust level additionally exposes `fnx_cgse::collect_witnesses` and the `WitnessLedger` JSONL serializer, which the conformance harness uses for the artifacts under `artifacts/conformance/latest/`.
 
 ---
 

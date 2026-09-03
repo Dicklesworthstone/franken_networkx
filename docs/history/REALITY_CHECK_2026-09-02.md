@@ -23,6 +23,16 @@ Prior checks: `docs/history/REALITY_CHECK.md` (2026-04-23), `artifacts/reality-c
   planted negative; bead `br-r37-c1-4tmgq`, closed). The nbunch gate test was pinned to parity.
 - Filed: `br-r37-c1-9a8bo` (Hardened-mode Python toggle, design first) and `br-r37-c1-lh8oi`
   (`cut_size` DiGraph `T=None` is an upstream NetworkX TypeError).
+- CGSE witnesses are now drainable from Python (`cgse.collect_witnesses`, `dc2e72b70`,
+  bead `br-r37-c1-vk52l`, closed). Measured emitters from the public surface: connected
+  components, BFS/DFS, Kruskal MST, Bellman-Ford, DFS-based SCC count. Topological sort,
+  Prim, Dijkstra and Euler reach un-instrumented siblings; the public matching route
+  delegates to NetworkX by design (`br-r37-c1-kpnc8`), which the README's matching note
+  now says.
+- CI verdict still pending at 04:45 UTC: the account has ~150 queued Actions runs across
+  15 repos and zero in progress anywhere, so hosted runners are not executing. Local
+  stand-ins: e2e 0 failures, docs verifier 22 + 4, examples 4/4, Hypothesis file 107 passed,
+  full suite running.
 
 ## Headline
 
