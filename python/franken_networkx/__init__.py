@@ -5164,6 +5164,17 @@ class _MultiGraphEdgeView:
     def __xor__(self, other):
         return set(self) ^ set(other)
 
+    # networkx's MultiEdgeView is a collections.abc.Set, so a plain set on the
+    # LEFT works there too; without the reflected operators
+    # ``{...} & MG.edges(keys=True)`` raised TypeError
+    # (tests/python/test_multi_keyed_edges_set_algebra_parity.py).
+    __rand__ = __and__
+    __ror__ = __or__
+    __rxor__ = __xor__
+
+    def __rsub__(self, other):
+        return set(other) - set(self)
+
 
 class _EdgeListWithSetAlgebra(list):
     """List subclass that supports set-algebra operators.
@@ -5851,6 +5862,15 @@ class _MultiDiGraphEdgeView:
 
     def __xor__(self, other):
         return set(self) ^ set(other)
+
+    # Reflected forms: see _MultiGraphEdgeView (networkx's OutMultiEdgeView is a
+    # collections.abc.Set, so ``set & MDG.edges(keys=True)`` must work).
+    __rand__ = __and__
+    __ror__ = __or__
+    __rxor__ = __xor__
+
+    def __rsub__(self, other):
+        return set(other) - set(self)
 
 
 def _multidigraph_edges(self):
