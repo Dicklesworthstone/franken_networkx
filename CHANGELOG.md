@@ -62,6 +62,11 @@ Assessment: [`docs/history/REALITY_CHECK_2026-09-02.md`](docs/history/REALITY_CH
   pagerank's scipy route, native left-right planarity for `is_planar`, community routing, CGSE
   witness scope, the real storage structs, `maturin develop --uv` for the uv venv, and three
   measured losses (`remove_node`, unkeyed MultiDiGraph `get_edge_data`, `G[u][v]`).
+- CGSE witnesses are now reachable from Python: `franken_networkx._fnx.cgse.collect_witnesses(func)`
+  runs `func()` with the thread-local ledger armed and returns `(result, [ComplexityWitness, ...])`.
+  Verified emitters from the public surface: connected components, BFS/DFS, Kruskal MST,
+  Bellman-Ford, DFS-based SCC count; un-instrumented kernels return an empty list.
+  Tests: `tests/python/test_cgse_witness_collection_python.py`.
 - Release path verified at HEAD: the `v0.2.0` wheel jobs failed on an absolute-path dependency
   (fixed in `8b7dff824`); a wheel built from HEAD installs in a fresh Python 3.12 venv and runs
   the quick start, pagerank and backend dispatch. No tag has been pushed and nothing is on PyPI.

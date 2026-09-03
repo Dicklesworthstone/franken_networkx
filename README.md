@@ -1557,7 +1557,24 @@ print(cgse.reference_algorithms())
 #    'eulerian_circuit', 'topological_sort']
 ```
 
-Programmatic CGSE-witness collection is exposed at the Rust level via `fnx_cgse::collect_witnesses` and the `WitnessLedger` JSONL serializer; the Python surface today is read-only (policy inspection). To collect witnesses end-to-end, drive an algorithm from a Rust integration test or read the JSONL artifacts emitted by the conformance harness under `artifacts/conformance/latest/`.
+Witnesses can also be drained from Python. `cgse.collect_witnesses(func)` runs `func()` with the calling thread's ledger armed and returns `(result, witnesses)`:
+
+```python
+G = fnx.karate_club_graph()
+components, witnesses = cgse.collect_witnesses(lambda: list(fnx.connected_components(G)))
+w = witnesses[0]
+print(w.policy.id(), w.dominant_term, w.n, w.m, w.observed_count)   # lex_min n_plus_m 34 78 34
+print(len(w.decision_path_hash))                                     # 64 (Blake3, hex)
+
+# Same graph, same policy → same decision-path hash. Any drift is a regression.
+_, again = cgse.collect_witnesses(lambda: list(fnx.connected_components(G)))
+assert again[0].decision_path_hash == w.decision_path_hash
+
+# A kernel outside the reference set emits nothing rather than a fabricated receipt.
+assert cgse.collect_witnesses(lambda: fnx.degree_centrality(G))[1] == []
+```
+
+From the public Python surface, witnesses currently surface for connected components, BFS/DFS edges and trees, Kruskal's `minimum_spanning_tree`, Bellman-Ford and the DFS-based strongly-connected count; the public routes of the other reference algorithms (topological sort, Prim, matching, Dijkstra, Euler) reach sibling kernels that are not instrumented yet. The Rust level additionally exposes `fnx_cgse::collect_witnesses` and the `WitnessLedger` JSONL serializer, which the conformance harness uses for the artifacts under `artifacts/conformance/latest/`.
 
 ---
 
