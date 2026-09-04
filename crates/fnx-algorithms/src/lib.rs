@@ -91784,8 +91784,11 @@ mod lr_state_differential {
     //! `cargo test -p fnx-algorithms --lib lr_state_differential -- --ignored --nocapture`.
 
     use super::*;
+    use fnx_runtime::CompatibilityMode;
+
     #[derive(Default)]
     struct NxDump {
+        planar: bool,
         nodes: Vec<String>,
         build: Vec<(String, String)>,
         edges: Vec<(String, String, i64, i64, i64)>, // tail, head, nesting, ref(-1 none), side
@@ -91793,7 +91796,7 @@ mod lr_state_differential {
     }
 
     #[test]
-    #[ignore = "differential dump: state-parity harness over the embedded nx LRPlanarity dump (crate::lr_state_nx_dump_data)"]
+    #[ignore = "state-parity harness over the embedded nx LRPlanarity dump (crate::lr_state_nx_dump_data)"]
     fn lr_state_matches_nx_lrplanarity_state() {
         let raw = crate::lr_state_nx_dump_data::NX_DUMP_LINES.join("\n");
 
@@ -91801,10 +91804,21 @@ mod lr_state_differential {
         for line in raw.lines() {
             let mut parts = line.split_whitespace();
             match parts.next() {
-                Some("G") => graphs.push((
-                    parts.next().unwrap_or_default().to_owned(),
-                    NxDump::default(),
-                )),
+                Some("G") => {
+                    let name = parts.next().unwrap_or_default().to_owned();
+                    let planar = parts
+                        .next()
+                        .and_then(|kv| kv.strip_prefix("planar="))
+                        .map(|v| v == "true")
+                        .unwrap_or(false);
+                    graphs.push((
+                        name,
+                        NxDump {
+                            planar,
+                            ..NxDump::default()
+                        },
+                    ));
+                }
                 Some("N") => graphs
                     .last_mut()
                     .expect("N before G")
@@ -91868,10 +91882,17 @@ mod lr_state_differential {
                 }
             }
             let mut state = LrState::new(n, adj);
-            assert!(
-                state.run(),
-                "{name}: fnx LrState rejected a nx-planar graph"
+            let planar = state.run();
+            assert_eq!(
+                planar, dump.planar,
+                "{name}: fnx planarity verdict diverges from nx"
             );
+            if !planar {
+                // Non-planar graphs fail mid-walk; their residual state is
+                // implementation-specific by design. The verdict above is the
+                // contract for them.
+                continue;
+            }
 
             // Sign resolution + signed-nesting re-sort (embedding tail).
             for e in 0..state.e_head.len() {
