@@ -91772,3 +91772,185 @@ mod lu_pade_tests {
         );
     }
 }
+
+#[cfg(test)]
+mod lr_state_differential {
+    //! State-parity differential harness against nx's LRPlanarity
+    //! (rc-planar-embedding-kernel-07rh8 milestone-1 prerequisite).
+    //! Prerequisite: run `scripts/dump_lr_state_nx.py` (needs the repo venv)
+    //! to produce /tmp/lr_state_nx.txt, then
+    //! `cargo test -p fnx-algorithms --lib lr_state_differential -- --ignored --nocapture`.
+
+    use super::*;
+    use fnx_runtime::CompatibilityMode;
+    use std::fs;
+
+    #[derive(Default)]
+    struct NxDump {
+        nodes: Vec<String>,
+        build: Vec<(String, String)>,
+        edges: Vec<(String, String, i64, i64, i64)>, // tail, head, nesting, ref(-1 none), side
+        ordered: Vec<(String, Vec<String>)>,
+    }
+
+    #[test]
+    #[ignore = "differential dump: needs scripts/dump_lr_state_nx.py output at /tmp/lr_state_nx.txt"]
+    fn lr_state_matches_nx_lrplanarity_state() {
+        let raw = fs::read_to_string("/tmp/lr_state_nx.txt")
+            .expect("run scripts/dump_lr_state_nx.py (repo venv) first");
+
+        let mut graphs: Vec<(String, NxDump)> = Vec::new();
+        for line in raw.lines() {
+            let mut parts = line.split_whitespace();
+            match parts.next() {
+                Some("G") => graphs.push((
+                    parts.next().unwrap_or_default().to_owned(),
+                    NxDump::default(),
+                )),
+                Some("N") => graphs
+                    .last_mut()
+                    .expect("N before G")
+                    .1
+                    .nodes
+                    .push(parts.next().unwrap_or_default().to_owned()),
+                Some("B") => graphs.last_mut().expect("B before G").1.build.push((
+                    parts.next().unwrap_or_default().to_owned(),
+                    parts.next().unwrap_or_default().to_owned(),
+                )),
+                Some("E") => {
+                    let tail = parts.next().unwrap_or_default().to_owned();
+                    let head = parts.next().unwrap_or_default().to_owned();
+                    let nesting = parts.next().unwrap_or_default().parse::<i64>().unwrap();
+                    let reference = parts.next().unwrap_or_default().parse::<i64>().unwrap();
+                    let side = parts.next().unwrap_or_default().parse::<i64>().unwrap();
+                    graphs
+                        .last_mut()
+                        .expect("E before G")
+                        .1
+                        .edges
+                        .push((tail, head, nesting, reference, side));
+                }
+                Some("A") => {
+                    let node = parts.next().unwrap_or_default().to_owned();
+                    let heads: Vec<String> = parts.map(str::to_owned).collect();
+                    graphs
+                        .last_mut()
+                        .expect("A before G")
+                        .1
+                        .ordered
+                        .push((node, heads));
+                }
+                _ => {}
+            }
+        }
+        assert!(!graphs.is_empty(), "no graphs parsed from the nx dump");
+
+        for (name, dump) in &graphs {
+            // Build the fnx graph in the recorded insertion order.
+            let mut g = Graph::new(CompatibilityMode::Strict);
+            for node in &dump.nodes {
+                let _ = g.add_node(node.as_str());
+            }
+            for (u, v) in &dump.build {
+                g.add_edge(u.as_str(), v.as_str()).expect("edge insert");
+            }
+
+            // LrState construction identical to is_planar_lr's preamble.
+            let nodes = g.nodes_ordered();
+            let n = nodes.len();
+            let mut seen: HashSet<(usize, usize)> = HashSet::new();
+            let mut adj: Vec<Vec<usize>> = vec![Vec::new(); n];
+            for (i, j) in g.edges_ordered_indices() {
+                if i != j {
+                    let key = if i < j { (i, j) } else { (j, i) };
+                    if seen.insert(key) {
+                        adj[i].push(j);
+                        adj[j].push(i);
+                    }
+                }
+            }
+            let mut state = LrState::new(n, adj);
+            assert!(
+                state.run(),
+                "{name}: fnx LrState rejected a nx-planar graph"
+            );
+
+            // Sign resolution + signed-nesting re-sort (embedding tail).
+            for e in 0..state.e_head.len() {
+                let s = state.resolve_sign(e);
+                state.nesting[e] = s * state.nesting[e];
+            }
+            for v in 0..state.n {
+                let mut oe = std::mem::take(&mut state.out_edges[v]);
+                oe.sort_by_key(|&id| state.nesting[id]);
+                state.out_edges[v] = oe;
+            }
+
+            // fnx edge state keyed by (tail, head) names.
+            let mut fnx_state: Vec<(String, String, i64, i64, i64)> = Vec::new();
+            for e in 0..state.e_head.len() {
+                fnx_state.push((
+                    names(&nodes, state.e_tail[e]),
+                    names(&nodes, state.e_head[e]),
+                    state.nesting[e],
+                    state.ref_[e],
+                    i64::from(state.side[e]),
+                ));
+            }
+            fnx_state.sort();
+
+            // nx edge state sorted the same way.
+            let mut nx_state: Vec<(String, String, i64, i64, i64)> = dump
+                .edges
+                .iter()
+                .map(|(t, h, nd, rf, sd)| (t.clone(), h.clone(), *nd, *rf, *sd))
+                .collect();
+            nx_state.sort();
+
+            for (f, x) in fnx_state.iter().zip(nx_state.iter()) {
+                assert_eq!(
+                    (f.0.as_str(), f.1.as_str()),
+                    (x.0.as_str(), x.1.as_str()),
+                    "{name}: oriented-edge mismatch"
+                );
+                assert_eq!(
+                    (f.2, f.3, f.4),
+                    (x.2, x.3, x.4),
+                    "{name}: state mismatch on {}->{} (fnx nesting/ref/side = \
+                     ({}, {}, {}); nx = ({}, {}, {}))",
+                    f.0,
+                    f.1,
+                    f.2,
+                    f.3,
+                    f.4,
+                    x.2,
+                    x.3,
+                    x.4
+                );
+            }
+
+            // ordered adjacency per node.
+            for (node, heads) in &dump.ordered {
+                let v = dump
+                    .nodes
+                    .iter()
+                    .position(|n| n == node)
+                    .unwrap_or_else(|| panic!("{name}: node {node} missing"));
+                let fnx_heads: Vec<&str> = state.out_edges[v]
+                    .iter()
+                    .map(|&id| names(&nodes, state.e_head[id]).as_str())
+                    .collect();
+                let nx_heads: Vec<&str> = heads.iter().map(String::as_str).collect();
+                assert_eq!(
+                    fnx_heads, nx_heads,
+                    "{name}: ordered_adjs[{node}] diverges from nx"
+                );
+            }
+        }
+        println!("lr_state_differential: all graphs state-parity with nx");
+    }
+
+    fn names(nodes: &[&str], i: usize) -> String {
+        nodes[i].to_owned()
+    }
+}
