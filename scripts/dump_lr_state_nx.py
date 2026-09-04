@@ -108,7 +108,7 @@ def main() -> int:
     #   E <tail> <head> <nesting> <ref(-1=none)> <side>
     #   A <node> <head> <head> ...   (ordered_adjs in order)
     for entry in dumps:
-        lines.append(f"G {entry['name']}")
+        lines.append(f"G {entry['name']} planar={str(entry['planar']).lower()}")
         for node in entry["nodes"]:
             lines.append(f"N {node}")
         for edge in entry["build_edges"]:
