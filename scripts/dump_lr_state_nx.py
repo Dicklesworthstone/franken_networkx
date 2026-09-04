@@ -121,6 +121,11 @@ def main() -> int:
 
     out_txt = Path("/tmp/lr_state_nx.txt")
     out_txt.write_text("\n".join(lines) + "\n")
+    # repo-committed copy so remote workers (rch) can read it
+    repo_txt = REPO / "tests" / "artifacts" / "planarity" / "lr_state_nx.txt"
+    repo_txt.parent.mkdir(parents=True, exist_ok=True)
+    repo_txt.write_text("\n".join(lines) + "\n")
+    print(f"wrote {out_txt} and {repo_txt}")
     print(f"wrote {out_txt} ({len(lines)} lines)")
 
     out = Path("/tmp/lr_state_nx.json")

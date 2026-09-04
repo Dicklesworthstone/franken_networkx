@@ -91777,13 +91777,14 @@ mod lu_pade_tests {
 mod lr_state_differential {
     //! State-parity differential harness against nx's LRPlanarity
     //! (rc-planar-embedding-kernel-07rh8 milestone-1 prerequisite).
-    //! Prerequisite: run `scripts/dump_lr_state_nx.py` (needs the repo venv)
-    //! to produce /tmp/lr_state_nx.txt, then
+    //! Prerequisite: run `scripts/dump_lr_state_nx.py` (repo venv); the dump
+    //! is committed at tests/artifacts/planarity/lr_state_nx.txt, then
     //! `cargo test -p fnx-algorithms --lib lr_state_differential -- --ignored --nocapture`.
 
     use super::*;
     use fnx_runtime::CompatibilityMode;
     use std::fs;
+    use std::path::PathBuf;
 
     #[derive(Default)]
     struct NxDump {
@@ -91794,10 +91795,12 @@ mod lr_state_differential {
     }
 
     #[test]
-    #[ignore = "differential dump: needs scripts/dump_lr_state_nx.py output at /tmp/lr_state_nx.txt"]
+    #[ignore = "differential dump: reads tests/artifacts/planarity/lr_state_nx.txt (regenerate with scripts/dump_lr_state_nx.py)"]
     fn lr_state_matches_nx_lrplanarity_state() {
-        let raw = fs::read_to_string("/tmp/lr_state_nx.txt")
-            .expect("run scripts/dump_lr_state_nx.py (repo venv) first");
+        let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../tests/artifacts/planarity/lr_state_nx.txt");
+        let raw = fs::read_to_string(&path)
+            .unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
 
         let mut graphs: Vec<(String, NxDump)> = Vec::new();
         for line in raw.lines() {
@@ -91936,11 +91939,11 @@ mod lr_state_differential {
                     .iter()
                     .position(|n| n == node)
                     .unwrap_or_else(|| panic!("{name}: node {node} missing"));
-                let fnx_heads: Vec<&str> = state.out_edges[v]
+                let fnx_heads: Vec<String> = state.out_edges[v]
                     .iter()
-                    .map(|&id| names(&nodes, state.e_head[id]).as_str())
+                    .map(|&id| names(&nodes, state.e_head[id]))
                     .collect();
-                let nx_heads: Vec<&str> = heads.iter().map(String::as_str).collect();
+                let nx_heads: Vec<String> = heads.iter().map(String::clone).collect();
                 assert_eq!(
                     fnx_heads, nx_heads,
                     "{name}: ordered_adjs[{node}] diverges from nx"

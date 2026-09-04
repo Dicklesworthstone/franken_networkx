@@ -1,0 +1,1409 @@
+G K26_nonplanar
+N u0
+N u1
+N v0
+N v1
+N v2
+N v3
+N v4
+N v5
+B u0 v0
+B u0 v1
+B u0 v2
+B u0 v3
+B u0 v4
+B u0 v5
+B u1 v0
+B u1 v1
+B u1 v2
+B u1 v3
+B u1 v4
+B u1 v5
+E u0 v0 0 -1 1
+E u1 v1 0 -1 1
+E u1 v2 0 -1 1
+E u1 v3 0 -1 1
+E u1 v4 0 -1 1
+E u1 v5 0 -1 1
+E v0 u1 0 -1 1
+E v1 u0 0 -1 1
+E v2 u0 0 -1 1
+E v3 u0 0 -1 1
+E v4 u0 0 -1 1
+E v5 u0 0 -1 1
+A u0 v0
+A u1 v1 v2 v3 v4 v5
+A v0 u1
+A v1 u0
+A v2 u0
+A v3 u0
+A v4 u0
+A v5 u0
+G K33_nonplanar
+N u0
+N u1
+N u2
+N v0
+N v1
+N v2
+B u0 v0
+B u0 v1
+B u0 v2
+B u1 v0
+B u1 v1
+B u1 v2
+B u2 v0
+B u2 v1
+B u2 v2
+G K4
+N 0
+N 1
+N 2
+N 3
+B 0 1
+B 0 2
+B 1 2
+B 0 3
+B 1 3
+B 2 3
+E 0 1 0 -1 1
+E 1 2 0 -1 1
+E 2 0 0 -1 1
+E 2 3 1 -1 1
+E 3 0 0 -1 1
+E 3 1 2 -1 1
+A 0 1
+A 1 2
+A 2 0 3
+A 3 0 1
+G K4_with_chords_extra
+N a
+N b
+N c
+N d
+N e
+B a b
+B b c
+B c d
+B d e
+B e a
+B a c
+B b d
+E a b 0 -1 1
+E b c 0 -1 1
+E c a 0 -1 1
+E c d 1 -1 1
+E d b 2 -1 1
+E d e 0 -1 1
+E e a 0 -1 1
+A a b
+A b c
+A c a d
+A d e b
+A e a
+G K5_nonplanar
+N n0
+N n1
+N n2
+N n3
+N n4
+B n0 n1
+B n0 n2
+B n0 n3
+B n0 n4
+B n1 n2
+B n1 n3
+B n1 n4
+B n2 n3
+B n2 n4
+B n3 n4
+G cube3
+N 000
+N 001
+N 010
+N 011
+N 100
+N 101
+N 110
+N 111
+B 000 001
+B 000 010
+B 000 100
+B 001 011
+B 001 101
+B 010 011
+B 010 110
+B 011 111
+B 100 101
+B 100 110
+B 101 111
+B 110 111
+E 000 001 0 -1 1
+E 001 011 0 -1 1
+E 010 000 0 -1 1
+E 010 110 1 -1 1
+E 011 010 1 -1 1
+E 100 000 0 -1 1
+E 100 101 3 -1 1
+E 101 001 2 -1 1
+E 101 111 5 -1 1
+E 110 100 1 -1 1
+E 111 011 4 -1 1
+E 111 110 8 -1 1
+A 000 001
+A 001 011
+A 010 000 110
+A 011 010
+A 100 000 101
+A 101 001 111
+A 110 100
+A 111 011 110
+G cycle_12
+N 0
+N 1
+N 2
+N 3
+N 4
+N 5
+N 6
+N 7
+N 8
+N 9
+N 10
+N 11
+B 0 1
+B 1 2
+B 2 3
+B 3 4
+B 4 5
+B 5 6
+B 6 7
+B 7 8
+B 8 9
+B 9 10
+B 10 11
+B 11 0
+E 0 1 0 -1 1
+E 1 2 0 -1 1
+E 10 11 0 -1 1
+E 11 0 0 -1 1
+E 2 3 0 -1 1
+E 3 4 0 -1 1
+E 4 5 0 -1 1
+E 5 6 0 -1 1
+E 6 7 0 -1 1
+E 7 8 0 -1 1
+E 8 9 0 -1 1
+E 9 10 0 -1 1
+A 0 1
+A 1 2
+A 2 3
+A 3 4
+A 4 5
+A 5 6
+A 6 7
+A 7 8
+A 8 9
+A 9 10
+A 10 11
+A 11 0
+G er_dense_30_nonplanar
+N n0
+N n1
+N n2
+N n3
+N n4
+N n5
+N n6
+N n7
+N n8
+N n9
+N n10
+N n11
+N n12
+N n13
+N n14
+N n15
+N n16
+N n17
+N n18
+N n19
+N n20
+N n21
+N n22
+N n23
+N n24
+N n25
+N n26
+N n27
+N n28
+N n29
+B n0 n2
+B n0 n3
+B n0 n4
+B n0 n5
+B n0 n9
+B n0 n10
+B n0 n11
+B n0 n13
+B n0 n17
+B n0 n18
+B n0 n21
+B n0 n27
+B n0 n28
+B n1 n2
+B n1 n5
+B n1 n8
+B n1 n9
+B n1 n11
+B n1 n16
+B n1 n17
+B n1 n18
+B n1 n19
+B n1 n21
+B n1 n22
+B n1 n26
+B n1 n28
+B n2 n3
+B n2 n6
+B n2 n7
+B n2 n9
+B n2 n11
+B n2 n12
+B n2 n13
+B n2 n14
+B n2 n16
+B n2 n17
+B n2 n18
+B n2 n22
+B n2 n24
+B n2 n25
+B n2 n27
+B n3 n5
+B n3 n6
+B n3 n13
+B n3 n20
+B n3 n22
+B n3 n25
+B n3 n27
+B n4 n7
+B n4 n8
+B n4 n11
+B n4 n12
+B n4 n14
+B n4 n15
+B n4 n16
+B n4 n17
+B n4 n20
+B n4 n22
+B n4 n23
+B n4 n25
+B n4 n27
+B n4 n29
+B n5 n7
+B n5 n8
+B n5 n9
+B n5 n10
+B n5 n11
+B n5 n13
+B n5 n17
+B n5 n18
+B n5 n19
+B n5 n21
+B n5 n22
+B n5 n23
+B n5 n24
+B n5 n25
+B n5 n26
+B n5 n28
+B n5 n29
+B n6 n7
+B n6 n8
+B n6 n10
+B n6 n11
+B n6 n12
+B n6 n13
+B n6 n14
+B n6 n15
+B n6 n16
+B n6 n17
+B n6 n19
+B n6 n22
+B n6 n27
+B n6 n29
+B n7 n8
+B n7 n9
+B n7 n14
+B n7 n17
+B n7 n19
+B n7 n20
+B n7 n21
+B n7 n22
+B n7 n24
+B n7 n26
+B n8 n9
+B n8 n14
+B n8 n15
+B n8 n16
+B n8 n17
+B n8 n19
+B n8 n20
+B n8 n21
+B n8 n24
+B n8 n25
+B n8 n26
+B n8 n27
+B n8 n28
+B n8 n29
+B n9 n10
+B n9 n15
+B n9 n18
+B n9 n23
+B n9 n27
+B n10 n11
+B n10 n13
+B n10 n15
+B n10 n22
+B n10 n23
+B n10 n28
+B n11 n12
+B n11 n13
+B n11 n15
+B n11 n16
+B n11 n19
+B n11 n25
+B n11 n26
+B n12 n13
+B n12 n14
+B n12 n15
+B n12 n16
+B n12 n17
+B n12 n18
+B n12 n20
+B n12 n22
+B n12 n25
+B n12 n27
+B n12 n29
+B n13 n14
+B n13 n15
+B n13 n17
+B n13 n19
+B n13 n23
+B n13 n24
+B n13 n26
+B n13 n28
+B n14 n15
+B n14 n17
+B n14 n22
+B n14 n24
+B n14 n25
+B n14 n28
+B n15 n17
+B n15 n19
+B n15 n20
+B n15 n25
+B n15 n26
+B n15 n27
+B n15 n29
+B n16 n17
+B n16 n25
+B n16 n26
+B n16 n27
+B n17 n18
+B n17 n19
+B n17 n24
+B n17 n26
+B n17 n27
+B n18 n19
+B n18 n20
+B n18 n21
+B n18 n23
+B n18 n26
+B n18 n29
+B n19 n20
+B n19 n22
+B n19 n24
+B n19 n25
+B n19 n28
+B n19 n29
+B n20 n22
+B n20 n25
+B n20 n26
+B n20 n27
+B n20 n28
+B n21 n26
+B n21 n28
+B n22 n23
+B n22 n24
+B n22 n25
+B n22 n26
+B n22 n27
+B n22 n28
+B n23 n25
+B n23 n27
+B n23 n29
+B n24 n26
+B n24 n27
+B n24 n29
+B n25 n27
+B n25 n29
+B n26 n28
+B n27 n29
+G er_mixed_120
+N n0
+N n1
+N n2
+N n3
+N n4
+N n5
+N n6
+N n7
+N n8
+N n9
+N n10
+N n11
+N n12
+N n13
+N n14
+N n15
+N n16
+N n17
+N n18
+N n19
+N n20
+N n21
+N n22
+N n23
+N n24
+N n25
+N n26
+N n27
+N n28
+N n29
+N n30
+N n31
+N n32
+N n33
+N n34
+N n35
+N n36
+N n37
+N n38
+N n39
+N n40
+N n41
+N n42
+N n43
+N n44
+N n45
+N n46
+N n47
+N n48
+N n49
+N n50
+N n51
+N n52
+N n53
+N n54
+N n55
+N n56
+N n57
+N n58
+N n59
+N n60
+N n61
+N n62
+N n63
+N n64
+N n65
+N n66
+N n67
+N n68
+N n69
+N n70
+N n71
+N n72
+N n73
+N n74
+N n75
+N n76
+N n77
+N n78
+N n79
+N n80
+N n81
+N n82
+N n83
+N n84
+N n85
+N n86
+N n87
+N n88
+N n89
+N n90
+N n91
+N n92
+N n93
+N n94
+N n95
+N n96
+N n97
+N n98
+N n99
+N n100
+N n101
+N n102
+N n103
+N n104
+N n105
+N n106
+N n107
+N n108
+N n109
+N n110
+N n111
+N n112
+N n113
+N n114
+N n115
+N n116
+N n117
+N n118
+N n119
+B n0 n19
+B n0 n31
+B n0 n46
+B n0 n84
+B n0 n95
+B n1 n5
+B n1 n12
+B n1 n74
+B n1 n95
+B n2 n9
+B n2 n17
+B n2 n32
+B n2 n37
+B n2 n81
+B n3 n47
+B n3 n59
+B n4 n55
+B n4 n60
+B n4 n103
+B n5 n28
+B n5 n41
+B n5 n61
+B n5 n105
+B n6 n50
+B n6 n77
+B n7 n10
+B n7 n52
+B n7 n118
+B n8 n14
+B n8 n81
+B n8 n85
+B n8 n107
+B n9 n32
+B n9 n43
+B n10 n25
+B n11 n37
+B n11 n51
+B n11 n58
+B n11 n107
+B n12 n15
+B n12 n65
+B n12 n90
+B n13 n27
+B n13 n36
+B n13 n102
+B n14 n21
+B n14 n60
+B n14 n69
+B n14 n72
+B n14 n73
+B n15 n43
+B n15 n75
+B n16 n28
+B n16 n43
+B n16 n81
+B n17 n18
+B n17 n52
+B n17 n76
+B n17 n84
+B n17 n89
+B n17 n119
+B n18 n34
+B n19 n32
+B n19 n93
+B n19 n102
+B n20 n92
+B n20 n95
+B n21 n66
+B n21 n102
+B n21 n111
+B n22 n65
+B n22 n117
+B n23 n52
+B n23 n92
+B n24 n30
+B n24 n68
+B n25 n47
+B n25 n80
+B n25 n100
+B n26 n72
+B n26 n73
+B n27 n40
+B n27 n54
+B n28 n47
+B n28 n88
+B n28 n92
+B n29 n93
+B n30 n34
+B n30 n41
+B n30 n56
+B n30 n97
+B n31 n41
+B n31 n85
+B n33 n51
+B n33 n65
+B n33 n70
+B n33 n86
+B n33 n99
+B n33 n100
+B n33 n111
+B n34 n38
+B n34 n49
+B n34 n56
+B n34 n75
+B n34 n115
+B n34 n117
+B n35 n39
+B n35 n79
+B n35 n80
+B n35 n115
+B n36 n71
+B n37 n100
+B n37 n110
+B n38 n45
+B n38 n70
+B n38 n89
+B n39 n68
+B n39 n71
+B n39 n81
+B n39 n88
+B n39 n108
+B n40 n61
+B n40 n98
+B n40 n102
+B n42 n98
+B n43 n54
+B n43 n113
+B n45 n65
+B n46 n110
+B n46 n118
+B n48 n66
+B n48 n67
+B n48 n77
+B n48 n105
+B n49 n58
+B n49 n70
+B n49 n115
+B n49 n119
+B n50 n119
+B n51 n95
+B n51 n110
+B n53 n56
+B n53 n84
+B n54 n60
+B n54 n63
+B n54 n66
+B n54 n114
+B n55 n106
+B n56 n65
+B n56 n67
+B n56 n103
+B n57 n98
+B n57 n103
+B n57 n117
+B n59 n76
+B n59 n91
+B n59 n117
+B n60 n88
+B n60 n102
+B n60 n110
+B n60 n115
+B n61 n80
+B n61 n90
+B n61 n116
+B n62 n112
+B n63 n70
+B n63 n115
+B n64 n70
+B n66 n86
+B n66 n91
+B n66 n107
+B n67 n95
+B n67 n115
+B n68 n118
+B n69 n70
+B n69 n84
+B n69 n107
+B n69 n111
+B n70 n86
+B n70 n118
+B n71 n89
+B n71 n117
+B n72 n103
+B n72 n108
+B n72 n111
+B n73 n101
+B n73 n111
+B n73 n117
+B n74 n84
+B n74 n94
+B n75 n91
+B n75 n94
+B n75 n116
+B n76 n82
+B n76 n108
+B n78 n100
+B n80 n117
+B n82 n100
+B n82 n118
+B n87 n108
+B n88 n108
+B n89 n93
+B n90 n118
+B n92 n105
+B n93 n110
+B n94 n117
+B n95 n98
+B n96 n105
+B n96 n107
+B n97 n106
+B n97 n110
+B n97 n118
+B n99 n106
+B n102 n103
+B n102 n114
+B n104 n111
+B n109 n114
+B n110 n118
+G er_mixed_80
+N n0
+N n1
+N n2
+N n3
+N n4
+N n5
+N n6
+N n7
+N n8
+N n9
+N n10
+N n11
+N n12
+N n13
+N n14
+N n15
+N n16
+N n17
+N n18
+N n19
+N n20
+N n21
+N n22
+N n23
+N n24
+N n25
+N n26
+N n27
+N n28
+N n29
+N n30
+N n31
+N n32
+N n33
+N n34
+N n35
+N n36
+N n37
+N n38
+N n39
+N n40
+N n41
+N n42
+N n43
+N n44
+N n45
+N n46
+N n47
+N n48
+N n49
+N n50
+N n51
+N n52
+N n53
+N n54
+N n55
+N n56
+N n57
+N n58
+N n59
+N n60
+N n61
+N n62
+N n63
+N n64
+N n65
+N n66
+N n67
+N n68
+N n69
+N n70
+N n71
+N n72
+N n73
+N n74
+N n75
+N n76
+N n77
+N n78
+N n79
+B n0 n6
+B n0 n16
+B n0 n22
+B n0 n24
+B n0 n64
+B n0 n67
+B n0 n75
+B n1 n40
+B n1 n54
+B n1 n72
+B n2 n8
+B n3 n10
+B n3 n14
+B n3 n23
+B n3 n47
+B n3 n65
+B n4 n14
+B n4 n21
+B n4 n31
+B n4 n35
+B n4 n41
+B n4 n46
+B n4 n48
+B n5 n21
+B n6 n16
+B n6 n54
+B n6 n59
+B n7 n61
+B n8 n12
+B n8 n23
+B n8 n51
+B n9 n34
+B n9 n57
+B n9 n66
+B n9 n75
+B n10 n42
+B n11 n73
+B n12 n35
+B n12 n56
+B n12 n66
+B n12 n77
+B n14 n16
+B n14 n29
+B n14 n33
+B n14 n40
+B n14 n46
+B n14 n59
+B n14 n71
+B n15 n18
+B n15 n60
+B n16 n43
+B n16 n56
+B n16 n65
+B n16 n79
+B n17 n24
+B n17 n29
+B n17 n42
+B n17 n45
+B n17 n48
+B n18 n33
+B n18 n44
+B n18 n69
+B n19 n46
+B n19 n47
+B n19 n57
+B n19 n65
+B n20 n29
+B n20 n56
+B n20 n63
+B n21 n30
+B n22 n23
+B n22 n51
+B n22 n53
+B n22 n60
+B n23 n68
+B n24 n48
+B n25 n27
+B n25 n28
+B n25 n30
+B n25 n56
+B n25 n61
+B n26 n36
+B n26 n39
+B n26 n51
+B n26 n71
+B n26 n74
+B n27 n32
+B n28 n44
+B n28 n70
+B n29 n58
+B n30 n35
+B n30 n47
+B n30 n69
+B n31 n34
+B n31 n71
+B n32 n43
+B n32 n55
+B n32 n62
+B n33 n60
+B n33 n79
+B n34 n38
+B n34 n53
+B n34 n73
+B n35 n51
+B n35 n60
+B n36 n46
+B n36 n51
+B n36 n52
+B n36 n60
+B n38 n39
+B n38 n42
+B n38 n55
+B n38 n61
+B n38 n63
+B n39 n65
+B n39 n67
+B n39 n78
+B n40 n54
+B n40 n63
+B n40 n66
+B n41 n68
+B n41 n74
+B n42 n54
+B n42 n69
+B n42 n73
+B n42 n78
+B n43 n46
+B n44 n72
+B n45 n52
+B n46 n50
+B n46 n64
+B n47 n75
+B n48 n49
+B n48 n71
+B n48 n72
+B n48 n74
+B n49 n64
+B n51 n77
+B n52 n53
+B n54 n62
+B n56 n57
+B n56 n63
+B n58 n62
+B n58 n75
+B n60 n64
+B n60 n70
+B n61 n64
+B n64 n66
+B n65 n66
+B n65 n74
+B n66 n68
+B n66 n76
+B n71 n72
+B n71 n73
+B n71 n77
+B n74 n79
+B n77 n79
+G er_planar_sparse_30
+N n0
+N n1
+N n2
+N n3
+N n4
+N n5
+N n6
+N n7
+N n8
+N n9
+N n10
+N n11
+N n12
+N n13
+N n14
+N n15
+N n16
+N n17
+N n18
+N n19
+N n20
+N n21
+N n22
+N n23
+N n24
+N n25
+N n26
+N n27
+N n28
+N n29
+B n0 n16
+B n0 n23
+B n1 n7
+B n1 n26
+B n1 n29
+B n3 n10
+B n4 n17
+B n4 n19
+B n4 n25
+B n5 n12
+B n6 n23
+B n8 n18
+B n8 n21
+B n9 n10
+B n9 n19
+B n10 n19
+B n11 n18
+B n12 n17
+B n12 n27
+B n17 n23
+B n17 n28
+B n18 n28
+B n19 n20
+B n19 n26
+B n21 n26
+B n22 n26
+B n24 n27
+B n24 n28
+B n25 n26
+B n27 n28
+E n0 n16 0 -1 1
+E n0 n23 0 -1 1
+E n1 n29 12 -1 1
+E n1 n7 12 -1 1
+E n10 n19 8 -1 1
+E n10 n3 12 -1 1
+E n12 n17 4 -1 1
+E n12 n5 24 -1 1
+E n17 n4 4 -1 1
+E n18 n11 16 -1 1
+E n18 n28 4 -1 1
+E n19 n20 8 -1 1
+E n19 n26 5 -1 1
+E n19 n9 8 -1 1
+E n21 n8 4 -1 1
+E n23 n17 2 -1 1
+E n23 n6 2 -1 1
+E n24 n27 5 -1 1
+E n25 n4 6 -1 1
+E n26 n1 10 -1 1
+E n26 n21 4 -1 1
+E n26 n22 10 -1 1
+E n26 n25 6 -1 1
+E n27 n12 4 -1 1
+E n27 n28 18 -1 1
+E n28 n17 4 -1 1
+E n28 n24 4 -1 1
+E n4 n19 4 -1 1
+E n8 n18 4 -1 1
+E n9 n10 8 -1 1
+A n0 n16 n23
+A n1 n7 n29
+A n2
+A n3
+A n4 n19
+A n5
+A n6
+A n7
+A n8 n18
+A n9 n10
+A n10 n19 n3
+A n11
+A n12 n17 n5
+A n13
+A n14
+A n15
+A n16
+A n17 n4
+A n18 n28 n11
+A n19 n26 n9 n20
+A n20
+A n21 n8
+A n22
+A n23 n6 n17
+A n24 n27
+A n25 n4
+A n26 n21 n25 n1 n22
+A n27 n12 n28
+A n28 n17 n24
+A n29
+G er_planar_sparse_60
+N n0
+N n1
+N n2
+N n3
+N n4
+N n5
+N n6
+N n7
+N n8
+N n9
+N n10
+N n11
+N n12
+N n13
+N n14
+N n15
+N n16
+N n17
+N n18
+N n19
+N n20
+N n21
+N n22
+N n23
+N n24
+N n25
+N n26
+N n27
+N n28
+N n29
+N n30
+N n31
+N n32
+N n33
+N n34
+N n35
+N n36
+N n37
+N n38
+N n39
+N n40
+N n41
+N n42
+N n43
+N n44
+N n45
+N n46
+N n47
+N n48
+N n49
+N n50
+N n51
+N n52
+N n53
+N n54
+N n55
+N n56
+N n57
+N n58
+N n59
+B n0 n25
+B n0 n38
+B n0 n41
+B n0 n50
+B n1 n3
+B n2 n41
+B n3 n32
+B n3 n48
+B n3 n59
+B n4 n14
+B n4 n19
+B n5 n24
+B n5 n45
+B n5 n51
+B n6 n28
+B n6 n32
+B n7 n15
+B n8 n27
+B n9 n19
+B n9 n37
+B n9 n51
+B n13 n48
+B n14 n30
+B n15 n19
+B n16 n19
+B n16 n30
+B n16 n37
+B n16 n47
+B n17 n37
+B n17 n40
+B n17 n45
+B n18 n40
+B n19 n32
+B n19 n53
+B n20 n25
+B n20 n35
+B n20 n36
+B n20 n52
+B n20 n53
+B n20 n56
+B n21 n30
+B n21 n54
+B n22 n26
+B n22 n57
+B n23 n32
+B n23 n47
+B n25 n26
+B n26 n31
+B n26 n36
+B n27 n34
+B n27 n47
+B n28 n57
+B n28 n58
+B n29 n46
+B n29 n54
+B n30 n45
+B n32 n42
+B n33 n40
+B n33 n46
+B n34 n42
+B n35 n57
+B n39 n43
+B n39 n44
+B n39 n50
+B n40 n57
+B n43 n51
+B n45 n53
+B n45 n56
+B n46 n47
+B n47 n50
+B n50 n51
+B n58 n59
+G nonlex_cycle_6
+N zz
+N mm
+N bb
+N qq
+N tt
+N yy
+B zz mm
+B mm bb
+B bb qq
+B qq tt
+B tt yy
+B yy zz
+E bb qq 0 -1 1
+E mm bb 0 -1 1
+E qq tt 0 -1 1
+E tt yy 0 -1 1
+E yy zz 0 -1 1
+E zz mm 0 -1 1
+A zz mm
+A mm bb
+A bb qq
+A qq tt
+A tt yy
+A yy zz
+G octahedron
+N n0
+N n1
+N n2
+N n3
+N n4
+N n5
+B n0 n1
+B n0 n2
+B n0 n4
+B n0 n5
+B n1 n2
+B n1 n3
+B n1 n5
+B n2 n3
+B n2 n4
+B n3 n4
+B n3 n5
+B n4 n5
+E n0 n1 0 -1 1
+E n1 n2 0 -1 1
+E n2 n0 0 -1 1
+E n2 n3 1 -1 1
+E n3 n1 2 -1 1
+E n3 n4 -1 -1 -1
+E n4 n0 0 -1 1
+E n4 n2 -4 -1 -1
+E n4 n5 1 -1 1
+E n5 n0 0 -1 1
+E n5 n1 2 -1 1
+E n5 n3 6 -1 1
+A n0 n1
+A n1 n2
+A n2 n0 n3
+A n3 n4 n1
+A n4 n2 n0 n5
+A n5 n0 n1 n3
+G petersen_nonplanar
+N 0
+N 1
+N 2
+N 3
+N 4
+N 5
+N 6
+N 7
+N 8
+N 9
+B 0 1
+B 1 2
+B 2 3
+B 3 4
+B 4 0
+B 0 5
+B 1 6
+B 2 7
+B 3 8
+B 4 9
+B 5 7
+B 6 8
+B 7 9
+B 8 5
+B 9 6
+G star_9
+N 0
+N 1
+N 2
+N 3
+N 4
+N 5
+N 6
+N 7
+N 8
+N 9
+B 9 0
+B 9 1
+B 9 2
+B 9 3
+B 9 4
+B 9 5
+B 9 6
+B 9 7
+B 9 8
+E 0 9 0 -1 1
+E 9 1 2 -1 1
+E 9 2 2 -1 1
+E 9 3 2 -1 1
+E 9 4 2 -1 1
+E 9 5 2 -1 1
+E 9 6 2 -1 1
+E 9 7 2 -1 1
+E 9 8 2 -1 1
+A 0 9
+A 1
+A 2
+A 3
+A 4
+A 5
+A 6
+A 7
+A 8
+A 9 1 2 3 4 5 6 7 8
