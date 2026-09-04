@@ -208,17 +208,7 @@ fn main() {
         eprintln!("fnx_extension {}", fetch("FNX_EXT"));
         eprintln!("incumbent {}", fetch("NX_BUILD"));
         eprintln!(
-            "\n{:<6} {:<9} {:<6} {:<5} {:>9} {:>9} {:>9} {:>10} {:>10}  {}",
-            "pass",
-            "class",
-            "shape",
-            "feed",
-            "nx/fnx",
-            "null fnx",
-            "null nx",
-            "fnx ms",
-            "nx ms",
-            "ok"
+            "\npass   class     shape  feed     nx/fnx  null fnx   null nx     fnx ms      nx ms  ok"
         );
 
         let rows = globals

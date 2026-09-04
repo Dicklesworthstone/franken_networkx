@@ -220,8 +220,7 @@ fn main() {
         eprintln!("bench_elf_sha256 {}", self_identity());
         eprintln!("fnx_extension {ext}");
         eprintln!(
-            "\n{:<26} {:>9} {:>10} {:>10} {:>11} {:>11}  {}",
-            "lever", "ship/alt", "null ship", "null alt", "ship ms", "alt ms", "arms agree"
+            "\nlever                       ship/alt  null ship   null alt     ship ms      alt ms  arms agree"
         );
 
         let rows = globals

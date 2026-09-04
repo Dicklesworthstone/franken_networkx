@@ -134,7 +134,7 @@ fn unpack_two_endpoints<'py>(
 ///
 /// Measured: fnx `row.keys()` 444.6ns against networkx's 174.2ns, a 270ns gap,
 /// while the same row's `iter()` (56.6ns) and `len()` (36.9ns) are already fast
-/// - so the row is fine and it is the view CONSTRUCTION that costs. The Python
+/// — so the row is fine and it is the view CONSTRUCTION that costs. The Python
 /// proxy for the removed work, `import_module("collections.abc").KeysView`,
 /// measures 296.0ns against 22.8ns for a cached global, which accounts for the
 /// gap.

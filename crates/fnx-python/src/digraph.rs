@@ -2655,16 +2655,17 @@ impl PyMultiDiGraph {
     /// NOT this — there networkx clears only the outer mappings, so an in-flight
     /// iterator completes and fnx already matches by dropping the caches.
     fn direction_rows_clear_in_place(&self, py: Python<'_>) {
-        for slot in [&self.succ_key_rows, &self.pred_key_rows] {
-            if let Some((_, _, rows, by_index)) = slot {
-                for row in rows.values() {
-                    let _ = row.bind(py).call_method0("clear");
-                }
-                // The index twin holds the SAME dict objects, but a row reached
-                // only through it would otherwise survive uncleared.
-                for row in by_index.values() {
-                    let _ = row.bind(py).call_method0("clear");
-                }
+        for (_, _, rows, by_index) in [&self.succ_key_rows, &self.pred_key_rows]
+            .into_iter()
+            .flatten()
+        {
+            for row in rows.values() {
+                let _ = row.bind(py).call_method0("clear");
+            }
+            // The index twin holds the SAME dict objects, but a row reached
+            // only through it would otherwise survive uncleared.
+            for row in by_index.values() {
+                let _ = row.bind(py).call_method0("clear");
             }
         }
     }
@@ -9976,27 +9977,25 @@ impl PyMultiDiGraph {
                     .and_then(|(_, _, rows)| rows.get(u_c).and_then(|row| row.get(v_c)));
                 let mut cached_row_was_tampered =
                     cached.is_some_and(|(expected_len, row)| row.bind(py).len() != *expected_len);
-                if !cached_row_was_tampered {
-                    if let Some(live) = self.live_keydict_rows.get_if_pristine(py, u_c, v_c) {
-                        let live_matches_cache = cached
-                            .map(|(expected_len, _)| live.bind(py).len() == *expected_len)
-                            .unwrap_or(true);
-                        if live_matches_cache {
-                            self.mark_edges_dirty();
-                            return Ok(Some(live.into_any()));
-                        }
-                        // The live row and cache normally hold the same object.
-                        // If they disagree, neither is safe to return until this
-                        // pair is rebuilt from the native graph.
-                        cached_row_was_tampered = true;
-                    }
-                }
-                if !cached_row_was_tampered {
-                    if let Some((_, cached)) = cached {
-                        let copy = cached.bind(py).copy()?;
+                if !cached_row_was_tampered
+                    && let Some(live) = self.live_keydict_rows.get_if_pristine(py, u_c, v_c)
+                {
+                    let live_matches_cache = cached
+                        .map(|(expected_len, _)| live.bind(py).len() == *expected_len)
+                        .unwrap_or(true);
+                    if live_matches_cache {
                         self.mark_edges_dirty();
-                        return Ok(Some(copy.into_any().unbind()));
+                        return Ok(Some(live.into_any()));
                     }
+                    // The live row and cache normally hold the same object.
+                    // If they disagree, neither is safe to return until this
+                    // pair is rebuilt from the native graph.
+                    cached_row_was_tampered = true;
+                }
+                if !cached_row_was_tampered && let Some((_, cached)) = cached {
+                    let copy = cached.bind(py).copy()?;
+                    self.mark_edges_dirty();
+                    return Ok(Some(copy.into_any().unbind()));
                 }
                 let keys = self.inner.edge_keys(u_c, v_c).unwrap_or_default();
                 if keys.is_empty() {

@@ -232,10 +232,7 @@ fn main() {
         }
 
         eprintln!("\nCOUNTED MECHANISM (deterministic, no timing):");
-        eprintln!(
-            "{:<8} {:>12} {:>18}   {}",
-            "regime", "len(__dict__)", "short-circuit fires", "first keys"
-        );
+        eprintln!("\nregime   len(__dict__) short-circuit fires   first keys");
         for row in out.get_item(1).unwrap().try_iter().unwrap() {
             let row = row.unwrap();
             let regime: String = row.get_item(0).unwrap().extract().unwrap();

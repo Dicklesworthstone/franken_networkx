@@ -2843,6 +2843,7 @@ impl InstanceDictGc {
     /// The `_adj` row an edge subscript must read for a graph carrying
     /// networkx private storage (br-r37-c1-ef8rt), or `None` for an ordinary
     /// graph. Ordinary graphs pay one bool test.
+    #[expect(dead_code)]
     pub(crate) fn private_adj_row<'py>(
         &self,
         py: Python<'py>,
@@ -9091,11 +9092,11 @@ impl PyMultiGraph {
                 // return the known-tampered mapping through that second cache.
                 cached_row_was_tampered = true;
             }
-            if !cached_row_was_tampered {
-                if let Some(live) = self.live_keydict_rows.get_if_pristine(py, lo, hi) {
-                    self.mark_edges_dirty();
-                    return Ok(live.into_any());
-                }
+            if !cached_row_was_tampered
+                && let Some(live) = self.live_keydict_rows.get_if_pristine(py, lo, hi)
+            {
+                self.mark_edges_dirty();
+                return Ok(live.into_any());
             }
             let keys = self.inner.edge_keys(u_c, v_c).unwrap_or_default();
             if keys.is_empty() {
@@ -18667,7 +18668,7 @@ impl PyGraph {
         let escaped = scope.as_deref().and_then(Option::as_ref);
         self.inner.with_edge_slots_by_neighbor(|edge_slots| {
             let mut outer = crate::digraph::MixedSum::new();
-            for i in 0..self.inner.node_count() {
+            for (i, node_slots) in edge_slots.iter().enumerate() {
                 let mut node = crate::digraph::MixedSum::new();
                 let mut selfloop: Option<Result<i128, f64>> = None;
                 if let Some(nbrs) = self.inner.neighbors_indices(i) {
@@ -18688,7 +18689,7 @@ impl PyGraph {
                         } else {
                             match self
                                 .inner
-                                .edge_attrs_by_slot(edge_slots[i][row_pos])
+                                .edge_attrs_by_slot(node_slots[row_pos])
                                 .map(|a| a.get(weight))
                             {
                                 Some(Some(CgseValue::Int(v))) => Ok(i128::from(*v)),
@@ -22410,11 +22411,13 @@ fn cached_native_adjacency_view_stays_live_and_int_misses_invalidate() {
 /// attributes, clones the canonical FOUR times rather than twice, and emits a
 /// `log::debug!`.
 #[inline(never)]
+#[cfg_attr(not(test), expect(dead_code))]
 fn rung_l0(_g: &mut PyGraph, _py: Python<'_>, _n: &Bound<'_, PyAny>) -> PyResult<()> {
     Ok(())
 }
 
 #[inline(never)]
+#[cfg_attr(not(test), expect(dead_code))]
 fn rung_l1(_g: &mut PyGraph, py: Python<'_>, n: &Bound<'_, PyAny>) -> PyResult<()> {
     let canonical = node_key_to_string(py, n)?;
     std::hint::black_box(&canonical);
@@ -22422,6 +22425,7 @@ fn rung_l1(_g: &mut PyGraph, py: Python<'_>, n: &Bound<'_, PyAny>) -> PyResult<(
 }
 
 #[inline(never)]
+#[cfg_attr(not(test), expect(dead_code))]
 fn rung_l2(g: &mut PyGraph, py: Python<'_>, n: &Bound<'_, PyAny>) -> PyResult<()> {
     let canonical = node_key_to_string(py, n)?;
     let was_new = !g.inner.has_node(&canonical);
@@ -22430,6 +22434,7 @@ fn rung_l2(g: &mut PyGraph, py: Python<'_>, n: &Bound<'_, PyAny>) -> PyResult<()
 }
 
 #[inline(never)]
+#[cfg_attr(not(test), expect(dead_code))]
 fn rung_l3(g: &mut PyGraph, py: Python<'_>, n: &Bound<'_, PyAny>) -> PyResult<()> {
     let canonical = node_key_to_string(py, n)?;
     let was_new = !g.inner.has_node(&canonical);
@@ -22443,6 +22448,7 @@ fn rung_l3(g: &mut PyGraph, py: Python<'_>, n: &Bound<'_, PyAny>) -> PyResult<()
 }
 
 #[inline(never)]
+#[cfg_attr(not(test), expect(dead_code))]
 fn rung_l4(g: &mut PyGraph, py: Python<'_>, n: &Bound<'_, PyAny>) -> PyResult<()> {
     let canonical = node_key_to_string(py, n)?;
     let was_new = !g.inner.has_node(&canonical);
@@ -22462,6 +22468,7 @@ fn rung_l4(g: &mut PyGraph, py: Python<'_>, n: &Bound<'_, PyAny>) -> PyResult<()
 }
 
 #[inline(never)]
+#[cfg_attr(not(test), expect(dead_code))]
 fn rung_l5(g: &mut PyGraph, py: Python<'_>, n: &Bound<'_, PyAny>) -> PyResult<()> {
     let canonical = node_key_to_string(py, n)?;
     let was_new = !g.inner.has_node(&canonical);
@@ -22477,6 +22484,7 @@ fn rung_l5(g: &mut PyGraph, py: Python<'_>, n: &Bound<'_, PyAny>) -> PyResult<()
 }
 
 #[inline(never)]
+#[cfg_attr(not(test), expect(dead_code))]
 fn rung_l6(g: &mut PyGraph, py: Python<'_>, n: &Bound<'_, PyAny>) -> PyResult<()> {
     let canonical = node_key_to_string(py, n)?;
     let was_new = !g.inner.has_node(&canonical);
@@ -22496,6 +22504,7 @@ fn rung_l6(g: &mut PyGraph, py: Python<'_>, n: &Bound<'_, PyAny>) -> PyResult<()
 
 /// L7 is the shipped body statement for statement, so it must land on `full`.
 #[inline(never)]
+#[cfg_attr(not(test), expect(dead_code))]
 fn rung_l7(g: &mut PyGraph, py: Python<'_>, n: &Bound<'_, PyAny>) -> PyResult<()> {
     let canonical = node_key_to_string(py, n)?;
     let was_new = !g.inner.has_node(&canonical);
@@ -22517,6 +22526,7 @@ fn rung_l7(g: &mut PyGraph, py: Python<'_>, n: &Bound<'_, PyAny>) -> PyResult<()
 /// L8 calls the shipped `add_node` through the ladder's own call shape: the SHAPE
 /// CHECK that the denominator and the rungs are compared fairly.
 #[inline(never)]
+#[cfg_attr(not(test), expect(dead_code))]
 fn rung_l8(g: &mut PyGraph, py: Python<'_>, n: &Bound<'_, PyAny>) -> PyResult<()> {
     g.add_node(py, n, None)
 }
@@ -22654,8 +22664,8 @@ fn add_node_entry_self_time_ladder() {
                 }
             };
         }
-        let l0 = rung_arm!(rung_l0);
-        let l6 = rung_arm!(rung_l6);
+        let _l0 = rung_arm!(rung_l0);
+        let _l6 = rung_arm!(rung_l6);
         let l0 = rung_arm!(rung_l0);
         let l1 = rung_arm!(rung_l1);
         let l2 = rung_arm!(rung_l2);
@@ -22976,6 +22986,7 @@ fn node_attributes_round_trip_with_order_and_non_scalars_preserved() {
 /// and `arung_b9` is that body statement for statement. All are `#[inline(never)]` so
 /// every rung is as opaque to the optimiser as the denominator.
 #[inline(never)]
+#[cfg_attr(not(test), expect(dead_code))]
 fn arung_b0(
     _g: &mut PyGraph,
     _py: Python<'_>,
@@ -22986,6 +22997,7 @@ fn arung_b0(
 }
 
 #[inline(never)]
+#[cfg_attr(not(test), expect(dead_code))]
 fn arung_b3(
     g: &mut PyGraph,
     py: Python<'_>,
@@ -23004,6 +23016,7 @@ fn arung_b3(
 }
 
 #[inline(never)]
+#[cfg_attr(not(test), expect(dead_code))]
 fn arung_b4(
     g: &mut PyGraph,
     py: Python<'_>,
@@ -23023,6 +23036,7 @@ fn arung_b4(
 }
 
 #[inline(never)]
+#[cfg_attr(not(test), expect(dead_code))]
 fn arung_b5(
     g: &mut PyGraph,
     py: Python<'_>,
@@ -23046,6 +23060,7 @@ fn arung_b5(
 }
 
 #[inline(never)]
+#[cfg_attr(not(test), expect(dead_code))]
 fn arung_b6(
     g: &mut PyGraph,
     py: Python<'_>,
@@ -23070,6 +23085,7 @@ fn arung_b6(
 }
 
 #[inline(never)]
+#[cfg_attr(not(test), expect(dead_code))]
 fn arung_b7(
     g: &mut PyGraph,
     py: Python<'_>,
@@ -23096,6 +23112,7 @@ fn arung_b7(
 
 /// The shipped body, statement for statement. Must land on `full`.
 #[inline(never)]
+#[cfg_attr(not(test), expect(dead_code))]
 fn arung_b9(
     g: &mut PyGraph,
     py: Python<'_>,
@@ -23126,6 +23143,7 @@ fn arung_b9(
 
 /// Shape check: the shipped call behind the ladder's own call shape.
 #[inline(never)]
+#[cfg_attr(not(test), expect(dead_code))]
 fn arung_full(
     g: &mut PyGraph,
     py: Python<'_>,
@@ -23161,7 +23179,6 @@ fn arung_full(
 #[test]
 #[ignore = "measurement; run with --release --ignored --nocapture"]
 fn add_node_attributed_self_time_ladder() {
-    use std::hint::black_box;
     use std::time::{Duration, Instant};
 
     const NODES: usize = 2000;
@@ -23278,7 +23295,7 @@ fn add_node_attributed_self_time_ladder() {
             v.sort_by(f64::total_cmp);
             v[(v.len() - 1) / 2]
         };
-        let m: Vec<f64> = rungs.iter_mut().map(|v| median(v)).collect();
+        let m: Vec<f64> = rungs.iter_mut().map(median).collect();
         let fullm = median(&mut full_ns);
         let (na, nb) = (median(&mut na_v), median(&mut nb_v));
 
