@@ -1,4 +1,4 @@
-G K26_nonplanar
+G K26_nonplanar planar=true
 N u0
 N u1
 N v0
@@ -39,7 +39,7 @@ A v2 u0
 A v3 u0
 A v4 u0
 A v5 u0
-G K33_nonplanar
+G K33_nonplanar planar=false
 N u0
 N u1
 N u2
@@ -55,7 +55,7 @@ B u1 v2
 B u2 v0
 B u2 v1
 B u2 v2
-G K4
+G K4 planar=true
 N 0
 N 1
 N 2
@@ -76,7 +76,7 @@ A 0 1
 A 1 2
 A 2 0 3
 A 3 0 1
-G K4_with_chords_extra
+G K4_with_chords_extra planar=true
 N a
 N b
 N c
@@ -101,7 +101,7 @@ A b c
 A c a d
 A d e b
 A e a
-G K5_nonplanar
+G K5_nonplanar planar=false
 N n0
 N n1
 N n2
@@ -117,7 +117,7 @@ B n1 n4
 B n2 n3
 B n2 n4
 B n3 n4
-G cube3
+G cube3 planar=true
 N 000
 N 001
 N 010
@@ -158,7 +158,7 @@ A 100 000 101
 A 101 001 111
 A 110 100
 A 111 011 110
-G cycle_12
+G cycle_12 planar=true
 N 0
 N 1
 N 2
@@ -207,7 +207,7 @@ A 8 9
 A 9 10
 A 10 11
 A 11 0
-G er_dense_30_nonplanar
+G er_dense_30_nonplanar planar=false
 N n0
 N n1
 N n2
@@ -449,7 +449,7 @@ B n25 n27
 B n25 n29
 B n26 n28
 B n27 n29
-G er_mixed_120
+G er_mixed_120 planar=false
 N n0
 N n1
 N n2
@@ -788,7 +788,7 @@ B n102 n114
 B n104 n111
 B n109 n114
 B n110 n118
-G er_mixed_80
+G er_mixed_80 planar=false
 N n0
 N n1
 N n2
@@ -1026,7 +1026,7 @@ B n71 n73
 B n71 n77
 B n74 n79
 B n77 n79
-G er_planar_sparse_30
+G er_planar_sparse_30 planar=true
 N n0
 N n1
 N n2
@@ -1147,7 +1147,7 @@ A n26 n21 n25 n1 n22
 A n27 n12 n28
 A n28 n17 n24
 A n29
-G er_planar_sparse_60
+G er_planar_sparse_60 planar=false
 N n0
 N n1
 N n2
@@ -1280,7 +1280,7 @@ B n46 n47
 B n47 n50
 B n50 n51
 B n58 n59
-G nonlex_cycle_6
+G nonlex_cycle_6 planar=true
 N zz
 N mm
 N bb
@@ -1305,7 +1305,7 @@ A bb qq
 A qq tt
 A tt yy
 A yy zz
-G octahedron
+G octahedron planar=true
 N n0
 N n1
 N n2
@@ -1342,7 +1342,7 @@ A n2 n0 n3
 A n3 n4 n1
 A n4 n2 n0 n5
 A n5 n0 n1 n3
-G petersen_nonplanar
+G petersen_nonplanar planar=false
 N 0
 N 1
 N 2
@@ -1368,7 +1368,7 @@ B 6 8
 B 7 9
 B 8 5
 B 9 6
-G star_9
+G star_9 planar=true
 N 0
 N 1
 N 2

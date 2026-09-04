@@ -31680,10 +31680,11 @@ impl EmbeddingBuilder {
                 self.cw[start].insert(end, reference);
                 self.ccw[start].insert(end, ref_ccw);
                 self.cw[start].insert(ref_ccw, end);
-                self.ccw[start].insert(reference, end);
                 if reference != anchor_before {
-                    let first = self.dict[start].remove(0);
-                    self.dict[start].push(first);
+                    // move the pre-append dict-LAST (leftmost) to dict end
+                    let pos = self.dict[start].len() - 2;
+                    let leftmost = self.dict[start].remove(pos);
+                    self.dict[start].push(leftmost);
                 }
             }
             (None, Some(reference)) => {

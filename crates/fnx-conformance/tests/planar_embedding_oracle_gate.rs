@@ -13,16 +13,12 @@
 //! depends on it through the `G.copy()` adjacency walk — and the test builds
 //! the fnx graph in that same order.
 //!
-//! CURRENT STATUS (2026-09-04): the parity comparison is `#[ignore]`d at
-//! milestone-1. The assembly mirrors nx's dfs_embedding/sign/add_half_edge
-//! exactly, but the rotation ANCHOR of the produced order still diverges on
-//! some fixtures (e.g. octahedron n2: fnx [n3,n1,n0,n4] vs nx [n1,n0,n4,n3]
-//! — identical circulation, different rotation start). Root cause: fnx's
-//! LrState testing-half intermediate state (nesting depths / orientation) is
-//! not yet state-parity with nx's LRPlanarity, and the anchor depends on it.
-//! Prerequisite tracked on bead rc-planar-embedding-kernel-07rh8: a
-//! state-level differential harness against nx's LRPlanarity internals, then
-//! unignore.
+//! STATUS (2026-09-04): milestone-1 parity LANDED — the LrState differential
+//! harness (lr_state_matches_nx_lrplanarity_state in fnx-algorithms) proved
+//! testing-half state parity, and the full rotation-order comparison runs
+//! unignored below (the earlier octahedron anchor divergence was a cw-branch
+//! anchor bookkeeping bug, fixed by moving the pre-append dict-last on
+//! rotation).
 
 use fnx_algorithms::planar_embedding_data;
 use fnx_classes::Graph;
@@ -91,7 +87,6 @@ fn planar_verdicts_match_networkx_oracle() {
 /// prerequisite lands (see module docs). The negative-case test above keeps
 /// the verdict side exercised in the meantime.
 #[test]
-#[ignore = "milestone-1 parity pending: requires LrState testing-half state parity with nx's LRPlanarity (rotation anchors diverge — bead rc-planar-embedding-kernel-07rh8)"]
 fn planar_embedding_matches_networkx_oracle() {
     let fixture = fixture();
     let graphs = fixture["graphs"]
