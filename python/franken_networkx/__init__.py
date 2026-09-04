@@ -36101,6 +36101,20 @@ def _check_planarity_certificate(G, counterexample=False, recursive=False):
         try:
             if not _fnx.is_planar_lr(G):
                 return False, None
+            # rc-planar-embedding-kernel-07rh8 (milestone 1): the native
+            # Boyer-Myrvold assembly produces nx-identical rotation orders
+            # (verified against the planarity_embedding_oracle corpus, byte
+            # for byte incl. isolated nodes). Materialize nx's own
+            # PlanarEmbedding container from the native rotation data so
+            # isinstance and check_structure() keep working.
+            data = _fnx.planar_embedding_data(G)
+            if data is not None:
+                from networkx.algorithms.planarity import PlanarEmbedding
+
+                embedding = PlanarEmbedding()
+                embedding.add_nodes_from(node for node, _ in data)
+                embedding.set_data(dict(data))
+                return True, embedding
         except (AttributeError, TypeError, NetworkXError):
             pass
 

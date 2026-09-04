@@ -20060,10 +20060,39 @@ fn is_planar(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<bool> {
     let inner = gr.undirected();
     Ok(py.allow_threads(|| fnx_algorithms::is_planar(inner)))
 }
+/// Return per-node clockwise neighbour orders for a planar graph's
+/// combinatorial embedding, computed by the native Boyer-Myrvold assembly
+/// (rc-planar-embedding-kernel-07rh8). `None` when the graph is not planar.
+/// Node keys are the original Python objects from the graph.
+#[pyfunction]
+#[pyo3(signature = (g,))]
+fn planar_embedding_data(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+) -> PyResult<Option<Vec<(PyObject, Vec<PyObject>)>>> {
+    let gr = extract_graph(g)?;
+    let inner = gr.undirected();
+    let data = py.allow_threads(|| fnx_algorithms::planar_embedding_data(inner));
+    match data {
+        Some(data) => {
+            let out: Vec<(PyObject, Vec<PyObject>)> = data
+                .order
+                .into_iter()
+                .map(|(name, nbrs)| {
+                    let key = gr.py_node_key(py, &name);
+                    let list = nbrs.iter().map(|n| gr.py_node_key(py, n)).collect();
+                    (key, list)
+                })
+                .collect();
+            Ok(Some(out))
+        }
+        None => Ok(None),
+    }
+}
 
-/// Exact planarity test via the Left-Right algorithm (boolean only).
-///
-/// Unlike `is_planar` (a necessary-only Euler-bound check), this correctly
+ /// Exact planarity test via the Left-Right algorithm (boolean only).
+ ///
+ /// Unlike `is_planar` (a necessary-only Euler-bound check), this correctly
 /// rejects K5, K3,3, Petersen and every other non-planar graph, matching
 /// NetworkX's `check_planarity(G)[0]`.
 #[pyfunction]
@@ -28744,6 +28773,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     // Planarity
     m.add_function(wrap_pyfunction!(is_planar, m)?)?;
     m.add_function(wrap_pyfunction!(is_planar_lr, m)?)?;
+    m.add_function(wrap_pyfunction!(planar_embedding_data, m)?)?;
     m.add_function(wrap_pyfunction!(planarity_euler_reject, m)?)?;
     // Chordality
     m.add_function(wrap_pyfunction!(is_chordal, m)?)?;
