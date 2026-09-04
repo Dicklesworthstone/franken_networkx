@@ -31475,6 +31475,261 @@ pub fn is_planar_lr(graph: &Graph) -> bool {
     LrState::new(n, adj).run()
 }
 
+/// Per-node planar rotation data captured from a successful Boyer-Myrvold
+/// run: `(node name, neighbours in nx's PlanarEmbedding clockwise order)`.
+#[derive(Debug, Clone)]
+pub struct PlanarEmbeddingData {
+    pub order: Vec<(String, Vec<String>)>,
+}
+
+/// Build the planar embedding (per-node clockwise neighbour orders) for a
+/// planar graph, mirroring `networkx/algorithms/planarity.py`'s embedding
+/// phases exactly: `sign(e)` resolves each edge's absolute side through the
+/// `ref`/`side` chains, the oriented adjacency lists are re-sorted by the
+/// signed nesting depth, the initial ccw chain is laid down per node, and
+/// `dfs_embedding` then places tree half-edges first and back edges per the
+/// resolved side (rc-planar-embedding-kernel-07rh8, milestone 1). Returns
+/// `None` for non-planar graphs.
+///
+/// Self-loops are ignored (they do not affect planarity or the rotation).
+#[must_use]
+pub fn planar_embedding_data(graph: &Graph) -> Option<PlanarEmbeddingData> {
+    let nodes = graph.nodes_ordered();
+    let n = nodes.len();
+    let mut seen: HashSet<(usize, usize)> = HashSet::new();
+    let mut adj: Vec<Vec<usize>> = vec![Vec::new(); n];
+    let mut m = 0usize;
+    for (i, j) in graph.edges_ordered_indices() {
+        if i == j {
+            continue;
+        }
+        let key = if i < j { (i, j) } else { (j, i) };
+        if seen.insert(key) {
+            adj[i].push(j);
+            adj[j].push(i);
+            m += 1;
+        }
+    }
+    if n > 2 && m > 3 * n - 6 {
+        return None;
+    }
+    let mut state = LrState::new(n, adj);
+    if !state.run() {
+        return None;
+    }
+    Some(state.embedding_data(&nodes))
+}
+
+/// nx planarity.py:741-768 — resolve an edge's relative side to an absolute
+/// side by walking the `ref` chain, multiplying `side` factors along the way
+/// and nulling each consumed reference.
+impl LrState {
+    fn resolve_sign(&mut self, e: usize) -> i64 {
+        let mut dfs_stack = vec![e];
+        let mut old_ref: HashMap<usize, i64> = HashMap::new();
+        while let Some(cur) = dfs_stack.pop() {
+            if self.ref_[cur] != -1 {
+                dfs_stack.push(cur);
+                dfs_stack.push(self.ref_[cur] as usize);
+                old_ref.insert(cur, self.ref_[cur]);
+                self.ref_[cur] = -1;
+            } else if let Some(&referenced) = old_ref.get(&cur) {
+                self.side[cur] *= self.side[referenced as usize];
+            }
+            // nx multiplies by side[old_ref[e]] with a defaultdict(None)
+            // falling back to 1 — i.e. a no-op — for a leaf with no ref.
+        }
+        i64::from(self.side[e])
+    }
+
+    /// nx planarity.py:694-740 + the lr_planarity tail (:323-400): sign all
+    /// edges, re-sort the oriented adjacency by signed nesting depth, lay the
+    /// initial ccw chains, then place tree half-edges first and back edges per
+    /// the resolved side. Emission order must match nx's PlanarEmbedding
+    /// `get_data()` byte for byte.
+    fn embedding_data(&mut self, names: &[&str]) -> PlanarEmbeddingData {
+        let total = self.e_head.len();
+        for e in 0..total {
+            let resolved = self.resolve_sign(e);
+            self.nesting[e] = resolved * self.nesting[e];
+        }
+        for v in 0..self.n {
+            let mut oe = std::mem::take(&mut self.out_edges[v]);
+            oe.sort_by_key(|&id| self.nesting[id]);
+            self.out_edges[v] = oe;
+        }
+
+        let mut emb = EmbeddingBuilder::new(self.n);
+        for v in 0..self.n {
+            let mut previous: Option<usize> = None;
+            for &eid in &self.out_edges[v] {
+                let w = self.e_head[eid];
+                emb.add_half_edge(v, w, None, previous);
+                previous = Some(w);
+            }
+        }
+
+        let mut left_ref = vec![usize::MAX; self.n];
+        let mut right_ref = vec![usize::MAX; self.n];
+        for &root in &self.roots {
+            self.dfs_embedding(root, &mut emb, &mut left_ref, &mut right_ref);
+        }
+
+        let mut order = Vec::with_capacity(self.n);
+        for v in 0..self.n {
+            let seq = emb.cw_order(v);
+            order.push((
+                names[v].to_owned(),
+                seq.iter().map(|&i| names[i].to_owned()).collect(),
+            ));
+        }
+        PlanarEmbeddingData { order }
+    }
+
+    /// nx planarity.py:694-740 — iterative `dfs_embedding` with the per-node
+    /// cursor (`ind`) persisting across re-visits of the same node.
+    fn dfs_embedding(
+        &self,
+        root: usize,
+        emb: &mut EmbeddingBuilder,
+        left_ref: &mut [usize],
+        right_ref: &mut [usize],
+    ) {
+        let mut dfs_stack = vec![root];
+        let mut ind = vec![0usize; self.n];
+        while let Some(v) = dfs_stack.pop() {
+            while ind[v] < self.out_edges[v].len() {
+                let ei = self.out_edges[v][ind[v]];
+                ind[v] += 1;
+                let w = self.e_head[ei];
+                if self.parent_edge[w] == ei as i64 {
+                    // tree edge: w's half-edge to its parent goes first
+                    emb.add_half_edge_first(w, v);
+                    left_ref[v] = w;
+                    right_ref[v] = w;
+                    dfs_stack.push(v); // revisit v after finishing w
+                    dfs_stack.push(w); // visit w next
+                    break;
+                }
+                // back edge
+                if self.side[ei] == 1 {
+                    emb.add_half_edge(w, v, None, Some(right_ref[w]));
+                } else {
+                    emb.add_half_edge(w, v, Some(left_ref[w]), None);
+                    left_ref[w] = v;
+                }
+            }
+        }
+    }
+}
+
+/// Exact model of nx's `PlanarEmbedding` half-edge insertion: per node a
+/// dict-order vector (dict order IS the clockwise circulation order, starting
+/// from an arbitrary rotation anchor) plus explicit cw/ccw pointer maps, so
+/// `add_half_edge` can reroute neighbours around an insertion and rotate the
+/// dict anchor exactly as nx's `super().add_edge(...)` + leftmost-move do.
+struct EmbeddingBuilder {
+    dict: Vec<Vec<usize>>,
+    cw: Vec<HashMap<usize, usize>>,
+    ccw: Vec<HashMap<usize, usize>>,
+}
+
+impl EmbeddingBuilder {
+    fn new(n: usize) -> Self {
+        EmbeddingBuilder {
+            dict: vec![Vec::new(); n],
+            cw: vec![HashMap::new(); n],
+            ccw: vec![HashMap::new(); n],
+        }
+    }
+
+    /// nx `add_half_edge_first` — insert at the leftmost (dict-last) position.
+    fn add_half_edge_first(&mut self, start: usize, end: usize) {
+        if self.dict[start].is_empty() {
+            self.add_first_edge(start, end);
+        } else {
+            let leftmost = *self.dict[start].last().unwrap();
+            self.add_half_edge(start, end, Some(leftmost), None);
+        }
+    }
+
+    fn add_half_edge(
+        &mut self,
+        start: usize,
+        end: usize,
+        cw_ref: Option<usize>,
+        ccw_ref: Option<usize>,
+    ) {
+        if self.dict[start].is_empty() {
+            assert!(
+                cw_ref.is_none() && ccw_ref.is_none(),
+                "reference node given for the first half-edge out of {start}"
+            );
+            self.add_first_edge(start, end);
+            return;
+        }
+        match (cw_ref, ccw_ref) {
+            (Some(reference), None) => {
+                // nx cw branch: end is appended at dict end, the entry pair
+                // is rewired, and the PRE-APPEND dict-LAST key (the anchor)
+                // moves to dict end only when the reference is not already
+                // that anchor.
+                let anchor_before = *self.dict[start].last().unwrap();
+                let ref_ccw = self.ccw[start][&reference];
+                self.dict[start].push(end);
+                self.cw[start].insert(end, reference);
+                self.ccw[start].insert(end, ref_ccw);
+                self.cw[start].insert(ref_ccw, end);
+                self.ccw[start].insert(reference, end);
+                if reference != anchor_before {
+                    let first = self.dict[start].remove(0);
+                    self.dict[start].push(first);
+                }
+            }
+            (None, Some(reference)) => {
+                // nx ccw branch: end is appended at dict end, then the
+                // PRE-INSERTION dict-last key (the anchor) moves to dict end
+                // — net effect: `end` lands immediately BEFORE the anchor.
+                // The anchor itself is unchanged by this branch.
+                let ref_cw = self.cw[start][&reference];
+                let pos = self.dict[start].len().saturating_sub(1);
+                self.dict[start].insert(pos, end);
+                self.cw[start].insert(end, ref_cw);
+                self.ccw[start].insert(end, reference);
+                self.cw[start].insert(reference, end);
+                self.ccw[start].insert(ref_cw, end);
+            }
+            (Some(_), Some(_)) => {
+                panic!("only one of cw/ccw can be specified");
+            }
+            (None, None) => unreachable!("node already has half-edges; reference required"),
+        }
+    }
+
+    fn add_first_edge(&mut self, start: usize, end: usize) {
+        self.dict[start].push(end);
+        self.cw[start].insert(end, end);
+        self.ccw[start].insert(end, end);
+    }
+
+    /// nx `neighbors_cw_order` — start at the dict-last key (the leftmost
+    /// neighbour) and follow cw pointers around the circle.
+    fn cw_order(&self, v: usize) -> Vec<usize> {
+        let mut out = Vec::with_capacity(self.dict[v].len());
+        if self.dict[v].is_empty() {
+            return out;
+        }
+        let start = *self.dict[v].last().unwrap();
+        out.push(start);
+        let mut current = self.cw[v][&start];
+        while current != start {
+            out.push(current);
+            current = self.cw[v][&current];
+        }
+        out
+    }
+}
+
 // ── Chordality ─────────────────────────────────────────────────────────────
 
 /// Check whether a graph is chordal (every cycle of length 4+ has a chord).
