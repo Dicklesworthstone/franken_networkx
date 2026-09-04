@@ -48,7 +48,14 @@ def dump_graph(name: str, nodes: list[str], edges: list[list[str]]) -> dict:
     # testing phase
     for v in lp.roots:
         if not lp.dfs_testing(v):
-            return {"name": name, "planar": False, "edges": [], "ordered_adjs": {}}
+            return {
+                "name": name,
+                "planar": False,
+                "nodes": nodes,
+                "build_edges": edges,
+                "edges": [],
+                "ordered_adjs": {},
+            }
 
     # sign resolution pass (the embedding tail's first loop)
     for e in lp.DG.edges:
