@@ -118,16 +118,27 @@ def main() -> int:
             lines.append(f"E {e['tail']} {e['head']} {e['nesting']} {ref} {e['side']}")
         for node, heads in entry["ordered_adjs"].items():
             lines.append(("A " + node + " " + " ".join(heads)).rstrip())
-
     out_txt = Path("/tmp/lr_state_nx.txt")
     out_txt.write_text("\n".join(lines) + "\n")
     # repo-committed copy so remote workers (rch) can read it
     repo_txt = REPO / "tests" / "artifacts" / "planarity" / "lr_state_nx.txt"
     repo_txt.parent.mkdir(parents=True, exist_ok=True)
     repo_txt.write_text("\n".join(lines) + "\n")
-    print(f"wrote {out_txt} and {repo_txt}")
-    print(f"wrote {out_txt} ({len(lines)} lines)")
 
+    # Rust data module for the in-crate differential harness
+    mod_path = REPO / "crates" / "fnx-algorithms" / "src" / "lr_state_nx_dump_data.rs"
+    escaped = "\n".join(
+        '    "' + line.replace("\\", "\\\\").replace('"', '\\"') + '",' for line in lines
+    )
+    mod_path.write_text(
+        "//! Captured nx LRPlanarity state for the state-parity differential\n"
+        "//! harness (bead rc-planar-embedding-kernel-07rh8). Regenerate with\n"
+        "//! `scripts/dump_lr_state_nx.py` (repo venv, nx 3.6.1) over the\n"
+        "//! planarity_embedding_oracle corpus.\n"
+        "#![cfg(test)]\n\n"
+        "pub const NX_DUMP_LINES: &[&str] = &[\n" + escaped + "\n];\n"
+    )
+    print(f"wrote {out_txt}, {repo_txt}, {mod_path} ({len(lines)} lines)")
     out = Path("/tmp/lr_state_nx.json")
     out.write_text(json.dumps(dumps, indent=1, sort_keys=True) + "\n")
     print(f"wrote {out} ({len(dumps)} graphs)")

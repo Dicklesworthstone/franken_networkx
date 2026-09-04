@@ -55003,6 +55003,9 @@ mod bitpar_harmonic_tests {
 }
 
 #[cfg(test)]
+mod lr_state_nx_dump_data;
+
+#[cfg(test)]
 mod tests {
     use super::{
         AttrMap,
@@ -91772,20 +91775,15 @@ mod lu_pade_tests {
         );
     }
 }
-
 #[cfg(test)]
 mod lr_state_differential {
     //! State-parity differential harness against nx's LRPlanarity
     //! (rc-planar-embedding-kernel-07rh8 milestone-1 prerequisite).
-    //! Prerequisite: run `scripts/dump_lr_state_nx.py` (repo venv); the dump
-    //! is committed at tests/artifacts/planarity/lr_state_nx.txt, then
+    //! State dump embedded in `crate::lr_state_nx_dump_data` (regenerate
+    //! with `scripts/dump_lr_state_nx.py`, repo venv, nx 3.6.1). Run with
     //! `cargo test -p fnx-algorithms --lib lr_state_differential -- --ignored --nocapture`.
 
     use super::*;
-    use fnx_runtime::CompatibilityMode;
-    use std::fs;
-    use std::path::PathBuf;
-
     #[derive(Default)]
     struct NxDump {
         nodes: Vec<String>,
@@ -91795,12 +91793,9 @@ mod lr_state_differential {
     }
 
     #[test]
-    #[ignore = "differential dump: reads tests/artifacts/planarity/lr_state_nx.txt (regenerate with scripts/dump_lr_state_nx.py)"]
+    #[ignore = "differential dump: state-parity harness over the embedded nx LRPlanarity dump (crate::lr_state_nx_dump_data)"]
     fn lr_state_matches_nx_lrplanarity_state() {
-        let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("../../tests/artifacts/planarity/lr_state_nx.txt");
-        let raw = fs::read_to_string(&path)
-            .unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
+        let raw = crate::lr_state_nx_dump_data::NX_DUMP_LINES.join("\n");
 
         let mut graphs: Vec<(String, NxDump)> = Vec::new();
         for line in raw.lines() {
