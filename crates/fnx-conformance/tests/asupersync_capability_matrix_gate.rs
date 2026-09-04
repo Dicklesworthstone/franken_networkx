@@ -90,14 +90,46 @@ fn asupersync_capability_matrix_contract_is_complete_and_fail_closed() {
 
     let runtime_cargo = fs::read_to_string(root.join("crates/fnx-runtime/Cargo.toml"))
         .expect("expected readable crates/fnx-runtime/Cargo.toml");
+    let asupersync_line = runtime_cargo
+        .lines()
+        .find(|line| line.trim_start().starts_with("asupersync = "))
+        .expect("fnx-runtime Cargo.toml should declare an asupersync dependency");
+    // The manifest may pin an exact version or a bounded range
+    // (58fe5d194: "accept asupersync 0.4 line"). The gate is
+    // semantics-aware: whatever constraint the manifest states, it must
+    // ADMIT the matrix-baseline version below — otherwise the capability
+    // matrix would be validated against a version the build can never use.
+    let constraint_start = asupersync_line
+        .find("version = \"")
+        .expect("asupersync dependency should carry a version field")
+        + "version = \"".len();
+    let constraint = asupersync_line[constraint_start..]
+        .split('"')
+        .next()
+        .expect("version field should be terminated");
+    fn version_triple(v: &str) -> (u64, u64, u64) {
+        let mut parts = v.split('.');
+        let major = parts.next().unwrap_or("0").parse().unwrap_or(0);
+        let minor = parts.next().unwrap_or("0").parse().unwrap_or(0);
+        let patch = parts.next().unwrap_or("0").parse().unwrap_or(0);
+        (major, minor, patch)
+    }
+    let baseline = version_triple(EXPECTED_ASUPERSYNC_VERSION);
+    let constraint_admits_baseline = constraint.split(',').map(str::trim).all(|clause| {
+        if let Some(lower) = clause.strip_prefix(">=") {
+            version_triple(lower) <= baseline
+        } else if let Some(upper) = clause.strip_prefix('<') {
+            version_triple(upper.trim()) > baseline
+        } else if let Some(stripped) = clause.strip_prefix('=') {
+            version_triple(stripped.trim()) == baseline
+        } else {
+            version_triple(clause) == baseline
+        }
+    });
     assert!(
-        runtime_cargo.contains("asupersync-integration"),
-        "fnx-runtime Cargo.toml should expose asupersync-integration feature"
-    );
-    let expected_pin = format!("asupersync = {{ version = \"{EXPECTED_ASUPERSYNC_VERSION}\"");
-    assert!(
-        runtime_cargo.contains(&expected_pin),
-        "fnx-runtime Cargo.toml should pin asupersync {EXPECTED_ASUPERSYNC_VERSION} dependency"
+        constraint_admits_baseline,
+        "fnx-runtime asupersync constraint `{constraint}` must admit the \
+         capability-matrix baseline {EXPECTED_ASUPERSYNC_VERSION}"
     );
     let baseline_comparator = artifact["baseline_comparator"]
         .as_str()
