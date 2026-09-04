@@ -16539,11 +16539,19 @@ def eulerian_circuit(G, source=None, keys=False):
     Delegate to nx so the produced edge sequence matches nx's
     documented Hierholzer-traversal contract exactly.
 
-    br-r37-c1-eulcirc (cc): for the simple undirected case, run nx's exact
-    Hierholzer on a Python adjacency snapshot instead of delegating. ``dict.fromkeys``
-    preserves fnx's adjacency order, which equals the converted nx graph's ``_adj``
-    order, so the edge SEQUENCE is byte-identical to nx (verified 48/48) — without the
-    fnx->nx conversion (was 0.63x). Multigraph/directed keep delegating (key ordering).
+    br-r37-c1-eulcirc (cc): the simple undirected case first ran nx's exact
+    Hierholzer on a Python adjacency snapshot (``dict.fromkeys`` preserves
+    fnx's adjacency order, so the edge SEQUENCE stayed byte-identical to nx,
+    verified 48/48) instead of delegating, which removed the fnx->nx
+    conversion cost (was 0.63x).
+
+    br-r37-c1-lim0x follow-through (rc-cgse-witness-routes-obp8v): the native
+    Hierholzer kernel now advances in nx's ``G.copy()`` adjacency order (edge
+    -emission order — both endpoints appended at first emission), so it is
+    byte-identical to nx on non-lex insertion-order fixtures across every
+    source (plus error parity on non-Eulerian input). Route the simple
+    undirected case to it: byte-parity AND a CGSE witness on the public
+    route. Multigraph/directed keep delegating (key ordering).
     """
     G = _coerce_arg_to_fnx_graph(G)
     if (
@@ -16557,22 +16565,7 @@ def eulerian_circuit(G, source=None, keys=False):
         # snapshot's len(adj[v]) counts it once, so they keep the nx-delegating path.
         if not is_eulerian(G):
             raise NetworkXError("G is not Eulerian.")
-        adj = {v: dict.fromkeys(nbrs) for v, nbrs in G.adjacency()}
-        current_vertex = next(iter(G)) if source is None else source
-        vertex_stack = [current_vertex]
-        last_vertex = None
-        while vertex_stack:
-            current_vertex = vertex_stack[-1]
-            if len(adj[current_vertex]) == 0:
-                if last_vertex is not None:
-                    yield (last_vertex, current_vertex)
-                last_vertex = current_vertex
-                vertex_stack.pop()
-            else:
-                next_vertex = next(iter(adj[current_vertex]))
-                vertex_stack.append(next_vertex)
-                del adj[current_vertex][next_vertex]
-                del adj[next_vertex][current_vertex]
+        yield from _fnx.eulerian_circuit(G, source)
         return
     if (
         G.is_directed()

@@ -1,5 +1,5 @@
 {
- "generated_at_utc": "2026-09-03T23:55:31.325438+00:00",
+ "generated_at_utc": "2026-09-04T05:32:50.162443+00:00",
  "problems": [],
  "python_version": "3.14.4",
  "schema_version": 1,
@@ -61,11 +61,15 @@
     "witnesses": 1
    },
    "eulerian_circuit": {
-    "hashes": [],
-    "m": null,
-    "n": null,
-    "terms": [],
-    "witnesses": 0
+    "hashes": [
+     "466254aeedcdd52512196da566a920f667866cb798d831eccb7d1fb6a7972b8e"
+    ],
+    "m": 12,
+    "n": 12,
+    "terms": [
+     "m"
+    ],
+    "witnesses": 1
    },
    "max_weight_matching": {
     "hashes": [],
@@ -80,17 +84,6 @@
     "n": null,
     "terms": [],
     "witnesses": 0
-   },
-   "minimum_spanning_tree": {
-    "hashes": [
-     "fa746c418af89eb00029d059314863cebffb8aec0dc11c87c9efc8da422abfea"
-    ],
-    "m": 12,
-    "n": 12,
-    "terms": [
-     "m_log_m"
-    ],
-    "witnesses": 1
    },
    "multi_source_dijkstra": {
     "hashes": [],
@@ -182,11 +175,15 @@
     "witnesses": 1
    },
    "eulerian_circuit": {
-    "hashes": [],
-    "m": null,
-    "n": null,
-    "terms": [],
-    "witnesses": 0
+    "hashes": [
+     "466254aeedcdd52512196da566a920f667866cb798d831eccb7d1fb6a7972b8e"
+    ],
+    "m": 12,
+    "n": 12,
+    "terms": [
+     "m"
+    ],
+    "witnesses": 1
    },
    "max_weight_matching": {
     "hashes": [],
@@ -201,17 +198,6 @@
     "n": null,
     "terms": [],
     "witnesses": 0
-   },
-   "minimum_spanning_tree": {
-    "hashes": [
-     "fa746c418af89eb00029d059314863cebffb8aec0dc11c87c9efc8da422abfea"
-    ],
-    "m": 12,
-    "n": 12,
-    "terms": [
-     "m_log_m"
-    ],
-    "witnesses": 1
    },
    "multi_source_dijkstra": {
     "hashes": [],
@@ -303,11 +289,15 @@
     "witnesses": 1
    },
    "eulerian_circuit": {
-    "hashes": [],
-    "m": null,
-    "n": null,
-    "terms": [],
-    "witnesses": 0
+    "hashes": [
+     "466254aeedcdd52512196da566a920f667866cb798d831eccb7d1fb6a7972b8e"
+    ],
+    "m": 12,
+    "n": 12,
+    "terms": [
+     "m"
+    ],
+    "witnesses": 1
    },
    "max_weight_matching": {
     "hashes": [],
@@ -322,17 +312,6 @@
     "n": null,
     "terms": [],
     "witnesses": 0
-   },
-   "minimum_spanning_tree": {
-    "hashes": [
-     "fa746c418af89eb00029d059314863cebffb8aec0dc11c87c9efc8da422abfea"
-    ],
-    "m": 12,
-    "n": 12,
-    "terms": [
-     "m_log_m"
-    ],
-    "witnesses": 1
    },
    "multi_source_dijkstra": {
     "hashes": [],

@@ -21961,16 +21961,18 @@ fn hierholzer_traverse(
             for nbr in neighbors {
                 let j = index_of[nbr];
                 let key = if i <= j { (i, j) } else { (j, i) };
-                let eid = match key_map.get(&key) {
-                    Some(&existing) => existing,
-                    None => {
-                        let fresh = edge_id;
-                        edge_id += 1;
-                        key_map.insert(key, fresh);
-                        fresh
+                if key_map.insert(key, edge_id).is_none() {
+                    // First encounter == nx's `G.copy()` emitting the edge
+                    // once and appending to BOTH endpoints' adjacency in
+                    // emission order — that copy order is what nx's walk
+                    // actually advances through.
+                    let eid = edge_id;
+                    edge_id += 1;
+                    adj[i].push((j, eid));
+                    if j != i {
+                        adj[j].push((i, eid));
                     }
-                };
-                adj[i].push((j, eid));
+                }
             }
         }
     }

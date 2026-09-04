@@ -42,7 +42,7 @@ EMIT_REQUIRED = {
     "bfs_edges": ("bfs_edges", "ring", ("0",)),
     "dijkstra_path": ("dijkstra_path", "weighted_ring", ("0", "6")),
     "dfs_edges": ("dfs_edges", "ring", ("0",)),
-    "minimum_spanning_tree": ("minimum_spanning_tree", "weighted_ring", ()),
+    "eulerian_circuit": ("eulerian_circuit", "ring", ("0",)),
     "bellman_ford_path": ("bellman_ford_path", "weighted_ring", ("0", "6")),
     "number_strongly_connected_components": (
         "number_strongly_connected_components",
@@ -56,7 +56,6 @@ EMIT_REQUIRED = {
 MAY_EMIT = {
     "multi_source_dijkstra": ("multi_source_dijkstra", "weighted_ring", (["0"],)),
     "prim": ("minimum_spanning_tree_prim", "weighted_ring", ()),
-    "eulerian_circuit": ("eulerian_circuit", "ring", ("0",)),
     "max_weight_matching": ("max_weight_matching", "weighted_ring", ()),
     "min_weight_matching": ("min_weight_matching", "weighted_ring", ()),
 }
