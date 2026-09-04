@@ -21846,15 +21846,12 @@ pub fn eulerian_circuit(graph: &Graph, source: Option<&str>) -> Option<EulerianC
     let start = if let Some(s) = source {
         s.to_owned()
     } else {
-        // Pick lexicographically smallest non-isolated node
-        let nodes = graph.nodes_ordered();
-        let mut sorted = nodes.clone();
-        sorted.sort_unstable();
-        sorted
-            .into_iter()
-            .find(|&n| graph.degree(n) > 0)
-            .unwrap_or(nodes[0])
-            .to_owned()
+        // nx: `arbitrary_element(G)` — the FIRST node in insertion order
+        // (the Python snapshot path uses next(iter(G)) equivalently).
+        // The old lexicographic minimum diverges wherever insertion order
+        // is not sorted (br-r37-c1-lim0x follow-through,
+        // rc-cgse-witness-routes-obp8v).
+        graph.nodes_ordered()[0].to_owned()
     };
 
     let edges = hierholzer_traverse(graph, &start, &mut cgse_sink)
@@ -21912,25 +21909,12 @@ pub fn eulerian_path(graph: &Graph, source: Option<&str>) -> Option<EulerianPath
     let start = if let Some(s) = source {
         s.to_owned()
     } else {
-        // Find odd-degree nodes, pick lexicographically smallest
+        // nx picks the first odd-degree node in INSERTION order
+        // (`next(n for n in G if ...)`) — not the lexicographic minimum.
         let nodes = graph.nodes_ordered();
-        let mut sorted = nodes.clone();
-        sorted.sort_unstable();
-
-        let odd_node = sorted.iter().find(|&&n| {
-            let deg = graph.degree(n);
-            !deg.is_multiple_of(2)
-        });
-
-        if let Some(&n) = odd_node {
-            n.to_owned()
-        } else {
-            // All even degrees → circuit case, pick smallest non-isolated
-            sorted
-                .into_iter()
-                .find(|&n| graph.degree(n) > 0)
-                .unwrap_or(nodes[0])
-                .to_owned()
+        match nodes.iter().find(|&&n| !graph.degree(n).is_multiple_of(2)) {
+            Some(&n) => n.to_owned(),
+            None => nodes[0].to_owned(),
         }
     };
 
@@ -21953,61 +21937,51 @@ pub fn eulerian_path(graph: &Graph, source: Option<&str>) -> Option<EulerianPath
 
 /// Hierholzer's algorithm for finding an Euler trail starting from `start`.
 ///
-/// Builds an adjacency structure with edge-usage tracking and walks deterministically
-/// by visiting neighbors in sorted order.
+/// Advances along each node's adjacency in INSERTION order, mirroring nx's
+/// `arbitrary_element(edges(current))` on a dict-backed graph
+/// (networkx/algorithms/euler.py:112-131). The previous build sorted nodes
+/// and neighbours lexicographically, which diverges from nx wherever
+/// insertion order is not sorted (br-r37-c1-lim0x follow-through,
+/// rc-cgse-witness-routes-obp8v). Undirected edges share a usage flag via
+/// the canonical (min, max) index key.
 fn hierholzer_traverse(
     graph: &Graph,
     start: &str,
     cgse_sink: &mut Option<CgseWitnessSink>,
 ) -> Vec<(String, String)> {
-    // Build adjacency list with mutable edge tracking.
-    // For undirected graphs, each edge appears twice (once in each direction).
-    // We use a shared "used" flag via indices into a used-edges vector.
     let nodes = graph.nodes_ordered();
-    let mut sorted_nodes: Vec<&str> = nodes.clone();
-    sorted_nodes.sort_unstable();
+    let index_of: HashMap<&str, usize> = nodes.iter().enumerate().map(|(i, &n)| (n, i)).collect();
 
-    let node_index: HashMap<&str, usize> = sorted_nodes
-        .iter()
-        .enumerate()
-        .map(|(i, &n)| (n, i))
-        .collect();
-
-    // Count edges first to allocate edge_used vector
+    let mut key_map: HashMap<(usize, usize), usize> = HashMap::new();
     let mut edge_id = 0usize;
-    // adj[node_idx] = Vec<(neighbor_idx, edge_id)> sorted by neighbor name
-    let mut adj: Vec<Vec<(usize, usize)>> = vec![Vec::new(); sorted_nodes.len()];
+    let mut adj: Vec<Vec<(usize, usize)>> = vec![Vec::new(); nodes.len()];
 
-    // Build edges deterministically: iterate in sorted node order
-    let mut seen_edges: HashSet<(usize, usize)> = HashSet::new();
-    for (i, &node) in sorted_nodes.iter().enumerate() {
+    for (i, &node) in nodes.iter().enumerate() {
         if let Some(neighbors) = graph.neighbors_iter(node) {
-            let mut nbrs: Vec<&str> = neighbors.collect();
-            nbrs.sort_unstable();
-            for &nbr in &nbrs {
-                let j = node_index[nbr];
+            for nbr in neighbors {
+                let j = index_of[nbr];
                 let key = if i <= j { (i, j) } else { (j, i) };
-                if seen_edges.insert(key) {
-                    adj[i].push((j, edge_id));
-                    adj[j].push((i, edge_id));
-                    edge_id += 1;
-                }
+                let eid = match key_map.get(&key) {
+                    Some(&existing) => existing,
+                    None => {
+                        let fresh = edge_id;
+                        edge_id += 1;
+                        key_map.insert(key, fresh);
+                        fresh
+                    }
+                };
+                adj[i].push((j, eid));
             }
         }
-    }
-
-    // Sort adjacency lists by neighbor index (already effectively sorted by name)
-    for list in &mut adj {
-        list.sort_unstable_by_key(|&(nbr, _)| nbr);
     }
 
     let total_edges = edge_id;
     let mut edge_used = vec![false; total_edges];
 
     // Track current position in each adjacency list for efficiency
-    let mut adj_pos: Vec<usize> = vec![0; sorted_nodes.len()];
+    let mut adj_pos: Vec<usize> = vec![0; nodes.len()];
 
-    let start_idx = node_index[start];
+    let start_idx = index_of[start];
     let mut stack = vec![start_idx];
     let mut trail: Vec<usize> = Vec::new();
 
@@ -22019,7 +21993,7 @@ fn hierholzer_traverse(
             adj_pos[current] += 1;
             if !edge_used[eid] {
                 edge_used[eid] = true;
-                cgse_record_decision(cgse_sink, sorted_nodes[nbr], sorted_nodes[current]);
+                cgse_record_decision(cgse_sink, nodes[nbr], nodes[current]);
                 stack.push(nbr);
                 found = true;
                 break;
@@ -22035,10 +22009,7 @@ fn hierholzer_traverse(
     trail.reverse();
     let mut edges = Vec::with_capacity(total_edges);
     for window in trail.windows(2) {
-        edges.push((
-            sorted_nodes[window[0]].to_owned(),
-            sorted_nodes[window[1]].to_owned(),
-        ));
+        edges.push((nodes[window[0]].to_owned(), nodes[window[1]].to_owned()));
     }
 
     edges
