@@ -20,6 +20,7 @@ import networkx as nx
 from capture_planarity_embedding_oracle import corpus, seeded_randoms
 
 REPO = Path(__file__).resolve().parent.parent
+OUT_TXT = Path("/tmp/lr_state_nx.txt")
 
 from networkx.algorithms.planarity import LRPlanarity  # noqa: E402
 
@@ -86,6 +87,8 @@ def dump_graph(name: str, nodes: list[str], edges: list[list[str]]) -> dict:
     return {
         "name": name,
         "planar": True,
+        "nodes": nodes,
+        "build_edges": edges,
         "roots": [str(r) for r in lp.roots],
         "edges": edge_dump,
         "ordered_adjs": ordered,
@@ -95,9 +98,31 @@ def dump_graph(name: str, nodes: list[str], edges: list[list[str]]) -> dict:
 def main() -> int:
     corpus_all = {**corpus(), **seeded_randoms()}
     dumps = []
+    lines: list[str] = []
     for name in sorted(corpus_all):
         nodes, edges = corpus_all[name]
         dumps.append(dump_graph(name, nodes, edges))
+
+    # line-format companion for the Rust differential harness:
+    #   G <name> | N <node> | B <tail> <head> (build order)
+    #   E <tail> <head> <nesting> <ref(-1=none)> <side>
+    #   A <node> <head> <head> ...   (ordered_adjs in order)
+    for entry in dumps:
+        lines.append(f"G {entry['name']}")
+        for node in entry["nodes"]:
+            lines.append(f"N {node}")
+        for edge in entry["build_edges"]:
+            lines.append(f"B {edge[0]} {edge[1]}")
+        for e in entry["edges"]:
+            ref = e["ref"] if e["ref"] is not None else -1
+            lines.append(f"E {e['tail']} {e['head']} {e['nesting']} {ref} {e['side']}")
+        for node, heads in entry["ordered_adjs"].items():
+            lines.append(("A " + node + " " + " ".join(heads)).rstrip())
+
+    out_txt = Path("/tmp/lr_state_nx.txt")
+    out_txt.write_text("\n".join(lines) + "\n")
+    print(f"wrote {out_txt} ({len(lines)} lines)")
+
     out = Path("/tmp/lr_state_nx.json")
     out.write_text(json.dumps(dumps, indent=1, sort_keys=True) + "\n")
     print(f"wrote {out} ({len(dumps)} graphs)")
