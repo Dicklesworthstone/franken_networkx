@@ -31551,7 +31551,7 @@ impl LrState {
         let total = self.e_head.len();
         for e in 0..total {
             let resolved = self.resolve_sign(e);
-            self.nesting[e] = resolved * self.nesting[e];
+            self.nesting[e] *= resolved;
         }
         for v in 0..self.n {
             let mut oe = std::mem::take(&mut self.out_edges[v]);
@@ -91898,7 +91898,7 @@ mod lr_state_differential {
             // Sign resolution + signed-nesting re-sort (embedding tail).
             for e in 0..state.e_head.len() {
                 let s = state.resolve_sign(e);
-                state.nesting[e] = s * state.nesting[e];
+                state.nesting[e] *= s;
             }
             for v in 0..state.n {
                 let mut oe = std::mem::take(&mut state.out_edges[v]);
