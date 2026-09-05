@@ -282,9 +282,9 @@ fn cgse_legacy_tiebreak_ledger_is_complete_and_source_anchored() {
             .iter()
             .enumerate()
         {
-            let path = path.as_str().unwrap_or_else(|| {
-                panic!("structured_logging_evidence[{idx}] should be string")
-            });
+            let path = path
+                .as_str()
+                .unwrap_or_else(|| panic!("structured_logging_evidence[{idx}] should be string"));
             assert_path(path, &format!("structured_logging_evidence[{idx}]"), &root);
         }
     }
