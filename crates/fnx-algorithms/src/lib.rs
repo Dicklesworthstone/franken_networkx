@@ -31520,6 +31520,38 @@ pub fn planar_embedding_data(graph: &Graph) -> Option<PlanarEmbeddingData> {
     Some(state.embedding_data(&nodes))
 }
 
+/// Kuratowski subgraph certificate for non-planar graphs.
+///
+/// Removes edges greedily while maintaining non-planarity, exactly
+/// matching NetworkX's `get_counterexample` algorithm and edge iteration order.
+/// When the graph is planar, returns `None`.
+#[must_use]
+pub fn kuratowski_subgraph(graph: &Graph) -> Option<Graph> {
+    if is_planar_lr(graph) {
+        return None;
+    }
+    let mut g = graph.clone();
+    let mut subgraph = Graph::new(graph.mode());
+    let nodes: Vec<String> = g.nodes_ordered().into_iter().map(str::to_owned).collect();
+    for u in &nodes {
+        let nbrs: Vec<String> = g
+            .neighbors(u)
+            .map(|v| v.into_iter().map(str::to_owned).collect())
+            .unwrap_or_default();
+        for v in &nbrs {
+            if !g.has_edge(u, v) {
+                continue;
+            }
+            let _ = g.remove_edge(u, v);
+            if is_planar_lr(&g) {
+                let _ = g.add_edge(u, v);
+                let _ = subgraph.add_edge(u, v);
+            }
+        }
+    }
+    Some(subgraph)
+}
+
 /// nx planarity.py:741-768 — resolve an edge's relative side to an absolute
 /// side by walking the `ref` chain, multiplying `side` factors along the way
 /// and nulling each consumed reference.
@@ -32444,6 +32476,13 @@ pub fn cut_size(
 }
 
 /// Return the size of the cut between two node sets in a directed graph.
+///
+/// NOTE (br-r37-c1-lh8oi): When `nbunch2` (T) is `None`, upstream NetworkX 3.6.1
+/// raises `TypeError` ('NoneType' object is not iterable) at `boundary.py:86`
+/// because it passes `T=None` as the first argument to `edge_boundary(G, T, S)`
+/// without taking the complement first. When `T` is given explicitly as `V \ S`,
+/// NetworkX computes the exact same cut size that FrankenNetworkX returns for `T=None`.
+/// FrankenNetworkX preserves the mathematically correct cut size for `T=None`.
 #[must_use]
 pub fn cut_size_directed(
     digraph: &DiGraph,
@@ -55284,6 +55323,7 @@ mod tests {
         kneser_graph,
         kosaraju_strongly_connected_components,
         krackhardt_kite_graph,
+        kuratowski_subgraph,
         label_propagation_communities,
         ladder_graph,
         lexicographic_topological_sort,
@@ -76629,6 +76669,47 @@ mod tests {
         let _ = g.add_edge("v0", "v0");
         let _ = g.add_edge("v2", "v2");
         assert!(!is_planar_lr(&g));
+    }
+
+    #[test]
+    fn test_kuratowski_subgraph() {
+        // Planar graphs return None
+        assert!(kuratowski_subgraph(&complete_graph_n(4)).is_none());
+        assert!(kuratowski_subgraph(&complete_bipartite(2, 4)).is_none());
+
+        // K5 is minimal non-planar (10 edges)
+        let sub5 = kuratowski_subgraph(&complete_graph_n(5)).expect("K5 is non-planar");
+        assert_eq!(sub5.node_count(), 5);
+        assert_eq!(sub5.edge_count(), 10);
+        assert!(!is_planar_lr(&sub5));
+
+        // K3,3 is minimal non-planar (9 edges)
+        let sub33 = kuratowski_subgraph(&complete_bipartite(3, 3)).expect("K3,3 is non-planar");
+        assert_eq!(sub33.node_count(), 6);
+        assert_eq!(sub33.edge_count(), 9);
+        assert!(!is_planar_lr(&sub33));
+
+        // Petersen graph has 15 edges; minimal non-planar certificate has 12 edges (K3,3 subdivision)
+        let outer = [(0, 1), (1, 2), (2, 3), (3, 4), (4, 0)];
+        let inner = [(5, 7), (7, 9), (9, 6), (6, 8), (8, 5)];
+        let spokes = [(0, 5), (1, 6), (2, 7), (3, 8), (4, 9)];
+        let mut pet = Graph::strict();
+        for (u, v) in outer.iter().chain(&inner).chain(&spokes) {
+            let _ = pet.add_edge(format!("v{u}"), format!("v{v}"));
+        }
+        let sub_pet = kuratowski_subgraph(&pet).expect("Petersen is non-planar");
+        assert_eq!(sub_pet.edge_count(), 12);
+        assert!(!is_planar_lr(&sub_pet));
+
+        // Minimality check: removing any edge from the certificate yields a planar graph
+        for edge in sub_pet.edges_ordered() {
+            let mut test_g = sub_pet.clone();
+            let _ = test_g.remove_edge(&edge.left, &edge.right);
+            assert!(
+                is_planar_lr(&test_g),
+                "certificate must be minimally non-planar"
+            );
+        }
     }
 
     /// br-r37-c1-bndaf: full-function A/B for ordered edge indices versus the

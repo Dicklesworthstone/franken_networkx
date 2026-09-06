@@ -36077,29 +36077,28 @@ def _planarity_graph_for_certificate(G):
 
 
 def _check_planarity_certificate(G, counterexample=False, recursive=False):
-    if not counterexample and not recursive and type(G) is Graph:
-        try:
-            node_count = G.number_of_nodes()
-            edge_count = G.number_of_edges()
-            if (
-                node_count >= 3
-                and edge_count > (3 * node_count) - 6
-                and _fnx.planarity_euler_reject(G)
-            ):
-                return False, None
-        except (AttributeError, TypeError, NetworkXError):
-            pass
-        # cc-planarlr: when no certificate is requested a NON-planar result's
-        # certificate is just ``None``, so the native LR bool test settles it
-        # without the O(V+E) nx-graph conversion + nx's Python LR (~10x the native
-        # kernel) that ``_planarity_graph_for_certificate`` + ``nx.check_planarity``
-        # below otherwise pay. Only the PLANAR branch needs the PlanarEmbedding
-        # certificate, so fall through to nx for those. Byte-identical: the native
-        # LR bool matches ``nx.check_planarity(G)[0]`` (verified incl. self-loops,
-        # K5/K3,3, grid) and nx returns ``(False, None)`` for non-planar without a
-        # counterexample.
+    if not recursive and type(G) is Graph:
+        if not counterexample:
+            try:
+                node_count = G.number_of_nodes()
+                edge_count = G.number_of_edges()
+                if (
+                    node_count >= 3
+                    and edge_count > (3 * node_count) - 6
+                    and _fnx.planarity_euler_reject(G)
+                ):
+                    return False, None
+            except (AttributeError, TypeError, NetworkXError):
+                pass
+        # Native LR planarity test: settles non-planar graphs natively, returning
+        # either (False, None) when counterexample=False, or extracting a native
+        # Kuratowski subgraph certificate when counterexample=True.
+        # Planar graphs receive the native Boyer-Myrvold PlanarEmbedding certificate.
         try:
             if not _fnx.is_planar_lr(G):
+                if counterexample:
+                    cex = _fnx.kuratowski_subgraph(G)
+                    return False, cex
                 return False, None
             # rc-planar-embedding-kernel-07rh8 (milestone 1): the native
             # Boyer-Myrvold assembly produces nx-identical rotation orders

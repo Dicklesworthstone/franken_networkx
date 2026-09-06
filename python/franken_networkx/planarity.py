@@ -58,10 +58,15 @@ def check_planarity(G, counterexample=False, *, backend=None, **backend_kwargs):
 def get_counterexample(G, *, backend=None, **backend_kwargs):
     """Obtains a Kuratowski subgraph.
 
-    Wraps ``networkx.algorithms.planarity.get_counterexample`` and converts
-    the result to an fnx graph type for drop-in compatibility.
+    Uses native Kuratowski subgraph extraction when G is an fnx Graph,
+    falling back to networkx for other types.
     """
     _fnx._validate_backend_dispatch_keywords("get_counterexample", backend, backend_kwargs)
+    if type(G) is _fnx.Graph:
+        cex = _fnx.kuratowski_subgraph(G)
+        if cex is None:
+            raise _nx_planarity.NetworkXException("G is planar - no counter example.")
+        return cex
     nx_result = _nx_planarity.get_counterexample(G)
     return _from_nx_graph(nx_result)
 

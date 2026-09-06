@@ -20126,6 +20126,25 @@ fn planarity_euler_reject(g: &Bound<'_, PyAny>) -> PyResult<Option<bool>> {
     Ok(Some(true))
 }
 
+/// Native Kuratowski subgraph extraction for non-planar graphs.
+///
+/// Returns None if the graph is planar, or Some(PyGraph) containing a minimal
+/// non-planar subgraph (subdivision of K5 or K3,3) if non-planar.
+#[pyfunction]
+#[pyo3(signature = (g,))]
+fn kuratowski_subgraph(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Option<PyObject>> {
+    let gr = extract_graph(g)?;
+    let inner = gr.undirected();
+    let sub = py.allow_threads(|| fnx_algorithms::kuratowski_subgraph(inner));
+    match sub {
+        Some(subgraph) => {
+            let py_sub = rust_graph_to_py(py, &subgraph, &gr)?;
+            Ok(Some(py_sub))
+        }
+        None => Ok(None),
+    }
+}
+
 /// Check if a graph is chordal (every cycle of length 4+ has a chord).
 #[pyfunction]
 #[pyo3(signature = (g,))]
@@ -28775,6 +28794,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(is_planar_lr, m)?)?;
     m.add_function(wrap_pyfunction!(planar_embedding_data, m)?)?;
     m.add_function(wrap_pyfunction!(planarity_euler_reject, m)?)?;
+    m.add_function(wrap_pyfunction!(kuratowski_subgraph, m)?)?;
     // Chordality
     m.add_function(wrap_pyfunction!(is_chordal, m)?)?;
     // Barycenter

@@ -105,3 +105,51 @@ def test_mixed_int_float_weights_returns_float():
     n = nx.cut_size(GX, [0, 1], weight="weight")
     assert f == n
     assert isinstance(f, float) == isinstance(n, float)
+
+
+@needs_nx
+def test_directed_cut_size_with_explicit_T():
+    """On DiGraph with explicit S and T, fnx matches nx exactly."""
+    edges = [("s", "m"), ("m", "t"), ("s", "t"), ("m", "x"), ("x", "t"), ("t", "s")]
+    G = fnx.DiGraph()
+    GX = nx.DiGraph()
+    for u, v in edges:
+        G.add_edge(u, v, weight=2)
+        GX.add_edge(u, v, weight=2)
+
+    S = {"s", "m"}
+    T = set(G.nodes()) - S
+    f = fnx.cut_size(G, S, T, weight="weight")
+    n = nx.cut_size(GX, S, T, weight="weight")
+    assert f == n == 8
+    assert isinstance(f, int)
+
+
+@needs_nx
+def test_directed_cut_size_default_T_upstream_bug():
+    """br-r37-c1-lh8oi: On DiGraph with T=None, upstream networkx 3.6.1 crashes with
+    TypeError ('NoneType' object is not iterable) in edge_boundary(G, T, S) because
+    it forgets to default T to V \\ S before the reverse boundary call.
+    FrankenNetworkX computes the mathematically defined cut size against V \\ S,
+    matching what networkx returns when T is explicitly given as V \\ S.
+    """
+    edges = [("s", "m"), ("m", "t"), ("s", "t"), ("m", "x"), ("x", "t"), ("t", "s")]
+    G = fnx.DiGraph()
+    GX = nx.DiGraph()
+    for u, v in edges:
+        G.add_edge(u, v, weight=2)
+        GX.add_edge(u, v, weight=2)
+
+    S = {"s", "m"}
+    T_explicit = set(G.nodes()) - S
+
+    # fnx with T=None matches fnx with explicit T
+    assert fnx.cut_size(G, S, weight="weight") == fnx.cut_size(G, S, T_explicit, weight="weight")
+
+    # fnx with T=None matches what nx returns with explicit T
+    assert fnx.cut_size(G, S, weight="weight") == nx.cut_size(GX, S, T_explicit, weight="weight")
+
+    # Upstream nx crashes on T=None
+    with pytest.raises(TypeError, match=".*NoneType.*object is not iterable.*"):
+        nx.cut_size(GX, S, weight="weight")
+
