@@ -47,11 +47,14 @@ fn collect_string_set(values: &Value, ctx: &str) -> BTreeSet<String> {
 /// are absent by design, so existence assertions skip them.
 const RUNTIME_GENERATED_PREFIXES: &[&str] = &[
     "artifacts/conformance/latest/",
+    "artifacts/conformance/oracle_capture/",
+    "artifacts/conformance/decisions/",
     "artifacts/perf/latest/",
     "artifacts/last_known_good/",
     "artifacts/determinism/latest/",
     "artifacts/docs/latest/",
     "artifacts/fuzz/",
+    "artifacts/phase2c/latest/",
 ];
 
 fn is_runtime_generated(rel: &str) -> bool {
