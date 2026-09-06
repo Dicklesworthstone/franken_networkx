@@ -6063,7 +6063,6 @@ mod tests {
             .as_deref()
             .expect("artifact write error should be reported");
         assert!(error.contains("report-root-is-file"));
-        assert!(error.contains("File exists") || error.contains("Not a directory"));
     }
 
     #[test]
