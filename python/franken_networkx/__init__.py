@@ -13632,7 +13632,7 @@ def articulation_points(G):
     return _gen()
 
 
-def bridges(G, root=None):
+def bridges(G, root=None, *, backend=None, **backend_kwargs):
     """Generate all bridges in a graph.
 
     Parameters
@@ -13648,6 +13648,7 @@ def bridges(G, root=None):
     edge
         Bridges in the graph.
     """
+    _validate_backend_dispatch_keywords("bridges", backend, backend_kwargs)
     # br-r37-c1-eghxq: accept nx-typed inputs.
     G = _coerce_arg_to_fnx_graph(G)
     # br-r37-c1-scceager: nx is @not_implemented_for('directed') — eager raise.
@@ -29485,7 +29486,7 @@ def adjacency_matrix(G, nodelist=None, dtype=None, weight="weight"):
     return to_scipy_sparse_array(G, nodelist=nodelist, dtype=dtype, weight=weight)
 
 
-def has_bridges(G, root=None):
+def has_bridges(G, root=None, *, backend=None, **backend_kwargs):
     """Return True if graph *G* has at least one bridge.
 
     Parameters
@@ -29501,12 +29502,13 @@ def has_bridges(G, root=None):
     bool
         True if G has at least one bridge.
     """
+    _validate_backend_dispatch_keywords("has_bridges", backend, backend_kwargs)
     for _ in bridges(G, root=root):
         return True
     return False
 
 
-def local_bridges(G, with_span=True, weight=None):
+def local_bridges(G, with_span=True, weight=None, *, backend=None, **backend_kwargs):
     """Yield local bridges in *G*.
 
     A local bridge is an edge (u, v) where u and v have no common neighbors.
@@ -29520,6 +29522,7 @@ def local_bridges(G, with_span=True, weight=None):
     ``directed`` inner, so on a MultiDiGraph the 'directed' message
     fires first.
     """
+    _validate_backend_dispatch_keywords("local_bridges", backend, backend_kwargs)
     if G.is_directed():
         raise NetworkXNotImplemented("not implemented for directed type")
     if G.is_multigraph():

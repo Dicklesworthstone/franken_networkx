@@ -1519,47 +1519,137 @@ def reverse_havel_hakimi_graph(aseq, bseq, create_using=None, *, backend=None, *
 def from_biadjacency_matrix(A, create_using=None, edge_attribute="weight", *, row_order=None, column_order=None, backend=None, **backend_kwargs):
     """Create a bipartite graph from a biadjacency matrix.
 
-    Wraps ``networkx.algorithms.bipartite.from_biadjacency_matrix`` and converts
-    the result to an fnx graph type for drop-in compatibility.
+    Directly constructs the fnx bipartite graph without intermediate nx conversions.
     """
     _fnx._validate_backend_dispatch_keywords(
         "from_biadjacency_matrix", backend, backend_kwargs
     )
-    nx_result = _nx_bipartite.from_biadjacency_matrix(
-        A, create_using=create_using, edge_attribute=edge_attribute,
-        row_order=row_order, column_order=column_order
+    import itertools
+    import networkx.algorithms.bipartite.matrix as _bpm
+
+    G = _fnx.empty_graph(0, create_using)
+    n, m = A.shape
+    row_order, column_order = _bpm._validate_initialize_bipartite_nodelists(
+        A, row_order, column_order
     )
-    return _from_nx_graph(nx_result, create_using=create_using)
+
+    G.add_nodes_from(((i, {"bipartite": 0}) for i in range(n)))
+    G.add_nodes_from(((i, {"bipartite": 1}) for i in range(n, n + m)))
+
+    triples = ((u, n + v, d) for (u, v, d) in _bpm._generate_weighted_edges(A))
+    if A.dtype.kind in ("i", "u") and G.is_multigraph():
+        chain = itertools.chain.from_iterable
+        triples = chain(((u, v, 1) for d in range(w)) for (u, v, w) in triples)
+    G.add_weighted_edges_from(triples, weight=edge_attribute)
+
+    mapping = dict(
+        itertools.chain(zip(range(n), row_order), zip(range(n, n + m), column_order))
+    )
+    if len(mapping):
+        _fnx.relabel_nodes(G, mapping, copy=False)
+    return G
 
 
 def parse_edgelist(lines, comments="#", delimiter=None, create_using=None, nodetype=None, data=True, *, backend=None, **backend_kwargs):
     """Parse lines of a bipartite graph edge list representation.
 
-    Wraps ``networkx.algorithms.bipartite.parse_edgelist`` and converts
-    the result to an fnx graph type for drop-in compatibility.
+    Directly constructs the fnx bipartite graph without intermediate nx conversions.
     """
     _fnx._validate_backend_dispatch_keywords(
         "parse_edgelist", backend, backend_kwargs
     )
-    nx_result = _nx_bipartite.parse_edgelist(
-        lines, comments=comments, delimiter=delimiter,
-        create_using=create_using, nodetype=nodetype, data=data
-    )
-    return _from_nx_graph(nx_result, create_using=create_using)
+    from ast import literal_eval
+
+    G = _fnx.empty_graph(0, create_using)
+    for line in lines:
+        p = line.find(comments)
+        if p >= 0:
+            line = line[:p]
+        if not len(line):
+            continue
+        s = line.rstrip("\n").split(delimiter)
+        if len(s) < 2:
+            continue
+        u = s.pop(0)
+        v = s.pop(0)
+        d = s
+        if nodetype is not None:
+            try:
+                u = nodetype(u)
+                v = nodetype(v)
+            except BaseException as err:
+                raise TypeError(
+                    f"Failed to convert nodes {u},{v} to type {nodetype}."
+                ) from err
+
+        if len(d) == 0 or data is False:
+            edgedata = {}
+        elif data is True:
+            try:
+                edgedata = dict(literal_eval(" ".join(d)))
+            except BaseException as err:
+                raise TypeError(
+                    f"Failed to convert edge data ({d}) to dictionary."
+                ) from err
+        else:
+            if len(d) != len(data):
+                raise IndexError(
+                    f"Edge data {d} and data_keys {data} are not the same length"
+                )
+            edgedata = {}
+            for (edge_key, edge_type), edge_value in zip(data, d):
+                try:
+                    edge_value = edge_type(edge_value)
+                except BaseException as err:
+                    raise TypeError(
+                        f"Failed to convert {edge_key} data "
+                        f"{edge_value} to type {edge_type}."
+                    ) from err
+                edgedata.update({edge_key: edge_value})
+        G.add_node(u, bipartite=0)
+        G.add_node(v, bipartite=1)
+        G.add_edge(u, v, **edgedata)
+    return G
 
 
 def read_edgelist(path, comments="#", delimiter=None, create_using=None, nodetype=None, data=True, edgetype=None, encoding="utf-8", *, backend=None, **backend_kwargs):
     """Read a bipartite graph edge list from a file.
 
-    Wraps ``networkx.algorithms.bipartite.read_edgelist`` and converts
-    the result to an fnx graph type for drop-in compatibility.
+    Directly parses into an fnx bipartite graph without intermediate nx conversions.
     """
     _fnx._validate_backend_dispatch_keywords(
         "read_edgelist", backend, backend_kwargs
     )
-    nx_result = _nx_bipartite.read_edgelist(
-        path, comments=comments, delimiter=delimiter,
-        create_using=create_using, nodetype=nodetype, data=data,
-        edgetype=edgetype, encoding=encoding
+    from networkx.utils import open_file
+
+    @open_file(0, mode="rb")
+    def _read_edgelist(
+        path,
+        comments="#",
+        delimiter=None,
+        create_using=None,
+        nodetype=None,
+        data=True,
+        edgetype=None,
+        encoding="utf-8",
+    ):
+        lines = (line.decode(encoding) for line in path)
+        return parse_edgelist(
+            lines,
+            comments=comments,
+            delimiter=delimiter,
+            create_using=create_using,
+            nodetype=nodetype,
+            data=data,
+        )
+
+    return _read_edgelist(
+        path,
+        comments=comments,
+        delimiter=delimiter,
+        create_using=create_using,
+        nodetype=nodetype,
+        data=data,
+        edgetype=edgetype,
+        encoding=encoding,
     )
-    return _from_nx_graph(nx_result, create_using=create_using)

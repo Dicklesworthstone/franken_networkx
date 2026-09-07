@@ -239,24 +239,48 @@ def is_locally_k_edge_connected(G, s, t, k, *, backend=None, **backend_kwargs):
 def build_auxiliary_node_connectivity(G, *, backend=None, **backend_kwargs):
     """Return auxiliary digraph for computing node connectivity.
 
-    Wraps ``networkx.algorithms.connectivity.build_auxiliary_node_connectivity``
-    and converts the result to an fnx.DiGraph for drop-in compatibility.
+    Directly constructs an fnx.DiGraph with byte-exact parity to NetworkX's
+    build_auxiliary_node_connectivity without intermediate nx graph round-trips.
     """
     _fnx._validate_backend_dispatch_keywords(
         "build_auxiliary_node_connectivity", backend, backend_kwargs
     )
-    nx_result = _nx_connectivity.build_auxiliary_node_connectivity(G)
-    return _from_nx_graph(nx_result)
+    directed = G.is_directed()
+    mapping = {}
+    H = _fnx.DiGraph()
+
+    for i, node in enumerate(G):
+        mapping[node] = i
+        H.add_node(f"{i}A", id=node)
+        H.add_node(f"{i}B", id=node)
+        H.add_edge(f"{i}A", f"{i}B", capacity=1)
+
+    edges = []
+    for source, target in G.edges():
+        edges.append((f"{mapping[source]}B", f"{mapping[target]}A"))
+        if not directed:
+            edges.append((f"{mapping[target]}B", f"{mapping[source]}A"))
+    H.add_edges_from(edges, capacity=1)
+    H.graph["mapping"] = mapping
+    return H
 
 
 def build_auxiliary_edge_connectivity(G, *, backend=None, **backend_kwargs):
     """Return auxiliary digraph for computing edge connectivity.
 
-    Wraps ``networkx.algorithms.connectivity.build_auxiliary_edge_connectivity``
-    and converts the result to an fnx.DiGraph for drop-in compatibility.
+    Directly constructs an fnx.DiGraph with byte-exact parity to NetworkX's
+    build_auxiliary_edge_connectivity without intermediate nx graph round-trips.
     """
     _fnx._validate_backend_dispatch_keywords(
         "build_auxiliary_edge_connectivity", backend, backend_kwargs
     )
-    nx_result = _nx_connectivity.build_auxiliary_edge_connectivity(G)
-    return _from_nx_graph(nx_result)
+    H = _fnx.DiGraph()
+    H.add_nodes_from(G.nodes())
+    if G.is_directed():
+        H.add_edges_from(G.edges(), capacity=1)
+    else:
+        edges = []
+        for source, target in G.edges():
+            edges.extend([(source, target), (target, source)])
+        H.add_edges_from(edges, capacity=1)
+    return H
