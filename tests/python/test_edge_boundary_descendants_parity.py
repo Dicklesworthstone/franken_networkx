@@ -87,6 +87,28 @@ def test_edge_boundary_lazy_short_circuit():
     assert isinstance(first, tuple)
 
 
+@needs_nx
+@pytest.mark.parametrize("graph_cls,nx_cls", [
+    (fnx.MultiGraph, nx.MultiGraph),
+    (fnx.MultiDiGraph, nx.MultiDiGraph),
+])
+def test_edge_boundary_multigraph_iterator_inputs(graph_cls, nx_cls):
+    fg = graph_cls([(0, 1), (1, 2), (0, 2), (2, 3)])
+    ng = nx_cls([(0, 1), (1, 2), (0, 2), (2, 3)])
+    fg.add_edge(0, 1, weight=10)
+    ng.add_edge(0, 1, weight=10)
+
+    # Both nbunch1 and nbunch2 as single-pass iterators
+    f_res = list(fnx.edge_boundary(fg, iter([0, 1]), iter([2, 3]), data=True, keys=True))
+    n_res = list(nx.edge_boundary(ng, iter([0, 1]), iter([2, 3]), data=True, keys=True))
+    assert f_res == n_res
+
+    # nbunch2 is None with iterator nbunch1
+    f_res_none = list(fnx.edge_boundary(fg, iter([0, 1]), None, data=True, keys=True))
+    n_res_none = list(nx.edge_boundary(ng, iter([0, 1]), None, data=True, keys=True))
+    assert f_res_none == n_res_none
+
+
 # ---------------------------------------------------------------------------
 # descendants_at_distance
 # ---------------------------------------------------------------------------

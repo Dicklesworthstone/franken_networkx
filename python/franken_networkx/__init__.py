@@ -23355,8 +23355,8 @@ def edge_boundary(G, nbunch1, nbunch2=None, data=False, keys=False, default=None
     """
     # br-r37-c1-e861i: materialize SubgraphView first (view family).
     G = _coerce_arg_to_fnx_graph(G)
+    nset1 = {n for n in nbunch1 if n in G}
     if not G.is_multigraph() and type(G) in (Graph, DiGraph):
-        nset1 = {n for n in nbunch1 if n in G}
         if data is False and nbunch2 is None:
             # br-r37-c1-ebneigh: the data=False boundary only needs the neighbor, but
             # `G.edges(nset1)` materializes the EdgeView (builds (u,v) tuples) — ~8x more
@@ -23389,55 +23389,22 @@ def edge_boundary(G, nbunch1, nbunch2=None, data=False, keys=False, default=None
             ):
                 yield edge
         return
-    nb1 = _coerce_nbunch(nbunch1)
-    nb2 = _coerce_nbunch(nbunch2)
-    if data is False and not keys and default is None and not G.is_multigraph():
-        yield from _raw_edge_boundary(G, nb1, nb2)
+
+    if G.is_multigraph():
+        edges = G.edges(nset1, data=data, keys=keys, default=default)
+    else:
+        edges = G.edges(nset1, data=data, default=default)
+    if nbunch2 is None:
+        for edge in edges:
+            if (edge[0] in nset1) ^ (edge[1] in nset1):
+                yield edge
         return
-    # br-r37-c1-wpyzi / br-r37-c1-is5xw: de-delegate the data/string/default
-    # path for simple Graph/DiGraph entirely onto native kernels. The OLD path
-    # converted the WHOLE graph fnx->nx (O(V+E)) just to annotate boundary edges
-    # (~11.6x slower than nx). Get the boundary (u, v) pairs from the native
-    # ``edge_boundary`` kernel (Rust filter, emitting in nx's nbunch x adjacency
-    # order — proven byte-identical to nx after the br-r37-c1-tep7r sort fix),
-    # then attach edge data:
-    #   * no edge attrs (native graph_has_any_attrs) -> data=True is uniformly {}
-    #     / data=<name> is the default, with zero per-edge work;
-    #   * otherwise look the edge data up in one native ``to_dict_of_dicts``
-    #     snapshot (``{u: {v: live_edge_dict}}``) so data=True yields the SAME
-    #     LIVE dict object nx does (the old in-process path returned a COPY).
-    # This beats nx (1.25x) on attributed graphs instead of trailing it ~3.4x.
-    # Multigraphs (keyed edge-view order) keep delegating.
-    if not G.is_multigraph() and type(G) in (Graph, DiGraph):
-        pairs = _raw_edge_boundary(G, nb1, nb2)
-        if data is False:
-            yield from pairs
-            return
-        if _fnx.graph_has_any_attrs(G) is False:
-            if data is True:
-                for u, v in pairs:
-                    yield (u, v, {})
-            else:
-                for u, v in pairs:
-                    yield (u, v, default)
-            return
-        tdd = to_dict_of_dicts(G)
-        if data is True:
-            for u, v in pairs:
-                yield (u, v, tdd[u][v])
-        else:
-            for u, v in pairs:
-                yield (u, v, tdd[u][v].get(data, default))
-        return
-    yield from _call_networkx_for_parity(
-        "edge_boundary",
-        G,
-        nbunch1,
-        nbunch2,
-        data=data,
-        keys=keys,
-        default=default,
-    )
+    nset2 = set(nbunch2)
+    for edge in edges:
+        if (edge[0] in nset1 and edge[1] in nset2) or (
+            edge[1] in nset1 and edge[0] in nset2
+        ):
+            yield edge
 
 
 def volume(G, S, weight=None):
@@ -38464,39 +38431,52 @@ def snap_aggregation(
     """
     from collections import Counter as _Counter, defaultdict as _defaultdict
 
-    if isinstance(node_attributes, str):
-        node_attributes = [node_attributes]
     edge_attributes = tuple(edge_attributes)
+    is_multi = G.is_multigraph()
+    is_directed = G.is_directed()
 
     # Build edge_types mapping: edge -> tuple of attribute values
-    edge_types = {}
-    for u, v, d in G.edges(data=True):
-        etype = tuple(d.get(attr) for attr in edge_attributes)
-        edge_types[(u, v)] = etype
-    if not G.is_directed():
-        for (u, v), etype in list(edge_types.items()):
-            edge_types[(v, u)] = etype
+    if is_multi:
+        edge_types = {
+            (u, v, k): tuple(d.get(attr) for attr in edge_attributes)
+            for u, v, k, d in G.edges(keys=True, data=True)
+        }
+        if not is_directed:
+            edge_types.update(
+                [((v, u, k), etype) for (u, v, k), etype in list(edge_types.items())]
+            )
+    else:
+        edge_types = {
+            (u, v): tuple(d.get(attr) for attr in edge_attributes)
+            for u, v, d in G.edges(data=True)
+        }
+        if not is_directed:
+            edge_types.update(
+                [((v, u), etype) for (u, v), etype in list(edge_types.items())]
+            )
 
-    # Initial grouping by node attribute values
-    group_lookup = {}
-    for n in G.nodes():
-        group_lookup[n] = tuple(G.nodes[n].get(attr) for attr in node_attributes)
+    # Initial grouping by node attribute values (strictly mirrors NX: raises KeyError if missing)
+    group_lookup = {
+        node: tuple(G.nodes[node][attr] for attr in node_attributes)
+        for node in G.nodes()
+    }
     groups = _defaultdict(set)
     for node, node_type in group_lookup.items():
         groups[node_type].add(node)
 
     # Iterative splitting (mirrors NX _snap_eligible_group / _snap_split)
     def _eligible_group():
-        nbr_info = {}
+        nbr_info = {node: {gid: _Counter() for gid in groups} for node in group_lookup}
         for group_id in groups:
             current_group = groups[group_id]
             for node in current_group:
                 nbr_info[node] = {gid: _Counter() for gid in groups}
-                for nbr in G.neighbors(node):
-                    edge_key = (node, nbr)
-                    etype = edge_types.get(edge_key, ())
-                    neighbor_gid = group_lookup[nbr]
-                    nbr_info[node][neighbor_gid][etype] += 1
+                edges = G.edges(node, keys=True) if is_multi else G.edges(node)
+                for edge in edges:
+                    neighbor = edge[1]
+                    edge_type = edge_types[edge]
+                    neighbor_group_id = group_lookup[neighbor]
+                    nbr_info[node][neighbor_group_id][edge_type] += 1
 
             group_size = len(current_group)
             for other_gid in groups:
@@ -38536,7 +38516,7 @@ def snap_aggregation(
         supernode = f"{prefix}{index}"
         node_label_lookup[group_id] = supernode
         supernode_attributes = {
-            attr: G.nodes[next(iter(group_set))].get(attr) for attr in node_attributes
+            attr: G.nodes[next(iter(group_set))][attr] for attr in node_attributes
         }
         supernode_attributes[supernode_attribute] = group_set
         output.add_node(supernode, **supernode_attributes)
@@ -38548,18 +38528,26 @@ def snap_aggregation(
         for other_gid, group_edge_types in nbr_info[rep_node].items():
             if group_edge_types:
                 target_supernode = node_label_lookup[other_gid]
+                summary_graph_edge = (source_supernode, target_supernode)
                 edge_type_list = [
                     dict(zip(edge_attributes, etype)) for etype in group_edge_types
                 ]
-                superedge_attrs = {superedge_attribute: edge_type_list}
-                if not output.has_edge(source_supernode, target_supernode):
-                    output.add_edge(
-                        source_supernode, target_supernode, **superedge_attrs
-                    )
-                elif G.is_directed():
-                    output.add_edge(
-                        source_supernode, target_supernode, **superedge_attrs
-                    )
+                has_edge = output.has_edge(*summary_graph_edge)
+                if is_multi:
+                    if not has_edge:
+                        for etype_dict in edge_type_list:
+                            output.add_edge(*summary_graph_edge, **etype_dict)
+                    elif not is_directed:
+                        existing_edge_data = output.get_edge_data(*summary_graph_edge)
+                        for etype_dict in edge_type_list:
+                            if etype_dict not in existing_edge_data.values():
+                                output.add_edge(*summary_graph_edge, **etype_dict)
+                    else:
+                        for etype_dict in edge_type_list:
+                            output.add_edge(*summary_graph_edge, **etype_dict)
+                else:
+                    superedge_attrs = {superedge_attribute: edge_type_list}
+                    output.add_edge(*summary_graph_edge, **superedge_attrs)
 
     # br-r37-c1-k3ksc: Always return fnx type for consistency
     from franken_networkx.readwrite import _from_nx_graph
