@@ -18,6 +18,7 @@ from networkx.algorithms.planarity import *  # noqa: F401,F403
 import networkx.algorithms.planarity as _nx_planarity
 
 import franken_networkx as _fnx
+from franken_networkx import _fnx as _native_fnx
 from franken_networkx.readwrite import _from_nx_graph
 
 # br-r37-c1-56nd2: nx's ``planarity.__all__`` only star-exports
@@ -62,10 +63,10 @@ def get_counterexample(G, *, backend=None, **backend_kwargs):
     falling back to networkx for other types.
     """
     _fnx._validate_backend_dispatch_keywords("get_counterexample", backend, backend_kwargs)
-    if type(G) is _fnx.Graph:
-        cex = _fnx.kuratowski_subgraph(G)
+    if isinstance(G, (_fnx.Graph, _fnx.DiGraph, _fnx.MultiGraph, _fnx.MultiDiGraph)):
+        cex = _native_fnx.kuratowski_subgraph(G)
         if cex is None:
-            raise _nx_planarity.NetworkXException("G is planar - no counter example.")
+            raise _fnx.NetworkXException("G is planar - no counter example.")
         return cex
     nx_result = _nx_planarity.get_counterexample(G)
     return _from_nx_graph(nx_result)
