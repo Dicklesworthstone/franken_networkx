@@ -702,6 +702,20 @@ class TestGroupDegreeCentrality:
         # {a} neighbors outside = {b}, non-group=2, so 0.5
         assert fnx.group_degree_centrality(g, ["a"]) == pytest.approx(0.5)
 
+    def test_missing_node_raises(self, triangle):
+        with pytest.raises(fnx.NetworkXError, match="The node z is not in the graph."):
+            fnx.group_degree_centrality(triangle, ["a", "z"])
+
+    def test_full_group_raises_zero_division(self, triangle):
+        with pytest.raises(ZeroDivisionError, match="division by zero"):
+            fnx.group_degree_centrality(triangle, ["a", "b", "c"])
+
+    def test_digraph_support(self):
+        dg = fnx.DiGraph([(0, 1), (1, 2)])
+        assert fnx.group_degree_centrality(dg, [0]) == pytest.approx(0.5)
+        with pytest.raises(fnx.NetworkXError, match="The node 99 is not in the digraph."):
+            fnx.group_degree_centrality(dg, [0, 99])
+
 
 # ---------------------------------------------------------------------------
 # group_in_degree_centrality
@@ -716,8 +730,18 @@ class TestGroupInDegreeCentrality:
         assert fnx.group_in_degree_centrality(g, ["b"]) == pytest.approx(1.0)
 
     def test_raises_on_undirected(self, triangle):
-        with pytest.raises(fnx.NetworkXNotImplemented):
+        with pytest.raises(fnx.NetworkXNotImplemented, match="not implemented for undirected type"):
             fnx.group_in_degree_centrality(triangle, ["a"])
+
+    def test_missing_node_raises(self):
+        dg = fnx.DiGraph([(0, 1), (1, 2)])
+        with pytest.raises(fnx.NetworkXError, match="The node 99 is not in the digraph."):
+            fnx.group_in_degree_centrality(dg, [0, 99])
+
+    def test_full_group_raises(self):
+        dg = fnx.DiGraph([(0, 1), (1, 2)])
+        with pytest.raises(ZeroDivisionError, match="division by zero"):
+            fnx.group_in_degree_centrality(dg, [0, 1, 2])
 
 
 # ---------------------------------------------------------------------------
@@ -733,5 +757,65 @@ class TestGroupOutDegreeCentrality:
         assert fnx.group_out_degree_centrality(g, ["a"]) == pytest.approx(1.0)
 
     def test_raises_on_undirected(self, triangle):
-        with pytest.raises(fnx.NetworkXNotImplemented):
+        with pytest.raises(fnx.NetworkXNotImplemented, match="not implemented for undirected type"):
             fnx.group_out_degree_centrality(triangle, ["a"])
+
+    def test_missing_node_raises(self):
+        dg = fnx.DiGraph([(0, 1), (1, 2)])
+        with pytest.raises(fnx.NetworkXError, match="The node 99 is not in the digraph."):
+            fnx.group_out_degree_centrality(dg, [0, 99])
+
+    def test_full_group_raises(self):
+        dg = fnx.DiGraph([(0, 1), (1, 2)])
+        with pytest.raises(ZeroDivisionError, match="division by zero"):
+            fnx.group_out_degree_centrality(dg, [0, 1, 2])
+
+
+# ---------------------------------------------------------------------------
+# group_closeness_centrality
+# ---------------------------------------------------------------------------
+
+class TestGroupClosenessCentrality:
+    def test_simple(self, triangle):
+        assert fnx.group_closeness_centrality(triangle, ["a"]) == pytest.approx(1.0)
+
+    def test_missing_node_raises(self, triangle):
+        with pytest.raises(fnx.NodeNotFound, match="Node z not found in graph"):
+            fnx.group_closeness_centrality(triangle, ["a", "z"])
+
+    def test_full_group_returns_zero(self, triangle):
+        assert fnx.group_closeness_centrality(triangle, ["a", "b", "c"]) == 0
+
+    def test_digraph_and_weighted(self):
+        dg = fnx.DiGraph([(0, 1, {"w": 2.0}), (1, 2, {"w": 1.0}), (2, 3, {"w": 3.0})])
+        assert fnx.group_closeness_centrality(dg, [2]) == pytest.approx(1.0)
+        assert fnx.group_closeness_centrality(dg, [2], weight="w") == pytest.approx(0.75)
+
+
+# ---------------------------------------------------------------------------
+# group_betweenness_centrality
+# ---------------------------------------------------------------------------
+
+class TestGroupBetweennessCentrality:
+    def test_simple(self):
+        g = fnx.Graph([(0, 1), (1, 2), (2, 3), (3, 4)])
+        assert fnx.group_betweenness_centrality(g, [1, 2]) == pytest.approx(2.0 / 3.0)
+
+    def test_missing_node_raises(self):
+        g = fnx.Graph([(0, 1), (1, 2)])
+        with pytest.raises(fnx.NodeNotFound, match=r"The node\(s\) \{99\} are in C but not in G\."):
+            fnx.group_betweenness_centrality(g, [1, 99])
+        with pytest.raises(fnx.NodeNotFound, match=r"The node\(s\) \{99\} are in C but not in G\."):
+            fnx.group_betweenness_centrality(g, [[1], [99]])
+
+    def test_full_group_raises_on_normalized(self):
+        g = fnx.Graph([(0, 1), (1, 2)])
+        with pytest.raises(ZeroDivisionError, match="division by zero"):
+            fnx.group_betweenness_centrality(g, [0, 1])
+        assert fnx.group_betweenness_centrality(g, [0, 1], normalized=False) == pytest.approx(0.0)
+
+    def test_list_of_groups(self):
+        g = fnx.Graph([(0, 1), (1, 2), (2, 3), (3, 4)])
+        res = fnx.group_betweenness_centrality(g, [[1], [2]])
+        assert isinstance(res, list)
+        assert len(res) == 2

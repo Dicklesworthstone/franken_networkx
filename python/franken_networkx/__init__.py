@@ -27381,10 +27381,17 @@ def group_degree_centrality(G, S, *, backend=None, **backend_kwargs):
     """
     G = _coerce_arg_to_fnx_graph(G)
     _validate_backend_dispatch_keywords("group_degree_centrality", backend, backend_kwargs)
-    if G.is_directed():
-        neighbors = set().union(*(set(G.neighbors(node)) for node in S)) - set(S)
-        return len(neighbors) / (len(G.nodes()) - len(S))
-    return _raw_group_degree_centrality(G, S)
+    for node in S:
+        if node not in G:
+            graph_type = "digraph" if G.is_directed() else "graph"
+            raise NetworkXError(f"The node {node} is not in the {graph_type}.")
+    denom = len(G.nodes()) - len(S)
+    if denom == 0:
+        raise ZeroDivisionError("division by zero")
+    if not G.is_directed() and denom > 0:
+        return _raw_group_degree_centrality(G, S)
+    neighbors = set().union(*(set(G.neighbors(node)) for node in S)) - set(S)
+    return len(neighbors) / denom
 
 
 def group_in_degree_centrality(G, S, *, backend=None, **backend_kwargs):
@@ -27393,7 +27400,9 @@ def group_in_degree_centrality(G, S, *, backend=None, **backend_kwargs):
     _validate_backend_dispatch_keywords(
         "group_in_degree_centrality", backend, backend_kwargs
     )
-    return _raw_group_in_degree_centrality(G, S)
+    if not G.is_directed():
+        raise NetworkXNotImplemented("not implemented for undirected type")
+    return group_degree_centrality(G.reverse(), S)
 
 
 def group_out_degree_centrality(G, S, *, backend=None, **backend_kwargs):
@@ -27402,7 +27411,9 @@ def group_out_degree_centrality(G, S, *, backend=None, **backend_kwargs):
     _validate_backend_dispatch_keywords(
         "group_out_degree_centrality", backend, backend_kwargs
     )
-    return _raw_group_out_degree_centrality(G, S)
+    if not G.is_directed():
+        raise NetworkXNotImplemented("not implemented for undirected type")
+    return group_degree_centrality(G, S)
 
 # Component algorithms
 from franken_networkx._fnx import (
@@ -44981,48 +44992,6 @@ def group_betweenness_centrality(
         "group_betweenness_centrality", backend, backend_kwargs
     )
 
-    # br-r37-c1-ejuhf: both the native fast path and the in-process slow path
-    # below mishandle the inclusion-exclusion correction for shortest paths
-    # that traverse THREE OR MORE members of a group, undercounting the group
-    # score (size 1 and 2 are exact). Delegate any group with >=3 members to
-    # nx, the correct reference. Single/pair groups keep the fast paths.
-    _gbc_groups = (
-        C if (len(C) > 0 and not any(element in G for element in C)) else [C]
-    )
-    if any(len(set(group)) >= 3 for group in _gbc_groups):
-        return _call_networkx_for_parity(
-            "group_betweenness_centrality",
-            G,
-            C,
-            normalized=normalized,
-            weight=weight,
-            endpoints=endpoints,
-        )
-
-    if not G.is_directed() and weight is None and not endpoints:
-        # Detect list-of-groups vs single group, mirroring the slow path
-        # below (br-r37-c1-q49py): nx returns a list of per-group scores
-        # when C is a list of groups, a scalar when C is a single group.
-        # The Rust fast path always returns a scalar, so iterate when C
-        # is a list of groups.
-        list_of_groups = not any(element in G for element in C)
-        if list_of_groups:
-            scores = []
-            for group in C:
-                value = _fnx.group_betweenness_centrality_rust(G, list(group))
-                if normalized:
-                    scores.append(value)
-                else:
-                    remaining = len(G) - len(set(group))
-                    scores.append(value * remaining * (remaining - 1) / 2)
-            return scores
-        value = _fnx.group_betweenness_centrality_rust(G, list(C))
-        if normalized:
-            return value
-        remaining = len(G) - len(set(C))
-        return value * remaining * (remaining - 1) / 2
-
-    group_betweenness = []
     list_of_groups = True
     if any(element in G for element in C):
         C = [C]
@@ -45032,6 +45001,36 @@ def group_betweenness_centrality(
     if missing_nodes:
         raise NodeNotFound(f"The node(s) {missing_nodes} are in C but not in G.")
 
+    # br-r37-c1-ejuhf: both the native fast path and the in-process slow path
+    # below mishandle the inclusion-exclusion correction for shortest paths
+    # that traverse THREE OR MORE members of a group, undercounting the group
+    # score (size 1 and 2 are exact). Delegate any group with >=3 members to
+    # nx, the correct reference. Single/pair groups keep the fast paths.
+    if any(len(set(group)) >= 3 for group in C):
+        return _call_networkx_for_parity(
+            "group_betweenness_centrality",
+            G,
+            C if list_of_groups else C[0],
+            normalized=normalized,
+            weight=weight,
+            endpoints=endpoints,
+        )
+
+    if not G.is_directed() and weight is None and not endpoints:
+        scores = []
+        for group in C:
+            group_size = len(set(group))
+            remaining = len(G) - group_size
+            if normalized and remaining < 2:
+                raise ZeroDivisionError("division by zero")
+            value = _fnx.group_betweenness_centrality_rust(G, list(group))
+            if normalized:
+                scores.append(value)
+            else:
+                scores.append(value * remaining * (remaining - 1) / 2)
+        return scores if list_of_groups else scores[0]
+
+    group_betweenness = []
     path_betweenness, sigma, distances = _group_preprocessing_local(
         G,
         group_nodes,
@@ -45123,34 +45122,29 @@ def group_betweenness_centrality(
 
 def group_closeness_centrality(G, S, weight=None, *, backend=None, **backend_kwargs):
     """Closeness centrality for a group of nodes S."""
+    G = _coerce_arg_to_fnx_graph(G)
     _validate_backend_dispatch_keywords(
         "group_closeness_centrality", backend, backend_kwargs
     )
-
+    for s in S:
+        if s not in G:
+            raise NodeNotFound(f"Node {s} not found in graph")
+    if not (set(G) - set(S)):
+        return 0
     if not G.is_directed() and weight is None:
         return _fnx.group_closeness_centrality_rust(G, list(S))
 
     if G.is_directed():
-        G = reverse(G)
+        G = G.reverse()
     closeness = 0.0
-    all_nodes = set(G)
-    group = set(S)
-    non_group_nodes = all_nodes - group
-    if weight is None:
-        shortest_path_lengths = {}
-        for source in group:
-            _, _, _, source_lengths = _single_source_shortest_path_basic_local(G, source)
-            for node, distance in source_lengths.items():
-                if node not in shortest_path_lengths or distance < shortest_path_lengths[node]:
-                    shortest_path_lengths[node] = distance
-    else:
-        shortest_path_lengths = multi_source_dijkstra_path_length(G, group, weight=weight)
-    for node in non_group_nodes:
-        closeness += shortest_path_lengths.get(node, 0)
+    V_S = set(G) - set(S)
+    shortest_path_lengths = multi_source_dijkstra_path_length(G, set(S), weight=weight)
+    for v in V_S:
+        closeness += shortest_path_lengths.get(v, 0)
     try:
-        return len(non_group_nodes) / closeness
+        return len(V_S) / closeness
     except ZeroDivisionError:
-        return 0.0
+        return 0
 
 
 # ---------------------------------------------------------------------------
@@ -64267,85 +64261,72 @@ def k_components(G, flow_func=None):
 
 
 def k_factor(G, k, matching_weight="weight"):
-    """Return a k-regular spanning subgraph of G (if exists).
+    """Compute a k-factor of a graph.
 
-    A k-factor is a spanning subgraph where every node has degree exactly k.
-    Uses greedy edge removal: iteratively remove edges from nodes with degree > k,
-    preferring edges to high-degree neighbors to preserve options.
-
-    ``matching_weight`` matches networkx's public signature and is
-    forwarded to the internal max-weight matching used for k=1.
-
-    br-r37-c1-kfact-guard: nx applies ``@not_implemented_for("directed",
-    "multigraph")`` decorators which fire BEFORE the function body.
-    Previously fnx's k=0 short-circuit returned an empty Graph on
-    directed / multigraph input — wrong contract. Move the type
-    guards before any short-circuit so callers catching
-    NetworkXNotImplemented behave like nx.
+    A k-factor of a graph is a spanning k-regular subgraph.
+    A spanning k-regular subgraph of G is a subgraph that contains
+    each node of G and a subset of the edges of G such that each
+    node has degree k.
     """
+    G = _coerce_arg_to_fnx_graph(G)
     if G.is_multigraph():
         raise NetworkXNotImplemented("not implemented for multigraph type")
     if G.is_directed():
         raise NetworkXNotImplemented("not implemented for directed type")
     if k < 0:
         raise NetworkXError("k must be non-negative")
-    if k == 0:
-        H = Graph()
-        for node in G.nodes():
-            H.add_node(node, **dict(G.nodes[node]))
-        return H
+    if any(d < k for _, d in G.degree):
+        raise NetworkXUnfeasible("Graph contains a vertex with degree less than k")
 
-    # Check feasibility: every node must have degree >= k.
-    for node in G.nodes():
-        if G.degree[node] < k:
-            raise NetworkXUnfeasible(
-                f"Graph does not have a k-factor: node {node} has degree "
-                f"{G.degree[node]} < k={k}"
-            )
+    g = G.copy()
+    gadgets = []
 
-    # For k=1, find a maximum matching and verify it's perfect.
-    if k == 1:
-        matching = max_weight_matching(G, weight=matching_weight)
-        if len(matching) * 2 < G.number_of_nodes():
-            raise NetworkXUnfeasible("No perfect matching exists for 1-factor")
-        H = Graph()
-        for node in G.nodes():
-            H.add_node(node, **dict(G.nodes[node]))
-        for u, v in matching:
-            H.add_edge(u, v, **dict(G[u][v]))
-        return H
+    # Replace each node with a gadget.
+    for node, degree in G.degree:
+        is_large = k >= degree / 2.0
 
-    # General case: start with all edges, iteratively remove edges from
-    # nodes with degree > k, preferring removal of edges to the neighbor
-    # with highest surplus (degree - k).
-    H = G.copy()
-    changed = True
-    while changed:
-        changed = False
-        for node in list(H.nodes()):
-            while H.degree[node] > k:
-                nbrs = list(H.neighbors(node))
-                if not nbrs:
+        # Create gadget nodes.
+        outer = [(node, i) for i in range(degree)]
+        if is_large:
+            core = [(node, i) for i in range(degree, 2 * degree - k)]
+            inner = []
+        else:
+            core = [(node, i) for i in range(2 * degree, 2 * degree + k)]
+            inner = [(node, i) for i in range(degree, 2 * degree)]
+
+        # Connect gadget nodes to neighbors.
+        g.add_edges_from(zip(outer, inner))
+        for outer_n, (neighbor, attrs) in zip(outer, g[node].items()):
+            g.add_edge(outer_n, neighbor, **attrs)
+
+        # Add internal edges.
+        g.add_edges_from((u, v) for u in core for v in (outer if is_large else inner))
+
+        g.remove_node(node)
+        gadgets.append((node, outer, core, inner))
+
+    # Find perfect matching.
+    m = max_weight_matching(g, maxcardinality=True, weight=matching_weight)
+    if not is_perfect_matching(g, m):
+        raise NetworkXUnfeasible(
+            "Cannot find k-factor because no perfect matching exists"
+        )
+
+    # Keep only edges in matching.
+    g.remove_edges_from(e for e in g.edges if e not in m and e[::-1] not in m)
+
+    # Restore original nodes and remove gadgets.
+    for node, outer, core, inner in gadgets:
+        g.add_node(node)
+        core_set = set(core)
+        for outer_n in outer:
+            for neighbor, attrs in g._adj[outer_n].items():
+                if neighbor not in core_set:
+                    g.add_edge(node, neighbor, **attrs)
                     break
-                # Prefer removing edge to the neighbor with most surplus.
-                nbrs.sort(key=lambda v: H.degree[v], reverse=True)
-                removed = False
-                for nbr in nbrs:
-                    if H.degree[nbr] > k:
-                        H.remove_edge(node, nbr)
-                        changed = True
-                        removed = True
-                        break
-                if not removed:
-                    # All neighbors at or below k — remove edge to highest.
-                    H.remove_edge(node, nbrs[0])
-                    changed = True
+        g.remove_nodes_from(outer + core + inner)
 
-    # Verify k-regularity.
-    for node in H.nodes():
-        if H.degree[node] != k:
-            raise NetworkXUnfeasible(f"Could not find a {k}-factor")
-    return H
+    return g
 
 
 def spectral_graph_forge(G, alpha, transformation="identity", seed=None):

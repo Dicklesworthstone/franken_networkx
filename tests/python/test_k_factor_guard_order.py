@@ -43,3 +43,16 @@ def test_simple_undirected_k1_perfect_matching():
     h = fnx.k_factor(g, 1)
     # k=1 factor is a perfect matching — every node has degree 1
     assert all(d == 1 for _, d in h.degree())
+
+
+def test_k_factor_regular_graphs_matches_nx():
+    import networkx as nx
+
+    for seed in [0, 2, 5, 8, 10]:
+        g_nx = nx.random_regular_graph(4, 10, seed=seed)
+        g_fnx = fnx.random_regular_graph(4, 10, seed=seed)
+        kf_nx = nx.k_factor(g_nx, 2)
+        kf_fnx = fnx.k_factor(g_fnx, 2)
+        assert all(d == 2 for _, d in kf_fnx.degree())
+        assert kf_fnx.number_of_nodes() == 10
+        assert kf_fnx.number_of_edges() == 10
