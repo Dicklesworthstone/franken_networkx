@@ -249,6 +249,60 @@ import franken_networkx.clique as _fnx_clique
 _sys.modules[f"{__name__}.clique"] = _fnx_clique
 clique = _fnx_clique  # Override in module globals
 
+
+def enumerate_all_cliques(G, *, backend=None, **backend_kwargs):
+    return _fnx_clique.enumerate_all_cliques(
+        G, backend=backend, **backend_kwargs
+    )
+
+
+def find_cliques(G, nodes=None, *, backend=None, **backend_kwargs):
+    return _fnx_clique.find_cliques(
+        G, nodes=nodes, backend=backend, **backend_kwargs
+    )
+
+
+def find_cliques_recursive(G, nodes=None, *, backend=None, **backend_kwargs):
+    return _fnx_clique.find_cliques_recursive(
+        G, nodes=nodes, backend=backend, **backend_kwargs
+    )
+
+
+def make_clique_bipartite(
+    G, fpos=None, create_using=None, name=None, *, backend=None, **backend_kwargs
+):
+    return _fnx_clique.make_clique_bipartite(
+        G,
+        fpos=fpos,
+        create_using=create_using,
+        name=name,
+        backend=backend,
+        **backend_kwargs,
+    )
+
+
+def max_weight_clique(G, weight="weight", *, backend=None, **backend_kwargs):
+    return _fnx_clique.max_weight_clique(
+        G, weight=weight, backend=backend, **backend_kwargs
+    )
+
+
+def node_clique_number(
+    G, nodes=None, cliques=None, separate_nodes=False, *, backend=None, **backend_kwargs
+):
+    return _fnx_clique.node_clique_number(
+        G,
+        nodes=nodes,
+        cliques=cliques,
+        separate_nodes=separate_nodes,
+        backend=backend,
+        **backend_kwargs,
+    )
+
+
+def number_of_cliques(G, nodes=None, cliques=None):
+    return _fnx_clique.number_of_cliques(G, nodes=nodes, cliques=cliques)
+
 # br-r37-c1-nhbni: community/connectivity/isomorphism have native fnx submodules
 # (fnx.community / fnx.connectivity / fnx.isomorphism) but were missing from the
 # override set, so fnx.algorithms.<one> resolved to nx's. Map them to the fnx
@@ -412,6 +466,40 @@ import franken_networkx.summarization as _fnx_summarization
 _sys.modules[f"{__name__}.summarization"] = _fnx_summarization
 summarization = _fnx_summarization  # Override in module globals
 
+
+def dedensify(G, threshold, prefix=None, copy=True, *, backend=None, **backend_kwargs):
+    return _fnx_summarization.dedensify(
+        G,
+        threshold,
+        prefix=prefix,
+        copy=copy,
+        backend=backend,
+        **backend_kwargs,
+    )
+
+
+def snap_aggregation(
+    G,
+    node_attributes,
+    edge_attributes=(),
+    prefix="Supernode-",
+    supernode_attribute="group",
+    superedge_attribute="types",
+    *,
+    backend=None,
+    **backend_kwargs,
+):
+    return _fnx_summarization.snap_aggregation(
+        G,
+        node_attributes,
+        edge_attributes=edge_attributes,
+        prefix=prefix,
+        supernode_attribute=supernode_attribute,
+        superedge_attribute=superedge_attribute,
+        backend=backend,
+        **backend_kwargs,
+    )
+
 import franken_networkx.moral as _fnx_moral
 _sys.modules[f"{__name__}.moral"] = _fnx_moral
 moral = _fnx_moral  # Override in module globals
@@ -445,9 +533,47 @@ import franken_networkx.euler as _fnx_euler
 _sys.modules[f"{__name__}.euler"] = _fnx_euler
 euler = _fnx_euler  # Override in module globals
 
+
+def eulerian_circuit(
+    G, source=None, keys=False, *, backend=None, **backend_kwargs
+):
+    return _fnx_euler.eulerian_circuit(
+        G, source=source, keys=keys, backend=backend, **backend_kwargs
+    )
+
+
+def eulerian_path(G, source=None, keys=False, *, backend=None, **backend_kwargs):
+    return _fnx_euler.eulerian_path(
+        G, source=source, keys=keys, backend=backend, **backend_kwargs
+    )
+
+
+def eulerize(G, *, backend=None, **backend_kwargs):
+    return _fnx_euler.eulerize(G, backend=backend, **backend_kwargs)
+
+
+def has_eulerian_path(G, source=None, *, backend=None, **backend_kwargs):
+    return _fnx_euler.has_eulerian_path(
+        G, source=source, backend=backend, **backend_kwargs
+    )
+
+
+def is_eulerian(G, *, backend=None, **backend_kwargs):
+    return _fnx_euler.is_eulerian(G, backend=backend, **backend_kwargs)
+
+
+def is_semieulerian(G, *, backend=None, **backend_kwargs):
+    return _fnx_euler.is_semieulerian(G, backend=backend, **backend_kwargs)
+
 import franken_networkx.sparsifiers as _fnx_sparsifiers
 _sys.modules[f"{__name__}.sparsifiers"] = _fnx_sparsifiers
 sparsifiers = _fnx_sparsifiers  # Override in module globals
+
+
+def spanner(G, stretch, weight=None, seed=None, *, backend=None, **backend_kwargs):
+    return _fnx_sparsifiers.spanner(
+        G, stretch, weight=weight, seed=seed, backend=backend, **backend_kwargs
+    )
 
 import franken_networkx.triads as _fnx_triads
 _sys.modules[f"{__name__}.triads"] = _fnx_triads
@@ -910,13 +1036,96 @@ _fnx_d_separation = _importlib.import_module("franken_networkx.d_separation")
 _sys.modules[f"{__name__}.d_separation"] = _fnx_d_separation
 d_separation = _fnx_d_separation  # Override in module globals
 
+
+def find_minimal_d_separator(
+    G, x, y, *, included=None, restricted=None, backend=None, **backend_kwargs
+):
+    return _fnx_d_separation.find_minimal_d_separator(
+        G,
+        x,
+        y,
+        included=included,
+        restricted=restricted,
+        backend=backend,
+        **backend_kwargs,
+    )
+
+
+def is_d_separator(G, x, y, z, *, backend=None, **backend_kwargs):
+    return _fnx_d_separation.is_d_separator(
+        G, x, y, z, backend=backend, **backend_kwargs
+    )
+
+
+def is_minimal_d_separator(
+    G, x, y, z, *, included=None, restricted=None, backend=None, **backend_kwargs
+):
+    return _fnx_d_separation.is_minimal_d_separator(
+        G,
+        x,
+        y,
+        z,
+        included=included,
+        restricted=restricted,
+        backend=backend,
+        **backend_kwargs,
+    )
+
+
 _fnx_distance_regular = _importlib.import_module("franken_networkx.distance_regular")
 _sys.modules[f"{__name__}.distance_regular"] = _fnx_distance_regular
 distance_regular = _fnx_distance_regular  # Override in module globals
 
+
+def global_parameters(b, c):
+    return _fnx_distance_regular.global_parameters(b, c)
+
+
+def intersection_array(G, *, backend=None, **backend_kwargs):
+    return _fnx_distance_regular.intersection_array(
+        G, backend=backend, **backend_kwargs
+    )
+
+
+def is_distance_regular(G, *, backend=None, **backend_kwargs):
+    return _fnx_distance_regular.is_distance_regular(
+        G, backend=backend, **backend_kwargs
+    )
+
+
+def is_strongly_regular(G, *, backend=None, **backend_kwargs):
+    return _fnx_distance_regular.is_strongly_regular(
+        G, backend=backend, **backend_kwargs
+    )
+
+
 _fnx_dominating = _importlib.import_module("franken_networkx.dominating")
 _sys.modules[f"{__name__}.dominating"] = _fnx_dominating
 dominating = _fnx_dominating  # Override in module globals
+
+
+def connected_dominating_set(G, *, backend=None, **backend_kwargs):
+    return _fnx_dominating.connected_dominating_set(
+        G, backend=backend, **backend_kwargs
+    )
+
+
+def dominating_set(G, start_with=None, *, backend=None, **backend_kwargs):
+    return _fnx_dominating.dominating_set(
+        G, start_with=start_with, backend=backend, **backend_kwargs
+    )
+
+
+def is_connected_dominating_set(G, nbunch, *, backend=None, **backend_kwargs):
+    return _fnx_dominating.is_connected_dominating_set(
+        G, nbunch, backend=backend, **backend_kwargs
+    )
+
+
+def is_dominating_set(G, nbunch, *, backend=None, **backend_kwargs):
+    return _fnx_dominating.is_dominating_set(
+        G, nbunch, backend=backend, **backend_kwargs
+    )
 
 _fnx_efficiency_measures = _importlib.import_module(
     "franken_networkx.efficiency_measures"
@@ -1012,6 +1221,34 @@ def is_graphical(sequence, method="eg", *, backend=None, **backend_kwargs):
 def is_digraphical(in_sequence, out_sequence, *, backend=None, **backend_kwargs):
     return _fnx_graphical.is_digraphical(
         in_sequence, out_sequence, backend=backend, **backend_kwargs
+    )
+
+
+def is_multigraphical(sequence, *, backend=None, **backend_kwargs):
+    return _fnx_graphical.is_multigraphical(
+        sequence, backend=backend, **backend_kwargs
+    )
+
+
+def is_pseudographical(sequence, *, backend=None, **backend_kwargs):
+    return _fnx_graphical.is_pseudographical(
+        sequence, backend=backend, **backend_kwargs
+    )
+
+
+def is_valid_degree_sequence_erdos_gallai(
+    deg_sequence, *, backend=None, **backend_kwargs
+):
+    return _fnx_graphical.is_valid_degree_sequence_erdos_gallai(
+        deg_sequence, backend=backend, **backend_kwargs
+    )
+
+
+def is_valid_degree_sequence_havel_hakimi(
+    deg_sequence, *, backend=None, **backend_kwargs
+):
+    return _fnx_graphical.is_valid_degree_sequence_havel_hakimi(
+        deg_sequence, backend=backend, **backend_kwargs
     )
 
 _fnx_hierarchy = _importlib.import_module("franken_networkx.hierarchy")

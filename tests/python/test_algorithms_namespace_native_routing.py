@@ -1114,6 +1114,10 @@ def test_flattened_broadcasting_namespace_routes_to_leaf_module(monkeypatch, nam
         ("is_graphical", ([3, 3, 3],), {}),
         ("is_digraphical", ([1, 1, 1], [1, 1, 1]), {}),
         ("is_digraphical", ([2, 1], [1, 1]), {}),
+        ("is_multigraphical", ([2, 2, 2],), {}),
+        ("is_pseudographical", ([2, 2, 2],), {}),
+        ("is_valid_degree_sequence_erdos_gallai", ([2, 2, 2],), {}),
+        ("is_valid_degree_sequence_havel_hakimi", ([2, 2, 2],), {}),
     ],
 )
 def test_flattened_graphical_namespace_matches_legacy_oracle(name, args, kwargs):
@@ -1134,6 +1138,10 @@ def test_flattened_graphical_namespace_matches_legacy_oracle(name, args, kwargs)
     [
         ("is_graphical", ("sequence",)),
         ("is_digraphical", ("in-sequence", "out-sequence")),
+        ("is_multigraphical", ("sequence",)),
+        ("is_pseudographical", ("sequence",)),
+        ("is_valid_degree_sequence_erdos_gallai", ("deg-sequence",)),
+        ("is_valid_degree_sequence_havel_hakimi", ("deg-sequence",)),
     ],
 )
 def test_flattened_graphical_namespace_routes_to_leaf_module(monkeypatch, name, args):
@@ -2085,3 +2093,357 @@ def test_flattened_perfect_graph_namespace_routes_to_leaf_module(monkeypatch):
 
     monkeypatch.setattr(fnx_algorithms.perfect_graph, "is_perfect_graph", sentinel)
     assert fnx_algorithms.is_perfect_graph("graph") is marker
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "enumerate_all_cliques",
+        "find_cliques",
+        "find_cliques_recursive",
+        "make_clique_bipartite",
+        "max_weight_clique",
+        "node_clique_number",
+        "number_of_cliques",
+    ],
+)
+def test_flattened_clique_namespace_matches_legacy_oracle(name):
+    legacy = _legacy_networkx()
+    actual = getattr(fnx_algorithms, name)
+    expected = getattr(legacy.algorithms, name)
+    assert str(inspect.signature(actual)) == str(inspect.signature(expected))
+
+    graph = fnx.cycle_graph(4)
+    legacy_graph = legacy.cycle_graph(4)
+    if name == "find_cliques":
+        assert sorted(map(sorted, actual(graph))) == sorted(
+            map(sorted, expected(legacy_graph))
+        )
+    elif name in ("find_cliques_recursive", "enumerate_all_cliques"):
+        assert list(actual(graph)) == list(expected(legacy_graph))
+    elif name == "make_clique_bipartite":
+        assert sorted(actual(graph).nodes()) == sorted(expected(legacy_graph).nodes())
+    elif name == "max_weight_clique":
+        assert actual(graph, weight=None) == expected(legacy_graph, weight=None)
+    elif name in ("node_clique_number", "number_of_cliques"):
+        assert actual(graph) == expected(legacy_graph)
+
+    if name != "number_of_cliques":
+        with pytest.raises(ImportError):
+            actual(graph, backend="missing")
+    with pytest.raises(TypeError):
+        actual(graph, unexpected=True)
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "enumerate_all_cliques",
+        "find_cliques",
+        "find_cliques_recursive",
+        "make_clique_bipartite",
+        "max_weight_clique",
+        "node_clique_number",
+        "number_of_cliques",
+    ],
+)
+def test_flattened_clique_namespace_routes_to_leaf_module(monkeypatch, name):
+    marker = object()
+
+    def sentinel(*args, **kwargs):
+        return marker
+
+    monkeypatch.setattr(fnx_algorithms.clique, name, sentinel)
+    assert getattr(fnx_algorithms, name)("graph") is marker
+
+
+@pytest.mark.parametrize("name", ["dedensify", "snap_aggregation"])
+def test_flattened_summarization_namespace_matches_legacy_oracle(name):
+    legacy = _legacy_networkx()
+    actual = getattr(fnx_algorithms, name)
+    expected = getattr(legacy.algorithms, name)
+    assert str(inspect.signature(actual)) == str(inspect.signature(expected))
+
+    if name == "dedensify":
+        graph = fnx.cycle_graph(4)
+        legacy_graph = legacy.cycle_graph(4)
+        res, c = actual(graph, 2)
+        exp_res, exp_c = expected(legacy_graph, 2)
+        assert sorted(res.edges()) == sorted(exp_res.edges())
+        assert c == exp_c
+        with pytest.raises(ImportError):
+            actual(graph, 2, backend="missing")
+        with pytest.raises(TypeError):
+            actual(graph, 2, unexpected=True)
+    else:
+        graph = fnx.Graph()
+        graph.add_node(0, color="red")
+        graph.add_node(1, color="red")
+        legacy_graph = legacy.Graph()
+        legacy_graph.add_node(0, color="red")
+        legacy_graph.add_node(1, color="red")
+        assert len(actual(graph, ["color"]).nodes()) == len(
+            expected(legacy_graph, ["color"]).nodes()
+        )
+        with pytest.raises(ImportError):
+            actual(graph, ["color"], backend="missing")
+        with pytest.raises(TypeError):
+            actual(graph, ["color"], unexpected=True)
+
+
+@pytest.mark.parametrize("name", ["dedensify", "snap_aggregation"])
+def test_flattened_summarization_namespace_routes_to_leaf_module(monkeypatch, name):
+    marker = object()
+
+    def sentinel(*args, **kwargs):
+        return marker
+
+    monkeypatch.setattr(fnx_algorithms.summarization, name, sentinel)
+    if name == "dedensify":
+        assert getattr(fnx_algorithms, name)("graph", 2) is marker
+    else:
+        assert getattr(fnx_algorithms, name)("graph", ["color"]) is marker
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "eulerian_circuit",
+        "eulerian_path",
+        "eulerize",
+        "has_eulerian_path",
+        "is_eulerian",
+        "is_semieulerian",
+    ],
+)
+def test_flattened_euler_namespace_matches_legacy_oracle(name):
+    legacy = _legacy_networkx()
+    actual = getattr(fnx_algorithms, name)
+    expected = getattr(legacy.algorithms, name)
+    assert str(inspect.signature(actual)) == str(inspect.signature(expected))
+
+    cycle = fnx.cycle_graph(4)
+    legacy_cycle = legacy.cycle_graph(4)
+    if name in ("eulerian_circuit", "eulerian_path"):
+        assert list(actual(cycle)) == list(expected(legacy_cycle))
+    elif name == "eulerize":
+        path = fnx.path_graph(4)
+        legacy_path = legacy.path_graph(4)
+        assert sorted(actual(path).edges()) == sorted(expected(legacy_path).edges())
+    else:
+        assert actual(cycle) == expected(legacy_cycle)
+
+    with pytest.raises(ImportError):
+        actual(cycle, backend="missing")
+    with pytest.raises(TypeError):
+        actual(cycle, unexpected=True)
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "eulerian_circuit",
+        "eulerian_path",
+        "eulerize",
+        "has_eulerian_path",
+        "is_eulerian",
+        "is_semieulerian",
+    ],
+)
+def test_flattened_euler_namespace_routes_to_leaf_module(monkeypatch, name):
+    marker = object()
+
+    def sentinel(*args, **kwargs):
+        return marker
+
+    monkeypatch.setattr(fnx_algorithms.euler, name, sentinel)
+    assert getattr(fnx_algorithms, name)("graph") is marker
+
+
+def test_flattened_sparsifiers_namespace_matches_legacy_oracle():
+    legacy = _legacy_networkx()
+    actual = fnx_algorithms.spanner
+    expected = legacy.algorithms.spanner
+    assert str(inspect.signature(actual)) == str(inspect.signature(expected))
+
+    graph = fnx.cycle_graph(4)
+    legacy_graph = legacy.cycle_graph(4)
+    assert sorted(actual(graph, 2, seed=42).edges()) == sorted(
+        expected(legacy_graph, 2, seed=42).edges()
+    )
+
+    with pytest.raises(ImportError):
+        actual(graph, 2, backend="missing")
+    with pytest.raises(TypeError):
+        actual(graph, 2, unexpected=True)
+
+
+def test_flattened_sparsifiers_namespace_routes_to_leaf_module(monkeypatch):
+    marker = object()
+
+    def sentinel(*args, **kwargs):
+        return marker
+
+    monkeypatch.setattr(fnx_algorithms.sparsifiers, "spanner", sentinel)
+    assert fnx_algorithms.spanner("graph", 2) is marker
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "find_minimal_d_separator",
+        "is_d_separator",
+        "is_minimal_d_separator",
+    ],
+)
+def test_flattened_d_separation_namespace_matches_legacy_oracle(name):
+    legacy = _legacy_networkx()
+    actual = getattr(fnx_algorithms, name)
+    expected = getattr(legacy.algorithms, name)
+    assert str(inspect.signature(actual)) == str(inspect.signature(expected))
+
+    dg = fnx.DiGraph([(0, 1), (1, 2)])
+    legacy_dg = legacy.DiGraph([(0, 1), (1, 2)])
+    if name == "find_minimal_d_separator":
+        assert actual(dg, 0, 2) == expected(legacy_dg, 0, 2)
+        with pytest.raises(ImportError):
+            actual(dg, 0, 2, backend="missing")
+        with pytest.raises(TypeError):
+            actual(dg, 0, 2, unexpected=True)
+    elif name == "is_d_separator":
+        assert actual(dg, {0}, {2}, {1}) == expected(legacy_dg, {0}, {2}, {1})
+        with pytest.raises(ImportError):
+            actual(dg, {0}, {2}, {1}, backend="missing")
+        with pytest.raises(TypeError):
+            actual(dg, {0}, {2}, {1}, unexpected=True)
+    else:
+        assert actual(dg, 0, 2, {1}) == expected(legacy_dg, 0, 2, {1})
+        with pytest.raises(ImportError):
+            actual(dg, 0, 2, {1}, backend="missing")
+        with pytest.raises(TypeError):
+            actual(dg, 0, 2, {1}, unexpected=True)
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "find_minimal_d_separator",
+        "is_d_separator",
+        "is_minimal_d_separator",
+    ],
+)
+def test_flattened_d_separation_namespace_routes_to_leaf_module(monkeypatch, name):
+    marker = object()
+
+    def sentinel(*args, **kwargs):
+        return marker
+
+    monkeypatch.setattr(fnx_algorithms.d_separation, name, sentinel)
+    if name in ("is_d_separator", "is_minimal_d_separator"):
+        assert getattr(fnx_algorithms, name)("graph", {0}, {2}, {1}) is marker
+    else:
+        assert getattr(fnx_algorithms, name)("graph", 0, 2) is marker
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "global_parameters",
+        "intersection_array",
+        "is_distance_regular",
+        "is_strongly_regular",
+    ],
+)
+def test_flattened_distance_regular_namespace_matches_legacy_oracle(name):
+    legacy = _legacy_networkx()
+    actual = getattr(fnx_algorithms, name)
+    expected = getattr(legacy.algorithms, name)
+    assert str(inspect.signature(actual)) == str(inspect.signature(expected))
+
+    if name == "global_parameters":
+        assert list(actual([2, 1], [1, 2])) == list(expected([2, 1], [1, 2]))
+        with pytest.raises(TypeError):
+            actual([2, 1], [1, 2], unexpected=True)
+    else:
+        graph = fnx.cycle_graph(5)
+        legacy_graph = legacy.cycle_graph(5)
+        assert actual(graph) == expected(legacy_graph)
+        with pytest.raises(ImportError):
+            actual(graph, backend="missing")
+        with pytest.raises(TypeError):
+            actual(graph, unexpected=True)
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "global_parameters",
+        "intersection_array",
+        "is_distance_regular",
+        "is_strongly_regular",
+    ],
+)
+def test_flattened_distance_regular_namespace_routes_to_leaf_module(monkeypatch, name):
+    marker = object()
+
+    def sentinel(*args, **kwargs):
+        return marker
+
+    monkeypatch.setattr(fnx_algorithms.distance_regular, name, sentinel)
+    if name == "global_parameters":
+        assert getattr(fnx_algorithms, name)([2, 1], [1, 2]) is marker
+    else:
+        assert getattr(fnx_algorithms, name)("graph") is marker
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "connected_dominating_set",
+        "dominating_set",
+        "is_connected_dominating_set",
+        "is_dominating_set",
+    ],
+)
+def test_flattened_dominating_namespace_matches_legacy_oracle(name):
+    legacy = _legacy_networkx()
+    actual = getattr(fnx_algorithms, name)
+    expected = getattr(legacy.algorithms, name)
+    assert str(inspect.signature(actual)) == str(inspect.signature(expected))
+
+    graph = fnx.path_graph(4)
+    legacy_graph = legacy.path_graph(4)
+    if name in ("connected_dominating_set", "dominating_set"):
+        assert set(actual(graph)) == set(expected(legacy_graph))
+        with pytest.raises(ImportError):
+            actual(graph, backend="missing")
+        with pytest.raises(TypeError):
+            actual(graph, unexpected=True)
+    else:
+        assert actual(graph, [1, 2]) == expected(legacy_graph, [1, 2])
+        with pytest.raises(ImportError):
+            actual(graph, [1, 2], backend="missing")
+        with pytest.raises(TypeError):
+            actual(graph, [1, 2], unexpected=True)
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "connected_dominating_set",
+        "dominating_set",
+        "is_connected_dominating_set",
+        "is_dominating_set",
+    ],
+)
+def test_flattened_dominating_namespace_routes_to_leaf_module(monkeypatch, name):
+    marker = object()
+
+    def sentinel(*args, **kwargs):
+        return marker
+
+    monkeypatch.setattr(fnx_algorithms.dominating, name, sentinel)
+    if name in ("connected_dominating_set", "dominating_set"):
+        assert getattr(fnx_algorithms, name)("graph") is marker
+    else:
+        assert getattr(fnx_algorithms, name)("graph", [0]) is marker
