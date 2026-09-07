@@ -524,6 +524,17 @@ _fnx_asteroidal = _importlib.import_module("franken_networkx.asteroidal")
 _sys.modules[f"{__name__}.asteroidal"] = _fnx_asteroidal
 asteroidal = _fnx_asteroidal  # Override in module globals
 
+
+def is_at_free(G, *, backend=None, **backend_kwargs):
+    return _fnx_asteroidal.is_at_free(G, backend=backend, **backend_kwargs)
+
+
+def find_asteroidal_triple(G, *, backend=None, **backend_kwargs):
+    return _fnx_asteroidal.find_asteroidal_triple(
+        G, backend=backend, **backend_kwargs
+    )
+
+
 _fnx_boundary = _importlib.import_module("franken_networkx.boundary")
 _sys.modules[f"{__name__}.boundary"] = _fnx_boundary
 boundary = _fnx_boundary  # Override in module globals
@@ -584,6 +595,19 @@ _fnx_communicability_alg = _importlib.import_module(
 )
 _sys.modules[f"{__name__}.communicability_alg"] = _fnx_communicability_alg
 communicability_alg = _fnx_communicability_alg  # Override in module globals
+
+
+def communicability(G, *, backend=None, **backend_kwargs):
+    return _fnx_communicability_alg.communicability(
+        G, backend=backend, **backend_kwargs
+    )
+
+
+def communicability_exp(G, *, backend=None, **backend_kwargs):
+    return _fnx_communicability_alg.communicability_exp(
+        G, backend=backend, **backend_kwargs
+    )
+
 
 _fnx_covering = _importlib.import_module("franken_networkx.covering")
 _sys.modules[f"{__name__}.covering"] = _fnx_covering
@@ -842,6 +866,19 @@ _fnx_polynomials = _importlib.import_module("franken_networkx.polynomials")
 _sys.modules[f"{__name__}.polynomials"] = _fnx_polynomials
 polynomials = _fnx_polynomials  # Override in module globals
 
+
+def chromatic_polynomial(G, *, backend=None, **backend_kwargs):
+    return _fnx_polynomials.chromatic_polynomial(
+        G, backend=backend, **backend_kwargs
+    )
+
+
+def tutte_polynomial(G, *, backend=None, **backend_kwargs):
+    return _fnx_polynomials.tutte_polynomial(
+        G, backend=backend, **backend_kwargs
+    )
+
+
 _fnx_reciprocity = _importlib.import_module("franken_networkx.reciprocity")
 _sys.modules[f"{__name__}.reciprocity"] = _fnx_reciprocity
 reciprocity = _fnx_reciprocity.reciprocity  # Match nx: function attr
@@ -849,6 +886,20 @@ reciprocity = _fnx_reciprocity.reciprocity  # Match nx: function attr
 _fnx_richclub = _importlib.import_module("franken_networkx.richclub")
 _sys.modules[f"{__name__}.richclub"] = _fnx_richclub
 richclub = _fnx_richclub  # Override in module globals
+
+
+def rich_club_coefficient(
+    G, normalized=True, Q=100, seed=None, *, backend=None, **backend_kwargs
+):
+    return _fnx_richclub.rich_club_coefficient(
+        G,
+        normalized=normalized,
+        Q=Q,
+        seed=seed,
+        backend=backend,
+        **backend_kwargs,
+    )
+
 
 _fnx_similarity = _importlib.import_module("franken_networkx.similarity")
 _sys.modules[f"{__name__}.similarity"] = _fnx_similarity
@@ -862,25 +913,92 @@ _fnx_smetric = _importlib.import_module("franken_networkx.smetric")
 _sys.modules[f"{__name__}.smetric"] = _fnx_smetric
 smetric = _fnx_smetric  # Override in module globals
 
+
+def s_metric(G, *, backend=None, **backend_kwargs):
+    return _fnx_smetric.s_metric(G, backend=backend, **backend_kwargs)
+
+
 _fnx_structuralholes = _importlib.import_module("franken_networkx.structuralholes")
 _sys.modules[f"{__name__}.structuralholes"] = _fnx_structuralholes
 structuralholes = _fnx_structuralholes  # Override in module globals
+
+
+def constraint(G, nodes=None, weight=None, *, backend=None, **backend_kwargs):
+    return _fnx_structuralholes.constraint(
+        G, nodes=nodes, weight=weight, backend=backend, **backend_kwargs
+    )
+
+
+def local_constraint(G, u, v, weight=None, *, backend=None, **backend_kwargs):
+    return _fnx_structuralholes.local_constraint(
+        G, u, v, weight=weight, backend=backend, **backend_kwargs
+    )
+
+
+def effective_size(G, nodes=None, weight=None, *, backend=None, **backend_kwargs):
+    return _fnx_structuralholes.effective_size(
+        G, nodes=nodes, weight=weight, backend=backend, **backend_kwargs
+    )
+
 
 _fnx_voronoi = _importlib.import_module("franken_networkx.voronoi")
 _sys.modules[f"{__name__}.voronoi"] = _fnx_voronoi
 voronoi = _fnx_voronoi  # Override in module globals
 
+
+def voronoi_cells(
+    G, center_nodes, weight="weight", *, backend=None, **backend_kwargs
+):
+    return _fnx_voronoi.voronoi_cells(
+        G, center_nodes, weight=weight, backend=backend, **backend_kwargs
+    )
+
+
 _fnx_vitality = _importlib.import_module("franken_networkx.vitality")
 _sys.modules[f"{__name__}.vitality"] = _fnx_vitality
 vitality = _fnx_vitality  # Override in module globals
+
+
+def closeness_vitality(
+    G,
+    node=None,
+    weight=None,
+    wiener_index=None,
+    *,
+    backend=None,
+    **backend_kwargs,
+):
+    return _fnx_vitality.closeness_vitality(
+        G,
+        node=node,
+        weight=weight,
+        wiener_index=wiener_index,
+        backend=backend,
+        **backend_kwargs,
+    )
+
 
 _fnx_walks = _importlib.import_module("franken_networkx.walks")
 _sys.modules[f"{__name__}.walks"] = _fnx_walks
 walks = _fnx_walks  # Override in module globals
 
+
+def number_of_walks(G, walk_length, *, backend=None, **backend_kwargs):
+    return _fnx_walks.number_of_walks(
+        G, walk_length, backend=backend, **backend_kwargs
+    )
+
+
 _fnx_chains = _importlib.import_module("franken_networkx.chains")
 _sys.modules[f"{__name__}.chains"] = _fnx_chains
 chains = _fnx_chains  # Override in module globals
+
+
+def chain_decomposition(G, root=None, *, backend=None, **backend_kwargs):
+    return _fnx_chains.chain_decomposition(
+        G, root=root, backend=backend, **backend_kwargs
+    )
+
 
 _fnx_wiener = _importlib.import_module("franken_networkx.wiener")
 _sys.modules[f"{__name__}.wiener"] = _fnx_wiener
