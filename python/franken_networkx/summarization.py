@@ -66,18 +66,14 @@ def snap_aggregation(
     backend=None,
     **backend_kwargs,
 ):
-    """Creates a summary graph based on attributes and connectivity.
-
-    Wraps ``networkx.algorithms.summarization.snap_aggregation`` and converts
-    the result to an fnx graph type for drop-in compatibility.
-    """
-    _fnx._validate_backend_dispatch_keywords("snap_aggregation", backend, backend_kwargs)
-    nx_result = _nx_summarization.snap_aggregation(
+    """Creates a summary graph based on attributes and connectivity."""
+    return _fnx.snap_aggregation(
         G,
         node_attributes,
         edge_attributes=edge_attributes,
         prefix=prefix,
         supernode_attribute=supernode_attribute,
         superedge_attribute=superedge_attribute,
+        backend=backend,
+        **backend_kwargs,
     )
-    return _from_nx_graph(nx_result)

@@ -64610,6 +64610,7 @@ from franken_networkx import flow as flow  # noqa: F401
 from franken_networkx import hybrid as hybrid  # noqa: F401
 from franken_networkx import minors as minors  # noqa: F401
 from franken_networkx import moral as moral  # noqa: F401
+from franken_networkx.algorithms import node_classification as node_classification  # noqa: F401
 from franken_networkx import operators as operators  # noqa: F401
 from franken_networkx import planarity as planarity  # noqa: F401
 from franken_networkx import regular as regular  # noqa: F401
@@ -70858,6 +70859,7 @@ __all__ += [
     "hybrid",
     "minors",
     "moral",
+    "node_classification",
     "operators",
     "planarity",
     "readwrite",

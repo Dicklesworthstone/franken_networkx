@@ -161,3 +161,20 @@ def test_minimum_branching_parity_with_nx():
     sum_n = sum(d.get("weight", 0) for _, _, d in rn.edges(data=True))
     sum_f = sum(d.get("weight", 0) for _, _, d in rf.edges(data=True))
     assert sum_n == sum_f
+
+
+@needs_nx
+def test_tree_submodule_junction_tree_no_conversion(monkeypatch):
+    import franken_networkx.tree as tree_mod
+
+    def _conversion_forbidden(*args, **kwargs):
+        raise AssertionError("junction_tree should route natively without _from_nx_graph")
+
+    monkeypatch.setattr(tree_mod, "_from_nx_graph", _conversion_forbidden)
+
+    fg = fnx.cycle_graph(4)
+    ng = nx.cycle_graph(4)
+    res_f = tree_mod.junction_tree(fg)
+    res_n = nx.junction_tree(ng)
+    assert sorted(str(n) for n in res_f.nodes()) == sorted(str(n) for n in res_n.nodes())
+

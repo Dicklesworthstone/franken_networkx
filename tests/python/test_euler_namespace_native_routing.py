@@ -22,7 +22,7 @@ from franken_networkx import euler as fnx_euler
 
 _NAMES = [
     "is_eulerian", "eulerian_circuit", "is_semieulerian", "has_eulerian_path",
-    "eulerian_path",
+    "eulerian_path", "eulerize",
 ]
 
 

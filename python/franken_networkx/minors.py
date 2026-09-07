@@ -71,13 +71,8 @@ def quotient_graph(
     backend=None,
     **backend_kwargs,
 ):
-    """Return the quotient graph of G under the specified equivalence relation.
-
-    Wraps ``networkx.algorithms.minors.quotient_graph`` and converts
-    the result to an fnx graph type for drop-in compatibility.
-    """
-    _fnx._validate_backend_dispatch_keywords("quotient_graph", backend, backend_kwargs)
-    nx_result = _nx_minors.quotient_graph(
+    """Return the quotient graph of G under the specified equivalence relation."""
+    return _fnx.quotient_graph(
         G,
         partition,
         edge_relation=edge_relation,
@@ -86,8 +81,9 @@ def quotient_graph(
         weight=weight,
         relabel=relabel,
         create_using=create_using,
+        backend=backend,
+        **backend_kwargs,
     )
-    return _from_nx_graph(nx_result, create_using=create_using)
 
 
 def contracted_nodes(G, u, v, self_loops=True, copy=True, *, store_contraction_as="contraction", backend=None, **backend_kwargs):

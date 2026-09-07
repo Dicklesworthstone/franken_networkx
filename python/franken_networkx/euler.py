@@ -15,7 +15,6 @@ from networkx.algorithms.euler import *  # noqa: F401,F403
 import networkx.algorithms.euler as _nx_euler
 
 import franken_networkx as _fnx
-from franken_networkx.readwrite import _from_nx_graph
 
 __all__ = list(
     getattr(
@@ -64,11 +63,5 @@ def eulerian_path(G, source=None, keys=False, *, backend=None, **backend_kwargs)
 
 
 def eulerize(G, *, backend=None, **backend_kwargs):
-    """Transform a graph into an Eulerian graph.
-
-    Wraps ``networkx.algorithms.euler.eulerize`` and converts
-    the result to an fnx graph type for drop-in compatibility.
-    """
-    _fnx._validate_backend_dispatch_keywords("eulerize", backend, backend_kwargs)
-    nx_result = _nx_euler.eulerize(G)
-    return _from_nx_graph(nx_result)
+    """Transform a graph into an Eulerian graph."""
+    return _fnx.eulerize(G, backend=backend, **backend_kwargs)

@@ -136,3 +136,11 @@ def test_node_classification_public_contract_matches_legacy_oracle(fn):
         actual(graph, backend="missing")
     with pytest.raises(TypeError):
         actual(graph, unexpected=True)
+
+
+def test_fnx_top_level_node_classification_namespace():
+    assert hasattr(fnx, "node_classification")
+    assert fnx.node_classification is fnx_nc
+    assert fnx.node_classification.harmonic_function is fnx_nc.harmonic_function
+    assert fnx.node_classification.local_and_global_consistency is fnx_nc.local_and_global_consistency
+

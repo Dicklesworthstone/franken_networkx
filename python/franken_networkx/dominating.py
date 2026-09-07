@@ -29,34 +29,22 @@ __all__ = list(
 
 def dominating_set(G, start_with=None, *, backend=None, **backend_kwargs):
     """Return a dominating set with the upstream module signature."""
-    _fnx._validate_backend_dispatch_keywords(
-        "dominating_set", backend, backend_kwargs
-    )
-    return _fnx.dominating_set(G, start_with=start_with)
+    return _fnx.dominating_set(G, start_with=start_with, backend=backend, **backend_kwargs)
 
 
 def is_dominating_set(G, nbunch, *, backend=None, **backend_kwargs):
     """Return whether ``nbunch`` is a dominating set."""
-    _fnx._validate_backend_dispatch_keywords(
-        "is_dominating_set", backend, backend_kwargs
-    )
-    return _fnx.is_dominating_set(G, nbunch)
+    return _fnx.is_dominating_set(G, nbunch, backend=backend, **backend_kwargs)
 
 
 def connected_dominating_set(G, *, backend=None, **backend_kwargs):
     """Return a connected dominating set with the upstream module signature."""
-    _fnx._validate_backend_dispatch_keywords(
-        "connected_dominating_set", backend, backend_kwargs
-    )
-    return _fnx._call_networkx_for_parity("connected_dominating_set", G)
+    return _fnx.connected_dominating_set(G, backend=backend, **backend_kwargs)
 
 
 def is_connected_dominating_set(G, nbunch, *, backend=None, **backend_kwargs):
     """Return whether ``nbunch`` is a connected dominating set."""
-    _fnx._validate_backend_dispatch_keywords(
-        "is_connected_dominating_set", backend, backend_kwargs
-    )
-    return _fnx._call_networkx_for_parity("is_connected_dominating_set", G, nbunch)
+    return _fnx.is_connected_dominating_set(G, nbunch, backend=backend, **backend_kwargs)
 
 
 def __getattr__(name):

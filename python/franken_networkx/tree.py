@@ -346,14 +346,8 @@ def from_nested_tuple(sequence, sensible_relabeling=False, *, backend=None, **ba
 
 
 def junction_tree(G, *, backend=None, **backend_kwargs):
-    """Return a junction tree of a given graph.
-
-    Wraps ``networkx.algorithms.tree.junction_tree`` and converts
-    the result to an fnx graph type for drop-in compatibility.
-    """
-    _fnx._validate_backend_dispatch_keywords("junction_tree", backend, backend_kwargs)
-    nx_result = _nx_tree.junction_tree(G)
-    return _from_nx_graph(nx_result)
+    """Return a junction tree of a given graph."""
+    return _fnx.junction_tree(G, backend=backend, **backend_kwargs)
 
 
 def minimum_spanning_tree(G, weight="weight", algorithm="kruskal", ignore_nan=False, *, backend=None, **backend_kwargs):
