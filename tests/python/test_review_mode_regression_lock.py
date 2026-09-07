@@ -12033,3 +12033,74 @@ def test_conversion_view_materialization_cache_hits():
     assert third is not first, "to_directed view cache stale after add_edge"
     # New edge must appear in both directions in the materialized DiGraph.
     assert third.has_edge(2, 3) and third.has_edge(3, 2)
+
+
+def test_backend_dispatch_parity_and_submodule_resync():
+    """Verify backend dispatch keyword parity and submodule export synchronization."""
+    import inspect
+
+    G = fnx.path_graph(4)
+    T1 = fnx.path_graph(3)
+    T2 = fnx.path_graph(3)
+
+    cases = [
+        ("communicability", (G,), {}),
+        ("communicability_exp", (G,), {}),
+        ("chain_decomposition", (fnx.cycle_graph(4),), {}),
+        ("is_at_free", (G,), {}),
+        ("find_asteroidal_triple", (G,), {}),
+        ("tree_isomorphism", (T1, T2), {}),
+        ("rooted_tree_isomorphism", (T1, 0, T2, 0), {}),
+        ("node_boundary", (G, [0]), {}),
+        ("edge_boundary", (G, [0]), {}),
+    ]
+
+    for name, args, kwargs in cases:
+        top_fn = getattr(fnx, name)
+        top_sig = inspect.signature(top_fn)
+        assert "backend" in top_sig.parameters, f"fnx.{name} missing backend parameter"
+        assert any(
+            p.kind == inspect.Parameter.VAR_KEYWORD
+            for p in top_sig.parameters.values()
+        ), f"fnx.{name} missing **backend_kwargs"
+
+        # Valid backend call
+        res = top_fn(*args, **kwargs, backend="networkx")
+        if inspect.isgenerator(res):
+            list(res)
+
+        # Unknown backend raises ImportError
+        with pytest.raises(ImportError):
+            bad_res = top_fn(*args, **kwargs, backend="unknown_backend_foo")
+            if inspect.isgenerator(bad_res):
+                list(bad_res)
+
+        # Unexpected kwargs raise TypeError
+        with pytest.raises(TypeError):
+            err_res = top_fn(*args, **kwargs, invalid_kwarg_12345=True)
+            if inspect.isgenerator(err_res):
+                list(err_res)
+
+    # Check submodule export sync
+    submod_cases = [
+        (fnx.algorithms.communicability_alg.communicability, (G,)),
+        (fnx.algorithms.communicability_alg.communicability_exp, (G,)),
+        (fnx.algorithms.chains.chain_decomposition, (fnx.cycle_graph(4),)),
+        (fnx.algorithms.asteroidal.is_at_free, (G,)),
+        (fnx.algorithms.asteroidal.find_asteroidal_triple, (G,)),
+        (fnx.algorithms.boundary.node_boundary, (G, [0])),
+        (fnx.algorithms.boundary.edge_boundary, (G, [0])),
+        (fnx.algorithms.isomorphism.tree_isomorphism, (T1, T2)),
+        (fnx.algorithms.isomorphism.rooted_tree_isomorphism, (T1, 0, T2, 0)),
+    ]
+
+    for sub_fn, args in submod_cases:
+        sub_sig = inspect.signature(sub_fn)
+        assert "backend" in sub_sig.parameters, f"{sub_fn.__name__} missing backend parameter in submodule"
+        res = sub_fn(*args, backend="networkx")
+        if inspect.isgenerator(res):
+            list(res)
+        with pytest.raises(ImportError):
+            bad_res = sub_fn(*args, backend="unknown_backend_bar")
+            if inspect.isgenerator(bad_res):
+                list(bad_res)

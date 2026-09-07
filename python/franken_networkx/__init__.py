@@ -23328,7 +23328,7 @@ def normalized_cut_size(G, S, T=None, weight=None):
     return _raw_normalized_cut_size(G, S_nb, T_nb, weight=weight)
 
 
-def node_boundary(G, nbunch1, nbunch2=None):
+def node_boundary(G, nbunch1, nbunch2=None, *, backend=None, **backend_kwargs):
     """br-boundkw: ``G`` matches nx; Rust binding used ``g``.
 
     br-ndbndset: nx.node_boundary returns a set; the Rust binding
@@ -23336,13 +23336,16 @@ def node_boundary(G, nbunch1, nbunch2=None):
     ``nb.issubset(...)``, ``nb & other``) silently broke. Coerce to
     set.
     """
+    _validate_backend_dispatch_keywords("node_boundary", backend, backend_kwargs)
     # br-r37-c1-e861i: materialize SubgraphView first (view family).
     G = _coerce_arg_to_fnx_graph(G)
     result = _raw_node_boundary(G, _coerce_nbunch(nbunch1), _coerce_nbunch(nbunch2))
     return set(result) if not isinstance(result, set) else result
 
 
-def edge_boundary(G, nbunch1, nbunch2=None, data=False, keys=False, default=None):
+def edge_boundary(
+    G, nbunch1, nbunch2=None, data=False, keys=False, default=None, *, backend=None, **backend_kwargs
+):
     """Yield edges with at least one endpoint in ``nbunch1``.
 
     br-edgebounddata: nx.edge_boundary supports ``data``, ``keys``, and
@@ -23354,6 +23357,7 @@ def edge_boundary(G, nbunch1, nbunch2=None, data=False, keys=False, default=None
     _Generator function so the returned object is a true generator
     matching nx's contract (br-r37-c1-ohxpp).
     """
+    _validate_backend_dispatch_keywords("edge_boundary", backend, backend_kwargs)
     # br-r37-c1-e861i: materialize SubgraphView first (view family).
     G = _coerce_arg_to_fnx_graph(G)
     nset1 = {n for n in nbunch1 if n in G}
@@ -33986,7 +33990,7 @@ def _bellman_ford_pred_dist_inprocess(G, source, weight):
 # ---------------------------------------------------------------------------
 
 
-def communicability(G):
+def communicability(G, *, backend=None, **backend_kwargs):
     """Return communicability between all pairs of nodes.
 
     Based on the matrix exponential of the adjacency matrix.
@@ -33996,6 +34000,11 @@ def communicability(G):
     dict of dicts
         ``result[u][v]`` is the communicability between u and v.
     """
+    _validate_backend_dispatch_keywords(
+        "communicability",
+        backend,
+        backend_kwargs,
+    )
     import numpy as np
 
     # br-r37-c1-tqimg: nx is @not_implemented_for('multigraph').
@@ -36214,7 +36223,7 @@ def all_simple_edge_paths(
         yield edges
 
 
-def chain_decomposition(G, root=None):
+def chain_decomposition(G, root=None, *, backend=None, **backend_kwargs):
     """Return the chain decomposition of *G*.
 
     A chain decomposition breaks a 2-edge-connected graph into chains
@@ -36234,6 +36243,11 @@ def chain_decomposition(G, root=None):
     Graphs. Unsupported graph-like objects and root-error cases still route
     through the parity helper so NetworkX owns their observable exceptions.
     """
+    _validate_backend_dispatch_keywords(
+        "chain_decomposition",
+        backend,
+        backend_kwargs,
+    )
     # br-r37-c1-scceager: nx is @not_implemented_for('directed','multigraph')
     # and raises EAGERLY on the call. multigraph is checked first so a
     # MultiDiGraph reports 'multigraph', matching nx.
@@ -42208,7 +42222,7 @@ def is_strongly_regular(G):
     return is_distance_regular(G) and diameter(G) == 2
 
 
-def is_at_free(G):
+def is_at_free(G, *, backend=None, **backend_kwargs):
     """Check if *G* is asteroidal-triple-free (AT-free).
 
     An asteroidal triple is three nodes where between each pair there
@@ -42217,6 +42231,11 @@ def is_at_free(G):
     br-r37-c1-tqimg: nx is @not_implemented_for('directed',
     'multigraph').
     """
+    _validate_backend_dispatch_keywords(
+        "is_at_free",
+        backend,
+        backend_kwargs,
+    )
     if G.is_multigraph():
         raise NetworkXNotImplemented("not implemented for multigraph type")
     if G.is_directed():
@@ -59274,12 +59293,17 @@ def vf2pp_all_isomorphisms(G1, G2, node_label=None, default_label=None):
     )
 
 
-def tree_isomorphism(t1, t2):
+def tree_isomorphism(t1, t2, *, backend=None, **backend_kwargs):
     """Return an isomorphism mapping between two trees t1 and t2.
 
     br-r37-c1-l6zub: parity with nx.isomorphism.tree_isomorphism.
     Delegates to NetworkX (O(n log n) algorithm from Aho-Hopcroft-Ullman).
     """
+    _validate_backend_dispatch_keywords(
+        "tree_isomorphism",
+        backend,
+        backend_kwargs,
+    )
     import networkx as nx
     # br-r37-c1-treeisocheck (cc): nx's tree_isomorphism itself runs is_tree +
     # faster_could_be_isomorphic (degree-sequence reject) BEFORE the AHU, but the
@@ -59303,12 +59327,17 @@ def tree_isomorphism(t1, t2):
     )
 
 
-def rooted_tree_isomorphism(t1, root1, t2, root2):
+def rooted_tree_isomorphism(t1, root1, t2, root2, *, backend=None, **backend_kwargs):
     """Return an isomorphism mapping between rooted trees.
 
     br-r37-c1-07kwm: parity with nx.isomorphism.rooted_tree_isomorphism.
     Delegates to NetworkX (O(n log n) algorithm from Aho-Hopcroft-Ullman).
     """
+    _validate_backend_dispatch_keywords(
+        "rooted_tree_isomorphism",
+        backend,
+        backend_kwargs,
+    )
     import networkx as nx
     # br-r37-c1-treeisocheck (cc): cheap in-process pre-reject before the 2x
     # fnx->nx conversion + AHU (sibling of tree_isomorphism). A rooted iso is an
@@ -61322,8 +61351,13 @@ def apply_matplotlib_colors(
             G[u][v][dest_attr] = do_map(G[u][v][src_attr])
 
 
-def communicability_exp(G):
+def communicability_exp(G, *, backend=None, **backend_kwargs):
     """Communicability via scipy.linalg.expm."""
+    _validate_backend_dispatch_keywords(
+        "communicability_exp",
+        backend,
+        backend_kwargs,
+    )
     if G.is_multigraph():
         raise NetworkXNotImplemented("not implemented for multigraph type")
     if G.is_directed():
@@ -63255,7 +63289,7 @@ def graph_atlas_g():
     return [_graph_atlas_from_record(record) for record in _graph_atlas_records()]
 
 
-def find_asteroidal_triple(G):
+def find_asteroidal_triple(G, *, backend=None, **backend_kwargs):
     """Find an asteroidal triple (if exists).
 
     br-astertype: nx returns a list [u, v, w]; fnx's Rust binding
@@ -63265,6 +63299,11 @@ def find_asteroidal_triple(G):
     br-r37-c1-tqimg: nx is @not_implemented_for('directed',
     'multigraph').
     """
+    _validate_backend_dispatch_keywords(
+        "find_asteroidal_triple",
+        backend,
+        backend_kwargs,
+    )
     from franken_networkx import _fnx
 
     if G.is_multigraph():
@@ -70298,7 +70337,38 @@ def _resync_isomorphism_module_exports():
             setattr(iso_mod, export_name, globals()[export_name])
 
 
-_resync_isomorphism_module_exports()
+def _resync_submodule_exports():
+    """Re-sync submodules whose exports may have captured unwrapped functions
+    before _bulk_add_backend_dispatch_kwargs ran, or whose references went stale."""
+    _resync_isomorphism_module_exports()
+
+    for mod_name in (
+        "assortativity",
+        "centrality",
+        "distance_measures",
+        "link_analysis",
+    ):
+        for prefix in (f"{__name__}.{mod_name}", f"{__name__}.algorithms.{mod_name}"):
+            mod = _sys.modules.get(prefix)
+            if mod is not None and hasattr(mod, "_route_to_fnx_toplevel"):
+                mod._route_to_fnx_toplevel()
+
+    for mod_name, func_names in (
+        ("boundary", ("edge_boundary", "node_boundary")),
+        ("chains", ("chain_decomposition",)),
+        ("communicability_alg", ("communicability", "communicability_exp")),
+        ("asteroidal", ("is_at_free", "find_asteroidal_triple")),
+    ):
+        for prefix in (f"{__name__}.{mod_name}", f"{__name__}.algorithms.{mod_name}"):
+            mod = _sys.modules.get(prefix)
+            if mod is not None:
+                for fn in func_names:
+                    if fn in globals():
+                        setattr(mod, fn, globals()[fn])
+
+    alg_mod = _sys.modules.get(f"{__name__}.algorithms")
+    if alg_mod is not None and hasattr(alg_mod, "_install_fnx_native_algorithm_aliases"):
+        alg_mod._install_fnx_native_algorithm_aliases()
 
 
 def _bulk_coerce_negative_depth_to_zero():
@@ -70402,6 +70472,7 @@ def _bulk_coerce_negative_depth_to_zero():
 
 
 _bulk_coerce_negative_depth_to_zero()
+_resync_submodule_exports()
 
 
 def __getattr__(name):
