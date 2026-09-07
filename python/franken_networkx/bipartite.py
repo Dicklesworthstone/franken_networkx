@@ -253,25 +253,6 @@ def density(B, nodes, *, backend=None, **backend_kwargs):
     return m / (2 * nb * nt) if B.is_directed() else m / (nb * nt)
 
 
-def degree_centrality(G, nodes, *, backend=None, **backend_kwargs):
-    """Bipartite degree centrality, keyed by node.
-
-    br-r37-c1-bipdense: same ``@nx._dispatchable`` overhead as :func:`density`
-    (~100x slower on an fnx graph for an O(V) computation). Reproduces
-    networkx's exact algorithm directly on ``G`` -- byte-identical (values and
-    dict key order) and ~17x faster than the dispatched path.
-    """
-    _fnx._validate_backend_dispatch_keywords(
-        "degree_centrality", backend, backend_kwargs
-    )
-    top = set(nodes)
-    bottom = set(G) - top
-    s = 1.0 / len(bottom)
-    centrality = {n: d * s for n, d in G.degree(top)}
-    s = 1.0 / len(top)
-    centrality.update({n: d * s for n, d in G.degree(bottom)})
-    return centrality
-
 
 def degrees(B, nodes, weight=None, *, backend=None, **backend_kwargs):
     """Return ``(degX, degY)`` for the two bipartite node sets of ``B``.
