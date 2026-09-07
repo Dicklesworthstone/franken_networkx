@@ -15,7 +15,6 @@ from networkx.algorithms.moral import *  # noqa: F401,F403
 import networkx.algorithms.moral as _nx_moral
 
 import franken_networkx as _fnx
-from franken_networkx.readwrite import _from_nx_graph
 
 __all__ = list(getattr(_nx_moral, "__all__", ("moral_graph",)))
 
@@ -23,9 +22,8 @@ __all__ = list(getattr(_nx_moral, "__all__", ("moral_graph",)))
 def moral_graph(G, *, backend=None, **backend_kwargs):
     """Return the moral graph of a directed acyclic graph.
 
-    Wraps ``networkx.algorithms.moral.moral_graph`` and converts
-    the result to an fnx graph type for drop-in compatibility.
+    Routes directly to the fnx-native ``moral_graph`` implementation,
+    avoiding redundant NetworkX conversion overhead while preserving
+    return type and dispatch semantics.
     """
-    _fnx._validate_backend_dispatch_keywords("moral_graph", backend, backend_kwargs)
-    nx_result = _nx_moral.moral_graph(G)
-    return _from_nx_graph(nx_result)
+    return _fnx.moral_graph(G, backend=backend, **backend_kwargs)

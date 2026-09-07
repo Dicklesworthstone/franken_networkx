@@ -16,22 +16,6 @@ from networkx.algorithms.traversal import *  # noqa: F401,F403
 import networkx.algorithms.traversal as _nx_traversal
 
 import franken_networkx as _fnx
-from franken_networkx.readwrite import _from_nx_graph
-
-
-# br-r37-c1-tcnoconv: ``nx.bfs_tree(fnx_G)`` / ``nx.dfs_tree(fnx_G)`` already
-# resolve to an fnx-native DiGraph (fnx is a registered backend for these), so the
-# subsequent ``_from_nx_graph`` was a pure redundant O(V+E) re-conversion of an
-# already-fnx, already-nx-byte-exact tree (verified 2000/2000 each, order-sensitive:
-# node order + BFS/DFS edge-discovery order + attrs, across directed/undirected,
-# reverse and depth_limit variants). Skip it when the result is already an fnx graph;
-# a genuine nx-typed input still yields an nx result -> convert.
-def _fnx_result_or_convert(nx_result):
-    if isinstance(
-        nx_result, (_fnx.Graph, _fnx.DiGraph, _fnx.MultiGraph, _fnx.MultiDiGraph)
-    ):
-        return nx_result
-    return _from_nx_graph(nx_result)
 
 
 __all__ = list(
@@ -110,26 +94,14 @@ def generic_bfs_edges(G, source, neighbors=None, depth_limit=None, *, backend=No
 
 
 def bfs_tree(G, source, reverse=False, depth_limit=None, sort_neighbors=None, *, backend=None, **backend_kwargs):
-    """Return an oriented tree constructed from a breadth-first search.
-
-    Wraps ``networkx.algorithms.traversal.bfs_tree`` and converts
-    the result to an fnx graph type for drop-in compatibility.
-    """
-    _fnx._validate_backend_dispatch_keywords("bfs_tree", backend, backend_kwargs)
-    nx_result = _nx_traversal.bfs_tree(
-        G, source, reverse=reverse, depth_limit=depth_limit, sort_neighbors=sort_neighbors
+    """Return an oriented tree constructed from a breadth-first search."""
+    return _fnx.bfs_tree(
+        G, source, reverse=reverse, depth_limit=depth_limit, sort_neighbors=sort_neighbors, backend=backend, **backend_kwargs
     )
-    return _fnx_result_or_convert(nx_result)
 
 
 def dfs_tree(G, source=None, depth_limit=None, *, sort_neighbors=None, backend=None, **backend_kwargs):
-    """Return an oriented tree constructed from a depth-first search.
-
-    Wraps ``networkx.algorithms.traversal.dfs_tree`` and converts
-    the result to an fnx graph type for drop-in compatibility.
-    """
-    _fnx._validate_backend_dispatch_keywords("dfs_tree", backend, backend_kwargs)
-    nx_result = _nx_traversal.dfs_tree(
-        G, source=source, depth_limit=depth_limit, sort_neighbors=sort_neighbors
+    """Return an oriented tree constructed from a depth-first search."""
+    return _fnx.dfs_tree(
+        G, source=source, depth_limit=depth_limit, sort_neighbors=sort_neighbors, backend=backend, **backend_kwargs
     )
-    return _fnx_result_or_convert(nx_result)
