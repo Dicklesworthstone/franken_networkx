@@ -416,6 +416,10 @@ import franken_networkx.moral as _fnx_moral
 _sys.modules[f"{__name__}.moral"] = _fnx_moral
 moral = _fnx_moral  # Override in module globals
 
+
+def moral_graph(G, *, backend=None, **backend_kwargs):
+    return _fnx_moral.moral_graph(G, backend=backend, **backend_kwargs)
+
 import franken_networkx.tree as _fnx_tree
 _sys.modules[f"{__name__}.tree"] = _fnx_tree
 tree = _fnx_tree  # Override in module globals
@@ -449,6 +453,14 @@ import franken_networkx.triads as _fnx_triads
 _sys.modules[f"{__name__}.triads"] = _fnx_triads
 triads = _fnx_triads  # Override in module globals
 
+
+def all_triads(G, *, backend=None, **backend_kwargs):
+    return _fnx_triads.all_triads(G, backend=backend, **backend_kwargs)
+
+
+def is_triad(G, *, backend=None, **backend_kwargs):
+    return _fnx_triads.is_triad(G, backend=backend, **backend_kwargs)
+
 import franken_networkx.threshold as _fnx_threshold
 _sys.modules[f"{__name__}.threshold"] = _fnx_threshold
 threshold = _fnx_threshold  # Override in module globals
@@ -461,6 +473,24 @@ import franken_networkx.chordal as _fnx_chordal
 _sys.modules[f"{__name__}.chordal"] = _fnx_chordal
 chordal = _fnx_chordal  # Override in module globals
 
+
+def complete_to_chordal_graph(G, *, backend=None, **backend_kwargs):
+    return _fnx_chordal.complete_to_chordal_graph(
+        G, backend=backend, **backend_kwargs
+    )
+
+
+def find_induced_nodes(
+    G, s, t, treewidth_bound=9223372036854775807, *, backend=None, **backend_kwargs
+):
+    return _fnx_chordal.find_induced_nodes(
+        G, s, t, treewidth_bound=treewidth_bound, backend=backend, **backend_kwargs
+    )
+
+
+def is_chordal(G, *, backend=None, **backend_kwargs):
+    return _fnx_chordal.is_chordal(G, backend=backend, **backend_kwargs)
+
 import franken_networkx.core as _fnx_core
 _sys.modules[f"{__name__}.core"] = _fnx_core
 core = _fnx_core  # Override in module globals
@@ -469,25 +499,151 @@ import franken_networkx.hybrid as _fnx_hybrid
 _sys.modules[f"{__name__}.hybrid"] = _fnx_hybrid
 hybrid = _fnx_hybrid  # Override in module globals
 
+
+def is_kl_connected(G, k, l, low_memory=False, *, backend=None, **backend_kwargs):
+    return _fnx_hybrid.is_kl_connected(
+        G, k, l, low_memory=low_memory, backend=backend, **backend_kwargs
+    )
+
+
+def kl_connected_subgraph(
+    G, k, l, low_memory=False, same_as_graph=False, *, backend=None, **backend_kwargs
+):
+    return _fnx_hybrid.kl_connected_subgraph(
+        G,
+        k,
+        l,
+        low_memory=low_memory,
+        same_as_graph=same_as_graph,
+        backend=backend,
+        **backend_kwargs,
+    )
+
 import franken_networkx.tournament as _fnx_tournament
 _sys.modules[f"{__name__}.tournament"] = _fnx_tournament
 tournament = _fnx_tournament  # Override in module globals
+
+
+def is_tournament(G, *, backend=None, **backend_kwargs):
+    return _fnx_tournament.is_tournament(G, backend=backend, **backend_kwargs)
 
 import franken_networkx.smallworld as _fnx_smallworld
 _sys.modules[f"{__name__}.smallworld"] = _fnx_smallworld
 smallworld = _fnx_smallworld  # Override in module globals
 
+
+def lattice_reference(
+    G, niter=5, D=None, connectivity=True, seed=None, *, backend=None, **backend_kwargs
+):
+    return _fnx_smallworld.lattice_reference(
+        G,
+        niter=niter,
+        D=D,
+        connectivity=connectivity,
+        seed=seed,
+        backend=backend,
+        **backend_kwargs,
+    )
+
+
+def omega(G, niter=5, nrand=10, seed=None, *, backend=None, **backend_kwargs):
+    return _fnx_smallworld.omega(
+        G, niter=niter, nrand=nrand, seed=seed, backend=backend, **backend_kwargs
+    )
+
+
+def random_reference(
+    G, niter=1, connectivity=True, seed=None, *, backend=None, **backend_kwargs
+):
+    return _fnx_smallworld.random_reference(
+        G,
+        niter=niter,
+        connectivity=connectivity,
+        seed=seed,
+        backend=backend,
+        **backend_kwargs,
+    )
+
+
+def sigma(G, niter=100, nrand=10, seed=None, *, backend=None, **backend_kwargs):
+    return _fnx_smallworld.sigma(
+        G, niter=niter, nrand=nrand, seed=seed, backend=backend, **backend_kwargs
+    )
+
 import franken_networkx.regular as _fnx_regular
 _sys.modules[f"{__name__}.regular"] = _fnx_regular
 regular = _fnx_regular  # Override in module globals
+
+
+def is_k_regular(G, k, *, backend=None, **backend_kwargs):
+    return _fnx_regular.is_k_regular(G, k, backend=backend, **backend_kwargs)
+
+
+def is_regular(G, *, backend=None, **backend_kwargs):
+    return _fnx_regular.is_regular(G, backend=backend, **backend_kwargs)
+
+
+def k_factor(G, k, matching_weight="weight", *, backend=None, **backend_kwargs):
+    return _fnx_regular.k_factor(
+        G, k, matching_weight=matching_weight, backend=backend, **backend_kwargs
+    )
 
 import franken_networkx.swap as _fnx_swap
 _sys.modules[f"{__name__}.swap"] = _fnx_swap
 swap = _fnx_swap  # Override in module globals
 
+
+def connected_double_edge_swap(
+    G, nswap=1, _window_threshold=3, seed=None, *, backend=None, **backend_kwargs
+):
+    return _fnx_swap.connected_double_edge_swap(
+        G,
+        nswap=nswap,
+        _window_threshold=_window_threshold,
+        seed=seed,
+        backend=backend,
+        **backend_kwargs,
+    )
+
+
+def directed_edge_swap(
+    G, *, nswap=1, max_tries=100, seed=None, backend=None, **backend_kwargs
+):
+    return _fnx_swap.directed_edge_swap(
+        G,
+        nswap=nswap,
+        max_tries=max_tries,
+        seed=seed,
+        backend=backend,
+        **backend_kwargs,
+    )
+
+
+def double_edge_swap(
+    G, nswap=1, max_tries=100, seed=None, *, backend=None, **backend_kwargs
+):
+    return _fnx_swap.double_edge_swap(
+        G,
+        nswap=nswap,
+        max_tries=max_tries,
+        seed=seed,
+        backend=backend,
+        **backend_kwargs,
+    )
+
 import franken_networkx.planarity as _fnx_planarity
 _sys.modules[f"{__name__}.planarity"] = _fnx_planarity
 planarity = _fnx_planarity  # Override in module globals
+
+
+def check_planarity(G, counterexample=False, *, backend=None, **backend_kwargs):
+    return _fnx_planarity.check_planarity(
+        G, counterexample=counterexample, backend=backend, **backend_kwargs
+    )
+
+
+def is_planar(G, *, backend=None, **backend_kwargs):
+    return _fnx_planarity.is_planar(G, backend=backend, **backend_kwargs)
 
 import franken_networkx.components as _fnx_components
 _sys.modules[f"{__name__}.components"] = _fnx_components
@@ -613,6 +769,16 @@ _fnx_covering = _importlib.import_module("franken_networkx.covering")
 _sys.modules[f"{__name__}.covering"] = _fnx_covering
 covering = _fnx_covering  # Override in module globals
 
+
+def is_edge_cover(G, cover, *, backend=None, **backend_kwargs):
+    return _fnx_covering.is_edge_cover(G, cover, backend=backend, **backend_kwargs)
+
+
+def min_edge_cover(G, matching_algorithm=None, *, backend=None, **backend_kwargs):
+    return _fnx_covering.min_edge_cover(
+        G, matching_algorithm=matching_algorithm, backend=backend, **backend_kwargs
+    )
+
 _fnx_cuts = _importlib.import_module("franken_networkx.cuts")
 _sys.modules[f"{__name__}.cuts"] = _fnx_cuts
 cuts = _fnx_cuts  # Override in module globals
@@ -728,6 +894,18 @@ _fnx_dominance = _importlib.import_module("franken_networkx.dominance")
 _sys.modules[f"{__name__}.dominance"] = _fnx_dominance
 dominance = _fnx_dominance  # Override in module globals
 
+
+def dominance_frontiers(G, start, *, backend=None, **backend_kwargs):
+    return _fnx_dominance.dominance_frontiers(
+        G, start, backend=backend, **backend_kwargs
+    )
+
+
+def immediate_dominators(G, start, *, backend=None, **backend_kwargs):
+    return _fnx_dominance.immediate_dominators(
+        G, start, backend=backend, **backend_kwargs
+    )
+
 _fnx_d_separation = _importlib.import_module("franken_networkx.d_separation")
 _sys.modules[f"{__name__}.d_separation"] = _fnx_d_separation
 d_separation = _fnx_d_separation  # Override in module globals
@@ -773,6 +951,50 @@ _fnx_graph_hashing = _importlib.import_module("franken_networkx.graph_hashing")
 _sys.modules[f"{__name__}.graph_hashing"] = _fnx_graph_hashing
 graph_hashing = _fnx_graph_hashing  # Override in module globals
 
+
+def weisfeiler_lehman_graph_hash(
+    G,
+    edge_attr=None,
+    node_attr=None,
+    iterations=3,
+    digest_size=16,
+    *,
+    backend=None,
+    **backend_kwargs,
+):
+    return _fnx_graph_hashing.weisfeiler_lehman_graph_hash(
+        G,
+        edge_attr=edge_attr,
+        node_attr=node_attr,
+        iterations=iterations,
+        digest_size=digest_size,
+        backend=backend,
+        **backend_kwargs,
+    )
+
+
+def weisfeiler_lehman_subgraph_hashes(
+    G,
+    edge_attr=None,
+    node_attr=None,
+    iterations=3,
+    digest_size=16,
+    include_initial_labels=False,
+    *,
+    backend=None,
+    **backend_kwargs,
+):
+    return _fnx_graph_hashing.weisfeiler_lehman_subgraph_hashes(
+        G,
+        edge_attr=edge_attr,
+        node_attr=node_attr,
+        iterations=iterations,
+        digest_size=digest_size,
+        include_initial_labels=include_initial_labels,
+        backend=backend,
+        **backend_kwargs,
+    )
+
 _fnx_graphical = _importlib.import_module("franken_networkx.graphical")
 _sys.modules[f"{__name__}.graphical"] = _fnx_graphical
 graphical = _fnx_graphical  # Override in module globals
@@ -795,6 +1017,12 @@ def is_digraphical(in_sequence, out_sequence, *, backend=None, **backend_kwargs)
 _fnx_hierarchy = _importlib.import_module("franken_networkx.hierarchy")
 _sys.modules[f"{__name__}.hierarchy"] = _fnx_hierarchy
 hierarchy = _fnx_hierarchy  # Override in module globals
+
+
+def flow_hierarchy(G, weight=None, *, backend=None, **backend_kwargs):
+    return _fnx_hierarchy.flow_hierarchy(
+        G, weight=weight, backend=backend, **backend_kwargs
+    )
 
 _fnx_isolate = _importlib.import_module("franken_networkx.isolate")
 _sys.modules[f"{__name__}.isolate"] = _fnx_isolate
@@ -854,6 +1082,14 @@ _fnx_mis = _importlib.import_module("franken_networkx.mis")
 _sys.modules[f"{__name__}.mis"] = _fnx_mis
 mis = _fnx_mis  # Override in module globals
 
+
+def maximal_independent_set(
+    G, nodes=None, seed=None, *, backend=None, **backend_kwargs
+):
+    return _fnx_mis.maximal_independent_set(
+        G, nodes=nodes, seed=seed, backend=backend, **backend_kwargs
+    )
+
 _fnx_non_randomness = _importlib.import_module("franken_networkx._non_randomness")
 _sys.modules[f"{__name__}.non_randomness"] = _fnx_non_randomness
 non_randomness = _fnx_non_randomness.non_randomness  # Match nx: function attr
@@ -861,6 +1097,12 @@ non_randomness = _fnx_non_randomness.non_randomness  # Match nx: function attr
 _fnx_perfect_graph = _importlib.import_module("franken_networkx.perfect_graph")
 _sys.modules[f"{__name__}.perfect_graph"] = _fnx_perfect_graph
 perfect_graph = _fnx_perfect_graph  # Override in module globals
+
+
+def is_perfect_graph(G, *, backend=None, **backend_kwargs):
+    return _fnx_perfect_graph.is_perfect_graph(
+        G, backend=backend, **backend_kwargs
+    )
 
 _fnx_polynomials = _importlib.import_module("franken_networkx.polynomials")
 _sys.modules[f"{__name__}.polynomials"] = _fnx_polynomials
