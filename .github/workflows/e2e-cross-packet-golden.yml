@@ -34,6 +34,16 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@nightly
 
+      - name: Install RCH shim for CI
+        run: |
+          mkdir -p "$HOME/.local/bin"
+          echo '#!/usr/bin/env bash' > "$HOME/.local/bin/rch"
+          echo 'if [[ "$1" == "exec" && "$2" == "--" ]]; then shift 2; exec "$@"; fi' >> "$HOME/.local/bin/rch"
+          echo 'if [[ "$1" == "status" || "$1" == "doctor" ]]; then echo "rch (CI shim: local execution)"; exit 0; fi' >> "$HOME/.local/bin/rch"
+          echo 'exec "$@"' >> "$HOME/.local/bin/rch"
+          chmod +x "$HOME/.local/bin/rch"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
       - name: Run cross-packet golden journey gate
         run: bash ./scripts/e2e/run_cross_packet_golden.sh
 
