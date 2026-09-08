@@ -1,5 +1,5 @@
 #![allow(clippy::type_complexity, clippy::too_many_arguments, deprecated)]
-#![forbid(unsafe_code)]
+#![deny(unsafe_code)]
 
 //! PyO3 Python bindings for FrankenNetworkX.
 //!
@@ -2907,6 +2907,11 @@ impl DictOfDictsCache {
     }
 }
 
+#[allow(unsafe_code)]
+unsafe extern "C" {
+    fn _PyObject_GetDictPtr(obj: *mut pyo3::ffi::PyObject) -> *mut *mut pyo3::ffi::PyObject;
+}
+
 /// Makes a ``#[pyclass(dict)]`` instance's Python dictionary visible to CPython GC.
 ///
 /// PyO3 does not traverse a pyclass instance dictionary automatically. Cached
@@ -2916,6 +2921,7 @@ impl DictOfDictsCache {
 /// both strong references.
 pub(crate) struct InstanceDictGc {
     dict: Option<Py<PyDict>>,
+    dict_slot: Option<usize>,
     /// Cached raw native adjacency view. The Python facade still performs
     /// private-store routing and owns the public cached-property behavior; this
     /// holder only prevents the PyO3 descriptor from rebuilding its native view.
@@ -2946,10 +2952,27 @@ pub(crate) struct InstanceDictGc {
     private_dir_override: bool,
 }
 
+#[allow(unsafe_code)]
+impl Drop for InstanceDictGc {
+    fn drop(&mut self) {
+        if let Some(slot_addr) = self.dict_slot.take() {
+            unsafe {
+                let slot = slot_addr as *mut *mut pyo3::ffi::PyObject;
+                let dict_ptr = *slot;
+                if !dict_ptr.is_null() {
+                    *slot = std::ptr::null_mut();
+                    pyo3::ffi::Py_DECREF(dict_ptr);
+                }
+            }
+        }
+    }
+}
+
 impl InstanceDictGc {
     pub(crate) const fn new() -> Self {
         Self {
             dict: None,
+            dict_slot: None,
             adj_view_cache: std::sync::Mutex::new(None),
             private_node_override: false,
             private_adj_override: false,
@@ -2957,9 +2980,18 @@ impl InstanceDictGc {
         }
     }
 
-    pub(crate) fn register(&mut self, dict: &Bound<'_, PyDict>) {
+    #[allow(unsafe_code)]
+    pub(crate) fn register(&mut self, slf_ptr: *mut pyo3::ffi::PyObject, dict: &Bound<'_, PyDict>) {
         if self.dict.is_none() {
             self.dict = Some(dict.clone().unbind());
+        }
+        if self.dict_slot.is_none() && !slf_ptr.is_null() {
+            unsafe {
+                let slot = _PyObject_GetDictPtr(slf_ptr);
+                if !slot.is_null() {
+                    self.dict_slot = Some(slot as usize);
+                }
+            }
         }
     }
 
@@ -3308,8 +3340,9 @@ pub(crate) struct PyGraph {
 
 #[pymethods]
 impl PyGraph {
-    fn _fnx_register_gc_dict(&mut self, dict: &Bound<'_, PyDict>) {
-        self.instance_dict_gc.register(dict);
+    fn _fnx_register_gc_dict(slf: &Bound<'_, Self>, dict: &Bound<'_, PyDict>) {
+        let slf_ptr = slf.as_ptr();
+        slf.borrow_mut().instance_dict_gc.register(slf_ptr, dict);
     }
 
     fn _fnx_set_private_node_override(&mut self) {
@@ -6352,8 +6385,9 @@ pub(crate) struct PyMultiGraph {
 
 #[pymethods]
 impl PyMultiGraph {
-    fn _fnx_register_gc_dict(&mut self, dict: &Bound<'_, PyDict>) {
-        self.instance_dict_gc.register(dict);
+    fn _fnx_register_gc_dict(slf: &Bound<'_, Self>, dict: &Bound<'_, PyDict>) {
+        let slf_ptr = slf.as_ptr();
+        slf.borrow_mut().instance_dict_gc.register(slf_ptr, dict);
     }
 
     fn _fnx_set_private_node_override(&mut self) {
@@ -21816,7 +21850,7 @@ class FnxMultiGraphCtorEdgeIterable:
                 .expect("private override setup should succeed");
 
             let mut state = InstanceDictGc::new();
-            state.register(&storage);
+            state.register(std::ptr::null_mut(), &storage);
             state.set_private_node_override();
 
             let present = "private"
@@ -21864,7 +21898,7 @@ class FnxMultiGraphCtorEdgeIterable:
                 .expect("private override setup should succeed");
 
             let mut state = InstanceDictGc::new();
-            state.register(&storage);
+            state.register(std::ptr::null_mut(), &storage);
 
             // Registered but NOT marked: an ordinary graph must be told
             // nothing, so its own node count answers.

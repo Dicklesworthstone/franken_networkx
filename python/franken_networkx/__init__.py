@@ -53148,6 +53148,7 @@ def _graph_shallowcopy(self):
         result = self.copy()
     # Share graph attrs dict by setting the override directly
     vars(result)[_GRAPH_ATTR_OVERRIDE] = self.graph
+    result._fnx_register_gc_dict(vars(result))
     # br-r37-c1-s8obc: an assigned private store (``g._node = {...}``) must ride
     # along, as it does in nx. copy.copy SHARES the mapping object, matching the
     # graph-attrs sharing directly above and nx's own shallow-copy semantics.
