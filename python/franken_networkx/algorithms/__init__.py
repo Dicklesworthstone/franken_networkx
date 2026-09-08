@@ -245,6 +245,124 @@ _alias_nx_child_modules(
     "networkx.algorithms.operators", f"{__name__}.operators"
 )
 
+
+def cartesian_product(G, H, *, backend=None, **backend_kwargs):
+    return _fnx_operators.cartesian_product(
+        G, H, backend=backend, **backend_kwargs
+    )
+
+
+def corona_product(G, H, *, backend=None, **backend_kwargs):
+    return _fnx_operators.corona_product(
+        G, H, backend=backend, **backend_kwargs
+    )
+
+
+def lexicographic_product(G, H, *, backend=None, **backend_kwargs):
+    return _fnx_operators.lexicographic_product(
+        G, H, backend=backend, **backend_kwargs
+    )
+
+
+def modular_product(G, H, *, backend=None, **backend_kwargs):
+    return _fnx_operators.modular_product(
+        G, H, backend=backend, **backend_kwargs
+    )
+
+
+def power(G, k, *, backend=None, **backend_kwargs):
+    return _fnx_operators.power(G, k, backend=backend, **backend_kwargs)
+
+
+def rooted_product(G, H, root, *, backend=None, **backend_kwargs):
+    return _fnx_operators.rooted_product(
+        G, H, root, backend=backend, **backend_kwargs
+    )
+
+
+def strong_product(G, H, *, backend=None, **backend_kwargs):
+    return _fnx_operators.strong_product(
+        G, H, backend=backend, **backend_kwargs
+    )
+
+
+def tensor_product(G, H, *, backend=None, **backend_kwargs):
+    return _fnx_operators.tensor_product(
+        G, H, backend=backend, **backend_kwargs
+    )
+
+
+def compose(G, H, *, backend=None, **backend_kwargs):
+    return _fnx_operators.compose(G, H, backend=backend, **backend_kwargs)
+
+
+def difference(G, H, *, backend=None, **backend_kwargs):
+    return _fnx_operators.difference(G, H, backend=backend, **backend_kwargs)
+
+
+def disjoint_union(G, H, *, backend=None, **backend_kwargs):
+    return _fnx_operators.disjoint_union(
+        G, H, backend=backend, **backend_kwargs
+    )
+
+
+def full_join(G, H, rename=(None, None), *, backend=None, **backend_kwargs):
+    return _fnx_operators.full_join(
+        G, H, rename=rename, backend=backend, **backend_kwargs
+    )
+
+
+def intersection(G, H, *, backend=None, **backend_kwargs):
+    return _fnx_operators.intersection(
+        G, H, backend=backend, **backend_kwargs
+    )
+
+
+def symmetric_difference(G, H, *, backend=None, **backend_kwargs):
+    return _fnx_operators.symmetric_difference(
+        G, H, backend=backend, **backend_kwargs
+    )
+
+
+def union(G, H, rename=(), *, backend=None, **backend_kwargs):
+    return _fnx_operators.union(
+        G, H, rename=rename, backend=backend, **backend_kwargs
+    )
+
+
+def compose_all(graphs, *, backend=None, **backend_kwargs):
+    return _fnx_operators.compose_all(
+        graphs, backend=backend, **backend_kwargs
+    )
+
+
+def disjoint_union_all(graphs, *, backend=None, **backend_kwargs):
+    return _fnx_operators.disjoint_union_all(
+        graphs, backend=backend, **backend_kwargs
+    )
+
+
+def intersection_all(graphs, *, backend=None, **backend_kwargs):
+    return _fnx_operators.intersection_all(
+        graphs, backend=backend, **backend_kwargs
+    )
+
+
+def union_all(graphs, rename=(), *, backend=None, **backend_kwargs):
+    return _fnx_operators.union_all(
+        graphs, rename=rename, backend=backend, **backend_kwargs
+    )
+
+
+def complement(G, *, backend=None, **backend_kwargs):
+    return _fnx_operators.complement(G, backend=backend, **backend_kwargs)
+
+
+def reverse(G, copy=True, *, backend=None, **backend_kwargs):
+    return _fnx_operators.reverse(
+        G, copy=copy, backend=backend, **backend_kwargs
+    )
+
 import franken_networkx.clique as _fnx_clique
 _sys.modules[f"{__name__}.clique"] = _fnx_clique
 clique = _fnx_clique  # Override in module globals
@@ -879,6 +997,128 @@ components = _fnx_components  # Override in module globals
 _alias_nx_child_modules(
     "networkx.algorithms.components", f"{__name__}.components"
 )
+
+
+def condensation(G, scc=None, *, backend=None, **backend_kwargs):
+    return _fnx_components.condensation(
+        G, scc=scc, backend=backend, **backend_kwargs
+    )
+
+
+def is_strongly_connected(G, *, backend=None, **backend_kwargs):
+    return _fnx_components.is_strongly_connected(
+        G, backend=backend, **backend_kwargs
+    )
+
+
+def kosaraju_strongly_connected_components(
+    G, source=None, *, backend=None, **backend_kwargs
+):
+    return _fnx_components.kosaraju_strongly_connected_components(
+        G, source=source, backend=backend, **backend_kwargs
+    )
+
+
+def number_strongly_connected_components(G, *, backend=None, **backend_kwargs):
+    return _fnx_components.number_strongly_connected_components(
+        G, backend=backend, **backend_kwargs
+    )
+
+
+def strongly_connected_components(G, *, backend=None, **backend_kwargs):
+    return _fnx_components.strongly_connected_components(
+        G, backend=backend, **backend_kwargs
+    )
+
+
+def articulation_points(G, *, backend=None, **backend_kwargs):
+    return _fnx_components.articulation_points(
+        G, backend=backend, **backend_kwargs
+    )
+
+
+def biconnected_component_edges(G, *, backend=None, **backend_kwargs):
+    return _fnx_components.biconnected_component_edges(
+        G, backend=backend, **backend_kwargs
+    )
+
+
+def biconnected_components(G, *, backend=None, **backend_kwargs):
+    return _fnx_components.biconnected_components(
+        G, backend=backend, **backend_kwargs
+    )
+
+
+def is_biconnected(G, *, backend=None, **backend_kwargs):
+    return _fnx_components.is_biconnected(
+        G, backend=backend, **backend_kwargs
+    )
+
+
+def connected_components(G, *, backend=None, **backend_kwargs):
+    return _fnx_components.connected_components(
+        G, backend=backend, **backend_kwargs
+    )
+
+
+def is_connected(G, *, backend=None, **backend_kwargs):
+    return _fnx_components.is_connected(
+        G, backend=backend, **backend_kwargs
+    )
+
+
+def node_connected_component(G, n, *, backend=None, **backend_kwargs):
+    return _fnx_components.node_connected_component(
+        G, n, backend=backend, **backend_kwargs
+    )
+
+
+def number_connected_components(G, *, backend=None, **backend_kwargs):
+    return _fnx_components.number_connected_components(
+        G, backend=backend, **backend_kwargs
+    )
+
+
+def attracting_components(G, *, backend=None, **backend_kwargs):
+    return _fnx_components.attracting_components(
+        G, backend=backend, **backend_kwargs
+    )
+
+
+def is_attracting_component(G, *, backend=None, **backend_kwargs):
+    return _fnx_components.is_attracting_component(
+        G, backend=backend, **backend_kwargs
+    )
+
+
+def number_attracting_components(G, *, backend=None, **backend_kwargs):
+    return _fnx_components.number_attracting_components(
+        G, backend=backend, **backend_kwargs
+    )
+
+
+def is_weakly_connected(G, *, backend=None, **backend_kwargs):
+    return _fnx_components.is_weakly_connected(
+        G, backend=backend, **backend_kwargs
+    )
+
+
+def number_weakly_connected_components(G, *, backend=None, **backend_kwargs):
+    return _fnx_components.number_weakly_connected_components(
+        G, backend=backend, **backend_kwargs
+    )
+
+
+def weakly_connected_components(G, *, backend=None, **backend_kwargs):
+    return _fnx_components.weakly_connected_components(
+        G, backend=backend, **backend_kwargs
+    )
+
+
+def is_semiconnected(G, *, backend=None, **backend_kwargs):
+    return _fnx_components.is_semiconnected(
+        G, backend=backend, **backend_kwargs
+    )
 
 _fnx_bridges = _importlib.import_module("franken_networkx.bridges")
 _sys.modules[f"{__name__}.bridges"] = _fnx_bridges
@@ -1599,6 +1839,256 @@ def rich_club_coefficient(
 _fnx_similarity = _importlib.import_module("franken_networkx.similarity")
 _sys.modules[f"{__name__}.similarity"] = _fnx_similarity
 similarity = _fnx_similarity  # Override in module globals
+
+
+def generate_random_paths(
+    G,
+    sample_size,
+    path_length=5,
+    index_map=None,
+    weight="weight",
+    seed=None,
+    *,
+    source=None,
+    backend=None,
+    **backend_kwargs,
+):
+    return _fnx_similarity.generate_random_paths(
+        G,
+        sample_size,
+        path_length=path_length,
+        index_map=index_map,
+        weight=weight,
+        seed=seed,
+        source=source,
+        backend=backend,
+        **backend_kwargs,
+    )
+
+
+def graph_edit_distance(
+    G1,
+    G2,
+    node_match=None,
+    edge_match=None,
+    node_subst_cost=None,
+    node_del_cost=None,
+    node_ins_cost=None,
+    edge_subst_cost=None,
+    edge_del_cost=None,
+    edge_ins_cost=None,
+    roots=None,
+    upper_bound=None,
+    timeout=None,
+    *,
+    backend=None,
+    **backend_kwargs,
+):
+    return _fnx_similarity.graph_edit_distance(
+        G1,
+        G2,
+        node_match=node_match,
+        edge_match=edge_match,
+        node_subst_cost=node_subst_cost,
+        node_del_cost=node_del_cost,
+        node_ins_cost=node_ins_cost,
+        edge_subst_cost=edge_subst_cost,
+        edge_del_cost=edge_del_cost,
+        edge_ins_cost=edge_ins_cost,
+        roots=roots,
+        upper_bound=upper_bound,
+        timeout=timeout,
+        backend=backend,
+        **backend_kwargs,
+    )
+
+
+def optimal_edit_paths(
+    G1,
+    G2,
+    node_match=None,
+    edge_match=None,
+    node_subst_cost=None,
+    node_del_cost=None,
+    node_ins_cost=None,
+    edge_subst_cost=None,
+    edge_del_cost=None,
+    edge_ins_cost=None,
+    upper_bound=None,
+    *,
+    backend=None,
+    **backend_kwargs,
+):
+    return _fnx_similarity.optimal_edit_paths(
+        G1,
+        G2,
+        node_match=node_match,
+        edge_match=edge_match,
+        node_subst_cost=node_subst_cost,
+        node_del_cost=node_del_cost,
+        node_ins_cost=node_ins_cost,
+        edge_subst_cost=edge_subst_cost,
+        edge_del_cost=edge_del_cost,
+        edge_ins_cost=edge_ins_cost,
+        upper_bound=upper_bound,
+        backend=backend,
+        **backend_kwargs,
+    )
+
+
+def optimize_edit_paths(
+    G1,
+    G2,
+    node_match=None,
+    edge_match=None,
+    node_subst_cost=None,
+    node_del_cost=None,
+    node_ins_cost=None,
+    edge_subst_cost=None,
+    edge_del_cost=None,
+    edge_ins_cost=None,
+    upper_bound=None,
+    strictly_decreasing=True,
+    roots=None,
+    timeout=None,
+    *,
+    backend=None,
+    **backend_kwargs,
+):
+    return _fnx_similarity.optimize_edit_paths(
+        G1,
+        G2,
+        node_match=node_match,
+        edge_match=edge_match,
+        node_subst_cost=node_subst_cost,
+        node_del_cost=node_del_cost,
+        node_ins_cost=node_ins_cost,
+        edge_subst_cost=edge_subst_cost,
+        edge_del_cost=edge_del_cost,
+        edge_ins_cost=edge_ins_cost,
+        upper_bound=upper_bound,
+        strictly_decreasing=strictly_decreasing,
+        roots=roots,
+        timeout=timeout,
+        backend=backend,
+        **backend_kwargs,
+    )
+
+
+def optimize_graph_edit_distance(
+    G1,
+    G2,
+    node_match=None,
+    edge_match=None,
+    node_subst_cost=None,
+    node_del_cost=None,
+    node_ins_cost=None,
+    edge_subst_cost=None,
+    edge_del_cost=None,
+    edge_ins_cost=None,
+    upper_bound=None,
+    *,
+    backend=None,
+    **backend_kwargs,
+):
+    return _fnx_similarity.optimize_graph_edit_distance(
+        G1,
+        G2,
+        node_match=node_match,
+        edge_match=edge_match,
+        node_subst_cost=node_subst_cost,
+        node_del_cost=node_del_cost,
+        node_ins_cost=node_ins_cost,
+        edge_subst_cost=edge_subst_cost,
+        edge_del_cost=edge_del_cost,
+        edge_ins_cost=edge_ins_cost,
+        upper_bound=upper_bound,
+        backend=backend,
+        **backend_kwargs,
+    )
+
+
+def panther_similarity(
+    G,
+    source,
+    k=5,
+    path_length=5,
+    c=0.5,
+    delta=0.1,
+    eps=None,
+    weight="weight",
+    seed=None,
+    *,
+    backend=None,
+    **backend_kwargs,
+):
+    return _fnx_similarity.panther_similarity(
+        G,
+        source,
+        k=k,
+        path_length=path_length,
+        c=c,
+        delta=delta,
+        eps=eps,
+        weight=weight,
+        seed=seed,
+        backend=backend,
+        **backend_kwargs,
+    )
+
+
+def panther_vector_similarity(
+    G,
+    source,
+    *,
+    D=10,
+    k=5,
+    path_length=5,
+    c=0.5,
+    delta=0.1,
+    eps=None,
+    weight="weight",
+    seed=None,
+    backend=None,
+    **backend_kwargs,
+):
+    return _fnx_similarity.panther_vector_similarity(
+        G,
+        source,
+        D=D,
+        k=k,
+        path_length=path_length,
+        c=c,
+        delta=delta,
+        eps=eps,
+        weight=weight,
+        seed=seed,
+        backend=backend,
+        **backend_kwargs,
+    )
+
+
+def simrank_similarity(
+    G,
+    source=None,
+    target=None,
+    importance_factor=0.9,
+    max_iterations=1000,
+    tolerance=0.0001,
+    *,
+    backend=None,
+    **backend_kwargs,
+):
+    return _fnx_similarity.simrank_similarity(
+        G,
+        source=source,
+        target=target,
+        importance_factor=importance_factor,
+        max_iterations=max_iterations,
+        tolerance=tolerance,
+        backend=backend,
+        **backend_kwargs,
+    )
 
 _fnx_simple_paths = _importlib.import_module("franken_networkx.simple_paths")
 _sys.modules[f"{__name__}.simple_paths"] = _fnx_simple_paths
