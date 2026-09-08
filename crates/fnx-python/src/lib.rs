@@ -2907,8 +2907,6 @@ impl DictOfDictsCache {
     }
 }
 
-
-
 /// Makes a ``#[pyclass(dict)]`` instance's Python dictionary visible to CPython GC.
 ///
 /// PyO3 does not traverse a pyclass instance dictionary automatically. Cached
