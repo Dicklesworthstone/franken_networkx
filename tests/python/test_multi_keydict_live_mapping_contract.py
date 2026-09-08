@@ -116,26 +116,7 @@ def test_insertion_does_not_corrupt_the_graph_either_way(class_name):
 # ------------------------------------------------------- the documented gap
 
 
-@pytest.mark.parametrize(
-    "class_name",
-    [
-        # MultiGraph returns its cached keydict live as of br-r37-c1-f3i50, so
-        # this is a STRICT expectation there and a regression fails the suite.
-        "MultiGraph",
-        # MultiDiGraph is another pane's work in progress (edge_keydict_by_index),
-        # so it is still allowed to build per call. strict=True so that when they
-        # land it, this flips red and the marker gets removed rather than
-        # silently masking the win.
-        pytest.param(
-            "MultiDiGraph",
-            marks=pytest.mark.xfail(
-                strict=True,
-                reason="br-r37-c1-f3i50: directed keydict is still built per "
-                "call; another pane holds that half",
-            ),
-        ),
-    ],
-)
+@pytest.mark.parametrize("class_name", CLASSES)
 def test_repeated_reads_return_the_same_object(class_name):
     graph = _pair(fnx, class_name)
     reference = _pair(nx, class_name)

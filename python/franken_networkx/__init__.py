@@ -38380,14 +38380,11 @@ def quotient_graph(
         if u_idx > v_idx:
             u_idx, v_idx = v_idx, u_idx
         key = (u_idx, v_idx)
-        if weight:
-            value = data.get(weight, 1)
-            if not isinstance(value, int):
-                default_pair_weights_supported = False
-                return
-            default_pair_totals[key] = default_pair_totals.get(key, 0) + value
-        else:
-            default_pair_totals.setdefault(key, 0)
+        value = data.get(weight, 1) if weight else 1
+        if not isinstance(value, (int, float)):
+            default_pair_weights_supported = False
+            return
+        default_pair_totals[key] = default_pair_totals.get(key, 0) + value
 
     if G.is_multigraph():
         for u, v, _key, data in G.edges(keys=True, data=True):
@@ -38446,12 +38443,9 @@ def quotient_graph(
                 if key not in default_pair_totals:
                     continue
                 block_v = partition[j]
-                if weight:
-                    edge_bunch.append(
-                        (block_u, block_v, {weight: default_pair_totals[key]})
-                    )
-                else:
-                    edge_bunch.append((block_u, block_v))
+                edge_bunch.append(
+                    (block_u, block_v, {"weight": default_pair_totals[key]})
+                )
         H.add_edges_from(edge_bunch)
         return True
 
@@ -38477,7 +38471,7 @@ def quotient_graph(
                                     d = G.edges[u, v]
                                     total += d.get(weight, 1) if weight else 1
                                     _count += 1
-                        attrs = {weight: total} if weight and _count else {}
+                        attrs = {"weight": total} if _count else {}
                         H.add_edge(block_u, block_v, **attrs)
 
     if relabel:
@@ -45895,9 +45889,14 @@ def eulerize(G):
     if not is_connected(G):
         raise NetworkXError("G is not connected")
 
+    if G.is_multigraph():
+        H = G.copy()
+    else:
+        H = MultiGraph(G)
+
     odd_nodes = [v for v in G.nodes() if G.degree[v] % 2 == 1]
     if not odd_nodes:
-        return G.copy()
+        return H
 
     # Build a complete graph on odd-degree nodes weighted by shortest path length.
     # br-r37-c1-53kq4: nx's eulerize uses unweighted (BFS) shortest paths
@@ -45913,14 +45912,6 @@ def eulerize(G):
 
     # Find minimum weight matching on the odd-degree complete graph.
     matching = min_weight_matching(odd_complete)
-
-    # Duplicate edges along matched shortest paths.
-    if G.is_directed():
-        raise NetworkXError("G is directed")
-    if G.is_multigraph():
-        H = G.copy()
-    else:
-        H = MultiGraph(G)
 
     for u, v in matching:
         # br-r37-c1-53kq4: see above — unweighted shortest path matches nx.

@@ -3555,18 +3555,8 @@ def tutte_polynomial(G, *, backend=None, **backend_kwargs):
 
 _fnx_reciprocity = _importlib.import_module("franken_networkx.reciprocity")
 _sys.modules[f"{__name__}.reciprocity"] = _fnx_reciprocity
-
-
-def reciprocity(G, nodes=None, *, backend=None, **backend_kwargs):
-    return _fnx_reciprocity.reciprocity(
-        G, nodes=nodes, backend=backend, **backend_kwargs
-    )
-
-
-def overall_reciprocity(G, *, backend=None, **backend_kwargs):
-    return _fnx_reciprocity.overall_reciprocity(
-        G, backend=backend, **backend_kwargs
-    )
+reciprocity = _fnx_reciprocity.reciprocity
+overall_reciprocity = _fnx_reciprocity.overall_reciprocity
 
 _fnx_richclub = _importlib.import_module("franken_networkx.richclub")
 _sys.modules[f"{__name__}.richclub"] = _fnx_richclub
