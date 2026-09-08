@@ -58,12 +58,18 @@ implementation and proof, not strategy churn: D2 wires `RuntimePolicy` through
 parser/high-risk entry points, and D3-D4 lock strict/hardened behavior with
 fixture evidence.
 
-Status 2026-09-02: the Rust side carries the mode (`Graph`, `DiGraph` and
-`MultiGraph` store a `CompatibilityMode` and a `RuntimePolicy`, and the
-`fnx-readwrite` readers take a mode), but `fnx-python` constructs every graph in
-`Strict` and no Python API selects `Hardened`; `fnx.Graph(mode="hardened")`
-silently becomes a graph attribute. The D-track beads are closed, so this
-residue currently has no open bead.
+Status (shipped in br-r37-c1-9a8bo): Hardened mode and the DecisionRecord ledger
+are fully accessible from Python. The switch lives beside graph constructors to
+preserve NetworkX's `**attr` signature contract:
+- Process-wide and thread-local configuration via `fnx.config.compatibility_mode`,
+  `with fnx.config(compatibility_mode="hardened"):`, and `with fnx.compatibility_mode("hardened"):`.
+- Direct `mode="hardened"` keyword arguments on all read/parse entry points
+  (`read_edgelist`, `read_adjlist`, `read_graphml`, `read_gml`, `read_gexf`, `read_json_graph`, `node_link_graph`).
+- Graph introspection via `G.mode` and `G.compatibility_mode`.
+- Audit evidence retrieval and draining via `G.decision_records()`,
+  `G.drain_decision_records()`, `fnx.decision_records(G)`, and `fnx.drain_decision_records(G)`.
+- Verified across 24 well-formed parity fixtures, 24 malformed fail-closed/recovery fixtures,
+  and planted negatives ensuring unknown incompatible features fail closed even in Hardened mode.
 
 ## Declared Scope Boundary: Node-Key Equivalence (br-r37-c1-cow38)
 

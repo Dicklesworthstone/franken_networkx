@@ -2031,6 +2031,10 @@ impl EvidenceLedger {
         &self.records
     }
 
+    pub fn drain_records(&mut self) -> Vec<DecisionRecord> {
+        std::mem::take(&mut self.records)
+    }
+
     /// Decisions retired from the resident window to bound memory.
     #[must_use]
     pub const fn retired_records(&self) -> u64 {
@@ -2562,6 +2566,10 @@ impl RuntimePolicy {
     #[must_use]
     pub fn decision_log(&self) -> &EvidenceLedger {
         &self.decision_log
+    }
+
+    pub fn drain_decision_records(&mut self) -> Vec<DecisionRecord> {
+        self.decision_log.drain_records()
     }
 
     #[must_use]

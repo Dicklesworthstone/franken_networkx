@@ -356,7 +356,33 @@ Two compatibility doctrines, both available at runtime:
 - **Strict**: maximize observable compatibility for V1 scoped APIs. No behavior-altering repairs. Malformed input fails closed with structured error context.
 - **Hardened**: preserve the API contract while applying bounded defensive recovery for malformed inputs and hostile edge cases. Useful when ingesting graphs from adversarial sources.
 
-The choice is made through `CgsePolicyEngine` in `fnx-runtime`, which records every action selection as a `DecisionRecord` with evidence terms.
+The mode is configured via `fnx.config`, scoped context managers, or per-call reader arguments:
+
+```python
+import franken_networkx as fnx
+
+# 1. Process-wide configuration (mirrors nx.config):
+fnx.config.compatibility_mode = "hardened"  # or fnx.set_compatibility_mode("hardened")
+
+# 2. Scoped context managers (thread-local overrides):
+with fnx.config(compatibility_mode="hardened"):
+    G = fnx.Graph()
+    assert G.mode == "hardened"
+
+with fnx.compatibility_mode("hardened"):
+    G = fnx.read_edgelist("adversarial_edges.txt")
+
+# 3. Direct function kwargs on read/parse entry points:
+G = fnx.read_graphml("input.graphml", mode="hardened")
+assert G.mode == "hardened"
+
+# 4. Audit Evidence Ledger (DecisionRecord):
+# Inspect or drain the recovery decisions made during parsing and mutation:
+records = G.decision_records()  # or fnx.decision_records(G)
+drained = G.drain_decision_records()  # or fnx.drain_decision_records(G)
+```
+
+The choice is made through `CgsePolicyEngine` in `fnx-runtime`, which records every action selection as a `DecisionRecord` with evidence terms. In Hardened mode, unknown incompatible features still fail closed to maintain security invariants.
 
 ### Why determinism matters
 

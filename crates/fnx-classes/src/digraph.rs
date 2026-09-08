@@ -7,8 +7,8 @@
 
 use crate::{AttrMap, EdgeSnapshot, GraphError};
 use fnx_runtime::{
-    CgseValue, CompatibilityMode, DecisionAction, EvidenceLedger, EvidenceTerm, RuntimePolicy,
-    bool_evidence, count_evidence,
+    CgseValue, CompatibilityMode, DecisionAction, DecisionRecord, EvidenceLedger, EvidenceTerm,
+    RuntimePolicy, bool_evidence, count_evidence,
 };
 use indexmap::{IndexMap, IndexSet};
 use serde::{Deserialize, Serialize};
@@ -859,6 +859,10 @@ impl DiGraph {
     #[must_use]
     pub fn evidence_ledger(&self) -> &EvidenceLedger {
         self.runtime_policy.decision_log()
+    }
+
+    pub fn drain_decision_records(&mut self) -> Vec<DecisionRecord> {
+        self.runtime_policy.drain_decision_records()
     }
 
     #[must_use]
@@ -2775,6 +2779,10 @@ impl MultiDiGraph {
     #[must_use]
     pub fn evidence_ledger(&self) -> &EvidenceLedger {
         self.runtime_policy.decision_log()
+    }
+
+    pub fn drain_decision_records(&mut self) -> Vec<DecisionRecord> {
+        self.runtime_policy.drain_decision_records()
     }
 
     #[must_use]

@@ -28,9 +28,10 @@ use pyo3::prelude::*;
 use pyo3::types::{
     PyAny, PyBool, PyDict, PyFloat, PyInt, PyIterator, PyList, PySet, PyString, PyTuple,
 };
+use std::cell::Cell;
 use std::collections::{HashMap, HashSet};
 use std::convert::Infallible;
-use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU64, AtomicUsize, Ordering};
 
 pub(crate) type PyObject = Py<PyAny>;
 
@@ -2665,6 +2666,187 @@ pub(crate) fn compatibility_mode_from_py(
     }
 }
 
+static GLOBAL_COMPATIBILITY_MODE: AtomicU8 = AtomicU8::new(0);
+
+thread_local! {
+    static THREAD_COMPATIBILITY_MODE: Cell<Option<CompatibilityMode>> = const { Cell::new(None) };
+}
+
+pub(crate) fn active_compatibility_mode() -> CompatibilityMode {
+    THREAD_COMPATIBILITY_MODE.with(|cell| {
+        if let Some(mode) = cell.get() {
+            mode
+        } else if GLOBAL_COMPATIBILITY_MODE.load(Ordering::Relaxed) == 1 {
+            CompatibilityMode::Hardened
+        } else {
+            CompatibilityMode::Strict
+        }
+    })
+}
+
+pub(crate) fn set_global_compatibility_mode(mode: CompatibilityMode) {
+    let val = match mode {
+        CompatibilityMode::Strict => 0,
+        CompatibilityMode::Hardened => 1,
+    };
+    GLOBAL_COMPATIBILITY_MODE.store(val, Ordering::Relaxed);
+}
+
+pub(crate) fn set_thread_compatibility_mode_val(mode: Option<CompatibilityMode>) {
+    THREAD_COMPATIBILITY_MODE.with(|cell| {
+        cell.set(mode);
+    });
+}
+
+pub(crate) fn resolve_compatibility_mode(mode: Option<&str>) -> PyResult<CompatibilityMode> {
+    match mode {
+        None => Ok(active_compatibility_mode()),
+        Some("strict") => Ok(CompatibilityMode::Strict),
+        Some("hardened") => Ok(CompatibilityMode::Hardened),
+        Some(other) => Err(PyValueError::new_err(format!(
+            "invalid compatibility mode `{other}`, expected 'strict' or 'hardened'"
+        ))),
+    }
+}
+
+pub(crate) fn decision_record_to_pydict<'py>(
+    py: Python<'py>,
+    record: &fnx_runtime::DecisionRecord,
+) -> PyResult<Bound<'py, PyDict>> {
+    let dict = PyDict::new(py);
+    dict.set_item("ts_unix_ms", record.ts_unix_ms)?;
+    dict.set_item("operation", record.operation.as_ref())?;
+    dict.set_item(
+        "mode",
+        match record.mode {
+            CompatibilityMode::Strict => "strict",
+            CompatibilityMode::Hardened => "hardened",
+        },
+    )?;
+    dict.set_item(
+        "action",
+        match record.action {
+            fnx_runtime::DecisionAction::Allow => "allow",
+            fnx_runtime::DecisionAction::FullValidate => "full_validate",
+            fnx_runtime::DecisionAction::FailClosed => "fail_closed",
+        },
+    )?;
+    dict.set_item(
+        "incompatibility_probability",
+        record.incompatibility_probability,
+    )?;
+    dict.set_item("rationale", record.rationale.as_ref())?;
+    let evidence_list = PyList::empty(py);
+    for term in &record.evidence {
+        let term_dict = PyDict::new(py);
+        term_dict.set_item("signal", term.signal.as_ref())?;
+        term_dict.set_item("observed_value", term.observed_value.as_ref())?;
+        term_dict.set_item("log_likelihood_ratio", term.log_likelihood_ratio)?;
+        evidence_list.append(term_dict)?;
+    }
+    dict.set_item("evidence", evidence_list)?;
+    Ok(dict)
+}
+
+#[pyfunction]
+pub fn set_compatibility_mode(mode: &str) -> PyResult<()> {
+    match mode {
+        "strict" => {
+            set_global_compatibility_mode(CompatibilityMode::Strict);
+            Ok(())
+        }
+        "hardened" => {
+            set_global_compatibility_mode(CompatibilityMode::Hardened);
+            Ok(())
+        }
+        other => Err(PyValueError::new_err(format!(
+            "invalid compatibility mode `{other}`, expected 'strict' or 'hardened'"
+        ))),
+    }
+}
+
+#[pyfunction]
+pub fn get_compatibility_mode() -> &'static str {
+    match active_compatibility_mode() {
+        CompatibilityMode::Strict => "strict",
+        CompatibilityMode::Hardened => "hardened",
+    }
+}
+
+#[pyfunction]
+pub fn set_thread_compatibility_mode(mode: Option<&str>) -> PyResult<()> {
+    let m = match mode {
+        None => None,
+        Some("strict") => Some(CompatibilityMode::Strict),
+        Some("hardened") => Some(CompatibilityMode::Hardened),
+        Some(other) => {
+            return Err(PyValueError::new_err(format!(
+                "invalid compatibility mode `{other}`, expected 'strict' or 'hardened'"
+            )));
+        }
+    };
+    set_thread_compatibility_mode_val(m);
+    Ok(())
+}
+
+#[pyfunction]
+pub fn get_thread_compatibility_mode() -> Option<&'static str> {
+    THREAD_COMPATIBILITY_MODE.with(|cell| {
+        cell.get().map(|m| match m {
+            CompatibilityMode::Strict => "strict",
+            CompatibilityMode::Hardened => "hardened",
+        })
+    })
+}
+
+#[pyfunction]
+pub fn decision_records(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<PyObject> {
+    if let Ok(pg) = g.extract::<PyRef<'_, PyGraph>>() {
+        return Ok(pg.decision_records(py)?.into_any().unbind());
+    }
+    if let Ok(pdg) = g.extract::<PyRef<'_, crate::digraph::PyDiGraph>>() {
+        return Ok(pdg.decision_records(py)?.into_any().unbind());
+    }
+    if let Ok(pmg) = g.extract::<PyRef<'_, PyMultiGraph>>() {
+        return Ok(pmg.decision_records(py)?.into_any().unbind());
+    }
+    if let Ok(pmdg) = g.extract::<PyRef<'_, crate::digraph::PyMultiDiGraph>>() {
+        return Ok(pmdg.decision_records(py)?.into_any().unbind());
+    }
+    if let Ok(attr) = g.getattr("decision_records") {
+        if attr.is_callable() {
+            let res = attr.call0()?;
+            return Ok(res.into_any().unbind());
+        }
+        return Ok(attr.into_any().unbind());
+    }
+    Ok(PyList::empty(py).into_any().unbind())
+}
+
+#[pyfunction]
+pub fn drain_decision_records(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<PyObject> {
+    if let Ok(mut pg) = g.extract::<PyRefMut<'_, PyGraph>>() {
+        return Ok(pg.drain_decision_records(py)?.into_any().unbind());
+    }
+    if let Ok(mut pdg) = g.extract::<PyRefMut<'_, crate::digraph::PyDiGraph>>() {
+        return Ok(pdg.drain_decision_records(py)?.into_any().unbind());
+    }
+    if let Ok(mut pmg) = g.extract::<PyRefMut<'_, PyMultiGraph>>() {
+        return Ok(pmg.drain_decision_records(py)?.into_any().unbind());
+    }
+    if let Ok(mut pmdg) = g.extract::<PyRefMut<'_, crate::digraph::PyMultiDiGraph>>() {
+        return Ok(pmdg.drain_decision_records(py)?.into_any().unbind());
+    }
+    if let Ok(attr) = g.getattr("drain_decision_records") {
+        if attr.is_callable() {
+            let res = attr.call0()?;
+            return Ok(res.into_any().unbind());
+        }
+        return Ok(attr.into_any().unbind());
+    }
+    Ok(PyList::empty(py).into_any().unbind())
+}
+
 pub(crate) fn runtime_policy_json(policy: &RuntimePolicy) -> PyResult<String> {
     serde_json::to_string(policy)
         .map_err(|err| PyValueError::new_err(format!("failed to serialize runtime policy: {err}")))
@@ -3900,7 +4082,7 @@ impl PyGraph {
     /// Create a new empty PyGraph (no nodes, no edges, empty graph attrs).
     #[allow(dead_code)] // Used by wrapper tests and parity helpers.
     pub(crate) fn new_empty(py: Python<'_>) -> PyResult<Self> {
-        Self::new_empty_with_mode(py, CompatibilityMode::Strict)
+        Self::new_empty_with_mode(py, active_compatibility_mode())
     }
 
     pub(crate) fn new_empty_with_mode(py: Python<'_>, mode: CompatibilityMode) -> PyResult<Self> {
@@ -6971,6 +7153,11 @@ impl PyMultiGraph {
         self.edge_py_keys.remove(&ek);
     }
 
+    #[allow(dead_code)]
+    pub(crate) fn new_empty(py: Python<'_>) -> PyResult<Self> {
+        Self::new_empty_with_mode(py, active_compatibility_mode())
+    }
+
     pub(crate) fn new_empty_with_mode(py: Python<'_>, mode: CompatibilityMode) -> PyResult<Self> {
         Self::new_empty_with_policy(py, RuntimePolicy::new(mode))
     }
@@ -8440,7 +8627,7 @@ impl PyMultiGraph {
             graph_attrs.update(a.as_mapping())?;
         }
 
-        let mut g = Self::new_empty_with_mode(py, CompatibilityMode::Strict)?;
+        let mut g = Self::new_empty_with_mode(py, active_compatibility_mode())?;
         g.graph_attrs = graph_attrs.unbind();
 
         if let Some(data) = incoming_graph_data {
@@ -8804,6 +8991,32 @@ impl PyMultiGraph {
 
     fn is_multigraph(&self) -> bool {
         true
+    }
+
+    #[getter]
+    fn mode(&self) -> &'static str {
+        compatibility_mode_name(self.inner.mode())
+    }
+
+    #[getter]
+    fn compatibility_mode(&self) -> &'static str {
+        compatibility_mode_name(self.inner.mode())
+    }
+
+    fn decision_records<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyList>> {
+        let list = PyList::empty(py);
+        for record in self.inner.evidence_ledger().records() {
+            list.append(decision_record_to_pydict(py, record)?)?;
+        }
+        Ok(list)
+    }
+
+    fn drain_decision_records<'py>(&mut self, py: Python<'py>) -> PyResult<Bound<'py, PyList>> {
+        let list = PyList::empty(py);
+        for record in self.inner.drain_decision_records() {
+            list.append(decision_record_to_pydict(py, &record)?)?;
+        }
+        Ok(list)
     }
 
     fn number_of_nodes(&self) -> usize {
@@ -15099,7 +15312,7 @@ impl PyGraph {
             graph_attrs.update(a.as_mapping())?;
         }
 
-        let mut g = Self::new_empty_with_mode(py, CompatibilityMode::Strict)?;
+        let mut g = Self::new_empty_with_mode(py, active_compatibility_mode())?;
         g.graph_attrs = graph_attrs.unbind();
 
         if let Some(data) = incoming_graph_data {
@@ -15382,6 +15595,32 @@ impl PyGraph {
     /// Returns ``True`` if graph is a multigraph. Always ``False`` for Graph.
     fn is_multigraph(&self) -> bool {
         false
+    }
+
+    #[getter]
+    fn mode(&self) -> &'static str {
+        compatibility_mode_name(self.inner.mode())
+    }
+
+    #[getter]
+    fn compatibility_mode(&self) -> &'static str {
+        compatibility_mode_name(self.inner.mode())
+    }
+
+    fn decision_records<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyList>> {
+        let list = PyList::empty(py);
+        for record in self.inner.evidence_ledger().records() {
+            list.append(decision_record_to_pydict(py, record)?)?;
+        }
+        Ok(list)
+    }
+
+    fn drain_decision_records<'py>(&mut self, py: Python<'py>) -> PyResult<Bound<'py, PyList>> {
+        let list = PyList::empty(py);
+        for record in self.inner.drain_decision_records() {
+            list.append(decision_record_to_pydict(py, &record)?)?;
+        }
+        Ok(list)
     }
 
     // ---- Counts ----
@@ -21897,6 +22136,12 @@ fn _fnx(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(geometric_pairs_grid, m)?)?;
     m.add_function(wrap_pyfunction!(node_redundancy_overlaps, m)?)?;
     m.add_function(wrap_pyfunction!(network_simplex::network_simplex_int, m)?)?;
+    m.add_function(wrap_pyfunction!(set_compatibility_mode, m)?)?;
+    m.add_function(wrap_pyfunction!(get_compatibility_mode, m)?)?;
+    m.add_function(wrap_pyfunction!(set_thread_compatibility_mode, m)?)?;
+    m.add_function(wrap_pyfunction!(get_thread_compatibility_mode, m)?)?;
+    m.add_function(wrap_pyfunction!(decision_records, m)?)?;
+    m.add_function(wrap_pyfunction!(drain_decision_records, m)?)?;
 
     // Graph class
     m.add_class::<PyGraph>()?;

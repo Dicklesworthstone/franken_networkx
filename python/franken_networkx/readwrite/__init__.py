@@ -2662,7 +2662,7 @@ def _apply_gexf_node_type(graph, node_type):
     return fnx.relabel_nodes(graph, mapping, copy=True)
 
 
-def read_gexf(path, node_type=None, relabel=False, version="1.2draft", *, backend=None, **backend_kwargs):
+def read_gexf(path, node_type=None, relabel=False, version="1.2draft", *, backend=None, mode=None, **backend_kwargs):
     """Read GEXF into an fnx graph.
 
     Simple-graph inputs go through the native Rust parser. Multigraph
@@ -2685,7 +2685,7 @@ def read_gexf(path, node_type=None, relabel=False, version="1.2draft", *, backen
             raw = handle.read()
 
     _needs_nx, _any_missing_label = _gexf_scan_document(raw)
-    if _needs_nx:
+    if _needs_nx and mode is None and fnx.get_compatibility_mode() != "hardened":
         graph = _read_gexf_via_nx(raw, version=version)
     else:
         # br-cc-gexf: the native parse is itself 2x nx. ONE fused scan pass (above)
@@ -2693,7 +2693,7 @@ def read_gexf(path, node_type=None, relabel=False, version="1.2draft", *, backen
         # label; when none do (nx-written GEXF always writes labels), the
         # node-metadata restore is a no-op on this NON-hierarchy branch, so skip
         # its whole expat pass. Four redundant passes -> two for the common case.
-        graph = _fnx.read_gexf(_BytesIO(raw))
+        graph = _fnx.read_gexf(_BytesIO(raw), mode=mode)
         if _any_missing_label:
             _restore_gexf_node_metadata(graph, raw)
         _restore_gexf_graph_metadata(graph, raw)

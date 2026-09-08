@@ -101,7 +101,7 @@ fn write_output_bytes(py: Python<'_>, dest: &Bound<'_, PyAny>, content: &str) ->
 fn report_to_pygraph(py: Python<'_>, report: ReadWriteReport) -> PyResult<PyGraph> {
     let graph_attrs = report.graph_attrs;
     let g = report.graph;
-    let mut inner = RustGraph::new(g.mode());
+    let mut inner = RustGraph::with_runtime_policy(g.runtime_policy().clone());
     let mut raw_to_canonical = HashMap::new();
     let mut node_key_map: PyNodeKeyMap<String, PyObject> = PyNodeKeyMap::default();
     let mut node_py_attrs = HashMap::new();
@@ -179,7 +179,7 @@ fn report_to_pygraph(py: Python<'_>, report: ReadWriteReport) -> PyResult<PyGrap
 fn di_report_to_pydigraph(py: Python<'_>, report: DiReadWriteReport) -> PyResult<PyDiGraph> {
     let graph_attrs = report.graph_attrs;
     let g = report.graph;
-    let mut inner = RustDiGraph::new(g.mode());
+    let mut inner = RustDiGraph::with_runtime_policy(g.runtime_policy().clone());
     let mut raw_to_canonical = HashMap::new();
     let mut node_key_map = HashMap::new();
     let mut node_py_attrs = HashMap::new();
@@ -499,11 +499,14 @@ fn raw_node_link_flag(
     }
 }
 
-pub fn parse_raw_node_link_json(input: &str) -> Result<RawNodeLinkReport, RawNodeLinkError> {
+pub fn parse_raw_node_link_json(
+    input: &str,
+    mode: CompatibilityMode,
+) -> Result<RawNodeLinkReport, RawNodeLinkError> {
     let parsed = match serde_json::from_str::<JsonValue>(input) {
         Ok(value) => value,
         Err(_) => {
-            let mut engine = EdgeListEngine::hardened();
+            let mut engine = EdgeListEngine::new(mode);
             return engine
                 .read_json_graph(input)
                 .map(RawNodeLinkReport::Undirected)
@@ -512,7 +515,7 @@ pub fn parse_raw_node_link_json(input: &str) -> Result<RawNodeLinkReport, RawNod
     };
 
     let Some(object) = parsed.as_object() else {
-        let mut engine = EdgeListEngine::hardened();
+        let mut engine = EdgeListEngine::new(mode);
         return engine
             .read_json_graph(input)
             .map(RawNodeLinkReport::Undirected)
@@ -524,7 +527,7 @@ pub fn parse_raw_node_link_json(input: &str) -> Result<RawNodeLinkReport, RawNod
     }
 
     let directed = raw_node_link_flag(object, "directed")?.unwrap_or(false);
-    let mut engine = EdgeListEngine::hardened();
+    let mut engine = EdgeListEngine::new(mode);
     if directed {
         engine
             .read_digraph_json_graph(input)
@@ -661,10 +664,11 @@ fn digraph_networkx_edgelist(
 // ---------------------------------------------------------------------------
 
 #[pyfunction]
-#[pyo3(signature = (path,))]
-fn read_edgelist(py: Python<'_>, path: &Bound<'_, PyAny>) -> PyResult<PyGraph> {
+#[pyo3(signature = (path, mode=None))]
+fn read_edgelist(py: Python<'_>, path: &Bound<'_, PyAny>, mode: Option<&str>) -> PyResult<PyGraph> {
     let input = read_input(py, path)?;
-    let mut engine = EdgeListEngine::hardened();
+    let cmode = crate::resolve_compatibility_mode(mode)?;
+    let mut engine = EdgeListEngine::new(cmode);
     let report = py
         .allow_threads(|| engine.read_edgelist(&input))
         .map_err(rw_error_to_py)?;
@@ -701,10 +705,11 @@ fn write_edgelist(py: Python<'_>, g: &Bound<'_, PyAny>, path: &Bound<'_, PyAny>)
 // ---------------------------------------------------------------------------
 
 #[pyfunction]
-#[pyo3(signature = (path,))]
-fn read_adjlist(py: Python<'_>, path: &Bound<'_, PyAny>) -> PyResult<PyGraph> {
+#[pyo3(signature = (path, mode=None))]
+fn read_adjlist(py: Python<'_>, path: &Bound<'_, PyAny>, mode: Option<&str>) -> PyResult<PyGraph> {
     let input = read_input(py, path)?;
-    let mut engine = EdgeListEngine::hardened();
+    let cmode = crate::resolve_compatibility_mode(mode)?;
+    let mut engine = EdgeListEngine::new(cmode);
     let report = py
         .allow_threads(|| engine.read_adjlist(&input))
         .map_err(rw_error_to_py)?;
@@ -1295,7 +1300,7 @@ fn node_link_data(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<PyObject> {
 }
 
 #[pyfunction]
-#[pyo3(signature = (data, directed=false, multigraph=true, attrs=None, source="source", target="target", name="id", key="key", link="links"))]
+#[pyo3(signature = (data, directed=false, multigraph=true, attrs=None, source="source", target="target", name="id", key="key", link="links", mode=None))]
 #[allow(unused_variables)]
 fn node_link_graph(
     py: Python<'_>,
@@ -1308,6 +1313,7 @@ fn node_link_graph(
     name: &str,
     key: &str,
     link: &str,
+    mode: Option<&str>,
 ) -> PyResult<PyObject> {
     if attrs.is_some()
         || source != "source"
@@ -1320,9 +1326,10 @@ fn node_link_graph(
             "franken_networkx currently only supports default parameters for node_link_graph",
         ));
     }
+    let cmode = crate::resolve_compatibility_mode(mode)?;
     let json_mod = py.import("json")?;
     let json_str: String = json_mod.call_method1("dumps", (data,))?.extract()?;
-    match parse_raw_node_link_json(&json_str) {
+    match parse_raw_node_link_json(&json_str, cmode) {
         Ok(RawNodeLinkReport::Directed(report)) => Ok(di_report_to_pydigraph(py, report)?
             .into_pyobject(py)?
             .into_any()
@@ -1343,15 +1350,46 @@ fn node_link_graph(
     }
 }
 
+#[pyfunction]
+#[pyo3(signature = (path, mode=None))]
+fn read_json_graph(
+    py: Python<'_>,
+    path: &Bound<'_, PyAny>,
+    mode: Option<&str>,
+) -> PyResult<PyObject> {
+    let input = read_input(py, path)?;
+    let cmode = crate::resolve_compatibility_mode(mode)?;
+    match parse_raw_node_link_json(&input, cmode) {
+        Ok(RawNodeLinkReport::Directed(report)) => Ok(di_report_to_pydigraph(py, report)?
+            .into_pyobject(py)?
+            .into_any()
+            .unbind()),
+        Ok(RawNodeLinkReport::Undirected(report)) => Ok(report_to_pygraph(py, report)?
+            .into_pyobject(py)?
+            .into_any()
+            .unbind()),
+        Err(RawNodeLinkError::InvalidFlagType(key)) => Err(pyo3::exceptions::PyTypeError::new_err(
+            format!("read_json_graph expected `{key}` to be a bool when present"),
+        )),
+        Err(RawNodeLinkError::MultigraphUnsupported) => {
+            Err(pyo3::exceptions::PyTypeError::new_err(
+                "read_json_graph does not support multigraph payloads without losing parallel edges",
+            ))
+        }
+        Err(RawNodeLinkError::ReadWrite(err)) => Err(rw_error_to_py(err)),
+    }
+}
+
 // ---------------------------------------------------------------------------
 // GraphML
 // ---------------------------------------------------------------------------
 
 #[pyfunction]
-#[pyo3(signature = (path,))]
-fn read_graphml(py: Python<'_>, path: &Bound<'_, PyAny>) -> PyResult<PyObject> {
+#[pyo3(signature = (path, mode=None))]
+fn read_graphml(py: Python<'_>, path: &Bound<'_, PyAny>, mode: Option<&str>) -> PyResult<PyObject> {
     let input = read_input(py, path)?;
-    let mut engine = EdgeListEngine::hardened();
+    let cmode = crate::resolve_compatibility_mode(mode)?;
+    let mut engine = EdgeListEngine::new(cmode);
 
     if py
         .allow_threads(|| engine.graphml_declares_directed(&input))
@@ -1419,10 +1457,11 @@ fn write_graphml(py: Python<'_>, g: &Bound<'_, PyAny>, path: &Bound<'_, PyAny>) 
 // ---------------------------------------------------------------------------
 
 #[pyfunction]
-#[pyo3(signature = (path,))]
-fn read_gexf(py: Python<'_>, path: &Bound<'_, PyAny>) -> PyResult<PyObject> {
+#[pyo3(signature = (path, mode=None))]
+fn read_gexf(py: Python<'_>, path: &Bound<'_, PyAny>, mode: Option<&str>) -> PyResult<PyObject> {
     let input = read_input(py, path)?;
-    let mut engine = EdgeListEngine::hardened();
+    let cmode = crate::resolve_compatibility_mode(mode)?;
+    let mut engine = EdgeListEngine::new(cmode);
 
     if py
         .allow_threads(|| engine.gexf_declares_directed(&input))
@@ -1496,12 +1535,13 @@ fn write_gexf_string_rust(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Stri
 // ---------------------------------------------------------------------------
 
 #[pyfunction]
-#[pyo3(signature = (path, label="label", destringizer=None))]
+#[pyo3(signature = (path, label="label", destringizer=None, mode=None))]
 fn read_gml(
     py: Python<'_>,
     path: &Bound<'_, PyAny>,
     label: Option<&str>,
     destringizer: Option<Bound<'_, PyAny>>,
+    mode: Option<&str>,
 ) -> PyResult<PyObject> {
     if label != Some("label") || destringizer.is_some() {
         return Err(crate::NetworkXNotImplemented::new_err(
@@ -1509,13 +1549,8 @@ fn read_gml(
         ));
     }
     let input = read_input(py, path)?;
-    // br-readgml-strict: nx raises NetworkXError on duplicate node ids,
-    // unclosed brackets, and stray ']' tokens. Hardened mode silently
-    // recovers from those, which diverges from nx parity for drop-in
-    // users. Use strict mode at the Python boundary so the contract
-    // matches nx; the underlying hardened-mode behavior remains
-    // available to direct Rust callers.
-    let mut engine = EdgeListEngine::strict();
+    let cmode = crate::resolve_compatibility_mode(mode)?;
+    let mut engine = EdgeListEngine::new(cmode);
 
     if py
         .allow_threads(|| engine.gml_declares_directed(&input))
@@ -3530,6 +3565,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(write_gexf, m)?)?;
     m.add_function(wrap_pyfunction!(write_gexf_string_rust, m)?)?;
     m.add_function(wrap_pyfunction!(read_gml, m)?)?;
+    m.add_function(wrap_pyfunction!(read_json_graph, m)?)?;
     m.add_function(wrap_pyfunction!(write_gml, m)?)?;
     m.add_function(wrap_pyfunction!(write_gml_nx_int_noattr, m)?)?;
     m.add_function(wrap_pyfunction!(write_gml_nx_int_edge_attrs, m)?)?;

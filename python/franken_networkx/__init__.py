@@ -27575,13 +27575,21 @@ from franken_networkx._fnx import (
 from franken_networkx._fnx import powerlaw_cluster_graph as _rust_powerlaw_cluster_graph
 from franken_networkx._fnx import stochastic_block_model as _rust_stochastic_block_model
 
-# Read/write — graph I/O
+# Read/write — graph I/O & Runtime mode / Audit ledger
 from franken_networkx._fnx import (
+    decision_records as _rust_decision_records,
+    drain_decision_records as _rust_drain_decision_records,
+    get_compatibility_mode as _rust_get_compatibility_mode,
+    get_thread_compatibility_mode as _rust_get_thread_compatibility_mode,
     node_link_data as _rust_node_link_data,
     node_link_graph as _rust_node_link_graph,
     read_adjlist as _rust_read_adjlist,
     read_edgelist as _rust_read_edgelist,
+    read_gexf as _rust_read_gexf,
     read_graphml as _rust_read_graphml,
+    read_json_graph as _rust_read_json_graph,
+    set_compatibility_mode as _rust_set_compatibility_mode,
+    set_thread_compatibility_mode as _rust_set_thread_compatibility_mode,
     write_adjlist as _rust_write_adjlist,
     write_edgelist as _rust_write_edgelist,
     write_graphml as _rust_write_graphml,
@@ -27768,6 +27776,7 @@ def read_edgelist(
     encoding="utf-8",
     *,
     backend=None,
+    mode=None,
     **backend_kwargs,
 ):
     """Read a graph from a list of edges.
@@ -27777,6 +27786,16 @@ def read_edgelist(
     honoured. The Rust-native ``read_edgelist`` only accepts ``(path,)``.
     """
     _validate_backend_dispatch_keywords("read_edgelist", backend, backend_kwargs)
+    if mode is not None or _rust_get_compatibility_mode() == "hardened":
+        if (
+            comments == "#"
+            and delimiter is None
+            and (create_using is None or create_using is Graph)
+            and nodetype is None
+            and (data is True or data is False)
+            and edgetype is None
+        ):
+            return _rust_read_edgelist(path, mode=mode)
     if (
         comments == "#"
         and delimiter is None
@@ -27864,6 +27883,8 @@ def read_adjlist(
     create_using=None,
     nodetype=None,
     encoding="utf-8",
+    *,
+    mode=None,
 ):
     """Read a graph from an adjacency list.
 
@@ -27874,6 +27895,14 @@ def read_adjlist(
     ``open_file`` still handles the path / gzip / bz2 / encoding edge cases, so
     behaviour is unchanged; only the parser + builder become native.
     """
+    if mode is not None or _rust_get_compatibility_mode() == "hardened":
+        if (
+            comments == "#"
+            and delimiter is None
+            and (create_using is None or create_using is Graph)
+            and nodetype is None
+        ):
+            return _rust_read_adjlist(path, mode=mode)
     from .readwrite import parse_adjlist as _parse_adjlist
 
     return _read_decoded_lines_via_open_file(
@@ -28000,6 +28029,8 @@ def read_graphml(
     node_type=str,
     edge_key_type=int,
     force_multigraph=False,
+    *,
+    mode=None,
 ):
     """Read a graph in GraphML format.
 
@@ -28007,6 +28038,8 @@ def read_graphml(
     ``edge_key_type``, and ``force_multigraph`` kwargs are honoured.
     The Rust-native reader only accepts ``(path,)``.
     """
+    if mode is not None or _rust_get_compatibility_mode() == "hardened":
+        return _rust_read_graphml(path, mode=mode)
     # br-cc-graphml: for the DEFAULT case, read a FILENAME/Path into memory and
     # route through parse_graphml's native fast path (2x nx via `_fnx.read_graphml`
     # guarded against parallel-edge collapse; see parse_graphml). File-object
@@ -28046,14 +28079,26 @@ def write_gml(G, path, stringizer=None):
     return _write_gml_via_nx(G, path, stringizer=stringizer)
 
 
-def read_gml(path, label="label", destringizer=None):
+def read_gml(path, label="label", destringizer=None, *, mode=None):
     """Read a graph in GML format.
 
     Delegates to NetworkX's parser (br-rgmlnx) so typed scalar
     attributes, ``label``, and ``destringizer`` preserve upstream
     semantics. The raw Rust parser remains available as ``_fnx.read_gml``.
     """
+    if mode is not None or _rust_get_compatibility_mode() == "hardened":
+        return _rust_read_gml(path, label=label, destringizer=destringizer, mode=mode)
     return _read_gml_via_nx(path, label=label, destringizer=destringizer)
+
+
+def read_json_graph(path, *, mode=None):
+    """Read a graph serialized as JSON node-link format.
+
+    Supports optional `mode` ('strict' or 'hardened'). In hardened mode,
+    bounded recovery is performed for malformed JSON or invalid edge records,
+    logging events to the graph's decision record ledger.
+    """
+    return _rust_read_json_graph(path, mode=mode)
 
 
 def is_semiconnected(G):
@@ -37007,6 +37052,7 @@ def node_link_graph(
     key="key",
     edges="edges",
     nodes="nodes",
+    mode=None,
 ):
     """Build a graph from node-link data.
 
@@ -37015,6 +37061,19 @@ def node_link_graph(
     public signature. ``directed``/``multigraph`` flags remain
     positional for backwards compat with both libraries.
     """
+    if mode is not None:
+        with compatibility_mode(mode):
+            return node_link_graph(
+                data,
+                directed=directed,
+                multigraph=multigraph,
+                source=source,
+                target=target,
+                name=name,
+                key=key,
+                edges=edges,
+                nodes=nodes,
+            )
     multigraph = data.get("multigraph", multigraph)
     directed = data.get("directed", directed)
     graph = _json_graph_from_flags(directed=directed, multigraph=multigraph)
@@ -69773,13 +69832,117 @@ __all__ = [
     "to_latex_raw",
     "write_latex",
     "write_network_text",
+    "compatibility_mode",
+    "get_compatibility_mode",
+    "set_compatibility_mode",
+    "decision_records",
+    "drain_decision_records",
+    "read_json_graph",
 ]
 
 import networkx as _nx
 
-# Match NetworkX's top-level config object rather than exposing the older stub
-# helper function shape from this module.
-config = _nx.config
+
+class _FnxConfigContext:
+    def __init__(self, wrapper, kwargs):
+        self._wrapper = wrapper
+        self._kwargs = kwargs
+        self._old_thread_mode = None
+        self._has_mode = "compatibility_mode" in kwargs
+        self._mode_val = kwargs.get("compatibility_mode")
+        self._nx_kwargs = {k: v for k, v in kwargs.items() if k != "compatibility_mode"}
+        self._nx_ctx = None
+
+    def __enter__(self):
+        if self._nx_kwargs:
+            self._nx_ctx = self._wrapper._nx_config(**self._nx_kwargs)
+            self._nx_ctx.__enter__()
+        if self._has_mode:
+            self._old_thread_mode = _rust_get_thread_compatibility_mode()
+            _rust_set_thread_compatibility_mode(self._mode_val)
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        try:
+            if self._has_mode:
+                _rust_set_thread_compatibility_mode(self._old_thread_mode)
+        finally:
+            if self._nx_ctx is not None:
+                self._nx_ctx.__exit__(exc_type, exc_val, exc_tb)
+
+
+class _FnxConfigWrapper:
+    """Wrapper around NetworkX's config object that exposes `compatibility_mode`."""
+
+    def __init__(self, nx_config):
+        self._nx_config = nx_config
+
+    def __getattr__(self, name):
+        if name == "compatibility_mode":
+            return _rust_get_compatibility_mode()
+        return getattr(self._nx_config, name)
+
+    def __setattr__(self, name, value):
+        if name == "_nx_config":
+            super().__setattr__(name, value)
+        elif name == "compatibility_mode":
+            _rust_set_compatibility_mode(value)
+        else:
+            setattr(self._nx_config, name, value)
+
+    def __getitem__(self, key):
+        if key == "compatibility_mode":
+            return _rust_get_compatibility_mode()
+        return self._nx_config[key]
+
+    def __setitem__(self, key, value):
+        if key == "compatibility_mode":
+            _rust_set_compatibility_mode(value)
+        else:
+            self._nx_config[key] = value
+
+    def __call__(self, **kwargs):
+        return _FnxConfigContext(self, kwargs)
+
+    def __repr__(self):
+        return repr(self._nx_config)
+
+
+config = _FnxConfigWrapper(_nx.config)
+
+
+from contextlib import contextmanager as _contextmanager
+
+
+@_contextmanager
+def compatibility_mode(mode: str):
+    """Context manager setting the thread-local compatibility mode ('strict' or 'hardened')."""
+    old_mode = _rust_get_thread_compatibility_mode()
+    _rust_set_thread_compatibility_mode(mode)
+    try:
+        yield
+    finally:
+        _rust_set_thread_compatibility_mode(old_mode)
+
+
+def get_compatibility_mode() -> str:
+    """Return the active compatibility mode ('strict' or 'hardened')."""
+    return _rust_get_compatibility_mode()
+
+
+def set_compatibility_mode(mode: str) -> None:
+    """Set the global compatibility mode ('strict' or 'hardened')."""
+    _rust_set_compatibility_mode(mode)
+
+
+def decision_records(G) -> list:
+    """Return audit ledger decision records for graph `G`."""
+    return _rust_decision_records(G)
+
+
+def drain_decision_records(G) -> list:
+    """Drain and return audit ledger decision records for graph `G`."""
+    return _rust_drain_decision_records(G)
 approximation = _ApproximationNamespace()
 # br-r37-c1-2poe6: the concrete native ``average_clustering`` method bypasses the
 # __getattr__ wrapper's functools.wraps, so mirror nx's docstring/name for

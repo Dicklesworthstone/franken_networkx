@@ -7,7 +7,6 @@ use crate::digraph::{PyDiGraph, PyMultiDiGraph};
 use crate::{PyGraph, PyNodeKeyMap, PyObject, unwrap_infallible};
 use fnx_algorithms::stochastic_block_model as rust_stochastic_block_model;
 use fnx_generators::GraphGenerator;
-use fnx_runtime::CompatibilityMode;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PySet, PyTuple};
@@ -188,6 +187,11 @@ fn report_to_pymultidigraph(
 // Generator functions
 // ---------------------------------------------------------------------------
 
+#[inline]
+fn active_graph_generator() -> GraphGenerator {
+    GraphGenerator::new(crate::active_compatibility_mode())
+}
+
 /// Return the empty graph with ``n`` nodes and zero edges.
 ///
 /// Parameters
@@ -197,7 +201,7 @@ fn report_to_pymultidigraph(
 #[pyfunction]
 #[pyo3(signature = (n=0))]
 pub fn empty_graph(py: Python<'_>, n: usize) -> PyResult<PyGraph> {
-    let mut gg = GraphGenerator::strict();
+    let mut gg = active_graph_generator();
     let report = gg
         .empty_graph(n)
         .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("{e:?}")))?;
@@ -207,7 +211,7 @@ pub fn empty_graph(py: Python<'_>, n: usize) -> PyResult<PyGraph> {
 /// Return a path graph with ``n`` nodes: 0-1-2-...(n-1).
 #[pyfunction]
 pub fn path_graph(py: Python<'_>, n: usize) -> PyResult<PyGraph> {
-    let mut gg = GraphGenerator::strict();
+    let mut gg = active_graph_generator();
     let report = gg
         .path_graph(n)
         .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("{e:?}")))?;
@@ -217,7 +221,7 @@ pub fn path_graph(py: Python<'_>, n: usize) -> PyResult<PyGraph> {
 /// Return a cycle graph with ``n`` nodes: 0-1-2-...(n-1)-0.
 #[pyfunction]
 pub fn cycle_graph(py: Python<'_>, n: usize) -> PyResult<PyGraph> {
-    let mut gg = GraphGenerator::strict();
+    let mut gg = active_graph_generator();
     let report = gg
         .cycle_graph(n)
         .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("{e:?}")))?;
@@ -229,7 +233,7 @@ pub fn cycle_graph(py: Python<'_>, n: usize) -> PyResult<PyGraph> {
 /// Hub is node 0, spokes are 1..n.
 #[pyfunction]
 pub fn star_graph(py: Python<'_>, n: usize) -> PyResult<PyGraph> {
-    let mut gg = GraphGenerator::strict();
+    let mut gg = active_graph_generator();
     let report = gg
         .star_graph(n)
         .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("{e:?}")))?;
@@ -238,7 +242,7 @@ pub fn star_graph(py: Python<'_>, n: usize) -> PyResult<PyGraph> {
 
 #[pyfunction]
 pub fn circular_ladder_graph_native(py: Python<'_>, n: usize) -> PyResult<PyGraph> {
-    let mut gg = GraphGenerator::strict();
+    let mut gg = active_graph_generator();
     let report = gg
         .circular_ladder_graph(n)
         .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("{e:?}")))?;
@@ -251,7 +255,7 @@ pub fn circular_ladder_graph_native(py: Python<'_>, n: usize) -> PyResult<PyGrap
 /// same row-major tuple-string form as `Graph::grid_2d`.
 #[pyfunction]
 pub fn grid_2d_graph_simple(py: Python<'_>, m: usize, n: usize) -> PyResult<PyGraph> {
-    let graph = fnx_classes::Graph::grid_2d(CompatibilityMode::Strict, m, n);
+    let graph = fnx_classes::Graph::grid_2d(crate::active_compatibility_mode(), m, n);
     let mut node_key_map: PyNodeKeyMap<String, PyObject> =
         PyNodeKeyMap::with_capacity_and_hasher(m * n, rustc_hash::FxBuildHasher);
     for i in 0..m {
@@ -359,7 +363,7 @@ pub fn hexagonal_lattice_graph_simple(
     with_positions: bool,
 ) -> PyResult<PyGraph> {
     let height = 2 * m;
-    let mut graph = fnx_classes::Graph::new(CompatibilityMode::Strict);
+    let mut graph = fnx_classes::Graph::new(crate::active_compatibility_mode());
 
     let mut col_edges = Vec::with_capacity((n + 1).saturating_mul(height + 1));
     for i in 0..=n {
@@ -404,7 +408,7 @@ pub fn triangular_lattice_graph_simple(
     with_positions: bool,
 ) -> PyResult<PyGraph> {
     let width = n.div_ceil(2);
-    let mut graph = fnx_classes::Graph::new(CompatibilityMode::Strict);
+    let mut graph = fnx_classes::Graph::new(crate::active_compatibility_mode());
 
     let mut horizontal = Vec::with_capacity((m + 1).saturating_mul(width));
     for j in 0..=m {
@@ -465,8 +469,9 @@ pub fn grid_graph_native(
     dimensions: Vec<usize>,
     periodic: Vec<bool>,
 ) -> PyResult<PyGraph> {
-    let graph = fnx_classes::Graph::grid_nd(CompatibilityMode::Strict, &dimensions, &periodic)
-        .map_err(|e| PyValueError::new_err(e.to_string()))?;
+    let graph =
+        fnx_classes::Graph::grid_nd(crate::active_compatibility_mode(), &dimensions, &periodic)
+            .map_err(|e| PyValueError::new_err(e.to_string()))?;
     let output_sizes = dimensions.iter().rev().copied().collect::<Vec<usize>>();
     let mut node_key_map: PyNodeKeyMap<String, PyObject> =
         PyNodeKeyMap::with_capacity_and_hasher(graph.node_count(), rustc_hash::FxBuildHasher);
@@ -549,7 +554,7 @@ pub fn grid_graph_native(
 /// fnx_classes::Graph::kneser).
 #[pyfunction]
 pub fn kneser_graph_native(py: Python<'_>, n: usize, k: usize) -> PyResult<PyGraph> {
-    let graph = fnx_classes::Graph::kneser(CompatibilityMode::Strict, n, k);
+    let graph = fnx_classes::Graph::kneser(crate::active_compatibility_mode(), n, k);
     let mut node_key_map: PyNodeKeyMap<String, PyObject> =
         PyNodeKeyMap::with_capacity_and_hasher(graph.node_count(), rustc_hash::FxBuildHasher);
     // enumerate k-subsets in lex order, mirroring the kernel's canonicals
@@ -642,7 +647,7 @@ pub fn caveman_graph_native(py: Python<'_>, l: usize, k: usize) -> PyResult<PyGr
         0
     };
 
-    let mut graph = fnx_classes::Graph::new(CompatibilityMode::Strict);
+    let mut graph = fnx_classes::Graph::new(crate::active_compatibility_mode());
     let node_labels: Vec<String> = (0..total_nodes).map(|node| node.to_string()).collect();
     let _ = graph.extend_nodes_unrecorded(node_labels.iter().cloned());
 
@@ -707,7 +712,7 @@ pub fn full_rary_tree_native(py: Python<'_>, r: usize, n: usize) -> PyResult<PyG
         i64::try_from(n).map_err(|_| PyValueError::new_err(format!("n {n} exceeds i64")))?;
     let edge_count = if n == 0 { 0 } else { n - 1 };
 
-    let mut graph = fnx_classes::Graph::new(CompatibilityMode::Strict);
+    let mut graph = fnx_classes::Graph::new(crate::active_compatibility_mode());
     let node_labels: Vec<String> = (0..n).map(|node| node.to_string()).collect();
     let _ = graph.extend_nodes_unrecorded(node_labels.iter().cloned());
 
@@ -765,7 +770,7 @@ pub fn full_rary_tree_native(py: Python<'_>, r: usize, n: usize) -> PyResult<PyG
 /// Return the complete graph K_n with ``n`` nodes.
 #[pyfunction]
 pub fn complete_graph(py: Python<'_>, n: usize) -> PyResult<PyGraph> {
-    let mut gg = GraphGenerator::strict();
+    let mut gg = active_graph_generator();
     let report = gg
         .complete_graph(n)
         .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("{e:?}")))?;
@@ -791,7 +796,7 @@ pub fn complete_graph(py: Python<'_>, n: usize) -> PyResult<PyGraph> {
 /// differ between FrankenNetworkX and NetworkX.
 #[pyfunction]
 pub fn gnp_random_graph(py: Python<'_>, n: usize, p: f64, seed: u64) -> PyResult<PyGraph> {
-    let mut gg = GraphGenerator::strict();
+    let mut gg = active_graph_generator();
     let report = gg
         .gnp_random_graph(n, p, seed)
         .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("{e:?}")))?;
@@ -802,7 +807,7 @@ pub fn gnp_random_graph(py: Python<'_>, n: usize, p: f64, seed: u64) -> PyResult
 /// seed — same PythonRandom draw sequence over permutations(range(n), 2)).
 #[pyfunction]
 pub fn gnp_random_digraph(py: Python<'_>, n: usize, p: f64, seed: u64) -> PyResult<Py<PyDiGraph>> {
-    let mut gg = GraphGenerator::strict();
+    let mut gg = active_graph_generator();
     let report = gg
         .gnp_random_digraph(n, p, seed)
         .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("{e:?}")))?;
@@ -815,7 +820,7 @@ pub fn gnp_random_digraph(py: Python<'_>, n: usize, p: f64, seed: u64) -> PyResu
 /// per-edge Python randint loop the pure-Python wrapper paid.
 #[pyfunction]
 pub fn gnm_random_graph(py: Python<'_>, n: usize, m: usize, seed: u64) -> PyResult<PyGraph> {
-    let mut gg = GraphGenerator::strict();
+    let mut gg = active_graph_generator();
     let report = gg
         .gnm_random_graph(n, m, seed)
         .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("{e:?}")))?;
@@ -831,7 +836,7 @@ pub fn gnm_random_digraph(
     m: usize,
     seed: u64,
 ) -> PyResult<Py<PyDiGraph>> {
-    let mut gg = GraphGenerator::strict();
+    let mut gg = active_graph_generator();
     let report = gg
         .gnm_random_digraph(n, m, seed)
         .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("{e:?}")))?;
@@ -860,7 +865,7 @@ pub fn watts_strogatz_graph(
     p: f64,
     seed: u64,
 ) -> PyResult<PyGraph> {
-    let mut gg = GraphGenerator::strict();
+    let mut gg = active_graph_generator();
     let report = gg
         .watts_strogatz_graph(n, k, p, seed)
         .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("{e:?}")))?;
@@ -879,7 +884,7 @@ pub fn watts_strogatz_graph(
 ///     Seed for the random number generator.
 #[pyfunction]
 pub fn barabasi_albert_graph(py: Python<'_>, n: usize, m: usize, seed: u64) -> PyResult<PyGraph> {
-    let mut gg = GraphGenerator::strict();
+    let mut gg = active_graph_generator();
     let report = gg
         .barabasi_albert_graph(n, m, seed)
         .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("{e:?}")))?;
@@ -904,7 +909,7 @@ pub fn newman_watts_strogatz_graph(
     p: f64,
     seed: u64,
 ) -> PyResult<PyGraph> {
-    let mut gg = GraphGenerator::strict();
+    let mut gg = active_graph_generator();
     let report = gg
         .newman_watts_strogatz_graph(n, k, p, seed)
         .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("{e:?}")))?;
@@ -923,7 +928,7 @@ pub fn connected_watts_strogatz_graph(
     tries: usize,
     seed: u64,
 ) -> PyResult<PyGraph> {
-    let mut gg = GraphGenerator::strict();
+    let mut gg = active_graph_generator();
     let report = gg
         .connected_watts_strogatz_graph(n, k, p, tries, seed)
         .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("{e:?}")))?;
@@ -936,7 +941,7 @@ pub fn connected_watts_strogatz_graph(
 /// Requires ``n * d`` to be even and ``d < n``.
 #[pyfunction]
 pub fn random_regular_graph(py: Python<'_>, d: usize, n: usize, seed: u64) -> PyResult<PyGraph> {
-    let mut gg = GraphGenerator::strict();
+    let mut gg = active_graph_generator();
     let report = gg
         .random_regular_graph(n, d, seed)
         .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("{e:?}")))?;
@@ -956,7 +961,7 @@ pub fn random_lobster_graph_lazy_int(
     let lazy_int_node_stop = i64::try_from(node_count)
         .map_err(|_| PyValueError::new_err(format!("node count {node_count} exceeds i64")))?;
 
-    let mut graph = fnx_classes::Graph::new(CompatibilityMode::Strict);
+    let mut graph = fnx_classes::Graph::new(crate::active_compatibility_mode());
     let node_labels: Vec<String> = (0..node_count).map(|node| node.to_string()).collect();
     let inserted_nodes = graph.extend_nodes_unrecorded(node_labels);
     debug_assert_eq!(inserted_nodes, node_count);
@@ -1043,7 +1048,7 @@ pub fn random_regular_graph_pyset_order(
         i64::try_from(n).map_err(|_| PyValueError::new_err(format!("n {n} exceeds i64")))?;
     let edge_set = random_regular_edges_pyset_bound(py, d, n, seed)?;
 
-    let mut graph = fnx_classes::Graph::new(CompatibilityMode::Strict);
+    let mut graph = fnx_classes::Graph::new(crate::active_compatibility_mode());
     let node_labels: Vec<String> = (0..n).map(|node| node.to_string()).collect();
     let _ = graph.extend_nodes_unrecorded(node_labels.iter().cloned());
 
@@ -1109,7 +1114,7 @@ pub fn powerlaw_cluster_graph(
     p: f64,
     seed: u64,
 ) -> PyResult<PyGraph> {
-    let mut gg = GraphGenerator::strict();
+    let mut gg = active_graph_generator();
     let report = gg
         .powerlaw_cluster_graph(n, m, p, seed)
         .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("{e:?}")))?;
@@ -1163,7 +1168,7 @@ pub fn fast_gnp_random_graph(
 ) -> PyResult<PyObject> {
     let _ = create_using; // accepted for API compat, ignored
     let actual_seed = seed.unwrap_or(0);
-    let mut gg = GraphGenerator::strict();
+    let mut gg = active_graph_generator();
     if directed {
         let report = gg
             .fast_gnp_random_digraph(n, p, actual_seed)
@@ -1194,7 +1199,7 @@ pub fn gn_graph(
 ) -> PyResult<Py<PyDiGraph>> {
     let _ = create_using;
     let actual_seed = seed.unwrap_or(0);
-    let mut gg = GraphGenerator::strict();
+    let mut gg = active_graph_generator();
     let report = gg
         .gn_graph(n, actual_seed)
         .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("{e:?}")))?;
@@ -1213,7 +1218,7 @@ pub fn gnr_graph(
 ) -> PyResult<Py<PyDiGraph>> {
     let _ = create_using;
     let actual_seed = seed.unwrap_or(0);
-    let mut gg = GraphGenerator::strict();
+    let mut gg = active_graph_generator();
     let report = gg
         .gnr_graph(n, p, actual_seed)
         .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("{e:?}")))?;
@@ -1231,7 +1236,7 @@ pub fn gnc_graph(
 ) -> PyResult<Py<PyDiGraph>> {
     let _ = create_using;
     let actual_seed = seed.unwrap_or(0);
-    let mut gg = GraphGenerator::strict();
+    let mut gg = active_graph_generator();
     let report = gg
         .gnc_graph(n, actual_seed)
         .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("{e:?}")))?;
@@ -1257,7 +1262,7 @@ pub fn scale_free_graph(
         Some(graph) => Some(graph.extract::<PyRef<'_, PyMultiDiGraph>>()?.inner.clone()),
     };
     let actual_seed = seed.unwrap_or(0);
-    let mut gg = GraphGenerator::strict();
+    let mut gg = active_graph_generator();
     let report = gg
         .scale_free_graph(
             n,

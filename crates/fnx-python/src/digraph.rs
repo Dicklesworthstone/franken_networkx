@@ -3036,6 +3036,11 @@ impl PyMultiDiGraph {
         self.edge_py_keys.remove(&ek);
     }
 
+    #[allow(dead_code)]
+    pub(crate) fn new_empty(py: Python<'_>) -> PyResult<Self> {
+        Self::new_empty_with_mode(py, crate::active_compatibility_mode())
+    }
+
     pub(crate) fn new_empty_with_mode(py: Python<'_>, mode: CompatibilityMode) -> PyResult<Self> {
         Self::new_empty_with_policy(py, RuntimePolicy::new(mode))
     }
@@ -4677,7 +4682,7 @@ impl PyMultiDiGraph {
             graph_attrs.update(a.as_mapping())?;
         }
 
-        let mut g = Self::new_empty_with_mode(py, CompatibilityMode::Strict)?;
+        let mut g = Self::new_empty_with_mode(py, crate::active_compatibility_mode())?;
         g.graph_attrs = graph_attrs.unbind();
 
         if let Some(data) = incoming_graph_data {
@@ -5035,6 +5040,35 @@ impl PyMultiDiGraph {
 
     fn is_multigraph(&self) -> bool {
         true
+    }
+
+    #[getter]
+    fn mode(&self) -> &'static str {
+        compatibility_mode_name(self.inner.mode())
+    }
+
+    #[getter]
+    fn compatibility_mode(&self) -> &'static str {
+        compatibility_mode_name(self.inner.mode())
+    }
+
+    pub(crate) fn decision_records<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyList>> {
+        let list = PyList::empty(py);
+        for record in self.inner.evidence_ledger().records() {
+            list.append(crate::decision_record_to_pydict(py, record)?)?;
+        }
+        Ok(list)
+    }
+
+    pub(crate) fn drain_decision_records<'py>(
+        &mut self,
+        py: Python<'py>,
+    ) -> PyResult<Bound<'py, PyList>> {
+        let list = PyList::empty(py);
+        for record in self.inner.drain_decision_records() {
+            list.append(crate::decision_record_to_pydict(py, &record)?)?;
+        }
+        Ok(list)
     }
 
     fn number_of_nodes(&self) -> usize {
@@ -12570,7 +12604,7 @@ impl PyDiGraph {
 
     #[allow(dead_code)] // Used by directed algorithm bindings (bd-uode.3).
     pub(crate) fn new_empty(py: Python<'_>) -> PyResult<Self> {
-        Self::new_empty_with_mode(py, CompatibilityMode::Strict)
+        Self::new_empty_with_mode(py, crate::active_compatibility_mode())
     }
 
     pub(crate) fn new_empty_with_mode(py: Python<'_>, mode: CompatibilityMode) -> PyResult<Self> {
@@ -13159,7 +13193,7 @@ impl PyDiGraph {
             graph_attrs.update(a.as_mapping())?;
         }
 
-        let mut g = Self::new_empty_with_mode(py, CompatibilityMode::Strict)?;
+        let mut g = Self::new_empty_with_mode(py, crate::active_compatibility_mode())?;
         g.graph_attrs = graph_attrs.unbind();
 
         if let Some(data) = incoming_graph_data {
@@ -13457,6 +13491,35 @@ impl PyDiGraph {
     /// Always ``False`` for DiGraph.
     fn is_multigraph(&self) -> bool {
         false
+    }
+
+    #[getter]
+    fn mode(&self) -> &'static str {
+        compatibility_mode_name(self.inner.mode())
+    }
+
+    #[getter]
+    fn compatibility_mode(&self) -> &'static str {
+        compatibility_mode_name(self.inner.mode())
+    }
+
+    pub(crate) fn decision_records<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyList>> {
+        let list = PyList::empty(py);
+        for record in self.inner.evidence_ledger().records() {
+            list.append(crate::decision_record_to_pydict(py, record)?)?;
+        }
+        Ok(list)
+    }
+
+    pub(crate) fn drain_decision_records<'py>(
+        &mut self,
+        py: Python<'py>,
+    ) -> PyResult<Bound<'py, PyList>> {
+        let list = PyList::empty(py);
+        for record in self.inner.drain_decision_records() {
+            list.append(crate::decision_record_to_pydict(py, &record)?)?;
+        }
+        Ok(list)
     }
 
     // ---- Counts ----
